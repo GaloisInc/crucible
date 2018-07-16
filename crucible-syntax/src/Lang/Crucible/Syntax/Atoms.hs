@@ -26,12 +26,13 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Registers
              | Start
              | SetGlobal
+             | SetRef | DropRef_
              | Unpack
              | Plus | Minus | Times | Div
              | Just_ | Nothing_ | FromJust
              | Inj
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitVectorT | VectorT | FunT | MaybeT | VariantT
+             | BitVectorT | VectorT | FunT | MaybeT | VariantT | RefT
              | The
              | Equalp | Integerp
              | If
@@ -60,6 +61,8 @@ keywords =
   , ("registers", Registers)
   , ("let", Let)
   , ("set-global!", SetGlobal)
+  , ("set-ref!", SetRef)
+  , ("drop-ref!", DropRef_)
   , ("start" , Start)
   , ("unpack" , Unpack)
   , ("+" , Plus)
@@ -115,6 +118,7 @@ keywords =
   , ("output", Output_)
   , ("print" , Print_)
   , ("string-append", StringAppend)
+  , ("Ref", RefT)
   , ("deref", Deref)
   , ("ref", Ref)
   , ("empty-ref", EmptyRef)

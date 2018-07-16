@@ -103,6 +103,7 @@ data ExprErr s where
   NotComparison :: Position -> AST s -> TypeRepr t -> ExprErr s
   NotABaseType :: Position -> TypeRepr t -> ExprErr s
   NotAVariantType :: Position -> TypeRepr t -> ExprErr s
+  NotARefType :: Position -> TypeRepr t -> ExprErr s
   InvalidInjection :: AST s -> CtxRepr ctx -> Integer -> ExprErr s
   TrivialErr :: Position -> ExprErr s
   Errs :: ExprErr s -> ExprErr s -> ExprErr s
@@ -301,6 +302,10 @@ isType t@(A (Kw x)) =
 isType (L [A (Kw VectorT), a]) =
   do Some t <- isType a
      return $ Some (VectorRepr t)
+
+isType (L [A (Kw RefT), a]) =
+  do Some t <- isType a
+     return $ Some (ReferenceRepr t)
 
 isType (L [A (Kw BitVectorT), n]) =
   case n of
@@ -773,6 +778,22 @@ normStmt stmt@(L [A (Kw SetRegister), regStx, e]) =
      (E e') <- lift $ checkExpr ty e
      v <- eval e e'
      tell [withPosFrom stmt $ SetReg r v]
+normStmt stmt@(L [A (Kw SetRef), ref, val]) =
+  do SomeExpr t (E refE) <- synthExpr ref
+     case t of
+       ReferenceRepr t' ->
+         do E valE <- checkExpr t' val
+            refAtom <- eval ref refE
+            valAtom <- eval val valE
+            tell [withPosFrom stmt $ WriteRef refAtom valAtom]
+       other -> throwError $ NotARefType (syntaxPos ref) other
+normStmt stmt@(L [A (Kw DropRef_), ref]) =
+  do SomeExpr t (E refE) <- synthExpr ref
+     case t of
+       ReferenceRepr t' ->
+         do refAtom <- eval ref refE
+            tell [withPosFrom stmt $ DropRef refAtom]
+       other -> throwError $ NotARefType (syntaxPos ref) other
 normStmt other = throwError $ BadStatement (syntaxPos other) other
 
 blockBody :: forall s h ret . Position -> [AST s] -> CFGParser h s ret ([Posd (Stmt () s)], Posd (TermStmt s ret))
