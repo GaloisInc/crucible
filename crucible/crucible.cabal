@@ -95,6 +95,7 @@ library
     Lang.Crucible.Utils.MonadVerbosity
     Lang.Crucible.Utils.MuxTree
     Lang.Crucible.Utils.PrettyPrint
+    Lang.Crucible.Utils.RegRewrite
     Lang.Crucible.Utils.StateContT
     Lang.Crucible.Utils.Structural
 
