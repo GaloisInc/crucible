@@ -19,8 +19,9 @@ import Control.Monad.Writer.Class ()
 
 import Lang.Crucible.Types
 
---import Data.Functor
+import Data.Functor
 import qualified Data.Functor.Product as Functor
+import Data.Maybe
 --import Data.Ratio
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
@@ -65,6 +66,7 @@ printExpr = toText (PrintRules rules) printAtom
   where printAtom (Kw s) = T.pack (show s)
         printAtom (Lbl (LabelName l)) = l <> ":"
         printAtom (Rg (RegName r)) = "$" <> r
+        printAtom (Gl (GlobalName r)) = "$$" <> r
         printAtom (At (AtomName a)) = a
         printAtom (Fn (FunName a)) = "@" <> a
         printAtom (Int i) = T.pack (show i)
@@ -106,6 +108,7 @@ data ExprErr s where
   Errs :: ExprErr s -> ExprErr s -> ExprErr s
   TooSmall :: Position -> NatRepr n -> ExprErr s
   UnknownAtom :: Position -> AtomName -> ExprErr s
+  UnknownGlobal :: Position -> GlobalName -> ExprErr s
   UnknownBlockLabel :: Position -> AST s -> ExprErr s
   UnknownFunction :: Position -> FunName -> ExprErr s
   DuplicateAtom :: Position -> AtomName -> ExprErr s
@@ -113,6 +116,7 @@ data ExprErr s where
   NotArgumentSpec :: Position -> AST s -> ExprErr s
   NotFunctionName :: Position -> AST s -> ExprErr s
   NotFunDef :: Position -> AST s -> ExprErr s
+  NotGlobal :: Position -> AST s -> ExprErr s
   NotArgumentList :: Position -> AST s -> ExprErr s
   NotTermStmt :: Position -> AST s -> ExprErr s
   EmptyFunBody :: Position -> ExprErr s
@@ -179,6 +183,7 @@ errPos (UnknownFunction p _) = p
 errPos (NotAVariantType p _) = p
 errPos (InvalidInjection e _ _) = syntaxPos e
 errPos (WrongNumberOfCases e) = syntaxPos e
+errPos (NotGlobal p _) = p
 
 deriving instance Show (ExprErr s)
 instance Monoid (ExprErr s) where
@@ -506,11 +511,15 @@ data LabelInfo :: * -> * where
 
 data ProgramState h s =
   ProgramState { _progFunctions :: Map FunctionName FunctionHeader
+               , _progGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)
                , _progHandleAlloc :: HandleAllocator h
                }
 
 progFunctions :: Simple Lens (ProgramState h s) (Map FunctionName FunctionHeader)
 progFunctions = lens _progFunctions (\s v -> s { _progFunctions = v })
+
+progGlobals :: Simple Lens (ProgramState h s) (Map GlobalName (Pair TypeRepr GlobalVar))
+progGlobals = lens _progGlobals (\s v -> s { _progGlobals = v })
 
 progHandleAlloc :: Simple Lens (ProgramState h s) (HandleAllocator h)
 progHandleAlloc = lens _progHandleAlloc (\s v -> s { _progHandleAlloc = v })
@@ -526,7 +535,7 @@ data SyntaxState h s =
               }
 
 initProgState :: HandleAllocator h -> ProgramState h s
-initProgState = ProgramState Map.empty
+initProgState = ProgramState Map.empty Map.empty
 
 initSyntaxState :: ProgramState h s -> SyntaxState h s
 initSyntaxState = SyntaxState Map.empty Map.empty Map.empty 0 0
@@ -552,6 +561,10 @@ stxProgState = lens _stxProgState (\s v -> s { _stxProgState = v })
 
 stxFunctions :: Simple Lens (SyntaxState h s) (Map FunctionName FunctionHeader)
 stxFunctions = stxProgState . progFunctions
+
+stxGlobals :: Simple Lens (SyntaxState h s) (Map GlobalName (Pair TypeRepr GlobalVar))
+stxGlobals = stxProgState . progGlobals
+
 
 newtype CFGParser h s ret a =
   CFGParser { runCFGParser :: (?returnType :: TypeRepr ret)
@@ -709,7 +722,13 @@ normStmt stmt@(L [A (Kw Let), A (At an), e]) =
          atom <- freshAtom stmt (ReadReg r)
          return $ Pair t atom
     -- no case for EvalExt because we don't have exts
-    -- TODO ReadGlobal
+    atomValue e@(A (Gl x)) =
+      do perhapsGlobal <- use (stxGlobals . at x)
+         case perhapsGlobal of
+           Nothing -> throwError $ UnknownGlobal (syntaxPos e) x
+           Just (Pair t var) ->
+             do atom <- freshAtom stmt (ReadGlobal var)
+                return $ Pair t atom
     atomValue stx@(L [A (Kw Deref), e]) =
       do SomeExpr t (E e') <- synthExpr e
          case t of
@@ -741,6 +760,14 @@ normStmt stmt@(L [A (Kw Let), A (At an), e]) =
       do SomeExpr tp (E e') <- lift $ synthExpr expr
          atom <- eval expr e'
          return $ Pair tp atom
+normStmt stmt@(L [A (Kw SetGlobal), gl@(A (Gl g)), e]) =
+  do perhapsG <- use (stxGlobals . at g)
+     case perhapsG of
+       Nothing -> throwError $ UnknownGlobal (syntaxPos gl) g
+       Just (Pair t var) ->
+         do E e' <- checkExpr t e
+            a <- eval e e'
+            tell [withPosFrom stmt $ WriteGlobal var a]
 normStmt stmt@(L [A (Kw SetRegister), regStx, e]) =
   do Pair ty r <- lift $ regRef regStx
      (E e') <- lift $ checkExpr ty e
@@ -954,9 +981,23 @@ functionHeader defun@(L (A (Kw Defun) : name : arglist : ret : rest)) =
         getRegisters other = ([], other)
         saveHeader n h =
           stxFunctions %= Map.insert n h
-
 functionHeader other = throwError $ NotFunDef (syntaxPos other) other
 
+global :: AST s -> TopParser h s (Pair TypeRepr GlobalVar)
+global (L [A (Kw DefGlobal), A (Gl var@(GlobalName varName)), ty]) =
+  do Some t <- isType ty
+     ha <- use $ stxProgState  . progHandleAlloc
+     v <- liftST $ freshGlobalVar ha varName t
+     stxGlobals %= Map.insert var (Pair t v)
+     return $ Pair t v
+global other = throwError $ NotGlobal (syntaxPos other) other
+
+topLevel :: AST s -> TopParser h s (Maybe (FunctionHeader, FunctionSource s))
+topLevel ast =
+  catchError (Just <$> functionHeader ast) $
+    \e ->
+      catchError (global ast $> Nothing) $
+        \_ -> throwError e
 
 argTypes :: Ctx.Assignment Arg init -> Ctx.Assignment TypeRepr init
 argTypes  = fmapFC (\(Arg _ _ t) -> t)
@@ -1080,9 +1121,11 @@ initParser (FunctionHeader name (args :: Ctx.Assignment Arg init) ret handle pos
          stxRegisters %= Map.insert x (Pair ty r)
     saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
 
+
+
 cfgs :: [AST s] -> TopParser h s [ACFG]
 cfgs defuns =
-  do headers <- traverse functionHeader defuns
+  do headers <- catMaybes <$> traverse topLevel defuns
      forM headers $
        \(hdr@(FunctionHeader name args ret handle pos), src@(FunctionSource _ body)) ->
          do let types = argTypes args

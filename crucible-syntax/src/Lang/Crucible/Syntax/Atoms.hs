@@ -20,11 +20,12 @@ newtype AtomName = AtomName Text deriving (Eq, Ord, Show)
 newtype LabelName = LabelName Text deriving (Eq, Ord, Show)
 newtype RegName = RegName Text deriving (Eq, Ord, Show)
 newtype FunName = FunName Text deriving (Eq, Ord, Show)
+newtype GlobalName = GlobalName Text deriving (Eq, Ord, Show)
 
-
-data Keyword = Defun | DefBlock
+data Keyword = Defun | DefBlock | DefGlobal
              | Registers
              | Start
+             | SetGlobal
              | Unpack
              | Plus | Minus | Times | Div
              | Just_ | Nothing_ | FromJust
@@ -54,9 +55,11 @@ data Keyword = Defun | DefBlock
 keywords :: [(Text, Keyword)]
 keywords =
   [ ("defun" , Defun)
-  , ("defblock" , DefBlock)
+  , ("defblock", DefBlock)
+  , ("defglobal", DefGlobal)
   , ("registers", Registers)
   , ("let", Let)
+  , ("set-global!", SetGlobal)
   , ("start" , Start)
   , ("unpack" , Unpack)
   , ("+" , Plus)
@@ -129,7 +132,8 @@ instance Show Keyword where
 data Atomic = Kw Keyword -- ^ Keywords are all the built-in operators and expression formers
             | Lbl LabelName -- ^ Labels, but not the trailing colon
             | At AtomName -- ^ Atom names (which look like Scheme symbols)
-            | Rg RegName -- ^ Registers, whose names have a leading $
+            | Rg RegName -- ^ Registers, whose names have a leading single $
+            | Gl GlobalName -- ^ Global variables, whose names have a leading double $$
             | Fn FunName -- ^ Function names, minus the leading @
             | Int Integer -- ^ Literal integers
             | Rat Rational -- ^ Literal rational numbers
@@ -143,7 +147,7 @@ atom :: Parser Atomic
 atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> kwOrAtom
     <|> Fn . FunName <$> (char '@' *> identifier)
-    <|> Rg . RegName <$> (char '$' *> identifier)
+    <|> (char '$' *> ((char '$' *> (Gl . GlobalName <$> identifier)) <|> Rg . RegName <$> identifier))
     <|> try (Int . fromInteger <$> signedPrefixedNumber)
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  ((char 't' <|> char 'T') $> Bool True <|> (char 'f' <|> char 'F') $> Bool False)
