@@ -14,6 +14,7 @@
    (defblock unreachable:
       (let x (the Integer 42))
       (output yep: x)))
+
 (defun @more () Any
    (start here:
       (let test @test)
@@ -22,46 +23,46 @@
       (tail-call test yep other)))
 
 %0
-  % 6:5
+  % 8:5
   jump %1($0, $1)
   % no postdom
 %1
-  % 9:5
+  % 11:5
   br $0 %2($0, $1) %3($1)
   % no postdom
 %2
-  % 12:23
+  % 14:23
   $2 = not($0)
-  % 13:5
+  % 15:5
   jump %1($2, $1)
   % no postdom
 %3
-  % 15:5
+  % 17:5
   maybeBranch $0 {
     Just -> %4()
     Nothing -> %5()
     }
   % no postdom
 %4
-  % 17:14
+  % 19:14
   $1 = packAny(IntegerRepr, $0)
-  % 18:5
+  % 20:5
   return $1
   % no postdom
 %5
-  % 20:14
+  % 22:14
   $0 = textLit("nope")
-  % 21:5
+  % 23:5
   error $0
   % no postdom%0
-  % 28:15
+  % 30:15
   $0 = handleLit(test)
-  % 29:14
+  % 31:14
   $1 = boolLit(True)
-  % 30:16
+  % 32:16
   $2 = intLit(3)
-  % 30:16
+  % 32:16
   $3 = justValue(IntegerRepr, $2)
-  % 31:5
+  % 33:5
   tailCall $0 ($1, $3)
   % no postdom

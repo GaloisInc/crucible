@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveFunctor, FlexibleInstances, FunctionalDependencies, MultiParamTypeClasses, OverloadedStrings, PatternSynonyms, ViewPatterns #-}
-module Lang.Crucible.Syntax.SExpr (pattern A, pattern L, pattern (:::), Syntax, unSyntax, Syntactic(..),  Parser, syntaxPos, withPosFrom, sexp, identifier, toText, PrintRules(..), PrintStyle(..)) where
+module Lang.Crucible.Syntax.SExpr (pattern A, pattern L, pattern (:::), Syntax, unSyntax, Syntactic(..),  Parser, syntaxPos, withPosFrom, sexp, identifier, toText, skipWhitespace, PrintRules(..), PrintStyle(..)) where
 
 import Data.Char (isDigit, isLetter)
 import Data.Monoid
@@ -50,13 +50,13 @@ data Layer a = List [Syntax a] | Atom a
 type Parser = Parsec Void Text
 
 
-skip :: Parser ()
-skip = L.space space1 lineComment blockComment
+skipWhitespace :: Parser ()
+skipWhitespace = L.space space1 lineComment blockComment
   where lineComment = L.skipLineComment ";"
         blockComment = L.skipBlockComment "#|" "|#"
 
 lexeme :: Parser a -> Parser a
-lexeme = L.lexeme skip
+lexeme = L.lexeme skipWhitespace
 
 withPos :: Parser a -> Parser (Posd a)
 withPos p =
@@ -66,7 +66,7 @@ withPos p =
      return $ Posd loc res
 
 symbol :: Text -> Parser Text
-symbol = L.symbol skip
+symbol = L.symbol skipWhitespace
 
 list :: Parser (Syntax a) -> Parser (Syntax a)
 list p =

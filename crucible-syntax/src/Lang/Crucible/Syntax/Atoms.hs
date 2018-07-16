@@ -28,8 +28,9 @@ data Keyword = Defun | DefBlock
              | Unpack
              | Plus | Minus | Times | Div
              | Just_ | Nothing_ | FromJust
+             | Inj
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitVectorT | VectorT | FunT | MaybeT
+             | BitVectorT | VectorT | FunT | MaybeT | VariantT
              | The
              | Equalp | Integerp
              | If
@@ -43,7 +44,7 @@ data Keyword = Defun | DefBlock
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
              | Deref | Ref | EmptyRef
-             | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_
+             | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
              | Print_
              | Let
              | SetRegister
@@ -64,6 +65,7 @@ keywords =
   , ("/" , Div)
   , ("<" , Lt)
   , ("show", Show)
+  , ("inj", Inj)
   , ("just" , Just_)
   , ("nothing" , Nothing_)
   , ("from-just" , FromJust)
@@ -85,6 +87,7 @@ keywords =
   , ("Vector", VectorT)
   , ("->", FunT)
   , ("Maybe", MaybeT)
+  , ("Variant", VariantT)
   , ("vector", VectorLit_)
   , ("vector-replicate", VectorReplicate_)
   , ("vector-empty?", VectorIsEmpty_)
@@ -100,6 +103,7 @@ keywords =
   , ("xor" , Xor_)
   , ("mod" , Mod)
   , ("jump" , Jump_)
+  , ("case", Case)
   , ("return" , Return_)
   , ("branch" , Branch_)
   , ("maybe-branch" , MaybeBranch_)

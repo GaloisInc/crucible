@@ -1,3 +1,5 @@
+;; Test all terminating statements other than variants
+
 (defun @test ((b Bool) (m (Maybe Integer))) Any
   (registers
     ($c Bool))

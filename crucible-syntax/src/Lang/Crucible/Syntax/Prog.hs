@@ -20,7 +20,7 @@ go :: FilePath -- ^ The name of the input (appears in source locations)
    -> Handle -- ^ A handle that will receive the output
    -> IO ()
 go fn theInput pprint outh =
-  case MP.parse (many (sexp atom) <* eof) fn theInput of
+  case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
     Left err ->
       do putStrLn $ parseErrorPretty' theInput err
          exitFailure

@@ -26,6 +26,7 @@ import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.Map (MapF)
 import Data.Parameterized.TraversableFC
+import Data.Parameterized.Classes
 import qualified Data.Parameterized.Map as MapF
 import qualified Data.Parameterized.Context as Ctx
 import Data.Map (Map)
@@ -99,6 +100,8 @@ data ExprErr s where
   NotRef :: AST s -> TypeRepr t -> ExprErr s
   NotComparison :: Position -> AST s -> TypeRepr t -> ExprErr s
   NotABaseType :: Position -> TypeRepr t -> ExprErr s
+  NotAVariantType :: Position -> TypeRepr t -> ExprErr s
+  InvalidInjection :: AST s -> CtxRepr ctx -> Integer -> ExprErr s
   TrivialErr :: Position -> ExprErr s
   Errs :: ExprErr s -> ExprErr s -> ExprErr s
   TooSmall :: Position -> NatRepr n -> ExprErr s
@@ -125,7 +128,7 @@ data ExprErr s where
   InvalidRegister :: Position -> AST s -> ExprErr s
   UnknownRegister :: Position -> RegName -> ExprErr s
   SyntaxError :: AST s -> Text -> ExprErr s
-
+  WrongNumberOfCases :: AST s -> ExprErr s
 
 errPos :: ExprErr s -> Position
 errPos (TypeError p _ _ _) = p
@@ -172,6 +175,10 @@ errPos (InvalidRegister p _) = p
 errPos (UnknownRegister p _) = p
 errPos (SyntaxError e _) = syntaxPos e
 errPos (NotRef e _)  = syntaxPos e
+errPos (UnknownFunction p _) = p
+errPos (NotAVariantType p _) = p
+errPos (InvalidInjection e _ _) = syntaxPos e
+errPos (WrongNumberOfCases e) = syntaxPos e
 
 deriving instance Show (ExprErr s)
 instance Monoid (ExprErr s) where
@@ -242,6 +249,22 @@ checkExpr t (L [A (Kw FromJust), a, str]) =
   do E a' <- checkExpr (MaybeRepr t) a
      E str' <- checkExpr StringRepr str
      return (E (App (FromJustValue t a' str')))
+checkExpr expectedT e@(L (A (Kw Inj) : args)) =
+  case args of
+    [i@(A (Int n)), v] ->
+      case expectedT of
+        VariantRepr ctx ->
+          case Ctx.intIndex (fromInteger n) (Ctx.size ctx) of
+            Nothing ->
+              throwError $ InvalidInjection i ctx n
+            Just (Some ix) ->
+              do let ty = view (ixF' ix) ctx
+                 E out <- checkExpr ty v
+                 return $ E $ App $ InjectVariant ctx ix out
+        otherType ->
+          throwError $ NotAVariantType (syntaxPos e) otherType
+    _ ->
+      throwError $ BadSyntax (syntaxPos e) e
 checkExpr expectedT e@(L (A (Kw VectorLit_) : vs)) =
   case expectedT of
     VectorRepr tp ->
@@ -299,6 +322,15 @@ isType (L (A (Kw FunT) : domAndRan)) | Just (doms, ran) <- withLast domAndRan =
 isType (L [A (Kw MaybeT), t']) =
   do Some t'' <- isType t'
      return $ Some $ MaybeRepr t''
+
+isType (L (A (Kw VariantT) : types)) =
+  do Some types' <- toCtx (reverse types)
+     return $ Some $ VariantRepr types'
+  where toCtx [] = return $ Some Ctx.empty
+        toCtx (t:ts) =
+          do Some ctx' <- toCtx ts
+             Some t' <- isType t
+             return $ Some $ Ctx.extend ctx' t'
 
 -- TODO more types
 isType e = throwError $ NotAType (syntaxPos e) e
@@ -750,7 +782,7 @@ typedAtom' ty e@(A (At x)) =
 typedAtom' _ other = throwError $ NotAnAtom (syntaxPos other) other
 
 -- | Run a generator monad action corresponding to a terminating statement
-termStmt :: AST s -> CFGParser h s ret (Posd (TermStmt s ret))
+termStmt :: forall h s ret . AST s -> CFGParser h s ret (Posd (TermStmt s ret))
 termStmt stx@(L [A (Kw Jump_), lbl]) =
   withPosFrom stx . Jump <$> labelNoArgs lbl
 termStmt stx@(L [A (Kw Branch_), A (At c), l1, l2]) =
@@ -758,7 +790,28 @@ termStmt stx@(L [A (Kw Branch_), A (At c), l1, l2]) =
 termStmt stx@(L [A (Kw MaybeBranch_), A (At c), l1, l2]) =
   do Pair ty' l1 <- labelArgs l1
      withPosFrom stx <$> (MaybeBranch ty' <$> typedAtom (syntaxPos stx) (MaybeRepr ty') c <*> pure l1 <*> labelNoArgs l2)
--- TODO VariantElim
+termStmt stx@(L (A (Kw Case) : aStx@(A (At c)) : branches)) =
+  do perhapsAtom <- use (stxAtoms . at c)
+     case perhapsAtom of
+       Nothing -> throwError $ UnknownAtom (syntaxPos stx) c
+       Just (Pair (VariantRepr vars) tgt) ->
+         do labels <- branchCtx (Ctx.viewAssign vars) (reverse branches)
+            return $ withPosFrom stx $ VariantElim vars tgt labels
+       Just (Pair otherType _) ->
+         throwError $ NotAVariantType (syntaxPos aStx) otherType
+  where branchCtx :: forall cases
+                   . Ctx.AssignView TypeRepr cases -> [AST s]
+                  -> CFGParser h s ret (Ctx.Assignment (LambdaLabel s) cases)
+        branchCtx Ctx.AssignEmpty [] =
+          return Ctx.empty
+        branchCtx (Ctx.AssignExtend c' t) (l:ls) =
+          do rest <- branchCtx (Ctx.viewAssign c') ls
+             Pair t' lbl <- labelArgs l
+             case testEquality t t' of
+               Nothing -> throwError $ TypeError (syntaxPos l) l t t'
+               Just Refl ->
+                 return $ Ctx.extend rest lbl
+        branchCtx _ _ = throwError $ WrongNumberOfCases stx
 termStmt stx@(L [A (Kw Return_), (A (At x))]) =
   do ret <- getReturnType
      withPosFrom stx . Return <$> typedAtom (syntaxPos stx) ret x

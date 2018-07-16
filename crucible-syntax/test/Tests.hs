@@ -11,13 +11,10 @@ import qualified Data.Text.IO as T
 import System.IO
 
 import Lang.Crucible.Syntax.Concrete
-import Lang.Crucible.Syntax.SExpr
+
 import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.CFG.SSAConversion
-
-
-import qualified Text.Megaparsec as MP
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
 import Test.Tasty.Golden
@@ -33,20 +30,20 @@ testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
   do contents <- T.readFile inFile
      withFile outFile WriteMode $ go inFile contents True
-     outContents <-
-       case MP.parse (many (sexp atom) <* MP.eof) inFile contents of
-         Left err ->
-           pure $ T.pack $ MP.parseErrorPretty' contents err
-         Right v ->
-           do let printed = T.concat $ map printExpr v
-              theCfgs <- stToIO $ top $ cfgs v
-              let res =
-                    T.concat $
-                      case theCfgs of
-                        Left err -> pure $ T.pack (show err)
-                        Right vs -> for vs $ \(ACFG _ _ theCfg) -> T.pack $ show (toSSA theCfg)
-              pure $ printed <> T.pack "\n" <> res
-     T.writeFile outFile outContents
+     -- outContents <-
+     --   case MP.parse (many (sexp atom) <* MP.eof) inFile contents of
+     --     Left err ->
+     --       pure $ T.pack $ MP.parseErrorPretty' contents err
+     --     Right v ->
+     --       do let printed = T.concat $ map printExpr v
+     --          theCfgs <- stToIO $ top $ cfgs v
+     --          let res =
+     --                T.concat $
+     --                  case theCfgs of
+     --                    Left err -> pure $ T.pack (show err)
+     --                    Right vs -> for vs $ \(ACFG _ _ theCfg) -> T.pack $ show (toSSA theCfg)
+     --          pure $ printed <> T.pack "\n" <> res
+     -- T.writeFile outFile outContents
 
 roundTrips :: IO TestTree
 roundTrips =
