@@ -53,7 +53,12 @@ import           What4.ProgramLoc (Position(InternalPos))
 -- JVM types
 
 -- | JVM extension.
-type JVM = () -- TODO
+{-
+newtype JVM = JVM () -- TODO
+type instance ExprExtension JVM = EmptyExprExtension
+type instance StmtExtension JVM = EmptyStmtExtension
+-}
+type JVM = ()
 
 type JVMObjectType = RecursiveType "JVM_object" EmptyCtx
 
@@ -74,9 +79,16 @@ type JVMValueCtx =
   ::> JVMLongType
   ::> JVMRefType
 
--- | A class instance contains a table of fields.
--- TODO: Should also have a pointer to the class.
-type JVMInstanceType = StringMapType JVMValueType
+-- | An entry in the class table contains a static description of the
+-- class: its name, static members, and superclass.
+-- For now: just the class name
+type JVMClassType =
+  StructType (EmptyCtx ::> StringType ::> StringMapType JVMValueType)
+
+-- | A class instance contains a table of fields
+-- and an (immutable) pointer to the class (object).
+type JVMInstanceType =
+  StructType (EmptyCtx ::> StringMapType JVMValueType ::> JVMClassType)
 
 -- | An array is a length paired with a vector of values.
 type JVMArrayType =
@@ -89,6 +101,8 @@ type JVMObjectImpl =
 instance IsRecursiveType "JVM_object" where
   type UnrollType "JVM_object" ctx = JVMObjectImpl
   unrollType _nm _ctx = knownRepr :: TypeRepr JVMObjectImpl
+
+
 
 ----------------------------------------------------------------------
 -- Index values for sums and products
@@ -200,7 +214,12 @@ data JVMHandleInfo where
 
 data JVMContext =
   JVMContext {
-    symbolMap :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
+      symbolMap  :: Map (J.ClassName, J.MethodKey) JVMHandleInfo,
+      classTable :: Map J.ClassName J.Class
+      -- TODO?
+      -- add more information about the class table here? But
+      -- how much should we preload from the initial environment?
+      
   }
 
 ------------------------------------------------------------------------
@@ -223,6 +242,13 @@ jsFrameMap = lens _jsFrameMap (\s v -> s { _jsFrameMap = v })
 
 jsCFG :: Simple Lens (JVMState ret s) J.CFG
 jsCFG = lens _jsCFG (\s v -> s { _jsCFG = v })
+
+-- Generator to construct a CFG from sequence of monadic actions:
+-- See [Lang.Crucible.CFG.Generator]
+--
+-- 'h' is parameter from underlying ST monad
+-- 's' is phantom to prevent mixing constructs from different CFGs
+-- 'ret' is return type of CFG
 
 type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
 
@@ -598,6 +624,10 @@ nextPC pc =
        Nothing -> sgFail "nextPC"
        Just pc' -> return pc'
 
+-- TODO
+-- | read from a static variable. The static map should be stored in the
+-- class table. But how do we make sure that the class table is initialized
+-- in a way that all static references will see the same table?
 getStaticMap ::
   J.ClassName -> JVMStmtGen h s ret (Expr JVM s (StringMapType JVMValueType))
 getStaticMap _className = sgUnimplemented "getStaticMap"
@@ -606,11 +636,42 @@ putStaticMap ::
   J.ClassName -> Expr JVM s (StringMapType JVMValueType) -> JVMStmtGen h s ret ()
 putStaticMap _className _ = sgUnimplemented "putStaticMap"
 
+-- | lookup the static data structure associated with a class
+-- Q: Where is this information initialized? 
+getClassObject ::
+  J.ClassName -> JVMStmtGen h s ret (Expr JVM s JVMClassType)
+getClassObject _className = sgUnimplemented "getClass"
+
+
+-- look up initial values for the object's fields.
+-- NB: stringmaps are mutable in crucible. We can't return the same one each time...
+getInstanceInit ::
+  J.ClassName -> JVMStmtGen h s ret (Expr JVM s (StringMapType (MaybeType JVMValueType)))
+getInstanceInit _className = sgUnimplemented "getInstanceInit"
+
 ----------------------------------------------------------------------
 
+-- Compare an implicit type repr with an explicit one
+eqI :: forall tp1 tp2. (KnownRepr TypeRepr tp1) =>
+  TypeRepr tp2 -> Maybe (tp1 :~: tp2)
+eqI = testEquality (knownRepr :: TypeRepr tp1)
+
+
+-- Does this definition of pushRet look nicer? It is a little more obvious
+-- that it is doing a case analysis. And the helper function is more
+-- generic. But it does require the explicit type application, even though
+-- the type is already known
 pushRet ::
   forall h s ret tp. TypeRepr tp -> Expr JVM s tp -> JVMStmtGen h s ret ()
-pushRet tp expr =
+pushRet tp 
+  | Just Refl <- eqI @JVMDoubleType tp = dPush
+  | Just Refl <- eqI @JVMFloatType  tp = fPush
+  | Just Refl <- eqI @JVMIntType    tp = iPush
+  | Just Refl <- eqI @JVMLongType   tp = lPush
+  | Just Refl <- eqI @JVMRefType    tp = rPush
+  | otherwise = \_ -> sgFail "pushRet: invalid type"
+
+{-  
   tryPush dPush $
   tryPush fPush $
   tryPush iPush $
@@ -626,7 +687,8 @@ pushRet tp expr =
       case testEquality tp (knownRepr :: TypeRepr t) of
         Just Refl -> push expr
         Nothing -> k
-
+-}
+  
 popArgument ::
   forall tp h s ret. TypeRepr tp -> JVMStmtGen h s ret (Expr JVM s tp)
 popArgument tp =
@@ -765,26 +827,34 @@ generateInstruction (pc, instr) =
         J.Integer v  -> iPush (iConst (toInteger v))
         J.Long v     -> lPush (lConst (toInteger v))
         J.String _v  -> sgUnimplemented "ldc string" -- pushValue . RValue =<< refFromString v
-        J.ClassRef _ -> sgUnimplemented "ldc class" -- pushValue . RValue =<< getClassObject c
+        J.ClassRef _ -> sgUnimplemented "ldc class"  -- pushValue . RValue =<< getClassObject c
 
     -- Object creation and manipulation
-    J.New _name ->
-      do sgUnimplemented "new" -- pushValue . RValue =<< newObject name
+    -- TODO
+    J.New name -> do
+      cls <- getClassObject name
+      let fields = undefined
+      newInstanceInstr cls fields 
 
     J.Getfield fieldId ->
       do objectRef <- rPop
          rawRef <- throwIfRefNull objectRef
          obj <- lift $ readRef rawRef
-         let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-         let minst = App (ProjectVariant knownRepr Ctx.i1of2 uobj)
-         inst <- lift $ assertedJustExpr minst "getfield: not a valid class instance"
+         let (uobj :: Expr JVM s JVMObjectImpl ) =
+               App (UnrollRecursive knownRepr knownRepr obj)
+               
+         inst <- projectVariant Ctx.i1of2 uobj
+
+         let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+
          let key = App (TextLit (fromString (J.fieldIdName fieldId)))
-         let mval = App (LookupStringMapEntry knownRepr inst key)
+         
+         let mval = App (LookupStringMapEntry knownRepr fields key)
          dyn <- lift $ assertedJustExpr mval "getfield: field not found"
          val <- fromJVMDynamic (J.fieldIdType fieldId) dyn
          pushValue val
 
-    J.Putfield fieldId ->
+    J.Putfield fieldId -> 
       do val <- popValue
          objectRef <- rPop
          rawRef <- throwIfRefNull objectRef
@@ -792,10 +862,12 @@ generateInstruction (pc, instr) =
          let uobj = App (UnrollRecursive knownRepr knownRepr obj)
          let minst = App (ProjectVariant knownRepr Ctx.i1of2 uobj)
          inst <- lift $ assertedJustExpr minst "putfield: not a valid class instance"
+         let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
          dyn <- toJVMDynamic (J.fieldIdType fieldId) val
          let key = App (TextLit (fromString (J.fieldIdName fieldId)))
          let mdyn = App (JustValue knownRepr dyn)
-         let inst' = App (InsertStringMapEntry knownRepr inst key mdyn)
+         let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
+         let inst'  = App (SetStruct knownRepr inst' Ctx.i1of2 fields')
          let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
          let obj' = App (RollRecursive knownRepr knownRepr uobj')
          lift $ writeRef rawRef obj'
@@ -964,6 +1036,7 @@ generateInstruction (pc, instr) =
          case mhandle of
            Nothing -> sgFail "invokevirtual: method not found"
            Just handle -> callJVMHandle handle
+    -- TODO
     J.Invokevirtual   tp         _methodKey -> sgUnimplemented $ "Invokevirtual for " ++ show tp
     J.Invokeinterface _className _methodKey -> sgUnimplemented "Invokeinterface"
     J.Invokespecial   _type      _methodKey -> sgUnimplemented "Invokespecial"
@@ -980,7 +1053,7 @@ generateInstruction (pc, instr) =
     J.Freturn -> returnInstr fPop
     J.Dreturn -> returnInstr dPop
     J.Areturn -> returnInstr rPop
-    J.Return  -> returnInstr (return (App EmptyApp))
+    J.Return  -> returnInstr (return (App EmptyApp)) 
 
     -- Other XXXXX
     J.Aconst_null ->
@@ -1043,18 +1116,44 @@ binary pop1 pop2 push op =
      value1 <- pop1
      push (value1 `op` value2)
 
+
+
+newInstanceInstr ::
+  Expr JVM s JVMClassType 
+  -- ^ class data structure
+  ->  [(Expr JVM s StringType, Expr JVM s (MaybeType JVMValueType))]
+  -- ^ Field names and appropriate initial values
+  ->  JVMStmtGen h s ret () 
+newInstanceInstr cls objFields = do
+    let strMap = foldr addField (App (EmptyStringMap dynRepr)) objFields
+    let ctx    = Ctx.empty `Ctx.extend` strMap `Ctx.extend` cls
+    let inst   = App (MkStruct knownRepr ctx)
+    let uobj   = injectVariant Ctx.i1of2 inst
+    let obj    = App (RollRecursive knownRepr knownRepr uobj)
+    rawRef     <- lift $ newRef obj
+    let ref    = App (JustValue knownRepr rawRef)
+    rPush ref
+  where
+    dynRepr :: TypeRepr JVMValueType
+    dynRepr  = knownRepr
+    addField (f,i) fs = 
+      App (InsertStringMapEntry dynRepr fs f i)
+
 newarrayInstr ::
   KnownRepr TypeRepr t =>
   Ctx.Index JVMValueCtx t ->
+  -- type tag
   JVMInt s ->
+  -- array size, must be nonnegative
   Expr JVM s t ->
+  -- Initial value for array element
   JVMStmtGen h s ret ()
 newarrayInstr tag count x =
-  do let val = App (InjectVariant knownRepr tag x)
+  do let val = injectVariant tag x
      let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
      let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec
      let arr = App (MkStruct knownRepr ctx)
-     let uobj = App (InjectVariant knownRepr Ctx.i2of2 arr)
+     let uobj = injectVariant Ctx.i2of2 arr
      let obj = App (RollRecursive knownRepr knownRepr uobj)
      rawRef <- lift $ newRef obj
      let ref = App (JustValue knownRepr rawRef)
