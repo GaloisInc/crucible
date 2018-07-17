@@ -21,17 +21,13 @@ module Lang.Crucible.Utils.RegRewrite
   ) where
 
 import           Control.Monad.State.Strict
-import           Control.Monad.Writer.Strict
-import qualified Data.Semigroup as Sem
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
-import qualified Data.Parameterized.Context as Ctx
 import           What4.ProgramLoc
 
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Reg
-import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 
 ------------------------------------------------------------------------
@@ -45,7 +41,7 @@ annotateCFGStmts :: TraverseExt ext
 annotateCFGStmts fS fT cfg =
   runAnnotator cfg $
     do blocks' <- mapM (annotateBlockStmts fS fT) (cfgBlocks cfg)
-       return $ cfg { cfgBlocks = blocks' }
+       newCFG cfg blocks'
 
 newtype Annotator ext s (ret :: CrucibleType) a =
   Annotator (State (AnnState ext s ret) a)
@@ -81,7 +77,7 @@ data AnnState ext s (ret :: CrucibleType) =
 initState :: CFG ext s init ret -> AnnState ext s ret
 initState cfg = AnnState { asStmtsBefore = Seq.Empty
                          , asStmtsAfter = Seq.Empty
-                         , asNextAtomId = initialNextAtomId cfg }
+                         , asNextAtomId = cfgNextValue cfg }
 
 runAnnotator :: CFG ext s init ret -> Annotator ext s ret a -> a
 runAnnotator cfg (Annotator f) = fst $ runState f (initState cfg)
@@ -93,6 +89,14 @@ clearStmts =
 
 ------------------------------------------------------------------------
 -- Implementation
+
+newCFG :: CFG ext s init ret
+       -> [Block ext s ret]
+       -> Annotator ext s ret (CFG ext s init ret)
+newCFG cfg blocks =
+  do nextAtomId <- gets asNextAtomId
+     return $ cfg { cfgBlocks = blocks
+                  , cfgNextValue = nextAtomId }
 
 annotateBlockStmts :: TraverseExt ext
                    => (Stmt ext s -> Annotator ext s ret ())
@@ -121,45 +125,3 @@ annotateBlockStmts fS fT block =
                       stmts (blockTerm block)
   where
     catSeqs seqs = foldr (Seq.><) Seq.Empty seqs
-
-------------------------------------------------------------------------
--- Computation of initial next atom id for CFG
---
--- We need to be sure and generate only atom ids that don't appear in
--- the CFG already. Simple way to do that is to find the highest atom
--- id and add one.
-
-newtype MaxAtomId = MaxAtomId { getMaxAtomId :: Int }
-
-instance Sem.Semigroup MaxAtomId where
-  MaxAtomId n <> MaxAtomId m = MaxAtomId (n `max` m)
-
-instance Monoid MaxAtomId where
-  mempty = MaxAtomId 0
-  mappend = (Sem.<>)
-       
-initialNextAtomId :: CFG ext s init ret -> Int
-initialNextAtomId cfg = 1 + maxValueId cfg
-
-maxValueId :: CFG ext s init ret -> Int
-maxValueId cfg = getMaxAtomId $ execWriter $ go
-  where
-    go :: Writer MaxAtomId ()
-    go = do considerArgumentAtoms
-
-            forM_ (cfgBlocks cfg) $ \block ->
-              do case blockID block of
-                   LambdaID l -> foundAtom (lambdaAtom l)
-                   LabelID _ -> return ()
-
-                 forM_ (blockStmts block) $ \(Posd { pos_val = stmt }) ->
-                   case stmt of
-                     DefineAtom atom _ -> foundAtom atom
-                     _ -> return ()
-
-    foundAtom atom = tell $ MaxAtomId (atomId atom)
-    
-    -- There are implicitly atoms with ids [0..n-1] for n arguments
-    considerArgumentAtoms =
-      tell $ MaxAtomId $
-        Ctx.sizeInt (Ctx.size (handleArgTypes (cfgHandle cfg))) - 1

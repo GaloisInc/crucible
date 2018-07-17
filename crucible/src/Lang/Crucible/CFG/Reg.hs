@@ -646,6 +646,10 @@ mkBlock block_id inputs stmts term =
 data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
    = CFG { cfgHandle :: !(FnHandle init ret)
          , cfgBlocks :: !([Block ext s ret])
+         , cfgNextValue :: !Int
+         -- ^ A number greater than any atom or register id appearing
+         -- in the CFG. Primarily useful for augmenting the CFG after
+         -- creation.
          }
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init
