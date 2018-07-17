@@ -45,7 +45,8 @@ annotateCFGStmts :: TraverseExt ext
                  => (Stmt ext s -> Annotator ext s ret ())
                  -- ^ Action to run on each non-terminating statement
                  -> (TermStmt s ret -> Annotator ext s ret ())
-                 -- ^ Action to run on each terminating statement
+                 -- ^ Action to run on each terminating statement;
+                 -- calls to 'addStmtAfter' are ignored
                  -> CFG ext s init ret
                  -- ^ Graph to rewrite
                  -> CFG ext s init ret
@@ -69,7 +70,8 @@ addStmtBefore stmt =
                                      Posd InternalPos stmt }
 
 -- | Add a new statement, immediately following the current statement
--- (and any statements added by previous calls).
+-- (and any statements added by previous calls). Ignored when the current
+-- statement is a terminating statement.
 addStmtAfter :: Stmt ext s -> Annotator ext s ret ()
 addStmtAfter stmt =
   modify $ \s -> s { asStmtsAfter = asStmtsAfter s Seq.:|>
