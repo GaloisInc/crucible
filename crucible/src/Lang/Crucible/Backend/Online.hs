@@ -68,15 +68,15 @@ import           Lang.Crucible.Simulator.SimError
 -- | Get the connection for sending commands to the solver.
 getSolverConn ::
   OnlineSolver scope solver =>
-  OnlineBackend scope solver -> IO (WriterConn scope solver)
+  OnlineBackend scope solver fs -> IO (WriterConn scope solver)
 getSolverConn sym = solverConn <$> getSolverProcess sym
 
 --------------------------------------------------------------------------------
-type OnlineBackend scope solver =
-                        B.ExprBuilder scope (OnlineBackendState solver)
+type OnlineBackend scope solver fs =
+                        B.ExprBuilder scope (OnlineBackendState solver) fs
 
 
-type YicesOnlineBackend scope = OnlineBackend scope (Yices.Connection scope)
+type YicesOnlineBackend scope fs = OnlineBackend scope (Yices.Connection scope) fs
 
 -- | Do something with a Yices online backend.
 --   The backend is only valid in the continuation.
@@ -85,14 +85,14 @@ type YicesOnlineBackend scope = OnlineBackend scope (Yices.Connection scope)
 --   installed into the backend configuration object.
 withYicesOnlineBackend ::
   NonceGenerator IO scope ->
-  (YicesOnlineBackend scope -> IO a) ->
+  (YicesOnlineBackend scope fs -> IO a) ->
   IO a
 withYicesOnlineBackend gen action =
   withOnlineBackend gen $ \sym ->
     do extendConfig Yices.yicesOptions (getConfiguration sym)
        action sym
 
-type Z3OnlineBackend scope = OnlineBackend scope (SMT2.Writer Z3.Z3)
+type Z3OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Z3.Z3) fs
 
 -- | Do something with a Z3 online backend.
 --   The backend is only valid in the continuation.
@@ -101,7 +101,7 @@ type Z3OnlineBackend scope = OnlineBackend scope (SMT2.Writer Z3.Z3)
 --   installed into the backend configuration object.
 withZ3OnlineBackend ::
   NonceGenerator IO scope ->
-  (Z3OnlineBackend scope -> IO a) ->
+  (Z3OnlineBackend scope fs -> IO a) ->
   IO a
 withZ3OnlineBackend gen action =
   withOnlineBackend gen $ \sym ->
@@ -139,7 +139,7 @@ initialOnlineBackendState gen =
                  }
 
 getAssumptionStack ::
-  OnlineBackend scope solver ->
+  OnlineBackend scope solver fs ->
   IO (AssumptionStack (B.BoolExpr scope) AssumptionReason SimError)
 getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
 
@@ -149,7 +149,7 @@ getAssumptionStack sym = assumptionStack <$> readIORef (B.sbStateManager sym)
 --   next call to `getSolverProcess`.
 resetSolverProcess ::
   OnlineSolver scope solver =>
-  OnlineBackend scope solver ->
+  OnlineBackend scope solver fs ->
   IO ()
 resetSolverProcess sym = do
   do st <- readIORef (B.sbStateManager sym)
@@ -165,7 +165,7 @@ resetSolverProcess sym = do
 --   Starts the solver, if that hasn't happened already.
 getSolverProcess ::
   OnlineSolver scope solver =>
-  OnlineBackend scope solver ->
+  OnlineBackend scope solver fs ->
   IO (SolverProcess scope solver)
 getSolverProcess sym = do
   st <- readIORef (B.sbStateManager sym)
@@ -186,7 +186,7 @@ getSolverProcess sym = do
 withOnlineBackend ::
   OnlineSolver scope solver =>
   NonceGenerator IO scope ->
-  (OnlineBackend scope solver -> IO a) ->
+  (OnlineBackend scope solver fs -> IO a) ->
   IO a
 withOnlineBackend gen action = do
   st  <- initialOnlineBackendState gen
@@ -201,7 +201,7 @@ withOnlineBackend gen action = do
    Right x -> return x
 
 
-instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) where
+instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver fs) where
   addProofObligation sym a =
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
