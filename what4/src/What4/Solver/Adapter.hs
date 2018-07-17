@@ -49,8 +49,8 @@ data SolverAdapter st =
     --   callback completes, so any necessary information should be extracted from
     --   them before returning.
   , solver_adapter_check_sat
-        :: !(forall t a.
-           ExprBuilder t st
+        :: !(forall t fs a.
+           ExprBuilder t st fs
         -> (Int -> String -> IO ())
         -> BoolExpr t
         -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
@@ -58,7 +58,7 @@ data SolverAdapter st =
 
     -- | Write an SMTLib2 problem instance onto the given handle, incorporating
     --   any solver-specific tweaks appropriate to this solver
-  , solver_adapter_write_smt2 :: !(forall t . ExprBuilder t st -> Handle -> BoolExpr t -> IO ())
+  , solver_adapter_write_smt2 :: !(forall t fs . ExprBuilder t st fs -> Handle -> BoolExpr t -> IO ())
   }
 
 

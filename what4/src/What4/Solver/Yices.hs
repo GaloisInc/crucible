@@ -379,7 +379,7 @@ yicesShutdownSolver p =
           fail $ "yices exited with unexpected code " ++ show exit_code ++ "\n"
               ++ LazyText.unpack txt
 
-yicesStartSolver :: B.ExprBuilder s st -> IO (SolverProcess s (Connection s))
+yicesStartSolver :: B.ExprBuilder s st fs -> IO (SolverProcess s (Connection s))
 yicesStartSolver sym = do
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
@@ -712,9 +712,9 @@ checkSupportedByYices p = do
   return $! varInfo^.problemFeatures
 
 -- | Write a yices file that checks the satisfiability of the given predicate.
-writeYicesFile :: B.ExprBuilder t st -- ^ Builder for getting current bindings.
-               -> FilePath           -- ^ Path to file
-               -> B.BoolExpr t       -- ^ Predicate to check
+writeYicesFile :: B.ExprBuilder t st fs -- ^ Builder for getting current bindings.
+               -> FilePath              -- ^ Path to file
+               -> B.BoolExpr t          -- ^ Predicate to check
                -> IO ()
 writeYicesFile sym path p = do
   withFile path WriteMode $ \h -> do
@@ -736,7 +736,7 @@ writeYicesFile sym path p = do
     sendShowModel c
 
 -- | Run writer and get a yices result.
-runYicesInOverride :: B.ExprBuilder t st
+runYicesInOverride :: B.ExprBuilder t st fs
                    -> (Int -> String -> IO ())
                    -> B.BoolExpr t
                    -> (SatResult (GroundEvalFn t) -> IO a)

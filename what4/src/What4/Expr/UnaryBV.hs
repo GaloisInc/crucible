@@ -140,7 +140,7 @@ instance Hashable p => Hashable (UnaryBV p n) where
     where go s k e = hashWithSalt (hashWithSalt s k) e
 
 -- | Create a unary bitvector term from a constant.
-constant :: IsExprBuilder sym
+constant :: IsBasicExprBuilder sym
           => sym
           -> NatRepr n
           -> Integer
@@ -264,7 +264,7 @@ domain params f u = BVD.fromAscEltList params (width u) (go (unaryBVMap u))
 -- 'mergeWithKey sym cfn x y' should return a map 'z' such that for all constants
 -- 'c', 'z = c' iff 'cfn (x = c) (y = c)'.
 mergeWithKey :: forall sym
-              . IsExprBuilder sym
+              . IsBasicExprBuilder sym
              => sym
              -> (Pred sym -> Pred sym -> IO (Pred sym))
              -> IntMap (Pred sym)
@@ -307,7 +307,7 @@ mergeWithKey sym f x y =
 -- The number of entries in the return value is at most @size x@
 -- + @size y@.
 mux :: forall sym n
-     . (1 <= n, IsExprBuilder sym)
+     . (1 <= n, IsBasicExprBuilder sym)
     => sym
     -> Pred sym
     -> UnaryBV (Pred sym) n
@@ -320,7 +320,7 @@ mux sym c x y = fmap (UnaryBV (width x)) $
                (unaryBVMap y)
 
 -- | Return predicate that holds if bitvectors are equal.
-eq :: (1 <= n, IsExprBuilder sym)
+eq :: (1 <= n, IsBasicExprBuilder sym)
    => sym
    -> UnaryBV (Pred sym) n
    -> UnaryBV (Pred sym) n
@@ -328,7 +328,7 @@ eq :: (1 <= n, IsExprBuilder sym)
 eq sym0 x0 y0 =
     let (x_k, x_p) = Map.findMin (unaryBVMap x0)
      in go sym0 (falsePred sym0) x_k x_p (unaryBVMap x0) (unaryBVMap y0)
-  where go :: IsExprBuilder sym
+  where go :: IsBasicExprBuilder sym
             => sym
             -> Pred sym
             -> Integer
@@ -355,7 +355,7 @@ eq sym0 x0 y0 =
 -- | @compareLt sym x y@ returns predicate that holds
 -- if for any @k@, @x < k & not (y <= k)@.
 compareLt :: forall sym
-           . IsExprBuilder sym
+           . IsBasicExprBuilder sym
           => sym
           -> IntMap (Pred sym)
           -> IntMap (Pred sym)
@@ -392,7 +392,7 @@ compareLt sym x y
         go r _ = andPred sym (snd (Map.findMax y)) r
 
 -- | Return predicate that holds if first value is less than other.
-ult :: (1 <= n, IsExprBuilder sym)
+ult :: (1 <= n, IsBasicExprBuilder sym)
     => sym
     -> UnaryBV (Pred sym) n
     -> UnaryBV (Pred sym) n
@@ -400,7 +400,7 @@ ult :: (1 <= n, IsExprBuilder sym)
 ult sym x y = compareLt sym (unaryBVMap x) (unaryBVMap y)
 
 -- | Return predicate that holds if first value is less than other.
-slt :: (1 <= n, IsExprBuilder sym)
+slt :: (1 <= n, IsBasicExprBuilder sym)
     => sym
     -> UnaryBV (Pred sym) n
     -> UnaryBV (Pred sym) n
@@ -432,7 +432,7 @@ splitOnAddOverflow v x = assert (0 <= v && v <= limit) $
     where limit = maxUnsigned (width x)
           overflow_limit = limit - v
 
-completeList :: IsExprBuilder sym
+completeList :: IsBasicExprBuilder sym
              => sym
              -> IntMap (Pred sym) -- ^ Map to merge into
              -> (Integer -> Integer) -- ^ Monotonic function to update keys with
@@ -445,7 +445,7 @@ completeList sym x keyFn predFn m0 = do
   mergeWithKey sym (orPred sym) x m2
 
 addConstant :: forall sym n
-             . (1 <= n, IsExprBuilder sym)
+             . (1 <= n, IsBasicExprBuilder sym)
             => sym
             -> IntMap (Pred sym)
             -> Pred sym
@@ -482,7 +482,7 @@ addConstant sym m0 x_lt x_val x_leq y = do
 -- The number of integers in the result will be at most the product of the sizes
 -- of the individual bitvectors.
 add :: forall sym n
-     . (1 <= n, IsExprBuilder sym)
+     . (1 <= n, IsBasicExprBuilder sym)
     => sym
     -> UnaryBV (Pred sym) n
     -> UnaryBV (Pred sym) n
@@ -502,7 +502,7 @@ add sym x y = go_x Map.empty (falsePred sym) (unsignedEntries x)
 -- | Negate a bitvector.
 -- The size of the result will be equal to the size of the input.
 neg :: forall sym n
-     . (1 <= n, IsExprBuilder sym)
+     . (1 <= n, IsBasicExprBuilder sym)
     => sym
     -> UnaryBV (Pred sym) n
     -> IO (UnaryBV (Pred sym) n)
@@ -553,7 +553,7 @@ sext x w' = UnaryBV w' (Map.union neg_entries l)
 
 -- | Perform a struncation.
 trunc :: forall sym u r
-       . (IsExprBuilder sym, 1 <= u, u+1 <= r)
+       . (IsBasicExprBuilder sym, 1 <= u, u+1 <= r)
       => sym
       -> UnaryBV (Pred sym) r
       -> NatRepr u

@@ -68,9 +68,11 @@ module What4.Interface
   , IsExpr(..)
   , IsSymFn(..)
     -- ** IsExprBuilder
-  , IsExprBuilder(..)
+  , IsBasicExprBuilder(..)
+  , IsExprBuilder
   , IsFloatExprBuilder(..)
-  , IsSymExprBuilder(..)
+  , IsFOLExprBuilder(..)
+  , IsSymExprBuilder
 
     -- * Type Aliases
   , Pred
@@ -207,7 +209,7 @@ type family BoundVar (sym :: *) :: BaseType -> *
 -- IsBoolSolver
 
 -- | Perform an ite on a predicate lazily.
-itePredM :: (IsExpr (SymExpr sym), IsExprBuilder sym, MonadIO m)
+itePredM :: (IsExpr (SymExpr sym), IsBasicExprBuilder sym, MonadIO m)
          => sym
          -> Pred sym
          -> m (Pred sym)
@@ -364,7 +366,7 @@ instance HashableF e => HashableF (ArrayResultWrapper e idx) where
 -- if it is concretely obvious that the function results in an undefined
 -- value; but otherwise they will silently produce an unspecified value
 -- of the expected type.
-class (IsExpr (SymExpr sym), HashableF (SymExpr sym), IsFloatExprBuilder sym) => IsExprBuilder sym where
+class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym where
 
   -- | Retrieve the configuration object corresponding to this solver interface.
   getConfiguration :: sym -> Config
@@ -1842,11 +1844,11 @@ class IsFloatExprBuilder sym where
 
 
 -- | Create a literal from an indexlit.
-indexLit :: IsExprBuilder sym => sym -> IndexLit idx -> IO (SymExpr sym idx)
+indexLit :: IsBasicExprBuilder sym => sym -> IndexLit idx -> IO (SymExpr sym idx)
 indexLit sym (NatIndexLit i)  = natLit sym i
 indexLit sym (BVIndexLit w v) = bvLit sym w v
 
-iteM :: IsExprBuilder sym
+iteM :: IsBasicExprBuilder sym
         => (sym -> Pred sym -> v -> v -> IO v)
         -> sym -> Pred sym -> IO v -> IO v -> IO v
 iteM ite sym p mx my = do
@@ -1872,10 +1874,10 @@ class IsSymFn fn where
 
 -- | This extends the interface for building expressions with operations
 --   for creating new symbolic constants and functions.
-class ( IsExprBuilder sym
+class ( IsBasicExprBuilder sym
       , IsSymFn (SymFn sym)
       , OrdF (SymExpr sym)
-      ) => IsSymExprBuilder sym where
+      ) => IsFOLExprBuilder sym where
 
   ----------------------------------------------------------------------
   -- Fresh variables
@@ -1980,7 +1982,7 @@ class ( IsExprBuilder sym
 
 -- | This returns true if the value corresponds to a concrete value.
 baseIsConcrete :: forall sym bt
-                . IsExprBuilder sym
+                . IsBasicExprBuilder sym
                => sym
                -> SymExpr sym bt
                -> IO Bool
@@ -2003,7 +2005,7 @@ baseIsConcrete sym x =
         Nothing -> return $ False
 
 baseDefaultValue :: forall sym bt
-                  . IsExprBuilder sym
+                  . IsBasicExprBuilder sym
                  => sym
                  -> BaseTypeRepr bt
                  -> IO (SymExpr sym bt)
@@ -2025,20 +2027,20 @@ baseDefaultValue sym bt =
       constantArray sym idx elt
 
 -- | Return predicate equivalent to a Boolean.
-backendPred :: IsExprBuilder sym => sym -> Bool -> Pred sym
+backendPred :: IsBasicExprBuilder sym => sym -> Bool -> Pred sym
 backendPred sym True  = truePred  sym
 backendPred sym False = falsePred sym
 
 -- | Create a value from a rational.
-mkRational :: IsExprBuilder sym => sym -> Rational -> IO (SymCplx sym)
+mkRational :: IsBasicExprBuilder sym => sym -> Rational -> IO (SymCplx sym)
 mkRational sym v = mkComplexLit sym (v :+ 0)
 
 -- | Create a value from an integer.
-mkReal  :: (IsExprBuilder sym, Real a) => sym -> a -> IO (SymCplx sym)
+mkReal  :: (IsBasicExprBuilder sym, Real a) => sym -> a -> IO (SymCplx sym)
 mkReal sym v = mkRational sym (toRational v)
 
 -- | Return 1 if the predicate is true; 0 otherwise.
-predToReal :: IsExprBuilder sym => sym -> Pred sym -> IO (SymReal sym)
+predToReal :: IsBasicExprBuilder sym => sym -> Pred sym -> IO (SymReal sym)
 predToReal sym p = do
   r1 <- realLit sym 1
   realIte sym p r1 (realZero sym)
@@ -2081,7 +2083,7 @@ realExprAsInteger x =
   rationalAsInteger =<< realExprAsRational x
 
 -- | Compute the conjunction of a sequence of predicates.
-andAllOf :: IsExprBuilder sym
+andAllOf :: IsBasicExprBuilder sym
          => sym
          -> Fold s (Pred sym)
          -> s
@@ -2089,7 +2091,7 @@ andAllOf :: IsExprBuilder sym
 andAllOf sym f s = foldlMOf f (andPred sym) (truePred sym) s
 
 -- | Compute the disjunction of a sequence of predicates.
-orOneOf :: IsExprBuilder sym
+orOneOf :: IsBasicExprBuilder sym
          => sym
          -> Fold s (Pred sym)
          -> s
@@ -2097,11 +2099,11 @@ orOneOf :: IsExprBuilder sym
 orOneOf sym f s = foldlMOf f (orPred sym) (falsePred sym) s
 
 -- | Return predicate that holds if value is non-zero.
-isNonZero :: IsExprBuilder sym => sym -> SymCplx sym -> IO (Pred sym)
+isNonZero :: IsBasicExprBuilder sym => sym -> SymCplx sym -> IO (Pred sym)
 isNonZero sym v = cplxNe sym v =<< mkRational sym 0
 
 -- | Return predicate that holds if imaginary part of number is zero.
-isReal :: IsExprBuilder sym => sym -> SymCplx sym -> IO (Pred sym)
+isReal :: IsBasicExprBuilder sym => sym -> SymCplx sym -> IO (Pred sym)
 isReal sym v = do
   i <- getImagPart sym v
   realEq sym i (realZero sym)
@@ -2109,7 +2111,7 @@ isReal sym v = do
 -- | Divide one number by another.
 --
 --   @cplxDiv x y@ is undefined when @y@ is @0@.
-cplxDiv :: IsExprBuilder sym
+cplxDiv :: IsBasicExprBuilder sym
         => sym
         -> SymCplx sym
         -> SymCplx sym
@@ -2141,7 +2143,7 @@ cplxDiv sym x y = do
       mkComplex sym zc
 
 -- | Helper function that returns the principal logarithm of input.
-cplxLog' :: IsExprBuilder sym
+cplxLog' :: IsBasicExprBuilder sym
          => sym -> SymCplx sym -> IO (Complex (SymReal sym))
 cplxLog' sym x = do
   xr :+ xi <- cplxGetParts sym x
@@ -2157,14 +2159,14 @@ cplxLog' sym x = do
 --
 --   @cplxLog x@ is undefined when @x@ is @0@, and has a
 --   cut discontinuity along the negative real line.
-cplxLog :: IsExprBuilder sym
+cplxLog :: IsBasicExprBuilder sym
         => sym -> SymCplx sym -> IO (SymCplx sym)
 cplxLog sym x = mkComplex sym =<< cplxLog' sym x
 
 -- | Returns logarithm of input at a given base.
 --
 --   @cplxLogBase b x@ is undefined when @x@ is @0@.
-cplxLogBase :: IsExprBuilder sym
+cplxLogBase :: IsBasicExprBuilder sym
             => Rational {- ^ Base for the logarithm -}
             -> sym
             -> SymCplx sym
@@ -2194,7 +2196,7 @@ asConcrete x =
 
 
 -- | Create a literal symbolic value from a concrete value.
-concreteToSym :: IsExprBuilder sym => sym -> ConcreteVal tp -> IO (SymExpr sym tp)
+concreteToSym :: IsBasicExprBuilder sym => sym -> ConcreteVal tp -> IO (SymExpr sym tp)
 concreteToSym sym = \case
    ConcreteBool True    -> return (truePred sym)
    ConcreteBool False   -> return (falsePred sym)
@@ -2252,3 +2254,7 @@ data SymEncoder sym v tp
                 , symFromExpr :: !(sym -> SymExpr sym tp -> IO v)
                 , symToExpr   :: !(sym -> v -> IO (SymExpr sym tp))
                 }
+
+class (IsBasicExprBuilder sym, IsFloatExprBuilder sym) => IsExprBuilder sym
+
+class (IsExprBuilder sym, IsFOLExprBuilder sym) => IsSymExprBuilder sym

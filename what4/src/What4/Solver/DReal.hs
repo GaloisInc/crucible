@@ -101,7 +101,7 @@ instance SMT2.SMTLib2Tweaks DReal where
   smtlib2tweaks = DReal
 
 writeDRealSMT2File
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> Handle
    -> BoolExpr t
    -> IO ()
@@ -238,7 +238,7 @@ parseNextWord = do
   UTF8.toString <$> takeWhile1 isAlphaNum
 
 runDRealInOverride
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
    -> BoolExpr t   -- ^ proposition to check
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) -> IO a)

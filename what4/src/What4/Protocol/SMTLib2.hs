@@ -581,7 +581,7 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                     -- ^ Name of solver for reporting.
                  -> ProblemFeatures
                     -- ^ Features supported by solver
-                 -> B.ExprBuilder t st
+                 -> B.ExprBuilder t st fs
                  -> IO.Handle
                  -> B.BoolExpr t
                  -> IO ()

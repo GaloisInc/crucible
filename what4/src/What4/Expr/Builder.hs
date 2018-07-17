@@ -31,6 +31,7 @@ an instance of the classes 'IsExprBuilder' and 'IsSymExprBuilder'.
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module What4.Expr.Builder
   ( -- * ExprBuilder
@@ -129,6 +130,13 @@ module What4.Expr.Builder
   , clearIdxCache
   , idxCacheEval
   , idxCacheEval'
+
+    -- Flags
+  , type FloatInterpretation
+  , FloatIEEE
+  , FloatUninterpreted
+  , FloatReal
+  , Flags
 
     -- * Re-exports
   , SymExpr
@@ -1080,9 +1088,19 @@ data ExprSymFnWrapper t c
 ------------------------------------------------------------------------
 -- ExprBuilder
 
+data FloatInterpretation where
+  FloatIEEE :: FloatInterpretation
+  FloatUninterpreted :: FloatInterpretation
+  FloatReal :: FloatInterpretation
+type FloatIEEE = 'FloatIEEE
+type FloatUninterpreted = 'FloatUninterpreted
+type FloatReal = 'FloatReal
+
+data Flags (fi :: FloatInterpretation)
+
 -- | Cache for storing dag terms.
 -- Parameter @t@ is a phantom type brand used to track nonces.
-data ExprBuilder t (st :: * -> *)
+data ExprBuilder t (st :: * -> *) (fs :: *)
    = SB { sbTrue  :: !(BoolExpr t)
         , sbFalse :: !(BoolExpr t)
           -- | Constant zero.
@@ -1115,11 +1133,11 @@ data ExprBuilder t (st :: * -> *)
           :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (ExprSymFnWrapper t))
         }
 
-type instance SymFn (ExprBuilder t st) = ExprSymFn t
-type instance SymExpr (ExprBuilder t st) = Expr t
-type instance BoundVar (ExprBuilder t st) = ExprBoundVar t
+type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
+type instance SymExpr (ExprBuilder t st fs) = Expr t
+type instance BoundVar (ExprBuilder t st fs) = ExprBoundVar t
 
-sbBVDomainParams :: ExprBuilder t st -> IO (BVD.BVDomainParams)
+sbBVDomainParams :: ExprBuilder t st fs -> IO (BVD.BVDomainParams)
 sbBVDomainParams sym =
   do rl <- CFG.getOpt (sbBVDomainRangeLimit sym)
      return BVD.DP { BVD.rangeLimit = fromInteger rl }
@@ -1989,7 +2007,7 @@ newCachedStorage g sz = stToIO $ do
 -- abstractEval
 
 -- | Return abstract domain associated with a nonce app
-quantAbsEval :: ExprBuilder t st
+quantAbsEval :: ExprBuilder t st fs
              -> (forall u . Expr t u -> AbstractValue u)
              -> NonceApp t (Expr t) tp
              -> AbstractValue tp
@@ -2294,11 +2312,11 @@ idxCacheEval' c n m = do
 ------------------------------------------------------------------------
 -- ExprBuilder operations
 
-curProgramLoc :: ExprBuilder t st -> IO ProgramLoc
+curProgramLoc :: ExprBuilder t st fs -> IO ProgramLoc
 curProgramLoc sym = readIORef (sbProgramLoc sym)
 
 -- | Create an element from a nonce app.
-sbNonceExpr :: ExprBuilder t st
+sbNonceExpr :: ExprBuilder t st fs
            -> NonceApp t (Expr t) tp
            -> IO (Expr t tp)
 sbNonceExpr sym a = do
@@ -2306,7 +2324,7 @@ sbNonceExpr sym a = do
   pc <- curProgramLoc sym
   nonceExpr s pc a (quantAbsEval sym exprAbsValue a)
 
-semiRingLit :: ExprBuilder t st
+semiRingLit :: ExprBuilder t st fs
             -> SemiRingRepr tp
             -> WSum.Coefficient tp
             -> IO (Expr t tp)
@@ -2314,7 +2332,7 @@ semiRingLit sb sr x = do
   l <- curProgramLoc sb
   return $! SemiRingLiteral sr x l
 
-sbMakeExpr :: ExprBuilder t st -> App (Expr t) tp -> IO (Expr t tp)
+sbMakeExpr :: ExprBuilder t st fs -> App (Expr t) tp -> IO (Expr t tp)
 sbMakeExpr sym a = do
   s <- readIORef (curAllocator sym)
   params <- sbBVDomainParams sym
@@ -2334,7 +2352,7 @@ sbMakeExpr sym a = do
       appExpr s pc a v
 
 -- | Update the binding to point to the current variable.
-updateVarBinding :: ExprBuilder t st
+updateVarBinding :: ExprBuilder t st fs
                  -> SolverSymbol
                  -> SymbolBinding t
                  -> IO ()
@@ -2344,7 +2362,7 @@ updateVarBinding sym nm v
     modifyIORef' (sbVarBindings sym) $ (Bimap.insert nm $! v)
 
 -- | Creates a new bound var.
-sbMakeBoundVar :: ExprBuilder t st
+sbMakeBoundVar :: ExprBuilder t st fs
                -> SolverSymbol
                -> BaseTypeRepr tp
                -> VarKind
@@ -2360,10 +2378,10 @@ sbMakeBoundVar sym nm tp k = do
                  }
 
 -- | Create fresh index
-sbFreshIndex :: ExprBuilder t st -> IO (Nonce t (tp::BaseType))
+sbFreshIndex :: ExprBuilder t st fs -> IO (Nonce t (tp::BaseType))
 sbFreshIndex sb = freshNonce (exprCounter sb)
 
-sbFreshSymFnNonce :: ExprBuilder t st -> IO (Nonce t (ctx:: Ctx BaseType))
+sbFreshSymFnNonce :: ExprBuilder t st fs -> IO (Nonce t (ctx:: Ctx BaseType))
 sbFreshSymFnNonce sb = freshNonce (exprCounter sb)
 
 ------------------------------------------------------------------------
@@ -2463,7 +2481,7 @@ newExprBuilder :: --IsExprBuilderState st
                     -- ^ Current state for simple builder.
                  -> NonceGenerator IO t
                     -- ^ Nonce generator for names
-                 ->  IO (ExprBuilder t st)
+                 ->  IO (ExprBuilder t st fs)
 newExprBuilder st gen = do
   st_ref <- newIORef st
   es <- newStorage gen
@@ -2505,17 +2523,17 @@ newExprBuilder st gen = do
                }
 
 -- | Get current variable bindings.
-getSymbolVarBimap :: ExprBuilder t st -> IO (SymbolVarBimap t)
+getSymbolVarBimap :: ExprBuilder t st fs -> IO (SymbolVarBimap t)
 getSymbolVarBimap sym = readIORef (sbVarBindings sym)
 
 -- | Stop caching applications in backend.
-stopCaching :: ExprBuilder t st -> IO ()
+stopCaching :: ExprBuilder t st fs -> IO ()
 stopCaching sb = do
   s <- newStorage (exprCounter sb)
   writeIORef (curAllocator sb) s
 
 -- | Restart caching applications in backend (clears cache if it is currently caching).
-startCaching :: ExprBuilder t st -> IO ()
+startCaching :: ExprBuilder t st fs -> IO ()
 startCaching sb = do
   sz <- CFG.getOpt (sbCacheStartSize sb)
   s <- newCachedStorage (exprCounter sb) (fromInteger sz)
@@ -2525,7 +2543,7 @@ startCaching sb = do
 bvBinOp1 :: (1 <= w)
          => (Integer -> Integer -> Integer)
          -> (NatRepr w -> BVExpr t w -> BVExpr t w -> App (Expr t) (BaseBVType w))
-         -> ExprBuilder t st
+         -> ExprBuilder t st fs
          -> BVExpr t w
          -> BVExpr t w
          -> IO (BVExpr t w)
@@ -2540,7 +2558,7 @@ bvSignedBinOp :: (1 <= w)
               -> (NatRepr w -> BVExpr t w
                             -> BVExpr t w
                             -> App (Expr t) (BaseBVType w))
-              -> ExprBuilder t st
+              -> ExprBuilder t st fs
               -> BVExpr t w
               -> BVExpr t w
               -> IO (BVExpr t w)
@@ -2562,7 +2580,7 @@ asConcreteIndices = traverseFC f
             _ -> Nothing
 
 symbolicIndices :: forall sym ctx
-                 . IsExprBuilder sym
+                 . IsBasicExprBuilder sym
                 => sym
                 -> Ctx.Assignment IndexLit ctx
                 -> IO (Ctx.Assignment (SymExpr sym) ctx)
@@ -2572,7 +2590,7 @@ symbolicIndices sym = traverseFC f
         f (BVIndexLit w i) = bvLit sym w i
 
 -- | This evaluate a symbolic function against a set of arguments.
-betaReduce :: ExprBuilder t st
+betaReduce :: ExprBuilder t st fs
            -> ExprSymFn t args ret
            -> Ctx.Assignment (Expr t) args
            -> IO (Expr t ret)
@@ -2585,7 +2603,7 @@ betaReduce sym f args =
     MatlabSolverFnInfo fn_id _ _ -> do
       evalMatlabSolverFn fn_id sym args
 
-reduceApp :: (IsExprBuilder sym, sym ~ ExprBuilder t st)
+reduceApp :: (IsBasicExprBuilder sym, sym ~ ExprBuilder t st fs)
           => sym
           -> App (SymExpr sym) tp
           -> IO (SymExpr sym tp)
@@ -2750,7 +2768,7 @@ data EvalHashTables t
 --
 -- This returns whether the function changed as a Boolean and the function itself.
 evalSimpleFn :: EvalHashTables t
-             -> ExprBuilder t st
+             -> ExprBuilder t st fs
              -> ExprSymFn t idx ret
              -> IO (Bool,ExprSymFn t idx ret)
 evalSimpleFn tbl sym f =
@@ -2770,9 +2788,9 @@ evalSimpleFn tbl sym f =
       return (changed, f')
     MatlabSolverFnInfo{} -> return (False, f)
 
-evalBoundVars' :: forall t st ret
+evalBoundVars' :: forall t st fs ret
                .  EvalHashTables t
-               -> ExprBuilder t st
+               -> ExprBuilder t st fs
                -> Expr t ret
                -> IO (Expr t ret)
 evalBoundVars' tbls sym e0 =
@@ -2855,7 +2873,7 @@ initHashTable keys vals = do
 -- themselves bound in the term (e.g. in a function definition or quantifier).
 -- If this is not respected, then 'evalBoundVars' will call 'fail' with an
 -- error message.
-evalBoundVars :: ExprBuilder t st
+evalBoundVars :: ExprBuilder t st fs
               -> Expr t ret
               -> Ctx.Assignment (ExprBoundVar t) args
               -> Ctx.Assignment (Expr t) args
@@ -2870,7 +2888,7 @@ evalBoundVars sym e vars exprs = do
 
 -- | Return true if corresponding expressions in contexts are equivalent.
 allEq :: forall sym ctx
-      .  IsExprBuilder sym
+      .  IsBasicExprBuilder sym
       => sym
       -> Ctx.Assignment (SymExpr sym) ctx
       -> Ctx.Assignment (SymExpr sym) ctx
@@ -2887,8 +2905,8 @@ allEq sym x y = Ctx.forIndex (Ctx.size x) joinEq (pure (truePred sym))
 -- | This attempts to lookup an entry in a symbolic array.
 --
 -- It patterns maps on the array constructor.
-sbConcreteLookup :: forall t st d tp range
-                 . ExprBuilder t st
+sbConcreteLookup :: forall t st fs d tp range
+                 . ExprBuilder t st fs
                    -- ^ Simple builder for creating terms.
                  -> Expr t (BaseArrayType (d::>tp) range)
                     -- ^ Array to lookup value in.
@@ -2944,19 +2962,19 @@ sbConcreteLookup sym arr0 mcidx idx
 -- Expression builder instances
 
 -- | Evaluate a weighted sum of natural number values
-natSum :: ExprBuilder t st -> WeightedSum (Expr t) BaseNatType -> IO (NatExpr t)
+natSum :: ExprBuilder t st fs -> WeightedSum (Expr t) BaseNatType -> IO (NatExpr t)
 natSum sym s = semiRingSum sym SemiRingNat s
 
 -- | Evaluate a weighted sum of integer values
-intSum :: ExprBuilder t st -> WeightedSum (Expr t) BaseIntegerType -> IO (IntegerExpr t)
+intSum :: ExprBuilder t st fs -> WeightedSum (Expr t) BaseIntegerType -> IO (IntegerExpr t)
 intSum sym s = semiRingSum sym SemiRingInt s
 
 -- | Evaluate a weighted sum of real values.
-realSum :: ExprBuilder t st -> WeightedSum (Expr t) BaseRealType -> IO (RealExpr t)
+realSum :: ExprBuilder t st fs -> WeightedSum (Expr t) BaseRealType -> IO (RealExpr t)
 realSum sym s = semiRingSum sym SemiRingReal s
 
 
-bvUnary :: (1 <= w) => ExprBuilder t st -> UnaryBV (BoolExpr t) w -> IO (BVExpr t w)
+bvUnary :: (1 <= w) => ExprBuilder t st fs -> UnaryBV (BoolExpr t) w -> IO (BVExpr t w)
 bvUnary sym u
     | Just v <-  UnaryBV.asConstant u =
       bvLit sym (UnaryBV.width u) v
@@ -2964,7 +2982,7 @@ bvUnary sym u
       sbMakeExpr sym (BVUnaryTerm u)
 
 asUnaryBV :: (?unaryThreshold :: Int)
-          => ExprBuilder t st
+          => ExprBuilder t st fs
           -> BVExpr t n
           -> Maybe (UnaryBV (BoolExpr t) n)
 asUnaryBV sym e
@@ -2975,7 +2993,7 @@ asUnaryBV sym e
 
 -- | This create a unary bitvector representing if the size is not too large.
 sbTryUnaryTerm :: (1 <= w, ?unaryThreshold :: Int)
-               => ExprBuilder t st
+               => ExprBuilder t st fs
                -> UnaryBV (BoolExpr t) w
                -> App (Expr t) (BaseBVType w)
                -> IO (BVExpr t w)
@@ -3007,7 +3025,7 @@ asWeightedSum x
   | otherwise = WSum.var x
 
 semiRingSum :: WSum.SemiRingCoefficient tp
-            => ExprBuilder t st
+            => ExprBuilder t st fs
             -> SemiRingRepr tp
             -> WeightedSum (Expr t) tp
             -> IO (Expr t tp)
@@ -3020,7 +3038,7 @@ semiRingSum sym sr s
       sum' sym sr s
 
 sum' :: WSum.SemiRingCoefficient tp
-     => ExprBuilder t st
+     => ExprBuilder t st fs
      -> SemiRingRepr tp
      -> WeightedSum (Expr t) tp
      -> IO (Expr t tp)
@@ -3028,7 +3046,7 @@ sum' sym sr s = sbMakeExpr sym $ SemiRingSum sr $ s
 {-# INLINE sum' #-}
 
 scalarMul :: WSum.SemiRingCoefficient tp
-          => ExprBuilder t st
+          => ExprBuilder t st fs
           -> SemiRingRepr tp
           -> WSum.Coefficient tp
           -> Expr t tp
@@ -3046,7 +3064,7 @@ scalarMul sym sr c x
     sum' sym sr (WSum.scaledVar c x)
 
 semiRingIte :: WSum.SemiRingCoefficient tp
-            => ExprBuilder t st
+            => ExprBuilder t st fs
             -> SemiRingRepr tp
             -> Expr t BaseBoolType
             -> Expr t tp
@@ -3077,7 +3095,7 @@ semiRingIte sym sr c x y
 
 semiRingLe
    :: WSum.SemiRingCoefficient tp
-   => ExprBuilder t st
+   => ExprBuilder t st fs
    -> SemiRingRepr tp
    -> Expr t tp
    -> Expr t tp
@@ -3128,7 +3146,7 @@ semiRingLe sym sr x y
 
 
 semiRingEq :: WSum.SemiRingCoefficient tp
-           => ExprBuilder t st
+           => ExprBuilder t st fs
            -> SemiRingRepr tp
            -> Expr t tp
            -> Expr t tp
@@ -3149,7 +3167,7 @@ semiRingEq sym sr x y
 
 
 semiRingAdd :: WSum.SemiRingCoefficient tp
-            => ExprBuilder t st
+            => ExprBuilder t st fs
             -> SemiRingRepr tp
             -> Expr t tp
             -> Expr t tp
@@ -3178,7 +3196,7 @@ semiRingAdd sym sr x y =
       (GeneralSum, GeneralSum)     -> semiRingSum sym sr (x  `WSum.addVars` y)
 
 semiRingMul :: WSum.SemiRingCoefficient tp
-            => ExprBuilder t st
+            => ExprBuilder t st fs
             -> SemiRingRepr tp
             -> Expr t tp
             -> Expr t tp
@@ -3207,7 +3225,7 @@ semiRingMul sym sr x y
 -- -> not (u > 0 & v < 0) & not (u < 0 & v > 0)
 -- -> (u <= 0 | v >= 0) & (u >= 0 | v <= 0)
 -- -> (u <= 0 | 0 <= v) & (0 <= u | v <= 0)
-leNonneg :: IsExprBuilder sym
+leNonneg :: IsBasicExprBuilder sym
          => (sym -> a -> a -> IO (Pred sym)) -- ^ Less than or equal
          -> a -- ^ zero
          -> sym
@@ -3231,7 +3249,7 @@ leNonneg le zero sym u v = do
 -- -> not (u > 0 & v > 0 | u < 0 & v < 0)
 -- -> not (u > 0 & v > 0) & not (u < 0 & v < 0)
 -- -> (u <= 0 | v <= 0) & (u >= 0 | v >= 0)
-leNonpos :: IsExprBuilder sym
+leNonpos :: IsBasicExprBuilder sym
          => (sym -> a -> a -> IO (Pred sym)) -- ^ Less than or equal
          -> a -- ^ zero
          -> sym
@@ -3302,7 +3320,7 @@ foldBoundLeM f r n = do
   f r' n
 
 foldIndicesInRangeBounds :: forall sym idx r
-                         .  IsExprBuilder sym
+                         .  IsBasicExprBuilder sym
                          => sym
                          -> (r -> Ctx.Assignment (SymExpr sym) idx -> IO r)
                          -> r
@@ -3341,7 +3359,7 @@ bvSum :: (1 <= w)
 bvSum = undefined
 -}
 
-instance IsExprBuilder (ExprBuilder t st) where
+instance IsBasicExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
 
   ----------------------------------------------------------------------
@@ -4559,9 +4577,9 @@ instance IsExprBuilder (ExprBuilder t st) where
 ----------------------------------------------------------------------
 -- Float operations
 
-type instance SymInterpretedFloatType (ExprBuilder t st) _ = BaseRealType
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatReal)) fi = BaseRealType
 
-instance IsFloatExprBuilder (ExprBuilder t st) where
+instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) where
   floatZero sym _ = realZero sym
   floatLit sym _ = realLit sym
   floatNaN = undefined
@@ -4592,7 +4610,7 @@ instance IsFloatExprBuilder (ExprBuilder t st) where
   floatToSBV sym w x = realToSBV sym x w
   floatToReal _ = return
 
-instance IsSymExprBuilder (ExprBuilder t st) where
+instance IsFOLExprBuilder (ExprBuilder t st fs) where
   freshConstant sym nm tp = do
     v <- sbMakeBoundVar sym nm tp UninterpVarKind
     updateVarBinding sym nm (VarSymbolBinding v)
@@ -4656,7 +4674,7 @@ instance IsSymExprBuilder (ExprBuilder t st) where
 --------------------------------------------------------------------------------
 -- MatlabSymbolicArrayBuilder instance
 
-instance MatlabSymbolicArrayBuilder (ExprBuilder t st) where
+instance MatlabSymbolicArrayBuilder (ExprBuilder t st fs) where
   mkMatlabSolverFn sym fn_id = do
     let key = MatlabFnWrapper fn_id
     mr <- stToIO $ PH.lookup (sbMatlabFnCache sym) key
@@ -4678,3 +4696,7 @@ instance MatlabSymbolicArrayBuilder (ExprBuilder t st) where
         updateVarBinding sym emptySymbol (FnSymbolBinding f)
         stToIO $ PH.insert (sbMatlabFnCache sym) key (ExprSymFnWrapper f)
         return f
+
+instance IsFloatExprBuilder (ExprBuilder t st fs) => IsExprBuilder (ExprBuilder t st fs)
+
+instance IsExprBuilder (ExprBuilder t st fs) => IsSymExprBuilder (ExprBuilder t st fs)
