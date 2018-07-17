@@ -4,6 +4,7 @@
 {-# Language PatternSynonyms #-}
 
 {-# Language FlexibleContexts #-}
+{-# Language TypeApplications #-}
 module Main(main) where
 
 import Data.String(fromString)
@@ -167,7 +168,7 @@ simulate opts k =
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
        -- withZ3OnlineBackend nonceGen $ \sym ->
-       withYicesOnlineBackend nonceGen $ \sym ->
+       withYicesOnlineBackend @_ @(Flags FloatReal) @_ nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 

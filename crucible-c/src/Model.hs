@@ -50,14 +50,14 @@ addVar l nm k v (Model mp) = Model (MapF.insertWith jn k (Vars [ ent ]) mp)
   where jn (Vars new) (Vars old) = Vars (new ++ old)
         ent = Entry { entryName = nm, entryLoc = l, entryValue = v }
 
-evalVars :: GroundEvalFn s -> Vars (ExprBuilder s t) ty -> IO (Vals ty)
+evalVars :: GroundEvalFn s -> Vars (ExprBuilder s t fs) ty -> IO (Vals ty)
 evalVars ev (Vars xs) = Vals . reverse <$> mapM evEntry xs
   where evEntry e = do v <- groundEval ev (entryValue e)
                        return e { entryValue = v }
 
 evalModel ::
   GroundEvalFn s ->
-  Model (ExprBuilder s t) ->
+  Model (ExprBuilder s t fs) ->
   IO (MapF BaseTypeRepr Vals)
 evalModel ev (Model mp) = traverseF (evalVars ev) mp
 
@@ -69,7 +69,7 @@ data ModelViews = ModelViews
   , modelInJS :: String
   }
 
-ppModel :: GroundEvalFn s -> Model (ExprBuilder s t) -> IO ModelViews
+ppModel :: GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO ModelViews
 ppModel ev m =
   do c_code <- ppModelC ev m
      js_code <- ppModelJS ev m
@@ -95,7 +95,7 @@ ppValsC ty (Vals xs) =
     _ -> throw (Bug ("Type not implemented: " ++ show ty))
 
 ppModelC ::
-  GroundEvalFn s -> Model (ExprBuilder s t) -> IO String
+  GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO String
 ppModelC ev m =
   do vals <- evalModel ev m
      return $ unlines
@@ -123,7 +123,7 @@ ppValsJS ty (Vals xs) =
               _               -> "null"
 
 ppModelJS ::
-  GroundEvalFn s -> Model (ExprBuilder s t) -> IO String
+  GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO String
 ppModelJS ev m =
   do vals <- evalModel ev m
      let ents = MapF.foldrWithKey (\k v rest -> ppValsJS k v ++ rest) [] vals

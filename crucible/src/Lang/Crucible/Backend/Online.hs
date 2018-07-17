@@ -39,6 +39,12 @@ module Lang.Crucible.Backend.Online
   , withZ3OnlineBackend
     -- * OnlineBackendState
   , OnlineBackendState
+    -- * Re-exports
+  , B.FloatInterpretation
+  , B.FloatIEEE
+  , B.FloatUninterpreted
+  , B.FloatReal
+  , B.Flags
   ) where
 
 

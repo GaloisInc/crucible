@@ -21,6 +21,12 @@ module Lang.Crucible.Backend.Simple
   , newSimpleBackend
     -- * SimpleBackendState
   , SimpleBackendState
+    -- * Re-exports
+  , B.FloatInterpretation
+  , B.FloatIEEE
+  , B.FloatUninterpreted
+  , B.FloatReal
+  , B.Flags
   ) where
 
 import           Control.Lens
