@@ -75,7 +75,7 @@ mergePartial :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
   (Pred sym -> a -> a -> PartialT sym m a)
     {- ^ Operation to combine inner values. The 'Pred' parameter is the
-         definedness predicate for the resulting value. -} ->
+         if/then/else condition -} ->
   Pred sym {- ^ condition to merge on -} ->
   PartExpr (Pred sym) a {- ^ 'if' value -}  ->
   PartExpr (Pred sym) a {- ^ 'then' value -} ->
@@ -100,7 +100,7 @@ mergePartial sym _ c Unassigned (PE py y) =
         return $! mkPE p y
 mergePartial sym f c (PE px x) (PE py y) =
     do p <- liftIO (itePred sym c px py)
-       runPartialT sym p (f p x y)
+       runPartialT sym p (f c x y)
 
 -- | Merge a collection of partial values in an if-then-else tree.
 --   For example, if we merge a list like @[(xp,x),(yp,y),(zp,z)]@,
@@ -108,7 +108,10 @@ mergePartial sym f c (PE px x) (PE py y) =
 --   @if xp then x else (if yp then y else (if zp then z else undefined))@.
 mergePartials :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
-  (Pred sym -> a -> a -> PartialT sym m a) {- ^ Operation to combine inner values -} ->
+  (Pred sym -> a -> a -> PartialT sym m a)
+    {- ^ Operation to combine inner values.
+         The 'Pred' parameter is the if/then/else condition
+     -} ->
   [(Pred sym, PartExpr (Pred sym) a)]      {- ^ values to merge -} ->
   m (PartExpr (Pred sym) a)
 mergePartials sym f = go
