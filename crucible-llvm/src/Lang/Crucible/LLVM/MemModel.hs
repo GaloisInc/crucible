@@ -369,8 +369,8 @@ asCrucibleType (G.Type tf _) k =
          Just (Some w)
            | Just LeqProof <- isPosNat w -> k (LLVMPointerRepr w)
          _ -> error $ unwords ["invalid bitvector size", show sz]
-    G.Float  -> k RealValRepr
-    G.Double -> k RealValRepr
+    G.Float  -> k (FloatRepr SingleFloatRepr)
+    G.Double -> k (FloatRepr DoubleFloatRepr)
     G.Array _n t -> asCrucibleType t $ \tpr -> k (VectorRepr tpr)
     G.Struct xs -> go Ctx.empty (V.toList xs) $ \ctx -> k (StructRepr ctx)
       where go :: CtxRepr ctx0
@@ -406,8 +406,13 @@ unpackMemValue
 -- If the block number is 0, we know this is a raw bitvector, and not an actual pointer.
 unpackMemValue _sym (LLVMValInt blk bv)
   = return . AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
-unpackMemValue _ (LLVMValReal _ x) =
-  return $ AnyValue RealValRepr x
+unpackMemValue _ (LLVMValReal sz x) =
+  case sz of
+    SingleSize ->
+      return $ AnyValue (FloatRepr SingleFloatRepr) x
+    DoubleSize ->
+      return $ AnyValue (FloatRepr DoubleFloatRepr) x
+
 unpackMemValue sym (LLVMValStruct xs) = do
   xs' <- traverse (unpackMemValue sym . snd) $ V.toList xs
   unpackStruct sym xs' Ctx.empty Ctx.empty $ \ctx fls -> return $ AnyValue (StructRepr ctx) $ fls
@@ -438,10 +443,10 @@ packMemValue
    -> TypeRepr tp
    -> RegValue sym tp
    -> IO (LLVMVal sym)
-packMemValue _ (G.Type G.Float _) RealValRepr x =
+packMemValue _ (G.Type G.Float _) (FloatRepr SingleFloatRepr) x =
        return $ LLVMValReal SingleSize x
 
-packMemValue _ (G.Type G.Double _) RealValRepr x =
+packMemValue _ (G.Type G.Double _) (FloatRepr DoubleFloatRepr) x =
        return $ LLVMValReal DoubleSize x
 
 packMemValue sym (G.Type (G.Bitvector bytes) _) (BVRepr w) bv
