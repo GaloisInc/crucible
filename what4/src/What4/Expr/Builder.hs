@@ -15,9 +15,10 @@ an instance of the classes 'IsExprBuilder' and 'IsSymExprBuilder'.
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -160,6 +161,7 @@ import qualified Data.HashTable.Class as H (toList)
 import qualified Data.HashTable.ST.Cuckoo as H
 import           Data.Hashable
 import           Data.IORef
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes
@@ -1085,6 +1087,8 @@ instance HashableF (MatlabFnWrapper t) where
 data ExprSymFnWrapper t c
    = forall a r . (c ~ (a ::> r)) => ExprSymFnWrapper (ExprSymFn t a r)
 
+data SomeSymFn sym = forall args ret . SomeSymFn (SymFn sym args ret)
+
 ------------------------------------------------------------------------
 -- ExprBuilder
 
@@ -1128,6 +1132,7 @@ data ExprBuilder t (st :: * -> *) (fs :: *)
         , sbStateManager :: !(IORef (st t))
 
         , sbVarBindings :: !(IORef (SymbolVarBimap t))
+        , sbUninterpFnCache :: !(IORef (Map (SolverSymbol, Some (Ctx.Assignment BaseTypeRepr)) (SomeSymFn (ExprBuilder t st fs))))
           -- | Cache for Matlab functions
         , sbMatlabFnCache
           :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (ExprSymFnWrapper t))
@@ -2493,6 +2498,7 @@ newExprBuilder st gen = do
   loc_ref       <- newIORef initializationLoc
   storage_ref   <- newIORef es
   bindings_ref  <- newIORef Bimap.empty
+  uninterp_fn_cache_ref <- newIORef Map.empty
   matlabFnCache <- stToIO $ PH.new
 
   -- Set up configuration options
@@ -2519,6 +2525,7 @@ newExprBuilder st gen = do
                , curAllocator = storage_ref
                , sbStateManager = st_ref
                , sbVarBindings = bindings_ref
+               , sbUninterpFnCache = uninterp_fn_cache_ref
                , sbMatlabFnCache = matlabFnCache
                }
 
@@ -4612,6 +4619,166 @@ instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) where
   floatToReal _ = return
   floatBaseTypeRepr _ _ = knownRepr
 
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) HalfFloat = BaseBVType 16
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) SingleFloat = BaseBVType 32
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) DoubleFloat = BaseBVType 64
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) QuadFloat = BaseBVType 128
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) X86_80Float = BaseBVType 80
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) DoubleDoubleFloat = BaseBVType 128
+
+instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpreted)) where
+  floatPZero sym fi =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym "uninterpreted_float_pzero" Ctx.empty ret_type
+  floatNZero sym fi =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym "uninterpreted_float_nzero" Ctx.empty ret_type
+  floatLit sym fi r = realToFloat sym fi =<< realLit sym r
+  floatNaN sym fi =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym "uninterpreted_float_nan" Ctx.empty ret_type
+  floatPInf sym fi =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym "uninterpreted_float_pinf" Ctx.empty ret_type
+  floatNInf sym fi =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym "uninterpreted_float_ninf" Ctx.empty ret_type
+  floatAdd sym x y =
+    let ret_type = exprType x
+    in  mkUninterpFnApp sym
+                        "uninterpreted_float_add"
+                        (Ctx.empty Ctx.:> x Ctx.:> y)
+                        ret_type
+  floatSub sym x y =
+    let ret_type = exprType x
+    in  mkUninterpFnApp sym
+                        "uninterpreted_float_sub"
+                        (Ctx.empty Ctx.:> x Ctx.:> y)
+                        ret_type
+  floatMul sym x y =
+    let ret_type = exprType x
+    in  mkUninterpFnApp sym
+                        "uninterpreted_float_mul"
+                        (Ctx.empty Ctx.:> x Ctx.:> y)
+                        ret_type
+  floatDiv sym x y =
+    let ret_type = exprType x
+    in  mkUninterpFnApp sym
+                        "uninterpreted_float_div"
+                        (Ctx.empty Ctx.:> x Ctx.:> y)
+                        ret_type
+  floatRem sym x y =
+    let ret_type = exprType x
+    in  mkUninterpFnApp sym
+                        "uninterpreted_float_rem"
+                        (Ctx.empty Ctx.:> x Ctx.:> y)
+                        ret_type
+  floatEq sym x y =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_eq"
+                    (Ctx.empty Ctx.:> x Ctx.:> y)
+                    knownRepr
+  floatNe sym x y =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_ne"
+                    (Ctx.empty Ctx.:> x Ctx.:> y)
+                    knownRepr
+  floatLe sym x y =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_le"
+                    (Ctx.empty Ctx.:> x Ctx.:> y)
+                    knownRepr
+  floatLt sym x y =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_lt"
+                    (Ctx.empty Ctx.:> x Ctx.:> y)
+                    knownRepr
+  floatGe sym x y =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_ge"
+                    (Ctx.empty Ctx.:> x Ctx.:> y)
+                    knownRepr
+  floatGt sym x y =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_gt"
+                    (Ctx.empty Ctx.:> x Ctx.:> y)
+                    knownRepr
+  floatIte = baseTypeIte
+  floatIsNaN sym x =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_is_nan"
+                    (Ctx.empty Ctx.:> x)
+                    knownRepr
+  floatIsInf sym x =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_is_inf"
+                    (Ctx.empty Ctx.:> x)
+                    knownRepr
+  floatIsZero sym x =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_is_zero"
+                    (Ctx.empty Ctx.:> x)
+                    knownRepr
+  floatIsPos sym x =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_is_pos"
+                    (Ctx.empty Ctx.:> x)
+                    knownRepr
+  floatIsNeg sym x =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_is_neg"
+                    (Ctx.empty Ctx.:> x)
+                    knownRepr
+  floatCast sym fi x =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym
+                        "uninterpreted_float_cast"
+                        (Ctx.empty Ctx.:> x)
+                        ret_type
+  bvToFloat sym fi x =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym
+                        "uninterpreted_bv_to_float"
+                        (Ctx.empty Ctx.:> x)
+                        ret_type
+  sbvToFloat sym fi x =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym
+                        "uninterpreted_sbv_to_float"
+                        (Ctx.empty Ctx.:> x)
+                        ret_type
+  realToFloat sym fi x =
+    let ret_type = floatBaseTypeRepr sym fi
+    in  mkUninterpFnApp sym
+                        "uninterpreted_real_to_float"
+                        (Ctx.empty Ctx.:> x)
+                        ret_type
+  floatToBV sym w x =
+    let ret_type = BaseBVRepr w
+    in  mkUninterpFnApp sym
+                        "uninterpreted_float_to_bv"
+                        (Ctx.empty Ctx.:> x)
+                        ret_type
+  floatToSBV sym w x =
+    let ret_type = BaseBVRepr w
+    in  mkUninterpFnApp sym
+                        "uninterpreted_float_to_sbv"
+                        (Ctx.empty Ctx.:> x)
+                        ret_type
+  floatToReal sym x =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_to_real"
+                    (Ctx.empty Ctx.:> x)
+                    knownRepr
+  floatBaseTypeRepr _ = \case
+    HalfFloatRepr         -> knownRepr
+    SingleFloatRepr       -> knownRepr
+    DoubleFloatRepr       -> knownRepr
+    QuadFloatRepr         -> knownRepr
+    X86_80FloatRepr       -> knownRepr
+    DoubleDoubleFloatRepr -> knownRepr
+
+
 instance IsFOLExprBuilder (ExprBuilder t st fs) where
   freshConstant sym nm tp = do
     v <- sbMakeBoundVar sym nm tp UninterpVarKind
@@ -4698,6 +4865,53 @@ instance MatlabSymbolicArrayBuilder (ExprBuilder t st fs) where
         updateVarBinding sym emptySymbol (FnSymbolBinding f)
         stToIO $ PH.insert (sbMatlabFnCache sym) key (ExprSymFnWrapper f)
         return f
+
+unsafeUserSymbol :: String -> IO SolverSymbol
+unsafeUserSymbol s =
+  case userSymbol s of
+    Left err -> fail (show err)
+    Right symbol  -> return symbol
+
+cachedUninterpFn
+  :: (sym ~ ExprBuilder t st fs)
+  => sym
+  -> SolverSymbol
+  -> Ctx.Assignment BaseTypeRepr args
+  -> BaseTypeRepr ret
+  -> (  sym
+     -> SolverSymbol
+     -> Ctx.Assignment BaseTypeRepr args
+     -> BaseTypeRepr ret
+     -> IO (SymFn sym args ret)
+     )
+  -> IO (SymFn sym args ret)
+cachedUninterpFn sym fn_name arg_types ret_type handler = do
+  fn_cache <- readIORef $ sbUninterpFnCache sym
+  case Map.lookup fn_key fn_cache of
+    Just (SomeSymFn fn)
+      | Just Refl <- testEquality (fnArgTypes fn) arg_types
+      , Just Refl <- testEquality (fnReturnType fn) ret_type
+      -> return fn
+      | otherwise
+      -> fail "Duplicate uninterpreted function declaration."
+    Nothing -> do
+      fn <- handler sym fn_name arg_types ret_type
+      modifyIORef' (sbUninterpFnCache sym) (Map.insert fn_key (SomeSymFn fn))
+      return fn
+  where fn_key =  (fn_name, Some (arg_types Ctx.:> ret_type))
+
+mkUninterpFnApp
+  :: (sym ~ ExprBuilder t st fs)
+  => sym
+  -> String
+  -> Ctx.Assignment (SymExpr sym) args
+  -> BaseTypeRepr ret
+  -> IO (SymExpr sym ret)
+mkUninterpFnApp sym str_fn_name args ret_type = do
+  fn_name <- unsafeUserSymbol str_fn_name
+  let arg_types = fmapFC exprType args
+  fn <- cachedUninterpFn sym fn_name arg_types ret_type freshTotalUninterpFn
+  applySymFn sym fn args
 
 instance IsFloatExprBuilder (ExprBuilder t st fs) => IsExprBuilder (ExprBuilder t st fs)
 
