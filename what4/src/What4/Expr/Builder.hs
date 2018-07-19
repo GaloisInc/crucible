@@ -4915,4 +4915,6 @@ mkUninterpFnApp sym str_fn_name args ret_type = do
 
 instance IsFloatExprBuilder (ExprBuilder t st fs) => IsExprBuilder (ExprBuilder t st fs)
 
-instance IsExprBuilder (ExprBuilder t st fs) => IsSymExprBuilder (ExprBuilder t st fs)
+instance IsFloatExprBuilder (ExprBuilder t st fs) => IsFloatFOLExprBuilder (ExprBuilder t st fs)
+
+instance (IsExprBuilder (ExprBuilder t st fs), IsFloatFOLExprBuilder (ExprBuilder t st fs)) => IsSymExprBuilder (ExprBuilder t st fs)

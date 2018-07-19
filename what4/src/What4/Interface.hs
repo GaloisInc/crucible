@@ -69,9 +69,10 @@ module What4.Interface
   , IsSymFn(..)
     -- ** IsExprBuilder
   , IsBasicExprBuilder(..)
-  , IsExprBuilder
   , IsFloatExprBuilder(..)
+  , IsExprBuilder
   , IsFOLExprBuilder(..)
+  , IsFloatFOLExprBuilder(..)
   , IsSymExprBuilder
 
     -- * Type Aliases
@@ -1691,7 +1692,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
 
 ----------------------------------------------------------------------
 -- Floating point operations
-class IsFloatExprBuilder sym where
+class IsBasicExprBuilder sym => IsFloatExprBuilder sym where
   -- | Return floating point number @+0@.
   floatPZero :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
 
@@ -1983,6 +1984,32 @@ class ( IsBasicExprBuilder sym
                 -- ^ Arguments to function
              -> IO (SymExpr sym ret)
 
+-- | Helper interface for creating new symbolic floating-point constants and
+--   variables.
+class (IsFOLExprBuilder sym, IsFloatExprBuilder sym) => IsFloatFOLExprBuilder sym where
+  -- | Create a fresh top-level floating-point uninterpreted constant.
+  freshFloatConstant
+    :: sym
+    -> SolverSymbol
+    -> FloatInfoRepr fi
+    -> IO (SymExpr sym (SymInterpretedFloatType sym fi))
+  freshFloatConstant sym nm fi = freshConstant sym nm $ floatBaseTypeRepr sym fi
+
+  -- | Create a fresh floating-point latch variable.
+  freshFloatLatch
+    :: sym
+    -> SolverSymbol
+    -> FloatInfoRepr fi
+    -> IO (SymExpr sym (SymInterpretedFloatType sym fi))
+  freshFloatLatch sym nm fi = freshLatch sym nm $ floatBaseTypeRepr sym fi
+
+  -- | Creates a floating-point bound variable.
+  freshFloatBoundVar
+    :: sym
+    -> SolverSymbol
+    -> FloatInfoRepr fi
+    -> IO (BoundVar sym (SymInterpretedFloatType sym fi))
+  freshFloatBoundVar sym nm fi = freshBoundVar sym nm $ floatBaseTypeRepr sym fi
 
 -- | This returns true if the value corresponds to a concrete value.
 baseIsConcrete :: forall sym bt
@@ -2259,6 +2286,6 @@ data SymEncoder sym v tp
                 , symToExpr   :: !(sym -> v -> IO (SymExpr sym tp))
                 }
 
-class (IsBasicExprBuilder sym, IsFloatExprBuilder sym) => IsExprBuilder sym
+class IsFloatExprBuilder sym => IsExprBuilder sym
 
-class (IsExprBuilder sym, IsFOLExprBuilder sym) => IsSymExprBuilder sym
+class (IsExprBuilder sym, IsFloatFOLExprBuilder sym) => IsSymExprBuilder sym
