@@ -498,55 +498,55 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
 
     FloatLit f -> floatLit sym SingleFloatRepr $ toRational f
     DoubleLit d -> floatLit sym DoubleFloatRepr $ toRational d
-    FloatNaN fi -> return $ floatNaN sym fi
-    FloatPInf fi -> return $ floatPInf sym fi
-    FloatNInf fi -> return $ floatNInf sym fi
-    FloatAdd fi xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      floatAdd sym fi x y
-    FloatSub fi xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      floatSub sym fi x y
-    FloatMul fi xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      floatMul sym fi x y
-    FloatDiv fi xe ye -> do
+    FloatNaN fi -> floatNaN sym fi
+    FloatPInf fi -> floatPInf sym fi
+    FloatNInf fi -> floatNInf sym fi
+    FloatAdd _ (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      floatAdd @_ @fi sym x y
+    FloatSub _ (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      floatSub @_ @fi sym x y
+    FloatMul _ (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      floatMul @_ @fi sym x y
+    FloatDiv _ (x_expr :: f (FloatType fi)) y_expr -> do
       -- TODO: handle division by zero
-      x <- evalSub xe
-      y <- evalSub ye
-      floatDiv sym fi x y
-    FloatRem fi xe ye -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      floatDiv @_ @fi sym x y
+    FloatRem _ (x_expr :: f (FloatType fi)) y_expr -> do
       -- TODO: handle division by zero
-      x <- evalSub xe
-      y <- evalSub ye
-      floatRem sym fi x y
-    FloatEq (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatEq @sym @fi sym x y
-    FloatLt (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
+      floatRem @_ @fi sym x y
+    FloatEq (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatLt @sym @fi sym x y
-    FloatLe (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
+      floatEq @_ @fi sym x y
+    FloatLt (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatLe @sym @fi sym x y
-    FloatGt (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
+      floatLt @_ @fi sym x y
+    FloatLe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatGt @sym @fi sym x y
-    FloatGe (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
+      floatLe @_ @fi sym x y
+    FloatGt (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatGe @sym @fi sym x y
-    FloatNe (x_expr :: f (FloatType fi)) (y_expr :: f (FloatType fi)) -> do
+      floatGt @_ @fi sym x y
+    FloatGe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatNe @sym @fi sym x y
+      floatGe @_ @fi sym x y
+    FloatNe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      floatNe @_ @fi sym x y
     FloatCast fi (x_expr :: f (FloatType fi')) ->
       floatCast @_ @_ @fi' sym fi =<< evalSub x_expr
     FloatFromBV fi x_expr -> bvToFloat sym fi =<< evalSub x_expr
@@ -557,17 +557,17 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     FloatToSBV w (x_expr :: f (FloatType fi)) ->
       floatToSBV @_ @_ @fi sym w =<< evalSub x_expr
     FloatToReal (x_expr :: f (FloatType fi)) ->
-      floatToReal @sym @fi sym =<< evalSub x_expr
+      floatToReal @_ @fi sym =<< evalSub x_expr
     FloatIsNaN (x_expr :: f (FloatType fi)) ->
-      floatIsNaN @sym @fi sym =<< evalSub x_expr
+      floatIsNaN @_ @fi sym =<< evalSub x_expr
     FloatIsInfinite (x_expr :: f (FloatType fi)) ->
-      floatIsInf @sym @fi sym =<< evalSub x_expr
+      floatIsInf @_ @fi sym =<< evalSub x_expr
     FloatIsZero (x_expr :: f (FloatType fi)) ->
-      floatIsZero @sym @fi sym =<< evalSub x_expr
+      floatIsZero @_ @fi sym =<< evalSub x_expr
     FloatIsPositive (x_expr :: f (FloatType fi)) ->
-      floatIsPos @sym @fi sym =<< evalSub x_expr
+      floatIsPos @_ @fi sym =<< evalSub x_expr
     FloatIsNegative (x_expr :: f (FloatType fi)) ->
-      floatIsNeg @sym @fi sym =<< evalSub x_expr
+      floatIsNeg @_ @fi sym =<< evalSub x_expr
 
     ----------------------------------------------------------------------
     -- Conversions

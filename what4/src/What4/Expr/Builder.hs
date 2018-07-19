@@ -4580,16 +4580,17 @@ instance IsBasicExprBuilder (ExprBuilder t st fs) where
 type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatReal)) fi = BaseRealType
 
 instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) where
-  floatZero sym _ = realZero sym
+  floatPZero sym _ = return $ realZero sym
+  floatNZero sym _ = return $ realZero sym
   floatLit sym _ = realLit sym
   floatNaN = undefined
   floatPInf = undefined
   floatNInf = undefined
-  floatAdd sym _ = realAdd sym
-  floatSub sym _ = realSub sym
-  floatMul sym _ = realMul sym
-  floatDiv sym _ = realDiv sym
-  floatRem sym _ = realMod sym
+  floatAdd = realAdd
+  floatSub = realSub
+  floatMul = realMul
+  floatDiv = realDiv
+  floatRem = realMod
   floatEq = realEq
   floatNe = realNe
   floatLe = realLe
@@ -4609,6 +4610,7 @@ instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) where
   floatToBV sym w x = realToBV sym x w
   floatToSBV sym w x = realToSBV sym x w
   floatToReal _ = return
+  floatBaseTypeRepr _ _ = knownRepr
 
 instance IsFOLExprBuilder (ExprBuilder t st fs) where
   freshConstant sym nm tp = do

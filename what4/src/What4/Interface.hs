@@ -1692,25 +1692,27 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
 ----------------------------------------------------------------------
 -- Floating point operations
 class IsFloatExprBuilder sym where
-  -- | Return floating point number 0.
-  floatZero :: sym -> FloatInfoRepr fi -> SymFloat sym fi
+  -- | Return floating point number @+0@.
+  floatPZero :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
+
+  -- | Return floating point number @-0@.
+  floatNZero :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
 
   -- | Create a constant floating point literal.
   floatLit :: sym -> FloatInfoRepr fi -> Rational -> IO (SymFloat sym fi)
 
   -- |  Return floating point NaN.
-  floatNaN :: sym -> FloatInfoRepr fi -> SymFloat sym fi
+  floatNaN :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
 
-  -- | Return floating point +infinity.
-  floatPInf :: sym -> FloatInfoRepr fi -> SymFloat sym fi
+  -- | Return floating point @+infinity@.
+  floatPInf :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
 
-  -- | Return floating point -infinity.
-  floatNInf :: sym -> FloatInfoRepr fi -> SymFloat sym fi
+  -- | Return floating point @-infinity@.
+  floatNInf :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
 
   -- | Add two floting point numbers.
   floatAdd
     :: sym
-    -> FloatInfoRepr fi
     -> SymFloat sym fi
     -> SymFloat sym fi
     -> IO (SymFloat sym fi)
@@ -1718,7 +1720,6 @@ class IsFloatExprBuilder sym where
   -- | Subtract two floting point numbers.
   floatSub
     :: sym
-    -> FloatInfoRepr fi
     -> SymFloat sym fi
     -> SymFloat sym fi
     -> IO (SymFloat sym fi)
@@ -1726,7 +1727,6 @@ class IsFloatExprBuilder sym where
   -- | Multiply two floting point numbers.
   floatMul
     :: sym
-    -> FloatInfoRepr fi
     -> SymFloat sym fi
     -> SymFloat sym fi
     -> IO (SymFloat sym fi)
@@ -1734,7 +1734,6 @@ class IsFloatExprBuilder sym where
   -- | Add two floting point numbers.
   floatDiv
     :: sym
-    -> FloatInfoRepr fi
     -> SymFloat sym fi
     -> SymFloat sym fi
     -> IO (SymFloat sym fi)
@@ -1742,7 +1741,6 @@ class IsFloatExprBuilder sym where
   -- | Add two floting point numbers.
   floatRem
     :: sym
-    -> FloatInfoRepr fi
     -> SymFloat sym fi
     -> SymFloat sym fi
     -> IO (SymFloat sym fi)
@@ -1841,6 +1839,12 @@ class IsFloatExprBuilder sym where
   -- | Convert a floating point number to a real number.
   floatToReal :: sym -> SymFloat sym fi -> IO (SymReal sym)
 
+  -- | The associated BaseType representative of the floating point
+  -- interpretation for each format.
+  floatBaseTypeRepr
+    :: sym
+    -> FloatInfoRepr (fi :: FloatInfo)
+    -> BaseTypeRepr (SymInterpretedFloatType sym fi)
 
 
 -- | Create a literal from an indexlit.
