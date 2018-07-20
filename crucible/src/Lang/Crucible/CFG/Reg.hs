@@ -650,9 +650,11 @@ data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
    = CFG { cfgHandle :: !(FnHandle init ret)
          , cfgBlocks :: !([Block ext s ret])
          , cfgNextValue :: !Int
-         -- ^ A number greater than any atom or register id appearing
-         -- in the CFG. Primarily useful for augmenting the CFG after
-         -- creation.
+         -- ^ A number greater than any atom or register ID appearing
+         -- in the CFG. This and 'cfgNextLabel' are primarily useful
+         -- for augmenting the CFG after creation.
+         , cfgNextLabel :: !Int
+         -- ^ A number greater than any label ID appearing in the CFG.
          }
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init

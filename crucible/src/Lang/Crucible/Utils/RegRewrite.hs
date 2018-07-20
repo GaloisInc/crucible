@@ -125,7 +125,7 @@ data ComplexStmt ext s
 
 initState :: CFG ext s init ret -> RewState
 initState cfg = RewState { rsNextAtomID = cfgNextValue cfg
-                         , rsNextLabelID = initNextLabelID cfg }
+                         , rsNextLabelID = cfgNextLabel cfg }
 
 runRewriter :: CFG ext s init ret -> Rewriter ext s ret a -> a
 runRewriter cfg (Rewriter f) =
@@ -211,13 +211,3 @@ rebuildBlock stmts block =
            let accBlocks' = (accBlocks Seq.|> thisBlock) Seq.><
                             thnBlocks Seq.>< elsBlocks
            go s' Seq.empty accBlocks' (LabelID newLab) Set.empty term
-
-------------------------------------------------------------------------
--- Miscellaneous
-
-initNextLabelID :: CFG ext s init ret -> Int
-initNextLabelID cfg =
-  1 + maximum (map (blockIDInt . blockID) (cfgBlocks cfg))
-  where
-    blockIDInt (LabelID l) = labelInt l
-    blockIDInt (LambdaID l) = lambdaInt l
