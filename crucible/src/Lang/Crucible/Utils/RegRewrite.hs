@@ -7,27 +7,32 @@
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
 --
--- A rewrite engine for registerized CFGs. Currently just supports
--- changing blocks by adding statements in the middle; blocks can't be
--- created, removed, or otherwise altered.
+-- A rewrite engine for registerized CFGs.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 module Lang.Crucible.Utils.RegRewrite
   ( -- * Main interface
     annotateCFGStmts
     -- * Annotation monad
-  , Annotator
-  , addStmtBefore
-  , addStmtAfter
+  , Rewriter
+  , addStmt
+  , addInternalStmt
+  , ifte
   , freshAtom
   ) where
 
-import           Control.Monad.State.Strict
-import           Data.Sequence (Seq)
+import           Control.Monad.RWS.Strict
+import           Data.Foldable ( toList )
+import           Data.Sequence ( Seq )
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 
 import           What4.ProgramLoc
 
@@ -39,50 +44,58 @@ import           Lang.Crucible.Types
 -- Public interface
 
 -- | Add statements to each block in a CFG according to the given
--- instrumentation functions. See the 'Annotator' monad for the
+-- instrumentation functions. See the 'Rewriter' monad for the
 -- operations provided for adding code.
 annotateCFGStmts :: TraverseExt ext
-                 => (Stmt ext s -> Annotator ext s ret ())
-                 -- ^ Action to run on each non-terminating statement
-                 -> (TermStmt s ret -> Annotator ext s ret ())
-                 -- ^ Action to run on each terminating statement;
-                 -- calls to 'addStmtAfter' are ignored
+                 => (Posd (Stmt ext s) -> Rewriter ext s ret ())
+                 -- ^ Action to run on each non-terminating statement;
+                 -- must explicitly add the original statement back if
+                 -- desired
+                 -> (Posd (TermStmt s ret) -> Rewriter ext s ret ())
+                 -- ^ Action to run on each terminating statement
                  -> CFG ext s init ret
                  -- ^ Graph to rewrite
                  -> CFG ext s init ret
 annotateCFGStmts fS fT cfg =
-  runAnnotator cfg $
+  runRewriter cfg $
     do blocks' <- mapM (annotateBlockStmts fS fT) (cfgBlocks cfg)
-       newCFG cfg blocks'
+       newCFG cfg (concat blocks')
 
--- | Monad providing operations for adding statements to a basic
--- block. There is implicitly a current statement that has been
--- matched, so that new statements can be added before or after the
--- current statement.
-newtype Annotator ext s (ret :: CrucibleType) a =
-  Annotator (State (AnnState ext s ret) a)
-  deriving ( Functor, Applicative, Monad, MonadState (AnnState ext s ret) )
+-- | Monad providing operations for modifying a basic block by adding
+-- statements and/or splicing in conditional braches.
+newtype Rewriter ext s (ret :: CrucibleType) a =
+  Rewriter (RWS () (Seq (ComplexStmt ext s)) RewState a)
+  deriving (Functor, Applicative, Monad,
+            MonadState RewState,
+            MonadWriter (Seq (ComplexStmt ext s)))
 
--- | Add a new statement, immediately preceding the current statement.
-addStmtBefore :: Stmt ext s -> Annotator ext s ret ()
-addStmtBefore stmt =
-  modify $ \s -> s { asStmtsBefore = asStmtsBefore s Seq.:|>
-                                     Posd InternalPos stmt }
+-- | Add a new statement at the current position.
+addStmt :: Posd (Stmt ext s) -> Rewriter ext s ret ()
+addStmt stmt = tell (Seq.singleton (Stmt stmt))
 
--- | Add a new statement, immediately following the current statement
--- (and any statements added by previous calls). Ignored when the current
--- statement is a terminating statement.
-addStmtAfter :: Stmt ext s -> Annotator ext s ret ()
-addStmtAfter stmt =
-  modify $ \s -> s { asStmtsAfter = asStmtsAfter s Seq.:|>
-                                    Posd InternalPos stmt }
+-- | Add a new statement at the current position, marking it as
+-- internally generated.
+addInternalStmt :: Stmt ext s -> Rewriter ext s ret ()
+addInternalStmt = addStmt . Posd InternalPos
+
+-- | Add a conditional at the current position. This will cause the
+-- current block to end and new blocks to be generated for the two
+-- branches and the remaining statements in the original block.
+ifte :: Atom s BoolType
+       -> Rewriter ext s ret ()
+       -> Rewriter ext s ret ()
+       -> Rewriter ext s ret ()
+ifte atom thn els =
+  do (~(), thnSeq) <- gather thn
+     (~(), elsSeq) <- gather els
+     tell $ Seq.singleton (IfThenElse atom thnSeq elsSeq)
 
 -- | Create a new atom with a freshly allocated id. The id will not
 -- have been used anywhere in the original CFG.
-freshAtom :: TypeRepr tp -> Annotator ext s ret (Atom s tp)
+freshAtom :: TypeRepr tp -> Rewriter ext s ret (Atom s tp)
 freshAtom tp =
-  do i <- gets asNextAtomId
-     modify $ \s -> s { asNextAtomId = i + 1 }
+  do i <- gets rsNextAtomID
+     modify $ \s -> s { rsNextAtomID = i + 1 }
      return $ Atom { atomPosition = InternalPos
                    , atomId = i
                    , atomSource = Assigned
@@ -90,60 +103,121 @@ freshAtom tp =
 
 ------------------------------------------------------------------------
 -- Monad
+--
+-- For each block, rewriting occurs in two stages:
+--
+-- 1. Generate a sequence of "complex statements", each of which may
+--    be an internal if-then-else.
+-- 2. Rebuild the block from the complex statements, creating
+--    additional blocks for internal control flow.
+--
+-- Step 1 occurs through a simple writer monad, leaving the nasty details
+-- of block mangling to step 2.
 
-data AnnState ext s (ret :: CrucibleType) =
-  AnnState { asStmtsBefore :: !(Seq (Posd (Stmt ext s)))
-           , asStmtsAfter  :: !(Seq (Posd (Stmt ext s)))
-           , asNextAtomId  :: !Int }
+data RewState = RewState { rsNextAtomID :: !Int
+                         , rsNextLabelID :: !Int }
 
-initState :: CFG ext s init ret -> AnnState ext s ret
-initState cfg = AnnState { asStmtsBefore = Seq.Empty
-                         , asStmtsAfter = Seq.Empty
-                         , asNextAtomId = cfgNextValue cfg }
+data ComplexStmt ext s
+  = Stmt (Posd (Stmt ext s))
+  | IfThenElse (Atom s BoolType)
+               (Seq (ComplexStmt ext s))
+               (Seq (ComplexStmt ext s))
 
-runAnnotator :: CFG ext s init ret -> Annotator ext s ret a -> a
-runAnnotator cfg (Annotator f) = fst $ runState f (initState cfg)
+initState :: CFG ext s init ret -> RewState
+initState cfg = RewState { rsNextAtomID = cfgNextValue cfg
+                         , rsNextLabelID = initNextLabelID cfg }
 
-clearStmts :: Annotator ext s ret ()
-clearStmts =
-  modify $ \s -> s { asStmtsBefore = Seq.Empty
-                   , asStmtsAfter = Seq.Empty }
+runRewriter :: CFG ext s init ret -> Rewriter ext s ret a -> a
+runRewriter cfg (Rewriter f) =
+  case runRWS f () (initState cfg) of (a, _, _) -> a
+
+freshLabel :: Rewriter ext s ret (Label s)
+freshLabel =
+  do i <- gets rsNextLabelID
+     modify $ \s -> s { rsNextLabelID = i + 1 }
+     return $ Label { labelInt = i }
+
+-- | Return the output of a writer action without passing it onward.
+gather :: MonadWriter w m => m a -> m (a, w)
+gather m = censor (const mempty) $ listen m
 
 ------------------------------------------------------------------------
 -- Implementation
 
 newCFG :: CFG ext s init ret
        -> [Block ext s ret]
-       -> Annotator ext s ret (CFG ext s init ret)
+       -> Rewriter ext s ret (CFG ext s init ret)
 newCFG cfg blocks =
-  do nextAtomId <- gets asNextAtomId
+  do nextAtomID <- gets rsNextAtomID
      return $ cfg { cfgBlocks = blocks
-                  , cfgNextValue = nextAtomId }
+                  , cfgNextValue = nextAtomID }
 
 annotateBlockStmts :: TraverseExt ext
-                   => (Stmt ext s -> Annotator ext s ret ())
-                   -> (TermStmt s ret -> Annotator ext s ret ())
+                   => (Posd (Stmt ext s) -> Rewriter ext s ret ())
+                   -> (Posd (TermStmt s ret) -> Rewriter ext s ret ())
                    -> Block ext s ret
-                   -> Annotator ext s ret (Block ext s ret)
+                   -> Rewriter ext s ret [Block ext s ret]
 annotateBlockStmts fS fT block =
-  do newStmts <- fmap catSeqs $ forM (blockStmts block) $ \stmt ->
-       do fS (pos_val stmt)
-          bef <- gets asStmtsBefore
-          aft <- gets asStmtsAfter
-          clearStmts
-          return $ bef Seq.>< (stmt Seq.<| aft)
-     newFinalStmts <-
-       do fT (pos_val (blockTerm block))
-          bef <- gets asStmtsBefore
-          -- Ignore asStmtsAfter
-          clearStmts
-          return bef
-     let stmts = newStmts Seq.>< newFinalStmts
-     -- TODO Check that it's okay to pass an over-approximation of the
-     -- inputs to mkBlock, whose documentation says it only expects
-     -- "extra" inputs; we only have access to blockKnownInputs and
-     -- have no way of determining which inputs were the extra ones
-     return $ mkBlock (blockID block) (blockKnownInputs block)
-                      stmts (blockTerm block)
+  do -- Step 1
+     stmts <- annotateAsComplexStmts fS fT block
+     -- Step 2
+     rebuildBlock stmts block
+
+annotateAsComplexStmts :: (Posd (Stmt ext s) -> Rewriter ext s ret ())
+                       -> (Posd (TermStmt s ret) -> Rewriter ext s ret ())
+                       -> Block ext s ret
+                       -> Rewriter ext s ret (Seq (ComplexStmt ext s))
+annotateAsComplexStmts fS fT block =
+  do (~(), stmts) <- gather $
+       do mapM_ fS (blockStmts block)
+          fT (blockTerm block)
+     return stmts
+
+rebuildBlock :: TraverseExt ext
+             => Seq (ComplexStmt ext s)
+             -> Block ext s ret
+             -> Rewriter ext s ret [Block ext s ret]
+rebuildBlock stmts block =
+  toList <$> go stmts Seq.empty Seq.empty
+     (blockID block) (blockExtraInputs block) (blockTerm block)
   where
-    catSeqs seqs = foldr (Seq.><) Seq.Empty seqs
+    go :: TraverseExt ext
+       => Seq (ComplexStmt ext s) -- Statements to process
+       -> Seq (Posd (Stmt ext s)) -- Statements added to current block
+       -> Seq (Block ext s ret)   -- Blocks created so far
+       -> BlockID s               -- Id of current block
+       -> ValueSet s              -- Extra inputs to current block
+       -> Posd (TermStmt s ret)   -- Terminal statement of current block
+       -> Rewriter ext s ret (Seq (Block ext s ret))
+    go s accStmts accBlocks bid ext term = case s of
+      Seq.Empty ->
+        return $ accBlocks Seq.|> mkBlock bid ext accStmts term
+      (Stmt stmt Seq.:<| s') ->
+        go s' (accStmts Seq.|> stmt) accBlocks bid ext term
+      (IfThenElse a thn els Seq.:<| s') ->
+        do thnLab <- freshLabel
+           elsLab <- freshLabel
+           newLab <- freshLabel
+           -- End the block, terminating with a branch statement
+           let branch = Posd InternalPos (Br a thnLab elsLab)
+               thisBlock = mkBlock bid ext accStmts branch
+           -- Make the branches into (sets of) blocks
+           let jump = Posd InternalPos (Jump newLab)
+           thnBlocks <-
+             go thn Seq.empty Seq.empty (LabelID thnLab) Set.empty jump
+           elsBlocks <-
+             go els Seq.empty Seq.empty (LabelID elsLab) Set.empty jump
+           -- Keep going with a new, currently empty block
+           let accBlocks' = (accBlocks Seq.|> thisBlock) Seq.><
+                            thnBlocks Seq.>< elsBlocks
+           go s' Seq.empty accBlocks' (LabelID newLab) Set.empty term
+
+------------------------------------------------------------------------
+-- Miscellaneous
+
+initNextLabelID :: CFG ext s init ret -> Int
+initNextLabelID cfg =
+  1 + maximum (map (blockIDInt . blockID) (cfgBlocks cfg))
+  where
+    blockIDInt (LabelID l) = labelInt l
+    blockIDInt (LambdaID l) = lambdaInt l
