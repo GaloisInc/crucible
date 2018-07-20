@@ -282,7 +282,8 @@ getProofObligations stk = gcFinish <$> readIORef (proofObligations stk)
 clearProofObligations ::
   AssumptionStack pred assumeMsg assertMsg ->
   IO ()
-clearProofObligations stk = writeIORef (proofObligations stk) emptyGoalCollector
+clearProofObligations stk =
+  modifyIORef' (proofObligations stk) gcRemoveObligations
 
 freshFrame ::
   AssumptionStack pred assumeMsg assertMsg ->
