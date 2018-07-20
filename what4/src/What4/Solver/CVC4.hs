@@ -23,7 +23,6 @@ module What4.Solver.CVC4
 import           Control.Concurrent
 import           Control.Monad (void, forM_)
 import           Data.Bits
-import           Data.String
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -76,11 +75,6 @@ cvc4Adapter =
   , solver_adapter_write_smt2 = writeCVC4SMT2File
   }
 
--- | For the moment, store-all is not supported by CVC4 yet.
-arrayConstant1 :: SMT_Type -> SMT2.Expr CVC4 -> SMT2.Expr CVC4
-arrayConstant1 idx v =
-  T $ app (fromString "store-all") [ SMT2.unType CVC4 idx, renderTerm v ]
-
 indexType :: [SMT_Type] -> SMT_Type
 indexType [i] = i
 indexType il = SMT_StructType il
@@ -89,8 +83,6 @@ instance SMT2.SMTLib2Tweaks CVC4 where
   smtlib2tweaks = CVC4
 
   smtlib2arrayType _ il r = SMT2.arrayType1 CVC4 (indexType il) (SMT2.unType CVC4 r)
-
-  --smtlib2arrayConstant = Just $ \idx _elts v -> foldr arrayConstant1 v idx
 
   -- | Adapted from the tweak of array constant for Z3.
   smtlib2arrayConstant = Just $ \idx elts v ->

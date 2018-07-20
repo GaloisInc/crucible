@@ -232,7 +232,7 @@ mergePartExpr :: IsExprBuilder sym
               -> PartExpr (Pred sym) v
               -> PartExpr (Pred sym) v
               -> IO (PartExpr (Pred sym) v)
-mergePartExpr sym fn c = mergePartial sym (\c' a b -> lift (fn c' a b)) c
+mergePartExpr sym fn = mergePartial sym (\c a b -> lift (fn c a b))
 
 instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
   {-# INLINE muxReg #-}
