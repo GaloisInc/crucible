@@ -40,6 +40,8 @@ module Lang.Crucible.Simulator.OverrideSim
     -- * Global variables
   , readGlobal
   , writeGlobal
+  , readGlobals
+  , writeGlobals
     -- * References
   , newRef
   , newEmptyRef
@@ -211,6 +213,14 @@ bindFnHandle h s =
 
 ------------------------------------------------------------------------
 -- Mutable variables
+
+-- | Read the whole sym global state.
+readGlobals :: OverrideSim p sym ext rtp args ret (SymGlobalState sym)
+readGlobals = use (stateTree . actFrame . gpGlobals)
+
+-- | Overwrite the whole sym global state
+writeGlobals :: SymGlobalState sym -> OverrideSim p sym ext rtp args ret ()
+writeGlobals g = stateTree . actFrame . gpGlobals .= g
 
 -- | Read a particular global variable from the global variable state.
 readGlobal ::
