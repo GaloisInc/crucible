@@ -50,6 +50,7 @@ module Lang.Crucible.CFG.Generator
   , modifyRegM
   , readGlobal
   , writeGlobal
+
   , newRef
   , newEmptyRef
   , readRef
@@ -65,6 +66,7 @@ module Lang.Crucible.CFG.Generator
   , newLabel
   , newLambdaLabel
   , newLambdaLabel'
+  , currentBlockID
     -- * Block-terminating statements
     -- $termstmt
   , jump
@@ -473,6 +475,11 @@ newLambdaLabel' tpr =
                   , typeOfAtom = tpr
                   }
      return $! lbl
+
+currentBlockID :: Generator ext h s t ret (BlockID s)
+currentBlockID =
+  Generator $
+  (\st -> st ^. gsCurrent & cbsBlockID) <$> get
 
 ----------------------------------------------------------------------
 -- Defining blocks

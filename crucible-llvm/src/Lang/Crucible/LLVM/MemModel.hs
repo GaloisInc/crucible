@@ -161,7 +161,7 @@ instance IntrinsicClass sym "LLVM_memory" where
 --   LLVM extension statements are used to implement the memory model operations.
 llvmStatementExec :: HasPtrWidth (ArchWidth arch) => EvalStmtFunc p sym (LLVM arch)
 llvmStatementExec stmt cst =
-  let sym = stateSymInterface cst
+  let sym = cst^.stateSymInterface
    in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
 
 type EvalM p sym ext rtp blocks ret args a =

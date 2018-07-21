@@ -1,0 +1,16 @@
+(defun @foo ((x String)) String
+   (start beginning: (print x) (jump next:))
+   (defblock next: (print x) (return x)))
+
+%0
+  % 3:5
+  print($0)
+  % 4:5
+  jump %1($0)
+  % no postdom
+%1
+  % 6:5
+  print($0)
+  % 7:5
+  return $0
+  % no postdom
