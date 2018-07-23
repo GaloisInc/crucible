@@ -15,6 +15,7 @@ packages:
   crucible-saw/
   crucible-server/
   crucible-c/
+  crucible-syntax/
 
 optional-packages:
   dependencies/abcBridge/

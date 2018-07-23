@@ -21,8 +21,9 @@ module Lang.Crucible.FunctionHandle
   , handleArgTypes
   , handleReturnType
   , handleType
-  , -- * Allocate handle.
-    HandleAllocator
+  , SomeHandle(..)
+    -- * Allocate handle.
+  , HandleAllocator
   , haCounter
   , newHandleAllocator
   , withHandleAllocator
@@ -85,6 +86,24 @@ instance Hashable (FnHandle args ret) where
 -- | Return type of handle.
 handleType :: FnHandle args ret -> TypeRepr (FunctionHandleType args ret)
 handleType h = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+
+------------------------------------------------------------------------
+-- SomeHandle
+
+-- | A function handle is a reference to a function in a given
+-- run of the simulator.  It has a set of expected arguments and return type.
+data SomeHandle where
+   SomeHandle :: !(FnHandle args ret) -> SomeHandle
+
+instance Eq SomeHandle where
+  SomeHandle x == SomeHandle y = isJust (testEquality (handleID x) (handleID y))
+
+instance Hashable SomeHandle where
+  hashWithSalt s (SomeHandle x) = hashWithSalt s (handleID x)
+
+instance Show SomeHandle where
+  show (SomeHandle h) = show (handleName h)
+
 
 ------------------------------------------------------------------------
 -- HandleAllocator

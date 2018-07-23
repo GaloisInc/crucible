@@ -63,6 +63,7 @@ library
     Lang.Crucible.Analysis.Reachable
     Lang.Crucible.Backend
     Lang.Crucible.Backend.AssumptionStack
+    Lang.Crucible.Backend.ProofGoals
     Lang.Crucible.Backend.Online
     Lang.Crucible.Backend.Simple
     Lang.Crucible.CFG.Common
@@ -74,13 +75,15 @@ library
     Lang.Crucible.CFG.Reg
     Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.FunctionHandle
-    Lang.Crucible.Simulator.CallFns
+    Lang.Crucible.Simulator
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
+    Lang.Crucible.Simulator.EvalStmt
     Lang.Crucible.Simulator.ExecutionTree
     Lang.Crucible.Simulator.Frame
     Lang.Crucible.Simulator.Intrinsics
     Lang.Crucible.Simulator.GlobalState
+    Lang.Crucible.Simulator.Operations
     Lang.Crucible.Simulator.OverrideSim
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue

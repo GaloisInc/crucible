@@ -99,6 +99,7 @@ import Data.String
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import What4.ProgramLoc
+import What4.Symbol
 
 import Lang.Crucible.CFG.Common
 import Lang.Crucible.CFG.Expr
@@ -296,6 +297,11 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
               -> !(Reg ctx tp)
               -> Stmt ext ctx ctx
 
+  -- Create a fresh constant
+  FreshConstant :: !(BaseTypeRepr bt)
+                -> !(Maybe SolverSymbol)
+                -> Stmt ext ctx (ctx ::> BaseToType bt)
+
   -- Allocate a new reference cell
   NewRefCell :: !(TypeRepr tp)
              -> !(Reg ctx tp)
@@ -445,6 +451,10 @@ applyEmbeddingStmt ctxe stmt =
                            (extendEmbeddingBoth ctxe)
 
     WriteGlobal var r -> Pair (WriteGlobal var (reg r)) ctxe
+
+    FreshConstant bt nm -> Pair (FreshConstant bt nm)
+                                (Ctx.extendEmbeddingBoth ctxe)
+
     NewRefCell tp r -> Pair (NewRefCell tp (reg r))
                             (Ctx.extendEmbeddingBoth ctxe)
     NewEmptyRefCell tp -> Pair (NewEmptyRefCell tp)
@@ -545,6 +555,7 @@ nextStmtHeight h s =
     Print{} -> h
     ReadGlobal{} -> incSize h
     WriteGlobal{} -> h
+    FreshConstant{} -> Ctx.incSize h
     NewRefCell{} -> Ctx.incSize h
     NewEmptyRefCell{} ->Ctx.incSize h
     ReadRefCell{} -> Ctx.incSize h
@@ -564,6 +575,7 @@ ppStmt r s =
     Print msg -> ppFn "print" [ pretty msg ]
     ReadGlobal v -> text "read" <+> ppReg r <+> pretty v
     WriteGlobal v e -> text "write" <+> pretty v <+> pretty e
+    FreshConstant bt nm -> ppReg r <+> text "=" <+> text "fresh" <+> pretty bt <+> maybe mempty (text . show) nm
     NewRefCell _ e -> ppReg r <+> text "=" <+> ppFn "newref" [ pretty e ]
     NewEmptyRefCell tp -> ppReg r <+> text "=" <+> ppFn "emptyref" [ pretty tp ]
     ReadRefCell e -> ppReg r <+> text "= !" <> pretty e

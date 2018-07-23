@@ -71,6 +71,7 @@ import           Lang.Crucible.Backend
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import qualified Lang.Crucible.Simulator.Evaluation as Sim
+import           Lang.Crucible.Simulator.EvalStmt (executeCrucible)
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
@@ -175,12 +176,12 @@ fulfillRunCallRequest sim f_val encoded_args = do
 
       -- Send messages to server with bytestring.
       exec_res <-
-        runOverrideSim simSt res_tp (regValue <$> callFnVal f (RegMap args))
+        executeCrucible simSt $ runOverrideSim res_tp (regValue <$> callFnVal f (RegMap args))
       case exec_res of
-        FinishedExecution ctx' (TotalRes (GlobalPair r _globals)) -> do
+        FinishedResult ctx' (TotalRes (GlobalPair r _globals)) -> do
           writeIORef (simContext sim) $! ctx'
           sendCallReturnValue sim =<< toProtoValue sim r
-        FinishedExecution ctx' (PartialRes _ (GlobalPair r _globals) _) -> do
+        FinishedResult ctx' (PartialRes _ (GlobalPair r _globals) _) -> do
           writeIORef (simContext sim) $! ctx'
           sendCallReturnValue sim =<< toProtoValue sim r
         AbortedResult ctx' _ -> do
