@@ -72,6 +72,7 @@ module Lang.Crucible.CFG.Reg
   ) where
 
 import qualified Data.Foldable as Fold
+import           Data.Maybe (maybe)
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
@@ -83,6 +84,7 @@ import           Data.String
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           What4.ProgramLoc
+import           What4.Symbol
 
 import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.CFG.Expr
@@ -309,6 +311,14 @@ type ValueSet s = Set (Some (Value s))
 -- Expr
 
 -- | An expression in RTL representation.
+--
+-- The type arguments are:
+--
+--   [@ext@] the extensions currently in use (use @()@ for no extension)
+--
+--   [@s@] a dummy variable that should almost always be universally quantified
+--
+--   [@tp@] the Crucible type of the expression
 data Expr ext s (tp :: CrucibleType)
   = App !(App ext (Expr ext s) tp)
     -- ^ An application of an expression
@@ -358,6 +368,8 @@ data AtomValue ext s (tp :: CrucibleType) where
   NewRef :: !(Atom s tp) -> AtomValue ext s (ReferenceType tp)
   -- Create a fresh empty reference cell
   NewEmptyRef :: !(TypeRepr tp) -> AtomValue ext s (ReferenceType tp)
+  -- Create a fresh uninterpreted constant of base type
+  FreshConstant :: !(BaseTypeRepr bt) -> !(Maybe SolverSymbol) -> AtomValue ext s (BaseToType bt)
 
   Call :: !(Atom s (FunctionHandleType args ret))
        -> !(Assignment (Atom s) args)
@@ -374,6 +386,7 @@ instance PrettyExt ext => Pretty (AtomValue ext s tp) where
       ReadRef r -> text "!" <> pretty r
       NewRef a -> text "newref" <+> pretty a
       NewEmptyRef tp -> text "emptyref" <+> pretty tp
+      FreshConstant bt nm -> text "fresh" <+> pretty bt <+> maybe mempty (text . show) nm
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
 
 typeOfAtomValue :: (TypeApp (StmtExtension ext) , TypeApp (ExprExtension ext))
@@ -388,20 +401,22 @@ typeOfAtomValue v =
                    ReferenceRepr tpr -> tpr
     NewRef a -> ReferenceRepr (typeOfAtom a)
     NewEmptyRef tp -> ReferenceRepr tp
+    FreshConstant bt _ -> baseToType bt
     Call _ _ r -> r
 
 -- | Fold over all values in an 'AtomValue'.
 foldAtomValueInputs :: TraverseExt ext
                     => (forall x . Value s x -> b -> b)
                     -> AtomValue ext s tp -> b -> b
-foldAtomValueInputs f (ReadReg r)     b = f (RegValue r) b
-foldAtomValueInputs f (EvalExt stmt)  b = foldrFC (f . AtomValue) b stmt
-foldAtomValueInputs _ (ReadGlobal _)  b = b
-foldAtomValueInputs f (ReadRef r)     b = f (AtomValue r) b
-foldAtomValueInputs _ (NewEmptyRef _) b = b
-foldAtomValueInputs f (NewRef a)      b = f (AtomValue a) b
-foldAtomValueInputs f (EvalApp app0)  b = foldApp (f . AtomValue) b app0
-foldAtomValueInputs f (Call g a _)    b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
+foldAtomValueInputs f (ReadReg r)         b = f (RegValue r) b
+foldAtomValueInputs f (EvalExt stmt)      b = foldrFC (f . AtomValue) b stmt
+foldAtomValueInputs _ (ReadGlobal _)      b = b
+foldAtomValueInputs f (ReadRef r)         b = f (AtomValue r) b
+foldAtomValueInputs _ (NewEmptyRef _)     b = b
+foldAtomValueInputs f (NewRef a)          b = f (AtomValue a) b
+foldAtomValueInputs f (EvalApp app0)      b = foldApp (f . AtomValue) b app0
+foldAtomValueInputs _ (FreshConstant _ _) b = b 
+foldAtomValueInputs f (Call g a _)        b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
 ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc
 ppAtomBinding a v = pretty a <+> text ":=" <+> pretty v

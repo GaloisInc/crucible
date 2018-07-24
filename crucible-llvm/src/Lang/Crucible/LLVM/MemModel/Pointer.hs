@@ -506,31 +506,31 @@ muxLLVMVal :: forall sym
    -> PartLLVMVal sym
    -> PartLLVMVal sym
    -> IO (PartLLVMVal sym)
-muxLLVMVal sym cond = mergePartial sym (const muxval) cond
+muxLLVMVal sym = mergePartial sym muxval
   where
-    muxval :: LLVMVal sym -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
+    muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
 
-    muxval (LLVMValInt base1 off1) (LLVMValInt base2 off2)
+    muxval cond (LLVMValInt base1 off1) (LLVMValInt base2 off2)
       | Just Refl <- testEquality (bvWidth off1) (bvWidth off2)
       = do base <- liftIO $ natIte sym cond base1 base2
            off  <- liftIO $ bvIte sym cond off1 off2
            return $ LLVMValInt base off
 
-    muxval (LLVMValReal xsz x) (LLVMValReal ysz y) | xsz == ysz =
+    muxval cond (LLVMValReal xsz x) (LLVMValReal ysz y) | xsz == ysz =
       do z <- liftIO $ realIte sym cond x y
          return $ LLVMValReal xsz z
 
-    muxval (LLVMValStruct fls1) (LLVMValStruct fls2)
+    muxval cond (LLVMValStruct fls1) (LLVMValStruct fls2)
       | fmap fst fls1 == fmap fst fls2 = do
-          fls <- traverse id $ V.zipWith (\(f,x) (_,y) -> (f,) <$> muxval x y) fls1 fls2
+          fls <- traverse id $ V.zipWith (\(f,x) (_,y) -> (f,) <$> muxval cond x y) fls1 fls2
           return $ LLVMValStruct fls
 
-    muxval (LLVMValArray tp1 v1) (LLVMValArray tp2 v2)
+    muxval cond (LLVMValArray tp1 v1) (LLVMValArray tp2 v2)
       | tp1 == tp2 && V.length v1 == V.length v2 = do
-          v <- traverse id $ V.zipWith muxval v1 v2
+          v <- traverse id $ V.zipWith (muxval cond) v1 v2
           return $ LLVMValArray tp1 v
 
-    muxval _ _ = returnUnassigned
+    muxval _ _ _ = returnUnassigned
 
 
 ppPtr :: IsExpr (SymExpr sym) => LLVMPtr sym wptr -> Doc
