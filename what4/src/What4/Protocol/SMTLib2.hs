@@ -118,6 +118,7 @@ unType _ SMT_BoolType    = "Bool"
 unType _ (SMT_BVType w)  =  "(_ BitVec " <> fromString (show w) <> ")"
 unType _ SMT_IntegerType = "Int"
 unType _ SMT_RealType    = "Real"
+unType _ (SMT_FloatType fi) = mkFloatSymbol "FloatingPoint" fi
 unType a (SMT_ArrayType i e) = smtlib2arrayType a i e
 unType a (SMT_StructType flds) = "(Struct" <> decimal n <> foldMap f flds <> ")"
   where f :: SMT_Type -> Builder
@@ -125,6 +126,16 @@ unType a (SMT_StructType flds) = "(Struct" <> decimal n <> foldMap f flds <> ")"
         n = length flds
 unType _ SMT_FnType{} =
   error "SMTLIB backend does not support function types as first class."
+
+mkFloatSymbol :: Builder -> SMTFloatInfo -> Builder
+mkFloatSymbol nm (SMTFloatInfo eb sb) =
+  "(_ "
+    <> nm
+    <> " "
+    <> fromString (show eb)
+    <> " "
+    <> fromString (show sb)
+    <> ")"
 
 ------------------------------------------------------------------------
 -- Expr
@@ -308,6 +319,42 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
         begin = b
         e = "(_ extract " <> decimal end <> " " <> decimal begin <> ")"
      in  term_app e [x]
+
+
+  floatPZero fi = term_app (mkFloatSymbol "+zero" fi) []
+  floatNZero fi = term_app (mkFloatSymbol "-zero" fi) []
+  floatNaN fi   = term_app (mkFloatSymbol "NaN" fi) []
+  floatPInf fi  = term_app (mkFloatSymbol "+oo" fi) []
+  floatNInf fi  = term_app (mkFloatSymbol "-oo" fi) []
+
+  floatAdd = bin_app "fp.add RNE"
+  floatSub = bin_app "fp.sub RNE"
+  floatMul = bin_app "fp.mul RNE"
+  floatDiv = bin_app "fp.div RNE"
+  floatRem = bin_app "fp.rem RNE"
+
+  floatEq = bin_app "fp.eq"
+  floatLe = bin_app "fp.leq"
+  floatLt = bin_app "fp.lt"
+  floatGe = bin_app "fp.geq"
+  floatGt = bin_app "fp.gt"
+
+  floatIsNaN  = un_app "fp.isNaN"
+  floatIsInf  = un_app "fp.isInfinite"
+  floatIsZero = un_app "fp.isZero"
+  floatIsPos  = un_app "fp.isPositive"
+  floatIsNeg  = un_app "fp.isNegative"
+
+  floatCast fi   = un_app $ mkFloatSymbol "to_fp" fi <> " RNE"
+  bvToFloat fi   = un_app $ mkFloatSymbol "to_fp_unsigned" fi <> " RNE"
+  sbvToFloat fi  = un_app $ mkFloatSymbol "to_fp" fi <> " RNE"
+  realToFloat fi = un_app $ mkFloatSymbol "to_fp" fi <> " RNE"
+
+  floatToBV w  = un_app $ "(fp.to_ubv " <> fromString (show w) <> ") RNE"
+  floatToSBV w = un_app $ "(fp.to_sbv " <> fromString (show w) <> ") RNE"
+
+  floatToReal = un_app "fp.to_real"
+
 
   arrayConstant = smtlib2arrayConstant
   arraySelect   = smtlib2arraySelect

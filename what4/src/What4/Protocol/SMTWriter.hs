@@ -45,6 +45,7 @@ module What4.Protocol.SMTWriter
   , Term(..)
   , term_app
   , bin_app
+  , un_app
   , app
   , app_list
   , builder_list
@@ -63,6 +64,7 @@ module What4.Protocol.SMTWriter
   , addCommand
   , mkFreeVar
   , SMT_Type(..)
+  , SMTFloatInfo(..)
   , freshBoundVarName
   , assumeFormula
     -- * SMTWriter operations
@@ -141,6 +143,7 @@ data TypeMap (tp::BaseType) where
   IntegerTypeMap :: TypeMap BaseIntegerType
   RealTypeMap    :: TypeMap BaseRealType
   BVTypeMap      :: (1 <= w) => !(NatRepr w) -> TypeMap (BaseBVType w)
+  FloatTypeMap   :: !(FloatInfoRepr fi) -> TypeMap (BaseFloatType fi)
   -- A complex number mapped to an SMTLIB struct.
   ComplexToStructTypeMap:: TypeMap BaseComplexType
   -- A complex number mapped to an SMTLIB array from boolean to real.
@@ -175,6 +178,9 @@ instance TestEquality TypeMap where
   testEquality NatTypeMap NatTypeMap = Just Refl
   testEquality IntegerTypeMap IntegerTypeMap = Just Refl
   testEquality RealTypeMap RealTypeMap = Just Refl
+  testEquality (FloatTypeMap x) (FloatTypeMap y) = do
+    Refl <- testEquality x y
+    return Refl
   testEquality (BVTypeMap x) (BVTypeMap y) = do
     Refl <- testEquality x y
     return Refl
@@ -202,6 +208,7 @@ asSMTType NatTypeMap     = SMT_IntegerType
 asSMTType IntegerTypeMap = SMT_IntegerType
 asSMTType RealTypeMap    = SMT_RealType
 asSMTType (BVTypeMap w) = SMT_BVType (natValue w)
+asSMTType (FloatTypeMap fi) = SMT_FloatType $ asSMTFloatInfo fi
 asSMTType ComplexToStructTypeMap = SMT_StructType [ SMT_RealType, SMT_RealType ]
 asSMTType ComplexToArrayTypeMap  = SMT_ArrayType [SMT_BoolType] SMT_RealType
 asSMTType (PrimArrayTypeMap i r) =
@@ -215,12 +222,21 @@ data SMT_Type
    | SMT_BVType Integer
    | SMT_IntegerType
    | SMT_RealType
+   | SMT_FloatType SMTFloatInfo
    | SMT_ArrayType [SMT_Type] SMT_Type
    | SMT_StructType [SMT_Type]
      -- | A function type.
    | SMT_FnType [SMT_Type] SMT_Type
   deriving (Eq, Ord)
 
+data SMTFloatInfo = SMTFloatInfo Integer Integer deriving (Eq, Ord)
+
+asSMTFloatInfo :: FloatInfoRepr fi -> SMTFloatInfo
+asSMTFloatInfo = \case
+  HalfFloatRepr -> SMTFloatInfo 5 11
+  SingleFloatRepr -> SMTFloatInfo 8 24
+  DoubleFloatRepr -> SMTFloatInfo 11 53
+  QuadFloatRepr -> SMTFloatInfo 15 113
 
 semiRingTypeMap :: SemiRingRepr tp -> TypeMap tp
 semiRingTypeMap SemiRingNat  = NatTypeMap
@@ -353,6 +369,38 @@ class Num v => SupportTermOps v where
     where w1 :: NatRepr 1
           w1 = knownNat
 
+  floatPZero :: SMTFloatInfo -> v
+  floatNZero :: SMTFloatInfo -> v
+  floatNaN   :: SMTFloatInfo -> v
+  floatPInf  :: SMTFloatInfo -> v
+  floatNInf  :: SMTFloatInfo -> v
+
+  floatAdd :: v -> v -> v
+  floatSub :: v -> v -> v
+  floatMul :: v -> v -> v
+  floatDiv :: v -> v -> v
+  floatRem :: v -> v -> v
+
+  floatEq :: v -> v -> v
+  floatLe :: v -> v -> v
+  floatLt :: v -> v -> v
+  floatGe :: v -> v -> v
+  floatGt :: v -> v -> v
+
+  floatIsNaN  :: v -> v
+  floatIsInf  :: v -> v
+  floatIsZero :: v -> v
+  floatIsPos  :: v -> v
+  floatIsNeg  :: v -> v
+
+  floatCast   :: SMTFloatInfo -> v -> v
+  bvToFloat   :: SMTFloatInfo -> v -> v
+  sbvToFloat  :: SMTFloatInfo -> v -> v
+  realToFloat :: SMTFloatInfo -> v -> v
+  floatToBV   :: Integer -> v -> v
+  floatToSBV  :: Integer -> v -> v
+  floatToReal :: v -> v
+
   -- | 'arrayUpdate a i v' returns an array that contains value 'v' at
   -- index 'i', and the same value as in 'a' at every other index.
   arrayUpdate :: v -> [v] -> v -> v
@@ -469,6 +517,9 @@ term_app o args = T (app o (renderTerm <$> args))
 
 bin_app :: Builder -> Term h -> Term h -> Term h
 bin_app o x y = term_app o [x,y]
+
+un_app :: Builder -> Term h -> Term h
+un_app o x = term_app o [x]
 
 ------------------------------------------------------------------------
 -- SMTExpr
@@ -1825,6 +1876,104 @@ appSMTExpr ae = do
       x <- mkExpr xe
       y <- mkExpr ye
       freshBoundTerm (smtExprType x) $ bvXor (asBase x) (asBase y)
+
+    ------------------------------------------
+    -- Floating-point operations
+    FloatPZero fi ->
+      freshBoundTerm (FloatTypeMap fi) $ floatPZero $ asSMTFloatInfo fi
+    FloatNZero fi ->
+      freshBoundTerm (FloatTypeMap fi) $ floatNZero $ asSMTFloatInfo fi
+    FloatNaN fi ->
+      freshBoundTerm (FloatTypeMap fi) $ floatNaN $ asSMTFloatInfo fi
+    FloatPInf fi ->
+      freshBoundTerm (FloatTypeMap fi) $ floatPInf $ asSMTFloatInfo fi
+    FloatNInf fi ->
+      freshBoundTerm (FloatTypeMap fi) $ floatNInf $ asSMTFloatInfo fi
+    FloatAdd fi x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fi) $ floatAdd xe ye
+    FloatSub fi x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fi) $ floatSub xe ye
+    FloatMul fi x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fi) $ floatMul xe ye
+    FloatDiv fi x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fi) $ floatDiv xe ye
+    FloatRem fi x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fi) $ floatRem xe ye
+    FloatEq x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatEq xe ye
+    FloatNe x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ notExpr (floatEq xe ye) .&& notExpr (floatIsNaN xe) .&& notExpr (floatIsNaN ye)
+    FloatLe x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatLe xe ye
+    FloatLt x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatLt xe ye
+    FloatGe x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatGe xe ye
+    FloatGt x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatGt xe ye
+    FloatIsNaN x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsNaN xe
+    FloatIsInf x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsInf xe
+    FloatIsZero x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsZero xe
+    FloatIsPos x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsPos xe
+    FloatIsNeg x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsNeg xe
+    FloatIte fi c x y -> do
+      ce <- mkBaseExpr c
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fi) $ ite ce xe ye
+    FloatCast fi x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fi) $ floatCast (asSMTFloatInfo fi) xe
+    BVToFloat fi x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fi) $ bvToFloat (asSMTFloatInfo fi) xe
+    SBVToFloat fi x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fi) $ sbvToFloat (asSMTFloatInfo fi) xe
+    RealToFloat fi x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fi) $ realToFloat (asSMTFloatInfo fi) xe
+    FloatToBV w x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (BVTypeMap w) $ floatToBV (natValue w) xe
+    FloatToSBV w x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (BVTypeMap w) $ floatToSBV (natValue w) xe
+    FloatToReal x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm RealTypeMap $ floatToReal xe
 
     ------------------------------------------------------------------------
     -- Array Operations
