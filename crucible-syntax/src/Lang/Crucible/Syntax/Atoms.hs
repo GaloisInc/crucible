@@ -5,6 +5,7 @@ import Control.Applicative
 
 import Data.Char
 import Data.Functor
+import Data.Monoid
 import Data.Ratio
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -49,6 +50,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
              | Print_
              | Let
+             | Assert_
              | SetRegister
              | Funcall
   deriving (Eq, Ord)
@@ -123,6 +125,7 @@ keywords =
   , ("ref", Ref)
   , ("empty-ref", EmptyRef)
   , ("set-register!", SetRegister)
+  , ("assert!", Assert_)
   , ("funcall", Funcall)
   ]
 
@@ -146,6 +149,17 @@ data Atomic = Kw Keyword -- ^ Keywords are all the built-in operators and expres
   deriving (Eq, Ord, Show)
 
 
+instance IsAtom Atomic where
+  showAtom (Kw s) = T.pack (show s)
+  showAtom (Lbl (LabelName l)) = l <> ":"
+  showAtom (Rg (RegName r)) = "$" <> r
+  showAtom (Gl (GlobalName r)) = "$$" <> r
+  showAtom (At (AtomName a)) = a
+  showAtom (Fn (FunName a)) = "@" <> a
+  showAtom (Int i) = T.pack (show i)
+  showAtom (Rat r) = T.pack (show r)
+  showAtom (Bool b) = if b then "#t" else "#f"
+  showAtom (StrLit s) = T.pack $ show s
 
 atom :: Parser Atomic
 atom =  try (Lbl . LabelName <$> (identifier) <* char ':')

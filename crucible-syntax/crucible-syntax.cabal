@@ -57,6 +57,7 @@ library
     Lang.Crucible.Syntax.Concrete
     Lang.Crucible.Syntax.SExpr
     Lang.Crucible.Syntax.Prog
+    Lang.Crucible.Syntax.ExprParse
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

@@ -15,9 +15,9 @@ import Lang.Crucible.CFG.SSAConversion
 
 -- | The main loop body, useful for both the program and for testing.
 go :: FilePath -- ^ The name of the input (appears in source locations)
-   -> Text -- ^ The contents of the input
-   -> Bool -- ^ Whether to pretty-print the input data as well
-   -> Handle -- ^ A handle that will receive the output
+   -> Text     -- ^ The contents of the input
+   -> Bool     -- ^ Whether to pretty-print the input data as well
+   -> Handle   -- ^ A handle that will receive the output
    -> IO ()
 go fn theInput pprint outh =
   case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
@@ -26,7 +26,8 @@ go fn theInput pprint outh =
          exitFailure
     Right v ->
       do when pprint $
-           forM_ v $ T.hPutStrLn outh . printExpr
+           forM_ v $
+             \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
          cfgs <- stToIO $ top $ cfgs v
          case cfgs of
            Left err -> hPutStrLn outh $ show err

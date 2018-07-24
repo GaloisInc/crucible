@@ -1,5 +1,11 @@
-{-# LANGUAGE DeriveFunctor, FlexibleInstances, FunctionalDependencies, MultiParamTypeClasses, OverloadedStrings, PatternSynonyms, ViewPatterns #-}
-module Lang.Crucible.Syntax.SExpr (pattern A, pattern L, pattern (:::), Syntax, unSyntax, Syntactic(..),  Parser, syntaxPos, withPosFrom, sexp, identifier, toText, skipWhitespace, PrintRules(..), PrintStyle(..)) where
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
+module Lang.Crucible.Syntax.SExpr (pattern A, pattern L, pattern (:::), Syntax(..), Datum(..), Syntactic(..),  Parser, syntaxPos, withPosFrom, sexp, identifier, toText, datumToText, skipWhitespace, PrintRules(..), PrintStyle(..), Layer(..), IsAtom(..)) where
 
 import Data.Char (isDigit, isLetter)
 import Data.Monoid
@@ -15,8 +21,11 @@ import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
-newtype Syntax a = Syntax { unSyntax :: Posd (Layer a) }
+newtype Syntax a = Syntax { unSyntax :: Posd (Layer Syntax a) }
   deriving (Show, Functor)
+
+newtype Datum a = Datum { unDatum :: Layer Datum a}
+  deriving (Show, Functor, Eq)
 
 syntaxPos :: Syntax a -> Position
 syntaxPos (Syntax (Posd p _)) = p
@@ -25,10 +34,11 @@ withPosFrom :: Syntax a -> b -> Posd b
 withPosFrom stx x = Posd (syntaxPos stx) x
 
 class Syntactic a b | a -> b where
-  syntaxE :: a -> Layer b
+  syntaxE :: a -> Layer Syntax b
 
-instance Syntactic (Layer a) a where
+instance Syntactic (Layer Syntax a) a where
   syntaxE = id
+
 
 instance Syntactic (Syntax a) a where
   syntaxE (Syntax (Posd _ e)) = e
@@ -43,9 +53,14 @@ pattern L xs <- (syntaxE -> List xs)
 pattern (:::) :: Syntactic a b => Syntax b -> [Syntax b] -> a
 pattern x ::: xs <- (syntaxE -> List (x : xs))
 
-data Layer a = List [Syntax a] | Atom a
-  deriving (Show, Functor)
+data Layer f a = List [f a] | Atom a
+  deriving (Show, Functor, Eq)
 
+
+syntaxToDatum :: Syntactic expr atom => expr -> Datum atom
+syntaxToDatum (A x) = Datum (Atom x)
+syntaxToDatum (L xs) = Datum (List (map syntaxToDatum xs))
+syntaxToDatum _ = error "impossible - bad Syntactic instance"
 
 type Parser = Parsec Void Text
 
@@ -96,27 +111,35 @@ instance Monoid (PrintRules a) where
   mappend (PrintRules f) (PrintRules g) = PrintRules $ \z -> f z <|> g z
 
 
+class IsAtom a where
+  showAtom :: a -> Text
 
-pprint :: PrintRules a -> (a -> Text) -> Syntax a -> PP.Doc
-pprint rules@(PrintRules getLayout) atom stx =
-  case syntaxE stx of
+pprint :: (Syntactic expr a, IsAtom a) => PrintRules a -> expr -> PP.Doc
+pprint rules expr = pprintDatum rules (syntaxToDatum expr)
+
+pprintDatum :: IsAtom a => PrintRules a -> Datum a -> PP.Doc
+pprintDatum rules@(PrintRules getLayout) stx =
+  case unDatum stx of
     Atom at -> ppAtom at
     List lst ->
       PP.parens . PP.group $
       case lst of
         [] -> PP.empty
-        [x] -> pprint rules atom x
-        ((syntaxE -> Atom car) : xs) ->
+        [x] -> pprintDatum rules x
+        ((unDatum -> Atom car) : xs) ->
           case getLayout car of
-            Nothing -> ppAtom car <> PP.space <> PP.align (PP.vsep $ pprint rules atom <$> xs)
+            Nothing -> ppAtom car <> PP.space <> PP.align (PP.vsep $ pprintDatum rules <$> xs)
             Just (Special i) ->
               let (special, rest) = splitAt i xs
               in PP.hang 2 $ PP.vsep $
-                 PP.group (PP.hang 2 $ PP.vsep $ ppAtom car : (map (pprint rules atom) special)) :
-                 map (pprint rules atom) rest
-        xs -> PP.vsep $ pprint rules atom <$> xs
+                 PP.group (PP.hang 2 $ PP.vsep $ ppAtom car : (map (pprintDatum rules) special)) :
+                 map (pprintDatum rules) rest
+        xs -> PP.vsep $ pprintDatum rules <$> xs
 
-  where ppAtom = PP.text . T.unpack . atom
+  where ppAtom = PP.text . T.unpack . showAtom
 
-toText :: PrintRules a -> (a -> Text) -> Syntax a -> Text
-toText rules atom stx = T.pack (PP.displayS (PP.renderSmart 0.8 80 $ pprint rules atom stx) "\n")
+toText :: (Syntactic expr a, IsAtom a) => PrintRules a -> expr -> Text
+toText rules stx = T.pack (PP.displayS (PP.renderSmart 0.8 80 $ pprint rules stx) "")
+
+datumToText :: IsAtom a => PrintRules a -> Datum a -> Text
+datumToText rules dat = T.pack (PP.displayS (PP.renderSmart 0.8 80 $ pprintDatum rules dat) "")

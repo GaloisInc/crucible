@@ -1,10 +1,31 @@
-{-# LANGUAGE DeriveFunctor, GADTs, OverloadedStrings, RankNTypes, LiberalTypeSynonyms, KindSignatures, DataKinds, StandaloneDeriving, FlexibleInstances, GeneralizedNewtypeDeriving, TypeFamilies, PatternGuards, PolyKinds, ScopedTypeVariables, MultiParamTypeClasses, UndecidableInstances, PartialTypeSignatures, FlexibleContexts, ImplicitParams, LambdaCase, ViewPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LiberalTypeSynonyms #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 -- {-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
 module Lang.Crucible.Syntax.Concrete where
 
 import Prelude hiding (fail)
 
-import Data.Monoid
+import Data.Monoid ()
 
 import Control.Lens
 import Control.Applicative
@@ -22,7 +43,6 @@ import Lang.Crucible.Types
 import Data.Functor
 import qualified Data.Functor.Product as Functor
 import Data.Maybe
---import Data.Ratio
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.Map (MapF)
@@ -32,17 +52,16 @@ import qualified Data.Parameterized.Map as MapF
 import qualified Data.Parameterized.Context as Ctx
 import Data.Map (Map)
 import qualified Data.Map as Map
---import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
-import qualified Data.Text as T
+--import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import What4.ProgramLoc
 import What4.FunctionName
 import What4.Utils.MonadST
 
-import Lang.Crucible.Syntax.SExpr
+import Lang.Crucible.Syntax.SExpr (Syntax, pattern L, pattern A, toText, PrintRules(..), PrintStyle(..), syntaxPos, withPosFrom)
 import Lang.Crucible.Syntax.Atoms
 
 import Lang.Crucible.CFG.Reg
@@ -58,20 +77,9 @@ type AST s = Syntax Atomic
 
 
 
-
 printExpr :: AST s -> Text
-printExpr = toText (PrintRules rules) printAtom
-  where printAtom (Kw s) = T.pack (show s)
-        printAtom (Lbl (LabelName l)) = l <> ":"
-        printAtom (Rg (RegName r)) = "$" <> r
-        printAtom (Gl (GlobalName r)) = "$$" <> r
-        printAtom (At (AtomName a)) = a
-        printAtom (Fn (FunName a)) = "@" <> a
-        printAtom (Int i) = T.pack (show i)
-        printAtom (Rat r) = T.pack (show r)
-        printAtom (Bool b) = if b then "#t" else "#f"
-        printAtom (StrLit s) = T.pack $ show s
-        rules (Kw Defun) = Just (Special 3)
+printExpr = toText (PrintRules rules)
+  where rules (Kw Defun) = Just (Special 3)
         rules (Kw DefBlock) = Just (Special 1)
         rules (Kw Start) = Just (Special 1)
         rules (Kw Registers) = Just (Special 0)
@@ -92,7 +100,7 @@ data ExprErr s where
   AnonTypeError :: Position -> TypeRepr expected -> TypeRepr found -> ExprErr s
   TypeMismatch :: Position -> AST s -> TypeRepr left -> AST s -> TypeRepr right -> ExprErr s
   NotVector :: Position -> AST s -> TypeRepr tp -> ExprErr s
-  BadSyntax :: Position -> AST s -> ExprErr s
+  BadSyntax :: Position -> AST s -> Text -> ExprErr s
   CantSynth :: Position -> AST s -> ExprErr s
   NotAType :: Position -> AST s -> ExprErr s
   NotANat :: Position -> Integer -> ExprErr s
@@ -137,7 +145,7 @@ errPos :: ExprErr s -> Position
 errPos (TypeError p _ _ _) = p
 errPos (AnonTypeError p _ _) = p
 errPos (TypeMismatch p _ _ _ _) = p
-errPos (BadSyntax p _) = p
+errPos (BadSyntax p _ _) = p
 errPos (CantSynth p _) = p
 errPos (NotAType p _) = p
 errPos (NotANat p _) = p
@@ -270,7 +278,7 @@ checkExpr expectedT e@(L (A (Kw Inj) : rest)) =
         otherType ->
           throwError $ NotAVariantType (syntaxPos e) otherType
     _ ->
-      throwError $ BadSyntax (syntaxPos e) e
+      throwError $ BadSyntax (syntaxPos e) e "Invalid arguments to inj"
 checkExpr expectedT e@(L (A (Kw VectorLit_) : vs)) =
   case expectedT of
     VectorRepr tp ->
@@ -794,6 +802,12 @@ normStmt stmt@(L [A (Kw DropRef_), ref]) =
          do refAtom <- eval ref refE
             tell [withPosFrom stmt $ DropRef refAtom]
        other -> throwError $ NotARefType (syntaxPos ref) other
+normStmt stmt@(L [A (Kw Assert_), cond, message]) =
+  do E cond' <- checkExpr BoolRepr cond
+     E message' <- checkExpr StringRepr message
+     cond'' <- eval cond cond'
+     message'' <- eval message message'
+     tell [withPosFrom stmt $ Assert cond'' message'']
 normStmt other = throwError $ BadStatement (syntaxPos other) other
 
 blockBody :: forall s h ret . Position -> [AST s] -> CFGParser h s ret ([Posd (Stmt () s)], Posd (TermStmt s ret))
@@ -862,9 +876,14 @@ termStmt stx@(L (A (Kw Case) : aStx@(A (At c)) : branches)) =
                Just Refl ->
                  return $ Ctx.extend rest lbl
         branchCtx _ _ = throwError $ WrongNumberOfCases stx
-termStmt stx@(L [A (Kw Return_), (A (At x))]) =
-  do ret <- getReturnType
-     withPosFrom stx . Return <$> typedAtom (syntaxPos stx) ret x
+termStmt stx@(L (A (Kw Return_) : more)) =
+  case more of
+    [] -> throwError $ BadSyntax (syntaxPos stx) stx "Not enough arguments to return"
+    [A (At x)] ->
+      do ret <- getReturnType
+         withPosFrom stx . Return <$> typedAtom (syntaxPos stx) ret x
+    [_] -> throwError $ BadSyntax (syntaxPos stx) stx "Not a literal atom in argument to return"
+    _ -> throwError $ BadSyntax (syntaxPos stx) stx "Too many arguments to return"
 termStmt stx@(L (A (Kw TailCall_) : atomAst@(A (At f)) : args)) =
   do ret <- getReturnType
      perhapsAtom <- use (stxAtoms . at f)
