@@ -397,6 +397,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
       BaseStringRepr   -> stringEq sym x y
       BaseStructRepr{} -> structEq sym x y
       BaseArrayRepr{}  -> arrayEq sym x y
+      BaseFloatRepr{}  -> baseFloatEq sym x y
 
   -- | Take the if-then-else of two expressions. The default
   -- implementation dispatches 'itePred', 'bvIte', 'natIte', 'intIte',
@@ -418,6 +419,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
       BaseArrayRepr{}  -> arrayIte  sym c x y
+      BaseFloatRepr{}  -> baseFloatIte sym c x y
 
   ----------------------------------------------------------------------
   -- Boolean operations.
@@ -1690,6 +1692,22 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
     pj <- realNe sym xi yi
     orPred sym pr pj
 
+  baseFloatEq
+    :: sym
+    -> SymExpr sym (BaseFloatType fi)
+    -> SymExpr sym (BaseFloatType fi)
+    -> IO (Pred sym)
+  baseFloatIte
+    :: sym
+    -> Pred sym
+    -> SymExpr sym (BaseFloatType fi)
+    -> SymExpr sym (BaseFloatType fi)
+    -> IO (SymExpr sym (BaseFloatType fi))
+  baseFloatDefaultValue
+    :: sym
+    -> FloatInfoRepr fi
+    -> IO (SymExpr sym (BaseFloatType fi))
+
 ----------------------------------------------------------------------
 -- Floating point operations
 class IsBasicExprBuilder sym => IsFloatExprBuilder sym where
@@ -2024,6 +2042,7 @@ baseIsConcrete sym x =
     BaseIntegerRepr -> return $ isJust $ asInteger x
     BaseBVRepr _    -> return $ isJust $ asUnsignedBV x
     BaseRealRepr    -> return $ isJust $ asRational x
+    BaseFloatRepr _ -> return False
     BaseStringRepr  -> return $ isJust $ asString x
     BaseComplexRepr -> return $ isJust $ asComplex x
     BaseStructRepr (flds ::Ctx.Assignment BaseTypeRepr ctx) ->
@@ -2047,6 +2066,7 @@ baseDefaultValue sym bt =
     BaseIntegerRepr -> intLit sym 0
     BaseBVRepr w    -> bvLit sym w 0
     BaseRealRepr    -> return $! realZero sym
+    BaseFloatRepr fi -> baseFloatDefaultValue sym fi
     BaseComplexRepr -> mkComplexLit sym (0 :+ 0)
     BaseStringRepr  -> stringLit sym mempty
     BaseStructRepr flds -> do
@@ -2222,6 +2242,7 @@ asConcrete x =
     BaseStringRepr -> ConcreteString <$> asString x
     BaseComplexRepr -> ConcreteComplex <$> asComplex x
     BaseBVRepr w    -> ConcreteBV w <$> asUnsignedBV x
+    BaseFloatRepr _ -> Nothing
     BaseStructRepr _ -> Nothing -- FIXME?
     BaseArrayRepr _ _ -> Nothing -- FIXME?
 

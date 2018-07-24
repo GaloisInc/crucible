@@ -26,6 +26,7 @@ data AppTheory
    | BitvectorTheory
    | QuantifierTheory
    | StringTheory
+   | FloatingPointTheory
    | ArrayTheory
    | StructTheory
      -- ^ Theory attributed to structs (equivalent to records in CVC4/Z3, tuples in Yices)
@@ -124,6 +125,38 @@ appTheory a0 =
     BVBitAnd{} -> BitvectorTheory
     BVBitOr{}  -> BitvectorTheory
     BVBitXor{} -> BitvectorTheory
+
+    ----------------------------
+    -- Bitvector operations
+    FloatPZero{}  -> FloatingPointTheory
+    FloatNZero{}  -> FloatingPointTheory
+    FloatNaN{}    -> FloatingPointTheory
+    FloatPInf{}   -> FloatingPointTheory
+    FloatNInf{}   -> FloatingPointTheory
+    FloatAdd{}    -> FloatingPointTheory
+    FloatSub{}    -> FloatingPointTheory
+    FloatMul{}    -> FloatingPointTheory
+    FloatDiv{}    -> FloatingPointTheory
+    FloatRem{}    -> FloatingPointTheory
+    FloatEq{}     -> FloatingPointTheory
+    FloatNe{}     -> FloatingPointTheory
+    FloatLe{}     -> FloatingPointTheory
+    FloatLt{}     -> FloatingPointTheory
+    FloatGt{}     -> FloatingPointTheory
+    FloatGe{}     -> FloatingPointTheory
+    FloatIsNaN{}  -> FloatingPointTheory
+    FloatIsInf{}  -> FloatingPointTheory
+    FloatIsZero{} -> FloatingPointTheory
+    FloatIsPos{}  -> FloatingPointTheory
+    FloatIsNeg{}  -> FloatingPointTheory
+    FloatIte{}    -> FloatingPointTheory
+    FloatCast{}   -> FloatingPointTheory
+    BVToFloat{}   -> FloatingPointTheory
+    SBVToFloat{}  -> FloatingPointTheory
+    RealToFloat{} -> FloatingPointTheory
+    FloatToBV{}   -> FloatingPointTheory
+    FloatToSBV{}  -> FloatingPointTheory
+    FloatToReal{} -> FloatingPointTheory
 
     --------------------------------
     -- Conversions.

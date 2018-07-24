@@ -564,6 +564,104 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
            -> !(e (BaseBVType w))
            -> App e (BaseBVType w)
 
+  --------------------------------
+  -- Float operations
+
+  FloatPZero :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
+  FloatNZero :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
+  FloatNaN :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
+  FloatPInf :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
+  FloatNInf :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
+  FloatAdd
+    :: !(FloatInfoRepr fi)
+    -> !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e (BaseFloatType fi)
+  FloatSub
+    :: !(FloatInfoRepr fi)
+    -> !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e (BaseFloatType fi)
+  FloatMul
+    :: !(FloatInfoRepr fi)
+    -> !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e (BaseFloatType fi)
+  FloatDiv
+    :: !(FloatInfoRepr fi)
+    -> !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e (BaseFloatType fi)
+  FloatRem
+    :: !(FloatInfoRepr fi)
+    -> !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e (BaseFloatType fi)
+  FloatEq
+    :: !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e BaseBoolType
+  FloatNe
+    :: !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e BaseBoolType
+  FloatLe
+    :: !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e BaseBoolType
+  FloatLt
+    :: !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e BaseBoolType
+  FloatGe
+    :: !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e BaseBoolType
+  FloatGt
+    :: !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e BaseBoolType
+  FloatIsNaN :: !(e (BaseFloatType fi)) -> App e BaseBoolType
+  FloatIsInf :: !(e (BaseFloatType fi)) -> App e BaseBoolType
+  FloatIsZero :: !(e (BaseFloatType fi)) -> App e BaseBoolType
+  FloatIsPos :: !(e (BaseFloatType fi)) -> App e BaseBoolType
+  FloatIsNeg :: !(e (BaseFloatType fi)) -> App e BaseBoolType
+  FloatIte
+    :: !(FloatInfoRepr fi)
+    -> !(e BaseBoolType)
+    -> !(e (BaseFloatType fi))
+    -> !(e (BaseFloatType fi))
+    -> App e (BaseFloatType fi)
+  FloatCast
+    :: !(FloatInfoRepr fi)
+    -> !(e (BaseFloatType fi'))
+    -> App e (BaseFloatType fi)
+  BVToFloat
+    :: (1 <= w)
+    => !(FloatInfoRepr fi)
+    -> !(e (BaseBVType w))
+    -> App e (BaseFloatType fi)
+  SBVToFloat
+    :: (1 <= w)
+    => !(FloatInfoRepr fi)
+    -> !(e (BaseBVType w))
+    -> App e (BaseFloatType fi)
+  RealToFloat
+    :: !(FloatInfoRepr fi)
+    -> !(e BaseRealType)
+    -> App e (BaseFloatType fi)
+  FloatToBV
+    :: (1 <= w)
+    => !(NatRepr w)
+    -> !(e (BaseFloatType fi))
+    -> App e (BaseBVType w)
+  FloatToSBV
+    :: (1 <= w)
+    => !(NatRepr w)
+    -> !(e (BaseFloatType fi))
+    -> App e (BaseBVType w)
+  FloatToReal :: !(e (BaseFloatType fi)) -> App e BaseRealType
+
   ------------------------------------------------------------------------
   -- Array operations
 
@@ -707,6 +805,7 @@ data AppExpr t (tp :: BaseType)
 data Expr t (tp :: BaseType) where
   SemiRingLiteral :: !(SemiRingRepr tp) -> !(WSum.Coefficient tp) -> !ProgramLoc -> Expr t tp
   BVExpr  :: (1 <= w) => !(NatRepr w) -> !Integer -> !ProgramLoc -> Expr t (BaseBVType w)
+  -- FloatExpr :: !(FloatInfoRepr fi) -> !Rational -> !ProgramLoc -> Expr t (BaseFloatType fi)
   StringExpr :: !Text -> !ProgramLoc -> Expr t BaseStringType
   -- Application
   AppExpr :: {-# UNPACK #-} !(AppExpr t tp) -> Expr t tp
@@ -991,6 +1090,36 @@ appType a =
     BVBitOr  w _ _ -> BaseBVRepr w
     BVBitXor w _ _ -> BaseBVRepr w
 
+    FloatPZero fi -> BaseFloatRepr fi
+    FloatNZero fi -> BaseFloatRepr fi
+    FloatNaN fi -> BaseFloatRepr fi
+    FloatPInf fi -> BaseFloatRepr fi
+    FloatNInf fi -> BaseFloatRepr fi
+    FloatAdd fi _ _ -> BaseFloatRepr fi
+    FloatSub fi _ _ -> BaseFloatRepr fi
+    FloatMul fi _ _ -> BaseFloatRepr fi
+    FloatDiv fi _ _ -> BaseFloatRepr fi
+    FloatRem fi _ _ -> BaseFloatRepr fi
+    FloatEq{} -> knownRepr
+    FloatNe{} -> knownRepr
+    FloatLe{} -> knownRepr
+    FloatLt{} -> knownRepr
+    FloatGe{} -> knownRepr
+    FloatGt{} -> knownRepr
+    FloatIsNaN{} -> knownRepr
+    FloatIsInf{} -> knownRepr
+    FloatIsZero{} -> knownRepr
+    FloatIsPos{} -> knownRepr
+    FloatIsNeg{} -> knownRepr
+    FloatIte fi _ _ _ -> BaseFloatRepr fi
+    FloatCast fi _ -> BaseFloatRepr fi
+    BVToFloat fi _ -> BaseFloatRepr fi
+    SBVToFloat fi _ -> BaseFloatRepr fi
+    RealToFloat fi _ -> BaseFloatRepr fi
+    FloatToBV w _ -> BaseBVRepr w
+    FloatToSBV w _ -> BaseBVRepr w
+    FloatToReal{} -> knownRepr
+
     ArrayMap      idx b _ _ -> BaseArrayRepr idx b
     ConstantArray idx b _   -> BaseArrayRepr idx b
     MuxArray idx b _ _ _    -> BaseArrayRepr idx b
@@ -1163,6 +1292,7 @@ ppVarTypeCode tp =
     BaseBVRepr _    -> "bv"
     BaseIntegerRepr -> "i"
     BaseRealRepr    -> "r"
+    BaseFloatRepr _ -> "f"
     BaseStringRepr  -> "s"
     BaseComplexRepr -> "c"
     BaseArrayRepr _ _ -> "a"
@@ -1336,6 +1466,38 @@ ppApp' a0 = do
     BVBitAnd _ x y -> ppSExpr "bvAnd" [x, y]
     BVBitOr  _ x y -> ppSExpr "bvOr"  [x, y]
     BVBitXor _ x y -> ppSExpr "bvXor" [x, y]
+
+    --------------------------------
+    -- Float operations
+    FloatPZero _ -> prettyApp "floatPZero" []
+    FloatNZero _ -> prettyApp "floatNZero" []
+    FloatNaN _ -> prettyApp "floatNaN" []
+    FloatPInf _ -> prettyApp "floatPInf" []
+    FloatNInf _ -> prettyApp "floatNInf" []
+    FloatAdd _ x y -> ppSExpr "floatAdd" [x, y]
+    FloatSub _ x y -> ppSExpr "floatSub" [x, y]
+    FloatMul _ x y -> ppSExpr "floatMul" [x, y]
+    FloatDiv _ x y -> ppSExpr "floatDiv" [x, y]
+    FloatRem _ x y -> ppSExpr "floatRem" [x, y]
+    FloatEq x y -> ppSExpr "floatEq" [x, y]
+    FloatNe x y -> ppSExpr "floatNe" [x, y]
+    FloatLe x y -> ppSExpr "floatLe" [x, y]
+    FloatLt x y -> ppSExpr "floatLt" [x, y]
+    FloatGe x y -> ppSExpr "floatGe" [x, y]
+    FloatGt x y -> ppSExpr "floatGt" [x, y]
+    FloatIsNaN x -> ppSExpr "floatIsNaN" [x]
+    FloatIsInf x -> ppSExpr "floatIsInf" [x]
+    FloatIsZero x -> ppSExpr "floatIsZero" [x]
+    FloatIsPos x -> ppSExpr "floatIsPos" [x]
+    FloatIsNeg x -> ppSExpr "floatIsNeg" [x]
+    FloatIte _ c x y -> ppITE "floatIte" c x y
+    FloatCast _ x -> ppSExpr "floatCast" [x]
+    BVToFloat _ x -> ppSExpr "bvToFloat" [x]
+    SBVToFloat _ x -> ppSExpr "sbvToFloat" [x]
+    RealToFloat _ x -> ppSExpr "realToFloat" [x]
+    FloatToBV _ x -> ppSExpr "floatToBV" [x]
+    FloatToSBV _ x -> ppSExpr "floatToSBV" [x]
+    FloatToReal x -> ppSExpr "floatToReal" [x]
 
     -------------------------------------
     -- Arrays
@@ -2119,6 +2281,36 @@ abstractEval bvParams f a0 = do
     BVBitOr  w x y -> BVD.or  w (f x) (f y)
     BVBitXor w x y -> BVD.xor w (f x) (f y)
 
+    FloatPZero{} -> ()
+    FloatNZero{} -> ()
+    FloatNaN{} -> ()
+    FloatPInf{} -> ()
+    FloatNInf{} -> ()
+    FloatAdd{} -> ()
+    FloatSub{} -> ()
+    FloatMul{} -> ()
+    FloatDiv{} -> ()
+    FloatRem{} -> ()
+    FloatEq{} -> Nothing
+    FloatNe{} -> Nothing
+    FloatLe{} -> Nothing
+    FloatLt{} -> Nothing
+    FloatGt{} -> Nothing
+    FloatGe{} -> Nothing
+    FloatIsNaN{} -> Nothing
+    FloatIsInf{} -> Nothing
+    FloatIsZero{} -> Nothing
+    FloatIsPos{} -> Nothing
+    FloatIsNeg{} -> Nothing
+    FloatIte{} -> ()
+    FloatCast{} -> ()
+    BVToFloat{} -> ()
+    SBVToFloat{} -> ()
+    RealToFloat{} -> ()
+    FloatToBV w _ -> BVD.range w (minUnsigned w) (maxUnsigned w)
+    FloatToSBV w _ -> BVD.range w (minSigned w) (maxSigned w)
+    FloatToReal{} -> ravUnbounded
+
     ArrayMap _ bRepr m d ->
       withAbstractable bRepr $
         Map.foldl' (\av e -> avJoin bRepr (f e) av) (f d) (Hash.hashedMap m)
@@ -2204,6 +2396,7 @@ instance PolyEq (Expr t x) (Expr t y) where
 appEqF :: App (Expr t) x -> App (Expr t) y -> Maybe (x :~: y)
 appEqF = $(structuralTypeEquality [t|App|]
            [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
+           , (TypeApp (ConType [t|FloatInfoRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
            , (ConType [t|Hash.Vector|] `TypeApp` AnyType
              , [|\x y -> if x == y then Just Refl else Nothing|])
@@ -2684,6 +2877,36 @@ reduceApp sym a0 = do
     BVBitAnd _ x y -> bvAndBits sym x y
     BVBitOr  _ x y -> bvOrBits  sym x y
     BVBitXor _ x y -> bvXorBits sym x y
+
+    FloatPZero{}  -> sbMakeExpr sym a0
+    FloatNZero{}  -> sbMakeExpr sym a0
+    FloatNaN{}    -> sbMakeExpr sym a0
+    FloatPInf{}   -> sbMakeExpr sym a0
+    FloatNInf{}   -> sbMakeExpr sym a0
+    FloatAdd{}    -> sbMakeExpr sym a0
+    FloatSub{}    -> sbMakeExpr sym a0
+    FloatMul{}    -> sbMakeExpr sym a0
+    FloatDiv{}    -> sbMakeExpr sym a0
+    FloatRem{}    -> sbMakeExpr sym a0
+    FloatEq{}     -> sbMakeExpr sym a0
+    FloatNe{}     -> sbMakeExpr sym a0
+    FloatLe{}     -> sbMakeExpr sym a0
+    FloatLt{}     -> sbMakeExpr sym a0
+    FloatGe{}     -> sbMakeExpr sym a0
+    FloatGt{}     -> sbMakeExpr sym a0
+    FloatIsNaN{}  -> sbMakeExpr sym a0
+    FloatIsInf{}  -> sbMakeExpr sym a0
+    FloatIsZero{} -> sbMakeExpr sym a0
+    FloatIsPos{}  -> sbMakeExpr sym a0
+    FloatIsNeg{}  -> sbMakeExpr sym a0
+    FloatIte{}    -> sbMakeExpr sym a0
+    FloatCast{}   -> sbMakeExpr sym a0
+    BVToFloat{}   -> sbMakeExpr sym a0
+    SBVToFloat{}  -> sbMakeExpr sym a0
+    RealToFloat{} -> sbMakeExpr sym a0
+    FloatToBV{}   -> sbMakeExpr sym a0
+    FloatToSBV{}  -> sbMakeExpr sym a0
+    FloatToReal{} -> sbMakeExpr sym a0
 
     ArrayEq x y -> arrayEq sym x y
     ArrayMap _ _ m def_map ->
@@ -4581,6 +4804,12 @@ instance IsBasicExprBuilder (ExprBuilder t st fs) where
     (:+) <$> sbMakeExpr sym (RealPart x)
          <*> sbMakeExpr sym (ImagPart x)
 
+  baseFloatEq sym x y = sbMakeExpr sym $ FloatEq x y
+  baseFloatIte sym c x y =
+    let BaseFloatRepr fi = exprType x
+    in  sbMakeExpr sym $ FloatIte fi c x y
+  baseFloatDefaultValue sym fi = sbMakeExpr sym $ FloatPZero fi
+
 ----------------------------------------------------------------------
 -- Float operations
 
@@ -4777,6 +5006,85 @@ instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpreted)) where
     QuadFloatRepr         -> knownRepr
     X86_80FloatRepr       -> knownRepr
     DoubleDoubleFloatRepr -> knownRepr
+
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatIEEE)) fi = BaseFloatType fi
+
+instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) where
+  floatPZero = floatIEEEArithCt FloatPZero
+  floatNZero = floatIEEEArithCt FloatNZero
+  floatLit sym fi r = realToFloat sym fi =<< realLit sym r
+  floatNaN = floatIEEEArithCt FloatNaN
+  floatPInf = floatIEEEArithCt FloatPInf
+  floatNInf = floatIEEEArithCt FloatNInf
+  floatAdd = floatIEEEArithBinOp FloatAdd
+  floatSub = floatIEEEArithBinOp FloatSub
+  floatMul = floatIEEEArithBinOp FloatMul
+  floatDiv = floatIEEEArithBinOp FloatDiv
+  floatRem = floatIEEEArithBinOp FloatRem
+  floatEq = floatIEEELogicBinOp FloatEq
+  floatNe = floatIEEELogicBinOp FloatNe
+  floatLe = floatIEEELogicBinOp FloatLe
+  floatLt = floatIEEELogicBinOp FloatLt
+  floatGe = floatIEEELogicBinOp FloatGe
+  floatGt = floatIEEELogicBinOp FloatGt
+  floatIte sym c x y =
+    let BaseFloatRepr fi = exprType x
+    in  sbMakeExpr sym $ FloatIte fi c x y
+  floatIsNaN = floatIEEELogicUnOp FloatIsNaN
+  floatIsInf = floatIEEELogicUnOp FloatIsInf
+  floatIsZero = floatIEEELogicUnOp FloatIsZero
+  floatIsPos = floatIEEELogicUnOp FloatIsPos
+  floatIsNeg = floatIEEELogicUnOp FloatIsNeg
+  floatCast sym fi = sbMakeExpr sym . FloatCast fi
+  bvToFloat sym fi = sbMakeExpr sym . BVToFloat fi
+  sbvToFloat sym fi = sbMakeExpr sym . SBVToFloat fi
+  realToFloat sym fi = sbMakeExpr sym . RealToFloat fi
+  floatToBV sym w = sbMakeExpr sym . FloatToBV w
+  floatToSBV sym w = sbMakeExpr sym . FloatToSBV w
+  floatToReal sym = sbMakeExpr sym . FloatToReal
+  floatBaseTypeRepr _ = \case
+    HalfFloatRepr         -> knownRepr
+    SingleFloatRepr       -> knownRepr
+    DoubleFloatRepr       -> knownRepr
+    QuadFloatRepr         -> knownRepr
+    X86_80FloatRepr       -> knownRepr
+    DoubleDoubleFloatRepr -> knownRepr
+
+floatIEEEArithBinOp
+  :: (e ~ Expr t)
+  => (  FloatInfoRepr fi
+     -> e (BaseFloatType fi)
+     -> e (BaseFloatType fi)
+     -> App e (BaseFloatType fi)
+     )
+  -> ExprBuilder t st (Flags FloatIEEE)
+  -> e (BaseFloatType fi)
+  -> e (BaseFloatType fi)
+  -> IO (e (BaseFloatType fi))
+floatIEEEArithBinOp ctor sym x y =
+  let BaseFloatRepr fi = exprType x in sbMakeExpr sym $ ctor fi x y
+floatIEEEArithCt
+  :: (e ~ Expr t)
+  => (FloatInfoRepr fi -> App e (BaseFloatType fi))
+  -> ExprBuilder t st (Flags FloatIEEE)
+  -> FloatInfoRepr fi
+  -> IO (e (BaseFloatType fi))
+floatIEEEArithCt ctor sym fi = sbMakeExpr sym $ ctor fi
+floatIEEELogicBinOp
+  :: (e ~ Expr t)
+  => (e (BaseFloatType fi) -> e (BaseFloatType fi) -> App e BaseBoolType)
+  -> ExprBuilder t st (Flags FloatIEEE)
+  -> e (BaseFloatType fi)
+  -> e (BaseFloatType fi)
+  -> IO (e BaseBoolType)
+floatIEEELogicBinOp ctor sym x y = sbMakeExpr sym $ ctor x y
+floatIEEELogicUnOp
+  :: (e ~ Expr t)
+  => (e (BaseFloatType fi) -> App e BaseBoolType)
+  -> ExprBuilder t st (Flags FloatIEEE)
+  -> e (BaseFloatType fi)
+  -> IO (e BaseBoolType)
+floatIEEELogicUnOp ctor sym x = sbMakeExpr sym $ ctor x
 
 
 instance IsFOLExprBuilder (ExprBuilder t st fs) where

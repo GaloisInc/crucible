@@ -230,6 +230,7 @@ semiRingTypeMap SemiRingReal = RealTypeMap
 data BaseTypeError = ComplexTypeUnsupported
                    | ArrayUnsupported
                    | StringTypeUnsupported
+                   | FloatTypeUnsupported
 
 type ArrayConstantFn v
    = [SMT_Type]
@@ -835,6 +836,7 @@ typeMapNoFunction conn tp0 = do
   case tp0 of
     BaseBoolRepr -> Right $! BoolTypeMap
     BaseBVRepr w -> Right $! BVTypeMap w
+    BaseFloatRepr _ -> Left FloatTypeUnsupported
     BaseRealRepr -> Right $! RealTypeMap
     BaseNatRepr  -> Right $! NatTypeMap
     BaseIntegerRepr -> Right $! IntegerTypeMap
@@ -855,22 +857,19 @@ typeMapNoFunction conn tp0 = do
 getBaseSMT_Type :: ExprBoundVar t tp -> SMTCollector t h (TypeMap tp)
 getBaseSMT_Type v = do
   conn <- asks scConn
-  let nm = show (bvarName v)
+  let errMsg typename =
+        show
+          $   text (show (bvarName v))
+          <+> text "is a"
+          <+> text typename
+          <+> text "variable, and we do not support this with"
+          <+> text (smtWriterName conn ++ ".")
   case typeMap conn (bvarType v) of
-    Left StringTypeUnsupported -> do
-      fail $ show $ text nm
-        <+> text "is a string variable, and we do not support this with"
-        <+> text (smtWriterName conn ++ ".")
-    Left ComplexTypeUnsupported -> do
-      fail $ show $ text nm
-        <+> text "is a complex variable, and we do not support this with"
-        <+> text (smtWriterName conn ++ ".")
-    Left ArrayUnsupported -> do
-      fail $ show $ text nm
-        <+> text "is an array variable, and we do not support this with"
-        <+> text (smtWriterName conn ++ ".")
-    Right smtType ->
-      return smtType
+    Left  StringTypeUnsupported  -> fail $ errMsg "string"
+    Left  FloatTypeUnsupported   -> fail $ errMsg "floating point"
+    Left  ComplexTypeUnsupported -> fail $ errMsg "complex"
+    Left  ArrayUnsupported       -> fail $ errMsg "array"
+    Right smtType                -> return smtType
 
 -- | Create a fresh bound term from the SMT expression with the given name.
 freshBoundTerm :: TypeMap tp -> Term h -> SMTCollector t h (SMTExpr h tp)
@@ -1349,6 +1348,7 @@ ppBaseTypeError :: BaseTypeError -> Doc
 ppBaseTypeError ComplexTypeUnsupported = text "complex values"
 ppBaseTypeError ArrayUnsupported = text "arrays encoded as a functions"
 ppBaseTypeError StringTypeUnsupported = text "string values"
+ppBaseTypeError FloatTypeUnsupported = text "floating point values"
 
 eltSource :: Expr t tp -> SMTSource
 eltSource e solver_name cause =

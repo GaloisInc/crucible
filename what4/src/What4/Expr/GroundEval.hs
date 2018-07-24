@@ -123,6 +123,7 @@ defaultValueForType tp =
     BaseStringRepr  -> mempty
     BaseArrayRepr _ b -> ArrayConcrete (defaultValueForType b) Map.empty
     BaseStructRepr ctx -> fmapFC (GVW . defaultValueForType) ctx
+    BaseFloatRepr _ -> undefined
 
 {-# INLINABLE evalGroundExpr #-}
 -- | Helper function for evaluating @Expr@ expressions in a model.
@@ -322,6 +323,38 @@ evalGroundApp f0 a0 = do
     BVBitAnd _ x y -> lift $ (.&.) <$> f0 x <*> f0 y
     BVBitOr  _ x y -> lift $ (.|.) <$> f0 x <*> f0 y
     BVBitXor _ x y -> lift $ xor <$> f0 x <*> f0 y
+
+    ------------------------------------------------------------------------
+    -- Bitvector Operations
+    FloatPZero{} -> undefined
+    FloatNZero{} -> undefined
+    FloatNaN{} -> undefined
+    FloatPInf{} -> undefined
+    FloatNInf{} -> undefined
+    FloatAdd{} -> undefined
+    FloatSub{} -> undefined
+    FloatMul{} -> undefined
+    FloatDiv{} -> undefined
+    FloatRem{} -> undefined
+    FloatEq{} -> undefined
+    FloatNe{} -> undefined
+    FloatLe{} -> undefined
+    FloatLt{} -> undefined
+    FloatGt{} -> undefined
+    FloatGe{} -> undefined
+    FloatIsNaN{} -> undefined
+    FloatIsInf{} -> undefined
+    FloatIsZero{} -> undefined
+    FloatIsPos{} -> undefined
+    FloatIsNeg{} -> undefined
+    FloatIte{} -> undefined
+    FloatCast{} -> undefined
+    BVToFloat{} -> undefined
+    SBVToFloat{} -> undefined
+    RealToFloat{} -> undefined
+    FloatToBV{} -> undefined
+    FloatToSBV{} -> undefined
+    FloatToReal{} -> undefined
 
     ------------------------------------------------------------------------
     -- Array Operations

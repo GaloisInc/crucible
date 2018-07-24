@@ -41,6 +41,7 @@ module What4.BaseTypes
   , BaseRealType
   , BaseStringType
   , BaseBVType
+  , BaseFloatType
   , BaseComplexType
   , BaseStructType
   , BaseArrayType
@@ -96,6 +97,8 @@ data BaseType
    | BaseRealType
      -- | @BaseBVType n@ denotes a bitvector with @n@-bits.
    | BaseBVType GHC.TypeLits.Nat
+     -- | @BaseFloatType fi@ denotes a floating point number in @fi@ format.
+   | BaseFloatType FloatInfo
      -- | @BaseStringType@ denotes a sequence of Unicode codepoints
    | BaseStringType
      -- | @BaseComplexType@ denotes a complex number with real components.
@@ -115,6 +118,7 @@ type BaseIntegerType = 'BaseIntegerType -- ^ @:: 'BaseType'@.
 type BaseNatType     = 'BaseNatType     -- ^ @:: 'BaseType'@.
 type BaseRealType    = 'BaseRealType    -- ^ @:: 'BaseType'@.
 type BaseBVType      = 'BaseBVType      -- ^ @:: 'GHC.TypeLits.Nat' -> 'BaseType'@.
+type BaseFloatType   = 'BaseFloatType   -- ^ @:: 'FloatInfo' -> 'BaseType'@.
 type BaseStringType  = 'BaseStringType  -- ^ @:: 'BaseType'@.
 type BaseComplexType = 'BaseComplexType -- ^ @:: 'BaseType'@.
 type BaseStructType  = 'BaseStructType  -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType'@.
@@ -149,6 +153,7 @@ data BaseTypeRepr (bt::BaseType) :: * where
    BaseNatRepr  :: BaseTypeRepr BaseNatType
    BaseIntegerRepr :: BaseTypeRepr BaseIntegerType
    BaseRealRepr    :: BaseTypeRepr BaseRealType
+   BaseFloatRepr   :: !(FloatInfoRepr fi) -> BaseTypeRepr (BaseFloatType fi)
    BaseStringRepr  :: BaseTypeRepr BaseStringType
    BaseComplexRepr :: BaseTypeRepr BaseComplexType
 
@@ -190,6 +195,8 @@ instance KnownRepr BaseTypeRepr BaseStringType where
   knownRepr = BaseStringRepr
 instance (1 <= w, KnownNat w) => KnownRepr BaseTypeRepr (BaseBVType w) where
   knownRepr = BaseBVRepr knownNat
+instance KnownRepr FloatInfoRepr fi => KnownRepr BaseTypeRepr (BaseFloatType fi) where
+  knownRepr = BaseFloatRepr knownRepr
 instance KnownRepr BaseTypeRepr BaseComplexType where
   knownRepr = BaseComplexRepr
 
@@ -239,6 +246,7 @@ instance ShowF FloatInfoRepr
 instance TestEquality BaseTypeRepr where
   testEquality = $(structuralTypeEquality [t|BaseTypeRepr|]
                    [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
+                   , (TypeApp (ConType [t|FloatInfoRepr|]) AnyType, [|testEquality|])
                    , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
                    , ( TypeApp (TypeApp (ConType [t|Ctx.Assignment|]) AnyType) AnyType
                      , [|testEquality|]
@@ -249,6 +257,7 @@ instance TestEquality BaseTypeRepr where
 instance OrdF BaseTypeRepr where
   compareF = $(structuralTypeOrd [t|BaseTypeRepr|]
                    [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|compareF|])
+                   , (TypeApp (ConType [t|FloatInfoRepr|]) AnyType, [|compareF|])
                    , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|compareF|])
                    , (TypeApp (TypeApp (ConType [t|Ctx.Assignment|]) AnyType) AnyType
                      , [|compareF|]
