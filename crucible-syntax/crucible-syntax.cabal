@@ -98,5 +98,7 @@ test-suite crucible-syntax-tests
     megaparsec,
     tasty,
     tasty-golden,
-    text
+    tasty-hunit,
+    text,
+    what4
 

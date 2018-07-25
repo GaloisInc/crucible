@@ -22,7 +22,7 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 newtype Syntax a = Syntax { unSyntax :: Posd (Layer Syntax a) }
-  deriving (Show, Functor)
+  deriving (Show, Functor, Eq)
 
 newtype Datum a = Datum { unDatum :: Layer Datum a}
   deriving (Show, Functor, Eq)

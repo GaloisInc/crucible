@@ -18,6 +18,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+import GHC.Stack
+
 import Lang.Crucible.Syntax.SExpr
 
 import qualified Text.Megaparsec as MP
@@ -58,7 +60,7 @@ instance Ord Progress where
 data Reason atom = Reason { expr :: Syntax atom
                           , message :: Text
                           }
-  deriving (Functor, Show)
+  deriving (Functor, Show, Eq)
 
 data Failure atom = Ok | Oops Progress [Reason atom]
   deriving (Functor, Show)
@@ -144,6 +146,9 @@ datum dat =
   describe (datumToText mempty dat) $
     satisfy (\stx -> dat == syntaxToDatum stx) *> pure ()
 
+atom :: (IsAtom atom, Eq atom) => atom -> SyntaxParse atom ()
+atom a = datum (Datum (Atom a))
+
 describe :: Text -> SyntaxParse atom a -> SyntaxParse atom a
 describe d p =
   do foc <- view parseFocus
@@ -202,20 +207,16 @@ list parsers = describe desc $ list' parsers
              pure (x : xs)
 
 
-syntaxParse :: IsAtom atom => SyntaxParse atom a -> Syntax atom -> Either Text a
-syntaxParse p stx =
-  let (P yes no) =
-        runReaderT (runSyntaxParse p) $
-          SyntaxParseCtx (Progress []) (Reason stx (T.pack "bad syntax")) stx
-  in
-    case yes of
-      [] ->
-        Left $
-          case no of
-            Ok -> T.pack "bad syntax"
-            Oops _ rs -> T.intercalate "\n\tor\n" $ nub $ map printReason rs
-      (r:_) -> Right r
-  where
+-- | Syntax errors explain why the error occurred.
+data SyntaxError atom = SyntaxError [Reason atom]
+  deriving (Show, Eq)
+
+printSyntaxError :: IsAtom atom => SyntaxError atom -> Text
+printSyntaxError (SyntaxError rs) =
+  case rs of
+    [] -> T.pack "bad syntax"
+    more -> T.intercalate "\n\tor\n" $ nub $ map printReason more
+ where
     printReason :: IsAtom atom => Reason atom -> Text
     printReason (Reason found wanted) =
       T.concat
@@ -223,6 +224,35 @@ syntaxParse p stx =
         , ", expected " , wanted
         , " but got " , toText mempty found
         ]
+
+syntaxParse :: IsAtom atom => SyntaxParse atom a -> Syntax atom -> Either (SyntaxError atom) a
+syntaxParse p stx =
+  let (P yes no) =
+        runReaderT (runSyntaxParse p) $
+          SyntaxParseCtx (Progress []) (Reason stx (T.pack "bad syntax")) stx
+  in
+    case yes of
+      [] ->
+        Left $ SyntaxError $
+          case no of
+            Ok        -> []
+            Oops _ rs -> rs
+      (r:_) -> Right r
+
+
+later :: SyntaxParse atom a -> SyntaxParse atom a
+later = local (over parseProgress (pushProgress Late))
+
+sideCondition :: Text -> (a -> Maybe b) -> SyntaxParse atom a -> SyntaxParse atom b
+sideCondition msg ok p =
+  do x <- p
+     case ok x of
+       Just y -> pure y
+       Nothing ->
+         later (describe msg empty)
+
+sideCondition' :: Text -> (a -> Bool) -> SyntaxParse atom a -> SyntaxParse atom a
+sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
 
 newtype TrivialAtom = TrivialAtom Text deriving (Show, Eq)
 
@@ -232,11 +262,11 @@ instance IsAtom TrivialAtom where
 instance IsString TrivialAtom where
   fromString x = TrivialAtom (fromString x)
 
-test :: (Show a) => Text -> SyntaxParse TrivialAtom a -> IO ()
+test :: (HasCallStack, Show a) => Text -> SyntaxParse TrivialAtom a -> IO ()
 test txt p =
   case MP.parse (skipWhitespace *> sexp (TrivialAtom <$> identifier) <* MP.eof) "input" txt of
      Left err -> putStrLn "Reader error: " >> putStrLn (MP.parseErrorPretty' txt err)
      Right sexpr ->
        case syntaxParse p sexpr of
-         Left e -> T.putStrLn e
+         Left e -> T.putStrLn (printSyntaxError e)
          Right ok -> print ok
