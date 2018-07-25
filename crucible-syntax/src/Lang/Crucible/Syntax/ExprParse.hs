@@ -13,6 +13,9 @@ import Control.Monad (ap)
 import Control.Monad.Reader
 
 import Data.List
+import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty (NonEmpty(..))
+import Data.Semigroup (Semigroup(..))
 import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -62,7 +65,7 @@ data Reason atom = Reason { expr :: Syntax atom
                           }
   deriving (Functor, Show, Eq)
 
-data Failure atom = Ok | Oops Progress [Reason atom]
+data Failure atom = Ok | Oops Progress (NonEmpty (Reason atom))
   deriving (Functor, Show)
 
 instance Monoid (Failure atom) where
@@ -73,7 +76,7 @@ instance Monoid (Failure atom) where
     case compare p1 p2 of
       LT -> e2
       GT -> e1
-      EQ -> Oops p1 (mappend r1 r2)
+      EQ -> Oops p1 (r1 <> r2)
 
 data P atom a = P { success :: [a]
                   , failure :: Failure atom
@@ -118,12 +121,12 @@ newtype SyntaxParse atom a =
 
 instance Alternative (SyntaxParse atom) where
   empty =
-    SyntaxParse $ ReaderT $ \(SyntaxParseCtx p r _) -> P [] (Oops p [r])
+    SyntaxParse $ ReaderT $ \(SyntaxParseCtx p r _) -> P [] (Oops p (pure r))
   (SyntaxParse (ReaderT x)) <|> (SyntaxParse (ReaderT y)) =
     SyntaxParse $ ReaderT $ \ctx -> x ctx <|> y ctx
 
 parseError :: Progress -> Reason atom -> P atom a
-parseError p r = P [] (Oops p [r])
+parseError p r = P [] (Oops p (pure r))
 
 -- | Strip location information from a syntax object
 syntaxToDatum :: Syntactic expr atom => expr -> Datum atom
@@ -148,6 +151,11 @@ datum dat =
 
 atom :: (IsAtom atom, Eq atom) => atom -> SyntaxParse atom ()
 atom a = datum (Datum (Atom a))
+
+atomic :: SyntaxParse atom atom
+atomic = sideCondition "an atom" perhapsAtom (syntaxToDatum <$> anything)
+  where perhapsAtom (Datum (Atom a)) = Just a
+        perhapsAtom _ = Nothing
 
 describe :: Text -> SyntaxParse atom a -> SyntaxParse atom a
 describe d p =
@@ -208,14 +216,12 @@ list parsers = describe desc $ list' parsers
 
 
 -- | Syntax errors explain why the error occurred.
-data SyntaxError atom = SyntaxError [Reason atom]
+data SyntaxError atom = SyntaxError (NonEmpty (Reason atom))
   deriving (Show, Eq)
 
 printSyntaxError :: IsAtom atom => SyntaxError atom -> Text
 printSyntaxError (SyntaxError rs) =
-  case rs of
-    [] -> T.pack "bad syntax"
-    more -> T.intercalate "\n\tor\n" $ nub $ map printReason more
+  T.intercalate "\n\tor\n" $ nub $ map printReason $ NE.toList rs
  where
     printReason :: IsAtom atom => Reason atom -> Text
     printReason (Reason found wanted) =
@@ -235,7 +241,7 @@ syntaxParse p stx =
       [] ->
         Left $ SyntaxError $
           case no of
-            Ok        -> []
+            Ok        -> error "Internal error: no reason provided, yet no successful parse found."
             Oops _ rs -> rs
       (r:_) -> Right r
 

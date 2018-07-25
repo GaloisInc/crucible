@@ -27,7 +27,7 @@ import Prelude hiding (fail)
 
 import Data.Monoid ()
 
-import Control.Lens
+import Control.Lens hiding (cons)
 import Control.Applicative
 import Control.Monad.Identity hiding (fail)
 import Control.Monad.Trans.Except
@@ -40,9 +40,12 @@ import Control.Monad.Writer.Class ()
 
 import Lang.Crucible.Types
 
+import Data.Foldable
 import Data.Functor
 import qualified Data.Functor.Product as Functor
 import Data.Maybe
+import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty (NonEmpty(..))
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.Map (MapF)
@@ -57,12 +60,15 @@ import Data.Text (Text)
 --import qualified Data.Text as T
 import qualified Data.Vector as V
 
+import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
+import qualified Lang.Crucible.Syntax.ExprParse as SP
+
 import What4.ProgramLoc
 import What4.FunctionName
 import What4.Utils.MonadST
 
-import Lang.Crucible.Syntax.SExpr (Syntax, pattern L, pattern A, toText, PrintRules(..), PrintStyle(..), syntaxPos, withPosFrom)
-import Lang.Crucible.Syntax.Atoms
+import Lang.Crucible.Syntax.SExpr (Syntax, pattern L, pattern A, toText, PrintRules(..), PrintStyle(..), syntaxPos, withPosFrom, showAtom)
+import Lang.Crucible.Syntax.Atoms hiding (atom)
 
 import Lang.Crucible.CFG.Reg
 import Lang.Crucible.CFG.Expr
@@ -71,7 +77,11 @@ import Lang.Crucible.FunctionHandle
 
 import Numeric.Natural ()
 
-
+liftSyntaxParse :: MonadError (ExprErr s) m => SyntaxParse Atomic a -> AST s -> m a
+liftSyntaxParse p ast =
+  case syntaxParse p ast of
+    Left e -> throwError (SyntaxParseError e)
+    Right v -> return v
 
 type AST s = Syntax Atomic
 
@@ -140,6 +150,7 @@ data ExprErr s where
   UnknownRegister :: Position -> RegName -> ExprErr s
   SyntaxError :: AST s -> Text -> ExprErr s
   WrongNumberOfCases :: AST s -> ExprErr s
+  SyntaxParseError :: SP.SyntaxError Atomic -> ExprErr s
 
 errPos :: ExprErr s -> Position
 errPos (TypeError p _ _ _) = p
@@ -193,6 +204,7 @@ errPos (WrongNumberOfCases e) = syntaxPos e
 errPos (NotGlobal p _) = p
 errPos (NotARefType p _) = p
 errPos (UnknownGlobal p _) = p
+errPos (SyntaxParseError (SP.SyntaxError (Reason e _ :| _))) = syntaxPos e
 
 deriving instance Show (ExprErr s)
 instance Monoid (ExprErr s) where
@@ -292,66 +304,69 @@ checkExpr expectedT ast =
        Just Refl -> return $ e
        Nothing -> throwError $ TypeError (syntaxPos ast) ast expectedT foundT
 
+kw :: Keyword -> SyntaxParse Atomic ()
+kw k = describe ("the keyword " <> showAtom (Kw k)) (atom (Kw k))
+
+int :: SyntaxParse Atomic Integer
+int = sideCondition "integer literal" numeric atomic
+  where numeric (Int i) = Just i
+        numeric _ = Nothing
+
+
+toCtx :: forall f . [Some f] -> Some (Ctx.Assignment f)
+toCtx fs = toCtx' (reverse fs)
+  where toCtx' :: [Some f] -> Some (Ctx.Assignment f)
+        toCtx' [] = Some Ctx.empty
+        toCtx' (Some x : (toCtx' -> Some xs)) =
+          Some $ Ctx.extend xs x
+
+
+mkFunRepr :: [Some TypeRepr] -> Some TypeRepr -> Some TypeRepr
+mkFunRepr (toCtx -> Some doms) (Some ran) = Some $ FunctionHandleRepr doms ran
+
+repUntilLast :: SyntaxParse Atomic a -> SyntaxParse Atomic ([a], a)
+repUntilLast p = describe "zero or more followed by one" $ repUntilLast' p
+  where repUntilLast' p =
+          (cons p emptyList <&> \(x, ()) -> ([], x)) <|>
+          (cons p (repUntilLast' p) <&> \(x, (xs, lst)) -> (x:xs, lst))
+
 
 isType :: MonadError (ExprErr s) m => AST s -> m (Some TypeRepr)
-isType t@(A (Kw x)) =
-  case x of
-    AnyT -> return $ Some AnyRepr
-    UnitT -> return $ Some UnitRepr
-    BoolT -> return $ Some BoolRepr
-    NatT -> return $ Some NatRepr
-    IntegerT -> return $ Some IntegerRepr
-    RealT -> return $ Some RealValRepr
-    ComplexRealT -> return $ Some ComplexRealRepr
-    CharT -> return $ Some CharRepr
-    StringT -> return $ Some StringRepr
-    _ -> throwError $ NotAType (syntaxPos t) t
+isType ast = liftSyntaxParse isType' ast
+  where isType' =
+          describe "type" $
+            atomicType <|> vector <|> ref <|> bv <|> fun <|> maybeT <|> var
 
-isType (L [A (Kw VectorT), a]) =
-  do Some t <- isType a
-     return $ Some (VectorRepr t)
+        unary k p = cons (kw k) (cons p emptyList) <&> fst . snd
 
-isType (L [A (Kw RefT), a]) =
-  do Some t <- isType a
-     return $ Some (ReferenceRepr t)
+        atomicType =
+          describe "atomic type" $
+            asum [ kw AnyT $> Some AnyRepr
+                 , kw UnitT $> Some UnitRepr
+                 , kw BoolT $> Some BoolRepr
+                 , kw NatT $> Some NatRepr
+                 , kw IntegerT $> Some IntegerRepr
+                 , kw RealT $> Some RealValRepr
+                 , kw ComplexRealT $> Some ComplexRealRepr
+                 , kw CharT $> Some CharRepr
+                 , kw StringT $> Some StringRepr
+                 ]
+        vector = unary VectorT isType' <&> \(Some t) -> Some (VectorRepr t)
+        ref    = unary RefT isType' <&> \(Some t) -> Some (ReferenceRepr t)
+        bv :: SyntaxParse Atomic (Some TypeRepr)
+        bv     = do (Some len) <- unary BitVectorT (sideCondition "natural number" someNat int)
+                    case testLeq (knownNat :: NatRepr 1) len of
+                      Nothing -> describe "positive number" empty
+                      Just LeqProof -> return $ Some $ BVRepr len
 
-isType (L [A (Kw BitVectorT), n]) =
-  case n of
-    A (Int i) ->
-      case someNat i of
-        Nothing -> throwError $ NotANat (syntaxPos n) i
-        Just (Some len) ->
-          case testLeq (knownNat :: NatRepr 1) len of
-            Nothing -> throwError $ TooSmall (syntaxPos n) len
-            Just LeqProof -> return $ Some $ BVRepr len
-    other -> throwError $ NotNumeric (syntaxPos other) other NatRepr
+        fun :: SyntaxParse Atomic (Some TypeRepr)
+        fun = cons (kw FunT) (repUntilLast isType') <&> \((), (args, ret)) -> mkFunRepr args ret
 
-isType (L (A (Kw FunT) : domAndRan)) | Just (doms, ran) <- withLast domAndRan =
-  do doms' <- mapM isType doms
-     Some doms'' <- return $ toCtx (reverse doms')
-     Some ran' <- isType ran
-     return $ Some $ FunctionHandleRepr doms'' ran'
-  where withLast [] = Nothing
-        withLast [x] = Just ([], x)
-        withLast (x : xs) = fmap (\(most, final) -> (x : most, final)) (withLast xs)
-        toCtx [] = Some Ctx.empty
-        toCtx (Some t : ts) | Some ts' <- toCtx ts = Some $ Ctx.extend ts' t
+        maybeT = unary MaybeT isType' <&> \(Some t) -> Some (MaybeRepr t)
+        var :: SyntaxParse Atomic (Some TypeRepr)
+        var = cons (kw VariantT) (rep isType') <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
 
-isType (L [A (Kw MaybeT), t']) =
-  do Some t'' <- isType t'
-     return $ Some $ MaybeRepr t''
 
-isType (L (A (Kw VariantT) : types)) =
-  do Some types' <- toCtx (reverse types)
-     return $ Some $ VariantRepr types'
-  where toCtx [] = return $ Some Ctx.empty
-        toCtx (t:ts) =
-          do Some ctx' <- toCtx ts
-             Some t' <- isType t
-             return $ Some $ Ctx.extend ctx' t'
-
--- TODO more types
-isType e = throwError $ NotAType (syntaxPos e) e
 
 
 

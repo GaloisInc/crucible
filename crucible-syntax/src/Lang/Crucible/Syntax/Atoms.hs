@@ -136,16 +136,16 @@ instance Show Keyword where
              (s:_) -> T.unpack s
 
 
-data Atomic = Kw Keyword -- ^ Keywords are all the built-in operators and expression formers
-            | Lbl LabelName -- ^ Labels, but not the trailing colon
-            | At AtomName -- ^ Atom names (which look like Scheme symbols)
-            | Rg RegName -- ^ Registers, whose names have a leading single $
-            | Gl GlobalName -- ^ Global variables, whose names have a leading double $$
-            | Fn FunName -- ^ Function names, minus the leading @
-            | Int Integer -- ^ Literal integers
-            | Rat Rational -- ^ Literal rational numbers
-            | Bool Bool   -- ^ Literal Booleans
-            | StrLit Text -- ^ Literal strings
+data Atomic = Kw !Keyword -- ^ Keywords are all the built-in operators and expression formers
+            | Lbl !LabelName -- ^ Labels, but not the trailing colon
+            | At !AtomName -- ^ Atom names (which look like Scheme symbols)
+            | Rg !RegName -- ^ Registers, whose names have a leading single $
+            | Gl !GlobalName -- ^ Global variables, whose names have a leading double $$
+            | Fn !FunName -- ^ Function names, minus the leading @
+            | Int !Integer -- ^ Literal integers
+            | Rat !Rational -- ^ Literal rational numbers
+            | Bool !Bool   -- ^ Literal Booleans
+            | StrLit !Text -- ^ Literal strings
   deriving (Eq, Ord, Show)
 
 

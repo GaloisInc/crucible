@@ -63,12 +63,6 @@ syntaxParsing :: TestTree
 syntaxParsing =
   let
     anyUnit = anything *> pure ()
-    atomic =
-      let perhapsAtom =
-            \case
-              (Datum (Atom a)) -> Just a
-              _ ->  Nothing
-      in sideCondition "an atom" perhapsAtom (syntaxToDatum <$> anything)
     vars = describe "sequence of variable bindings" $ rep atomic
     distinctVars :: SyntaxParse TrivialAtom [TrivialAtom]
     distinctVars = sideCondition' "sequence of distinct variable bindings" (\xs -> nub xs == xs) vars
@@ -83,19 +77,17 @@ syntaxParsing =
        , testCase "Empty list is not atom" $
          syntaxTest "()" (atom "foo") @?=
            Left
-             (SyntaxError
-               [ Reason { expr = Syntax {unSyntax = Posd {pos = fakeFilePos 1 1, pos_val = List []}}
+             (SyntaxError $ pure $
+               Reason { expr = Syntax {unSyntax = Posd {pos = fakeFilePos 1 1, pos_val = List []}}
                         , message = "foo"
-                        }
-               ])
+                        })
        , testCase "Atom is not empty list" $
          syntaxTest "foo" emptyList @?=
            Left
-             (SyntaxError
-               [ Reason { expr = Syntax {unSyntax = Posd {pos = fakeFilePos 1 1, pos_val = Atom (TrivialAtom "foo")}}
+             (SyntaxError $ pure $
+               Reason { expr = Syntax {unSyntax = Posd {pos = fakeFilePos 1 1, pos_val = Atom (TrivialAtom "foo")}}
                         , message = "empty expression ()"
-                        }
-               ])
+                        })
        , testCase "Three element list of whatever" $
          syntaxTest "(delicious avocado toast)" (list [anyUnit, anyUnit, anyUnit]) @?=
            Right [(), (), ()]
@@ -108,23 +100,22 @@ syntaxParsing =
        , testCase "Three element list of non-atoms isn't atoms" $
          syntaxTest "((delicious) avocado toast)" (list [atomic, atomic, atomic]) @?=
            Left
-             (SyntaxError
-               [ Reason { expr =
+             (SyntaxError $ pure $
+               Reason { expr =
                           Syntax $
-                            Posd { pos = fakeFilePos 1 2
-                                 , pos_val =
-                                     List [ Syntax (Posd (fakeFilePos 1 3)
-                                                      (Atom (TrivialAtom "delicious")))
-                                          ]
-                                 }
-                        , message = "an atom"
-                        }
-               ])
+                          Posd { pos = fakeFilePos 1 2
+                               , pos_val =
+                                   List [ Syntax (Posd (fakeFilePos 1 3)
+                                                   (Atom (TrivialAtom "delicious")))
+                                        ]
+                               }
+                      , message = "an atom"
+                      })
        , testCase "Three element list of non-atoms still isn't atoms" $
          syntaxTest "(delicious (avocado) toast)" (list [atomic, atomic, atomic]) @?=
            Left
-             (SyntaxError
-               [ Reason { expr =
+             (SyntaxError $ pure $
+               Reason { expr =
                           Syntax $
                             Posd { pos = fakeFilePos 1 12
                                  , pos_val =
@@ -133,8 +124,7 @@ syntaxParsing =
                                           ]
                                  }
                         , message = "an atom"
-                        }
-               ])
+                        })
        , testCase "Many three-element lists of whatever (1)" $
          syntaxTest "((delicious avocado toast))" (rep $ list [anything, anything, anything] *> pure ()) @?=
            Right [()]
@@ -147,48 +137,44 @@ syntaxParsing =
        , testCase "Many three-element lists of whatever failing on third sublist" $
          syntaxTest "((programming is fun) (a b c) (x y) (hello (more stuff) fits))" (rep $ list [anything, anything, anything] *> pure ()) @?=
            Left
-             (SyntaxError
-              [ Reason { expr = Syntax (Posd (fakeFilePos 1 31)
-                                          (List [ Syntax (Posd (fakeFilePos 1 32)
-                                                            (Atom (TrivialAtom "x")))
-                                                , Syntax (Posd (fakeFilePos 1 34)
-                                                            (Atom (TrivialAtom "y")))]))
-                       , message = "3 expressions"
-                       }
-              ])
+             (SyntaxError $ pure $
+              Reason { expr = Syntax (Posd (fakeFilePos 1 31)
+                                       (List [ Syntax (Posd (fakeFilePos 1 32)
+                                                        (Atom (TrivialAtom "x")))
+                                             , Syntax (Posd (fakeFilePos 1 34)
+                                                        (Atom (TrivialAtom "y")))]))
+                     , message = "3 expressions"
+                     })
        , testCase "Realistic example 1" $
          syntaxTest "(lambda (x y z) y)" lambda @?= Right (Lam ["x", "y", "z"] (Datum (Atom "y")))
        , testCase "Realistic example 2" $
          syntaxTest "(lambda (x y (z)) y)" lambda @?=
            Left
-             (SyntaxError
-              [ Reason { expr = Syntax (Posd (fakeFilePos 1 14)
+             (SyntaxError $ pure $
+              Reason { expr = Syntax (Posd (fakeFilePos 1 14)
                                          (List [Syntax {unSyntax = Posd {pos = fakeFilePos 1 15, pos_val = Atom (TrivialAtom "z")}}]))
                        , message = "an atom"
-                       }
-              ])
+                       })
        , testCase "Realistic example 3" $
          syntaxTest "(lambda x x)" lambda @?=
            Left
-             (SyntaxError
-              [ Reason { expr = Syntax (Posd (fakeFilePos 1 9)
+             (SyntaxError $ pure $
+              Reason { expr = Syntax (Posd (fakeFilePos 1 9)
                                          (Atom "x"))
                        , message = "sequence of variable bindings"
-                       }
-              ])
+                       })
        , testCase "Realistic example 4" $
          syntaxTest "(lambda (x y x) y)" lambda @?=
            Left
-             (SyntaxError
-              [ Reason { expr =
+             (SyntaxError $ pure $
+              Reason { expr =
                          Syntax (Posd (fakeFilePos 1 9)
                                   (List [ Syntax {unSyntax = Posd {pos = fakeFilePos 1 10, pos_val = Atom (TrivialAtom "x")}}
                                         , Syntax {unSyntax = Posd {pos = fakeFilePos 1 12, pos_val = Atom (TrivialAtom "y")}}
                                         , Syntax {unSyntax = Posd {pos = fakeFilePos 1 14, pos_val = Atom (TrivialAtom "x")}}
                                         ]))
                        , message = "sequence of distinct variable bindings"
-                       }
-              ])
+                       })
        ]
 
 fakeFile :: Text
