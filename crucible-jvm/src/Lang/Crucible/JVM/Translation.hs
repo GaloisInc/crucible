@@ -23,6 +23,7 @@ Stability        : provisional
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -haddock #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -32,7 +33,8 @@ Stability        : provisional
 
 module Lang.Crucible.JVM.Translation where
 
-import Data.Monoid((<>))
+import Data.Maybe (isJust, fromJust)
+import Data.Semigroup(Semigroup(..),(<>))
 import Control.Monad.State.Strict
 import Control.Monad.ST
 import Control.Lens hiding (op, (:>))
@@ -84,7 +86,7 @@ type instance StmtExtension JVM = EmptyStmtExtension
 -}
 type JVM = ()
 
-type JVMObjectType = RecursiveType "JVM_object" EmptyCtx
+
 
 type JVMDoubleType = FloatType DoubleFloat
 type JVMFloatType  = FloatType SingleFloat
@@ -92,7 +94,14 @@ type JVMIntType    = BVType 32
 type JVMLongType   = BVType 64
 type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
 
--- | A JVM value is either a double, float, int, long, or reference.
+-- | A JVM value is either a double, float, int, long, or reference. If we were
+-- to define these types in Haskell, they'd look something like this
+--
+--  data Value = Double Double | Float Float | Int Int32 | Long Int64 | Ref (Maybe (IORef Object))
+--
+--  data Object   = Instance { fields :: Map String Value, class :: Class }
+--                | Array    { length :: Int32, values :: Vector Value }
+--
 type JVMValueType = VariantType JVMValueCtx
 
 type JVMValueCtx =
@@ -102,80 +111,6 @@ type JVMValueCtx =
   ::> JVMIntType
   ::> JVMLongType
   ::> JVMRefType
-
-
--- | An initialization state is 
---      "data Initialization Status = NotStarted | Started | Initialized | Erroneous"
--- We encode this type in Crucible using 2 bits
-type InitializationStatus = BVType 2
-
--- these pattern synonyms would be easier to define if  Data.Parameterized.NatRepr
--- included some for NatReprs
-pattern NotStarted, Started, Initialized, Erroneous :: Expr JVM f InitializationStatus
-pattern NotStarted  <- App (BVLit n 0) where
-  NotStarted   =  App $ BVLit knownRepr 0
-pattern Started     <- App (BVLit n 1) where
-  Started      = App $ BVLit knownRepr 1
-pattern Initialized <- App (BVLit n 2) where
-  Initialized  = App $ BVLit knownRepr 2
-pattern Erroneous   <- App (BVLit n 3) where
-  Erroneous    = App $ BVLit knownRepr 3
-
-
--- | An entry in the class table contains information about a loaded class:
--- its name, initialization status, and superclass name
---   data Class = MkClass { className :: String
---                        , initializationStatus :: InitializationStatus
---                        , superClass :: Maybe String }
---
-type JVMClassType =
-  StructType (EmptyCtx ::> StringType ::> InitializationStatus ::> MaybeType StringType)
-
--- Construction
-jvmMkClassType :: Expr JVM f StringType
-               -> Expr JVM f InitializationStatus
-               -> Expr JVM f (MaybeType StringType)
-               -> Expr JVM f JVMClassType
-jvmMkClassType name ini super =
-  App $ MkStruct knownRepr (Ctx.empty `Ctx.extend` name `Ctx.extend` ini `Ctx.extend` super)
-
--- | Textual representation of the name of a class
-classText :: J.Class -> Text
-classText c = fromString (J.unClassName (J.className c))
-
--- | update the global class table to include an entry for this class
--- 
-jvmInitializeClassType :: GlobalVar JVMClassTableType -> J.Class
-                       -> Generator JVM h s t ret (Expr JVM s JVMClassType)
-jvmInitializeClassType gv c  = do
-  let className  = App $ TextLit $ classText c
-  let superClass = App $ NothingValue knownRepr  -- TODO!
-  let str        = App $ MkStruct knownRepr (Ctx.empty `Ctx.extend` className
-                                             `Ctx.extend` NotStarted `Ctx.extend` superClass)
-  sm <- readGlobal gv
-  let expr = App $ InsertStringMapEntry knownRepr sm className (App $ JustValue knownRepr str)
-  writeGlobal gv expr
-  return str
-  
--- Access
-jvmGetClassName :: Expr JVM f JVMClassType -> Expr JVM f StringType
-jvmGetClassName ct = App (GetStruct ct Ctx.i1of3 knownRepr)
-
-jvmGetClassInitializationStatus :: Expr JVM f JVMClassType -> Expr JVM f InitializationStatus
-jvmGetClassInitializationStatus ct = App (GetStruct ct Ctx.i2of3 knownRepr)
-
-jvmGetClassSuper :: Expr JVM f JVMClassType -> Expr JVM f (MaybeType StringType)
-jvmGetClassSuper ct = App (GetStruct ct Ctx.i3of3 knownRepr)
-
--- Update
-
-
-
-
--- | The dynamic class table is a data structure that can be queried at runtime
--- for information about loaded classes
-type JVMClassTableType = StringMapType JVMClassType
-
 
 -- | A class instance contains a table of fields
 -- and an (immutable) pointer to the class (object).
@@ -190,9 +125,131 @@ type JVMArrayType =
 type JVMObjectImpl =
   VariantType (EmptyCtx ::> JVMInstanceType ::> JVMArrayType)
 
+type JVMObjectType = RecursiveType "JVM_object" EmptyCtx
+
 instance IsRecursiveType "JVM_object" where
   type UnrollType "JVM_object" ctx = JVMObjectImpl
   unrollType _nm _ctx = knownRepr :: TypeRepr JVMObjectImpl
+
+
+
+
+
+-- | A class initialization state is
+--
+--      data Initialization Status = NotStarted | Started | Initialized | Erroneous
+--
+-- We encode this type in Crucible using 2 bits
+--
+type InitStatus = BVType 2
+
+notStarted, started, initialized, erroneous :: Expr JVM f InitStatus
+notStarted   = App $ BVLit knownRepr 0
+started      = App $ BVLit knownRepr 1
+initialized  = App $ BVLit knownRepr 2
+erroneous    = App $ BVLit knownRepr 3
+
+
+-- | An entry in the class table contains information about a loaded class:
+--
+--   data Class = MkClass { className   :: String
+--                        , initStatus  :: InitStatus
+--                        , superClass  :: Maybe Class
+--                        , methodTable :: Map String Any    --- function handles are dynamically typed
+--                        }
+--
+--   type ClassTable = Map String Class
+
+type JVMClassType  = RecursiveType "JVM_class"  EmptyCtx
+
+type JVMClassImpl =
+  StructType (EmptyCtx ::> StringType
+              ::> InitStatus
+              ::> MaybeType JVMClassType
+              ::> StringMapType AnyType)
+
+instance IsRecursiveType "JVM_class" where
+  type UnrollType "JVM_class" ctx = JVMClassImpl
+  unrollType _nm _ctx = knownRepr :: TypeRepr JVMClassImpl
+
+-- | The dynamic class table is a data structure that can be queried at runtime
+-- for information about loaded classes
+type JVMClassTableType = StringMapType JVMClassType
+
+---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
+--
+-- | Class objects for the class table
+-- 
+-- Construction
+
+-- | Textual representation of the name of a class
+classText :: J.Class -> Text
+classText c = fromString (J.unClassName (J.className c))
+
+
+-- | update the dynamic class table to include an entry for the specified class
+--
+-- This will also initalize the superclass (if present and necessary)
+--
+jvmInitializeClassType :: JVMContext
+                       -> J.Class
+                       -> JVMGenerator h s t (Expr JVM s JVMClassType)
+jvmInitializeClassType ctx c  = do
+
+  let className  = App $ TextLit $ classText c
+  
+  let superClassM | Just cn  <- J.superClass c,
+                    Just cls <- Map.lookup cn (classTable ctx) = do
+                               val <- getClassTableEntry ctx cls
+                               return $ App $ JustValue knownRepr val
+                  | otherwise = return $ App $ NothingValue knownRepr 
+
+  superClass <- superClassM
+  
+
+  let handles    = [ fromJust mhi | m <- J.classMethods c,
+                          let mhi = Map.lookup (J.className c, J.methodKey m) (symbolMap ctx),
+                          isJust mhi ]
+
+  let methTable0 = map (\(JVMHandleInfo m h) ->
+                           --trace ("packing " ++ (J.methodName m) ++ ":" ++ show (handleType h)) $
+                           (App $ TextLit ( fromString (J.methodName m)),                            
+                            App (PackAny (handleType h) (App (HandleLit h))))) handles
+                  
+  let methTable  = foldr (\ (s,v) sm -> App (InsertStringMapEntry knownRepr sm s (App $ JustValue knownRepr v)))
+                         (App (EmptyStringMap knownRepr)) methTable0
+  
+  let str        = App (RollRecursive knownRepr knownRepr
+                     $ App $ MkStruct knownRepr
+                        (Ctx.empty `Ctx.extend` className
+                                   `Ctx.extend` notStarted
+                                   `Ctx.extend` superClass
+                                   `Ctx.extend` methTable))
+
+  -- update the dynamic class table
+  let gv         = dynamicClassTable ctx                   
+  sm <- readGlobal gv
+  let expr = App $ InsertStringMapEntry knownRepr sm className (App $ JustValue knownRepr str)
+  writeGlobal gv expr
+  return str
+
+-- Access
+
+jvmGetClassName :: Expr JVM f JVMClassType -> Expr JVM f StringType
+jvmGetClassName ct = App (GetStruct (App $ UnrollRecursive knownRepr knownRepr ct) Ctx.i1of4 knownRepr)
+
+jvmGetClassInitStatus :: Expr JVM f JVMClassType -> Expr JVM f InitStatus
+jvmGetClassInitStatus ct = App (GetStruct (App $ UnrollRecursive knownRepr knownRepr ct) Ctx.i2of4 knownRepr)
+
+jvmGetClassSuper :: Expr JVM f JVMClassType -> Expr JVM f (MaybeType JVMClassType)
+jvmGetClassSuper ct = App (GetStruct (App $ UnrollRecursive knownRepr knownRepr ct) Ctx.i3of4 knownRepr)
+
+jvmGetClassMethodTable :: Expr JVM f JVMClassType -> Expr JVM f (StringMapType AnyType)
+jvmGetClassMethodTable ct = App (GetStruct (App $ UnrollRecursive knownRepr knownRepr ct) Ctx.i4of4 knownRepr)
+
+
+
 
 ----------------------------------------------------------------------
 -- Index values for sums and products
@@ -302,9 +359,6 @@ rEqual mr1 mr2 =
 -- Make sure that static fields have their initial values
 --
 
---data InitializationStatus = NotStarted | Started | Initialized | Erroneous
---  deriving (Eq,Ord,Show)
-
   
 -- REVISIT: it may make sense for this to be dynamic
 skipInit :: J.ClassName -> Bool
@@ -345,7 +399,7 @@ initialFieldValue name f =
      Just (J.String v) ->
         error "TODO: constant string initializers unsupported"
      Nothing ->
-       (defaultValue (J.fieldType f))
+        defaultValue (J.fieldType f)
      Just tp -> error $ "Unsupported field type" ++ show tp
 
 
@@ -371,19 +425,21 @@ initializeField ctx name f =
 -- This needs to be in the Generator monad so that we can do case analysis
 -- in the simulator
 initializeClass :: forall h s ret . JVMContext -> J.ClassName -> JVMGenerator h s ret ()
-initializeClass ctx name = if (name == "java/lang/Object") then (return ()) else do
+initializeClass ctx name =
+
+  if (name == "java/lang/Object") then (return ()) else do
   
   let mc = lookupClassCtx ctx name
 
-  c <- maybe (jvmFail $ "Class " ++ J.unClassName name ++ " not found") return mc
+  c <- maybe (jvmFail $ "Initializing class:  " ++ J.unClassName name ++ " not found") return mc
   
   traceM $ "initializing class:" ++ J.unClassName name
-  status <- getInitializationStatus ctx c
+  
+  status <- getInitStatus ctx c
 
-  let ifNotStarted :: JVMGenerator h s ret ()
-      ifNotStarted = do
+  let ifNotStarted = do
       
-      setInitializationStatus ctx c Started
+      setInitStatus ctx c started
       
       maybe (return ()) (initializeClass ctx) (J.superClass c)
 
@@ -399,9 +455,9 @@ initializeClass ctx name = if (name == "java/lang/Object") then (return ()) else
               callJVMHandleUnit handle
           Nothing -> return ()
           
-      setInitializationStatus ctx c Initialized
+      setInitStatus ctx c initialized
 
-  ifte_ (App $ BVEq knownRepr status NotStarted) ifNotStarted (return ())
+  ifte_ (App $ BVEq knownRepr status notStarted) ifNotStarted (return ())
   
 {-          
     Erroneous   -> return () -- createAndThrow "java/lang/NoClassDefFoundError"
@@ -420,32 +476,89 @@ initializeClass ctx name = if (name == "java/lang/Object") then (return ()) else
 data JVMHandleInfo where
   JVMHandleInfo :: J.Method -> FnHandle init ret -> JVMHandleInfo
 
-data JVMContext =
-  JVMContext
-  {  symbolMap   :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
+data JVMContext = JVMContext
+  {  symbolMap  :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
       -- ^ map from method names to Crucible function handles
   , staticTable :: Map (J.ClassName, String) (GlobalVar JVMValueType)
-      -- ^ map from field names to Crucible global variables
+      -- ^ map from static field names to Crucible global variables
+      -- we know about these fields at translation time so we can allocate
+      -- global variables to store them
   , classTable  :: Map J.ClassName J.Class
       -- ^ map from class names to their declarations
+      -- this contains all of the information about class declarations at
+      -- translation time
   , dynamicClassTable :: GlobalVar JVMClassTableType
       -- ^ a global variable storing information about the class that can be
-      -- used at runtime: initialization status, 
+      -- used at runtime: includes initialization status, superclass (if any)
   }
 
 -- left-biased merge of two contexts
--- maybe this should be a semi-group instead???
--- NOTE: There should only every be one dynamic class table. 
-instance Monoid JVMContext where
-  mempty = JVMContext Map.empty Map.empty Map.empty undefined
-  mappend c1 c2 =
+-- NOTE: There should only ever be one dynamic class table global variable. 
+instance Semigroup JVMContext where
+  c1 <> c2 =
     JVMContext { symbolMap         = Map.union (symbolMap   c1) (symbolMap   c2)
                , staticTable       = Map.union (staticTable c1) (staticTable c2)
                , classTable        = Map.union (classTable  c1) (classTable  c2)
                , dynamicClassTable = dynamicClassTable c1
                }
 
+crucible_isNothing :: KnownRepr TypeRepr tp => Expr JVM s (MaybeType tp) -> JVMGenerator h s ret (Expr JVM s BoolType)
+crucible_isNothing expr =
+  caseMaybe expr knownRepr
+  MatchMaybe
+  { onNothing = return $ App $ BoolLit True
+  , onJust    = \_ -> return $ App $ BoolLit False
+  }
 
+-- how do we know what type of method we want?
+findDynamicMethod :: forall h s ret. JVMContext
+                  -> Expr JVM s JVMClassType
+                  -> J.MethodKey
+                  -> JVMGenerator h s ret (Expr JVM s AnyType)
+findDynamicMethod ctx dcls methodKey = do
+  let dmeth = App (TextLit   (fromString (J.methodKeyName methodKey)))
+  traceM $ "looking for dynamic method " ++ J.methodKeyName methodKey 
+  let gv = dynamicClassTable ctx
+  sm <- readGlobal gv
+
+  classTypeReg <- newReg dcls
+  methodReg  <- newReg $ App $ NothingValue knownRepr
+
+  let loopbody :: JVMGenerator h s ret ()
+      loopbody = do
+        classType <- readReg classTypeReg
+        let className = jvmGetClassName classType
+        let lu = App (LookupStringMapEntry knownRepr sm className)
+        _ <- caseMaybe lu UnitRepr
+               MatchMaybe
+               { onNothing = return (App EmptyApp)
+               , onJust    =  \ct -> do
+                   let sm2 = jvmGetClassMethodTable ct
+                   let lu2 = App (LookupStringMapEntry knownRepr sm2 dmeth)
+                   caseMaybe lu2 knownRepr
+                     MatchMaybe
+                     { onNothing = do
+                         let msuper = jvmGetClassSuper ct
+                         caseMaybe msuper knownRepr
+                            MatchMaybe
+                            { onNothing = return (App EmptyApp)
+                            , onJust    = \ct2 -> assignReg classTypeReg ct2 >> return (App EmptyApp)
+                            }
+                     , onJust = \ m -> do
+                         assignReg methodReg (App $ JustValue knownRepr m)
+                         return (App EmptyApp)
+                     } 
+               }
+        return ()
+  while (InternalPos, do {r <- readReg methodReg ; crucible_isNothing r }) 
+        (InternalPos, loopbody)
+
+  v <- readReg methodReg
+  assertedJustExpr v (App $ TextLit "NoSuchMethodError")  
+
+
+
+-- Look up a method in the static method table (i.e. symbolMap)
 getMethodCtx :: JVMContext -> J.ClassName -> J.MethodKey -> JVMGenerator h s ret JVMHandleInfo
 getMethodCtx ctx className methodKey = do
    let mhandle = Map.lookup (className, methodKey) (symbolMap ctx)
@@ -502,6 +615,7 @@ lookupClass cName = do
   -- mcl <- liftIO $ J.tryLookupClass cb cName
 
 
+
 ------------------------------------------------------------------------
 -- JVMState
 
@@ -527,41 +641,30 @@ jsCFG = lens _jsCFG (\s v -> s { _jsCFG = v })
 -- | Access the class table entry of in the dynamic class table
 -- If this class table entry has not yet been defined, define it
 -- (Note: this function does not call the class initializer.)
-getClassTableEntry :: J.Class -> JVMContext -> JVMGenerator h s ret (Expr JVM s JVMClassType)
-getClassTableEntry c st = do 
-  let gv = (dynamicClassTable st)
+getClassTableEntry :: JVMContext -> J.Class -> JVMGenerator h s ret (Expr JVM s JVMClassType)
+getClassTableEntry ctx c = do 
+  let gv = (dynamicClassTable ctx)
   sm <- readGlobal gv
   let cn = App $ TextLit (classText c)
   let lu = App $ LookupStringMapEntry knownRepr sm cn
   caseMaybe lu knownRepr
     MatchMaybe 
-      { onNothing = jvmInitializeClassType gv c                     
+      { onNothing = jvmInitializeClassType ctx c                     
       , onJust    = return
       }
       
 -- | Access the initialization status of the class in the dynamic class table
 -- If the class table entry for this class has not yet been defined, define it
-getInitializationStatus :: JVMContext ->  J.Class -> JVMGenerator h s ret (Expr JVM s InitializationStatus)
-getInitializationStatus st c = do
-  let gv = (dynamicClassTable st)
-  sm <- readGlobal gv
-  let cn = App $ TextLit (classText c)
-  let lu = App $ LookupStringMapEntry knownRepr sm cn
-  caseMaybe lu knownRepr
-    MatchMaybe 
-      { onNothing = do _ <- jvmInitializeClassType gv c
-                       return NotStarted
-      , onJust    = return . jvmGetClassInitializationStatus
-      }
+getInitStatus :: JVMContext ->  J.Class -> JVMGenerator h s ret (Expr JVM s InitStatus)
+getInitStatus ctx c = jvmGetClassInitStatus <$> getClassTableEntry ctx c
 
 -- | Update the initialization status of the class in the dynamic class table
-setInitializationStatus :: JVMContext -> J.Class 
-                        -> (Expr JVM f InitializationStatus) -> JVMGenerator h s ret ()
-setInitializationStatus ctx c status = do
+setInitStatus :: JVMContext -> J.Class 
+                        -> (Expr JVM f InitStatus) -> JVMGenerator h s ret ()
+setInitStatus ctx c status = do
   let gv = dynamicClassTable ctx
   sm <- readGlobal gv
-  let name = App $ TextLit $ classText c
-  let err  = App $ TextLit "Class Init error"
+  let name  = App $ TextLit $ classText c
   let entry = App $ LookupStringMapEntry knownRepr sm name
   writeGlobal gv (App $ InsertStringMapEntry knownRepr sm name entry)
                         
@@ -950,42 +1053,15 @@ nextPC pc =
        Nothing -> sgFail "nextPC"
        Just pc' -> return pc'
 
--- TODO
--- | read from a static variable. The static map should be stored in the
--- class table. But how do we make sure that the class table is initialized
--- in a way that all static references will see the same table?
-{- getStaticMap ::
-  J.ClassName -> JVMStmtGen h s ret (Expr JVM s (StringMapType JVMValueType))
-getStaticMap _className = do
-  let jvmClassTable :: GlobalVar JVMClassTableType
-      jvmClassTable = error "define jvmClassTable"
-  (ct :: Expr JVM s JVMClassTableType) <- readGlobal jvmClassTable
-  LookupStringMapEntry  -}
 
-putStaticMap ::
-  J.ClassName -> Expr JVM s (StringMapType JVMValueType) -> JVMStmtGen h s ret ()
-putStaticMap _className _ = sgUnimplemented "putStaticMap"
-
--- | lookup the static data structure associated with a class
--- Q: Where is this information initialized?
+-- | lookup the data structure associated with a class
 getClassObject ::
   J.ClassName -> JVMStmtGen h s ret (Expr JVM s JVMClassType)
 getClassObject name = do
   ctx <- lift $ gets jsContext
   c <- lookupClass name
-  lift $ getClassTableEntry c ctx
+  lift $ getClassTableEntry ctx c
   
-{-  dct <- lift $ gets jsDynamicClassTable
-  case Map.lookup className dct of
-    Just ref -> return ref
-    Nothing -> sgFail $ "Cannot find class reference for " ++ J.unClassName className  -}
-
--- look up initial values for the object's fields.
--- NB: stringmaps are mutable in crucible. We can't return the same one each time...
-getInstanceInit ::
-  J.ClassName -> JVMStmtGen h s ret (Expr JVM s (StringMapType (MaybeType JVMValueType)))
-getInstanceInit _className = sgUnimplemented "getInstanceInit"
-
 ----------------------------------------------------------------------
 
 -- Compare an implicit type repr with an explicit one
@@ -1076,6 +1152,10 @@ callJVMHandle (JVMHandleInfo _method handle) =
   do args <- popArguments (handleArgTypes handle)
      result <- lift $ call (App (HandleLit handle)) args
      pushRet (handleReturnType handle) result
+
+----------------------------------------------------------------------
+
+
 
 ----------------------------------------------------------------------
 
@@ -1374,6 +1454,9 @@ generateInstruction (pc, instr) =
     J.Ret _idx -> sgFail "ret" --warning "jsr/ret not implemented"
 
     -- Method invocation and return instructions
+    -- TODO: this does not handle method overriding. It uses the
+    -- static type of the object instead of the dynamic class to
+    -- look up the method to invoke.
     J.Invokevirtual (J.ClassType className) methodKey -> do
       ctx <- lift $ gets jsContext
       lift $ initializeClass ctx className
@@ -1381,11 +1464,53 @@ generateInstruction (pc, instr) =
       callJVMHandle handle
 
     -- TODO
-    J.Invokevirtual   tp        _methodKey -> sgUnimplemented $ "Invokevirtual for " ++ show tp
-    J.Invokeinterface _className _methodKey -> sgUnimplemented "Invokeinterface"
+    J.Invokevirtual   tp        _methodKey ->
+      sgUnimplemented $ "Invokevirtual for " ++ show tp
+      
+    J.Invokeinterface className methodKey -> do
+      traceM $ "invoke interface" ++ show className
+      
+      -- find the static type of the method
+      -- TODO: do we have a problem with "this"
+      let argTys = map javaTypeToRepr $ J.methodKeyParameterTypes methodKey
+      let mretTy = javaTypeToRepr   <$> J.methodKeyReturnType     methodKey
+
+      let makeCtx :: [Some TypeRepr] -> Some CtxRepr
+          makeCtx [] = Some (knownRepr :: CtxRepr Ctx.EmptyCtx)
+          makeCtx (Some t1:args) =
+            case makeCtx args of
+              Some ctx -> Some (ctx `Ctx.extend` t1)
+
+      Some argRepr <- return $ makeCtx argTys
+      Some retRepr <- return $ maybe (Some UnitRepr) id mretTy 
+
+      let objTypeRepr :: TypeRepr JVMRefType
+          objTypeRepr = knownRepr
+
+      args   <- popArguments argRepr -- TODO: check whether we need to reverse them
+      
+      objRef <- rPop
+
+      rawRef <- throwIfRefNull objRef
+      obj    <- lift $ readRef rawRef
+      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+      inst   <- projectVariant Ctx.i1of2 uobj
+
+      let cls  = App (GetStruct inst Ctx.i2of2 knownRepr)
+
+      let argRepr' = (Ctx.empty `Ctx.extend` objTypeRepr) Ctx.<++> argRepr 
+      ctx    <- lift $ gets jsContext      
+      anym   <- lift $ findDynamicMethod ctx cls methodKey
+      fn     <- lift $ assertedJustExpr (App (UnpackAny (FunctionHandleRepr argRepr' retRepr) anym))
+                        (App $ TextLit $ fromString ("invalid method type" ++ show (FunctionHandleRepr argRepr' retRepr)))
+      
+      result <- lift $ call fn (Ctx.empty `Ctx.extend` objRef Ctx.<++> args)
+
+      pushRet retRepr result
     
     J.Invokespecial   (J.ClassType methodClass) methodKey ->
-      generateInstruction (pc, (J.Invokestatic methodClass methodKey))
+      -- treat constructor invocations like static methods
+      generateInstruction (pc, J.Invokestatic methodClass methodKey)
       
     J.Invokespecial   tp _methodKey -> sgUnimplemented $ "Invokespecial for " ++ show tp
       
@@ -1949,21 +2074,21 @@ data MethodTranslation = forall args ret. MethodTranslation
 data ClassTranslation =
   ClassTranslation { cfgMap        :: Map (J.ClassName,J.MethodKey) MethodTranslation
                    , initCFG       :: C.AnyCFG JVM 
-                   , _transContext :: JVMContext
                    }
 
+data JVMTranslation =
+  JVMTranslation { translatedClasses :: Map J.ClassName ClassTranslation ,
+                   transContext      :: JVMContext }
+
 -- left biased
-instance Monoid ClassTranslation where
-  mempty = ClassTranslation { cfgMap = Map.empty , initCFG = undefined, _transContext = mempty }
-  mappend ct1 ct2 = ClassTranslation { cfgMap  = Map.union (cfgMap ct1) (cfgMap ct2)
-                                     , initCFG = initCFG ct1 
-                                     , _transContext = _transContext ct1 <> _transContext ct2
-                                     }
-
-
-transContext :: Simple Lens ClassTranslation JVMContext
-transContext = lens _transContext (\s v -> s{ _transContext = v})
-
+instance Semigroup ClassTranslation where
+  ct1 <> ct2 = ClassTranslation { cfgMap  = Map.union (cfgMap ct1) (cfgMap ct2)
+                                , initCFG = initCFG ct1
+                                }
+instance Semigroup JVMTranslation where
+  j1 <> j2   = JVMTranslation { translatedClasses = Map.unionWith ((<>)) (translatedClasses j1) (translatedClasses j2)
+                              , transContext = transContext j1 <> transContext j2
+                              }
 
 allParameterTypes :: J.Class -> J.Method -> [J.Type]
 allParameterTypes c m
@@ -1997,17 +2122,27 @@ declareStaticField halloc c m f = do
   return $ (Map.insert (cn,fn) gvar m)
 
 -- | Create the initial JVMContext
-mkJVMContext :: HandleAllocator s -> J.Class -> ST s JVMContext
-mkJVMContext halloc c = do
-  sm <- foldM (declareMethod halloc c) Map.empty (J.classMethods c)
-  st <- foldM (declareStaticField halloc c) Map.empty (J.classFields c)
+mkJVMContext :: HandleAllocator s -> ST s JVMContext
+mkJVMContext halloc = do
   gv <- C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE") (knownRepr :: TypeRepr JVMClassTableType)
   return $ JVMContext
-    { symbolMap         = sm
-    , staticTable       = st
-    , classTable        = Map.singleton (J.className c) c
+    { symbolMap         = Map.empty
+    , staticTable       = Map.empty
+    , classTable        = Map.empty
     , dynamicClassTable = gv
     }
+
+-- | Create the initial JVMContext
+extendJVMContext :: HandleAllocator s -> J.Class -> JVMContext -> ST s JVMContext
+extendJVMContext halloc c ctx0 = do
+  sm <- foldM (declareMethod halloc c) Map.empty (J.classMethods c)
+  st <- foldM (declareStaticField halloc c) Map.empty (J.classFields c)
+  return $ JVMContext
+    { symbolMap         = sm 
+    , staticTable       = st
+    , classTable        = Map.singleton (J.className c) c
+    , dynamicClassTable = (dynamicClassTable ctx0)
+    } <> ctx0
 
 
 -- | Translate a single JVM method definition into a crucible CFG
@@ -2062,12 +2197,13 @@ initCFGProc halloc ctx = do
 
 
 translateClass :: HandleAllocator s -- ^ Generator for nonces
+               -> JVMContext 
                -> J.Class           -- ^ Class to translate
-               -> ST s ClassTranslation
-translateClass halloc c = do
+               -> ST s JVMTranslation
+translateClass halloc ctx1 c = do
   
   -- create initial context, declaring the statically known methods and fields.
-  ctx <- mkJVMContext halloc c
+  ctx <- extendJVMContext halloc c ctx1
 
   let methods = J.classMethods c
   
@@ -2078,8 +2214,10 @@ translateClass halloc c = do
   initCFG0 <- initCFGProc halloc ctx
 
   -- return result
-  return $ ClassTranslation { cfgMap        = Map.fromList pairs
-                            , initCFG       = initCFG0
-                            , _transContext = ctx
-                            }
+  return $ JVMTranslation 
+     { translatedClasses = Map.singleton (J.className c)
+      (ClassTranslation { cfgMap        = Map.fromList pairs
+                        , initCFG       = initCFG0
+                        })
+      , transContext = ctx }
 
