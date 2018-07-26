@@ -115,7 +115,13 @@ import           What4.BaseTypes
 -- | This typeclass is used to register recursive Crucible types
 --   with the compiler.  This class defines, for a given symbol,
 --   both the type-level and the representative-level unrolling
---   of a named recursive type.  Parameter @nm@ has kind 'Symbol'.
+--   of a named recursive type.
+--
+--   The symbol constitutes a unique compile-time identifier for the
+--   recursive type, allowing recursive types to be unrolled at run
+--   time without requiring dynamic checks.
+--
+--   Parameter @nm@ has kind 'Symbol'.
 class IsRecursiveType (nm::Symbol) where
   type UnrollType nm (ctx :: Ctx CrucibleType) :: CrucibleType
   unrollType :: SymbolRepr nm -> CtxRepr ctx -> TypeRepr (UnrollType nm ctx)

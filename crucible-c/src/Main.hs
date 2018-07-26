@@ -32,12 +32,12 @@ import Lang.Crucible.Backend.Online
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
-import Lang.Crucible.Simulator.RegMap(emptyRegMap,regValue)
-import Lang.Crucible.Simulator.ExecutionTree
-import Lang.Crucible.Simulator.SimError
-import Lang.Crucible.Simulator.OverrideSim
-        ( fnBindingsFromList, initSimState, runOverrideSim, callCFG)
-
+import Lang.Crucible.Simulator
+  ( emptyRegMap,regValue, executeCrucible
+  , fnBindingsFromList, initSimState, runOverrideSim, callCFG
+  , SimError(..), ExecResult(..)
+  , initSimContext, initSimState, defaultAbortHandler
+  )
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, initializeMemory
@@ -98,7 +98,7 @@ makeCounterExamples opts gs =
       let suff = case plSourceLoc (simErrorLoc c) of
                    SourcePos _ l _ -> show l
                    _               -> "unknown"
-          msg = simErrorReasonMsg (simErrorReason c)
+          msg = show (simErrorReason c)
 
       in case res of
            NotProved (Just m) ->
@@ -174,9 +174,9 @@ simulate opts k =
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt defaultErrorHandler
+          let simSt  = initSimState simctx globSt defaultAbortHandler
 
-          res <- runOverrideSim simSt UnitRepr $
+          res <- executeCrucible simSt $ runOverrideSim UnitRepr $
                    do setupMem llvmCtxt trans
                       setupOverrides llvmCtxt
                       k (cfgMap trans)
@@ -184,8 +184,8 @@ simulate opts k =
           _ <- popAssumptionFrame sym frm
 
           ctx' <- case res of
-                    FinishedExecution ctx' _ -> return ctx'
-                    AbortedResult ctx' _     -> return ctx'
+                    FinishedResult ctx' _ -> return ctx'
+                    AbortedResult ctx' _  -> return ctx'
 
           say "Crux" "Simulation complete."
 
