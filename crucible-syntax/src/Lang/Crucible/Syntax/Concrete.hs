@@ -260,6 +260,11 @@ atomName = sideCondition "Crucible atom" isCAtom atomic
         isCAtom _ = Nothing
 
 
+bool :: SyntaxParse Atomic Bool
+bool = sideCondition "Boolean literal" isBool atomic
+  where isBool (Bool b) = Just b
+        isBool _ = Nothing
+
 toCtx :: forall f . [Some f] -> Some (Ctx.Assignment f)
 toCtx fs = toCtx' (reverse fs)
   where toCtx' :: [Some f] -> Some (Ctx.Assignment f)
@@ -323,7 +328,7 @@ synth' :: ReaderT (SyntaxState h s) (SyntaxParse Atomic) (SomeExpr s)
 synth' =
   do r <- ask
      lift $ describe "synthesizable expression" $ flip runReaderT r $
-       the <|> crucibleAtom
+       the <|> crucibleAtom <|> unitCon <|> boolLit <|> notExpr
   where
     the = do ((), (Some t, (e, ()))) <- lift $ describe "type-annotated expression" $
                                         cons (kw The) (cons isType' (cons anything emptyList))
@@ -342,7 +347,14 @@ synth' =
       do theAtoms <- view stxAtoms
          lift $ sideCondition "known atom" (okAtom theAtoms) atomName
 
+    unitCon = lift $ describe "unit constructor" (emptyList $> SomeExpr UnitRepr (E (App EmptyApp)))
 
+    boolLit = lift $ bool <&> SomeExpr BoolRepr . E . App . BoolLit
+
+    notExpr =
+      do r <- ask
+         E e <- lift $ unary Not_ (runReaderT (check' BoolRepr) r)
+         return $ SomeExpr BoolRepr $ E $ App $ Not e
 
 check' :: forall t h s . TypeRepr t -> ReaderT (SyntaxState h s) (SyntaxParse Atomic) (E s t)
 check' t =
@@ -516,16 +528,9 @@ synthExpr x@(A (Fn n)) =
        Nothing -> throwError $ UnknownFunction (syntaxPos x) n
        Just (FunctionHeader _ funArgs ret handle _) ->
          return $ SomeExpr (FunctionHandleRepr (argTypes funArgs) ret) (E (App $ HandleLit handle))
-synthExpr (L []) =
-  return $ SomeExpr UnitRepr (E (App EmptyApp))
 synthExpr (L [A (Kw Pack), e]) =
   do SomeExpr ty (E e') <- synthExpr e
      return $ SomeExpr AnyRepr (E (App (PackAny ty e')))
-synthExpr (A (Bool b)) =
-  return $ SomeExpr BoolRepr (E (App (BoolLit b)))
-synthExpr (L [A (Kw Not_), e]) =
-  do E bE <- checkExpr BoolRepr e
-     return $ SomeExpr BoolRepr (E (App (Not bE)))
 synthExpr (L [A (Kw And_), e1, e2]) =
   do E bE1 <- checkExpr BoolRepr e1
      E bE2 <- checkExpr BoolRepr e2
@@ -559,11 +564,6 @@ synthExpr e@(L [A (Kw Lt), a, b]) =
                    , Pair RealValRepr (ComparisonCtor RealLt)
                    ])
     e a b
-synthExpr e@(A (At x)) =
-  do ats <- use (stxAtoms . at x)
-     case ats of
-       Nothing -> throwError $ UnknownAtom (syntaxPos e) x
-       Just (Pair t anAtom) -> return $ SomeExpr t (E (AtomExpr anAtom))
 
 synthExpr (A (StrLit s)) =
   return $ SomeExpr StringRepr $ E (App (TextLit s))
