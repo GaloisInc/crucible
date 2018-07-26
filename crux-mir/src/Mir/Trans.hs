@@ -1099,11 +1099,10 @@ genDefn' body argvars rettype = do
   lm <- use labelMap
   let (M.MirBody vars (enter : blocks)) = body -- The first block in the list is the entrance block
   let (M.BasicBlock bbi _) = enter
+  mapM_ (registerBlock rettype) (enter : blocks)
   case (Map.lookup bbi lm) of
     Just lbl -> G.jump lbl
     _ -> fail "bad thing happened"
-  mapM_ (registerBlock rettype) (enter : blocks)
-  return undefined -- TODO
 
 
 genDefn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
