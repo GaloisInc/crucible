@@ -33,17 +33,17 @@ import qualified Verifier.SAW.TypedAST as SC
 import qualified Lang.Crucible.FunctionHandle as C
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.Analysis.Postdom as C
-import qualified Lang.Crucible.Config as C
+import qualified What4.Config as C
+import qualified Lang.Crucible.Simulator as C
 import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.GlobalState as C
+import qualified Lang.Crucible.Simulator.Operations as C
 import qualified Lang.Crucible.Simulator.OverrideSim as C
 import qualified Lang.Crucible.Simulator.SimError as C
 import qualified Lang.Crucible.Simulator.RegMap as C
 import qualified Lang.Crucible.Simulator.SimError as C
-import qualified Lang.Crucible.Solver.Interface as C hiding (mkStruct)
-import qualified Lang.Crucible.Solver.SAWCoreBackend as C
-import qualified Lang.Crucible.Solver.SimpleBuilder as C
-import qualified Lang.Crucible.Solver.Symbol as C
+import qualified What4.Interface as C hiding (mkStruct)
+import qualified Lang.Crucible.Backend.SAWCore as C
 import qualified Lang.Crucible.CFG.Reg as Reg
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Vector as V
@@ -59,10 +59,10 @@ import qualified Control.Monad.Trans.State.Strict as SState
 
 type Sym = C.SAWCoreBackend GlobalNonceGenerator
 
-type SimContext = C.SimContext C.SAWCruciblePersonality Sym
+type SimContext = C.SimContext (C.SAWCruciblePersonality Sym) Sym
 type SimGlobalState = C.SymGlobalState Sym
 
-type SymOverride arg_ctx ret = C.OverrideSim C.SAWCruciblePersonality Sym MIR (C.RegEntry Sym ret) arg_ctx ret ()
+type SymOverride arg_ctx ret = C.OverrideSim (C.SAWCruciblePersonality Sym) Sym MIR (C.RegEntry Sym ret) arg_ctx ret ()
 
 unfoldAssign ::
      C.CtxRepr ctx
@@ -112,21 +112,21 @@ print_cfg cfg = case cfg of
 
 
 
-extractFromCFGPure :: SymOverride Ctx.EmptyCtx ret -> SC.SharedContext -> C.CFG MIR blocks argctx ret -> IO SC.Term -- no global variables
-extractFromCFGPure setup sc cfg = do
+--extractFromCFGPure :: SymOverride Ctx.EmptyCtx ret -> SC.SharedContext -> C.CFG MIR blocks argctx ret -> IO SC.Term -- no global variables
+extractFromCFGPure setup proxy sc cfg = do
     let h = C.cfgHandle cfg
     config <- C.initialConfig 0 C.sawOptions
-    sym <- C.newSAWCoreBackend sc globalNonceGenerator config
+    sym <- C.newSAWCoreBackend proxy sc globalNonceGenerator
     halloc <- C.newHandleAllocator
     (ecs, args) <- setupArgs sc sym h
-    let simctx = C.initSimContext sym MapF.empty config halloc stdout C.emptyHandleMap mirExtImpl C.SAWCruciblePersonality
-        simst = C.initSimState simctx C.emptyGlobals C.defaultErrorHandler
+    let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl C.SAWCruciblePersonality
+        simst = C.initSimState simctx C.emptyGlobals C.defaultAbortHandler
         osim = do
             setup
             C.regValue <$> C.callCFG cfg args
-    res <- C.runOverrideSim simst (C.handleReturnType h) osim
+    res <- C.executeCrucible simst $ C.runOverrideSim (C.handleReturnType h) osim
     case res of
-      C.FinishedExecution _ pr -> do
+      C.FinishedResult _ pr -> do
           gp <- case pr of
                   C.TotalRes gp -> return gp
                   C.PartialRes _ gp _ -> do
@@ -140,7 +140,7 @@ extractFromCFGPure setup sc cfg = do
 
 
 handleAbortedResult :: C.AbortedResult sym MIR -> String
-handleAbortedResult (C.AbortedExec simerror _) = show $ C.ppSimError simerror
+handleAbortedResult (C.AbortedExec simerror _) = show simerror -- TODO
 handleAbortedResult _ = "unknown"
 
 mirToCFG :: M.Collection ->  Maybe ([M.Fn] -> [M.Fn]) -> Map.Map Text.Text (C.AnyCFG MIR)
@@ -171,7 +171,7 @@ toSawCore sc sym (C.RegEntry tp v) =
          go_vector tp v =
              case C.asBaseType tp of
                C.AsBaseType btp -> do
-                   sc_tp <- C.baseSCType sc btp
+                   sc_tp <- C.baseSCType sym sc btp
                    let l = V.toList v
                    rs <- mapM (\e -> toSawCore sc sym (C.RegEntry tp e)) l
                    SC.scVector sc sc_tp rs
@@ -187,7 +187,7 @@ setupArg :: SC.SharedContext
 setupArg sc sym ecRef tp =
   case C.asBaseType tp of
     C.AsBaseType btp -> do
-       sc_tp <- C.baseSCType sc btp
+       sc_tp <- C.baseSCType sym sc btp
        i     <- SC.scFreshGlobalVar sc
        ecs   <- readIORef ecRef
        let len = Seq.length ecs

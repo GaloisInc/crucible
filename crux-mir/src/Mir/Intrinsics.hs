@@ -80,12 +80,12 @@ import           Data.Parameterized.Context
 import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
 
+import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
 import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
-import           Lang.Crucible.Simulator.CallFns
 import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.GlobalState
@@ -93,10 +93,11 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Solver.Interface
-import           Lang.Crucible.Solver.Partial
-import           Lang.Crucible.Utils.MonadST
 import qualified Lang.Crucible.Utils.Structural as U
+import           Lang.Crucible.Utils.MuxTree
+
+import           What4.Interface
+import           What4.Utils.MonadST
 
 import           Mir.Mir
 
@@ -116,8 +117,8 @@ type family MirReferenceFam (sym :: *) (ctx :: Ctx CrucibleType) :: * where
 instance IsExprBuilder sym => IntrinsicClass sym MirReferenceSymbol where
   type Intrinsic sym MirReferenceSymbol ctx = MirReferenceFam sym ctx
 
-  muxIntrinsic sym _nm (Empty :> tp) = muxRef sym
-  muxIntrinsic _sym nm ctx = typeError nm ctx
+  muxIntrinsic sym _tys _nm (Empty :> tp) = muxRef sym
+  muxIntrinsic _sym _tys nm ctx = typeError nm ctx
 
 data MirReferencePath sym :: CrucibleType -> CrucibleType -> * where
   Empty_RefPath :: MirReferencePath sym tp tp
@@ -134,7 +135,7 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> * where
 
 data MirReference sym (tp :: CrucibleType) where
   MirReference ::
-    !(RegValue sym (ReferenceType tpr)) ->
+    !(RefCell tpr) ->
     !(MirReferencePath sym tpr tp) ->
     MirReference sym tp
 
@@ -270,7 +271,7 @@ instance TraversableFC MirStmt where
 instance IsSyntaxExtension MIR
 
 execMirStmt :: IsSymInterface sym => EvalStmtFunc p sym MIR
-execMirStmt s stmt =
+execMirStmt stmt s =
   let ctx = s^.stateContext
       sym = ctx^.ctxSymInterface
       halloc = simHandleAllocator ctx
@@ -279,13 +280,13 @@ execMirStmt s stmt =
        MirNewRef tp ->
          do r <- liftST (freshRefCell halloc tp)
             let r' = MirReference r Empty_RefPath
-            return (s, r')
+            return (r', s)
 
        MirDropRef (regValue -> MirReference r path) ->
          case path of
            Empty_RefPath ->
              do let s' = s & stateTree . actFrame . gpGlobals %~ dropRef r
-                return (s', ())
+                return ((), s')
            _ -> addFailedAssertion sym (GenericSimError "Cannot drop an interior reference")
 
        MirReadRef _tp (regValue -> MirReference r path) ->
@@ -293,24 +294,24 @@ execMirStmt s stmt =
                        "Attempted to read uninitialized reference cell"
             v <- readPartExpr sym (lookupRef r (s ^. stateTree . actFrame . gpGlobals)) msg
             v' <- readRefPath sym iTypes v path
-            return (s, v')
+            return (v', s)
 
        MirWriteRef (regValue -> MirReference r Empty_RefPath) (regValue -> x) ->
          do let s' = s & stateTree . actFrame . gpGlobals %~ insertRef sym r x
-            return (s', ())
+            return ((), s')
        MirWriteRef (regValue -> MirReference r path) (regValue -> x) ->
          do let msg = ReadBeforeWriteSimError
                        "Attempted to read uninitialized reference cell"
             v <- readPartExpr sym (lookupRef r (s ^. stateTree . actFrame . gpGlobals)) msg
             v' <- writeRefPath sym iTypes v path x
             let s' = s & stateTree . actFrame . gpGlobals %~ insertRef sym r v'
-            return (s', ())
+            return ((), s')
        MirSubfieldRef ctx (regValue -> MirReference r path) idx ->
          do let r' = MirReference r (Field_RefPath ctx path idx)
-            return (s, r')
+            return (r', s)
        MirSubindexRef tp (regValue -> MirReference r path) (regValue -> idx) ->
          do let r' = MirReference r (Index_RefPath tp path idx)
-            return (s, r')
+            return (r', s)
 
 writeRefPath :: IsSymInterface sym =>
   sym ->

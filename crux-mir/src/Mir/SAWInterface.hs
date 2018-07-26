@@ -21,16 +21,13 @@ import qualified Verifier.SAW.TypedAST as SC
 import qualified Lang.Crucible.FunctionHandle as C
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.Analysis.Postdom as C
-import qualified Lang.Crucible.Config as C
 import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.GlobalState as C
 import qualified Lang.Crucible.Simulator.OverrideSim as C
 import qualified Lang.Crucible.Simulator.RegMap as C
 import qualified Lang.Crucible.Simulator.SimError as C
-import qualified Lang.Crucible.Solver.Interface as C hiding (mkStruct)
-import qualified Lang.Crucible.Solver.SAWCoreBackend as C
-import qualified Lang.Crucible.Solver.SimpleBuilder as C
-import qualified Lang.Crucible.Solver.Symbol as C
+import qualified What4.Interface as C hiding (mkStruct)
+import qualified Lang.Crucible.Backend.SAWCore as C
 import qualified Text.Regex as Regex
 
 import Control.Monad
@@ -50,14 +47,14 @@ cleanFnName t = T.pack $
         s2 = Regex.subRegex r2 s1 "" in
     s2
 
-extractMIR :: SC.SharedContext -> RustModule -> String -> IO SC.Term
-extractMIR sc rm n = do
+--extractMIR :: SC.SharedContext -> RustModule -> String -> IO SC.Term
+extractMIR proxy sc rm n = do
     let cfgmap = rmCFGs rm
         link = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
     (C.AnyCFG cfg) <- case (M.lookup (T.pack n) cfgmap) of
              Just c -> return c
              _ -> fail $ "Could not find cfg: " ++ n
-    term <- extractFromCFGPure link sc cfg
+    term <- extractFromCFGPure link proxy sc cfg
     return term
 
 loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule

@@ -27,13 +27,13 @@ library
                        lens,
                        vector,
                        mtl,
-                       galois-matlab,
                        regex-compat,
                        regex-base,
                        crucible-saw,
                        transformers,
                        saw-core,
-                       filepath
+                       filepath,
+                       what4
   hs-source-dirs: src
   exposed-modules: Mir.SAWInterface,
                    Mir.Mir

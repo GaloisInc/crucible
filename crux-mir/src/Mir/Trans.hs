@@ -30,8 +30,8 @@ import System.IO.Unsafe
 import qualified Data.Text as Text
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.FunctionHandle as FH
-import qualified Lang.Crucible.ProgramLoc as PL
-import qualified Lang.Crucible.FunctionName as FN
+import qualified What4.ProgramLoc as PL
+import qualified What4.FunctionName as FN
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.CFG.SSAConversion as SSA
 import qualified Lang.Crucible.CFG.Expr as E
@@ -57,7 +57,6 @@ import GHC.Stack
 import Mir.Intrinsics
 
 type MirGenerator h s ret = G.Generator MIR h s (FnState) ret
-type MirEnd h s ret = G.End MIR h s (FnState) ret
 
 -----------
 
@@ -907,6 +906,15 @@ transStatement (M.StorageDead lv) =
 transStatement (M.SetDiscriminant lv i) = fail "setdiscriminant unimp" -- this should just change the first component of the adt
 transStatement M.Nop = return ()
 
+ifteAny :: R.Expr MIR s CT.BoolType
+        -> (forall a. MirGenerator h s ret a) -- ^ true branch
+        -> (forall a. MirGenerator h s ret a) -- ^ false branch
+        -> MirGenerator h s ret a
+ifteAny e x y = do
+  x_id <- G.defineBlockLabel x
+  y_id <- G.defineBlockLabel y
+  G.branch e x_id y_id
+
 transSwitch :: MirExp s -> -- thing switching over
     [Integer] -> -- switch comparisons
         [M.BasicBlockInfo] -> -- jumps
@@ -938,13 +946,7 @@ doNatBranch _ _ [i] = do
       _ -> fail "bad jump"
 doNatBranch e (v:vs) (i:is) = do
     let test = S.app $ E.NatEq e $ S.app $ E.NatLit (fromInteger v)
-    test_a <- G.mkAtom test
-    G.endNow $ \_ -> do
-        t_id <- G.newLabel
-        f_id <- G.newLabel
-        G.endCurrentBlock $! R.Br test_a t_id f_id
-        G.defineBlock t_id (jumpToBlock i)
-        G.defineBlock f_id (doNatBranch e vs is)
+    ifteAny test (jumpToBlock i) (doNatBranch e vs is)
 doNatBranch _ _ _ =
     fail "doNatBranch: improper switch!"
 
@@ -955,7 +957,7 @@ jumpToBlock bbi = do
       Just lab -> G.jump lab
       _ -> fail "bad jump"
 
-jumpToBlock' :: M.BasicBlockInfo -> MirGenerator h s ret ()
+jumpToBlock' :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock' bbi = do
     lm <- use labelMap
     case (Map.lookup bbi lm) of
@@ -1014,18 +1016,18 @@ transTerminator t tr =
 
 --- translation of toplevel glue ---
 
-tyToFreshReg :: HasCallStack => M.Ty -> MirEnd h s ret (Some (R.Reg s))
+tyToFreshReg :: HasCallStack => M.Ty -> MirGenerator h s ret (Some (R.Reg s))
 tyToFreshReg t = do
     tyToReprCont t $ \tp ->
-        Some <$> G.newUnassignedReg' tp
+        Some <$> G.newUnassignedReg tp
 
-buildIdentMapRegs_ :: HasCallStack => Set Text.Text -> [(Text.Text, M.Ty)] -> MirEnd h s ret (VarMap s)
+buildIdentMapRegs_ :: HasCallStack => Set Text.Text -> [(Text.Text, M.Ty)] -> MirGenerator h s ret (VarMap s)
 buildIdentMapRegs_ addressTakenVars pairs = foldM f Map.empty pairs
   where
   f map_ (varname, varty)
     | varname `Set.member` addressTakenVars =
         tyToReprCont varty $ \tp ->
-           do reg <- G.newUnassignedReg' (MirReferenceRepr tp)
+           do reg <- G.newUnassignedReg (MirReferenceRepr tp)
               return $ Map.insert varname (Some (VarReference reg)) map_
     | otherwise =
         do Some r <- tyToFreshReg varty
@@ -1042,21 +1044,21 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  g (M.Tagged lv _) = g lv
  g _ = mempty
 
-buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirEnd h s ret (VarMap s)
+buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirGenerator h s ret (VarMap s)
 buildIdentMapRegs (M.MirBody vars blocks) argvars =
     buildIdentMapRegs_ addressTakenVars (map (\(M.Var name _ ty _ _) -> (name,ty)) vars) -- (vars ++ argvars))
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
 
-buildLabelMap :: forall h s ret. M.MirBody -> MirEnd h s ret (LabelMap s)
+buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks) = Map.fromList <$> (mapM buildLabel blocks)
 
-buildLabel :: forall h s ret. M.BasicBlock -> MirEnd h s ret (M.BasicBlockInfo, R.Label s)
+buildLabel :: forall h s ret. M.BasicBlock -> MirGenerator h s ret (M.BasicBlockInfo, R.Label s)
 buildLabel (M.BasicBlock bi _) = do
     lab <- G.newLabel
     return (bi, lab)
 
-buildFnState :: HasCallStack => M.MirBody -> [M.Var] -> MirEnd h s ret ()
+buildFnState :: HasCallStack => M.MirBody -> [M.Var] -> MirGenerator h s ret ()
 buildFnState body argvars = do
     lm <- buildLabelMap body
     labelMap .= lm
@@ -1077,11 +1079,11 @@ initFnState am tm vars argsrepr args hmap =
 
 
 -- do the statements and then the terminator
-translateBlockBody :: HasCallStack => CT.TypeRepr ret -> M.BasicBlockData -> MirGenerator h s ret ()
+translateBlockBody :: HasCallStack => CT.TypeRepr ret -> M.BasicBlockData -> MirGenerator h s ret a
 translateBlockBody tr (M.BasicBlockData stmts terminator) = (mapM_ transStatement stmts) >> (transTerminator terminator tr)
 
 --
-registerBlock :: CT.TypeRepr ret -> M.BasicBlock -> MirEnd h s ret ()
+registerBlock :: CT.TypeRepr ret -> M.BasicBlock -> MirGenerator h s ret ()
 registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
     lm <- use labelMap
     case (Map.lookup bbinfo lm) of
@@ -1093,15 +1095,15 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
 genDefn' :: HasCallStack =>
     M.MirBody -> [M.Var] -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 genDefn' body argvars rettype = do
-    G.endNow $ \_ -> do
-        buildFnState body argvars -- argvars are registers
-        lm <- use labelMap
-        let (M.MirBody vars (enter : blocks)) = body -- The first block in the list is the entrance block
-        let (M.BasicBlock bbi _) = enter
-        case (Map.lookup bbi lm) of
-            Just lbl -> G.endCurrentBlock (R.Jump lbl)
-            _ -> fail "bad thing happened"
-        mapM_ (registerBlock rettype) (enter : blocks)
+  buildFnState body argvars -- argvars are registers
+  lm <- use labelMap
+  let (M.MirBody vars (enter : blocks)) = body -- The first block in the list is the entrance block
+  let (M.BasicBlock bbi _) = enter
+  case (Map.lookup bbi lm) of
+    Just lbl -> G.jump lbl
+    _ -> fail "bad thing happened"
+  mapM_ (registerBlock rettype) (enter : blocks)
+  return undefined -- TODO
 
 
 genDefn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
@@ -1264,23 +1266,6 @@ extractVecTy :: forall a t. CT.TypeRepr t -> (forall t2. CT.TypeRepr t2 -> a) ->
 extractVecTy (CT.VectorRepr a) f = f a
 extractVecTy _ _ = error "Expected vector type in extraction"
 
-
--- ripped from the generator but with amended types
-myIfte ::
-      R.Expr MIR s CT.BoolType
-     -> MirGenerator h s ret ()
-     -> MirGenerator h s ret ()
-     -> MirGenerator h s ret a
-myIfte e x y = do
-  test_a <- G.mkAtom e
-  G.endNow $ \c -> do
-    t_id <- G.newLabel
-    f_id <- G.newLabel
-
-    G.endCurrentBlock $! R.Br test_a t_id f_id
-    G.defineBlock t_id x
-    G.defineBlock f_id y
-
 doCustomCall :: HasCallStack => Text.Text -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
 doCustomCall fname ops lv dest
   | Just "boxnew" <- M.isCustomFunc fname,
@@ -1333,15 +1318,9 @@ doCustomCall fname ops lv dest
          bad_ret_2 = buildTuple [MirExp (CT.VectorRepr elemty) iter_vec, MirExp CT.NatRepr iter_pos]
          bad_ret = buildTuple [bad_ret_1, bad_ret_2]
 
-         good_branch = do
-             assignLvExp lv Nothing good_ret
-             jumpToBlock' dest
-
-         bad_branch = do
-             assignLvExp lv Nothing bad_ret
-             jumpToBlock' dest
-
-     myIfte is_good good_branch bad_branch
+     ifteAny is_good
+             (assignLvExp lv Nothing good_ret >> jumpToBlock' dest)
+             (assignLvExp lv Nothing bad_ret >> jumpToBlock' dest)
 
  | Just "iter_map" <- M.isCustomFunc fname, [iter, closure] <- ops = do
      iter_e <- evalOperand iter
