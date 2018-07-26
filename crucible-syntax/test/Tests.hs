@@ -52,7 +52,7 @@ roundTrips =
           goodFile -- golden file path
           outFile
           (testParser input outFile) -- action whose result is tested
-       | input <- inputs
+       | input <- sort inputs
        , let outFile = replaceExtension input ".out"
        , let goodFile = replaceExtension input ".out.good"
        ]
