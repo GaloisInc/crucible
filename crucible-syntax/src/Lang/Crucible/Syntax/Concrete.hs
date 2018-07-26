@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -30,6 +31,7 @@ import Data.Monoid ()
 import Control.Lens hiding (cons)
 import Control.Applicative
 import Control.Monad.Identity hiding (fail)
+import Control.Monad.Reader
 import Control.Monad.Trans.Except
 import Control.Monad.State.Class
 import Control.Monad.State.Strict
@@ -57,7 +59,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
---import qualified Data.Text as T
+import qualified Data.Text as T
 import qualified Data.Vector as V
 
 import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
@@ -230,79 +232,14 @@ synthComparison ts e a b =
            Nothing -> throwError$ NotComparison (syntaxPos e) e t1
            Just (ComparisonCtor f) -> return $ E (App (f a' b'))
 
-checkNumeric :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m)
-             => TypeRepr t1 -> TypeRepr t2
-             -> AST s -> AST s -> AST s
-             -> (Expr () s t2 -> Expr () s t2 -> App () (Expr () s) t2)
-             -> m (E s t1)
-checkNumeric t1 t2 e a b f =
-  case testEquality t1 t2 of
-    Just Refl ->
-      do E a' <- checkExpr t2 a
-         E b' <- checkExpr t2 b
-         return (E (App (f a' b')))
-    Nothing -> throwError$ NotNumeric (syntaxPos e) e t2
+
 
 checkExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m)
           => TypeRepr t -> AST s -> m (E s t)
-checkExpr (MaybeRepr expectedT) (L [A (Kw Unpack), package]) =
-  do E e <- checkExpr AnyRepr package
-     return $ E (App (UnpackAny expectedT e))
-checkExpr NatRepr e@(A (Int i)) =
-  if i < 0
-    then throwError $ NotANat (syntaxPos e) i
-    else return (E (App (NatLit (fromInteger i))))
-checkExpr IntegerRepr (A (Int i)) =
-  return (E (App (IntLit (fromInteger i))))
-checkExpr expectedT e@(L [A (Kw Plus), a, b]) =
-      checkNumeric expectedT NatRepr e a b NatAdd
-  <|> checkNumeric expectedT IntegerRepr e a b IntAdd
-  <|> checkNumeric expectedT RealValRepr e a b RealAdd
-checkExpr expectedT e@(L [A (Kw Minus), a, b]) =
-      checkNumeric expectedT NatRepr e a b NatSub
-  <|> checkNumeric expectedT IntegerRepr e a b IntSub
-  <|> checkNumeric expectedT RealValRepr e a b RealSub
-checkExpr expectedT e@(L [A (Kw Times), a, b]) =
-      checkNumeric expectedT NatRepr e a b NatMul
-  <|> checkNumeric expectedT IntegerRepr e a b IntMul
-  <|> checkNumeric expectedT RealValRepr e a b RealMul
-checkExpr (MaybeRepr t) (L [A (Kw Just_), a]) =
-  do E a' <- checkExpr t a
-     return (E (App (JustValue t a')))
-checkExpr (MaybeRepr t) (A (Kw Nothing_)) =
-  return (E (App (NothingValue t)))
-checkExpr t (L [A (Kw FromJust), a, str]) =
-  do E a' <- checkExpr (MaybeRepr t) a
-     E str' <- checkExpr StringRepr str
-     return (E (App (FromJustValue t a' str')))
-checkExpr expectedT e@(L (A (Kw Inj) : rest)) =
-  case rest of
-    [i@(A (Int n)), v] ->
-      case expectedT of
-        VariantRepr ctx ->
-          case Ctx.intIndex (fromInteger n) (Ctx.size ctx) of
-            Nothing ->
-              throwError $ InvalidInjection i ctx n
-            Just (Some idx) ->
-              do let ty = view (ixF' idx) ctx
-                 E out <- checkExpr ty v
-                 return $ E $ App $ InjectVariant ctx idx out
-        otherType ->
-          throwError $ NotAVariantType (syntaxPos e) otherType
-    _ ->
-      throwError $ BadSyntax (syntaxPos e) e "Invalid arguments to inj"
-checkExpr expectedT e@(L (A (Kw VectorLit_) : vs)) =
-  case expectedT of
-    VectorRepr tp ->
-      do vs' <- (V.fromList . map unE) <$> mapM (checkExpr tp) vs
-         return (E (App (VectorLit tp vs')))
-    other ->
-      throwError $ NotVector (syntaxPos e) e other
-checkExpr expectedT ast =
-  do SomeExpr foundT e <- synthExpr ast
-     case testEquality expectedT foundT of
-       Just Refl -> return $ e
-       Nothing -> throwError $ TypeError (syntaxPos ast) ast expectedT foundT
+
+checkExpr t stx =
+  do st <- get
+     liftSyntaxParse (runReaderT (check' t) st) stx
 
 kw :: Keyword -> SyntaxParse Atomic ()
 kw k = describe ("the keyword " <> showAtom (Kw k)) (atom (Kw k))
@@ -312,6 +249,16 @@ int = sideCondition "integer literal" numeric atomic
   where numeric (Int i) = Just i
         numeric _ = Nothing
 
+string :: SyntaxParse Atomic Text
+string = sideCondition "string literal" stringy atomic
+  where stringy (StrLit t) = Just t
+        stringy _ = Nothing
+
+atomName :: SyntaxParse Atomic AtomName
+atomName = sideCondition "Crucible atom" isCAtom atomic
+  where isCAtom (At a) = Just a
+        isCAtom _ = Nothing
+
 
 toCtx :: forall f . [Some f] -> Some (Ctx.Assignment f)
 toCtx fs = toCtx' (reverse fs)
@@ -320,6 +267,8 @@ toCtx fs = toCtx' (reverse fs)
         toCtx' (Some x : (toCtx' -> Some xs)) =
           Some $ Ctx.extend xs x
 
+unary :: Keyword -> SyntaxParse Atomic a -> SyntaxParse Atomic a
+unary k p = cons (kw k) (cons p emptyList) <&> fst . snd
 
 mkFunRepr :: [Some TypeRepr] -> Some TypeRepr -> Some TypeRepr
 mkFunRepr (toCtx -> Some doms) (Some ran) = Some $ FunctionHandleRepr doms ran
@@ -333,48 +282,206 @@ repUntilLast p = describe "zero or more followed by one" $ repUntilLast' p
 
 isType :: MonadError (ExprErr s) m => AST s -> m (Some TypeRepr)
 isType ast = liftSyntaxParse isType' ast
-  where isType' =
-          describe "type" $
-            atomicType <|> vector <|> ref <|> bv <|> fun <|> maybeT <|> var
-
-        unary k p = cons (kw k) (cons p emptyList) <&> fst . snd
-
-        atomicType =
-          describe "atomic type" $
-            asum [ kw AnyT $> Some AnyRepr
-                 , kw UnitT $> Some UnitRepr
-                 , kw BoolT $> Some BoolRepr
-                 , kw NatT $> Some NatRepr
-                 , kw IntegerT $> Some IntegerRepr
-                 , kw RealT $> Some RealValRepr
-                 , kw ComplexRealT $> Some ComplexRealRepr
-                 , kw CharT $> Some CharRepr
-                 , kw StringT $> Some StringRepr
-                 ]
-        vector = unary VectorT isType' <&> \(Some t) -> Some (VectorRepr t)
-        ref    = unary RefT isType' <&> \(Some t) -> Some (ReferenceRepr t)
-        bv :: SyntaxParse Atomic (Some TypeRepr)
-        bv     = do (Some len) <- unary BitVectorT (sideCondition "natural number" someNat int)
-                    case testLeq (knownNat :: NatRepr 1) len of
-                      Nothing -> describe "positive number" empty
-                      Just LeqProof -> return $ Some $ BVRepr len
-
-        fun :: SyntaxParse Atomic (Some TypeRepr)
-        fun = cons (kw FunT) (repUntilLast isType') <&> \((), (args, ret)) -> mkFunRepr args ret
-
-        maybeT = unary MaybeT isType' <&> \(Some t) -> Some (MaybeRepr t)
-        var :: SyntaxParse Atomic (Some TypeRepr)
-        var = cons (kw VariantT) (rep isType') <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
 
 
+isType' :: SyntaxParse Atomic (Some TypeRepr)
+isType' =
+  describe "type" $
+    atomicType <|> vector <|> ref <|> bv <|> fun <|> maybeT <|> var
+
+  where
+    atomicType =
+      describe "atomic type" $
+        asum [ kw AnyT         $> Some AnyRepr
+             , kw UnitT        $> Some UnitRepr
+             , kw BoolT        $> Some BoolRepr
+             , kw NatT         $> Some NatRepr
+             , kw IntegerT     $> Some IntegerRepr
+             , kw RealT        $> Some RealValRepr
+             , kw ComplexRealT $> Some ComplexRealRepr
+             , kw CharT        $> Some CharRepr
+             , kw StringT      $> Some StringRepr
+             ]
+    vector = unary VectorT isType' <&> \(Some t) -> Some (VectorRepr t)
+    ref    = unary RefT isType' <&> \(Some t) -> Some (ReferenceRepr t)
+    bv :: SyntaxParse Atomic (Some TypeRepr)
+    bv     = do (Some len) <- unary BitVectorT (sideCondition "natural number" someNat int)
+                describe "positive number" $
+                  case testLeq (knownNat :: NatRepr 1) len of
+                    Nothing -> empty
+                    Just LeqProof -> return $ Some $ BVRepr len
+
+    fun :: SyntaxParse Atomic (Some TypeRepr)
+    fun = cons (kw FunT) (repUntilLast isType') <&> \((), (args, ret)) -> mkFunRepr args ret
+
+    maybeT = unary MaybeT isType' <&> \(Some t) -> Some (MaybeRepr t)
+    var :: SyntaxParse Atomic (Some TypeRepr)
+    var = cons (kw VariantT) (rep isType') <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
 
 
+synth' :: ReaderT (SyntaxState h s) (SyntaxParse Atomic) (SomeExpr s)
+synth' =
+  do r <- ask
+     lift $ describe "synthesizable expression" $ flip runReaderT r $
+       the <|> crucibleAtom
+  where
+    the = do ((), (Some t, (e, ()))) <- lift $ describe "type-annotated expression" $
+                                        cons (kw The) (cons isType' (cons anything emptyList))
+             r <- ask
+             e' <- lift $ parse e (runReaderT (check' t) r)
+             return $ SomeExpr t e'
+
+
+    okAtom theAtoms x =
+      case Map.lookup x theAtoms of
+        Nothing -> Nothing
+        Just (Pair t anAtom) -> Just $ SomeExpr t (E (AtomExpr anAtom))
+
+    crucibleAtom :: ReaderT (SyntaxState h s) (SyntaxParse Atomic) (SomeExpr s)
+    crucibleAtom =
+      do theAtoms <- view stxAtoms
+         lift $ sideCondition "known atom" (okAtom theAtoms) atomName
+
+
+
+check' :: forall t h s . TypeRepr t -> ReaderT (SyntaxState h s) (SyntaxParse Atomic) (E s t)
+check' t =
+  do r <- ask
+     lift $ describe ("inhabitant of " <> T.pack (show t)) $ flip runReaderT r $
+       literal <|> unpack <|> just <|> nothing <|> fromJust_ <|> injection <|>
+       addition <|> subtraction <|> multiplication <|>
+       vecLit <|> modeSwitch
+  where
+    typed :: TypeRepr t' -> ReaderT (SyntaxState h s) (SyntaxParse Atomic) (E s t')
+          -> ReaderT (SyntaxState h s) (SyntaxParse Atomic) (E s t)
+    typed t' p =
+      case testEquality t' t of
+        Just Refl -> p
+        Nothing -> empty
+
+    literal = natLiteral <|> intLiteral
+
+    natLiteral =
+      typed NatRepr $
+        lift $ sideCondition "nat literal" isNat int
+      where isNat i | i >= 0 = Just (E (App (NatLit (fromInteger i))))
+            isNat _ = Nothing
+
+    intLiteral =
+      typed IntegerRepr (lift int <&> E . App . IntLit . fromInteger)
+
+
+    unpack =
+      do package <- lift $ unary Unpack anything
+         r <- ask
+         lift $ describe "context expecting Maybe" $
+           case t of
+             MaybeRepr expected ->
+               do E e <- parse package $ runReaderT (check' AnyRepr) r
+                  return $ E $ App (UnpackAny expected e)
+             _ -> empty
+
+    just =
+      do inj <- lift $ unary Just_ anything
+         r <- ask
+         lift $ describe "context expecting Maybe" $
+           case t of
+             MaybeRepr expected ->
+               do E e <- parse inj $ runReaderT (check' expected) r
+                  return $ E $ App (JustValue expected e)
+             _ -> empty
+
+    nothing =
+      lift $ describe "context expecting Maybe" $
+        case t of
+          MaybeRepr expected ->
+            do kw Nothing_
+               return $ E $ App (NothingValue expected)
+          _ -> empty
+
+    fromJust_ =
+      do r <- ask
+         ((), (E e, (E str, ()))) <- lift $ describe "coercion from Maybe (fromJust-expression)" $
+                                     cons (kw FromJust) $
+                                     cons (runReaderT (check' (MaybeRepr t)) r) $
+                                     cons (runReaderT (check' StringRepr) r) $
+                                     emptyList
+         return $ E $ App $ FromJustValue t e str
+
+    injection =
+      do ((), (n, (e, ()))) <- lift $ describe "injection into variant type" $
+                               cons (kw Inj) $ cons int $ cons anything $ emptyList
+         case t of
+           VariantRepr ts ->
+             case Ctx.intIndex (fromInteger n) (Ctx.size ts) of
+               Nothing ->
+                 lift $
+                 describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
+               Just (Some idx) ->
+                 do let ty = view (ixF' idx) ts
+                    r <- ask
+                    E out <- lift $ parse e (runReaderT (check' ty) r)
+                    return $ E $ App $ InjectVariant ts idx out
+           _ -> lift $ describe ("context expecting variant type (got " <> T.pack (show t) <> ")") empty
+
+    addition =
+      arith t NatRepr Plus NatAdd <|>
+      arith t IntegerRepr Plus IntAdd <|>
+      arith t RealValRepr Plus RealAdd
+
+    subtraction =
+      arith t NatRepr Plus NatSub <|>
+      arith t IntegerRepr Plus IntSub <|>
+      arith t RealValRepr Plus RealSub
+
+    multiplication =
+      arith t NatRepr Plus NatMul <|>
+      arith t IntegerRepr Plus IntMul <|>
+      arith t RealValRepr Plus RealMul
+
+
+    arith :: TypeRepr t1 -> TypeRepr t2
+          -> Keyword
+          -> (Expr () s t2 -> Expr () s t2 -> App () (Expr () s) t2)
+          -> ReaderT (SyntaxState h s) (SyntaxParse Atomic) (E s t1)
+    arith t1 t2 k f =
+      case testEquality t1 t2 of
+        Nothing -> lift $ describe (T.pack (show t2)) empty
+        Just Refl ->
+          do r <- ask
+             ((), (E e1, (E e2, ()))) <- lift $
+                                         describe ("arithmetic expression of type " <> T.pack (show t2)) $
+                                         cons (kw k) $
+                                         cons (runReaderT (check' t1) r) $
+                                         cons (runReaderT (check' t1) r) $
+                                         emptyList
+             return $ E $ App $ f e1 e2
+
+    vecLit =
+      do ((), xs) <- lift $
+                     describe "vector literal" $
+                     cons (kw VectorLit_) $
+                     rep anything
+         case t of
+           VectorRepr elemTy ->
+             do es <- forM xs $
+                        \stx ->
+                          do r <- ask
+                             lift $ parse stx (runReaderT (check' elemTy) r)
+                return $ E $ App $ VectorLit elemTy (V.fromList (map unE es))
+           _ -> lift $ describe ("context expecting a vector") $ empty
+
+    modeSwitch =
+      do SomeExpr t' e <- synth'
+         case testEquality t t' of
+           Nothing -> lift $ describe ("a " <> T.pack (show t) <> " but got a " <> T.pack (show t')) empty
+           Just Refl -> return e
 
 synthExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => AST s -> m (SomeExpr s)
-synthExpr (L [A (Kw The), t, e]) =
-  do Some ty <- isType t
-     e' <- checkExpr ty e
-     return $ SomeExpr ty e'
+synthExpr stx =
+  do st <- get
+     liftSyntaxParse (runReaderT synth' st) stx
+
 synthExpr e@(L [A (Kw Equalp), a, b]) =
   do SomeExpr t1 (E a') <- synthExpr a
      SomeExpr t2 (E b') <- synthExpr b

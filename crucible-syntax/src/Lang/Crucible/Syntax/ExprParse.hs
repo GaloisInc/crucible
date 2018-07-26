@@ -191,11 +191,11 @@ rep p =
             pure (x : xs)
        _ -> empty
 
+parse :: Syntax atom -> SyntaxParse atom a -> SyntaxParse atom a
+parse stx p = local (set parseFocus stx) p
 
 list :: [SyntaxParse atom a] -> SyntaxParse atom [a]
 list parsers = describe desc $ list' parsers
-
-
   where desc =
           mappend (T.pack (show (length parsers))) (T.pack " expressions")
         list' ps =
@@ -214,6 +214,21 @@ list parsers = describe desc $ list' parsers
                      (list' ps)
              pure (x : xs)
 
+later :: SyntaxParse atom a -> SyntaxParse atom a
+later = local (over parseProgress (pushProgress Late))
+
+sideCondition :: Text -> (a -> Maybe b) -> SyntaxParse atom a -> SyntaxParse atom b
+sideCondition msg ok p =
+  do x <- p
+     case ok x of
+       Just y -> pure y
+       Nothing ->
+         later (describe msg empty)
+
+sideCondition' :: Text -> (a -> Bool) -> SyntaxParse atom a -> SyntaxParse atom a
+sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
+
+
 
 -- | Syntax errors explain why the error occurred.
 data SyntaxError atom = SyntaxError (NonEmpty (Reason atom))
@@ -221,15 +236,18 @@ data SyntaxError atom = SyntaxError (NonEmpty (Reason atom))
 
 printSyntaxError :: IsAtom atom => SyntaxError atom -> Text
 printSyntaxError (SyntaxError rs) =
-  T.intercalate "\n\tor\n" $ nub $ map printReason $ NE.toList rs
+  T.intercalate "\n\tor\n" $ nub $ map printGroup $ groupReasons rs
  where
-    printReason :: IsAtom atom => Reason atom -> Text
-    printReason (Reason found wanted) =
+    reasonPos (Reason found _) = syntaxPos found
+    groupReasons reasons =
+      [ (reasonPos repr, g)
+      | g@(repr :| _) <- NE.groupBy (\x y -> reasonPos x == reasonPos y) (NE.toList reasons)
+      ]
+    printGroup (p, r@(Reason found _) :| more) =
       T.concat
-        [ "At ", T.pack (show (syntaxPos found))
-        , ", expected " , wanted
-        , " but got " , toText mempty found
-        ]
+      [ "At", T.pack (show p)
+      , ", expected ", T.intercalate " or " (nub $ sort [ wanted | Reason _ wanted <- r:more ])
+      , " but got ", toText mempty found]
 
 syntaxParse :: IsAtom atom => SyntaxParse atom a -> Syntax atom -> Either (SyntaxError atom) a
 syntaxParse p stx =
@@ -246,19 +264,6 @@ syntaxParse p stx =
       (r:_) -> Right r
 
 
-later :: SyntaxParse atom a -> SyntaxParse atom a
-later = local (over parseProgress (pushProgress Late))
-
-sideCondition :: Text -> (a -> Maybe b) -> SyntaxParse atom a -> SyntaxParse atom b
-sideCondition msg ok p =
-  do x <- p
-     case ok x of
-       Just y -> pure y
-       Nothing ->
-         later (describe msg empty)
-
-sideCondition' :: Text -> (a -> Bool) -> SyntaxParse atom a -> SyntaxParse atom a
-sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
 
 newtype TrivialAtom = TrivialAtom Text deriving (Show, Eq)
 

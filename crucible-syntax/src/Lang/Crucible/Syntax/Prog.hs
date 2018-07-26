@@ -10,6 +10,7 @@ import Control.Monad
 import Text.Megaparsec as MP
 import Lang.Crucible.Syntax.Concrete
 import Lang.Crucible.Syntax.SExpr
+import Lang.Crucible.Syntax.ExprParse (printSyntaxError)
 import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.CFG.SSAConversion
 
@@ -30,6 +31,7 @@ go fn theInput pprint outh =
              \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
          cfgs <- stToIO $ top $ cfgs v
          case cfgs of
+           Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
            Left err -> hPutStrLn outh $ show err
            Right ok ->
              forM_ ok $
