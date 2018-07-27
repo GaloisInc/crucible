@@ -327,6 +327,9 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
   -- Assert a boolean condition.  If the condition fails, print the given string.
   Assert :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ext ctx ctx
 
+  -- Assume a boolean condition, remembering the given string as the 'reason' for this assumption.
+  Assume :: !(Reg ctx BoolType) -> !(Reg ctx StringType) -> Stmt ext ctx ctx
+
 ------------------------------------------------------------------------
 -- TermStmt
 
@@ -464,6 +467,7 @@ applyEmbeddingStmt ctxe stmt =
     WriteRefCell r r' -> Pair (WriteRefCell (reg r) (reg r')) ctxe
     DropRefCell r     -> Pair (DropRefCell (reg r)) ctxe
     Assert b str      -> Pair (Assert (reg b) (reg str)) ctxe
+    Assume b str      -> Pair (Assume (reg b) (reg str)) ctxe
   where
     reg :: forall tp. Reg ctx tp -> Reg ctx' tp
     reg = applyEmbedding' ctxe
@@ -562,6 +566,7 @@ nextStmtHeight h s =
     WriteRefCell{} -> h
     DropRefCell{}  -> h
     Assert{} -> h
+    Assume{} -> h
 
 ppStmt :: PrettyExt ext => Size ctx -> Stmt ext ctx ctx' -> Doc
 ppStmt r s =
@@ -581,7 +586,8 @@ ppStmt r s =
     ReadRefCell e -> ppReg r <+> text "= !" <> pretty e
     WriteRefCell r1 r2 -> pretty r1 <+> text ":=" <+> pretty r2
     DropRefCell r1 -> text "drop" <+> pretty r1
-    Assert c e -> ppFn "assert" [ pretty c, pretty e]
+    Assert c e -> ppFn "assert" [ pretty c, pretty e ]
+    Assume c e -> ppFn "assume" [ pretty c, pretty e ]
 
 prefixLineNum :: Bool -> ProgramLoc -> Doc -> Doc
 prefixLineNum True pl d = text "%" <+> ppNoFileName (plSourceLoc pl) <$$> d

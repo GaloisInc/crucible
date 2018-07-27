@@ -311,6 +311,17 @@ stepStmt verb stmt rest =
             liftIO $ assert sym c (AssertFailureSimError msg')
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
+       Assume c_expr msg_expr ->
+         do c <- evalReg c_expr
+            msg <- evalReg msg_expr
+            let msg' = case asString msg of
+                         Just txt -> Text.unpack txt
+                         _ -> show (printSymExpr msg)
+            liftIO $
+              do loc <- getCurrentProgramLoc sym
+                 addAssumption sym (LabeledPred c (AssumptionReason loc msg'))
+            continueWith (stateCrucibleFrame  . frameStmts .~ rest)
+
 
 ---------------------------------------------------------------
 -- TODO, this should probably be moved to parameterized-utils
