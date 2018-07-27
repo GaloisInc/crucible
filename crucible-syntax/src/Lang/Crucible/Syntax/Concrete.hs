@@ -330,7 +330,8 @@ synth' =
        notExpr <|> equalp <|> lessThan <|>
        toAny <|> fromAny <|>
        stringAppend <|> showExpr <|>
-       vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet
+       vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
+       binaryBool And_ And <|> binaryBool Or_ Or <|> binaryBool Xor_ BoolXor <|> ite
 
   where
     the = do ((), (Some t, (e, ()))) <- lift $ describe "type-annotated expression" $
@@ -355,6 +356,12 @@ synth' =
     boolLit = lift $ bool <&> SomeExpr BoolRepr . E . App . BoolLit
 
     stringLit = lift $ string <&> SomeExpr StringRepr . E . App . TextLit
+
+    binaryBool k f =
+      do r <- ask
+         (E x, E y) <- lift $ binary k (runReaderT (check' BoolRepr) r) (runReaderT (check' BoolRepr) r)
+         return $ SomeExpr BoolRepr $ E $ App $ f x y
+
 
     funNameLit =
       do fn <- lift funName
@@ -408,6 +415,33 @@ synth' =
                RealValRepr -> return $ SomeExpr BoolRepr $ E $ App $ RealLt e1 e2
                other ->
                  lift $ describe ("valid comparison type (got " <> T.pack (show other) <> ")") empty
+
+
+    ite :: ReaderT (SyntaxState h s) (SyntaxParse Atomic) (SomeExpr s)
+    ite =
+      do r <- ask
+         ((), (E c, (SomeExpr tTy (E t), (SomeExpr fTy (E f), ())))) <-
+           lift $ cons (kw If) $
+           cons (runReaderT (check' BoolRepr) r) $
+           cons (runReaderT synth' r) $
+           cons (runReaderT synth' r) $
+           emptyList
+         case testEquality tTy fTy of
+           Nothing ->
+             let msg = T.concat [ "conditional where branches have same type (got "
+                                , T.pack (show tTy), " and "
+                                , T.pack (show fTy)
+                                ]
+             in lift $ later $ describe msg empty
+           Just Refl ->
+             case asBaseType tTy of
+               NotBaseType ->
+                 let msg = T.concat [ "conditional where branches have base type (got "
+                                    , T.pack (show tTy)
+                                    ]
+                 in lift $ later $ describe msg empty
+               AsBaseType bTy ->
+                 return $ SomeExpr tTy $ E $ App $ BaseIte bTy c t f
 
 
     toAny =
@@ -634,18 +668,6 @@ synthExpr e@(L [A (Kw If), c, t, f]) =
            AsBaseType bt ->
              return $ SomeExpr ty1 (E (App (BaseIte bt c' t' f')))
        Nothing -> throwError $ TypeMismatch (syntaxPos e) t ty1 f ty2
-synthExpr (L [A (Kw And_), e1, e2]) =
-  do E bE1 <- checkExpr BoolRepr e1
-     E bE2 <- checkExpr BoolRepr e2
-     return $ SomeExpr BoolRepr (E (App (And bE1 bE2)))
-synthExpr (L [A (Kw Or_), e1, e2]) =
-  do E bE1 <- checkExpr BoolRepr e1
-     E bE2 <- checkExpr BoolRepr e2
-     return $ SomeExpr BoolRepr (E (App (Or bE1 bE2)))
-synthExpr (L [A (Kw Xor_), e1, e2]) =
-  do E bE1 <- checkExpr BoolRepr e1
-     E bE2 <- checkExpr BoolRepr e2
-     return $ SomeExpr BoolRepr (E (App (BoolXor bE1 bE2)))
 synthExpr (A (Rat r)) =
   return $ SomeExpr RealValRepr (E (App (RationalLit r)))
 synthExpr (L [A (Kw Div), e1, e2]) =
