@@ -168,15 +168,19 @@ emptyList = describe (T.pack "empty expression ()") (satisfy (isNil . syntaxToDa
         isNil _ = False
 
 cons :: SyntaxParse atom a -> SyntaxParse atom b -> SyntaxParse atom (a, b)
-cons a d =
+cons a d = depCons a (const d)
+
+depCons :: SyntaxParse atom a -> (a -> SyntaxParse atom b) -> SyntaxParse atom (a, b)
+depCons a d =
   do focus <- view parseFocus
      case focus of
        L (e:es) ->
          do x <- local (set parseFocus e . over parseProgress (pushProgress First)) a
             let cdr = Syntax (Posd (syntaxPos focus) (List es))
-            xs <- local (set parseFocus cdr . over parseProgress (pushProgress Rest)) d
+            xs <- local (set parseFocus cdr . over parseProgress (pushProgress Rest)) (d x)
             pure (x, xs)
        _ -> empty
+
 
 rep :: SyntaxParse atom a -> SyntaxParse atom [a]
 rep p =
@@ -223,7 +227,7 @@ sideCondition msg ok p =
      case ok x of
        Just y -> pure y
        Nothing ->
-         later (describe msg empty)
+         describe msg empty
 
 sideCondition' :: Text -> (a -> Bool) -> SyntaxParse atom a -> SyntaxParse atom a
 sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
@@ -245,7 +249,7 @@ printSyntaxError (SyntaxError rs) =
       ]
     printGroup (p, r@(Reason found _) :| more) =
       T.concat
-      [ "At", T.pack (show p)
+      [ "At ", T.pack (show p)
       , ", expected ", T.intercalate " or " (nub $ sort [ wanted | Reason _ wanted <- r:more ])
       , " but got ", toText mempty found]
 
