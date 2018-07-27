@@ -159,11 +159,9 @@ llvmTypeToRepr (ArrayType _ tp)  = [llvmTypeAsRepr tp (\t -> Some (VectorRepr t)
 llvmTypeToRepr (VecType _ tp)    = [llvmTypeAsRepr tp (\t-> Some (VectorRepr t))]
 llvmTypeToRepr (StructType si)   = [llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))]
   where tps = map fiType $ toList $ siFields si
-llvmTypeToRepr (PtrType _)   = [Some (LLVMPointerRepr PtrWidth)]
-llvmTypeToRepr FloatType     = [Some RealValRepr]
-llvmTypeToRepr DoubleType    = [Some RealValRepr]
---llvmTypeToRepr FloatType   = [Some (FloatRepr SingleFloatRepr)]
---llvmTypeToRepr DoubleType  = [Some (FloatRepr DoubleFloatRepr)]
+llvmTypeToRepr (PtrType _)  = [Some (LLVMPointerRepr PtrWidth)]
+llvmTypeToRepr FloatType    = [Some (FloatRepr SingleFloatRepr)]
+llvmTypeToRepr DoubleType   = [Some (FloatRepr DoubleFloatRepr)]
 llvmTypeToRepr MetadataType = []
 llvmTypeToRepr (IntType n) =
    case someNat (fromIntegral n) of

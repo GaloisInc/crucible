@@ -36,6 +36,7 @@ import qualified GHC.TypeLits
 import           GHC.Stack
 
 import           What4.Interface
+import           Lang.Crucible.Panic
 import           Lang.Crucible.Types
 
 -- | Type family for intrinsic type representations.  Intrinsic types
@@ -119,7 +120,7 @@ type IntrinsicTypes sym = MapF.MapF SymbolRepr (IntrinsicMuxFn sym)
 --   are applied to an intrinsic type symbol.
 typeError :: HasCallStack => SymbolRepr nm -> CtxRepr ctx -> b
 typeError nm ctx =
-  error $ unlines [ "Panic! internal Crucible type error"
-                  , "Named type constructor '" ++ show nm ++ "' applied to incorrect arguments:"
-                  , show ctx
-                  ]
+  panic "Crucible type error"
+        [ "Named type constructor '" ++ show nm ++ "' applied to incorrect arguments:"
+        , show ctx
+        ]
