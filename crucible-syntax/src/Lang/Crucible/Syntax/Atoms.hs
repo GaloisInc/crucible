@@ -157,7 +157,7 @@ instance IsAtom Atomic where
   showAtom (At (AtomName a)) = a
   showAtom (Fn (FunName a)) = "@" <> a
   showAtom (Int i) = T.pack (show i)
-  showAtom (Rat r) = T.pack (show r)
+  showAtom (Rat r) = T.pack (show (numerator r) ++ "/" ++ show (denominator r))
   showAtom (Bool b) = if b then "#t" else "#f"
   showAtom (StrLit s) = T.pack $ show s
 
@@ -166,11 +166,13 @@ atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> kwOrAtom
     <|> Fn . FunName <$> (char '@' *> identifier)
     <|> (char '$' *> ((char '$' *> (Gl . GlobalName <$> identifier)) <|> Rg . RegName <$> identifier))
-    <|> try (Int . fromInteger <$> signedPrefixedNumber)
+    <|> mkNum <$> signedPrefixedNumber <*> (try (Just <$> (char '/' *> prefixedNumber)) <|> pure Nothing)
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  ((char 't' <|> char 'T') $> Bool True <|> (char 'f' <|> char 'F') $> Bool False)
     <|> char '"' *> (StrLit . T.pack <$> stringContents)
-
+  where
+    mkNum x Nothing = Int x
+    mkNum x (Just y) = Rat (x % y)
 
 stringContents :: Parser [Char]
 stringContents =  (char '\\' *> ((:) <$> escapeChar <*> stringContents))

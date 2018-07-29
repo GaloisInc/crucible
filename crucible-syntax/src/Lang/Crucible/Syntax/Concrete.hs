@@ -238,6 +238,12 @@ int = sideCondition "integer literal" numeric atomic
   where numeric (Int i) = Just i
         numeric _ = Nothing
 
+rational :: SyntaxParse Atomic Rational
+rational = sideCondition "rational number literal" numeric atomic
+  where numeric (Rat r) = Just r
+        numeric _ = Nothing
+
+
 string :: SyntaxParse Atomic Text
 string = sideCondition "string literal" stringy atomic
   where stringy (StrLit t) = Just t
@@ -535,7 +541,7 @@ check' t =
         Just Refl -> p
         Nothing -> empty
 
-    literal = natLiteral <|> intLiteral
+    literal = natLiteral <|> intLiteral <|> rationalLiteral
 
     natLiteral =
       typed NatRepr $
@@ -546,6 +552,7 @@ check' t =
     intLiteral =
       typed IntegerRepr (lift int <&> E . App . IntLit . fromInteger)
 
+    rationalLiteral = typed RealValRepr $ lift rational <&> E . App . RationalLit
 
     unpack =
       do package <- lift $ unary Unpack anything
@@ -657,17 +664,6 @@ synthExpr stx =
   do st <- get
      liftSyntaxParse (runReaderT synth' st) stx
 
-synthExpr e@(L [A (Kw If), c, t, f]) =
-  do E c' <- checkExpr BoolRepr c
-     SomeExpr ty1 (E t') <- synthExpr t
-     SomeExpr ty2 (E f') <- synthExpr f
-     case testEquality ty1 ty2 of
-       Just Refl ->
-         case asBaseType ty1 of
-           NotBaseType -> throwError $ NotABaseType (syntaxPos e) ty1
-           AsBaseType bt ->
-             return $ SomeExpr ty1 (E (App (BaseIte bt c' t' f')))
-       Nothing -> throwError $ TypeMismatch (syntaxPos e) t ty1 f ty2
 synthExpr (A (Rat r)) =
   return $ SomeExpr RealValRepr (E (App (RationalLit r)))
 synthExpr (L [A (Kw Div), e1, e2]) =
