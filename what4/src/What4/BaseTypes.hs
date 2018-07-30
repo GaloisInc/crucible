@@ -45,6 +45,10 @@ module What4.BaseTypes
   , BaseComplexType
   , BaseStructType
   , BaseArrayType
+    -- * FloatPrecision data kind
+  , type FloatPrecision
+    -- ** Constructors for kind FloatPrecision
+  , FloatingPointPrecision
     -- * FloatInfo data kind
   , type FloatInfo
     -- ** Constructors for kind FloatInfo
@@ -56,6 +60,7 @@ module What4.BaseTypes
   , DoubleDoubleFloat
     -- * Representations of base types
   , BaseTypeRepr(..)
+  , FloatPrecisionRepr(..)
   , FloatInfoRepr(..)
   , arrayTypeIndices
   , arrayTypeResult
@@ -97,8 +102,9 @@ data BaseType
    | BaseRealType
      -- | @BaseBVType n@ denotes a bitvector with @n@-bits.
    | BaseBVType GHC.TypeLits.Nat
-     -- | @BaseFloatType fi@ denotes a floating point number in @fi@ format.
-   | BaseFloatType FloatInfo
+     -- | @BaseFloatType fpp@ denotes a floating-point number with @fpp@
+     -- precision.
+   | BaseFloatType FloatPrecision
      -- | @BaseStringType@ denotes a sequence of Unicode codepoints
    | BaseStringType
      -- | @BaseComplexType@ denotes a complex number with real components.
@@ -118,11 +124,17 @@ type BaseIntegerType = 'BaseIntegerType -- ^ @:: 'BaseType'@.
 type BaseNatType     = 'BaseNatType     -- ^ @:: 'BaseType'@.
 type BaseRealType    = 'BaseRealType    -- ^ @:: 'BaseType'@.
 type BaseBVType      = 'BaseBVType      -- ^ @:: 'GHC.TypeLits.Nat' -> 'BaseType'@.
-type BaseFloatType   = 'BaseFloatType   -- ^ @:: 'FloatInfo' -> 'BaseType'@.
+type BaseFloatType   = 'BaseFloatType   -- ^ @:: 'FloatPrecision' -> 'BaseType'@.
 type BaseStringType  = 'BaseStringType  -- ^ @:: 'BaseType'@.
 type BaseComplexType = 'BaseComplexType -- ^ @:: 'BaseType'@.
 type BaseStructType  = 'BaseStructType  -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType'@.
 type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'BaseType'@.
+
+-- | This data kind describes the types of floating-point formats.
+-- This consist of the standard IEEE 754-2008 binary floating point formats,
+data FloatPrecision where
+  FloatingPointPrecision :: GHC.TypeLits.Nat -> GHC.TypeLits.Nat -> FloatPrecision
+type FloatingPointPrecision = 'FloatingPointPrecision -- ^ @:: 'GHC.TypeLits.Nat' -> 'GHC.TypeLits.Nat' -> 'FloatPrecision'@.
 
 -- | This data kind describes the types of floating-point formats.
 -- This consist of the standard IEEE 754-2008 binary floating point formats,
@@ -153,7 +165,9 @@ data BaseTypeRepr (bt::BaseType) :: * where
    BaseNatRepr  :: BaseTypeRepr BaseNatType
    BaseIntegerRepr :: BaseTypeRepr BaseIntegerType
    BaseRealRepr    :: BaseTypeRepr BaseRealType
-   BaseFloatRepr   :: !(FloatInfoRepr fi) -> BaseTypeRepr (BaseFloatType fi)
+   BaseFloatRepr
+    :: !(FloatPrecisionRepr fpp)
+    -> BaseTypeRepr (BaseFloatType fpp)
    BaseStringRepr  :: BaseTypeRepr BaseStringType
    BaseComplexRepr :: BaseTypeRepr BaseComplexType
 
@@ -164,6 +178,13 @@ data BaseTypeRepr (bt::BaseType) :: * where
    BaseArrayRepr :: !(Ctx.Assignment BaseTypeRepr (idx Ctx.::> tp))
                  -> !(BaseTypeRepr xs)
                  -> BaseTypeRepr (BaseArrayType (idx Ctx.::> tp) xs)
+
+data FloatPrecisionRepr (fpp :: FloatPrecision) where
+  FloatingPointPrecisionRepr
+    :: (1 <= eb, 1 <= sb)
+    => !(NatRepr eb)
+    -> !(NatRepr sb)
+    -> FloatPrecisionRepr (FloatingPointPrecision eb sb)
 
 -- | A family of value-level representatives for floating-point types.
 data FloatInfoRepr (fi::FloatInfo) where
@@ -195,17 +216,10 @@ instance KnownRepr BaseTypeRepr BaseStringType where
   knownRepr = BaseStringRepr
 instance (1 <= w, KnownNat w) => KnownRepr BaseTypeRepr (BaseBVType w) where
   knownRepr = BaseBVRepr knownNat
-instance KnownRepr FloatInfoRepr fi => KnownRepr BaseTypeRepr (BaseFloatType fi) where
+instance (KnownRepr FloatPrecisionRepr fpp) => KnownRepr BaseTypeRepr (BaseFloatType fpp) where
   knownRepr = BaseFloatRepr knownRepr
 instance KnownRepr BaseTypeRepr BaseComplexType where
   knownRepr = BaseComplexRepr
-
-instance KnownRepr FloatInfoRepr HalfFloat         where knownRepr = HalfFloatRepr
-instance KnownRepr FloatInfoRepr SingleFloat       where knownRepr = SingleFloatRepr
-instance KnownRepr FloatInfoRepr DoubleFloat       where knownRepr = DoubleFloatRepr
-instance KnownRepr FloatInfoRepr QuadFloat         where knownRepr = QuadFloatRepr
-instance KnownRepr FloatInfoRepr X86_80Float       where knownRepr = X86_80FloatRepr
-instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubleFloatRepr
 
 instance KnownRepr (Ctx.Assignment BaseTypeRepr) ctx
       => KnownRepr BaseTypeRepr (BaseStructType ctx) where
@@ -218,6 +232,16 @@ instance ( KnownRepr (Ctx.Assignment BaseTypeRepr) idx
       => KnownRepr BaseTypeRepr (BaseArrayType (idx Ctx.::> tp) t) where
   knownRepr = BaseArrayRepr knownRepr knownRepr
 
+instance (1 <= eb, 1 <= es, KnownNat eb, KnownNat es) => KnownRepr FloatPrecisionRepr (FloatingPointPrecision eb es) where
+  knownRepr = FloatingPointPrecisionRepr knownNat knownNat
+
+instance KnownRepr FloatInfoRepr HalfFloat         where knownRepr = HalfFloatRepr
+instance KnownRepr FloatInfoRepr SingleFloat       where knownRepr = SingleFloatRepr
+instance KnownRepr FloatInfoRepr DoubleFloat       where knownRepr = DoubleFloatRepr
+instance KnownRepr FloatInfoRepr QuadFloat         where knownRepr = QuadFloatRepr
+instance KnownRepr FloatInfoRepr X86_80Float       where knownRepr = X86_80FloatRepr
+instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubleFloatRepr
+
 -- Force BaseTypeRepr, etc. to be in context for next slice.
 $(return [])
 
@@ -225,6 +249,11 @@ instance HashableF BaseTypeRepr where
   hashWithSaltF = hashWithSalt
 instance Hashable (BaseTypeRepr bt) where
   hashWithSalt = $(structuralHash [t|BaseTypeRepr|])
+
+instance HashableF FloatPrecisionRepr where
+  hashWithSaltF = hashWithSalt
+instance Hashable (FloatPrecisionRepr fpp) where
+  hashWithSalt = $(structuralHash [t|FloatPrecisionRepr|])
 
 instance HashableF FloatInfoRepr where
   hashWithSaltF = hashWithSalt
@@ -237,6 +266,12 @@ instance Show (BaseTypeRepr bt) where
   showsPrec = $(structuralShowsPrec [t|BaseTypeRepr|])
 instance ShowF BaseTypeRepr
 
+instance Pretty (FloatPrecisionRepr fpp) where
+  pretty = text . show
+instance Show (FloatPrecisionRepr fpp) where
+  showsPrec = $(structuralShowsPrec [t|FloatPrecisionRepr|])
+instance ShowF FloatPrecisionRepr
+
 instance Pretty (FloatInfoRepr fi) where
   pretty = text . show
 instance Show (FloatInfoRepr fi) where
@@ -246,6 +281,7 @@ instance ShowF FloatInfoRepr
 instance TestEquality BaseTypeRepr where
   testEquality = $(structuralTypeEquality [t|BaseTypeRepr|]
                    [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
+                   , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|testEquality|])
                    , (TypeApp (ConType [t|FloatInfoRepr|]) AnyType, [|testEquality|])
                    , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
                    , ( TypeApp (TypeApp (ConType [t|Ctx.Assignment|]) AnyType) AnyType
@@ -257,6 +293,7 @@ instance TestEquality BaseTypeRepr where
 instance OrdF BaseTypeRepr where
   compareF = $(structuralTypeOrd [t|BaseTypeRepr|]
                    [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|compareF|])
+                   , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|compareF|])
                    , (TypeApp (ConType [t|FloatInfoRepr|]) AnyType, [|compareF|])
                    , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|compareF|])
                    , (TypeApp (TypeApp (ConType [t|Ctx.Assignment|]) AnyType) AnyType
@@ -264,6 +301,15 @@ instance OrdF BaseTypeRepr where
                      )
                    ]
                   )
+
+instance TestEquality FloatPrecisionRepr where
+  testEquality = $(structuralTypeEquality [t|FloatPrecisionRepr|]
+      [(TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])]
+    )
+instance OrdF FloatPrecisionRepr where
+  compareF = $(structuralTypeOrd [t|FloatPrecisionRepr|]
+      [(TypeApp (ConType [t|NatRepr|]) AnyType, [|compareF|])]
+    )
 
 instance TestEquality FloatInfoRepr where
   testEquality = $(structuralTypeEquality [t|FloatInfoRepr|] [])

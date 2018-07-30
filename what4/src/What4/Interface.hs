@@ -45,6 +45,7 @@ The canonical implementation of these interface classes is found in "What4.Expr.
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -69,11 +70,13 @@ module What4.Interface
   , IsSymFn(..)
     -- ** IsExprBuilder
   , IsBasicExprBuilder(..)
-  , IsFloatExprBuilder(..)
+  , IsInterpretedFloatExprBuilder(..)
   , IsExprBuilder
   , IsFOLExprBuilder(..)
-  , IsFloatFOLExprBuilder(..)
+  , IsInterpretedFloatFOLExprBuilder(..)
   , IsSymExprBuilder
+    -- ** Floating-point rounding modes
+  , RoundingMode(..)
 
     -- * Type Aliases
   , Pred
@@ -147,6 +150,7 @@ import           Data.Parameterized.TraversableFC
 import           Data.Ratio
 import           Data.Scientific (Scientific)
 import           Data.Text (Text)
+import           GHC.Generics (Generic)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
@@ -174,7 +178,7 @@ type SymInteger sym = SymExpr sym BaseIntegerType
 type SymReal sym = SymExpr sym BaseRealType
 
 -- | Symbolic floating point numbers.
-type SymFloat sym fi = SymExpr sym (SymInterpretedFloatType sym fi)
+type SymFloat sym fpp = SymExpr sym (BaseFloatType fpp)
 
 -- | Symbolic complex numbers.
 type SymCplx sym = SymExpr sym BaseComplexType
@@ -190,6 +194,9 @@ type SymBV sym n = SymExpr sym (BaseBVType n)
 
 -- | Symbolic strings.
 type SymString sym = SymExpr sym BaseStringType
+
+-- | Symbolic floating point numbers.
+type SymInterpretedFloat sym fi = SymExpr sym (SymInterpretedFloatType sym fi)
 
 ------------------------------------------------------------------------
 -- Type families for the interface.
@@ -393,11 +400,11 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
       BaseNatRepr      -> natEq sym x y
       BaseIntegerRepr  -> intEq sym x y
       BaseRealRepr     -> realEq sym x y
+      BaseFloatRepr{}  -> floatEq sym x y
       BaseComplexRepr  -> cplxEq sym x y
       BaseStringRepr   -> stringEq sym x y
       BaseStructRepr{} -> structEq sym x y
       BaseArrayRepr{}  -> arrayEq sym x y
-      BaseFloatRepr{}  -> baseFloatEq sym x y
 
   -- | Take the if-then-else of two expressions. The default
   -- implementation dispatches 'itePred', 'bvIte', 'natIte', 'intIte',
@@ -415,11 +422,11 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
       BaseNatRepr      -> natIte    sym c x y
       BaseIntegerRepr  -> intIte    sym c x y
       BaseRealRepr     -> realIte   sym c x y
+      BaseFloatRepr{}  -> floatIte  sym c x y
       BaseStringRepr   -> stringIte sym c x y
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
       BaseArrayRepr{}  -> arrayIte  sym c x y
-      BaseFloatRepr{}  -> baseFloatIte sym c x y
 
   ----------------------------------------------------------------------
   -- Boolean operations.
@@ -1449,6 +1456,211 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
         realSqrt sym =<< realAdd sym x2 y2
 
   ----------------------------------------------------------------------
+  -- IEEE-754 floating-point operations
+  -- | Return floating point number @+0@.
+  floatPZero :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- | Return floating point number @-0@.
+  floatNZero :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- |  Return floating point NaN.
+  floatNaN :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- | Return floating point @+infinity@.
+  floatPInf :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- | Return floating point @-infinity@.
+  floatNInf :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- | Negate a floating point number.
+  floatNeg
+    :: sym
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Return the absolute value of a floating point number.
+  floatAbs
+    :: sym
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Compute the square root of a floating point number.
+  floatSqrt
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Add two floating point numbers.
+  floatAdd
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Subtract two floating point numbers.
+  floatSub
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Multiply two floating point numbers.
+  floatMul
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Divide two floating point numbers.
+  floatDiv
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Compute the reminder: @x - y * n@, where @n@ in Z is nearest to @x / y@.
+  floatRem
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Return the min of two floating point numbers.
+  floatMin
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Return the max of two floating point numbers.
+  floatMax
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Compute the fused multiplication and addition: @(x * y) + z@.
+  floatFMA
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Check equality of two floating point numbers.
+  floatEq
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check non-equality of two floating point numbers.
+  floatNe
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check @<=@ on two floating point numbers.
+  floatLe
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check @<@ on two floating point numbers.
+  floatLt
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check @>=@ on two floating point numbers.
+  floatGe
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check @>@ on two floating point numbers.
+  floatGt
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  floatIsNaN :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsInf :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsZero :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsPos :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsNeg :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsSubnorm :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsNorm :: sym -> SymFloat sym fpp -> IO (Pred sym)
+
+  -- | If-then-else on floating point numbers.
+  floatIte
+    :: sym
+    -> Pred sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Change the precision of a floating point number.
+  floatCast
+    :: sym
+    -> FloatPrecisionRepr fpp
+    -> RoundingMode
+    -> SymFloat sym fpp'
+    -> IO (SymFloat sym fpp)
+  -- | Convert a unsigned bitvector to a floating point number.
+  bvToFloat
+    :: ( 1 <= w)
+    => sym
+    -> FloatPrecisionRepr fpp
+    -> RoundingMode
+    -> SymBV sym w
+    -> IO (SymFloat sym fpp)
+  -- | Convert a signed bitvector to a floating point number.
+  sbvToFloat
+    :: ( 1 <= w)
+    => sym
+    -> FloatPrecisionRepr fpp
+    -> RoundingMode
+    -> SymBV sym w
+    -> IO (SymFloat sym fpp)
+  -- | Convert a real number to a floating point number.
+  realToFloat
+    :: sym
+    -> FloatPrecisionRepr fpp
+    -> RoundingMode
+    -> SymReal sym
+    -> IO (SymFloat sym fpp)
+  -- | Convert a unsigned bitvector to a floating point number.
+  floatToBV
+    :: (1 <= w)
+    => sym
+    -> NatRepr w
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> IO (SymBV sym w)
+  -- | Convert a signed bitvector to a floating point number.
+  floatToSBV
+    :: (1 <= w)
+    => sym
+    -> NatRepr w
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> IO (SymBV sym w)
+  -- | Convert a floating point number to a real number.
+  floatToReal :: sym -> SymFloat sym fpp -> IO (SymReal sym)
+
+  ----------------------------------------------------------------------
   -- Cplx operations
 
   -- | Create a complex from cartesian coordinates.
@@ -1692,177 +1904,229 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsBasicExprBuilder sym 
     pj <- realNe sym xi yi
     orPred sym pr pj
 
-  baseFloatEq
-    :: sym
-    -> SymExpr sym (BaseFloatType fi)
-    -> SymExpr sym (BaseFloatType fi)
-    -> IO (Pred sym)
-  baseFloatIte
-    :: sym
-    -> Pred sym
-    -> SymExpr sym (BaseFloatType fi)
-    -> SymExpr sym (BaseFloatType fi)
-    -> IO (SymExpr sym (BaseFloatType fi))
-  baseFloatDefaultValue
-    :: sym
-    -> FloatInfoRepr fi
-    -> IO (SymExpr sym (BaseFloatType fi))
+data RoundingMode
+  = RNE
+  | RNA
+  | RTP
+  | RTN
+  | RTZ
+  deriving (Eq, Generic, Ord, Show)
+
+instance Hashable RoundingMode
 
 ----------------------------------------------------------------------
 -- Floating point operations
-class IsBasicExprBuilder sym => IsFloatExprBuilder sym where
+class IsBasicExprBuilder sym => IsInterpretedFloatExprBuilder sym where
   -- | Return floating point number @+0@.
-  floatPZero :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
+  iFloatPZero :: sym -> FloatInfoRepr fi -> IO (SymInterpretedFloat sym fi)
 
   -- | Return floating point number @-0@.
-  floatNZero :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
-
-  -- | Create a constant floating point literal.
-  floatLit :: sym -> FloatInfoRepr fi -> Rational -> IO (SymFloat sym fi)
+  iFloatNZero :: sym -> FloatInfoRepr fi -> IO (SymInterpretedFloat sym fi)
 
   -- |  Return floating point NaN.
-  floatNaN :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
+  iFloatNaN :: sym -> FloatInfoRepr fi -> IO (SymInterpretedFloat sym fi)
 
   -- | Return floating point @+infinity@.
-  floatPInf :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
+  iFloatPInf :: sym -> FloatInfoRepr fi -> IO (SymInterpretedFloat sym fi)
 
   -- | Return floating point @-infinity@.
-  floatNInf :: sym -> FloatInfoRepr fi -> IO (SymFloat sym fi)
+  iFloatNInf :: sym -> FloatInfoRepr fi -> IO (SymInterpretedFloat sym fi)
 
-  -- | Add two floting point numbers.
-  floatAdd
-    :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
-    -> IO (SymFloat sym fi)
+  -- -- | Create a constant floating point literal.
+  -- iFloatLit :: sym -> FloatInfoRepr fi -> Rational -> IO (SymInterpretedFloat sym fi)
 
-  -- | Subtract two floting point numbers.
-  floatSub
+  -- | Negate a floating point number.
+  iFloatNeg
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
-    -> IO (SymFloat sym fi)
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
 
-  -- | Multiply two floting point numbers.
-  floatMul
+  -- | Return the absolute value of a floating point number.
+  iFloatAbs
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
-    -> IO (SymFloat sym fi)
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
 
-  -- | Add two floting point numbers.
-  floatDiv
+  -- | Compute the square root of a floating point number.
+  iFloatSqrt
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
-    -> IO (SymFloat sym fi)
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
 
-  -- | Add two floting point numbers.
-  floatRem
+  -- | Add two floating point numbers.
+  iFloatAdd
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
-    -> IO (SymFloat sym fi)
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
+
+  -- | Subtract two floating point numbers.
+  iFloatSub
+    :: sym
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
+
+  -- | Multiply two floating point numbers.
+  iFloatMul
+    :: sym
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
+
+  -- | Divide two floating point numbers.
+  iFloatDiv
+    :: sym
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
+
+  -- | Compute the reminder: @x - y * n@, where @n@ in Z is nearest to @x / y@.
+  iFloatRem
+    :: sym
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
+
+  -- | Return the min of two floating point numbers.
+  iFloatMin
+    :: sym
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
+
+  -- | Return the max of two floating point numbers.
+  iFloatMax
+    :: sym
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
+
+  -- | Compute the fused multiplication and addition: @(x * y) + z@.
+  iFloatFMA
+    :: sym
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
 
   -- | Check equality of two floating point numbers.
-  floatEq
+  iFloatEq
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
     -> IO (Pred sym)
 
   -- | Check non-equality of two floating point numbers.
-  floatNe
+  iFloatNe
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
     -> IO (Pred sym)
 
   -- | Check @<=@ on two floating point numbers.
-  floatLe
+  iFloatLe
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
     -> IO (Pred sym)
 
   -- | Check @<@ on two floating point numbers.
-  floatLt
+  iFloatLt
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
     -> IO (Pred sym)
 
   -- | Check @>=@ on two floating point numbers.
-  floatGe
+  iFloatGe
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
     -> IO (Pred sym)
 
   -- | Check @>@ on two floating point numbers.
-  floatGt
+  iFloatGt
     :: sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
     -> IO (Pred sym)
 
-  floatIsNaN :: sym -> SymFloat sym fi -> IO (Pred sym)
-  floatIsInf :: sym -> SymFloat sym fi -> IO (Pred sym)
-  floatIsZero :: sym -> SymFloat sym fi -> IO (Pred sym)
-  floatIsPos :: sym -> SymFloat sym fi -> IO (Pred sym)
-  floatIsNeg :: sym -> SymFloat sym fi -> IO (Pred sym)
+  iFloatIsNaN :: sym -> SymInterpretedFloat sym fi -> IO (Pred sym)
+  iFloatIsInf :: sym -> SymInterpretedFloat sym fi -> IO (Pred sym)
+  iFloatIsZero :: sym -> SymInterpretedFloat sym fi -> IO (Pred sym)
+  iFloatIsPos :: sym -> SymInterpretedFloat sym fi -> IO (Pred sym)
+  iFloatIsNeg :: sym -> SymInterpretedFloat sym fi -> IO (Pred sym)
+  iFloatIsSubnorm :: sym -> SymInterpretedFloat sym fi -> IO (Pred sym)
+  iFloatIsNorm :: sym -> SymInterpretedFloat sym fi -> IO (Pred sym)
 
   -- | If-then-else on floating point numbers.
-  floatIte
+  iFloatIte
     :: sym
     -> Pred sym
-    -> SymFloat sym fi
-    -> SymFloat sym fi
-    -> IO (SymFloat sym fi)
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
 
   -- | Change the precision of a floating point number.
-  floatCast
+  iFloatCast
     :: sym
     -> FloatInfoRepr fi
-    -> SymFloat sym fi'
-    -> IO (SymFloat sym fi)
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi'
+    -> IO (SymInterpretedFloat sym fi)
   -- | Convert a unsigned bitvector to a floating point number.
-  bvToFloat
+  iBVToFloat
     :: (1 <= w)
     => sym
     -> FloatInfoRepr fi
+    -> RoundingMode
     -> SymBV sym w
-    -> IO (SymFloat sym fi)
+    -> IO (SymInterpretedFloat sym fi)
   -- | Convert a signed bitvector to a floating point number.
-  sbvToFloat
+  iSBVToFloat
     :: (1 <= w) => sym
     -> FloatInfoRepr fi
+    -> RoundingMode
     -> SymBV sym w
-    -> IO (SymFloat sym fi)
+    -> IO (SymInterpretedFloat sym fi)
   -- | Convert a real number to a floating point number.
-  realToFloat :: sym -> FloatInfoRepr fi -> SymReal sym -> IO (SymFloat sym fi)
+  iRealToFloat
+    :: sym
+    -> FloatInfoRepr fi
+    -> RoundingMode
+    -> SymReal sym
+    -> IO (SymInterpretedFloat sym fi)
   -- | Convert a unsigned bitvector to a floating point number.
-  floatToBV
+  iFloatToBV
     :: (1 <= w)
     => sym
     -> NatRepr w
-    -> SymFloat sym fi
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
     -> IO (SymBV sym w)
   -- | Convert a signed bitvector to a floating point number.
-  floatToSBV
+  iFloatToSBV
     :: (1 <= w)
     => sym
     -> NatRepr w
-    -> SymFloat sym fi
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
     -> IO (SymBV sym w)
   -- | Convert a floating point number to a real number.
-  floatToReal :: sym -> SymFloat sym fi -> IO (SymReal sym)
+  iFloatToReal :: sym -> SymInterpretedFloat sym fi -> IO (SymReal sym)
 
   -- | The associated BaseType representative of the floating point
   -- interpretation for each format.
-  floatBaseTypeRepr
+  iFloatBaseTypeRepr
     :: sym
-    -> FloatInfoRepr (fi :: FloatInfo)
+    -> FloatInfoRepr fi
     -> BaseTypeRepr (SymInterpretedFloatType sym fi)
 
 
@@ -2004,14 +2268,14 @@ class ( IsBasicExprBuilder sym
 
 -- | Helper interface for creating new symbolic floating-point constants and
 --   variables.
-class (IsFOLExprBuilder sym, IsFloatExprBuilder sym) => IsFloatFOLExprBuilder sym where
+class (IsFOLExprBuilder sym, IsInterpretedFloatExprBuilder sym) => IsInterpretedFloatFOLExprBuilder sym where
   -- | Create a fresh top-level floating-point uninterpreted constant.
   freshFloatConstant
     :: sym
     -> SolverSymbol
     -> FloatInfoRepr fi
     -> IO (SymExpr sym (SymInterpretedFloatType sym fi))
-  freshFloatConstant sym nm fi = freshConstant sym nm $ floatBaseTypeRepr sym fi
+  freshFloatConstant sym nm fi = freshConstant sym nm $ iFloatBaseTypeRepr sym fi
 
   -- | Create a fresh floating-point latch variable.
   freshFloatLatch
@@ -2019,7 +2283,7 @@ class (IsFOLExprBuilder sym, IsFloatExprBuilder sym) => IsFloatFOLExprBuilder sy
     -> SolverSymbol
     -> FloatInfoRepr fi
     -> IO (SymExpr sym (SymInterpretedFloatType sym fi))
-  freshFloatLatch sym nm fi = freshLatch sym nm $ floatBaseTypeRepr sym fi
+  freshFloatLatch sym nm fi = freshLatch sym nm $ iFloatBaseTypeRepr sym fi
 
   -- | Creates a floating-point bound variable.
   freshFloatBoundVar
@@ -2027,7 +2291,7 @@ class (IsFOLExprBuilder sym, IsFloatExprBuilder sym) => IsFloatFOLExprBuilder sy
     -> SolverSymbol
     -> FloatInfoRepr fi
     -> IO (BoundVar sym (SymInterpretedFloatType sym fi))
-  freshFloatBoundVar sym nm fi = freshBoundVar sym nm $ floatBaseTypeRepr sym fi
+  freshFloatBoundVar sym nm fi = freshBoundVar sym nm $ iFloatBaseTypeRepr sym fi
 
 -- | This returns true if the value corresponds to a concrete value.
 baseIsConcrete :: forall sym bt
@@ -2066,7 +2330,7 @@ baseDefaultValue sym bt =
     BaseIntegerRepr -> intLit sym 0
     BaseBVRepr w    -> bvLit sym w 0
     BaseRealRepr    -> return $! realZero sym
-    BaseFloatRepr fi -> baseFloatDefaultValue sym fi
+    BaseFloatRepr fpp -> floatPZero sym fpp
     BaseComplexRepr -> mkComplexLit sym (0 :+ 0)
     BaseStringRepr  -> stringLit sym mempty
     BaseStructRepr flds -> do
@@ -2307,6 +2571,6 @@ data SymEncoder sym v tp
                 , symToExpr   :: !(sym -> v -> IO (SymExpr sym tp))
                 }
 
-class IsFloatExprBuilder sym => IsExprBuilder sym
+class IsInterpretedFloatExprBuilder sym => IsExprBuilder sym
 
-class (IsExprBuilder sym, IsFloatFOLExprBuilder sym) => IsSymExprBuilder sym
+class (IsExprBuilder sym, IsInterpretedFloatFOLExprBuilder sym) => IsSymExprBuilder sym

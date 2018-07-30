@@ -118,7 +118,7 @@ unType _ SMT_BoolType    = "Bool"
 unType _ (SMT_BVType w)  =  "(_ BitVec " <> fromString (show w) <> ")"
 unType _ SMT_IntegerType = "Int"
 unType _ SMT_RealType    = "Real"
-unType _ (SMT_FloatType fi) = mkFloatSymbol "FloatingPoint" fi
+unType _ (SMT_FloatType fpp) = mkFloatSymbol "FloatingPoint" fpp
 unType a (SMT_ArrayType i e) = smtlib2arrayType a i e
 unType a (SMT_StructType flds) = "(Struct" <> decimal n <> foldMap f flds <> ")"
   where f :: SMT_Type -> Builder
@@ -127,8 +127,8 @@ unType a (SMT_StructType flds) = "(Struct" <> decimal n <> foldMap f flds <> ")"
 unType _ SMT_FnType{} =
   error "SMTLIB backend does not support function types as first class."
 
-mkFloatSymbol :: Builder -> SMTFloatInfo -> Builder
-mkFloatSymbol nm (SMTFloatInfo eb sb) =
+mkFloatSymbol :: Builder -> SMTFloatPrecision -> Builder
+mkFloatSymbol nm (SMTFloatPrecision eb sb) =
   "(_ "
     <> nm
     <> " "
@@ -136,6 +136,8 @@ mkFloatSymbol nm (SMTFloatInfo eb sb) =
     <> " "
     <> fromString (show sb)
     <> ")"
+mkRoundingOp :: Builder -> RoundingMode -> Builder
+mkRoundingOp op r = op <> " " <> fromString (show r)
 
 ------------------------------------------------------------------------
 -- Expr
@@ -321,37 +323,48 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
      in  term_app e [x]
 
 
-  floatPZero fi = term_app (mkFloatSymbol "+zero" fi) []
-  floatNZero fi = term_app (mkFloatSymbol "-zero" fi) []
-  floatNaN fi   = term_app (mkFloatSymbol "NaN" fi) []
-  floatPInf fi  = term_app (mkFloatSymbol "+oo" fi) []
-  floatNInf fi  = term_app (mkFloatSymbol "-oo" fi) []
+  floatPZero fpp = term_app (mkFloatSymbol "+zero" fpp) []
+  floatNZero fpp = term_app (mkFloatSymbol "-zero" fpp) []
+  floatNaN fpp   = term_app (mkFloatSymbol "NaN" fpp) []
+  floatPInf fpp  = term_app (mkFloatSymbol "+oo" fpp) []
+  floatNInf fpp  = term_app (mkFloatSymbol "-oo" fpp) []
 
-  floatAdd = bin_app "fp.add RNE"
-  floatSub = bin_app "fp.sub RNE"
-  floatMul = bin_app "fp.mul RNE"
-  floatDiv = bin_app "fp.div RNE"
-  floatRem = bin_app "fp.rem RNE"
+  floatNeg  = un_app "fp.neg"
+  floatAbs  = un_app "fp.abs"
+  floatSqrt r = un_app $ mkRoundingOp "fp.sqrt " r
+
+  floatAdd r = bin_app $ mkRoundingOp "fp.add" r
+  floatSub r = bin_app $ mkRoundingOp "fp.sub" r
+  floatMul r = bin_app $ mkRoundingOp "fp.mul" r
+  floatDiv r = bin_app $ mkRoundingOp "fp.div" r
+  floatRem = bin_app "fp.rem"
+  floatMin = bin_app "fp.min"
+  floatMax = bin_app "fp.max"
+
+  floatFMA r x y z = term_app (mkRoundingOp "fp.fma" r) [x, y, z]
 
   floatEq = bin_app "fp.eq"
   floatLe = bin_app "fp.leq"
   floatLt = bin_app "fp.lt"
-  floatGe = bin_app "fp.geq"
-  floatGt = bin_app "fp.gt"
 
-  floatIsNaN  = un_app "fp.isNaN"
-  floatIsInf  = un_app "fp.isInfinite"
-  floatIsZero = un_app "fp.isZero"
-  floatIsPos  = un_app "fp.isPositive"
-  floatIsNeg  = un_app "fp.isNegative"
+  floatIsNaN      = un_app "fp.isNaN"
+  floatIsInf      = un_app "fp.isInfinite"
+  floatIsZero     = un_app "fp.isZero"
+  floatIsPos      = un_app "fp.isPositive"
+  floatIsNeg      = un_app "fp.isNegative"
+  floatIsSubnorm  = un_app "fp.isSubnormal"
+  floatIsNorm     = un_app "fp.isNormal"
 
-  floatCast fi   = un_app $ mkFloatSymbol "to_fp" fi <> " RNE"
-  bvToFloat fi   = un_app $ mkFloatSymbol "to_fp_unsigned" fi <> " RNE"
-  sbvToFloat fi  = un_app $ mkFloatSymbol "to_fp" fi <> " RNE"
-  realToFloat fi = un_app $ mkFloatSymbol "to_fp" fi <> " RNE"
+  floatCast fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
+  bvToFloat fpp r =
+    un_app $ mkRoundingOp (mkFloatSymbol "to_fp_unsigned" fpp) r
+  sbvToFloat fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
+  realToFloat fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
 
-  floatToBV w  = un_app $ "(fp.to_ubv " <> fromString (show w) <> ") RNE"
-  floatToSBV w = un_app $ "(fp.to_sbv " <> fromString (show w) <> ") RNE"
+  floatToBV w r =
+    un_app $ mkRoundingOp ("(fp.to_ubv " <> fromString (show w) <> ")") r
+  floatToSBV w r =
+    un_app $ mkRoundingOp ("(fp.to_sbv " <> fromString (show w) <> ")") r
 
   floatToReal = un_app "fp.to_real"
 

@@ -65,6 +65,7 @@ type family GroundValue (tp :: BaseType) where
   GroundValue BaseIntegerType       = Integer
   GroundValue BaseRealType          = Rational
   GroundValue (BaseBVType w)        = Integer
+  GroundValue (BaseFloatType fpp)   = Integer
   GroundValue BaseComplexType       = Complex Rational
   GroundValue BaseStringType        = Text
   GroundValue (BaseArrayType idx b) = GroundArray idx b
@@ -326,35 +327,41 @@ evalGroundApp f0 a0 = do
 
     ------------------------------------------------------------------------
     -- Bitvector Operations
-    FloatPZero{} -> undefined
-    FloatNZero{} -> undefined
-    FloatNaN{} -> undefined
-    FloatPInf{} -> undefined
-    FloatNInf{} -> undefined
-    FloatAdd{} -> undefined
-    FloatSub{} -> undefined
-    FloatMul{} -> undefined
-    FloatDiv{} -> undefined
-    FloatRem{} -> undefined
-    FloatEq{} -> undefined
-    FloatNe{} -> undefined
-    FloatLe{} -> undefined
-    FloatLt{} -> undefined
-    FloatGt{} -> undefined
-    FloatGe{} -> undefined
-    FloatIsNaN{} -> undefined
-    FloatIsInf{} -> undefined
-    FloatIsZero{} -> undefined
-    FloatIsPos{} -> undefined
-    FloatIsNeg{} -> undefined
-    FloatIte{} -> undefined
-    FloatCast{} -> undefined
-    BVToFloat{} -> undefined
-    SBVToFloat{} -> undefined
-    RealToFloat{} -> undefined
-    FloatToBV{} -> undefined
-    FloatToSBV{} -> undefined
-    FloatToReal{} -> undefined
+    FloatPZero{}     -> MaybeT $ return Nothing
+    FloatNZero{}     -> MaybeT $ return Nothing
+    FloatNaN{}       -> MaybeT $ return Nothing
+    FloatPInf{}      -> MaybeT $ return Nothing
+    FloatNInf{}      -> MaybeT $ return Nothing
+    FloatNeg{}       -> MaybeT $ return Nothing
+    FloatAbs{}       -> MaybeT $ return Nothing
+    FloatSqrt{}      -> MaybeT $ return Nothing
+    FloatAdd{}       -> MaybeT $ return Nothing
+    FloatSub{}       -> MaybeT $ return Nothing
+    FloatMul{}       -> MaybeT $ return Nothing
+    FloatDiv{}       -> MaybeT $ return Nothing
+    FloatRem{}       -> MaybeT $ return Nothing
+    FloatMin{}       -> MaybeT $ return Nothing
+    FloatMax{}       -> MaybeT $ return Nothing
+    FloatFMA{}       -> MaybeT $ return Nothing
+    FloatEq{}        -> MaybeT $ return Nothing
+    FloatNe{}        -> MaybeT $ return Nothing
+    FloatLe{}        -> MaybeT $ return Nothing
+    FloatLt{}        -> MaybeT $ return Nothing
+    FloatIsNaN{}     -> MaybeT $ return Nothing
+    FloatIsInf{}     -> MaybeT $ return Nothing
+    FloatIsZero{}    -> MaybeT $ return Nothing
+    FloatIsPos{}     -> MaybeT $ return Nothing
+    FloatIsNeg{}     -> MaybeT $ return Nothing
+    FloatIsSubnorm{} -> MaybeT $ return Nothing
+    FloatIsNorm{}    -> MaybeT $ return Nothing
+    FloatIte{}       -> MaybeT $ return Nothing
+    FloatCast{}      -> MaybeT $ return Nothing
+    BVToFloat{}      -> MaybeT $ return Nothing
+    SBVToFloat{}     -> MaybeT $ return Nothing
+    RealToFloat{}    -> MaybeT $ return Nothing
+    FloatToBV{}      -> MaybeT $ return Nothing
+    FloatToSBV{}     -> MaybeT $ return Nothing
+    FloatToReal{}    -> MaybeT $ return Nothing
 
     ------------------------------------------------------------------------
     -- Array Operations

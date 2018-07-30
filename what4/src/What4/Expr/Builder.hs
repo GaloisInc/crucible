@@ -182,6 +182,7 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Word (Word64)
 import           GHC.Generics (Generic)
+import           GHC.TypeLits
 import qualified Numeric as N
 import           Numeric.Natural
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -567,100 +568,134 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
   --------------------------------
   -- Float operations
 
-  FloatPZero :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
-  FloatNZero :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
-  FloatNaN :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
-  FloatPInf :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
-  FloatNInf :: !(FloatInfoRepr fi) -> App e (BaseFloatType fi)
+  FloatPZero :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatNZero :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatNaN :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatPInf :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatNInf :: !(FloatPrecisionRepr fpp) -> App e (BaseFloatType fpp)
+  FloatNeg
+    :: !(FloatPrecisionRepr fpp)
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
+  FloatAbs
+    :: !(FloatPrecisionRepr fpp)
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
+  FloatSqrt
+    :: !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
   FloatAdd
-    :: !(FloatInfoRepr fi)
-    -> !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
-    -> App e (BaseFloatType fi)
+    :: !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
   FloatSub
-    :: !(FloatInfoRepr fi)
-    -> !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
-    -> App e (BaseFloatType fi)
+    :: !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
   FloatMul
-    :: !(FloatInfoRepr fi)
-    -> !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
-    -> App e (BaseFloatType fi)
+    :: !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
   FloatDiv
-    :: !(FloatInfoRepr fi)
-    -> !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
-    -> App e (BaseFloatType fi)
+    :: !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
   FloatRem
-    :: !(FloatInfoRepr fi)
-    -> !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
-    -> App e (BaseFloatType fi)
+    :: !(FloatPrecisionRepr fpp)
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
+  FloatMin
+    :: !(FloatPrecisionRepr fpp)
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
+  FloatMax
+    :: !(FloatPrecisionRepr fpp)
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
+  FloatFMA
+    :: !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
   FloatEq
-    :: !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
+    :: !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
     -> App e BaseBoolType
   FloatNe
-    :: !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
+    :: !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
     -> App e BaseBoolType
   FloatLe
-    :: !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
+    :: !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
     -> App e BaseBoolType
   FloatLt
-    :: !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
+    :: !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
     -> App e BaseBoolType
-  FloatGe
-    :: !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
-    -> App e BaseBoolType
-  FloatGt
-    :: !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
-    -> App e BaseBoolType
-  FloatIsNaN :: !(e (BaseFloatType fi)) -> App e BaseBoolType
-  FloatIsInf :: !(e (BaseFloatType fi)) -> App e BaseBoolType
-  FloatIsZero :: !(e (BaseFloatType fi)) -> App e BaseBoolType
-  FloatIsPos :: !(e (BaseFloatType fi)) -> App e BaseBoolType
-  FloatIsNeg :: !(e (BaseFloatType fi)) -> App e BaseBoolType
+  FloatIsNaN :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsInf :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsZero :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsPos :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsNeg :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsSubnorm :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
+  FloatIsNorm :: !(e (BaseFloatType fpp)) -> App e BaseBoolType
   FloatIte
-    :: !(FloatInfoRepr fi)
+    :: !(FloatPrecisionRepr fpp)
     -> !(e BaseBoolType)
-    -> !(e (BaseFloatType fi))
-    -> !(e (BaseFloatType fi))
-    -> App e (BaseFloatType fi)
+    -> !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e (BaseFloatType fpp)
   FloatCast
-    :: !(FloatInfoRepr fi)
-    -> !(e (BaseFloatType fi'))
-    -> App e (BaseFloatType fi)
+    :: !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp'))
+    -> App e (BaseFloatType fpp)
   BVToFloat
     :: (1 <= w)
-    => !(FloatInfoRepr fi)
+    => !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
     -> !(e (BaseBVType w))
-    -> App e (BaseFloatType fi)
+    -> App e (BaseFloatType fpp)
   SBVToFloat
     :: (1 <= w)
-    => !(FloatInfoRepr fi)
+    => !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
     -> !(e (BaseBVType w))
-    -> App e (BaseFloatType fi)
+    -> App e (BaseFloatType fpp)
   RealToFloat
-    :: !(FloatInfoRepr fi)
+    :: !(FloatPrecisionRepr fpp)
+    -> !RoundingMode
     -> !(e BaseRealType)
-    -> App e (BaseFloatType fi)
+    -> App e (BaseFloatType fpp)
   FloatToBV
     :: (1 <= w)
     => !(NatRepr w)
-    -> !(e (BaseFloatType fi))
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp))
     -> App e (BaseBVType w)
   FloatToSBV
     :: (1 <= w)
     => !(NatRepr w)
-    -> !(e (BaseFloatType fi))
+    -> !RoundingMode
+    -> !(e (BaseFloatType fpp))
     -> App e (BaseBVType w)
-  FloatToReal :: !(e (BaseFloatType fi)) -> App e BaseRealType
+  FloatToReal :: !(e (BaseFloatType fpp)) -> App e BaseRealType
 
   ------------------------------------------------------------------------
   -- Array operations
@@ -805,7 +840,6 @@ data AppExpr t (tp :: BaseType)
 data Expr t (tp :: BaseType) where
   SemiRingLiteral :: !(SemiRingRepr tp) -> !(WSum.Coefficient tp) -> !ProgramLoc -> Expr t tp
   BVExpr  :: (1 <= w) => !(NatRepr w) -> !Integer -> !ProgramLoc -> Expr t (BaseBVType w)
-  -- FloatExpr :: !(FloatInfoRepr fi) -> !Rational -> !ProgramLoc -> Expr t (BaseFloatType fi)
   StringExpr :: !Text -> !ProgramLoc -> Expr t BaseStringType
   -- Application
   AppExpr :: {-# UNPACK #-} !(AppExpr t tp) -> Expr t tp
@@ -1090,34 +1124,40 @@ appType a =
     BVBitOr  w _ _ -> BaseBVRepr w
     BVBitXor w _ _ -> BaseBVRepr w
 
-    FloatPZero fi -> BaseFloatRepr fi
-    FloatNZero fi -> BaseFloatRepr fi
-    FloatNaN fi -> BaseFloatRepr fi
-    FloatPInf fi -> BaseFloatRepr fi
-    FloatNInf fi -> BaseFloatRepr fi
-    FloatAdd fi _ _ -> BaseFloatRepr fi
-    FloatSub fi _ _ -> BaseFloatRepr fi
-    FloatMul fi _ _ -> BaseFloatRepr fi
-    FloatDiv fi _ _ -> BaseFloatRepr fi
-    FloatRem fi _ _ -> BaseFloatRepr fi
+    FloatPZero fpp -> BaseFloatRepr fpp
+    FloatNZero fpp -> BaseFloatRepr fpp
+    FloatNaN fpp -> BaseFloatRepr fpp
+    FloatPInf fpp -> BaseFloatRepr fpp
+    FloatNInf fpp -> BaseFloatRepr fpp
+    FloatNeg fpp _ -> BaseFloatRepr fpp
+    FloatAbs fpp _ -> BaseFloatRepr fpp
+    FloatSqrt fpp _ _ -> BaseFloatRepr fpp
+    FloatAdd fpp _ _ _ -> BaseFloatRepr fpp
+    FloatSub fpp _ _ _ -> BaseFloatRepr fpp
+    FloatMul fpp _ _ _ -> BaseFloatRepr fpp
+    FloatDiv fpp _ _ _ -> BaseFloatRepr fpp
+    FloatRem fpp _ _ -> BaseFloatRepr fpp
+    FloatMin fpp _ _ -> BaseFloatRepr fpp
+    FloatMax fpp _ _ -> BaseFloatRepr fpp
+    FloatFMA fpp _ _ _ _ -> BaseFloatRepr fpp
     FloatEq{} -> knownRepr
     FloatNe{} -> knownRepr
     FloatLe{} -> knownRepr
     FloatLt{} -> knownRepr
-    FloatGe{} -> knownRepr
-    FloatGt{} -> knownRepr
     FloatIsNaN{} -> knownRepr
     FloatIsInf{} -> knownRepr
     FloatIsZero{} -> knownRepr
     FloatIsPos{} -> knownRepr
     FloatIsNeg{} -> knownRepr
-    FloatIte fi _ _ _ -> BaseFloatRepr fi
-    FloatCast fi _ -> BaseFloatRepr fi
-    BVToFloat fi _ -> BaseFloatRepr fi
-    SBVToFloat fi _ -> BaseFloatRepr fi
-    RealToFloat fi _ -> BaseFloatRepr fi
-    FloatToBV w _ -> BaseBVRepr w
-    FloatToSBV w _ -> BaseBVRepr w
+    FloatIsSubnorm{} -> knownRepr
+    FloatIsNorm{} -> knownRepr
+    FloatIte fpp _ _ _ -> BaseFloatRepr fpp
+    FloatCast fpp _ _ -> BaseFloatRepr fpp
+    BVToFloat fpp _ _ -> BaseFloatRepr fpp
+    SBVToFloat fpp _ _ -> BaseFloatRepr fpp
+    RealToFloat fpp _ _ -> BaseFloatRepr fpp
+    FloatToBV w _ _ -> BaseBVRepr w
+    FloatToSBV w _ _ -> BaseBVRepr w
     FloatToReal{} -> knownRepr
 
     ArrayMap      idx b _ _ -> BaseArrayRepr idx b
@@ -1474,29 +1514,35 @@ ppApp' a0 = do
     FloatNaN _ -> prettyApp "floatNaN" []
     FloatPInf _ -> prettyApp "floatPInf" []
     FloatNInf _ -> prettyApp "floatNInf" []
-    FloatAdd _ x y -> ppSExpr "floatAdd" [x, y]
-    FloatSub _ x y -> ppSExpr "floatSub" [x, y]
-    FloatMul _ x y -> ppSExpr "floatMul" [x, y]
-    FloatDiv _ x y -> ppSExpr "floatDiv" [x, y]
+    FloatNeg _ x -> ppSExpr "floatNeg" [x]
+    FloatAbs _ x -> ppSExpr "floatAbs" [x]
+    FloatSqrt _ r x -> ppSExpr (Text.pack $ "floatSqrt" <> show r) [x]
+    FloatAdd _ r x y -> ppSExpr (Text.pack $ "floatAdd" <> show r) [x, y]
+    FloatSub _ r x y -> ppSExpr (Text.pack $ "floatSub" <> show r) [x, y]
+    FloatMul _ r x y -> ppSExpr (Text.pack $ "floatMul" <> show r) [x, y]
+    FloatDiv _ r x y -> ppSExpr (Text.pack $ "floatDiv" <> show r) [x, y]
     FloatRem _ x y -> ppSExpr "floatRem" [x, y]
+    FloatMin _ x y -> ppSExpr "floatMin" [x, y]
+    FloatMax _ x y -> ppSExpr "floatMax" [x, y]
+    FloatFMA _ r x y z -> ppSExpr (Text.pack $ "floatFMA" <> show r) [x, y, z]
     FloatEq x y -> ppSExpr "floatEq" [x, y]
     FloatNe x y -> ppSExpr "floatNe" [x, y]
     FloatLe x y -> ppSExpr "floatLe" [x, y]
     FloatLt x y -> ppSExpr "floatLt" [x, y]
-    FloatGe x y -> ppSExpr "floatGe" [x, y]
-    FloatGt x y -> ppSExpr "floatGt" [x, y]
     FloatIsNaN x -> ppSExpr "floatIsNaN" [x]
     FloatIsInf x -> ppSExpr "floatIsInf" [x]
     FloatIsZero x -> ppSExpr "floatIsZero" [x]
     FloatIsPos x -> ppSExpr "floatIsPos" [x]
     FloatIsNeg x -> ppSExpr "floatIsNeg" [x]
+    FloatIsSubnorm x -> ppSExpr "floatIsSubnorm" [x]
+    FloatIsNorm x -> ppSExpr "floatIsNorm" [x]
     FloatIte _ c x y -> ppITE "floatIte" c x y
-    FloatCast _ x -> ppSExpr "floatCast" [x]
-    BVToFloat _ x -> ppSExpr "bvToFloat" [x]
-    SBVToFloat _ x -> ppSExpr "sbvToFloat" [x]
-    RealToFloat _ x -> ppSExpr "realToFloat" [x]
-    FloatToBV _ x -> ppSExpr "floatToBV" [x]
-    FloatToSBV _ x -> ppSExpr "floatToSBV" [x]
+    FloatCast _ r x -> ppSExpr (Text.pack $ "floatCast" <> show r) [x]
+    BVToFloat _ r x -> ppSExpr (Text.pack $ "bvToFloat" <> show r) [x]
+    SBVToFloat _ r x -> ppSExpr (Text.pack $ "sbvToFloat" <> show r) [x]
+    RealToFloat _ r x -> ppSExpr (Text.pack $ "realToFloat" <> show r) [x]
+    FloatToBV _ r x -> ppSExpr (Text.pack $ "floatToBV" <> show r) [x]
+    FloatToSBV _ r x -> ppSExpr (Text.pack $ "floatToSBV" <> show r) [x]
     FloatToReal x -> ppSExpr "floatToReal" [x]
 
     -------------------------------------
@@ -2286,29 +2332,35 @@ abstractEval bvParams f a0 = do
     FloatNaN{} -> ()
     FloatPInf{} -> ()
     FloatNInf{} -> ()
+    FloatNeg{} -> ()
+    FloatAbs{} -> ()
+    FloatSqrt{} -> ()
     FloatAdd{} -> ()
     FloatSub{} -> ()
     FloatMul{} -> ()
     FloatDiv{} -> ()
     FloatRem{} -> ()
+    FloatMin{} -> ()
+    FloatMax{} -> ()
+    FloatFMA{} -> ()
     FloatEq{} -> Nothing
     FloatNe{} -> Nothing
     FloatLe{} -> Nothing
     FloatLt{} -> Nothing
-    FloatGt{} -> Nothing
-    FloatGe{} -> Nothing
     FloatIsNaN{} -> Nothing
     FloatIsInf{} -> Nothing
     FloatIsZero{} -> Nothing
     FloatIsPos{} -> Nothing
     FloatIsNeg{} -> Nothing
+    FloatIsSubnorm{} -> Nothing
+    FloatIsNorm{} -> Nothing
     FloatIte{} -> ()
     FloatCast{} -> ()
     BVToFloat{} -> ()
     SBVToFloat{} -> ()
     RealToFloat{} -> ()
-    FloatToBV w _ -> BVD.range w (minUnsigned w) (maxUnsigned w)
-    FloatToSBV w _ -> BVD.range w (minSigned w) (maxSigned w)
+    FloatToBV w _ _ -> BVD.range w (minUnsigned w) (maxUnsigned w)
+    FloatToSBV w _ _ -> BVD.range w (minSigned w) (maxSigned w)
     FloatToReal{} -> ravUnbounded
 
     ArrayMap _ bRepr m d ->
@@ -2396,7 +2448,7 @@ instance PolyEq (Expr t x) (Expr t y) where
 appEqF :: App (Expr t) x -> App (Expr t) y -> Maybe (x :~: y)
 appEqF = $(structuralTypeEquality [t|App|]
            [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
-           , (TypeApp (ConType [t|FloatInfoRepr|]) AnyType, [|testEquality|])
+           , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|testEquality|])
            , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
            , (ConType [t|Hash.Vector|] `TypeApp` AnyType
              , [|\x y -> if x == y then Just Refl else Nothing|])
@@ -2878,35 +2930,41 @@ reduceApp sym a0 = do
     BVBitOr  _ x y -> bvOrBits  sym x y
     BVBitXor _ x y -> bvXorBits sym x y
 
-    FloatPZero{}  -> sbMakeExpr sym a0
-    FloatNZero{}  -> sbMakeExpr sym a0
-    FloatNaN{}    -> sbMakeExpr sym a0
-    FloatPInf{}   -> sbMakeExpr sym a0
-    FloatNInf{}   -> sbMakeExpr sym a0
-    FloatAdd{}    -> sbMakeExpr sym a0
-    FloatSub{}    -> sbMakeExpr sym a0
-    FloatMul{}    -> sbMakeExpr sym a0
-    FloatDiv{}    -> sbMakeExpr sym a0
-    FloatRem{}    -> sbMakeExpr sym a0
-    FloatEq{}     -> sbMakeExpr sym a0
-    FloatNe{}     -> sbMakeExpr sym a0
-    FloatLe{}     -> sbMakeExpr sym a0
-    FloatLt{}     -> sbMakeExpr sym a0
-    FloatGe{}     -> sbMakeExpr sym a0
-    FloatGt{}     -> sbMakeExpr sym a0
-    FloatIsNaN{}  -> sbMakeExpr sym a0
-    FloatIsInf{}  -> sbMakeExpr sym a0
-    FloatIsZero{} -> sbMakeExpr sym a0
-    FloatIsPos{}  -> sbMakeExpr sym a0
-    FloatIsNeg{}  -> sbMakeExpr sym a0
-    FloatIte{}    -> sbMakeExpr sym a0
-    FloatCast{}   -> sbMakeExpr sym a0
-    BVToFloat{}   -> sbMakeExpr sym a0
-    SBVToFloat{}  -> sbMakeExpr sym a0
-    RealToFloat{} -> sbMakeExpr sym a0
-    FloatToBV{}   -> sbMakeExpr sym a0
-    FloatToSBV{}  -> sbMakeExpr sym a0
-    FloatToReal{} -> sbMakeExpr sym a0
+    FloatPZero{}     -> sbMakeExpr sym a0
+    FloatNZero{}     -> sbMakeExpr sym a0
+    FloatNaN{}       -> sbMakeExpr sym a0
+    FloatPInf{}      -> sbMakeExpr sym a0
+    FloatNInf{}      -> sbMakeExpr sym a0
+    FloatNeg{}       -> sbMakeExpr sym a0
+    FloatAbs{}       -> sbMakeExpr sym a0
+    FloatSqrt{}      -> sbMakeExpr sym a0
+    FloatAdd{}       -> sbMakeExpr sym a0
+    FloatSub{}       -> sbMakeExpr sym a0
+    FloatMul{}       -> sbMakeExpr sym a0
+    FloatDiv{}       -> sbMakeExpr sym a0
+    FloatRem{}       -> sbMakeExpr sym a0
+    FloatMin{}       -> sbMakeExpr sym a0
+    FloatMax{}       -> sbMakeExpr sym a0
+    FloatFMA{}       -> sbMakeExpr sym a0
+    FloatEq{}        -> sbMakeExpr sym a0
+    FloatNe{}        -> sbMakeExpr sym a0
+    FloatLe{}        -> sbMakeExpr sym a0
+    FloatLt{}        -> sbMakeExpr sym a0
+    FloatIsNaN{}     -> sbMakeExpr sym a0
+    FloatIsInf{}     -> sbMakeExpr sym a0
+    FloatIsZero{}    -> sbMakeExpr sym a0
+    FloatIsPos{}     -> sbMakeExpr sym a0
+    FloatIsNeg{}     -> sbMakeExpr sym a0
+    FloatIsSubnorm{} -> sbMakeExpr sym a0
+    FloatIsNorm{}    -> sbMakeExpr sym a0
+    FloatIte{}       -> sbMakeExpr sym a0
+    FloatCast{}      -> sbMakeExpr sym a0
+    BVToFloat{}      -> sbMakeExpr sym a0
+    SBVToFloat{}     -> sbMakeExpr sym a0
+    RealToFloat{}    -> sbMakeExpr sym a0
+    FloatToBV{}      -> sbMakeExpr sym a0
+    FloatToSBV{}     -> sbMakeExpr sym a0
+    FloatToReal{}    -> sbMakeExpr sym a0
 
     ArrayEq x y -> arrayEq sym x y
     ArrayMap _ _ m def_map ->
@@ -4784,6 +4842,49 @@ instance IsBasicExprBuilder (ExprBuilder t st fs) where
       _ -> sbMakeExpr sym (RealLog x)
 
   ----------------------------------------------------------------------
+  -- IEEE-754 floating-point operations
+  floatPZero = floatIEEEArithCt FloatPZero
+  floatNZero = floatIEEEArithCt FloatNZero
+  -- floatLit sym fi r = realToFloat sym fi =<< realLit sym r
+  floatNaN = floatIEEEArithCt FloatNaN
+  floatPInf = floatIEEEArithCt FloatPInf
+  floatNInf = floatIEEEArithCt FloatNInf
+  floatNeg = floatIEEEArithUnOp FloatNeg
+  floatAbs = floatIEEEArithUnOp FloatAbs
+  floatSqrt = floatIEEEArithUnOpR FloatSqrt
+  floatAdd = floatIEEEArithBinOpR FloatAdd
+  floatSub = floatIEEEArithBinOpR FloatSub
+  floatMul = floatIEEEArithBinOpR FloatMul
+  floatDiv = floatIEEEArithBinOpR FloatDiv
+  floatRem = floatIEEEArithBinOp FloatRem
+  floatMin = floatIEEEArithBinOp FloatMin
+  floatMax = floatIEEEArithBinOp FloatMax
+  floatFMA sym r x y z =
+    let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatFMA fpp r x y z
+  floatEq = floatIEEELogicBinOp FloatEq
+  floatNe = floatIEEELogicBinOp FloatNe
+  floatLe = floatIEEELogicBinOp FloatLe
+  floatLt = floatIEEELogicBinOp FloatLt
+  floatGe sym x y = floatLe sym y x
+  floatGt sym x y = floatLt sym y x
+  floatIte sym c x y =
+    let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatIte fpp c x y
+  floatIsNaN = floatIEEELogicUnOp FloatIsNaN
+  floatIsInf = floatIEEELogicUnOp FloatIsInf
+  floatIsZero = floatIEEELogicUnOp FloatIsZero
+  floatIsPos = floatIEEELogicUnOp FloatIsPos
+  floatIsNeg = floatIEEELogicUnOp FloatIsNeg
+  floatIsSubnorm = floatIEEELogicUnOp FloatIsSubnorm
+  floatIsNorm = floatIEEELogicUnOp FloatIsNorm
+  floatCast sym fpp r = sbMakeExpr sym . FloatCast fpp r
+  bvToFloat sym fpp r = sbMakeExpr sym . BVToFloat fpp r
+  sbvToFloat sym fpp r = sbMakeExpr sym . SBVToFloat fpp r
+  realToFloat sym fpp r = sbMakeExpr sym . RealToFloat fpp r
+  floatToBV sym w r = sbMakeExpr sym . FloatToBV w r
+  floatToSBV sym w r = sbMakeExpr sym . FloatToSBV w r
+  floatToReal sym = sbMakeExpr sym . FloatToReal
+
+  ----------------------------------------------------------------------
   -- Cplx operations
 
   mkComplex sym c = sbMakeExpr sym (Cplx c)
@@ -4804,287 +4905,355 @@ instance IsBasicExprBuilder (ExprBuilder t st fs) where
     (:+) <$> sbMakeExpr sym (RealPart x)
          <*> sbMakeExpr sym (ImagPart x)
 
-  baseFloatEq sym x y = sbMakeExpr sym $ FloatEq x y
-  baseFloatIte sym c x y =
-    let BaseFloatRepr fi = exprType x
-    in  sbMakeExpr sym $ FloatIte fi c x y
-  baseFloatDefaultValue sym fi = sbMakeExpr sym $ FloatPZero fi
-
-----------------------------------------------------------------------
--- Float operations
-
-type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatReal)) fi = BaseRealType
-
-instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) where
-  floatPZero sym _ = return $ realZero sym
-  floatNZero sym _ = return $ realZero sym
-  floatLit sym _ = realLit sym
-  floatNaN = undefined
-  floatPInf = undefined
-  floatNInf = undefined
-  floatAdd = realAdd
-  floatSub = realSub
-  floatMul = realMul
-  floatDiv = realDiv
-  floatRem = realMod
-  floatEq = realEq
-  floatNe = realNe
-  floatLe = realLe
-  floatLt = realLt
-  floatGe = realGe
-  floatGt = realGt
-  floatIte = realIte
-  floatIsNaN sym _ = return $ falsePred sym
-  floatIsInf sym _ = return $ falsePred sym
-  floatIsZero sym = realEq sym $ realZero sym
-  floatIsPos sym = realLt sym $ realZero sym
-  floatIsNeg sym = realGt sym $ realZero sym
-  floatCast _ _ = return
-  bvToFloat sym _ = uintToReal sym
-  sbvToFloat sym _ = sbvToReal sym
-  realToFloat _ _ = return
-  floatToBV sym w x = realToBV sym x w
-  floatToSBV sym w x = realToSBV sym x w
-  floatToReal _ = return
-  floatBaseTypeRepr _ _ = knownRepr
-
-type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) HalfFloat = BaseBVType 16
-type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) SingleFloat = BaseBVType 32
-type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) DoubleFloat = BaseBVType 64
-type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) QuadFloat = BaseBVType 128
-type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) X86_80Float = BaseBVType 80
-type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) DoubleDoubleFloat = BaseBVType 128
-
-instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpreted)) where
-  floatPZero sym fi =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym "uninterpreted_float_pzero" Ctx.empty ret_type
-  floatNZero sym fi =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym "uninterpreted_float_nzero" Ctx.empty ret_type
-  floatLit sym fi r = realToFloat sym fi =<< realLit sym r
-  floatNaN sym fi =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym "uninterpreted_float_nan" Ctx.empty ret_type
-  floatPInf sym fi =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym "uninterpreted_float_pinf" Ctx.empty ret_type
-  floatNInf sym fi =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym "uninterpreted_float_ninf" Ctx.empty ret_type
-  floatAdd sym x y =
-    let ret_type = exprType x
-    in  mkUninterpFnApp sym
-                        "uninterpreted_float_add"
-                        (Ctx.empty Ctx.:> x Ctx.:> y)
-                        ret_type
-  floatSub sym x y =
-    let ret_type = exprType x
-    in  mkUninterpFnApp sym
-                        "uninterpreted_float_sub"
-                        (Ctx.empty Ctx.:> x Ctx.:> y)
-                        ret_type
-  floatMul sym x y =
-    let ret_type = exprType x
-    in  mkUninterpFnApp sym
-                        "uninterpreted_float_mul"
-                        (Ctx.empty Ctx.:> x Ctx.:> y)
-                        ret_type
-  floatDiv sym x y =
-    let ret_type = exprType x
-    in  mkUninterpFnApp sym
-                        "uninterpreted_float_div"
-                        (Ctx.empty Ctx.:> x Ctx.:> y)
-                        ret_type
-  floatRem sym x y =
-    let ret_type = exprType x
-    in  mkUninterpFnApp sym
-                        "uninterpreted_float_rem"
-                        (Ctx.empty Ctx.:> x Ctx.:> y)
-                        ret_type
-  floatEq sym x y =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_eq"
-                    (Ctx.empty Ctx.:> x Ctx.:> y)
-                    knownRepr
-  floatNe sym x y =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_ne"
-                    (Ctx.empty Ctx.:> x Ctx.:> y)
-                    knownRepr
-  floatLe sym x y =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_le"
-                    (Ctx.empty Ctx.:> x Ctx.:> y)
-                    knownRepr
-  floatLt sym x y =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_lt"
-                    (Ctx.empty Ctx.:> x Ctx.:> y)
-                    knownRepr
-  floatGe sym x y =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_ge"
-                    (Ctx.empty Ctx.:> x Ctx.:> y)
-                    knownRepr
-  floatGt sym x y =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_gt"
-                    (Ctx.empty Ctx.:> x Ctx.:> y)
-                    knownRepr
-  floatIte = baseTypeIte
-  floatIsNaN sym x =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_is_nan"
-                    (Ctx.empty Ctx.:> x)
-                    knownRepr
-  floatIsInf sym x =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_is_inf"
-                    (Ctx.empty Ctx.:> x)
-                    knownRepr
-  floatIsZero sym x =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_is_zero"
-                    (Ctx.empty Ctx.:> x)
-                    knownRepr
-  floatIsPos sym x =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_is_pos"
-                    (Ctx.empty Ctx.:> x)
-                    knownRepr
-  floatIsNeg sym x =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_is_neg"
-                    (Ctx.empty Ctx.:> x)
-                    knownRepr
-  floatCast sym fi x =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym
-                        "uninterpreted_float_cast"
-                        (Ctx.empty Ctx.:> x)
-                        ret_type
-  bvToFloat sym fi x =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym
-                        "uninterpreted_bv_to_float"
-                        (Ctx.empty Ctx.:> x)
-                        ret_type
-  sbvToFloat sym fi x =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym
-                        "uninterpreted_sbv_to_float"
-                        (Ctx.empty Ctx.:> x)
-                        ret_type
-  realToFloat sym fi x =
-    let ret_type = floatBaseTypeRepr sym fi
-    in  mkUninterpFnApp sym
-                        "uninterpreted_real_to_float"
-                        (Ctx.empty Ctx.:> x)
-                        ret_type
-  floatToBV sym w x =
-    let ret_type = BaseBVRepr w
-    in  mkUninterpFnApp sym
-                        "uninterpreted_float_to_bv"
-                        (Ctx.empty Ctx.:> x)
-                        ret_type
-  floatToSBV sym w x =
-    let ret_type = BaseBVRepr w
-    in  mkUninterpFnApp sym
-                        "uninterpreted_float_to_sbv"
-                        (Ctx.empty Ctx.:> x)
-                        ret_type
-  floatToReal sym x =
-    mkUninterpFnApp sym
-                    "uninterpreted_float_to_real"
-                    (Ctx.empty Ctx.:> x)
-                    knownRepr
-  floatBaseTypeRepr _ = \case
-    HalfFloatRepr         -> knownRepr
-    SingleFloatRepr       -> knownRepr
-    DoubleFloatRepr       -> knownRepr
-    QuadFloatRepr         -> knownRepr
-    X86_80FloatRepr       -> knownRepr
-    DoubleDoubleFloatRepr -> knownRepr
-
-type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatIEEE)) fi = BaseFloatType fi
-
-instance IsFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) where
-  floatPZero = floatIEEEArithCt FloatPZero
-  floatNZero = floatIEEEArithCt FloatNZero
-  floatLit sym fi r = realToFloat sym fi =<< realLit sym r
-  floatNaN = floatIEEEArithCt FloatNaN
-  floatPInf = floatIEEEArithCt FloatPInf
-  floatNInf = floatIEEEArithCt FloatNInf
-  floatAdd = floatIEEEArithBinOp FloatAdd
-  floatSub = floatIEEEArithBinOp FloatSub
-  floatMul = floatIEEEArithBinOp FloatMul
-  floatDiv = floatIEEEArithBinOp FloatDiv
-  floatRem = floatIEEEArithBinOp FloatRem
-  floatEq = floatIEEELogicBinOp FloatEq
-  floatNe = floatIEEELogicBinOp FloatNe
-  floatLe = floatIEEELogicBinOp FloatLe
-  floatLt = floatIEEELogicBinOp FloatLt
-  floatGe = floatIEEELogicBinOp FloatGe
-  floatGt = floatIEEELogicBinOp FloatGt
-  floatIte sym c x y =
-    let BaseFloatRepr fi = exprType x
-    in  sbMakeExpr sym $ FloatIte fi c x y
-  floatIsNaN = floatIEEELogicUnOp FloatIsNaN
-  floatIsInf = floatIEEELogicUnOp FloatIsInf
-  floatIsZero = floatIEEELogicUnOp FloatIsZero
-  floatIsPos = floatIEEELogicUnOp FloatIsPos
-  floatIsNeg = floatIEEELogicUnOp FloatIsNeg
-  floatCast sym fi = sbMakeExpr sym . FloatCast fi
-  bvToFloat sym fi = sbMakeExpr sym . BVToFloat fi
-  sbvToFloat sym fi = sbMakeExpr sym . SBVToFloat fi
-  realToFloat sym fi = sbMakeExpr sym . RealToFloat fi
-  floatToBV sym w = sbMakeExpr sym . FloatToBV w
-  floatToSBV sym w = sbMakeExpr sym . FloatToSBV w
-  floatToReal sym = sbMakeExpr sym . FloatToReal
-  floatBaseTypeRepr _ = \case
-    HalfFloatRepr         -> knownRepr
-    SingleFloatRepr       -> knownRepr
-    DoubleFloatRepr       -> knownRepr
-    QuadFloatRepr         -> knownRepr
-    X86_80FloatRepr       -> knownRepr
-    DoubleDoubleFloatRepr -> knownRepr
-
 floatIEEEArithBinOp
   :: (e ~ Expr t)
-  => (  FloatInfoRepr fi
-     -> e (BaseFloatType fi)
-     -> e (BaseFloatType fi)
-     -> App e (BaseFloatType fi)
+  => (  FloatPrecisionRepr fpp
+     -> e (BaseFloatType fpp)
+     -> e (BaseFloatType fpp)
+     -> App e (BaseFloatType fpp)
      )
-  -> ExprBuilder t st (Flags FloatIEEE)
-  -> e (BaseFloatType fi)
-  -> e (BaseFloatType fi)
-  -> IO (e (BaseFloatType fi))
+  -> ExprBuilder t st fs
+  -> e (BaseFloatType fpp)
+  -> e (BaseFloatType fpp)
+  -> IO (e (BaseFloatType fpp))
 floatIEEEArithBinOp ctor sym x y =
-  let BaseFloatRepr fi = exprType x in sbMakeExpr sym $ ctor fi x y
+  let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp x y
+floatIEEEArithBinOpR
+  :: (e ~ Expr t)
+  => (  FloatPrecisionRepr fpp
+     -> RoundingMode
+     -> e (BaseFloatType fpp)
+     -> e (BaseFloatType fpp)
+     -> App e (BaseFloatType fpp)
+     )
+  -> ExprBuilder t st fs
+  -> RoundingMode
+  -> e (BaseFloatType fpp)
+  -> e (BaseFloatType fpp)
+  -> IO (e (BaseFloatType fpp))
+floatIEEEArithBinOpR ctor sym r x y =
+  let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp r x y
+floatIEEEArithUnOp
+  :: (e ~ Expr t)
+  => (  FloatPrecisionRepr fpp
+     -> e (BaseFloatType fpp)
+     -> App e (BaseFloatType fpp)
+     )
+  -> ExprBuilder t st fs
+  -> e (BaseFloatType fpp)
+  -> IO (e (BaseFloatType fpp))
+floatIEEEArithUnOp ctor sym x =
+  let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp x
+floatIEEEArithUnOpR
+  :: (e ~ Expr t)
+  => (  FloatPrecisionRepr fpp
+     -> RoundingMode
+     -> e (BaseFloatType fpp)
+     -> App e (BaseFloatType fpp)
+     )
+  -> ExprBuilder t st fs
+  -> RoundingMode
+  -> e (BaseFloatType fpp)
+  -> IO (e (BaseFloatType fpp))
+floatIEEEArithUnOpR ctor sym r x =
+  let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ ctor fpp r x
 floatIEEEArithCt
   :: (e ~ Expr t)
-  => (FloatInfoRepr fi -> App e (BaseFloatType fi))
-  -> ExprBuilder t st (Flags FloatIEEE)
-  -> FloatInfoRepr fi
-  -> IO (e (BaseFloatType fi))
-floatIEEEArithCt ctor sym fi = sbMakeExpr sym $ ctor fi
+  => (FloatPrecisionRepr fpp -> App e (BaseFloatType fpp))
+  -> ExprBuilder t st fs
+  -> FloatPrecisionRepr fpp
+  -> IO (e (BaseFloatType fpp))
+floatIEEEArithCt ctor sym fpp = sbMakeExpr sym $ ctor fpp
 floatIEEELogicBinOp
   :: (e ~ Expr t)
-  => (e (BaseFloatType fi) -> e (BaseFloatType fi) -> App e BaseBoolType)
-  -> ExprBuilder t st (Flags FloatIEEE)
-  -> e (BaseFloatType fi)
-  -> e (BaseFloatType fi)
+  => (e (BaseFloatType fpp) -> e (BaseFloatType fpp) -> App e BaseBoolType)
+  -> ExprBuilder t st fs
+  -> e (BaseFloatType fpp)
+  -> e (BaseFloatType fpp)
   -> IO (e BaseBoolType)
 floatIEEELogicBinOp ctor sym x y = sbMakeExpr sym $ ctor x y
 floatIEEELogicUnOp
   :: (e ~ Expr t)
-  => (e (BaseFloatType fi) -> App e BaseBoolType)
-  -> ExprBuilder t st (Flags FloatIEEE)
-  -> e (BaseFloatType fi)
+  => (e (BaseFloatType fpp) -> App e BaseBoolType)
+  -> ExprBuilder t st fs
+  -> e (BaseFloatType fpp)
   -> IO (e BaseBoolType)
 floatIEEELogicUnOp ctor sym x = sbMakeExpr sym $ ctor x
+
+
+----------------------------------------------------------------------
+-- Float interpretations
+
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatReal)) fi =
+  BaseRealType
+
+instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) where
+  iFloatPZero sym _ = return $ realZero sym
+  iFloatNZero sym _ = return $ realZero sym
+  iFloatNaN = undefined
+  iFloatPInf = undefined
+  iFloatNInf = undefined
+  iFloatNeg = realNeg
+  iFloatAbs = realAbs
+  iFloatSqrt sym _ = realSqrt sym
+  iFloatAdd sym _ = realAdd sym
+  iFloatSub sym _ = realSub sym
+  iFloatMul sym _ = realMul sym
+  iFloatDiv sym _ = realDiv sym
+  iFloatRem = realMod
+  iFloatMin sym x y = do
+    c <- realLe sym x y
+    realIte sym c x y
+  iFloatMax sym x y = do
+    c <- realGe sym x y
+    realIte sym c x y
+  iFloatFMA sym _ x y z = do
+    tmp <- (realMul sym x y)
+    realAdd sym tmp z
+  iFloatEq = realEq
+  iFloatNe = realNe
+  iFloatLe = realLe
+  iFloatLt = realLt
+  iFloatGe = realGe
+  iFloatGt = realGt
+  iFloatIte = realIte
+  iFloatIsNaN sym _ = return $ falsePred sym
+  iFloatIsInf sym _ = return $ falsePred sym
+  iFloatIsZero sym = realEq sym $ realZero sym
+  iFloatIsPos sym = realLt sym $ realZero sym
+  iFloatIsNeg sym = realGt sym $ realZero sym
+  iFloatIsSubnorm sym _ = return $ falsePred sym
+  iFloatIsNorm sym = realNe sym $ realZero sym
+  iFloatCast _ _ _ = return
+  iBVToFloat sym _ _ = uintToReal sym
+  iSBVToFloat sym _ _ = sbvToReal sym
+  iRealToFloat _ _ _ = return
+  iFloatToBV sym w _ x = realToBV sym x w
+  iFloatToSBV sym w _ x = realToSBV sym x w
+  iFloatToReal _ = return
+  iFloatBaseTypeRepr _ _ = knownRepr
+
+type family FloatInfoToBitWidth (fi :: FloatInfo) :: GHC.TypeLits.Nat
+-- | IEEE binary16
+type instance FloatInfoToBitWidth HalfFloat = 16
+-- | IEEE binary32
+type instance FloatInfoToBitWidth SingleFloat = 32
+-- | IEEE binary64
+type instance FloatInfoToBitWidth DoubleFloat = 64
+-- | IEEE binary128
+type instance FloatInfoToBitWidth QuadFloat = 128
+-- | X86 80-bit extended floats
+type instance FloatInfoToBitWidth X86_80Float = 80
+-- | Two 64-bit floats fused in the "double-double" style
+type instance FloatInfoToBitWidth DoubleDoubleFloat = 128
+
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) fi =
+  BaseBVType (FloatInfoToBitWidth fi)
+
+instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpreted)) where
+  iFloatPZero sym =
+    floatUninterpArithCt "uninterpreted_float_pzero" sym . iFloatBaseTypeRepr sym
+  iFloatNZero sym =
+    floatUninterpArithCt "uninterpreted_float_nzero" sym . iFloatBaseTypeRepr sym
+  iFloatNaN sym =
+    floatUninterpArithCt "uninterpreted_float_nan" sym . iFloatBaseTypeRepr sym
+  iFloatPInf sym =
+    floatUninterpArithCt "uninterpreted_float_pinf" sym . iFloatBaseTypeRepr sym
+  iFloatNInf sym =
+    floatUninterpArithCt "uninterpreted_float_ninf" sym . iFloatBaseTypeRepr sym
+  iFloatNeg = floatUninterpArithUnOp "uninterpreted_float_neg"
+  iFloatAbs = floatUninterpArithUnOp "uninterpreted_float_abs"
+  iFloatSqrt = floatUninterpArithUnOpR "uninterpreted_float_sqrt"
+  iFloatAdd = floatUninterpArithBinOpR "uninterpreted_float_add"
+  iFloatSub = floatUninterpArithBinOpR "uninterpreted_float_sub"
+  iFloatMul = floatUninterpArithBinOpR "uninterpreted_float_mul"
+  iFloatDiv = floatUninterpArithBinOpR "uninterpreted_float_div"
+  iFloatRem = floatUninterpArithBinOp "uninterpreted_float_rem"
+  iFloatMin = floatUninterpArithBinOp "uninterpreted_float_min"
+  iFloatMax = floatUninterpArithBinOp "uninterpreted_float_max"
+  iFloatFMA sym r x y z = do
+    let ret_type = exprType x
+    r_arg <- roundingModeToSymString sym r
+    mkUninterpFnApp sym
+                    "uninterpreted_float_fma"
+                    (Ctx.empty Ctx.:> r_arg Ctx.:> x Ctx.:> y Ctx.:> z)
+                    ret_type
+  iFloatEq = floatUninterpLogicBinOp "uninterpreted_float_eq"
+  iFloatNe = floatUninterpLogicBinOp "uninterpreted_float_ne"
+  iFloatLe = floatUninterpLogicBinOp "uninterpreted_float_le"
+  iFloatLt = floatUninterpLogicBinOp "uninterpreted_float_lt"
+  iFloatGe sym x y = floatUninterpLogicBinOp "uninterpreted_float_le" sym y x
+  iFloatGt sym x y = floatUninterpLogicBinOp "uninterpreted_float_lt" sym y x
+  iFloatIte = baseTypeIte
+  iFloatIsNaN = floatUninterpLogicUnOp "uninterpreted_float_is_nan"
+  iFloatIsInf = floatUninterpLogicUnOp "uninterpreted_float_is_inf"
+  iFloatIsZero = floatUninterpLogicUnOp "uninterpreted_float_is_zero"
+  iFloatIsPos = floatUninterpLogicUnOp "uninterpreted_float_is_pos"
+  iFloatIsNeg = floatUninterpLogicUnOp "uninterpreted_float_is_neg"
+  iFloatIsSubnorm = floatUninterpLogicUnOp "uninterpreted_float_is_subnorm"
+  iFloatIsNorm = floatUninterpLogicUnOp "uninterpreted_float_is_norm"
+  iFloatCast sym =
+    floatUninterpCastOp "uninterpreted_float_cast" sym . iFloatBaseTypeRepr sym
+  iBVToFloat sym =
+    floatUninterpCastOp "uninterpreted_bv_to_float" sym . iFloatBaseTypeRepr sym
+  iSBVToFloat sym =
+    floatUninterpCastOp "uninterpreted_sbv_to_float" sym . iFloatBaseTypeRepr sym
+  iRealToFloat sym =
+    floatUninterpCastOp "uninterpreted_real_to_float" sym . iFloatBaseTypeRepr sym
+  iFloatToBV sym =
+    floatUninterpCastOp "uninterpreted_float_to_bv" sym . BaseBVRepr
+  iFloatToSBV sym =
+    floatUninterpCastOp "uninterpreted_float_to_sbv" sym . BaseBVRepr
+  iFloatToReal sym x =
+    mkUninterpFnApp sym
+                    "uninterpreted_float_to_real"
+                    (Ctx.empty Ctx.:> x)
+                    knownRepr
+  iFloatBaseTypeRepr _ = \case
+    HalfFloatRepr         -> knownRepr
+    SingleFloatRepr       -> knownRepr
+    DoubleFloatRepr       -> knownRepr
+    QuadFloatRepr         -> knownRepr
+    X86_80FloatRepr       -> knownRepr
+    DoubleDoubleFloatRepr -> knownRepr
+
+floatUninterpArithBinOp
+  :: (e ~ Expr t) => String -> ExprBuilder t st fs -> e bt -> e bt -> IO (e bt)
+floatUninterpArithBinOp fn sym x y =
+  let ret_type = exprType x
+  in  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x Ctx.:> y) ret_type
+floatUninterpArithBinOpR
+  :: (e ~ Expr t)
+  => String
+  -> ExprBuilder t st fs
+  -> RoundingMode
+  -> e bt
+  -> e bt
+  -> IO (e bt)
+floatUninterpArithBinOpR fn sym r x y = do
+  let ret_type = exprType x
+  r_arg <- roundingModeToSymString sym r
+  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> r_arg Ctx.:> x Ctx.:> y) ret_type
+floatUninterpArithUnOp
+  :: (e ~ Expr t) => String -> ExprBuilder t st fs -> e bt -> IO (e bt)
+floatUninterpArithUnOp fn sym x =
+  let ret_type = exprType x
+  in  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x) ret_type
+floatUninterpArithUnOpR
+  :: (e ~ Expr t)
+  => String
+  -> ExprBuilder t st fs
+  -> RoundingMode
+  -> e bt
+  -> IO (e bt)
+floatUninterpArithUnOpR fn sym r x = do
+  let ret_type = exprType x
+  r_arg <- roundingModeToSymString sym r
+  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> r_arg Ctx.:> x) ret_type
+floatUninterpArithCt
+  :: (e ~ Expr t)
+  => String
+  -> ExprBuilder t st fs
+  -> BaseTypeRepr bt
+  -> IO (e bt)
+floatUninterpArithCt fn sym ret_type =
+  mkUninterpFnApp sym fn Ctx.empty ret_type
+floatUninterpLogicBinOp
+  :: (e ~ Expr t)
+  => String
+  -> ExprBuilder t st fs
+  -> e bt
+  -> e bt
+  -> IO (e BaseBoolType)
+floatUninterpLogicBinOp fn sym x y =
+  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x Ctx.:> y) knownRepr
+floatUninterpLogicUnOp
+  :: (e ~ Expr t)
+  => String
+  -> ExprBuilder t st fs
+  -> e bt
+  -> IO (e BaseBoolType)
+floatUninterpLogicUnOp fn sym x =
+  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x) knownRepr
+floatUninterpCastOp
+  :: (e ~ Expr t)
+  => String
+  -> ExprBuilder t st fs
+  -> BaseTypeRepr bt
+  -> RoundingMode
+  -> e bt'
+  -> IO (e bt)
+floatUninterpCastOp fn sym ret_type r x = do
+  r_arg <- roundingModeToSymString sym r
+  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> r_arg Ctx.:> x) ret_type
+roundingModeToSymString
+  :: (sym ~ ExprBuilder t st fs) => sym -> RoundingMode -> IO (SymString sym)
+roundingModeToSymString sym = stringLit sym . Text.pack . show
+
+
+type family FloatInfoToPrecision (fi :: FloatInfo) :: FloatPrecision
+-- | IEEE binary16
+type instance FloatInfoToPrecision HalfFloat = (FloatingPointPrecision 5 11)
+-- | IEEE binary32
+type instance FloatInfoToPrecision SingleFloat = (FloatingPointPrecision 8 24)
+-- | IEEE binary64
+type instance FloatInfoToPrecision DoubleFloat = (FloatingPointPrecision 11 53)
+-- | IEEE binary128
+type instance FloatInfoToPrecision QuadFloat = (FloatingPointPrecision 15 113)
+
+type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatIEEE)) fi =
+  BaseFloatType (FloatInfoToPrecision fi)
+
+instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) where
+  iFloatPZero sym = floatPZero sym . floatInfoToPrecisionRepr
+  iFloatNZero sym = floatNZero sym . floatInfoToPrecisionRepr
+  iFloatNaN sym = floatNaN sym . floatInfoToPrecisionRepr
+  iFloatPInf sym = floatPInf sym . floatInfoToPrecisionRepr
+  iFloatNInf sym = floatNInf sym . floatInfoToPrecisionRepr
+  iFloatNeg = floatNeg
+  iFloatAbs = floatAbs
+  iFloatSqrt = floatSqrt
+  iFloatAdd = floatAdd
+  iFloatSub = floatSub
+  iFloatMul = floatMul
+  iFloatDiv = floatDiv
+  iFloatRem = floatRem
+  iFloatMin = floatMin
+  iFloatMax = floatMax
+  iFloatFMA = floatFMA
+  iFloatEq = floatEq
+  iFloatNe = floatNe
+  iFloatLe = floatLe
+  iFloatLt = floatLt
+  iFloatGe = floatGe
+  iFloatGt = floatGt
+  iFloatIte = floatIte
+  iFloatIsNaN = floatIsNaN
+  iFloatIsInf = floatIsInf
+  iFloatIsZero = floatIsZero
+  iFloatIsPos = floatIsPos
+  iFloatIsNeg = floatIsNeg
+  iFloatIsSubnorm = floatIsSubnorm
+  iFloatIsNorm = floatIsNorm
+  iFloatCast sym = floatCast sym . floatInfoToPrecisionRepr
+  iBVToFloat sym = bvToFloat sym . floatInfoToPrecisionRepr
+  iSBVToFloat sym = sbvToFloat sym . floatInfoToPrecisionRepr
+  iRealToFloat sym = realToFloat sym . floatInfoToPrecisionRepr
+  iFloatToBV = floatToBV
+  iFloatToSBV = floatToSBV
+  iFloatToReal = floatToReal
+  iFloatBaseTypeRepr _ = BaseFloatRepr . floatInfoToPrecisionRepr
+
+floatInfoToPrecisionRepr
+  :: FloatInfoRepr fi
+  -> FloatPrecisionRepr (FloatInfoToPrecision fi)
+floatInfoToPrecisionRepr = \case
+  HalfFloatRepr         -> knownRepr
+  SingleFloatRepr       -> knownRepr
+  DoubleFloatRepr       -> knownRepr
+  QuadFloatRepr         -> knownRepr
+  X86_80FloatRepr       -> undefined
+  DoubleDoubleFloatRepr -> undefined
 
 
 instance IsFOLExprBuilder (ExprBuilder t st fs) where
@@ -5221,8 +5390,8 @@ mkUninterpFnApp sym str_fn_name args ret_type = do
   fn <- cachedUninterpFn sym fn_name arg_types ret_type freshTotalUninterpFn
   applySymFn sym fn args
 
-instance IsFloatExprBuilder (ExprBuilder t st fs) => IsExprBuilder (ExprBuilder t st fs)
+instance IsInterpretedFloatExprBuilder (ExprBuilder t st fs) => IsExprBuilder (ExprBuilder t st fs)
 
-instance IsFloatExprBuilder (ExprBuilder t st fs) => IsFloatFOLExprBuilder (ExprBuilder t st fs)
+instance IsInterpretedFloatExprBuilder (ExprBuilder t st fs) => IsInterpretedFloatFOLExprBuilder (ExprBuilder t st fs)
 
-instance (IsExprBuilder (ExprBuilder t st fs), IsFloatFOLExprBuilder (ExprBuilder t st fs)) => IsSymExprBuilder (ExprBuilder t st fs)
+instance (IsExprBuilder (ExprBuilder t st fs), IsInterpretedFloatFOLExprBuilder (ExprBuilder t st fs)) => IsSymExprBuilder (ExprBuilder t st fs)

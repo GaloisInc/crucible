@@ -510,7 +510,7 @@ avTop tp =
     BaseComplexRepr -> ravUnbounded :+ ravUnbounded
     BaseStringRepr  -> ()
     BaseBVRepr w    -> BVD.any w
-    BaseFloatRepr _ -> ()
+    BaseFloatRepr{} -> ()
     BaseArrayRepr _a b -> avTop b
     BaseStructRepr flds -> fmapFC (\etp -> AbstractValueWrapper (avTop etp)) flds
 
@@ -588,6 +588,10 @@ instance (1 <= w) => Abstractable (BaseBVType w) where
   avJoin (BaseBVRepr w) = BVD.union BVD.defaultBVDomainParams w
   avOverlap _ = BVD.domainsOverlap
 
+instance Abstractable (BaseFloatType fpp) where
+  avJoin _ _ _ = ()
+  avOverlap _ _ _ = True
+
 instance Abstractable BaseComplexType where
   avJoin _ (r1 :+ i1) (r2 :+ i2) = (ravJoin r1 r2) :+ (ravJoin i1 i2)
   avOverlap _ (r1 :+ i1) (r2 :+ i2) = rangeOverlap (ravRange r1) (ravRange r2)
@@ -622,7 +626,7 @@ withAbstractable bt k =
     BaseComplexRepr -> k
     BaseArrayRepr _a _b -> k
     BaseStructRepr _flds -> k
-    BaseFloatRepr _ -> undefined
+    BaseFloatRepr _fpp -> k
 
 -- | Returns true if the concrete value is a member of the set represented
 -- by the abstract value.
