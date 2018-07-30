@@ -27,6 +27,7 @@ module Lang.Crucible.Syntax.Concrete where
 import Prelude hiding (fail)
 
 import Data.Monoid ()
+import Data.Ratio
 
 import Control.Lens hiding (cons)
 import Control.Applicative
@@ -335,9 +336,11 @@ synth' =
        the <|> crucibleAtom <|> unitCon <|> boolLit <|> stringLit <|> funNameLit <|>
        notExpr <|> equalp <|> lessThan <|>
        toAny <|> fromAny <|>
+       modulus <|>
        stringAppend <|> showExpr <|>
        vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
-       binaryBool And_ And <|> binaryBool Or_ Or <|> binaryBool Xor_ BoolXor <|> ite
+       binaryBool And_ And <|> binaryBool Or_ Or <|> binaryBool Xor_ BoolXor <|> ite <|>
+       intp
 
   where
     the = do ((), (Some t, (e, ()))) <- lift $ describe "type-annotated expression" $
@@ -368,6 +371,11 @@ synth' =
          (E x, E y) <- lift $ binary k (runReaderT (check' BoolRepr) r) (runReaderT (check' BoolRepr) r)
          return $ SomeExpr BoolRepr $ E $ App $ f x y
 
+
+    intp =
+      do r <- ask
+         E e <- lift $ unary Integerp (runReaderT (check' RealValRepr) r)
+         return $ SomeExpr BoolRepr $ E $ App $ RealIsInteger e
 
     funNameLit =
       do fn <- lift funName
@@ -448,6 +456,11 @@ synth' =
                  in lift $ later $ describe msg empty
                AsBaseType bTy ->
                  return $ SomeExpr tTy $ E $ App $ BaseIte bTy c t f
+
+    modulus =
+      do r <- ask
+         (E e1, E e2) <- lift $ binary Mod (runReaderT (check' RealValRepr) r) (runReaderT (check' RealValRepr) r)
+         return $ SomeExpr RealValRepr $ E $ App $ RealMod e1 e2
 
 
     toAny =
@@ -531,7 +544,7 @@ check' t =
   do r <- ask
      lift $ describe ("inhabitant of " <> T.pack (show t)) $ flip runReaderT r $
        literal <|> unpack <|> just <|> nothing <|> fromJust_ <|> injection <|>
-       addition <|> subtraction <|> multiplication <|>
+       addition <|> subtraction <|> multiplication <|> division <|>
        vecLit <|> modeSwitch
   where
     typed :: TypeRepr t' -> ReaderT (SyntaxState h s) (SyntaxParse Atomic) (E s t')
@@ -552,7 +565,10 @@ check' t =
     intLiteral =
       typed IntegerRepr (lift int <&> E . App . IntLit . fromInteger)
 
-    rationalLiteral = typed RealValRepr $ lift rational <&> E . App . RationalLit
+    rationalLiteral =
+      do r <- ask
+         typed RealValRepr $
+           (lift rational <&> E . App . RationalLit) <|> (lift int <&> \i -> E $ App $ RationalLit (i % 1))
 
     unpack =
       do package <- lift $ unary Unpack anything
@@ -622,17 +638,24 @@ check' t =
       arith t IntegerRepr Times IntMul <|>
       arith t RealValRepr Times RealMul
 
+    division =
+      arith t RealValRepr Div RealDiv
+
+
     arith :: TypeRepr t1 -> TypeRepr t2
           -> Keyword
           -> (Expr () s t2 -> Expr () s t2 -> App () (Expr () s) t2)
           -> ReaderT (SyntaxState h s) (SyntaxParse Atomic) (E s t1)
     arith t1 t2 k f =
       case testEquality t1 t2 of
-        Nothing -> lift $ describe (T.pack (show t2)) empty
+        Nothing ->
+          lift $
+          describe ("arithmetic expression beginning with " <> T.pack (show k) <> " type " <>  (T.pack (show t2)))
+            empty
         Just Refl ->
           do r <- ask
              ((), (E e1, (E e2, ()))) <- lift $
-                                         describe ("arithmetic expression of type " <> T.pack (show t2)) $
+                                         -- describe ("arithmetic expression of type " <> T.pack (show t2)) $
                                          cons (kw k) $
                                          cons (runReaderT (check' t1) r) $
                                          cons (runReaderT (check' t1) r) $
@@ -655,28 +678,15 @@ check' t =
 
     modeSwitch =
       do SomeExpr t' e <- synth'
-         case testEquality t t' of
-           Nothing -> lift $ describe ("a " <> T.pack (show t) <> " but got a " <> T.pack (show t')) empty
-           Just Refl -> return e
+         lift $ describe ("a " <> T.pack (show t) <> " but got a " <> T.pack (show t')) $
+           case testEquality t t' of
+             Nothing -> later empty
+             Just Refl -> return e
 
 synthExpr :: (Alternative m, MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => AST s -> m (SomeExpr s)
 synthExpr stx =
   do st <- get
      liftSyntaxParse (runReaderT synth' st) stx
-
-synthExpr (A (Rat r)) =
-  return $ SomeExpr RealValRepr (E (App (RationalLit r)))
-synthExpr (L [A (Kw Div), e1, e2]) =
-  do E rE1 <- checkExpr RealValRepr e1
-     E rE2 <- checkExpr RealValRepr e2
-     return $ SomeExpr RealValRepr (E (App (RealDiv rE1 rE2)))
-synthExpr (L [A (Kw Mod), e1, e2]) =
-  do E rE1 <- checkExpr RealValRepr e1
-     E rE2 <- checkExpr RealValRepr e2
-     return $ SomeExpr RealValRepr (E (App (RealMod rE1 rE2)))
-synthExpr (L [A (Kw Integerp), e]) =
-  do E e' <- checkExpr RealValRepr e
-     return $ SomeExpr BoolRepr (E (App (RealIsInteger e')))
 
 synthExpr (L [A (Kw VectorReplicate_), n, x]) =
   do E n' <- checkExpr NatRepr n

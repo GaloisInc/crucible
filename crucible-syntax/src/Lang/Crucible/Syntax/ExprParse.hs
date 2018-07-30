@@ -21,6 +21,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+import Debug.Trace (trace)
+
 import GHC.Stack
 
 import Lang.Crucible.Syntax.SExpr
@@ -104,6 +106,7 @@ data SyntaxParseCtx atom =
                  , _parseReason :: Reason atom
                  , _parseFocus :: Syntax atom
                  }
+  deriving Show
 
 parseProgress :: Simple Lens (SyntaxParseCtx atom) Progress
 parseProgress = lens _parseProgress (\s v -> s { _parseProgress = v })
@@ -127,6 +130,12 @@ instance Alternative (SyntaxParse atom) where
 
 parseError :: Progress -> Reason atom -> P atom a
 parseError p r = P [] (Oops p (pure r))
+
+debug :: (Show atom) => String -> SyntaxParse atom a -> SyntaxParse atom a
+debug msg p =
+  do r <- ask
+     trace (msg ++ show r) $ return ()
+     p
 
 -- | Strip location information from a syntax object
 syntaxToDatum :: Syntactic expr atom => expr -> Datum atom
