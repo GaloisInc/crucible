@@ -192,6 +192,7 @@ import           What4.BaseTypes
 import           What4.Concrete
 import qualified What4.Config as CFG
 import           What4.Interface
+import           What4.InterpretedFloatingPoint
 import           What4.ProgramLoc
 import           What4.Symbol
 import           What4.Expr.MATLAB
@@ -2832,7 +2833,7 @@ asConcreteIndices = traverseFC f
             _ -> Nothing
 
 symbolicIndices :: forall sym ctx
-                 . IsBasicExprBuilder sym
+                 . IsExprBuilder sym
                 => sym
                 -> Ctx.Assignment IndexLit ctx
                 -> IO (Ctx.Assignment (SymExpr sym) ctx)
@@ -2855,7 +2856,7 @@ betaReduce sym f args =
     MatlabSolverFnInfo fn_id _ _ -> do
       evalMatlabSolverFn fn_id sym args
 
-reduceApp :: (IsBasicExprBuilder sym, sym ~ ExprBuilder t st fs)
+reduceApp :: (IsExprBuilder sym, sym ~ ExprBuilder t st fs)
           => sym
           -> App (SymExpr sym) tp
           -> IO (SymExpr sym tp)
@@ -3176,7 +3177,7 @@ evalBoundVars sym e vars exprs = do
 
 -- | Return true if corresponding expressions in contexts are equivalent.
 allEq :: forall sym ctx
-      .  IsBasicExprBuilder sym
+      .  IsExprBuilder sym
       => sym
       -> Ctx.Assignment (SymExpr sym) ctx
       -> Ctx.Assignment (SymExpr sym) ctx
@@ -3513,7 +3514,7 @@ semiRingMul sym sr x y
 -- -> not (u > 0 & v < 0) & not (u < 0 & v > 0)
 -- -> (u <= 0 | v >= 0) & (u >= 0 | v <= 0)
 -- -> (u <= 0 | 0 <= v) & (0 <= u | v <= 0)
-leNonneg :: IsBasicExprBuilder sym
+leNonneg :: IsExprBuilder sym
          => (sym -> a -> a -> IO (Pred sym)) -- ^ Less than or equal
          -> a -- ^ zero
          -> sym
@@ -3537,7 +3538,7 @@ leNonneg le zero sym u v = do
 -- -> not (u > 0 & v > 0 | u < 0 & v < 0)
 -- -> not (u > 0 & v > 0) & not (u < 0 & v < 0)
 -- -> (u <= 0 | v <= 0) & (u >= 0 | v >= 0)
-leNonpos :: IsBasicExprBuilder sym
+leNonpos :: IsExprBuilder sym
          => (sym -> a -> a -> IO (Pred sym)) -- ^ Less than or equal
          -> a -- ^ zero
          -> sym
@@ -3608,7 +3609,7 @@ foldBoundLeM f r n = do
   f r' n
 
 foldIndicesInRangeBounds :: forall sym idx r
-                         .  IsBasicExprBuilder sym
+                         .  IsExprBuilder sym
                          => sym
                          -> (r -> Ctx.Assignment (SymExpr sym) idx -> IO r)
                          -> r
@@ -3647,7 +3648,7 @@ bvSum :: (1 <= w)
 bvSum = undefined
 -}
 
-instance IsBasicExprBuilder (ExprBuilder t st fs) where
+instance IsExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
 
   ----------------------------------------------------------------------
@@ -5256,7 +5257,7 @@ floatInfoToPrecisionRepr = \case
   DoubleDoubleFloatRepr -> undefined
 
 
-instance IsFOLExprBuilder (ExprBuilder t st fs) where
+instance IsSymExprBuilder (ExprBuilder t st fs) where
   freshConstant sym nm tp = do
     v <- sbMakeBoundVar sym nm tp UninterpVarKind
     updateVarBinding sym nm (VarSymbolBinding v)
@@ -5315,6 +5316,9 @@ instance IsFOLExprBuilder (ExprBuilder t st fs) where
      MatlabSolverFnInfo f _ _ -> do
        evalMatlabSolverFn f sym args
      _ -> sbNonceExpr sym $! FnApp fn args
+
+
+instance IsInterpretedFloatExprBuilder (ExprBuilder t st fs) => IsInterpretedFloatSymExprBuilder (ExprBuilder t st fs)
 
 
 --------------------------------------------------------------------------------
@@ -5389,9 +5393,3 @@ mkUninterpFnApp sym str_fn_name args ret_type = do
   let arg_types = fmapFC exprType args
   fn <- cachedUninterpFn sym fn_name arg_types ret_type freshTotalUninterpFn
   applySymFn sym fn args
-
-instance IsInterpretedFloatExprBuilder (ExprBuilder t st fs) => IsExprBuilder (ExprBuilder t st fs)
-
-instance IsInterpretedFloatExprBuilder (ExprBuilder t st fs) => IsInterpretedFloatFOLExprBuilder (ExprBuilder t st fs)
-
-instance (IsExprBuilder (ExprBuilder t st fs), IsInterpretedFloatFOLExprBuilder (ExprBuilder t st fs)) => IsSymExprBuilder (ExprBuilder t st fs)

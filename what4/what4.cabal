@@ -55,6 +55,7 @@ library
     What4.Config
     What4.FunctionName
     What4.Interface
+    What4.InterpretedFloatingPoint
     What4.Partial
     What4.ProblemFeatures
     What4.ProgramLoc

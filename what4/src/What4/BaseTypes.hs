@@ -49,19 +49,9 @@ module What4.BaseTypes
   , type FloatPrecision
     -- ** Constructors for kind FloatPrecision
   , FloatingPointPrecision
-    -- * FloatInfo data kind
-  , type FloatInfo
-    -- ** Constructors for kind FloatInfo
-  , HalfFloat
-  , SingleFloat
-  , DoubleFloat
-  , QuadFloat
-  , X86_80Float
-  , DoubleDoubleFloat
     -- * Representations of base types
   , BaseTypeRepr(..)
   , FloatPrecisionRepr(..)
-  , FloatInfoRepr(..)
   , arrayTypeIndices
   , arrayTypeResult
   , module Data.Parameterized.NatRepr
@@ -131,28 +121,10 @@ type BaseStructType  = 'BaseStructType  -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseTy
 type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'BaseType'@.
 
 -- | This data kind describes the types of floating-point formats.
--- This consist of the standard IEEE 754-2008 binary floating point formats,
+-- This consist of the standard IEEE 754-2008 binary floating point formats.
 data FloatPrecision where
   FloatingPointPrecision :: GHC.TypeLits.Nat -> GHC.TypeLits.Nat -> FloatPrecision
 type FloatingPointPrecision = 'FloatingPointPrecision -- ^ @:: 'GHC.TypeLits.Nat' -> 'GHC.TypeLits.Nat' -> 'FloatPrecision'@.
-
--- | This data kind describes the types of floating-point formats.
--- This consist of the standard IEEE 754-2008 binary floating point formats,
--- as well as the X86 extended 80-bit format and the double-double format.
-data FloatInfo where
-  HalfFloat         :: FloatInfo  --  16 bit binary IEEE754
-  SingleFloat       :: FloatInfo  --  32 bit binary IEEE754
-  DoubleFloat       :: FloatInfo  --  64 bit binary IEEE754
-  QuadFloat         :: FloatInfo  -- 128 bit binary IEEE754
-  X86_80Float       :: FloatInfo  -- X86 80-bit extended floats
-  DoubleDoubleFloat :: FloatInfo  -- two 64-bit floats fused in the "double-double" style
-
-type HalfFloat   = 'HalfFloat   -- ^  16 bit binary IEEE754.
-type SingleFloat = 'SingleFloat -- ^  32 bit binary IEEE754.
-type DoubleFloat = 'DoubleFloat -- ^  64 bit binary IEEE754.
-type QuadFloat   = 'QuadFloat   -- ^ 128 bit binary IEEE754.
-type X86_80Float = 'X86_80Float -- ^ X86 80-bit extended floats.
-type DoubleDoubleFloat = 'DoubleDoubleFloat -- ^ Two 64-bit floats fused in the "double-double" style.
 
 ------------------------------------------------------------------------
 -- BaseTypeRepr
@@ -185,15 +157,6 @@ data FloatPrecisionRepr (fpp :: FloatPrecision) where
     => !(NatRepr eb)
     -> !(NatRepr sb)
     -> FloatPrecisionRepr (FloatingPointPrecision eb sb)
-
--- | A family of value-level representatives for floating-point types.
-data FloatInfoRepr (fi::FloatInfo) where
-  HalfFloatRepr         :: FloatInfoRepr HalfFloat
-  SingleFloatRepr       :: FloatInfoRepr SingleFloat
-  DoubleFloatRepr       :: FloatInfoRepr DoubleFloat
-  QuadFloatRepr         :: FloatInfoRepr QuadFloat
-  X86_80FloatRepr       :: FloatInfoRepr X86_80Float
-  DoubleDoubleFloatRepr :: FloatInfoRepr DoubleDoubleFloat
 
 -- | Return the type of the indices for an array type.
 arrayTypeIndices :: BaseTypeRepr (BaseArrayType idx tp)
@@ -235,13 +198,6 @@ instance ( KnownRepr (Ctx.Assignment BaseTypeRepr) idx
 instance (1 <= eb, 1 <= es, KnownNat eb, KnownNat es) => KnownRepr FloatPrecisionRepr (FloatingPointPrecision eb es) where
   knownRepr = FloatingPointPrecisionRepr knownNat knownNat
 
-instance KnownRepr FloatInfoRepr HalfFloat         where knownRepr = HalfFloatRepr
-instance KnownRepr FloatInfoRepr SingleFloat       where knownRepr = SingleFloatRepr
-instance KnownRepr FloatInfoRepr DoubleFloat       where knownRepr = DoubleFloatRepr
-instance KnownRepr FloatInfoRepr QuadFloat         where knownRepr = QuadFloatRepr
-instance KnownRepr FloatInfoRepr X86_80Float       where knownRepr = X86_80FloatRepr
-instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubleFloatRepr
-
 -- Force BaseTypeRepr, etc. to be in context for next slice.
 $(return [])
 
@@ -255,11 +211,6 @@ instance HashableF FloatPrecisionRepr where
 instance Hashable (FloatPrecisionRepr fpp) where
   hashWithSalt = $(structuralHash [t|FloatPrecisionRepr|])
 
-instance HashableF FloatInfoRepr where
-  hashWithSaltF = hashWithSalt
-instance Hashable (FloatInfoRepr fi) where
-  hashWithSalt = $(structuralHash [t|FloatInfoRepr|])
-
 instance Pretty (BaseTypeRepr bt) where
   pretty = text . show
 instance Show (BaseTypeRepr bt) where
@@ -272,17 +223,10 @@ instance Show (FloatPrecisionRepr fpp) where
   showsPrec = $(structuralShowsPrec [t|FloatPrecisionRepr|])
 instance ShowF FloatPrecisionRepr
 
-instance Pretty (FloatInfoRepr fi) where
-  pretty = text . show
-instance Show (FloatInfoRepr fi) where
-  showsPrec = $(structuralShowsPrec [t|FloatInfoRepr|])
-instance ShowF FloatInfoRepr
-
 instance TestEquality BaseTypeRepr where
   testEquality = $(structuralTypeEquality [t|BaseTypeRepr|]
                    [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|testEquality|])
                    , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|testEquality|])
-                   , (TypeApp (ConType [t|FloatInfoRepr|]) AnyType, [|testEquality|])
                    , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|testEquality|])
                    , ( TypeApp (TypeApp (ConType [t|Ctx.Assignment|]) AnyType) AnyType
                      , [|testEquality|]
@@ -294,7 +238,6 @@ instance OrdF BaseTypeRepr where
   compareF = $(structuralTypeOrd [t|BaseTypeRepr|]
                    [ (TypeApp (ConType [t|NatRepr|]) AnyType, [|compareF|])
                    , (TypeApp (ConType [t|FloatPrecisionRepr|]) AnyType, [|compareF|])
-                   , (TypeApp (ConType [t|FloatInfoRepr|]) AnyType, [|compareF|])
                    , (TypeApp (ConType [t|BaseTypeRepr|]) AnyType, [|compareF|])
                    , (TypeApp (TypeApp (ConType [t|Ctx.Assignment|]) AnyType) AnyType
                      , [|compareF|]
@@ -310,8 +253,3 @@ instance OrdF FloatPrecisionRepr where
   compareF = $(structuralTypeOrd [t|FloatPrecisionRepr|]
       [(TypeApp (ConType [t|NatRepr|]) AnyType, [|compareF|])]
     )
-
-instance TestEquality FloatInfoRepr where
-  testEquality = $(structuralTypeEquality [t|FloatInfoRepr|] [])
-instance OrdF FloatInfoRepr where
-  compareF = $(structuralTypeOrd [t|FloatInfoRepr|] [])

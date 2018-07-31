@@ -231,7 +231,7 @@ instance ( Hashable (f BaseNatType)
   hashWithSalt = $(structuralHash [t|MatlabSolverFn|])
 
 evalMatlabSolverFn :: forall sym args ret
-                   .  IsBasicExprBuilder sym
+                   .  IsExprBuilder sym
                    => MatlabSolverFn (SymExpr sym) args ret
                    -> sym
                    -> Assignment (SymExpr sym) args
@@ -277,7 +277,7 @@ evalMatlabSolverFn f sym =
 
 -- | This class is provides functions needed to implement the symbolic
 -- array intrinsic functions
-class IsFOLExprBuilder sym => MatlabSymbolicArrayBuilder sym where
+class IsSymExprBuilder sym => MatlabSymbolicArrayBuilder sym where
 
   -- | Create a Matlab solver function from its prototype.
   mkMatlabSolverFn :: sym
