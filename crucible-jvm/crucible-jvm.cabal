@@ -36,7 +36,11 @@ library
   hs-source-dirs: src
 
   exposed-modules:
+    Lang.Crucible.JVM.Types
+    Lang.Crucible.JVM.Generator
     Lang.Crucible.JVM.Translation
+    Lang.Crucible.JVM.ClassRefs
+    Lang.Crucible.JVM.Class
 
   other-modules:
 

@@ -16,14 +16,14 @@ Stability        : provisional
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+
 {-# OPTIONS_GHC -haddock #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -31,306 +31,191 @@ Stability        : provisional
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
-module Lang.Crucible.JVM.Translation where
+module Lang.Crucible.JVM.Translation
+  (
+    module Lang.Crucible.JVM.Types
+  , module Lang.Crucible.JVM.Generator
+  , module Lang.Crucible.JVM.Class
+  , module Lang.Crucible.JVM.Translation
+  )
+  where
 
+-- base
 import Data.Maybe (isJust, fromJust)
 import Data.Semigroup(Semigroup(..),(<>))
 import Control.Monad.State.Strict
 import Control.Monad.ST
+import Control.Monad.Reader
 import Control.Lens hiding (op, (:>))
 import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Set(Set)
+import qualified Data.Set as Set
+import Data.Vector(Vector)
+import qualified Data.Vector as V
 import Data.String (fromString)
 import Data.Text (Text)
+import Data.Word
 
+import System.IO
+
+-- jvm-parser
 import qualified Language.JVM.Parser as J
 import qualified Language.JVM.CFG as J
 
+-- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr as NR
 
-
+-- crucible
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
+import           Lang.Crucible.Backend
+import           Lang.Crucible.Panic
 
 import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.GlobalState   as C
 import qualified Lang.Crucible.Simulator.OverrideSim   as C
 import qualified Lang.Crucible.Simulator.RegValue      as C
+import qualified Lang.Crucible.Simulator.Frame         as C
+import qualified Lang.Crucible.Simulator.RegMap        as C
 
 import qualified Lang.Crucible.Analysis.Postdom        as C
 import qualified Lang.Crucible.Utils.MuxTree           as C
 
-
+-- what4
 import           What4.ProgramLoc (Position(InternalPos))
 import           What4.Interface (IsExprBuilder)
+import           What4.FunctionName (FunctionName(..))
 import qualified What4.Interface                       as W4
 import qualified What4.Partial                         as W4
 
+import           What4.Utils.MonadST (liftST)
+
+-- crucible-jvm
+import           Lang.Crucible.JVM.Types
+import           Lang.Crucible.JVM.ClassRefs
+import           Lang.Crucible.JVM.Generator
+import           Lang.Crucible.JVM.Class
+
 import Debug.Trace
 
-----------------------------------------------------------------------
--- JVM types
-
--- | JVM extension.
-{-
-newtype JVM = JVM () -- TODO
-type instance ExprExtension JVM = EmptyExprExtension
-type instance StmtExtension JVM = EmptyStmtExtension
--}
-type JVM = ()
-
-
-
-type JVMDoubleType = FloatType DoubleFloat
-type JVMFloatType  = FloatType SingleFloat
-type JVMIntType    = BVType 32
-type JVMLongType   = BVType 64
-type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
-
--- | A JVM value is either a double, float, int, long, or reference. If we were
--- to define these types in Haskell, they'd look something like this
---
---  data Value = Double Double | Float Float | Int Int32 | Long Int64 | Ref (Maybe (IORef Object))
---
---  data Object   = Instance { fields :: Map String Value, class :: Class }
---                | Array    { length :: Int32, values :: Vector Value }
---
-type JVMValueType = VariantType JVMValueCtx
-
-type JVMValueCtx =
-  EmptyCtx
-  ::> JVMDoubleType
-  ::> JVMFloatType
-  ::> JVMIntType
-  ::> JVMLongType
-  ::> JVMRefType
-
--- | A class instance contains a table of fields
--- and an (immutable) pointer to the class (object).
-type JVMInstanceType =
-  StructType (EmptyCtx ::> StringMapType JVMValueType ::> JVMClassType)
-
--- | An array is a length paired with a vector of values.
-type JVMArrayType =
-  StructType (EmptyCtx ::> JVMIntType ::> VectorType JVMValueType)
-
--- | An object is either a class instance or an array.
-type JVMObjectImpl =
-  VariantType (EmptyCtx ::> JVMInstanceType ::> JVMArrayType)
-
-type JVMObjectType = RecursiveType "JVM_object" EmptyCtx
-
-instance IsRecursiveType "JVM_object" where
-  type UnrollType "JVM_object" ctx = JVMObjectImpl
-  unrollType _nm _ctx = knownRepr :: TypeRepr JVMObjectImpl
-
-
-
-
-
--- | A class initialization state is
---
---      data Initialization Status = NotStarted | Started | Initialized | Erroneous
---
--- We encode this type in Crucible using 2 bits
---
-type InitStatus = BVType 2
-
-notStarted, started, initialized, erroneous :: Expr JVM f InitStatus
-notStarted   = App $ BVLit knownRepr 0
-started      = App $ BVLit knownRepr 1
-initialized  = App $ BVLit knownRepr 2
-erroneous    = App $ BVLit knownRepr 3
-
-
--- | An entry in the class table contains information about a loaded class:
---
---   data Class = MkClass { className   :: String
---                        , initStatus  :: InitStatus
---                        , superClass  :: Maybe Class
---                        , methodTable :: Map String Any    --- function handles are dynamically typed
---                        }
---
---   type ClassTable = Map String Class
-
-type JVMClassType  = RecursiveType "JVM_class"  EmptyCtx
-
-type JVMClassImpl =
-  StructType (EmptyCtx ::> StringType
-              ::> InitStatus
-              ::> MaybeType JVMClassType
-              ::> StringMapType AnyType)
-
-instance IsRecursiveType "JVM_class" where
-  type UnrollType "JVM_class" ctx = JVMClassImpl
-  unrollType _nm _ctx = knownRepr :: TypeRepr JVMClassImpl
-
--- | The dynamic class table is a data structure that can be queried at runtime
--- for information about loaded classes
-type JVMClassTableType = StringMapType JVMClassType
 
 ---------------------------------------------------------------------------------
----------------------------------------------------------------------------------
---
--- | Class objects for the class table
+-- | Working with JVM objects
+
+-- | Construct a new JVM object instance, given the class data structure
+-- and the list of fields
+newInstanceInstr ::
+  JVMClass s 
+  -- ^ class data structure
+  ->  [J.Field]
+  -- ^ Fields
+  ->  JVMGenerator h s ret (JVMObject s) 
+newInstanceInstr cls fields = do
+    objFields <- mapM createField fields
+    let strMap = foldr addField (App (EmptyStringMap knownRepr)) objFields
+    let ctx    = Ctx.empty `Ctx.extend` strMap `Ctx.extend` cls
+    let inst   = App (MkStruct knownRepr ctx)
+    let uobj   = injectVariant Ctx.i1of2 inst
+    return $ App (RollRecursive knownRepr knownRepr uobj)
+  where
+    createField field = do
+      let str  = App (TextLit (fromString (J.fieldName field)))
+      let expr = valueToExpr (defaultValue (J.fieldType field))
+      let val  = App $ JustValue knownRepr expr
+      return (str, val)
+    addField (f,i) fs = 
+      App (InsertStringMapEntry knownRepr fs f i)
+
+-- | Access the field component of a JVM object (must be a class instance, not an array)
+getInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMGenerator h s ret (JVMValue s)
+getInstanceFieldValue obj fieldId = do
+  let uobj = App (UnrollRecursive knownRepr knownRepr obj)             
+  inst <- projectVariant Ctx.i1of2 uobj
+  let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+  let key    = App (TextLit (fromString (J.fieldIdName fieldId)))
+  let mval   = App (LookupStringMapEntry knownRepr fields key)
+  dyn <- assertedJustExpr mval "getfield: field not found"
+  fromJVMDynamic (J.fieldIdType fieldId) dyn
+
+-- | Update a field of a JVM object (must be a class instance, not an array)
+setInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMValue s -> JVMGenerator h s ret (JVMObject s)
+setInstanceFieldValue obj fieldId val = do
+  let uobj   = App (UnrollRecursive knownRepr knownRepr obj)
+  inst <- projectVariant Ctx.i1of2 uobj
+  let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
+  let dyn  = valueToExpr val
+  let key = App (TextLit (fromString (J.fieldIdName fieldId)))
+  let mdyn = App (JustValue knownRepr dyn)
+  let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
+  let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
+  let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
+  return $ App (RollRecursive knownRepr knownRepr uobj')
+
+-- | Access the class table entry for the class that instantiated this instance
+getJVMInstanceClass :: JVMObject s -> JVMGenerator h s ret (JVMClass s)
+getJVMInstanceClass obj = do
+  let uobj = App (UnrollRecursive knownRepr knownRepr obj)
+  inst <- projectVariant Ctx.i1of2 uobj
+  return $ App (GetStruct inst Ctx.i2of2 knownRepr)
+
+------------------------------------------------------------------------------
+
+-- String Creation
+
+charLit :: Char -> Expr JVM s JVMValueType
+charLit c = App (InjectVariant knownRepr tagI (App (BVLit w32 (toInteger (fromEnum c)))))
+
+-- | Initializer for statically known string objects
 -- 
--- Construction
-
--- | Textual representation of the name of a class
-classText :: J.Class -> Text
-classText c = fromString (J.unClassName (J.className c))
-
-
--- | update the dynamic class table to include an entry for the specified class
---
--- This will also initalize the superclass (if present and necessary)
---
-jvmInitializeClassType :: JVMContext
-                       -> J.Class
-                       -> JVMGenerator h s t (Expr JVM s JVMClassType)
-jvmInitializeClassType ctx c  = do
-
-  let className  = App $ TextLit $ classText c
+refFromString ::  String -> JVMGenerator h s ret (JVMRef s)
+refFromString s =  do
   
-  let superClassM | Just cn  <- J.superClass c,
-                    Just cls <- Map.lookup cn (classTable ctx) = do
-                               val <- getClassTableEntry ctx cls
-                               return $ App $ JustValue knownRepr val
-                  | otherwise = return $ App $ NothingValue knownRepr 
+  -- create the string object
+  let name = "java/lang/String"
+  initializeClass name
+  clsObj <-  getJVMClassByName name
+  cls    <-  lookupClass name
+  obj    <-  newInstanceInstr clsObj (J.classFields cls)
+  rawRef <-  newRef obj
+  let ref = App (JustValue knownRepr rawRef)
 
-  superClass <- superClassM
+  -- create an array of characters
+  -- TODO: Check this with unicode characters
+  let chars = map charLit s
+  let vec   = V.fromList chars
+  let arr   = newarrayFromVec vec
+  arrRef <- newRef arr
+
+  -- It'd be preferable to use createInstance here, but the amount of
+  -- infrastructure needed to create strings via the Java runtime is significant
+  -- (thread local variables, character encodings, builtin unsafe operations,
+  -- etc.), so we cheat and just forcibly set the (private) instance fields.
+  -- We'll want want to REVISIT this in the future.
+  _ <- setInstanceFieldValue
+    obj
+    (J.FieldId "java/lang/String" "value" J.charArrayTy)
+    (RValue (App (JustValue knownRepr arrRef)))
+  _ <- setInstanceFieldValue
+    obj
+    (J.FieldId "java/lang/String" "hash" J.IntType)
+    (IValue (App (BVLit w32 0)))
   
+  return ref
 
-  let handles    = [ fromJust mhi | m <- J.classMethods c,
-                          let mhi = Map.lookup (J.className c, J.methodKey m) (symbolMap ctx),
-                          isJust mhi ]
-
-  let methTable0 = map (\(JVMHandleInfo m h) ->
-                           --trace ("packing " ++ (J.methodName m) ++ ":" ++ show (handleType h)) $
-                           (App $ TextLit ( fromString (J.methodName m)),                            
-                            App (PackAny (handleType h) (App (HandleLit h))))) handles
-                  
-  let methTable  = foldr (\ (s,v) sm -> App (InsertStringMapEntry knownRepr sm s (App $ JustValue knownRepr v)))
-                         (App (EmptyStringMap knownRepr)) methTable0
-  
-  let str        = App (RollRecursive knownRepr knownRepr
-                     $ App $ MkStruct knownRepr
-                        (Ctx.empty `Ctx.extend` className
-                                   `Ctx.extend` notStarted
-                                   `Ctx.extend` superClass
-                                   `Ctx.extend` methTable))
-
-  -- update the dynamic class table
-  let gv         = dynamicClassTable ctx                   
-  sm <- readGlobal gv
-  let expr = App $ InsertStringMapEntry knownRepr sm className (App $ JustValue knownRepr str)
-  writeGlobal gv expr
-  return str
-
--- Access
-
-jvmGetClassName :: Expr JVM f JVMClassType -> Expr JVM f StringType
-jvmGetClassName ct = App (GetStruct (App $ UnrollRecursive knownRepr knownRepr ct) Ctx.i1of4 knownRepr)
-
-jvmGetClassInitStatus :: Expr JVM f JVMClassType -> Expr JVM f InitStatus
-jvmGetClassInitStatus ct = App (GetStruct (App $ UnrollRecursive knownRepr knownRepr ct) Ctx.i2of4 knownRepr)
-
-jvmGetClassSuper :: Expr JVM f JVMClassType -> Expr JVM f (MaybeType JVMClassType)
-jvmGetClassSuper ct = App (GetStruct (App $ UnrollRecursive knownRepr knownRepr ct) Ctx.i3of4 knownRepr)
-
-jvmGetClassMethodTable :: Expr JVM f JVMClassType -> Expr JVM f (StringMapType AnyType)
-jvmGetClassMethodTable ct = App (GetStruct (App $ UnrollRecursive knownRepr knownRepr ct) Ctx.i4of4 knownRepr)
-
-
-
-
-----------------------------------------------------------------------
--- Index values for sums and products
-
-tagD :: Ctx.Index JVMValueCtx JVMDoubleType
-tagD = Ctx.i1of5
-
-tagF :: Ctx.Index JVMValueCtx JVMFloatType
-tagF = Ctx.i2of5
-
-tagI :: Ctx.Index JVMValueCtx JVMIntType
-tagI = Ctx.i3of5
-
-tagL :: Ctx.Index JVMValueCtx JVMLongType
-tagL = Ctx.i4of5
-
-tagR :: Ctx.Index JVMValueCtx JVMRefType
-tagR = Ctx.i5of5
-
-----------------------------------------------------------------------
--- JVMValue
-
-type JVMBool   s = Expr JVM s BoolType
-type JVMDouble s = Expr JVM s JVMDoubleType
-type JVMFloat  s = Expr JVM s JVMFloatType
-type JVMInt    s = Expr JVM s JVMIntType
-type JVMLong   s = Expr JVM s JVMLongType
-type JVMRef    s = Expr JVM s JVMRefType
-type JVMObject s = Expr JVM s JVMObjectType
-
-{-
-data JVMValue f
-  = DValue (f JVMDoubleType)
-  | FValue (f JVMFloatType)
-  | IValue (f JVMIntType)
-  | LValue (f JVMLongType)
-  | RValue (f JVMRefType)
-type JVMExpr s = JVMValue (Expr JVM s)
-type JVMReg s = JVMValue (Reg s)
--}
-
-data JVMValue s
-  = DValue (JVMDouble s)
-  | FValue (JVMFloat s)
-  | IValue (JVMInt s)
-  | LValue (JVMLong s)
-  | RValue (JVMRef s)
-
-data JVMReg s
-  = DReg (Reg s JVMDoubleType)
-  | FReg (Reg s JVMFloatType)
-  | IReg (Reg s JVMIntType)
-  | LReg (Reg s JVMLongType)
-  | RReg (Reg s JVMRefType)
-
-data JVMFrame v
-  = JVMFrame
-    { _operandStack :: ![v]
-    , _localVariables :: !(Map J.LocalVariableIndex v)
-    }
-
-instance Functor JVMFrame where
-  fmap f (JVMFrame os lv) = JVMFrame (fmap f os) (fmap f lv)
-
-instance Foldable JVMFrame where
-  foldr f z (JVMFrame os lv) = foldr f (foldr f z lv) os
-
-instance Traversable JVMFrame where
-  traverse f (JVMFrame os lv) = JVMFrame <$> traverse f os <*> traverse f lv
-
-operandStack :: Simple Lens (JVMFrame v) [v]
-operandStack = lens _operandStack (\s v -> s{ _operandStack = v})
-
-localVariables :: Simple Lens (JVMFrame v) (Map J.LocalVariableIndex v)
-localVariables = lens _localVariables (\s v -> s{ _localVariables = v})
-
-type JVMExprFrame s = JVMFrame (JVMValue s)
-type JVMRegisters s = JVMFrame (JVMReg s)
 
 ----------------------------------------------------------------------
 -- JVMRef
+
+rNull :: JVMRef s
+rNull = App (NothingValue knownRepr)
 
 rIsNull :: JVMRef s -> JVMGenerator h s ret (JVMBool s)
 rIsNull mr =
@@ -353,335 +238,7 @@ rEqual mr1 mr2 =
       }
     }
 
-----------------------------------------------------------------------
--- | Class Initialization
--- 
--- Make sure that static fields have their initial values
---
-
-  
--- REVISIT: it may make sense for this to be dynamic
-skipInit :: J.ClassName -> Bool
-skipInit cname = cname `elem` [ "java/lang/Object"
-                              , "java/lang/System"
-                              , "java/io/Reader"
-                              , "java/io/InputStreamReader"
-                              ]
-
--- | Returns a default value for objects with given type, suitable for
--- initializing fields.
-defaultValue :: J.Type -> JVMValue s
-defaultValue (J.ArrayType _tp) = RValue $ App $ NothingValue knownRepr
-defaultValue J.BooleanType     = IValue $ App $ BVLit knownRepr 0
-defaultValue J.ByteType        = IValue $ App $ BVLit knownRepr 0
-defaultValue J.CharType        = IValue $ App $ BVLit knownRepr 0
-defaultValue (J.ClassType _st) = RValue $ App $ NothingValue knownRepr
-defaultValue J.DoubleType      = DValue $ App $ DoubleLit 0.0
-defaultValue J.FloatType       = FValue $ App $ FloatLit 0.0
-defaultValue J.IntType         = IValue $ App $ BVLit knownRepr 0
-defaultValue J.LongType        = LValue $ App $ BVLit knownRepr 0
-defaultValue J.ShortType       = IValue $ App $ BVLit knownRepr 0
-
-
--- | Compute the initial value of a field based on its
--- static initializer and/or type
-initialFieldValue :: J.ClassName -> J.Field -> JVMValue s
-initialFieldValue name f = 
-  case J.fieldConstantValue f of
-     Just (J.Double v) ->
-        (DValue (App (DoubleLit v)))
-     Just (J.Float v) ->
-        (FValue (App (FloatLit v)))
-     Just (J.Integer v) ->
-        (IValue (App (BVLit knownRepr (toInteger v))))
-     Just (J.Long v) ->
-        (LValue (App (BVLit knownRepr (toInteger v))))
-     Just (J.String v) ->
-        error "TODO: constant string initializers unsupported"
-     Nothing ->
-        defaultValue (J.fieldType f)
-     Just tp -> error $ "Unsupported field type" ++ show tp
-
-
-setStaticFieldValueCtx :: JVMContext -> J.FieldId -> JVMValue s -> JVMGenerator h s ret ()
-setStaticFieldValueCtx ctx fieldId val = do
-    let cName = J.fieldIdClass fieldId 
-    case Map.lookup (cName, J.fieldIdName fieldId) (staticTable ctx) of
-         Just glob -> do
-           --traceM $ "Setting " ++ show glob
-           dyn <- toJVMDynamic (J.fieldIdType fieldId) val
-           writeGlobal glob dyn
-         Nothing -> 
-           jvmFail "putstatic: field not found"
-
-initializeField :: JVMContext -> J.ClassName -> J.Field -> JVMGenerator h s ret ()
-initializeField ctx name f = 
-  let fieldId = J.FieldId name (J.fieldName f) (J.fieldType f)
-  in
-    when (J.fieldIsStatic f) $ 
-      setStaticFieldValueCtx ctx fieldId (initialFieldValue name f)
-
-
--- This needs to be in the Generator monad so that we can do case analysis
--- in the simulator
-initializeClass :: forall h s ret . JVMContext -> J.ClassName -> JVMGenerator h s ret ()
-initializeClass ctx name =
-
-  if (name == "java/lang/Object") then (return ()) else do
-  
-  let mc = lookupClassCtx ctx name
-
-  c <- maybe (jvmFail $ "Initializing class:  " ++ J.unClassName name ++ " not found") return mc
-  
-  traceM $ "initializing class:" ++ J.unClassName name
-  
-  status <- getInitStatus ctx c
-
-  let ifNotStarted = do
-      
-      setInitStatus ctx c started
-      
-      maybe (return ()) (initializeClass ctx) (J.superClass c)
-
-      -- initialize all of the fields with default values
-      mapM_ (initializeField ctx name) $ J.classFields c
-
-      -- run the static initializer for the class
-      let clinit = (J.MethodKey "<clinit>" [] Nothing)
-      case c `J.lookupMethod` clinit  of
-          Just _ -> 
-            unless (skipInit name) $ do
-              handle <- getMethodCtx ctx name clinit
-              callJVMHandleUnit handle
-          Nothing -> return ()
-          
-      setInitStatus ctx c initialized
-
-  ifte_ (App $ BVEq knownRepr status notStarted) ifNotStarted (return ())
-  
-{-          
-    Erroneous   -> return () -- createAndThrow "java/lang/NoClassDefFoundError"
-    Started     -> return ()
-    Initialized -> return ()
--}
-
-
-----------------------------------------------------------------------
--- | JVMContext
--- 
--- Contains information about crucible Function handles and Global variables
--- that is statically known during the class translation.
--- 
-
-data JVMHandleInfo where
-  JVMHandleInfo :: J.Method -> FnHandle init ret -> JVMHandleInfo
-
-data JVMContext = JVMContext
-  {  symbolMap  :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
-      -- ^ map from method names to Crucible function handles
-  , staticTable :: Map (J.ClassName, String) (GlobalVar JVMValueType)
-      -- ^ map from static field names to Crucible global variables
-      -- we know about these fields at translation time so we can allocate
-      -- global variables to store them
-  , classTable  :: Map J.ClassName J.Class
-      -- ^ map from class names to their declarations
-      -- this contains all of the information about class declarations at
-      -- translation time
-  , dynamicClassTable :: GlobalVar JVMClassTableType
-      -- ^ a global variable storing information about the class that can be
-      -- used at runtime: includes initialization status, superclass (if any)
-  }
-
--- left-biased merge of two contexts
--- NOTE: There should only ever be one dynamic class table global variable. 
-instance Semigroup JVMContext where
-  c1 <> c2 =
-    JVMContext { symbolMap         = Map.union (symbolMap   c1) (symbolMap   c2)
-               , staticTable       = Map.union (staticTable c1) (staticTable c2)
-               , classTable        = Map.union (classTable  c1) (classTable  c2)
-               , dynamicClassTable = dynamicClassTable c1
-               }
-
-crucible_isNothing :: KnownRepr TypeRepr tp => Expr JVM s (MaybeType tp) -> JVMGenerator h s ret (Expr JVM s BoolType)
-crucible_isNothing expr =
-  caseMaybe expr knownRepr
-  MatchMaybe
-  { onNothing = return $ App $ BoolLit True
-  , onJust    = \_ -> return $ App $ BoolLit False
-  }
-
--- how do we know what type of method we want?
-findDynamicMethod :: forall h s ret. JVMContext
-                  -> Expr JVM s JVMClassType
-                  -> J.MethodKey
-                  -> JVMGenerator h s ret (Expr JVM s AnyType)
-findDynamicMethod ctx dcls methodKey = do
-  let dmeth = App (TextLit   (fromString (J.methodKeyName methodKey)))
-  traceM $ "looking for dynamic method " ++ J.methodKeyName methodKey 
-  let gv = dynamicClassTable ctx
-  sm <- readGlobal gv
-
-  classTypeReg <- newReg dcls
-  methodReg  <- newReg $ App $ NothingValue knownRepr
-
-  let loopbody :: JVMGenerator h s ret ()
-      loopbody = do
-        classType <- readReg classTypeReg
-        let className = jvmGetClassName classType
-        let lu = App (LookupStringMapEntry knownRepr sm className)
-        _ <- caseMaybe lu UnitRepr
-               MatchMaybe
-               { onNothing = return (App EmptyApp)
-               , onJust    =  \ct -> do
-                   let sm2 = jvmGetClassMethodTable ct
-                   let lu2 = App (LookupStringMapEntry knownRepr sm2 dmeth)
-                   caseMaybe lu2 knownRepr
-                     MatchMaybe
-                     { onNothing = do
-                         let msuper = jvmGetClassSuper ct
-                         caseMaybe msuper knownRepr
-                            MatchMaybe
-                            { onNothing = return (App EmptyApp)
-                            , onJust    = \ct2 -> assignReg classTypeReg ct2 >> return (App EmptyApp)
-                            }
-                     , onJust = \ m -> do
-                         assignReg methodReg (App $ JustValue knownRepr m)
-                         return (App EmptyApp)
-                     } 
-               }
-        return ()
-  while (InternalPos, do {r <- readReg methodReg ; crucible_isNothing r }) 
-        (InternalPos, loopbody)
-
-  v <- readReg methodReg
-  assertedJustExpr v (App $ TextLit "NoSuchMethodError")  
-
-
-
--- Look up a method in the static method table (i.e. symbolMap)
-getMethodCtx :: JVMContext -> J.ClassName -> J.MethodKey -> JVMGenerator h s ret JVMHandleInfo
-getMethodCtx ctx className methodKey = do
-   let mhandle = Map.lookup (className, methodKey) (symbolMap ctx)
-   case mhandle of
-      Nothing -> jvmFail $ "getMethod: method " ++ show methodKey ++ " in class "
-                               ++ show className ++ " not found"
-      Just handle -> return handle
-
-             
-getMethod :: J.ClassName -> J.MethodKey -> JVMStmtGen h s ret JVMHandleInfo
-getMethod className methodKey = do
-   --traceM $ "getMethod " ++ show (J.methodKeyName methodKey) ++ " in class " ++ show className
-   ctx <- lift $ gets jsContext
-   lift $ getMethodCtx ctx className methodKey
-
-getStaticFieldValue :: J.FieldId -> JVMStmtGen h s ret (JVMValue s)
-getStaticFieldValue fieldId = do
-      let cls = J.fieldIdClass fieldId
-      ctx <- lift $ gets jsContext
-      lift $ initializeClass ctx cls
-      case Map.lookup (J.fieldIdClass fieldId, J.fieldIdName fieldId) (staticTable ctx) of
-        Just glob -> do
-          ---traceM $ "reading from " ++ show glob
-          r <- lift $ readGlobal glob
-          fromJVMDynamic (J.fieldIdType fieldId) r
-        Nothing -> 
-          sgFail $ "getstatic: field " ++ J.fieldIdName fieldId ++ " not found"
-  
-setStaticFieldValue :: J.FieldId -> JVMValue s -> JVMStmtGen h s ret ()
-setStaticFieldValue fieldId val = do
-   let cName = J.fieldIdClass fieldId
-   ctx <- lift $ gets jsContext
-   case Map.lookup (cName, J.fieldIdName fieldId) (staticTable ctx) of
-         Just glob -> do
-           --traceM $ "Setting " ++ show glob
-           dyn <- lift $ toJVMDynamic (J.fieldIdType fieldId) val
-           lift $ writeGlobal glob dyn
-         Nothing -> 
-           sgFail "putstatic: field not found"
-
-
-lookupClassCtx :: JVMContext -> J.ClassName -> Maybe J.Class
-lookupClassCtx ctx cName = 
-  Map.lookup cName (classTable ctx) 
-
-
--- | lookup the class information (i.e. methods, fields, superclass)
-lookupClass :: J.ClassName -> JVMStmtGen h s ret J.Class
-lookupClass cName = do
-  ctx <- lift $ gets jsContext
-  case Map.lookup cName (classTable ctx) of
-    Just cls -> return cls
-    Nothing  -> sgFail $ "no information about class " ++ J.unClassName cName
-  -- mcl <- liftIO $ J.tryLookupClass cb cName
-
-
-
 ------------------------------------------------------------------------
--- JVMState
-
-data JVMState ret s
-  = JVMState
-  { _jsLabelMap :: !(Map J.BBId (Label s))
-  , _jsFrameMap :: !(Map J.BBId (JVMFrame (JVMReg s)))
-  , _jsCFG :: J.CFG
-  , jsRetType :: TypeRepr ret
-  , jsContext :: JVMContext
-  }
-
-jsLabelMap :: Simple Lens (JVMState ret s) (Map J.BBId (Label s))
-jsLabelMap = lens _jsLabelMap (\s v -> s { _jsLabelMap = v })
-
-jsFrameMap :: Simple Lens (JVMState ret s) (Map J.BBId (JVMFrame (JVMReg s)))
-jsFrameMap = lens _jsFrameMap (\s v -> s { _jsFrameMap = v })
-
-jsCFG :: Simple Lens (JVMState ret s) J.CFG
-jsCFG = lens _jsCFG (\s v -> s { _jsCFG = v })
-
-
--- | Access the class table entry of in the dynamic class table
--- If this class table entry has not yet been defined, define it
--- (Note: this function does not call the class initializer.)
-getClassTableEntry :: JVMContext -> J.Class -> JVMGenerator h s ret (Expr JVM s JVMClassType)
-getClassTableEntry ctx c = do 
-  let gv = (dynamicClassTable ctx)
-  sm <- readGlobal gv
-  let cn = App $ TextLit (classText c)
-  let lu = App $ LookupStringMapEntry knownRepr sm cn
-  caseMaybe lu knownRepr
-    MatchMaybe 
-      { onNothing = jvmInitializeClassType ctx c                     
-      , onJust    = return
-      }
-      
--- | Access the initialization status of the class in the dynamic class table
--- If the class table entry for this class has not yet been defined, define it
-getInitStatus :: JVMContext ->  J.Class -> JVMGenerator h s ret (Expr JVM s InitStatus)
-getInitStatus ctx c = jvmGetClassInitStatus <$> getClassTableEntry ctx c
-
--- | Update the initialization status of the class in the dynamic class table
-setInitStatus :: JVMContext -> J.Class 
-                        -> (Expr JVM f InitStatus) -> JVMGenerator h s ret ()
-setInitStatus ctx c status = do
-  let gv = dynamicClassTable ctx
-  sm <- readGlobal gv
-  let name  = App $ TextLit $ classText c
-  let entry = App $ LookupStringMapEntry knownRepr sm name
-  writeGlobal gv (App $ InsertStringMapEntry knownRepr sm name entry)
-                        
-------------------------------------------------------------------------
--- 
--- Generator to construct a CFG from sequence of monadic actions:
--- See [Lang.Crucible.CFG.Generator]
---
--- 'h' is parameter from underlying ST monad
--- 's' is phantom to prevent mixing constructs from different CFGs
--- 'ret' is return type of CFG
-
-type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
-
--- | Indicate that CFG generation failed due to ill-formed JVM code.
-jvmFail :: String -> JVMGenerator h s ret a
-jvmFail msg = fail msg
 
 newJVMReg :: JVMValue s -> JVMGenerator h s ret (JVMReg s)
 newJVMReg val =
@@ -714,13 +271,17 @@ saveStack [] [] = return ()
 saveStack (r : rs) (v : vs) = writeJVMReg r v >> saveStack rs vs
 saveStack _ _ = jvmFail "saveStack"
 
+
+-- TODO: what if we have more values? is it ok to not save them all?
+-- See Java/lang/String/compareTo
 saveLocals ::
   Map J.LocalVariableIndex (JVMReg s) ->
   Map J.LocalVariableIndex (JVMValue s) ->
   JVMGenerator h s ret ()
 saveLocals rs vs
-  | Map.keys rs == Map.keys vs = sequence_ (Map.intersectionWith writeJVMReg rs vs)
-  | otherwise                  = jvmFail "saveLocals"
+  | Set.fromAscList (Map.keys rs) `Set.isSubsetOf`
+    Set.fromAscList (Map.keys vs) = sequence_ (Map.intersectionWith writeJVMReg rs vs)
+  | otherwise                  = jvmFail $ "saveLocals:\n\t" ++ show rs ++ "\n\t" ++ show vs
 
 newRegisters :: JVMExprFrame s -> JVMGenerator h s ret (JVMRegisters s)
 newRegisters = traverse newJVMReg
@@ -742,18 +303,9 @@ forceJVMValue val =
     LValue v -> LValue <$> forceEvaluation v
     RValue v -> RValue <$> forceEvaluation v
 
-w8 :: NatRepr 8
-w8 = knownNat
 
-w16 :: NatRepr 16
-w16 = knownNat
 
-w32 :: NatRepr 32
-w32 = knownNat
-
-w64 :: NatRepr 64
-w64 = knownNat
-
+----------------------------------------------------------------------
 
 {-----
 -- | Information about a JVM basic block
@@ -782,7 +334,10 @@ buildBlockInfo bb = do
   return (blk_lbl, LLVMBlockInfo{ block_phi_map = phi_map
                                 , block_label = lab
                                 })
--------------------------------------------------------------------------------}
+-}
+
+
+-------------------------------------------------------------------------------
 
 generateBasicBlock ::
   J.BasicBlock ->
@@ -842,6 +397,10 @@ getLabelAtPC pc =
      case Map.lookup (J.bbId bb) lm of
        Nothing -> jvmFail "getLabelAtPC"
        Just lbl -> return lbl
+
+
+
+
 
 ----------------------------------------------------------------------
 -- JVM statement generator monad
@@ -911,25 +470,6 @@ popType2 =
        _ ->
          sgFail "popType2"
 
-fromIValue :: JVMValue s -> JVMGenerator h s ret (JVMInt s)
-fromIValue (IValue v) = return v
-fromIValue _ = jvmFail "fromIValue"
-
-fromLValue :: JVMValue s -> JVMGenerator h s ret (JVMLong s)
-fromLValue (LValue v) = return v
-fromLValue _ = jvmFail "fromLValue"
-
-fromDValue :: JVMValue s -> JVMGenerator h s ret (JVMDouble s)
-fromDValue (DValue v) = return v
-fromDValue _ = jvmFail "fromDValue"
-
-fromFValue :: JVMValue s -> JVMGenerator h s ret (JVMFloat s)
-fromFValue (FValue v) = return v
-fromFValue _ = jvmFail "fromFValue"
-
-fromRValue :: JVMValue s -> JVMGenerator h s ret (JVMRef s)
-fromRValue (RValue v) = return v
-fromRValue _ = jvmFail "fromRValue"
 
 iPop :: JVMStmtGen h s ret (JVMInt s)
 iPop = popValue >>= lift . fromIValue
@@ -961,6 +501,10 @@ dPush d = pushValue (DValue d)
 rPush :: JVMRef s -> JVMStmtGen h s ret ()
 rPush r = pushValue (RValue r)
 
+uPush :: Expr JVM s UnitType -> JVMStmtGen h s ret ()
+uPush u = return ()
+
+
 setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
 setLocal idx v =
   do v' <- lift $ forceJVMValue v
@@ -977,60 +521,9 @@ throwIfRefNull ::
   JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
 throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 
-projectVariant ::
-  KnownRepr (Ctx.Assignment TypeRepr) ctx =>
-  Ctx.Index ctx tp ->
-  Expr JVM s (VariantType ctx) ->
-  JVMStmtGen h s ret (Expr JVM s tp)
-projectVariant tag var =
-  do let mx = App (ProjectVariant knownRepr tag var)
-     lift $ assertedJustExpr mx "incorrect variant"
-
-injectVariant ::
-  KnownRepr (Ctx.Assignment TypeRepr) ctx =>
-  Ctx.Index ctx tp ->
-  Expr JVM s tp ->
-  Expr JVM s (VariantType ctx)
-injectVariant tag val = App (InjectVariant knownRepr tag val)
-
-fromJVMDynamic :: J.Type -> Expr JVM s JVMValueType -> JVMStmtGen h s ret (JVMValue s)
-fromJVMDynamic ty dyn =
-  case ty of
-    J.BooleanType -> IValue <$> projectVariant tagI dyn
-    J.ArrayType _ -> RValue <$> projectVariant tagR dyn
-    J.ByteType    -> IValue <$> projectVariant tagI dyn
-    J.CharType    -> IValue <$> projectVariant tagI dyn
-    J.ClassType _ -> RValue <$> projectVariant tagR dyn
-    J.DoubleType  -> DValue <$> projectVariant tagD dyn
-    J.FloatType   -> FValue <$> projectVariant tagF dyn
-    J.IntType     -> IValue <$> projectVariant tagI dyn
-    J.LongType    -> LValue <$> projectVariant tagL dyn
-    J.ShortType   -> IValue <$> projectVariant tagI dyn
-
-toJVMDynamic :: J.Type -> JVMValue s -> JVMGenerator h s ret (Expr JVM s JVMValueType)
-toJVMDynamic ty val =
-  case ty of
-    J.BooleanType -> injectVariant tagI <$> fmap boolFromInt (fromIValue val)
-    J.ArrayType _ -> injectVariant tagR <$> fromRValue val
-    J.ByteType    -> injectVariant tagI <$> fmap byteFromInt (fromIValue val)
-    J.CharType    -> injectVariant tagI <$> fmap charFromInt (fromIValue val)
-    J.ClassType _ -> injectVariant tagR <$> fromRValue val
-    J.DoubleType  -> injectVariant tagD <$> fromDValue val
-    J.FloatType   -> injectVariant tagF <$> fromFValue val
-    J.IntType     -> injectVariant tagI <$> fromIValue val
-    J.LongType    -> injectVariant tagL <$> fromLValue val
-    J.ShortType   -> injectVariant tagI <$> fmap shortFromInt (fromIValue val)
-
-
-
-arrayLength :: Expr JVM s JVMArrayType -> JVMInt s
-arrayLength arr = App (GetStruct arr Ctx.i1of2 knownRepr)
-
 throw :: JVMRef s -> JVMStmtGen h s ret ()
 throw _ = sgUnimplemented "throw"
 
-rNull :: JVMRef s
-rNull = App (NothingValue knownRepr)
 
 iZero :: JVMInt s
 iZero = App (BVLit w32 0)
@@ -1040,6 +533,11 @@ bTrue = App (BoolLit True)
 
 bFalse :: JVMBool s
 bFalse = App (BoolLit False)
+
+arrayLength :: Expr JVM s JVMArrayType -> JVMInt s
+arrayLength arr = App (GetStruct arr Ctx.i1of2 knownRepr)
+
+----------------------------------------------------------------------
 
 processBlockAtPC' :: J.PC -> JVMStmtGen h s ret (Label s)
 processBlockAtPC' pc =
@@ -1054,43 +552,18 @@ nextPC pc =
        Just pc' -> return pc'
 
 
--- | lookup the data structure associated with a class
-getClassObject ::
-  J.ClassName -> JVMStmtGen h s ret (Expr JVM s JVMClassType)
-getClassObject name = do
-  ctx <- lift $ gets jsContext
-  c <- lookupClass name
-  lift $ getClassTableEntry ctx c
   
 ----------------------------------------------------------------------
 
--- Compare an implicit type repr with an explicit one
-eqI :: forall tp1 tp2. (KnownRepr TypeRepr tp1) =>
-  TypeRepr tp2 -> Maybe (tp1 :~: tp2)
-eqI = testEquality (knownRepr :: TypeRepr tp1)
-
-
--- Does this definition of pushRet look nicer? It is a little more obvious
--- that it is doing a case analysis. And the helper function is more
--- generic. But it does require the explicit type application, even though
--- the type is already known
 pushRet ::
   forall h s ret tp. TypeRepr tp -> Expr JVM s tp -> JVMStmtGen h s ret ()
-pushRet tp 
-  | Just Refl <- eqI @JVMDoubleType tp = dPush
-  | Just Refl <- eqI @JVMFloatType  tp = fPush
-  | Just Refl <- eqI @JVMIntType    tp = iPush
-  | Just Refl <- eqI @JVMLongType   tp = lPush
-  | Just Refl <- eqI @JVMRefType    tp = rPush
-  | Just Refl <- eqI @UnitType      tp = \_ -> return ()   -- ignore unit results?
-  | otherwise = \_ -> sgFail $ "pushRet: invalid type " ++ show tp
-
-{-  
+pushRet tp expr = 
   tryPush dPush $
   tryPush fPush $
   tryPush iPush $
   tryPush lPush $
   tryPush rPush $
+  tryPush uPush $  
   sgFail "pushRet: invalid type"
   where
     tryPush ::
@@ -1101,7 +574,6 @@ pushRet tp
       case testEquality tp (knownRepr :: TypeRepr t) of
         Just Refl -> push expr
         Nothing -> k
--}
   
 popArgument ::
   forall tp h s ret. TypeRepr tp -> JVMStmtGen h s ret (Expr JVM s tp)
@@ -1136,24 +608,12 @@ popArguments args =
          xs <- popArguments tps
          return (Ctx.extend xs x)
 
-callJVMHandleUnit :: JVMHandleInfo -> JVMGenerator h s ret ()
-callJVMHandleUnit (JVMHandleInfo _method handle) =
-  do let argTys = handleArgTypes handle
-         retTy  = handleReturnType handle
-     case (testEquality argTys (knownRepr :: Ctx.Assignment TypeRepr Ctx.EmptyCtx),
-           testEquality retTy  (knownRepr :: TypeRepr UnitType)) of
-       (Just Refl, Just Refl) -> do
-         _ <- call (App (HandleLit handle)) knownRepr
-         return ()
-       (_,_) -> error "Internal error: can only call functions with no args/result"
 
 callJVMHandle :: JVMHandleInfo -> JVMStmtGen h s ret ()
-callJVMHandle (JVMHandleInfo _method handle) =
+callJVMHandle (JVMHandleInfo methodKey handle) =
   do args <- popArguments (handleArgTypes handle)
      result <- lift $ call (App (HandleLit handle)) args
      pushRet (handleReturnType handle) result
-
-----------------------------------------------------------------------
 
 
 
@@ -1190,16 +650,16 @@ generateInstruction (pc, instr) =
     J.Dmul  -> binary dPop dPop dPush dMul
     J.Ddiv  -> binary dPop dPop dPush dDiv
     J.Drem  -> binary dPop dPop dPush dRem
-    J.Dcmpg -> binary dPop dPop iPush (error "dCmpg")
-    J.Dcmpl -> binary dPop dPop iPush (error "dCmpl")
+    J.Dcmpg -> binaryGen dPop dPop iPush dCmpg
+    J.Dcmpl -> binaryGen dPop dPop iPush dCmpl
     J.Fadd  -> binary fPop fPop fPush fAdd
     J.Fsub  -> binary fPop fPop fPush fSub
     J.Fneg  -> unary fPop fPush (error "fNeg")
     J.Fmul  -> binary fPop fPop fPush fMul
     J.Fdiv  -> binary fPop fPop fPush fDiv
     J.Frem  -> binary fPop fPop fPush fRem
-    J.Fcmpg -> binary fPop fPop iPush (error "fCmpg")
-    J.Fcmpl -> binary fPop fPop iPush (error "fCmpl")
+    J.Fcmpg -> binaryGen fPop fPop iPush dCmpg
+    J.Fcmpl -> binaryGen fPop fPop iPush dCmpl
     J.Iadd  -> binary iPop iPop iPush (\a b -> App (BVAdd w32 a b))
     J.Isub  -> binary iPop iPop iPush (\a b -> App (BVSub w32 a b))
     J.Imul  -> binary iPop iPop iPush (\a b -> App (BVMul w32 a b))
@@ -1211,7 +671,7 @@ generateInstruction (pc, instr) =
                (\a b -> App (AddSideCondition (BaseBVRepr w32) (App (BVNonzero w32 b))
                              "java/lang/ArithmeticException"
                              (App (BVSrem w32 a b))))
-    J.Ineg  -> unary iPop iPush (error "iNeg")
+    J.Ineg  -> unaryGen iPop iPush iNeg
     J.Iand  -> binary iPop iPop iPush (\a b -> App (BVAnd w32 a b))
     J.Ior   -> binary iPop iPop iPush (\a b -> App (BVOr  w32 a b))
     J.Ixor  -> binary iPop iPop iPush (\a b -> App (BVXor w32 a b))
@@ -1221,8 +681,10 @@ generateInstruction (pc, instr) =
     J.Ladd  -> binary lPop lPop lPush (\a b -> App (BVAdd w64 a b))
     J.Lsub  -> binary lPop lPop lPush (\a b -> App (BVSub w64 a b))
     J.Lmul  -> binary lPop lPop lPush (\a b -> App (BVMul w64 a b))
-    J.Lneg  -> unary lPop lPush (error "lNeg")
-    J.Ldiv  -> binary lPop lPop (error "lPush")
+    J.Lneg  -> unaryGen lPop lPush lNeg
+    J.Ldiv  -> binary lPop lPop lPush -- TODO: why was this lPush an error?
+               -- there is also a special case when when dividend is maxlong
+               -- and divisor is -1 
                (\a b -> App (AddSideCondition (BaseBVRepr w64) (App (BVNonzero w64 b))
                              "java/lang/ArithmeticException"
                              (App (BVSdiv w64 a b))))
@@ -1233,7 +695,7 @@ generateInstruction (pc, instr) =
     J.Land  -> binary lPop lPop lPush (\a b -> App (BVAnd w64 a b))
     J.Lor   -> binary lPop lPop lPush (\a b -> App (BVOr  w64 a b))
     J.Lxor  -> binary lPop lPop lPush (\a b -> App (BVXor w64 a b))
-    J.Lcmp  -> binary lPop lPop iPush (error "lCmp")
+    J.Lcmp  -> binaryGen lPop lPop iPush lCmp
     J.Lshl  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVShl w64 a b))
     J.Lshr  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVAshr w64 a b))
     J.Lushr -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVLshr w64 a b))
@@ -1255,64 +717,44 @@ generateInstruction (pc, instr) =
         J.Float v    -> fPush (fConst v)
         J.Integer v  -> iPush (iConst (toInteger v))
         J.Long v     -> lPush (lConst (toInteger v))
-        J.String _v  -> sgUnimplemented "ldc string" -- pushValue . RValue =<< refFromString v
-        J.ClassRef _ -> sgUnimplemented "ldc class"  -- pushValue . RValue =<< getClassObject c
+        J.String v  -> pushValue . RValue =<< (lift $ refFromString v)
+        J.ClassRef _ -> rPush rNull -- TODO: construct reflective class information
+
 
     -- Object creation and manipulation
-    -- TODO
     J.New name -> do
       --traceM $ "new " ++ show name
-      clsObj <- getClassObject name
-      cls <- lookupClass name
-      fields <- mapM createField (J.classFields cls)
-      newInstanceInstr clsObj fields
+      cls    <- lift $ lookupClass name
+      clsObj <- lift $ getJVMClass cls
+      obj    <- lift $ newInstanceInstr clsObj (J.classFields cls)
+      rawRef <- lift $ newRef obj
+      let ref = App (JustValue knownRepr rawRef)
+      rPush ref
 
-    J.Getfield fieldId ->
-      do --traceM $ "getfield " ++ show (J.fieldIdName fieldId)
-         objectRef <- rPop
-         rawRef <- throwIfRefNull objectRef
-         obj <- lift $ readRef rawRef
-         let (uobj :: Expr JVM s JVMObjectImpl ) =
-               App (UnrollRecursive knownRepr knownRepr obj)
-               
-         inst <- projectVariant Ctx.i1of2 uobj
+    J.Getfield fieldId -> do
+      --traceM $ "getfield " ++ show (J.fieldIdName fieldId)
+      objectRef <- rPop
+      rawRef <- throwIfRefNull objectRef
+      obj <- lift $ readRef rawRef
+      val <- lift $ getInstanceFieldValue obj fieldId
+      pushValue val
 
-         let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-
-         let key = App (TextLit (fromString (J.fieldIdName fieldId)))
-         
-         let mval = App (LookupStringMapEntry knownRepr fields key)
-         dyn <- lift $ assertedJustExpr mval "getfield: field not found"
-         val <- fromJVMDynamic (J.fieldIdType fieldId) dyn
-         pushValue val
-
-    J.Putfield fieldId -> 
-      do -- traceM $ "putfield " ++ show (J.fieldIdName fieldId)
-         val <- popValue
-         objectRef <- rPop
-         rawRef <- throwIfRefNull objectRef
-         obj <- lift $ readRef rawRef
-         let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-         let minst = App (ProjectVariant knownRepr Ctx.i1of2 uobj)
-         inst <- lift $ assertedJustExpr minst "putfield: not a valid class instance"
-         let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-         dyn <- lift $ toJVMDynamic (J.fieldIdType fieldId) val
-         let key = App (TextLit (fromString (J.fieldIdName fieldId)))
-         let mdyn = App (JustValue knownRepr dyn)
-         let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
-         let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
-         let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
-         let obj' = App (RollRecursive knownRepr knownRepr uobj')
-         lift $ writeRef rawRef obj'
+    J.Putfield fieldId -> do
+      -- traceM $ "putfield " ++ show (J.fieldIdName fieldId)
+      val <- popValue
+      objectRef <- rPop
+      rawRef <- throwIfRefNull objectRef
+      obj  <- lift $ readRef rawRef
+      obj' <- lift $ setInstanceFieldValue obj fieldId val
+      lift $ writeRef rawRef obj'
 
     J.Getstatic fieldId -> do
-      
-      val <- getStaticFieldValue fieldId
+      val <- lift $ getStaticFieldValue fieldId
       pushValue val
 
     J.Putstatic fieldId -> do
       val <- popValue
-      setStaticFieldValue fieldId val
+      lift $ setStaticFieldValue fieldId val
 
     -- Array creation and manipulation
     J.Newarray arrayType ->
@@ -1321,18 +763,19 @@ generateInstruction (pc, instr) =
          lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
          -- FIXME: why doesn't jvm-parser just store the element type?
          case arrayType of
-           J.ArrayType elemType ->
-             case elemType of
-               J.BooleanType -> newarrayInstr tagI count (iConst 0)
+           J.ArrayType elemType -> do
+             -- REVISIT: old version did not allow arrays of arrays
+             -- or arrays of objects. Why was that?
+             -- We can disable that here if necessary by
+             -- matching on the elem type
+             let expr = valueToExpr $ defaultValue elemType 
+             let obj = newarrayExpr count expr
+             rawRef <- lift $ newRef obj
+             let ref = App (JustValue knownRepr rawRef)
+             rPush ref
+{-             case elemType of
                J.ArrayType _ -> sgFail "newarray: invalid element type"
-               J.ByteType    -> newarrayInstr tagI count (iConst 0)
-               J.CharType    -> newarrayInstr tagI count (iConst 0)
-               J.ClassType _ -> sgFail "newarray: invalid element type"
-               J.DoubleType  -> newarrayInstr tagD count (dConst 0)
-               J.FloatType   -> newarrayInstr tagF count (fConst 0)
-               J.IntType     -> newarrayInstr tagI count (iConst 0)
-               J.LongType    -> newarrayInstr tagL count (lConst 0)
-               J.ShortType   -> newarrayInstr tagI count (iConst 0)
+               J.ClassType _ -> sgFail "newarray: invalid element type" -}
            _ -> sgFail "newarray: expected array type"
     J.Multianewarray _elemType dimensions ->
       do counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
@@ -1450,68 +893,58 @@ generateInstruction (pc, instr) =
       do vs <- get
          lbl <- lift $ processBlockAtPC pc' vs
          lift $ jump lbl
+         
     J.Jsr _pc' -> sgFail "generateInstruction: jsr/ret not supported"
     J.Ret _idx -> sgFail "ret" --warning "jsr/ret not implemented"
 
     -- Method invocation and return instructions
-    -- TODO: this does not handle method overriding. It uses the
-    -- static type of the object instead of the dynamic class to
-    -- look up the method to invoke.
-    J.Invokevirtual (J.ClassType className) methodKey -> do
-      ctx <- lift $ gets jsContext
-      lift $ initializeClass ctx className
-      handle <- getMethod className methodKey
-      callJVMHandle handle
+    -- usual dynamic dispatch
+    J.Invokevirtual tp@(J.ClassType className) methodKey ->
+      generateInstruction (pc, J.Invokeinterface className methodKey)
 
-    -- TODO
+    J.Invokevirtual tp@(J.ArrayType ty) methodKey ->
+      sgFail $ "TODO: invoke virtual " ++ show (J.methodKeyName methodKey) ++ " unsupported for arrays"
+
+    -- TODO: not sure what this is. 
     J.Invokevirtual   tp        _methodKey ->
-      sgUnimplemented $ "Invokevirtual for " ++ show tp
-      
+      sgFail $ "Invalid static type for invokevirtual " ++ show tp 
+
+    -- Dynamic dispatch through an interface
     J.Invokeinterface className methodKey -> do
-      traceM $ "invoke interface" ++ show className
+      let mname = J.unClassName className ++ "/" ++ J.methodKeyName methodKey
+      traceM $ "invoke: " ++ mname
       
       -- find the static type of the method
-      -- TODO: do we have a problem with "this"
-      let argTys = map javaTypeToRepr $ J.methodKeyParameterTypes methodKey
       let mretTy = javaTypeToRepr   <$> J.methodKeyReturnType     methodKey
 
-      let makeCtx :: [Some TypeRepr] -> Some CtxRepr
-          makeCtx [] = Some (knownRepr :: CtxRepr Ctx.EmptyCtx)
-          makeCtx (Some t1:args) =
-            case makeCtx args of
-              Some ctx -> Some (ctx `Ctx.extend` t1)
-
-      Some argRepr <- return $ makeCtx argTys
+      Some argRepr <- return $ javaTypesToCtxRepr $ reverse (J.methodKeyParameterTypes methodKey)
       Some retRepr <- return $ maybe (Some UnitRepr) id mretTy 
 
-      let objTypeRepr :: TypeRepr JVMRefType
-          objTypeRepr = knownRepr
+      args   <- popArguments argRepr
 
-      args   <- popArguments argRepr -- TODO: check whether we need to reverse them
-      
       objRef <- rPop
 
       rawRef <- throwIfRefNull objRef
-      obj    <- lift $ readRef rawRef
-      let uobj = App (UnrollRecursive knownRepr knownRepr obj)
-      inst   <- projectVariant Ctx.i1of2 uobj
+      result <- lift $ do
+          obj    <- readRef rawRef
+          cls    <- getJVMInstanceClass obj
 
-      let cls  = App (GetStruct inst Ctx.i2of2 knownRepr)
-
-      let argRepr' = (Ctx.empty `Ctx.extend` objTypeRepr) Ctx.<++> argRepr 
-      ctx    <- lift $ gets jsContext      
-      anym   <- lift $ findDynamicMethod ctx cls methodKey
-      fn     <- lift $ assertedJustExpr (App (UnpackAny (FunctionHandleRepr argRepr' retRepr) anym))
-                        (App $ TextLit $ fromString ("invalid method type" ++ show (FunctionHandleRepr argRepr' retRepr)))
-      
-      result <- lift $ call fn (Ctx.empty `Ctx.extend` objRef Ctx.<++> args)
+          let argRepr' = (Ctx.empty `Ctx.extend` (knownRepr :: TypeRepr JVMRefType))
+                         Ctx.<++> argRepr 
+          anym   <- findDynamicMethod cls methodKey
+          fn     <- assertedJustExpr (App (UnpackAny (FunctionHandleRepr argRepr' retRepr) anym))
+                        (App $ TextLit $ fromString ("invalid method type"
+                                      ++ show (FunctionHandleRepr argRepr' retRepr)))
+          call fn (Ctx.empty `Ctx.extend` objRef Ctx.<++> args)
 
       pushRet retRepr result
+      traceM $ "finish invoke:" ++ mname
     
     J.Invokespecial   (J.ClassType methodClass) methodKey ->
       -- treat constructor invocations like static methods
       generateInstruction (pc, J.Invokestatic methodClass methodKey)
-      
+
+    -- TODO: still don't know what this one is
     J.Invokespecial   tp _methodKey -> sgUnimplemented $ "Invokespecial for " ++ show tp
       
     J.Invokestatic    className methodKey
@@ -1520,13 +953,22 @@ generateInstruction (pc, instr) =
       | className == "java/lang/Object" && J.methodKeyName methodKey == "<init>" ->
         return ()
 
+      | className == "java/lang/Object" && J.methodKeyName methodKey == "hashCode" ->
+        -- TODO: hashCode always returns 0, can we make it be an "abstract" int?
+        iPush (App $ BVLit knownRepr 0)
+
+      | className == "java/lang/Class" && J.methodKeyName methodKey == "getPrimitiveClass" -> do
+        _arg <- rPop
+        -- TODO: java reflection
+        rPush rNull
+
       | otherwise -> do
         -- make sure that *this* class has already been initialized
-        ctx <- lift $ gets jsContext
-        lift $ initializeClass ctx className
-        handle <- getMethod className methodKey
+        lift $ initializeClass className
+        handle <- lift $ getStaticMethod className methodKey
         callJVMHandle handle
-           
+
+    -- and what is this??
     J.Invokedynamic   _word16 -> sgUnimplemented "Invokedynamic"
 
     J.Ireturn -> returnInstr iPop
@@ -1559,16 +1001,32 @@ generateInstruction (pc, instr) =
          lift $ reportError (App (TextLit "athrow"))
          --throwIfRefNull objectRef
          --throw objectRef
-    J.Checkcast _tp ->
+         
+    J.Checkcast (J.ClassType className) ->
       do objectRef <- rPop
-         () <- sgUnimplemented "checkcast" --assertTrueM (isNull objectRef ||| objectRef `hasType` tp) "java/lang/ClassCastException"
+         rawRef <- throwIfRefNull objectRef
+         lift $ do obj <- readRef rawRef
+                   cls <- getJVMInstanceClass obj
+                   b <- isSubclass cls className 
+                   assertExpr b "java/lang/ClassCastException"
          rPush objectRef
+
+    J.Checkcast tp ->
+      -- TODO checked casts for interfaces
+      sgUnimplemented $ "checkcast unimplemented for interface " ++ show tp
     J.Iinc idx constant ->
       do value <- getLocal idx >>= lift . fromIValue
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
+    J.Instanceof (J.ClassType className) ->
+      do objectRef <- rPop
+         rawRef <- throwIfRefNull objectRef
+         obj <- lift $ readRef rawRef
+         cls <- lift $ getJVMInstanceClass obj
+         b <- lift $ isSubclass cls className
+         let ib = App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
+         iPush ib
     J.Instanceof _tp ->
-      do _objectRef <- rPop
          sgUnimplemented "instanceof" -- objectRef `instanceOf` tp
     J.Monitorenter ->
       do void rPop
@@ -1586,6 +1044,17 @@ unary pop push op =
   do value <- pop
      push (op value)
 
+
+unaryGen ::
+  JVMStmtGen h s ret a ->
+  (b -> JVMStmtGen h s ret ()) ->
+  (a -> JVMGenerator h s ret b) ->
+  JVMStmtGen h s ret ()
+unaryGen pop push op =
+  do value <- pop
+     ret <- lift $ op value
+     push ret
+
 binary ::
   JVMStmtGen h s ret a ->
   JVMStmtGen h s ret b ->
@@ -1597,54 +1066,50 @@ binary pop1 pop2 push op =
      value1 <- pop1
      push (value1 `op` value2)
 
-createField :: J.Field -> JVMStmtGen h s ret (Expr JVM s StringType, Expr JVM s (MaybeType JVMValueType))
-createField field = do
-  let str = App (TextLit (fromString (J.fieldName field)))
-  let val0 = defaultValue (J.fieldType field)
-  expr <- lift $ toJVMDynamic (J.fieldType field) val0
-  let val = App $ JustValue knownRepr expr
-  return (str, val)
-
-newInstanceInstr ::
-  Expr JVM s JVMClassType
-  -- ^ class data structure
-  ->  [(Expr JVM s StringType, Expr JVM s (MaybeType JVMValueType))]
-  -- ^ Field names and appropriate initial values
-  ->  JVMStmtGen h s ret () 
-newInstanceInstr cls objFields = do
-    let strMap = foldr addField (App (EmptyStringMap dynRepr)) objFields
-    let ctx    = Ctx.empty `Ctx.extend` strMap `Ctx.extend` cls
-    let inst   = App (MkStruct knownRepr ctx)
-    let uobj   = injectVariant Ctx.i1of2 inst
-    let obj    = App (RollRecursive knownRepr knownRepr uobj)
-    rawRef     <- lift $ newRef obj
-    let ref    = App (JustValue knownRepr rawRef)
-    rPush ref
-  where
-    dynRepr :: TypeRepr JVMValueType
-    dynRepr  = knownRepr
-    addField (f,i) fs = 
-      App (InsertStringMapEntry dynRepr fs f i)
-
-newarrayInstr ::
-  KnownRepr TypeRepr t =>
-  Ctx.Index JVMValueCtx t ->
-  -- type tag
-  JVMInt s ->
-  -- array size, must be nonnegative
-  Expr JVM s t ->
-  -- Initial value for array element
+binaryGen ::
+  JVMStmtGen h s ret a ->
+  JVMStmtGen h s ret b ->
+  (c -> JVMStmtGen h s ret ()) ->
+  (a -> b -> JVMGenerator h s ret c) ->
   JVMStmtGen h s ret ()
-newarrayInstr tag count x =
-  do let val = injectVariant tag x
-     let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
-     let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec
-     let arr = App (MkStruct knownRepr ctx)
-     let uobj = injectVariant Ctx.i2of2 arr
-     let obj = App (RollRecursive knownRepr knownRepr uobj)
-     rawRef <- lift $ newRef obj
-     let ref = App (JustValue knownRepr rawRef)
-     rPush ref
+binaryGen pop1 pop2 push op =
+  do value2 <- pop2
+     value1 <- pop1
+     ret <- lift $ value1 `op` value2 
+     push ret
+
+
+
+
+
+newarrayExpr ::
+  JVMInt s 
+  -- ^ array size, must be nonnegative
+  -> Expr JVM s JVMValueType
+  -- ^ Initial value for all array elements
+  -> Expr JVM s JVMObjectType
+newarrayExpr count val =
+  let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
+      ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec
+      arr = App (MkStruct knownRepr ctx)
+      uobj = injectVariant Ctx.i2of2 arr
+  in 
+     App (RollRecursive knownRepr knownRepr uobj)
+
+newarrayFromVec ::
+  Vector (Expr JVM s JVMValueType)
+  -- ^ Initial values for all array elements
+  -> Expr JVM s JVMObjectType
+newarrayFromVec vec = 
+  let count = App $ BVLit w32 (toInteger (V.length vec))
+      ctx   = Ctx.empty `Ctx.extend` count `Ctx.extend` (App $ VectorLit knownRepr vec)
+      arr   = App (MkStruct knownRepr ctx)
+      uobj  = injectVariant Ctx.i2of2 arr
+  in 
+    App $ RollRecursive knownRepr knownRepr uobj
+  
+
+
 
 aloadInstr ::
   KnownRepr TypeRepr t =>
@@ -1750,53 +1215,43 @@ returnInstr pop =
 ----------------------------------------------------------------------
 -- Basic Value Operations
 
-charFromInt :: JVMInt s -> JVMInt s
-charFromInt i = App (BVZext w32 w16 (App (BVTrunc w16 w32 i)))
-
 floatFromDouble :: JVMDouble s -> JVMFloat s
-floatFromDouble _ = error "floatFromDouble"
+floatFromDouble d = App (FloatCast SingleFloatRepr d)
 
 intFromDouble :: JVMDouble s -> JVMInt s
-intFromDouble _ = error "intFromDouble"
+intFromDouble d = App (FloatToSBV w32 d)
 
 longFromDouble :: JVMDouble s -> JVMLong s
-longFromDouble _ = error "longFromDouble"
+longFromDouble d = App (FloatToSBV w64 d)
 
 doubleFromFloat :: JVMFloat s -> JVMDouble s
-doubleFromFloat _ = error "doubleFromFloat"
+doubleFromFloat f = App (FloatCast DoubleFloatRepr f)
 
 intFromFloat :: JVMFloat s -> JVMInt s
-intFromFloat _ = error "intFromFloat"
+intFromFloat f = App (FloatToSBV w32 f)
 
 longFromFloat :: JVMFloat s -> JVMLong s
-longFromFloat _ = error "longFromFloat"
-
-boolFromInt :: JVMInt s -> JVMInt s
-boolFromInt _ = error "boolFromInt"
-
-byteFromInt :: JVMInt s -> JVMInt s
-byteFromInt i = App (BVSext w32 w8 (App (BVTrunc w8 w32 i)))
+longFromFloat f = App (FloatToSBV w64 f)
 
 doubleFromInt :: JVMInt s -> JVMDouble s
-doubleFromInt _ = error "doubleFromInt"
+doubleFromInt i = App (FloatFromSBV DoubleFloatRepr i)
 
 floatFromInt :: JVMInt s -> JVMFloat s
-floatFromInt _ = error "floatFromInt"
+floatFromInt i = App (FloatFromSBV SingleFloatRepr i)
 
+-- | TODO: double check this
 longFromInt :: JVMInt s -> JVMLong s
-longFromInt _ = error "longFromInt"
+longFromInt x = App (BVSext w64 w32 x)
 
-shortFromInt :: JVMInt s -> JVMInt s
-shortFromInt i = App (BVSext w32 w16 (App (BVTrunc w16 w32 i)))
 
 doubleFromLong :: JVMLong s -> JVMDouble s
-doubleFromLong _ = error "doubleFromLong"
+doubleFromLong l = App (FloatFromSBV DoubleFloatRepr l)
 
 floatFromLong :: JVMLong s -> JVMFloat s
-floatFromLong _ = error "floatFromLong"
+floatFromLong l = App (FloatFromSBV SingleFloatRepr l)
 
 intFromLong :: JVMLong s -> JVMInt s
-intFromLong _ = error "intFromLong"
+intFromLong l = App (BVTrunc w32 w64 l)
 
 iConst :: Integer -> JVMInt s
 iConst i = App (BVLit w32 i)
@@ -1805,27 +1260,82 @@ lConst :: Integer -> JVMLong s
 lConst i = App (BVLit w64 i)
 
 dConst :: Double -> JVMDouble s
-dConst _ = error "dConst"
+dConst d = App (DoubleLit d)
 
 fConst :: Float -> JVMFloat s
-fConst _ = error "fConst"
+fConst f = App (FloatLit f)
+
+-- TODO: is there a better way to specify -2^32?
+minInt :: JVMInt s
+minInt = App $ BVLit w32 (- (2 :: Integer) ^ (32 :: Int))
+
+minLong :: JVMLong s 
+minLong = App $ BVLit w64 (- (2 :: Integer) ^ (64 :: Int))
+
+--TODO : doublecheck what Crucible does for BVSub
+-- For int values, negation is the same as subtraction from
+-- zero. Because the Java Virtual Machine uses two's-complement
+-- representation for integers and the range of two's-complement
+-- values is not symmetric, the negation of the maximum negative int
+-- results in that same maximum negative number. Despite the fact that
+-- overflow has occurred, no exception is thrown.
+iNeg :: JVMInt s -> JVMGenerator h s ret (JVMInt s)
+iNeg e = ifte (App $ BVEq w32 e minInt)
+              (return minInt)
+              (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
+
+
+lNeg :: JVMLong s -> JVMGenerator h s ret (JVMLong s)
+lNeg e = ifte (App $ BVEq knownRepr e minLong)
+              (return minLong)
+              (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
+
+
 
 dAdd, dSub, dMul, dDiv, dRem :: JVMDouble s -> JVMDouble s -> JVMDouble s
-dAdd = error "dAdd"
-dSub = error "dAdd"
-dMul = error "dAdd"
-dDiv = error "dAdd"
-dRem = error "dAdd"
+dAdd e1 e2 = App (FloatAdd DoubleFloatRepr e1 e2)
+dSub e1 e2 = App (FloatSub DoubleFloatRepr e1 e2)
+dMul e1 e2 = App (FloatMul DoubleFloatRepr e1 e2)
+dDiv e1 e2 = App (FloatDiv DoubleFloatRepr e1 e2)
+dRem e1 e2 = App (FloatRem DoubleFloatRepr e1 e2)
+
+
+--TODO: treatment of NaN
+--TODO: difference between dCmpg/dCmpl
+-- | If the two numbers are the same, the int 0 is pushed onto the
+-- stack. If value2 is greater than value1, the int 1 is pushed onto the
+-- stack. If value1 is greater than value2, -1 is pushed onto the
+-- stack. If either numbers is NaN, the int 1 is pushed onto the
+-- stack. +0.0 and -0.0 are treated as equal.
+dCmpg, dCmpl :: forall fi s h ret.
+                Expr JVM s (FloatType fi) -> Expr JVM s (FloatType fi) -> JVMGenerator h s ret (JVMInt s)
+dCmpg e1 e2 = ifte (App (FloatEq e1 e2)) (return $ App $ BVLit w32 0)
+                   (ifte (App (FloatGe e2 e1)) (return $ App $ BVLit w32 1)
+                         (return $ App $ BVLit w32 (-1)))
+dCmpl = dCmpg
 
 dNeg :: JVMDouble s -> JVMDouble s
 dNeg = error "dNeg"
 
 fAdd, fSub, fMul, fDiv, fRem :: JVMFloat s -> JVMFloat s -> JVMFloat s
-fAdd = error "dAdd"
-fSub = error "dAdd"
-fMul = error "dAdd"
-fDiv = error "dAdd"
-fRem = error "dAdd"
+fAdd e1 e2 = App (FloatAdd SingleFloatRepr e1 e2)
+fSub e1 e2 = App (FloatSub SingleFloatRepr e1 e2)
+fMul e1 e2 = App (FloatMul SingleFloatRepr e1 e2)
+fDiv e1 e2 = App (FloatDiv SingleFloatRepr e1 e2)
+fRem e1 e2 = App (FloatRem SingleFloatRepr e1 e2)
+
+
+-- TODO: are these signed or unsigned integers?
+-- | Takes two two-word long integers off the stack and compares them. If
+-- the two integers are the same, the int 0 is pushed onto the stack. If
+-- value2 is greater than value1, the int 1 is pushed onto the stack. If
+-- value1 is greater than value2, the int -1 is pushed onto the stack.
+lCmp :: JVMLong s -> JVMLong s -> JVMGenerator h s ret (JVMInt s)
+lCmp e1 e2 =  ifte (App (BVEq knownRepr e1 e2)) (return $ App $ BVLit w32 0)
+                   (ifte (App (BVSlt knownRepr e1 e2)) (return $ App $ BVLit w32 1)
+                         (return $ App $ BVLit w32 (-1)))
+
+
 
 ----------------------------------------------------------------------
 
@@ -1871,7 +1381,7 @@ packTypes (t : ts) ctx asgn =
         J.IntType     -> k IValue (knownRepr :: TypeRepr JVMIntType)
         J.LongType    -> k LValue (knownRepr :: TypeRepr JVMLongType)
         J.ShortType   -> k IValue (knownRepr :: TypeRepr JVMIntType)
-
+  
 initialJVMExprFrame ::
   J.ClassName ->
   J.Method ->
@@ -1890,23 +1400,6 @@ initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
 
 ----------------------------------------------------------------------
 
--- | Build the initial JVM generator state upon entry to the entry
--- point of a method.
-initialState :: JVMContext -> J.Method -> TypeRepr ret -> JVMState ret s
-initialState ctx method ret =
-  JVMState {
-    _jsLabelMap = Map.empty,
-    _jsFrameMap = Map.empty,
-    _jsCFG = methodCFG method,
-    jsRetType = ret,
-    jsContext = ctx
-  }
-
-methodCFG :: J.Method -> J.CFG
-methodCFG method =
-  case J.methodBody method of
-    J.Code _ _ cfg _ _ _ _ -> cfg
-    _                      -> error ("Method " ++ show method ++ " has no body")
 
 generateMethod ::
   J.ClassName ->
@@ -1924,51 +1417,6 @@ generateMethod cn method ctx asgn =
      rs0 <- newRegisters vs0
      generateBasicBlock bb0 rs0
 
-{-
--- | Translate a single JVM method into a crucible CFG.
-defineMethod ::
-  JVMContext -> J.ClassName -> J.Method -> ST h (C.AnyCFG JVM)
-defineMethod ctx cn method = do
-  traceM $ "Defining entry method " ++ J.methodName method
-  case Map.lookup (cn, J.methodKey method) (symbolMap ctx) of
-    Nothing -> fail "internal error: Could not find method"
-    Just (JVMHandleInfo _ (h :: FnHandle args ret)) ->
-      do let argTypes = handleArgTypes h
-         let retType  = handleReturnType h
-         let def :: FunctionDef JVM h (JVMState ret) args ret
-             def inputs = (s, f)
-               where s = initialState ctx method retType
-                     f = generateMethod cn method argTypes inputs
-         (SomeCFG g, []) <- defineFunction InternalPos h def
-         case toSSA g of
-           C.SomeCFG g_ssa -> return (C.AnyCFG g_ssa)
-
-
--- | Translate a single JVM method into a crucible CFG, given a handle
--- for the function.  This version of the function produces a Crucible
--- FnBinding based on the CFG, which can then be used to register the
--- function for symbolic simulation.
-defineMethod_CFG :: J.ClassName -> JVMContext -> JVMHandleInfo -> ST h (C.FnBinding p sym JVM)
-defineMethod_CFG mcls ctx (JVMHandleInfo meth (h :: FnHandle args ret)) = do
-  traceM $ "Defining method " ++ J.methodName meth ++ " in class " ++ J.unClassName mcls
-  let argTypes = handleArgTypes h
-  let retType  = handleReturnType h
-  let def :: FunctionDef JVM h (JVMState ret) args ret
-      def inputs = (s, f)
-               where s = initialState ctx meth retType
-                     f = generateMethod mcls meth argTypes inputs
-  (SomeCFG g, []) <- defineFunction InternalPos h def
-  case toSSA g of
-    C.SomeCFG g_ssa -> return (C.FnBinding h (C.UseCFG g_ssa (C.postdomInfo g_ssa)))
-
--- | Produce an override for the method that will lazily define the CFG for the entire class
--- that contains the method
-defineMethod_Override :: J.ClassName -> JVMContext -> JVMHandleInfo -> ST h (C.FnBinding p sym JVM)
-defineMethod_Override mcls ctx (JVMHandleInfo meth (h :: FnHandle args ret)) = do
-  let argTypes = handleArgTypes h
-  let retType  = handleReturnType h
-  undefined
--}
 
 -- | Define a block with a fresh lambda label, returning the label.
 defineLambdaBlockLabel ::
@@ -1980,169 +1428,132 @@ defineLambdaBlockLabel action =
      defineLambdaBlock l action
      return l
 
------------------------------------------------------------------------------     
-
--- | The ClassTable is a map from class names to class instances
--- For now, the table is immutable (i.e. all classes must be known at compile time)
--- In the future, we may add a reference so that we can update the set of
--- classes tracked during simulation.
-
-javaTypeToRepr :: J.Type -> Some TypeRepr
-javaTypeToRepr t =
-  case t of
-    (J.ArrayType _) -> refRepr
-    J.BooleanType   -> intRepr
-    J.ByteType      -> intRepr
-    J.CharType      -> intRepr
-    (J.ClassType _) -> refRepr
-    J.DoubleType    -> doubleRepr
-    J.FloatType     -> floatRepr
-    J.IntType       -> intRepr
-    J.LongType      -> longRepr
-    J.ShortType     -> intRepr
-  where
-    refRepr    = Some (knownRepr :: TypeRepr JVMRefType)
-    intRepr    = Some (knownRepr :: TypeRepr JVMIntType)
-    longRepr   = Some (knownRepr :: TypeRepr JVMLongType)
-    doubleRepr = Some (knownRepr :: TypeRepr JVMDoubleType)
-    floatRepr  = Some (knownRepr :: TypeRepr JVMFloatType)
-
-
-{-
-makeClassTable :: forall sym s. (IsExprBuilder sym) => sym
-               -> HandleAllocator s
-               -> [J.Class]
-               -> ST s (C.RegValue sym JVMClassTableType)
-makeClassTable sym halloc classes = do
-   let classText c = fromString $ J.unClassName $ J.className c 
-   let rv :: J.Class -> ST s (C.RegValue sym JVMClassType)
-       rv cls = do 
-          -- name of the class
-          let nameval = undefined
-          -- nameval <- W4.stringLit sym (classText cls)
-           -- names of the static fields
-          let staticFields = filter J.fieldIsStatic (J.classFields cls)              
-          let names = map (fromString . J.fieldName) staticFields
-          -- static fields are all reference cells that are uninitialized
-          --freshRefs <- mapM (\ _ ->
-          --               freshRefCell halloc (knownRepr :: TypeRepr JVMObjectType)) staticFields
-                       
-          let staticInitVals :: [W4.PartExpr (W4.Pred sym) (C.RegValue sym JVMValueType)]
-              staticInitVals = map (\_ -> W4.maybePartExpr sym Nothing) staticFields
-               {- map (C.injectVariant sym knownRepr tagR .
-                                     W4.justPartExpr sym .
-                                     C.toMuxTree sym) freshRefs -}
-
-          let statics :: C.RegValue sym (StringMapType JVMValueType)
-              statics = Map.fromList (zip names staticInitVals)
-          return $ Ctx.empty `Ctx.extend` C.RV nameval -- `Ctx.extend` C.RV statics
-   classData <- mapM rv classes
-   return $ Map.fromList (zipWith (\c d -> (classText c,W4.justPartExpr sym d))
-                                   classes
-                                   classData)
--}
-
-type StaticTable = Map (J.ClassName, String) (GlobalVar JVMValueType)
-
-
--- | Given the name of a class and the field name, define the name of the global variable
-globalVarName :: J.ClassName -> String -> Text
-globalVarName cn fn = fromString (J.unClassName cn ++ "." ++ fn)
-
-accM :: (Monad m, Foldable t) => t a -> b -> (b -> a -> m b) ->  m b
-accM d b f = foldM f b d
-
-
-
-
-nullRegValue :: forall sym. (IsExprBuilder sym) => sym -> C.RegValue sym JVMValueType
-nullRegValue sym = C.injectVariant sym knownRepr tagR (W4.maybePartExpr sym Nothing)
-
-
 -----------------------------------------------------------------------------
 -- | translateClass
 
-type SymbolMap = Map (J.ClassName, J.MethodKey) JVMHandleInfo
+type StaticFieldTable = Map (J.ClassName, String) (GlobalVar JVMValueType)
+type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 
 data MethodTranslation = forall args ret. MethodTranslation
    { methodHandle :: FnHandle args ret
    , methodCCFG   :: C.SomeCFG JVM args ret
    }
 
--- Note the classname may not be the same one as the current class if this is
--- an inherited method(?). However, it is available for this class.
 data ClassTranslation =
-  ClassTranslation { cfgMap        :: Map (J.ClassName,J.MethodKey) MethodTranslation
-                   , initCFG       :: C.AnyCFG JVM 
-                   }
-
+  ClassTranslation
+  { cfgMap        :: Map (J.ClassName,J.MethodKey) MethodTranslation
+  , initCFG       :: C.AnyCFG JVM 
+  }
+  
 data JVMTranslation =
-  JVMTranslation { translatedClasses :: Map J.ClassName ClassTranslation ,
-                   transContext      :: JVMContext }
+  JVMTranslation
+  { translatedClasses :: Map J.ClassName ClassTranslation 
+  , transContext      :: JVMContext
+  }
 
 -- left biased
 instance Semigroup ClassTranslation where
-  ct1 <> ct2 = ClassTranslation { cfgMap  = Map.union (cfgMap ct1) (cfgMap ct2)
-                                , initCFG = initCFG ct1
-                                }
+  ct1 <> ct2 = ClassTranslation
+               { cfgMap  = Map.union (cfgMap ct1) (cfgMap ct2)
+               , initCFG = initCFG ct1
+               }
+               
 instance Semigroup JVMTranslation where
-  j1 <> j2   = JVMTranslation { translatedClasses = Map.unionWith ((<>)) (translatedClasses j1) (translatedClasses j2)
-                              , transContext = transContext j1 <> transContext j2
-                              }
-
-allParameterTypes :: J.Class -> J.Method -> [J.Type]
-allParameterTypes c m
-  | J.methodIsStatic m = J.methodParameterTypes m
-  | otherwise = J.ClassType (J.className c) : J.methodParameterTypes m
-
--- | allocate a new method handle and add it to the SymbolMap
-declareMethod :: HandleAllocator s -> J.Class -> SymbolMap -> J.Method ->  ST s SymbolMap
-declareMethod halloc mcls ctx meth = do
-   let args  = Ctx.fromList (map javaTypeToRepr (allParameterTypes mcls meth))
-       ret   = maybe (Some C.UnitRepr) javaTypeToRepr (J.methodReturnType meth)
-       cname = J.className mcls
-       mkey  = J.methodKey meth
-   case (args, ret) of
-     (Some argsRepr, Some retRepr) -> do
-       h <- mkHandle' halloc (fromString (J.methodName meth)) argsRepr retRepr
-       return $ Map.insert (cname, mkey) (JVMHandleInfo meth h) ctx
+  j1 <> j2   = JVMTranslation
+               { translatedClasses = Map.unionWith ((<>))
+                                     (translatedClasses j1) (translatedClasses j2)
+               , transContext = transContext j1 <> transContext j2
+               }
 
 
--- | allocate the static fields and add it to the StaticTable
+-----------------------------------------------------------------------------
+
+-- | Given the name of a class and the field name, define the name of the global variable
+globalVarName :: J.ClassName -> String -> Text
+globalVarName cn fn = fromString (J.unClassName cn ++ "." ++ fn)
+
+
+allParameterTypes :: J.ClassName -> Bool -> J.MethodKey -> [J.Type]
+allParameterTypes className isStatic m
+  | isStatic  = J.methodKeyParameterTypes m
+  | otherwise = J.ClassType className : J.methodKeyParameterTypes m
+
+methodHandleName :: J.ClassName -> J.MethodKey -> FunctionName
+methodHandleName cn mn = fromString (J.unClassName cn ++ "." ++ J.methodKeyName mn)
+
+jvmToFunHandleRepr ::
+  J.ClassName -> Bool -> J.MethodKey ->
+  (forall args ret. CtxRepr args -> TypeRepr ret -> a)
+  -> a
+jvmToFunHandleRepr className isStatic meth k =
+   let args  = Ctx.fromList (map javaTypeToRepr (allParameterTypes className isStatic meth))
+       ret   = maybe (Some C.UnitRepr) javaTypeToRepr (J.methodKeyReturnType meth)
+   in case (args, ret) of
+     (Some argsRepr, Some retRepr) -> k argsRepr retRepr
+
+
+
+-- | allocate a new method handle and add it to the table of method handles
+declareMethod :: HandleAllocator s -> J.Class -> MethodHandleTable -> J.Method ->  ST s MethodHandleTable
+declareMethod halloc mcls ctx meth =
+  let cname = J.className mcls
+      mkey  = J.methodKey meth
+  in 
+   jvmToFunHandleRepr cname (J.methodIsStatic meth) mkey $
+      \ argsRepr retRepr -> do
+         h <- mkHandle' halloc (methodHandleName cname mkey) argsRepr retRepr
+         return $ Map.insert (cname, mkey) (JVMHandleInfo mkey h) ctx
+
+-- | allocate the static fields and add it to the static field table
 declareStaticField :: HandleAllocator s
     -> J.Class
-    -> StaticTable
+    -> StaticFieldTable
     -> J.Field
-    -> ST s StaticTable
+    -> ST s StaticFieldTable
 declareStaticField halloc c m f = do
   let cn = J.className c
   let fn = J.fieldName f
   let ty = J.fieldType f
+  traceM $ "declaring: " ++ J.unClassName cn ++ "." ++ fn
   gvar <- C.freshGlobalVar halloc (globalVarName cn fn) (knownRepr :: TypeRepr JVMValueType)
   return $ (Map.insert (cn,fn) gvar m)
 
--- | Create the initial JVMContext
-mkJVMContext :: HandleAllocator s -> ST s JVMContext
-mkJVMContext halloc = do
-  gv <- C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE") (knownRepr :: TypeRepr JVMClassTableType)
+-- | Create the initial JVMContext (contains only the global variable for the dynamic
+-- class table
+mkInitialJVMContext :: HandleAllocator s -> ST s JVMContext
+mkInitialJVMContext halloc = do
+  gv <- C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
+                                (knownRepr :: TypeRepr JVMClassTableType)
   return $ JVMContext
-    { symbolMap         = Map.empty
-    , staticTable       = Map.empty
+    { methodHandles     = Map.empty
+    , staticFields      = Map.empty
     , classTable        = Map.empty
     , dynamicClassTable = gv
     }
 
--- | Create the initial JVMContext
-extendJVMContext :: HandleAllocator s -> J.Class -> JVMContext -> ST s JVMContext
-extendJVMContext halloc c ctx0 = do
+-- This is called in Interpreter.hs
+mkInitialJVMTranslation :: HandleAllocator s -> ST s JVMTranslation
+mkInitialJVMTranslation halloc = do
+  ctx <- mkInitialJVMContext halloc
+  return $ JVMTranslation { translatedClasses = Map.empty
+                          , transContext      = ctx }
+
+-- | extend the JVM context in preparation for translating class c
+extendJVMContext :: HandleAllocator s -> JVMContext -> J.Class -> ST s JVMContext
+extendJVMContext halloc ctx0 c = do
   sm <- foldM (declareMethod halloc c) Map.empty (J.classMethods c)
   st <- foldM (declareStaticField halloc c) Map.empty (J.classFields c)
   return $ JVMContext
-    { symbolMap         = sm 
-    , staticTable       = st
+    { methodHandles     = sm 
+    , staticFields      = st
     , classTable        = Map.singleton (J.className c) c
-    , dynamicClassTable = (dynamicClassTable ctx0)
+    , dynamicClassTable = dynamicClassTable ctx0
     } <> ctx0
+
+addToClassTable :: J.Class -> JVMContext -> JVMContext
+addToClassTable c ctx =
+  trace ("Adding " ++ show (J.className c)) $ 
+  ctx { classTable = Map.insert (J.className c) c (classTable ctx) }
 
 
 -- | Translate a single JVM method definition into a crucible CFG
@@ -2153,31 +1564,25 @@ translateMethod :: JVMContext
 translateMethod ctx c m = do
   let cName = J.className c
   let mKey  = J.methodKey m
-  traceM $ "translating " ++ J.unClassName cName ++ "/" ++ J.methodName m 
-  case Map.lookup (cName,mKey) (symbolMap ctx)  of
+  traceM $ "translating " ++ J.unClassName cName ++ "/" ++ J.methodName m
+  case Map.lookup (cName,mKey) (methodHandles ctx)  of
     Just (JVMHandleInfo _ h)  -> 
       case (handleArgTypes h, handleReturnType h) of
         ((argTypes :: CtxRepr args), (retType :: TypeRepr ret)) -> do
           let  def :: FunctionDef JVM h (JVMState ret) args ret
                def inputs = (s, f)
-                  where s = initialState ctx m retType
-                        f = generateMethod cName m argTypes inputs
+                 where s = initialState ctx m retType
+                       f = generateMethod cName m argTypes inputs
           (SomeCFG g, []) <- defineFunction InternalPos h def
           let g' = toSSA g
-          --traceM $ show g'
+            --traceM $ show g'
+          traceM $ "finished translating " ++ J.unClassName cName ++ "/" ++ J.methodName m
           return ((cName,mKey), MethodTranslation h g')
     Nothing -> fail $ "internal error: Could not find method " ++ show mKey
 
 ------------------------------------------------------------------------
 -- | initMemProc
 --
--- make sure that we have added the class table to the global environment
-
---initStaticField :: J.Field -> GlobalVar (JVMValue s) -> JVMStmtGen h s ret ()
---initStaticField f gvar =
-  
-
-
 initCFGProc :: HandleAllocator s
             -> JVMContext
             -> ST s (C.AnyCFG JVM)
@@ -2196,28 +1601,725 @@ initCFGProc halloc ctx = do
      C.SomeCFG g' -> return $! C.AnyCFG g'
 
 
-translateClass :: HandleAllocator s -- ^ Generator for nonces
+-- | skip certain methods, as well as any that refer to
+-- unknown types and classes
+skipMethod :: JVMContext -> J.Class -> J.Method -> Bool
+skipMethod ctx c m =
+  let crs  = classRefs m
+      name = J.unClassName (J.className c) ++ "/" ++ J.methodName m
+  in
+     -- the method body/type references a class that we don't know about
+     any (\cr -> not (Map.member cr (classTable ctx))) (Set.elems crs)
+     -- it's one of these specific methods
+  || name `elem` [ "java/lang/Object/toString"
+                 , "java/lang/Object/wait"
+                 , "java/lang/Throwable/getStackTrace"
+--                 , "java/lang/Integer/getChars"
+--                 , "java/lang/Long/getChars"
+                    -- bug somewhere in use of writeRegisters, it's providing more values than regs
+                 ] where
+  
+
+translateClass ::  HandleAllocator s -- ^ Generator for nonces
                -> JVMContext 
                -> J.Class           -- ^ Class to translate
                -> ST s JVMTranslation
-translateClass halloc ctx1 c = do
+translateClass halloc ctx c = translateClasses halloc ctx [c]
+
+translateClasses :: HandleAllocator s -- ^ Generator for nonces
+               -> JVMContext 
+               -> [J.Class]           -- ^ Class to translate
+               -> ST s JVMTranslation
+translateClasses halloc ctx1 cs = do
   
   -- create initial context, declaring the statically known methods and fields.
-  ctx <- extendJVMContext halloc c ctx1
+  ctx <- foldM (extendJVMContext halloc) ctx1 cs
 
-  let methods = J.classMethods c
+  let trans c = do
+        traceM $ "translating " ++ J.unClassName (J.className c)
+        let methods = J.classMethods c
+        -- translate methods
+        let should_translate m = not (J.methodIsAbstract m || J.methodIsNative m || skipMethod ctx c m)
+        traceM $ "...skipping methods " ++ show (map J.methodName (filter (not . should_translate)
+                                                                (J.classMethods c)))
+        pairs <- mapM (translateMethod ctx c) (filter should_translate (J.classMethods c))
+        -- initialization code
+        -- currently unused
+        initCFG0 <- initCFGProc halloc ctx
+        -- return result
+        return $ JVMTranslation 
+          { translatedClasses = Map.singleton (J.className c)
+            (ClassTranslation { cfgMap        = Map.fromList pairs
+                              , initCFG       = initCFG0
+                              })
+          , transContext = ctx }
+
+  trs <- mapM trans cs
+  return $ foldr1 (<>) trs
+
+--------------------------------------------------------------------------------
+
+-- | Make method bindings for static simulation
+mkBindings :: JVMContext
+           -> Map J.ClassName ClassTranslation
+           -> C.FunctionBindings p sym JVM
+mkBindings ctx transClassMap =
+  C.fnBindingsFromList (map mkFunBinding (Map.toList (methodHandles ctx)))
+  where mkFunBinding ((cn0,_), JVMHandleInfo mKey _) = do
+          case Map.lookup (cn0, mKey) (cfgMap (transClassMap Map.! cn0)) of
+            Just (MethodTranslation h (C.SomeCFG g)) -> 
+              C.FnBinding h (C.UseCFG g (C.postdomInfo g))
+            Nothing  -> error $ "cannot find method!" ++ (J.unClassName cn0)
+              ++ "." ++ (J.methodKeyName mKey)
+
+--------------------------------------------------------------------------------
+
+-- Most of this part is adapted from crucible-llvm Lang.Crucible.LLVM.Intrinsics
+data JVMOverride p sym = forall args ret.
+  JVMOverride
+  { jvmOverride_className      :: J.ClassName
+  , jvmOverride_methodKey      :: J.MethodKey
+  , jvmOverride_methodIsStatic :: Bool
+  , jvmOverride_args           :: CtxRepr args
+  , jvmOverride_ret            :: TypeRepr ret
+  , jvmOverride_def            :: forall rtp args' ret'.
+         sym ->
+--         JVMContext ->
+         Ctx.Assignment (C.RegEntry sym) args ->
+         C.OverrideSim p sym JVM rtp args' ret' (C.RegValue sym ret)
+  }
+
+newtype ArgTransformer p sym args args' =
+  ArgTransformer { applyArgTransformer :: (forall rtp l a.
+    Ctx.Assignment (C.RegEntry sym) args ->
+    C.OverrideSim p sym JVM rtp l a (Ctx.Assignment (C.RegEntry sym) args')) }
+
+newtype ValTransformer p sym tp tp' =
+  ValTransformer { applyValTransformer :: (forall rtp l a.
+    C.RegValue sym tp ->
+    C.OverrideSim p sym JVM rtp l a (C.RegValue sym tp')) }
+
+
+transformJVMArgs :: forall m p sym args args'.
+  (IsSymInterface sym, Monad m) =>
+  sym ->
+  CtxRepr args' ->
+  CtxRepr args ->
+  m (ArgTransformer p sym args args')
+transformJVMArgs _ Ctx.Empty Ctx.Empty =
+  return (ArgTransformer (\_ -> return Ctx.Empty))
+transformJVMArgs sym (rest' Ctx.:> tp') (rest Ctx.:> tp) = do
+  return (ArgTransformer
+           (\(xs Ctx.:> x) ->
+              do (ValTransformer f)  <- transformJVMRet sym tp tp'
+                 (ArgTransformer fs) <- transformJVMArgs sym rest' rest
+                 xs' <- fs xs
+                 x'  <- C.RegEntry tp' <$> f (C.regValue x)
+                 pure (xs' Ctx.:> x')))
+transformJVMArgs _ _ _ =
+  panic "Intrinsics.transformJVMArgs"
+    [ "transformJVMArgs: argument shape mismatch!" ]
+
+transformJVMRet ::
+  (IsSymInterface sym, Monad m) =>
+  sym ->
+  TypeRepr ret  ->
+  TypeRepr ret' ->
+  m (ValTransformer p sym ret ret')
+-- maybe do some work here?
+transformJVMRet _sym ret ret'
+  | Just Refl <- testEquality ret ret'
+  = return (ValTransformer return)
+transformJVMRet _sym ret ret'
+  = panic "Intrinsics.transformJVMRet"
+      [ "Cannot transform types"
+      , "*** Source type: " ++ show ret
+      , "*** Target type: " ++ show ret'
+      ]
+
+-- | Do some pipe-fitting to match a Crucible override function into the shape
+--   expected by the JVM calling convention.
+build_jvm_override ::
+  IsSymInterface sym =>
+  sym ->
+  FunctionName ->
+  CtxRepr args ->
+  TypeRepr ret ->
+  CtxRepr args' ->
+  TypeRepr ret' ->
+  (forall rtp' l' a'. Ctx.Assignment (C.RegEntry sym) args ->
+   C.OverrideSim p sym JVM rtp' l' a' (C.RegValue sym ret)) ->
+  C.OverrideSim p sym JVM rtp l a (C.Override p sym JVM args' ret')
+build_jvm_override sym fnm args ret args' ret' llvmOverride =
+  do fargs <- transformJVMArgs sym args args'
+     fret  <- transformJVMRet  sym ret  ret'
+     return $ C.mkOverride' fnm ret' $
+            do C.RegMap xs <- C.getOverrideArgs
+               applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
+
+register_jvm_override :: forall p sym l a rtp
+                       . (IsSymInterface sym)
+                      => JVMOverride p sym 
+                      -> StateT JVMContext (C.OverrideSim p sym JVM rtp l a) ()
+register_jvm_override (JVMOverride { jvmOverride_className=cn
+                                     , jvmOverride_methodKey=mk
+                                     , jvmOverride_methodIsStatic=isStatic
+                                     , jvmOverride_args=overrideArgs
+                                     , jvmOverride_ret=overrideRet
+                                     , jvmOverride_def=def }) = do
+  jvmctx <- get
+
+  let fnm = methodHandleName cn mk
   
-  -- translate methods
-  pairs <- mapM (translateMethod ctx c) (J.classMethods c)
+  sym <- lift $ C.getSymInterface
+  
 
-  -- initialization code
-  initCFG0 <- initCFGProc halloc ctx
+  jvmToFunHandleRepr cn isStatic mk  $ \derivedArgs derivedRet -> do
+    o <- lift $ build_jvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet (def sym)
+    case Map.lookup (cn,mk) (methodHandles jvmctx) of
+      Just (JVMHandleInfo _mkey h) -> do
+        case testEquality (handleArgTypes h) derivedArgs of
+           Nothing ->
+             panic "Intrinsics.register_jvm_override"
+               [ "Argument type mismatch when registering override."
+               , "*** Override name: " ++ show fnm
+               ]
+           Just Refl ->
+             case testEquality (handleReturnType h) derivedRet of
+               Nothing ->
+                 panic "Intrinsics.register_jvm_override"
+                   [ "return type mismatch when registering override"
+                   , "*** Override name: " ++ show fnm
+                   ]
+               Just Refl -> lift $ C.bindFnHandle h (C.UseOverride o)
+      Nothing ->
+        do ctx <- lift $ use C.stateContext
+           let ha = C.simHandleAllocator ctx
+           h <- lift $ liftST $ mkHandle' ha fnm derivedArgs derivedRet
+           lift $ C.bindFnHandle h (C.UseOverride o)
+           put (jvmctx { methodHandles = Map.insert (cn,mk) (JVMHandleInfo mk h) (methodHandles jvmctx) })
 
-  -- return result
-  return $ JVMTranslation 
-     { translatedClasses = Map.singleton (J.className c)
-      (ClassTranslation { cfgMap        = Map.fromList pairs
-                        , initCFG       = initCFG0
-                        })
-      , transContext = ctx }
+--------------------------------------------------------------------------------
 
+-- | This is an example of a nop override
+-- Explicitly calling the garbage collector does nothing during symbolic
+-- execution
+gc_override ::(IsSymInterface sym) => JVMOverride p sym
+gc_override =
+  let isStatic = False
+      mk       = J.makeMethodKey "gc" "()V" in
+  jvmToFunHandleRepr "java/lang/Runtime" isStatic mk $ \ argsRepr retRepr ->
+    JVMOverride { jvmOverride_className="java/lang/System"
+                , jvmOverride_methodKey=mk
+                , jvmOverride_methodIsStatic=isStatic
+                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
+                , jvmOverride_ret=UnitRepr
+                , jvmOverride_def=
+                  \sym args -> return ()
+                }
+
+-- | Convert a register value to a string, using What4's 'printSymExpr'
+-- Won't necessarily look like a standard types
+showReg :: forall sym arg. (IsSymInterface sym) => TypeRepr arg -> C.RegValue sym arg -> String
+showReg repr arg
+  | Just Refl <- testEquality repr doubleRepr
+  = show $ W4.printSymExpr arg -- SymExpr sym BaseRealType
+  | Just Refl <- testEquality repr floatRepr
+  = show $ W4.printSymExpr arg
+  | Just Refl <- testEquality repr intRepr
+  = show $ W4.printSymExpr arg -- SymExpr sym (BaseBVType ..)
+  | Just Refl <- testEquality repr longRepr
+  = show $ W4.printSymExpr arg
+  | Just Refl <- testEquality repr refRepr
+  = error "TODO: Not sure what do do for general references"
+  | otherwise
+  = error "Internal error: invalid regval type"
+
+printlnMthd :: forall sym arg p. (IsSymInterface sym) => 
+  String -> TypeRepr arg -> JVMOverride p sym
+printlnMthd = printStream "println" True 
+
+printMthd :: forall sym arg p. (IsSymInterface sym) => 
+  String -> TypeRepr arg -> JVMOverride p sym
+printMthd = printStream "print" True 
+
+-- Should we print to the print handle in the simulation context?
+-- or just to stdout
+printStream :: forall sym arg p. (IsSymInterface sym) => String -> Bool ->
+  String -> TypeRepr arg -> JVMOverride p sym
+printStream name newl descr t =
+  let isStatic = False in
+  let mk = J.makeMethodKey name descr in
+  jvmToFunHandleRepr "java/io/PrintStream" isStatic mk $ \ argsRepr retRepr ->
+    if (testEquality argsRepr (Ctx.Empty `Ctx.extend` refRepr `Ctx.extend` t) == Nothing)
+       then error "descriptor does not match type"
+    else if (testEquality retRepr UnitRepr == Nothing)
+       then error "descriptor does not have void return type"
+    else JVMOverride { jvmOverride_className="java/io/PrintStream"
+                , jvmOverride_methodKey=mk
+                , jvmOverride_methodIsStatic=isStatic
+                , jvmOverride_args=Ctx.Empty `Ctx.extend` t
+                , jvmOverride_ret=UnitRepr
+                , jvmOverride_def=
+                  \sym args -> do
+                    let reg = C.regValue (Ctx.last args)
+                    let str = showReg @sym t reg
+                    h <- C.printHandle <$> C.getContext
+                    liftIO $ (if newl then hPutStrLn else hPutStr) h str
+                    liftIO $ hFlush h
+                }
+
+flush_override :: (IsSymInterface sym) => JVMOverride p sym
+flush_override =
+  let isStatic = False in
+  let mk = J.makeMethodKey "flush" "()V" in
+  JVMOverride   { jvmOverride_className="java/io/BufferedOutputStream"
+                , jvmOverride_methodKey=mk
+                , jvmOverride_methodIsStatic=isStatic
+                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
+                , jvmOverride_ret=UnitRepr
+                , jvmOverride_def=
+                  \sym args -> do
+                    h <- C.printHandle <$> C.getContext
+                    liftIO $ hFlush h
+                }
+
+-- java.lang.Throwable.fillInStackTrace  (i.e. just returns this)
+-- REVISIT: We may want to correctly populate the Throwable instance,
+-- instead of this just being a pass-through.
+fillInStackTrace_override :: (IsSymInterface sym) => JVMOverride p sym
+fillInStackTrace_override =
+  let isStatic = False in
+  let mk = J.makeMethodKey "fillInStackTrace" "()Ljava/lang/Throwable" in
+  JVMOverride   { jvmOverride_className="java/io/BufferedOutputStream"
+                , jvmOverride_methodKey=mk
+                , jvmOverride_methodIsStatic=isStatic
+                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
+                , jvmOverride_ret=refRepr
+                , jvmOverride_def=
+                  \sym args -> do
+                    let reg = C.regValue (Ctx.last args)
+                    return reg
+                }
+
+-- OMG This is difficult to define
+isArray_override :: forall p sym. (IsSymInterface sym) => JVMOverride p sym
+isArray_override =
+  let isStatic = False in
+  let mk = J.makeMethodKey "isArray" "()Z" in
+  JVMOverride   { jvmOverride_className="java/lang/Class"
+                , jvmOverride_methodKey=mk
+                , jvmOverride_methodIsStatic=isStatic
+                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
+                , jvmOverride_ret=intRepr
+                , jvmOverride_def=
+                  \sym args -> do
+                    let reg :: W4.PartExpr (W4.Pred sym) (C.MuxTree sym (RefCell JVMObjectType))
+                        reg = C.regValue (Ctx.last args)
+                    bvFalse <- liftIO $ return $ W4.bvLit sym knownRepr 0
+                    let k :: RefCell JVMObjectType -> IO (W4.SymBV sym 32)
+                        k = undefined
+                    let h :: W4.Pred sym -> (W4.SymBV sym 32) -> (W4.SymBV sym 32) -> IO (W4.SymBV sym 32)
+                        h = undefined
+                    let g :: (C.MuxTree sym (RefCell JVMObjectType)) -> IO (W4.SymBV sym 32)
+                                                                     -> IO (W4.SymBV sym 32)
+                        g mux curr = undefined
+
+                    liftIO $ foldr g bvFalse reg
+                }
+
+
+
+
+stdOverrides :: (IsSymInterface sym) => [JVMOverride p sym]
+stdOverrides = 
+   [  printlnMthd "()V"   UnitRepr
+    , printlnMthd "(Z)V"  intRepr
+    , printlnMthd "(C)V"  intRepr  -- TODO: special case for single char, i.e. binary output
+    , printlnMthd "([C)V" refRepr  -- TODO: array of chars
+    , printlnMthd "(D)V"  doubleRepr
+    , printlnMthd "(F)V"  floatRepr
+    , printlnMthd "(I)V"  intRepr
+    , printlnMthd "(J)V"  longRepr 
+    , printlnMthd "(Ljava/lang/Object;)V" refRepr -- TODO: object toString
+    , printlnMthd "(Ljava/lang/String;)V" refRepr -- TODO: String objects
+    
+    , printMthd "()V"   UnitRepr
+    , printMthd "(Z)V"  intRepr
+    , printMthd "(C)V"  intRepr  -- TODO: special case for single char, i.e. binary output
+    , printMthd "([C)V" refRepr  -- TODO: array of chars
+    , printMthd "(D)V"  doubleRepr
+    , printMthd "(F)V"  floatRepr
+    , printMthd "(I)V"  intRepr
+    , printMthd "(J)V"  longRepr 
+    , printMthd "(Ljava/lang/Object;)V" refRepr -- TODO: object toString
+    , printMthd "(Ljava/lang/String;)V" refRepr -- TODO: String objects
+
+    , flush_override
+    , gc_override
+    , fillInStackTrace_override
+    ] 
+
+{-
+callPutChar
+  :: (IsSymInterface sym)
+  => sym
+  -> C.RegEntry sym (BVType 32)
+  -> C.OverrideSim p sym JVM r args ret (C.RegValue sym (BVType 32))
+callPutChar _sym
+ (regValue -> ch) = do
+    h <- printHandle <$> getContext
+    let chval = maybe '?' (toEnum . fromInteger) (asUnsignedBV ch)
+    liftIO $ hPutChar h chval
+    return ch
+-}
+
+{-
+callPrintStream
+  :: (IsSymInterface sym)
+  => sym
+  -> C.RegEntry sym (JVMValue s)
+  -> C.OverrideSim p sym JVM r args ret (RegValue sym (BVType 32))
+callPrintStream sym 
+  (regValue -> strPtr) = do
+      ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
+      h <- printHandle <$> getContext
+      liftIO $ hPutStr h str
+      liftIO $ bvLit sym knownNat (toInteger n)
+
+{-
+  ( "java/io/PrintStream"
+                    , 
+                    , MethodBody knownRepr (knownRepr :: TypeRepr UnitType) $
+                      -- ReaderT (SimState p sym ext r f a) IO (ExecState p sym ext r)
+                      do state <- ask
+                         let simctx  = _stateContext state  -- (undefined :: C.SimContext p sym JVM)
+                         let tree    = _stateTree state
+                         printStream True (t == "(C)V")
+                         let globals = C.emptyGlobals
+                         let val = (undefined :: _)
+                         return $ C.ResultState (C.FinishedResult simctx (C.TotalRes (C.GlobalPair val globals)))
+                    --  \_ args -> printStream True (t == "(C)V") args
+                    )
+-}
+
+printStream :: Bool -> Bool -> [JVMValue s] -> ReaderT (C.SimState p sym ext r f a) IO ()
+printStream nl _ []       = liftIO $ (if nl then putStrLn else putStr) "" >> hFlush stdout
+printStream nl binary [x] = do
+    let putStr' s = liftIO $ (if nl then putStrLn else putStr) s >> hFlush stdout
+    case x of
+      IValue (asInt sbe -> Just v)
+        | binary    -> putStr' [chr $ fromEnum v]
+        | otherwise -> putStr' $ show v
+      v@IValue{} -> putStr' . render $ ppValue sbe v
+
+      LValue (asLong sbe -> Just v) -> putStr' $ show v
+      v@LValue{} -> putStr' . render $ ppValue sbe v
+      FValue f -> putStr' (show f)
+      DValue d -> putStr' (show d)
+      RValue r -> do
+        ms <- lookupStringRef r
+        case ms of
+          Just str  -> putStr' str
+          Nothing   -> do
+            let key = makeMethodKey "toString" "()Ljava/lang/String;"
+            msref <- execInstanceMethod "java/lang/Object" key r []
+            case msref of
+              Just sref -> putStr' =<< drefString (unRValue sref)
+              _ -> err "toString terminated abnormally"
+      _ -> abort $ "Unable to display values of type other than "
+                 ++ "int, long, and reference to constant string"
+printStream _ _ _ = abort $ "Unable to print more than one argument"
+-}
+
+{-
+
+data MethodBody p sym = forall (args :: Ctx CrucibleType) (ret :: CrucibleType).
+  MethodBody 
+    (CtxRepr args)
+    (TypeRepr ret)
+    (forall r. C.ExecCont p sym JVM r (C.OverrideLang ret) (Just args))
+  
+
+overrideInstanceMethod :: HandleAllocator s -> J.ClassName -> J.MethodKey -> MethodBody p sym ->
+   ST s (C.FnBinding p sym JVM)
+overrideInstanceMethod halloc cn mk (MethodBody argsRepr retRepr code) = do
+   let funName = fromString (J.unClassName cn ++ "." ++ J.methodKeyName mk)
+   handle <- mkHandle' halloc funName argsRepr retRepr
+   let override = C.Override funName code 
+   return $ C.FnBinding handle (C.UseOverride override)
+
+overrideStaticMethod = undefined
+
+
+-- | Register all predefined overrides for builtin native implementations.
+stdOverrides :: HandleAllocator s -> ST s (C.FunctionBindings p sym JVM)
+stdOverrides halloc = do
+  mapM_ (\(cn, key, impl) -> overrideInstanceMethod halloc cn key impl)
+    [ printlnMthd "()V"
+    , printlnMthd "(Z)V"
+    , printlnMthd "(C)V"
+    , printlnMthd "([C)V"
+    , printlnMthd "(D)V"
+    , printlnMthd "(F)V"
+    , printlnMthd "(I)V"
+    , printlnMthd "(J)V"
+    , printlnMthd "(Ljava/lang/Object;)V"
+    , printlnMthd "(Ljava/lang/String;)V"
+    , printMthd   "(Z)V"
+    , printMthd   "(C)V"
+    , printMthd   "([C)V"
+    , printMthd   "(D)V"
+    , printMthd   "(F)V"
+    , printMthd   "(I)V"
+    , printMthd   "(J)V"
+    , printMthd   "(Ljava/lang/Object;)V"
+    , printMthd   "(Ljava/lang/String;)V"
+    , appendIntegralMthd "(I)Ljava/lang/StringBuilder;"
+    , appendIntegralMthd "(J)Ljava/lang/StringBuilder;"
+    -- java.io.BufferedOutputStream.flush
+    , ( "java/io/BufferedOutputStream"
+      , J.makeMethodKey "flush" "()V"
+      , \_ _ -> liftIO $ hFlush stdout
+      )
+    -- java.lang.Runtime.gc
+    , ( "java/lang/Runtime"
+      , J.makeMethodKey "gc" "()V"
+      -- Should we implement a garbage collector? ;)
+      , \_ _ -> return ()
+      )
+    -- java.lang.Throwable.fillInStackTrace
+    -- REVISIT: We may want to correctly populate the Throwable instance,
+    -- instead of this just being a pass-through.
+    , ( "java/lang/Throwable"
+      , J.makeMethodKey "fillInStackTrace" "()Ljava/lang/Throwable;"
+      , \this _ -> pushValue (RValue this)
+      )
+    -- java.lang.Class.isArray
+    , ( "java/lang/Class"
+      , J.makeMethodKey "isArray" "()Z"
+      , \this _ -> pushValue =<< classNameIsArray =<< getClassName this
+      )
+    -- java.lang.Class.isPrimitive
+    , ( "java/lang/Class"
+      , J.makeMethodKey "isPrimitive" "()Z"
+      , \this _ -> pushValue =<< classNameIsPrimitive =<< getClassName this
+      )
+    -- java.lang.Class.getComponentType
+    , ( "java/lang/Class"
+      , J.makeMethodKey "getComponentType" "()Ljava/lang/Class;"
+      , \this _ -> do
+          nm <- getClassName this
+          pushValue =<< RValue
+                        <$> if classNameIsArray' nm
+                            then getJVMClassByName (mkClassName (tail nm)) -- BH: why tail?
+                            else return NullRef
+      )
+    -- java.lang.class.getClassLoader -- REVISIT: This implementation makes it so
+    -- that custom class loaders are not supported.
+    , ( "java/lang/Class"
+      , J.makeMethodKey "getClassLoader" "()Ljava/lang/ClassLoader;"
+      , \_ _ -> pushValue (RValue NullRef)
+      )
+    -- java.lang.String.intern -- FIXME (must reconcile reference w/ strings map)
+    , ( "java/lang/String"
+      , J.makeMethodKey "intern" "()Ljava/lang/String;"
+      , \this _ -> pushValue =<< RValue <$> (refFromString =<< drefString this)
+      )
+    ]
+
+  --------------------------------------------------------------------------------
+  -- Static method overrides
+
+  mapM_ (\(cn, key, impl) -> overrideStaticMethod cn key impl)
+    [ -- Java.lang.System.arraycopy
+      let arrayCopyKey =
+            J.makeMethodKey "arraycopy"
+              "(Ljava/lang/Object;ILjava/lang/Object;II)V"
+      in
+        ( "java/lang/System"
+        , arrayCopyKey
+        , \opds -> do
+            let nativeClass = "com/galois/core/NativeImplementations"
+            pushStaticMethodCall nativeClass arrayCopyKey opds Nothing
+        )
+      -- java.lang.System.exit(int status)
+    , fillArrayMethod "([ZZ)V"
+    , fillArrayMethod "([ZIIZ)V"
+    , fillArrayMethod "([BB)V"
+    , fillArrayMethod "([BIIB)V"
+    , fillArrayMethod "([CC)V"
+    , fillArrayMethod "([CIIC)V"
+    , fillArrayMethod "([DD)V"
+    , fillArrayMethod "([DIID)V"
+    , fillArrayMethod "([FF)V"
+    , fillArrayMethod "([FIIF)V"
+    , fillArrayMethod "([II)V"
+    , fillArrayMethod "([IIII)V"
+    , fillArrayMethod "([JJ)V"
+    , fillArrayMethod "([JIIJ)V"
+    , fillArrayMethod "([SS)V"
+    , fillArrayMethod "([SIIS)V"
+    , fillArrayMethod "([Ljava/lang/Object;Ljava/lang/Object;)V"
+    , fillArrayMethod "([Ljava/lang/Object;IILjava/lang/Object;)V"
+    , ( "java/lang/System"
+      , J.makeMethodKey "exit" "(I)V"
+      , \[IValue status] -> do
+          sbe <- use backend
+          let codeStr = case asInt sbe status of
+                          Nothing -> "unknown exit code"
+                          Just code -> "exit code " ++ show code
+          errorPath . FailRsn
+            $ "java.lang.System.exit(int status) called with " ++ codeStr
+      )
+      -- java.lang.Float.floatToRawIntBits: override for invocation by
+      -- java.lang.Math's static initializer
+    , ( "java/lang/Float"
+      , J.makeMethodKey "floatToRawIntBits" "(F)I"
+      , \args -> case args of
+                   [FValue flt] -> do
+                     when (flt /= (-0.0 :: Float)) $
+                       abort "floatToRawIntBits: overridden for -0.0f only"
+                     pushValue =<< IValue <$>
+                       App $ LitInt (fromIntegral (0x80000000 :: Word32))
+                   _ -> abort "floatToRawIntBits: called with incorrect arguments"
+      )
+      -- java.lang.Double.doubleToRawLongBits: override for invocation by
+      -- java.lang.Math's static initializer
+    , ( "java/lang/Double"
+      , J.makeMethodKey "doubleToRawLongBits" "(D)J"
+      , \args -> case args of
+                   [DValue dbl] -> do
+                     when (dbl /= (-0.0 :: Double)) $
+                       abort "doubltToRawLongBits: overriden -0.0d only"
+                     pushValue =<< withSBE (\sbe -> LValue <$>
+                                             termLong sbe (fromIntegral (0x8000000000000000 :: Word64)))
+                   _ -> abort "floatToRawIntBits: called with incorrect arguments"
+      )
+      -- Set up any necessary state for the native methods of various
+      -- classes. At the moment, nothing is necessary.
+    , ( "java/lang/Class"
+      , J.makeMethodKey "registerNatives" "()V"
+      , \_ -> return ()
+      )
+    , ( "java/lang/ClassLoader"
+      , J.makeMethodKey "registerNatives" "()V"
+      , \_ -> return ()
+      )
+    , ( "java/lang/Thread"
+      , J.makeMethodKey "registerNatives" "()V"
+      , \_ -> return ()
+      )
+    , ( "java/lang/Class"
+      , J.makeMethodKey "desiredAssertionStatus0" "(Ljava/lang/Class;)Z"
+      , \_ -> pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 1)
+      )
+    , ( "java/lang/Class"
+      , J.makeMethodKey "getPrimitiveClass" "(Ljava/lang/String;)Ljava/lang/Class;"
+      , \args -> error "TODO: look at simulator code"
+      )
+    , ( "java/io/FileInputStream", J.makeMethodKey "initIDs" "()V", \ _ -> return () )
+    , ( "java/io/FileOutputStream", J.makeMethodKey "initIDs" "()V", \ _ -> return () )
+    , ( "java/io/RandomAccessFile", J.makeMethodKey "initIDs" "()V", \ _ -> return () )
+    , ( "java/io/ObjectStreamClass", J.makeMethodKey "initNative" "()V", \ _ -> return () )
+    , ( "java/security/AccessController"
+      , J.makeMethodKey "doPrivileged" "(Ljava/security/PrivilegedAction;)Ljava/lang/Object;"
+      , \args -> error "TODO: look at static simulator code"
+      )
+    , ( "java/lang/System", J.makeMethodKey "nanoTime" "()J", \ _ -> do
+          dbugM "warning: long java.lang.System.nanoTime() always returns 0 during symbolic execution" 
+          pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0)
+      )
+    , ( "java/lang/System", J.makeMethodKey "currentTimeMillis" "()J", \ _ -> do
+          whenVerbosity (>=2) 
+          pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0)
+      )
+    , ( "java/lang/System", J.makeMethodKey "identityHashCode" "(Ljava/lang/Object;)I", \ _ -> do
+          dbugM "warning: int java.lang.System.identityHashCode(Object) always returns 0 during symbolic executin"
+          pushValue =<< withSBE (\sbe -> IValue <$> termInt sbe 0)
+      )
+
+    -- Here we override the "valueOf" methods that are used for autoboxing primitive types.
+    -- We do this because these methods are defined to use a lookup table cache; if we attempt
+    -- to autobox a symbolic value, this results in indexing a reference array by a symbolic
+    -- value, which is not allowed.  Instead, we override these methods to just directly call
+    -- the appropriate class constructor.
+
+    , ( "java/lang/Boolean", J.makeMethodKey "valueOf" "(Z)Ljava/lang/Boolean;", \([IValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Boolean" (Just [(BooleanType, IValue x)])
+      )
+    , ( "java/lang/Byte", J.makeMethodKey "valueOf" "(B)Ljava/lang/Byte;", \([IValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Byte" (Just [(ByteType, IValue x)])
+      )
+    , ( "java/lang/Short", J.makeMethodKey "valueOf" "(S)Ljava/lang/Short;", \([IValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Short" (Just [(ShortType, IValue x)])
+      )
+    , ( "java/lang/Integer", J.makeMethodKey "valueOf" "(I)Ljava/lang/Integer;", \([IValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Integer" (Just [(IntType, IValue x)])
+      )
+    , ( "java/lang/Long", J.makeMethodKey "valueOf" "(J)Ljava/lang/Long;", \([LValue x]) -> do
+          pushValue . RValue =<< createInstance "java/lang/Long" (Just [(LongType, LValue x)])
+      )
+    ]
+  where
+    printlnMthd t = ( "java/io/PrintStream"
+                    , J.makeMethodKey "println" t
+                    , MethodBody knownRepr (knownRepr :: TypeRepr UnitType) $
+                      -- ReaderT (SimState p sym ext r f a) IO (ExecState p sym ext r)
+                      do state <- ask
+                         let simctx  = _stateContext state  -- (undefined :: C.SimContext p sym JVM)
+                         let tree    = _stateTree state
+                         printStream True (t == "(C)V")
+                         let globals = C.emptyGlobals
+                         let val = (undefined :: _)
+                         return $ C.ResultState (C.FinishedResult simctx (C.TotalRes (C.GlobalPair val globals)))
+                    --  \_ args -> printStream True (t == "(C)V") args
+                    )
+    printMthd t   = ( "java/io/PrintStream"
+                    , J.makeMethodKey "print" t
+                    , \_ args -> printStream False (t == "(C)V") args
+                    )
+    fillArrayMethod t =
+      ( "java/util/Arrays"
+      , J.makeMethodKey "fill" t
+      , \args ->
+          case args of
+            [RValue ref, val] -> fillArray ref Nothing val
+            [RValue ref, beg, end, val] -> fillArray ref (Just (beg, end)) val
+            _ -> abort "Arrays.fill called with invalid args"
+      )
+
+    -- | Allows the user to append pretty-printed renditions of symbolic
+    -- ints/longs as strings; however, we should REVISIT this.  Concatenation of
+    -- the typical form form ("x = " + x) where x is symbolic is currently very
+    -- inefficient since the concrete string representation of x is still
+    -- executed through many array operations in the {Abstract,}StringBuilder
+    -- implementations and so forth.  This leads to the odd situation where:
+    --
+    -- System.out.print("x = ");
+    -- System.out.println(x);
+    --
+    -- is vastly more efficient than the equivalent concatenating version.
+    appendIntegralMthd t =
+      let cn = "java/lang/StringBuilder"
+      in
+        ( cn
+        , makeMethodKey "append" t
+        , \this [st] -> do
+            let redir = makeMethodKey "append" "(Ljava/lang/String;)Ljava/lang/StringBuilder;"
+                warn  = dbugM $
+                  "Warning: string concatenation of symbolic variables is "
+                    ++ "very inefficient in this release. \n  Consider using "
+                    ++ "'System.out.print(\"x = \"); System.out.println(x);'"
+                    ++ "\n  instead of 'System.out.println(\"x = \" + x); "
+                    ++ "also see Symbolic.Debug.trace()."
+            sbe <- use backend
+            case st of
+              IValue (asInt sbe -> Just{}) -> return ()
+              LValue (asLong sbe -> Just{}) -> return ()
+              _ -> warn
+            sr        <- refFromString . render . ppValue sbe $ st
+            void $ execInstanceMethod cn redir this [RValue sr]
+        )
+
+--}
