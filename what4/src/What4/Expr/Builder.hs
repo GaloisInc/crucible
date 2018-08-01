@@ -4101,7 +4101,7 @@ instance IsExprBuilder (ExprBuilder t st) where
 
   bvUdiv = bvBinOp1 div BVUdiv
   bvUrem = bvBinOp1 rem BVUrem
-  bvSdiv = bvSignedBinOp div BVSdiv
+  bvSdiv = bvSignedBinOp quot BVSdiv
   bvSrem = bvSignedBinOp rem BVSrem
 
   mkStruct sym args = do
