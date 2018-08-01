@@ -12,6 +12,8 @@
       (let d (vector-size foo))
       (let e (vector-get done 3))
       (let f (vector-set done 3 "isn't"))
+      (let g (the (Vector String) (vector-cons "well" f)))
+      (let h (the (Vector String) (vector-replicate 132 ".")))
       (let done $res)
       (return done)))
 
@@ -56,6 +58,16 @@
   $20 = textLit("isn't")
   % 15:12
   $21 = vectorSetEntry(StringRepr, $7, $18, $20)
-  % 17:5
+  % 16:12
+  $22 = textLit("well")
+  % 16:12
+  $23 = vectorCons(StringRepr, $22, $21)
+  % 17:12
+  $24 = natLit(132)
+  % 17:12
+  $25 = textLit(".")
+  % 17:12
+  $26 = vectorReplicate(StringRepr, $24, $25)
+  % 19:5
   return $7
   % no postdom

@@ -1,16 +1,23 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.Syntax.ExprParse where
 
 import Control.Applicative
 import Control.Lens hiding (List)
 import Control.Monad (ap)
 import Control.Monad.Reader
+import Control.Monad.State.Strict
+import Control.Monad.Writer (WriterT(..), tell)
 
 import Data.List
 import qualified Data.List.NonEmpty as NE
@@ -128,6 +135,66 @@ instance Alternative (SyntaxParse atom) where
   (SyntaxParse (ReaderT x)) <|> (SyntaxParse (ReaderT y)) =
     SyntaxParse $ ReaderT $ \ctx -> x ctx <|> y ctx
 
+class (Alternative m, Monad m) => MonadSyntax atom m | m -> atom where
+  anything :: m (Syntax atom)
+  withFocus :: Syntax atom -> m a -> m a
+  withProgress :: ProgressStep -> m a -> m a
+  withReason :: Reason atom -> m a -> m a
+
+instance MonadSyntax atom (SyntaxParse atom) where
+  anything = view parseFocus
+  withFocus stx = local $ set parseFocus stx
+  withProgress p = local $ over parseProgress (pushProgress p)
+  withReason r = local $ set parseReason r
+
+instance MonadSyntax atom m => MonadSyntax atom (ReaderT r m) where
+  anything = lift anything
+  withFocus stx m =
+    do r <- ask
+       lift $ withFocus stx (runReaderT m r)
+  withProgress p m =
+    do r <- ask
+       lift $ withProgress p (runReaderT m r)
+  withReason why m =
+    do r <- ask
+       lift $ withReason why (runReaderT m r)
+
+
+
+instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (StateT s m) where
+  anything = lift anything
+  withFocus stx m =
+    do st <- get
+       (s, st') <- lift $ withFocus stx (runStateT m st)
+       put st'
+       return s
+  withProgress p m =
+    do st <- get
+       (s, st') <- lift $ withProgress p (runStateT m st)
+       put st'
+       return s
+  withReason why m =
+    do st <- get
+       (s, st') <- lift $ withReason why (runStateT m st)
+       put st'
+       return s
+
+instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (WriterT w m) where
+  anything = lift anything
+  withFocus stx m =
+    do (x, w) <- lift $ withFocus stx $ runWriterT m
+       tell w
+       return x
+  withProgress p m =
+    do (x, w) <- lift $ withProgress p $ runWriterT m
+       tell w
+       return x
+  withReason why m =
+    do (x, w) <- lift $ withReason why $ runWriterT m
+       tell w
+       return x
+
+
 parseError :: Progress -> Reason atom -> P atom a
 parseError p r = P [] (Oops p (pure r))
 
@@ -143,76 +210,74 @@ syntaxToDatum (A x) = Datum $ Atom x
 syntaxToDatum (L ls) = Datum $ List $ map syntaxToDatum ls
 syntaxToDatum _ = error "syntaxToDatum: impossible case - bad Syntactic instance"
 
-anything :: SyntaxParse atom (Syntax atom)
-anything = view parseFocus
 
-satisfy :: (Syntax atom -> Bool) -> SyntaxParse atom (Syntax atom)
+satisfy :: MonadSyntax atom m => (Syntax atom -> Bool) -> m (Syntax atom)
 satisfy p =
-  do foc <- view parseFocus
+  do foc <- anything
      if p foc
        then pure foc
        else empty
 
-datum :: (IsAtom atom, Eq atom) => Datum atom -> SyntaxParse atom ()
+datum :: (MonadSyntax atom m, IsAtom atom, Eq atom) => Datum atom -> m ()
 datum dat =
   describe (datumToText mempty dat) $
     satisfy (\stx -> dat == syntaxToDatum stx) *> pure ()
 
-atom :: (IsAtom atom, Eq atom) => atom -> SyntaxParse atom ()
+atom :: (MonadSyntax atom m, IsAtom atom, Eq atom) => atom -> m ()
 atom a = datum (Datum (Atom a))
 
-atomic :: SyntaxParse atom atom
+atomic :: MonadSyntax atom m => m atom
 atomic = sideCondition "an atom" perhapsAtom (syntaxToDatum <$> anything)
   where perhapsAtom (Datum (Atom a)) = Just a
         perhapsAtom _ = Nothing
 
-describe :: Text -> SyntaxParse atom a -> SyntaxParse atom a
+describe :: MonadSyntax atom m => Text -> m a -> m a
 describe d p =
-  do foc <- view parseFocus
-     local (set parseReason (Reason foc d)) p
+  do foc <- anything
+     withReason (Reason foc d) p
 
-emptyList :: SyntaxParse atom ()
+emptyList :: MonadSyntax atom m => m ()
 emptyList = describe (T.pack "empty expression ()") (satisfy (isNil . syntaxToDatum) *> pure ())
   where isNil (Datum (List [])) = True
         isNil _ = False
 
-cons :: SyntaxParse atom a -> SyntaxParse atom b -> SyntaxParse atom (a, b)
+cons :: MonadSyntax atom m => m a -> m b -> m (a, b)
 cons a d = depCons a (const d)
 
-depCons :: SyntaxParse atom a -> (a -> SyntaxParse atom b) -> SyntaxParse atom (a, b)
+depCons :: MonadSyntax atom m => m a -> (a -> m b) -> m (a, b)
 depCons a d =
-  do focus <- view parseFocus
+  do focus <- anything
      case focus of
        L (e:es) ->
-         do x <- local (set parseFocus e . over parseProgress (pushProgress First)) a
+         do x <- withFocus e $ withProgress First $ a
             let cdr = Syntax (Posd (syntaxPos focus) (List es))
-            xs <- local (set parseFocus cdr . over parseProgress (pushProgress Rest)) (d x)
+            xs <- withFocus cdr $ withProgress Rest $ d x
             pure (x, xs)
        _ -> empty
 
 
-rep :: SyntaxParse atom a -> SyntaxParse atom [a]
+rep :: MonadSyntax atom m => m a -> m [a]
 rep p =
-  do focus <- view parseFocus
+  do focus <- anything
      case focus of
        L [] ->
          pure []
        L (e:es) ->
-         do x <- local (set parseFocus e . over parseProgress (pushProgress First)) p
+         do x <- withFocus e $ withProgress First p
             let cdr = Syntax (Posd (syntaxPos focus) (List es))
-            xs <- local (set parseFocus cdr . over parseProgress (pushProgress Rest)) (rep p)
+            xs <- withFocus cdr $ withProgress Rest $ rep p
             pure (x : xs)
        _ -> empty
 
-parse :: Syntax atom -> SyntaxParse atom a -> SyntaxParse atom a
-parse stx p = local (set parseFocus stx) p
+parse :: MonadSyntax atom m => Syntax atom -> m a -> m a
+parse = withFocus
 
-list :: [SyntaxParse atom a] -> SyntaxParse atom [a]
+list :: MonadSyntax atom m => [m a] -> m [a]
 list parsers = describe desc $ list' parsers
   where desc =
           mappend (T.pack (show (length parsers))) (T.pack " expressions")
         list' ps =
-          do focus <- view parseFocus
+          do focus <- anything
              case focus of
                L es -> go (syntaxPos focus) ps es
                _ -> empty
@@ -221,16 +286,16 @@ list parsers = describe desc $ list' parsers
         go _ (_:_) [] = empty
         go _ [] (_:_) = empty
         go loc (p:ps) (e:es) =
-          do x <- local (set parseFocus e . over parseProgress (pushProgress First)) p
-             xs <- local (set parseFocus (Syntax (Posd loc (List es))) .
-                          over parseProgress (pushProgress Rest))
-                     (list' ps)
+          do x <- withFocus e $ withProgress First p
+             xs <- withFocus (Syntax (Posd loc (List es))) $
+                   withProgress Rest $
+                   list' ps
              pure (x : xs)
 
-later :: SyntaxParse atom a -> SyntaxParse atom a
-later = local (over parseProgress (pushProgress Late))
+later :: MonadSyntax atom m => m a -> m a
+later = withProgress Late
 
-sideCondition :: Text -> (a -> Maybe b) -> SyntaxParse atom a -> SyntaxParse atom b
+sideCondition :: MonadSyntax atom m => Text -> (a -> Maybe b) -> m a -> m b
 sideCondition msg ok p =
   do x <- p
      case ok x of
@@ -238,7 +303,7 @@ sideCondition msg ok p =
        Nothing ->
          describe msg empty
 
-sideCondition' :: Text -> (a -> Bool) -> SyntaxParse atom a -> SyntaxParse atom a
+sideCondition' :: MonadSyntax atom m => Text -> (a -> Bool) -> m a -> m a
 sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
 
 
