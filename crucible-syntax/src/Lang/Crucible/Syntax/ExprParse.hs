@@ -9,6 +9,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Lang.Crucible.Syntax.ExprParse where
 
@@ -19,6 +20,7 @@ import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Writer (WriterT(..), tell)
 
+import Data.Foldable as Foldable
 import Data.List
 import qualified Data.List.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty(..))
@@ -37,6 +39,54 @@ import Lang.Crucible.Syntax.SExpr
 import qualified Text.Megaparsec as MP
 
 import What4.ProgramLoc (Posd(..))
+
+
+data Search a = Try a (Search a) | Fail | Cut
+  deriving Functor
+
+instance Applicative Search where
+  pure x = Try x Fail
+  (<*>) = ap
+
+instance Alternative Search where
+  empty = Fail
+  x <|> y =
+    case x of
+      Try first rest -> Try first (rest <|> y)
+      Fail -> y
+      Cut -> Cut
+
+instance Monad Search where
+  return x = pure x
+  m >>= f =
+    case m of
+      Try x more -> f x <|> (more >>= f)
+      Fail -> Fail
+      Cut -> Fail
+
+instance Monoid (Search a) where
+  mempty  = empty
+  mappend = (<|>)
+
+instance Foldable Search where
+  foldMap f (Try x xs) = f x `mappend` foldMap f xs
+  foldMap _ _ = mempty
+
+  toList (Try x xs) = x : toList xs
+  toList _          = []
+
+instance Traversable Search where
+  traverse f (Try x xs) = Try <$> f x <*> traverse f xs
+  traverse _ Fail = pure Fail
+  traverse _ Cut = pure Cut
+
+delimitSearch :: Search a -> Search a
+delimitSearch (Try first rest) = Try first $ delimitSearch rest
+delimitSearch Fail = Fail
+delimitSearch Cut = Fail
+
+cutSearch :: Search a
+cutSearch = Cut
 
 data ProgressStep = First | Rest | Late
   deriving (Eq, Show)
@@ -87,7 +137,7 @@ instance Monoid (Failure atom) where
       GT -> e1
       EQ -> Oops p1 (r1 <> r2)
 
-data P atom a = P { success :: [a]
+data P atom a = P { success :: Search a
                   , failure :: Failure atom
                   }
   deriving Functor
@@ -97,7 +147,7 @@ instance Monoid (P atom a) where
   mappend (P s1 f1) (P s2 f2) = P (mappend s1 s2) (mappend f1 f2)
 
 instance Applicative (P atom) where
-  pure x = P [x] mempty
+  pure x = P (pure x) mempty
   f <*> x = ap f x
 
 instance Alternative (P atom) where
@@ -106,7 +156,7 @@ instance Alternative (P atom) where
 
 instance Monad (P atom) where
   return = pure
-  (P xs e) >>= f = mappend (mconcat [f x | x <- xs]) (P [] e)
+  (P xs e) >>= f = mappend (foldMap f xs) (P empty e)
 
 data SyntaxParseCtx atom =
   SyntaxParseCtx { _parseProgress :: Progress
@@ -131,7 +181,7 @@ newtype SyntaxParse atom a =
 
 instance Alternative (SyntaxParse atom) where
   empty =
-    SyntaxParse $ ReaderT $ \(SyntaxParseCtx p r _) -> P [] (Oops p (pure r))
+    SyntaxParse $ ReaderT $ \(SyntaxParseCtx p r _) -> P empty (Oops p (pure r))
   (SyntaxParse (ReaderT x)) <|> (SyntaxParse (ReaderT y)) =
     SyntaxParse $ ReaderT $ \ctx -> x ctx <|> y ctx
 
@@ -140,15 +190,32 @@ class (Alternative m, Monad m) => MonadSyntax atom m | m -> atom where
   withFocus :: Syntax atom -> m a -> m a
   withProgress :: ProgressStep -> m a -> m a
   withReason :: Reason atom -> m a -> m a
+  cut :: m a
+  delimit :: m a -> m a
 
 instance MonadSyntax atom (SyntaxParse atom) where
   anything = view parseFocus
   withFocus stx = local $ set parseFocus stx
   withProgress p = local $ over parseProgress (pushProgress p)
   withReason r = local $ set parseReason r
+  cut =
+    SyntaxParse $
+    ReaderT $
+    \(SyntaxParseCtx p r _) ->
+      P cutSearch (Oops p (pure r))
+  delimit (SyntaxParse (ReaderT f)) =
+    SyntaxParse $
+    ReaderT $
+    \r ->
+      let (P s e) = f r
+      in P (delimitSearch s) e
 
 instance MonadSyntax atom m => MonadSyntax atom (ReaderT r m) where
   anything = lift anything
+  cut = lift cut
+  delimit m =
+    do r <- ask
+       lift $ delimit (runReaderT m r)
   withFocus stx m =
     do r <- ask
        lift $ withFocus stx (runReaderT m r)
@@ -163,6 +230,12 @@ instance MonadSyntax atom m => MonadSyntax atom (ReaderT r m) where
 
 instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (StateT s m) where
   anything = lift anything
+  cut = lift cut
+  delimit m =
+    do st <- get
+       (s, st') <- lift $ delimit (runStateT m st)
+       put st'
+       return s
   withFocus stx m =
     do st <- get
        (s, st') <- lift $ withFocus stx (runStateT m st)
@@ -181,6 +254,11 @@ instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (StateT s m) wher
 
 instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (WriterT w m) where
   anything = lift anything
+  cut = lift cut
+  delimit m =
+    do (x, w) <- lift $ delimit $ runWriterT m
+       tell w
+       return x
   withFocus stx m =
     do (x, w) <- lift $ withFocus stx $ runWriterT m
        tell w
@@ -196,7 +274,7 @@ instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (WriterT w m) where
 
 
 parseError :: Progress -> Reason atom -> P atom a
-parseError p r = P [] (Oops p (pure r))
+parseError p r = P empty (Oops p (pure r))
 
 debug :: (Show atom) => String -> SyntaxParse atom a -> SyntaxParse atom a
 debug msg p =
@@ -242,17 +320,20 @@ emptyList = describe (T.pack "empty expression ()") (satisfy (isNil . syntaxToDa
         isNil _ = False
 
 cons :: MonadSyntax atom m => m a -> m b -> m (a, b)
-cons a d = depCons a (const d)
+cons a d = depCons a (\x -> d >>= \y -> pure (x, y))
 
-depCons :: MonadSyntax atom m => m a -> (a -> m b) -> m (a, b)
+followedBy :: MonadSyntax atom m => m a -> m b -> m b
+followedBy a d = depCons a (const d)
+
+
+depCons :: MonadSyntax atom m => m a -> (a -> m b) -> m b
 depCons a d =
   do focus <- anything
      case focus of
        L (e:es) ->
          do x <- withFocus e $ withProgress First $ a
             let cdr = Syntax (Posd (syntaxPos focus) (List es))
-            xs <- withFocus cdr $ withProgress Rest $ d x
-            pure (x, xs)
+            withFocus cdr $ withProgress Rest $ d x
        _ -> empty
 
 
@@ -295,6 +376,10 @@ list parsers = describe desc $ list' parsers
 later :: MonadSyntax atom m => m a -> m a
 later = withProgress Late
 
+
+barrier :: MonadSyntax atom m => m ()
+barrier = pure () <|> cut
+
 sideCondition :: MonadSyntax atom m => Text -> (a -> Maybe b) -> m a -> m b
 sideCondition msg ok p =
   do x <- p
@@ -305,7 +390,6 @@ sideCondition msg ok p =
 
 sideCondition' :: MonadSyntax atom m => Text -> (a -> Bool) -> m a -> m a
 sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
-
 
 
 -- | Syntax errors explain why the error occurred.
@@ -333,7 +417,7 @@ syntaxParse p stx =
         runReaderT (runSyntaxParse p) $
           SyntaxParseCtx (Progress []) (Reason stx (T.pack "bad syntax")) stx
   in
-    case yes of
+    case Foldable.toList yes of
       [] ->
         Left $ SyntaxError $
           case no of

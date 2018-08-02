@@ -239,6 +239,12 @@ int = sideCondition "integer literal" numeric atomic
   where numeric (Int i) = Just i
         numeric _ = Nothing
 
+
+labelName :: MonadSyntax Atomic m => m LabelName
+labelName = sideCondition "label name" lbl atomic
+  where lbl (Lbl l) = Just l
+        lbl _ = Nothing
+
 rational :: MonadSyntax Atomic m => m Rational
 rational = sideCondition "rational number literal" numeric atomic
   where numeric (Rat r) = Just r
@@ -342,10 +348,14 @@ synth' =
     intp
 
   where
-    the = do ((), (Some t, (e, ()))) <- describe "type-annotated expression" $
-                                        cons (kw The) (cons isType' (cons anything emptyList))
-             e' <- parse e (check' t)
-             return $ SomeExpr t e'
+    the :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    the = do describe "type-annotated expression" $
+               kw The `followedBy`
+                 (depCons isType' $
+                  \(Some t) ->
+                    do (e, ()) <- cons (check' t) emptyList
+                       return $ SomeExpr t e)
+
 
 
     okAtom theAtoms x =
@@ -501,9 +511,8 @@ synth' =
 
     vecSet :: ReaderT (SyntaxState h s) m (SomeExpr s)
     vecSet =
-      do snd . snd <$>
-           (cons (kw VectorSetEntry_) $
-            depCons synthVec $
+      do kw VectorSetEntry_ `followedBy`
+           (depCons synthVec $
             \(SomeVectorExpr t (E vec)) ->
               do (E n, (E elt, ())) <- cons (check' NatRepr) $
                                        cons (check' t) $
@@ -554,17 +563,18 @@ check' t =
          describe "context expecting Maybe" $
            case t of
              MaybeRepr expected ->
-               do E e <- parse package $ check' AnyRepr
+               do E e <- withProgress Rest $ withProgress SP.First $
+                         parse package $ check' AnyRepr
                   return $ E $ App (UnpackAny expected e)
              _ -> empty
 
     just =
       do inj <- lift $ unary Just_ anything
-         r <- ask
          describe "context expecting Maybe" $
            case t of
              MaybeRepr expected ->
-               do E e <- parse inj $ runReaderT (check' expected) r
+               do E e <- withProgress Rest $ withProgress SP.First $
+                         parse inj $ check' expected
                   return $ E $ App (JustValue expected e)
              _ -> empty
 
@@ -577,13 +587,14 @@ check' t =
           _ -> empty
 
     fromJust_ =
-      do r <- ask
-         ((), (E e, (E str, ()))) <- lift $ describe "coercion from Maybe (fromJust-expression)" $
-                                     cons (kw FromJust) $
-                                     cons (runReaderT (check' (MaybeRepr t)) r) $
-                                     cons (runReaderT (check' StringRepr) r) $
-                                     emptyList
-         return $ E $ App $ FromJustValue t e str
+      do describe "coercion from Maybe (fromJust-expression)" $
+           followedBy (kw FromJust) $
+           depCons (check' (MaybeRepr t)) $
+             \ (E e) ->
+               depCons (check' StringRepr) $
+                 \ (E str) ->
+                   do emptyList
+                      return $ E $ App $ FromJustValue t e str
 
     injection =
       do ((), (n, (e, ()))) <- lift $ describe "injection into variant type" $
@@ -596,8 +607,8 @@ check' t =
                  describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
                Just (Some idx) ->
                  do let ty = view (ixF' idx) ts
-                    r <- ask
-                    E out <- lift $ parse e (runReaderT (check' ty) r)
+                    E out <- withProgress Rest $ withProgress Rest $ withProgress SP.First $
+                             parse e (check' ty)
                     return $ E $ App $ InjectVariant ts idx out
            _ -> lift $ describe ("context expecting variant type (got " <> T.pack (show t) <> ")") empty
 
@@ -631,36 +642,31 @@ check' t =
           describe ("arithmetic expression beginning with " <> T.pack (show k) <> " type " <>  (T.pack (show t2)))
             empty
         Just Refl ->
-          do r <- ask
-             ((), (E e1, (E e2, ()))) <- lift $
-                                         -- describe ("arithmetic expression of type " <> T.pack (show t2)) $
-                                         cons (kw k) $
-                                         cons (runReaderT (check' t1) r) $
-                                         cons (runReaderT (check' t1) r) $
-                                         emptyList
-             return $ E $ App $ f e1 e2
+          -- describe ("arithmetic expression of type " <> T.pack (show t2)) $
+          followedBy (kw k) $
+          depCons (check' t1) $
+            \ (E e1) ->
+              depCons (check' t1) $
+                \ (E e2) ->
+                  do emptyList
+                     return $ E $ App $ f e1 e2
 
     vecLit =
-      do ((), xs) <- lift $
-                     describe "vector literal" $
-                     cons (kw VectorLit_) $
-                     rep anything
-         case t of
-           VectorRepr elemTy ->
-             do es <- forM xs $
-                        \stx ->
-                          do r <- ask
-                             lift $ parse stx (runReaderT (check' elemTy) r)
-                return $ E $ App $ VectorLit elemTy (V.fromList (map unE es))
-           _ -> lift $ describe ("context expecting a vector") $ empty
+      describe "vector literal" $
+      followedBy (kw VectorLit_) $
+      (pure () <|> cut) *>
+      case t of
+        VectorRepr elemTy ->
+          do es <- rep $ check' elemTy
+             return $ E $ App $ VectorLit elemTy (V.fromList (map unE es))
+        _ -> lift $ describe ("context expecting a vector") $ empty
 
     vecCons =
       case t of
         VectorRepr elemTy ->
-          do r <- ask
-             (E a, E d) <- lift $ binary VectorCons_
-                                   (runReaderT (check' elemTy) r)
-                                   (runReaderT (check' (VectorRepr elemTy)) r)
+          do (E a, E d) <- binary VectorCons_
+                             (check' elemTy)
+                             (check' (VectorRepr elemTy))
              return $ E $ App $ VectorCons elemTy a d
         _ -> empty
 
@@ -668,7 +674,7 @@ check' t =
     modeSwitch :: ReaderT (SyntaxState h s) m (E s t)
     modeSwitch =
       do SomeExpr t' e <- synth'
-         describe ("a " <> T.pack (show t) <> " but got a " <> T.pack (show t')) $
+         later $ describe ("a " <> T.pack (show t) <> " rather than a " <> T.pack (show t')) $
            case testEquality t t' of
              Nothing -> later empty
              Just Refl -> return e
@@ -1008,14 +1014,14 @@ typedAtom' ty e@(A (At x)) =
 typedAtom' _ other = throwError $ NotAnAtom (syntaxPos other) other
 
 
--- termStmt' :: ReaderT (SyntaxState h s) (SyntaxParse Atomic) (Posd (TermStmt s ret))
+-- termStmt' :: MonadSyntax Atomic m => ReaderT (SyntaxState h s) m (Posd (TermStmt s ret))
 -- termStmt' =
 --   do stx <- anything
 --      withPosFrom stx <$> jump
 
 --   where
 --     normalLabel =
---       _atomic
+--       _foo labelName
     
 --     jump = unary Jump_ normalLabel <&> Jump
 
