@@ -395,6 +395,8 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
 
   pushCommand _  = Cmd "(push 1)"
   popCommand _   = Cmd "(pop 1)"
+  resetCommand _ = Cmd "(reset-assertions)"
+
   checkCommand _ = checkSatCommand
   setOptCommand _ x y = setOptionCommand (Option opt)
     where opt = Builder.fromText x <> Builder.fromText " " <> y

@@ -57,6 +57,7 @@ module What4.Protocol.SMTWriter
               )
   , connState
   , newWriterConn
+  , resetEntryStack
   , pushEntryStack
   , popEntryStack
   , Command(..)
@@ -584,6 +585,12 @@ data WriterConn t (h :: *) =
                -- ^ The specific connection information.
              }
 
+-- | Clear the entry stack, and start with a fresh one.
+resetEntryStack :: WriterConn t h -> IO ()
+resetEntryStack c = do
+  h <- newIdxCache
+  writeIORef (entryStack c) [h]
+
 -- | Push a new frame to the stack for maintaining the writer cache.
 pushEntryStack :: WriterConn t h -> IO ()
 pushEntryStack c = do
@@ -676,6 +683,9 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 
   -- | Pop 1 existing scope
   popCommand    :: f h -> Command h
+
+  -- | Reset the solver state, forgetting all pushed frames and assertions
+  resetCommand  :: f h -> Command h
 
   -- | Check if the current set of assumption is satisfiable
   checkCommand  :: f h -> Command h
