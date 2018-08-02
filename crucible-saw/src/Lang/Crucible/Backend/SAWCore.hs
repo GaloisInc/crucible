@@ -798,7 +798,6 @@ instance IsBoolSolver (SAWCoreBackend n) where
 
   addAssumption sym a = do
     case asConstantPred (a^.labeledPred) of
-      Just True  -> return ()
       Just False -> abortExecBecause (AssumedFalse (a ^. labeledPredMsg))
       _ -> AS.assume a =<< getAssumptionStack sym
 
@@ -842,13 +841,12 @@ instance IsBoolSolver (SAWCoreBackend n) where
 
   popAssumptionFrame sym ident = do
     stk <- getAssumptionStack sym
-    frm <- AS.popFrame ident stk
-    readIORef (assumeFrameCond frm)
+    AS.popFrame ident stk
 
-  cloneAssumptionState sym = do
+  saveAssumptionState sym = do
     stk <- getAssumptionStack sym
-    AS.cloneAssumptionStack stk
+    AS.saveAssumptionStack stk
 
-  restoreAssumptionState sym stk = do
-    modifyIORef' (B.sbStateManager sym)
-      (\st -> st{ saw_assumptions = stk })
+  restoreAssumptionState sym newstk = do
+    stk <- getAssumptionStack sym
+    AS.restoreAssumptionStack newstk stk
