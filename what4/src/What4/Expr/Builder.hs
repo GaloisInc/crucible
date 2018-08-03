@@ -132,7 +132,7 @@ module What4.Expr.Builder
   , idxCacheEval
   , idxCacheEval'
 
-    -- Flags
+    -- * Flags
   , type FloatInterpretation
   , FloatIEEE
   , FloatUninterpreted
@@ -155,6 +155,7 @@ import           Control.Monad.IO.Class
 import           Control.Monad.ST
 import           Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
+import qualified Data.Binary.IEEE754 as IEEE754
 import qualified Data.Bits as Bits
 import           Data.Foldable
 import qualified Data.HashTable.Class as H (toList)
@@ -182,7 +183,6 @@ import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Word (Word64)
 import           GHC.Generics (Generic)
-import           GHC.TypeLits
 import qualified Numeric as N
 import           Numeric.Natural
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -667,6 +667,11 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
     -> !RoundingMode
     -> !(e (BaseFloatType fpp'))
     -> App e (BaseFloatType fpp)
+  FloatFromBinary
+    :: (1 <= eb, 1 <= sb)
+    => !(FloatPrecisionRepr (FloatingPointPrecision sb eb))
+    -> !(e (BaseBVType (sb + ebto_fp)))
+    -> App e (BaseFloatType (FloatingPointPrecision sb eb))
   BVToFloat
     :: (1 <= w)
     => !(FloatPrecisionRepr fpp)
@@ -1154,6 +1159,7 @@ appType a =
     FloatIsNorm{} -> knownRepr
     FloatIte fpp _ _ _ -> BaseFloatRepr fpp
     FloatCast fpp _ _ -> BaseFloatRepr fpp
+    FloatFromBinary fpp _ -> BaseFloatRepr fpp
     BVToFloat fpp _ _ -> BaseFloatRepr fpp
     SBVToFloat fpp _ _ -> BaseFloatRepr fpp
     RealToFloat fpp _ _ -> BaseFloatRepr fpp
@@ -1517,15 +1523,15 @@ ppApp' a0 = do
     FloatNInf _ -> prettyApp "floatNInf" []
     FloatNeg _ x -> ppSExpr "floatNeg" [x]
     FloatAbs _ x -> ppSExpr "floatAbs" [x]
-    FloatSqrt _ r x -> ppSExpr (Text.pack $ "floatSqrt" <> show r) [x]
-    FloatAdd _ r x y -> ppSExpr (Text.pack $ "floatAdd" <> show r) [x, y]
-    FloatSub _ r x y -> ppSExpr (Text.pack $ "floatSub" <> show r) [x, y]
-    FloatMul _ r x y -> ppSExpr (Text.pack $ "floatMul" <> show r) [x, y]
-    FloatDiv _ r x y -> ppSExpr (Text.pack $ "floatDiv" <> show r) [x, y]
+    FloatSqrt _ r x -> ppSExpr (Text.pack $ "floatSqrt " <> show r) [x]
+    FloatAdd _ r x y -> ppSExpr (Text.pack $ "floatAdd " <> show r) [x, y]
+    FloatSub _ r x y -> ppSExpr (Text.pack $ "floatSub " <> show r) [x, y]
+    FloatMul _ r x y -> ppSExpr (Text.pack $ "floatMul " <> show r) [x, y]
+    FloatDiv _ r x y -> ppSExpr (Text.pack $ "floatDiv " <> show r) [x, y]
     FloatRem _ x y -> ppSExpr "floatRem" [x, y]
     FloatMin _ x y -> ppSExpr "floatMin" [x, y]
     FloatMax _ x y -> ppSExpr "floatMax" [x, y]
-    FloatFMA _ r x y z -> ppSExpr (Text.pack $ "floatFMA" <> show r) [x, y, z]
+    FloatFMA _ r x y z -> ppSExpr (Text.pack $ "floatFMA " <> show r) [x, y, z]
     FloatEq x y -> ppSExpr "floatEq" [x, y]
     FloatNe x y -> ppSExpr "floatNe" [x, y]
     FloatLe x y -> ppSExpr "floatLe" [x, y]
@@ -1538,13 +1544,14 @@ ppApp' a0 = do
     FloatIsSubnorm x -> ppSExpr "floatIsSubnorm" [x]
     FloatIsNorm x -> ppSExpr "floatIsNorm" [x]
     FloatIte _ c x y -> ppITE "floatIte" c x y
-    FloatCast _ r x -> ppSExpr (Text.pack $ "floatCast" <> show r) [x]
-    BVToFloat _ r x -> ppSExpr (Text.pack $ "bvToFloat" <> show r) [x]
-    SBVToFloat _ r x -> ppSExpr (Text.pack $ "sbvToFloat" <> show r) [x]
-    RealToFloat _ r x -> ppSExpr (Text.pack $ "realToFloat" <> show r) [x]
-    FloatToBV _ r x -> ppSExpr (Text.pack $ "floatToBV" <> show r) [x]
-    FloatToSBV _ r x -> ppSExpr (Text.pack $ "floatToSBV" <> show r) [x]
-    FloatToReal x -> ppSExpr "floatToReal" [x]
+    FloatCast _ r x -> ppSExpr (Text.pack $ "floatCast " <> show r) [x]
+    FloatFromBinary _ x -> ppSExpr "floatFromBinary" [x]
+    BVToFloat _ r x -> ppSExpr (Text.pack $ "bvToFloat " <> show r) [x]
+    SBVToFloat _ r x -> ppSExpr (Text.pack $ "sbvToFloat " <> show r) [x]
+    RealToFloat _ r x -> ppSExpr (Text.pack $ "realToFloat " <> show r) [x]
+    FloatToBV _ r x -> ppSExpr (Text.pack $ "floatToBV " <> show r) [x]
+    FloatToSBV _ r x -> ppSExpr (Text.pack $ "floatToSBV " <> show r) [x]
+    FloatToReal x -> ppSExpr "floatToReal " [x]
 
     -------------------------------------
     -- Arrays
@@ -2357,6 +2364,7 @@ abstractEval bvParams f a0 = do
     FloatIsNorm{} -> Nothing
     FloatIte{} -> ()
     FloatCast{} -> ()
+    FloatFromBinary{} -> ()
     BVToFloat{} -> ()
     SBVToFloat{} -> ()
     RealToFloat{} -> ()
@@ -2931,41 +2939,42 @@ reduceApp sym a0 = do
     BVBitOr  _ x y -> bvOrBits  sym x y
     BVBitXor _ x y -> bvXorBits sym x y
 
-    FloatPZero{}     -> sbMakeExpr sym a0
-    FloatNZero{}     -> sbMakeExpr sym a0
-    FloatNaN{}       -> sbMakeExpr sym a0
-    FloatPInf{}      -> sbMakeExpr sym a0
-    FloatNInf{}      -> sbMakeExpr sym a0
-    FloatNeg{}       -> sbMakeExpr sym a0
-    FloatAbs{}       -> sbMakeExpr sym a0
-    FloatSqrt{}      -> sbMakeExpr sym a0
-    FloatAdd{}       -> sbMakeExpr sym a0
-    FloatSub{}       -> sbMakeExpr sym a0
-    FloatMul{}       -> sbMakeExpr sym a0
-    FloatDiv{}       -> sbMakeExpr sym a0
-    FloatRem{}       -> sbMakeExpr sym a0
-    FloatMin{}       -> sbMakeExpr sym a0
-    FloatMax{}       -> sbMakeExpr sym a0
-    FloatFMA{}       -> sbMakeExpr sym a0
-    FloatEq{}        -> sbMakeExpr sym a0
-    FloatNe{}        -> sbMakeExpr sym a0
-    FloatLe{}        -> sbMakeExpr sym a0
-    FloatLt{}        -> sbMakeExpr sym a0
-    FloatIsNaN{}     -> sbMakeExpr sym a0
-    FloatIsInf{}     -> sbMakeExpr sym a0
-    FloatIsZero{}    -> sbMakeExpr sym a0
-    FloatIsPos{}     -> sbMakeExpr sym a0
-    FloatIsNeg{}     -> sbMakeExpr sym a0
-    FloatIsSubnorm{} -> sbMakeExpr sym a0
-    FloatIsNorm{}    -> sbMakeExpr sym a0
-    FloatIte{}       -> sbMakeExpr sym a0
-    FloatCast{}      -> sbMakeExpr sym a0
-    BVToFloat{}      -> sbMakeExpr sym a0
-    SBVToFloat{}     -> sbMakeExpr sym a0
-    RealToFloat{}    -> sbMakeExpr sym a0
-    FloatToBV{}      -> sbMakeExpr sym a0
-    FloatToSBV{}     -> sbMakeExpr sym a0
-    FloatToReal{}    -> sbMakeExpr sym a0
+    FloatPZero{}      -> sbMakeExpr sym a0
+    FloatNZero{}      -> sbMakeExpr sym a0
+    FloatNaN{}        -> sbMakeExpr sym a0
+    FloatPInf{}       -> sbMakeExpr sym a0
+    FloatNInf{}       -> sbMakeExpr sym a0
+    FloatNeg{}        -> sbMakeExpr sym a0
+    FloatAbs{}        -> sbMakeExpr sym a0
+    FloatSqrt{}       -> sbMakeExpr sym a0
+    FloatAdd{}        -> sbMakeExpr sym a0
+    FloatSub{}        -> sbMakeExpr sym a0
+    FloatMul{}        -> sbMakeExpr sym a0
+    FloatDiv{}        -> sbMakeExpr sym a0
+    FloatRem{}        -> sbMakeExpr sym a0
+    FloatMin{}        -> sbMakeExpr sym a0
+    FloatMax{}        -> sbMakeExpr sym a0
+    FloatFMA{}        -> sbMakeExpr sym a0
+    FloatEq{}         -> sbMakeExpr sym a0
+    FloatNe{}         -> sbMakeExpr sym a0
+    FloatLe{}         -> sbMakeExpr sym a0
+    FloatLt{}         -> sbMakeExpr sym a0
+    FloatIsNaN{}      -> sbMakeExpr sym a0
+    FloatIsInf{}      -> sbMakeExpr sym a0
+    FloatIsZero{}     -> sbMakeExpr sym a0
+    FloatIsPos{}      -> sbMakeExpr sym a0
+    FloatIsNeg{}      -> sbMakeExpr sym a0
+    FloatIsSubnorm{}  -> sbMakeExpr sym a0
+    FloatIsNorm{}     -> sbMakeExpr sym a0
+    FloatIte{}        -> sbMakeExpr sym a0
+    FloatCast{}       -> sbMakeExpr sym a0
+    FloatFromBinary{} -> sbMakeExpr sym a0
+    BVToFloat{}       -> sbMakeExpr sym a0
+    SBVToFloat{}      -> sbMakeExpr sym a0
+    RealToFloat{}     -> sbMakeExpr sym a0
+    FloatToBV{}       -> sbMakeExpr sym a0
+    FloatToSBV{}      -> sbMakeExpr sym a0
+    FloatToReal{}     -> sbMakeExpr sym a0
 
     ArrayEq x y -> arrayEq sym x y
     ArrayMap _ _ m def_map ->
@@ -4846,10 +4855,10 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   -- IEEE-754 floating-point operations
   floatPZero = floatIEEEArithCt FloatPZero
   floatNZero = floatIEEEArithCt FloatNZero
-  -- floatLit sym fi r = realToFloat sym fi =<< realLit sym r
   floatNaN = floatIEEEArithCt FloatNaN
   floatPInf = floatIEEEArithCt FloatPInf
   floatNInf = floatIEEEArithCt FloatNInf
+  floatLit sym fpp x = realToFloat sym fpp RNE =<< realLit sym x
   floatNeg = floatIEEEArithUnOp FloatNeg
   floatAbs = floatIEEEArithUnOp FloatAbs
   floatSqrt = floatIEEEArithUnOpR FloatSqrt
@@ -4878,6 +4887,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   floatIsSubnorm = floatIEEELogicUnOp FloatIsSubnorm
   floatIsNorm = floatIEEELogicUnOp FloatIsNorm
   floatCast sym fpp r = sbMakeExpr sym . FloatCast fpp r
+  floatFromBinary sym fpp = sbMakeExpr sym . FloatFromBinary fpp
   bvToFloat sym fpp r = sbMakeExpr sym . BVToFloat fpp r
   sbvToFloat sym fpp r = sbMakeExpr sym . SBVToFloat fpp r
   realToFloat sym fpp r = sbMakeExpr sym . RealToFloat fpp r
@@ -4994,6 +5004,9 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) wher
   iFloatNaN = undefined
   iFloatPInf = undefined
   iFloatNInf = undefined
+  iFloatLit sym _ = realLit sym
+  iFloatLitSingle sym = realLit sym . toRational
+  iFloatLitDouble sym = realLit sym . toRational
   iFloatNeg = realNeg
   iFloatAbs = realAbs
   iFloatSqrt sym _ = realSqrt sym
@@ -5026,6 +5039,7 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) wher
   iFloatIsSubnorm sym _ = return $ falsePred sym
   iFloatIsNorm sym = realNe sym $ realZero sym
   iFloatCast _ _ _ = return
+  iFloatFromBinary = undefined
   iBVToFloat sym _ _ = uintToReal sym
   iSBVToFloat sym _ _ = sbvToReal sym
   iRealToFloat _ _ _ = return
@@ -5033,20 +5047,6 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) wher
   iFloatToSBV sym w _ x = realToSBV sym x w
   iFloatToReal _ = return
   iFloatBaseTypeRepr _ _ = knownRepr
-
-type family FloatInfoToBitWidth (fi :: FloatInfo) :: GHC.TypeLits.Nat
--- | IEEE binary16
-type instance FloatInfoToBitWidth HalfFloat = 16
--- | IEEE binary32
-type instance FloatInfoToBitWidth SingleFloat = 32
--- | IEEE binary64
-type instance FloatInfoToBitWidth DoubleFloat = 64
--- | IEEE binary128
-type instance FloatInfoToBitWidth QuadFloat = 128
--- | X86 80-bit extended floats
-type instance FloatInfoToBitWidth X86_80Float = 80
--- | Two 64-bit floats fused in the "double-double" style
-type instance FloatInfoToBitWidth DoubleDoubleFloat = 128
 
 type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatUninterpreted)) fi =
   BaseBVType (FloatInfoToBitWidth fi)
@@ -5062,6 +5062,13 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpret
     floatUninterpArithCt "uninterpreted_float_pinf" sym . iFloatBaseTypeRepr sym
   iFloatNInf sym =
     floatUninterpArithCt "uninterpreted_float_ninf" sym . iFloatBaseTypeRepr sym
+  iFloatLit sym fi x = iRealToFloat sym fi RNE =<< realLit sym x
+  iFloatLitSingle sym x =
+    iFloatFromBinary sym SingleFloatRepr
+      =<< (bvLit sym knownNat $ toInteger $ IEEE754.floatToWord x)
+  iFloatLitDouble sym x =
+    iFloatFromBinary sym DoubleFloatRepr
+      =<< (bvLit sym knownNat $ toInteger $ IEEE754.doubleToWord x)
   iFloatNeg = floatUninterpArithUnOp "uninterpreted_float_neg"
   iFloatAbs = floatUninterpArithUnOp "uninterpreted_float_abs"
   iFloatSqrt = floatUninterpArithUnOpR "uninterpreted_float_sqrt"
@@ -5095,6 +5102,12 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpret
   iFloatIsNorm = floatUninterpLogicUnOp "uninterpreted_float_is_norm"
   iFloatCast sym =
     floatUninterpCastOp "uninterpreted_float_cast" sym . iFloatBaseTypeRepr sym
+  iFloatFromBinary sym fi x = do
+    let ret_type = iFloatBaseTypeRepr sym fi
+    mkUninterpFnApp sym
+                    "uninterpreted_float_from_binary"
+                    (Ctx.empty Ctx.:> x)
+                    ret_type
   iBVToFloat sym =
     floatUninterpCastOp "uninterpreted_bv_to_float" sym . iFloatBaseTypeRepr sym
   iSBVToFloat sym =
@@ -5211,6 +5224,13 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) wher
   iFloatNaN sym = floatNaN sym . floatInfoToPrecisionRepr
   iFloatPInf sym = floatPInf sym . floatInfoToPrecisionRepr
   iFloatNInf sym = floatNInf sym . floatInfoToPrecisionRepr
+  iFloatLit sym = floatLit sym . floatInfoToPrecisionRepr
+  iFloatLitSingle sym x =
+    floatFromBinary sym knownRepr
+      =<< (bvLit sym knownNat $ toInteger $ IEEE754.floatToWord x)
+  iFloatLitDouble sym x =
+    floatFromBinary sym knownRepr
+      =<< (bvLit sym knownNat $ toInteger $ IEEE754.doubleToWord x)
   iFloatNeg = floatNeg
   iFloatAbs = floatAbs
   iFloatSqrt = floatSqrt
@@ -5237,6 +5257,13 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) wher
   iFloatIsSubnorm = floatIsSubnorm
   iFloatIsNorm = floatIsNorm
   iFloatCast sym = floatCast sym . floatInfoToPrecisionRepr
+  iFloatFromBinary sym fi x = case fi of
+    HalfFloatRepr         -> floatFromBinary sym knownRepr x
+    SingleFloatRepr       -> floatFromBinary sym knownRepr x
+    DoubleFloatRepr       -> floatFromBinary sym knownRepr x
+    QuadFloatRepr         -> floatFromBinary sym knownRepr x
+    X86_80FloatRepr       -> undefined
+    DoubleDoubleFloatRepr -> undefined
   iBVToFloat sym = bvToFloat sym . floatInfoToPrecisionRepr
   iSBVToFloat sym = sbvToFloat sym . floatInfoToPrecisionRepr
   iRealToFloat sym = realToFloat sym . floatInfoToPrecisionRepr

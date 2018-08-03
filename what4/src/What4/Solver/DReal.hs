@@ -133,9 +133,11 @@ getAvgBindings c m = do
       evalBV _ _ = fail "dReal does not support bitvectors."
       evalReal tm = do
         return $ maybe 0 drealAvgBinding $ Map.lookup (Builder.toLazyText (SMTWriter.renderTerm tm)) m
+      evalFloat _ = fail "dReal does not support floats."
   let evalFns = SMTWriter.SMTEvalFunctions { SMTWriter.smtEvalBool = evalBool
                                            , SMTWriter.smtEvalBV = evalBV
                                            , SMTWriter.smtEvalReal = evalReal
+                                           , SMTWriter.smtEvalFloat = evalFloat
                                            , SMTWriter.smtEvalBvArray = Nothing
                                            }
   SMTWriter.smtExprGroundEvalFn c evalFns
@@ -151,9 +153,11 @@ getMaybeEval proj c m = do
         case proj =<< Map.lookup (Builder.toLazyText (SMTWriter.renderTerm tm)) m of
           Just v -> return v
           Nothing -> throwIO (userError "unbound")
+      evalFloat _ = fail "dReal does not support floats."
   let evalFns = SMTWriter.SMTEvalFunctions { SMTWriter.smtEvalBool = evalBool
                                            , SMTWriter.smtEvalBV = evalBV
                                            , SMTWriter.smtEvalReal = evalReal
+                                           , SMTWriter.smtEvalFloat = evalFloat
                                            , SMTWriter.smtEvalBvArray = Nothing
                                            }
   GroundEvalFn evalFn <- SMTWriter.smtExprGroundEvalFn c evalFns

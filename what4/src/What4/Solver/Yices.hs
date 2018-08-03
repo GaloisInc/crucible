@@ -354,6 +354,7 @@ instance SMTReadWriter (Connection s) where
     SMTEvalFunctions { smtEvalBool    = yicesEvalBool conn resp
                      , smtEvalBV      = \w -> yicesEvalBV w conn resp
                      , smtEvalReal    = yicesEvalReal conn resp
+                     , smtEvalFloat   = fail "Yices does not support floats."
                      , smtEvalBvArray = Nothing
                      }
 

@@ -356,6 +356,7 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
   floatIsNorm     = un_app "fp.isNormal"
 
   floatCast fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
+  floatFromBinary = un_app "to_fp"
   bvToFloat fpp r =
     un_app $ mkRoundingOp (mkFloatSymbol "to_fp_unsigned" fpp) r
   sbvToFloat fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
@@ -534,6 +535,10 @@ parseBvSolverValue _ (SApp ["_", SAtom ('b':'v':n_str), SAtom _w_str])
     return n
 parseBvSolverValue _ s = fail $ "Could not parse solver value: " ++ show s
 
+parseFloatSolverValue :: Monad m => SExp -> m Rational
+parseFloatSolverValue s =
+  fail $ "Could not parse float solver value: " ++ show s
+
 parseBvArraySolverValue :: (Monad m,
                             1 <= w,
                             1 <= v)
@@ -621,12 +626,14 @@ smtLibEvalFuns s = SMTEvalFunctions
                   { smtEvalBool = evalBool
                   , smtEvalBV = evalBV
                   , smtEvalReal = evalReal
+                  , smtEvalFloat = evalFloat
                   , smtEvalBvArray = Just (SMTEvalBVArrayWrapper evalBvArray)
                   }
   where
   evalBool tm = parseBoolSolverValue =<< runGetValue s tm
   evalBV w tm = parseBvSolverValue w =<< runGetValue s tm
   evalReal tm = parseRealSolverValue =<< runGetValue s tm
+  evalFloat tm = parseFloatSolverValue =<< runGetValue s tm
 
   evalBvArray :: SMTEvalBVArrayFn (Writer a) w v
   evalBvArray w v tm = parseBvArraySolverValue w v =<< runGetValue s tm

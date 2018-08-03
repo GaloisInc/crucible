@@ -19,10 +19,12 @@ module What4.InterpretedFloatingPoint
   , DoubleDoubleFloat
     -- ** Representations of FloatInfo types
   , FloatInfoRepr(..)
+    -- ** Bit-width type family
+  , FloatInfoToBitWidth
     -- * Interface classes
-    -- ** Interpretation Type Family
+    -- ** Interpretation type family
   , SymInterpretedFloatType
-    -- ** Type Alias
+    -- ** Type alias
   , SymInterpretedFloat
     -- ** IsInterpretedFloatExprBuilder
   , IsInterpretedFloatExprBuilder(..)
@@ -32,6 +34,7 @@ module What4.InterpretedFloatingPoint
 import           Data.Hashable
 import           Data.Parameterized.Classes
 import           Data.Parameterized.TH.GADT
+import           GHC.TypeLits
 import           Text.PrettyPrint.ANSI.Leijen
 
 import           What4.BaseTypes
@@ -90,6 +93,21 @@ instance OrdF FloatInfoRepr where
   compareF = $(structuralTypeOrd [t|FloatInfoRepr|] [])
 
 
+type family FloatInfoToBitWidth (fi :: FloatInfo) :: GHC.TypeLits.Nat
+-- | IEEE binary16
+type instance FloatInfoToBitWidth HalfFloat = 16
+-- | IEEE binary32
+type instance FloatInfoToBitWidth SingleFloat = 32
+-- | IEEE binary64
+type instance FloatInfoToBitWidth DoubleFloat = 64
+-- | IEEE binary128
+type instance FloatInfoToBitWidth QuadFloat = 128
+-- | X86 80-bit extended floats
+type instance FloatInfoToBitWidth X86_80Float = 80
+-- | Two 64-bit floats fused in the "double-double" style
+type instance FloatInfoToBitWidth DoubleDoubleFloat = 128
+
+
 -- | Interpretation of the floating point type.
 type family SymInterpretedFloatType (sym :: *) (fi :: FloatInfo) :: BaseType
 
@@ -113,8 +131,14 @@ class IsExprBuilder sym => IsInterpretedFloatExprBuilder sym where
   -- | Return floating point @-infinity@.
   iFloatNInf :: sym -> FloatInfoRepr fi -> IO (SymInterpretedFloat sym fi)
 
-  -- -- | Create a constant floating point literal.
-  -- iFloatLit :: sym -> FloatInfoRepr fi -> Rational -> IO (SymInterpretedFloat sym fi)
+  -- | Create a floating point literal from a rational literal.
+  iFloatLit
+    :: sym -> FloatInfoRepr fi -> Rational -> IO (SymInterpretedFloat sym fi)
+
+  -- | Create a (single precision) floating point literal.
+  iFloatLitSingle :: sym -> Float -> IO (SymInterpretedFloat sym SingleFloat)
+  -- | Create a (double precision) floating point literal.
+  iFloatLitDouble :: sym -> Double -> IO (SymInterpretedFloat sym DoubleFloat)
 
   -- | Negate a floating point number.
   iFloatNeg
@@ -261,6 +285,13 @@ class IsExprBuilder sym => IsInterpretedFloatExprBuilder sym where
     -> FloatInfoRepr fi
     -> RoundingMode
     -> SymInterpretedFloat sym fi'
+    -> IO (SymInterpretedFloat sym fi)
+  -- | Convert from binary representation in IEEE 754-2008 format to
+  --   floating point.
+  iFloatFromBinary
+    :: sym
+    -> FloatInfoRepr fi
+    -> SymBV sym (FloatInfoToBitWidth fi)
     -> IO (SymInterpretedFloat sym fi)
   -- | Convert a unsigned bitvector to a floating point number.
   iBVToFloat

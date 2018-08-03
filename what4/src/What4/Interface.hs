@@ -1460,6 +1460,10 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   -- | Return floating point @-infinity@.
   floatNInf :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
 
+  -- | Create a floating point literal from a rational literal.
+  floatLit
+    :: sym -> FloatPrecisionRepr fpp -> Rational -> IO (SymFloat sym fpp)
+
   -- | Negate a floating point number.
   floatNeg
     :: sym
@@ -1606,9 +1610,17 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> RoundingMode
     -> SymFloat sym fpp'
     -> IO (SymFloat sym fpp)
+  -- | Convert from binary representation in IEEE 754-2008 format to
+  --   floating point.
+  floatFromBinary
+    :: (1 <= eb, 1 <= sb)
+    => sym
+    -> FloatPrecisionRepr (FloatingPointPrecision sb eb)
+    -> SymBV sym (sb + eb)
+    -> IO (SymFloat sym (FloatingPointPrecision sb eb))
   -- | Convert a unsigned bitvector to a floating point number.
   bvToFloat
-    :: ( 1 <= w)
+    :: (1 <= w)
     => sym
     -> FloatPrecisionRepr fpp
     -> RoundingMode
@@ -1616,7 +1628,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> IO (SymFloat sym fpp)
   -- | Convert a signed bitvector to a floating point number.
   sbvToFloat
-    :: ( 1 <= w)
+    :: (1 <= w)
     => sym
     -> FloatPrecisionRepr fpp
     -> RoundingMode

@@ -245,7 +245,6 @@ semiRingTypeMap SemiRingReal = RealTypeMap
 data BaseTypeError = ComplexTypeUnsupported
                    | ArrayUnsupported
                    | StringTypeUnsupported
-                   | FloatTypeUnsupported
 
 type ArrayConstantFn v
    = [SMT_Type]
@@ -400,13 +399,14 @@ class Num v => SupportTermOps v where
   floatIsSubnorm  :: v -> v
   floatIsNorm     :: v -> v
 
-  floatCast   :: SMTFloatPrecision -> RoundingMode -> v -> v
-  bvToFloat   :: SMTFloatPrecision -> RoundingMode -> v -> v
-  sbvToFloat  :: SMTFloatPrecision -> RoundingMode -> v -> v
-  realToFloat :: SMTFloatPrecision -> RoundingMode -> v -> v
-  floatToBV   :: Integer -> RoundingMode -> v -> v
-  floatToSBV  :: Integer -> RoundingMode -> v -> v
-  floatToReal :: v -> v
+  floatCast       :: SMTFloatPrecision -> RoundingMode -> v -> v
+  floatFromBinary :: v -> v
+  bvToFloat       :: SMTFloatPrecision -> RoundingMode -> v -> v
+  sbvToFloat      :: SMTFloatPrecision -> RoundingMode -> v -> v
+  realToFloat     :: SMTFloatPrecision -> RoundingMode -> v -> v
+  floatToBV       :: Integer -> RoundingMode -> v -> v
+  floatToSBV      :: Integer -> RoundingMode -> v -> v
+  floatToReal     :: v -> v
 
   -- | 'arrayUpdate a i v' returns an array that contains value 'v' at
   -- index 'i', and the same value as in 'a' at every other index.
@@ -894,7 +894,7 @@ typeMapNoFunction conn tp0 = do
   case tp0 of
     BaseBoolRepr -> Right $! BoolTypeMap
     BaseBVRepr w -> Right $! BVTypeMap w
-    BaseFloatRepr _ -> Left FloatTypeUnsupported
+    BaseFloatRepr fpp -> Right $! FloatTypeMap fpp
     BaseRealRepr -> Right $! RealTypeMap
     BaseNatRepr  -> Right $! NatTypeMap
     BaseIntegerRepr -> Right $! IntegerTypeMap
@@ -924,7 +924,6 @@ getBaseSMT_Type v = do
           <+> text (smtWriterName conn ++ ".")
   case typeMap conn (bvarType v) of
     Left  StringTypeUnsupported  -> fail $ errMsg "string"
-    Left  FloatTypeUnsupported   -> fail $ errMsg "floating point"
     Left  ComplexTypeUnsupported -> fail $ errMsg "complex"
     Left  ArrayUnsupported       -> fail $ errMsg "array"
     Right smtType                -> return smtType
@@ -1406,7 +1405,6 @@ ppBaseTypeError :: BaseTypeError -> Doc
 ppBaseTypeError ComplexTypeUnsupported = text "complex values"
 ppBaseTypeError ArrayUnsupported = text "arrays encoded as a functions"
 ppBaseTypeError StringTypeUnsupported = text "string values"
-ppBaseTypeError FloatTypeUnsupported = text "floating point values"
 
 eltSource :: Expr t tp -> SMTSource
 eltSource e solver_name cause =
@@ -1987,6 +1985,9 @@ appSMTExpr ae = do
       xe <- mkBaseExpr x
       freshBoundTerm (FloatTypeMap fpp) $
         floatCast (asSMTFloatPrecision fpp) r xe
+    FloatFromBinary fpp x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $ floatFromBinary xe
     BVToFloat fpp r x -> do
       xe <- mkBaseExpr x
       freshBoundTerm (FloatTypeMap fpp) $
@@ -2393,6 +2394,9 @@ data SMTEvalFunctions h
                       , smtEvalReal :: Term h -> IO Rational
                         -- ^ Given a SMT term for real value, this should
                         -- return a rational value for that term.
+                      , smtEvalFloat :: Term h -> IO Rational
+                        -- ^ Given a SMT term for a floating-point value,
+                        -- this returns a rational value for that term.
                       , smtEvalBvArray :: Maybe (SMTEvalBVArrayWrapper h)
                         -- ^ If 'Just', a function to read arrays whose domain
                         -- and codomain are both bitvectors. If 'Nothing',
@@ -2434,6 +2438,7 @@ getSolverVal :: forall h tp. SupportTermOps (Term h)
 getSolverVal smtFns BoolTypeMap   tm = smtEvalBool smtFns tm
 getSolverVal smtFns (BVTypeMap w) tm = smtEvalBV smtFns (widthVal w) tm
 getSolverVal smtFns RealTypeMap   tm = smtEvalReal smtFns tm
+getSolverVal smtFns (FloatTypeMap _) tm = smtEvalFloat smtFns tm
 getSolverVal smtFns NatTypeMap    tm = do
   r <- smtEvalReal smtFns tm
   when (denominator r /= 1 && numerator r < 0) $ do
