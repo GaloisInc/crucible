@@ -74,7 +74,7 @@ import           Lang.Crucible.Backend
 
 type MuxFn p v = p -> v -> v -> IO v
 
--- | Maps register types to the associated value.
+-- | Maps register types to the runtime representation.
 type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (BaseToType bt) = SymExpr sym bt
   RegValue sym (FloatType _) = SymExpr sym BaseRealType
@@ -112,6 +112,7 @@ closureFunctionName :: FnVal sym args res -> FunctionName
 closureFunctionName (ClosureFnVal c _ _) = closureFunctionName c
 closureFunctionName (HandleFnVal h) = handleName h
 
+-- | Extract the runtime representation of the type of the given 'FnVal'
 fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)
 fnValType (HandleFnVal h) = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
 fnValType (ClosureFnVal fn _ _) =
@@ -119,18 +120,18 @@ fnValType (ClosureFnVal fn _ _) =
     FunctionHandleRepr allArgs r ->
       case allArgs of
         args Ctx.:> _ -> FunctionHandleRepr args r
---    _ -> error "fnValType: impossible!"
 
 instance Show (FnVal sym a r) where
   show = show . closureFunctionName
 
--- | Version of muxfn specialized to CanMux.
+-- | Version of 'MuxFn' specialized to 'RegValue'
 type ValMuxFn sym tp = MuxFn (Pred sym) (RegValue sym tp)
-
 
 ------------------------------------------------------------------------
 -- CanMux
 
+-- | A class for 'CrucibleType's that have a
+--   mux function.
 class CanMux sym (tp :: CrucibleType) where
    muxReg :: sym
           -> p tp          -- ^ Unused type to identify what is being merged.
@@ -231,7 +232,7 @@ mergePartExpr :: IsExprBuilder sym
               -> PartExpr (Pred sym) v
               -> PartExpr (Pred sym) v
               -> IO (PartExpr (Pred sym) v)
-mergePartExpr sym fn c = mergePartial sym (\c' a b -> lift (fn c' a b)) c
+mergePartExpr sym fn = mergePartial sym (\c a b -> lift (fn c a b))
 
 instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
   {-# INLINE muxReg #-}
@@ -309,18 +310,21 @@ muxStruct recf ctx = \p x y ->
 
 newtype VariantBranch sym tp = VB { unVB :: PartExpr (Pred sym) (RegValue sym tp) }
 
+-- | Construct a 'VariantType' value by identifing which branch of
+--   the variant to construct, and providing a value of the correct type.
 injectVariant ::
   IsExprBuilder sym =>
-  sym ->
-  CtxRepr ctx ->
-  Ctx.Index ctx tp ->
-  RegValue sym tp ->
+  sym {- ^ symbolic backend -} ->
+  CtxRepr ctx {- ^ Types of the variant branches -} ->
+  Ctx.Index ctx tp {- ^ Which branch -} ->
+  RegValue sym tp  {- ^ The value to inject -} ->
   RegValue sym (VariantType ctx)
 injectVariant sym ctxRepr idx val =
   Ctx.generate (Ctx.size ctxRepr) $ \j ->
     case testEquality j idx of
       Just Refl -> VB (PE (truePred sym) val)
       Nothing -> VB Unassigned
+
 
 {-# INLINE muxVariant #-}
 muxVariant

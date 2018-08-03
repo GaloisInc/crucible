@@ -68,6 +68,8 @@ import qualified Lang.Crucible.Syntax.ExprParse as SP
 
 import What4.ProgramLoc
 import What4.FunctionName
+import What4.ProgramLoc
+import What4.Symbol
 import What4.Utils.MonadST
 
 import Lang.Crucible.Syntax.SExpr (Syntax, pattern L, pattern A, toText, PrintRules(..), PrintStyle(..), syntaxPos, withPosFrom, showAtom)
@@ -121,6 +123,7 @@ data ExprErr s where
   NotVector :: Position -> AST s -> TypeRepr tp -> ExprErr s
   BadSyntax :: Position -> AST s -> Text -> ExprErr s
   CantSynth :: Position -> AST s -> ExprErr s
+  NotAUserSymbol :: Position -> AtomName -> SolverSymbolError -> ExprErr s
   NotAType :: Position -> AST s -> ExprErr s
   NotANat :: Position -> Integer -> ExprErr s
   NotNumeric :: Position -> AST s -> TypeRepr t -> ExprErr s
@@ -167,12 +170,13 @@ errPos (AnonTypeError p _ _) = p
 errPos (TypeMismatch p _ _ _ _) = p
 errPos (BadSyntax p _ _) = p
 errPos (CantSynth p _) = p
+errPos (NotAUserSymbol p _ _) = p
 errPos (NotAType p _) = p
+errPos (NotABaseType p _) = p
 errPos (NotANat p _) = p
 errPos (NotNumeric p _ _) = p
 errPos (NotComparison p _ _) = p
 errPos (NotVector p _ _) = p
-errPos (NotABaseType p _) = p
 errPos (TrivialErr p) = p
 errPos (Errs e1 e2) = best (errPos e1) (errPos e2)
   where best p@(SourcePos _ _ _) _ = p
@@ -295,6 +299,12 @@ repUntilLast p = describe "zero or more followed by one" $ repUntilLast' p
           (cons p emptyList <&> \(x, ()) -> ([], x)) <|>
           (cons p (repUntilLast' p) <&> \(x, (xs, lst)) -> (x:xs, lst))
 
+isBaseType :: MonadError (ExprErr s) m => AST s -> m (Some BaseTypeRepr)
+isBaseType t =
+  do Some tp <- isType t
+     case asBaseType tp of
+       NotBaseType   -> throwError $ NotABaseType (syntaxPos t) tp
+       AsBaseType bt -> return (Some bt)
 
 isType :: MonadError (ExprErr s) m => AST s -> m (Some TypeRepr)
 isType ast = liftSyntaxParse isType' ast
@@ -894,11 +904,12 @@ regRef other = throwError $ InvalidRegister (syntaxPos other) other
 
 -- | Build an ordinary statement
 normStmt :: AST s -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) ()
+
 normStmt stmt@(L [A (Kw Print_), e]) =
   do (E e') <- lift $ checkExpr StringRepr e
      strAtom <- eval e e'
      tell [withPosFrom stmt $ Print strAtom]
-normStmt stmt@(L [A (Kw Let), A (At an), e]) =
+normStmt stmt@(L [A (Kw Let), A (At an@(AtomName anText)), e]) =
   do Pair tp resAtom <- atomValue e
      stxAtoms %= Map.insert an (Pair tp resAtom)
   where
@@ -907,6 +918,13 @@ normStmt stmt@(L [A (Kw Let), A (At an), e]) =
          resAtom <- freshAtom stmt (ReadReg r)
          return $ Pair t resAtom
     -- no case for EvalExt because we don't have exts
+    atomValue stx@(L [A (Kw Fresh), tpe]) =
+      case userSymbol (T.unpack anText) of
+        Left err -> throwError $ NotAUserSymbol (syntaxPos stmt) an err
+        Right nm ->
+          do Some bt <- isBaseType tpe
+             atom <- freshAtom stmt (FreshConstant bt (Just nm))
+             return $ Pair (baseToType bt) atom
     atomValue ex@(A (Gl x)) =
       do perhapsGlobal <- use (stxGlobals . at x)
          case perhapsGlobal of
@@ -1425,7 +1443,6 @@ initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (Functi
          r <- newUnassignedReg ty
          stxRegisters %= Map.insert x (Pair ty r)
     saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
-
 
 
 cfgs :: [AST s] -> TopParser h s [ACFG]

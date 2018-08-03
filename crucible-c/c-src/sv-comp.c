@@ -10,8 +10,13 @@
 #include <stdlib.h>
 #include <stddef.h>
 
+BROKEN
+
 extern size_t  const crucible_values_number_int32_t;
 extern int32_t const crucible_values_int32_t [];
+
+extern size_t  const crucible_values_number_int32_t;
+extern char    const crucible_values_char[];
 
 unsigned int __VERIFIER_nondet_uint (void) {
   static size_t i = 0;
@@ -19,6 +24,15 @@ unsigned int __VERIFIER_nondet_uint (void) {
       return (unsigned int) crucible_values_int32_t[i++];
   return 72; // XXX: shouldn't happen
 }
+
+char __VERIFIER_nondet_char (void) {
+  static size_t i = 0;
+  if (i < crucible_values_number_char)
+      return (char) crucible_values_c[i++];
+  return 72; // XXX: shouldn't happen
+}
+
+
 
 void __VERIFIER_assume(int x) {
   if (x) return;

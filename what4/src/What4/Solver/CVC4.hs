@@ -16,12 +16,13 @@ module What4.Solver.CVC4
   , cvc4Path
   , runCVC4InOverride
   , writeCVC4SMT2File
+  , writeMultiAsmpCVC4SMT2File
   , withCVC4
   ) where
 
 import           Control.Concurrent
-import           Control.Monad (void)
-import           Data.String
+import           Control.Monad (void, forM_)
+import           Data.Bits
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -74,28 +75,46 @@ cvc4Adapter =
   , solver_adapter_write_smt2 = writeCVC4SMT2File
   }
 
-arrayConstant1 :: SMT_Type -> SMT2.Expr CVC4 -> SMT2.Expr CVC4
-arrayConstant1 idx v =
-  T $ app (fromString "store-all") [ SMT2.unType CVC4 idx, renderTerm v ]
+indexType :: [SMT_Type] -> SMT_Type
+indexType [i] = i
+indexType il = SMT_StructType il
 
 instance SMT2.SMTLib2Tweaks CVC4 where
   smtlib2tweaks = CVC4
-  smtlib2arrayConstant = Just $ \idx _elts v -> foldr arrayConstant1 v idx
+
+  smtlib2arrayType _ il r = SMT2.arrayType1 CVC4 (indexType il) (SMT2.unType CVC4 r)
+
+  -- | Adapted from the tweak of array constant for Z3.
+  smtlib2arrayConstant = Just $ \idx elts v ->
+    let array_type = SMT2.smtlib2arrayType CVC4 idx elts
+        cast_app = builder_list [ "as" , "const" , array_type ]
+     in term_app cast_app [ v ]
+
+cvc4Features :: ProblemFeatures
+cvc4Features = useComputableReals
+           .|. useSymbolicArrays
+
+writeMultiAsmpCVC4SMT2File
+   :: ExprBuilder t st
+   -> Handle
+   -> [BoolExpr t]
+   -> IO ()
+writeMultiAsmpCVC4SMT2File sym h ps = do
+  bindings <- getSymbolVarBimap sym
+  c <- SMT2.newWriter CVC4 h "CVC4" True cvc4Features True bindings
+  --c <- SMT2.newWriter h "CVC4" True SMT2.LinearArithmetic
+  SMT2.setLogic c SMT2.all_supported
+  SMT2.setOption c (SMT2.produceModels True)
+  forM_ ps $ SMT2.assume c
+  SMT2.writeCheckSat c
+  SMT2.writeExit c
 
 writeCVC4SMT2File
    :: ExprBuilder t st
    -> Handle
    -> BoolExpr t
    -> IO ()
-writeCVC4SMT2File sym h p = do
-  bindings <- getSymbolVarBimap sym
-  c <- SMT2.newWriter CVC4 h "CVC4" True useComputableReals True bindings
-  --c <- SMT2.newWriter h "CVC4" True SMT2.LinearArithmetic
-  SMT2.setLogic c SMT2.all_supported
-  SMT2.setOption c (SMT2.produceModels True)
-  SMT2.assume c p
-  SMT2.writeCheckSat c
-  SMT2.writeExit c
+writeCVC4SMT2File sym h p = writeMultiAsmpCVC4SMT2File sym h [p]
 
 runCVC4InOverride
    :: ExprBuilder t st

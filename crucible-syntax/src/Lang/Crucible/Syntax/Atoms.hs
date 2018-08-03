@@ -16,7 +16,6 @@ import Numeric
 import Text.Megaparsec as MP hiding (many, some)
 import Text.Megaparsec.Char
 
-
 newtype AtomName = AtomName Text deriving (Eq, Ord, Show)
 newtype LabelName = LabelName Text deriving (Eq, Ord, Show)
 newtype RegName = RegName Text deriving (Eq, Ord, Show)
@@ -49,7 +48,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Deref | Ref | EmptyRef
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
              | Print_
-             | Let
+             | Let | Fresh
              | Assert_
              | SetRegister
              | Funcall
@@ -110,6 +109,7 @@ keywords =
   , ("or" , Or_)
   , ("xor" , Xor_)
   , ("mod" , Mod)
+  , ("fresh", Fresh)
   , ("jump" , Jump_)
   , ("case", Case)
   , ("return" , Return_)

@@ -29,6 +29,7 @@ module Lang.Crucible.Backend
   , Assertion
   , Assumption
   , ProofObligation
+  , ProofObligations
   , AssumptionState
   , assert
 
@@ -39,6 +40,9 @@ module Lang.Crucible.Backend
   , AS.ProofGoal(..)
   , AS.AssumptionStack
   , AS.FrameIdentifier
+  , AS.ProofGoals
+  , AS.Goals(..)
+  , AS.proofGoalsToList
 
     -- ** Aborting execution
   , AbortExecReason(..)
@@ -94,6 +98,7 @@ type Assertion sym  = AS.LabeledPred (Pred sym) SimError
 type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
 
 type ProofObligation sym = AS.ProofGoal (Pred sym) AssumptionReason SimError
+type ProofObligations sym = AS.ProofGoals (Pred sym) AssumptionReason SimError
 type AssumptionState sym = AS.AssumptionStack (Pred sym) AssumptionReason SimError
 
 -- | This is used to signal that current execution path is infeasible.
@@ -109,8 +114,6 @@ data AbortExecReason =
     -- ^ We tried all possible cases for a variant, and now we should
     -- do something else.
 
-  | ManualAbort ProgramLoc String
-    -- ^ The execution was aborted by calling "mssRunGenericErrorHandler"
     deriving Show
 
 instance Exception AbortExecReason
@@ -124,7 +127,6 @@ ppAbortExecReason e =
       "Abort due to false assumption:" PP.<$$>
       PP.indent 2 (ppAssumptionReason reason)
     VariantOptionsExhaused l -> ppLocated l "Variant options exhaused."
-    ManualAbort l msg -> ppLocated l (PP.text msg)
 
 ppAssumptionReason :: AssumptionReason -> PP.Doc
 ppAssumptionReason e =
@@ -202,12 +204,12 @@ class IsBoolSolver sym where
   addProofObligation :: sym -> Assertion sym -> IO ()
 
   -- | Get the collection of proof obligations.
-  getProofObligations :: sym -> IO (Seq (ProofObligation sym))
+  getProofObligations :: sym -> IO (ProofObligations sym)
 
-  -- | Set the collection of proof obligations to the given sequence.  Typically, this is used
-  --   to remove proof obligations that have been successfully proved by resetting the list
-  --   of obligations to be only those not proved.
-  setProofObligations :: sym -> Seq (ProofObligation sym) -> IO ()
+  -- | Forget the current collection of proof obligations.
+  -- Presumably, we've already used 'getPathConditions' to save them
+  -- somewhere else.
+  clearProofObligations :: sym -> IO ()
 
   -- | Create a snapshot of the current assumption state, that may later be restored.
   --   This is useful for supporting control-flow patterns that don't neatly fit into
@@ -231,8 +233,8 @@ addAssertion sym a@(AS.LabeledPred p msg) =
 abortExecBecause :: AbortExecReason -> IO a
 abortExecBecause err = throwIO err
 
--- | Add a proof obligation using the curren program location,
--- and assume the given fact.
+-- | Add a proof obligation using the current program location.
+--   Afterwards, assume the given fact.
 assert ::
   IsSymInterface sym =>
   sym ->

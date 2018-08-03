@@ -36,12 +36,14 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Map.Merge.Strict as Map
 
 import           What4.Interface
+import           Lang.Crucible.Panic
 
 -- | A mux tree represents a collection of if-then-else branches over
 --   a collection of values.  Generally, a mux tree is used to provide
 --   a way to conditionally merge values that otherwise do not
 --   naturally have a merge operation.
 newtype MuxTree sym a = MuxTree (Map a (Pred sym))
+{- INVARIANT: The map inside a mux tree is non-empty! -}
 
 -- Turn a single value into a trivial mux tree
 toMuxTree :: IsExprBuilder sym => sym -> a -> MuxTree sym a
@@ -86,7 +88,7 @@ collapseMuxTree ::
   IO a
 collapseMuxTree _sym ite xt = go (viewMuxTree xt)
   where
-  go []         = fail "Impossible: collapseMuxTree was given an empty mux tree"
+  go []         = panic "collapseMuxTree" ["empty mux tree"]
   go [(x,_p)]   = return x
   go ((x,p):xs) = ite p x =<< go xs
 
@@ -95,7 +97,7 @@ buildMuxTree ::
   sym ->
   [(a, Pred sym)] ->
   IO (MuxTree sym a)
-buildMuxTree _sym [] = fail "buildMuxTree: cannot build an empty mux tree"
+buildMuxTree _sym [] = panic "buildMuxTree" ["empty mux tree"]
 buildMuxTree sym  xs = go Map.empty xs
   where
   go m [] = return (MuxTree m)

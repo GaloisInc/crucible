@@ -53,6 +53,7 @@ import           Lang.Crucible.Server.Verification.Harness
 import           Lang.Crucible.Server.Verification.Override
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
+import           Lang.Crucible.Simulator.EvalStmt (executeCrucible)
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
@@ -163,13 +164,14 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
 
                   let simSt = initSimState ctx emptyGlobals (serverErrorHandler sim)
 
-                  exec_res <- runOverrideSim simSt UnitRepr (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
+                  exec_res <- executeCrucible simSt $ runOverrideSim UnitRepr
+                                (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
 
                   case exec_res of
-                    FinishedExecution ctx' (TotalRes (GlobalPair _r _globals)) -> do
+                    FinishedResult ctx' (TotalRes (GlobalPair _r _globals)) -> do
                       sendTextResponse sim "Finished!"
                       writeIORef (simContext sim) $! ctx'
-                    FinishedExecution ctx' (PartialRes _ (GlobalPair _r _globals) _) -> do
+                    FinishedResult ctx' (PartialRes _ (GlobalPair _r _globals) _) -> do
                       sendTextResponse sim "Finished, some paths aborted!"
                       writeIORef (simContext sim) $! ctx'
                     AbortedResult ctx' _ -> do
@@ -187,7 +189,7 @@ handleProofObligations ::
   IO ()
 handleProofObligations sim sym opts =
   do obls <- getProofObligations sym
-     setProofObligations sym mempty
+     clearProofObligations sym
      dirPath <- makeAbsolute (Text.unpack (opts^.P.verificationSimulateOptions_output_directory))
      createDirectoryIfMissing True dirPath
      if opts^.P.verificationSimulateOptions_separate_obligations
@@ -199,7 +201,7 @@ handleSeparateProofObligations ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
+  ProofObligations (SAW.SAWCoreBackend n) ->
   IO ()
 handleSeparateProofObligations sim sym dir obls = fail "FIXME separate proof obligations!"
 
@@ -207,11 +209,13 @@ handleSingleProofObligation ::
   Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
   SAW.SAWCoreBackend n ->
   FilePath ->
-  Seq (ProofObligation (SAW.SAWCoreBackend n)) ->
+  ProofObligations (SAW.SAWCoreBackend n) ->
   IO ()
 handleSingleProofObligation _sim sym dir obls =
   do createDirectoryIfMissing True {- create parents -} dir
-     preds <- mapM (sequentToSC sym) obls
+     -- TODO: there is probably a much more efficent way to do this
+     -- that more directly follows the structure of the proof goal tree
+     preds <- mapM (sequentToSC sym) (proofGoalsToList obls)
      totalPred <- andAllOf sym folded preds
      sc <- SAW.sawBackendSharedContext sym
      exts <- toList <$> SAW.getInputs sym
@@ -274,13 +278,14 @@ sawFulfillExportModelRequest _sim P.ExportAIGER _path _vals = do
   fail "SAW backend does not implement AIGER export"
 
 
-sawTypeFromTypeVar :: SAW.SharedContext
+sawTypeFromTypeVar :: SAW.SAWCoreBackend n
+                   -> SAW.SharedContext
                    -> [Int]
                    -> BaseTypeRepr tp
                    -> IO SAW.Term
-sawTypeFromTypeVar sc [] bt = SAW.baseSCType sc bt
-sawTypeFromTypeVar sc (x:xs) bt = do
-  txs <- sawTypeFromTypeVar sc xs bt
+sawTypeFromTypeVar sym sc [] bt = SAW.baseSCType sym sc bt
+sawTypeFromTypeVar sym sc (x:xs) bt = do
+  txs <- sawTypeFromTypeVar sym sc xs bt
   n <- SAW.scNat sc (fromIntegral x)
   SAW.scVecType sc n txs
 
@@ -330,7 +335,7 @@ sawFulfillSymbolHandleRequest sim proto_tp = do
   Some vtp <- varTypeFromProto proto_tp
   sym <- getInterface sim
   st <- readIORef $ SB.sbStateManager sym
-  sawTp <- sawTypeFromTypeVar (SAW.saw_ctx st) dims' vtp
+  sawTp <- sawTypeFromTypeVar sym (SAW.saw_ctx st) dims' vtp
 
   respondToPredefinedHandleRequest sim (SymbolicHandle dims' (Some vtp)) $ do
     let o = symbolicOverride (SAW.saw_ctx st) dims' sawTp tpr

@@ -16,5 +16,3 @@ instance PanicComponent Crucible where
 
   {-# Noinline panicComponentRevision #-}
   panicComponentRevision = $useGitRevision
-
-
