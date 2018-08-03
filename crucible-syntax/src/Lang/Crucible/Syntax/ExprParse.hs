@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -425,7 +426,15 @@ syntaxParse p stx =
             Oops _ rs -> rs
       (r:_) -> Right r
 
+backwards :: MonadSyntax atom m => m a -> m a
+backwards p =
+  do foc <- anything
+     case foc of
+      l@(L xs) -> withFocus (Syntax (Posd (syntaxPos l) (List (reverse xs)))) p
+      _ -> empty
 
+commit :: MonadSyntax atom m => m ()
+commit = pure () <|> cut
 
 newtype TrivialAtom = TrivialAtom Text deriving (Show, Eq)
 

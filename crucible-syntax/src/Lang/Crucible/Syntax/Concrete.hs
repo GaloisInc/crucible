@@ -29,7 +29,7 @@ import Prelude hiding (fail)
 import Data.Monoid ()
 import Data.Ratio
 
-import Control.Lens hiding (cons)
+import Control.Lens hiding (cons, backwards)
 import Control.Applicative
 import Control.Monad.Identity hiding (fail)
 import Control.Monad.Reader
@@ -280,10 +280,10 @@ toCtx fs = toCtx' (reverse fs)
           Some $ Ctx.extend xs x
 
 unary :: MonadSyntax Atomic m => Keyword -> m a -> m a
-unary k p = cons (kw k) (cons p emptyList) <&> fst . snd
+unary k p = cons (kw k) (commit *> cons p emptyList) <&> fst . snd
 
 binary :: MonadSyntax Atomic m => Keyword -> m a -> m b -> m (a, b)
-binary k p1 p2 = cons (kw k) (cons p1 (cons p2 emptyList)) <&> \((), (x, (y, ()))) -> (x, y)
+binary k p1 p2 = cons (kw k) (commit *> cons p1 (cons p2 emptyList)) <&> \((), (x, (y, ()))) -> (x, y)
 
 
 mkFunRepr :: [Some TypeRepr] -> Some TypeRepr -> Some TypeRepr
@@ -1014,81 +1014,155 @@ typedAtom' ty e@(A (At x)) =
 typedAtom' _ other = throwError $ NotAnAtom (syntaxPos other) other
 
 
--- termStmt' :: MonadSyntax Atomic m => ReaderT (SyntaxState h s) m (Posd (TermStmt s ret))
--- termStmt' =
---   do stx <- anything
---      withPosFrom stx <$> jump
+atomWithType :: (MonadSyntax Atomic m) => TypeRepr t -> ReaderT (SyntaxState h s) m (Atom s t)
+atomWithType t =
+  do x <- atomName
+     later $ describe ("known Crucible atom with type " <> T.pack (show t)) $
+       view (stxAtoms . at x) >>=
+         \case
+           Nothing -> empty
+           Just (Pair t' y) ->
+             case testEquality t' t of
+               Nothing -> empty
+               Just Refl -> return y
 
---   where
---     normalLabel =
---       _foo labelName
-    
---     jump = unary Jump_ normalLabel <&> Jump
+knownAtom ::  (MonadSyntax Atomic m) => ReaderT (SyntaxState h s) m (Pair TypeRepr (Atom s))
+knownAtom =
+  do x <- atomName
+     later $ describe "known Crucible atom" $
+       view (stxAtoms . at x) >>=
+       \case
+         Nothing -> empty
+         Just x -> pure x
+
+termStmt' :: forall m h s ret
+           . (MonadSyntax Atomic m)
+          => TypeRepr ret -> ReaderT (SyntaxState h s) m (Posd (TermStmt s ret))
+termStmt' retTy =
+  do stx <- anything
+     withPosFrom stx <$>
+       (jump <|> branch <|> maybeBranch <|> cases <|> ret <|> err <|> tailCall <|> out)
+
+  where
+    normalLabel =
+      do x <- labelName
+         l <- view (stxLabels . at x)
+         later $ describe "known label with no arguments" $
+           case l of
+             Nothing -> empty
+             Just (ArgLbl _ _) -> empty
+             Just (NoArgLbl lbl) -> pure lbl
+
+    lambdaLabel :: ReaderT (SyntaxState h s) m (Pair TypeRepr (LambdaLabel s))
+    lambdaLabel =
+      do x <- labelName
+         l <- view (stxLabels . at x)
+         later $ describe "known label with an argument" $
+           case l of
+             Nothing -> empty
+             Just (ArgLbl t lbl) -> pure $ Pair t lbl
+             Just (NoArgLbl _) -> empty
+
+    typedLambdaLabel :: TypeRepr t -> ReaderT (SyntaxState h s) m (LambdaLabel s t)
+    typedLambdaLabel t =
+      do x <- labelName
+         l <- view (stxLabels . at x)
+         later $ describe ("known label with an " <> T.pack (show t) <> " argument") $
+           case l of
+             Nothing -> empty
+             Just (ArgLbl t' lbl) ->
+               case testEquality t' t of
+                 Nothing -> empty
+                 Just Refl -> pure lbl
+             Just (NoArgLbl _) -> empty
+
+    jump = unary Jump_ normalLabel <&> Jump
+
+    branch = kw Branch_ `followedBy`
+             (depCons (atomWithType BoolRepr) $
+                \ cond ->
+                  cons normalLabel (cons normalLabel emptyList) <&>
+                  \(l1, (l2, ())) -> Br cond l1 l2)
+
+    maybeBranch :: ReaderT (SyntaxState h s) m (TermStmt s ret)
+    maybeBranch =
+      followedBy (kw MaybeBranch_) $
+      describe "valid arguments to maybe-branch" $
+      depCons knownAtom $
+        \(Pair ty scrut) ->
+          case ty of
+            MaybeRepr ty' ->
+              depCons (typedLambdaLabel ty') $
+                \lbl1 ->
+                  depCons normalLabel $
+                    \ lbl2 ->
+                      return $ MaybeBranch ty' scrut lbl1 lbl2
+            _ -> empty
+
+    cases :: ReaderT (SyntaxState h s) m (TermStmt s ret)
+    cases =
+      followedBy (kw Case) $
+      depCons knownAtom $
+        \(Pair ty tgt) ->
+          describe ("cases for variant type " <> T.pack (show ty)) $
+          case ty of
+            VariantRepr ctx ->
+              VariantElim ctx tgt <$> backwards (go (Ctx.viewAssign ctx))
+            _ -> empty
+      where
+        go :: forall cases
+            . Ctx.AssignView TypeRepr cases
+           -> ReaderT (SyntaxState h s) m (Ctx.Assignment (LambdaLabel s) cases)
+        go Ctx.AssignEmpty = emptyList $> Ctx.empty
+        go (Ctx.AssignExtend ctx' t) =
+          depCons (typedLambdaLabel t) $
+            \ lbl -> Ctx.extend <$>
+                       go (Ctx.viewAssign ctx') <*>
+                       pure lbl
+
+    ret :: ReaderT (SyntaxState h s) m (TermStmt s ret)
+    ret = unary Return_ (atomWithType retTy) <&> Return
+
+    tailCall :: ReaderT (SyntaxState h s) m (TermStmt s ret)
+    tailCall =
+      followedBy (kw TailCall_) $
+        describe "function atom and arguments" $
+          do commit
+             depCons knownAtom $
+               \case
+                 (Pair (FunctionHandleRepr argumentTypes retTy') funAtom) ->
+                   case testEquality retTy retTy' of
+                       Nothing -> empty
+                       Just Refl ->
+                         describe ("arguments with types " <> T.pack (show argumentTypes)) $
+                         TailCall funAtom argumentTypes <$> backwards (go (Ctx.viewAssign argumentTypes))
+                 (Pair _ _) -> empty
+      where
+        go :: forall argTypes
+            . Ctx.AssignView TypeRepr argTypes
+           -> ReaderT (SyntaxState h s) m (Ctx.Assignment (Atom s) argTypes)
+        go Ctx.AssignEmpty = emptyList *> pure Ctx.empty
+        go (Ctx.AssignExtend tys ty) =
+          depCons (atomWithType ty) $
+            \argAtom -> Ctx.extend <$> go (Ctx.viewAssign tys) <*> pure argAtom
+
+    err :: ReaderT (SyntaxState h s) m (TermStmt s ret)
+    err = unary Error_ (atomWithType StringRepr) <&> ErrorStmt
+
+    out :: ReaderT (SyntaxState h s) m (TermStmt s ret)
+    out = followedBy (kw Output_) $
+          do commit
+             depCons lambdaLabel $
+               \(Pair argTy lbl) ->
+                 depCons (atomWithType argTy) $
+                   \ argAtom ->
+                     emptyList $> Output lbl argAtom
 
 termStmt :: forall h s ret . AST s -> CFGParser h s ret (Posd (TermStmt s ret))
--- termStmt stx =
---   do st <- get
---      liftSyntaxParse (runReaderT termStmt' st) stx
-termStmt stx@(L [A (Kw Jump_), lbl]) =
-  withPosFrom stx . Jump <$> labelNoArgs lbl
-termStmt stx@(L [A (Kw Branch_), A (At c), l1, l2]) =
-  withPosFrom stx <$> (Br <$> typedAtom (syntaxPos stx) BoolRepr c <*> labelNoArgs l1 <*> labelNoArgs l2)
-termStmt stx@(L [A (Kw MaybeBranch_), A (At c), l1, l2]) =
-  do Pair ty' l1' <- labelArgs l1
-     withPosFrom stx <$>
-       (MaybeBranch ty' <$>
-        typedAtom (syntaxPos stx) (MaybeRepr ty') c <*>
-        pure l1' <*>
-        labelNoArgs l2)
-termStmt stx@(L (A (Kw Case) : aStx@(A (At c)) : branches)) =
-  do perhapsAtom <- use (stxAtoms . at c)
-     case perhapsAtom of
-       Nothing -> throwError $ UnknownAtom (syntaxPos stx) c
-       Just (Pair (VariantRepr vars) tgt) ->
-         do labels <- branchCtx (Ctx.viewAssign vars) (reverse branches)
-            return $ withPosFrom stx $ VariantElim vars tgt labels
-       Just (Pair otherType _) ->
-         throwError $ NotAVariantType (syntaxPos aStx) otherType
-  where branchCtx :: forall cases
-                   . Ctx.AssignView TypeRepr cases -> [AST s]
-                  -> CFGParser h s ret (Ctx.Assignment (LambdaLabel s) cases)
-        branchCtx Ctx.AssignEmpty [] =
-          return Ctx.empty
-        branchCtx (Ctx.AssignExtend c' t) (l:ls) =
-          do rest <- branchCtx (Ctx.viewAssign c') ls
-             Pair t' lbl <- labelArgs l
-             case testEquality t t' of
-               Nothing -> throwError $ TypeError (syntaxPos l) l t t'
-               Just Refl ->
-                 return $ Ctx.extend rest lbl
-        branchCtx _ _ = throwError $ WrongNumberOfCases stx
-termStmt stx@(L (A (Kw Return_) : more)) =
-  case more of
-    [] -> throwError $ BadSyntax (syntaxPos stx) stx "Not enough arguments to return"
-    [A (At x)] ->
-      do ret <- getReturnType
-         withPosFrom stx . Return <$> typedAtom (syntaxPos stx) ret x
-    [_] -> throwError $ BadSyntax (syntaxPos stx) stx "Not a literal atom in argument to return"
-    _ -> throwError $ BadSyntax (syntaxPos stx) stx "Too many arguments to return"
-termStmt stx@(L (A (Kw TailCall_) : atomAst@(A (At f)) : args)) =
-  do ret <- getReturnType
-     perhapsAtom <- use (stxAtoms . at f)
-     case perhapsAtom of
-       Nothing -> throwError $ UnknownAtom (syntaxPos stx) f
-       Just (Pair (FunctionHandleRepr argumentTypes ret') funAtom) ->
-         case testEquality ret ret' of
-           Nothing -> throwError $ TypeError (syntaxPos stx) atomAst ret ret'
-           Just Refl ->
-             do theArgs <- argAtoms (syntaxPos stx) (toSnoc args) argumentTypes
-                return $ withPosFrom stx (TailCall funAtom argumentTypes theArgs)
-       Just (Pair otherType _) -> throwError $ NotAFunction (syntaxPos stx) atomAst otherType
-termStmt stx@(L [A (Kw Error_), msg]) =
-  withPosFrom stx . ErrorStmt <$> typedAtom' StringRepr msg
-termStmt stx@(L [A (Kw Output_), l, atm]) =
-  do Pair ty lbl <- labelArgs l
-     argAtom <- typedAtom' ty atm
-     return $ withPosFrom stx (Output lbl argAtom)
-termStmt e = throwError $ NotTermStmt (syntaxPos e) e
+termStmt stx =
+  do st <- get
+     ret <- getReturnType
+     liftSyntaxParse (runReaderT (termStmt' ret) st) stx
 
 data SnocList a = Begin | Snoc (SnocList a) a
 
