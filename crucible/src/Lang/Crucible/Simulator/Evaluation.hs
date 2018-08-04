@@ -47,6 +47,7 @@ import           Numeric ( showHex )
 import           Numeric.Natural
 
 import           What4.Interface
+import           What4.InterpretedFloatingPoint
 import           What4.Partial
 import           What4.Symbol (emptySymbol)
 import           What4.Utils.Complex
@@ -496,78 +497,103 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ----------------------------------------------------------------------
     -- Float
 
-    FloatLit f -> floatLit sym SingleFloatRepr $ toRational f
-    DoubleLit d -> floatLit sym DoubleFloatRepr $ toRational d
-    FloatNaN fi -> floatNaN sym fi
-    FloatPInf fi -> floatPInf sym fi
-    FloatNInf fi -> floatNInf sym fi
-    FloatAdd _ (x_expr :: f (FloatType fi)) y_expr -> do
+    FloatLit f -> iFloatLitSingle sym f
+    DoubleLit d -> iFloatLitDouble sym d
+    FloatNaN fi -> iFloatNaN sym fi
+    FloatPInf fi -> iFloatPInf sym fi
+    FloatNInf fi -> iFloatNInf sym fi
+    FloatPZero fi -> iFloatPZero sym fi
+    FloatNZero fi -> iFloatNZero sym fi
+    FloatNeg _ (x_expr :: f (FloatType fi)) ->
+      iFloatNeg @_ @fi sym =<< evalSub x_expr
+    FloatAbs _ (x_expr :: f (FloatType fi)) ->
+      iFloatAbs @_ @fi sym =<< evalSub x_expr
+    FloatSqrt _ rm (x_expr :: f (FloatType fi)) ->
+      iFloatSqrt @_ @fi sym rm =<< evalSub x_expr
+    FloatAdd _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatAdd @_ @fi sym x y
-    FloatSub _ (x_expr :: f (FloatType fi)) y_expr -> do
+      iFloatAdd @_ @fi sym rm x y
+    FloatSub _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatSub @_ @fi sym x y
-    FloatMul _ (x_expr :: f (FloatType fi)) y_expr -> do
+      iFloatSub @_ @fi sym rm x y
+    FloatMul _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatMul @_ @fi sym x y
-    FloatDiv _ (x_expr :: f (FloatType fi)) y_expr -> do
+      iFloatMul @_ @fi sym rm x y
+    FloatDiv _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       -- TODO: handle division by zero
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatDiv @_ @fi sym x y
+      iFloatDiv @_ @fi sym rm x y
     FloatRem _ (x_expr :: f (FloatType fi)) y_expr -> do
       -- TODO: handle division by zero
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatRem @_ @fi sym x y
+      iFloatRem @_ @fi sym x y
+    FloatMin _ (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatMin @_ @fi sym x y
+    FloatMax _ (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatMax @_ @fi sym x y
+    FloatFMA _ rm (x_expr :: f (FloatType fi)) y_expr z_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      z <- evalSub z_expr
+      iFloatFMA @_ @fi sym rm x y z
     FloatEq (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatEq @_ @fi sym x y
+      iFloatEq @_ @fi sym x y
     FloatLt (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatLt @_ @fi sym x y
+      iFloatLt @_ @fi sym x y
     FloatLe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatLe @_ @fi sym x y
+      iFloatLe @_ @fi sym x y
     FloatGt (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatGt @_ @fi sym x y
+      iFloatGt @_ @fi sym x y
     FloatGe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatGe @_ @fi sym x y
+      iFloatGe @_ @fi sym x y
     FloatNe (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      floatNe @_ @fi sym x y
-    FloatCast fi (x_expr :: f (FloatType fi')) ->
-      floatCast @_ @_ @fi' sym fi =<< evalSub x_expr
-    FloatFromBV fi x_expr -> bvToFloat sym fi =<< evalSub x_expr
-    FloatFromSBV fi x_expr -> sbvToFloat sym fi =<< evalSub x_expr
-    FloatFromReal fi x_expr -> realToFloat sym fi =<< evalSub x_expr
-    FloatToBV w (x_expr :: f (FloatType fi)) ->
-      floatToBV @_ @_ @fi sym w =<< evalSub x_expr
-    FloatToSBV w (x_expr :: f (FloatType fi)) ->
-      floatToSBV @_ @_ @fi sym w =<< evalSub x_expr
+      iFloatNe @_ @fi sym x y
+    FloatCast fi rm (x_expr :: f (FloatType fi')) ->
+      iFloatCast @_ @_ @fi' sym fi rm =<< evalSub x_expr
+    FloatFromBV fi rm x_expr -> iBVToFloat sym fi rm =<< evalSub x_expr
+    FloatFromSBV fi rm x_expr -> iSBVToFloat sym fi rm =<< evalSub x_expr
+    FloatFromReal fi rm x_expr -> iRealToFloat sym fi rm =<< evalSub x_expr
+    FloatToBV w rm (x_expr :: f (FloatType fi)) ->
+      iFloatToBV @_ @_ @fi sym w rm =<< evalSub x_expr
+    FloatToSBV w rm (x_expr :: f (FloatType fi)) ->
+      iFloatToSBV @_ @_ @fi sym w rm =<< evalSub x_expr
     FloatToReal (x_expr :: f (FloatType fi)) ->
-      floatToReal @_ @fi sym =<< evalSub x_expr
+      iFloatToReal @_ @fi sym =<< evalSub x_expr
     FloatIsNaN (x_expr :: f (FloatType fi)) ->
-      floatIsNaN @_ @fi sym =<< evalSub x_expr
+      iFloatIsNaN @_ @fi sym =<< evalSub x_expr
     FloatIsInfinite (x_expr :: f (FloatType fi)) ->
-      floatIsInf @_ @fi sym =<< evalSub x_expr
+      iFloatIsInf @_ @fi sym =<< evalSub x_expr
     FloatIsZero (x_expr :: f (FloatType fi)) ->
-      floatIsZero @_ @fi sym =<< evalSub x_expr
+      iFloatIsZero @_ @fi sym =<< evalSub x_expr
     FloatIsPositive (x_expr :: f (FloatType fi)) ->
-      floatIsPos @_ @fi sym =<< evalSub x_expr
+      iFloatIsPos @_ @fi sym =<< evalSub x_expr
     FloatIsNegative (x_expr :: f (FloatType fi)) ->
-      floatIsNeg @_ @fi sym =<< evalSub x_expr
+      iFloatIsNeg @_ @fi sym =<< evalSub x_expr
+    FloatIsSubnormal (x_expr :: f (FloatType fi)) ->
+      iFloatIsSubnorm @_ @fi sym =<< evalSub x_expr
+    FloatIsNormal (x_expr :: f (FloatType fi)) ->
+      iFloatIsNorm @_ @fi sym =<< evalSub x_expr
 
     ----------------------------------------------------------------------
     -- Conversions

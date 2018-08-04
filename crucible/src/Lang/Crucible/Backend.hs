@@ -62,6 +62,7 @@ import           Control.Exception(Exception(..), throwIO)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Interface
+import           What4.InterpretedFloatingPoint
 import           What4.Partial
 import           What4.ProgramLoc
 
@@ -155,7 +156,11 @@ data BranchResult
      -- given value.
    | NoBranch !Bool
 
-type IsSymInterface sym = (IsBoolSolver sym, IsSymExprBuilder sym)
+type IsSymInterface sym =
+  ( IsBoolSolver sym
+  , IsSymExprBuilder sym
+  , IsInterpretedFloatSymExprBuilder sym
+  )
 
 -- | This class provides operations that interact with the symbolic simulator.
 --   It allows for logical assumptions/assertions to be added to the current

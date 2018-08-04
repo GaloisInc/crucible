@@ -93,6 +93,14 @@ module Lang.Crucible.Types
   , module Data.Parameterized.NatRepr
   , module Data.Parameterized.SymbolRepr
   , module What4.BaseTypes
+  , FloatInfo
+  , HalfFloat
+  , SingleFloat
+  , DoubleFloat
+  , QuadFloat
+  , X86_80Float
+  , DoubleDoubleFloat
+  , FloatInfoRepr(..)
   ) where
 
 import           Data.Hashable
@@ -107,6 +115,7 @@ import qualified Data.Parameterized.TH.GADT as U
 import           Text.PrettyPrint.ANSI.Leijen
 
 import           What4.BaseTypes
+import           What4.InterpretedFloatingPoint
 
 ------------------------------------------------------------------------
 -- Crucible types
