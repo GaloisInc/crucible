@@ -55,21 +55,31 @@ instance IsSyntaxExtension JVM
 ---------------------------------------------------------------------------------
 -- | Type abbreviations for expressions
 
+-- | Symbolic booleans
 type JVMBool       s = Expr JVM s BoolType
+-- | Symbolic double precision float
 type JVMDouble     s = Expr JVM s JVMDoubleType
+-- | Symbolic single precision  float
 type JVMFloat      s = Expr JVM s JVMFloatType
+-- | Symbolic 32-bit signed integers
 type JVMInt        s = Expr JVM s JVMIntType
+-- | Symbolic 64-bit signed integers
 type JVMLong       s = Expr JVM s JVMLongType
+-- | Symbolic references 
 type JVMRef        s = Expr JVM s JVMRefType
 
+-- | Symbolic strings
 type JVMString     s = Expr JVM s StringType
 
-
+-- | Symbolic class table
 type JVMClassTable s = Expr JVM s JVMClassTableType
+-- | Symbolic data structure for class information
 type JVMClass      s = Expr JVM s JVMClassType
+-- | Symbolic class initialization
 type JVMInitStatus s = Expr JVM s JVMInitStatusType
-
+-- | Symbolic Java-encdoed array, includes type
 type JVMArray      s = Expr JVM s JVMArrayType
+-- | Symbolic array or class instance
 type JVMObject     s = Expr JVM s JVMObjectType
 
 ----------------------------------------------------------------------
@@ -136,6 +146,7 @@ type JVMMethodTableType = StringMapType AnyType
 --                        , initStatus  :: InitStatus
 --                        , superClass  :: Maybe Class
 --                        , methodTable :: Map String Any    --- function handles are dynamically typed
+--                        , interfaces  :: Vector String
 --                        }
 --
 --   type ClassTable = Map String Class
@@ -146,7 +157,8 @@ type JVMClassImpl =
   StructType (EmptyCtx ::> StringType
               ::> JVMInitStatusType
               ::> MaybeType JVMClassType
-              ::> JVMMethodTableType)
+              ::> JVMMethodTableType
+              ::> VectorType StringType)
 
 instance IsRecursiveType "JVM_class" where
   type UnrollType "JVM_class" ctx = JVMClassImpl
@@ -170,6 +182,23 @@ doubleRepr :: TypeRepr JVMDoubleType
 doubleRepr = knownRepr 
 floatRepr  :: TypeRepr JVMFloatType
 floatRepr  = knownRepr 
+
+showJVMType :: TypeRepr a -> String
+showJVMType x
+  | Just Refl <- testEquality x refRepr    = "JVMRef"
+  | Just Refl <- testEquality x intRepr    = "JVMInt"
+  | Just Refl <- testEquality x longRepr   = "JVMLong"
+  | Just Refl <- testEquality x doubleRepr = "JVMDouble"
+  | Just Refl <- testEquality x floatRepr  = "JVMFloat"
+  | otherwise = show x
+  
+showJVMArgs :: Ctx.Assignment TypeRepr x -> String
+showJVMArgs x =
+  case x of
+    Ctx.Empty -> ""
+    Ctx.Empty Ctx.:> ty -> showJVMType ty
+    y Ctx.:> ty -> showJVMArgs y ++ ", "  ++ showJVMType ty
+  
 
 -- | Number reprs
 w1 :: NatRepr 1

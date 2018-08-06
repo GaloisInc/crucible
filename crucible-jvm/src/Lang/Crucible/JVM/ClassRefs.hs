@@ -1,4 +1,4 @@
--- | Determine the set of class names references by a
+-- | Determine the set of class names referenced by a
 -- bit of JVM abstract syntax
 module Lang.Crucible.JVM.ClassRefs where
 
@@ -10,6 +10,8 @@ import qualified Language.JVM.CFG as J
 import Data.Set (Set)
 import qualified Data.Set as Set
 
+-- | Calculate the set of class names referred to in a particular
+-- piece of JVM abstract syntax
 class ClassRefs a where
   classRefs :: a -> Set J.ClassName
 
@@ -86,6 +88,6 @@ instance ClassRefs J.Instruction where
 
 instance ClassRefs J.Class where
   classRefs cls =
-    classRefs (J.superClass cls) <>
+    classRefs (J.superClass cls)  <>
     classRefs (J.classFields cls) <>
     classRefs (J.classMethods cls)

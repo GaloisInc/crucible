@@ -62,6 +62,9 @@ import           Lang.Crucible.Panic
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
+-- what4
+import           What4.ProgramLoc (Position(InternalPos))
+
 
 ----------------------------------------------------------------------
 -- Registers and Frame
@@ -104,6 +107,8 @@ type JVMRegisters s = JVMFrame (JVMReg s)
 -- Contains information about crucible Function handles and Global variables
 -- that is statically known during the class translation.
 -- 
+type StaticFieldTable = Map (J.ClassName, String) (GlobalVar JVMValueType)
+type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 
 data JVMHandleInfo where
   JVMHandleInfo :: J.MethodKey -> FnHandle init ret -> JVMHandleInfo
@@ -137,7 +142,7 @@ instance Semigroup JVMContext where
     }
 
 ------------------------------------------------------------------------
--- JVMState
+-- JVMState used during the translation
 
 data JVMState ret s
   = JVMState
@@ -187,17 +192,17 @@ methodCFG method =
 type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
-jvmFail :: String -> JVMGenerator h s ret a
-jvmFail msg = fail msg
+jvmFail :: HasCallStack => String -> JVMGenerator h s ret a
+jvmFail msg = error msg
 
 -- | lookup the information that the generator has about a class
 -- (i.e. methods, fields, superclass)
-lookupClass :: J.ClassName -> JVMGenerator h s ret J.Class
+lookupClass :: (HasCallStack) => J.ClassName -> JVMGenerator h s ret J.Class
 lookupClass cName = do
   ctx <- gets jsContext
   case Map.lookup cName (classTable ctx) of
     Just cls -> return cls
-    Nothing  -> jvmFail $ "no information about class " ++ J.unClassName cName
+    Nothing  -> error $ "no information about class " ++ J.unClassName cName
 
 ------------------------------------------------------------------
 
@@ -264,28 +269,29 @@ shortFromInt i = App (BVSext w32 w16 (App (BVTrunc w16 w32 i)))
 
 
 
-fromIValue :: JVMValue s -> JVMGenerator h s ret (JVMInt s)
+fromIValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMInt s)
 fromIValue (IValue v) = return v
 fromIValue _ = jvmFail "fromIValue"
 
-fromLValue :: JVMValue s -> JVMGenerator h s ret (JVMLong s)
+fromLValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMLong s)
 fromLValue (LValue v) = return v
 fromLValue _ = jvmFail "fromLValue"
 
-fromDValue :: JVMValue s -> JVMGenerator h s ret (JVMDouble s)
+fromDValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMDouble s)
 fromDValue (DValue v) = return v
 fromDValue _ = jvmFail "fromDValue"
 
-fromFValue :: JVMValue s -> JVMGenerator h s ret (JVMFloat s)
+fromFValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMFloat s)
 fromFValue (FValue v) = return v
-fromFValue _ = jvmFail "fromFValue"
+fromFValue _ = error "fromFValue"
 
-fromRValue :: JVMValue s -> JVMGenerator h s ret (JVMRef s)
+fromRValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMRef s)
 fromRValue (RValue v) = return v
-fromRValue _ = jvmFail "fromRValue"
+fromRValue v = error $ "fromRValue:" ++ show v
 
 
 ------------------------------------------------------------------
+-- Some utilities for generation
 
 gen_isNothing :: (IsSyntaxExtension p, KnownRepr TypeRepr tp) =>
   Expr p s (MaybeType tp)
@@ -306,3 +312,26 @@ gen_isJust expr =
   { onNothing = return $ App $ BoolLit False
   , onJust    = \_ -> return $ App $ BoolLit True
   }
+
+nZero :: Expr p s NatType
+nZero = App (NatLit 0)
+
+
+forEach_ :: (IsSyntaxExtension p, KnownRepr TypeRepr tp)
+            => Expr p s (VectorType tp) 
+            -> (Expr p s tp -> Generator p h s ret k ())
+            -> Generator p h s ret k ()
+forEach_ vec body = do
+  i <- newReg $ App (NatLit 0)
+  let sz = App (VectorSize vec)
+
+  while (InternalPos, do
+            j <- readReg i
+            return $ App $ NatLt j (App $ VectorSize vec)
+        )
+        (InternalPos, do
+           j <- readReg i
+           let v = App $ VectorGetEntry knownRepr vec j
+           body v
+           modifyReg i (\j0 -> App $ NatAdd j0 (App $ NatLit 1))
+        )
