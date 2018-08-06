@@ -117,7 +117,7 @@ import           Lang.Crucible.JVM.Generator
 import           Lang.Crucible.JVM.Class
 import           Lang.Crucible.JVM.Overrides
 
-import qualified Verifier.Java.Codebase as JCB
+import qualified Lang.JVM.Codebase as JCB
 
 
 import Debug.Trace
@@ -1611,7 +1611,7 @@ mkDelayedBinding ctx c m (JVMHandleInfo _mk (handle :: FnHandle args ret))
 -- | Read from the provided java code base and simulate a
 -- given static method. 
 -- 
-executeCrucibleJVM :: forall sym p args ret.
+executeCrucibleJVM :: forall ret args sym p.
   (IsBoolSolver sym, W4.IsSymExprBuilder sym, Monoid p,
    KnownRepr CtxRepr args, KnownRepr TypeRepr ret)
                    => JCB.Codebase

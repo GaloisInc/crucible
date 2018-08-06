@@ -13,6 +13,8 @@
 {-# Language FlexibleContexts #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -64,7 +66,7 @@ import qualified Language.JVM.Common as J
 import qualified Language.JVM.Parser as J
 
 
-import qualified Verifier.Java.Codebase as JCB
+import qualified Lang.JVM.Codebase as JCB
 
 import           Lang.Crucible.JVM.Translation
 
@@ -148,7 +150,7 @@ simulate opts cname =
 
      frm <- pushAssumptionFrame sym
      
-     res <- executeCrucibleJVM cb (simVerbose opts) sym cname mname Ctx.Empty
+     res <- executeCrucibleJVM @JVMIntType cb (simVerbose opts) sym cname mname emptyRegMap
            
      _ <- popAssumptionFrame sym frm
           

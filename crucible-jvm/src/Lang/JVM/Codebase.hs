@@ -1,5 +1,5 @@
 {- |
-Module           : Verifier.Java.Codebase
+Module           : Lang.JVM.Codebase
 Description      :
 License          : BSD3
 Stability        : stable
@@ -11,7 +11,7 @@ Point-of-contact : jhendrix
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE CPP #-}
-module Verifier.Java.Codebase
+module Lang.JVM.Codebase
   ( Codebase
   , getClasses
   , isStrictSuper
