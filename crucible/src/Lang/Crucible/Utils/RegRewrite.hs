@@ -4,7 +4,7 @@
 -- Description      : Operations for manipulating registerized CFGs
 -- Copyright        : (c) Galois, Inc 2014-2018
 -- License          : BSD3
--- Maintainer       : Joe Hendrix <jhendrix@galois.com>
+-- Maintainer       : Luke Maurer <lukemaurer@galois.com>
 -- Stability        : provisional
 --
 -- A rewrite engine for registerized CFGs.
