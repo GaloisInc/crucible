@@ -11,9 +11,11 @@
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -47,44 +49,49 @@ import           Lang.Crucible.Types
 -- instrumentation functions. See the 'Rewriter' monad for the
 -- operations provided for adding code.
 annotateCFGStmts :: TraverseExt ext
-                 => (Posd (Stmt ext s) -> Rewriter ext s ret ())
+                 => u
+                 -- ^ Initial user state
+                 -> (Posd (Stmt ext s) -> Rewriter ext s ret u ())
                  -- ^ Action to run on each non-terminating statement;
                  -- must explicitly add the original statement back if
                  -- desired
-                 -> (Posd (TermStmt s ret) -> Rewriter ext s ret ())
+                 -> (Posd (TermStmt s ret) -> Rewriter ext s ret u ())
                  -- ^ Action to run on each terminating statement
                  -> CFG ext s init ret
                  -- ^ Graph to rewrite
                  -> CFG ext s init ret
-annotateCFGStmts fS fT cfg =
-  runRewriter cfg $
+annotateCFGStmts u fS fT cfg =
+  runRewriter u cfg $
     do blocks' <- mapM (annotateBlockStmts fS fT) (cfgBlocks cfg)
        newCFG cfg (concat blocks')
 
 -- | Monad providing operations for modifying a basic block by adding
--- statements and/or splicing in conditional braches.
-newtype Rewriter ext s (ret :: CrucibleType) a =
-  Rewriter (RWS () (Seq (ComplexStmt ext s)) RewState a)
-  deriving (Functor, Applicative, Monad,
-            MonadState RewState,
-            MonadWriter (Seq (ComplexStmt ext s)))
+-- statements and/or splicing in conditional braches. Also provides a
+-- 'MonadState' instance for storing user state.
+newtype Rewriter ext s (ret :: CrucibleType) u a =
+  Rewriter (RWS () (Seq (ComplexStmt ext s)) (RewState u) a)
+  deriving (Functor, Applicative, Monad, MonadWriter (Seq (ComplexStmt ext s)))
+
+instance MonadState u (Rewriter ext s ret u) where
+  get = Rewriter $ gets rsUserState
+  put u = Rewriter $ modify $ \s -> s { rsUserState = u }
 
 -- | Add a new statement at the current position.
-addStmt :: Posd (Stmt ext s) -> Rewriter ext s ret ()
+addStmt :: Posd (Stmt ext s) -> Rewriter ext s ret u ()
 addStmt stmt = tell (Seq.singleton (Stmt stmt))
 
 -- | Add a new statement at the current position, marking it as
 -- internally generated.
-addInternalStmt :: Stmt ext s -> Rewriter ext s ret ()
+addInternalStmt :: Stmt ext s -> Rewriter ext s ret u ()
 addInternalStmt = addStmt . Posd InternalPos
 
 -- | Add a conditional at the current position. This will cause the
 -- current block to end and new blocks to be generated for the two
 -- branches and the remaining statements in the original block.
 ifte :: Atom s BoolType
-       -> Rewriter ext s ret ()
-       -> Rewriter ext s ret ()
-       -> Rewriter ext s ret ()
+       -> Rewriter ext s ret u ()
+       -> Rewriter ext s ret u ()
+       -> Rewriter ext s ret u ()
 ifte atom thn els =
   do (~(), thnSeq) <- gather thn
      (~(), elsSeq) <- gather els
@@ -92,10 +99,10 @@ ifte atom thn els =
 
 -- | Create a new atom with a freshly allocated id. The id will not
 -- have been used anywhere in the original CFG.
-freshAtom :: TypeRepr tp -> Rewriter ext s ret (Atom s tp)
+freshAtom :: TypeRepr tp -> Rewriter ext s ret u (Atom s tp)
 freshAtom tp =
-  do i <- gets rsNextAtomID
-     modify $ \s -> s { rsNextAtomID = i + 1 }
+  do i <- Rewriter $ gets rsNextAtomID
+     Rewriter $ modify $ \s -> s { rsNextAtomID = i + 1 }
      return $ Atom { atomPosition = InternalPos
                    , atomId = i
                    , atomSource = Assigned
@@ -114,8 +121,9 @@ freshAtom tp =
 -- Step 1 occurs through a simple writer monad, leaving the nasty details
 -- of block mangling to step 2.
 
-data RewState = RewState { rsNextAtomID :: !Int
-                         , rsNextLabelID :: !Int }
+data RewState u = RewState { rsNextAtomID :: !Int
+                           , rsNextLabelID :: !Int
+                           , rsUserState :: !u }
 
 data ComplexStmt ext s
   = Stmt (Posd (Stmt ext s))
@@ -123,18 +131,19 @@ data ComplexStmt ext s
                (Seq (ComplexStmt ext s))
                (Seq (ComplexStmt ext s))
 
-initState :: CFG ext s init ret -> RewState
-initState cfg = RewState { rsNextAtomID = cfgNextValue cfg
-                         , rsNextLabelID = cfgNextLabel cfg }
+initState :: u -> CFG ext s init ret -> RewState u
+initState u cfg = RewState { rsNextAtomID = cfgNextValue cfg
+                           , rsNextLabelID = cfgNextLabel cfg
+                           , rsUserState = u }
 
-runRewriter :: CFG ext s init ret -> Rewriter ext s ret a -> a
-runRewriter cfg (Rewriter f) =
-  case runRWS f () (initState cfg) of (a, _, _) -> a
+runRewriter :: u -> CFG ext s init ret -> Rewriter ext s ret u a -> a
+runRewriter u cfg (Rewriter f) =
+  case runRWS f () (initState u cfg) of (a, _, _) -> a
 
-freshLabel :: Rewriter ext s ret (Label s)
+freshLabel :: Rewriter ext s ret u (Label s)
 freshLabel =
-  do i <- gets rsNextLabelID
-     modify $ \s -> s { rsNextLabelID = i + 1 }
+  do i <- Rewriter $ gets rsNextLabelID
+     Rewriter $ modify $ \s -> s { rsNextLabelID = i + 1 }
      return $ Label { labelInt = i }
 
 -- | Return the output of a writer action without passing it onward.
@@ -146,27 +155,27 @@ gather m = censor (const mempty) $ listen m
 
 newCFG :: CFG ext s init ret
        -> [Block ext s ret]
-       -> Rewriter ext s ret (CFG ext s init ret)
+       -> Rewriter ext s ret u (CFG ext s init ret)
 newCFG cfg blocks =
-  do nextAtomID <- gets rsNextAtomID
+  do nextAtomID <- Rewriter $ gets rsNextAtomID
      return $ cfg { cfgBlocks = blocks
                   , cfgNextValue = nextAtomID }
 
 annotateBlockStmts :: TraverseExt ext
-                   => (Posd (Stmt ext s) -> Rewriter ext s ret ())
-                   -> (Posd (TermStmt s ret) -> Rewriter ext s ret ())
+                   => (Posd (Stmt ext s) -> Rewriter ext s ret u ())
+                   -> (Posd (TermStmt s ret) -> Rewriter ext s ret u ())
                    -> Block ext s ret
-                   -> Rewriter ext s ret [Block ext s ret]
+                   -> Rewriter ext s ret u [Block ext s ret]
 annotateBlockStmts fS fT block =
   do -- Step 1
      stmts <- annotateAsComplexStmts fS fT block
      -- Step 2
      rebuildBlock stmts block
 
-annotateAsComplexStmts :: (Posd (Stmt ext s) -> Rewriter ext s ret ())
-                       -> (Posd (TermStmt s ret) -> Rewriter ext s ret ())
+annotateAsComplexStmts :: (Posd (Stmt ext s) -> Rewriter ext s ret u ())
+                       -> (Posd (TermStmt s ret) -> Rewriter ext s ret u ())
                        -> Block ext s ret
-                       -> Rewriter ext s ret (Seq (ComplexStmt ext s))
+                       -> Rewriter ext s ret u (Seq (ComplexStmt ext s))
 annotateAsComplexStmts fS fT block =
   do (~(), stmts) <- gather $
        do mapM_ fS (blockStmts block)
@@ -176,7 +185,7 @@ annotateAsComplexStmts fS fT block =
 rebuildBlock :: TraverseExt ext
              => Seq (ComplexStmt ext s)
              -> Block ext s ret
-             -> Rewriter ext s ret [Block ext s ret]
+             -> Rewriter ext s ret u [Block ext s ret]
 rebuildBlock stmts block =
   toList <$> go stmts Seq.empty Seq.empty
      (blockID block) (blockExtraInputs block) (blockTerm block)
@@ -188,7 +197,7 @@ rebuildBlock stmts block =
        -> BlockID s               -- Id of current block
        -> ValueSet s              -- Extra inputs to current block
        -> Posd (TermStmt s ret)   -- Terminal statement of current block
-       -> Rewriter ext s ret (Seq (Block ext s ret))
+       -> Rewriter ext s ret u (Seq (Block ext s ret))
     go s accStmts accBlocks bid ext term = case s of
       Seq.Empty ->
         return $ accBlocks Seq.|> mkBlock bid ext accStmts term
