@@ -29,6 +29,7 @@ optional-packages:
   dependencies/saw-core/
   dependencies/saw-core-aig/
   dependencies/saw-core-sbv/
+  dependencies/saw-core-what4/
   dependencies/cryptol/
   dependencies/cryptol-verifier/
   
