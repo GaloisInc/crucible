@@ -166,8 +166,11 @@ testFloatUnsat2 = testCase "Sat float formula" $ withZ3' $ \sym s -> do
   p2 <- notPred sym =<< floatIsZero sym y
   e0 <- floatAdd sym RTP x y
   p3 <- floatGe sym x e0
-  p4 <- foldlM (andPred sym) (truePred sym) [p0, p1, p2, p3]
+  p4 <- foldlM (andPred sym) (truePred sym) [p1, p2, p3]
   assume (sessionWriter s) p4
+  runCheckSat s $ \res -> isSat res @? "sat"
+  p5 <- andPred sym p4 p0
+  assume (sessionWriter s) p5
   runCheckSat s $ \res -> isUnsat res @? "unsat"
 
 -- x == 2.5 && y == +infinity
