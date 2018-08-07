@@ -75,7 +75,7 @@ import What4.Utils.MonadST
 import Lang.Crucible.Syntax.SExpr (Syntax, pattern L, pattern A, toText, PrintRules(..), PrintStyle(..), syntaxPos, withPosFrom, showAtom)
 import Lang.Crucible.Syntax.Atoms hiding (atom)
 
-import Lang.Crucible.CFG.Reg
+import Lang.Crucible.CFG.Reg hiding (globalName)
 import Lang.Crucible.CFG.Expr
 
 import Lang.Crucible.FunctionHandle
@@ -249,6 +249,17 @@ labelName = sideCondition "label name" lbl atomic
   where lbl (Lbl l) = Just l
         lbl _ = Nothing
 
+regName :: MonadSyntax Atomic m => m RegName
+regName = sideCondition "register name" reg atomic
+  where reg (Rg rn) = Just rn
+        reg _ = Nothing
+
+globalName :: MonadSyntax Atomic m => m GlobalName
+globalName = sideCondition "name of global variable" glob atomic
+  where glob (Gl x) = Just x
+        glob _ = Nothing
+
+
 rational :: MonadSyntax Atomic m => m Rational
 rational = sideCondition "rational number literal" numeric atomic
   where numeric (Rat r) = Just r
@@ -284,10 +295,10 @@ toCtx fs = toCtx' (reverse fs)
           Some $ Ctx.extend xs x
 
 unary :: MonadSyntax Atomic m => Keyword -> m a -> m a
-unary k p = cons (kw k) (commit *> cons p emptyList) <&> fst . snd
+unary k p = cons (kw k) (cons p emptyList) <&> fst . snd
 
 binary :: MonadSyntax Atomic m => Keyword -> m a -> m b -> m (a, b)
-binary k p1 p2 = cons (kw k) (commit *> cons p1 (cons p2 emptyList)) <&> \((), (x, (y, ()))) -> (x, y)
+binary k p1 p2 = cons (kw k) (cons p1 (cons p2 emptyList)) <&> \((), (x, (y, ()))) -> (x, y)
 
 
 mkFunRepr :: [Some TypeRepr] -> Some TypeRepr -> Some TypeRepr
@@ -309,6 +320,13 @@ isBaseType t =
 isType :: MonadError (ExprErr s) m => AST s -> m (Some TypeRepr)
 isType ast = liftSyntaxParse isType' ast
 
+isBaseType' :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
+isBaseType' =
+  describe "base type" $
+  do Some tp <- isType'
+     case asBaseType tp of
+       NotBaseType -> empty
+       AsBaseType bt -> return (Some bt)
 
 isType' :: MonadSyntax Atomic m => m (Some TypeRepr)
 isType' =
@@ -345,7 +363,8 @@ isType' =
     var = cons (kw VariantT) (rep isType') <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
 
 
-synth' :: forall m h s . MonadSyntax Atomic m => ReaderT (SyntaxState h s) m (SomeExpr s)
+synth' :: forall m h s . (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m)
+       => m (SomeExpr s)
 synth' =
   describe "synthesizable expression" $
     the <|> crucibleAtom <|> unitCon <|> boolLit <|> stringLit <|> funNameLit <|>
@@ -358,7 +377,7 @@ synth' =
     intp
 
   where
-    the :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    the :: m (SomeExpr s)
     the = do describe "type-annotated expression" $
                kw The `followedBy`
                  (depCons isType' $
@@ -373,7 +392,7 @@ synth' =
         Nothing -> Nothing
         Just (Pair t anAtom) -> Just $ SomeExpr t (E (AtomExpr anAtom))
 
-    crucibleAtom :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    crucibleAtom :: m (SomeExpr s)
     crucibleAtom =
       do theAtoms <- view stxAtoms
          sideCondition "known atom" (okAtom theAtoms) atomName
@@ -406,7 +425,7 @@ synth' =
       do E e <- describe "negation expression" $ unary Not_ (check' BoolRepr)
          return $ SomeExpr BoolRepr $ E $ App $ Not e
 
-    equalp :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    equalp :: m (SomeExpr s)
     equalp =
       do (SomeExpr t1 (E e1), SomeExpr t2 (E e2)) <-
            describe "equality test" $
@@ -424,13 +443,12 @@ synth' =
                                          , T.pack (show t1)]) $
                       empty
 
-    lessThan :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    lessThan :: m (SomeExpr s)
     lessThan =
       do (SomeExpr t1 (E e1), SomeExpr t2 (E e2)) <-
            binary Lt synth' synth'
          case testEquality t1 t2 of
            Nothing ->
-             lift $
              describe (T.concat [ "expressions with the same type, got "
                                 , T.pack (show t1), " and ", T.pack (show t2)
                                 ]) $
@@ -444,7 +462,7 @@ synth' =
                  describe ("valid comparison type (got " <> T.pack (show other) <> ")") empty
 
 
-    ite :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    ite :: m (SomeExpr s)
     ite =
       do ((), (E c, (SomeExpr tTy (E t), (SomeExpr fTy (E f), ())))) <-
            cons (kw If) $
@@ -491,27 +509,27 @@ synth' =
            binary VectorReplicate_ (check' NatRepr) synth'
          return $ SomeExpr (VectorRepr t) $ E $ App $ VectorReplicate t n e
 
-    vecLen :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    vecLen :: m (SomeExpr s)
     vecLen =
       do SomeExpr t (E e) <- unary VectorSize_ synth'
          case t of
            VectorRepr _ -> return $ SomeExpr NatRepr $ E $ App $ VectorSize e
-           other -> lift $ later $ describe ("vector (found " <> T.pack (show other) <> ")") empty
+           other -> later $ describe ("vector (found " <> T.pack (show other) <> ")") empty
 
-    vecEmptyP :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    vecEmptyP :: m (SomeExpr s)
     vecEmptyP =
       do SomeExpr t (E e) <- unary VectorIsEmpty_ synth'
          case t of
            VectorRepr _ -> return $ SomeExpr BoolRepr $ E $ App $ VectorIsEmpty e
            other -> later $ describe ("vector (found " <> T.pack (show other) <> ")") empty
 
-    vecGet :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    vecGet :: m (SomeExpr s)
     vecGet =
       do (SomeExpr t (E e), E n) <-
            binary VectorGetEntry_ synth' (check' NatRepr)
          case t of
            VectorRepr elemT -> return $ SomeExpr elemT $ E $ App $ VectorGetEntry elemT e n
-           other -> lift $ later $ describe ("vector (found " <> T.pack (show other) <> ")") empty
+           other -> later $ describe ("vector (found " <> T.pack (show other) <> ")") empty
 
     someVec :: SomeExpr t -> Maybe (SomeVectorExpr t)
     someVec (SomeExpr (VectorRepr t) e) = Just (SomeVectorExpr t e)
@@ -519,7 +537,7 @@ synth' =
 
     synthVec = sideCondition "expression with vector type" someVec synth'
 
-    vecSet :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    vecSet :: m (SomeExpr s)
     vecSet =
       do kw VectorSetEntry_ `followedBy`
            (depCons synthVec $
@@ -530,7 +548,7 @@ synth' =
                  return $ SomeExpr (VectorRepr t) $ E $ App $ VectorSetEntry t vec n elt)
 
 
-    showExpr :: ReaderT (SyntaxState h s) m (SomeExpr s)
+    showExpr :: m (SomeExpr s)
     showExpr =
       do SomeExpr t1 (E e) <- unary Show synth'
          case asBaseType t1 of
@@ -538,15 +556,16 @@ synth' =
            AsBaseType bt ->
              return $ SomeExpr StringRepr $ E $ App $ ShowValue bt e
 
-check' :: forall m t h s . MonadSyntax Atomic m => TypeRepr t -> ReaderT (SyntaxState h s) m (E s t)
+check' :: forall m t h s . (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m)
+       => TypeRepr t -> m (E s t)
 check' t =
   describe ("inhabitant of " <> T.pack (show t)) $
     literal <|> unpack <|> just <|> nothing <|> fromJust_ <|> injection <|>
     addition <|> subtraction <|> multiplication <|> division <|>
     vecLit <|> vecCons <|> modeSwitch
   where
-    typed :: TypeRepr t' -> ReaderT (SyntaxState h s) m (E s t')
-          -> ReaderT (SyntaxState h s) m (E s t)
+    typed :: TypeRepr t' ->  m (E s t')
+          -> m (E s t)
     typed t' p =
       case testEquality t' t of
         Just Refl -> p
@@ -556,12 +575,12 @@ check' t =
 
     natLiteral =
       typed NatRepr $
-        lift $ sideCondition "nat literal" isNat int
+        sideCondition "nat literal" isNat int
       where isNat i | i >= 0 = Just (E (App (NatLit (fromInteger i))))
             isNat _ = Nothing
 
     intLiteral =
-      typed IntegerRepr (lift int <&> E . App . IntLit . fromInteger)
+      typed IntegerRepr (int <&> E . App . IntLit . fromInteger)
 
     rationalLiteral =
       typed RealValRepr $
@@ -579,7 +598,7 @@ check' t =
              _ -> empty
 
     just =
-      do inj <- lift $ unary Just_ anything
+      do inj <- unary Just_ anything
          describe "context expecting Maybe" $
            case t of
              MaybeRepr expected ->
@@ -589,7 +608,7 @@ check' t =
              _ -> empty
 
     nothing =
-      lift $ describe "context expecting Maybe" $
+      describe "context expecting Maybe" $
         case t of
           MaybeRepr expected ->
             do kw Nothing_
@@ -605,22 +624,20 @@ check' t =
                  \ (E str) ->
                    do emptyList
                       return $ E $ App $ FromJustValue t e str
-
     injection =
-      do ((), (n, (e, ()))) <- lift $ describe "injection into variant type" $
+      do ((), (n, (e, ()))) <- describe "injection into variant type" $
                                cons (kw Inj) $ cons int $ cons anything $ emptyList
          case t of
            VariantRepr ts ->
              case Ctx.intIndex (fromInteger n) (Ctx.size ts) of
                Nothing ->
-                 lift $
                  describe (T.pack (show n) <> " is an invalid index into " <> T.pack (show ts)) empty
                Just (Some idx) ->
                  do let ty = view (ixF' idx) ts
                     E out <- withProgress Rest $ withProgress Rest $ withProgress SP.First $
                              parse e (check' ty)
                     return $ E $ App $ InjectVariant ts idx out
-           _ -> lift $ describe ("context expecting variant type (got " <> T.pack (show t) <> ")") empty
+           _ -> describe ("context expecting variant type (got " <> T.pack (show t) <> ")") empty
 
     addition =
       arith t NatRepr Plus NatAdd <|>
@@ -644,11 +661,10 @@ check' t =
     arith :: TypeRepr t1 -> TypeRepr t2
           -> Keyword
           -> (Expr () s t2 -> Expr () s t2 -> App () (Expr () s) t2)
-          -> ReaderT (SyntaxState h s) m (E s t1)
+          -> m (E s t1)
     arith t1 t2 k f =
       case testEquality t1 t2 of
         Nothing ->
-          lift $
           describe ("arithmetic expression beginning with " <> T.pack (show k) <> " type " <>  (T.pack (show t2)))
             empty
         Just Refl ->
@@ -669,7 +685,7 @@ check' t =
         VectorRepr elemTy ->
           do es <- rep $ check' elemTy
              return $ E $ App $ VectorLit elemTy (V.fromList (map unE es))
-        _ -> lift $ describe ("context expecting a vector") $ empty
+        _ -> describe ("context expecting a vector") $ empty
 
     vecCons =
       case t of
@@ -681,7 +697,7 @@ check' t =
         _ -> empty
 
 
-    modeSwitch :: ReaderT (SyntaxState h s) m (E s t)
+    modeSwitch :: m (E s t)
     modeSwitch =
       do SomeExpr t' e <- synth'
          later $ describe ("a " <> T.pack (show t) <> " rather than a " <> T.pack (show t')) $
@@ -814,17 +830,32 @@ freshAtomIndex = freshIndex stxNextAtom
 freshLabel :: MonadState (SyntaxState h s) m => m (Label s)
 freshLabel = Label <$> freshLabelIndex
 
-freshAtom :: AST s -> AtomValue () s t -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) (Atom s t)
-freshAtom e v =
-  do i <- lift freshAtomIndex
+freshAtom :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m)
+          => Position -> AtomValue () s t -> m (Atom s t)
+freshAtom loc v =
+  do i <- freshAtomIndex
      let theAtom = Atom { atomPosition = OtherPos "Parser internals"
                         , atomId = i
                         , atomSource = Assigned
                         , typeOfAtom = typeOfAtomValue v
                         }
          stmt = DefineAtom theAtom v
-     tell [withPosFrom e stmt]
+     tell [Posd loc stmt]
      pure theAtom
+
+freshAtom' :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m)
+           => Position -> AtomValue () s t -> m (Atom s t)
+freshAtom' pos v =
+  do i <- freshAtomIndex
+     let theAtom = Atom { atomPosition = OtherPos "Parser internals"
+                        , atomId = i
+                        , atomSource = Assigned
+                        , typeOfAtom = typeOfAtomValue v
+                        }
+         stmt = DefineAtom theAtom v
+     tell [Posd pos stmt]
+     pure theAtom
+
 
 newLabel :: LabelName -> CFGParser h s ret (Label s)
 newLabel x =
@@ -888,6 +919,28 @@ newUnassignedReg t =
                    , typeOfReg = t
                    }
 
+regRef' :: (MonadSyntax Atomic m, MonadState (SyntaxState h s) m) => m (Pair TypeRepr (Reg s))
+regRef' =
+  describe "known register name" $
+  do rn <- regName
+     perhapsReg <- use (stxRegisters . at rn)
+     case perhapsReg of
+       Just reg -> return reg
+       Nothing -> empty
+
+globRef' :: (MonadSyntax Atomic m, MonadState (SyntaxState h s) m) => m (Pair TypeRepr GlobalVar)
+globRef' =
+  describe "known global variable name" $
+  do x <- globalName
+     perhapsGlobal <- use (stxGlobals . at x)
+     case perhapsGlobal of
+       Just glob -> return glob
+       Nothing -> empty
+
+
+
+
+
 regRef :: (MonadError (ExprErr s) m, MonadState (SyntaxState h s) m) => AST s -> m (Pair TypeRepr (Reg s))
 regRef e@(A (Rg x)) =
   do perhapsReg <- use (stxRegisters . at x)
@@ -903,100 +956,136 @@ regRef other = throwError $ InvalidRegister (syntaxPos other) other
 
 
 -- | Build an ordinary statement
-normStmt :: AST s -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) ()
+normStmt :: forall s h ret . AST s -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) ()
 
 normStmt stmt@(L [A (Kw Print_), e]) =
   do (E e') <- lift $ checkExpr StringRepr e
-     strAtom <- eval e e'
+     strAtom <- eval (syntaxPos e) e'
      tell [withPosFrom stmt $ Print strAtom]
 normStmt stmt@(L [A (Kw Let), A (At an@(AtomName anText)), e]) =
-  do Pair tp resAtom <- atomValue e
+  do st <- lift get
+     ((Pair tp resAtom, stmts), st') <- liftSyntaxParse (runStateT (runWriterT atomSetter) st) e
+     put st'
+     tell stmts
      stxAtoms %= Map.insert an (Pair tp resAtom)
   where
-    atomValue stx@(A (Rg _)) =
-      do Pair t r <- regRef stx
-         resAtom <- freshAtom stmt (ReadReg r)
-         return $ Pair t resAtom
-    -- no case for EvalExt because we don't have exts
-    atomValue stx@(L [A (Kw Fresh), tpe]) =
-      case userSymbol (T.unpack anText) of
-        Left err -> throwError $ NotAUserSymbol (syntaxPos stmt) an err
-        Right nm ->
-          do Some bt <- isBaseType tpe
-             atom <- freshAtom stmt (FreshConstant bt (Just nm))
-             return $ Pair (baseToType bt) atom
-    atomValue ex@(A (Gl x)) =
-      do perhapsGlobal <- use (stxGlobals . at x)
-         case perhapsGlobal of
-           Nothing -> throwError $ UnknownGlobal (syntaxPos ex) x
-           Just (Pair t var) ->
-             do resAtom <- freshAtom stmt (ReadGlobal var)
-                return $ Pair t resAtom
-    atomValue stx@(L [A (Kw Deref), ex]) =
-      do SomeExpr t (E ex') <- synthExpr ex
-         case t of
-           ReferenceRepr t' ->
-             do anAtom <- eval ex ex'
-                anotherAtom <- freshAtom stmt (ReadRef anAtom)
-                return $ Pair t' anotherAtom
-           notRef -> throwError $ NotRef stx notRef
-    atomValue (L [A (Kw Ref), refE]) =
-      do SomeExpr t (E e') <- synthExpr refE
-         anAtom <- eval refE e'
-         anotherAtom <- freshAtom stmt (NewRef anAtom)
-         return $ Pair (ReferenceRepr t) anotherAtom
-    atomValue (L [A (Kw EmptyRef), t]) =
-      do Some t' <- isType t
-         anAtom <- freshAtom stmt (NewEmptyRef t')
-         return $ Pair (ReferenceRepr t') anAtom
-    atomValue (L (A (Kw Funcall) : fun : args)) =
-      do SomeExpr t (E fun') <- synthExpr fun
-         case t of
-           FunctionHandleRepr funArgs ret ->
-             do funAtom <- eval fun fun'
-                operandExprs <- lift $ operands (syntaxPos fun) args funArgs
-                operandAtoms <- traverseFC (\(Rand a (E ex)) -> eval a ex) operandExprs
-                endAtom <- freshAtom stmt $ Call funAtom operandAtoms ret
-                return $ Pair ret endAtom
-           other -> throwError $ NotAFunction (syntaxPos fun) fun other
-    atomValue expr =
-      do SomeExpr tp (E e') <- lift $ synthExpr expr
-         anAtom <- eval expr e'
-         return $ Pair tp anAtom
+    atomSetter :: (MonadPlus m, MonadSyntax Atomic m)
+               => WriterT [Posd (Stmt () s)]
+                    (StateT (SyntaxState h s)
+                      m)
+                    (Pair TypeRepr (Atom s))
+    atomSetter =
+      fromReg <|> fromGlobal <|> deref <|> newref <|> emptyref <|> fresh <|> funcall <|> evaluated
+      where
+        fromReg, fresh, fromGlobal, newref, deref, funcall
+          :: ( MonadSyntax Atomic m
+             , MonadWriter [Posd (Stmt () s)] m
+             , MonadState (SyntaxState h s) m
+             )
+          => m (Pair TypeRepr (Atom s))
+        fromReg =
+          do Pair t r <- regRef'
+             loc <- SP.position
+             resAtom <- freshAtom' loc (ReadReg r)
+             return $ Pair t resAtom
+        fromGlobal =
+          do Pair t g <- globRef'
+             loc <- SP.position
+             resAtom <- freshAtom' loc (ReadGlobal g)
+             return $ Pair t resAtom
+        deref =
+          do SomeExpr t (E e) <- reading (unary Deref synth')
+             case t of
+               ReferenceRepr t' ->
+                 do loc <- position
+                    anAtom <- eval loc e
+                    anotherAtom <- freshAtom loc (ReadRef anAtom)
+                    return $ Pair t' anotherAtom
+               notRef -> later $ describe ("reference type (provided a "<> T.pack (show notRef) <>")") empty
+        newref =
+          do SomeExpr t (E e) <- reading (unary Ref synth')
+             loc <- position
+             anAtom <- eval loc e
+             anotherAtom <- freshAtom (syntaxPos stmt) (NewRef anAtom)
+             return $ Pair (ReferenceRepr t) anotherAtom
+        emptyref =
+          do Some t' <- reading $ unary EmptyRef isType'
+             loc <- position
+             anAtom <- freshAtom loc (NewEmptyRef t')
+             return $ Pair (ReferenceRepr t') anAtom
+        fresh =
+          do Some t <- reading(unary Fresh isBaseType')
+             describe "user symbol" $
+               case userSymbol (T.unpack anText) of
+                 Left err -> describe (T.pack (show err)) empty
+                 Right nm ->
+                   do loc <- position
+                      atom <- freshAtom loc (FreshConstant t (Just nm))
+                      return $ Pair (baseToType t) atom
+        funcall =
+          followedBy (kw Funcall) $
+          depConsCond (reading synth') $
+            \x ->
+              case x of
+                (SomeExpr (FunctionHandleRepr funArgs ret) (E fun)) ->
+                  do loc <- position
+                     funAtom <- eval loc fun
+                     operandExprs <- backwards $ go $ Ctx.viewAssign funArgs
+                     operandAtoms <- traverseFC (\(Rand a (E ex)) -> eval (syntaxPos a) ex) operandExprs
+                     endAtom <- freshAtom loc $ Call funAtom operandAtoms ret
+                     return $ Right $ Pair ret endAtom
+                _ -> return $ Left "a function"
+          where
+            go :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
+               => Ctx.AssignView TypeRepr args
+               -> m (Ctx.Assignment (Rand s) args)
+            go Ctx.AssignEmpty = emptyList *> pure Ctx.empty
+            go (Ctx.AssignExtend ctx' ty) =
+              depCons (reading $ check' ty) $ \e ->
+                do rest <- go (Ctx.viewAssign ctx')
+                   this <- anything
+                   return $ Ctx.extend rest $ Rand this e
+        evaluated =
+           do SomeExpr tp (E e') <- reading synth'
+              loc <- position
+              anAtom <- eval loc e'
+              return $ Pair tp anAtom
+        reading m = get >>= runReaderT m
+
 normStmt stmt@(L [A (Kw SetGlobal), gl@(A (Gl g)), e]) =
   do perhapsG <- use (stxGlobals . at g)
      case perhapsG of
        Nothing -> throwError $ UnknownGlobal (syntaxPos gl) g
        Just (Pair t var) ->
          do E e' <- checkExpr t e
-            a <- eval e e'
+            a <- eval (syntaxPos e) e'
             tell [withPosFrom stmt $ WriteGlobal var a]
 normStmt stmt@(L [A (Kw SetRegister), regStx, e]) =
   do Pair ty r <- lift $ regRef regStx
      (E e') <- lift $ checkExpr ty e
-     v <- eval e e'
+     v <- eval (syntaxPos e) e'
      tell [withPosFrom stmt $ SetReg r v]
 normStmt stmt@(L [A (Kw SetRef), ref, val]) =
   do SomeExpr t (E refE) <- synthExpr ref
      case t of
        ReferenceRepr t' ->
          do E valE <- checkExpr t' val
-            refAtom <- eval ref refE
-            valAtom <- eval val valE
+            refAtom <- eval (syntaxPos ref) refE
+            valAtom <- eval (syntaxPos val) valE
             tell [withPosFrom stmt $ WriteRef refAtom valAtom]
        other -> throwError $ NotARefType (syntaxPos ref) other
 normStmt stmt@(L [A (Kw DropRef_), ref]) =
   do SomeExpr t (E refE) <- synthExpr ref
      case t of
        ReferenceRepr _ ->
-         do refAtom <- eval ref refE
+         do refAtom <- eval (syntaxPos ref) refE
             tell [withPosFrom stmt $ DropRef refAtom]
        other -> throwError $ NotARefType (syntaxPos ref) other
 normStmt stmt@(L [A (Kw Assert_), cond, message]) =
   do E cond' <- checkExpr BoolRepr cond
      E message' <- checkExpr StringRepr message
-     cond'' <- eval cond cond'
-     message'' <- eval message message'
+     cond'' <- eval (syntaxPos cond) cond'
+     message'' <- eval (syntaxPos message) message'
      tell [withPosFrom stmt $ Assert cond'' message'']
 normStmt other = throwError $ BadStatement (syntaxPos other) other
 
@@ -1145,7 +1234,7 @@ termStmt' retTy =
     tailCall =
       followedBy (kw TailCall_) $
         describe "function atom and arguments" $
-          do commit
+          do -- commit
              depCons knownAtom $
                \case
                  (Pair (FunctionHandleRepr argumentTypes retTy') funAtom) ->
@@ -1169,7 +1258,7 @@ termStmt' retTy =
 
     out :: ReaderT (SyntaxState h s) m (TermStmt s ret)
     out = followedBy (kw Output_) $
-          do commit
+          do -- commit
              depCons lambdaLabel $
                \(Pair argTy lbl) ->
                  depCons (atomWithType argTy) $
@@ -1188,6 +1277,8 @@ toSnoc :: [a] -> SnocList a
 toSnoc = foldl Snoc Begin
 
 data Rand s t = Rand (AST s) (E s t)
+
+
 
 operands :: Position -> [AST s] -> Ctx.Assignment TypeRepr args -> CFGParser h s ret (Ctx.Assignment (Rand s) args)
 operands fpos argexprs argtypes = operands' (reverse argexprs) (Ctx.viewAssign argtypes)
@@ -1374,8 +1465,9 @@ blocks _      (aBlock:moreBlocks) =
 
             blockLabel other = throwError $ NotABlock (syntaxPos other) other
 
-eval :: AST s -> Expr () s t -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) (Atom s t)
-eval stx (App e)            = freshAtom stx . EvalApp =<< traverseFC (eval stx) e
+eval :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m)
+     => Position -> Expr () s t -> m (Atom s t)
+eval loc (App e)            = freshAtom loc . EvalApp =<< traverseFC (eval loc) e
 eval _   (AtomExpr theAtom) = pure theAtom -- The expression is already evaluated
 
 

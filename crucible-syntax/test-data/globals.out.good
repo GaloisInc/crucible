@@ -31,7 +31,7 @@
   $1 = intLit(1)
   % 12:23
   $2 = intSub($0, $1)
-  % 13:5
+  % 13:12
   read $3 counter
   % 14:28
   $4 = intLit(2)
@@ -47,7 +47,7 @@
   br $7 %2() %1($2)
   % no postdom
 %2
-  % 19:5
+  % 19:14
   read $0 counter
   % 20:5
   return $0

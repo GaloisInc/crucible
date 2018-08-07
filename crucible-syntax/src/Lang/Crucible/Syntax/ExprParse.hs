@@ -18,8 +18,12 @@ import Control.Applicative
 import Control.Lens hiding (List)
 import Control.Monad (ap)
 import Control.Monad.Reader
-import Control.Monad.State.Strict
-import Control.Monad.Writer (WriterT(..), tell)
+import qualified Control.Monad.State.Strict as Strict
+import qualified Control.Monad.State.Lazy as Lazy
+import Control.Monad.State.Class
+import qualified Control.Monad.Writer.Strict as Strict
+import qualified Control.Monad.Writer.Lazy as Lazy
+import Control.Monad.Writer.Class
 
 import Data.Foldable as Foldable
 import Data.List
@@ -39,7 +43,7 @@ import Lang.Crucible.Syntax.SExpr
 
 import qualified Text.Megaparsec as MP
 
-import What4.ProgramLoc (Posd(..))
+import What4.ProgramLoc (Posd(..), Position)
 
 
 data Search a = Try a (Search a) | Fail | Cut
@@ -64,6 +68,10 @@ instance Monad Search where
       Try x more -> f x <|> (more >>= f)
       Fail -> Fail
       Cut -> Fail
+
+instance MonadPlus Search where
+  mzero = empty
+  mplus = (<|>)
 
 instance Monoid (Search a) where
   mempty  = empty
@@ -159,6 +167,11 @@ instance Monad (P atom) where
   return = pure
   (P xs e) >>= f = mappend (foldMap f xs) (P empty e)
 
+instance MonadPlus (P atom) where
+  mzero = empty
+  mplus = (<|>)
+
+
 data SyntaxParseCtx atom =
   SyntaxParseCtx { _parseProgress :: Progress
                  , _parseReason :: Reason atom
@@ -185,6 +198,10 @@ instance Alternative (SyntaxParse atom) where
     SyntaxParse $ ReaderT $ \(SyntaxParseCtx p r _) -> P empty (Oops p (pure r))
   (SyntaxParse (ReaderT x)) <|> (SyntaxParse (ReaderT y)) =
     SyntaxParse $ ReaderT $ \ctx -> x ctx <|> y ctx
+
+instance MonadPlus (SyntaxParse atom) where
+  mzero = empty
+  mplus = (<|>)
 
 class (Alternative m, Monad m) => MonadSyntax atom m | m -> atom where
   anything :: m (Syntax atom)
@@ -229,47 +246,93 @@ instance MonadSyntax atom m => MonadSyntax atom (ReaderT r m) where
 
 
 
-instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (StateT s m) where
+instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (Strict.StateT s m) where
   anything = lift anything
   cut = lift cut
   delimit m =
     do st <- get
-       (s, st') <- lift $ delimit (runStateT m st)
+       (s, st') <- lift $ delimit (Strict.runStateT m st)
        put st'
        return s
   withFocus stx m =
     do st <- get
-       (s, st') <- lift $ withFocus stx (runStateT m st)
+       (s, st') <- lift $ withFocus stx (Strict.runStateT m st)
        put st'
        return s
   withProgress p m =
     do st <- get
-       (s, st') <- lift $ withProgress p (runStateT m st)
+       (s, st') <- lift $ withProgress p (Strict.runStateT m st)
        put st'
        return s
   withReason why m =
     do st <- get
-       (s, st') <- lift $ withReason why (runStateT m st)
+       (s, st') <- lift $ withReason why (Strict.runStateT m st)
        put st'
        return s
 
-instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (WriterT w m) where
+instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (Lazy.StateT s m) where
   anything = lift anything
   cut = lift cut
   delimit m =
-    do (x, w) <- lift $ delimit $ runWriterT m
+    do st <- get
+       (s, st') <- lift $ delimit (Lazy.runStateT m st)
+       put st'
+       return s
+  withFocus stx m =
+    do st <- get
+       (s, st') <- lift $ withFocus stx (Lazy.runStateT m st)
+       put st'
+       return s
+  withProgress p m =
+    do st <- get
+       (s, st') <- lift $ withProgress p (Lazy.runStateT m st)
+       put st'
+       return s
+  withReason why m =
+    do st <- get
+       (s, st') <- lift $ withReason why (Lazy.runStateT m st)
+       put st'
+       return s
+
+
+instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (Strict.WriterT w m) where
+  anything = lift anything
+  cut = lift cut
+  delimit m =
+    do (x, w) <- lift $ delimit $ Strict.runWriterT m
        tell w
        return x
   withFocus stx m =
-    do (x, w) <- lift $ withFocus stx $ runWriterT m
+    do (x, w) <- lift $ withFocus stx $ Strict.runWriterT m
        tell w
        return x
   withProgress p m =
-    do (x, w) <- lift $ withProgress p $ runWriterT m
+    do (x, w) <- lift $ withProgress p $ Strict.runWriterT m
        tell w
        return x
   withReason why m =
-    do (x, w) <- lift $ withReason why $ runWriterT m
+    do (x, w) <- lift $ withReason why $ Strict.runWriterT m
+       tell w
+       return x
+
+
+instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (Lazy.WriterT w m) where
+  anything = lift anything
+  cut = lift cut
+  delimit m =
+    do (x, w) <- lift $ delimit $ Lazy.runWriterT m
+       tell w
+       return x
+  withFocus stx m =
+    do (x, w) <- lift $ withFocus stx $ Lazy.runWriterT m
+       tell w
+       return x
+  withProgress p m =
+    do (x, w) <- lift $ withProgress p $ Lazy.runWriterT m
+       tell w
+       return x
+  withReason why m =
+    do (x, w) <- lift $ withReason why $ Lazy.runWriterT m
        tell w
        return x
 
@@ -325,6 +388,24 @@ cons a d = depCons a (\x -> d >>= \y -> pure (x, y))
 
 followedBy :: MonadSyntax atom m => m a -> m b -> m b
 followedBy a d = depCons a (const d)
+
+position :: MonadSyntax atom m => m Position
+position = syntaxPos <$> anything
+
+-- | A dependent cons (see 'depcons') that can impose a validation
+-- step on the first projection
+depConsCond :: MonadSyntax atom m => m a -> (a -> m (Either Text b)) -> m b
+depConsCond a d =
+  do focus <- anything
+     case focus of
+       L (e:es) ->
+         do x <- withFocus e $ withProgress First $ a
+            let cdr = Syntax (Posd (syntaxPos focus) (List es))
+            res <- withFocus cdr $ withProgress Rest $ d x
+            case res of
+              Right answer -> return answer
+              Left what -> withFocus e $ withProgress First $ later $ describe what empty
+       _ -> empty
 
 
 depCons :: MonadSyntax atom m => m a -> (a -> m b) -> m b
@@ -387,7 +468,7 @@ sideCondition msg ok p =
      case ok x of
        Just y -> pure y
        Nothing ->
-         describe msg empty
+         later $ describe msg empty
 
 sideCondition' :: MonadSyntax atom m => Text -> (a -> Bool) -> m a -> m a
 sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
