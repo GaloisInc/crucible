@@ -13,6 +13,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -603,8 +604,6 @@ evaluateExpr sym sc cache = f
         B.ArrayEq _ _ -> unsupported sym "SAW backend does not support array equality"
 
         B.RealDiv{} -> realFail
-        B.IntMod x y -> fmap SAWExpr $
-          join (SC.scIntMod sc <$> f x <*> f y)
         B.RealSqrt{} -> realFail
         B.Pi{} -> realFail
         B.RealSin{} -> realFail
@@ -750,22 +749,63 @@ evaluateExpr sym sc cache = f
                 _ -> do
                   unsupported sym $ "SAWCore backend only currently supports integer and bitvector indices."
 
-        B.NatDiv{} -> nyi -- FIXME
         B.NatToInteger x -> SAWExpr <$> (SC.scNatToInt sc =<< f x)
-        B.IntegerToNat{} -> nyi -- FIXME
+        B.IntegerToNat x -> SAWExpr <$> (SC.scIntToNat sc =<< f x)
+
+        B.NatDiv x y ->
+          do x' <- f x
+             y' <- f y
+             SAWExpr <$> SC.scDivNat sc x' y'
+
+        B.IntDiv x y ->
+          do x' <- f x
+             y' <- f y
+             SAWExpr <$> SC.scIntDiv sc x' y'
+        B.IntMod x y ->
+          do x' <- f x
+             y' <- f y
+             SAWExpr <$> SC.scIntMod sc x' y'
+        B.IntAbs x ->
+          SAWExpr <$> (SC.scIntAbs sc =<< f x)
+
+        B.IntDivisible _ 0 ->
+          SAWExpr <$> SC.scBool sc True
+        B.IntDivisible x k ->
+          do x' <- f x
+             k' <- SC.scIntegerConst sc (toInteger k)
+             z  <- SC.scIntMod sc x' k'
+             SAWExpr <$> (SC.scIntEq sc z =<< SC.scIntegerConst sc 0)
+
+        B.BVToNat x ->
+          let n = fromInteger (natValue (bvWidth x)) in
+          SAWExpr <$> (SC.scBvToNat sc n =<< f x)
+
+        B.IntegerToBV x w ->
+          do n <- SC.scNat sc (fromInteger (natValue w))
+             SAWExpr <$> (SC.scIntToBv sc n =<< f x)
+
+        B.BVToInteger x ->
+          do n <- SC.scNat sc (fromInteger (natValue (bvWidth x)))
+             SAWExpr <$> (SC.scBvToInt sc n =<< f x)
+
+        B.SBVToInteger x ->
+          do n <- SC.scNat sc (fromInteger (natValue (bvWidth x)))
+             SAWExpr <$> (SC.scSbvToInt sc n =<< f x)
+
+        -- Proper support for real and complex numbers will require additional
+        -- work on the SAWCore side
         B.IntegerToReal x -> IntToRealSAWExpr . SAWExpr <$> f x
-        B.RealToInteger{} -> nyi -- FIXME
-        B.BVToNat{} -> nyi -- FIXME
-        B.BVToInteger{} -> nyi -- FIXME
-        B.IntegerToSBV{} -> nyi -- FIXME
-        B.SBVToInteger{} -> nyi -- FIXME
-        B.IntegerToBV{} -> nyi -- FIXME
+        B.RealToInteger x ->
+          eval x >>= \case
+            IntToRealSAWExpr x' -> return x'
+            _ -> nyi -- FIXME
         B.RoundReal{} -> nyi -- FIXME
         B.FloorReal{} -> nyi -- FIXME
         B.CeilReal{} -> nyi -- FIXME
         B.Cplx{} -> nyi -- FIXME
         B.RealPart{} -> nyi -- FIXME
         B.ImagPart{} -> nyi -- FIXME
+
         B.StructCtor{} -> nyi -- FIXME
         B.StructField{} -> nyi -- FIXME
         B.StructIte{} -> nyi -- FIXME
