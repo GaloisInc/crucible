@@ -18,6 +18,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -949,145 +950,182 @@ regRef e@(A (Rg x)) =
        Nothing -> throwError $ UnknownRegister (syntaxPos e) x
 regRef other = throwError $ InvalidRegister (syntaxPos other) other
 
-
+reading m = get >>= runReaderT m
 
 --------------------------------------------------------------------------
 
+atomSetter :: (MonadSyntax Atomic m, MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m)
+           => AtomName -- ^ The name of the atom being set, used for fresh name internals
+           -> m (Pair TypeRepr (Atom s))
+atomSetter (AtomName anText) =
+  fromReg <|> fromGlobal <|> deref <|> newref <|> emptyref <|> fresh <|> funcall <|> evaluated
+  where
+    fromReg, fresh, fromGlobal, newref, deref, funcall
+      :: ( MonadSyntax Atomic m
+         , MonadWriter [Posd (Stmt () s)] m
+         , MonadState (SyntaxState h s) m
+         )
+      => m (Pair TypeRepr (Atom s))
+    fromReg =
+      do Pair t r <- regRef'
+         loc <- SP.position
+         resAtom <- freshAtom' loc (ReadReg r)
+         return $ Pair t resAtom
+    fromGlobal =
+      do Pair t g <- globRef'
+         loc <- SP.position
+         resAtom <- freshAtom' loc (ReadGlobal g)
+         return $ Pair t resAtom
+    deref =
+      do SomeExpr t (E e) <- reading (unary Deref synth')
+         case t of
+           ReferenceRepr t' ->
+             do loc <- position
+                anAtom <- eval loc e
+                anotherAtom <- freshAtom loc (ReadRef anAtom)
+                return $ Pair t' anotherAtom
+           notRef -> later $ describe ("reference type (provided a "<> T.pack (show notRef) <>")") empty
+    newref =
+      do SomeExpr t (E e) <- reading (unary Ref synth')
+         loc <- position
+         anAtom <- eval loc e
+         anotherAtom <- freshAtom loc (NewRef anAtom)
+         return $ Pair (ReferenceRepr t) anotherAtom
+    emptyref =
+      do Some t' <- reading $ unary EmptyRef isType'
+         loc <- position
+         anAtom <- freshAtom loc (NewEmptyRef t')
+         return $ Pair (ReferenceRepr t') anAtom
+    fresh =
+      do Some t <- reading(unary Fresh isBaseType')
+         describe "user symbol" $
+           case userSymbol (T.unpack anText) of
+             Left err -> describe (T.pack (show err)) empty
+             Right nm ->
+               do loc <- position
+                  atom <- freshAtom loc (FreshConstant t (Just nm))
+                  return $ Pair (baseToType t) atom
+    funcall =
+      followedBy (kw Funcall) $
+      depConsCond (reading synth') $
+        \x ->
+          case x of
+            (SomeExpr (FunctionHandleRepr funArgs ret) (E fun)) ->
+              do loc <- position
+                 funAtom <- eval loc fun
+                 operandExprs <- backwards $ go $ Ctx.viewAssign funArgs
+                 operandAtoms <- traverseFC (\(Rand a (E ex)) -> eval (syntaxPos a) ex) operandExprs
+                 endAtom <- freshAtom loc $ Call funAtom operandAtoms ret
+                 return $ Right $ Pair ret endAtom
+            _ -> return $ Left "a function"
+      where
+        go :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
+           => Ctx.AssignView TypeRepr args
+           -> m (Ctx.Assignment (Rand s) args)
+        go Ctx.AssignEmpty = emptyList *> pure Ctx.empty
+        go (Ctx.AssignExtend ctx' ty) =
+          depCons (reading $ check' ty) $ \e ->
+            do rest <- go (Ctx.viewAssign ctx')
+               this <- anything
+               return $ Ctx.extend rest $ Rand this e
+    evaluated =
+       do SomeExpr tp (E e') <- reading synth'
+          loc <- position
+          anAtom <- eval loc e'
+          return $ Pair tp anAtom
 
+
+located :: MonadSyntax atom m => m a -> m (Posd a)
+located p = Posd <$> position <*> p
+
+normStmt' :: forall h s m
+           . (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState h s) m) =>
+             m ()
+normStmt' =
+  printStmt <|> letStmt <|> setGlobal <|> setReg <|> setRef <|> dropRef <|> assertion
+
+
+  where
+    printStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion :: m ()
+    printStmt =
+      do Posd loc (E e) <- unary Print_ (located $ reading $ check' StringRepr)
+         strAtom <- eval loc e
+         tell [Posd loc (Print strAtom)]
+
+    letStmt =
+      followedBy (kw Let) $
+      depCons atomName $
+        \x ->
+          do setter <- fst <$> cons (atomSetter x) emptyList
+             stxAtoms %= Map.insert x setter
+
+    setGlobal =
+      followedBy (kw SetGlobal) $
+      depConsCond globalName $
+        \g ->
+          use (stxGlobals . at g) >>=
+            \case
+              Nothing -> return $ Left "known global variable name"
+              Just (Pair t var) ->
+                do (Posd loc (E e)) <- fst <$> cons (located $ reading $ check' t) emptyList
+                   a <- eval loc e
+                   tell [Posd loc $ WriteGlobal var a]
+                   return (Right ())
+    setReg =
+      followedBy (kw SetRegister) $
+      depCons regRef' $
+      \(Pair ty r) ->
+        depCons (reading $ located $ check' ty) $
+        \(Posd loc (E e)) ->
+          do emptyList
+             v <- eval loc e
+             tell [Posd loc $ SetReg r v]
+
+    setRef =
+      do stmtLoc <- position
+         followedBy (kw SetRef) $
+           depConsCond (located $ reading $ synth') $
+           \case
+             (Posd refLoc (SomeExpr (ReferenceRepr t') (E refE))) ->
+               depCons (located $ reading $ check' t') $
+               \(Posd valLoc (E valE)) ->
+                 do emptyList
+                    refAtom <- eval refLoc refE
+                    valAtom <- eval valLoc valE
+                    tell [Posd stmtLoc $ WriteRef refAtom valAtom]
+                    return (Right ())
+             (Posd _ (SomeExpr _ _)) ->
+               return $ Left "expression with reference type"
+    dropRef =
+      do loc <- position
+         followedBy (kw DropRef_) $
+           depConsCond (located $ reading synth') $
+            \(Posd eLoc (SomeExpr t (E refE))) ->
+               emptyList *>
+               case t of
+                 ReferenceRepr _ ->
+                   do refAtom <- eval eLoc refE
+                      tell [Posd loc $ DropRef refAtom]
+                      return $ Right ()
+                 _ -> return $ Left "expression with reference type"
+    assertion =
+      do (Posd loc (Posd cLoc (E cond), Posd mLoc (E msg))) <-
+           located $
+           binary Assert_
+             (located $ reading $ check' BoolRepr)
+             (located $ reading $ check' StringRepr)
+         cond' <- eval cLoc cond
+         msg' <- eval mLoc msg
+         tell [Posd loc $ Assert cond' msg']
 
 -- | Build an ordinary statement
 normStmt :: forall s h ret . AST s -> WriterT [Posd (Stmt () s)] (CFGParser h s ret) ()
-
-normStmt stmt@(L [A (Kw Print_), e]) =
-  do (E e') <- lift $ checkExpr StringRepr e
-     strAtom <- eval (syntaxPos e) e'
-     tell [withPosFrom stmt $ Print strAtom]
-normStmt stmt@(L [A (Kw Let), A (At an@(AtomName anText)), e]) =
-  do st <- lift get
-     ((Pair tp resAtom, stmts), st') <- liftSyntaxParse (runStateT (runWriterT atomSetter) st) e
+normStmt stx =
+  do st <- get
+     (((), st'), stmts) <- liftSyntaxParse (runWriterT (runStateT normStmt' st)) stx
      put st'
      tell stmts
-     stxAtoms %= Map.insert an (Pair tp resAtom)
-  where
-    atomSetter :: (MonadPlus m, MonadSyntax Atomic m)
-               => WriterT [Posd (Stmt () s)]
-                    (StateT (SyntaxState h s)
-                      m)
-                    (Pair TypeRepr (Atom s))
-    atomSetter =
-      fromReg <|> fromGlobal <|> deref <|> newref <|> emptyref <|> fresh <|> funcall <|> evaluated
-      where
-        fromReg, fresh, fromGlobal, newref, deref, funcall
-          :: ( MonadSyntax Atomic m
-             , MonadWriter [Posd (Stmt () s)] m
-             , MonadState (SyntaxState h s) m
-             )
-          => m (Pair TypeRepr (Atom s))
-        fromReg =
-          do Pair t r <- regRef'
-             loc <- SP.position
-             resAtom <- freshAtom' loc (ReadReg r)
-             return $ Pair t resAtom
-        fromGlobal =
-          do Pair t g <- globRef'
-             loc <- SP.position
-             resAtom <- freshAtom' loc (ReadGlobal g)
-             return $ Pair t resAtom
-        deref =
-          do SomeExpr t (E e) <- reading (unary Deref synth')
-             case t of
-               ReferenceRepr t' ->
-                 do loc <- position
-                    anAtom <- eval loc e
-                    anotherAtom <- freshAtom loc (ReadRef anAtom)
-                    return $ Pair t' anotherAtom
-               notRef -> later $ describe ("reference type (provided a "<> T.pack (show notRef) <>")") empty
-        newref =
-          do SomeExpr t (E e) <- reading (unary Ref synth')
-             loc <- position
-             anAtom <- eval loc e
-             anotherAtom <- freshAtom (syntaxPos stmt) (NewRef anAtom)
-             return $ Pair (ReferenceRepr t) anotherAtom
-        emptyref =
-          do Some t' <- reading $ unary EmptyRef isType'
-             loc <- position
-             anAtom <- freshAtom loc (NewEmptyRef t')
-             return $ Pair (ReferenceRepr t') anAtom
-        fresh =
-          do Some t <- reading(unary Fresh isBaseType')
-             describe "user symbol" $
-               case userSymbol (T.unpack anText) of
-                 Left err -> describe (T.pack (show err)) empty
-                 Right nm ->
-                   do loc <- position
-                      atom <- freshAtom loc (FreshConstant t (Just nm))
-                      return $ Pair (baseToType t) atom
-        funcall =
-          followedBy (kw Funcall) $
-          depConsCond (reading synth') $
-            \x ->
-              case x of
-                (SomeExpr (FunctionHandleRepr funArgs ret) (E fun)) ->
-                  do loc <- position
-                     funAtom <- eval loc fun
-                     operandExprs <- backwards $ go $ Ctx.viewAssign funArgs
-                     operandAtoms <- traverseFC (\(Rand a (E ex)) -> eval (syntaxPos a) ex) operandExprs
-                     endAtom <- freshAtom loc $ Call funAtom operandAtoms ret
-                     return $ Right $ Pair ret endAtom
-                _ -> return $ Left "a function"
-          where
-            go :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
-               => Ctx.AssignView TypeRepr args
-               -> m (Ctx.Assignment (Rand s) args)
-            go Ctx.AssignEmpty = emptyList *> pure Ctx.empty
-            go (Ctx.AssignExtend ctx' ty) =
-              depCons (reading $ check' ty) $ \e ->
-                do rest <- go (Ctx.viewAssign ctx')
-                   this <- anything
-                   return $ Ctx.extend rest $ Rand this e
-        evaluated =
-           do SomeExpr tp (E e') <- reading synth'
-              loc <- position
-              anAtom <- eval loc e'
-              return $ Pair tp anAtom
-        reading m = get >>= runReaderT m
 
-normStmt stmt@(L [A (Kw SetGlobal), gl@(A (Gl g)), e]) =
-  do perhapsG <- use (stxGlobals . at g)
-     case perhapsG of
-       Nothing -> throwError $ UnknownGlobal (syntaxPos gl) g
-       Just (Pair t var) ->
-         do E e' <- checkExpr t e
-            a <- eval (syntaxPos e) e'
-            tell [withPosFrom stmt $ WriteGlobal var a]
-normStmt stmt@(L [A (Kw SetRegister), regStx, e]) =
-  do Pair ty r <- lift $ regRef regStx
-     (E e') <- lift $ checkExpr ty e
-     v <- eval (syntaxPos e) e'
-     tell [withPosFrom stmt $ SetReg r v]
-normStmt stmt@(L [A (Kw SetRef), ref, val]) =
-  do SomeExpr t (E refE) <- synthExpr ref
-     case t of
-       ReferenceRepr t' ->
-         do E valE <- checkExpr t' val
-            refAtom <- eval (syntaxPos ref) refE
-            valAtom <- eval (syntaxPos val) valE
-            tell [withPosFrom stmt $ WriteRef refAtom valAtom]
-       other -> throwError $ NotARefType (syntaxPos ref) other
-normStmt stmt@(L [A (Kw DropRef_), ref]) =
-  do SomeExpr t (E refE) <- synthExpr ref
-     case t of
-       ReferenceRepr _ ->
-         do refAtom <- eval (syntaxPos ref) refE
-            tell [withPosFrom stmt $ DropRef refAtom]
-       other -> throwError $ NotARefType (syntaxPos ref) other
-normStmt stmt@(L [A (Kw Assert_), cond, message]) =
-  do E cond' <- checkExpr BoolRepr cond
-     E message' <- checkExpr StringRepr message
-     cond'' <- eval (syntaxPos cond) cond'
-     message'' <- eval (syntaxPos message) message'
-     tell [withPosFrom stmt $ Assert cond'' message'']
-normStmt other = throwError $ BadStatement (syntaxPos other) other
 
 blockBody :: forall s h ret . Position -> [AST s] -> CFGParser h s ret ([Posd (Stmt () s)], Posd (TermStmt s ret))
 blockBody p [] = throwError $ EmptyBlock p

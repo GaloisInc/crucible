@@ -19,7 +19,7 @@
 %0
   % 7:28
   $0 = intLit(0)
-  % 7:5
+  % 7:28
   write counter $0
   % 8:23
   $1 = intLit(5)
@@ -37,7 +37,7 @@
   $4 = intLit(2)
   % 14:28
   $5 = intAdd($3, $4)
-  % 14:5
+  % 14:28
   write counter $5
   % 16:16
   $6 = intLit(0)
