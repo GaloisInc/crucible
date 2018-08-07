@@ -12,6 +12,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Syntax.ExprParse where
 
 import Control.Applicative
@@ -382,6 +383,12 @@ emptyList :: MonadSyntax atom m => m ()
 emptyList = describe (T.pack "empty expression ()") (satisfy (isNil . syntaxToDatum) *> pure ())
   where isNil (Datum (List [])) = True
         isNil _ = False
+
+anyList :: MonadSyntax atom m => m [Syntax atom]
+anyList = sideCondition "zero or more expressions, in parentheses" isList anything
+  where isList (Syntax (pos_val -> List xs)) = Just xs
+        isList _ = Nothing
+
 
 cons :: MonadSyntax atom m => m a -> m b -> m (a, b)
 cons a d = depCons a (\x -> d >>= \y -> pure (x, y))
