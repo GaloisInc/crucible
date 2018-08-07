@@ -2394,7 +2394,7 @@ data SMTEvalFunctions h
                       , smtEvalReal :: Term h -> IO Rational
                         -- ^ Given a SMT term for real value, this should
                         -- return a rational value for that term.
-                      , smtEvalFloat :: Term h -> IO Rational
+                      , smtEvalFloat :: Term h -> IO Integer
                         -- ^ Given a SMT term for a floating-point value,
                         -- this returns a rational value for that term.
                       , smtEvalBvArray :: Maybe (SMTEvalBVArrayWrapper h)

@@ -58,6 +58,7 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Exception
 import           Control.Monad.State.Strict
+import           Data.Bits (bit, setBit, shiftL)
 import           Data.Char(digitToInt)
 import           Data.IORef
 import qualified Data.ByteString.UTF8 as UTF8
@@ -525,19 +526,40 @@ parseRealSolverValue (SApp ["/", x , y]) = do
 parseRealSolverValue s = fail $ "Could not parse solver value: " ++ show s
 
 parseBvSolverValue :: Monad m => Int -> SExp -> m Integer
-parseBvSolverValue _ (SAtom ('#':'x':v)) | [(r,"")] <- readHex v =
-  return r
-parseBvSolverValue _ (SAtom ('#':'b':v)) | [(r,"")] <- readBin v =
-  return r
+parseBvSolverValue _ s
+  | (n, _) <- parseBVLitHelper s = return n
+  | otherwise = fail $ "Could not parse solver value: " ++ show s
 
-parseBvSolverValue _ (SApp ["_", SAtom ('b':'v':n_str), SAtom _w_str])
-  | [(n,"")] <- readDec n_str = do
-    return n
-parseBvSolverValue _ s = fail $ "Could not parse solver value: " ++ show s
+parseBVLitHelper :: SExp -> (Integer, Int)
+parseBVLitHelper (SAtom ('#' : 'b' : n_str)) | [(n, "")] <- readBin n_str =
+  (n, length n_str)
+parseBVLitHelper (SAtom ('#' : 'x' : n_str)) | [(n, "")] <- readHex n_str =
+  (n, length n_str * 4)
+parseBVLitHelper (SApp ["_", SAtom ('b' : 'v' : n_str), SAtom w_str])
+  | [(n, "")] <- readDec n_str, [(w, "")] <- readDec w_str = (n, w)
+parseBVLitHelper _ = (0, 0)
 
-parseFloatSolverValue :: Monad m => SExp -> m Rational
+parseFloatSolverValue :: Monad m => SExp -> m Integer
+parseFloatSolverValue (SApp ["fp", sign_s, exponent_s, significant_s])
+  | (sign_n, 1) <- parseBVLitHelper sign_s
+  , (exponent_n, eb) <- parseBVLitHelper exponent_s
+  , 2 <= eb
+  , (significant_n, sb) <- parseBVLitHelper significant_s
+  , 1 <= sb
+  = return $ (((sign_n `shiftL` eb) + exponent_n) `shiftL` sb) + significant_n
+parseFloatSolverValue s@(SApp ["_", SAtom nm, SAtom eb_s, SAtom sb_s])
+  | [(eb, "")] <- readDec eb_s, [(sb, "")] <- readDec sb_s = case nm of
+    "+oo"   -> return $ ones eb `shiftL` (sb - 1)
+    "-oo"   -> return $ setBit (ones eb `shiftL` (sb - 1)) (eb + sb - 1)
+    "+zero" -> return 0
+    "-zero" -> return $ bit (eb + sb - 1)
+    "NaN"   -> return $ ones (eb + sb - 1)
+    _       -> fail $ "Could not parse float solver value: " ++ show s
 parseFloatSolverValue s =
   fail $ "Could not parse float solver value: " ++ show s
+
+ones :: Int -> Integer
+ones n = foldl setBit 0 [0..(n - 1)]
 
 parseBvArraySolverValue :: (Monad m,
                             1 <= w,

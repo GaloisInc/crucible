@@ -153,7 +153,7 @@ data BaseTypeRepr (bt::BaseType) :: * where
 
 data FloatPrecisionRepr (fpp :: FloatPrecision) where
   FloatingPointPrecisionRepr
-    :: (1 <= eb, 1 <= sb)
+    :: (2 <= eb, 2 <= sb)
     => !(NatRepr eb)
     -> !(NatRepr sb)
     -> FloatPrecisionRepr (FloatingPointPrecision eb sb)
@@ -195,7 +195,7 @@ instance ( KnownRepr (Ctx.Assignment BaseTypeRepr) idx
       => KnownRepr BaseTypeRepr (BaseArrayType (idx Ctx.::> tp) t) where
   knownRepr = BaseArrayRepr knownRepr knownRepr
 
-instance (1 <= eb, 1 <= es, KnownNat eb, KnownNat es) => KnownRepr FloatPrecisionRepr (FloatingPointPrecision eb es) where
+instance (2 <= eb, 2 <= es, KnownNat eb, KnownNat es) => KnownRepr FloatPrecisionRepr (FloatingPointPrecision eb es) where
   knownRepr = FloatingPointPrecisionRepr knownNat knownNat
 
 -- Force BaseTypeRepr, etc. to be in context for next slice.

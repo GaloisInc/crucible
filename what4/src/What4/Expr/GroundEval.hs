@@ -65,7 +65,7 @@ type family GroundValue (tp :: BaseType) where
   GroundValue BaseIntegerType       = Integer
   GroundValue BaseRealType          = Rational
   GroundValue (BaseBVType w)        = Integer
-  GroundValue (BaseFloatType fpp)   = Rational
+  GroundValue (BaseFloatType fpp)   = Integer
   GroundValue BaseComplexType       = Complex Rational
   GroundValue BaseStringType        = Text
   GroundValue (BaseArrayType idx b) = GroundArray idx b
