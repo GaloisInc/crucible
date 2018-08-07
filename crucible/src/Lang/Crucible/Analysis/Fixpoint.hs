@@ -248,6 +248,7 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
         -- capture. We would need to extend the context,
         -- though... maybe with a unit type.
         Assert _ _ -> assignment
+        Assume _ _ -> assignment
 
         ReadGlobal gv ->
           let (assignment', absVal) = interpReadGlobal interp gv assignment
