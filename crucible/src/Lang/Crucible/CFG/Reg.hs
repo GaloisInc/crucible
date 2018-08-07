@@ -433,6 +433,8 @@ data Stmt ext s
    | Print      !(Atom s StringType)
      -- | Assert that the given expression is true.
    | Assert !(Atom s BoolType) !(Atom s StringType)
+     -- | Assume the given expression.
+   | Assume !(Atom s BoolType) !(Atom s StringType)
 
 instance PrettyExt ext => Pretty (Stmt ext s) where
   pretty s =
@@ -444,6 +446,7 @@ instance PrettyExt ext => Pretty (Stmt ext s) where
       DefineAtom a v -> ppAtomBinding a v
       Print  v   -> text "print"  <+> pretty v
       Assert c m -> text "assert" <+> pretty c <+> pretty m
+      Assume c m -> text "assume" <+> pretty c <+> pretty m
 
 -- | Return local value assigned by this statement or @Nothing@ if this
 -- does not modify a register.
@@ -457,6 +460,7 @@ stmtAssignedValue s =
     DropRef{} -> Nothing
     Print{} -> Nothing
     Assert{} -> Nothing
+    Assume{} -> Nothing
 
 -- | Fold all registers that are inputs tostmt.
 foldStmtInputs :: TraverseExt ext => (forall x . Value s x -> b -> b) -> Stmt ext s -> b -> b
@@ -469,6 +473,7 @@ foldStmtInputs f s b =
     DefineAtom _ v -> foldAtomValueInputs f v b
     Print  e     -> f (AtomValue e) b
     Assert c m   -> f (AtomValue c) (f (AtomValue m) b)
+    Assume c m   -> f (AtomValue c) (f (AtomValue m) b)
 
 ------------------------------------------------------------------------
 -- TermStmt

@@ -810,6 +810,11 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
                            (resolveAtom reg_map m))
                  (resolveStmts nm bi sz reg_map bindings appMap rest t)
 
+    Assume c m ->
+      C.ConsStmt pl
+                 (C.Assume (resolveAtom reg_map c)
+                           (resolveAtom reg_map m))
+                 (resolveStmts nm bi sz reg_map bindings appMap rest t)
 
 data SomeBlockMap ext ret where
   SomeBlockMap :: Ctx.Index blocks tp -> C.BlockMap ext blocks ret -> SomeBlockMap ext ret
