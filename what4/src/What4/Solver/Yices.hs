@@ -182,6 +182,12 @@ instance SupportTermOps (Term (Connection s)) where
 
   integerTerm i = T $ decimal i
 
+  intDiv x y = term_app "div" [x,y]
+  intMod x y = term_app "mod" [x,y]
+  intAbs x   = term_app "abs" [x]
+  intDivisible _ 0 = boolExpr True
+  intDivisible x k = term_app "divides" [x, integerTerm (toInteger k)]
+
   rationalTerm r | d == 1    = T $ decimal n
                  | otherwise = T $ app "/" [decimal n, decimal d]
     where n = numerator r

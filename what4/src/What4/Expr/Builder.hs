@@ -377,11 +377,12 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
   -- NatDiv x y is equivalent to intToNat (floor (RealDiv (natToReal x) (natToReal y)))
   NatDiv :: !(e BaseNatType)  -> !(e BaseNatType) -> App e BaseNatType
 
-  RealDiv :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseRealType
+  IntDiv :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseIntegerType
+  IntMod :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseNatType
+  IntAbs :: !(e BaseIntegerType)  -> App e BaseNatType
+  IntDivisible :: !(e BaseIntegerType) -> Natural -> App e BaseBoolType
 
-  -- @IntMod x y@ denotes the value of @x - y * floor(x ./ y)@.
-  -- Is not defined when @y@ is zero.
-  IntMod :: !(e BaseIntegerType)  -> !(e BaseNatType) -> App e BaseNatType
+  RealDiv :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseRealType
 
   -- Returns @sqrt(x)@, result is not defined if @x@ is negative.
   RealSqrt :: !(e BaseRealType) -> App e BaseRealType
@@ -615,9 +616,7 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
   BVToInteger   :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
   SBVToInteger  :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
 
-  -- Converts integer to signed bitvector (numbers are rounded to nearest representable result).
-  IntegerToSBV :: (1 <= w) => !(e BaseIntegerType) -> NatRepr w -> App e (BaseBVType w)
-  -- Converts integer to unsigned bitvector (numbers are rounded to nearest represented result).
+  -- Converts integer to a bitvector.  The number is interpreted modulo 2^n.
   IntegerToBV  :: (1 <= w) => !(e BaseIntegerType) -> NatRepr w -> App e (BaseBVType w)
 
   RoundReal :: !(e BaseRealType) -> App e BaseIntegerType
@@ -933,7 +932,11 @@ appType a =
     ArrayEq{} -> knownRepr
 
     NatDiv{} -> knownRepr
+
+    IntDiv{} -> knownRepr
     IntMod{} -> knownRepr
+    IntAbs{} -> knownRepr
+    IntDivisible{} -> knownRepr
 
     SemiRingEq{} -> knownRepr
     SemiRingLe{} -> knownRepr
@@ -994,7 +997,6 @@ appType a =
     SBVToInteger{} -> knownRepr
 
     IntegerToNat{} -> knownRepr
-    IntegerToSBV _ w -> BaseBVRepr w
     IntegerToBV _ w -> BaseBVRepr w
 
     RealToInteger{} -> knownRepr
@@ -1220,7 +1222,10 @@ ppApp' a0 = do
 
     NatDiv x y -> ppSExpr "natDiv" [x, y]
 
+    IntAbs x   -> prettyApp "intAbs" [exprPrettyArg x]
+    IntDiv x y -> prettyApp "intDiv" [exprPrettyArg x, exprPrettyArg y]
     IntMod x y -> prettyApp "intMod" [exprPrettyArg x, exprPrettyArg y]
+    IntDivisible x k -> prettyApp "intDivisible" [exprPrettyArg x, showPrettyArg k]
 
     SemiRingEq sr x y ->
       case sr of
@@ -1343,7 +1348,6 @@ ppApp' a0 = do
     CeilReal  x -> ppSExpr "ceil"  [x]
 
     IntegerToNat x   -> ppSExpr "integerToNat" [x]
-    IntegerToSBV x w -> prettyApp "integerToSBV" [exprPrettyArg x, showPrettyArg w]
     IntegerToBV x w -> prettyApp "integerToBV" [exprPrettyArg x, showPrettyArg w]
 
     RealToInteger x   -> ppSExpr "realToInteger" [x]
@@ -2037,8 +2041,12 @@ abstractEval bvParams f a0 = do
     ------------------------------------------------------------------------
     -- Arithmetic operations
 
-    NatDiv x _ -> (f x)
-    IntMod _ y -> natRange 0 (pred <$> natRangeHigh (f y))
+    NatDiv x y -> natRangeDiv (f x) (f y)
+
+    IntAbs x -> intAbsRange (f x)
+    IntDiv x y -> intDivRange (f x) (f y)
+    IntMod x y -> intModRange (f x) (f y)
+    IntDivisible x n -> natCheckEq (NatSingleRange 0) (intModRange (f x) (SingleRange (toInteger n)))
 
     SemiRingMul SemiRingInt x y -> mulRange (f x) (f y)
     SemiRingSum SemiRingInt s -> WSum.eval addRange smul SingleRange s
@@ -2047,7 +2055,7 @@ abstractEval bvParams f a0 = do
 
     SemiRingMul SemiRingNat x y -> natRangeMul (f x) (f y)
     SemiRingSum SemiRingNat s -> WSum.eval natRangeAdd smul natSingleRange s
-      where smul sm e = natRangeScalarMul (toInteger sm) (f e)
+      where smul sm e = natRangeScalarMul sm (f e)
     SemiRingIte SemiRingNat _ x y -> natRangeJoin (f x) (f y)
 
     SemiRingMul SemiRingReal x y -> ravMul (f x) (f y)
@@ -2107,7 +2115,7 @@ abstractEval bvParams f a0 = do
 
     NatToInteger x -> natRangeToRange (f x)
     IntegerToReal x -> RAV (mapRange toRational (f x)) (Just True)
-    BVToNat x -> natRange lx (Inclusive ux)
+    BVToNat x -> natRange (fromInteger lx) (Inclusive (fromInteger ux))
       where Just (lx, ux) = BVD.ubounds (bvWidth x) (f x)
     BVToInteger x -> valueRange (Inclusive lx) (Inclusive ux)
       where Just (lx, ux) = BVD.ubounds (bvWidth x) (f x)
@@ -2118,17 +2126,9 @@ abstractEval bvParams f a0 = do
     CeilReal x  -> mapRange ceiling (ravRange (f x))
     IntegerToNat x ->
        case f x of
-         SingleRange c              -> NatSingleRange (max 0 c)
-         MultiRange Unbounded u     -> natRange 0 u
-         MultiRange (Inclusive l) u -> natRange (max 0 l) u
-    IntegerToSBV x w -> BVD.range w l u
-      where rng = f x
-            l = case rangeLowBound rng of
-                  Unbounded -> minSigned w
-                  Inclusive v -> max (minSigned w) v
-            u = case rangeHiBound rng of
-                  Unbounded -> maxSigned w
-                  Inclusive v -> min (maxSigned w) v
+         SingleRange c              -> NatSingleRange (fromInteger (max 0 c))
+         MultiRange Unbounded u     -> natRange 0 (fromInteger . max 0 <$> u)
+         MultiRange (Inclusive l) u -> natRange (fromInteger (max 0 l)) (fromInteger . max 0 <$> u)
     IntegerToBV x w -> BVD.range w l u
       where rng = f x
             l = case rangeLowBound rng of
@@ -2619,9 +2619,14 @@ reduceApp sym a0 = do
     SemiRingMul SemiRingReal x y -> realMul sym x y
     SemiRingIte SemiRingReal c x y -> realIte sym c x y
 
-    NatDiv x y  -> natDiv  sym x y
+    NatDiv x y -> natDiv sym x y
+
+    IntDiv x y -> intDiv sym x y
+    IntMod x y -> intMod sym x y
+    IntAbs x -> intAbs sym x
+    IntDivisible x k -> intDivisible sym x k
+
     RealDiv x y -> realDiv sym x y
-    IntMod x y  -> intMod  sym x y
     RealSqrt x  -> realSqrt sym x
 
     Pi -> realPi sym
@@ -2676,7 +2681,6 @@ reduceApp sym a0 = do
     BVToNat x       -> bvToNat sym x
     BVToInteger x   -> bvToInteger sym x
     SBVToInteger x  -> sbvToInteger sym x
-    IntegerToSBV x w -> integerToSBV sym x w
     IntegerToBV  x w -> integerToBV  sym x w
 
     RoundReal x -> realRound sym x
@@ -3490,8 +3494,6 @@ instance IsExprBuilder (ExprBuilder t st) where
     | Just b <- rangeCheckEq (exprAbsValue x) (exprAbsValue y)
     = return $ backendPred sym b
 
-      -- FIXME... implement reductions for unsigned bitvectors as well
-
       -- Reduce to bitvector equality, when possible
     | Just (SBVToInteger xbv) <- asApp x
     , Just (SBVToInteger ybv) <- asApp y
@@ -3510,6 +3512,24 @@ instance IsExprBuilder (ExprBuilder t st) where
               y' <- bvSext sym wx ybv
               bvEq sym xbv y'
 
+      -- Reduce to bitvector equality, when possible
+    | Just (BVToInteger xbv) <- asApp x
+    , Just (BVToInteger ybv) <- asApp y
+    = let wx = bvWidth xbv
+          wy = bvWidth ybv
+          -- Zero extend to largest bitvector and compare.
+       in case compareNat wx wy of
+            NatLT _ -> do
+              Just LeqProof <- return (testLeq (incNat wx) wy)
+              x' <- bvZext sym wy xbv
+              bvEq sym x' ybv
+            NatEQ ->
+              bvEq sym xbv ybv
+            NatGT _ -> do
+              Just LeqProof <- return (testLeq (incNat wy) wx)
+              y' <- bvZext sym wx ybv
+              bvEq sym xbv y'
+
     | Just (SBVToInteger xbv) <- asApp x
     , SemiRingLiteral _ yi _ <- y
     = let w = bvWidth xbv in
@@ -3524,14 +3544,26 @@ instance IsExprBuilder (ExprBuilder t st) where
          then return (falsePred sym)
          else bvEq sym ybv =<< bvLit sym w xi
 
+    | Just (BVToInteger xbv) <- asApp x
+    , SemiRingLiteral _ yi _ <- y
+    = let w = bvWidth xbv in
+      if yi < minUnsigned w || yi > maxUnsigned w
+         then return (falsePred sym)
+         else bvEq sym xbv =<< bvLit sym w yi
+
+    | SemiRingLiteral _ xi _ <- x
+    , Just (BVToInteger ybv) <- asApp x
+    = let w = bvWidth ybv in
+      if xi < minUnsigned w || xi > maxUnsigned w
+         then return (falsePred sym)
+         else bvEq sym ybv =<< bvLit sym w xi
+
     | otherwise = semiRingEq sym SemiRingInt x y
 
   intLe sym x y
       -- Use abstract domains
     | Just b <- rangeCheckLe (exprAbsValue x) (exprAbsValue y)
     = return $ backendPred sym b
-
-      -- FIXME... implement reductions for unsigned bitvectors also...
 
       -- Check with two bitvectors.
     | Just (SBVToInteger xbv) <- asApp x
@@ -3550,6 +3582,23 @@ instance IsExprBuilder (ExprBuilder t st) where
              y' <- bvSext sym wx ybv
              bvSle sym xbv y'
 
+      -- Check with two bitvectors.
+    | Just (BVToInteger xbv) <- asApp x
+    , Just (BVToInteger ybv) <- asApp y
+    = do let wx = bvWidth xbv
+         let wy = bvWidth ybv
+         -- Zero extend to largest bitvector and compare.
+         case compareNat wx wy of
+           NatLT _ -> do
+             Just LeqProof <- return (testLeq (incNat wx) wy)
+             x' <- bvZext sym wy xbv
+             bvUle sym x' ybv
+           NatEQ -> bvUle sym xbv ybv
+           NatGT _ -> do
+             Just LeqProof <- return (testLeq (incNat wy) wx)
+             y' <- bvZext sym wx ybv
+             bvUle sym xbv y'
+
     | Just (SBVToInteger xbv) <- asApp x
     , SemiRingLiteral _ yi _ <- y
     = let w = bvWidth xbv in
@@ -3563,6 +3612,20 @@ instance IsExprBuilder (ExprBuilder t st) where
       if | xi < minSigned w -> return (truePred sym)
          | xi > maxSigned w -> return (falsePred sym)
          | otherwise -> join (bvSle sym <$> bvLit sym w xi <*> pure ybv)
+
+    | Just (BVToInteger xbv) <- asApp x
+    , SemiRingLiteral _ yi _ <- y
+    = let w = bvWidth xbv in
+      if | yi < minUnsigned w -> return (falsePred sym)
+         | yi > maxUnsigned w -> return (truePred sym)
+         | otherwise -> join (bvUle sym <$> pure xbv <*> bvLit sym w yi)
+
+    | SemiRingLiteral _ xi _ <- x
+    , Just (BVToInteger ybv) <- asApp x
+    = let w = bvWidth ybv in
+      if | xi < minUnsigned w -> return (truePred sym)
+         | xi > maxUnsigned w -> return (falsePred sym)
+         | otherwise -> join (bvUle sym <$> bvLit sym w xi <*> pure ybv)
 
 {-  FIXME? how important are these reductions?
 
@@ -3588,19 +3651,64 @@ instance IsExprBuilder (ExprBuilder t st) where
     | otherwise
     = semiRingLe sym SemiRingInt x y
 
+  intAbs sym x
+    | Just i <- asInteger x = natLit sym (fromInteger (abs i))
+    | Just True <- rangeCheckLe (SingleRange 0) (exprAbsValue x) = integerToNat sym x
+    | Just True <- rangeCheckLe (exprAbsValue x) (SingleRange 0) = integerToNat sym =<< intNeg sym x
+    | otherwise = sbMakeExpr sym (IntAbs x)
+
+  intDiv sym x y
+      -- Div by 0.
+    | Just 0 <- asInteger y = intLit sym 0
+      -- Div by 1.
+    | Just 1 <- asInteger y = return x
+      -- Div 0 by anything is zero.
+    | Just 0 <- asInteger x = intLit sym 0
+      -- As integers.
+    | Just xi <- asInteger x, Just yi <- asInteger y =
+      if yi >= 0 then
+        intLit sym (xi `div` yi)
+      else
+        intLit sym (negate (xi `div` negate yi))
+      -- Return int div
+    | otherwise =
+        sbMakeExpr sym (IntDiv x y)
+
   intMod sym x y
-      -- Not defined when division by 0.
-    | Just 0 <- asNat y = return y
+      -- Mod by 0.
+    | Just 0 <- asInteger y = natLit sym 0
       -- Mod by 1.
-    | Just 1 <- asNat y = natLit sym 0
+    | Just 1 <- asInteger y = natLit sym 0
       -- Mod 0 by anything is zero.
     | Just 0 <- asInteger x = natLit sym 0
       -- As integers.
-    | Just xi <- asInteger x, Just yi <- asNat y = do
-      natLit sym (fromInteger (xi `mod` toInteger yi))
+    | Just xi <- asInteger x, Just yi <- asInteger y =
+        natLit sym (fromInteger (xi `mod` abs yi))
+    | Just (SemiRingSum _sr xsum) <- asApp x, Just yi <- asInteger y =
+        case WSum.reduceIntSumMod xsum (abs yi) of
+          xsum' | Just xi <- WSum.asConstant xsum' ->
+                    natLit sym (fromInteger xi)
+                | otherwise ->
+                    do x' <- intSum sym xsum'
+                       sbMakeExpr sym (IntMod x' y)
       -- Return int mod.
-    | otherwise = do
-      sbMakeExpr sym (IntMod x y)
+    | otherwise =
+        sbMakeExpr sym (IntMod x y)
+
+  intDivisible sym x k
+      -- All numbers divisible by 0, per interface.
+    | k == 0 = return (truePred sym)
+    | k == 1 = return (truePred sym)
+    | Just xi <- asInteger x = return $ backendPred sym (xi `mod` (toInteger k) == 0)
+    | Just (SemiRingSum _sr xsum) <- asApp x =
+        case WSum.reduceIntSumMod xsum (toInteger k) of
+          xsum' | Just xi <- WSum.asConstant xsum' ->
+                    return $ backendPred sym (xi == 0)
+                | otherwise ->
+                    do x' <- intSum sym xsum'
+                       sbMakeExpr sym (IntDivisible x' k)
+    | otherwise =
+        sbMakeExpr sym (IntDivisible x k)
 
   ---------------------------------------------------------------------
   -- Bitvector operations
@@ -4336,29 +4444,48 @@ instance IsExprBuilder (ExprBuilder t st) where
       sbMakeExpr sym (RealToInteger x)
 
   bvToNat sym x
-    | Just i <- asUnsignedBV x = natLit sym (fromInteger i)
+    | Just i <- asUnsignedBV x =
+      natLit sym (fromInteger i)
     | otherwise = sbMakeExpr sym (BVToNat x)
 
   bvToInteger sym x
-    | Just i <- asUnsignedBV x = intLit sym i
-    | otherwise = sbMakeExpr sym (BVToInteger x)
+    | Just i <- asUnsignedBV x =
+      intLit sym i
+      -- bvToInteger (integerToBv x w) == mod x (2^w)
+    | Just (IntegerToBV xi w) <- asApp x =
+      natToInteger sym =<< intMod sym xi =<< intLit sym (2^natValue w)
+    | otherwise =
+      sbMakeExpr sym (BVToInteger x)
 
   sbvToInteger sym x
-    | Just i <- asSignedBV x = intLit sym i
-    | otherwise = sbMakeExpr sym (SBVToInteger x)
-
-  integerToSBV sym (SemiRingLiteral SemiRingInt i _) w =
-    bvLit sym w i
-  integerToSBV sym xr w
-    | Just (SBVToInteger r) <- asApp xr = intSetWidth sym r w
-  integerToSBV sym xr w =
-    sbMakeExpr sym (IntegerToSBV xr w)
+    | Just i <- asSignedBV x =
+      intLit sym i
+      -- sbvToInteger (integerToBv x w) == mod (x + 2^(w-1)) (2^w) - 2^(w-1)
+    | Just (IntegerToBV xi w) <- asApp x =
+      do halfmod <- intLit sym (2 ^ (natValue w - 1))
+         modulus <- intLit sym (2 ^ natValue w)
+         x'      <- intAdd sym xi halfmod
+         z       <- natToInteger sym =<< intMod sym x' modulus
+         intSub sym z halfmod
+    | otherwise =
+      sbMakeExpr sym (SBVToInteger x)
 
   integerToBV sym xr w
     | SemiRingLiteral SemiRingInt i _ <- xr =
-      bvLit sym w $ unsignedClamp w $ toInteger i
+      bvLit sym w i
+
     | Just (BVToInteger r) <- asApp xr =
-      uintSetWidth sym r w
+      case compareNat (bvWidth r) w of
+        NatLT _ -> bvZext sym w r
+        NatEQ   -> return r
+        NatGT _ -> bvTrunc sym w r
+
+    | Just (SBVToInteger r) <- asApp xr =
+      case compareNat (bvWidth r) w of
+        NatLT _ -> bvSext sym w r
+        NatEQ   -> return r
+        NatGT _ -> bvTrunc sym w r
+
     | otherwise =
       sbMakeExpr sym (IntegerToBV xr w)
 
