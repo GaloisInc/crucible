@@ -567,9 +567,8 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   intMod :: sym -> SymInteger sym -> SymInteger sym -> IO (SymNat sym)
 
   -- | @intDivisible x k@ is true whenever @x@ is an integer divisible
-  --   by the known positive number @k@.  We adopt a definition such
-  --   that every number is divisible by zero, so
-  --   @intDivisible x 0 = true@.
+  --   by the known natural number @k@.  In other words `divisible x k`
+  --   holds if there exists an integer `z` such that `x = k*z`.
   intDivisible :: sym -> SymInteger sym -> Natural -> IO (Pred sym)
 
   ----------------------------------------------------------------------

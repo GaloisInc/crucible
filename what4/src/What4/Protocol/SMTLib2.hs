@@ -262,7 +262,8 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
   intDiv x y = term_app "div" [x,y]
   intMod x y = term_app "mod" [x,y]
   intAbs x   = term_app "abs" [x]
-  intDivisible _ 0 = boolExpr True
+
+  intDivisible x 0 = x .== integerTerm 0
   intDivisible x k = intMod x (integerTerm (toInteger k)) .== 0
 
   rationalTerm r | d == 1 = toRealTerm n

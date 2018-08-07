@@ -2046,6 +2046,7 @@ abstractEval bvParams f a0 = do
     IntAbs x -> intAbsRange (f x)
     IntDiv x y -> intDivRange (f x) (f y)
     IntMod x y -> intModRange (f x) (f y)
+    IntDivisible x 0 -> rangeCheckEq (SingleRange 0) (f x)
     IntDivisible x n -> natCheckEq (NatSingleRange 0) (intModRange (f x) (SingleRange (toInteger n)))
 
     SemiRingMul SemiRingInt x y -> mulRange (f x) (f y)
@@ -3696,8 +3697,7 @@ instance IsExprBuilder (ExprBuilder t st) where
         sbMakeExpr sym (IntMod x y)
 
   intDivisible sym x k
-      -- All numbers divisible by 0, per interface.
-    | k == 0 = return (truePred sym)
+    | k == 0 = intEq sym x =<< intLit sym 0
     | k == 1 = return (truePred sym)
     | Just xi <- asInteger x = return $ backendPred sym (xi `mod` (toInteger k) == 0)
     | Just (SemiRingSum _sr xsum) <- asApp x =

@@ -237,7 +237,8 @@ evalGroundApp f0 a0 = do
 
     IntDivisible x k -> g <$> f x
       where
-      g u = mod u (toInteger k) == 0
+      g u | k == 0    = u == 0
+          | otherwise = mod u (toInteger k) == 0
 
     SemiRingEq SemiRingReal x y -> (==) <$> f x <*> f y
     SemiRingEq SemiRingInt  x y -> (==) <$> f x <*> f y
