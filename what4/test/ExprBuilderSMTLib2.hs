@@ -10,12 +10,13 @@
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import           Control.Exception
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Text as T
 
-import Data.Parameterized.Context as Ctx
-import Data.Parameterized.Nonce
+import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Nonce
 
 import What4.BaseTypes
 import What4.Expr
@@ -37,10 +38,11 @@ withSym :: (forall t . SimpleExprBuilder t fs -> IO (BoolExpr t)) -> IO String
 withSym pred_gen = withIONonceGenerator $ \gen ->
   show <$> (pred_gen =<< newExprBuilder State gen)
 
-withZ3' :: (forall t . SimpleExprBuilder t fs -> Session t Z3 -> IO a) -> IO a
+withZ3' :: (forall t . SimpleExprBuilder t fs -> Session t Z3 -> IO ()) -> IO ()
 withZ3' action = withIONonceGenerator $ \nonce_gen -> do
   sym <- newExprBuilder State nonce_gen
-  withZ3 sym "z3" putStrLn $ action sym
+  handle (\(e :: IOException) -> putStrLn $ show e) $
+    withZ3 sym "z3" putStrLn $ action sym
 
 withModel
   :: Session t Z3
