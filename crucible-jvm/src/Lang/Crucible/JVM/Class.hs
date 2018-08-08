@@ -84,6 +84,19 @@ import           What4.ProgramLoc (Position(InternalPos))
 import           Debug.Trace
 import           GHC.Stack
 
+
+-- | lookup the information that the generator has about a class
+-- (i.e. methods, fields, superclass)
+
+lookupClassGen :: (HasCallStack) => J.ClassName -> JVMGenerator h s ret J.Class
+lookupClassGen cName = do
+  ctx <- gets jsContext
+  case Map.lookup cName (classTable ctx) of
+    Just cls -> return cls
+    Nothing  -> error $ "no information about class " ++ J.unClassName cName
+
+
+
 ---------------------------------------------------------------------------------
 --
 -- | Runtime representation of class information (i.e. JVMClass)
@@ -254,7 +267,7 @@ getJVMClass c = do
 getJVMClassByName ::
   (HasCallStack) => J.ClassName -> JVMGenerator h s ret (Expr JVM s JVMClassType)
 getJVMClassByName name = do
-  lookupClass name >>= getJVMClass
+  lookupClassGen name >>= getJVMClass
 
       
 -- | Access the initialization status of the class in the dynamic class table
@@ -354,7 +367,7 @@ specialClinit = Map.fromList [
 initializeClass :: forall h s ret . HasCallStack => J.ClassName -> JVMGenerator h s ret ()
 initializeClass name = unless (skipInit name) $ do 
 
-  c <- lookupClass name
+  c <- lookupClassGen name
   status <- getInitStatus c
   
   let ifNotStarted = do
@@ -627,7 +640,7 @@ refFromString s =  do
   let name = "java/lang/String"
   initializeClass name
   clsObj <-  getJVMClassByName name
-  cls    <-  lookupClass name
+  cls    <-  lookupClassGen name
   obj    <-  newInstanceInstr clsObj (J.classFields cls)
 
   -- create an array of characters

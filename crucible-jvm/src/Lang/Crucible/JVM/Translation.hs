@@ -24,6 +24,7 @@ Stability        : provisional
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE PolyKinds #-}
 
 {-# OPTIONS_GHC -haddock #-}
 
@@ -45,9 +46,9 @@ module Lang.Crucible.JVM.Translation
 -- base
 import Data.Maybe (isJust, fromJust,maybeToList)
 import Data.Semigroup(Semigroup(..),(<>))
-import Control.Monad.State.Strict
-import Control.Monad.ST
-import Control.Monad.Reader
+import Control.Monad.State.Strict 
+import Control.Monad.ST  
+import Control.Monad.Reader 
 import Control.Lens hiding (op, (:>))
 import Data.Int (Int32)
 import Data.Map.Strict (Map)
@@ -690,7 +691,7 @@ generateInstruction (pc, instr) =
     -- Object creation and manipulation
     J.New name -> do
       traceM $ "new " ++ show name
-      cls    <- lift $ lookupClass name
+      cls    <- lift $ lookupClassGen name
       clsObj <- lift $ getJVMClass cls
       obj    <- lift $ newInstanceInstr clsObj (J.classFields cls)
       rawRef <- lift $ newRef obj
@@ -1401,44 +1402,66 @@ declareStaticField halloc c m f = do
   gvar <- C.freshGlobalVar halloc (globalVarName cn fn) (knownRepr :: TypeRepr JVMValueType)
   return $ (Map.insert (cn,fn) gvar m)
 
--- | Create the initial JVMContext (contains only the global variable for the dynamic
--- class table)
-mkInitialJVMContext :: HandleAllocator s -> ST s JVMContext
-mkInitialJVMContext halloc = do
-  gv <- C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
-                                (knownRepr :: TypeRepr JVMClassTableType)
-  return $ JVMContext
-    { methodHandles     = Map.empty
-    , staticFields      = Map.empty
-    , classTable        = Map.empty
-    , dynamicClassTable = gv
-    }
 
--- This is called in Interpreter.hs
-mkInitialJVMTranslation :: HandleAllocator s -> ST s JVMTranslation
-mkInitialJVMTranslation halloc = do
-  ctx <- mkInitialJVMContext halloc
-  return $ JVMTranslation { translatedClasses = Map.empty
-                          , transContext      = ctx }
 
 -- | extend the JVM context in preparation for translating class c
-extendJVMContext :: HandleAllocator s -> JVMContext -> J.Class -> ST s JVMContext
-extendJVMContext halloc ctx0 c = do
-  sm <- foldM (declareMethod halloc c) Map.empty (J.classMethods c)
-  st <- foldM (declareStaticField halloc c) Map.empty (J.classFields c)
-  return $ JVMContext
+-- by declaring handles for all methods
+--    declaring global variables for all static fields and
+--    adding the class information to the class table
+extendJVMContext :: HandleAllocator s -> J.Class -> StateT JVMContext (ST s) ()
+extendJVMContext halloc c = do
+  sm <- lift $ foldM (declareMethod halloc c) Map.empty (J.classMethods c)
+  st <- lift $ foldM (declareStaticField halloc c) Map.empty (J.classFields c)
+  modify $ \ctx0 -> JVMContext
     { methodHandles     = sm 
     , staticFields      = st
     , classTable        = Map.singleton (J.className c) c
     , dynamicClassTable = dynamicClassTable ctx0
     } <> ctx0
 
+{-
+-- | extend the JVM context with new information about a class
 addToClassTable :: J.Class -> JVMContext -> JVMContext
 addToClassTable c ctx =
   trace ("Adding " ++ show (J.className c)) $ 
   ctx { classTable = Map.insert (J.className c) c (classTable ctx) }
+-}
 
+-- | create FnBindings for all of the methods in the class 'str'
+-- TODO: we could calculate the closure of the class references
+-- so that each class does not need to be declared individually.
+-- But I worry that this could be a *lot* of classes
+{-
+declareClass :: IsCodebase cb => HandleAllocator s -> cb -> String -> StateT JVMContext (ST s) ()
+declareClass halloc cb str = do
+  c <- liftIO $ findClass cb str
+  extendJVMContext halloc c
+-}
 
+-- | Create the initial JVMContext
+mkInitialJVMContext ::  IsCodebase cb => HandleAllocator RealWorld -> cb -> IO JVMContext
+mkInitialJVMContext halloc cb = do
+  
+  gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
+                                (knownRepr :: TypeRepr JVMClassTableType)
+        
+  classes <- mapM (findClass cb) ["java/lang/System",
+                                  "java/lang/Object",
+                                  "java/lang/String",
+                                  "java/io/PrintStream" ]
+
+  stToIO $ execStateT
+             (mapM_ (extendJVMContext halloc) classes)
+             (JVMContext
+              { methodHandles     = Map.empty
+              , staticFields      = Map.empty
+              , classTable        = Map.empty
+              , dynamicClassTable = gv
+              })
+  
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 translateMethod' :: JVMContext
                  -> J.ClassName
                  -> J.Method
@@ -1510,7 +1533,7 @@ skipMethod ctx c m =
                     -- bug somewhere in use of writeRegisters, it's providing more values than regs
                  ] where
   
-
+{-
     
 translateClass :: HandleAllocator s -- ^ Generator for nonces
                -> JVMContext 
@@ -1548,7 +1571,8 @@ translateClasses halloc ctx1 cs = do
 
   trs <- mapM trans cs
   return $ foldr1 (<>) trs
-
+-}
+    
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -1607,21 +1631,45 @@ mkDelayedBinding ctx c m (JVMHandleInfo _mk (handle :: FnHandle args ret))
 
 --------------------------------------------------------------------------------
 
+-- | A type class for what we need from a java code base This is here
+-- b/c we have two copies of the Codebase module, the one in this
+-- package and the one in the jvm-verifier package. Eventually,
+-- saw-script will want to transition to the code base in this package,
+-- but it will need to eliminate uses of the old jvm-verifier first.
+class IsCodebase cb where
+ 
+   lookupClass :: cb -> J.ClassName -> IO J.Class
+
+   findMethod :: cb -> String -> J.Class -> IO (J.Class,J.Method)
+
+   findClass  :: cb -> String -> IO J.Class
+   findClass cb cname = (lookupClass cb . J.mkClassName . J.dotsToSlashes) cname
+
+
 
 -- | Read from the provided java code base and simulate a
 -- given static method. 
--- 
-executeCrucibleJVM :: forall ret args sym p.
-  (IsBoolSolver sym, W4.IsSymExprBuilder sym, Monoid p,
-   KnownRepr CtxRepr args, KnownRepr TypeRepr ret)
-                   => JCB.Codebase
-                   -> Int               -- ^ Verbosity level 
+--
+-- * Set the verbosity level for simulation
+-- * Find the class/method information from the codebase
+-- * Set up handles for java.lang.* & primitives
+-- * declare the handle for all methods in this class
+-- * Find the handle for this method
+-- * run the simulator given the handle
+executeCrucibleJVM :: forall ret args sym p cb.
+  (IsBoolSolver sym, W4.IsSymExprBuilder sym, 
+   KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
+                   => cb               
+                   -> Int               -- ^ Verbosity level
                    -> sym               -- ^ Simulator state
+                   -> p                 -- ^ Personality
                    -> String            -- ^ Class name
                    -> String            -- ^ Method name
                    -> C.RegMap sym args -- ^ Arguments
                    -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVM cb verbosity sym cname mname args = do
+executeCrucibleJVM cb verbosity sym p cname mname args = do
+
+     setSimulatorVerbosity verbosity sym
 
      (mcls, meth) <- findMethod cb mname =<< findClass cb cname
      when (not (J.methodIsStatic meth)) $ do
@@ -1629,91 +1677,107 @@ executeCrucibleJVM cb verbosity sym cname mname args = do
 
 
      halloc <- newHandleAllocator
-     trans <- stToIO $ do mkInitialJVMTranslation halloc
-     
-     let ctx0 = transContext trans
 
-     ctx1 <- declareClass ctx0 halloc cb (J.unClassName (J.className mcls))
-     ctx2 <- declareClass ctx1 halloc cb "java/lang/System"
-     ctx3 <- declareClass ctx2 halloc cb "java/lang/Object"
-     ctx4 <- declareClass ctx3 halloc cb "java/lang/String"
-     ctx  <- declareClass ctx4 halloc cb "java/io/PrintStream"
+     ctx0 <- mkInitialJVMContext halloc cb
 
-     -- need to add other classes....
+     -- declare this class
+     ctx <- stToIO $ execStateT (extendJVMContext halloc mcls) ctx0
 
-     -- find the handle for the method to extract
-     case  Map.lookup (J.className mcls, J.methodKey meth) (methodHandles ctx) of
-        Just (JVMHandleInfo _ h)
-          | Just Refl <- testEquality (handleArgTypes h)   (knownRepr :: CtxRepr args),
-            Just Refl <- testEquality (handleReturnType h) (knownRepr :: TypeRepr ret)
-          -> do
-                -- set the verbosity level of the crucible simulator
-                let cfg = W4.getConfiguration sym
-                verbSetting <- W4.getOptionSetting W4.verbosity cfg
-                _ <- W4.setOpt verbSetting (toInteger verbosity)
-      
-                -- make FnBindings for all methods in the classTable
-                let simctx = setupSimCtxt ctx halloc sym
-      
-                let globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
-      
-                let simSt  = C.initSimState simctx globals C.defaultAbortHandler
+     (JVMHandleInfo _ h) <- findMethodHandle ctx mcls meth
 
-                let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
+     Refl <- failIfNotEqual (handleArgTypes h)   (knownRepr :: CtxRepr args)
+     Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
+            
+     runMethodHandle sym p halloc ctx h args
 
-                let overrideSim = do
-                         _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
-                         fnCall
 
-                C.executeCrucible simSt (C.runOverrideSim knownRepr overrideSim)
+failIfNotEqual :: forall f m a (b :: k). (Monad m, Show (f a), Show (f b), TestEquality f) => f a -> f b -> m (a :~: b)
+failIfNotEqual r1 r2
+  | Just Refl <- testEquality r1 r2 = return Refl
+  | otherwise = fail $ "mismatch between" ++ show r1 ++ " and " ++ show r2 
 
-        _ -> error "BUG"
-                       
 
--- | Create a simulation context
--- The initial model may be any monoid
-setupSimCtxt :: Monoid m =>
-  (IsSymInterface sym) =>
-  JVMContext ->
-  HandleAllocator RealWorld ->
-  sym ->
-  C.SimContext m sym JVM
-setupSimCtxt ctx halloc sym =
-  
-  let bindings = mkDelayedBindings ctx
+-- 
+setSimulatorVerbosity :: (W4.IsSymExprBuilder sym) => Int -> sym -> IO ()
+setSimulatorVerbosity verbosity sym = do
+  let cfg = W4.getConfiguration sym
+  verbSetting <- W4.getOptionSetting W4.verbosity (W4.getConfiguration sym)
+  _ <- W4.setOpt verbSetting (toInteger verbosity)
+  return ()
 
-      javaExtImpl :: C.ExtensionImpl p sym JVM
-      javaExtImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of)
-                                           (\x -> case x of)
 
-  in C.initSimContext sym
+findMethodHandle :: JVMContext -> J.Class -> J.Method -> IO JVMHandleInfo
+findMethodHandle ctx cls meth =
+    case  Map.lookup (J.className cls, J.methodKey meth) (methodHandles ctx) of
+        Just handle ->
+          return handle
+        Nothing ->
+          fail $ "BUG: cannot find handle for " ++ J.unClassName (J.className cls) ++ "/" ++ J.methodName meth
+
+
+-- | Run a Java method in the simulator
+runMethodHandle :: (IsSymInterface sym) => 
+                     sym
+                  -> p
+                  -> HandleAllocator RealWorld
+                  -> JVMContext
+                  -> FnHandle args ret
+                  -> C.RegMap sym args
+                  -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
+runMethodHandle sym p halloc ctx h args = do
+  let javaExtImpl :: C.ExtensionImpl p sym JVM
+      javaExtImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
+  let simctx = C.initSimContext sym
                  MapF.empty  -- intrinsics
                  halloc
                  stdout
-                 bindings
+                 (mkDelayedBindings ctx)
                  javaExtImpl
-                 mempty
+                 p
+  let globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals     
+  let simSt  = C.initSimState simctx globals C.defaultAbortHandler
+  let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
+  let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
+                       fnCall
+  C.executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
 
 
--- | create FnBindings for all of the methods in the class 'str'
--- TODO: we could calculate the closure of the class references
--- so that each class does not need to be declared individually.
--- But I worry that this could be a *lot* of classes
-declareClass :: JVMContext -> HandleAllocator RealWorld -> JCB.Codebase -> String -> IO JVMContext
-declareClass jvmctx halloc cb str = do
-  c <- (cbLookupClass cb . J.mkClassName . J.dotsToSlashes) str
-  let ctx0 = addToClassTable c jvmctx
-  ctx1 <- stToIO $ extendJVMContext halloc ctx0 c
-  return ctx1
+      
+      
+
+
 
 
 ------------------------------------------------------------------------
 -- utility operations for working with the java code base
 
--- | Atempt to find class with given name, or throw ExecException if no class
--- with that name exists. Class name should be in dot-separated form.
-findClass :: JCB.Codebase -> String -> IO J.Class
-findClass cb cname = (cbLookupClass cb . J.mkClassName . J.dotsToSlashes) cname
+instance IsCodebase JCB.Codebase where
+
+   lookupClass = cbLookupClass 
+
+   -- | Returns method with given name in this class or one of its subclasses.
+   -- Throws an ExecException if method could not be found or is ambiguous.
+   -- findMethod :: JCB.Codebase -> String -> J.Class -> IO (J.Class, J.Method)
+   findMethod cb nm initClass = impl initClass
+    where javaClassName = J.slashesToDots (J.unClassName (J.className initClass))
+          methodMatches m = J.methodName m == nm && not (J.methodIsAbstract m)
+          impl cl =
+            case filter methodMatches (J.classMethods cl) of
+              [] -> do
+                case J.superClass cl of
+                  Nothing ->
+                    let msg = ftext $ "Could not find method " ++ nm
+                                ++ " in class " ++ javaClassName ++ "."
+                        res = "Please check that the class and method are correct."
+                     in throwIOExecException msg res
+                  Just superName ->
+                    impl =<< cbLookupClass cb superName
+              [method] -> return (cl,method)
+              _ -> let msg = "The method " ++ nm ++ " in class " ++ javaClassName
+                               ++ " is ambiguous.  SAWScript currently requires that "
+                               ++ "method names are unique."
+                       res = "Please rename the Java method so that it is unique."
+                    in throwIOExecException (ftext msg) res
 
 
 -- | Atempt to find class with given name, or throw ExecException if no class
@@ -1729,29 +1793,6 @@ cbLookupClass cb nm = do
     Just cl -> return cl
 
 
--- | Returns method with given name in this class or one of its subclasses.
--- Throws an ExecException if method could not be found or is ambiguous.
-findMethod :: JCB.Codebase -> String -> J.Class -> IO (J.Class, J.Method)
-findMethod cb nm initClass = impl initClass
-  where javaClassName = J.slashesToDots (J.unClassName (J.className initClass))
-        methodMatches m = J.methodName m == nm && not (J.methodIsAbstract m)
-        impl cl =
-          case filter methodMatches (J.classMethods cl) of
-            [] -> do
-              case J.superClass cl of
-                Nothing ->
-                  let msg = ftext $ "Could not find method " ++ nm
-                              ++ " in class " ++ javaClassName ++ "."
-                      res = "Please check that the class and method are correct."
-                   in throwIOExecException msg res
-                Just superName ->
-                  impl =<< cbLookupClass cb superName
-            [method] -> return (cl,method)
-            _ -> let msg = "The method " ++ nm ++ " in class " ++ javaClassName
-                             ++ " is ambiguous.  SAWScript currently requires that "
-                             ++ "method names are unique."
-                     res = "Please rename the Java method so that it is unique."
-                  in throwIOExecException (ftext msg) res
 
 throwFieldNotFound :: J.Type -> String -> IO a
 throwFieldNotFound tp fieldName = throwE msg

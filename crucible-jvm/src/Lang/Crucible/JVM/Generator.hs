@@ -195,14 +195,6 @@ type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
 jvmFail :: HasCallStack => String -> JVMGenerator h s ret a
 jvmFail msg = error msg
 
--- | lookup the information that the generator has about a class
--- (i.e. methods, fields, superclass)
-lookupClass :: (HasCallStack) => J.ClassName -> JVMGenerator h s ret J.Class
-lookupClass cName = do
-  ctx <- gets jsContext
-  case Map.lookup cName (classTable ctx) of
-    Just cls -> return cls
-    Nothing  -> error $ "no information about class " ++ J.unClassName cName
 
 ------------------------------------------------------------------
 

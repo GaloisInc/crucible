@@ -142,6 +142,7 @@ simulate ::
   IO ProvedGoals
 simulate opts cname =
   withIONonceGenerator $ \nonceGen ->
+  
   withYicesOnlineBackend nonceGen $ \sym -> do
 
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
@@ -149,8 +150,10 @@ simulate opts cname =
      let mname = "main"
 
      frm <- pushAssumptionFrame sym
+
+     let personality = emptyModel
      
-     res <- executeCrucibleJVM @JVMIntType cb (simVerbose opts) sym cname mname emptyRegMap
+     res <- executeCrucibleJVM @JVMIntType cb (simVerbose opts) sym personality cname mname emptyRegMap
            
      _ <- popAssumptionFrame sym frm
           
