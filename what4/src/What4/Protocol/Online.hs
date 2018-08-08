@@ -16,6 +16,7 @@ module What4.Protocol.Online
   , killSolver
   , push
   , pop
+  , reset
   , inNewFrame
   , check
   , getModel
@@ -121,6 +122,10 @@ checkSatisfiableWithModel proc p k =
 
 --------------------------------------------------------------------------------
 -- Basic solver interaction.
+
+reset :: SMTReadWriter s => WriterConn t s -> IO ()
+reset c = do resetEntryStack c
+             addCommand c (resetCommand c)
 
 -- | Push a new solver assumption frame.
 push :: SMTReadWriter s => WriterConn t s -> IO ()

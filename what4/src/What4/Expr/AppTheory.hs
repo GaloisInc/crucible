@@ -85,6 +85,12 @@ appTheory a0 =
     IntMod _ SemiRingLiteral{} -> LinearArithTheory
     IntMod{} -> NonlinearArithTheory
 
+    IntDiv _ SemiRingLiteral{} -> LinearArithTheory
+    IntDiv{} -> NonlinearArithTheory
+
+    IntAbs{} -> LinearArithTheory
+    IntDivisible{} -> LinearArithTheory
+
     ----------------------------
     -- Real operations
 
@@ -104,6 +110,7 @@ appTheory a0 =
 
     ----------------------------
     -- Bitvector operations
+    PredToBV{} -> BitvectorTheory
     BVUnaryTerm{} -> BoolTheory
     BVConcat{} -> BitvectorTheory
     BVSelect{} -> BitvectorTheory
@@ -181,7 +188,6 @@ appTheory a0 =
     RealToInteger{} -> LinearArithTheory
 
     IntegerToNat{} -> LinearArithTheory
-    IntegerToSBV{} -> BitvectorTheory
     IntegerToBV{}  -> BitvectorTheory
 
     ---------------------

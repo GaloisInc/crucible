@@ -273,6 +273,13 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
 
   integerTerm i = toIntegerTerm i
 
+  intDiv x y = term_app "div" [x,y]
+  intMod x y = term_app "mod" [x,y]
+  intAbs x   = term_app "abs" [x]
+
+  intDivisible x 0 = x .== integerTerm 0
+  intDivisible x k = intMod x (integerTerm (toInteger k)) .== 0
+
   rationalTerm r | d == 1 = toRealTerm n
                  | otherwise = term_app "/" [toRealTerm n, toRealTerm d]
     where n = numerator r
@@ -458,6 +465,8 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
 
   pushCommand _  = Cmd "(push 1)"
   popCommand _   = Cmd "(pop 1)"
+  resetCommand _ = Cmd "(reset-assertions)"
+
   checkCommand _ = checkSatCommand
   setOptCommand _ x y = setOptionCommand (Option opt)
     where opt = Builder.fromText x <> Builder.fromText " " <> y

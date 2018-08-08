@@ -42,6 +42,7 @@ module What4.Expr.WeightedSum
   , scale
   , eval
   , extractCommon
+  , reduceIntSumMod
   ) where
 
 import           Control.Lens
@@ -276,6 +277,22 @@ eval addFn smul rat w
    | otherwise = Map.foldrWithKey' merge (rat (_sumOffset w)) (_sumMap w)
   where merge (WrapF e) s r = addFn (smul s e) r
 {-# INLINABLE eval #-}
+
+-- | Reduce a weighted sum of integers modulo a concrete integer.
+--   This reduces each of the coefficents modulo the given integer,
+--   removing any that are congruent to 0; the offset value is
+--   also reduced.
+reduceIntSumMod :: (OrdF f, HashableF f) =>
+  WeightedSum f BaseIntegerType {- ^ The sum to reduce -} ->
+  Integer {- ^ The modulus, must not be 0 -} ->
+  WeightedSum f BaseIntegerType
+reduceIntSumMod ws k = unfilteredSum m (ws^.sumOffset `mod` k)
+  where
+  m = runIdentity (Map.traverseMaybeWithKey f (ws^.sumMap))
+  f _key x
+    | x' == 0   = return (Nothing)
+    | otherwise = return (Just x')
+   where x' = x `mod` k
 
 
 {-# INLINABLE extractCommon #-}

@@ -182,6 +182,13 @@ instance SupportTermOps (Term (Connection s)) where
 
   integerTerm i = T $ decimal i
 
+  intDiv x y = term_app "div" [x,y]
+  intMod x y = term_app "mod" [x,y]
+  intAbs x   = term_app "abs" [x]
+
+  intDivisible x 0 = x .== integerTerm 0
+  intDivisible x k = term_app "divides" [integerTerm (toInteger k), x]
+
   rationalTerm r | d == 1    = T $ decimal n
                  | otherwise = T $ app "/" [decimal n, decimal d]
     where n = numerator r
@@ -335,6 +342,7 @@ instance SMTWriter (Connection s) where
 
   pushCommand _   = Cmd "(push)"
   popCommand _    = Cmd "(pop)"
+  resetCommand _  = Cmd "(reset)"
   checkCommand _  = Cmd "(check)"
   setOptCommand _ x o = setParamCommand x o
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]

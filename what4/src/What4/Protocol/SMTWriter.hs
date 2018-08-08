@@ -30,6 +30,7 @@ error rather than sending invalid output to a file.
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -58,6 +59,7 @@ module What4.Protocol.SMTWriter
               )
   , connState
   , newWriterConn
+  , resetEntryStack
   , pushEntryStack
   , popEntryStack
   , Command(..)
@@ -103,6 +105,7 @@ import qualified Data.Text.Lazy.Builder.Int as Builder (decimal)
 import qualified Data.Text.Lazy as Lazy
 import qualified Data.Text.Lazy.IO as Lazy
 import           Data.Word
+import           Numeric.Natural
 import           System.IO
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 import           Data.ByteString(ByteString)
@@ -300,7 +303,7 @@ class Num v => SupportTermOps v where
   -- | Convert an integer expression to a real.
   termIntegerToReal :: v -> v
 
-  -- | Convert an integer expression to a real.
+  -- | Convert a real expression to an integer.
   termRealToInteger :: v -> v
 
   -- | Convert an integer to a term.
@@ -323,6 +326,12 @@ class Num v => SupportTermOps v where
   -- | Greater then or equal
   (.>=) :: v -> v -> v
   x .>= y = y .<= x
+
+  -- | Integer theory terms
+  intAbs :: v -> v
+  intDiv :: v -> v -> v
+  intMod :: v -> v -> v
+  intDivisible :: v -> Natural -> v
 
   -- | Create expression from bitvector.
   bvTerm :: NatRepr w -> Integer -> v
@@ -644,6 +653,12 @@ data WriterConn t (h :: *) =
                -- ^ The specific connection information.
              }
 
+-- | Clear the entry stack, and start with a fresh one.
+resetEntryStack :: WriterConn t h -> IO ()
+resetEntryStack c = do
+  h <- newIdxCache
+  writeIORef (entryStack c) [h]
+
 -- | Push a new frame to the stack for maintaining the writer cache.
 pushEntryStack :: WriterConn t h -> IO ()
 pushEntryStack c = do
@@ -736,6 +751,9 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 
   -- | Pop 1 existing scope
   popCommand    :: f h -> Command h
+
+  -- | Reset the solver state, forgetting all pushed frames and assertions
+  resetCommand  :: f h -> Command h
 
   -- | Check if the current set of assumption is satisfiable
   checkCommand  :: f h -> Command h
@@ -1155,8 +1173,8 @@ bindVar v x  = do
 ------------------------------------------------------------------------
 -- Evaluate applications.
 
--- 'bvNatTerm h w x' builds an integer term term that has the same
--- value as the unsigned integer value of the bitvector 'x'.
+-- @bvIntTerm w x@ builds an integer term term that has the same
+-- value as the unsigned integer value of the bitvector @x@.
 -- This is done by explicitly decomposing the positional
 -- notation of the bitvector into a sum of powers of 2.
 bvIntTerm :: forall v w
@@ -1574,6 +1592,11 @@ appSMTExpr ae = do
     RealIsInteger r -> do
       rb <- mkBaseExpr r
       freshBoundTerm BoolTypeMap $! realIsInteger rb
+
+    PredToBV p -> do
+      pb <- mkBaseExpr p
+      freshBoundTerm (BVTypeMap (knownNat @1)) $
+        ite pb (bvTerm (knownNat @1) 1) (bvTerm (knownNat @1) 0)
     BVTestBit n xe -> do
       x <- mkBaseExpr xe
       let this_bit = bvExtract (bvWidth xe) (toInteger n) 1 x
@@ -1610,6 +1633,34 @@ appSMTExpr ae = do
         fail $ "Array types are not equal."
       freshBoundTerm BoolTypeMap $ asBase x .== asBase y
 
+    IntDiv xe ye -> do
+      case ye of
+        SemiRingLiteral SemiRingInt _ _ -> return ()
+        _ -> checkNonlinearSupport i
+
+      x <- mkBaseExpr xe
+      y <- mkBaseExpr ye
+
+      freshBoundTerm IntegerTypeMap (intDiv x y)
+
+    IntMod xe ye -> do
+      case ye of
+        SemiRingLiteral SemiRingInt _ _ -> return ()
+        _ -> checkNonlinearSupport i
+
+      x <- mkBaseExpr xe
+      y <- mkBaseExpr ye
+
+      freshBoundTerm NatTypeMap (intMod x y)
+
+    IntAbs xe -> do
+      x <- mkBaseExpr xe
+      freshBoundTerm NatTypeMap (intAbs x)
+
+    IntDivisible xe k -> do
+      x <- mkBaseExpr xe
+      freshBoundTerm BoolTypeMap (intDivisible x k)
+
     NatDiv xe ye -> do
       case ye of
         SemiRingLiteral SemiRingNat _ _ -> return ()
@@ -1618,17 +1669,7 @@ appSMTExpr ae = do
       x <- mkBaseExpr xe
       y <- mkBaseExpr ye
 
-      nm <- freshConstant "nat div" NatTypeMap
-      r  <- asBase <$> freshConstant "nat div" NatTypeMap
-      let q = asBase nm
-      -- Assume x can be composed into quotient and remainder.
-      addSideCondition "nat div" $ x .== y * q + r .|| y .== 0
-      addSideCondition "nat div" $ q .>= 0
-      -- Add assertion about range of remainder.
-      addSideCondition "nat div" $ r .>= 0
-      addSideCondition "nat div" $ r .<  y .|| y .== 0
-      -- Return name of variable.
-      return nm
+      freshBoundTerm NatTypeMap (intDiv x y)
 
     ------------------------------------------
     -- Real operations.
@@ -1688,25 +1729,6 @@ appSMTExpr ae = do
           r <- freshConstant "real divison" RealTypeMap
           addSideCondition "real division" $ (y * asBase r) .== x .|| y .== 0
           return r
-    IntMod xe ye -> do
-      case ye of
-        SemiRingLiteral SemiRingNat _ _ -> return ()
-        _ -> checkNonlinearSupport i
-
-      x <- mkBaseExpr xe
-      y <- mkBaseExpr ye
-
-      q  <- asBase <$> freshConstant "integer mod" NatTypeMap
-      nm <- freshConstant "integer mod" NatTypeMap
-      let r = asBase nm
-      -- Assume x can be composed into quotient and remainder.
-      addSideCondition "integer mod" $ x .== y * q + r .|| y .== 0
-      -- Add assertion about range of remainder.
-      -- Note that IntMod is not defined when y = 0.
-      addSideCondition "integer mod" $ 0 .<= r
-      addSideCondition "integer mod" $ r .<  y .|| y .== 0
-      -- Return name of variable.
-      return nm
 
     RealSqrt xe -> do
       checkNonlinearSupport i
@@ -2204,29 +2226,17 @@ appSMTExpr ae = do
       x <- mkExpr xe
       freshBoundTerm IntegerTypeMap $ sbvIntTerm (bvWidth xe) (asBase x)
 
-    IntegerToSBV xe w -> do
-      x <- mkExpr xe
-
-      res <- freshConstant "integerToSBV" (BVTypeMap w)
-      let xb = asBase x
-      addSideCondition "integerToSBV" $
-        xb .<  fromInteger (minSigned w)
-        .|| xb .> fromInteger (maxSigned w)
-        .|| xb .== sbvIntTerm w (asBase res)
-      return res
-
     IntegerToBV xe w -> do
+      checkLinearSupport i
+
       x <- mkExpr xe
+      let xb = asBase x
 
       res <- freshConstant "integerToBV" (BVTypeMap w)
-      let xb = asBase x
-      -- To ensure there is some solution regardless of xe being negative, we
-      -- accept any model where xb is out of range.
-      addSideCondition "integerToBV" $
-         xb .< 0
-         .|| xb .> fromInteger (maxUnsigned w)
-         .|| xb .== bvIntTerm w (asBase res)
+      bvint <- freshBoundTerm IntegerTypeMap $ bvIntTerm w (asBase res)
 
+      addSideCondition "integerToBV" $
+         (intDivisible (xb - (asBase bvint)) (2^natValue w))
       return res
 
     Cplx c -> do

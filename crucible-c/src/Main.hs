@@ -89,11 +89,13 @@ checkBC opts =
      makeCounterExamples opts res
 
 
-makeCounterExamples :: Options -> ProvedGoals -> IO ()
-makeCounterExamples opts gs =
+makeCounterExamples :: Options -> Maybe ProvedGoals -> IO ()
+makeCounterExamples opts = maybe (return ()) go
+ where
+ go gs =
   case gs of
-    AtLoc _ _ gs1 -> makeCounterExamples opts gs1
-    Branch gss    -> mapM_ (makeCounterExamples opts) gss
+    AtLoc _ _ gs1 -> go gs1
+    Branch g1 g2  -> go g1 >> go g2
     Goal _ (c,_) _ res ->
       let suff = case plSourceLoc (simErrorLoc c) of
                    SourcePos _ l _ -> show l
@@ -157,7 +159,7 @@ simulate ::
   (forall sym arch.
       ArchOk arch => ModuleCFGMap arch -> OverM sym arch ()
   ) ->
-  IO ProvedGoals
+  IO (Maybe ProvedGoals)
 simulate opts k =
   do llvm_mod   <- parseLLVM (optsBCFile opts)
      halloc     <- newHandleAllocator
@@ -191,7 +193,7 @@ simulate opts k =
 
           provedGoalsTree ctx'
             =<< proveGoals ctx'
-            =<<  getProofObligations sym
+            =<< getProofObligations sym
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()
 checkFun nm mp =
