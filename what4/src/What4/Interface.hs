@@ -1107,10 +1107,6 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
 
   -- | Return @1@ if the predicate is true; @0@ otherwise.
   predToBV :: (1 <= w) => sym -> Pred sym -> NatRepr w -> IO (SymBV sym w)
-  predToBV sym p w = do
-    c1 <- bvLit sym w 1
-    c0 <- bvLit sym w 0
-    bvIte sym p c1 c0
 
   ----------------------------------------------------------------------
   -- Lossless combinators

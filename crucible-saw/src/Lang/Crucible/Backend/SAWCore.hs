@@ -591,6 +591,9 @@ evaluateExpr sym sc cache = f
 
         B.RealIsInteger{} -> unsupported sym "SAW backend does not support real values"
 
+        B.PredToBV p ->
+          do bit <- SC.scBoolType sc
+             SAWExpr <$> (SC.scSingle sc bit =<< f p)
         B.BVTestBit i bv -> fmap SAWExpr $ do
              w <- SC.scNat sc (fromIntegral (natValue (bvWidth bv)))
              bit <- SC.scBoolType sc

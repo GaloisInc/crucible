@@ -28,6 +28,7 @@ an instance of the classes 'IsExprBuilder' and 'IsSymExprBuilder'.
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -415,8 +416,8 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
 
   -- Return value of bit at given index.
   BVTestBit :: (1 <= w)
-            => !Int -- Index of bit to test
-                    -- (least-significant bit has index 0)
+            => !Integer -- Index of bit to test
+                        -- (least-significant bit has index 0)
             -> !(e (BaseBVType w))
             -> App e BaseBoolType
   BVEq :: (1 <= w)
@@ -615,6 +616,7 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
   BVToNat       :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseNatType
   BVToInteger   :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
   SBVToInteger  :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
+  PredToBV      :: !(e BaseBoolType) -> App e (BaseBVType 1)
 
   -- Converts integer to a bitvector.  The number is interpreted modulo 2^n.
   IntegerToBV  :: (1 <= w) => !(e BaseIntegerType) -> NatRepr w -> App e (BaseBVType w)
@@ -998,6 +1000,7 @@ appType a =
     BVToNat{} -> knownRepr
     BVToInteger{} -> knownRepr
     SBVToInteger{} -> knownRepr
+    PredToBV _ -> knownRepr
 
     IntegerToNat{} -> knownRepr
     IntegerToBV _ w -> BaseBVRepr w
@@ -1345,6 +1348,7 @@ ppApp' a0 = do
     BVToNat x       -> ppSExpr "bvToNat" [x]
     BVToInteger  x  -> ppSExpr "bvToInteger" [x]
     SBVToInteger x  -> ppSExpr "sbvToInteger" [x]
+    PredToBV x      -> prettyApp "predToBV" [exprPrettyArg x]
 
     RoundReal x -> ppSExpr "round" [x]
     FloorReal x -> ppSExpr "floor" [x]
@@ -2125,6 +2129,11 @@ abstractEval bvParams f a0 = do
       where Just (lx, ux) = BVD.ubounds (bvWidth x) (f x)
     SBVToInteger x -> valueRange (Inclusive lx) (Inclusive ux)
       where Just (lx, ux) = BVD.sbounds (bvWidth x) (f x)
+    PredToBV p ->
+      case f p of
+        Nothing    -> BVD.range (knownNat @1) 0 1
+        Just True  -> BVD.singleton (knownNat @1) 1
+        Just False -> BVD.singleton (knownNat @1) 0
     RoundReal x -> mapRange roundAway (ravRange (f x))
     FloorReal x -> mapRange floor (ravRange (f x))
     CeilReal x  -> mapRange ceiling (ravRange (f x))
@@ -2643,7 +2652,7 @@ reduceApp sym a0 = do
     RealLog x -> realLog sym x
 
     BVIte _ _ c x y -> bvIte sym c x y
-    BVTestBit i e -> testBitBV sym (toInteger i) e
+    BVTestBit i e -> testBitBV sym i e
     BVEq x y -> bvEq sym x y
     BVSlt x y -> bvSlt sym x y
     BVUlt x y -> bvUlt sym x y
@@ -2685,7 +2694,8 @@ reduceApp sym a0 = do
     BVToNat x       -> bvToNat sym x
     BVToInteger x   -> bvToInteger sym x
     SBVToInteger x  -> sbvToInteger sym x
-    IntegerToBV  x w -> integerToBV  sym x w
+    PredToBV x      -> predToBV sym x (knownNat @1)
+    IntegerToBV x w -> integerToBV sym x w
 
     RoundReal x -> realRound sym x
     FloorReal x -> realFloor sym x
@@ -3878,23 +3888,65 @@ instance IsExprBuilder (ExprBuilder t st) where
     | otherwise = sbMakeExpr sb $ BVSelect idx n x
 
   testBitBV sym i y
-    | i < 0 || i > toInteger (maxBound :: Int) =
+    | i < 0 || i >= natValue (bvWidth y) =
       fail $ "Illegal bit index."
+
       -- Constant evaluation
     | Just yc <- asUnsignedBV y
-    , i <= toInteger (maxBound :: Int) = do
+    , i <= toInteger (maxBound :: Int) =
       return $! backendPred sym (yc `Bits.testBit` fromInteger i)
+
+    | Just (BVZext _w y') <- asApp y =
+      if i >= natValue (bvWidth y') then
+        return $ falsePred sym
+      else
+        testBitBV sym i y'
+
+    | Just (BVSext _w y') <- asApp y =
+      if i >= natValue (bvWidth y') then
+        testBitBV sym (natValue (bvWidth y') - 1) y'
+      else
+        testBitBV sym i y'
+
+    | Just (BVIte _ _ c a b) <- asApp y =
+      do a' <- testBitBV sym i a
+         b' <- testBitBV sym i b
+         itePred sym c a' b'
+
+      -- i must equal 0 because width is 1
+    | Just (PredToBV py) <- asApp y =
+      return py
 
     | Just b <- BVD.testBit (bvWidth y) (exprAbsValue y) i = do
       return $! backendPred sym b
+
     | otherwise = do
-      sbMakeExpr sym $ BVTestBit (fromInteger i) y
+      sbMakeExpr sym $ BVTestBit i y
 
   bvIte sym c x y
     | Just TrueBool  <- asApp c = return x
     | Just FalseBool <- asApp c = return y
     | x == y = return x
     | Just (NotBool cn) <- asApp c = bvIte sym cn y x
+
+    | Just (PredToBV px) <- asApp x
+    , Just (PredToBV py) <- asApp y =
+      do z <- itePred sym c px py
+         predToBV sym z (knownNat @1)
+
+    | Just (BVZext w  x') <- asApp x
+    , Just (BVZext w' y') <- asApp y
+    , Just Refl <- testEquality (bvWidth x') (bvWidth y')
+    , Just Refl <- testEquality w w' =
+      do z <- bvIte sym c x' y'
+         bvZext sym w z
+
+    | Just (BVSext w  x') <- asApp x
+    , Just (BVSext w' y') <- asApp y
+    , Just Refl <- testEquality (bvWidth x') (bvWidth y')
+    , Just Refl <- testEquality w w' =
+      do z <- bvIte sym c x' y'
+         bvSext sym w z
 
     | otherwise = do
         ut <- CFG.getOpt (sbUnaryThreshold sym)
@@ -3913,8 +3965,13 @@ instance IsExprBuilder (ExprBuilder t st) where
     , Just yc <- asUnsignedBV y = do
       return $! backendPred sym (xc == yc)
 
+    | Just (PredToBV px) <- asApp x
+    , Just (PredToBV py) <- asApp y =
+      eqPred sym px py
+
     | Just b <- BVD.eq (exprAbsValue x) (exprAbsValue y) = do
       return $! backendPred sym b
+
     | x == y = return $! truePred sym
 
     | Just i <- asUnsignedBV x
@@ -4008,6 +4065,7 @@ instance IsExprBuilder (ExprBuilder t st) where
       -- Add dynamic check for GHC typechecker.
       Just LeqProof <- return $ isPosNat w
       bvLit sym w i
+
       -- Concatenate unsign extension.
     | Just (BVZext _ y) <- asApp x = do
       -- Add dynamic check for GHC typechecker.
@@ -4030,6 +4088,7 @@ instance IsExprBuilder (ExprBuilder t st) where
       -- Add dynamic check for GHC typechecker.
       Just LeqProof <- return $ isPosNat w
       bvLit sym w i
+
       -- Concatenate sign extension.
     | Just (BVSext _ y) <- asApp x = do
       -- Add dynamic check for GHC typechecker.
@@ -4205,6 +4264,21 @@ instance IsExprBuilder (ExprBuilder t st) where
           t' <- bvIsNonzero sym t
           f' <- bvIsNonzero sym f
           itePred sym p t' f'
+    | Just (BVConcat _ a b) <- asApp x =
+       do pa <- bvIsNonzero sym a
+          pb <- bvIsNonzero sym b
+          orPred sym pa pb
+    | Just (BVZext _ y) <- asApp x =
+          bvIsNonzero sym y
+    | Just (BVSext _ y) <- asApp x =
+          bvIsNonzero sym y
+    | Just (PredToBV p) <- asApp x =
+          return p
+    | Just (BVUnaryTerm ubv) <- asApp x =
+          UnaryBV.sym_evaluate
+            (\i -> return $! backendPred sym (i/=0))
+            (itePred sym)
+            ubv
     | otherwise = do
           let w = bvWidth x
           zro <- bvLit sym w 0
@@ -4472,6 +4546,15 @@ instance IsExprBuilder (ExprBuilder t st) where
          intSub sym z halfmod
     | otherwise =
       sbMakeExpr sym (SBVToInteger x)
+
+  predToBV sym p w
+    | Just b <- asConstantPred p =
+        if b then bvLit sym w 1 else bvLit sym w 0
+    | otherwise =
+       case compareNat w (knownNat @1) of
+         NatEQ   -> sbMakeExpr sym (PredToBV p)
+         NatGT _ -> bvZext sym w =<< sbMakeExpr sym (PredToBV p)
+         NatLT _ -> fail "impossible case in predToBV"
 
   integerToBV sym xr w
     | SemiRingLiteral SemiRingInt i _ <- xr =

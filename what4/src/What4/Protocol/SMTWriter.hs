@@ -30,6 +30,7 @@ error rather than sending invalid output to a file.
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -1534,6 +1535,11 @@ appSMTExpr ae = do
     RealIsInteger r -> do
       rb <- mkBaseExpr r
       freshBoundTerm BoolTypeMap $! realIsInteger rb
+
+    PredToBV p -> do
+      pb <- mkBaseExpr p
+      freshBoundTerm (BVTypeMap (knownNat @1)) $
+        ite pb (bvTerm (knownNat @1) 1) (bvTerm (knownNat @1) 0)
     BVTestBit n xe -> do
       x <- mkBaseExpr xe
       let this_bit = bvExtract (bvWidth xe) (toInteger n) 1 x

@@ -36,6 +36,7 @@ module What4.Expr.GroundEval
   , defaultValueForType
   ) where
 
+import           Control.Exception
 import           Control.Monad
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
@@ -208,7 +209,8 @@ evalGroundApp f0 a0 = do
       if xv then f y else f z
 
     RealIsInteger x -> (\xv -> denominator xv == 1) <$> f x
-    BVTestBit i x -> (`testBit` i) <$> f x
+    BVTestBit i x -> assert (i <= toInteger (maxBound :: Int)) $
+        (`testBit` (fromInteger i)) <$> f x
     BVEq  x y -> (==) <$> f x <*> f y
     BVSlt x y -> (<) <$> (toSigned w <$> f x)
                      <*> (toSigned w <$> f y)
@@ -293,6 +295,8 @@ evalGroundApp f0 a0 = do
 
     ------------------------------------------------------------------------
     -- Bitvector Operations
+
+    PredToBV x -> (\p -> if p then 1 else 0) <$> f x
 
     BVUnaryTerm u -> do
       UnaryBV.evaluate f u
