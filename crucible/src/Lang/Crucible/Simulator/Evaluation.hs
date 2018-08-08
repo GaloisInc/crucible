@@ -607,9 +607,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     IntegerToBV w xe -> do
       x <- evalSub xe
       integerToBV sym x w
-    IntegerToSBV w xe -> do
-      x <- evalSub xe
-      integerToSBV sym x w
 
     ----------------------------------------------------------------------
     -- ComplexReal

@@ -416,13 +416,9 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- @RealCeil@ computes the smallest integer greater-or-equal to the given real number.
   RealCeil :: !(f RealValType) -> App ext f IntegerType
 
-  -- @IntegerToBV@ converts an integer value to an unsigned bitvector.  The result is undefined
-  -- if the input value is not in the range @0 .. 2^w - 1@
+  -- @IntegerToBV@ converts an integer value to a bitvector.  This operations computes
+  -- the unique bitvector whose value is congruent to the input value modulo @2^w@.
   IntegerToBV :: (1 <= w) => NatRepr w -> !(f IntegerType) -> App ext f (BVType w)
-
-  -- @IntegerToSBV@ converts an integer value to a signed bitvector.  The result is undefined
-  -- if the input value is not in the range @-2^(w - 1) .. 2^(w-1) - 1@
-  IntegerToSBV :: (1 <= w) => NatRepr w -> !(f IntegerType) -> App ext f (BVType w)
 
   -- @RealToNat@ convert a non-negative real integer to natural number.
   -- This is partial, and requires that the input be a non-negative real
@@ -920,7 +916,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     RealFloor{} -> knownRepr
     RealCeil{} -> knownRepr
     IntegerToBV w _ -> BVRepr w
-    IntegerToSBV w _ -> BVRepr w
 
     ----------------------------------------------------------------------
     -- ComplexReal

@@ -284,22 +284,25 @@ bitblastExpr h ae = do
     ------------------------------------------------------------------------
     -- Nat operations
 
-    NatDiv{} -> natFail
     SemiRingMul SemiRingNat _ _ -> natFail
     SemiRingSum SemiRingNat _ -> natFail
     SemiRingEq SemiRingNat _ _ -> natFail
     SemiRingLe SemiRingNat _ _ -> natFail
     SemiRingIte SemiRingNat _ _ _ -> natFail
+    NatDiv{} -> natFail
 
     ------------------------------------------------------------------------
     -- Integer operations
 
-    IntMod{}  -> intFail
     SemiRingMul SemiRingInt _ _ -> intFail
     SemiRingSum SemiRingInt _ -> intFail
     SemiRingEq  SemiRingInt _ _ -> intFail
     SemiRingLe  SemiRingInt _ _ -> intFail
     SemiRingIte SemiRingInt _ _ _ -> intFail
+    IntAbs{} -> intFail
+    IntDiv{} -> intFail
+    IntMod{} -> intFail
+    IntDivisible{} -> intFail
 
     ------------------------------------------------------------------------
     -- Real value operations
@@ -408,7 +411,6 @@ bitblastExpr h ae = do
     RealToInteger{} -> intFail
 
     IntegerToNat{} -> natFail
-    IntegerToSBV{} -> intFail
     IntegerToBV{}  -> intFail
 
     ------------------------------------------------------------------------
