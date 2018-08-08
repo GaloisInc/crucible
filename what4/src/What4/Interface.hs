@@ -256,6 +256,10 @@ class IsExpr e where
   asConstantArray :: e (BaseArrayType idx bt) -> Maybe (e bt)
   asConstantArray _ = Nothing
 
+  -- | Return the struct fields if this is a concrete struct.
+  asStruct :: e (BaseStructType flds) -> Maybe (Ctx.Assignment e flds)
+  asStruct _ = Nothing
+
   -- | Get type of expression.
   exprType :: e tp -> BaseTypeRepr tp
 
@@ -482,7 +486,8 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   natMod :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
   natMod sym x y = do
     xi <- natToInteger sym x
-    intMod sym xi y
+    yi <- natToInteger sym y
+    intMod sym xi yi
 
   -- | If-then-else applied to natural numbers.
   natIte :: sym -> Pred sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
@@ -529,9 +534,46 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   intLt  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
   intLt sym x y = notPred sym =<< intLe sym y x
 
-  -- | @intMod x y@ returns the value of @x - y * floor(x / y)@ when
-  -- @y@ is not zero, and undefined when @y@ is zero.
-  intMod :: sym -> SymInteger sym -> SymNat sym -> IO (SymNat sym)
+  -- | Compute the absolute value of an integer.  The result is the unique
+  --   natural number with the same magnitude as the input integer.
+  intAbs :: sym -> SymInteger sym -> IO (SymNat sym)
+
+  -- | @intDiv x y@ computes the integer division of @x@ by @y@.  This division is
+  --   interpreted the same way as the SMT-Lib integer theory, which states that
+  --   @div@ and @mod@ are the unique Eucledian division operations satisfying the
+  --   following for all @y /= 0@:
+  --
+  --   * @x * (div x y) + (mod x y) == x@
+  --   * @ 0 <= mod x y < abs y@
+  --
+  --   The value of @intDiv x y@ is undefined when @y = 0@.
+  --
+  --   Integer division requires nonlinear support whenever the divisor is
+  --   not a constant.
+  --
+  --   Note: @div x y@ is @floor (x/y)@ when @y@ is positive
+  --   (regardless of sign of @x@) and @ceiling (x/y)@ when @y@ is
+  --   negative.  This is neither of the more common "round toward
+  --   zero" nor "round toward -inf" definitions.
+  --
+  --   Some useful theorems that are true of this division/modulus pair:
+  --    * @mod x y == mod x (- y) == mod x (abs y)@
+  --    * @div x (-y) == -(div x y)@
+  intDiv :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
+
+  -- | @intMod x y@ computes the integer modulus of @x@ by @y@.  See 'intDiv' for
+  --   more details.
+  --
+  --   The value of @intMod x y@ is undefined when @y = 0@.
+  --
+  --   Integer modulus requires nonlinear support whenever the divisor is
+  --   not a constant.
+  intMod :: sym -> SymInteger sym -> SymInteger sym -> IO (SymNat sym)
+
+  -- | @intDivisible x k@ is true whenever @x@ is an integer divisible
+  --   by the known natural number @k@.  In other words `divisible x k`
+  --   holds if there exists an integer `z` such that `x = k*z`.
+  intDivisible :: sym -> SymInteger sym -> Natural -> IO (Pred sym)
 
   ----------------------------------------------------------------------
   -- Bitvector operations
@@ -1065,10 +1107,6 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
 
   -- | Return @1@ if the predicate is true; @0@ otherwise.
   predToBV :: (1 <= w) => sym -> Pred sym -> NatRepr w -> IO (SymBV sym w)
-  predToBV sym p w = do
-    c1 <- bvLit sym w 1
-    c0 <- bvLit sym w 0
-    bvIte sym p c1 c0
 
   ----------------------------------------------------------------------
   -- Lossless combinators
@@ -1100,14 +1138,16 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- | Round up to the nearest integer that is at least this value.
   realCeil :: sym -> SymReal sym -> IO (SymInteger sym)
 
-  -- | Convert an integer to a signed bitvector.
+  -- | Convert an integer to a bitvector.  The result is the unique bitvector
+  --   whose value (signed or unsigned) is congruent to the input integer, modulo @2^w@.
   --
-  -- Result is undefined if integer is outside of range.
-  integerToSBV :: (1 <= w) => sym -> SymInteger sym -> NatRepr w -> IO (SymBV sym w)
-
-  -- | Convert an integer to an unsigned bitvector.
-  --
-  -- Result is undefined if integer is outside of range.
+  --   This operation has the following properties:
+  --   *  @bvToInteger (integerToBv x w) == mod x (2^w)@
+  --   *  @bvToInteger (integerToBV x w) == x@     when @0 <= x < 2^w@.
+  --   *  @sbvToInteger (integerToBV x w) == mod (x + 2^(w-1)) (2^w) - 2^(w-1)@
+  --   *  @sbvToInteger (integerToBV x w) == x@    when @-2^(w-1) <= x < 2^(w-1)@
+  --   *  @integerToBV (bvToInteger y) w == y@     when @y@ is a @SymBV sym w@
+  --   *  @integerToBV (sbvToInteger y) w == y@    when @y@ is a @SymBV sym w@
   integerToBV :: (1 <= w) => sym -> SymInteger sym -> NatRepr w -> IO (SymBV sym w)
 
   ----------------------------------------------------------------------
@@ -1167,7 +1207,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
         is_gt <- intLt sym max_sym i
         iteM bvIte sym is_gt (bvLit sym w max_val) $ do
           -- Do unclamped conversion.
-          integerToSBV sym i w
+          integerToBV sym i w
 
   -- | Convert an integer to the nearest unsigned bitvector.
   --
@@ -1817,28 +1857,26 @@ class ( IsExprBuilder sym
 
 
 -- | This returns true if the value corresponds to a concrete value.
-baseIsConcrete :: forall sym bt
-                . IsExprBuilder sym
-               => sym
-               -> SymExpr sym bt
-               -> IO Bool
-baseIsConcrete sym x =
+baseIsConcrete :: forall e bt
+                . IsExpr e
+               => e bt
+               -> Bool
+baseIsConcrete x =
   case exprType x of
-    BaseBoolRepr    -> return $ isJust $ asConstantPred x
-    BaseNatRepr     -> return $ isJust $ asNat x
-    BaseIntegerRepr -> return $ isJust $ asInteger x
-    BaseBVRepr _    -> return $ isJust $ asUnsignedBV x
-    BaseRealRepr    -> return $ isJust $ asRational x
-    BaseStringRepr  -> return $ isJust $ asString x
-    BaseComplexRepr -> return $ isJust $ asComplex x
-    BaseStructRepr (flds ::Ctx.Assignment BaseTypeRepr ctx) ->
-        Ctx.forIndex (Ctx.size flds) f (return True)
-      where f :: IO Bool -> Ctx.Index ctx tp -> IO Bool
-            f b i = (&&) <$> b <*> (baseIsConcrete sym =<< structField sym x i)
+    BaseBoolRepr    -> isJust $ asConstantPred x
+    BaseNatRepr     -> isJust $ asNat x
+    BaseIntegerRepr -> isJust $ asInteger x
+    BaseBVRepr _    -> isJust $ asUnsignedBV x
+    BaseRealRepr    -> isJust $ asRational x
+    BaseStringRepr  -> isJust $ asString x
+    BaseComplexRepr -> isJust $ asComplex x
+    BaseStructRepr _ -> case asStruct x of
+        Just flds -> allFC baseIsConcrete flds
+        Nothing -> False
     BaseArrayRepr _ _bt' -> do
       case asConstantArray x of
-        Just x' -> baseIsConcrete sym x'
-        Nothing -> return $ False
+        Just x' -> baseIsConcrete x'
+        Nothing -> False
 
 baseDefaultValue :: forall sym bt
                   . IsExprBuilder sym
