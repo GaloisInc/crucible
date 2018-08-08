@@ -475,17 +475,21 @@ evaluateExpr sym sc cache = f
  where
    -- Evaluate the element, and expect the result to have the same type.
    f :: B.Expr n tp' -> IO SC.Term
-   f elt = do
-       st <- eval elt
-       case st of
-         SAWExpr t -> return t
-         _ -> realFail
+   f elt = g =<< eval elt
+
+   g :: SAWExpr tp' -> IO SC.Term
+   g (SAWExpr t) = return t
+   g (NatToIntSAWExpr (SAWExpr t)) = SC.scNatToInt sc t
+   g (IntToRealSAWExpr _) = realFail
 
    eval :: B.Expr n tp' -> IO (SAWExpr tp')
    eval elt = B.idxCacheEval cache elt (go elt)
 
    realFail :: IO a
    realFail = unsupported sym "SAW backend does not support real values"
+
+   cplxFail :: IO a
+   cplxFail = unsupported sym "SAW backend does not support complex values"
 
    go :: B.Expr n tp' -> IO (SAWExpr tp')
    go (B.SemiRingLiteral sr x _) =
@@ -602,17 +606,6 @@ evaluateExpr sym sc cache = f
              join (SC.scBvULt sc w <$> f x <*> f y)
 
         B.ArrayEq _ _ -> unsupported sym "SAW backend does not support array equality"
-
-        B.RealDiv{} -> realFail
-        B.RealSqrt{} -> realFail
-        B.Pi{} -> realFail
-        B.RealSin{} -> realFail
-        B.RealCos{} -> realFail
-        B.RealSinh{} -> realFail
-        B.RealCosh{} -> realFail
-        B.RealExp{} -> realFail
-        B.RealLog{} -> realFail
-        B.RealATan2{} -> realFail
 
         B.BVUnaryTerm{} -> unsupported sym "SAW backend does not support the unary bitvector representation"
 
@@ -749,8 +742,11 @@ evaluateExpr sym sc cache = f
                 _ -> do
                   unsupported sym $ "SAWCore backend only currently supports integer and bitvector indices."
 
-        B.NatToInteger x -> SAWExpr <$> (SC.scNatToInt sc =<< f x)
-        B.IntegerToNat x -> SAWExpr <$> (SC.scIntToNat sc =<< f x)
+        B.NatToInteger x -> NatToIntSAWExpr <$> eval x
+        B.IntegerToNat x ->
+           eval x >>= \case
+             NatToIntSAWExpr z -> return z
+             SAWExpr z -> SAWExpr <$> (SC.scIntToNat sc z)
 
         B.NatDiv x y ->
           do x' <- f x
@@ -766,10 +762,13 @@ evaluateExpr sym sc cache = f
              y' <- f y
              SAWExpr <$> SC.scIntMod sc x' y'
         B.IntAbs x ->
-          SAWExpr <$> (SC.scIntAbs sc =<< f x)
+          eval x >>= \case
+            NatToIntSAWExpr (SAWExpr z) -> SAWExpr <$> SC.scNatToInt sc z
+            SAWExpr z -> SAWExpr <$> (SC.scIntAbs sc z)
 
-        B.IntDivisible _ 0 ->
-          SAWExpr <$> SC.scBool sc True
+        B.IntDivisible x 0 ->
+          do x' <- f x
+             SAWExpr <$> (SC.scIntEq sc x' =<< SC.scIntegerConst sc 0)
         B.IntDivisible x k ->
           do x' <- f x
              k' <- SC.scIntegerConst sc (toInteger k)
@@ -798,13 +797,25 @@ evaluateExpr sym sc cache = f
         B.RealToInteger x ->
           eval x >>= \case
             IntToRealSAWExpr x' -> return x'
-            _ -> nyi -- FIXME
-        B.RoundReal{} -> nyi -- FIXME
-        B.FloorReal{} -> nyi -- FIXME
-        B.CeilReal{} -> nyi -- FIXME
-        B.Cplx{} -> nyi -- FIXME
-        B.RealPart{} -> nyi -- FIXME
-        B.ImagPart{} -> nyi -- FIXME
+            _ -> realFail
+
+        B.RoundReal{} -> realFail
+        B.FloorReal{} -> realFail
+        B.CeilReal{} -> realFail
+        B.RealDiv{} -> realFail
+        B.RealSqrt{} -> realFail
+        B.Pi{} -> realFail
+        B.RealSin{} -> realFail
+        B.RealCos{} -> realFail
+        B.RealSinh{} -> realFail
+        B.RealCosh{} -> realFail
+        B.RealExp{} -> realFail
+        B.RealLog{} -> realFail
+        B.RealATan2{} -> realFail
+
+        B.Cplx{}     -> cplxFail
+        B.RealPart{} -> cplxFail
+        B.ImagPart{} -> cplxFail
 
         B.StructCtor{} -> nyi -- FIXME
         B.StructField{} -> nyi -- FIXME
