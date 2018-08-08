@@ -4,7 +4,7 @@
 
 {-|
 Module      : Lang.Crucible.Backend.ProofGoals
-Copyright   : (c) Galois, Inc 2014-2016
+Copyright   : (c) Galois, Inc 2014-2018
 License     : BSD3
 
 This module defines a data strucutre for storing a collection of
@@ -100,17 +100,23 @@ goalsToList =
 -- | Traverse the structure of a 'Goals' data structure.  The function for
 --   visiting goals my decide to remove the goal from the structure.  If
 --   no goals remain after the traversal, the resulting value will be a 'Nothing'.
+--
+--   In a call to 'traverseGoals assumeAction transformer goals', the
+--   arguments are used as follows:
+--
+--   * 'traverseGoals' is an action is called every time we encounter
+--     an 'Assuming' constructor.  The first argument is the original
+--     sequence of assumptions.  The second argument is a continuation
+--     action.  The result is a sequence of transformed assumptions
+--     and the result of the continuation action.
+--
+--   * 'assumeAction' is a transformer action on goals.  Return
+--     'Nothing' if you wish to remove the goal from the overall tree.
 traverseGoals :: Applicative f =>
-  -- | This action is called every time we encounter an 'Assuming' constructor.
-  --   The first argument is the original sequence of assumptions.  The second
-  --   argument is a continuation action.  The result is a sequence of transformed
-  --   assumptions and the result of the continuation action.
-  (forall a. Seq asmp -> f a -> f (Seq asmp', a)) ->
-  -- | A transformer action on goals.  Return 'Nothing' if you wish to remove
-  --   the goal from the overall tree.
-  (goal -> f (Maybe goal')) ->
-
-  Goals asmp goal -> f (Maybe (Goals asmp' goal'))
+                 (forall a. Seq asmp -> f a -> f (Seq asmp', a))
+              -> (goal -> f (Maybe goal'))
+              -> Goals asmp goal
+              -> f (Maybe (Goals asmp' goal'))
 traverseGoals fas fgl = go
   where
   go (Prove gl)        = fmap Prove <$> fgl gl
