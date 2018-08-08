@@ -256,6 +256,10 @@ class IsExpr e where
   asConstantArray :: e (BaseArrayType idx bt) -> Maybe (e bt)
   asConstantArray _ = Nothing
 
+  -- | Return the struct fields if this is a concrete struct.
+  asStruct :: e (BaseStructType flds) -> Maybe (Ctx.Assignment e flds)
+  asStruct _ = Nothing
+
   -- | Get type of expression.
   exprType :: e tp -> BaseTypeRepr tp
 
@@ -1857,28 +1861,26 @@ class ( IsExprBuilder sym
 
 
 -- | This returns true if the value corresponds to a concrete value.
-baseIsConcrete :: forall sym bt
-                . IsExprBuilder sym
-               => sym
-               -> SymExpr sym bt
-               -> IO Bool
-baseIsConcrete sym x =
+baseIsConcrete :: forall e bt
+                . IsExpr e
+               => e bt
+               -> Bool
+baseIsConcrete x =
   case exprType x of
-    BaseBoolRepr    -> return $ isJust $ asConstantPred x
-    BaseNatRepr     -> return $ isJust $ asNat x
-    BaseIntegerRepr -> return $ isJust $ asInteger x
-    BaseBVRepr _    -> return $ isJust $ asUnsignedBV x
-    BaseRealRepr    -> return $ isJust $ asRational x
-    BaseStringRepr  -> return $ isJust $ asString x
-    BaseComplexRepr -> return $ isJust $ asComplex x
-    BaseStructRepr (flds ::Ctx.Assignment BaseTypeRepr ctx) ->
-        Ctx.forIndex (Ctx.size flds) f (return True)
-      where f :: IO Bool -> Ctx.Index ctx tp -> IO Bool
-            f b i = (&&) <$> b <*> (baseIsConcrete sym =<< structField sym x i)
+    BaseBoolRepr    -> isJust $ asConstantPred x
+    BaseNatRepr     -> isJust $ asNat x
+    BaseIntegerRepr -> isJust $ asInteger x
+    BaseBVRepr _    -> isJust $ asUnsignedBV x
+    BaseRealRepr    -> isJust $ asRational x
+    BaseStringRepr  -> isJust $ asString x
+    BaseComplexRepr -> isJust $ asComplex x
+    BaseStructRepr _ -> case asStruct x of
+        Just flds -> allFC baseIsConcrete flds
+        Nothing -> False
     BaseArrayRepr _ _bt' -> do
       case asConstantArray x of
-        Just x' -> baseIsConcrete sym x'
-        Nothing -> return $ False
+        Just x' -> baseIsConcrete x'
+        Nothing -> False
 
 baseDefaultValue :: forall sym bt
                   . IsExprBuilder sym

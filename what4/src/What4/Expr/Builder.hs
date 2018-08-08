@@ -791,6 +791,9 @@ instance IsExpr (Expr t) where
   asConstantArray (asApp -> Just (ConstantArray _ _ def)) = Just def
   asConstantArray _ = Nothing
 
+  asStruct (asApp -> Just (StructCtor _ flds)) = Just flds
+  asStruct _ = Nothing
+
   printSymExpr = pretty
 
 

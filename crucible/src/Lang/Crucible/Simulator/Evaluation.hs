@@ -829,7 +829,7 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     -- Introspection
 
     IsConcrete _ v -> do
-      x <- baseIsConcrete sym =<< evalSub v
+      x <- baseIsConcrete <$> evalSub v
       return $! if x then truePred sym else falsePred sym
 
     ---------------------------------------------------------------------
