@@ -145,7 +145,8 @@ appTheory a0 =
     FloatMax{}        -> FloatingPointTheory
     FloatFMA{}        -> FloatingPointTheory
     FloatEq{}         -> FloatingPointTheory
-    FloatNe{}         -> FloatingPointTheory
+    FloatFpEq{}       -> FloatingPointTheory
+    FloatFpNe{}       -> FloatingPointTheory
     FloatLe{}         -> FloatingPointTheory
     FloatLt{}         -> FloatingPointTheory
     FloatIsNaN{}      -> FloatingPointTheory

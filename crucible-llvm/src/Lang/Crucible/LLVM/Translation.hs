@@ -2031,18 +2031,18 @@ generateInstr retType lab instr assign_f k =
                   case op of
                     L.Ftrue  -> App $ BoolLit True
                     L.Ffalse -> App $ BoolLit False
-                    L.Foeq   -> App $ FloatEq a b
+                    L.Foeq   -> App $ FloatFpEq a b
                     L.Folt   -> App $ FloatLt a b
                     L.Fole   -> App $ FloatLe a b
                     L.Fogt   -> App $ FloatGt a b
                     L.Foge   -> App $ FloatGe a b
-                    L.Fone   -> App $ FloatNe a b
-                    L.Fueq   -> mkUno $ App $ FloatEq a b
+                    L.Fone   -> App $ FloatFpNe a b
+                    L.Fueq   -> mkUno $ App $ FloatFpEq a b
                     L.Fult   -> mkUno $ App $ FloatLt a b
                     L.Fule   -> mkUno $ App $ FloatLe a b
                     L.Fugt   -> mkUno $ App $ FloatGt a b
                     L.Fuge   -> mkUno $ App $ FloatGe a b
-                    L.Fune   -> mkUno $ App $ FloatNe a b
+                    L.Fune   -> mkUno $ App $ FloatFpNe a b
                     L.Ford   -> App $ And (App $ Not $ isNaNCond a) (App $ Not $ isNaNCond b)
                     L.Funo   -> unoCond
 

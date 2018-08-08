@@ -344,7 +344,8 @@ evalGroundApp f0 a0 = do
     FloatMax{}        -> MaybeT $ return Nothing
     FloatFMA{}        -> MaybeT $ return Nothing
     FloatEq{}         -> MaybeT $ return Nothing
-    FloatNe{}         -> MaybeT $ return Nothing
+    FloatFpEq{}       -> MaybeT $ return Nothing
+    FloatFpNe{}       -> MaybeT $ return Nothing
     FloatLe{}         -> MaybeT $ return Nothing
     FloatLt{}         -> MaybeT $ return Nothing
     FloatIsNaN{}      -> MaybeT $ return Nothing

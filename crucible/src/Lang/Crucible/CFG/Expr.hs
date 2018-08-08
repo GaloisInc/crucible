@@ -339,11 +339,13 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
 
   -- Comparison operations
   FloatEq :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatFpEq :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatGt :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatGe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatLt :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatLe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatFpNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
 
   -- Conversion operations
   FloatCast
@@ -943,11 +945,13 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     FloatMax fi _ _ -> FloatRepr fi
     FloatFMA fi _ _ _ _ -> FloatRepr fi
     FloatEq{} -> knownRepr
+    FloatFpEq{} -> knownRepr
     FloatLt{} -> knownRepr
     FloatLe{} -> knownRepr
     FloatGt{} -> knownRepr
     FloatGe{} -> knownRepr
     FloatNe{} -> knownRepr
+    FloatFpNe{} -> knownRepr
     FloatCast fi _ _ -> FloatRepr fi
     FloatFromBV fi _ _ -> FloatRepr fi
     FloatFromSBV fi _ _ -> FloatRepr fi

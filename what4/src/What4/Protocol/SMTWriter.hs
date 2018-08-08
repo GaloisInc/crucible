@@ -387,9 +387,10 @@ class Num v => SupportTermOps v where
 
   floatFMA :: RoundingMode -> v -> v -> v -> v
 
-  floatEq :: v -> v -> v
-  floatLe :: v -> v -> v
-  floatLt :: v -> v -> v
+  floatEq   :: v -> v -> v
+  floatFpEq :: v -> v -> v
+  floatLe   :: v -> v -> v
+  floatLt   :: v -> v -> v
 
   floatIsNaN      :: v -> v
   floatIsInf      :: v -> v
@@ -400,7 +401,7 @@ class Num v => SupportTermOps v where
   floatIsNorm     :: v -> v
 
   floatCast       :: SMTFloatPrecision -> RoundingMode -> v -> v
-  floatFromBinary :: v -> v
+  floatFromBinary :: SMTFloatPrecision -> v -> v
   bvToFloat       :: SMTFloatPrecision -> RoundingMode -> v -> v
   sbvToFloat      :: SMTFloatPrecision -> RoundingMode -> v -> v
   realToFloat     :: SMTFloatPrecision -> RoundingMode -> v -> v
@@ -1940,7 +1941,11 @@ appSMTExpr ae = do
       xe <- mkBaseExpr x
       ye <- mkBaseExpr y
       freshBoundTerm BoolTypeMap $ floatEq xe ye
-    FloatNe x y -> do
+    FloatFpEq x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatFpEq xe ye
+    FloatFpNe x y -> do
       xe <- mkBaseExpr x
       ye <- mkBaseExpr y
       freshBoundTerm BoolTypeMap $
@@ -1987,7 +1992,8 @@ appSMTExpr ae = do
         floatCast (asSMTFloatPrecision fpp) r xe
     FloatFromBinary fpp x -> do
       xe <- mkBaseExpr x
-      freshBoundTerm (FloatTypeMap fpp) $ floatFromBinary xe
+      freshBoundTerm (FloatTypeMap fpp) $
+        floatFromBinary (asSMTFloatPrecision fpp) xe
     BVToFloat fpp r x -> do
       xe <- mkBaseExpr x
       freshBoundTerm (FloatTypeMap fpp) $
@@ -2396,7 +2402,8 @@ data SMTEvalFunctions h
                         -- return a rational value for that term.
                       , smtEvalFloat :: Term h -> IO Integer
                         -- ^ Given a SMT term for a floating-point value,
-                        -- this returns a rational value for that term.
+                        -- this returns an unsigned integer with the bits
+                        -- of the IEEE-754 representation.
                       , smtEvalBvArray :: Maybe (SMTEvalBVArrayWrapper h)
                         -- ^ If 'Just', a function to read arrays whose domain
                         -- and codomain are both bitvectors. If 'Nothing',

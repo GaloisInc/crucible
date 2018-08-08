@@ -1545,15 +1545,29 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> SymFloat sym fpp
     -> IO (SymFloat sym fpp)
 
-  -- | Check equality of two floating point numbers.
+  -- | Check logical equality of two floating point numbers.
   floatEq
     :: sym
     -> SymFloat sym fpp
     -> SymFloat sym fpp
     -> IO (Pred sym)
 
-  -- | Check non-equality of two floating point numbers.
+  -- | Check logical non-equality of two floating point numbers.
   floatNe
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check IEEE equality of two floating point numbers.
+  floatFpEq
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check IEEE non-equality of two floating point numbers.
+  floatFpNe
     :: sym
     -> SymFloat sym fpp
     -> SymFloat sym fpp
@@ -1904,12 +1918,13 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     pj <- realNe sym xi yi
     orPred sym pr pj
 
+-- | Rounding modes for IEEE-754 floating point operations.
 data RoundingMode
-  = RNE
-  | RNA
-  | RTP
-  | RTN
-  | RTZ
+  = RNE -- ^ Round to nearest even.
+  | RNA -- ^ Round to nearest away.
+  | RTP -- ^ Round toward plus Infinity.
+  | RTN -- ^ Round toward minus Infinity.
+  | RTZ -- ^ Round toward zero.
   deriving (Eq, Generic, Ord, Show)
 
 instance Hashable RoundingMode

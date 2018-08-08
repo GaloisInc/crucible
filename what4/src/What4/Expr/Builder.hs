@@ -637,7 +637,11 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
     :: !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
     -> App e BaseBoolType
-  FloatNe
+  FloatFpEq
+    :: !(e (BaseFloatType fpp))
+    -> !(e (BaseFloatType fpp))
+    -> App e BaseBoolType
+  FloatFpNe
     :: !(e (BaseFloatType fpp))
     -> !(e (BaseFloatType fpp))
     -> App e BaseBoolType
@@ -1147,7 +1151,8 @@ appType a =
     FloatMax fpp _ _ -> BaseFloatRepr fpp
     FloatFMA fpp _ _ _ _ -> BaseFloatRepr fpp
     FloatEq{} -> knownRepr
-    FloatNe{} -> knownRepr
+    FloatFpEq{} -> knownRepr
+    FloatFpNe{} -> knownRepr
     FloatLe{} -> knownRepr
     FloatLt{} -> knownRepr
     FloatIsNaN{} -> knownRepr
@@ -1533,7 +1538,8 @@ ppApp' a0 = do
     FloatMax _ x y -> ppSExpr "floatMax" [x, y]
     FloatFMA _ r x y z -> ppSExpr (Text.pack $ "floatFMA " <> show r) [x, y, z]
     FloatEq x y -> ppSExpr "floatEq" [x, y]
-    FloatNe x y -> ppSExpr "floatNe" [x, y]
+    FloatFpEq x y -> ppSExpr "floatFpEq" [x, y]
+    FloatFpNe x y -> ppSExpr "floatFpNe" [x, y]
     FloatLe x y -> ppSExpr "floatLe" [x, y]
     FloatLt x y -> ppSExpr "floatLt" [x, y]
     FloatIsNaN x -> ppSExpr "floatIsNaN" [x]
@@ -2352,7 +2358,8 @@ abstractEval bvParams f a0 = do
     FloatMax{} -> ()
     FloatFMA{} -> ()
     FloatEq{} -> Nothing
-    FloatNe{} -> Nothing
+    FloatFpEq{} -> Nothing
+    FloatFpNe{} -> Nothing
     FloatLe{} -> Nothing
     FloatLt{} -> Nothing
     FloatIsNaN{} -> Nothing
@@ -2956,7 +2963,8 @@ reduceApp sym a0 = do
     FloatMax{}        -> sbMakeExpr sym a0
     FloatFMA{}        -> sbMakeExpr sym a0
     FloatEq{}         -> sbMakeExpr sym a0
-    FloatNe{}         -> sbMakeExpr sym a0
+    FloatFpEq{}       -> sbMakeExpr sym a0
+    FloatFpNe{}       -> sbMakeExpr sym a0
     FloatLe{}         -> sbMakeExpr sym a0
     FloatLt{}         -> sbMakeExpr sym a0
     FloatIsNaN{}      -> sbMakeExpr sym a0
@@ -4872,7 +4880,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   floatFMA sym r x y z =
     let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatFMA fpp r x y z
   floatEq = floatIEEELogicBinOp FloatEq
-  floatNe = floatIEEELogicBinOp FloatNe
+  floatNe sym x y = notPred sym =<< floatEq sym x y
+  floatFpEq = floatIEEELogicBinOp FloatFpEq
+  floatFpNe = floatIEEELogicBinOp FloatFpNe
   floatLe = floatIEEELogicBinOp FloatLe
   floatLt = floatIEEELogicBinOp FloatLt
   floatGe sym x y = floatLe sym y x
@@ -5001,9 +5011,9 @@ type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatReal)) fi =
 instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) where
   iFloatPZero sym _ = return $ realZero sym
   iFloatNZero sym _ = return $ realZero sym
-  iFloatNaN = undefined
-  iFloatPInf = undefined
-  iFloatNInf = undefined
+  iFloatNaN = fail "NaN cannot be represented as a real value."
+  iFloatPInf = fail "+Infinity cannot be represented as a real value."
+  iFloatNInf = fail "-Infinity cannot be represented as a real value."
   iFloatLit sym _ = realLit sym
   iFloatLitSingle sym = realLit sym . toRational
   iFloatLitDouble sym = realLit sym . toRational
@@ -5026,6 +5036,8 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) wher
     realAdd sym tmp z
   iFloatEq = realEq
   iFloatNe = realNe
+  iFloatFpEq = realEq
+  iFloatFpNe = realNe
   iFloatLe = realLe
   iFloatLt = realLt
   iFloatGe = realGe
@@ -5039,7 +5051,8 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatReal)) wher
   iFloatIsSubnorm sym _ = return $ falsePred sym
   iFloatIsNorm sym = realNe sym $ realZero sym
   iFloatCast _ _ _ = return
-  iFloatFromBinary = undefined
+  iFloatFromBinary =
+    fail "Unsupported conversion from IEEE-754 binary representation to real."
   iBVToFloat sym _ _ = uintToReal sym
   iSBVToFloat sym _ _ = sbvToReal sym
   iRealToFloat _ _ _ = return
@@ -5086,8 +5099,10 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpret
                     "uninterpreted_float_fma"
                     (Ctx.empty Ctx.:> r_arg Ctx.:> x Ctx.:> y Ctx.:> z)
                     ret_type
-  iFloatEq = floatUninterpLogicBinOp "uninterpreted_float_eq"
-  iFloatNe = floatUninterpLogicBinOp "uninterpreted_float_ne"
+  iFloatEq = isEq
+  iFloatNe sym x y = notPred sym =<< isEq sym x y
+  iFloatFpEq = floatUninterpLogicBinOp "uninterpreted_float_fp_eq"
+  iFloatFpNe = floatUninterpLogicBinOp "uninterpreted_float_fp_ne"
   iFloatLe = floatUninterpLogicBinOp "uninterpreted_float_le"
   iFloatLt = floatUninterpLogicBinOp "uninterpreted_float_lt"
   iFloatGe sym x y = floatUninterpLogicBinOp "uninterpreted_float_le" sym y x
@@ -5244,6 +5259,8 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) wher
   iFloatFMA = floatFMA
   iFloatEq = floatEq
   iFloatNe = floatNe
+  iFloatFpEq = floatFpEq
+  iFloatFpNe = floatFpNe
   iFloatLe = floatLe
   iFloatLt = floatLt
   iFloatGe = floatGe
@@ -5262,8 +5279,8 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) wher
     SingleFloatRepr       -> floatFromBinary sym knownRepr x
     DoubleFloatRepr       -> floatFromBinary sym knownRepr x
     QuadFloatRepr         -> floatFromBinary sym knownRepr x
-    X86_80FloatRepr       -> undefined
-    DoubleDoubleFloatRepr -> undefined
+    X86_80FloatRepr       -> fail "x86_80 is not an IEEE-754 format."
+    DoubleDoubleFloatRepr -> fail "double-double is not an IEEE-754 format."
   iBVToFloat sym = bvToFloat sym . floatInfoToPrecisionRepr
   iSBVToFloat sym = sbvToFloat sym . floatInfoToPrecisionRepr
   iRealToFloat sym = realToFloat sym . floatInfoToPrecisionRepr
@@ -5280,8 +5297,8 @@ floatInfoToPrecisionRepr = \case
   SingleFloatRepr       -> knownRepr
   DoubleFloatRepr       -> knownRepr
   QuadFloatRepr         -> knownRepr
-  X86_80FloatRepr       -> undefined
-  DoubleDoubleFloatRepr -> undefined
+  X86_80FloatRepr       -> error "x86_80 is not an IEEE-754 format."
+  DoubleDoubleFloatRepr -> error "double-double is not an IEEE-754 format."
 
 
 instance IsSymExprBuilder (ExprBuilder t st fs) where

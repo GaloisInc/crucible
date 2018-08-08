@@ -221,15 +221,29 @@ class IsExprBuilder sym => IsInterpretedFloatExprBuilder sym where
     -> SymInterpretedFloat sym fi
     -> IO (SymInterpretedFloat sym fi)
 
-  -- | Check equality of two floating point numbers.
+  -- | Check logical equality of two floating point numbers.
   iFloatEq
     :: sym
     -> SymInterpretedFloat sym fi
     -> SymInterpretedFloat sym fi
     -> IO (Pred sym)
 
-  -- | Check non-equality of two floating point numbers.
+  -- | Check logical non-equality of two floating point numbers.
   iFloatNe
+    :: sym
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (Pred sym)
+
+  -- | Check IEEE equality of two floating point numbers.
+  iFloatFpEq
+    :: sym
+    -> SymInterpretedFloat sym fi
+    -> SymInterpretedFloat sym fi
+    -> IO (Pred sym)
+
+  -- | Check IEEE non-equality of two floating point numbers.
+  iFloatFpNe
     :: sym
     -> SymInterpretedFloat sym fi
     -> SymInterpretedFloat sym fi

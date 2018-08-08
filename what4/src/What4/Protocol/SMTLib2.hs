@@ -344,9 +344,10 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
 
   floatFMA r x y z = term_app (mkRoundingOp "fp.fma" r) [x, y, z]
 
-  floatEq = bin_app "fp.eq"
-  floatLe = bin_app "fp.leq"
-  floatLt = bin_app "fp.lt"
+  floatEq   = bin_app "="
+  floatFpEq = bin_app "fp.eq"
+  floatLe   = bin_app "fp.leq"
+  floatLt   = bin_app "fp.lt"
 
   floatIsNaN      = un_app "fp.isNaN"
   floatIsInf      = un_app "fp.isInfinite"
@@ -357,7 +358,7 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
   floatIsNorm     = un_app "fp.isNormal"
 
   floatCast fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
-  floatFromBinary = un_app "to_fp"
+  floatFromBinary fpp = un_app $ mkFloatSymbol "to_fp" fpp
   bvToFloat fpp r =
     un_app $ mkRoundingOp (mkFloatSymbol "to_fp_unsigned" fpp) r
   sbvToFloat fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
