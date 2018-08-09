@@ -147,7 +147,7 @@ simulate opts cname =
 
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
 
-     let mname = "main"
+     let mname = "simmain"
 
      frm <- pushAssumptionFrame sym
 
@@ -160,7 +160,7 @@ simulate opts cname =
      ctx' <- case res of
                FinishedResult ctx' pr -> do
                  gp <- getGlobalPair pr
-                 putStrLn (show (regValue (gp ^. gpValue)))
+                 putStrLn (showInt J.IntType (regValue (gp ^. gpValue)))
                  return ctx'
                AbortedResult ctx' _  -> return ctx'
       

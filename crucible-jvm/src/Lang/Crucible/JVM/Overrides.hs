@@ -24,6 +24,7 @@ Stability        : provisional
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE TupleSections #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_GHC -fno-warn-unused-local-binds #-}
@@ -47,9 +48,11 @@ import qualified Data.Set as Set
 import Data.Vector(Vector)
 import qualified Data.Vector as V
 import Data.String (fromString)
-import Data.Text (Text)
+import Data.Text (Text,unpack,pack)
 import Data.Word
+import Data.Char (ord, chr)
 
+import Control.Applicative ((<|>))
 import System.IO
 
 -- jvm-parser
@@ -275,29 +278,256 @@ gc_override =
                 }
 
 
-showInt :: (W4.IsExpr e, 1 <= w) => e (BaseBVType w) -> String
-showInt e = case W4.asSignedBV e of
-              Just i -> show i
+--------------------------------------------------------------------------------
+-- 
+-- Concrete values: if the result of static simulation is a unique, concrete value
+-- figure out what it is.
+-- Essentially, this is a generalization of the `W4.asInteger`, `W4.asSignedBV`
+-- etc. operations.
+-- 
+
+
+-- Haskell representation of JVM symbolic values
+-- Note: static simulation should never say that something is, say,
+-- both a CFloat and a CDouble --- the type system should rule that
+-- out.
+
+data CValue =
+    CDouble Double
+  | CFloat  Float
+  | CInt Int
+  | CLong Integer
+  | CRef (Maybe CObject)
+
+data CObject =
+    CInstance (Map Text (Maybe CValue), CClass)
+  | CArray (Vector (Maybe CValue))
+
+
+data CInitStatus = CNotStarted | CStarted | CInitialized | CErroneous
+
+-- | We don't store any of the static information about the class
+-- (methods, interfaces, etc) because we can figure that out just
+-- from the class name.
+data CClass =
+  MkClass { cclassName   :: Text
+          , cinitStatus  :: CInitStatus
+          }
+
+
+------------------------------------------------------------------
+-- 
+-- | Convert a concrete value to text
+--
+class ToText a where
+  totext  :: a -> Text
+  totext x = totexts x ""
+
+  totexts :: a -> Text -> Text
+
+instance ToText CValue where
+  totexts (CDouble d)     f = fromString (show d) <> f
+  totexts (CFloat  d)     f = fromString (show d) <> f
+  totexts (CInt    i)     f = fromString (show i) <> f
+  totexts (CLong   l)     f = fromString (show l) <> f
+  totexts (CRef Nothing)  f = "null" <> f
+  totexts (CRef (Just o)) f = totexts o f
+
+
+toCharVec :: Vector (Maybe CValue) -> Maybe (Vector Char)
+toCharVec vec = traverse (\jv -> case jv of
+                                   (Just (CInt x)) -> Just (chr x)
+                                   _               -> Nothing) vec
+
+-- 
+-- | We don't try to call the toString method for objects
+--   maybe we should
+instance ToText CObject where
+  totexts (CInstance (fields, cls)) f 
+    | cclassName cls == "java/lang/String"
+    , Just (Just (CRef (Just (CArray vec)))) <- Map.lookup "value" fields
+    , Just chars <- toCharVec vec
+    = pack (V.toList chars) <> f
+  totexts (CInstance (fields, cls)) f
+    -- do not text out non-String objects. 
+    -- TODO: what about primitives such as java.lang.Integer?
+    = pack ("<instance of ") <> cclassName cls <> (pack ">") <> f
+  totexts (CArray vec) f
+    = pack ("<array>") <> f
+
+instance ToText (Maybe CObject) where
+  totexts (Just cobj) f = totexts cobj f
+  totexts Nothing     f = "null" <> f
+
+------------------------------------------------------------------
+
+
+
+-- | Convert a register value with a crucible type to a Haskell
+--   version, if it is indeed a concrete value
+class Concretize (a :: CrucibleType) where
+  
+  type Concrete a
+  concretize :: (IsBoolSolver sym, W4.IsSymExprBuilder sym) 
+             => C.RegValue' sym a
+             -> C.OverrideSim p sym JVM rtp args ret (Maybe (Concrete a))
+
+
+
+
+instance Concretize JVMValueType where
+  type Concrete JVMValueType = CValue
+  concretize (C.RV v) = variantCase v
+                 (Ctx.Empty `Ctx.extend` Dispatch (\x -> return ((CFloat . fromRational) <$> W4.asRational x))
+                            `Ctx.extend` Dispatch (\x -> return ((CDouble . fromRational) <$> W4.asRational x))
+                            `Ctx.extend` Dispatch (\x -> return ((CInt . fromInteger) <$> W4.asSignedBV x))
+                            `Ctx.extend` Dispatch (\x -> return ((CLong . fromInteger) <$> W4.asSignedBV x))
+                            `Ctx.extend` Dispatch (\x -> do mb <- concretize @JVMRefType (C.RV x)
+                                                            return (CRef <$> mb)))
+
+instance Concretize JVMRefType where
+  type Concrete JVMRefType = Maybe CObject
+  concretize (C.RV v) = do
+    foldr (\a _b -> case (C.viewMuxTree a) of
+                      [(ref,_pred)] ->
+                        do obj  <- C.readRef ref
+                           co   <- concretize @JVMObjectType (C.RV obj)
+                           return (Just co)
+                      _ -> return Nothing)
+            (return Nothing) v
+
+      
+instance Concretize JVMArrayType where
+  type Concrete JVMArrayType = Vector (Maybe CValue)
+  concretize (C.RV x) = do
+    let (C.RV vec) = x Ctx.! Ctx.i2of2
+    vm <- V.mapM (concretize @JVMValueType . C.RV) vec
+    return (Just vm)
+
+
+instance Concretize JVMInstanceType where
+  type Concrete JVMInstanceType = (Map Text (Maybe CValue), CClass)
+  concretize (C.RV x) = do
+    let (C.RV sm)  = x Ctx.! Ctx.i1of2
+    let cls' = x Ctx.! Ctx.i2of2
+    (sm1 :: Map Text (Maybe CValue)) <-
+      traverse (\mv -> foldr (\a b -> (concretize @JVMValueType . C.RV) a) (return Nothing) mv) sm
+    (cc  :: Maybe CClass) <- concretize @JVMClassType cls'
+    return ((sm1,) <$> cc)
+
+
+instance Concretize JVMInitStatusType where
+  type Concrete JVMInitStatusType = CInitStatus
+  concretize (C.RV x) = do
+    return $ case W4.asUnsignedBV x of
+      Just 0 -> Just CNotStarted
+      Just 1 -> Just CStarted
+      Just 2 -> Just CInitialized
+      Just 3 -> Just CErroneous
+      _ -> Nothing
+
+instance Concretize JVMClassType where
+  type Concrete JVMClassType = CClass
+  concretize (C.RV x) = do
+    let (C.RV sn)  = (C.unroll x) Ctx.! Ctx.i1of5
+    let imp        = (C.unroll x) Ctx.! Ctx.i2of5
+    imp' <- concretize @JVMInitStatusType imp
+    return (MkClass <$> W4.asString sn <*> imp')
+    
+
+instance Concretize JVMObjectType where
+  type Concrete JVMObjectType = CObject
+  concretize (C.RV v) =
+    variantCase (C.unroll v)
+       (Ctx.Empty `Ctx.extend` Dispatch (\x -> do mv <- concretize @JVMInstanceType (C.RV x)
+                                                  return (CInstance <$> mv))
+                  `Ctx.extend` Dispatch (\x -> do mv <- concretize @JVMArrayType (C.RV x)
+                                                  return (CArray <$> mv)))
+
+-----------------------------------------------------------------------------
+data Dispatch m sym b a = Dispatch { apply :: (C.RegValue sym a -> m (Maybe b)) }
+
+--maybeCase f (x :: Part _) = foldr (\ a b -> f a) (return Nothing) x
+
+-- Apply the dispatch to the first defined branch, falling through
+-- if none are defined
+variantCase :: forall b sym ctx m. Monad m =>
+               Ctx.Assignment (C.VariantBranch sym) ctx ->
+               Ctx.Assignment (Dispatch m sym b) ctx ->
+               m (Maybe b)               
+variantCase variant cases =
+  case Ctx.viewAssign variant of
+    Ctx.AssignEmpty -> return $ Nothing
+    Ctx.AssignExtend variant' (part::C.VariantBranch sym tp) -> 
+      let (cases', (fd::Dispatch m sym b tp)) = Ctx.decompose cases in
+      foldr (\(a::C.RegValue sym tp) (mb :: m (Maybe b)) -> do
+               x1 <- apply fd a
+               x2 <- mb
+               return (x1 <|> x2))
+            (variantCase variant' cases')
+            (C.unVB part)
+
+
+
+-----------------------------------------------------------------------------
+
+--
+-- | Print out an integer represented value (if it is concrete)
+-- Needs access to the original Java type 
+showInt :: (W4.IsExpr e, 1 <= w) => J.Type -> e (BaseBVType w) -> String
+showInt jty e = case W4.asSignedBV e of
+              Just i  -> case jty of
+                J.IntType -> show i
+                J.CharType -> [chr (fromInteger i)]
+                J.BooleanType -> if i == 0 then "false"
+                                 else if i == 1 then "true"
+                                 else fail "invalid boolean"
+                J.LongType -> show i
+                J.ShortType -> show i
+                J.ByteType -> show i    --- TODO: are java bytes printed differently
+                _ -> fail "showInt: Not an int-like type"
               Nothing -> show $ W4.printSymExpr e
 
+showFloat :: (W4.IsExpr e) => e BaseRealType -> String
+showFloat e = case W4.asRational e of
+  Just rat -> show rat
+  Nothing -> show $ W4.printSymExpr e
+  
+--
+-- | Print out an object value (if it is concrete)
+-- For now: only String objects
+--
+showRef :: (IsBoolSolver sym, W4.IsSymExprBuilder sym) =>
+   W4.PartExpr (W4.SymExpr sym BaseBoolType) (C.MuxTree sym (RefCell JVMObjectType)) 
+   -> C.OverrideSim p sym JVM rtp args ret String
+showRef pe = do
+    cr <- concretize @JVMRefType (C.RV pe)
+    case cr of
+      Just cv -> return $ unpack (totext cv)
+      Nothing -> return $ "<not a concrete reference>"
 
-showRef :: W4.PartExpr (W4.SymExpr sym BaseBoolType) (C.MuxTree sym (RefCell JVMObjectType)) -> String
-showRef pe = foldr (\a b -> "<NOTNULL>") "<NULL>" pe 
 
--- | Convert a register value to a string, using What4's 'printSymExpr'
+-- | Convert a register value to a string
 -- Won't necessarily look like a standard types
-showReg :: forall sym arg. (IsSymInterface sym) => TypeRepr arg -> C.RegValue sym arg -> String
-showReg repr arg
+showReg :: forall sym arg p rtp args ret. (IsSymInterface sym) =>
+  J.Type -> TypeRepr arg ->
+  C.RegValue sym arg -> C.OverrideSim p sym JVM rtp args ret String
+showReg jty repr arg
   | Just Refl <- testEquality repr doubleRepr
-  = show $ W4.printSymExpr arg -- SymExpr sym BaseRealType
+  = return $ showFloat arg 
+      
   | Just Refl <- testEquality repr floatRepr
-  = show $ W4.printSymExpr arg
+  = return $ showFloat arg
+      
   | Just Refl <- testEquality repr intRepr
-  = showInt arg
+  = return $ showInt jty arg
+  
   | Just Refl <- testEquality repr longRepr
-  = showInt arg
+  = return $ showInt jty arg
+  
   | Just Refl <- testEquality repr refRepr
   = showRef arg
+  
   | otherwise
   = error "Internal error: invalid regval type"
 
@@ -331,8 +561,8 @@ printStream name showNewline descr t =
                 , jvmOverride_def=
                   \_sym args -> do
                     let reg = C.regValue (Ctx.last args)
-                    let str = showReg @sym t reg
-                    h <- C.printHandle <$> C.getContext
+                    str <- showReg @sym (head (J.methodKeyParameterTypes mk)) t reg
+                    h   <- C.printHandle <$> C.getContext
                     liftIO $ (if showNewline then hPutStrLn else hPutStr) h str
                     liftIO $ hFlush h
                 }

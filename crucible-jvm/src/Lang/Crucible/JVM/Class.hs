@@ -663,6 +663,7 @@ refFromString s =  do
   obj2 <- setInstanceFieldValue
     obj1
     (J.FieldId "java/lang/String" "hash" J.IntType)
+    -- TODO: hash is always 0, should be symbolic
     (IValue (App (BVLit w32 0)))
 
   rawRef <-  newRef obj2

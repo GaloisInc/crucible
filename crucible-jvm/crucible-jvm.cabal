@@ -24,13 +24,12 @@ executable crucible-jvm
                 ProgressBar,
                 Report,
                 Model,
-                Lang.Crucible.JVM.Types
-                Lang.Crucible.JVM.Generator
-                Lang.Crucible.JVM.Translation
-                Lang.Crucible.JVM.ClassRefs
-                Lang.Crucible.JVM.Class
-                Lang.Crucible.JVM.Overrides
-
+                Lang.Crucible.JVM.Types,
+                Lang.Crucible.JVM.Generator,
+                Lang.Crucible.JVM.Translation,
+                Lang.Crucible.JVM.ClassRefs,
+                Lang.Crucible.JVM.Class,
+                Lang.Crucible.JVM.Overrides,
                 Lang.JVM.Codebase
 
   build-depends:
@@ -51,12 +50,12 @@ executable crucible-jvm
     text,
     transformers >= 0.3,
     transformers-compat,
-                vector >= 0.7,
-                jvm-parser >= 0.3,
-                what4 >= 0.4,
-                crucible-jvm,
-                ansi-terminal
-
+    vector >= 0.7,
+    jvm-parser >= 0.3,
+    what4 >= 0.4,
+    crucible-jvm,
+    ansi-terminal,
+    what4-abc
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -86,7 +85,8 @@ library
     transformers >= 0.3,
     transformers-compat,
     vector >= 0.7,
-                what4 >= 0.4
+    what4 >= 0.4,
+    what4-abc
 
   hs-source-dirs: src
 

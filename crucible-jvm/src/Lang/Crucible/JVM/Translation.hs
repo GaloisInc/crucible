@@ -171,8 +171,15 @@ staticOverrides className methodKey
                         modifyReg iReg (1 +)
                         )
 
-  | className == "java/lang/System" && J.methodKeyName methodKey == "registerNatives"
-  = Just $ traceM "registerNatives" >> return ()
+  --
+  -- Do nothing for registering native state
+  --
+  | J.methodKeyName methodKey == "registerNatives"
+    && className `elem` ["java/lang/System",
+                         "java/lang/ClassLoader",
+                         "java/lang/Thread",
+                         "java/lang/Class"]
+  = Just $ return ()
 
   | className == "java/lang/Arrays" && J.methodKeyName methodKey == "copyOfRange"
   = Nothing
@@ -190,25 +197,53 @@ staticOverrides className methodKey
            -- how do we get access to "this" ??
            return ()
          _ -> Nothing
-      
+{-      
   | className == "java/lang/String" && J.methodKeyName methodKey == "<init>"
   = 
      Just $ do return ()
-
+-}
 
   | className == "java/lang/Object" && J.methodKeyName methodKey == "hashCode"
   =  Just $ do
         -- TODO: hashCode always returns 0, can we make it be an "abstract" int?
         iPush (App $ BVLit knownRepr 0)
 
-  | className == "java/lang/Class" && J.methodKeyName methodKey == "getPrimitiveClass"
+  | className == "java/lang/Class" &&
+    J.methodKeyName methodKey == "getPrimitiveClass"
   =  Just $
         do _arg <- rPop
            -- TODO: java reflection
            rPush rNull
 
+  -- valueOf methods
+  | [ argTy ] <- J.methodKeyParameterTypes methodKey,
+    J.methodKeyName methodKey == "valueOf"
+    && (className, argTy) `elem`
+    [ ("java/lang/Boolean", J.BooleanType)
+    , ("java/lang/Byte", J.ByteType)
+    , ("java/lang/Short", J.ShortType)
+    , ("java/lang/Integer", J.IntType)
+    , ("java/lang/Long", J.LongType)
+    ]    
+  = Just $ do
+      val <- popValue
+      ref <- lift $ do
+        initializeClass className
+        clsObj <- getJVMClassByName className
+        cls    <- lookupClassGen className
+        obj    <- newInstanceInstr clsObj (J.classFields cls)
+        obj1   <- setInstanceFieldValue obj
+                  (J.FieldId className "value" argTy)
+                  val
+        rawRef <- newRef obj1
+        return $ App (JustValue knownRepr rawRef)
+        
+      rPush ref
+
   | otherwise = Nothing
         
+
+
   
 
 ----------------------------------------------------------------------
@@ -690,7 +725,7 @@ generateInstruction (pc, instr) =
 
     -- Object creation and manipulation
     J.New name -> do
-      traceM $ "new " ++ show name
+      lift $ debug 2 $ "new " ++ show name
       cls    <- lift $ lookupClassGen name
       clsObj <- lift $ getJVMClass cls
       obj    <- lift $ newInstanceInstr clsObj (J.classFields cls)
@@ -699,7 +734,7 @@ generateInstruction (pc, instr) =
       rPush ref
 
     J.Getfield fieldId -> do
-      traceM $ "getfield " ++ show (J.fieldIdName fieldId)
+      lift $ debug 2 $ "getfield " ++ show (J.fieldIdName fieldId)
       objectRef <- rPop
       rawRef <- throwIfRefNull objectRef
       obj <- lift $ readRef rawRef
@@ -707,7 +742,7 @@ generateInstruction (pc, instr) =
       pushValue val
 
     J.Putfield fieldId -> do
-      traceM $ "putfield " ++ show (J.fieldIdName fieldId)
+      lift $ debug 2 $ "putfield " ++ show (J.fieldIdName fieldId)
       val <- popValue
       objectRef <- rPop
       rawRef <- throwIfRefNull objectRef
@@ -878,7 +913,7 @@ generateInstruction (pc, instr) =
     -- Dynamic dispatch through an interface
     J.Invokeinterface className methodKey -> do
       let mname = J.unClassName className ++ "/" ++ J.methodKeyName methodKey
-      traceM $ "invoke: " ++ mname
+      lift $ debug 2 $ "invoke: " ++ mname
 
       -- find the static type of the method
       let argTys = Ctx.fromList (map javaTypeToRepr (J.methodKeyParameterTypes methodKey))
@@ -905,7 +940,7 @@ generateInstruction (pc, instr) =
               call fn (Ctx.empty `Ctx.extend` objRef Ctx.<++> args)
 
             pushRet retRepr result
-            traceM $ "finish invoke:" ++ mname
+            lift $ debug 2 $ "finish invoke:" ++ mname
     
     J.Invokespecial   (J.ClassType methodClass) methodKey ->
       -- treat constructor invocations like static methods
@@ -916,9 +951,10 @@ generateInstruction (pc, instr) =
       
     J.Invokestatic    className methodKey
       | Just action <- staticOverrides className methodKey
+      -- look for a static override for this class and run that
+      -- instead
       -> action
-      -- don't run the constructor for the object class (we don't have this
-      -- class information)
+      
 
       | otherwise -> 
         -- make sure that *this* class has already been initialized
@@ -1383,8 +1419,8 @@ declareMethod halloc mcls ctx meth =
   in do
    jvmToFunHandleRepr cname (J.methodIsStatic meth) mkey $
       \ argsRepr retRepr -> do
-         traceM $ "declaring " ++ J.unClassName cname ++ "/" ++ J.methodName meth
-             ++ " : " ++ showJVMArgs argsRepr ++ " ---> " ++ showJVMType retRepr
+         -- "declaring " ++ J.unClassName cname ++ "/" ++ J.methodName meth
+         --    ++ " : " ++ showJVMArgs argsRepr ++ " ---> " ++ showJVMType retRepr
          h <- mkHandle' halloc (methodHandleName cname mkey) argsRepr retRepr
          return $ Map.insert (cname, mkey) (JVMHandleInfo mkey h) ctx
 
@@ -1398,7 +1434,7 @@ declareStaticField halloc c m f = do
   let cn = J.className c
   let fn = J.fieldName f
   let ty = J.fieldType f
-  traceM $ "declaring: " ++ J.unClassName cn ++ "." ++ fn
+  --lift $ debug 2 $ "declaring: " ++ J.unClassName cn ++ "." ++ fn
   gvar <- C.freshGlobalVar halloc (globalVarName cn fn) (knownRepr :: TypeRepr JVMValueType)
   return $ (Map.insert (cn,fn) gvar m)
 
@@ -1448,6 +1484,11 @@ mkInitialJVMContext halloc cb = do
   classes <- mapM (findClass cb) ["java/lang/System",
                                   "java/lang/Object",
                                   "java/lang/String",
+                                  "java/lang/Integer",
+                                  "java/lang/Boolean",
+                                  "java/lang/Math",
+                                  "java/lang/Number",
+                                  "java/lang/String",
                                   "java/io/PrintStream" ]
 
   stToIO $ execStateT
@@ -1486,11 +1527,11 @@ translateMethod :: JVMContext
 translateMethod ctx c m = do
   let cName = J.className c
   let mKey  = J.methodKey m
-  traceM $ "translating " ++ J.unClassName cName ++ "/" ++ J.methodName m
+  --lift $ debug 2 $ "translating " ++ J.unClassName cName ++ "/" ++ J.methodName m
   case Map.lookup (cName,mKey) (methodHandles ctx) of
     Just (JVMHandleInfo _ h)  -> do
           g' <- translateMethod' ctx cName m h
-          traceM $ "finished translating " ++ J.unClassName cName ++ "/" ++ J.methodName m
+          --lift $ debug 2 $ "finished translating " ++ J.unClassName cName ++ "/" ++ J.methodName m
           return ((cName,mKey), MethodTranslation h g')
     Nothing -> fail $ "internal error: Could not find method " ++ show mKey
 
@@ -1551,11 +1592,11 @@ translateClasses halloc ctx1 cs = do
   ctx <- foldM (extendJVMContext halloc) ctx1 cs
 
   let trans c = do
-        traceM $ "translating " ++ J.unClassName (J.className c)
+        lift $ debug 2 $ "translating " ++ J.unClassName (J.className c)
         let methods = J.classMethods c
         -- translate methods
         let should_translate m = not (J.methodIsAbstract m || J.methodIsNative m || skipMethod ctx c m)
-        traceM $ "...skipping methods " ++ show (map J.methodName (filter (not . should_translate)
+        lift $ debug 2 $ "...skipping methods " ++ show (map J.methodName (filter (not . should_translate)
                                                                 (J.classMethods c)))
         pairs <- mapM (translateMethod ctx c) (filter should_translate (J.classMethods c))
         -- initialization code
@@ -1618,7 +1659,7 @@ mkDelayedBinding ctx c m (JVMHandleInfo _mk (handle :: FnHandle args ret))
         retRepr      = handleReturnType handle
         
         overrideSim :: C.OverrideSim p sym JVM r args ret (C.RegValue sym ret)
-        overrideSim  = do whenVerbosity (>=0) $
+        overrideSim  = do whenVerbosity (> 0) $
                             do liftIO $ putStrLn $ "translating (delayed) " ++ cm
                           args <- C.getOverrideArgs
                           C.SomeCFG cfg <- liftST $ translateMethod' ctx (J.className c) m handle
@@ -1688,7 +1729,7 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      Refl <- failIfNotEqual (handleArgTypes h)   (knownRepr :: CtxRepr args)
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
             
-     runMethodHandle sym p halloc ctx h args
+     runMethodHandle sym p halloc ctx (J.className mcls) h args
 
 
 failIfNotEqual :: forall f m a (b :: k). (Monad m, Show (f a), Show (f b), TestEquality f) => f a -> f b -> m (a :~: b)
@@ -1714,17 +1755,32 @@ findMethodHandle ctx cls meth =
         Nothing ->
           fail $ "BUG: cannot find handle for " ++ J.unClassName (J.className cls) ++ "/" ++ J.methodName meth
 
-
+runClassInit :: HandleAllocator RealWorld -> JVMContext -> J.ClassName
+             -> C.OverrideSim p sym JVM rtp a r (C.RegEntry sym C.UnitType)
+runClassInit halloc ctx name = do
+  (C.SomeCFG g') <- liftIO $ stToIO $ do
+      h <- mkHandle halloc "class_init"
+      let (meth :: J.Method) = undefined
+          def :: FunctionDef JVM s (JVMState UnitType) EmptyCtx UnitType
+          def _inputs = (s, f)
+              where s = initialState ctx meth knownRepr
+                    f = do () <- initializeClass name
+                           return (App EmptyApp)
+      (SomeCFG g, []) <- defineFunction InternalPos h def
+      return (toSSA g)
+  C.callCFG g' (C.RegMap Ctx.Empty)
+  
 -- | Run a Java method in the simulator
 runMethodHandle :: (IsSymInterface sym) => 
                      sym
                   -> p
                   -> HandleAllocator RealWorld
                   -> JVMContext
+                  -> J.ClassName
                   -> FnHandle args ret
                   -> C.RegMap sym args
                   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-runMethodHandle sym p halloc ctx h args = do
+runMethodHandle sym p halloc ctx classname h args = do
   let javaExtImpl :: C.ExtensionImpl p sym JVM
       javaExtImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
   let simctx = C.initSimContext sym
@@ -1738,6 +1794,7 @@ runMethodHandle sym p halloc ctx h args = do
   let simSt  = C.initSimState simctx globals C.defaultAbortHandler
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
+                       _ <- runClassInit halloc ctx classname
                        fnCall
   C.executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
 

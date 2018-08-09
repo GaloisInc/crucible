@@ -65,6 +65,7 @@ import           Lang.Crucible.JVM.Types
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
 
+import Debug.Trace
 
 ----------------------------------------------------------------------
 -- Registers and Frame
@@ -151,6 +152,7 @@ data JVMState ret s
   , _jsCFG      :: J.CFG
   , jsRetType   :: TypeRepr ret
   , jsContext   :: JVMContext
+  , _jsVerbosity :: Int
   }
 
 jsLabelMap :: Simple Lens (JVMState ret s) (Map J.BBId (Label s))
@@ -162,6 +164,10 @@ jsFrameMap = lens _jsFrameMap (\s v -> s { _jsFrameMap = v })
 jsCFG :: Simple Lens (JVMState ret s) J.CFG
 jsCFG = lens _jsCFG (\s v -> s { _jsCFG = v })
 
+jsVerbosity :: Simple Lens (JVMState ret s) Int
+jsVerbosity = lens _jsVerbosity (\s v -> s { _jsVerbosity = v })
+
+
 -- | Build the initial JVM generator state upon entry to the entry
 -- point of a method.
 initialState :: JVMContext -> J.Method -> TypeRepr ret -> JVMState ret s
@@ -171,7 +177,8 @@ initialState ctx method ret =
     _jsFrameMap = Map.empty,
     _jsCFG = methodCFG method,
     jsRetType = ret,
-    jsContext = ctx
+    jsContext = ctx,
+    _jsVerbosity = 0
   }
 
 methodCFG :: J.Method -> J.CFG
@@ -195,7 +202,10 @@ type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
 jvmFail :: HasCallStack => String -> JVMGenerator h s ret a
 jvmFail msg = error msg
 
-
+debug :: Int -> String -> JVMGenerator h s ret ()
+debug level mesg = do
+  v <- use jsVerbosity
+  when (level <= v) $ traceM mesg
 ------------------------------------------------------------------
 
 
