@@ -18,7 +18,7 @@ import Model
 import Goal
 import Loops
 
-generateReport :: Options -> ProvedGoals -> IO ()
+generateReport :: Options -> Maybe ProvedGoals -> IO ()
 generateReport opts xs =
   do when (takeExtension (inputFile opts) == ".c") (generateSource opts)
      writeFile (outDir opts </> "report.js")
@@ -37,12 +37,12 @@ generateSource opts =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: ProvedGoals -> [ JS ]
-renderSideConds = go []
+renderSideConds :: Maybe ProvedGoals -> [ JS ]
+renderSideConds = maybe [] (go [])
   where
-  flatBranch (Branch xs : more) = flatBranch (xs ++ more)
-  flatBranch (x : more)         = x : flatBranch more
-  flatBranch []                 = []
+  flatBranch (Branch x y : more) = flatBranch (x : y : more)
+  flatBranch (x : more)          = x : flatBranch more
+  flatBranch []                  = []
 
   isGoal x = case x of
                Goal {} -> True
@@ -51,8 +51,8 @@ renderSideConds = go []
   go path gs =
     case gs of
       AtLoc pl _ gs1  -> go ((jsLoc pl, pl) : path) gs1
-      Branch gss ->
-        let (now,rest) = partition isGoal (flatBranch gss)
+      Branch g1 g2 ->
+        let (now,rest) = partition isGoal (flatBranch [g1,g2])
         in concatMap (go path) now ++ concatMap (go path) rest
 
       Goal asmps conc triv proved ->

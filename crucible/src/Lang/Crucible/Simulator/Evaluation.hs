@@ -607,9 +607,6 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     IntegerToBV w xe -> do
       x <- evalSub xe
       integerToBV sym x w
-    IntegerToSBV w xe -> do
-      x <- evalSub xe
-      integerToSBV sym x w
 
     ----------------------------------------------------------------------
     -- ComplexReal
@@ -832,7 +829,7 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     -- Introspection
 
     IsConcrete _ v -> do
-      x <- baseIsConcrete sym =<< evalSub v
+      x <- baseIsConcrete <$> evalSub v
       return $! if x then truePred sym else falsePred sym
 
     ---------------------------------------------------------------------

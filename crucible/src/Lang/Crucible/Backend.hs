@@ -96,10 +96,9 @@ instance AS.AssumeAssert AssumptionReason SimError where
 
 type Assertion sym  = AS.LabeledPred (Pred sym) SimError
 type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
-
-type ProofObligation sym = AS.ProofGoal (Pred sym) AssumptionReason SimError
-type ProofObligations sym = AS.ProofGoals (Pred sym) AssumptionReason SimError
-type AssumptionState sym = AS.AssumptionStack (Pred sym) AssumptionReason SimError
+type ProofObligation sym = AS.ProofGoal (Assumption sym) (Assertion sym)
+type ProofObligations sym = Maybe (AS.ProofGoals (Pred sym) AssumptionReason SimError)
+type AssumptionState sym = AS.LabeledGoalCollector (Pred sym) AssumptionReason SimError
 
 -- | This is used to signal that current execution path is infeasible.
 data AbortExecReason =
@@ -214,7 +213,7 @@ class IsBoolSolver sym where
   -- | Create a snapshot of the current assumption state, that may later be restored.
   --   This is useful for supporting control-flow patterns that don't neatly fit into
   --   the stack push/pop model.
-  cloneAssumptionState :: sym -> IO (AssumptionState sym)
+  saveAssumptionState :: sym -> IO (AssumptionState sym)
 
   -- | Restore the assumption state to a previous snapshot.
   restoreAssumptionState :: sym -> AssumptionState sym -> IO ()

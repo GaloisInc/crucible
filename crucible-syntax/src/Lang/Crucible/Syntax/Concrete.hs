@@ -1427,6 +1427,7 @@ cfgs defuns =
             st <- get
             (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
             put st'
-            let foo = CFG handle theBlocks
-            return $ ACFG types ret foo
+            i <- freshAtomIndex
+            j <- freshLabelIndex
+            return $ ACFG types ret $ CFG handle theBlocks i j
 

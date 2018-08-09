@@ -109,6 +109,7 @@ stmtDiff stmt =
     WriteRefCell {}  -> Ctx.knownDiff
     DropRefCell {}   -> Ctx.knownDiff
     Assert {}        -> Ctx.knownDiff
+    Assume {}        -> Ctx.knownDiff
 
 -- | This appends two @StmtSeq@, throwing away the @TermStmt@ from the first @StmtSeq@
 -- It could probably be generalized to @Ctx.Diff@ instead of an embedding.

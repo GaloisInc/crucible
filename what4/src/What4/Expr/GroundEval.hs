@@ -36,6 +36,7 @@ module What4.Expr.GroundEval
   , defaultValueForType
   ) where
 
+import           Control.Exception
 import           Control.Monad
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
@@ -208,7 +209,8 @@ evalGroundApp f0 a0 = do
       if xv then f y else f z
 
     RealIsInteger x -> (\xv -> denominator xv == 1) <$> f x
-    BVTestBit i x -> (`testBit` i) <$> f x
+    BVTestBit i x -> assert (i <= toInteger (maxBound :: Int)) $
+        (`testBit` (fromInteger i)) <$> f x
     BVEq  x y -> (==) <$> f x <*> f y
     BVSlt x y -> (<) <$> (toSigned w <$> f x)
                      <*> (toSigned w <$> f y)
@@ -223,6 +225,23 @@ evalGroundApp f0 a0 = do
       where g _ 0 = 0
             g u v = u `div` v
 
+    IntDiv x y -> g <$> f x <*> f y
+      where
+      g u v | v == 0    = 0
+            | v >  0    = u `div` v
+            | otherwise = negate (u `div` negate v)
+
+    IntMod x y -> intModu <$> f x <*> f y
+      where intModu _ 0 = 0
+            intModu i v = fromInteger (i `mod` abs v)
+
+    IntAbs x -> fromInteger . abs <$> f x
+
+    IntDivisible x k -> g <$> f x
+      where
+      g u | k == 0    = u == 0
+          | otherwise = mod u (toInteger k) == 0
+
     SemiRingEq SemiRingReal x y -> (==) <$> f x <*> f y
     SemiRingEq SemiRingInt  x y -> (==) <$> f x <*> f y
     SemiRingEq SemiRingNat  x y -> (==) <$> f x <*> f y
@@ -235,9 +254,6 @@ evalGroundApp f0 a0 = do
       where smul sm e = (sm *) <$> f e
     SemiRingMul SemiRingNat x y -> (*) <$> f x <*> f y
 
-    IntMod  x y -> intModu <$> f x <*> f y
-      where intModu _ 0 = 0
-            intModu i v = fromInteger (i `mod` toInteger v)
     SemiRingSum SemiRingInt s -> WSum.eval (\x y -> (+) <$> x <*> y) smul pure s
       where smul sm e = (sm *) <$> f e
     SemiRingMul SemiRingInt x y -> (*) <$> f x <*> f y
@@ -279,6 +295,8 @@ evalGroundApp f0 a0 = do
 
     ------------------------------------------------------------------------
     -- Bitvector Operations
+
+    PredToBV x -> (\p -> if p then 1 else 0) <$> f x
 
     BVUnaryTerm u -> do
       UnaryBV.evaluate f u
@@ -394,8 +412,7 @@ evalGroundApp f0 a0 = do
     RealToInteger x -> floor <$> f x
 
     IntegerToNat x -> fromInteger . max 0 <$> f x
-    IntegerToSBV x w -> toUnsigned w . signedClamp w <$> f x
-    IntegerToBV x w -> unsignedClamp w <$> f x
+    IntegerToBV x w -> toUnsigned w <$> f x
 
     ------------------------------------------------------------------------
     -- Complex operations.

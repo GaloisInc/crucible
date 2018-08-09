@@ -512,11 +512,13 @@ unpackCFG sim pg cont = do
                           , stmtResultMap = stmt_result_map
                           }
 
-  let blocks = flip evalState initState $ unTrans $ do
-                 zipWithM (transBlock retType) [0..] pblocks
+  let (blocks,finalSt) = flip runState initState $ unTrans $
+                           zipWithM (transBlock retType) [0..] pblocks
 
 
   let g = R.CFG { R.cfgHandle = h
                 , R.cfgBlocks = blocks
+                , R.cfgNextValue = finalSt^.atomIndex
+                , R.cfgNextLabel = length pblocks
                 }
   cont g

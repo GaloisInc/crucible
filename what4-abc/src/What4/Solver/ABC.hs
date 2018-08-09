@@ -275,7 +275,9 @@ bitblastExpr h ae = do
       B <$> (join $ GIA.mux g <$> eval' h c <*> eval' h x <*> eval' h y)
 
     RealIsInteger{} -> realFail
-    BVTestBit i xe -> (\v -> B $ v AIG.! i) <$> eval' h xe
+    PredToBV p -> BV . AIG.singleton <$> eval' h p
+    BVTestBit i xe -> assert (i <= toInteger (maxBound :: Int)) $
+       (\v -> B $ v AIG.! (fromInteger i)) <$> eval' h xe
     BVEq  x y -> B <$> join (AIG.bvEq g <$> eval' h x <*> eval' h y)
     BVSlt x y -> B <$> join (AIG.slt  g <$> eval' h x <*> eval' h y)
     BVUlt x y -> B <$> join (AIG.ult  g <$> eval' h x <*> eval' h y)
@@ -284,22 +286,25 @@ bitblastExpr h ae = do
     ------------------------------------------------------------------------
     -- Nat operations
 
-    NatDiv{} -> natFail
     SemiRingMul SemiRingNat _ _ -> natFail
     SemiRingSum SemiRingNat _ -> natFail
     SemiRingEq SemiRingNat _ _ -> natFail
     SemiRingLe SemiRingNat _ _ -> natFail
     SemiRingIte SemiRingNat _ _ _ -> natFail
+    NatDiv{} -> natFail
 
     ------------------------------------------------------------------------
     -- Integer operations
 
-    IntMod{}  -> intFail
     SemiRingMul SemiRingInt _ _ -> intFail
     SemiRingSum SemiRingInt _ -> intFail
     SemiRingEq  SemiRingInt _ _ -> intFail
     SemiRingLe  SemiRingInt _ _ -> intFail
     SemiRingIte SemiRingInt _ _ _ -> intFail
+    IntAbs{} -> intFail
+    IntDiv{} -> intFail
+    IntMod{} -> intFail
+    IntDivisible{} -> intFail
 
     ------------------------------------------------------------------------
     -- Real value operations
@@ -408,7 +413,6 @@ bitblastExpr h ae = do
     RealToInteger{} -> intFail
 
     IntegerToNat{} -> natFail
-    IntegerToSBV{} -> intFail
     IntegerToBV{}  -> intFail
 
     ------------------------------------------------------------------------
