@@ -22,8 +22,18 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
--- {-# OPTIONS_GHC -fprint-explicit-kinds -fprint-explicit-foralls #-}
-module Lang.Crucible.Syntax.Concrete (ExprErr(..), ACFG(..), top, printExpr, cfgs) where
+module Lang.Crucible.Syntax.Concrete
+  ( -- * Errors
+    ExprErr(..)
+  , errPos
+  -- * Parsing and Results
+  , ACFG(..)
+  , top
+  , cfgs
+  -- * Rules for pretty-printing language syntax
+  , printExpr
+  )
+where
 
 import Prelude hiding (fail)
 
@@ -78,6 +88,7 @@ import Lang.Crucible.CFG.Expr
 import Lang.Crucible.FunctionHandle
 
 import Numeric.Natural ()
+
 
 liftSyntaxParse :: MonadError (ExprErr s) m => SyntaxParse Atomic a -> AST s -> m a
 liftSyntaxParse p ast =
@@ -145,8 +156,6 @@ instance Monoid (ExprErr s) where
   mempty = TrivialErr (OtherPos "mempty")
   mappend = Errs
 
-printExprErr :: ExprErr s -> String
-printExprErr = show
 
 
 kw :: MonadSyntax Atomic m => Keyword -> m ()
@@ -226,8 +235,8 @@ repUntilLast sp = describe "zero or more followed by one" $ repUntilLast' sp
 
 
 
-isBaseType' :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
-isBaseType' =
+isBaseType :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
+isBaseType =
   describe "base type" $
   do Some tp <- isType
      case asBaseType tp of
@@ -739,18 +748,6 @@ freshAtom loc v =
      tell [Posd loc stmt]
      pure theAtom
 
-freshAtom' :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m)
-           => Position -> AtomValue () s t -> m (Atom s t)
-freshAtom' loc v =
-  do i <- freshAtomIndex
-     let theAtom = Atom { atomPosition = OtherPos "Parser internals"
-                        , atomId = i
-                        , atomSource = Assigned
-                        , typeOfAtom = typeOfAtomValue v
-                        }
-         stmt = DefineAtom theAtom v
-     tell [Posd loc stmt]
-     pure theAtom
 
 
 newLabel :: MonadState (SyntaxState h s) m => LabelName -> m (Label s)
@@ -853,12 +850,12 @@ atomSetter (AtomName anText) =
     fromReg =
       do Pair t r <- regRef'
          loc <- SP.position
-         resAtom <- freshAtom' loc (ReadReg r)
+         resAtom <- freshAtom loc (ReadReg r)
          return $ Pair t resAtom
     fromGlobal =
       do Pair t g <- globRef'
          loc <- SP.position
-         resAtom <- freshAtom' loc (ReadGlobal g)
+         resAtom <- freshAtom loc (ReadGlobal g)
          return $ Pair t resAtom
     deref =
       do SomeExpr t (E e) <- reading (unary Deref synth)
@@ -881,7 +878,7 @@ atomSetter (AtomName anText) =
          anAtom <- freshAtom loc (NewEmptyRef t')
          return $ Pair (ReferenceRepr t') anAtom
     fresh =
-      do Some t <- reading(unary Fresh isBaseType')
+      do Some t <- reading (unary Fresh isBaseType)
          describe "user symbol" $
            case userSymbol (T.unpack anText) of
              Left err -> describe (T.pack (show err)) empty

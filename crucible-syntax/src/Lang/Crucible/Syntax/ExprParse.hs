@@ -144,7 +144,12 @@ delimitSearch Cut = Fail
 cutSearch :: Search a
 cutSearch = Cut
 
-data ProgressStep = First | Rest | Late
+-- | Components of a path taken through a syntax object to reach the
+-- current focus.
+data ProgressStep =
+    First -- ^ The head of a list was followed
+  | Rest -- ^ The tail of a list was followed
+  | Late -- ^ The path was annotated as 'later'
   deriving (Eq, Show)
 
 instance Ord ProgressStep where
@@ -156,9 +161,12 @@ instance Ord ProgressStep where
   compare Late Late = EQ
   compare Late _ = GT
 
+-- | The path taken through a syntax object to reach the current
+-- focus.
 newtype Progress = Progress [ProgressStep]
   deriving (Eq, Show)
 
+-- | Add a step to a progress path
 pushProgress :: ProgressStep -> Progress -> Progress
 pushProgress p (Progress ps) = Progress (p : ps)
 
@@ -175,6 +183,8 @@ instance Ord Progress where
           EQ -> compare x y
 
 
+-- | The reason why a failure has occurred, consisting of description
+-- 'message' combined with the focus that was described.
 data Reason atom = Reason { expr :: Syntax atom
                           , message :: Text
                           }
@@ -585,9 +595,13 @@ list parsers = describe desc $ list' parsers
                    list' ps
              pure (x : xs)
 
+-- | Transform a parser such that its errors are considered to occur
+-- after others, and thus be reported with a higher priority.
 later :: MonadSyntax atom m => m a -> m a
 later = withProgressStep Late
 
+-- | Impose a side condition on a parser, failing with the given
+-- description if the side condition is 'Nothing'.
 sideCondition :: MonadSyntax atom m => Text -> (a -> Maybe b) -> m a -> m b
 sideCondition msg ok p =
   do x <- p
@@ -596,6 +610,8 @@ sideCondition msg ok p =
        Nothing ->
          later $ describe msg empty
 
+-- | Impose a Boolean side condition on a parser, failing with the
+-- given description if the side condition is 'False'.
 sideCondition' :: MonadSyntax atom m => Text -> (a -> Bool) -> m a -> m a
 sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
 
@@ -604,6 +620,8 @@ sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Noth
 data SyntaxError atom = SyntaxError (NonEmpty (Reason atom))
   deriving (Show, Eq)
 
+-- | Convert an internal error structure into a form suitable for
+-- humans to read.
 printSyntaxError :: IsAtom atom => SyntaxError atom -> Text
 printSyntaxError (SyntaxError rs) =
   T.intercalate "\n\tor\n" $ nub $ map printGroup $ groupReasons rs

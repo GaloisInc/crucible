@@ -1,5 +1,18 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings #-}
-module Lang.Crucible.Syntax.Atoms where
+-- | Atoms used by the Crucible CFG concrete syntax.
+module Lang.Crucible.Syntax.Atoms
+  (
+    -- * The atom datatype
+    Atomic(..)
+  , atom
+    -- * Individual atoms
+  , AtomName(..)
+  , LabelName(..)
+  , RegName(..)
+  , FunName(..)
+  , GlobalName(..)
+  , Keyword(..)
+  ) where
 
 import Control.Applicative
 
@@ -16,12 +29,18 @@ import Numeric
 import Text.Megaparsec as MP hiding (many, some)
 import Text.Megaparsec.Char
 
+-- | The name of an atom (non-keyword identifier)
 newtype AtomName = AtomName Text deriving (Eq, Ord, Show)
+-- | The name of a label (identifier followed by colon)
 newtype LabelName = LabelName Text deriving (Eq, Ord, Show)
+-- | The name of a register (dollar sign followed by identifier)
 newtype RegName = RegName Text deriving (Eq, Ord, Show)
+-- | The name of a function (at-sign followed by identifier)
 newtype FunName = FunName Text deriving (Eq, Ord, Show)
+-- | The name of a global variable (two dollar signs followed by identifier)
 newtype GlobalName = GlobalName Text deriving (Eq, Ord, Show)
 
+-- | Individual language keywords (reserved identifiers)
 data Keyword = Defun | DefBlock | DefGlobal
              | Registers
              | Start
@@ -136,6 +155,7 @@ instance Show Keyword where
              (s:_) -> T.unpack s
 
 
+-- | The atoms of the language
 data Atomic = Kw !Keyword -- ^ Keywords are all the built-in operators and expression formers
             | Lbl !LabelName -- ^ Labels, but not the trailing colon
             | At !AtomName -- ^ Atom names (which look like Scheme symbols)
@@ -161,6 +181,7 @@ instance IsAtom Atomic where
   showAtom (Bool b) = if b then "#t" else "#f"
   showAtom (StrLit s) = T.pack $ show s
 
+-- | Parse an atom
 atom :: Parser Atomic
 atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> kwOrAtom
