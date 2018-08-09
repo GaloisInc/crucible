@@ -206,16 +206,19 @@ instance MonadPlus (SyntaxParse atom) where
 
 class (Alternative m, Monad m) => MonadSyntax atom m | m -> atom where
   anything :: m (Syntax atom)
+  progress :: m Progress
   withFocus :: Syntax atom -> m a -> m a
-  withProgress :: ProgressStep -> m a -> m a
+  withProgress :: (Progress -> Progress) -> m a -> m a
   withReason :: Reason atom -> m a -> m a
   cut :: m a
   delimit :: m a -> m a
+  call :: m a -> m a
 
 instance MonadSyntax atom (SyntaxParse atom) where
   anything = view parseFocus
+  progress = view parseProgress
   withFocus stx = local $ set parseFocus stx
-  withProgress p = local $ over parseProgress (pushProgress p)
+  withProgress f = local $ over parseProgress f
   withReason r = local $ set parseReason r
   cut =
     SyntaxParse $
@@ -228,13 +231,27 @@ instance MonadSyntax atom (SyntaxParse atom) where
     \r ->
       let (P s e) = f r
       in P (delimitSearch s) e
+  call (SyntaxParse (ReaderT p)) =
+    SyntaxParse $
+    ReaderT $
+    \r ->
+      let (P s e) = p r
+      in
+        case s of
+          Try x _ -> P (Try x Fail) Ok
+          Cut -> P Cut e
+          Fail -> P Fail e
 
 instance MonadSyntax atom m => MonadSyntax atom (ReaderT r m) where
   anything = lift anything
   cut = lift cut
+  progress = lift progress
   delimit m =
     do r <- ask
        lift $ delimit (runReaderT m r)
+  call m =
+    do r <- ask
+       lift $ call (runReaderT m r)
   withFocus stx m =
     do r <- ask
        lift $ withFocus stx (runReaderT m r)
@@ -250,9 +267,15 @@ instance MonadSyntax atom m => MonadSyntax atom (ReaderT r m) where
 instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (Strict.StateT s m) where
   anything = lift anything
   cut = lift cut
+  progress = lift progress
   delimit m =
     do st <- get
        (s, st') <- lift $ delimit (Strict.runStateT m st)
+       put st'
+       return s
+  call m =
+    do st <- get
+       (s, st') <- lift $ call (Strict.runStateT m st)
        put st'
        return s
   withFocus stx m =
@@ -274,9 +297,15 @@ instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (Strict.StateT s 
 instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (Lazy.StateT s m) where
   anything = lift anything
   cut = lift cut
+  progress = lift progress
   delimit m =
     do st <- get
        (s, st') <- lift $ delimit (Lazy.runStateT m st)
+       put st'
+       return s
+  call m =
+    do st <- get
+       (s, st') <- lift $ call (Lazy.runStateT m st)
        put st'
        return s
   withFocus stx m =
@@ -299,8 +328,13 @@ instance (MonadPlus m, MonadSyntax atom m) => MonadSyntax atom (Lazy.StateT s m)
 instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (Strict.WriterT w m) where
   anything = lift anything
   cut = lift cut
+  progress = lift progress
   delimit m =
     do (x, w) <- lift $ delimit $ Strict.runWriterT m
+       tell w
+       return x
+  call m =
+    do (x, w) <- lift $ call $ Strict.runWriterT m
        tell w
        return x
   withFocus stx m =
@@ -320,8 +354,13 @@ instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (Strict.WriterT w m)
 instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (Lazy.WriterT w m) where
   anything = lift anything
   cut = lift cut
+  progress = lift progress
   delimit m =
     do (x, w) <- lift $ delimit $ Lazy.runWriterT m
+       tell w
+       return x
+  call m =
+    do (x, w) <- lift $ call $ Lazy.runWriterT m
        tell w
        return x
   withFocus stx m =
@@ -399,6 +438,10 @@ followedBy a d = depCons a (const d)
 position :: MonadSyntax atom m => m Position
 position = syntaxPos <$> anything
 
+withProgressStep :: (MonadSyntax atom m) => ProgressStep -> m a -> m a
+withProgressStep s = withProgress (pushProgress s)
+
+
 -- | A dependent cons (see 'depcons') that can impose a validation
 -- step on the first projection
 depConsCond :: MonadSyntax atom m => m a -> (a -> m (Either Text b)) -> m b
@@ -406,12 +449,12 @@ depConsCond a d =
   do focus <- anything
      case focus of
        L (e:es) ->
-         do x <- withFocus e $ withProgress First $ a
+         do x <- withFocus e $ withProgressStep First $ a
             let cdr = Syntax (Posd (syntaxPos focus) (List es))
-            res <- withFocus cdr $ withProgress Rest $ d x
+            res <- withFocus cdr $ withProgressStep Rest $ d x
             case res of
               Right answer -> return answer
-              Left what -> withFocus e $ withProgress First $ later $ describe what empty
+              Left what -> withFocus e $ withProgressStep First $ later $ describe what empty
        _ -> empty
 
 
@@ -420,9 +463,9 @@ depCons a d =
   do focus <- anything
      case focus of
        L (e:es) ->
-         do x <- withFocus e $ withProgress First $ a
+         do x <- withFocus e $ withProgressStep First $ a
             let cdr = Syntax (Posd (syntaxPos focus) (List es))
-            withFocus cdr $ withProgress Rest $ d x
+            withFocus cdr $ withProgressStep Rest $ d x
        _ -> empty
 
 
@@ -433,9 +476,9 @@ rep p =
        L [] ->
          pure []
        L (e:es) ->
-         do x <- withFocus e $ withProgress First p
+         do x <- withFocus e $ withProgressStep First p
             let cdr = Syntax (Posd (syntaxPos focus) (List es))
-            xs <- withFocus cdr $ withProgress Rest $ rep p
+            xs <- withFocus cdr $ withProgressStep Rest $ rep p
             pure (x : xs)
        _ -> empty
 
@@ -456,15 +499,14 @@ list parsers = describe desc $ list' parsers
         go _ (_:_) [] = empty
         go _ [] (_:_) = empty
         go loc (p:ps) (e:es) =
-          do x <- withFocus e $ withProgress First p
+          do x <- withFocus e $ withProgressStep First p
              xs <- withFocus (Syntax (Posd loc (List es))) $
-                   withProgress Rest $
+                   withProgressStep Rest $
                    list' ps
              pure (x : xs)
 
 later :: MonadSyntax atom m => m a -> m a
-later = withProgress Late
-
+later = withProgressStep Late
 
 barrier :: MonadSyntax atom m => m ()
 barrier = pure () <|> cut
