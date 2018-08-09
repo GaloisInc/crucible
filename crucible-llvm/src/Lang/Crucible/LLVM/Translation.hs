@@ -74,6 +74,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -99,6 +100,7 @@ module Lang.Crucible.LLVM.Translation
   , module Lang.Crucible.LLVM.Translation.Types
   ) where
 
+import Control.Monad.Except
 import Control.Monad.Fail hiding (fail)
 import Control.Monad.State.Strict
 import Control.Lens hiding (op, (:>) )
@@ -283,11 +285,15 @@ instrResultType instr =
     L.Phi tp _   -> liftMemType tp
 
     L.GEP inbounds base elts ->
-       do GEPResult lanes tp _gep <- translateGEP inbounds base elts
-          let n = fromInteger (natValue lanes)
-          if n == 1
-            then return (PtrType (MemType tp))
-            else return (VecType n (PtrType (MemType tp)))
+       do gepRes <- runExceptT (translateGEP inbounds base elts)
+          case gepRes of
+            Left err -> fail err
+            Right (GEPResult lanes tp _gep) ->
+              let n = fromInteger (natValue lanes) in
+              if n == 1 then
+                return (PtrType (MemType tp))
+              else
+                return (VecType n (PtrType (MemType tp)))
 
     L.Select _ x _ -> liftMemType (L.typedType x)
 
@@ -524,7 +530,9 @@ transValue _ (L.ValIdent i) = do
       return $ BaseExpr (typeOfAtom a) (AtomExpr a)
 
 transValue (IntType n) (L.ValInteger i) =
-  liftConstant =<< intConst n i
+  runExceptT (intConst n i) >>= \case
+    Left err -> fail err
+    Right c  -> liftConstant c
 
 transValue (IntType 1) (L.ValBool b) =
   liftConstant (boolConst b)
@@ -557,7 +565,10 @@ transValue _ (L.ValSymbol symbol) = do
      liftConstant (SymbolConst symbol 0)
 
 transValue mt (L.ValConstExpr cexp) =
-     liftConstant =<< transConstantExpr mt cexp
+  do res <- runExceptT (transConstantExpr mt cexp)
+     case res of
+       Left err -> reportError $ fromString $ unlines ["Error translating constant", err]
+       Right cv -> liftConstant cv
 
 transValue ty v =
   reportError $ fromString $ unwords ["unsupported LLVM value:", show v, "of type", show ty]
@@ -1907,10 +1918,12 @@ generateInstr retType lab instr assign_f k =
     --    thus, the calculation of out-of-bounds pointers results in
     --    a runtime error.
     L.GEP inbounds base elts -> do
-      gep <- translateGEP inbounds base elts
-      gep' <- traverse transTypedValue gep
-      assign_f =<< evalGEP instr gep'
-      k
+      runExceptT (translateGEP inbounds base elts) >>= \case
+        Left err -> reportError $ fromString $ unlines ["Error translating GEP", err]
+        Right gep ->
+          do gep' <- traverse transTypedValue gep
+             assign_f =<< evalGEP instr gep'
+             k
 
     L.Conv op x outty -> do
       v <- translateConversion instr op x outty
