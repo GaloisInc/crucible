@@ -1,6 +1,6 @@
 {- |
 Module           : Lang.JVM.Codebase
-Description      :
+Description      : Codebase manipulation, copied from jvm-verifier package
 License          : BSD3
 Stability        : stable
 Point-of-contact : jhendrix

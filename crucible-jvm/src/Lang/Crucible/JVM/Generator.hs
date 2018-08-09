@@ -1,6 +1,6 @@
 {- |
 Module           : Lang.Crucible.JVM.Generator
-Description      : Translation of JVM AST into Crucible control-flow graph
+Description      : The JVMGenerator monad
 Copyright        : (c) Galois, Inc 2018
 License          : BSD3
 Maintainer       : sweirich@galois.com
@@ -27,9 +27,7 @@ Stability        : provisional
 {-# OPTIONS_GHC -haddock #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# OPTIONS_GHC -fno-warn-unused-local-binds #-}
-{-# OPTIONS_GHC -fno-warn-unused-matches #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+
 
 module Lang.Crucible.JVM.Generator where
 
@@ -46,18 +44,13 @@ import qualified Language.JVM.CFG as J
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
-import           Data.Parameterized.Some
-import           Data.Parameterized.NatRepr as NR
 
 
 -- crucible
-import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
-import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
-import           Lang.Crucible.Backend
 import           Lang.Crucible.Panic
 
 -- crucible-jvm
@@ -68,7 +61,7 @@ import           What4.ProgramLoc (Position(InternalPos))
 import Debug.Trace
 
 ----------------------------------------------------------------------
--- Registers and Frame
+-- * Registers and Frame
 
 data JVMReg s
   = DReg (Reg s JVMDoubleType)
@@ -103,17 +96,17 @@ type JVMExprFrame s = JVMFrame (JVMValue s)
 type JVMRegisters s = JVMFrame (JVMReg s)
 
 ----------------------------------------------------------------------
--- | JVMContext
--- 
--- Contains information about crucible Function handles and Global variables
--- that is statically known during the class translation.
--- 
+-- * JVMContext
+
+
 type StaticFieldTable = Map (J.ClassName, String) (GlobalVar JVMValueType)
 type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 
 data JVMHandleInfo where
   JVMHandleInfo :: J.MethodKey -> FnHandle init ret -> JVMHandleInfo
 
+-- | Contains information about crucible Function handles and Global variables
+-- that is statically known during the class translation.
 data JVMContext = JVMContext
   { methodHandles :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
       -- ^ map from static & dynamic methods to Crucible function handles      
@@ -131,7 +124,7 @@ data JVMContext = JVMContext
       -- and a map from method names to their handles for dynamic dispatch                      
   }
 
--- left-biased merge of two contexts
+-- | left-biased merge of two contexts
 -- NOTE: There should only ever be one dynamic class table global variable. 
 instance Semigroup JVMContext where
   c1 <> c2 =
@@ -143,7 +136,7 @@ instance Semigroup JVMContext where
     }
 
 ------------------------------------------------------------------------
--- JVMState used during the translation
+-- * JVMState used during the translation
 
 data JVMState ret s
   = JVMState
@@ -188,27 +181,30 @@ methodCFG method =
     _                      -> error ("Method " ++ show method ++ " has no body")  
 
 ------------------------------------------------------------------------
--- 
--- Generator to construct a CFG from sequence of monadic actions:
+-- * Generator Monad
+
+
+-- | Generator to construct a CFG from sequence of monadic actions:
 -- See [Lang.Crucible.CFG.Generator]
 --
 -- 'h' is parameter from underlying ST monad
 -- 's' is phantom to prevent mixing constructs from different CFGs
 -- 'ret' is return type of CFG
-
 type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
 jvmFail :: HasCallStack => String -> JVMGenerator h s ret a
 jvmFail msg = error msg
 
+-- | Output a message depending on the current verbosity level
 debug :: Int -> String -> JVMGenerator h s ret ()
 debug level mesg = do
   v <- use jsVerbosity
   when (level <= v) $ traceM mesg
+  
 ------------------------------------------------------------------
 
-
+-- * JVMValue 
 projectVariant ::
   KnownRepr (Ctx.Assignment TypeRepr) ctx =>
   Ctx.Index ctx tp ->
@@ -293,8 +289,9 @@ fromRValue v = error $ "fromRValue:" ++ show v
 
 
 ------------------------------------------------------------------
--- Some utilities for generation
+-- * Some utilities for generation (not specific to the JVM)
 
+-- | Generate code to test whether a 'Maybe' value is nothing.
 gen_isNothing :: (IsSyntaxExtension p, KnownRepr TypeRepr tp) =>
   Expr p s (MaybeType tp)
   -> Generator p h s ret k (Expr p s BoolType)
@@ -305,6 +302,7 @@ gen_isNothing expr =
   , onJust    = \_ -> return $ App $ BoolLit False
   }
 
+-- | Generate code to test whether a 'Maybe' value is defined
 gen_isJust :: (IsSyntaxExtension p, KnownRepr TypeRepr tp) =>
   Expr p s (MaybeType tp)
            -> Generator p h s ret k (Expr p s BoolType)
@@ -315,17 +313,18 @@ gen_isJust expr =
   , onJust    = \_ -> return $ App $ BoolLit True
   }
 
-nZero :: Expr p s NatType
-nZero = App (NatLit 0)
+-- nZero :: Expr p s NatType
+-- nZero = App (NatLit 0)
 
 
+-- | Generate an expression that evaluates the function for
+-- each element of an array
 forEach_ :: (IsSyntaxExtension p, KnownRepr TypeRepr tp)
             => Expr p s (VectorType tp) 
             -> (Expr p s tp -> Generator p h s ret k ())
             -> Generator p h s ret k ()
 forEach_ vec body = do
   i <- newReg $ App (NatLit 0)
-  let sz = App (VectorSize vec)
 
   while (InternalPos, do
             j <- readReg i

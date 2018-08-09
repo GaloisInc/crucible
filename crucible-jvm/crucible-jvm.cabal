@@ -1,5 +1,5 @@
 Name:          crucible-jvm
-Version:       0.1
+Version:       0.2
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc. 2018
 Maintainer:    huffman@galois.com, sweirich@galois.com
@@ -91,13 +91,13 @@ library
   hs-source-dirs: src
 
   exposed-modules:
-                  Lang.Crucible.JVM.Types
-                  Lang.Crucible.JVM.Generator
-                  Lang.Crucible.JVM.Translation
-                  Lang.Crucible.JVM.ClassRefs
-                  Lang.Crucible.JVM.Class
-                  Lang.Crucible.JVM.Overrides
-                  Lang.JVM.Codebase
+    Lang.Crucible.JVM.Types
+    Lang.Crucible.JVM.Generator
+    Lang.Crucible.JVM.Translation
+    Lang.Crucible.JVM.ClassRefs
+    Lang.Crucible.JVM.Class
+    Lang.Crucible.JVM.Overrides
+    Lang.JVM.Codebase
   other-modules:
 
   ghc-options: -Wall -Werror

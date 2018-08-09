@@ -1,12 +1,20 @@
--- | Determine the set of class names referenced by a
--- bit of JVM abstract syntax
+{- |
+
+Module           : Lang.Crucible.JVM.ClassRefs
+Description      : Determine class names referred to by JVM abstract syntax
+Copyright        : (c) Galois, Inc 2018
+License          : BSD3
+Maintainer       : sweirich@galois.com
+Stability        : provisional
+
+-}
+
 module Lang.Crucible.JVM.ClassRefs where
 
 import Data.Monoid ((<>))
 
 import qualified Language.JVM.Parser as J
 import qualified Language.JVM.CFG as J
-
 import Data.Set (Set)
 import qualified Data.Set as Set
 

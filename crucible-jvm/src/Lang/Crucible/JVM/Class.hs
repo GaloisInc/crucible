@@ -46,7 +46,54 @@ working with objects, dynamic class information and arrays.
 
 {-# OPTIONS_GHC -haddock #-}
 
-module Lang.Crucible.JVM.Class where
+module Lang.Crucible.JVM.Class
+   (
+     lookupClassGen
+   -- * Working with `JVMClass` data
+   , getJVMClass
+   , getJVMClassByName
+   , getInitStatus
+   , setInitStatus
+   -- ** Class initialization
+   , initializeClass
+   , emptyMethodTable
+   , insertMethodTable
+   , initializeJVMClass
+   -- ** Initialization status
+   , notStarted
+   , started
+   , initialized
+   , erroneous
+   -- ** Accessors for `JVMClass` in memory structure
+   , getJVMClassName
+   , getJVMClassInitStatus
+   , getJVMClassSuper
+   , getJVMClassMethodTable
+   , getJVMClassInterfaces
+   , setJVMClassInitStatus
+   -- * Dynamic type test
+   , isSubType
+   -- * Objects
+   , newInstanceInstr
+   , getInstanceFieldValue
+   , setInstanceFieldValue
+   , getJVMInstanceClass
+   -- ** Dynamic dispatch
+   , findDynamicMethod
+   -- ** Static fields and methods
+   , getStaticFieldValue
+   , setStaticFieldValue
+   , getStaticMethod
+   -- * Strings
+   , refFromString
+   -- * Arrays
+   , newarrayExpr
+   , newarrayFromVec
+   , arrayIdx
+   , arrayUpdate
+   , arrayLength
+   )
+   where
 
 import Data.Maybe (maybeToList, mapMaybe)
 import Control.Monad.State.Strict
@@ -99,7 +146,7 @@ lookupClassGen cName = do
 
 ---------------------------------------------------------------------------------
 --
--- | Runtime representation of class information (i.e. JVMClass)
+-- * Runtime representation of class information (i.e. JVMClass)
 --
 
 -- | initialization status values
@@ -217,7 +264,7 @@ interfacesImplemented ctx c = mapMaybe (\cn ->  Map.lookup cn (classTable ctx)) 
           [go s | s <- maybeToList (superClass ctx c0)]
 
 
--- | Accessors for JVMClass 
+-- * Accessors for `JVMClass` in memory structure
 
 struct :: JVMClass s -> Expr JVM s JVMClassImpl
 struct ct = App $ UnrollRecursive knownRepr knownRepr ct
@@ -244,7 +291,7 @@ setJVMClassInitStatus ct status = App (RollRecursive knownRepr knownRepr
                                        (App (SetStruct knownRepr (struct ct) Ctx.i2of5 status)))
                                     
 ------------------------------------------------------------------------
--- Functions for working with the JVM class table
+-- * Functions for working with the JVM class table
 
 -- | Access the class table entry of a given class in the dynamic class table
 -- If this class table entry has not yet been defined, define it
@@ -287,9 +334,10 @@ setInitStatus c status = do
   writeGlobal gv (App $ InsertStringMapEntry knownRepr sm name (App $ JustValue knownRepr entry'))
 
 ----------------------------------------------------------------------
--- | Static Fields and Methods
---
 
+-- * Static Fields and Methods
+
+-- | Read the global variable corresponding to the given static field
 getStaticFieldValue :: J.FieldId -> JVMGenerator h s ret (JVMValue s)
 getStaticFieldValue fieldId = do
       let cls = J.fieldIdClass fieldId
@@ -325,24 +373,14 @@ getStaticMethod className methodKey = do
       Just handle -> return handle
       
 ------------------------------------------------------------------------
--- | Class Initialization
+-- * Class Initialization
 -- 
--- initialize the static fields of a class (if they haven't already been
--- initialized)
--- make sure that the jvm class table entry for the class has been initialized
 
 
 -- REVISIT: it may make sense for this to be dynamic
 skipInit :: J.ClassName -> Bool
 skipInit cname = cname `elem` []                 
 
--- Classes that we are "faking" and do not want to run the static initializers
--- because they require too much native code
-skipClinit :: J.ClassName -> Bool
-skipClinit cname = cname `elem` ["java/lang/Object"
-                                , "java/lang/String"
---                                , "java/lang/System"
-                                ]
 
 specialClinit :: Map J.ClassName (JVMGenerator h s ret ())
 specialClinit = Map.fromList [
@@ -364,6 +402,9 @@ specialClinit = Map.fromList [
   ]
   
 
+-- | initialize the static fields of a class (if they haven't already been
+-- initialized)
+-- make sure that the jvm class table entry for the class has been initialized
 initializeClass :: forall h s ret . HasCallStack => J.ClassName -> JVMGenerator h s ret ()
 initializeClass name = unless (skipInit name) $ do 
 
@@ -402,8 +443,7 @@ initializeClass name = unless (skipInit name) $ do
 -- | Call a JVM static initialer, such as <init>
 -- These methods do not take arguments or produce results so they
 -- do not work with the stack. As a result we can call these methods
--- in the JVMGenerator monad
-
+-- in the JVMGenerator monad.
 callJVMInit :: JVMHandleInfo -> JVMGenerator h s ret ()
 callJVMInit (JVMHandleInfo _methodKey handle) =
   do let argTys = handleArgTypes handle
@@ -490,9 +530,9 @@ findDynamicMethod dcls methodKey = do
   assertedJustExpr v (App $ TextLit "NoSuchMethodError")  
 
 ------------------------------------------------------------------------
--- | Dynamic type testing 
+-- * Dynamic type testing 
 
--- | Test whether the given class is a subtype of the given class or interface name
+-- | Test whether the dynamic class is a subtype of the given class name or interface name
 isSubType :: JVMClass s -> J.ClassName -> JVMGenerator h s ret (Expr JVM s BoolType)
 isSubType dcls name = do
   b1 <- dcls `implements` name
@@ -530,7 +570,8 @@ isSubclass dcls cn2 = do
   ifte (App (BaseIsEq knownRepr className className2))
     (return (App (BoolLit True)))
     $ do
-      -- construct a while loop in the output, testing each superclass & interface type for equality
+      -- construct a while loop in the output, testing each superclass &
+      -- interface type for equality
         superReg <- newReg (getJVMClassSuper dcls)
         resultReg <- newReg (App $ BoolLit False)
         let loopbody = do
@@ -565,10 +606,11 @@ isSubclass dcls cn2 = do
 
 ------------------------------------------------------------------------
 
--- | Working with JVM objects  (class instances)
+-- * Working with JVM objects  (class instances)
 
 -- | Construct a new JVM object instance, given the class data structure
--- and the list of fields
+-- and the list of fields. The fields will be initialized with the
+-- default values, according to their types.
 newInstanceInstr ::
   JVMClass s 
   -- ^ class data structure
@@ -616,7 +658,7 @@ setInstanceFieldValue obj fieldId val = do
   let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
   return $ App (RollRecursive knownRepr knownRepr uobj')
 
--- | Access the class table entry for the class that instantiated this instance
+-- | Access the runtime class information for the class that instantiated this instance
 getJVMInstanceClass :: JVMObject s -> JVMGenerator h s ret (JVMClass s)
 getJVMInstanceClass obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
@@ -626,12 +668,12 @@ getJVMInstanceClass obj = do
 
 ------------------------------------------------------------------------------
 --
--- | String Creation
+-- * String Creation
 
 charLit :: Char -> Expr JVM s JVMValueType
 charLit c = App (InjectVariant knownRepr tagI (App (BVLit w32 (toInteger (fromEnum c)))))
 
--- | Initializer for statically known string objects
+-- | Constructor for statically known string objects
 -- 
 refFromString ::  HasCallStack => String -> JVMGenerator h s ret (JVMRef s)
 refFromString s =  do
@@ -673,8 +715,9 @@ refFromString s =  do
 
 
 ------------------------------------------------------------------------------
--- | Arrays
+-- * Arrays
 
+-- | Construct a new array object, with copies of the initial value
 newarrayExpr ::
   JVMInt s 
   -- ^ array size, must be nonnegative
@@ -689,6 +732,8 @@ newarrayExpr count val =
   in 
      App (RollRecursive knownRepr knownRepr uobj)
 
+-- | Construct a new array given a vector of initial values
+-- (This function is used for static array initializers.)
 newarrayFromVec ::
   Vector (Expr JVM s JVMValueType)
   -- ^ Initial values for all array elements
@@ -702,7 +747,7 @@ newarrayFromVec vec =
     App $ RollRecursive knownRepr knownRepr uobj
 
 
--- | Array index
+-- | Index into an array object
 arrayIdx :: JVMObject s
   -- ^ the array
   -> JVMInt s
@@ -717,7 +762,11 @@ arrayIdx obj idx = do
      let val = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
      return val
 
-arrayUpdate :: JVMObject s -> JVMInt s -> Expr JVM s JVMValueType -> JVMGenerator h s ret (JVMObject s)
+-- | Update an array object
+arrayUpdate :: JVMObject s                          -- ^ the array
+            -> JVMInt s                             -- ^ index
+            -> Expr JVM s JVMValueType              -- ^ new value
+            -> JVMGenerator h s ret (JVMObject s)
 arrayUpdate obj idx val = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
   let marr = App (ProjectVariant knownRepr Ctx.i2of2 uobj)
@@ -730,7 +779,7 @@ arrayUpdate obj idx val = do
   let obj' = App (RollRecursive knownRepr knownRepr uobj')
   return obj'
  
-
+-- | Access length of the array object
 arrayLength :: JVMObject s -> JVMGenerator h s ret (JVMInt s)
 arrayLength obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)

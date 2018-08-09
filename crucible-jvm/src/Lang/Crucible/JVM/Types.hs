@@ -1,6 +1,6 @@
 {- |
 Module           : Lang.Crucible.JVM.Types
-Description      : Translation of JVM AST into Crucible control-flow graph
+Description      : Type definitions for JVM->Crucible translation
 Copyright        : (c) Galois, Inc 2018
 License          : BSD3
 Maintainer       : sweirich@galois.com
@@ -28,6 +28,7 @@ Stability        : provisional
 {-# OPTIONS_GHC -haddock #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
+
 module Lang.Crucible.JVM.Types where
 
 -- jvm-parser
@@ -53,7 +54,7 @@ instance IsSyntaxExtension JVM
 
 
 ---------------------------------------------------------------------------------
--- | Type abbreviations for expressions
+-- * Type abbreviations for expressions
 
 -- | Symbolic booleans
 type JVMBool       s = Expr JVM s BoolType
@@ -67,10 +68,8 @@ type JVMInt        s = Expr JVM s JVMIntType
 type JVMLong       s = Expr JVM s JVMLongType
 -- | Symbolic references 
 type JVMRef        s = Expr JVM s JVMRefType
-
 -- | Symbolic strings
 type JVMString     s = Expr JVM s StringType
-
 -- | Symbolic class table
 type JVMClassTable s = Expr JVM s JVMClassTableType
 -- | Symbolic data structure for class information
@@ -83,23 +82,23 @@ type JVMArray      s = Expr JVM s JVMArrayType
 type JVMObject     s = Expr JVM s JVMObjectType
 
 ----------------------------------------------------------------------
--- | JVM type definitions
+-- * JVM type definitions
 --
--- These are the types of values manipulated by the simulator
+-- Crucible types for values manipulated by the simulator
 
-type JVMDoubleType = FloatType DoubleFloat
-type JVMFloatType  = FloatType SingleFloat
-type JVMIntType    = BVType 32
-type JVMLongType   = BVType 64
-type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
 
+-- ** Values
+--
 -- | A JVM value is either a double, float, int, long, or reference. If we were
 -- to define these types in Haskell, they'd look something like this
 --
---  data Value = Double Double | Float Float | Int Int32 | Long Int64 | Ref (Maybe (IORef Object))
+-- @
+--  data Value = Double Double | Float Float | Int Int32
+--             | Long Int64 | Ref (Maybe (IORef Object))
 --
 --  data Object   = Instance { fields :: Map String Value, class :: Class }
 --                | Array    { length :: Int32, values :: Vector Value }
+-- @
 --
 type JVMValueType = VariantType JVMValueCtx
 
@@ -110,6 +109,15 @@ type JVMValueCtx =
   ::> JVMIntType
   ::> JVMLongType
   ::> JVMRefType
+
+type JVMDoubleType = FloatType DoubleFloat
+type JVMFloatType  = FloatType SingleFloat
+type JVMIntType    = BVType 32
+type JVMLongType   = BVType 64
+type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
+
+
+-- ** Objects and Arrays
 
 -- | A class instance contains a table of fields
 -- and an (immutable) pointer to the class (object).
@@ -130,27 +138,22 @@ instance IsRecursiveType "JVM_object" where
   type UnrollType "JVM_object" ctx = JVMObjectImpl
   unrollType _nm _ctx = knownRepr :: TypeRepr JVMObjectImpl
 
--- | A class initialization state is
---
---      data Initialization Status = NotStarted | Started | Initialized | Erroneous
---
--- We encode this type in Crucible using 2 bits
---
-type JVMInitStatusType = BVType 2
+-- ** Classes
 
-type JVMMethodTableType = StringMapType AnyType
 
 -- | An entry in the class table contains information about a loaded class:
 --
+-- @
 --   data Class = MkClass { className   :: String
 --                        , initStatus  :: InitStatus
 --                        , superClass  :: Maybe Class
---                        , methodTable :: Map String Any    --- function handles are dynamically typed
+--                        , methodTable :: Map String Any   
 --                        , interfaces  :: Vector String
 --                        }
---
+-- 
 --   type ClassTable = Map String Class
-
+-- @
+-- 
 type JVMClassType  = RecursiveType "JVM_class"  EmptyCtx
 
 type JVMClassImpl =
@@ -164,12 +167,26 @@ instance IsRecursiveType "JVM_class" where
   type UnrollType "JVM_class" ctx = JVMClassImpl
   unrollType _nm _ctx = knownRepr :: TypeRepr JVMClassImpl
 
+-- | A class initialization state is
+--
+-- @
+--      data Initialization Status = NotStarted | Started | Initialized | Erroneous
+-- @
+--
+-- We encode this type in Crucible using 2 bits.
+--
+type JVMInitStatusType = BVType 2
+
+-- | The method table is dynamically typed
+type JVMMethodTableType = StringMapType AnyType
+
 -- | The dynamic class table is a data structure that can be queried at runtime
 -- for information about loaded classes
 type JVMClassTableType = StringMapType JVMClassType
 
+
 ---------------------------------------------------------------------------------
--- | Translation between Java and Crucible Types
+-- * Type representations
 
 -- | Type reprs for the Crucible image of Java types
 refRepr    :: TypeRepr JVMRefType
@@ -216,6 +233,10 @@ w32 = knownNat
 w64 :: NatRepr 64
 w64 = knownNat
 
+---------------------------------------------------------
+-- * Translation between Java and Crucible Types
+
+
 -- | Translate a single Java type to a Crucible type
 javaTypeToRepr :: J.Type -> Some TypeRepr
 javaTypeToRepr t =
@@ -239,8 +260,10 @@ javaTypesToCtxRepr (ty:args) =
     (Some t1, Some ctx) -> Some (ctx `Ctx.extend` t1)
 
 ---------------------------------------------------------------------------------
--- | Working with JVM values
+-- * Working with JVM values
 
+-- | Tagged JVM value
+--
 -- NOTE: we could switch the below to "type JVMValue s = Expr JVM s
 -- JVMValueType" However, that would give the translator less
 -- information. With the type below, the translator can branch on the
@@ -268,6 +291,7 @@ defaultValue J.IntType         = IValue $ App $ BVLit knownRepr 0
 defaultValue J.LongType        = LValue $ App $ BVLit knownRepr 0
 defaultValue J.ShortType       = IValue $ App $ BVLit knownRepr 0
 
+-- | Convert a statically tagged value to a dynamically tagged value
 valueToExpr :: JVMValue s -> Expr JVM s JVMValueType
 valueToExpr (DValue x) = App $ InjectVariant knownRepr tagD x
 valueToExpr (FValue x) = App $ InjectVariant knownRepr tagF x
@@ -275,7 +299,7 @@ valueToExpr (IValue x) = App $ InjectVariant knownRepr tagI x
 valueToExpr (LValue x) = App $ InjectVariant knownRepr tagL x
 valueToExpr (RValue x) = App $ InjectVariant knownRepr tagR x
 
--- Index values for sums and products
+-- ** Index values for sums and products
 
 tagD :: Ctx.Index JVMValueCtx JVMDoubleType
 tagD = Ctx.i1of5

@@ -3,7 +3,7 @@ Module           : Lang.Crucible.JVM.Translation
 Description      : Translation of JVM AST into Crucible control-flow graph
 Copyright        : (c) Galois, Inc 2018
 License          : BSD3
-Maintainer       : huffman@galois.com
+Maintainer       : huffman@galois.com, sweirich@galois.com
 Stability        : provisional
 -}
 {-# LANGUAGE DataKinds #-}
@@ -29,9 +29,6 @@ Stability        : provisional
 {-# OPTIONS_GHC -haddock #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
-{-# OPTIONS_GHC -fno-warn-unused-local-binds #-}
-{-# OPTIONS_GHC -fno-warn-unused-matches #-}
-{-# OPTIONS_GHC -fno-warn-unused-imports #-}
 
 module Lang.Crucible.JVM.Translation
   (
@@ -44,22 +41,16 @@ module Lang.Crucible.JVM.Translation
   where
 
 -- base
-import Data.Maybe (isJust, fromJust,maybeToList)
+import Data.Maybe (maybeToList)
 import Data.Semigroup(Semigroup(..),(<>))
 import Control.Monad.State.Strict 
 import Control.Monad.ST  
-import Control.Monad.Reader 
 import Control.Lens hiding (op, (:>))
 import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Set(Set)
 import qualified Data.Set as Set
-import Data.Vector(Vector)
-import qualified Data.Vector as V
 import Data.String (fromString)
-import Data.Text (Text)
-import Data.Word
 
 import System.IO
 
@@ -88,28 +79,17 @@ import           Lang.Crucible.Panic
 import           Lang.Crucible.Utils.MonadVerbosity
 
 import qualified Lang.Crucible.Simulator               as C
-import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.GlobalState   as C
-import qualified Lang.Crucible.Simulator.OverrideSim   as C
-import qualified Lang.Crucible.Simulator.RegValue      as C
-import qualified Lang.Crucible.Simulator.Frame         as C
-import qualified Lang.Crucible.Simulator.RegMap        as C
-
 import qualified Lang.Crucible.Analysis.Postdom        as C
-import qualified Lang.Crucible.Utils.MuxTree           as C
+
 
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
-import           What4.Interface (IsExprBuilder)
 import           What4.FunctionName 
 import qualified What4.Interface                       as W4
-import qualified What4.Partial                         as W4
 import qualified What4.Config                          as W4
 
 import           What4.Utils.MonadST (liftST)
-
-
-
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
@@ -122,15 +102,18 @@ import qualified Lang.JVM.Codebase as JCB
 
 
 import Debug.Trace
-import GHC.Stack
+
 
 instance Num (JVMInt s) where
   n1 + n2 = App (BVAdd w32 n1 n2)
   n1 * n2 = App (BVMul w32 n1 n2)
   n1 - n2 = App (BVSub w32 n1 n2)
-  abs n         = error "abs: unimplemented"
-  signum        = error "signum: unimplemented"
+  abs _n  = error "abs: unimplemented"
+  signum  = error "signum: unimplemented"
   fromInteger i = App (BVLit w32 i)
+
+
+-- * Static Overrides
 
 -- For static primitives, there is no need to create an override handle
 -- we can just dispatch to our code in the interpreter automatically
@@ -189,10 +172,10 @@ staticOverrides className methodKey
          [] -> Just $ return ()
          [J.ArrayType J.CharType, J.IntType, J.IntType] -> Just $ do
            traceM "TODO: 3 arg string constructor unimplemented"
-           count  <- iPop
-           offset <- iPop
-           arrRef <- rPop
-           obj    <- rPop
+           _count  <- iPop
+           _offset <- iPop
+           _arrRef <- rPop
+           _obj    <- rPop
 
            -- how do we get access to "this" ??
            return ()
@@ -247,7 +230,7 @@ staticOverrides className methodKey
   
 
 ----------------------------------------------------------------------
--- JVMRef
+-- * JVMRef
 
 rNull :: JVMRef s
 rNull = App (NothingValue knownRepr)
@@ -274,6 +257,7 @@ rEqual mr1 mr2 =
     }
 
 ------------------------------------------------------------------------
+-- * Registers and stack values
 
 newJVMReg :: JVMValue s -> JVMGenerator h s ret (JVMReg s)
 newJVMReg val =
@@ -339,6 +323,7 @@ forceJVMValue val =
     RValue v -> RValue <$> forceEvaluation v
 
 -------------------------------------------------------------------------------
+-- * Basic blocks
 
 generateBasicBlock ::
   J.BasicBlock ->
@@ -402,7 +387,7 @@ getLabelAtPC pc =
 
 
 ----------------------------------------------------------------------
--- JVM statement generator monad
+-- * JVM statement generator monad
 
 
 -- | This has extra state that is only relevant in the context of a
@@ -501,7 +486,7 @@ rPush :: JVMRef s -> JVMStmtGen h s ret ()
 rPush r = pushValue (RValue r)
 
 uPush :: Expr JVM s UnitType -> JVMStmtGen h s ret ()
-uPush u = return ()
+uPush _u = return ()
 
 
 setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
@@ -523,10 +508,6 @@ throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 throw :: JVMRef s -> JVMStmtGen h s ret ()
 throw _ = sgUnimplemented "throw"
 
-
-
---arrayLength :: Expr JVM s JVMArrayType -> JVMInt s
---arrayLength arr = App (GetStruct arr Ctx.i1of2 knownRepr)
 
 ----------------------------------------------------------------------
 
@@ -599,17 +580,9 @@ popArguments args =
          xs <- popArguments tps
          return (Ctx.extend xs x)
 
-{-
-callJVMHandle :: JVMHandleInfo -> JVMStmtGen h s ret ()
-callJVMHandle (JVMHandleInfo methodKey handle) =
-  do args <- popArguments (handleArgTypes handle)
-     result <- lift $ call (App (HandleLit handle)) args
-     pushRet (handleReturnType handle) result
-
--}
-
 ----------------------------------------------------------------------
 
+-- * Instruction generation
 
 iZero :: JVMInt s
 iZero = App (BVLit w32 0)
@@ -901,11 +874,12 @@ generateInstruction (pc, instr) =
 
     -- Method invocation and return instructions
     -- usual dynamic dispatch
-    J.Invokevirtual tp@(J.ClassType className) methodKey ->
+    J.Invokevirtual (J.ClassType className) methodKey ->
       generateInstruction (pc, J.Invokeinterface className methodKey)
 
-    J.Invokevirtual tp@(J.ArrayType ty) methodKey ->
-      sgFail $ "TODO: invoke virtual " ++ show (J.methodKeyName methodKey) ++ " unsupported for arrays"
+    J.Invokevirtual (J.ArrayType _ty) methodKey ->
+      sgFail $ "TODO: invoke virtual " ++ show (J.methodKeyName methodKey)
+                                       ++ " unsupported for arrays"
 
     J.Invokevirtual   tp        _methodKey ->
       sgFail $ "Invalid static type for invokevirtual " ++ show tp 
@@ -946,8 +920,9 @@ generateInstruction (pc, instr) =
       -- treat constructor invocations like static methods
       generateInstruction (pc, J.Invokestatic methodClass methodKey)
 
-    -- TODO: still don't know what this one is
-    J.Invokespecial   tp _methodKey -> sgUnimplemented $ "Invokespecial for " ++ show tp
+    J.Invokespecial   tp _methodKey ->
+      -- TODO
+      sgUnimplemented $ "Invokespecial for " ++ show tp
       
     J.Invokestatic    className methodKey
       | Just action <- staticOverrides className methodKey
@@ -964,8 +939,9 @@ generateInstruction (pc, instr) =
            result <- lift $ call (App (HandleLit handle)) args
            pushRet (handleReturnType handle) result
 
-    -- TODO
-    J.Invokedynamic   _word16 -> sgUnimplemented "TODO: Invokedynamic needs more support from jvm-parser"
+    J.Invokedynamic   _word16 ->
+      -- TODO
+      sgUnimplemented "TODO: Invokedynamic needs more support from jvm-parser"
 
     J.Ireturn -> returnInstr iPop
     J.Lreturn -> returnInstr lPop
@@ -1157,7 +1133,7 @@ returnInstr pop =
        Nothing -> sgFail "ireturn: type mismatch"
 
 ----------------------------------------------------------------------
--- Basic Value Operations
+-- * Basic Value Operations
 
 floatFromDouble :: JVMDouble s -> JVMFloat s
 floatFromDouble d = App (FloatCast SingleFloatRepr d)
@@ -1409,10 +1385,14 @@ instance Semigroup JVMTranslation where
 
 
 -----------------------------------------------------------------------------
-
+-- * Class declarations
 
 -- | allocate a new method handle and add it to the table of method handles
-declareMethod :: HandleAllocator s -> J.Class -> MethodHandleTable -> J.Method ->  ST s MethodHandleTable
+declareMethod :: HandleAllocator s
+              -> J.Class
+              -> MethodHandleTable
+              -> J.Method
+              -> ST s MethodHandleTable
 declareMethod halloc mcls ctx meth =
   let cname = J.className mcls
       mkey  = J.methodKey meth
@@ -1424,7 +1404,8 @@ declareMethod halloc mcls ctx meth =
          h <- mkHandle' halloc (methodHandleName cname mkey) argsRepr retRepr
          return $ Map.insert (cname, mkey) (JVMHandleInfo mkey h) ctx
 
--- | allocate the static fields and add it to the static field table
+-- | allocate the static field (a global variable)
+-- and add it to the static field table
 declareStaticField :: HandleAllocator s
     -> J.Class
     -> StaticFieldTable
@@ -1433,8 +1414,6 @@ declareStaticField :: HandleAllocator s
 declareStaticField halloc c m f = do
   let cn = J.className c
   let fn = J.fieldName f
-  let ty = J.fieldType f
-  --lift $ debug 2 $ "declaring: " ++ J.unClassName cn ++ "." ++ fn
   gvar <- C.freshGlobalVar halloc (globalVarName cn fn) (knownRepr :: TypeRepr JVMValueType)
   return $ (Map.insert (cn,fn) gvar m)
 
@@ -1454,25 +1433,6 @@ extendJVMContext halloc c = do
     , classTable        = Map.singleton (J.className c) c
     , dynamicClassTable = dynamicClassTable ctx0
     } <> ctx0
-
-{-
--- | extend the JVM context with new information about a class
-addToClassTable :: J.Class -> JVMContext -> JVMContext
-addToClassTable c ctx =
-  trace ("Adding " ++ show (J.className c)) $ 
-  ctx { classTable = Map.insert (J.className c) c (classTable ctx) }
--}
-
--- | create FnBindings for all of the methods in the class 'str'
--- TODO: we could calculate the closure of the class references
--- so that each class does not need to be declared individually.
--- But I worry that this could be a *lot* of classes
-{-
-declareClass :: IsCodebase cb => HandleAllocator s -> cb -> String -> StateT JVMContext (ST s) ()
-declareClass halloc cb str = do
-  c <- liftIO $ findClass cb str
-  extendJVMContext halloc c
--}
 
 -- | Create the initial JVMContext
 mkInitialJVMContext ::  IsCodebase cb => HandleAllocator RealWorld -> cb -> IO JVMContext
@@ -1527,11 +1487,9 @@ translateMethod :: JVMContext
 translateMethod ctx c m = do
   let cName = J.className c
   let mKey  = J.methodKey m
-  --lift $ debug 2 $ "translating " ++ J.unClassName cName ++ "/" ++ J.methodName m
   case Map.lookup (cName,mKey) (methodHandles ctx) of
     Just (JVMHandleInfo _ h)  -> do
           g' <- translateMethod' ctx cName m h
-          --lift $ debug 2 $ "finished translating " ++ J.unClassName cName ++ "/" ++ J.methodName m
           return ((cName,mKey), MethodTranslation h g')
     Nothing -> fail $ "internal error: Could not find method " ++ show mKey
 
@@ -1574,50 +1532,12 @@ skipMethod ctx c m =
                     -- bug somewhere in use of writeRegisters, it's providing more values than regs
                  ] where
   
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
 {-
-    
-translateClass :: HandleAllocator s -- ^ Generator for nonces
-               -> JVMContext 
-               -> J.Class           -- ^ Class to translate
-               -> ST s JVMTranslation
-translateClass halloc ctx c = translateClasses halloc ctx [c]
-
-translateClasses :: HandleAllocator s -- ^ Generator for nonces
-               -> JVMContext 
-               -> [J.Class]           -- ^ Class to translate
-               -> ST s JVMTranslation
-translateClasses halloc ctx1 cs = do
-  
-  -- create initial context, declaring the statically known methods and fields.
-  ctx <- foldM (extendJVMContext halloc) ctx1 cs
-
-  let trans c = do
-        lift $ debug 2 $ "translating " ++ J.unClassName (J.className c)
-        let methods = J.classMethods c
-        -- translate methods
-        let should_translate m = not (J.methodIsAbstract m || J.methodIsNative m || skipMethod ctx c m)
-        lift $ debug 2 $ "...skipping methods " ++ show (map J.methodName (filter (not . should_translate)
-                                                                (J.classMethods c)))
-        pairs <- mapM (translateMethod ctx c) (filter should_translate (J.classMethods c))
-        -- initialization code
-        -- currently unused
-        initCFG0 <- initCFGProc halloc ctx
-        -- return result
-        return $ JVMTranslation 
-          { translatedClasses = Map.singleton (J.className c)
-            (ClassTranslation { cfgMap        = Map.fromList pairs
-                              , initCFG       = initCFG0
-                              })
-          , transContext = ctx }
-
-  trs <- mapM trans cs
-  return $ foldr1 (<>) trs
--}
-    
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
 -- | Make method bindings for static simulation
 mkBindings :: JVMContext
            -> Map J.ClassName ClassTranslation
@@ -1630,7 +1550,7 @@ mkBindings ctx transClassMap =
               C.FnBinding h (C.UseCFG g (C.postdomInfo g))
             Nothing  -> error $ "cannot find method!" ++ (J.unClassName cn0)
               ++ "." ++ (J.methodKeyName mKey)
-
+-}
 --------------------------------------------------------------------------------
 
 -- make bindings for all methods in the JVMContext classTable that have
@@ -1671,22 +1591,6 @@ mkDelayedBinding ctx c m (JVMHandleInfo _mk (handle :: FnHandle args ret))
 
 
 --------------------------------------------------------------------------------
-
--- | A type class for what we need from a java code base This is here
--- b/c we have two copies of the Codebase module, the one in this
--- package and the one in the jvm-verifier package. Eventually,
--- saw-script will want to transition to the code base in this package,
--- but it will need to eliminate uses of the old jvm-verifier first.
-class IsCodebase cb where
- 
-   lookupClass :: cb -> J.ClassName -> IO J.Class
-
-   findMethod :: cb -> String -> J.Class -> IO (J.Class,J.Method)
-
-   findClass  :: cb -> String -> IO J.Class
-   findClass cb cname = (lookupClass cb . J.mkClassName . J.dotsToSlashes) cname
-
-
 
 -- | Read from the provided java code base and simulate a
 -- given static method. 
@@ -1741,7 +1645,6 @@ failIfNotEqual r1 r2
 -- 
 setSimulatorVerbosity :: (W4.IsSymExprBuilder sym) => Int -> sym -> IO ()
 setSimulatorVerbosity verbosity sym = do
-  let cfg = W4.getConfiguration sym
   verbSetting <- W4.getOptionSetting W4.verbosity (W4.getConfiguration sym)
   _ <- W4.setOpt verbSetting (toInteger verbosity)
   return ()
@@ -1753,7 +1656,8 @@ findMethodHandle ctx cls meth =
         Just handle ->
           return handle
         Nothing ->
-          fail $ "BUG: cannot find handle for " ++ J.unClassName (J.className cls) ++ "/" ++ J.methodName meth
+          fail $ "BUG: cannot find handle for " ++ J.unClassName (J.className cls)
+               ++ "/" ++ J.methodName meth
 
 runClassInit :: HandleAllocator RealWorld -> JVMContext -> J.ClassName
              -> C.OverrideSim p sym JVM rtp a r (C.RegEntry sym C.UnitType)
@@ -1805,8 +1709,23 @@ runMethodHandle sym p halloc ctx classname h args = do
 
 
 
+-- | A type class for what we need from a java code base This is here
+-- b/c we have two copies of the Codebase module, the one in this
+-- package and the one in the jvm-verifier package. Eventually,
+-- saw-script will want to transition to the code base in this package,
+-- but it will need to eliminate uses of the old jvm-verifier first.
+class IsCodebase cb where
+ 
+   lookupClass :: cb -> J.ClassName -> IO J.Class
+
+   findMethod :: cb -> String -> J.Class -> IO (J.Class,J.Method)
+
+   findClass  :: cb -> String -> IO J.Class
+   findClass cb cname = (lookupClass cb . J.mkClassName . J.dotsToSlashes) cname
+
 ------------------------------------------------------------------------
--- utility operations for working with the java code base
+-- * utility operations for working with the java code base
+-- Some of these are from saw-script util
 
 instance IsCodebase JCB.Codebase where
 
