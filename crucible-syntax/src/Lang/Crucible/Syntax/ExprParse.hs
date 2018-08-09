@@ -13,10 +13,58 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
-module Lang.Crucible.Syntax.ExprParse where
+module Lang.Crucible.Syntax.ExprParse
+  ( MonadSyntax(..)
+  , SyntaxParse
+  , syntaxParse
+
+  -- * Describing syntax
+  , describe
+  , atom
+  , cons
+  , depCons
+  , depConsCond
+  , followedBy
+  , rep
+  , list
+  , backwards
+  , emptyList
+  , atomic
+  , anyList
+  , sideCondition
+  , sideCondition'
+  , satisfy
+
+  -- * Eliminating location information
+  , syntaxToDatum
+  , datum
+  
+  -- * Parsing context
+  , position
+  , withProgressStep
+  
+  -- * Control structures
+  , commit
+  , parse
+
+  -- * Progress through a parsing problem
+  , ProgressStep(..)
+  , Progress
+  , pushProgress
+
+  -- * Errors
+  , later
+  , SyntaxError(..)
+  , printSyntaxError
+  , Reason(..)
+
+  -- * Testing utilities
+  , TrivialAtom(..)
+  , test
+  ) where
 
 import Control.Applicative
-import Control.Lens hiding (List)
+import Control.Lens hiding (List, cons, backwards)
 import Control.Monad (ap)
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as Strict
@@ -35,8 +83,6 @@ import Data.String
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
-
-import Debug.Trace (trace)
 
 import GHC.Stack
 
@@ -189,7 +235,7 @@ parseReason = lens _parseReason (\s v -> s { _parseReason = v })
 parseFocus :: Simple Lens (SyntaxParseCtx atom) (Syntax atom)
 parseFocus = lens _parseFocus (\s v -> s { _parseFocus = v })
 
-
+-- | The default parsing monad. Use its 'MonadSyntax' instance to write parsers.
 newtype SyntaxParse atom a =
   SyntaxParse { runSyntaxParse :: ReaderT (SyntaxParseCtx atom) (P atom) a }
   deriving (Functor, Applicative, Monad, MonadReader (SyntaxParseCtx atom))
@@ -204,14 +250,33 @@ instance MonadPlus (SyntaxParse atom) where
   mzero = empty
   mplus = (<|>)
 
+-- | Monads that can parse syntax need a few fundamental operations.
+-- A parsing monad maintains an implicit "focus", which is the syntax
+-- currently being matched, as well as the progress, which is the path
+-- taken through the surrounding syntactic context to reach the
+-- current focus. Additionally, the reason for a failure will always
+-- be reported with respect to explicit descriptions - these are
+-- inserted through 'withReason'.
 class (Alternative m, Monad m) => MonadSyntax atom m | m -> atom where
+  -- | Succeed with the current focus.
   anything :: m (Syntax atom)
+  -- | Succeed with the current progress.
   progress :: m Progress
+  -- | Run a new parser with a different focus.
   withFocus :: Syntax atom -> m a -> m a
+  -- | Run a parser in a modified notion of progress.
   withProgress :: (Progress -> Progress) -> m a -> m a
+  -- | Run a parser with a new reason for failure.
   withReason :: Reason atom -> m a -> m a
+  -- | Fail, and additionally prohibit backtracking across the failure.
   cut :: m a
+  -- | Delimit the dynamic extent of a 'cut'.
   delimit :: m a -> m a
+  -- | Make the first solution reported by a computation into the only
+  -- solution reported, eliminating further backtracking and previous
+  -- errors. This allows syntax to be matched in exclusive "layers",
+  -- reminiscent of the effect of trampolining through a macro
+  -- expander. Use when solutions are expected to be unique.
   call :: m a -> m a
 
 instance MonadSyntax atom (SyntaxParse atom) where
@@ -377,14 +442,7 @@ instance (Monoid w, MonadSyntax atom m) => MonadSyntax atom (Lazy.WriterT w m) w
        return x
 
 
-parseError :: Progress -> Reason atom -> P atom a
-parseError p r = P empty (Oops p (pure r))
 
-debug :: (Show atom) => String -> SyntaxParse atom a -> SyntaxParse atom a
-debug msg p =
-  do r <- ask
-     trace (msg ++ show r) $ return ()
-     p
 
 -- | Strip location information from a syntax object
 syntaxToDatum :: Syntactic expr atom => expr -> Datum atom
@@ -392,7 +450,7 @@ syntaxToDatum (A x) = Datum $ Atom x
 syntaxToDatum (L ls) = Datum $ List $ map syntaxToDatum ls
 syntaxToDatum _ = error "syntaxToDatum: impossible case - bad Syntactic instance"
 
-
+-- | Succeed if and only if the focus satisfies a Boolean predicate.
 satisfy :: MonadSyntax atom m => (Syntax atom -> Bool) -> m (Syntax atom)
 satisfy p =
   do foc <- anything
@@ -400,50 +458,66 @@ satisfy p =
        then pure foc
        else empty
 
+-- | Succeed only if the focus, having been stripped of position
+-- information, is structurally equal to some datum.
 datum :: (MonadSyntax atom m, IsAtom atom, Eq atom) => Datum atom -> m ()
 datum dat =
   describe (datumToText mempty dat) $
     satisfy (\stx -> dat == syntaxToDatum stx) *> pure ()
 
+-- | Succeed if and only if the focus is some particular given atom.
 atom :: (MonadSyntax atom m, IsAtom atom, Eq atom) => atom -> m ()
 atom a = datum (Datum (Atom a))
 
+-- | Succeed if and only if the focus is any atom, returning the atom.
 atomic :: MonadSyntax atom m => m atom
 atomic = sideCondition "an atom" perhapsAtom (syntaxToDatum <$> anything)
   where perhapsAtom (Datum (Atom a)) = Just a
         perhapsAtom _ = Nothing
 
+-- | Annotate a parser with a description, documenting its role in the
+-- grammar. These descriptions are used to construct error messages.
 describe :: MonadSyntax atom m => Text -> m a -> m a
 describe d p =
   do foc <- anything
      withReason (Reason foc d) p
 
+-- | Succeed if and only if the focus is the empty list.
 emptyList :: MonadSyntax atom m => m ()
 emptyList = describe (T.pack "empty expression ()") (satisfy (isNil . syntaxToDatum) *> pure ())
   where isNil (Datum (List [])) = True
         isNil _ = False
 
+-- | Succeed if and only if the focus is a list, returning its contents.
 anyList :: MonadSyntax atom m => m [Syntax atom]
 anyList = sideCondition "zero or more expressions, in parentheses" isList anything
   where isList (Syntax (pos_val -> List xs)) = Just xs
         isList _ = Nothing
 
-
+-- | If the current focus is a list, apply one parser to its head and
+-- another to its tail.
 cons :: MonadSyntax atom m => m a -> m b -> m (a, b)
 cons a d = depCons a (\x -> d >>= \y -> pure (x, y))
 
+-- | If the current focus is a list, apply one parser to its head and
+-- another to its tail, ignoring the result of the head.
 followedBy :: MonadSyntax atom m => m a -> m b -> m b
 followedBy a d = depCons a (const d)
 
+-- | Return the source position of the focus.
 position :: MonadSyntax atom m => m Position
 position = syntaxPos <$> anything
 
+-- | Manually add a progress step to the current path through the
+-- context. Use this to appropriately guard calls to 'parse'.
 withProgressStep :: (MonadSyntax atom m) => ProgressStep -> m a -> m a
 withProgressStep s = withProgress (pushProgress s)
 
 
 -- | A dependent cons (see 'depcons') that can impose a validation
--- step on the first projection
+-- step on the head of a list focus. If the head fails the validation
+-- (that is, the second action returns 'Left'), the error is reported
+-- in the head position.
 depConsCond :: MonadSyntax atom m => m a -> (a -> m (Either Text b)) -> m b
 depConsCond a d =
   do focus <- anything
@@ -457,7 +531,8 @@ depConsCond a d =
               Left what -> withFocus e $ withProgressStep First $ later $ describe what empty
        _ -> empty
 
-
+-- | Use the result of parsing the head of the current-focused list to
+-- compute a parsing action to use for the tail of the list.
 depCons :: MonadSyntax atom m => m a -> (a -> m b) -> m b
 depCons a d =
   do focus <- anything
@@ -468,7 +543,8 @@ depCons a d =
             withFocus cdr $ withProgressStep Rest $ d x
        _ -> empty
 
-
+-- | Produce a parser that matches a list of things matched by another
+-- parser.
 rep :: MonadSyntax atom m => m a -> m [a]
 rep p =
   do focus <- anything
@@ -482,9 +558,13 @@ rep p =
             pure (x : xs)
        _ -> empty
 
+-- | Manually override the focus. Use this with care - it can lead to
+-- bogus error selection unless 'withProgress' is used to provide an
+-- appropriate path.
 parse :: MonadSyntax atom m => Syntax atom -> m a -> m a
 parse = withFocus
 
+-- | Match a list focus elementwise.
 list :: MonadSyntax atom m => [m a] -> m [a]
 list parsers = describe desc $ list' parsers
   where desc =
@@ -507,9 +587,6 @@ list parsers = describe desc $ list' parsers
 
 later :: MonadSyntax atom m => m a -> m a
 later = withProgressStep Late
-
-barrier :: MonadSyntax atom m => m ()
-barrier = pure () <|> cut
 
 sideCondition :: MonadSyntax atom m => Text -> (a -> Maybe b) -> m a -> m b
 sideCondition msg ok p =
@@ -542,6 +619,9 @@ printSyntaxError (SyntaxError rs) =
       , ", expected ", T.intercalate " or " (nub $ sort [ wanted | Reason _ wanted <- r:more ])
       , " but got ", toText mempty found]
 
+-- | Invoke the default parsing monad on a piece of syntax, returning
+-- the first success found, or the error(s) with the greatest progress
+-- otherwise.
 syntaxParse :: IsAtom atom => SyntaxParse atom a -> Syntax atom -> Either (SyntaxError atom) a
 syntaxParse p stx =
   let (P yes no) =
@@ -556,6 +636,8 @@ syntaxParse p stx =
             Oops _ rs -> rs
       (r:_) -> Right r
 
+-- | When the current focus is a list, reverse its contents while
+-- invoking another parser. If it is not a list, fail.
 backwards :: MonadSyntax atom m => m a -> m a
 backwards p =
   do foc <- anything
@@ -563,9 +645,11 @@ backwards p =
       l@(L xs) -> withFocus (Syntax (Posd (syntaxPos l) (List (reverse xs)))) p
       _ -> empty
 
+-- | Trivially succeed, but prevent backtracking.
 commit :: MonadSyntax atom m => m ()
 commit = pure () <|> cut
 
+-- | A trivial atom, which is a wrapper around 'Text', for use when testing the library.
 newtype TrivialAtom = TrivialAtom Text deriving (Show, Eq)
 
 instance IsAtom TrivialAtom where
@@ -574,6 +658,7 @@ instance IsAtom TrivialAtom where
 instance IsString TrivialAtom where
   fromString x = TrivialAtom (fromString x)
 
+-- | Test a parser on some input, displaying the result.
 test :: (HasCallStack, Show a) => Text -> SyntaxParse TrivialAtom a -> IO ()
 test txt p =
   case MP.parse (skipWhitespace *> sexp (TrivialAtom <$> identifier) <* MP.eof) "input" txt of
