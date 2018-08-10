@@ -315,3 +315,15 @@ tagL = Ctx.i4of5
 
 tagR :: Ctx.Index JVMValueCtx JVMRefType
 tagR = Ctx.i5of5
+
+---------------------------------------------------------------------------------
+-- * Working with Symbolic exprs
+
+-- | Sketchy num interface, but it makes it easier to work with this type
+instance Num (JVMInt s) where
+  n1 + n2 = App (BVAdd w32 n1 n2)
+  n1 * n2 = App (BVMul w32 n1 n2)
+  n1 - n2 = App (BVSub w32 n1 n2)
+  abs _n  = error "abs: unimplemented"
+  signum  = error "signum: unimplemented"
+  fromInteger i = App (BVLit w32 i)

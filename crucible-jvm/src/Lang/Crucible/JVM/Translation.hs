@@ -104,6 +104,8 @@ import qualified Lang.JVM.Codebase as JCB
 
 import Debug.Trace
 
+--------------------------------------------------------------------------------
+
 -- * Special treatment of the Java standard library
 
 {- Overall, the system doesn't take a very principled approach to classes from 
@@ -131,34 +133,54 @@ import Debug.Trace
 -- environment. These classes rely on native code that cannot be
 -- parsed by jvm-parser. So instead of transitively loading these
 -- classes with the Main class, we always load them but load none of
--- their dependencies. 
+-- their dependencies. (There has to be a better way to do this,
+-- perhaps by declaring classes more lazily, during simulation instead
+-- of requiring that everything be available ahead of time.)
 initClasses :: [String]
-initClasses = ["java/lang/System",
+initClasses = [ "java/lang/System",
                 "java/lang/Object",
                 "java/lang/String",
                 "java/lang/Integer",
+                "java/lang/Short",
+                "java/lang/Byte",
                 "java/lang/Long",
                 "java/lang/Boolean",
-                "java/lang/Math",
-                "java/lang/Number",
+                "java/lang/Character",
                 "java/lang/Float",
                 "java/lang/Double",
-                "java/lang/String",
+                "java/lang/Math",
+                "java/lang/Number",
+                "java/lang/Void",
+                "sun/misc/FloatingDecimal",
+                
                 "java/io/PrintStream",
                 "java/io/FileOutputStream",
                 "java/io/OutputStream",
                 "java/io/ObjectStreamField",
                 "java/io/FilterOutputStream",
-                "java/lang/Runtime",
+                "java/io/File",
+                "java/io/IOException",
+                "java/io/DefaultFileSystem",
+
                 "java/lang/StringBuffer",
                 "java/lang/AbstractStringBuilder",
-                "java/lang/Throwable",
+                "java/lang/StringBuilder",
+
                 "java/lang/Class",
+
+                "java/lang/Throwable",
                 "java/lang/NullPointerException",
                 "java/lang/RuntimeException",
                 "java/lang/Exception",
+                "java/lang/InternalError",
+                "java/lang/StringIndexOutOfBoundsException",
+                "java/lang/VirtualMachineError",
+                "java/lang/Error",
+                "java/lang/IndexOutOfBoundsException",
+
                 "java/lang/Thread",
-                "sun/misc/FloatingDecimal"
+                "java/lang/Runtime"
+                
               ]
 
 -- | Class references that we shouldn't include in the transitive closure
@@ -191,7 +213,6 @@ exclude cn = (J.unClassName cn) `elem` initClasses
              , J.mkClassName "java/lang/Shutdown"
              , J.mkClassName "java/lang/Process"
              , J.mkClassName "java/util/Arrays"
---             , J.mkClassName "java/lang/Runtime"
              , J.mkClassName "java/lang/RuntimePermission"
              , J.mkClassName "java/lang/StackTraceElement"
              , J.mkClassName "java/lang/ProcessEnvironment"
@@ -201,24 +222,16 @@ exclude cn = (J.unClassName cn) `elem` initClasses
              , J.mkClassName "java/lang/ApplicationShutdownHooks"
              , J.mkClassName "java/lang/invoke/SerializedLambda"
              , J.mkClassName "java/lang/System$2"
---             , J.mkClassName "java/lang/StringBuilder"
-             , J.mkClassName "java/lang/Integer"
            ]
 
-
-instance Num (JVMInt s) where
-  n1 + n2 = App (BVAdd w32 n1 n2)
-  n1 * n2 = App (BVMul w32 n1 n2)
-  n1 - n2 = App (BVSub w32 n1 n2)
-  abs _n  = error "abs: unimplemented"
-  signum  = error "signum: unimplemented"
-  fromInteger i = App (BVLit w32 i)
-
-
+----------------------------------------------------------------------------------------------
 -- * Static Overrides
 
--- For static primitives, there is no need to create an override handle
--- we can just dispatch to our code in the interpreter automatically
+{- Implementation of native methods from the Java library -}
+
+-- | For static primitives, there is no need to create an override handle
+--   we can just dispatch to our code in the interpreter automatically
+
 staticOverrides :: J.ClassName -> J.MethodKey -> Maybe (JVMStmtGen h s ret ())
 staticOverrides className methodKey
   | className == "java/lang/System" && J.methodKeyName methodKey == "arraycopy"
@@ -810,10 +823,11 @@ generateInstruction (pc, instr) =
       lift $ debug 2 $ "new " ++ show name
       cls    <- lift $ lookupClassGen name
       clsObj <- lift $ getJVMClass cls
-      obj    <- lift $ newInstanceInstr clsObj (J.classFields cls)
+      -- find the fields not just in this class, but also in the super classes
+      fields <- lift $ getAllFields cls
+      obj    <- lift $ newInstanceInstr clsObj fields
       rawRef <- lift $ newRef obj
-      let ref = App (JustValue knownRepr rawRef)
-      rPush ref
+      rPush $ App (JustValue knownRepr rawRef)
 
     J.Getfield fieldId -> do
       lift $ debug 2 $ "getfield " ++ show (J.fieldIdName fieldId)
@@ -1466,35 +1480,6 @@ data MethodTranslation = forall args ret. MethodTranslation
    , methodCCFG   :: C.SomeCFG JVM args ret
    }
 
-{-
-data ClassTranslation =
-  ClassTranslation
-  { cfgMap        :: Map (J.ClassName,J.MethodKey) MethodTranslation
-  , initCFG       :: C.AnyCFG JVM 
-  }
-  
-data JVMTranslation =
-  JVMTranslation
-  { translatedClasses :: Map J.ClassName ClassTranslation 
-  , transContext      :: JVMContext
-  }
-
--- left biased
-instance Semigroup ClassTranslation where
-  ct1 <> ct2 = ClassTranslation
-               { cfgMap  = Map.union (cfgMap ct1) (cfgMap ct2)
-               , initCFG = initCFG ct1
-               }
-               
-instance Semigroup JVMTranslation where
-  j1 <> j2   = JVMTranslation
-               { translatedClasses = Map.unionWith ((<>))
-                                     (translatedClasses j1) (translatedClasses j2)
-               , transContext = transContext j1 <> transContext j2
-               }
-
--}
-
 -----------------------------------------------------------------------------
 -- * Class declarations
 
@@ -1597,63 +1582,7 @@ translateMethod ctx c m = do
     Nothing -> fail $ "internal error: Could not find method " ++ show mKey
 
 ------------------------------------------------------------------------
--- | initMemProc
---
-initCFGProc :: HandleAllocator s
-            -> JVMContext
-            -> ST s (C.AnyCFG JVM)
-initCFGProc halloc ctx = do
-   h <- mkHandle halloc "class_table_init"
-   let gv = dynamicClassTable ctx
-   let meth = undefined
-       def :: FunctionDef JVM s (JVMState UnitType) EmptyCtx UnitType
-       def _inputs = (s, f)
-              where s = initialState ctx meth knownRepr
-                    f = do writeGlobal gv (App $ EmptyStringMap knownRepr)
-                           return (App EmptyApp)
-                    
-   (SomeCFG g,[]) <- defineFunction InternalPos h def
-   case toSSA g of
-     C.SomeCFG g' -> return $! C.AnyCFG g'
-
-
--- | skip certain methods, as well as any that refer to
--- unknown types and classes
-skipMethod :: JVMContext -> J.Class -> J.Method -> Bool
-skipMethod ctx c m =
-  let crs  = classRefs m
-      name = J.unClassName (J.className c) ++ "/" ++ J.methodName m
-  in
-     -- the method body/type references a class that we don't know about
-     any (\cr -> not (Map.member cr (classTable ctx))) (Set.elems crs)
-     -- it's one of these specific methods
-  || name `elem` [ "java/lang/Object/toString"
-                 , "java/lang/Object/wait"
-                 , "java/lang/Throwable/getStackTrace"
---                 , "java/lang/Integer/getChars"
---                 , "java/lang/Long/getChars"
-                    -- bug somewhere in use of writeRegisters, it's providing more values than regs
-                 ] where
-  
-
 --------------------------------------------------------------------------------
---------------------------------------------------------------------------------
---------------------------------------------------------------------------------
-
-{-
--- | Make method bindings for static simulation
-mkBindings :: JVMContext
-           -> Map J.ClassName ClassTranslation
-           -> C.FunctionBindings p sym JVM
-mkBindings ctx transClassMap =
-  C.fnBindingsFromList (map mkFunBinding (Map.toList (methodHandles ctx)))
-  where mkFunBinding ((cn0,_), JVMHandleInfo mKey _) = do
-          case Map.lookup (cn0, mKey) (cfgMap (transClassMap Map.! cn0)) of
-            Just (MethodTranslation h (C.SomeCFG g)) -> 
-              C.FnBinding h (C.UseCFG g (C.postdomInfo g))
-            Nothing  -> error $ "cannot find method!" ++ (J.unClassName cn0)
-              ++ "." ++ (J.methodKeyName mKey)
--}
 --------------------------------------------------------------------------------
 
 -- make bindings for all methods in the JVMContext classTable that have
@@ -1748,9 +1677,10 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
 
      halloc <- newHandleAllocator
 
+     -- declare the "primitive" classes
      ctx0 <- mkInitialJVMContext halloc cb
 
-     -- declare this class
+     -- declare this class && all classes that it refers to
      ctx <- stToIO $ execStateT (extendJVMContext halloc mcls >>
                                  mapM (extendJVMContext halloc) allClasses) ctx0
 

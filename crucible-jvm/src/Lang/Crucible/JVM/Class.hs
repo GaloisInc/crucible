@@ -49,6 +49,7 @@ working with objects, dynamic class information and arrays.
 module Lang.Crucible.JVM.Class
    (
      lookupClassGen
+   , getAllFields
    -- * Working with `JVMClass` data
    , getJVMClass
    , getJVMClassByName
@@ -390,7 +391,7 @@ specialClinit = Map.fromList [
        -- initialize System.out to be a PrintStream object
        -- note: we do not call PrintStream/<init> because this class
        -- is completely synthetic
-       traceM "init System.out"
+       traceM "System.out/<clinit>"
        let fieldId = J.FieldId (J.mkClassName "java/lang/System")
                                "out"
                                (J.ClassType "java/io/PrintStream")
@@ -608,6 +609,17 @@ isSubclass dcls cn2 = do
 
 -- * Working with JVM objects  (class instances)
 
+getAllFields :: J.Class -> JVMGenerator h s ret [J.Field]
+getAllFields cls = do
+  case J.superClass cls of
+    Nothing  -> return (J.classFields cls)
+    Just sup -> do
+      supCls <- lookupClassGen sup
+      supFlds <- getAllFields supCls
+      return (supFlds ++ J.classFields cls) 
+  
+
+
 -- | Construct a new JVM object instance, given the class data structure
 -- and the list of fields. The fields will be initialized with the
 -- default values, according to their types.
@@ -641,7 +653,7 @@ getInstanceFieldValue obj fieldId = do
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
   let key    = App (TextLit (fromString (J.fieldIdName fieldId)))
   let mval   = App (LookupStringMapEntry knownRepr fields key)
-  dyn <- assertedJustExpr mval "getfield: field not found"
+  dyn <- assertedJustExpr mval (fromString ("getfield: field " ++ J.fieldIdName fieldId ++ " not found"))
   fromJVMDynamic (J.fieldIdType fieldId) dyn
 
 -- | Update a field of a JVM object (must be a class instance, not an array)

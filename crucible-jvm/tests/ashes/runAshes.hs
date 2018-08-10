@@ -24,6 +24,8 @@ up = takeDirectory
 skipList, expFailList :: [String]
 skipList    = [  -- SCW: yep slow
                  "ashesJSuite/benchmarks/symjpack-t"
+              ,  "jikesDerekTestSuite/benchmarks/testFieldAccess"
+              ,  "ashesHardTestSuite/benchmarks/matrix"
                  -- The following are very slow
               ,  "ashesHardTestSuite/benchmarks/illness"
               , "ashesHardTestSuite/benchmarks/boyer"
@@ -33,74 +35,130 @@ skipList    = [  -- SCW: yep slow
               , "ashesJSuite/benchmarks/jpat-p"
               ]
 expFailList = [
-               -- generateInstruction: jsr/ret not supported
-               "sootRegressionSuite/benchmarks/fixedBug-jsr"
-              , "jikesHpjTestSuite/benchmarks/try2"
-              , "jikesHpjTestSuite/benchmarks/try1"
-              , "jikesHpjTestSuite/benchmarks/try3"
-              , "jikesDerekTestSuite/benchmarks/testFinally"
-              , "kaffeRegressionSuite/benchmarks/nullPointerTest"
+    -- npe during simulation
+    "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+  , "sootRegressionSuite/benchmarks/fixedBug-aggregation6"
+  , "kaffeRegressionSuite/benchmarks/tthrd1"
+  , "kaffeRegressionSuite/benchmarks/initTest"
+  , "kaffeRegressionSuite/broken/TestNative"
+  , "kaffeRegressionSuite/benchmarks/tname"
+  , "kaffeRegressionSuite/benchmarks/str2"
+  , "kaffeRegressionSuite/benchmarks/str"
+  , "ashesEasyTestSuite/benchmarks/factorial"
+  , "ashesEasyTestSuite/benchmarks/simple54"
+  , "ashesEasyTestSuite/benchmarks/fahrenheit"
+  , "jikesPrTestSuite/benchmarks/pr209"
+  , "jikesPrTestSuite/benchmarks/pr138"
+  , "jikesPrTestSuite/benchmarks/pr199j"
+  , "jikesPrTestSuite/benchmarks/pr236b"
+  , "jikesPrTestSuite/benchmarks/pr172"
+  
+    -- field "out" not found (and missing last newline)
+  , "jikesDerekTestSuite/benchmarks/testCompare"
+  , "jikesDerekTestSuite/benchmarks/testStackAccess"
+  , "jikesDerekTestSuite/benchmarks/testVirtualCall"
+  , "jikesDerekTestSuite/benchmarks/testSwitch"
+  
+    -- unexpected variant
+  , "sootRegressionSuite/benchmarks/fixedBug-similarSignatures"
+    -- wrong answer
+  , "jikesHpjTestSuite/benchmarks/bigComp"
+  , "jikesHpjTestSuite/benchmarks/multmain"
+  , "jikesDerekTestSuite/benchmarks/testConversions"
+  , "jikesDerekTestSuite/benchmarks/sort"
+  , "jikesDerekTestSuite/benchmarks/testConstants"
+  , "jikesPrTestSuite/benchmarks/pr191c"
+  , "kaffeRegressionSuite/benchmarks/finaltest"
 
-               -- unimplemented: multianewarray
-              , "jikesHpjTestSuite/benchmarks/checkcast7"
-              , "jikesHpjTestSuite/benchmarks/array4"
-              , "jikesHpjTestSuite/benchmarks/instance"
-              , "ashesEasyTestSuite/benchmarks/life"
-              -- unimplemented: CheckCast for array
-              , "jikesHpjTestSuite/benchmarks/checkcast1"
-              -- unimplemented: instanceof for array
-              , "jikesHpjTestSuite/benchmarks/instance1"
+    -- null is not concrete
+  , "jikesDerekTestSuite/benchmarks/testReturn"
+  
+   -- classcast
+  ,  "jikesHpjTestSuite/benchmarks/implement"
+  
+    -- native method "longBitsToDouble"
+  , "kaffeRegressionSuite/benchmarks/doubleComp"
 
-              -- java.io.FileOutputStream
-              , "jikesHpjTestSuite/benchmarks/multarg"
+    -- native methods - initIDs
+  , "jikesHpjTestSuite/benchmarks/recur"
+    -- -- native method gc
+  , "kaffeRegressionSuite/benchmarks/intfTest"
+  , "kaffeRegressionSuite/benchmarks/testClassRef"
 
-              -- Strange parsing issue: trying to load native code?
-              -- Maybe something from using "+" and java.lang.StringBuffer
-              {- 
-              , "kaffeRegressionSuite/broken/TestNative"
-              , "kaffeRegressionSuite/broken/constructorTest"
-              , "kaffeRegressionSuite/benchmarks/tthrd1"
-              , "kaffeRegressionSuite/benchmarks/testClassRef"
-              , "kaffeRegressionSuite/benchmarks/badFloatTest"
-              , "kaffeRegressionSuite/benchmarks/doubleComp"
-              , "kaffeRegressionSuite/benchmarks/testFloatDouble"
-              , "kaffeRegressionSuite/benchmarks/moduloTest"
-              , "kaffeRegressionSuite/benchmarks/tname"
-              , "kaffeRegressionSuite/benchmarks/reflectInterfaces"
-              , "kaffeRegressionSuite/benchmarks/exceptionTest"
-              , "kaffeRegressionSuite/benchmarks/hashtableTest1"
-              , "ashesHardTestSuite/benchmarks/decode"
-              , "ashesHardTestSuite/benchmarks/lu"
-              , "ashesHardTestSuite/benchmarks/probe" -}
+    -- illegal index
+  , "kaffeRegressionSuite/benchmarks/moduloTest"
+  , "kaffeRegressionSuite/benchmarks/testIntLong"
 
-              -- needs to define overrides
-              -- -- initIDs
-              , "jikesHpjTestSuite/benchmarks/recur"
-              -- -- gc
-              , "kaffeRegressionSuite/benchmarks/intfTest"
-              , "kaffeRegressionSuite/benchmarks/testClassRef"
+    -- fNeg
+  , "jikesDerekTestSuite/benchmarks/testArithmetic"
 
-              -- needs java.lang.Class
-              , "kaffeRegressionSuite/benchmarks/schtum"
-              , "kaffeRegressionSuite/benchmarks/illegalInterface"
-              , "kaffeRegressionSuite/benchmarks/methodBug"
-
-              -- or sun.reflect.Reflection
-              , "kaffeRegressionSuite/benchmarks/getInterfaces"
-              , "kaffeRegressionSuite/broken/invTarExcTest"
-              , "kaffeRegressionSuite/broken/testSerializable"
-              , "kaffeRegressionSuite/benchmarks/forNameTest"
-              , "kaffeRegressionSuite/benchmarks/reflectInvoke"
+    -- saveLocals: Generator.hs:197
+  , "ashesHardTestSuite/broken/nucleic"
+   
+    -- generateInstruction: jsr/ret not supported
+  , "sootRegressionSuite/benchmarks/fixedBug-jsr"
+  , "jikesHpjTestSuite/benchmarks/try2"
+  , "jikesHpjTestSuite/benchmarks/try1"
+  , "jikesHpjTestSuite/benchmarks/try3"
+  , "jikesDerekTestSuite/benchmarks/testFinally"
+  , "kaffeRegressionSuite/benchmarks/nullPointerTest"
+  , "jikesPrTestSuite/benchmarks/pr146"
+  
+    -- unimplemented: multianewarray
+  , "jikesHpjTestSuite/benchmarks/checkcast7"
+  , "jikesHpjTestSuite/benchmarks/array4"
+  , "jikesHpjTestSuite/benchmarks/instance"
+  , "ashesEasyTestSuite/benchmarks/life"
+  
+    -- unimplemented: CheckCast for array
+  , "jikesHpjTestSuite/benchmarks/checkcast1"
+  
+    -- unimplemented: instanceof for array
+  , "jikesHpjTestSuite/benchmarks/instance1"
+  , "jikesDerekTestSuite/benchmarks/testInstanceOf"
+  
+    -- java.io.FileOutputStream
+  , "jikesHpjTestSuite/benchmarks/multarg"
+  
+    -- Strange parsing issue: trying to load native code
+    -- needs more than we are currently providing
+  , "kaffeRegressionSuite/benchmarks/testFloatDouble"
+  , "kaffeRegressionSuite/benchmarks/doubleBug"
+  , "ashesHardTestSuite/benchmarks/decode"
+  , "ashesHardTestSuite/benchmarks/lu"
+  , "ashesHardTestSuite/benchmarks/probe"
+  , "ashesHardTestSuite/benchmarks/fft"
+  , "kaffeRegressionSuite/benchmarks/badFloatTest"
+  , "jikesPrTestSuite/benchmarks/pr196"
+  
+    -- needs java.lang.Class
+  , "kaffeRegressionSuite/benchmarks/schtum"
+  , "kaffeRegressionSuite/benchmarks/illegalInterface"
+  , "kaffeRegressionSuite/benchmarks/methodBug"
+  
+    -- or sun.reflect.Reflection
+  , "kaffeRegressionSuite/benchmarks/getInterfaces"
+  , "kaffeRegressionSuite/broken/invTarExcTest"
+  , "kaffeRegressionSuite/broken/testSerializable"
+  , "kaffeRegressionSuite/benchmarks/forNameTest"
+  , "kaffeRegressionSuite/benchmarks/reflectInvoke"
+  , "kaffeRegressionSuite/benchmarks/reflectInterfaces"
+  , "kaffeRegressionSuite/broken/constructorTest"
+  , "jikesPrTestSuite/benchmarks/pr226"
+    
+    -- or java.lang.reflect.Array
+  , "kaffeRegressionSuite/benchmarks/reflectMultiArray"
+  
+    -- java beans
+  , "kaffeRegressionSuite/broken/beanBug"
+  , "kaffeRegressionSuite/broken/bean"
+    
+    -- data structures 
+  , "kaffeRegressionSuite/benchmarks/hashtableTest1"
+  , "kaffeRegressionSuite/benchmarks/exceptionTest"
               
-              -- or java.lang.reflect.Array
-              , "kaffeRegressionSuite/benchmarks/reflectMultiArray"
-
-              -- java beans
-              , "kaffeRegressionSuite/broken/beanBug"
-              , "kaffeRegressionSuite/broken/bean"
-              
-               --- BELOW this line are tests that were not  ----
-               --- supported by the previous version of jss ----
+    --- BELOW this line are tests that were not  ----
+    --- supported by the previous version of jss ----
               
                -- Floating point array tests
               ,  "ashesHardTestSuite/benchmarks/matrix"
@@ -271,5 +329,9 @@ main = do
 
 wip :: IO ()
 wip = do
-  result <- runTest "ashesSuiteCollection/suites/ashesEasyTestSuite/benchmarks/simple54/mainClass"
+  let top = "ashesSuiteCollection/suites/"
+  -- class cast bug
+  result <- runTest $ top ++ "jikesHpjTestSuite/benchmarks/implement/mainClass"
+  
+  _ <- runTest $ top ++ "ashesEasyTestSuite/benchmarks/simple54/mainClass"
   putStrLn (show result)
