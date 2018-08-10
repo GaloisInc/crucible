@@ -1586,6 +1586,9 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> IO (SymFloat sym fpp)
 
   -- | Check logical equality of two floating point numbers.
+  --
+  --   NOTE! This does NOT accurately represent the equality test on floating point
+  --   values typically found in programming languages.  See 'floatFpEq' instead.
   floatEq
     :: sym
     -> SymFloat sym fpp
@@ -1593,6 +1596,9 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> IO (Pred sym)
 
   -- | Check logical non-equality of two floating point numbers.
+  --
+  --   NOTE! This does NOT accurately represent the non-equality test on floating point
+  --   values typically found in programming languages.  See 'floatFpEq' instead.
   floatNe
     :: sym
     -> SymFloat sym fpp
@@ -1600,6 +1606,12 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> IO (Pred sym)
 
   -- | Check IEEE equality of two floating point numbers.
+  --
+  --   NOTE! This test returns false if either value is @NaN@; in particular
+  --   @NaN@ is not equal to itself!  Moreover, positive and negative 0 will
+  --   compare equal, despite having different bit patterns. This test is most
+  --   appropriate for interpreting the equalty tests of typical languages using
+  --   floating point.
   floatFpEq
     :: sym
     -> SymFloat sym fpp
@@ -1607,6 +1619,12 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> IO (Pred sym)
 
   -- | Check IEEE non-equality of two floating point numbers.
+  --
+  --   NOTE! This test returns true if either value is @NaN@; in particular
+  --   @NaN@ is not equal to itself!  Moreover, positive and negative 0 will
+  --   compare equal, despite having different bit patterns.
+  --   This test is most appropriate for interpreting the non-equalty tests of
+  --   typical languages using floating point.
   floatFpNe
     :: sym
     -> SymFloat sym fpp
@@ -2118,7 +2136,7 @@ baseIsConcrete x =
     BaseIntegerRepr -> isJust $ asInteger x
     BaseBVRepr _    -> isJust $ asUnsignedBV x
     BaseRealRepr    -> isJust $ asRational x
-    BaseFloatRepr _ -> return False
+    BaseFloatRepr _ -> False
     BaseStringRepr  -> isJust $ asString x
     BaseComplexRepr -> isJust $ asComplex x
     BaseStructRepr _ -> case asStruct x of

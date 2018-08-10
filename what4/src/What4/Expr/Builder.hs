@@ -2834,20 +2834,36 @@ bvBinOp1 f c sb x y = do
     (Just i, Just j) -> bvLit sb w $ f i j
     _ -> sbMakeExpr sb $ c w x y
 
-bvSignedBinOp :: (1 <= w)
-              => (Integer -> Integer -> Integer)
-              -> (NatRepr w -> BVExpr t w
-                            -> BVExpr t w
-                            -> App (Expr t) (BaseBVType w))
-              -> ExprBuilder t st fs
-              -> BVExpr t w
-              -> BVExpr t w
-              -> IO (BVExpr t w)
-bvSignedBinOp f c sym x y = do
+-- | A version of 'bvBinOp1' that avoids dividing by zero in the case where the
+-- divisor is zero
+bvBinDivOp1 :: (1 <= w)
+            => (Integer -> Integer -> Integer)
+            -> (NatRepr w -> BVExpr t w -> BVExpr t w -> App (Expr t) (BaseBVType w))
+            -> ExprBuilder t st fs
+            -> BVExpr t w
+            -> BVExpr t w
+            -> IO (BVExpr t w)
+bvBinDivOp1 f c sb x y = do
+  let w = bvWidth x
+  case (asUnsignedBV x, asUnsignedBV y) of
+    (Just i, Just j) | j /= 0 -> bvLit sb w $ f i j
+    _ -> sbMakeExpr sb $ c w x y
+
+bvSignedBinDivOp :: (1 <= w)
+                 => (Integer -> Integer -> Integer)
+                 -> (NatRepr w -> BVExpr t w
+                               -> BVExpr t w
+                               -> App (Expr t) (BaseBVType w))
+                 -> ExprBuilder t st fs
+                 -> BVExpr t w
+                 -> BVExpr t w
+                 -> IO (BVExpr t w)
+bvSignedBinDivOp f c sym x y = do
   let w = bvWidth x
   case (asSignedBV x, asSignedBV y) of
-    (Just i, Just j) -> bvLit sym w $ f i j
+    (Just i, Just j) | j /= 0 -> bvLit sym w $ f i j
     _ -> sbMakeExpr sym $ c w x y
+
 
 asConcreteIndices :: IsExpr e
                   => Ctx.Assignment e ctx
@@ -3787,7 +3803,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   natMul sym x y = semiRingMul sym SemiRingNat x y
 
   natDiv sym x y
-    | Just m <- asNat x, Just n <- asNat y = do
+    | Just m <- asNat x, Just n <- asNat y, n /= 0 = do
       natLit sym (m `div` n)
       -- 0 / y
     | Just 0 <- asNat x = do
@@ -3996,14 +4012,12 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | otherwise = sbMakeExpr sym (IntAbs x)
 
   intDiv sym x y
-      -- Div by 0.
-    | Just 0 <- asInteger y = intLit sym 0
       -- Div by 1.
     | Just 1 <- asInteger y = return x
       -- Div 0 by anything is zero.
     | Just 0 <- asInteger x = intLit sym 0
       -- As integers.
-    | Just xi <- asInteger x, Just yi <- asInteger y =
+    | Just xi <- asInteger x, Just yi <- asInteger y, yi /= 0 =
       if yi >= 0 then
         intLit sym (xi `div` yi)
       else
@@ -4013,16 +4027,14 @@ instance IsExprBuilder (ExprBuilder t st fs) where
         sbMakeExpr sym (IntDiv x y)
 
   intMod sym x y
-      -- Mod by 0.
-    | Just 0 <- asInteger y = natLit sym 0
       -- Mod by 1.
     | Just 1 <- asInteger y = natLit sym 0
       -- Mod 0 by anything is zero.
     | Just 0 <- asInteger x = natLit sym 0
       -- As integers.
-    | Just xi <- asInteger x, Just yi <- asInteger y =
+    | Just xi <- asInteger x, Just yi <- asInteger y, yi /= 0 =
         natLit sym (fromInteger (xi `mod` abs yi))
-    | Just (SemiRingSum _sr xsum) <- asApp x, Just yi <- asInteger y =
+    | Just (SemiRingSum _sr xsum) <- asApp x, Just yi <- asInteger y, yi /= 0 =
         case WSum.reduceIntSumMod xsum (abs yi) of
           xsum' | Just xi <- WSum.asConstant xsum' ->
                     natLit sym (fromInteger xi)
@@ -4608,10 +4620,10 @@ instance IsExprBuilder (ExprBuilder t st fs) where
           zro <- bvLit sym w 0
           notPred sym =<< bvEq sym x zro
 
-  bvUdiv = bvBinOp1 div BVUdiv
-  bvUrem = bvBinOp1 rem BVUrem
-  bvSdiv = bvSignedBinOp quot BVSdiv
-  bvSrem = bvSignedBinOp rem BVSrem
+  bvUdiv = bvBinDivOp1 div BVUdiv
+  bvUrem = bvBinDivOp1 rem BVUrem
+  bvSdiv = bvSignedBinDivOp div BVSdiv
+  bvSrem = bvSignedBinDivOp rem BVSrem
 
   mkStruct sym args = do
     sbMakeExpr sym $ StructCtor (fmapFC exprType args) args

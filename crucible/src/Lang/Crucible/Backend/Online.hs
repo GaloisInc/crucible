@@ -239,8 +239,11 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
 
   getPathCondition sym =
     do stk <- getAssumptionStack sym
-       ps <- collectAssumptions stk
+       ps <- AS.collectAssumptions stk
        andAllOf sym (folded.labeledPred) ps
+
+  collectAssumptions sym =
+    AS.collectAssumptions =<< getAssumptionStack sym
 
   evalBranch sym p =
     case asConstantPred p of
@@ -290,7 +293,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
        AS.restoreAssumptionStack gc stk
 
        -- Retrieve the assumptions from the state to restore
-       (base, frms) <- AS.allAssumptionFrames stk
+       AssumptionFrames base frms <- AS.allAssumptionFrames stk
 
        -- reset the solver state
        reset conn
