@@ -3479,7 +3479,7 @@ instance IsExprBuilder (ExprBuilder t st) where
   natMul sym x y = semiRingMul sym SemiRingNat x y
 
   natDiv sym x y
-    | Just m <- asNat x, Just n <- asNat y = do
+    | Just m <- asNat x, Just n <- asNat y, n /= 0 = do
       natLit sym (m `div` n)
       -- 0 / y
     | Just 0 <- asNat x = do
@@ -3688,14 +3688,12 @@ instance IsExprBuilder (ExprBuilder t st) where
     | otherwise = sbMakeExpr sym (IntAbs x)
 
   intDiv sym x y
-      -- Div by 0.
-    | Just 0 <- asInteger y = intLit sym 0
       -- Div by 1.
     | Just 1 <- asInteger y = return x
       -- Div 0 by anything is zero.
     | Just 0 <- asInteger x = intLit sym 0
       -- As integers.
-    | Just xi <- asInteger x, Just yi <- asInteger y =
+    | Just xi <- asInteger x, Just yi <- asInteger y, yi /= 0 =
       if yi >= 0 then
         intLit sym (xi `div` yi)
       else
@@ -3705,16 +3703,14 @@ instance IsExprBuilder (ExprBuilder t st) where
         sbMakeExpr sym (IntDiv x y)
 
   intMod sym x y
-      -- Mod by 0.
-    | Just 0 <- asInteger y = natLit sym 0
       -- Mod by 1.
     | Just 1 <- asInteger y = natLit sym 0
       -- Mod 0 by anything is zero.
     | Just 0 <- asInteger x = natLit sym 0
       -- As integers.
-    | Just xi <- asInteger x, Just yi <- asInteger y =
+    | Just xi <- asInteger x, Just yi <- asInteger y, yi /= 0 =
         natLit sym (fromInteger (xi `mod` abs yi))
-    | Just (SemiRingSum _sr xsum) <- asApp x, Just yi <- asInteger y =
+    | Just (SemiRingSum _sr xsum) <- asApp x, Just yi <- asInteger y, yi /= 0 =
         case WSum.reduceIntSumMod xsum (abs yi) of
           xsum' | Just xi <- WSum.asConstant xsum' ->
                     natLit sym (fromInteger xi)
