@@ -344,8 +344,7 @@ gcPop = go Nothing mempty
                , newAs
                , case newHole of
                     Nothing -> prev
-                    Just p  -> prev { gcCurDone = gcCurDone prev Seq.|>
-                                                  assuming (gcCurAsmps gc) p }
+                    Just p  -> prev { gcCurDone = gcCurDone prev Seq.|> p }
                )
 
          -- Keep unwinding, using the newly constructed child.
