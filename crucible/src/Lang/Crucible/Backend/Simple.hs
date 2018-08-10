@@ -73,13 +73,15 @@ instance IsBoolSolver (SimpleBackend t) where
 
   addAssumption sym a =
     case asConstantPred (a^.labeledPred) of
-      Just True  -> return ()
       Just False -> abortExecBecause (AssumedFalse (a ^. labeledPredMsg))
       _          -> AS.assume a =<< getAssumptionStack sym
 
   addAssumptions sym ps = do
     stk <- getAssumptionStack sym
     AS.appendAssumptions ps stk
+
+  collectAssumptions sym =
+    AS.collectAssumptions =<< getAssumptionStack sym
 
   getPathCondition sym = do
     stk <- getAssumptionStack sym
@@ -100,12 +102,12 @@ instance IsBoolSolver (SimpleBackend t) where
 
   popAssumptionFrame sym ident = do
     stk <- getAssumptionStack sym
-    frm <- AS.popFrame ident stk
-    readIORef (AS.assumeFrameCond frm)
+    AS.popFrame ident stk
 
-  cloneAssumptionState sym = do
+  saveAssumptionState sym = do
     stk <- getAssumptionStack sym
-    AS.cloneAssumptionStack stk
+    AS.saveAssumptionStack stk
 
-  restoreAssumptionState sym stk = do
-    writeIORef (B.sbStateManager sym) (SimpleBackendState stk)
+  restoreAssumptionState sym newstk = do
+    stk <- getAssumptionStack sym
+    AS.restoreAssumptionStack newstk stk

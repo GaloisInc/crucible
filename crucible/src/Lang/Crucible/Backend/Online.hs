@@ -233,8 +233,11 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
 
   getPathCondition sym =
     do stk <- getAssumptionStack sym
-       ps <- collectAssumptions stk
+       ps <- AS.collectAssumptions stk
        andAllOf sym (folded.labeledPred) ps
+
+  collectAssumptions sym =
+    AS.collectAssumptions =<< getAssumptionStack sym
 
   evalBranch sym p =
     case asConstantPred p of
@@ -260,12 +263,9 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
   popAssumptionFrame sym ident =
     do conn <- getSolverConn sym
        stk <- getAssumptionStack sym
-       h <- stackHeight stk
        frm <- popFrame ident stk
-       ps <- readIORef (assumeFrameCond frm)
        pop conn
-       when (h == 0) (push conn)
-       return ps
+       return frm
 
   getProofObligations sym =
     do stk <- getAssumptionStack sym
@@ -275,22 +275,25 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver) 
     do stk <- getAssumptionStack sym
        AS.clearProofObligations stk
 
-  cloneAssumptionState sym =
+  saveAssumptionState sym =
     do stk <- getAssumptionStack sym
-       AS.cloneAssumptionStack stk
+       AS.saveAssumptionStack stk
 
-  restoreAssumptionState sym stk =
-    do conn   <- getSolverConn sym
-       oldstk <- getAssumptionStack sym
-       h <- stackHeight oldstk
-       -- NB, pop h+1 times
-       forM_ [0 .. h] $ \_ -> pop conn
+  restoreAssumptionState sym gc =
+    do conn <- getSolverConn sym
+       stk  <- getAssumptionStack sym
 
-       frms   <- AS.allAssumptionFrames stk
-       forM_ (toList frms) $ \frm ->
+       -- restore the previous assumption stack
+       AS.restoreAssumptionStack gc stk
+
+       -- Retrieve the assumptions from the state to restore
+       AssumptionFrames base frms <- AS.allAssumptionFrames stk
+
+       -- reset the solver state
+       reset conn
+       -- assume the base-level assumptions
+       mapM_ (SMT.assume conn . view labeledPred) (toList base)
+       -- populate the pushed frames
+       forM_ (map snd $ toList frms) $ \frm ->
          do push conn
-            ps <- readIORef (assumeFrameCond frm)
-            forM_ (toList ps) (SMT.assume conn . view labeledPred)
-
-
-
+            mapM_ (SMT.assume conn . view labeledPred) (toList frm)

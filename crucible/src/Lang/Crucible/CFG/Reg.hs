@@ -53,6 +53,7 @@ module Lang.Crucible.CFG.Reg
   , blockID
   , blockStmts
   , blockTerm
+  , blockExtraInputs
   , blockKnownInputs
   , blockAssignedValues
 
@@ -591,6 +592,7 @@ data Block ext s (ret :: CrucibleType)
    = Block { blockID           :: !(BlockID s)
            , blockStmts        :: !(Seq (Posd (Stmt ext s)))
            , blockTerm         :: !(Posd (TermStmt s ret))
+           , blockExtraInputs  :: !(ValueSet s)
              -- | Registers that are known to be needed as inputs for this block.
              -- For the first block, this includes the function arguments.
              -- It also includes registers read by this block before they are
@@ -624,6 +626,7 @@ mkBlock block_id inputs stmts term =
   Block { blockID    = block_id
         , blockStmts = stmts
         , blockTerm  = term
+        , blockExtraInputs = inputs
         , blockAssignedValues = assigned_values
         , blockKnownInputs  = all_input_values
         }
@@ -666,6 +669,12 @@ mkBlock block_id inputs stmts term =
 data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
    = CFG { cfgHandle :: !(FnHandle init ret)
          , cfgBlocks :: !([Block ext s ret])
+         , cfgNextValue :: !Int
+         -- ^ A number greater than any atom or register ID appearing
+         -- in the CFG. This and 'cfgNextLabel' are primarily useful
+         -- for augmenting the CFG after creation.
+         , cfgNextLabel :: !Int
+         -- ^ A number greater than any label ID appearing in the CFG.
          }
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init

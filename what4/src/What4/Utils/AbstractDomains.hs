@@ -30,12 +30,17 @@ module What4.Utils.AbstractDomains
   , concreteRange
   , valueRange
   , addRange
+  , negateRange
   , rangeScalarMul
   , mulRange
   , joinRange
   , asSingleRange
   , rangeCheckEq
   , rangeCheckLe
+    -- * integer range operations
+  , intAbsRange
+  , intDivRange
+  , intModRange
     -- * Boolean abstract value
   , absAnd
   , absOr
@@ -54,6 +59,7 @@ module What4.Utils.AbstractDomains
   , asSingleNatRange
   , unboundedNatRange
   , natRangeToRange
+  , natRangeDiv
     -- * RealAbstractValue
   , RealAbstractValue(..)
   , ravSingle
@@ -144,6 +150,86 @@ data ValueRange tp
   | MultiRange !(ValueBound tp) !(ValueBound tp)
     -- ^ Indicates that the number is somewhere between the given upper and lower bound.
 
+intAbsRange :: ValueRange Integer -> NatValueRange
+intAbsRange r = case r of
+  SingleRange x -> NatSingleRange (fromInteger (abs x))
+  MultiRange (Inclusive lo) hi | 0 <= lo -> NatMultiRange (fromInteger lo) (fromInteger <$> hi)
+  MultiRange lo (Inclusive hi) | hi <= 0 -> NatMultiRange (fromInteger (negate hi)) (fromInteger . negate <$> lo)
+  MultiRange lo hi -> NatMultiRange 0 ((\x y -> fromInteger $ max (abs x) (abs y)) <$> lo <*> hi)
+
+-- | Compute an abstract range for integer division.  We are using the SMTLib
+--   division operation, where the division is floor when the divisor is positive
+--   and ceiling when the divisor is negative.  We compute the ranges assuming
+--   that division by 0 doesn't happen, and we are allowed to return nonsense
+--   ranges for these cases.
+intDivRange :: ValueRange Integer -> ValueRange Integer -> ValueRange Integer
+
+intDivRange (SingleRange x) (SingleRange y)
+  | y == 0    = SingleRange 0 -- NB, nonsense case
+  | y > 0     = SingleRange (x `div` y)
+  | otherwise = SingleRange (negate (x `div` negate y))
+
+intDivRange (MultiRange lo hi) (SingleRange y)
+  | y == 0    = SingleRange 0 -- NB, nonsense case
+  | y >  0    = MultiRange
+                   ((\x -> x `div` y) <$> lo)
+                   ((\x -> x `div` y) <$> hi)
+  | otherwise = negateRange $ MultiRange
+                    ((\x -> x `div` negate y) <$> lo)
+                    ((\x -> x `div` negate y) <$> hi)
+
+intDivRange x (MultiRange (Inclusive lo) hi)
+  -- NB, rule out division-by-zero case
+  | 0 <= lo = intDivAux x (min 1 lo) (min 1 <$> hi)
+
+intDivRange x (MultiRange lo (Inclusive hi))
+  -- NB, rule out division-by-zero case
+  | hi <= 0 = negateRange (intDivAux x (min 1 (negate hi)) (min 1 . negate <$> lo))
+
+-- Unlike with real number range division, the ranges do not go all
+-- the way to infinity when the range contains 0.  Instead, the
+-- bounds have largest magnitute when the divisor is 1 or -1.
+-- If we have reached this case, the interval should contain both of these
+-- numbers, so the result is the original range joined with its negation.
+intDivRange x _ = joinRange x (negateRange x)
+
+
+-- Here we get to assume 'lo' and 'hi' are strictly positive
+intDivAux ::
+  ValueRange Integer ->
+  Integer -> ValueBound Integer ->
+  ValueRange Integer
+intDivAux x lo Unbounded = MultiRange lo' hi'
+  where
+  lo' = case rangeLowBound x of
+           Unbounded -> Unbounded
+           Inclusive z -> Inclusive (min 0 (div z lo))
+
+  hi' = case rangeHiBound x of
+           Unbounded   -> Unbounded
+           Inclusive z -> Inclusive (max (-1) (div z lo))
+
+intDivAux x lo (Inclusive hi) = MultiRange lo' hi'
+  where
+  lo' = case rangeLowBound x of
+           Unbounded -> Unbounded
+           Inclusive z -> Inclusive (min (div z hi) (div z lo))
+
+  hi' = case rangeHiBound x of
+           Unbounded   -> Unbounded
+           Inclusive z -> Inclusive (max (div z hi) (div z lo))
+
+intModRange :: ValueRange Integer -> ValueRange Integer -> NatValueRange
+intModRange (SingleRange x) (SingleRange y) = NatSingleRange (fromInteger (x `mod` abs y))
+intModRange (MultiRange (Inclusive lo) (Inclusive hi)) (SingleRange y)
+   | hi' - lo' == hi - lo = NatMultiRange (fromInteger lo') (Inclusive (fromInteger hi'))
+  where
+  lo' = lo `mod` abs y
+  hi' = hi `mod` abs y
+intModRange _ y = NatMultiRange 0 (pred <$> natRangeHigh (intAbsRange y))
+
+
+
 addRange :: Num tp => ValueRange tp -> ValueRange tp -> ValueRange tp
 addRange (SingleRange x) (SingleRange y) = SingleRange (x+y)
 addRange (SingleRange x) (MultiRange ly uy) = MultiRange ((x+) <$> ly) ((x+) <$> uy)
@@ -162,13 +248,17 @@ rangeIsInteger (MultiRange (Inclusive l) (Inclusive u))
   , denominator u /= 1 = Just False
 rangeIsInteger _ = Nothing
 
--- | Multiply two ranges together.
+-- | Multiply a range by a scalar value
 rangeScalarMul :: (Ord tp, Num tp) =>  tp -> ValueRange tp -> ValueRange tp
 rangeScalarMul x (SingleRange y) = SingleRange (x*y)
 rangeScalarMul x (MultiRange ly uy)
   | x <  0 = MultiRange ((x*) <$> uy) ((x*) <$> ly)
   | x == 0 = SingleRange 0
   | otherwise = assert (x > 0) $ MultiRange ((x*) <$> ly) ((x*) <$> uy)
+
+negateRange :: (Num tp) => ValueRange tp -> ValueRange tp
+negateRange (SingleRange x) = SingleRange (negate x)
+negateRange (MultiRange lo hi) = MultiRange (negate <$> hi) (negate <$> lo)
 
 -- | Multiply two ranges together.
 mulRange :: (Ord tp, Num tp) => ValueRange tp -> ValueRange tp -> ValueRange tp
@@ -370,20 +460,20 @@ absOr _ (Just True)  = Just True
 absOr Nothing Nothing = Nothing
 
 data NatValueRange
-  = NatSingleRange !Integer
-  | NatMultiRange !Integer !(ValueBound Integer)
+  = NatSingleRange !Natural
+  | NatMultiRange !Natural !(ValueBound Natural)
 
 asSingleNatRange :: NatValueRange -> Maybe Natural
-asSingleNatRange (NatSingleRange x) = Just (fromInteger x)
+asSingleNatRange (NatSingleRange x) = Just x
 asSingleNatRange _ = Nothing
 
-natRange :: Integer -> ValueBound Integer -> NatValueRange
+natRange :: Natural -> ValueBound Natural -> NatValueRange
 natRange x (Inclusive y)
   | x == y = NatSingleRange x
 natRange x y = NatMultiRange x y
 
 natSingleRange :: Natural -> NatValueRange
-natSingleRange = NatSingleRange . toInteger
+natSingleRange = NatSingleRange
 
 natRangeAdd :: NatValueRange -> NatValueRange -> NatValueRange
 natRangeAdd (NatSingleRange x)      (NatSingleRange y)      = NatSingleRange (x+y)
@@ -391,7 +481,7 @@ natRangeAdd (NatSingleRange x)      (NatMultiRange loy hiy) = NatMultiRange (x  
 natRangeAdd (NatMultiRange lox hix) (NatSingleRange y)      = NatMultiRange (lox + y)   ((+) <$> hix    <*> pure y)
 natRangeAdd (NatMultiRange lox hix) (NatMultiRange loy hiy) = NatMultiRange (lox + loy) ((+) <$> hix    <*> hiy)
 
-natRangeScalarMul :: Integer -> NatValueRange -> NatValueRange
+natRangeScalarMul :: Natural -> NatValueRange -> NatValueRange
 natRangeScalarMul x (NatSingleRange y) = NatSingleRange (x * y)
 natRangeScalarMul x (NatMultiRange lo hi) = NatMultiRange (x * lo) ((x*) <$> hi)
 
@@ -400,6 +490,16 @@ natRangeMul (NatSingleRange x) y = natRangeScalarMul x y
 natRangeMul x (NatSingleRange y) = natRangeScalarMul y x
 natRangeMul (NatMultiRange lox hix) (NatMultiRange loy hiy) =
     NatMultiRange (lox * loy) ((*) <$> hix <*> hiy)
+
+natRangeDiv :: NatValueRange -> NatValueRange -> NatValueRange
+natRangeDiv (NatSingleRange x) (NatSingleRange y) =
+  NatSingleRange (x `div` y)
+natRangeDiv (NatMultiRange lo hi) (NatSingleRange y) =
+  NatMultiRange (lo `div` y) ((`div` y) <$> hi)
+natRangeDiv x (NatMultiRange lo (Inclusive hi)) =
+  NatMultiRange (div (natRangeLow x) hi) ((`div` lo) <$> natRangeHigh x)
+natRangeDiv x (NatMultiRange lo Unbounded) =
+  NatMultiRange 0 ((`div` lo) <$> natRangeHigh x)
 
 -- | Compute the smallest range containing both ranges.
 natRangeJoin :: NatValueRange -> NatValueRange -> NatValueRange
@@ -411,11 +511,11 @@ natRangeJoin x y = NatMultiRange (min lx ly) (maxValueBound ux uy)
         ly = natRangeLow y
         uy = natRangeHigh y
 
-natRangeLow :: NatValueRange -> Integer
+natRangeLow :: NatValueRange -> Natural
 natRangeLow (NatSingleRange x) = x
 natRangeLow (NatMultiRange lx _) = lx
 
-natRangeHigh :: NatValueRange -> ValueBound Integer
+natRangeHigh :: NatValueRange -> ValueBound Natural
 natRangeHigh (NatSingleRange x) = Inclusive x
 natRangeHigh (NatMultiRange _ u) = u
 
@@ -463,9 +563,8 @@ natJoinRange x y = NatMultiRange (min lx ly) (maxValueBound ux uy)
     uy = natRangeHigh y
 
 natRangeToRange :: NatValueRange -> ValueRange Integer
-natRangeToRange (NatSingleRange x)  = SingleRange x
-natRangeToRange (NatMultiRange l u) = MultiRange (Inclusive l) u
-
+natRangeToRange (NatSingleRange x)  = SingleRange (toInteger x)
+natRangeToRange (NatMultiRange l u) = MultiRange (Inclusive (toInteger l)) (toInteger <$> u)
 
 
 -- | An abstract value represents a disjoint st of values.

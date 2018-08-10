@@ -3,8 +3,10 @@
 module Goal where
 
 import Control.Lens((^.))
-import Control.Monad(forM)
+import Control.Monad(forM, forM_)
 import Data.IORef
+import qualified Data.Sequence as Seq
+
 
 import What4.Interface (notPred, falsePred, Pred, printSymExpr,asConstantPred)
 import What4.ProgramLoc
@@ -34,7 +36,7 @@ type LPred sym   = LabeledPred (Pred sym)
 
 data ProvedGoals =
     AtLoc ProgramLoc (Maybe ProgramLoc) ProvedGoals
-  | Branch [ ProvedGoals ]
+  | Branch ProvedGoals ProvedGoals
   | Goal [(Maybe Int,AssumptionReason,String)]
          (SimError,String) Bool ProofResult
     -- ^ Keeps only the explanations for the relevant assumptions.
@@ -49,23 +51,27 @@ provedGoalsTree ::
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
-  Goals (Assumption sym) (Assertion sym, ProofResult) ->
-  IO ProvedGoals
-provedGoalsTree ctxt = go []
+  Maybe (Goals (Assumption sym) (Assertion sym, ProofResult)) ->
+  IO (Maybe ProvedGoals)
+provedGoalsTree ctxt = traverse (go [])
   where
   go asmps gs =
     case gs of
-      Assuming p gs1 ->
-        case p ^. labeledPredMsg of
-          ExploringAPath from to -> AtLoc from to <$> go (p : asmps) gs1
-          _                      -> go (p : asmps) gs1
+      Assuming ps gs1 -> goAsmp asmps ps gs1
+
       Prove (p,r) ->
         -- For simplicity we call `simpProved` even when the goal wasn't proved
         -- This shouldn't really matter, as we won't be able to simplify things
         do (as1,triv) <- simpProved ctxt asmps p
            return (Goal (map mkAsmp as1) (mkP p) triv r)
 
-      ProveAll gss -> Branch <$> mapM (go asmps) gss
+      ProveConj g1 g2 -> Branch <$> go asmps g1 <*> go asmps g2
+
+  goAsmp asmps Seq.Empty gs = go asmps gs
+  goAsmp asmps (ps Seq.:|> p) gs =
+        case p ^. labeledPredMsg of
+          ExploringAPath from to -> AtLoc from to <$> goAsmp (p : asmps) ps gs
+          _                      -> goAsmp (p : asmps) ps gs
 
   mkAsmp (n,a) = let (x,y) = mkP a
                  in (n,x,y)
@@ -76,11 +82,9 @@ provedGoalsTree ctxt = go []
 countGoals :: Goals a b -> Int
 countGoals gs =
   case gs of
-    Assuming _ gs1 -> countGoals gs1
-    Prove _        -> 1
-    ProveAll gs1   -> sum (map countGoals gs1)
-
-
+    Assuming _ gs1  -> countGoals gs1
+    Prove _         -> 1
+    ProveConj g1 g2 -> countGoals g1 + countGoals g2
 
 
 -- | Prove a collection of goals.  The result is a goal tree, where
@@ -90,9 +94,14 @@ proveGoals ::
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
-      Goals (LPred sym asmp) (LPred sym ast) ->
-  IO (Goals (LPred sym asmp) (LPred sym ast, ProofResult))
-proveGoals ctxt gs0 =
+  Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
+  IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult)))
+
+proveGoals _ctxt Nothing =
+  do sayOK "Crux" $ unwords [ "No goals to prove." ]
+     return Nothing
+
+proveGoals ctxt (Just gs0) =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
      goalNum <- newIORef (0,0) -- total, proved
@@ -100,20 +109,21 @@ proveGoals ctxt gs0 =
      (tot,proved) <- readIORef goalNum
      if proved /= tot
        then sayFail "Crux" $ unwords
-             [ "Failed to prove", show (tot - proved) 
+             [ "Failed to prove", show (tot - proved)
              , "out of", show tot, "side consitions." ]
        else sayOK "Crux" $ unwords [ "Proved all", show tot, "side conditions." ]
-     return res
+     return (Just res)
   where
   (start,end) = prepStatus "Checking: " (countGoals gs0)
 
   go sp gn gs =
     case gs of
 
-      Assuming p gs1 ->
-        do assumeFormula conn =<< mkFormula conn (p ^. labeledPred)
+      Assuming ps gs1 ->
+        do forM_ ps $ \p ->
+             assumeFormula conn =<< mkFormula conn (p ^. labeledPred)
            res <- go sp gn gs1
-           return (Assuming p res)
+           return (Assuming ps res)
 
       Prove p ->
         do num <- atomicModifyIORef' gn (\(val,y) -> ((val + 1,y), val))
@@ -136,9 +146,12 @@ proveGoals ctxt gs0 =
            end
            return ret
 
-      ProveAll xs ->
-        do ys <- mapM (inNewFrame conn . go sp gn) xs
-           return (ProveAll ys)
+      ProveConj g1 g2 ->
+        do g1' <- inNewFrame conn (go sp gn g1)
+           -- NB, we don't need 'inNewFrame' here because
+           --  we don't need to back up to this point again.
+           g2' <- go sp gn g2
+           return (ProveConj g1' g2')
 
     where
     conn = solverConn sp
@@ -207,9 +220,3 @@ simpProved ctxt asmps0 conc =
                        do assumeFormula conn =<< mkFormula conn aP
                           let lab = if n == next then Nothing else Just n
                           dropAsmps conn next ((lab,a) : keep) as g
-
-
-
-
-
-
