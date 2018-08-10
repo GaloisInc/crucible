@@ -79,7 +79,7 @@ assuming as g = Assuming as g
 -- | Construct a 'Goals' object from a collection of subgoals, all of
 --   which are to be proved.  This yields 'Nothing' if the collection
 --   of goals is empty, and otherwise builds a conjunction of all the
---   goals.
+--   goals.  Note that there is no new sharing in the resulting structure.
 proveAll :: Foldable t => t (Goals asmp goal) -> Maybe (Goals asmp goal)
 proveAll = foldr f Nothing
  where
@@ -88,7 +88,12 @@ proveAll = foldr f Nothing
 
 -- | Helper to conjoin two possibly trivial 'Goals' objects.
 goalsConj :: Maybe (Goals asmp goal) -> Maybe (Goals asmp goal) -> Maybe (Goals asmp goal)
-goalsConj x y = ProveConj <$> x <*> y
+goalsConj x y =
+  case x of
+    Nothing -> y
+    Just xg -> case y of
+                 Nothing -> x
+                 Just yg -> Just (ProveConj xg yg)
 
 -- | Render the tree of goals as a list instead, duplicating
 --   shared assumptions over each goal as necessary.
