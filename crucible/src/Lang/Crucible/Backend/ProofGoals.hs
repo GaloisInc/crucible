@@ -180,7 +180,7 @@ newtype FrameIdentifier = FrameIdentifier Word64
 --   the way.
 data GoalCollector asmp goal = GoalCollector
   { gcCurDone   :: !(Seq (Goals asmp goal))
-    -- ^ Siblings in the current context that are already build.
+    -- ^ Siblings in the current context that are already built.
 
   , gcCurAsmps  :: !(Seq asmp)
     -- ^ Assumptions for the child under construction.
@@ -189,7 +189,7 @@ data GoalCollector asmp goal = GoalCollector
   , gcIsPushFrame  :: !(Maybe FrameIdentifier)
     -- ^ Is this a frame that came from a "push" instruction.
     -- The @pop@ command will stop unwinding when it sees a frame
-    -- with this flag set to 'True'
+    -- with this set to 'Just'.
 
   , gcContext :: !(Maybe (GoalCollector asmp goal))
     -- ^ These are the goals and assumptions further up the tree from here.
