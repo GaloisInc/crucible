@@ -314,7 +314,7 @@ in that case we return:
 
     1. the fram to which we pop,
     2. the assumptions that were forgotten, and
-    3. the new state of the coll
+    3. the new state of the collector.
 
 If the result is 'Right', then we popped all the way to the top, and the
 result is the goal tree, or 'Nothing' if there were no goals. -}
