@@ -8,11 +8,13 @@ class Main {
     public static int foo() {
 	System.out.println(str);
 	return 3;
-    } 
-    
+    }
+
     public static int simmain() {
 
 	Integer x = Integer.valueOf(3);
+
+        System.out.println("The constant value is: " + x);
 	
 	System.out.println("hello" + "world");
 

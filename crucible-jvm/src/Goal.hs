@@ -101,7 +101,7 @@ proveGoals ctxt gs0 =
        then sayFail "Crux" $ unwords
              [ "Failed to prove", show (tot - proved) 
              , "out of", show tot, "side consitions." ]
-       else sayOK "Crux" $ unwords [ "Proved all", show tot, "side conditions." ]
+       else return () -- sayOK "Crux" $ unwords [ "Proved all", show tot, "side conditions." ]
      return res
   where
   (start,end) = prepStatus "Checking: " (countGoals gs0)

@@ -51,6 +51,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.String (fromString)
+import Data.List (isPrefixOf)
 
 import System.IO
 
@@ -103,6 +104,107 @@ import qualified Lang.JVM.Codebase as JCB
 
 import Debug.Trace
 
+-- * Special treatment of the Java standard library
+
+{- Overall, the system doesn't take a very principled approach to classes from 
+   Java's standard library that are referred to in the test cases.
+
+   The basic idea is that when we similate a Java method call, we first crawl
+   over the enclosing class and declare its static vars and dynamic methods
+   to the simulator. Because those classes could depend on others, we
+   do this step transitively, declaring any class that could be needed.
+
+   However, some of the classes that are implemented via native methods cannot
+   be parsed by the jvm-parser code. So, those classes cannot be traversed to
+   look for transitive mentions of other classes.
+
+   In that case, we need to define a set of "initClasses", i.e. or
+   baseline primitives. These classes we declare only, but we make no
+   guarantees that the classes that they refer to will also be
+   available. Most of the time, we will implement the functionality
+   from these classes via static or dynamic overrides. 
+
+-}
+
+
+-- | Classes that are always loaded into the initial
+-- environment. These classes rely on native code that cannot be
+-- parsed by jvm-parser. So instead of transitively loading these
+-- classes with the Main class, we always load them but load none of
+-- their dependencies. 
+initClasses :: [String]
+initClasses = ["java/lang/System",
+                "java/lang/Object",
+                "java/lang/String",
+                "java/lang/Integer",
+                "java/lang/Long",
+                "java/lang/Boolean",
+                "java/lang/Math",
+                "java/lang/Number",
+                "java/lang/Float",
+                "java/lang/Double",
+                "java/lang/String",
+                "java/io/PrintStream",
+                "java/io/FileOutputStream",
+                "java/io/OutputStream",
+                "java/io/ObjectStreamField",
+                "java/io/FilterOutputStream",
+                "java/lang/Runtime",
+                "java/lang/StringBuffer",
+                "java/lang/AbstractStringBuilder",
+                "java/lang/Throwable",
+                "java/lang/Class",
+                "java/lang/NullPointerException",
+                "java/lang/RuntimeException",
+                "java/lang/Exception",
+                "java/lang/Thread",
+                "sun/misc/FloatingDecimal"
+              ]
+
+-- | Class references that we shouldn't include in the transitive closure
+--   of class references. 
+exclude :: J.ClassName -> Bool
+exclude cn = (J.unClassName cn) `elem` initClasses
+          || ("["          `isPrefixOf` J.unClassName cn)
+          || ("java/nio/" `isPrefixOf` J.unClassName cn)
+          || ("java/awt/" `isPrefixOf` J.unClassName cn)
+          || ("java/io/" `isPrefixOf` J.unClassName cn)
+          || ("java/time/" `isPrefixOf` J.unClassName cn)
+          || ("sun/"       `isPrefixOf` J.unClassName cn)
+          || ("java/security/" `isPrefixOf` J.unClassName cn)
+          || ("java/text/"     `isPrefixOf` J.unClassName cn)
+          || ("java/lang/reflect/"     `isPrefixOf` J.unClassName cn)
+          || ("java/lang/ref/" `isPrefixOf` J.unClassName cn)
+          || ("java/net/"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/System"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/Thread"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/CharSequence"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/ClassLoader"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/Character"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/ConditionalSpecialCasing"  `isPrefixOf` J.unClassName cn)
+          || cn `elem`
+           [   J.mkClassName "java/lang/Object"
+             , J.mkClassName "java/lang/String"
+             , J.mkClassName "java/lang/Class"
+             , J.mkClassName "java/lang/Package"
+             , J.mkClassName "java/lang/SecurityManager"
+             , J.mkClassName "java/lang/Shutdown"
+             , J.mkClassName "java/lang/Process"
+             , J.mkClassName "java/util/Arrays"
+--             , J.mkClassName "java/lang/Runtime"
+             , J.mkClassName "java/lang/RuntimePermission"
+             , J.mkClassName "java/lang/StackTraceElement"
+             , J.mkClassName "java/lang/ProcessEnvironment"
+             , J.mkClassName "java/lang/ProcessBuilder"
+             , J.mkClassName "java/lang/Thread"
+             , J.mkClassName "java/lang/ThreadLocal"
+             , J.mkClassName "java/lang/ApplicationShutdownHooks"
+             , J.mkClassName "java/lang/invoke/SerializedLambda"
+             , J.mkClassName "java/lang/System$2"
+--             , J.mkClassName "java/lang/StringBuilder"
+             , J.mkClassName "java/lang/Integer"
+           ]
+
 
 instance Num (JVMInt s) where
   n1 + n2 = App (BVAdd w32 n1 n2)
@@ -153,7 +255,14 @@ staticOverrides className methodKey
                         -- i++;
                         modifyReg iReg (1 +)
                         )
-
+  | className == "java/lang/System" && J.methodKeyName methodKey == "exit"
+  = Just $ do _status <- iPop
+              -- TODO: figure out how to exit the simulator
+              -- let codeStr = "unknown exit code"
+              -- _ <- lift $ returnFromFunction (App EmptyApp)
+              -- (App $ TextLit (fromString $ "java.lang.System.exit(int status) called with " ++ codeStr))
+              return ()
+      
   --
   -- Do nothing for registering native state
   --
@@ -992,7 +1101,7 @@ generateInstruction (pc, instr) =
          iPush ib
     J.Instanceof _tp ->
          -- TODO -- ArrayType
-         sgUnimplemented "instanceof" -- objectRef `instanceOf` tp
+         sgUnimplemented "instanceof for array type" -- objectRef `instanceOf` tp
     J.Monitorenter ->
       do void rPop
     J.Monitorexit ->
@@ -1357,6 +1466,7 @@ data MethodTranslation = forall args ret. MethodTranslation
    , methodCCFG   :: C.SomeCFG JVM args ret
    }
 
+{-
 data ClassTranslation =
   ClassTranslation
   { cfgMap        :: Map (J.ClassName,J.MethodKey) MethodTranslation
@@ -1383,6 +1493,7 @@ instance Semigroup JVMTranslation where
                , transContext = transContext j1 <> transContext j2
                }
 
+-}
 
 -----------------------------------------------------------------------------
 -- * Class declarations
@@ -1441,15 +1552,7 @@ mkInitialJVMContext halloc cb = do
   gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
                                 (knownRepr :: TypeRepr JVMClassTableType)
         
-  classes <- mapM (findClass cb) ["java/lang/System",
-                                  "java/lang/Object",
-                                  "java/lang/String",
-                                  "java/lang/Integer",
-                                  "java/lang/Boolean",
-                                  "java/lang/Math",
-                                  "java/lang/Number",
-                                  "java/lang/String",
-                                  "java/io/PrintStream" ]
+  classes <- mapM (findClass cb) initClasses 
 
   stToIO $ execStateT
              (mapM_ (extendJVMContext halloc) classes)
@@ -1579,7 +1682,7 @@ mkDelayedBinding ctx c m (JVMHandleInfo _mk (handle :: FnHandle args ret))
         retRepr      = handleReturnType handle
         
         overrideSim :: C.OverrideSim p sym JVM r args ret (C.RegValue sym ret)
-        overrideSim  = do whenVerbosity (> 0) $
+        overrideSim  = do whenVerbosity (const False) $
                             do liftIO $ putStrLn $ "translating (delayed) " ++ cm
                           args <- C.getOverrideArgs
                           C.SomeCFG cfg <- liftST $ translateMethod' ctx (J.className c) m handle
@@ -1589,6 +1692,26 @@ mkDelayedBinding ctx c m (JVMHandleInfo _mk (handle :: FnHandle args ret))
     in
       C.FnBinding handle (C.UseOverride (C.mkOverride' fn retRepr overrideSim))
 
+
+--------------------------------------------------------------------------------
+
+
+
+findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
+findAllRefs cb cls = do
+  names <- go (Set.singleton cls) 
+  mapM (lookupClass cb) names
+  where
+    go :: Set.Set J.ClassName -> IO [J.ClassName]
+    go curr = do
+      (currClasses :: [J.Class]) <- traverse (lookupClass cb) (Set.toList curr)
+      let newRefs = fmap classRefs currClasses
+      let noExclude = Set.filter (not . exclude) (Set.unions newRefs)
+      let allNew  = Set.union curr noExclude
+      traceM $ "Curr refs: " ++ show allNew
+      if curr == allNew
+        then return (Set.toList curr)
+        else go allNew 
 
 --------------------------------------------------------------------------------
 
@@ -1620,26 +1743,34 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      when (not (J.methodIsStatic meth)) $ do
        fail $ unlines [ "Crucible can only extract static methods" ]
 
+  
+     allClasses <- findAllRefs cb (J.className mcls)
 
      halloc <- newHandleAllocator
 
      ctx0 <- mkInitialJVMContext halloc cb
 
      -- declare this class
-     ctx <- stToIO $ execStateT (extendJVMContext halloc mcls) ctx0
+     ctx <- stToIO $ execStateT (extendJVMContext halloc mcls >>
+                                 mapM (extendJVMContext halloc) allClasses) ctx0
+
 
      (JVMHandleInfo _ h) <- findMethodHandle ctx mcls meth
 
      Refl <- failIfNotEqual (handleArgTypes h)   (knownRepr :: CtxRepr args)
+       $ "Checking args for method " ++ mname
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
+       $ "Checking return type for method " ++ mname
             
      runMethodHandle sym p halloc ctx (J.className mcls) h args
 
 
-failIfNotEqual :: forall f m a (b :: k). (Monad m, Show (f a), Show (f b), TestEquality f) => f a -> f b -> m (a :~: b)
-failIfNotEqual r1 r2
+failIfNotEqual :: forall f m a (b :: k).
+                  (Monad m, Show (f a),
+                    Show (f b), TestEquality f) => f a -> f b -> String -> m (a :~: b)
+failIfNotEqual r1 r2 str
   | Just Refl <- testEquality r1 r2 = return Refl
-  | otherwise = fail $ "mismatch between" ++ show r1 ++ " and " ++ show r2 
+  | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2 
 
 
 -- 

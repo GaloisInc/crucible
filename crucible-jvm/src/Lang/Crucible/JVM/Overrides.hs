@@ -233,7 +233,7 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
 
   jvmToFunHandleRepr cn isStatic mk  $ \derivedArgs derivedRet -> do
     o <- lift $ build_jvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet (def sym)
-    traceM $ "installing override for " ++ show fnm
+    -- traceM $ "installing override for " ++ show fnm
     case Map.lookup (cn,mk) (methodHandles jvmctx) of
       Just (JVMHandleInfo _mkey h) -> do
         case testEquality (handleArgTypes h) derivedArgs of

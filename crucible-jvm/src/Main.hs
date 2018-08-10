@@ -56,10 +56,12 @@ import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.RegMap
 
+
 -- crucible/what4
 import What4.ProgramLoc
 import qualified What4.Config as W4
 import qualified What4.Interface as W4
+import qualified What4.Partial as W4
 
 -- jvm-verifier
 import qualified Language.JVM.Common as J
@@ -106,7 +108,7 @@ main = do
 -- | simulate the "main" method in the given class
 checkClass :: Options -> String -> IO ()
 checkClass opts classname =
-  do say "Crux" ("Checking " ++ show classname)
+  do -- say "Crux" ("Checking " ++ show classname)
      res <- simulate opts classname
      ---generateReport opts res
      makeCounterExamples opts res
@@ -147,24 +149,33 @@ simulate opts cname =
 
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
 
-     let mname = "simmain"
+     let mname = "main"
 
      frm <- pushAssumptionFrame sym
 
      let personality = emptyModel
+
+     -- create a null array of strings for `args`
+     -- TODO: figure out how to allocate an empty array
+     let nullstr = RegEntry refRepr W4.Unassigned
+     let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
      
-     res <- executeCrucibleJVM @JVMIntType cb (simVerbose opts) sym personality cname mname emptyRegMap
+     res <- executeCrucibleJVM @UnitType cb (simVerbose opts) sym
+       personality cname mname regmap
            
      _ <- popAssumptionFrame sym frm
           
      ctx' <- case res of
                FinishedResult ctx' pr -> do
-                 gp <- getGlobalPair pr
-                 putStrLn (showInt J.IntType (regValue (gp ^. gpValue)))
+                 -- The 'main' method returns void, so there is no need
+                 -- to look at the result. However, if it does return an answer
+                 -- then we can look at it with this code:
+                 -- gp <- getGlobalPair pr
+                 -- putStrLn (showInt J.IntType (regValue (gp ^. gpValue)))
                  return ctx'
                AbortedResult ctx' _  -> return ctx'
       
-     say "Crux" "Simulation complete."
+     --say "Crux" "Simulation complete."
       
      provedGoalsTree ctx'
        =<< proveGoals ctx'
