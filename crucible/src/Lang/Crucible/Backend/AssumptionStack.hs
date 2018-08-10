@@ -37,6 +37,7 @@ module Lang.Crucible.Backend.AssumptionStack
     -- ** Basic data types
   , FrameIdentifier
   , AssumptionFrame(..)
+  , AssumptionFrames(..)
   , AssumptionStack(..)
     -- ** Manipulating assumption stacks
   , initAssumptionStack
@@ -126,10 +127,9 @@ data AssumptionStack pred assumeMsg assertMsg =
 
 allAssumptionFrames ::
   AssumptionStack pred assumeMsg assertMsg ->
-  IO (Seq (LabeledPred pred assumeMsg), Seq (FrameIdentifier, Seq (LabeledPred pred assumeMsg)))
+  IO (AssumptionFrames (LabeledPred pred assumeMsg))
 allAssumptionFrames stk =
   gcFrames <$> readIORef (proofObligations stk)
-
 
 -- | Produce a fresh assumption stack.
 initAssumptionStack ::
@@ -222,7 +222,7 @@ collectAssumptions ::
   AssumptionStack pred assumeMsg assertMsg ->
   IO (Seq (LabeledPred pred assumeMsg))
 collectAssumptions stk =
-  do (base,  frms) <- gcFrames <$> readIORef (proofObligations stk)
+  do AssumptionFrames base frms <- gcFrames <$> readIORef (proofObligations stk)
      return (base <> F.asum (fmap snd frms))
 
 -- | Retrieve the current collection of proof obligations.

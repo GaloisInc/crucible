@@ -864,6 +864,9 @@ instance IsBoolSolver (SAWCoreBackend n) where
     ps <- AS.collectAssumptions stk
     andAllOf sym (folded.labeledPred) ps
 
+  collectAssumptions sym =
+    AS.collectAssumptions =<< getAssumptionStack sym
+
   evalBranch sym p0 =
     case asConstantPred p0 of
       Just True  -> return $! NoBranch True
