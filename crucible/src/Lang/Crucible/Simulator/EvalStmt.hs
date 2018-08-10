@@ -206,7 +206,7 @@ stepStmt verb stmt rest =
      let continueWith :: forall rtp' blocks' r' c f a.
            (SimState p sym ext rtp' f a -> SimState p sym ext rtp' (CrucibleLang blocks' r') ('Just c)) ->
            ExecCont p sym ext rtp' f a
-         continueWith f = withReaderT f (stepBasicBlock verb)
+         continueWith f = withReaderT f (checkConsTerm verb)
 
      case stmt of
        NewRefCell tpr x ->
@@ -427,6 +427,18 @@ stepTerm _ (ErrorStmt msg) =
                       $ GenericSimError $ show (printSymExpr msg')
 
 
+-- | Checks whether the StmtSeq is a Cons or a Term,
+--   to give callers another chance to jump into Crucible's control flow
+checkConsTerm ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  Int {- ^ Current verbosity -} ->
+  ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
+checkConsTerm verb =
+     do cf <- view stateCrucibleFrame
+
+        case cf^.frameStmts of
+          ConsStmt _ _ _ -> stepBasicBlock verb
+          TermStmt _ _ -> continue
 
 -- | Main evaluation operation for running a single step of
 --   basic block evalaution.
