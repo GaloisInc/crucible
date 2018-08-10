@@ -196,6 +196,8 @@ class IsBoolSolver sym where
   --   of all the assumptions currently in scope.
   getPathCondition :: sym -> IO (Pred sym)
 
+  collectAssumptions :: sym -> IO (Seq (Assumption sym))
+
   -- | Add a new proof obligation to the system.
   -- The proof may use the current path condition and assumptions.
   -- Note that this *DOES NOT* add the goal as an assumption.

@@ -80,6 +80,9 @@ instance IsBoolSolver (SimpleBackend t) where
     stk <- getAssumptionStack sym
     AS.appendAssumptions ps stk
 
+  collectAssumptions sym =
+    AS.collectAssumptions =<< getAssumptionStack sym
+
   getPathCondition sym = do
     stk <- getAssumptionStack sym
     ps <- AS.collectAssumptions stk
