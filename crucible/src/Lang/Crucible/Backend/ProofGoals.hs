@@ -307,8 +307,18 @@ gcAssume a gc = gc { gcCurAsmps = gcCurAsmps gc Seq.|> a }
 gcAddAssumes :: Seq asmp -> GoalCollector asmp goal -> GoalCollector asmp goal
 gcAddAssumes as gc = gc { gcCurAsmps = gcCurAsmps gc <> as }
 
--- | Pop to the last push, or all the way to the top,
--- if there were no more pushed.
+{- | Pop to the last push, or all the way to the top,
+if there were no more pushes.
+If the result is 'Left', then we popped until an explicitly marked push;
+in that case we return:
+
+    1. the fram to which we pop,
+    2. the assumptions that were forgotten, and
+    3. the new state of the coll
+
+If the result is 'Right', then we popped all the way to the top, and the
+result is the goal tree, or 'Nothing' if there were no goals. -}
+
 gcPop ::
   GoalCollector asmp goal ->
   Either (FrameIdentifier, Seq asmp, GoalCollector asmp goal)
@@ -334,7 +344,8 @@ gcPop = go Nothing mempty
                , newAs
                , case newHole of
                     Nothing -> prev
-                    Just p  -> prev { gcCurDone = gcCurDone prev Seq.|> p }
+                    Just p  -> prev { gcCurDone = gcCurDone prev Seq.|>
+                                                  assuming (gcCurAsmps gc) p }
                )
 
          -- Keep unwinding, using the newly constructed child.
