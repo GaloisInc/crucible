@@ -340,11 +340,19 @@ gcPop = go Nothing mempty
       Just prev
         | Just frmid <- gcIsPushFrame gc ->
           -- This was a push frame, so we should stop right here.
+          -- We still keep a frame (although not a push one anymore),
+          -- so that the assumptions from `prev` are still in scope
           Left ( frmid
                , newAs
                , case newHole of
                     Nothing -> prev
-                    Just p  -> prev { gcCurDone = gcCurDone prev Seq.|> p }
+                    Just p  ->
+                      GoalCollector
+                        { gcCurDone = Seq.singleton p
+                        , gcCurAsmps = mempty
+                        , gcIsPushFrame = Nothing
+                        , gcContext = Just prev
+                        }
                )
 
          -- Keep unwinding, using the newly constructed child.
