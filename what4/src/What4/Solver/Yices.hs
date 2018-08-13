@@ -260,6 +260,52 @@ instance SupportTermOps (Term (Connection s)) where
 
   lambdaTerm = Just yicesLambda
 
+
+  floatPZero _ = floatFail
+  floatNZero _ = floatFail
+  floatNaN   _ = floatFail
+  floatPInf  _ = floatFail
+  floatNInf  _ = floatFail
+
+  floatNeg  _   = floatFail
+  floatAbs  _   = floatFail
+  floatSqrt _ _ = floatFail
+
+  floatAdd _ _ _ = floatFail
+  floatSub _ _ _ = floatFail
+  floatMul _ _ _ = floatFail
+  floatDiv _ _ _ = floatFail
+  floatRem _ _   = floatFail
+  floatMin _ _   = floatFail
+  floatMax _ _   = floatFail
+
+  floatFMA _ _ _ _ = floatFail
+
+  floatEq   _ _ = floatFail
+  floatFpEq _ _ = floatFail
+  floatLe   _ _ = floatFail
+  floatLt   _ _ = floatFail
+
+  floatIsNaN     _ = floatFail
+  floatIsInf     _ = floatFail
+  floatIsZero    _ = floatFail
+  floatIsPos     _ = floatFail
+  floatIsNeg     _ = floatFail
+  floatIsSubnorm _ = floatFail
+  floatIsNorm    _ = floatFail
+
+  floatCast       _ _ _ = floatFail
+  floatFromBinary _ _   = floatFail
+  bvToFloat       _ _ _ = floatFail
+  sbvToFloat      _ _ _ = floatFail
+  realToFloat     _ _ _ = floatFail
+  floatToBV       _ _ _ = floatFail
+  floatToSBV      _ _ _ = floatFail
+  floatToReal     _ = floatFail
+
+floatFail :: a
+floatFail = error "Yices does not support IEEE-754 floating-point numbers"
+
 errorComputableUnsupported :: a
 errorComputableUnsupported = error "computable functions are not supported."
 
@@ -282,6 +328,7 @@ yicesType tp =
     SMT_ArrayType i e   -> fnType i e
     SMT_StructType flds -> YicesType (app "tuple" ((unType . yicesType <$> flds)))
     SMT_FnType flds res -> fnType flds res
+    SMT_FloatType _     -> floatFail
 
 ------------------------------------------------------------------------
 -- Command
@@ -362,6 +409,7 @@ instance SMTReadWriter (Connection s) where
     SMTEvalFunctions { smtEvalBool    = yicesEvalBool conn resp
                      , smtEvalBV      = \w -> yicesEvalBV w conn resp
                      , smtEvalReal    = yicesEvalReal conn resp
+                     , smtEvalFloat   = fail "Yices does not support floats."
                      , smtEvalBvArray = Nothing
                      }
 
@@ -387,7 +435,7 @@ yicesShutdownSolver p =
           fail $ "yices exited with unexpected code " ++ show exit_code ++ "\n"
               ++ LazyText.unpack txt
 
-yicesStartSolver :: B.ExprBuilder s st -> IO (SolverProcess s (Connection s))
+yicesStartSolver :: B.ExprBuilder s st fs -> IO (SolverProcess s (Connection s))
 yicesStartSolver sym = do
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
@@ -720,9 +768,9 @@ checkSupportedByYices p = do
   return $! varInfo^.problemFeatures
 
 -- | Write a yices file that checks the satisfiability of the given predicate.
-writeYicesFile :: B.ExprBuilder t st -- ^ Builder for getting current bindings.
-               -> FilePath           -- ^ Path to file
-               -> B.BoolExpr t       -- ^ Predicate to check
+writeYicesFile :: B.ExprBuilder t st fs -- ^ Builder for getting current bindings.
+               -> FilePath              -- ^ Path to file
+               -> B.BoolExpr t          -- ^ Predicate to check
                -> IO ()
 writeYicesFile sym path p = do
   withFile path WriteMode $ \h -> do
@@ -744,7 +792,7 @@ writeYicesFile sym path p = do
     sendShowModel c
 
 -- | Run writer and get a yices result.
-runYicesInOverride :: B.ExprBuilder t st
+runYicesInOverride :: B.ExprBuilder t st fs
                    -> (Int -> String -> IO ())
                    -> B.BoolExpr t
                    -> (SatResult (GroundEvalFn t) -> IO a)

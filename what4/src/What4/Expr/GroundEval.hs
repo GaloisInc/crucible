@@ -66,6 +66,7 @@ type family GroundValue (tp :: BaseType) where
   GroundValue BaseIntegerType       = Integer
   GroundValue BaseRealType          = Rational
   GroundValue (BaseBVType w)        = Integer
+  GroundValue (BaseFloatType fpp)   = Integer
   GroundValue BaseComplexType       = Complex Rational
   GroundValue BaseStringType        = Text
   GroundValue (BaseArrayType idx b) = GroundArray idx b
@@ -124,6 +125,7 @@ defaultValueForType tp =
     BaseStringRepr  -> mempty
     BaseArrayRepr _ b -> ArrayConcrete (defaultValueForType b) Map.empty
     BaseStructRepr ctx -> fmapFC (GVW . defaultValueForType) ctx
+    BaseFloatRepr _ -> 0
 
 {-# INLINABLE evalGroundExpr #-}
 -- | Helper function for evaluating @Expr@ expressions in a model.
@@ -340,6 +342,46 @@ evalGroundApp f0 a0 = do
     BVBitAnd _ x y -> lift $ (.&.) <$> f0 x <*> f0 y
     BVBitOr  _ x y -> lift $ (.|.) <$> f0 x <*> f0 y
     BVBitXor _ x y -> lift $ xor <$> f0 x <*> f0 y
+
+    ------------------------------------------------------------------------
+    -- Bitvector Operations
+    FloatPZero{}      -> MaybeT $ return Nothing
+    FloatNZero{}      -> MaybeT $ return Nothing
+    FloatNaN{}        -> MaybeT $ return Nothing
+    FloatPInf{}       -> MaybeT $ return Nothing
+    FloatNInf{}       -> MaybeT $ return Nothing
+    FloatNeg{}        -> MaybeT $ return Nothing
+    FloatAbs{}        -> MaybeT $ return Nothing
+    FloatSqrt{}       -> MaybeT $ return Nothing
+    FloatAdd{}        -> MaybeT $ return Nothing
+    FloatSub{}        -> MaybeT $ return Nothing
+    FloatMul{}        -> MaybeT $ return Nothing
+    FloatDiv{}        -> MaybeT $ return Nothing
+    FloatRem{}        -> MaybeT $ return Nothing
+    FloatMin{}        -> MaybeT $ return Nothing
+    FloatMax{}        -> MaybeT $ return Nothing
+    FloatFMA{}        -> MaybeT $ return Nothing
+    FloatEq{}         -> MaybeT $ return Nothing
+    FloatFpEq{}       -> MaybeT $ return Nothing
+    FloatFpNe{}       -> MaybeT $ return Nothing
+    FloatLe{}         -> MaybeT $ return Nothing
+    FloatLt{}         -> MaybeT $ return Nothing
+    FloatIsNaN{}      -> MaybeT $ return Nothing
+    FloatIsInf{}      -> MaybeT $ return Nothing
+    FloatIsZero{}     -> MaybeT $ return Nothing
+    FloatIsPos{}      -> MaybeT $ return Nothing
+    FloatIsNeg{}      -> MaybeT $ return Nothing
+    FloatIsSubnorm{}  -> MaybeT $ return Nothing
+    FloatIsNorm{}     -> MaybeT $ return Nothing
+    FloatIte{}        -> MaybeT $ return Nothing
+    FloatCast{}       -> MaybeT $ return Nothing
+    FloatFromBinary{} -> MaybeT $ return Nothing
+    BVToFloat{}       -> MaybeT $ return Nothing
+    SBVToFloat{}      -> MaybeT $ return Nothing
+    RealToFloat{}     -> MaybeT $ return Nothing
+    FloatToBV{}       -> MaybeT $ return Nothing
+    FloatToSBV{}      -> MaybeT $ return Nothing
+    FloatToReal{}     -> MaybeT $ return Nothing
 
     ------------------------------------------------------------------------
     -- Array Operations

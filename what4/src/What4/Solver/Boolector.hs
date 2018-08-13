@@ -78,7 +78,7 @@ boolectorAdapter =
 instance SMT2.SMTLib2Tweaks Boolector where
   smtlib2tweaks = Boolector
 
-runBoolectorInOverride :: ExprBuilder t st
+runBoolectorInOverride :: ExprBuilder t st fs
                        -> (Int -> String -> IO ())
                        -> BoolExpr t
                        -> IO (SatResult (GroundEvalFn t))
@@ -160,9 +160,11 @@ parseBoolectorOutput c out_lines =
       let evalBool tm = lookupBoolectorVar m boolectorBoolValue (Builder.toLazyText (renderTerm tm))
       let evalBV w tm = lookupBoolectorVar m (boolectorBVValue w) (Builder.toLazyText (renderTerm tm))
       let evalReal _ = fail "Boolector does not support real variables."
+      let evalFloat _ = fail "Boolector does not support floats."
       let evalFns = SMTEvalFunctions { smtEvalBool = evalBool
                                      , smtEvalBV = evalBV
                                      , smtEvalReal = evalReal
+                                     , smtEvalFloat = evalFloat
                                      , smtEvalBvArray = Nothing
                                      }
       Sat <$> smtExprGroundEvalFn c evalFns

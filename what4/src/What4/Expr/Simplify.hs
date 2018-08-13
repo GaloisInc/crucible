@@ -32,12 +32,12 @@ import           What4.Expr.Builder
 ------------------------------------------------------------------------
 -- simplify
 
-data NormCache t st
-   = NormCache { ncBuilder :: !(ExprBuilder t st)
+data NormCache t st fs
+   = NormCache { ncBuilder :: !(ExprBuilder t st fs)
                , ncTable :: !(PH.HashTable RealWorld (Expr t) (Expr t))
                }
 
-norm :: NormCache t st -> Expr t tp -> IO (Expr t tp)
+norm :: NormCache t st fs -> Expr t tp -> IO (Expr t tp)
 norm c e = do
   mr <- stToIO $ PH.lookup (ncTable c) e
   case mr of
@@ -57,7 +57,7 @@ bvIteDist muxFn (asApp -> Just (BVIte _ _ c t f)) atomFn = do
   muxFn c t' f'
 bvIteDist _ u atomFn = atomFn u
 
-norm' :: forall t st tp . NormCache t st -> Expr t tp -> IO (Expr t tp)
+norm' :: forall t st fs tp . NormCache t st fs -> Expr t tp -> IO (Expr t tp)
 norm' nc (AppExpr a0) = do
   let sb = ncBuilder nc
   case appExprApp a0 of
@@ -102,7 +102,7 @@ norm' nc (NonceAppExpr p0) = do
 norm' _ e = return e
 
 -- | Simplify a Boolean expression by distributing over ite.
-simplify :: ExprBuilder t st -> BoolExpr t -> IO (BoolExpr t)
+simplify :: ExprBuilder t st fs -> BoolExpr t -> IO (BoolExpr t)
 simplify sb p = do
   tbl <- stToIO $ PH.new
   let nc = NormCache { ncBuilder = sb

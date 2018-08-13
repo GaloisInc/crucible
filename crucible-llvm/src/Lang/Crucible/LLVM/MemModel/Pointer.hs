@@ -9,6 +9,7 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -19,6 +20,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -107,6 +109,7 @@ import           Data.Word (Word64)
 import           Numeric.Natural
 
 import           What4.Interface
+import           What4.InterpretedFloatingPoint
 import           What4.Partial
 
 import           Lang.Crucible.Backend
@@ -183,10 +186,16 @@ data AddrDecomposeResult sym w
   | SymbolicOffset Natural (SymBV sym w) -- ^ A pointer with a concrete base value, but symbolic offset
   | ConcreteOffset Natural Integer       -- ^ A totally concrete pointer value
 
-data FloatSize
-  = SingleSize
-  | DoubleSize
- deriving (Eq,Ord,Show)
+data FloatSize (fi :: FloatInfo) where
+  SingleSize :: FloatSize SingleFloat
+  DoubleSize :: FloatSize DoubleFloat
+deriving instance Eq (FloatSize fi)
+deriving instance Ord (FloatSize fi)
+deriving instance Show (FloatSize fi)
+instance TestEquality FloatSize where
+  testEquality SingleSize SingleSize = Just Refl
+  testEquality DoubleSize DoubleSize = Just Refl
+  testEquality _ _ = Nothing
 
 -- | This datatype describes the variety of values that can be stored in
 --   the LLVM heap.
@@ -198,15 +207,15 @@ data LLVMVal sym where
   -- numbers correspond to pointer values, where the 'SymBV' value is an
   -- offset from the base pointer of the allocation.
   LLVMValInt :: (1 <= w) => SymNat sym -> SymBV sym w -> LLVMVal sym
-  LLVMValReal :: FloatSize -> SymReal sym -> LLVMVal sym
+  LLVMValFloat :: FloatSize fi -> SymInterpretedFloat sym fi -> LLVMVal sym
   LLVMValStruct :: Vector (G.Field G.Type, LLVMVal sym) -> LLVMVal sym
   LLVMValArray :: G.Type -> Vector (LLVMVal sym) -> LLVMVal sym
 
 llvmValStorableType :: IsExprBuilder sym => LLVMVal sym -> G.Type
 llvmValStorableType v = case v of
   LLVMValInt _ bv -> G.bitvectorType (G.bitsToBytes (natValue (bvWidth bv)))
-  LLVMValReal SingleSize _ -> G.floatType
-  LLVMValReal DoubleSize _ -> G.doubleType
+  LLVMValFloat SingleSize _ -> G.floatType
+  LLVMValFloat DoubleSize _ -> G.doubleType
   LLVMValStruct fs -> G.structType (fmap fst fs)
   LLVMValArray tp vs -> G.arrayType (fromIntegral (V.length vs)) tp
 
@@ -516,9 +525,9 @@ muxLLVMVal sym = mergePartial sym muxval
            off  <- liftIO $ bvIte sym cond off1 off2
            return $ LLVMValInt base off
 
-    muxval cond (LLVMValReal xsz x) (LLVMValReal ysz y) | xsz == ysz =
-      do z <- liftIO $ realIte sym cond x y
-         return $ LLVMValReal xsz z
+    muxval cond (LLVMValFloat (xsz :: FloatSize fi) x) (LLVMValFloat ysz y)
+      | Just Refl <- testEquality xsz ysz
+      = LLVMValFloat xsz <$> (liftIO $ iFloatIte @_ @fi sym cond x y)
 
     muxval cond (LLVMValStruct fls1) (LLVMValStruct fls2)
       | fmap fst fls1 == fmap fst fls2 = do

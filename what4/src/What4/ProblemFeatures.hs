@@ -23,6 +23,7 @@ module What4.ProblemFeatures
   , useComplexArithmetic
   , useStructs
   , useStrings
+  , useFloatingPoint
   , hasProblemFeature
   ) where
 
@@ -46,6 +47,7 @@ newtype ProblemFeatures = ProblemFeatures Word64
 --  7 : Uses symbolic arrays or complex numbers.
 --  8 : Uses structs
 --  9 : Uses strings
+-- 10 : Uses floating-point
 
 noFeatures :: ProblemFeatures
 noFeatures = ProblemFeatures 0
@@ -101,6 +103,12 @@ useStructs = ProblemFeatures 0x280
 --   Strings have some symbolic support in CVC4 and Z3.
 useStrings :: ProblemFeatures
 useStrings = ProblemFeatures 0x200
+
+-- | Indicates whether the problem uses floating-point
+--
+--   Floating-point has some symbolic support in CVC4 and Z3.
+useFloatingPoint :: ProblemFeatures
+useFloatingPoint = ProblemFeatures 0x400
 
 hasProblemFeature :: ProblemFeatures -> ProblemFeatures -> Bool
 hasProblemFeature x y = (x .&. y) == y

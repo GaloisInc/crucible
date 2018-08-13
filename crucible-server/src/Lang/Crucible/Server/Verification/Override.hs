@@ -29,6 +29,7 @@ module Lang.Crucible.Server.Verification.Override
 
     -- * Low-level interface
   , N
+  , SAWBack
   , Subst
   , SubstTerm(..)
   , termToSubstTerm
@@ -60,6 +61,7 @@ import qualified Cryptol.TypeCheck.AST as CT
 import qualified Cryptol.Utils.PP as PP
 
 import           What4.Interface
+import           What4.Expr.Builder (Flags, FloatReal)
 import           What4.FunctionName
 import           What4.Partial
 import           What4.WordMap
@@ -112,7 +114,7 @@ verifFnRepr rw w = FunctionHandleRepr (verifStateRepr rw w) (StructRepr (verifSt
 --   and register file width are fixed by the given NatReprs.
 verificationHarnessOverrideHandle ::
   (1 <= w, 1 <= rw) =>
-  Simulator p (SAW.SAWCoreBackend n) ->
+  Simulator p (SAW.SAWCoreBackend n (Flags FloatReal)) ->
   NatRepr rw ->
   NatRepr w ->
   CryptolEnv ->
@@ -125,20 +127,20 @@ verificationHarnessOverrideHandle sim rw w cryEnv harness =
            (mkOverride' nm (StructRepr (verifStateRepr rw w))
               (verificationHarnessOverride sim rw w sc cryEnv harness))
 
-type N p n r args ret a =
-   OverrideSim p (SAW.SAWCoreBackend n) () r args ret a
+type SAWBack n = SAW.SAWCoreBackend n (Flags FloatReal)
+type N p n r args ret a = OverrideSim p (SAWBack n) () r args ret a
 
 -- | Define the behavior of a verification override.  First, bind the values of all the
 --   verification harness variables from the prestate.
 verificationHarnessOverride ::
    (1 <= w, 1 <= rw) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
+   Simulator p (SAWBack n) ->
    NatRepr rw ->
    NatRepr w ->
    SharedContext ->
    CryptolEnv ->
    ProcessedHarness ->
-   N p n r (VerifState rw w) ret (RegValue (SAW.SAWCoreBackend n) (StructType (VerifState rw w)))
+   N p n r (VerifState rw w) ret (RegValue (SAWBack n) (StructType (VerifState rw w)))
 verificationHarnessOverride sim rw w sc cryEnv harness =
    do args <- getOverrideArgs
       case args of
@@ -191,10 +193,10 @@ assumeConditions sc cryEnv phase =
            addAssumption sym (LabeledPred x (AssumptionReason loc "Verification postcondition"))
 
 createFreshHarnessVar ::
-  SAW.SAWCoreBackend n ->
+  SAW.SAWCoreBackend n (Flags FloatReal) ->
   HarnessVar CT.Name ->
   HarnessVarType ->
-  IO (SubstTerm (SAW.SAWCoreBackend n), Term)
+  IO (SubstTerm (SAWBack n), Term)
 createFreshHarnessVar sym var (HarnessVarWord n) =
   do Just (Some valSize) <- return (someNat (toInteger n))
      Just LeqProof <- return (isPosNat valSize)
@@ -222,24 +224,24 @@ createFreshHarnessVar sym var (HarnessVarArray elems n) =
 
 phaseUpdate :: forall p n r args ret w rw.
    (1 <= w, 1 <= rw) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
-   SAW.SAWCoreBackend n ->
+   Simulator p (SAWBack n) ->
+   SAWBack n ->
    NatRepr rw ->
    NatRepr w ->
    SharedContext ->
    Map (HarnessVar CT.Name) HarnessVarType ->
    Endianness ->
    VerificationPhase CT.Name TCExpr ->
-   ( Subst (SAW.SAWCoreBackend n)
+   ( Subst (SAWBack n)
    , CryptolEnv
-   , WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8)
-   , WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8)
+   , WordMap (SAWBack n) rw (BaseBVType 8)
+   , WordMap (SAWBack n) w (BaseBVType 8)
    ) ->
    N p n r args ret
-     ( Subst (SAW.SAWCoreBackend n)
+     ( Subst (SAWBack n)
      , CryptolEnv
-     , WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8)
-     , WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8)
+     , WordMap (SAWBack n) rw (BaseBVType 8)
+     , WordMap (SAWBack n) w (BaseBVType 8)
      )
 phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList (phaseSetup phase))
  where
@@ -345,11 +347,11 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
 
 substTermAsArray ::
    (MonadIO m, 1 <= x) =>
-   SAW.SAWCoreBackend n ->
+   SAWBack n ->
    Word64 ->
    NatRepr x ->
-   SubstTerm (SAW.SAWCoreBackend n) ->
-   m (Seq (SymBV (SAW.SAWCoreBackend n) x))
+   SubstTerm (SAWBack n) ->
+   m (Seq (SymBV (SAWBack n) x))
 substTermAsArray _sym elems x (SubstArray x' vs)
   | Just Refl <- testEquality x x'
   , Seq.length vs == fromIntegral elems
@@ -371,16 +373,16 @@ substTermAsArray _sym _elems _x _
 
 readArray ::
    (1 <= w, 1 <= x) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
-   SAW.SAWCoreBackend n ->
+   Simulator p (SAWBack n) ->
+   SAWBack n ->
    NatRepr w ->
-   SymBV (SAW.SAWCoreBackend n) w ->
+   SymBV (SAWBack n) w ->
    Endianness ->
    Word64 ->
    Word64 ->
    NatRepr x ->
-   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   N p n r args ret (Seq (SymBV (SAW.SAWCoreBackend n) x))
+   WordMap (SAWBack n) w (BaseBVType 8) ->
+   N p n r args ret (Seq (SymBV (SAWBack n) x))
 readArray sim sym w addr endianness elems n x mem =
   Seq.fromList <$> (forM [ 0 .. elems-1 ] $ \i ->
     do off   <- liftIO $ bvLit sym w (toInteger i * toInteger (n `div` 8))
@@ -393,17 +395,17 @@ readArray sim sym w addr endianness elems n x mem =
 
 writeArray ::
    (1 <= w, 1 <= x) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
-   SAW.SAWCoreBackend n ->
+   Simulator p (SAWBack n) ->
+   SAWBack n ->
    NatRepr w ->
-   SymBV (SAW.SAWCoreBackend n) w ->
+   SymBV (SAWBack n) w ->
    Endianness ->
    Word64 ->
    Word64 ->
    NatRepr x ->
-   SubstTerm (SAW.SAWCoreBackend n) ->
-   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   N p n r args ret (WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8))
+   SubstTerm (SAWBack n) ->
+   WordMap (SAWBack n) w (BaseBVType 8) ->
+   N p n r args ret (WordMap (SAWBack n) w (BaseBVType 8))
 writeArray sim sym w addr endianness elems n x val mem0 =
    do vals <- substTermAsArray sym elems x val
       foldM
@@ -420,11 +422,11 @@ writeArray sim sym w addr endianness elems n x val mem0 =
 
 lookupWord ::
    (1 <= w) =>
-   SAW.SAWCoreBackend n ->
+   SAWBack n ->
    NatRepr w ->
    HarnessVar CT.Name ->
-   Subst (SAW.SAWCoreBackend n) ->
-   N p n r args ret (SymBV (SAW.SAWCoreBackend n) w)
+   Subst (SAWBack n) ->
+   N p n r args ret (SymBV (SAWBack n) w)
 lookupWord sym w var sub =
   case Map.lookup var sub of
     Just subtm -> substTermAsBV sym w subtm
@@ -455,8 +457,8 @@ data SubstTerm sym where
 
 computeVariableSubstitution :: forall p n r args ret w rw.
    (1 <= rw, 1 <= w) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
-   SAW.SAWCoreBackend n ->
+   Simulator p (SAWBack n) ->
+   SAWBack n ->
    NatRepr rw ->
    NatRepr w ->
    SharedContext ->
@@ -464,10 +466,10 @@ computeVariableSubstitution :: forall p n r args ret w rw.
    CryptolEnv ->
    Map (HarnessVar CT.Name) HarnessVarType ->
    VerificationPhase CT.Name TCExpr ->
-   WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8) ->
-   WordMap (SAW.SAWCoreBackend n) w (BaseBVType 8) ->
-   Subst (SAW.SAWCoreBackend n) ->
-   N p n r args ret (Subst (SAW.SAWCoreBackend n), CryptolEnv)
+   WordMap (SAWBack n) rw (BaseBVType 8) ->
+   WordMap (SAWBack n) w (BaseBVType 8) ->
+   Subst (SAWBack n) ->
+   N p n r args ret (Subst (SAWBack n), CryptolEnv)
 computeVariableSubstitution sim sym rw w sc endianness cryEnv0 varTypes phase regs mem sub0 =
     foldM go (sub0, cryEnv0) (toList (phaseSetup phase))
 
@@ -571,9 +573,9 @@ computeVariableSubstitution sim sym rw w sc endianness cryEnv0 varTypes phase re
            fail (show (PP.text "Impossible! Unknown type for variable: " PP.<+> PP.pp var))
 
 arrayAsTerm ::
-   SAW.SAWCoreBackend n ->
+   SAWBack n ->
    Word64 ->
-   Seq (SymBV (SAW.SAWCoreBackend n) x) ->
+   Seq (SymBV (SAWBack n) x) ->
    IO Term
 arrayAsTerm sym n vals =
   do sc <- SAW.sawBackendSharedContext sym
@@ -581,11 +583,11 @@ arrayAsTerm sym n vals =
      scVector sc elemtp =<< mapM (SAW.toSC sym) (toList vals)
 
 termToSubstTerm ::
-   SAW.SAWCoreBackend n ->
+   SAWBack n ->
    SharedContext ->
    HarnessVarType ->
    Term ->
-   N p n r args ret (SubstTerm (SAW.SAWCoreBackend n))
+   N p n r args ret (SubstTerm (SAWBack n))
 termToSubstTerm sym sc (HarnessVarWord n) tm =
   do x <- liftIO $ termAsConcrete sc tm
      case x of
@@ -601,10 +603,10 @@ termToSubstTerm _ _ (HarnessVarArray _ _) tm = return (SubstTerm tm)
 
 substTermAsBV ::
    (1 <= x, MonadIO m) =>
-   SAW.SAWCoreBackend n ->
+   SAWBack n ->
    NatRepr x ->
-   SubstTerm (SAW.SAWCoreBackend n) ->
-   m (SymBV (SAW.SAWCoreBackend n) x)
+   SubstTerm (SAWBack n) ->
+   m (SymBV (SAWBack n) x)
 substTermAsBV sym w (SubstTerm tm) =
    do liftIO $ SAW.bindSAWTerm sym (BaseBVRepr w) tm
 substTermAsBV _sym w (SubstWord x) =
@@ -660,13 +662,13 @@ basic_ss sc = do
 
 readReg ::
    (1 <= rw) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
+   Simulator p (SAWBack n) ->
    NatRepr rw ->
    Offset ->
    Word64 ->
    Endianness ->
-   WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8) ->
-   N p n r args ret (SomeBV (SAW.SAWCoreBackend n))
+   WordMap (SAWBack n) rw (BaseBVType 8) ->
+   N p n r args ret (SomeBV (SAWBack n))
 readReg sim rw offset size endianness regs =
    do sym <- getSymInterface
       addr <- liftIO $ bvLit sym rw (toInteger offset)
@@ -674,14 +676,14 @@ readReg sim rw offset size endianness regs =
 
 writeReg ::
    (1 <= rw) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
+   Simulator p (SAWBack n) ->
    NatRepr rw ->
    Offset ->
    Word64 ->
    Endianness ->
-   SomeBV (SAW.SAWCoreBackend n) ->
-   WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8) ->
-   N p n r args ret (WordMap (SAW.SAWCoreBackend n) rw (BaseBVType 8))
+   SomeBV (SAWBack n) ->
+   WordMap (SAWBack n) rw (BaseBVType 8) ->
+   N p n r args ret (WordMap (SAWBack n) rw (BaseBVType 8))
 writeReg sim rw offset size endianness val regs =
   do sym <- getSymInterface
      addr <- liftIO $ bvLit sym rw (toInteger offset)
@@ -689,14 +691,14 @@ writeReg sim rw offset size endianness val regs =
 
 writeMap ::
    (1 <= x) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
+   Simulator p (SAWBack n) ->
    NatRepr x ->
-   SymBV (SAW.SAWCoreBackend n) x ->
+   SymBV (SAWBack n) x ->
    Word64 ->
    Endianness ->
-   SomeBV (SAW.SAWCoreBackend n) ->
-   WordMap (SAW.SAWCoreBackend n) x (BaseBVType 8) ->
-   N p n r args ret (WordMap (SAW.SAWCoreBackend n) x (BaseBVType 8))
+   SomeBV (SAWBack n) ->
+   WordMap (SAWBack n) x (BaseBVType 8) ->
+   N p n r args ret (WordMap (SAWBack n) x (BaseBVType 8))
 
 writeMap sim x addr size endianness (SomeBV val) wordmap
    | r == 0
@@ -730,13 +732,13 @@ writeMap sim x addr size endianness (SomeBV val) wordmap
 
 readMap ::
    (1 <= x) =>
-   Simulator p (SAW.SAWCoreBackend n) ->
+   Simulator p (SAWBack n) ->
    NatRepr x ->
-   SymBV (SAW.SAWCoreBackend n) x ->
+   SymBV (SAWBack n) x ->
    Word64 ->
    Endianness ->
-   WordMap (SAW.SAWCoreBackend n) x (BaseBVType 8) ->
-   N p n r args ret (SomeBV (SAW.SAWCoreBackend n))
+   WordMap (SAWBack n) x (BaseBVType 8) ->
+   N p n r args ret (SomeBV (SAWBack n))
 readMap sim x addr size endianness wordmap
    | r == 0 =
        do sym <- getSymInterface
@@ -771,10 +773,10 @@ data SomeBV sym where
 
 assumeEquiv ::
    MonadIO m =>
-   SAW.SAWCoreBackend n ->
+   SAWBack n ->
    HarnessVarType ->
    Term ->
-   SubstTerm (SAW.SAWCoreBackend n) ->
+   SubstTerm (SAWBack n) ->
    m ()
 assumeEquiv sym hvt tm subTm =
      case hvt of
@@ -801,10 +803,10 @@ assumeEquiv sym hvt tm subTm =
 
 assertEquiv ::
    MonadIO m =>
-   SAW.SAWCoreBackend n ->
+   SAWBack n ->
    HarnessVarType ->
    Term ->
-   SubstTerm (SAW.SAWCoreBackend n) ->
+   SubstTerm (SAWBack n) ->
    m ()
 assertEquiv sym hvt tm subTm =
      case hvt of
@@ -829,17 +831,17 @@ assertEquiv sym hvt tm subTm =
 
 simulateHarness ::
   (1 <= w, 1 <= rw) =>
-  Simulator p (SAW.SAWCoreBackend n) ->
+  Simulator p (SAWBack n) ->
   NatRepr rw ->
   NatRepr w ->
   SharedContext ->
   CryptolEnv ->
   ProcessedHarness ->
-  SymBV (SAW.SAWCoreBackend n) w {- ^ PC -} ->
-  SymBV (SAW.SAWCoreBackend n) w {- ^ Stack pointer -} ->
-  SymBV (SAW.SAWCoreBackend n) w {- ^ Return address -} ->
-  FnVal (SAW.SAWCoreBackend n) (VerifState rw w) (StructType (VerifState rw w)) ->
-  OverrideSim p (SAW.SAWCoreBackend n) () r args ret ()
+  SymBV (SAWBack n) w {- ^ PC -} ->
+  SymBV (SAWBack n) w {- ^ Stack pointer -} ->
+  SymBV (SAWBack n) w {- ^ Return address -} ->
+  FnVal (SAWBack n) (VerifState rw w) (StructType (VerifState rw w)) ->
+  OverrideSim p (SAWBack n) () r args ret ()
 simulateHarness sim rw w sc cryEnv harness pc stack ret fn =
   do sym <- liftIO $ getInterface sim
      let prestateVarTypes = computeVarTypes Prestate harness

@@ -12,6 +12,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
@@ -71,7 +72,7 @@ crucibleServerAdapters =
 simpleServerOptions :: [ConfigDesc]
 simpleServerOptions = concatMap solver_adapter_config_options crucibleServerAdapters
 
-simpleServerOverrides :: [Simulator p (SimpleBackend n) -> IO SomeHandle]
+simpleServerOverrides :: IsSymInterface (SimpleBackend n fs) => [Simulator p (SimpleBackend n fs) -> IO SomeHandle]
 simpleServerOverrides =
  [ mkPredef checkSatWithAbcOverride
  , mkPredef checkSatWithYicesOverride
@@ -80,7 +81,7 @@ simpleServerOverrides =
  ]
 
 
-simpleBackendRequests :: BackendSpecificRequests p (SimpleBackend n)
+simpleBackendRequests :: IsSymInterface (SimpleBackend n fs) => BackendSpecificRequests p (SimpleBackend n fs)
 simpleBackendRequests =
   BackendSpecificRequests
   { fulfillExportModelRequest = sbFulfillExportModelRequest
@@ -95,7 +96,7 @@ simpleBackendRequests =
 type CheckSatArgs = EmptyCtx ::> BoolType
 
 -- | Returns override for creating a given variable associated with the given type.
-checkSatWithAbcOverride :: Override p (SimpleBackend n) () CheckSatArgs BoolType
+checkSatWithAbcOverride :: Override p (SimpleBackend n fs) () CheckSatArgs BoolType
 checkSatWithAbcOverride = do
   mkOverride "checkSatWithAbc" $ do
     RegMap args <- getOverrideArgs
@@ -110,7 +111,7 @@ checkSatWithAbcOverride = do
 -- CheckSatWithYicesHandle Request
 
 -- | Returns override for creating a given variable associated with the given type.
-checkSatWithYicesOverride :: Override p (SimpleBackend n) () CheckSatArgs BoolType
+checkSatWithYicesOverride :: Override p (SimpleBackend n fs) () CheckSatArgs BoolType
 checkSatWithYicesOverride = do
   mkOverride "checkSatWithYices" $ do
     RegMap args <- getOverrideArgs
@@ -128,7 +129,7 @@ type WriteSMTLIB2Args
    ::> StringType
    ::> BoolType
 
-writeSMTLib2Override :: Override p (SimpleBackend n) () WriteSMTLIB2Args UnitType
+writeSMTLib2Override :: Override p (SimpleBackend n fs) () WriteSMTLIB2Args UnitType
 writeSMTLib2Override = do
   mkOverride "write_SMTLIB2" $ do
     RegMap args <- getOverrideArgs
@@ -145,7 +146,7 @@ writeSMTLib2Override = do
 -----------------------------------------------------------------------------------------
 -- WriteYicesHandle request
 
-writeYicesOverride :: Override p (SimpleBackend n) () WriteSMTLIB2Args UnitType
+writeYicesOverride :: Override p (SimpleBackend n fs) () WriteSMTLIB2Args UnitType
 writeYicesOverride = do
   mkOverride "write_yices" $ do
     RegMap args <- getOverrideArgs
@@ -163,14 +164,15 @@ writeYicesOverride = do
 -- SimpleBackend ExportModel request
 
 sbFulfillExportModelRequest
-   :: Simulator p (SimpleBackend n)
+   :: IsSymInterface (SimpleBackend n fs)
+   => Simulator p (SimpleBackend n fs)
    -> P.ExportFormat
    -> Text.Text
    -> Seq.Seq P.Value
    -> IO ()
 sbFulfillExportModelRequest sim P.ExportAIGER path vals = do
   vals' <- mapM (fromProtoValue sim) (toList vals)
-  let f :: Some (RegEntry (SimpleBackend n)) -> Maybe (Some (SymExpr (SimpleBackend n)))
+  let f :: Some (RegEntry (SimpleBackend n fs)) -> Maybe (Some (SymExpr (SimpleBackend n fs)))
       f (Some r) = asSymExpr r (\x -> Just (Some x)) Nothing
   case traverse f vals' of
     Nothing -> fail "Could not translate values for AIG export"

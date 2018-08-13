@@ -159,6 +159,7 @@ addFeaturesForVarType tp =
     BaseStringRepr   -> addFeatures useStrings
     BaseArrayRepr{}  -> addFeatures useSymbolicArrays
     BaseStructRepr{} -> addFeatures useStructs
+    BaseFloatRepr _  -> addFeatures useFloatingPoint
 
 
 -- | Information about bound variables outside this context.
@@ -384,6 +385,7 @@ addTheoryFeatures th =
     ArrayTheory           -> addFeatures useSymbolicArrays
     StructTheory          -> addFeatures useStructs
     StringTheory          -> addFeatures useStrings
+    FloatingPointTheory   -> addFeatures useFloatingPoint
     QuantifierTheory -> return ()
     FnTheory         -> return ()
 
