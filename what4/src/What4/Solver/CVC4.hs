@@ -95,7 +95,7 @@ cvc4Features = useComputableReals
            .|. useSymbolicArrays
 
 writeMultiAsmpCVC4SMT2File
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> Handle
    -> [BoolExpr t]
    -> IO ()
@@ -110,14 +110,14 @@ writeMultiAsmpCVC4SMT2File sym h ps = do
   SMT2.writeExit c
 
 writeCVC4SMT2File
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> Handle
    -> BoolExpr t
    -> IO ()
 writeCVC4SMT2File sym h p = writeMultiAsmpCVC4SMT2File sym h [p]
 
 runCVC4InOverride
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
    -> BoolExpr t
    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
@@ -132,7 +132,7 @@ runCVC4InOverride sym logLn p cont = do
 
 -- | Run CVC4 in a session.  CVC4 will be configured to produce models, buth
 -- otherwise left with the default configuration.
-withCVC4 :: ExprBuilder t st
+withCVC4 :: ExprBuilder t st fs
          -> FilePath
             -- ^ Path to CVC4 executable
          -> (String -> IO ())

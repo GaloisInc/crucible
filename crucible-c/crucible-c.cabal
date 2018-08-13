@@ -37,6 +37,7 @@ executable crucible-c
     base >= 4.8 && < 4.12,
     ansi-wl-pprint,
     containers,
+    data-binary-ieee754,
     lens,
     mtl,
     bytestring,

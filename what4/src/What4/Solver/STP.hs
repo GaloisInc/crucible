@@ -72,7 +72,7 @@ instance SMT2.SMTLib2Tweaks STP where
   smtlib2tweaks = STP
 
 runSTPInOverride
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
    -> BoolExpr t
    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
@@ -87,7 +87,7 @@ runSTPInOverride sym logLn p cont = do
 
 -- | Run STP in a session.  STP will be configured to produce models, buth
 -- otherwise left with the default configuration.
-withSTP :: ExprBuilder t st
+withSTP :: ExprBuilder t st fs
         -> FilePath
             -- ^ Path to STP executable
          -> (String -> IO ())

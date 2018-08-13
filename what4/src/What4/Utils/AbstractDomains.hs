@@ -575,6 +575,7 @@ type family AbstractValue (tp::BaseType) :: * where
   AbstractValue BaseRealType = RealAbstractValue
   AbstractValue BaseStringType = ()
   AbstractValue (BaseBVType w) = BVDomain w
+  AbstractValue (BaseFloatType _) = ()
   AbstractValue BaseComplexType = Complex RealAbstractValue
   AbstractValue (BaseArrayType idx b) = AbstractValue b
   AbstractValue (BaseStructType ctx) = Ctx.Assignment AbstractValueWrapper ctx
@@ -589,6 +590,7 @@ type family ConcreteValue (tp::BaseType) :: * where
   ConcreteValue BaseRealType = Rational
   ConcreteValue BaseStringType = Text
   ConcreteValue (BaseBVType w) = Integer
+  ConcreteValue (BaseFloatType _) = ()
   ConcreteValue BaseComplexType = Complex Rational
   ConcreteValue (BaseArrayType idx b) = ()
   ConcreteValue (BaseStructType ctx) = Ctx.Assignment ConcreteValueWrapper ctx
@@ -607,6 +609,7 @@ avTop tp =
     BaseComplexRepr -> ravUnbounded :+ ravUnbounded
     BaseStringRepr  -> ()
     BaseBVRepr w    -> BVD.any w
+    BaseFloatRepr{} -> ()
     BaseArrayRepr _a b -> avTop b
     BaseStructRepr flds -> fmapFC (\etp -> AbstractValueWrapper (avTop etp)) flds
 
@@ -621,6 +624,7 @@ avSingle tp =
     BaseStringRepr -> \_ -> ()
     BaseComplexRepr -> fmap ravSingle
     BaseBVRepr w -> BVD.singleton w
+    BaseFloatRepr _ -> \_ -> ()
     BaseArrayRepr _a b -> \_ -> avTop b
     BaseStructRepr flds -> \vals ->
       Ctx.zipWith
@@ -683,6 +687,10 @@ instance (1 <= w) => Abstractable (BaseBVType w) where
   avJoin (BaseBVRepr w) = BVD.union BVD.defaultBVDomainParams w
   avOverlap _ = BVD.domainsOverlap
 
+instance Abstractable (BaseFloatType fpp) where
+  avJoin _ _ _ = ()
+  avOverlap _ _ _ = True
+
 instance Abstractable BaseComplexType where
   avJoin _ (r1 :+ i1) (r2 :+ i2) = (ravJoin r1 r2) :+ (ravJoin i1 i2)
   avOverlap _ (r1 :+ i1) (r2 :+ i2) = rangeOverlap (ravRange r1) (ravRange r2)
@@ -717,6 +725,7 @@ withAbstractable bt k =
     BaseComplexRepr -> k
     BaseArrayRepr _a _b -> k
     BaseStructRepr _flds -> k
+    BaseFloatRepr _fpp -> k
 
 -- | Returns true if the concrete value is a member of the set represented
 -- by the abstract value.

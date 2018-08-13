@@ -406,7 +406,7 @@ unpackMemValue
 -- If the block number is 0, we know this is a raw bitvector, and not an actual pointer.
 unpackMemValue _sym (LLVMValInt blk bv)
   = return . AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
-unpackMemValue _ (LLVMValReal sz x) =
+unpackMemValue _ (LLVMValFloat sz x) =
   case sz of
     SingleSize ->
       return $ AnyValue (FloatRepr SingleFloatRepr) x
@@ -444,10 +444,10 @@ packMemValue
    -> RegValue sym tp
    -> IO (LLVMVal sym)
 packMemValue _ (G.Type G.Float _) (FloatRepr SingleFloatRepr) x =
-       return $ LLVMValReal SingleSize x
+       return $ LLVMValFloat SingleSize x
 
 packMemValue _ (G.Type G.Double _) (FloatRepr DoubleFloatRepr) x =
-       return $ LLVMValReal DoubleSize x
+       return $ LLVMValFloat DoubleSize x
 
 packMemValue sym (G.Type (G.Bitvector bytes) _) (BVRepr w) bv
   | G.bytesToBits bytes == toInteger (natValue w) =
@@ -902,8 +902,8 @@ instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValInt blk w)
     | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
     | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
-  show (LLVMValReal SingleSize _) = "<float>"
-  show (LLVMValReal DoubleSize _) = "<double>"
+  show (LLVMValFloat SingleSize _) = "<float>"
+  show (LLVMValFloat DoubleSize _) = "<double>"
   show (LLVMValStruct xs) =
     unwords $ [ "{" ]
            ++ intersperse ", " (map (show . snd) $ V.toList xs)

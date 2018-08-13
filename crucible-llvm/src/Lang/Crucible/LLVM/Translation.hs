@@ -25,12 +25,9 @@
 --  * Immediate (i.e., not in memory) structs and packed structs are translated the same.
 --  * Undefined values generate special Crucible expressions (e.g., BVUndef) to
 --     represent arbitrary bitpatterns.
---  * All floating point operations are abstracted into operations on the real numbers.
---     Thus, answers returned by solvers might not be bit-exact, and might not even be expressible
---     in the original floating-point representation.  Moreover, trying to directly
---     examine the bit-patterns of floating-point values will not work, and weird bit-level
---     tricks on floating-point values will not work properly.  Additionally, @NaN@, @+INF@ and @-INF@
---     are never generated, but instead assertions (e.g. about division by zero) will fail.
+--  * The floating-point domain is interpreted by IsSymInterface as either
+--    the IEEE754 floating-point domain, the real domain, or a domain with
+--    bitvector values and uninterpreted operations.
 --
 -- Some notes on undefined/poison values: (outcome of discussions between JHx and RWD)
 --
@@ -1287,7 +1284,7 @@ translateConversion instr op x outty =
          case (asScalar x', outty'') of
            (Scalar (LLVMPointerRepr w) x'', FloatRepr fi) -> do
              bv <- pointerAsBitvectorExpr w x''
-             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromBV fi bv
+             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromBV fi RNE bv
            _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.SiToFp -> do
@@ -1297,14 +1294,14 @@ translateConversion instr op x outty =
          case (asScalar x', outty'') of
            (Scalar (LLVMPointerRepr w) x'', FloatRepr fi) -> do
              bv <- pointerAsBitvectorExpr w x''
-             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromSBV fi bv
+             return $ BaseExpr (FloatRepr fi) $ App $ FloatFromSBV fi RNE bv
            _ -> fail (unlines [unwords ["Invalid sitofp:", show op, show x, show outty], showI])
 
     L.FpToUi -> do
        outty' <- liftMemType outty
        x' <- transTypedValue x
        let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (FloatType fi) -> LLVMExpr s arch
-           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w v)
+           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w RNE v)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
            (Scalar (FloatRepr _) x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
@@ -1314,7 +1311,7 @@ translateConversion instr op x outty =
        outty' <- liftMemType outty
        x' <- transTypedValue x
        let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (FloatType fi) -> LLVMExpr s arch
-           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w v)
+           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToSBV w RNE v)
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
            (Scalar (FloatRepr _) x'', LLVMPointerRepr w) -> return $ demoteToInt w x''
@@ -1326,7 +1323,7 @@ translateConversion instr op x outty =
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
            (Scalar (FloatRepr _) x'', FloatRepr fi) -> do
-             return $ BaseExpr (FloatRepr fi) $ App $ FloatCast fi x''
+             return $ BaseExpr (FloatRepr fi) $ App $ FloatCast fi RNE x''
            _ -> fail (unlines [unwords ["Invalid fptrunc:", show op, show x, show outty], showI])
 
     L.FpExt -> do
@@ -1335,7 +1332,7 @@ translateConversion instr op x outty =
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
            (Scalar (FloatRepr _) x'', FloatRepr fi) -> do
-             return $ BaseExpr (FloatRepr fi) $ App $ FloatCast fi x''
+             return $ BaseExpr (FloatRepr fi) $ App $ FloatCast fi RNE x''
            _ -> fail (unlines [unwords ["Invalid fpext:", show op, show x, show outty], showI])
 
 
@@ -2047,18 +2044,18 @@ generateInstr retType lab instr assign_f k =
                   case op of
                     L.Ftrue  -> App $ BoolLit True
                     L.Ffalse -> App $ BoolLit False
-                    L.Foeq   -> App $ FloatEq a b
+                    L.Foeq   -> App $ FloatFpEq a b
                     L.Folt   -> App $ FloatLt a b
                     L.Fole   -> App $ FloatLe a b
                     L.Fogt   -> App $ FloatGt a b
                     L.Foge   -> App $ FloatGe a b
-                    L.Fone   -> App $ FloatNe a b
-                    L.Fueq   -> mkUno $ App $ FloatEq a b
+                    L.Fone   -> App $ FloatFpNe a b
+                    L.Fueq   -> mkUno $ App $ FloatFpEq a b
                     L.Fult   -> mkUno $ App $ FloatLt a b
                     L.Fule   -> mkUno $ App $ FloatLe a b
                     L.Fugt   -> mkUno $ App $ FloatGt a b
                     L.Fuge   -> mkUno $ App $ FloatGe a b
-                    L.Fune   -> mkUno $ App $ FloatNe a b
+                    L.Fune   -> mkUno $ App $ FloatFpNe a b
                     L.Ford   -> App $ And (App $ Not $ isNaNCond a) (App $ Not $ isNaNCond b)
                     L.Funo   -> unoCond
 
@@ -2185,13 +2182,13 @@ arithOp op x y =
   fop fi a b =
     case op of
        L.FAdd ->
-         return $ App $ FloatAdd fi a b
+         return $ App $ FloatAdd fi RNE a b
        L.FSub ->
-         return $ App $ FloatSub fi a b
+         return $ App $ FloatSub fi RNE a b
        L.FMul ->
-         return $ App $ FloatMul fi a b
+         return $ App $ FloatMul fi RNE a b
        L.FDiv ->
-         return $ App $ FloatDiv fi a b
+         return $ App $ FloatDiv fi RNE a b
        L.FRem -> do
          return $ App $ FloatRem fi a b
        _ -> reportError

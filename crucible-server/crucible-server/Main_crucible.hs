@@ -27,10 +27,13 @@ import qualified Data.ABC.GIA as GIA
 import           Lang.Crucible.Backend.Simple
 import qualified Lang.Crucible.Backend.SAWCore as SAW
 
+import           What4.Expr.Builder(Flags,FloatReal)
+
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.Simulator
 import           Lang.Crucible.Server.SAWOverrides
+import           Lang.Crucible.Server.Verification.Override(SAWBack)
 import           Lang.Crucible.Server.SimpleOverrides
 
 import qualified Verifier.SAW.SharedTerm as SAW
@@ -84,7 +87,7 @@ runSAWSimulator hin hout =
      withIONonceGenerator $ \gen -> do
        sc <- SAW.mkSharedContext
        SAW.scLoadPreludeModule sc
-       sym <- SAW.newSAWCoreBackend GIA.proxy sc gen
+       (sym :: SAWBack n) <- SAW.newSAWCoreBackend GIA.proxy sc gen
        sawState <- initSAWServerPersonality sym
        s <- newSimulator sym sawServerOptions sawState sawServerOverrides hin hout
        putDelimited hout ok_resp
@@ -96,7 +99,7 @@ runSimpleSimulator hin hout = do
   withIONonceGenerator $ \gen -> do
     let ok_resp = mempty
                   & P.handShakeResponse_code .~ P.HandShakeOK
-    sym <- newSimpleBackend gen
+    (sym :: SimpleBackend t (Flags FloatReal)) <- newSimpleBackend gen
     s <- newSimulator sym simpleServerOptions CrucibleServerPersonality simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     putDelimited hout ok_resp

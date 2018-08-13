@@ -13,6 +13,13 @@ module What4.Expr
     ExprBuilder
   , newExprBuilder
 
+    -- * Flags
+  , FloatInterpretation
+  , FloatIEEE
+  , FloatUninterpreted
+  , FloatReal
+  , Flags
+
     -- * Type abbreviations
   , BoolExpr
   , NatExpr

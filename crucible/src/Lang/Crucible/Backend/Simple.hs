@@ -21,6 +21,12 @@ module Lang.Crucible.Backend.Simple
   , newSimpleBackend
     -- * SimpleBackendState
   , SimpleBackendState
+    -- * Re-exports
+  , B.FloatInterpretation
+  , B.FloatIEEE
+  , B.FloatUninterpreted
+  , B.FloatReal
+  , B.Flags
   ) where
 
 import           Control.Lens
@@ -34,7 +40,7 @@ import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
 
-type SimpleBackend t = B.ExprBuilder t SimpleBackendState
+type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 
 ------------------------------------------------------------------------
 -- SimpleBackendState
@@ -51,15 +57,15 @@ initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack ge
 
 
 newSimpleBackend :: NonceGenerator IO t
-                 -> IO (SimpleBackend t)
+                 -> IO (SimpleBackend t fs)
 newSimpleBackend gen =
   do st <- initialSimpleBackendState gen
      B.newExprBuilder st gen
 
-getAssumptionStack :: SimpleBackend t -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
+getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) AssumptionReason SimError)
 getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)
 
-instance IsBoolSolver (SimpleBackend t) where
+instance IsBoolSolver (SimpleBackend t fs) where
   evalBranch _sym p =
     case asConstantPred p of
       Just True  -> return $! NoBranch True
