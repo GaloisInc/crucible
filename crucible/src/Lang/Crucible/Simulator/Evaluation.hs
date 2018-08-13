@@ -156,17 +156,7 @@ evalBase :: IsSymInterface sym =>
          -> (forall utp . f utp -> IO (RegValue sym utp))
          -> BaseTerm f vtp
          -> IO (SymExpr sym vtp)
-evalBase _ evalSub (BaseTerm tp e) =
-  case tp of
-    BaseBoolRepr    -> evalSub e
-    BaseBVRepr _    -> evalSub e
-    BaseNatRepr     -> evalSub e
-    BaseIntegerRepr -> evalSub e
-    BaseRealRepr    -> evalSub e
-    BaseStringRepr  -> evalSub e
-    BaseComplexRepr -> evalSub e
-    BaseStructRepr  _ -> evalSub e
-    BaseArrayRepr _ _ -> evalSub e
+evalBase _ evalSub (BaseTerm _tp e) = evalSub e
 
 -- | Get value stored in vector at a symbolic index.
 indexVectorWithSymNat :: IsSymInterface sym
