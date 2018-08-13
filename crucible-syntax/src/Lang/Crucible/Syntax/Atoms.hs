@@ -1,10 +1,24 @@
 {-# LANGUAGE LambdaCase, OverloadedStrings #-}
-module Lang.Crucible.Syntax.Atoms where
+-- | Atoms used by the Crucible CFG concrete syntax.
+module Lang.Crucible.Syntax.Atoms
+  (
+    -- * The atom datatype
+    Atomic(..)
+  , atom
+    -- * Individual atoms
+  , AtomName(..)
+  , LabelName(..)
+  , RegName(..)
+  , FunName(..)
+  , GlobalName(..)
+  , Keyword(..)
+  ) where
 
 import Control.Applicative
 
 import Data.Char
 import Data.Functor
+import Data.Monoid
 import Data.Ratio
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -14,22 +28,30 @@ import Numeric
 
 import Text.Megaparsec as MP hiding (many, some)
 import Text.Megaparsec.Char
-import qualified Text.Megaparsec.Char.Lexer as L
 
-newtype AtomName = AtomName { atomName :: Text } deriving (Eq, Ord, Show)
+-- | The name of an atom (non-keyword identifier)
+newtype AtomName = AtomName Text deriving (Eq, Ord, Show)
+-- | The name of a label (identifier followed by colon)
 newtype LabelName = LabelName Text deriving (Eq, Ord, Show)
+-- | The name of a register (dollar sign followed by identifier)
 newtype RegName = RegName Text deriving (Eq, Ord, Show)
+-- | The name of a function (at-sign followed by identifier)
 newtype FunName = FunName Text deriving (Eq, Ord, Show)
+-- | The name of a global variable (two dollar signs followed by identifier)
+newtype GlobalName = GlobalName Text deriving (Eq, Ord, Show)
 
-
-data Keyword = Defun | DefBlock
+-- | Individual language keywords (reserved identifiers)
+data Keyword = Defun | DefBlock | DefGlobal
              | Registers
              | Start
+             | SetGlobal
+             | SetRef | DropRef_
              | Unpack
              | Plus | Minus | Times | Div
              | Just_ | Nothing_ | FromJust
+             | Inj
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitVectorT | VectorT | FunT
+             | BitVectorT | VectorT | FunT | MaybeT | VariantT | RefT
              | The
              | Equalp | Integerp
              | If
@@ -39,12 +61,14 @@ data Keyword = Defun | DefBlock
              | Lt
              | Show
              | StringAppend
+             | ToAny | FromAny
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
              | Deref | Ref | EmptyRef
-             | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_
+             | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
              | Print_
              | Let | Fresh
+             | Assert_
              | SetRegister
              | Funcall
   deriving (Eq, Ord)
@@ -52,9 +76,13 @@ data Keyword = Defun | DefBlock
 keywords :: [(Text, Keyword)]
 keywords =
   [ ("defun" , Defun)
-  , ("defblock" , DefBlock)
+  , ("defblock", DefBlock)
+  , ("defglobal", DefGlobal)
   , ("registers", Registers)
   , ("let", Let)
+  , ("set-global!", SetGlobal)
+  , ("set-ref!", SetRef)
+  , ("drop-ref!", DropRef_)
   , ("start" , Start)
   , ("unpack" , Unpack)
   , ("+" , Plus)
@@ -63,9 +91,12 @@ keywords =
   , ("/" , Div)
   , ("<" , Lt)
   , ("show", Show)
+  , ("inj", Inj)
   , ("just" , Just_)
   , ("nothing" , Nothing_)
   , ("from-just" , FromJust)
+  , ("to-any", ToAny)
+  , ("from-any", FromAny)
   , ("the" , The)
   , ("equal?" , Equalp)
   , ("integer?" , Integerp)
@@ -81,6 +112,8 @@ keywords =
   , ("BitVector" , BitVectorT)
   , ("Vector", VectorT)
   , ("->", FunT)
+  , ("Maybe", MaybeT)
+  , ("Variant", VariantT)
   , ("vector", VectorLit_)
   , ("vector-replicate", VectorReplicate_)
   , ("vector-empty?", VectorIsEmpty_)
@@ -97,6 +130,7 @@ keywords =
   , ("mod" , Mod)
   , ("fresh", Fresh)
   , ("jump" , Jump_)
+  , ("case", Case)
   , ("return" , Return_)
   , ("branch" , Branch_)
   , ("maybe-branch" , MaybeBranch_)
@@ -105,10 +139,12 @@ keywords =
   , ("output", Output_)
   , ("print" , Print_)
   , ("string-append", StringAppend)
+  , ("Ref", RefT)
   , ("deref", Deref)
   , ("ref", Ref)
   , ("empty-ref", EmptyRef)
   , ("set-register!", SetRegister)
+  , ("assert!", Assert_)
   , ("funcall", Funcall)
   ]
 
@@ -119,29 +155,45 @@ instance Show Keyword where
              (s:_) -> T.unpack s
 
 
-data Atomic = Kw Keyword -- ^ Keywords are all the built-in operators and expression formers
-            | Lbl LabelName -- ^ Labels, but not the trailing colon
-            | At AtomName -- ^ Atom names (which look like Scheme symbols)
-            | Rg RegName -- ^ Registers, whose names have a leading $
-            | Fn FunName -- ^ Function names, minus the leading @
-            | Int Integer -- ^ Literal integers
-            | Rat Rational -- ^ Literal rational numbers
-            | Bool Bool   -- ^ Literal Booleans
-            | StrLit Text -- ^ Literal strings
+-- | The atoms of the language
+data Atomic = Kw !Keyword -- ^ Keywords are all the built-in operators and expression formers
+            | Lbl !LabelName -- ^ Labels, but not the trailing colon
+            | At !AtomName -- ^ Atom names (which look like Scheme symbols)
+            | Rg !RegName -- ^ Registers, whose names have a leading single $
+            | Gl !GlobalName -- ^ Global variables, whose names have a leading double $$
+            | Fn !FunName -- ^ Function names, minus the leading @
+            | Int !Integer -- ^ Literal integers
+            | Rat !Rational -- ^ Literal rational numbers
+            | Bool !Bool   -- ^ Literal Booleans
+            | StrLit !Text -- ^ Literal strings
   deriving (Eq, Ord, Show)
 
 
+instance IsAtom Atomic where
+  showAtom (Kw s) = T.pack (show s)
+  showAtom (Lbl (LabelName l)) = l <> ":"
+  showAtom (Rg (RegName r)) = "$" <> r
+  showAtom (Gl (GlobalName r)) = "$$" <> r
+  showAtom (At (AtomName a)) = a
+  showAtom (Fn (FunName a)) = "@" <> a
+  showAtom (Int i) = T.pack (show i)
+  showAtom (Rat r) = T.pack (show (numerator r) ++ "/" ++ show (denominator r))
+  showAtom (Bool b) = if b then "#t" else "#f"
+  showAtom (StrLit s) = T.pack $ show s
 
+-- | Parse an atom
 atom :: Parser Atomic
 atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> kwOrAtom
     <|> Fn . FunName <$> (char '@' *> identifier)
-    <|> Rg . RegName <$> (char '$' *> identifier)
-    <|> try (Int . fromInteger <$> signedPrefixedNumber)
+    <|> (char '$' *> ((char '$' *> (Gl . GlobalName <$> identifier)) <|> Rg . RegName <$> identifier))
+    <|> mkNum <$> signedPrefixedNumber <*> (try (Just <$> (char '/' *> prefixedNumber)) <|> pure Nothing)
     <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
-    <|> char '#' *>  (char 't' $> Bool True <|> char 'f' $> Bool False)
+    <|> char '#' *>  ((char 't' <|> char 'T') $> Bool True <|> (char 'f' <|> char 'F') $> Bool False)
     <|> char '"' *> (StrLit . T.pack <$> stringContents)
-
+  where
+    mkNum x Nothing = Int x
+    mkNum x (Just y) = Rat (x % y)
 
 stringContents :: Parser [Char]
 stringContents =  (char '\\' *> ((:) <$> escapeChar <*> stringContents))
@@ -167,7 +219,7 @@ signedPrefixedNumber =
   prefixedNumber
 
 prefixedNumber :: (Eq a, Num a) => Parser a
-prefixedNumber = char '0' *> hexOrOct <|> decimal
+prefixedNumber = try (char '0' *> hexOrOct) <|> decimal
   where decimal = fromInteger . read <$> some (satisfy isDigit <?> "decimal digit")
         hexOrOct = char 'x' *> hex <|> oct <|> return 0
         hex = reading $ readHex <$> some (satisfy (\c -> isDigit c || elem c ("abcdefABCDEF" :: String)) <?> "hex digit")

@@ -12,50 +12,62 @@
       (let d (vector-size foo))
       (let e (vector-get done 3))
       (let f (vector-set done 3 "isn't"))
+      (let g (the (Vector String) (vector-cons "well" f)))
+      (let h (the (Vector String) (vector-replicate 132 ".")))
       (let done $res)
       (return done)))
 
 %0
-  % 5:25
+  % 6:7
   $2 = textLit("hello")
-  % 5:25
+  % 6:7
   $3 = textLit("this")
-  % 5:25
+  % 6:7
   $4 = textLit("is")
-  % 5:25
+  % 6:7
   $5 = textLit("a")
-  % 5:25
+  % 6:7
   $6 = textLit("vector")
-  % 5:25
+  % 6:7
   $7 = vectorLit(StringRepr, [$2, $3, $4, $5, $6])
-  % 6:14
+  % 8:14
   $8 = showValue(BaseIntegerRepr, $1)
-  % 6:14
+  % 8:14
   $9 = vectorReplicate(StringRepr, $0, $8)
-  % 7:12
+  % 9:12
   $10 = vectorLit(BoolRepr, [])
-  % 7:12
+  % 9:12
   $11 = vectorIsEmpty($10)
-  % 8:12
-  $12 = boolLit(True)
-  % 8:12
-  $13 = boolLit(False)
-  % 8:12
-  $14 = vectorLit(BoolRepr, [$12, $13, $13, $12])
-  % 8:12
-  $15 = vectorIsEmpty($14)
   % 10:12
+  $12 = boolLit(True)
+  % 10:12
+  $13 = boolLit(False)
+  % 10:12
+  $14 = vectorLit(BoolRepr, [$12, $13, $13, $12])
+  % 10:12
+  $15 = vectorIsEmpty($14)
+  % 12:12
   $16 = vectorSize($7)
-  % 11:12
+  % 13:12
   $17 = vectorSize($9)
-  % 12:12
+  % 14:12
   $18 = natLit(3)
-  % 12:12
+  % 14:12
   $19 = vectorGetEntry(StringRepr, $7, $18)
-  % 13:12
+  % 15:12
   $20 = textLit("isn't")
-  % 13:12
+  % 15:12
   $21 = vectorSetEntry(StringRepr, $7, $18, $20)
-  % 15:5
+  % 16:12
+  $22 = textLit("well")
+  % 16:12
+  $23 = vectorCons(StringRepr, $22, $21)
+  % 17:12
+  $24 = natLit(132)
+  % 17:12
+  $25 = textLit(".")
+  % 17:12
+  $26 = vectorReplicate(StringRepr, $24, $25)
+  % 19:5
   return $7
   % no postdom

@@ -99,7 +99,7 @@ ppNoFileName InternalPos = PP.text "internal"
 data Posd v = Posd { pos :: !Position
                    , pos_val :: !v
                    }
-  deriving (Functor, Foldable, Traversable, Show)
+  deriving (Functor, Foldable, Traversable, Show, Eq)
 
 instance NFData v => NFData (Posd v) where
   rnf p = rnf (pos p, pos_val p)

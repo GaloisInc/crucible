@@ -31,9 +31,9 @@
   $1 = intLit(1)
   % 6:15
   $2 = intSub($0, $1)
-  % 7:23
+  % 7:14
   $3 = handleLit(oddp)
-  % 7:5
+  % 7:14
   $4 = call $3($2);
   % 8:5
   return $4
@@ -56,9 +56,9 @@
   $1 = intLit(1)
   % 18:15
   $2 = intSub($0, $1)
-  % 19:23
+  % 19:14
   $3 = handleLit(evenp)
-  % 19:5
+  % 19:14
   $4 = call $3($2);
   % 20:5
   return $4
