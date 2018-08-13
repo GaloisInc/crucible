@@ -1229,16 +1229,16 @@ saveArgs ctx1 ctx2 =
 
 data FunctionHeader =
   forall args ret .
-  FunctionHeader { headerName :: FunctionName
-                 , headerArgs :: Ctx.Assignment Arg args
-                 , headerReturnType :: TypeRepr ret
-                 , headerHandle :: FnHandle args ret
-                 , headerLoc :: Position
+  FunctionHeader { _headerName :: FunctionName
+                 , _headerArgs :: Ctx.Assignment Arg args
+                 , _headerReturnType :: TypeRepr ret
+                 , _headerHandle :: FnHandle args ret
+                 , _headerLoc :: Position
                  }
 
 data FunctionSource s =
-  FunctionSource { functionRegisters :: [AST s]
-                 , functionBody :: AST s
+  FunctionSource { _functionRegisters :: [AST s]
+                 , _functionBody :: AST s
                  }
 
 functionHeader' :: MonadSyntax Atomic m

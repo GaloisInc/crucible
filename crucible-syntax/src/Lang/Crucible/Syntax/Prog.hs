@@ -1,7 +1,7 @@
 module Lang.Crucible.Syntax.Prog where
 
 import Data.Text (Text)
-import qualified Data.Text as T
+--import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import System.IO
 import System.Exit
@@ -29,8 +29,8 @@ go fn theInput pprint outh =
       do when pprint $
            forM_ v $
              \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
-         cfgs <- stToIO $ top $ cfgs v
-         case cfgs of
+         cs <- stToIO $ top $ cfgs v
+         case cs of
            Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
            Left err -> hPutStrLn outh $ show err
            Right ok ->
