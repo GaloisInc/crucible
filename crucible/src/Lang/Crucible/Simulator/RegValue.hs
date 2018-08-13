@@ -193,6 +193,9 @@ instance IsExprBuilder sym => CanMux sym StringType where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> stringIte s
 
+instance IsExprBuilder sym => CanMux sym (IEEEFloatType fpp) where
+  muxReg s = \_ -> floatIte s
+
 ------------------------------------------------------------------------
 -- RegValue Vector instance
 

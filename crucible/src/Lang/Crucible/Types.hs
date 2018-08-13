@@ -56,6 +56,7 @@ module Lang.Crucible.Types
   , ComplexRealType
   , BVType
   , FloatType
+  , IEEEFloatType
   , CharType
   , StringType
   , FunctionHandleType
@@ -101,6 +102,7 @@ module Lang.Crucible.Types
   , X86_80Float
   , DoubleDoubleFloat
   , FloatInfoRepr(..)
+  , FloatPrecisionRepr(..)
   ) where
 
 import           Data.Hashable
@@ -148,7 +150,8 @@ data CrucibleType where
 
    -- | A type containing a single value "Unit"
    UnitType :: CrucibleType
-   -- | A type index for floating point numbers
+   -- | A type index for floating point numbers, whose interpretation
+   --   depends on the symbolic backend.
    FloatType :: FloatInfo -> CrucibleType
    -- | A single character, as a 16-bit wide char.
    CharType :: CrucibleType
@@ -203,8 +206,11 @@ type IntegerType     = BaseToType BaseIntegerType -- ^ @:: 'CrucibleType'@.
 type StringType      = BaseToType BaseStringType  -- ^ @:: 'CrucibleType'@.
 type NatType         = BaseToType BaseNatType     -- ^ @:: 'CrucibleType'@.
 type RealValType     = BaseToType BaseRealType    -- ^ @:: 'CrucibleType'@.
+type IEEEFloatType p = BaseToType (BaseFloatType p) -- ^ @:: FloatPrecision -> CrucibleType@
+
 type SymbolicArrayType idx xs = BaseToType (BaseArrayType idx xs) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'CrucibleType'@.
 type SymbolicStructType flds = BaseToType (BaseStructType flds) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'CrucibleType'@.
+
 
 -- | A dynamic type that can contain values of any type.
 type AnyType  = 'AnyType  -- ^ @:: 'CrucibleType'@.
@@ -212,8 +218,10 @@ type AnyType  = 'AnyType  -- ^ @:: 'CrucibleType'@.
 -- | A single character, as a 16-bit wide char.
 type CharType = 'CharType -- ^ @:: 'CrucibleType'@.
 
--- | A type index for floating point numbers.
+-- | A type index for floating point numbers, whose interpretation
+--   depends on the symbolic backend.
 type FloatType    = 'FloatType    -- ^ @:: 'FloatInfo' -> 'CrucibleType'@.
+
 
 -- | A function handle taking a context of formal arguments and a return type.
 type FunctionHandleType = 'FunctionHandleType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType' -> 'CrucibleType'@.
@@ -281,6 +289,7 @@ baseToType bt =
     BaseComplexRepr -> ComplexRealRepr
     BaseArrayRepr idx xs -> SymbolicArrayRepr idx xs
     BaseStructRepr flds -> SymbolicStructRepr flds
+    BaseFloatRepr ps -> IEEEFloatRepr ps
 
 data AsBaseType tp where
   AsBaseType  :: tp ~ BaseToType bt => BaseTypeRepr bt -> AsBaseType tp
@@ -298,6 +307,8 @@ asBaseType tp =
     ComplexRealRepr -> AsBaseType BaseComplexRepr
     SymbolicArrayRepr idx xs ->
       AsBaseType (BaseArrayRepr idx xs)
+    IEEEFloatRepr ps ->
+      AsBaseType (BaseFloatRepr ps)
     SymbolicStructRepr flds -> AsBaseType (BaseStructRepr flds)
     _ -> NotBaseType
 
@@ -323,6 +334,7 @@ data TypeRepr (tp::CrucibleType) where
                  -> CtxRepr ctx
                  -> TypeRepr (RecursiveType nm ctx)
    FloatRepr :: !(FloatInfoRepr flt) -> TypeRepr (FloatType flt)
+   IEEEFloatRepr :: !(FloatPrecisionRepr ps) -> TypeRepr (IEEEFloatType ps)
    CharRepr :: TypeRepr CharType
    StringRepr :: TypeRepr StringType
    FunctionHandleRepr :: !(CtxRepr ctx)
@@ -387,6 +399,9 @@ instance (KnownCtx TypeRepr ctx, KnownRepr TypeRepr ret)
 instance KnownRepr FloatInfoRepr flt => KnownRepr TypeRepr (FloatType flt) where
   knownRepr = FloatRepr knownRepr
 
+instance KnownRepr FloatPrecisionRepr ps => KnownRepr TypeRepr (IEEEFloatType ps) where
+  knownRepr = IEEEFloatRepr knownRepr
+
 instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (VectorType tp) where
   knownRepr = VectorRepr knownRepr
 
@@ -426,6 +441,7 @@ instance TestEquality TypeRepr where
                    [ (U.TypeApp (U.ConType [t|NatRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|SymbolRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|FloatInfoRepr|]) U.AnyType, [|testEquality|])
+                   , (U.TypeApp (U.ConType [t|FloatPrecisionRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|CtxRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|BaseTypeRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|TypeRepr|]) U.AnyType, [|testEquality|])
@@ -439,6 +455,7 @@ instance OrdF TypeRepr where
                    [ (U.TypeApp (U.ConType [t|NatRepr|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|SymbolRepr|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|FloatInfoRepr|]) U.AnyType, [|compareF|])
+                   , (U.TypeApp (U.ConType [t|FloatPrecisionRepr|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|BaseTypeRepr|])  U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|TypeRepr|])      U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|CtxRepr|])      U.AnyType, [|compareF|])
