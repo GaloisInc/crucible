@@ -259,6 +259,8 @@ bitblastExpr h ae = do
       arrayFail = failTerm (AppExpr ae) "array expression"
   let structFail :: IO a
       structFail = failTerm (AppExpr ae) "struct expression"
+  let floatFail :: IO a
+      floatFail = failTerm (AppExpr ae) "floating-point expression"
   case appExprApp ae of
 
     TrueBool  -> do
@@ -388,6 +390,47 @@ bitblastExpr h ae = do
       BV <$> join (AIG.zipWithM (AIG.lOr' g) <$> eval' h x <*> eval' h y)
     BVBitXor _w x y -> do
       BV <$> join (AIG.zipWithM (AIG.lXor' g) <$> eval' h x <*> eval' h y)
+
+    ------------------------------------------------------------------------
+    -- Floating point operations
+
+    FloatPZero{} -> floatFail
+    FloatNZero{} -> floatFail
+    FloatNaN{}   -> floatFail
+    FloatPInf{}  -> floatFail
+    FloatNInf{}  -> floatFail
+    FloatNeg{}  -> floatFail
+    FloatAbs{}  -> floatFail
+    FloatSqrt{}  -> floatFail
+    FloatAdd{}  -> floatFail
+    FloatSub{}  -> floatFail
+    FloatMul{}  -> floatFail
+    FloatDiv{}  -> floatFail
+    FloatRem{}  -> floatFail
+    FloatMin{}  -> floatFail
+    FloatMax{}  -> floatFail
+    FloatFMA{}  -> floatFail
+    FloatEq{}  -> floatFail
+    FloatFpEq{}  -> floatFail
+    FloatFpNe{}  -> floatFail
+    FloatLe{}  -> floatFail
+    FloatLt{}  -> floatFail
+    FloatIsNaN{}  -> floatFail
+    FloatIsInf{}  -> floatFail
+    FloatIsZero{}  -> floatFail
+    FloatIsPos{}  -> floatFail
+    FloatIsNeg{}  -> floatFail
+    FloatIsSubnorm{}  -> floatFail
+    FloatIsNorm{}  -> floatFail
+    FloatIte{}  -> floatFail
+    FloatCast{}  -> floatFail
+    FloatFromBinary{}  -> floatFail
+    BVToFloat{}  -> floatFail
+    SBVToFloat{}  -> floatFail
+    RealToFloat{}  -> floatFail
+    FloatToBV{} -> floatFail
+    FloatToSBV{} -> floatFail
+    FloatToReal{} -> floatFail
 
     ------------------------------------------------------------------------
     -- Array operations
@@ -701,6 +744,7 @@ freshBinding ntk n l tp = do
     BaseComplexRepr -> failAt l "Complex variables are not supported by ABC."
     BaseArrayRepr _ _ -> failAt l "Array variables are not supported by ABC."
     BaseStructRepr{}  -> failAt l "Struct variables are not supported by ABC."
+    BaseFloatRepr{}   -> failAt l "Floating-point variables are not supported by ABC."
 
 -- | Add a bound variable.
 addBoundVar :: Network t s -> Some (QuantifierInfo t) -> IO (VarBinding t s)

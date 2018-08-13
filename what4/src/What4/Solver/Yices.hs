@@ -260,6 +260,52 @@ instance SupportTermOps (Term (Connection s)) where
 
   lambdaTerm = Just yicesLambda
 
+
+  floatPZero _ = floatFail
+  floatNZero _ = floatFail
+  floatNaN   _ = floatFail
+  floatPInf  _ = floatFail
+  floatNInf  _ = floatFail
+
+  floatNeg  _   = floatFail
+  floatAbs  _   = floatFail
+  floatSqrt _ _ = floatFail
+
+  floatAdd _ _ _ = floatFail
+  floatSub _ _ _ = floatFail
+  floatMul _ _ _ = floatFail
+  floatDiv _ _ _ = floatFail
+  floatRem _ _   = floatFail
+  floatMin _ _   = floatFail
+  floatMax _ _   = floatFail
+
+  floatFMA _ _ _ _ = floatFail
+
+  floatEq   _ _ = floatFail
+  floatFpEq _ _ = floatFail
+  floatLe   _ _ = floatFail
+  floatLt   _ _ = floatFail
+
+  floatIsNaN     _ = floatFail
+  floatIsInf     _ = floatFail
+  floatIsZero    _ = floatFail
+  floatIsPos     _ = floatFail
+  floatIsNeg     _ = floatFail
+  floatIsSubnorm _ = floatFail
+  floatIsNorm    _ = floatFail
+
+  floatCast       _ _ _ = floatFail
+  floatFromBinary _ _   = floatFail
+  bvToFloat       _ _ _ = floatFail
+  sbvToFloat      _ _ _ = floatFail
+  realToFloat     _ _ _ = floatFail
+  floatToBV       _ _ _ = floatFail
+  floatToSBV      _ _ _ = floatFail
+  floatToReal     _ = floatFail
+
+floatFail :: a
+floatFail = error "Yices does not support IEEE-754 floating-point numbers"
+
 errorComputableUnsupported :: a
 errorComputableUnsupported = error "computable functions are not supported."
 
@@ -282,6 +328,7 @@ yicesType tp =
     SMT_ArrayType i e   -> fnType i e
     SMT_StructType flds -> YicesType (app "tuple" ((unType . yicesType <$> flds)))
     SMT_FnType flds res -> fnType flds res
+    SMT_FloatType _     -> floatFail
 
 ------------------------------------------------------------------------
 -- Command
