@@ -49,9 +49,6 @@ library
 
   hs-source-dirs: src
 
-  build-tools:
-    hpb
-
   exposed-modules:
     Lang.Crucible.Syntax.Atoms
     Lang.Crucible.Syntax.Concrete
