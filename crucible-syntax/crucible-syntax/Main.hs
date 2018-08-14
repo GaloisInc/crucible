@@ -1,23 +1,23 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
-import Control.Monad.Except
-import Control.Monad.ST
+--import Control.Monad.Except
+--import Control.Monad.ST
 import System.IO
 import Data.Monoid
-import Data.Text (Text)
-import qualified Data.Text as T
+--import Data.Text (Text)
+--import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
-import Lang.Crucible.Syntax.Concrete
-import Lang.Crucible.Syntax.SExpr
-import Lang.Crucible.Syntax.Atoms
+--import Lang.Crucible.Syntax.Concrete
+--import Lang.Crucible.Syntax.SExpr
+--import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.Syntax.Prog
-import Lang.Crucible.CFG.SSAConversion
+--import Lang.Crucible.CFG.SSAConversion
 
 import qualified Options.Applicative as Opt
 
-import System.Exit
+--import System.Exit
 
 import Text.Megaparsec as MP
 
@@ -72,12 +72,12 @@ main =
   do cmd <- Opt.execParser options
      case cmd of
        ReplCommand -> hSetBuffering stdout NoBuffering >> repl (TheFile "stdin")
-       CheckCommand (Check f@(TheFile input) out pp) ->
-         do contents <- T.readFile input
+       CheckCommand (Check (TheFile inputFile) out pp) ->
+         do contents <- T.readFile inputFile
             case out of
               Nothing ->
-                go input contents pp stdout
-              Just (TheFile output) ->
-                withFile output WriteMode (go input contents pp)
+                go inputFile contents pp stdout
+              Just (TheFile outputFile) ->
+                withFile outputFile WriteMode (go inputFile contents pp)
 
   where options = Opt.info command (Opt.fullDesc)
