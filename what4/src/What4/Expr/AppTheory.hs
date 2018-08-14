@@ -79,6 +79,9 @@ appTheory a0 =
     NatDiv _ SemiRingLiteral{} -> LinearArithTheory
     NatDiv{} -> NonlinearArithTheory
 
+    NatMod _ SemiRingLiteral{} -> LinearArithTheory
+    NatMod{} -> NonlinearArithTheory
+
     ----------------------------
     -- Integer operations
 

@@ -386,13 +386,12 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
   RealIsInteger :: !(e BaseRealType) -> App e BaseBoolType
 
   -- This does natural number division rounded to zero.
-  --
-  -- NatDiv x y is equivalent to intToNat (floor (RealDiv (natToReal x) (natToReal y)))
   NatDiv :: !(e BaseNatType)  -> !(e BaseNatType) -> App e BaseNatType
+  NatMod :: !(e BaseNatType)  -> !(e BaseNatType) -> App e BaseNatType
 
   IntDiv :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseIntegerType
-  IntMod :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseNatType
-  IntAbs :: !(e BaseIntegerType)  -> App e BaseNatType
+  IntMod :: !(e BaseIntegerType)  -> !(e BaseIntegerType) -> App e BaseIntegerType
+  IntAbs :: !(e BaseIntegerType)  -> App e BaseIntegerType
   IntDivisible :: !(e BaseIntegerType) -> Natural -> App e BaseBoolType
 
   RealDiv :: !(e BaseRealType) -> !(e BaseRealType) -> App e BaseRealType
@@ -1090,6 +1089,7 @@ appType a =
     ArrayEq{} -> knownRepr
 
     NatDiv{} -> knownRepr
+    NatMod{} -> knownRepr
 
     IntDiv{} -> knownRepr
     IntMod{} -> knownRepr
@@ -1432,6 +1432,7 @@ ppApp' a0 = do
     ArrayEq x y -> ppSExpr "arrayEq" [x, y]
 
     NatDiv x y -> ppSExpr "natDiv" [x, y]
+    NatMod x y -> ppSExpr "natMod" [x, y]
 
     IntAbs x   -> prettyApp "intAbs" [exprPrettyArg x]
     IntDiv x y -> prettyApp "intDiv" [exprPrettyArg x, exprPrettyArg y]
@@ -2294,12 +2295,13 @@ abstractEval bvParams f a0 = do
     -- Arithmetic operations
 
     NatDiv x y -> natRangeDiv (f x) (f y)
+    NatMod x y -> natRangeMod (f x) (f y)
 
     IntAbs x -> intAbsRange (f x)
     IntDiv x y -> intDivRange (f x) (f y)
     IntMod x y -> intModRange (f x) (f y)
     IntDivisible x 0 -> rangeCheckEq (SingleRange 0) (f x)
-    IntDivisible x n -> natCheckEq (NatSingleRange 0) (intModRange (f x) (SingleRange (toInteger n)))
+    IntDivisible x n -> rangeCheckEq (SingleRange 0) (intModRange (f x) (SingleRange (toInteger n)))
 
     SemiRingMul SemiRingInt x y -> mulRange (f x) (f y)
     SemiRingSum SemiRingInt s -> WSum.eval addRange smul SingleRange s
@@ -2935,6 +2937,7 @@ reduceApp sym a0 = do
     SemiRingIte SemiRingReal c x y -> realIte sym c x y
 
     NatDiv x y -> natDiv sym x y
+    NatMod x y -> natMod sym x y
 
     IntDiv x y -> intDiv sym x y
     IntMod x y -> intMod sym x y
@@ -3814,6 +3817,16 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | otherwise = do
       sbMakeExpr sym (NatDiv x y)
 
+  natMod sym x y
+    | Just m <- asNat x, Just n <- asNat y, n /= 0 = do
+      natLit sym (m `mod` n)
+    | Just 0 <- asNat x = do
+      natLit sym 0
+    | Just 1 <- asNat y = do
+      natLit sym 0
+    | otherwise = do
+      sbMakeExpr sym (NatMod x y)
+
   natIte sym c x y = semiRingIte sym SemiRingNat c x y
 
   natEq sym x y
@@ -4006,9 +4019,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = semiRingLe sym SemiRingInt x y
 
   intAbs sym x
-    | Just i <- asInteger x = natLit sym (fromInteger (abs i))
-    | Just True <- rangeCheckLe (SingleRange 0) (exprAbsValue x) = integerToNat sym x
-    | Just True <- rangeCheckLe (exprAbsValue x) (SingleRange 0) = integerToNat sym =<< intNeg sym x
+    | Just i <- asInteger x = intLit sym (abs i)
+    | Just True <- rangeCheckLe (SingleRange 0) (exprAbsValue x) = return x
+    | Just True <- rangeCheckLe (exprAbsValue x) (SingleRange 0) = intNeg sym x
     | otherwise = sbMakeExpr sym (IntAbs x)
 
   intDiv sym x y
@@ -4028,16 +4041,16 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
   intMod sym x y
       -- Mod by 1.
-    | Just 1 <- asInteger y = natLit sym 0
+    | Just 1 <- asInteger y = intLit sym 0
       -- Mod 0 by anything is zero.
-    | Just 0 <- asInteger x = natLit sym 0
+    | Just 0 <- asInteger x = intLit sym 0
       -- As integers.
     | Just xi <- asInteger x, Just yi <- asInteger y, yi /= 0 =
-        natLit sym (fromInteger (xi `mod` abs yi))
+        intLit sym (xi `mod` abs yi)
     | Just (SemiRingSum _sr xsum) <- asApp x, Just yi <- asInteger y, yi /= 0 =
         case WSum.reduceIntSumMod xsum (abs yi) of
           xsum' | Just xi <- WSum.asConstant xsum' ->
-                    natLit sym (fromInteger xi)
+                    intLit sym xi
                 | otherwise ->
                     do x' <- intSum sym xsum'
                        sbMakeExpr sym (IntMod x' y)
@@ -4866,7 +4879,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       intLit sym i
       -- bvToInteger (integerToBv x w) == mod x (2^w)
     | Just (IntegerToBV xi w) <- asApp x =
-      natToInteger sym =<< intMod sym xi =<< intLit sym (2^natValue w)
+      intMod sym xi =<< intLit sym (2^natValue w)
     | otherwise =
       sbMakeExpr sym (BVToInteger x)
 
@@ -4878,7 +4891,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       do halfmod <- intLit sym (2 ^ (natValue w - 1))
          modulus <- intLit sym (2 ^ natValue w)
          x'      <- intAdd sym xi halfmod
-         z       <- natToInteger sym =<< intMod sym x' modulus
+         z       <- intMod sym x' modulus
          intSub sym z halfmod
     | otherwise =
       sbMakeExpr sym (SBVToInteger x)

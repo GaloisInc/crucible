@@ -494,10 +494,6 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   -- See 'natDiv' for a description of the properties the return
   -- value is expected to satisfy.
   natMod :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
-  natMod sym x y = do
-    xi <- natToInteger sym x
-    yi <- natToInteger sym y
-    intMod sym xi yi
 
   -- | If-then-else applied to natural numbers.
   natIte :: sym -> Pred sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
@@ -544,9 +540,8 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   intLt  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
   intLt sym x y = notPred sym =<< intLe sym y x
 
-  -- | Compute the absolute value of an integer.  The result is the unique
-  --   natural number with the same magnitude as the input integer.
-  intAbs :: sym -> SymInteger sym -> IO (SymNat sym)
+  -- | Compute the absolute value of an integer.
+  intAbs :: sym -> SymInteger sym -> IO (SymInteger sym)
 
   -- | @intDiv x y@ computes the integer division of @x@ by @y@.  This division is
   --   interpreted the same way as the SMT-Lib integer theory, which states that
@@ -578,7 +573,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   --
   --   Integer modulus requires nonlinear support whenever the divisor is
   --   not a constant.
-  intMod :: sym -> SymInteger sym -> SymInteger sym -> IO (SymNat sym)
+  intMod :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
 
   -- | @intDivisible x k@ is true whenever @x@ is an integer divisible
   --   by the known natural number @k@.  In other words `divisible x k`

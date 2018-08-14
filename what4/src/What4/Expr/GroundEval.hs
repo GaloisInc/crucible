@@ -227,6 +227,10 @@ evalGroundApp f0 a0 = do
       where g _ 0 = 0
             g u v = u `div` v
 
+    NatMod x y -> g <$> f x <*> f y
+      where g _ 0 = 0
+            g u v = u `mod` v
+
     IntDiv x y -> g <$> f x <*> f y
       where
       g u v | v == 0    = 0

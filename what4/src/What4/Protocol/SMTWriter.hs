@@ -1651,11 +1651,11 @@ appSMTExpr ae = do
       x <- mkBaseExpr xe
       y <- mkBaseExpr ye
 
-      freshBoundTerm NatTypeMap (intMod x y)
+      freshBoundTerm IntegerTypeMap (intMod x y)
 
     IntAbs xe -> do
       x <- mkBaseExpr xe
-      freshBoundTerm NatTypeMap (intAbs x)
+      freshBoundTerm IntegerTypeMap (intAbs x)
 
     IntDivisible xe k -> do
       x <- mkBaseExpr xe
@@ -1670,6 +1670,16 @@ appSMTExpr ae = do
       y <- mkBaseExpr ye
 
       freshBoundTerm NatTypeMap (intDiv x y)
+
+    NatMod xe ye -> do
+      case ye of
+        SemiRingLiteral SemiRingNat _ _ -> return ()
+        _ -> checkNonlinearSupport i
+
+      x <- mkBaseExpr xe
+      y <- mkBaseExpr ye
+
+      freshBoundTerm NatTypeMap (intMod x y)
 
     ------------------------------------------
     -- Real operations.
