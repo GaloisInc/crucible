@@ -17,6 +17,7 @@
       (let done $res)
       (return done)))
 
+vec-test
 %0
   % 6:7
   $2 = textLit("hello")

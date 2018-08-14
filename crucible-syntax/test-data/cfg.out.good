@@ -2,6 +2,7 @@
    (start beginning: (print x) (jump next:))
    (defblock next: (print x) (return x)))
 
+foo
 %0
   % 3:12
   print($0)

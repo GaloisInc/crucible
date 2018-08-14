@@ -1,6 +1,7 @@
 (defun @show-int ((x Integer)) String
    (start at-the-beginning: (let res (show x)) (return res)))
 
+show-int
 %0
   % 3:14
   $1 = showValue(BaseIntegerRepr, $0)

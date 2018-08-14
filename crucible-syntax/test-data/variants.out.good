@@ -13,6 +13,7 @@
       (let s (the (Variant Bool String Integer) (inj 1 z)))
       (return s)))
 
+rot-cases
 %0
   % 3:5
   vswitch $0 {

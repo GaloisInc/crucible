@@ -8,11 +8,15 @@ import System.Exit
 import Control.Monad.ST
 import Control.Monad
 import Text.Megaparsec as MP
+
+import Lang.Crucible.CFG.Reg
+import Lang.Crucible.CFG.SSAConversion
+
 import Lang.Crucible.Syntax.Concrete
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.ExprParse (printSyntaxError)
 import Lang.Crucible.Syntax.Atoms
-import Lang.Crucible.CFG.SSAConversion
+
 
 -- | The main loop body, useful for both the program and for testing.
 go :: FilePath -- ^ The name of the input (appears in source locations)
@@ -36,4 +40,6 @@ go fn theInput pprint outh =
            Right ok ->
              forM_ ok $
               \(ACFG _ _ theCfg) ->
-                hPutStr outh $ show (toSSA theCfg)
+                do let ssa = toSSA theCfg
+                   hPutStrLn outh $ show $ cfgHandle theCfg
+                   hPutStrLn outh $ show ssa

@@ -6,6 +6,7 @@
       (let intp (integer? r))
       (return r)))
 
+test-rational
 %0
   % 3:12
   $0 = rationalLit(1 % 3)

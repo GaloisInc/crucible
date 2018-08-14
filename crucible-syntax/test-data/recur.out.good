@@ -8,6 +8,7 @@
       (return val))
    (defblock done: (let init (the Integer 1)) (return init)))
 
+fact
 %0
   % 3:16
   $1 = intLit(1)

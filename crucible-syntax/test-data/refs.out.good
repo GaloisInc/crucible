@@ -6,6 +6,7 @@
       (drop-ref! x)
       (return x)))
 
+refs
 %0
   % 3:12
   $1 = newref($0)

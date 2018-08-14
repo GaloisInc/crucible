@@ -12,6 +12,7 @@
       (assert! (not this-x) "No way, no way at all")
       (return more)))
 
+test
 %0
   % 4:14
   $1 = intLit(1)

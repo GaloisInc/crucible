@@ -16,6 +16,7 @@
       (branch donep done: loop:))
    (defblock done: (let res $$counter) (return res)))
 
+count
 %0
   % 7:28
   $0 = intLit(0)
