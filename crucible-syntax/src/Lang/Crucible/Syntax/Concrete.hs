@@ -285,7 +285,6 @@ synth =
     (the <|> crucibleAtom <|> unitCon <|> boolLit <|> stringLit <|> funNameLit <|>
      notExpr <|> equalp <|> lessThan <|>
      toAny <|> fromAny <|>
-     modulus <|>
      stringAppend <|> showExpr <|>
      vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
      binaryBool And_ And <|> binaryBool Or_ Or <|> binaryBool Xor_ BoolXor <|> ite <|>
@@ -402,11 +401,6 @@ synth =
                AsBaseType bTy ->
                  return $ SomeExpr tTy $ E $ App $ BaseIte bTy c t f
 
-    modulus =
-      do (E e1, E e2) <- binary Mod (check RealValRepr) (check RealValRepr)
-         return $ SomeExpr RealValRepr $ E $ App $ RealMod e1 e2
-
-
     toAny =
       (unary ToAny synth) <&>
         \(SomeExpr ty (E e)) -> SomeExpr AnyRepr (E (App (PackAny ty e)))
@@ -476,7 +470,7 @@ check :: forall m t h s . (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m
 check t =
   describe ("inhabitant of " <> T.pack (show t)) $
     (literal <|> unpack <|> just <|> nothing <|> fromJust_ <|> injection <|>
-     addition <|> subtraction <|> multiplication <|> division <|>
+     addition <|> subtraction <|> multiplication <|> division <|> modulus <|>
      vecLit <|> vecCons <|> modeSwitch) <* commit
   where
     typed :: TypeRepr t' ->  m (E s t')
@@ -570,8 +564,14 @@ check t =
       arith t RealValRepr Times RealMul
 
     division =
+      arith t NatRepr Div NatDiv <|>
+      arith t IntegerRepr Div IntDiv <|>
       arith t RealValRepr Div RealDiv
 
+    modulus =
+      arith t NatRepr Mod NatMod <|>
+      arith t IntegerRepr Mod IntMod <|>
+      arith t RealValRepr Mod RealMod
 
     arith :: TypeRepr t1 -> TypeRepr t2
           -> Keyword

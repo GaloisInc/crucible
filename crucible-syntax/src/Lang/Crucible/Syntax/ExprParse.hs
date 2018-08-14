@@ -203,8 +203,8 @@ instance Monoid (Failure atom) where
       GT -> e1
       EQ -> Oops p1 (r1 <> r2)
 
-data P atom a = P { success :: Search a
-                  , failure :: Failure atom
+data P atom a = P { _success :: Search a
+                  , _failure :: Failure atom
                   }
   deriving Functor
 
