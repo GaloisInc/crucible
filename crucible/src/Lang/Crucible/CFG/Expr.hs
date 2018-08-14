@@ -37,11 +37,15 @@ module Lang.Crucible.CFG.Expr
   , mapApp
   , foldApp
   , traverseApp
-  , pattern BVEq
+  , pattern BoolEq
   , pattern NatEq
   , pattern IntEq
   , pattern RealEq
+  , pattern BVEq
+
   , pattern BoolIte
+  , pattern NatIte
+  , pattern IntIte
   , pattern RealIte
   , pattern BVIte
     -- * Base terms
@@ -110,9 +114,9 @@ instance TraversableFC BaseTerm where
 ------------------------------------------------------------------------
 -- App
 
--- | Equality on bitvectors
-pattern BVEq :: () => (1 <= w, tp ~ BoolType) => NatRepr w -> f (BVType w) -> f (BVType w) -> App ext f tp
-pattern BVEq w x y = BaseIsEq (BaseBVRepr w) x y
+-- | Equality on booleans
+pattern BoolEq :: () => (tp ~ BoolType) => f BoolType -> f BoolType -> App ext f tp
+pattern BoolEq x y = BaseIsEq BaseBoolRepr x y
 
 -- | Equality on natural numbers.
 pattern NatEq :: () => (tp ~ BoolType) => f NatType -> f NatType -> App ext f tp
@@ -126,9 +130,22 @@ pattern IntEq x y = BaseIsEq BaseIntegerRepr x y
 pattern RealEq :: () => (tp ~ BoolType) => f RealValType -> f RealValType -> App ext f tp
 pattern RealEq x y = BaseIsEq BaseRealRepr x y
 
+-- | Equality on bitvectors
+pattern BVEq :: () => (1 <= w, tp ~ BoolType) => NatRepr w -> f (BVType w) -> f (BVType w) -> App ext f tp
+pattern BVEq w x y = BaseIsEq (BaseBVRepr w) x y
+
+
 -- | Return first or second value depending on condition.
 pattern BoolIte :: () => (tp ~ BoolType) => f BoolType -> f tp -> f tp -> App ext f tp
 pattern BoolIte c x y = BaseIte BaseBoolRepr c x y
+
+-- | Return first or second value depending on condition.
+pattern NatIte :: () => (tp ~ NatType) => f BoolType -> f tp -> f tp -> App ext f tp
+pattern NatIte c x y = BaseIte BaseNatRepr c x y
+
+-- | Return first or second value depending on condition.
+pattern IntIte :: () => (tp ~ IntegerType) => f BoolType -> f tp -> f tp -> App ext f tp
+pattern IntIte c x y = BaseIte BaseIntegerRepr c x y
 
 -- | Return first or second number depending on condition.
 pattern RealIte :: () => (tp ~ RealValType) => f BoolType -> f tp -> f tp -> App ext f tp
@@ -225,20 +242,34 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   NatSub :: !(f NatType) -> !(f NatType) -> App ext f NatType
   -- Multiply two natural numbers.
   NatMul :: !(f NatType) -> !(f NatType) -> App ext f NatType
+  -- Divide two natural numbers.  Undefined if the divisor is 0.
+  NatDiv :: !(f NatType) -> !(f NatType) -> App ext f NatType
+  -- Modular reduction on natural numbers. Undefined if the modulus is 0.
+  NatMod :: !(f NatType) -> !(f NatType) -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- Integer
 
   -- Create a singleton real array from a numeric literal.
   IntLit :: !Integer -> App ext f IntegerType
+  -- Less-than test on integers
+  IntLt :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
+  -- Less-than-or-equal test on integers
+  IntLe :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
+  -- Negation of an integer value
+  IntNeg :: !(f IntegerType) -> App ext f IntegerType
   -- Add two integers.
   IntAdd :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
   -- Subtract one integer from another.
   IntSub :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
-  -- Multiple two integers.
+  -- Multiply two integers.
   IntMul :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
-
-  IntLt :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
+  -- Divide two integers.  Undefined if the divisor is 0.
+  IntDiv :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
+  -- Modular reduction on integers.  Undefined if the modulus is 0.
+  IntMod :: !(f IntegerType) -> !(f IntegerType) -> App ext f NatType
+  -- Integer absolute value
+  IntAbs :: !(f IntegerType) -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- RealVal
@@ -246,6 +277,10 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- A real constant
   RationalLit :: !Rational -> App ext f RealValType
 
+  RealLt :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
+  RealLe :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
+  -- Negate a real number
+  RealNeg :: !(f RealValType) -> App ext f RealValType
   -- Add two natural numbers.
   RealAdd :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
   -- Subtract one number from another.
@@ -258,7 +293,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- @y@ is not zero and @x@ when @y@ is zero.
   RealMod :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
 
-  RealLt :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
   -- Return true if real value is integer.
   RealIsInteger :: !(f RealValType) -> App ext f BoolType
 
@@ -901,13 +935,21 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     NatAdd{} -> knownRepr
     NatSub{} -> knownRepr
     NatMul{} -> knownRepr
+    NatDiv{} -> knownRepr
+    NatMod{} -> knownRepr
+
     ----------------------------------------------------------------------
     -- Integer
     IntLit{} -> knownRepr
+    IntLt{} -> knownRepr
+    IntLe{} -> knownRepr
+    IntNeg{} -> knownRepr
     IntAdd{} -> knownRepr
     IntSub{} -> knownRepr
     IntMul{} -> knownRepr
-    IntLt{} -> knownRepr
+    IntDiv{} -> knownRepr
+    IntMod{} -> knownRepr
+    IntAbs{} -> knownRepr
 
     ----------------------------------------------------------------------
     -- RealVal
@@ -917,6 +959,8 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     RealMul{} -> knownRepr
     RealDiv{} -> knownRepr
     RealMod{} -> knownRepr
+    RealNeg{} -> knownRepr
+    RealLe{} -> knownRepr
     RealLt{} -> knownRepr
     RealIsInteger{} -> knownRepr
 

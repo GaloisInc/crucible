@@ -342,15 +342,33 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       natMul sym x y
+    NatDiv xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      natDiv sym x y
+    NatMod xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      natMod sym x y
 
     ----------------------------------------------------------------------
     -- Int
 
     IntLit n -> intLit sym n
+    IntLe xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intLe sym x y
     IntLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
       intLt sym x y
+    IntNeg xe -> do
+      x <- evalSub xe
+      intNeg sym x
+    IntAbs xe -> do
+      x <- evalSub xe
+      intAbs sym x
     IntAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -363,6 +381,14 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       intMul sym x y
+    IntDiv xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intDiv sym x y
+    IntMod xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intMod sym x y
 
     --------------------------------------------------------------------
     -- Maybe
@@ -456,6 +482,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     -- RealVal
 
     RationalLit d -> realLit sym d
+    RealNeg xe -> do
+      x <- evalSub xe
+      realNeg sym x
     RealAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -480,6 +509,10 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub x_expr
       y <- evalSub y_expr
       realLt sym x y
+    RealLe x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realLe sym x y
     RealIsInteger x_expr -> do
       x <- evalSub x_expr
       isInteger sym x
