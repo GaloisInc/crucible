@@ -267,9 +267,9 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Divide two integers.  Undefined if the divisor is 0.
   IntDiv :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
   -- Modular reduction on integers.  Undefined if the modulus is 0.
-  IntMod :: !(f IntegerType) -> !(f IntegerType) -> App ext f NatType
+  IntMod :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
   -- Integer absolute value
-  IntAbs :: !(f IntegerType) -> App ext f NatType
+  IntAbs :: !(f IntegerType) -> App ext f IntegerType
 
   ----------------------------------------------------------------------
   -- RealVal

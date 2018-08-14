@@ -41,7 +41,6 @@ import           What4.BaseTypes
 import           What4.Config
 import           What4.Concrete
 import           What4.Interface
-import           What4.InterpretedFloatingPoint
 import           What4.SatResult
 import qualified What4.Expr.Builder as B
 import qualified What4.Expr.WeightedSum as WSum
@@ -162,6 +161,8 @@ baseSCType sym ctx bt =
             unsupported sym "SAW backend only supports single element arrays."
           join $ SC.scFun ctx <$> baseSCType sym ctx dom
                               <*> baseSCType sym ctx range
+    BaseFloatRepr _ ->
+      unsupported sym "SAW backend does not support IEEE-754 floating point values: baseSCType"
     BaseStringRepr   ->
       unsupported sym "SAW backend does not support string values: baseSCType"
     BaseComplexRepr  ->
@@ -773,6 +774,11 @@ evaluateExpr sym sc cache = f
              y' <- f y
              SAWExpr <$> SC.scDivNat sc x' y'
 
+        B.NatMod x y ->
+          do x' <- f x
+             y' <- f y
+             SAWExpr <$> SC.scModNat sc x' y'
+
         B.IntDiv x y ->
           do x' <- f x
              y' <- f y
@@ -783,7 +789,7 @@ evaluateExpr sym sc cache = f
              SAWExpr <$> SC.scIntMod sc x' y'
         B.IntAbs x ->
           eval x >>= \case
-            NatToIntSAWExpr (SAWExpr z) -> SAWExpr <$> SC.scNatToInt sc z
+            NatToIntSAWExpr z -> return (NatToIntSAWExpr z)
             SAWExpr z -> SAWExpr <$> (SC.scIntAbs sc z)
 
         B.IntDivisible x 0 ->

@@ -294,6 +294,7 @@ bitblastExpr h ae = do
     SemiRingLe SemiRingNat _ _ -> natFail
     SemiRingIte SemiRingNat _ _ _ -> natFail
     NatDiv{} -> natFail
+    NatMod{} -> natFail
 
     ------------------------------------------------------------------------
     -- Integer operations
