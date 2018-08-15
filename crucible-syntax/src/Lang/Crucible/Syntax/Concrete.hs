@@ -283,7 +283,7 @@ synth :: forall m h s . (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m)
 synth =
   describe "synthesizable expression" $
     (the <|> crucibleAtom <|> unitCon <|> boolLit <|> stringLit <|> funNameLit <|>
-     notExpr <|> equalp <|> lessThan <|>
+     notExpr <|> equalp <|> lessThan <|> lessThanEq <|>
      toAny <|> fromAny <|>
      stringAppend <|> showExpr <|>
      vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
@@ -298,8 +298,6 @@ synth =
                   \(Some t) ->
                     do (e, ()) <- cons (check t) emptyList
                        return $ SomeExpr t e)
-
-
 
     okAtom theAtoms x =
       case Map.lookup x theAtoms of
@@ -375,6 +373,23 @@ synth =
                other ->
                  describe ("valid comparison type (got " <> T.pack (show other) <> ")") empty
 
+    lessThanEq :: m (SomeExpr s)
+    lessThanEq =
+      do (SomeExpr t1 (E e1), SomeExpr t2 (E e2)) <-
+           binary Le synth synth
+         case testEquality t1 t2 of
+           Nothing ->
+             describe (T.concat [ "expressions with the same type, got "
+                                , T.pack (show t1), " and ", T.pack (show t2)
+                                ]) $
+             empty
+           Just Refl ->
+             case t1 of
+               NatRepr     -> return $ SomeExpr BoolRepr $ E $ App $ NatLe e1 e2
+               IntegerRepr -> return $ SomeExpr BoolRepr $ E $ App $ IntLe e1 e2
+               RealValRepr -> return $ SomeExpr BoolRepr $ E $ App $ RealLe e1 e2
+               other ->
+                 describe ("valid comparison type (got " <> T.pack (show other) <> ")") empty
 
     ite :: m (SomeExpr s)
     ite =
@@ -471,6 +486,7 @@ check t =
   describe ("inhabitant of " <> T.pack (show t)) $
     (literal <|> unpack <|> just <|> nothing <|> fromJust_ <|> injection <|>
      addition <|> subtraction <|> multiplication <|> division <|> modulus <|>
+     negation <|> absoluteValue <|>
      vecLit <|> vecCons <|> modeSwitch) <* commit
   where
     typed :: TypeRepr t' ->  m (E s t')
@@ -548,6 +564,13 @@ check t =
                     return $ E $ App $ InjectVariant ts idx out
            _ -> describe ("context expecting variant type (got " <> T.pack (show t) <> ")") empty
 
+    negation =
+      arith1 t IntegerRepr Negate IntNeg <|>
+      arith1 t RealValRepr Negate RealNeg
+
+    absoluteValue =
+      arith1 t IntegerRepr Abs IntAbs
+
     addition =
       arith t NatRepr Plus NatAdd <|>
       arith t IntegerRepr Plus IntAdd <|>
@@ -572,6 +595,24 @@ check t =
       arith t NatRepr Mod NatMod <|>
       arith t IntegerRepr Mod IntMod <|>
       arith t RealValRepr Mod RealMod
+
+    arith1 :: TypeRepr t1 -> TypeRepr t2
+          -> Keyword
+          -> (Expr () s t2 -> App () (Expr () s) t2)
+          -> m (E s t1)
+    arith1 t1 t2 k f =
+      case testEquality t1 t2 of
+        Nothing ->
+          describe ("unary arithmetic expression beginning with " <> T.pack (show k) <> " type " <>  (T.pack (show t2)))
+            empty
+        Just Refl ->
+          followedBy (kw k) $
+          depCons (check t1) $
+            \ (E e) ->
+                do emptyList
+                   return $ E $ App $ f e
+
+
 
     arith :: TypeRepr t1 -> TypeRepr t2
           -> Keyword

@@ -47,7 +47,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | SetGlobal
              | SetRef | DropRef_
              | Unpack
-             | Plus | Minus | Times | Div
+             | Plus | Minus | Times | Div | Negate | Abs
              | Just_ | Nothing_ | FromJust
              | Inj
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
@@ -58,7 +58,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Pack
              | Not_ | And_ | Or_ | Xor_
              | Mod
-             | Lt
+             | Lt | Le
              | Show
              | StringAppend
              | ToAny | FromAny
@@ -90,6 +90,9 @@ keywords =
   , ("*" , Times)
   , ("/" , Div)
   , ("<" , Lt)
+  , ("<=" , Le)
+  , ("negate", Negate)
+  , ("abs", Abs)
   , ("show", Show)
   , ("inj", Inj)
   , ("just" , Just_)
@@ -188,7 +191,6 @@ atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
     <|> Fn . FunName <$> (char '@' *> identifier)
     <|> (char '$' *> ((char '$' *> (Gl . GlobalName <$> identifier)) <|> Rg . RegName <$> identifier))
     <|> mkNum <$> signedPrefixedNumber <*> (try (Just <$> (char '/' *> prefixedNumber)) <|> pure Nothing)
-    <|> Rat <$> ((%) <$> signedPrefixedNumber <* char '/' <*> prefixedNumber)
     <|> char '#' *>  ((char 't' <|> char 'T') $> Bool True <|> (char 'f' <|> char 'F') $> Bool False)
     <|> char '"' *> (StrLit . T.pack <$> stringContents)
   where
@@ -219,11 +221,10 @@ signedPrefixedNumber =
   prefixedNumber
 
 prefixedNumber :: (Eq a, Num a) => Parser a
-prefixedNumber = try (char '0' *> hexOrOct) <|> decimal
+prefixedNumber = try (char '0' *> maybehex) <|> decimal
   where decimal = fromInteger . read <$> some (satisfy isDigit <?> "decimal digit")
-        hexOrOct = char 'x' *> hex <|> oct <|> return 0
+        maybehex = char 'x' *> hex <|> return 0
         hex = reading $ readHex <$> some (satisfy (\c -> isDigit c || elem c ("abcdefABCDEF" :: String)) <?> "hex digit")
-        oct = reading $ readOct <$> some (satisfy (\c -> elem c ("01234567" :: String)) <?> "octal digit")
         reading p =
           p >>=
             \case
