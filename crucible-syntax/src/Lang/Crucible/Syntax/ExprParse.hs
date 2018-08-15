@@ -120,6 +120,9 @@ instance MonadPlus Search where
   mzero = empty
   mplus = (<|>)
 
+instance Semigroup (Search a) where
+  (<>) = (<|>)
+
 instance Monoid (Search a) where
   mempty  = empty
   mappend = (<|>)
@@ -193,6 +196,9 @@ data Reason atom = Reason { expr :: Syntax atom
 data Failure atom = Ok | Oops Progress (NonEmpty (Reason atom))
   deriving (Functor, Show)
 
+instance Semigroup (Failure atom) where
+  (<>) = mappend
+
 instance Monoid (Failure atom) where
   mempty = Ok
   mappend Ok e2 = e2
@@ -207,6 +213,9 @@ data P atom a = P { _success :: Search a
                   , _failure :: Failure atom
                   }
   deriving Functor
+
+instance Semigroup (P atom a) where
+  (<>) = mappend
 
 instance Monoid (P atom a) where
   mempty = P mempty mempty

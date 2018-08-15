@@ -39,6 +39,7 @@ import Prelude hiding (fail)
 
 import Data.Monoid ()
 import Data.Ratio
+import Data.Semigroup (Semigroup(..))
 
 import Control.Lens hiding (cons, backwards)
 import Control.Applicative
@@ -152,6 +153,10 @@ errPos (NotGlobal p _) = p
 errPos (SyntaxParseError (SP.SyntaxError (Reason e _ :| _))) = syntaxPos e
 
 deriving instance Show (ExprErr s)
+
+instance Semigroup (ExprErr s) where
+  (<>) = mappend
+
 instance Monoid (ExprErr s) where
   mempty = TrivialErr (OtherPos "mempty")
   mappend = Errs
@@ -740,6 +745,9 @@ instance Applicative (CFGParser h s ret) where
 instance Alternative (CFGParser h s ret) where
   empty = CFGParser $ throwError $ TrivialErr InternalPos
   (CFGParser x) <|> (CFGParser y) = CFGParser (x <|> y)
+
+instance Semigroup (CFGParser h s ret a) where
+  (<>) = (<|>)
 
 instance Monoid (CFGParser h s ret a) where
   mempty = empty
@@ -1415,6 +1423,9 @@ instance Alternative (TopParser h s) where
 instance MonadPlus (TopParser h s) where
   mzero = empty
   mplus = (<|>)
+
+instance Semigroup (TopParser h s a) where
+  (<>) = (<|>)
 
 instance Monoid (TopParser h s a) where
   mempty = empty

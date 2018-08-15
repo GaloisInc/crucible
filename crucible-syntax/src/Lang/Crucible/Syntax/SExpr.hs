@@ -27,7 +27,8 @@ module Lang.Crucible.Syntax.SExpr
   ) where
 
 import Data.Char (isDigit, isLetter)
-import Data.Monoid
+import Data.Monoid hiding ((<>))
+import Data.Semigroup (Semigroup(..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void
@@ -147,6 +148,9 @@ data PrintStyle =
 -- | Printing rules describe how to specially format expressions that
 -- begin with particular atoms.
 newtype PrintRules a = PrintRules (a -> Maybe PrintStyle)
+
+instance Semigroup (PrintRules a) where
+  (<>) = mappend
 
 instance Monoid (PrintRules a) where
   mempty = PrintRules $ const Nothing
