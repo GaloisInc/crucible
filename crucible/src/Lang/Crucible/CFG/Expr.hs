@@ -381,12 +381,28 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   FloatNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatFpNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
 
+  FloatIte
+    :: !(FloatInfoRepr fi)
+    -> !(f BoolType)
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+
   -- Conversion operations
   FloatCast
     :: !(FloatInfoRepr fi)
     -> !RoundingMode
     -> !(f (FloatType fi'))
     -> App ext f (FloatType fi)
+  FloatFromBinary
+    :: !(FloatInfoRepr fi)
+    -> !(f (BVType (FloatInfoToBitWidth fi)))
+    -> App ext f (FloatType fi)
+  FloatToBinary
+    :: (1 <= FloatInfoToBitWidth fi)
+    => !(FloatInfoRepr fi)
+    -> !(f (FloatType fi))
+    -> App ext f (BVType (FloatInfoToBitWidth fi))
   FloatFromBV
     :: (1 <= w)
     => !(FloatInfoRepr fi)
@@ -997,7 +1013,11 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     FloatGe{} -> knownRepr
     FloatNe{} -> knownRepr
     FloatFpNe{} -> knownRepr
+    FloatIte fi _ _ _ -> FloatRepr fi
     FloatCast fi _ _ -> FloatRepr fi
+    FloatFromBinary fi _ -> FloatRepr fi
+    FloatToBinary fi _ -> case floatInfoToBVTypeRepr fi of
+      BaseBVRepr w -> BVRepr w
     FloatFromBV fi _ _ -> FloatRepr fi
     FloatFromSBV fi _ _ -> FloatRepr fi
     FloatFromReal fi _ _ -> FloatRepr fi

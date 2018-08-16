@@ -87,6 +87,7 @@ import           Control.Monad.ST
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
 import qualified Data.Bimap as Bimap
+import           Data.Bits (shiftL)
 import           Data.IORef
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
@@ -410,6 +411,7 @@ class Num v => SupportTermOps v where
   floatIsNorm     :: v -> v
 
   floatCast       :: SMTFloatPrecision -> RoundingMode -> v -> v
+  floatRound      :: RoundingMode -> v -> v
   floatFromBinary :: SMTFloatPrecision -> v -> v
   bvToFloat       :: SMTFloatPrecision -> RoundingMode -> v -> v
   sbvToFloat      :: SMTFloatPrecision -> RoundingMode -> v -> v
@@ -2022,6 +2024,21 @@ appSMTExpr ae = do
       xe <- mkBaseExpr x
       freshBoundTerm (FloatTypeMap fpp) $
         floatCast (asSMTFloatPrecision fpp) r xe
+    FloatRound fpp r x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp)$ floatRound r xe
+    FloatToBinary fpp@(FloatingPointPrecisionRepr eb sb) x -> do
+      xe <- mkBaseExpr x
+      val <- asBase <$> (freshConstant "float_binary" $ FloatTypeMap fpp)
+      -- (assert (= ((_ to_fp eb sb) val) xe))
+      addSideCondition "float_binary" $
+        floatFromBinary (asSMTFloatPrecision fpp) val .== xe
+      -- qnan: 0b0 0b1..1 0b10..0
+      let qnan = bvTerm (addNat eb sb) $ shiftL
+                  (2 ^ (natValue eb + 1) - 1)
+                  (fromIntegral (natValue sb - 2))
+      -- return (ite (fp.isNaN xe) qnan val)
+      freshBoundTerm (BVTypeMap $ addNat eb sb) $ ite (floatIsNaN xe) qnan val
     FloatFromBinary fpp x -> do
       xe <- mkBaseExpr x
       freshBoundTerm (FloatTypeMap fpp) $

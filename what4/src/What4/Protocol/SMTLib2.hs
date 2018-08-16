@@ -365,6 +365,7 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
   floatIsNorm     = un_app "fp.isNormal"
 
   floatCast fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
+  floatRound r = un_app $ mkRoundingOp "fp.roundToIntegral" r
   floatFromBinary fpp = un_app $ mkFloatSymbol "to_fp" fpp
   bvToFloat fpp r =
     un_app $ mkRoundingOp (mkFloatSymbol "to_fp_unsigned" fpp) r
