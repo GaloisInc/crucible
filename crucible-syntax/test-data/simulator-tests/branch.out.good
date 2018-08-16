@@ -1,0 +1,9 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  bogus condition
+  in main at test-data/simulator-tests/branch.cbl:11:5
+  intEq 42 (intIte cp@2:b cx@3:i 12)
