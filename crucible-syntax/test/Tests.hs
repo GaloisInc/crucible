@@ -31,8 +31,11 @@ import What4.ProgramLoc
 for = flip map
 
 main :: IO ()
-main = do execs <- roundTrips
-          let allTests = testGroup "Tests" [execs, syntaxParsing]
+main = do wd <- getCurrentDirectory
+          putStrLn $ "Looking for tests in " ++ wd
+          parseTests <- findParseTests wd
+          simTests <- findSimTests wd
+          let allTests = testGroup "Tests" [syntaxParsing, parseTests, simTests]
           defaultMain allTests
 
 testParser :: FilePath -> FilePath -> IO ()
@@ -40,11 +43,9 @@ testParser inFile outFile =
   do contents <- T.readFile inFile
      withFile outFile WriteMode $ doParseCheck inFile contents True
 
-roundTrips :: IO TestTree
-roundTrips =
-  do wd <- getCurrentDirectory
-     putStrLn $ "Looking for tests in " ++ wd
-     inputs <- findByExtension [".cbl"] "test-data/parser-tests"
+findParseTests :: FilePath -> IO TestTree
+findParseTests wd =
+  do inputs <- findByExtension [".cbl"] "test-data/parser-tests"
      return $ testGroup "Crucible parsing round-trips"
        [ goldenVsFileDiff
           (takeBaseName input) -- test name
@@ -56,6 +57,27 @@ roundTrips =
        , let outFile = replaceExtension input ".out"
        , let goodFile = replaceExtension input ".out.good"
        ]
+
+testSimulator :: FilePath -> FilePath -> IO ()
+testSimulator inFile outFile =
+  do contents <- T.readFile inFile
+     withFile outFile WriteMode $ simulateProgram inFile contents
+
+findSimTests :: FilePath -> IO TestTree
+findSimTests wd =
+  do inputs <- findByExtension [".cbl"] "test-data/simulator-tests"
+     return $ testGroup "Crucible simulation"
+       [ goldenVsFileDiff
+           (takeBaseName input) -- test name
+           (\x y -> ["diff", "-u", x, y])
+           goodFile
+           outFile
+           (testSimulator input outFile)
+       | input <- sort inputs
+       , let outFile = replaceExtension input ".out"
+       , let goodFile = replaceExtension input ".out.good"
+       ]
+
 
 data Lam = Lam [Text] (Datum TrivialAtom) deriving (Eq, Show)
 
@@ -188,4 +210,3 @@ syntaxTest txt p =
   case MP.parse (skipWhitespace *> sexp (TrivialAtom <$> identifier) <* MP.eof) (T.unpack fakeFile) txt of
      Left err -> error $ "Reader error: " ++ MP.parseErrorPretty' txt err
      Right sexpr -> syntaxParse p sexpr
-

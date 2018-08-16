@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Lang.Crucible.Syntax.Prog where
@@ -102,15 +103,20 @@ runProgram outh ha cs =
                            ]
          let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fnBindings emptyExtensionImpl ()
          let simSt  = initSimState simCtx emptyGlobals defaultAbortHandler
+
+         hPutStrLn outh "==== Begin Simulation ===="
+
          _res <- executeCrucible simSt $ runOverrideSim retType (regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap)
 
-         goals <- getProofObligations sym
-         mapM_ (hPrint outh . ppProofObligation sym) (maybe [] goalsToList goals)
+         hPutStrLn outh "\n==== Finish Simulation ===="
 
-         return ()
+         getProofObligations sym >>= \case
+           Nothing -> hPutStrLn outh "==== No proof obligations ===="
+           Just gs ->
+             do hPutStrLn outh "==== Proof obligations ===="
+                mapM_ (hPrint outh . ppProofObligation sym) (goalsToList gs)
 
     _ -> hPutStrLn outh "No suitable main function found"
-
 
   where
   isMain (ACFG _ _ g) = handleName (cfgHandle g) == fromString "main"
