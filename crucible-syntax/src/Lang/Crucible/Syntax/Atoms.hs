@@ -68,7 +68,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
              | Print_
              | Let | Fresh
-             | Assert_
+             | Assert_ | Assume_
              | SetRegister
              | Funcall
   deriving (Eq, Ord)
@@ -148,6 +148,7 @@ keywords =
   , ("empty-ref", EmptyRef)
   , ("set-register!", SetRegister)
   , ("assert!", Assert_)
+  , ("assume!", Assume_)
   , ("funcall", Funcall)
   ]
 

@@ -249,8 +249,8 @@ isBaseType =
 
 isType :: MonadSyntax Atomic m => m (Some TypeRepr)
 isType =
-  describe "type" $
-    atomicType <|> vector <|> ref <|> bv <|> fun <|> maybeT <|> var
+  describe "type" $ call
+    (atomicType <|> vector <|> ref <|> bv <|> fun <|> maybeT <|> var)
 
   where
     atomicType =
@@ -286,13 +286,13 @@ synth :: forall m h s . (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m)
        => m (SomeExpr s)
 synth =
   describe "synthesizable expression" $
-    (the <|> crucibleAtom <|> unitCon <|> boolLit <|> stringLit <|> funNameLit <|>
+    call (the <|> crucibleAtom <|> unitCon <|> boolLit <|> stringLit <|> funNameLit <|>
      notExpr <|> equalp <|> lessThan <|> lessThanEq <|>
      toAny <|> fromAny <|>
      stringAppend <|> showExpr <|>
      vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
      binaryBool And_ And <|> binaryBool Or_ Or <|> binaryBool Xor_ BoolXor <|> ite <|>
-     intp) <* commit
+     intp)
 
   where
     the :: m (SomeExpr s)
@@ -488,10 +488,10 @@ check :: forall m t h s . (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m
        => TypeRepr t -> m (E s t)
 check t =
   describe ("inhabitant of " <> T.pack (show t)) $
-    (literal <|> unpack <|> just <|> nothing <|> fromJust_ <|> injection <|>
+    call (literal <|> unpack <|> just <|> nothing <|> fromJust_ <|> injection <|>
      addition <|> subtraction <|> multiplication <|> division <|> modulus <|>
      negation <|> absoluteValue <|>
-     vecLit <|> vecCons <|> modeSwitch) <* commit
+     vecLit <|> vecCons <|> modeSwitch)
   where
     typed :: TypeRepr t' ->  m (E s t')
           -> m (E s t)
@@ -823,6 +823,7 @@ with l act = do x <- use l; act x
 lambdaLabelBinding :: (MonadSyntax Atomic m, MonadState (SyntaxState h s) m)
                    => m (LabelName, (Pair TypeRepr (LambdaLabel s)))
 lambdaLabelBinding =
+  call $
   depCons uniqueLabel $
   \l ->
     depCons uniqueAtom $
@@ -887,7 +888,7 @@ atomSetter :: (MonadSyntax Atomic m, MonadWriter [Posd (Stmt () s)] m, MonadStat
            => AtomName -- ^ The name of the atom being set, used for fresh name internals
            -> m (Pair TypeRepr (Atom s))
 atomSetter (AtomName anText) =
-  fromReg <|> fromGlobal <|> deref <|> newref <|> emptyref <|> fresh <|> funcall <|> evaluated
+  call (fromReg <|> fromGlobal <|> deref <|> newref <|> emptyref <|> fresh <|> funcall <|> evaluated)
   where
     fromReg, fresh, fromGlobal, newref, deref, funcall
       :: ( MonadSyntax Atomic m
@@ -973,8 +974,7 @@ normStmt' :: forall h s m
              m ()
 normStmt' =
   call $
-  printStmt <|> letStmt <|> setGlobal <|> setReg <|> setRef <|> dropRef <|> assertion
-
+  printStmt <|> letStmt <|> setGlobal <|> setReg <|> setRef <|> dropRef <|> assertion <|> assumption
 
   where
     printStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion :: m ()
@@ -1039,6 +1039,7 @@ normStmt' =
                       tell [Posd loc $ DropRef refAtom]
                       return $ Right ()
                  _ -> return $ Left "expression with reference type"
+
     assertion =
       do (Posd loc (Posd cLoc (E cond), Posd mLoc (E msg))) <-
            located $
@@ -1049,6 +1050,15 @@ normStmt' =
          msg' <- eval mLoc msg
          tell [Posd loc $ Assert cond' msg']
 
+    assumption =
+      do (Posd loc (Posd cLoc (E cond), Posd mLoc (E msg))) <-
+           located $
+           binary Assume_
+             (located $ reading $ check BoolRepr)
+             (located $ reading $ check StringRepr)
+         cond' <- eval cLoc cond
+         msg' <- eval mLoc msg
+         tell [Posd loc $ Assume cond' msg']
 
 blockBody' :: forall s h ret m
             . (MonadSyntax Atomic m, MonadState (SyntaxState h s) m)
@@ -1058,16 +1068,15 @@ blockBody' ret = runWriterT go
  where
  go :: WriterT [Posd (Stmt () s)] m (Posd (TermStmt s ret))
  go = (fst <$> (cons (termStmt' ret) emptyList)) <|>
-      (snd <$> (cons (later normStmt') go))
-
+      (snd <$> (cons normStmt' (later go)))
 
 termStmt' :: forall m h s ret.
    (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState h s) m) =>
    TypeRepr ret -> m (Posd (TermStmt s ret))
 termStmt' retTy =
   do stx <- anything
-     withPosFrom stx <$>
-       (jump <|> branch <|> maybeBranch <|> cases <|> ret <|> err <|> tailCall <|> out)
+     call (withPosFrom stx <$>
+       (jump <|> branch <|> maybeBranch <|> cases <|> ret <|> err <|> tailCall <|> out))
 
   where
     normalLabel =
@@ -1218,7 +1227,7 @@ data Arg t = Arg AtomName Position (TypeRepr t)
 
 
 arguments' :: forall m . MonadSyntax Atomic m => m (Some (Ctx.Assignment Arg))
-arguments' = go (Some Ctx.empty)
+arguments' = call (go (Some Ctx.empty))
   where
     go ::  Some (Ctx.Assignment Arg) -> m (Some (Ctx.Assignment Arg))
     go args@(Some prev) =
@@ -1281,7 +1290,7 @@ functionHeader' =
      loc <- position
      return ((fnName, Some theArgs, Some ret, loc), FunctionSource regs body)
   where
-    registers = kw Registers `followedBy` anyList
+    registers = call $ kw Registers `followedBy` anyList
 
 functionHeader :: AST s -> TopParser h s (FunctionHeader, FunctionSource s)
 functionHeader defun =
@@ -1301,7 +1310,7 @@ functionHeader defun =
 
 global :: AST s -> TopParser h s (Pair TypeRepr GlobalVar)
 global stx =
-  do (var@(GlobalName varName), Some t) <- liftSyntaxParse (binary DefGlobal globalName isType) stx
+  do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary DefGlobal globalName isType)) stx
      ha <- use $ stxProgState  . progHandleAlloc
      v <- liftST $ freshGlobalVar ha varName t
      stxGlobals %= Map.insert var (Pair t v)
@@ -1327,7 +1336,7 @@ blocks ret =
       \ startContents ->
         do todo <- rep blockLabel'
            forM (startContents : todo) $ \(_, bid, pr, stmts) ->
-             do (term, stmts') <- withProgress (const pr) $ parse stmts (blockBody' ret)
+             do (term, stmts') <- withProgress (const pr) $ parse stmts (call (blockBody' ret))
                 pure $ mkBlock bid mempty (Seq.fromList stmts') term
 
 
@@ -1335,6 +1344,7 @@ blocks ret =
 
     startBlock' :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m) => m (BlockTodo h s ret)
     startBlock' =
+      call $
       describe "starting block" $
       followedBy (kw Start) $
       depCons labelName $
@@ -1344,11 +1354,9 @@ blocks ret =
            rest <- anything
            return (l, LabelID lbl, pr, rest)
 
-
-
-
     blockLabel' :: m (BlockTodo h s ret)
     blockLabel' =
+      call $
       followedBy (kw DefBlock) $
       simpleBlock <|> argBlock
       where
@@ -1365,6 +1373,7 @@ blocks ret =
                    do theLbl <- newLabel l
                       return $ Right (l, LabelID theLbl, pr, body)
         argBlock =
+          call $
           depConsCond (lambdaLabelBinding) $
           \ (l, (Pair _ lbl)) ->
             do pr <- progress
