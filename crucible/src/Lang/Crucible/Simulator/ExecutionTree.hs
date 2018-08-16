@@ -24,6 +24,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
@@ -98,6 +99,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- ** Extensions
   , ExtensionImpl(..)
   , EvalStmtFunc
+  , emptyExtensionImpl
 
     -- ** SimContext record
   , IsSymInterfaceProof
@@ -796,6 +798,15 @@ data ExtensionImpl p sym ext
 
     , extensionExec :: EvalStmtFunc p sym ext
     }
+
+-- | Trivial implementation for the "empty" extension, which adds no
+--   additional syntactic forms.
+emptyExtensionImpl :: ExtensionImpl p sym ()
+emptyExtensionImpl =
+  ExtensionImpl
+  { extensionEval = \_sym _iTypes _log _f -> \case
+  , extensionExec = \case
+  }
 
 type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
 

@@ -17,6 +17,7 @@ for interacting with the symbolic simulator.
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Backend
   ( BranchResult(..)
   , IsBoolSolver(..)
@@ -55,10 +56,13 @@ module Lang.Crucible.Backend
   , addFailedAssertion
   , assertIsInteger
   , readPartExpr
+  , ppProofObligation
   ) where
 
-import           Data.Sequence (Seq)
 import           Control.Exception(Exception(..), throwIO)
+import           Control.Lens ((^.))
+import           Data.Foldable (toList)
+import           Data.Sequence (Seq)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Interface
@@ -304,3 +308,21 @@ readPartExpr sym (PE p v) msg = do
   loc <- getCurrentProgramLoc sym
   addAssertion sym (AS.LabeledPred p (SimError loc msg))
   return v
+
+ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc
+ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
+  (if null as then PP.empty else
+    PP.text "Assuming:" PP.<$$>
+    PP.hcat (map ppAsm (toList as)))
+  PP.<$>
+  PP.text "Prove:" PP.<$>
+  ppGl
+ where
+ ppAsm asm = PP.text "* " PP.<> PP.hang 2
+   (ppAssumptionReason (asm^.AS.labeledPredMsg) PP.<$>
+    printSymExpr (asm^.AS.labeledPred))
+
+ ppGl = PP.indent 2
+   (ppSimError (gl^.AS.labeledPredMsg) PP.<$>
+    printSymExpr (gl^.AS.labeledPred))
+

@@ -867,7 +867,7 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
                -> App ext f StringType
 
 
-----------------------------------------------------------------------
+  ----------------------------------------------------------------------
   -- Arrays (supporting symbolic operations)
 
   SymArrayLookup   :: !(BaseTypeRepr b)

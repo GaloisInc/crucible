@@ -27,6 +27,7 @@ module Lang.Crucible.Simulator.Intrinsics
     IntrinsicClass(..)
   , IntrinsicMuxFn(..)
   , IntrinsicTypes
+  , emptyIntrinsicTypes
   , typeError
   ) where
 
@@ -115,6 +116,9 @@ data IntrinsicMuxFn (sym :: *) (nm :: Symbol) where
 --   that are not known statically at compile time.
 type IntrinsicTypes sym = MapF.MapF SymbolRepr (IntrinsicMuxFn sym)
 
+-- | An empty collection of intrinsic types, for cases where no additional types are required
+emptyIntrinsicTypes :: IntrinsicTypes sym
+emptyIntrinsicTypes = MapF.empty
 
 -- | Utility function for reporting errors when improper Crucible type arguments
 --   are applied to an intrinsic type symbol.
