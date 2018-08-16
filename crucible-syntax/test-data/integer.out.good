@@ -12,6 +12,7 @@
       (let p3 (equal? x y))
       (let p (and p1 (and p2 p3)))
       (let za (if p q v))
+      (let neg-one (the Integer -1))
       (return za)))
 
 test-integer
@@ -50,6 +51,8 @@ test-integer
   $15 = and($11, $14)
   % 16:13
   $16 = baseIte(BaseIntegerRepr, $15, $1, $2)
-  % 17:5
+  % 17:18
+  $17 = intLit(-1)
+  % 18:5
   return $16
   % no postdom

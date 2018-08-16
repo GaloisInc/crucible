@@ -14,4 +14,5 @@
     (let p3 (equal? x y))
     (let p (and p1 (and p2 p3)))
     (let za (if p q v))
+    (let neg-one (the Integer -1))
     (return za)))

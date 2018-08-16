@@ -186,11 +186,11 @@ instance IsAtom Atomic where
 
 -- | Parse an atom
 atom :: Parser Atomic
-atom =  try (Lbl . LabelName <$> (identifier) <* char ':')
-    <|> kwOrAtom
+atom =  try (Lbl . LabelName <$> identifier <* char ':')
     <|> Fn . FunName <$> (char '@' *> identifier)
     <|> (char '$' *> ((char '$' *> (Gl . GlobalName <$> identifier)) <|> Rg . RegName <$> identifier))
-    <|> mkNum <$> signedPrefixedNumber <*> (try (Just <$> (char '/' *> prefixedNumber)) <|> pure Nothing)
+    <|> try (mkNum <$> signedPrefixedNumber <*> ((Just <$> (try (char '/') *> prefixedNumber)) <|> pure Nothing))
+    <|> kwOrAtom
     <|> char '#' *>  ((char 't' <|> char 'T') $> Bool True <|> (char 'f' <|> char 'F') $> Bool False)
     <|> char '"' *> (StrLit . T.pack <$> stringContents)
   where
