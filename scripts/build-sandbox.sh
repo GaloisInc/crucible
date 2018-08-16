@@ -52,6 +52,7 @@ checkout () {
 # GitHub repos (some private, some public) required by the build
 PKG_LIST="GaloisInc/abcBridge GaloisInc/aig GaloisInc/blt \
           GaloisInc/saw-core GaloisInc/saw-core-aig GaloisInc/saw-core-sbv \
+          GaloisInc/saw-core-what4 \
 	  GaloisInc/hpb elliottt/llvm-pretty \
 	  GaloisInc/jvm-parser \
 	  GaloisInc/cryptol GaloisInc/cryptol-verifier \
