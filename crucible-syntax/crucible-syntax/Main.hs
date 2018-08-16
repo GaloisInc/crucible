@@ -26,7 +26,12 @@ data Check = Check { chkInFile :: TheFile
                    , chkPrettyPrint :: Bool
                    }
 
+data SimCmd = SimCmd { simInFile :: TheFile
+                     , simOutFile :: Maybe TheFile
+                     }
+
 data Command = CheckCommand Check
+             | SimulateCommand SimCmd
              | ReplCommand
 
 newtype TheFile = TheFile FilePath
@@ -47,7 +52,7 @@ repl :: TheFile -> IO ()
 repl f@(TheFile fn) =
   do putStr "> "
      l <- T.getLine
-     go fn l True stdout
+     doParseCheck fn l True stdout
      repl f
 
 
@@ -60,8 +65,17 @@ command =
        (Opt.fullDesc <> Opt.progDesc "Check a file" <> Opt.header "crucibler")))
   <|>
   Opt.subparser
+    (Opt.command "simulate"
+     (Opt.info (SimulateCommand <$> simFile)
+       (Opt.fullDesc <> Opt.progDesc "Simulate a file" <> Opt.header "crucibler")))
+  <|>
+  Opt.subparser
     (Opt.command "repl"
      (Opt.info (pure ReplCommand) (Opt.fullDesc <> Opt.progDesc "Open a REPL")))
+
+simFile :: Opt.Parser SimCmd
+simFile =
+  SimCmd <$> input <*> Opt.optional output
 
 parseCheck :: Opt.Parser Check
 parseCheck =
@@ -72,12 +86,21 @@ main =
   do cmd <- Opt.execParser options
      case cmd of
        ReplCommand -> hSetBuffering stdout NoBuffering >> repl (TheFile "stdin")
+
        CheckCommand (Check (TheFile inputFile) out pp) ->
          do contents <- T.readFile inputFile
             case out of
               Nothing ->
-                go inputFile contents pp stdout
+                doParseCheck inputFile contents pp stdout
               Just (TheFile outputFile) ->
-                withFile outputFile WriteMode (go inputFile contents pp)
+                withFile outputFile WriteMode (doParseCheck inputFile contents pp)
+
+       SimulateCommand (SimCmd (TheFile inputFile) out) ->
+         do contents <- T.readFile inputFile
+            case out of
+              Nothing ->
+                simulateProgram inputFile contents stdout
+              Just (TheFile outputFile) ->
+                withFile outputFile WriteMode (simulateProgram inputFile contents)
 
   where options = Opt.info command (Opt.fullDesc)

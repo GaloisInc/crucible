@@ -38,7 +38,7 @@ main = do execs <- roundTrips
 testParser :: FilePath -> FilePath -> IO ()
 testParser inFile outFile =
   do contents <- T.readFile inFile
-     withFile outFile WriteMode $ go inFile contents True
+     withFile outFile WriteMode $ doParseCheck inFile contents True
 
 roundTrips :: IO TestTree
 roundTrips =

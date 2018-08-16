@@ -1399,10 +1399,9 @@ newtype TopParser h s a =
             }
   deriving (Functor)
 
-top :: TopParser h s a -> ST h (Either (ExprErr s) a)
-top (TopParser (ExceptT (StateT act))) =
-  do ha <- newHandleAllocator
-     fst <$> act (initSyntaxState (initProgState ha))
+top :: HandleAllocator h -> TopParser h s a -> ST h (Either (ExprErr s) a)
+top ha (TopParser (ExceptT (StateT act))) =
+  fst <$> act (initSyntaxState (initProgState ha))
 
 instance Applicative (TopParser h s) where
   pure x = TopParser (pure x)
