@@ -37,7 +37,6 @@ where
 
 import Prelude hiding (fail)
 
-import Data.Monoid ()
 import Data.Ratio
 import Data.Semigroup (Semigroup(..))
 
@@ -50,7 +49,7 @@ import Control.Monad.State.Class
 import Control.Monad.State.Strict
 import Control.Monad.Except hiding (fail)
 import Control.Monad.Error.Class ()
-import Control.Monad.Writer.Strict
+import Control.Monad.Writer.Strict hiding ((<>))
 import Control.Monad.Writer.Class ()
 
 import Lang.Crucible.Types
