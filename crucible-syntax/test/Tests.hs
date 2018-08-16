@@ -44,7 +44,7 @@ roundTrips :: IO TestTree
 roundTrips =
   do wd <- getCurrentDirectory
      putStrLn $ "Looking for tests in " ++ wd
-     inputs <- findByExtension [".cbl"] "test-data"
+     inputs <- findByExtension [".cbl"] "test-data/parser-tests"
      return $ testGroup "Crucible parsing round-trips"
        [ goldenVsFileDiff
           (takeBaseName input) -- test name
