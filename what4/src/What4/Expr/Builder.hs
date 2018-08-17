@@ -3498,14 +3498,15 @@ semiRingEq sym sr x y
   -- Check for syntactic equality.
   | x == y = return (truePred sym)
 
-    -- Try to extract common sum information.
   | (z, x',y') <- WSum.extractCommon (asWeightedSum x) (asWeightedSum y)
-  , not (WSum.isZero z) = do
-    xr <- semiRingSum sym sr x'
-    yr <- semiRingSum sym sr y'
-    sbMakeExpr sym $ SemiRingEq sr (min xr yr) (max xr yr)
+  , not (WSum.isZero z) =
+    case (WSum.asConstant x', WSum.asConstant y') of
+      (Just a, Just b) -> return $! backendPred sym (a == b)
+      _ -> do xr <- semiRingSum sym sr x'
+              yr <- semiRingSum sym sr y'
+              sbMakeExpr sym $ SemiRingEq sr (min xr yr) (max xr yr)
 
-  | otherwise = do
+  | otherwise =
     sbMakeExpr sym $ SemiRingEq sr (min x y) (max x y)
 
 
