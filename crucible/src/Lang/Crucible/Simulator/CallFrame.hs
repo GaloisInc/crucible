@@ -28,6 +28,7 @@ module Lang.Crucible.Simulator.CallFrame
   , framePostdomMap
   , frameHandle
   , frameReturnType
+  , frameBlockID
   , frameRegs
   , frameStmts
   , framePostdom
@@ -93,10 +94,14 @@ data CallFrame sym ext blocks ret args
        -- ^ Post-dominator map for control flow graph associated with this
        -- function.
      , frameReturnType :: !(TypeRepr ret)
+     , _frameBlockID    :: !(Some (BlockID blocks))
      , _frameRegs      :: !(RegMap sym args)
      , _frameStmts     :: !(StmtSeq ext blocks ret args)
      , _framePostdom   :: !(Some (CrucibleBranchTarget blocks))
      }
+
+frameBlockID :: Simple Lens (CallFrame sym ext blocks ret ctx) (Some (BlockID blocks))
+frameBlockID = lens _frameBlockID (\s v -> s { _frameBlockID = v })
 
 -- | List of statements to execute next.
 frameStmts :: Simple Lens (CallFrame sym ext blocks ret ctx) (StmtSeq ext blocks ret ctx)
@@ -119,13 +124,14 @@ mkCallFrame :: CFG ext blocks init ret
                -- ^ Initial arguments
             -> CallFrame sym ext blocks ret init
 mkCallFrame g pdInfo args = do
-  let BlockID block_id = cfgEntryBlockID g
+  let bid@(BlockID block_id) = cfgEntryBlockID g
   let b = cfgBlockMap g Ctx.! block_id
   let pds = getConst $ pdInfo Ctx.! block_id
   CallFrame { frameHandle   = SomeHandle (cfgHandle g)
             , frameBlockMap = cfgBlockMap g
             , framePostdomMap = pdInfo
             , frameReturnType = cfgReturnType g
+            , _frameBlockID = Some bid
             , _frameRegs     = args
             , _frameStmts   = b^.blockStmts
             , _framePostdom = mkFramePostdom pds
@@ -144,19 +150,21 @@ setFrameBlock :: BlockID blocks args
               -> RegMap sym args
               -> CallFrame sym ext blocks ret ctx
               -> CallFrame sym ext blocks ret args
-setFrameBlock (BlockID block_id) args f = f'
+setFrameBlock bid@(BlockID block_id) args f = f'
     where b = frameBlockMap f Ctx.! block_id
           pds = getConst $ framePostdomMap f Ctx.! block_id
-          f' = f { _frameRegs =  args
+          f' = f { _frameBlockID = Some bid 
+                 , _frameRegs =  args
                  , _frameStmts = b^.blockStmts
                  , _framePostdom = mkFramePostdom pds
                  }
 
 updateFrame :: RegMap sym ctx'
+            -> BlockID blocks ctx
             -> StmtSeq ext blocks ret ctx'
             -> CallFrame sym ext blocks ret ctx
             -> CallFrame sym ext blocks ret ctx'
-updateFrame r s f = f { _frameRegs = r, _frameStmts = s }
+updateFrame r b s f = f { _frameBlockID = Some  b, _frameRegs = r, _frameStmts = s }
 
 -- | Extend frame with new register.
 extendFrame :: TypeRepr tp
