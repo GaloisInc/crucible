@@ -26,7 +26,7 @@ count
   $1 = intLit(5)
   % 9:5
   jump %1($1)
-  % no postdom
+  % postdom %1 %2
 %1
   % 12:23
   $1 = intLit(1)
@@ -46,7 +46,7 @@ count
   $7 = intLt($2, $6)
   % 17:5
   br $7 %2() %1($2)
-  % no postdom
+  % postdom %2
 %2
   % 19:14
   read $0 counter

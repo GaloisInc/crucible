@@ -8,7 +8,7 @@ foo
   print($0)
   % 4:5
   jump %1($0)
-  % no postdom
+  % postdom %1
 %1
   % 6:12
   print($0)

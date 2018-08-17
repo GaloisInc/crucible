@@ -24,7 +24,7 @@ test
   $4 = and($2, $3)
   % 7:5
   jump %1($4)
-  % no postdom
+  % postdom %1
 %1
   % 10:16
   $1 = boolLit(False)

@@ -22,7 +22,7 @@ foo
   $1 = intLit(3)
   % 9:5
   jump %1($0, $1, $0)
-  % no postdom
+  % postdom %1 %2
 %1
   % 12:27
   $3 = intLit(1)
@@ -36,7 +36,7 @@ foo
   $7 = intLt($1, $6)
   % 16:5
   br $7 %1($5, $4, $2) %2($5)
-  % no postdom
+  % postdom %2
 %2
   % 19:5
   return $0

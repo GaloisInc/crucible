@@ -61,9 +61,9 @@ doParseCheck fn theInput pprint outh =
               Right ok ->
                 forM_ ok $
                  \(ACFG _ _ theCfg) ->
-                   do let ssa = toSSA theCfg
+                   do C.SomeCFG ssa <- return $ toSSA theCfg
                       hPutStrLn outh $ show $ cfgHandle theCfg
-                      hPutStrLn outh $ show ssa
+                      hPutStrLn outh $ show $ C.ppCFG' True (postdomInfo ssa) ssa
 
 simulateProgram
    :: FilePath -- ^ The name of the input (appears in source locations)
