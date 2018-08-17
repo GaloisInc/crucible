@@ -313,7 +313,7 @@ ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc
 ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
   (if null as then PP.empty else
     PP.text "Assuming:" PP.<$$>
-    PP.hcat (map ppAsm (toList as)))
+    PP.vcat (map ppAsm (toList as)))
   PP.<$>
   PP.text "Prove:" PP.<$>
   ppGl
