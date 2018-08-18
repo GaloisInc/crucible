@@ -15,6 +15,5 @@
     (let f (vector-set done 3 "isn't"))
     (let g (the (Vector String) (vector-cons "well" f)))
     (let h (the (Vector String) (vector-replicate 132 ".")))
-    (let done $res)
-    (return done)))
+    (return $res)))
 
