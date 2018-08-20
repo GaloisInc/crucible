@@ -26,7 +26,7 @@ module Lang.Crucible.LLVM.MemModel.Type
   , doubleType
   , arrayType
   , structType
-  , mkStruct
+  , mkStructType
   , mkType
   , typeEnd
   , Field
@@ -83,7 +83,7 @@ instance Show Type where
       Float -> showString "float"
       Double -> showString "double"
       Array n tp -> showString "arrayType " . shows n . showString " " . showsPrec 10 tp
-      Struct v -> showString "mkStruct " . shows (V.toList (fldFn <$> v))
+      Struct v -> showString "mkStructType " . shows (V.toList (fldFn <$> v))
         where fldFn f = (f^.fieldVal, fieldPad f)
 
 mkType :: TypeF Type -> Type
@@ -111,8 +111,8 @@ structType :: V.Vector (Field Type) -> Type
 structType flds = assert (V.length flds > 0) $
   Type (Struct flds) (fieldEnd (V.last flds))
 
-mkStruct :: V.Vector (Type,Bytes) -> Type
-mkStruct l = structType (evalState (traverse fldFn l) 0)
+mkStructType :: V.Vector (Type, Bytes) -> Type
+mkStructType l = structType (evalState (traverse fldFn l) 0)
   where
     fldFn (tp,p) =
       do o <- get

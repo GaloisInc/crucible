@@ -56,8 +56,6 @@ module Lang.Crucible.LLVM.MemModel
   , doFree
   , doLoad
   , doStore
-  , doPtrAddOffset
-  , doPtrSubtract
   , doDumpMem
   , doResolveGlobal
   , loadString
@@ -80,6 +78,41 @@ module Lang.Crucible.LLVM.MemModel
   , storeConstRaw
   , mallocRaw
   , mallocConstRaw
+
+    -- * Generic
+  , G.AllocType(..)
+  , G.Mutability(..)
+
+    -- * Type
+  , G.Type
+  , G.typeF
+  , G.TypeF(..)
+  , G.typeSize
+  , G.fieldVal
+  , G.fieldPad
+  , G.bitvectorType
+  , G.arrayType
+  , G.mkStructType
+  , G.floatType
+  , G.doubleType
+
+    -- * Pointer
+  , HasPtrWidth
+  , ptrToPtrVal
+  , mkNullPointer
+  , ptrIsNull
+  , ptrEq
+  , ptrAdd
+  , doPtrAddOffset
+  , ptrSub
+  , doPtrSubtract
+  , llvmPointer_bv
+  , withPtrWidth
+  , pattern LLVMPointer
+  , pattern PtrRepr
+  , llvmPointerView
+  , projectLLVM_bv
+  , muxLLVMPtr
   ) where
 
 import           Control.Lens hiding (Empty, (:>))
@@ -868,6 +901,7 @@ doPtrSubtract
 doPtrSubtract sym _m x y =
   do ptrDiff sym PtrWidth x y
 
+-- | Add an offset to a pointer. Also assert that the result is a valid pointer.
 doPtrAddOffset
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
