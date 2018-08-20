@@ -101,12 +101,12 @@ goalsToList =
 --   visiting goals my decide to remove the goal from the structure.  If
 --   no goals remain after the traversal, the resulting value will be a 'Nothing'.
 traverseGoals :: Applicative f =>
-  -- | This action is called every time we encounter an 'Assuming' constructor.
+  --- |This action is called every time we encounter an 'Assuming' constructor.
   --   The first argument is the original sequence of assumptions.  The second
   --   argument is a continuation action.  The result is a sequence of transformed
   --   assumptions and the result of the continuation action.
   (forall a. Seq asmp -> f a -> f (Seq asmp', a)) ->
-  -- | A transformer action on goals.  Return 'Nothing' if you wish to remove
+  --- |A transformer action on goals.  Return 'Nothing' if you wish to remove
   --   the goal from the overall tree.
   (goal -> f (Maybe goal')) ->
 
