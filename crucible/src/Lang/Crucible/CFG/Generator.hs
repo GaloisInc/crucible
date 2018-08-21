@@ -476,6 +476,7 @@ newLambdaLabel' tpr =
                   }
      return $! lbl
 
+-- | Return the label of the current basic block.
 currentBlockID :: Generator ext h s t ret (BlockID s)
 currentBlockID =
   Generator $
