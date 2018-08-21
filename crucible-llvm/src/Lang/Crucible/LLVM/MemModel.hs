@@ -133,7 +133,6 @@ import           Control.Monad.ST
 import           Control.Monad.Trans(lift)
 import           Control.Monad.Trans.State
 import           Data.Dynamic
-import           Data.List hiding (group)
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
