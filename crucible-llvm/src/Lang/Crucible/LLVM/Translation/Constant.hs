@@ -279,7 +279,7 @@ boolConst :: Bool -> LLVMConst
 boolConst False = IntConst (knownNat @1) 0
 boolConst True = IntConst (knownNat @1) 1
 
--- | Create an LLVM contant of a given width.  The resulting integer
+-- | Create an LLVM constant of a given width.  The resulting integer
 --   constant value will be the unsigned integer value @n mod 2^w@.
 intConst ::
   MonadFail m =>
