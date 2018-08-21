@@ -78,6 +78,8 @@ withPtrWidth w a =
 
 -- | Crucible type of pointers/bitvector values of width @w@.
 type LLVMPointerType w = RecursiveType "LLVM_pointer" (EmptyCtx ::> BVType w)
+
+-- | Symbolic LLVM pointer or bitvector values of width @w@.
 type LLVMPtr sym w = RegValue sym (LLVMPointerType w)
 
 -- | Type family defining how @LLVMPointerType@ unfolds.
