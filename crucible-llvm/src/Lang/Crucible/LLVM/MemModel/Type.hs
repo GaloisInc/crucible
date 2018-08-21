@@ -69,6 +69,8 @@ data TypeF v
   | Struct (Vector (Field v))
   deriving (Eq, Ord, Show, Typeable)
 
+-- | Represents the storage type of an LLVM value. A 'Type' specifies
+-- how a value is represented as bytes in memory.
 data Type =
   Type
   { typeF :: TypeF Type

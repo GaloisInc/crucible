@@ -54,13 +54,13 @@ library
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.Translation.Constant
     Lang.Crucible.LLVM.Translation.Types
-    Lang.Crucible.LLVM.Types
 
   other-modules:
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Generic
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
+    Lang.Crucible.LLVM.Types
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

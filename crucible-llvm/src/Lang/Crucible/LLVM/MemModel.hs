@@ -31,45 +31,49 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel
-  ( LLVMPointerType
-  , pattern LLVMPointerRepr
-  , pattern PtrWidth
-  , ptrWidth
-  , Mem
+  ( -- * Memories
+    Mem
   , memRepr
   , MemImpl
   , emptyMem
+  , memEndian
+  , ppMem
+  , doDumpMem
   , mkMemVar
-  , GlobalSymbol(..)
-  , llvmStatementExec
-  , allocGlobals
-  , registerGlobal
-  , assertDisjointRegions
-  , assertDisjointRegions'
-  , buildDisjointRegionsAssertion
-  , doMemcpy
-  , doMemset
+
+    -- * Pointers
+  , LLVMPointerType
+  , pattern LLVMPointerRepr
+  , pattern PtrRepr
+  , LLVMPtr
+  , pattern LLVMPointer
+  , llvmPointerView
+  , ptrWidth
+  , G.ppPtr
+  , llvmPointer_bv
+  , projectLLVM_bv
+
+    -- * Memory operations
   , doMalloc
+  , G.AllocType(..)
+  , G.Mutability(..)
   , doMallocHandle
   , doLookupHandle
+  , doMemcpy
+  , doMemset
   , doCalloc
   , doFree
   , doLoad
   , doStore
-  , doDumpMem
-  , doResolveGlobal
   , loadString
   , loadMaybeString
-  , SomeFnHandle(..)
-  , G.ppPtr
-  , ppMem
-  , isValidPointer
-  , memEndian
+  , doResolveGlobal
+  , registerGlobal
+  , allocGlobals
 
-  -- * Direct API to LLVMVal
+    -- * \"Raw\" operations with LLVMVal
   , LLVMVal(..)
-  , LLVMPtr
-  , coerceAny
+  , FloatSize(..)
   , unpackMemValue
   , packMemValue
   , loadRaw
@@ -79,14 +83,11 @@ module Lang.Crucible.LLVM.MemModel
   , mallocRaw
   , mallocConstRaw
 
-    -- * Generic
-  , G.AllocType(..)
-  , G.Mutability(..)
-
-    -- * Type
+    -- * Storage types
   , G.Type
   , G.typeF
   , G.TypeF(..)
+  , G.Field
   , G.typeSize
   , G.fieldVal
   , G.fieldPad
@@ -96,23 +97,34 @@ module Lang.Crucible.LLVM.MemModel
   , G.floatType
   , G.doubleType
 
-    -- * Pointer
-  , HasPtrWidth
+    -- * Pointer operations
   , ptrToPtrVal
   , mkNullPointer
   , ptrIsNull
   , ptrEq
   , ptrAdd
-  , doPtrAddOffset
   , ptrSub
+  , ptrDiff
+  , doPtrAddOffset
   , doPtrSubtract
-  , llvmPointer_bv
-  , withPtrWidth
-  , pattern LLVMPointer
-  , pattern PtrRepr
-  , llvmPointerView
-  , projectLLVM_bv
+  , isValidPointer
   , muxLLVMPtr
+
+    -- * Disjointness
+  , assertDisjointRegions
+  , assertDisjointRegions'
+  , buildDisjointRegionsAssertion
+
+    -- * PtrWidth
+  , HasPtrWidth
+  , pattern PtrWidth
+  , withPtrWidth
+
+    -- * Misc
+  , llvmStatementExec
+  , coerceAny
+  , GlobalSymbol(..)
+  , SomeFnHandle(..)
   ) where
 
 import           Control.Lens hiding (Empty, (:>))
@@ -212,7 +224,7 @@ evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
 evalStmt sym = eval
  where
   getMem :: GlobalVar Mem ->
-            EvalM p sym ext rtp blocks ret args (RegValue sym Mem)
+            EvalM p sym ext rtp blocks ret args (MemImpl sym)
   getMem mvar =
     do gs <- use (stateTree.actFrame.gpGlobals)
        case lookupGlobal mvar gs of
@@ -224,7 +236,7 @@ evalStmt sym = eval
              ]
 
   setMem :: GlobalVar Mem ->
-            RegValue sym Mem ->
+            MemImpl sym ->
             EvalM p sym ext rtp blocks ret args ()
   setMem mvar mem = stateTree.actFrame.gpGlobals %= insertGlobal mvar mem
 
@@ -360,7 +372,7 @@ emptyMem endianness = do
   blkRef <- newIORef 1
   return $ MemImpl (BlockSource blkRef) Map.empty Map.empty (G.emptyMem endianness)
 
-data SomePointer sym = forall w. SomePointer !(RegValue sym (LLVMPointerType w))
+data SomePointer sym = forall w. SomePointer !(LLVMPtr sym w)
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
 
 -- | Allocate memory for each global, and register all the resulting
@@ -383,10 +395,7 @@ allocGlobal sym mem (symbol@(L.Symbol sym_str), sz) = do
   return (registerGlobal mem' symbol ptr)
 
 -- | Add an entry to the global map of the given 'MemImpl'.
-registerGlobal :: MemImpl sym
-               -> L.Symbol
-               -> RegValue sym (LLVMPointerType wptr)
-               -> MemImpl sym
+registerGlobal :: MemImpl sym -> L.Symbol -> LLVMPtr sym wptr -> MemImpl sym
 registerGlobal (MemImpl blockSource gMap hMap mem) symbol ptr =
   let gMap' = Map.insert symbol (SomePointer ptr) gMap
   in MemImpl blockSource gMap' hMap mem
@@ -430,11 +439,12 @@ coerceAny sym tpr (AnyValue tpr' x)
                   , "at: " ++ show (plSourceLoc loc)
                   ]
 
-unpackMemValue
-   :: (HasCallStack, IsSymInterface sym)
-   => sym
-   -> LLVMVal sym
-   -> IO (AnyValue sym)
+-- | Unpack an 'LLVMVal' to produce a 'RegValue'.
+unpackMemValue ::
+  (HasCallStack, IsSymInterface sym) =>
+  sym ->
+  LLVMVal sym ->
+  IO (AnyValue sym)
 
 -- If the block number is 0, we know this is a raw bitvector, and not an actual pointer.
 unpackMemValue _sym (LLVMValInt blk bv)
@@ -469,13 +479,16 @@ unpackStruct sym (v:vs) ctx fls k =
       unpackStruct sym vs (ctx Ctx.:> tpr) (fls Ctx.:> RV x) k
 
 
-packMemValue
-   :: IsSymInterface sym
-   => sym
-   -> G.Type
-   -> TypeRepr tp
-   -> RegValue sym tp
-   -> IO (LLVMVal sym)
+-- | Pack a 'RegValue' into an 'LLVMVal'. The LLVM storage type and
+-- the Crucible type must be compatible.
+packMemValue ::
+  IsSymInterface sym =>
+  sym ->
+  G.Type      {- ^ LLVM storage type -} ->
+  TypeRepr tp {- ^ Crucible type     -} ->
+  RegValue sym tp ->
+  IO (LLVMVal sym)
+
 packMemValue _ (G.Type G.Float _) (FloatRepr SingleFloatRepr) x =
        return $ LLVMValReal SingleSize x
 
@@ -518,12 +531,14 @@ packMemValue _ stTy crTy _ =
     , "*** Given crucible type: " ++ show crTy
     ]
 
-doResolveGlobal
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> MemImpl sym
-  -> L.Symbol
-  -> IO (RegValue sym (LLVMPointerType wptr))
+-- | Look up a 'Symbol' in the global map of the given 'MemImpl'.
+-- Panic if the symbol is not present in the global map.
+doResolveGlobal ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym ->
+  L.Symbol {- ^ name of global -} ->
+  IO (LLVMPtr sym wptr)
 doResolveGlobal _sym mem symbol =
   case Map.lookup symbol (memImplGlobalMap mem) of
     Just (SomePointer ptr) | PtrWidth <- ptrWidth ptr -> return ptr
@@ -532,15 +547,11 @@ doResolveGlobal _sym mem symbol =
             , "*** Name: " ++ show symbol
             ]
 
-ppMem :: IsExprBuilder sym => RegValue sym Mem -> Doc
+ppMem :: IsExprBuilder sym => MemImpl sym -> Doc
 ppMem mem = G.ppMem (memImplHeap mem)
 
 -- | Pretty print a memory state to the given handle.
-doDumpMem
-  :: IsExprBuilder sym
-  => Handle
-  -> RegValue sym Mem
-  -> IO ()
+doDumpMem :: IsExprBuilder sym => Handle -> MemImpl sym -> IO ()
 doDumpMem h mem = do
   hPutStrLn h (show (ppMem mem))
 
@@ -583,13 +594,14 @@ loadRawWithCondition sym mem ptr valType =
 
 -- | Load a 'RegValue' from memory. Also assert that the pointer is
 -- valid and aligned, and that the loaded value is defined.
-doLoad :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to load from -}
-  -> G.Type {- ^ type of value to load -}
-  -> Alignment {- ^ assumed pointer alignment -}
-  -> IO (RegValue sym AnyType)
+doLoad ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym ->
+  LLVMPtr sym wptr {- ^ pointer to load from      -} ->
+  G.Type           {- ^ type of value to load     -} ->
+  Alignment        {- ^ assumed pointer alignment -} ->
+  IO (RegValue sym AnyType)
 doLoad sym mem ptr valType alignment = do
     --putStrLn "MEM LOAD"
     let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
@@ -636,14 +648,15 @@ storeConstRaw sym mem ptr valType val = do
 
 -- | Store a 'RegValue' in memory. Also assert that the pointer is
 -- valid and points to a mutable memory region.
-doStore :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr) {- ^ pointer to store into -}
-  -> TypeRepr tp
-  -> G.Type                              {- ^ type of value to store -}
-  -> RegValue sym tp                     {- ^ value to store -}
-  -> IO (RegValue sym Mem)
+doStore ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym ->
+  LLVMPtr sym wptr {- ^ pointer to store into  -} ->
+  TypeRepr tp ->
+  G.Type           {- ^ type of value to store -} ->
+  RegValue sym tp  {- ^ value to store         -} ->
+  IO (MemImpl sym)
 doStore sym mem ptr tpr valType val = do
     --putStrLn "MEM STORE"
     val' <- packMemValue sym valType tpr val
@@ -668,35 +681,37 @@ sextendBVTo sym w w' x
         $ unwords ["cannot extend bitvector of width", show (natValue w)
                                                      , "to", show (natValue w') ]
 
+-- | Assert that two memory regions are disjoint.
 -- Two memory regions are disjoint if any of the following are true:
---   1) Their block pointers are different
---   2) Their blocks are the same, but dest+dlen <= src
---   3) Their blocks are the same, but src+slen <= dest
-assertDisjointRegions'
-  :: (1 <= w, HasPtrWidth wptr, IsSymInterface sym)
-  => String -- ^ label used for error message
-  -> sym
-  -> NatRepr w
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType w)
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType w)
-  -> IO ()
+--
+--   1. Their block pointers are different
+--   2. Their blocks are the same, but /dest+dlen/ <= /src/
+--   3. Their blocks are the same, but /src+slen/ <= /dest/
+assertDisjointRegions' ::
+  (1 <= w, HasPtrWidth wptr, IsSymInterface sym) =>
+  String {- ^ label used for error message -} ->
+  sym ->
+  NatRepr w ->
+  LLVMPtr sym wptr {- ^ pointer to region 1 -} ->
+  SymBV sym w      {- ^ length of region 1  -} ->
+  LLVMPtr sym wptr {- ^ pointer to region 2 -} ->
+  SymBV sym w      {- ^ length of region 2  -} ->
+  IO ()
 assertDisjointRegions' lbl sym w dest dlen src slen = do
   c <- buildDisjointRegionsAssertion sym w dest dlen src slen
   assert sym c
      (AssertFailureSimError ("Memory regions not disjoint in " ++ lbl))
 
 
-buildDisjointRegionsAssertion
-  :: (1 <= w, HasPtrWidth wptr, IsSymInterface sym)
-  => sym
-  -> NatRepr w
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType w)
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType w)
-  -> IO (SymExpr sym BaseBoolType)
+buildDisjointRegionsAssertion ::
+  (1 <= w, HasPtrWidth wptr, IsSymInterface sym) =>
+  sym ->
+  NatRepr w ->
+  LLVMPtr sym wptr {- ^ pointer to region 1 -} ->
+  SymBV sym w      {- ^ length of region 1  -} ->
+  LLVMPtr sym wptr {- ^ pointer to region 2 -} ->
+  SymBV sym w      {- ^ length of region 2  -} ->
+  IO (Pred sym)
 buildDisjointRegionsAssertion sym w dest dlen src slen = do
   let LLVMPointer dblk doff = dest
   let LLVMPointer sblk soff = src
@@ -712,28 +727,28 @@ buildDisjointRegionsAssertion sym w dest dlen src slen = do
 
 
 -- | Simpler interface to 'assertDisjointRegions'' where the lengths
--- of the two regions are equal as used by the memcpy operation.
-assertDisjointRegions
-  :: (1 <= w, HasPtrWidth wptr, IsSymInterface sym)
-  => sym
-  -> NatRepr w
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType w)
-  -> IO ()
+-- of the two regions are equal as used by the @memcpy@ operation.
+assertDisjointRegions ::
+  (1 <= w, HasPtrWidth wptr, IsSymInterface sym) =>
+  sym ->
+  NatRepr w ->
+  LLVMPtr sym wptr {- ^ pointer to region 1       -} ->
+  LLVMPtr sym wptr {- ^ pointer to region 2       -} ->
+  SymBV sym w      {- ^ length of regions 1 and 2 -} ->
+  IO ()
 assertDisjointRegions sym w dest src len =
   assertDisjointRegions' "memcpy" sym w dest len src len
 
 
 -- | Allocate and zero a memory region with /size * number/ bytes.
 -- Also assert that the multiplication does not overflow.
-doCalloc
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> MemImpl sym
-  -> RegValue sym (BVType wptr) {- ^ size -}
-  -> RegValue sym (BVType wptr) {- ^ number -}
-  -> IO (RegValue sym (LLVMPointerType wptr), MemImpl sym)
+doCalloc ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym ->
+  SymBV sym wptr {- ^ size   -} ->
+  SymBV sym wptr {- ^ number -} ->
+  IO (LLVMPtr sym wptr, MemImpl sym)
 doCalloc sym mem sz num = do
   (ov, sz') <- unsignedWideMultiplyBV sym sz num
   ov_iszero <- notPred sym =<< bvIsNonzero sym ov
@@ -753,8 +768,8 @@ doMalloc
   -> G.Mutability {- ^ whether region is read-only -}
   -> String {- ^ source location for use in error messages -}
   -> MemImpl sym
-  -> RegValue sym (BVType wptr) {- ^ allocation size -}
-  -> IO (RegValue sym (LLVMPointerType wptr), MemImpl sym)
+  -> SymBV sym wptr {- ^ allocation size -}
+  -> IO (LLVMPtr sym wptr, MemImpl sym)
 doMalloc sym allocType mut loc mem sz = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- natLit sym (fromIntegral blkNum)
@@ -768,7 +783,7 @@ mallocRaw
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
-  -> SymExpr sym (BaseBVType wptr)
+  -> SymBV sym wptr {- ^ size in bytes -}
   -> IO (LLVMPtr sym wptr, MemImpl sym)
 mallocRaw sym mem sz =
   doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz
@@ -778,7 +793,7 @@ mallocConstRaw
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
-  -> SymExpr sym (BaseBVType wptr)
+  -> SymBV sym wptr
   -> IO (LLVMPtr sym wptr, MemImpl sym)
 mallocConstRaw sym mem sz =
   doMalloc sym G.HeapAlloc G.Immutable "<malloc>" mem sz
@@ -791,7 +806,7 @@ doMallocHandle
   -> String {- ^ source location for use in error messages -}
   -> MemImpl sym
   -> a {- ^ handle -}
-  -> IO (RegValue sym (LLVMPointerType wptr), MemImpl sym)
+  -> IO (LLVMPtr sym wptr, MemImpl sym)
 doMallocHandle sym allocType loc mem x = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- natLit sym (fromIntegral blkNum)
@@ -807,7 +822,7 @@ doLookupHandle
   :: (Typeable a, IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
-  -> RegValue sym (LLVMPointerType wptr)
+  -> LLVMPtr sym wptr
   -> IO (Either Doc a)
 doLookupHandle _sym mem ptr = do
   let LLVMPointer blk _ = ptr
@@ -830,7 +845,7 @@ doFree
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
-  -> RegValue sym (LLVMPointerType wptr)
+  -> LLVMPtr sym wptr
   -> IO (MemImpl sym)
 doFree sym mem ptr = do
   let LLVMPointer blk _ = ptr
@@ -850,16 +865,17 @@ doFree sym mem ptr = do
   assert sym c' (AssertFailureSimError errMsg)
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
-
-doMemset
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> NatRepr w
-  -> MemImpl sym
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType 8)
-  -> RegValue sym (BVType w)
-  -> IO (MemImpl sym)
+-- | Fill a memory range with copies of the specified byte. Also
+-- assert that the memory range falls within a valid allocated region.
+doMemset ::
+  (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  NatRepr w ->
+  MemImpl sym ->
+  LLVMPtr sym wptr {- ^ destination -} ->
+  SymBV sym 8      {- ^ fill byte   -} ->
+  SymBV sym w      {- ^ length      -} ->
+  IO (MemImpl sym)
 doMemset sym w mem dest val len = do
   len' <- sextendBVTo sym w PtrWidth len
 
@@ -870,16 +886,18 @@ doMemset sym w mem dest val len = do
 
   return mem{ memImplHeap = heap' }
 
-
-doMemcpy
-  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> NatRepr w
-  -> MemImpl sym
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (BVType w)
-  -> IO (MemImpl sym)
+-- | Copy memory from source to destination. Also assert that the
+-- source and destination pointers fall within valid allocated
+-- regions.
+doMemcpy ::
+  (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  NatRepr w ->
+  MemImpl sym ->
+  LLVMPtr sym wptr {- ^ destination -} ->
+  LLVMPtr sym wptr {- ^ source      -} ->
+  SymBV sym w      {- ^ length      -} ->
+  IO (MemImpl sym)
 doMemcpy sym w mem dest src len = do
   len' <- sextendBVTo sym w PtrWidth len
 
@@ -891,24 +909,24 @@ doMemcpy sym w mem dest src len = do
   return mem{ memImplHeap = heap' }
 
 
-doPtrSubtract
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr)
-  -> RegValue sym (LLVMPointerType wptr)
-  -> IO (RegValue sym (BVType wptr))
+doPtrSubtract ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym ->
+  LLVMPtr sym wptr ->
+  LLVMPtr sym wptr ->
+  IO (SymBV sym wptr)
 doPtrSubtract sym _m x y =
   do ptrDiff sym PtrWidth x y
 
 -- | Add an offset to a pointer. Also assert that the result is a valid pointer.
-doPtrAddOffset
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> RegValue sym Mem
-  -> RegValue sym (LLVMPointerType wptr) {- ^ base pointer -}
-  -> RegValue sym (BVType wptr)          {- ^ offset -}
-  -> IO (RegValue sym (LLVMPointerType wptr))
+doPtrAddOffset ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym ->
+  LLVMPtr sym wptr {- ^ base pointer -} ->
+  SymBV sym wptr   {- ^ offset       -} ->
+  IO (LLVMPtr sym wptr)
 doPtrAddOffset sym m x off = do
    x' <- ptrAdd sym PtrWidth x off
    v  <- isValidPointer sym x' m
@@ -920,11 +938,12 @@ doPtrAddOffset sym m x off = do
 
 -- | This predicate tests if the pointer is a valid, live pointer
 --   into the heap, OR is the distinguished NULL pointer.
-isValidPointer :: (IsSymInterface sym, HasPtrWidth wptr)
-               => sym
-               -> RegValue sym (LLVMPointerType wptr)
-               -> RegValue sym Mem
-               -> IO (Pred sym)
+isValidPointer ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  LLVMPtr sym wptr ->
+  MemImpl sym ->
+  IO (Pred sym)
 isValidPointer sym p mem =
    do np <- ptrIsNull sym PtrWidth p
       case asConstantPred np of
@@ -955,16 +974,17 @@ instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
 -- terminated.  If a maximum number of characters is provided, no more
 -- than that number of charcters will be read.  In either case,
 -- `loadString` will stop reading if it encounters a null-terminator.
-loadString :: forall sym wptr
-   . (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> RegValue sym Mem -- ^ memory to read from
-  -> RegValue sym (LLVMPointerType wptr) -- ^ pointer to string value
-  -> Maybe Int -- ^ maximum characters to read
-  -> IO [Word8]
+loadString ::
+  forall sym wptr.
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym      {- ^ memory to read from        -} ->
+  LLVMPtr sym wptr {- ^ pointer to string value    -} ->
+  Maybe Int        {- ^ maximum characters to read -} ->
+  IO [Word8]
 loadString sym mem = go id
  where
-  go :: ([Word8] -> [Word8]) -> RegValue sym (LLVMPointerType wptr) -> Maybe Int -> IO [Word8]
+  go :: ([Word8] -> [Word8]) -> LLVMPtr sym wptr -> Maybe Int -> IO [Word8]
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
      v <- doLoad sym mem p (G.bitvectorType 1) 0 -- one byte, no alignment
@@ -988,13 +1008,14 @@ loadString sym mem = go id
 -- | Like 'loadString', except the pointer to load may be null.  If
 --   the pointer is null, we return Nothing.  Otherwise we load
 --   the string as with 'loadString' and return it.
-loadMaybeString :: forall sym wptr
-   . (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> RegValue sym Mem -- ^ memory to read from
-  -> RegValue sym (LLVMPointerType wptr) -- ^ pointer to string value
-  -> Maybe Int -- ^ maximum characters to read
-  -> IO (Maybe [Word8])
+loadMaybeString ::
+  forall sym wptr.
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym      {- ^ memory to read from        -} ->
+  LLVMPtr sym wptr {- ^ pointer to string value    -} ->
+  Maybe Int        {- ^ maximum characters to read -} ->
+  IO (Maybe [Word8])
 loadMaybeString sym mem ptr n = do
   isnull <- ptrIsNull sym PtrWidth ptr
   case asConstantPred isnull of

@@ -56,6 +56,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 
     -- * LLVM Value representation
   , LLVMVal(..)
+  , G.Field
   , PartLLVMVal
   , FloatSize(..)
   , llvmValStorableType
@@ -117,8 +118,8 @@ import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import           Lang.Crucible.LLVM.Types
 
--- | This pattern synonym gives an easy way to construct/deconstruct runtime values of @LLVMPointerType@.
-pattern LLVMPointer :: RegValue sym NatType -> RegValue sym (BVType w) -> RegValue sym (LLVMPointerType w)
+-- | This pattern synonym gives an easy way to construct/deconstruct runtime values of type 'LLVMPtr'.
+pattern LLVMPointer :: RegValue sym NatType -> SymBV sym w -> LLVMPtr sym w
 pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV offset)
 
 -- The COMPLETE pragma was not defined until ghc 8.2.*
@@ -126,9 +127,9 @@ pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV o
 {-# COMPLETE LLVMPointer #-}
 #endif
 
--- | Alternative to the @LLVMPointer@ pattern synonym, this function can be used as a view
+-- | Alternative to the 'LLVMPointer' pattern synonym, this function can be used as a view
 --   constructor instead to silence incomplete pattern warnings.
-llvmPointerView :: RegValue sym (LLVMPointerType w) -> (RegValue sym NatType, RegValue sym (BVType w))
+llvmPointerView :: LLVMPtr sym w -> (SymNat sym, SymBV sym w)
 llvmPointerView (LLVMPointer blk offset) = (blk, offset)
 
 -- | Compute the width of a pointer value.
@@ -137,8 +138,7 @@ ptrWidth (LLVMPointer _blk bv) = bvWidth bv
 
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
 projectLLVM_bv ::
-  IsSymInterface sym =>
-  sym -> RegValue sym (LLVMPointerType w) -> IO (RegValue sym (BVType w))
+  IsSymInterface sym => sym -> LLVMPtr sym w -> IO (SymBV sym w)
 projectLLVM_bv sym ptr@(LLVMPointer blk bv) =
   do p <- natEq sym blk =<< natLit sym 0
      assert sym p $
@@ -149,17 +149,16 @@ projectLLVM_bv sym ptr@(LLVMPointer blk bv) =
      return bv
 
 -- | Convert a raw bitvector value into an LLVM pointer value.
-llvmPointer_bv :: IsSymInterface sym
-               => sym -> RegValue sym (BVType w) -> IO (RegValue sym (LLVMPointerType w))
+llvmPointer_bv :: IsSymInterface sym => sym -> SymBV sym w -> IO (LLVMPtr sym w)
 llvmPointer_bv sym bv =
   do blk0 <- natLit sym 0
      return (LLVMPointer blk0 bv)
 
--- | Produce the distinguished null pointer value
-mkNullPointer :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> IO (RegValue sym (LLVMPointerType w))
+-- | Produce the distinguished null pointer value.
+mkNullPointer :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w -> IO (LLVMPtr sym w)
 mkNullPointer sym w = llvmPointer_bv sym =<< bvLit sym w 0
 
--- | Mux function specialized to LLVM pointer values
+-- | Mux function specialized to LLVM pointer values.
 muxLLVMPtr ::
   (1 <= w) =>
   IsSymInterface sym =>
@@ -231,27 +230,28 @@ ptrDecompose _sym _w p =
 
 -- | Test whether pointers point into the same allocation unit.
 ptrComparable ::
-    (1 <= w, IsSymInterface sym) =>
-    sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
 ptrComparable sym _w (LLVMPointer base1 _) (LLVMPointer base2 _) =
   natEq sym base1 base2
 
 -- | Test whether pointers have equal offsets (assuming they point
 -- into the same allocation unit).
 ptrOffsetEq ::
-    (1 <= w, IsSymInterface sym) =>
-    sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
 ptrOffsetEq sym _w (LLVMPointer _ off1) (LLVMPointer _ off2) =
   bvEq sym off1 off2
 
 -- | Test whether the first pointer's address is less than or equal to
 -- the second (assuming they point into the same allocation unit).
 ptrOffsetLe ::
-    (1 <= w, IsSymInterface sym) =>
-    sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
 ptrOffsetLe sym _w (LLVMPointer _ off1) (LLVMPointer _ off2) =
   bvUle sym off1 off2
 
+-- | Test whether two pointers are equal.
 ptrEq :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
@@ -298,8 +298,8 @@ ptrAdd sym _w (LLVMPointer base off1) off2 =
   do off' <- bvAdd sym off1 off2
      return $ LLVMPointer base off'
 
--- | Compute the difference between two pointers. The pointers must
--- point into the same allocation block.
+-- | Compute the difference between two pointers. Also assert that the
+-- pointers point into the same allocation block.
 ptrDiff :: (1 <= w, IsSymInterface sym)
         => sym
         -> NatRepr w
@@ -323,7 +323,7 @@ ptrSub sym _w (LLVMPointer base off1) off2 =
   do diff <- bvSub sym off1 off2
      return (LLVMPointer base diff)
 
--- | Test if a pointer value is the null pointer
+-- | Test if a pointer value is the null pointer.
 ptrIsNull :: (1 <= w, IsSymInterface sym)
           => sym
           -> NatRepr w
