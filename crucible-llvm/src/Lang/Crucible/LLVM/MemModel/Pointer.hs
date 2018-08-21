@@ -23,6 +23,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -95,6 +96,7 @@ import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.State.Strict
+import           Data.List (intersperse)
 
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -542,3 +544,17 @@ ppPtr (llvmPointerView -> (blk, bv))
       in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
 
 
+instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
+  show (LLVMValInt blk w)
+    | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
+    | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
+  show (LLVMValReal SingleSize _) = "<float>"
+  show (LLVMValReal DoubleSize _) = "<double>"
+  show (LLVMValStruct xs) =
+    unwords $ [ "{" ]
+           ++ intersperse ", " (map (show . snd) $ V.toList xs)
+           ++ [ "}" ]
+  show (LLVMValArray _ xs) =
+    unwords $ [ "[" ]
+           ++ intersperse ", " (map show $ V.toList xs)
+           ++ [ "]" ]

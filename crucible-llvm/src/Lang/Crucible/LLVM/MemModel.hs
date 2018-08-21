@@ -26,7 +26,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE EmptyDataDecls #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -950,21 +949,6 @@ isValidPointer sym p mem =
         Just True  -> return np
         Just False -> G.isValidPointer sym PtrWidth p (memImplHeap mem)
         _ -> orPred sym np =<< G.isValidPointer sym PtrWidth p (memImplHeap mem)
-
-instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
-  show (LLVMValInt blk w)
-    | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
-    | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
-  show (LLVMValReal SingleSize _) = "<float>"
-  show (LLVMValReal DoubleSize _) = "<double>"
-  show (LLVMValStruct xs) =
-    unwords $ [ "{" ]
-           ++ intersperse ", " (map (show . snd) $ V.toList xs)
-           ++ [ "}" ]
-  show (LLVMValArray _ xs) =
-    unwords $ [ "[" ]
-           ++ intersperse ", " (map show $ V.toList xs)
-           ++ [ "]" ]
 
 -- | Load a null-terminated string from the memory.
 --
