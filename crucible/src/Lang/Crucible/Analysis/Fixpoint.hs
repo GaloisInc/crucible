@@ -1,3 +1,19 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Analysis.Fixpoint
+-- Description      : Abstract interpretation over SSA function CFGs
+-- Copyright        : (c) Galois, Inc 2015
+-- License          : BSD3
+-- Maintainer       : Tristan Ravitch <tristan@galois.com>
+-- Stability        : provisional
+--
+--  Abstract interpretation over the Crucible IR
+--
+--  Supports widening with an iteration order based on weak
+--  topological orderings.  Some basic tests on hand-written IR
+--  programs are included.
+------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
