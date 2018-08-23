@@ -627,6 +627,11 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
         -> !(f (BVType w))
         -> App ext f (BVType w)
 
+  BVNeg :: (1 <= w)
+        => !(NatRepr w)
+        -> !(f (BVType w))
+        -> App ext f (BVType w)
+
   BVAdd :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
@@ -1083,6 +1088,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     BVAnd w _ _ -> BVRepr w
     BVOr  w _ _ -> BVRepr w
     BVXor  w _ _ -> BVRepr w
+    BVNeg w _ -> BVRepr w
     BVAdd w _ _ -> BVRepr w
     BVSub w _ _ -> BVRepr w
     BVMul w _ _ -> BVRepr w

@@ -707,6 +707,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       bvAdd sym x y
+    BVNeg _ xe -> do
+      x <- evalSub xe
+      bvNeg sym x
     BVSub _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
