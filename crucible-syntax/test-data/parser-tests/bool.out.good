@@ -2,10 +2,10 @@
    (start start:
       (let x #t)
       (let y #f)
-      (let z (and (and x y) #f))
-      (let q (or #t (or x y)))
+      (let z (and x y #f))
+      (let q (or #t x y))
       (let w (if q (not z) y))
-      (let r (equal? (xor z w) q))
+      (let r (equal? (xor z w y) q))
       (return r)))
 
 test-bool
@@ -19,9 +19,9 @@ test-bool
   % 7:12
   $3 = and($2, $1)
   % 8:12
-  $4 = or($0, $1)
+  $4 = or($0, $0)
   % 8:12
-  $5 = or($0, $4)
+  $5 = or($4, $1)
   % 9:12
   $6 = not($3)
   % 9:12
@@ -29,7 +29,9 @@ test-bool
   % 10:12
   $8 = boolXor($3, $7)
   % 10:12
-  $9 = baseIsEq(BaseBoolRepr, $8, $5)
+  $9 = boolXor($8, $1)
+  % 10:12
+  $10 = baseIsEq(BaseBoolRepr, $9, $5)
   % 11:5
-  return $9
+  return $10
   % no postdom

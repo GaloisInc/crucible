@@ -1,73 +1,80 @@
 (defun @vec-test ((n Nat) (x Integer)) (Vector String)
    (registers ($res (Vector String)))
    (start first:
-      (set-register! $res
-                     (the (Vector String)
-                          (vector "hello" "this" "is" "a" "vector")))
+      (set-register! $res (vector "hello" "this" "is" "a" "vector"))
       (let foo (the (Vector String) (vector-replicate n (show x))))
-      (let a (vector-empty? (the (Vector Bool) (vector))))
-      (let b (vector-empty? (the (Vector Bool) (vector #t #f #f #t))))
+      (let a (vector-empty? (the (Vector Integer) (vector))))
+      (let b (vector-empty? (vector #t #f #f #t)))
       (let done $res)
       (let c (vector-size done))
       (let d (vector-size foo))
       (let e (vector-get done 3))
       (let f (vector-set done 3 "isn't"))
-      (let g (the (Vector String) (vector-cons "well" f)))
-      (let h (the (Vector String) (vector-replicate 132 ".")))
+      (let g (vector-cons "well" f))
+      (let h (vector-replicate 132 "."))
+      (let i (vector-cons 12 (vector (vector-size done) 9)))
       (return $res)))
 
 vec-test
 %0
-  % 6:7
+  % 6:9
   $2 = textLit("hello")
-  % 6:7
+  % 6:9
   $3 = textLit("this")
-  % 6:7
+  % 6:9
   $4 = textLit("is")
-  % 6:7
+  % 6:9
   $5 = textLit("a")
-  % 6:7
+  % 6:9
   $6 = textLit("vector")
-  % 6:7
+  % 6:9
   $7 = vectorLit(StringRepr, [$2, $3, $4, $5, $6])
-  % 8:14
+  % 7:14
   $8 = showValue(BaseIntegerRepr, $1)
-  % 8:14
+  % 7:14
   $9 = vectorReplicate(StringRepr, $0, $8)
-  % 9:12
-  $10 = vectorLit(BoolRepr, [])
-  % 9:12
+  % 8:12
+  $10 = vectorLit(IntegerRepr, [])
+  % 8:12
   $11 = vectorIsEmpty($10)
-  % 10:12
+  % 9:12
   $12 = boolLit(True)
-  % 10:12
+  % 9:12
   $13 = boolLit(False)
-  % 10:12
+  % 9:12
   $14 = vectorLit(BoolRepr, [$12, $13, $13, $12])
-  % 10:12
+  % 9:12
   $15 = vectorIsEmpty($14)
-  % 12:12
+  % 11:12
   $16 = vectorSize($7)
-  % 13:12
+  % 12:12
   $17 = vectorSize($9)
-  % 14:12
+  % 13:12
   $18 = natLit(3)
-  % 14:12
+  % 13:12
   $19 = vectorGetEntry(StringRepr, $7, $18)
-  % 15:12
+  % 14:12
   $20 = textLit("isn't")
-  % 15:12
+  % 14:12
   $21 = vectorSetEntry(StringRepr, $7, $18, $20)
-  % 16:12
+  % 15:12
   $22 = textLit("well")
-  % 16:12
+  % 15:12
   $23 = vectorCons(StringRepr, $22, $21)
-  % 17:12
+  % 16:12
   $24 = natLit(132)
-  % 17:12
+  % 16:12
   $25 = textLit(".")
-  % 17:12
+  % 16:12
   $26 = vectorReplicate(StringRepr, $24, $25)
+  % 17:12
+  $27 = natLit(12)
+  % 17:12
+  $28 = natLit(9)
+  % 17:12
+  $29 = vectorLit(NatRepr, [$16, $28])
+  % 17:12
+  $30 = vectorCons(NatRepr, $27, $29)
   % 18:5
   return $7
   % no postdom

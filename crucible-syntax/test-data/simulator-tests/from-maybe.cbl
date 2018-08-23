@@ -4,11 +4,11 @@
     (let x (fresh Real))
     (branch p t: f:))
   (defblock t:
-    (output next: (the (Maybe Real) (just x))))
+    (output next: (just x)))
   (defblock f:
-    (output next: (the (Maybe Real) nothing)))
+    (output next: nothing))
   (defblock (next: z (Maybe Real))
-    (let q (the Real (from-just z "OK to project z")))
-    (assert! (equal? x (the Real (+ q 1))) "from-just eq (bogus)")
+    (let q (from-just z "OK to project z"))
+    (assert! (equal? x (+ q 1)) "from-just eq (bogus)")
     (return ()))
 )

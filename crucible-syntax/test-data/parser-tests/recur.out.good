@@ -1,6 +1,6 @@
 (defun @fact ((n Integer)) Integer
    (start at-the-beginning:
-      (let donep (< n (the Integer 1)))
+      (let donep (< n 1))
       (branch donep recur: done:))
    (defblock recur:
       (let next (funcall @fact (- n 1)))

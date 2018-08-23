@@ -3,7 +3,7 @@
     (let zerop (equal? n (the Integer 0)))
     (branch zerop yep: maybe:))
   (defblock maybe:
-    (let next (the Integer (- n 1)))
+    (let next (- n 1))
     (let res (funcall @oddp next))
     (return res))
   (defblock yep:
@@ -12,10 +12,10 @@
 
 (defun @oddp ((n Integer)) Bool
   (start here:
-    (let onep (equal? n (the Integer 1)))
+    (let onep (equal? n 1))
     (branch onep yep: maybe:))
   (defblock maybe:
-    (let next (the Integer (- n 1)))
+    (let next (- n 1))
     (let res (funcall @evenp next))
     (return res))
   (defblock yep:

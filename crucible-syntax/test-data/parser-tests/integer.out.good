@@ -2,15 +2,15 @@
    (start start:
       (let q (the Integer (negate 2)))
       (let v (the Integer 15))
-      (let x (the Integer (/ v 2)))
-      (let y (the Integer (* x q)))
-      (let r (the Integer (+ (mod x 5) 22)))
-      (let ra (the Integer (abs r)))
-      (let z (the Integer (- y ra)))
+      (let x (/ v 2))
+      (let y (* x q))
+      (let r (+ (mod x 5) -4))
+      (let ra (abs r))
+      (let z (- y ra))
       (let p1 (< x y))
       (let p2 (<= x y))
       (let p3 (equal? x y))
-      (let p (and p1 (and p2 p3)))
+      (let p (and p1 p2 p3))
       (let za (if p q v))
       (let neg-one (the Integer -1))
       (return za)))
@@ -32,7 +32,7 @@ test-integer
   % 9:12
   $6 = intMod($3, $5)
   % 9:12
-  $7 = intLit(22)
+  $7 = intLit(-4)
   % 9:12
   $8 = intAdd($6, $7)
   % 10:13
@@ -46,9 +46,9 @@ test-integer
   % 14:13
   $13 = baseIsEq(BaseIntegerRepr, $3, $4)
   % 15:12
-  $14 = and($12, $13)
+  $14 = and($11, $12)
   % 15:12
-  $15 = and($11, $14)
+  $15 = and($14, $13)
   % 16:13
   $16 = baseIte(BaseIntegerRepr, $15, $1, $2)
   % 17:18

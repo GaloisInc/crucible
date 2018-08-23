@@ -13,7 +13,7 @@
     (let c $$counter)
     (set-global! $$counter (+ c 2))
     (let n* $n)
-    (let donep (< n* (the Integer 0)))
+    (let donep (< n* 0))
     (branch donep done: loop:))
   (defblock done:
     (let res $$counter)

@@ -8,6 +8,9 @@
       (return i))
    (defblock (bool: y Bool)
       (let b (the (Variant Bool String Integer) (inj 0 y)))
+      (let b1 (from-just (proj 0 b) "proj0"))
+      (let b2 (from-just (proj 1 b) "proj1"))
+      (let b3 (from-just (proj 2 b) "proj2"))
       (return b))
    (defblock (string: z String)
       (let s (the (Variant Bool String Integer) (inj 1 z)))
@@ -31,12 +34,30 @@ rot-cases
 %2
   % 11:12
   $1 = injectVariant([BoolRepr, StringRepr, IntegerRepr], 0, $0)
-  % 12:5
+  % 12:13
+  $2 = projectVariant([BoolRepr, StringRepr, IntegerRepr], 0, $1)
+  % 12:13
+  $3 = textLit("proj0")
+  % 12:13
+  $4 = fromJustValue(BoolRepr, $2, $3)
+  % 13:13
+  $5 = projectVariant([BoolRepr, StringRepr, IntegerRepr], 1, $1)
+  % 13:13
+  $6 = textLit("proj1")
+  % 13:13
+  $7 = fromJustValue(StringRepr, $5, $6)
+  % 14:13
+  $8 = projectVariant([BoolRepr, StringRepr, IntegerRepr], 2, $1)
+  % 14:13
+  $9 = textLit("proj2")
+  % 14:13
+  $10 = fromJustValue(IntegerRepr, $8, $9)
+  % 15:5
   return $1
   % no postdom
 %3
-  % 14:12
+  % 17:12
   $1 = injectVariant([BoolRepr, StringRepr, IntegerRepr], 1, $0)
-  % 15:5
+  % 18:5
   return $1
   % no postdom
