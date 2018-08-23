@@ -49,9 +49,9 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Unpack
              | Plus | Minus | Times | Div | Negate | Abs
              | Just_ | Nothing_ | FromJust
-             | Inj
+             | Inj | Proj
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitVectorT | VectorT | FunT | MaybeT | VariantT | RefT
+             | BitvectorT | VectorT | FunT | MaybeT | VariantT | RefT
              | The
              | Equalp | Integerp
              | If
@@ -71,6 +71,11 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Assert_ | Assume_
              | SetRegister
              | Funcall
+             | BV | BVConcat_ | BVSelect_ | BVTrunc_
+             | BVZext_ | BVSext_ | BVNonzero_ | BoolToBV_
+             | BVCarry_ | BVSCarry_ | BVSBorrow_
+             | BVNot_ | BVAnd_ | BVOr_ | BVXor_ | BVShl_ | BVLshr_ | BVAshr_
+             | Sle | Slt | Sdiv | Smod | ZeroExt | SignExt
   deriving (Eq, Ord)
 
 keywords :: [(Text, Keyword)]
@@ -91,10 +96,15 @@ keywords =
   , ("/" , Div)
   , ("<" , Lt)
   , ("<=" , Le)
+  , ("<=$" , Sle)
+  , ("<$" , Slt)
+  , ("/$" , Sdiv)
+  , ("smod", Smod)
   , ("negate", Negate)
   , ("abs", Abs)
   , ("show", Show)
   , ("inj", Inj)
+  , ("proj", Proj)
   , ("just" , Just_)
   , ("nothing" , Nothing_)
   , ("from-just" , FromJust)
@@ -112,7 +122,7 @@ keywords =
   , ("ComplexReal" , ComplexRealT)
   , ("Char" , CharT)
   , ("String" , StringT)
-  , ("BitVector" , BitVectorT)
+  , ("Bitvector" , BitvectorT)
   , ("Vector", VectorT)
   , ("->", FunT)
   , ("Maybe", MaybeT)
@@ -150,6 +160,24 @@ keywords =
   , ("assert!", Assert_)
   , ("assume!", Assume_)
   , ("funcall", Funcall)
+  , ("bv", BV)
+  , ("bv-concat", BVConcat_)
+  , ("bv-select", BVSelect_)
+  , ("bv-trunc", BVTrunc_)
+  , ("zero-extend", BVZext_)
+  , ("sign-extend", BVSext_)
+  , ("bv-nonzero", BVNonzero_)
+  , ("bool-to-bv", BoolToBV_)
+  , ("bv-carry", BVCarry_)
+  , ("bv-scarry", BVSCarry_)
+  , ("bv-sborrow", BVSBorrow_)
+  , ("bv-not", BVNot_)
+  , ("bv-and", BVAnd_)
+  , ("bv-or", BVOr_)
+  , ("bv-xor", BVXor_)
+  , ("shl", BVShl_)
+  , ("lshr", BVLshr_)
+  , ("ashr", BVAshr_)
   ]
 
 
