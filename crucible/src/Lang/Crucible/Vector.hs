@@ -290,9 +290,6 @@ append v1@(Vector xs) v2@(Vector ys) =
 --------------------------------------------------------------------------------
 
 
-lemmaMul :: (1 <= n) => p w -> q n -> (w + (n-1) * w) :~: (n * w)
-lemmaMul = unsafeCoerce Refl
-
 {- | Join the bit-vectors in a vector into a single large bit-vector.
 The "Endian" parameter indicates which way to join the elemnts:
 "LittleEndian" indicates that low vector indexes are less significant. -}
