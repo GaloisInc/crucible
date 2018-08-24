@@ -37,7 +37,7 @@ library
     hashtables,
     lens,
     mtl,
-    parameterized-utils >= 1.0 && < 1.1,
+    parameterized-utils >= 1.0.3 && < 1.1,
     process,
     template-haskell,
     text,

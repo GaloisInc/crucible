@@ -39,7 +39,6 @@ module Lang.Crucible.Simulator.EvalStmt
   , stepBasicBlock
   ) where
 
-import           Control.Applicative (liftA2)
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
@@ -323,29 +322,6 @@ stepStmt verb stmt rest =
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
 
----------------------------------------------------------------
--- TODO, this should probably be moved to parameterized-utils
-
-newtype Collector m w a = Collector { runCollector :: m w }
-
-instance Functor (Collector m w) where
-  fmap _ (Collector x) = Collector x
-
-instance (Applicative m, Monoid w) => Applicative (Collector m w) where
-  pure _ = Collector (pure mempty)
-  Collector x <*> Collector y = Collector (liftA2 (<>) x y)
-
-traverseAndCollect ::
-  (Monoid w, Applicative m) =>
-  (forall tp. Ctx.Index ctx tp -> f tp -> m w) ->
-  Ctx.Assignment f ctx ->
-  m w
-traverseAndCollect f =
-  runCollector . Ctx.traverseWithIndex (\i x -> Collector (f i x))
-
---------------------------- END TODO ----------------------------
-
-
 {-# INLINABLE stepTerm #-}
 
 -- | Evaluation operation for evaluating a single block-terminator
@@ -380,7 +356,7 @@ stepTerm _ (MaybeBranch tp e j n) =
 
 stepTerm _ (VariantElim ctx e cases) =
   do vs <- evalReg e
-     jmps <- ctx & traverseAndCollect (\i tp ->
+     jmps <- ctx & Ctx.traverseAndCollect (\i tp ->
                 case vs Ctx.! i of
                   VB Unassigned ->
                     return []
