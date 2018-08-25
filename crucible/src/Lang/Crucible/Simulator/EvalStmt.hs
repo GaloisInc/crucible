@@ -474,12 +474,14 @@ singleStepCrucible verb exst =
     OverrideState ovr st ->
       runReaderT (overrideHandler ovr) st
 
+    SymbolicBranchState p a_frame o_frame tgt st ->
+      runReaderT (performIntraFrameSplit p a_frame o_frame tgt) st
+
     ControlTransferState tgt st ->
       runReaderT (performIntraFrameMerge tgt) st
 
     RunningState st ->
       runReaderT (stepBasicBlock verb) st
-
 
 -- | Given a 'SimState' and an execution continuation,
 --   apply the continuation and execute the resulting
@@ -525,6 +527,9 @@ executeCrucible st0 cont =
 
         OverrideState ovr st' ->
           loop verbOpt st' (overrideHandler ovr)
+
+        SymbolicBranchState p a_frame o_frame tgt st' ->
+          loop verbOpt st' (performIntraFrameSplit p a_frame o_frame tgt)
 
         ControlTransferState tgt st' ->
           loop verbOpt st' (performIntraFrameMerge tgt)

@@ -41,6 +41,7 @@ module Lang.Crucible.Simulator.Operations
   , runErrorHandler
   , runGenericErrorHandler
   , performIntraFrameMerge
+  , performIntraFrameSplit
   , resumeFrame
 
     -- * Resolving calls
@@ -757,14 +758,6 @@ predEqConst :: IsExprBuilder sym => sym -> Pred sym -> Bool -> IO (Pred sym)
 predEqConst _   p True  = return p
 predEqConst sym p False = notPred sym p
 
--- | 'Some' frame, together with a location (if any) associated with
---   that frame
-data SomePausedFrame p sym ext r b a =
-  forall args.
-  SomePausedFrame
-     !(PausedFrame p sym ext r b a args)
-     !(Maybe ProgramLoc)
-
 -- | Branch with a merge point inside this frame.
 intra_branch ::
   IsSymInterface sym =>
@@ -786,39 +779,60 @@ intra_branch p t_label f_label tgt = do
   ctx <- asContFrame <$> view stateTree
   sym <- view stateSymInterface
   r <- liftIO $ evalBranch sym p
-  loc <- liftIO $ getCurrentProgramLoc sym
 
   case r of
-    SymbolicBranch chosen_branch -> do
-      -- Get correct predicate
-      p' <- liftIO $ predEqConst sym p chosen_branch
+    SymbolicBranch chosen_branch ->
+      do -- Get correct predicate
+         p' <- liftIO $ predEqConst sym p chosen_branch
+         (a_frame, o_frame) <- return (swap_unless chosen_branch (t_label, f_label))
 
-      (SomePausedFrame a_frame a_loc, SomePausedFrame o_frame o_loc) <-
-                      return (swap_unless chosen_branch (t_label, f_label))
-
-      a_frame' <- pushPausedFrame a_frame
-      o_frame' <- pushPausedFrame o_frame
-
-      assume_frame <- liftIO $ pushAssumptionFrame sym
-      liftIO $ addAssumption sym (LabeledPred p' (ExploringAPath loc a_loc))
-
-      -- Create context for paused frame.
-      let todo = VFFActivePath o_loc o_frame'
-          ctx' = VFFBranch ctx assume_frame loc p' todo tgt
-
-      -- Start a_state (where branch pred is p')
-      resumeFrame a_frame' ctx'
+         ReaderT $ return . SymbolicBranchState p' a_frame o_frame tgt
 
     NoBranch chosen_branch ->
-      do SomePausedFrame a_frame a_loc <-
+      do p' <- liftIO $ predEqConst sym p chosen_branch
+         SomePausedFrame a_frame a_loc <-
                       return (if chosen_branch then t_label else f_label)
 
-         liftIO $ addAssumption sym (LabeledPred (truePred sym) (ExploringAPath loc a_loc))
+         loc <- liftIO $ getCurrentProgramLoc sym
+         liftIO $ addAssumption sym (LabeledPred p' (ExploringAPath loc a_loc))
 
          resumeFrame a_frame ctx
 
 {-# INLINABLE intra_branch #-}
 
+-- | Branch with a merge point inside this frame.
+performIntraFrameSplit ::
+  IsSymInterface sym =>
+  Pred sym
+  {- ^ Branch condition -} ->
+
+  SomePausedFrame p sym ext r b a
+  {- ^ active branch. -} ->
+
+  SomePausedFrame p sym ext r b a
+  {- ^ other branch. -} ->
+
+  CrucibleBranchTarget b (args :: Maybe (Ctx CrucibleType))
+  {- ^ Postdominator merge point, where both branches meet again. -} ->
+
+  ExecCont p sym ext r (CrucibleLang b a) ('Just dc_args)
+performIntraFrameSplit p (SomePausedFrame a_frame a_loc) (SomePausedFrame o_frame o_loc) tgt =
+  do ctx <- asContFrame <$> view stateTree
+     sym <- view stateSymInterface
+     loc <- liftIO $ getCurrentProgramLoc sym
+
+     a_frame' <- pushPausedFrame a_frame
+     o_frame' <- pushPausedFrame o_frame
+
+     assume_frame <- liftIO $ pushAssumptionFrame sym
+     liftIO $ addAssumption sym (LabeledPred p (ExploringAPath loc a_loc))
+
+     -- Create context for paused frame.
+     let todo = VFFActivePath o_loc o_frame'
+         ctx' = VFFBranch ctx assume_frame loc p todo tgt
+
+     -- Start a_state (where branch pred is p)
+     resumeFrame a_frame' ctx'
 
 ------------------------------------------------------------------------
 -- Context tree manipulations
