@@ -24,6 +24,7 @@ import What4.Symbol(userSymbol)
 import What4.Interface
           (freshConstant, bvLit, bvEq, asUnsignedBV,notPred
           , getCurrentProgramLoc)
+import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(GlobalVar)
@@ -89,6 +90,10 @@ setupOverrides ctxt =
         Empty knownRepr sv_comp_fresh_i32
      regOver ctxt "__VERIFIER_nondet_int"
         Empty knownRepr sv_comp_fresh_i32
+     regOver ctxt "__VERIFIER_nondet_float"
+        Empty knownRepr sv_comp_fresh_float
+     regOver ctxt "__VERIFIER_nondet_double"
+        Empty knownRepr sv_comp_fresh_double
      regOver ctxt "__VERIFIER_nondet_char"
         (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
      regOver ctxt "__VERIFIER_assert"
@@ -144,6 +149,22 @@ mkFresh nm ty =
      loc   <- liftIO $ getCurrentProgramLoc sym
      stateContext.cruciblePersonality %= addVar loc nm ty elt
      return elt
+
+mkFreshFloat
+  ::(IsSymInterface sym)
+  => String
+  -> FloatInfoRepr fi
+  -> OverM sym arch (RegValue sym (FloatType fi))
+mkFreshFloat nm fi = do
+  sym  <- getSymInterface
+  name <- case userSymbol nm of
+            Left err -> fail (show err) -- XXX
+            Right a  -> return a
+  elt  <- liftIO $ freshFloatConstant sym name fi
+  loc  <- liftIO $ getCurrentProgramLoc sym
+  stateContext.cruciblePersonality %=
+    addVar loc nm (iFloatBaseTypeRepr sym fi) elt
+  return elt
 
 lookupString ::
   (IsSymInterface sym, ArchOk arch) =>
@@ -241,6 +262,16 @@ sv_comp_fresh_i32 =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @32))
      sym <- getSymInterface
      liftIO (llvmPointer_bv sym x)
+
+sv_comp_fresh_float
+  :: (ArchOk arch, IsSymInterface sym)
+  => Fun sym arch EmptyCtx (FloatType SingleFloat)
+sv_comp_fresh_float = mkFreshFloat "X" SingleFloatRepr
+
+sv_comp_fresh_double
+  :: (ArchOk arch, IsSymInterface sym)
+  => Fun sym arch EmptyCtx (FloatType DoubleFloat)
+sv_comp_fresh_double = mkFreshFloat "X" DoubleFloatRepr
 
 sv_comp_assume ::
   (ArchOk arch, IsSymInterface sym) =>

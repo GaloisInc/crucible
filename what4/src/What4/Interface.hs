@@ -44,6 +44,7 @@ The canonical implementation of these interface classes is found in "What4.Expr.
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -68,12 +69,15 @@ module What4.Interface
     -- ** IsExprBuilder
   , IsExprBuilder(..)
   , IsSymExprBuilder(..)
+    -- ** Floating-point rounding modes
+  , RoundingMode(..)
 
     -- * Type Aliases
   , Pred
   , SymNat
   , SymInteger
   , SymReal
+  , SymFloat
   , SymString
   , SymCplx
   , SymStruct
@@ -140,6 +144,7 @@ import           Data.Parameterized.TraversableFC
 import           Data.Ratio
 import           Data.Scientific (Scientific)
 import           Data.Text (Text)
+import           GHC.Generics (Generic)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
@@ -165,6 +170,9 @@ type SymInteger sym = SymExpr sym BaseIntegerType
 
 -- | Symbolic real numbers.
 type SymReal sym = SymExpr sym BaseRealType
+
+-- | Symbolic floating point numbers.
+type SymFloat sym fpp = SymExpr sym (BaseFloatType fpp)
 
 -- | Symbolic complex numbers.
 type SymCplx sym = SymExpr sym BaseComplexType
@@ -255,6 +263,10 @@ class IsExpr e where
   --   such as one made with 'constantArray'.
   asConstantArray :: e (BaseArrayType idx bt) -> Maybe (e bt)
   asConstantArray _ = Nothing
+
+  -- | Return the struct fields if this is a concrete struct.
+  asStruct :: e (BaseStructType flds) -> Maybe (Ctx.Assignment e flds)
+  asStruct _ = Nothing
 
   -- | Get type of expression.
   exprType :: e tp -> BaseTypeRepr tp
@@ -354,7 +366,7 @@ instance HashableF e => HashableF (ArrayResultWrapper e idx) where
 -- if it is concretely obvious that the function results in an undefined
 -- value; but otherwise they will silently produce an unspecified value
 -- of the expected type.
-class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym where
+class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 
   -- | Retrieve the configuration object corresponding to this solver interface.
   getConfiguration :: sym -> Config
@@ -380,6 +392,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
       BaseNatRepr      -> natEq sym x y
       BaseIntegerRepr  -> intEq sym x y
       BaseRealRepr     -> realEq sym x y
+      BaseFloatRepr{}  -> floatEq sym x y
       BaseComplexRepr  -> cplxEq sym x y
       BaseStringRepr   -> stringEq sym x y
       BaseStructRepr{} -> structEq sym x y
@@ -401,6 +414,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
       BaseNatRepr      -> natIte    sym c x y
       BaseIntegerRepr  -> intIte    sym c x y
       BaseRealRepr     -> realIte   sym c x y
+      BaseFloatRepr{}  -> floatIte  sym c x y
       BaseStringRepr   -> stringIte sym c x y
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
@@ -480,10 +494,6 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   -- See 'natDiv' for a description of the properties the return
   -- value is expected to satisfy.
   natMod :: sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
-  natMod sym x y = do
-    xi <- natToInteger sym x
-    yi <- natToInteger sym y
-    intMod sym xi yi
 
   -- | If-then-else applied to natural numbers.
   natIte :: sym -> Pred sym -> SymNat sym -> SymNat sym -> IO (SymNat sym)
@@ -530,9 +540,8 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   intLt  :: sym -> SymInteger sym -> SymInteger sym -> IO (Pred sym)
   intLt sym x y = notPred sym =<< intLe sym y x
 
-  -- | Compute the absolute value of an integer.  The result is the unique
-  --   natural number with the same magnitude as the input integer.
-  intAbs :: sym -> SymInteger sym -> IO (SymNat sym)
+  -- | Compute the absolute value of an integer.
+  intAbs :: sym -> SymInteger sym -> IO (SymInteger sym)
 
   -- | @intDiv x y@ computes the integer division of @x@ by @y@.  This division is
   --   interpreted the same way as the SMT-Lib integer theory, which states that
@@ -564,7 +573,7 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
   --
   --   Integer modulus requires nonlinear support whenever the divisor is
   --   not a constant.
-  intMod :: sym -> SymInteger sym -> SymInteger sym -> IO (SymNat sym)
+  intMod :: sym -> SymInteger sym -> SymInteger sym -> IO (SymInteger sym)
 
   -- | @intDivisible x k@ is true whenever @x@ is an integer divisible
   --   by the known natural number @k@.  In other words `divisible x k`
@@ -1103,10 +1112,6 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
 
   -- | Return @1@ if the predicate is true; @0@ otherwise.
   predToBV :: (1 <= w) => sym -> Pred sym -> NatRepr w -> IO (SymBV sym w)
-  predToBV sym p w = do
-    c1 <- bvLit sym w 1
-    c0 <- bvLit sym w 0
-    bvIte sym p c1 c0
 
   ----------------------------------------------------------------------
   -- Lossless combinators
@@ -1474,6 +1479,255 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
         realSqrt sym =<< realAdd sym x2 y2
 
   ----------------------------------------------------------------------
+  -- IEEE-754 floating-point operations
+  -- | Return floating point number @+0@.
+  floatPZero :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- | Return floating point number @-0@.
+  floatNZero :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- |  Return floating point NaN.
+  floatNaN :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- | Return floating point @+infinity@.
+  floatPInf :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- | Return floating point @-infinity@.
+  floatNInf :: sym -> FloatPrecisionRepr fpp -> IO (SymFloat sym fpp)
+
+  -- | Create a floating point literal from a rational literal.
+  floatLit
+    :: sym -> FloatPrecisionRepr fpp -> Rational -> IO (SymFloat sym fpp)
+
+  -- | Negate a floating point number.
+  floatNeg
+    :: sym
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Return the absolute value of a floating point number.
+  floatAbs
+    :: sym
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Compute the square root of a floating point number.
+  floatSqrt
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Add two floating point numbers.
+  floatAdd
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Subtract two floating point numbers.
+  floatSub
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Multiply two floating point numbers.
+  floatMul
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Divide two floating point numbers.
+  floatDiv
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Compute the reminder: @x - y * n@, where @n@ in Z is nearest to @x / y@.
+  floatRem
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Return the min of two floating point numbers.
+  floatMin
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Return the max of two floating point numbers.
+  floatMax
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Compute the fused multiplication and addition: @(x * y) + z@.
+  floatFMA
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Check logical equality of two floating point numbers.
+  --
+  --   NOTE! This does NOT accurately represent the equality test on floating point
+  --   values typically found in programming languages.  See 'floatFpEq' instead.
+  floatEq
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check logical non-equality of two floating point numbers.
+  --
+  --   NOTE! This does NOT accurately represent the non-equality test on floating point
+  --   values typically found in programming languages.  See 'floatFpEq' instead.
+  floatNe
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check IEEE equality of two floating point numbers.
+  --
+  --   NOTE! This test returns false if either value is @NaN@; in particular
+  --   @NaN@ is not equal to itself!  Moreover, positive and negative 0 will
+  --   compare equal, despite having different bit patterns. This test is most
+  --   appropriate for interpreting the equalty tests of typical languages using
+  --   floating point.
+  floatFpEq
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check IEEE non-equality of two floating point numbers.
+  --
+  --   NOTE! This test returns true if either value is @NaN@; in particular
+  --   @NaN@ is not equal to itself!  Moreover, positive and negative 0 will
+  --   compare equal, despite having different bit patterns.
+  --   This test is most appropriate for interpreting the non-equalty tests of
+  --   typical languages using floating point.
+  floatFpNe
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check @<=@ on two floating point numbers.
+  floatLe
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check @<@ on two floating point numbers.
+  floatLt
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check @>=@ on two floating point numbers.
+  floatGe
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  -- | Check @>@ on two floating point numbers.
+  floatGt
+    :: sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (Pred sym)
+
+  floatIsNaN :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsInf :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsZero :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsPos :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsNeg :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsSubnorm :: sym -> SymFloat sym fpp -> IO (Pred sym)
+  floatIsNorm :: sym -> SymFloat sym fpp -> IO (Pred sym)
+
+  -- | If-then-else on floating point numbers.
+  floatIte
+    :: sym
+    -> Pred sym
+    -> SymFloat sym fpp
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
+
+  -- | Change the precision of a floating point number.
+  floatCast
+    :: sym
+    -> FloatPrecisionRepr fpp
+    -> RoundingMode
+    -> SymFloat sym fpp'
+    -> IO (SymFloat sym fpp)
+  -- | Convert from binary representation in IEEE 754-2008 format to
+  --   floating point.
+  floatFromBinary
+    :: (1 <= eb, 1 <= sb)
+    => sym
+    -> FloatPrecisionRepr (FloatingPointPrecision sb eb)
+    -> SymBV sym (sb + eb)
+    -> IO (SymFloat sym (FloatingPointPrecision sb eb))
+  -- | Convert a unsigned bitvector to a floating point number.
+  bvToFloat
+    :: (1 <= w)
+    => sym
+    -> FloatPrecisionRepr fpp
+    -> RoundingMode
+    -> SymBV sym w
+    -> IO (SymFloat sym fpp)
+  -- | Convert a signed bitvector to a floating point number.
+  sbvToFloat
+    :: (1 <= w)
+    => sym
+    -> FloatPrecisionRepr fpp
+    -> RoundingMode
+    -> SymBV sym w
+    -> IO (SymFloat sym fpp)
+  -- | Convert a real number to a floating point number.
+  realToFloat
+    :: sym
+    -> FloatPrecisionRepr fpp
+    -> RoundingMode
+    -> SymReal sym
+    -> IO (SymFloat sym fpp)
+  -- | Convert a unsigned bitvector to a floating point number.
+  floatToBV
+    :: (1 <= w)
+    => sym
+    -> NatRepr w
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> IO (SymBV sym w)
+  -- | Convert a signed bitvector to a floating point number.
+  floatToSBV
+    :: (1 <= w)
+    => sym
+    -> NatRepr w
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> IO (SymBV sym w)
+  -- | Convert a floating point number to a real number.
+  floatToReal :: sym -> SymFloat sym fpp -> IO (SymReal sym)
+
+  ----------------------------------------------------------------------
   -- Cplx operations
 
   -- | Create a complex from cartesian coordinates.
@@ -1717,6 +1971,16 @@ class ( IsExpr (SymExpr sym), HashableF (SymExpr sym) ) => IsExprBuilder sym whe
     pj <- realNe sym xi yi
     orPred sym pr pj
 
+-- | Rounding modes for IEEE-754 floating point operations.
+data RoundingMode
+  = RNE -- ^ Round to nearest even.
+  | RNA -- ^ Round to nearest away.
+  | RTP -- ^ Round toward plus Infinity.
+  | RTN -- ^ Round toward minus Infinity.
+  | RTZ -- ^ Round toward zero.
+  deriving (Eq, Generic, Ord, Show)
+
+instance Hashable RoundingMode
 
 
 -- | Create a literal from an indexlit.
@@ -1855,30 +2119,28 @@ class ( IsExprBuilder sym
                 -- ^ Arguments to function
              -> IO (SymExpr sym ret)
 
-
 -- | This returns true if the value corresponds to a concrete value.
-baseIsConcrete :: forall sym bt
-                . IsExprBuilder sym
-               => sym
-               -> SymExpr sym bt
-               -> IO Bool
-baseIsConcrete sym x =
+baseIsConcrete :: forall e bt
+                . IsExpr e
+               => e bt
+               -> Bool
+baseIsConcrete x =
   case exprType x of
-    BaseBoolRepr    -> return $ isJust $ asConstantPred x
-    BaseNatRepr     -> return $ isJust $ asNat x
-    BaseIntegerRepr -> return $ isJust $ asInteger x
-    BaseBVRepr _    -> return $ isJust $ asUnsignedBV x
-    BaseRealRepr    -> return $ isJust $ asRational x
-    BaseStringRepr  -> return $ isJust $ asString x
-    BaseComplexRepr -> return $ isJust $ asComplex x
-    BaseStructRepr (flds ::Ctx.Assignment BaseTypeRepr ctx) ->
-        Ctx.forIndex (Ctx.size flds) f (return True)
-      where f :: IO Bool -> Ctx.Index ctx tp -> IO Bool
-            f b i = (&&) <$> b <*> (baseIsConcrete sym =<< structField sym x i)
+    BaseBoolRepr    -> isJust $ asConstantPred x
+    BaseNatRepr     -> isJust $ asNat x
+    BaseIntegerRepr -> isJust $ asInteger x
+    BaseBVRepr _    -> isJust $ asUnsignedBV x
+    BaseRealRepr    -> isJust $ asRational x
+    BaseFloatRepr _ -> False
+    BaseStringRepr  -> isJust $ asString x
+    BaseComplexRepr -> isJust $ asComplex x
+    BaseStructRepr _ -> case asStruct x of
+        Just flds -> allFC baseIsConcrete flds
+        Nothing -> False
     BaseArrayRepr _ _bt' -> do
       case asConstantArray x of
-        Just x' -> baseIsConcrete sym x'
-        Nothing -> return $ False
+        Just x' -> baseIsConcrete x'
+        Nothing -> False
 
 baseDefaultValue :: forall sym bt
                   . IsExprBuilder sym
@@ -1892,6 +2154,7 @@ baseDefaultValue sym bt =
     BaseIntegerRepr -> intLit sym 0
     BaseBVRepr w    -> bvLit sym w 0
     BaseRealRepr    -> return $! realZero sym
+    BaseFloatRepr fpp -> floatPZero sym fpp
     BaseComplexRepr -> mkComplexLit sym (0 :+ 0)
     BaseStringRepr  -> stringLit sym mempty
     BaseStructRepr flds -> do
@@ -2067,6 +2330,7 @@ asConcrete x =
     BaseStringRepr -> ConcreteString <$> asString x
     BaseComplexRepr -> ConcreteComplex <$> asComplex x
     BaseBVRepr w    -> ConcreteBV w <$> asUnsignedBV x
+    BaseFloatRepr _ -> Nothing
     BaseStructRepr _ -> Nothing -- FIXME?
     BaseArrayRepr _ _ -> Nothing -- FIXME?
 

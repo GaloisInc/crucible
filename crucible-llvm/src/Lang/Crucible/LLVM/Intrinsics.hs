@@ -1207,8 +1207,9 @@ printfOps sym valist =
 
   , printfGetFloat = \i _len ->
      case valist V.!? (i-1) of
-       Just (AnyValue (FloatRepr _fi) x) ->
-         return $ asRational x
+       Just (AnyValue (FloatRepr _fi) _x) ->
+         -- TODO: handle interpreted floats
+         return Nothing
        Just (AnyValue tpr _) ->
          lift $ addFailedAssertion sym
               $ AssertFailureSimError

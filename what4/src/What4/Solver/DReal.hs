@@ -101,7 +101,7 @@ instance SMT2.SMTLib2Tweaks DReal where
   smtlib2tweaks = DReal
 
 writeDRealSMT2File
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> Handle
    -> BoolExpr t
    -> IO ()
@@ -133,9 +133,11 @@ getAvgBindings c m = do
       evalBV _ _ = fail "dReal does not support bitvectors."
       evalReal tm = do
         return $ maybe 0 drealAvgBinding $ Map.lookup (Builder.toLazyText (SMTWriter.renderTerm tm)) m
+      evalFloat _ = fail "dReal does not support floats."
   let evalFns = SMTWriter.SMTEvalFunctions { SMTWriter.smtEvalBool = evalBool
                                            , SMTWriter.smtEvalBV = evalBV
                                            , SMTWriter.smtEvalReal = evalReal
+                                           , SMTWriter.smtEvalFloat = evalFloat
                                            , SMTWriter.smtEvalBvArray = Nothing
                                            }
   SMTWriter.smtExprGroundEvalFn c evalFns
@@ -151,9 +153,11 @@ getMaybeEval proj c m = do
         case proj =<< Map.lookup (Builder.toLazyText (SMTWriter.renderTerm tm)) m of
           Just v -> return v
           Nothing -> throwIO (userError "unbound")
+      evalFloat _ = fail "dReal does not support floats."
   let evalFns = SMTWriter.SMTEvalFunctions { SMTWriter.smtEvalBool = evalBool
                                            , SMTWriter.smtEvalBV = evalBV
                                            , SMTWriter.smtEvalReal = evalReal
+                                           , SMTWriter.smtEvalFloat = evalFloat
                                            , SMTWriter.smtEvalBvArray = Nothing
                                            }
   GroundEvalFn evalFn <- SMTWriter.smtExprGroundEvalFn c evalFns
@@ -238,7 +242,7 @@ parseNextWord = do
   UTF8.toString <$> takeWhile1 isAlphaNum
 
 runDRealInOverride
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
    -> BoolExpr t   -- ^ proposition to check
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) -> IO a)

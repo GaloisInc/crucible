@@ -189,6 +189,7 @@ muxRegForType s itefns p =
      CharRepr          -> muxReg s p
      BoolRepr          -> muxReg s p
      StringRepr        -> muxReg s p
+     IEEEFloatRepr _p  -> muxReg s p
 
      AnyRepr -> muxAny s itefns
      StructRepr  ctx -> muxStruct    (muxRegForType s itefns) ctx
@@ -288,4 +289,5 @@ asSymExpr (RegEntry tp v) just nothing =
      ComplexRealRepr   -> just v
      BoolRepr          -> just v
      BVRepr _w         -> just v
+     IEEEFloatRepr _p  -> just v
      _ -> nothing

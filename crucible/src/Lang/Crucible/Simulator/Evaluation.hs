@@ -17,6 +17,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Simulator.Evaluation
@@ -46,6 +47,7 @@ import           Numeric ( showHex )
 import           Numeric.Natural
 
 import           What4.Interface
+import           What4.InterpretedFloatingPoint
 import           What4.Partial
 import           What4.Symbol (emptySymbol)
 import           What4.Utils.Complex
@@ -154,17 +156,7 @@ evalBase :: IsSymInterface sym =>
          -> (forall utp . f utp -> IO (RegValue sym utp))
          -> BaseTerm f vtp
          -> IO (SymExpr sym vtp)
-evalBase _ evalSub (BaseTerm tp e) =
-  case tp of
-    BaseBoolRepr    -> evalSub e
-    BaseBVRepr _    -> evalSub e
-    BaseNatRepr     -> evalSub e
-    BaseIntegerRepr -> evalSub e
-    BaseRealRepr    -> evalSub e
-    BaseStringRepr  -> evalSub e
-    BaseComplexRepr -> evalSub e
-    BaseStructRepr  _ -> evalSub e
-    BaseArrayRepr _ _ -> evalSub e
+evalBase _ evalSub (BaseTerm _tp e) = evalSub e
 
 -- | Get value stored in vector at a symbolic index.
 indexVectorWithSymNat :: IsSymInterface sym
@@ -350,15 +342,33 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       natMul sym x y
+    NatDiv xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      natDiv sym x y
+    NatMod xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      natMod sym x y
 
     ----------------------------------------------------------------------
     -- Int
 
     IntLit n -> intLit sym n
+    IntLe xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intLe sym x y
     IntLt xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
       intLt sym x y
+    IntNeg xe -> do
+      x <- evalSub xe
+      intNeg sym x
+    IntAbs xe -> do
+      x <- evalSub xe
+      intAbs sym x
     IntAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -371,6 +381,14 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       intMul sym x y
+    IntDiv xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intDiv sym x y
+    IntMod xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      intMod sym x y
 
     --------------------------------------------------------------------
     -- Maybe
@@ -464,6 +482,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     -- RealVal
 
     RationalLit d -> realLit sym d
+    RealNeg xe -> do
+      x <- evalSub xe
+      realNeg sym x
     RealAdd xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -488,6 +509,10 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub x_expr
       y <- evalSub y_expr
       realLt sym x y
+    RealLe x_expr y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      realLe sym x y
     RealIsInteger x_expr -> do
       x <- evalSub x_expr
       isInteger sym x
@@ -495,90 +520,111 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ----------------------------------------------------------------------
     -- Float
 
-    FloatLit f -> realLit sym $ toRational f
-    DoubleLit d -> realLit sym $ toRational d
-    FloatNaN _ -> addFailedAssertion sym $
-                Unsupported "NaN floating point"
-    FloatPInf _ -> addFailedAssertion sym $
-                 Unsupported "+Inf floating point"
-    FloatNInf _ -> addFailedAssertion sym $
-                 Unsupported "-Inf floating point"
-    FloatAdd _ xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      realAdd sym x y
-    FloatSub _ xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      realSub sym x y
-    FloatMul _ xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      realMul sym x y
-    FloatDiv _ xe ye -> do
+    FloatLit f -> iFloatLitSingle sym f
+    DoubleLit d -> iFloatLitDouble sym d
+    FloatNaN fi -> iFloatNaN sym fi
+    FloatPInf fi -> iFloatPInf sym fi
+    FloatNInf fi -> iFloatNInf sym fi
+    FloatPZero fi -> iFloatPZero sym fi
+    FloatNZero fi -> iFloatNZero sym fi
+    FloatNeg _ (x_expr :: f (FloatType fi)) ->
+      iFloatNeg @_ @fi sym =<< evalSub x_expr
+    FloatAbs _ (x_expr :: f (FloatType fi)) ->
+      iFloatAbs @_ @fi sym =<< evalSub x_expr
+    FloatSqrt _ rm (x_expr :: f (FloatType fi)) ->
+      iFloatSqrt @_ @fi sym rm =<< evalSub x_expr
+    FloatAdd _ rm (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatAdd @_ @fi sym rm x y
+    FloatSub _ rm (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatSub @_ @fi sym rm x y
+    FloatMul _ rm (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatMul @_ @fi sym rm x y
+    FloatDiv _ rm (x_expr :: f (FloatType fi)) y_expr -> do
       -- TODO: handle division by zero
-      x <- evalSub xe
-      y <- evalSub ye
-      realDiv sym x y
-    FloatRem _ xe ye -> do
-      x <- evalSub xe
-      y <- evalSub ye
-      realMod sym x y
-    FloatEq x_expr y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realEq sym x y
-    FloatLt x_expr y_expr -> do
+      iFloatDiv @_ @fi sym rm x y
+    FloatRem _ (x_expr :: f (FloatType fi)) y_expr -> do
+      -- TODO: handle division by zero
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realLt sym x y
-    FloatLe x_expr y_expr -> do
+      iFloatRem @_ @fi sym x y
+    FloatMin _ (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realLe sym x y
-    FloatGt x_expr y_expr -> do
+      iFloatMin @_ @fi sym x y
+    FloatMax _ (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realGt sym x y
-    FloatGe x_expr y_expr -> do
+      iFloatMax @_ @fi sym x y
+    FloatFMA _ rm (x_expr :: f (FloatType fi)) y_expr z_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realGe sym x y
-    FloatNe x_expr y_expr -> do
+      z <- evalSub z_expr
+      iFloatFMA @_ @fi sym rm x y z
+    FloatEq (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
-      realNe sym x y
-    FloatCast _ x_expr ->
-      -- nop
-      evalSub x_expr
-    FloatFromBV _ x_expr ->
-      uintToReal sym =<< evalSub x_expr
-    FloatFromSBV _ x_expr ->
-      sbvToReal sym =<< evalSub x_expr
-    FloatFromReal _ x_expr ->
-      -- nop
-      evalSub x_expr
-    FloatToBV w x_expr -> do
-      -- TODO: handle case when value does not fit
+      iFloatEq @_ @fi sym x y
+    FloatFpEq (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
-      realToBV sym x w
-    FloatToSBV w x_expr -> do
-      -- TODO: handle case when value does not fit
+      y <- evalSub y_expr
+      iFloatFpEq @_ @fi sym x y
+    FloatLt (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
-      realToSBV sym x w
-    FloatToReal x_expr ->
-      -- nop
-      evalSub x_expr
-    FloatIsNaN _ -> do
-      return $! falsePred sym
-    FloatIsInfinite _ -> do
-      return $! falsePred sym
-    FloatIsZero x_expr ->
-      realEq sym (realZero sym) =<< evalSub x_expr
-    FloatIsPositive x_expr -> do
-      realLt sym (realZero sym) =<< evalSub x_expr
-    FloatIsNegative x_expr -> do
-      realGt sym (realZero sym) =<< evalSub x_expr
+      y <- evalSub y_expr
+      iFloatLt @_ @fi sym x y
+    FloatLe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatLe @_ @fi sym x y
+    FloatGt (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatGt @_ @fi sym x y
+    FloatGe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatGe @_ @fi sym x y
+    FloatNe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatNe @_ @fi sym x y
+    FloatFpNe (x_expr :: f (FloatType fi)) y_expr -> do
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatFpNe @_ @fi sym x y
+    FloatCast fi rm (x_expr :: f (FloatType fi')) ->
+      iFloatCast @_ @_ @fi' sym fi rm =<< evalSub x_expr
+    FloatFromBV fi rm x_expr -> iBVToFloat sym fi rm =<< evalSub x_expr
+    FloatFromSBV fi rm x_expr -> iSBVToFloat sym fi rm =<< evalSub x_expr
+    FloatFromReal fi rm x_expr -> iRealToFloat sym fi rm =<< evalSub x_expr
+    FloatToBV w rm (x_expr :: f (FloatType fi)) ->
+      iFloatToBV @_ @_ @fi sym w rm =<< evalSub x_expr
+    FloatToSBV w rm (x_expr :: f (FloatType fi)) ->
+      iFloatToSBV @_ @_ @fi sym w rm =<< evalSub x_expr
+    FloatToReal (x_expr :: f (FloatType fi)) ->
+      iFloatToReal @_ @fi sym =<< evalSub x_expr
+    FloatIsNaN (x_expr :: f (FloatType fi)) ->
+      iFloatIsNaN @_ @fi sym =<< evalSub x_expr
+    FloatIsInfinite (x_expr :: f (FloatType fi)) ->
+      iFloatIsInf @_ @fi sym =<< evalSub x_expr
+    FloatIsZero (x_expr :: f (FloatType fi)) ->
+      iFloatIsZero @_ @fi sym =<< evalSub x_expr
+    FloatIsPositive (x_expr :: f (FloatType fi)) ->
+      iFloatIsPos @_ @fi sym =<< evalSub x_expr
+    FloatIsNegative (x_expr :: f (FloatType fi)) ->
+      iFloatIsNeg @_ @fi sym =<< evalSub x_expr
+    FloatIsSubnormal (x_expr :: f (FloatType fi)) ->
+      iFloatIsSubnorm @_ @fi sym =<< evalSub x_expr
+    FloatIsNormal (x_expr :: f (FloatType fi)) ->
+      iFloatIsNorm @_ @fi sym =<< evalSub x_expr
 
     ----------------------------------------------------------------------
     -- Conversions
@@ -661,6 +707,9 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       bvAdd sym x y
+    BVNeg _ xe -> do
+      x <- evalSub xe
+      bvNeg sym x
     BVSub _ xe ye -> do
       x <- evalSub xe
       y <- evalSub ye
@@ -829,7 +878,7 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     -- Introspection
 
     IsConcrete _ v -> do
-      x <- baseIsConcrete sym =<< evalSub v
+      x <- baseIsConcrete <$> evalSub v
       return $! if x then truePred sym else falsePred sym
 
     ---------------------------------------------------------------------

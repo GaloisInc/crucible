@@ -1,0 +1,71 @@
+(defun @test-rational () Real
+   (start start:
+      (let v (the Real 1/3))
+      (let x (the Real (/ v 2/1)))
+      (let a (+ (mod 1/2 3/2) 22))
+      (let intp (integer? a))
+      (let y (+ x v 255 33/2))
+      (let z (- x v))
+      (let w (* y z))
+      (let q (/ y z))
+      (let m (mod y z))
+      (let p1 (equal? x y))
+      (let p2 (< x y))
+      (let p3 (<= x y))
+      (let p (and p1 p2 p3))
+      (let r (if p w q))
+      (return r)))
+
+test-rational
+%0
+  % 5:12
+  $0 = rationalLit(1 % 3)
+  % 6:12
+  $1 = rationalLit(2 % 1)
+  % 6:12
+  $2 = realDiv($0, $1)
+  % 7:12
+  $3 = rationalLit(1 % 2)
+  % 7:12
+  $4 = rationalLit(3 % 2)
+  % 7:12
+  $5 = realMod($3, $4)
+  % 7:12
+  $6 = rationalLit(22 % 1)
+  % 7:12
+  $7 = realAdd($5, $6)
+  % 8:15
+  $8 = realIsInteger($7)
+  % 9:12
+  $9 = realAdd($2, $0)
+  % 9:12
+  $10 = rationalLit(255 % 1)
+  % 9:12
+  $11 = realAdd($9, $10)
+  % 9:12
+  $12 = rationalLit(33 % 2)
+  % 9:12
+  $13 = realAdd($11, $12)
+  % 10:12
+  $14 = realSub($2, $0)
+  % 11:12
+  $15 = realMul($13, $14)
+  % 12:12
+  $16 = realDiv($13, $14)
+  % 13:12
+  $17 = realMod($13, $14)
+  % 15:13
+  $18 = baseIsEq(BaseRealRepr, $2, $13)
+  % 16:13
+  $19 = realLt($2, $13)
+  % 17:13
+  $20 = realLe($2, $13)
+  % 18:12
+  $21 = and($18, $19)
+  % 18:12
+  $22 = and($21, $20)
+  % 19:12
+  $23 = baseIte(BaseRealRepr, $22, $15, $16)
+  % 20:5
+  return $23
+  % no postdom

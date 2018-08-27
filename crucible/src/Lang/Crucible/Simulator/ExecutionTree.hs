@@ -24,6 +24,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
@@ -72,6 +73,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ResolvedJump(..)
   , ControlResumption(..)
   , PausedFrame(..)
+  , SomePausedFrame(..)
   , pausedFrame
   , resume
 
@@ -98,6 +100,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- ** Extensions
   , ExtensionImpl(..)
   , EvalStmtFunc
+  , emptyExtensionImpl
 
     -- ** SimContext record
   , IsSymInterfaceProof
@@ -328,8 +331,22 @@ data ExecState p sym ext (rtp :: *)
    {- | A running state indicates the included 'SimState' is ready to enter
         and execute a Crucible basic block, or to resume a basic block
         from a call site. -}
-   |  forall blocks r args.
+   | forall blocks r args.
        RunningState
+         !(SimState p sym ext rtp (CrucibleLang blocks r) ('Just args))
+
+   {- | A symbolic branch state indicates that the execution needs to
+        branch on a non-trivial symbolic condition.  The included @Pred@
+        is the condition to branch on.  The first @SomePausedFrame@ is
+        the path that corresponds to the @Pred@ being true, and the second
+        is the false branch.
+    -}
+   | forall blocks r args postdom_args.
+       SymbolicBranchState
+         !(Pred sym)
+         !(SomePausedFrame p sym ext rtp blocks r)
+         !(SomePausedFrame p sym ext rtp blocks r)
+         !(CrucibleBranchTarget blocks postdom_args)
          !(SimState p sym ext rtp (CrucibleLang blocks r) ('Just args))
 
    {- | An override state indicates the included 'SimState' is prepared to
@@ -406,6 +423,14 @@ data PausedFrame p sym ext root b r args
      { _pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext (CrucibleLang b r) ('Just args)))
      , _resume       :: !(ControlResumption p sym ext root b r args)
      }
+
+-- | Some frame, together with a location (if any) associated with
+--   that frame.
+data SomePausedFrame p sym ext r b a =
+  forall args.
+    SomePausedFrame
+      !(PausedFrame p sym ext r b a args)
+      !(Maybe ProgramLoc)
 
 -- | Access the partial frame inside a 'PausedFrame'
 pausedFrame ::
@@ -796,6 +821,15 @@ data ExtensionImpl p sym ext
 
     , extensionExec :: EvalStmtFunc p sym ext
     }
+
+-- | Trivial implementation for the "empty" extension, which adds no
+--   additional syntactic forms.
+emptyExtensionImpl :: ExtensionImpl p sym ()
+emptyExtensionImpl =
+  ExtensionImpl
+  { extensionEval = \_sym _iTypes _log _f -> \case
+  , extensionExec = \case
+  }
 
 type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
 

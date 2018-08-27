@@ -84,6 +84,7 @@ module Lang.Crucible.Simulator
     -- ** Extensions
   , ExtensionImpl(..)
   , EvalStmtFunc
+  , emptyExtensionImpl
 
     -- ** SimContext record
   , IsSymInterfaceProof
@@ -104,6 +105,7 @@ module Lang.Crucible.Simulator
   , IntrinsicClass
   , IntrinsicMuxFn(..)
   , IntrinsicTypes
+  , emptyIntrinsicTypes
 
     -- * Evaluation
   , executeCrucible

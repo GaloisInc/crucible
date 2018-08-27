@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Analysis.Fixpoint.Components
+-- Description      : Compute weak topological ordering of CFG
+-- Copyright        : (c) Galois, Inc 2015
+-- License          : BSD3
+-- Maintainer       : Tristan Ravitch <tristan@galois.com>
+-- Stability        : provisional
+--
+-- Compute a weak topological ordering over a control flow graph using
+-- Bourdoncle's algorithm (See Note [Bourdoncle Components]).
+------------------------------------------------------------------------
+
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}

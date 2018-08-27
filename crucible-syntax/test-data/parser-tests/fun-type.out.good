@@ -1,0 +1,17 @@
+(defun @id ((x Bool)) Bool (start here: (return x)))
+
+(defun @get-id () (-> Bool Bool)
+   (start here: (let id @id) (return id)))
+
+id
+%0
+  % 2:16
+  return $0
+  % no postdom
+get-id
+%0
+  % 6:13
+  $0 = handleLit(id)
+  % 7:5
+  return $0
+  % no postdom

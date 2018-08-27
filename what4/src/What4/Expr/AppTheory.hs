@@ -26,6 +26,7 @@ data AppTheory
    | BitvectorTheory
    | QuantifierTheory
    | StringTheory
+   | FloatingPointTheory
    | ArrayTheory
    | StructTheory
      -- ^ Theory attributed to structs (equivalent to records in CVC4/Z3, tuples in Yices)
@@ -78,6 +79,9 @@ appTheory a0 =
     NatDiv _ SemiRingLiteral{} -> LinearArithTheory
     NatDiv{} -> NonlinearArithTheory
 
+    NatMod _ SemiRingLiteral{} -> LinearArithTheory
+    NatMod{} -> NonlinearArithTheory
+
     ----------------------------
     -- Integer operations
 
@@ -109,6 +113,7 @@ appTheory a0 =
 
     ----------------------------
     -- Bitvector operations
+    PredToBV{} -> BitvectorTheory
     BVUnaryTerm{} -> BoolTheory
     BVConcat{} -> BitvectorTheory
     BVSelect{} -> BitvectorTheory
@@ -130,6 +135,46 @@ appTheory a0 =
     BVBitAnd{} -> BitvectorTheory
     BVBitOr{}  -> BitvectorTheory
     BVBitXor{} -> BitvectorTheory
+
+    ----------------------------
+    -- Bitvector operations
+    FloatPZero{}      -> FloatingPointTheory
+    FloatNZero{}      -> FloatingPointTheory
+    FloatNaN{}        -> FloatingPointTheory
+    FloatPInf{}       -> FloatingPointTheory
+    FloatNInf{}       -> FloatingPointTheory
+    FloatNeg{}        -> FloatingPointTheory
+    FloatAbs{}        -> FloatingPointTheory
+    FloatSqrt{}       -> FloatingPointTheory
+    FloatAdd{}        -> FloatingPointTheory
+    FloatSub{}        -> FloatingPointTheory
+    FloatMul{}        -> FloatingPointTheory
+    FloatDiv{}        -> FloatingPointTheory
+    FloatRem{}        -> FloatingPointTheory
+    FloatMin{}        -> FloatingPointTheory
+    FloatMax{}        -> FloatingPointTheory
+    FloatFMA{}        -> FloatingPointTheory
+    FloatEq{}         -> FloatingPointTheory
+    FloatFpEq{}       -> FloatingPointTheory
+    FloatFpNe{}       -> FloatingPointTheory
+    FloatLe{}         -> FloatingPointTheory
+    FloatLt{}         -> FloatingPointTheory
+    FloatIsNaN{}      -> FloatingPointTheory
+    FloatIsInf{}      -> FloatingPointTheory
+    FloatIsZero{}     -> FloatingPointTheory
+    FloatIsPos{}      -> FloatingPointTheory
+    FloatIsNeg{}      -> FloatingPointTheory
+    FloatIsSubnorm{}  -> FloatingPointTheory
+    FloatIsNorm{}     -> FloatingPointTheory
+    FloatIte{}        -> FloatingPointTheory
+    FloatCast{}       -> FloatingPointTheory
+    FloatFromBinary{} -> FloatingPointTheory
+    BVToFloat{}       -> FloatingPointTheory
+    SBVToFloat{}      -> FloatingPointTheory
+    RealToFloat{}     -> FloatingPointTheory
+    FloatToBV{}       -> FloatingPointTheory
+    FloatToSBV{}      -> FloatingPointTheory
+    FloatToReal{}     -> FloatingPointTheory
 
     --------------------------------
     -- Conversions.

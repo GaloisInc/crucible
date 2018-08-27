@@ -66,7 +66,7 @@ import qualified Verifier.SAW.Recognizer as SAW
 sawServerOptions :: [ConfigDesc]
 sawServerOptions = SAW.sawOptions
 
-sawServerOverrides :: [Simulator p (SAW.SAWCoreBackend n) -> IO SomeHandle]
+sawServerOverrides :: [Simulator p (SAWBack n) -> IO SomeHandle]
 sawServerOverrides = []
 
 data SAWCrucibleServerPersonality =
@@ -78,7 +78,7 @@ sawServerCryptolEnv :: Simple Lens SAWCrucibleServerPersonality CryptolEnv
 sawServerCryptolEnv = lens _sawServerCryptolEnv (\s v -> s{ _sawServerCryptolEnv = v })
 
 initSAWServerPersonality ::
-  SAW.SAWCoreBackend n ->
+  SAWBack n ->
   IO SAWCrucibleServerPersonality
 initSAWServerPersonality sym =
   do sc <- SAW.sawBackendSharedContext sym
@@ -87,7 +87,7 @@ initSAWServerPersonality sym =
             { _sawServerCryptolEnv = cryEnv
             }
 
-sawBackendRequests :: BackendSpecificRequests SAWCrucibleServerPersonality (SAW.SAWCoreBackend n)
+sawBackendRequests :: BackendSpecificRequests SAWCrucibleServerPersonality (SAWBack n)
 sawBackendRequests =
   BackendSpecificRequests
   { fulfillExportModelRequest = sawFulfillExportModelRequest
@@ -99,7 +99,7 @@ sawBackendRequests =
 
 sawFulfillCompileVerificationOverrideRequest
    :: forall n
-    . Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n)
+    . Simulator SAWCrucibleServerPersonality (SAWBack n)
    -> P.VerificationHarness
    -> IO ()
 sawFulfillCompileVerificationOverrideRequest sim harness =
@@ -131,7 +131,7 @@ sawFulfillCompileVerificationOverrideRequest sim harness =
 
 
 sawFulfillSimulateVerificationHarnessRequest ::
-  Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
+  Simulator SAWCrucibleServerPersonality (SAWBack n) ->
   P.VerificationHarness ->
   P.VerificationSimulateOptions ->
   IO ()
@@ -183,8 +183,8 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
          _ -> fail ("Improper register file width given for verification harness: " ++ show regFileWidth)
 
 handleProofObligations ::
-  Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
-  SAW.SAWCoreBackend n ->
+  Simulator SAWCrucibleServerPersonality (SAWBack n) ->
+  SAWBack n ->
   P.VerificationSimulateOptions ->
   IO ()
 handleProofObligations sim sym opts =
@@ -198,18 +198,18 @@ handleProofObligations sim sym opts =
      sendAckResponse sim
 
 handleSeparateProofObligations ::
-  Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
-  SAW.SAWCoreBackend n ->
+  Simulator SAWCrucibleServerPersonality (SAWBack n) ->
+  SAWBack n ->
   FilePath ->
-  ProofObligations (SAW.SAWCoreBackend n) ->
+  ProofObligations (SAWBack n) ->
   IO ()
 handleSeparateProofObligations sim sym dir obls = fail "FIXME separate proof obligations!"
 
 handleSingleProofObligation ::
-  Simulator SAWCrucibleServerPersonality (SAW.SAWCoreBackend n) ->
-  SAW.SAWCoreBackend n ->
+  Simulator SAWCrucibleServerPersonality (SAWBack n) ->
+  SAWBack n ->
   FilePath ->
-  ProofObligations (SAW.SAWCoreBackend n) ->
+  ProofObligations (SAWBack n) ->
   IO ()
 handleSingleProofObligation _sim sym dir obls =
   do createDirectoryIfMissing True {- create parents -} dir
@@ -225,16 +225,16 @@ handleSingleProofObligation _sim sym dir obls =
      writeFile fname (SAW.scWriteExternal finalPred)
 
 sequentToSC ::
-  SAW.SAWCoreBackend n ->
-  ProofObligation (SAW.SAWCoreBackend n) ->
-  IO (Pred (SAW.SAWCoreBackend n))
+  SAWBack n ->
+  ProofObligation (SAWBack n) ->
+  IO (Pred (SAWBack n))
 sequentToSC sym (ProofGoal assumes goal) =
   do assume <- andAllOf sym (folded.labeledPred) assumes
      impliesPred sym assume (goal^.labeledPred)
 
 sawFulfillExportModelRequest
    :: forall p n
-    . Simulator p (SAW.SAWCoreBackend n)
+    . Simulator p (SAWBack n)
    -> P.ExportFormat
    -> Text.Text
    -> Seq.Seq P.Value
@@ -243,7 +243,7 @@ sawFulfillExportModelRequest sim P.ExportSAW path vals = do
   sym <- getInterface sim
   st <- readIORef $ SB.sbStateManager sym
 
-  let f :: Some (RegEntry (SAW.SAWCoreBackend n))
+  let f :: Some (RegEntry (SAWBack n))
         -> IO (Maybe (SAW.Term, SAW.Term))
       f (Some (RegEntry (VectorRepr tp) v)) = do
            (v' :: [Maybe (SAW.Term, SAW.Term)])
@@ -278,7 +278,7 @@ sawFulfillExportModelRequest _sim P.ExportAIGER _path _vals = do
   fail "SAW backend does not implement AIGER export"
 
 
-sawTypeFromTypeVar :: SAW.SAWCoreBackend n
+sawTypeFromTypeVar :: SAWBack n
                    -> SAW.SharedContext
                    -> [Int]
                    -> BaseTypeRepr tp
@@ -295,7 +295,7 @@ symbolicOverride :: forall p n tp
                  -> [Int]
                  -> SAW.Term
                  -> TypeRepr tp
-                 -> Override p (SAW.SAWCoreBackend n) () EmptyCtx tp
+                 -> Override p (SAWBack n) () EmptyCtx tp
 symbolicOverride sc dims0 sawTp0 tpr0 = do
   mkOverride' "symbolic" tpr0 $ do
     sym <- getSymInterface
@@ -304,11 +304,11 @@ symbolicOverride sc dims0 sawTp0 tpr0 = do
     liftIO $ buildVecs dims0 sym sawTp0 tpr0 t
 
  where buildVecs :: [Int]
-                 -> SAW.SAWCoreBackend n
+                 -> SAWBack n
                  -> SAW.Term
                  -> TypeRepr tp'
                  -> SAW.Term
-                 -> IO (RegValue (SAW.SAWCoreBackend n) tp')
+                 -> IO (RegValue (SAWBack n) tp')
 
        buildVecs [] sym _ tpr t =
          case asBaseType tpr of
@@ -327,7 +327,7 @@ symbolicOverride sc dims0 sawTp0 tpr0 = do
        buildVecs _ _ _ tpr _ = do
           fail $ "Unsupported SAW variable type: " ++ show tpr
 
-sawFulfillSymbolHandleRequest :: Simulator p (SAW.SAWCoreBackend n) -> P.VarType -> IO ()
+sawFulfillSymbolHandleRequest :: Simulator p (SAWBack n) -> P.VarType -> IO ()
 sawFulfillSymbolHandleRequest sim proto_tp = do
   let dims = proto_tp^.P.varType_dimensions
   let dims' = map fromIntegral $ toList dims

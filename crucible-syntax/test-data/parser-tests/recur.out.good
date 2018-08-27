@@ -1,0 +1,39 @@
+(defun @fact ((n Integer)) Integer
+   (start at-the-beginning:
+      (let donep (< n 1))
+      (branch donep recur: done:))
+   (defblock recur:
+      (let next (funcall @fact (- n 1)))
+      (let val (the Integer (* next n)))
+      (return val))
+   (defblock done: (let init (the Integer 1)) (return init)))
+
+fact
+%0
+  % 3:16
+  $1 = intLit(1)
+  % 3:16
+  $2 = intLt($0, $1)
+  % 4:5
+  br $2 %1($0) %2()
+  % no postdom
+%1
+  % 6:15
+  $1 = handleLit(fact)
+  % 6:15
+  $2 = intLit(1)
+  % 6:15
+  $3 = intSub($0, $2)
+  % 6:15
+  $4 = call $1($3);
+  % 7:14
+  $5 = intMul($4, $0)
+  % 8:5
+  return $5
+  % no postdom
+%2
+  % 10:15
+  $0 = intLit(1)
+  % 11:5
+  return $0
+  % no postdom

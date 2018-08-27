@@ -37,16 +37,21 @@ module Lang.Crucible.CFG.Expr
   , mapApp
   , foldApp
   , traverseApp
-  , pattern BVEq
+  , pattern BoolEq
   , pattern NatEq
   , pattern IntEq
   , pattern RealEq
+  , pattern BVEq
+
   , pattern BoolIte
+  , pattern NatIte
+  , pattern IntIte
   , pattern RealIte
   , pattern BVIte
     -- * Base terms
   , BaseTerm(..)
   , module Lang.Crucible.CFG.Extension
+  , RoundingMode(..)
   ) where
 
 import           Control.Monad.Identity
@@ -61,6 +66,8 @@ import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableFC
+
+import           What4.Interface (RoundingMode(..))
 
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Types
@@ -107,9 +114,9 @@ instance TraversableFC BaseTerm where
 ------------------------------------------------------------------------
 -- App
 
--- | Equality on bitvectors
-pattern BVEq :: () => (1 <= w, tp ~ BoolType) => NatRepr w -> f (BVType w) -> f (BVType w) -> App ext f tp
-pattern BVEq w x y = BaseIsEq (BaseBVRepr w) x y
+-- | Equality on booleans
+pattern BoolEq :: () => (tp ~ BoolType) => f BoolType -> f BoolType -> App ext f tp
+pattern BoolEq x y = BaseIsEq BaseBoolRepr x y
 
 -- | Equality on natural numbers.
 pattern NatEq :: () => (tp ~ BoolType) => f NatType -> f NatType -> App ext f tp
@@ -123,9 +130,22 @@ pattern IntEq x y = BaseIsEq BaseIntegerRepr x y
 pattern RealEq :: () => (tp ~ BoolType) => f RealValType -> f RealValType -> App ext f tp
 pattern RealEq x y = BaseIsEq BaseRealRepr x y
 
+-- | Equality on bitvectors
+pattern BVEq :: () => (1 <= w, tp ~ BoolType) => NatRepr w -> f (BVType w) -> f (BVType w) -> App ext f tp
+pattern BVEq w x y = BaseIsEq (BaseBVRepr w) x y
+
+
 -- | Return first or second value depending on condition.
 pattern BoolIte :: () => (tp ~ BoolType) => f BoolType -> f tp -> f tp -> App ext f tp
 pattern BoolIte c x y = BaseIte BaseBoolRepr c x y
+
+-- | Return first or second value depending on condition.
+pattern NatIte :: () => (tp ~ NatType) => f BoolType -> f tp -> f tp -> App ext f tp
+pattern NatIte c x y = BaseIte BaseNatRepr c x y
+
+-- | Return first or second value depending on condition.
+pattern IntIte :: () => (tp ~ IntegerType) => f BoolType -> f tp -> f tp -> App ext f tp
+pattern IntIte c x y = BaseIte BaseIntegerRepr c x y
 
 -- | Return first or second number depending on condition.
 pattern RealIte :: () => (tp ~ RealValType) => f BoolType -> f tp -> f tp -> App ext f tp
@@ -222,20 +242,34 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   NatSub :: !(f NatType) -> !(f NatType) -> App ext f NatType
   -- Multiply two natural numbers.
   NatMul :: !(f NatType) -> !(f NatType) -> App ext f NatType
+  -- Divide two natural numbers.  Undefined if the divisor is 0.
+  NatDiv :: !(f NatType) -> !(f NatType) -> App ext f NatType
+  -- Modular reduction on natural numbers. Undefined if the modulus is 0.
+  NatMod :: !(f NatType) -> !(f NatType) -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- Integer
 
   -- Create a singleton real array from a numeric literal.
   IntLit :: !Integer -> App ext f IntegerType
+  -- Less-than test on integers
+  IntLt :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
+  -- Less-than-or-equal test on integers
+  IntLe :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
+  -- Negation of an integer value
+  IntNeg :: !(f IntegerType) -> App ext f IntegerType
   -- Add two integers.
   IntAdd :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
   -- Subtract one integer from another.
   IntSub :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
-  -- Multiple two integers.
+  -- Multiply two integers.
   IntMul :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
-
-  IntLt :: !(f IntegerType) -> !(f IntegerType) -> App ext f BoolType
+  -- Divide two integers.  Undefined if the divisor is 0.
+  IntDiv :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
+  -- Modular reduction on integers.  Undefined if the modulus is 0.
+  IntMod :: !(f IntegerType) -> !(f IntegerType) -> App ext f IntegerType
+  -- Integer absolute value
+  IntAbs :: !(f IntegerType) -> App ext f IntegerType
 
   ----------------------------------------------------------------------
   -- RealVal
@@ -243,6 +277,10 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- A real constant
   RationalLit :: !Rational -> App ext f RealValType
 
+  RealLt :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
+  RealLe :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
+  -- Negate a real number
+  RealNeg :: !(f RealValType) -> App ext f RealValType
   -- Add two natural numbers.
   RealAdd :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
   -- Subtract one number from another.
@@ -255,7 +293,6 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- @y@ is not zero and @x@ when @y@ is zero.
   RealMod :: !(f RealValType) -> !(f RealValType) -> App ext f RealValType
 
-  RealLt :: !(f RealValType) -> !(f RealValType) -> App ext f BoolType
   -- Return true if real value is integer.
   RealIsInteger :: !(f RealValType) -> App ext f BoolType
 
@@ -265,33 +302,120 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   -- Floating point constants
   FloatLit :: !Float -> App ext f (FloatType SingleFloat)
   DoubleLit :: !Double -> App ext f (FloatType DoubleFloat)
-  FloatNaN :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
-  FloatPInf :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
-  FloatNInf :: (FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatNaN :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatPInf :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatNInf :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatPZero :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
+  FloatNZero :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
 
   -- Arithmetic operations
-  FloatAdd :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
-  FloatSub :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
-  FloatMul :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
-  FloatDiv :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatNeg
+    :: !(FloatInfoRepr fi)
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+  FloatAbs
+    :: !(FloatInfoRepr fi)
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+  FloatSqrt
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+
+  FloatAdd
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+  FloatSub
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+  FloatMul
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+  FloatDiv
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
   -- Foating-point remainder of the two operands
-  FloatRem :: (FloatInfoRepr fi) -> !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f (FloatType fi)
+  FloatRem
+    :: !(FloatInfoRepr fi)
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+  FloatMin
+    :: !(FloatInfoRepr fi)
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+  FloatMax
+    :: !(FloatInfoRepr fi)
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
+  FloatFMA
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
 
   -- Comparison operations
   FloatEq :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatFpEq :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatGt :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatGe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatLt :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatLe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
   FloatNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
+  FloatFpNe :: !(f (FloatType fi)) -> !(f (FloatType fi)) -> App ext f BoolType
 
   -- Conversion operations
-  FloatCast :: (FloatInfoRepr fi) -> !(f (FloatType fi')) -> App ext f (FloatType fi)
-  FloatFromBV :: (1 <= w) => (FloatInfoRepr fi) -> !(f (BVType w)) -> App ext f (FloatType fi)
-  FloatFromSBV :: (1 <= w) => (FloatInfoRepr fi) -> !(f (BVType w)) -> App ext f (FloatType fi)
-  FloatFromReal :: (FloatInfoRepr fi) -> !(f RealValType) -> App ext f (FloatType fi)
-  FloatToBV :: (1 <= w) => !(NatRepr w) -> !(f (FloatType fi)) -> App ext f (BVType w)
-  FloatToSBV :: (1 <= w) => !(NatRepr w) -> !(f (FloatType fi)) -> App ext f (BVType w)
+  FloatCast
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (FloatType fi'))
+    -> App ext f (FloatType fi)
+  FloatFromBV
+    :: (1 <= w)
+    => !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (BVType w))
+    -> App ext f (FloatType fi)
+  FloatFromSBV
+    :: (1 <= w)
+    => !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (BVType w))
+    -> App ext f (FloatType fi)
+  FloatFromReal
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f RealValType)
+    -> App ext f (FloatType fi)
+  FloatToBV
+    :: (1 <= w)
+    => !(NatRepr w)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> App ext f (BVType w)
+  FloatToSBV
+    :: (1 <= w)
+    => !(NatRepr w)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> App ext f (BVType w)
   FloatToReal :: !(f (FloatType fi)) -> App ext f RealValType
 
   -- Classification operations
@@ -300,6 +424,8 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   FloatIsZero :: !(f (FloatType fi)) -> App ext f BoolType
   FloatIsPositive :: !(f (FloatType fi)) -> App ext f BoolType
   FloatIsNegative :: !(f (FloatType fi)) -> App ext f BoolType
+  FloatIsSubnormal :: !(f (FloatType fi)) -> App ext f BoolType
+  FloatIsNormal :: !(f (FloatType fi)) -> App ext f BoolType
 
   ----------------------------------------------------------------------
   -- Maybe
@@ -498,6 +624,11 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
   BVXor :: (1 <= w)
         => !(NatRepr w)
         -> !(f (BVType w))
+        -> !(f (BVType w))
+        -> App ext f (BVType w)
+
+  BVNeg :: (1 <= w)
+        => !(NatRepr w)
         -> !(f (BVType w))
         -> App ext f (BVType w)
 
@@ -741,7 +872,7 @@ data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
                -> App ext f StringType
 
 
-----------------------------------------------------------------------
+  ----------------------------------------------------------------------
   -- Arrays (supporting symbolic operations)
 
   SymArrayLookup   :: !(BaseTypeRepr b)
@@ -809,13 +940,21 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     NatAdd{} -> knownRepr
     NatSub{} -> knownRepr
     NatMul{} -> knownRepr
+    NatDiv{} -> knownRepr
+    NatMod{} -> knownRepr
+
     ----------------------------------------------------------------------
     -- Integer
     IntLit{} -> knownRepr
+    IntLt{} -> knownRepr
+    IntLe{} -> knownRepr
+    IntNeg{} -> knownRepr
     IntAdd{} -> knownRepr
     IntSub{} -> knownRepr
     IntMul{} -> knownRepr
-    IntLt{} -> knownRepr
+    IntDiv{} -> knownRepr
+    IntMod{} -> knownRepr
+    IntAbs{} -> knownRepr
 
     ----------------------------------------------------------------------
     -- RealVal
@@ -825,6 +964,8 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     RealMul{} -> knownRepr
     RealDiv{} -> knownRepr
     RealMod{} -> knownRepr
+    RealNeg{} -> knownRepr
+    RealLe{} -> knownRepr
     RealLt{} -> knownRepr
     RealIsInteger{} -> knownRepr
 
@@ -835,29 +976,41 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     FloatNaN fi -> FloatRepr fi
     FloatPInf fi -> FloatRepr fi
     FloatNInf fi -> FloatRepr fi
-    FloatAdd fi _ _ -> FloatRepr fi
-    FloatSub fi _ _ -> FloatRepr fi
-    FloatMul fi _ _ -> FloatRepr fi
-    FloatDiv fi _ _ -> FloatRepr fi
+    FloatPZero fi -> FloatRepr fi
+    FloatNZero fi -> FloatRepr fi
+    FloatNeg fi _ -> FloatRepr fi
+    FloatAbs fi _ -> FloatRepr fi
+    FloatSqrt fi _ _ -> FloatRepr fi
+    FloatAdd fi _ _ _ -> FloatRepr fi
+    FloatSub fi _ _ _ -> FloatRepr fi
+    FloatMul fi _ _ _ -> FloatRepr fi
+    FloatDiv fi _ _ _ -> FloatRepr fi
     FloatRem fi _ _ -> FloatRepr fi
+    FloatMin fi _ _ -> FloatRepr fi
+    FloatMax fi _ _ -> FloatRepr fi
+    FloatFMA fi _ _ _ _ -> FloatRepr fi
     FloatEq{} -> knownRepr
+    FloatFpEq{} -> knownRepr
     FloatLt{} -> knownRepr
     FloatLe{} -> knownRepr
     FloatGt{} -> knownRepr
     FloatGe{} -> knownRepr
     FloatNe{} -> knownRepr
-    FloatCast fi _ -> FloatRepr fi
-    FloatFromBV fi _ -> FloatRepr fi
-    FloatFromSBV fi _ -> FloatRepr fi
-    FloatFromReal fi _ -> FloatRepr fi
-    FloatToBV w _ -> BVRepr w
-    FloatToSBV w _ -> BVRepr w
+    FloatFpNe{} -> knownRepr
+    FloatCast fi _ _ -> FloatRepr fi
+    FloatFromBV fi _ _ -> FloatRepr fi
+    FloatFromSBV fi _ _ -> FloatRepr fi
+    FloatFromReal fi _ _ -> FloatRepr fi
+    FloatToBV w _ _ -> BVRepr w
+    FloatToSBV w _ _ -> BVRepr w
     FloatToReal{} -> knownRepr
     FloatIsNaN{} -> knownRepr
     FloatIsInfinite{} -> knownRepr
     FloatIsZero{} -> knownRepr
     FloatIsPositive{} -> knownRepr
     FloatIsNegative{} -> knownRepr
+    FloatIsSubnormal{} -> knownRepr
+    FloatIsNormal{} -> knownRepr
 
     ----------------------------------------------------------------------
     -- Maybe
@@ -935,6 +1088,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     BVAnd w _ _ -> BVRepr w
     BVOr  w _ _ -> BVRepr w
     BVXor  w _ _ -> BVRepr w
+    BVNeg w _ -> BVRepr w
     BVAdd w _ _ -> BVRepr w
     BVSub w _ _ -> BVRepr w
     BVMul w _ _ -> BVRepr w

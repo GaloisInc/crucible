@@ -100,14 +100,14 @@ z3Features = useNonlinearArithmetic
          .|. useStructs
 
 writeZ3SMT2File
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> Handle
    -> BoolExpr t
    -> IO ()
 writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 "Z3" z3Features
 
 runZ3InOverride
-   :: ExprBuilder t st
+   :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
    -> BoolExpr t
    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
@@ -122,7 +122,7 @@ runZ3InOverride sym logLn p cont = do
 
 -- | Run Z3 in a session.  Z3 will be configured to produce models, buth
 -- otherwise left with the default configuration.
-withZ3 :: ExprBuilder t st
+withZ3 :: ExprBuilder t st fs
        -> FilePath
           -- ^ Path to Z3
        -> (String -> IO ())
@@ -165,7 +165,7 @@ instance OnlineSolver t (SMT2.Writer Z3) where
   startSolverProcess = z3StartSolver
   shutdownSolverProcess = z3ShutdownSolver
 
-z3StartSolver :: ExprBuilder t st -> IO (SolverProcess t (SMT2.Writer Z3))
+z3StartSolver :: ExprBuilder t st fs -> IO (SolverProcess t (SMT2.Writer Z3))
 z3StartSolver sym =
   do let cfg = getConfiguration sym
      z3_path <- findSolverPath z3Path cfg

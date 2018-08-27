@@ -23,6 +23,7 @@ library
     bimap >= 0.2,
     bytestring,
     containers >= 0.5.0.0,
+    data-binary-ieee754,
     deepseq,
     directory,
     filepath,
@@ -55,6 +56,7 @@ library
     What4.Config
     What4.FunctionName
     What4.Interface
+    What4.InterpretedFloatingPoint
     What4.Partial
     What4.ProblemFeatures
     What4.ProgramLoc
@@ -107,3 +109,21 @@ library
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
+
+test-suite expr-builder-smtlib2
+  type: exitcode-stdio-1.0
+  default-language: Haskell2010
+
+  hs-source-dirs: test
+  main-is: ExprBuilderSMTLib2.hs
+
+  build-depends:
+    base,
+    data-binary-ieee754,
+    parameterized-utils,
+    tasty >= 0.10,
+    tasty-hunit >= 0.9,
+    text,
+    what4
+
+  ghc-options: -Wall

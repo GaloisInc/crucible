@@ -37,7 +37,7 @@ library
     hashtables,
     lens,
     mtl,
-    parameterized-utils >= 1.0 && < 1.1,
+    parameterized-utils >= 1.0.3 && < 1.1,
     process,
     template-haskell,
     text,
@@ -97,6 +97,7 @@ library
     Lang.Crucible.Utils.MonadVerbosity
     Lang.Crucible.Utils.MuxTree
     Lang.Crucible.Utils.PrettyPrint
+    Lang.Crucible.Utils.RegRewrite
     Lang.Crucible.Utils.StateContT
     Lang.Crucible.Utils.Structural
 

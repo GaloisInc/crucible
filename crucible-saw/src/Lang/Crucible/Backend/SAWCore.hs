@@ -10,6 +10,7 @@
 -- This module provides a Crucible backend that produces SAWCore terms.
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE GADTs #-}
@@ -87,7 +88,7 @@ sawOptions =
     "Check the satisfiability of path conditions on branches"
   ]
 
-getAssumptionStack :: SAWCoreBackend n -> IO (AssumptionStack (B.BoolExpr n) AssumptionReason SimError)
+getAssumptionStack :: SAWCoreBackend n fs -> IO (AssumptionStack (B.BoolExpr n) AssumptionReason SimError)
 getAssumptionStack sym = saw_assumptions <$> readIORef (B.sbStateManager sym)
 
 data SAWExpr (bt :: BaseType) where
@@ -100,7 +101,7 @@ data SAWExpr (bt :: BaseType) where
   -- implicit nat-to-integer conversion.
   NatToIntSAWExpr :: !(SAWExpr BaseNatType) -> SAWExpr BaseIntegerType
 
-type SAWCoreBackend n = B.ExprBuilder n SAWCoreState
+type SAWCoreBackend n fs = B.ExprBuilder n SAWCoreState fs
 
 
 -- | Run the given IO action with the given SAW backend.
@@ -110,7 +111,7 @@ type SAWCoreBackend n = B.ExprBuilder n SAWCoreState
 --   assertions and proof obligations start empty while
 --   running the action.  After the action completes, the
 --   state of these fields is restored.
-inFreshNamingContext :: SAWCoreBackend n -> IO a -> IO a
+inFreshNamingContext :: SAWCoreBackend n fs -> IO a -> IO a
 inFreshNamingContext sym f =
   do old <- readIORef (B.sbStateManager sym)
      bracket (mkNew (B.exprCounter sym) old) (restore old) action
@@ -137,15 +138,16 @@ inFreshNamingContext sym f =
                 }
       return new
 
-getInputs :: SAWCoreBackend n -> IO (Seq (SC.ExtCns SC.Term))
+getInputs :: SAWCoreBackend n fs -> IO (Seq (SC.ExtCns SC.Term))
 getInputs sym =
   do st <- readIORef (B.sbStateManager sym)
      readIORef (saw_inputs st)
 
-baseSCType :: SAWCoreBackend n ->
-              SC.SharedContext ->
-              BaseTypeRepr tp ->
-              IO SC.Term
+baseSCType ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  BaseTypeRepr tp ->
+  IO SC.Term
 baseSCType sym ctx bt =
   case bt of
     BaseBoolRepr -> SC.scBoolType ctx
@@ -159,6 +161,8 @@ baseSCType sym ctx bt =
             unsupported sym "SAW backend only supports single element arrays."
           join $ SC.scFun ctx <$> baseSCType sym ctx dom
                               <*> baseSCType sym ctx range
+    BaseFloatRepr _ ->
+      unsupported sym "SAW backend does not support IEEE-754 floating point values: baseSCType"
     BaseStringRepr   ->
       unsupported sym "SAW backend does not support string values: baseSCType"
     BaseComplexRepr  ->
@@ -169,7 +173,7 @@ baseSCType sym ctx bt =
       unsupported sym "FIXME baseSCType for structures"
 
 -- | Create a new symbolic variable.
-sawCreateVar :: SAWCoreBackend n
+sawCreateVar :: SAWCoreBackend n fs
              -> String                                       -- ^ the name of the variable
              -> SC.Term
              -> IO SC.Term
@@ -182,7 +186,7 @@ sawCreateVar sym nm tp = do
   modifyIORef (saw_inputs st) (\xs -> xs Seq.|> ec)
   return t
 
-bindSAWTerm :: SAWCoreBackend n
+bindSAWTerm :: SAWCoreBackend n fs
             -> BaseTypeRepr bt
             -> SC.Term
             -> IO (B.Expr n bt)
@@ -197,7 +201,7 @@ newSAWCoreBackend ::
   AIG.Proxy l g ->
   SC.SharedContext ->
   NonceGenerator IO s ->
-  IO (SAWCoreBackend s)
+  IO (SAWCoreBackend s fs)
 newSAWCoreBackend proxy sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- B.newIdxCache
@@ -219,7 +223,7 @@ newSAWCoreBackend proxy sc gen = do
 -- This is not used during simulation, but rather, when we translate
 -- crucible values back into SAW.
 sawRegisterSymFunInterp ::
-  SAWCoreBackend n ->
+  SAWCoreBackend n fs ->
   B.ExprSymFn n args ret ->
   (SC.SharedContext -> [SC.Term] -> IO SC.Term) ->
   IO ()
@@ -228,22 +232,23 @@ sawRegisterSymFunInterp sym f i =
       s { saw_symMap = Map.insert (indexValue (B.symFnId f)) i (saw_symMap s) }
 
 
-sawBackendSharedContext :: SAWCoreBackend n -> IO SC.SharedContext
+sawBackendSharedContext :: SAWCoreBackend n fs -> IO SC.SharedContext
 sawBackendSharedContext sym =
   saw_ctx <$> readIORef (B.sbStateManager sym)
 
 
-toSC :: SAWCoreBackend n -> B.Expr n tp -> IO SC.Term
-toSC sym elt = do
-     st <- readIORef $ B.sbStateManager sym
+toSC :: SAWCoreBackend n fs -> B.Expr n tp -> IO SC.Term
+toSC sym elt =
+  do st <- readIORef $ B.sbStateManager sym
      evaluateExpr sym (saw_ctx st) (saw_elt_cache st) elt
 
 
 -- | Return a shared term with type nat from a SAWExpr.
-scAsIntExpr :: SAWCoreBackend n ->
-               SC.SharedContext ->
-               SAWExpr BaseRealType ->
-               IO SC.Term
+scAsIntExpr ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  SAWExpr BaseRealType ->
+  IO SC.Term
 scAsIntExpr _ sc (IntToRealSAWExpr (NatToIntSAWExpr (SAWExpr t))) = SC.scNatToInt sc t
 scAsIntExpr _ _ (IntToRealSAWExpr (SAWExpr t)) = return t
 scAsIntExpr sym _ SAWExpr{} = unsupported sym
@@ -252,10 +257,11 @@ scAsIntExpr sym _ SAWExpr{} = unsupported sym
 -- | Create a Real SAWELT value from a Rational.
 --
 -- This fails on non-integer expressions.
-scRealLit :: SAWCoreBackend n ->
-             SC.SharedContext ->
-             Rational ->
-             IO (SAWExpr BaseRealType)
+scRealLit ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  Rational ->
+  IO (SAWExpr BaseRealType)
 scRealLit sym sc r
   | denominator r /= 1 =
     unsupported sym "SAW backend does not support real values"
@@ -278,8 +284,8 @@ scNatLit sc n = SAWExpr <$> SC.scNat sc (fromIntegral n)
 
 
 scRealCmpop ::
-   (SC.SharedContext -> SAWExpr BaseIntegerType -> SAWExpr BaseIntegerType -> IO (SAWExpr BaseBoolType)) ->
-  SAWCoreBackend n ->
+  (SC.SharedContext -> SAWExpr BaseIntegerType -> SAWExpr BaseIntegerType -> IO (SAWExpr BaseBoolType)) ->
+  SAWCoreBackend n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
@@ -291,7 +297,7 @@ scRealCmpop _ sym _ _ _ =
 
 scRealBinop ::
   (SC.SharedContext -> SAWExpr BaseIntegerType -> SAWExpr BaseIntegerType -> IO (SAWExpr BaseIntegerType)) ->
-  SAWCoreBackend n ->
+  SAWCoreBackend n fs ->
   SC.SharedContext ->
   SAWExpr BaseRealType ->
   SAWExpr BaseRealType ->
@@ -302,12 +308,14 @@ scRealBinop _ sym _ _ _ =
   unsupported sym "SAW backend does not support real values"
 
 
-scIntBinop :: (SC.SharedContext -> SAWExpr BaseNatType -> SAWExpr BaseNatType -> IO (SAWExpr BaseNatType)) -- ^ operation on naturals
-           -> (SC.SharedContext -> SC.Term -> SC.Term -> IO SC.Term) -- ^ operation on integers
-           -> SC.SharedContext
-           -> SAWExpr BaseIntegerType
-           -> SAWExpr BaseIntegerType
-           -> IO (SAWExpr BaseIntegerType)
+scIntBinop ::
+  (SC.SharedContext -> SAWExpr BaseNatType -> SAWExpr BaseNatType -> IO (SAWExpr BaseNatType))
+    {- ^ operation on naturals -} ->
+  (SC.SharedContext -> SC.Term -> SC.Term -> IO SC.Term) {- ^ operation on integers -} ->
+  SC.SharedContext ->
+  SAWExpr BaseIntegerType ->
+  SAWExpr BaseIntegerType ->
+  IO (SAWExpr BaseIntegerType)
 scIntBinop natOp _intOp sc (NatToIntSAWExpr x) (NatToIntSAWExpr y) =
   NatToIntSAWExpr <$> natOp sc x y
 scIntBinop _natOp intOp sc (NatToIntSAWExpr (SAWExpr x)) (SAWExpr y) =
@@ -317,12 +325,14 @@ scIntBinop _natOp intOp sc (SAWExpr x) (NatToIntSAWExpr (SAWExpr y)) =
 scIntBinop _natOp intOp sc (SAWExpr x) (SAWExpr y) =
   SAWExpr <$> intOp sc x y
 
-scIntCmpop :: (SC.SharedContext -> SAWExpr BaseNatType -> SAWExpr BaseNatType -> IO (SAWExpr BaseBoolType)) -- ^ operation on naturals
-           -> (SC.SharedContext -> SC.Term -> SC.Term -> IO SC.Term) -- ^ operation on integers
-           -> SC.SharedContext
-           -> SAWExpr BaseIntegerType
-           -> SAWExpr BaseIntegerType
-           -> IO (SAWExpr BaseBoolType)
+scIntCmpop ::
+  (SC.SharedContext -> SAWExpr BaseNatType -> SAWExpr BaseNatType -> IO (SAWExpr BaseBoolType))
+    {- ^ operation on naturals -} ->
+  (SC.SharedContext -> SC.Term -> SC.Term -> IO SC.Term) {- ^ operation on integers -} ->
+  SC.SharedContext ->
+  SAWExpr BaseIntegerType ->
+  SAWExpr BaseIntegerType ->
+  IO (SAWExpr BaseBoolType)
 scIntCmpop natOp _intOp sc (NatToIntSAWExpr x) (NatToIntSAWExpr y) =
   natOp sc x y
 scIntCmpop _natOp intOp sc (NatToIntSAWExpr (SAWExpr x)) (SAWExpr y) =
@@ -332,11 +342,12 @@ scIntCmpop _natOp intOp sc (SAWExpr x) (NatToIntSAWExpr (SAWExpr y)) =
 scIntCmpop _natOp intOp sc (SAWExpr x) (SAWExpr y) =
   SAWExpr <$> intOp sc x y
 
-scAddReal :: SAWCoreBackend n
-          -> SC.SharedContext
-          -> SAWExpr BaseRealType
-          -> SAWExpr BaseRealType
-          -> IO (SAWExpr BaseRealType)
+scAddReal ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  SAWExpr BaseRealType ->
+  SAWExpr BaseRealType ->
+  IO (SAWExpr BaseRealType)
 scAddReal = scRealBinop scAddInt
 
 scAddInt :: SC.SharedContext
@@ -352,11 +363,12 @@ scAddNat :: SC.SharedContext
 scAddNat sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scAddNat sc x y
 
 
-scMulReal :: SAWCoreBackend n
-             -> SC.SharedContext
-             -> SAWExpr BaseRealType
-             -> SAWExpr BaseRealType
-             -> IO (SAWExpr BaseRealType)
+scMulReal ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  SAWExpr BaseRealType ->
+  SAWExpr BaseRealType ->
+  IO (SAWExpr BaseRealType)
 scMulReal = scRealBinop scMulInt
 
 scMulInt :: SC.SharedContext
@@ -371,12 +383,13 @@ scMulNat :: SC.SharedContext
             -> IO (SAWExpr BaseNatType)
 scMulNat sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scMulNat sc x y
 
-scIteReal :: SAWCoreBackend n
-             -> SC.SharedContext
-             -> SC.Term
-             -> SAWExpr BaseRealType
-             -> SAWExpr BaseRealType
-             -> IO (SAWExpr BaseRealType)
+scIteReal ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  SC.Term ->
+  SAWExpr BaseRealType ->
+  SAWExpr BaseRealType ->
+  IO (SAWExpr BaseRealType)
 scIteReal sym sc p = scRealBinop (\sc' -> scIteInt sc' p) sym sc
 
 scIteInt :: SC.SharedContext
@@ -398,11 +411,12 @@ scIteNat sc p (SAWExpr x) (SAWExpr y) =
   SAWExpr <$> (SC.scNatType sc >>= \tp -> SC.scIte sc tp p x y)
 
 
-scRealEq :: SAWCoreBackend n
-         -> SC.SharedContext
-         -> SAWExpr BaseRealType
-         -> SAWExpr BaseRealType
-         -> IO (SAWExpr BaseBoolType)
+scRealEq ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  SAWExpr BaseRealType ->
+  SAWExpr BaseRealType ->
+  IO (SAWExpr BaseBoolType)
 scRealEq = scRealCmpop scIntEq
 
 scIntEq :: SC.SharedContext
@@ -418,11 +432,12 @@ scNatEq :: SC.SharedContext
 scNatEq sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scEqualNat sc x y
 
 
-scRealLe :: SAWCoreBackend n
-         -> SC.SharedContext
-         -> SAWExpr BaseRealType
-         -> SAWExpr BaseRealType
-         -> IO (SAWExpr BaseBoolType)
+scRealLe ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  SAWExpr BaseRealType ->
+  SAWExpr BaseRealType ->
+  IO (SAWExpr BaseBoolType)
 scRealLe = scRealCmpop scIntLe
 
 scIntLe :: SC.SharedContext
@@ -443,7 +458,7 @@ scNatLe sc (SAWExpr x) (SAWExpr y) =
 
 -- | Note: first element in the result is the right-most value in the assignment
 evaluateAsgn ::
-  SAWCoreBackend n ->
+  SAWCoreBackend n fs ->
   SC.SharedContext ->
   B.IdxCache n SAWExpr ->
   Ctx.Assignment (B.Expr n) args ->
@@ -462,15 +477,15 @@ obligation to ensure that we won't get there.
 These proof obligations are all tagged with "Unsupported", so that
 users of the library can choose if they will try to discharge them,
 fail in some other way, or just ignore them. -}
-unsupported :: SAWCoreBackend n -> String -> IO a
+unsupported :: SAWCoreBackend n fs -> String -> IO a
 unsupported sym x = addFailedAssertion sym (Unsupported x)
 
-evaluateExpr :: forall n tp
-             . SAWCoreBackend n
-            -> SC.SharedContext
-            -> B.IdxCache n SAWExpr
-            -> B.Expr n tp
-            -> IO SC.Term
+evaluateExpr :: forall n tp fs.
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  B.IdxCache n SAWExpr ->
+  B.Expr n tp ->
+  IO SC.Term
 evaluateExpr sym sc cache = f
  where
    -- Evaluate the element, and expect the result to have the same type.
@@ -490,6 +505,9 @@ evaluateExpr sym sc cache = f
 
    cplxFail :: IO a
    cplxFail = unsupported sym "SAW backend does not support complex values"
+
+   floatFail :: IO a
+   floatFail = unsupported sym "SAW backend does not support floating-point values"
 
    go :: B.Expr n tp' -> IO (SAWExpr tp')
    go (B.SemiRingLiteral sr x _) =
@@ -591,6 +609,9 @@ evaluateExpr sym sc cache = f
 
         B.RealIsInteger{} -> unsupported sym "SAW backend does not support real values"
 
+        B.PredToBV p ->
+          do bit <- SC.scBoolType sc
+             SAWExpr <$> (SC.scSingle sc bit =<< f p)
         B.BVTestBit i bv -> fmap SAWExpr $ do
              w <- SC.scNat sc (fromIntegral (natValue (bvWidth bv)))
              bit <- SC.scBoolType sc
@@ -753,6 +774,11 @@ evaluateExpr sym sc cache = f
              y' <- f y
              SAWExpr <$> SC.scDivNat sc x' y'
 
+        B.NatMod x y ->
+          do x' <- f x
+             y' <- f y
+             SAWExpr <$> SC.scModNat sc x' y'
+
         B.IntDiv x y ->
           do x' <- f x
              y' <- f y
@@ -763,7 +789,7 @@ evaluateExpr sym sc cache = f
              SAWExpr <$> SC.scIntMod sc x' y'
         B.IntAbs x ->
           eval x >>= \case
-            NatToIntSAWExpr (SAWExpr z) -> SAWExpr <$> SC.scNatToInt sc z
+            NatToIntSAWExpr z -> return (NatToIntSAWExpr z)
             SAWExpr z -> SAWExpr <$> (SC.scIntAbs sc z)
 
         B.IntDivisible x 0 ->
@@ -799,6 +825,48 @@ evaluateExpr sym sc cache = f
             IntToRealSAWExpr x' -> return x'
             _ -> realFail
 
+        ------------------------------------------------------------------------
+        -- Floating point operations
+
+        B.FloatPZero{} -> floatFail
+        B.FloatNZero{} -> floatFail
+        B.FloatNaN{}   -> floatFail
+        B.FloatPInf{}  -> floatFail
+        B.FloatNInf{}  -> floatFail
+        B.FloatNeg{}  -> floatFail
+        B.FloatAbs{}  -> floatFail
+        B.FloatSqrt{}  -> floatFail
+        B.FloatAdd{}  -> floatFail
+        B.FloatSub{}  -> floatFail
+        B.FloatMul{}  -> floatFail
+        B.FloatDiv{}  -> floatFail
+        B.FloatRem{}  -> floatFail
+        B.FloatMin{}  -> floatFail
+        B.FloatMax{}  -> floatFail
+        B.FloatFMA{}  -> floatFail
+        B.FloatEq{}  -> floatFail
+        B.FloatFpEq{}  -> floatFail
+        B.FloatFpNe{}  -> floatFail
+        B.FloatLe{}  -> floatFail
+        B.FloatLt{}  -> floatFail
+        B.FloatIsNaN{}  -> floatFail
+        B.FloatIsInf{}  -> floatFail
+        B.FloatIsZero{}  -> floatFail
+        B.FloatIsPos{}  -> floatFail
+        B.FloatIsNeg{}  -> floatFail
+        B.FloatIsSubnorm{}  -> floatFail
+        B.FloatIsNorm{}  -> floatFail
+        B.FloatIte{}  -> floatFail
+        B.FloatCast{}  -> floatFail
+        B.FloatFromBinary{}  -> floatFail
+        B.BVToFloat{}  -> floatFail
+        B.SBVToFloat{}  -> floatFail
+        B.RealToFloat{}  -> floatFail
+        B.FloatToBV{} -> floatFail
+        B.FloatToSBV{} -> floatFail
+        B.FloatToReal{} -> floatFail
+
+
         B.RoundReal{} -> realFail
         B.FloorReal{} -> realFail
         B.CeilReal{} -> realFail
@@ -821,9 +889,10 @@ evaluateExpr sym sc cache = f
         B.StructField{} -> nyi -- FIXME
         B.StructIte{} -> nyi -- FIXME
 
-checkSatisfiable :: SAWCoreBackend n
-                 -> (Pred (SAWCoreBackend n))
-                 -> IO (SatResult ())
+checkSatisfiable ::
+  SAWCoreBackend n fs ->
+  (Pred (SAWCoreBackend n fs)) ->
+  IO (SatResult ())
 checkSatisfiable sym p = do
   mgr <- readIORef (B.sbStateManager sym)
   let sc = saw_ctx mgr
@@ -841,7 +910,7 @@ checkSatisfiable sym p = do
           _ -> return (Sat ())
     _ -> return (Sat ())
 
-instance IsBoolSolver (SAWCoreBackend n) where
+instance IsBoolSolver (SAWCoreBackend n fs) where
   addProofObligation sym a = do
     case asConstantPred (a^.labeledPred) of
       Just True  -> return ()
@@ -860,6 +929,9 @@ instance IsBoolSolver (SAWCoreBackend n) where
     stk <- getAssumptionStack sym
     ps <- AS.collectAssumptions stk
     andAllOf sym (folded.labeledPred) ps
+
+  collectAssumptions sym =
+    AS.collectAssumptions =<< getAssumptionStack sym
 
   evalBranch sym p0 =
     case asConstantPred p0 of

@@ -39,7 +39,6 @@ module Lang.Crucible.Simulator.EvalStmt
   , stepBasicBlock
   ) where
 
-import           Control.Applicative (liftA2)
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
@@ -206,7 +205,7 @@ stepStmt verb stmt rest =
      let continueWith :: forall rtp' blocks' r' c f a.
            (SimState p sym ext rtp' f a -> SimState p sym ext rtp' (CrucibleLang blocks' r') ('Just c)) ->
            ExecCont p sym ext rtp' f a
-         continueWith f = withReaderT f (stepBasicBlock verb)
+         continueWith f = withReaderT f (checkConsTerm verb)
 
      case stmt of
        NewRefCell tpr x ->
@@ -323,29 +322,6 @@ stepStmt verb stmt rest =
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
 
 
----------------------------------------------------------------
--- TODO, this should probably be moved to parameterized-utils
-
-newtype Collector m w a = Collector { runCollector :: m w }
-
-instance Functor (Collector m w) where
-  fmap _ (Collector x) = Collector x
-
-instance (Applicative m, Monoid w) => Applicative (Collector m w) where
-  pure _ = Collector (pure mempty)
-  Collector x <*> Collector y = Collector (liftA2 (<>) x y)
-
-traverseAndCollect ::
-  (Monoid w, Applicative m) =>
-  (forall tp. Ctx.Index ctx tp -> f tp -> m w) ->
-  Ctx.Assignment f ctx ->
-  m w
-traverseAndCollect f =
-  runCollector . Ctx.traverseWithIndex (\i x -> Collector (f i x))
-
---------------------------- END TODO ----------------------------
-
-
 {-# INLINABLE stepTerm #-}
 
 -- | Evaluation operation for evaluating a single block-terminator
@@ -380,7 +356,7 @@ stepTerm _ (MaybeBranch tp e j n) =
 
 stepTerm _ (VariantElim ctx e cases) =
   do vs <- evalReg e
-     jmps <- ctx & traverseAndCollect (\i tp ->
+     jmps <- ctx & Ctx.traverseAndCollect (\i tp ->
                 case vs Ctx.! i of
                   VB Unassigned ->
                     return []
@@ -427,6 +403,18 @@ stepTerm _ (ErrorStmt msg) =
                       $ GenericSimError $ show (printSymExpr msg')
 
 
+-- | Checks whether the StmtSeq is a Cons or a Term,
+--   to give callers another chance to jump into Crucible's control flow
+checkConsTerm ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  Int {- ^ Current verbosity -} ->
+  ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
+checkConsTerm verb =
+     do cf <- view stateCrucibleFrame
+
+        case cf^.frameStmts of
+          ConsStmt _ _ _ -> stepBasicBlock verb
+          TermStmt _ _ -> continue
 
 -- | Main evaluation operation for running a single step of
 --   basic block evalaution.
@@ -486,12 +474,14 @@ singleStepCrucible verb exst =
     OverrideState ovr st ->
       runReaderT (overrideHandler ovr) st
 
+    SymbolicBranchState p a_frame o_frame tgt st ->
+      runReaderT (performIntraFrameSplit p a_frame o_frame tgt) st
+
     ControlTransferState tgt st ->
       runReaderT (performIntraFrameMerge tgt) st
 
     RunningState st ->
       runReaderT (stepBasicBlock verb) st
-
 
 -- | Given a 'SimState' and an execution continuation,
 --   apply the continuation and execute the resulting
@@ -537,6 +527,9 @@ executeCrucible st0 cont =
 
         OverrideState ovr st' ->
           loop verbOpt st' (overrideHandler ovr)
+
+        SymbolicBranchState p a_frame o_frame tgt st' ->
+          loop verbOpt st' (performIntraFrameSplit p a_frame o_frame tgt)
 
         ControlTransferState tgt st' ->
           loop verbOpt st' (performIntraFrameMerge tgt)

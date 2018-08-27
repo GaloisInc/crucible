@@ -1,0 +1,37 @@
+(defun @test-bool () Bool
+   (start start:
+      (let x #t)
+      (let y #f)
+      (let z (and x y #f))
+      (let q (or #t x y))
+      (let w (if q (not z) y))
+      (let r (equal? (xor z w y) q))
+      (return r)))
+
+test-bool
+%0
+  % 5:12
+  $0 = boolLit(True)
+  % 6:12
+  $1 = boolLit(False)
+  % 7:12
+  $2 = and($0, $1)
+  % 7:12
+  $3 = and($2, $1)
+  % 8:12
+  $4 = or($0, $0)
+  % 8:12
+  $5 = or($4, $1)
+  % 9:12
+  $6 = not($3)
+  % 9:12
+  $7 = baseIte(BaseBoolRepr, $5, $6, $1)
+  % 10:12
+  $8 = boolXor($3, $7)
+  % 10:12
+  $9 = boolXor($8, $1)
+  % 10:12
+  $10 = baseIsEq(BaseBoolRepr, $9, $5)
+  % 11:5
+  return $10
+  % no postdom

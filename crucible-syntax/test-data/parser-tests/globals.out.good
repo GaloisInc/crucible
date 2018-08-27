@@ -1,0 +1,55 @@
+(defglobal $$counter Integer)
+
+(defun @count () Integer
+   (registers ($n Integer))
+   (start begin:
+      (set-global! $$counter 0)
+      (set-register! $n 5)
+      (jump loop:))
+   (defblock loop:
+      (let n $n)
+      (set-register! $n (- n 1))
+      (let c $$counter)
+      (set-global! $$counter (+ c 2))
+      (let n* $n)
+      (let donep (< n* 0))
+      (branch donep done: loop:))
+   (defblock done: (let res $$counter) (return res)))
+
+count
+%0
+  % 7:28
+  $0 = intLit(0)
+  % 7:28
+  write counter $0
+  % 8:23
+  $1 = intLit(5)
+  % 9:5
+  jump %1($1)
+  % postdom %1 %2
+%1
+  % 12:23
+  $1 = intLit(1)
+  % 12:23
+  $2 = intSub($0, $1)
+  % 13:12
+  read $3 counter
+  % 14:28
+  $4 = intLit(2)
+  % 14:28
+  $5 = intAdd($3, $4)
+  % 14:28
+  write counter $5
+  % 16:16
+  $6 = intLit(0)
+  % 16:16
+  $7 = intLt($2, $6)
+  % 17:5
+  br $7 %2() %1($2)
+  % postdom %2
+%2
+  % 19:14
+  read $0 counter
+  % 20:5
+  return $0
+  % no postdom

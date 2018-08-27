@@ -47,7 +47,7 @@ data ProvedGoals =
 
 -- | Simplify the proved goals.
 provedGoalsTree ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
@@ -90,7 +90,7 @@ countGoals gs =
 -- | Prove a collection of goals.  The result is a goal tree, where
 -- each goal is annotated with the outcome of the proof.
 proveGoals ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
@@ -159,7 +159,7 @@ proveGoals ctxt (Just gs0) =
 
 -- XXX: Factor out common with proveGoals
 canProve ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->
@@ -182,7 +182,7 @@ canProve ctxt asmpPs concP =
 
 
 simpProved ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver)
+  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
   , OnlineSolver s solver
   ) =>
   SimCtxt sym arch ->

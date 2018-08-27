@@ -1,0 +1,48 @@
+(defun @test-natural () Nat
+   (start start:
+      (let x (the Nat 5))
+      (let y (the Nat 10))
+      (let z (+ x 7))
+      (let s (- z y))
+      (let w (/ x y))
+      (let q (mod x y))
+      (let p1 (equal? x z))
+      (let p2 (< x y))
+      (let p3 (<= z 20))
+      (let p (and p1 p2 p3))
+      (let r (if p s q))
+      (return r)))
+
+test-natural
+%0
+  % 3:12
+  $0 = natLit(5)
+  % 4:12
+  $1 = natLit(10)
+  % 5:12
+  $2 = natLit(7)
+  % 5:12
+  $3 = natAdd($0, $2)
+  % 6:12
+  $4 = natSub($3, $1)
+  % 7:12
+  $5 = natDiv($0, $1)
+  % 8:12
+  $6 = natMod($0, $1)
+  % 10:13
+  $7 = baseIsEq(BaseNatRepr, $0, $3)
+  % 11:13
+  $8 = natLt($0, $1)
+  % 12:13
+  $9 = natLit(20)
+  % 12:13
+  $10 = natLe($3, $9)
+  % 13:12
+  $11 = and($7, $8)
+  % 13:12
+  $12 = and($11, $10)
+  % 14:12
+  $13 = baseIte(BaseNatRepr, $12, $4, $6)
+  % 15:5
+  return $13
+  % no postdom

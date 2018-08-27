@@ -56,6 +56,7 @@ module Lang.Crucible.Types
   , ComplexRealType
   , BVType
   , FloatType
+  , IEEEFloatType
   , CharType
   , StringType
   , FunctionHandleType
@@ -71,16 +72,6 @@ module Lang.Crucible.Types
   , StringMapType
   , SymbolicArrayType
 
-    -- * FloatInfo data kind
-  , FloatInfo(..)
-    -- ** Constructors for kind FloatInfo
-  , HalfFloat
-  , SingleFloat
-  , DoubleFloat
-  , QuadFloat
-  , X86_80Float
-  , DoubleDoubleFloat
-  , FloatInfoRepr(..)
     -- * IsRecursiveType
   , IsRecursiveType(..)
 
@@ -103,6 +94,15 @@ module Lang.Crucible.Types
   , module Data.Parameterized.NatRepr
   , module Data.Parameterized.SymbolRepr
   , module What4.BaseTypes
+  , FloatInfo
+  , HalfFloat
+  , SingleFloat
+  , DoubleFloat
+  , QuadFloat
+  , X86_80Float
+  , DoubleDoubleFloat
+  , FloatInfoRepr(..)
+  , FloatPrecisionRepr(..)
   ) where
 
 import           Data.Hashable
@@ -117,38 +117,11 @@ import qualified Data.Parameterized.TH.GADT as U
 import           Text.PrettyPrint.ANSI.Leijen
 
 import           What4.BaseTypes
+import           What4.InterpretedFloatingPoint
 
 ------------------------------------------------------------------------
 -- Crucible types
 
-
--- | This data kind describes the styles of floating-point values understood
---   by recent LLVM bitcode formats.  This consist of the standard IEEE 754-2008
---   binary floating point formats, as well as the X86 extended 80-bit format
---   and the double-double format.
-data FloatInfo where
-  HalfFloat         :: FloatInfo  --  16 bit binary IEEE754
-  SingleFloat       :: FloatInfo  --  32 bit binary IEEE754
-  DoubleFloat       :: FloatInfo  --  64 bit binary IEEE754
-  QuadFloat         :: FloatInfo  -- 128 bit binary IEEE754
-  X86_80Float       :: FloatInfo  -- X86 80-bit extended floats
-  DoubleDoubleFloat :: FloatInfo  -- 2 64-bit floats fused in the "double-double" style
-
-type HalfFloat   = 'HalfFloat   -- ^  16 bit binary IEEE754.
-type SingleFloat = 'SingleFloat -- ^  32 bit binary IEEE754.
-type DoubleFloat = 'DoubleFloat -- ^  64 bit binary IEEE754.
-type QuadFloat   = 'QuadFloat   -- ^ 128 bit binary IEEE754.
-type X86_80Float = 'X86_80Float -- ^ X86 80-bit extended floats.
-type DoubleDoubleFloat = 'DoubleDoubleFloat -- ^ Two 64-bit floats fused in the "double-double" style.
-
--- | A family of value-level representatives for floating-point types.
-data FloatInfoRepr (flt::FloatInfo) where
-   HalfFloatRepr         :: FloatInfoRepr HalfFloat
-   SingleFloatRepr       :: FloatInfoRepr SingleFloat
-   DoubleFloatRepr       :: FloatInfoRepr DoubleFloat
-   QuadFloatRepr         :: FloatInfoRepr QuadFloat
-   X86_80FloatRepr       :: FloatInfoRepr X86_80Float
-   DoubleDoubleFloatRepr :: FloatInfoRepr DoubleDoubleFloat
 
 -- | This typeclass is used to register recursive Crucible types
 --   with the compiler.  This class defines, for a given symbol,
@@ -177,7 +150,8 @@ data CrucibleType where
 
    -- | A type containing a single value "Unit"
    UnitType :: CrucibleType
-   -- | A type index for floating point numbers
+   -- | A type index for floating point numbers, whose interpretation
+   --   depends on the symbolic backend.
    FloatType :: FloatInfo -> CrucibleType
    -- | A single character, as a 16-bit wide char.
    CharType :: CrucibleType
@@ -232,8 +206,11 @@ type IntegerType     = BaseToType BaseIntegerType -- ^ @:: 'CrucibleType'@.
 type StringType      = BaseToType BaseStringType  -- ^ @:: 'CrucibleType'@.
 type NatType         = BaseToType BaseNatType     -- ^ @:: 'CrucibleType'@.
 type RealValType     = BaseToType BaseRealType    -- ^ @:: 'CrucibleType'@.
+type IEEEFloatType p = BaseToType (BaseFloatType p) -- ^ @:: FloatPrecision -> CrucibleType@
+
 type SymbolicArrayType idx xs = BaseToType (BaseArrayType idx xs) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'CrucibleType'@.
 type SymbolicStructType flds = BaseToType (BaseStructType flds) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'CrucibleType'@.
+
 
 -- | A dynamic type that can contain values of any type.
 type AnyType  = 'AnyType  -- ^ @:: 'CrucibleType'@.
@@ -241,8 +218,10 @@ type AnyType  = 'AnyType  -- ^ @:: 'CrucibleType'@.
 -- | A single character, as a 16-bit wide char.
 type CharType = 'CharType -- ^ @:: 'CrucibleType'@.
 
--- | A type index for floating point numbers.
+-- | A type index for floating point numbers, whose interpretation
+--   depends on the symbolic backend.
 type FloatType    = 'FloatType    -- ^ @:: 'FloatInfo' -> 'CrucibleType'@.
+
 
 -- | A function handle taking a context of formal arguments and a return type.
 type FunctionHandleType = 'FunctionHandleType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType' -> 'CrucibleType'@.
@@ -310,6 +289,7 @@ baseToType bt =
     BaseComplexRepr -> ComplexRealRepr
     BaseArrayRepr idx xs -> SymbolicArrayRepr idx xs
     BaseStructRepr flds -> SymbolicStructRepr flds
+    BaseFloatRepr ps -> IEEEFloatRepr ps
 
 data AsBaseType tp where
   AsBaseType  :: tp ~ BaseToType bt => BaseTypeRepr bt -> AsBaseType tp
@@ -327,6 +307,8 @@ asBaseType tp =
     ComplexRealRepr -> AsBaseType BaseComplexRepr
     SymbolicArrayRepr idx xs ->
       AsBaseType (BaseArrayRepr idx xs)
+    IEEEFloatRepr ps ->
+      AsBaseType (BaseFloatRepr ps)
     SymbolicStructRepr flds -> AsBaseType (BaseStructRepr flds)
     _ -> NotBaseType
 
@@ -352,6 +334,7 @@ data TypeRepr (tp::CrucibleType) where
                  -> CtxRepr ctx
                  -> TypeRepr (RecursiveType nm ctx)
    FloatRepr :: !(FloatInfoRepr flt) -> TypeRepr (FloatType flt)
+   IEEEFloatRepr :: !(FloatPrecisionRepr ps) -> TypeRepr (IEEEFloatType ps)
    CharRepr :: TypeRepr CharType
    StringRepr :: TypeRepr StringType
    FunctionHandleRepr :: !(CtxRepr ctx)
@@ -382,13 +365,6 @@ data TypeRepr (tp::CrucibleType) where
 
 ------------------------------------------------------------------------------
 -- Representable class instances
-
-instance KnownRepr FloatInfoRepr HalfFloat         where knownRepr = HalfFloatRepr
-instance KnownRepr FloatInfoRepr SingleFloat       where knownRepr = SingleFloatRepr
-instance KnownRepr FloatInfoRepr DoubleFloat       where knownRepr = DoubleFloatRepr
-instance KnownRepr FloatInfoRepr QuadFloat         where knownRepr = QuadFloatRepr
-instance KnownRepr FloatInfoRepr X86_80Float       where knownRepr = X86_80FloatRepr
-instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubleFloatRepr
 
 instance KnownRepr TypeRepr AnyType             where knownRepr = AnyRepr
 instance KnownRepr TypeRepr UnitType            where knownRepr = UnitRepr
@@ -423,6 +399,9 @@ instance (KnownCtx TypeRepr ctx, KnownRepr TypeRepr ret)
 instance KnownRepr FloatInfoRepr flt => KnownRepr TypeRepr (FloatType flt) where
   knownRepr = FloatRepr knownRepr
 
+instance KnownRepr FloatPrecisionRepr ps => KnownRepr TypeRepr (IEEEFloatType ps) where
+  knownRepr = IEEEFloatRepr knownRepr
+
 instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (VectorType tp) where
   knownRepr = VectorRepr knownRepr
 
@@ -444,19 +423,10 @@ pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
 -- Force TypeRepr, etc. to be in context for next slice.
 $(return [])
 
-instance HashableF FloatInfoRepr where
-  hashWithSaltF = hashWithSalt
-instance Hashable (FloatInfoRepr flt) where
-  hashWithSalt = $(U.structuralHash [t|FloatInfoRepr|])
-
 instance HashableF TypeRepr where
   hashWithSaltF = hashWithSalt
 instance Hashable (TypeRepr ty) where
   hashWithSalt = $(U.structuralHash [t|TypeRepr|])
-
-instance Show (FloatInfoRepr flt) where
-  showsPrec = $(U.structuralShowsPrec [t|FloatInfoRepr|])
-instance ShowF FloatInfoRepr
 
 instance Pretty (TypeRepr tp) where
   pretty = text . show
@@ -466,16 +436,12 @@ instance Show (TypeRepr tp) where
 instance ShowF TypeRepr
 
 
-instance TestEquality FloatInfoRepr where
-  testEquality = $(U.structuralTypeEquality [t|FloatInfoRepr|] [])
-instance OrdF FloatInfoRepr where
-  compareF = $(U.structuralTypeOrd [t|FloatInfoRepr|] [])
-
 instance TestEquality TypeRepr where
   testEquality = $(U.structuralTypeEquality [t|TypeRepr|]
                    [ (U.TypeApp (U.ConType [t|NatRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|SymbolRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|FloatInfoRepr|]) U.AnyType, [|testEquality|])
+                   , (U.TypeApp (U.ConType [t|FloatPrecisionRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|CtxRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|BaseTypeRepr|]) U.AnyType, [|testEquality|])
                    , (U.TypeApp (U.ConType [t|TypeRepr|]) U.AnyType, [|testEquality|])
@@ -489,6 +455,7 @@ instance OrdF TypeRepr where
                    [ (U.TypeApp (U.ConType [t|NatRepr|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|SymbolRepr|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|FloatInfoRepr|]) U.AnyType, [|compareF|])
+                   , (U.TypeApp (U.ConType [t|FloatPrecisionRepr|]) U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|BaseTypeRepr|])  U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|TypeRepr|])      U.AnyType, [|compareF|])
                    , (U.TypeApp (U.ConType [t|CtxRepr|])      U.AnyType, [|compareF|])

@@ -17,6 +17,7 @@ for interacting with the symbolic simulator.
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Backend
   ( BranchResult(..)
   , IsBoolSolver(..)
@@ -55,13 +56,17 @@ module Lang.Crucible.Backend
   , addFailedAssertion
   , assertIsInteger
   , readPartExpr
+  , ppProofObligation
   ) where
 
-import           Data.Sequence (Seq)
 import           Control.Exception(Exception(..), throwIO)
+import           Control.Lens ((^.))
+import           Data.Foldable (toList)
+import           Data.Sequence (Seq)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Interface
+import           What4.InterpretedFloatingPoint
 import           What4.Partial
 import           What4.ProgramLoc
 
@@ -154,7 +159,11 @@ data BranchResult
      -- given value.
    | NoBranch !Bool
 
-type IsSymInterface sym = (IsBoolSolver sym, IsSymExprBuilder sym)
+type IsSymInterface sym =
+  ( IsBoolSolver sym
+  , IsSymExprBuilder sym
+  , IsInterpretedFloatSymExprBuilder sym
+  )
 
 -- | This class provides operations that interact with the symbolic simulator.
 --   It allows for logical assumptions/assertions to be added to the current
@@ -196,6 +205,8 @@ class IsBoolSolver sym where
   --   of all the assumptions currently in scope.
   getPathCondition :: sym -> IO (Pred sym)
 
+  collectAssumptions :: sym -> IO (Seq (Assumption sym))
+
   -- | Add a new proof obligation to the system.
   -- The proof may use the current path condition and assumptions.
   -- Note that this *DOES NOT* add the goal as an assumption.
@@ -222,7 +233,9 @@ class IsBoolSolver sym where
 -- | Add a proof obligation for the given predicate, and then assume it.
 -- Note that assuming the prediate might cause the current execution
 -- path to abort, if we happened to assume something that is obviously false.
-addAssertion :: IsSymInterface sym => sym -> Assertion sym -> IO ()
+addAssertion ::
+  (IsExprBuilder sym, IsBoolSolver sym) =>
+  sym -> Assertion sym -> IO ()
 addAssertion sym a@(AS.LabeledPred p msg) =
   do addProofObligation sym a
      addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
@@ -235,7 +248,7 @@ abortExecBecause err = throwIO err
 -- | Add a proof obligation using the current program location.
 --   Afterwards, assume the given fact.
 assert ::
-  IsSymInterface sym =>
+  (IsExprBuilder sym, IsBoolSolver sym) =>
   sym ->
   Pred sym ->
   SimErrorReason ->
@@ -248,7 +261,7 @@ assert sym p msg =
 -- of the current path, because after asserting false, we get to assume it,
 -- and so there is no need to check anything after.  This is why the resulting
 -- IO computation can have the fully polymorphic type.
-addFailedAssertion :: IsSymInterface sym => sym -> SimErrorReason -> IO a
+addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym) => sym -> SimErrorReason -> IO a
 addFailedAssertion sym msg =
   do loc <- getCurrentProgramLoc sym
      let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
@@ -261,34 +274,55 @@ addFailedAssertion sym msg =
 
 
 -- | Run the given action to compute a predicate, and assert it.
-addAssertionM :: IsSymInterface sym
-              => sym
-              -> IO (Pred sym)
-              -> SimErrorReason
-              -> IO ()
+addAssertionM ::
+  (IsExprBuilder sym, IsBoolSolver sym) =>
+  sym ->
+  IO (Pred sym) ->
+  SimErrorReason ->
+  IO ()
 addAssertionM sym pf msg = do
   p <- pf
   assert sym p msg
 
 -- | Assert that the given real-valued expression is an integer.
-assertIsInteger :: IsSymInterface sym
-                => sym
-                -> SymReal sym
-                -> SimErrorReason
-                -> IO ()
+assertIsInteger ::
+  (IsExprBuilder sym, IsBoolSolver sym) =>
+  sym ->
+  SymReal sym ->
+  SimErrorReason ->
+  IO ()
 assertIsInteger sym v msg = do
   addAssertionM sym (isInteger sym v) msg
 
 -- | Given a partial expression, assert that it is defined
 --   and return the underlying value.
-readPartExpr :: IsSymInterface sym
-             => sym
-             -> PartExpr (Pred sym) v
-             -> SimErrorReason
-             -> IO v
+readPartExpr ::
+  (IsExprBuilder sym, IsBoolSolver sym) =>
+  sym ->
+  PartExpr (Pred sym) v ->
+  SimErrorReason ->
+  IO v
 readPartExpr sym Unassigned msg = do
   addFailedAssertion sym msg
 readPartExpr sym (PE p v) msg = do
   loc <- getCurrentProgramLoc sym
   addAssertion sym (AS.LabeledPred p (SimError loc msg))
   return v
+
+ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc
+ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
+  (if null as then PP.empty else
+    PP.text "Assuming:" PP.<$$>
+    PP.vcat (map ppAsm (toList as)))
+  PP.<$>
+  PP.text "Prove:" PP.<$>
+  ppGl
+ where
+ ppAsm asm = PP.text "* " PP.<> PP.hang 2
+   (ppAssumptionReason (asm^.AS.labeledPredMsg) PP.<$>
+    printSymExpr (asm^.AS.labeledPred))
+
+ ppGl = PP.indent 2
+   (ppSimError (gl^.AS.labeledPredMsg) PP.<$>
+    printSymExpr (gl^.AS.labeledPred))
+

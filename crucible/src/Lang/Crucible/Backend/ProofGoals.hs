@@ -4,7 +4,7 @@
 
 {-|
 Module      : Lang.Crucible.Backend.ProofGoals
-Copyright   : (c) Galois, Inc 2014-2016
+Copyright   : (c) Galois, Inc 2014-2018
 License     : BSD3
 
 This module defines a data strucutre for storing a collection of
@@ -79,7 +79,7 @@ assuming as g = Assuming as g
 -- | Construct a 'Goals' object from a collection of subgoals, all of
 --   which are to be proved.  This yields 'Nothing' if the collection
 --   of goals is empty, and otherwise builds a conjunction of all the
---   goals.
+--   goals.  Note that there is no new sharing in the resulting structure.
 proveAll :: Foldable t => t (Goals asmp goal) -> Maybe (Goals asmp goal)
 proveAll = foldr f Nothing
  where
@@ -88,7 +88,9 @@ proveAll = foldr f Nothing
 
 -- | Helper to conjoin two possibly trivial 'Goals' objects.
 goalsConj :: Maybe (Goals asmp goal) -> Maybe (Goals asmp goal) -> Maybe (Goals asmp goal)
-goalsConj x y = ProveConj <$> x <*> y
+goalsConj Nothing y = y
+goalsConj x Nothing = x
+goalsConj (Just x) (Just y) = Just (ProveConj x y)
 
 -- | Render the tree of goals as a list instead, duplicating
 --   shared assumptions over each goal as necessary.
@@ -100,17 +102,23 @@ goalsToList =
 -- | Traverse the structure of a 'Goals' data structure.  The function for
 --   visiting goals my decide to remove the goal from the structure.  If
 --   no goals remain after the traversal, the resulting value will be a 'Nothing'.
+--
+--   In a call to 'traverseGoals assumeAction transformer goals', the
+--   arguments are used as follows:
+--
+--   * 'traverseGoals' is an action is called every time we encounter
+--     an 'Assuming' constructor.  The first argument is the original
+--     sequence of assumptions.  The second argument is a continuation
+--     action.  The result is a sequence of transformed assumptions
+--     and the result of the continuation action.
+--
+--   * 'assumeAction' is a transformer action on goals.  Return
+--     'Nothing' if you wish to remove the goal from the overall tree.
 traverseGoals :: Applicative f =>
-  --- |This action is called every time we encounter an 'Assuming' constructor.
-  --   The first argument is the original sequence of assumptions.  The second
-  --   argument is a continuation action.  The result is a sequence of transformed
-  --   assumptions and the result of the continuation action.
-  (forall a. Seq asmp -> f a -> f (Seq asmp', a)) ->
-  --- |A transformer action on goals.  Return 'Nothing' if you wish to remove
-  --   the goal from the overall tree.
-  (goal -> f (Maybe goal')) ->
-
-  Goals asmp goal -> f (Maybe (Goals asmp' goal'))
+                 (forall a. Seq asmp -> f a -> f (Seq asmp', a))
+              -> (goal -> f (Maybe goal'))
+              -> Goals asmp goal
+              -> f (Maybe (Goals asmp' goal'))
 traverseGoals fas fgl = go
   where
   go (Prove gl)        = fmap Prove <$> fgl gl
@@ -167,33 +175,15 @@ newtype FrameIdentifier = FrameIdentifier Word64
 --   It keeps track both of the collection of assumptions that lead to
 --   the current state, as well as any proof obligations incurred along
 --   the way.
-data GoalCollector asmp goal = GoalCollector
-  { gcCurDone   :: !(Seq (Goals asmp goal))
-    -- ^ Siblings in the current context that are already build.
-
-  , gcCurAsmps  :: !(Seq asmp)
-    -- ^ Assumptions for the child under construction.
-    -- These are *not* in scope for 'gcCurDone'.
-
-  , gcIsPushFrame  :: !(Maybe FrameIdentifier)
-    -- ^ Is this a frame that came from a "push" instruction.
-    -- The @pop@ command will stop unwinding when it sees a frame
-    -- with this flag set to 'True'
-
-  , gcContext :: !(Maybe (GoalCollector asmp goal))
-    -- ^ These are the goals and assumptions further up the tree from here.
-    -- The assumptions of the current path are `gcCurAsmps` together
-    -- with all the assumptions in `gcContext`.
-  }
+data GoalCollector asmp goal
+  = TopCollector !(Seq (Goals asmp goal))
+  | CollectorFrame !FrameIdentifier !(GoalCollector asmp goal)
+  | CollectingAssumptions !(Seq asmp) !(GoalCollector asmp goal)
+  | CollectingGoals !(Seq (Goals asmp goal)) !(GoalCollector asmp goal)
 
 -- | A collector with no goals and no context.
 emptyGoalCollector :: GoalCollector asmp goal
-emptyGoalCollector = GoalCollector
-  { gcCurDone     = mempty
-  , gcCurAsmps    = mempty
-  , gcIsPushFrame = Nothing
-  , gcContext     = Nothing
-  }
+emptyGoalCollector = TopCollector mempty
 
 -- | Traverse the goals in a 'GoalCollector.  See 'traverseGoals'
 --   for an explaination of the action arguments.
@@ -203,12 +193,10 @@ traverseGoalCollector :: Applicative f =>
   GoalCollector asmp goal -> f (GoalCollector asmp' goal')
 traverseGoalCollector fas fgl = go
  where
- go (GoalCollector gls asmps pf ctx) =
-       GoalCollector
-         <$> traverseGoalsSeq fas fgl gls
-         <*> (fst <$> fas asmps (pure ()))
-         <*> pure pf
-         <*> traverse go ctx
+ go (TopCollector gls) = TopCollector <$> traverseGoalsSeq fas fgl gls
+ go (CollectorFrame fid gls) = CollectorFrame fid <$> go gls
+ go (CollectingAssumptions asmps gls) = CollectingAssumptions <$> (fst <$> fas asmps (pure ())) <*> go gls
+ go (CollectingGoals gs gls) = CollectingGoals <$> traverseGoalsSeq fas fgl gs <*> go gls
 
 -- | Traverse the goals in a 'GoalCollector', keeping track,
 --   for each goal, of the assumptions leading to that goal.
@@ -227,11 +215,11 @@ traverseGoalCollectorWithAssumptions f gc =
 data AssumptionFrames asmp =
   AssumptionFrames
   { -- | A sequence of assumptions made at the top level of a solver.
-    baseFrame    :: Seq asmp
+    baseFrame    :: !(Seq asmp)
     -- | A sequence of pushed frames, together with the assumptions that
     --   were made in each frame.  The sequence is organized with newest
     --   frames on the end (right side) of the sequence.
-  , pushedFrames :: Seq (FrameIdentifier, Seq asmp)
+  , pushedFrames :: !(Seq (FrameIdentifier, Seq asmp))
   }
 
 -- | Return a list of all the assumption frames in this goal collector.
@@ -240,64 +228,61 @@ data AssumptionFrames asmp =
 --   assumption frames, each consisting of a collection of assumptions
 --   made in that frame.  Frames closer to the front of the list
 --   are older.  A `gcPop` will remove the newest (rightmost) frame from the list.
-gcFrames :: GoalCollector asmp goal -> (Seq asmp, Seq (FrameIdentifier, Seq asmp))
-gcFrames = go mempty mempty . Just
+gcFrames :: GoalCollector asmp goal -> AssumptionFrames asmp
+gcFrames = go mempty mempty
   where
   go ::
     Seq asmp ->
     Seq (FrameIdentifier, Seq asmp) ->
-    Maybe (GoalCollector asmp goal) ->
-    (Seq asmp, Seq (FrameIdentifier, Seq asmp))
+    GoalCollector asmp goal ->
+    AssumptionFrames asmp
 
-  go as fs Nothing
-    = (as, fs)
+  go as fs (TopCollector _)
+    = AssumptionFrames as fs
 
-  go as fs (Just gc)
-    | Just frmid <- gcIsPushFrame gc
-    = go mempty ((frmid, gcCurAsmps gc <> as) Seq.<| fs) (gcContext gc)
+  go as fs (CollectorFrame frmid gc) =
+    go mempty ((frmid, as) Seq.<| fs) gc
 
-    | otherwise
-    = go (gcCurAsmps gc <> as) fs (gcContext gc)
+  go as fs (CollectingAssumptions as' gc) =
+    go (as' <> as) fs gc
 
+  go as fs (CollectingGoals _ gc) =
+    go as fs gc
 
 -- | Mark the current frame.  Using 'gcPop' will unwind to here.
 gcPush :: FrameIdentifier -> GoalCollector asmp goal -> GoalCollector asmp goal
-gcPush frmid gc =
-   GoalCollector { gcCurDone     = mempty
-                 , gcCurAsmps    = mempty
-                 , gcIsPushFrame = Just frmid
-                 , gcContext     = Just gc
-                 }
+gcPush frmid gc = CollectorFrame frmid gc
+
+gcAddGoals :: Goals asmp goal -> GoalCollector asmp goal -> GoalCollector asmp goal
+gcAddGoals g (TopCollector gs) = TopCollector (gs Seq.|> g)
+gcAddGoals g (CollectingGoals gs gc) = CollectingGoals (gs Seq.|> g) gc
+gcAddGoals g gc = CollectingGoals (Seq.singleton g) gc
 
 -- | Add a new proof obligation to the current context.
 gcProve :: goal -> GoalCollector asmp goal -> GoalCollector asmp goal
-gcProve g gc =
-  if Seq.null (gcCurAsmps gc) then
-    {- If we don't have any new assumptions, then we don't need to push
-       a new assumptions frame: instead we can just add the proof obligations
-       as a sibling. -}
-
-    gc { gcCurDone = gcCurDone gc Seq.|> Prove g }
-  else
-    {- If we do have assumptions, then we need to start a new frame,
-       as the current assumptions are the only ones that should be in
-       in scope for the new proof obligations. -}
-    GoalCollector { gcCurDone     = Seq.singleton (Prove g)
-                  , gcCurAsmps    = mempty
-                  , gcIsPushFrame = Nothing
-                  , gcContext     = Just gc
-                  }
+gcProve g = gcAddGoals (Prove g)
 
 -- | Add an extra assumption to the current context.
 gcAssume :: asmp -> GoalCollector asmp goal -> GoalCollector asmp goal
-gcAssume a gc = gc { gcCurAsmps = gcCurAsmps gc Seq.|> a }
+gcAssume a = gcAddAssumes (Seq.singleton a)
 
 -- | Add a sequence of extra assumptions to the current context.
 gcAddAssumes :: Seq asmp -> GoalCollector asmp goal -> GoalCollector asmp goal
-gcAddAssumes as gc = gc { gcCurAsmps = gcCurAsmps gc <> as }
+gcAddAssumes as' (CollectingAssumptions as gls) = CollectingAssumptions (as <> as') gls
+gcAddAssumes as' gls = CollectingAssumptions as' gls
 
--- | Pop to the last push, or all the way to the top,
--- if there were no more pushed.
+{- | Pop to the last push, or all the way to the top,
+if there were no more pushes.
+If the result is 'Left', then we popped until an explicitly marked push;
+in that case we return:
+
+    1. the frame identifier of the popped frame,
+    2. the assumptions that were forgotten, and
+    3. the new state of the collector.
+
+If the result is 'Right', then we popped all the way to the top, and the
+result is the goal tree, or 'Nothing' if there were no goals. -}
+
 gcPop ::
   GoalCollector asmp goal ->
   Either (FrameIdentifier, Seq asmp, GoalCollector asmp goal)
@@ -309,41 +294,19 @@ gcPop = go Nothing mempty
      we should use to complete the current path.  If it is 'Nothing', then
      there was nothing interesting on the current path, and we discard
      assumptions that lead to here -}
-  go hole as gc =
-    case gcContext gc of
+  go hole _as (TopCollector gs) =
+    Right (goalsConj (proveAll gs) hole)
 
-      -- Reached the top
-      Nothing -> Right newHole
+  go hole as (CollectorFrame fid gc) =
+    case hole of
+      Nothing -> Left (fid, as, gc)
+      Just g  -> Left (fid, as, gcAddGoals g gc)
 
-      -- More frames
-      Just prev
-        | Just frmid <- gcIsPushFrame gc ->
-          -- This was a push frame, so we should stop right here.
-          Left ( frmid
-               , newAs
-               , case newHole of
-                    Nothing -> prev
-                    Just p  -> prev { gcCurDone = gcCurDone prev Seq.|> p }
-               )
+  go hole as (CollectingAssumptions as' gc) =
+    go (assuming as' <$> hole) (as' <> as) gc
 
-         -- Keep unwinding, using the newly constructed child.
-        | otherwise -> go newHole newAs prev
-
-    where
-    newAs = gcCurAsmps gc <> as
-
-    -- Turn the new children into a new item to fill in the parent context.
-    newHole = proveAll newChildren
-
-    {- The new children consist of the already complete children, 'gcCurDone',
-       and potentially a new child, if the current path was filled with
-       something interesting. -}
-    newChildren =
-          case hole of
-            Nothing -> gcCurDone gc
-            Just p  -> gcCurDone gc Seq.|> assuming (gcCurAsmps gc) p
-            -- NB, no need to assume all of 'newAs' here, the goals in
-            -- 'p' will already have assumed the hypotheses in 'as'
+  go hole as (CollectingGoals gs gc) =
+    go (goalsConj (proveAll gs) hole) as gc
 
 -- | Get all currently collected goals.
 gcFinish :: GoalCollector asmp goal -> Maybe (Goals asmp goal)
@@ -355,13 +318,7 @@ gcFinish gc = case gcPop gc of
 -- | Reset the goal collector to the empty assumption state; but first
 --   collect all the pending proof goals and stash them.
 gcReset :: GoalCollector asmp goal -> GoalCollector asmp goal
-gcReset gc =
-    GoalCollector
-    { gcCurDone     = gls
-    , gcCurAsmps    = mempty
-    , gcIsPushFrame = Nothing
-    , gcContext     = Nothing
-    }
+gcReset gc = TopCollector gls
   where
   gls = case gcFinish gc of
           Nothing     -> mempty
@@ -370,10 +327,10 @@ gcReset gc =
 pushGoalsToTop :: Goals asmp goal -> GoalCollector asmp goal -> GoalCollector asmp goal
 pushGoalsToTop gls = go
  where
- go gc =
-  case gcContext gc of
-    Nothing  -> gc{ gcCurDone = gls Seq.<| gcCurDone gc }
-    Just gc' -> gc{ gcContext = Just $! go gc' }
+ go (TopCollector gls') = TopCollector (gls' Seq.|> gls)
+ go (CollectorFrame fid gc) = CollectorFrame fid (go gc)
+ go (CollectingAssumptions as gc) = CollectingAssumptions as (go gc)
+ go (CollectingGoals gs gc) = CollectingGoals gs (go gc)
 
 -- | This operation restores the assumption state of the first given
 --   `GoalCollector`, overwriting the assumptions state of the second
@@ -396,6 +353,12 @@ gcRestore restore old =
 -- | Remove all collected proof obligations, but keep the current set
 -- of assumptions.
 gcRemoveObligations :: GoalCollector asmp goal -> GoalCollector asmp goal
-gcRemoveObligations gc = gc { gcCurDone = mempty
-                            , gcContext = gcRemoveObligations <$> gcContext gc
-                            }
+gcRemoveObligations = go
+ where
+ go (TopCollector _) = TopCollector mempty
+ go (CollectorFrame fid gc) = CollectorFrame fid (go gc)
+ go (CollectingAssumptions as gc) =
+      case go gc of
+        CollectingAssumptions as' gc' -> CollectingAssumptions (as <> as') gc'
+        gc' -> CollectingAssumptions as gc'
+ go (CollectingGoals _ gc) = go gc

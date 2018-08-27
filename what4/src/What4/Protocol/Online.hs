@@ -47,7 +47,7 @@ import What4.Utils.HandleReader
 --   online interaction modes.
 class SMTReadWriter solver => OnlineSolver scope solver where
   -- | Start a new solver process attached to the given `ExprBuilder`.
-  startSolverProcess    :: ExprBuilder scope st -> IO (SolverProcess scope solver)
+  startSolverProcess    :: ExprBuilder scope st fs -> IO (SolverProcess scope solver)
   -- | Shut down a solver process.  The process will be asked to shut down in
   --   a "polite" way, e.g., by sending an `(exit)` message, or by closing
   --   the process's `stdin`.  Use `killProcess` instead to shutdown a process

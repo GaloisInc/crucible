@@ -49,14 +49,12 @@ library
 
   hs-source-dirs: src
 
-  build-tools:
-    hpb
-
   exposed-modules:
     Lang.Crucible.Syntax.Atoms
     Lang.Crucible.Syntax.Concrete
     Lang.Crucible.Syntax.SExpr
     Lang.Crucible.Syntax.Prog
+    Lang.Crucible.Syntax.ExprParse
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
@@ -97,5 +95,7 @@ test-suite crucible-syntax-tests
     megaparsec,
     tasty,
     tasty-golden,
-    text
+    tasty-hunit,
+    text,
+    what4
 

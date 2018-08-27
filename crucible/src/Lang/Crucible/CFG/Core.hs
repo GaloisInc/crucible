@@ -36,6 +36,7 @@ module Lang.Crucible.CFG.Core
   , HasSomeCFG(..)
   , AnyCFG(..)
   , ppCFG
+  , ppCFG'
   , cfgArgTypes
   , cfgReturnType
   , CFGPostdom

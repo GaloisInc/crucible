@@ -839,6 +839,8 @@ cfgFromGenerator :: FnHandle init ret
 cfgFromGenerator h s =
   CFG { cfgHandle = h
       , cfgBlocks = Fold.toList (s^.gsBlocks)
+      , cfgNextValue = s^.gsNextValue
+      , cfgNextLabel = s^.gsNextLabel
       }
 
 -- | Given the arguments, this returns the initial state, and an action for

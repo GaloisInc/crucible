@@ -17,6 +17,7 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp #-}
@@ -50,7 +51,7 @@ module Lang.Crucible.LLVM.Translation.Constant
   ) where
 
 import           Control.Monad
-import           Control.Monad.Fail hiding (fail)
+import           Control.Monad.Except
 import           Data.Bits
 import           Data.Traversable
 import           Data.Fixed (mod')
@@ -74,7 +75,7 @@ import           Lang.Crucible.LLVM.Translation.Types
 showInstr :: L.Instr -> String
 showInstr i = show (L.ppLLVM38 (L.ppInstr i))
 
--- | Intermediate representation of a GEP.  
+-- | Intermediate representation of a GEP.
 --   A @GEP n expr@ is a representation of a GEP with
 --   @n@ parallel vector lanes with expressions represented
 --   by @expr@ values.
@@ -138,14 +139,14 @@ instance Traversable GEPResult where
 --   preprocess the instruction into a @GEPResult@, checking
 --   types, computing vectorization lanes, etc.
 translateGEP :: forall wptr m.
-  (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
+  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
   Bool              {- ^ inbounds flag -} ->
   L.Typed L.Value   {- ^ base pointer expression -} ->
   [L.Typed L.Value] {- ^ index arguments -} ->
   m (GEPResult (L.Typed L.Value))
 
 translateGEP _ _ [] =
-  fail "getelementpointer must have at least one index"
+  throwError "getelementpointer must have at least one index"
 
 translateGEP inbounds base elts =
   do mt <- liftMemType (L.typedType base)
@@ -170,14 +171,14 @@ translateGEP inbounds base elts =
        _ -> badGEP
  where
  badGEP :: m a
- badGEP = fail $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds base elts) ]
+ badGEP = throwError $ unlines [ "Invalid GEP", showInstr (L.GEP inbounds base elts) ]
 
  -- This auxilary function builds up the intermediate GEP mini-instructions that compute
  -- the overall GEP, as well as the resulting memory type of the final pointers and the
  -- number of vector lanes eventually computed by the GEP.
  go ::
    (1 <= lanes) =>
-   NatRepr lanes               {- Number of lanes of the GEP so far -} -> 
+   NatRepr lanes               {- Number of lanes of the GEP so far -} ->
    MemType                     {- Memory type of the incomming pointer(s) -} ->
    GEP lanes (L.Typed L.Value) {- parital GEP computation -} ->
    [L.Typed L.Value]           {- remaining arguments to process -} ->
@@ -192,7 +193,7 @@ translateGEP inbounds base elts =
       -- The meaning of the offset depends on the static type of the intermediate result
       case mt of
         -- If it is an array type, the offset should be considered an array index, or
-        -- vector of array indices.  
+        -- vector of array indices.
         ArrayType _ mt' ->
           case offt of
             -- Single array index, apply pointwise to all intermediate pointers
@@ -282,7 +283,7 @@ boolConst True = IntConst (knownNat @1) 1
 -- | Create an LLVM constant of a given width.  The resulting integer
 --   constant value will be the unsigned integer value @n mod 2^w@.
 intConst ::
-  MonadFail m =>
+  MonadError String m =>
   Natural {- ^ width of the integer constant, @w@ -} ->
   Integer {- ^ value of the integer constant, @n@ -} ->
   m LLVMConst
@@ -293,12 +294,12 @@ intConst n x
   , Just LeqProof <- isPosNat w
   = return (IntConst w (toUnsigned w x))
 intConst n _
-  = fail ("Invalid integer width: " ++ show n)
+  = throwError ("Invalid integer width: " ++ show n)
 
 -- | Compute the constant value of an expression.  Fail if the
 --   given value does not represent a constant.
 transConstant ::
-  (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
+  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
   L.Typed L.Value ->
   m LLVMConst
 transConstant (L.Typed tp v) =
@@ -308,12 +309,12 @@ transConstant (L.Typed tp v) =
 -- | Compute the constant value of an expression.  Fail if the
 --   given value does not represent a constant.
 transConstant' ::
-  (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
+  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
   MemType ->
   L.Value ->
   m LLVMConst
 transConstant' _tp (L.ValUndef) =
-  fail "Undefined constant value"
+  throwError "Undefined constant value"
 transConstant' (IntType n) (L.ValInteger x) =
   intConst n x
 transConstant' (IntType 1) (L.ValBool b) =
@@ -346,20 +347,20 @@ transConstant' (StructType si) (L.ValPackedStruct xs)
 transConstant' tp (L.ValConstExpr cexpr) = transConstantExpr tp cexpr
 
 transConstant' tp val =
-  fail $ unlines ["Cannot compute constant value for expression of type: " ++ show tp
-                 , show val
-                 ]
+  throwError $ unlines ["Cannot compute constant value for expression of type: " ++ show tp
+                       , show val
+                       ]
 
 
 -- | Evaluate a GEP instruction to a constant value.
 evalConstGEP :: forall m wptr.
-  (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
+  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
   GEPResult LLVMConst ->
   m LLVMConst
 evalConstGEP (GEPResult lanes finalMemType gep0) =
    do xs <- go gep0
       unless (toInteger (length xs) == natValue lanes)
-             (fail "Unexpected vector length in result of constant GEP")
+             (throwError "Unexpected vector length in result of constant GEP")
       case xs of
         [x] -> return x
         _   -> return (VectorConst (PtrType (MemType finalMemType)) xs)
@@ -372,13 +373,13 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
   asOffset mt (IntConst _ x) =
     do let x' = x * (bytesToInteger (memTypeSize dl mt))
        unless (x' <= maxUnsigned ?ptrWidth)
-              (fail "Computed offset overflow in constant GEP")
+              (throwError "Computed offset overflow in constant GEP")
        return x'
-  asOffset _ _ = fail "Expected offset value in constant GEP"
+  asOffset _ _ = throwError "Expected offset value in constant GEP"
 
   addOffset :: Integer -> LLVMConst -> m LLVMConst
   addOffset x (SymbolConst sym off) = return (SymbolConst sym (off+x))
-  addOffset _ _ = fail "Expected symbol constant in constant GEP"
+  addOffset _ _ = throwError "Expected symbol constant in constant GEP"
 
   -- Given a processed GEP instruction, compute the sequence of output
   -- pointer values that result from the instruction.  If the GEP is
@@ -399,7 +400,7 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
     = do ps <- go gep
          case ps of
            [p] -> return (replicate (fromInteger (natValue n)) p)
-           _   -> fail "vector length mismatch in GEP scatter"
+           _   -> throwError "vector length mismatch in GEP scatter"
 
   -- Add the offset corresponding to the given field across
   -- all the lanes of the GEP
@@ -475,7 +476,7 @@ evalIcmp op w x y = boolConst $ case op of
 
 -- | Evaluate an arithmetic operation.
 evalArith ::
-  (MonadFail m, HasPtrWidth wptr) =>
+  (MonadError String m, HasPtrWidth wptr) =>
   L.ArithOp ->
   MemType ->
   Arith -> Arith -> m LLVMConst
@@ -485,11 +486,11 @@ evalArith op (IntType m) (ArithI x) (ArithI y)
   = evalIarith op w x y
 evalArith op FloatType (ArithF x) (ArithF y) = FloatConst <$> evalFarith op x y
 evalArith op DoubleType (ArithD x) (ArithD y) = DoubleConst <$> evalFarith op x y
-evalArith _ _ _ _ = fail "arithmetic arugment mistmatch"
+evalArith _ _ _ _ = throwError "arithmetic arugment mistmatch"
 
 -- | Evaluate a floating-point operation.
 evalFarith ::
-  (RealFrac a, MonadFail m) =>
+  (RealFrac a, MonadError String m) =>
   L.ArithOp ->
   a -> a -> m a
 evalFarith op x y =
@@ -499,11 +500,11 @@ evalFarith op x y =
     L.FMul -> return (x * y)
     L.FDiv -> return (x / y)
     L.FRem -> return (mod' x y)
-    _ -> fail "Encountered integer arithmetic operation applied to floating point arguments"
+    _ -> throwError "Encountered integer arithmetic operation applied to floating point arguments"
 
 -- | Evaluate an integer or pointer arithmetic operation.
 evalIarith ::
-  (1 <= w, MonadFail m, HasPtrWidth wptr) =>
+  (1 <= w, MonadError String m, HasPtrWidth wptr) =>
   L.ArithOp ->
   NatRepr w ->
   ArithInt -> ArithInt -> m LLVMConst
@@ -514,34 +515,34 @@ evalIarith op w (ArithPtr sym x) (ArithInt y)
   , L.Add _ _ <- op
   = return $ PtrToIntConst $ SymbolConst sym (x+y)
   | otherwise
-  = fail "Illegal operation applied to pointer argument"
+  = throwError "Illegal operation applied to pointer argument"
 evalIarith op w (ArithInt x) (ArithPtr sym y)
   | Just Refl <- testEquality w ?ptrWidth
   , L.Add _ _ <- op
   = return $ PtrToIntConst $ SymbolConst sym (x+y)
   | otherwise
-  = fail "Illegal operation applied to pointer argument"
+  = throwError "Illegal operation applied to pointer argument"
 evalIarith op w (ArithPtr symx x) (ArithPtr symy y)
   | Just Refl <- testEquality w ?ptrWidth
   , symx == symy
   , L.Sub _ _ <- op
   = return $ IntConst ?ptrWidth (toUnsigned ?ptrWidth (x - y))
   | otherwise
-  = fail "Illegal operation applied to pointer argument"
+  = throwError "Illegal operation applied to pointer argument"
 
 -- | Evaluate an integer (non-pointer) arithmetic operation.
 evalIarith' ::
-  (1 <= w, MonadFail m) =>
+  (1 <= w, MonadError String m) =>
   L.ArithOp ->
   NatRepr w ->
   Integer -> Integer -> m Integer
 evalIarith' op w x y = do
   let nuwTest nuw z =
         when (nuw && toUnsigned w z > maxUnsigned w)
-             (fail "Unsigned overflow in constant arithmetic operation")
+             (throwError "Unsigned overflow in constant arithmetic operation")
   let nswTest nsw z =
         when (nsw && (toSigned w z < minSigned w || toSigned w z > maxSigned w))
-             (fail "Signed overflow in constant arithmetic operation")
+             (throwError "Signed overflow in constant arithmetic operation")
   case op of
     L.Add nuw nsw ->
       do let z = x + y
@@ -563,44 +564,44 @@ evalIarith' op w x y = do
 
     L.UDiv exact ->
       do when (y == 0)
-              (fail "Division by 0 in constant arithmetic operation")
+              (throwError "Division by 0 in constant arithmetic operation")
          let (z,r) = x `quotRem` y
          when (exact && r /= 0)
-              (fail "Exact division failed in constant arithmetic operation")
+              (throwError "Exact division failed in constant arithmetic operation")
          return z
 
     L.SDiv exact ->
       do when (y == 0)
-              (fail "Division by 0 in constant arithmetic operation")
+              (throwError "Division by 0 in constant arithmetic operation")
          let sx = toSigned w x
          let sy = toSigned w y
          when (sx == minSigned w && sy == -1)
-              (fail "Signed division overflow in constant arithmetic operation")
+              (throwError "Signed division overflow in constant arithmetic operation")
          let (z,r) = sx `quotRem` sy
          when (exact && r /= 0 )
-              (fail "Exact division failed in constant arithmetic operation")
+              (throwError "Exact division failed in constant arithmetic operation")
          return z
     L.URem ->
       do when (y == 0)
-              (fail "Division by 0 in constant arithmetic operation")
+              (throwError "Division by 0 in constant arithmetic operation")
          let r = x `rem` y
          return r
 
     L.SRem ->
       do when (y == 0)
-              (fail "Division by 0 in constant arithmetic operation")
+              (throwError "Division by 0 in constant arithmetic operation")
          let sx = toSigned w x
          let sy = toSigned w y
          when (sx == minSigned w && sy == -1)
-              (fail "Signed division overflow in constant arithmetic operation")
+              (throwError "Signed division overflow in constant arithmetic operation")
          let r = sx `rem` sy
          return r
 
-    _ -> fail "Floating point operation applied to integer arguments"
+    _ -> throwError "Floating point operation applied to integer arguments"
 
 -- | Evaluate a bitwise operation on integer values.
 evalBitwise ::
-  (1 <= w, MonadFail m) =>
+  (1 <= w, MonadError String m) =>
   L.BitOp ->
   NatRepr w ->
   Integer -> Integer -> m LLVMConst
@@ -615,24 +616,24 @@ evalBitwise op w x y = IntConst w <$>
        L.Shl nuw nsw ->
          do let z = ux `shiftL` fromInteger uy
             when (nuw && toUnsigned w z > maxUnsigned w)
-                 (fail "Unsigned overflow in left shift")
+                 (throwError "Unsigned overflow in left shift")
             when (nsw && toSigned w z > maxUnsigned w)
-                 (fail "Signed overflow in left shift")
+                 (throwError "Signed overflow in left shift")
             return z
        L.Lshr exact ->
          do let z = ux `shiftR` fromInteger uy
             when (exact && ux /= z `shiftL` fromInteger uy)
-                 (fail "Exact left shift failed")
+                 (throwError "Exact left shift failed")
             return z
        L.Ashr exact ->
          do let z = sx `shiftR` fromInteger uy
             when (exact && ux /= z `shiftL` fromInteger uy)
-                 (fail "Exact left shift failed")
+                 (throwError "Exact left shift failed")
             return (toUnsigned w z)
 
 -- | Evaluate a conversion operation on constants.
 evalConv ::
-  (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
+  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
   L.ConstExpr ->
   L.ConvOp ->
   MemType ->
@@ -748,13 +749,13 @@ evalConv expr op mt x = case op of
 
     _ -> badExp "unexpected conversion operation"
 
- where badExp msg = fail $ unlines [msg, show expr]
+ where badExp msg = throwError $ unlines [msg, show expr]
 
 
 -- | Evaluate a bitcast
 evalBitCast ::
-  MonadFail m =>
-  L.ConstExpr {- ^ original expression to evaluate -} ->  
+  MonadError String m =>
+  L.ConstExpr {- ^ original expression to evaluate -} ->
   MemType     {- ^ input expressio type -} ->
   LLVMConst   {- ^ input expression -} ->
   MemType     {- ^ desired output type -} ->
@@ -768,15 +769,15 @@ evalBitCast expr xty x toty =
       -> return x
 
     (IntType w, VecType n (IntType m))
-      | w == (fromIntegral n) * m 
+      | w == (fromIntegral n) * m
       , Just (Some w') <- someNat (toInteger m)
       , Just LeqProof <- isPosNat w'
       -> do xint <- asInt w x
             -- NB little endian assumption!
             let pieces = [ maxUnsigned w' .&. (xint `shiftR` (i * fromIntegral m))
-                         | i <- [0 .. n-1] 
+                         | i <- [0 .. n-1]
                          ]
-            return $ VectorConst (IntType m) (map (IntConst w') pieces) 
+            return $ VectorConst (IntType m) (map (IntConst w') pieces)
 
     (VecType n (IntType m), IntType w)
       | w == fromIntegral n * m
@@ -791,13 +792,13 @@ evalBitCast expr xty x toty =
             return $ IntConst w' (foldr (.|.) 0 pieces)
 
     _ -> badExp "illegal bitcast"
- 
- where badExp msg = fail $ unlines [msg, show expr]
- 
-    
+
+ where badExp msg = throwError $ unlines [msg, show expr]
+
+
 
 asVectorOf ::
-  MonadFail m =>
+  MonadError String m =>
   Int ->
   (LLVMConst -> m a) ->
   (LLVMConst -> m [a])
@@ -809,7 +810,7 @@ asVectorOf n f (VectorConst _ xs)
   | n == length xs
   = traverse f xs
 asVectorOf n _ _
-  = fail ("Expected vector constant value of length: " ++ show n)
+  = throwError ("Expected vector constant value of length: " ++ show n)
 
 -- | Type representing integer-like things.  These are either actual
 --   integer constants, or constant offsets from global symbols.
@@ -825,7 +826,7 @@ data Arith where
   ArithD :: Double -> Arith
 
 asArithInt ::
-  (MonadFail m, HasPtrWidth wptr) =>
+  (MonadError String m, HasPtrWidth wptr) =>
   Natural   {- ^ expected integer width -} ->
   LLVMConst {- ^ constant value -} ->
   m ArithInt
@@ -839,20 +840,20 @@ asArithInt n (PtrToIntConst (SymbolConst sym off))
   | toInteger n == natValue ?ptrWidth
   = return (ArithPtr sym off)
 asArithInt _ _
-  = fail "Expected integer value"
+  = throwError "Expected integer value"
 
 asArith ::
-  (MonadFail m, HasPtrWidth wptr) =>
+  (MonadError String m, HasPtrWidth wptr) =>
   MemType   {- ^ expected type -} ->
   LLVMConst {- ^ constant value -} ->
   m Arith
 asArith (IntType n) x = ArithI <$> asArithInt n x
 asArith FloatType x   = ArithF <$> asFloat x
 asArith DoubleType x  = ArithD <$> asDouble x
-asArith _ _ = fail "Expected arithmetic type"
+asArith _ _ = throwError "Expected arithmetic type"
 
 asInt ::
-  MonadFail m =>
+  MonadError String m =>
   Natural   {- ^ expected integer width -} ->
   LLVMConst {- ^ constant value -} ->
   m Integer
@@ -863,29 +864,29 @@ asInt n (IntConst w x)
   | toInteger n == natValue w
   = return x
 asInt n _
-  = fail ("Expected integer constant of size " ++ show n)
+  = throwError ("Expected integer constant of size " ++ show n)
 
 asFloat ::
-  MonadFail m =>
+  MonadError String m =>
   LLVMConst {- ^ constant value -} ->
   m Float
 asFloat (ZeroConst FloatType) = return 0
 asFloat (FloatConst x) = return x
-asFloat _ = fail "Expected floating point constant"
+asFloat _ = throwError "Expected floating point constant"
 
 asDouble ::
-  MonadFail m =>
+  MonadError String m =>
   LLVMConst {- ^ constant value -} ->
   m Double
 asDouble (ZeroConst DoubleType) = return 0
 asDouble (DoubleConst x) = return x
-asDouble _ = fail "Expected double constant"
+asDouble _ = throwError "Expected double constant"
 
 
 -- | Compute the value of a constant expression.  Fails if
 --   the expression does not actually represent a constant value.
 transConstantExpr ::
-  (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
+  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
   MemType ->
   L.ConstExpr ->
   m LLVMConst
@@ -993,4 +994,4 @@ transConstantExpr _mt expr = case expr of
 
          _ -> evalConv expr op mt x'
 
- where badExp msg = fail $ unlines [msg, show expr]
+ where badExp msg = throwError $ unlines [msg, show expr]

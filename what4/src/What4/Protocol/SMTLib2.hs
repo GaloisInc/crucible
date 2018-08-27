@@ -58,6 +58,7 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Exception
 import           Control.Monad.State.Strict
+import           Data.Bits (bit, setBit, shiftL)
 import           Data.Char(digitToInt)
 import           Data.IORef
 import qualified Data.ByteString.UTF8 as UTF8
@@ -118,6 +119,7 @@ unType _ SMT_BoolType    = "Bool"
 unType _ (SMT_BVType w)  =  "(_ BitVec " <> fromString (show w) <> ")"
 unType _ SMT_IntegerType = "Int"
 unType _ SMT_RealType    = "Real"
+unType _ (SMT_FloatType fpp) = mkFloatSymbol "FloatingPoint" fpp
 unType a (SMT_ArrayType i e) = smtlib2arrayType a i e
 unType a (SMT_StructType flds) = "(Struct" <> decimal n <> foldMap f flds <> ")"
   where f :: SMT_Type -> Builder
@@ -125,6 +127,18 @@ unType a (SMT_StructType flds) = "(Struct" <> decimal n <> foldMap f flds <> ")"
         n = length flds
 unType _ SMT_FnType{} =
   error "SMTLIB backend does not support function types as first class."
+
+mkFloatSymbol :: Builder -> SMTFloatPrecision -> Builder
+mkFloatSymbol nm (SMTFloatPrecision eb sb) =
+  "(_ "
+    <> nm
+    <> " "
+    <> fromString (show eb)
+    <> " "
+    <> fromString (show sb)
+    <> ")"
+mkRoundingOp :: Builder -> RoundingMode -> Builder
+mkRoundingOp op r = op <> " " <> fromString (show r)
 
 ------------------------------------------------------------------------
 -- Expr
@@ -316,6 +330,55 @@ instance SMTLib2Tweaks a => SupportTermOps (Expr a) where
         e = "(_ extract " <> decimal end <> " " <> decimal begin <> ")"
      in  term_app e [x]
 
+
+  floatPZero fpp = term_app (mkFloatSymbol "+zero" fpp) []
+  floatNZero fpp = term_app (mkFloatSymbol "-zero" fpp) []
+  floatNaN fpp   = term_app (mkFloatSymbol "NaN" fpp) []
+  floatPInf fpp  = term_app (mkFloatSymbol "+oo" fpp) []
+  floatNInf fpp  = term_app (mkFloatSymbol "-oo" fpp) []
+
+  floatNeg  = un_app "fp.neg"
+  floatAbs  = un_app "fp.abs"
+  floatSqrt r = un_app $ mkRoundingOp "fp.sqrt " r
+
+  floatAdd r = bin_app $ mkRoundingOp "fp.add" r
+  floatSub r = bin_app $ mkRoundingOp "fp.sub" r
+  floatMul r = bin_app $ mkRoundingOp "fp.mul" r
+  floatDiv r = bin_app $ mkRoundingOp "fp.div" r
+  floatRem = bin_app "fp.rem"
+  floatMin = bin_app "fp.min"
+  floatMax = bin_app "fp.max"
+
+  floatFMA r x y z = term_app (mkRoundingOp "fp.fma" r) [x, y, z]
+
+  floatEq   = bin_app "="
+  floatFpEq = bin_app "fp.eq"
+  floatLe   = bin_app "fp.leq"
+  floatLt   = bin_app "fp.lt"
+
+  floatIsNaN      = un_app "fp.isNaN"
+  floatIsInf      = un_app "fp.isInfinite"
+  floatIsZero     = un_app "fp.isZero"
+  floatIsPos      = un_app "fp.isPositive"
+  floatIsNeg      = un_app "fp.isNegative"
+  floatIsSubnorm  = un_app "fp.isSubnormal"
+  floatIsNorm     = un_app "fp.isNormal"
+
+  floatCast fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
+  floatFromBinary fpp = un_app $ mkFloatSymbol "to_fp" fpp
+  bvToFloat fpp r =
+    un_app $ mkRoundingOp (mkFloatSymbol "to_fp_unsigned" fpp) r
+  sbvToFloat fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
+  realToFloat fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" fpp) r
+
+  floatToBV w r =
+    un_app $ mkRoundingOp ("(fp.to_ubv " <> fromString (show w) <> ")") r
+  floatToSBV w r =
+    un_app $ mkRoundingOp ("(fp.to_sbv " <> fromString (show w) <> ")") r
+
+  floatToReal = un_app "fp.to_real"
+
+
   arrayConstant = smtlib2arrayConstant
   arraySelect   = smtlib2arraySelect
   arrayUpdate   = smtlib2arrayUpdate
@@ -473,15 +536,40 @@ parseRealSolverValue (SApp ["/", x , y]) = do
 parseRealSolverValue s = fail $ "Could not parse solver value: " ++ show s
 
 parseBvSolverValue :: Monad m => Int -> SExp -> m Integer
-parseBvSolverValue _ (SAtom ('#':'x':v)) | [(r,"")] <- readHex v =
-  return r
-parseBvSolverValue _ (SAtom ('#':'b':v)) | [(r,"")] <- readBin v =
-  return r
+parseBvSolverValue _ s
+  | (n, _) <- parseBVLitHelper s = return n
+  | otherwise = fail $ "Could not parse solver value: " ++ show s
 
-parseBvSolverValue _ (SApp ["_", SAtom ('b':'v':n_str), SAtom _w_str])
-  | [(n,"")] <- readDec n_str = do
-    return n
-parseBvSolverValue _ s = fail $ "Could not parse solver value: " ++ show s
+parseBVLitHelper :: SExp -> (Integer, Int)
+parseBVLitHelper (SAtom ('#' : 'b' : n_str)) | [(n, "")] <- readBin n_str =
+  (n, length n_str)
+parseBVLitHelper (SAtom ('#' : 'x' : n_str)) | [(n, "")] <- readHex n_str =
+  (n, length n_str * 4)
+parseBVLitHelper (SApp ["_", SAtom ('b' : 'v' : n_str), SAtom w_str])
+  | [(n, "")] <- readDec n_str, [(w, "")] <- readDec w_str = (n, w)
+parseBVLitHelper _ = (0, 0)
+
+parseFloatSolverValue :: Monad m => SExp -> m Integer
+parseFloatSolverValue (SApp ["fp", sign_s, exponent_s, significant_s])
+  | (sign_n, 1) <- parseBVLitHelper sign_s
+  , (exponent_n, eb) <- parseBVLitHelper exponent_s
+  , 2 <= eb
+  , (significant_n, sb) <- parseBVLitHelper significant_s
+  , 1 <= sb
+  = return $ (((sign_n `shiftL` eb) + exponent_n) `shiftL` sb) + significant_n
+parseFloatSolverValue s@(SApp ["_", SAtom nm, SAtom eb_s, SAtom sb_s])
+  | [(eb, "")] <- readDec eb_s, [(sb, "")] <- readDec sb_s = case nm of
+    "+oo"   -> return $ ones eb `shiftL` (sb - 1)
+    "-oo"   -> return $ setBit (ones eb `shiftL` (sb - 1)) (eb + sb - 1)
+    "+zero" -> return 0
+    "-zero" -> return $ bit (eb + sb - 1)
+    "NaN"   -> return $ ones (eb + sb - 1)
+    _       -> fail $ "Could not parse float solver value: " ++ show s
+parseFloatSolverValue s =
+  fail $ "Could not parse float solver value: " ++ show s
+
+ones :: Int -> Integer
+ones n = foldl setBit 0 [0..(n - 1)]
 
 parseBvArraySolverValue :: (Monad m,
                             1 <= w,
@@ -570,12 +658,14 @@ smtLibEvalFuns s = SMTEvalFunctions
                   { smtEvalBool = evalBool
                   , smtEvalBV = evalBV
                   , smtEvalReal = evalReal
+                  , smtEvalFloat = evalFloat
                   , smtEvalBvArray = Just (SMTEvalBVArrayWrapper evalBvArray)
                   }
   where
   evalBool tm = parseBoolSolverValue =<< runGetValue s tm
   evalBV w tm = parseBvSolverValue w =<< runGetValue s tm
   evalReal tm = parseRealSolverValue =<< runGetValue s tm
+  evalFloat tm = parseFloatSolverValue =<< runGetValue s tm
 
   evalBvArray :: SMTEvalBVArrayFn (Writer a) w v
   evalBvArray w v tm = parseBvArraySolverValue w v =<< runGetValue s tm
@@ -590,7 +680,7 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                     -- ^ Name of solver for reporting.
                  -> ProblemFeatures
                     -- ^ Features supported by solver
-                 -> B.ExprBuilder t st
+                 -> B.ExprBuilder t st fs
                  -> IO.Handle
                  -> B.BoolExpr t
                  -> IO ()

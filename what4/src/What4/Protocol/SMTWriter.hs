@@ -30,6 +30,7 @@ error rather than sending invalid output to a file.
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -45,6 +46,7 @@ module What4.Protocol.SMTWriter
   , Term(..)
   , term_app
   , bin_app
+  , un_app
   , app
   , app_list
   , builder_list
@@ -64,6 +66,7 @@ module What4.Protocol.SMTWriter
   , addCommand
   , mkFreeVar
   , SMT_Type(..)
+  , SMTFloatPrecision(..)
   , freshBoundVarName
   , assumeFormula
     -- * SMTWriter operations
@@ -71,6 +74,8 @@ module What4.Protocol.SMTWriter
   , mkFormula
   , SMTEvalFunctions(..)
   , smtExprGroundEvalFn
+    -- * Reexports
+  , What4.Interface.RoundingMode(..)
   ) where
 
 import           Control.Exception
@@ -108,7 +113,7 @@ import qualified System.IO.Streams as Streams
 
 import           What4.BaseTypes
 import           What4.Concrete
-import           What4.Interface (ArrayResultWrapper(..), IndexLit(..))
+import           What4.Interface (ArrayResultWrapper(..), IndexLit(..), RoundingMode(..))
 import           What4.ProblemFeatures
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
@@ -143,6 +148,7 @@ data TypeMap (tp::BaseType) where
   IntegerTypeMap :: TypeMap BaseIntegerType
   RealTypeMap    :: TypeMap BaseRealType
   BVTypeMap      :: (1 <= w) => !(NatRepr w) -> TypeMap (BaseBVType w)
+  FloatTypeMap   :: !(FloatPrecisionRepr fpp) -> TypeMap (BaseFloatType fpp)
   -- A complex number mapped to an SMTLIB struct.
   ComplexToStructTypeMap:: TypeMap BaseComplexType
   -- A complex number mapped to an SMTLIB array from boolean to real.
@@ -177,6 +183,9 @@ instance TestEquality TypeMap where
   testEquality NatTypeMap NatTypeMap = Just Refl
   testEquality IntegerTypeMap IntegerTypeMap = Just Refl
   testEquality RealTypeMap RealTypeMap = Just Refl
+  testEquality (FloatTypeMap x) (FloatTypeMap y) = do
+    Refl <- testEquality x y
+    return Refl
   testEquality (BVTypeMap x) (BVTypeMap y) = do
     Refl <- testEquality x y
     return Refl
@@ -204,6 +213,7 @@ asSMTType NatTypeMap     = SMT_IntegerType
 asSMTType IntegerTypeMap = SMT_IntegerType
 asSMTType RealTypeMap    = SMT_RealType
 asSMTType (BVTypeMap w) = SMT_BVType (natValue w)
+asSMTType (FloatTypeMap fpp) = SMT_FloatType $ asSMTFloatPrecision fpp
 asSMTType ComplexToStructTypeMap = SMT_StructType [ SMT_RealType, SMT_RealType ]
 asSMTType ComplexToArrayTypeMap  = SMT_ArrayType [SMT_BoolType] SMT_RealType
 asSMTType (PrimArrayTypeMap i r) =
@@ -217,12 +227,18 @@ data SMT_Type
    | SMT_BVType Integer
    | SMT_IntegerType
    | SMT_RealType
+   | SMT_FloatType SMTFloatPrecision
    | SMT_ArrayType [SMT_Type] SMT_Type
    | SMT_StructType [SMT_Type]
      -- | A function type.
    | SMT_FnType [SMT_Type] SMT_Type
   deriving (Eq, Ord)
 
+data SMTFloatPrecision = SMTFloatPrecision Integer Integer deriving (Eq, Ord)
+
+asSMTFloatPrecision :: FloatPrecisionRepr fpp -> SMTFloatPrecision
+asSMTFloatPrecision (FloatingPointPrecisionRepr eb sb) =
+  SMTFloatPrecision (natValue eb) (natValue sb)
 
 semiRingTypeMap :: SemiRingRepr tp -> TypeMap tp
 semiRingTypeMap SemiRingNat  = NatTypeMap
@@ -360,6 +376,48 @@ class Num v => SupportTermOps v where
     where w1 :: NatRepr 1
           w1 = knownNat
 
+  floatPZero :: SMTFloatPrecision -> v
+  floatNZero :: SMTFloatPrecision -> v
+  floatNaN   :: SMTFloatPrecision -> v
+  floatPInf  :: SMTFloatPrecision -> v
+  floatNInf  :: SMTFloatPrecision -> v
+
+  floatNeg  :: v -> v
+  floatAbs  :: v -> v
+  floatSqrt :: RoundingMode -> v -> v
+
+  floatAdd :: RoundingMode -> v -> v -> v
+  floatSub :: RoundingMode -> v -> v -> v
+  floatMul :: RoundingMode -> v -> v -> v
+  floatDiv :: RoundingMode -> v -> v -> v
+  floatRem :: v -> v -> v
+  floatMin :: v -> v -> v
+  floatMax :: v -> v -> v
+
+  floatFMA :: RoundingMode -> v -> v -> v -> v
+
+  floatEq   :: v -> v -> v
+  floatFpEq :: v -> v -> v
+  floatLe   :: v -> v -> v
+  floatLt   :: v -> v -> v
+
+  floatIsNaN      :: v -> v
+  floatIsInf      :: v -> v
+  floatIsZero     :: v -> v
+  floatIsPos      :: v -> v
+  floatIsNeg      :: v -> v
+  floatIsSubnorm  :: v -> v
+  floatIsNorm     :: v -> v
+
+  floatCast       :: SMTFloatPrecision -> RoundingMode -> v -> v
+  floatFromBinary :: SMTFloatPrecision -> v -> v
+  bvToFloat       :: SMTFloatPrecision -> RoundingMode -> v -> v
+  sbvToFloat      :: SMTFloatPrecision -> RoundingMode -> v -> v
+  realToFloat     :: SMTFloatPrecision -> RoundingMode -> v -> v
+  floatToBV       :: Integer -> RoundingMode -> v -> v
+  floatToSBV      :: Integer -> RoundingMode -> v -> v
+  floatToReal     :: v -> v
+
   -- | 'arrayUpdate a i v' returns an array that contains value 'v' at
   -- index 'i', and the same value as in 'a' at every other index.
   arrayUpdate :: v -> [v] -> v -> v
@@ -476,6 +534,9 @@ term_app o args = T (app o (renderTerm <$> args))
 
 bin_app :: Builder -> Term h -> Term h -> Term h
 bin_app o x y = term_app o [x,y]
+
+un_app :: Builder -> Term h -> Term h
+un_app o x = term_app o [x]
 
 ------------------------------------------------------------------------
 -- SMTExpr
@@ -852,6 +913,7 @@ typeMapNoFunction conn tp0 = do
   case tp0 of
     BaseBoolRepr -> Right $! BoolTypeMap
     BaseBVRepr w -> Right $! BVTypeMap w
+    BaseFloatRepr fpp -> Right $! FloatTypeMap fpp
     BaseRealRepr -> Right $! RealTypeMap
     BaseNatRepr  -> Right $! NatTypeMap
     BaseIntegerRepr -> Right $! IntegerTypeMap
@@ -872,22 +934,18 @@ typeMapNoFunction conn tp0 = do
 getBaseSMT_Type :: ExprBoundVar t tp -> SMTCollector t h (TypeMap tp)
 getBaseSMT_Type v = do
   conn <- asks scConn
-  let nm = show (bvarName v)
+  let errMsg typename =
+        show
+          $   text (show (bvarName v))
+          <+> text "is a"
+          <+> text typename
+          <+> text "variable, and we do not support this with"
+          <+> text (smtWriterName conn ++ ".")
   case typeMap conn (bvarType v) of
-    Left StringTypeUnsupported -> do
-      fail $ show $ text nm
-        <+> text "is a string variable, and we do not support this with"
-        <+> text (smtWriterName conn ++ ".")
-    Left ComplexTypeUnsupported -> do
-      fail $ show $ text nm
-        <+> text "is a complex variable, and we do not support this with"
-        <+> text (smtWriterName conn ++ ".")
-    Left ArrayUnsupported -> do
-      fail $ show $ text nm
-        <+> text "is an array variable, and we do not support this with"
-        <+> text (smtWriterName conn ++ ".")
-    Right smtType ->
-      return smtType
+    Left  StringTypeUnsupported  -> fail $ errMsg "string"
+    Left  ComplexTypeUnsupported -> fail $ errMsg "complex"
+    Left  ArrayUnsupported       -> fail $ errMsg "array"
+    Right smtType                -> return smtType
 
 -- | Create a fresh bound term from the SMT expression with the given name.
 freshBoundTerm :: TypeMap tp -> Term h -> SMTCollector t h (SMTExpr h tp)
@@ -1534,6 +1592,11 @@ appSMTExpr ae = do
     RealIsInteger r -> do
       rb <- mkBaseExpr r
       freshBoundTerm BoolTypeMap $! realIsInteger rb
+
+    PredToBV p -> do
+      pb <- mkBaseExpr p
+      freshBoundTerm (BVTypeMap (knownNat @1)) $
+        ite pb (bvTerm (knownNat @1) 1) (bvTerm (knownNat @1) 0)
     BVTestBit n xe -> do
       x <- mkBaseExpr xe
       let this_bit = bvExtract (bvWidth xe) (toInteger n) 1 x
@@ -1588,11 +1651,11 @@ appSMTExpr ae = do
       x <- mkBaseExpr xe
       y <- mkBaseExpr ye
 
-      freshBoundTerm NatTypeMap (intMod x y)
+      freshBoundTerm IntegerTypeMap (intMod x y)
 
     IntAbs xe -> do
       x <- mkBaseExpr xe
-      freshBoundTerm NatTypeMap (intAbs x)
+      freshBoundTerm IntegerTypeMap (intAbs x)
 
     IntDivisible xe k -> do
       x <- mkBaseExpr xe
@@ -1607,6 +1670,16 @@ appSMTExpr ae = do
       y <- mkBaseExpr ye
 
       freshBoundTerm NatTypeMap (intDiv x y)
+
+    NatMod xe ye -> do
+      case ye of
+        SemiRingLiteral SemiRingNat _ _ -> return ()
+        _ -> checkNonlinearSupport i
+
+      x <- mkBaseExpr xe
+      y <- mkBaseExpr ye
+
+      freshBoundTerm NatTypeMap (intMod x y)
 
     ------------------------------------------
     -- Real operations.
@@ -1841,6 +1914,139 @@ appSMTExpr ae = do
       x <- mkExpr xe
       y <- mkExpr ye
       freshBoundTerm (smtExprType x) $ bvXor (asBase x) (asBase y)
+
+    ------------------------------------------
+    -- Floating-point operations
+    FloatPZero fpp ->
+      freshBoundTerm (FloatTypeMap fpp) $ floatPZero $ asSMTFloatPrecision fpp
+    FloatNZero fpp ->
+      freshBoundTerm (FloatTypeMap fpp) $ floatNZero $ asSMTFloatPrecision fpp
+    FloatNaN fpp ->
+      freshBoundTerm (FloatTypeMap fpp) $ floatNaN $ asSMTFloatPrecision fpp
+    FloatPInf fpp ->
+      freshBoundTerm (FloatTypeMap fpp) $ floatPInf $ asSMTFloatPrecision fpp
+    FloatNInf fpp ->
+      freshBoundTerm (FloatTypeMap fpp) $ floatNInf $ asSMTFloatPrecision fpp
+    FloatNeg fpp x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $ floatNeg xe
+    FloatAbs fpp x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $ floatAbs xe
+    FloatSqrt fpp r x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $ floatSqrt r xe
+    FloatAdd fpp r x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fpp) $ floatAdd r xe ye
+    FloatSub fpp r x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fpp) $ floatSub r xe ye
+    FloatMul fpp r x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fpp) $ floatMul r xe ye
+    FloatDiv fpp r x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fpp) $ floatDiv r xe ye
+    FloatRem fpp x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fpp) $ floatRem xe ye
+    FloatMin fpp x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fpp) $ floatMin xe ye
+    FloatMax fpp x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fpp) $ floatMax xe ye
+    FloatFMA fpp r x y z -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      ze <- mkBaseExpr z
+      freshBoundTerm (FloatTypeMap fpp) $ floatFMA r xe ye ze
+    FloatEq x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatEq xe ye
+    FloatFpEq x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatFpEq xe ye
+    FloatFpNe x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $
+        notExpr (floatEq xe ye)
+        .&& notExpr (floatIsNaN xe)
+        .&& notExpr (floatIsNaN ye)
+    FloatLe x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatLe xe ye
+    FloatLt x y -> do
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm BoolTypeMap $ floatLt xe ye
+    FloatIsNaN x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsNaN xe
+    FloatIsInf x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsInf xe
+    FloatIsZero x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsZero xe
+    FloatIsPos x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsPos xe
+    FloatIsNeg x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsNeg xe
+    FloatIsSubnorm x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsSubnorm xe
+    FloatIsNorm x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm BoolTypeMap $ floatIsNorm xe
+    FloatIte fpp c x y -> do
+      ce <- mkBaseExpr c
+      xe <- mkBaseExpr x
+      ye <- mkBaseExpr y
+      freshBoundTerm (FloatTypeMap fpp) $ ite ce xe ye
+    FloatCast fpp r x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $
+        floatCast (asSMTFloatPrecision fpp) r xe
+    FloatFromBinary fpp x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $
+        floatFromBinary (asSMTFloatPrecision fpp) xe
+    BVToFloat fpp r x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $
+        bvToFloat (asSMTFloatPrecision fpp) r xe
+    SBVToFloat fpp r x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $
+        sbvToFloat (asSMTFloatPrecision fpp) r xe
+    RealToFloat fpp r x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (FloatTypeMap fpp) $
+        realToFloat (asSMTFloatPrecision fpp) r xe
+    FloatToBV w r x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (BVTypeMap w) $ floatToBV (natValue w) r xe
+    FloatToSBV w r x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm (BVTypeMap w) $ floatToSBV (natValue w) r xe
+    FloatToReal x -> do
+      xe <- mkBaseExpr x
+      freshBoundTerm RealTypeMap $ floatToReal xe
 
     ------------------------------------------------------------------------
     -- Array Operations
@@ -2214,6 +2420,10 @@ data SMTEvalFunctions h
                       , smtEvalReal :: Term h -> IO Rational
                         -- ^ Given a SMT term for real value, this should
                         -- return a rational value for that term.
+                      , smtEvalFloat :: Term h -> IO Integer
+                        -- ^ Given a SMT term for a floating-point value,
+                        -- this returns an unsigned integer with the bits
+                        -- of the IEEE-754 representation.
                       , smtEvalBvArray :: Maybe (SMTEvalBVArrayWrapper h)
                         -- ^ If 'Just', a function to read arrays whose domain
                         -- and codomain are both bitvectors. If 'Nothing',
@@ -2255,6 +2465,7 @@ getSolverVal :: forall h tp. SupportTermOps (Term h)
 getSolverVal smtFns BoolTypeMap   tm = smtEvalBool smtFns tm
 getSolverVal smtFns (BVTypeMap w) tm = smtEvalBV smtFns (widthVal w) tm
 getSolverVal smtFns RealTypeMap   tm = smtEvalReal smtFns tm
+getSolverVal smtFns (FloatTypeMap _) tm = smtEvalFloat smtFns tm
 getSolverVal smtFns NatTypeMap    tm = do
   r <- smtEvalReal smtFns tm
   when (denominator r /= 1 && numerator r < 0) $ do
