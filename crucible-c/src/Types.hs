@@ -6,8 +6,7 @@ import Lang.Crucible.Simulator.RegMap(RegValue)
 import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
 import Lang.Crucible.Simulator.ExecutionTree(SimContext)
 import Lang.Crucible.LLVM.Extension(LLVM,ArchWidth)
-import Lang.Crucible.LLVM.MemModel(LLVMPointerType)
-import Lang.Crucible.LLVM.Types(HasPtrWidth)
+import Lang.Crucible.LLVM.MemModel(LLVMPointerType, HasPtrWidth)
 
 import Model
 

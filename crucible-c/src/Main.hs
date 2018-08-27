@@ -39,13 +39,13 @@ import Lang.Crucible.Simulator
   , initSimContext, initSimState, defaultAbortHandler
   )
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
+import Lang.Crucible.LLVM.MemModel(withPtrWidth)
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, initializeMemory
         , transContext, cfgMap, initMemoryCFG
         , LLVMContext
         , ModuleCFGMap
         )
-import Lang.Crucible.LLVM.Types(withPtrWidth)
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
 import What4.ProgramLoc

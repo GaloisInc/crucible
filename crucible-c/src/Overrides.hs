@@ -52,11 +52,9 @@ import Lang.Crucible.LLVM.Translation
         , symbolMap
         , llvmMemVar
         )
-import Lang.Crucible.LLVM.Types(HasPtrWidth)
-
 import Lang.Crucible.LLVM.MemModel
-  (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString)
-import Lang.Crucible.LLVM.MemModel.Pointer(llvmPointer_bv, projectLLVM_bv)
+  (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth,
+   llvmPointer_bv, projectLLVM_bv)
 
 import Error
 import Types
