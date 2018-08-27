@@ -1,16 +1,70 @@
 Name:          crucible-jvm
-Version:       0.1
+Version:       0.2
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc. 2018
-Maintainer:    huffman@galois.com
+Maintainer:    huffman@galois.com, sweirich@galois.com
 License:       BSD3
 License-file:  LICENSE
 Build-type:    Simple
-Cabal-version: >= 1.9.2
+Cabal-version: >= 1.10
 Category:      Language
 Synopsis:      Support for translating and executing JVM code in Crucible
 
-library
+executable crucible-jvm
+
+  hs-source-dirs: src
+  main-is: Main.hs
+
+  other-modules:
+                Types,
+                Error,
+                Goal,
+                Options,
+                Log,
+                ProgressBar,
+                Report,
+                Model,
+                Lang.Crucible.JVM.Types,
+                Lang.Crucible.JVM.Generator,
+                Lang.Crucible.JVM.Translation,
+                Lang.Crucible.JVM.ClassRefs,
+                Lang.Crucible.JVM.Class,
+                Lang.Crucible.JVM.Overrides,
+                Lang.JVM.Codebase
+
+  build-depends:
+    base >= 4 && < 5,
+    aig,
+    ansi-wl-pprint,
+    array,
+    containers,
+    crucible,
+    directory,
+    filepath,
+    haskeline >= 0.7,
+    lens,
+    mtl >= 2.1,
+    parameterized-utils >= 1.0 && < 1.1,
+    pretty >= 1.1,
+    split >= 0.2,
+    text,
+    transformers >= 0.3,
+    transformers-compat,
+    vector >= 0.7,
+    jvm-parser >= 0.3,
+    what4 >= 0.4,
+    crucible-jvm,
+    ansi-terminal,
+    what4-abc
+
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+               
+library 
+        
   build-depends:
     base >= 4 && < 5,
     aig,
@@ -31,14 +85,22 @@ library
     transformers >= 0.3,
     transformers-compat,
     vector >= 0.7,
-    what4 >= 0.4
+    what4 >= 0.4,
+    what4-abc
 
   hs-source-dirs: src
 
   exposed-modules:
+    Lang.Crucible.JVM.Types
+    Lang.Crucible.JVM.Generator
     Lang.Crucible.JVM.Translation
-
+    Lang.Crucible.JVM.ClassRefs
+    Lang.Crucible.JVM.Class
+    Lang.Crucible.JVM.Overrides
+    Lang.JVM.Codebase
   other-modules:
 
   ghc-options: -Wall -Werror
   ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
+

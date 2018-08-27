@@ -1,0 +1,11 @@
+documentation: True
+
+packages:
+    crucible-jvm.cabal
+    ../what4
+    ../what4-abc
+    ../crucible
+    ../dependencies/abcBridge	
+    ../dependencies/jvm-parser
+    ../dependencies/parameterized-utils
+
