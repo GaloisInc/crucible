@@ -94,7 +94,7 @@ import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Operations
                    ( runGenericErrorHandler, runErrorHandler, runAbortHandler
-                   , returnValue, callFn, runOverride, continue, ResolvedCall(..), resolveCall )
+                   , returnValue, callFunction )
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MonadVerbosity
@@ -333,12 +333,7 @@ callFnVal ::
   OverrideSim p sym ext rtp a r (RegEntry sym ret)
 callFnVal cl args =
   Sim $ StateContT $ \c -> runReaderT $
-    do bindings <- view (stateContext.functionBindings)
-       case resolveCall bindings cl args of
-         OverrideCall o f ->
-           withReaderT (stateTree %~ callFn (ReturnToOverride c) (OF f)) (runOverride o)
-         CrucibleCall f ->
-           withReaderT (stateTree %~ callFn (ReturnToOverride c) (MF f)) continue
+    callFunction cl args (ReturnToOverride c)
 
 -- | Call a function with the given arguments.  Provide the arguments as an
 --   @Assignment@ instead of as a @RegMap@.
@@ -364,7 +359,7 @@ callCFG ::
 callCFG cfg args =
   Sim $ StateContT $ \c -> runReaderT $
     let f = mkCallFrame cfg (postdomInfo cfg) args in
-    withReaderT (stateTree %~ callFn (ReturnToOverride c) (MF f)) continue
+    ReaderT $ return . CallState (ReturnToOverride c) (CrucibleCall (cfgEntryBlockID cfg) f)
 
 -- | Add a failed assertion.  This aborts execution along the current
 -- evaluation path, and adds a proof obligation ensuring that we can't get here

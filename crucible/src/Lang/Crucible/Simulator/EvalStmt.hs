@@ -279,16 +279,7 @@ stepStmt verb stmt rest =
        CallHandle ret_type fnExpr _types arg_exprs ->
          do hndl <- evalReg fnExpr
             args <- evalArgs arg_exprs
-            bindings <- view (stateContext.functionBindings)
-            case resolveCall bindings hndl args of
-              OverrideCall o f ->
-                withReaderT
-                  (stateTree %~ callFn (ReturnToCrucible ret_type rest) (OF f))
-                  (runOverride o)
-              CrucibleCall f ->
-                withReaderT
-                  (stateTree %~ callFn (ReturnToCrucible ret_type rest) (MF f))
-                  continue
+            callFunction hndl args (ReturnToCrucible ret_type rest)
 
        Print e ->
          do msg <- evalReg e
@@ -373,25 +364,16 @@ stepTerm _ (VariantElim ctx e cases) =
 --
 -- If there _are_ pending merges we instead treat the tail call as normal
 -- call-then-return sequence, pushing a new call frame on the top of our
--- current context (rather than replacing it).  The tailReturnToCrucible
--- function is invoked when the tail-called function returns; it immediately
--- invokes another return in the other caller, which is still present on the
--- stack in this scenerio.
-
+-- current context (rather than replacing it).  The TailReturnToCrucible
+-- return handler tells the simulator to immediately invoke another return
+-- in the caller, which is still present on the stack in this scenerio.
 stepTerm _ (TailCall fnExpr _types arg_exprs) =
-  do bindings <- view (stateContext.functionBindings)
-     cl   <- evalReg fnExpr
+  do cl   <- evalReg fnExpr
      args <- evalArgs arg_exprs
-     t <- view stateTree
-     case resolveCall bindings cl args of
-       OverrideCall o f ->
-         case replaceTailFrame t (OF f) of
-           Just t' -> withReaderT (stateTree .~ t') (runOverride o)
-           Nothing -> withReaderT (stateTree %~ callFn TailReturnToCrucible (OF f)) (runOverride o)
-       CrucibleCall f ->
-         case replaceTailFrame t (MF f) of
-           Just t' -> withReaderT (stateTree .~ t') continue
-           Nothing -> withReaderT (stateTree %~ callFn TailReturnToCrucible (MF f)) continue
+     ctx <- view (stateTree.actContext)
+     case unwindContext ctx of
+       Just vfv -> tailCallFunction cl args vfv
+       Nothing  -> callFunction cl args TailReturnToCrucible
 
 stepTerm _ (ErrorStmt msg) =
   do msg' <- evalReg msg
@@ -414,7 +396,7 @@ checkConsTerm verb =
 
         case cf^.frameStmts of
           ConsStmt _ _ _ -> stepBasicBlock verb
-          TermStmt _ _ -> continue
+          TermStmt _ _ -> continue (RunBlockEnd (cf^.frameBlockID))
 
 -- | Main evaluation operation for running a single step of
 --   basic block evalaution.
@@ -480,8 +462,18 @@ singleStepCrucible verb exst =
     ControlTransferState tgt st ->
       runReaderT (performIntraFrameMerge tgt) st
 
-    RunningState st ->
+    CallState retHandler frm st ->
+      runReaderT (performFunctionCall retHandler frm) st
+
+    TailCallState vfv frm st ->
+      runReaderT (performTailCall vfv frm) st
+
+    ReturnState fnm vfv ret st ->
+      runReaderT (performReturn fnm vfv ret) st
+
+    RunningState _runTgt st ->
       runReaderT (stepBasicBlock verb) st
+
 
 -- | Given a 'SimState' and an execution continuation,
 --   apply the continuation and execute the resulting
@@ -534,6 +526,15 @@ executeCrucible st0 cont =
         ControlTransferState tgt st' ->
           loop verbOpt st' (performIntraFrameMerge tgt)
 
-        RunningState st' ->
+        CallState retHandler frm st' ->
+          loop verbOpt st' (performFunctionCall retHandler frm)
+
+        TailCallState vfv frm st' ->
+          loop verbOpt st' (performTailCall vfv frm)
+
+        ReturnState fnm vfv ret st' ->
+          loop verbOpt st' (performReturn fnm vfv ret)
+
+        RunningState _runTgt st' ->
           do verb <- fromInteger <$> getOpt verbOpt
              loop verbOpt st' (stepBasicBlock verb)

@@ -62,6 +62,8 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ExecResult(..)
   , ExecState(..)
   , ExecCont
+  , RunningStateInfo(..)
+  , ResolvedCall(..)
 
     -- * Simulator context trees
     -- ** Main context data structures
@@ -253,8 +255,8 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
    pp (SomeFrame (MF f)) =
       PP.text "In" PP.<+> PP.text (show (frameHandle f)) PP.<+>
       PP.text "at" PP.<+> PP.pretty (plSourceLoc (frameProgramLoc f))
-   pp (SomeFrame (RF _v)) =
-      PP.text ("While returning value")
+   pp (SomeFrame (RF nm _v)) =
+      PP.text "While returning value from" PP.<+> PP.text (show nm)
 
 
 ------------------------------------------------------------------------
@@ -293,6 +295,19 @@ partialValue f (TotalRes x) = TotalRes <$> f x
 partialValue f (PartialRes p x r) = (\y -> PartialRes p y r) <$> f x
 {-# INLINE partialValue #-}
 
+-- | The result of resolving a function call.
+data ResolvedCall p sym ext ret where
+  -- | A resolved function call to an override.
+  OverrideCall ::
+    !(Override p sym ext args ret) ->
+    !(OverrideFrame sym ret args) ->
+    ResolvedCall p sym ext ret
+
+  -- | A resolved function call to a Crucible function.
+  CrucibleCall ::
+    !(BlockID blocks args) ->
+    !(CallFrame sym ext blocks ret args) ->
+    ResolvedCall p sym ext ret
 
 ------------------------------------------------------------------------
 -- ExecResult
@@ -305,6 +320,7 @@ data ExecResult p sym ext (r :: *)
      -- | All execution paths resulted in an abort condition, and there is
      --   no result to return.
    | AbortedResult  !(SimContext p sym ext) !(AbortedResult sym ext)
+
 
 -----------------------------------------------------------------------
 -- ExecState
@@ -328,11 +344,46 @@ data ExecState p sym ext (rtp :: *)
          !(SimState p sym ext rtp f a)
            {- State of the simulator prior to causing the abort condition -}
 
+   {- | A call state is entered when we are about to make a function call to
+        the included call frame, which has already resolved the implementation
+        and arguments to the function.
+    -}
+   | forall f a ret.
+       CallState
+         !(ReturnHandler ret p sym ext rtp f a)
+         !(ResolvedCall p sym ext ret)
+         !(SimState p sym ext rtp f a)
+
+   {- | A tail-call state is entered when we are about to make a function call to
+        the included call frame, and this is the last action we need to take in the
+        current caller. Note, we can only enter a tail-call state if there are no
+        pending merge points in the caller.  This means that sometimes calls
+        that appear to be in tail-call position may nonetheless have to be treated
+        as ordinary calls.
+    -}
+   | forall f a ret.
+       TailCallState
+         !(ValueFromValue p sym ext rtp ret) {- Calling context to return to -}
+         !(ResolvedCall p sym ext ret)       {- Function to call -}
+         !(SimState p sym ext rtp f a)
+
+   {- | A return state is entered after the final return value of a function
+        is computed, and just before we resolve injecting the return value
+        back into the caller's context.
+    -}
+   | forall f a ret.
+       ReturnState
+         !FunctionName {- Name of the function we are returning from -}
+         !(ValueFromValue p sym ext rtp ret) {- Caller's context -}
+         !(PartialResult sym ext (RegEntry sym ret)) {- Return value -}
+         !(SimState p sym ext rtp f a)
+
    {- | A running state indicates the included 'SimState' is ready to enter
         and execute a Crucible basic block, or to resume a basic block
         from a call site. -}
    | forall blocks r args.
        RunningState
+         !(RunningStateInfo blocks args)
          !(SimState p sym ext rtp (CrucibleLang blocks r) ('Just args))
 
    {- | A symbolic branch state indicates that the execution needs to
@@ -343,10 +394,10 @@ data ExecState p sym ext (rtp :: *)
     -}
    | forall blocks r args postdom_args.
        SymbolicBranchState
-         !(Pred sym)
-         !(SomePausedFrame p sym ext rtp blocks r)
-         !(SomePausedFrame p sym ext rtp blocks r)
-         !(CrucibleBranchTarget blocks postdom_args)
+         !(Pred sym) {- predicate to branch on -}
+         !(SomePausedFrame p sym ext rtp blocks r) {- true path-}
+         !(SomePausedFrame p sym ext rtp blocks r) {- false path -}
+         !(CrucibleBranchTarget blocks postdom_args) {- merge point -}
          !(SimState p sym ext rtp (CrucibleLang blocks r) ('Just args))
 
    {- | An override state indicates the included 'SimState' is prepared to
@@ -376,6 +427,19 @@ data ExecState p sym ext (rtp :: *)
 type ExecCont p sym ext r f a =
   ReaderT (SimState p sym ext r f a) IO (ExecState p sym ext r)
 
+-- | Some additional information attached to a @RunningState@
+--   that indicates how we got to this running state.
+data RunningStateInfo blocks args
+    -- | This indicates that we are now in a @RunningState@ because
+    --   we transfered execution to the start of a basic block.
+  = RunBlockStart !(BlockID blocks args)
+    -- | This indicates that we are in a @RunningState@ because we
+    --   reached the terminal statement of a basic block.
+  | RunBlockEnd !(Some (BlockID blocks))
+    -- | This indicates that we are in a @RunningState@ because we
+    --   returned from calling the named function.
+  | RunReturnFrom !FunctionName
+
 -- | A 'ResolvedJump' is a block label together with a collection of
 --   actual arguments that are expected by that block.  These data
 --   are sufficent to actually transfer control to the named label.
@@ -394,12 +458,13 @@ data ControlResumption p sym ext rtp blocks r args where
        no special work needs to be done, simply begin executing
        statements of the basic block. -}
   ContinueResumption ::
+    !(BlockID blocks args) {- Block ID we are transferring to -} ->
     ControlResumption p sym ext rtp blocks r args
 
   {- | When resuming with a 'CheckMergeResumption', we must check
        for the presence of pending merge points before resuming. -}
   CheckMergeResumption ::
-    BlockID blocks args {- Block ID we are transferring to -} ->
+    !(BlockID blocks args) {- Block ID we are transferring to -} ->
     ControlResumption p sym ext root blocks r args
 
   {- | When resuming a paused frame with a 'SwitchResumption', we must
@@ -549,7 +614,7 @@ data ValueFromFrame p sym ext (ret :: *) (f :: *)
   {- | When we are finished with this branch we should return from the function. -}
   | VFFEnd
 
-      !(ValueFromValue p sym ext ret (RegEntry sym (FrameRetType f)))
+      !(ValueFromValue p sym ext ret (FrameRetType f))
 
 
 -- | Data about wether the surrounding context is expecting a merge to
@@ -581,11 +646,11 @@ The type parameters have the following meanings:
 
   * @top_return@ is the return type of the top-most call on the stack.
 -}
-data ValueFromValue p sym ext (ret :: *) (top_return :: *)
+data ValueFromValue p sym ext (ret :: *) (top_return :: CrucibleType)
 
   {- | 'VFVCall' denotes a call site in the outer context, and represents
        the point to which a function higher on the stack will eventually return. -}
-  = forall args caller new_args.
+  = forall args caller. -- new_args.
     VFVCall
 
     !(ValueFromFrame p sym ext ret caller)
@@ -594,7 +659,7 @@ data ValueFromValue p sym ext (ret :: *) (top_return :: *)
     !(SimFrame sym ext caller args)
     -- The frame of the caller.
 
-    !(ReturnHandler top_return p sym ext ret caller args new_args)
+    !(ReturnHandler top_return p sym ext ret caller args)
     -- How to modify the current sim frame and resume execution
     -- when we obtain the return value
 
@@ -608,7 +673,7 @@ data ValueFromValue p sym ext (ret :: *) (top_return :: *)
       !(AbortedResult sym ext)
 
   {- | The top return value, indicating the program termination point. -}
-  | (ret ~ top_return) => VFVEnd
+  | (ret ~ RegEntry sym top_return) => VFVEnd
 
 
 
@@ -689,17 +754,15 @@ The type parameters have the following meanings:
   * @f@ is the stack type of the caller
 
   * @args@ is the type of the local variables in scope prior to the call
-
-  * @new_args@ is the type of the local variables in scope after the call completes
 -}
-data ReturnHandler top_return p sym ext root f args new_args where
+data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
   {- | The 'ReturnToOverride' constructor indicates that the calling
        context is primitive code written directly in Haskell.
    -}
   ReturnToOverride ::
-    (top_return -> SimState p sym ext root (OverrideLang r) ('Just args) -> IO (ExecState p sym ext root))
+    (RegEntry sym ret -> SimState p sym ext root (OverrideLang r) ('Just args) -> IO (ExecState p sym ext root))
       {- Remaining override code to run when the return value becomse available -} ->
-    ReturnHandler top_return p sym ext root (OverrideLang r) ('Just args) ('Just args)
+    ReturnHandler ret p sym ext root (OverrideLang r) ('Just args)
 
   {- | The 'ReturnToCrucible' constructor indicates that the calling context is an
        ordinary function call position from within a Crucible basic block.
@@ -709,8 +772,7 @@ data ReturnHandler top_return p sym ext root f args new_args where
   ReturnToCrucible ::
     TypeRepr ret                       {- Type of the return value -} ->
     StmtSeq ext blocks r (ctx ::> ret) {- Remaining statements to execute -} ->
-    ReturnHandler (RegEntry sym ret)
-      p sym ext root (CrucibleLang blocks r) ('Just ctx) ('Just (ctx ::> ret))
+    ReturnHandler ret p sym ext root (CrucibleLang blocks r) ('Just ctx)
 
   {- | The 'TailReturnToCrucible' constructor indicates that the calling context is a
        tail call position from the end of a Crucible basic block.  Upon receiving
@@ -718,8 +780,8 @@ data ReturnHandler top_return p sym ext root f args new_args where
        context as well.
   -}
   TailReturnToCrucible ::
-    ReturnHandler (RegEntry sym r)
-      p sym ext root (CrucibleLang blocks r) ctx 'Nothing
+    (ret ~ r) =>
+    ReturnHandler ret p sym ext root (CrucibleLang blocks r) ctx
 
 
 ------------------------------------------------------------------------

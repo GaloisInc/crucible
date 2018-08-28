@@ -10,8 +10,8 @@ Cabal-version: >= 1.10
 Category:      Language
 Synopsis:      A verification tool for C programs.
 Description:
-  This tool (and corresponding C library) are inteded for writing Crucible
-  specifications by using C as the specificaiton language.
+  This tool (and corresponding C library) are intended for writing Crucible
+  specifications by using C as the specification language.
 
 
 executable crucible-c
