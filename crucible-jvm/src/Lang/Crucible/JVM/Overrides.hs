@@ -89,6 +89,7 @@ import           What4.ProgramLoc (Position(InternalPos))
 import           What4.Interface (IsExprBuilder)
 import           What4.FunctionName (FunctionName(..))
 import qualified What4.Interface                       as W4
+import qualified What4.InterpretedFloatingPoint        as W4
 import qualified What4.Partial                         as W4
 
 import           What4.Utils.MonadST (liftST)
@@ -368,7 +369,10 @@ instance ToText (Maybe CObject) where
 class Concretize (a :: CrucibleType) where
   
   type Concrete a
-  concretize :: (IsBoolSolver sym, W4.IsSymExprBuilder sym) 
+  concretize :: (IsBoolSolver sym, W4.IsSymExprBuilder sym,
+                 W4.IsInterpretedFloatSymExprBuilder sym,
+                 W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+                 W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType)
              => C.RegValue' sym a
              -> C.OverrideSim p sym JVM rtp args ret (Maybe (Concrete a))
 
@@ -497,7 +501,9 @@ showFloat e = case W4.asRational e of
 -- | Print out an object value (if it is concrete)
 -- For now: only String objects
 --
-showRef :: (IsBoolSolver sym, W4.IsSymExprBuilder sym) =>
+showRef :: (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
+            W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+            W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
    W4.PartExpr (W4.SymExpr sym BaseBoolType) (C.MuxTree sym (RefCell JVMObjectType)) 
    -> C.OverrideSim p sym JVM rtp args ret String
 showRef pe = do
@@ -509,7 +515,10 @@ showRef pe = do
 
 -- | Convert a register value to a string
 -- Won't necessarily look like a standard types
-showReg :: forall sym arg p rtp args ret. (IsSymInterface sym) =>
+showReg :: forall sym arg p rtp args ret. 
+           (IsSymInterface sym,
+            W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+            W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
   J.Type -> TypeRepr arg ->
   C.RegValue sym arg -> C.OverrideSim p sym JVM rtp args ret String
 showReg jty repr arg
@@ -518,7 +527,7 @@ showReg jty repr arg
       
   | Just Refl <- testEquality repr floatRepr
   = return $ showFloat arg
-      
+
   | Just Refl <- testEquality repr intRepr
   = return $ showInt jty arg
   
@@ -531,19 +540,28 @@ showReg jty repr arg
   | otherwise
   = error "Internal error: invalid regval type"
 
-printlnMthd :: forall sym arg p. (IsSymInterface sym) => 
+printlnMthd :: forall sym arg p.
+               (IsSymInterface sym,
+                W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+                W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
   String -> TypeRepr arg -> JVMOverride p sym
 printlnMthd =
   let showNewline = True in printStream "println" showNewline
 
-printMthd :: forall sym arg p. (IsSymInterface sym) => 
+printMthd :: forall sym arg p.
+             (IsSymInterface sym,
+              W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+              W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
   String -> TypeRepr arg -> JVMOverride p sym
 printMthd = let showNewline = False in printStream "print" showNewline
 
 -- Should we print to the print handle in the simulation context?
 -- or just to stdout
-printStream :: forall sym arg p. (IsSymInterface sym) => String -> Bool ->
-  String -> TypeRepr arg -> JVMOverride p sym
+printStream :: forall sym arg p.
+               (IsSymInterface sym,
+                W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+                W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
+               String -> Bool -> String -> TypeRepr arg -> JVMOverride p sym
 printStream name showNewline descr t =
   let isStatic = False in
   let mk = J.makeMethodKey name descr in
@@ -630,7 +648,11 @@ isArray_override =
 
 
 
-stdOverrides :: (IsSymInterface sym) => [JVMOverride p sym]
+stdOverrides ::
+  (IsSymInterface sym,
+   W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+   W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
+  [JVMOverride p sym]
 stdOverrides = 
    [ -- printlnMthd "()V"   UnitRepr  -- TODO: methods that take no arguments?
       printlnMthd "(Z)V"  intRepr

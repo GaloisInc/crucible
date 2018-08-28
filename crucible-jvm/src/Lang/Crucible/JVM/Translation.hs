@@ -88,6 +88,7 @@ import qualified Lang.Crucible.Analysis.Postdom        as C
 import           What4.ProgramLoc (Position(InternalPos))
 import           What4.FunctionName 
 import qualified What4.Interface                       as W4
+import qualified What4.InterpretedFloatingPoint        as W4
 import qualified What4.Config                          as W4
 
 import           What4.Utils.MonadST (liftST)
@@ -1259,28 +1260,28 @@ returnInstr pop =
 -- * Basic Value Operations
 
 floatFromDouble :: JVMDouble s -> JVMFloat s
-floatFromDouble d = App (FloatCast SingleFloatRepr d)
+floatFromDouble d = App (FloatCast SingleFloatRepr RNE d)
 
 intFromDouble :: JVMDouble s -> JVMInt s
-intFromDouble d = App (FloatToSBV w32 d)
+intFromDouble d = App (FloatToSBV w32 RTZ d)
 
 longFromDouble :: JVMDouble s -> JVMLong s
-longFromDouble d = App (FloatToSBV w64 d)
+longFromDouble d = App (FloatToSBV w64 RTZ d)
 
 doubleFromFloat :: JVMFloat s -> JVMDouble s
-doubleFromFloat f = App (FloatCast DoubleFloatRepr f)
+doubleFromFloat f = App (FloatCast DoubleFloatRepr RNE f)
 
 intFromFloat :: JVMFloat s -> JVMInt s
-intFromFloat f = App (FloatToSBV w32 f)
+intFromFloat f = App (FloatToSBV w32 RTZ f)
 
 longFromFloat :: JVMFloat s -> JVMLong s
-longFromFloat f = App (FloatToSBV w64 f)
+longFromFloat f = App (FloatToSBV w64 RTZ f)
 
 doubleFromInt :: JVMInt s -> JVMDouble s
-doubleFromInt i = App (FloatFromSBV DoubleFloatRepr i)
+doubleFromInt i = App (FloatFromSBV DoubleFloatRepr RNE i)
 
 floatFromInt :: JVMInt s -> JVMFloat s
-floatFromInt i = App (FloatFromSBV SingleFloatRepr i)
+floatFromInt i = App (FloatFromSBV SingleFloatRepr RNE i)
 
 -- | TODO: double check this
 longFromInt :: JVMInt s -> JVMLong s
@@ -1288,10 +1289,10 @@ longFromInt x = App (BVSext w64 w32 x)
 
 
 doubleFromLong :: JVMLong s -> JVMDouble s
-doubleFromLong l = App (FloatFromSBV DoubleFloatRepr l)
+doubleFromLong l = App (FloatFromSBV DoubleFloatRepr RNE l)
 
 floatFromLong :: JVMLong s -> JVMFloat s
-floatFromLong l = App (FloatFromSBV SingleFloatRepr l)
+floatFromLong l = App (FloatFromSBV SingleFloatRepr RNE l)
 
 intFromLong :: JVMLong s -> JVMInt s
 intFromLong l = App (BVTrunc w32 w64 l)
@@ -1336,10 +1337,10 @@ lNeg e = ifte (App $ BVEq knownRepr e minLong)
 
 
 dAdd, dSub, dMul, dDiv, dRem :: JVMDouble s -> JVMDouble s -> JVMDouble s
-dAdd e1 e2 = App (FloatAdd DoubleFloatRepr e1 e2)
-dSub e1 e2 = App (FloatSub DoubleFloatRepr e1 e2)
-dMul e1 e2 = App (FloatMul DoubleFloatRepr e1 e2)
-dDiv e1 e2 = App (FloatDiv DoubleFloatRepr e1 e2)
+dAdd e1 e2 = App (FloatAdd DoubleFloatRepr RNE e1 e2)
+dSub e1 e2 = App (FloatSub DoubleFloatRepr RNE e1 e2)
+dMul e1 e2 = App (FloatMul DoubleFloatRepr RNE e1 e2)
+dDiv e1 e2 = App (FloatDiv DoubleFloatRepr RNE e1 e2)
 dRem e1 e2 = App (FloatRem DoubleFloatRepr e1 e2)
 
 
@@ -1361,10 +1362,10 @@ dNeg :: JVMDouble s -> JVMDouble s
 dNeg = error "dNeg"
 
 fAdd, fSub, fMul, fDiv, fRem :: JVMFloat s -> JVMFloat s -> JVMFloat s
-fAdd e1 e2 = App (FloatAdd SingleFloatRepr e1 e2)
-fSub e1 e2 = App (FloatSub SingleFloatRepr e1 e2)
-fMul e1 e2 = App (FloatMul SingleFloatRepr e1 e2)
-fDiv e1 e2 = App (FloatDiv SingleFloatRepr e1 e2)
+fAdd e1 e2 = App (FloatAdd SingleFloatRepr RNE e1 e2)
+fSub e1 e2 = App (FloatSub SingleFloatRepr RNE e1 e2)
+fMul e1 e2 = App (FloatMul SingleFloatRepr RNE e1 e2)
+fDiv e1 e2 = App (FloatDiv SingleFloatRepr RNE e1 e2)
 fRem e1 e2 = App (FloatRem SingleFloatRepr e1 e2)
 
 
@@ -1654,7 +1655,9 @@ findAllRefs cb cls = do
 -- * Find the handle for this method
 -- * run the simulator given the handle
 executeCrucibleJVM :: forall ret args sym p cb.
-  (IsBoolSolver sym, W4.IsSymExprBuilder sym, 
+  (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
+   W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+   W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType,
    KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
                    => cb               
                    -> Int               -- ^ Verbosity level
@@ -1736,7 +1739,9 @@ runClassInit halloc ctx name = do
   C.callCFG g' (C.RegMap Ctx.Empty)
   
 -- | Run a Java method in the simulator
-runMethodHandle :: (IsSymInterface sym) => 
+runMethodHandle :: (IsSymInterface sym,
+                    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+                    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
                      sym
                   -> p
                   -> HandleAllocator RealWorld

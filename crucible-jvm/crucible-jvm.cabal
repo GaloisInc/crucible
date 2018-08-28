@@ -62,9 +62,9 @@ executable crucible-jvm
 
   default-language: Haskell2010
 
-               
+
 library 
-        
+
   build-depends:
     base >= 4 && < 5,
     aig,
@@ -85,8 +85,7 @@ library
     transformers >= 0.3,
     transformers-compat,
     vector >= 0.7,
-    what4 >= 0.4,
-    what4-abc
+    what4 >= 0.4
 
   hs-source-dirs: src
 
@@ -100,7 +99,7 @@ library
     Lang.JVM.Codebase
   other-modules:
 
-  ghc-options: -Wall -Werror
+  ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
 

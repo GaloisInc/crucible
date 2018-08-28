@@ -113,39 +113,33 @@ checkClass opts classname =
      ---generateReport opts res
      makeCounterExamples opts res
 
-makeCounterExamples :: Options -> ProvedGoals -> IO ()
-makeCounterExamples opts gs =
-  case gs of
-    AtLoc _ _ gs1 -> makeCounterExamples opts gs1
-    Branch gss    -> mapM_ (makeCounterExamples opts) gss
-    Goal _ (c,_) _ res ->
-      let suff = case plSourceLoc (simErrorLoc c) of
-                   SourcePos _ l _ -> show l
-                   _               -> "unknown"
-          msg = show (simErrorReason c)
-
-      in case res of
-           NotProved (Just m) ->
-             do sayFail "Crux" ("Counter example for " ++ msg)
---                (_prt,dbg) <- buildModelExes opts suff (modelInC m)
---                say "Crux" ("*** debug executable: " ++ dbg)
---                say "Crux" ("*** break on line: " ++ suff)
-           _ -> return ()
-
-
-
-
-
+makeCounterExamples :: Options -> Maybe ProvedGoals -> IO ()
+makeCounterExamples opts = maybe (return ()) go
+  where
+  go gs =
+   case gs of
+     AtLoc _ _ gs1 -> go gs1
+     Branch g1 g2  -> go g1 >> go g2
+     Goal _ (c,_) _ res ->
+       let suff = case plSourceLoc (simErrorLoc c) of
+                    SourcePos _ l _ -> show l
+                    _               -> "unknown"
+           msg = show (simErrorReason c)
+ 
+       in case res of
+            NotProved (Just m) ->
+              do sayFail "Crux" ("Counter example for " ++ msg)
+            _ -> return ()
 
 -- Returns only non-trivial goals
 simulate ::
   Options -> 
   String ->
-  IO ProvedGoals
+  IO (Maybe ProvedGoals)
 simulate opts cname =
   withIONonceGenerator $ \nonceGen ->
   
-  withYicesOnlineBackend nonceGen $ \sym -> do
+  withYicesOnlineBackend nonceGen $ \(sym :: YicesOnlineBackend scope (Flags FloatReal)) -> do
 
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
 
