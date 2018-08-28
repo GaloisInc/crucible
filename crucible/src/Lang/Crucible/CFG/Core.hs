@@ -667,38 +667,29 @@ blockInputCount b = size (blockInputs b)
 ppBlock :: PrettyExt ext
         => Bool
            -- ^ Print line numbers.
-        -> CFGPostdom blocks
+        -> Maybe (CFGPostdom blocks)
+           -- ^ Optionally print postdom info.
         -> Block ext blocks ret ctx
            -- ^ Block to print.
         -> Doc
-ppBlock ppLineNumbers pda b = do
+ppBlock ppLineNumbers mPda b = do
   let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
-  let Const pd = pda ! blockIDIndex (blockID b)
-  let postdom
-        | Prelude.null pd = text "% no postdom"
-        | otherwise = text "% postdom" <+> hsep (viewSome pretty <$> pd)
+  let mPostdom = flip fmap mPda $ \ pda ->
+        let Const pd = pda ! blockIDIndex (blockID b)
+        in if Prelude.null pd
+           then text "% no postdom"
+           else text "% postdom" <+> hsep (viewSome pretty <$> pd)
   let numArgs = lengthFC (blockInputs b)
   let argList = [ char '$' <> pretty n | n <- [0 .. numArgs-1] ]
   let args = encloseSep lparen rparen comma argList
   let block = pretty (blockID b) <> args
-  block <$$> indent 2 (stmts <$$> postdom)
-
-ppBlock' :: PrettyExt ext
-         => Bool
-           -- ^ Print line numbers.
-          -> Block ext blocks ret ctx
-            -- ^ Block to print.
-         -> Doc
-ppBlock' ppLineNumbers b = do
-  let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
-  let numArgs = pretty (lengthFC (blockInputs b))
-  let argList = [ char '$' <> pretty n | n <- [0 .. numArgs-1] ]
-  let args = encloseSep lparen rparen comma argList
-  let block = pretty (blockID b) <> args
-  block <$$> indent 2 stmts
+  let body = case mPostdom of
+        Nothing -> stmts
+        Just postdom -> stmts <$$> postdom
+  block <$$> indent 2 body
 
 instance PrettyExt ext => Show (Block ext blocks ret args) where
-  show blk = show $ ppBlock' False blk
+  show blk = show $ ppBlock False Nothing blk
 
 instance PrettyExt ext => ShowF (Block ext blocks ret)
 
@@ -782,7 +773,7 @@ ppCFG' :: PrettyExt ext
        -> CFGPostdom blocks
        -> CFG ext blocks init ret
        -> Doc
-ppCFG' lineNumbers pdInfo g = vcat (toListFC (ppBlock lineNumbers pdInfo) (cfgBlockMap g))
+ppCFG' lineNumbers pdInfo g = vcat (toListFC (ppBlock lineNumbers (Just pdInfo)) (cfgBlockMap g))
 
 
 -- | Control flow graph with some blocks.  This data type closes
