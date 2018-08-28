@@ -2,6 +2,7 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 module Lang.Crucible.Simulator.Frame
   ( -- * Simulator frames
     SimFrame(..)
@@ -12,11 +13,13 @@ module Lang.Crucible.Simulator.Frame
   , crucibleSimFrame
   , fromCallFrame
   , fromReturnFrame
+  , frameFunctionName
   ) where
 
 import Control.Lens
 
 import What4.FunctionName
+import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator.CallFrame
 import Lang.Crucible.Simulator.RegMap
 import Lang.Crucible.Types
@@ -63,8 +66,10 @@ data SimFrame sym ext l (args :: Maybe (Ctx CrucibleType)) where
      -> SimFrame sym ext (CrucibleLang blocks ret) ('Just args)
 
   -- | We should return this value.
-  RF :: !(RegEntry sym ret)
+  RF :: !FunctionName {- Function we are returning from -}
+     -> !(RegEntry sym ret)
      -> SimFrame sym ext (CrucibleLang blocks ret) 'Nothing
+
 
 overrideSimFrame :: Lens (SimFrame sym ext (OverrideLang r) ('Just args))
                          (SimFrame sym ext (OverrideLang r') ('Just args'))
@@ -85,4 +90,10 @@ fromCallFrame (MF x) = x
 
 fromReturnFrame :: SimFrame sym ext (CrucibleLang b r) 'Nothing
                 -> RegEntry sym r
-fromReturnFrame (RF x) = x
+fromReturnFrame (RF _ x) = x
+
+frameFunctionName :: Getter (SimFrame sym ext f a) FunctionName
+frameFunctionName = to $ \case
+  OF f -> override f
+  MF f -> case frameHandle f of SomeHandle h -> handleName h
+  RF n _ -> n
