@@ -677,7 +677,11 @@ ppBlock ppLineNumbers pda b = do
   let postdom
         | Prelude.null pd = text "% no postdom"
         | otherwise = text "% postdom" <+> hsep (viewSome pretty <$> pd)
-  pretty (blockID b) <$$> indent 2 (stmts <$$> postdom)
+  let numArgs = lengthFC (blockInputs b)
+  let argList = [ char '$' <> pretty n | n <- [0 .. numArgs-1] ]
+  let args = encloseSep lparen rparen comma argList
+  let block = pretty (blockID b) <> args
+  block <$$> indent 2 (stmts <$$> postdom)
 
 ppBlock' :: PrettyExt ext
          => Bool
@@ -687,7 +691,11 @@ ppBlock' :: PrettyExt ext
          -> Doc
 ppBlock' ppLineNumbers b = do
   let stmts = ppStmtSeq ppLineNumbers (blockInputCount b) (b^.blockStmts)
-  pretty (blockID b) <$$> indent 2 stmts
+  let numArgs = pretty (lengthFC (blockInputs b))
+  let argList = [ char '$' <> pretty n | n <- [0 .. numArgs-1] ]
+  let args = encloseSep lparen rparen comma argList
+  let block = pretty (blockID b) <> args
+  block <$$> indent 2 stmts
 
 instance PrettyExt ext => Show (Block ext blocks ret args) where
   show blk = show $ ppBlock' False blk
