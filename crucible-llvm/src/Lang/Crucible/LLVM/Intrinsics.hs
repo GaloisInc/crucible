@@ -43,6 +43,7 @@ module Lang.Crucible.LLVM.Intrinsics
 , llvmDeclToFunHandleRepr
 ) where
 
+import           GHC.TypeNats (KnownNat)
 import qualified Codec.Binary.UTF8.Generic as UTF8
 import           Control.Lens hiding (op, (:>), Empty)
 import           Control.Monad.ST
@@ -109,7 +110,11 @@ register_llvm_overrides = do
   -- FIXME, all variants of llvm.ctlz....
   register_llvm_override llvmCtlz32
 
-  -- FIXME, all variants of llvm.cttz, llvm.bitreverse, llvm.bswap, llvm.ctpop,
+  register_llvm_override (llvmBSwapOverride (knownNat @2)) -- 16 = 2 * 8
+  register_llvm_override (llvmBSwapOverride (knownNat @4)) -- 32 = 4 * 8
+  register_llvm_override (llvmBSwapOverride (knownNat @8)) -- 64 = 8 * 8
+
+  -- FIXME, all variants of llvm.cttz, llvm.bitreverse, llvm.ctpop,
   -- llvm.sadd.with.overflow, llvm.uadd.with.overflow, llvm.ssub.with.overflow,
   -- llvm.usub.with.overflow, llvm.smul.with.overflow, llvm.umul.with.overflow,
 
@@ -192,13 +197,15 @@ mkLLVMContext halloc m = do
     _ ->
       fail ("Cannot load LLVM bitcode file with illegal pointer width: " ++ show (dl^.ptrSize))
 
-
+-- | This type represents an implementation of an LLVM intrinsic function in
+-- Crucible.
 data LLVMOverride p sym arch args ret =
   LLVMOverride
-  { llvmOverride_declare :: L.Declare
-  , llvmOverride_args :: CtxRepr args
-  , llvmOverride_ret  :: TypeRepr ret
-  , llvmOverride_def ::
+  { llvmOverride_declare :: L.Declare -- ^ An LLVM name and signature for this intrinsic
+  , llvmOverride_args :: CtxRepr args -- ^ A representation of the argument types
+  , llvmOverride_ret  :: TypeRepr ret -- ^ A representation of the return type
+  , llvmOverride_def ::               -- ^ The implementation of the intrinsic
+                                      -- in the simulator monad (@OverrideSim@).
        forall rtp args' ret'.
          GlobalVar Mem ->
          sym ->
@@ -742,6 +749,44 @@ llvmCtlz32 =
   (Empty :> KnownBV @32 :> KnownBV @1)
   (KnownBV @32)
   (\memOps sym args -> Ctx.uncurryAssignment (callCtlz sym memOps) args)
+
+-- | <https://llvm.org/docs/LangRef.html#llvm-bswap-intrinsics LLVM docs>
+llvmBSwapOverride
+  :: forall width sym wptr arch p
+   . ( 1 <= width, KnownNat width, KnownNat (width * 8)
+     , IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr width
+  -> LLVMOverride p sym arch
+         (EmptyCtx ::> BVType (width * 8))
+         (BVType (width * 8))
+llvmBSwapOverride widthRepr =
+  let width' :: Int
+      width' = widthVal widthRepr * 8
+      nm = "llvm.bswap.i" ++ show width'
+  in
+    case mulComm widthRepr (knownNat @8) of { Refl ->
+    case leqMulMono (knownNat @8) widthRepr :: LeqProof width (width * 8) of { LeqProof ->
+    case leqTrans (LeqProof :: LeqProof 1 width)
+                  (LeqProof :: LeqProof width (width * 8)) of { LeqProof ->
+      LLVMOverride
+        ( -- From the LLVM docs:
+          -- declare i16 @llvm.bswap.i16(i16 <id>)
+          L.Declare
+          { L.decRetType = L.PrimType $ L.Integer $ fromIntegral width'
+          , L.decName    = L.Symbol nm
+          , L.decArgs    = [ L.PrimType $ L.Integer $ fromIntegral width' ]
+          , L.decVarArgs = False
+          , L.decAttrs   = []
+          , L.decComdat  = mempty
+          }
+        )
+        (Empty :> KnownBV @(width * 8))
+        (KnownBV @(width * 8))
+        (\_ sym args -> liftIO $
+            let vec :: SymBV sym (width * 8)
+                vec = regValue (args^._1)
+            in bvSwap sym widthRepr vec)
+    }}}
 
 llvmMemsetOverride_8_64
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)

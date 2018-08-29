@@ -50,11 +50,13 @@ The canonical implementation of these interface classes is found in "What4.Expr.
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LiberalTypeSynonyms #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 module What4.Interface
@@ -69,6 +71,12 @@ module What4.Interface
     -- ** IsExprBuilder
   , IsExprBuilder(..)
   , IsSymExprBuilder(..)
+
+    -- ** Bitvector operations
+  , bvJoinVector
+  , bvSplitVector
+  , bvSwap
+
     -- ** Floating-point rounding modes
   , RoundingMode(..)
 
@@ -133,14 +141,17 @@ import           Control.Exception (assert)
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.IO.Class
+import           Data.Coerce (coerce)
 import           Data.Foldable
 import           Data.Hashable
 import qualified Data.Map as Map
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Ctx
+import           Data.Parameterized.Utils.Endian (Endian(..))
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
+import qualified Data.Parameterized.Vector as Vector
 import           Data.Ratio
 import           Data.Scientific (Scientific)
 import           Data.Text (Text)
@@ -594,7 +605,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
            -> IO (SymBV sym (u+v))
 
   -- | Select a subsequence from a bitvector.
-  bvSelect :: (1 <= n, idx + n <= w)
+  bvSelect :: forall idx n w. (1 <= n, idx + n <= w)
            => sym
            -> NatRepr idx  -- ^ Starting index, from 0 as least significant bit
            -> NatRepr n    -- ^ Number of bits to take
@@ -1970,6 +1981,64 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     pr <- realNe sym xr yr
     pj <- realNe sym xi yi
     orPred sym pr pj
+
+-- | This newtype is necessary for @bvJoinVector@ and @bvSplitVector@.
+-- These both use functions from Data.Parameterized.Vector that
+-- that expect a wrapper of kind (Type -> Type), and we can't partially
+-- apply the type synonym (e.g. SymBv sym), whereas we can partially
+-- apply this newtype.
+newtype SymBV' sym w = MkSymBV' { getSymBV :: SymBV sym w }
+
+-- | Join a @Vector@ of smaller bitvectors
+bvJoinVector :: forall sym n w. (1 <= w, IsExprBuilder sym)
+             => sym
+             -> NatRepr w
+             -> Vector.Vector n (SymBV sym w)
+             -> IO (SymBV sym (n * w))
+bvJoinVector sym w = coerce $ Vector.joinWithM @IO @(SymBV' sym) @n bvConcat' w
+  where bvConcat' :: forall l. (1 <= l)
+                  => NatRepr l
+                  -> SymBV' sym w
+                  -> SymBV' sym l
+                  -> IO (SymBV' sym (w + l))
+        bvConcat' _ (MkSymBV' x) (MkSymBV' y) = MkSymBV' <$> bvConcat sym x y
+
+-- | Split a bitvector to a @Vector@ of smaller bitvectors
+bvSplitVector :: forall sym n w. (IsExprBuilder sym, 1 <= w, 1 <= n)
+              => sym
+              -> NatRepr n
+              -> NatRepr w
+              -> SymBV sym (n * w)
+              -> IO (Vector.Vector n (SymBV sym w))
+bvSplitVector sym n w x =
+  fmap (getSymBV @sym) <$>
+    Vector.splitWithA LittleEndian bvSelect' n w (MkSymBV' x)
+  where
+    bvSelect' :: forall i. (i + w <= n * w)
+              => NatRepr (n * w)
+              -> NatRepr i
+              -> SymBV' sym (n * w)
+              -> IO (SymBV' sym w)
+    bvSelect' _ i (MkSymBV' y) =
+      fmap MkSymBV' $ bvSelect @_ @i @w sym i w y
+
+-- | Implement LLVM's "bswap" intrinsic
+--
+-- See <https://llvm.org/docs/LangRef.html#llvm-bswap-intrinsics
+--       the LLVM @bswap@ documentation.>
+--
+-- This is the implementation in SawCore:
+--
+-- > llvmBSwap :: (n :: Nat) -> bitvector (mulNat n 8) -> bitvector (mulNat n 8);
+-- > llvmBSwap n x = join n 8 Bool (reverse n (bitvector 8) (split n 8 Bool x));
+bvSwap :: forall sym n. (1 <= n, IsExprBuilder sym)
+       => sym               -- ^ Symbolic interface
+       -> NatRepr n
+       -> SymBV sym (n*8)   -- ^ Bitvector to swap around
+       -> IO (SymBV sym (n*8))
+bvSwap sym n v = do
+  bvJoinVector sym (knownNat @8) . Vector.reverse
+    =<< bvSplitVector sym n (knownNat @8) v
 
 -- | Rounding modes for IEEE-754 floating point operations.
 data RoundingMode

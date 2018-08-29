@@ -40,7 +40,6 @@ import           GHC.TypeLits
 import           Data.Typeable
 
 import           Data.Parameterized.Context
-import           Data.Parameterized.NatRepr
 
 import qualified Text.LLVM.AST as L
 
