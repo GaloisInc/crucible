@@ -29,7 +29,6 @@ import           Lang.Crucible.LLVM.Arch
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.MemModel
-import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
