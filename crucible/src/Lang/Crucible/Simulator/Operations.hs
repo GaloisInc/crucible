@@ -48,6 +48,7 @@ module Lang.Crucible.Simulator.Operations
   , performTailCall
   , performReturn
   , resumeFrame
+  , resumeValueFromValueAbort
 
     -- * Resolving calls
   , ResolvedCall(..)
@@ -660,7 +661,7 @@ resumeValueFromFrameAbort ctx0 ar0 = do
       resumeValueFromFrameAbort ctx (AbortedBranch p ar0 ay)
 
     VFFEnd ctx ->
-      resumeValueFromValueAbort ctx ar0
+      ReaderT $ return . UnwindCallState ctx ar0
 
 -- | Run rest of execution given a value from value context and an aborted
 -- result.
@@ -671,9 +672,11 @@ resumeValueFromValueAbort ::
   ExecCont p sym ext r f a
 resumeValueFromValueAbort ctx0 ar0 =
   case ctx0 of
-    VFVCall ctx _ _ -> do
-      -- Pop out of call context.
-      resumeValueFromFrameAbort ctx ar0
+    VFVCall ctx frm _rh ->
+      do ActiveTree _oldFrm er <- view stateTree
+         withReaderT
+           (stateTree .~ ActiveTree ctx (er & partialValue.gpValue .~ frm))
+           (resumeValueFromFrameAbort ctx ar0)
     VFVPartial ctx p ay -> do
       resumeValueFromValueAbort ctx (AbortedBranch p ar0 ay)
     VFVEnd ->

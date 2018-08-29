@@ -344,6 +344,17 @@ data ExecState p sym ext (rtp :: *)
          !(SimState p sym ext rtp f a)
            {- State of the simulator prior to causing the abort condition -}
 
+   {- | An unwind call state occurs when we are about to leave the context of a
+        function call because of an abort.  The included @ValueFromValue@ is the
+        context of the call site we are about to unwind into, and the @AbortedResult@
+        indicates the reason we are aborting.
+    -}
+   | forall f a r.
+       UnwindCallState
+         !(ValueFromValue p sym ext rtp r) {- Caller's context -}
+         !(AbortedResult sym ext)          {- Abort causing the stack unwind -}
+         !(SimState p sym ext rtp f a)
+
    {- | A call state is entered when we are about to make a function call to
         the included call frame, which has already resolved the implementation
         and arguments to the function.
@@ -650,7 +661,7 @@ data ValueFromValue p sym ext (ret :: *) (top_return :: CrucibleType)
 
   {- | 'VFVCall' denotes a call site in the outer context, and represents
        the point to which a function higher on the stack will eventually return. -}
-  = forall args caller. -- new_args.
+  = forall args caller.
     VFVCall
 
     !(ValueFromFrame p sym ext ret caller)

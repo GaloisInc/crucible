@@ -462,6 +462,9 @@ singleStepCrucible verb exst =
     ControlTransferState tgt st ->
       runReaderT (performIntraFrameMerge tgt) st
 
+    UnwindCallState vfv ar st ->
+      runReaderT (resumeValueFromValueAbort vfv ar) st
+
     CallState retHandler frm st ->
       runReaderT (performFunctionCall retHandler frm) st
 
@@ -534,6 +537,9 @@ executeCrucible st0 cont =
 
         ReturnState fnm vfv ret st' ->
           loop verbOpt st' (performReturn fnm vfv ret)
+
+        UnwindCallState vfv ar st' ->
+          loop verbOpt st' (resumeValueFromValueAbort vfv ar)
 
         RunningState _runTgt st' ->
           do verb <- fromInteger <$> getOpt verbOpt
