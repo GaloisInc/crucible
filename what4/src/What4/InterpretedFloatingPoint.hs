@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -19,8 +20,14 @@ module What4.InterpretedFloatingPoint
   , DoubleDoubleFloat
     -- ** Representations of FloatInfo types
   , FloatInfoRepr(..)
+    -- ** FloatInfo to/from FloatPrecision
+  , FloatInfoToPrecision
+  , FloatPrecisionToInfo
+  , floatInfoToPrecisionRepr
+  , floatPrecisionToInfoRepr
     -- ** Bit-width type family
   , FloatInfoToBitWidth
+  , floatInfoToBVTypeRepr
     -- * Interface classes
     -- ** Interpretation type family
   , SymInterpretedFloatType
@@ -93,19 +100,59 @@ instance OrdF FloatInfoRepr where
   compareF = $(structuralTypeOrd [t|FloatInfoRepr|] [])
 
 
-type family FloatInfoToBitWidth (fi :: FloatInfo) :: GHC.TypeLits.Nat
--- | IEEE binary16
-type instance FloatInfoToBitWidth HalfFloat = 16
--- | IEEE binary32
-type instance FloatInfoToBitWidth SingleFloat = 32
--- | IEEE binary64
-type instance FloatInfoToBitWidth DoubleFloat = 64
--- | IEEE binary128
-type instance FloatInfoToBitWidth QuadFloat = 128
--- | X86 80-bit extended floats
-type instance FloatInfoToBitWidth X86_80Float = 80
--- | Two 64-bit floats fused in the "double-double" style
-type instance FloatInfoToBitWidth DoubleDoubleFloat = 128
+type family FloatInfoToPrecision (fi :: FloatInfo) :: FloatPrecision where
+  FloatInfoToPrecision HalfFloat   = Prec16
+  FloatInfoToPrecision SingleFloat = Prec32
+  FloatInfoToPrecision DoubleFloat = Prec64
+  FloatInfoToPrecision QuadFloat   = Prec128
+
+type family FloatPrecisionToInfo (fpp :: FloatPrecision) :: FloatInfo where
+  FloatPrecisionToInfo Prec16  = HalfFloat
+  FloatPrecisionToInfo Prec32  = SingleFloat
+  FloatPrecisionToInfo Prec64  = DoubleFloat
+  FloatPrecisionToInfo Prec128 = QuadFloat
+
+type family FloatInfoToBitWidth (fi :: FloatInfo) :: GHC.TypeLits.Nat where
+  FloatInfoToBitWidth HalfFloat         = 16
+  FloatInfoToBitWidth SingleFloat       = 32
+  FloatInfoToBitWidth DoubleFloat       = 64
+  FloatInfoToBitWidth QuadFloat         = 128
+  FloatInfoToBitWidth X86_80Float       = 80
+  FloatInfoToBitWidth DoubleDoubleFloat = 128
+
+floatInfoToPrecisionRepr
+  :: FloatInfoRepr fi -> FloatPrecisionRepr (FloatInfoToPrecision fi)
+floatInfoToPrecisionRepr = \case
+  HalfFloatRepr         -> knownRepr
+  SingleFloatRepr       -> knownRepr
+  DoubleFloatRepr       -> knownRepr
+  QuadFloatRepr         -> knownRepr
+  X86_80FloatRepr       -> error "x86_80 is not an IEEE-754 format."
+  DoubleDoubleFloatRepr -> error "double-double is not an IEEE-754 format."
+
+floatPrecisionToInfoRepr
+  :: FloatPrecisionRepr fpp -> FloatInfoRepr (FloatPrecisionToInfo fpp)
+floatPrecisionToInfoRepr fpp
+  | Just Refl <- testEquality fpp (knownRepr :: FloatPrecisionRepr Prec16)
+  = knownRepr
+  | Just Refl <- testEquality fpp (knownRepr :: FloatPrecisionRepr Prec32)
+  = knownRepr
+  | Just Refl <- testEquality fpp (knownRepr :: FloatPrecisionRepr Prec64)
+  = knownRepr
+  | Just Refl <- testEquality fpp (knownRepr :: FloatPrecisionRepr Prec128)
+  = knownRepr
+  | otherwise
+  = error $ "unexpected IEEE-754 precision: " ++ show fpp
+
+floatInfoToBVTypeRepr
+  :: FloatInfoRepr fi -> BaseTypeRepr (BaseBVType (FloatInfoToBitWidth fi))
+floatInfoToBVTypeRepr = \case
+  HalfFloatRepr         -> knownRepr
+  SingleFloatRepr       -> knownRepr
+  DoubleFloatRepr       -> knownRepr
+  QuadFloatRepr         -> knownRepr
+  X86_80FloatRepr       -> knownRepr
+  DoubleDoubleFloatRepr -> knownRepr
 
 
 -- | Interpretation of the floating point type.
@@ -300,6 +347,12 @@ class IsExprBuilder sym => IsInterpretedFloatExprBuilder sym where
     -> RoundingMode
     -> SymInterpretedFloat sym fi'
     -> IO (SymInterpretedFloat sym fi)
+  -- | Round a floating point number to an integral value.
+  iFloatRound
+    :: sym
+    -> RoundingMode
+    -> SymInterpretedFloat sym fi
+    -> IO (SymInterpretedFloat sym fi)
   -- | Convert from binary representation in IEEE 754-2008 format to
   --   floating point.
   iFloatFromBinary
@@ -307,6 +360,13 @@ class IsExprBuilder sym => IsInterpretedFloatExprBuilder sym where
     -> FloatInfoRepr fi
     -> SymBV sym (FloatInfoToBitWidth fi)
     -> IO (SymInterpretedFloat sym fi)
+  -- | Convert from floating point from to the binary representation in
+  --   IEEE 754-2008 format.
+  iFloatToBinary
+    :: sym
+    -> FloatInfoRepr fi
+    -> SymInterpretedFloat sym fi
+    -> IO (SymBV sym (FloatInfoToBitWidth fi))
   -- | Convert a unsigned bitvector to a floating point number.
   iBVToFloat
     :: (1 <= w)
@@ -329,7 +389,7 @@ class IsExprBuilder sym => IsInterpretedFloatExprBuilder sym where
     -> RoundingMode
     -> SymReal sym
     -> IO (SymInterpretedFloat sym fi)
-  -- | Convert a unsigned bitvector to a floating point number.
+  -- | Convert a floating point number to a unsigned bitvector.
   iFloatToBV
     :: (1 <= w)
     => sym
@@ -337,7 +397,7 @@ class IsExprBuilder sym => IsInterpretedFloatExprBuilder sym where
     -> RoundingMode
     -> SymInterpretedFloat sym fi
     -> IO (SymBV sym w)
-  -- | Convert a signed bitvector to a floating point number.
+  -- | Convert a floating point number to a signed bitvector.
   iFloatToSBV
     :: (1 <= w)
     => sym

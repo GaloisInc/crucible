@@ -18,6 +18,7 @@
 ------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds#-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -25,8 +26,10 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -49,11 +52,18 @@ module What4.BaseTypes
   , type FloatPrecision
     -- ** Constructors for kind FloatPrecision
   , FloatingPointPrecision
+    -- ** FloatingPointPrecision aliases
+  , Prec16
+  , Prec32
+  , Prec64
+  , Prec128
     -- * Representations of base types
   , BaseTypeRepr(..)
   , FloatPrecisionRepr(..)
   , arrayTypeIndices
   , arrayTypeResult
+  , floatPrecisionToBVType
+  , lemmaFloatPrecisionIsPos
   , module Data.Parameterized.NatRepr
 
     -- * KnownRepr
@@ -126,6 +136,12 @@ data FloatPrecision where
   FloatingPointPrecision :: GHC.TypeLits.Nat -> GHC.TypeLits.Nat -> FloatPrecision
 type FloatingPointPrecision = 'FloatingPointPrecision -- ^ @:: 'GHC.TypeLits.Nat' -> 'GHC.TypeLits.Nat' -> 'FloatPrecision'@.
 
+-- | Floating-point precision aliases
+type Prec16  = FloatingPointPrecision  5  11
+type Prec32  = FloatingPointPrecision  8  24
+type Prec64  = FloatingPointPrecision 11  53
+type Prec128 = FloatingPointPrecision 15 113
+
 ------------------------------------------------------------------------
 -- BaseTypeRepr
 
@@ -166,6 +182,22 @@ arrayTypeIndices (BaseArrayRepr i _) = i
 -- | Return the result type of an array type.
 arrayTypeResult :: BaseTypeRepr (BaseArrayType idx tp) -> BaseTypeRepr tp
 arrayTypeResult (BaseArrayRepr _ rtp) = rtp
+
+floatPrecisionToBVType
+  :: FloatPrecisionRepr (FloatingPointPrecision eb sb)
+  -> BaseTypeRepr (BaseBVType (eb + sb))
+floatPrecisionToBVType fpp@(FloatingPointPrecisionRepr eb sb)
+  | LeqProof <- lemmaFloatPrecisionIsPos fpp
+  = BaseBVRepr $ addNat eb sb
+
+lemmaFloatPrecisionIsPos
+  :: forall eb' sb'
+   . FloatPrecisionRepr (FloatingPointPrecision eb' sb')
+  -> LeqProof 1 (eb' + sb')
+lemmaFloatPrecisionIsPos (FloatingPointPrecisionRepr eb sb)
+  | LeqProof <- leqTrans (LeqProof @1 @2) (LeqProof @2 @eb')
+  , LeqProof <- leqTrans (LeqProof @1 @2) (LeqProof @2 @sb')
+  = leqAddPos eb sb
 
 instance KnownRepr BaseTypeRepr BaseBoolType where
   knownRepr = BaseBoolRepr

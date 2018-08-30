@@ -858,6 +858,7 @@ evaluateExpr sym sc cache = f
         B.FloatIsNorm{}  -> floatFail
         B.FloatIte{}  -> floatFail
         B.FloatCast{}  -> floatFail
+        B.FloatRound{} -> floatFail
         B.FloatFromBinary{}  -> floatFail
         B.BVToFloat{}  -> floatFail
         B.SBVToFloat{}  -> floatFail

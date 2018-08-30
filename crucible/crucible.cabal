@@ -33,20 +33,22 @@ library
     containers >= 0.5.9.0,
     fgl,
     filepath,
+    ghc-prim,
     hashable,
     hashtables,
+    json >= 0.9 && < 1.0,
     lens,
     mtl,
+    panic >= 0.3,
     parameterized-utils >= 1.0.4 && < 1.1,
     process,
     template-haskell,
     text,
+    time >= 1.8 && < 2.0,
     th-abstraction >=0.1 && <0.3,
     transformers,
     vector,
-    ghc-prim,
-    what4 >= 0.4,
-    panic >= 0.3
+    what4 >= 0.4
 
   default-language: Haskell2010
   default-extensions:
@@ -85,6 +87,7 @@ library
     Lang.Crucible.Simulator.GlobalState
     Lang.Crucible.Simulator.Operations
     Lang.Crucible.Simulator.OverrideSim
+    Lang.Crucible.Simulator.Profiling
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
     Lang.Crucible.Simulator.SimError

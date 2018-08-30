@@ -576,6 +576,11 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub x_expr
       y <- evalSub y_expr
       iFloatFpEq @_ @fi sym x y
+    FloatIte _ c_expr (x_expr :: f (FloatType fi)) y_expr -> do
+      c <- evalSub c_expr
+      x <- evalSub x_expr
+      y <- evalSub y_expr
+      iFloatIte @_ @fi sym c x y
     FloatLt (x_expr :: f (FloatType fi)) y_expr -> do
       x <- evalSub x_expr
       y <- evalSub y_expr
@@ -602,6 +607,8 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       iFloatFpNe @_ @fi sym x y
     FloatCast fi rm (x_expr :: f (FloatType fi')) ->
       iFloatCast @_ @_ @fi' sym fi rm =<< evalSub x_expr
+    FloatFromBinary fi x_expr -> iFloatFromBinary sym fi =<< evalSub x_expr
+    FloatToBinary fi x_expr -> iFloatToBinary sym fi =<< evalSub x_expr
     FloatFromBV fi rm x_expr -> iBVToFloat sym fi rm =<< evalSub x_expr
     FloatFromSBV fi rm x_expr -> iSBVToFloat sym fi rm =<< evalSub x_expr
     FloatFromReal fi rm x_expr -> iRealToFloat sym fi rm =<< evalSub x_expr

@@ -102,7 +102,8 @@ module Lang.Crucible.Types
   , X86_80Float
   , DoubleDoubleFloat
   , FloatInfoRepr(..)
-  , FloatPrecisionRepr(..)
+  , FloatInfoToBitWidth
+  , floatInfoToBVTypeRepr
   ) where
 
 import           Data.Hashable

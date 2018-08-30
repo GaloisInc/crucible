@@ -1,10 +1,12 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 
 import Test.Tasty
@@ -27,6 +29,8 @@ import What4.SatResult
 import What4.Solver.Z3
 
 data State t = State
+data SomePred = forall t . SomePred (BoolExpr t)
+deriving instance Show SomePred
 type SimpleExprBuilder t fs = ExprBuilder t State fs
 
 userSymbol' :: String -> SolverSymbol
@@ -34,14 +38,14 @@ userSymbol' s = case userSymbol s of
   Left e       -> error $ show e
   Right symbol -> symbol
 
-withSym :: (forall t . SimpleExprBuilder t fs -> IO (BoolExpr t)) -> IO String
+withSym :: (forall t . SimpleExprBuilder t fs -> IO a) -> IO a
 withSym pred_gen = withIONonceGenerator $ \gen ->
-  show <$> (pred_gen =<< newExprBuilder State gen)
+  pred_gen =<< newExprBuilder State gen
 
 withZ3' :: (forall t . SimpleExprBuilder t fs -> Session t Z3 -> IO ()) -> IO ()
 withZ3' action = withIONonceGenerator $ \nonce_gen -> do
   sym <- newExprBuilder State nonce_gen
-  handle (\(e :: IOException) -> putStrLn $ show e) $
+  handle (\(e :: IOException) -> print e) $
     withZ3 sym "z3" putStrLn $ action sym
 
 withModel
@@ -61,7 +65,7 @@ iFloatTestPred
   :: (  forall t
       . (IsInterpretedFloatExprBuilder (SimpleExprBuilder t fs))
      => SimpleExprBuilder t fs
-     -> IO (BoolExpr t)
+     -> IO SomePred
      )
 iFloatTestPred sym = do
   x  <- freshFloatConstant sym (userSymbol' "x") SingleFloatRepr
@@ -70,13 +74,19 @@ iFloatTestPred sym = do
   e2 <- iFloatAdd @_ @SingleFloat sym RTZ e1 e1
   y  <- freshFloatBoundVar sym (userSymbol' "y") SingleFloatRepr
   e3 <- iFloatLt @_ @SingleFloat sym e2 $ varExpr sym y
-  existsPred sym y e3
+  SomePred <$> existsPred sym y e3
 
-floatSinglePrecision :: FloatPrecisionRepr (FloatingPointPrecision 8 24)
+floatSinglePrecision :: FloatPrecisionRepr Prec32
 floatSinglePrecision = knownRepr
 
-floatSingleType :: BaseTypeRepr (BaseFloatType (FloatingPointPrecision 8 24))
+floatDoublePrecision :: FloatPrecisionRepr Prec64
+floatDoublePrecision = knownRepr
+
+floatSingleType :: BaseTypeRepr (BaseFloatType Prec32)
 floatSingleType = BaseFloatRepr floatSinglePrecision
+
+floatDoubleType :: BaseTypeRepr (BaseFloatType Prec64)
+floatDoubleType = BaseFloatRepr floatDoublePrecision
 
 testInterpretedFloatReal :: TestTree
 testInterpretedFloatReal = testCase "Float interpreted as real" $ do
@@ -88,8 +98,8 @@ testInterpretedFloatReal = testCase "Float interpreted as real" $ do
     e2 <- realAdd sym e1 e1
     y  <- freshBoundVar sym (userSymbol' "y") knownRepr
     e3 <- realLt sym e2 $ varExpr sym y
-    existsPred sym y e3
-  actual @?= expected
+    SomePred <$> existsPred sym y e3
+  show actual @?= show expected
 
 testFloatUninterpreted :: TestTree
 testFloatUninterpreted = testCase "Float uninterpreted" $ do
@@ -119,8 +129,8 @@ testFloatUninterpreted = testCase "Float uninterpreted" $ do
                                   (Ctx.empty Ctx.:> bvtp Ctx.:> bvtp)
                                   BaseBoolRepr
     e4 <- applySymFn sym lt_fn $ Ctx.empty Ctx.:> e3 Ctx.:> varExpr sym y
-    existsPred sym y e4
-  actual @?= expected
+    SomePred <$> existsPred sym y e4
+  show actual @?= show expected
 
 testInterpretedFloatIEEE :: TestTree
 testInterpretedFloatIEEE = testCase "Float interpreted as IEEE float" $ do
@@ -132,8 +142,8 @@ testInterpretedFloatIEEE = testCase "Float interpreted as IEEE float" $ do
     e2 <- floatAdd sym RTZ e1 e1
     y  <- freshBoundVar sym (userSymbol' "y") knownRepr
     e3 <- floatLt sym e2 $ varExpr sym y
-    existsPred sym y e3
-  actual @?= expected
+    SomePred <$> existsPred sym y e3
+  show actual @?= show expected
 
 -- x <= 0.5 && x >= 1.5
 testFloatUnsat0 :: TestTree
@@ -202,6 +212,65 @@ testFloatSat1 = testCase "Sat float formula" $ withZ3' $ \sym s -> do
     assertBool ("expected x in [0.5, 1.5], actual x = " ++ show x_val) $
       0.5 <= x_val && x_val <= 1.5
 
+testFloatToBinary :: TestTree
+testFloatToBinary = testCase "float to binary" $ withZ3' $ \sym s -> do
+  x  <- freshConstant sym (userSymbol' "x") knownRepr
+  y  <- freshConstant sym (userSymbol' "y") knownRepr
+  e0 <- floatToBinary sym x
+  e1 <- bvAdd sym e0 y
+  e2 <- floatFromBinary sym floatSinglePrecision e1
+  p0 <- floatNe sym x e2
+  assume (sessionWriter s) p0
+  runCheckSat s $ \res -> isSat res @? "sat"
+  p1 <- notPred sym =<< bvIsNonzero sym y
+  assume (sessionWriter s) p1
+  runCheckSat s $ \res -> isUnsat res @? "unsat"
+
+testFloatFromBinary :: TestTree
+testFloatFromBinary = testCase "float from binary" $ withZ3' $ \sym s -> do
+  x  <- freshConstant sym (userSymbol' "x") knownRepr
+  e0 <- floatFromBinary sym floatSinglePrecision x
+  e1 <- floatToBinary sym e0
+  p0 <- bvNe sym x e1
+  assume (sessionWriter s) p0
+  runCheckSat s $ \res -> isSat res @? "sat"
+  p1 <- notPred sym =<< floatIsNaN sym e0
+  assume (sessionWriter s) p1
+  runCheckSat s $ \res -> isUnsat res @? "unsat"
+
+testFloatBinarySimplification :: TestTree
+testFloatBinarySimplification = testCase "float binary simplification" $
+  withSym $ \sym -> do
+    x  <- freshConstant sym (userSymbol' "x") knownRepr
+    e0 <- floatToBinary sym x
+    e1 <- floatFromBinary sym floatSinglePrecision e0
+    e1 @?= x
+
+testRealFloatBinarySimplification :: TestTree
+testRealFloatBinarySimplification =
+  testCase "real float binary simplification" $
+    withSym $ \(sym :: SimpleExprBuilder t (Flags FloatReal)) -> do
+      x  <- freshFloatConstant sym (userSymbol' "x") SingleFloatRepr
+      e0 <- iFloatToBinary sym SingleFloatRepr x
+      e1 <- iFloatFromBinary sym SingleFloatRepr e0
+      e1 @?= x
+
+testFloatCastSimplification :: TestTree
+testFloatCastSimplification = testCase "float cast simplification" $
+  withSym $ \sym -> do
+    x  <- freshConstant sym (userSymbol' "x") floatSingleType
+    e0 <- floatCast sym floatDoublePrecision RNE x
+    e1 <- floatCast sym floatSinglePrecision RNE e0
+    e1 @?= x
+
+testFloatCastNoSimplification :: TestTree
+testFloatCastNoSimplification = testCase "float cast no simplification" $
+  withSym $ \sym -> do
+    x  <- freshConstant sym (userSymbol' "x") floatDoubleType
+    e0 <- floatCast sym floatSinglePrecision RNE x
+    e1 <- floatCast sym floatDoublePrecision RNE e0
+    e1 /= x @? ""
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -212,4 +281,10 @@ main = defaultMain $ testGroup "Tests"
   , testFloatUnsat2
   , testFloatSat0
   , testFloatSat1
+  , testFloatToBinary
+  , testFloatFromBinary
+  , testFloatBinarySimplification
+  , testRealFloatBinarySimplification
+  , testFloatCastSimplification
+  , testFloatCastNoSimplification
   ]
