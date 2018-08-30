@@ -115,6 +115,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- * SimState
   , SimState(..)
   , initSimState
+  , stateLocation
 
   , AbortHandler(..)
   , CrucibleState
@@ -1005,6 +1006,17 @@ initSimState ctx globals ah =
       , _abortHandler = ah
       , _stateTree    = singletonTree startGP
       }
+
+
+stateLocation :: Getter (SimState p sym ext r f a) (Maybe ProgramLoc)
+stateLocation = to f
+ where
+ f :: SimState p sym ext r f a -> Maybe ProgramLoc
+ f st = case st^.stateTree . actFrame . gpValue of
+          MF cf -> Just $! (frameProgramLoc cf)
+          OF _ -> Nothing
+          RF _ _ -> Nothing
+
 
 -- | Access the 'SimContext' inside a 'SimState'
 stateContext :: Simple Lens (SimState p sym ext r f a) (SimContext p sym ext)
