@@ -866,7 +866,7 @@ evaluateExpr sym sc cache = f
         B.FloatToBV{} -> floatFail
         B.FloatToSBV{} -> floatFail
         B.FloatToReal{} -> floatFail
-
+        B.FloatToBinary{} -> floatFail
 
         B.RoundReal{} -> realFail
         B.FloorReal{} -> realFail
