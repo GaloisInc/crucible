@@ -1615,11 +1615,11 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 
   -- | Check IEEE non-equality of two floating point numbers.
   --
-  --   NOTE! This test returns true if either value is @NaN@; in particular
-  --   @NaN@ is not equal to itself!  Moreover, positive and negative 0 will
-  --   compare equal, despite having different bit patterns.
-  --   This test is most appropriate for interpreting the non-equalty tests of
-  --   typical languages using floating point.
+  --   NOTE! This test returns false if either value is @NaN@; in particular
+  --   @NaN@ is not distinct from any other value!  Moreover, positive and
+  --   negative 0 will not compare distinct, despite having different
+  --   bit patterns.  This test is most appropriate for interpreting
+  --   the non-equalty tests of typical languages using floating point.
   floatFpNe
     :: sym
     -> SymFloat sym fpp
@@ -1677,14 +1677,33 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> RoundingMode
     -> SymFloat sym fpp'
     -> IO (SymFloat sym fpp)
+  -- | Round a floating point number to an integral value.
+  floatRound
+    :: sym
+    -> RoundingMode
+    -> SymFloat sym fpp
+    -> IO (SymFloat sym fpp)
   -- | Convert from binary representation in IEEE 754-2008 format to
   --   floating point.
   floatFromBinary
-    :: (1 <= eb, 1 <= sb)
+    :: (2 <= eb, 2 <= sb)
     => sym
-    -> FloatPrecisionRepr (FloatingPointPrecision sb eb)
-    -> SymBV sym (sb + eb)
-    -> IO (SymFloat sym (FloatingPointPrecision sb eb))
+    -> FloatPrecisionRepr (FloatingPointPrecision eb sb)
+    -> SymBV sym (eb + sb)
+    -> IO (SymFloat sym (FloatingPointPrecision eb sb))
+  -- | Convert from floating point from to the binary representation in
+  --   IEEE 754-2008 format.
+  --
+  --   NOTE! @NaN@ has multiple representations, i.e. all bit patterns where
+  --   the exponent is @0b1..1@ and the significant is not @0b0..0@.
+  --   This functions returns the representation of positive "quiet" @NaN@,
+  --   i.e. the bit pattern where the sign is @0b0@, the exponent is @0b1..1@,
+  --   and the significant is @0b10..0@.
+  floatToBinary
+    :: (2 <= eb, 2 <= sb)
+    => sym
+    -> SymFloat sym (FloatingPointPrecision eb sb)
+    -> IO (SymBV sym (eb + sb))
   -- | Convert a unsigned bitvector to a floating point number.
   bvToFloat
     :: (1 <= w)
@@ -1708,7 +1727,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> RoundingMode
     -> SymReal sym
     -> IO (SymFloat sym fpp)
-  -- | Convert a unsigned bitvector to a floating point number.
+  -- | Convert a floating point number to a unsigned bitvector.
   floatToBV
     :: (1 <= w)
     => sym
@@ -1716,7 +1735,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> RoundingMode
     -> SymFloat sym fpp
     -> IO (SymBV sym w)
-  -- | Convert a signed bitvector to a floating point number.
+  -- | Convert a floating point number to a signed bitvector.
   floatToSBV
     :: (1 <= w)
     => sym

@@ -168,7 +168,9 @@ appTheory a0 =
     FloatIsNorm{}     -> FloatingPointTheory
     FloatIte{}        -> FloatingPointTheory
     FloatCast{}       -> FloatingPointTheory
+    FloatRound{}      -> FloatingPointTheory
     FloatFromBinary{} -> FloatingPointTheory
+    FloatToBinary{}   -> FloatingPointTheory
     BVToFloat{}       -> FloatingPointTheory
     SBVToFloat{}      -> FloatingPointTheory
     RealToFloat{}     -> FloatingPointTheory

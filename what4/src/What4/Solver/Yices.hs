@@ -295,6 +295,7 @@ instance SupportTermOps (Term (Connection s)) where
   floatIsNorm    _ = floatFail
 
   floatCast       _ _ _ = floatFail
+  floatRound      _ _   = floatFail
   floatFromBinary _ _   = floatFail
   bvToFloat       _ _ _ = floatFail
   sbvToFloat      _ _ _ = floatFail
