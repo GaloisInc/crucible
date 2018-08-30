@@ -565,7 +565,7 @@ The type parameters have the following meanings:
 
   * @sym@ is the simulator backend being used.
 
-  * @ext@ specifies what extensions to the Crusible language are enabled
+  * @ext@ specifies what extensions to the Crucible language are enabled
 
   * @ret@ is the global return type of the entire execution.
 
@@ -629,7 +629,7 @@ data ValueFromFrame p sym ext (ret :: *) (f :: *)
       !(ValueFromValue p sym ext ret (FrameRetType f))
 
 
--- | Data about wether the surrounding context is expecting a merge to
+-- | Data about whether the surrounding context is expecting a merge to
 --   occur or not.  If the context sill expects a merge, we need to
 --   take some actions to indicate that the merge will not occur;
 --   otherwise there is no special work to be done.
@@ -652,7 +652,7 @@ The type parameters have the following meanings:
 
   * @sym@ is the simulator backend being used.
 
-  * @ext@ specifies what extensions to the Crusible language are enabled
+  * @ext@ specifies what extensions to the Crucible language are enabled
 
   * @ret@ is the global return type of the entire computation
 
@@ -661,7 +661,16 @@ The type parameters have the following meanings:
 data ValueFromValue p sym ext (ret :: *) (top_return :: CrucibleType)
 
   {- | 'VFVCall' denotes a call site in the outer context, and represents
-       the point to which a function higher on the stack will eventually return. -}
+       the point to which a function higher on the stack will
+       eventually return.  The three arguments are:
+
+         * The context in which the call happened.
+
+         * The frame of the caller
+
+         * How to modify the current sim frame and resume execution
+           when we obtain the return value
+  -}
   = forall args caller.
     VFVCall
 
