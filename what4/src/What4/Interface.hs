@@ -1995,7 +1995,8 @@ bvJoinVector :: forall sym n w. (1 <= w, IsExprBuilder sym)
              -> NatRepr w
              -> Vector.Vector n (SymBV sym w)
              -> IO (SymBV sym (n * w))
-bvJoinVector sym w = coerce $ Vector.joinWithM @IO @(SymBV' sym) @n bvConcat' w
+bvJoinVector sym w =
+  coerce $ Vector.joinWithM @IO @(SymBV' sym) @n bvConcat' w
   where bvConcat' :: forall l. (1 <= l)
                   => NatRepr l
                   -> SymBV' sym w
@@ -2011,8 +2012,7 @@ bvSplitVector :: forall sym n w. (IsExprBuilder sym, 1 <= w, 1 <= n)
               -> SymBV sym (n * w)
               -> IO (Vector.Vector n (SymBV sym w))
 bvSplitVector sym n w x =
-  fmap (getSymBV @sym) <$>
-    Vector.splitWithA LittleEndian bvSelect' n w (MkSymBV' x)
+  coerce $ Vector.splitWithA @IO LittleEndian bvSelect' n w (MkSymBV' @sym x)
   where
     bvSelect' :: forall i. (i + w <= n * w)
               => NatRepr (n * w)
