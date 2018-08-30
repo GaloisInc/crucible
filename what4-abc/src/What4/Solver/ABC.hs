@@ -433,6 +433,7 @@ bitblastExpr h ae = do
     FloatToBV{} -> floatFail
     FloatToSBV{} -> floatFail
     FloatToReal{} -> floatFail
+    FloatToBinary{} -> floatFail
 
     ------------------------------------------------------------------------
     -- Array operations
