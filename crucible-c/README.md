@@ -25,7 +25,7 @@ The `crucible-c` tool can be built by doing the following:
 
 * Change to the `$DIR` directory and run
 
-  `./scripts/build-sandbox.sh`.
+  `./scripts/build-sandbox.sh`
 
 * Change to the `$DIR/crucible-c` directory and run
 
