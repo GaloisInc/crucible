@@ -88,9 +88,8 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Simulator.CallFrame (mkCallFrame)
+import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Operations
                    ( runGenericErrorHandler, runErrorHandler, runAbortHandler

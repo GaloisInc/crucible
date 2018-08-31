@@ -92,7 +92,6 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Panic(panic)
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
@@ -138,8 +137,8 @@ mergeCrucibleFrame ::
   IsSymInterface sym =>
   sym ->
   IntrinsicTypes sym ->
-  CrucibleBranchTarget blocks args {- ^ Target of branch -} ->
-  MuxFn (Pred sym) (SimFrame sym ext (CrucibleLang blocks ret) args)
+  CrucibleBranchTarget f args {- ^ Target of branch -} ->
+  MuxFn (Pred sym) (SimFrame sym ext f args)
 mergeCrucibleFrame sym muxFns tgt p x0 y0 =
   case tgt of
     BlockTarget _b_id -> do
@@ -155,10 +154,10 @@ mergeCrucibleFrame sym muxFns tgt p x0 y0 =
 
 mergePartialResult ::
   IsSymInterface sym =>
-  SimState p sym ext f root args ->
-  CrucibleBranchTarget blocks args ->
+  SimState p sym ext root f args ->
+  CrucibleBranchTarget f args ->
   MuxFn (Pred sym)
-     (PartialResult sym ext (SimFrame sym ext (CrucibleLang blocks ret) args))
+     (PartialResult sym ext (SimFrame sym ext f args))
 mergePartialResult s tgt pp x y =
   let sym       = s^.stateSymInterface
       iteFns    = s^.stateIntrinsicTypes
@@ -213,20 +212,22 @@ pushCrucibleFrame ::
   IsSymInterface sym =>
   sym ->
   IntrinsicTypes sym ->
-  SimFrame sym ext (CrucibleLang b r) a ->
-  IO (SimFrame sym ext (CrucibleLang b r) a)
-pushCrucibleFrame sym muxFns (MF x) = do
-  r' <- pushBranchRegs sym muxFns (x^.frameRegs)
-  return $! MF (x & frameRegs .~ r')
-pushCrucibleFrame sym muxFns (RF nm x) = do
-  x' <- pushBranchRegEntry sym muxFns x
-  return $! RF nm x'
-
+  SimFrame sym ext f a ->
+  IO (SimFrame sym ext f a)
+pushCrucibleFrame sym muxFns (MF x) =
+  do r' <- pushBranchRegs sym muxFns (x^.frameRegs)
+     return $! MF (x & frameRegs .~ r')
+pushCrucibleFrame sym muxFns (RF nm x) =
+  do x' <- pushBranchRegEntry sym muxFns x
+     return $! RF nm x'
+pushCrucibleFrame sym muxFns (OF f) =
+  do r' <- pushBranchRegs sym muxFns (overrideRegMap f)
+     return (OF f{ overrideRegMap = r' })
 
 pushPausedFrame ::
   IsSymInterface sym =>
-  PausedFrame p sym ext root b a args ->
-  ReaderT (SimState p sym ext root (CrucibleLang b a) ma) IO (PausedFrame p sym ext root b a args)
+  PausedFrame p sym ext root f args ->
+  ReaderT (SimState p sym ext root f ma) IO (PausedFrame p sym ext root f args)
 pushPausedFrame pf =
   do sym <- view stateSymInterface
      iTypes <- view stateIntrinsicTypes
@@ -242,24 +243,27 @@ abortCrucibleFrame ::
   IsSymInterface sym =>
   sym ->
   IntrinsicTypes sym ->
-  SimFrame sym ext (CrucibleLang b r') a' ->
-  IO (SimFrame sym ext (CrucibleLang b r') a')
-abortCrucibleFrame sym intrinsicFns (MF x') =
+  CrucibleBranchTarget f a' ->
+  SimFrame sym ext f a' ->
+  IO (SimFrame sym ext f a')
+abortCrucibleFrame sym intrinsicFns (BlockTarget _) (MF x') =
   do r' <- abortBranchRegs sym intrinsicFns (x'^.frameRegs)
      return $! MF (x' & frameRegs .~ r')
 
-abortCrucibleFrame sym intrinsicFns (RF nm x') =
+abortCrucibleFrame sym intrinsicFns ReturnTarget (RF nm x') =
   RF nm <$> abortBranchRegEntry sym intrinsicFns x'
+
 
 abortPartialResult ::
   IsSymInterface sym =>
   SimState p sym ext r f args ->
-  PartialResult sym ext (SimFrame sym ext (CrucibleLang b r') a') ->
-  IO (PartialResult sym ext (SimFrame sym ext (CrucibleLang b r') a'))
-abortPartialResult s pr =
+  CrucibleBranchTarget f a' ->
+  PartialResult sym ext (SimFrame sym ext f a') ->
+  IO (PartialResult sym ext (SimFrame sym ext f a'))
+abortPartialResult s tgt pr =
   let sym                    = s^.stateSymInterface
       muxFns                 = s^.stateIntrinsicTypes
-      abtGp (GlobalPair v g) = GlobalPair <$> abortCrucibleFrame sym muxFns v
+      abtGp (GlobalPair v g) = GlobalPair <$> abortCrucibleFrame sym muxFns tgt v
                                           <*> globalAbortBranch sym muxFns g
   in partialValue abtGp pr
 
@@ -488,9 +492,9 @@ tailCallFunction fn args vfv =
 --   This should be called everytime the current control flow location
 --   changes to a potential merge point.
 checkForIntraFrameMerge ::
-  CrucibleBranchTarget b args
+  CrucibleBranchTarget f args
     {- ^ The location of the block we are transferring to -} ->
-  ExecCont p sym ext root (CrucibleLang b r) args
+  ExecCont p sym ext root f args
 
 checkForIntraFrameMerge tgt =
   ReaderT $ return . ControlTransferState tgt
@@ -503,9 +507,9 @@ checkForIntraFrameMerge tgt =
 --   continue executing by transfering control to the given target.
 performIntraFrameMerge ::
   IsSymInterface sym =>
-  CrucibleBranchTarget b args
+  CrucibleBranchTarget f args
     {- ^ The location of the block we are transferring to -} ->
-  ExecCont p sym ext root (CrucibleLang b r) args
+  ExecCont p sym ext root f args
 
 performIntraFrameMerge tgt = do
   ActiveTree ctx0 er <- view stateTree
@@ -550,7 +554,7 @@ performIntraFrameMerge tgt = do
     VFFPartial ctx p ar needsAborting ->
       do er'  <- case needsAborting of
                    NoNeedToAbort    -> return er
-                   NeedsToBeAborted -> ReaderT $ \s -> abortPartialResult s er
+                   NeedsToBeAborted -> ReaderT $ \s -> abortPartialResult s tgt er
          er'' <- liftIO $ mergePartialAndAbortedResult sym p er' ar
          withReaderT
            (stateTree .~ ActiveTree ctx er'')
@@ -686,8 +690,8 @@ resumeValueFromValueAbort ctx0 ar0 =
 -- | Resume a paused frame.
 resumeFrame ::
   IsSymInterface sym =>
-  PausedFrame p sym ext rtp blocks r a ->
-  ValueFromFrame p sym ext rtp (CrucibleLang blocks r) ->
+  PausedFrame p sym ext rtp f a ->
+  ValueFromFrame p sym ext rtp f ->
   ExecCont p sym ext rtp g ba
 resumeFrame (PausedFrame frm cont) ctx =
     withReaderT
@@ -754,8 +758,8 @@ cruciblePausedFrame ::
   BlockID b new_args ->
   RegMap sym new_args ->
   GlobalPair sym (SimFrame sym ext (CrucibleLang b r) ('Just a)) ->
-  CrucibleBranchTarget b pd_args {- ^ postdominator target -} ->
-  PausedFrame p sym ext rtp b r new_args
+  CrucibleBranchTarget (CrucibleLang b r) pd_args {- ^ postdominator target -} ->
+  PausedFrame p sym ext rtp (CrucibleLang b r) new_args
 cruciblePausedFrame x_id x_args top_frame pd =
   let cf = top_frame & crucibleTopFrame %~ setFrameBlock x_id x_args
       res = case testEquality pd (BlockTarget x_id) of
@@ -772,7 +776,6 @@ getTgtLoc (BlockID i) =
 
 -- | Return the context of the current top frame.
 asContFrame ::
-  (f ~ CrucibleLang b a) =>
   ActiveTree     p sym ext ret f args ->
   ValueFromFrame p sym ext ret f
 asContFrame (ActiveTree ctx active_res) =
@@ -799,16 +802,16 @@ intra_branch ::
   Pred sym
   {- ^ Branch condition branch -} ->
 
-  SomePausedFrame p sym ext r b a
+  SomePausedFrame p sym ext f r
   {- ^ true branch. -} ->
 
-  SomePausedFrame p sym ext r b a
+  SomePausedFrame p sym ext f r
   {- ^ false branch. -} ->
 
-  CrucibleBranchTarget b (args :: Maybe (Ctx CrucibleType))
+  CrucibleBranchTarget f (args :: Maybe (Ctx CrucibleType))
   {- ^ Postdominator merge point, where both branches meet again. -} ->
 
-  ExecCont p sym ext r (CrucibleLang b a) ('Just dc_args)
+  ExecCont p sym ext r f ('Just dc_args)
 
 intra_branch p t_label f_label tgt = do
   ctx <- asContFrame <$> view stateTree
@@ -841,16 +844,16 @@ performIntraFrameSplit ::
   Pred sym
   {- ^ Branch condition -} ->
 
-  SomePausedFrame p sym ext r b a
+  SomePausedFrame p sym ext f r
   {- ^ active branch. -} ->
 
-  SomePausedFrame p sym ext r b a
+  SomePausedFrame p sym ext f r
   {- ^ other branch. -} ->
 
-  CrucibleBranchTarget b (args :: Maybe (Ctx CrucibleType))
+  CrucibleBranchTarget f (args :: Maybe (Ctx CrucibleType))
   {- ^ Postdominator merge point, where both branches meet again. -} ->
 
-  ExecCont p sym ext r (CrucibleLang b a) ('Just dc_args)
+  ExecCont p sym ext r f ('Just dc_args)
 performIntraFrameSplit p (SomePausedFrame a_frame a_loc) (SomePausedFrame o_frame o_loc) tgt =
   do ctx <- asContFrame <$> view stateTree
      sym <- view stateSymInterface

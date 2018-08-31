@@ -64,7 +64,6 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation
 import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Operations

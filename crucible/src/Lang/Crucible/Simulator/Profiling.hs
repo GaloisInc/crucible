@@ -62,7 +62,6 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.Operations
 
 
@@ -261,8 +260,8 @@ updateProfilingTable tbl = \case
 
 
 isMergeState ::
-  CrucibleBranchTarget b args ->
-  SimState p sym ext root (CrucibleLang b r) args ->
+  CrucibleBranchTarget f args ->
+  SimState p sym ext root f args ->
   Bool
 isMergeState tgt st =
   case st^.stateTree.actContext of

@@ -153,7 +153,6 @@ import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
 import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator)
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation (EvalAppFunc)
-import           Lang.Crucible.Simulator.Frame
 import           Lang.Crucible.Simulator.GlobalState (SymGlobalState)
 import           Lang.Crucible.Simulator.Intrinsics (IntrinsicTypes)
 import           Lang.Crucible.Simulator.RegMap (RegMap, emptyRegMap, RegValue, RegEntry)
@@ -404,13 +403,13 @@ data ExecState p sym ext (rtp :: *)
         the path that corresponds to the @Pred@ being true, and the second
         is the false branch.
     -}
-   | forall blocks r args postdom_args.
+   | forall f args postdom_args.
        SymbolicBranchState
          !(Pred sym) {- predicate to branch on -}
-         !(SomePausedFrame p sym ext rtp blocks r) {- true path-}
-         !(SomePausedFrame p sym ext rtp blocks r) {- false path -}
-         !(CrucibleBranchTarget blocks postdom_args) {- merge point -}
-         !(SimState p sym ext rtp (CrucibleLang blocks r) ('Just args))
+         !(SomePausedFrame p sym ext f rtp) {- true path-}
+         !(SomePausedFrame p sym ext f rtp)  {- false path -}
+         !(CrucibleBranchTarget f postdom_args) {- merge point -}
+         !(SimState p sym ext rtp f ('Just args))
 
    {- | An override state indicates the included 'SimState' is prepared to
         execute a code override. -}
@@ -426,11 +425,11 @@ data ExecState p sym ext (rtp :: *)
         During this process, paths may have to be merged.  If several branches
         must merge at the same control point, this state may be entered several
         times in succession before returning to a 'RunningState'. -}
-   | forall blocks r args.
+   | forall f args.
        ControlTransferState
-         !(CrucibleBranchTarget blocks args)
+         !(CrucibleBranchTarget f args)
            {- Target of the control-flow transfer -}
-         !(SimState p sym ext rtp (CrucibleLang blocks r) args)
+         !(SimState p sym ext rtp f args)
            {- State of the simulator prior to the control-flow transfer -}
 
 -- | An action which will construct an 'ExecState' given a current
@@ -465,19 +464,19 @@ data ResolvedJump sym blocks
 --   (while it first explores other paths), a 'ControlResumption'
 --   indicates what actions must later be taken in order to resume
 --   execution of that path.
-data ControlResumption p sym ext rtp blocks r args where
+data ControlResumption p sym ext rtp f args where
   {- | When resuming a paused frame with a 'ContinueResumption',
        no special work needs to be done, simply begin executing
        statements of the basic block. -}
   ContinueResumption ::
     !(BlockID blocks args) {- Block ID we are transferring to -} ->
-    ControlResumption p sym ext rtp blocks r args
+    ControlResumption p sym ext rtp (CrucibleLang blocks r) args
 
   {- | When resuming with a 'CheckMergeResumption', we must check
        for the presence of pending merge points before resuming. -}
   CheckMergeResumption ::
     !(BlockID blocks args) {- Block ID we are transferring to -} ->
-    ControlResumption p sym ext root blocks r args
+    ControlResumption p sym ext root (CrucibleLang blocks r) args
 
   {- | When resuming a paused frame with a 'SwitchResumption', we must
        continue branching to possible alternatives in a variant elmination
@@ -486,7 +485,7 @@ data ControlResumption p sym ext rtp blocks r args where
        at a final 'VariantElim' terminal statement). -}
   SwitchResumption ::
     [(Pred sym, ResolvedJump sym blocks)] {- remaining branches -} ->
-    ControlResumption p sym ext root blocks r args
+    ControlResumption p sym ext root (CrucibleLang blocks r) args
 
 ------------------------------------------------------------------------
 -- Paused Frame
@@ -495,32 +494,32 @@ data ControlResumption p sym ext rtp blocks r args where
 --   while other paths are explored.  It consists of a (potentially partial)
 --   'SimFrame' togeter with some information about how to resume execution
 --   of that frame.
-data PausedFrame p sym ext root b r args
+data PausedFrame p sym ext root f args
    = PausedFrame
-     { _pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext (CrucibleLang b r) ('Just args)))
-     , _resume       :: !(ControlResumption p sym ext root b r args)
+     { _pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext f ('Just args)))
+     , _resume       :: !(ControlResumption p sym ext root f args)
      }
 
 -- | Some frame, together with a location (if any) associated with
 --   that frame.
-data SomePausedFrame p sym ext r b a =
+data SomePausedFrame p sym ext f (a :: *) =
   forall args.
     SomePausedFrame
-      !(PausedFrame p sym ext r b a args)
+      !(PausedFrame p sym ext a f args)
       !(Maybe ProgramLoc)
 
 -- | Access the partial frame inside a 'PausedFrame'
 pausedFrame ::
   Simple Lens
-    (PausedFrame p sym ext root b r args)
-    (PartialResult sym ext (SimFrame sym ext (CrucibleLang b r) ('Just args)))
+    (PausedFrame p sym ext root f args)
+    (PartialResult sym ext (SimFrame sym ext f ('Just args)))
 pausedFrame = lens _pausedFrame (\ppf v -> ppf{ _pausedFrame = v })
 
 -- | Access the 'ControlResumption' inside a 'PausedFrame'
 resume ::
   Simple Lens
-    (PausedFrame p sym ext root b r args)
-    (ControlResumption p sym ext root b r args)
+    (PausedFrame p sym ext root f args)
+    (ControlResumption p sym ext root f args)
 resume = lens _resume (\ppf r -> ppf{ _resume = r })
 
 
@@ -532,27 +531,23 @@ resume = lens _resume (\ppf r -> ppf{ _resume = r })
 --   stored in the 'VFFCompletePath' state until the second path also
 --   reaches its merge point.  The two paths will then be merged,
 --   and execution will continue beyond the merge point.
-data VFFOtherPath p sym ext ret blocks r args
+data VFFOtherPath p sym ext ret f args
 
      {- | This corresponds the a path that still needs to be analyzed. -}
    = forall o_args.
       VFFActivePath
         !(Maybe ProgramLoc)
           {- Location of branch target -}
-        !(PausedFrame p sym ext ret blocks r o_args)
+        !(PausedFrame p sym ext ret f o_args)
           {- Other branch we still need to run -}
 
      {- | This is a completed execution path. -}
    | VFFCompletePath
         !(Seq (Assumption sym))
           {- Assumptions that we collected while analyzing the branch -}
-        !(PartialResult sym ext (SimFrame sym ext (CrucibleLang blocks r) args))
+        !(PartialResult sym ext (SimFrame sym ext f args))
           {- Result of running the other branch -}
 
-
-type family FrameRetType (f :: *) :: CrucibleType where
-  FrameRetType (CrucibleLang b r) = r
-  FrameRetType (OverrideLang r) = r
 
 
 {- | This type contains information about the current state of the exploration
@@ -576,7 +571,7 @@ data ValueFromFrame p sym ext (ret :: *) (f :: *)
 
   {- | We are working on a branch;  this could be the first or the second
        of both branches (see the 'VFFOtherPath' field). -}
-  = forall blocks args r. (f ~ CrucibleLang blocks r) =>
+  = forall args.
     VFFBranch
 
       !(ValueFromFrame p sym ext ret f)
@@ -593,22 +588,21 @@ data ValueFromFrame p sym ext (ret :: *) (f :: *)
       !(Pred sym)
       {- Assertion of currently-active branch -}
 
-      !(VFFOtherPath p sym ext ret blocks r args)
+      !(VFFOtherPath p sym ext ret f args)
       {- Info about the state of the other branch.
          If the other branch is "VFFActivePath", then we still
          need to process it;  if it is "VFFCompletePath", then
          it is finsihed, and so once we are done then we go back to the
          outer context. -}
 
-      !(CrucibleBranchTarget blocks args)
+      !(CrucibleBranchTarget f args)
       {- Identifies the postdominator where the two branches merge back together -}
 
 
 
   {- | We are on a branch where the other branch was aborted before getting
      to the merge point.  -}
-  | forall blocks a.  (f ~ CrucibleLang blocks a) =>
-    VFFPartial
+  | VFFPartial
 
       !(ValueFromFrame p sym ext ret f)
       {- The other context--what to do once we are done with this bracnh -}
@@ -704,7 +698,7 @@ instance PP.Pretty (ValueFromValue p ext sym root rp) where
 instance PP.Pretty (ValueFromFrame p ext sym ret f) where
   pretty = ppValueFromFrame
 
-instance PP.Pretty (VFFOtherPath ctx sym ext r blocks r' a) where
+instance PP.Pretty (VFFOtherPath ctx sym ext r f a) where
   pretty (VFFActivePath _ _)   = PP.text "active_path"
   pretty (VFFCompletePath _ _) = PP.text "complete_path"
 

@@ -78,7 +78,6 @@ import qualified Lang.Crucible.Simulator.ExecutionTree as C
 import qualified Lang.Crucible.Simulator.GlobalState   as C
 import qualified Lang.Crucible.Simulator.OverrideSim   as C
 import qualified Lang.Crucible.Simulator.RegValue      as C
-import qualified Lang.Crucible.Simulator.Frame         as C
 import qualified Lang.Crucible.Simulator.RegMap        as C
 
 import qualified Lang.Crucible.Analysis.Postdom        as C
