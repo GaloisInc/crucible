@@ -328,7 +328,7 @@ stepTerm _ (Jump tgt) =
   jumpToBlock =<< evalJumpTarget tgt
 
 stepTerm _ (Return arg) =
-  returnAndMerge =<< evalReg' arg
+  returnValue =<< evalReg' arg
 
 stepTerm _ (Br c x y) =
   do x_jump <- evalJumpTarget x

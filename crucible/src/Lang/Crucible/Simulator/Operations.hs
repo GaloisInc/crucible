@@ -35,7 +35,6 @@ module Lang.Crucible.Simulator.Operations
   , conditionalBranch
   , variantCases
   , returnValue
-  , returnAndMerge
   , callFunction
   , tailCallFunction
   , runOverride
@@ -439,28 +438,15 @@ variantCases ((p,ResolvedJump x_id x_args) : cs) =
                   pd
 
 -- | Return a value from current Crucible execution.
-returnAndMerge :: forall p sym ext rtp blocks ret args.
+returnValue :: forall p sym ext rtp f args.
   IsSymInterface sym =>
-  RegEntry sym ret {- ^ return value -} ->
-  ExecCont p sym ext rtp (CrucibleLang blocks ret) args
-returnAndMerge arg =
+  RegEntry sym (FrameRetType f) {- ^ return value -} ->
+  ExecCont p sym ext rtp f args
+returnValue arg =
   do nm <- view (stateTree.actFrame.gpValue.frameFunctionName)
      withReaderT
        (stateTree.actFrame.gpValue .~ RF nm arg)
        (checkForIntraFrameMerge ReturnTarget)
-
-
--- | Return a value from current override execution.
-returnValue ::
-  IsSymInterface sym =>
-  RegEntry sym ret {- ^ return value -} ->
-  ExecCont p sym ext rtp (OverrideLang ret) a
-returnValue v =
-  do ActiveTree ctx er <- view stateTree
-     handleSimReturn
-       (er^.partialValue.gpValue.frameFunctionName)
-       (returnContext ctx)
-       (er & partialValue.gpValue .~ v)
 
 
 callFunction ::
@@ -736,7 +722,7 @@ performReturn fnName ctx0 return_value = do
       do let v = return_value^.partialValue.gpValue
          withReaderT
            (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ RF fnName v))
-           (returnAndMerge v)
+           (returnValue v)
 
     VFVCall ctx (OF f) (ReturnToOverride k) ->
       do let v = return_value^.partialValue.gpValue
