@@ -48,6 +48,7 @@ module Lang.Crucible.Simulator.Operations
   , performReturn
   , resumeFrame
   , resumeValueFromValueAbort
+  , overrideSymbolicBranch
 
     -- * Resolving calls
   , ResolvedCall(..)
@@ -685,7 +686,9 @@ resumeFrame (PausedFrame frm cont) ctx =
        (case cont of
          ContinueResumption i   -> continue (RunBlockStart i)
          SwitchResumption cs    -> variantCases cs
-         CheckMergeResumption i -> checkForIntraFrameMerge (BlockTarget i))
+         CheckMergeResumption i -> checkForIntraFrameMerge (BlockTarget i)
+         OverrideResumption k   -> k
+       )
 {-# INLINABLE resumeFrame #-}
 
 
@@ -752,6 +755,30 @@ cruciblePausedFrame x_id x_args top_frame pd =
                 Just Refl -> CheckMergeResumption x_id
                 Nothing   -> ContinueResumption x_id
    in PausedFrame (TotalRes cf) res
+
+
+overridePausedFrame ::
+  ExecCont p sym ext rtp (OverrideLang r) ('Just args) ->
+  GlobalPair sym (SimFrame sym ext (OverrideLang r) ('Just args)) ->
+  PausedFrame p sym ext rtp (OverrideLang r) args
+overridePausedFrame k top_frame =
+  PausedFrame (TotalRes top_frame) (OverrideResumption k)
+
+
+overrideSymbolicBranch ::
+  IsSymInterface sym =>
+  Pred sym ->
+  ExecCont p sym ext rtp (OverrideLang r) ('Just args) {- ^ if branch -} ->
+  Maybe ProgramLoc {- ^ optional if branch location -} ->
+  ExecCont p sym ext rtp (OverrideLang r) ('Just args) {- ^ else branch -} ->
+  Maybe ProgramLoc {- ^ optional else branch location -} ->
+  ExecCont p sym ext rtp (OverrideLang r) ('Just args)
+overrideSymbolicBranch p thn thn_loc els els_loc =
+  do top_frm <- view (stateTree.actFrame)
+     let thn_frm = SomePausedFrame (overridePausedFrame thn top_frm) thn_loc
+     let els_frm = SomePausedFrame (overridePausedFrame els top_frm) els_loc
+     intra_branch p thn_frm els_frm ReturnTarget
+
 
 getTgtLoc ::
   BlockID b y ->
