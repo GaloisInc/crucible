@@ -2006,7 +2006,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 -- that expect a wrapper of kind (Type -> Type), and we can't partially
 -- apply the type synonym (e.g. SymBv sym), whereas we can partially
 -- apply this newtype.
-newtype SymBV' sym w = MkSymBV' { getSymBV :: SymBV sym w }
+newtype SymBV' sym w = MkSymBV' (SymBV sym w)
 
 -- | Join a @Vector@ of smaller bitvectors
 bvJoinVector :: forall sym n w. (1 <= w, IsExprBuilder sym)
