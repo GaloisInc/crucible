@@ -163,15 +163,15 @@ jsVerbosity = lens _jsVerbosity (\s v -> s { _jsVerbosity = v })
 
 -- | Build the initial JVM generator state upon entry to the entry
 -- point of a method.
-initialState :: JVMContext -> J.Method -> TypeRepr ret -> JVMState ret s
-initialState ctx method ret =
+initialState :: JVMContext -> Int -> J.Method -> TypeRepr ret -> JVMState ret s
+initialState ctx verbosity method ret =
   JVMState {
     _jsLabelMap = Map.empty,
     _jsFrameMap = Map.empty,
     _jsCFG = methodCFG method,
     jsRetType = ret,
     jsContext = ctx,
-    _jsVerbosity = 0
+    _jsVerbosity = verbosity
   }
 
 methodCFG :: J.Method -> J.CFG

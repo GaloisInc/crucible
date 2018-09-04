@@ -121,10 +121,10 @@ import Debug.Trace
    be parsed by the jvm-parser code. So, those classes cannot be traversed to
    look for transitive mentions of other classes.
 
-   In that case, we need to define a set of "initClasses", i.e. or
+   In that case, we need to define a set of "initClasses", i.e. 
    baseline primitives. These classes we declare only, but we make no
    guarantees that the classes that they refer to will also be
-   available. Most of the time, we will implement the functionality
+   available. Instead, we need to implement the functionality
    from these classes via static or dynamic overrides. 
 
 -}
@@ -233,7 +233,7 @@ exclude cn = (J.unClassName cn) `elem` initClasses
 
 {- Implementation of native methods from the Java library -}
 
--- | For static primitives, there is no need to create an override handle
+-- | For static methods, there is no need to create an override handle
 --   we can just dispatch to our code in the interpreter automatically
 
 staticOverrides :: J.ClassName -> J.MethodKey -> Maybe (JVMStmtGen h s ret ())
@@ -269,9 +269,11 @@ staticOverrides className methodKey
                         destObj  <- readRef rawDestRef
                         newDestObj <- arrayUpdate destObj (destPos + j) val
                         writeRef rawDestRef newDestObj
+                        
                         -- i++;
                         modifyReg iReg (1 +)
                         )
+                
   | className == "java/lang/System" && J.methodKeyName methodKey == "exit"
   = Just $ do _status <- iPop
               -- TODO: figure out how to exit the simulator
@@ -279,7 +281,11 @@ staticOverrides className methodKey
               -- _ <- lift $ returnFromFunction (App EmptyApp)
               -- (App $ TextLit (fromString $ "java.lang.System.exit(int status) called with " ++ codeStr))
               return ()
-      
+
+  -- System.gc is a NOP
+  | className == "java/lang/System" && J.methodKeyName methodKey == "gc"
+  = Just $ do return ()
+  
   --
   -- Do nothing for registering native state
   --
@@ -306,12 +312,23 @@ staticOverrides className methodKey
            -- how do we get access to "this" ??
            return ()
          _ -> Nothing
-{-      
-  | className == "java/lang/String" && J.methodKeyName methodKey == "<init>"
-  = 
-     Just $ do return ()
--}
 
+  | className == "java/io/ObjectStreamField" && J.methodKeyName methodKey == "<init>"
+  = trace ("java/io/ObjectStreamField/<init>  " ++ show (J.methodKeyParameterTypes methodKey)) $
+    case (J.methodKeyParameterTypes methodKey) of
+      [_,_] -> Just $ do
+        _name <- rPop    -- String
+        _type <- rPop    -- Class
+        _obj <-  rPop
+        return ()
+      [_,_,_] -> Just $ do
+        _name <- rPop
+        _type <- rPop     -- Class<?>
+        _unshared <- iPop -- boolean
+        _obj <-  rPop
+        return ()  
+
+      _ -> Nothing
   | className == "java/lang/Object" && J.methodKeyName methodKey == "hashCode"
   =  Just $ do
         -- TODO: hashCode always returns 0, can we make it be an "abstract" int?
@@ -823,14 +840,19 @@ generateInstruction (pc, instr) =
 
 
     -- Object creation and manipulation
-    J.New name -> do
-      lift $ debug 2 $ "new " ++ show name
+{-    J.New name | name == "java/io/ObjectStreamField" -> do
+      lift $ debug 2 $ "new java/io/ObjectStreamField" ++ show name                   
+      rPush rNull -}
+
+    J.New name  -> do
+      lift $ debug 2 $ "new " ++ show name ++ " (start)"
       cls    <- lift $ lookupClassGen name
       clsObj <- lift $ getJVMClass cls
       -- find the fields not just in this class, but also in the super classes
       fields <- lift $ getAllFields cls
       obj    <- lift $ newInstanceInstr clsObj fields
       rawRef <- lift $ newRef obj
+      lift $ debug 2 $ "new " ++ show name ++ " (finish)"
       rPush $ App (JustValue knownRepr rawRef)
 
     J.Getfield fieldId -> do
@@ -1055,7 +1077,9 @@ generateInstruction (pc, instr) =
       | Just action <- staticOverrides className methodKey
       -- look for a static override for this class and run that
       -- instead
-      -> action
+      ->  do let mname = J.unClassName className ++ "/" ++ J.methodKeyName methodKey
+             lift $ debug 2 $ "invoke static: " ++ mname
+             action
       
 
       | otherwise -> 
@@ -1095,11 +1119,15 @@ generateInstruction (pc, instr) =
          
     J.Checkcast (J.ClassType className) ->
       do objectRef <- rPop
-         rawRef <- throwIfRefNull objectRef
-         lift $ do obj <- readRef rawRef
-                   cls <- getJVMInstanceClass obj
-                   b <- isSubType cls className 
-                   assertExpr b "java/lang/ClassCastException"
+         lift $ caseMaybe_ objectRef 
+           MatchMaybe
+           { onNothing = return ()
+           , onJust  = \rawRef -> do
+               obj <- readRef rawRef
+               cls <- getJVMInstanceClass obj
+               b <- isSubType cls className 
+               assertExpr b "java/lang/ClassCastException"
+           }
          rPush objectRef
 
     J.Checkcast tp ->
@@ -1556,16 +1584,17 @@ mkInitialJVMContext halloc cb = do
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 translateMethod' :: JVMContext
+                 -> Verbosity
                  -> J.ClassName
                  -> J.Method
                  -> FnHandle args ret
                  -> ST h (C.SomeCFG JVM args ret)
-translateMethod' ctx cName m h =     
+translateMethod' ctx verbosity cName m h =     
   case (handleArgTypes h, handleReturnType h) of
     ((argTypes :: CtxRepr args), (retType :: TypeRepr ret)) -> do
       let  def :: FunctionDef JVM h (JVMState ret) args ret
            def inputs = (s, f)
-             where s = initialState ctx m retType
+             where s = initialState ctx verbosity m retType
                    f = generateMethod cName m argTypes inputs
       (SomeCFG g, []) <- defineFunction InternalPos h def
       return $ toSSA g
@@ -1573,15 +1602,16 @@ translateMethod' ctx cName m h =
 
 -- | Translate a single JVM method definition into a crucible CFG
 translateMethod :: JVMContext
+                -> Verbosity
                 -> J.Class
                 -> J.Method
                 -> ST s ((J.ClassName, J.MethodKey), MethodTranslation)
-translateMethod ctx c m = do
+translateMethod ctx verbosity c m = do
   let cName = J.className c
   let mKey  = J.methodKey m
   case Map.lookup (cName,mKey) (methodHandles ctx) of
     Just (JVMHandleInfo _ h)  -> do
-          g' <- translateMethod' ctx cName m h
+          g' <- translateMethod' ctx verbosity cName m h
           return ((cName,mKey), MethodTranslation h g')
     Nothing -> fail $ "internal error: Could not find method " ++ show mKey
 
@@ -1591,9 +1621,9 @@ translateMethod ctx c m = do
 
 -- make bindings for all methods in the JVMContext classTable that have
 -- associated method handles
-mkDelayedBindings :: forall p sym . JVMContext -> C.FunctionBindings p sym JVM
-mkDelayedBindings ctx =
-  let bindings = [ mkDelayedBinding ctx c m h | (cn,c) <- Map.assocs (classTable ctx)
+mkDelayedBindings :: forall p sym . JVMContext -> Verbosity -> C.FunctionBindings p sym JVM
+mkDelayedBindings ctx verbosity =
+  let bindings = [ mkDelayedBinding ctx verbosity c m h | (cn,c) <- Map.assocs (classTable ctx)
                                               , m <- J.classMethods c
                                               , h <- maybeToList $ Map.lookup (cn,J.methodKey m)
                                                      (methodHandles ctx)
@@ -1605,11 +1635,12 @@ mkDelayedBindings ctx =
 -- translates the Java source code and then runs it.
 mkDelayedBinding :: forall p sym .
                     JVMContext
+                 -> Verbosity
                  -> J.Class
                  -> J.Method
                  -> JVMHandleInfo
                  -> C.FnBinding p sym JVM
-mkDelayedBinding ctx c m (JVMHandleInfo _mk (handle :: FnHandle args ret)) 
+mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args ret)) 
   = let cm           = J.unClassName (J.className c) ++ "/" ++ J.methodName m
         fn           = functionNameFromText (fromString (J.methodName m))
         retRepr      = handleReturnType handle
@@ -1618,7 +1649,7 @@ mkDelayedBinding ctx c m (JVMHandleInfo _mk (handle :: FnHandle args ret))
         overrideSim  = do whenVerbosity (const False) $
                             do liftIO $ putStrLn $ "translating (delayed) " ++ cm
                           args <- C.getOverrideArgs
-                          C.SomeCFG cfg <- liftST $ translateMethod' ctx (J.className c) m handle
+                          C.SomeCFG cfg <- liftST $ translateMethod' ctx verbosity (J.className c) m handle
                           C.bindFnHandle handle (C.UseCFG cfg (C.postdomInfo cfg))
                           (C.RegEntry _tp regval) <- C.callFnVal (C.HandleFnVal handle) args
                           return regval
@@ -1698,7 +1729,7 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
        $ "Checking return type for method " ++ mname
             
-     runMethodHandle sym p halloc ctx (J.className mcls) h args
+     runMethodHandle sym p halloc ctx verbosity (J.className mcls) h args
 
 
 failIfNotEqual :: forall f m a (b :: k).
@@ -1726,15 +1757,18 @@ findMethodHandle ctx cls meth =
           fail $ "BUG: cannot find handle for " ++ J.unClassName (J.className cls)
                ++ "/" ++ J.methodName meth
 
-runClassInit :: HandleAllocator RealWorld -> JVMContext -> J.ClassName
+-- We don't initialize the class on every static method call.
+-- So we have to make a separate simulation function to do that when
+-- we start the simulator.
+runClassInit :: HandleAllocator RealWorld -> JVMContext -> Verbosity -> J.ClassName
              -> C.OverrideSim p sym JVM rtp a r (C.RegEntry sym C.UnitType)
-runClassInit halloc ctx name = do
+runClassInit halloc ctx verbosity name = do
   (C.SomeCFG g') <- liftIO $ stToIO $ do
-      h <- mkHandle halloc "class_init"
+      h <- mkHandle halloc (fromString ("class_init:" ++ J.unClassName name))
       let (meth :: J.Method) = undefined
           def :: FunctionDef JVM s (JVMState UnitType) EmptyCtx UnitType
           def _inputs = (s, f)
-              where s = initialState ctx meth knownRepr
+              where s = initialState ctx verbosity meth knownRepr
                     f = do () <- initializeClass name
                            return (App EmptyApp)
       (SomeCFG g, []) <- defineFunction InternalPos h def
@@ -1749,25 +1783,26 @@ runMethodHandle :: (IsSymInterface sym,
                   -> p
                   -> HandleAllocator RealWorld
                   -> JVMContext
+                  -> Verbosity
                   -> J.ClassName
                   -> FnHandle args ret
                   -> C.RegMap sym args
                   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-runMethodHandle sym p halloc ctx classname h args = do
+runMethodHandle sym p halloc ctx verbosity _classname h args = do
   let javaExtImpl :: C.ExtensionImpl p sym JVM
       javaExtImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
   let simctx = C.initSimContext sym
                  MapF.empty  -- intrinsics
                  halloc
                  stdout
-                 (mkDelayedBindings ctx)
+                 (mkDelayedBindings ctx verbosity)
                  javaExtImpl
                  p
   let globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals     
   let simSt  = C.initSimState simctx globals C.defaultAbortHandler
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
-                       _ <- runClassInit halloc ctx classname
+                       -- _ <- runClassInit halloc ctx classname
                        fnCall
   C.executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
 

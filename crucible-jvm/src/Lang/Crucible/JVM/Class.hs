@@ -129,7 +129,6 @@ import           Lang.Crucible.JVM.Generator
 import           What4.ProgramLoc (Position(InternalPos))
 
 
-import           Debug.Trace
 import           GHC.Stack
 
 
@@ -385,13 +384,15 @@ skipInit cname = cname `elem` []
 
 specialClinit :: Map J.ClassName (JVMGenerator h s ret ())
 specialClinit = Map.fromList [
-   ("java/lang/Object", return ())
-  ,("java/lang/String", return ())
+   ("java/lang/Object", debug 2 "special java/lang/Object/<clinit>")
+  ,("java/lang/String", debug 2 "special java/lang/String/<clinit>")
+  ,("java/io/ObjectStreamField", debug 2 "special java/lang/ObjectStreamField/<clinit>")
+--  ,("java/lang/StringBuffer", debug 2 "special java/lang/StringBuffer/<clinit>")
   ,("java/lang/System", do
        -- initialize System.out to be a PrintStream object
        -- note: we do not call PrintStream/<init> because this class
        -- is completely synthetic
-       traceM "System.out/<clinit>"
+       debug 2 $  "Initializing System.out static field"
        let fieldId = J.FieldId (J.mkClassName "java/lang/System")
                                "out"
                                (J.ClassType "java/io/PrintStream")
@@ -399,6 +400,7 @@ specialClinit = Map.fromList [
        val <- newInstanceInstr printStreamCls []
        rawRef <- newRef val
        setStaticFieldValue fieldId (RValue (App (JustValue knownRepr rawRef)))
+       debug 2 $ "Finished initializing System.out"
        return ())
   ]
   
@@ -407,7 +409,9 @@ specialClinit = Map.fromList [
 -- initialized)
 -- make sure that the jvm class table entry for the class has been initialized
 initializeClass :: forall h s ret . HasCallStack => J.ClassName -> JVMGenerator h s ret ()
-initializeClass name = unless (skipInit name) $ do 
+initializeClass name = unless (skipInit name) $ do
+
+  debug 2 $ "initializeClass " ++ J.unClassName name ++ "  (start)"
 
   c <- lookupClassGen name
   status <- getInitStatus c
@@ -435,6 +439,7 @@ initializeClass name = unless (skipInit name) $ do
 
       -- mark that we have completed
       setInitStatus c initialized
+      debug 2 $ "initializeClass " ++ J.unClassName name ++ "  (finish)"
 
   ifte_ (App $ BVEq knownRepr status notStarted) ifNotStarted (return ())
   -- TODO: if init status is Erroneous createAndThrow "java/lang/NoClassDefFoundError"

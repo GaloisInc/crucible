@@ -18,6 +18,8 @@ import System.IO
 import System.Process
 import Text.Printf
 
+type Verbosity = Int
+
 up :: FilePath -> FilePath
 up = takeDirectory
 
@@ -35,24 +37,27 @@ skipList    = [  -- SCW: yep slow
               , "ashesJSuite/benchmarks/jpat-p"
               ]
 expFailList = [
-    -- npe during simulation
-    "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
-  , "sootRegressionSuite/benchmarks/fixedBug-aggregation6"
+    -- uses StringBuffer class
+    "ashesEasyTestSuite/benchmarks/simple54"
+  , "ashesEasyTestSuite/benchmarks/factorial"
+  , "ashesEasyTestSuite/benchmarks/fahrenheit"
+  ,  "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+  , "sootRegressionSuite/benchmarks/fixedBug-aggregation6"  
   , "kaffeRegressionSuite/benchmarks/tthrd1"
-  , "kaffeRegressionSuite/benchmarks/initTest"
-  , "kaffeRegressionSuite/broken/TestNative"
+  , "kaffeRegressionSuite/benchmarks/intfTest"
   , "kaffeRegressionSuite/benchmarks/tname"
   , "kaffeRegressionSuite/benchmarks/str2"
   , "kaffeRegressionSuite/benchmarks/str"
-  , "ashesEasyTestSuite/benchmarks/factorial"
-  , "ashesEasyTestSuite/benchmarks/simple54"
-  , "ashesEasyTestSuite/benchmarks/fahrenheit"
   , "jikesPrTestSuite/benchmarks/pr209"
   , "jikesPrTestSuite/benchmarks/pr138"
-  , "jikesPrTestSuite/benchmarks/pr199j"
   , "jikesPrTestSuite/benchmarks/pr236b"
   , "jikesPrTestSuite/benchmarks/pr172"
+  , "kaffeRegressionSuite/broken/TestNative"
   
+  -- tests length of argv (npe) during simulation
+  , "kaffeRegressionSuite/benchmarks/initTest"
+
+
     -- field "out" not found (and missing last newline)
   , "jikesDerekTestSuite/benchmarks/testCompare"
   , "jikesDerekTestSuite/benchmarks/testStackAccess"
@@ -61,6 +66,7 @@ expFailList = [
   
     -- unexpected variant
   , "sootRegressionSuite/benchmarks/fixedBug-similarSignatures"
+  
     -- wrong answer
   , "jikesHpjTestSuite/benchmarks/bigComp"
   , "jikesHpjTestSuite/benchmarks/multmain"
@@ -69,6 +75,7 @@ expFailList = [
   , "jikesDerekTestSuite/benchmarks/testConstants"
   , "jikesPrTestSuite/benchmarks/pr191c"
   , "kaffeRegressionSuite/benchmarks/finaltest"
+  , "jikesHpjTestSuite/benchmarks/multarg"
 
     -- null is not concrete
   , "jikesDerekTestSuite/benchmarks/testReturn"
@@ -81,9 +88,6 @@ expFailList = [
 
     -- native methods - initIDs
   , "jikesHpjTestSuite/benchmarks/recur"
-    -- -- native method gc
-  , "kaffeRegressionSuite/benchmarks/intfTest"
-  , "kaffeRegressionSuite/benchmarks/testClassRef"
 
     -- illegal index
   , "kaffeRegressionSuite/benchmarks/moduloTest"
@@ -117,9 +121,6 @@ expFailList = [
   , "jikesHpjTestSuite/benchmarks/instance1"
   , "jikesDerekTestSuite/benchmarks/testInstanceOf"
   
-    -- java.io.FileOutputStream
-  , "jikesHpjTestSuite/benchmarks/multarg"
-  
     -- Strange parsing issue: trying to load native code
     -- needs more than we are currently providing
   , "kaffeRegressionSuite/benchmarks/testFloatDouble"
@@ -135,8 +136,10 @@ expFailList = [
   , "kaffeRegressionSuite/benchmarks/schtum"
   , "kaffeRegressionSuite/benchmarks/illegalInterface"
   , "kaffeRegressionSuite/benchmarks/methodBug"
+    -- more reflection: Integer.TYPE
+  , "kaffeRegressionSuite/benchmarks/testClassRef"
   
-    -- or sun.reflect.Reflection
+    -- needs sun.reflect.Reflection
   , "kaffeRegressionSuite/benchmarks/getInterfaces"
   , "kaffeRegressionSuite/broken/invTarExcTest"
   , "kaffeRegressionSuite/broken/testSerializable"
@@ -146,7 +149,7 @@ expFailList = [
   , "kaffeRegressionSuite/broken/constructorTest"
   , "jikesPrTestSuite/benchmarks/pr226"
     
-    -- or java.lang.reflect.Array
+    -- needs java.lang.reflect.Array
   , "kaffeRegressionSuite/benchmarks/reflectMultiArray"
   
     -- java beans
@@ -257,8 +260,8 @@ data TestResult
   | Failed
   deriving (Eq, Show)
 
-runTest :: String -> IO TestResult
-runTest file = do
+runTest :: Verbosity -> String -> IO TestResult
+runTest verbosity file = do
   curDir <- getCurrentDirectory
   (className:_) <- words `liftM` readFile file
   let dirName   = takeDirectory file
@@ -282,10 +285,11 @@ runTest file = do
       hFlush stdout
       (exitCode, outText, errText) <- readProcessWithExitCode
                                       jssPath
-                                      [ "-c", "classes" -- "-c", jdkPath ++ ":classes"
+                                      [ "-c", "classes" 
 --                                      , "-j", jdkPath 
 --                                               ++ ":" ++
 --                                               (topDir </> "support" </> "galois.jar")
+                                      , "-d", show verbosity
                                       , className
                                       ]
                                       ""
@@ -317,7 +321,7 @@ runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 main :: IO ()
 main = do
   dir <- getCurrentDirectory
-  results <- mapM runTest =<< runFind dir "mainClass"
+  results <- mapM (runTest 1) =<< runFind dir "mainClass"
   putStrLn "========"
   printf "Total tests: %d\n" . length $ results
   printf "Passed %d\n" . length . filter (== Passed) $ results
@@ -331,7 +335,10 @@ wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
   -- class cast bug
-  result <- runTest $ top ++ "jikesHpjTestSuite/benchmarks/implement/mainClass"
-  
-  _ <- runTest $ top ++ "ashesEasyTestSuite/benchmarks/simple54/mainClass"
+  -- result <- runTest $ top ++ "jikesHpjTestSuite/benchmarks/multarg/mainClass"
+                              --"jikesHpjTestSuite/benchmarks/implement/mainClass"
+  result <- runTest 3 $ top ++  "jikesPrTestSuite/benchmarks/pr199j/mainClass"
+
   putStrLn (show result)
+
+

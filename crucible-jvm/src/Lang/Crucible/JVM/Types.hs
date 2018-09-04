@@ -53,6 +53,8 @@ type instance StmtExtension JVM = EmptyStmtExtension
 instance IsSyntaxExtension JVM
 
 
+type Verbosity = Int
+
 ---------------------------------------------------------------------------------
 -- * Type abbreviations for expressions
 
