@@ -28,6 +28,32 @@ skipList    = [  -- SCW: yep slow
                  "ashesJSuite/benchmarks/symjpack-t"
               ,  "jikesDerekTestSuite/benchmarks/testFieldAccess"
               ,  "ashesHardTestSuite/benchmarks/matrix"
+
+              -- slow because of StringBuffer class???
+              , "sootRegressionSuite/benchmarks/fixedBug-aggregation6"
+              , "kaffeRegressionSuite/broken/TestNative"
+              , "kaffeRegressionSuite/benchmarks/tname"
+              , "kaffeRegressionSuite/benchmarks/intfTest"
+              , "kaffeRegressionSuite/benchmarks/str2"
+              , "kaffeRegressionSuite/benchmarks/str"
+              , "ashesEasyTestSuite/benchmarks/simple54"
+              , "ashesEasyTestSuite/benchmarks/factorial"
+              , "ashesEasyTestSuite/benchmarks/fahrenheit"
+              ,  "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+              , "kaffeRegressionSuite/benchmarks/tthrd1"
+              , "jikesPrTestSuite/benchmarks/pr209"
+              , "jikesPrTestSuite/benchmarks/pr138"
+              , "jikesPrTestSuite/benchmarks/pr236b"
+              , "jikesPrTestSuite/benchmarks/pr172"
+              --
+              , "kaffeRegressionSuite/benchmarks/moduloTest"
+              , "kaffeRegressionSuite/benchmarks/testIntLong"
+
+              -- stringbuffer, but failed before
+              , "kaffeRegressionSuite/benchmarks/doublePrint"
+              -- stringbuffer, but passed before
+              , "jikesDerekTestSuite/benchmarks/testStackAccess"
+                
                  -- The following are very slow
               ,  "ashesHardTestSuite/benchmarks/illness"
               , "ashesHardTestSuite/benchmarks/boyer"
@@ -42,24 +68,19 @@ expFailList = [
   , "ashesEasyTestSuite/benchmarks/factorial"
   , "ashesEasyTestSuite/benchmarks/fahrenheit"
   ,  "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
-  , "sootRegressionSuite/benchmarks/fixedBug-aggregation6"  
   , "kaffeRegressionSuite/benchmarks/tthrd1"
-  , "kaffeRegressionSuite/benchmarks/intfTest"
-  , "kaffeRegressionSuite/benchmarks/tname"
-  , "kaffeRegressionSuite/benchmarks/str2"
-  , "kaffeRegressionSuite/benchmarks/str"
   , "jikesPrTestSuite/benchmarks/pr209"
   , "jikesPrTestSuite/benchmarks/pr138"
   , "jikesPrTestSuite/benchmarks/pr236b"
   , "jikesPrTestSuite/benchmarks/pr172"
-  , "kaffeRegressionSuite/broken/TestNative"
+
   
   -- tests length of argv (npe) during simulation
   , "kaffeRegressionSuite/benchmarks/initTest"
 
 
-    -- field "out" not found (and missing last newline)
-  , "jikesDerekTestSuite/benchmarks/testCompare"
+  -- field "out" not found (and missing last newline)
+--  
   , "jikesDerekTestSuite/benchmarks/testStackAccess"
   , "jikesDerekTestSuite/benchmarks/testVirtualCall"
   , "jikesDerekTestSuite/benchmarks/testSwitch"
@@ -169,7 +190,7 @@ expFailList = [
               , "jikesHpjTestSuite/benchmarks/arraymethod"
               , "jikesHpjTestSuite/benchmarks/callmm"
               , "jikesHpjTestSuite/benchmarks/float1"
-              , "kaffeRegressionSuite/benchmarks/doublePrint"
+
                 -- Trivially different output
               , "jikesHpjTestSuite/broken/array2"
               , "jikesHpjTestSuite/broken/array3"
@@ -334,10 +355,7 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  -- class cast bug
-  -- result <- runTest $ top ++ "jikesHpjTestSuite/benchmarks/multarg/mainClass"
-                              --"jikesHpjTestSuite/benchmarks/implement/mainClass"
-  result <- runTest 3 $ top ++  "jikesPrTestSuite/benchmarks/pr199j/mainClass"
+  result <- runTest 4 $ top ++  "sootRegressionSuite/benchmarks/fixedBug-aggregation6/mainClass"
 
   putStrLn (show result)
 

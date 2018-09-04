@@ -375,9 +375,11 @@ staticOverrides className methodKey
 ----------------------------------------------------------------------
 -- * JVMRef
 
+-- | Crucible expression for Java null reference
 rNull :: JVMRef s
 rNull = App (NothingValue knownRepr)
 
+-- | Crucible generator to test if reference is null
 rIsNull :: JVMRef s -> JVMGenerator h s ret (JVMBool s)
 rIsNull mr =
   caseMaybe mr knownRepr
@@ -386,6 +388,7 @@ rIsNull mr =
     onJust = \_ -> return bFalse
     }
 
+-- | Dynamically test whether two references are equal
 rEqual :: JVMRef s -> JVMRef s -> JVMGenerator h s ret (JVMBool s)
 rEqual mr1 mr2 =
   caseMaybe mr1 knownRepr
@@ -539,10 +542,10 @@ getLabelAtPC pc =
 type JVMStmtGen h s ret = StateT (JVMExprFrame s) (JVMGenerator h s ret)
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
-sgFail :: String -> JVMStmtGen h s ret a
+sgFail :: HasCallStack => String -> JVMStmtGen h s ret a
 sgFail msg = lift $ jvmFail msg
 
-sgUnimplemented :: String -> JVMStmtGen h s ret a
+sgUnimplemented :: HasCallStack => String -> JVMStmtGen h s ret a
 sgUnimplemented msg = sgFail $ "unimplemented: " ++ msg
 
 getStack :: JVMStmtGen h s ret [JVMValue s]
@@ -551,7 +554,7 @@ getStack = use operandStack
 putStack :: [JVMValue s] -> JVMStmtGen h s ret ()
 putStack vs = operandStack .= vs
 
-popValue :: JVMStmtGen h s ret (JVMValue s)
+popValue :: HasCallStack => JVMStmtGen h s ret (JVMValue s)
 popValue =
   do vs <- getStack
      case vs of
@@ -581,12 +584,12 @@ isType1 v =
 isType2 :: JVMValue s -> Bool
 isType2 = not . isType1
 
-popType1 :: JVMStmtGen h s ret (JVMValue s)
+popType1 :: HasCallStack => JVMStmtGen h s ret (JVMValue s)
 popType1 =
   do v <- popValue
      if isType1 v then return v else sgFail "popType1"
 
-popType2 :: JVMStmtGen h s ret [JVMValue s]
+popType2 :: HasCallStack => JVMStmtGen h s ret [JVMValue s]
 popType2 =
   do vs <- getStack
      case vs of
@@ -671,7 +674,7 @@ nextPC pc =
 ----------------------------------------------------------------------
 
 pushRet ::
-  forall h s ret tp. TypeRepr tp -> Expr JVM s tp -> JVMStmtGen h s ret ()
+  forall h s ret tp. HasCallStack => TypeRepr tp -> Expr JVM s tp -> JVMStmtGen h s ret ()
 pushRet tp expr = 
   tryPush dPush $
   tryPush fPush $
@@ -682,7 +685,7 @@ pushRet tp expr =
   sgFail "pushRet: invalid type"
   where
     tryPush ::
-      forall t. KnownRepr TypeRepr t =>
+      forall t. (HasCallStack, KnownRepr TypeRepr t) =>
       (Expr JVM s t -> JVMStmtGen h s ret ()) ->
       JVMStmtGen h s ret () -> JVMStmtGen h s ret ()
     tryPush push k =
@@ -714,10 +717,13 @@ popArgument tp =
 -- top of the stack.
 popArguments ::
   forall args h s ret.
-  CtxRepr args -> JVMStmtGen h s ret (Ctx.Assignment (Expr JVM s) args)
+  HasCallStack => CtxRepr args -> JVMStmtGen h s ret (Ctx.Assignment (Expr JVM s) args)
 popArguments args =
   case Ctx.viewAssign args of
     Ctx.AssignEmpty -> return Ctx.empty
+    Ctx.AssignExtend tps UnitRepr ->
+      do xs <- popArguments tps
+         return (Ctx.extend xs (App EmptyApp))
     Ctx.AssignExtend tps tp ->
       do x <- popArgument tp
          xs <- popArguments tps
@@ -1038,8 +1044,11 @@ generateInstruction (pc, instr) =
       let mname = J.unClassName className ++ "/" ++ J.methodKeyName methodKey
       lift $ debug 2 $ "invoke: " ++ mname
 
-      -- find the static type of the method
-      let argTys = Ctx.fromList (map javaTypeToRepr (J.methodKeyParameterTypes methodKey))
+      -- find the static type of the method (without this!)
+      let methArgs = case (J.methodKeyParameterTypes methodKey) of
+            [] -> [Some UnitRepr]
+            args -> map javaTypeToRepr args
+      let argTys = Ctx.fromList methArgs
       let retTy  = maybe (Some C.UnitRepr) javaTypeToRepr (J.methodKeyReturnType methodKey)
 
       case (argTys, retTy) of
@@ -1053,10 +1062,10 @@ generateInstruction (pc, instr) =
               obj    <- readRef rawRef
               cls    <- getJVMInstanceClass obj
               anym   <- findDynamicMethod cls methodKey
-              
+
               let argRepr' = (Ctx.empty `Ctx.extend` (knownRepr :: TypeRepr JVMRefType)) Ctx.<++> argRepr 
               fn     <- assertedJustExpr (App (UnpackAny (FunctionHandleRepr argRepr' retRepr) anym))
-                        (App $ TextLit $ fromString ("invalid method type"
+                        (App $ TextLit $ fromString ("invalid method type:"
                                       ++ show (FunctionHandleRepr argRepr' retRepr)
                                       ++ " for "
                                       ++ show methodKey))
@@ -1385,8 +1394,8 @@ dRem e1 e2 = App (FloatRem DoubleFloatRepr e1 e2)
 dCmpg, dCmpl :: forall fi s h ret.
                 Expr JVM s (FloatType fi) -> Expr JVM s (FloatType fi) -> JVMGenerator h s ret (JVMInt s)
 dCmpg e1 e2 = ifte (App (FloatEq e1 e2)) (return $ App $ BVLit w32 0)
-                   (ifte (App (FloatGe e2 e1)) (return $ App $ BVLit w32 1)
-                         (return $ App $ BVLit w32 (-1)))
+                   (ifte (App (FloatGe e2 e1)) (return $ App $ BVLit w32 (-1))
+                         (return $ App $ BVLit w32 1))
 dCmpl = dCmpg
 
 dNeg :: JVMDouble s -> JVMDouble s
@@ -1407,8 +1416,8 @@ fRem e1 e2 = App (FloatRem SingleFloatRepr e1 e2)
 -- value1 is greater than value2, the int -1 is pushed onto the stack.
 lCmp :: JVMLong s -> JVMLong s -> JVMGenerator h s ret (JVMInt s)
 lCmp e1 e2 =  ifte (App (BVEq knownRepr e1 e2)) (return $ App $ BVLit w32 0)
-                   (ifte (App (BVSlt knownRepr e1 e2)) (return $ App $ BVLit w32 1)
-                         (return $ App $ BVLit w32 (-1)))
+                   (ifte (App (BVSlt knownRepr e1 e2)) (return $ App $ BVLit w32 (-1))
+                         (return $ App $ BVLit w32 (1)))
 
 
 
@@ -1422,7 +1431,7 @@ lCmp e1 e2 =  ifte (App (BVEq knownRepr e1 e2)) (return $ App $ BVLit w32 0)
 -- This procedure is used to set up the initial state of the registers
 -- at the entry point of a function.
 packTypes ::
-  [J.Type] ->
+  HasCallStack => [J.Type] ->
   CtxRepr ctx ->
   Ctx.Assignment (Atom s) ctx ->
   [JVMValue s]
@@ -1434,6 +1443,8 @@ packTypes (t : ts) ctx asgn =
   case ctx of
     Ctx.Empty ->
       error "packTypes: arguments do not match JVM types"
+    ctx' Ctx.:> UnitRepr ->
+      packTypes (t :ts) ctx' (Ctx.init asgn)
     ctx' Ctx.:> ctp' ->
       case testEquality ctp ctp' of
         Nothing -> error $ unwords ["crucible type mismatch", show ctp, show ctp']
@@ -1457,7 +1468,7 @@ packTypes (t : ts) ctx asgn =
         J.LongType    -> k LValue (knownRepr :: TypeRepr JVMLongType)
         J.ShortType   -> k IValue (knownRepr :: TypeRepr JVMIntType)
   
-initialJVMExprFrame ::
+initialJVMExprFrame :: HasCallStack =>
   J.ClassName ->
   J.Method ->
   CtxRepr ctx ->
@@ -1527,8 +1538,8 @@ declareMethod halloc mcls ctx meth =
   in do
    jvmToFunHandleRepr cname (J.methodIsStatic meth) mkey $
       \ argsRepr retRepr -> do
-         -- "declaring " ++ J.unClassName cname ++ "/" ++ J.methodName meth
-         --    ++ " : " ++ showJVMArgs argsRepr ++ " ---> " ++ showJVMType retRepr
+         --traceM $ "declaring " ++ J.unClassName cname ++ "/" ++ J.methodName meth
+         --           ++ " : " ++ showJVMArgs argsRepr ++ " ---> " ++ showJVMType retRepr
          h <- mkHandle' halloc (methodHandleName cname mkey) argsRepr retRepr
          return $ Map.insert (cname, mkey) (JVMHandleInfo mkey h) ctx
 

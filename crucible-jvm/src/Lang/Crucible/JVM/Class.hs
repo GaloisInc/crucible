@@ -454,10 +454,10 @@ callJVMInit :: JVMHandleInfo -> JVMGenerator h s ret ()
 callJVMInit (JVMHandleInfo _methodKey handle) =
   do let argTys = handleArgTypes handle
          retTy  = handleReturnType handle
-     case (testEquality argTys (knownRepr :: Ctx.Assignment TypeRepr Ctx.EmptyCtx),
+     case (testEquality argTys (knownRepr :: Ctx.Assignment TypeRepr (Ctx.EmptyCtx Ctx.::> UnitType)),
            testEquality retTy  (knownRepr :: TypeRepr UnitType)) of
        (Just Refl, Just Refl) -> do
-         _ <- call (App (HandleLit handle)) knownRepr
+         _ <- call (App (HandleLit handle)) (Ctx.Empty Ctx.:> App EmptyApp)
          return ()
        (_,_) -> error "Internal error: can only call functions with no args/result"
 
