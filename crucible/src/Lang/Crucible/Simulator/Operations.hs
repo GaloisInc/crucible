@@ -421,7 +421,7 @@ variantCases ::
 variantCases [] =
   do fm <- view stateCrucibleFrame
      let loc = frameProgramLoc fm
-     let rsn = VariantOptionsExhaused loc
+     let rsn = VariantOptionsExhausted loc
      abortExec rsn
 
 variantCases ((p,ResolvedJump x_id x_args) : cs) =

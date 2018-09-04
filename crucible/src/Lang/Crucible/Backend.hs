@@ -114,7 +114,7 @@ data AbortExecReason =
   | AssumedFalse AssumptionReason
     -- ^ We assumed false on some branch
 
-  | VariantOptionsExhaused ProgramLoc
+  | VariantOptionsExhausted ProgramLoc
     -- ^ We tried all possible cases for a variant, and now we should
     -- do something else.
 
@@ -130,7 +130,7 @@ ppAbortExecReason e =
     AssumedFalse reason ->
       "Abort due to false assumption:" PP.<$$>
       PP.indent 2 (ppAssumptionReason reason)
-    VariantOptionsExhaused l -> ppLocated l "Variant options exhaused."
+    VariantOptionsExhausted l -> ppLocated l "Variant options exhausted."
 
 ppAssumptionReason :: AssumptionReason -> PP.Doc
 ppAssumptionReason e =
