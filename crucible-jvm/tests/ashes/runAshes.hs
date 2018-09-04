@@ -48,11 +48,11 @@ skipList    = [  -- SCW: yep slow
               --
               , "kaffeRegressionSuite/benchmarks/moduloTest"
               , "kaffeRegressionSuite/benchmarks/testIntLong"
-
+              , "jikesDerekTestSuite/benchmarks/testStackAccess"
+              
               -- stringbuffer, but failed before
               , "kaffeRegressionSuite/benchmarks/doublePrint"
-              -- stringbuffer, but passed before
-              , "jikesDerekTestSuite/benchmarks/testStackAccess"
+
                 
                  -- The following are very slow
               ,  "ashesHardTestSuite/benchmarks/illness"
@@ -63,7 +63,7 @@ skipList    = [  -- SCW: yep slow
               , "ashesJSuite/benchmarks/jpat-p"
               ]
 expFailList = [
-    -- uses StringBuffer class
+    -- uses StringBuffer class (not run)
     "ashesEasyTestSuite/benchmarks/simple54"
   , "ashesEasyTestSuite/benchmarks/factorial"
   , "ashesEasyTestSuite/benchmarks/fahrenheit"
@@ -79,14 +79,8 @@ expFailList = [
   , "kaffeRegressionSuite/benchmarks/initTest"
 
 
-  -- field "out" not found (and missing last newline)
---  
-  , "jikesDerekTestSuite/benchmarks/testStackAccess"
-  , "jikesDerekTestSuite/benchmarks/testVirtualCall"
-  , "jikesDerekTestSuite/benchmarks/testSwitch"
-  
     -- unexpected variant
-  , "sootRegressionSuite/benchmarks/fixedBug-similarSignatures"
+--  , "sootRegressionSuite/benchmarks/fixedBug-similarSignatures"
   
     -- wrong answer
   , "jikesHpjTestSuite/benchmarks/bigComp"
@@ -355,7 +349,8 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  result <- runTest 4 $ top ++  "sootRegressionSuite/benchmarks/fixedBug-aggregation6/mainClass"
+  let testCase = "sootRegressionSuite/benchmarks/fixedBug-similarSignatures"
+  result <- runTest 2 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
 

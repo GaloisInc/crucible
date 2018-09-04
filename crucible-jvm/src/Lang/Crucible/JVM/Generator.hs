@@ -99,7 +99,7 @@ type JVMRegisters s = JVMFrame (JVMReg s)
 -- * JVMContext
 
 
-type StaticFieldTable = Map (J.ClassName, String) (GlobalVar JVMValueType)
+type StaticFieldTable = Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
 type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 
 data JVMHandleInfo where
@@ -110,7 +110,7 @@ data JVMHandleInfo where
 data JVMContext = JVMContext
   { methodHandles :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
       -- ^ map from static & dynamic methods to Crucible function handles      
-  , staticFields :: Map (J.ClassName, String) (GlobalVar JVMValueType)
+  , staticFields :: Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
       -- ^ map from static field names to Crucible global variables
       -- we know about these fields at translation time so we can allocate
       -- global variables to store them

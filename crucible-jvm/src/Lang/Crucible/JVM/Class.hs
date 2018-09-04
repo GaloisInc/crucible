@@ -343,7 +343,7 @@ getStaticFieldValue fieldId = do
       let cls = J.fieldIdClass fieldId
       ctx <- gets jsContext
       initializeClass cls
-      case Map.lookup (J.fieldIdClass fieldId, J.fieldIdName fieldId) (staticFields ctx) of
+      case Map.lookup (J.fieldIdClass fieldId, fieldId) (staticFields ctx) of
         Just glob -> do
           r <- readGlobal glob
           fromJVMDynamic (J.fieldIdType fieldId) r
@@ -355,7 +355,7 @@ setStaticFieldValue :: J.FieldId -> JVMValue s -> JVMGenerator h s ret ()
 setStaticFieldValue  fieldId val = do
     ctx <- gets jsContext
     let cName = J.fieldIdClass fieldId 
-    case Map.lookup (cName, J.fieldIdName fieldId) (staticFields ctx) of
+    case Map.lookup (cName, fieldId) (staticFields ctx) of
          Just glob -> do
            writeGlobal glob (valueToExpr val)
          Nothing -> 
@@ -370,7 +370,9 @@ getStaticMethod className methodKey = do
    case mhandle of
       Nothing -> jvmFail $ "getStaticMethod: method " ++ show methodKey ++ " in class "
                                ++ show className ++ " not found"
-      Just handle -> return handle
+      Just handle@(JVMHandleInfo _ h) -> do
+        debug 3 $ "invoking static method with return type " ++ show (handleReturnType h)
+        return handle
       
 ------------------------------------------------------------------------
 -- * Class Initialization

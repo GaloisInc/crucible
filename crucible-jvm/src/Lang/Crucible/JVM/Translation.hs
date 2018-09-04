@@ -405,6 +405,8 @@ rEqual mr1 mr2 =
 ------------------------------------------------------------------------
 -- * Registers and stack values
 
+-- | Create a register value from a value with a statically
+-- known tag
 newJVMReg :: JVMValue s -> JVMGenerator h s ret (JVMReg s)
 newJVMReg val =
   case val of
@@ -414,6 +416,7 @@ newJVMReg val =
     LValue v -> LReg <$> newReg v
     RValue v -> RReg <$> newReg v
 
+-- | read a register tag the 
 readJVMReg :: JVMReg s -> JVMGenerator h s ret (JVMValue s)
 readJVMReg reg =
   case reg of
@@ -1552,9 +1555,11 @@ declareStaticField :: HandleAllocator s
     -> ST s StaticFieldTable
 declareStaticField halloc c m f = do
   let cn = J.className c
-  let fn = J.fieldName f
-  gvar <- C.freshGlobalVar halloc (globalVarName cn fn) (knownRepr :: TypeRepr JVMValueType)
-  return $ (Map.insert (cn,fn) gvar m)
+  let fn = J.fieldName f 
+  let fieldId = J.FieldId cn fn (J.fieldType f)
+  let str = fn ++ show (J.fieldType f)
+  gvar <- C.freshGlobalVar halloc (globalVarName cn str) (knownRepr :: TypeRepr JVMValueType)
+  return $ (Map.insert (cn,fieldId) gvar m)
 
 
 
