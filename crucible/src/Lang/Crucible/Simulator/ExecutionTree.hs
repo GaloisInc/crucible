@@ -42,6 +42,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- * TopFrame
   , TopFrame
   , crucibleTopFrame
+  , overrideTopFrame
 
     -- * CrucibleBranchTarget
   , CrucibleBranchTarget(..)
@@ -193,6 +194,13 @@ crucibleTopFrame = gpValue . crucibleSimFrame
 {-# INLINE crucibleTopFrame #-}
 
 
+overrideTopFrame ::
+  Lens (TopFrame sym ext (OverrideLang r) ('Just args))
+       (TopFrame sym ext (OverrideLang r') ('Just args'))
+       (OverrideFrame sym r args)
+       (OverrideFrame sym r' args')
+overrideTopFrame = gpValue . overrideSimFrame
+{-# INLINE overrideTopFrame #-}
 
 ------------------------------------------------------------------------
 -- AbortedResult
@@ -251,7 +259,7 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
  where
    pp :: SomeFrame (SimFrame sym ext) -> PP.Doc
    pp (SomeFrame (OF f)) =
-      PP.text ("When calling " ++ show (override f))
+      PP.text ("When calling " ++ show (f^.override))
    pp (SomeFrame (MF f)) =
       PP.text "In" PP.<+> PP.text (show (frameHandle f)) PP.<+>
       PP.text "at" PP.<+> PP.pretty (plSourceLoc (frameProgramLoc f))
@@ -1000,8 +1008,8 @@ initSimState ::
   AbortHandler p sym ext (RegEntry sym ret) {- ^ initial abort handler -} ->
   SimState p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx)
 initSimState ctx globals ah =
-  let startFrame = OverrideFrame { override = startFunctionName
-                                 , overrideRegMap = emptyRegMap
+  let startFrame = OverrideFrame { _override = startFunctionName
+                                 , _overrideRegMap = emptyRegMap
                                  }
       startGP = GlobalPair (OF startFrame) globals
    in SimState

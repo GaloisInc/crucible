@@ -220,8 +220,8 @@ pushCrucibleFrame sym muxFns (RF nm x) =
   do x' <- pushBranchRegEntry sym muxFns x
      return $! RF nm x'
 pushCrucibleFrame sym muxFns (OF f) =
-  do r' <- pushBranchRegs sym muxFns (overrideRegMap f)
-     return (OF f{ overrideRegMap = r' })
+  do r' <- pushBranchRegs sym muxFns (f^.overrideRegMap)
+     return $! OF (f & overrideRegMap .~ r')
 
 pushPausedFrame ::
   IsSymInterface sym =>
@@ -304,8 +304,8 @@ resolveCall bindings c0 args =
       case lookupHandleMap h bindings of
         Nothing -> Ex.throw (UnresolvableFunction h)
         Just (UseOverride o) -> do
-          let f = OverrideFrame { override = overrideName o
-                                , overrideRegMap = args
+          let f = OverrideFrame { _override = overrideName o
+                                , _overrideRegMap = args
                                 }
            in OverrideCall o f
         Just (UseCFG g pdInfo) -> do

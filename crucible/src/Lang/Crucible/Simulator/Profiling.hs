@@ -230,7 +230,7 @@ exitEvent tbl nm =
 
 resolvedCallName :: ResolvedCall p sym ext ret -> FunctionName
 resolvedCallName (OverrideCall _o f) =
-  override f
+  f^.override
 resolvedCallName (CrucibleCall _bid f) =
   case frameHandle f of SomeHandle h -> handleName h
 

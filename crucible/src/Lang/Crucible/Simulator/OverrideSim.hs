@@ -315,7 +315,7 @@ mkOverride nm = mkOverride' nm knownRepr
 
 -- | Return override arguments.
 getOverrideArgs :: OverrideSim p sym ext rtp args ret (RegMap sym args)
-getOverrideArgs = overrideRegMap <$> use stateOverrideFrame
+getOverrideArgs = use (stateOverrideFrame.overrideRegMap)
 
 withSimContext :: StateT (SimContext p sym ext) IO a -> OverrideSim p sym ext rtp args ret a
 withSimContext m =
