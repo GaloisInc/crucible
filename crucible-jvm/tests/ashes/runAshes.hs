@@ -63,7 +63,7 @@ skipList    = [  -- SCW: yep slow
               , "ashesJSuite/benchmarks/jpat-p"
               ]
 expFailList = [
-    -- uses StringBuffer class (not run)
+    -- uses StringBuffer class (these are not actually run as they hang)
     "ashesEasyTestSuite/benchmarks/simple54"
   , "ashesEasyTestSuite/benchmarks/factorial"
   , "ashesEasyTestSuite/benchmarks/fahrenheit"
@@ -81,18 +81,8 @@ expFailList = [
   , "jikesDerekTestSuite/benchmarks/sort"
 
     -- wrong answer
-    -- this one is insane --- has a subclass and superclass
-    -- with the same public fields and makes sure that they are
-    -- accessed indpendently
-  , "jikesHpjTestSuite/benchmarks/multmain"
-    -- 
-
-  , "jikesPrTestSuite/benchmarks/pr191c"
   , "jikesHpjTestSuite/benchmarks/multarg"
 
-    -- null is not concrete
-  , "jikesDerekTestSuite/benchmarks/testReturn"
-  
    -- classcast
   ,  "jikesHpjTestSuite/benchmarks/implement"
   
@@ -347,8 +337,8 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  let testCase = "jikesDerekTestSuite/benchmarks/testConstants"
-  result <- runTest 2 $ top ++ testCase ++ "/mainClass"
+  let testCase =  "jikesPrTestSuite/benchmarks/pr103"
+  result <- runTest 3 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
 

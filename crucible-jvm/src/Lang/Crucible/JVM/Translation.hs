@@ -855,6 +855,7 @@ generateInstruction (pc, instr) =
       clsObj <- lift $ getJVMClass cls
       -- find the fields not just in this class, but also in the super classes
       fields <- lift $ getAllFields cls
+      lift $ debug 3 $ "fields are " ++ show fields
       obj    <- lift $ newInstanceInstr clsObj fields
       rawRef <- lift $ newRef obj
       lift $ debug 2 $ "new " ++ show name ++ " (finish)"

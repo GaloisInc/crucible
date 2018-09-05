@@ -664,9 +664,10 @@ getInstanceFieldValue obj fieldId = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)             
   inst <- projectVariant Ctx.i1of2 uobj
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-  let key    = App (TextLit (fromString (J.fieldIdName fieldId)))
+  let str    = fieldIdString fieldId
+  let key    = App (TextLit (fromString str))
   let mval   = App (LookupStringMapEntry knownRepr fields key)
-  dyn <- assertedJustExpr mval (fromString ("getfield: field " ++ J.fieldIdName fieldId ++ " not found"))
+  dyn <- assertedJustExpr mval (fromString ("getfield: field " ++ str ++ " not found"))
   fromJVMDynamic (J.fieldIdType fieldId) dyn
 
 -- | Update a field of a JVM object (must be a class instance, not an array)
@@ -676,7 +677,8 @@ setInstanceFieldValue obj fieldId val = do
   inst <- projectVariant Ctx.i1of2 uobj
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
   let dyn  = valueToExpr val
-  let key = App (TextLit (fromString (J.fieldIdName fieldId)))
+  let str = fieldIdString fieldId
+  let key = App (TextLit (fromString str))
   let mdyn = App (JustValue knownRepr dyn)
   let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
   let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')

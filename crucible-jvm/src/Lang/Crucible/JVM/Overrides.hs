@@ -356,7 +356,7 @@ toCharVec vec = traverse (\jv -> case jv of
 instance ToText CObject where
   totexts (CInstance (fields, cls)) f 
     | cclassName cls == "java/lang/String"
-    , Just (Just (CRef (Just (CArray vec)))) <- Map.lookup "value" fields
+    , Just (Just (CRef (Just (CArray vec)))) <- Map.lookup "java/lang/String.value" fields
     , Just chars <- toCharVec vec
     = pack (V.toList chars) <> f
   totexts (CInstance (fields, cls)) f
