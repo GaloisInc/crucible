@@ -289,7 +289,8 @@ gc_override =
 
 
 --------------------------------------------------------------------------------
--- 
+-- ** Concrete values
+--
 -- Concrete values: if the result of static simulation is a unique, concrete value
 -- figure out what it is.
 -- Essentially, this is a generalization of the `W4.asInteger`, `W4.asSignedBV`
@@ -390,13 +391,14 @@ class Concretize (a :: CrucibleType) where
 
 instance Concretize JVMValueType where
   type Concrete JVMValueType = CValue
-  concretize (C.RV v) = variantCase v
-                 (Ctx.Empty `Ctx.extend` Dispatch (\x -> return ((CFloat . fromRational) <$> W4.asRational x))
-                            `Ctx.extend` Dispatch (\x -> return ((CDouble . fromRational) <$> W4.asRational x))
-                            `Ctx.extend` Dispatch (\x -> return ((CInt . fromInteger) <$> W4.asSignedBV x))
-                            `Ctx.extend` Dispatch (\x -> return ((CLong . fromInteger) <$> W4.asSignedBV x))
-                            `Ctx.extend` Dispatch (\x -> do mb <- concretize @JVMRefType (C.RV x)
-                                                            return (CRef <$> mb)))
+  concretize (C.RV v) =
+    variantCase v
+    (Ctx.Empty `Ctx.extend` Dispatch (\x -> return ((CFloat . fromRational) <$> W4.asRational x))
+      `Ctx.extend` Dispatch (\x -> return ((CDouble . fromRational) <$> W4.asRational x))
+      `Ctx.extend` Dispatch (\x -> return ((CInt . fromInteger) <$> W4.asSignedBV x))
+      `Ctx.extend` Dispatch (\x -> return ((CLong . fromInteger) <$> W4.asSignedBV x))
+      `Ctx.extend` Dispatch (\x -> do mb <- concretize @JVMRefType (C.RV x)
+                                      return (CRef <$> mb)))
 
 instance Concretize JVMRefType where
   type Concrete JVMRefType = Maybe CObject
@@ -407,7 +409,7 @@ instance Concretize JVMRefType where
                            co   <- concretize @JVMObjectType (C.RV obj)
                            return (Just co)
                       _ -> return Nothing)
-            (return Nothing) v
+            (return (Just Nothing)) v
 
       
 instance Concretize JVMArrayType where

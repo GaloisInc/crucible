@@ -75,9 +75,10 @@ expFailList = [
   , "jikesPrTestSuite/benchmarks/pr172"
 
   
-  -- tests length of argv (npe) during simulation
+  -- tests length of args (npe) during simulation
   , "kaffeRegressionSuite/benchmarks/initTest"
-
+  -- needs commandline argument
+  , "jikesDerekTestSuite/benchmarks/sort"
 
     -- wrong answer
     -- this one is insane --- has a subclass and superclass
@@ -85,8 +86,7 @@ expFailList = [
     -- accessed indpendently
   , "jikesHpjTestSuite/benchmarks/multmain"
     -- 
-  , "jikesDerekTestSuite/benchmarks/sort"
-  , "jikesDerekTestSuite/benchmarks/testConstants"
+
   , "jikesPrTestSuite/benchmarks/pr191c"
   , "jikesHpjTestSuite/benchmarks/multarg"
 
@@ -347,7 +347,7 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  let testCase =  "kaffeRegressionSuite/benchmarks/finaltest"
+  let testCase = "jikesDerekTestSuite/benchmarks/testConstants"
   result <- runTest 2 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
