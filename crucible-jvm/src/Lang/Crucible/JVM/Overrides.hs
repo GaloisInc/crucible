@@ -559,7 +559,8 @@ printlnMthd :: forall sym arg p.
 printlnMthd =
   let showNewline = True in printStream "println" showNewline
 
-printMthd :: forall sym arg p. (IsSymInterface sym) => 
+printMthd :: forall sym arg p. (IsSymInterface sym) =>
+               (IsSymInterface sym,
               W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
               W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
   String -> TypeRepr arg -> JVMOverride p sym
@@ -582,7 +583,7 @@ printStreamUnit name showNewline =
 
 -- Should we print to the print handle in the simulation context?
 -- or just to stdout
-printStream :: forall sym arg p. (IsSymInterface sym) =>
+printStream :: forall sym arg p. (IsSymInterface sym,
                 W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
                 W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
   String {- ^ Actual name of the method that we are invoking -} ->
