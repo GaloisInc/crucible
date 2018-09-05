@@ -90,7 +90,7 @@ expFailList = [
   , "jikesHpjTestSuite/benchmarks/multarg"
 
    -- classcast (wip)
---  ,  "jikesHpjTestSuite/benchmarks/implement"
+  ,  "jikesHpjTestSuite/benchmarks/implement"
   
     -- native method "longBitsToDouble"
   , "kaffeRegressionSuite/benchmarks/doubleComp"
@@ -135,7 +135,6 @@ expFailList = [
   , "ashesHardTestSuite/benchmarks/probe"
   , "ashesHardTestSuite/benchmarks/fft"
   , "kaffeRegressionSuite/benchmarks/badFloatTest"
-  , "jikesPrTestSuite/benchmarks/pr196"
   
     -- needs java.lang.Class
   , "kaffeRegressionSuite/benchmarks/schtum"
@@ -173,7 +172,6 @@ expFailList = [
               , "jikesDerekTestSuite/benchmarks/testArrayAccess"
               , "jikesHpjTestSuite/benchmarks/arraymethod"
               , "jikesHpjTestSuite/benchmarks/callmm"
-              , "jikesHpjTestSuite/benchmarks/float1"
 
                 -- Trivially different output
               , "jikesHpjTestSuite/broken/array2"
@@ -234,8 +232,6 @@ expFailList = [
               , "jikesHpjTestSuite/benchmarks/dTest"
               , "jikesHpjTestSuite/broken/clientsock"
               , "jikesHpjTestSuite/broken/serversock"
-              , "jikesPrTestSuite/benchmarks/pr128"
-              , "jikesPrTestSuite/benchmarks/pr189"
               , "kaffeRegressionSuite/benchmarks/burford"
               , "kaffeRegressionSuite/benchmarks/deadThread"
               , "kaffeRegressionSuite/benchmarks/exceptionInInitializerTest"
@@ -254,7 +250,6 @@ expFailList = [
               , "kaffeRegressionSuite/broken/catchDeath"
               , "kaffeRegressionSuite/broken/clTest"
               , "kaffeRegressionSuite/broken/gcTest"
-              , "sootRegressionSuite/benchmarks/smbAccessTest"
               , "sootRegressionSuite/benchmarks/syncTest"
               ]
 
@@ -262,6 +257,7 @@ data TestResult
   = Skipped
   | ExpectedFailure
   | Passed
+  | SurprisePass
   | Failed
   deriving (Eq, Show)
 
@@ -300,9 +296,13 @@ runTest verbosity file = do
                                       ""
       let success = outText == expectedOutput && exitCode == ExitSuccess
       res <- if success
-        then do
-          printf "  Pass (%5d)\n" (length outText)
-          return Passed
+        then if testId `elem` expFailList
+            then do
+               printf "  Surprise Pass (%5d)\n" (length outText)
+               return SurprisePass
+             else  do
+               printf "  Pass (%5d)\n" (length outText)
+               return Passed
         else if testId `elem` expFailList
           then do
             printf "%14s\n" "Expect Fail"
@@ -335,6 +335,9 @@ main = do
     results
   printf "Saw %d unexpected failures\n" . length . filter (== Failed) $
     results
+  printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
+    results
+
 
 wip :: IO ()
 wip = do

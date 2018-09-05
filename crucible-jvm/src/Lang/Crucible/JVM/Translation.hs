@@ -138,8 +138,8 @@ import Debug.Trace
 -- perhaps by declaring classes more lazily, during simulation instead
 -- of requiring that everything be available ahead of time.)
 initClasses :: [String]
-initClasses = []
-{-
+{-initClasses = []-}
+
 initClasses = [ "java/lang/System",
                 "java/lang/Object",
                 "java/lang/String",
@@ -185,7 +185,7 @@ initClasses = [ "java/lang/System",
                 "java/lang/Runtime"
                 
               ]
--}
+
 
 -- | Class references that we shouldn't include in the transitive closure
 --   of class references. 
@@ -1581,8 +1581,10 @@ mkInitialJVMContext halloc cb = do
   
   gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
                                 (knownRepr :: TypeRepr JVMClassTableType)
+
         
   classes <- mapM (findClass cb) initClasses 
+
 
   stToIO $ execStateT
              (mapM_ (extendJVMContext halloc) classes)
@@ -1715,7 +1717,7 @@ executeCrucibleJVM :: forall ret args sym p cb.
                    -> C.RegMap sym args -- ^ Arguments
                    -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 executeCrucibleJVM cb verbosity sym p cname mname args = do
-
+  
      setSimulatorVerbosity verbosity sym
 
      (mcls, meth) <- findMethod cb mname =<< findClass cb cname

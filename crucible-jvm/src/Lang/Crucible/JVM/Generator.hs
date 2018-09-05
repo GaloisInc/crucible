@@ -313,9 +313,6 @@ gen_isJust expr =
   , onJust    = \_ -> return $ App $ BoolLit True
   }
 
--- nZero :: Expr p s NatType
--- nZero = App (NatLit 0)
-
 
 -- | Generate an expression that evaluates the function for
 -- each element of an array
