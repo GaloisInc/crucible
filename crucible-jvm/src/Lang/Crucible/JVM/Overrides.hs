@@ -34,6 +34,7 @@ Stability        : provisional
 module Lang.Crucible.JVM.Overrides where
 
 -- base
+import Numeric(fromRat)
 import Data.Maybe (isJust, fromJust)
 import Data.Semigroup(Semigroup(..),(<>))
 import Control.Monad.State.Strict
@@ -128,10 +129,10 @@ addThisAndUnit isStatic args =
 
 -- | Translate the types of the method
 jvmToFunHandleRepr ::
-  J.ClassName -> Bool -> J.MethodKey ->
+  Bool -> J.MethodKey ->
   (forall args ret. CtxRepr args -> TypeRepr ret -> a)
   -> a
-jvmToFunHandleRepr className isStatic meth k =
+jvmToFunHandleRepr isStatic meth k =
    let args  = Ctx.fromList (addThisAndUnit isStatic (map javaTypeToRepr (J.methodKeyParameterTypes meth)))
        ret   = maybe (Some C.UnitRepr) javaTypeToRepr (J.methodKeyReturnType meth)
    in case (args, ret) of
@@ -240,7 +241,7 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
   sym <- lift $ C.getSymInterface
   
 
-  jvmToFunHandleRepr cn isStatic mk  $ \derivedArgs derivedRet -> do
+  jvmToFunHandleRepr isStatic mk  $ \derivedArgs derivedRet -> do
     o <- lift $ build_jvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet (def sym)
     -- traceM $ "installing override for " ++ show fnm
     case Map.lookup (cn,mk) (methodHandles jvmctx) of
@@ -276,7 +277,7 @@ gc_override ::(IsSymInterface sym) => JVMOverride p sym
 gc_override =
   let isStatic = False
       mk       = J.makeMethodKey "gc" "()V" in
-  jvmToFunHandleRepr "java/lang/Runtime" isStatic mk $ \ _argsRepr _retRepr ->
+  jvmToFunHandleRepr isStatic mk $ \ _argsRepr _retRepr ->
     JVMOverride { jvmOverride_className="java/lang/System"
                 , jvmOverride_methodKey=mk
                 , jvmOverride_methodIsStatic=isStatic
@@ -502,7 +503,7 @@ showInt jty e = case W4.asSignedBV e of
 
 showFloat :: (W4.IsExpr e) => e BaseRealType -> String
 showFloat e = case W4.asRational e of
-  Just rat -> show rat
+  Just rat -> show (fromRational rat :: Double)
   Nothing -> show $ W4.printSymExpr e
   
 --
@@ -591,7 +592,7 @@ printStream name showNewline descr t =
   let isStatic = False in
   let mk = J.makeMethodKey name descr in
   let argsRepr' = Ctx.Empty `Ctx.extend` refRepr `Ctx.extend` t in
-  jvmToFunHandleRepr "java/io/PrintStream" isStatic mk $ \ argsRepr retRepr ->
+  jvmToFunHandleRepr isStatic mk $ \ argsRepr retRepr ->
     if (testEquality argsRepr argsRepr'  == Nothing)
        then error $ "descriptor does not match type\n " ++ showJVMArgs argsRepr
             ++ "\n vs.\n " ++ showJVMArgs argsRepr'

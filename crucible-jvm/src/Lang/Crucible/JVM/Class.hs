@@ -50,6 +50,7 @@ module Lang.Crucible.JVM.Class
    (
      lookupClassGen
    , getAllFields
+   , fieldIdString
    -- * Working with `JVMClass` data
    , getJVMClass
    , getJVMClassByName
@@ -616,16 +617,21 @@ isSubclass dcls cn2 = do
 
 -- * Working with JVM objects  (class instances)
 
-getAllFields :: J.Class -> JVMGenerator h s ret [J.Field]
+mkFieldId :: J.Class -> J.Field -> J.FieldId
+mkFieldId c f = J.FieldId (J.className c) (J.fieldName f) (J.fieldType f)
+
+getAllFields :: J.Class -> JVMGenerator h s ret [J.FieldId]
 getAllFields cls = do
   case J.superClass cls of
-    Nothing  -> return (J.classFields cls)
+    Nothing  -> return (map (mkFieldId cls) (J.classFields cls))
     Just sup -> do
       supCls <- lookupClassGen sup
       supFlds <- getAllFields supCls
-      return (supFlds ++ J.classFields cls) 
+      return (supFlds ++ (map (mkFieldId cls) (J.classFields cls)))
   
-
+-- | dynamic text name for a field
+fieldIdString :: J.FieldId -> String
+fieldIdString f = J.unClassName (J.fieldIdClass f) ++ "." ++ J.fieldIdName f
 
 -- | Construct a new JVM object instance, given the class data structure
 -- and the list of fields. The fields will be initialized with the
@@ -633,20 +639,20 @@ getAllFields cls = do
 newInstanceInstr ::
   JVMClass s 
   -- ^ class data structure
-  ->  [J.Field]
+  ->  [J.FieldId]
   -- ^ Fields
   ->  JVMGenerator h s ret (JVMObject s) 
-newInstanceInstr cls fields = do
-    objFields <- mapM createField fields
+newInstanceInstr cls fieldIds = do
+    objFields <- mapM createField fieldIds
     let strMap = foldr addField (App (EmptyStringMap knownRepr)) objFields
     let ctx    = Ctx.empty `Ctx.extend` strMap `Ctx.extend` cls
     let inst   = App (MkStruct knownRepr ctx)
     let uobj   = injectVariant Ctx.i1of2 inst
     return $ App (RollRecursive knownRepr knownRepr uobj)
   where
-    createField field = do
-      let str  = App (TextLit (fromString (J.fieldName field)))
-      let expr = valueToExpr (defaultValue (J.fieldType field))
+    createField fieldId = do
+      let str  = App (TextLit (fromString (fieldIdString fieldId)))
+      let expr = valueToExpr (defaultValue (J.fieldIdType fieldId))
       let val  = App $ JustValue knownRepr expr
       return (str, val)
     addField (f,i) fs = 
@@ -702,7 +708,8 @@ refFromString s =  do
   initializeClass name
   clsObj <-  getJVMClassByName name
   cls    <-  lookupClassGen name
-  obj    <-  newInstanceInstr clsObj (J.classFields cls)
+  fids   <-  getAllFields cls 
+  obj    <-  newInstanceInstr clsObj fids
 
   -- create an array of characters
   -- TODO: Check this with unicode characters

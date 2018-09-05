@@ -357,7 +357,8 @@ staticOverrides className methodKey
         initializeClass className
         clsObj <- getJVMClassByName className
         cls    <- lookupClassGen className
-        obj    <- newInstanceInstr clsObj (J.classFields cls)
+        fids   <- getAllFields cls
+        obj    <- newInstanceInstr clsObj fids
         obj1   <- setInstanceFieldValue obj
                   (J.FieldId className "value" argTy)
                   val
@@ -848,11 +849,6 @@ generateInstruction (pc, instr) =
         J.ClassRef _ -> rPush rNull -- TODO: construct reflective class information
 
 
-    -- Object creation and manipulation
-{-    J.New name | name == "java/io/ObjectStreamField" -> do
-      lift $ debug 2 $ "new java/io/ObjectStreamField" ++ show name                   
-      rPush rNull -}
-
     J.New name  -> do
       lift $ debug 2 $ "new " ++ show name ++ " (start)"
       cls    <- lift $ lookupClassGen name
@@ -865,7 +861,7 @@ generateInstruction (pc, instr) =
       rPush $ App (JustValue knownRepr rawRef)
 
     J.Getfield fieldId -> do
-      lift $ debug 2 $ "getfield " ++ show (J.fieldIdName fieldId)
+      lift $ debug 2 $ "getfield " ++ show (fieldIdString fieldId)
       objectRef <- rPop
       rawRef <- throwIfRefNull objectRef
       obj <- lift $ readRef rawRef
@@ -873,7 +869,7 @@ generateInstruction (pc, instr) =
       pushValue val
 
     J.Putfield fieldId -> do
-      lift $ debug 2 $ "putfield " ++ show (J.fieldIdName fieldId)
+      lift $ debug 2 $ "putfield " ++ show (fieldIdString fieldId)
       val <- popValue
       objectRef <- rPop
       rawRef <- throwIfRefNull objectRef
@@ -1536,10 +1532,10 @@ declareMethod :: HandleAllocator s
               -> J.Method
               -> ST s MethodHandleTable
 declareMethod halloc mcls ctx meth =
-  let cname = J.className mcls
-      mkey  = J.methodKey meth
+  let cname    = J.className mcls
+      mkey     = J.methodKey meth
   in do
-   jvmToFunHandleRepr cname (J.methodIsStatic meth) mkey $
+   jvmToFunHandleRepr (J.methodIsStatic meth) mkey $
       \ argsRepr retRepr -> do
          --traceM $ "declaring " ++ J.unClassName cname ++ "/" ++ J.methodName meth
          --           ++ " : " ++ showJVMArgs argsRepr ++ " ---> " ++ showJVMType retRepr

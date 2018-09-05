@@ -79,17 +79,15 @@ expFailList = [
   , "kaffeRegressionSuite/benchmarks/initTest"
 
 
-    -- unexpected variant
---  , "sootRegressionSuite/benchmarks/fixedBug-similarSignatures"
-  
     -- wrong answer
-  , "jikesHpjTestSuite/benchmarks/bigComp"
+    -- this one is insane --- has a subclass and superclass
+    -- with the same public fields and makes sure that they are
+    -- accessed indpendently
   , "jikesHpjTestSuite/benchmarks/multmain"
-  , "jikesDerekTestSuite/benchmarks/testConversions"
+    -- 
   , "jikesDerekTestSuite/benchmarks/sort"
   , "jikesDerekTestSuite/benchmarks/testConstants"
   , "jikesPrTestSuite/benchmarks/pr191c"
-  , "kaffeRegressionSuite/benchmarks/finaltest"
   , "jikesHpjTestSuite/benchmarks/multarg"
 
     -- null is not concrete
@@ -104,7 +102,7 @@ expFailList = [
     -- native methods - initIDs
   , "jikesHpjTestSuite/benchmarks/recur"
 
-    -- illegal index
+    -- was illegal index (now too slow)
   , "kaffeRegressionSuite/benchmarks/moduloTest"
   , "kaffeRegressionSuite/benchmarks/testIntLong"
 
@@ -349,7 +347,7 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  let testCase = "sootRegressionSuite/benchmarks/fixedBug-similarSignatures"
+  let testCase =  "kaffeRegressionSuite/benchmarks/finaltest"
   result <- runTest 2 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
