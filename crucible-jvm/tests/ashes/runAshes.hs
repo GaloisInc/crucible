@@ -73,6 +73,9 @@ expFailList = [
   , "jikesPrTestSuite/benchmarks/pr138"
   , "jikesPrTestSuite/benchmarks/pr236b"
   , "jikesPrTestSuite/benchmarks/pr172"
+    -- was illegal index (now too slow)
+  , "kaffeRegressionSuite/benchmarks/moduloTest"
+  , "kaffeRegressionSuite/benchmarks/testIntLong"
 
   
   -- tests length of args (npe) during simulation
@@ -81,20 +84,19 @@ expFailList = [
   , "jikesDerekTestSuite/benchmarks/sort"
 
     -- wrong answer
+    -- String constants should all share the same
+    -- object at runtime instead of allocating new
+    -- objects. 
   , "jikesHpjTestSuite/benchmarks/multarg"
 
-   -- classcast
-  ,  "jikesHpjTestSuite/benchmarks/implement"
+   -- classcast (wip)
+--  ,  "jikesHpjTestSuite/benchmarks/implement"
   
     -- native method "longBitsToDouble"
   , "kaffeRegressionSuite/benchmarks/doubleComp"
 
     -- native methods - initIDs
   , "jikesHpjTestSuite/benchmarks/recur"
-
-    -- was illegal index (now too slow)
-  , "kaffeRegressionSuite/benchmarks/moduloTest"
-  , "kaffeRegressionSuite/benchmarks/testIntLong"
 
     -- fNeg
   , "jikesDerekTestSuite/benchmarks/testArithmetic"
@@ -337,7 +339,8 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  let testCase =  "jikesPrTestSuite/benchmarks/pr103"
+  let testCase =  "jikesHpjTestSuite/benchmarks/implement"
+
   result <- runTest 3 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
