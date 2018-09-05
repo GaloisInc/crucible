@@ -216,7 +216,10 @@ initializeJVMClass c  = do
 
   -- find all interfaces that this class implements
   let ifaces    = interfacesImplemented ctx c
-  let ifaceExpr = App (VectorLit knownRepr (V.fromList (map (classNameExpr . J.className) ifaces)))
+  debug 2 $ "class " ++ J.unClassName (J.className c) ++ " implements " ++
+    show (map (J.unClassName . J.className) ifaces)
+  let ifaceExpr = App (VectorLit knownRepr
+                        (V.fromList (map (classNameExpr . J.className) ifaces)))
   
   -- construct the data structure
   let str        = App (RollRecursive knownRepr knownRepr
@@ -234,36 +237,40 @@ initializeJVMClass c  = do
   writeGlobal gv expr
   return str
 
-
-superClass :: JVMContext -> J.Class -> Maybe J.Class
-superClass ctx c0 
-  | Just cn <- J.superClass c0
-  =  Map.lookup cn (classTable ctx)
-  | otherwise
-  = Nothing
-
--- | Reflexive-transitive closure of superclasses relation
-allSuperClassNames :: JVMContext -> J.ClassName -> [J.ClassName]
-allSuperClassNames ctx cn0
-  | Just c0 <-  Map.lookup cn0 (classTable ctx)
-  , Just cn <- J.superClass c0
-    -- , Just su <- Map.lookup cn (classTable ctx)
-  = cn0 : allSuperClassNames ctx cn
-  | otherwise
-  = [cn0]
-
-
 -- | Find *all* interfaces that the class implements (not just those listed explicitly, but
 -- all super interfaces, and all interfaces implemented by super classes).
 interfacesImplemented :: JVMContext -> J.Class -> [J.Class]
-interfacesImplemented ctx c = mapMaybe (\cn ->  Map.lookup cn (classTable ctx)) (Set.toList (go c)) where
-  go :: J.Class -> Set (J.ClassName)
-  go c0 = Set.unions $
-          -- all declared interfaces & their super classes
-          (map (Set.fromList . allSuperClassNames ctx) (J.classInterfaces c0)) ++
-          -- interfaces of any super class
-          [go s | s <- maybeToList (superClass ctx c0)]
+interfacesImplemented ctx cn = toClassList (go (Set.singleton (J.className cn))) where
+  
+  toClassList :: Set J.ClassName -> [J.Class]
+  toClassList s = mapMaybe (\cn0 -> Map.lookup cn0 (classTable ctx)) (Set.toList s)
+  
+  next :: J.ClassName -> Set J.ClassName
+  next cn0 =
+    Set.fromList (superclass cn0 ++ interfaces cn0)
 
+  superclass cn0 
+    | Just cls <- Map.lookup cn0 (classTable ctx)
+    , Just sc  <- J.superClass cls
+    = [sc]
+    | otherwise
+    = []
+
+  interfaces cn0 
+    | Just cls <- Map.lookup cn0 (classTable ctx)
+    = J.classInterfaces cls
+    | otherwise
+    = []
+    
+     
+  go :: Set J.ClassName -> Set J.ClassName
+  go curr =
+    let n  = Set.unions (map next (Set.toList curr))
+        nn = Set.union curr n
+    in
+      if curr == nn then curr
+      else go nn
+    
 
 -- * Accessors for `JVMClass` in memory structure
 

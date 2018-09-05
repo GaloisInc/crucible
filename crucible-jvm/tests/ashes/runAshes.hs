@@ -52,7 +52,6 @@ skipList    = [  -- SCW: yep slow
               
               -- stringbuffer, but failed before
               , "kaffeRegressionSuite/benchmarks/doublePrint"
-
                 
                  -- The following are very slow
               ,  "ashesHardTestSuite/benchmarks/illness"
@@ -80,7 +79,7 @@ expFailList = [
   
   -- tests length of args (npe) during simulation
   , "kaffeRegressionSuite/benchmarks/initTest"
-  -- needs commandline argument
+  -- needs args (commandline argument)
   , "jikesDerekTestSuite/benchmarks/sort"
 
     -- wrong answer
@@ -89,9 +88,6 @@ expFailList = [
     -- objects. 
   , "jikesHpjTestSuite/benchmarks/multarg"
 
-   -- classcast (wip)
-  ,  "jikesHpjTestSuite/benchmarks/implement"
-  
     -- native method "longBitsToDouble"
   , "kaffeRegressionSuite/benchmarks/doubleComp"
 
