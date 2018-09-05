@@ -542,20 +542,31 @@ readMem' sym w end l0 tp0 alignment = go (\tp _l -> badLoad sym tp) l0 tp0
                    writeIORef cache $ Map.insert (toCacheEntry tp' l') x m
                    return x
          case h of
-           MemWrite dst wsrc ->
-             case testEquality (ptrWidth dst) w of
-               Nothing   -> readPrev tp l
-               Just Refl ->
-                 case wsrc of
-                   MemCopy src sz -> readMemCopy sym w end l tp dst src sz readPrev
-                   MemSet v sz    -> readMemSet sym w end l tp dst v sz readPrev
-                   MemStore v stp -> readMemStore sym w end l tp dst v stp alignment readPrev
            WriteMerge _ [] [] ->
              go fallback l tp r
            WriteMerge c xr yr ->
              do x <- go readPrev l tp xr
                 y <- go readPrev l tp yr
                 muxLLVMVal sym c x y
+           MemWrite dst wsrc ->
+             case testEquality (ptrWidth dst) w of
+               Nothing   -> readPrev tp l
+               Just Refl ->
+                 do let LLVMPointer blk1 _off1 = l
+                    let LLVMPointer blk2 _off2 = dst
+                    let readCurrent =
+                          case wsrc of
+                            MemCopy src sz -> readMemCopy sym w end l tp dst src sz readPrev
+                            MemSet v sz    -> readMemSet sym w end l tp dst v sz readPrev
+                            MemStore v stp -> readMemStore sym w end l tp dst v stp alignment readPrev
+                    sameBlock <- natEq sym blk1 blk2
+                    case asConstantPred sameBlock of
+                      Just True -> readCurrent
+                      Just False -> readPrev tp l
+                      Nothing ->
+                        do x <- readCurrent
+                           y <- readPrev tp l
+                           muxLLVMVal sym sameBlock x y
 
 --------------------------------------------------------------------------------
 
