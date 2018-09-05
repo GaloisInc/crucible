@@ -21,6 +21,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -54,6 +55,7 @@ module Lang.Crucible.Simulator.Operations
   , ResolvedCall(..)
   , UnresolvableFunction(..)
   , resolveCall
+  , resolvedCallName
 
     -- * Abort handlers
   , abortExecAndLog
@@ -312,6 +314,11 @@ resolveCall bindings c0 args =
         Just (UseCFG g pdInfo) -> do
           CrucibleCall (cfgEntryBlockID g) (mkCallFrame g pdInfo args)
 
+
+resolvedCallName :: ResolvedCall p sym ext ret -> FunctionName
+resolvedCallName (OverrideCall _ f) = f^.override
+resolvedCallName (CrucibleCall _ f) = case frameHandle f of SomeHandle h -> handleName h
+
 ---------------------------------------------------------------------
 -- Control-flow operations
 
@@ -440,7 +447,6 @@ variantCases ((p,ResolvedJump x_id x_args) : cs) =
 
 -- | Return a value from current Crucible execution.
 returnValue :: forall p sym ext rtp f args.
-  IsSymInterface sym =>
   RegEntry sym (FrameRetType f) {- ^ return value -} ->
   ExecCont p sym ext rtp f args
 returnValue arg =
@@ -518,7 +524,7 @@ performIntraFrameMerge tgt = do
 
                -- The current branch is done
                let new_other = VFFCompletePath pathAssumes er
-               resumeFrame next (VFFBranch ctx new_assume_frame loc pnot new_other tgt)
+               resumeFrame toTgt next (VFFBranch ctx new_assume_frame loc pnot new_other tgt)
 
           -- We are done with both branches, pop-off back to the outer context.
           VFFCompletePath otherAssumes other ->
@@ -632,7 +638,7 @@ resumeValueFromFrameAbort ctx0 ar0 = do
            -- We have some more work to do.
            VFFActivePath toLoc n ->
              do liftIO $ addAssumption sym (LabeledPred pnot (ExploringAPath loc toLoc))
-                resumeFrame n nextCtx
+                resumeFrame toLoc n nextCtx
 
            -- The other branch had finished successfully;
            -- Since this one aborted, then the other one is really the only
@@ -677,10 +683,16 @@ resumeValueFromValueAbort ctx0 ar0 =
 -- | Resume a paused frame.
 resumeFrame ::
   IsSymInterface sym =>
+  Maybe ProgramLoc ->
   PausedFrame p sym ext rtp f a ->
   ValueFromFrame p sym ext rtp f ->
   ExecCont p sym ext rtp g ba
-resumeFrame (PausedFrame frm cont) ctx =
+resumeFrame toLoc (PausedFrame frm cont) ctx =
+ do case toLoc of
+      Nothing -> return ()
+      Just l  -> 
+        do sym <- view stateSymInterface
+           liftIO $ setCurrentProgramLoc sym l
     withReaderT
        (stateTree .~ ActiveTree ctx frm)
        (case cont of
@@ -769,12 +781,15 @@ overrideSymbolicBranch ::
   IsSymInterface sym =>
   Pred sym ->
   ExecCont p sym ext rtp (OverrideLang r) ('Just args) {- ^ if branch -} ->
-  Maybe ProgramLoc {- ^ optional if branch location -} ->
+  Maybe Position {- ^ optional if branch location -} ->
   ExecCont p sym ext rtp (OverrideLang r) ('Just args) {- ^ else branch -} ->
-  Maybe ProgramLoc {- ^ optional else branch location -} ->
+  Maybe Position {- ^ optional else branch location -} ->
   ExecCont p sym ext rtp (OverrideLang r) ('Just args)
-overrideSymbolicBranch p thn thn_loc els els_loc =
+overrideSymbolicBranch p thn thn_pos els els_pos =
   do top_frm <- view (stateTree.actFrame)
+     let fnm     = top_frm^.gpValue.overrideSimFrame.override
+     let thn_loc = mkProgramLoc fnm <$> thn_pos
+     let els_loc = mkProgramLoc fnm <$> els_pos
      let thn_frm = SomePausedFrame (overridePausedFrame thn top_frm) thn_loc
      let els_frm = SomePausedFrame (overridePausedFrame els top_frm) els_loc
      intra_branch p thn_frm els_frm ReturnTarget
@@ -847,7 +862,7 @@ intra_branch p t_label f_label tgt = do
          loc <- liftIO $ getCurrentProgramLoc sym
          liftIO $ addAssumption sym (LabeledPred p' (ExploringAPath loc a_loc))
 
-         resumeFrame a_frame ctx
+         resumeFrame a_loc a_frame ctx
 
 {-# INLINABLE intra_branch #-}
 
@@ -883,38 +898,46 @@ performIntraFrameSplit p (SomePausedFrame a_frame a_loc) (SomePausedFrame o_fram
          ctx' = VFFBranch ctx assume_frame loc p todo tgt
 
      -- Start a_state (where branch pred is p)
-     resumeFrame a_frame' ctx'
+     resumeFrame a_loc a_frame' ctx'
 
 
 performFunctionCall ::
+  IsSymInterface sym =>
   ReturnHandler ret p sym ext rtp outer_frame outer_args ->
   ResolvedCall p sym ext ret ->
   ExecCont p sym ext rtp outer_frame outer_args
 performFunctionCall retHandler frm =
-  case frm of
-    OverrideCall o f ->
-      withReaderT
-        (stateTree %~ pushCallFrame retHandler (OF f))
-        (runOverride o)
-    CrucibleCall entryID f ->
-      withReaderT
-        (stateTree %~ pushCallFrame retHandler (MF f))
-        (continue (RunBlockStart entryID))
+  do sym <- view stateSymInterface
+     let loc = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
+     liftIO $ setCurrentProgramLoc sym loc
+     case frm of
+       OverrideCall o f ->
+         withReaderT
+           (stateTree %~ pushCallFrame retHandler (OF f))
+           (runOverride o)
+       CrucibleCall entryID f ->
+         withReaderT
+           (stateTree %~ pushCallFrame retHandler (MF f))
+           (continue (RunBlockStart entryID))
 
 performTailCall ::
+  IsSymInterface sym =>
   ValueFromValue p sym ext rtp ret ->
   ResolvedCall p sym ext ret ->
   ExecCont p sym ext rtp f a
 performTailCall vfv frm =
-  case frm of
-    OverrideCall o f ->
-      withReaderT
-        (stateTree %~ swapCallFrame vfv (OF f))
-        (runOverride o)
-    CrucibleCall entryID f ->
-      withReaderT
-        (stateTree %~ swapCallFrame vfv (MF f))
-        (continue (RunBlockStart entryID))
+  do sym <- view stateSymInterface
+     let loc = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
+     liftIO $ setCurrentProgramLoc sym loc
+     case frm of
+       OverrideCall o f ->
+         withReaderT
+           (stateTree %~ swapCallFrame vfv (OF f))
+           (runOverride o)
+       CrucibleCall entryID f ->
+         withReaderT
+           (stateTree %~ swapCallFrame vfv (MF f))
+           (continue (RunBlockStart entryID))
 
 ------------------------------------------------------------------------
 -- Context tree manipulations

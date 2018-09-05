@@ -7,6 +7,7 @@ Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
 Define the main simulation monad 'OverrideSim' and basic operations on it.
 -}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -36,6 +37,8 @@ module Lang.Crucible.Simulator.OverrideSim
   , overrideAbort
   , symbolicBranch
   , symbolicBranches
+  , overrideReturn
+  , overrideReturn'
     -- * Function calls
   , callCFG
   , callFnVal
@@ -75,6 +78,7 @@ import           Control.Monad.State.Strict
 import           Data.List (foldl')
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy
+import qualified Data.Text as T
 import           System.Exit
 import           System.IO
 import           System.IO.Error
@@ -378,6 +382,12 @@ overrideError err = Sim $ StateContT $ \_ -> runErrorHandler err
 overrideAbort :: AbortExecReason -> OverrideSim p sym ext rtp args res a
 overrideAbort abt = Sim $ StateContT $ \_ -> runAbortHandler abt
 
+overrideReturn :: KnownRepr TypeRepr res => RegValue sym res -> OverrideSim p sym ext rtp args res a
+overrideReturn v = Sim $ StateContT $ \_ -> runReaderT $ returnValue (RegEntry knownRepr v)
+
+overrideReturn' :: RegEntry sym res -> OverrideSim p sym ext rtp args res a
+overrideReturn' v = Sim $ StateContT $ \_ -> runReaderT $ returnValue v
+
 -- | Perform a symbolic branch on the given predicate.  If we can determine
 --   that the predicate must be either true or false, we will exeucte only
 --   the "then" or the "else" branch.  Otherwise, both branches will be executed
@@ -397,11 +407,11 @@ symbolicBranch ::
   Pred sym {- ^ Predicate to branch on -} ->
   RegMap sym new_args {- ^ argument values for the branches -} ->
   OverrideSim p sym ext rtp (args <+> new_args) res a {- ^ then branch -} ->
-  Maybe ProgramLoc {- ^ optinal location for then branch -} ->
+  Maybe Position {- ^ optinal location for then branch -} ->
   OverrideSim p sym ext rtp (args <+> new_args) res a {- ^ else branch -} ->
-  Maybe ProgramLoc {- ^ optional location for else branch -} ->
+  Maybe Position {- ^ optional location for else branch -} ->
   OverrideSim p sym ext rtp args res a
-symbolicBranch p new_args thn thn_loc els els_loc =
+symbolicBranch p new_args thn thn_pos els els_pos =
   Sim $ StateContT $ \c -> runReaderT $
     do old_args <- view (stateTree.actFrame.overrideTopFrame.overrideRegMap)
        let sz = regMapSize old_args
@@ -412,7 +422,7 @@ symbolicBranch p new_args thn thn_loc els els_loc =
        let els' = ReaderT (runStateContT (unSim els) c')
        withReaderT
          (stateTree.actFrame.overrideTopFrame.overrideRegMap .~ all_args)
-         (overrideSymbolicBranch p thn' thn_loc els' els_loc)
+         (overrideSymbolicBranch p thn' thn_pos els' els_pos)
 
 
 -- | Perform a series of symbolic branches.  This operation will evaluate a
@@ -431,7 +441,7 @@ symbolicBranch p new_args thn thn_loc els els_loc =
 symbolicBranches :: forall p sym ext rtp args new_args res a.
   IsSymInterface sym =>
   RegMap sym new_args {- ^ argument values for the branches -} ->
-  [(Pred sym, OverrideSim p sym ext rtp (args <+> new_args) res a, Maybe ProgramLoc)]
+  [(Pred sym, OverrideSim p sym ext rtp (args <+> new_args) res a, Maybe Position)]
    {- ^ Branches to consider -} ->
   OverrideSim p sym ext rtp args res a
 symbolicBranches new_args xs0 =
@@ -443,13 +453,14 @@ symbolicBranches new_args xs0 =
        let sz' = regMapSize new_args
        let all_args = appendRegs old_args new_args
        let c' x st = c x (st & stateTree.actFrame.overrideTopFrame.overrideRegMap %~ takeRegs sz sz')
-       let go [] = ReaderT $ runAbortHandler (VariantOptionsExhausted top_loc)
-           go ((p,m,mloc):xs) =
-             let m' = ReaderT (runStateContT (unSim m) c') in
-             overrideSymbolicBranch p m' mloc (go xs) Nothing
+       let go _ [] = ReaderT $ runAbortHandler (VariantOptionsExhausted top_loc)
+           go !i ((p,m,mpos):xs) =
+             let msg = T.pack ("after branch " ++ show i)
+                 m'  = ReaderT (runStateContT (unSim m) c')
+              in overrideSymbolicBranch p m' mpos (go (i+1) xs) (Just (OtherPos msg))
        withReaderT
          (stateTree.actFrame.overrideTopFrame.overrideRegMap .~ all_args)
-         (go xs0)
+         (go (0::Integer) xs0)
 
 --------------------------------------------------------------------------------
 -- FnBinding
