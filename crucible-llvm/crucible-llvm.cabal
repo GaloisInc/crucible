@@ -58,6 +58,7 @@ library
   other-modules:
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Generic
+    Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
     Lang.Crucible.LLVM.Types

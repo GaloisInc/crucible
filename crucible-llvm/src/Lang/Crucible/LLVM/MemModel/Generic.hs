@@ -74,6 +74,7 @@ import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel.Type
 import Lang.Crucible.LLVM.MemModel.Common
 import Lang.Crucible.LLVM.MemModel.Pointer
+import Lang.Crucible.LLVM.MemModel.Value
 import Lang.Crucible.Backend
 
 
