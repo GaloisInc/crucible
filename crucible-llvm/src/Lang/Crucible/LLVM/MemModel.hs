@@ -168,6 +168,7 @@ import qualified Lang.Crucible.LLVM.Bytes as G
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.Panic(panic)
 
