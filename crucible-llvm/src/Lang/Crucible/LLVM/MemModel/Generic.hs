@@ -103,14 +103,17 @@ data MemAlloc sym
      -- | The merger of two allocations.
    | AllocMerge (Pred sym) [MemAlloc sym] [MemAlloc sym]
 
+data WriteSource sym w
+    -- | @MemCopy src len@ copies @len@ bytes from [src..src+len).
+  = MemCopy (LLVMPtr sym w) (SymBV sym w)
+    -- | @MemSet val len@ fills the destination with @len@ copies of byte @val@.
+  | MemSet (SymBV sym 8) (SymBV sym w)
+    -- | @MemStore val ty@ writes value @val@ with type @ty@ at the destination.
+  | MemStore (LLVMVal sym) Type
+
 data MemWrite sym
-    -- | @MemCopy dst src len@ represents a copy from [src..src+len) to
-    -- [dst..dst+len).
-  = forall w. MemCopy (LLVMPtr sym w) (LLVMPtr sym w) (SymBV sym w)
-    -- | @MemSet dst val len@ fills @len@ copies of byte @val@ into [dst..dst+len).
-  | forall w. MemSet (LLVMPtr sym w) (SymBV sym 8) (SymBV sym w)
-    -- | Memstore is given address was written, value, and type of value.
-  | forall w. MemStore (LLVMPtr sym w) (LLVMVal sym) Type
+    -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
+  = forall w. MemWrite (LLVMPtr sym w) (WriteSource sym w)
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
 
@@ -539,18 +542,14 @@ readMem' sym w end l0 tp0 alignment = go (\tp _l -> badLoad sym tp) l0 tp0
                    writeIORef cache $ Map.insert (toCacheEntry tp' l') x m
                    return x
          case h of
-           MemCopy dst src sz ->
+           MemWrite dst wsrc ->
              case testEquality (ptrWidth dst) w of
-               Just Refl -> readMemCopy sym w end l tp dst src sz readPrev
                Nothing   -> readPrev tp l
-           MemSet dst v sz ->
-             case testEquality (ptrWidth dst) w of
-               Just Refl -> readMemSet sym w end l tp dst v sz readPrev
-               Nothing   -> readPrev tp l
-           MemStore dst v stp ->
-             case testEquality (ptrWidth dst) w of
-               Just Refl -> readMemStore sym w end l tp dst v stp alignment readPrev
-               Nothing   -> readPrev tp l
+               Just Refl ->
+                 case wsrc of
+                   MemCopy src sz -> readMemCopy sym w end l tp dst src sz readPrev
+                   MemSet v sz    -> readMemSet sym w end l tp dst v sz readPrev
+                   MemStore v stp -> readMemStore sym w end l tp dst v stp alignment readPrev
            WriteMerge _ [] [] ->
              go fallback l tp r
            WriteMerge c xr yr ->
@@ -800,7 +799,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
 writeMem sym w ptr tp v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p <- isAllocatedMutable sym w ptr sz m
-     return (p, memAddWrite (MemStore ptr v tp) m)
+     return (p, memAddWrite (MemWrite ptr (MemStore v tp)) m)
 
 -- | Write a value to any memory region, mutable or immutable. The
 -- returned 'Pred' asserts that the pointer falls within an allocated
@@ -817,7 +816,7 @@ writeConstMem ::
 writeConstMem sym w ptr tp v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p <- isAllocated sym w ptr sz m
-     return (p, memAddWrite (MemStore ptr v tp) m)
+     return (p, memAddWrite (MemWrite ptr (MemStore v tp)) m)
 
 -- | Perform a mem copy. The returned 'Pred' asserts that the source
 -- and destination pointers both fall within allocated memory regions.
@@ -831,7 +830,7 @@ copyMem :: (1 <= w, IsSymInterface sym)
 copyMem sym w dst src sz m = do
   (,) <$> (join $ andPred sym <$> isAllocated sym w dst sz m
                               <*> isAllocated sym w src sz m)
-      <*> (return $ m & memAddWrite (MemCopy dst src sz))
+      <*> (return $ m & memAddWrite (MemWrite dst (MemCopy src sz)))
 
 -- | Perform a mem set, filling a number of bytes with a given 8-bit
 -- value. The returned 'Pred' asserts that the pointer falls within an
@@ -845,7 +844,7 @@ setMem ::
   Mem sym -> IO (Pred sym, Mem sym)
 setMem sym w ptr val sz m =
   do p <- isAllocated sym w ptr sz m
-     return (p, memAddWrite (MemSet ptr val sz) m)
+     return (p, memAddWrite (MemWrite ptr (MemSet val sz)) m)
 
 -- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
@@ -873,7 +872,7 @@ allocAndWriteMem sym w a b tp mut loc v m = do
   off <- bvLit sym w 0
   let p = LLVMPointer base off
   return (m & memAddAlloc (Alloc a b sz mut loc)
-            & memAddWrite (MemStore p v tp))
+            & memAddWrite (MemWrite p (MemStore v tp)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -1024,11 +1023,11 @@ ppAllocs :: IsExprBuilder sym => [MemAlloc sym] -> Doc
 ppAllocs xs = vcat $ map ppAlloc xs
 
 ppWrite :: IsExprBuilder sym => MemWrite sym -> Doc
-ppWrite (MemCopy d s l) = do
+ppWrite (MemWrite d (MemCopy s l)) = do
   text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
-ppWrite (MemSet d v l) = do
+ppWrite (MemWrite d (MemSet v l)) = do
   text "memset" <+> ppPtr d <+> printSymExpr v <+> printSymExpr l
-ppWrite (MemStore d v _) = do
+ppWrite (MemWrite d (MemStore v _)) = do
   char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y
