@@ -135,7 +135,7 @@ traverseOnlyGoals :: Applicative f =>
 traverseOnlyGoals f = traverseGoals (\as m -> (as,) <$> m) f
 
 -- | Traverse a sequence of 'Goals' data structures.  See 'traverseGoals'
---   for an explaination of the action arguments.  The resulting sequence
+--   for an explanation of the action arguments.  The resulting sequence
 --   may be shorter than the original if some 'Goals' become trivial.
 traverseGoalsSeq :: Applicative f =>
   (forall a. Seq asmp -> f a -> f (Seq asmp', a)) ->
