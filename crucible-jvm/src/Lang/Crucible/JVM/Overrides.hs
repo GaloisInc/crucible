@@ -34,6 +34,7 @@ Stability        : provisional
 module Lang.Crucible.JVM.Overrides where
 
 -- base
+import Numeric(fromRat)
 import Data.Maybe (isJust, fromJust)
 import Data.Semigroup(Semigroup(..),(<>))
 import Control.Monad.State.Strict
@@ -118,13 +119,21 @@ allParameterTypes className isStatic m
   | isStatic  = J.methodKeyParameterTypes m
   | otherwise = J.ClassType className : J.methodKeyParameterTypes m
 
+addThisAndUnit :: Bool -> [Some TypeRepr] -> [Some TypeRepr] 
+addThisAndUnit isStatic args =
+  (if isStatic then [] else [Some refRepr]) ++
+  (case args of
+     [] -> [Some UnitRepr]
+     _  -> args)
+    
+
 -- | Translate the types of the method
 jvmToFunHandleRepr ::
-  J.ClassName -> Bool -> J.MethodKey ->
+  Bool -> J.MethodKey ->
   (forall args ret. CtxRepr args -> TypeRepr ret -> a)
   -> a
-jvmToFunHandleRepr className isStatic meth k =
-   let args  = Ctx.fromList (map javaTypeToRepr (allParameterTypes className isStatic meth))
+jvmToFunHandleRepr isStatic meth k =
+   let args  = Ctx.fromList (addThisAndUnit isStatic (map javaTypeToRepr (J.methodKeyParameterTypes meth)))
        ret   = maybe (Some C.UnitRepr) javaTypeToRepr (J.methodKeyReturnType meth)
    in case (args, ret) of
      (Some argsRepr, Some retRepr) -> k argsRepr retRepr
@@ -157,7 +166,7 @@ newtype ValTransformer p sym tp tp' =
 
 
 transformJVMArgs :: forall m p sym args args'.
-  (IsSymInterface sym, Monad m) =>
+  (HasCallStack, IsSymInterface sym, Monad m) =>
   sym ->
   CtxRepr args' ->
   CtxRepr args ->
@@ -165,6 +174,7 @@ transformJVMArgs :: forall m p sym args args'.
   m (ArgTransformer p sym args args')
 transformJVMArgs _ Ctx.Empty Ctx.Empty _ =
   return (ArgTransformer (\_ -> return Ctx.Empty))
+
 transformJVMArgs sym (rest' Ctx.:> tp') (rest Ctx.:> tp) fnm = do
   return (ArgTransformer
            (\(xs Ctx.:> x) ->
@@ -178,7 +188,7 @@ transformJVMArgs _ derived override fnm =
     [ "transformJVMArgs: argument shape mismatch!", show fnm, showJVMArgs derived, showJVMArgs override ]
 
 transformJVMRet ::
-  (IsSymInterface sym, Monad m) =>
+  (HasCallStack, IsSymInterface sym, Monad m) =>
   sym ->
   TypeRepr ret  ->
   TypeRepr ret' ->
@@ -231,7 +241,7 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
   sym <- lift $ C.getSymInterface
   
 
-  jvmToFunHandleRepr cn isStatic mk  $ \derivedArgs derivedRet -> do
+  jvmToFunHandleRepr isStatic mk  $ \derivedArgs derivedRet -> do
     o <- lift $ build_jvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet (def sym)
     -- traceM $ "installing override for " ++ show fnm
     case Map.lookup (cn,mk) (methodHandles jvmctx) of
@@ -267,7 +277,7 @@ gc_override ::(IsSymInterface sym) => JVMOverride p sym
 gc_override =
   let isStatic = False
       mk       = J.makeMethodKey "gc" "()V" in
-  jvmToFunHandleRepr "java/lang/Runtime" isStatic mk $ \ _argsRepr _retRepr ->
+  jvmToFunHandleRepr isStatic mk $ \ _argsRepr _retRepr ->
     JVMOverride { jvmOverride_className="java/lang/System"
                 , jvmOverride_methodKey=mk
                 , jvmOverride_methodIsStatic=isStatic
@@ -279,7 +289,8 @@ gc_override =
 
 
 --------------------------------------------------------------------------------
--- 
+-- ** Concrete values
+--
 -- Concrete values: if the result of static simulation is a unique, concrete value
 -- figure out what it is.
 -- Essentially, this is a generalization of the `W4.asInteger`, `W4.asSignedBV`
@@ -345,7 +356,7 @@ toCharVec vec = traverse (\jv -> case jv of
 instance ToText CObject where
   totexts (CInstance (fields, cls)) f 
     | cclassName cls == "java/lang/String"
-    , Just (Just (CRef (Just (CArray vec)))) <- Map.lookup "value" fields
+    , Just (Just (CRef (Just (CArray vec)))) <- Map.lookup "java/lang/String.value" fields
     , Just chars <- toCharVec vec
     = pack (V.toList chars) <> f
   totexts (CInstance (fields, cls)) f
@@ -380,13 +391,14 @@ class Concretize (a :: CrucibleType) where
 
 instance Concretize JVMValueType where
   type Concrete JVMValueType = CValue
-  concretize (C.RV v) = variantCase v
-                 (Ctx.Empty `Ctx.extend` Dispatch (\x -> return ((CFloat . fromRational) <$> W4.asRational x))
-                            `Ctx.extend` Dispatch (\x -> return ((CDouble . fromRational) <$> W4.asRational x))
-                            `Ctx.extend` Dispatch (\x -> return ((CInt . fromInteger) <$> W4.asSignedBV x))
-                            `Ctx.extend` Dispatch (\x -> return ((CLong . fromInteger) <$> W4.asSignedBV x))
-                            `Ctx.extend` Dispatch (\x -> do mb <- concretize @JVMRefType (C.RV x)
-                                                            return (CRef <$> mb)))
+  concretize (C.RV v) =
+    variantCase v
+    (Ctx.Empty `Ctx.extend` Dispatch (\x -> return ((CFloat . fromRational) <$> W4.asRational x))
+      `Ctx.extend` Dispatch (\x -> return ((CDouble . fromRational) <$> W4.asRational x))
+      `Ctx.extend` Dispatch (\x -> return ((CInt . fromInteger) <$> W4.asSignedBV x))
+      `Ctx.extend` Dispatch (\x -> return ((CLong . fromInteger) <$> W4.asSignedBV x))
+      `Ctx.extend` Dispatch (\x -> do mb <- concretize @JVMRefType (C.RV x)
+                                      return (CRef <$> mb)))
 
 instance Concretize JVMRefType where
   type Concrete JVMRefType = Maybe CObject
@@ -397,7 +409,7 @@ instance Concretize JVMRefType where
                            co   <- concretize @JVMObjectType (C.RV obj)
                            return (Just co)
                       _ -> return Nothing)
-            (return Nothing) v
+            (return (Just Nothing)) v
 
       
 instance Concretize JVMArrayType where
@@ -493,7 +505,7 @@ showInt jty e = case W4.asSignedBV e of
 
 showFloat :: (W4.IsExpr e) => e BaseRealType -> String
 showFloat e = case W4.asRational e of
-  Just rat -> show rat
+  Just rat -> show (fromRational rat :: Double)
   Nothing -> show $ W4.printSymExpr e
   
 --
@@ -547,27 +559,46 @@ printlnMthd :: forall sym arg p.
 printlnMthd =
   let showNewline = True in printStream "println" showNewline
 
-printMthd :: forall sym arg p.
-             (IsSymInterface sym,
+printMthd :: forall sym arg p. (IsSymInterface sym) =>
+               (IsSymInterface sym,
               W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
               W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
   String -> TypeRepr arg -> JVMOverride p sym
 printMthd = let showNewline = False in printStream "print" showNewline
 
+printStreamUnit :: forall sym p. (IsSymInterface sym) => String -> Bool -> JVMOverride p sym
+printStreamUnit name showNewline =
+  let mk = J.makeMethodKey name "()V" in
+  JVMOverride { jvmOverride_className="java/io/PrintStream"
+                , jvmOverride_methodKey=mk
+                , jvmOverride_methodIsStatic=True
+                , jvmOverride_args=Ctx.Empty `Ctx.extend` refRepr
+                , jvmOverride_ret=UnitRepr
+                , jvmOverride_def=
+                  \_sym args -> do
+                    h   <- C.printHandle <$> C.getContext
+                    when showNewline (liftIO $ hPutStrLn h "")
+                    liftIO $ hFlush h
+                }
+
 -- Should we print to the print handle in the simulation context?
 -- or just to stdout
-printStream :: forall sym arg p.
-               (IsSymInterface sym,
+printStream :: forall sym arg p. (IsSymInterface sym,
                 W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
                 W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-               String -> Bool -> String -> TypeRepr arg -> JVMOverride p sym
+  String {- ^ Actual name of the method that we are invoking -} ->
+  Bool   {- ^ should we include a newline at the end -} ->
+  String {- ^ java descriptor of argument -} ->
+  TypeRepr arg {- ^ expected type of the method -} ->
+  JVMOverride p sym
 printStream name showNewline descr t =
   let isStatic = False in
   let mk = J.makeMethodKey name descr in
-  let argsRepr' = (Ctx.Empty `Ctx.extend` refRepr `Ctx.extend` t) in
-  jvmToFunHandleRepr "java/io/PrintStream" isStatic mk $ \ argsRepr retRepr ->
+  let argsRepr' = Ctx.Empty `Ctx.extend` refRepr `Ctx.extend` t in
+  jvmToFunHandleRepr isStatic mk $ \ argsRepr retRepr ->
     if (testEquality argsRepr argsRepr'  == Nothing)
-       then error $ "descriptor does not match type\n " ++ showJVMArgs argsRepr ++ "\n vs.\n " ++ showJVMArgs argsRepr'
+       then error $ "descriptor does not match type\n " ++ showJVMArgs argsRepr
+            ++ "\n vs.\n " ++ showJVMArgs argsRepr'
     else if (testEquality retRepr UnitRepr == Nothing)
        then error "descriptor does not have void return type"
     else JVMOverride { jvmOverride_className="java/io/PrintStream"
@@ -577,9 +608,13 @@ printStream name showNewline descr t =
                 , jvmOverride_ret=UnitRepr
                 , jvmOverride_def=
                   \_sym args -> do
-                    let reg = C.regValue (Ctx.last args)
-                    str <- showReg @sym (head (J.methodKeyParameterTypes mk)) t reg
+                    let arg = Ctx.last args 
                     h   <- C.printHandle <$> C.getContext
+                    str <- case t of
+                      UnitRepr -> return ""
+                      _ -> do let reg = C.regValue (Ctx.last args)
+                              showReg @sym (head (J.methodKeyParameterTypes mk)) t reg
+
                     liftIO $ (if showNewline then hPutStrLn else hPutStr) h str
                     liftIO $ hFlush h
                 }
@@ -653,8 +688,9 @@ stdOverrides ::
    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
   [JVMOverride p sym]
 stdOverrides = 
-   [ -- printlnMthd "()V"   UnitRepr  -- TODO: methods that take no arguments?
-      printlnMthd "(Z)V"  intRepr
+   [  printlnMthd "()V"   UnitRepr 
+      -- printStreamUnit "println" True -- TODO: methods that take no arguments?
+    , printlnMthd "(Z)V"  intRepr
     , printlnMthd "(C)V"  intRepr  -- TODO: special case for single char, i.e. binary output
     , printlnMthd "([C)V" refRepr  -- TODO: array of chars
     , printlnMthd "(D)V"  doubleRepr
@@ -664,7 +700,8 @@ stdOverrides =
     , printlnMthd "(Ljava/lang/Object;)V" refRepr -- TODO: object toString
     , printlnMthd "(Ljava/lang/String;)V" refRepr -- TODO: String objects
     
-    -- printMthd "()V"   UnitRepr
+    , printMthd "()V"   UnitRepr 
+    -- , printStreamUnit "print" False 
     , printMthd "(Z)V"  intRepr
     , printMthd "(C)V"  intRepr  -- TODO: special case for single char, i.e. binary output
     , printMthd "([C)V" refRepr  -- TODO: array of chars
