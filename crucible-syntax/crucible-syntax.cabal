@@ -14,14 +14,6 @@ Description:
 
 extra-source-files:
 
-custom-setup
-  setup-depends:
-    base >= 4.7 && < 5,
-    Cabal >= 1.24,
-    directory,
-    filepath,
-    process
-
 library
   build-depends:
     ansi-wl-pprint,
@@ -86,13 +78,17 @@ test-suite crucible-syntax-tests
   type: exitcode-stdio-1.0
   main-is: Tests.hs
   hs-source-dirs: test
+  other-modules:
+    Overrides
   build-depends:
     base,
     crucible,
     crucible-syntax,
     directory,
     filepath,
+    lens,
     megaparsec,
+    parameterized-utils,
     tasty,
     tasty-golden,
     tasty-hunit,

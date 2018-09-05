@@ -28,6 +28,8 @@ import System.FilePath
 import System.Directory
 import What4.ProgramLoc
 
+import Overrides
+
 for = flip map
 
 main :: IO ()
@@ -61,7 +63,7 @@ findParseTests wd =
 testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
   do contents <- T.readFile inFile
-     withFile outFile WriteMode $ simulateProgram inFile contents
+     withFile outFile WriteMode $ \outh -> simulateProgram inFile contents outh setupOverrides
 
 findSimTests :: FilePath -> IO TestTree
 findSimTests wd =
