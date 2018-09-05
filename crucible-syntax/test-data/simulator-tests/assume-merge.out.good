@@ -3,18 +3,18 @@
 ==== Finish Simulation ====
 ==== Proof obligations ====
 Assuming:
-* The branch from test-data/simulator-tests/assume-merge.cbl:4:5 to test-data/simulator-tests/assume-merge.cbl:6:14
+* The branch in main from test-data/simulator-tests/assume-merge.cbl:4:5 to test-data/simulator-tests/assume-merge.cbl:6:14
     intLe 0 cx@2:i
-* test-data/simulator-tests/assume-merge.cbl:6:5: even
+* in main test-data/simulator-tests/assume-merge.cbl:6:5: even
     intEq 0 (intMod cx@2:i 2)
 Prove:
   oopsie!
   in main at test-data/simulator-tests/assume-merge.cbl:12:5
   false
 Assuming:
-* The branch from test-data/simulator-tests/assume-merge.cbl:4:5 to test-data/simulator-tests/assume-merge.cbl:9:14
+* The branch in main from test-data/simulator-tests/assume-merge.cbl:4:5 to test-data/simulator-tests/assume-merge.cbl:9:14
     boolNot (intLe 0 cx@2:i)
-* test-data/simulator-tests/assume-merge.cbl:9:5: odd
+* in main test-data/simulator-tests/assume-merge.cbl:9:5: odd
     intEq 1 (intMod cx@2:i 2)
 Prove:
   oopsie!
