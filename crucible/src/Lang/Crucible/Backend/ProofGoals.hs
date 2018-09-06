@@ -28,7 +28,7 @@ module Lang.Crucible.Backend.ProofGoals
 
     -- ** Context management
   , gcAssume, gcAddAssumes, gcProve
-  , gcPush, gcPop,
+  , gcPush, gcPop, gcAddGoals,
 
     -- ** Global operations on context
     gcRemoveObligations, gcRestore, gcReset, gcFinish
@@ -271,21 +271,21 @@ gcAddAssumes :: Seq asmp -> GoalCollector asmp goal -> GoalCollector asmp goal
 gcAddAssumes as' (CollectingAssumptions as gls) = CollectingAssumptions (as <> as') gls
 gcAddAssumes as' gls = CollectingAssumptions as' gls
 
-{- | Pop to the last push, or all the way to the top,
-if there were no more pushes.
+{- | Pop to the last push, or all the way to the top, if there were no more pushes.
 If the result is 'Left', then we popped until an explicitly marked push;
 in that case we return:
 
     1. the frame identifier of the popped frame,
-    2. the assumptions that were forgotten, and
-    3. the new state of the collector.
+    2. the assumptions that were forgotten,
+    3. any proof goals that were generated since the frame push, and
+    4. the state of the collector before the push.
 
 If the result is 'Right', then we popped all the way to the top, and the
 result is the goal tree, or 'Nothing' if there were no goals. -}
 
 gcPop ::
   GoalCollector asmp goal ->
-  Either (FrameIdentifier, Seq asmp, GoalCollector asmp goal)
+  Either (FrameIdentifier, Seq asmp, Maybe (Goals asmp goal), GoalCollector asmp goal)
          (Maybe (Goals asmp goal))
 gcPop = go Nothing mempty
   where
@@ -298,9 +298,7 @@ gcPop = go Nothing mempty
     Right (goalsConj (proveAll gs) hole)
 
   go hole as (CollectorFrame fid gc) =
-    case hole of
-      Nothing -> Left (fid, as, gc)
-      Just g  -> Left (fid, as, gcAddGoals g gc)
+    Left (fid, as, hole, gc)
 
   go hole as (CollectingAssumptions as' gc) =
     go (assuming as' <$> hole) (as' <> as) gc
@@ -311,9 +309,9 @@ gcPop = go Nothing mempty
 -- | Get all currently collected goals.
 gcFinish :: GoalCollector asmp goal -> Maybe (Goals asmp goal)
 gcFinish gc = case gcPop gc of
-                Left (_,_,gc1) -> gcFinish gc1
-                Right a        -> a
-
+                Left (_,_,Just g,gc1)  -> gcFinish (gcAddGoals g gc1)
+                Left (_,_,Nothing,gc1) -> gcFinish gc1
+                Right a -> a
 
 -- | Reset the goal collector to the empty assumption state; but first
 --   collect all the pending proof goals and stash them.

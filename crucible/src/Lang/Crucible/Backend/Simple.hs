@@ -110,6 +110,10 @@ instance IsBoolSolver (SimpleBackend t fs) where
     stk <- getAssumptionStack sym
     AS.popFrame ident stk
 
+  popAssumptionFrameAndObligations sym ident = do
+    stk <- getAssumptionStack sym
+    AS.popFrameAndGoals ident stk
+
   saveAssumptionState sym = do
     stk <- getAssumptionStack sym
     AS.saveAssumptionStack stk
