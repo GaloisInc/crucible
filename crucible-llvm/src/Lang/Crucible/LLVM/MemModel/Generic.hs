@@ -121,29 +121,31 @@ tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 badLoad :: (IsExprBuilder sym) => sym -> Type -> IO (PartLLVMVal sym)
 badLoad _sym _tp = return Unassigned
 
-genPtrExpr :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w
-           -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
-           -> PtrExpr
-           -> IO (LLVMPtr sym w)
-genPtrExpr sym w f@(load, store, _size) expr =
+genOffsetExpr ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  (SymBV sym w, SymBV sym w, SymBV sym w) ->
+  OffsetExpr -> IO (SymBV sym w)
+genOffsetExpr sym w f@(load, store, _size) expr =
   case expr of
-    PtrAdd pe ie -> do
-      pe' <- genPtrExpr sym w f pe
+    OffsetAdd pe ie -> do
+      pe' <- genOffsetExpr sym w f pe
       ie' <- genIntExpr sym w f ie
-      ptrAdd sym w pe' ie'
+      bvAdd sym pe' ie'
     Load -> return load
     Store -> return store
 
-genIntExpr :: (1 <= w, IsSymInterface sym) => sym -> NatRepr w
-           -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
-           -> IntExpr
-           -> IO (SymBV sym w)
+genIntExpr ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  (SymBV sym w, SymBV sym w, SymBV sym w) ->
+  IntExpr -> IO (SymBV sym w)
 genIntExpr sym w f@(_load, _store, size) expr =
   case expr of
-    PtrDiff e1 e2 -> do
-      e1' <- genPtrExpr sym w f e1
-      e2' <- genPtrExpr sym w f e2
-      ptrDiff sym w e1' e2'
+    OffsetDiff e1 e2 -> do
+      e1' <- genOffsetExpr sym w f e1
+      e2' <- genOffsetExpr sym w f e2
+      bvSub sym e1' e2'
     IntAdd e1 e2 -> do
       e1' <- genIntExpr sym w f e1
       e2' <- genIntExpr sym w f e2
@@ -151,18 +153,18 @@ genIntExpr sym w f@(_load, _store, size) expr =
     CValue i -> bvLit sym w (toInteger i)
     StoreSize -> return size
 
-genCondVar :: (1 <= w, IsSymInterface sym)
-              => sym -> NatRepr w
-              -> (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w)
-              -> Cond -> IO (Pred sym)
+genCondVar ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  (SymBV sym w, SymBV sym w, SymBV sym w) ->
+  Cond -> IO (Pred sym)
 genCondVar sym w inst c =
   case c of
-    PtrComparable x y -> join $ ptrComparable sym w <$> genPtrExpr sym w inst x <*> genPtrExpr sym w inst y
-    PtrOffsetEq x y   -> join $ ptrOffsetEq sym w <$> genPtrExpr sym w inst x <*> genPtrExpr sym w inst y
-    PtrOffsetLe x y   -> join $ ptrOffsetLe sym w <$> genPtrExpr sym w inst x <*> genPtrExpr sym w inst y
-    IntEq x y         -> join $ bvEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
-    IntLe x y         -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
-    And x y           -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
+    OffsetEq x y   -> join $ bvEq sym <$> genOffsetExpr sym w inst x <*> genOffsetExpr sym w inst y
+    OffsetLe x y   -> join $ bvUle sym <$> genOffsetExpr sym w inst x <*> genOffsetExpr sym w inst y
+    IntEq x y      -> join $ bvEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
+    IntLe x y      -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
+    And x y        -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
 
 genValueCtor :: forall sym .
   IsSymInterface sym => sym ->
@@ -236,7 +238,7 @@ evalMuxValueCtor ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   EndianForm ->
-  (LLVMPtr sym w, LLVMPtr sym w, SymBV sym w) {- ^ Evaluation function -} ->
+  (SymBV sym w, SymBV sym w, SymBV sym w) {- ^ Evaluation function -} ->
   (u -> IO (PartLLVMVal sym)) {- ^ Function for reading specific subranges -} ->
   Mux (ValueCtor u) ->
   IO (PartLLVMVal sym)
@@ -259,12 +261,12 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
   where
     f :: Bytes -> PartLLVMVal sym -> IO (PartLLVMVal sym) -> IO (PartLLVMVal sym)
     f n t1 k =
-      do c' <- genCondVar sym w vf (PtrOffsetEq (aOffset n) b)
+      do c' <- genCondVar sym w vf (OffsetEq (aOffset n) b)
          t2 <- k
          muxLLVMVal sym c' t1 t2
 
-    aOffset :: Bytes -> PtrExpr
-    aOffset n = PtrAdd a (CValue (bytesToInteger n))
+    aOffset :: Bytes -> OffsetExpr
+    aOffset n = OffsetAdd a (CValue (bytesToInteger n))
 
     predOf :: PartLLVMVal sym -> Pred sym
     predOf Unassigned = falsePred sym
@@ -281,9 +283,9 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
     simplPred ((n, p) : xps) p0 =
       do let (xps1, xps2) = span (samePred p . snd) xps
          let c = if null xps1
-                 then PtrOffsetEq (aOffset n) b
-                 else And (PtrOffsetLe (aOffset n) b)
-                          (PtrOffsetLe b (aOffset (fst (last xps1))))
+                 then OffsetEq (aOffset n) b
+                 else And (OffsetLe (aOffset n) b)
+                          (OffsetLe b (aOffset (fst (last xps1))))
          c' <- genCondVar sym w vf c
          p' <- simplPred xps2 p0
          itePred sym c' p p'
@@ -305,7 +307,7 @@ readMemCopy ::
 readMemCopy sym w end l@(LLVMPointer blk off) tp d src sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
-     let varFn = (l, LLVMPointer blk d, sz)
+     let varFn = (off, d, sz)
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
@@ -323,9 +325,10 @@ readMemCopy sym w end l@(LLVMPointer blk off) tp d src sz readPrev =
                   fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
          -- Symbolic offsets
        _ ->
-         do let subFn :: RangeLoad PtrExpr IntExpr -> IO (PartLLVMVal sym)
+         do let subFn :: RangeLoad OffsetExpr IntExpr -> IO (PartLLVMVal sym)
                 subFn (OutOfRange o tp') =
-                  readPrev tp' =<< genPtrExpr sym w varFn o
+                  do o' <- genOffsetExpr sym w varFn o
+                     readPrev tp' (LLVMPointer blk o')
                 subFn (InRange o tp') =
                   readPrev tp' =<< ptrAdd sym w src =<< genIntExpr sym w varFn o
             let pref | Just{} <- dd = FixedStore
@@ -354,7 +357,7 @@ readMemSet ::
 readMemSet sym w end l@(LLVMPointer blk off) tp d byte sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
-     let varFn = (l, LLVMPointer blk d, sz)
+     let varFn = (off, d, sz)
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
@@ -375,9 +378,10 @@ readMemSet sym w end l@(LLVMPointer blk off) tp d byte sz readPrev =
                   fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
        -- Symbolic offsets
        _ ->
-         do let subFn :: RangeLoad PtrExpr IntExpr -> IO (PartLLVMVal sym)
+         do let subFn :: RangeLoad OffsetExpr IntExpr -> IO (PartLLVMVal sym)
                 subFn (OutOfRange o tp') =
-                  readPrev tp' =<< genPtrExpr sym w varFn o
+                  do o' <- genOffsetExpr sym w varFn o
+                     readPrev tp' (LLVMPointer blk o')
                 subFn (InRange _o tp') =
                   do blk0 <- natLit sym 0
                      let val = LLVMValInt blk0 byte
@@ -410,7 +414,7 @@ readMemStore ::
   IO (PartLLVMVal sym)
 readMemStore sym w end l@(LLVMPointer blk off) ltp d t stp loadAlign readPrev =
   do ssz <- bvLit sym w (bytesToInteger (typeSize stp))
-     let varFn = (l, LLVMPointer blk d, ssz)
+     let varFn = (off, d, ssz)
      let ld = asUnsignedBV off
      let dd = asUnsignedBV d
      case (ld, dd) of
@@ -423,10 +427,11 @@ readMemStore sym w end l@(LLVMPointer blk off) ltp d t stp loadAlign readPrev =
                 subFn (InvalidMemory tp') = badLoad sym tp'
             let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
             genValueCtor sym end =<< traverse subFn vcr
-         -- Symbolic offsets
+       -- Symbolic offsets
        _ ->
-         do let subFn :: ValueLoad PtrExpr -> IO (PartLLVMVal sym)
-                subFn (OldMemory o tp')   = readPrev tp' =<< genPtrExpr sym w varFn o
+         do let subFn :: ValueLoad OffsetExpr -> IO (PartLLVMVal sym)
+                subFn (OldMemory o tp')   = do o' <- genOffsetExpr sym w varFn o
+                                               readPrev tp' (LLVMPointer blk o')
                 subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
                 subFn (InvalidMemory tp') = badLoad sym tp'
             let pref | Just{} <- dd = FixedStore
