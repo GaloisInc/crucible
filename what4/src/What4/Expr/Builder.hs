@@ -542,11 +542,6 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
          -> !(e (BaseBVType w))
          -> App e (BaseBVType r)
 
-  BVTrunc :: (1 <= r, r+1 <= w)
-          => !(NatRepr r)
-          -> !(e (BaseBVType w))
-          -> App e (BaseBVType r)
-
   BVBitNot :: (1 <= w)
            => !(NatRepr w)
            -> !(e (BaseBVType w))
@@ -1146,7 +1141,6 @@ appType a =
     BVAshr w _ _ -> BaseBVRepr w
     BVZext  w _ -> BaseBVRepr w
     BVSext  w _ -> BaseBVRepr w
-    BVTrunc w _ -> BaseBVRepr w
     BVBitNot w _ -> BaseBVRepr w
     BVBitAnd w _ _ -> BaseBVRepr w
     BVBitOr  w _ _ -> BaseBVRepr w
@@ -1536,7 +1530,6 @@ ppApp' a0 = do
 
     BVZext w x -> prettyApp "bvZext"   [showPrettyArg w, exprPrettyArg x]
     BVSext w x -> prettyApp "bvSext"   [showPrettyArg w, exprPrettyArg x]
-    BVTrunc w x -> prettyApp "bvTrunc" [showPrettyArg w, exprPrettyArg x]
 
     BVBitNot _ x   -> ppSExpr "bvNot" [x]
     BVBitAnd _ x y -> ppSExpr "bvAnd" [x, y]
@@ -2366,7 +2359,6 @@ abstractEval bvParams f a0 = do
     BVAshr w x y -> BVD.ashr w (f x) (f y)
     BVZext w x   -> BVD.zext (f x) w
     BVSext w x   -> BVD.sext bvParams (bvWidth x) (f x) w
-    BVTrunc w x  -> BVD.trunc bvParams (f x) w
 
     BVBitNot w x   -> BVD.not w (f x)
     BVBitAnd w x y -> BVD.and w (f x) (f y)
@@ -2994,7 +2986,6 @@ reduceApp sym a0 = do
     BVAshr _ x y -> bvAshr sym x y
     BVZext  w x  -> bvZext sym w x
     BVSext  w x  -> bvSext sym w x
-    BVTrunc w x  -> bvTrunc sym w x
     BVBitNot _ x -> bvNotBits sym x
     BVBitAnd _ x y -> bvAndBits sym x y
     BVBitOr  _ x y -> bvOrBits  sym x y
@@ -4129,14 +4120,6 @@ instance IsExprBuilder (ExprBuilder t st fs) where
         , Just LeqProof <- isPosNat (addNat n1 n2)
         , Just LeqProof <- testLeq (addNat idx2 (addNat n1 n2)) (bvWidth a) ->
             bvSelect sym idx2 (addNat n1 n2) a
-      -- concat an adjacent selects to a trunc just makes a single select
-      _ | Just (BVSelect idx1 n1 a) <- asApp x
-        , Just (BVTrunc n2 b) <- asApp y
-        , Just Refl <- testEquality a b
-        , Just Refl <- testEquality idx1 n2
-        , Just LeqProof <- isPosNat (addNat n1 n2)
-        , Just LeqProof <- testLeq (addNat n1 n2) (bvWidth a) ->
-            bvSelect sym (knownNat :: NatRepr 0) (addNat n1 n2) a
       -- always reassociate to the right
       _ | Just (BVConcat _w a b) <- asApp x
         , Just _bv <- asUnsignedBV b
@@ -4169,11 +4152,6 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just LeqProof <- testLeq (addNat idx2 n) (bvWidth b) =
       bvSelect sb idx2 n b
 
-      -- select of a truncate is the same select before the truncate
-    | Just (BVTrunc _w b) <- asApp x
-    , Just LeqProof <- testLeq (addNat idx n) (bvWidth b) =
-      bvSelect sb idx n b
-
       -- select the entire bitvector is the identity function
     | Just _ <- testEquality idx (knownNat :: NatRepr 0)
     , Just Refl <- testEquality n (bvWidth x) =
@@ -4197,11 +4175,6 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just (Some diffRepr) <- someNat diff
     , Just LeqProof <- testLeq (addNat (addNat idx diffRepr) n) w =
       bvSelect sb (addNat idx diffRepr) n a
-
-     -- select an initial segment is a truncate
-    | Just _ <- testEquality idx (knownNat :: NatRepr 0)
-    , Just LeqProof <- testLeq (incNat n) (bvWidth x) =
-      bvTrunc sb n x
 
       -- select from a sign extension
     | Just (BVSext w b) <- asApp x = do
@@ -4493,83 +4466,6 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | otherwise = do
       Just LeqProof <- return $ testLeq (knownNat :: NatRepr 1) w
       sbMakeExpr sym (BVSext w x)
-
-  bvTrunc sym w x
-    -- constant case
-    | Just i <- asUnsignedBV x = bvLit sym w i
-
-    -- truncate of a select is a shorter select
-    | Just (BVSelect idx _n b) <- asApp x
-    , Just LeqProof <- testLeq (addNat idx w) (bvWidth b) =
-        bvSelect sym idx w b
-
-    -- trunc of a concat gives the second argument of concat
-    -- when the lengths are right
-    | Just (BVConcat _w' _a b) <- asApp x
-    , Just Refl <- testEquality w (bvWidth b) =
-        return b
-
-    -- trunc of a concat gives a trunc of the second argument
-    -- when the trunc is shorter than that argument
-    | Just (BVConcat _w' _a b) <- asApp x
-    , Just LeqProof <- testLeq (incNat w) (bvWidth b) =
-        bvTrunc sym w b
-
-    -- (trunc w (concat a b)) gives (concat a' b) when w is longer
-    -- than b, and where a' is an appropriately-truncated portion of a
-    | Just (BVConcat _w' a b) <- asApp x
-    , Just LeqProof <- testLeq (bvWidth b) w
-    , let diff = subNat w (bvWidth b)
-    , Just LeqProof <- isPosNat diff
-    , Just Refl <- testEquality (addNat diff (bvWidth b)) w
-    , Just LeqProof <- testLeq (incNat diff) (bvWidth a) = do
-        a' <- bvTrunc sym diff a
-        bvConcat sym a' b
-
-    -- trunc of a zero extend is either trunc of the argument (or the argument itself)
-    -- or else is just a shorter zero extend
-    | Just (BVZext _ y) <- asApp x = do
-      case compareF w (bvWidth y) of
-        LTF -> do
-          -- Add dynamic check for GHC typechecker.
-          Just LeqProof <- return $ testLeq (incNat w) (bvWidth y)
-          bvTrunc sym w y
-        EQF -> return y
-        GTF -> do
-         -- Add dynamic check for GHC typechecker.
-         Just LeqProof <- return $ testLeq (incNat (bvWidth y)) w
-         bvZext sym w y
-
-    -- trunc of a sign extend is either trunc of the argument (or the argument itself)
-    -- or else is just a shorter sign extend
-    | Just (BVSext _ y) <- asApp x = do
-      case compareF w (bvWidth y) of
-        LTF -> do
-          -- Add dynamic check for GHC typechecker.
-          Just LeqProof <- return $ testLeq (incNat w) (bvWidth y)
-          bvTrunc sym w y
-        EQF -> return y
-        GTF -> do
-         -- Add dynamic check for GHC typechecker.
-         Just LeqProof <- return $ testLeq (incNat (bvWidth y)) w
-         bvSext sym w y
-
-      -- Extend unary representation.
-    | Just (BVUnaryTerm u) <- asApp x = do
-      -- Add dynamic check for GHC typechecker.
-      Just LeqProof <- return $ isPosNat w
-      u' <- UnaryBV.trunc sym u w
-      bvUnary sym u'
-
-    -- nested truncs collapse
-    | Just (BVTrunc _ y) <- asApp x = do
-      Just LeqProof <- return $ testLeq (incNat w) (bvWidth y)
-      sbMakeExpr sym (BVTrunc w y)
-
-
-    -- no special case applies, just make a basic trunc expression
-    | otherwise =
-      sbMakeExpr sym $ BVTrunc w x
 
   bvNotBits sym x
     | Just i <- asUnsignedBV x = do

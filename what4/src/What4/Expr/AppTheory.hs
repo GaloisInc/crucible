@@ -130,7 +130,6 @@ appTheory a0 =
     BVAshr{}  -> BitvectorTheory
     BVZext{}  -> BitvectorTheory
     BVSext{}  -> BitvectorTheory
-    BVTrunc{} -> BitvectorTheory
     BVBitNot{} -> BitvectorTheory
     BVBitAnd{} -> BitvectorTheory
     BVBitOr{}  -> BitvectorTheory

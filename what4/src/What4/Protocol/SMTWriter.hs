@@ -1896,11 +1896,6 @@ appSMTExpr ae = do
           freshBoundTerm (BVTypeMap w') $ bvConcat (ite sgn ones zeros) x
         _ -> fail "invalid sign extension"
 
-    BVTrunc w' xe -> do
-      let w = bvWidth xe
-      x <- mkBaseExpr xe
-      freshBoundTerm (BVTypeMap w') $ bvExtract w 0 (natValue w') x
-
     BVBitNot w xe -> do
       x <- mkBaseExpr xe
       freshBoundTerm (BVTypeMap w) $ bvNot x
