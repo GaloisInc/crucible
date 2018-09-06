@@ -150,7 +150,7 @@ genIntExpr sym w f@(_load, _store, size) expr =
       e1' <- genIntExpr sym w f e1
       e2' <- genIntExpr sym w f e2
       bvAdd sym e1' e2'
-    CValue i -> bvLit sym w (toInteger i)
+    CValue i -> bvLit sym w (bytesToInteger i)
     StoreSize -> return size
 
 genCondVar ::
@@ -266,7 +266,7 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
          muxLLVMVal sym c' t1 t2
 
     aOffset :: Bytes -> OffsetExpr
-    aOffset n = OffsetAdd a (CValue (bytesToInteger n))
+    aOffset n = OffsetAdd a (CValue n)
 
     predOf :: PartLLVMVal sym -> Pred sym
     predOf Unassigned = falsePred sym
