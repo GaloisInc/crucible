@@ -2029,7 +2029,7 @@ appSMTExpr ae = do
       freshBoundTerm (FloatTypeMap fpp)$ floatRound r xe
     FloatToBinary fpp@(FloatingPointPrecisionRepr eb sb) x -> do
       xe <- mkBaseExpr x
-      val <- asBase <$> (freshConstant "float_binary" $ FloatTypeMap fpp)
+      val <- asBase <$> (freshConstant "float_binary" $ BVTypeMap $ addNat eb sb)
       -- (assert (= ((_ to_fp eb sb) val) xe))
       addSideCondition "float_binary" $
         floatFromBinary (asSMTFloatPrecision fpp) val .== xe
