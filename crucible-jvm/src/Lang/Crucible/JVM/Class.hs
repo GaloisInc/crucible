@@ -216,8 +216,6 @@ initializeJVMClass c  = do
 
   -- find all interfaces that this class implements
   let ifaces    = interfacesImplemented ctx c
-  debug 2 $ "class " ++ J.unClassName (J.className c) ++ " implements " ++
-    show (map (J.unClassName . J.className) ifaces)
   let ifaceExpr = App (VectorLit knownRepr
                         (V.fromList (map (classNameExpr . J.className) ifaces)))
   

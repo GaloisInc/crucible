@@ -238,6 +238,10 @@ exclude cn = (J.unClassName cn) `elem` initClasses
 
 staticOverrides :: J.ClassName -> J.MethodKey -> Maybe (JVMStmtGen h s ret ())
 staticOverrides className methodKey
+  | className == "java/lang/Double" && J.methodKeyName methodKey == "longBitsToDouble"
+   = Just $ do lon <- lPop
+               let doub = doubleFromLong lon
+               dPush doub
   | className == "java/lang/System" && J.methodKeyName methodKey == "arraycopy"
   = Just $ do len     <- iPop
               destPos <- iPop
@@ -1356,6 +1360,21 @@ minInt = App $ BVLit w32 (- (2 :: Integer) ^ (32 :: Int))
 minLong :: JVMLong s 
 minLong = App $ BVLit w64 (- (2 :: Integer) ^ (64 :: Int))
 
+
+-- Both positive and negative zeros
+posZerof :: JVMFloat s
+posZerof = App $ FloatLit 0.0
+
+negZerof :: JVMFloat s
+negZerof = App $ FloatLit (-0.0)
+
+posZerod :: JVMDouble s
+posZerod = App $ DoubleLit 0.0
+
+negZerod :: JVMDouble s
+negZerod = App $ DoubleLit (-0.0)
+
+
 --TODO : doublecheck what Crucible does for BVSub
 -- For int values, negation is the same as subtraction from
 -- zero. Because the Java Virtual Machine uses two's-complement
@@ -1374,6 +1393,10 @@ lNeg e = ifte (App $ BVEq knownRepr e minLong)
               (return minLong)
               (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
 
+fNeg :: JVMFloat s -> JVMGenerator h s ret (JVMFloat s)
+fNeg e = ifte (App $ FloatEq e posZerof)
+              (return negZerof)
+              (return $ App (FloatSub SingleFloatRepr RNE posZerof e))
 
 
 dAdd, dSub, dMul, dDiv, dRem :: JVMDouble s -> JVMDouble s -> JVMDouble s
