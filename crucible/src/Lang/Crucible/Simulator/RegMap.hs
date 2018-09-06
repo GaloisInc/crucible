@@ -9,7 +9,9 @@
 --
 -- Register maps hold the values of registers at simulation/run time.
 ------------------------------------------------------------------------
+{-# LANGUAGE AllowAmbiguousTypes #-} -- for @reg@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
@@ -17,6 +19,7 @@
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -27,10 +30,13 @@ module Lang.Crucible.Simulator.RegMap
   , RegMap(..)
   , regMapSize
   , emptyRegMap
+  , reg
   , regVal
   , regVal'
   , assignReg
   , assignReg'
+  , appendRegs
+  , takeRegs
   , muxRegForType
   , muxReference
   , pushBranchForType
@@ -91,6 +97,24 @@ assignReg' :: RegEntry sym tp
            -> RegMap sym (ctx ::> tp)
 assignReg' v (RegMap m) =  RegMap (m Ctx.:> v)
 {-# INLINE assignReg' #-}
+
+
+appendRegs ::
+  RegMap sym ctx ->
+  RegMap sym ctx' ->
+  RegMap sym (ctx <+> ctx')
+appendRegs (RegMap m1) (RegMap m2) = RegMap (m1 Ctx.<++> m2)
+
+
+takeRegs ::
+  Ctx.Size ctx ->
+  Ctx.Size ctx' ->
+  RegMap sym (ctx <+> ctx') ->
+  RegMap sym ctx
+takeRegs sz sz' (RegMap m) = RegMap (Ctx.take sz sz' m)
+
+reg :: forall n sym ctx tp. Ctx.Idx n ctx tp => RegMap sym ctx -> RegValue sym tp
+reg m = regVal m (Reg (Ctx.natIndex @n))
 
 regVal :: RegMap sym ctx
        -> Reg ctx tp

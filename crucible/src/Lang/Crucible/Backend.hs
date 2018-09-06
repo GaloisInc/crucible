@@ -114,7 +114,7 @@ data AbortExecReason =
   | AssumedFalse AssumptionReason
     -- ^ We assumed false on some branch
 
-  | VariantOptionsExhaused ProgramLoc
+  | VariantOptionsExhausted ProgramLoc
     -- ^ We tried all possible cases for a variant, and now we should
     -- do something else.
 
@@ -130,19 +130,22 @@ ppAbortExecReason e =
     AssumedFalse reason ->
       "Abort due to false assumption:" PP.<$$>
       PP.indent 2 (ppAssumptionReason reason)
-    VariantOptionsExhaused l -> ppLocated l "Variant options exhaused."
+    VariantOptionsExhausted l -> ppLocated l "Variant options exhausted."
 
 ppAssumptionReason :: AssumptionReason -> PP.Doc
 ppAssumptionReason e =
   case e of
     AssumptionReason l msg -> ppLocated l (PP.text msg)
-    ExploringAPath l Nothing -> "The branch at " PP.<+> ppLoc l
+    ExploringAPath l Nothing -> "The branch in" PP.<+> ppFn l PP.<+> "at" PP.<+> ppLoc l
     ExploringAPath l (Just t) ->
-        "The branch from" PP.<+> ppLoc l PP.<+> "to" PP.<+> ppLoc t
+        "The branch in" PP.<+> ppFn l PP.<+> "from" PP.<+> ppLoc l PP.<+> "to" PP.<+> ppLoc t
     AssumingNoError simErr -> ppSimError simErr
 
 ppLocated :: ProgramLoc -> PP.Doc -> PP.Doc
-ppLocated l x = ppLoc l PP.<> ":" PP.<+> x
+ppLocated l x = "in" PP.<+> ppFn l PP.<+> ppLoc l PP.<> ":" PP.<+> x
+
+ppFn :: ProgramLoc -> PP.Doc
+ppFn l = PP.pretty (plFunction l)
 
 ppLoc :: ProgramLoc -> PP.Doc
 ppLoc l = PP.pretty (plSourceLoc l)

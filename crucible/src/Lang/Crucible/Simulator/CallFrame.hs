@@ -47,6 +47,8 @@ module Lang.Crucible.Simulator.CallFrame
   , OverrideLang
   , FrameRetType
   , OverrideFrame(..)
+  , override
+  , overrideRegMap
   , overrideSimFrame
   , crucibleSimFrame
   , fromCallFrame
@@ -216,10 +218,17 @@ data OverrideLang (ret :: CrucibleType)
 
 -- | Frame in call to override.
 data OverrideFrame sym (ret :: CrucibleType) args
-   = OverrideFrame { override :: !FunctionName
-                   , overrideRegMap :: !(RegMap sym args)
+   = OverrideFrame { _override :: !FunctionName
+                   , _overrideRegMap :: !(RegMap sym args)
                      -- ^ Arguments to override.
                    }
+
+override :: Simple Lens (OverrideFrame sym ret args) FunctionName
+override = lens _override (\o x -> o{ _override = x })
+
+overrideRegMap :: Lens (OverrideFrame sym ret args) (OverrideFrame sym ret' args')
+                       (RegMap sym args) (RegMap sym args')
+overrideRegMap = lens _overrideRegMap (\o x -> o{ _overrideRegMap = x })
 
 ------------------------------------------------------------------------
 -- SimFrame
@@ -273,6 +282,6 @@ fromReturnFrame (RF _ x) = x
 
 frameFunctionName :: Getter (SimFrame sym ext f a) FunctionName
 frameFunctionName = to $ \case
-  OF f -> override f
+  OF f -> f^.override
   MF f -> case frameHandle f of SomeHandle h -> handleName h
   RF n _ -> n

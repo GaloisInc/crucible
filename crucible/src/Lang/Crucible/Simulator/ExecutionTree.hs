@@ -42,6 +42,7 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- * TopFrame
   , TopFrame
   , crucibleTopFrame
+  , overrideTopFrame
 
     -- * CrucibleBranchTarget
   , CrucibleBranchTarget(..)
@@ -193,6 +194,13 @@ crucibleTopFrame = gpValue . crucibleSimFrame
 {-# INLINE crucibleTopFrame #-}
 
 
+overrideTopFrame ::
+  Lens (TopFrame sym ext (OverrideLang r) ('Just args))
+       (TopFrame sym ext (OverrideLang r') ('Just args'))
+       (OverrideFrame sym r args)
+       (OverrideFrame sym r' args')
+overrideTopFrame = gpValue . overrideSimFrame
+{-# INLINE overrideTopFrame #-}
 
 ------------------------------------------------------------------------
 -- AbortedResult
@@ -251,7 +259,7 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
  where
    pp :: SomeFrame (SimFrame sym ext) -> PP.Doc
    pp (SomeFrame (OF f)) =
-      PP.text ("When calling " ++ show (override f))
+      PP.text ("When calling " ++ show (f^.override))
    pp (SomeFrame (MF f)) =
       PP.text "In" PP.<+> PP.text (show (frameHandle f)) PP.<+>
       PP.text "at" PP.<+> PP.pretty (plSourceLoc (frameProgramLoc f))
@@ -465,27 +473,36 @@ data ResolvedJump sym blocks
 --   indicates what actions must later be taken in order to resume
 --   execution of that path.
 data ControlResumption p sym ext rtp f args where
-  {- | When resuming a paused frame with a 'ContinueResumption',
+  {- | When resuming a paused frame with a @ContinueResumption@,
        no special work needs to be done, simply begin executing
        statements of the basic block. -}
   ContinueResumption ::
     !(BlockID blocks args) {- Block ID we are transferring to -} ->
     ControlResumption p sym ext rtp (CrucibleLang blocks r) args
 
-  {- | When resuming with a 'CheckMergeResumption', we must check
+  {- | When resuming with a @CheckMergeResumption@, we must check
        for the presence of pending merge points before resuming. -}
   CheckMergeResumption ::
     !(BlockID blocks args) {- Block ID we are transferring to -} ->
     ControlResumption p sym ext root (CrucibleLang blocks r) args
 
-  {- | When resuming a paused frame with a 'SwitchResumption', we must
+  {- | When resuming a paused frame with a @SwitchResumption@, we must
        continue branching to possible alternatives in a variant elmination
        statement.  In other words, we are still in the process of
        transfering control away from the current basic block (which is now
-       at a final 'VariantElim' terminal statement). -}
+       at a final @VariantElim@ terminal statement). -}
   SwitchResumption ::
     [(Pred sym, ResolvedJump sym blocks)] {- remaining branches -} ->
     ControlResumption p sym ext root (CrucibleLang blocks r) args
+
+
+  {- | When resuming a paused frame with an @OverrideResumption@, we
+       simply return control to the included thunk, which represents
+       the remaining computation for the override.
+   -}
+  OverrideResumption ::
+    ExecCont p sym ext root (OverrideLang r) ('Just args) ->
+    ControlResumption p sym ext root (OverrideLang r) args
 
 ------------------------------------------------------------------------
 -- Paused Frame
@@ -1000,8 +1017,8 @@ initSimState ::
   AbortHandler p sym ext (RegEntry sym ret) {- ^ initial abort handler -} ->
   SimState p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx)
 initSimState ctx globals ah =
-  let startFrame = OverrideFrame { override = startFunctionName
-                                 , overrideRegMap = emptyRegMap
+  let startFrame = OverrideFrame { _override = startFunctionName
+                                 , _overrideRegMap = emptyRegMap
                                  }
       startGP = GlobalPair (OF startFrame) globals
    in SimState

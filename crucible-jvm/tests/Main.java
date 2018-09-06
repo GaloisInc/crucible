@@ -1,34 +1,25 @@
-class Main {
 
-    static String[] arr = { "a" , "b" };
-    //static int[][] arr = { { 8 , 1, 2 } };
-
-    static String str = "Hello world";
-
-    public static int foo() {
-	System.out.println(str);
-	return 3;
-    }
-
-    public static int simmain() {
-
-	Integer x = Integer.valueOf(3);
-
-        System.out.println("The constant value is: " + x);
-	
-	System.out.println("hello" + "world");
-
-	System.out.print(4);
-	System.out.print('a');
-	System.out.print(true);
-	
-	foo();
-	return 5;
-    }
-
-    public static void main (String[] args) {
-	System.out.println(simmain());
+public class Main
+{
+    static int count = 0;
+    
+    public static void main(String[] args)
+    {   
+        int value = changeCount();
+        int[] a = new int[2];
+        
+        a[count] = value;
+                
+        System.out.println(a[0] + ":" + a[1]);
     }
     
+    public static int sum(int x, int y)
+    {
+        return x * 2 + y;
+    }
+    
+    public static int changeCount()
+    {
+        return ++count; 
+    }
 }
-   

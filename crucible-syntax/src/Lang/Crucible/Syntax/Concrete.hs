@@ -960,8 +960,23 @@ data SyntaxState h s =
               , _stxProgState :: ProgramState h s
               }
 
-initProgState :: HandleAllocator h -> ProgramState h s
-initProgState = ProgramState Map.empty Map.empty
+initProgState :: [(SomeHandle,Position)] -> HandleAllocator h -> ProgramState h s
+initProgState builtIns ha = ProgramState fns Map.empty ha
+  where
+  f tps = Ctx.generate
+            (Ctx.size tps)
+            (\i -> Arg (AtomName ("arg" <> (T.pack (show i)))) InternalPos (tps Ctx.! i))
+  fns = Map.fromList
+        [ (handleName h,
+            FunctionHeader
+              (handleName h)
+              (f (handleArgTypes h))
+              (handleReturnType h)
+              h
+              p
+           )
+        | (SomeHandle h,p) <- builtIns
+        ]
 
 initSyntaxState :: ProgramState h s -> SyntaxState h s
 initSyntaxState = SyntaxState Map.empty Map.empty Map.empty 0 0
@@ -1657,9 +1672,9 @@ newtype TopParser h s a =
             }
   deriving (Functor)
 
-top :: HandleAllocator h -> TopParser h s a -> ST h (Either (ExprErr s) a)
-top ha (TopParser (ExceptT (StateT act))) =
-  fst <$> act (initSyntaxState (initProgState ha))
+top :: HandleAllocator h -> [(SomeHandle,Position)] -> TopParser h s a -> ST h (Either (ExprErr s) a)
+top ha builtIns (TopParser (ExceptT (StateT act))) =
+  fst <$> act (initSyntaxState (initProgState builtIns ha))
 
 instance Applicative (TopParser h s) where
   pure x = TopParser (pure x)

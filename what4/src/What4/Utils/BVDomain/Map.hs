@@ -388,7 +388,7 @@ boundedBVDomain :: String -- ^ Name of function calling this
                 -> NatRepr w
                 -> InterBVDomain
                 -> BVDomain w
-boundedBVDomain nm params w input = BVDomain { domainRanges = d }
+boundedBVDomain _nm params _w input = BVDomain { domainRanges = d }
   where gm = interGaps input
         m0 = interMap input
         cnt = rangeLimit params

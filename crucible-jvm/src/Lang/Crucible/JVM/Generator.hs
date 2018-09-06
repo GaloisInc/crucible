@@ -99,7 +99,7 @@ type JVMRegisters s = JVMFrame (JVMReg s)
 -- * JVMContext
 
 
-type StaticFieldTable = Map (J.ClassName, String) (GlobalVar JVMValueType)
+type StaticFieldTable = Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
 type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 
 data JVMHandleInfo where
@@ -110,7 +110,7 @@ data JVMHandleInfo where
 data JVMContext = JVMContext
   { methodHandles :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
       -- ^ map from static & dynamic methods to Crucible function handles      
-  , staticFields :: Map (J.ClassName, String) (GlobalVar JVMValueType)
+  , staticFields :: Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
       -- ^ map from static field names to Crucible global variables
       -- we know about these fields at translation time so we can allocate
       -- global variables to store them
@@ -163,15 +163,15 @@ jsVerbosity = lens _jsVerbosity (\s v -> s { _jsVerbosity = v })
 
 -- | Build the initial JVM generator state upon entry to the entry
 -- point of a method.
-initialState :: JVMContext -> J.Method -> TypeRepr ret -> JVMState ret s
-initialState ctx method ret =
+initialState :: JVMContext -> Int -> J.Method -> TypeRepr ret -> JVMState ret s
+initialState ctx verbosity method ret =
   JVMState {
     _jsLabelMap = Map.empty,
     _jsFrameMap = Map.empty,
     _jsCFG = methodCFG method,
     jsRetType = ret,
     jsContext = ctx,
-    _jsVerbosity = 0
+    _jsVerbosity = verbosity
   }
 
 methodCFG :: J.Method -> J.CFG
@@ -312,9 +312,6 @@ gen_isJust expr =
   { onNothing = return $ App $ BoolLit False
   , onJust    = \_ -> return $ App $ BoolLit True
   }
-
--- nZero :: Expr p s NatType
--- nZero = App (NatLit 0)
 
 
 -- | Generate an expression that evaluates the function for

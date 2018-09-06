@@ -3,7 +3,7 @@
 ==== Finish Simulation ====
 ==== Proof obligations ====
 Assuming:
-* test-data/simulator-tests/assume.cbl:4:5: x is true
+* in main test-data/simulator-tests/assume.cbl:4:5: x is true
     cx@2:b
 Prove:
   error statement

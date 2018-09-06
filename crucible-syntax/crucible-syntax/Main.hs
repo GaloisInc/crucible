@@ -97,10 +97,11 @@ main =
 
        SimulateCommand (SimCmd (TheFile inputFile) out) ->
          do contents <- T.readFile inputFile
+            let setup _ _ = return []
             case out of
               Nothing ->
-                simulateProgram inputFile contents stdout
+                simulateProgram inputFile contents stdout setup
               Just (TheFile outputFile) ->
-                withFile outputFile WriteMode (simulateProgram inputFile contents)
+                withFile outputFile WriteMode (\outh -> simulateProgram inputFile contents outh setup)
 
   where options = Opt.info command (Opt.fullDesc)

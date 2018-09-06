@@ -50,6 +50,7 @@ module Lang.Crucible.JVM.Class
    (
      lookupClassGen
    , getAllFields
+   , fieldIdString
    -- * Working with `JVMClass` data
    , getJVMClass
    , getJVMClassByName
@@ -129,7 +130,6 @@ import           Lang.Crucible.JVM.Generator
 import           What4.ProgramLoc (Position(InternalPos))
 
 
-import           Debug.Trace
 import           GHC.Stack
 
 
@@ -216,7 +216,10 @@ initializeJVMClass c  = do
 
   -- find all interfaces that this class implements
   let ifaces    = interfacesImplemented ctx c
-  let ifaceExpr = App (VectorLit knownRepr (V.fromList (map (classNameExpr . J.className) ifaces)))
+  debug 2 $ "class " ++ J.unClassName (J.className c) ++ " implements " ++
+    show (map (J.unClassName . J.className) ifaces)
+  let ifaceExpr = App (VectorLit knownRepr
+                        (V.fromList (map (classNameExpr . J.className) ifaces)))
   
   -- construct the data structure
   let str        = App (RollRecursive knownRepr knownRepr
@@ -234,36 +237,40 @@ initializeJVMClass c  = do
   writeGlobal gv expr
   return str
 
-
-superClass :: JVMContext -> J.Class -> Maybe J.Class
-superClass ctx c0 
-  | Just cn <- J.superClass c0
-  =  Map.lookup cn (classTable ctx)
-  | otherwise
-  = Nothing
-
--- | Reflexive-transitive closure of superclasses relation
-allSuperClassNames :: JVMContext -> J.ClassName -> [J.ClassName]
-allSuperClassNames ctx cn0
-  | Just c0 <-  Map.lookup cn0 (classTable ctx)
-  , Just cn <- J.superClass c0
-    -- , Just su <- Map.lookup cn (classTable ctx)
-  = cn0 : allSuperClassNames ctx cn
-  | otherwise
-  = [cn0]
-
-
 -- | Find *all* interfaces that the class implements (not just those listed explicitly, but
 -- all super interfaces, and all interfaces implemented by super classes).
 interfacesImplemented :: JVMContext -> J.Class -> [J.Class]
-interfacesImplemented ctx c = mapMaybe (\cn ->  Map.lookup cn (classTable ctx)) (Set.toList (go c)) where
-  go :: J.Class -> Set (J.ClassName)
-  go c0 = Set.unions $
-          -- all declared interfaces & their super classes
-          (map (Set.fromList . allSuperClassNames ctx) (J.classInterfaces c0)) ++
-          -- interfaces of any super class
-          [go s | s <- maybeToList (superClass ctx c0)]
+interfacesImplemented ctx cn = toClassList (go (Set.singleton (J.className cn))) where
+  
+  toClassList :: Set J.ClassName -> [J.Class]
+  toClassList s = mapMaybe (\cn0 -> Map.lookup cn0 (classTable ctx)) (Set.toList s)
+  
+  next :: J.ClassName -> Set J.ClassName
+  next cn0 =
+    Set.fromList (superclass cn0 ++ interfaces cn0)
 
+  superclass cn0 
+    | Just cls <- Map.lookup cn0 (classTable ctx)
+    , Just sc  <- J.superClass cls
+    = [sc]
+    | otherwise
+    = []
+
+  interfaces cn0 
+    | Just cls <- Map.lookup cn0 (classTable ctx)
+    = J.classInterfaces cls
+    | otherwise
+    = []
+    
+     
+  go :: Set J.ClassName -> Set J.ClassName
+  go curr =
+    let n  = Set.unions (map next (Set.toList curr))
+        nn = Set.union curr n
+    in
+      if curr == nn then curr
+      else go nn
+    
 
 -- * Accessors for `JVMClass` in memory structure
 
@@ -344,7 +351,7 @@ getStaticFieldValue fieldId = do
       let cls = J.fieldIdClass fieldId
       ctx <- gets jsContext
       initializeClass cls
-      case Map.lookup (J.fieldIdClass fieldId, J.fieldIdName fieldId) (staticFields ctx) of
+      case Map.lookup (J.fieldIdClass fieldId, fieldId) (staticFields ctx) of
         Just glob -> do
           r <- readGlobal glob
           fromJVMDynamic (J.fieldIdType fieldId) r
@@ -356,7 +363,7 @@ setStaticFieldValue :: J.FieldId -> JVMValue s -> JVMGenerator h s ret ()
 setStaticFieldValue  fieldId val = do
     ctx <- gets jsContext
     let cName = J.fieldIdClass fieldId 
-    case Map.lookup (cName, J.fieldIdName fieldId) (staticFields ctx) of
+    case Map.lookup (cName, fieldId) (staticFields ctx) of
          Just glob -> do
            writeGlobal glob (valueToExpr val)
          Nothing -> 
@@ -371,7 +378,9 @@ getStaticMethod className methodKey = do
    case mhandle of
       Nothing -> jvmFail $ "getStaticMethod: method " ++ show methodKey ++ " in class "
                                ++ show className ++ " not found"
-      Just handle -> return handle
+      Just handle@(JVMHandleInfo _ h) -> do
+        debug 3 $ "invoking static method with return type " ++ show (handleReturnType h)
+        return handle
       
 ------------------------------------------------------------------------
 -- * Class Initialization
@@ -385,13 +394,15 @@ skipInit cname = cname `elem` []
 
 specialClinit :: Map J.ClassName (JVMGenerator h s ret ())
 specialClinit = Map.fromList [
-   ("java/lang/Object", return ())
-  ,("java/lang/String", return ())
+   ("java/lang/Object", debug 2 "special java/lang/Object/<clinit>")
+  ,("java/lang/String", debug 2 "special java/lang/String/<clinit>")
+  ,("java/io/ObjectStreamField", debug 2 "special java/lang/ObjectStreamField/<clinit>")
+--  ,("java/lang/StringBuffer", debug 2 "special java/lang/StringBuffer/<clinit>")
   ,("java/lang/System", do
        -- initialize System.out to be a PrintStream object
        -- note: we do not call PrintStream/<init> because this class
        -- is completely synthetic
-       traceM "System.out/<clinit>"
+       debug 2 $  "Initializing System.out static field"
        let fieldId = J.FieldId (J.mkClassName "java/lang/System")
                                "out"
                                (J.ClassType "java/io/PrintStream")
@@ -399,6 +410,7 @@ specialClinit = Map.fromList [
        val <- newInstanceInstr printStreamCls []
        rawRef <- newRef val
        setStaticFieldValue fieldId (RValue (App (JustValue knownRepr rawRef)))
+       debug 2 $ "Finished initializing System.out"
        return ())
   ]
   
@@ -407,7 +419,9 @@ specialClinit = Map.fromList [
 -- initialized)
 -- make sure that the jvm class table entry for the class has been initialized
 initializeClass :: forall h s ret . HasCallStack => J.ClassName -> JVMGenerator h s ret ()
-initializeClass name = unless (skipInit name) $ do 
+initializeClass name = unless (skipInit name) $ do
+
+  debug 2 $ "initializeClass " ++ J.unClassName name ++ "  (start)"
 
   c <- lookupClassGen name
   status <- getInitStatus c
@@ -435,6 +449,7 @@ initializeClass name = unless (skipInit name) $ do
 
       -- mark that we have completed
       setInitStatus c initialized
+      debug 2 $ "initializeClass " ++ J.unClassName name ++ "  (finish)"
 
   ifte_ (App $ BVEq knownRepr status notStarted) ifNotStarted (return ())
   -- TODO: if init status is Erroneous createAndThrow "java/lang/NoClassDefFoundError"
@@ -449,10 +464,10 @@ callJVMInit :: JVMHandleInfo -> JVMGenerator h s ret ()
 callJVMInit (JVMHandleInfo _methodKey handle) =
   do let argTys = handleArgTypes handle
          retTy  = handleReturnType handle
-     case (testEquality argTys (knownRepr :: Ctx.Assignment TypeRepr Ctx.EmptyCtx),
+     case (testEquality argTys (knownRepr :: Ctx.Assignment TypeRepr (Ctx.EmptyCtx Ctx.::> UnitType)),
            testEquality retTy  (knownRepr :: TypeRepr UnitType)) of
        (Just Refl, Just Refl) -> do
-         _ <- call (App (HandleLit handle)) knownRepr
+         _ <- call (App (HandleLit handle)) (Ctx.Empty Ctx.:> App EmptyApp)
          return ()
        (_,_) -> error "Internal error: can only call functions with no args/result"
 
@@ -609,16 +624,21 @@ isSubclass dcls cn2 = do
 
 -- * Working with JVM objects  (class instances)
 
-getAllFields :: J.Class -> JVMGenerator h s ret [J.Field]
+mkFieldId :: J.Class -> J.Field -> J.FieldId
+mkFieldId c f = J.FieldId (J.className c) (J.fieldName f) (J.fieldType f)
+
+getAllFields :: J.Class -> JVMGenerator h s ret [J.FieldId]
 getAllFields cls = do
   case J.superClass cls of
-    Nothing  -> return (J.classFields cls)
+    Nothing  -> return (map (mkFieldId cls) (J.classFields cls))
     Just sup -> do
       supCls <- lookupClassGen sup
       supFlds <- getAllFields supCls
-      return (supFlds ++ J.classFields cls) 
+      return (supFlds ++ (map (mkFieldId cls) (J.classFields cls)))
   
-
+-- | dynamic text name for a field
+fieldIdString :: J.FieldId -> String
+fieldIdString f = J.unClassName (J.fieldIdClass f) ++ "." ++ J.fieldIdName f
 
 -- | Construct a new JVM object instance, given the class data structure
 -- and the list of fields. The fields will be initialized with the
@@ -626,20 +646,20 @@ getAllFields cls = do
 newInstanceInstr ::
   JVMClass s 
   -- ^ class data structure
-  ->  [J.Field]
+  ->  [J.FieldId]
   -- ^ Fields
   ->  JVMGenerator h s ret (JVMObject s) 
-newInstanceInstr cls fields = do
-    objFields <- mapM createField fields
+newInstanceInstr cls fieldIds = do
+    objFields <- mapM createField fieldIds
     let strMap = foldr addField (App (EmptyStringMap knownRepr)) objFields
     let ctx    = Ctx.empty `Ctx.extend` strMap `Ctx.extend` cls
     let inst   = App (MkStruct knownRepr ctx)
     let uobj   = injectVariant Ctx.i1of2 inst
     return $ App (RollRecursive knownRepr knownRepr uobj)
   where
-    createField field = do
-      let str  = App (TextLit (fromString (J.fieldName field)))
-      let expr = valueToExpr (defaultValue (J.fieldType field))
+    createField fieldId = do
+      let str  = App (TextLit (fromString (fieldIdString fieldId)))
+      let expr = valueToExpr (defaultValue (J.fieldIdType fieldId))
       let val  = App $ JustValue knownRepr expr
       return (str, val)
     addField (f,i) fs = 
@@ -651,9 +671,10 @@ getInstanceFieldValue obj fieldId = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)             
   inst <- projectVariant Ctx.i1of2 uobj
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-  let key    = App (TextLit (fromString (J.fieldIdName fieldId)))
+  let str    = fieldIdString fieldId
+  let key    = App (TextLit (fromString str))
   let mval   = App (LookupStringMapEntry knownRepr fields key)
-  dyn <- assertedJustExpr mval (fromString ("getfield: field " ++ J.fieldIdName fieldId ++ " not found"))
+  dyn <- assertedJustExpr mval (fromString ("getfield: field " ++ str ++ " not found"))
   fromJVMDynamic (J.fieldIdType fieldId) dyn
 
 -- | Update a field of a JVM object (must be a class instance, not an array)
@@ -663,7 +684,8 @@ setInstanceFieldValue obj fieldId val = do
   inst <- projectVariant Ctx.i1of2 uobj
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
   let dyn  = valueToExpr val
-  let key = App (TextLit (fromString (J.fieldIdName fieldId)))
+  let str = fieldIdString fieldId
+  let key = App (TextLit (fromString str))
   let mdyn = App (JustValue knownRepr dyn)
   let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
   let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
@@ -695,7 +717,8 @@ refFromString s =  do
   initializeClass name
   clsObj <-  getJVMClassByName name
   cls    <-  lookupClassGen name
-  obj    <-  newInstanceInstr clsObj (J.classFields cls)
+  fids   <-  getAllFields cls 
+  obj    <-  newInstanceInstr clsObj fids
 
   -- create an array of characters
   -- TODO: Check this with unicode characters

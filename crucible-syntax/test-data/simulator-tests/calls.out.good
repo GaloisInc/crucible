@@ -1,0 +1,9 @@
+==== Begin Simulation ====
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  bogus
+  in main at test-data/simulator-tests/calls.cbl:5:5
+  false

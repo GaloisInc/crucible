@@ -48,6 +48,7 @@ module Lang.Crucible.Simulator
   , emptyRegMap
   , regVal
   , assignReg
+  , reg
 
     -- * SimError
   , SimErrorReason(..)

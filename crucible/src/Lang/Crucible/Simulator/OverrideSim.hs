@@ -7,6 +7,7 @@ Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
 Define the main simulation monad 'OverrideSim' and basic operations on it.
 -}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -33,6 +34,11 @@ module Lang.Crucible.Simulator.OverrideSim
   , exitExecution
   , getOverrideArgs
   , overrideError
+  , overrideAbort
+  , symbolicBranch
+  , symbolicBranches
+  , overrideReturn
+  , overrideReturn'
     -- * Function calls
   , callCFG
   , callFnVal
@@ -72,6 +78,7 @@ import           Control.Monad.State.Strict
 import           Data.List (foldl')
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy
+import qualified Data.Text as T
 import           System.Exit
 import           System.IO
 import           System.IO.Error
@@ -79,6 +86,7 @@ import           System.IO.Error
 import           What4.Config
 import           What4.Interface
 import           What4.FunctionName
+import           What4.ProgramLoc
 import           What4.Utils.MonadST
 
 import           Lang.Crucible.Analysis.Postdom
@@ -93,7 +101,7 @@ import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Operations
                    ( runGenericErrorHandler, runErrorHandler, runAbortHandler
-                   , returnValue, callFunction )
+                   , returnValue, callFunction, overrideSymbolicBranch )
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MonadVerbosity
@@ -315,7 +323,7 @@ mkOverride nm = mkOverride' nm knownRepr
 
 -- | Return override arguments.
 getOverrideArgs :: OverrideSim p sym ext rtp args ret (RegMap sym args)
-getOverrideArgs = overrideRegMap <$> use stateOverrideFrame
+getOverrideArgs = use (stateOverrideFrame.overrideRegMap)
 
 withSimContext :: StateT (SimContext p sym ext) IO a -> OverrideSim p sym ext rtp args ret a
 withSimContext m =
@@ -363,8 +371,96 @@ callCFG cfg args =
 -- | Add a failed assertion.  This aborts execution along the current
 -- evaluation path, and adds a proof obligation ensuring that we can't get here
 -- in the first place.
-overrideError :: IsSymInterface sym => SimErrorReason -> OverrideSim p sym ext rtp ars res a
+overrideError :: IsSymInterface sym => SimErrorReason -> OverrideSim p sym ext rtp args res a
 overrideError err = Sim $ StateContT $ \_ -> runErrorHandler err
+
+
+-- | Abort the current thread of execution for the given reason.  Unlike @overrideError@,
+--   this operation will not add proof obligation, even if the given abort reason
+--   is due to an assertion failure.  Use @overrideError@ instead if a proof obligation
+--   should be generated.
+overrideAbort :: AbortExecReason -> OverrideSim p sym ext rtp args res a
+overrideAbort abt = Sim $ StateContT $ \_ -> runAbortHandler abt
+
+overrideReturn :: KnownRepr TypeRepr res => RegValue sym res -> OverrideSim p sym ext rtp args res a
+overrideReturn v = Sim $ StateContT $ \_ -> runReaderT $ returnValue (RegEntry knownRepr v)
+
+overrideReturn' :: RegEntry sym res -> OverrideSim p sym ext rtp args res a
+overrideReturn' v = Sim $ StateContT $ \_ -> runReaderT $ returnValue v
+
+-- | Perform a symbolic branch on the given predicate.  If we can determine
+--   that the predicate must be either true or false, we will exeucte only
+--   the "then" or the "else" branch.  Otherwise, both branches will be executed
+--   and the results merged when a value is returned from the override.  NOTE!
+--   this means the code following this symbolic branch may be executed more than
+--   once; in particular, side effects may happen more than once.
+--
+--   In order to ensure that push/abort/mux bookeeping is done properly, all
+--   symbolic values that will be used in the branches should be inserted into
+--   the @RegMap@ argument of this function, and retrieved in the branches using
+--   the @getOverrideArgs@ function.  Otherwise mux errors may later occur, which
+--   will be very confusing.  In other words, don't directly use symbolic values
+--   computed before calling this function; you must instead first put them into
+--   the @RegMap@ and get them out again later.
+symbolicBranch ::
+  IsSymInterface sym =>
+  Pred sym {- ^ Predicate to branch on -} ->
+  RegMap sym new_args {- ^ argument values for the branches -} ->
+  OverrideSim p sym ext rtp (args <+> new_args) res a {- ^ then branch -} ->
+  Maybe Position {- ^ optinal location for then branch -} ->
+  OverrideSim p sym ext rtp (args <+> new_args) res a {- ^ else branch -} ->
+  Maybe Position {- ^ optional location for else branch -} ->
+  OverrideSim p sym ext rtp args res a
+symbolicBranch p new_args thn thn_pos els els_pos =
+  Sim $ StateContT $ \c -> runReaderT $
+    do old_args <- view (stateTree.actFrame.overrideTopFrame.overrideRegMap)
+       let sz = regMapSize old_args
+       let sz' = regMapSize new_args
+       let all_args = appendRegs old_args new_args
+       let c' x st = c x (st & stateTree.actFrame.overrideTopFrame.overrideRegMap %~ takeRegs sz sz')
+       let thn' = ReaderT (runStateContT (unSim thn) c')
+       let els' = ReaderT (runStateContT (unSim els) c')
+       withReaderT
+         (stateTree.actFrame.overrideTopFrame.overrideRegMap .~ all_args)
+         (overrideSymbolicBranch p thn' thn_pos els' els_pos)
+
+
+-- | Perform a series of symbolic branches.  This operation will evaluate a
+--   series of branches, one for each element of the list.  The semantics of
+--   this construct is that the predicates are evaluated in order, until
+--   the first one that evaluates true; this branch will be the taken branch.
+--   If no predicate is true, the construct will abort with a @VariantOptionsExhausted@
+--   reason.  If you wish to report an error condition instead, you should add a
+--   final default case with a true predicate that calls @overrideError@.
+--   As with @symbolicBranch@, be aware that code following this operation may be
+--   called several times, and side effects may occur more than once.
+--
+--   As with @symbolicBranch@, any symbolic values needed by the branches should be
+--   placed into the @RegMap@ argument and retrieved when needed.  See the comment
+--   on @symbolicBranch@.
+symbolicBranches :: forall p sym ext rtp args new_args res a.
+  IsSymInterface sym =>
+  RegMap sym new_args {- ^ argument values for the branches -} ->
+  [(Pred sym, OverrideSim p sym ext rtp (args <+> new_args) res a, Maybe Position)]
+   {- ^ Branches to consider -} ->
+  OverrideSim p sym ext rtp args res a
+symbolicBranches new_args xs0 =
+  Sim $ StateContT $ \c -> runReaderT $
+    do sym <- view stateSymInterface
+       top_loc <- liftIO $ getCurrentProgramLoc sym
+       old_args <- view (stateTree.actFrame.overrideTopFrame.overrideRegMap)
+       let sz = regMapSize old_args
+       let sz' = regMapSize new_args
+       let all_args = appendRegs old_args new_args
+       let c' x st = c x (st & stateTree.actFrame.overrideTopFrame.overrideRegMap %~ takeRegs sz sz')
+       let go _ [] = ReaderT $ runAbortHandler (VariantOptionsExhausted top_loc)
+           go !i ((p,m,mpos):xs) =
+             let msg = T.pack ("after branch " ++ show i)
+                 m'  = ReaderT (runStateContT (unSim m) c')
+              in overrideSymbolicBranch p m' mpos (go (i+1) xs) (Just (OtherPos msg))
+       withReaderT
+         (stateTree.actFrame.overrideTopFrame.overrideRegMap .~ all_args)
+         (go (0::Integer) xs0)
 
 --------------------------------------------------------------------------------
 -- FnBinding

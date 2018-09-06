@@ -58,7 +58,6 @@ import           What4.ProgramLoc
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
-import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -227,12 +226,6 @@ exitEvent tbl nm =
      m <- traverseF (pure . Identity <=< readIORef) (metrics tbl)
      i <- nextEventID tbl
      modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing Nothing EXIT m now i)
-
-resolvedCallName :: ResolvedCall p sym ext ret -> FunctionName
-resolvedCallName (OverrideCall _o f) =
-  override f
-resolvedCallName (CrucibleCall _bid f) =
-  case frameHandle f of SomeHandle h -> handleName h
 
 
 updateProfilingTable ::
