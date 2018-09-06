@@ -4179,6 +4179,25 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just Refl <- testEquality n (bvWidth x) =
       return x
 
+    | Just (BVShl w a b) <- asApp x
+    , Just diff <- asUnsignedBV b
+    , Just (Some diffRepr) <- someNat diff
+    , Just LeqProof <- testLeq diffRepr idx = do
+      Just LeqProof <- return $ testLeq (addNat (subNat idx diffRepr) n) w
+      bvSelect sb (subNat idx diffRepr) n a
+
+    | Just (BVAshr w a b) <- asApp x
+    , Just diff <- asUnsignedBV b
+    , Just (Some diffRepr) <- someNat diff
+    , Just LeqProof <- testLeq (addNat (addNat idx diffRepr) n) w =
+      bvSelect sb (addNat idx diffRepr) n a
+
+    | Just (BVLshr w a b) <- asApp x
+    , Just diff <- asUnsignedBV b
+    , Just (Some diffRepr) <- someNat diff
+    , Just LeqProof <- testLeq (addNat (addNat idx diffRepr) n) w =
+      bvSelect sb (addNat idx diffRepr) n a
+
      -- select an initial segment is a truncate
     | Just _ <- testEquality idx (knownNat :: NatRepr 0)
     , Just LeqProof <- testLeq (incNat n) (bvWidth x) =
