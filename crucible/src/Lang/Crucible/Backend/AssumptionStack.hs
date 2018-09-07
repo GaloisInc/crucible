@@ -16,6 +16,7 @@ turned into complete logical statements by assuming the current context
 and be stashed in a collection of remembered goals for later dispatch to
 solvers.
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
@@ -69,11 +70,14 @@ import           Control.Lens
 import qualified Data.Foldable as F
 import           Data.IORef
 import           Data.Parameterized.Nonce
-import           Data.Semigroup
 import           Data.Sequence (Seq)
 
-import Lang.Crucible.Panic(panic)
-import Lang.Crucible.Backend.ProofGoals
+import           Lang.Crucible.Backend.ProofGoals
+import           Lang.Crucible.Panic (panic)
+
+#if !MIN_VERSION_base(4,11,0)
+import           Data.Semigroup
+#endif
 
 -- | Information about an assertion that was previously made.
 data LabeledPred pred msg

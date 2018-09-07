@@ -48,9 +48,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , mkNullPointer
 
     -- * Operations on valid pointers
-  , AddrDecomposeResult(..)
   , constOffset
-  , ptrDecompose
   , ptrComparable
   , ptrOffsetEq
   , ptrOffsetLe
@@ -71,7 +69,6 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
-import           Numeric.Natural
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
@@ -137,12 +134,6 @@ muxLLVMPtr sym p (LLVMPointer b1 off1) (LLVMPointer b2 off2) =
      off <- bvIte sym p off1 off2
      return $ LLVMPointer b off
 
--- | This provides a view of an address as a base + offset when possible.
-data AddrDecomposeResult sym w
-  = Symbolic (LLVMPtr sym w) -- ^ A pointer with a symbolic base value
-  | SymbolicOffset Natural (SymBV sym w) -- ^ A pointer with a concrete base value, but symbolic offset
-  | ConcreteOffset Natural Integer       -- ^ A totally concrete pointer value
-
 data FloatSize (fi :: FloatInfo) where
   SingleSize :: FloatSize SingleFloat
   DoubleSize :: FloatSize DoubleFloat
@@ -161,21 +152,6 @@ instance TestEquality FloatSize where
 -- | Generate a concrete offset value from an @Addr@ value.
 constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
 constOffset sym w x = bvLit sym w (G.bytesToInteger x)
-
--- | Examine a pointer and determine how much concrete information is
---   contained therein.
-ptrDecompose ::
-  (1 <= w, IsExprBuilder sym) =>
-  sym -> NatRepr w ->
-  LLVMPtr sym w ->
-  AddrDecomposeResult sym w
-ptrDecompose _sym _w (LLVMPointer (asNat -> Just b) (asUnsignedBV -> Just off)) =
-  ConcreteOffset b off
-ptrDecompose _sym _w (LLVMPointer (asNat -> Just b) off) =
-  SymbolicOffset b off
-ptrDecompose _sym _w p =
-  Symbolic p
-
 
 -- | Test whether pointers point into the same allocation unit.
 ptrComparable ::

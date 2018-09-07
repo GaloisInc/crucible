@@ -88,14 +88,15 @@ expFailList = [
     -- objects. 
   , "jikesHpjTestSuite/benchmarks/multarg"
 
-    -- native method "longBitsToDouble"
+    -- needs sun/misc/FloatingDecimal$ExceptionalBinaryToASCIIBuffer
   , "kaffeRegressionSuite/benchmarks/doubleComp"
 
-    -- native methods - initIDs
+    -- needs java/io/PrintStream constructor from
+    -- FileOutputStream argument
   , "jikesHpjTestSuite/benchmarks/recur"
 
     -- fNeg
-  , "jikesDerekTestSuite/benchmarks/testArithmetic"
+  -- , "jikesDerekTestSuite/benchmarks/testArithmetic"
 
     -- saveLocals: Generator.hs:197
   , "ashesHardTestSuite/broken/nucleic"
@@ -338,9 +339,10 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  let testCase =  "jikesHpjTestSuite/benchmarks/implement"
+  let testCase = "jikesDerekTestSuite/benchmarks/testArithmetic"
 
-  result <- runTest 3 $ top ++ testCase ++ "/mainClass"
+
+  result <- runTest 2 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
 

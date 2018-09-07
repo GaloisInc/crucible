@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
@@ -40,11 +41,13 @@ module Lang.Crucible.Backend.ProofGoals
 
 import           Control.Monad.Reader
 import           Data.Functor.Const
-import           Data.Semigroup
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Word
 
+#if !MIN_VERSION_base(4,11,0)
+import           Data.Semigroup
+#endif
 
 -- | A proof goal consists of a collection of assumptions
 --   that were in scope when an assertion was made, together

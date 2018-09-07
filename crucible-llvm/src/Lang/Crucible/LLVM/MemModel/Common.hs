@@ -22,7 +22,7 @@ module Lang.Crucible.LLVM.MemModel.Common
     Range(..)
 
     -- * Pointer declarations
-  , PtrExpr(..)
+  , OffsetExpr(..)
   , IntExpr(..)
   , Cond(..)
 
@@ -67,76 +67,72 @@ data Range = R { rStart :: Addr, _rEnd :: Addr }
 
 -- Value
 
-data PtrExpr
-  = PtrAdd PtrExpr IntExpr
+data OffsetExpr
+  = OffsetAdd OffsetExpr IntExpr
   | Load
   | Store
   deriving (Show)
 
 data IntExpr
-  = PtrDiff PtrExpr PtrExpr
+  = OffsetDiff OffsetExpr OffsetExpr
   | IntAdd IntExpr IntExpr
-  | CValue Integer
+  | CValue Bytes
   | StoreSize
   deriving (Show)
 
 data Cond
-  = PtrComparable PtrExpr PtrExpr -- ^ Are pointers in the same allocation unit
-  | PtrOffsetEq PtrExpr PtrExpr
-  | PtrOffsetLe PtrExpr PtrExpr
+  = OffsetEq OffsetExpr OffsetExpr
+  | OffsetLe OffsetExpr OffsetExpr
   | IntEq IntExpr IntExpr
   | IntLe IntExpr IntExpr
   | And Cond Cond
   deriving (Show)
 
-(.==) :: PtrExpr -> PtrExpr -> Cond
+(.==) :: OffsetExpr -> OffsetExpr -> Cond
 infix 4 .==
-x .== y = And (PtrComparable x y) (PtrOffsetEq x y)
+x .== y = OffsetEq x y
 
-(.<=) :: PtrExpr -> PtrExpr -> Cond
+(.<=) :: OffsetExpr -> OffsetExpr -> Cond
 infix 4 .<=
-x .<= y = And (PtrComparable x y) (PtrOffsetLe x y)
+x .<= y = OffsetLe x y
 
 infixl 6 .+
-(.+) :: PtrExpr -> IntExpr -> PtrExpr
+(.+) :: OffsetExpr -> IntExpr -> OffsetExpr
 x .+ CValue 0 = x
-x .+ y = PtrAdd x y
+x .+ y = OffsetAdd x y
 
 infixl 6 .-
-(.-) :: PtrExpr -> PtrExpr -> IntExpr
-x .- y = PtrDiff x y
-
-intValue :: Bytes -> IntExpr
-intValue (Bytes n) = CValue (toInteger n)
+(.-) :: OffsetExpr -> OffsetExpr -> IntExpr
+x .- y = OffsetDiff x y
 
 -- Muxs
 
 data Mux a
   = Mux Cond (Mux a) (Mux a)
-  | MuxTable PtrExpr PtrExpr (Map Bytes (Mux a)) (Mux a)
+  | MuxTable OffsetExpr OffsetExpr (Map Bytes (Mux a)) (Mux a)
     -- ^ 'MuxTable' encodes a lookup table: @'MuxTable' p1 p2
     -- 'Map.empty' z@ is equivalent to @z@, and @'MuxTable' p1 p2
     -- ('Map.insert' (i, x) m) z@ is equivalent to @'Mux' (p1 '.+'
-    -- 'intValue' i '.==' p2) x ('MuxTable' p1 p2 m z)@.
+    -- 'CValue' i '.==' p2) x ('MuxTable' p1 p2 m z)@.
   | MuxVar a
   deriving Show
 
 -- Variable for mem model.
 
-loadOffset :: Bytes -> PtrExpr
-loadOffset n = Load .+ intValue n
+loadOffset :: Bytes -> OffsetExpr
+loadOffset n = Load .+ CValue n
 
-storeOffset :: Bytes -> PtrExpr
-storeOffset n = Store .+ intValue n
+storeOffset :: Bytes -> OffsetExpr
+storeOffset n = Store .+ CValue n
 
-storeEnd :: PtrExpr
+storeEnd :: OffsetExpr
 storeEnd = Store .+ StoreSize
 
 -- | @loadInStoreRange n@ returns predicate if Store <= Load && Load <= Store + n
 loadInStoreRange :: Bytes -> Cond
 loadInStoreRange (Bytes 0) = Load .== Store
 loadInStoreRange n = And (Store .<= Load)
-                         (Load .<= Store .+ intValue n)
+                         (Load .<= Store .+ CValue n)
 
 -- Value constructor
 
@@ -255,31 +251,31 @@ fixedOffsetRangeLoad :: Addr
 fixedOffsetRangeLoad l tp s
   | s < l = do -- Store is before load.
     let sd = l - s -- Number of bytes load comes after store
-    Mux (IntLe StoreSize (intValue sd)) loadFail (loadCase (sd+1))
+    Mux (IntLe StoreSize (CValue sd)) loadFail (loadCase (sd+1))
   | le <= s = loadFail -- No load if load ends before write.
   | otherwise = loadCase 0
   where
     le = typeEnd l tp
     loadCase i
-      | i < le-s  = Mux (IntEq StoreSize (intValue i)) (loadVal i) (loadCase (i+1))
+      | i < le-s  = Mux (IntEq StoreSize (CValue i)) (loadVal i) (loadCase (i+1))
       | otherwise = loadVal i
     loadVal ssz = MuxVar (rangeLoad l tp (R s (s+ssz)))
     loadFail = MuxVar (ValueCtorVar (OutOfRange l tp))
 
 -- | @fixLoadBeforeStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load + i == store@.
-fixLoadBeforeStoreOffset :: BasePreference -> Offset -> Offset -> PtrExpr
+fixLoadBeforeStoreOffset :: BasePreference -> Offset -> Offset -> OffsetExpr
 fixLoadBeforeStoreOffset pref i k
-  | pref == FixedStore = Store .+ intValue (k - i)
-  | otherwise = Load .+ intValue k
+  | pref == FixedStore = Store .+ CValue (k - i)
+  | otherwise = Load .+ CValue k
 
 -- | @fixLoadAfterStoreOffset pref i k@ adjusts a pointer value that is relative
 -- the load address into a global pointer.  The code assumes that @load == store + i@.
-fixLoadAfterStoreOffset :: BasePreference -> Offset -> Offset -> PtrExpr
+fixLoadAfterStoreOffset :: BasePreference -> Offset -> Offset -> OffsetExpr
 fixLoadAfterStoreOffset pref i k = assert (k >= i) $
   case pref of
-    FixedStore -> Store .+ intValue k
-    _          -> Load  .+ intValue (k - i)
+    FixedStore -> Store .+ CValue k
+    _          -> Load  .+ CValue (k - i)
 
 -- | @loadFromStoreStart pref tp i j@ loads a value of type @tp@ from a range under the
 -- assumptions that @load + i == store@ and @j = i + min(StoreSize, typeEnd(tp)@.
@@ -287,15 +283,15 @@ loadFromStoreStart :: BasePreference
                    -> Type
                    -> Offset
                    -> Offset
-                   -> ValueCtor (RangeLoad PtrExpr IntExpr)
+                   -> ValueCtor (RangeLoad OffsetExpr IntExpr)
 loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i j)
-  where inFn = intValue
+  where inFn = CValue
         outFn = fixLoadBeforeStoreOffset pref i
 
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                    -> Type
                    -> Bytes
-                   -> Mux (ValueCtor (RangeLoad PtrExpr IntExpr))
+                   -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
 fixedSizeRangeLoad _ tp 0 = MuxVar (ValueCtorVar (OutOfRange Load tp))
 fixedSizeRangeLoad pref tp ssz =
   Mux (loadOffset lsz .<= Store) loadFail (prefixL lsz)
@@ -320,13 +316,13 @@ fixedSizeRangeLoad pref tp ssz =
     loadVal i = MuxVar (loadFromStoreStart pref tp i (i+ssz))
 
     storeVal i = MuxVar (adjustOffset inFn outFn <$> rangeLoad i tp (R 0 ssz))
-      where inFn = intValue
+      where inFn = CValue
             outFn = fixLoadAfterStoreOffset pref i
 
     loadSucc = MuxVar (ValueCtorVar (InRange (Load .- Store) tp))
     loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
-symbolicRangeLoad :: BasePreference -> Type -> Mux (ValueCtor (RangeLoad PtrExpr IntExpr))
+symbolicRangeLoad :: BasePreference -> Type -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
 symbolicRangeLoad pref tp =
   Mux (Store .<= Load)
   (Mux (loadOffset sz .<= storeEnd) (loadVal0 sz) (loadIter0 (sz-1)))
@@ -339,8 +335,8 @@ symbolicRangeLoad pref tp =
       | otherwise = loadFail
 
     loadVal0 j = MuxVar $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
-      where inFn k  = IntAdd (PtrDiff Load Store) (intValue k)
-            outFn k = PtrAdd Load (intValue k)
+      where inFn k  = IntAdd (OffsetDiff Load Store) (CValue k)
+            outFn k = OffsetAdd Load (CValue k)
 
     storeAfterLoad i
       | i < sz = Mux (loadOffset i .== Store) (loadFromOffset i) (storeAfterLoad (i+1))
@@ -348,8 +344,8 @@ symbolicRangeLoad pref tp =
 
     loadFromOffset i =
       assert (0 < i && i < sz) $
-      Mux (IntLe (intValue (sz - i)) StoreSize) (loadVal i (i+sz)) (f (sz-1))
-      where f j | j > i = Mux (IntEq (intValue (j-i)) StoreSize) (loadVal i j) (f (j-1))
+      Mux (IntLe (CValue (sz - i)) StoreSize) (loadVal i (i+sz)) (f (sz-1))
+      where f j | j > i = Mux (IntEq (CValue (j-i)) StoreSize) (loadVal i j) (f (j-1))
                 | otherwise = loadFail
 
     loadVal i j = MuxVar (loadFromStoreStart pref tp i j)
@@ -498,7 +494,7 @@ symbolicValueLoad ::
   Type           {- ^ load type            -} ->
   ValueView      {- ^ view of stored value -} ->
   Alignment      {- ^ alignment of store and load -} ->
-  Mux (ValueCtor (ValueLoad PtrExpr))
+  Mux (ValueCtor (ValueLoad OffsetExpr))
 symbolicValueLoad pref tp v alignment =
   Mux (loadOffset lsz .<= Store) loadFail $
   MuxTable Load Store (prefixTable stride) $
@@ -508,7 +504,7 @@ symbolicValueLoad pref tp v alignment =
     lsz = typeEnd 0 tp
     Just stp = viewType v
 
-    prefixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad PtrExpr)))
+    prefixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad OffsetExpr)))
     prefixTable i
       | i < lsz = Map.insert i
         (MuxVar (fmap adjustFn <$> valueLoad 0 tp i v))
@@ -516,7 +512,7 @@ symbolicValueLoad pref tp v alignment =
       | otherwise = Map.empty
       where adjustFn = fixLoadBeforeStoreOffset pref i
 
-    suffixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad PtrExpr)))
+    suffixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad OffsetExpr)))
     suffixTable i
       | i < typeSize stp =
         Map.insert i
