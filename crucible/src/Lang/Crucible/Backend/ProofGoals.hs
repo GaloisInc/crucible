@@ -40,7 +40,6 @@ module Lang.Crucible.Backend.ProofGoals
 
 import           Control.Monad.Reader
 import           Data.Functor.Const
-import           Data.Semigroup
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Word

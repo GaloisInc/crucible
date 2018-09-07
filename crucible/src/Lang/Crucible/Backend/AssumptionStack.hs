@@ -68,7 +68,6 @@ import           Control.Lens
 import qualified Data.Foldable as F
 import           Data.IORef
 import           Data.Parameterized.Nonce
-import           Data.Semigroup
 import           Data.Sequence (Seq)
 
 import Lang.Crucible.Panic(panic)

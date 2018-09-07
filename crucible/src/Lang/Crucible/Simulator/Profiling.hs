@@ -6,7 +6,7 @@
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
--- 
+--
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
@@ -88,10 +88,10 @@ instance TraversableF Metrics where
 
 metricsToJSON :: Metrics Identity -> UTCTime -> JSValue
 metricsToJSON m time = JSObject $ toJSObject $
-    [ ("time", showJSON time)
-    , ("split-count", showJSON $ metricSplits m )
-    , ("merge-count", showJSON $ metricMerges m )
-    , ("abort-count", showJSON $ metricAborts m )
+    [ ("time", utcTimeToJSON time)
+    , ("split-count", showJSON $ runIdentity $ metricSplits m )
+    , ("merge-count", showJSON $ runIdentity $ metricMerges m )
+    , ("abort-count", showJSON $ runIdentity $ metricAborts m )
     ]
 
 
@@ -110,13 +110,8 @@ data CGEvent =
   }
  deriving (Show)
 
-instance JSON a => JSON (Identity a) where
-  readJSON = fmap Identity . readJSON
-  showJSON = showJSON . runIdentity
-
-instance JSON UTCTime where
-  readJSON _ = error "FIXME JSONM UTCTime"
-  showJSON t = showJSON ((fromRational $ toRational $ utcTimeToPOSIXSeconds t) :: Double)
+utcTimeToJSON :: UTCTime -> JSValue
+utcTimeToJSON t = showJSON ((fromRational $ toRational $ utcTimeToPOSIXSeconds t) :: Double)
 
 instance JSON CGEventType where
   readJSON _ = error "FIXME JSON CGEventType"
@@ -134,7 +129,7 @@ instance JSON CGEvent where
     (case cgEvent_source ev of
       Nothing -> []
       Just p -> [("source", positionToJSON p)])
-    ++  
+    ++
     (case cgEvent_callsite ev of
       Nothing -> []
       Just p -> [("callsite", positionToJSON p)])
@@ -168,7 +163,7 @@ symProUIJSON nm source tbl =
    [ ("type", showJSON "solver-calls")
    , ("events", JSArray [])
    ]
- 
+
  unused_terms =
    [ ("type", showJSON "unused-terms")
    , ("data", JSArray [])
@@ -202,7 +197,7 @@ newProfilingTable =
 nextEventID :: ProfilingTable -> IO Integer
 nextEventID tbl =
   do i <- readIORef (eventIDRef tbl)
-     writeIORef (eventIDRef tbl) $! (i+1) 
+     writeIORef (eventIDRef tbl) $! (i+1)
      return i
 
 enterEvent ::
@@ -330,4 +325,3 @@ executeCrucibleProfiling tbl st0 cont =
         RunningState _runTgt st' ->
           do verb <- fromInteger <$> getOpt verbOpt
              loop verbOpt st' (stepBasicBlock verb)
-
