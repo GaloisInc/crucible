@@ -118,9 +118,6 @@ data MemWrite sym
 tgAddPtrC :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> LLVMPtr sym w -> Addr -> IO (LLVMPtr sym w)
 tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 
-badLoad :: (IsExprBuilder sym) => sym -> Type -> IO (PartLLVMVal sym)
-badLoad _sym _tp = return Unassigned
-
 genOffsetExpr ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
@@ -424,7 +421,7 @@ readMemStore sym w end l@(LLVMPointer blk off) ltp d t stp loadAlign readPrev =
                 subFn (OldMemory o tp')   = do o' <- bvLit sym w (bytesToInteger o)
                                                readPrev tp' (LLVMPointer blk o')
                 subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
-                subFn (InvalidMemory tp') = badLoad sym tp'
+                subFn (InvalidMemory tp') = return Unassigned
             let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
             genValueCtor sym end =<< traverse subFn vcr
        -- Symbolic offsets
@@ -433,7 +430,7 @@ readMemStore sym w end l@(LLVMPointer blk off) ltp d t stp loadAlign readPrev =
                 subFn (OldMemory o tp')   = do o' <- genOffsetExpr sym w varFn o
                                                readPrev tp' (LLVMPointer blk o')
                 subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
-                subFn (InvalidMemory tp') = badLoad sym tp'
+                subFn (InvalidMemory tp') = return Unassigned
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -504,7 +501,7 @@ readMem' ::
   Alignment      {- ^ Alignment of pointer to read from -} ->
   [MemWrite sym] {- ^ List of writes                    -} ->
   IO (PartLLVMVal sym)
-readMem' sym w end l0 tp0 alignment = go (\tp _l -> badLoad sym tp) l0 tp0
+readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
   where
     go :: (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
           LLVMPtr sym w ->
