@@ -633,7 +633,7 @@ emptyCFGPostdomInfo sz = Ctx.replicate sz (Const [])
 ------------------------------------------------------------------------
 -- Block
 
--- | A basic block within a function.  Note: postdominators are precalculated.
+-- | A basic block within a function.
 data Block ext (blocks :: Ctx (Ctx CrucibleType)) (ret :: CrucibleType) ctx
    = Block { blockID        :: !(BlockID blocks ctx)
              -- ^ The unique identifier of this block
