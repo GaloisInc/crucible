@@ -794,6 +794,11 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
           -> NatRepr r
           -> SymBV sym w
           -> IO (SymBV sym r)
+  bvTrunc sym w x
+    | LeqProof <- leqTrans
+        (addIsLeq w (knownNat @1))
+        (leqProof (incNat w) (bvWidth x))
+    = bvSelect sym (knownNat @0) w x
 
   -- | Bitwise logical and.
   bvAndBits :: (1 <= w)

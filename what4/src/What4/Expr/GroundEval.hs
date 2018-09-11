@@ -340,7 +340,6 @@ evalGroundApp f0 a0 = do
       case isPosNat w of
         Just LeqProof -> (toUnsigned w . toSigned w) <$> f0 x
         Nothing -> error "BVSext given bad width"
-    BVTrunc w x -> lift $ toUnsigned w <$> f0 x
 
     BVBitNot _ x   -> lift $ complement <$> f0 x
     BVBitAnd _ x y -> lift $ (.&.) <$> f0 x <*> f0 y

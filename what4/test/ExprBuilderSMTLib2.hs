@@ -271,6 +271,25 @@ testFloatCastNoSimplification = testCase "float cast no simplification" $
     e1 <- floatCast sym floatDoublePrecision RNE e0
     e1 /= x @? ""
 
+testBVSelectShl :: TestTree
+testBVSelectShl = testCase "select shl simplification" $
+  withSym $ \sym -> do
+    x  <- freshConstant sym (userSymbol' "x") knownRepr
+    e0 <- bvLit sym (knownNat @64) 0
+    e1 <- bvConcat sym e0 x
+    e2 <- bvShl sym e1 =<< bvLit sym knownRepr 64
+    e3 <- bvSelect sym (knownNat @64) (knownNat @64) e2
+    e3 @?= x
+
+testBVSelectLshr :: TestTree
+testBVSelectLshr = testCase "select lshr simplification" $
+  withSym $ \sym -> do
+    x  <- freshConstant sym (userSymbol' "x") knownRepr
+    e0 <- bvConcat sym x =<< bvLit sym (knownNat @64) 0
+    e1 <- bvLshr sym e0 =<< bvLit sym knownRepr 64
+    e2 <- bvSelect sym (knownNat @0) (knownNat @64) e1
+    e2 @?= x
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -287,4 +306,6 @@ main = defaultMain $ testGroup "Tests"
   , testRealFloatBinarySimplification
   , testFloatCastSimplification
   , testFloatCastNoSimplification
+  , testBVSelectShl
+  , testBVSelectLshr
   ]
