@@ -281,13 +281,6 @@ testBVSelectShl = testCase "select shl simplification" $
     e3 <- bvSelect sym (knownNat @64) (knownNat @64) e2
     e3 @?= x
 
-    -- x'  <- freshConstant sym (userSymbol' "x") (knownRepr :: BaseTypeRepr (BaseBVType 128))
-    -- e1' <- bvShl sym x' =<< bvLit sym knownRepr 64
-    -- e2' <- bvSelect sym (knownNat @64) (knownNat @64) e1'
-    -- e0' <- bvLit sym (knownNat @64) 0
-    -- e1 @?= x'
-    -- e2' @?= e0'
-
 testBVSelectLshr :: TestTree
 testBVSelectLshr = testCase "select lshr simplification" $
   withSym $ \sym -> do

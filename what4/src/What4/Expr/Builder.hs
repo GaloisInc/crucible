@@ -2338,7 +2338,7 @@ abstractEval bvParams f a0 = do
 
     BVUnaryTerm u -> UnaryBV.domain bvParams f u
     BVConcat _ x y -> BVD.concat bvParams (bvWidth x) (f x) (bvWidth y) (f y)
-    BVSelect i n d -> BVD.select (natValue i) n (f d)
+    BVSelect i n x -> BVD.select bvParams i n (f x)
     BVNeg w x   -> BVD.negate bvParams w (f x)
     BVAdd w x y -> BVD.add bvParams w (f x) (f y)
     {-
@@ -4244,6 +4244,10 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
      Just Refl <- return $ testEquality (addNat n1 n2) n
      bvConcat sb a' b'
+
+    | Just (BVUnaryTerm u) <- asApp x
+    , Just Refl <- testEquality idx (knownNat @0) =
+      bvUnary sb =<< UnaryBV.trunc sb u n
 
       -- if none of the above apply, produce a basic select term
     | otherwise = sbMakeExpr sb $ BVSelect idx n x
