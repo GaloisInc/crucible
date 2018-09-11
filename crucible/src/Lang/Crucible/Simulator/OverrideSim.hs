@@ -372,13 +372,12 @@ callCFG cfg args =
 
 -- | Call an override in a new call frame.
 callOverride ::
-  FunctionName ->
   Override p sym ext args ret ->
   RegMap sym args ->
   OverrideSim p sym ext rtp a r (RegEntry sym ret)
-callOverride fnName ovr args =
+callOverride ovr args =
   Sim $ StateContT $ \c -> runReaderT $
-    let f = OverrideFrame fnName args in
+    let f = OverrideFrame (overrideName ovr) args in
     ReaderT $ return . CallState (ReturnToOverride c) (OverrideCall ovr f)
 
 
