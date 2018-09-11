@@ -34,8 +34,9 @@ instance ClassRefs J.ClassName where
 instance ClassRefs J.Type where
   classRefs ty = 
     case ty of
-      J.ClassType cn -> classRefs cn
-      _              -> Set.empty
+      J.ClassType cn  -> classRefs cn
+      J.ArrayType arr -> classRefs arr
+      _               -> Set.empty
 
 instance ClassRefs J.ConstantPoolValue where
   classRefs val =

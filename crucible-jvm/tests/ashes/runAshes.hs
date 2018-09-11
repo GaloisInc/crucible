@@ -29,6 +29,9 @@ skipList    = [  -- SCW: yep slow
               ,  "jikesDerekTestSuite/benchmarks/testFieldAccess"
               ,  "ashesHardTestSuite/benchmarks/matrix"
 
+              -- instanceOf???
+              , "jikesDerekTestSuite/benchmarks/testInstanceOf"
+              
               -- slow because of StringBuffer class???
               , "sootRegressionSuite/benchmarks/fixedBug-aggregation6"
               , "kaffeRegressionSuite/broken/TestNative"
@@ -88,6 +91,11 @@ expFailList = [
     -- objects. 
   , "jikesHpjTestSuite/benchmarks/multarg"
 
+    -- fRem doesn't round (but dRem does)
+    -- check what the Crucible version of this operation
+    -- should do
+  , "jikesDerekTestSuite/benchmarks/testArithmetic"
+  
     -- needs sun/misc/FloatingDecimal$ExceptionalBinaryToASCIIBuffer
   , "kaffeRegressionSuite/benchmarks/doubleComp"
 
@@ -95,10 +103,9 @@ expFailList = [
     -- FileOutputStream argument
   , "jikesHpjTestSuite/benchmarks/recur"
 
-    -- fNeg
-  -- , "jikesDerekTestSuite/benchmarks/testArithmetic"
-
-    -- saveLocals: Generator.hs:197
+    -- saveLocals: somehow there are two more registers
+    -- than values when 'saveLocals' is called.
+    -- I don't know how to debug this.
   , "ashesHardTestSuite/broken/nucleic"
    
     -- generateInstruction: jsr/ret not supported
@@ -109,18 +116,14 @@ expFailList = [
   , "jikesDerekTestSuite/benchmarks/testFinally"
   , "kaffeRegressionSuite/benchmarks/nullPointerTest"
   , "jikesPrTestSuite/benchmarks/pr146"
+
   
-    -- unimplemented: multianewarray
-  , "jikesHpjTestSuite/benchmarks/checkcast7"
-  , "jikesHpjTestSuite/benchmarks/array4"
-  , "jikesHpjTestSuite/benchmarks/instance"
-  , "ashesEasyTestSuite/benchmarks/life"
-  
-    -- unimplemented: CheckCast for array
+  -- unimplemented: CheckCast for array
   , "jikesHpjTestSuite/benchmarks/checkcast1"
   
     -- unimplemented: instanceof for array
   , "jikesHpjTestSuite/benchmarks/instance1"
+  , "jikesHpjTestSuite/benchmarks/instance"
   , "jikesDerekTestSuite/benchmarks/testInstanceOf"
   
     -- Strange parsing issue: trying to load native code
@@ -168,7 +171,7 @@ expFailList = [
               ,  "ashesHardTestSuite/benchmarks/matrix"
               , "jikesDerekTestSuite/benchmarks/testArrayAccess"
               , "jikesHpjTestSuite/benchmarks/arraymethod"
-              , "jikesHpjTestSuite/benchmarks/callmm"
+--              , "jikesHpjTestSuite/benchmarks/callmm"
 
                 -- Trivially different output
               , "jikesHpjTestSuite/broken/array2"
@@ -320,6 +323,11 @@ runTest verbosity file = do
 runFind :: String -> String -> IO [String]
 runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
+{-
+main :: IO ()
+main = wip
+-}
+
 main :: IO ()
 main = do
   dir <- getCurrentDirectory
@@ -334,15 +342,18 @@ main = do
     results
   printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
     results
-
+    
 
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  let testCase = "jikesDerekTestSuite/benchmarks/testArithmetic"
+--  let testCase = "jikesHpjTestSuite/benchmarks/checkcast7"
+--  let testCase = "jikesPrTestSuite/benchmarks/pr199j"
+--  let testCase = "jikesHpjTestSuite/benchmarks/implement"
+  let testCase = "jikesHpjTestSuite/benchmarks/array1"
 
 
-  result <- runTest 2 $ top ++ testCase ++ "/mainClass"
+  result <- runTest 3 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
 

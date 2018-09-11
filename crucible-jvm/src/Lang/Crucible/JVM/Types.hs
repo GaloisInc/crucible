@@ -82,7 +82,8 @@ type JVMInitStatus s = Expr JVM s JVMInitStatusType
 type JVMArray      s = Expr JVM s JVMArrayType
 -- | Symbolic array or class instance
 type JVMObject     s = Expr JVM s JVMObjectType
-
+-- | Symbolic representation of Java type
+type JVMTypeRep    s = Expr JVM s JVMTypeRepType
 ----------------------------------------------------------------------
 -- * JVM type definitions
 --
@@ -125,10 +126,11 @@ type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
 -- and an (immutable) pointer to the class (object).
 type JVMInstanceType =
   StructType (EmptyCtx ::> StringMapType JVMValueType ::> JVMClassType)
-
--- | An array is a length paired with a vector of values.
+              
+-- | An array value is a length, a vector of values,
+-- and an element type 
 type JVMArrayType =
-  StructType (EmptyCtx ::> JVMIntType ::> VectorType JVMValueType)
+  StructType (EmptyCtx ::> JVMIntType ::> VectorType JVMValueType ::> JVMTypeRepType)
 
 -- | An object is either a class instance or an array.
 type JVMObjectImpl =
@@ -140,8 +142,26 @@ instance IsRecursiveType "JVM_object" where
   type UnrollType "JVM_object" ctx = JVMObjectImpl
   unrollType _nm _ctx = knownRepr :: TypeRepr JVMObjectImpl
 
--- ** Classes
+-- ** JVM type representations
+--
+-- @
+--   data Type = ArrayType Type
+--             | ClassType Class
+--             | Primitive Int    -- ints represent different primitives
+-- @
+-- We need to know the type of an array at runtime in order to do
+-- an instance-of or checked cast for arrays.
 
+type JVMTypeRepType = RecursiveType "JVM_TypeRep" EmptyCtx
+instance IsRecursiveType "JVM_TypeRep" where
+  type UnrollType "JVM_TypeRep" ctx = JVMTypeRepImpl
+  unrollType _nm _ctx = knownRepr :: TypeRepr JVMTypeRepImpl
+
+type JVMTypeRepImpl =
+  VariantType (EmptyCtx ::> JVMTypeRepType ::> JVMClassType ::> JVMIntType)
+
+
+-- ** Classes
 
 -- | An entry in the class table contains information about a loaded class:
 --
@@ -322,10 +342,11 @@ tagR = Ctx.i5of5
 -- * Working with Symbolic exprs
 
 -- | Sketchy num interface, but it makes it easier to work with this type
-instance Num (JVMInt s) where
+instance Num (Expr p s JVMIntType) where
   n1 + n2 = App (BVAdd w32 n1 n2)
   n1 * n2 = App (BVMul w32 n1 n2)
   n1 - n2 = App (BVSub w32 n1 n2)
   abs _n  = error "abs: unimplemented"
   signum  = error "signum: unimplemented"
   fromInteger i = App (BVLit w32 i)
+

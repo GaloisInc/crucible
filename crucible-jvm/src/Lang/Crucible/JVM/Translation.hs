@@ -448,13 +448,17 @@ saveStack _ _ = jvmFail "saveStack"
 -- TODO: what if we have more values? is it ok to not save them all?
 -- See Java/lang/String/compareTo
 saveLocals ::
+  HasCallStack =>
   Map J.LocalVariableIndex (JVMReg s) ->
   Map J.LocalVariableIndex (JVMValue s) ->
   JVMGenerator h s ret ()
 saveLocals rs vs
-  | Set.fromAscList (Map.keys rs) `Set.isSubsetOf`
-    Set.fromAscList (Map.keys vs) = sequence_ (Map.intersectionWith writeJVMReg rs vs)
-  | otherwise                  = jvmFail $ "saveLocals:\n\t" ++ show rs ++ "\n\t" ++ show vs
+  | Set.fromAscList (Map.keys rs) `Set.isSubsetOf` Set.fromAscList (Map.keys vs)
+  = sequence_ (Map.intersectionWith writeJVMReg rs vs)
+  | otherwise
+  -- what is in the registers but doesn't have a value?
+  = -- sequence_ (Map.intersectionWith writeJVMReg rs vs)
+    jvmFail $ "saveLocals:\n\t" ++ show (Map.keys rs) ++ "\n\t" ++ show (Map.keys vs)
 
 newRegisters :: JVMExprFrame s -> JVMGenerator h s ret (JVMRegisters s)
 newRegisters = traverse newJVMReg
@@ -462,7 +466,7 @@ newRegisters = traverse newJVMReg
 readRegisters :: JVMRegisters s -> JVMGenerator h s ret (JVMExprFrame s)
 readRegisters = traverse readJVMReg
 
-writeRegisters :: JVMRegisters s -> JVMExprFrame s -> JVMGenerator h s ret ()
+writeRegisters :: HasCallStack => JVMRegisters s -> JVMExprFrame s -> JVMGenerator h s ret ()
 writeRegisters rs vs =
   do saveStack (rs^.operandStack) (vs^.operandStack)
      saveLocals (rs^.localVariables) (vs^.localVariables)
@@ -509,7 +513,7 @@ generateBasicBlock bb rs =
 -- simply write into them. If the target has not been started yet, we
 -- copy the values into fresh registers, and also recursively call
 -- 'generateBasicBlock' on the target block to start translating it.
-processBlockAtPC :: J.PC -> JVMExprFrame s -> JVMGenerator h s ret (Label s)
+processBlockAtPC :: HasCallStack => J.PC -> JVMExprFrame s -> JVMGenerator h s ret (Label s)
 processBlockAtPC pc vs =
   defineBlockLabel $
   do bb <- getBasicBlockAtPC pc
@@ -903,20 +907,24 @@ generateInstruction (pc, instr) =
              -- We can disable that here if necessary by
              -- matching on the elem type
              let expr = valueToExpr $ defaultValue elemType 
-             let obj = newarrayExpr count expr
+             obj <- lift $ newarrayExpr count expr arrayType
              rawRef <- lift $ newRef obj
              let ref = App (JustValue knownRepr rawRef)
              rPush ref
 {-             case elemType of
                J.ArrayType _ -> sgFail "newarray: invalid element type"
                J.ClassType _ -> sgFail "newarray: invalid element type" -}
-           _ -> sgFail "newarray: expected array type"
-    J.Multianewarray _elemType dimensions ->
-      do counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
+           _ -> sgFail "newarray: expected array type" 
+    J.Multianewarray arrType dimensions -> do
+         lift $ debug 3 $ "multianewarray: arrType is " ++ show arrType
+         counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
          forM_ counts $ \count -> do
            let nonneg = App (BVSle w32 (iConst 0) count)
            lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
-         sgUnimplemented "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
+         obj <- lift $ newMultiArray arrType counts
+         rawRef <- lift $ newRef obj
+         rPush (App $ JustValue knownRepr rawRef) 
+
 
     -- Load an array component onto the operand stack
     J.Baload -> aloadInstr tagI IValue -- byte
@@ -1130,9 +1138,10 @@ generateInstruction (pc, instr) =
          --throwIfRefNull objectRef
          --throw objectRef
          
-    J.Checkcast (J.ClassType className) ->
+    J.Checkcast ty  ->
       do objectRef <- rPop
-         lift $ caseMaybe_ objectRef 
+         lift $ checkCast objectRef ty
+{-         lift $ caseMaybe_ objectRef 
            MatchMaybe
            { onNothing = return ()
            , onJust  = \rawRef -> do
@@ -1140,27 +1149,27 @@ generateInstruction (pc, instr) =
                cls <- getJVMInstanceClass obj
                b <- isSubType cls className 
                assertExpr b "java/lang/ClassCastException"
-           }
+           } -}
          rPush objectRef
 
-    J.Checkcast tp ->
+--    J.Checkcast (J.ArrType elemType) ->
       -- TODO -- can we cast arrays?
-      sgUnimplemented $ "checkcast unimplemented for type: " ++ show tp
+--      sgUnimplemented $ "checkcast unimplemented for type: " ++ show tp
     J.Iinc idx constant ->
       do value <- getLocal idx >>= lift . fromIValue
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
-    J.Instanceof (J.ClassType className) ->
+    J.Instanceof tTy ->
       do objectRef <- rPop
          rawRef <- throwIfRefNull objectRef
          obj <- lift $ readRef rawRef
-         cls <- lift $ getJVMInstanceClass obj
-         b <- lift $ isSubType cls className
+         sTy <- lift $ getObjectType obj
+         b <- lift $ isSubType sTy tTy
          let ib = App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
          iPush ib
-    J.Instanceof _tp ->
+--    J.Instanceof _tp ->
          -- TODO -- ArrayType
-         sgUnimplemented "instanceof for array type" -- objectRef `instanceOf` tp
+--         sgUnimplemented "instanceof for array type" -- objectRef `instanceOf` tp
     J.Monitorenter ->
       do void rPop
     J.Monitorexit ->
