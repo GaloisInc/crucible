@@ -778,7 +778,7 @@ generateInstruction (pc, instr) =
     -- Arithmetic instructions
     J.Dadd  -> binary dPop dPop dPush dAdd
     J.Dsub  -> binary dPop dPop dPush dSub
-    J.Dneg  -> unary dPop dPush dNeg
+    J.Dneg  -> unaryGen dPop dPush dNeg
     J.Dmul  -> binary dPop dPop dPush dMul
     J.Ddiv  -> binary dPop dPop dPush dDiv
     J.Drem  -> binary dPop dPop dPush dRem
@@ -786,7 +786,7 @@ generateInstruction (pc, instr) =
     J.Dcmpl -> binaryGen dPop dPop iPush dCmpl
     J.Fadd  -> binary fPop fPop fPush fAdd
     J.Fsub  -> binary fPop fPop fPush fSub
-    J.Fneg  -> unary fPop fPush (error "fNeg")
+    J.Fneg  -> unaryGen fPop fPush fNeg
     J.Fmul  -> binary fPop fPop fPush fMul
     J.Fdiv  -> binary fPop fPop fPush fDiv
     J.Frem  -> binary fPop fPop fPush fRem
@@ -1393,6 +1393,13 @@ lNeg e = ifte (App $ BVEq knownRepr e minLong)
               (return minLong)
               (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
 
+-- TODO: doublecheck
+-- For float values, negation is not the same as subtraction from zero. If x is +0.0,
+-- then 0.0-x equals +0.0, but -x equals -0.0. Unary minus merely inverts the sign of a float.
+-- Special cases of interest:
+--    If the operand is NaN, the result is NaN (recall that NaN has no sign).
+--    If the operand is an infinity, the result is the infinity of opposite sign.
+--    If the operand is a zero, the result is the zero of opposite sign.
 fNeg :: JVMFloat s -> JVMGenerator h s ret (JVMFloat s)
 fNeg e = ifte (App $ FloatEq e posZerof)
               (return negZerof)
@@ -1421,8 +1428,11 @@ dCmpg e1 e2 = ifte (App (FloatEq e1 e2)) (return $ App $ BVLit w32 0)
                          (return $ App $ BVLit w32 1))
 dCmpl = dCmpg
 
-dNeg :: JVMDouble s -> JVMDouble s
-dNeg = error "dNeg"
+dNeg :: JVMDouble s ->  JVMGenerator h s ret (JVMDouble s)
+dNeg e = ifte (App $ FloatEq e posZerod)
+              (return negZerod)
+              (return $ App (FloatSub DoubleFloatRepr RNE posZerod e))
+
 
 fAdd, fSub, fMul, fDiv, fRem :: JVMFloat s -> JVMFloat s -> JVMFloat s
 fAdd e1 e2 = App (FloatAdd SingleFloatRepr RNE e1 e2)
