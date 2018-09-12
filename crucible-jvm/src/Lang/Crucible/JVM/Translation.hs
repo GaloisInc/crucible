@@ -807,9 +807,9 @@ generateInstruction (pc, instr) =
     J.Iand  -> binary iPop iPop iPush (\a b -> App (BVAnd w32 a b))
     J.Ior   -> binary iPop iPop iPush (\a b -> App (BVOr  w32 a b))
     J.Ixor  -> binary iPop iPop iPush (\a b -> App (BVXor w32 a b))
-    J.Ishl  -> binary iPop iPop iPush (\a b -> App (BVShl w32 a b))
-    J.Ishr  -> binary iPop iPop iPush (\a b -> App (BVAshr w32 a b))
-    J.Iushr -> binary iPop iPop iPush (\a b -> App (BVLshr w32 a b))
+    J.Ishl  -> binary iPop iPop iPush (\a b -> App (BVShl w32 a (iShiftMask b)))
+    J.Ishr  -> binary iPop iPop iPush (\a b -> App (BVAshr w32 a (iShiftMask b)))
+    J.Iushr -> binary iPop iPop iPush (\a b -> App (BVLshr w32 a (iShiftMask b)))
     J.Ladd  -> binary lPop lPop lPush (\a b -> App (BVAdd w64 a b))
     J.Lsub  -> binary lPop lPop lPush (\a b -> App (BVSub w64 a b))
     J.Lmul  -> binary lPop lPop lPush (\a b -> App (BVMul w64 a b))
@@ -828,9 +828,9 @@ generateInstruction (pc, instr) =
     J.Lor   -> binary lPop lPop lPush (\a b -> App (BVOr  w64 a b))
     J.Lxor  -> binary lPop lPop lPush (\a b -> App (BVXor w64 a b))
     J.Lcmp  -> binaryGen lPop lPop iPush lCmp
-    J.Lshl  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVShl w64 a b))
-    J.Lshr  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVAshr w64 a b))
-    J.Lushr -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVLshr w64 a b))
+    J.Lshl  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVShl w64 a (lShiftMask b)))
+    J.Lshr  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVAshr w64 a (lShiftMask b)))
+    J.Lushr -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVLshr w64 a (lShiftMask b)))
 
     -- Load and store instructions
     J.Iload idx -> getLocal idx >>= pushValue
@@ -1352,6 +1352,14 @@ dConst d = App (DoubleLit d)
 
 fConst :: Float -> JVMFloat s
 fConst f = App (FloatLit f)
+
+-- | Mask the low 5 bits of a shift amount of type int.
+iShiftMask :: JVMInt s -> JVMInt s
+iShiftMask i = App (BVAnd w32 i (iConst 31))
+
+-- | Mask the low 6 bits of a shift amount of type long.
+lShiftMask :: JVMLong s -> JVMLong s
+lShiftMask i = App (BVAnd w64 i (lConst 63))
 
 -- TODO: is there a better way to specify -2^32?
 minInt :: JVMInt s
