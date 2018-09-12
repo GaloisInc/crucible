@@ -15,6 +15,7 @@ abstract interpretation purposes.
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 #if MIN_VERSION_base(4,9,0)
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}
@@ -54,7 +55,6 @@ module What4.Utils.BVDomain.Map
   , ashr
   , zext
   , sext
-  , trunc
   , What4.Utils.BVDomain.Map.not
   , and
   , or
@@ -597,8 +597,17 @@ concat params wx x wy y = do
 
 
 -- | @select i n d@ selects @n@ bits starting from index @i@ from @d@.
-select :: (1 <= u) => Integer -> NatRepr u -> BVDomain w -> BVDomain u
-select _i n _d = any n -- TODO
+select
+  :: (1 <= n, i + n <= w)
+  => BVDomainParams
+  -> NatRepr i
+  -> NatRepr n
+  -> BVDomain w
+  -> BVDomain n
+select params i n x
+  | Just Refl <- testEquality i (knownNat @0)
+  = modList "select" params n (toList x)
+  | otherwise = any n -- TODO
 
 negate :: (1 <= w) => BVDomainParams -> NatRepr w -> BVDomain w -> BVDomain w
 negate params w d = fromList "negate" params w r
@@ -671,10 +680,6 @@ sext params uw x w = do
   case fProof of
     LeqProof -> fromList "sext" params w $ do
       signedToUnsignedRanges w (toSignedRanges uw x)
-
--- | Truncate a domain to a smaller domain.
-trunc :: (1 <= u, u+1 <= w) => BVDomainParams -> BVDomain w -> NatRepr u -> BVDomain u
-trunc params x w = modList "trunc" params w (toList x)
 
 -- | Complement bits in range.
 not :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w

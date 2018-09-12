@@ -1896,11 +1896,6 @@ appSMTExpr ae = do
           freshBoundTerm (BVTypeMap w') $ bvConcat (ite sgn ones zeros) x
         _ -> fail "invalid sign extension"
 
-    BVTrunc w' xe -> do
-      let w = bvWidth xe
-      x <- mkBaseExpr xe
-      freshBoundTerm (BVTypeMap w') $ bvExtract w 0 (natValue w') x
-
     BVBitNot w xe -> do
       x <- mkBaseExpr xe
       freshBoundTerm (BVTypeMap w) $ bvNot x
@@ -2029,7 +2024,7 @@ appSMTExpr ae = do
       freshBoundTerm (FloatTypeMap fpp)$ floatRound r xe
     FloatToBinary fpp@(FloatingPointPrecisionRepr eb sb) x -> do
       xe <- mkBaseExpr x
-      val <- asBase <$> (freshConstant "float_binary" $ FloatTypeMap fpp)
+      val <- asBase <$> (freshConstant "float_binary" $ BVTypeMap $ addNat eb sb)
       -- (assert (= ((_ to_fp eb sb) val) xe))
       addSideCondition "float_binary" $
         floatFromBinary (asSMTFloatPrecision fpp) val .== xe

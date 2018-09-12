@@ -109,7 +109,7 @@ data JVMHandleInfo where
 -- that is statically known during the class translation.
 data JVMContext = JVMContext
   { methodHandles :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
-      -- ^ map from static & dynamic methods to Crucible function handles      
+      -- ^ map from static & dynamic methods to Crucible function handles
   , staticFields :: Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
       -- ^ map from static field names to Crucible global variables
       -- we know about these fields at translation time so we can allocate
@@ -121,11 +121,11 @@ data JVMContext = JVMContext
   , dynamicClassTable :: GlobalVar JVMClassTableType
       -- ^ a global variable storing information about the class that can be
       -- used at runtime: includes initialization status, superclass (if any),
-      -- and a map from method names to their handles for dynamic dispatch                      
+      -- and a map from method names to their handles for dynamic dispatch
   }
 
 -- | left-biased merge of two contexts
--- NOTE: There should only ever be one dynamic class table global variable. 
+-- NOTE: There should only ever be one dynamic class table global variable.
 instance Semigroup JVMContext where
   c1 <> c2 =
     JVMContext
@@ -178,7 +178,7 @@ methodCFG :: J.Method -> J.CFG
 methodCFG method =
   case J.methodBody method of
     J.Code _ _ cfg _ _ _ _ -> cfg
-    _                      -> error ("Method " ++ show method ++ " has no body")  
+    _                      -> error ("Method " ++ show method ++ " has no body")
 
 ------------------------------------------------------------------------
 -- * Generator Monad
@@ -201,10 +201,10 @@ debug :: Int -> String -> JVMGenerator h s ret ()
 debug level mesg = do
   v <- use jsVerbosity
   when (level <= v) $ traceM mesg
-  
+
 ------------------------------------------------------------------
 
--- * JVMValue 
+-- * JVMValue
 projectVariant ::
   KnownRepr (Ctx.Assignment TypeRepr) ctx =>
   Ctx.Index ctx tp ->
@@ -317,7 +317,7 @@ gen_isJust expr =
 -- | Generate an expression that evaluates the function for
 -- each element of an array
 forEach_ :: (IsSyntaxExtension p, KnownRepr TypeRepr tp)
-            => Expr p s (VectorType tp) 
+            => Expr p s (VectorType tp)
             -> (Expr p s tp -> Generator p h s ret k ())
             -> Generator p h s ret k ()
 forEach_ vec body = do

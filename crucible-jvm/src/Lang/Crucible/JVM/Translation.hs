@@ -43,8 +43,8 @@ module Lang.Crucible.JVM.Translation
 -- base
 import Data.Maybe (maybeToList)
 import Data.Semigroup(Semigroup(..),(<>))
-import Control.Monad.State.Strict 
-import Control.Monad.ST  
+import Control.Monad.State.Strict
+import Control.Monad.ST
 import Control.Lens hiding (op, (:>))
 import Data.Int (Int32)
 import Data.Map.Strict (Map)
@@ -86,7 +86,7 @@ import qualified Lang.Crucible.Analysis.Postdom        as C
 
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
-import           What4.FunctionName 
+import           What4.FunctionName
 import qualified What4.Interface                       as W4
 import qualified What4.InterpretedFloatingPoint        as W4
 import qualified What4.Config                          as W4
@@ -108,6 +108,7 @@ import Debug.Trace
 --------------------------------------------------------------------------------
 
 -- * Special treatment of the Java standard library
+
 
 {- Class preparation (before translation):
      - allocate method handles (but do not yet translate methods)
@@ -134,11 +135,11 @@ import Debug.Trace
    be parsed by the jvm-parser code. So, those classes cannot be traversed to
    look for transitive mentions of other classes.
 
-   In that case, we need to define a set of "initClasses", i.e. 
+   In that case, we need to define a set of "initClasses", i.e.
    baseline primitives. These classes we declare only, but we make no
    guarantees that the classes that they refer to will also be
    available. Instead, we need to implement the functionality
-   from these classes via static or dynamic overrides. 
+   from these classes via static or dynamic overrides.
 
 -}
 
@@ -194,7 +195,7 @@ initClasses = [ "java/lang/System",
                 "java/util/Arrays",
                 
                 "sun/misc/FloatingDecimal",
-                
+
                 "java/io/PrintStream",
                 "java/io/FileOutputStream",
                 "java/io/OutputStream",
@@ -223,11 +224,12 @@ initClasses = [ "java/lang/System",
 
                 "java/lang/Thread",
                 "java/lang/Runtime"                
+
               ]
 
 
 -- | Class references that we shouldn't include in the transitive closure
---   of class references. 
+--   of class references.
 exclude :: J.ClassName -> Bool
 exclude cn = (J.unClassName cn) `elem` initClasses
           || ("java/nio/" `isPrefixOf` J.unClassName cn)
@@ -318,11 +320,11 @@ staticOverrides className methodKey
                         destObj  <- readRef rawDestRef
                         newDestObj <- arrayUpdate destObj (destPos + j) val
                         writeRef rawDestRef newDestObj
-                        
+
                         -- i++;
                         modifyReg iReg (1 +)
                         )
-                
+
   | className == "java/lang/System" && J.methodKeyName methodKey == "exit"
   = Just $ do _status <- iPop
               -- TODO: figure out how to exit the simulator
@@ -334,7 +336,7 @@ staticOverrides className methodKey
   -- System.gc is a NOP
   | className == "java/lang/System" && J.methodKeyName methodKey == "gc"
   = Just $ do return ()
-  
+
   --
   -- Do nothing for registering native state
   --
@@ -375,7 +377,7 @@ staticOverrides className methodKey
         _type <- rPop     -- Class<?>
         _unshared <- iPop -- boolean
         _obj <-  rPop
-        return ()  
+        return ()
 
       _ -> Nothing
   | className == "java/lang/Object" && J.methodKeyName methodKey == "hashCode"
@@ -399,7 +401,7 @@ staticOverrides className methodKey
     , ("java/lang/Short", J.ShortType)
     , ("java/lang/Integer", J.IntType)
     , ("java/lang/Long", J.LongType)
-    ]    
+    ]
   = Just $ do
       val <- popValue
       ref <- lift $ do
@@ -413,14 +415,14 @@ staticOverrides className methodKey
                   val
         rawRef <- newRef obj1
         return $ App (JustValue knownRepr rawRef)
-        
+
       rPush ref
 
   | otherwise = Nothing
-        
 
 
-  
+
+
 
 ----------------------------------------------------------------------
 -- * JVMRef
@@ -466,7 +468,7 @@ newJVMReg val =
     LValue v -> LReg <$> newReg v
     RValue v -> RReg <$> newReg v
 
--- | read a register tag the 
+-- | read a register tag the
 readJVMReg :: JVMReg s -> JVMGenerator h s ret (JVMValue s)
 readJVMReg reg =
   case reg of
@@ -727,18 +729,18 @@ nextPC pc =
        Just pc' -> return pc'
 
 
-  
+
 ----------------------------------------------------------------------
 
 pushRet ::
   forall h s ret tp. HasCallStack => TypeRepr tp -> Expr JVM s tp -> JVMStmtGen h s ret ()
-pushRet tp expr = 
+pushRet tp expr =
   tryPush dPush $
   tryPush fPush $
   tryPush iPush $
   tryPush lPush $
   tryPush rPush $
-  tryPush uPush $  
+  tryPush uPush $
   sgFail "pushRet: invalid type"
   where
     tryPush ::
@@ -749,7 +751,7 @@ pushRet tp expr =
       case testEquality tp (knownRepr :: TypeRepr t) of
         Just Refl -> push expr
         Nothing -> k
-  
+
 popArgument ::
   forall tp h s ret. HasCallStack => TypeRepr tp -> JVMStmtGen h s ret (Expr JVM s tp)
 popArgument tp =
@@ -865,7 +867,7 @@ generateInstruction (pc, instr) =
     J.Lneg  -> unaryGen lPop lPush lNeg
     J.Ldiv  -> binary lPop lPop lPush -- TODO: why was this lPush an error?
                -- there is also a special case when when dividend is maxlong
-               -- and divisor is -1 
+               -- and divisor is -1
                (\a b -> App (AddSideCondition (BaseBVRepr w64) (App (BVNonzero w64 b))
                              "java/lang/ArithmeticException"
                              (App (BVSdiv w64 a b))))
@@ -938,6 +940,7 @@ generateInstruction (pc, instr) =
     J.Putstatic fieldId -> do
       val <- popValue
       lift $ setStaticFieldValue fieldId val
+
 
     -- array creation
     J.Newarray arrayType -> do
@@ -1061,7 +1064,7 @@ generateInstruction (pc, instr) =
       do vs <- get
          lbl <- lift $ processBlockAtPC pc' vs
          lift $ jump lbl
-         
+
     J.Jsr _pc' -> sgFail "generateInstruction: jsr/ret not supported"
     J.Ret _idx -> sgFail "ret" --warning "jsr/ret not implemented"
 
@@ -1075,7 +1078,7 @@ generateInstruction (pc, instr) =
                                        ++ " unsupported for arrays"
 
     J.Invokevirtual   tp        _methodKey ->
-      sgFail $ "Invalid static type for invokevirtual " ++ show tp 
+      sgFail $ "Invalid static type for invokevirtual " ++ show tp
 
     -- Dynamic dispatch through an interface
     J.Invokeinterface className methodKey -> do
@@ -1091,17 +1094,17 @@ generateInstruction (pc, instr) =
 
       case (argTys, retTy) of
         (Some argRepr, Some retRepr) -> do
-            
+
             args <- popArguments argRepr
             objRef <- rPop
-            
+
             rawRef <- throwIfRefNull objRef
             result <- lift $ do
               obj    <- readRef rawRef
               cls    <- getJVMInstanceClass obj
               anym   <- findDynamicMethod cls methodKey
 
-              let argRepr' = (Ctx.empty `Ctx.extend` (knownRepr :: TypeRepr JVMRefType)) Ctx.<++> argRepr 
+              let argRepr' = (Ctx.empty `Ctx.extend` (knownRepr :: TypeRepr JVMRefType)) Ctx.<++> argRepr
               fn     <- assertedJustExpr (App (UnpackAny (FunctionHandleRepr argRepr' retRepr) anym))
                         (App $ TextLit $ fromString ("invalid method type:"
                                       ++ show (FunctionHandleRepr argRepr' retRepr)
@@ -1111,7 +1114,7 @@ generateInstruction (pc, instr) =
 
             pushRet retRepr result
             lift $ debug 2 $ "finish invoke:" ++ mname
-    
+
     J.Invokespecial   (J.ClassType methodClass) methodKey ->
       -- treat constructor invocations like static methods
       generateInstruction (pc, J.Invokestatic methodClass methodKey)
@@ -1119,7 +1122,7 @@ generateInstruction (pc, instr) =
     J.Invokespecial   tp _methodKey ->
       -- TODO
       sgUnimplemented $ "Invokespecial for " ++ show tp
-      
+
     J.Invokestatic    className methodKey
       | Just action <- staticOverrides className methodKey
       -- look for a static override for this class and run that
@@ -1145,7 +1148,7 @@ generateInstruction (pc, instr) =
     J.Freturn -> returnInstr fPop
     J.Dreturn -> returnInstr dPop
     J.Areturn -> returnInstr rPop --
-    J.Return  -> returnInstr (return (App EmptyApp)) 
+    J.Return  -> returnInstr (return (App EmptyApp))
 
     -- Other XXXXX
     J.Aconst_null ->
@@ -1165,6 +1168,7 @@ generateInstruction (pc, instr) =
          -- For now, we assert that exceptions won't happen
          lift $ reportError (App (TextLit "athrow"))
          --throw objectRef
+
          
     J.Checkcast ty  ->
       do objectRef <- rPop
@@ -1236,7 +1240,7 @@ binaryGen ::
 binaryGen pop1 pop2 push op =
   do value2 <- pop2
      value1 <- pop1
-     ret <- lift $ value1 `op` value2 
+     ret <- lift $ value1 `op` value2
      push ret
 
 
@@ -1385,7 +1389,7 @@ fConst f = App (FloatLit f)
 minInt :: JVMInt s
 minInt = App $ BVLit w32 (- (2 :: Integer) ^ (32 :: Int))
 
-minLong :: JVMLong s 
+minLong :: JVMLong s
 minLong = App $ BVLit w64 (- (2 :: Integer) ^ (64 :: Int))
 
 
@@ -1528,7 +1532,7 @@ packTypes (t : ts) ctx asgn =
         J.IntType     -> k IValue (knownRepr :: TypeRepr JVMIntType)
         J.LongType    -> k LValue (knownRepr :: TypeRepr JVMLongType)
         J.ShortType   -> k IValue (knownRepr :: TypeRepr JVMIntType)
-  
+
 initialJVMExprFrame :: HasCallStack =>
   J.ClassName ->
   J.Method ->
@@ -1613,7 +1617,7 @@ declareStaticField :: HandleAllocator s
     -> ST s StaticFieldTable
 declareStaticField halloc c m f = do
   let cn = J.className c
-  let fn = J.fieldName f 
+  let fn = J.fieldName f
   let fieldId = J.FieldId cn fn (J.fieldType f)
   let str = fn ++ show (J.fieldType f)
   gvar <- C.freshGlobalVar halloc (globalVarName cn str) (knownRepr :: TypeRepr JVMValueType)
@@ -1630,7 +1634,7 @@ extendJVMContext halloc c = do
   sm <- lift $ foldM (declareMethod halloc c) Map.empty (J.classMethods c)
   st <- lift $ foldM (declareStaticField halloc c) Map.empty (J.classFields c)
   modify $ \ctx0 -> JVMContext
-    { methodHandles     = sm 
+    { methodHandles     = sm
     , staticFields      = st
     , classTable        = Map.singleton (J.className c) c
     , dynamicClassTable = dynamicClassTable ctx0
@@ -1639,12 +1643,12 @@ extendJVMContext halloc c = do
 -- | Create the initial JVMContext
 mkInitialJVMContext ::  IsCodebase cb => HandleAllocator RealWorld -> cb -> IO JVMContext
 mkInitialJVMContext halloc cb = do
-  
+
   gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
                                 (knownRepr :: TypeRepr JVMClassTableType)
 
-        
-  classes <- mapM (findClass cb) initClasses 
+
+  classes <- mapM (findClass cb) initClasses
 
 
   stToIO $ execStateT
@@ -1655,7 +1659,7 @@ mkInitialJVMContext halloc cb = do
               , classTable        = Map.empty
               , dynamicClassTable = gv
               })
-  
+
 
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -1665,7 +1669,7 @@ translateMethod' :: JVMContext
                  -> J.Method
                  -> FnHandle args ret
                  -> ST h (C.SomeCFG JVM args ret)
-translateMethod' ctx verbosity cName m h =     
+translateMethod' ctx verbosity cName m h =
   case (handleArgTypes h, handleReturnType h) of
     ((argTypes :: CtxRepr args), (retType :: TypeRepr ret)) -> do
       let  def :: FunctionDef JVM h (JVMState ret) args ret
@@ -1704,7 +1708,7 @@ mkDelayedBindings ctx verbosity =
                                               , h <- maybeToList $ Map.lookup (cn,J.methodKey m)
                                                      (methodHandles ctx)
                                               ]
-  in                
+  in
     C.fnBindingsFromList bindings
 
 -- Make a binding for a Java method that, when invoked, immediately
@@ -1716,11 +1720,11 @@ mkDelayedBinding :: forall p sym .
                  -> J.Method
                  -> JVMHandleInfo
                  -> C.FnBinding p sym JVM
-mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args ret)) 
+mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args ret))
   = let cm           = J.unClassName (J.className c) ++ "/" ++ J.methodName m
         fn           = functionNameFromText (fromString (J.methodName m))
         retRepr      = handleReturnType handle
-        
+
         overrideSim :: C.OverrideSim p sym JVM r args ret (C.RegValue sym ret)
         overrideSim  = do whenVerbosity (> 3) $
                             do liftIO $ putStrLn $ "translating (delayed) "
@@ -1742,7 +1746,6 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
 
 findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
 findAllRefs cb cls = do
-
   names <- go (Set.singleton cls) 
   mapM (lookupClass cb) names
   where
@@ -1755,12 +1758,12 @@ findAllRefs cb cls = do
       traceM $ "Curr refs: " ++ show allNew
       if curr == allNew
         then return (Set.toList curr)
-        else go allNew 
+        else go allNew
 
 --------------------------------------------------------------------------------
 
 -- | Read from the provided java code base and simulate a
--- given static method. 
+-- given static method.
 --
 -- * Set the verbosity level for simulation
 -- * Find the class/method information from the codebase
@@ -1773,7 +1776,7 @@ executeCrucibleJVM :: forall ret args sym p cb.
    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType,
    KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
-                   => cb               
+                   => cb
                    -> Int               -- ^ Verbosity level
                    -> sym               -- ^ Simulator state
                    -> p                 -- ^ Personality
@@ -1782,6 +1785,7 @@ executeCrucibleJVM :: forall ret args sym p cb.
                    -> C.RegMap sym args -- ^ Arguments
                    -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 executeCrucibleJVM cb verbosity sym p cname mname args = do
+
      when (verbosity > 2) $
        putStrLn "starting executeCrucibleJVM"
   
@@ -1790,7 +1794,7 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      (mcls, meth) <- findMethod cb mname =<< findClass cb cname
      when (not (J.methodIsStatic meth)) $ do
        fail $ unlines [ "Crucible can only extract static methods" ]
-  
+
      allClasses <- findAllRefs cb (J.className mcls)
 
      halloc <- newHandleAllocator
@@ -1809,7 +1813,7 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
        $ "Checking args for method " ++ mname
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
        $ "Checking return type for method " ++ mname
-            
+
      runMethodHandle sym p halloc ctx verbosity (J.className mcls) h args
 
 
@@ -1818,10 +1822,10 @@ failIfNotEqual :: forall f m a (b :: k).
                     Show (f b), TestEquality f) => f a -> f b -> String -> m (a :~: b)
 failIfNotEqual r1 r2 str
   | Just Refl <- testEquality r1 r2 = return Refl
-  | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2 
+  | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
 
 
--- 
+--
 setSimulatorVerbosity :: (W4.IsSymExprBuilder sym) => Int -> sym -> IO ()
 setSimulatorVerbosity verbosity sym = do
   verbSetting <- W4.getOptionSetting W4.verbosity (W4.getConfiguration sym)
@@ -1855,7 +1859,7 @@ runClassInit halloc ctx verbosity name = do
       (SomeCFG g, []) <- defineFunction InternalPos h def
       return (toSSA g)
   C.callCFG g' (C.RegMap Ctx.Empty)
-  
+
 -- | Run a Java method in the simulator
 runMethodHandle :: (IsSymInterface sym,
                     W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
@@ -1879,7 +1883,7 @@ runMethodHandle sym p halloc ctx verbosity _classname h args = do
                  (mkDelayedBindings ctx verbosity)
                  javaExtImpl
                  p
-  let globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals     
+  let globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
   let simSt  = C.initSimState simctx globals C.defaultAbortHandler
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
@@ -1888,8 +1892,8 @@ runMethodHandle sym p halloc ctx verbosity _classname h args = do
   C.executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
 
 
-      
-      
+
+
 
 
 
@@ -1900,7 +1904,7 @@ runMethodHandle sym p halloc ctx verbosity _classname h args = do
 -- saw-script will want to transition to the code base in this package,
 -- but it will need to eliminate uses of the old jvm-verifier first.
 class IsCodebase cb where
- 
+
    lookupClass :: cb -> J.ClassName -> IO J.Class
 
    findMethod :: cb -> String -> J.Class -> IO (J.Class,J.Method)
@@ -1914,7 +1918,7 @@ class IsCodebase cb where
 
 instance IsCodebase JCB.Codebase where
 
-   lookupClass = cbLookupClass 
+   lookupClass = cbLookupClass
 
    -- | Returns method with given name in this class or one of its subclasses.
    -- Throws an ExecException if method could not be found or is ambiguous.
@@ -1965,7 +1969,7 @@ throwFieldNotFound tp fieldName = throwE msg
 -- | Throw exec exception in a MonadIO.
 throwIOExecException :: String -> String -> IO a
 throwIOExecException errorMsg resolution = liftIO $ throwE $ errorMsg ++ "\n" ++ resolution
-          
+
 
 findField :: JCB.Codebase -> J.Type -> String -> IO J.FieldId
 findField _  tp@(J.ArrayType _) nm = throwFieldNotFound tp nm

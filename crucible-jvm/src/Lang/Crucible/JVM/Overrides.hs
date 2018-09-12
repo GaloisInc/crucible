@@ -119,13 +119,13 @@ allParameterTypes className isStatic m
   | isStatic  = J.methodKeyParameterTypes m
   | otherwise = J.ClassType className : J.methodKeyParameterTypes m
 
-addThisAndUnit :: Bool -> [Some TypeRepr] -> [Some TypeRepr] 
+addThisAndUnit :: Bool -> [Some TypeRepr] -> [Some TypeRepr]
 addThisAndUnit isStatic args =
   (if isStatic then [] else [Some refRepr]) ++
   (case args of
      [] -> [Some UnitRepr]
      _  -> args)
-    
+
 
 -- | Translate the types of the method
 jvmToFunHandleRepr ::
@@ -226,7 +226,7 @@ build_jvm_override sym fnm args ret args' ret' llvmOverride =
 
 register_jvm_override :: forall p sym l a rtp
                        . (IsSymInterface sym)
-                      => JVMOverride p sym 
+                      => JVMOverride p sym
                       -> StateT JVMContext (C.OverrideSim p sym JVM rtp l a) ()
 register_jvm_override (JVMOverride { jvmOverride_className=cn
                                      , jvmOverride_methodKey=mk
@@ -237,9 +237,9 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
   jvmctx <- get
 
   let fnm = methodHandleName cn mk
-  
+
   sym <- lift $ C.getSymInterface
-  
+
 
   jvmToFunHandleRepr isStatic mk  $ \derivedArgs derivedRet -> do
     o <- lift $ build_jvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet (def sym)
@@ -261,7 +261,7 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
                    ]
                Just Refl -> lift $ C.bindFnHandle h (C.UseOverride o)
       Nothing ->
-        do 
+        do
            ctx <- lift $ use C.stateContext
            let ha = C.simHandleAllocator ctx
            h <- lift $ liftST $ mkHandle' ha fnm derivedArgs derivedRet
@@ -295,7 +295,7 @@ gc_override =
 -- figure out what it is.
 -- Essentially, this is a generalization of the `W4.asInteger`, `W4.asSignedBV`
 -- etc. operations.
--- 
+--
 
 
 -- Haskell representation of JVM symbolic values
@@ -327,7 +327,7 @@ data CClass =
 
 
 ------------------------------------------------------------------
--- 
+--
 -- | Convert a concrete value to text
 --
 class ToText a where
@@ -350,17 +350,17 @@ toCharVec vec = traverse (\jv -> case jv of
                                    (Just (CInt x)) -> Just (chr x)
                                    _               -> Nothing) vec
 
--- 
+--
 -- | We don't try to call the toString method for objects
 --   maybe we should
 instance ToText CObject where
-  totexts (CInstance (fields, cls)) f 
+  totexts (CInstance (fields, cls)) f
     | cclassName cls == "java/lang/String"
     , Just (Just (CRef (Just (CArray vec)))) <- Map.lookup "java/lang/String.value" fields
     , Just chars <- toCharVec vec
     = pack (V.toList chars) <> f
   totexts (CInstance (fields, cls)) f
-    -- do not text out non-String objects. 
+    -- do not text out non-String objects.
     -- TODO: what about primitives such as java.lang.Integer?
     = pack ("<instance of ") <> cclassName cls <> (pack ">") <> f
   totexts (CArray vec) f
@@ -377,7 +377,7 @@ instance ToText (Maybe CObject) where
 -- | Convert a register value with a crucible type to a Haskell
 --   version, if it is indeed a concrete value
 class Concretize (a :: CrucibleType) where
-  
+
   type Concrete a
   concretize :: (IsBoolSolver sym, W4.IsSymExprBuilder sym,
                  W4.IsInterpretedFloatSymExprBuilder sym,
@@ -411,7 +411,7 @@ instance Concretize JVMRefType where
                       _ -> return Nothing)
             (return (Just Nothing)) v
 
-      
+
 instance Concretize JVMArrayType where
   type Concrete JVMArrayType = Vector (Maybe CValue)
   concretize (C.RV x) = do
@@ -448,7 +448,7 @@ instance Concretize JVMClassType where
     let imp        = (C.unroll x) Ctx.! Ctx.i2of5
     imp' <- concretize @JVMInitStatusType imp
     return (MkClass <$> W4.asString sn <*> imp')
-    
+
 
 instance Concretize JVMObjectType where
   type Concrete JVMObjectType = CObject
@@ -469,11 +469,11 @@ data Dispatch m sym b a = Dispatch { apply :: (C.RegValue sym a -> m (Maybe b)) 
 variantCase :: forall b sym ctx m. Monad m =>
                Ctx.Assignment (C.VariantBranch sym) ctx ->
                Ctx.Assignment (Dispatch m sym b) ctx ->
-               m (Maybe b)               
+               m (Maybe b)
 variantCase variant cases =
   case Ctx.viewAssign variant of
     Ctx.AssignEmpty -> return $ Nothing
-    Ctx.AssignExtend variant' (part::C.VariantBranch sym tp) -> 
+    Ctx.AssignExtend variant' (part::C.VariantBranch sym tp) ->
       let (cases', (fd::Dispatch m sym b tp)) = Ctx.decompose cases in
       foldr (\(a::C.RegValue sym tp) (mb :: m (Maybe b)) -> do
                x1 <- apply fd a
@@ -488,7 +488,7 @@ variantCase variant cases =
 
 --
 -- | Print out an integer represented value (if it is concrete)
--- Needs access to the original Java type 
+-- Needs access to the original Java type
 showInt :: (W4.IsExpr e, 1 <= w) => J.Type -> e (BaseBVType w) -> String
 showInt jty e = case W4.asSignedBV e of
               Just i  -> case jty of
@@ -507,7 +507,7 @@ showFloat :: (W4.IsExpr e) => e BaseRealType -> String
 showFloat e = case W4.asRational e of
   Just rat -> show (fromRational rat :: Double)
   Nothing -> show $ W4.printSymExpr e
-  
+
 --
 -- | Print out an object value (if it is concrete)
 -- For now: only String objects
@@ -515,7 +515,7 @@ showFloat e = case W4.asRational e of
 showRef :: (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
             W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
             W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-   W4.PartExpr (W4.SymExpr sym BaseBoolType) (C.MuxTree sym (RefCell JVMObjectType)) 
+   W4.PartExpr (W4.SymExpr sym BaseBoolType) (C.MuxTree sym (RefCell JVMObjectType))
    -> C.OverrideSim p sym JVM rtp args ret String
 showRef pe = do
     cr <- concretize @JVMRefType (C.RV pe)
@@ -526,7 +526,7 @@ showRef pe = do
 
 -- | Convert a register value to a string
 -- Won't necessarily look like a standard types
-showReg :: forall sym arg p rtp args ret. 
+showReg :: forall sym arg p rtp args ret.
            (IsSymInterface sym,
             W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
             W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
@@ -534,20 +534,20 @@ showReg :: forall sym arg p rtp args ret.
   C.RegValue sym arg -> C.OverrideSim p sym JVM rtp args ret String
 showReg jty repr arg
   | Just Refl <- testEquality repr doubleRepr
-  = return $ showFloat arg 
-      
+  = return $ showFloat arg
+
   | Just Refl <- testEquality repr floatRepr
   = return $ showFloat arg
 
   | Just Refl <- testEquality repr intRepr
   = return $ showInt jty arg
-  
+
   | Just Refl <- testEquality repr longRepr
   = return $ showInt jty arg
-  
+
   | Just Refl <- testEquality repr refRepr
   = showRef arg
-  
+
   | otherwise
   = error "Internal error: invalid regval type"
 
@@ -608,7 +608,7 @@ printStream name showNewline descr t =
                 , jvmOverride_ret=UnitRepr
                 , jvmOverride_def=
                   \_sym args -> do
-                    let arg = Ctx.last args 
+                    let arg = Ctx.last args
                     h   <- C.printHandle <$> C.getContext
                     str <- case t of
                       UnitRepr -> return ""
@@ -667,7 +667,7 @@ isArray_override =
                     let reg :: W4.PartExpr (W4.Pred sym) (C.MuxTree sym (RefCell JVMObjectType))
                         reg = C.regValue (Ctx.last args)
                     bvFalse <- liftIO $ return $ W4.bvLit sym knownRepr 0
-{-                    
+{-
                     let k :: RefCell JVMObjectType -> IO (W4.SymBV sym 32)
                         k = undefined
                     let h :: W4.Pred sym -> (W4.SymBV sym 32) -> (W4.SymBV sym 32) -> IO (W4.SymBV sym 32)
@@ -687,8 +687,8 @@ stdOverrides ::
    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
   [JVMOverride p sym]
-stdOverrides = 
-   [  printlnMthd "()V"   UnitRepr 
+stdOverrides =
+   [  printlnMthd "()V"   UnitRepr
       -- printStreamUnit "println" True -- TODO: methods that take no arguments?
     , printlnMthd "(Z)V"  intRepr
     , printlnMthd "(C)V"  intRepr  -- TODO: special case for single char, i.e. binary output
@@ -696,26 +696,26 @@ stdOverrides =
     , printlnMthd "(D)V"  doubleRepr
     , printlnMthd "(F)V"  floatRepr
     , printlnMthd "(I)V"  intRepr
-    , printlnMthd "(J)V"  longRepr 
+    , printlnMthd "(J)V"  longRepr
     , printlnMthd "(Ljava/lang/Object;)V" refRepr -- TODO: object toString
     , printlnMthd "(Ljava/lang/String;)V" refRepr -- TODO: String objects
-    
-    , printMthd "()V"   UnitRepr 
-    -- , printStreamUnit "print" False 
+
+    , printMthd "()V"   UnitRepr
+    -- , printStreamUnit "print" False
     , printMthd "(Z)V"  intRepr
     , printMthd "(C)V"  intRepr  -- TODO: special case for single char, i.e. binary output
     , printMthd "([C)V" refRepr  -- TODO: array of chars
     , printMthd "(D)V"  doubleRepr
     , printMthd "(F)V"  floatRepr
     , printMthd "(I)V"  intRepr
-    , printMthd "(J)V"  longRepr 
+    , printMthd "(J)V"  longRepr
     , printMthd "(Ljava/lang/Object;)V" refRepr -- TODO: object toString
     , printMthd "(Ljava/lang/String;)V" refRepr -- TODO: String objects
 
     , flush_override
 --    , gc_override
     , fillInStackTrace_override
-    ] 
+    ]
 
 {-
 callPutChar
@@ -737,7 +737,7 @@ callPrintStream
   => sym
   -> C.RegEntry sym (JVMValue s)
   -> C.OverrideSim p sym JVM r args ret (RegValue sym (BVType 32))
-callPrintStream sym 
+callPrintStream sym
   (regValue -> strPtr) = do
       ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
       h <- printHandle <$> getContext
@@ -746,7 +746,7 @@ callPrintStream sym
 
 {-
   ( "java/io/PrintStream"
-                    , 
+                    ,
                     , MethodBody knownRepr (knownRepr :: TypeRepr UnitType) $
                       -- ReaderT (SimState p sym ext r f a) IO (ExecState p sym ext r)
                       do state <- ask
@@ -792,18 +792,18 @@ printStream _ _ _ = abort $ "Unable to print more than one argument"
 {-
 
 data MethodBody p sym = forall (args :: Ctx CrucibleType) (ret :: CrucibleType).
-  MethodBody 
+  MethodBody
     (CtxRepr args)
     (TypeRepr ret)
     (forall r. C.ExecCont p sym JVM r (C.OverrideLang ret) (Just args))
-  
+
 
 overrideInstanceMethod :: HandleAllocator s -> J.ClassName -> J.MethodKey -> MethodBody p sym ->
    ST s (C.FnBinding p sym JVM)
 overrideInstanceMethod halloc cn mk (MethodBody argsRepr retRepr code) = do
    let funName = fromString (J.unClassName cn ++ "." ++ J.methodKeyName mk)
    handle <- mkHandle' halloc funName argsRepr retRepr
-   let override = C.Override funName code 
+   let override = C.Override funName code
    return $ C.FnBinding handle (C.UseOverride override)
 
 overrideStaticMethod = undefined
@@ -984,11 +984,11 @@ stdOverrides halloc = do
       , \args -> error "TODO: look at static simulator code"
       )
     , ( "java/lang/System", J.makeMethodKey "nanoTime" "()J", \ _ -> do
-          dbugM "warning: long java.lang.System.nanoTime() always returns 0 during symbolic execution" 
+          dbugM "warning: long java.lang.System.nanoTime() always returns 0 during symbolic execution"
           pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0)
       )
     , ( "java/lang/System", J.makeMethodKey "currentTimeMillis" "()J", \ _ -> do
-          whenVerbosity (>=2) 
+          whenVerbosity (>=2)
           pushValue =<< withSBE (\sbe -> LValue <$> termLong sbe 0)
       )
     , ( "java/lang/System", J.makeMethodKey "identityHashCode" "(Ljava/lang/Object;)I", \ _ -> do
