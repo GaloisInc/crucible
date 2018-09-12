@@ -138,36 +138,11 @@ import Debug.Trace
    In that case, we need to define a set of "initClasses", i.e.
    baseline primitives. These classes we declare only, but we make no
    guarantees that the classes that they refer to will also be
-   available. Instead, we need to implement the functionality
+   available. Instead, we need to implement the *native* functionality
    from these classes via static or dynamic overrides.
 
 -}
 
-{-
-data Primitive h s ret p sym = Primitive
-                 {  className          :: J.ClassName
-                 ,  static_overrides   :: J.MethodKey -> Maybe (JVMStmtGen h s ret ())
-                 ,  dynamic_overrides  :: [JVMOverride p sym]
-                 }
-
-
-java_lang_Object :: Primitive h s ret
-java_lang_Object = Primitive
-  { className = J.mkClassName "java/lang/Object"
-  , static_overrides = \methodKey ->
-     case J.methodKeyName methodKey of
-
-       "<clinit>" ->
-            Just $ return ()
-
-       "hashCode" ->
-            Just $ do
-             -- TODO: hashCode always returns 0, can we make it be an "abstract" int?
-             iPush (App $ BVLit knownRepr 0)
-             
-  , dynamic_overrides = []
-  }
--}
 
 -- | Classes that are always loaded into the initial
 -- environment. These classes rely on native code that cannot be
@@ -1641,19 +1616,13 @@ extendJVMContext halloc c = do
     } <> ctx0
 
 -- | Create the initial JVMContext
-mkInitialJVMContext ::  IsCodebase cb => HandleAllocator RealWorld -> cb -> IO JVMContext
-mkInitialJVMContext halloc cb = do
+mkInitialJVMContext :: HandleAllocator RealWorld -> IO JVMContext
+mkInitialJVMContext halloc = do
 
   gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
                                 (knownRepr :: TypeRepr JVMClassTableType)
 
-
-  classes <- mapM (findClass cb) initClasses
-
-
-  stToIO $ execStateT
-             (mapM_ (extendJVMContext halloc) classes)
-             (JVMContext
+  return (JVMContext
               { methodHandles     = Map.empty
               , staticFields      = Map.empty
               , classTable        = Map.empty
@@ -1799,12 +1768,17 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
 
      halloc <- newHandleAllocator
 
+     -- Create the initial JVMContext
+     ctx0 <- mkInitialJVMContext halloc 
+
      -- declare the "primitive" classes
-     ctx0 <- mkInitialJVMContext halloc cb
+     classes <- mapM (findClass cb) initClasses
+     ctx1 <- stToIO $ execStateT
+             (mapM_ (extendJVMContext halloc) classes) ctx0
 
      -- declare this class && all classes that it refers to
      ctx <- stToIO $ execStateT (extendJVMContext halloc mcls >>
-                                 mapM (extendJVMContext halloc) allClasses) ctx0
+                                 mapM (extendJVMContext halloc) allClasses) ctx1
 
 
      (JVMHandleInfo _ h) <- findMethodHandle ctx mcls meth
@@ -1898,8 +1872,8 @@ runMethodHandle sym p halloc ctx verbosity _classname h args = do
 
 
 
--- | A type class for what we need from a java code base This is here
--- b/c we have two copies of the Codebase module, the one in this
+-- | A type class for what we need from a java code base
+-- This is here b/c we have two copies of the Codebase module, the one in this
 -- package and the one in the jvm-verifier package. Eventually,
 -- saw-script will want to transition to the code base in this package,
 -- but it will need to eliminate uses of the old jvm-verifier first.
