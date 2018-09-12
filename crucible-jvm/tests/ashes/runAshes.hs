@@ -28,33 +28,6 @@ skipList    = [  -- SCW: yep slow
                  "ashesJSuite/benchmarks/symjpack-t"
               ,  "jikesDerekTestSuite/benchmarks/testFieldAccess"
               ,  "ashesHardTestSuite/benchmarks/matrix"
-
-              --  StringBuffer
-              , "jikesDerekTestSuite/benchmarks/testInstanceOf"
-              
-              -- slow because of StringBuffer class???
-              , "sootRegressionSuite/benchmarks/fixedBug-aggregation6"
-              , "kaffeRegressionSuite/broken/TestNative"
-              , "kaffeRegressionSuite/benchmarks/tname"
-              , "kaffeRegressionSuite/benchmarks/intfTest"
-              , "kaffeRegressionSuite/benchmarks/str2"
-              , "kaffeRegressionSuite/benchmarks/str"
-              , "ashesEasyTestSuite/benchmarks/simple54"
-              , "ashesEasyTestSuite/benchmarks/factorial"
-              , "ashesEasyTestSuite/benchmarks/fahrenheit"
-              ,  "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
-              , "kaffeRegressionSuite/benchmarks/tthrd1"
-              , "jikesPrTestSuite/benchmarks/pr209"
-              , "jikesPrTestSuite/benchmarks/pr138"
-              , "jikesPrTestSuite/benchmarks/pr236b"
-              , "jikesPrTestSuite/benchmarks/pr172"
-              --
-              , "kaffeRegressionSuite/benchmarks/moduloTest"
-              , "kaffeRegressionSuite/benchmarks/testIntLong"
-              , "jikesDerekTestSuite/benchmarks/testStackAccess"
-              
-              -- stringbuffer, but failed before
-              , "kaffeRegressionSuite/benchmarks/doublePrint"
                 
                  -- The following are very slow
               ,  "ashesHardTestSuite/benchmarks/illness"
@@ -65,23 +38,21 @@ skipList    = [  -- SCW: yep slow
               , "ashesJSuite/benchmarks/jpat-p"
               ]
 expFailList = [
-    -- uses StringBuffer class (these are not actually run as they hang)
-    "ashesEasyTestSuite/benchmarks/simple54"
-  , "ashesEasyTestSuite/benchmarks/factorial"
-  , "ashesEasyTestSuite/benchmarks/fahrenheit"
-  ,  "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
-  , "kaffeRegressionSuite/benchmarks/tthrd1"
-  , "jikesPrTestSuite/benchmarks/pr209"
-  , "jikesPrTestSuite/benchmarks/pr138"
-  , "jikesPrTestSuite/benchmarks/pr236b"
-  , "jikesPrTestSuite/benchmarks/pr172"
-    -- was illegal index (now too slow)
-  , "kaffeRegressionSuite/benchmarks/moduloTest"
-  , "kaffeRegressionSuite/benchmarks/testIntLong"
-
+  
+     -- still failing (fixed StringBuffer, uncovered new bugs)
+      "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+    , "kaffeRegressionSuite/broken/TestNative"
+    , "kaffeRegressionSuite/benchmarks/tthrd1"
+    , "kaffeRegressionSuite/benchmarks/tname"
+    , "kaffeRegressionSuite/benchmarks/str"
+    , "ashesEasyTestSuite/benchmarks/fahrenheit"
+    , "jikesPrTestSuite/benchmarks/pr138"
+    , "jikesPrTestSuite/benchmarks/pr172"
+    -- needs: Double.doubleToRawLongBits
+    , "kaffeRegressionSuite/benchmarks/doublePrint"
   
   -- tests length of args during simulation (npe)
-  , "kaffeRegressionSuite/benchmarks/initTest"
+    , "kaffeRegressionSuite/benchmarks/initTest"
   -- needs args (commandline argument)
   , "jikesDerekTestSuite/benchmarks/sort"
 
@@ -314,6 +285,7 @@ runTest verbosity file = do
 runFind :: String -> String -> IO [String]
 runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
+
 {-
 main :: IO ()
 main = wip
@@ -339,9 +311,9 @@ wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
   
-  let testCase = "ashesEasyTestSuite/benchmarks/life"
+  let testCase = "jikesPrTestSuite/benchmarks/pr209"
 
-  result <- runTest 3 $ top ++ testCase ++ "/mainClass"
+  result <- runTest 5 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
 
