@@ -1102,7 +1102,6 @@ generateInstruction (pc, instr) =
              lift $ debug 2 $ "invoke static: " ++ mname
              action
       
-
       | otherwise -> 
         -- make sure that *this* class has already been initialized
         do lift $ initializeClass className
@@ -1125,51 +1124,40 @@ generateInstruction (pc, instr) =
     -- Other XXXXX
     J.Aconst_null ->
       do rPush rNull
+         
     J.Arraylength ->
       do arrayRef <- rPop
          rawRef <- throwIfRefNull arrayRef
          obj <- lift $ readRef rawRef
          len <- lift $ arrayLength obj
          iPush len
+         
     J.Athrow ->
-      do _objectRef <- rPop
+      do objectRef <- rPop
+         throwIfRefNull objectRef
+         
          -- For now, we assert that exceptions won't happen
          lift $ reportError (App (TextLit "athrow"))
-         --throwIfRefNull objectRef
          --throw objectRef
          
     J.Checkcast ty  ->
       do objectRef <- rPop
          lift $ checkCast objectRef ty
-{-         lift $ caseMaybe_ objectRef 
-           MatchMaybe
-           { onNothing = return ()
-           , onJust  = \rawRef -> do
-               obj <- readRef rawRef
-               cls <- getJVMInstanceClass obj
-               b <- isSubType cls className 
-               assertExpr b "java/lang/ClassCastException"
-           } -}
          rPush objectRef
 
---    J.Checkcast (J.ArrType elemType) ->
-      -- TODO -- can we cast arrays?
---      sgUnimplemented $ "checkcast unimplemented for type: " ++ show tp
     J.Iinc idx constant ->
       do value <- getLocal idx >>= lift . fromIValue
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
+         
     J.Instanceof tTy ->
       do objectRef <- rPop
          rawRef <- throwIfRefNull objectRef
          obj <- lift $ readRef rawRef
          sTy <- lift $ getObjectType obj
          b <- lift $ isSubType sTy tTy
-         let ib = App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
-         iPush ib
---    J.Instanceof _tp ->
-         -- TODO -- ArrayType
---         sgUnimplemented "instanceof for array type" -- objectRef `instanceOf` tp
+         iPush $ App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
+
     J.Monitorenter ->
       do void rPop
     J.Monitorexit ->

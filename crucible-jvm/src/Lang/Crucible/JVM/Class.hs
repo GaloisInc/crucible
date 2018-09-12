@@ -584,12 +584,12 @@ makeJVMTypeRep :: J.Type -> JVMGenerator h s ret (JVMTypeRep s)
 makeJVMTypeRep ty =
   case ty of 
     J.ArrayType ety -> makeArrayTypeRep <$> makeJVMTypeRep ety
-    J.ClassType cn -> makeClassTypeRepByName cn
+    J.ClassType cn  -> makeClassTypeRepByName cn
     _ -> case primIndex ty of
            Just x ->
               return $ App $ RollRecursive knownRepr knownRepr (App $ InjectVariant knownRepr Ctx.i3of3 x) 
            Nothing ->
-              jvmFail $ "impossible"
+              jvmFail $ "BUG: impossible case"
               
 
 
@@ -610,11 +610,13 @@ getObjectType obj =
       -- must be an array object
       let marr = App $ ProjectVariant knownRepr Ctx.i2of2 unr
       arr <- assertedJustExpr marr "must be instance or array"
-      let ety  = App $ GetStruct arr Ctx.i3of3 knownRepr
-      return (makeArrayTypeRep ety)
+      return $ App $ GetStruct arr Ctx.i3of3 knownRepr
   }      
   
 
+-- | Generated a checkedcast instruction by reading the dynamic
+-- type of the reference and comparing it against the provided
+-- type
 checkCast :: JVMRef s -> J.Type -> JVMGenerator h s ret ()
 checkCast objectRef ty = 
   caseMaybe_ objectRef 
@@ -624,7 +626,7 @@ checkCast objectRef ty =
       obj <- readRef rawRef
       tyr <- getObjectType obj
       b   <- isSubType tyr ty
-      assertExpr b "java/lang/ClassCastException"
+      assertExpr b $ fromString ("java/lang/ClassCastException (" ++ show ty ++ ")" )
   }
 
 -- Classes and interfaces that are supertypes of array types
@@ -633,19 +635,27 @@ arraySuperTypes :: [J.ClassName]
 arraySuperTypes = map J.mkClassName ["java/lang/Object", "java/lang/Cloneable", "java/io/Serializable"]
 
 -- | Test whether the dynamic class is a subtype of the given class name or interface name
+-- NEED TO MAKE THIS A WHILE LOOP
+-- NO: type tyT should decrease on each recursive call
 isSubType :: JVMTypeRep s -> J.Type -> JVMGenerator h s ret (Expr JVM s BoolType)
-isSubType tyS tyT = 
-  let unr = App $ UnrollRecursive knownRepr knownRepr tyS in
+isSubType tyS tyT = do
+  debug 3 $ "isSubtype called with " ++ show tyT
+  let unr = App $ UnrollRecursive knownRepr knownRepr tyS 
   caseMaybe (App $ ProjectVariant knownRepr Ctx.i1of3 unr) knownRepr
-  MatchMaybe
-  { onJust    = \sc ->  -- S is an array type
-      case tyT of
-        (J.ClassType name) -> return (App $ BoolLit (name `elem` arraySuperTypes))
-        (J.ArrayType tc)   -> isSubType sc tc
-        _ -> return (App $ BoolLit False) 
-  , onNothing = caseMaybe (App $ ProjectVariant knownRepr Ctx.i2of3 unr) knownRepr
     MatchMaybe
-    { onJust  = \scls -> -- S is an object type
+    { onJust    = \sc -> do  -- S is an array type
+      -- addPrintStmt (App $ TextLit (fromString ("isSubtype (array): " ++ show tyT ++ "\n")))        
+      case tyT of
+        (J.ClassType name) ->
+          return (App $ BoolLit (name `elem` arraySuperTypes))
+        (J.ArrayType tc)   -> do
+          -- contravariant arrays, sigh
+          isSubType sc tc
+        _ -> return (App $ BoolLit False) 
+    , onNothing = caseMaybe (App $ ProjectVariant knownRepr Ctx.i2of3 unr) knownRepr
+      MatchMaybe
+      { onJust  = \scls -> do -- S is an object type
+        --addPrintStmt (App $ TextLit (fromString ("isSubtype (class): " ++ show tyT ++ "\n")))          
         case tyT of
           (J.ClassType name) -> do
               b1 <- scls `implements` name
@@ -653,14 +663,15 @@ isSubType tyS tyT =
               return $ App $ Or b1 b2
           _ -> return (App $ BoolLit False)
 
-    , onNothing = do
+      , onNothing = do
         -- primitive type
+        -- addPrintStmt (App $ TextLit (fromString ("isSubtype (prim): " ++ show tyT ++ "\n")))          
         val <- assertedJustExpr (App $ ProjectVariant knownRepr Ctx.i3of3 unr) "isSubType: impossible"
         case primIndex tyT of
           Just x  -> return (App $ BVEq knownRepr val x)
           Nothing -> return (App $ BoolLit False)
+      }
     }
-  }
 
 
 -- | Test whether the given class implements the given interface name
@@ -868,8 +879,10 @@ newarrayExpr ::
   -> Expr JVM s JVMValueType
   -- ^ Initial value for all array elements
   -> J.Type
+  -- ^ type of array (not of elements)
   -> JVMGenerator h s ret (JVMObject s)
 newarrayExpr count val jty = do
+  debug 4 $ "new array of type " ++ show jty
   let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
   ty  <- makeJVMTypeRep jty
   let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec `Ctx.extend` ty
@@ -879,17 +892,21 @@ newarrayExpr count val jty = do
 
 newMultiArray ::
   J.Type
+  -- ^ type of the array to create
   -> [JVMInt s]
+  -- ^ list of dimension of the array (must be nonempty)
+  -- each int must be nonnegative
   -> JVMGenerator h s ret (JVMObject s)
-newMultiArray arrType counts = loop arrType counts
+newMultiArray arrType counts = do
+    loop arrType counts
   where
     loop :: J.Type -> [JVMInt s] -> JVMGenerator h s ret (JVMObject s)
     loop _ [] = jvmFail "newMultiArray: need at least one dimension"
     loop (J.ArrayType elemType) [count] =
-        newarrayExpr count (valueToExpr $ defaultValue elemType) elemType
+        newarrayExpr count (valueToExpr $ defaultValue elemType) arrType
     loop (J.ArrayType elemType) (count:rest) = do
         let nul = valueToExpr $ RValue $ App $ NothingValue knownRepr
-        arr0 <- newarrayExpr count nul elemType
+        arr0 <- newarrayExpr count nul arrType
         arrRef <- newRef arr0
         iterate_ count $ \i -> do
           arr   <- readRef arrRef 

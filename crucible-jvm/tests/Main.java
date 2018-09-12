@@ -1,25 +1,22 @@
 
+class A {
+    int z = 0;
+}
+
 public class Main
-{
-    static int count = 0;
-    
+{    
     public static void main(String[] args)
-    {   
-        int value = changeCount();
-        int[] a = new int[2];
-        
-        a[count] = value;
-                
-        System.out.println(a[0] + ":" + a[1]);
+    {
+	A[] x = { new A() };
+
+	Object y = x;
+
+	Object[] z = (A[])y;
+
+	System.out.println(z[0]);
+
+	
     }
     
-    public static int sum(int x, int y)
-    {
-        return x * 2 + y;
-    }
-    
-    public static int changeCount()
-    {
-        return ++count; 
-    }
+ 
 }

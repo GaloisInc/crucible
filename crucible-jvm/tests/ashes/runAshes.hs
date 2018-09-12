@@ -29,7 +29,7 @@ skipList    = [  -- SCW: yep slow
               ,  "jikesDerekTestSuite/benchmarks/testFieldAccess"
               ,  "ashesHardTestSuite/benchmarks/matrix"
 
-              -- instanceOf???
+              -- instanceOf??? or still StringBuffer
               , "jikesDerekTestSuite/benchmarks/testInstanceOf"
               
               -- slow because of StringBuffer class???
@@ -119,12 +119,12 @@ expFailList = [
 
   
   -- unimplemented: CheckCast for array
-  , "jikesHpjTestSuite/benchmarks/checkcast1"
+  --, "jikesHpjTestSuite/benchmarks/checkcast1"
   
     -- unimplemented: instanceof for array
-  , "jikesHpjTestSuite/benchmarks/instance1"
-  , "jikesHpjTestSuite/benchmarks/instance"
-  , "jikesDerekTestSuite/benchmarks/testInstanceOf"
+--  , "jikesHpjTestSuite/benchmarks/instance1"
+--  , "jikesHpjTestSuite/benchmarks/instance"
+--  , "jikesDerekTestSuite/benchmarks/testInstanceOf"
   
     -- Strange parsing issue: trying to load native code
     -- needs more than we are currently providing
@@ -342,15 +342,19 @@ main = do
     results
   printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
     results
-    
+  
 
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
---  let testCase = "jikesHpjTestSuite/benchmarks/checkcast7"
---  let testCase = "jikesPrTestSuite/benchmarks/pr199j"
---  let testCase = "jikesHpjTestSuite/benchmarks/implement"
-  let testCase = "jikesHpjTestSuite/benchmarks/array1"
+  -- Checkedcast fails for ((Truck[])vv) when vv has dynamic type Truck[]
+  -- let testCase = "jikesHpjTestSuite/benchmarks/checkcast1"
+
+  -- Checkedcast fails for (cost[])
+  let testCase = "jikesHpjTestSuite/benchmarks/instance"
+  
+  -- null dereference for (ta instanceof Truck[]) ??
+  -- let testCase = "jikesHpjTestSuite/benchmarks/instance1"
 
 
   result <- runTest 3 $ top ++ testCase ++ "/mainClass"
