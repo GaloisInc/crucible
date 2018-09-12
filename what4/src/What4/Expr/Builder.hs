@@ -5078,7 +5078,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   floatMax = floatIEEEArithBinOp FloatMax
   floatFMA sym r x y z =
     let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatFMA fpp r x y z
-  floatEq = floatIEEELogicBinOp FloatEq
+  floatEq sym x y
+    | x == y = return $! truePred sym
+    | otherwise = (floatIEEELogicBinOp FloatEq) sym x y
   floatNe sym x y = notPred sym =<< floatEq sym x y
   floatFpEq = floatIEEELogicBinOp FloatFpEq
   floatFpNe = floatIEEELogicBinOp FloatFpNe
@@ -5086,8 +5088,13 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   floatLt = floatIEEELogicBinOp FloatLt
   floatGe sym x y = floatLe sym y x
   floatGt sym x y = floatLt sym y x
-  floatIte sym c x y =
-    let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatIte fpp c x y
+  floatIte sym c x y
+    | Just TrueBool  <- asApp c = return x
+    | Just FalseBool <- asApp c = return y
+    | x == y = return x
+    | Just (NotBool c') <- asApp c = floatIte sym c' y x
+    | otherwise =
+      let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatIte fpp c x y
   floatIsNaN = floatIEEELogicUnOp FloatIsNaN
   floatIsInf = floatIEEELogicUnOp FloatIsInf
   floatIsZero = floatIEEELogicUnOp FloatIsZero
