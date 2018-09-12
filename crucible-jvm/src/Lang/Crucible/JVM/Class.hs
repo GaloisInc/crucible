@@ -404,7 +404,10 @@ specialClinit = Map.fromList [
    ("java/lang/Object", debug 2 "special java/lang/Object/<clinit>")
   ,("java/lang/String", debug 2 "special java/lang/String/<clinit>")
   ,("java/io/ObjectStreamField", debug 2 "special java/lang/ObjectStreamField/<clinit>")
---  ,("java/lang/StringBuffer", debug 2 "special java/lang/StringBuffer/<clinit>")
+  ,("java/lang/StringBuffer", debug 2 "special java/lang/StringBuffer/<clinit>")
+  ,("java/util/Arrays", debug 2 "special java/lang/Arrays/<clinit>")
+  -- TODO: initialize E and PI ???
+  ,("java/lang/Math", debug 2 "special java/lang/Math/<clinit>")
   ,("java/lang/System", do
        -- initialize System.out to be a PrintStream object
        -- note: we do not call PrintStream/<init> because this class
