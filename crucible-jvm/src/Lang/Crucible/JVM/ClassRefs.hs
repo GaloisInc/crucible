@@ -12,6 +12,8 @@ Stability        : provisional
 module Lang.Crucible.JVM.ClassRefs where
 
 import Data.Monoid ((<>))
+import Data.List
+import GHC.Stack (HasCallStack)
 
 import qualified Language.JVM.Parser as J
 import qualified Language.JVM.CFG as J
@@ -21,15 +23,20 @@ import qualified Data.Set as Set
 -- | Calculate the set of class names referred to in a particular
 -- piece of JVM abstract syntax
 class ClassRefs a where
-  classRefs :: a -> Set J.ClassName
+  classRefs :: HasCallStack => a -> Set J.ClassName
 
 instance ClassRefs a => ClassRefs (Maybe a) where
   classRefs = maybe Set.empty classRefs
 instance ClassRefs a => ClassRefs [a] where
   classRefs = foldMap classRefs
 
+-- 
 instance ClassRefs J.ClassName where
-  classRefs = Set.singleton
+  classRefs cn =
+    if "[" `isPrefixOf` J.unClassName cn then
+      error $ "INVALID classname " ++ show cn
+    else 
+      Set.singleton cn 
 
 instance ClassRefs J.Type where
   classRefs ty = 
@@ -41,8 +48,10 @@ instance ClassRefs J.Type where
 instance ClassRefs J.ConstantPoolValue where
   classRefs val =
     case val of
-      J.ClassRef cn -> classRefs cn
       J.String  _s  -> Set.singleton (J.mkClassName "java/lang/String")
+-- These classnames are actually class descriptors (such as [Ljava.lang.Object;)
+-- and unparsed. We drop them for now
+--    J.ClassRef cn -> classRefs cn
       _             -> Set.empty
 
 instance ClassRefs J.Field where
