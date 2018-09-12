@@ -26,13 +26,13 @@ Stability        : provisional
 
 {-# OPTIONS_GHC -haddock #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans -fno-warn-unused-imports #-}
 
 
 module Lang.Crucible.JVM.Generator where
 
 -- base
-
+import           Data.Semigroup
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Control.Monad.State.Strict
