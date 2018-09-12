@@ -1,18 +1,28 @@
-public class Main
-{    
-    public static void main(String[] args)
-    {
-	int i2 = 2;
-	double sum = (3.4 + i2);
-	System.out.println(sum);
-
-	if (sum != 5.4) {
-	    System.out.println(5);
-	}
-	else {
-	    System.out.println(0);
-      }	
+class A {
+    public String x = "A";
+    public String m() {
+	return x;
     }
     
- 
+}
+
+class B extends A {
+    public String y = "D";
+    public String m() {
+	x = "B";
+	return x;
+    }
+}    
+
+class Main {
+    
+    public static void main (String[] args) {
+	B b = new B();
+	b.m();
+	((A)b).x = "C";
+	System.out.println(b.x);
+	b.y = "E";
+	System.out.println(b.y);
+    }
+    
 }
