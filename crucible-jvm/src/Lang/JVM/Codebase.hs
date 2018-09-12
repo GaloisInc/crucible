@@ -89,7 +89,7 @@ loadCodebase jarFiles classPaths = do
   -- merge the maps as in the current 'JarReader' type, but I doubt
   -- this would ever matter, performance wise.
   jars       <- newJarReader jarFiles
-  let cb = CodebaseState jars classPaths M.empty M.empty 
+  let cb = CodebaseState jars classPaths M.empty M.empty
   Codebase <$> newIORef cb
 
 -- | Register a class with the given codebase

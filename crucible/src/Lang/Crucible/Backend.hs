@@ -193,6 +193,14 @@ class IsBoolSolver sym where
   --   the identifier of the top frame on the stack, an error will be raised.
   popAssumptionFrame :: sym -> AS.FrameIdentifier -> IO (Seq (Assumption sym))
 
+  -- | Pop an assumption frame from the stack.  The collected assummptions
+  --   in this frame are returned, along with any proof obligations that were
+  --   incurred while the frame was active. Pops are required to be well-bracketed
+  --   with pushes.  In particular, if the given frame identifier is not
+  --   the identifier of the top frame on the stack, an error will be raised.
+  popAssumptionFrameAndObligations ::
+    sym -> AS.FrameIdentifier -> IO (Seq (Assumption sym), ProofObligations sym)
+
   ----------------------------------------------------------------------
   -- Assertions
 

@@ -694,12 +694,6 @@ evaluateExpr sym sc cache = f
            t <- SC.scBoolType sc
            x' <- f x
            SC.scSlice sc t i n o x'
-        B.BVTrunc num x -> fmap SAWExpr $ do
-           let w = bvWidth x
-           n <- SC.scNat sc (fromIntegral (widthVal num))
-           m <- SC.scNat sc (fromIntegral (widthVal w - widthVal num))
-           x' <- f x
-           SC.scBvTrunc sc m n x'
         B.BVZext w' x -> fmap SAWExpr $ do
           let w = bvWidth x
           n <- SC.scNat sc (fromIntegral (widthVal w))
@@ -966,6 +960,10 @@ instance IsBoolSolver (SAWCoreBackend n fs) where
   popAssumptionFrame sym ident = do
     stk <- getAssumptionStack sym
     AS.popFrame ident stk
+
+  popAssumptionFrameAndObligations sym ident = do
+    stk <- getAssumptionStack sym
+    AS.popFrameAndGoals ident stk
 
   saveAssumptionState sym = do
     stk <- getAssumptionStack sym

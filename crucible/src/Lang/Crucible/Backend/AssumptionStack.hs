@@ -46,6 +46,7 @@ module Lang.Crucible.Backend.AssumptionStack
   , restoreAssumptionStack
   , pushFrame
   , popFrame
+  , popFrameAndGoals
   , resetStack
   , getProofObligations
   , clearProofObligations
@@ -269,8 +270,12 @@ popFrame ::
 popFrame ident stk =
   atomicModifyIORef' (proofObligations stk) $ \gc ->
        case gcPop gc of
-         Left (ident', assumes, gc1)
-           | ident == ident' -> (gc1, assumes)
+         Left (ident', assumes, mg, gc1)
+           | ident == ident' ->
+                let gc' = case mg of
+                            Nothing -> gc1
+                            Just g  -> gcAddGoals g gc1
+                 in (gc', assumes)
            | otherwise ->
                panic "AssumptionStack.popFrame"
                 [ "Push/pop mismatch in assumption stack!"
@@ -285,6 +290,32 @@ popFrame ident stk =
 
   where
   showFrameId (FrameIdentifier x) = show x
+
+
+popFrameAndGoals ::
+  FrameIdentifier ->
+  AssumptionStack pred assumeMsg assertMsg ->
+  IO (Seq (LabeledPred pred assumeMsg), Maybe (ProofGoals pred assumeMsg assertMsg))
+popFrameAndGoals ident stk =
+  atomicModifyIORef' (proofObligations stk) $ \gc ->
+       case gcPop gc of
+         Left (ident', assumes, mg, gc1)
+           | ident == ident' -> (gc1, (assumes, mg))
+           | otherwise ->
+               panic "AssumptionStack.popFrameAndGoals"
+                [ "Push/pop mismatch in assumption stack!"
+                , "*** Current frame:  " ++ showFrameId ident
+                , "*** Expected ident: " ++ showFrameId ident'
+                ]
+         Right _  ->
+           panic "AssumptionStack.popFrameAndGoals"
+             [ "Pop with no push in goal collector."
+             , "*** Current frame: " ++ showFrameId ident
+             ]
+
+  where
+  showFrameId (FrameIdentifier x) = show x
+
 
 -- | Run an action in the scope of a fresh assumption frame.
 --   The frame will be popped and returned on successful

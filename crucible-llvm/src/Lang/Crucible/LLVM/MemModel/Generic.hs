@@ -301,7 +301,7 @@ readMemCopy ::
   SymBV sym w    {- ^ The length of the copied region -} ->
   (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
   IO (PartLLVMVal sym)
-readMemCopy sym w end l@(LLVMPointer blk off) tp d src sz readPrev =
+readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
      let varFn = (off, d, sz)
@@ -351,7 +351,7 @@ readMemSet ::
   SymBV sym w   {- ^ The length of the set region  -} ->
   (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
   IO (PartLLVMVal sym)
-readMemSet sym w end l@(LLVMPointer blk off) tp d byte sz readPrev =
+readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
      let varFn = (off, d, sz)
@@ -409,7 +409,7 @@ readMemStore ::
   (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym))
   {- ^ A callback function for when reading fails -} ->
   IO (PartLLVMVal sym)
-readMemStore sym w end l@(LLVMPointer blk off) ltp d t stp loadAlign readPrev =
+readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign readPrev =
   do ssz <- bvLit sym w (bytesToInteger (typeSize stp))
      let varFn = (off, d, ssz)
      let ld = asUnsignedBV off
@@ -421,7 +421,7 @@ readMemStore sym w end l@(LLVMPointer blk off) ltp d t stp loadAlign readPrev =
                 subFn (OldMemory o tp')   = do o' <- bvLit sym w (bytesToInteger o)
                                                readPrev tp' (LLVMPointer blk o')
                 subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
-                subFn (InvalidMemory tp') = return Unassigned
+                subFn (InvalidMemory _tp) = return Unassigned
             let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
             genValueCtor sym end =<< traverse subFn vcr
        -- Symbolic offsets
@@ -430,7 +430,7 @@ readMemStore sym w end l@(LLVMPointer blk off) ltp d t stp loadAlign readPrev =
                 subFn (OldMemory o tp')   = do o' <- genOffsetExpr sym w varFn o
                                                readPrev tp' (LLVMPointer blk o')
                 subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
-                subFn (InvalidMemory tp') = return Unassigned
+                subFn (InvalidMemory _tp) = return Unassigned
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed

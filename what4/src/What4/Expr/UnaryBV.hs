@@ -553,12 +553,14 @@ sext x w' = UnaryBV w' (Map.union neg_entries l)
 
 -- | Perform a struncation.
 trunc :: forall sym u r
-       . (IsExprBuilder sym, 1 <= u, u+1 <= r)
+       . (IsExprBuilder sym, 1 <= u, u <= r)
       => sym
       -> UnaryBV (Pred sym) r
       -> NatRepr u
       -> IO (UnaryBV (Pred sym) u)
-trunc sym x w = go Map.empty (truePred sym) (unaryBVMap x)
+trunc sym x w
+  | Just Refl <- testEquality w (width x) = return x
+  | otherwise = go Map.empty (truePred sym) (unaryBVMap x)
   where go :: IntMap (Pred sym)
            -> Pred sym
            -> IntMap (Pred sym)

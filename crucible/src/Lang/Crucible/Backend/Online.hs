@@ -273,6 +273,13 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
        pop conn
        return frm
 
+  popAssumptionFrameAndObligations sym ident = do
+    do conn <- getSolverConn sym
+       stk <- getAssumptionStack sym
+       frmAndGls <- popFrameAndGoals ident stk
+       pop conn
+       return frmAndGls
+
   getProofObligations sym =
     do stk <- getAssumptionStack sym
        AS.getProofObligations stk

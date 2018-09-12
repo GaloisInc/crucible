@@ -47,7 +47,7 @@ import           Lang.Crucible.Types
 ----------------------------------------------------------------------
 -- | JVM extension tag
 
-newtype JVM = JVM () 
+newtype JVM = JVM ()
 type instance ExprExtension JVM = EmptyExprExtension
 type instance StmtExtension JVM = EmptyStmtExtension
 instance IsSyntaxExtension JVM
@@ -68,7 +68,7 @@ type JVMFloat      s = Expr JVM s JVMFloatType
 type JVMInt        s = Expr JVM s JVMIntType
 -- | Symbolic 64-bit signed integers
 type JVMLong       s = Expr JVM s JVMLongType
--- | Symbolic references 
+-- | Symbolic references
 type JVMRef        s = Expr JVM s JVMRefType
 -- | Symbolic strings
 type JVMString     s = Expr JVM s StringType
@@ -149,13 +149,13 @@ instance IsRecursiveType "JVM_object" where
 --   data Class = MkClass { className   :: String
 --                        , initStatus  :: InitStatus
 --                        , superClass  :: Maybe Class
---                        , methodTable :: Map String Any   
+--                        , methodTable :: Map String Any
 --                        , interfaces  :: Vector String
 --                        }
--- 
+--
 --   type ClassTable = Map String Class
 -- @
--- 
+--
 type JVMClassType  = RecursiveType "JVM_class"  EmptyCtx
 
 type JVMClassImpl =
@@ -192,15 +192,15 @@ type JVMClassTableType = StringMapType JVMClassType
 
 -- | Type reprs for the Crucible image of Java types
 refRepr    :: TypeRepr JVMRefType
-refRepr    = knownRepr 
+refRepr    = knownRepr
 intRepr    :: TypeRepr JVMIntType
-intRepr    = knownRepr 
+intRepr    = knownRepr
 longRepr   :: TypeRepr JVMLongType
-longRepr   = knownRepr 
+longRepr   = knownRepr
 doubleRepr :: TypeRepr JVMDoubleType
-doubleRepr = knownRepr 
+doubleRepr = knownRepr
 floatRepr  :: TypeRepr JVMFloatType
-floatRepr  = knownRepr 
+floatRepr  = knownRepr
 
 showJVMType :: TypeRepr a -> String
 showJVMType x
@@ -210,14 +210,14 @@ showJVMType x
   | Just Refl <- testEquality x doubleRepr = "JVMDouble"
   | Just Refl <- testEquality x floatRepr  = "JVMFloat"
   | otherwise = show x
-  
+
 showJVMArgs :: Ctx.Assignment TypeRepr x -> String
 showJVMArgs x =
   case x of
     Ctx.Empty -> ""
     Ctx.Empty Ctx.:> ty -> showJVMType ty
     y Ctx.:> ty -> showJVMArgs y ++ ", "  ++ showJVMType ty
-  
+
 
 -- | Number reprs
 w1 :: NatRepr 1

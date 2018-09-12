@@ -32,7 +32,7 @@ instance ClassRefs J.ClassName where
   classRefs = Set.singleton
 
 instance ClassRefs J.Type where
-  classRefs ty = 
+  classRefs ty =
     case ty of
       J.ClassType cn -> classRefs cn
       _              -> Set.empty
@@ -70,10 +70,10 @@ instance ClassRefs J.FieldId where
   classRefs fieldId = classRefs (J.fieldIdClass fieldId)
 
 instance ClassRefs J.MethodKey where
-  classRefs methodKey = 
+  classRefs methodKey =
      classRefs (J.methodKeyParameterTypes methodKey) <>
      classRefs (J.methodKeyReturnType     methodKey)
-     
+
 instance ClassRefs J.Instruction where
   classRefs inst =
     case inst of
@@ -89,10 +89,10 @@ instance ClassRefs J.Instruction where
     J.Multianewarray ty _word8 -> classRefs ty
     J.New cn -> classRefs cn
     J.Newarray ty -> classRefs ty
-    J.Putfield  fieldId -> classRefs fieldId 
-    J.Putstatic fieldId -> classRefs fieldId 
+    J.Putfield  fieldId -> classRefs fieldId
+    J.Putstatic fieldId -> classRefs fieldId
     _ -> Set.empty
-    
+
 
 instance ClassRefs J.Class where
   classRefs cls =

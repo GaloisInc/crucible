@@ -380,9 +380,6 @@ bitblastExpr h ae = do
     BVSext  w' xe -> do
       x <- eval' h xe
       return $ BV $ AIG.sext g x (widthVal w')
-    BVTrunc w' xe -> do
-      x <- eval' h xe
-      return $ BV $ AIG.trunc (widthVal w') x
     BVBitNot _w x -> do
       BV . fmap (AIG.lNot' g) <$> eval' h x
     BVBitAnd _w x y -> do

@@ -40,9 +40,10 @@ module Lang.Crucible.Simulator.OverrideSim
   , overrideReturn
   , overrideReturn'
     -- * Function calls
-  , callCFG
   , callFnVal
   , callFnVal'
+  , callCFG
+  , callOverride
     -- * Global variables
   , readGlobal
   , writeGlobal
@@ -367,6 +368,18 @@ callCFG cfg args =
   Sim $ StateContT $ \c -> runReaderT $
     let f = mkCallFrame cfg (postdomInfo cfg) args in
     ReaderT $ return . CallState (ReturnToOverride c) (CrucibleCall (cfgEntryBlockID cfg) f)
+
+
+-- | Call an override in a new call frame.
+callOverride ::
+  Override p sym ext args ret ->
+  RegMap sym args ->
+  OverrideSim p sym ext rtp a r (RegEntry sym ret)
+callOverride ovr args =
+  Sim $ StateContT $ \c -> runReaderT $
+    let f = OverrideFrame (overrideName ovr) args in
+    ReaderT $ return . CallState (ReturnToOverride c) (OverrideCall ovr f)
+
 
 -- | Add a failed assertion.  This aborts execution along the current
 -- evaluation path, and adds a proof obligation ensuring that we can't get here
