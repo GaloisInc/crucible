@@ -894,37 +894,18 @@ generateInstruction (pc, instr) =
       val <- popValue
       lift $ setStaticFieldValue fieldId val
 
-    -- Array creation and manipulation
-    J.Newarray arrayType ->
-      do count <- iPop
-         let nonneg = App (BVSle w32 (iConst 0) count)
-         lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
-         -- FIXME: why doesn't jvm-parser just store the element type?
-         case arrayType of
-           J.ArrayType elemType -> do
-             -- REVISIT: old version did not allow arrays of arrays
-             -- or arrays of objects. Why was that?
-             -- We can disable that here if necessary by
-             -- matching on the elem type
-             let expr = valueToExpr $ defaultValue elemType 
-             obj <- lift $ newarrayExpr count expr arrayType
-             rawRef <- lift $ newRef obj
-             let ref = App (JustValue knownRepr rawRef)
-             rPush ref
-{-             case elemType of
-               J.ArrayType _ -> sgFail "newarray: invalid element type"
-               J.ClassType _ -> sgFail "newarray: invalid element type" -}
-           _ -> sgFail "newarray: expected array type" 
-    J.Multianewarray arrType dimensions -> do
-         lift $ debug 3 $ "multianewarray: arrType is " ++ show arrType
-         counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
-         forM_ counts $ \count -> do
-           let nonneg = App (BVSle w32 (iConst 0) count)
-           lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
-         obj <- lift $ newMultiArray arrType counts
-         rawRef <- lift $ newRef obj
-         rPush (App $ JustValue knownRepr rawRef) 
+    -- array creation
+    J.Newarray arrayType -> do
+      count  <- iPop
+      obj    <- lift $ newArray count arrayType
+      rawRef <- lift $ newRef obj
+      rPush (App $ JustValue knownRepr rawRef)
 
+    J.Multianewarray arrType dimensions -> do
+      counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
+      obj    <- lift $ newMultiArray arrType counts
+      rawRef <- lift $ newRef obj
+      rPush (App $ JustValue knownRepr rawRef) 
 
     -- Load an array component onto the operand stack
     J.Baload -> aloadInstr tagI IValue -- byte
@@ -1134,7 +1115,7 @@ generateInstruction (pc, instr) =
          
     J.Athrow ->
       do objectRef <- rPop
-         throwIfRefNull objectRef
+         _obj <- throwIfRefNull objectRef
          
          -- For now, we assert that exceptions won't happen
          lift $ reportError (App (TextLit "athrow"))
@@ -1151,11 +1132,17 @@ generateInstruction (pc, instr) =
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
          
     J.Instanceof tTy ->
-      do objectRef <- rPop
-         rawRef <- throwIfRefNull objectRef
-         obj <- lift $ readRef rawRef
-         sTy <- lift $ getObjectType obj
-         b <- lift $ isSubType sTy tTy
+      -- instanceof returns False when argument is null
+      do -- lift $ addPrintStmt (App $ TextLit (fromString $ "instanceof " ++ show tTy))         
+         objectRef <- rPop
+         b <- lift $ caseMaybe objectRef knownRepr
+           MatchMaybe
+           { onNothing = return (App $ BoolLit False)
+           , onJust    = \rawRef -> do
+               obj <- readRef rawRef
+               sTy <- getObjectType obj
+               isSubType sTy tTy
+           }
          iPush $ App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
 
     J.Monitorenter ->

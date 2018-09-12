@@ -323,11 +323,11 @@ runTest verbosity file = do
 runFind :: String -> String -> IO [String]
 runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
-{-
+
 main :: IO ()
 main = wip
--}
 
+{-
 main :: IO ()
 main = do
   dir <- getCurrentDirectory
@@ -342,20 +342,14 @@ main = do
     results
   printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
     results
-  
+-}
 
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  -- Checkedcast fails for ((Truck[])vv) when vv has dynamic type Truck[]
-  -- let testCase = "jikesHpjTestSuite/benchmarks/checkcast1"
-
-  -- Checkedcast fails for (cost[])
-  let testCase = "jikesHpjTestSuite/benchmarks/instance"
   
   -- null dereference for (ta instanceof Truck[]) ??
-  -- let testCase = "jikesHpjTestSuite/benchmarks/instance1"
-
+  let testCase = "jikesHpjTestSuite/benchmarks/instance1"
 
   result <- runTest 3 $ top ++ testCase ++ "/mainClass"
 

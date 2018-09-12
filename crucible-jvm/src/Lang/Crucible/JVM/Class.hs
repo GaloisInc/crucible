@@ -91,7 +91,7 @@ module Lang.Crucible.JVM.Class
    -- * Strings
    , refFromString
    -- * Arrays
-   , newarrayExpr
+   , newArray
    , newarrayFromVec
    , newMultiArray 
    , arrayIdx
@@ -872,51 +872,55 @@ refFromString s =  do
 ------------------------------------------------------------------------------
 -- * Arrays
 
--- | Construct a new array object, with copies of the initial value
-newarrayExpr ::
+-- | Construct a new array object, with initial values determined
+-- by the array type
+newArray ::
   JVMInt s 
-  -- ^ array size, must be nonnegative
-  -> Expr JVM s JVMValueType
-  -- ^ Initial value for all array elements
+  -- ^ array size, assertion failure if nonnegative
   -> J.Type
-  -- ^ type of array (not of elements)
+  -- ^ type of array array (not of elements)
   -> JVMGenerator h s ret (JVMObject s)
-newarrayExpr count val jty = do
+newArray count jty@(J.ArrayType elemType) = do
   debug 4 $ "new array of type " ++ show jty
+  let nonneg = App (BVSle w32 (App (BVLit w32 0)) count)
+  assertExpr nonneg "java/lang/NegativeArraySizeException"
+  let val = valueToExpr $ defaultValue elemType
   let vec = App (VectorReplicate knownRepr (App (BvToNat w32 count)) val)
   ty  <- makeJVMTypeRep jty
   let ctx = Ctx.empty `Ctx.extend` count `Ctx.extend` vec `Ctx.extend` ty
   let arr = App (MkStruct knownRepr ctx)
   let uobj = injectVariant Ctx.i2of2 arr
   return $ App (RollRecursive knownRepr knownRepr uobj)
+newArray _count jty = jvmFail $ "newArray: expected array type, got: " ++ show jty
 
+-- | Construct an array of arrays, with initial values determined
+-- by the array type
 newMultiArray ::
   J.Type
   -- ^ type of the array to create
   -> [JVMInt s]
   -- ^ list of dimension of the array (must be nonempty)
-  -- each int must be nonnegative
+  --   assertion failure if any int is nonnegative
   -> JVMGenerator h s ret (JVMObject s)
 newMultiArray arrType counts = do
     loop arrType counts
   where
     loop :: J.Type -> [JVMInt s] -> JVMGenerator h s ret (JVMObject s)
-    loop _ [] = jvmFail "newMultiArray: need at least one dimension"
-    loop (J.ArrayType elemType) [count] =
-        newarrayExpr count (valueToExpr $ defaultValue elemType) arrType
+    loop (J.ArrayType _elemType) [count] =
+        newArray count arrType
     loop (J.ArrayType elemType) (count:rest) = do
-        let nul = valueToExpr $ RValue $ App $ NothingValue knownRepr
-        arr0 <- newarrayExpr count nul arrType
+        arr0   <- newArray count arrType
         arrRef <- newRef arr0
         iterate_ count $ \i -> do
-          arr   <- readRef arrRef 
-          inner <- loop elemType rest
-          rawRef <- newRef inner
+          arr     <- readRef arrRef 
+          inner   <- loop elemType rest
+          rawRef  <- newRef inner
           let val = injectVariant tagR (App $ JustValue knownRepr rawRef)
-          narr  <- arrayUpdate arr i val
+          narr    <- arrayUpdate arr i val
           writeRef arrRef narr
         readRef arrRef
-    loop ty (_:_) = jvmFail $ "newMultiArray: wrong number of dims " ++ show ty      
+    loop _  []    = jvmFail $ "newMultiArray: too few dimensions"        
+    loop ty (_:_) = jvmFail $ "newMultiArray: wrong number of dims for type " ++ show ty      
 
 
 -- | Construct a new array given a vector of initial values
