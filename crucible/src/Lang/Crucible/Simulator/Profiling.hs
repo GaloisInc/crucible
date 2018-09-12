@@ -56,7 +56,6 @@ import           What4.Interface
 import           What4.ProgramLoc
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
