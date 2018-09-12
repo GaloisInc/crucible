@@ -32,7 +32,7 @@ Stability        : provisional
 module Lang.Crucible.JVM.Generator where
 
 -- base
-import           Data.Semigroup
+
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Control.Monad.State.Strict
@@ -333,3 +333,23 @@ forEach_ vec body = do
            body v
            modifyReg i (\j0 -> App $ NatAdd j0 (App $ NatLit 1))
         )
+
+-- | Generate an expression that evaluates the function for
+-- each value in the range i = 0; i<count; i++
+iterate_ :: (IsSyntaxExtension p)
+  => Expr p s JVMIntType
+  -> (Expr p s JVMIntType -> Generator p h s ret k ())
+  -> Generator p h s ret k ()
+iterate_ count body = do
+  i <- newReg $ App (BVLit w32 0)
+
+  while (InternalPos, do
+            j <- readReg i
+            return $ App $ BVSlt w32 j count
+        )
+        (InternalPos, do
+           j <- readReg i
+           body j
+           modifyReg i (\j0 -> j0 + 1)
+        )   
+  

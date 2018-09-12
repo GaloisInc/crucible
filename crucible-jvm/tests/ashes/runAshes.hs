@@ -28,30 +28,6 @@ skipList    = [  -- SCW: yep slow
                  "ashesJSuite/benchmarks/symjpack-t"
               ,  "jikesDerekTestSuite/benchmarks/testFieldAccess"
               ,  "ashesHardTestSuite/benchmarks/matrix"
-
-              -- slow because of StringBuffer class???
-              , "sootRegressionSuite/benchmarks/fixedBug-aggregation6"
-              , "kaffeRegressionSuite/broken/TestNative"
-              , "kaffeRegressionSuite/benchmarks/tname"
-              , "kaffeRegressionSuite/benchmarks/intfTest"
-              , "kaffeRegressionSuite/benchmarks/str2"
-              , "kaffeRegressionSuite/benchmarks/str"
-              , "ashesEasyTestSuite/benchmarks/simple54"
-              , "ashesEasyTestSuite/benchmarks/factorial"
-              , "ashesEasyTestSuite/benchmarks/fahrenheit"
-              ,  "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
-              , "kaffeRegressionSuite/benchmarks/tthrd1"
-              , "jikesPrTestSuite/benchmarks/pr209"
-              , "jikesPrTestSuite/benchmarks/pr138"
-              , "jikesPrTestSuite/benchmarks/pr236b"
-              , "jikesPrTestSuite/benchmarks/pr172"
-              --
-              , "kaffeRegressionSuite/benchmarks/moduloTest"
-              , "kaffeRegressionSuite/benchmarks/testIntLong"
-              , "jikesDerekTestSuite/benchmarks/testStackAccess"
-              
-              -- stringbuffer, but failed before
-              , "kaffeRegressionSuite/benchmarks/doublePrint"
                 
                  -- The following are very slow
               ,  "ashesHardTestSuite/benchmarks/illness"
@@ -62,23 +38,21 @@ skipList    = [  -- SCW: yep slow
               , "ashesJSuite/benchmarks/jpat-p"
               ]
 expFailList = [
-    -- uses StringBuffer class (these are not actually run as they hang)
-    "ashesEasyTestSuite/benchmarks/simple54"
-  , "ashesEasyTestSuite/benchmarks/factorial"
-  , "ashesEasyTestSuite/benchmarks/fahrenheit"
-  ,  "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
-  , "kaffeRegressionSuite/benchmarks/tthrd1"
-  , "jikesPrTestSuite/benchmarks/pr209"
-  , "jikesPrTestSuite/benchmarks/pr138"
-  , "jikesPrTestSuite/benchmarks/pr236b"
-  , "jikesPrTestSuite/benchmarks/pr172"
-    -- was illegal index (now too slow)
-  , "kaffeRegressionSuite/benchmarks/moduloTest"
-  , "kaffeRegressionSuite/benchmarks/testIntLong"
-
   
-  -- tests length of args (npe) during simulation
-  , "kaffeRegressionSuite/benchmarks/initTest"
+     -- still failing (fixed StringBuffer, uncovered new bugs)
+      "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+    , "kaffeRegressionSuite/broken/TestNative"
+    , "kaffeRegressionSuite/benchmarks/tthrd1"
+    , "kaffeRegressionSuite/benchmarks/tname"
+    , "kaffeRegressionSuite/benchmarks/str"
+    , "ashesEasyTestSuite/benchmarks/fahrenheit"
+    , "jikesPrTestSuite/benchmarks/pr138"
+    , "jikesPrTestSuite/benchmarks/pr172"
+    -- needs: Double.doubleToRawLongBits
+    , "kaffeRegressionSuite/benchmarks/doublePrint"
+  
+  -- tests length of args during simulation (npe)
+    , "kaffeRegressionSuite/benchmarks/initTest"
   -- needs args (commandline argument)
   , "jikesDerekTestSuite/benchmarks/sort"
 
@@ -88,6 +62,11 @@ expFailList = [
     -- objects. 
   , "jikesHpjTestSuite/benchmarks/multarg"
 
+    -- fRem doesn't round (but dRem does)
+    -- check what the Crucible version of this operation
+    -- should do
+  , "jikesDerekTestSuite/benchmarks/testArithmetic"
+  
     -- needs sun/misc/FloatingDecimal$ExceptionalBinaryToASCIIBuffer
   , "kaffeRegressionSuite/benchmarks/doubleComp"
 
@@ -95,10 +74,9 @@ expFailList = [
     -- FileOutputStream argument
   , "jikesHpjTestSuite/benchmarks/recur"
 
-    -- fNeg
-  -- , "jikesDerekTestSuite/benchmarks/testArithmetic"
-
-    -- saveLocals: Generator.hs:197
+    -- saveLocals: somehow there are two more registers
+    -- than values when 'saveLocals' is called.
+    -- I don't know how to debug this.
   , "ashesHardTestSuite/broken/nucleic"
    
     -- generateInstruction: jsr/ret not supported
@@ -109,19 +87,6 @@ expFailList = [
   , "jikesDerekTestSuite/benchmarks/testFinally"
   , "kaffeRegressionSuite/benchmarks/nullPointerTest"
   , "jikesPrTestSuite/benchmarks/pr146"
-  
-    -- unimplemented: multianewarray
-  , "jikesHpjTestSuite/benchmarks/checkcast7"
-  , "jikesHpjTestSuite/benchmarks/array4"
-  , "jikesHpjTestSuite/benchmarks/instance"
-  , "ashesEasyTestSuite/benchmarks/life"
-  
-    -- unimplemented: CheckCast for array
-  , "jikesHpjTestSuite/benchmarks/checkcast1"
-  
-    -- unimplemented: instanceof for array
-  , "jikesHpjTestSuite/benchmarks/instance1"
-  , "jikesDerekTestSuite/benchmarks/testInstanceOf"
   
     -- Strange parsing issue: trying to load native code
     -- needs more than we are currently providing
@@ -165,10 +130,10 @@ expFailList = [
     --- supported by the previous version of jss ----
               
                -- Floating point array tests
-              ,  "ashesHardTestSuite/benchmarks/matrix"
-              , "jikesDerekTestSuite/benchmarks/testArrayAccess"
-              , "jikesHpjTestSuite/benchmarks/arraymethod"
-              , "jikesHpjTestSuite/benchmarks/callmm"
+              ,  "ashesHardTestSuite/benchmarks/matrix"  -- SLOW
+              , "jikesDerekTestSuite/benchmarks/testArrayAccess" -- uses array[0].getClass().getName()
+              , "jikesHpjTestSuite/benchmarks/arraymethod" -- strange fp behavior
+--              , "jikesHpjTestSuite/benchmarks/callmm"  (FIXED!)
 
                 -- Trivially different output
               , "jikesHpjTestSuite/broken/array2"
@@ -320,6 +285,12 @@ runTest verbosity file = do
 runFind :: String -> String -> IO [String]
 runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
+
+{-
+main :: IO ()
+main = wip
+-}
+
 main :: IO ()
 main = do
   dir <- getCurrentDirectory
@@ -339,10 +310,10 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  let testCase = "jikesDerekTestSuite/benchmarks/testArithmetic"
+  
+  let testCase = "jikesPrTestSuite/benchmarks/pr209"
 
-
-  result <- runTest 2 $ top ++ testCase ++ "/mainClass"
+  result <- runTest 5 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
 

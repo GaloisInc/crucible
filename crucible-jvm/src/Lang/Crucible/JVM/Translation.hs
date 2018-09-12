@@ -109,7 +109,21 @@ import Debug.Trace
 
 -- * Special treatment of the Java standard library
 
-{- Overall, the system doesn't take a very principled approach to classes from
+
+{- Class preparation (before translation):
+     - allocate method handles (but do not yet translate methods)
+     - allocate global vars for static fields (but do not initialize them yet)
+     - add J.Class to Class table
+     - OPTIONAL: also prep any classes referred to by this one
+
+   Class init (at first reference, via initializeClass function in Class):
+     - define the JVMClass structure in the heap 
+     - initialize superclass
+     - initialize static fields
+     - run <clinit>
+-}
+
+{- Overall, the system doesn't take a very principled approach to classes from 
    Java's standard library that are referred to in the test cases.
 
    The basic idea is that when we similate a Java method call, we first crawl
@@ -124,7 +138,7 @@ import Debug.Trace
    In that case, we need to define a set of "initClasses", i.e.
    baseline primitives. These classes we declare only, but we make no
    guarantees that the classes that they refer to will also be
-   available. Instead, we need to implement the functionality
+   available. Instead, we need to implement the *native* functionality
    from these classes via static or dynamic overrides.
 
 -}
@@ -134,9 +148,7 @@ import Debug.Trace
 -- environment. These classes rely on native code that cannot be
 -- parsed by jvm-parser. So instead of transitively loading these
 -- classes with the Main class, we always load them but load none of
--- their dependencies. (There has to be a better way to do this,
--- perhaps by declaring classes more lazily, during simulation instead
--- of requiring that everything be available ahead of time.)
+-- their dependencies. 
 initClasses :: [String]
 {-initClasses = []-}
 
@@ -154,6 +166,9 @@ initClasses = [ "java/lang/System",
                 "java/lang/Math",
                 "java/lang/Number",
                 "java/lang/Void",
+
+                "java/util/Arrays",
+                
                 "sun/misc/FloatingDecimal",
 
                 "java/io/PrintStream",
@@ -177,12 +192,13 @@ initClasses = [ "java/lang/System",
                 "java/lang/Exception",
                 "java/lang/InternalError",
                 "java/lang/StringIndexOutOfBoundsException",
+                "java/lang/IllegalArgumentException",
                 "java/lang/VirtualMachineError",
                 "java/lang/Error",
                 "java/lang/IndexOutOfBoundsException",
 
                 "java/lang/Thread",
-                "java/lang/Runtime"
+                "java/lang/Runtime"                
 
               ]
 
@@ -191,7 +207,6 @@ initClasses = [ "java/lang/System",
 --   of class references.
 exclude :: J.ClassName -> Bool
 exclude cn = (J.unClassName cn) `elem` initClasses
-          || ("["          `isPrefixOf` J.unClassName cn)
           || ("java/nio/" `isPrefixOf` J.unClassName cn)
           || ("java/awt/" `isPrefixOf` J.unClassName cn)
           || ("java/io/" `isPrefixOf` J.unClassName cn)
@@ -208,15 +223,13 @@ exclude cn = (J.unClassName cn) `elem` initClasses
           || ("java/lang/ClassLoader"    `isPrefixOf` J.unClassName cn)
           || ("java/lang/Character"    `isPrefixOf` J.unClassName cn)
           || ("java/lang/ConditionalSpecialCasing"  `isPrefixOf` J.unClassName cn)
-          || cn `elem`
-           [   J.mkClassName "java/lang/Object"
-             , J.mkClassName "java/lang/String"
-             , J.mkClassName "java/lang/Class"
-             , J.mkClassName "java/lang/Package"
+          || cn `elem` [
+
+               J.mkClassName "java/lang/Package"
              , J.mkClassName "java/lang/SecurityManager"
              , J.mkClassName "java/lang/Shutdown"
              , J.mkClassName "java/lang/Process"
-             , J.mkClassName "java/util/Arrays"
+--             , J.mkClassName "java/util/Arrays"
              , J.mkClassName "java/lang/RuntimePermission"
              , J.mkClassName "java/lang/StackTraceElement"
              , J.mkClassName "java/lang/ProcessEnvironment"
@@ -240,8 +253,17 @@ staticOverrides :: J.ClassName -> J.MethodKey -> Maybe (JVMStmtGen h s ret ())
 staticOverrides className methodKey
   | className == "java/lang/Double" && J.methodKeyName methodKey == "longBitsToDouble"
    = Just $ do lon <- lPop
+               -- TODO: this is not correct, we just want to interpret the bits
                let doub = doubleFromLong lon
                dPush doub
+  | className == "java/lang/Double" && J.methodKeyName methodKey == "doubleToRawLongBits"
+   = Just $ do doub <- dPop
+               -- TODO: this is not correct, see
+               -- https://docs.oracle.com/javase/8/docs/api/java/lang/Double.html#doubleToLongBits-double-
+               let lon = longFromDouble doub
+               lPush lon
+
+               
   | className == "java/lang/System" && J.methodKeyName methodKey == "arraycopy"
   = Just $ do len     <- iPop
               destPos <- iPop
@@ -448,13 +470,17 @@ saveStack _ _ = jvmFail "saveStack"
 -- TODO: what if we have more values? is it ok to not save them all?
 -- See Java/lang/String/compareTo
 saveLocals ::
+  HasCallStack =>
   Map J.LocalVariableIndex (JVMReg s) ->
   Map J.LocalVariableIndex (JVMValue s) ->
   JVMGenerator h s ret ()
 saveLocals rs vs
-  | Set.fromAscList (Map.keys rs) `Set.isSubsetOf`
-    Set.fromAscList (Map.keys vs) = sequence_ (Map.intersectionWith writeJVMReg rs vs)
-  | otherwise                  = jvmFail $ "saveLocals:\n\t" ++ show rs ++ "\n\t" ++ show vs
+  | Set.fromAscList (Map.keys rs) `Set.isSubsetOf` Set.fromAscList (Map.keys vs)
+  = sequence_ (Map.intersectionWith writeJVMReg rs vs)
+  | otherwise
+  -- what is in the registers but doesn't have a value?
+  = -- sequence_ (Map.intersectionWith writeJVMReg rs vs)
+    jvmFail $ "saveLocals:\n\t" ++ show (Map.keys rs) ++ "\n\t" ++ show (Map.keys vs)
 
 newRegisters :: JVMExprFrame s -> JVMGenerator h s ret (JVMRegisters s)
 newRegisters = traverse newJVMReg
@@ -462,7 +488,7 @@ newRegisters = traverse newJVMReg
 readRegisters :: JVMRegisters s -> JVMGenerator h s ret (JVMExprFrame s)
 readRegisters = traverse readJVMReg
 
-writeRegisters :: JVMRegisters s -> JVMExprFrame s -> JVMGenerator h s ret ()
+writeRegisters :: HasCallStack => JVMRegisters s -> JVMExprFrame s -> JVMGenerator h s ret ()
 writeRegisters rs vs =
   do saveStack (rs^.operandStack) (vs^.operandStack)
      saveLocals (rs^.localVariables) (vs^.localVariables)
@@ -509,7 +535,7 @@ generateBasicBlock bb rs =
 -- simply write into them. If the target has not been started yet, we
 -- copy the values into fresh registers, and also recursively call
 -- 'generateBasicBlock' on the target block to start translating it.
-processBlockAtPC :: J.PC -> JVMExprFrame s -> JVMGenerator h s ret (Label s)
+processBlockAtPC :: HasCallStack => J.PC -> JVMExprFrame s -> JVMGenerator h s ret (Label s)
 processBlockAtPC pc vs =
   defineBlockLabel $
   do bb <- getBasicBlockAtPC pc
@@ -778,7 +804,7 @@ generateInstruction (pc, instr) =
     -- Arithmetic instructions
     J.Dadd  -> binary dPop dPop dPush dAdd
     J.Dsub  -> binary dPop dPop dPush dSub
-    J.Dneg  -> unary dPop dPush dNeg
+    J.Dneg  -> unaryGen dPop dPush dNeg
     J.Dmul  -> binary dPop dPop dPush dMul
     J.Ddiv  -> binary dPop dPop dPush dDiv
     J.Drem  -> binary dPop dPop dPush dRem
@@ -786,7 +812,7 @@ generateInstruction (pc, instr) =
     J.Dcmpl -> binaryGen dPop dPop iPush dCmpl
     J.Fadd  -> binary fPop fPop fPush fAdd
     J.Fsub  -> binary fPop fPop fPush fSub
-    J.Fneg  -> unary fPop fPush (error "fNeg")
+    J.Fneg  -> unaryGen fPop fPush fNeg
     J.Fmul  -> binary fPop fPop fPush fMul
     J.Fdiv  -> binary fPop fPop fPush fDiv
     J.Frem  -> binary fPop fPop fPush fRem
@@ -890,33 +916,19 @@ generateInstruction (pc, instr) =
       val <- popValue
       lift $ setStaticFieldValue fieldId val
 
-    -- Array creation and manipulation
-    J.Newarray arrayType ->
-      do count <- iPop
-         let nonneg = App (BVSle w32 (iConst 0) count)
-         lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
-         -- FIXME: why doesn't jvm-parser just store the element type?
-         case arrayType of
-           J.ArrayType elemType -> do
-             -- REVISIT: old version did not allow arrays of arrays
-             -- or arrays of objects. Why was that?
-             -- We can disable that here if necessary by
-             -- matching on the elem type
-             let expr = valueToExpr $ defaultValue elemType
-             let obj = newarrayExpr count expr
-             rawRef <- lift $ newRef obj
-             let ref = App (JustValue knownRepr rawRef)
-             rPush ref
-{-             case elemType of
-               J.ArrayType _ -> sgFail "newarray: invalid element type"
-               J.ClassType _ -> sgFail "newarray: invalid element type" -}
-           _ -> sgFail "newarray: expected array type"
-    J.Multianewarray _elemType dimensions ->
-      do counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
-         forM_ counts $ \count -> do
-           let nonneg = App (BVSle w32 (iConst 0) count)
-           lift $ assertExpr nonneg "java/lang/NegativeArraySizeException"
-         sgUnimplemented "multianewarray" --pushValue . RValue =<< newMultiArray arrayType counts
+
+    -- array creation
+    J.Newarray arrayType -> do
+      count  <- iPop
+      obj    <- lift $ newArray count arrayType
+      rawRef <- lift $ newRef obj
+      rPush (App $ JustValue knownRepr rawRef)
+
+    J.Multianewarray arrType dimensions -> do
+      counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
+      obj    <- lift $ newMultiArray arrType counts
+      rawRef <- lift $ newRef obj
+      rPush (App $ JustValue knownRepr rawRef) 
 
     -- Load an array component onto the operand stack
     J.Baload -> aloadInstr tagI IValue -- byte
@@ -1093,9 +1105,8 @@ generateInstruction (pc, instr) =
       ->  do let mname = J.unClassName className ++ "/" ++ J.methodKeyName methodKey
              lift $ debug 2 $ "invoke static: " ++ mname
              action
-
-
-      | otherwise ->
+      
+      | otherwise -> 
         -- make sure that *this* class has already been initialized
         do lift $ initializeClass className
            (JVMHandleInfo _ handle) <- lift $ getStaticMethod className methodKey
@@ -1117,50 +1128,46 @@ generateInstruction (pc, instr) =
     -- Other XXXXX
     J.Aconst_null ->
       do rPush rNull
+         
     J.Arraylength ->
       do arrayRef <- rPop
          rawRef <- throwIfRefNull arrayRef
          obj <- lift $ readRef rawRef
          len <- lift $ arrayLength obj
          iPush len
+         
     J.Athrow ->
-      do _objectRef <- rPop
+      do objectRef <- rPop
+         _obj <- throwIfRefNull objectRef
+         
          -- For now, we assert that exceptions won't happen
          lift $ reportError (App (TextLit "athrow"))
-         --throwIfRefNull objectRef
          --throw objectRef
 
-    J.Checkcast (J.ClassType className) ->
+         
+    J.Checkcast ty  ->
       do objectRef <- rPop
-         lift $ caseMaybe_ objectRef
-           MatchMaybe
-           { onNothing = return ()
-           , onJust  = \rawRef -> do
-               obj <- readRef rawRef
-               cls <- getJVMInstanceClass obj
-               b <- isSubType cls className
-               assertExpr b "java/lang/ClassCastException"
-           }
+         lift $ checkCast objectRef ty
          rPush objectRef
 
-    J.Checkcast tp ->
-      -- TODO -- can we cast arrays?
-      sgUnimplemented $ "checkcast unimplemented for type: " ++ show tp
     J.Iinc idx constant ->
       do value <- getLocal idx >>= lift . fromIValue
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
-    J.Instanceof (J.ClassType className) ->
+         
+    J.Instanceof tTy ->
+      -- instanceof returns False when argument is null
       do objectRef <- rPop
-         rawRef <- throwIfRefNull objectRef
-         obj <- lift $ readRef rawRef
-         cls <- lift $ getJVMInstanceClass obj
-         b <- lift $ isSubType cls className
-         let ib = App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
-         iPush ib
-    J.Instanceof _tp ->
-         -- TODO -- ArrayType
-         sgUnimplemented "instanceof for array type" -- objectRef `instanceOf` tp
+         b <- lift $ caseMaybe objectRef knownRepr
+           MatchMaybe
+           { onNothing = return (App $ BoolLit False)
+           , onJust    = \rawRef -> do
+               obj <- readRef rawRef
+               sTy <- getObjectType obj
+               isSubType sTy tTy
+           }
+         iPush $ App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
+
     J.Monitorenter ->
       do void rPop
     J.Monitorexit ->
@@ -1401,6 +1408,13 @@ lNeg e = ifte (App $ BVEq knownRepr e minLong)
               (return minLong)
               (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
 
+-- TODO: doublecheck
+-- For float values, negation is not the same as subtraction from zero. If x is +0.0,
+-- then 0.0-x equals +0.0, but -x equals -0.0. Unary minus merely inverts the sign of a float.
+-- Special cases of interest:
+--    If the operand is NaN, the result is NaN (recall that NaN has no sign).
+--    If the operand is an infinity, the result is the infinity of opposite sign.
+--    If the operand is a zero, the result is the zero of opposite sign.
 fNeg :: JVMFloat s -> JVMGenerator h s ret (JVMFloat s)
 fNeg e = ifte (App $ FloatEq e posZerof)
               (return negZerof)
@@ -1429,8 +1443,11 @@ dCmpg e1 e2 = ifte (App (FloatEq e1 e2)) (return $ App $ BVLit w32 0)
                          (return $ App $ BVLit w32 1))
 dCmpl = dCmpg
 
-dNeg :: JVMDouble s -> JVMDouble s
-dNeg = error "dNeg"
+dNeg :: JVMDouble s ->  JVMGenerator h s ret (JVMDouble s)
+dNeg e = ifte (App $ FloatEq e posZerod)
+              (return negZerod)
+              (return $ App (FloatSub DoubleFloatRepr RNE posZerod e))
+
 
 fAdd, fSub, fMul, fDiv, fRem :: JVMFloat s -> JVMFloat s -> JVMFloat s
 fAdd e1 e2 = App (FloatAdd SingleFloatRepr RNE e1 e2)
@@ -1555,7 +1572,7 @@ data MethodTranslation = forall args ret. MethodTranslation
    }
 
 -----------------------------------------------------------------------------
--- * Class declarations
+-- * Class Preparation
 
 -- | allocate a new method handle and add it to the table of method handles
 declareMethod :: HandleAllocator s
@@ -1607,19 +1624,13 @@ extendJVMContext halloc c = do
     } <> ctx0
 
 -- | Create the initial JVMContext
-mkInitialJVMContext ::  IsCodebase cb => HandleAllocator RealWorld -> cb -> IO JVMContext
-mkInitialJVMContext halloc cb = do
+mkInitialJVMContext :: HandleAllocator RealWorld -> IO JVMContext
+mkInitialJVMContext halloc = do
 
   gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
                                 (knownRepr :: TypeRepr JVMClassTableType)
 
-
-  classes <- mapM (findClass cb) initClasses
-
-
-  stToIO $ execStateT
-             (mapM_ (extendJVMContext halloc) classes)
-             (JVMContext
+  return (JVMContext
               { methodHandles     = Map.empty
               , staticFields      = Map.empty
               , classTable        = Map.empty
@@ -1692,8 +1703,11 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
         retRepr      = handleReturnType handle
 
         overrideSim :: C.OverrideSim p sym JVM r args ret (C.RegValue sym ret)
-        overrideSim  = do whenVerbosity (const False) $
-                            do liftIO $ putStrLn $ "translating (delayed) " ++ cm
+        overrideSim  = do whenVerbosity (> 3) $
+                            do liftIO $ putStrLn $ "translating (delayed) "
+                                 ++ cm ++ " with args " ++ show (J.methodParameterTypes m) ++ "\n"
+                                 ++ "and body " ++
+                                     show (J.methodBody m)
                           args <- C.getOverrideArgs
                           C.SomeCFG cfg <- liftST $ translateMethod' ctx verbosity (J.className c) m handle
                           C.bindFnHandle handle (C.UseCFG cfg (C.postdomInfo cfg))
@@ -1709,7 +1723,7 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
 
 findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
 findAllRefs cb cls = do
-  names <- go (Set.singleton cls)
+  names <- go (Set.singleton cls) 
   mapM (lookupClass cb) names
   where
     go :: Set.Set J.ClassName -> IO [J.ClassName]
@@ -1749,23 +1763,30 @@ executeCrucibleJVM :: forall ret args sym p cb.
                    -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 executeCrucibleJVM cb verbosity sym p cname mname args = do
 
+     when (verbosity > 2) $
+       putStrLn "starting executeCrucibleJVM"
+  
      setSimulatorVerbosity verbosity sym
 
      (mcls, meth) <- findMethod cb mname =<< findClass cb cname
      when (not (J.methodIsStatic meth)) $ do
        fail $ unlines [ "Crucible can only extract static methods" ]
 
-
      allClasses <- findAllRefs cb (J.className mcls)
 
      halloc <- newHandleAllocator
 
+     -- Create the initial JVMContext
+     ctx0 <- mkInitialJVMContext halloc 
+
      -- declare the "primitive" classes
-     ctx0 <- mkInitialJVMContext halloc cb
+     classes <- mapM (findClass cb) initClasses
+     ctx1 <- stToIO $ execStateT
+             (mapM_ (extendJVMContext halloc) classes) ctx0
 
      -- declare this class && all classes that it refers to
      ctx <- stToIO $ execStateT (extendJVMContext halloc mcls >>
-                                 mapM (extendJVMContext halloc) allClasses) ctx0
+                                 mapM (extendJVMContext halloc) allClasses) ctx1
 
 
      (JVMHandleInfo _ h) <- findMethodHandle ctx mcls meth
@@ -1859,8 +1880,8 @@ runMethodHandle sym p halloc ctx verbosity _classname h args = do
 
 
 
--- | A type class for what we need from a java code base This is here
--- b/c we have two copies of the Codebase module, the one in this
+-- | A type class for what we need from a java code base
+-- This is here b/c we have two copies of the Codebase module, the one in this
 -- package and the one in the jvm-verifier package. Eventually,
 -- saw-script will want to transition to the code base in this package,
 -- but it will need to eliminate uses of the old jvm-verifier first.

@@ -415,7 +415,7 @@ instance Concretize JVMRefType where
 instance Concretize JVMArrayType where
   type Concrete JVMArrayType = Vector (Maybe CValue)
   concretize (C.RV x) = do
-    let (C.RV vec) = x Ctx.! Ctx.i2of2
+    let (C.RV vec) = x Ctx.! Ctx.i2of3
     vm <- V.mapM (concretize @JVMValueType . C.RV) vec
     return (Just vm)
 

@@ -1,25 +1,28 @@
+class A {
+    public String x = "A";
+    public String m() {
+	return x;
+    }
+    
+}
 
-public class Main
-{
-    static int count = 0;
+class B extends A {
+    public String y = "D";
+    public String m() {
+	x = "B";
+	return x;
+    }
+}    
+
+class Main {
     
-    public static void main(String[] args)
-    {   
-        int value = changeCount();
-        int[] a = new int[2];
-        
-        a[count] = value;
-                
-        System.out.println(a[0] + ":" + a[1]);
+    public static void main (String[] args) {
+	B b = new B();
+	b.m();
+	((A)b).x = "C";
+	System.out.println(b.x);
+	b.y = "E";
+	System.out.println(b.y);
     }
     
-    public static int sum(int x, int y)
-    {
-        return x * 2 + y;
-    }
-    
-    public static int changeCount()
-    {
-        return ++count; 
-    }
 }
