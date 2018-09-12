@@ -109,6 +109,19 @@ import Debug.Trace
 
 -- * Special treatment of the Java standard library
 
+{- Class preparation (before translation):
+     - allocate method handles (but do not yet translate methods)
+     - allocate global vars for static fields (but do not initialize them yet)
+     - add J.Class to Class table
+     - OPTIONAL: also prep any classes referred to by this one
+
+   Class init (at first reference, via initializeClass function in Class):
+     - define the JVMClass structure in the heap 
+     - initialize superclass
+     - initialize static fields
+     - run <clinit>
+-}
+
 {- Overall, the system doesn't take a very principled approach to classes from 
    Java's standard library that are referred to in the test cases.
 
@@ -129,14 +142,37 @@ import Debug.Trace
 
 -}
 
+{-
+data Primitive h s ret p sym = Primitive
+                 {  className          :: J.ClassName
+                 ,  static_overrides   :: J.MethodKey -> Maybe (JVMStmtGen h s ret ())
+                 ,  dynamic_overrides  :: [JVMOverride p sym]
+                 }
+
+
+java_lang_Object :: Primitive h s ret
+java_lang_Object = Primitive
+  { className = J.mkClassName "java/lang/Object"
+  , static_overrides = \methodKey ->
+     case J.methodKeyName methodKey of
+
+       "<clinit>" ->
+            Just $ return ()
+
+       "hashCode" ->
+            Just $ do
+             -- TODO: hashCode always returns 0, can we make it be an "abstract" int?
+             iPush (App $ BVLit knownRepr 0)
+             
+  , dynamic_overrides = []
+  }
+-}
 
 -- | Classes that are always loaded into the initial
 -- environment. These classes rely on native code that cannot be
 -- parsed by jvm-parser. So instead of transitively loading these
 -- classes with the Main class, we always load them but load none of
--- their dependencies. (There has to be a better way to do this,
--- perhaps by declaring classes more lazily, during simulation instead
--- of requiring that everything be available ahead of time.)
+-- their dependencies. 
 initClasses :: [String]
 {-initClasses = []-}
 
@@ -154,6 +190,9 @@ initClasses = [ "java/lang/System",
                 "java/lang/Math",
                 "java/lang/Number",
                 "java/lang/Void",
+
+                "java/util/Arrays",
+                
                 "sun/misc/FloatingDecimal",
                 
                 "java/io/PrintStream",
@@ -177,13 +216,13 @@ initClasses = [ "java/lang/System",
                 "java/lang/Exception",
                 "java/lang/InternalError",
                 "java/lang/StringIndexOutOfBoundsException",
+                "java/lang/IllegalArgumentException",
                 "java/lang/VirtualMachineError",
                 "java/lang/Error",
                 "java/lang/IndexOutOfBoundsException",
 
                 "java/lang/Thread",
-                "java/lang/Runtime"
-                
+                "java/lang/Runtime"                
               ]
 
 
@@ -191,7 +230,6 @@ initClasses = [ "java/lang/System",
 --   of class references. 
 exclude :: J.ClassName -> Bool
 exclude cn = (J.unClassName cn) `elem` initClasses
-          || ("["          `isPrefixOf` J.unClassName cn)
           || ("java/nio/" `isPrefixOf` J.unClassName cn)
           || ("java/awt/" `isPrefixOf` J.unClassName cn)
           || ("java/io/" `isPrefixOf` J.unClassName cn)
@@ -208,15 +246,13 @@ exclude cn = (J.unClassName cn) `elem` initClasses
           || ("java/lang/ClassLoader"    `isPrefixOf` J.unClassName cn)
           || ("java/lang/Character"    `isPrefixOf` J.unClassName cn)
           || ("java/lang/ConditionalSpecialCasing"  `isPrefixOf` J.unClassName cn)
-          || cn `elem`
-           [   J.mkClassName "java/lang/Object"
-             , J.mkClassName "java/lang/String"
-             , J.mkClassName "java/lang/Class"
-             , J.mkClassName "java/lang/Package"
+          || cn `elem` [
+
+               J.mkClassName "java/lang/Package"
              , J.mkClassName "java/lang/SecurityManager"
              , J.mkClassName "java/lang/Shutdown"
              , J.mkClassName "java/lang/Process"
-             , J.mkClassName "java/util/Arrays"
+--             , J.mkClassName "java/util/Arrays"
              , J.mkClassName "java/lang/RuntimePermission"
              , J.mkClassName "java/lang/StackTraceElement"
              , J.mkClassName "java/lang/ProcessEnvironment"
@@ -240,8 +276,17 @@ staticOverrides :: J.ClassName -> J.MethodKey -> Maybe (JVMStmtGen h s ret ())
 staticOverrides className methodKey
   | className == "java/lang/Double" && J.methodKeyName methodKey == "longBitsToDouble"
    = Just $ do lon <- lPop
+               -- TODO: this is not correct, we just want to interpret the bits
                let doub = doubleFromLong lon
                dPush doub
+  | className == "java/lang/Double" && J.methodKeyName methodKey == "doubleToRawLongBits"
+   = Just $ do doub <- dPop
+               -- TODO: this is not correct, see
+               -- https://docs.oracle.com/javase/8/docs/api/java/lang/Double.html#doubleToLongBits-double-
+               let lon = longFromDouble doub
+               lPush lon
+
+               
   | className == "java/lang/System" && J.methodKeyName methodKey == "arraycopy"
   = Just $ do len     <- iPop
               destPos <- iPop
@@ -1540,7 +1585,7 @@ data MethodTranslation = forall args ret. MethodTranslation
    }
 
 -----------------------------------------------------------------------------
--- * Class declarations
+-- * Class Preparation
 
 -- | allocate a new method handle and add it to the table of method handles
 declareMethod :: HandleAllocator s
@@ -1677,8 +1722,11 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
         retRepr      = handleReturnType handle
         
         overrideSim :: C.OverrideSim p sym JVM r args ret (C.RegValue sym ret)
-        overrideSim  = do whenVerbosity (const False) $
-                            do liftIO $ putStrLn $ "translating (delayed) " ++ cm
+        overrideSim  = do whenVerbosity (> 3) $
+                            do liftIO $ putStrLn $ "translating (delayed) "
+                                 ++ cm ++ " with args " ++ show (J.methodParameterTypes m) ++ "\n"
+                                 ++ "and body " ++
+                                     show (J.methodBody m)
                           args <- C.getOverrideArgs
                           C.SomeCFG cfg <- liftST $ translateMethod' ctx verbosity (J.className c) m handle
                           C.bindFnHandle handle (C.UseCFG cfg (C.postdomInfo cfg))
@@ -1694,6 +1742,7 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
 
 findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
 findAllRefs cb cls = do
+
   names <- go (Set.singleton cls) 
   mapM (lookupClass cb) names
   where
@@ -1733,13 +1782,14 @@ executeCrucibleJVM :: forall ret args sym p cb.
                    -> C.RegMap sym args -- ^ Arguments
                    -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 executeCrucibleJVM cb verbosity sym p cname mname args = do
+     when (verbosity > 2) $
+       putStrLn "starting executeCrucibleJVM"
   
      setSimulatorVerbosity verbosity sym
 
      (mcls, meth) <- findMethod cb mname =<< findClass cb cname
      when (not (J.methodIsStatic meth)) $ do
        fail $ unlines [ "Crucible can only extract static methods" ]
-
   
      allClasses <- findAllRefs cb (J.className mcls)
 
