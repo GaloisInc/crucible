@@ -42,6 +42,7 @@ import qualified Lang.Crucible.Simulator.OverrideSim as C
 import qualified Lang.Crucible.Simulator.SimError as C
 import qualified Lang.Crucible.Simulator.RegMap as C
 import qualified Lang.Crucible.Simulator.SimError as C
+import qualified What4.Expr as C
 import qualified What4.Interface as C hiding (mkStruct)
 import qualified Lang.Crucible.Backend.SAWCore as C
 import qualified Lang.Crucible.CFG.Reg as Reg
@@ -57,7 +58,7 @@ import qualified Mir.Pass as Pass
 
 import qualified Control.Monad.Trans.State.Strict as SState
 
-type Sym = C.SAWCoreBackend GlobalNonceGenerator
+type Sym = C.SAWCoreBackend GlobalNonceGenerator (C.Flags C.FloatReal)
 
 type SimContext = C.SimContext (C.SAWCruciblePersonality Sym) Sym
 type SimGlobalState = C.SymGlobalState Sym
