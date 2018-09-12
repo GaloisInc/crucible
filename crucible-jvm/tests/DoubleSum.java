@@ -1,9 +1,10 @@
 public class DoubleSum
 {
-    // 
+    // java claims that this will pass,
+    // but it fails for some reason
     public static void main(String[] args)
     {
-	int i2 = 2;
+	double i2 = 2;
 	double sum = (3.4 + i2);
 	System.out.println(sum);
 

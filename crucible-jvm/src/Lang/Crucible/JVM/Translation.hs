@@ -1133,8 +1133,7 @@ generateInstruction (pc, instr) =
          
     J.Instanceof tTy ->
       -- instanceof returns False when argument is null
-      do -- lift $ addPrintStmt (App $ TextLit (fromString $ "instanceof " ++ show tTy))         
-         objectRef <- rPop
+      do objectRef <- rPop
          b <- lift $ caseMaybe objectRef knownRepr
            MatchMaybe
            { onNothing = return (App $ BoolLit False)

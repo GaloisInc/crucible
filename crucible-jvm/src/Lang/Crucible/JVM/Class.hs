@@ -278,23 +278,28 @@ interfacesImplemented ctx cn = toClassList (go (Set.singleton (J.className cn)))
 struct :: JVMClass s -> Expr JVM s JVMClassImpl
 struct ct = App $ UnrollRecursive knownRepr knownRepr ct
 
+-- | access the name of the class (i.e java/lang/String)
 getJVMClassName :: JVMClass s -> Expr JVM s StringType
 getJVMClassName ct = App (GetStruct (struct ct) Ctx.i1of5 knownRepr)
 
+-- | has the class been initialized
 getJVMClassInitStatus :: JVMClass s -> JVMInitStatus s
 getJVMClassInitStatus ct = App (GetStruct (struct ct) Ctx.i2of5 knownRepr)
 
+-- | return the super class (or None, if this class is java/lang/Object)
 getJVMClassSuper :: JVMClass s -> Expr JVM s (MaybeType JVMClassType)
 getJVMClassSuper ct = App (GetStruct (struct ct) Ctx.i3of5 knownRepr)
 
+-- | get the stringmap of method handles for the methods declared in this class
 getJVMClassMethodTable :: JVMClass s -> JVMMethodTable s
 getJVMClassMethodTable ct = App (GetStruct (struct ct) Ctx.i4of5 knownRepr)
 
+-- | return a vector of *all* interfaces that this class implements
+-- (both directly and indirectly through super classes and super interfaces)
 getJVMClassInterfaces :: JVMClass s -> Expr JVM s (VectorType StringType)
 getJVMClassInterfaces ct = App (GetStruct (struct ct) Ctx.i5of5 knownRepr)
 
--- | Update
-
+-- | replace the initialization status in the class data structure
 setJVMClassInitStatus :: JVMClass s -> JVMInitStatus s -> JVMClass s
 setJVMClassInitStatus ct status = App (RollRecursive knownRepr knownRepr 
                                        (App (SetStruct knownRepr (struct ct) Ctx.i2of5 status)))
@@ -492,6 +497,7 @@ initialFieldValue f =
         return $ defaultValue (J.fieldType f)
      Just tp -> error $ "Unsupported field type" ++ show tp
 
+-- | update the static field value of the class with its initial value
 initializeStaticField :: J.ClassName -> J.Field -> JVMGenerator h s ret ()
 initializeStaticField name f = do
   when (J.fieldIsStatic f) $ do
@@ -501,7 +507,11 @@ initializeStaticField name f = do
       
 ------------------------------------------------------------------------
 
+-- * Dynamic dispatch
+
 -- | Search for a method handle using the dynamic class information
+-- This will work with trivial forms of overloading (as the stringmap is
+-- keyed by the string for the method key, which includes its type)
 findDynamicMethod :: JVMClass s 
                   -> J.MethodKey
                   -> JVMGenerator h s ret (Expr JVM s AnyType)
@@ -558,14 +568,13 @@ makeClassTypeRep :: JVMClass s -> JVMTypeRep s
 makeClassTypeRep cls = 
   App (RollRecursive knownRepr knownRepr (App $ InjectVariant knownRepr Ctx.i2of3 cls))
 
-
 -- | This function will initialize the class, if it hasn't been already
 makeClassTypeRepByName :: J.ClassName -> JVMGenerator h s ret (JVMTypeRep s)
 makeClassTypeRepByName cn = do
   cls <- getJVMClassByName cn
   return $ makeClassTypeRep cls
 
-
+-- | Convert a primitive type to an enum value
 primIndex :: J.Type -> Maybe (JVMInt s)
 primIndex ty =
   case ty of
@@ -629,14 +638,12 @@ checkCast objectRef ty =
       assertExpr b $ fromString ("java/lang/ClassCastException (" ++ show ty ++ ")" )
   }
 
--- Classes and interfaces that are supertypes of array types
--- https://docs.oracle.com/javase/specs/jls/se8/html/jls-4.html#jls-4.10.3
+-- | Classes and interfaces that are supertypes of array types
+--   see https://docs.oracle.com/javase/specs/jls/se8/html/jls-4.html#jls-4.10.3
 arraySuperTypes :: [J.ClassName]
 arraySuperTypes = map J.mkClassName ["java/lang/Object", "java/lang/Cloneable", "java/io/Serializable"]
 
 -- | Test whether the dynamic class is a subtype of the given class name or interface name
--- NEED TO MAKE THIS A WHILE LOOP
--- NO: type tyT should decrease on each recursive call
 isSubType :: JVMTypeRep s -> J.Type -> JVMGenerator h s ret (Expr JVM s BoolType)
 isSubType tyS tyT = do
   debug 3 $ "isSubtype called with " ++ show tyT
@@ -644,7 +651,6 @@ isSubType tyS tyT = do
   caseMaybe (App $ ProjectVariant knownRepr Ctx.i1of3 unr) knownRepr
     MatchMaybe
     { onJust    = \sc -> do  -- S is an array type
-      -- addPrintStmt (App $ TextLit (fromString ("isSubtype (array): " ++ show tyT ++ "\n")))        
       case tyT of
         (J.ClassType name) ->
           return (App $ BoolLit (name `elem` arraySuperTypes))
@@ -655,7 +661,6 @@ isSubType tyS tyT = do
     , onNothing = caseMaybe (App $ ProjectVariant knownRepr Ctx.i2of3 unr) knownRepr
       MatchMaybe
       { onJust  = \scls -> do -- S is an object type
-        --addPrintStmt (App $ TextLit (fromString ("isSubtype (class): " ++ show tyT ++ "\n")))          
         case tyT of
           (J.ClassType name) -> do
               b1 <- scls `implements` name
@@ -665,7 +670,6 @@ isSubType tyS tyT = do
 
       , onNothing = do
         -- primitive type
-        -- addPrintStmt (App $ TextLit (fromString ("isSubtype (prim): " ++ show tyT ++ "\n")))          
         val <- assertedJustExpr (App $ ProjectVariant knownRepr Ctx.i3of3 unr) "isSubType: impossible"
         case primIndex tyT of
           Just x  -> return (App $ BVEq knownRepr val x)
@@ -903,13 +907,14 @@ newMultiArray ::
   --   assertion failure if any int is nonnegative
   -> JVMGenerator h s ret (JVMObject s)
 newMultiArray arrType counts = do
+    debug 4 $ "new multiarray of type " ++ show arrType
     loop arrType counts
   where
     loop :: J.Type -> [JVMInt s] -> JVMGenerator h s ret (JVMObject s)
-    loop (J.ArrayType _elemType) [count] =
-        newArray count arrType
-    loop (J.ArrayType elemType) (count:rest) = do
-        arr0   <- newArray count arrType
+    loop aty@(J.ArrayType _elemType) [count] =
+        newArray count aty
+    loop aty@(J.ArrayType elemType) (count:rest) = do
+        arr0   <- newArray count aty
         arrRef <- newRef arr0
         iterate_ count $ \i -> do
           arr     <- readRef arrRef 
@@ -924,7 +929,7 @@ newMultiArray arrType counts = do
 
 
 -- | Construct a new array given a vector of initial values
--- (This function is used for static array initializers.)
+-- (used for static array initializers.)
 newarrayFromVec ::
   J.Type
   -- ^ Type of array
@@ -932,6 +937,7 @@ newarrayFromVec ::
   -- ^ Initial values for all array elements
   -> JVMGenerator h s ret (JVMObject s)
 newarrayFromVec aty vec = do
+  debug 4 $ "new arrayFromVec of type " ++ show aty
   let count = App $ BVLit w32 (toInteger (V.length vec))
   ty <- makeJVMTypeRep aty
   let ctx   = Ctx.empty `Ctx.extend` count `Ctx.extend` (App $ VectorLit knownRepr vec) `Ctx.extend` ty

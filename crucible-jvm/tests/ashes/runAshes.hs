@@ -29,7 +29,7 @@ skipList    = [  -- SCW: yep slow
               ,  "jikesDerekTestSuite/benchmarks/testFieldAccess"
               ,  "ashesHardTestSuite/benchmarks/matrix"
 
-              -- instanceOf??? or still StringBuffer
+              --  StringBuffer
               , "jikesDerekTestSuite/benchmarks/testInstanceOf"
               
               -- slow because of StringBuffer class???
@@ -80,7 +80,7 @@ expFailList = [
   , "kaffeRegressionSuite/benchmarks/testIntLong"
 
   
-  -- tests length of args (npe) during simulation
+  -- tests length of args during simulation (npe)
   , "kaffeRegressionSuite/benchmarks/initTest"
   -- needs args (commandline argument)
   , "jikesDerekTestSuite/benchmarks/sort"
@@ -116,15 +116,6 @@ expFailList = [
   , "jikesDerekTestSuite/benchmarks/testFinally"
   , "kaffeRegressionSuite/benchmarks/nullPointerTest"
   , "jikesPrTestSuite/benchmarks/pr146"
-
-  
-  -- unimplemented: CheckCast for array
-  --, "jikesHpjTestSuite/benchmarks/checkcast1"
-  
-    -- unimplemented: instanceof for array
---  , "jikesHpjTestSuite/benchmarks/instance1"
---  , "jikesHpjTestSuite/benchmarks/instance"
---  , "jikesDerekTestSuite/benchmarks/testInstanceOf"
   
     -- Strange parsing issue: trying to load native code
     -- needs more than we are currently providing
@@ -168,10 +159,10 @@ expFailList = [
     --- supported by the previous version of jss ----
               
                -- Floating point array tests
-              ,  "ashesHardTestSuite/benchmarks/matrix"
-              , "jikesDerekTestSuite/benchmarks/testArrayAccess"
-              , "jikesHpjTestSuite/benchmarks/arraymethod"
---              , "jikesHpjTestSuite/benchmarks/callmm"
+              ,  "ashesHardTestSuite/benchmarks/matrix"  -- SLOW
+              , "jikesDerekTestSuite/benchmarks/testArrayAccess" -- uses array[0].getClass().getName()
+              , "jikesHpjTestSuite/benchmarks/arraymethod" -- strange fp behavior
+--              , "jikesHpjTestSuite/benchmarks/callmm"  (FIXED!)
 
                 -- Trivially different output
               , "jikesHpjTestSuite/broken/array2"
@@ -323,11 +314,11 @@ runTest verbosity file = do
 runFind :: String -> String -> IO [String]
 runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
-
+{-
 main :: IO ()
 main = wip
+-}
 
-{-
 main :: IO ()
 main = do
   dir <- getCurrentDirectory
@@ -342,14 +333,13 @@ main = do
     results
   printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
     results
--}
+
 
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
   
-  -- null dereference for (ta instanceof Truck[]) ??
-  let testCase = "jikesHpjTestSuite/benchmarks/instance1"
+  let testCase = "ashesEasyTestSuite/benchmarks/life"
 
   result <- runTest 3 $ top ++ testCase ++ "/mainClass"
 

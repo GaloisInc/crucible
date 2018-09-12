@@ -1,21 +1,17 @@
-
-class A {
-    int z = 0;
-}
-
 public class Main
 {    
     public static void main(String[] args)
     {
-	A[] x = { new A() };
+	int i2 = 2;
+	double sum = (3.4 + i2);
+	System.out.println(sum);
 
-	Object y = x;
-
-	Object[] z = (A[])y;
-
-	System.out.println(z[0]);
-
-	
+	if (sum != 5.4) {
+	    System.out.println(5);
+	}
+	else {
+	    System.out.println(0);
+      }	
     }
     
  
