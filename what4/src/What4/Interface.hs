@@ -133,7 +133,9 @@ module What4.Interface
 
     -- * Reexports
   , module Data.Parameterized.NatRepr
+  , module What4.BaseTypes
   , What4.Symbol.SolverSymbol
+  , What4.Symbol.emptySymbol
   , What4.Symbol.userSymbol
   ) where
 
