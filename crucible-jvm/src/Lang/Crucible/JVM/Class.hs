@@ -166,11 +166,12 @@ classNameExpr :: J.ClassName -> JVMString s
 classNameExpr cn = App $ TextLit $ fromString (J.unClassName cn)
 
 -- | Expression for method key
--- Includes the parameter types to resolve overloading
+-- Includes the parameter type & result type to resolve overloading
 -- TODO: This is an approximation of what the JVM actually does 
 methodKeyExpr :: J.MethodKey -> JVMString s
-methodKeyExpr c = App $ TextLit $ fromString (J.methodKeyName c ++ params) where
+methodKeyExpr c = App $ TextLit $ fromString (J.methodKeyName c ++ params ++ res) where
   params = concat (map show (J.methodKeyParameterTypes c))
+  res    = show (J.methodKeyReturnType c)
 
 
 -- | Method table
@@ -789,32 +790,57 @@ newInstanceInstr cls fieldIds = do
     addField (f,i) fs = 
       App (InsertStringMapEntry knownRepr fs f i)
 
+-- Field access is tricky
+-- Fields are named as "C.f" where C is the static of the object that is being accessed.
+-- However, that is not necessarily the name of the field if it was inherited from a
+-- superclass. So we need to first look for C.f, but if we don't find it, we need to check
+-- for fields named by the superclass of C.
+findField :: (KnownRepr TypeRepr a) => Expr JVM s (StringMapType JVMValueType) -> J.FieldId
+          -> (J.FieldId -> Expr JVM s JVMValueType -> JVMGenerator h s ret (Expr JVM s a))
+          -> JVMGenerator h s ret (Expr JVM s a)
+findField fields fieldId k = do
+  let currClassName = J.fieldIdClass fieldId
+  let str    = fieldIdString fieldId
+  let key    = App (TextLit (fromString str))
+  let mval   = App (LookupStringMapEntry knownRepr fields key)
+  caseMaybe mval knownRepr
+   MatchMaybe
+   { onJust  = \val -> k fieldId val
+   , onNothing = do
+       cls <- lookupClassGen currClassName
+       case (J.superClass cls) of
+         Nothing    -> reportError
+           (App $ TextLit (fromString ("getfield: field " ++ str ++ " not found")))
+         Just super -> findField fields (fieldId { J.fieldIdClass = super }) k
+   }
+
 -- | Access the field component of a JVM object (must be a class instance, not an array)
 getInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMGenerator h s ret (JVMValue s)
 getInstanceFieldValue obj fieldId = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)             
   inst <- projectVariant Ctx.i1of2 uobj
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-  let str    = fieldIdString fieldId
-  let key    = App (TextLit (fromString str))
-  let mval   = App (LookupStringMapEntry knownRepr fields key)
-  dyn <- assertedJustExpr mval (fromString ("getfield: field " ++ str ++ " not found"))
+  dyn <- findField fields fieldId (\_ x -> return x)
   fromJVMDynamic (J.fieldIdType fieldId) dyn
+
+ 
 
 -- | Update a field of a JVM object (must be a class instance, not an array)
 setInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMValue s -> JVMGenerator h s ret (JVMObject s)
 setInstanceFieldValue obj fieldId val = do
+  let dyn  = valueToExpr val
+  let mdyn = App (JustValue knownRepr dyn)
+  
   let uobj   = App (UnrollRecursive knownRepr knownRepr obj)
   inst <- projectVariant Ctx.i1of2 uobj
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
-  let dyn  = valueToExpr val
-  let str = fieldIdString fieldId
-  let key = App (TextLit (fromString str))
-  let mdyn = App (JustValue knownRepr dyn)
-  let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
-  let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
-  let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
-  return $ App (RollRecursive knownRepr knownRepr uobj')
+  findField fields fieldId $ \fieldId' _x -> do                                   
+       let str = fieldIdString fieldId'
+       let key = App (TextLit (fromString str))
+       let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
+       let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
+       let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
+       return $ App (RollRecursive knownRepr knownRepr uobj')
 
 -- | Access the runtime class information for the class that instantiated this instance
 getJVMInstanceClass :: JVMObject s -> JVMGenerator h s ret (JVMClass s)
