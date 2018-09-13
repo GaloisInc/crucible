@@ -9,6 +9,8 @@ import Data.Monoid
 --import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+import What4.Solver.Z3 ( z3Options )
+
 --import Lang.Crucible.Syntax.Concrete
 --import Lang.Crucible.Syntax.SExpr
 --import Lang.Crucible.Syntax.Atoms
