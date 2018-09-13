@@ -9,6 +9,7 @@ import Data.Monoid
 --import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
+
 --import Lang.Crucible.Syntax.Concrete
 --import Lang.Crucible.Syntax.SExpr
 --import Lang.Crucible.Syntax.Atoms
@@ -100,8 +101,9 @@ main =
             let setup _ _ = return []
             case out of
               Nothing ->
-                simulateProgram inputFile contents stdout setup
+                simulateProgram inputFile contents stdout [] setup
               Just (TheFile outputFile) ->
-                withFile outputFile WriteMode (\outh -> simulateProgram inputFile contents outh setup)
+                withFile outputFile WriteMode
+                  (\outh -> simulateProgram inputFile contents outh [] setup)
 
   where options = Opt.info command (Opt.fullDesc)

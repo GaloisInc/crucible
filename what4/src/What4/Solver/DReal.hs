@@ -73,7 +73,7 @@ drealPath = configOption knownRepr "dreal_path"
 drealOptions :: [ConfigDesc]
 drealOptions =
   [ mkOpt
-      drealPath 
+      drealPath
       executablePathOptSty
       (Just (PP.text "Path to dReal executable"))
       (Just (ConcreteString "dreal"))

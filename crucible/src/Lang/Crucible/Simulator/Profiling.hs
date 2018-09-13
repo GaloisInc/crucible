@@ -88,7 +88,7 @@ instance TraversableF Metrics where
 metricsToJSON :: Metrics Identity -> UTCTime -> JSValue
 metricsToJSON m time = JSObject $ toJSObject $
     [ ("time", utcTimeToJSON time)
-    , ("split-count", showJSON $ runIdentity $ metricSplits m )
+    , ("paths", showJSON $ runIdentity $ metricSplits m )
     , ("merge-count", showJSON $ runIdentity $ metricMerges m )
     , ("abort-count", showJSON $ runIdentity $ metricAborts m )
     ]
@@ -112,16 +112,14 @@ data CGEvent =
 utcTimeToJSON :: UTCTime -> JSValue
 utcTimeToJSON t = showJSON ((fromRational $ toRational $ utcTimeToPOSIXSeconds t) :: Double)
 
-instance JSON CGEventType where
-  readJSON _ = error "FIXME JSON CGEventType"
-  showJSON ENTER = showJSON "ENTER"
-  showJSON EXIT  = showJSON "EXIT"
+cgEventTypeToJSON :: CGEventType -> JSValue
+cgEventTypeToJSON ENTER = showJSON "ENTER"
+cgEventTypeToJSON EXIT  = showJSON "EXIT"
 
-instance JSON CGEvent where
-  readJSON _ = error "FIXME JSON CGEvent"
-  showJSON ev = JSObject $ toJSObject $
+cgEventToJSON :: CGEvent -> JSValue
+cgEventToJSON ev = JSObject $ toJSObject $
     [ ("function", showJSON $ functionName $ cgEvent_fnName ev)
-    , ("type", showJSON (cgEvent_type ev))
+    , ("type", cgEventTypeToJSON (cgEvent_type ev))
     , ("metrics", metricsToJSON (cgEvent_metrics ev) (cgEvent_time ev))
     ]
     ++
@@ -139,7 +137,7 @@ positionToJSON p = showJSON $ show $ p
 callGraphJSON :: Seq CGEvent -> JSValue
 callGraphJSON evs = JSObject $ toJSObject
   [ ("type", showJSON "callgraph")
-  , ("events", JSArray (map showJSON $ toList evs))
+  , ("events", JSArray (map cgEventToJSON $ toList evs))
   ]
 
 symProUIString :: String -> String -> ProfilingTable -> IO String

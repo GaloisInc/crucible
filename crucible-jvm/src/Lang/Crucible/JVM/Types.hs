@@ -126,9 +126,9 @@ type JVMRefType    = MaybeType (ReferenceType JVMObjectType)
 -- and an (immutable) pointer to the class (object).
 type JVMInstanceType =
   StructType (EmptyCtx ::> StringMapType JVMValueType ::> JVMClassType)
-              
+
 -- | An array value is a length, a vector of values,
--- and an element type 
+-- and an element type
 type JVMArrayType =
   StructType (EmptyCtx ::> JVMIntType ::> VectorType JVMValueType ::> JVMTypeRepType)
 

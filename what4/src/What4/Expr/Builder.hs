@@ -3450,10 +3450,11 @@ semiRingLe
    :: WSum.SemiRingCoefficient tp
    => ExprBuilder t st fs
    -> SemiRingRepr tp
+   -> (Expr t tp -> Expr t tp -> IO (Expr t BaseBoolType)) {- ^ recursive call for simplifications -}
    -> Expr t tp
    -> Expr t tp
    -> IO (Expr t BaseBoolType)
-semiRingLe sym sr x y
+semiRingLe sym sr rec x y
       -- Check for syntactic equality.
     | x == y = return (truePred sym)
 
@@ -3463,6 +3464,16 @@ semiRingLe sym sr x y
       -- Another strength reduction
     | Just (SemiRingMul _ u v) <- asApp x, SemiRingLiteral _ 0 _ <- y = do
       leNonpos le y sym u v
+
+      -- Push some comparisons under if/then/else
+    | SemiRingLiteral _ _ _ <- x
+    , Just (SemiRingIte _ c a b) <- asApp y
+    = join (itePred sym c <$> rec x a <*> rec x b)
+
+      -- Push some comparisons under if/then/else
+    | Just (SemiRingIte _ c a b) <- asApp x
+    , SemiRingLiteral _ _ _ <- y
+    = join (itePred sym c <$> rec a y <*> rec b y)
 
       -- Simplify ite expressions when one of the values is ground.
       -- This appears to occur fairly often due to range checks.
@@ -3501,12 +3512,23 @@ semiRingLe sym sr x y
 semiRingEq :: WSum.SemiRingCoefficient tp
            => ExprBuilder t st fs
            -> SemiRingRepr tp
+           -> (Expr t tp -> Expr t tp -> IO (Expr t BaseBoolType)) {- ^ recursive call for simplifications -}
            -> Expr t tp
            -> Expr t tp
            -> IO (Expr t BaseBoolType)
-semiRingEq sym sr x y
+semiRingEq sym sr rec x y
   -- Check for syntactic equality.
   | x == y = return (truePred sym)
+
+    -- Push some equalities under if/then/else
+  | SemiRingLiteral _ _ _ <- x
+  , Just (SemiRingIte _ c a b) <- asApp y
+  = join (itePred sym c <$> rec x a <*> rec x b)
+
+    -- Push some equalities under if/then/else
+  | Just (SemiRingIte _ c a b) <- asApp x
+  , SemiRingLiteral _ _ _ <- y
+  = join (itePred sym c <$> rec a y <*> rec b y)
 
   | (z, x',y') <- WSum.extractCommon (asWeightedSum x) (asWeightedSum y)
   , not (WSum.isZero z) =
@@ -3845,14 +3867,14 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = return (backendPred sym b)
 
     | otherwise
-    = semiRingEq sym SemiRingNat x y
+    = semiRingEq sym SemiRingNat (natEq sym) x y
 
   natLe sym x y
     | Just b <- natCheckLe (exprAbsValue x) (exprAbsValue y)
     = return (backendPred sym b)
 
     | otherwise
-    = semiRingLe sym SemiRingNat x y
+    = semiRingLe sym SemiRingNat (natLe sym) x y
 
   ----------------------------------------------------------------------
   -- Integer operations.
@@ -3936,7 +3958,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
          then return (falsePred sym)
          else bvEq sym ybv =<< bvLit sym w xi
 
-    | otherwise = semiRingEq sym SemiRingInt x y
+    | otherwise = semiRingEq sym SemiRingInt (intEq sym) x y
 
   intLe sym x y
       -- Use abstract domains
@@ -4027,7 +4049,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 -}
 
     | otherwise
-    = semiRingLe sym SemiRingInt x y
+    = semiRingLe sym SemiRingInt (intLe sym) x y
 
   intAbs sym x
     | Just i <- asInteger x = intLit sym (abs i)
@@ -4928,7 +4950,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
          else return (falsePred sym)
 
     | otherwise
-    = semiRingEq sym SemiRingReal x y
+    = semiRingEq sym SemiRingReal (realEq sym) x y
 
   realLe sym x y
       -- Use range check
@@ -4953,7 +4975,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = join (intLe sym <$> intLit sym (ceiling xr) <*> pure yi)
 
     | otherwise
-    = semiRingLe sym SemiRingReal x y
+    = semiRingLe sym SemiRingReal (realLe sym) x y
 
   realIte sym c x y = semiRingIte sym SemiRingReal c x y
 

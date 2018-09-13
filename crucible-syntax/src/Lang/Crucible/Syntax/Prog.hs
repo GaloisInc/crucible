@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
@@ -35,7 +36,9 @@ import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
 
-import What4.Expr.Builder (Flags, FloatIEEE)
+import What4.Config
+import What4.Interface (getConfiguration)
+import What4.Expr.Builder (Flags, FloatIEEE, ExprBuilder)
 import What4.ProgramLoc
 
 
@@ -71,9 +74,11 @@ simulateProgram
    :: FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Handle   -- ^ A handle that will receive the output
-   -> (forall p sym ext. IsSymInterface sym => sym -> HandleAllocator RealWorld -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
+   -> [ConfigDesc] -- ^ Options to install
+   -> (forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+         sym -> HandleAllocator RealWorld -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
    -> IO ()
-simulateProgram fn theInput outh setup =
+simulateProgram fn theInput outh opts setup =
   do ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
@@ -82,6 +87,7 @@ simulateProgram fn theInput outh setup =
        Right v ->
          withIONonceGenerator $ \nonceGen ->
          do sym <- newSimpleBackend @_ @(Flags FloatIEEE) nonceGen
+            extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
             parseResult <- stToIO $ top ha hdls $ cfgs v

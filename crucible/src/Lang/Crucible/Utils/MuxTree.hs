@@ -114,7 +114,7 @@ buildMuxTree sym  xs = go Map.empty xs
 muxTreeUnaryOp ::
   (Ord b, IsExprBuilder sym) =>
   sym ->
-  (a -> IO b) -> 
+  (a -> IO b) ->
   MuxTree sym a ->
   IO (MuxTree sym b)
 muxTreeUnaryOp sym op xt =

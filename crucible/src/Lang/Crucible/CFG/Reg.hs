@@ -415,7 +415,7 @@ foldAtomValueInputs f (ReadRef r)         b = f (AtomValue r) b
 foldAtomValueInputs _ (NewEmptyRef _)     b = b
 foldAtomValueInputs f (NewRef a)          b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)      b = foldApp (f . AtomValue) b app0
-foldAtomValueInputs _ (FreshConstant _ _) b = b 
+foldAtomValueInputs _ (FreshConstant _ _) b = b
 foldAtomValueInputs f (Call g a _)        b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
 ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc

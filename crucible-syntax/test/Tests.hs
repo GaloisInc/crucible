@@ -26,7 +26,10 @@ import Test.Tasty.HUnit
 import qualified Text.Megaparsec as MP
 import System.FilePath
 import System.Directory
+
+import What4.Config
 import What4.ProgramLoc
+import What4.Solver.Z3 (z3Options)
 
 import Overrides
 
@@ -60,10 +63,14 @@ findParseTests wd =
        , let goodFile = replaceExtension input ".out.good"
        ]
 
+testOptions :: [ConfigDesc]
+testOptions = z3Options
+
 testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
   do contents <- T.readFile inFile
-     withFile outFile WriteMode $ \outh -> simulateProgram inFile contents outh setupOverrides
+     withFile outFile WriteMode $ \outh ->
+       simulateProgram inFile contents outh testOptions setupOverrides
 
 findSimTests :: FilePath -> IO TestTree
 findSimTests wd =

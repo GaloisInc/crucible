@@ -32,13 +32,13 @@ instance ClassRefs a => ClassRefs (Maybe a) where
 instance ClassRefs a => ClassRefs [a] where
   classRefs = foldMap classRefs
 
--- 
+--
 instance ClassRefs J.ClassName where
   classRefs cn =
     if "[" `isPrefixOf` J.unClassName cn then
       error $ "INVALID classname " ++ show cn
-    else 
-      Set.singleton cn 
+    else
+      Set.singleton cn
 
 instance ClassRefs J.Type where
   classRefs ty =

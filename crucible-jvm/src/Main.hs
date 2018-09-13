@@ -125,7 +125,7 @@ makeCounterExamples opts = maybe (return ()) go
                     SourcePos _ l _ -> show l
                     _               -> "unknown"
            msg = show (simErrorReason c)
- 
+
        in case res of
             NotProved (Just m) ->
               do sayFail "Crux" ("Counter example for " ++ msg)
@@ -133,12 +133,12 @@ makeCounterExamples opts = maybe (return ()) go
 
 -- Returns only non-trivial goals
 simulate ::
-  Options -> 
+  Options ->
   String ->
   IO (Maybe ProvedGoals)
 simulate opts cname =
   withIONonceGenerator $ \nonceGen ->
-  
+
   withYicesOnlineBackend nonceGen $ \(sym :: YicesOnlineBackend scope (Flags FloatReal)) -> do
 
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
@@ -153,12 +153,12 @@ simulate opts cname =
      -- TODO: figure out how to allocate an empty array
      let nullstr = RegEntry refRepr W4.Unassigned
      let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
-     
+
      res <- executeCrucibleJVM @UnitType cb (simVerbose opts) sym
        personality cname mname regmap
-           
+
      _ <- popAssumptionFrame sym frm
-          
+
      ctx' <- case res of
                FinishedResult ctx' pr -> do
                  -- The 'main' method returns void, so there is no need
@@ -168,9 +168,9 @@ simulate opts cname =
                  -- putStrLn (showInt J.IntType (regValue (gp ^. gpValue)))
                  return ctx'
                AbortedResult ctx' _  -> return ctx'
-      
+
      --say "Crux" "Simulation complete."
-      
+
      provedGoalsTree ctx'
        =<< proveGoals ctx'
        =<<  getProofObligations sym

@@ -36,7 +36,7 @@ module What4.InterpretedFloatingPoint
     -- ** IsInterpretedFloatExprBuilder
   , IsInterpretedFloatExprBuilder(..)
   , IsInterpretedFloatSymExprBuilder(..)
-  ) where 
+  ) where
 
 import           Data.Hashable
 import           Data.Parameterized.Classes
@@ -79,7 +79,7 @@ instance KnownRepr FloatInfoRepr SingleFloat       where knownRepr = SingleFloat
 instance KnownRepr FloatInfoRepr DoubleFloat       where knownRepr = DoubleFloatRepr
 instance KnownRepr FloatInfoRepr QuadFloat         where knownRepr = QuadFloatRepr
 instance KnownRepr FloatInfoRepr X86_80Float       where knownRepr = X86_80FloatRepr
-instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubleFloatRepr  
+instance KnownRepr FloatInfoRepr DoubleDoubleFloat where knownRepr = DoubleDoubleFloatRepr
 
 $(return [])
 

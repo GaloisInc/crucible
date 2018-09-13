@@ -10,7 +10,7 @@ import Lang.Crucible.JVM.Types
 
 import Model
 
--- | A simulator context 
+-- | A simulator context
 type SimCtxt sym = SimContext (Model sym) sym JVM
 
 -- | The instane of the override monad we use,

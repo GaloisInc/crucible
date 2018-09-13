@@ -412,7 +412,7 @@ checkTerm env re expectedType = do
 
   let env' = env { eModuleEnv = modEnv' }
   return (env', expr)
-  
+
 
 inferTerm :: CryptolEnv -> P.Expr P.PName -> IO (CryptolEnv, T.Schema, T.Expr)
 inferTerm env pexpr = do

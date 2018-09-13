@@ -139,7 +139,7 @@ import Debug.Trace
 -- * Special treatment of the Java standard library
 
 
-{- Overall, the system doesn't take a very principled approach to classes from 
+{- Overall, the system doesn't take a very principled approach to classes from
    Java's standard library that are referred to in the test cases.
 
    The basic idea is that when we similate a Java method call, we first crawl
@@ -187,7 +187,7 @@ staticOverrides className methodKey
                let lon = longFromDouble doub
                lPush lon
 
-               
+
   | className == "java/lang/System" && J.methodKeyName methodKey == "arraycopy"
   = Just $ do len     <- iPop
               destPos <- iPop
@@ -852,7 +852,7 @@ generateInstruction (pc, instr) =
       counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
       obj    <- lift $ newMultiArray arrType counts
       rawRef <- lift $ newRef obj
-      rPush (App $ JustValue knownRepr rawRef) 
+      rPush (App $ JustValue knownRepr rawRef)
 
     -- Load an array component onto the operand stack
     J.Baload -> aloadInstr tagI IValue -- byte
@@ -1029,8 +1029,8 @@ generateInstruction (pc, instr) =
       ->  do let mname = J.unClassName className ++ "/" ++ J.methodKeyName methodKey
              lift $ debug 2 $ "invoke static: " ++ mname
              action
-      
-      | otherwise -> 
+
+      | otherwise ->
         -- make sure that *this* class has already been initialized
         do lift $ initializeClass className
            (JVMHandleInfo _ handle) <- lift $ getStaticMethod className methodKey
@@ -1052,23 +1052,23 @@ generateInstruction (pc, instr) =
     -- Other XXXXX
     J.Aconst_null ->
       do rPush rNull
-         
+
     J.Arraylength ->
       do arrayRef <- rPop
          rawRef <- throwIfRefNull arrayRef
          obj <- lift $ readRef rawRef
          len <- lift $ arrayLength obj
          iPush len
-         
+
     J.Athrow ->
       do objectRef <- rPop
          _obj <- throwIfRefNull objectRef
-         
+
          -- For now, we assert that exceptions won't happen
          lift $ reportError (App (TextLit "athrow"))
          --throw objectRef
 
-         
+
     J.Checkcast ty  ->
       do objectRef <- rPop
          lift $ checkCast objectRef ty
@@ -1078,7 +1078,7 @@ generateInstruction (pc, instr) =
       do value <- getLocal idx >>= lift . fromIValue
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
-         
+
     J.Instanceof tTy ->
       -- instanceof returns False when argument is null
       do objectRef <- rPop
@@ -1808,6 +1808,7 @@ mkSimSt sym p halloc ctx verbosity = C.initSimState simctx globals C.defaultAbor
       globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
 
 
+
 -- (currently unused)
 -- Way to run initialization code before simulation starts
 -- Currently this code initializes the current class 
@@ -1896,7 +1897,7 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
 
      when (verbosity > 2) $
        putStrLn "starting executeCrucibleJVM"
-  
+
      setSimulatorVerbosity verbosity sym
 
      (mcls, meth) <- findMethod cb mname =<< findClass cb cname
@@ -1906,7 +1907,7 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      halloc <- newHandleAllocator
 
      -- Create the initial JVMContext
-     ctx0 <- mkInitialJVMContext halloc 
+     ctx0 <- mkInitialJVMContext halloc
 
      -- prep this class && all classes that it refers to
      allClasses <- findAllRefs cb (J.className mcls)

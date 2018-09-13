@@ -690,7 +690,7 @@ resumeFrame ::
 resumeFrame toLoc (PausedFrame frm cont) ctx =
  do case toLoc of
       Nothing -> return ()
-      Just l  -> 
+      Just l  ->
         do sym <- view stateSymInterface
            liftIO $ setCurrentProgramLoc sym l
     withReaderT

@@ -33,7 +33,7 @@ module What4.Solver
   , drealPath
   , runDRealInOverride
   , writeDRealSMT2File
-  
+
     -- * STP
   , stpAdapter
   , stpPath

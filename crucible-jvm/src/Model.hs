@@ -8,6 +8,8 @@
 {-# Language PolyKinds #-}
 {-# Language ScopedTypeVariables #-}
 
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+
 module Model where
 
 import Data.List(intercalate)
@@ -144,7 +146,7 @@ ppModelJS ev m =
 instance Semigroup (Model sym) where
   (Model m1) <> m2        = MapF.foldrWithKey f m2 m1 where
     f :: forall s. BaseTypeRepr s -> Vars sym s -> Model sym -> Model sym
-    f k vs (Model m) = Model (MapF.insertWith jn k vs m) 
+    f k vs (Model m) = Model (MapF.insertWith jn k vs m)
     jn (Vars new) (Vars old) = Vars (new ++ old)
 
 instance Monoid (Model sym) where
