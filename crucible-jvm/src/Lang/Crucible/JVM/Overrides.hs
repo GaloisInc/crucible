@@ -309,13 +309,15 @@ data CValue =
   | CInt Int
   | CLong Integer
   | CRef (Maybe CObject)
+  deriving Show
 
 data CObject =
     CInstance (Map Text (Maybe CValue), CClass)
   | CArray (Vector (Maybe CValue))
-
+  deriving Show
 
 data CInitStatus = CNotStarted | CStarted | CInitialized | CErroneous
+  deriving Show
 
 -- | We don't store any of the static information about the class
 -- (methods, interfaces, etc) because we can figure that out just
@@ -324,7 +326,7 @@ data CClass =
   MkClass { cclassName   :: Text
           , cinitStatus  :: CInitStatus
           }
-
+  deriving Show
 
 ------------------------------------------------------------------
 --
@@ -352,13 +354,21 @@ toCharVec vec = traverse (\jv -> case jv of
 
 --
 -- | We don't try to call the toString method for objects
---   maybe we should
+--   maybe we should??
 instance ToText CObject where
   totexts (CInstance (fields, cls)) f
     | cclassName cls == "java/lang/String"
     , Just (Just (CRef (Just (CArray vec)))) <- Map.lookup "java/lang/String.value" fields
     , Just chars <- toCharVec vec
     = pack (V.toList chars) <> f
+  totexts (CInstance (fields, cls)) f
+    | cclassName cls == "java/lang/StringBuffer"
+    , Just (Just (CRef (Just (CArray vec)))) <-
+        Map.lookup "java/lang/AbstractStringBuilder.value" fields
+    , Just (Just (CInt count)) <- Map.lookup "java/lang/AbstractStringBuilder.count" fields
+    , Just chars <- toCharVec (V.take count vec)
+    = pack (V.toList chars) <> f
+    
   totexts (CInstance (fields, cls)) f
     -- do not text out non-String objects.
     -- TODO: what about primitives such as java.lang.Integer?
