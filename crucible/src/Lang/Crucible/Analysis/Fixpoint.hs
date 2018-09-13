@@ -11,11 +11,13 @@
 module Lang.Crucible.Analysis.Fixpoint (
   -- * Entry point
   forwardFixpoint,
+  forwardFixpoint',
+  Ignore(..),
   -- * Abstract Domains
   Domain(..),
   IterationStrategy(..),
   Interpretation(..),
-  PointAbstraction,
+  PointAbstraction(..),
   lookupAbstractRegValue,
   modifyAbstractRegValue,
   -- * Pointed domains
@@ -25,7 +27,7 @@ module Lang.Crucible.Analysis.Fixpoint (
   ) where
 
 import           Control.Applicative
-import           Control.Lens.Operators ( (^.), (%=), (.~), (&) )
+import           Control.Lens.Operators ( (^.), (%=), (.~), (&), (%~) )
 import qualified Control.Monad.State.Strict as St
 import qualified Data.Functor.Identity as I
 import           Data.Parameterized.Classes
@@ -144,7 +146,15 @@ data FunctionAbstraction (dom :: CrucibleType -> *) blocks ret =
   FunctionAbstraction { _faEntryRegs :: PU.Assignment (PointAbstraction dom) blocks
                         -- ^ Mapping from blocks to point abstractions
                         -- at entry to blocks.
+                      , _faExitRegs :: PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+                        -- ^ Mapping from blocks to point abstractions
+                        -- at exit from blocks. Blocks are indexed by
+                        -- their entry context, but not by there exit
+                        -- contexts, so we wrap the point abstraction
+                        -- in @Ignore . Some@ to hide the context of
+                        -- SSA tmps at exit.
                       , _faRet :: dom ret
+                        -- ^ Abstract value at return from function.
                       }
 
 data IterationState (dom :: CrucibleType -> *) blocks ret =
@@ -207,6 +217,8 @@ equalPointAbstractions dom pa1 pa2 =
 
 -- | Apply the transfer functions from an interpretation to a block,
 -- given a starting set of abstract values.
+--
+-- Return a set of blocks to visit later.
 transfer :: forall ext dom blocks ret ctx
           . ShowF dom
          => Domain dom
@@ -280,7 +292,10 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
                   . TermStmt blocks ret ctx'
                  -> PointAbstraction dom ctx'
                  -> M dom blocks ret (S.Set (Some (BlockID blocks)))
-    transferTerm s assignment =
+    transferTerm s assignment = do
+      let BlockID srcIdx = blockID blk
+      isFuncAbstr %= (faExitRegs . ixF srcIdx .~ Ignore (Some assignment))
+
       case s of
         ErrorStmt {} -> return S.empty
         Jump target -> transferJump target assignment
@@ -338,6 +353,10 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
           blockAbstr0 = assignment { _paRegisters = PU.extend argRegAbstractions domVal }
       transferTarget target blockAbstr0
 
+    -- Return the singleton set containing the target block if we
+    -- haven't converged yet on the current block, and otherwise
+    -- return an empty set while updating the function abstraction for
+    -- the current block.
     transferTarget :: forall ctx'
                     . BlockID blocks ctx'
                    -> PointAbstraction dom ctx'
@@ -376,7 +395,7 @@ isVisited bid = do
 -- 1) For each block in the CFG, the abstraction computed at the *entry* to the block
 --
 -- 2) The final abstract value for the value returned by the function
-forwardFixpoint :: forall ext dom blocks ret init
+forwardFixpoint' :: forall ext dom blocks ret init
                  . ShowF dom
                 => Domain dom
                 -- ^ The domain of abstract values
@@ -388,8 +407,8 @@ forwardFixpoint :: forall ext dom blocks ret init
                 -- ^ Assignments of abstract values to global variables at the function start
                 -> PU.Assignment dom init
                 -- ^ Assignments of abstract values to the function arguments
-                -> (PU.Assignment (PointAbstraction dom) blocks, dom ret)
-forwardFixpoint dom interp cfg globals0 assignment0 =
+                -> (PU.Assignment (PointAbstraction dom) blocks, PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks, dom ret)
+forwardFixpoint' dom interp cfg globals0 assignment0 =
   let BlockID idx = cfgEntryBlockID cfg
       pa0 = PointAbstraction { _paGlobals = globals0
                              , _paRegisters = assignment0
@@ -399,11 +418,15 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
         PointAbstraction { _paRegisters = PU.fmapFC (const (domBottom dom)) (blockInputs (getBlock (BlockID i) (cfgBlockMap cfg)))
                          , _paGlobals = PM.empty
                          }
+      emptyFreshAssignment :: PU.Index blocks ctx -> Ignore (Some (PointAbstraction dom)) ctx
+      emptyFreshAssignment _i =
+        Ignore (Some (PointAbstraction { _paRegisters = PU.empty, _paGlobals = PM.empty }))
       s0 = IterationState { _isRetAbstr = domBottom dom
                           , _isFuncAbstr =
                             FunctionAbstraction { _faEntryRegs =
                                                     PU.generate (PU.size (cfgBlockMap cfg)) freshAssignment
                                                       & ixF idx .~ pa0
+                                                , _faExitRegs = PU.generate (PU.size (cfgBlockMap cfg)) emptyFreshAssignment
                                                 , _faRet = domBottom dom
                                                 }
                           , _processedOnce = S.empty
@@ -411,7 +434,21 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
       iterStrat = iterationStrategy dom
       abstr' = St.execState (runM (iterStrat interp cfg)) s0
   in ( _faEntryRegs (_isFuncAbstr abstr')
+     , _faExitRegs (_isFuncAbstr abstr')
      , _isRetAbstr abstr' )
+
+-- Preserve old interface for now; fix tests later if my generalization is the right one.
+forwardFixpoint :: forall ext dom blocks ret init
+                . ShowF dom
+                => Domain dom
+                -> Interpretation ext dom
+                -> CFG ext blocks init ret
+                -> PM.MapF GlobalVar dom
+                -> PU.Assignment dom init
+                -> (PU.Assignment (PointAbstraction dom) blocks, dom ret)
+forwardFixpoint dom interp cfg globals0 assignment0 =
+  let (ass, _, ret) = forwardFixpoint' dom interp cfg globals0 assignment0
+  in (ass, ret)
 
 -- | Inspect the 'Domain' definition to determine which iteration
 -- strategy the caller requested.
@@ -494,6 +531,8 @@ wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
         True -> return ()
         False -> do
           case mWiden of
+            -- TODO(conathan): figure out if we need to do something
+            -- here with 'faExitRegs'?
             Just (WideningStrategy strat, WideningOperator widen)
               | strat iterNum -> do
                   let headInputW = zipPAWith widen headInput0 headInput1
@@ -519,7 +558,13 @@ lookupAssignment idx = do
 lookupReg :: Reg ctx tp -> PointAbstraction dom ctx -> dom tp
 lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
 
-
+-- | Turn a non paramaterized type into a parameterized type.
+--
+-- For when you want to use a @parameterized-utils@ style data
+-- structure with a type that doesn't have a parameter.
+--
+-- The same definition as 'Control.Applicative.Const', but with a
+-- different 'Show' instance.
 newtype Ignore a (b::k) = Ignore { _ignoreOut :: a }
  deriving (Eq, Ord)
 
@@ -547,6 +592,12 @@ faEntryRegs :: (Functor f)
             -> FunctionAbstraction dom blocks ret
             -> f (FunctionAbstraction dom blocks ret)
 faEntryRegs f fa = (\a -> fa { _faEntryRegs = a }) <$> f (_faEntryRegs fa)
+
+faExitRegs :: (Functor f)
+           => (PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks -> f (PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks))
+           -> FunctionAbstraction dom blocks ret
+           -> f (FunctionAbstraction dom blocks ret)
+faExitRegs f fa = (\a -> fa { _faExitRegs = a }) <$> f (_faExitRegs fa)
 
 isFuncAbstr :: (Functor f)
             => (FunctionAbstraction dom blocks ret -> f (FunctionAbstraction dom blocks ret))
@@ -597,7 +648,7 @@ pointed j eq =
          , domBottom = Bottom
          , domJoin = pointedJoin j
          , domEq = pointedEq eq
-         , domIter = WTO
+         , domIter = Worklist -- TODO(conathan): test faExitRegs computation with WTO strategy
          }
 
   where
