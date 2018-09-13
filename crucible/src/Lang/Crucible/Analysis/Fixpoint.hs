@@ -17,6 +17,7 @@ module Lang.Crucible.Analysis.Fixpoint (
   Interpretation(..),
   PointAbstraction,
   lookupAbstractRegValue,
+  modifyAbstractRegValue,
   -- * Pointed domains
   -- $pointed
   Pointed(..),
@@ -128,6 +129,13 @@ instance ShowF dom => ShowF (PointAbstraction dom)
 -- | Look up the abstract value of a register at a program point
 lookupAbstractRegValue :: PointAbstraction dom ctx -> Reg ctx tp -> dom tp
 lookupAbstractRegValue pa (Reg ix) = (pa ^. paRegisters) PU.! ix
+
+-- | Modify the abstract value of a register at a program point
+modifyAbstractRegValue :: PointAbstraction dom ctx
+                       -> Reg ctx tp
+                       -> (dom tp -> dom tp)
+                       -> PointAbstraction dom ctx
+modifyAbstractRegValue pa (Reg ix) f = pa & paRegisters . ixF ix %~ f
 
 -- | The `FunctionAbstraction` contains the abstractions for the entry
 -- point of each basic block in the function, as well as the final
