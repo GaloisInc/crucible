@@ -141,7 +141,9 @@ modifyAbstractRegValue pa (Reg ix) f = pa & paRegisters . ixF ix %~ f
 -- point of each basic block in the function, as well as the final
 -- abstract value for the returned register.
 data FunctionAbstraction (dom :: CrucibleType -> *) blocks ret =
-  FunctionAbstraction { _faRegs :: PU.Assignment (PointAbstraction dom) blocks
+  FunctionAbstraction { _faEntryRegs :: PU.Assignment (PointAbstraction dom) blocks
+                        -- ^ Mapping from blocks to point abstractions
+                        -- at entry to blocks.
                       , _faRet :: dom ret
                       }
 
@@ -347,7 +349,7 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
         True -> return S.empty
         False -> do
           markVisited target
-          isFuncAbstr %= (faRegs . ixF idx .~ new)
+          isFuncAbstr %= (faEntryRegs . ixF idx .~ new)
           return (S.singleton (Some target))
 
 markVisited :: BlockID blocks ctx -> M dom blocks ret ()
@@ -397,7 +399,7 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
                          }
       s0 = IterationState { _isRetAbstr = domBottom dom
                           , _isFuncAbstr =
-                            FunctionAbstraction { _faRegs =
+                            FunctionAbstraction { _faEntryRegs =
                                                     PU.generate (PU.size (cfgBlockMap cfg)) freshAssignment
                                                       & ixF idx .~ pa0
                                                 , _faRet = domBottom dom
@@ -406,7 +408,8 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
                           }
       iterStrat = iterationStrategy dom
       abstr' = St.execState (runM (iterStrat interp cfg)) s0
-  in (_faRegs (_isFuncAbstr abstr'), _isRetAbstr abstr')
+  in ( _faEntryRegs (_isFuncAbstr abstr')
+     , _isRetAbstr abstr' )
 
 -- | Inspect the 'Domain' definition to determine which iteration
 -- strategy the caller requested.
@@ -490,7 +493,7 @@ wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
             Just (WideningStrategy strat, WideningOperator widen)
               | strat iterNum -> do
                   let headInputW = zipPAWith widen headInput0 headInput1
-                  isFuncAbstr %= (faRegs . ixF idx .~ headInputW)
+                  isFuncAbstr %= (faEntryRegs . ixF idx .~ headInputW)
             _ -> return ()
           processSCC (Some hbid) comps (iterNum + 1)
 
@@ -507,7 +510,7 @@ lookupAssignment :: forall dom blocks ret tp
                  -> M dom blocks ret (PointAbstraction dom tp)
 lookupAssignment idx = do
   abstr <- St.get
-  return ((abstr ^. isFuncAbstr . faRegs) PU.! idx)
+  return ((abstr ^. isFuncAbstr . faEntryRegs) PU.! idx)
 
 lookupReg :: Reg ctx tp -> PointAbstraction dom ctx -> dom tp
 lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
@@ -535,11 +538,11 @@ paRegisters :: (Functor f)
             -> f (PointAbstraction dom ctx)
 paRegisters f pa = (\a -> pa { _paRegisters = a }) <$> f (_paRegisters pa)
 
-faRegs :: (Functor f)
-       => (PU.Assignment (PointAbstraction dom) blocks -> f (PU.Assignment (PointAbstraction dom) blocks))
-       -> FunctionAbstraction dom blocks ret
-       -> f (FunctionAbstraction dom blocks ret)
-faRegs f fa = (\a -> fa { _faRegs = a }) <$> f (_faRegs fa)
+faEntryRegs :: (Functor f)
+            => (PU.Assignment (PointAbstraction dom) blocks -> f (PU.Assignment (PointAbstraction dom) blocks))
+            -> FunctionAbstraction dom blocks ret
+            -> f (FunctionAbstraction dom blocks ret)
+faEntryRegs f fa = (\a -> fa { _faEntryRegs = a }) <$> f (_faEntryRegs fa)
 
 isFuncAbstr :: (Functor f)
             => (FunctionAbstraction dom blocks ret -> f (FunctionAbstraction dom blocks ret))
