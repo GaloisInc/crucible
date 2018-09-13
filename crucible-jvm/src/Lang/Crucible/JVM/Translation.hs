@@ -82,6 +82,7 @@ import           Lang.Crucible.Utils.MonadVerbosity
 import qualified Lang.Crucible.Simulator               as C
 import qualified Lang.Crucible.Simulator.GlobalState   as C
 import qualified Lang.Crucible.Analysis.Postdom        as C
+import qualified Lang.Crucible.Simulator.CallFrame     as C
 
 
 -- what4
@@ -105,23 +106,38 @@ import qualified Lang.JVM.Codebase as JCB
 
 import Debug.Trace
 
+{-
+   This module is in two parts, the first part includes functions for translating
+   JVM code to Crucible CFGs.  The second part sets up the Crucible simulation
+   itself.
+
+
+   Here is how the simulator is set up in [executeCrucibleJVM]:
+
+    - [findAllRefs] figures out which classes should be prepped
+      for translation
+        -- uses [initClasses] and [exclude] automatically include/exclude
+           certain primitive classes
+    - classes are then prepped via [extendJVMContext]
+        -- allocate method handles (but do not yet translate methods)
+        -- allocate global vars for static fields (but do not initialize them yet)
+        -- add J.Class to Class table
+    - [mkSimSt] creates the initial simulation state
+        -- adds global variables
+        -- installs overrides for all methods that translate them JIT
+        -- adds additional overrides for primitives [stdOverrides]
+    - [runMethodHandle] runs a method
+        -- creates the simulation state
+        -- installs overrides for primitives from the Java
+           standard library classes
+        -- invokes the method
+
+-}
+
 --------------------------------------------------------------------------------
 
 -- * Special treatment of the Java standard library
 
-
-{- Class preparation (before translation):
-     - allocate method handles (but do not yet translate methods)
-     - allocate global vars for static fields (but do not initialize them yet)
-     - add J.Class to Class table
-     - OPTIONAL: also prep any classes referred to by this one
-
-   Class init (at first reference, via initializeClass function in Class):
-     - define the JVMClass structure in the heap 
-     - initialize superclass
-     - initialize static fields
-     - run <clinit>
--}
 
 {- Overall, the system doesn't take a very principled approach to classes from 
    Java's standard library that are referred to in the test cases.
@@ -143,104 +159,6 @@ import Debug.Trace
 
 -}
 
-
--- | Classes that are always loaded into the initial
--- environment. These classes rely on native code that cannot be
--- parsed by jvm-parser. So instead of transitively loading these
--- classes with the Main class, we always load them but load none of
--- their dependencies. 
-initClasses :: [String]
-{-initClasses = []-}
-
-initClasses = [ "java/lang/System",
-                "java/lang/Object",
-                "java/lang/String",
-                "java/lang/Integer",
-                "java/lang/Short",
-                "java/lang/Byte",
-                "java/lang/Long",
-                "java/lang/Boolean",
-                "java/lang/Character",
-                "java/lang/Float",
-                "java/lang/Double",
-                "java/lang/Math",
-                "java/lang/Number",
-                "java/lang/Void",
-
-                "java/util/Arrays",
-                
-                "sun/misc/FloatingDecimal",
-
-                "java/io/PrintStream",
-                "java/io/FileOutputStream",
-                "java/io/OutputStream",
-                "java/io/ObjectStreamField",
-                "java/io/FilterOutputStream",
-                "java/io/File",
-                "java/io/IOException",
-                "java/io/DefaultFileSystem",
-
-                "java/lang/StringBuffer",
-                "java/lang/AbstractStringBuilder",
-                "java/lang/StringBuilder",
-
-                "java/lang/Class",
-
-                "java/lang/Throwable",
-                "java/lang/NullPointerException",
-                "java/lang/RuntimeException",
-                "java/lang/Exception",
-                "java/lang/InternalError",
-                "java/lang/StringIndexOutOfBoundsException",
-                "java/lang/IllegalArgumentException",
-                "java/lang/VirtualMachineError",
-                "java/lang/Error",
-                "java/lang/IndexOutOfBoundsException",
-
-                "java/lang/Thread",
-                "java/lang/Runtime"                
-
-              ]
-
-
--- | Class references that we shouldn't include in the transitive closure
---   of class references.
-exclude :: J.ClassName -> Bool
-exclude cn = (J.unClassName cn) `elem` initClasses
-          || ("java/nio/" `isPrefixOf` J.unClassName cn)
-          || ("java/awt/" `isPrefixOf` J.unClassName cn)
-          || ("java/io/" `isPrefixOf` J.unClassName cn)
-          || ("java/time/" `isPrefixOf` J.unClassName cn)
-          || ("sun/"       `isPrefixOf` J.unClassName cn)
-          || ("java/security/" `isPrefixOf` J.unClassName cn)
-          || ("java/text/"     `isPrefixOf` J.unClassName cn)
-          || ("java/lang/reflect/"     `isPrefixOf` J.unClassName cn)
-          || ("java/lang/ref/" `isPrefixOf` J.unClassName cn)
-          || ("java/net/"    `isPrefixOf` J.unClassName cn)
-          || ("java/lang/System"    `isPrefixOf` J.unClassName cn)
-          || ("java/lang/Thread"    `isPrefixOf` J.unClassName cn)
-          || ("java/lang/CharSequence"    `isPrefixOf` J.unClassName cn)
-          || ("java/lang/ClassLoader"    `isPrefixOf` J.unClassName cn)
-          || ("java/lang/Character"    `isPrefixOf` J.unClassName cn)
-          || ("java/lang/ConditionalSpecialCasing"  `isPrefixOf` J.unClassName cn)
-          || cn `elem` [
-
-               J.mkClassName "java/lang/Package"
-             , J.mkClassName "java/lang/SecurityManager"
-             , J.mkClassName "java/lang/Shutdown"
-             , J.mkClassName "java/lang/Process"
---             , J.mkClassName "java/util/Arrays"
-             , J.mkClassName "java/lang/RuntimePermission"
-             , J.mkClassName "java/lang/StackTraceElement"
-             , J.mkClassName "java/lang/ProcessEnvironment"
-             , J.mkClassName "java/lang/ProcessBuilder"
-             , J.mkClassName "java/lang/Thread"
-             , J.mkClassName "java/lang/ThreadLocal"
-             , J.mkClassName "java/lang/ApplicationShutdownHooks"
-             , J.mkClassName "java/lang/invoke/SerializedLambda"
-             , J.mkClassName "java/lang/System$2"
-           ]
-
 ----------------------------------------------------------------------------------------------
 -- * Static Overrides
 
@@ -251,6 +169,12 @@ exclude cn = (J.unClassName cn) `elem` initClasses
 
 staticOverrides :: J.ClassName -> J.MethodKey -> Maybe (JVMStmtGen h s ret ())
 staticOverrides className methodKey
+{-
+  | className == "java/lang/StrictMath" && J.methodKeyName methodKey == "sqrt"
+  = Just $ do doub <- dPop
+              -- TODO: implement sqrt
+              dPush doub
+-}
   | className == "java/lang/Double" && J.methodKeyName methodKey == "longBitsToDouble"
    = Just $ do lon <- lPop
                -- TODO: this is not correct, we just want to interpret the bits
@@ -1471,6 +1395,8 @@ lCmp e1 e2 =  ifte (App (BVEq knownRepr e1 e2)) (return $ App $ BVLit w32 0)
 
 ----------------------------------------------------------------------
 
+-- * Method translation (`generateMethod`)
+
 -- | Given a JVM type and a type context and a register assignment,
 -- peel off the rightmost register from the assignment, which is
 -- expected to match the given LLVM type. Pass the register and the
@@ -1516,6 +1442,7 @@ packTypes (t : ts) ctx asgn =
         J.LongType    -> k LValue (knownRepr :: TypeRepr JVMLongType)
         J.ShortType   -> k IValue (knownRepr :: TypeRepr JVMIntType)
 
+-- | Create the initial fram for a method translation
 initialJVMExprFrame :: HasCallStack =>
   J.ClassName ->
   J.Method ->
@@ -1532,9 +1459,8 @@ initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
     idxs' = if static then idxs else 0 : idxs
     locals = Map.fromList (zip idxs' vals)
 
-----------------------------------------------------------------------
 
-
+-- | Generate the CFG for a Java method
 generateMethod ::
   J.ClassName ->
   J.Method ->
@@ -1553,6 +1479,7 @@ generateMethod cn method ctx asgn =
 
 
 -- | Define a block with a fresh lambda label, returning the label.
+-- (currently unused)
 defineLambdaBlockLabel ::
   (IsSyntaxExtension ext, KnownRepr TypeRepr tp) =>
   (forall a. Expr ext s tp -> Generator ext h s t ret a) ->
@@ -1562,17 +1489,185 @@ defineLambdaBlockLabel action =
      defineLambdaBlock l action
      return l
 
+-- | Top-level function for method translation
+translateMethod :: JVMContext
+                 -> Verbosity
+                 -> J.ClassName
+                 -> J.Method
+                 -> FnHandle args ret
+                 -> ST h (C.SomeCFG JVM args ret)
+translateMethod ctx verbosity cName m h =
+  case (handleArgTypes h, handleReturnType h) of
+    ((argTypes :: CtxRepr args), (retType :: TypeRepr ret)) -> do
+      let  def :: FunctionDef JVM h (JVMState ret) args ret
+           def inputs = (s, f)
+             where s = initialState ctx verbosity m retType
+                   f = generateMethod cName m argTypes inputs
+      (SomeCFG g, []) <- defineFunction InternalPos h def
+      return $ toSSA g
+
+
+
+--------------------------------------------------------------------------------
+
+-- * [findAllRefs] What classes should be prepped?
+
+-- | Classes that are always loaded into the initial
+-- environment.
+-- THIS MUST INCLUDE ALL CLASSES in stdOverrides
+-- (We could calculate automatically, but that would add an ambiguous
+-- sym constraint, so we do not.)
+-- It must also include all classes that these classes depend on.
+-- (we don't traverse them for their dependencies.)
+
+initClasses :: [String]
+initClasses =  [ "java/lang/Class"
+               , "java/io/BufferedOutputStream"
+               , "java/io/PrintStream"
+               , "java/lang/Object"
+               , "java/lang/System"
+               , "java/lang/StringIndexOutOfBoundsException"
+               , "java/lang/Exception"
+               ]
+
+-- These classes rely on native code that cannot be parsed by
+-- jvm-parser. So instead of traversing these classes to find their
+-- immediate dependencies, we list the ones that we care about
+-- explicitly. (These dependencies do not need to include any of the
+-- initClasses, which are always included.)
+manualDependencies :: Map J.ClassName (Set.Set J.ClassName)
+manualDependencies =
+  Map.fromList $ map (\(s1,s2) -> (J.mkClassName s1, (Set.fromList (map J.mkClassName s2))))
+  [ ("java/lang/Object",[])
+  ,("java/lang/System", [])
+  ,("java/lang/String",
+     ["java/lang/StringBuffer"])
+  ,("java/lang/StringBuffer",
+     ["java/lang/AbstractStringBuilder"])
+  ,("java/lang/AbstractStringBuilder",
+     ["java/util/Arrays"
+     ,"java/lang/IndexOutOfBoundsException"
+     ,"java/lang/Integer"])
+  ,("java/lang/StringBuilder", [])
+  ,("java/util/Arrays",
+     ["java/lang/IndexOutOfBoundsException"])
+  ,("java/lang/Throwable", [])
+  ,("java/util/Random",[])
+  ,("java/math/BigInteger",[])
+    
+{-  -- DON't Need these anymore. 
+  ,("java/lang/Short", [])
+  ,("java/lang/Byte", [])
+  ,("java/lang/Long", [])
+  ,("java/lang/Boolean", [])
+  ,("java/lang/Character", [])
+  ,("java/lang/Float", [])
+  ,("java/lang/Double", [])
+  ,("java/lang/Math", ["java/lang/StrictMath"])
+  ,("java/lang/Number", [])
+  ,("java/lang/Void", [])
+   
+  ,("sun/misc/FloatingDecimal", [])
+    
+  ,("java/io/FileOutputStream", [])
+  ,("java/io/OutputStream", [])
+  ,("java/io/ObjectStreamField", [])
+  ,("java/io/FilterOutputStream", [])
+  ,("java/io/File", [])
+  ,("java/io/IOException", [])
+  ,("java/io/DefaultFileSystem", [])
+    
+    
+
+  ,("java/lang/Exception", ["java/lang/Throwable"])
+  ,("java/lang/RuntimeException", ["java/lang/Exception"])
+  ,("java/lang/NullPointerException", ["java/lang/Exception"])
+  ,("java/lang/RuntimeException", ["java/lang/Exception"])
+  ,("java/lang/IllegalArgumentException", ["java/lang/Exception"])
+  ,("java/lang/IndexOutOfBoundsException", ["java/lang/Exception"])
+
+  ,("java/lang/Error", ["java/lang/Throwable"])
+  ,("java/lang/InternalError", ["java/lang/Error"])
+  ,("java/lang/VirtualMachineError", ["java/lang/Error"])
+
+  ,("java/lang/Thread", [])
+  ,("java/lang/Runtime", [])  -}
+  ]
+
+
+-- | Class references that we shouldn't include in the transitive closure
+--   of class references.
+exclude :: J.ClassName -> Bool
+exclude cn = 
+             ("java/nio/" `isPrefixOf` J.unClassName cn)
+          || ("java/awt/" `isPrefixOf` J.unClassName cn)
+          || ("java/io/" `isPrefixOf` J.unClassName cn)
+          || ("java/time/" `isPrefixOf` J.unClassName cn)
+          || ("sun/"       `isPrefixOf` J.unClassName cn)
+          || ("java/security/" `isPrefixOf` J.unClassName cn)
+          || ("java/text/"     `isPrefixOf` J.unClassName cn)
+          || ("java/lang/reflect/"     `isPrefixOf` J.unClassName cn)
+          || ("java/lang/ref/" `isPrefixOf` J.unClassName cn)
+          || ("java/net/"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/System"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/Thread"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/CharSequence"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/ClassLoader"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/Character"    `isPrefixOf` J.unClassName cn)
+          || ("java/lang/ConditionalSpecialCasing"  `isPrefixOf` J.unClassName cn)
+          || cn `elem` [
+
+               J.mkClassName "java/lang/Package"
+             , J.mkClassName "java/lang/SecurityManager"
+             , J.mkClassName "java/lang/Shutdown"
+             , J.mkClassName "java/lang/Process"
+             , J.mkClassName "java/lang/RuntimePermission"
+             , J.mkClassName "java/lang/StackTraceElement"
+             , J.mkClassName "java/lang/ProcessEnvironment"
+             , J.mkClassName "java/lang/ProcessBuilder"
+             , J.mkClassName "java/lang/Thread"
+             , J.mkClassName "java/lang/ThreadLocal"
+             , J.mkClassName "java/lang/ApplicationShutdownHooks"
+             , J.mkClassName "java/lang/invoke/SerializedLambda"
+             , J.mkClassName "java/lang/System$2"
+           ]
+
+
+-- | Determine all other classes that need to be "prepped" in addition
+-- to the current class.
+
+findNextRefs :: J.Class -> Set.Set J.ClassName
+findNextRefs cls
+  | J.unClassName (J.className cls) `elem` initClasses
+  = mempty
+  | Just refs <- Map.lookup (J.className cls) manualDependencies
+  = refs
+  | otherwise
+  = trace ("finding refs for " ++ (J.unClassName (J.className cls))) $
+    classRefs cls
+
+findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
+findAllRefs cb cls = do
+  names <- go Set.empty (Set.insert cls (Set.fromList (map J.mkClassName initClasses))) 
+  mapM (lookupClass cb) names
+  where
+    go :: Set.Set J.ClassName -> Set.Set J.ClassName -> IO [J.ClassName]
+    go curr fringe = do
+      --traceM $ "Curr refs: " ++ show curr
+      (currClasses :: [J.Class]) <- traverse (lookupClass cb) (Set.toList fringe)
+      let newRefs = fmap findNextRefs currClasses
+      let permissable = Set.filter (not . exclude) (Set.unions newRefs)
+      let newCurr   = fringe `Set.union` curr
+      let newFringe = permissable `Set.difference` newCurr
+      if Set.null newFringe
+        then return (Set.toList newCurr)
+        else go newCurr newFringe
+
 -----------------------------------------------------------------------------
--- | translateClass
-
-
-data MethodTranslation = forall args ret. MethodTranslation
-   { methodHandle :: FnHandle args ret
-   , methodCCFG   :: C.SomeCFG JVM args ret
-   }
-
------------------------------------------------------------------------------
--- * Class Preparation
+-- * Class Preparation [extendJVMContext]
+--    + allocate method handles (but do not yet translate methods)
+--    + allocate global vars for static fields (but do not initialize them yet)
+--    + add the class to Class table
 
 -- | allocate a new method handle and add it to the table of method handles
 declareMethod :: HandleAllocator s
@@ -1607,6 +1702,19 @@ declareStaticField halloc c m f = do
   return $ (Map.insert (cn,fieldId) gvar m)
 
 
+-- | Create the initial JVMContext
+mkInitialJVMContext :: HandleAllocator RealWorld -> IO JVMContext
+mkInitialJVMContext halloc = do
+
+  gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
+                                (knownRepr :: TypeRepr JVMClassTableType)
+
+  return (JVMContext
+              { methodHandles     = Map.empty
+              , staticFields      = Map.empty
+              , classTable        = Map.empty
+              , dynamicClassTable = gv
+              })
 
 -- | extend the JVM context in preparation for translating class c
 -- by declaring handles for all methods
@@ -1623,72 +1731,16 @@ extendJVMContext halloc c = do
     , dynamicClassTable = dynamicClassTable ctx0
     } <> ctx0
 
--- | Create the initial JVMContext
-mkInitialJVMContext :: HandleAllocator RealWorld -> IO JVMContext
-mkInitialJVMContext halloc = do
-
-  gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
-                                (knownRepr :: TypeRepr JVMClassTableType)
-
-  return (JVMContext
-              { methodHandles     = Map.empty
-              , staticFields      = Map.empty
-              , classTable        = Map.empty
-              , dynamicClassTable = gv
-              })
-
-
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
-translateMethod' :: JVMContext
-                 -> Verbosity
-                 -> J.ClassName
-                 -> J.Method
-                 -> FnHandle args ret
-                 -> ST h (C.SomeCFG JVM args ret)
-translateMethod' ctx verbosity cName m h =
-  case (handleArgTypes h, handleReturnType h) of
-    ((argTypes :: CtxRepr args), (retType :: TypeRepr ret)) -> do
-      let  def :: FunctionDef JVM h (JVMState ret) args ret
-           def inputs = (s, f)
-             where s = initialState ctx verbosity m retType
-                   f = generateMethod cName m argTypes inputs
-      (SomeCFG g, []) <- defineFunction InternalPos h def
-      return $ toSSA g
-
-
--- | Translate a single JVM method definition into a crucible CFG
-translateMethod :: JVMContext
-                -> Verbosity
-                -> J.Class
-                -> J.Method
-                -> ST s ((J.ClassName, J.MethodKey), MethodTranslation)
-translateMethod ctx verbosity c m = do
-  let cName = J.className c
-  let mKey  = J.methodKey m
-  case Map.lookup (cName,mKey) (methodHandles ctx) of
-    Just (JVMHandleInfo _ h)  -> do
-          g' <- translateMethod' ctx verbosity cName m h
-          return ((cName,mKey), MethodTranslation h g')
-    Nothing -> fail $ "internal error: Could not find method " ++ show mKey
-
-------------------------------------------------------------------------
+-- Simulation
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
--- make bindings for all methods in the JVMContext classTable that have
--- associated method handles
-mkDelayedBindings :: forall p sym . JVMContext -> Verbosity -> C.FunctionBindings p sym JVM
-mkDelayedBindings ctx verbosity =
-  let bindings = [ mkDelayedBinding ctx verbosity c m h | (cn,c) <- Map.assocs (classTable ctx)
-                                              , m <- J.classMethods c
-                                              , h <- maybeToList $ Map.lookup (cn,J.methodKey m)
-                                                     (methodHandles ctx)
-                                              ]
-  in
-    C.fnBindingsFromList bindings
+    
+-- * make the simulation state & run a method
 
--- Make a binding for a Java method that, when invoked, immediately
+-- | Make a binding for a Java method that, when invoked, immediately
 -- translates the Java source code and then runs it.
 mkDelayedBinding :: forall p sym .
                     JVMContext
@@ -1709,45 +1761,121 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
                                  ++ "and body " ++
                                      show (J.methodBody m)
                           args <- C.getOverrideArgs
-                          C.SomeCFG cfg <- liftST $ translateMethod' ctx verbosity (J.className c) m handle
+                          C.SomeCFG cfg <- liftST $ translateMethod ctx
+                                                       verbosity (J.className c) m handle
                           C.bindFnHandle handle (C.UseCFG cfg (C.postdomInfo cfg))
                           (C.RegEntry _tp regval) <- C.callFnVal (C.HandleFnVal handle) args
                           return regval
     in
       C.FnBinding handle (C.UseOverride (C.mkOverride' fn retRepr overrideSim))
 
+-- | make bindings for all methods in the JVMContext classTable that have
+-- associated method handles
+mkDelayedBindings :: forall p sym . JVMContext -> Verbosity -> C.FunctionBindings p sym JVM
+mkDelayedBindings ctx verbosity =
+  let bindings = [ mkDelayedBinding ctx verbosity c m h | (cn,c) <- Map.assocs (classTable ctx)
+                                              , m <- J.classMethods c
+                                              , h <- maybeToList $ Map.lookup (cn,J.methodKey m)
+                                                     (methodHandles ctx)
+                                              ]
+  in
+    C.fnBindingsFromList bindings
 
---------------------------------------------------------------------------------
 
-
-
-findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
-findAllRefs cb cls = do
-  names <- go (Set.singleton cls) 
-  mapM (lookupClass cb) names
+-- | Make the initial state for the simulator, binding the function handles so that
+-- they translate method bodies when they are accessed
+mkSimSt :: (IsSymInterface sym) =>
+           sym
+        -> p
+        -> HandleAllocator RealWorld
+        -> JVMContext
+        -> Verbosity
+        -> C.SimState p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx)
+mkSimSt sym p halloc ctx verbosity = C.initSimState simctx globals C.defaultAbortHandler
   where
-    go :: Set.Set J.ClassName -> IO [J.ClassName]
-    go curr = do
-      (currClasses :: [J.Class]) <- traverse (lookupClass cb) (Set.toList curr)
-      let newRefs = fmap classRefs currClasses
-      let noExclude = Set.filter (not . exclude) (Set.unions newRefs)
-      let allNew  = Set.union curr noExclude
-      traceM $ "Curr refs: " ++ show allNew
-      if curr == allNew
-        then return (Set.toList curr)
-        else go allNew
+      javaExtImpl :: C.ExtensionImpl p sym JVM
+      javaExtImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
+      simctx = C.initSimContext sym
+                 MapF.empty  -- intrinsics
+                 halloc
+                 stdout
+                 (mkDelayedBindings ctx verbosity)
+                 javaExtImpl
+                 p
+      globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
+
+
+-- (currently unused)
+-- Way to run initialization code before simulation starts
+-- Currently this code initializes the current class 
+runClassInit :: HandleAllocator RealWorld -> JVMContext -> Verbosity -> J.ClassName
+             -> C.OverrideSim p sym JVM rtp a r (C.RegEntry sym C.UnitType)
+runClassInit halloc ctx verbosity name = do
+  (C.SomeCFG g') <- liftIO $ stToIO $ do
+      h <- mkHandle halloc (fromString ("class_init:" ++ J.unClassName name))
+      let (meth :: J.Method) = undefined
+          def :: FunctionDef JVM s (JVMState UnitType) EmptyCtx UnitType
+          def _inputs = (s, f)
+              where s = initialState ctx verbosity meth knownRepr
+                    f = do () <- initializeClass name
+                           return (App EmptyApp)
+      (SomeCFG g, []) <- defineFunction InternalPos h def
+      return (toSSA g)
+  C.callCFG g' (C.RegMap Ctx.Empty)
+
+
+
+-- | Install the standard overrides and run a Java method in the simulator
+runMethodHandle :: (IsSymInterface sym,
+                    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+                    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
+                     sym
+                  -> p
+                  -> HandleAllocator RealWorld
+                  -> JVMContext
+                  -> Verbosity
+                  -> J.ClassName
+                  -> FnHandle args ret
+                  -> C.RegMap sym args
+                  -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
+runMethodHandle sym p halloc ctx verbosity _classname h args = do
+  let simSt  = mkSimSt sym p halloc ctx verbosity
+  let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
+  let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
+                       -- _ <- runClassInit halloc ctx classname
+                       fnCall
+  C.executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
+
 
 --------------------------------------------------------------------------------
+
+-- * Top-level entry point [executeCrucibleJVM]
+
+
+findMethodHandle :: JVMContext -> J.Class -> J.Method -> IO JVMHandleInfo
+findMethodHandle ctx cls meth =
+    case  Map.lookup (J.className cls, J.methodKey meth) (methodHandles ctx) of
+        Just handle ->
+          return handle
+        Nothing ->
+          fail $ "BUG: cannot find handle for " ++ J.unClassName (J.className cls)
+               ++ "/" ++ J.methodName meth
+
+setSimulatorVerbosity :: (W4.IsSymExprBuilder sym) => Int -> sym -> IO ()
+setSimulatorVerbosity verbosity sym = do
+  verbSetting <- W4.getOptionSetting W4.verbosity (W4.getConfiguration sym)
+  _ <- W4.setOpt verbSetting (toInteger verbosity)
+  return ()
 
 -- | Read from the provided java code base and simulate a
 -- given static method.
 --
--- * Set the verbosity level for simulation
--- * Find the class/method information from the codebase
--- * Set up handles for java.lang.* & primitives
--- * declare the handle for all methods in this class
--- * Find the handle for this method
--- * run the simulator given the handle
+--    Set the verbosity level for simulation
+--    Find the class/method information from the codebase
+--    Set up handles for java.lang.* & primitives
+--    declare the handle for all methods in this class
+--    Find the handle for this method
+--    run the simulator given the handle
 executeCrucibleJVM :: forall ret args sym p cb.
   (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
@@ -1772,25 +1900,33 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      when (not (J.methodIsStatic meth)) $ do
        fail $ unlines [ "Crucible can only extract static methods" ]
 
-     allClasses <- findAllRefs cb (J.className mcls)
-
      halloc <- newHandleAllocator
 
      -- Create the initial JVMContext
      ctx0 <- mkInitialJVMContext halloc 
 
-     -- declare the "primitive" classes
-     classes <- mapM (findClass cb) initClasses
+     -- prep the "primitive" classes
+     {- classes <- mapM (findClass cb) initClasses
      ctx1 <- stToIO $ execStateT
-             (mapM_ (extendJVMContext halloc) classes) ctx0
+             (mapM_ (extendJVMContext halloc) classes) ctx0 -}
 
-     -- declare this class && all classes that it refers to
+     -- prep this class && all classes that it refers to
+     allClasses <- findAllRefs cb (J.className mcls)
+     when (verbosity > 3) $
+       putStrLn $ "all classes are: " ++ show (map J.className allClasses)
      ctx <- stToIO $ execStateT (extendJVMContext halloc mcls >>
-                                 mapM (extendJVMContext halloc) allClasses) ctx1
+                                 mapM (extendJVMContext halloc) allClasses) ctx0
 
 
      (JVMHandleInfo _ h) <- findMethodHandle ctx mcls meth
 
+
+     let failIfNotEqual :: forall f m a (b :: k).
+                           (Monad m, Show (f a), Show (f b), TestEquality f)
+                        => f a -> f b -> String -> m (a :~: b)
+         failIfNotEqual r1 r2 str
+           | Just Refl <- testEquality r1 r2 = return Refl
+           | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
      Refl <- failIfNotEqual (handleArgTypes h)   (knownRepr :: CtxRepr args)
        $ "Checking args for method " ++ mname
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
@@ -1799,85 +1935,17 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      runMethodHandle sym p halloc ctx verbosity (J.className mcls) h args
 
 
-failIfNotEqual :: forall f m a (b :: k).
-                  (Monad m, Show (f a),
-                    Show (f b), TestEquality f) => f a -> f b -> String -> m (a :~: b)
-failIfNotEqual r1 r2 str
-  | Just Refl <- testEquality r1 r2 = return Refl
-  | otherwise = fail $ str ++ ": mismatch between " ++ show r1 ++ " and " ++ show r2
+getGlobalPair ::
+  C.PartialResult sym ext v ->
+  IO (C.GlobalPair sym v)
+getGlobalPair pr =
+  case pr of
+    C.TotalRes gp -> return gp
+    C.PartialRes _ gp _ -> do
+      putStrLn "Symbolic simulation completed with side conditions."
+      return gp
 
-
---
-setSimulatorVerbosity :: (W4.IsSymExprBuilder sym) => Int -> sym -> IO ()
-setSimulatorVerbosity verbosity sym = do
-  verbSetting <- W4.getOptionSetting W4.verbosity (W4.getConfiguration sym)
-  _ <- W4.setOpt verbSetting (toInteger verbosity)
-  return ()
-
-
-findMethodHandle :: JVMContext -> J.Class -> J.Method -> IO JVMHandleInfo
-findMethodHandle ctx cls meth =
-    case  Map.lookup (J.className cls, J.methodKey meth) (methodHandles ctx) of
-        Just handle ->
-          return handle
-        Nothing ->
-          fail $ "BUG: cannot find handle for " ++ J.unClassName (J.className cls)
-               ++ "/" ++ J.methodName meth
-
--- We don't initialize the class on every static method call.
--- So we have to make a separate simulation function to do that when
--- we start the simulator.
-runClassInit :: HandleAllocator RealWorld -> JVMContext -> Verbosity -> J.ClassName
-             -> C.OverrideSim p sym JVM rtp a r (C.RegEntry sym C.UnitType)
-runClassInit halloc ctx verbosity name = do
-  (C.SomeCFG g') <- liftIO $ stToIO $ do
-      h <- mkHandle halloc (fromString ("class_init:" ++ J.unClassName name))
-      let (meth :: J.Method) = undefined
-          def :: FunctionDef JVM s (JVMState UnitType) EmptyCtx UnitType
-          def _inputs = (s, f)
-              where s = initialState ctx verbosity meth knownRepr
-                    f = do () <- initializeClass name
-                           return (App EmptyApp)
-      (SomeCFG g, []) <- defineFunction InternalPos h def
-      return (toSSA g)
-  C.callCFG g' (C.RegMap Ctx.Empty)
-
--- | Run a Java method in the simulator
-runMethodHandle :: (IsSymInterface sym,
-                    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-                    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-                     sym
-                  -> p
-                  -> HandleAllocator RealWorld
-                  -> JVMContext
-                  -> Verbosity
-                  -> J.ClassName
-                  -> FnHandle args ret
-                  -> C.RegMap sym args
-                  -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-runMethodHandle sym p halloc ctx verbosity _classname h args = do
-  let javaExtImpl :: C.ExtensionImpl p sym JVM
-      javaExtImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
-  let simctx = C.initSimContext sym
-                 MapF.empty  -- intrinsics
-                 halloc
-                 stdout
-                 (mkDelayedBindings ctx verbosity)
-                 javaExtImpl
-                 p
-  let globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
-  let simSt  = C.initSimState simctx globals C.defaultAbortHandler
-  let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
-  let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
-                       -- _ <- runClassInit halloc ctx classname
-                       fnCall
-  C.executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
-
-
-
-
-
-
+--------------------------------------------------------------------------------
 
 
 -- | A type class for what we need from a java code base
@@ -1913,7 +1981,7 @@ instance IsCodebase JCB.Codebase where
               [] -> do
                 case J.superClass cl of
                   Nothing ->
-                    let msg = ftext $ "Could not find method " ++ nm
+                    let msg =  "Could not find method " ++ nm
                                 ++ " in class " ++ javaClassName ++ "."
                         res = "Please check that the class and method are correct."
                      in throwIOExecException msg res
@@ -1924,7 +1992,7 @@ instance IsCodebase JCB.Codebase where
                                ++ " is ambiguous.  SAWScript currently requires that "
                                ++ "method names are unique."
                        res = "Please rename the Java method so that it is unique."
-                    in throwIOExecException (ftext msg) res
+                    in throwIOExecException msg res
 
 
 -- | Atempt to find class with given name, or throw ExecException if no class
@@ -1934,7 +2002,8 @@ cbLookupClass cb nm = do
   maybeCl <- JCB.tryLookupClass cb nm
   case maybeCl of
     Nothing -> do
-     let msg = ftext ("The Java class " ++ J.slashesToDots (J.unClassName nm) ++ " could not be found.")
+     let msg = ("The Java class " ++ J.slashesToDots
+                       (J.unClassName nm) ++ " could not be found.")
          res = "Please check that the --classpath and --jars options are set correctly."
       in throwIOExecException msg res
     Just cl -> return cl
@@ -1969,20 +2038,6 @@ findField cb tp@(J.ClassType clName) nm = impl =<< (cbLookupClass cb clName)
 findField  _ _ _ =
   throwE "Primitive types cannot be dereferenced."
 
-
-getGlobalPair ::
-  C.PartialResult sym ext v ->
-  IO (C.GlobalPair sym v)
-getGlobalPair pr =
-  case pr of
-    C.TotalRes gp -> return gp
-    C.PartialRes _ gp _ -> do
-      putStrLn "Symbolic simulation completed with side conditions."
-      return gp
-
-
-ftext :: String -> String
-ftext = id
 
 throwE :: String -> IO a
 throwE = fail

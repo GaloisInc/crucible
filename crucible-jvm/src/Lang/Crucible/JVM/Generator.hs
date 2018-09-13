@@ -73,7 +73,7 @@ data JVMReg s
 
 data JVMFrame v
   = JVMFrame
-    { _operandStack :: ![v]
+    { _operandStack   :: ![v]
     , _localVariables :: !(Map J.LocalVariableIndex v)
     }
 
@@ -203,8 +203,8 @@ debug level mesg = do
   when (level <= v) $ traceM mesg
 
 ------------------------------------------------------------------
-
 -- * JVMValue
+
 projectVariant ::
   KnownRepr (Ctx.Assignment TypeRepr) ctx =>
   Ctx.Index ctx tp ->

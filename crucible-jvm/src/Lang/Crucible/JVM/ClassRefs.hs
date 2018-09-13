@@ -25,8 +25,10 @@ import qualified Data.Set as Set
 class ClassRefs a where
   classRefs :: HasCallStack => a -> Set J.ClassName
 
+
 instance ClassRefs a => ClassRefs (Maybe a) where
-  classRefs = maybe Set.empty classRefs
+  classRefs = maybe mempty classRefs
+  
 instance ClassRefs a => ClassRefs [a] where
   classRefs = foldMap classRefs
 
@@ -43,7 +45,7 @@ instance ClassRefs J.Type where
     case ty of
       J.ClassType cn  -> classRefs cn
       J.ArrayType arr -> classRefs arr
-      _               -> Set.empty
+      _               -> mempty
 
 instance ClassRefs J.ConstantPoolValue where
   classRefs val =
@@ -52,7 +54,7 @@ instance ClassRefs J.ConstantPoolValue where
 -- These classnames are actually class descriptors (such as [Ljava.lang.Object;)
 -- and unparsed. We drop them for now
 --    J.ClassRef cn -> classRefs cn
-      _             -> Set.empty
+      _             -> mempty
 
 instance ClassRefs J.Field where
   classRefs field =
@@ -101,7 +103,7 @@ instance ClassRefs J.Instruction where
     J.Newarray ty -> classRefs ty
     J.Putfield  fieldId -> classRefs fieldId
     J.Putstatic fieldId -> classRefs fieldId
-    _ -> Set.empty
+    _ -> mempty
 
 
 instance ClassRefs J.Class where

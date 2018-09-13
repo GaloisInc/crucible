@@ -32,6 +32,7 @@ skipList    = [  -- SCW: yep slow
                  -- The following are very slow
               ,  "ashesHardTestSuite/benchmarks/illness"
               , "ashesHardTestSuite/benchmarks/boyer"
+              
                  -- The following require command-line arguments and
                  -- read files.
               , "ashesHardTestSuite/benchmarks/machineSim"
@@ -39,18 +40,29 @@ skipList    = [  -- SCW: yep slow
               ]
 expFailList = [
   
+    -- needs: Double.doubleToRawLongBits
+     "kaffeRegressionSuite/benchmarks/doublePrint"
+
+    
      -- still failing (fixed StringBuffer, uncovered new bugs)
-      "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+     -- needs java/lang/StrictMath.sqrt
+    , "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+     -- native method
     , "kaffeRegressionSuite/broken/TestNative"
-    , "kaffeRegressionSuite/benchmarks/tthrd1"
+     -- java/lang/StackTraceElement
     , "kaffeRegressionSuite/benchmarks/tname"
+     -- needs toString for StringBuffer class
     , "kaffeRegressionSuite/benchmarks/str"
+     -- some numerical results are wrong!
     , "ashesEasyTestSuite/benchmarks/fahrenheit"
+
+
+     -- null dereference
+    , "kaffeRegressionSuite/benchmarks/tthrd1"    
     , "jikesPrTestSuite/benchmarks/pr138"
     , "jikesPrTestSuite/benchmarks/pr172"
-    -- needs: Double.doubleToRawLongBits
-    , "kaffeRegressionSuite/benchmarks/doublePrint"
-  
+
+     
   -- tests length of args during simulation (npe)
     , "kaffeRegressionSuite/benchmarks/initTest"
   -- needs args (commandline argument)
@@ -286,12 +298,11 @@ runFind :: String -> String -> IO [String]
 runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
 
-{-
-main :: IO ()
-main = wip
--}
 
 main :: IO ()
+main = wip
+
+{-
 main = do
   dir <- getCurrentDirectory
   results <- mapM (runTest 1) =<< runFind dir "mainClass"
@@ -305,13 +316,13 @@ main = do
     results
   printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
     results
-
+-}
 
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
   
-  let testCase = "jikesPrTestSuite/benchmarks/pr209"
+  let testCase = "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
 
   result <- runTest 5 $ top ++ testCase ++ "/mainClass"
 
