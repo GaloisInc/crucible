@@ -28,7 +28,7 @@ skipList    = [  -- SCW: yep slow
                  "ashesJSuite/benchmarks/symjpack-t"
               ,  "jikesDerekTestSuite/benchmarks/testFieldAccess"
               ,  "ashesHardTestSuite/benchmarks/matrix"
-                
+
                  -- The following are very slow
               ,  "ashesHardTestSuite/benchmarks/illness"
               , "ashesHardTestSuite/benchmarks/boyer"
@@ -38,7 +38,7 @@ skipList    = [  -- SCW: yep slow
               , "ashesJSuite/benchmarks/jpat-p"
               ]
 expFailList = [
-  
+
      -- still failing (fixed StringBuffer, uncovered new bugs)
       "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
     , "kaffeRegressionSuite/broken/TestNative"
@@ -50,7 +50,7 @@ expFailList = [
     , "jikesPrTestSuite/benchmarks/pr172"
     -- needs: Double.doubleToRawLongBits
     , "kaffeRegressionSuite/benchmarks/doublePrint"
-  
+
   -- tests length of args during simulation (npe)
     , "kaffeRegressionSuite/benchmarks/initTest"
   -- needs args (commandline argument)
@@ -59,14 +59,14 @@ expFailList = [
     -- wrong answer
     -- String constants should all share the same
     -- object at runtime instead of allocating new
-    -- objects. 
+    -- objects.
   , "jikesHpjTestSuite/benchmarks/multarg"
 
     -- fRem doesn't round (but dRem does)
     -- check what the Crucible version of this operation
     -- should do
   , "jikesDerekTestSuite/benchmarks/testArithmetic"
-  
+
     -- needs sun/misc/FloatingDecimal$ExceptionalBinaryToASCIIBuffer
   , "kaffeRegressionSuite/benchmarks/doubleComp"
 
@@ -78,7 +78,7 @@ expFailList = [
     -- than values when 'saveLocals' is called.
     -- I don't know how to debug this.
   , "ashesHardTestSuite/broken/nucleic"
-   
+
     -- generateInstruction: jsr/ret not supported
   , "sootRegressionSuite/benchmarks/fixedBug-jsr"
   , "jikesHpjTestSuite/benchmarks/try2"
@@ -87,7 +87,7 @@ expFailList = [
   , "jikesDerekTestSuite/benchmarks/testFinally"
   , "kaffeRegressionSuite/benchmarks/nullPointerTest"
   , "jikesPrTestSuite/benchmarks/pr146"
-  
+
     -- Strange parsing issue: trying to load native code
     -- needs more than we are currently providing
   , "kaffeRegressionSuite/benchmarks/testFloatDouble"
@@ -97,14 +97,14 @@ expFailList = [
   , "ashesHardTestSuite/benchmarks/probe"
   , "ashesHardTestSuite/benchmarks/fft"
   , "kaffeRegressionSuite/benchmarks/badFloatTest"
-  
+
     -- needs java.lang.Class
   , "kaffeRegressionSuite/benchmarks/schtum"
   , "kaffeRegressionSuite/benchmarks/illegalInterface"
   , "kaffeRegressionSuite/benchmarks/methodBug"
     -- more reflection: Integer.TYPE
   , "kaffeRegressionSuite/benchmarks/testClassRef"
-  
+
     -- needs sun.reflect.Reflection
   , "kaffeRegressionSuite/benchmarks/getInterfaces"
   , "kaffeRegressionSuite/broken/invTarExcTest"
@@ -114,21 +114,21 @@ expFailList = [
   , "kaffeRegressionSuite/benchmarks/reflectInterfaces"
   , "kaffeRegressionSuite/broken/constructorTest"
   , "jikesPrTestSuite/benchmarks/pr226"
-    
+
     -- needs java.lang.reflect.Array
   , "kaffeRegressionSuite/benchmarks/reflectMultiArray"
-  
+
     -- java beans
   , "kaffeRegressionSuite/broken/beanBug"
   , "kaffeRegressionSuite/broken/bean"
-    
-    -- data structures 
+
+    -- data structures
   , "kaffeRegressionSuite/benchmarks/hashtableTest1"
   , "kaffeRegressionSuite/benchmarks/exceptionTest"
-              
+
     --- BELOW this line are tests that were not  ----
     --- supported by the previous version of jss ----
-              
+
                -- Floating point array tests
               ,  "ashesHardTestSuite/benchmarks/matrix"  -- SLOW
               , "jikesDerekTestSuite/benchmarks/testArrayAccess" -- uses array[0].getClass().getName()
@@ -229,7 +229,7 @@ runTest verbosity file = do
   (className:_) <- words `liftM` readFile file
   let dirName   = takeDirectory file
       dirParts  = splitPath dirName
-      
+
       lastParts = drop (length dirParts - 3) dirParts
       testId    = joinPath lastParts
       topDir = up (up curDir)
@@ -248,8 +248,8 @@ runTest verbosity file = do
       hFlush stdout
       (exitCode, outText, errText) <- readProcessWithExitCode
                                       jssPath
-                                      [ "-c", "classes" 
---                                      , "-j", jdkPath 
+                                      [ "-c", "classes"
+--                                      , "-j", jdkPath
 --                                               ++ ":" ++
 --                                               (topDir </> "support" </> "galois.jar")
                                       , "-d", show verbosity
@@ -310,7 +310,7 @@ main = do
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
-  
+
   let testCase = "jikesPrTestSuite/benchmarks/pr209"
 
   result <- runTest 5 $ top ++ testCase ++ "/mainClass"

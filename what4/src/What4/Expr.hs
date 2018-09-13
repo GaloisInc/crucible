@@ -66,7 +66,7 @@ module What4.Expr
   , SemiRing
   , SemiRingRepr(..)
   , WeightedSum
- 
+
     -- ** Unary BV
   , UnaryBV
 

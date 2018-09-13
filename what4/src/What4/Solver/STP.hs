@@ -52,7 +52,7 @@ intWithRangeOpt nm lo hi = mkOpt nm sty Nothing Nothing
 
 stpOptions :: [ConfigDesc]
 stpOptions =
-  [ mkOpt stpPath 
+  [ mkOpt stpPath
           executablePathOptSty
           (Just (PP.text "Path to STP executable."))
           (Just (ConcreteString "stp"))

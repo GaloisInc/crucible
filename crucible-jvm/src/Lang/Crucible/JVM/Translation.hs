@@ -117,13 +117,13 @@ import Debug.Trace
      - OPTIONAL: also prep any classes referred to by this one
 
    Class init (at first reference, via initializeClass function in Class):
-     - define the JVMClass structure in the heap 
+     - define the JVMClass structure in the heap
      - initialize superclass
      - initialize static fields
      - run <clinit>
 -}
 
-{- Overall, the system doesn't take a very principled approach to classes from 
+{- Overall, the system doesn't take a very principled approach to classes from
    Java's standard library that are referred to in the test cases.
 
    The basic idea is that when we similate a Java method call, we first crawl
@@ -148,7 +148,7 @@ import Debug.Trace
 -- environment. These classes rely on native code that cannot be
 -- parsed by jvm-parser. So instead of transitively loading these
 -- classes with the Main class, we always load them but load none of
--- their dependencies. 
+-- their dependencies.
 initClasses :: [String]
 {-initClasses = []-}
 
@@ -168,7 +168,7 @@ initClasses = [ "java/lang/System",
                 "java/lang/Void",
 
                 "java/util/Arrays",
-                
+
                 "sun/misc/FloatingDecimal",
 
                 "java/io/PrintStream",
@@ -198,7 +198,7 @@ initClasses = [ "java/lang/System",
                 "java/lang/IndexOutOfBoundsException",
 
                 "java/lang/Thread",
-                "java/lang/Runtime"                
+                "java/lang/Runtime"
 
               ]
 
@@ -263,7 +263,7 @@ staticOverrides className methodKey
                let lon = longFromDouble doub
                lPush lon
 
-               
+
   | className == "java/lang/System" && J.methodKeyName methodKey == "arraycopy"
   = Just $ do len     <- iPop
               destPos <- iPop
@@ -928,7 +928,7 @@ generateInstruction (pc, instr) =
       counts <- reverse <$> sequence (replicate (fromIntegral dimensions) iPop)
       obj    <- lift $ newMultiArray arrType counts
       rawRef <- lift $ newRef obj
-      rPush (App $ JustValue knownRepr rawRef) 
+      rPush (App $ JustValue knownRepr rawRef)
 
     -- Load an array component onto the operand stack
     J.Baload -> aloadInstr tagI IValue -- byte
@@ -1105,8 +1105,8 @@ generateInstruction (pc, instr) =
       ->  do let mname = J.unClassName className ++ "/" ++ J.methodKeyName methodKey
              lift $ debug 2 $ "invoke static: " ++ mname
              action
-      
-      | otherwise -> 
+
+      | otherwise ->
         -- make sure that *this* class has already been initialized
         do lift $ initializeClass className
            (JVMHandleInfo _ handle) <- lift $ getStaticMethod className methodKey
@@ -1128,23 +1128,23 @@ generateInstruction (pc, instr) =
     -- Other XXXXX
     J.Aconst_null ->
       do rPush rNull
-         
+
     J.Arraylength ->
       do arrayRef <- rPop
          rawRef <- throwIfRefNull arrayRef
          obj <- lift $ readRef rawRef
          len <- lift $ arrayLength obj
          iPush len
-         
+
     J.Athrow ->
       do objectRef <- rPop
          _obj <- throwIfRefNull objectRef
-         
+
          -- For now, we assert that exceptions won't happen
          lift $ reportError (App (TextLit "athrow"))
          --throw objectRef
 
-         
+
     J.Checkcast ty  ->
       do objectRef <- rPop
          lift $ checkCast objectRef ty
@@ -1154,7 +1154,7 @@ generateInstruction (pc, instr) =
       do value <- getLocal idx >>= lift . fromIValue
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
-         
+
     J.Instanceof tTy ->
       -- instanceof returns False when argument is null
       do objectRef <- rPop
@@ -1723,7 +1723,7 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
 
 findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
 findAllRefs cb cls = do
-  names <- go (Set.singleton cls) 
+  names <- go (Set.singleton cls)
   mapM (lookupClass cb) names
   where
     go :: Set.Set J.ClassName -> IO [J.ClassName]
@@ -1765,7 +1765,7 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
 
      when (verbosity > 2) $
        putStrLn "starting executeCrucibleJVM"
-  
+
      setSimulatorVerbosity verbosity sym
 
      (mcls, meth) <- findMethod cb mname =<< findClass cb cname
@@ -1777,7 +1777,7 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      halloc <- newHandleAllocator
 
      -- Create the initial JVMContext
-     ctx0 <- mkInitialJVMContext halloc 
+     ctx0 <- mkInitialJVMContext halloc
 
      -- declare the "primitive" classes
      classes <- mapM (findClass cb) initClasses

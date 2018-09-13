@@ -38,11 +38,11 @@ module Lang.Crucible.Syntax.ExprParse
   -- * Eliminating location information
   , syntaxToDatum
   , datum
-  
+
   -- * Parsing context
   , position
   , withProgressStep
-  
+
   -- * Control structures
   , commit
   , parse

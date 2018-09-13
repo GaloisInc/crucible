@@ -1,7 +1,7 @@
 ------------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.Printf
--- Description      : Interpretation of 'printf' style conversion codes 
+-- Description      : Interpretation of 'printf' style conversion codes
 -- Copyright        : (c) Galois, Inc 2015-2016
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
@@ -135,7 +135,7 @@ formatInteger
   -> String
 formatInteger mi fmt minwidth prec flags =
   case mi of
-    Nothing -> 
+    Nothing ->
       let n = max 4 (max minwidth prec)
        in replicate n '?'
     Just i  -> do

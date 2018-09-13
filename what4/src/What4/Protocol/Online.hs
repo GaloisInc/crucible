@@ -27,7 +27,7 @@ module What4.Protocol.Online
   ) where
 
 import           Control.Exception
-                   ( SomeException(..), bracket_, catch, try, displayException ) 
+                   ( SomeException(..), bracket_, catch, try, displayException )
 import           Control.Monad (void)
 import qualified Data.Text.Lazy as LazyText
 import           Data.ByteString(ByteString)
