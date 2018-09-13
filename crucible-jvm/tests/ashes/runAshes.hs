@@ -39,28 +39,21 @@ skipList    = [  -- SCW: yep slow
               , "ashesJSuite/benchmarks/jpat-p"
               ]
 expFailList = [
-  
-    -- needs: Double.doubleToRawLongBits
-     "kaffeRegressionSuite/benchmarks/doublePrint"
+ 
 
-    
-     -- still failing (fixed StringBuffer, uncovered new bugs)
-     -- needs java/lang/StrictMath.sqrt
-    , "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
-     -- native method
-    , "kaffeRegressionSuite/broken/TestNative"
-     -- java/lang/StackTraceElement
-    , "kaffeRegressionSuite/benchmarks/tname"
      -- needs toString for StringBuffer class
-    , "kaffeRegressionSuite/benchmarks/str"
+     "kaffeRegressionSuite/benchmarks/str"
+    
      -- some numerical results are wrong!
     , "ashesEasyTestSuite/benchmarks/fahrenheit"
 
-
+    -- needs too much from java.io library
+    -- FileOutputStream argument
+   , "jikesHpjTestSuite/benchmarks/recur"
+    
      -- null dereference
-    , "kaffeRegressionSuite/benchmarks/tthrd1"    
-    , "jikesPrTestSuite/benchmarks/pr138"
-    , "jikesPrTestSuite/benchmarks/pr172"
+--    , "jikesPrTestSuite/benchmarks/pr138"
+--    , "jikesPrTestSuite/benchmarks/pr172"
 
      
   -- tests length of args during simulation (npe)
@@ -78,13 +71,16 @@ expFailList = [
     -- check what the Crucible version of this operation
     -- should do
   , "jikesDerekTestSuite/benchmarks/testArithmetic"
-  
+
+    -- needs java/lang/StrictMath.sqrt
+    , "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+
+    -- needs: Double.doubleToRawLongBits
+  , "kaffeRegressionSuite/benchmarks/doublePrint"
+
     -- needs sun/misc/FloatingDecimal$ExceptionalBinaryToASCIIBuffer
   , "kaffeRegressionSuite/benchmarks/doubleComp"
 
-    -- needs java/io/PrintStream constructor from
-    -- FileOutputStream argument
-  , "jikesHpjTestSuite/benchmarks/recur"
 
     -- saveLocals: somehow there are two more registers
     -- than values when 'saveLocals' is called.
@@ -109,6 +105,11 @@ expFailList = [
   , "ashesHardTestSuite/benchmarks/probe"
   , "ashesHardTestSuite/benchmarks/fft"
   , "kaffeRegressionSuite/benchmarks/badFloatTest"
+
+
+  -- needs java.lang.Thread
+  , "kaffeRegressionSuite/benchmarks/tname"
+  , "kaffeRegressionSuite/benchmarks/tthrd1"    
   
     -- needs java.lang.Class
   , "kaffeRegressionSuite/benchmarks/schtum"
@@ -137,7 +138,11 @@ expFailList = [
     -- data structures 
   , "kaffeRegressionSuite/benchmarks/hashtableTest1"
   , "kaffeRegressionSuite/benchmarks/exceptionTest"
-              
+
+    -- native method
+   , "kaffeRegressionSuite/broken/TestNative"
+
+    
     --- BELOW this line are tests that were not  ----
     --- supported by the previous version of jss ----
               
@@ -300,9 +305,9 @@ runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
 
 main :: IO ()
-main = wip
+--main = wip
 
-{-
+{- -}
 main = do
   dir <- getCurrentDirectory
   results <- mapM (runTest 1) =<< runFind dir "mainClass"
@@ -316,15 +321,15 @@ main = do
     results
   printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
     results
--}
+
 
 wip :: IO ()
 wip = do
   let top = "ashesSuiteCollection/suites/"
   
-  let testCase = "sootRegressionSuite/benchmarks/fixedBug-numericalDiffs"
+  let testCase = "jikesPrTestSuite/benchmarks/pr138"
 
-  result <- runTest 5 $ top ++ testCase ++ "/mainClass"
+  result <- runTest 2 $ top ++ testCase ++ "/mainClass"
 
   putStrLn (show result)
 

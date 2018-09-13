@@ -1516,13 +1516,14 @@ translateMethod ctx verbosity cName m h =
 -- environment.
 -- THIS MUST INCLUDE ALL CLASSES in stdOverrides
 -- (We could calculate automatically, but that would add an ambiguous
--- sym constraint, so we do not.)
--- It must also include all classes that these classes depend on.
--- (we don't traverse them for their dependencies.)
+-- sym constraint to this definition, so we do not.)
 
 initClasses :: [String]
 initClasses =  [ "java/lang/Class"
+               , "java/lang/String"
                , "java/io/BufferedOutputStream"
+               , "java/io/FilterOutputStream"
+               , "java/io/OutputStream"
                , "java/io/PrintStream"
                , "java/lang/Object"
                , "java/lang/System"
@@ -1540,8 +1541,10 @@ manualDependencies =
   Map.fromList $ map (\(s1,s2) -> (J.mkClassName s1, (Set.fromList (map J.mkClassName s2))))
   [ ("java/lang/Object",[])
   ,("java/lang/System", [])
+  ,("java/lang/Class",[])
   ,("java/lang/String",
-     ["java/lang/StringBuffer"])
+     ["java/lang/StringBuffer"
+     ,"java/lang/AbstractStringBuilder"])
   ,("java/lang/StringBuffer",
      ["java/lang/AbstractStringBuilder"])
   ,("java/lang/AbstractStringBuilder",
@@ -1554,8 +1557,9 @@ manualDependencies =
   ,("java/lang/Throwable", [])
   ,("java/util/Random",[])
   ,("java/math/BigInteger",[])
+  ,("java/lang/StackTraceElement",[])
     
-{-  -- DON't Need these anymore. 
+{-  -- DON'T need these anymore. 
   ,("java/lang/Short", [])
   ,("java/lang/Byte", [])
   ,("java/lang/Long", [])
@@ -1616,13 +1620,16 @@ exclude cn =
           || ("java/lang/Character"    `isPrefixOf` J.unClassName cn)
           || ("java/lang/ConditionalSpecialCasing"  `isPrefixOf` J.unClassName cn)
           || cn `elem` [
-
+  -- cut off some packages that are rarely used and that we don't
+  -- want to support
                J.mkClassName "java/lang/Package"
+             , J.mkClassName "java/util/Formatter"
+             , J.mkClassName "java/util/Locale"
+             , J.mkClassName "java/lang/Runnable"
              , J.mkClassName "java/lang/SecurityManager"
              , J.mkClassName "java/lang/Shutdown"
              , J.mkClassName "java/lang/Process"
              , J.mkClassName "java/lang/RuntimePermission"
-             , J.mkClassName "java/lang/StackTraceElement"
              , J.mkClassName "java/lang/ProcessEnvironment"
              , J.mkClassName "java/lang/ProcessBuilder"
              , J.mkClassName "java/lang/Thread"
@@ -1633,19 +1640,16 @@ exclude cn =
            ]
 
 
--- | Determine all other classes that need to be "prepped" in addition
--- to the current class.
 
 findNextRefs :: J.Class -> Set.Set J.ClassName
 findNextRefs cls
-  | J.unClassName (J.className cls) `elem` initClasses
-  = mempty
   | Just refs <- Map.lookup (J.className cls) manualDependencies
   = refs
   | otherwise
-  = trace ("finding refs for " ++ (J.unClassName (J.className cls))) $
-    classRefs cls
+  = classRefs cls
 
+-- | Determine all other classes that need to be "prepped" in addition
+-- to the current class.
 findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
 findAllRefs cb cls = do
   names <- go Set.empty (Set.insert cls (Set.fromList (map J.mkClassName initClasses))) 
@@ -1653,7 +1657,6 @@ findAllRefs cb cls = do
   where
     go :: Set.Set J.ClassName -> Set.Set J.ClassName -> IO [J.ClassName]
     go curr fringe = do
-      --traceM $ "Curr refs: " ++ show curr
       (currClasses :: [J.Class]) <- traverse (lookupClass cb) (Set.toList fringe)
       let newRefs = fmap findNextRefs currClasses
       let permissable = Set.filter (not . exclude) (Set.unions newRefs)
@@ -1904,11 +1907,6 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
 
      -- Create the initial JVMContext
      ctx0 <- mkInitialJVMContext halloc 
-
-     -- prep the "primitive" classes
-     {- classes <- mapM (findClass cb) initClasses
-     ctx1 <- stToIO $ execStateT
-             (mapM_ (extendJVMContext halloc) classes) ctx0 -}
 
      -- prep this class && all classes that it refers to
      allClasses <- findAllRefs cb (J.className mcls)

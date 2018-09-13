@@ -409,19 +409,23 @@ specialClinit = Map.fromList [
   -- TODO: initialize E and PI ???
   ,("java/lang/Math", debug 2 "special java/lang/Math/<clinit>")
   ,("java/lang/StrictMath", debug 2 "special java/lang/StrictMath/<clinit>")
+  ,("java/io/FileOutputStream", debug 2 "special java/io/FileOutputStream/<clinit>")
   ,("java/lang/System", do
        -- initialize System.out to be a PrintStream object
        -- note: we do not call PrintStream/<init> because this class
        -- is completely synthetic
-       debug 2 $  "Initializing System.out static field"
-       let fieldId = J.FieldId (J.mkClassName "java/lang/System")
-                               "out"
+       let init_System name = do
+           debug 2 $  "Initializing System."++name++" static field"
+           let fieldId = J.FieldId (J.mkClassName "java/lang/System")
+                               name
                                (J.ClassType "java/io/PrintStream")
-       printStreamCls <- getJVMClassByName (J.mkClassName "java/io/PrintStream")
-       val <- newInstanceInstr printStreamCls []
-       rawRef <- newRef val
-       setStaticFieldValue fieldId (RValue (App (JustValue knownRepr rawRef)))
-       debug 2 $ "Finished initializing System.out"
+           printStreamCls <- getJVMClassByName (J.mkClassName "java/io/PrintStream")
+           val <- newInstanceInstr printStreamCls []
+           rawRef <- newRef val
+           setStaticFieldValue fieldId (RValue (App (JustValue knownRepr rawRef)))
+           debug 2 $ "Finished initializing System." ++ name
+       init_System "out"
+       init_System "err"
        return ())
   ]
 
