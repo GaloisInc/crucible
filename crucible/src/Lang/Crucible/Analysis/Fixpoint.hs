@@ -208,7 +208,8 @@ equalPointAbstractions dom pa1 pa2 =
 -- | Apply the transfer functions from an interpretation to a block,
 -- given a starting set of abstract values.
 transfer :: forall ext dom blocks ret ctx
-          . Domain dom
+          . ShowF dom
+         => Domain dom
          -> Interpretation ext dom
          -> TypeRepr ret
          -> Block ext blocks ret ctx
@@ -376,7 +377,8 @@ isVisited bid = do
 --
 -- 2) The final abstract value for the value returned by the function
 forwardFixpoint :: forall ext dom blocks ret init
-                 . Domain dom
+                 . ShowF dom
+                => Domain dom
                 -- ^ The domain of abstract values
                 -> Interpretation ext dom
                 -- ^ The transfer functions for each statement type
@@ -413,7 +415,7 @@ forwardFixpoint dom interp cfg globals0 assignment0 =
 
 -- | Inspect the 'Domain' definition to determine which iteration
 -- strategy the caller requested.
-iterationStrategy :: Domain dom -> (Interpretation ext dom -> CFG ext blocks init ret -> M dom blocks ret ())
+iterationStrategy :: ShowF dom => Domain dom -> (Interpretation ext dom -> CFG ext blocks init ret -> M dom blocks ret ())
 iterationStrategy dom =
   case domIter dom of
     WTOWidening s op -> wtoIteration (Just (WideningStrategy s, WideningOperator op)) dom
@@ -427,7 +429,8 @@ iterationStrategy dom =
 -- The worklist is actually processed by taking the lowest-numbered
 -- block in a set as the next work item.
 worklistIteration :: forall ext dom blocks ret init
-                   . Domain dom
+                   . ShowF dom
+                  => Domain dom
                   -> Interpretation ext dom
                   -> CFG ext blocks init ret
                   -> M dom blocks ret ()
@@ -459,7 +462,8 @@ worklistIteration dom interp cfg =
 -- block heads are suitable locations to apply widening operators
 -- (which can be provided to this iterator).
 wtoIteration :: forall ext dom blocks ret init
-              . Maybe (WideningStrategy, WideningOperator dom)
+              . ShowF dom
+             => Maybe (WideningStrategy, WideningOperator dom)
               -- ^ An optional widening operator
              -> Domain dom
              -> Interpretation ext dom
