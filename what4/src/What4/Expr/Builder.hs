@@ -4345,6 +4345,11 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       do z <- bvIte sym c x' y'
          bvSext sym w z
 
+    | Just (FloatToBinary fpp1 x') <- asApp x
+    , Just (FloatToBinary fpp2 y') <- asApp y
+    , Just Refl <- testEquality fpp1 fpp2 =
+      floatToBinary sym =<< floatIte sym c x' y'
+
     | otherwise = do
         ut <- CFG.getOpt (sbUnaryThreshold sym)
         let ?unaryThreshold = fromInteger ut
