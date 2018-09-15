@@ -4185,7 +4185,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just LeqProof <- testLeq diffRepr idx = do
       Just LeqProof <- return $ testLeq (addNat (subNat idx diffRepr) n) w
       bvSelect sb (subNat idx diffRepr) n a
-    | Just (BVShl w a b) <- asApp x
+    | Just (BVShl _w _a b) <- asApp x
     , Just diff <- asUnsignedBV b
     , Just (Some diffRepr) <- someNat diff
     , Just LeqProof <- testLeq (addNat idx n) diffRepr =
@@ -4202,7 +4202,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just (Some diffRepr) <- someNat diff
     , Just LeqProof <- testLeq (addNat (addNat idx diffRepr) n) w =
       bvSelect sb (addNat idx diffRepr) n a
-    | Just (BVLshr w a b) <- asApp x
+    | Just (BVLshr w _a b) <- asApp x
     , Just diff <- asUnsignedBV b
     , Just (Some diffRepr) <- someNat diff
     , Just LeqProof <- testLeq w (addNat idx diffRepr) =
