@@ -1331,6 +1331,8 @@ data ExprBuilder t (st :: * -> *) (fs :: *)
           -- | Cache for Matlab functions
         , sbMatlabFnCache
           :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (ExprSymFnWrapper t))
+        , sbSolverLogger
+          :: !(IORef (Maybe (SolverEvent -> IO ())))
         }
 
 type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
@@ -2785,6 +2787,7 @@ newExprBuilder st gen = do
   bindings_ref  <- newIORef Bimap.empty
   uninterp_fn_cache_ref <- newIORef Map.empty
   matlabFnCache <- stToIO $ PH.new
+  loggerRef     <- newIORef Nothing
 
   -- Set up configuration options
   cfg <- CFG.initialConfig 0
@@ -2812,6 +2815,7 @@ newExprBuilder st gen = do
                , sbVarBindings = bindings_ref
                , sbUninterpFnCache = uninterp_fn_cache_ref
                , sbMatlabFnCache = matlabFnCache
+               , sbSolverLogger = loggerRef
                }
 
 -- | Get current variable bindings.
@@ -3737,6 +3741,14 @@ bvSum = undefined
 
 instance IsExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
+
+  setSolverLogListener sb = writeIORef (sbSolverLogger sb)
+  getSolverLogListener sb = readIORef (sbSolverLogger sb)
+
+  logSolverEvent sb ev =
+    readIORef (sbSolverLogger sb) >>= \case
+      Nothing -> return ()
+      Just f  -> f ev
 
   ----------------------------------------------------------------------
   -- Program location operations

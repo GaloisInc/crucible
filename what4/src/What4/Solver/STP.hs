@@ -74,16 +74,29 @@ instance SMT2.SMTLib2Tweaks STP where
 runSTPInOverride
    :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
+   -> String
    -> BoolExpr t
    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
    -> IO a
-runSTPInOverride sym logLn p cont = do
+runSTPInOverride sym logLn rsn p cont = do
   solver_path <- findSolverPath stpPath (getConfiguration sym)
+  logSolverEvent sym
+    SolverStartSATQuery
+    { satQuerySolverName = "STP"
+    , satQueryReason = rsn
+    }
   withSTP sym solver_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p
     -- Run check SAT and get the model back.
-    SMT2.runCheckSat s cont
+    SMT2.runCheckSat s
+      (\result ->
+        do logSolverEvent sym
+             SolverEndSATQuery
+             { satQueryResult = fmap (const ()) result
+             , satQueryError  = Nothing
+             }
+           cont result)
 
 -- | Run STP in a session.  STP will be configured to produce models, buth
 -- otherwise left with the default configuration.

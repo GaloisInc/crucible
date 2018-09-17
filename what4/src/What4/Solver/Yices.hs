@@ -477,6 +477,8 @@ yicesStartSolver sym = do
                           , solverHandle = ph
                           , solverResponse = out_stream
                           , solverEvalFuns = smtEvalFuns conn out_stream
+                          , solverLogFn = logSolverEvent sym
+                          , solverName = "Yices"
                           }
 
 ------------------------------------------------------------------------
@@ -620,8 +622,8 @@ yicesAdapter =
    SolverAdapter
    { solver_adapter_name = "yices"
    , solver_adapter_config_options = yicesOptions
-   , solver_adapter_check_sat = \sym logLn p cont ->
-       runYicesInOverride sym logLn p (cont . fmap (\x -> (x,Nothing)))
+   , solver_adapter_check_sat = \sym logLn rsn p cont ->
+       runYicesInOverride sym logLn rsn p (cont . fmap (\x -> (x,Nothing)))
    , solver_adapter_write_smt2 =
        writeDefaultSMT2 () "YICES"  yicesSMT2Features
    }
@@ -795,14 +797,20 @@ writeYicesFile sym path p = do
 -- | Run writer and get a yices result.
 runYicesInOverride :: B.ExprBuilder t st fs
                    -> (Int -> String -> IO ())
+                   -> String 
                    -> B.BoolExpr t
                    -> (SatResult (GroundEvalFn t) -> IO a)
                    -> IO a
-runYicesInOverride sym logLn condition resultFn = do
+runYicesInOverride sym logLn rsn condition resultFn = do
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
   logLn 2 "Calling Yices to check sat"
   -- Check Problem features
+  logSolverEvent sym
+    SolverStartSATQuery
+    { satQuerySolverName = "Yices"
+    , satQueryReason = rsn
+    }
   features <- checkSupportedByYices condition
   let efSolver = features `hasProblemFeature` useExistForall
   let nlSolver = features `hasProblemFeature` useNonlinearArithmetic
@@ -835,8 +843,15 @@ runYicesInOverride sym logLn condition resultFn = do
                              , solverResponse = responses
                              , solverStderr = err_reader
                              , solverEvalFuns = smtEvalFuns c responses
+                             , solverName = "Yices"
+                             , solverLogFn = logSolverEvent sym
                              }
       sat_result <- getSatResult yp
+      logSolverEvent sym
+        SolverEndSATQuery
+        { satQueryResult = sat_result
+        , satQueryError  = Nothing
+        }
       r <-
          case sat_result of
            Unsat -> resultFn Unsat

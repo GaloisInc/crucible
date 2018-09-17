@@ -38,6 +38,7 @@ import           System.Process
 import qualified System.IO.Streams as Streams
 
 import What4.Expr
+import What4.Interface (SolverEvent(..))
 import What4.Protocol.SMTWriter
 import What4.SatResult
 import What4.Utils.HandleReader
@@ -73,6 +74,10 @@ data SolverProcess scope solver = SolverProcess
 
   , solverEvalFuns :: !(SMTEvalFunctions solver)
     -- ^ The functions used to parse values out of models.
+
+  , solverLogFn :: SolverEvent -> IO ()
+
+  , solverName :: String
   }
 
 
@@ -89,14 +94,15 @@ killSolver p =
 checkSatisfiable ::
   SMTReadWriter solver =>
   SolverProcess scope solver ->
+  String ->
   BoolExpr scope ->
   IO (SatResult ())
-checkSatisfiable proc p =
+checkSatisfiable proc rsn p =
   do let c = solverConn proc
      p_smtexpr <- mkFormula c p
      inNewFrame c $
        do assumeFormula c p_smtexpr
-          check proc
+          check proc rsn
 
 -- | Check if the formula is satisifiable in the current
 --   solver state.
@@ -106,14 +112,15 @@ checkSatisfiableWithModel ::
   SMTReadWriter solver =>
   SolverProcess scope solver ->
   BoolExpr scope ->
+  String ->
   (SatResult (GroundEvalFn scope) -> IO a) ->
   IO a
-checkSatisfiableWithModel proc p k =
+checkSatisfiableWithModel proc p rsn k =
   do let c = solverConn proc
      p_smtexpr <- mkFormula c p
      inNewFrame c $
        do assumeFormula c p_smtexpr
-          res <- check proc
+          res <- check proc rsn
           case res of
             Sat _ -> do f <- smtExprGroundEvalFn c (solverEvalFuns proc)
                         k (Sat f)
@@ -143,18 +150,29 @@ inNewFrame c m = bracket_ (push c) (pop c) m
 
 -- | Send a check command to the solver, and get the SatResult without asking
 --   a model.
-check :: SMTReadWriter solver => SolverProcess scope solver -> IO (SatResult ())
-check p =
+check :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult ())
+check p rsn =
   do let c = solverConn p
+     solverLogFn p
+       SolverStartSATQuery
+       { satQuerySolverName = solverName p
+       , satQueryReason = rsn
+       }
      addCommand c (checkCommand c)
-     getSatResult p
+     sat_result <- getSatResult p
+     solverLogFn p
+       SolverEndSATQuery
+       { satQueryResult = sat_result
+       , satQueryError = Nothing
+       }
+     return sat_result
 
 -- | Send a check command to the solver and get the model in the case of a SAT result.
 --
 -- This may fail if the solver terminates.
-checkAndGetModel :: SMTReadWriter solver => SolverProcess scope solver -> IO (SatResult (GroundEvalFn scope))
-checkAndGetModel yp = do
-  sat_result <- check yp
+checkAndGetModel :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult (GroundEvalFn scope))
+checkAndGetModel yp rsn = do
+  sat_result <- check yp rsn
   case sat_result of
     Unsat   -> return $! Unsat
     Unknown -> return $! Unknown

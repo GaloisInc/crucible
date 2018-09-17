@@ -119,16 +119,29 @@ writeCVC4SMT2File sym h p = writeMultiAsmpCVC4SMT2File sym h [p]
 runCVC4InOverride
    :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
+   -> String
    -> BoolExpr t
    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
    -> IO a
-runCVC4InOverride sym logLn p cont = do
+runCVC4InOverride sym logLn rsn p cont = do
   solver_path <- findSolverPath cvc4Path (getConfiguration sym)
+  logSolverEvent sym
+    SolverStartSATQuery
+    { satQuerySolverName = "CVC4"
+    , satQueryReason = rsn
+    }
   withCVC4 sym solver_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p
     -- Run check SAT and get the model back.
-    SMT2.runCheckSat s cont
+    SMT2.runCheckSat s
+      (\result ->
+        do logSolverEvent sym
+             SolverEndSATQuery
+             { satQueryResult = fmap (const ()) result
+             , satQueryError  = Nothing
+             }
+           cont result)
 
 -- | Run CVC4 in a session.  CVC4 will be configured to produce models, buth
 -- otherwise left with the default configuration.
