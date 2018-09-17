@@ -7,7 +7,7 @@
   (start start:
     (print "Hello!\n")
     (let x (fresh Integer))
-    (let xs (funcall @freshVector 16))
+    (let xs (funcall @freshVector 18))
     (let m (funcall @mjrty xs))
 
     (let precond (funcall @isMajority x xs))
