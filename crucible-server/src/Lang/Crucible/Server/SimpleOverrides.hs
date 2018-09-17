@@ -42,7 +42,6 @@ import qualified What4.Solver.ABC as ABC
 import qualified What4.Solver.Yices as Yices
 import qualified What4.Protocol.SMTLib2 as SMT2
 import           What4.SatResult
-import           What4.Symbol
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.Simple
@@ -103,8 +102,7 @@ checkSatWithAbcOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    let cfg = getConfiguration sym
-    r <- liftIO $ ABC.checkSat cfg logLn p
+    r <- liftIO $ ABC.checkSat sym logLn "checkSatWithABC" p
     return $ backendPred sym (isSat r)
 
 ------------------------------------------------------------------------
@@ -118,7 +116,7 @@ checkSatWithYicesOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    r <- liftIO $ Yices.runYicesInOverride sym logLn p (return . isSat)
+    r <- liftIO $ Yices.runYicesInOverride sym logLn "checkSatWithYices" p (return . isSat)
     return $ backendPred sym r
 
 ------------------------------------------------------------------------
