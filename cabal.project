@@ -16,7 +16,8 @@ packages:
   crucible-server/
   crucible-c/
   crucible-syntax/
-
+  crux/
+  
 optional-packages:
   dependencies/abcBridge/
   dependencies/aig/

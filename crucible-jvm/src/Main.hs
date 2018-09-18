@@ -38,6 +38,7 @@ import System.Console.GetOpt
 import System.IO
 import System.Environment(getProgName,getArgs)
 import System.FilePath(takeExtension)
+import System.FilePath(splitSearchPath)
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Some(Some(..))
@@ -67,111 +68,85 @@ import qualified What4.Partial as W4
 import qualified Language.JVM.Common as J
 import qualified Language.JVM.Parser as J
 
+-- crux
+import qualified Crux.Language as Crux
+import qualified Crux.CruxMain as Crux
+import qualified Crux.Options  as Crux
+
 
 import qualified Lang.JVM.Codebase as JCB
 
 import           Lang.Crucible.JVM.Translation
 
+
 -- executable
 
-import Error
-import Goal
-import Types
-import Model
-import Log
-import Options
-import Report
+import System.Console.GetOpt
 
-shortVersionText = "crucible-jvm-0.2"
 
--- | Entry point, parse command line opions
-main :: IO ()
-main = do
-  hSetBuffering stdout LineBuffering
-  argv <- getArgs
-  case getOpt Permute options argv of
-    (opts, files, []) -> do
-      let opts' = foldl' (flip id) defaultOptions opts
-      opts'' <- processEnv opts'
-      case files of
-        _ | showVersion opts'' -> hPutStrLn stderr shortVersionText
-        _ | showHelp opts''   -> hPutStrLn stderr (usageInfo header options)
-        [file] -> checkClass opts'' file
-                  `catch` \(SomeException e) ->
-                    do putStrLn "TOP LEVEL EXCEPTION"
-                       putStrLn (displayException e)
-        _ -> hPutStrLn stderr (usageInfo header options)
-    (_, _, errs) -> do hPutStrLn stderr (concat errs ++ usageInfo header options)
-                       return () -- exitProofUnknown
-  where header = "Usage: crucible-jvm [OPTION...] [-I | file]"
+instance Crux.Language JVM where
+  type LangError JVM = ()
+  formatError _ = ""
 
--- | simulate the "main" method in the given class
-checkClass :: Options -> String -> IO ()
-checkClass opts classname =
-  do -- say "Crux" ("Checking " ++ show classname)
-     res <- simulate opts classname
-     ---generateReport opts res
-     makeCounterExamples opts res
+  -- command line options specific to crux-jvm
+  data LangOptions JVM =  JVMOptions
+    { classPath        :: [FilePath]
+      -- ^ where to look for the class path
+    , jarList          :: [FilePath]
+      -- ^ additional jars to use when evaluating jvm code
+      -- this must include rt.jar from the JDK
+      -- (The JDK_JAR environment variable can also be used to
+      -- to specify this JAR).
+    }
 
-makeCounterExamples :: Options -> Maybe ProvedGoals -> IO ()
-makeCounterExamples opts = maybe (return ()) go
-  where
-  go gs =
-   case gs of
-     AtLoc _ _ gs1 -> go gs1
-     Branch g1 g2  -> go g1 >> go g2
-     Goal _ (c,_) _ res ->
-       let suff = case plSourceLoc (simErrorLoc c) of
-                    SourcePos _ l _ -> show l
-                    _               -> "unknown"
-           msg = show (simErrorReason c)
+  defaultOptions =
+    JVMOptions
+    { classPath = ["."]
+    , jarList = []
+    }
 
-       in case res of
-            NotProved (Just m) ->
-              do sayFail "Crux" ("Counter example for " ++ msg)
-            _ -> return ()
+  options = [
+    Option "c" ["classpath"]
+    (ReqArg
+     (\p opts -> opts { classPath = classPath opts ++ splitSearchPath p })
+     "path"
+    )
+    Crux.pathDesc
+    , Option "j" ["jars"]
+    (ReqArg
+     (\p opts -> opts { jarList = jarList opts ++ splitSearchPath p })
+     "path"
+    )
+    Crux.pathDesc
+    ]
 
--- Returns only non-trivial goals
-simulate ::
-  Options ->
-  String ->
-  IO (Maybe ProvedGoals)
-simulate opts cname =
-  withIONonceGenerator $ \nonceGen ->
+  addOpt ("JDK_JAR", p) os = os { jarList = p : jarList os }
+  addOpt opt os = os
 
-  withYicesOnlineBackend nonceGen $ \(sym :: YicesOnlineBackend scope (Flags FloatReal)) -> do
+  name = "jvm"
 
+  simulate opts sym ext verbosity cname = do
+    
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
 
      let mname = "main"
-
-     frm <- pushAssumptionFrame sym
-
-     let personality = emptyModel
 
      -- create a null array of strings for `args`
      -- TODO: figure out how to allocate an empty array
      let nullstr = RegEntry refRepr W4.Unassigned
      let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
+     executeCrucibleJVM @UnitType cb verbosity sym
+       ext cname mname regmap
+     
+
+    
+
+-- | Entry point, parse command line opions
+main :: IO ()
+main = Crux.main @JVM
+{-
      res <- executeCrucibleJVM @UnitType cb (simVerbose opts) sym
        personality cname mname regmap
-
-     _ <- popAssumptionFrame sym frm
-
-     ctx' <- case res of
-               FinishedResult ctx' pr -> do
-                 -- The 'main' method returns void, so there is no need
-                 -- to look at the result. However, if it does return an answer
-                 -- then we can look at it with this code:
-                 -- gp <- getGlobalPair pr
-                 -- putStrLn (showInt J.IntType (regValue (gp ^. gpValue)))
-                 return ctx'
-               AbortedResult ctx' _  -> return ctx'
-
-     --say "Crux" "Simulation complete."
-
-     provedGoalsTree ctx'
-       =<< proveGoals ctx'
-       =<<  getProofObligations sym
+-}
 
