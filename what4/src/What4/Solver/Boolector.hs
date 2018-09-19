@@ -68,8 +68,8 @@ boolectorAdapter =
   SolverAdapter
   { solver_adapter_name = "boolector"
   , solver_adapter_config_options = boolectorOptions
-  , solver_adapter_check_sat = \sym logLn p cont -> do
-      res <- runBoolectorInOverride sym logLn p
+  , solver_adapter_check_sat = \sym logLn rsn p cont -> do
+      res <- runBoolectorInOverride sym logLn rsn p
       cont (fmap (\x -> (x,Nothing)) res)
   , solver_adapter_write_smt2 =
       SMT2.writeDefaultSMT2 () "Boolector" defaultWriteSMTLIB2Features
@@ -80,11 +80,18 @@ instance SMT2.SMTLib2Tweaks Boolector where
 
 runBoolectorInOverride :: ExprBuilder t st fs
                        -> (Int -> String -> IO ())
+                       -> String
                        -> BoolExpr t
                        -> IO (SatResult (GroundEvalFn t))
-runBoolectorInOverride sym logLn p  = do
+runBoolectorInOverride sym logLn rsn p  = do
   -- Get boolector path.
   path <- findSolverPath boolectorPath (getConfiguration sym)
+
+  logSolverEvent sym
+    SolverStartSATQuery
+    { satQuerySolverName = "Boolector"
+    , satQueryReason = rsn
+    }
   withProcessHandles path ["-m"] Nothing $ \(in_h, out_h, err_h, ph) -> do
       -- Log stderr to output.
       err_stream <- Streams.handleToInputStream err_h
@@ -112,7 +119,13 @@ runBoolectorInOverride sym logLn p  = do
         ExitFailure exit_code  ->
           fail $ "boolector exited with unexpected code: " ++ show exit_code
       -- Parse output.
-      parseBoolectorOutput wtr out_lines
+      res <- parseBoolectorOutput wtr out_lines
+      logSolverEvent sym
+         SolverEndSATQuery
+         { satQueryResult = fmap (const ()) res
+         , satQueryError  = Nothing
+         }
+      return res
 
 parseBoolectorOutputLine :: Monad m => String -> m (Text, String)
 parseBoolectorOutputLine s =

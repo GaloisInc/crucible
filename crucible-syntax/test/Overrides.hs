@@ -39,30 +39,7 @@ setupOverrides _ ha =
                      <*> pure (UseOverride (mkOverride "symbolicBranchTest" symbolicBranchTest))
      f2 <- FnBinding <$> stToIO (mkHandle ha "symbolicBranchesTest")
                      <*> pure (UseOverride (mkOverride "symbolicBranchesTest" symbolicBranchesTest))
-     f3 <- FnBinding <$> stToIO (mkHandle ha "proveObligations")
-                     <*> pure (UseOverride (mkOverride "proveObligations" proveObligations))
-
-     return [(f1, InternalPos),(f2,InternalPos),(f3,InternalPos)]
-
-
-proveObligations :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-  OverrideSim p sym ext r EmptyCtx UnitType (RegValue sym UnitType)
-proveObligations =
-  do sym <- getSymInterface
-     h <- printHandle <$> getContext
-     liftIO $ do
-       hPutStrLn h "Attempting to prove all outstanding obligations!\n"
-
-       obls <- proofGoalsToList <$> getProofObligations sym
-       clearProofObligations sym
-
-       forM_ obls $ \o ->
-         do asms <- andAllOf sym (folded.labeledPred) (proofAssumptions o)
-            gl   <- andPred sym asms =<< notPred sym ((proofGoal o)^.labeledPred)
-            runZ3InOverride sym (\_ -> hPutStrLn h) gl $ \case
-              Unsat    -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-              Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
-              Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+     return [(f1, InternalPos),(f2,InternalPos)]
 
 
 -- Test the @symbolicBranch@ override operation.

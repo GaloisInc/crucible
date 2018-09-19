@@ -252,8 +252,8 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
       Nothing ->
         do proc     <- getSolverProcess sym
            notP     <- notPred sym p
-           p_res    <- checkSatisfiable proc p
-           notp_res <- checkSatisfiable proc notP
+           p_res    <- checkSatisfiable proc "branch feasibility" p
+           notp_res <- checkSatisfiable proc "branch feasibility" notP
            case (p_res, notp_res) of
              (Unsat, Unsat) -> abortExecBecause InfeasibleBranch
              (Unsat, _ )    -> return $ NoBranch False

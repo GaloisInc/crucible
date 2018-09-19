@@ -210,8 +210,8 @@ simulate opts k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym ->
-       -- withYicesOnlineBackend @_ @(Flags FloatReal) @_ nonceGen $ \sym ->
+       --withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym ->
+       withYicesOnlineBackend @_ @(Flags FloatReal) @_ nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
 

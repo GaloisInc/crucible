@@ -1331,6 +1331,8 @@ data ExprBuilder t (st :: * -> *) (fs :: *)
           -- | Cache for Matlab functions
         , sbMatlabFnCache
           :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (ExprSymFnWrapper t))
+        , sbSolverLogger
+          :: !(IORef (Maybe (SolverEvent -> IO ())))
         }
 
 type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
@@ -2785,6 +2787,7 @@ newExprBuilder st gen = do
   bindings_ref  <- newIORef Bimap.empty
   uninterp_fn_cache_ref <- newIORef Map.empty
   matlabFnCache <- stToIO $ PH.new
+  loggerRef     <- newIORef Nothing
 
   -- Set up configuration options
   cfg <- CFG.initialConfig 0
@@ -2812,6 +2815,7 @@ newExprBuilder st gen = do
                , sbVarBindings = bindings_ref
                , sbUninterpFnCache = uninterp_fn_cache_ref
                , sbMatlabFnCache = matlabFnCache
+               , sbSolverLogger = loggerRef
                }
 
 -- | Get current variable bindings.
@@ -3738,6 +3742,14 @@ bvSum = undefined
 instance IsExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
 
+  setSolverLogListener sb = writeIORef (sbSolverLogger sb)
+  getSolverLogListener sb = readIORef (sbSolverLogger sb)
+
+  logSolverEvent sb ev =
+    readIORef (sbSolverLogger sb) >>= \case
+      Nothing -> return ()
+      Just f  -> f ev
+
   ----------------------------------------------------------------------
   -- Program location operations
 
@@ -4185,6 +4197,11 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just LeqProof <- testLeq diffRepr idx = do
       Just LeqProof <- return $ testLeq (addNat (subNat idx diffRepr) n) w
       bvSelect sb (subNat idx diffRepr) n a
+    | Just (BVShl _w _a b) <- asApp x
+    , Just diff <- asUnsignedBV b
+    , Just (Some diffRepr) <- someNat diff
+    , Just LeqProof <- testLeq (addNat idx n) diffRepr =
+      bvLit sb n 0
 
     | Just (BVAshr w a b) <- asApp x
     , Just diff <- asUnsignedBV b
@@ -4197,6 +4214,11 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just (Some diffRepr) <- someNat diff
     , Just LeqProof <- testLeq (addNat (addNat idx diffRepr) n) w =
       bvSelect sb (addNat idx diffRepr) n a
+    | Just (BVLshr w _a b) <- asApp x
+    , Just diff <- asUnsignedBV b
+    , Just (Some diffRepr) <- someNat diff
+    , Just LeqProof <- testLeq w (addNat idx diffRepr) =
+      bvLit sb n 0
 
       -- select from a sign extension
     | Just (BVSext w b) <- asApp x = do
@@ -4334,6 +4356,11 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just Refl <- testEquality w w' =
       do z <- bvIte sym c x' y'
          bvSext sym w z
+
+    | Just (FloatToBinary fpp1 x') <- asApp x
+    , Just (FloatToBinary fpp2 y') <- asApp y
+    , Just Refl <- testEquality fpp1 fpp2 =
+      floatToBinary sym =<< floatIte sym c x' y'
 
     | otherwise = do
         ut <- CFG.getOpt (sbUnaryThreshold sym)
@@ -4499,8 +4526,18 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | Just (BVBitNot _ y) <- asApp x = return y
     | otherwise = sbMakeExpr sym $ BVBitNot (bvWidth x) x
 
-  bvAndBits = bvBinOp1 (Bits..&.) BVBitAnd
-  bvOrBits  = bvBinOp1 (Bits..|.) BVBitOr
+  bvAndBits sym x y
+    | Just 0 <- asUnsignedBV x = return x
+    | Just 0 <- asUnsignedBV y = return y
+    | Just (maxUnsigned (bvWidth x)) == asUnsignedBV x = return y
+    | Just (maxUnsigned (bvWidth x)) == asUnsignedBV y = return x
+    | otherwise = bvBinOp1 (Bits..&.) BVBitAnd sym x y
+  bvOrBits sym x y
+    | Just 0 <- asUnsignedBV x = return y
+    | Just 0 <- asUnsignedBV y = return x
+    | Just (maxUnsigned (bvWidth x)) == asUnsignedBV x = return x
+    | Just (maxUnsigned (bvWidth x)) == asUnsignedBV y = return y
+    | otherwise = bvBinOp1 (Bits..|.) BVBitOr sym x y
 
   -- Special case for the self-XOR trick, which compilers sometimes will use
   -- to zero the state of a register
@@ -5078,7 +5115,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   floatMax = floatIEEEArithBinOp FloatMax
   floatFMA sym r x y z =
     let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatFMA fpp r x y z
-  floatEq = floatIEEELogicBinOp FloatEq
+  floatEq sym x y
+    | x == y = return $! truePred sym
+    | otherwise = (floatIEEELogicBinOp FloatEq) sym x y
   floatNe sym x y = notPred sym =<< floatEq sym x y
   floatFpEq = floatIEEELogicBinOp FloatFpEq
   floatFpNe = floatIEEELogicBinOp FloatFpNe
@@ -5086,8 +5125,13 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   floatLt = floatIEEELogicBinOp FloatLt
   floatGe sym x y = floatLe sym y x
   floatGt sym x y = floatLt sym y x
-  floatIte sym c x y =
-    let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatIte fpp c x y
+  floatIte sym c x y
+    | Just TrueBool  <- asApp c = return x
+    | Just FalseBool <- asApp c = return y
+    | x == y = return x
+    | Just (NotBool c') <- asApp c = floatIte sym c' y x
+    | otherwise =
+      let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatIte fpp c x y
   floatIsNaN = floatIEEELogicUnOp FloatIsNaN
   floatIsInf = floatIEEELogicUnOp FloatIsInf
   floatIsZero = floatIEEELogicUnOp FloatIsZero

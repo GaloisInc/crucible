@@ -18,6 +18,7 @@ import Lang.Crucible.Syntax.Concrete hiding (SyntaxError)
 import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.Syntax.SExpr
 import Lang.Crucible.Syntax.ExprParse
+import Lang.Crucible.Syntax.Overrides as SyntaxOvrs
 import Lang.Crucible.CFG.SSAConversion
 
 import Test.Tasty (defaultMain, TestTree, testGroup)
@@ -31,7 +32,9 @@ import What4.Config
 import What4.ProgramLoc
 import What4.Solver.Z3 (z3Options)
 
-import Overrides
+
+
+import Overrides as TestOvrs
 
 for = flip map
 
@@ -70,7 +73,11 @@ testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
   do contents <- T.readFile inFile
      withFile outFile WriteMode $ \outh ->
-       simulateProgram inFile contents outh testOptions setupOverrides
+       simulateProgram inFile contents outh Nothing testOptions
+         (\sym ha ->
+           do os1 <- SyntaxOvrs.setupOverrides sym ha
+              os2 <- TestOvrs.setupOverrides sym ha
+              return $ concat [os1,os2])
 
 findSimTests :: FilePath -> IO TestTree
 findSimTests wd =

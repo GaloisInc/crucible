@@ -110,23 +110,37 @@ bltAdapter =
    SolverAdapter
    { solver_adapter_name = "blt"
    , solver_adapter_config_options = bltOptions
-   , solver_adapter_check_sat = \sym _ p cont ->
-           runBLTInOverride (getConfiguration sym) p $ \res ->
+   , solver_adapter_check_sat = \sym _ rsn p cont ->
+           runBLTInOverride sym rsn p $ \res ->
              cont (fmap (\x -> (x, Nothing)) res)
    , solver_adapter_write_smt2 = \_ _ _ -> do
        fail "BLT backend does not support writing SMTLIB2 files."
    }
 
-runBLTInOverride :: Config
+runBLTInOverride :: IsExprBuilder sym
+                 => sym
+                 -> String
                  -> BoolExpr t -- ^ proposition to check
                  -> (SatResult (GroundEvalFn t) -> IO a)
                  -> IO a
-runBLTInOverride cfg p contFn = do
+runBLTInOverride sym rsn p contFn = do
+  let cfg = getConfiguration sym
   epar <- parseBLTParams . T.unpack <$> (getOpt =<< getOptionSetting bltParams cfg)
   par  <- either fail return epar
+  logSolverEvent sym
+    SolverStartSATQuery
+    { satQuerySolverName = "BLT"
+    , satQueryReason = rsn
+    }
   withHandle par $ \h -> do
     assume h p
-    contFn =<< checkSat h
+    result <- checkSat h
+    logSolverEvent sym
+      SolverEndSATQuery
+      { satQueryResult = fmap (const ()) result
+      , satQueryError  = Nothing
+      }
+    contFn result
 
 ------------------------------------------------------------------------
 -- BLTExpr data type and arithmetic

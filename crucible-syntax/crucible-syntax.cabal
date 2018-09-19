@@ -45,6 +45,7 @@ library
     Lang.Crucible.Syntax.Atoms
     Lang.Crucible.Syntax.Concrete
     Lang.Crucible.Syntax.SExpr
+    Lang.Crucible.Syntax.Overrides
     Lang.Crucible.Syntax.Prog
     Lang.Crucible.Syntax.ExprParse
 

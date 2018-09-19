@@ -43,7 +43,7 @@ data SolverAdapter st =
         :: ![ConfigDesc]
 
     -- | Operation to check the satisfiability of a formula.
-    --   The second argument is a callback that calculates the ultimate result from
+    --   The final argument is a callback that calculates the ultimate result from
     --   a SatResult and operations for finding model values in the event of a SAT result.
     --   Note: the evaluation functions may cease to be avaliable after the
     --   callback completes, so any necessary information should be extracted from
@@ -52,6 +52,7 @@ data SolverAdapter st =
         :: !(forall t fs a.
            ExprBuilder t st fs
         -> (Int -> String -> IO ())
+        -> String
         -> BoolExpr t
         -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
         -> IO a)

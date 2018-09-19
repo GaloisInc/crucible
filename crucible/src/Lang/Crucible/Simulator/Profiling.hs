@@ -26,6 +26,8 @@
 module Lang.Crucible.Simulator.Profiling
   ( executeCrucibleProfiling
   , newProfilingTable
+  , recordSolverEvent
+  , startRecordingSolverEvents
 
     -- * Profiling data structures
   , CGEvent(..)
@@ -109,8 +111,10 @@ data CGEvent =
   }
  deriving (Show)
 
+-- FIXME... figure out why the UI seems to want this in milliseconds...
 utcTimeToJSON :: UTCTime -> JSValue
-utcTimeToJSON t = showJSON ((fromRational $ toRational $ utcTimeToPOSIXSeconds t) :: Double)
+utcTimeToJSON t =
+  showJSON (1e3 * (fromRational $ toRational $ utcTimeToPOSIXSeconds t) :: Double)
 
 cgEventTypeToJSON :: CGEventType -> JSValue
 cgEventTypeToJSON ENTER = showJSON "ENTER"
@@ -134,6 +138,22 @@ cgEventToJSON ev = JSObject $ toJSObject $
 positionToJSON :: Position -> JSValue
 positionToJSON p = showJSON $ show $ p
 
+solverEventToJSON :: (UTCTime, SolverEvent) -> JSValue
+solverEventToJSON (time, ev) =
+   case ev of
+     SolverStartSATQuery nm rsn ->
+       JSObject $ toJSObject
+         [ ("type", showJSON "start")
+         , ("time", utcTimeToJSON time)
+         , ("part", showJSON rsn)
+         , ("solver", showJSON nm)
+         ]
+     SolverEndSATQuery _res _err ->
+       JSObject $ toJSObject
+         [ ("type", showJSON "finish")
+         , ("time", utcTimeToJSON time)
+         ]
+
 callGraphJSON :: Seq CGEvent -> JSValue
 callGraphJSON evs = JSObject $ toJSObject
   [ ("type", showJSON "callgraph")
@@ -149,16 +169,17 @@ symProUIJSON :: String -> String -> ProfilingTable -> IO JSValue
 symProUIJSON nm source tbl =
   do now <- getCurrentTime
      evs <- readIORef (callGraphEvents tbl)
+     solverEvs <- readIORef (solverEvents tbl)
      return $ JSArray $
        [ JSObject $ toJSObject $ metadata now
        , callGraphJSON evs
-       , JSObject $ toJSObject $ solver_calls
+       , JSObject $ toJSObject $ solver_calls solverEvs
        , JSObject $ toJSObject $ unused_terms
        ]
  where
- solver_calls =
+ solver_calls evs  =
    [ ("type", showJSON "solver-calls")
-   , ("events", JSArray [])
+   , ("events", JSArray $ map solverEventToJSON $ toList evs)
    ]
 
  unused_terms =
@@ -180,6 +201,7 @@ data ProfilingTable =
   { callGraphEvents :: IORef (Seq CGEvent)
   , metrics :: Metrics IORef
   , eventIDRef :: IORef Integer
+  , solverEvents :: IORef (Seq (UTCTime, SolverEvent))
   }
 
 newProfilingTable :: IO ProfilingTable
@@ -189,7 +211,22 @@ newProfilingTable =
                   <*> newIORef 0
      evs <- newIORef mempty
      idref <- newIORef 0
-     return (ProfilingTable evs m idref)
+     solverevs <- newIORef mempty
+     return (ProfilingTable evs m idref solverevs)
+
+recordSolverEvent :: ProfilingTable -> SolverEvent -> IO ()
+recordSolverEvent tbl ev = do
+  do now <- getCurrentTime
+     xs <- readIORef (solverEvents tbl)
+     writeIORef (solverEvents tbl) (xs Seq.|> (now,ev))
+
+startRecordingSolverEvents ::
+  IsSymInterface sym =>
+  sym ->
+  ProfilingTable ->
+  IO ()
+startRecordingSolverEvents sym tbl =
+  setSolverLogListener sym (Just (recordSolverEvent tbl))
 
 nextEventID :: ProfilingTable -> IO Integer
 nextEventID tbl =
@@ -270,7 +307,10 @@ executeCrucibleProfiling :: forall p sym ext rtp f a.
 executeCrucibleProfiling tbl st0 cont =
   do let cfg = st0^.stateConfiguration
      verbOpt <- getOptionSetting verbosity cfg
+     let sym = st0^.stateSymInterface
+     startRecordingSolverEvents sym tbl
      enterEvent tbl (st0^.stateTree.actFrame.gpValue.frameFunctionName) Nothing
+
      loop verbOpt st0 cont
 
  where

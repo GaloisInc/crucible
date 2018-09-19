@@ -35,6 +35,7 @@ import Lang.Crucible.Backend.ProofGoals
 import Lang.Crucible.Backend.Simple
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Simulator
+import Lang.Crucible.Simulator.Profiling
 
 import What4.Config
 import What4.Interface (getConfiguration)
@@ -74,11 +75,12 @@ simulateProgram
    :: FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Handle   -- ^ A handle that will receive the output
+   -> Maybe Handle -- ^ A handle to receive profiling data output
    -> [ConfigDesc] -- ^ Options to install
    -> (forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
          sym -> HandleAllocator RealWorld -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
    -> IO ()
-simulateProgram fn theInput outh opts setup =
+simulateProgram fn theInput outh profh opts setup =
   do ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
@@ -109,10 +111,19 @@ simulateProgram fn theInput outh opts setup =
 
                        hPutStrLn outh "==== Begin Simulation ===="
 
-                       _res <- executeCrucible simSt $
-                               runOverrideSim retType $
-                               do mapM_ (registerFnBinding . fst) ovrs
-                                  regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
+                       case profh of
+                         Nothing ->
+                           void $ executeCrucible simSt $
+                           runOverrideSim retType $
+                             do mapM_ (registerFnBinding . fst) ovrs
+                                regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
+                         Just ph ->
+                           do proftab <- newProfilingTable
+                              void $ executeCrucibleProfiling proftab simSt $
+                                runOverrideSim retType $
+                                do mapM_ (registerFnBinding . fst) ovrs
+                                   regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
+                              hPutStrLn ph =<< symProUIString "crucibler-prof" fn proftab
 
                        hPutStrLn outh "\n==== Finish Simulation ===="
 

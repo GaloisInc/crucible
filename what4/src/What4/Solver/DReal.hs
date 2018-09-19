@@ -84,8 +84,8 @@ drealAdapter =
   SolverAdapter
   { solver_adapter_name = "dreal"
   , solver_adapter_config_options = drealOptions
-  , solver_adapter_check_sat = \sym logLn p cont ->
-      runDRealInOverride sym logLn p $ \res ->
+  , solver_adapter_check_sat = \sym logLn rsn p cont ->
+      runDRealInOverride sym logLn rsn p $ \res ->
          case res of
            Sat (c,m) -> do
              evalFn <- getAvgBindings c m
@@ -244,11 +244,17 @@ parseNextWord = do
 runDRealInOverride
    :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
+   -> String
    -> BoolExpr t   -- ^ proposition to check
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) -> IO a)
    -> IO a
-runDRealInOverride sym logLn p modelFn = do
+runDRealInOverride sym logLn rsn p modelFn = do
   solver_path <- findSolverPath drealPath (getConfiguration sym)
+  logSolverEvent sym
+    SolverStartSATQuery
+    { satQuerySolverName = "dReal"
+    , satQueryReason = rsn
+    }
   withSystemTempDirectory "dReal.tmp" $ \tmpdir ->
       withProcessHandles solver_path ["-model"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
 
@@ -283,10 +289,10 @@ runDRealInOverride sym logLn p modelFn = do
       -- working directory, so that is where we look for it
       let modelfile = tmpdir </> "output.model"
 
-      r <-
+      res <-
         case msat_result of
           Left Streams.ParseException{} -> fail "Could not parse sat result."
-          Right "unsat" -> modelFn Unsat
+          Right "unsat" -> return Unsat
           Right "sat" -> do
               ex <- doesFileExist modelfile
               m <- if ex
@@ -294,9 +300,11 @@ runDRealInOverride sym logLn p modelFn = do
                       -- if the model file does not exist, treat it as an empty file
                       -- containing no bindings
                       else return Map.empty
-              modelFn (Sat (c, m))
+              return (Sat (c, m))
           Right sat_result -> do
             fail $ unlines ["Could not interpret result from solver:", sat_result]
+
+      r <- modelFn res
 
       -- Log outstream as error messages.
       void $ forkIO $ logErrorStream out_stream (logLn 2)
@@ -308,6 +316,13 @@ runDRealInOverride sym logLn p modelFn = do
         ExitSuccess -> do
           -- Return result.
           logLn 2 "dReal terminated."
+
+          logSolverEvent sym
+             SolverEndSATQuery
+             { satQueryResult = fmap (const ()) res
+             , satQueryError  = Nothing
+             }
+
           return r
         ExitFailure exit_code ->
           fail $ "dReal exited with unexpected code: " ++ show exit_code

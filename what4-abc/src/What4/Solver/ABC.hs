@@ -71,7 +71,8 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           What4.BaseTypes
 import           What4.Concrete
 import           What4.Config
-import           What4.Interface (getConfiguration)
+import           What4.Interface
+                   (getConfiguration, IsExprBuilder, logSolverEvent, SolverEvent(..))
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import qualified What4.Expr.UnaryBV as UnaryBV
@@ -98,8 +99,8 @@ abcAdapter =
    SolverAdapter
    { solver_adapter_name = "abc"
    , solver_adapter_config_options = abcOptions
-   , solver_adapter_check_sat = \sym logLn p cont -> do
-           res <- checkSat (getConfiguration sym) logLn p
+   , solver_adapter_check_sat = \sym logLn rsn p cont -> do
+           res <- checkSat sym logLn rsn p
            cont (fmap (\x -> (x,Nothing)) res)
    , solver_adapter_write_smt2 = \_ _ _ -> do
        fail "ABC backend does not support writing SMTLIB2 files."
@@ -121,7 +122,7 @@ genericSatAdapter =
    SolverAdapter
    { solver_adapter_name = "sat"
    , solver_adapter_config_options = genericSatOptions
-   , solver_adapter_check_sat = \sym logLn p cont -> do
+   , solver_adapter_check_sat = \sym logLn _rsn p cont -> do
        let cfg = getConfiguration sym
        cmd <- T.unpack <$> (getOpt =<< getOptionSetting satCommand cfg)
        let mkCommand path = do
@@ -652,16 +653,24 @@ recordBoundVar ntk info = do
   recordBinding ntk =<< addBoundVar ntk info
 
 -- | Expression to check is satisfiable.
-checkSat :: Config
+checkSat :: IsExprBuilder sym
+         => sym
          -> (Int -> String -> IO ())
+         -> String
          -> BoolExpr t
          -> IO (SatResult (GroundEvalFn t))
-checkSat cfg logLn e = do
+checkSat sym logLn rsn e = do
+  let cfg = getConfiguration sym
   -- Get variables in expression.
   let vars = predicateVarInfo e
   max_qbf_iter <- fromInteger <$> (getOpt =<< getOptionSetting abcQbfIterations cfg)
   checkSupportedByAbc vars
   checkNoLatches vars
+  logSolverEvent sym
+    SolverStartSATQuery
+    { satQuerySolverName = "ABC"
+    , satQueryReason = rsn
+    }
   withNetwork $ \ntk -> do
     -- Get network
     let g = gia ntk
@@ -697,13 +706,19 @@ checkSat cfg logLn e = do
     -- Get final pred.
     p <- foldM (GIA.and (gia ntk)) c preds
     -- Add bindings for uninterpreted bindings.
-    if Map.null a_quants then do
-      logLn 2 "Calling ABC's SAT solver"
-      r <- GIA.checkSat (gia ntk) p
-      evaluateSatModel ntk [] r
-    else do
-      logLn 2 "Calling ABC's QBF solver"
-      runQBF ntk exist_cnt p max_qbf_iter
+    res <- if Map.null a_quants then do
+             logLn 2 "Calling ABC's SAT solver"
+             r <- GIA.checkSat (gia ntk) p
+             evaluateSatModel ntk [] r
+           else do
+             logLn 2 "Calling ABC's QBF solver"
+             runQBF ntk exist_cnt p max_qbf_iter
+    logSolverEvent sym
+      SolverEndSATQuery
+      { satQueryResult = fmap (const ()) res
+      , satQueryError  = Nothing
+      }
+    return res
 
 -- | Associate an element in a binding with the term.
 recordBinding :: Network t s -> VarBinding t s -> IO ()

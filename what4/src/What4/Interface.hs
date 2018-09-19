@@ -68,9 +68,11 @@ module What4.Interface
     -- ** Expression recognizers
   , IsExpr(..)
   , IsSymFn(..)
+
     -- ** IsExprBuilder
   , IsExprBuilder(..)
   , IsSymExprBuilder(..)
+  , SolverEvent(..)
 
     -- ** Bitvector operations
   , bvJoinVector
@@ -165,6 +167,7 @@ import           What4.BaseTypes
 import           What4.Config
 import           What4.ProgramLoc
 import           What4.Concrete
+import           What4.SatResult
 import           What4.Symbol
 import           What4.Utils.Arithmetic
 import           What4.Utils.Complex
@@ -362,6 +365,20 @@ instance HashableF e => HashableF (ArrayResultWrapper e idx) where
   hashWithSaltF s (ArrayResultWrapper v) = hashWithSaltF s v
 
 
+-- | This datatype describes events that involve interacting with
+--   solvers.  A @SolverEvent@ will be provieded to the action
+--   installed via @setSolverLogListener@ whenever an interesting
+--   event occurs.
+data SolverEvent
+  = SolverStartSATQuery
+    { satQuerySolverName :: !String
+    , satQueryReason     :: !String
+    }
+  | SolverEndSATQuery
+    { satQueryResult     :: !(SatResult ())
+    , satQueryError      :: !(Maybe String)
+    }
+
 ------------------------------------------------------------------------
 -- IsExprBuilder
 
@@ -383,6 +400,20 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 
   -- | Retrieve the configuration object corresponding to this solver interface.
   getConfiguration :: sym -> Config
+
+
+  -- | Install an action that will be invoked before and after calls to 
+  --   backend solvers.  This action is primarily intended to be used for
+  --   logging/profiling/debugging purposes.  Passing `Nothing` to this
+  --   function disables logging.
+  setSolverLogListener :: sym -> Maybe (SolverEvent -> IO ()) -> IO ()
+
+  -- | Get the currently-installed solver log listener, if one has been installed.
+  getSolverLogListener :: sym -> IO (Maybe (SolverEvent -> IO ()))
+
+  -- | Provide the given even to the currently installed
+  --   solver log listener, if any.
+  logSolverEvent :: sym -> SolverEvent -> IO ()
 
   ----------------------------------------------------------------------
   -- Program location operations

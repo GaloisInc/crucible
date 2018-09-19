@@ -109,16 +109,29 @@ writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 "Z3" z3Features
 runZ3InOverride
    :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
+   -> String -- ^ A short description of the reason this query was issued
    -> BoolExpr t
    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
    -> IO a
-runZ3InOverride sym logLn p cont = do
+runZ3InOverride sym logLn rsn p cont = do
   z3_path <- findSolverPath z3Path (getConfiguration sym)
+  logSolverEvent sym
+    SolverStartSATQuery
+    { satQuerySolverName = "Z3"
+    , satQueryReason = rsn
+    }
   withZ3 sym z3_path (logLn 2) $ \s -> do
     -- Assume the predicate holds.
     SMT2.assume (SMT2.sessionWriter s) p
     -- Run check SAT and get the model back.
-    SMT2.runCheckSat s cont
+    SMT2.runCheckSat s
+      (\result ->
+        do logSolverEvent sym
+             SolverEndSATQuery
+             { satQueryResult = fmap (const ()) result
+             , satQueryError  = Nothing
+             }
+           cont result)
 
 -- | Run Z3 in a session.  Z3 will be configured to produce models, buth
 -- otherwise left with the default configuration.
@@ -204,6 +217,8 @@ z3StartSolver sym =
                , solverHandle = ph
                , solverResponse = out_stream
                , solverEvalFuns = smtEvalFuns wtr out_stream
+               , solverLogFn = logSolverEvent sym
+               , solverName = "Z3"
                }
 
 

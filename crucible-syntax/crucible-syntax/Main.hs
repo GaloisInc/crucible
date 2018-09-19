@@ -14,7 +14,11 @@ import qualified Data.Text.IO as T
 --import Lang.Crucible.Syntax.SExpr
 --import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.Syntax.Prog
+import Lang.Crucible.Syntax.Overrides (setupOverrides)
 --import Lang.Crucible.CFG.SSAConversion
+
+import What4.Config
+import What4.Solver.Z3 ( z3Options )
 
 import qualified Options.Applicative as Opt
 
@@ -31,8 +35,14 @@ data SimCmd = SimCmd { simInFile :: TheFile
                      , simOutFile :: Maybe TheFile
                      }
 
+data ProfCmd =
+  ProfCmd { profInFile :: TheFile
+          , profOutFile :: TheFile
+          }
+
 data Command = CheckCommand Check
              | SimulateCommand SimCmd
+             | ProfileCommand ProfCmd
              | ReplCommand
 
 newtype TheFile = TheFile FilePath
@@ -71,8 +81,17 @@ command =
        (Opt.fullDesc <> Opt.progDesc "Simulate a file" <> Opt.header "crucibler")))
   <|>
   Opt.subparser
+    (Opt.command "profile"
+     (Opt.info (ProfileCommand <$> profFile)
+       (Opt.fullDesc <> Opt.progDesc "Simulate a file, with profiling" <> Opt.header "crucibler")))
+  <|>
+  Opt.subparser
     (Opt.command "repl"
      (Opt.info (pure ReplCommand) (Opt.fullDesc <> Opt.progDesc "Open a REPL")))
+
+profFile :: Opt.Parser ProfCmd
+profFile =
+  ProfCmd <$> input <*> output 
 
 simFile :: Opt.Parser SimCmd
 simFile =
@@ -81,6 +100,10 @@ simFile =
 parseCheck :: Opt.Parser Check
 parseCheck =
   Check <$> input <*> Opt.optional output <*> Opt.switch (Opt.help "Pretty-print the source file")
+
+configOptions :: [ConfigDesc]
+configOptions = z3Options
+
 
 main :: IO ()
 main =
@@ -98,12 +121,16 @@ main =
 
        SimulateCommand (SimCmd (TheFile inputFile) out) ->
          do contents <- T.readFile inputFile
-            let setup _ _ = return []
             case out of
               Nothing ->
-                simulateProgram inputFile contents stdout [] setup
+                simulateProgram inputFile contents stdout Nothing configOptions setupOverrides
               Just (TheFile outputFile) ->
                 withFile outputFile WriteMode
-                  (\outh -> simulateProgram inputFile contents outh [] setup)
+                  (\outh -> simulateProgram inputFile contents outh Nothing configOptions setupOverrides)
+
+       ProfileCommand (ProfCmd (TheFile inputFile) (TheFile outputFile)) ->
+         do contents <- T.readFile inputFile
+            withFile outputFile WriteMode
+               (\outh -> simulateProgram inputFile contents stdout (Just outh) configOptions setupOverrides)
 
   where options = Opt.info command (Opt.fullDesc)
