@@ -28,7 +28,7 @@ import Model
 import Log
 import ProgressBar
 
-
+{-
 data ProofResult = Proved
                  | NotProved (Maybe ModelViews)   -- ^ Counter example, if any
 
@@ -220,3 +220,4 @@ simpProved ctxt asmps0 conc =
                        do assumeFormula conn =<< mkFormula conn aP
                           let lab = if n == next then Nothing else Just n
                           dropAsmps conn next ((lab,a) : keep) as g
+-}

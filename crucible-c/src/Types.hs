@@ -8,16 +8,18 @@ import Lang.Crucible.Simulator.ExecutionTree(SimContext)
 import Lang.Crucible.LLVM.Extension(LLVM,ArchWidth)
 import Lang.Crucible.LLVM.MemModel(LLVMPointerType, HasPtrWidth)
 
+{-
 import Model
 
 -- | A simulator context for an arch
 type SimCtxt sym arch = SimContext (Model sym) sym (LLVM arch)
-
+-}
 -- | This happens quite a lot, so just a shorter name
 type ArchOk arch    = HasPtrWidth (ArchWidth arch)
 type TPtr arch      = LLVMPointerType (ArchWidth arch)
 type TBits n        = LLVMPointerType n
 
+{-
 -- | The instane of the override monad we use,
 -- when we don't care about the context of the surrounding function.
 type OverM sym arch a =
@@ -43,5 +45,5 @@ type Fun sym arch args ret =
     ret
     (RegValue sym ret)
 
-
+-}
 

@@ -8,6 +8,8 @@
 {-# Language PolyKinds #-}
 {-# Language ScopedTypeVariables #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module Crux.Model where
 
 import Data.Binary.IEEE754 as IEEE754
@@ -22,19 +24,12 @@ import qualified Data.Parameterized.Map as MapF
 
 import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType,FloatPrecisionRepr(..))
 import Lang.Crucible.Simulator.RegMap(RegValue)
-import What4.Expr
-        (GroundValue,GroundEvalFn(..),ExprBuilder)
+import What4.Expr (GroundEvalFn(..),ExprBuilder)
 import What4.ProgramLoc
 
+import Crux.Types
 import Crux.Error
 
-newtype Model sym   = Model (MapF BaseTypeRepr (Vars sym))
-data Entry ty       = Entry { entryName :: String
-                            , entryLoc :: ProgramLoc
-                            , entryValue :: ty
-                            }
-newtype Vars sym ty = Vars [ Entry (RegValue sym (BaseToType ty)) ]
-newtype Vals ty     = Vals [ Entry (GroundValue ty) ]
 
 emptyModel :: Model sym
 emptyModel = Model $ MapF.fromList [ noVars (BaseBVRepr (knownNat @8))
@@ -70,12 +65,6 @@ evalModel ev (Model mp) = traverseF (evalVars ev) mp
 
 
 --------------------------------------------------------------------------------
--- Should we break this into separate languages?
-
-data ModelViews = ModelViews
-  { modelInC :: String
-  , modelInJS :: String
-  }
 
 ppModel :: GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO ModelViews
 ppModel ev m =
@@ -153,8 +142,7 @@ ppModelJS ev m =
                 [] -> "[]"
                 _  -> unlines $ zipWith (++) pre ents ++ ["]"]
 
-----------------------------------------------------------------------------
--- New addition: monoid instance
+
 
 instance Semigroup (Model sym) where
   (Model m1) <> m2        = MapF.foldrWithKey f m2 m1 where

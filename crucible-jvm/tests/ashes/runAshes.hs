@@ -263,7 +263,7 @@ runTest verbosity file = do
 --                                               ++ ":" ++
 --                                               (topDir </> "support" </> "galois.jar")
                                       , "-d", show verbosity
-                                      , className
+                                      , className ++ ".java"
                                       ]
                                       ""
       let success = outText == expectedOutput && exitCode == ExitSuccess
@@ -298,9 +298,9 @@ runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
 
 main :: IO ()
-main = wip
+--main = wip
 
-{- 
+ 
 main = do
   dir <- getCurrentDirectory
   results <- mapM (runTest 1) =<< runFind dir "mainClass"
@@ -314,7 +314,7 @@ main = do
     results
   printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
     results
--}
+
 
 wip :: IO ()
 wip = do

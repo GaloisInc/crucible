@@ -16,10 +16,8 @@ import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Backend
 import What4.ProgramLoc
 
-import Crux.Language
+import Crux.Types
 import Crux.Options
-import Crux.Model
-import Crux.Goal
 import Crux.Loops
 
 
@@ -30,7 +28,7 @@ import Crux.UI.Jquery (jquery)       -- ui/jquery.min.js
 import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 
 
-generateReport :: Language a => Options a -> Maybe ProvedGoals -> IO ()
+generateReport :: CruxOptions -> Maybe ProvedGoals -> IO ()
 generateReport opts xs =
   do createDirectoryIfMissing True (outDir opts)
      when (takeExtension (inputFile opts) == ".c") (generateSource opts)
@@ -41,7 +39,7 @@ generateReport opts xs =
 
 
 
-generateSource :: Language a => Options a -> IO ()
+generateSource :: CruxOptions -> IO ()
 generateSource opts =
   do src <- readFile (inputFile opts)
      writeFile (outDir opts </> "source.js")

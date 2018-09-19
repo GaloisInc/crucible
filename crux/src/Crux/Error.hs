@@ -18,7 +18,7 @@ import Lang.Crucible.Simulator.ExecutionTree (AbortedResult(..))
 import Crux.Language
 import Control.Exception
 
-throwError :: (MonadIO m, Language a) => Error a -> m a
+throwError :: forall a m b. (MonadIO m, Language a) => Error a -> m b
 throwError x = liftIO (throwIO x)
 
 data Error a =

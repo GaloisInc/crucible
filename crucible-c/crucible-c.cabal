@@ -21,16 +21,11 @@ executable crucible-c
 
   other-modules:
     Types,
-    Error,
-    Goal,
     Overrides,
-    Model,
     Clang,
-    Log,
     Options,
-    ProgressBar,
-    Loops,
-    Report
+    Loops
+
 
 
   build-depends:
@@ -52,8 +47,8 @@ executable crucible-c
     directory,
     template-haskell,
     text,
-    ansi-terminal
-
+    ansi-terminal,
+    crux
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

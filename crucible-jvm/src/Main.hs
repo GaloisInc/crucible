@@ -37,7 +37,7 @@ import Data.List
 import System.Console.GetOpt
 import System.IO
 import System.Environment(getProgName,getArgs)
-import System.FilePath(takeExtension)
+import System.FilePath(takeExtension,takeBaseName)
 import System.FilePath(splitSearchPath)
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
@@ -97,15 +97,17 @@ instance Crux.Language JVM where
       -- this must include rt.jar from the JDK
       -- (The JDK_JAR environment variable can also be used to
       -- to specify this JAR).
+    , mainMethod       :: String
     }
 
   defaultOptions =
     JVMOptions
-    { classPath = ["."]
-    , jarList = []
+    { classPath  = ["."]
+    , jarList    = []
+    , mainMethod = "main"
     }
 
-  options = [
+  cmdLineOptions = [
     Option "c" ["classpath"]
     (ReqArg
      (\p opts -> opts { classPath = classPath opts ++ splitSearchPath p })
@@ -118,18 +120,27 @@ instance Crux.Language JVM where
      "path"
     )
     Crux.pathDesc
+    ,  Option "m" ["method"]
+    (ReqArg
+     (\p opts -> opts { mainMethod = p })
+     "method name"
+    )
+    "Method to similate"
     ]
 
-  addOpt ("JDK_JAR", p) os = os { jarList = p : jarList os }
-  addOpt opt os = os
+  envOptions   = [("JDK_JAR", \ p os -> os { jarList = p : jarList os })]
+  ioOptions    = return 
 
   name = "jvm"
-
-  simulate opts sym ext verbosity cname = do
-    
+  validExtensions = [".java"]
+  
+  simulate (copts,opts) sym ext file = do
+     let verbosity = Crux.simVerbose copts
+     
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
 
-     let mname = "main"
+     let cname = takeBaseName file
+     let mname = mainMethod opts
 
      -- create a null array of strings for `args`
      -- TODO: figure out how to allocate an empty array
@@ -138,13 +149,14 @@ instance Crux.Language JVM where
 
      executeCrucibleJVM @UnitType cb verbosity sym
        ext cname mname regmap
-     
+       
+  makeCounterExamples _opts _proved = return ()
 
     
 
 -- | Entry point, parse command line opions
 main :: IO ()
-main = Crux.main @JVM
+main = Crux.main [Crux.LangConf (Crux.defaultOptions @JVM)]
 {-
      res <- executeCrucibleJVM @UnitType cb (simVerbose opts) sym
        personality cname mname regmap

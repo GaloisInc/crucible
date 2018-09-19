@@ -9,7 +9,6 @@ import qualified Data.Sequence as Seq
 
 
 import What4.Interface (notPred, falsePred, Pred, printSymExpr,asConstantPred)
-import What4.ProgramLoc
 import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
@@ -21,29 +20,12 @@ import Lang.Crucible.Backend.Online
         ( OnlineBackendState, getSolverProcess )
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
-import Lang.Crucible.Simulator.SimError
 
 import Crux.Types
 import Crux.Model
 import Crux.Log
 import Crux.ProgressBar
 
-
-data ProofResult = Proved
-                 | NotProved (Maybe ModelViews)   -- ^ Counter example, if any
-
-type LPred sym   = LabeledPred (Pred sym)
-
-data ProvedGoals =
-    AtLoc ProgramLoc (Maybe ProgramLoc) ProvedGoals
-  | Branch ProvedGoals ProvedGoals
-  | Goal [(Maybe Int,AssumptionReason,String)]
-         (SimError,String) Bool ProofResult
-    -- ^ Keeps only the explanations for the relevant assumptions.
-    -- The 'Maybe Int' in the assumptions corresponds to its depth in the tree
-    -- (i.e., the step number, if this is a path assumption)
-    -- The 'Bool' indicates if the goal is trivial (i.e., the assumptions
-    -- are inconsistent)
 
 -- | Simplify the proved goals.
 provedGoalsTree ::

@@ -56,10 +56,13 @@ import Lang.Crucible.LLVM.MemModel
   (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth,
    llvmPointer_bv, projectLLVM_bv)
 
-import Error
-import Types
-import Model
+import Lang.Crucible.LLVM.Extension(LLVM)  
 
+import Crux.Error
+import Crux.Types
+import Crux.Model
+
+import Types
 
 
 tPtr :: HasPtrWidth w => TypeRepr (LLVMPointerType w)
@@ -67,7 +70,7 @@ tPtr = LLVMPointerRepr ?ptrWidth
 
 setupOverrides ::
   (ArchOk arch, IsSymInterface b) =>
-  LLVMContext arch -> OverM b arch ()
+  LLVMContext arch -> OverM b (LLVM arch) ()
 setupOverrides ctxt =
   do let mvar = llvmMemVar ctxt
      regOver ctxt "crucible_int8_t"
@@ -107,8 +110,8 @@ regOver ::
   String ->
   Assignment TypeRepr args ->
   TypeRepr ret ->
-  Fun b arch args ret ->
-  OverM b arch ()
+  Fun b (LLVM arch) args ret ->
+  OverM b (LLVM arch) ()
 regOver ctxt n argT retT x =
   do let lnm = fromString n
          nm  = functionNameFromText (fromString n)
@@ -123,7 +126,7 @@ regOver ctxt n argT retT x =
               do let over = mkOverride' nm retT x
                  registerFnBinding (FnBinding h (UseOverride over))
            _ ->
-             throwError $ Bug $ unlines
+             throwBug $ unlines
                 [ "[bug] Invalid type for implementation of " ++ show n
                 , "*** Expected: " ++ showF (handleArgTypes h) ++
                             " -> " ++ showF (handleReturnType h)
@@ -137,7 +140,7 @@ mkFresh ::
   (IsSymInterface sym) =>
   String ->
   BaseTypeRepr ty ->
-  OverM sym arch (RegValue sym (BaseToType ty))
+  OverM sym (LLVM arch) (RegValue sym (BaseToType ty))
 mkFresh nm ty =
   do sym  <- getSymInterface
      name <- case userSymbol nm of
@@ -152,7 +155,7 @@ mkFreshFloat
   ::(IsSymInterface sym)
   => String
   -> FloatInfoRepr fi
-  -> OverM sym arch (RegValue sym (FloatType fi))
+  -> OverM sym (LLVM arch) (RegValue sym (FloatType fi))
 mkFreshFloat nm fi = do
   sym  <- getSymInterface
   name <- case userSymbol nm of
@@ -166,7 +169,7 @@ mkFreshFloat nm fi = do
 
 lookupString ::
   (IsSymInterface sym, ArchOk arch) =>
-  GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM sym arch String
+  GlobalVar Mem -> RegEntry sym (TPtr arch) -> OverM sym (LLVM arch) String
 lookupString mvar ptr =
   do sym <- getSymInterface
      mem <- readGlobal mvar
@@ -175,7 +178,7 @@ lookupString mvar ptr =
 
 lib_fresh_bits ::
   (ArchOk arch, IsSymInterface sym, 1 <= n) =>
-  GlobalVar Mem -> NatRepr n -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits n)
+  GlobalVar Mem -> NatRepr n -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits n)
 lib_fresh_bits mvar w =
   do RegMap (Empty :> pName) <- getOverrideArgs
      name <- lookupString mvar pName
@@ -186,28 +189,28 @@ lib_fresh_bits mvar w =
 
 lib_fresh_i8 ::
   (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 8)
+  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 8)
 lib_fresh_i8 mem = lib_fresh_bits mem knownNat
 
 lib_fresh_i16 ::
   (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 16)
+  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 16)
 lib_fresh_i16 mem = lib_fresh_bits mem knownNat
 
 lib_fresh_i32 ::
   (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 32)
+  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 32)
 lib_fresh_i32 mem = lib_fresh_bits mem knownNat
 
 lib_fresh_i64 ::
   (ArchOk arch, IsSymInterface sym) =>
-  GlobalVar Mem -> Fun sym arch (EmptyCtx ::> TPtr arch) (TBits 64)
+  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 64)
 lib_fresh_i64 mem = lib_fresh_bits mem knownNat
 
 
 lib_assume ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32)
+  Fun sym (LLVM arch) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32)
                UnitType
 lib_assume =
   do RegMap (Empty :> p :> _file :> _line) <- getOverrideArgs
@@ -223,7 +226,7 @@ lib_assume =
 lib_assert ::
   (ArchOk arch, IsSymInterface sym) =>
   GlobalVar Mem ->
-  Fun sym arch (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) UnitType
+  Fun sym (LLVM arch) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) UnitType
 lib_assert mvar =
   do RegMap (Empty :> p :> pFile :> line) <- getOverrideArgs
      sym  <- getSymInterface
@@ -245,7 +248,7 @@ lib_assert mvar =
 
 sv_comp_fresh_i8 ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch (EmptyCtx ::> VectorType AnyType)  (TBits 8)
+  Fun sym (LLVM arch) (EmptyCtx ::> VectorType AnyType)  (TBits 8)
 sv_comp_fresh_i8 =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
      sym <- getSymInterface
@@ -255,7 +258,7 @@ sv_comp_fresh_i8 =
 
 sv_comp_fresh_i32 ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch EmptyCtx (TBits 32)
+  Fun sym (LLVM arch) EmptyCtx (TBits 32)
 sv_comp_fresh_i32 =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @32))
      sym <- getSymInterface
@@ -263,17 +266,17 @@ sv_comp_fresh_i32 =
 
 sv_comp_fresh_float
   :: (ArchOk arch, IsSymInterface sym)
-  => Fun sym arch EmptyCtx (FloatType SingleFloat)
+  => Fun sym (LLVM arch) EmptyCtx (FloatType SingleFloat)
 sv_comp_fresh_float = mkFreshFloat "X" SingleFloatRepr
 
 sv_comp_fresh_double
   :: (ArchOk arch, IsSymInterface sym)
-  => Fun sym arch EmptyCtx (FloatType DoubleFloat)
+  => Fun sym (LLVM arch) EmptyCtx (FloatType DoubleFloat)
 sv_comp_fresh_double = mkFreshFloat "X" DoubleFloatRepr
 
 sv_comp_assume ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch (EmptyCtx ::> TBits 32) UnitType
+  Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
 sv_comp_assume =
   do RegMap (Empty :> p) <- getOverrideArgs
      sym  <- getSymInterface
@@ -286,7 +289,7 @@ sv_comp_assume =
 
 sv_comp_assert ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch (EmptyCtx ::> TBits 32) UnitType
+  Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
 sv_comp_assert =
   do RegMap (Empty :> p) <- getOverrideArgs
      sym  <- getSymInterface
@@ -299,7 +302,7 @@ sv_comp_assert =
 
 sv_comp_error ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch (EmptyCtx ::> VectorType AnyType) UnitType
+  Fun sym (LLVM arch) (EmptyCtx ::> VectorType AnyType) UnitType
 sv_comp_error =
   do sym  <- getSymInterface
      let rsn = AssertFailureSimError "Call to __VERIFIER_error"
