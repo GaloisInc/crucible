@@ -113,7 +113,7 @@ proveGoals ctxt (Just gs0) =
            let sym  = ctxt ^. ctxSymInterface
            assumeFormula conn =<< mkFormula conn
                               =<< notPred sym (p ^. labeledPred)
-           res <- check sp
+           res <- check sp "proof"
            let mkRes status = Prove (p,status)
            ret <- fmap mkRes $
                     case res of
@@ -145,10 +145,11 @@ canProve ::
   , OnlineSolver s solver
   ) =>
   SimCtxt sym p ->
+  String ->
   [LPred sym asmp] ->
   Pred sym ->
   IO ProofResult
-canProve ctxt asmpPs concP =
+canProve ctxt rsn asmpPs concP =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
      let conn = solverConn sp
@@ -157,7 +158,7 @@ canProve ctxt asmpPs concP =
      inNewFrame conn $
        do mapM_ (assumeFormula conn) asmps
           assumeFormula conn conc
-          res <- check sp
+          res <- check sp rsn
           return $ case res of
                      Unsat   -> Proved
                      _       -> NotProved Nothing
@@ -174,7 +175,7 @@ simpProved ::
 
 simpProved ctxt asmps0 conc =
   do let false = falsePred (ctxt ^. ctxSymInterface)
-     res <- canProve ctxt asmps0 false
+     res <- canProve ctxt "context satisfiability" asmps0 false
      let (triv,g) = case res of
                       Proved -> (True,false)
                       _      -> (False,conc ^. labeledPred)
@@ -195,7 +196,7 @@ simpProved ctxt asmps0 conc =
         in case asConstantPred aP of
              Just True -> dropAsmps conn next keep as g
              _ ->
-               do res <- canProve ctxt as g
+               do res <- canProve ctxt "assumption simplification" as g
                   case res of
                     Proved       -> dropAsmps conn next keep as g
                     NotProved {} ->

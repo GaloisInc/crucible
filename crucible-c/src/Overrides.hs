@@ -262,7 +262,7 @@ sv_comp_fresh_i8 =
 
 sv_comp_fresh_i8' ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch EmptyCtx (TBits 8)
+  Fun sym (LLVM arch) EmptyCtx (TBits 8)
 sv_comp_fresh_i8' =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
      sym <- getSymInterface
@@ -270,7 +270,7 @@ sv_comp_fresh_i8' =
 
 sv_comp_fresh_i16 ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym arch EmptyCtx (TBits 16)
+  Fun sym (LLVM arch) EmptyCtx (TBits 16)
 sv_comp_fresh_i16 =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @16))
      sym <- getSymInterface
