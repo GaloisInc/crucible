@@ -1,45 +1,29 @@
-{-# Language ExistentialQuantification #-}
+{-# Language ExistentialQuantification, TypeApplications, ScopedTypeVariables, TypeFamilies #-}
+{-# Language FlexibleContexts, ConstraintKinds #-}
+
 module Error (module Error, catch) where
 
-import Control.Monad.IO.Class(MonadIO, liftIO)
-import Control.Exception(Exception(..), SomeException(..), throwIO, catch)
-import Data.Typeable(cast)
-
-import Data.LLVM.BitCode (formatError)
+import Control.Monad.IO.Class(MonadIO)
+import Control.Exception(catch)
 import qualified Data.LLVM.BitCode as LLVM
-
-
 import Lang.Crucible.Backend(ppAbortExecReason)
 import Lang.Crucible.Simulator.ExecutionTree (AbortedResult(..))
 
-throwError :: MonadIO m => Error -> m a
-throwError x = liftIO (throwIO x)
+import qualified Crux.Error    as Crux
+import qualified Crux.Language as Crux
 
+import Types(LangLLVM)
 
-data Error =
-    LLVMParseError LLVM.Error
-  | BadFun
-  | MissingFun String
-  | Bug String
-  | ClangError Int String String
-  | EnvError String
+--
+-- C-specific errors
+--
+data CError =
+    ClangError Int String String
+  | LLVMParseError LLVM.Error
 
-instance Show Error where
-  show = show . ppError
-
-instance Exception Error where
-  toException      = SomeException
-  fromException (SomeException e) = cast e
-  displayException = ppError
-
-ppError :: Error -> String
-ppError err =
-  case err of
-    LLVMParseError e -> formatError e
-
-    BadFun -> "Function should have no arguments"
-    MissingFun nm -> "Cannot find code for " ++ show nm
-    Bug x -> x
+ppCError :: CError -> String
+ppCError err = case err of
+    LLVMParseError e       -> LLVM.formatError e
     ClangError n sout serr ->
       unlines $ [ "`clang` compilation failed."
                 , "*** Exit code: " ++ show n
@@ -48,8 +32,8 @@ ppError err =
                 [ "   " ++ l | l <- lines sout ] ++
                 [ "*** Standard error:" ] ++
                 [ "   " ++ l | l <- lines serr ]
-    EnvError msg -> msg
 
+-- Currently unused
 ppErr :: AbortedResult sym ext -> String
 ppErr aberr =
   case aberr of
@@ -57,4 +41,9 @@ ppErr aberr =
     AbortedExit e       -> "The program exited with result " ++ show e
     AbortedBranch {}    -> "(Aborted branch?)"
 
+-- This is a really strange trick that lets us use throwCError in *before*
+-- we have declared the instance of Crux.Language LangLLVM
+type CERROR = (Crux.Language LangLLVM, Crux.LangError LangLLVM ~ CError)
 
+throwCError :: (MonadIO m, CERROR) => CError -> m b
+throwCError e = Crux.throwError @LangLLVM (Crux.Lang  e)

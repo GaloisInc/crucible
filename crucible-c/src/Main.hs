@@ -7,6 +7,8 @@
 {-# Language TypeApplications #-}
 {-# Language DataKinds #-}
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module Main(main) where
 
 import Data.String(fromString)
@@ -14,14 +16,12 @@ import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad(unless)
-import Control.Exception(SomeException(..),displayException)
-import System.IO(hPutStrLn,stdout,stderr)
-import System.Environment(getProgName,getArgs)
-import System.FilePath(takeExtension)
+import System.IO(stdout)
+import System.FilePath(takeExtension,dropExtension,takeFileName,(</>),(<.>))
+import System.Directory(createDirectoryIfMissing)
 
 import Control.Monad.State(evalStateT,liftIO)
 
-import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Context(pattern Empty)
 
@@ -30,14 +30,13 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 
 import Lang.Crucible.Backend
-import Lang.Crucible.Backend.Online
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator
   ( emptyRegMap,regValue, executeCrucible
   , fnBindingsFromList, initSimState, runOverrideSim, callCFG
-  , SimError(..), ExecResult(..)
+  , SimError(..)
   , initSimContext, initSimState, defaultAbortHandler
   )
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
@@ -55,82 +54,33 @@ import Lang.Crucible.LLVM.Extension(LLVM)
 import What4.ProgramLoc
 
 -- crux
+import qualified Lang.Crucible.CFG.Core                as C
+import qualified What4.Interface                       as W4
+import qualified What4.InterpretedFloatingPoint        as W4
+
+
 import qualified Crux.Language as Crux
 import qualified Crux.CruxMain as Crux
-import qualified Crux.Options  as Crux
+import qualified Crux.Error    as Crux
 
-import Crux.Types
-import Crux.Error
-import Crux.Goal
+import           Crux.Types
 import Crux.Model
 import Crux.Log
-import Crux.Report
 
-import Overrides
 import Types
-
---import Clang
-
-
-
-import System.Process
-import System.Exit
-import System.FilePath
-import System.Directory
-import Control.Exception
-
-
-
--- crux
-import Lang.Crucible.LLVM.Extension(X86)
-import qualified Data.LLVM.BitCode as LLVM
-
-
-import qualified Crux.Language as Crux
-import qualified Crux.Error as Crux
-
-import Control.Monad
-import Control.Monad.IO.Class(MonadIO)
-import Data.Typeable
-
-import Data.Parameterized.Some(Some(..))
-
+import Error
 import qualified Options as Clang
+import Clang
+import Overrides
+
 
 main :: IO ()
-main = Crux.main [Crux.LangConf (Crux.defaultOptions @(LLVM (X86 32)))]
+main = Crux.main [Crux.LangConf (Crux.defaultOptions @LangLLVM)]
 
-{- 
-main =
--  do args <- getArgs
--     case args of
--       file : _ ->
--          do opts <- testOptions file
--             do unless (takeExtension file == ".bc") (genBitCode opts)
--                checkBC opts
--           `catch` \e -> sayFail "Crux" (ppError e)
--       _ -> do p <- getProgName
--               hPutStrLn stderr $ unlines
--                  [ "Usage:"
--                  , "  " ++ p ++ " FILE.bc"
--                  ]
--    `catch` \(SomeException e) ->
--                    do putStrLn "TOP LEVEL EXCEPTION"
--                       putStrLn (displayException e)
--}
+-- main/checkBC implemented by Crux
 
-{-
--checkBC :: Options -> IO ()
--checkBC opts =
--  do let file = optsBCFile opts
--     say "Crux" ("Checking " ++ show file)
--     res <- simulate opts (checkFun "main")
--     generateReport opts res
--     makeCounterExamples opts res
--}
-
-makeCounterExamples0 :: Clang.Options -> Maybe ProvedGoals -> IO ()
-makeCounterExamples0 opts = maybe (return ()) go
+makeCounterExamplesLLVM :: Clang.Options -> Maybe ProvedGoals -> IO ()
+makeCounterExamplesLLVM opts = maybe (return ()) go
  where
  go gs =
   case gs of
@@ -192,29 +142,27 @@ setupMem ctx mtrans =
       -- register all the functions defined in the LLVM module
      mapM_ registerModuleFn $ Map.toList $ cfgMap mtrans
 
-
 -- Returns only non-trivial goals
-{-
-simulate ::
-  Options ->
-  (forall sym arch.
-      ArchOk arch => ModuleCFGMap arch -> OverM sym arch ()
-  ) ->
-  IO (Maybe ProvedGoals)
-simulate opts k =
-  do llvm_mod   <- parseLLVM (optsBCFile opts)
-     halloc     <- newHandleAllocator
-     Some trans <- stToIO (translateModule halloc llvm_mod)
-     let llvmCtxt = trans ^. transContext
+simulateLLVM ::
+  (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
+    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>    
+  Crux.Options LangLLVM
+    -> sym
+    -> Model sym
+    -> String
+    -> IO (Result sym)
+simulateLLVM (_cruxOpts,llvmOpts) sym _p _file = do
 
-     llvmPtrWidth llvmCtxt $ \ptrW ->
-       withPtrWidth ptrW $
-       withIONonceGenerator $ \nonceGen ->
-       --withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym ->
-       withYicesOnlineBackend @_ @(Flags FloatReal) @_ nonceGen $ \sym ->
-       do frm <- pushAssumptionFrame sym
+    llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
+    halloc     <- newHandleAllocator
+    Some trans <- stToIO (translateModule halloc llvm_mod)
+    let llvmCtxt = trans ^. transContext
+
+    llvmPtrWidth llvmCtxt $ \ptrW ->
+      withPtrWidth ptrW $ do
           let simctx = setupSimCtxt halloc sym
-
+ 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
           let simSt  = initSimState simctx globSt defaultAbortHandler
@@ -222,20 +170,8 @@ simulate opts k =
           res <- executeCrucible simSt $ runOverrideSim UnitRepr $
                    do setupMem llvmCtxt trans
                       setupOverrides llvmCtxt
-                      k (cfgMap trans)
-
-          _ <- popAssumptionFrame sym frm
-
-          ctx' <- case res of
-                    FinishedResult ctx' _ -> return ctx'
-                    AbortedResult ctx' _  -> return ctx'
-
-          say "Crux" "Simulation complete."
-
-          provedGoalsTree ctx'
-            =<< proveGoals ctx'
-            =<< getProofObligations sym
--}
+                      checkFun "main" (cfgMap trans)
+          return $ Result res     
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
 checkFun nm mp =
@@ -245,35 +181,20 @@ checkFun nm mp =
         Empty ->
           do liftIO $ say "Crux" ("Simulating function " ++ show nm)
              (regValue <$> callCFG anyCfg emptyRegMap) >> return ()
-        _     -> throwBadFun
-    Nothing -> throwMissingFun nm
+        _     -> Crux.throwBadFun
+    Nothing -> Crux.throwMissingFun nm
 
 
 
 -----------------------------------------------------------------------
 -----------------------------------------------------------------------
 
--- LLVM-specific errors
---
-data CError =
-    ClangError Int String String
-  | LLVMParseError LLVM.Error
-
-formatCError err = case err of
-    LLVMParseError e       -> LLVM.formatError e
-    ClangError n sout serr ->
-      unlines $ [ "`clang` compilation failed."
-                , "*** Exit code: " ++ show n
-                , "*** Standard out:"
-                ] ++
-                [ "   " ++ l | l <- lines sout ] ++
-                [ "*** Standard error:" ] ++
-                [ "   " ++ l | l <- lines serr ]
-
-throwCError :: (MonadIO m) => CError -> m a
-throwCError e = Crux.throwError @(LLVM (X86 32)) (Crux.Lang  e)
-
-toClangOptions :: Crux.Options (LLVM arch) -> Clang.Options
+-- For now, we have an isomorphism between these two records of
+-- types.
+-- However, if we are willing to move the code from Clang.hs
+-- to this module, we can make that code directly refer to
+-- Crux.Options LangLLVM, instead of copying between the two.
+toClangOptions :: Crux.Options LangLLVM -> Clang.Options
 toClangOptions (cruxOpts, llvmOpts) =
   Clang.Options {
     Clang.clangBin   = clangBin llvmOpts
@@ -285,22 +206,23 @@ toClangOptions (cruxOpts, llvmOpts) =
   
 
 -- Definitions for Crux front-end
--- UGH! We don't know the pointer width until after we parse.
--- So we cannot use (LLVM arch) to index the language.
+-- This is an orphan instance because LangLLVM is declared in
+-- the "Types" module so that we can refer to the instance
+-- before it has been created here.
 
-
-instance Typeable arch => Crux.Language (LLVM arch) where
+instance Crux.Language LangLLVM where
   name = "c"
   validExtensions = [".c", ".bc" ]
 
-  type LangError (LLVM arch) = CError
-  formatError = formatCError
+  type LangError LangLLVM = CError
+  formatError = ppCError
 
-  data LangOptions (LLVM arch) = LLVMOptions
+  data LangOptions LangLLVM = LLVMOptions
      {
-       clangBin :: FilePath
-     , libDir   :: FilePath
+       clangBin   :: FilePath
+     , libDir     :: FilePath
      , optsBCFile :: FilePath
+     -- other two options are tracked by Crux
      }
 
   defaultOptions = LLVMOptions
@@ -312,11 +234,9 @@ instance Typeable arch => Crux.Language (LLVM arch) where
 
   cmdLineOptions = []
  
-  -- try to find CLANG in the environment
-  envOptions = [("CLANG",
-                  \v opts -> opts { clangBin = v })]
+  envOptions = [("CLANG", \v opts -> opts { clangBin = v })]
 
-  -- 
+  -- this is the replacement for "Clang.testOptions"
   ioOptions (cruxOpts,llvmOpts) = do
                
     -- keep looking for clangBin if it is unset
@@ -339,133 +259,19 @@ instance Typeable arch => Crux.Language (LLVM arch) where
                 then opts2 { optsBCFile = odir </> name <.> "bc" }
                 else opts2
 
-    putStrLn $ "setting BCFile: " ++ optsBCFile opts3
-    putStrLn $ "inputFile is: "  ++ inp
     unless (takeExtension inp == ".bc") (genBitCode (toClangOptions (cruxOpts2, opts3)))
 
     return (cruxOpts2, opts3)
 
-  simulate (_cruxOpts,llvmOpts) sym _p _file = do
-    putStrLn $ "crucible-c sim of" ++ optsBCFile llvmOpts
-    llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
-    halloc     <- newHandleAllocator
-    Some trans <- stToIO (translateModule halloc llvm_mod)
-    let llvmCtxt = trans ^. transContext
-
-    llvmPtrWidth llvmCtxt $ \ptrW ->
-      withPtrWidth ptrW $ do
-          let simctx = setupSimCtxt halloc sym
- 
-          mem  <- initializeMemory sym llvmCtxt llvm_mod
-          let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt defaultAbortHandler
-
-          res <- executeCrucible simSt $ runOverrideSim UnitRepr $
-                   do setupMem llvmCtxt trans
-                      setupOverrides llvmCtxt
-                      checkFun "main" (cfgMap trans)
-          return $ Result res
+  simulate = simulateLLVM
                       
-  makeCounterExamples opts = makeCounterExamples0 (toClangOptions opts)
-
---------------------------------------------------
---------------------------------------------------
-
-
--- | attempt to find Clang executable by searching the file system
--- throw an error if it cannot be found this way. 
-getClang :: IO FilePath
-getClang = attempt (map inPath opts)
-  where
-  inPath x = head . lines <$> readProcess "/usr/bin/which" [x] ""
-  opts     = [ "clang", "clang-4.0", "clang-3.6" ]
-
-  attempt :: [IO FilePath] -> IO FilePath
-  attempt ms =
-    case ms of
-      [] -> Crux.throwEnvError $
-              unlines [ "Failed to find `clang`."
-                      , "You may use CLANG to provide path to executable."
-                      ]
-      m : more -> do x <- try m
-                     case x of
-                       Left (SomeException {}) -> attempt more
-                       Right a -> return a
-
-runClang :: Clang.Options -> [String] -> IO ()
-runClang opts params =
-  do let clang = Clang.clangBin opts
-     -- say "Clang" (show params)
-     (res,sout,serr) <- readProcessWithExitCode clang params ""
-     case res of
-       ExitSuccess   -> return ()
-       ExitFailure n -> throwCError (ClangError n sout serr)
-
-
-
-genBitCode :: Clang.Options -> IO ()
-genBitCode opts =
-  do let dir  = Clang.outDir opts
-     let libs = Clang.libDir opts
-     createDirectoryIfMissing True dir
-
-     let params = [ "-c", "-g", "-emit-llvm", "-O0"
-                  , "-I", libs </> "includes"
-                  , Clang.inputFile opts
-                  , "-o", Clang.optsBCFile opts
-                  ]
-     runClang opts params
-
-
-buildModelExes :: Clang.Options -> String -> String -> IO (FilePath,FilePath)
-buildModelExes opts suff counter_src =
-  do let dir  = Clang.outDir opts
-     createDirectoryIfMissing True dir
-
-     let counterFile = dir </> ("counter-example-" ++ suff ++ ".c")
-     let printExe    = dir </> ("print-model-" ++ suff)
-     let debugExe    = dir </> ("debug-" ++ suff)
-     writeFile counterFile counter_src
-
-     let libs = Clang.libDir opts
-
-     runClang opts [ "-I", libs </> "includes"
-                   , counterFile
-                   , libs </> "print-model.c"
-                   , "-o", printExe
-                   ]
-
-     runClang opts [ "-I", libs </> "includes"
-                   , counterFile
-                   , libs </> "concrete-backend.c"
-                   , Clang.optsBCFile opts
-                   , "-O0", "-g"
-                   , "-o", debugExe
-                   ]
-
-     return (printExe, debugExe)
-
-{-
-testOptions :: FilePath -> IO Options
-testOptions inp =
-  do clang <- getClang
-     let name = dropExtension (takeFileName inp)
-         odir = "results" </> name
-     createDirectoryIfMissing True odir
-     return Options { clangBin  = clang
-                    , libDir    = "c-src"
-                    , outDir    = odir
-                    , inputFile = inp
-                    , optsBCFile = odir </> name <.> "bc"
-                    }
--}
------------------------------------------------------
------------------------------------------------------
+  makeCounterExamples opts = makeCounterExamplesLLVM (toClangOptions opts)
 
 
 
 
-  
+
+
 
 
 

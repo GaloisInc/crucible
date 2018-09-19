@@ -1,7 +1,5 @@
 module Options where
 
-import System.FilePath
-
 data Options = Options
   { clangBin :: FilePath
     -- ^ Path to Clang binary

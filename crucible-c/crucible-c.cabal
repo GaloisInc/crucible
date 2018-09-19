@@ -21,10 +21,10 @@ executable crucible-c
 
   other-modules:
     Types,
+    Error,
     Overrides,
     Clang,
-    Options,
-    Loops
+    Options
 
 
 
