@@ -59,7 +59,7 @@ check opts@(cruxOpts,_langOpts) =
   do let file = inputFile cruxOpts
      when (simVerbose cruxOpts > 1) $
        say "Crux" ("Checking " ++ show file)
-     res <- simulate opts file
+     res <- simulate opts
      generateReport cruxOpts res
      CL.makeCounterExamples opts res
   `catch` \(SomeException e) ->
@@ -69,9 +69,8 @@ check opts@(cruxOpts,_langOpts) =
 
 -- Returns only non-trivial goals 
 simulate :: Language a => Options a -> 
-  String ->
   IO (Maybe ProvedGoals)
-simulate opts file  =
+simulate opts  =
   let (cruxOpts,_langOpts) = opts
   in   
   
@@ -87,24 +86,19 @@ simulate opts file  =
      frm <- pushAssumptionFrame sym
 
      let personality = emptyModel
-
+     
      tbl <- newProfilingTable
      startRecordingSolverEvents sym tbl
 
      gls <- inProfilingFrame tbl "<Crux>" Nothing $ do
 
         Result res <- CL.simulate (executeCrucibleProfiling tbl)
-          opts sym personality file
+          opts sym personality 
      
         _ <- popAssumptionFrame sym frm
      
         ctx' <- case res of
           FinishedResult ctx' _pr -> return ctx'
-        -- The 'main' method returns void, so there is no need 
-        -- to look at the result. However, if it does return an answer
-        -- then we can look at it with this code:
-        -- gp <- getGlobalPair pr
-        -- putStrLn (showInt J.IntType (regValue (gp ^. gpValue)))
           AbortedResult ctx' _  -> return ctx'
         when (simVerbose cruxOpts > 1) $
           say "Crux" "Simulation complete."

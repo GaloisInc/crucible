@@ -58,22 +58,25 @@ data LangConf where
 
 type EnvDescr a = (String, String -> a)
 
+-- Type of the executeCrucible callback argument. Implementations of the
+-- 'simulate' method should use this function to execute symbolic simulation
+-- (automatically with and without profiling)
 type ExecuteCrucible sym = (forall p ext rtp f a0.
      IsSyntaxExtension ext =>
       SimState p sym ext rtp f a0  ->
       ExecCont p sym ext rtp f a0  ->
       IO (ExecResult p sym ext rtp))
 
+-- Type of the [simulate] method. 
 type Simulate sym a = (IsBoolSolver sym, W4.IsSymExprBuilder sym,
                 W4.IsInterpretedFloatSymExprBuilder sym,
                 IsSymInterface sym, 
                 W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
                 W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-    ExecuteCrucible sym
-    -> Options a
-    -> sym
+    ExecuteCrucible sym    -- ^ callback to executeCrucible
+    -> Options a           -- ^ crux & lang-specific options
+    -> sym                
     -> Model sym
-    -> String
     -> IO (Result sym)
   
 

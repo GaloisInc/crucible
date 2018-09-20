@@ -180,9 +180,8 @@ simulateLLVM :: Crux.Simulate sym LangLLVM
     -> Crux.Options LangLLVM
     -> sym
     -> Model sym
-    -> String
     -> IO (Result sym) -}
-simulateLLVM executeCrucible (_cruxOpts,llvmOpts) sym _p _file = do
+simulateLLVM executeCrucible (_cruxOpts,llvmOpts) sym _p = do
 
     llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
     halloc     <- newHandleAllocator

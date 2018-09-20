@@ -135,7 +135,8 @@ instance Crux.Language JVM where
   name = "jvm"
   validExtensions = [".java"]
   
-  simulate executeCrucible (copts,opts) sym ext file = do
+  simulate executeCrucible (copts,opts) sym ext = do
+     let file = Crux.inputFile copts
      let verbosity = Crux.simVerbose copts
      
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
@@ -158,8 +159,4 @@ instance Crux.Language JVM where
 -- | Entry point, parse command line opions
 main :: IO ()
 main = Crux.main [Crux.LangConf (Crux.defaultOptions @JVM)]
-{-
-     res <- executeCrucibleJVM @UnitType cb (simVerbose opts) sym
-       personality cname mname regmap
--}
 
