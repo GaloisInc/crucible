@@ -78,11 +78,14 @@ import qualified Crux.Options  as Crux
 import qualified Lang.JVM.Codebase as JCB
 
 import           Lang.Crucible.JVM.Translation
-
+import           Lang.Crucible.JVM.Types
 
 -- executable
 
 import System.Console.GetOpt
+
+-- | A simulator context
+type SimCtxt sym = SimContext (Crux.Model sym) sym JVM
 
 
 instance Crux.Language JVM where

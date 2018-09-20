@@ -117,7 +117,6 @@ simulate opts  =
      withFile profOutFile WriteMode $ \h ->
         -- TODO: in crucible-c the two arguments to symProUIString were the
         -- name of the .bc file, not the inputFile.
-                                        
         hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl
                    
      return gls

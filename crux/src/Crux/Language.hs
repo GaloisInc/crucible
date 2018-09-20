@@ -34,17 +34,24 @@ type Verbosity = Int
 -- They can also be extended on a per-language basis
 data CruxOptions = CruxOptions
   {
-    importPath       :: [FilePath]
-  , simVerbose       :: Verbosity
-  , showHelp         :: Bool
+    showHelp         :: Bool
+    -- ^ describe options & quit
   , showVersion      :: Bool
-  , printShowPos     :: Bool
-  , outDir           :: FilePath
-    -- ^ store results in this file
+    -- ^ show tool version & quit
+  , simVerbose       :: Verbosity
+    -- ^ chattiness of the output
   , inputFile        :: FilePath
     -- ^ the file to analyze
+  , outDir           :: FilePath
+    -- ^ store results in this location
+    -- if unset, do not produce results
   , checkPathSat     :: Bool
     -- ^ Should we enable path satisfiability checking?
+  , importPath       :: [FilePath]
+    -- ^ path to the input file (currently ignored)
+  , printShowPos     :: Bool
+    -- ^ ???
+
   }
 
 
@@ -68,7 +75,7 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
       ExecCont p sym ext rtp f a0  ->
       IO (ExecResult p sym ext rtp))
 
--- Gathering of constraints on the sym
+-- Gathering of constraints on the sym used by the [simulate] method
 type SymConstraint sym =
   (IsBoolSolver sym, W4.IsSymExprBuilder sym,
     W4.IsInterpretedFloatSymExprBuilder sym,
