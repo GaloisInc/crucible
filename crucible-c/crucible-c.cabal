@@ -20,13 +20,7 @@ executable crucible-c
   main-is: Main.hs
 
   other-modules:
-    Types,
-    Error,
-    Overrides,
-    Clang,
-    Options
-
-
+    Overrides
 
   build-depends:
     base >= 4.8 && < 4.12,
