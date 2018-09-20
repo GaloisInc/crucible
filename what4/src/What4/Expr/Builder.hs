@@ -546,6 +546,7 @@ data App (e :: BaseType -> *) (tp :: BaseType) where
            => !(NatRepr w)
            -> !(e (BaseBVType w))
            -> App e (BaseBVType w)
+
   BVBitAnd :: (1 <= w)
            => !(NatRepr w)
            -> !(e (BaseBVType w))
@@ -4288,6 +4289,25 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
      Just Refl <- return $ testEquality (addNat n1 n2) n
      bvConcat sb a' b'
+
+    | Just (BVBitAnd _w a b) <- asApp x = do
+      a' <- bvSelect sb idx n a
+      b' <- bvSelect sb idx n b
+      bvAndBits sb a' b'
+
+    | Just (BVBitOr _w a b) <- asApp x = do
+      a' <- bvSelect sb idx n a
+      b' <- bvSelect sb idx n b
+      bvOrBits sb a' b'
+
+    | Just (BVBitXor _w a b) <- asApp x = do
+      a' <- bvSelect sb idx n a
+      b' <- bvSelect sb idx n b
+      bvXorBits sb a' b'
+
+    | Just (BVBitNot _w a) <- asApp x = do
+      a' <- bvSelect sb idx n a
+      bvNotBits sb a'
 
     | Just (BVUnaryTerm u) <- asApp x
     , Just Refl <- testEquality idx (knownNat @0) =

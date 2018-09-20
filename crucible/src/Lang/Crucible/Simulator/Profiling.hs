@@ -28,6 +28,9 @@ module Lang.Crucible.Simulator.Profiling
   , newProfilingTable
   , recordSolverEvent
   , startRecordingSolverEvents
+  , enterEvent
+  , exitEvent
+  , inProfilingFrame
 
     -- * Profiling data structures
   , CGEvent(..)
@@ -56,6 +59,7 @@ import           What4.Config
 import           What4.FunctionName
 import           What4.Interface
 import           What4.ProgramLoc
+import           What4.SatResult
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Extension
@@ -141,18 +145,22 @@ positionToJSON p = showJSON $ show $ p
 solverEventToJSON :: (UTCTime, SolverEvent) -> JSValue
 solverEventToJSON (time, ev) =
    case ev of
-     SolverStartSATQuery nm rsn ->
-       JSObject $ toJSObject
+     SolverStartSATQuery nm _rsn ->
+       JSObject $ toJSObject $
          [ ("type", showJSON "start")
          , ("time", utcTimeToJSON time)
-         , ("part", showJSON rsn)
+         , ("part", showJSON "solver") -- showJSON rsn)
          , ("solver", showJSON nm)
          ]
-     SolverEndSATQuery _res _err ->
-       JSObject $ toJSObject
+     SolverEndSATQuery res _err ->
+       JSObject $ toJSObject $
          [ ("type", showJSON "finish")
          , ("time", utcTimeToJSON time)
-         ]
+         ] ++
+         case res of
+           Sat{} -> [("sat", showJSON True)]
+           Unsat{} -> [("sat", showJSON False)]
+           Unknown{} -> []
 
 callGraphJSON :: Seq CGEvent -> JSValue
 callGraphJSON evs = JSObject $ toJSObject
@@ -233,6 +241,18 @@ nextEventID tbl =
   do i <- readIORef (eventIDRef tbl)
      writeIORef (eventIDRef tbl) $! (i+1)
      return i
+
+inProfilingFrame ::
+  ProfilingTable ->
+  FunctionName ->
+  Maybe ProgramLoc ->
+  IO a ->
+  IO a
+inProfilingFrame tbl nm mloc action =
+  Ex.bracket_
+    (enterEvent tbl nm mloc)
+    (exitEvent tbl nm)
+    action
 
 enterEvent ::
   ProfilingTable ->

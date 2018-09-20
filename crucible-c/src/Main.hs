@@ -2,6 +2,7 @@
 {-# Language TypeFamilies #-}
 {-# Language RankNTypes #-}
 {-# Language PatternSynonyms #-}
+{-# Language OverloadedStrings #-}
 
 {-# Language FlexibleContexts #-}
 {-# Language TypeApplications #-}
@@ -15,7 +16,8 @@ import Data.String(fromString)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
-import Control.Monad(unless)
+
+import Control.Monad(unless,join,void)
 import System.IO(stdout)
 import System.FilePath(takeExtension,dropExtension,takeFileName,(</>),(<.>))
 import System.Directory(createDirectoryIfMissing)
@@ -30,11 +32,17 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 
 import Lang.Crucible.Backend
+import Lang.Crucible.Backend.Online
+
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
+import Lang.Crucible.Simulator.Profiling
+  ( newProfilingTable, startRecordingSolverEvents, symProUIString
+  , executeCrucibleProfiling, inProfilingFrame
+  )
 import Lang.Crucible.Simulator
-  ( emptyRegMap,regValue, executeCrucible
+  ( emptyRegMap, regValue
   , fnBindingsFromList, initSimState, runOverrideSim, callCFG
   , SimError(..)
   , initSimContext, initSimState, defaultAbortHandler
@@ -49,8 +57,10 @@ import Lang.Crucible.LLVM.Translation
         )
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
+
 import Lang.Crucible.LLVM.Extension(LLVM)
-          
+import What4.Config (setOpt, getOptionSetting)
+import What4.Interface ( getConfiguration )
 import What4.ProgramLoc
 
 -- crux
@@ -78,6 +88,19 @@ main :: IO ()
 main = Crux.main [Crux.LangConf (Crux.defaultOptions @LangLLVM)]
 
 -- main/checkBC implemented by Crux
+
+
+{-
+--- WHERE DO WE WRITEOUT THE PROFILING DATA??
+let profOutFile = outDir opts </> "report_data.js"
+          withFile profOutFile WriteMode $ \h ->
+            hPutStrLn h =<< symProUIString (optsBCFile opts) (optsBCFile opts) tbl
+
+-}
+
+
+
+
 
 makeCounterExamplesLLVM :: Clang.Options -> Maybe ProvedGoals -> IO ()
 makeCounterExamplesLLVM opts = maybe (return ()) go
@@ -124,7 +147,6 @@ parseLLVM file =
        Left err -> throwCError (LLVMParseError err)
        Right m  -> return m
 
-
 setupMem ::
   (ArchOk arch, IsSymInterface sym) =>
   LLVMContext arch ->
@@ -162,7 +184,6 @@ simulateLLVM (_cruxOpts,llvmOpts) sym _p _file = do
     llvmPtrWidth llvmCtxt $ \ptrW ->
       withPtrWidth ptrW $ do
           let simctx = setupSimCtxt halloc sym
- 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
           let simSt  = initSimState simctx globSt defaultAbortHandler
@@ -275,3 +296,7 @@ instance Crux.Language LangLLVM where
 
 
 
+=======
+        _     -> throwError BadFun
+    Nothing -> throwError (MissingFun nm)
+>>>>>>> 2f29acd2f738770facc7164a11a06d45ba38adff

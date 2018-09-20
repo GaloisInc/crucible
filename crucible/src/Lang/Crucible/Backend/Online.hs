@@ -31,6 +31,9 @@ module Lang.Crucible.Backend.Online
   , checkSatisfiableWithModel
   , getSolverProcess
   , resetSolverProcess
+    -- ** Configuration options
+  , checkPathSatisfiability
+  , onlineBackendOptions
     -- ** Yices
   , YicesOnlineBackend
   , withYicesOnlineBackend
@@ -55,7 +58,9 @@ import           Control.Monad
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+import           What4.Concrete
 import           What4.Config
 import qualified What4.Expr.Builder as B
 import           What4.Interface
@@ -69,6 +74,20 @@ import qualified What4.Solver.Z3 as Z3
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Simulator.SimError
+
+
+checkPathSatisfiability :: ConfigOption BaseBoolType
+checkPathSatisfiability = configOption knownRepr "checkPathSat"
+
+
+onlineBackendOptions :: [ConfigDesc]
+onlineBackendOptions =
+  [ mkOpt
+      checkPathSatisfiability
+      boolOptSty
+      (Just (PP.text "Perform path satisfiability checks at symbolic branches"))
+      (Just (ConcreteBool True))
+  ]
 
 
 -- | Get the connection for sending commands to the solver.
@@ -130,6 +149,8 @@ data OnlineBackendState solver scope = OnlineBackendState
       -- ^ Number of times we have pushed
   , solverProc :: !(IORef (SolverState scope solver))
     -- ^ The solver process, if any.
+  , shouldCheckSat :: IO Bool
+    -- ^ An action to query the state of the checkPathSat option
   }
 
 -- | Returns an initial execution state.
@@ -142,6 +163,7 @@ initialOnlineBackendState gen =
      return $! OnlineBackendState
                  { assumptionStack = stk
                  , solverProc = procref
+                 , shouldCheckSat = return True
                  }
 
 getAssumptionStack ::
@@ -197,6 +219,10 @@ withOnlineBackend ::
 withOnlineBackend gen action = do
   st  <- initialOnlineBackendState gen
   sym <- B.newExprBuilder st gen
+  extendConfig onlineBackendOptions (getConfiguration sym)
+  pathSatOpt <- getOptionSetting checkPathSatisfiability (getConfiguration sym)
+  writeIORef (B.sbStateManager sym) st{ shouldCheckSat = getOpt pathSatOpt }
+
   r   <- try (action sym)
   mp  <- readIORef (solverProc st)
   case mp of
@@ -250,15 +276,19 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
       Just True  -> return $! NoBranch True
       Just False -> return $! NoBranch False
       Nothing ->
-        do proc     <- getSolverProcess sym
-           notP     <- notPred sym p
-           p_res    <- checkSatisfiable proc "branch feasibility" p
-           notp_res <- checkSatisfiable proc "branch feasibility" notP
-           case (p_res, notp_res) of
-             (Unsat, Unsat) -> abortExecBecause InfeasibleBranch
-             (Unsat, _ )    -> return $ NoBranch False
-             (_    , Unsat) -> return $ NoBranch True
-             (_    , _)     -> return $ SymbolicBranch True
+        do doSat <- shouldCheckSat =<< readIORef (B.sbStateManager sym)
+           if doSat then
+             do proc     <- getSolverProcess sym
+                notP     <- notPred sym p
+                p_res    <- checkSatisfiable proc "branch feasibility" p
+                notp_res <- checkSatisfiable proc "branch feasibility" notP
+                case (p_res, notp_res) of
+                  (Unsat, Unsat) -> abortExecBecause InfeasibleBranch
+                  (Unsat, _ )    -> return $ NoBranch False
+                  (_    , Unsat) -> return $ NoBranch True
+                  (_    , _)     -> return $ SymbolicBranch True
+           else
+             return $ SymbolicBranch True
 
   pushAssumptionFrame sym =
     do conn <- getSolverConn sym
