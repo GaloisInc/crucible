@@ -29,13 +29,11 @@ import qualified Crux.Language as CL
 -- value of outDir here.
 defaultCruxOptions :: CruxOptions
 defaultCruxOptions = CruxOptions {
-    importPath   = ["."]
+    showHelp     = False
   , simVerbose   = 1
   , outDir       = "" 
   , inputFile    = ""
-  , showHelp     = False
   , showVersion  = False
-  , printShowPos = False
   , checkPathSat = True
   }
 
@@ -56,16 +54,6 @@ cmdLineCruxOptions =
   , Option "V" ["version"]
     (NoArg (\opts -> opts { showVersion = True }))
     "Show the version of the tool"
-  , Option "i" ["import-path"]
-    (ReqArg
-     (\p opts -> opts { importPath = importPath opts ++ splitSearchPath p })
-     "path"
-    )
-    pathDesc
-  , Option [] ["output-locations"]
-    (NoArg
-     (\opts -> opts { printShowPos = True }))
-     "Show the source locations that are responsible for output."
   , Option "d" ["sim-verbose"]
     (ReqArg
      (\v opts -> opts { simVerbose = read v })
@@ -76,6 +64,10 @@ cmdLineCruxOptions =
     (NoArg
      (\opts -> opts { checkPathSat = False }))
     "Disable path satisfiability checking"
+  , Option [] ["output-directory"]
+    (OptArg (\mv opts -> maybe opts (\v -> opts { outDir = v }) mv)
+    "DIR")
+    "Location for reports. If unset, no reports will be generated."
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)
@@ -96,28 +88,26 @@ cmdLineOptions langs = map (fmap promoteCruxOptions) cmdLineCruxOptions
     langCLOpts (LangConf (_ :: LangOptions a)) = fmap (fmap promoteLang) (CL.cmdLineOptions @a)  
 
 
-
+-- Look for environment variable sto set options
 processEnv :: forall a. Language a => Options a -> IO (Options a)
 processEnv opts = do
   curEnv <- getEnvironment
   return $ foldr addOpt opts curEnv
     where addOpt :: (String, String) -> Options a -> Options a
-          addOpt ("IMPORT_PATH", p) (co,lo) =
-            (co { importPath = importPath co ++ splitSearchPath p }, lo)
+          -- add crux environment variable lookup here
           addOpt (var,val) (co,lo) =
             case lookup var CL.envOptions of
               Just f  -> (co, f val lo)
               Nothing -> (co, lo)
 
+-- Figure out which language we should use for simulation
+-- based on the file extension
 findLang :: AllPossibleOptions -> FilePath -> Maybe LangConf
 findLang (_,langs) file = go langs where
   go [] = Nothing
   go (lang@(LangConf (_:: LangOptions a)):rest) 
     | takeExtension file `elem` CL.validExtensions @a = Just lang
     | otherwise = go rest
-
-  
-
 
 -- If there is only one possible language, then add that to the name
 -- of the executable. Otherwise, just use 'crux'
@@ -145,13 +135,13 @@ processOptionsThen langs check = do
         [file] -> do
           case findLang allOpts file of
             Just (LangConf (langOpts :: LangOptions a)) -> do
-              opts <- processEnv ((fst allOpts) { inputFile = file }, langOpts)
+              opts  <- processEnv ((fst allOpts) { inputFile = file }, langOpts)
               opts' <- CL.ioOptions opts
               check opts'
-            Nothing -> hPutStrLn stderr $ "Unknown file extension" ++ takeExtension file
+            Nothing -> hPutStrLn stderr $ "Unknown file extension " ++ takeExtension file
         _ -> hPutStrLn stderr usageMsg
     (_, _, errs) -> hPutStrLn stderr (concat errs ++ usageMsg)
-  where options = cmdLineOptions langs
+  where options  = cmdLineOptions langs
         header   = "Usage: " ++ (exeName langs) ++ " [OPTION...] file"
         usageMsg = usageInfo header options
 

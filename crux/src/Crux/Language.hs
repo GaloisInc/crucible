@@ -47,11 +47,6 @@ data CruxOptions = CruxOptions
     -- if unset, do not produce results
   , checkPathSat     :: Bool
     -- ^ Should we enable path satisfiability checking?
-  , importPath       :: [FilePath]
-    -- ^ path to the input file (currently ignored)
-  , printShowPos     :: Bool
-    -- ^ ???
-
   }
 
 

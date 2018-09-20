@@ -17,7 +17,7 @@ import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
 
-import Control.Monad(unless,join,void)
+import Control.Monad(unless)
 import System.IO(stdout)
 import System.FilePath(takeExtension,dropExtension,takeFileName,(</>),(<.>))
 import System.Directory(createDirectoryIfMissing)
@@ -30,26 +30,19 @@ import Data.Parameterized.Context(pattern Empty)
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 
-
+-- crucible
 import Lang.Crucible.Backend
-import Lang.Crucible.Backend.Online
-
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
-import Lang.Crucible.Simulator.Profiling
-  ( newProfilingTable, startRecordingSolverEvents, symProUIString
-  , executeCrucibleProfiling, inProfilingFrame
-  )
 import Lang.Crucible.Simulator
   ( emptyRegMap, regValue
   , fnBindingsFromList, initSimState, runOverrideSim, callCFG
   , SimError(..)
   , initSimContext, initSimState, defaultAbortHandler
-  , SimState,ExecCont,ExecResult
   )
-import Lang.Crucible.CFG.Extension(IsSyntaxExtension)
 
+-- crucible-llvm
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.MemModel(withPtrWidth)
 import Lang.Crucible.LLVM.Translation
@@ -62,45 +55,32 @@ import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
-import What4.Config (setOpt, getOptionSetting)
-import What4.Interface ( getConfiguration )
+
+-- what4
 import What4.ProgramLoc
 
 -- crux
-import qualified Lang.Crucible.CFG.Core                as C
-import qualified What4.Interface                       as W4
-import qualified What4.InterpretedFloatingPoint        as W4
-
-
 import qualified Crux.Language as Crux
 import qualified Crux.CruxMain as Crux
 import qualified Crux.Error    as Crux
 
-import           Crux.Types
+import Crux.Types
 import Crux.Model
 import Crux.Log
 
+-- local
 import Types
 import Error
+import Overrides
 import qualified Options as Clang
 import Clang
-import Overrides
+
 
 
 main :: IO ()
 main = Crux.main [Crux.LangConf (Crux.defaultOptions @LangLLVM)]
 
 -- main/checkBC implemented by Crux
-
-
-{-
---- WHERE DO WE WRITEOUT THE PROFILING DATA??
-
-
--}
-
-
-
 
 
 makeCounterExamplesLLVM :: Clang.Options -> Maybe ProvedGoals -> IO ()
@@ -167,20 +147,6 @@ setupMem ctx mtrans =
 
 -- Returns only non-trivial goals
 simulateLLVM :: Crux.Simulate sym LangLLVM
-{-
-  (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
-                   IsSymInterface sym, 
-    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-  (forall p ext rtp f a0.
-     IsSyntaxExtension ext =>
-      SimState p sym ext rtp f a0 {- ^ Initial simulator state -} ->
-      ExecCont p sym ext rtp f a0 {- ^ Execution continuation to run -} ->
-      IO (ExecResult p sym ext rtp))
-    -> Crux.Options LangLLVM
-    -> sym
-    -> Model sym
-    -> IO (Result sym) -}
 simulateLLVM executeCrucible (_cruxOpts,llvmOpts) sym _p = do
 
     llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
@@ -250,7 +216,7 @@ instance Crux.Language LangLLVM where
        clangBin   :: FilePath
      , libDir     :: FilePath
      , optsBCFile :: FilePath
-     -- other two options are tracked by Crux
+     -- other options are tracked by Crux
      }
 
   defaultOptions = LLVMOptions
@@ -260,8 +226,6 @@ instance Crux.Language LangLLVM where
     , optsBCFile = ""
     }
 
-  cmdLineOptions = []
- 
   envOptions = [("CLANG", \v opts -> opts { clangBin = v })]
 
   -- this is the replacement for "Clang.testOptions"

@@ -40,7 +40,7 @@ import What4.Interface ( getConfiguration )
 
 -- crux
 import Crux.Language(Language,Options)
-import qualified Crux.Language as CL
+import qualified Crux.Language as CL    --- language-specific functions start with CL.
 import Crux.Types
 import Crux.Error
 import Crux.Goal
@@ -60,7 +60,8 @@ check opts@(cruxOpts,_langOpts) =
      when (simVerbose cruxOpts > 1) $
        say "Crux" ("Checking " ++ show file)
      res <- simulate opts
-     generateReport cruxOpts res
+     when (outDir cruxOpts /= "") $
+       generateReport cruxOpts res
      CL.makeCounterExamples opts res
   `catch` \(SomeException e) ->
       do putStrLn "TOP LEVEL EXCEPTION"
@@ -112,12 +113,13 @@ simulate opts  =
                    (proveGoals ctx' =<< getProofObligations sym)
              inProfilingFrame tbl "<SimplifyGoals>" Nothing
                    (provedGoalsTree ctx' pg)
-
-     let profOutFile = outDir cruxOpts </> "report_data.js"
-     withFile profOutFile WriteMode $ \h ->
-        -- TODO: in crucible-c the two arguments to symProUIString were the
-        -- name of the .bc file, not the inputFile.
-        hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl
+                   
+     when (outDir cruxOpts /= "") $ do
+       let profOutFile = outDir cruxOpts </> "report_data.js"
+       withFile profOutFile WriteMode $ \h ->
+         -- TODO: in crucible-c the two arguments to symProUIString were the
+         -- name of the .bc file, not the inputFile.
+         hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl
                    
      return gls
                  

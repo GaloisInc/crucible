@@ -133,7 +133,7 @@ instance Crux.Language JVM where
     ]
 
   envOptions   = [("JDK_JAR", \ p os -> os { jarList = p : jarList os })]
-  ioOptions    = return 
+
 
   name = "jvm"
   validExtensions = [".java"]
@@ -155,7 +155,7 @@ instance Crux.Language JVM where
      Crux.Result <$> executeCrucibleJVMCrux @UnitType executeCrucible  cb verbosity sym
        ext cname mname regmap
        
-  makeCounterExamples _opts _proved = return ()
+
 
     
 
