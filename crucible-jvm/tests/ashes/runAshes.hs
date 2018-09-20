@@ -64,6 +64,9 @@ expFailList = [
     -- fRem doesn't round (but dRem does)
     -- check what the Crucible version of this operation
     -- should do
+    -- UPDATE: I think the problem is the display,
+    -- not the calculation. The output is printed
+    -- without rounding, but the answers are different
   , "jikesDerekTestSuite/benchmarks/testArithmetic"
 
     -- needs java/lang/StrictMath.sqrt

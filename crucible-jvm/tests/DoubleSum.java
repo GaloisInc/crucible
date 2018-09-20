@@ -4,8 +4,8 @@ public class DoubleSum
     // but it fails with crucible-jvm for some reason
     public static void main(String[] args)
     {
-	double i2 = 2;
-	double sum = (3.4 + i2);
+	float i2 = 2;
+	float sum = ((float)3.4 + i2);
 	System.out.println(sum);
 
 	if (sum != 5.4) {
