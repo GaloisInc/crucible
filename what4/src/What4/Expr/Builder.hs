@@ -4289,6 +4289,16 @@ instance IsExprBuilder (ExprBuilder t st fs) where
      Just Refl <- return $ testEquality (addNat n1 n2) n
      bvConcat sb a' b'
 
+    | Just (BVBitAnd _w a b) <- asApp x = do
+      a' <- bvSelect sb idx n a
+      b' <- bvSelect sb idx n b
+      bvAndBits sb a' b'
+
+    | Just (BVBitOr _w a b) <- asApp x = do
+      a' <- bvSelect sb idx n a
+      b' <- bvSelect sb idx n b
+      bvOrBits sb a' b'
+
     | Just (BVUnaryTerm u) <- asApp x
     , Just Refl <- testEquality idx (knownNat @0) =
       bvUnary sb =<< UnaryBV.trunc sb u n
