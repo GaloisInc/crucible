@@ -41,10 +41,10 @@ skipList    = [  -- SCW: yep slow
 expFailList = [
 
      -- wrong string produced (!)
-     "kaffeRegressionSuite/benchmarks/str"
+--     "kaffeRegressionSuite/benchmarks/str"
     
      -- some numerical results are wrong!
-     , "ashesEasyTestSuite/benchmarks/fahrenheit"
+      "ashesEasyTestSuite/benchmarks/fahrenheit"
 
     -- needs too much from java.io library
     -- FileOutputStream argument
@@ -298,9 +298,10 @@ runFind dir name = lines `liftM` readProcess "find" [dir, "-name", name] ""
 
 
 main :: IO ()
---main = wip
+main = wip
 
- 
+
+{-  
 main = do
   dir <- getCurrentDirectory
   results <- mapM (runTest 1) =<< runFind dir "mainClass"
@@ -314,7 +315,7 @@ main = do
     results
   printf "Saw %d unexpected passes\n" . length . filter (== SurprisePass) $
     results
-
+-}
 
 wip :: IO ()
 wip = do

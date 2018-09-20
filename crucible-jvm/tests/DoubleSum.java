@@ -1,7 +1,7 @@
 public class DoubleSum
 {
     // java claims that this will pass,
-    // but it fails for some reason
+    // but it fails with crucible-jvm for some reason
     public static void main(String[] args)
     {
 	double i2 = 2;

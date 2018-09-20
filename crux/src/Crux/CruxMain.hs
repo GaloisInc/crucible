@@ -19,6 +19,7 @@ import Control.Monad
 import Control.Exception(SomeException(..),displayException)
 import System.IO(hPutStrLn,withFile,IOMode(..))
 import System.FilePath((</>))
+import System.Directory(createDirectoryIfMissing)
 
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
@@ -37,6 +38,7 @@ import Lang.Crucible.Simulator.Profiling
 -- crucible/what4
 import What4.Config (setOpt, getOptionSetting, verbosity)
 import What4.Interface ( getConfiguration )
+import What4.FunctionName ( FunctionName )
 
 -- crux
 import Crux.Language(Language,Options)
@@ -67,9 +69,6 @@ check opts@(cruxOpts,_langOpts) =
       do putStrLn "TOP LEVEL EXCEPTION"
          putStrLn (displayException e) 
 
-
-
-
 -- Returns only non-trivial goals 
 simulate :: Language a => Options a -> 
   IO (Maybe ProvedGoals)
@@ -97,45 +96,42 @@ simulate opts  =
      let profiling = profileCrucibleFunctions cruxOpts
                   || profileSolver cruxOpts
 
-     gls <- if profiling then
-              do tbl <- newProfilingTable
-                 when (profileSolver cruxOpts) $ 
-                   startRecordingSolverEvents sym tbl
-                 gls <- inProfilingFrame tbl "<Crux>" Nothing $ do
-                   
-                   Result res <-
-                     if (profileCrucibleFunctions cruxOpts) then
-                       CL.simulate (executeCrucibleProfiling tbl) opts sym personality
-                     else
-                       CL.simulate executeCrucible opts sym personality 
-                   _ <- popAssumptionFrame sym frm                 
-                   ctx' <- case res of
-                     FinishedResult ctx' _pr -> return ctx'
-                     AbortedResult ctx' _  -> return ctx'
+     tbl <- newProfilingTable
+     
+     let inFrame :: forall b. FunctionName -> IO b -> IO b
+         inFrame str = if profileCrucibleFunctions cruxOpts
+           then inProfilingFrame tbl str Nothing
+           else id
 
-                   inProfilingFrame tbl "<Proof Phase>" Nothing $
-                     do pg <- inProfilingFrame tbl "<Prove Goals>" Nothing
-                          (proveGoals ctx' =<< getProofObligations sym)
-                        inProfilingFrame tbl "<SimplifyGoals>" Nothing
-                          (provedGoalsTree ctx' pg)
-                     
-                 when (outDir cruxOpts /= "") $ do
-                   let profOutFile = outDir cruxOpts </> "report_data.js"
-                   withFile profOutFile WriteMode $ \h ->
-                     hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl                   
-                 return gls
-            else
-              do Result res <- CL.simulate executeCrucible opts sym personality 
-                 _ <- popAssumptionFrame sym frm                   
-                 ctx' <- case res of
-                     FinishedResult ctx' _pr -> return ctx'
-                     AbortedResult ctx' _  -> return ctx'
-                 
+     when (profileSolver cruxOpts) $ 
+       startRecordingSolverEvents sym tbl
+       
+     gls <- inFrame "<Crux>" $ do                   
+       Result res <-
+         if (profileCrucibleFunctions cruxOpts) then
+           CL.simulate (executeCrucibleProfiling tbl) opts sym personality
+         else
+           CL.simulate executeCrucible opts sym personality
+           
+       _ <- popAssumptionFrame sym frm
+         
+       ctx' <- case res of
+         FinishedResult ctx' _pr -> return ctx'
+         AbortedResult ctx' _    -> return ctx'
 
-                 provedGoalsTree ctx'
-                   =<< proveGoals ctx'
-                   =<<  getProofObligations sym
+       inFrame "<Proof Phase>" $
+         do pg <- inFrame "<Prove Goals>" $
+              (proveGoals ctx' =<< getProofObligations sym)
+            inFrame "<SimplifyGoals>" $
+              provedGoalsTree ctx' pg
                  
      when (simVerbose cruxOpts > 1) $
         say "Crux" "Simulation complete."
+
+     when (profiling && outDir cruxOpts /= "") $ do
+       createDirectoryIfMissing True (outDir cruxOpts)
+       let profOutFile = outDir cruxOpts </> "report_data.js"
+       withFile profOutFile WriteMode $ \h ->
+         hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl            
+
      return gls
