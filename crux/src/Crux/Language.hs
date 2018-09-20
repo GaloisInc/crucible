@@ -6,17 +6,20 @@
 {-# Language AllowAmbiguousTypes #-}
 {-# Language ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Crux.Language where
 
 import System.Console.GetOpt
 import Lang.Crucible.Simulator
-import Lang.Crucible.Types
+--import Lang.Crucible.Types
+import Lang.Crucible.CFG.Extension
 import qualified Lang.Crucible.CFG.Core as C
 
-import qualified What4.InterpretedFloatingPoint        as W4
+
 import           Lang.Crucible.Backend
 import qualified What4.Interface                       as W4
+import qualified What4.InterpretedFloatingPoint        as W4
 
 import Data.Typeable(Typeable)
 
@@ -39,6 +42,8 @@ data CruxOptions = CruxOptions
     -- ^ store results in this file
   , inputFile        :: FilePath
     -- ^ the file to analyze
+  , checkPathSat     :: Bool
+    -- ^ Should we enable path satisfiability checking?
   }
 
 
@@ -53,6 +58,25 @@ data LangConf where
 
 type EnvDescr a = (String, String -> a)
 
+type ExecuteCrucible sym = (forall p ext rtp f a0.
+     IsSyntaxExtension ext =>
+      SimState p sym ext rtp f a0  ->
+      ExecCont p sym ext rtp f a0  ->
+      IO (ExecResult p sym ext rtp))
+
+
+type Simulate sym a = (IsBoolSolver sym, W4.IsSymExprBuilder sym,
+                W4.IsInterpretedFloatSymExprBuilder sym,
+                IsSymInterface sym, 
+                W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+                W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
+    ExecuteCrucible sym
+    -> Options a
+    -> sym
+    -> Model sym
+    -> String
+    -> IO (Result sym)
+  
 
 class (Typeable a) => Language a where
 
@@ -82,14 +106,7 @@ class (Typeable a) => Language a where
   formatError :: LangError a -> String
 
   -- simulation function
-  simulate :: (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
-      W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-      W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>    
-    Options a
-    -> sym
-    -> Model sym
-    -> String
-    -> IO (Result sym)
+  simulate :: Simulate sym a 
 
   makeCounterExamples :: Options a -> Maybe ProvedGoals -> IO ()
 

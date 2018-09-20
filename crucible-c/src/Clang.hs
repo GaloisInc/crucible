@@ -23,7 +23,7 @@ import qualified Crux.Error    as Crux
 -- | attempt to find Clang executable by searching the file system
 -- throw an error if it cannot be found this way.
 -- (NOTE: do not look for environment var "CLANG". That is assumed
--- to be tried already.)
+--  to be tried already.)
 getClang :: IO FilePath
 getClang = attempt (map inPath opts)
   where

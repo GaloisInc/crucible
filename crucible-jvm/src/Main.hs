@@ -52,7 +52,7 @@ import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle
 
-import Lang.Crucible.Simulator
+import Lang.Crucible.Simulator hiding (executeCrucible)
 import Lang.Crucible.Simulator.GlobalState
 import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.RegMap
@@ -69,6 +69,7 @@ import qualified Language.JVM.Common as J
 import qualified Language.JVM.Parser as J
 
 -- crux
+import qualified Crux.Types    as Crux
 import qualified Crux.Language as Crux
 import qualified Crux.CruxMain as Crux
 import qualified Crux.Options  as Crux
@@ -134,7 +135,7 @@ instance Crux.Language JVM where
   name = "jvm"
   validExtensions = [".java"]
   
-  simulate (copts,opts) sym ext file = do
+  simulate executeCrucible (copts,opts) sym ext file = do
      let verbosity = Crux.simVerbose copts
      
      cb <- JCB.loadCodebase (jarList opts) (classPath opts)
@@ -147,7 +148,7 @@ instance Crux.Language JVM where
      let nullstr = RegEntry refRepr W4.Unassigned
      let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-     executeCrucibleJVM @UnitType cb verbosity sym
+     Crux.Result <$> executeCrucibleJVMCrux @UnitType executeCrucible  cb verbosity sym
        ext cname mname regmap
        
   makeCounterExamples _opts _proved = return ()

@@ -1830,6 +1830,28 @@ runClassInit halloc ctx verbosity name = do
 
 
 -- | Install the standard overrides and run a Java method in the simulator
+runMethodHandleCrux :: (IsSymInterface sym,
+                    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+                    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
+                     ExecuteCrucible sym
+                  -> sym
+                  -> p
+                  -> HandleAllocator RealWorld
+                  -> JVMContext
+                  -> Verbosity
+                  -> J.ClassName
+                  -> FnHandle args ret
+                  -> C.RegMap sym args
+                  -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
+runMethodHandleCrux executeCrucible sym p halloc ctx verbosity _classname h args = do
+  let simSt  = mkSimSt sym p halloc ctx verbosity
+  let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
+  let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
+                       -- _ <- runClassInit halloc ctx classname
+                       fnCall
+  executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
+
+
 runMethodHandle :: (IsSymInterface sym,
                     W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
                     W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
@@ -1842,14 +1864,8 @@ runMethodHandle :: (IsSymInterface sym,
                   -> FnHandle args ret
                   -> C.RegMap sym args
                   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-runMethodHandle sym p halloc ctx verbosity _classname h args = do
-  let simSt  = mkSimSt sym p halloc ctx verbosity
-  let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
-  let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
-                       -- _ <- runClassInit halloc ctx classname
-                       fnCall
-  C.executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
 
+runMethodHandle = runMethodHandleCrux C.executeCrucible
 
 --------------------------------------------------------------------------------
 
@@ -1880,20 +1896,29 @@ setSimulatorVerbosity verbosity sym = do
 --    declare the handle for all methods in this class
 --    Find the handle for this method
 --    run the simulator given the handle
-executeCrucibleJVM :: forall ret args sym p cb.
+
+type ExecuteCrucible sym = (forall p ext rtp f a0.
+     IsSyntaxExtension ext =>
+      C.SimState p sym ext rtp f a0  ->
+      C.ExecCont p sym ext rtp f a0  ->
+      IO (C.ExecResult p sym ext rtp))
+
+
+executeCrucibleJVMCrux :: forall ret args sym p cb.
   (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType,
    KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
-                   => cb
+                   => ExecuteCrucible sym
+                   -> cb
                    -> Int               -- ^ Verbosity level
                    -> sym               -- ^ Simulator state
                    -> p                 -- ^ Personality
                    -> String            -- ^ Class name
                    -> String            -- ^ Method name
                    -> C.RegMap sym args -- ^ Arguments
-                   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVM cb verbosity sym p cname mname args = do
+                   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret)) 
+executeCrucibleJVMCrux executeCrucible cb verbosity sym p cname mname args = do
 
      when (verbosity > 2) $
        putStrLn "starting executeCrucibleJVM"
@@ -1931,7 +1956,23 @@ executeCrucibleJVM cb verbosity sym p cname mname args = do
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
        $ "Checking return type for method " ++ mname
 
-     runMethodHandle sym p halloc ctx verbosity (J.className mcls) h args
+     runMethodHandleCrux executeCrucible sym p halloc ctx verbosity (J.className mcls) h args
+
+
+executeCrucibleJVM :: forall ret args sym p cb.
+  (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
+   W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+   W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType,
+   KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
+                   => cb
+                   -> Int               -- ^ Verbosity level
+                   -> sym               -- ^ Simulator state
+                   -> p                 -- ^ Personality
+                   -> String            -- ^ Class name
+                   -> String            -- ^ Method name
+                   -> C.RegMap sym args -- ^ Arguments
+                   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret)) 
+executeCrucibleJVM = executeCrucibleJVMCrux C.executeCrucible
 
 
 getGlobalPair ::

@@ -46,7 +46,10 @@ import Lang.Crucible.Simulator
   , fnBindingsFromList, initSimState, runOverrideSim, callCFG
   , SimError(..)
   , initSimContext, initSimState, defaultAbortHandler
+  , SimState,ExecCont,ExecResult
   )
+import Lang.Crucible.CFG.Extension(IsSyntaxExtension)
+
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.MemModel(withPtrWidth)
 import Lang.Crucible.LLVM.Translation
@@ -92,9 +95,7 @@ main = Crux.main [Crux.LangConf (Crux.defaultOptions @LangLLVM)]
 
 {-
 --- WHERE DO WE WRITEOUT THE PROFILING DATA??
-let profOutFile = outDir opts </> "report_data.js"
-          withFile profOutFile WriteMode $ \h ->
-            hPutStrLn h =<< symProUIString (optsBCFile opts) (optsBCFile opts) tbl
+
 
 -}
 
@@ -165,16 +166,23 @@ setupMem ctx mtrans =
      mapM_ registerModuleFn $ Map.toList $ cfgMap mtrans
 
 -- Returns only non-trivial goals
-simulateLLVM ::
+simulateLLVM :: Crux.Simulate sym LangLLVM
+{-
   (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
+                   IsSymInterface sym, 
     W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>    
-  Crux.Options LangLLVM
+    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
+  (forall p ext rtp f a0.
+     IsSyntaxExtension ext =>
+      SimState p sym ext rtp f a0 {- ^ Initial simulator state -} ->
+      ExecCont p sym ext rtp f a0 {- ^ Execution continuation to run -} ->
+      IO (ExecResult p sym ext rtp))
+    -> Crux.Options LangLLVM
     -> sym
     -> Model sym
     -> String
-    -> IO (Result sym)
-simulateLLVM (_cruxOpts,llvmOpts) sym _p _file = do
+    -> IO (Result sym) -}
+simulateLLVM executeCrucible (_cruxOpts,llvmOpts) sym _p _file = do
 
     llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
     halloc     <- newHandleAllocator
@@ -293,10 +301,3 @@ instance Crux.Language LangLLVM where
 
 
 
-
-
-
-=======
-        _     -> throwError BadFun
-    Nothing -> throwError (MissingFun nm)
->>>>>>> 2f29acd2f738770facc7164a11a06d45ba38adff

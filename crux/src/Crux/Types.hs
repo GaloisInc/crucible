@@ -47,6 +47,7 @@ type Fun sym p args ret =
     ret
     (RegValue sym ret)
 
+-- NEW: the result of the simulation function, which hides the 'ext'
 data Result sym where
   Result :: (ExecResult (Model sym) sym ext (RegEntry sym UnitType)) -> Result sym
 

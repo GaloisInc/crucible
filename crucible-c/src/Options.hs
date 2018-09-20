@@ -16,7 +16,5 @@ data Options = Options
   , inputFile :: FilePath
     -- ^ The file to analyze
 
-  , checkPathSat :: Bool
-    -- ^ Should we enable path satisfiability checking?
   }
 

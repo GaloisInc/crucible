@@ -18,24 +18,30 @@ import Data.List (foldl',lookup)
 import System.Console.GetOpt
 import System.Environment
 import System.FilePath
---import Text.Show.Functions ()
 import System.IO
 import Data.Typeable
 
 import           Crux.Language (LangConf(..),LangOptions,Language,Options,CruxOptions(..))
 import qualified Crux.Language as CL
 
+-- Unfortunately, we need to construct these arguments *before* we
+-- know what the inputFile name is. So we cannot provide a default
+-- value of outDir here.
 defaultCruxOptions :: CruxOptions
 defaultCruxOptions = CruxOptions {
-    importPath = ["."]
-  , simVerbose = 1
-  , outDir = "report" 
-  , inputFile = ""
-  , showHelp = False
-  , showVersion = False
+    importPath   = ["."]
+  , simVerbose   = 1
+  , outDir       = "" 
+  , inputFile    = ""
+  , showHelp     = False
+  , showVersion  = False
   , printShowPos = False
+  , checkPathSat = True
   }
 
+-- | All possible options that could be set from the command line.
+-- These include the Crux options, plus all options from any language
+-- (We don't know the language yet)
 type AllPossibleOptions = (CruxOptions, [LangConf])
 
 defaultOptions :: [LangConf] -> AllPossibleOptions
@@ -66,6 +72,10 @@ cmdLineCruxOptions =
      "num"
     )
     "Set simulator verbosity level"
+  , Option [] ["no-path-sat"]
+    (NoArg
+     (\opts -> opts { checkPathSat = False }))
+    "Disable path satisfiability checking"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)
@@ -144,45 +154,6 @@ processOptionsThen langs check = do
   where options = cmdLineOptions langs
         header   = "Usage: " ++ (exeName langs) ++ " [OPTION...] file"
         usageMsg = usageInfo header options
-
-
-{-           
-promote g = \ opts -> opts { langConfs = go (langConfs opts) } 
-   where 
-          go [] = []
-          go ( l@(LangConf lopts): rest) =
-            case cast lopts of
-              Just lopts' -> LangConf (g lopts') : rest
-              Nothing     -> l : go rest -}
-{-
-promoteM :: (Monad m, Language a) => (CL.LangOptions a -> m (CL.LangOptions a))
-                                  -> (Options a -> m (Options a))
-promoteM = undefined
--}
-{-            
-promoteM g = \ opts -> go (langConfs opts) >>= \opts' -> return $ opts { langConfs = opts' } 
-   where 
-          go [] = return []
-          go ( l@(LangConf lopts): rest) =
-            case cast lopts of
-              Just lopts' -> do
-                conf' <- (g lopts')
-                return (LangConf conf' : rest)
-              Nothing     -> (l:) <$> go rest
--}
-  
-
-
-
--- Lookup a language specific treatment of an environment variable
-{-
-findVar :: String -> String -> [LangConf] -> (CruxOptions -> CruxOptions)
-findVar _ _ [] = id
-findVar var val (LangConf (_:: LangOptions a) : rest) =
-  case lookup var (CL.envOptions @a) of
-    Just f -> promote (f val) . findVar var val rest
-    Nothing -> findVar var val rest
--}
 
 
 
