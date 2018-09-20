@@ -35,6 +35,8 @@ defaultCruxOptions = CruxOptions {
   , inputFile    = ""
   , showVersion  = False
   , checkPathSat = True
+  , profileCrucibleFunctions = True
+  , profileSolver            = True
   }
 
 -- | All possible options that could be set from the command line.
@@ -68,6 +70,14 @@ cmdLineCruxOptions =
     (OptArg (\mv opts -> maybe opts (\v -> opts { outDir = v }) mv)
     "DIR")
     "Location for reports. If unset, no reports will be generated."
+  , Option [] ["no-profile-crucible"]
+    (NoArg
+     (\opts -> opts { profileCrucibleFunctions = False }))
+    "Disable profiling of crucible function entry/exit"
+  , Option [] ["no-profile-solver"]
+    (NoArg
+     (\opts -> opts { profileSolver = False }))
+    "Disable profiling of solver events"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)

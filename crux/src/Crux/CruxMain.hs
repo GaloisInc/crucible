@@ -68,6 +68,8 @@ check opts@(cruxOpts,_langOpts) =
          putStrLn (displayException e) 
 
 
+
+
 -- Returns only non-trivial goals 
 simulate :: Language a => Options a -> 
   IO (Maybe ProvedGoals)
@@ -91,37 +93,49 @@ simulate opts  =
      frm <- pushAssumptionFrame sym
 
      let personality = emptyModel
-     
-     tbl <- newProfilingTable
-     startRecordingSolverEvents sym tbl
 
-     gls <- inProfilingFrame tbl "<Crux>" Nothing $ do
+     let profiling = profileCrucibleFunctions cruxOpts
+                  || profileSolver cruxOpts
 
-        Result res <- CL.simulate (executeCrucibleProfiling tbl)
-          opts sym personality 
-     
-        _ <- popAssumptionFrame sym frm
-     
-        ctx' <- case res of
-          FinishedResult ctx' _pr -> return ctx'
-          AbortedResult ctx' _  -> return ctx'
-        when (simVerbose cruxOpts > 1) $
-          say "Crux" "Simulation complete."
-
-        inProfilingFrame tbl "<Proof Phase>" Nothing $
-          do pg <- inProfilingFrame tbl "<Prove Goals>" Nothing
-                   (proveGoals ctx' =<< getProofObligations sym)
-             inProfilingFrame tbl "<SimplifyGoals>" Nothing
-                   (provedGoalsTree ctx' pg)
+     gls <- if profiling then
+              do tbl <- newProfilingTable
+                 when (profileSolver cruxOpts) $ 
+                   startRecordingSolverEvents sym tbl
+                 gls <- inProfilingFrame tbl "<Crux>" Nothing $ do
                    
-     when (outDir cruxOpts /= "") $ do
-       let profOutFile = outDir cruxOpts </> "report_data.js"
-       withFile profOutFile WriteMode $ \h ->
-         -- TODO: in crucible-c the two arguments to symProUIString were the
-         -- name of the .bc file, not the inputFile.
-         hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl
-                   
-     return gls
+                   Result res <-
+                     if (profileCrucibleFunctions cruxOpts) then
+                       CL.simulate (executeCrucibleProfiling tbl) opts sym personality
+                     else
+                       CL.simulate executeCrucible opts sym personality 
+                   _ <- popAssumptionFrame sym frm                 
+                   ctx' <- case res of
+                     FinishedResult ctx' _pr -> return ctx'
+                     AbortedResult ctx' _  -> return ctx'
+
+                   inProfilingFrame tbl "<Proof Phase>" Nothing $
+                     do pg <- inProfilingFrame tbl "<Prove Goals>" Nothing
+                          (proveGoals ctx' =<< getProofObligations sym)
+                        inProfilingFrame tbl "<SimplifyGoals>" Nothing
+                          (provedGoalsTree ctx' pg)
+                     
+                 when (outDir cruxOpts /= "") $ do
+                   let profOutFile = outDir cruxOpts </> "report_data.js"
+                   withFile profOutFile WriteMode $ \h ->
+                     hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl                   
+                 return gls
+            else
+              do Result res <- CL.simulate executeCrucible opts sym personality 
+                 _ <- popAssumptionFrame sym frm                   
+                 ctx' <- case res of
+                     FinishedResult ctx' _pr -> return ctx'
+                     AbortedResult ctx' _  -> return ctx'
                  
 
-
+                 provedGoalsTree ctx'
+                   =<< proveGoals ctx'
+                   =<<  getProofObligations sym
+                 
+     when (simVerbose cruxOpts > 1) $
+        say "Crux" "Simulation complete."
+     return gls

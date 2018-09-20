@@ -43,10 +43,12 @@ data CruxOptions = CruxOptions
   , inputFile        :: FilePath
     -- ^ the file to analyze
   , outDir           :: FilePath
-    -- ^ store results in this location
-    -- if unset, do not produce results
-  , checkPathSat     :: Bool
+    -- ^ write results in this location
+    -- if unset, do not produce any analysis results
+  , checkPathSat             :: Bool
     -- ^ Should we enable path satisfiability checking?
+  , profileCrucibleFunctions :: Bool
+  , profileSolver            :: Bool
   }
 
 
@@ -61,9 +63,10 @@ data LangConf where
 
 type EnvDescr a = (String, String -> a)
 
--- Type of the executeCrucible callback argument. Implementations of the
--- 'simulate' method should use this function to execute symbolic simulation
--- (automatically with and without profiling)
+-- Type of the executeCrucible callback argument to
+--  [simulate]. Implementations of the method should use this function
+--  to execute symbolic simulation (automatically with and without
+--  profiling)
 type ExecuteCrucible sym = (forall p ext rtp f a0.
      IsSyntaxExtension ext =>
       SimState p sym ext rtp f a0  ->
@@ -78,7 +81,7 @@ type SymConstraint sym =
     W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
     W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) 
 
--- Type of the [simulate] method. 
+-- Type of the [simulate] method
 type Simulate sym a = (SymConstraint sym)  =>
     ExecuteCrucible sym    -- ^ callback to executeCrucible
     -> Options a           -- ^ crux & lang-specific options
