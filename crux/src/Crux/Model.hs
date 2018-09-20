@@ -19,7 +19,7 @@ import Data.Parameterized.TraversableF(traverseF)
 import Data.Parameterized.Map (MapF)
 import Data.Parameterized.Pair(Pair(..))
 import qualified Data.Parameterized.Map as MapF
---import Data.Semigroup
+import Data.Semigroup
 --import Control.Exception(throw)
 
 import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType,FloatPrecisionRepr(..))
@@ -29,6 +29,8 @@ import What4.ProgramLoc
 
 import Crux.Types
 import Crux.Error
+
+import Prelude
 
 
 emptyModel :: Model sym
