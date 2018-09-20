@@ -64,7 +64,6 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
       ExecCont p sym ext rtp f a0  ->
       IO (ExecResult p sym ext rtp))
 
-
 type Simulate sym a = (IsBoolSolver sym, W4.IsSymExprBuilder sym,
                 W4.IsInterpretedFloatSymExprBuilder sym,
                 IsSymInterface sym, 
@@ -82,7 +81,8 @@ class (Typeable a) => Language a where
 
   -- name of the language
   name :: String
-  -- extensions
+  
+  -- extensions (must be non-empty)
   validExtensions :: [String]
   
   -- additional options for this language
@@ -91,38 +91,41 @@ class (Typeable a) => Language a where
 
   -- all language-specific options must have default values
   defaultOptions :: LangOptions a
-  -- set options from the commandline
+  
+  -- set language-specific options from the commandline
   cmdLineOptions :: [OptDescr (LangOptions a -> LangOptions a)]
-  -- set options using the environment
-  envOptions     :: [EnvDescr (LangOptions a -> LangOptions a)]
+  cmdLineOptions = []
+  
+  -- set language-specific options using the environment
+  envOptions :: [EnvDescr (LangOptions a -> LangOptions a)]
+  envOptions = []
+  
   -- set options using IO monad
   -- (and do any necessary preprocessing)
   -- this function also has access to the crux options.
   -- All options should be set at the end of this function
   ioOptions :: Options a -> IO (Options a)
+  ioOptions = return
   
   -- how to display language-specfic errors during simulation
   type LangError a ::  *
   formatError :: LangError a -> String
 
-  -- simulation function
+  -- simulation function, see above for interface
   simulate :: Simulate sym a 
 
+  -- use the result of the simulation function
   makeCounterExamples :: Options a -> Maybe ProvedGoals -> IO ()
+  makeCounterExamples _opts _proved = return ()
 
 -- Trivial instance of the class
 -- For demonstration purposes only. 
 data Trivial = Trivial
-
 instance Language Trivial where
   name = "trivial"
-  validExtensions = []
+  validExtensions = [".triv"]
   type LangError Trivial = ()
-  formatError _ = "()"
+  formatError () = ""
   data LangOptions Trivial = TrivialOptions
   defaultOptions = TrivialOptions
-  cmdLineOptions = []
-  envOptions     = []
-  ioOptions      = return 
   simulate _opts _sym _s = error "TRIVIAL"
-  makeCounterExamples _opts _proved = return ()
