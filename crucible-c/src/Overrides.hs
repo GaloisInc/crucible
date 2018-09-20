@@ -88,12 +88,18 @@ setupOverrides ctxt =
         Empty knownRepr sv_comp_fresh_i32
      regOver ctxt "__VERIFIER_nondet_int"
         Empty knownRepr sv_comp_fresh_i32
+     regOver ctxt "__VERIFIER_nondet_ushort"
+        Empty knownRepr sv_comp_fresh_i16
+     regOver ctxt "__VERIFIER_nondet_short"
+        Empty knownRepr sv_comp_fresh_i16
      regOver ctxt "__VERIFIER_nondet_float"
         Empty knownRepr sv_comp_fresh_float
      regOver ctxt "__VERIFIER_nondet_double"
         Empty knownRepr sv_comp_fresh_double
      regOver ctxt "__VERIFIER_nondet_char"
         (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
+     regOver ctxt "__VERIFIER_nondet_uchar"
+        Empty knownRepr sv_comp_fresh_i8'
      regOver ctxt "__VERIFIER_assert"
         (Empty :> knownRepr) knownRepr sv_comp_assert
      regOver ctxt "__VERIFIER_assume"
@@ -251,7 +257,21 @@ sv_comp_fresh_i8 =
      sym <- getSymInterface
      liftIO (llvmPointer_bv sym x)
 
+sv_comp_fresh_i8' ::
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch EmptyCtx (TBits 8)
+sv_comp_fresh_i8' =
+  do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
+     sym <- getSymInterface
+     liftIO (llvmPointer_bv sym x)
 
+sv_comp_fresh_i16 ::
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym arch EmptyCtx (TBits 16)
+sv_comp_fresh_i16 =
+  do x <- mkFresh "X" (BaseBVRepr (knownNat @16))
+     sym <- getSymInterface
+     liftIO (llvmPointer_bv sym x)
 
 sv_comp_fresh_i32 ::
   (ArchOk arch, IsSymInterface sym) =>
