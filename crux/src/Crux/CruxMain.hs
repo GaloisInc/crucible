@@ -50,11 +50,11 @@ import Crux.Model
 import Crux.Log
 import Crux.Options
 import Crux.Report
- 
+
 -- | Entry point, parse command line opions
 main :: [CL.LangConf] -> IO ()
-main langs = processOptionsThen langs check 
-        
+main langs = processOptionsThen langs check
+
 -- | simulate the "main" method in the given class
 check :: forall a. Language a => Options a -> IO ()
 check opts@(cruxOpts,_langOpts) =
@@ -67,15 +67,15 @@ check opts@(cruxOpts,_langOpts) =
      CL.makeCounterExamples opts res
   `catch` \(SomeException e) ->
       do putStrLn "TOP LEVEL EXCEPTION"
-         putStrLn (displayException e) 
+         putStrLn (displayException e)
 
--- Returns only non-trivial goals 
-simulate :: Language a => Options a -> 
+-- Returns only non-trivial goals
+simulate :: Language a => Options a ->
   IO (Maybe ProvedGoals)
 simulate opts  =
   let (cruxOpts,_langOpts) = opts
-  in   
-  
+  in
+
   withIONonceGenerator $ \nonceGen ->
 
   --withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym -> do
@@ -84,11 +84,11 @@ simulate opts  =
      -- set the verbosity level
      void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
                          <*> pure (toInteger (simVerbose cruxOpts)))
-    
+
      void $ join (setOpt <$> getOptionSetting checkPathSatisfiability (getConfiguration sym)
                          <*> pure (checkPathSat cruxOpts))
 
-    
+
      frm <- pushAssumptionFrame sym
 
      let personality = emptyModel
@@ -97,24 +97,24 @@ simulate opts  =
                   || profileSolver cruxOpts
 
      tbl <- newProfilingTable
-     
+
      let inFrame :: forall b. FunctionName -> IO b -> IO b
-         inFrame str = if profileCrucibleFunctions cruxOpts
+         inFrame str = if profiling
            then inProfilingFrame tbl str Nothing
            else id
 
-     when (profileSolver cruxOpts) $ 
+     when (profileSolver cruxOpts) $
        startRecordingSolverEvents sym tbl
-       
-     gls <- inFrame "<Crux>" $ do                   
+
+     gls <- inFrame "<Crux>" $ do
        Result res <-
          if (profileCrucibleFunctions cruxOpts) then
            CL.simulate (executeCrucibleProfiling tbl) opts sym personality
          else
            CL.simulate executeCrucible opts sym personality
-           
+
        _ <- popAssumptionFrame sym frm
-         
+
        ctx' <- case res of
          FinishedResult ctx' _pr -> return ctx'
          AbortedResult ctx' _    -> return ctx'
@@ -124,7 +124,7 @@ simulate opts  =
               (proveGoals ctx' =<< getProofObligations sym)
             inFrame "<SimplifyGoals>" $
               provedGoalsTree ctx' pg
-                 
+
      when (simVerbose cruxOpts > 1) $
         say "Crux" "Simulation complete."
 
@@ -132,6 +132,6 @@ simulate opts  =
        createDirectoryIfMissing True (outDir cruxOpts)
        let profOutFile = outDir cruxOpts </> "report_data.js"
        withFile profOutFile WriteMode $ \h ->
-         hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl            
+         hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl
 
      return gls
