@@ -327,8 +327,6 @@ executeCrucibleProfiling :: forall p sym ext rtp f a.
 executeCrucibleProfiling tbl st0 cont =
   do let cfg = st0^.stateConfiguration
      verbOpt <- getOptionSetting verbosity cfg
-     let sym = st0^.stateSymInterface
-     startRecordingSolverEvents sym tbl
      enterEvent tbl (st0^.stateTree.actFrame.gpValue.frameFunctionName) Nothing
 
      loop verbOpt st0 cont
