@@ -16,19 +16,22 @@ import Data.String(fromString)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
-
 import Control.Monad(unless)
+import Control.Monad.State(evalStateT,liftIO,MonadIO)
+import Control.Exception
+
+import System.Process
+import System.Exit
 import System.IO(stdout)
 import System.FilePath(takeExtension,dropExtension,takeFileName,(</>),(<.>))
 import System.Directory(createDirectoryIfMissing)
-
-import Control.Monad.State(evalStateT,liftIO)
 
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Context(pattern Empty)
 
 import Text.LLVM.AST(Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
+import qualified Data.LLVM.BitCode as LLVM
 
 -- crucible
 import Lang.Crucible.Backend
@@ -69,12 +72,10 @@ import Crux.Model
 import Crux.Log
 
 -- local
-import Types
-import Error
 import Overrides
-import qualified Options as Clang
-import Clang
 
+-- | Index for the crux-c "Language"
+data LangLLVM 
 
 
 main :: IO ()
@@ -83,7 +84,7 @@ main = Crux.main [Crux.LangConf (Crux.defaultOptions @LangLLVM)]
 -- main/checkBC implemented by Crux
 
 
-makeCounterExamplesLLVM :: Clang.Options -> Maybe ProvedGoals -> IO ()
+makeCounterExamplesLLVM :: Options -> Maybe ProvedGoals -> IO ()
 makeCounterExamplesLLVM opts = maybe (return ()) go
  where
  go gs =
@@ -183,21 +184,6 @@ checkFun nm mp =
 -----------------------------------------------------------------------
 -----------------------------------------------------------------------
 
--- For now, we have an isomorphism between these two records of
--- types.
--- However, if we are willing to move the code from Clang.hs
--- to this module, we can make that code directly refer to
--- Crux.Options LangLLVM, instead of copying between the two.
-toClangOptions :: Crux.Options LangLLVM -> Clang.Options
-toClangOptions (cruxOpts, llvmOpts) =
-  Clang.Options {
-    Clang.clangBin   = clangBin llvmOpts
-  , Clang.libDir     = libDir llvmOpts
-  , Clang.outDir     = Crux.outDir cruxOpts
-  , Clang.optsBCFile = optsBCFile llvmOpts
-  , Clang.inputFile  = Crux.inputFile  cruxOpts
-  }
-  
 
 -- Definitions for Crux front-end
 -- This is an orphan instance because LangLLVM is declared in
@@ -251,16 +237,129 @@ instance Crux.Language LangLLVM where
                 then opts2 { optsBCFile = odir </> name <.> "bc" }
                 else opts2
 
-    unless (takeExtension inp == ".bc") (genBitCode (toClangOptions (cruxOpts2, opts3)))
+    unless (takeExtension inp == ".bc") (genBitCode (cruxOpts2, opts3))
 
     return (cruxOpts2, opts3)
 
   simulate = simulateLLVM
                       
-  makeCounterExamples opts = makeCounterExamplesLLVM (toClangOptions opts)
+  makeCounterExamples opts = makeCounterExamplesLLVM opts
+
+---------------------------------------------------------------------
+---------------------------------------------------------------------
+
+--
+-- C-specific errors
+--
+data CError =
+    ClangError Int String String
+  | LLVMParseError LLVM.Error
+
+ppCError :: CError -> String
+ppCError err = case err of
+    LLVMParseError e       -> LLVM.formatError e
+    ClangError n sout serr ->
+      unlines $ [ "`clang` compilation failed."
+                , "*** Exit code: " ++ show n
+                , "*** Standard out:"
+                ] ++
+                [ "   " ++ l | l <- lines sout ] ++
+                [ "*** Standard error:" ] ++
+                [ "   " ++ l | l <- lines serr ]
+
+-- Currently unused
+{-
+ppErr :: AbortedResult sym ext -> String
+ppErr aberr =
+  case aberr of
+    AbortedExec abt _gp -> show (ppAbortExecReason abt)
+    AbortedExit e       -> "The program exited with result " ++ show e
+    AbortedBranch {}    -> "(Aborted branch?)"
+-}
+
+throwCError :: (MonadIO m) => CError -> m b
+throwCError e = Crux.throwError @LangLLVM (Crux.Lang  e)
+
+---------------------------------------------------------------------
+---------------------------------------------------------------------
+-- From Clang.hs
+
+type Options = Crux.Options LangLLVM
+
+-- | attempt to find Clang executable by searching the file system
+-- throw an error if it cannot be found this way.
+-- (NOTE: do not look for environment var "CLANG". That is assumed
+--  to be tried already.)
+getClang :: IO FilePath
+getClang = attempt (map inPath opts)
+  where
+  inPath x = head . lines <$> readProcess "/usr/bin/which" [x] ""
+  opts     = [ "clang", "clang-4.0", "clang-3.6" ]
+
+  attempt :: [IO FilePath] -> IO FilePath
+  attempt ms =
+    case ms of
+      [] -> Crux.throwEnvError $
+              unlines [ "Failed to find `clang`."
+                      , "You may use CLANG to provide path to executable."
+                      ]
+      m : more -> do x <- try m
+                     case x of
+                       Left (SomeException {}) -> attempt more
+                       Right a -> return a
+
+runClang :: Options -> [String] -> IO ()
+runClang opts params =
+  do let clang = clangBin (snd opts)
+     -- say "Clang" (show params)
+     (res,sout,serr) <- readProcessWithExitCode clang params ""
+     case res of
+       ExitSuccess   -> return ()
+       ExitFailure n -> throwCError (ClangError n sout serr)
 
 
 
+genBitCode :: Options -> IO ()
+genBitCode opts =
+  do let dir  = Crux.outDir (fst opts)
+     let libs = libDir (snd opts)
+     createDirectoryIfMissing True dir
+
+     let params = [ "-c", "-g", "-emit-llvm", "-O0"
+                  , "-I", libs </> "includes"
+                  , Crux.inputFile (fst opts)
+                  , "-o", optsBCFile (snd opts)
+                  ]
+     runClang opts params
+
+
+buildModelExes :: Options -> String -> String -> IO (FilePath,FilePath)
+buildModelExes opts suff counter_src =
+  do let dir  = Crux.outDir (fst opts)
+     createDirectoryIfMissing True dir
+
+     let counterFile = dir </> ("counter-example-" ++ suff ++ ".c")
+     let printExe    = dir </> ("print-model-" ++ suff)
+     let debugExe    = dir </> ("debug-" ++ suff)
+     writeFile counterFile counter_src
+
+     let libs = libDir (snd opts)
+
+     runClang opts [ "-I", libs </> "includes"
+                   , counterFile
+                   , libs </> "print-model.c"
+                   , "-o", printExe
+                   ]
+
+     runClang opts [ "-I", libs </> "includes"
+                   , counterFile
+                   , libs </> "concrete-backend.c"
+                   , optsBCFile (snd opts)
+                   , "-O0", "-g"
+                   , "-o", debugExe
+                   ]
+
+     return (printExe, debugExe)
 
 
 

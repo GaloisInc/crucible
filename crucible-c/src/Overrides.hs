@@ -5,6 +5,7 @@
 {-# Language TypeOperators #-}
 {-# Language DataKinds #-}
 {-# Language PatternSynonyms #-}
+{-# Language ConstraintKinds #-}
 module Overrides where
 
 import Data.String(fromString)
@@ -57,12 +58,16 @@ import Lang.Crucible.LLVM.MemModel
    llvmPointer_bv, projectLLVM_bv)
 
 import Lang.Crucible.LLVM.Extension(LLVM)  
+import Lang.Crucible.LLVM.Extension(ArchWidth)
 
 import Crux.Error
 import Crux.Types
 import Crux.Model
 
-import Types
+-- | This happens quite a lot, so just a shorter name
+type ArchOk arch    = HasPtrWidth (ArchWidth arch)
+type TPtr arch      = LLVMPointerType (ArchWidth arch)
+type TBits n        = LLVMPointerType n
 
 
 tPtr :: HasPtrWidth w => TypeRepr (LLVMPointerType w)
