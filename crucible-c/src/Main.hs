@@ -2,6 +2,7 @@
 {-# Language TypeFamilies #-}
 {-# Language RankNTypes #-}
 {-# Language PatternSynonyms #-}
+{-# Language OverloadedStrings #-}
 
 {-# Language FlexibleContexts #-}
 {-# Language TypeApplications #-}
@@ -11,11 +12,11 @@ import Data.String(fromString)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
-import Control.Monad(unless)
+import Control.Monad(unless, join, void)
 import Control.Exception(SomeException(..),displayException)
-import System.IO(hPutStrLn,stdout,stderr)
+import System.IO(hPutStrLn,stdout,stderr,withFile,IOMode(..))
 import System.Environment(getProgName,getArgs)
-import System.FilePath(takeExtension)
+import System.FilePath(takeExtension, (</>))
 
 import Control.Monad.State(evalStateT,liftIO)
 
@@ -29,11 +30,16 @@ import Data.LLVM.BitCode (parseBitCodeFromFile)
 
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
+
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
+import Lang.Crucible.Simulator.Profiling
+  ( newProfilingTable, startRecordingSolverEvents, symProUIString
+  , executeCrucibleProfiling, inProfilingFrame
+  )
 import Lang.Crucible.Simulator
-  ( emptyRegMap,regValue, executeCrucible
+  ( emptyRegMap, regValue
   , fnBindingsFromList, initSimState, runOverrideSim, callCFG
   , SimError(..), ExecResult(..)
   , initSimContext, initSimState, defaultAbortHandler
@@ -48,6 +54,9 @@ import Lang.Crucible.LLVM.Translation
         )
 import Lang.Crucible.LLVM.Intrinsics
           (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
+
+import What4.Config (setOpt, getOptionSetting)
+import What4.Interface ( getConfiguration )
 import What4.ProgramLoc
 
 
@@ -134,7 +143,6 @@ parseLLVM file =
        Left err -> throwError (LLVMParseError err)
        Right m  -> return m
 
-
 setupMem ::
   (ArchOk arch, IsSymInterface sym) =>
   LLVMContext arch ->
@@ -169,31 +177,47 @@ simulate opts k =
      llvmPtrWidth llvmCtxt $ \ptrW ->
        withPtrWidth ptrW $
        withIONonceGenerator $ \nonceGen ->
-       withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym ->
-       -- withYicesOnlineBackend @_ @(Flags FloatReal) @_ nonceGen $ \sym ->
+       -- withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym ->
+       withYicesOnlineBackend @_ @(Flags FloatReal) @_ nonceGen $ \sym ->
        do frm <- pushAssumptionFrame sym
           let simctx = setupSimCtxt halloc sym
+
+          void $ join (setOpt <$> getOptionSetting checkPathSatisfiability (getConfiguration sym)
+                              <*> pure (checkPathSat opts))
 
           mem  <- initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
           let simSt  = initSimState simctx globSt defaultAbortHandler
 
-          res <- executeCrucible simSt $ runOverrideSim UnitRepr $
-                   do setupMem llvmCtxt trans
-                      setupOverrides llvmCtxt
-                      k (cfgMap trans)
+          tbl <- newProfilingTable
+          startRecordingSolverEvents sym tbl
 
-          _ <- popAssumptionFrame sym frm
+          gls <- inProfilingFrame tbl "<Crux>" Nothing $
+            do res <- executeCrucibleProfiling tbl simSt $ runOverrideSim UnitRepr $
+                     do setupMem llvmCtxt trans
+                        setupOverrides llvmCtxt
+                        k (cfgMap trans)
 
-          ctx' <- case res of
-                    FinishedResult ctx' _ -> return ctx'
-                    AbortedResult ctx' _  -> return ctx'
+               _ <- popAssumptionFrame sym frm
 
-          say "Crux" "Simulation complete."
+               ctx' <- case res of
+                         FinishedResult ctx' _ -> return ctx'
+                         AbortedResult ctx' _  -> return ctx'
 
-          provedGoalsTree ctx'
-            =<< proveGoals ctx'
-            =<< getProofObligations sym
+               say "Crux" "Simulation complete."
+
+               inProfilingFrame tbl "<Proof Phase>" Nothing $
+                 do pg <- inProfilingFrame tbl "<Prove Goals>" Nothing
+                             (proveGoals ctx' =<< getProofObligations sym)
+                    inProfilingFrame tbl "<SimplifyGoals>" Nothing
+                             (provedGoalsTree ctx' pg)
+
+          let profOutFile = outDir opts </> "report_data.js"
+          withFile profOutFile WriteMode $ \h ->
+            hPutStrLn h =<< symProUIString (optsBCFile opts) (optsBCFile opts) tbl
+
+          return gls
+
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym arch ()
 checkFun nm mp =
@@ -205,6 +229,3 @@ checkFun nm mp =
              (regValue <$> callCFG anyCfg emptyRegMap) >> return ()
         _     -> throwError BadFun
     Nothing -> throwError (MissingFun nm)
-
-
-

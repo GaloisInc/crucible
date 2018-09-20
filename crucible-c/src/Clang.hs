@@ -99,6 +99,7 @@ testOptions inp =
                     , outDir    = odir
                     , inputFile = inp
                     , optsBCFile = odir </> name <.> "bc"
+                    , checkPathSat = True -- FIXME, add a flag for this
                     }
 
 

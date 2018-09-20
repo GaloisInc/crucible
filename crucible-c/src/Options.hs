@@ -1,7 +1,5 @@
 module Options where
 
-import System.FilePath
-
 data Options = Options
   { clangBin :: FilePath
     -- ^ Path to Clang binary
@@ -17,5 +15,8 @@ data Options = Options
 
   , inputFile :: FilePath
     -- ^ The file to analyze
+
+  , checkPathSat :: Bool
+    -- ^ Should we enable path satisfiability checking?
   }
 
