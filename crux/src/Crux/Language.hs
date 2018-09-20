@@ -7,6 +7,7 @@
 {-# Language ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 module Crux.Language where
 
@@ -67,12 +68,16 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
       ExecCont p sym ext rtp f a0  ->
       IO (ExecResult p sym ext rtp))
 
+-- Gathering of constraints on the sym
+type SymConstraint sym =
+  (IsBoolSolver sym, W4.IsSymExprBuilder sym,
+    W4.IsInterpretedFloatSymExprBuilder sym,
+    IsSymInterface sym, 
+    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) 
+
 -- Type of the [simulate] method. 
-type Simulate sym a = (IsBoolSolver sym, W4.IsSymExprBuilder sym,
-                W4.IsInterpretedFloatSymExprBuilder sym,
-                IsSymInterface sym, 
-                W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-                W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
+type Simulate sym a = (SymConstraint sym)  =>
     ExecuteCrucible sym    -- ^ callback to executeCrucible
     -> Options a           -- ^ crux & lang-specific options
     -> sym                

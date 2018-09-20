@@ -35,7 +35,7 @@ import Lang.Crucible.Simulator.Profiling
   )
 
 -- crucible/what4
-import What4.Config (setOpt, getOptionSetting)
+import What4.Config (setOpt, getOptionSetting, verbosity)
 import What4.Interface ( getConfiguration )
 
 -- crux
@@ -79,8 +79,12 @@ simulate opts  =
   --withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym -> do
   withYicesOnlineBackend nonceGen $ \(sym :: YicesOnlineBackend scope (Flags FloatReal)) -> do
 
+     -- set the verbosity level
+     void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
+                         <*> pure (toInteger (simVerbose cruxOpts)))
+    
      void $ join (setOpt <$> getOptionSetting checkPathSatisfiability (getConfiguration sym)
-                              <*> pure (checkPathSat cruxOpts))
+                         <*> pure (checkPathSat cruxOpts))
 
     
      frm <- pushAssumptionFrame sym

@@ -25,6 +25,7 @@ Stability        : provisional
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ConstraintKinds #-}
 
 {-# OPTIONS_GHC -haddock #-}
 
@@ -1905,10 +1906,7 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
 
 
 executeCrucibleJVMCrux :: forall ret args sym p cb.
-  (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
-   W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-   W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType,
-   KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
+  (SymConstraint sym, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
                    => ExecuteCrucible sym
                    -> cb
                    -> Int               -- ^ Verbosity level
