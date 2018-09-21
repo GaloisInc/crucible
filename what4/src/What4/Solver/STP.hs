@@ -79,9 +79,7 @@ instance SMT2.SMTLib2GenericSolver STP where
 
   setDefaultLogicAndOptions writer = do
     -- Tell STP to use all supported logics
-    SMT2.setLogic writer SMT2.all_supported
-    -- Tell STP to produce models
-    SMT2.setOption writer $ SMT2.produceModels True
+    SMT2.setLogic writer SMT2.qf_bv
 
   newDefaultWriter solver sym h =
     SMT2.newWriter solver h (show solver) True (SMT2.defaultFeatures solver) False
