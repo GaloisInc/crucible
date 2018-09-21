@@ -66,7 +66,6 @@
 --  * Alternate calling conventions
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
@@ -151,13 +150,17 @@ import           Lang.Crucible.Types
 -- Translation results
 
 type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
+type GlobalMap = Map L.Symbol (Maybe LLVMConst)
 
 -- | The result of translating an LLVM module into Crucible CFGs.
 data ModuleTranslation arch
    = ModuleTranslation
       { cfgMap :: ModuleCFGMap arch
-      , initMemoryCFG :: C.SomeCFG (LLVM arch) EmptyCtx UnitType
       , _transContext :: LLVMContext arch
+      , globalMap :: GlobalMap
+        -- ^ A map from global names to their (constant) values
+        -- Note: Willy-nilly global initialization may be unsound in the
+        -- presence of compositional verification.
       }
 
 transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
@@ -2432,7 +2435,21 @@ transDefine ctx d = do
         C.SomeCFG g_ssa -> return (sym, C.AnyCFG g_ssa)
 
 ------------------------------------------------------------------------
--- initMemProc
+-- makeGlobalMap
+
+-- | @makeGlobalMap@ creates a map from names of LLVM global variables
+-- to the values of their initializers, if any are included in the module.
+makeGlobalMap :: forall m arch wptr. (MonadError String m, HasPtrWidth wptr)
+              => LLVMContext arch
+              -> L.Module
+              -> m GlobalMap
+makeGlobalMap ctx m =
+   let ?lc = ctx^.llvmTypeCtx -- implicitly passed to transConstant
+   in Map.fromList <$> (traverse transGlobal $ L.modGlobals m)
+  where transGlobal :: L.Global -> m (L.Symbol, Maybe LLVMConst)
+        transGlobal llvmGlobal =
+          (,) (L.globalSym llvmGlobal) <$>
+            (transConstant <$> L.globalValue llvmGlobal)
 
 genGlobalInit
             :: (L.Symbol, MemType, Maybe L.Value)
@@ -2517,9 +2534,8 @@ translateModule halloc m = do
        -- Translate definitions
        pairs <- mapM (transDefine ctx) (L.modDefines m)
        -- Return result.
-       initMem <- initMemProc halloc ctx m
        return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
-                                       , initMemoryCFG = initMem
+                                       , globalMap = makeGlobalMap ctx m
                                        , _transContext = ctx
                                        }))
 
