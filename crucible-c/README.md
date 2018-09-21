@@ -9,33 +9,32 @@ alternative, slightly more flexible API.
 Before running `crucible-c`, you'll need to install the following
 software:
 
-* Yices, available from <http://yices.csl.sri.com/>
+* The Stack build tool for Haskell:
+  <https://github.com/commercialhaskell/stack/releases>
 
-* Z3, available from <https://github.com/Z3Prover/z3/releases>
+* The Yices SMT solver: <http://yices.csl.sri.com/>
 
-* LLVM+Clang, available from <http://releases.llvm.org/download.html>
+* The Z3 SMT solver: <https://github.com/Z3Prover/z3/releases>
 
-We have tested it with Yices 2.6.0, Z3 4.7.1, and LLVM 6.0.1.
+* The Clang compiler: <http://releases.llvm.org/download.html>
+
+We have tested it with Stack 1.7.1, Yices 2.6.0, Z3 4.7.1, and LLVM 6.0.1.
 
 # Building
 
 The `crucible-c` tool can be built by doing the following:
 
-* Clone the `crucible` repository into a directory `$DIR`.
-
-* Change to the `$DIR` directory and run
-
-  `./scripts/build-sandbox.sh`
+* Clone the enclosing `crucible` repository into a directory `$DIR`.
 
 * Change to the `$DIR/crucible-c` directory and run
 
-  `cabal new-build crucible-c`
+  `./build-stack.sh`
 
 # Invocation
 
 In the `crucible-c` directory, to analyze `file.c`, run
 
-    cabal new-run crucible-c file.c
+    ./bin/crucible-c file.c
 
 You'll see output indicating the progress of analysis, how many proof
 goals are generated, and how many were successfully proved. In

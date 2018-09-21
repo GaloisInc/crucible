@@ -1,0 +1,24 @@
+packages:
+  - ../dependencies/aig
+  - ../dependencies/llvm-pretty
+  - ../dependencies/llvm-pretty-bc-parser
+  - ../dependencies/parameterized-utils
+  - ../dependencies/saw-core
+  - ../dependencies/saw-core-aig
+  - ../dependencies/saw-core-sbv
+  - ../dependencies/saw-core-what4
+  - ../crucible
+  - ../crucible-llvm
+  - ../crucible-saw
+  - ../crux
+  - ../what4
+  - .
+extra-deps:
+#  - GraphSCC-1.0.4
+  - dotgen-0.4.2
+  - fgl-visualize-0.1.0.1
+  - monadLib-3.7.3
+  - panic-0.4.0.1
+  - sbv-7.10
+#  - simple-smt-0.9.1
+resolver: lts-11.22
