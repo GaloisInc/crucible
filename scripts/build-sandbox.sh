@@ -60,7 +60,7 @@ PKG_LIST="GaloisInc/abcBridge GaloisInc/aig GaloisInc/blt \
           GaloisInc/llvm-pretty-bc-parser GaloisInc/parameterized-utils"
 
 # Set base GitHub URL for Galois repos if it's not already set
-: ${GITHUB_URL:="git@github.com"}
+: ${GITHUB_URL:="git@github.com:"}
 echo "Using github url: $GITHUB_URL"
 
 if [ ! -d "dependencies" ]; then
@@ -69,5 +69,5 @@ fi
 
 # Download GitHub repos
 for pkg in $PKG_LIST; do
-  checkout "$GITHUB_URL:$pkg.git" ${pkg#*/}
+  checkout "$GITHUB_URL$pkg.git" ${pkg#*/}
 done
