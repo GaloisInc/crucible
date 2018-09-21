@@ -695,8 +695,8 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 
   newDefaultWriter
     :: a -> B.ExprBuilder t st fs -> IO.Handle -> IO (WriterConn t (Writer a))
-  newDefaultWriter solver sym handle =
-    newWriter solver handle (show solver) True (defaultFeatures solver) True
+  newDefaultWriter solver sym h =
+    newWriter solver h (show solver) True (defaultFeatures solver) True
       =<< B.getSymbolVarBimap sym
 
   -- | Run the solver in a session.
