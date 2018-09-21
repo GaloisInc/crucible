@@ -49,13 +49,17 @@ module What4.Protocol.SMTLib2
   , setOption
     -- * Solvers and External interface
   , Session(..)
+  , SMTLib2GenericSolver(..)
   , writeDefaultSMT2
+  , startSolver
+  , shutdownSolver
     -- * Re-exports
   , SMTWriter.WriterConn
   , SMTWriter.assume
   ) where
 
 import           Control.Applicative
+import           Control.Concurrent
 import           Control.Exception
 import           Control.Monad.State.Strict
 import           Data.Bits (bit, setBit, shiftL)
@@ -71,13 +75,16 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String
 import           Data.Text (Text)
+import qualified Data.Text.Lazy as LazyText
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
 import           Numeric (readDec, readHex, readInt)
+import qualified System.Exit as Exit
 import qualified System.IO as IO
 import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec as Streams
+import qualified System.Process as Process
 
 import           Prelude hiding (writeFile)
 
@@ -85,11 +92,16 @@ import           What4.BaseTypes
 import           What4.SatResult
 import qualified What4.Expr.Builder as B
 import           What4.Expr.GroundEval
+import qualified What4.Interface as I
 import           What4.ProblemFeatures
+import           What4.Protocol.Online
 import           What4.Protocol.ReadDecimal
 import           What4.Protocol.SExp
 import qualified What4.Protocol.SMTWriter as SMTWriter
-import           What4.Protocol.SMTWriter hiding (assume)
+import           What4.Protocol.SMTWriter
+import           What4.Utils.HandleReader
+import           What4.Utils.Process
+import           What4.Utils.Streams
 
 
 ------------------------------------------------------------------------
@@ -672,6 +684,88 @@ smtLibEvalFuns s = SMTEvalFunctions
   evalBvArray w v tm = parseBvArraySolverValue w v =<< runGetValue s tm
 
 
+class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
+  defaultSolverPath :: a -> B.ExprBuilder t st fs -> IO FilePath
+
+  defaultSolverArgs :: a -> [String]
+
+  defaultFeatures :: a -> ProblemFeatures
+
+  setDefaultLogicAndOptions :: WriterConn t (Writer a) -> IO()
+
+  newDefaultWriter
+    :: a -> B.ExprBuilder t st fs -> IO.Handle -> IO (WriterConn t (Writer a))
+  newDefaultWriter solver sym handle =
+    newWriter solver handle (show solver) True (defaultFeatures solver) True
+      =<< B.getSymbolVarBimap sym
+
+  -- | Run the solver in a session.
+  withSolver
+    :: a
+    -> B.ExprBuilder t st fs
+    -> FilePath
+      -- ^ Path to solver executable
+    -> (String -> IO ())
+      -- ^ Function to print messages from the solver to
+    -> (Session t a -> IO b)
+      -- ^ Action to run
+    -> IO b
+  withSolver solver sym path logFn action =
+    withProcessHandles path (defaultSolverArgs solver) Nothing $
+      \(in_h, out_h, err_h, ph) -> do
+        -- Log stderr to output.
+        err_stream <- Streams.handleToInputStream err_h
+        void $ forkIO $ logErrorStream err_stream logFn
+        -- Create writer and session
+        writer <- newDefaultWriter solver sym in_h
+        out_stream <- Streams.handleToInputStream out_h
+        let s = Session
+              { sessionWriter   = writer
+              , sessionResponse = out_stream
+              }
+
+        -- Set solver logic and solver-specific options
+        setDefaultLogicAndOptions writer
+
+        -- Run action with session.
+        r <- action s
+        -- Tell solver to exit
+        writeExit writer
+        -- Log outstream from now on.
+        void $ forkIO $ logErrorStream out_stream logFn
+
+        ec <- Process.waitForProcess ph
+        case ec of
+          Exit.ExitSuccess -> return r
+          Exit.ExitFailure exit_code -> fail $
+            show solver ++ " exited with unexpected code: " ++ show exit_code
+
+  runSolverInOverride
+    :: a
+    -> B.ExprBuilder t st fs
+    -> (Int -> String -> IO ())
+    -> String
+    -> B.BoolExpr t
+    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO b)
+    -> IO b
+  runSolverInOverride solver sym logLn reason predicate cont = do
+    I.logSolverEvent sym
+      I.SolverStartSATQuery
+        { I.satQuerySolverName = show solver
+        , I.satQueryReason     = reason
+        }
+    path <- defaultSolverPath solver sym
+    withSolver solver sym path (logLn 2) $ \session -> do
+      -- Assume the predicate holds.
+      SMTWriter.assume (sessionWriter session) predicate
+      -- Run check SAT and get the model back.
+      runCheckSat session $ \result -> do
+        I.logSolverEvent sym
+          I.SolverEndSATQuery
+            { I.satQueryResult = void result
+            , I.satQueryError  = Nothing
+            }
+        cont result
 
 -- | A default method for writing SMTLib2 problems without any
 --   solver-specific tweaks.
@@ -692,3 +786,63 @@ writeDefaultSMT2 a nm feat sym h p = do
   SMTWriter.assume c p
   writeCheckSat c
   writeExit c
+
+startSolver
+  :: SMTLib2GenericSolver a
+  => a
+  -> B.ExprBuilder t st fs
+  -> IO (SolverProcess t (Writer a))
+startSolver solver sym = do
+  path <- defaultSolverPath solver sym
+  solver_process <- Process.createProcess $
+    (Process.proc path (defaultSolverArgs solver))
+      { Process.std_in       = Process.CreatePipe
+      , Process.std_out      = Process.CreatePipe
+      , Process.std_err      = Process.CreatePipe
+      , Process.create_group = True
+      , Process.cwd          = Nothing
+      }
+  (in_h, out_h, err_h, ph) <- case solver_process of
+    (Just in_h, Just out_h, Just err_h, ph) -> return (in_h, out_h, err_h, ph)
+    _ -> fail "Internal error in startSolver: Failed to create handle."
+
+  -- Log stderr to output.
+  err_reader <- startHandleReader err_h
+
+  -- Create writer
+  writer <- newDefaultWriter solver sym in_h
+
+  out_stream <- Streams.handleToInputStream out_h
+
+  -- Set solver logic and solver-specific options
+  setDefaultLogicAndOptions writer
+
+  return $! SolverProcess
+    { solverConn     = writer
+    , solverStdin    = in_h
+    , solverStderr   = err_reader
+    , solverHandle   = ph
+    , solverResponse = out_stream
+    , solverEvalFuns = smtEvalFuns writer out_stream
+    , solverLogFn    = I.logSolverEvent sym
+    , solverName     = show solver
+    }
+
+shutdownSolver
+  :: SMTLib2GenericSolver a => a -> SolverProcess t (Writer a) -> IO ()
+shutdownSolver solver p = do
+  -- Tell solver to exit
+  writeExit (solverConn p)
+
+  txt <- readAllLines (solverStderr p)
+
+  ec  <- Process.waitForProcess (solverHandle p)
+  case ec of
+    Exit.ExitSuccess -> return ()
+    Exit.ExitFailure exit_code ->
+      fail $
+        show solver
+        ++ " exited with unexpected code: "
+        ++ show exit_code
+        ++ "\n"
+        ++ LazyText.unpack txt
