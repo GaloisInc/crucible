@@ -32,6 +32,7 @@ module Lang.Crucible.Simulator.Profiling
   , enterEvent
   , exitEvent
   , inProfilingFrame
+  , readMetrics
 
     -- * Profiling data structures
   , CGEvent(..)
@@ -163,11 +164,15 @@ solverEventToJSON (time, ev) =
            Unsat{} -> [("sat", showJSON False)]
            Unknown{} -> []
 
-callGraphJSON :: Seq CGEvent -> JSValue
-callGraphJSON evs = JSObject $ toJSObject
+callGraphJSON :: UTCTime -> Metrics Identity -> Seq CGEvent -> JSValue
+callGraphJSON now m evs = JSObject $ toJSObject
   [ ("type", showJSON "callgraph")
-  , ("events", JSArray (map cgEventToJSON $ toList evs))
+  , ("events", JSArray allEvs)
   ]
+
+ where
+ allEvs = map cgEventToJSON (toList evs ++ closingEvents now m evs)
+
 
 symProUIString :: String -> String -> ProfilingTable -> IO String
 symProUIString nm source tbl =
@@ -177,11 +182,12 @@ symProUIString nm source tbl =
 symProUIJSON :: String -> String -> ProfilingTable -> IO JSValue
 symProUIJSON nm source tbl =
   do now <- getCurrentTime
+     m <- readMetrics tbl
      evs <- readIORef (callGraphEvents tbl)
      solverEvs <- readIORef (solverEvents tbl)
      return $ JSArray $
        [ JSObject $ toJSObject $ metadata now
-       , callGraphJSON evs
+       , callGraphJSON now m evs
        , JSObject $ toJSObject $ solver_calls solverEvs
        , JSObject $ toJSObject $ unused_terms
        ]
@@ -212,6 +218,27 @@ data ProfilingTable =
   , eventIDRef :: IORef Integer
   , solverEvents :: IORef (Seq (UTCTime, SolverEvent))
   }
+
+openEventFrames :: Seq CGEvent -> [CGEvent]
+openEventFrames = go []
+ where
+ go :: [CGEvent] -> Seq CGEvent -> [CGEvent]
+ go xs Seq.Empty = xs
+ go xs (e Seq.:<| es) =
+   case cgEvent_type e of
+     ENTER -> go (e:xs) es
+     EXIT  -> go (tail xs) es
+
+openToCloseEvent :: UTCTime -> Metrics Identity -> CGEvent -> CGEvent
+openToCloseEvent now m cge =
+  cge
+  { cgEvent_type = EXIT
+  , cgEvent_metrics = m
+  , cgEvent_time = now
+  }
+
+closingEvents :: UTCTime -> Metrics Identity -> Seq CGEvent -> [CGEvent]
+closingEvents now m = map (openToCloseEvent now m) . openEventFrames
 
 newProfilingTable :: IO ProfilingTable
 newProfilingTable =
@@ -262,10 +289,13 @@ enterEvent ::
   IO ()
 enterEvent tbl nm callLoc =
   do now <- getCurrentTime
-     m <- traverseF (pure . Identity <=< readIORef) (metrics tbl)
+     m <- readMetrics tbl
      i <- nextEventID tbl
      let p = fmap plSourceLoc callLoc
      modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing p ENTER m now i)
+
+readMetrics :: ProfilingTable -> IO (Metrics Identity)
+readMetrics tbl = traverseF (pure . Identity <=< readIORef) (metrics tbl)
 
 exitEvent ::
   ProfilingTable ->
