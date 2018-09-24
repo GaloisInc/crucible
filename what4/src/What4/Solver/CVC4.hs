@@ -9,24 +9,23 @@
 --
 -- CVC4-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Solver.CVC4
   ( CVC4
   , cvc4Adapter
   , cvc4Path
+  , cvc4Options
   , runCVC4InOverride
+  , withCVC4
   , writeCVC4SMT2File
   , writeMultiAsmpCVC4SMT2File
-  , withCVC4
   ) where
 
-import           Control.Concurrent
-import           Control.Monad (void, forM_)
+import           Control.Monad (forM_)
 import           Data.Bits
-import           System.Exit
 import           System.IO
-import qualified System.IO.Streams as Streams
-import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
@@ -38,17 +37,17 @@ import           What4.ProblemFeatures
 import           What4.SatResult
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
+import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
 import           What4.Protocol.SMTWriter
 import           What4.Utils.Process
-import           What4.Utils.Streams
 
 
 intWithRangeOpt :: ConfigOption BaseIntegerType -> Integer -> Integer -> ConfigDesc
 intWithRangeOpt nm lo hi = mkOpt nm sty Nothing Nothing
   where sty = integerWithRangeOptSty (Inclusive lo) (Inclusive hi)
 
-data CVC4 = CVC4
+data CVC4 = CVC4 deriving Show
 
 -- | Path to cvc4
 cvc4Path :: ConfigOption BaseStringType
@@ -84,7 +83,7 @@ instance SMT2.SMTLib2Tweaks CVC4 where
 
   smtlib2arrayType _ il r = SMT2.arrayType1 CVC4 (indexType il) (SMT2.unType CVC4 r)
 
-  -- | Adapted from the tweak of array constant for Z3.
+  -- | Adapted from the tweak of array constant for CVC4.
   smtlib2arrayConstant = Just $ \idx elts v ->
     let array_type = SMT2.smtlib2arrayType CVC4 idx elts
         cast_app = builder_list [ "as" , "const" , array_type ]
@@ -116,69 +115,41 @@ writeCVC4SMT2File
    -> IO ()
 writeCVC4SMT2File sym h p = writeMultiAsmpCVC4SMT2File sym h [p]
 
-runCVC4InOverride
-   :: ExprBuilder t st fs
-   -> (Int -> String -> IO ())
-   -> String
-   -> BoolExpr t
-   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
-   -> IO a
-runCVC4InOverride sym logLn rsn p cont = do
-  solver_path <- findSolverPath cvc4Path (getConfiguration sym)
-  logSolverEvent sym
-    SolverStartSATQuery
-    { satQuerySolverName = "CVC4"
-    , satQueryReason = rsn
-    }
-  withCVC4 sym solver_path (logLn 2) $ \s -> do
-    -- Assume the predicate holds.
-    SMT2.assume (SMT2.sessionWriter s) p
-    -- Run check SAT and get the model back.
-    SMT2.runCheckSat s
-      (\result ->
-        do logSolverEvent sym
-             SolverEndSATQuery
-             { satQueryResult = fmap (const ()) result
-             , satQueryError  = Nothing
-             }
-           cont result)
+instance SMT2.SMTLib2GenericSolver CVC4 where
+  defaultSolverPath _ = findSolverPath cvc4Path . getConfiguration
 
--- | Run CVC4 in a session.  CVC4 will be configured to produce models, buth
--- otherwise left with the default configuration.
-withCVC4 :: ExprBuilder t st fs
-         -> FilePath
-            -- ^ Path to CVC4 executable
-         -> (String -> IO ())
-            -- ^ Function to print messages from CVC4 to.
-         -> (SMT2.Session t CVC4 -> IO a)
-            -- ^ Action to run
-         -> IO a
-withCVC4 sym cvc4_path logFn action = do
-  withProcessHandles cvc4_path ["--lang", "smt2"] Nothing $ \(in_h, out_h, err_h, ph) -> do
-    -- Log stderr to output.
-    err_stream <- Streams.handleToInputStream err_h
-    void $ forkIO $ logErrorStream err_stream logFn
-    -- Create stream for output from solver.
-    -- Create writer and session
-    bindings <- getSymbolVarBimap sym
-    wtr <- SMT2.newWriter CVC4 in_h "CVC4" True useIntegerArithmetic True bindings
-    out_stream <- Streams.handleToInputStream out_h
-    let s = SMT2.Session { SMT2.sessionWriter = wtr
-                         , SMT2.sessionResponse = out_stream
-                         }
+  defaultSolverArgs _ = ["--lang", "smt2", "--incremental"]
+
+  defaultFeatures _ = useIntegerArithmetic
+
+  setDefaultLogicAndOptions writer = do
     -- Tell CVC4 to use all supported logics.
-    SMT2.setLogic  wtr SMT2.all_supported
+    SMT2.setLogic writer SMT2.all_supported
     -- Tell CVC4 to produce models
-    SMT2.setOption wtr (SMT2.produceModels True)
-    -- Run action with session
-    r <- action s
-    -- Tell CVC4 to exit
-    SMT2.writeExit wtr
-    -- Log outstream as error messages.
-    void $ forkIO $ logErrorStream out_stream logFn
-    -- Check error code.
-    ec <- waitForProcess ph
-    case ec of
-      ExitSuccess -> return r
-      ExitFailure exit_code ->
-        fail $ "CVC4 exited with unexpected code: " ++ show exit_code
+    SMT2.setOption writer $ SMT2.produceModels True
+
+runCVC4InOverride
+  :: ExprBuilder t st fs
+  -> (Int -> String -> IO ())
+  -> String
+  -> BoolExpr t
+  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+  -> IO a
+runCVC4InOverride = SMT2.runSolverInOverride CVC4
+
+-- | Run CVC4 in a session. CVC4 will be configured to produce models, but
+-- otherwise left with the default configuration.
+withCVC4
+  :: ExprBuilder t st fs
+  -> FilePath
+    -- ^ Path to CVC4 executable
+  -> (String -> IO ())
+    -- ^ Function to print messages from CVC4 to.
+  -> (SMT2.Session t CVC4 -> IO a)
+    -- ^ Action to run
+  -> IO a
+withCVC4 = SMT2.withSolver CVC4
+
+instance OnlineSolver t (SMT2.Writer CVC4) where
+  startSolverProcess = SMT2.startSolver CVC4
+  shutdownSolverProcess = SMT2.shutdownSolver CVC4

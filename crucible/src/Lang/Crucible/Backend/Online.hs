@@ -40,6 +40,12 @@ module Lang.Crucible.Backend.Online
     -- ** Z3
   , Z3OnlineBackend
   , withZ3OnlineBackend
+    -- ** CVC4
+  , CVC4OnlineBackend
+  , withCVC4OnlineBackend
+    -- ** STP
+  , STPOnlineBackend
+  , withSTPOnlineBackend
     -- * OnlineBackendState
   , OnlineBackendState
     -- * Re-exports
@@ -68,6 +74,8 @@ import           What4.SatResult
 import           What4.Protocol.Online
 import           What4.Protocol.SMTWriter as SMT
 import           What4.Protocol.SMTLib2 as SMT2
+import qualified What4.Solver.CVC4 as CVC4
+import qualified What4.Solver.STP as STP
 import qualified What4.Solver.Yices as Yices
 import qualified What4.Solver.Z3 as Z3
 
@@ -132,6 +140,36 @@ withZ3OnlineBackend gen action =
   withOnlineBackend gen $ \sym ->
     do extendConfig Z3.z3Options (getConfiguration sym)
        action sym
+
+type CVC4OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer CVC4.CVC4) fs
+
+-- | Do something with a CVC4 online backend.
+--   The backend is only valid in the continuation.
+--
+--   The CVC4 configuration options will be automatically
+--   installed into the backend configuration object.
+withCVC4OnlineBackend
+  :: NonceGenerator IO scope
+  -> (CVC4OnlineBackend scope fs -> IO a)
+  -> IO a
+withCVC4OnlineBackend gen action = withOnlineBackend gen $ \sym -> do
+  extendConfig CVC4.cvc4Options (getConfiguration sym)
+  action sym
+
+type STPOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer STP.STP) fs
+
+-- | Do something with a STP online backend.
+--   The backend is only valid in the continuation.
+--
+--   The STO configuration options will be automatically
+--   installed into the backend configuration object.
+withSTPOnlineBackend
+  :: NonceGenerator IO scope
+  -> (STPOnlineBackend scope fs -> IO a)
+  -> IO a
+withSTPOnlineBackend gen action = withOnlineBackend gen $ \sym -> do
+  extendConfig STP.stpOptions (getConfiguration sym)
+  action sym
 
 ------------------------------------------------------------------------
 -- OnlineBackendState: implementation details.
