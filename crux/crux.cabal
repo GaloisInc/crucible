@@ -28,6 +28,7 @@ library
     pretty >= 1.1,
     split >= 0.2,
     text,
+    time >= 1.8 && < 2.0,
     transformers >= 0.3,
     transformers-compat,
     vector >= 0.7,

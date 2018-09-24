@@ -49,8 +49,9 @@ data CruxOptions = CruxOptions
     -- ^ Should we enable path satisfiability checking?
   , profileCrucibleFunctions :: Bool
   , profileSolver            :: Bool
+  , globalTimeout            :: Maybe String
+  , profileOutputInterval    :: Maybe String
   }
-
 
 type Options a = (CruxOptions, LangOptions a)
 

@@ -17,6 +17,8 @@ module Crux.CruxMain where
 
 import Control.Monad
 import Control.Exception(SomeException(..),displayException)
+import Data.Time.Clock( NominalDiffTime )
+import Numeric( readFloat )
 import System.IO(hPutStrLn,withFile,IOMode(..))
 import System.FilePath((</>))
 import System.Directory(createDirectoryIfMissing)
@@ -67,6 +69,13 @@ check opts@(cruxOpts,_langOpts) =
       do putStrLn "TOP LEVEL EXCEPTION"
          putStrLn (displayException e)
 
+
+parseNominalDiffTime :: String -> Maybe NominalDiffTime
+parseNominalDiffTime xs =
+  case readFloat xs of
+    (v,""):_ -> Just (fromRational (toRational (v::Double)))
+    _ -> Nothing
+
 -- Returns only non-trivial goals
 simulate :: Language a => Options a ->
   IO (Maybe ProvedGoals)
@@ -104,8 +113,27 @@ simulate opts  =
      when (profileSolver cruxOpts) $
        startRecordingSolverEvents sym tbl
 
+     let profOutFile = outDir cruxOpts </> "report_data.js"
 
-     let timeOpts = TimeoutOptions Nothing Nothing
+     glblTimeout <-
+        traverse
+          (\v -> case parseNominalDiffTime v of
+                   Nothing -> fail $ "Invalid timeout value: " ++ v
+                   Just t  -> return t)
+          (globalTimeout cruxOpts)
+
+     profileInterval <-
+        traverse
+          (\v -> case parseNominalDiffTime v of
+                    Nothing -> fail $ "Invalid profiling output interval: " ++ v
+                    Just t  -> return (profOutFile, inputFile cruxOpts, inputFile cruxOpts, t))
+          (profileOutputInterval cruxOpts)
+
+     let timeOpts =
+          TimeoutOptions
+          { overallTimeout = glblTimeout
+          , periodicProfileOutput = profileInterval
+          }
 
      gls <- inFrame "<Crux>" $ do
        Result res <-
@@ -134,7 +162,6 @@ simulate opts  =
 
      when (profiling && outDir cruxOpts /= "") $ do
        createDirectoryIfMissing True (outDir cruxOpts)
-       let profOutFile = outDir cruxOpts </> "report_data.js"
        withFile profOutFile WriteMode $ \h ->
          hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl
 
