@@ -105,7 +105,7 @@ simulate opts  =
        startRecordingSolverEvents sym tbl
 
 
-     let timeOpts = TimeoutOptions (Just 0.1) Nothing
+     let timeOpts = TimeoutOptions Nothing Nothing
 
      gls <- inFrame "<Crux>" $ do
        Result res <-
