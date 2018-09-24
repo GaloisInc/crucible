@@ -28,11 +28,9 @@ import Data.Parameterized.Nonce(withIONonceGenerator)
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.Simulator
-
 import Lang.Crucible.Simulator.Profiling
   ( newProfilingTable, startRecordingSolverEvents, symProUIString
-  , executeCrucibleProfiling
-  , inProfilingFrame
+  , executeCrucibleProfiling, inProfilingFrame, TimeoutOptions(..)
   )
 
 -- crucible/what4
@@ -106,18 +104,24 @@ simulate opts  =
      when (profileSolver cruxOpts) $
        startRecordingSolverEvents sym tbl
 
+
+     let timeOpts = TimeoutOptions (Just 0.1) Nothing
+
      gls <- inFrame "<Crux>" $ do
        Result res <-
          if (profileCrucibleFunctions cruxOpts) then
-           CL.simulate (executeCrucibleProfiling tbl) opts sym personality
+           CL.simulate (executeCrucibleProfiling tbl timeOpts) opts sym personality
          else
            CL.simulate executeCrucible opts sym personality
 
-       _ <- popAssumptionFrame sym frm
+       case res of
+         TimeoutResult _ ->
+           do putStrLn "Simulation timed out! Program might not be fully verified!"
+         _ -> return ()
 
-       ctx' <- case res of
-         FinishedResult ctx' _pr -> return ctx'
-         AbortedResult ctx' _    -> return ctx'
+       popUntilAssumptionFrame sym frm
+
+       let ctx' = execResultContext res
 
        inFrame "<Proof Phase>" $
          do pg <- inFrame "<Prove Goals>" $

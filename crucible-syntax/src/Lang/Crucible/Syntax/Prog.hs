@@ -119,7 +119,8 @@ simulateProgram fn theInput outh profh opts setup =
                                 regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
                          Just ph ->
                            do proftab <- newProfilingTable
-                              void $ executeCrucibleProfiling proftab simSt $
+                              let timeoutOpts = TimeoutOptions Nothing Nothing -- no timeouts
+                              void $ executeCrucibleProfiling proftab timeoutOpts simSt $
                                 runOverrideSim retType $
                                 do mapM_ (registerFnBinding . fst) ovrs
                                    regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap

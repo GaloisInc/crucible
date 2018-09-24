@@ -47,6 +47,7 @@ module Lang.Crucible.Backend.AssumptionStack
   , pushFrame
   , popFrame
   , popFrameAndGoals
+  , popFramesUntil
   , resetStack
   , getProofObligations
   , clearProofObligations
@@ -259,6 +260,34 @@ pushFrame stk =
   do ident <- assumeStackGen stk
      modifyIORef' (proofObligations stk) (gcPush ident)
      return ident
+
+-- | Pop all frames up to and including the frame with the
+--   given identifier.  The return value indiciates how
+--   many stack frames were popped.
+popFramesUntil ::
+  FrameIdentifier ->
+  AssumptionStack pred assumeMsg assertMsg ->
+  IO Int
+popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
+ where
+ go n gc =
+    case gcPop gc of
+      Left (ident', _assumes, mg, gc1)
+        | ident == ident' ->
+            let gc' = case mg of
+                        Nothing -> gc1
+                        Just g  -> gcAddGoals g gc1
+             in (gc', n)
+        | otherwise ->
+             go (n+1) gc1
+
+      Right _ ->
+        panic "AssumptionStack.popFrameUntil"
+          [ "Frame not found in stack."
+          , "*** Frame to pop: " ++ showFrameId ident
+          ]
+
+ showFrameId (FrameIdentifier x) = show x
 
 -- | Pop a previously-pushed assumption frame from the stack.
 --   All assumptions in that frame will be forgotten.  The

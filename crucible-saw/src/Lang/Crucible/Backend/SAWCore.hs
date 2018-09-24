@@ -965,6 +965,10 @@ instance IsBoolSolver (SAWCoreBackend n fs) where
     stk <- getAssumptionStack sym
     AS.popFrameAndGoals ident stk
 
+  popUntilAssumptionFrame sym ident = do
+    stk <- getAssumptionStack sym
+    void $ AS.popFramesUntil ident stk
+
   saveAssumptionState sym = do
     stk <- getAssumptionStack sym
     AS.saveAssumptionStack stk
