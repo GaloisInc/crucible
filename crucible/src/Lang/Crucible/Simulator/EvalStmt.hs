@@ -28,6 +28,8 @@ module Lang.Crucible.Simulator.EvalStmt
   , executeCrucible
 
     -- * Lower-level evaluation operations
+  , dispatchExecState
+  , advanceCrucibleState
   , evalReg
   , evalReg'
   , evalExpr
@@ -433,49 +435,90 @@ ppStmtAndLoc h sh pl stmt = do
   hFlush h
 
 
+
+----------------------------------------------------------------------
+-- ExecState manipulations
+
+
+-- | Given an @ExecState@, examine it and either enter the continuation
+--   for final results, or construct the appropriate @ExecCont@ for
+--   continuing the computation and enter the provided intermediate continuation.
+dispatchExecState ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  IO Int {- ^ Action to query the current verbosity -} ->
+  ExecState p sym ext rtp {- ^ Current execution state of the simulator -} ->
+  (ExecResult p sym ext rtp -> IO z) {- ^ Final continuation for results -} ->
+  (forall f a. ExecCont p sym ext rtp f a -> SimState p sym ext rtp f a -> IO z)
+    {- ^ Intermediate continuation for running states -} ->
+  IO z
+dispatchExecState getVerb exst kresult k =
+  case exst of
+    ResultState res ->
+      kresult res
+
+    AbortState rsn st ->
+      let (AH handler) = st^.abortHandler in
+      k (handler rsn) st
+
+    OverrideState ovr st ->
+      k (overrideHandler ovr) st
+
+    SymbolicBranchState p a_frame o_frame tgt st ->
+      k (performIntraFrameSplit p a_frame o_frame tgt) st
+
+    ControlTransferState tgt st ->
+      k (performIntraFrameMerge tgt) st
+
+    UnwindCallState vfv ar st ->
+      k (resumeValueFromValueAbort vfv ar) st
+
+    CallState retHandler frm st ->
+      k (performFunctionCall retHandler frm) st
+
+    TailCallState vfv frm st ->
+      k (performTailCall vfv frm) st
+
+    ReturnState fnm vfv ret st ->
+      k (performReturn fnm vfv ret) st
+
+    RunningState _runTgt st ->
+      do v <- getVerb
+         k (stepBasicBlock v) st
+{-# INLINE dispatchExecState #-}
+
+
+-- | Run the given @ExecCont@ on the given @SimState@,
+--   being careful to catch any simulator abort exceptions
+--   that are thrown and dispatch them to the abort handler.
+advanceCrucibleState ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  ExecCont p sym ext rtp f a ->
+  SimState p sym ext rtp f a ->
+  IO (ExecState p sym ext rtp)
+advanceCrucibleState m st =
+     Ex.catches (runReaderT m st)
+                [ Ex.Handler $ \(e::AbortExecReason) ->
+                    runAbortHandler e st
+                , Ex.Handler $ \(e::Ex.IOException) ->
+                    if Ex.isUserError e then
+                      runGenericErrorHandler (Ex.ioeGetErrorString e) st
+                    else
+                      Ex.throwIO e
+                ]
+
+
 -- | Run a single step of the Crucible symbolic simulator.
---
---   'AbortExecReason' exceptions and 'UserError'
---   exceptions are NOT caught, and must be handled
---   by the calling context of 'singleStepCrucible'.
 singleStepCrucible ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
   ExecState p sym ext rtp ->
   IO (ExecState p sym ext rtp)
 singleStepCrucible verb exst =
-  case exst of
-    ResultState res ->
-      return (ResultState res)
-
-    AbortState rsn st ->
-      let (AH handler) = st^.abortHandler in
-      runReaderT (handler rsn) st
-
-    OverrideState ovr st ->
-      runReaderT (overrideHandler ovr) st
-
-    SymbolicBranchState p a_frame o_frame tgt st ->
-      runReaderT (performIntraFrameSplit p a_frame o_frame tgt) st
-
-    ControlTransferState tgt st ->
-      runReaderT (performIntraFrameMerge tgt) st
-
-    UnwindCallState vfv ar st ->
-      runReaderT (resumeValueFromValueAbort vfv ar) st
-
-    CallState retHandler frm st ->
-      runReaderT (performFunctionCall retHandler frm) st
-
-    TailCallState vfv frm st ->
-      runReaderT (performTailCall vfv frm) st
-
-    ReturnState fnm vfv ret st ->
-      runReaderT (performReturn fnm vfv ret) st
-
-    RunningState _runTgt st ->
-      runReaderT (stepBasicBlock verb) st
-
+  dispatchExecState
+    (return verb)
+    exst
+    (return . ResultState)
+    advanceCrucibleState
 
 -- | Given a 'SimState' and an execution continuation,
 --   apply the continuation and execute the resulting
@@ -493,53 +536,16 @@ executeCrucible :: forall p sym ext rtp f a.
 executeCrucible st0 cont =
   do let cfg = st0^.stateConfiguration
      verbOpt <- getOptionSetting verbosity cfg
-     loop verbOpt st0 cont
+     loop verbOpt =<< advanceCrucibleState cont st0
 
  where
- loop :: forall f' a'.
+ loop ::
    OptionSetting BaseIntegerType ->
-   SimState p sym ext rtp f' a' ->
-   ExecCont p sym ext rtp f' a' ->
+   ExecState p sym ext rtp ->
    IO (ExecResult p sym ext rtp)
- loop verbOpt st m =
-   do exst <- Ex.catches (runReaderT m st)
-                [ Ex.Handler $ \(e::AbortExecReason) ->
-                    runAbortHandler e st
-                , Ex.Handler $ \(e::Ex.IOException) ->
-                    if Ex.isUserError e then
-                      runGenericErrorHandler (Ex.ioeGetErrorString e) st
-                    else
-                      Ex.throwIO e
-                ]
-      case exst of
-        ResultState res ->
-          return res
-
-        AbortState rsn st' ->
-          let (AH handler) = st'^.abortHandler in
-          loop verbOpt st' (handler rsn)
-
-        OverrideState ovr st' ->
-          loop verbOpt st' (overrideHandler ovr)
-
-        SymbolicBranchState p a_frame o_frame tgt st' ->
-          loop verbOpt st' (performIntraFrameSplit p a_frame o_frame tgt)
-
-        ControlTransferState tgt st' ->
-          loop verbOpt st' (performIntraFrameMerge tgt)
-
-        CallState retHandler frm st' ->
-          loop verbOpt st' (performFunctionCall retHandler frm)
-
-        TailCallState vfv frm st' ->
-          loop verbOpt st' (performTailCall vfv frm)
-
-        ReturnState fnm vfv ret st' ->
-          loop verbOpt st' (performReturn fnm vfv ret)
-
-        UnwindCallState vfv ar st' ->
-          loop verbOpt st' (resumeValueFromValueAbort vfv ar)
-
-        RunningState _runTgt st' ->
-          do verb <- fromInteger <$> getOpt verbOpt
-             loop verbOpt st' (stepBasicBlock verb)
+ loop verbOpt exst =
+   dispatchExecState
+       (fromInteger <$> getOpt verbOpt)
+       exst
+       return
+       (\m st -> loop verbOpt =<< advanceCrucibleState m st)

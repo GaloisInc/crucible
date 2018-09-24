@@ -25,6 +25,7 @@
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.Profiling
   ( executeCrucibleProfiling
+  , TimeoutOptions(..)
   , newProfilingTable
   , recordSolverEvent
   , startRecordingSolverEvents
@@ -52,7 +53,7 @@ import qualified Data.Sequence as Seq
 import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
 import           Data.Time.Format
-import           System.IO.Error as Ex
+import           System.IO (withFile, IOMode(..), hPutStrLn)
 import           Text.JSON
 
 import           What4.Config
@@ -316,67 +317,83 @@ isMergeState tgt st =
     _ -> False
 
 
-
+data TimeoutOptions =
+  TimeoutOptions
+  { overallTimeout :: Maybe NominalDiffTime
+  , periodicProfileOutput :: Maybe (FilePath, String, String, NominalDiffTime)
+  }
 
 executeCrucibleProfiling :: forall p sym ext rtp f a.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   ProfilingTable ->
+  TimeoutOptions ->
   SimState p sym ext rtp f a {- ^ Initial simulator state -} ->
   ExecCont p sym ext rtp f a {- ^ Execution continuation to run -} ->
   IO (ExecResult p sym ext rtp)
-executeCrucibleProfiling tbl st0 cont =
+executeCrucibleProfiling tbl timeoutOpts st0 cont =
   do let cfg = st0^.stateConfiguration
      verbOpt <- getOptionSetting verbosity cfg
-     enterEvent tbl (st0^.stateTree.actFrame.gpValue.frameFunctionName) Nothing
+     let getVerb = fromInteger <$> getOpt verbOpt
 
-     loop verbOpt st0 cont
+     enterEvent tbl (st0^.stateTree.actFrame.gpValue.frameFunctionName) Nothing
+     now <- getCurrentTime
+     exst0 <- advanceCrucibleState cont st0
+     timeoutLoop getVerb now now exst0
 
  where
- loop :: forall f' a'.
-   OptionSetting BaseIntegerType ->
-   SimState p sym ext rtp f' a' ->
-   ExecCont p sym ext rtp f' a' ->
+ timeoutLoop getVerb startTime lastOutputTime exst =
+   case timeoutOpts of
+     TimeoutOptions { overallTimeout = Just diff, periodicProfileOutput = Just (outf, nm, source, outdiff) }
+       | stopTime <= outputTime ->
+           loopUntil stopTime getVerb exst (return . TimeoutResult)
+       | otherwise ->
+           loopUntil outputTime getVerb exst $ \exst' ->
+             do withFile outf WriteMode $ \h ->
+                  hPutStrLn h =<< symProUIString nm source tbl
+                now <- getCurrentTime
+                timeoutLoop getVerb startTime now exst'
+      where
+       stopTime = addUTCTime diff startTime
+       outputTime = addUTCTime outdiff lastOutputTime
+
+     TimeoutOptions { overallTimeout = Just diff, periodicProfileOutput = Nothing } ->
+       loopUntil stopTime getVerb exst (return . TimeoutResult)
+      where
+       stopTime = addUTCTime diff startTime
+
+     TimeoutOptions { overallTimeout = Nothing, periodicProfileOutput = Just (outf, nm, source, outdiff) } ->
+       loopUntil outputTime getVerb exst $ \exst' ->
+             do withFile outf WriteMode $ \h ->
+                  hPutStrLn h =<< symProUIString nm source tbl
+                now <- getCurrentTime
+                timeoutLoop getVerb startTime now exst'
+      where
+       outputTime = addUTCTime outdiff lastOutputTime
+
+     TimeoutOptions Nothing Nothing -> basicLoop getVerb exst
+
+ loopUntil ::
+   UTCTime ->
+   IO Int ->
+   ExecState p sym ext rtp ->
+   (ExecState p sym ext rtp -> IO (ExecResult p sym ext rtp)) ->
    IO (ExecResult p sym ext rtp)
- loop verbOpt st m =
-   do exst <- Ex.catches (runReaderT m st)
-                [ Ex.Handler $ \(e::AbortExecReason) ->
-                    runAbortHandler e st
-                , Ex.Handler $ \(e::Ex.IOException) ->
-                    if Ex.isUserError e then
-                      runGenericErrorHandler (Ex.ioeGetErrorString e) st
-                    else
-                      Ex.throwIO e
-                ]
-      updateProfilingTable tbl exst
-      case exst of
-        ResultState res ->
-          return res
+ loopUntil breakTime getVerb exst k =
+   do now <- getCurrentTime
+      if now >= breakTime then
+        k exst
+      else
+        do updateProfilingTable tbl exst
+           dispatchExecState getVerb exst return
+             (\m st ->
+               do exst' <- advanceCrucibleState m st
+                  loopUntil breakTime getVerb exst' k)
 
-        AbortState rsn st' ->
-          let (AH handler) = st'^.abortHandler in
-          loop verbOpt st' (handler rsn)
-
-        OverrideState ovr st' ->
-          loop verbOpt st' (overrideHandler ovr)
-
-        SymbolicBranchState p a_frame o_frame tgt st' ->
-          loop verbOpt st' (performIntraFrameSplit p a_frame o_frame tgt)
-
-        ControlTransferState tgt st' ->
-          loop verbOpt st' (performIntraFrameMerge tgt)
-
-        CallState retHandler frm st' ->
-          loop verbOpt st' (performFunctionCall retHandler frm)
-
-        TailCallState vfv frm st' ->
-          loop verbOpt st' (performTailCall vfv frm)
-
-        ReturnState fnm vfv ret st' ->
-          loop verbOpt st' (performReturn fnm vfv ret)
-
-        UnwindCallState vfv ar st' ->
-          loop verbOpt st' (resumeValueFromValueAbort vfv ar)
-
-        RunningState _runTgt st' ->
-          do verb <- fromInteger <$> getOpt verbOpt
-             loop verbOpt st' (stepBasicBlock verb)
+ basicLoop ::
+   IO Int ->
+   ExecState p sym ext rtp ->
+   IO (ExecResult p sym ext rtp)
+ basicLoop getVerb exst =
+   do updateProfilingTable tbl exst
+      dispatchExecState getVerb exst return
+        (\m st -> basicLoop getVerb =<< advanceCrucibleState m st)
