@@ -689,7 +689,7 @@ instance IsString TrivialAtom where
 test :: (HasCallStack, Show a) => Text -> SyntaxParse TrivialAtom a -> IO ()
 test txt p =
   case MP.parse (skipWhitespace *> sexp (TrivialAtom <$> identifier) <* MP.eof) "input" txt of
-     Left err -> putStrLn "Reader error: " >> putStrLn (MP.parseErrorPretty' txt err)
+     Left err -> putStrLn "Reader error: " >> putStrLn (MP.errorBundlePretty err)
      Right sexpr ->
        case syntaxParse p sexpr of
          Left e -> T.putStrLn (printSyntaxError e)

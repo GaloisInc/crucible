@@ -54,7 +54,7 @@ doParseCheck fn theInput pprint outh =
   do ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
-         do putStrLn $ parseErrorPretty' theInput err
+         do putStrLn $ errorBundlePretty err
             exitFailure
        Right v ->
          do when pprint $
@@ -84,7 +84,7 @@ simulateProgram fn theInput outh profh opts setup =
   do ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
-         do putStrLn $ parseErrorPretty' theInput err
+         do putStrLn $ errorBundlePretty err
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
