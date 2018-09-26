@@ -86,7 +86,6 @@ import           Control.Monad.Reader
 import           Control.Monad.ST
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
-import qualified Data.Bimap as Bimap
 import           Data.Bits (shiftL)
 import           Data.IORef
 import qualified Data.Map.Strict as Map
@@ -2339,7 +2338,7 @@ addPartialSideCond _ _ = return ()
 -- | Get name associated with symbol binding if defined, creating it if needed.
 getSymbolName :: WriterConn t h -> SymbolBinding t -> IO Text
 getSymbolName conn b =
-  case Bimap.lookupR b (varBindings conn) of
+  case lookupSymbolOfBinding b (varBindings conn) of
     Just sym -> return $! solverSymbolAsText sym
     Nothing -> withWriterState conn $ freshVarName
 

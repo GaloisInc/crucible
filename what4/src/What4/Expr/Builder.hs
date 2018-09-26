@@ -121,6 +121,8 @@ module What4.Expr.Builder
   , SymbolVarBimap
   , SymbolBinding(..)
   , emptySymbolVarBimap
+  , lookupBindingOfSymbol
+  , lookupSymbolOfBinding
 
     -- * IdxCache
   , IdxCache
@@ -1238,7 +1240,7 @@ data ExprAllocator t
 -- | A bijective map between vars and their canonical name for printing
 -- purposes.
 -- Parameter @t@ is a phantom type brand used to track nonces.
-type SymbolVarBimap t = Bimap SolverSymbol (SymbolBinding t)
+newtype SymbolVarBimap t = SymbolVarBimap (Bimap SolverSymbol (SymbolBinding t))
 
 -- | This describes what a given SolverSymbol is associated with.
 -- Parameter @t@ is a phantom type brand used to track nonces.
@@ -1262,7 +1264,13 @@ instance Ord (SymbolBinding t) where
 
 -- | Empty symbol var bimap
 emptySymbolVarBimap :: SymbolVarBimap t
-emptySymbolVarBimap = Bimap.empty
+emptySymbolVarBimap = SymbolVarBimap Bimap.empty
+
+lookupBindingOfSymbol :: SolverSymbol -> SymbolVarBimap t -> Maybe (SymbolBinding t)
+lookupBindingOfSymbol s (SymbolVarBimap m) = Bimap.lookup s m
+
+lookupSymbolOfBinding :: SymbolBinding t -> SymbolVarBimap t -> Maybe SolverSymbol
+lookupSymbolOfBinding b (SymbolVarBimap m) = Bimap.lookupR b m
 
 ------------------------------------------------------------------------
 -- MatlabSolverFn
@@ -2652,7 +2660,8 @@ updateVarBinding :: ExprBuilder t st fs
 updateVarBinding sym nm v
   | nm == emptySymbol = return ()
   | otherwise =
-    modifyIORef' (sbVarBindings sym) $ (Bimap.insert nm $! v)
+    modifyIORef' (sbVarBindings sym) $ (ins nm $! v)
+  where ins n x (SymbolVarBimap m) = SymbolVarBimap (Bimap.insert n x m)
 
 -- | Creates a new bound var.
 sbMakeBoundVar :: ExprBuilder t st fs
@@ -2785,7 +2794,7 @@ newExprBuilder st gen = do
 
   loc_ref       <- newIORef initializationLoc
   storage_ref   <- newIORef es
-  bindings_ref  <- newIORef Bimap.empty
+  bindings_ref  <- newIORef emptySymbolVarBimap
   uninterp_fn_cache_ref <- newIORef Map.empty
   matlabFnCache <- stToIO $ PH.new
   loggerRef     <- newIORef Nothing
