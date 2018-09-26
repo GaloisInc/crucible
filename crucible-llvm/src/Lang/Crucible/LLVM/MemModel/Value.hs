@@ -61,8 +61,10 @@ import           What4.Partial
 
 import           Lang.Crucible.Backend
 import qualified Lang.Crucible.LLVM.Bytes as G
+import           Lang.Crucible.LLVM.Extension (ArchWidth)
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.Translation.Constant
 
 data FloatSize (fi :: FloatInfo) where
   SingleSize :: FloatSize SingleFloat

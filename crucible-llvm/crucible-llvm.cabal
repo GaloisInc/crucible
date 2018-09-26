@@ -61,7 +61,30 @@ library
     Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
+    Lang.Crucible.LLVM.Translation.Internal
     Lang.Crucible.LLVM.Types
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
+
+
+test-suite crucible-llvm-tests
+  type: exitcode-stdio-1.0
+  main-is: Tests.hs
+  hs-source-dirs: test
+  -- other-modules:
+  build-depends:
+    base,
+    containers,
+    crucible,
+    crucible-llvm,
+    directory,
+    filepath,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    mtl,
+    parameterized-utils,
+    process,
+    tasty,
+    tasty-golden,
+    tasty-hunit

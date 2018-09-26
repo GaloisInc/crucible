@@ -1,8 +1,7 @@
------------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.Translation
 -- Description      : Translation of LLVM AST into Crucible control-flow graph
--- Copyright        : (c) Galois, Inc 2014-2015
+-- Copyright        : (c) Galois, Inc 2014-2018
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
@@ -65,21 +64,23 @@
 --  * Multithreading primitives
 --  * Alternate calling conventions
 ------------------------------------------------------------------------
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE AllowAmbiguousTypes   #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE GADTs                 #-}
+{-# LANGUAGE ImplicitParams        #-}
+{-# LANGUAGE KindSignatures        #-}
+{-# LANGUAGE LambdaCase            #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE PatternGuards         #-}
+{-# LANGUAGE PatternSynonyms       #-}
+{-# LANGUAGE PolyKinds             #-}
+{-# LANGUAGE RankNTypes            #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE TypeOperators         #-}
+{-# LANGUAGE ViewPatterns          #-}
 module Lang.Crucible.LLVM.Translation
   ( ModuleTranslation(..)
   , transContext
@@ -87,17 +88,19 @@ module Lang.Crucible.LLVM.Translation
   , LLVMContext(..)
   , LLVMHandleInfo(..)
   , SymbolHandleMap
+  , GlobalInitializerMap
   , symbolMap
   , translateModule
   , llvmIntrinsicTypes
   , initializeMemory
   , toStorableType
+  , constToLLVMVal
 
   , module Lang.Crucible.LLVM.Translation.Types
   ) where
 
+import Control.Arrow ((>>>), (&&&))
 import Control.Monad.Except
-import Control.Monad.Fail hiding (fail)
 import Control.Monad.State.Strict
 import Control.Lens hiding (op, (:>) )
 import Control.Monad.ST
@@ -110,19 +113,23 @@ import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.String
-import qualified Data.Text as Text
 import qualified Data.Vector as V
+import qualified Data.Text   as Text
 
 import qualified Text.LLVM.AST as L
+import qualified Text.LLVM.PP as LPP
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>) )
+import           Data.Parameterized.NatRepr as NatRepr
 
 import Data.Parameterized.Some
 import Text.PrettyPrint.ANSI.Leijen (pretty)
 
 import           What4.FunctionName
 import           What4.ProgramLoc
+import qualified What4.Interface    as W4
+import           What4.InterpretedFloatingPoint (iFloatLitSingle, iFloatLitDouble)
 
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
@@ -141,8 +148,9 @@ import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.Translation.Internal
 
-import           Lang.Crucible.Backend( IsSymInterface )
+import           Lang.Crucible.Backend (IsSymInterface)
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
@@ -150,14 +158,29 @@ import           Lang.Crucible.Types
 -- Translation results
 
 type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
-type GlobalMap = Map L.Symbol (Maybe LLVMConst)
+
+-- | A @GlobalInitializerMap@ records the initialized values of globals in an @L.Module@.
+--
+-- The @Left@ constructor is used to signal errors in translation,
+-- which can happen when:
+-- * The global isn't actually a compile-time constant
+-- * The declaration is ill-typed
+-- * The global isn't linked ("extern global")
+--
+-- These failures are as granular as possible (attached to the values)
+-- so that simulation still succeeds if the module has a bad global that the
+-- verified function never touches.
+--
+-- To actually initialize globals, saw-script translates them into
+-- instances of @MemModel.LLVMVal@.
+type GlobalInitializerMap = Map L.Symbol (Either String LLVMConst)
 
 -- | The result of translating an LLVM module into Crucible CFGs.
 data ModuleTranslation arch
    = ModuleTranslation
-      { cfgMap :: ModuleCFGMap arch
+      { cfgMap        :: ModuleCFGMap arch
       , _transContext :: LLVMContext arch
-      , globalMap :: GlobalMap
+      , globalMap     :: GlobalInitializerMap
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
         -- presence of compositional verification.
@@ -165,287 +188,6 @@ data ModuleTranslation arch
 
 transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
 transContext = lens _transContext (\s v -> s{ _transContext = v})
-
--------------------------------------------------------------------------
--- LLVMExpr
-
--- | An intermediate form of LLVM expressions that retains some structure
---   that would otherwise be more difficult to retain if we translated directly
---   into crucible expressions.
-data LLVMExpr s arch where
-   BaseExpr   :: TypeRepr tp -> Expr (LLVM arch) s tp -> LLVMExpr s arch
-   ZeroExpr   :: MemType -> LLVMExpr s arch
-   UndefExpr  :: MemType -> LLVMExpr s arch
-   VecExpr    :: MemType -> Seq (LLVMExpr s arch) -> LLVMExpr s arch
-   StructExpr :: Seq (MemType, LLVMExpr s arch) -> LLVMExpr s arch
-
-instance Show (LLVMExpr s arch) where
-  show (BaseExpr _ x)   = C.showF x
-  show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
-  show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
-  show (VecExpr _mt xs) = "[" ++ concat (List.intersperse ", " (map show (toList xs))) ++ "]"
-  show (StructExpr xs)  = "{" ++ concat (List.intersperse ", " (map f (toList xs))) ++ "}"
-    where f (_mt,x) = show x
-
-
-data ScalarView s arch where
-  Scalar    :: TypeRepr tp -> Expr (LLVM arch) s tp -> ScalarView s arch
-  NotScalar :: ScalarView s arch
-
--- | Examine an LLVM expression and return the corresponding
---   crucible expression, if it is a scalar.
-asScalar :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-         => LLVMExpr s arch
-         -> ScalarView s arch
-asScalar (BaseExpr tp xs)
-  = Scalar tp xs
-asScalar (ZeroExpr llvmtp)
-  = let ?err = error
-     in zeroExpand llvmtp $ \tpr ex -> Scalar tpr ex
-asScalar (UndefExpr llvmtp)
-  = let ?err = error
-     in undefExpand llvmtp $ \tpr ex -> Scalar tpr ex
-asScalar _ = NotScalar
-
--- | Turn the expression into an explicit vector.
-asVectorWithType :: LLVMExpr s arch -> Maybe (MemType, Seq (LLVMExpr s arch))
-asVectorWithType v =
-  case v of
-    ZeroExpr (VecType n t)  -> Just (t, Seq.replicate n (ZeroExpr t))
-    UndefExpr (VecType n t) -> Just (t, Seq.replicate n (UndefExpr t))
-    VecExpr t s             -> Just (t, s)
-    _                       -> Nothing
-
-asVector :: LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
-asVector = fmap snd . asVectorWithType
-
-
--- | Given an LLVM type and a type context and a register assignment,
---   peel off the rightmost register from the assignment, which is
---   expected to match the given LLVM type.  Pass the register and
---   the remaining type and register context to the given continuation.
---
---   This procedure is used to set up the initial state of the
---   registers at the entry point of a function.
-packType :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
-         => MemType
-         -> CtxRepr ctx
-         -> Ctx.Assignment (Atom s) ctx
-         -> (forall ctx'. Some (Atom s) -> CtxRepr ctx' -> Ctx.Assignment (Atom s) ctx' -> a)
-         -> a
-packType tp ctx asgn k =
-   llvmTypeAsRepr tp $ \repr ->
-     packBase repr ctx asgn k
-
-packBase
-    :: TypeRepr tp
-    -> CtxRepr ctx
-    -> Ctx.Assignment (Atom s) ctx
-    -> (forall ctx'. Some (Atom s) -> CtxRepr ctx' -> Ctx.Assignment (Atom s) ctx' -> a)
-    -> a
-packBase ctp ctx0 asgn k =
-  case ctx0 of
-    ctx' Ctx.:> ctp' ->
-      case testEquality ctp ctp' of
-        Nothing -> error $ unwords ["crucible type mismatch",show ctp,show ctp']
-        Just Refl ->
-          let asgn' = Ctx.init asgn
-              idx   = Ctx.nextIndex (Ctx.size asgn')
-           in k (Some (asgn Ctx.! idx))
-                ctx'
-                asgn'
-    _ -> error "packType: ran out of actual arguments!"
-
-typeToRegExpr :: MemType -> LLVMGenerator h s arch ret (Some (Reg s))
-typeToRegExpr tp = do
-  llvmTypeAsRepr tp $ \tpr ->
-    Some <$> newUnassignedReg tpr
-
-
-instrResultType ::
-  (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
-  L.Instr ->
-  m MemType
-instrResultType instr =
-  case instr of
-    L.Arith _ x _ -> liftMemType (L.typedType x)
-    L.Bit _ x _   -> liftMemType (L.typedType x)
-    L.Conv _ _ ty -> liftMemType ty
-    L.Call _ (L.PtrTo (L.FunTy ty _ _)) _ _ -> liftMemType ty
-    L.Call _ ty _ _ ->  fail $ unwords ["unexpected function type in call:", show ty]
-    L.Invoke (L.FunTy ty _ _) _ _ _ _ -> liftMemType ty
-    L.Invoke ty _ _ _ _ -> fail $ unwords ["unexpected function type in invoke:", show ty]
-    L.Alloca ty _ _ -> liftMemType (L.PtrTo ty)
-    L.Load x _ _ -> case L.typedType x of
-                   L.PtrTo ty -> liftMemType ty
-                   _ -> fail $ unwords ["load through non-pointer type", show (L.typedType x)]
-    L.ICmp _ _ _ -> liftMemType (L.PrimType (L.Integer 1))
-    L.FCmp _ _ _ -> liftMemType (L.PrimType (L.Integer 1))
-    L.Phi tp _   -> liftMemType tp
-
-    L.GEP inbounds base elts ->
-       do gepRes <- runExceptT (translateGEP inbounds base elts)
-          case gepRes of
-            Left err -> fail err
-            Right (GEPResult lanes tp _gep) ->
-              let n = fromInteger (natValue lanes) in
-              if n == 1 then
-                return (PtrType (MemType tp))
-              else
-                return (VecType n (PtrType (MemType tp)))
-
-    L.Select _ x _ -> liftMemType (L.typedType x)
-
-    L.ExtractValue x idxes -> liftMemType (L.typedType x) >>= go idxes
-         where go [] tp = return tp
-               go (i:is) (ArrayType n tp')
-                   | i < fromIntegral n = go is tp'
-                   | otherwise = fail $ unwords ["invalid index into array type", showInstr instr]
-               go (i:is) (StructType si) =
-                      case siFields si V.!? (fromIntegral i) of
-                        Just fi -> go is (fiType fi)
-                        Nothing -> error $ unwords ["invalid index into struct type", showInstr instr]
-               go _ _ = fail $ unwords ["invalid type in extract value instruction", showInstr instr]
-
-    L.InsertValue x _ _ -> liftMemType (L.typedType x)
-
-    L.ExtractElt x _ ->
-       do tp <- liftMemType (L.typedType x)
-          case tp of
-            VecType _n tp' -> return tp'
-            _ -> fail $ unwords ["extract element of non-vector type", showInstr instr]
-
-    L.InsertElt x _ _ -> liftMemType (L.typedType x)
-
-    L.ShuffleVector x _ i ->
-      do xtp <- liftMemType (L.typedType x)
-         itp <- liftMemType (L.typedType i)
-         case (xtp, itp) of
-           (VecType _n ty, VecType m _) -> return (VecType m ty)
-           _ -> fail $ unwords ["invalid shufflevector:", showInstr instr]
-
-    L.LandingPad x _ _ _ -> liftMemType x
-
-    _ -> fail $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
-
-
-------------------------------------------------------------------------
--- LLVMState
-
--- | Maps identifiers to an associated register or defined expression.
-type IdentMap s = Map L.Ident (Either (Some (Reg s)) (Some (Atom s)))
-
-data LLVMState arch s
-   = LLVMState
-   { -- | Map from identifiers to associated register shape
-     _identMap :: !(IdentMap s)
-   , _blockInfoMap :: !(Map L.BlockLabel (LLVMBlockInfo s))
-   , llvmContext :: LLVMContext arch
-   }
-
-identMap :: Simple Lens (LLVMState arch s) (IdentMap s)
-identMap = lens _identMap (\s v -> s { _identMap = v })
-
-blockInfoMap :: Simple Lens (LLVMState arch s) (Map L.BlockLabel (LLVMBlockInfo s))
-blockInfoMap = lens _blockInfoMap (\s v -> s { _blockInfoMap = v })
-
--- Given a list of LLVM formal parameters and a corresponding crucible
--- register assignment, build an IdentMap mapping LLVM identifiers to
--- corresponding crucible registers.
-buildIdentMap :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
-              => [L.Typed L.Ident]
-              -> Bool -- ^ varargs
-              -> CtxRepr ctx
-              -> Ctx.Assignment (Atom s) ctx
-              -> IdentMap s
-              -> IdentMap s
-buildIdentMap ts True ctx asgn m =
-  -- Vararg functions are translated as taking a vector of extra arguments
-  packBase (VectorRepr AnyRepr) ctx asgn $ \_x ctx' asgn' ->
-    buildIdentMap ts False ctx' asgn' m
-buildIdentMap [] _ ctx _ m
-  | Ctx.null ctx = m
-  | otherwise =
-      error "buildIdentMap: passed arguments do not match LLVM input signature"
-buildIdentMap (ti:ts) _ ctx asgn m = do
-  -- ?? FIXME, irrefutable pattern...
-  let Just ty = TyCtx.liftMemType (L.typedType ti)
-  packType ty ctx asgn $ \x ctx' asgn' ->
-     buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
-
--- | Build the initial LLVM generator state upon entry to to the entry point of a function.
-initialState :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-             => L.Define
-             -> LLVMContext arch
-             -> CtxRepr args
-             -> Ctx.Assignment (Atom s) args
-             -> LLVMState arch s
-initialState d llvmctx args asgn =
-   let m = buildIdentMap (reverse (L.defArgs d)) (L.defVarArgs d) args asgn Map.empty in
-     LLVMState { _identMap = m, _blockInfoMap = Map.empty, llvmContext = llvmctx }
-
-type LLVMGenerator h s arch ret a =
-  (?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch)) => Generator (LLVM arch) h s (LLVMState arch) ret a
-
--- | Information about an LLVM basic block
-data LLVMBlockInfo s
-  = LLVMBlockInfo
-    {
-      -- The crucible block label corresponding to this LLVM block
-      block_label    :: Label s
-
-      -- map from labels to assignments that must be made before
-      -- jumping.  If this is the block info for label l',
-      -- and the map has [(i1,v1),(i2,v2)] in the phi_map for block l,
-      -- then basic block l is required to assign i1 = v1 and i2 = v2
-      -- before jumping to block l'.
-    , block_phi_map    :: !(Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value)))
-    }
-
-buildBlockInfoMap :: L.Define -> LLVMGenerator h s arch ret (Map L.BlockLabel (LLVMBlockInfo s))
-buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
-
-buildBlockInfo :: L.BasicBlock -> LLVMGenerator h s arch ret (L.BlockLabel, LLVMBlockInfo s)
-buildBlockInfo bb = do
-  let phi_map = buildPhiMap (L.bbStmts bb)
-  let Just blk_lbl = L.bbLabel bb
-  lab <- newLabel
-  return (blk_lbl, LLVMBlockInfo{ block_phi_map = phi_map
-                                , block_label = lab
-                                })
-
--- Given the statements in a basic block, find all the phi instructions and
--- compute the list of assignments that must be made for each predecessor block.
-buildPhiMap :: [L.Stmt] -> Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value))
-buildPhiMap ss = go ss Map.empty
- where go (L.Result ident (L.Phi tp xs) _ : stmts) m = go stmts (go' ident tp xs m)
-       go _ m = m
-
-       f x mseq = Just (fromMaybe Seq.empty mseq Seq.|> x)
-
-       go' ident tp ((v, lbl) : xs) m = go' ident tp xs (Map.alter (f (ident,tp,v)) lbl m)
-       go' _ _ [] m = m
-
--- | This function pre-computes the types of all the crucible registers by scanning
---   through each basic block and finding the place where that register is assigned.
---   Because LLVM programs are in SSA form, this will occur in exactly one place.
---   The type of the register is inferred from the instruction that assigns to it
---   and is recorded in the ident map.
-buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator h s arch reg (IdentMap s)
-buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
-
-buildRegTypeMap :: IdentMap s
-                -> L.BasicBlock
-                -> LLVMGenerator h s arch ret (IdentMap s)
-buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
- where stmt m (L.Effect _ _) = return m
-       stmt m (L.Result ident instr _) = do
-         ty <- instrResultType instr
-         ex <- typeToRegExpr ty
-         case Map.lookup ident m of
-           Just _ -> fail $ unwords ["register not used in SSA fashion:", show ident]
-           Nothing -> return $ Map.insert ident (Left ex) m
-
 
 ---------------------------------------------------------------------------
 -- Translations
@@ -735,6 +477,134 @@ unpackVarArgs :: forall h s arch ret a
 unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList <$> xs'
  where xs' = let ?err = fail in
              mapM (\x -> unpackOne x (\tp x' -> return $ App (PackAny tp x'))) xs
+
+data ScalarView s arch where
+  Scalar    :: TypeRepr tp -> Expr (LLVM arch) s tp -> ScalarView s arch
+  NotScalar :: ScalarView s arch
+
+-- | Examine an LLVM expression and return the corresponding
+--   crucible expression, if it is a scalar.
+asScalar :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+         => LLVMExpr s arch
+         -> ScalarView s arch
+asScalar (BaseExpr tp xs)
+  = Scalar tp xs
+asScalar (ZeroExpr llvmtp)
+  = let ?err = error
+     in zeroExpand llvmtp $ \tpr ex -> Scalar tpr ex
+asScalar (UndefExpr llvmtp)
+  = let ?err = error
+     in undefExpand llvmtp $ \tpr ex -> Scalar tpr ex
+asScalar _ = NotScalar
+
+-- | Turn the expression into an explicit vector.
+asVectorWithType :: LLVMExpr s arch -> Maybe (MemType, Seq (LLVMExpr s arch))
+asVectorWithType v =
+  case v of
+    ZeroExpr (VecType n t)  -> Just (t, Seq.replicate n (ZeroExpr t))
+    UndefExpr (VecType n t) -> Just (t, Seq.replicate n (UndefExpr t))
+    VecExpr t s             -> Just (t, s)
+    _                       -> Nothing
+
+asVector :: LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
+asVector = fmap snd . asVectorWithType
+  
+-- | Given an LLVM type and a type context and a register assignment,
+--   peel off the rightmost register from the assignment, which is
+--   expected to match the given LLVM type.  Pass the register and
+--   the remaining type and register context to the given continuation.
+--
+--   This procedure is used to set up the initial state of the
+--   registers at the entry point of a function.
+packType :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
+         => MemType
+         -> CtxRepr ctx
+         -> Ctx.Assignment (Atom s) ctx
+         -> (forall ctx'. Some (Atom s) -> CtxRepr ctx' -> Ctx.Assignment (Atom s) ctx' -> a)
+         -> a
+packType tp ctx asgn k =
+   llvmTypeAsRepr tp $ \repr ->
+     packBase repr ctx asgn k
+
+packBase
+    :: TypeRepr tp
+    -> CtxRepr ctx
+    -> Ctx.Assignment (Atom s) ctx
+    -> (forall ctx'. Some (Atom s) -> CtxRepr ctx' -> Ctx.Assignment (Atom s) ctx' -> a)
+    -> a
+packBase ctp ctx0 asgn k =
+  case ctx0 of
+    ctx' Ctx.:> ctp' ->
+      case testEquality ctp ctp' of
+        Nothing -> error $ unwords ["crucible type mismatch",show ctp,show ctp']
+        Just Refl ->
+          let asgn' = Ctx.init asgn
+              idx   = Ctx.nextIndex (Ctx.size asgn')
+           in k (Some (asgn Ctx.! idx))
+                ctx'
+                asgn'
+    _ -> error "packType: ran out of actual arguments!"
+
+-- Given a list of LLVM formal parameters and a corresponding crucible
+-- register assignment, build an IdentMap mapping LLVM identifiers to
+-- corresponding crucible registers.
+buildIdentMap :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
+              => [L.Typed L.Ident]
+              -> Bool -- ^ varargs
+              -> CtxRepr ctx
+              -> Ctx.Assignment (Atom s) ctx
+              -> IdentMap s
+              -> IdentMap s
+buildIdentMap ts True ctx asgn m =
+  -- Vararg functions are translated as taking a vector of extra arguments
+  packBase (VectorRepr AnyRepr) ctx asgn $ \_x ctx' asgn' ->
+    buildIdentMap ts False ctx' asgn' m
+buildIdentMap [] _ ctx _ m
+  | Ctx.null ctx = m
+  | otherwise =
+      error "buildIdentMap: passed arguments do not match LLVM input signature"
+buildIdentMap (ti:ts) _ ctx asgn m = do
+  -- ?? FIXME, irrefutable pattern...
+  let Just ty = TyCtx.liftMemType (L.typedType ti)
+  packType ty ctx asgn $ \x ctx' asgn' ->
+     buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
+
+-- | Build the initial LLVM generator state upon entry to to the entry point of a function.
+initialState :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+             => L.Define
+             -> LLVMContext arch
+             -> CtxRepr args
+             -> Ctx.Assignment (Atom s) args
+             -> LLVMState arch s
+initialState d llvmctx args asgn =
+   let m = buildIdentMap (reverse (L.defArgs d)) (L.defVarArgs d) args asgn Map.empty in
+     LLVMState { _identMap = m, _blockInfoMap = Map.empty, llvmContext = llvmctx }
+
+typeToRegExpr :: MemType -> LLVMGenerator h s arch ret (Some (Reg s))
+typeToRegExpr tp = do
+  llvmTypeAsRepr tp $ \tpr ->
+    Some <$> newUnassignedReg tpr
+
+-- | This function pre-computes the types of all the crucible registers by scanning
+--   through each basic block and finding the place where that register is assigned.
+--   Because LLVM programs are in SSA form, this will occur in exactly one place.
+--   The type of the register is inferred from the instruction that assigns to it
+--   and is recorded in the ident map.
+buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator h s arch reg (IdentMap s)
+buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
+
+buildRegTypeMap :: IdentMap s
+                -> L.BasicBlock
+                -> LLVMGenerator h s arch ret (IdentMap s)
+buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
+ where stmt m (L.Effect _ _) = return m
+       stmt m (L.Result ident instr _) = do
+         ty <- instrResultType instr
+         ex <- typeToRegExpr ty
+         case Map.lookup ident m of
+           Just _ -> fail $ unwords ["register not used in SSA fashion:", show ident]
+           Nothing -> return $ Map.insert ident (Left ex) m
+
 
 -- | Implement the phi-functions along the edge from one LLVM Basic block to another.
 definePhiBlock :: L.BlockLabel      -- ^ The LLVM source basic block
@@ -2437,57 +2307,68 @@ transDefine ctx d = do
 ------------------------------------------------------------------------
 -- makeGlobalMap
 
+-- | Commute an applicative with Maybe
+commuteMaybe :: Applicative n => Maybe (n a) -> n (Maybe a)
+commuteMaybe (Just val) = Just <$> val
+commuteMaybe Nothing    = pure Nothing
+
+-- | Commute a functor with pairing
+fSnd :: Functor n => (a, n b) -> n (a, b)
+fSnd (a, nb) = fmap ((,) a) nb
+
 -- | @makeGlobalMap@ creates a map from names of LLVM global variables
 -- to the values of their initializers, if any are included in the module.
-makeGlobalMap :: forall m arch wptr. (MonadError String m, HasPtrWidth wptr)
+makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
               => LLVMContext arch
               -> L.Module
-              -> m GlobalMap
+              -> GlobalInitializerMap
 makeGlobalMap ctx m =
-   let ?lc = ctx^.llvmTypeCtx -- implicitly passed to transConstant
-   in Map.fromList <$> (traverse transGlobal $ L.modGlobals m)
-  where transGlobal :: L.Global -> m (L.Symbol, Maybe LLVMConst)
-        transGlobal llvmGlobal =
-          (,) (L.globalSym llvmGlobal) <$>
-            (transConstant <$> L.globalValue llvmGlobal)
+     Map.fromList $ map (L.globalSym &&& globalToConst) (L.modGlobals m)
+  where -- Catch the error from @transConstant@, turn it into @Either@
+        globalToConst :: L.Global -> Either String LLVMConst
+        globalToConst g =
+          catchError
+            (globalToConst' g >>=
+              flip maybeToEither
+                (List.intercalate " " $
+                  [ "The global"
+                  , showSymbol $ L.globalSym g
+                  , "is declared"
+                  , case L.modSourceName m of
+                      Nothing   -> ""
+                      Just name -> "in the module " ++ name
+                  , "but was missing. Did you link all of the relevant .bc files"
+                  , "together with `llvm-link'?"
+                  ]))
+            (\err -> Left $
+              "Encountered error while processing global "
+                ++ showSymbol (L.globalSym g)
+                ++ ": "
+                ++ err)
+          where showSymbol sym = 
+                  show $ let ?config = LPP.Config False False False
+                         in LPP.ppSymbol $ sym
 
-genGlobalInit
-            :: (L.Symbol, MemType, Maybe L.Value)
-            -> LLVMGenerator h s wptr ret ()
-genGlobalInit (_sym,_ty,Nothing) =
-  return ()
-genGlobalInit (sym,ty,Just v) = do
-  ptr <- transValue ty (L.ValSymbol sym)
-  v'  <- transValue ty v
-  let align = memTypeAlign (TyCtx.llvmDataLayout ?lc) ty
-  callStore ty ptr v' align
+        maybeToEither :: Maybe a -> b -> Either b a
+        maybeToEither Nothing b  = Left b
+        maybeToEither (Just a) _ = Right a
 
-initMemProc :: forall s arch wptr.
-               (HasPtrWidth wptr, wptr ~ ArchWidth arch)
-            => HandleAllocator s
-            -> LLVMContext arch
-            -> L.Module
-            -> ST s (C.SomeCFG (LLVM arch) EmptyCtx UnitType)
-initMemProc halloc ctx m = do
-   let gs = L.modGlobals m
-   let ?lc = ctx^.llvmTypeCtx
-   h <- mkHandle halloc "_llvm_mem_init"
-   gs_alloc <- mapM (\g -> do
-                        ty <- liftMemType $ L.globalType g
-                        return (L.globalSym g, ty, L.globalValue g))
-                    gs
-   let def :: FunctionDef (LLVM arch) s (LLVMState arch) EmptyCtx UnitType
-       def _inputs = (st, f)
-              where st = LLVMState
-                         { _identMap = Map.empty
-                         , _blockInfoMap = Map.empty
-                         , llvmContext = ctx
-                         }
-                    f = do mapM_ genGlobalInit gs_alloc
-                           return (App EmptyApp)
-
-   (SomeCFG g,[]) <- defineFunction InternalPos h def
-   return $! toSSA g
+        -- This is the pipeline:
+        -- L.Global
+        -- ==> (L.Symbol, Maybe L.Value)
+        -- ==> Maybe (L.Symbol, L.Value)
+        -- ==> Maybe (L.Typed L.Value)
+        -- ==> Maybe (m LLVMConst)
+        -- ==> m     (Maybe LLVMConst)
+        globalToConst' :: forall m. (MonadError String m)
+                       => L.Global -> m (Maybe LLVMConst)
+        globalToConst' =
+          let ?lc = ctx^.llvmTypeCtx -- implicitly passed to transConstant
+          in (L.globalType &&& L.globalValue)
+                >>> fSnd
+                >>> fmap (uncurry L.Typed)
+                >>> fmap transConstant
+                >>> commuteMaybe
 
 ------------------------------------------------------------------------
 -- translateModule
@@ -2579,3 +2460,95 @@ allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
 allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
   do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
      return (registerGlobal mem' symbol ptr)
+
+----------------------------------------------------------------------
+-- constToLLVMVal
+--
+-- TODO: Where should this live?
+
+-- | This is used (by saw-script) to initialize globals.
+--
+-- In this translation, we lose the distinction between pointers and ints.
+--
+constToLLVMVal :: forall arch sym.
+  ( ?lc :: TyCtx.LLVMContext
+  , HasPtrWidth (ArchWidth arch)
+  , IsSymInterface sym
+  ) => sym               -- ^ The symbolic backend
+    -> MemImpl sym       -- ^ The current memory state, for looking up globals
+    -> LLVMConst         -- ^ Constant expression to translate
+    -> IO (LLVMVal sym)  -- ^ Runtime representation of the constant expression
+
+-- See comment on @LLVMVal@ on why we use a literal 0.
+constToLLVMVal sym _ (IntConst width i) =
+  LLVMValInt <$> W4.natLit sym 0 <*> (W4.bvLit sym width i)
+
+constToLLVMVal sym _ (FloatConst f) =
+  LLVMValFloat SingleSize <$> iFloatLitSingle sym f
+
+constToLLVMVal sym _ (DoubleConst d) =
+  LLVMValFloat DoubleSize <$> iFloatLitDouble sym d
+
+constToLLVMVal sym mem (ArrayConst memty xs) =
+  LLVMValArray <$> toStorableType memty
+               <*> (V.fromList <$> traverse (constToLLVMVal @arch sym mem) xs)
+
+-- Same as the array case
+constToLLVMVal sym mem (VectorConst memty xs) =
+  LLVMValArray <$> toStorableType memty
+               <*> (V.fromList <$> traverse (constToLLVMVal @arch sym mem) xs)
+
+constToLLVMVal sym mem (StructConst sInfo xs) =
+  LLVMValStruct <$>
+    V.zipWithM (\x y -> (,) <$> fiToFT x <*> constToLLVMVal @arch sym mem y)
+               (siFields sInfo)
+               (V.fromList xs)
+
+-- SymbolConsts are offsets from global pointers. We translate them into the
+-- pointer they represent.
+constToLLVMVal sym mem (SymbolConst symb i) = do
+  ptr <- doResolveGlobal sym mem symb     -- Pointer to the global "symb"
+  ibv <- W4.bvLit sym ?ptrWidth i         -- Offset to be added, as a bitvector
+
+  -- blk is the allocation number that this global is stored in.
+  -- In contrast to the case for @IntConst@ above, it is non-zero.
+  let (blk, offset) = llvmPointerView ptr
+  LLVMValInt blk <$> W4.bvAdd sym offset ibv
+
+-- We lose the information of what's a pointer and what's an integer in this
+-- translation
+constToLLVMVal sym mem (PtrToIntConst c) = constToLLVMVal @arch sym mem c
+
+constToLLVMVal sym mem (ZeroConst memty) = zeroExpand' memty
+  where
+    -- Create an all-zero value in memory of the appropriate type.
+    --
+    -- Very similar to the code of @zeroExpand@ above.
+    --
+    -- TODO: For performance reasons (imagine allocating a zeroed-out array a few GB
+    -- long), we shouldn't use @zeroExpand'@ here, but should add a @ZeroConst@-like
+    -- constructor to @LLVMVal@.
+    zeroExpand' :: MemType -> IO (LLVMVal sym)
+    zeroExpand' (IntType _)         = rec' $ IntConst ?ptrWidth 0 -- is ptrWidth right?
+    zeroExpand' (PtrType _)         = rec' $ IntConst ?ptrWidth 0 -- is ptrWidth right?
+    zeroExpand' FloatType           = rec' $ FloatConst 0
+    zeroExpand' DoubleType          = rec' $ DoubleConst 0
+    zeroExpand' (ArrayType i memty') = -- Avoid name shadowing
+      LLVMValArray <$> toStorableType memty'
+                   <*> (V.replicate i <$> zeroExpand' memty')
+    -- Same as Array case
+    zeroExpand' (VecType i memty')   =
+      LLVMValArray <$> toStorableType memty
+                   <*> (V.replicate i <$> zeroExpand' memty')
+    zeroExpand' (StructType sInfo)  =
+      LLVMValStruct <$>
+        (V.zipWithM (\x y -> (,) <$> fiToFT x <*> y)
+                    (siFields sInfo)
+                    (V.map (zeroExpand' . fiType) (siFields sInfo)))
+    zeroExpand' MetadataType        = fail "Can't zeroExpand' metadata"
+    rec' = constToLLVMVal @arch sym mem
+
+-- TODO are these types just identical? Maybe we should combine them.
+fiToFT :: (HasPtrWidth wptr, Monad m) => FieldInfo -> m (G.Field G.Type)
+fiToFT fi = fmap (\t -> G.mkField (fiOffset fi) t (fiPadding fi))
+                 (toStorableType $ fiType fi)

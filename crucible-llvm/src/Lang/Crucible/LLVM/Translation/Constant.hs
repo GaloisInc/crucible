@@ -12,6 +12,8 @@
 -- for GEP (getelementpointer) instructions that makes more explicit
 -- the places where vectorization may occur, as well as resolving type
 -- sizes and field offsets.
+--
+-- See @liftConstant@ for how to turn these into expressions.
 -----------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
@@ -53,6 +55,7 @@ module Lang.Crucible.LLVM.Translation.Constant
 import           Control.Monad
 import           Control.Monad.Except
 import           Data.Bits
+import           Data.List (intercalate)
 import           Data.Traversable
 import           Data.Fixed (mod')
 import qualified Data.Vector as V
@@ -62,6 +65,7 @@ import           GHC.TypeLits
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as L
 
+import           Data.Parameterized.DecidableEq (decEq)
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 
@@ -275,6 +279,38 @@ data LLVMConst where
   -- | A special marker for pointer constants that have been cast as an integer type.
   PtrToIntConst :: !LLVMConst -> LLVMConst
 
+-- | The interesting case here is @IntConst@. GHC can't derive this because
+-- @IntConst@ existentially quantifies the integer's width. We say that
+-- two integers are equal when they have the same width *and* the same value.
+instance Eq LLVMConst where
+  (ZeroConst mem1)      == (ZeroConst mem2)      = mem1 == mem2
+  (IntConst w1 x1)      == (IntConst w2 x2)      =
+    case decEq w1 w2 of
+      Left eq -> case eq of Refl -> (x1 == x2)
+      Right _ -> False
+  (FloatConst f1)       == (FloatConst f2)       = f1 == f2
+  (DoubleConst d1)      == (DoubleConst d2)      = d1 == d2
+  (ArrayConst mem1 a1)  == (ArrayConst mem2 a2)  = mem1 == mem2 && a1 == a2
+  (VectorConst mem1 v1) == (VectorConst mem2 v2) = mem1 == mem2 && v1 == v2
+  (StructConst si1 a1)  == (StructConst si2 a2)  = si1 == si2   && a1 == a2
+  (SymbolConst s1 x1)   == (SymbolConst s2 x2)   = s1 == s2     && x1 == x2
+  (PtrToIntConst c1)    == (PtrToIntConst c2)    = c1 == c2
+  _                     == _                     = False
+
+-- | This also can't be derived, but is completely uninteresting.
+instance Show LLVMConst where
+  show lc = intercalate " " $
+    case lc of
+      (ZeroConst mem)     -> ["ZeroConst", show mem]
+      (IntConst w x)      -> ["IntConst", show w, show x]
+      (FloatConst f)      -> ["FloatConst", show f]
+      (DoubleConst d)     -> ["DoubleConst", show d]
+      (ArrayConst mem a)  -> ["ArrayConst", show mem, show a]
+      (VectorConst mem v) -> ["VectorConst", show mem, show v]
+      (StructConst si a)  -> ["StructConst", show si, show a]
+      (SymbolConst s x)   -> ["SymbolConst", show s, show x]
+      (PtrToIntConst c)   -> ["PtrToIntConst", show c]
+
 -- | Create an LLVM constant value from a boolean.
 boolConst :: Bool -> LLVMConst
 boolConst False = IntConst (knownNat @1) 0
@@ -347,8 +383,9 @@ transConstant' (StructType si) (L.ValPackedStruct xs)
 transConstant' tp (L.ValConstExpr cexpr) = transConstantExpr tp cexpr
 
 transConstant' tp val =
-  throwError $ unlines ["Cannot compute constant value for expression of type: " ++ show tp
-                       , show val
+  throwError $ unlines [ "Cannot compute constant value for expression: "
+                       , "Type: "  ++ (show $ ppMemType tp)
+                       , "Value: " ++ (show $ L.ppLLVM val)
                        ]
 
 
