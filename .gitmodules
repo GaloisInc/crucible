@@ -1,56 +1,42 @@
 [submodule "dependencies/abcBridge"]
 	path = dependencies/abcBridge
 	url = https://github.com/GaloisInc/abcBridge.git
-	branch = master
 [submodule "dependencies/aig"]
 	path = dependencies/aig
 	url = https://github.com/GaloisInc/aig.git
-	branch = master
 [submodule "dependencies/blt"]
 	path = dependencies/blt
 	url =https://github.com/GaloisInc/blt.git
-	branch = master
 [submodule "dependencies/cryptol"]
 	path = dependencies/cryptol
 	url = https://github.com/GaloisInc/cryptol.git
-	branch = master
 [submodule "dependencies/cryptol-verifier"]
 	path = dependencies/cryptol-verifier
 	url = https://github.com/GaloisInc/cryptol-verifier.git
-	branch = master
 [submodule "dependencies/jvm-parser"]
 	path = dependencies/jvm-parser
 	url = https://github.com/GaloisInc/jvm-parser.git
-	branch = master
 [submodule "dependencies/llvm-pretty"]
 	path = dependencies/llvm-pretty
 	url = https://github.com/elliottt/llvm-pretty.git
-	branch = master
 [submodule "dependencies/llvm-pretty-bc-parser"]
 	path = dependencies/llvm-pretty-bc-parser
 	url = https://github.com/GaloisInc/llvm-pretty-bc-parser.git
-	branch = master
 [submodule "dependencies/hpb"]
 	path = dependencies/hpb
 	url = https://github.com/GaloisInc/hpb.git
-	branch = master
 [submodule "dependencies/parameterized-utils"]
 	path = dependencies/parameterized-utils
 	url = https://github.com/GaloisInc/parameterized-utils.git
-	branch = master
 [submodule "dependencies/saw-core"]
 	path = dependencies/saw-core
 	url = https://github.com/GaloisInc/saw-core.git
-	branch = master
 [submodule "dependencies/saw-core-aig"]
 	path = dependencies/saw-core-aig
 	url = https://github.com/GaloisInc/saw-core-aig.git
-	branch = master
 [submodule "dependencies/saw-core-sbv"]
 	path = dependencies/saw-core-sbv
 	url = https://github.com/GaloisInc/saw-core-sbv.git
-	branch = master
 [submodule "dependencies/saw-core-what4"]
 	path = dependencies/saw-core-what4
 	url = https://github.com/GaloisInc/saw-core-what4.git
-	branch = master
