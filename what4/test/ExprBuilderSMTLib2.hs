@@ -21,6 +21,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
 
 import What4.BaseTypes
+import What4.Config
 import What4.Expr
 import What4.Interface
 import What4.InterpretedFloatingPoint
@@ -53,6 +54,7 @@ withOnlineZ3'
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3) -> IO a)
   -> IO a
 withOnlineZ3' action = withSym $ \sym -> do
+  extendConfig z3Options (getConfiguration sym)
   s <- startSolverProcess sym
   res <- action sym s
   shutdownSolverProcess s
