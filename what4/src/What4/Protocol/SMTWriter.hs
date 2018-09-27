@@ -80,7 +80,7 @@ module What4.Protocol.SMTWriter
 
 import           Control.Exception
 import           Control.Lens hiding ((.>))
-import           Control.Monad
+import           Control.Monad.Extra
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Control.Monad.ST
@@ -614,6 +614,11 @@ data SMTSymFn ctx where
            -> !(TypeMap ret)
            -> SMTSymFn (args Ctx.::> ret)
 
+data StackEntry t (h :: *) = StackEntry
+  { symExprCache :: !(IdxCache t (SMTExpr h))
+  , symFnCache :: !(PH.HashTable PH.RealWorld (Nonce t) SMTSymFn)
+  }
+
 -- The writer connection maintains a connection to the SMT solver.
 --
 -- It is responsible for knowing the capabilities of the solver; generating
@@ -639,13 +644,11 @@ data WriterConn t (h :: *) =
                -- ^ Allow the SMT writer to generate problems with quantifiers.
              , supportedFeatures :: !ProblemFeatures
                -- ^ Indicates features supported by the solver.
-             , smtFnCache :: !(PH.HashTable PH.RealWorld (Nonce t) SMTSymFn)
-               -- ^ Allow the SMT writer to generate problems with quantifiers.
-             , entryStack :: !(IORef [IdxCache t (SMTExpr h)])
-               -- ^ A stack of hash tables, corresponding to the lexical scopes induced by
-               --   frame push/pops.  The entire stack of tables is searched top-down when
-               --   looking up element nonce values.  Elements that are to persist across
-               --   pops are written through the entire stack.
+             , entryStack :: !(IORef [StackEntry t h])
+               -- ^ A stack of pairs of hash tables, each stack entry corresponding to
+               --   a lexical scope induced by frame push/pops. The entire stack is searched
+               --   top-down when looking up element nonce values. Elements that are to
+               --   persist across pops are written through the entire stack.
              , stateRef :: !(IORef WriterState)
                -- ^ Reference to current state
              , varBindings :: !(SymbolVarBimap t)
@@ -654,17 +657,26 @@ data WriterConn t (h :: *) =
                -- ^ The specific connection information.
              }
 
+newStackEntry :: IO (StackEntry t h)
+newStackEntry = do
+  exprCache <- newIdxCache
+  fnCache   <- stToIO $ PH.new
+  return StackEntry
+    { symExprCache = exprCache
+    , symFnCache   = fnCache
+    }
+
 -- | Clear the entry stack, and start with a fresh one.
 resetEntryStack :: WriterConn t h -> IO ()
 resetEntryStack c = do
-  h <- newIdxCache
-  writeIORef (entryStack c) [h]
+  entry <- newStackEntry
+  writeIORef (entryStack c) [entry]
 
 -- | Push a new frame to the stack for maintaining the writer cache.
 pushEntryStack :: WriterConn t h -> IO ()
 pushEntryStack c = do
-  h <- newIdxCache
-  modifyIORef' (entryStack c) $ (h:)
+  entry <- newStackEntry
+  modifyIORef' (entryStack c) $ (entry:)
 
 popEntryStack :: WriterConn t h -> IO ()
 popEntryStack c = do
@@ -686,43 +698,57 @@ newWriterConn :: Handle
                  -- ^ State information specific to the type of connection
               -> IO (WriterConn t cs)
 newWriterConn h solver_name features bindings cs = do
-  fnCache   <- stToIO $ PH.new
+  entry <- newStackEntry
+  stk_ref <- newIORef [entry]
   r <- newIORef emptyState
-  c <- newIdxCache
-  stk_ref <- newIORef [c]
   return $! WriterConn { smtWriterName = solver_name
                        , connHandle    = h
                        , supportFunctionDefs      = False
                        , supportFunctionArguments = False
                        , supportQuantifiers       = False
                        , supportedFeatures        = features
-                       , smtFnCache   = fnCache
                        , entryStack   = stk_ref
                        , stateRef     = r
                        , varBindings  = bindings
                        , connState    = cs
                        }
 
-cacheLookup :: WriterConn t h -> Nonce t tp -> IO (Maybe (SMTExpr h tp))
-cacheLookup c n = go =<< readIORef (entryStack c)
- where go [] = return Nothing
-       go (h:r) = do
-           lookupIdx h n >>= \case
-              Nothing -> go r
-              Just x  -> return $ Just x
+cacheLookup
+  :: WriterConn t h
+  -> (StackEntry t h -> IO (Maybe a))
+  -> IO (Maybe a)
+cacheLookup conn lookup_action =
+  readIORef (entryStack conn) >>= firstJustM lookup_action
 
-cacheValue :: WriterConn t h -> Nonce t tp -> TermLifetime -> SMTExpr h tp -> IO ()
-cacheValue c n lifetime x = do
-  stk <- readIORef (entryStack c)
-  case stk of
-     [] -> error "cacheValue: empty cache stack!"
-     (h:r) -> do insertIdxValue h n x
-                 case lifetime of
-                    DeleteOnPop -> return ()
-                    DeleteNever -> writethrough r
- where writethrough [] = return ()
-       writethrough (h:r) = do insertIdxValue h n x
-                               writethrough r
+cacheValue
+  :: WriterConn t h
+  -> TermLifetime
+  -> (StackEntry t h -> IO ())
+  -> IO ()
+cacheValue conn lifetime insert_action =
+  readIORef (entryStack conn) >>= \case
+    s@(h:_) -> case lifetime of
+      DeleteOnPop -> insert_action h
+      DeleteNever -> mapM_ insert_action s
+    [] -> error "cacheValue: empty cache stack!"
+
+cacheLookupExpr :: WriterConn t h -> Nonce t tp -> IO (Maybe (SMTExpr h tp))
+cacheLookupExpr c n = cacheLookup c $ \entry ->
+  lookupIdx (symExprCache entry) n
+
+cacheLookupFn :: WriterConn t h -> Nonce t ctx -> IO (Maybe (SMTSymFn ctx))
+cacheLookupFn c n = cacheLookup c $ \entry ->
+  stToIO $ PH.lookup (symFnCache entry) n
+
+cacheValueExpr
+  :: WriterConn t h -> Nonce t tp -> TermLifetime -> SMTExpr h tp -> IO ()
+cacheValueExpr conn n lifetime value = cacheValue conn lifetime $ \entry ->
+  insertIdxValue (symExprCache entry) n value
+
+cacheValueFn
+  :: WriterConn t h -> Nonce t ctx -> TermLifetime -> SMTSymFn ctx -> IO ()
+cacheValueFn conn n lifetime value = cacheValue conn lifetime $ \entry ->
+  stToIO $ PH.insert (symFnCache entry) n value
 
 -- | Run state with handle.
 withWriterState :: WriterConn t h -> State WriterState a -> IO a
@@ -1145,14 +1171,12 @@ cacheWriterResult :: Nonce t tp
                   -> SMTCollector t h (SMTExpr h tp)
 cacheWriterResult n lifetime fallback = do
   c <- asks scConn
-  mr <- liftIO $ cacheLookup c n
-  case mr of
-   Just x -> return x
-   Nothing -> do
-     x <- fallback
-     liftIO $ do
-       cacheValue c n lifetime x
-       return x
+  (liftIO $ cacheLookupExpr c n) >>= \case
+    Just x -> return x
+    Nothing -> do
+      x <- fallback
+      liftIO $ cacheValueExpr c n lifetime x
+      return x
 
 -- | Associate a bound variable with the givne SMT Expression until
 -- the a
@@ -1165,11 +1189,8 @@ bindVar v x  = do
   let n = bvarId v
   c <- asks scConn
   liftIO $ do
-    mr <- cacheLookup c n
-    case mr of
-      Just{} -> fail "Variable is already bound."
-      Nothing -> return ()
-    cacheValue c n DeleteOnPop x
+    whenM (isJust <$> cacheLookupExpr c n) $ fail "Variable is already bound."
+    cacheValueExpr c n DeleteOnPop x
 
 ------------------------------------------------------------------------
 -- Evaluate applications.
@@ -1389,9 +1410,7 @@ getSMTSymFn :: SMTWriter h
             -> IO (Text, TypeMap ret)
 getSMTSymFn conn fn arg_types = do
   let n = symFnId fn
-  let cache = smtFnCache conn
-  me <- stToIO $ PH.lookup cache n
-  case me of
+  cacheLookupFn conn n >>= \case
     Just (SMTSymFn nm param_types ret) -> do
       when (arg_types /= param_types) $ do
         fail $ "Illegal arguments to function " ++ Text.unpack nm ++ "."
@@ -1402,7 +1421,7 @@ getSMTSymFn conn fn arg_types = do
       -- Generate name.
       nm <- getSymbolName conn (FnSymbolBinding fn)
       ret_type <- mkSMTSymFn conn nm fn arg_types
-      stToIO $ PH.insert cache n $! SMTSymFn nm arg_types ret_type
+      cacheValueFn conn n DeleteOnPop $! SMTSymFn nm arg_types ret_type
       return $! (nm, ret_type)
 
 -- | Check that the types can be passed to functions.
@@ -2368,7 +2387,7 @@ mkExpr (BoundVarExpr var) = do
   case bvarKind var of
    QuantifierVarKind -> do
      conn <- asks scConn
-     mr <- liftIO $ cacheLookup conn (bvarId var)
+     mr <- liftIO $ cacheLookupExpr conn (bvarId var)
      case mr of
       Just x -> return x
       Nothing -> do
@@ -2533,7 +2552,7 @@ smtExprGroundEvalFn conn smtFns = do
           Nothing -> evalGroundExpr cachedEval e
           Just e_id -> fmap unGVW $ idxCacheEval' groundCache e_id $ fmap GVW $ do
             -- See if we have bound the Expr e to a SMT expression.
-            me <- cacheLookup conn e_id
+            me <- cacheLookupExpr conn e_id
             case me of
               -- Otherwise, try the evalGroundExpr function to evaluate a ground element.
               Nothing -> evalGroundExpr cachedEval e
