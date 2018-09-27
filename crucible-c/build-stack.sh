@@ -1,4 +1,5 @@
-(cd .. && GITHUB_URL="https://github.com/" NO_GIT_PULL="true" ./scripts/build-sandbox.sh)
+git submodule init
+git submodule update --recursive
 export STACK_YAML=stack-ghc-8.2.yaml
 stack build
 # Link bin directory to a more convenient location
