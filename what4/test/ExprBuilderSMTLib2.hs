@@ -12,7 +12,6 @@
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import           Control.Exception
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Text as T
@@ -47,8 +46,7 @@ withSym pred_gen = withIONonceGenerator $ \gen ->
 withZ3' :: (forall t . SimpleExprBuilder t fs -> Session t Z3 -> IO ()) -> IO ()
 withZ3' action = withIONonceGenerator $ \nonce_gen -> do
   sym <- newExprBuilder State nonce_gen
-  handle (\(e :: IOException) -> print e) $
-    withZ3 sym "z3" putStrLn $ action sym
+  withZ3 sym "z3" putStrLn $ action sym
 
 withOnlineZ3'
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3) -> IO a)
