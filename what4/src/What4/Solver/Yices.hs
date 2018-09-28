@@ -378,7 +378,6 @@ newConnection h reqFeatures bindings = do
   let features' = features
                   .|. featureIf efSolver useExistForall
                   .|. useStructs
-                  .|. useSymbolicArrays
   conn <- newWriterConn h nm features' bindings (Connection ())
   return $! conn { supportFunctionDefs = True
                  , supportFunctionArguments = True
