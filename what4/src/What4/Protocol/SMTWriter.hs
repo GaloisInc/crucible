@@ -91,6 +91,7 @@ import           Data.IORef
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Monoid
+import           Data.Parameterized.Classes (ShowF(..))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.HashTable as PH
 import           Data.Parameterized.Nonce (Nonce)
@@ -174,6 +175,22 @@ data TypeMap (tp::BaseType) where
   -- None of the fields should be arrays encoded as functions.
   StructTypeMap :: !(Ctx.Assignment TypeMap idx)
                 -> TypeMap (BaseStructType idx)
+
+
+instance ShowF TypeMap
+
+instance Show (TypeMap a) where
+  show BoolTypeMap              = "BoolTypeMap"
+  show NatTypeMap               = "NatTypeMap"
+  show IntegerTypeMap           = "IntegerTypeMap"
+  show RealTypeMap              = "RealTypeMap"
+  show (BVTypeMap n)            = "BVTypeMap " ++ show n
+  show (FloatTypeMap x)         = "FloatTypeMap " ++ show x
+  show (ComplexToStructTypeMap) = "ComplexToStructTypeMap"
+  show ComplexToArrayTypeMap    = "ComplexToArrayTypeMap"
+  show (PrimArrayTypeMap ctx a) = "PrimArrayTypeMap " ++ showF ctx ++ " " ++ showF a
+  show (FnArrayTypeMap ctx a)   = "FnArrayTypeMap " ++ showF ctx ++ " " ++ showF a
+  show (StructTypeMap ctx)      = "StructTypeMap " ++ showF ctx
 
 instance Eq (TypeMap tp) where
   x == y = isJust (testEquality x y)
@@ -1413,7 +1430,9 @@ getSMTSymFn conn fn arg_types = do
   cacheLookupFn conn n >>= \case
     Just (SMTSymFn nm param_types ret) -> do
       when (arg_types /= param_types) $ do
-        fail $ "Illegal arguments to function " ++ Text.unpack nm ++ "."
+        fail $ "Illegal arguments to function " ++ Text.unpack nm ++ ".\n"
+              ++ "\tExpected arguments: " ++ show param_types ++"\n"
+              ++ "\tActual arguments: " ++ show arg_types
       return (nm, ret)
     Nothing -> do
       -- Check argument types can be passed to a function.
