@@ -104,15 +104,15 @@ tests int struct uninitialized _ = do
   testGroup "Tests"
     [ testCase "int" $
         Map.singleton (L.Symbol "x") (Right $ IntConst (knownNat @32) 42) @=?
-           (globalMap int)
+           Map.map snd (globalInitMap int)
     , testCase "struct" $
         IntConst (knownNat @32) 17 @=?
-           case Map.lookup (L.Symbol "z") (globalMap struct) of
+           case snd <$> Map.lookup (L.Symbol "z") (globalInitMap struct) of
              Just (Right (StructConst _ (x : _))) -> x
              _ -> IntConst (knownNat @1) 0
     , testCase "unitialized" $
         Map.singleton (L.Symbol "x") (Right $ ZeroConst i32) @=?
-           (globalMap uninitialized)
+           Map.map snd (globalInitMap uninitialized)
     -- The actual value for this one contains the error message, so it's a pain
     -- to type out. Uncomment this test to take a look.
     -- , testCase "extern" $

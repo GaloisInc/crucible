@@ -154,10 +154,9 @@ import           Lang.Crucible.Backend (IsSymInterface)
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
-------------------------------------------------------------------------
--- Translation results
 
-type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
+------------------------------------------------------------------------
+-- GlobalInitializerMap
 
 -- | A @GlobalInitializerMap@ records the initialized values of globals in an @L.Module@.
 --
@@ -173,14 +172,19 @@ type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
 --
 -- To actually initialize globals, saw-script translates them into
 -- instances of @MemModel.LLVMVal@.
-type GlobalInitializerMap = Map L.Symbol (Either String LLVMConst)
+type GlobalInitializerMap = Map L.Symbol (L.Global, Either String LLVMConst)
+
+------------------------------------------------------------------------
+-- Translation results
+
+type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
 
 -- | The result of translating an LLVM module into Crucible CFGs.
 data ModuleTranslation arch
    = ModuleTranslation
       { cfgMap        :: ModuleCFGMap arch
       , _transContext :: LLVMContext arch
-      , globalMap     :: GlobalInitializerMap
+      , globalInitMap :: GlobalInitializerMap
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
         -- presence of compositional verification.
@@ -2323,7 +2327,7 @@ makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
               -> L.Module
               -> GlobalInitializerMap
 makeGlobalMap ctx m =
-     Map.fromList $ map (L.globalSym &&& globalToConst) (L.modGlobals m)
+     Map.fromList $ map (L.globalSym &&& (id &&& globalToConst)) (L.modGlobals m)
   where -- Catch the error from @transConstant@, turn it into @Either@
         globalToConst :: L.Global -> Either String LLVMConst
         globalToConst g =
@@ -2345,7 +2349,7 @@ makeGlobalMap ctx m =
                 ++ showSymbol (L.globalSym g)
                 ++ ": "
                 ++ err)
-          where showSymbol sym = 
+          where showSymbol sym =
                   show $ let ?config = LPP.Config False False False
                          in LPP.ppSymbol $ sym
 
@@ -2416,7 +2420,7 @@ translateModule halloc m = do
        pairs <- mapM (transDefine ctx) (L.modDefines m)
        -- Return result.
        return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
-                                       , globalMap = makeGlobalMap ctx m
+                                       , globalInitMap = makeGlobalMap ctx m
                                        , _transContext = ctx
                                        }))
 
@@ -2529,8 +2533,17 @@ constToLLVMVal sym mem (ZeroConst memty) = zeroExpand' memty
     -- long), we shouldn't use @zeroExpand'@ here, but should add a @ZeroConst@-like
     -- constructor to @LLVMVal@.
     zeroExpand' :: MemType -> IO (LLVMVal sym)
-    zeroExpand' (IntType _)         = rec' $ IntConst ?ptrWidth 0 -- is ptrWidth right?
-    zeroExpand' (PtrType _)         = rec' $ IntConst ?ptrWidth 0 -- is ptrWidth right?
+    zeroExpand' (IntType w)         =
+      case someNat (fromIntegral w) of
+        Just (Some w') | Just LeqProof <- isPosNat w' ->
+          rec' $ IntConst w' 0
+
+        _ -> fail $ unwords [ "Internal error (zeroExpand'):"
+                            , "illegal integer size"
+                            , show w
+                            ]
+
+    zeroExpand' (PtrType _)         = rec' $ IntConst ?ptrWidth 0
     zeroExpand' FloatType           = rec' $ FloatConst 0
     zeroExpand' DoubleType          = rec' $ DoubleConst 0
     zeroExpand' (ArrayType i memty') = -- Avoid name shadowing
