@@ -85,6 +85,7 @@ library
 
     What4.Protocol.Online
     What4.Protocol.SMTLib2
+    What4.Protocol.SMTLib2.Syntax
     What4.Protocol.SMTWriter
     What4.Protocol.ReadDecimal
     What4.Protocol.SExp
