@@ -5,11 +5,13 @@ packages:
   - what4-blt/
 
   - crucible/
+  - crucible-c/
   - crucible-jvm/
   - crucible-llvm/
   - crucible-saw/
   - crucible-server/
-  - crucible-c/
+  - crucible-syntax/
+  - crux/
 
   - dependencies/abcBridge/
   - dependencies/aig/

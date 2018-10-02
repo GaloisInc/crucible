@@ -224,5 +224,5 @@ fakeFilePos = SourcePos fakeFile
 syntaxTest :: Text -> SyntaxParse TrivialAtom a -> Either (SyntaxError TrivialAtom) a
 syntaxTest txt p =
   case MP.parse (skipWhitespace *> sexp (TrivialAtom <$> identifier) <* MP.eof) (T.unpack fakeFile) txt of
-     Left err -> error $ "Reader error: " ++ MP.parseErrorPretty' txt err
+     Left err -> error $ "Reader error: " ++ MP.errorBundlePretty err
      Right sexpr -> syntaxParse p sexpr
