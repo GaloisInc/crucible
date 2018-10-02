@@ -68,6 +68,7 @@ module What4.Protocol.SMTWriter
   , assumeFormula
     -- * SMTWriter operations
   , assume
+  , mkSMTTerm
   , mkFormula
   , SMTEvalFunctions(..)
   , smtExprGroundEvalFn
@@ -2349,9 +2350,13 @@ getSMTSymFn conn fn arg_types = do
 ------------------------------------------------------------------------
 -- Writer high-level interface.
 
+-- | Write a expression to SMT
+mkSMTTerm :: SMTWriter h => WriterConn t h -> Expr t tp -> IO (Term h)
+mkSMTTerm conn p = runOnLiveConnection conn $ mkBaseExpr p
+
 -- | Write a logical expression.
 mkFormula :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO (Term h)
-mkFormula conn p = runOnLiveConnection conn $ mkBaseExpr p
+mkFormula = mkSMTTerm
 
 -- | Write assume formula predicates for asserting predicate holds.
 assume :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO ()

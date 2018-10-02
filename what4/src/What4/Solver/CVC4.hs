@@ -14,7 +14,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 module What4.Solver.CVC4
-  ( CVC4
+  ( CVC4(..)
+  , cvc4Features
   , cvc4Adapter
   , cvc4Path
   , cvc4Options
