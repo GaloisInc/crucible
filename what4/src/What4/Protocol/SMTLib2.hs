@@ -20,11 +20,13 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module What4.Protocol.SMTLib2
   ( -- SMTLib special purpose exports
     Writer
@@ -47,7 +49,6 @@ module What4.Protocol.SMTLib2
   , structType
     -- * Term
   , Term(..)
-  , renderTerm
   , arrayConst
   , What4.Protocol.SMTLib2.arraySelect
   , arrayStore
@@ -108,7 +109,9 @@ import           What4.ProblemFeatures
 import           What4.Protocol.Online
 import           What4.Protocol.ReadDecimal
 import           What4.Protocol.SExp
-import qualified What4.Protocol.SMTLib2.Syntax as SMT2
+import           What4.Protocol.SMTLib2.Syntax (Term, term_app, un_app, bin_app)
+
+import qualified What4.Protocol.SMTLib2.Syntax as SMT2 hiding (Term)
 import qualified What4.Protocol.SMTWriter as SMTWriter
 import           What4.Protocol.SMTWriter hiding (assume, Term)
 import           What4.SatResult
@@ -151,37 +154,23 @@ mkFloatSymbol nm (SMTFloatPrecision eb sb) =
 ------------------------------------------------------------------------
 -- SMTLib2Tweaks
 
-newtype Term (solver :: *) = T { unT :: SMT2.Term }
-
-renderTerm :: Term a -> Builder
-renderTerm = SMT2.renderTerm . unT
-
-term_app :: Builder -> [Term a] -> Term a
-term_app f args = T $ SMT2.term_app f (unT <$> args)
-
-un_app :: Builder -> Term a -> Term a
-un_app o (T x) = T $ SMT2.un_app o x
-
-bin_app :: Builder -> Term a -> Term a -> Term a
-bin_app o (T x) (T y) = T $ SMT2.bin_app o x y
-
 -- | Select a valued from a nested array
-nestedArrayUpdate :: SMT2.Term
-                  -> (SMT2.Term, [SMT2.Term])
-                  -> SMT2.Term
-                  -> SMT2.Term
+nestedArrayUpdate :: Term
+                  -> (Term, [Term])
+                  -> Term
+                  -> Term
 nestedArrayUpdate a (h,[]) v  = SMT2.store a h v
 nestedArrayUpdate a (h,i:l) v = SMT2.store a h sub_a'
   where sub_a' = nestedArrayUpdate (SMT2.select a h) (i,l) v
 
-arrayConst :: SMT2.Type -> SMT2.Type -> Term a -> Term a
-arrayConst itp rtp c = T $ SMT2.arrayConst itp rtp (unT c)
+arrayConst :: SMT2.Type -> SMT2.Type -> Term -> Term
+arrayConst = SMT2.arrayConst
 
-arraySelect :: Term a -> Term a -> Term a
-arraySelect a i = T $ SMT2.select (unT a) (unT i)
+arraySelect :: Term -> Term -> Term
+arraySelect = SMT2.select
 
-arrayStore :: Term a -> Term a -> Term a -> Term a
-arrayStore a i v = T $ SMT2.store (unT a) (unT i) (unT v)
+arrayStore :: Term -> Term -> Term -> Term
+arrayStore = SMT2.store
 
 -- | This class exists so that solvers supporting the SMTLib2 format can support
 --   features that go slightly beyond the standard.
@@ -204,18 +193,18 @@ class SMTLib2Tweaks a where
   smtlib2arrayType :: [SMT2.Type] -> SMT2.Type -> SMT2.Type
   smtlib2arrayType l r = foldr (\i v -> SMT2.arrayType i v) r l
 
-  smtlib2arrayConstant :: Maybe ([SMT2.Type] -> SMT2.Type -> Term a -> Term a)
+  smtlib2arrayConstant :: Maybe ([SMT2.Type] -> SMT2.Type -> Term -> Term)
   smtlib2arrayConstant = Nothing
 
-  smtlib2arraySelect :: Term a -> [Term a] -> Term a
+  smtlib2arraySelect :: Term -> [Term] -> Term
   smtlib2arraySelect a [] = a
   smtlib2arraySelect a (h:l) = smtlib2arraySelect @a (What4.Protocol.SMTLib2.arraySelect a h) l
 
-  smtlib2arrayUpdate :: Term a -> [Term a] -> Term a -> Term a
+  smtlib2arrayUpdate :: Term -> [Term] -> Term -> Term
   smtlib2arrayUpdate a i v =
     case i of
       [] -> error "arrayUpdate given empty list"
-      i1:ir -> T $ nestedArrayUpdate (unT a) (unT i1, unT <$> ir) (unT v)
+      i1:ir -> nestedArrayUpdate a (i1, ir) v
 
 asSMT2Type :: forall a tp . SMTLib2Tweaks a => TypeMap tp -> SMT2.Type
 asSMT2Type BoolTypeMap    = SMT2.boolType
@@ -254,31 +243,22 @@ mkRoundingOp op r = op <> " " <> fromString (show r)
 
 newtype Writer a = Writer { declaredTuples :: IORef (Set Int) }
 
---type Expr = Term
+type instance SMTWriter.Term (Writer a) = Term
 
-type instance SMTWriter.Term (Writer a) = Term a
-
-instance IsString (Term a) where
-  fromString s = T (SMT2.T (fromString s))
-
-instance Num (Term a) where
-  x + y = T $ SMT2.add [unT x, unT y]
-  x - y = T $ SMT2.sub (unT x) [unT y]
-  x * y = T $ SMT2.mul [unT x, unT y]
-  negate x = T $ SMT2.negate (unT x)
-  abs (T x)    =
-   T $ SMT2.ite (SMT2.ge [x, SMT2.numeral 0]) x (SMT2.negate x)
-  signum (T x) = T $
+instance Num Term where
+  x + y = SMT2.add [x, y]
+  x - y = SMT2.sub x [y]
+  x * y = SMT2.mul [x, y]
+  negate x = SMT2.negate x
+  abs x    = SMT2.ite (SMT2.ge [x, SMT2.numeral 0]) x (SMT2.negate x)
+  signum x =
     SMT2.ite (SMT2.ge [x, SMT2.numeral 0])
              (SMT2.ite (SMT2.eq [x, SMT2.numeral 0]) (SMT2.numeral 0) (SMT2.numeral 1))
              (SMT2.negate (SMT2.numeral 1))
-  fromInteger i = T $ SMT2.numeral i
+  fromInteger = SMT2.numeral
 
 varBinding :: forall a . SMTLib2Tweaks a => (Text, Some TypeMap) -> (Text, SMT2.Type)
 varBinding (nm, Some tp) = (nm, asSMT2Type @a tp)
-
-lift_bin_app :: (SMT2.Term -> SMT2.Term -> SMT2.Term) -> Term a -> Term a -> Term a
-lift_bin_app f (T x) (T y) = T $ f x y
 
 -- | A struct with the given fields.
 --
@@ -297,78 +277,73 @@ structType flds = SMT2.Type $ "(Struct" <> Builder.decimal n <> foldMap f flds <
 -- formula, the SMTLIB2 backend defines a datatype "StructXX" with the
 -- constructor "mk-structXX", and projection operations "structXX-projII"
 -- for II an natural number less than XX.
-instance SMTLib2Tweaks a => SupportTermOps (Term a) where
-  boolExpr b = T $ if b then SMT2.true else SMT2.false
-  notExpr x = T $ SMT2.not (unT x)
+instance SupportTermOps Term where
+  boolExpr b = if b then SMT2.true else SMT2.false
+  notExpr = SMT2.not
 
-  andAll l = T $ SMT2.and (unT <$> l)
-  orAll l  = T $ SMT2.or (unT <$> l)
+  andAll = SMT2.and
+  orAll  = SMT2.or
 
-  x .== y = T $ SMT2.eq (unT <$> [x,y])
-  x ./= y = T $ SMT2.distinct (unT <$> [x,y])
+  x .== y = SMT2.eq [x,y]
+  x ./= y = SMT2.distinct [x,y]
 
-  forallExpr vars t  =
-    T $ SMT2.forall (varBinding @a <$> vars) (unT t)
-  existsExpr vars t  =
-    T $ SMT2.exists (varBinding @a <$> vars) (unT t)
+  letExpr = SMT2.letBinder
 
-  letExpr vars r = T $ SMT2.letBinder ((\(nm,t) -> (nm, unT t)) <$> vars) (unT r)
+  ite = SMT2.ite
 
-  ite c t f = T $ SMT2.ite (unT c) (unT t) (unT f)
+  sumExpr = SMT2.add
 
-  sumExpr l = T $ SMT2.add (unT <$> l)
+  termIntegerToReal = SMT2.toReal
+  termRealToInteger = SMT2.toInt
 
-  termIntegerToReal x = T $ SMT2.toReal (unT x)
-  termRealToInteger x = T $ SMT2.toInt  (unT x)
-
-  integerTerm x = T $ SMT2.numeral x
-  intDiv x y = T $ SMT2.div (unT x) [unT y]
-  intMod x y = T $ SMT2.mod (unT x) (unT y)
-  intAbs x   = T $ SMT2.abs (unT x)
+  integerTerm = SMT2.numeral
+  intDiv x y = SMT2.div x [y]
+  intMod = SMT2.mod
+  intAbs     = SMT2.abs
 
   intDivisible x 0 = x .== integerTerm 0
   intDivisible x k = intMod x (integerTerm (toInteger k)) .== 0
 
-  rationalTerm r | d == 1 = T $ SMT2.decimal n
-                 | otherwise = T $ (SMT2.decimal n) SMT2../ [SMT2.decimal d]
+  rationalTerm r | d == 1    = SMT2.decimal n
+                 | otherwise = (SMT2.decimal n) SMT2../ [SMT2.decimal d]
     where n = numerator r
           d = denominator r
 
-  x .<  y = T $ SMT2.lt (unT <$> [x,y])
-  x .<= y = T $ SMT2.le (unT <$> [x,y])
-  x .>  y = T $ SMT2.gt (unT <$> [x,y])
-  x .>= y = T $ SMT2.ge (unT <$> [x,y])
+  x .<  y = SMT2.lt [x,y]
+  x .<= y = SMT2.le [x,y]
+  x .>  y = SMT2.gt [x,y]
+  x .>= y = SMT2.ge [x,y]
 
-  bvTerm w u = T $ SMT2.bvdecimal u (natValue w)
+  bvTerm w u = SMT2.bvdecimal u (natValue w)
 
-  bvNeg x = T $ SMT2.bvneg (unT x)
-  bvAdd x y = T $ SMT2.bvadd (unT x) [unT y]
-  bvSub = lift_bin_app SMT2.bvsub
-  bvMul x y = T $ SMT2.bvmul (unT x) [unT y]
+  bvNeg = SMT2.bvneg
+  bvAdd x y = SMT2.bvadd x [y]
+  bvSub = SMT2.bvsub
+  bvMul x y = SMT2.bvmul x [y]
 
-  bvSLe = lift_bin_app SMT2.bvsle
-  bvULe = lift_bin_app SMT2.bvule
+  bvSLe = SMT2.bvsle
+  bvULe = SMT2.bvule
 
-  bvSLt = lift_bin_app SMT2.bvslt
-  bvULt = lift_bin_app SMT2.bvult
+  bvSLt = SMT2.bvslt
+  bvULt = SMT2.bvult
 
-  bvUDiv = lift_bin_app SMT2.bvudiv
-  bvURem = lift_bin_app SMT2.bvurem
-  bvSDiv = lift_bin_app SMT2.bvsdiv
-  bvSRem = lift_bin_app SMT2.bvsrem
+  bvUDiv = SMT2.bvudiv
+  bvURem = SMT2.bvurem
+  bvSDiv = SMT2.bvsdiv
+  bvSRem = SMT2.bvsrem
 
-  bvNot x   = T $ SMT2.bvnot (unT x)
-  bvAnd x y = T $ SMT2.bvand (unT x) [unT y]
-  bvOr  x y = T $ SMT2.bvor  (unT x) [unT y]
-  bvXor x y = T $ SMT2.bvxor (unT x) [unT y]
+  bvNot = SMT2.bvnot
+  bvAnd x y = SMT2.bvand x [y]
+  bvOr  x y = SMT2.bvor  x [y]
+  bvXor x y = SMT2.bvxor x [y]
 
-  bvShl  = lift_bin_app SMT2.bvshl
-  bvLshr = lift_bin_app SMT2.bvlshr
-  bvAshr = lift_bin_app SMT2.bvashr
+  bvShl  = SMT2.bvshl
+  bvLshr = SMT2.bvlshr
+  bvAshr = SMT2.bvashr
 
-  bvConcat = lift_bin_app SMT2.concat
+  bvConcat = SMT2.concat
 
-  bvExtract _ b n x | n > 0 = T $ SMT2.extract (b+n-1) b (unT x)
+  bvExtract _ b n x | n > 0 = SMT2.extract (b+n-1) b x
                     | otherwise = error $ "bvExtract given non-positive width " ++ show n
 
   floatPZero fpp = term_app (mkFloatSymbol "+zero" (asSMTFloatPrecision fpp)) []
@@ -391,7 +366,7 @@ instance SMTLib2Tweaks a => SupportTermOps (Term a) where
 
   floatFMA r x y z = term_app (mkRoundingOp "fp.fma" r) [x, y, z]
 
-  floatEq x y  = T $ SMT2.eq (unT <$> [x,y])
+  floatEq x y  = SMT2.eq [x,y]
   floatFpEq = bin_app "fp.eq"
   floatLe   = bin_app "fp.leq"
   floatLt   = bin_app "fp.lt"
@@ -419,25 +394,15 @@ instance SMTLib2Tweaks a => SupportTermOps (Term a) where
 
   floatToReal = un_app "fp.to_real"
 
-  realIsInteger x = T $ SMT2.isInt (unT x)
+  realIsInteger = SMT2.isInt
 
-  realSin x = term_app "sin" [x]
-  realCos x = term_app "cos" [x]
+  realSin = un_app "sin"
+  realCos = un_app "cos"
   realATan2 = bin_app "atan2"
-  realSinh x = term_app "sinh" [x]
-  realCosh x = term_app "cosh" [x]
-  realExp x = term_app "exp" [x]
-  realLog x = term_app "log" [x]
-
-  arrayConstant =
-    case smtlib2arrayConstant @a of
-      Just f -> Just $ \idxTypes (Some retType) c ->
-        f ((\(Some itp) -> asSMT2Type @a itp) <$> idxTypes) (asSMT2Type @a retType) c
-      Nothing -> Nothing
-
-  arraySelect = smtlib2arraySelect
-  arrayUpdate = smtlib2arrayUpdate
-
+  realSinh = un_app "sinh"
+  realCosh = un_app "cosh"
+  realExp = un_app "exp"
+  realLog = un_app "log"
 
   structCtor args = term_app nm args
     where nm = "mk-struct" <> Builder.decimal (length args)
@@ -445,10 +410,9 @@ instance SMTLib2Tweaks a => SupportTermOps (Term a) where
   structFieldSelect n a i = term_app nm [a]
     where nm = "struct" <> Builder.decimal n <> "-proj" <> Builder.decimal i
 
+  smtFnApp nm args = term_app (SMT2.renderTerm nm) args
 
-  smtFnApp nm args = term_app (SMT2.renderTerm (unT nm)) args
-
-  fromText t = T (SMT2.T (Builder.fromText t))
+  fromText t = SMT2.T (Builder.fromText t)
 
 ------------------------------------------------------------------------
 -- Writer
@@ -478,9 +442,20 @@ newWriter _ h solver_name permitDefineFun arithOption quantSupport bindings = do
 type instance Command (Writer a) = SMT2.Command
 
 instance SMTLib2Tweaks a => SMTWriter (Writer a) where
+  forallExpr vars t = SMT2.forall (varBinding @a <$> vars) t
+  existsExpr vars t = SMT2.exists (varBinding @a <$> vars) t
+
+  arrayConstant =
+    case smtlib2arrayConstant @a of
+      Just f -> Just $ \idxTypes (Some retType) c ->
+        f ((\(Some itp) -> asSMT2Type @a itp) <$> idxTypes) (asSMT2Type @a retType) c
+      Nothing -> Nothing
+  arraySelect = smtlib2arraySelect @a
+  arrayUpdate = smtlib2arrayUpdate @a
+
   commentCommand _ b = SMT2.Cmd ("; " <> b)
 
-  assertCommand _ e = SMT2.assert (unT e)
+  assertCommand _ e = SMT2.assert e
 
   pushCommand _  = SMT2.push 1
   popCommand _   = SMT2.pop 1
@@ -495,7 +470,7 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
 
   defineCommand _proxy f args return_type e =
     let resolveArg (var, Some tp) = (var, asSMT2Type @a tp)
-     in SMT2.defineFun f (resolveArg <$> args) (asSMT2Type @a return_type) (unT e)
+     in SMT2.defineFun f (resolveArg <$> args) (asSMT2Type @a return_type) e
 
   declareStructDatatype conn n = do
     let r = declaredTuples (connState conn)
@@ -527,13 +502,13 @@ writeExit :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
 writeExit w = addCommand w SMT2.exit
 
 setLogic :: SMTLib2Tweaks a => WriterConn t (Writer a) -> SMT2.Logic -> IO ()
-setLogic w l = addCommand w (SMT2.setLogic l)
+setLogic w l = addCommand w $ SMT2.setLogic l
 
 setOption :: SMTLib2Tweaks a => WriterConn t (Writer a) -> SMT2.Option -> IO ()
-setOption w o = addCommand w (SMT2.setOption o)
+setOption w o = addCommand w $ SMT2.setOption o
 
-writeGetValue :: SMTLib2Tweaks a => WriterConn t (Writer a) -> [Term a] -> IO ()
-writeGetValue w l = addCommand w (SMT2.getValue (unT <$> l))
+writeGetValue :: SMTLib2Tweaks a => WriterConn t (Writer a) -> [Term] -> IO ()
+writeGetValue w l = addCommand w $ SMT2.getValue l
 
 parseBoolSolverValue :: Monad m => SExp -> m Bool
 parseBoolSolverValue (SAtom "true")  = return True
@@ -618,7 +593,7 @@ data Session t a = Session
 -- | Get a value from a solver (must be called after checkSat)
 runGetValue :: SMTLib2Tweaks a
             => Session t a
-            -> Term a
+            -> Term
             -> IO SExp
 runGetValue s e = do
   writeGetValue (sessionWriter s) [ e ]

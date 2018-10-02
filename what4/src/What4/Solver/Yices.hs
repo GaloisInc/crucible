@@ -177,8 +177,6 @@ instance SupportTermOps (YicesTerm s) where
   (./=) = bin_app "/="
   ite c x y = term_app "if" [c, x, y]
 
-  forallExpr vars t = binder_app "forall" (uncurry varBinding <$> vars) t
-  existsExpr vars t = binder_app "exists" (uncurry varBinding <$> vars) t
   letExpr    vars t = binder_app "let"    (uncurry letBinding <$> vars) t
 
   sumExpr [] = 0
@@ -245,10 +243,6 @@ instance SupportTermOps (YicesTerm s) where
         -- Get index of bit to start at (least-significant bit has index 0)
         begin = decimal_term b
      in term_app "bv-extract"  [end, begin, x]
-
-  arraySelect = smtFnApp
-  arrayUpdate a i v =
-    T $ app "update" [ renderTerm a, builder_list (renderTerm <$> i), renderTerm v ]
 
   structCtor args = term_app "mk-tuple" args
   structFieldSelect _ s i = term_app "select" [s, fromIntegral (i + 1)]
@@ -415,6 +409,13 @@ type instance Term (Connection s) = YicesTerm s
 type instance Command (Connection s) = YicesCommand
 
 instance SMTWriter (Connection s) where
+  forallExpr vars t = binder_app "forall" (uncurry varBinding <$> vars) t
+  existsExpr vars t = binder_app "exists" (uncurry varBinding <$> vars) t
+
+  arraySelect = smtFnApp
+  arrayUpdate a i v =
+    T $ app "update" [ renderTerm a, builder_list (renderTerm <$> i), renderTerm v ]
+
   commentCommand _ b = Cmd (";; " <> b)
 
   pushCommand _   = Cmd "(push)"

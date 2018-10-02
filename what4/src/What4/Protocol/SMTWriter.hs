@@ -19,6 +19,7 @@ if structs are supported or nested arrays if they are not.
 The solver should detect when something is not supported and give an
 error rather than sending invalid output to a file.
 -}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -231,12 +232,6 @@ class Num v => SupportTermOps v where
   impliesExpr :: v -> v -> v
   impliesExpr x y = notExpr x .|| y
 
-  -- | Create a forall expression
-  forallExpr :: [(Text, Some TypeMap)] -> v -> v
-
-  -- | Create an exists expression
-  existsExpr :: [(Text, Some TypeMap)] -> v -> v
-
   -- | Create a let expression.
   letExpr :: [(Text, v)] -> v -> v
 
@@ -367,13 +362,6 @@ class Num v => SupportTermOps v where
   floatToSBV      :: Integer -> RoundingMode -> v -> v
   floatToReal     :: v -> v
 
-  -- | 'arrayUpdate a i v' returns an array that contains value 'v' at
-  -- index 'i', and the same value as in 'a' at every other index.
-  arrayUpdate :: v -> [v] -> v -> v
-
-  -- | Select an element from an array
-  arraySelect :: v -> [v] -> v
-
   -- | Create a struct with the given fields.
   structCtor :: [v] -- ^ Fields to struct
              -> v
@@ -387,12 +375,6 @@ class Num v => SupportTermOps v where
                     -> v
                     -> Int -- ^ 0-based index of field.
                     -> v
-
-  -- | Create a constant array
-  --
-  -- This may return Nothing if the solver does not support constant arrays.
-  arrayConstant :: Maybe (ArrayConstantFn v)
-  arrayConstant = Nothing
 
   -- | Predicate that holds if a real number is an integer.
   realIsInteger :: v -> v
@@ -467,11 +449,11 @@ structComplexRealPart c = structFieldSelect 2 c 0
 structComplexImagPart :: SupportTermOps v => v -> v
 structComplexImagPart c = structFieldSelect 2 c 1
 
-arrayComplexRealPart :: SupportTermOps v => v -> v
-arrayComplexRealPart c = arraySelect c [boolExpr False]
+arrayComplexRealPart :: forall h . SMTWriter h => Term h -> Term h
+arrayComplexRealPart c = arraySelect @h c [boolExpr False]
 
-arrayComplexImagPart :: SupportTermOps v => v -> v
-arrayComplexImagPart c = arraySelect c [boolExpr True]
+arrayComplexImagPart :: forall h . SMTWriter h => Term h -> Term h
+arrayComplexImagPart c = arraySelect @h c [boolExpr True]
 
 app :: Builder -> [Builder] -> Builder
 app o [] = o
@@ -698,6 +680,25 @@ type family Command (h :: *) :: *
 
 -- | Typeclass need to generate SMTLIB commands.
 class (SupportTermOps (Term h)) => SMTWriter h where
+
+  -- | Create a forall expression
+  forallExpr :: [(Text, Some TypeMap)] -> Term h -> Term h
+
+  -- | Create an exists expression
+  existsExpr :: [(Text, Some TypeMap)] -> Term h -> Term h
+
+  -- | Create a constant array
+  --
+  -- This may return Nothing if the solver does not support constant arrays.
+  arrayConstant :: Maybe (ArrayConstantFn (Term h))
+  arrayConstant = Nothing
+
+  -- | Select an element from an array
+  arraySelect :: Term h -> [Term h] -> Term h
+
+  -- | 'arrayUpdate a i v' returns an array that contains value 'v' at
+  -- index 'i', and the same value as in 'a' at every other index.
+  arrayUpdate :: Term h -> [Term h] -> Term h -> Term h
 
   -- | Create a command that just defines a comment.
   commentCommand :: f h -> Builder -> Command h
@@ -1004,11 +1005,12 @@ data CollectorResults h a =
                    }
 
 -- | Create a forall expression from a CollectorResult.
-forallResult :: SupportTermOps (Term h)
+forallResult :: forall h
+             .  SMTWriter h
              => CollectorResults h (Term h)
              -> Term h
 forallResult cr =
-  forallExpr (crFreeConstants cr) $
+  forallExpr @h (crFreeConstants cr) $
     letExpr (crBindings cr) $
       impliesAllExpr (crSideConds cr) (crResult cr)
 
@@ -1018,11 +1020,12 @@ impliesAllExpr :: SupportTermOps v => [v] -> v -> v
 impliesAllExpr l r = orAll ((notExpr <$> l) ++ [r])
 
 -- | Create a forall expression from a CollectorResult.
-existsResult :: SupportTermOps (Term h)
+existsResult :: forall h
+             .  SMTWriter h
              => CollectorResults h (Term h)
              -> Term h
 existsResult cr =
-  existsExpr (crFreeConstants cr) $
+  existsExpr @h (crFreeConstants cr) $
     letExpr (crBindings cr) $
       andAll (crSideConds cr ++ [crResult cr])
 
@@ -1129,10 +1132,10 @@ bindVar v x  = do
 ------------------------------------------------------------------------
 -- Evaluate applications.
 
--- @bvIntTerm w x@ builds an integer term term that has the same
--- value as the unsigned integer value of the bitvector @x@.
--- This is done by explicitly decomposing the positional
--- notation of the bitvector into a sum of powers of 2.
+-- @bvIntTerm w x@ builds an integer term that has the same value as
+-- the unsigned integer value of the bitvector @x@.  This is done by
+-- explicitly decomposing the positional notation of the bitvector
+-- into a sum of powers of 2.
 bvIntTerm :: forall v w
            . (SupportTermOps v, 1 <= w)
           => NatRepr w
@@ -1304,14 +1307,15 @@ createTypeMapArgsForArray conn types = do
   -- Get SMT arguments.
   sequence $ toListFC mkIndexVar types
 
-smt_array_select :: SupportTermOps (Term h)
+smt_array_select :: forall h idxl idx tp
+                 .  SMTWriter h
                  => SMTExpr h (BaseArrayType (idxl Ctx.::> idx) tp)
                  -> [Term h]
                  -> SMTExpr h tp
 smt_array_select aexpr idxl =
   case smtExprType aexpr of
     PrimArrayTypeMap _ res_type ->
-      SMTExpr res_type $ arraySelect (asBase aexpr) idxl
+      SMTExpr res_type $ arraySelect @h (asBase aexpr) idxl
     FnArrayTypeMap _ res_type ->
       SMTExpr res_type $ smtFnApp (asBase aexpr) idxl
 
@@ -2007,7 +2011,7 @@ appSMTExpr ae = do
                            -> Term h
                            -> Term h
               set_at_index ma idx elt =
-                arrayUpdate ma (mkIndexLitTerms idx) elt
+                arrayUpdate @h ma (mkIndexLitTerms idx) elt
           freshBoundTerm array_type $
             Map.foldlWithKey set_at_index (asBase base_array) elt_exprs
 
@@ -2050,7 +2054,7 @@ appSMTExpr ae = do
       let value_type = smtExprType v
       idx_types <- liftIO $
         traverseFC (evalFirstClassTypeRepr conn (eltSource i)) idxRepr
-      case arrayConstant of
+      case arrayConstant @h of
         Just constFn
           | otherwise -> do
             let idx_smt_types = toListFC Some idx_types
@@ -2093,7 +2097,7 @@ appSMTExpr ae = do
       case array_type of
         PrimArrayTypeMap _ _ -> do
             freshBoundTerm array_type $
-              arrayUpdate (asBase a) updated_idx value
+              arrayUpdate @h (asBase a) updated_idx value
         FnArrayTypeMap idxTypes resType  -> do
           case smtFnUpdate of
             Just updateFn -> do
@@ -2203,13 +2207,13 @@ appSMTExpr ae = do
           | feat `hasProblemFeature` useSymbolicArrays -> do
             let tp = ComplexToArrayTypeMap
             ra <-
-              case arrayConstant of
+              case arrayConstant @h of
                 Just constFn  ->
                   return (constFn [Some BoolTypeMap] (Some RealTypeMap) r')
                 Nothing -> do
                   a <- asBase <$> freshConstant "complex lit" tp
-                  return $! arrayUpdate a [boolExpr False] r'
-            freshBoundTerm tp $! arrayUpdate ra [boolExpr True] i'
+                  return $! arrayUpdate @h a [boolExpr False] r'
+            freshBoundTerm tp $! arrayUpdate @h ra [boolExpr True] i'
           | otherwise ->
             theoryUnsupported conn "complex literals" i
 
@@ -2219,14 +2223,14 @@ appSMTExpr ae = do
         ComplexToStructTypeMap ->
           freshBoundTerm RealTypeMap $ structComplexRealPart (asBase c)
         ComplexToArrayTypeMap ->
-          freshBoundTerm RealTypeMap $ arrayComplexRealPart (asBase c)
+          freshBoundTerm RealTypeMap $ arrayComplexRealPart @h (asBase c)
     ImagPart e -> do
       c <- mkExpr e
       case smtExprType c of
         ComplexToStructTypeMap ->
           freshBoundTerm RealTypeMap $ structComplexImagPart (asBase c)
         ComplexToArrayTypeMap ->
-          freshBoundTerm RealTypeMap $ arrayComplexImagPart (asBase c)
+          freshBoundTerm RealTypeMap $ arrayComplexImagPart @h (asBase c)
 
     --------------------------------------------------------------------
     -- Structures
@@ -2416,11 +2420,12 @@ smtIndicesTerms tps vals = Ctx.forIndexRange 0 sz f []
                       BVTypeMap w -> bvTerm w v
                       _ -> error "Do not yet support other index types."
 
-getSolverVal :: forall h tp. SupportTermOps (Term h)
-              => SMTEvalFunctions h
-              -> TypeMap tp
-              -> Term h
-              -> IO (GroundValue tp)
+getSolverVal :: forall h tp
+             .  SMTWriter h
+             => SMTEvalFunctions h
+             -> TypeMap tp
+             -> Term h
+             -> IO (GroundValue tp)
 getSolverVal smtFns BoolTypeMap   tm = smtEvalBool smtFns tm
 getSolverVal smtFns (BVTypeMap w) tm = smtEvalBV smtFns (widthVal w) tm
 getSolverVal smtFns RealTypeMap   tm = smtEvalReal smtFns tm
@@ -2438,8 +2443,8 @@ getSolverVal smtFns ComplexToStructTypeMap tm =
   (:+) <$> smtEvalReal smtFns (structComplexRealPart tm)
        <*> smtEvalReal smtFns (structComplexImagPart tm)
 getSolverVal smtFns ComplexToArrayTypeMap tm =
-  (:+) <$> smtEvalReal smtFns (arrayComplexRealPart tm)
-       <*> smtEvalReal smtFns (arrayComplexImagPart tm)
+  (:+) <$> smtEvalReal smtFns (arrayComplexRealPart @h tm)
+       <*> smtEvalReal smtFns (arrayComplexImagPart @h tm)
 getSolverVal smtFns (PrimArrayTypeMap idx_types eltTp) tm
   | Just (SMTEvalBVArrayWrapper evalBVArray) <- smtEvalBvArray smtFns
   , Ctx.Empty Ctx.:> (BVTypeMap w) <- idx_types
@@ -2447,7 +2452,7 @@ getSolverVal smtFns (PrimArrayTypeMap idx_types eltTp) tm
       fromMaybe byIndex <$> evalBVArray w v tm
   | otherwise = return byIndex
   where byIndex = ArrayMapping $ \i -> do
-          let res = arraySelect tm (smtIndicesTerms idx_types i)
+          let res = arraySelect @h tm (smtIndicesTerms idx_types i)
           getSolverVal smtFns eltTp res
 getSolverVal smtFns (FnArrayTypeMap idx_types eltTp) tm = return $ ArrayMapping $ \i -> do
   let term = smtFnApp tm (smtIndicesTerms idx_types i)

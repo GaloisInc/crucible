@@ -69,7 +69,7 @@ indexType :: [SMT2.Type] -> SMT2.Type
 indexType [i] = i
 indexType il = SMT2.structType il
 
-indexCtor :: [SMT2.Term Z3] -> SMT2.Term Z3
+indexCtor :: [SMT2.Term] -> SMT2.Term
 indexCtor [i] = i
 indexCtor il = structCtor il
 
