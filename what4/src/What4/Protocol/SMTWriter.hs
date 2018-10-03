@@ -2152,7 +2152,11 @@ appSMTExpr ae = do
     ConstantArray idxRepr _bRepr ve -> do
       v <- mkExpr ve
       let value_type = smtExprType v
-      let smt_value_type = asSMTType value_type
+          smt_value_type = asSMTType value_type
+          feat = supportedFeatures conn
+          mkArray = if feat `hasProblemFeature` useSymbolicArrays
+                    then PrimArrayTypeMap
+                    else FnArrayTypeMap
       idx_types <- liftIO $
         traverseFC (evalFirstClassTypeRepr conn (eltSource i)) idxRepr
       case arrayConstant of
@@ -2160,7 +2164,7 @@ appSMTExpr ae = do
           | otherwise -> do
             let idx_smt_types :: [SMT_Type]
                 idx_smt_types = toListFC asSMTType idx_types
-            let tp = PrimArrayTypeMap idx_types value_type
+            let tp = mkArray idx_types value_type
             freshBoundTerm tp $!
               constFn idx_smt_types smt_value_type (asBase v)
         Nothing -> do
@@ -2168,7 +2172,7 @@ appSMTExpr ae = do
             fail $ show $ text (smtWriterName conn) <+>
               text "cannot encode constant arrays."
           -- Constant functions use unnamed variables.
-          let array_type = FnArrayTypeMap idx_types value_type
+          let array_type = mkArray idx_types value_type
           -- Create names for index variables.
           args <- liftIO $ createTypeMapArgsForArray conn idx_types
           SMTName array_type <$> freshBoundFn args (asSMTType value_type) (asBase v)
