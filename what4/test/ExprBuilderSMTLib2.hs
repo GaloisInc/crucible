@@ -12,7 +12,6 @@
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import           Control.Exception
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Text as T
@@ -21,9 +20,11 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
 
 import What4.BaseTypes
+import What4.Config
 import What4.Expr
 import What4.Interface
 import What4.InterpretedFloatingPoint
+import What4.Protocol.Online
 import What4.Protocol.SMTLib2
 import What4.SatResult
 import What4.Solver.Z3
@@ -45,8 +46,17 @@ withSym pred_gen = withIONonceGenerator $ \gen ->
 withZ3' :: (forall t . SimpleExprBuilder t fs -> Session t Z3 -> IO ()) -> IO ()
 withZ3' action = withIONonceGenerator $ \nonce_gen -> do
   sym <- newExprBuilder State nonce_gen
-  handle (\(e :: IOException) -> print e) $
-    withZ3 sym "z3" putStrLn $ action sym
+  withZ3 sym "z3" putStrLn $ action sym
+
+withOnlineZ3'
+  :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3) -> IO a)
+  -> IO a
+withOnlineZ3' action = withSym $ \sym -> do
+  extendConfig z3Options (getConfiguration sym)
+  s <- startSolverProcess sym
+  res <- action sym s
+  shutdownSolverProcess s
+  return res
 
 withModel
   :: Session t Z3
@@ -290,6 +300,24 @@ testBVSelectLshr = testCase "select lshr simplification" $
     e2 <- bvSelect sym (knownNat @0) (knownNat @64) e1
     e2 @?= x
 
+testUninterpretedFunctionScope :: TestTree
+testUninterpretedFunctionScope = testCase "uninterpreted function scope" $
+  withOnlineZ3' $ \sym s -> do
+    fn <- freshTotalUninterpFn sym (userSymbol' "f") knownRepr BaseIntegerRepr
+    x  <- freshConstant sym (userSymbol' "x") BaseIntegerRepr
+    y  <- freshConstant sym (userSymbol' "y") BaseIntegerRepr
+    e0 <- applySymFn sym fn (Ctx.empty Ctx.:> x)
+    e1 <- applySymFn sym fn (Ctx.empty Ctx.:> y)
+    p0 <- intEq sym x y
+    p1 <- notPred sym =<< intEq sym e0 e1
+    p2 <- andPred sym p0 p1
+    inNewFrame (solverConn s) $ do
+      res1 <- checkSatisfiable s "test" p2
+      isUnsat res1 @? "unsat"
+    inNewFrame (solverConn s) $ do
+      res2 <- checkSatisfiable s "test" p2
+      isUnsat res2 @? "unsat"
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -308,4 +336,5 @@ main = defaultMain $ testGroup "Tests"
   , testFloatCastNoSimplification
   , testBVSelectShl
   , testBVSelectLshr
+  , testUninterpretedFunctionScope
   ]

@@ -14,6 +14,7 @@ Stability   : provisional
 module Crux.Options(CruxOptions(..),processOptionsThen,pathDesc,pathDelim) where
 
 import Data.List (foldl',lookup)
+import Data.Maybe( fromMaybe )
 
 import System.Console.GetOpt
 import System.Environment
@@ -37,6 +38,8 @@ defaultCruxOptions = CruxOptions {
   , checkPathSat = True
   , profileCrucibleFunctions = True
   , profileSolver            = True
+  , globalTimeout = Nothing
+  , profileOutputInterval = Nothing
   }
 
 -- | All possible options that could be set from the command line.
@@ -53,31 +56,49 @@ cmdLineCruxOptions =
   [ Option "h?" ["help"]
     (NoArg (\opts -> opts { showHelp = True }))
     "Print this help message"
+
   , Option "V" ["version"]
     (NoArg (\opts -> opts { showVersion = True }))
     "Show the version of the tool"
+
   , Option "d" ["sim-verbose"]
     (ReqArg
      (\v opts -> opts { simVerbose = read v })
      "num"
     )
     "Set simulator verbosity level"
+
   , Option [] ["no-path-sat"]
     (NoArg
      (\opts -> opts { checkPathSat = False }))
     "Disable path satisfiability checking"
+
   , Option [] ["output-directory"]
     (OptArg (\mv opts -> maybe opts (\v -> opts { outDir = v }) mv)
     "DIR")
     "Location for reports. If unset, no reports will be generated."
+
   , Option [] ["no-profile-crucible"]
     (NoArg
      (\opts -> opts { profileCrucibleFunctions = False }))
     "Disable profiling of crucible function entry/exit"
+
   , Option [] ["no-profile-solver"]
     (NoArg
      (\opts -> opts { profileSolver = False }))
     "Disable profiling of solver events"
+
+  , Option "t" ["timeout"]
+    (OptArg
+     (\v opts -> opts{ globalTimeout = Just (fromMaybe "60" v) })
+     "seconds")
+    "Stop executing the simulator after this many seconds (default: 60 seconds)"
+
+  , Option "p" ["profiling-period"]
+    (OptArg
+      (\v opts -> opts{ profileOutputInterval = Just (fromMaybe "5" v) })
+      "seconds")
+    "Time between intermediate profile data reports (default: 5 seconds)"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)

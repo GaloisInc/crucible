@@ -108,7 +108,7 @@ lexeme = L.lexeme skipWhitespace
 -- | Parse something with its location.
 withPos :: Parser a -> Parser (Posd a)
 withPos p =
-  do MP.SourcePos file line col <- getPosition
+  do MP.SourcePos file line col <- getSourcePos
      let loc = C.SourcePos (T.pack file) (unPos line) (unPos col)
      res <- p
      return $ Posd loc res

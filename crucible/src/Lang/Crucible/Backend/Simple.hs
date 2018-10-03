@@ -30,6 +30,7 @@ module Lang.Crucible.Backend.Simple
   ) where
 
 import           Control.Lens
+import           Control.Monad (void)
 import           Data.IORef
 import           Data.Parameterized.Nonce
 
@@ -113,6 +114,10 @@ instance IsBoolSolver (SimpleBackend t fs) where
   popAssumptionFrameAndObligations sym ident = do
     stk <- getAssumptionStack sym
     AS.popFrameAndGoals ident stk
+
+  popUntilAssumptionFrame sym ident = do
+    stk <- getAssumptionStack sym
+    void $ AS.popFramesUntil ident stk
 
   saveAssumptionState sym = do
     stk <- getAssumptionStack sym

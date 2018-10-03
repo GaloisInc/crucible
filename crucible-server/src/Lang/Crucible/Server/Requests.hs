@@ -187,6 +187,10 @@ fulfillRunCallRequest sim f_val encoded_args = do
         AbortedResult ctx' _ -> do
           writeIORef (simContext sim) $! ctx'
           sendCallAllAborted sim
+        TimeoutResult exst -> do
+          writeIORef (simContext sim) $! execStateContext exst
+          sendCallAllAborted sim -- FIXME, this isn't really right...
+
     _ -> do
       sendCallPathAborted sim
              P.AbortedNonFunction

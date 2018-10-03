@@ -65,6 +65,8 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ExecCont
   , RunningStateInfo(..)
   , ResolvedCall(..)
+  , execResultContext
+  , execStateContext
 
     -- * Simulator context trees
     -- ** Main context data structures
@@ -328,7 +330,28 @@ data ExecResult p sym ext (r :: *)
      -- | All execution paths resulted in an abort condition, and there is
      --   no result to return.
    | AbortedResult  !(SimContext p sym ext) !(AbortedResult sym ext)
+     -- | An execution stopped somewhere in the middle of a run because
+     --   a timeout condition occured.
+   | TimeoutResult !(ExecState p sym ext r)
 
+
+execResultContext :: ExecResult p sym ext r -> SimContext p sym ext
+execResultContext (FinishedResult ctx _) = ctx
+execResultContext (AbortedResult ctx _) = ctx
+execResultContext (TimeoutResult exst) = execStateContext exst
+
+execStateContext :: ExecState p sym ext r -> SimContext p sym ext
+execStateContext = \case
+  ResultState res        -> execResultContext res
+  AbortState _ st        -> st^.stateContext
+  UnwindCallState _ _ st -> st^.stateContext
+  CallState _ _ st       -> st^.stateContext
+  TailCallState _ _ st   -> st^.stateContext
+  ReturnState _ _ _ st   -> st^.stateContext
+  RunningState _ st      -> st^.stateContext
+  SymbolicBranchState _ _ _ _ st -> st^.stateContext
+  OverrideState _ st -> st^.stateContext
+  ControlTransferState _ st -> st^.stateContext
 
 -----------------------------------------------------------------------
 -- ExecState

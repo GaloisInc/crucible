@@ -54,7 +54,7 @@ doParseCheck fn theInput pprint outh =
   do ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
-         do putStrLn $ parseErrorPretty' theInput err
+         do putStrLn $ errorBundlePretty err
             exitFailure
        Right v ->
          do when pprint $
@@ -84,7 +84,7 @@ simulateProgram fn theInput outh profh opts setup =
   do ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
-         do putStrLn $ parseErrorPretty' theInput err
+         do putStrLn $ errorBundlePretty err
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
@@ -119,7 +119,8 @@ simulateProgram fn theInput outh profh opts setup =
                                 regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
                          Just ph ->
                            do proftab <- newProfilingTable
-                              void $ executeCrucibleProfiling proftab simSt $
+                              let timeoutOpts = TimeoutOptions Nothing Nothing -- no timeouts
+                              void $ executeCrucibleProfiling proftab timeoutOpts simSt $
                                 runOverrideSim retType $
                                 do mapM_ (registerFnBinding . fst) ovrs
                                    regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap

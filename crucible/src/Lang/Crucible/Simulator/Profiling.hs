@@ -25,12 +25,14 @@
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.Profiling
   ( executeCrucibleProfiling
+  , TimeoutOptions(..)
   , newProfilingTable
   , recordSolverEvent
   , startRecordingSolverEvents
   , enterEvent
   , exitEvent
   , inProfilingFrame
+  , readMetrics
 
     -- * Profiling data structures
   , CGEvent(..)
@@ -52,7 +54,7 @@ import qualified Data.Sequence as Seq
 import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
 import           Data.Time.Format
-import           System.IO.Error as Ex
+import           System.IO (withFile, IOMode(..), hPutStrLn)
 import           Text.JSON
 
 import           What4.Config
@@ -162,11 +164,15 @@ solverEventToJSON (time, ev) =
            Unsat{} -> [("sat", showJSON False)]
            Unknown{} -> []
 
-callGraphJSON :: Seq CGEvent -> JSValue
-callGraphJSON evs = JSObject $ toJSObject
+callGraphJSON :: UTCTime -> Metrics Identity -> Seq CGEvent -> JSValue
+callGraphJSON now m evs = JSObject $ toJSObject
   [ ("type", showJSON "callgraph")
-  , ("events", JSArray (map cgEventToJSON $ toList evs))
+  , ("events", JSArray allEvs)
   ]
+
+ where
+ allEvs = map cgEventToJSON (toList evs ++ closingEvents now m evs)
+
 
 symProUIString :: String -> String -> ProfilingTable -> IO String
 symProUIString nm source tbl =
@@ -176,11 +182,12 @@ symProUIString nm source tbl =
 symProUIJSON :: String -> String -> ProfilingTable -> IO JSValue
 symProUIJSON nm source tbl =
   do now <- getCurrentTime
+     m <- readMetrics tbl
      evs <- readIORef (callGraphEvents tbl)
      solverEvs <- readIORef (solverEvents tbl)
      return $ JSArray $
        [ JSObject $ toJSObject $ metadata now
-       , callGraphJSON evs
+       , callGraphJSON now m evs
        , JSObject $ toJSObject $ solver_calls solverEvs
        , JSObject $ toJSObject $ unused_terms
        ]
@@ -211,6 +218,27 @@ data ProfilingTable =
   , eventIDRef :: IORef Integer
   , solverEvents :: IORef (Seq (UTCTime, SolverEvent))
   }
+
+openEventFrames :: Seq CGEvent -> [CGEvent]
+openEventFrames = go []
+ where
+ go :: [CGEvent] -> Seq CGEvent -> [CGEvent]
+ go xs Seq.Empty = xs
+ go xs (e Seq.:<| es) =
+   case cgEvent_type e of
+     ENTER -> go (e:xs) es
+     EXIT  -> go (tail xs) es
+
+openToCloseEvent :: UTCTime -> Metrics Identity -> CGEvent -> CGEvent
+openToCloseEvent now m cge =
+  cge
+  { cgEvent_type = EXIT
+  , cgEvent_metrics = m
+  , cgEvent_time = now
+  }
+
+closingEvents :: UTCTime -> Metrics Identity -> Seq CGEvent -> [CGEvent]
+closingEvents now m = map (openToCloseEvent now m) . openEventFrames
 
 newProfilingTable :: IO ProfilingTable
 newProfilingTable =
@@ -261,10 +289,13 @@ enterEvent ::
   IO ()
 enterEvent tbl nm callLoc =
   do now <- getCurrentTime
-     m <- traverseF (pure . Identity <=< readIORef) (metrics tbl)
+     m <- readMetrics tbl
      i <- nextEventID tbl
      let p = fmap plSourceLoc callLoc
      modifyIORef' (callGraphEvents tbl) (Seq.|> CGEvent nm Nothing p ENTER m now i)
+
+readMetrics :: ProfilingTable -> IO (Metrics Identity)
+readMetrics tbl = traverseF (pure . Identity <=< readIORef) (metrics tbl)
 
 exitEvent ::
   ProfilingTable ->
@@ -316,69 +347,83 @@ isMergeState tgt st =
     _ -> False
 
 
-
+data TimeoutOptions =
+  TimeoutOptions
+  { overallTimeout :: Maybe NominalDiffTime
+  , periodicProfileOutput :: Maybe (FilePath, String, String, NominalDiffTime)
+  }
 
 executeCrucibleProfiling :: forall p sym ext rtp f a.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   ProfilingTable ->
+  TimeoutOptions ->
   SimState p sym ext rtp f a {- ^ Initial simulator state -} ->
   ExecCont p sym ext rtp f a {- ^ Execution continuation to run -} ->
   IO (ExecResult p sym ext rtp)
-executeCrucibleProfiling tbl st0 cont =
+executeCrucibleProfiling tbl timeoutOpts st0 cont =
   do let cfg = st0^.stateConfiguration
      verbOpt <- getOptionSetting verbosity cfg
-     let sym = st0^.stateSymInterface
-     startRecordingSolverEvents sym tbl
-     enterEvent tbl (st0^.stateTree.actFrame.gpValue.frameFunctionName) Nothing
+     let getVerb = fromInteger <$> getOpt verbOpt
 
-     loop verbOpt st0 cont
+     enterEvent tbl (st0^.stateTree.actFrame.gpValue.frameFunctionName) Nothing
+     now <- getCurrentTime
+     exst0 <- advanceCrucibleState cont st0
+     timeoutLoop getVerb now now exst0
 
  where
- loop :: forall f' a'.
-   OptionSetting BaseIntegerType ->
-   SimState p sym ext rtp f' a' ->
-   ExecCont p sym ext rtp f' a' ->
+ timeoutLoop getVerb startTime lastOutputTime exst =
+   case timeoutOpts of
+     TimeoutOptions { overallTimeout = Just diff, periodicProfileOutput = Just (outf, nm, source, outdiff) }
+       | stopTime <= outputTime ->
+           loopUntil stopTime getVerb exst (return . TimeoutResult)
+       | otherwise ->
+           loopUntil outputTime getVerb exst $ \exst' ->
+             do withFile outf WriteMode $ \h ->
+                  hPutStrLn h =<< symProUIString nm source tbl
+                now <- getCurrentTime
+                timeoutLoop getVerb startTime now exst'
+      where
+       stopTime = addUTCTime diff startTime
+       outputTime = addUTCTime outdiff lastOutputTime
+
+     TimeoutOptions { overallTimeout = Just diff, periodicProfileOutput = Nothing } ->
+       loopUntil stopTime getVerb exst (return . TimeoutResult)
+      where
+       stopTime = addUTCTime diff startTime
+
+     TimeoutOptions { overallTimeout = Nothing, periodicProfileOutput = Just (outf, nm, source, outdiff) } ->
+       loopUntil outputTime getVerb exst $ \exst' ->
+             do withFile outf WriteMode $ \h ->
+                  hPutStrLn h =<< symProUIString nm source tbl
+                now <- getCurrentTime
+                timeoutLoop getVerb startTime now exst'
+      where
+       outputTime = addUTCTime outdiff lastOutputTime
+
+     TimeoutOptions Nothing Nothing -> basicLoop getVerb exst
+
+ loopUntil ::
+   UTCTime ->
+   IO Int ->
+   ExecState p sym ext rtp ->
+   (ExecState p sym ext rtp -> IO (ExecResult p sym ext rtp)) ->
    IO (ExecResult p sym ext rtp)
- loop verbOpt st m =
-   do exst <- Ex.catches (runReaderT m st)
-                [ Ex.Handler $ \(e::AbortExecReason) ->
-                    runAbortHandler e st
-                , Ex.Handler $ \(e::Ex.IOException) ->
-                    if Ex.isUserError e then
-                      runGenericErrorHandler (Ex.ioeGetErrorString e) st
-                    else
-                      Ex.throwIO e
-                ]
-      updateProfilingTable tbl exst
-      case exst of
-        ResultState res ->
-          return res
+ loopUntil breakTime getVerb exst k =
+   do now <- getCurrentTime
+      if now >= breakTime then
+        k exst
+      else
+        do updateProfilingTable tbl exst
+           dispatchExecState getVerb exst return
+             (\m st ->
+               do exst' <- advanceCrucibleState m st
+                  loopUntil breakTime getVerb exst' k)
 
-        AbortState rsn st' ->
-          let (AH handler) = st'^.abortHandler in
-          loop verbOpt st' (handler rsn)
-
-        OverrideState ovr st' ->
-          loop verbOpt st' (overrideHandler ovr)
-
-        SymbolicBranchState p a_frame o_frame tgt st' ->
-          loop verbOpt st' (performIntraFrameSplit p a_frame o_frame tgt)
-
-        ControlTransferState tgt st' ->
-          loop verbOpt st' (performIntraFrameMerge tgt)
-
-        CallState retHandler frm st' ->
-          loop verbOpt st' (performFunctionCall retHandler frm)
-
-        TailCallState vfv frm st' ->
-          loop verbOpt st' (performTailCall vfv frm)
-
-        ReturnState fnm vfv ret st' ->
-          loop verbOpt st' (performReturn fnm vfv ret)
-
-        UnwindCallState vfv ar st' ->
-          loop verbOpt st' (resumeValueFromValueAbort vfv ar)
-
-        RunningState _runTgt st' ->
-          do verb <- fromInteger <$> getOpt verbOpt
-             loop verbOpt st' (stepBasicBlock verb)
+ basicLoop ::
+   IO Int ->
+   ExecState p sym ext rtp ->
+   IO (ExecResult p sym ext rtp)
+ basicLoop getVerb exst =
+   do updateProfilingTable tbl exst
+      dispatchExecState getVerb exst return
+        (\m st -> basicLoop getVerb =<< advanceCrucibleState m st)

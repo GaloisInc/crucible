@@ -75,6 +75,7 @@ module Lang.Crucible.Simulator
   , ExecResult(..)
   , ExecState(..)
   , ExecCont
+  , execResultContext
 
     -- * Simulator context
     -- ** Function bindings
@@ -101,6 +102,7 @@ module Lang.Crucible.Simulator
   , defaultAbortHandler
   , AbortHandler(..)
   , CrucibleState
+  , stateContext
 
     -- * Intrinsic types
   , IntrinsicClass

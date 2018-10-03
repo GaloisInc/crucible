@@ -9,19 +9,18 @@
 --
 -- STP-specific tweaks to the basic SMTLib2 solver interface.
 ------------------------------------------------------------------------
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Solver.STP
   ( STP
   , stpAdapter
   , stpPath
+  , stpOptions
   , runSTPInOverride
   , withSTP
   ) where
 
-import           Control.Concurrent
-import           System.Exit
-import qualified System.IO.Streams as Streams
-import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
@@ -33,15 +32,15 @@ import           What4.SatResult
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import           What4.Solver.Adapter
+import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
 import           What4.Utils.Process
-import           What4.Utils.Streams
 
-data STP = STP
+data STP = STP deriving Show
 
 -- | Path to stp
 stpPath :: ConfigOption BaseStringType
-stpPath = configOption knownRepr "stp.path"
+stpPath = configOption knownRepr "stp_path"
 
 stpRandomSeed :: ConfigOption BaseIntegerType
 stpRandomSeed = configOption knownRepr "stp.random-seed"
@@ -71,69 +70,43 @@ stpAdapter =
 instance SMT2.SMTLib2Tweaks STP where
   smtlib2tweaks = STP
 
-runSTPInOverride
-   :: ExprBuilder t st fs
-   -> (Int -> String -> IO ())
-   -> String
-   -> BoolExpr t
-   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
-   -> IO a
-runSTPInOverride sym logLn rsn p cont = do
-  solver_path <- findSolverPath stpPath (getConfiguration sym)
-  logSolverEvent sym
-    SolverStartSATQuery
-    { satQuerySolverName = "STP"
-    , satQueryReason = rsn
-    }
-  withSTP sym solver_path (logLn 2) $ \s -> do
-    -- Assume the predicate holds.
-    SMT2.assume (SMT2.sessionWriter s) p
-    -- Run check SAT and get the model back.
-    SMT2.runCheckSat s
-      (\result ->
-        do logSolverEvent sym
-             SolverEndSATQuery
-             { satQueryResult = fmap (const ()) result
-             , satQueryError  = Nothing
-             }
-           cont result)
+instance SMT2.SMTLib2GenericSolver STP where
+  defaultSolverPath _ = findSolverPath stpPath . getConfiguration
 
--- | Run STP in a session.  STP will be configured to produce models, buth
+  defaultSolverArgs _ = []
+
+  defaultFeatures _ = useIntegerArithmetic
+
+  setDefaultLogicAndOptions writer = do
+    -- Tell STP to use all supported logics
+    SMT2.setLogic writer SMT2.qf_bv
+
+  newDefaultWriter solver sym h =
+    SMT2.newWriter solver h (show solver) True (SMT2.defaultFeatures solver) False
+      =<< getSymbolVarBimap sym
+
+runSTPInOverride
+  :: ExprBuilder t st fs
+  -> (Int -> String -> IO ())
+  -> String
+  -> BoolExpr t
+  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+  -> IO a
+runSTPInOverride = SMT2.runSolverInOverride STP
+
+-- | Run STP in a session. STP will be configured to produce models, buth
 -- otherwise left with the default configuration.
-withSTP :: ExprBuilder t st fs
-        -> FilePath
-            -- ^ Path to STP executable
-         -> (String -> IO ())
-            -- ^ Function to print messages from STP to.
-         -> (SMT2.Session t STP -> IO a)
-            -- ^ Action to run
-         -> IO a
-withSTP sym stp_path logFn action = do
-  withProcessHandles stp_path [] Nothing $ \(in_h, out_h, err_h, ph) -> do
-    -- Log stderr to output.
-    err_stream <- Streams.handleToInputStream err_h
-    _ <- forkIO $ logErrorStream err_stream logFn
-    -- Create stream for output from solver.
-    -- Create writer and session
-    bindings <- getSymbolVarBimap sym
-    wtr <- SMT2.newWriter STP in_h "STP" True useIntegerArithmetic False bindings
-    out_stream <- Streams.handleToInputStream out_h
-    let s = SMT2.Session { SMT2.sessionWriter = wtr
-                         , SMT2.sessionResponse = out_stream
-                         }
-    -- Tell STP to use all supported logics.
-    SMT2.setLogic  wtr SMT2.all_supported
-    -- Tell STP to produce models
-    SMT2.setOption wtr (SMT2.produceModels True)
-    -- Run action with session
-    r <- action s
-    -- Tell STP to exit
-    SMT2.writeExit wtr
-    -- Log outstream as error messages.
-    _ <- forkIO $ logErrorStream out_stream logFn
-    -- Check error code.
-    ec <-  waitForProcess ph
-    case ec of
-      ExitSuccess -> return r
-      ExitFailure exit_code ->
-        fail $ "STP exited with unexpected code: " ++ show exit_code
+withSTP
+  :: ExprBuilder t st fs
+  -> FilePath
+    -- ^ Path to STP executable
+  -> (String -> IO ())
+    -- ^ Function to print messages from STP to
+  -> (SMT2.Session t STP -> IO a)
+    -- ^ Action to run
+  -> IO a
+withSTP = SMT2.withSolver STP
+
+instance OnlineSolver t (SMT2.Writer STP) where
+  startSolverProcess = SMT2.startSolver STP
+  shutdownSolverProcess = SMT2.shutdownSolver STP

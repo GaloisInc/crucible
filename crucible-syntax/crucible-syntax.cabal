@@ -32,7 +32,7 @@ library
     mtl,
     optparse-applicative,
     parameterized-utils >= 0.1.7,
-    megaparsec,
+    megaparsec >= 7.0 && < 8.0,
     s-cargot,
     text,
     transformers,

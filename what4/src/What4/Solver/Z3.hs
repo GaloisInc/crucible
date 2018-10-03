@@ -13,23 +13,17 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Solver.Z3
-       ( Z3
-       , z3Path
-       , z3Options
-       , z3Adapter
-       , writeZ3SMT2File
-       , runZ3InOverride
-       , withZ3
-       ) where
+  ( Z3
+  , z3Adapter
+  , z3Path
+  , z3Options
+  , runZ3InOverride
+  , withZ3
+  , writeZ3SMT2File
+  ) where
 
-import           Control.Concurrent
-import           Control.Monad.State.Strict
 import           Data.Bits
-import qualified Data.Text.Lazy as LazyText
-import           System.Exit
 import           System.IO
-import qualified System.IO.Streams as Streams
-import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
@@ -44,11 +38,9 @@ import           What4.Expr.GroundEval
 import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
 import           What4.Protocol.SMTWriter
-import           What4.Utils.HandleReader
 import           What4.Utils.Process
-import           What4.Utils.Streams
 
-data Z3 = Z3
+data Z3 = Z3 deriving Show
 
 -- | Path to Z3
 z3Path :: ConfigOption BaseStringType
@@ -89,8 +81,8 @@ instance SMT2.SMTLib2Tweaks Z3 where
     let array_type = SMT2.smtlib2arrayType Z3 idx elts
         cast_app = builder_list [ "as" , "const" , array_type ]
      in term_app cast_app [ v ]
-  smtlib2arraySelect a i   = SMT2.arraySelect1 a (indexCtor i)
-  smtlib2arrayUpdate a i v = SMT2.arrayUpdate1 a (indexCtor i) v
+  smtlib2arraySelect a i = SMT2.arraySelect1 a (indexCtor i)
+  smtlib2arrayUpdate a i = SMT2.arrayUpdate1 a (indexCtor i)
 
 z3Features :: ProblemFeatures
 z3Features = useNonlinearArithmetic
@@ -106,132 +98,41 @@ writeZ3SMT2File
    -> IO ()
 writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 "Z3" z3Features
 
-runZ3InOverride
-   :: ExprBuilder t st fs
-   -> (Int -> String -> IO ())
-   -> String -- ^ A short description of the reason this query was issued
-   -> BoolExpr t
-   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
-   -> IO a
-runZ3InOverride sym logLn rsn p cont = do
-  z3_path <- findSolverPath z3Path (getConfiguration sym)
-  logSolverEvent sym
-    SolverStartSATQuery
-    { satQuerySolverName = "Z3"
-    , satQueryReason = rsn
-    }
-  withZ3 sym z3_path (logLn 2) $ \s -> do
-    -- Assume the predicate holds.
-    SMT2.assume (SMT2.sessionWriter s) p
-    -- Run check SAT and get the model back.
-    SMT2.runCheckSat s
-      (\result ->
-        do logSolverEvent sym
-             SolverEndSATQuery
-             { satQueryResult = fmap (const ()) result
-             , satQueryError  = Nothing
-             }
-           cont result)
+instance SMT2.SMTLib2GenericSolver Z3 where
+  defaultSolverPath _ = findSolverPath z3Path . getConfiguration
 
--- | Run Z3 in a session.  Z3 will be configured to produce models, buth
--- otherwise left with the default configuration.
-withZ3 :: ExprBuilder t st fs
-       -> FilePath
-          -- ^ Path to Z3
-       -> (String -> IO ())
-          -- ^ Command to use for writing log messages to.
-       -> (SMT2.Session t Z3 -> IO a)
-            -- ^ Action to run
-       -> IO a
-withZ3 sym z3_path logFn action = do
-  let args = ["-smt2", "-in"]
-  withProcessHandles z3_path args Nothing $ \(in_h, out_h, err_h, ph) -> do
-    -- Log stderr to output.
-    err_stream <- Streams.handleToInputStream err_h
-    void $ forkIO $ logErrorStream err_stream logFn
-    -- Create writer and session
-    bindings <- getSymbolVarBimap sym
-    wtr <- SMT2.newWriter Z3 in_h "Z3" True z3Features True bindings
-    out_stream <- Streams.handleToInputStream out_h
-    let s = SMT2.Session { SMT2.sessionWriter = wtr
-                         , SMT2.sessionResponse = out_stream
-                         }
+  defaultSolverArgs _ = ["-smt2", "-in"]
+
+  defaultFeatures _ = z3Features
+
+  setDefaultLogicAndOptions writer = do
     -- Tell Z3 to produce models.
-    SMT2.setOption wtr (SMT2.produceModels True)
+    SMT2.setOption writer $ SMT2.produceModels True
     -- Tell Z3 to round and print algebraic reals as decimal
-    SMT2.setOption wtr (SMT2.ppDecimal True)
-    -- Run action with session.
-    r <- action s
-    -- Tell Z3 to exit
-    SMT2.writeExit wtr
-    -- Log outstream from now on.
-    void $ forkIO $ logErrorStream out_stream logFn
+    SMT2.setOption writer $ SMT2.ppDecimal True
 
-    ec <- waitForProcess ph
-    case ec of
-      ExitSuccess ->
-        return r
-      ExitFailure exit_code ->
-        fail $ "Z3 exited with unexpected code: " ++ show exit_code
+runZ3InOverride
+  :: ExprBuilder t st fs
+  -> (Int -> String -> IO ())
+  -> String
+  -> BoolExpr t
+  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+  -> IO a
+runZ3InOverride = SMT2.runSolverInOverride Z3
+
+-- | Run CVC4 in a session. CVC4 will be configured to produce models, but
+-- otherwise left with the default configuration.
+withZ3
+  :: ExprBuilder t st fs
+  -> FilePath
+    -- ^ Path to CVC4 executable
+  -> (String -> IO ())
+    -- ^ Function to print messages from CVC4 to.
+  -> (SMT2.Session t Z3 -> IO a)
+    -- ^ Action to run
+  -> IO a
+withZ3 = SMT2.withSolver Z3
 
 instance OnlineSolver t (SMT2.Writer Z3) where
-  startSolverProcess = z3StartSolver
-  shutdownSolverProcess = z3ShutdownSolver
-
-z3StartSolver :: ExprBuilder t st fs -> IO (SolverProcess t (SMT2.Writer Z3))
-z3StartSolver sym =
-  do let cfg = getConfiguration sym
-     z3_path <- findSolverPath z3Path cfg
-     let args = ["-smt2", "-in"]
-     let create_proc = (proc z3_path args)
-                       { std_in  = CreatePipe
-                       , std_out = CreatePipe
-                       , std_err = CreatePipe
-                       , create_group = True
-                       , cwd = Nothing
-                       }
-     let startProcess = do
-           x <- createProcess create_proc
-           case x of
-             (Just in_h, Just out_h, Just err_h, ph) -> return (in_h,out_h,err_h,ph)
-             _ -> fail "Internal error in z3StartServer: Failed to create handle."
-
-     (in_h, out_h, err_h, ph) <- startProcess
-
-     -- Log stderr to output.
-     err_reader <- startHandleReader err_h
-     -- Create writer and session
-     bindings <- getSymbolVarBimap sym
-     wtr <- SMT2.newWriter Z3 in_h "Z3" True z3Features True bindings
-
-     out_stream <- Streams.handleToInputStream out_h
-     -- Tell Z3 to produce models.
-     SMT2.setOption wtr (SMT2.produceModels True)
-     -- Tell Z3 to round and print algebraic reals as decimal
-     SMT2.setOption wtr (SMT2.ppDecimal True)
-
-     return $! SolverProcess
-               { solverConn = wtr
-               , solverStdin = in_h
-               , solverStderr = err_reader
-               , solverHandle = ph
-               , solverResponse = out_stream
-               , solverEvalFuns = smtEvalFuns wtr out_stream
-               , solverLogFn = logSolverEvent sym
-               , solverName = "Z3"
-               }
-
-
-z3ShutdownSolver :: SolverProcess t (SMT2.Writer Z3) -> IO ()
-z3ShutdownSolver p =
-  do -- Tell Z3 to exit
-     SMT2.writeExit (solverConn p)
-
-     txt <- readAllLines (solverStderr p)
-
-     ec <- waitForProcess (solverHandle p)
-     case ec of
-       ExitSuccess ->
-         return ()
-       ExitFailure exit_code ->
-         fail ("Z3 exited with unexpected code: " ++ show exit_code ++ "\n" ++ LazyText.unpack txt)
+  startSolverProcess = SMT2.startSolver Z3
+  shutdownSolverProcess = SMT2.shutdownSolver Z3

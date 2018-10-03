@@ -35,6 +35,20 @@ Currently, the repository consists of the following Haskell packages:
    executing JVM bytecode programs in the Crucible symbolic simulator.
  * **`crucible-saw`** provides functionality for generating
    SAW Core terms from Crucible Control-Flow-Graphs.
+ * **`crucible-syntax`** provides a native SExpression based concrete
+   syntax for crucible programs.  It is useful for being able to
+   directly interact with the core Crucible simulator without bringing
+   in issues related to the translation of other front-ends (e.g. the
+   LLVM translation).  It is primarily intended for the purpose of
+   writing test cases.
+ * **`crux`** provides common support libraries for running the
+   crucible simulator in a basic "all-at-once" use mode for simulation
+   and verification.  This includes most of the setup steps required
+   to actually set the simulator off and running, as well as
+   functionality for collecting and discharging safety conditions and
+   generated assertions via solvers.  Both the `crucible-c` and `crucible-jvm`
+   executables are thin wrappers around the functionality provided
+   by `crux`.
 
 In addition, there are the following library/executable packages:
 
@@ -46,6 +60,10 @@ In addition, there are the following library/executable packages:
    the [SV-COMP][sv-comp] competition.
 
 [sv-comp]: https://sv-comp.sosy-lab.org
+
+ * **`crucible-jvm`**, also contains an executable for directly
+   running compiled JVM bytecode programs, in a similar vein
+   to the `crucible-c` package.
 
  * **`crucible-server`**, a standalone process that allows constructing
    and symbolically executing Crucible programs via [Protocol Buffers][pb].
@@ -66,20 +84,12 @@ directory for details).
 
 Quick start
 -------------
-
-Crucible is mainly intended to be used as a library for other
-downstream projects.  As such, the build system infrastructure in this
-repository is relatively minimal. Downstream projects are expected to
-do the primary work of tracking dependencies, and maintaining a
-coherent working set of git submodules, etc.
-
-However, for convenience, we provide here some basic support for
-building crucible in place.
-
 To fetch all the latest git versions of immediate dependencies of
 libraries in this repository, use the `scripts/build-sandbox.sh` shell
-script.  You will find it most convenient to setup public-key login
-for GitHub before you perform this step.
+script; alternately, you can manually invoke the git commands to
+initialize and recursively update submodules.  You will find it most
+convenient to setup public-key login for GitHub before you perform
+this step.
 
 Now, you may use either `stack` or `cabal new-build` to compile the
 libraries, as you prefer.
@@ -96,6 +106,8 @@ cabal update
 cabal new-configure
 cabal new-build all
 ```
+
+Alternately, you can target a more specific sub-packge instead of `all`.
 
 If you wish to build `crucible-server` (which will be built if you
 build all packages, as above), then the build depends on having `hpb`
