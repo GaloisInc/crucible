@@ -171,32 +171,30 @@ genValueCtor :: forall sym .
 genValueCtor sym end v =
   case v of
     ValueCtorVar x -> return x
-    ConcatBV low_w vcl high_w vch ->
+    ConcatBV vcl vch ->
       do vl <- genValueCtor sym end vcl
          vh <- genValueCtor sym end vch
          case end of
-           BigEndian    -> bvConcatPartLLVMVal sym high_w vh low_w vl
-           LittleEndian -> bvConcatPartLLVMVal sym low_w vl high_w vh
-    ConsArray tp vc1 n vc2 ->
+           BigEndian    -> bvConcatPartLLVMVal sym vh vl
+           LittleEndian -> bvConcatPartLLVMVal sym vl vh
+    ConsArray vc1 vc2 ->
       do lv1 <- genValueCtor sym end vc1
          lv2 <- genValueCtor sym end vc2
-         consArrayPartLLVMVal sym tp lv1 n lv2
-    AppendArray tp n1 vc1 n2 vc2 ->
+         consArrayPartLLVMVal sym lv1 lv2
+    AppendArray vc1 vc2 ->
       do lv1 <- genValueCtor sym end vc1
          lv2 <- genValueCtor sym end vc2
-         appendArrayPartLLVMVal sym tp n1 lv1 n2 lv2
+         appendArrayPartLLVMVal sym lv1 lv2
     MkArray tp vv ->
       do vec <- traverse (genValueCtor sym end) vv
          mkArrayPartLLVMVal sym tp vec
     MkStruct vv ->
       do vec <- traverse (traverse (genValueCtor sym end)) vv
          mkStructPartLLVMVal sym vec
-    BVToFloat _ ->
-      return Unassigned
-      -- fail "genValueCtor: Floating point values not supported"
-    BVToDouble _ ->
-      return Unassigned
-      -- fail "genValueCtor: Floating point values not supported"
+    BVToFloat x ->
+      bvToFloatPartLLVMVal sym =<< genValueCtor sym end x
+    BVToDouble x ->
+      bvToDoublePartLLVMVal sym =<< genValueCtor sym end x
 
 -- | Compute the actual value of a value deconstructor expression.
 applyView ::
@@ -965,6 +963,7 @@ ppTermExpr
   -> Doc
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
+    LLVMValZero _tp -> text "0"
     LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
     LLVMValFloat _ v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''

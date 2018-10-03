@@ -36,7 +36,7 @@ import qualified Data.LLVM.BitCode as LLVM
 -- crucible
 import Lang.Crucible.Backend
 import Lang.Crucible.Types
-import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
+import Lang.Crucible.CFG.Core(AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator
   ( emptyRegMap, regValue
@@ -49,13 +49,13 @@ import Lang.Crucible.Simulator
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.MemModel(withPtrWidth)
 import Lang.Crucible.LLVM.Translation
-        ( translateModule, ModuleTranslation, initializeMemory
-        , transContext, cfgMap, initMemoryCFG
+        ( translateModule, ModuleTranslation, initializeMemory, globalInitMap
+        , transContext, cfgMap, populateAllGlobals
         , LLVMContext
         , ModuleCFGMap
         )
 import Lang.Crucible.LLVM.Intrinsics
-          (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides)
+        (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides, llvmTypeCtx)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
 
@@ -75,7 +75,7 @@ import Crux.Log
 import Overrides
 
 -- | Index for the crux-c "Language"
-data LangLLVM 
+data LangLLVM
 
 
 main :: IO ()
@@ -129,22 +129,19 @@ parseLLVM file =
        Left err -> throwCError (LLVMParseError err)
        Right m  -> return m
 
-setupMem ::
+registerFunctions ::
   (ArchOk arch, IsSymInterface sym) =>
   LLVMContext arch ->
   ModuleTranslation arch ->
   OverM sym (LLVM arch) ()
-setupMem ctx mtrans =
+registerFunctions ctx mtrans =
   do -- register the callable override functions
      evalStateT register_llvm_overrides ctx
 
-     -- initialize LLVM global variables
-     -- XXX: this might be wrong: only RO globals should be set
-     _ <- case initMemoryCFG mtrans of
-            SomeCFG initCFG -> callCFG initCFG emptyRegMap
-
-      -- register all the functions defined in the LLVM module
+     -- register all the functions defined in the LLVM module
      mapM_ registerModuleFn $ Map.toList $ cfgMap mtrans
+
+
 
 -- Returns only non-trivial goals
 simulateLLVM :: Crux.Simulate sym LangLLVM
@@ -157,16 +154,18 @@ simulateLLVM executeCrucible (_cruxOpts,llvmOpts) sym _p = do
 
     llvmPtrWidth llvmCtxt $ \ptrW ->
       withPtrWidth ptrW $ do
+          let ?lc = llvmCtxt^.llvmTypeCtx
           let simctx = setupSimCtxt halloc sym
-          mem  <- initializeMemory sym llvmCtxt llvm_mod
+          mem  <- populateAllGlobals sym (globalInitMap trans)
+                    =<< initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
           let simSt  = initSimState simctx globSt defaultAbortHandler
 
           res <- executeCrucible simSt $ runOverrideSim UnitRepr $
-                   do setupMem llvmCtxt trans
+                   do registerFunctions llvmCtxt trans
                       setupOverrides llvmCtxt
                       checkFun "main" (cfgMap trans)
-          return $ Result res     
+          return $ Result res
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
 checkFun nm mp =
@@ -216,20 +215,20 @@ instance Crux.Language LangLLVM where
 
   -- this is the replacement for "Clang.testOptions"
   ioOptions (cruxOpts,llvmOpts) = do
-               
+
     -- keep looking for clangBin if it is unset
     clangFilePath <- if (clangBin llvmOpts == "")
              then getClang
-             else return $ clangBin llvmOpts                  
+             else return $ clangBin llvmOpts
     let opts2 = llvmOpts { clangBin = clangFilePath }
 
     -- update outDir if unset
     let inp   = Crux.inputFile cruxOpts
-        name  = dropExtension (takeFileName inp)                  
+        name  = dropExtension (takeFileName inp)
         cruxOpts2 = if (Crux.outDir cruxOpts == "") then
                       cruxOpts { Crux.outDir = "results" </> name } else cruxOpts
         odir      = Crux.outDir cruxOpts2
-        
+
     createDirectoryIfMissing True odir
 
     -- update optsBCFile if unset
@@ -242,7 +241,7 @@ instance Crux.Language LangLLVM where
     return (cruxOpts2, opts3)
 
   simulate = simulateLLVM
-                      
+
   makeCounterExamples opts = makeCounterExamplesLLVM opts
 
 ---------------------------------------------------------------------
@@ -360,6 +359,3 @@ buildModelExes opts suff counter_src =
                    ]
 
      return (printExe, debugExe)
-
-
-

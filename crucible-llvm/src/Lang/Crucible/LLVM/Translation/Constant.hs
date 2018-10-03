@@ -40,6 +40,7 @@ module Lang.Crucible.LLVM.Translation.Constant
 
     -- * Translations from LLVM syntax to constant values
   , transConstant
+  , transConstantWithType
   , transConstant'
   , transConstantExpr
 
@@ -65,7 +66,6 @@ import           GHC.TypeLits
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as L
 
-import           Data.Parameterized.DecidableEq (decEq)
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 
@@ -279,23 +279,6 @@ data LLVMConst where
   -- | A special marker for pointer constants that have been cast as an integer type.
   PtrToIntConst :: !LLVMConst -> LLVMConst
 
--- | The interesting case here is @IntConst@. GHC can't derive this because
--- @IntConst@ existentially quantifies the integer's width. We say that
--- two integers are equal when they have the same width *and* the same value.
-instance Eq LLVMConst where
-  (ZeroConst mem1)      == (ZeroConst mem2)      = mem1 == mem2
-  (IntConst w1 x1)      == (IntConst w2 x2)      =
-    case decEq w1 w2 of
-      Left eq -> case eq of Refl -> (x1 == x2)
-      Right _ -> False
-  (FloatConst f1)       == (FloatConst f2)       = f1 == f2
-  (DoubleConst d1)      == (DoubleConst d2)      = d1 == d2
-  (ArrayConst mem1 a1)  == (ArrayConst mem2 a2)  = mem1 == mem2 && a1 == a2
-  (VectorConst mem1 v1) == (VectorConst mem2 v2) = mem1 == mem2 && v1 == v2
-  (StructConst si1 a1)  == (StructConst si2 a2)  = si1 == si2   && a1 == a2
-  (SymbolConst s1 x1)   == (SymbolConst s2 x2)   = s1 == s2     && x1 == x2
-  (PtrToIntConst c1)    == (PtrToIntConst c2)    = c1 == c2
-  _                     == _                     = False
 
 -- | This also can't be derived, but is completely uninteresting.
 instance Show LLVMConst where
@@ -334,13 +317,20 @@ intConst n _
 
 -- | Compute the constant value of an expression.  Fail if the
 --   given value does not represent a constant.
+transConstantWithType ::
+  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
+  L.Typed L.Value ->
+  m (MemType, LLVMConst)
+transConstantWithType (L.Typed tp v) =
+  do mt <- liftMemType tp
+     c <- transConstant' mt v
+     return (mt, c)
+
 transConstant ::
   (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
   L.Typed L.Value ->
   m LLVMConst
-transConstant (L.Typed tp v) =
-  do mt <- liftMemType tp
-     transConstant' mt v
+transConstant x = snd <$> transConstantWithType x
 
 -- | Compute the constant value of an expression.  Fail if the
 --   given value does not represent a constant.
@@ -380,6 +370,10 @@ transConstant' (StructType si) (L.ValPackedStruct xs)
   , V.length (siFields si) == length xs
   = StructConst si <$> traverse transConstant xs
 
+transConstant' (ArrayType n tp) (L.ValString cs)
+  | tp == IntType 8, n == length cs
+  = return $ ArrayConst tp (map (IntConst (knownNat @8) . toInteger) cs)
+
 transConstant' tp (L.ValConstExpr cexpr) = transConstantExpr tp cexpr
 
 transConstant' tp val =
@@ -393,14 +387,16 @@ transConstant' tp val =
 evalConstGEP :: forall m wptr.
   (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
   GEPResult LLVMConst ->
-  m LLVMConst
+  m (MemType, LLVMConst)
 evalConstGEP (GEPResult lanes finalMemType gep0) =
    do xs <- go gep0
       unless (toInteger (length xs) == natValue lanes)
              (throwError "Unexpected vector length in result of constant GEP")
       case xs of
-        [x] -> return x
-        _   -> return (VectorConst (PtrType (MemType finalMemType)) xs)
+        [x] -> return ( PtrType (MemType finalMemType), x)
+        _   -> return ( VecType (length xs) (PtrType (MemType finalMemType))
+                      , VectorConst (PtrType (MemType finalMemType)) xs
+                      )
 
   where
   dl = TyCtx.llvmDataLayout ?lc
@@ -933,7 +929,7 @@ transConstantExpr _mt expr = case expr of
   L.ConstGEP inbounds Nothing _ (base:exps) ->
     do gep <- translateGEP inbounds base exps
        gep' <- traverse transConstant gep
-       evalConstGEP gep'
+       snd <$> evalConstGEP gep'
 
   L.ConstSelect b x y ->
     do b' <- transConstant b

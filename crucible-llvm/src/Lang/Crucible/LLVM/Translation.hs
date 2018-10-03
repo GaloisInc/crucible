@@ -96,6 +96,11 @@ module Lang.Crucible.LLVM.Translation
   , toStorableType
   , constToLLVMVal
 
+  , populateGlobal
+  , populateGlobals
+  , populateAllGlobals
+  , populateConstGlobals
+
   , module Lang.Crucible.LLVM.Translation.Types
   ) where
 
@@ -172,7 +177,7 @@ import           Lang.Crucible.Types
 --
 -- To actually initialize globals, saw-script translates them into
 -- instances of @MemModel.LLVMVal@.
-type GlobalInitializerMap = Map L.Symbol (L.Global, Either String LLVMConst)
+type GlobalInitializerMap = Map L.Symbol (L.Global, Either String (MemType, LLVMConst))
 
 ------------------------------------------------------------------------
 -- Translation results
@@ -2329,7 +2334,7 @@ makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
 makeGlobalMap ctx m =
      Map.fromList $ map (L.globalSym &&& (id &&& globalToConst)) (L.modGlobals m)
   where -- Catch the error from @transConstant@, turn it into @Either@
-        globalToConst :: L.Global -> Either String LLVMConst
+        globalToConst :: L.Global -> Either String (MemType, LLVMConst)
         globalToConst g =
           catchError
             (globalToConst' g >>=
@@ -2359,19 +2364,19 @@ makeGlobalMap ctx m =
 
         -- This is the pipeline:
         -- L.Global
-        -- ==> (L.Symbol, Maybe L.Value)
-        -- ==> Maybe (L.Symbol, L.Value)
+        -- ==> (L.Type, Maybe L.Value)
+        -- ==> Maybe (L.Type, L.Value)
         -- ==> Maybe (L.Typed L.Value)
         -- ==> Maybe (m LLVMConst)
         -- ==> m     (Maybe LLVMConst)
         globalToConst' :: forall m. (MonadError String m)
-                       => L.Global -> m (Maybe LLVMConst)
+                       => L.Global -> m (Maybe (MemType, LLVMConst))
         globalToConst' =
           let ?lc = ctx^.llvmTypeCtx -- implicitly passed to transConstant
           in (L.globalType &&& L.globalValue)
                 >>> fSnd
                 >>> fmap (uncurry L.Typed)
-                >>> fmap transConstant
+                >>> fmap transConstantWithType
                 >>> commuteMaybe
 
 ------------------------------------------------------------------------
@@ -2429,9 +2434,7 @@ translateModule halloc m = do
 
 -- | Build the initial memory for an LLVM program.  Note, this process
 -- allocates space for global variables, but does not set their
--- initial values.  Run the `initMemoryCFG` procedure of the
--- `ModuleTranslation` produced by `translateModule` to set
--- the values of global variables.
+-- initial values.
 initializeMemory
    :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
    => sym
@@ -2456,6 +2459,71 @@ initializeMemory sym llvm_ctx m = do
                     gs
    allocGlobals sym gs_alloc mem
 
+
+populateGlobals ::
+  ( ?lc :: TyCtx.LLVMContext
+  , 16 <= wptr
+  , HasPtrWidth wptr
+  , IsSymInterface sym ) =>
+  (L.Global -> Bool) ->
+  sym ->
+  GlobalInitializerMap ->
+  MemImpl sym ->
+  IO (MemImpl sym)
+populateGlobals select sym gimap mem0 = foldM f mem0 (Map.elems gimap)
+  where
+  f mem (gl, _) | not (select gl) = return mem
+  f _   (_, Left msg)             = fail msg
+  f mem (gl, Right (mty, cval))   = populateGlobal sym gl mty cval mem
+
+
+populateAllGlobals ::
+  ( ?lc :: TyCtx.LLVMContext
+  , 16 <= wptr
+  , HasPtrWidth wptr
+  , IsSymInterface sym ) =>
+  sym ->
+  GlobalInitializerMap ->
+  MemImpl sym ->
+  IO (MemImpl sym)
+populateAllGlobals = populateGlobals (const True)
+
+
+populateConstGlobals ::
+  ( ?lc :: TyCtx.LLVMContext
+  , 16 <= wptr
+  , HasPtrWidth wptr
+  , IsSymInterface sym ) =>
+  sym ->
+  GlobalInitializerMap ->
+  MemImpl sym ->
+  IO (MemImpl sym)
+populateConstGlobals = populateGlobals f
+  where f = L.gaConstant . L.globalAttrs
+
+
+-- | Write the value of the given LLVMConst into the given global variable.
+--   This is intended to be used at initialization time, and will populate
+--   even read-only global data.
+populateGlobal ::
+  ( ?lc :: TyCtx.LLVMContext
+  , 16 <= wptr
+  , HasPtrWidth wptr
+  , IsSymInterface sym ) =>
+  sym ->
+  L.Global ->
+  MemType ->
+  LLVMConst ->
+  MemImpl sym ->
+  IO (MemImpl sym)
+populateGlobal sym gl mt cval mem =
+  do let symb = L.globalSym gl 
+     ty <- toStorableType mt
+     ptr <- doResolveGlobal sym mem symb
+     val <- constToLLVMVal sym mem cval
+     storeConstRaw sym mem ptr ty val
+
+
 allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     => sym
                     -> MemImpl sym
@@ -2474,9 +2542,9 @@ allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
 --
 -- In this translation, we lose the distinction between pointers and ints.
 --
-constToLLVMVal :: forall arch sym.
+constToLLVMVal :: forall wptr sym.
   ( ?lc :: TyCtx.LLVMContext
-  , HasPtrWidth (ArchWidth arch)
+  , HasPtrWidth wptr
   , IsSymInterface sym
   ) => sym               -- ^ The symbolic backend
     -> MemImpl sym       -- ^ The current memory state, for looking up globals
@@ -2495,16 +2563,16 @@ constToLLVMVal sym _ (DoubleConst d) =
 
 constToLLVMVal sym mem (ArrayConst memty xs) =
   LLVMValArray <$> toStorableType memty
-               <*> (V.fromList <$> traverse (constToLLVMVal @arch sym mem) xs)
+               <*> (V.fromList <$> traverse (constToLLVMVal sym mem) xs)
 
 -- Same as the array case
 constToLLVMVal sym mem (VectorConst memty xs) =
   LLVMValArray <$> toStorableType memty
-               <*> (V.fromList <$> traverse (constToLLVMVal @arch sym mem) xs)
+               <*> (V.fromList <$> traverse (constToLLVMVal sym mem) xs)
 
 constToLLVMVal sym mem (StructConst sInfo xs) =
   LLVMValStruct <$>
-    V.zipWithM (\x y -> (,) <$> fiToFT x <*> constToLLVMVal @arch sym mem y)
+    V.zipWithM (\x y -> (,) <$> fiToFT x <*> constToLLVMVal sym mem y)
                (siFields sInfo)
                (V.fromList xs)
 
@@ -2521,45 +2589,9 @@ constToLLVMVal sym mem (SymbolConst symb i) = do
 
 -- We lose the information of what's a pointer and what's an integer in this
 -- translation
-constToLLVMVal sym mem (PtrToIntConst c) = constToLLVMVal @arch sym mem c
+constToLLVMVal sym mem (PtrToIntConst c) = constToLLVMVal sym mem c
 
-constToLLVMVal sym mem (ZeroConst memty) = zeroExpand' memty
-  where
-    -- Create an all-zero value in memory of the appropriate type.
-    --
-    -- Very similar to the code of @zeroExpand@ above.
-    --
-    -- TODO: For performance reasons (imagine allocating a zeroed-out array a few GB
-    -- long), we shouldn't use @zeroExpand'@ here, but should add a @ZeroConst@-like
-    -- constructor to @LLVMVal@.
-    zeroExpand' :: MemType -> IO (LLVMVal sym)
-    zeroExpand' (IntType w)         =
-      case someNat (fromIntegral w) of
-        Just (Some w') | Just LeqProof <- isPosNat w' ->
-          rec' $ IntConst w' 0
-
-        _ -> fail $ unwords [ "Internal error (zeroExpand'):"
-                            , "illegal integer size"
-                            , show w
-                            ]
-
-    zeroExpand' (PtrType _)         = rec' $ IntConst ?ptrWidth 0
-    zeroExpand' FloatType           = rec' $ FloatConst 0
-    zeroExpand' DoubleType          = rec' $ DoubleConst 0
-    zeroExpand' (ArrayType i memty') = -- Avoid name shadowing
-      LLVMValArray <$> toStorableType memty'
-                   <*> (V.replicate i <$> zeroExpand' memty')
-    -- Same as Array case
-    zeroExpand' (VecType i memty')   =
-      LLVMValArray <$> toStorableType memty
-                   <*> (V.replicate i <$> zeroExpand' memty')
-    zeroExpand' (StructType sInfo)  =
-      LLVMValStruct <$>
-        (V.zipWithM (\x y -> (,) <$> fiToFT x <*> y)
-                    (siFields sInfo)
-                    (V.map (zeroExpand' . fiType) (siFields sInfo)))
-    zeroExpand' MetadataType        = fail "Can't zeroExpand' metadata"
-    rec' = constToLLVMVal @arch sym mem
+constToLLVMVal _sym _mem (ZeroConst memty) = LLVMValZero <$> toStorableType memty
 
 -- TODO are these types just identical? Maybe we should combine them.
 fiToFT :: (HasPtrWidth wptr, Monad m) => FieldInfo -> m (G.Field G.Type)

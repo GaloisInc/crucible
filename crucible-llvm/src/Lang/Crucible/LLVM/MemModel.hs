@@ -150,6 +150,7 @@ import qualified Text.LLVM.AST as L
 
 import           What4.ProgramLoc
 import           What4.Interface
+import           What4.InterpretedFloatingPoint
 import           What4.Partial
 
 import           Lang.Crucible.Backend
@@ -438,12 +439,34 @@ coerceAny sym tpr (AnyValue tpr' x)
                   , "at: " ++ show (plSourceLoc loc)
                   ]
 
+unpackZero ::
+  (HasCallStack, IsSymInterface sym) =>
+  sym ->
+  G.Type ->
+  IO (AnyValue sym)
+unpackZero sym (G.Type tp _) = case tp of
+  G.Bitvector bytes ->
+    zeroInt sym bytes $ \case
+      Nothing -> fail ("Improper storable type: " ++ show tp)
+      Just (blk, bv) -> return $ AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
+  G.Float  -> AnyValue (FloatRepr SingleFloatRepr) <$> iFloatLit sym SingleFloatRepr 0
+  G.Double -> AnyValue (FloatRepr DoubleFloatRepr) <$> iFloatLit sym DoubleFloatRepr 0
+  G.Array n tp' ->
+    do AnyValue tpr v <- unpackZero sym tp'
+       return $ AnyValue (VectorRepr tpr) $ V.replicate (fromIntegral n) v
+  G.Struct flds ->
+    do xs <- traverse (unpackZero sym . view G.fieldVal) (V.toList flds)
+       unpackStruct sym xs Ctx.empty Ctx.empty $ \ctx fls -> return $ AnyValue (StructRepr ctx) $ fls
+
+
 -- | Unpack an 'LLVMVal' to produce a 'RegValue'.
 unpackMemValue ::
   (HasCallStack, IsSymInterface sym) =>
   sym ->
   LLVMVal sym ->
   IO (AnyValue sym)
+
+unpackMemValue sym (LLVMValZero tp) = unpackZero sym tp
 
 -- If the block number is 0, we know this is a raw bitvector, and not an actual pointer.
 unpackMemValue _sym (LLVMValInt blk bv)
