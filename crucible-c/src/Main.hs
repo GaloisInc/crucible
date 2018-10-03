@@ -47,12 +47,13 @@ import Lang.Crucible.Simulator
 
 -- crucible-llvm
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
+import Lang.Crucible.LLVM.Globals
+        ( initializeMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel(withPtrWidth)
 import Lang.Crucible.LLVM.Translation
-        ( translateModule, ModuleTranslation, initializeMemory, globalInitMap
-        , transContext, cfgMap, populateAllGlobals
-        , LLVMContext
-        , ModuleCFGMap
+        ( translateModule, ModuleTranslation, globalInitMap
+        , transContext, cfgMap
+        , LLVMContext, ModuleCFGMap
         )
 import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides, llvmTypeCtx)

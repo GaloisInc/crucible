@@ -81,6 +81,7 @@ module Lang.Crucible.LLVM.MemModel
   , storeConstRaw
   , mallocRaw
   , mallocConstRaw
+  , constToLLVMVal
 
     -- * Storage types
   , G.Type
@@ -95,6 +96,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.mkStructType
   , G.floatType
   , G.doubleType
+  , toStorableType
 
     -- * Pointer operations
   , ptrToPtrVal
@@ -165,11 +167,13 @@ import           Lang.Crucible.Simulator.SimError
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
-import qualified Lang.Crucible.LLVM.Bytes as G
+import           Lang.Crucible.LLVM.Bytes
+import           Lang.Crucible.LLVM.MemType
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Value
+import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.Panic(panic)
 
@@ -274,7 +278,7 @@ evalStmt sym = eval
   eval (LLVM_MemClear mvar (regValue -> ptr) bytes) =
     do mem <- getMem mvar
        z   <- liftIO $ bvLit sym knownNat 0
-       len <- liftIO $ bvLit sym PtrWidth (G.bytesToInteger bytes)
+       len <- liftIO $ bvLit sym PtrWidth (bytesToInteger bytes)
        mem' <- liftIO $ doMemset sym PtrWidth mem ptr z len
        setMem mvar mem'
 
@@ -379,7 +383,7 @@ type GlobalMap sym = Map L.Symbol (SomePointer sym)
 -- pointers in the global map.
 allocGlobals :: (IsSymInterface sym, HasPtrWidth wptr)
              => sym
-             -> [(L.Symbol, G.Size)]
+             -> [(L.Symbol, Bytes)]
              -> MemImpl sym
              -> IO (MemImpl sym)
 allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
@@ -387,10 +391,10 @@ allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
 allocGlobal :: (IsSymInterface sym, HasPtrWidth wptr)
             => sym
             -> MemImpl sym
-            -> (L.Symbol, G.Size)
+            -> (L.Symbol, Bytes)
             -> IO (MemImpl sym)
 allocGlobal sym mem (symbol@(L.Symbol sym_str), sz) = do
-  sz' <- bvLit sym PtrWidth (G.bytesToInteger sz)
+  sz' <- bvLit sym PtrWidth (bytesToInteger sz)
   (ptr, mem') <- doMalloc sym G.GlobalAlloc G.Mutable sym_str mem sz' -- TODO
   return (registerGlobal mem' symbol ptr)
 
@@ -407,7 +411,7 @@ asCrucibleType
 asCrucibleType (G.Type tf _) k =
   case tf of
     G.Bitvector sz ->
-       case someNat (G.bytesToBits sz) of
+       case someNat (bytesToBits sz) of
          Just (Some w)
            | Just LeqProof <- isPosNat w -> k (LLVMPointerRepr w)
          _ -> error $ unwords ["invalid bitvector size", show sz]
@@ -518,12 +522,12 @@ packMemValue _ (G.Type G.Double _) (FloatRepr DoubleFloatRepr) x =
        return $ LLVMValFloat DoubleSize x
 
 packMemValue sym (G.Type (G.Bitvector bytes) _) (BVRepr w) bv
-  | G.bytesToBits bytes == toInteger (natValue w) =
+  | bytesToBits bytes == toInteger (natValue w) =
       do blk0 <- natLit sym 0
          return $ LLVMValInt blk0 bv
 
 packMemValue _sym (G.Type (G.Bitvector bytes) _) (LLVMPointerRepr w) (LLVMPointer blk off)
-  | G.bytesToBits bytes == toInteger (natValue w) =
+  | bytesToBits bytes == toInteger (natValue w) =
        return $ LLVMValInt blk off
 
 packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec
@@ -1030,3 +1034,87 @@ loadMaybeString sym mem ptr n = do
                     $ Unsupported "Symbolic pointer encountered when loading a string"
     Just True  -> return Nothing
     Just False -> Just <$> loadString sym mem ptr n
+
+
+
+toStorableType :: (Monad m, HasPtrWidth wptr)
+               => MemType
+               -> m G.Type
+toStorableType mt =
+  case mt of
+    IntType n -> return $ G.bitvectorType (bitsToBytes n)
+    PtrType _ -> return $ G.bitvectorType (bitsToBytes (natValue PtrWidth))
+    FloatType -> return $ G.floatType
+    DoubleType -> return $ G.doubleType
+    ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
+    VecType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
+    MetadataType -> fail "toStorableType: Cannot store metadata values"
+    StructType si -> G.mkStructType <$> traverse transField (siFields si)
+      where transField :: Monad m => FieldInfo -> m (G.Type, Bytes)
+            transField fi = do
+               t <- toStorableType $ fiType fi
+               return (t, fiPadding fi)
+
+----------------------------------------------------------------------
+-- constToLLVMVal
+--
+
+-- | This is used (by saw-script) to initialize globals.
+--
+-- In this translation, we lose the distinction between pointers and ints.
+--
+constToLLVMVal :: forall wptr sym.
+  ( HasPtrWidth wptr
+  , IsSymInterface sym
+  ) => sym               -- ^ The symbolic backend
+    -> MemImpl sym       -- ^ The current memory state, for looking up globals
+    -> LLVMConst         -- ^ Constant expression to translate
+    -> IO (LLVMVal sym)  -- ^ Runtime representation of the constant expression
+
+-- See comment on @LLVMVal@ on why we use a literal 0.
+constToLLVMVal sym _ (IntConst w i) =
+  LLVMValInt <$> natLit sym 0 <*> (bvLit sym w i)
+
+constToLLVMVal sym _ (FloatConst f) =
+  LLVMValFloat SingleSize <$> iFloatLitSingle sym f
+
+constToLLVMVal sym _ (DoubleConst d) =
+  LLVMValFloat DoubleSize <$> iFloatLitDouble sym d
+
+constToLLVMVal sym mem (ArrayConst memty xs) =
+  LLVMValArray <$> toStorableType memty
+               <*> (V.fromList <$> traverse (constToLLVMVal sym mem) xs)
+
+-- Same as the array case
+constToLLVMVal sym mem (VectorConst memty xs) =
+  LLVMValArray <$> toStorableType memty
+               <*> (V.fromList <$> traverse (constToLLVMVal sym mem) xs)
+
+constToLLVMVal sym mem (StructConst sInfo xs) =
+  LLVMValStruct <$>
+    V.zipWithM (\x y -> (,) <$> fiToFT x <*> constToLLVMVal sym mem y)
+               (siFields sInfo)
+               (V.fromList xs)
+
+-- SymbolConsts are offsets from global pointers. We translate them into the
+-- pointer they represent.
+constToLLVMVal sym mem (SymbolConst symb i) = do
+  ptr <- doResolveGlobal sym mem symb     -- Pointer to the global "symb"
+  ibv <- bvLit sym ?ptrWidth i         -- Offset to be added, as a bitvector
+
+  -- blk is the allocation number that this global is stored in.
+  -- In contrast to the case for @IntConst@ above, it is non-zero.
+  let (blk, offset) = llvmPointerView ptr
+  LLVMValInt blk <$> bvAdd sym offset ibv
+
+-- We lose the information of what's a pointer and what's an integer in this
+-- translation
+constToLLVMVal sym mem (PtrToIntConst c) = constToLLVMVal sym mem c
+
+constToLLVMVal _sym _mem (ZeroConst memty) = LLVMValZero <$> toStorableType memty
+
+
+-- TODO are these types just identical? Maybe we should combine them.
+fiToFT :: (HasPtrWidth wptr, Monad m) => FieldInfo -> m (G.Field G.Type)
+fiToFT fi = fmap (\t -> G.mkField (fiOffset fi) t (fiPadding fi))
+                 (toStorableType $ fiType fi)

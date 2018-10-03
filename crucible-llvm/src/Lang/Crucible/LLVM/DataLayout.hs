@@ -155,7 +155,7 @@ data EndianForm = BigEndian | LittleEndian
 data DataLayout
    = DL { _intLayout :: EndianForm
         , _stackAlignment :: !Alignment
-        , _ptrSize     :: !Size
+        , _ptrSize     :: !Bytes
         , _ptrAlign    :: !Alignment
         , _integerInfo :: !AlignInfo
         , _vectorInfo  :: !AlignInfo
@@ -175,7 +175,7 @@ stackAlignment :: Simple Lens DataLayout Alignment
 stackAlignment = lens _stackAlignment (\s v -> s { _stackAlignment = v})
 
 -- | Size of pointers in bytes.
-ptrSize :: Simple Lens DataLayout Size
+ptrSize :: Simple Lens DataLayout Bytes
 ptrSize = lens _ptrSize (\s v -> s { _ptrSize = v})
 
 -- | ABI pointer alignment in bytes.
@@ -312,5 +312,5 @@ parseDataLayout :: L.DataLayout -> DataLayout
 parseDataLayout dl = execState (mapM_ addLayoutSpec dl) defaultDataLayout
 
 -- | The size of an integer of the given bitwidth, in bytes.
-intWidthSize :: Natural -> Size
+intWidthSize :: Natural -> Bytes
 intWidthSize w = bitsToBytes w

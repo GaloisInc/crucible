@@ -46,14 +46,13 @@ library
     Lang.Crucible.LLVM.DataLayout
     Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Intrinsics
+    Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.LLVMContext
     Lang.Crucible.LLVM.MemModel
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
-    Lang.Crucible.LLVM.Translation.Constant
-    Lang.Crucible.LLVM.Translation.Types
 
   other-modules:
     Lang.Crucible.LLVM.MemModel.Common
@@ -61,7 +60,11 @@ library
     Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
-    Lang.Crucible.LLVM.Translation.Internal
+    Lang.Crucible.LLVM.Translation.Constant
+    Lang.Crucible.LLVM.Translation.Expr
+    Lang.Crucible.LLVM.Translation.Instruction
+    Lang.Crucible.LLVM.Translation.Monad
+    Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
 
   ghc-options: -Wall
