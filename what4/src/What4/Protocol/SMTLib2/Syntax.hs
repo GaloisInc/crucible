@@ -97,6 +97,10 @@ module What4.Protocol.SMTLib2.Syntax
   , bvslt
   , bvsle
   , bvule
+  , bvsgt
+  , bvsge
+  , bvugt
+  , bvuge
   , bvsdiv
   , bvsrem
     -- * Array theory
@@ -534,14 +538,6 @@ bvlshr = bin_app "bvlshr"
 bvult :: Term -> Term -> Term
 bvult = bin_app "bvult"
 
--- | @bvashr x y@ shifts the bits in @x@ to the right by @to_nat u@ bits.
---
--- The new bits are the same as the most-significant bit of @x@.
---
--- Note. This is in @QF_BV@, but not the bitvector theory.
-bvashr :: Term -> Term -> Term
-bvashr = bin_app "bvashr"
-
 -- | @bvule x y@ returns a Boolean term that is true if @to_nat x <= to_nat y@.
 --
 -- Note. This is in @QF_BV@, but not the bitvector theory.
@@ -559,6 +555,38 @@ bvsle = bin_app "bvsle"
 -- Note. This is in @QF_BV@, but not the bitvector theory.
 bvslt :: Term -> Term -> Term
 bvslt = bin_app "bvslt"
+
+-- | @bvuge x y@ returns a Boolean term that is true if @to_nat x <= to_nat y@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvuge :: Term -> Term -> Term
+bvuge = bin_app "bvuge"
+
+-- | @bvugt x y@ returns a Boolean term that is true if @to_nat x < to_nat y@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvugt :: Term -> Term -> Term
+bvugt = bin_app "bvugt"
+
+-- | @bvsge x y@ returns a Boolean term that is true if @to_int x <= to_int y@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvsge :: Term -> Term -> Term
+bvsge = bin_app "bvsge"
+
+-- | @bvsgt x y@ returns a Boolean term that is true if @to_int x < to_int y@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvsgt :: Term -> Term -> Term
+bvsgt = bin_app "bvsgt"
+
+-- | @bvashr x y@ shifts the bits in @x@ to the right by @to_nat u@ bits.
+--
+-- The new bits are the same as the most-significant bit of @x@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvashr :: Term -> Term -> Term
+bvashr = bin_app "bvashr"
 
 -- | @bvsdiv x y@ returns @round_to_zero (to_int x / to_int y)@ when @y != 0@.
 --
