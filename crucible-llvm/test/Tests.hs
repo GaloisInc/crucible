@@ -34,7 +34,6 @@ import           System.Exit (exitFailure, ExitCode(..))
 
 -- Modules being tested
 import Lang.Crucible.LLVM.Translation
-import Lang.Crucible.LLVM.Translation.Constant (LLVMConst(..))
 
 -- | Compile a C file with clang, returning the exit code
 compile :: FilePath -> IO (Int, String, String)
@@ -103,15 +102,15 @@ tests :: ModuleTranslation arch1
 tests int struct uninitialized _ = do
   testGroup "Tests"
     [ testCase "int" $
-        Map.singleton (L.Symbol "x") (Right $ IntConst (knownNat @32) 42) @=?
+        Map.singleton (L.Symbol "x") (Right $ (i32, IntConst (knownNat @32) 42)) @=?
            Map.map snd (globalInitMap int)
     , testCase "struct" $
         IntConst (knownNat @32) 17 @=?
            case snd <$> Map.lookup (L.Symbol "z") (globalInitMap struct) of
-             Just (Right (StructConst _ (x : _))) -> x
+             Just (Right (_, StructConst _ (x : _))) -> x
              _ -> IntConst (knownNat @1) 0
     , testCase "unitialized" $
-        Map.singleton (L.Symbol "x") (Right $ ZeroConst i32) @=?
+        Map.singleton (L.Symbol "x") (Right $ (i32, ZeroConst i32)) @=?
            Map.map snd (globalInitMap uninitialized)
     -- The actual value for this one contains the error message, so it's a pain
     -- to type out. Uncomment this test to take a look.

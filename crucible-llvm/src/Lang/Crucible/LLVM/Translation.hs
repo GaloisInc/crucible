@@ -90,6 +90,7 @@ module Lang.Crucible.LLVM.Translation
   , symbolMap
   , translateModule
 
+  , module Lang.Crucible.LLVM.Translation.Constant
   , module Lang.Crucible.LLVM.Translation.Types
   ) where
 
@@ -119,6 +120,7 @@ import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.Globals
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Instruction

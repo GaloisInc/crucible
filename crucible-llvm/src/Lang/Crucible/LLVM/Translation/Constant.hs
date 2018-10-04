@@ -68,6 +68,7 @@ import qualified Text.LLVM.PP as L
 
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
+import           Data.Parameterized.DecidableEq (decEq)
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.MemModel.Pointer
@@ -293,6 +294,24 @@ instance Show LLVMConst where
       (StructConst si a)  -> ["StructConst", show si, show a]
       (SymbolConst s x)   -> ["SymbolConst", show s, show x]
       (PtrToIntConst c)   -> ["PtrToIntConst", show c]
+
+-- | The interesting case here is @IntConst@. GHC can't derive this because
+-- @IntConst@ existentially quantifies the integer's width. We say that
+-- two integers are equal when they have the same width *and* the same value.
+instance Eq LLVMConst where
+  (ZeroConst mem1)      == (ZeroConst mem2)      = mem1 == mem2
+  (IntConst w1 x1)      == (IntConst w2 x2)      =
+    case decEq w1 w2 of
+      Left Refl -> x1 == x2
+      Right _   -> False
+  (FloatConst f1)       == (FloatConst f2)       = f1 == f2
+  (DoubleConst d1)      == (DoubleConst d2)      = d1 == d2
+  (ArrayConst mem1 a1)  == (ArrayConst mem2 a2)  = mem1 == mem2 && a1 == a2
+  (VectorConst mem1 v1) == (VectorConst mem2 v2) = mem1 == mem2 && v1 == v2
+  (StructConst si1 a1)  == (StructConst si2 a2)  = si1 == si2   && a1 == a2
+  (SymbolConst s1 x1)   == (SymbolConst s2 x2)   = s1 == s2     && x1 == x2
+  (PtrToIntConst c1)    == (PtrToIntConst c2)    = c1 == c2
+  _                     == _                     = False
 
 -- | Create an LLVM constant value from a boolean.
 boolConst :: Bool -> LLVMConst
