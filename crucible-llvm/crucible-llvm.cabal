@@ -47,12 +47,12 @@ library
     Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Intrinsics
     Lang.Crucible.LLVM.Globals
-    Lang.Crucible.LLVM.LLVMContext
     Lang.Crucible.LLVM.MemModel
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
+    Lang.Crucible.LLVM.TypeContext
 
   other-modules:
     Lang.Crucible.LLVM.MemModel.Common

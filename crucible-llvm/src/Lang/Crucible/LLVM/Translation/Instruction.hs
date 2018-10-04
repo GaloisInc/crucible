@@ -36,7 +36,7 @@ module Lang.Crucible.LLVM.Translation.Instruction
   ) where
 
 import Control.Monad.Except
-import Control.Monad.Fail ( MonadFail )
+-- import Control.Monad.Fail ( MonadFail )
 import Control.Monad.State.Strict
 import Control.Lens hiding (op, (:>) )
 import Data.Foldable (toList)
@@ -65,20 +65,20 @@ import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
-import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
+
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
-
+import           Lang.Crucible.LLVM.TypeContext
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
 
 instrResultType ::
-  (?lc :: TyCtx.LLVMContext, MonadFail m, HasPtrWidth wptr) =>
+  (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   L.Instr ->
   m MemType
 instrResultType instr =
@@ -145,6 +145,8 @@ instrResultType instr =
 
 
 
+liftMemType' :: (?lc::TypeContext, Monad m) => L.Type -> m MemType
+liftMemType' = either fail return . liftMemType 
 
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
@@ -388,7 +390,7 @@ calcGEP_array typ base idx =
 
      -- Calculate the size of the element memtype and check that it fits
      -- in the pointer width
-     let dl  = TyCtx.llvmDataLayout ?lc
+     let dl  = llvmDataLayout ?lc
      let isz = G.bytesToInteger $ memTypeSize dl typ
      unless (isz <= maxSigned PtrWidth)
        (fail $ unwords ["Type size too large for pointer width:", show typ])
@@ -433,6 +435,8 @@ calcGEP_struct fi base =
          callPtrAddOffset base off
 
 
+
+
 translateConversion
   :: L.Instr
   -> L.ConvOp
@@ -443,7 +447,7 @@ translateConversion instr op x outty =
  let showI = showInstr instr in
  case op of
     L.IntToPtr -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -458,7 +462,7 @@ translateConversion instr op x outty =
            (NotScalar, _) -> fail (unlines ["integer-to-pointer conversion failed: non scalar", showI])
 
     L.PtrToInt -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -468,7 +472,7 @@ translateConversion instr op x outty =
            _ -> fail (unlines ["pointer-to-integer conversion failed", showI])
 
     L.Trunc -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -481,7 +485,7 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["invalid truncation:", show x, show outty], showI])
 
     L.ZExt -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -494,7 +498,7 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["invalid zero extension:", show x, show outty], showI])
 
     L.SExt -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -507,12 +511,12 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["invalid sign extension", show x, show outty], showI])
 
     L.BitCast -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        bitCast x' outty'
 
     L.UiToFp -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -522,7 +526,7 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["Invalid uitofp:", show op, show x, show outty], showI])
 
     L.SiToFp -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -532,7 +536,7 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["Invalid sitofp:", show op, show x, show outty], showI])
 
     L.FpToUi -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (FloatType fi) -> LLVMExpr s arch
            demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w RNE v)
@@ -542,7 +546,7 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["Invalid fptoui:", show op, show x, show outty], showI])
 
     L.FpToSi -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        let demoteToInt :: (1 <= w) => NatRepr w -> Expr (LLVM arch) s (FloatType fi) -> LLVMExpr s arch
            demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToSBV w RNE v)
@@ -552,7 +556,7 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["Invalid fptosi:", show op, show x, show outty], showI])
 
     L.FpTrunc -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -561,7 +565,7 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["Invalid fptrunc:", show op, show x, show outty], showI])
 
     L.FpExt -> do
-       outty' <- liftMemType outty
+       outty' <- liftMemType' outty
        x' <- transTypedValue x
        llvmTypeAsRepr outty' $ \outty'' ->
          case (asScalar x', outty'') of
@@ -574,7 +578,7 @@ translateConversion instr op x outty =
 -- Bit Cast
 
 
-bitCast :: (?lc::TyCtx.LLVMContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+bitCast :: (?lc::TypeContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
           LLVMExpr s arch ->
           MemType ->
           LLVMGenerator h s arch ret (LLVMExpr s arch)
@@ -632,7 +636,7 @@ bitCast expr tgtT =
 -- | Join the elements of a vector into a single bit-vector value.
 -- The resulting bit-vector would be of length at least one.
 vecJoin ::
-  (?lc::TyCtx.LLVMContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   [LLVMExpr s arch] {- ^ Join these vector elements -} ->
   Maybe (LLVMExpr s arch)
 vecJoin exprs =
@@ -646,14 +650,14 @@ vecJoin exprs =
                    p2 = leqProof (knownNat @1) m
                (LeqProof,LeqProof) <- return (leqAdd2 p1 p2, leqAdd2 p2 p1)
                let bits u v x y = bitVal (addNat u v) (BVConcat u v x y)
-               return $! case TyCtx.llvmDataLayout ?lc ^. intLayout of
+               return $! case llvmDataLayout ?lc ^. intLayout of
                            LittleEndian -> bits m n e2 e1
                            BigEndian    -> bits n m e1 e2
 
 -- | Join the elements in a vector,
 -- to get a shorter vector with larger elements.
 vecJoinVec ::
-  (?lc::TyCtx.LLVMContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   [ LLVMExpr s arch ] {- ^ Input vector -} ->
   Int            {- ^ Number of els. to join to get 1 el. of result -} ->
   Maybe [ LLVMExpr s arch ]
@@ -675,7 +679,7 @@ bitVal n e = BaseExpr (BVRepr n) (App e)
 
 
 -- | Split a single bit-vector value into a vector of value of the given width.
-vecSplit :: forall s n w arch. (?lc::TyCtx.LLVMContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
+vecSplit :: forall s n w arch. (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
   NatRepr n  {- ^ Length of a single element -} ->
   LLVMExpr s arch {- ^ Bit-vector value -} ->
   Maybe [ LLVMExpr s arch ]
@@ -699,12 +703,12 @@ vecSplit elLen expr =
                  LittleEndian -> els
                  BigEndian    -> reverse els
   where
-  lay = TyCtx.llvmDataLayout ?lc
+  lay = llvmDataLayout ?lc
 
 -- | Split the elements in a vector,
 -- to get a longer vector with smaller element.
 vecSplitVec ::
-  (?lc::TyCtx.LLVMContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
+  (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
   NatRepr n          {- ^ Length of a single element in the new vector -} ->
   [LLVMExpr s arch ] {- ^ Vector to split -} ->
   Maybe [ LLVMExpr s arch ]
@@ -1038,7 +1042,7 @@ generateInstr retType lab instr assign_f k =
     L.ExtractElt x i ->
         case x of
           L.Typed (L.Vector n ty) x' -> do
-            ty' <- liftMemType ty
+            ty' <- liftMemType' ty
             x'' <- transValue (VecType (fromIntegral n) ty') x'
             i'  <- transValue (IntType 64) i               -- FIXME? this is a bit of a hack, since the llvm-pretty
                                                            -- AST doesn't track the size of the index value
@@ -1051,7 +1055,7 @@ generateInstr retType lab instr assign_f k =
     L.InsertElt x v i ->
         case x of
           L.Typed (L.Vector n ty) x' -> do
-            ty' <- liftMemType ty
+            ty' <- liftMemType' ty
             x'' <- transValue (VecType (fromIntegral n) ty') x'
             v'  <- transTypedValue v
             i'  <- transValue (IntType 64) i                -- FIXME? this is a bit of a hack, since the llvm-pretty
@@ -1065,7 +1069,7 @@ generateInstr retType lab instr assign_f k =
     L.ShuffleVector sV1 sV2 sIxes ->
       case (L.typedType sV1, L.typedType sIxes) of
         (L.Vector m ty, L.Vector n (L.PrimType (L.Integer 32))) ->
-          do elTy <- liftMemType ty
+          do elTy <- liftMemType' ty
              let inL :: Num b => b
                  inL  = fromIntegral n
                  inV  = VecType inL elTy
@@ -1096,8 +1100,8 @@ generateInstr retType lab instr assign_f k =
 
     L.Alloca tp num _align -> do
       -- ?? FIXME assert that the alignment value is appropriate...
-      tp' <- liftMemType tp
-      let dl = TyCtx.llvmDataLayout ?lc
+      tp' <- liftMemType' tp
+      let dl = llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
       let tp_sz' = app $ BVLit PtrWidth $ G.bytesToInteger tp_sz
       sz <- case num of
@@ -1116,12 +1120,12 @@ generateInstr retType lab instr assign_f k =
       k
 
     L.Load ptr _atomic align -> do
-      tp'  <- liftMemType (L.typedType ptr)
+      tp'  <- liftMemType' (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
       case tp' of
         PtrType (MemType resTy) ->
           llvmTypeAsRepr resTy $ \expectTy -> do
-            let a0 = memTypeAlign (TyCtx.llvmDataLayout ?lc) resTy
+            let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
             let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
             res <- callLoad resTy expectTy ptr' align'
             assign_f res
@@ -1130,14 +1134,14 @@ generateInstr retType lab instr assign_f k =
           fail $ unwords ["Invalid argument type on load", show ptr]
 
     L.Store v ptr align -> do
-      tp'  <- liftMemType (L.typedType ptr)
+      tp'  <- liftMemType' (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
       case tp' of
         PtrType (MemType resTy) ->
-          do let a0 = memTypeAlign (TyCtx.llvmDataLayout ?lc) resTy
+          do let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
              let align' = fromMaybe a0 (toAlignment . G.toBytes =<< align)
 
-             vTp <- liftMemType (L.typedType v)
+             vTp <- liftMemType' (L.typedType v)
              v' <- transValue vTp (L.typedValue v)
              unless (resTy == vTp)
                 (fail "Pointer type does not match value type in store instruction")
@@ -1456,8 +1460,8 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
      -- called function is expected to know the types of these additional arguments,
      -- which it can unpack from the ANY values when it knows those types.
      | varargs = do
-           fnTy' <- liftMemType (L.PtrTo fnTy)
-           retTy' <- liftRetType lretTy
+           fnTy' <- liftMemType' (L.PtrTo fnTy)
+           retTy' <- either fail return $ liftRetType lretTy
            fn' <- transValue fnTy' fn
            args' <- mapM transTypedValue args
            let ?err = fail
@@ -1476,8 +1480,8 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
 
      -- Ordinary (non varargs) function call
      | otherwise = do
-           fnTy' <- liftMemType (L.PtrTo fnTy)
-           retTy' <- liftRetType lretTy
+           fnTy' <- liftMemType' (L.PtrTo fnTy)
+           retTy' <- either fail return $ liftRetType lretTy
            fn' <- transValue fnTy' fn
            args' <- mapM transTypedValue args
            let ?err = fail

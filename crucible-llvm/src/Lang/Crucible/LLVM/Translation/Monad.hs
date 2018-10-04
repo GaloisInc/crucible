@@ -46,17 +46,17 @@ import           Lang.Crucible.CFG.Generator
 
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Intrinsics
-import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Types
 
 -- | A monad providing state and continuations for translating LLVM expressions
 -- to CFGs.
 type LLVMGenerator h s arch ret a =
-  (?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch)) =>
+  (?lc :: TypeContext, HasPtrWidth (ArchWidth arch)) =>
     Generator (LLVM arch) h s (LLVMState arch) ret a
 
 -- | @LLVMGenerator@ without the constraint, can be nested further inside monads.
@@ -129,7 +129,7 @@ buildPhiMap ss = go ss Map.empty
 -- Given a list of LLVM formal parameters and a corresponding crucible
 -- register assignment, build an IdentMap mapping LLVM identifiers to
 -- corresponding crucible registers.
-buildIdentMap :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
+buildIdentMap :: (?lc :: TypeContext, HasPtrWidth wptr)
               => [L.Typed L.Ident]
               -> Bool -- ^ varargs
               -> CtxRepr ctx
@@ -146,12 +146,12 @@ buildIdentMap [] _ ctx _ m
       error "buildIdentMap: passed arguments do not match LLVM input signature"
 buildIdentMap (ti:ts) _ ctx asgn m = do
   -- ?? FIXME, irrefutable pattern...
-  let Just ty = TyCtx.liftMemType (L.typedType ti)
+  let Right ty = liftMemType (L.typedType ti)
   packType ty ctx asgn $ \x ctx' asgn' ->
      buildIdentMap ts False ctx' asgn' (Map.insert (L.typedValue ti) (Right x) m)
 
 -- | Build the initial LLVM generator state upon entry to to the entry point of a function.
-initialState :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+initialState :: (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
              => L.Define
              -> LLVMContext arch
              -> CtxRepr args
@@ -168,7 +168,7 @@ initialState d llvmctx args asgn =
 --
 --   This procedure is used to set up the initial state of the
 --   registers at the entry point of a function.
-packType :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr)
+packType :: (?lc :: TypeContext, HasPtrWidth wptr)
          => MemType
          -> CtxRepr ctx
          -> Ctx.Assignment (Atom s) ctx

@@ -118,12 +118,12 @@ import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.Globals
-import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Instruction
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Types
 
@@ -167,7 +167,7 @@ buildRegTypeMap :: IdentMap s
 buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
  where stmt m (L.Effect _ _) = return m
        stmt m (L.Result ident instr _) = do
-         ty <- instrResultType instr
+         ty <- either fail return $ instrResultType instr
          ex <- typeToRegExpr ty
          case Map.lookup ident m of
            Just _ -> fail $ unwords ["register not used in SSA fashion:", show ident]
@@ -241,11 +241,11 @@ setLocation (("dbg",L.ValMdDebugInfo (L.DebugInfoSubprogram subp)) :_)
        setPosition (SourcePos file ln 0)
 setLocation (_:xs) = setLocation xs
 
-findFile :: (?lc :: TyCtx.LLVMContext) => L.ValMd -> String
+findFile :: (?lc :: TypeContext) => L.ValMd -> String
 findFile (L.ValMdRef x) =
-  case TyCtx.lookupMetadata x of
+  case lookupMetadata x of
     Just (L.ValMdNode (_:Just (L.ValMdRef y):_)) ->
-      case TyCtx.lookupMetadata y of
+      case lookupMetadata y of
         Just (L.ValMdNode [Just (L.ValMdString fname), Just (L.ValMdString _fpath)]) -> fname
         _ -> ""
     Just (L.ValMdDebugInfo di) ->
@@ -345,8 +345,8 @@ insDeclareHandle halloc ctx decl = do
        return ctx
      Nothing -> do
        let ?lc = ctx^.llvmTypeCtx
-       args <- traverse liftMemType (L.decArgs decl)
-       ret  <- liftRetType (L.decRetType decl)
+       args <- traverse (either fail return . liftMemType) (L.decArgs decl)
+       ret  <- either fail return $ liftRetType (L.decRetType decl)
        let fn_name = functionNameFromText $ Text.pack sbl
        let decl' = FunDecl
                    { fdRetType  = ret

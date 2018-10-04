@@ -59,11 +59,11 @@ import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Intrinsics
-import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Backend (IsSymInterface)
 
@@ -169,7 +169,7 @@ initializeMemory
 initializeMemory sym llvm_ctx m = do
    -- Create initial memory of appropriate endianness
    let ?lc = llvm_ctx^.llvmTypeCtx
-   let dl = TyCtx.llvmDataLayout ?lc
+   let dl = llvmDataLayout ?lc
    let endianness = dl^.intLayout
    mem0 <- emptyMem endianness
    -- Allocate function handles
@@ -178,7 +178,7 @@ initializeMemory sym llvm_ctx m = do
    -- Allocate global values
    let gs = L.modGlobals m
    gs_alloc <- mapM (\g -> do
-                        ty <- liftMemType $ L.globalType g
+                        ty <- either fail return $ liftMemType $ L.globalType g
                         let sz = memTypeSize dl ty
                         return (L.globalSym g, sz))
                     gs
@@ -198,7 +198,7 @@ allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
 -- | Populate the globals mentioned in the given @GlobalInitializerMap@
 --   provided they satisfy the given filter function.
 populateGlobals ::
-  ( ?lc :: TyCtx.LLVMContext
+  ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
   , IsSymInterface sym ) =>
@@ -216,7 +216,7 @@ populateGlobals select sym gimap mem0 = foldM f mem0 (Map.elems gimap)
 
 -- | Populate all the globals mentioned in the given @GlobalInitializerMap@.
 populateAllGlobals ::
-  ( ?lc :: TyCtx.LLVMContext
+  ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
   , IsSymInterface sym ) =>
@@ -230,7 +230,7 @@ populateAllGlobals = populateGlobals (const True)
 -- | Populate only the constant global variables mentioned in the
 --   given @GlobalInitializerMap@.
 populateConstGlobals ::
-  ( ?lc :: TyCtx.LLVMContext
+  ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
   , IsSymInterface sym ) =>
@@ -246,7 +246,7 @@ populateConstGlobals = populateGlobals f
 --   This is intended to be used at initialization time, and will populate
 --   even read-only global data.
 populateGlobal ::
-  ( ?lc :: TyCtx.LLVMContext
+  ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
   , IsSymInterface sym ) =>

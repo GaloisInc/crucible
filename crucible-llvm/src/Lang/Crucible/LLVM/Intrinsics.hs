@@ -77,13 +77,13 @@ import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
-import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.TypeContext
 
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
@@ -159,24 +159,24 @@ data LLVMContext arch
    , llvmArch       :: ArchRepr arch
    , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
    , llvmMemVar     :: GlobalVar Mem
-   , _llvmTypeCtx   :: TyCtx.LLVMContext
+   , _llvmTypeCtx   :: TypeContext
    }
 
 symbolMap :: Simple Lens (LLVMContext arch) SymbolHandleMap
 symbolMap = lens _symbolMap (\s v -> s { _symbolMap = v })
 
-llvmTypeCtx :: Simple Lens (LLVMContext arch) TyCtx.LLVMContext
+llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
 llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
 
 mkLLVMContext :: HandleAllocator s
               -> L.Module
               -> ST s (Some LLVMContext)
 mkLLVMContext halloc m = do
-  let (errs, typeCtx) = TyCtx.llvmContextFromModule m
+  let (errs, typeCtx) = typeContextFromModule m
   unless (null errs) $
     fail $ unlines
          $ [ "Failed to construct LLVM type context:" ] ++ map show errs
-  let dl = TyCtx.llvmDataLayout typeCtx
+  let dl = llvmDataLayout typeCtx
 
   case someNat (toInteger (ptrBitwidth dl)) of
     Just (Some (wptr :: NatRepr wptr)) | Just LeqProof <- testLeq (knownNat @16) wptr ->
@@ -306,7 +306,7 @@ register_llvm_override llvmOverride = do
 
   let ?lc = llvmctx^.llvmTypeCtx
 
-  decl' <- liftDeclare decl
+  decl' <- either fail return $ liftDeclare decl
   llvmDeclToFunHandleRepr decl' $ \derivedArgs derivedRet -> do
     o <- lift $ build_llvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet
                   (llvmOverride_def llvmOverride mvar sym)

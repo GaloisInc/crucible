@@ -70,10 +70,10 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 
 import           Lang.Crucible.LLVM.Bytes
-import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.TypeContext
 
 -- | Pretty print an LLVM instruction
 showInstr :: L.Instr -> String
@@ -143,7 +143,7 @@ instance Traversable GEPResult where
 --   preprocess the instruction into a @GEPResult@, checking
 --   types, computing vectorization lanes, etc.
 translateGEP :: forall wptr m.
-  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
+  (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   Bool              {- ^ inbounds flag -} ->
   L.Typed L.Value   {- ^ base pointer expression -} ->
   [L.Typed L.Value] {- ^ index arguments -} ->
@@ -160,7 +160,7 @@ translateGEP inbounds base elts =
      case mt of
        -- Vector base case, with as many lanes as there are input pointers
        VecType n (PtrType baseSymType)
-         | Just baseMemType <- TyCtx.asMemType baseSymType
+         | Right baseMemType <- asMemType baseSymType
          , Just (Some lanes) <- someNat (toInteger n)
          , Just LeqProof <- isPosNat lanes
          ->  let mt' = ArrayType 0 baseMemType in
@@ -168,7 +168,7 @@ translateGEP inbounds base elts =
 
        -- Scalar base case with exactly 1 lane
        PtrType baseSymType
-         | Just baseMemType <- TyCtx.asMemType baseSymType
+         | Right baseMemType <- asMemType baseSymType
          ->  let mt' = ArrayType 0 baseMemType in
              go (knownNat @1) mt' (GEP_scalar_base base) elts
 
@@ -318,7 +318,7 @@ intConst n _
 -- | Compute the constant value of an expression.  Fail if the
 --   given value does not represent a constant.
 transConstantWithType ::
-  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
+  (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   L.Typed L.Value ->
   m (MemType, LLVMConst)
 transConstantWithType (L.Typed tp v) =
@@ -327,7 +327,7 @@ transConstantWithType (L.Typed tp v) =
      return (mt, c)
 
 transConstant ::
-  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
+  (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   L.Typed L.Value ->
   m LLVMConst
 transConstant x = snd <$> transConstantWithType x
@@ -335,7 +335,7 @@ transConstant x = snd <$> transConstantWithType x
 -- | Compute the constant value of an expression.  Fail if the
 --   given value does not represent a constant.
 transConstant' ::
-  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
+  (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   MemType ->
   L.Value ->
   m LLVMConst
@@ -385,7 +385,7 @@ transConstant' tp val =
 
 -- | Evaluate a GEP instruction to a constant value.
 evalConstGEP :: forall m wptr.
-  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
+  (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   GEPResult LLVMConst ->
   m (MemType, LLVMConst)
 evalConstGEP (GEPResult lanes finalMemType gep0) =
@@ -399,7 +399,7 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
                       )
 
   where
-  dl = TyCtx.llvmDataLayout ?lc
+  dl = llvmDataLayout ?lc
 
   asOffset :: MemType -> LLVMConst -> m Integer
   asOffset _ (ZeroConst (IntType _)) = return 0
@@ -666,7 +666,7 @@ evalBitwise op w x y = IntConst w <$>
 
 -- | Evaluate a conversion operation on constants.
 evalConv ::
-  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
+  (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   L.ConstExpr ->
   L.ConvOp ->
   MemType ->
@@ -918,8 +918,8 @@ asDouble _ = throwError "Expected double constant"
 
 -- | Compute the value of a constant expression.  Fails if
 --   the expression does not actually represent a constant value.
-transConstantExpr ::
-  (?lc :: TyCtx.LLVMContext, MonadError String m, HasPtrWidth wptr) =>
+transConstantExpr :: forall m wptr.
+  (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   MemType ->
   L.ConstExpr ->
   m LLVMConst
@@ -1027,4 +1027,6 @@ transConstantExpr _mt expr = case expr of
 
          _ -> evalConv expr op mt x'
 
- where badExp msg = throwError $ unlines [msg, show expr]
+ where
+ badExp :: String -> m a
+ badExp msg = throwError $ unlines [msg, show expr]

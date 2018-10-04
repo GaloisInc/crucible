@@ -81,11 +81,11 @@ import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
-import qualified Lang.Crucible.LLVM.LLVMContext as TyCtx
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
+import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
@@ -118,7 +118,7 @@ data ScalarView s arch where
 
 -- | Examine an LLVM expression and return the corresponding
 --   crucible expression, if it is a scalar.
-asScalar :: (?lc :: TyCtx.LLVMContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+asScalar :: (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch)
          => LLVMExpr s arch
          -> ScalarView s arch
 asScalar (BaseExpr tp xs)
@@ -199,7 +199,7 @@ pointerAsBitvectorExpr w ex =
 -- | Given a list of LLVMExpressions, "unpack" them into an assignment
 --   of crucible expressions.
 unpackArgs :: forall s a arch
-    . (?lc :: TyCtx.LLVMContext
+    . (?lc :: TypeContext
       ,?err :: String -> a
       ,HasPtrWidth (ArchWidth arch)
       )
@@ -216,7 +216,7 @@ unpackArgs = go Ctx.Empty Ctx.Empty
        go ctx asgn (v:vs) k = unpackOne v (\tyr ex -> go (ctx :> tyr) (asgn :> ex) vs k)
 
 unpackOne
-   :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
+   :: (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
    => LLVMExpr s arch
    -> (forall tpr. TypeRepr tpr -> Expr (LLVM arch) s tpr -> a)
    -> a
@@ -230,7 +230,7 @@ unpackOne (VecExpr tp vs) k =
   llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (toList (Seq.reverse vs)) $ k (VectorRepr tpr)
 
 unpackVec :: forall tpr s arch a
-    . (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
+    . (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
    => TypeRepr tpr
    -> [LLVMExpr s arch]
    -> (Expr (LLVM arch) s (VectorType tpr) -> a)
@@ -244,7 +244,7 @@ unpackVec tpr = go []
                              Nothing -> ?err $ unwords ["type mismatch in array value", show tpr, show tpr']
 
 zeroExpand :: forall s arch a
-            . (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
+            . (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
            => MemType
            -> (forall tp. TypeRepr tp -> Expr (LLVM arch) s tp -> a)
            -> a
@@ -269,7 +269,7 @@ zeroExpand FloatType   k  = k (FloatRepr SingleFloatRepr) (App (FloatLit 0))
 zeroExpand DoubleType  k  = k (FloatRepr DoubleFloatRepr) (App (DoubleLit 0))
 zeroExpand MetadataType _ = ?err "Cannot zero expand metadata"
 
-undefExpand :: (?lc :: TyCtx.LLVMContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
+undefExpand :: (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
             => MemType
             -> (forall tp. TypeRepr tp -> Expr (LLVM arch) s tp -> a)
             -> a
@@ -295,7 +295,7 @@ undefExpand tp _ = ?err $ unwords ["cannot undef expand type:", show tp]
 --undefExpand (L.PrimType (L.FloatType _ft)) _k = error "FIXME undefExpand: float types"
 
 unpackVarArgs :: forall s arch a
-    . (?err :: String -> a, ?lc :: TyCtx.LLVMContext, HasPtrWidth (ArchWidth arch))
+    . (?err :: String -> a, ?lc :: TypeContext, HasPtrWidth (ArchWidth arch))
    => [LLVMExpr s arch]
    -> Expr (LLVM arch) s (VectorType AnyType)
 unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList $ xs'
@@ -349,7 +349,7 @@ liftConstant c = case c of
 transTypedValue :: L.Typed L.Value
                 -> LLVMGenerator h s arch ret (LLVMExpr s arch)
 transTypedValue v = do
-   tp <- liftMemType $ L.typedType v
+   tp <- either fail return $ liftMemType $ L.typedType v
    transValue tp (L.typedValue v)
 
 -- | Translate an LLVM Value into an expression.
@@ -403,12 +403,12 @@ transValue DoubleType (L.ValDouble d) =
 
 transValue (StructType _) (L.ValStruct vs) = do
      vs' <- mapM transTypedValue vs
-     xs <- mapM (liftMemType . L.typedType) vs
+     xs <- mapM (either fail return . liftMemType . L.typedType) vs
      return (StructExpr $ Seq.fromList $ zip xs vs')
 
 transValue (StructType _) (L.ValPackedStruct vs) =  do
      vs' <- mapM transTypedValue vs
-     xs <- mapM (liftMemType . L.typedType) vs
+     xs <- mapM (either fail return . liftMemType . L.typedType) vs
      return (StructExpr $ Seq.fromList $ zip xs vs')
 
 transValue (ArrayType _ tp) (L.ValArray _ vs) = do
