@@ -389,12 +389,10 @@ instance ToText (Maybe CObject) where
 class Concretize (a :: CrucibleType) where
 
   type Concrete a
-  concretize :: (IsBoolSolver sym, W4.IsSymExprBuilder sym,
-                 W4.IsInterpretedFloatSymExprBuilder sym,
-                 W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-                 W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType)
-             => C.RegValue' sym a
-             -> C.OverrideSim p sym JVM rtp args ret (Maybe (Concrete a))
+  concretize
+    :: IsSymInterface sym
+    => C.RegValue' sym a
+    -> C.OverrideSim p sym JVM rtp args ret (Maybe (Concrete a))
 
 
 
@@ -403,8 +401,9 @@ instance Concretize JVMValueType where
   type Concrete JVMValueType = CValue
   concretize (C.RV v) =
     variantCase v
-    (Ctx.Empty `Ctx.extend` Dispatch (\x -> return ((CFloat . fromRational) <$> W4.asRational x))
-      `Ctx.extend` Dispatch (\x -> return ((CDouble . fromRational) <$> W4.asRational x))
+    (Ctx.Empty
+      `Ctx.extend` Dispatch (\x -> return ((CFloat . fromRational) <$> floatAsRational x))
+      `Ctx.extend` Dispatch (\x -> return ((CDouble . fromRational) <$> floatAsRational x))
       `Ctx.extend` Dispatch (\x -> return ((CInt . fromInteger) <$> W4.asSignedBV x))
       `Ctx.extend` Dispatch (\x -> return ((CLong . fromInteger) <$> W4.asSignedBV x))
       `Ctx.extend` Dispatch (\x -> do mb <- concretize @JVMRefType (C.RV x)
@@ -513,20 +512,26 @@ showInt jty e = case W4.asSignedBV e of
                 _ -> fail "showInt: Not an int-like type"
               Nothing -> show $ W4.printSymExpr e
 
-showFloat :: (W4.IsExpr e) => e BaseRealType -> String
-showFloat e = case W4.asRational e of
+showFloat :: W4.IsExpr e => e tp -> String
+showFloat e = case floatAsRational e of
   Just rat -> show (fromRational rat :: Double)
   Nothing -> show $ W4.printSymExpr e
+
+floatAsRational :: W4.IsExpr e => e tp -> Maybe Rational
+floatAsRational e
+  | Just Refl <- testEquality (W4.exprType e) W4.BaseRealRepr =
+    W4.asRational e
+  | otherwise =
+    Nothing
 
 --
 -- | Print out an object value (if it is concrete)
 -- For now: only String objects
 --
-showRef :: (IsBoolSolver sym, W4.IsSymExprBuilder sym, W4.IsInterpretedFloatSymExprBuilder sym,
-            W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-            W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-   W4.PartExpr (W4.SymExpr sym BaseBoolType) (C.MuxTree sym (RefCell JVMObjectType))
-   -> C.OverrideSim p sym JVM rtp args ret String
+showRef
+  :: IsSymInterface sym
+  => W4.PartExpr (W4.SymExpr sym BaseBoolType) (C.MuxTree sym (RefCell JVMObjectType))
+  -> C.OverrideSim p sym JVM rtp args ret String
 showRef pe = do
     cr <- concretize @JVMRefType (C.RV pe)
     case cr of
@@ -536,12 +541,13 @@ showRef pe = do
 
 -- | Convert a register value to a string
 -- Won't necessarily look like a standard types
-showReg :: forall sym arg p rtp args ret.
-           (IsSymInterface sym,
-            W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-            W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-  J.Type -> TypeRepr arg ->
-  C.RegValue sym arg -> C.OverrideSim p sym JVM rtp args ret String
+showReg
+  :: forall sym arg p rtp args ret
+   . IsSymInterface sym
+  => J.Type
+  -> TypeRepr arg
+  -> C.RegValue sym arg
+  -> C.OverrideSim p sym JVM rtp args ret String
 showReg jty repr arg
   | Just Refl <- testEquality repr doubleRepr
   = return $ showFloat arg
@@ -561,19 +567,21 @@ showReg jty repr arg
   | otherwise
   = error "Internal error: invalid regval type"
 
-printlnMthd :: forall sym arg p.
-               (IsSymInterface sym,
-                W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-                W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-  String -> TypeRepr arg -> JVMOverride p sym
+printlnMthd
+  :: forall sym arg p
+   . IsSymInterface sym
+  => String
+  -> TypeRepr arg
+  -> JVMOverride p sym
 printlnMthd =
   let showNewline = True in printStream "println" showNewline
 
-printMthd :: forall sym arg p. (IsSymInterface sym) =>
-               (IsSymInterface sym,
-              W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-              W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-  String -> TypeRepr arg -> JVMOverride p sym
+printMthd
+  :: forall sym arg p
+   . IsSymInterface sym
+  => String
+  -> TypeRepr arg
+  -> JVMOverride p sym
 printMthd = let showNewline = False in printStream "print" showNewline
 
 printStreamUnit :: forall sym p. (IsSymInterface sym) => String -> Bool -> JVMOverride p sym
@@ -593,14 +601,14 @@ printStreamUnit name showNewline =
 
 -- Should we print to the print handle in the simulation context?
 -- or just to stdout
-printStream :: forall sym arg p. (IsSymInterface sym,
-                W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-                W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-  String {- ^ Actual name of the method that we are invoking -} ->
-  Bool   {- ^ should we include a newline at the end -} ->
-  String {- ^ java descriptor of argument -} ->
-  TypeRepr arg {- ^ expected type of the method -} ->
-  JVMOverride p sym
+printStream
+  :: forall sym arg p
+   . IsSymInterface sym
+  => String {- ^ Actual name of the method that we are invoking -}
+  -> Bool   {- ^ should we include a newline at the end -}
+  -> String {- ^ java descriptor of argument -}
+  -> TypeRepr arg {- ^ expected type of the method -}
+  -> JVMOverride p sym
 printStream name showNewline descr t =
   let isStatic = False in
   let mk = J.makeMethodKey name descr in
@@ -692,11 +700,7 @@ isArray_override =
 
 
 
-stdOverrides ::
-  (IsSymInterface sym,
-   W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-   W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) =>
-  [JVMOverride p sym]
+stdOverrides :: IsSymInterface sym => [JVMOverride p sym]
 stdOverrides =
    [  printlnMthd "()V"   UnitRepr
       -- printStreamUnit "println" True -- TODO: methods that take no arguments?
