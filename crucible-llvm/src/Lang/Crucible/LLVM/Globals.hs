@@ -6,8 +6,15 @@
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
+--
+-- This module provides support for dealing with LLVM global variables,
+-- including initial allocation and populating variables with their
+-- initial values.  A @GlobalInitializerMap@ is constructed during
+-- module translation and can subsequently be used to populate
+-- global variables.  This can either be done all at once using
+-- @populateAllGlobals@; or it can be done in a more selective manner,
+-- using one of the other \"populate\" operations.
 ------------------------------------------------------------------------
-
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE GADTs                 #-}
@@ -188,12 +195,14 @@ allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
      return (registerGlobal mem' symbol ptr)
 
 
+-- | Populate the globals mentioned in the given @GlobalInitializerMap@
+--   provided they satisfy the given filter function.
 populateGlobals ::
   ( ?lc :: TyCtx.LLVMContext
   , 16 <= wptr
   , HasPtrWidth wptr
   , IsSymInterface sym ) =>
-  (L.Global -> Bool) ->
+  (L.Global -> Bool)   {- ^ Filter function, globals that cause this to return true will be populated -} ->
   sym ->
   GlobalInitializerMap ->
   MemImpl sym ->
@@ -205,6 +214,7 @@ populateGlobals select sym gimap mem0 = foldM f mem0 (Map.elems gimap)
   f mem (gl, Right (mty, cval))   = populateGlobal sym gl mty cval mem
 
 
+-- | Populate all the globals mentioned in the given @GlobalInitializerMap@.
 populateAllGlobals ::
   ( ?lc :: TyCtx.LLVMContext
   , 16 <= wptr
@@ -217,6 +227,8 @@ populateAllGlobals ::
 populateAllGlobals = populateGlobals (const True)
 
 
+-- | Populate only the constant global variables mentioned in the
+--   given @GlobalInitializerMap@.
 populateConstGlobals ::
   ( ?lc :: TyCtx.LLVMContext
   , 16 <= wptr
