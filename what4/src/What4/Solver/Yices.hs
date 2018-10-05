@@ -66,6 +66,7 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
+import           Data.Semigroup ( (<>) )
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String (fromString)
@@ -99,6 +100,8 @@ import           What4.Protocol.Online
 import qualified What4.Protocol.PolyRoot as Root
 import           What4.Utils.HandleReader
 import           What4.Utils.Process
+
+import Prelude
 
 
 -- | This is a tag used to indicate that a 'WriterConn' is a connection
