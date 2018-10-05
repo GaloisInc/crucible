@@ -219,7 +219,7 @@ ppRetType :: RetType -> Doc
 ppRetType = maybe (text "void") ppMemType
 
 -- | Returns size of a 'MemType' in bytes.
-memTypeSize :: DataLayout -> MemType -> Size
+memTypeSize :: DataLayout -> MemType -> Bytes
 memTypeSize dl mtp =
   case mtp of
     IntType w -> intWidthSize w
@@ -253,7 +253,7 @@ memTypeAlign dl mtp =
 data StructInfo = StructInfo
   { siDataLayout :: !DataLayout
   , siIsPacked   :: !Bool
-  , structSize   :: !Size -- ^ Size in bytes.
+  , structSize   :: !Bytes -- ^ Size in bytes.
   , structAlign  :: !Alignment
   , siFields     :: !(V.Vector FieldInfo)
   }
@@ -273,7 +273,7 @@ instance Eq StructInfo where
 data FieldInfo = FieldInfo
   { fiOffset    :: !Offset  -- ^ Byte offset of field relative to start of struct.
   , fiType      :: !MemType -- ^ Type of field.
-  , fiPadding   :: !Size    -- ^ Number of bytes of padding at end of field.
+  , fiPadding   :: !Bytes   -- ^ Number of bytes of padding at end of field.
   }
   deriving (Eq, Show)
 
@@ -300,7 +300,7 @@ mkStructInfo dl packed tps0 = go [] 0 a0 tps0
 
         -- Process fields
         go :: [FieldInfo] -- ^ Fields so far in reverse order.
-           -> Size        -- ^ Total size so far (aligned to next element)
+           -> Bytes       -- ^ Total size so far (aligned to next element)
            -> Alignment   -- ^ Maximum alignment so far
            -> [MemType]   -- ^ Field types to process
            -> StructInfo

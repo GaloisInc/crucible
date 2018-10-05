@@ -14,7 +14,6 @@ module Lang.Crucible.LLVM.Bytes
   ( -- * Bytes
     Bytes(..)
   , Addr
-  , Size
   , Offset
   , bytesToBits
   , bytesToInteger
@@ -46,5 +45,4 @@ bitsToBytes :: Integral a => a -> Bytes
 bitsToBytes n = Bytes ( (fromIntegral n + 7) `div` 8 )
 
 type Addr = Bytes
-type Size = Bytes
 type Offset = Bytes
