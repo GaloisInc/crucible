@@ -67,7 +67,7 @@ withModel s p action = do
   assume (sessionWriter s) p
   runCheckSat s $ \case
     Sat (GroundEvalFn {..}, _) -> action groundEval
-    Unsat                      -> "unsat" @?= "sat"
+    Unsat _                    -> "unsat" @?= "sat"
     Unknown                    -> "unknown" @?= "sat"
 
 -- exists y . (x + 2.0) + (x + 2.0) < y

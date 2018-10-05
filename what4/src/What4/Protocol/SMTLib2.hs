@@ -607,7 +607,7 @@ runGetValue s e = do
 runCheckSat :: forall b t a.
                SMTLib2Tweaks b
             => Session t b
-            -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+            -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
                -- ^ Function for evaluating model.
                -- The evaluation should be complete before
             -> IO a
@@ -617,7 +617,7 @@ runCheckSat s doEval =
      addCommand w (checkCommand w)
      res <- smtSatResult w r
      case res of
-       Unsat -> doEval Unsat
+       Unsat x -> doEval (Unsat x)
        Unknown -> doEval Unknown
        Sat _ ->
          do evalFn <- smtExprGroundEvalFn w (smtEvalFuns w r)
@@ -635,7 +635,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
             fail $ unlines [ "Could not parse check_sat result."
                            , "*** Exception: " ++ displayException e
                            ]
-         Right "unsat" -> return Unsat
+         Right "unsat" -> return (Unsat ())
          Right "sat" -> return (Sat ())
          Right "unknown" -> return Unknown
          Right res -> fail ("Could not interpret result from solver: " ++ res)
@@ -723,7 +723,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> (Int -> String -> IO ())
     -> String
     -> B.BoolExpr t
-    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO b)
+    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO b)
     -> IO b
   runSolverInOverride solver sym logLn reason predicate cont = do
     I.logSolverEvent sym
@@ -739,7 +739,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
       runCheckSat session $ \result -> do
         I.logSolverEvent sym
           I.SolverEndSATQuery
-            { I.satQueryResult = void result
+            { I.satQueryResult = forgetModelAndCore result
             , I.satQueryError  = Nothing
             }
         cont result

@@ -96,7 +96,7 @@ checkSatisfiable ::
   SolverProcess scope solver ->
   String ->
   BoolExpr scope ->
-  IO (SatResult ())
+  IO (SatResult () ())
 checkSatisfiable proc rsn p =
   do let c = solverConn proc
      p_smtexpr <- mkFormula c p
@@ -113,7 +113,7 @@ checkSatisfiableWithModel ::
   SolverProcess scope solver ->
   BoolExpr scope ->
   String ->
-  (SatResult (GroundEvalFn scope) -> IO a) ->
+  (SatResult (GroundEvalFn scope) () -> IO a) ->
   IO a
 checkSatisfiableWithModel proc p rsn k =
   do let c = solverConn proc
@@ -124,7 +124,7 @@ checkSatisfiableWithModel proc p rsn k =
           case res of
             Sat _ -> do f <- smtExprGroundEvalFn c (solverEvalFuns proc)
                         k (Sat f)
-            Unsat -> k Unsat
+            Unsat x -> k (Unsat x)
             Unknown -> k Unknown
 
 --------------------------------------------------------------------------------
@@ -150,7 +150,7 @@ inNewFrame c m = bracket_ (push c) (pop c) m
 
 -- | Send a check command to the solver, and get the SatResult without asking
 --   a model.
-check :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult ())
+check :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult () ())
 check p rsn =
   do let c = solverConn p
      solverLogFn p
@@ -170,11 +170,11 @@ check p rsn =
 -- | Send a check command to the solver and get the model in the case of a SAT result.
 --
 -- This may fail if the solver terminates.
-checkAndGetModel :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult (GroundEvalFn scope))
+checkAndGetModel :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult (GroundEvalFn scope) ())
 checkAndGetModel yp rsn = do
   sat_result <- check yp rsn
   case sat_result of
-    Unsat   -> return $! Unsat
+    Unsat x -> return $! Unsat x
     Unknown -> return $! Unknown
     Sat () -> Sat <$> getModel yp
 
@@ -185,7 +185,7 @@ getModel p = smtExprGroundEvalFn (solverConn p)
              $ smtEvalFuns (solverConn p) (solverResponse p)
 
 -- | Get the sat result from a previous SAT command.
-getSatResult :: SMTReadWriter s => SolverProcess t s -> IO (SatResult ())
+getSatResult :: SMTReadWriter s => SolverProcess t s -> IO (SatResult () ())
 getSatResult yp = do
   let ph = solverHandle yp
   let err_reader = solverStderr yp

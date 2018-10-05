@@ -115,7 +115,7 @@ runZ3InOverride
   -> (Int -> String -> IO ())
   -> String
   -> BoolExpr t
-  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
 runZ3InOverride = SMT2.runSolverInOverride Z3
 

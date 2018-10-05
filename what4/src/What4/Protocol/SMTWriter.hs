@@ -2406,7 +2406,7 @@ class SMTWriter h => SMTReadWriter h where
     WriterConn t h -> Streams.InputStream ByteString -> SMTEvalFunctions h
 
   -- | Parse a set result from the solver's response.
-  smtSatResult :: f h -> Streams.InputStream ByteString -> IO (SatResult ())
+  smtSatResult :: f h -> Streams.InputStream ByteString -> IO (SatResult () ())
 
 
 -- | Return the terms associated with the given ground index variables.

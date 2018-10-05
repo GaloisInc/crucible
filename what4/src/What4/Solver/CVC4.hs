@@ -132,7 +132,7 @@ runCVC4InOverride
   -> (Int -> String -> IO ())
   -> String
   -> BoolExpr t
-  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
 runCVC4InOverride = SMT2.runSolverInOverride CVC4
 

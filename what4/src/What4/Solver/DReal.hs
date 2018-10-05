@@ -91,7 +91,7 @@ drealAdapter =
              evalFn <- getAvgBindings c m
              rangeFn <- getBoundBindings c m
              cont (Sat (evalFn, Just rangeFn))
-           Unsat -> cont Unsat
+           Unsat x -> cont (Unsat x)
            Unknown -> cont Unknown
 
   , solver_adapter_write_smt2 = writeDRealSMT2File
@@ -246,7 +246,7 @@ runDRealInOverride
    -> (Int -> String -> IO ())
    -> String
    -> BoolExpr t   -- ^ proposition to check
-   -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) -> IO a)
+   -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) () -> IO a)
    -> IO a
 runDRealInOverride sym logLn rsn p modelFn = do
   solver_path <- findSolverPath drealPath (getConfiguration sym)
@@ -292,7 +292,7 @@ runDRealInOverride sym logLn rsn p modelFn = do
       res <-
         case msat_result of
           Left Streams.ParseException{} -> fail "Could not parse sat result."
-          Right "unsat" -> return Unsat
+          Right "unsat" -> return (Unsat ())
           Right "sat" -> do
               ex <- doesFileExist modelfile
               m <- if ex
@@ -319,7 +319,7 @@ runDRealInOverride sym logLn rsn p modelFn = do
 
           logSolverEvent sym
              SolverEndSATQuery
-             { satQueryResult = fmap (const ()) res
+             { satQueryResult = forgetModelAndCore res
              , satQueryError  = Nothing
              }
 

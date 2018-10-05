@@ -375,7 +375,7 @@ data SolverEvent
     , satQueryReason     :: !String
     }
   | SolverEndSATQuery
-    { satQueryResult     :: !(SatResult ())
+    { satQueryResult     :: !(SatResult () ())
     , satQueryError      :: !(Maybe String)
     }
 

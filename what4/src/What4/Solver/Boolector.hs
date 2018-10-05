@@ -21,6 +21,7 @@ module What4.Solver.Boolector
 
 import           Control.Concurrent
 import           Control.Monad
+import           Control.Monad.Identity
 import qualified Data.ByteString.UTF8 as UTF8
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -70,7 +71,7 @@ boolectorAdapter =
   , solver_adapter_config_options = boolectorOptions
   , solver_adapter_check_sat = \sym logLn rsn p cont -> do
       res <- runBoolectorInOverride sym logLn rsn p
-      cont (fmap (\x -> (x,Nothing)) res)
+      cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
   , solver_adapter_write_smt2 =
       SMT2.writeDefaultSMT2 () "Boolector" defaultWriteSMTLIB2Features
   }
@@ -82,7 +83,7 @@ runBoolectorInOverride :: ExprBuilder t st fs
                        -> (Int -> String -> IO ())
                        -> String
                        -> BoolExpr t
-                       -> IO (SatResult (GroundEvalFn t))
+                       -> IO (SatResult (GroundEvalFn t) ())
 runBoolectorInOverride sym logLn rsn p  = do
   -- Get boolector path.
   path <- findSolverPath boolectorPath (getConfiguration sym)
@@ -122,7 +123,7 @@ runBoolectorInOverride sym logLn rsn p  = do
       res <- parseBoolectorOutput wtr out_lines
       logSolverEvent sym
          SolverEndSATQuery
-         { satQueryResult = fmap (const ()) res
+         { satQueryResult = forgetModelAndCore res
          , satQueryError  = Nothing
          }
       return res
@@ -163,10 +164,10 @@ lookupBoolectorVar m evalFn nm =
 
 parseBoolectorOutput :: SMT2.WriterConn t (SMT2.Writer Boolector)
                      -> [String]
-                     -> IO (SatResult (GroundEvalFn t))
+                     -> IO (SatResult (GroundEvalFn t) ())
 parseBoolectorOutput c out_lines =
   case out_lines of
-    "unsat":_ -> return Unsat
+    "unsat":_ -> return (Unsat ())
     "sat":mdl_lines0 -> do
       let mdl_lines = filter (/= "") mdl_lines0
       m <- Map.fromList <$> mapM parseBoolectorOutputLine mdl_lines

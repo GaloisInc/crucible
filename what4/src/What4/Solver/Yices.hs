@@ -59,6 +59,7 @@ module What4.Solver.Yices
 import           Control.Exception (assert)
 import           Control.Lens ((^.))
 import           Control.Monad
+import           Control.Monad.Identity
 import           Data.Bits
 import           Data.ByteString (ByteString)
 import           Data.Foldable (toList)
@@ -580,7 +581,7 @@ yicesDoGetLine resp =
 
 -- | Get the sat result from a previous SAT command.
 -- Throws an exception if something goes wrong.
-getSatResponse :: Streams.InputStream ByteString -> IO (SatResult ())
+getSatResponse :: Streams.InputStream ByteString -> IO (SatResult () ())
 getSatResponse resps =
   do res <- Streams.read resps
      case res of
@@ -589,7 +590,7 @@ getSatResponse resps =
                                  ]
        Just txt ->
          case txt of
-           "unsat"    -> return Unsat
+           "unsat"    -> return (Unsat ())
            "sat"      -> return (Sat ())
            "unknown"  -> return Unknown
            _  -> fail $ unlines
@@ -662,7 +663,8 @@ yicesAdapter =
    { solver_adapter_name = "yices"
    , solver_adapter_config_options = yicesOptions
    , solver_adapter_check_sat = \sym logLn rsn p cont ->
-       runYicesInOverride sym logLn rsn p (cont . fmap (\x -> (x,Nothing)))
+       runYicesInOverride sym logLn rsn p
+          (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
        writeDefaultSMT2 () "YICES"  yicesSMT2Features
    }
@@ -838,7 +840,7 @@ runYicesInOverride :: B.ExprBuilder t st fs
                    -> (Int -> String -> IO ())
                    -> String
                    -> B.BoolExpr t
-                   -> (SatResult (GroundEvalFn t) -> IO a)
+                   -> (SatResult (GroundEvalFn t) () -> IO a)
                    -> IO a
 runYicesInOverride sym logLn rsn condition resultFn = do
   let cfg = getConfiguration sym
@@ -893,9 +895,9 @@ runYicesInOverride sym logLn rsn condition resultFn = do
         }
       r <-
          case sat_result of
-           Unsat -> resultFn Unsat
-           Unknown -> resultFn Unknown
            Sat () -> resultFn . Sat =<< getModel yp
+           Unsat x -> resultFn (Unsat x)
+           Unknown -> resultFn Unknown
 
       yicesShutdownSolver yp
       return r

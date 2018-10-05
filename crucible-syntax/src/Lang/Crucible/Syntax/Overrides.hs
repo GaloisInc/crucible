@@ -57,6 +57,6 @@ proveObligations =
          do asms <- andAllOf sym (folded.labeledPred) (proofAssumptions o)
             gl   <- andPred sym asms =<< notPred sym ((proofGoal o)^.labeledPred)
             runZ3InOverride sym (\_ -> hPutStrLn h) "assertion proof" gl $ \case
-              Unsat    -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+              Unsat{}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]

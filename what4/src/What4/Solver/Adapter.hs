@@ -54,7 +54,8 @@ data SolverAdapter st =
         -> (Int -> String -> IO ())
         -> String
         -> BoolExpr t
-        -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+--        -> [BoolExpr t]
+        -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
         -> IO a)
 
     -- | Write an SMTLib2 problem instance onto the given handle, incorporating

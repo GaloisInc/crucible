@@ -111,8 +111,8 @@ bltAdapter =
    { solver_adapter_name = "blt"
    , solver_adapter_config_options = bltOptions
    , solver_adapter_check_sat = \sym _ rsn p cont ->
-           runBLTInOverride sym rsn p $ \res ->
-             cont (fmap (\x -> (x, Nothing)) res)
+           runBLTInOverride sym rsn p
+             (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 = \_ _ _ -> do
        fail "BLT backend does not support writing SMTLIB2 files."
    }
@@ -121,7 +121,7 @@ runBLTInOverride :: IsExprBuilder sym
                  => sym
                  -> String
                  -> BoolExpr t -- ^ proposition to check
-                 -> (SatResult (GroundEvalFn t) -> IO a)
+                 -> (SatResult (GroundEvalFn t) () -> IO a)
                  -> IO a
 runBLTInOverride sym rsn p contFn = do
   let cfg = getConfiguration sym
@@ -137,7 +137,7 @@ runBLTInOverride sym rsn p contFn = do
     result <- checkSat h
     logSolverEvent sym
       SolverEndSATQuery
-      { satQueryResult = fmap (const ()) result
+      { satQueryResult = forgetModelAndCore result
       , satQueryError  = Nothing
       }
     contFn result
@@ -632,7 +632,7 @@ evalCplx h (AppExpr ea) =
 ------------------------------------------------------------------------
 
 -- | check here for lwr, upr bounds
-checkSat :: forall t . Handle t -> IO (SatResult (GroundEvalFn t))
+checkSat :: forall t . Handle t -> IO (SatResult (GroundEvalFn t) ())
 checkSat h = do
     let ctx = getCtx h
     bnds <- readIORef (boundMap h)
@@ -641,7 +641,7 @@ checkSat h = do
     doAssumptions ctx bnds
     isTrivial <- readIORef (flagUNSAT h)
     if isTrivial
-       then return Unsat
+       then return (Unsat ())
        else doCheck ctx
   where
   -- assert inequalities to BLT
@@ -672,7 +672,7 @@ checkSat h = do
   doCheck ctx = do
     rc <- bltCheck ctx
     case () of
-      _ | bltUNSAT == rc -> return Unsat
+      _ | bltUNSAT == rc -> return (Unsat ())
         | bltSAT   == rc -> do
           groundCache <- newIdxCache
           let f :: Expr t tp -> IO (GroundValue tp)

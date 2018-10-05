@@ -117,7 +117,7 @@ proveGoals ctxt (Just gs0) =
            let mkRes status = Prove (p,status)
            ret <- fmap mkRes $
                     case res of
-                      Unsat   -> do modifyIORef' gn (\(x,f) -> (x,f+1))
+                      Unsat{} -> do modifyIORef' gn (\(x,f) -> (x,f+1))
                                     return Proved
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
@@ -160,7 +160,7 @@ canProve ctxt rsn asmpPs concP =
           assumeFormula conn conc
           res <- check sp rsn
           return $ case res of
-                     Unsat   -> Proved
+                     Unsat{} -> Proved
                      _       -> NotProved Nothing
 
 
