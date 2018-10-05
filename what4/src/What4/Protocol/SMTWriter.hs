@@ -421,25 +421,6 @@ infix 4 .>=
 infix 4 .<
 infix 4 .<=
 
-{-
--- | Attempt to interpret a Config value as a solver value.
-asConfigValue
-  :: forall f s tp
-  . SupportTermOps (Term s)
-  => f s -> ConcreteVal tp -> Maybe Builder
-asConfigValue _ v =
-  case v of
-    ConcreteBool x    -> Just (render (boolExpr x))
-    ConcreteReal x    -> Just (render (rationalTerm x))
-    ConcreteInteger x -> Just (render (integerTerm x))
-    ConcreteString x  -> Just (Builder.fromText x) -- XXX: overload?
-    _                 -> Nothing
-
-  where
-  render :: Term s -> Builder
-  render = renderTerm
--}
-
 ------------------------------------------------------------------------
 -- Term
 
