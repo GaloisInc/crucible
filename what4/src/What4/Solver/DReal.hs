@@ -107,7 +107,7 @@ writeDRealSMT2File
    -> IO ()
 writeDRealSMT2File sym h p = do
   bindings <- getSymbolVarBimap sym
-  c <- SMT2.newWriter DReal h "dReal" False useComputableReals False bindings
+  c <- SMT2.newWriter DReal h (\_ -> return ()) "dReal" False useComputableReals False bindings
   SMT2.setOption c (SMT2.produceModels True)
   SMT2.setLogic c (SMT2.Logic "QF_NRA")
   SMT2.assume c p
@@ -266,7 +266,7 @@ runDRealInOverride sym logLn rsn p modelFn = do
       logLn 2 "Sending Satisfiability problem to dReal"
       -- dReal does not support (define-fun ...)
       bindings <- getSymbolVarBimap sym
-      c <- SMT2.newWriter DReal in_h "dReal" False useComputableReals False bindings
+      c <- SMT2.newWriter DReal in_h (\_ -> return ()) "dReal" False useComputableReals False bindings
 
       -- Set the dReal default logic
       SMT2.setLogic c (SMT2.Logic "QF_NRA")

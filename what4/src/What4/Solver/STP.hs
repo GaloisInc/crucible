@@ -64,7 +64,7 @@ stpAdapter =
   { solver_adapter_name = "stp"
   , solver_adapter_config_options = stpOptions
   , solver_adapter_check_sat  = runSTPInOverride
-  , solver_adapter_write_smt2 = SMT2.writeDefaultSMT2 STP "STP" defaultWriteSMTLIB2Features
+  , solver_adapter_write_smt2 = SMT2.writeDefaultSMT2 STP (\_ -> return ()) "STP" defaultWriteSMTLIB2Features
   }
 
 instance SMT2.SMTLib2Tweaks STP where
@@ -81,8 +81,8 @@ instance SMT2.SMTLib2GenericSolver STP where
     -- Tell STP to use all supported logics
     SMT2.setLogic writer SMT2.qf_bv
 
-  newDefaultWriter solver sym h =
-    SMT2.newWriter solver h (show solver) True (SMT2.defaultFeatures solver) False
+  newDefaultWriter solver ack sym h =
+    SMT2.newWriter solver h ack (show solver) True (SMT2.defaultFeatures solver) False
       =<< getSymbolVarBimap sym
 
 runSTPInOverride
@@ -92,7 +92,7 @@ runSTPInOverride
   -> BoolExpr t
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
   -> IO a
-runSTPInOverride = SMT2.runSolverInOverride STP
+runSTPInOverride = SMT2.runSolverInOverride STP (\_ -> return ())
 
 -- | Run STP in a session. STP will be configured to produce models, buth
 -- otherwise left with the default configuration.
@@ -105,8 +105,8 @@ withSTP
   -> (SMT2.Session t STP -> IO a)
     -- ^ Action to run
   -> IO a
-withSTP = SMT2.withSolver STP
+withSTP = SMT2.withSolver STP (\_ -> return ())
 
 instance OnlineSolver t (SMT2.Writer STP) where
-  startSolverProcess = SMT2.startSolver STP
+  startSolverProcess = SMT2.startSolver STP (\_ -> return ())
   shutdownSolverProcess = SMT2.shutdownSolver STP

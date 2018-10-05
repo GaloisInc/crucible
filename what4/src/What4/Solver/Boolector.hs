@@ -72,7 +72,7 @@ boolectorAdapter =
       res <- runBoolectorInOverride sym logLn rsn p
       cont (fmap (\x -> (x,Nothing)) res)
   , solver_adapter_write_smt2 =
-      SMT2.writeDefaultSMT2 () "Boolector" defaultWriteSMTLIB2Features
+      SMT2.writeDefaultSMT2 () (\_ -> return ()) "Boolector" defaultWriteSMTLIB2Features
   }
 
 instance SMT2.SMTLib2Tweaks Boolector where
@@ -98,7 +98,7 @@ runBoolectorInOverride sym logLn rsn p  = do
       void $ forkIO $ logErrorStream err_stream (logLn 2)
       -- Write SMT2 input to Boolector.
       bindings <- getSymbolVarBimap sym
-      wtr <- SMT2.newWriter Boolector in_h "Boolector" False noFeatures False bindings
+      wtr <- SMT2.newWriter Boolector in_h (\_ -> return ()) "Boolector" False noFeatures False bindings
       SMT2.setLogic wtr SMT2.qf_bv
       SMT2.assume wtr p
 

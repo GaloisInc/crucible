@@ -240,7 +240,7 @@ getSolverProcess sym = do
     SolverStarted p -> return p
     SolverNotStarted ->
       do p <- startSolverProcess sym
-         push (solverConn p)
+         push p
          writeIORef (solverProc st) (SolverStarted p)
          return p
 
@@ -329,29 +329,29 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
              return $ SymbolicBranch True
 
   pushAssumptionFrame sym =
-    do conn <- getSolverConn sym
+    do proc <- getSolverProcess sym
        stk  <- getAssumptionStack sym
-       push conn
+       push proc
        pushFrame stk
 
   popAssumptionFrame sym ident =
-    do conn <- getSolverConn sym
+    do proc <- getSolverProcess sym
        stk <- getAssumptionStack sym
        frm <- popFrame ident stk
-       pop conn
+       pop proc
        return frm
 
   popUntilAssumptionFrame sym ident =
-    do conn <- getSolverConn sym
+    do proc <- getSolverProcess sym
        stk <- getAssumptionStack sym
        n <- AS.popFramesUntil ident stk
-       forM_ [0..(n-1)] $ \_ -> pop conn
+       forM_ [0..(n-1)] $ \_ -> pop proc
 
   popAssumptionFrameAndObligations sym ident = do
-    do conn <- getSolverConn sym
+    do proc <- getSolverProcess sym
        stk <- getAssumptionStack sym
        frmAndGls <- popFrameAndGoals ident stk
-       pop conn
+       pop proc
        return frmAndGls
 
   getProofObligations sym =
@@ -367,7 +367,7 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
        AS.saveAssumptionStack stk
 
   restoreAssumptionState sym gc =
-    do conn <- getSolverConn sym
+    do proc <- getSolverProcess sym
        stk  <- getAssumptionStack sym
 
        -- restore the previous assumption stack
@@ -377,10 +377,10 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
        AssumptionFrames base frms <- AS.allAssumptionFrames stk
 
        -- reset the solver state
-       reset conn
+       reset proc
        -- assume the base-level assumptions
-       mapM_ (SMT.assume conn . view labeledPred) (toList base)
+       mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList base)
        -- populate the pushed frames
        forM_ (map snd $ toList frms) $ \frm ->
-         do push conn
-            mapM_ (SMT.assume conn . view labeledPred) (toList frm)
+         do push proc
+            mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList frm)

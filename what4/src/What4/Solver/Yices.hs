@@ -46,8 +46,8 @@ module What4.Solver.Yices
 
     -- * Live connection
   , yicesEvalBool
-
   , SMTWriter.addCommand
+
     -- * Solver adapter interface
   , yicesAdapter
   , runYicesInOverride
@@ -61,6 +61,7 @@ import           Control.Lens ((^.))
 import           Control.Monad
 import           Data.Bits
 import           Data.ByteString (ByteString)
+import           Data.IORef
 import           Data.Foldable (toList)
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
@@ -382,10 +383,11 @@ setParamCommand nm v = Cmd $ app "set-param" [ Builder.fromText nm, v ]
 -- Connection
 
 newConnection :: Handle
+              -> (WriterConn t (Connection s) -> IO ())    -- ^ Ack action
               -> ProblemFeatures -- ^ Indicates the problem features to support.
               -> B.SymbolVarBimap t
               -> IO (WriterConn t (Connection s))
-newConnection h reqFeatures bindings = do
+newConnection h ack reqFeatures bindings = do
   let efSolver = reqFeatures `hasProblemFeature` useExistForall
   let nlSolver = reqFeatures `hasProblemFeature` useNonlinearArithmetic
   let features | efSolver  = useLinearArithmetic
@@ -400,7 +402,7 @@ newConnection h reqFeatures bindings = do
                   .|. featureIf efSolver useExistForall
                   .|. useStructs
                   .|. useSymbolicArrays
-  conn <- newWriterConn h nm features' bindings (Connection ())
+  conn <- newWriterConn h ack nm features' bindings (Connection ())
   return $! conn { supportFunctionDefs = True
                  , supportFunctionArguments = True
                  , supportQuantifiers = efSolver
@@ -475,11 +477,26 @@ yicesShutdownSolver p =
           fail $ "yices exited with unexpected code " ++ show exit_code ++ "\n"
               ++ LazyText.unpack txt
 
+yicesAck :: Streams.InputStream ByteString -> IORef (Maybe Int) -> WriterConn s (Connection s) -> IO ()
+yicesAck resp earlyUnsatRef conn =
+  do x <- getAckResponse resp
+     case x of
+       Nothing ->
+         return ()
+       Just "unsat" ->
+         do i <- entryStackHeight conn
+            writeIORef earlyUnsatRef $! (Just $! if i > 0 then 1 else 0)
+       Just txt ->
+         fail $ unlines
+                 [ "Unexpected response from solver while awaiting acknowledgement"
+                 , "*** result:" ++ show txt
+                 ]
+
 yicesStartSolver :: B.ExprBuilder s st fs -> IO (SolverProcess s (Connection s))
 yicesStartSolver sym = do
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
-  let args = ["--mode=push-pop"]
+  let args = ["--mode=push-pop", "--print-success"]
 
   let create_proc
         = (proc yices_path args)
@@ -505,11 +522,14 @@ yicesStartSolver sym = do
              .|. useSymbolicArrays
              .|. useComplexArithmetic
              .|. useStructs
-  conn <- newConnection in_h features B.emptySymbolVarBimap
-  setYicesParams conn cfg
-
   err_reader <- startHandleReader err_h
   out_stream <- Streams.lines =<< Streams.handleToInputStream out_h
+
+  earlyUnsatRef <- newIORef Nothing
+
+  conn <- newConnection in_h (yicesAck out_stream earlyUnsatRef) features B.emptySymbolVarBimap
+  setYicesParams conn cfg
+
   return $! SolverProcess { solverConn   = conn
                           , solverStdin  = in_h
                           , solverStderr = err_reader
@@ -518,6 +538,7 @@ yicesStartSolver sym = do
                           , solverEvalFuns = smtEvalFuns conn out_stream
                           , solverLogFn = logSolverEvent sym
                           , solverName = "Yices"
+                          , solverEarlyUnsat = earlyUnsatRef
                           }
 
 ------------------------------------------------------------------------
@@ -525,10 +546,10 @@ yicesStartSolver sym = do
 
 -- | Send a check command to Yices.
 sendCheck :: WriterConn t (Connection s) -> IO ()
-sendCheck c = addCommand c (checkCommand c)
+sendCheck c = addCommandNoAck c (checkCommand c)
 
 sendCheckExistsForall :: WriterConn t (Connection s) -> IO ()
-sendCheckExistsForall c = addCommand c checkExistsForallCommand
+sendCheckExistsForall c = addCommandNoAck c checkExistsForallCommand
 
 assertForall :: WriterConn t (Connection s) -> [(Text, YicesType)] -> Expr s -> IO ()
 assertForall c vars e = addCommand c (assertForallCommand vars e)
@@ -550,11 +571,11 @@ setYicesParams conn cfg = do
    forM_ params $ setParam conn
 
 eval :: WriterConn t (Connection s) -> Term (Connection s) -> IO ()
-eval c e = addCommand c (evalCommand e)
+eval c e = addCommandNoAck c (evalCommand e)
 
 -- | Print a command to show the model.
 sendShowModel :: WriterConn t (Connection s) -> IO ()
-sendShowModel c = addCommand c showModelCommand
+sendShowModel c = addCommandNoAck c showModelCommand
 
 
 
@@ -577,6 +598,17 @@ yicesDoGetLine resp =
        Nothing -> fail "Missing response from the solver."
        Just b  -> return b
 
+getAckResponse :: Streams.InputStream ByteString -> IO (Maybe ByteString)
+getAckResponse resps =
+  do res <- Streams.read resps
+     case res of
+       Nothing -> fail $ unlines [ "Unexpected end of input."
+                                 , "*** Expecting: 'ok'"
+                                 ]
+       Just txt ->
+         case txt of
+           "ok" -> return Nothing
+           _    -> return (Just txt)
 
 -- | Get the sat result from a previous SAT command.
 -- Throws an exception if something goes wrong.
@@ -632,7 +664,7 @@ yicesEvalBV w conn resp tm = do
   l <- Text.unpack <$> yicesDoGetLine resp
   case l of
     '0' : 'b' : nm -> readBit w nm
-    _ -> fail "Could not parse value returned by yices as bitvector."
+    _ -> fail ("Could not parse value returned by yices as bitvector:\n " ++ show l)
 
 readBit :: Monad m => Int -> String -> m Integer
 readBit w0 = go 0 0
@@ -664,7 +696,7 @@ yicesAdapter =
    , solver_adapter_check_sat = \sym logLn rsn p cont ->
        runYicesInOverride sym logLn rsn p (cont . fmap (\x -> (x,Nothing)))
    , solver_adapter_write_smt2 =
-       writeDefaultSMT2 () "YICES"  yicesSMT2Features
+       writeDefaultSMT2 () (\_ -> return ()) "YICES" yicesSMT2Features
    }
 
 -- | Path to yices
@@ -824,11 +856,11 @@ writeYicesFile sym path p = do
 
     bindings <- B.getSymbolVarBimap sym
 
-    c <- newConnection h features bindings
+    c <- newConnection h (\_ -> return ()) features bindings
     setYicesParams c cfg
     assume c p
     if efSolver then
-      addCommand c efSolveCommand
+      addCommandNoAck c efSolveCommand
     else
       sendCheck c
     sendShowModel c
@@ -853,9 +885,9 @@ runYicesInOverride sym logLn rsn condition resultFn = do
   features <- checkSupportedByYices condition
   let efSolver = features `hasProblemFeature` useExistForall
   let nlSolver = features `hasProblemFeature` useNonlinearArithmetic
-  let args | efSolver  = ["--mode=ef"]
-           | nlSolver  = ["--logic=QF_NRA"]
-           | otherwise = ["--mode=one-shot"]
+  let args | efSolver  = ["--mode=ef"] -- ,"--print-success"]
+           | nlSolver  = ["--logic=QF_NRA"] -- ,"--print-success"]
+           | otherwise = ["--mode=one-shot"] -- ,"--print-success"]
   withProcessHandles yices_path args Nothing $ \(in_h, out_h, err_h, ph) -> do
     -- Log stderr to output.
     withHandleReader err_h $ \err_reader -> do
@@ -864,7 +896,7 @@ runYicesInOverride sym logLn rsn condition resultFn = do
 
       -- Create new connection for sending commands to yices.
       bindings <- B.getSymbolVarBimap sym
-      c <- newConnection in_h features bindings
+      c <- newConnection in_h (\_ -> return ()) features bindings
       -- Write yices parameters.
       setYicesParams c cfg
       -- Assert condition
@@ -872,9 +904,11 @@ runYicesInOverride sym logLn rsn condition resultFn = do
 
       logLn 2 "Running check sat"
       if efSolver then
-        addCommand c efSolveCommand
+        addCommandNoAck c efSolveCommand
       else
         sendCheck c
+
+      earlyUnsatRef <- newIORef Nothing
 
       let yp = SolverProcess { solverConn = c
                              , solverHandle = ph
@@ -884,6 +918,7 @@ runYicesInOverride sym logLn rsn condition resultFn = do
                              , solverEvalFuns = smtEvalFuns c responses
                              , solverName = "Yices"
                              , solverLogFn = logSolverEvent sym
+                             , solverEarlyUnsat = earlyUnsatRef
                              }
       sat_result <- getSatResult yp
       logSolverEvent sym

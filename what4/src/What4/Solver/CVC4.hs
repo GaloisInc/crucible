@@ -99,7 +99,7 @@ writeMultiAsmpCVC4SMT2File
    -> IO ()
 writeMultiAsmpCVC4SMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
-  c <- SMT2.newWriter CVC4 h "CVC4" True cvc4Features True bindings
+  c <- SMT2.newWriter CVC4 h (\_ -> return ()) "CVC4" True cvc4Features True bindings
   --c <- SMT2.newWriter h "CVC4" True SMT2.LinearArithmetic
   SMT2.setLogic c SMT2.allSupported
   SMT2.setOption c (SMT2.produceModels True)
@@ -134,7 +134,7 @@ runCVC4InOverride
   -> BoolExpr t
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
   -> IO a
-runCVC4InOverride = SMT2.runSolverInOverride CVC4
+runCVC4InOverride = SMT2.runSolverInOverride CVC4 (\_ -> return ())
 
 -- | Run CVC4 in a session. CVC4 will be configured to produce models, but
 -- otherwise left with the default configuration.
@@ -147,8 +147,8 @@ withCVC4
   -> (SMT2.Session t CVC4 -> IO a)
     -- ^ Action to run
   -> IO a
-withCVC4 = SMT2.withSolver CVC4
+withCVC4 = SMT2.withSolver CVC4 (\_ -> return ())
 
 instance OnlineSolver t (SMT2.Writer CVC4) where
-  startSolverProcess = SMT2.startSolver CVC4
+  startSolverProcess = SMT2.startSolver CVC4 (\_ -> return ())
   shutdownSolverProcess = SMT2.shutdownSolver CVC4

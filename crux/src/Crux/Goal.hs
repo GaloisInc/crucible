@@ -87,7 +87,7 @@ proveGoals ctxt (Just gs0) =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
      goalNum <- newIORef (0,0) -- total, proved
-     res <- inNewFrame (solverConn sp) (go sp goalNum gs0)
+     res <- inNewFrame sp (go sp goalNum gs0)
      (tot,proved) <- readIORef goalNum
      if proved /= tot
        then sayFail "Crux" $ unwords
@@ -129,7 +129,7 @@ proveGoals ctxt (Just gs0) =
            return ret
 
       ProveConj g1 g2 ->
-        do g1' <- inNewFrame conn (go sp gn g1)
+        do g1' <- inNewFrame sp (go sp gn g1)
            -- NB, we don't need 'inNewFrame' here because
            --  we don't need to back up to this point again.
            g2' <- go sp gn g2
@@ -155,7 +155,7 @@ canProve ctxt rsn asmpPs concP =
      let conn = solverConn sp
      asmps <- forM asmpPs $ \a -> mkFormula conn (a ^. labeledPred)
      conc  <- mkFormula conn =<< notPred sym concP
-     inNewFrame conn $
+     inNewFrame sp $
        do mapM_ (assumeFormula conn) asmps
           assumeFormula conn conc
           res <- check sp rsn
@@ -180,8 +180,8 @@ simpProved ctxt asmps0 conc =
                       Proved -> (True,false)
                       _      -> (False,conc ^. labeledPred)
 
-     conn  <- solverConn <$> getSolverProcess (ctxt ^. ctxSymInterface)
-     asmps1 <- inNewFrame conn (dropAsmps conn 0 [] asmps0 g)
+     sp  <- getSolverProcess (ctxt ^. ctxSymInterface)
+     asmps1 <- inNewFrame sp (dropAsmps (solverConn sp) 0 [] asmps0 g)
      return (asmps1, triv)
   where
   -- A simple way to figure out what might be relevant assumptions.

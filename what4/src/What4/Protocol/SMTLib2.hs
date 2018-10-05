@@ -419,6 +419,8 @@ instance SupportTermOps Term where
 
 newWriter :: a
           -> IO.Handle
+          -> (WriterConn t (Writer a) -> IO ())
+             -- ^ Action to run for consuming acknowledgement messages
           -> String
              -- ^ Name of solver for reporting purposes.
           -> Bool
@@ -431,10 +433,10 @@ newWriter :: a
           -> B.SymbolVarBimap t
              -- ^ Variable bindings for names.
           -> IO (WriterConn t (Writer a))
-newWriter _ h solver_name permitDefineFun arithOption quantSupport bindings = do
+newWriter _ h ack solver_name permitDefineFun arithOption quantSupport bindings = do
   r <- newIORef Set.empty
   let initWriter = Writer r
-  conn <- newWriterConn h solver_name arithOption bindings initWriter
+  conn <- newWriterConn h ack solver_name arithOption bindings initWriter
   return $! conn { supportFunctionDefs = permitDefineFun
                  , supportQuantifiers = quantSupport
                  }
@@ -496,7 +498,7 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
 
 -- | Write check sat command
 writeCheckSat :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
-writeCheckSat w = addCommand w SMT2.checkSat
+writeCheckSat w = addCommandNoAck w SMT2.checkSat
 
 writeExit :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
 writeExit w = addCommand w SMT2.exit
@@ -508,7 +510,7 @@ setOption :: SMTLib2Tweaks a => WriterConn t (Writer a) -> SMT2.Option -> IO ()
 setOption w o = addCommand w $ SMT2.setOption o
 
 writeGetValue :: SMTLib2Tweaks a => WriterConn t (Writer a) -> [Term] -> IO ()
-writeGetValue w l = addCommand w $ SMT2.getValue l
+writeGetValue w l = addCommandNoAck w $ SMT2.getValue l
 
 parseBoolSolverValue :: Monad m => SExp -> m Bool
 parseBoolSolverValue (SAtom "true")  = return True
@@ -614,7 +616,7 @@ runCheckSat :: forall b t a.
 runCheckSat s doEval =
   do let w = sessionWriter s
          r = sessionResponse s
-     addCommand w (checkCommand w)
+     addCommandNoAck w (checkCommand w)
      res <- smtSatResult w r
      case res of
        Unsat -> doEval Unsat
@@ -626,7 +628,6 @@ runCheckSat s doEval =
 instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
   smtEvalFuns w s = smtLibEvalFuns Session { sessionWriter = w
                                            , sessionResponse = s }
-
 
   smtSatResult _ s =
     do mb <- try (Streams.parseFromStream parseNextWord s)
@@ -671,14 +672,15 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
   setDefaultLogicAndOptions :: WriterConn t (Writer a) -> IO()
 
   newDefaultWriter
-    :: a -> B.ExprBuilder t st fs -> IO.Handle -> IO (WriterConn t (Writer a))
-  newDefaultWriter solver sym h =
-    newWriter solver h (show solver) True (defaultFeatures solver) True
+    :: a -> (WriterConn t (Writer a) -> IO ()) -> B.ExprBuilder t st fs -> IO.Handle -> IO (WriterConn t (Writer a))
+  newDefaultWriter solver ack sym h =
+    newWriter solver h ack (show solver) True (defaultFeatures solver) True
       =<< B.getSymbolVarBimap sym
 
   -- | Run the solver in a session.
   withSolver
     :: a
+    -> (WriterConn t (Writer a) -> IO ()) -- ^ Acknowledgement action
     -> B.ExprBuilder t st fs
     -> FilePath
       -- ^ Path to solver executable
@@ -687,14 +689,14 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> (Session t a -> IO b)
       -- ^ Action to run
     -> IO b
-  withSolver solver sym path logFn action =
+  withSolver solver ack sym path logFn action =
     withProcessHandles path (defaultSolverArgs solver) Nothing $
       \(in_h, out_h, err_h, ph) -> do
         -- Log stderr to output.
         err_stream <- Streams.handleToInputStream err_h
         void $ forkIO $ logErrorStream err_stream logFn
         -- Create writer and session
-        writer <- newDefaultWriter solver sym in_h
+        writer <- newDefaultWriter solver ack sym in_h
         out_stream <- Streams.handleToInputStream out_h
         let s = Session
               { sessionWriter   = writer
@@ -719,20 +721,21 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 
   runSolverInOverride
     :: a
+    -> (WriterConn t (Writer a) -> IO ()) -- ^ Acknowledgement action
     -> B.ExprBuilder t st fs
     -> (Int -> String -> IO ())
     -> String
     -> B.BoolExpr t
     -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO b)
     -> IO b
-  runSolverInOverride solver sym logLn reason predicate cont = do
+  runSolverInOverride solver ack sym logLn reason predicate cont = do
     I.logSolverEvent sym
       I.SolverStartSATQuery
         { I.satQuerySolverName = show solver
         , I.satQueryReason     = reason
         }
     path <- defaultSolverPath solver sym
-    withSolver solver sym path (logLn 2) $ \session -> do
+    withSolver solver ack sym path (logLn 2) $ \session -> do
       -- Assume the predicate holds.
       SMTWriter.assume (sessionWriter session) predicate
       -- Run check SAT and get the model back.
@@ -748,6 +751,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 --   solver-specific tweaks.
 writeDefaultSMT2 :: SMTLib2Tweaks a
                  => a
+                 -> (WriterConn t (Writer a) -> IO ())
                  -> String
                     -- ^ Name of solver for reporting.
                  -> ProblemFeatures
@@ -756,9 +760,9 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                  -> IO.Handle
                  -> B.BoolExpr t
                  -> IO ()
-writeDefaultSMT2 a nm feat sym h p = do
+writeDefaultSMT2 a ack nm feat sym h p = do
   bindings <- B.getSymbolVarBimap sym
-  c <- newWriter a h nm True feat True bindings
+  c <- newWriter a h ack nm True feat True bindings
   setOption c (SMT2.produceModels True)
   SMTWriter.assume c p
   writeCheckSat c
@@ -767,9 +771,10 @@ writeDefaultSMT2 a nm feat sym h p = do
 startSolver
   :: SMTLib2GenericSolver a
   => a
+  -> (WriterConn t (Writer a) -> IO ())
   -> B.ExprBuilder t st fs
   -> IO (SolverProcess t (Writer a))
-startSolver solver sym = do
+startSolver solver ack sym = do
   path <- defaultSolverPath solver sym
   solver_process <- Process.createProcess $
     (Process.proc path (defaultSolverArgs solver))
@@ -787,12 +792,14 @@ startSolver solver sym = do
   err_reader <- startHandleReader err_h
 
   -- Create writer
-  writer <- newDefaultWriter solver sym in_h
+  writer <- newDefaultWriter solver ack sym in_h
 
   out_stream <- Streams.handleToInputStream out_h
 
   -- Set solver logic and solver-specific options
   setDefaultLogicAndOptions writer
+
+  earlyUnsatRef <- newIORef Nothing
 
   return $! SolverProcess
     { solverConn     = writer
@@ -803,6 +810,7 @@ startSolver solver sym = do
     , solverEvalFuns = smtEvalFuns writer out_stream
     , solverLogFn    = I.logSolverEvent sym
     , solverName     = show solver
+    , solverEarlyUnsat = earlyUnsatRef
     }
 
 shutdownSolver

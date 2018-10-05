@@ -58,10 +58,12 @@ module What4.Protocol.SMTWriter
   , connState
   , newWriterConn
   , resetEntryStack
+  , entryStackHeight
   , pushEntryStack
   , popEntryStack
   , Command
   , addCommand
+  , addCommandNoAck
   , mkFreeVar
   , TypeMap(..)
   , freshBoundVarName
@@ -568,6 +570,9 @@ data WriterConn t (h :: *) =
                -- ^ Symbol variables.
              , connState :: !h
                -- ^ The specific connection information.
+             , consumeAcknowledgement :: WriterConn t h -> IO ()
+               -- ^ Consume an acknowledgement notifications the solver, if
+               --   it produces one
              }
 
 newStackEntry :: IO (StackEntry t h)
@@ -585,6 +590,15 @@ resetEntryStack c = do
   entry <- newStackEntry
   writeIORef (entryStack c) [entry]
 
+-- | Return the number of pushed stack frames.  Note, this is one
+--   fewer than the number of entries in the stack beacuse the
+--   base entry is the top-level context that is not in the scope
+--   of any push.
+entryStackHeight :: WriterConn t h -> IO Int
+entryStackHeight c =
+  do es <- readIORef (entryStack c)
+     return (length es - 1)
+
 -- | Push a new frame to the stack for maintaining the writer cache.
 pushEntryStack :: WriterConn t h -> IO ()
 pushEntryStack c = do
@@ -600,6 +614,8 @@ popEntryStack c = do
    (_:r) -> writeIORef (entryStack c) r
 
 newWriterConn :: Handle
+              -> (WriterConn t cs -> IO ())
+              -- ^ An action to consume solver acknowledgement responses
               -> String
               -- ^ Name of solver for reporting purposes.
               -> ProblemFeatures
@@ -610,7 +626,7 @@ newWriterConn :: Handle
               -> cs
                  -- ^ State information specific to the type of connection
               -> IO (WriterConn t cs)
-newWriterConn h solver_name features bindings cs = do
+newWriterConn h ack solver_name features bindings cs = do
   entry <- newStackEntry
   stk_ref <- newIORef [entry]
   r <- newIORef emptyState
@@ -624,6 +640,7 @@ newWriterConn h solver_name features bindings cs = do
                        , stateRef     = r
                        , varBindings  = bindings
                        , connState    = cs
+                       , consumeAcknowledgement = ack
                        }
 
 -- | Status to indicate when term value will be uncached.
@@ -757,6 +774,11 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 -- if it differs from the last position.
 addCommand :: SMTWriter h => WriterConn t h -> Command h -> IO ()
 addCommand conn cmd = do
+  addCommandNoAck conn cmd
+  consumeAcknowledgement conn conn
+
+addCommandNoAck :: SMTWriter h => WriterConn t h -> Command h -> IO ()
+addCommandNoAck conn cmd = do
   las <- withWriterState conn $ use lastPosition
   cur <- withWriterState conn $ use position
 
@@ -768,6 +790,7 @@ addCommand conn cmd = do
 
   writeCommand conn cmd
   hFlush (connHandle conn)
+
 
 -- | Create a new variable with the given name.
 mkFreeVar :: SMTWriter h
@@ -2407,7 +2430,6 @@ class SMTWriter h => SMTReadWriter h where
 
   -- | Parse a set result from the solver's response.
   smtSatResult :: f h -> Streams.InputStream ByteString -> IO (SatResult ())
-
 
 -- | Return the terms associated with the given ground index variables.
 smtIndicesTerms :: forall v idx

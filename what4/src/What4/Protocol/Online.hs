@@ -8,6 +8,7 @@ This module defines an API for interacting with
 solvers that support online interaction modes.
 
 -}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module What4.Protocol.Online
@@ -29,6 +30,7 @@ module What4.Protocol.Online
 import           Control.Exception
                    ( SomeException(..), bracket_, catch, try, displayException )
 import           Control.Monad (void)
+import           Data.IORef
 import qualified Data.Text.Lazy as LazyText
 import           Data.ByteString(ByteString)
 import           System.Exit
@@ -78,6 +80,14 @@ data SolverProcess scope solver = SolverProcess
   , solverLogFn :: SolverEvent -> IO ()
 
   , solverName :: String
+
+  , solverEarlyUnsat :: IORef (Maybe Int)
+    -- ^ Some solvers will enter an 'UNSAT' state early, if they can easily
+    --   determine that context is unsatisfiable.  If this IORef contains
+    --   an integer value, it indicates how many \"pop\" operations need to
+    --   be performed to return to a potentially satisfiable state.
+    --   A @Just 0@ state indicates the special case that the top-level context
+    --   is unsatisfiable, and must be \"reset\".
   }
 
 
@@ -98,11 +108,14 @@ checkSatisfiable ::
   BoolExpr scope ->
   IO (SatResult ())
 checkSatisfiable proc rsn p =
-  do let c = solverConn proc
-     p_smtexpr <- mkFormula c p
-     inNewFrame c $
-       do assumeFormula c p_smtexpr
-          check proc rsn
+  readIORef (solverEarlyUnsat proc) >>= \case
+    Just _  -> return Unsat
+    Nothing ->
+      do let c = solverConn proc
+         p_smtexpr <- mkFormula c p
+         inNewFrame proc $
+           do assumeFormula c p_smtexpr
+              check proc rsn
 
 -- | Check if the formula is satisifiable in the current
 --   solver state.
@@ -118,7 +131,7 @@ checkSatisfiableWithModel ::
 checkSatisfiableWithModel proc p rsn k =
   do let c = solverConn proc
      p_smtexpr <- mkFormula c p
-     inNewFrame c $
+     inNewFrame proc $
        do assumeFormula c p_smtexpr
           res <- check proc rsn
           case res of
@@ -130,42 +143,61 @@ checkSatisfiableWithModel proc p rsn k =
 --------------------------------------------------------------------------------
 -- Basic solver interaction.
 
-reset :: SMTReadWriter s => WriterConn t s -> IO ()
-reset c = do resetEntryStack c
-             addCommand c (resetCommand c)
+reset :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
+reset p =
+  do let c = solverConn p
+     resetEntryStack c
+     writeIORef (solverEarlyUnsat p) Nothing
+     addCommand c (resetCommand c)
 
 -- | Push a new solver assumption frame.
-push :: SMTReadWriter s => WriterConn t s -> IO ()
-push c = do pushEntryStack c
-            addCommand c (pushCommand c)
+push :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
+push p =
+  readIORef (solverEarlyUnsat p) >>= \case
+    Nothing -> do let c = solverConn p
+                  pushEntryStack c
+                  addCommand c (pushCommand c)
+    Just i  -> writeIORef (solverEarlyUnsat p) $! (Just $! i+1)
 
 -- | Pop a previous solver assumption frame.
-pop :: SMTReadWriter s => WriterConn t s -> IO ()
-pop c = do popEntryStack c
-           addCommand c (popCommand c)
+pop :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
+pop p =
+  readIORef (solverEarlyUnsat p) >>= \case
+    Nothing -> do let c = solverConn p
+                  popEntryStack c
+                  addCommand c (popCommand c)
+    Just i
+      | i <= 1 -> do let c = solverConn p
+                     popEntryStack c
+                     writeIORef (solverEarlyUnsat p) Nothing
+                     addCommand c (popCommand c)
+      | otherwise -> writeIORef (solverEarlyUnsat p) $! (Just $! i-1)
 
 -- | Perform an action in the scope of a solver assumption frame.
-inNewFrame :: SMTReadWriter s => WriterConn t s -> IO a -> IO a
-inNewFrame c m = bracket_ (push c) (pop c) m
+inNewFrame :: SMTReadWriter solver => SolverProcess scope solver -> IO a -> IO a
+inNewFrame p m = bracket_ (push p) (pop p) m
 
 -- | Send a check command to the solver, and get the SatResult without asking
 --   a model.
 check :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult ())
 check p rsn =
-  do let c = solverConn p
-     solverLogFn p
-       SolverStartSATQuery
-       { satQuerySolverName = solverName p
-       , satQueryReason = rsn
-       }
-     addCommand c (checkCommand c)
-     sat_result <- getSatResult p
-     solverLogFn p
-       SolverEndSATQuery
-       { satQueryResult = sat_result
-       , satQueryError = Nothing
-       }
-     return sat_result
+  readIORef (solverEarlyUnsat p) >>= \case
+    Just _  -> return Unsat
+    Nothing ->
+      do let c = solverConn p
+         solverLogFn p
+           SolverStartSATQuery
+           { satQuerySolverName = solverName p
+           , satQueryReason = rsn
+           }
+         addCommandNoAck c (checkCommand c)
+         sat_result <- getSatResult p
+         solverLogFn p
+           SolverEndSATQuery
+           { satQueryResult = sat_result
+           , satQueryError = Nothing
+           }
+         return sat_result
 
 -- | Send a check command to the solver and get the model in the case of a SAT result.
 --
@@ -183,6 +215,7 @@ checkAndGetModel yp rsn = do
 getModel :: SMTReadWriter solver => SolverProcess scope solver -> IO (GroundEvalFn scope)
 getModel p = smtExprGroundEvalFn (solverConn p)
              $ smtEvalFuns (solverConn p) (solverResponse p)
+
 
 -- | Get the sat result from a previous SAT command.
 getSatResult :: SMTReadWriter s => SolverProcess t s -> IO (SatResult ())
