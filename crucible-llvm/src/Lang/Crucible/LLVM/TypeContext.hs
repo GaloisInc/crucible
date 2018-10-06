@@ -1,8 +1,8 @@
 ------------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.LLVM.LLVMContext
+-- Module           : Lang.Crucible.LLVM.TypeContext
 -- Description      : Provides simulator type information and conversions.
--- Copyright        : (c) Galois, Inc 2011-2013
+-- Copyright        : (c) Galois, Inc 2011-2018
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
@@ -11,18 +11,17 @@
 -- information in a module, and converting llvm-pretty types into
 -- simulator types.
 ------------------------------------------------------------------------
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE ImplicitParams             #-}
+{-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE ViewPatterns               #-}
-{-# OPTIONS_GHC -fno-warn-orphans       #-}
-module Lang.Crucible.LLVM.LLVMContext
+module Lang.Crucible.LLVM.TypeContext
   ( -- * LLVMContext
-    LLVMContext
-  , mkLLVMContext
-  , llvmContextFromModule
+    TypeContext
+  , mkTypeContext
+  , typeContextFromModule
   , llvmDataLayout
   , llvmMetadataMap
   , AliasMap
@@ -36,11 +35,13 @@ module Lang.Crucible.LLVM.LLVMContext
   , liftType
   , liftMemType
   , liftRetType
+  , liftDeclare
   , asMemType
   ) where
 
 import           Control.Lens
 import           Control.Monad
+import           Control.Monad.Except (MonadError(..))
 import           Control.Monad.State (State, runState, MonadState(..), modify)
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -170,66 +171,79 @@ type AliasMap = Map Ident SymType
 type MetadataMap = IntMap L.ValMd
 
 -- | Provides information about the types in an LLVM bitcode file.
-data LLVMContext = LLVMContext
+data TypeContext = TypeContext
   { llvmDataLayout :: DataLayout
   , llvmMetadataMap :: MetadataMap
   , llvmAliasMap  :: AliasMap
   }
 
-instance Show LLVMContext where
-  show = show . ppLLVMContext
+instance Show TypeContext where
+  show = show . ppTypeContext
 
-ppLLVMContext :: LLVMContext -> Doc
-ppLLVMContext lc =
+ppTypeContext :: TypeContext -> Doc
+ppTypeContext lc =
     vcat (ppAlias <$> Map.toList (llvmAliasMap lc))
   where ppAlias (i,tp) = ppIdent i <+> equals <+> ppSymType tp
 
-lookupAlias :: (?lc :: LLVMContext) => Ident -> Maybe SymType
-lookupAlias i = llvmAliasMap ?lc ^. at i
+lookupAlias :: (?lc :: TypeContext, MonadError String m) => Ident -> m SymType
+lookupAlias i =
+  case llvmAliasMap ?lc ^. at i of
+    Just stp -> return stp
+    Nothing  -> throwError $ unwords ["Unknown type alias", show i]
 
-lookupMetadata :: (?lc :: LLVMContext) => Int -> Maybe L.ValMd
+lookupMetadata :: (?lc :: TypeContext) => Int -> Maybe L.ValMd
 lookupMetadata x = view (at x) (llvmMetadataMap ?lc)
 
 -- | If argument corresponds to a @MemType@ possibly via aliases,
 -- then return it.  Otherwise, returns @Nothing@.
-asMemType :: (?lc :: LLVMContext) => SymType -> Maybe MemType
+asMemType :: (?lc :: TypeContext, MonadError String m) => SymType -> m MemType
 asMemType (MemType mt) = return mt
 asMemType (Alias i) = asMemType =<< lookupAlias i
-asMemType _ = Nothing
+asMemType stp = throwError (unlines $ ["Expected memory type", show stp])
 
 -- | If argument corresponds to a @RetType@ possibly via aliases,
 -- then return it.  Otherwise, returns @Nothing@.
-asRetType :: (?lc :: LLVMContext) => SymType -> Maybe RetType
-asRetType (MemType mt) = Just (Just mt)
-asRetType VoidType = Just Nothing
-asRetType (Alias i) = asRetType =<< lookupAlias i
-asRetType _ = Nothing
+asRetType :: (?lc :: TypeContext, MonadError String m) => SymType -> m RetType
+asRetType (MemType mt) = return (Just mt)
+asRetType VoidType     = return Nothing
+asRetType (Alias i)    = asRetType =<< lookupAlias i
+asRetType stp = throwError (unlines $ ["Expected return type", show stp])
 
 -- | Creates an LLVMContext from a parsed data layout and lists of types.
 --  Errors reported in first argument.
-mkLLVMContext :: DataLayout -> MetadataMap -> [L.TypeDecl]  -> ([Doc], LLVMContext)
-mkLLVMContext dl mdMap decls =
+mkTypeContext :: DataLayout -> MetadataMap -> [L.TypeDecl]  -> ([Doc], TypeContext)
+mkTypeContext dl mdMap decls =
     let tps = Map.fromList [ (L.typeName d, L.typeValue d) | d <- decls ] in
     runTC dl (Pending <$> tps) $
       do aliases <- traverse tcType tps
-         pure (LLVMContext dl mdMap aliases)
+         pure (TypeContext dl mdMap aliases)
 
 -- | Utility function to creates an LLVMContext directly from a model.
-llvmContextFromModule :: L.Module -> ([Doc], LLVMContext)
-llvmContextFromModule mdl = mkLLVMContext dl (L.mkMdMap mdl) (L.modTypes mdl)
+typeContextFromModule :: L.Module -> ([Doc], TypeContext)
+typeContextFromModule mdl = mkTypeContext dl (L.mkMdMap mdl) (L.modTypes mdl)
   where dl = parseDataLayout $ L.modDataLayout mdl
 
-liftType :: (?lc :: LLVMContext) => L.Type -> Maybe SymType
-liftType tp | null edocs = Just stp
-            | otherwise = Nothing
+liftType :: (?lc :: TypeContext, MonadError String m) => L.Type -> m SymType
+liftType tp | null edocs = return stp
+            | otherwise  = throwError $ unlines (map show edocs)
   where m0 = Resolved <$> llvmAliasMap ?lc
         (edocs,stp) = runTC (llvmDataLayout ?lc) m0 $ tcType tp
 
-liftMemType :: (?lc :: LLVMContext) => L.Type -> Maybe MemType
+liftMemType :: (?lc :: TypeContext, MonadError String m) => L.Type -> m MemType
 liftMemType tp = asMemType =<< liftType tp
 
-liftRetType :: (?lc :: LLVMContext) => L.Type -> Maybe RetType
+liftRetType :: (?lc :: TypeContext, MonadError String m) => L.Type -> m RetType
 liftRetType tp = asRetType =<< liftType tp
+
+liftDeclare :: (?lc::TypeContext, MonadError String m) => L.Declare -> m FunDecl
+liftDeclare decl =
+  do args <- traverse liftMemType (L.decArgs decl)
+     ret  <- liftRetType (L.decRetType decl)
+     return $ FunDecl
+              { fdRetType  = ret
+              , fdArgTypes = args
+              , fdVarArgs  = L.decVarArgs decl
+              }
 
 compatStructInfo :: StructInfo -> StructInfo -> Bool
 compatStructInfo x y =

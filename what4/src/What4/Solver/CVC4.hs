@@ -12,8 +12,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module What4.Solver.CVC4
-  ( CVC4
+  ( CVC4(..)
+  , cvc4Features
   , cvc4Adapter
   , cvc4Path
   , cvc4Options
@@ -39,7 +41,6 @@ import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
-import           What4.Protocol.SMTWriter
 import           What4.Utils.Process
 
 
@@ -74,20 +75,18 @@ cvc4Adapter =
   , solver_adapter_write_smt2 = writeCVC4SMT2File
   }
 
-indexType :: [SMT_Type] -> SMT_Type
+indexType :: [SMT2.Type] -> SMT2.Type
 indexType [i] = i
-indexType il = SMT_StructType il
+indexType il = SMT2.structType il
 
 instance SMT2.SMTLib2Tweaks CVC4 where
   smtlib2tweaks = CVC4
 
-  smtlib2arrayType _ il r = SMT2.arrayType1 CVC4 (indexType il) (SMT2.unType CVC4 r)
+  smtlib2arrayType il r = SMT2.arrayType (indexType il) r
 
   -- | Adapted from the tweak of array constant for CVC4.
-  smtlib2arrayConstant = Just $ \idx elts v ->
-    let array_type = SMT2.smtlib2arrayType CVC4 idx elts
-        cast_app = builder_list [ "as" , "const" , array_type ]
-     in term_app cast_app [ v ]
+  smtlib2arrayConstant = Just $ \idx rtp v ->
+    SMT2.arrayConst (indexType idx) rtp v
 
 cvc4Features :: ProblemFeatures
 cvc4Features = useComputableReals
@@ -102,7 +101,7 @@ writeMultiAsmpCVC4SMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
   c <- SMT2.newWriter CVC4 h "CVC4" True cvc4Features True bindings
   --c <- SMT2.newWriter h "CVC4" True SMT2.LinearArithmetic
-  SMT2.setLogic c SMT2.all_supported
+  SMT2.setLogic c SMT2.allSupported
   SMT2.setOption c (SMT2.produceModels True)
   forM_ ps $ SMT2.assume c
   SMT2.writeCheckSat c
@@ -124,7 +123,7 @@ instance SMT2.SMTLib2GenericSolver CVC4 where
 
   setDefaultLogicAndOptions writer = do
     -- Tell CVC4 to use all supported logics.
-    SMT2.setLogic writer SMT2.all_supported
+    SMT2.setLogic writer SMT2.allSupported
     -- Tell CVC4 to produce models
     SMT2.setOption writer $ SMT2.produceModels True
 

@@ -260,8 +260,14 @@ data ExprBoundVar t (tp :: BaseType) =
        , bvarKind :: !VarKind
        }
 
+instance Eq (ExprBoundVar t tp) where
+  x == y = bvarId x == bvarId y
+
 instance TestEquality (ExprBoundVar t) where
   testEquality x y = testEquality (bvarId x) (bvarId y)
+
+instance Ord (ExprBoundVar t tp) where
+  compare x y = compare (bvarId x) (bvarId y)
 
 instance OrdF (ExprBoundVar t) where
   compareF x y = compareF (bvarId x) (bvarId y)

@@ -1,5 +1,5 @@
 Name:          crucible-llvm
-Version:       0.1
+Version:       0.2
 Author:        Galois Inc.
 Copyright:     (c) Galois, Inc 2014-2018
 Maintainer:    rdockins@galois.com
@@ -46,14 +46,13 @@ library
     Lang.Crucible.LLVM.DataLayout
     Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Intrinsics
-    Lang.Crucible.LLVM.LLVMContext
+    Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.MemModel
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
-    Lang.Crucible.LLVM.Translation.Constant
-    Lang.Crucible.LLVM.Translation.Types
+    Lang.Crucible.LLVM.TypeContext
 
   other-modules:
     Lang.Crucible.LLVM.MemModel.Common
@@ -61,7 +60,34 @@ library
     Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
+    Lang.Crucible.LLVM.Translation.Constant
+    Lang.Crucible.LLVM.Translation.Expr
+    Lang.Crucible.LLVM.Translation.Instruction
+    Lang.Crucible.LLVM.Translation.Monad
+    Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
+
+
+test-suite crucible-llvm-tests
+  type: exitcode-stdio-1.0
+  main-is: Tests.hs
+  hs-source-dirs: test
+  -- other-modules:
+  build-depends:
+    base,
+    containers,
+    crucible,
+    crucible-llvm,
+    directory,
+    filepath,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    mtl,
+    parameterized-utils,
+    process,
+    tasty,
+    tasty-golden,
+    tasty-hunit

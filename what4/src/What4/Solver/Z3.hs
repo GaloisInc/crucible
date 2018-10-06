@@ -12,6 +12,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 module What4.Solver.Z3
   ( Z3
   , z3Adapter
@@ -27,17 +28,17 @@ import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
-import           What4.Config
-import           What4.Solver.Adapter
 import           What4.Concrete
-import           What4.Interface
-import           What4.ProblemFeatures
-import           What4.SatResult
+import           What4.Config
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
+import           What4.Interface
+import           What4.ProblemFeatures
 import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
 import           What4.Protocol.SMTWriter
+import           What4.SatResult
+import           What4.Solver.Adapter
 import           What4.Utils.Process
 
 data Z3 = Z3 deriving Show
@@ -64,25 +65,23 @@ z3Adapter =
   , solver_adapter_write_smt2 = writeZ3SMT2File
   }
 
-indexType :: [SMT_Type] -> SMT_Type
+indexType :: [SMT2.Type] -> SMT2.Type
 indexType [i] = i
-indexType il = SMT_StructType il
+indexType il = SMT2.structType il
 
-indexCtor :: [SMT2.Expr Z3] -> SMT2.Expr Z3
+indexCtor :: [SMT2.Term] -> SMT2.Term
 indexCtor [i] = i
 indexCtor il = structCtor il
 
 instance SMT2.SMTLib2Tweaks Z3 where
   smtlib2tweaks = Z3
 
-  smtlib2arrayType _ il r = SMT2.arrayType1 Z3 (indexType il) (SMT2.unType Z3 r)
+  smtlib2arrayType il r = SMT2.arrayType (indexType il) r
 
-  smtlib2arrayConstant = Just $ \idx elts v ->
-    let array_type = SMT2.smtlib2arrayType Z3 idx elts
-        cast_app = builder_list [ "as" , "const" , array_type ]
-     in term_app cast_app [ v ]
-  smtlib2arraySelect a i = SMT2.arraySelect1 a (indexCtor i)
-  smtlib2arrayUpdate a i = SMT2.arrayUpdate1 a (indexCtor i)
+  smtlib2arrayConstant = Just $ \idx rtp v ->
+    SMT2.arrayConst (indexType idx) rtp v
+  smtlib2arraySelect a i = SMT2.arraySelect a (indexCtor i)
+  smtlib2arrayUpdate a i = SMT2.arrayStore a (indexCtor i)
 
 z3Features :: ProblemFeatures
 z3Features = useNonlinearArithmetic

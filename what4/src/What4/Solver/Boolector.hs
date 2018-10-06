@@ -44,7 +44,7 @@ import           What4.Expr.GroundEval
 import           What4.Solver.Adapter
 import qualified What4.Protocol.SMTLib2 as SMT2
 import           What4.Protocol.SMTWriter
-  (smtExprGroundEvalFn, renderTerm, SMTEvalFunctions(..))
+  (smtExprGroundEvalFn, SMTEvalFunctions(..))
 import           What4.Utils.Process
 import           What4.Utils.Streams
 
@@ -170,8 +170,8 @@ parseBoolectorOutput c out_lines =
     "sat":mdl_lines0 -> do
       let mdl_lines = filter (/= "") mdl_lines0
       m <- Map.fromList <$> mapM parseBoolectorOutputLine mdl_lines
-      let evalBool tm = lookupBoolectorVar m boolectorBoolValue (Builder.toLazyText (renderTerm tm))
-      let evalBV w tm = lookupBoolectorVar m (boolectorBVValue w) (Builder.toLazyText (renderTerm tm))
+      let evalBool tm = lookupBoolectorVar m boolectorBoolValue   $ Builder.toLazyText $ SMT2.renderTerm tm
+      let evalBV w tm = lookupBoolectorVar m (boolectorBVValue w) $ Builder.toLazyText $ SMT2.renderTerm tm
       let evalReal _ = fail "Boolector does not support real variables."
       let evalFloat _ = fail "Boolector does not support floats."
       let evalFns = SMTEvalFunctions { smtEvalBool = evalBool

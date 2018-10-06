@@ -132,7 +132,7 @@ getAvgBindings c m = do
   let evalBool _ = fail "dReal does not support Boolean vars"
       evalBV _ _ = fail "dReal does not support bitvectors."
       evalReal tm = do
-        return $ maybe 0 drealAvgBinding $ Map.lookup (Builder.toLazyText (SMTWriter.renderTerm tm)) m
+        return $ maybe 0 drealAvgBinding $ Map.lookup (Builder.toLazyText (SMT2.renderTerm tm)) m
       evalFloat _ = fail "dReal does not support floats."
   let evalFns = SMTWriter.SMTEvalFunctions { SMTWriter.smtEvalBool = evalBool
                                            , SMTWriter.smtEvalBV = evalBV
@@ -150,7 +150,7 @@ getMaybeEval proj c m = do
   let evalBool _ = fail "dReal does not return Boolean value"
       evalBV _ _ = fail "dReal does not return Bitvector values."
       evalReal tm = do
-        case proj =<< Map.lookup (Builder.toLazyText (SMTWriter.renderTerm tm)) m of
+        case proj =<< Map.lookup (Builder.toLazyText (SMT2.renderTerm tm)) m of
           Just v -> return v
           Nothing -> throwIO (userError "unbound")
       evalFloat _ = fail "dReal does not support floats."

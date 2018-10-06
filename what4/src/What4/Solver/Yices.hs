@@ -60,26 +60,29 @@ import           Control.Exception (assert)
 import           Control.Lens ((^.))
 import           Control.Monad
 import           Data.Bits
+import           Data.ByteString (ByteString)
 import           Data.Foldable (toList)
-import           Data.Monoid
 import           Data.Parameterized.NatRepr
+import           Data.Parameterized.Some
+import           Data.Parameterized.TraversableFC
 import           Data.Ratio
+import           Data.Semigroup ( (<>) )
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String (fromString)
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Data.Text.Encoding(decodeUtf8',decodeUtf8)
+import           Data.Text.Encoding (decodeUtf8',decodeUtf8)
 import qualified Data.Text.Lazy as LazyText
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
-import           Data.ByteString(ByteString)
+import qualified Data.Text.Lazy.IO as Lazy
 import           System.Exit
 import           System.IO
+import qualified System.IO.Streams as Streams
 import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
-import qualified System.IO.Streams as Streams
 
 import           What4.BaseTypes
 import           What4.Config
@@ -97,6 +100,8 @@ import           What4.Protocol.Online
 import qualified What4.Protocol.PolyRoot as Root
 import           What4.Utils.HandleReader
 import           What4.Utils.Process
+
+import Prelude
 
 
 -- | This is a tag used to indicate that a 'WriterConn' is a connection
@@ -120,9 +125,17 @@ asYicesConfigValue v = case v of
 ------------------------------------------------------------------------
 -- Expr
 
-type Expr s = Term (Connection s)
+newtype YicesTerm s = T { renderTerm :: Builder }
 
-instance Num (Term (Connection s)) where
+term_app :: Builder -> [YicesTerm s] -> YicesTerm s
+term_app o args = T (app o (renderTerm <$> args))
+
+bin_app :: Builder -> YicesTerm s -> YicesTerm s -> YicesTerm s
+bin_app o x y = term_app o [x,y]
+
+type Expr s = YicesTerm s
+
+instance Num (YicesTerm s) where
   (+) = bin_app "+"
   (-) = bin_app "-"
   (*) = bin_app "*"
@@ -131,29 +144,27 @@ instance Num (Term (Connection s)) where
   signum x = ite (bin_app "=" x 0) 0 $ ite (bin_app ">" x 0) 1 (negate 1)
   fromInteger i = T (decimal i)
 
-decimal_term :: Integral a => a -> Term h
+decimal_term :: Integral a => a -> YicesTerm s
 decimal_term i = T (decimal i)
 
-width_term :: NatRepr n -> Term h
+width_term :: NatRepr n -> YicesTerm s
 width_term w = decimal_term (widthVal w)
 
-varBinding :: Text -> SMT_Type -> Builder
-varBinding nm tp = Builder.fromText nm <> "::" <> unType (yicesType tp)
+varBinding :: Text -> Some TypeMap -> Builder
+varBinding nm tp = Builder.fromText nm <> "::" <> unType (viewSome yicesType tp)
 
-letBinding :: Text -> Term h -> Builder
+letBinding :: Text -> YicesTerm s -> Builder
 letBinding nm t = app (Builder.fromText nm) [renderTerm t]
 
-binder_app :: Builder -> [Builder] -> Term h -> Term h
+binder_app :: Builder -> [Builder] -> YicesTerm s -> YicesTerm s
 binder_app _  []    t = t
 binder_app nm (h:r) t = T (app nm [app_list h r, renderTerm t])
 
-yicesLambda :: [(Text, SMT_Type)] -> Term h -> Term h
+yicesLambda :: [(Text, Some TypeMap)] -> YicesTerm s -> YicesTerm s
 yicesLambda []   t = t
-yicesLambda args t = T $ app "lambda" [ builder_list (renderArg <$> args), renderTerm t ]
-  where renderArg :: (Text, SMT_Type) -> Builder
-        renderArg (u,  tp) = Builder.fromText u <> "::" <> unType (yicesType tp)
+yicesLambda args t = T $ app "lambda" [ builder_list (uncurry varBinding <$> args), renderTerm t ]
 
-instance SupportTermOps (Term (Connection s)) where
+instance SupportTermOps (YicesTerm s) where
   boolExpr b = T $ if b then "true" else "false"
   notExpr x = term_app "not" [x]
 
@@ -169,8 +180,6 @@ instance SupportTermOps (Term (Connection s)) where
   (./=) = bin_app "/="
   ite c x y = term_app "if" [c, x, y]
 
-  forallExpr vars t = binder_app "forall" (uncurry varBinding <$> vars) t
-  existsExpr vars t = binder_app "exists" (uncurry varBinding <$> vars) t
   letExpr    vars t = binder_app "let"    (uncurry letBinding <$> vars) t
 
   sumExpr [] = 0
@@ -238,10 +247,6 @@ instance SupportTermOps (Term (Connection s)) where
         begin = decimal_term b
      in term_app "bv-extract"  [end, begin, x]
 
-  arraySelect = smtFnApp
-  arrayUpdate a i v =
-    T $ app "update" [ renderTerm a, builder_list (renderTerm <$> i), renderTerm v ]
-
   structCtor args = term_app "mk-tuple" args
   structFieldSelect _ s i = term_app "select" [s, fromIntegral (i + 1)]
 
@@ -304,6 +309,8 @@ instance SupportTermOps (Term (Connection s)) where
   floatToSBV      _ _ _ = floatFail
   floatToReal     _ = floatFail
 
+  fromText t = T (Builder.fromText t)
+
 floatFail :: a
 floatFail = error "Yices does not support IEEE-754 floating-point numbers"
 
@@ -313,23 +320,37 @@ errorComputableUnsupported = error "computable functions are not supported."
 ------------------------------------------------------------------------
 -- YicesType
 
+-- | Denotes a type in yices.
 newtype YicesType = YicesType { unType :: Builder }
 
-fnType :: [SMT_Type] -> SMT_Type -> YicesType
-fnType [] tp = yicesType tp
-fnType args tp = YicesType $ app "->" ((unType . yicesType) `fmap` (args ++ [tp]))
+tupleType :: [YicesType] -> YicesType
+tupleType flds = YicesType (app "tuple" (unType <$> flds))
 
-yicesType :: SMT_Type -> YicesType
-yicesType tp =
-  case tp of
-    SMT_BoolType        -> YicesType "bool"
-    SMT_BVType w        -> YicesType (app "bitvector" [fromString (show w)])
-    SMT_IntegerType     -> YicesType "int"
-    SMT_RealType        -> YicesType "real"
-    SMT_ArrayType i e   -> fnType i e
-    SMT_StructType flds -> YicesType (app "tuple" ((unType . yicesType <$> flds)))
-    SMT_FnType flds res -> fnType flds res
-    SMT_FloatType _     -> floatFail
+boolType :: YicesType
+boolType = YicesType "bool"
+
+intType :: YicesType
+intType = YicesType "int"
+
+realType :: YicesType
+realType = YicesType "real"
+
+fnType :: [YicesType] -> YicesType -> YicesType
+fnType [] tp = tp
+fnType args tp = YicesType $ app "->" (unType `fmap` (args ++ [tp]))
+
+yicesType :: TypeMap tp -> YicesType
+yicesType BoolTypeMap    = boolType
+yicesType NatTypeMap     = intType
+yicesType IntegerTypeMap = intType
+yicesType RealTypeMap    = realType
+yicesType (BVTypeMap w)  = YicesType (app "bitvector" [fromString (show w)])
+yicesType (FloatTypeMap _) = floatFail
+yicesType ComplexToStructTypeMap = tupleType [realType, realType]
+yicesType ComplexToArrayTypeMap  = fnType [boolType] realType
+yicesType (PrimArrayTypeMap i r) = fnType (toListFC yicesType i) (yicesType r)
+yicesType (FnArrayTypeMap i r)   = fnType (toListFC yicesType i) (yicesType r)
+yicesType (StructTypeMap f)      = tupleType (toListFC yicesType f)
 
 ------------------------------------------------------------------------
 -- Command
@@ -384,7 +405,19 @@ newConnection h reqFeatures bindings = do
                  , supportQuantifiers = efSolver
                  }
 
+newtype YicesCommand = Cmd Builder
+
+type instance Term (Connection s) = YicesTerm s
+type instance Command (Connection s) = YicesCommand
+
 instance SMTWriter (Connection s) where
+  forallExpr vars t = binder_app "forall" (uncurry varBinding <$> vars) t
+  existsExpr vars t = binder_app "exists" (uncurry varBinding <$> vars) t
+
+  arraySelect = smtFnApp
+  arrayUpdate a i v =
+    T $ app "update" [ renderTerm a, builder_list (renderTerm <$> i), renderTerm v ]
+
   commentCommand _ b = Cmd (";; " <> b)
 
   pushCommand _   = Cmd "(push)"
@@ -394,15 +427,21 @@ instance SMTWriter (Connection s) where
   setOptCommand _ x o = setParamCommand x o
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]
 
-  declareCommand _ v args tp =
-    Cmd $ app "define" [Builder.fromText v <> "::" <> unType (fnType args tp)]
+  declareCommand _ v args rtp =
+    Cmd $ app "define" [Builder.fromText v <> "::"
+                        <> unType (fnType (toListFC yicesType args) (yicesType rtp))
+                       ]
 
-  defineCommand v args tp t =
-    Cmd $ app "define" [Builder.fromText v <> "::" <> unType (fnType (snd <$> args) tp)
+  defineCommand _ v args rtp t =
+    Cmd $ app "define" [Builder.fromText v <> "::"
+                         <> unType (fnType ((\(_,tp) -> viewSome yicesType tp) <$> args) (yicesType rtp))
                        , renderTerm (yicesLambda args t)
                        ]
 
   declareStructDatatype _ _ = return ()
+
+  writeCommand conn (Cmd cmd) =
+    Lazy.hPutStrLn (connHandle conn) (Builder.toLazyText cmd)
 
 instance SMTReadWriter (Connection s) where
   smtEvalFuns conn resp =
@@ -794,7 +833,7 @@ writeYicesFile sym path p = do
 -- | Run writer and get a yices result.
 runYicesInOverride :: B.ExprBuilder t st fs
                    -> (Int -> String -> IO ())
-                   -> String 
+                   -> String
                    -> B.BoolExpr t
                    -> (SatResult (GroundEvalFn t) -> IO a)
                    -> IO a

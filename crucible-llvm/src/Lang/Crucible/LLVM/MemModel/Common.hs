@@ -144,18 +144,18 @@ data ValueCtor a
     -- The first bitvector contains values stored at the low-address bytes
     -- while the second contains values at the high-address bytes. Thus, the
     -- meaning of this depends on the endianness of the target architecture.
-  | ConcatBV Bytes (ValueCtor a) Bytes (ValueCtor a)
+  | ConcatBV (ValueCtor a) (ValueCtor a)
   | BVToFloat (ValueCtor a)
   | BVToDouble (ValueCtor a)
     -- | Cons one value to beginning of array.
-  | ConsArray Type (ValueCtor a) Integer (ValueCtor a)
-  | AppendArray Type Integer (ValueCtor a) Integer (ValueCtor a)
+  | ConsArray (ValueCtor a) (ValueCtor a)
+  | AppendArray (ValueCtor a) (ValueCtor a)
   | MkArray Type (Vector (ValueCtor a))
   | MkStruct (Vector (Field Type, ValueCtor a))
   deriving (Functor, Foldable, Traversable, Show)
 
 concatBV :: Bytes -> ValueCtor a -> Bytes -> ValueCtor a -> ValueCtor a
-concatBV xw x yw y = ConcatBV xw x yw y
+concatBV _xw x _yw y = ConcatBV x y
 
 singletonArray :: Type -> ValueCtor a -> ValueCtor a
 singletonArray tp e = MkArray tp (V.singleton e)
@@ -180,18 +180,13 @@ splitTypeValue tp d subFn = assert (d > 0) $
       let consPartial
             | part == 0 = subFn o (arrayType n etp)
             | n > 1 =
-                ConsArray etp
-                          (subFn o etp)
-                          (toInteger (n-1))
+                ConsArray (subFn o etp)
                           (subFn (o+esz) (arrayType (n-1) etp))
             | otherwise = assert (n == 1) $
                 singletonArray etp (subFn o etp)
       let result
             | c > 0 = assert (c < n0) $
-              AppendArray etp
-                          (toInteger c)
-                          (subFn 0 (arrayType c etp))
-                          (toInteger n)
+              AppendArray (subFn 0 (arrayType c etp))
                           consPartial
             | otherwise = consPartial
       result
