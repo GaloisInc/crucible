@@ -2077,7 +2077,7 @@ appSMTExpr ae = do
     ConstantArray idxRepr _bRepr ve -> do
       v <- mkExpr ve
       let value_type = smtExprType v
-          smt_value_type = asSMTType value_type
+          smt_value_type = Some value_type
           feat = supportedFeatures conn
           mkArray = if feat `hasProblemFeature` useSymbolicArrays
                     then PrimArrayTypeMap
@@ -2087,8 +2087,7 @@ appSMTExpr ae = do
       case arrayConstant @h of
         Just constFn
           | otherwise -> do
-            let idx_smt_types :: [SMT_Type]
-                idx_smt_types = toListFC asSMTType idx_types
+            let idx_smt_types = toListFC Some idx_types
             let tp = mkArray idx_types value_type
             freshBoundTerm tp $!
               constFn idx_smt_types (Some value_type) (asBase v)
