@@ -28,6 +28,7 @@ module What4.Solver.DReal
 
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Lens(folded)
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 hiding (try)
 import qualified Data.ByteString as BS
@@ -84,8 +85,8 @@ drealAdapter =
   SolverAdapter
   { solver_adapter_name = "dreal"
   , solver_adapter_config_options = drealOptions
-  , solver_adapter_check_sat = \sym logLn rsn p cont ->
-      runDRealInOverride sym logLn rsn p $ \res ->
+  , solver_adapter_check_sat = \sym logLn rsn ps cont ->
+      runDRealInOverride sym logLn rsn ps $ \res ->
          case res of
            Sat (c,m) -> do
              evalFn <- getAvgBindings c m
@@ -103,14 +104,14 @@ instance SMT2.SMTLib2Tweaks DReal where
 writeDRealSMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> BoolExpr t
+   -> [BoolExpr t]
    -> IO ()
-writeDRealSMT2File sym h p = do
+writeDRealSMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
   c <- SMT2.newWriter DReal h "dReal" False useComputableReals False bindings
   SMT2.setOption c (SMT2.produceModels True)
   SMT2.setLogic c (SMT2.Logic "QF_NRA")
-  SMT2.assume c p
+  forM_ ps (SMT2.assume c)
   SMT2.writeCheckSat c
   SMT2.writeExit c
 
@@ -245,10 +246,11 @@ runDRealInOverride
    :: ExprBuilder t st fs
    -> (Int -> String -> IO ())
    -> String
-   -> BoolExpr t   -- ^ proposition to check
+   -> [BoolExpr t]   -- ^ propositions to check
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) () -> IO a)
    -> IO a
-runDRealInOverride sym logLn rsn p modelFn = do
+runDRealInOverride sym logLn rsn ps modelFn = do
+  p <- andAllOf sym folded ps
   solver_path <- findSolverPath drealPath (getConfiguration sym)
   logSolverEvent sym
     SolverStartSATQuery

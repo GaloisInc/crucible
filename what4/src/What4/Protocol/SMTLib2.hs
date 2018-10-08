@@ -71,6 +71,7 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Lens (folded)
 import           Control.Monad.State.Strict
 import           Data.Bits (bit, setBit, shiftL)
 import qualified Data.ByteString.UTF8 as UTF8
@@ -722,10 +723,12 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> B.ExprBuilder t st fs
     -> (Int -> String -> IO ())
     -> String
-    -> B.BoolExpr t
+    -> [B.BoolExpr t]
     -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO b)
     -> IO b
-  runSolverInOverride solver sym logLn reason predicate cont = do
+  runSolverInOverride solver sym logLn reason predicates cont = do
+    predicate <- I.andAllOf sym folded predicates
+
     I.logSolverEvent sym
       I.SolverStartSATQuery
         { I.satQuerySolverName = show solver
@@ -754,9 +757,10 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                     -- ^ Features supported by solver
                  -> B.ExprBuilder t st fs
                  -> IO.Handle
-                 -> B.BoolExpr t
+                 -> [B.BoolExpr t]
                  -> IO ()
-writeDefaultSMT2 a nm feat sym h p = do
+writeDefaultSMT2 a nm feat sym h ps = do
+  p <- I.andAllOf sym folded ps
   bindings <- B.getSymbolVarBimap sym
   c <- newWriter a h nm True feat True bindings
   setOption c (SMT2.produceModels True)

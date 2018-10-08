@@ -72,7 +72,7 @@ import           What4.BaseTypes
 import           What4.Concrete
 import           What4.Config
 import           What4.Interface
-                   (getConfiguration, IsExprBuilder, logSolverEvent, SolverEvent(..))
+                   (getConfiguration, IsExprBuilder, logSolverEvent, SolverEvent(..), andAllOf)
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import qualified What4.Expr.UnaryBV as UnaryBV
@@ -99,7 +99,8 @@ abcAdapter =
    SolverAdapter
    { solver_adapter_name = "abc"
    , solver_adapter_config_options = abcOptions
-   , solver_adapter_check_sat = \sym logLn rsn p cont -> do
+   , solver_adapter_check_sat = \sym logLn rsn ps cont -> do
+           p <- andAllOf sym folded ps
            res <- checkSat sym logLn rsn p
            cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
    , solver_adapter_write_smt2 = \_ _ _ -> do
@@ -122,12 +123,13 @@ genericSatAdapter =
    SolverAdapter
    { solver_adapter_name = "sat"
    , solver_adapter_config_options = genericSatOptions
-   , solver_adapter_check_sat = \sym logLn _rsn p cont -> do
+   , solver_adapter_check_sat = \sym logLn _rsn ps cont -> do
        let cfg = getConfiguration sym
        cmd <- T.unpack <$> (getOpt =<< getOptionSetting satCommand cfg)
        let mkCommand path = do
              let var_map = Map.fromList [("1",path)]
              Env.expandEnvironmentPath var_map cmd
+       p <- andAllOf sym folded ps
        mmdl <- runExternalDimacsSolver logLn mkCommand p
        cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ mmdl
    , solver_adapter_write_smt2 = \_ _ _ -> do

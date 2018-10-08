@@ -20,6 +20,7 @@ module What4.Solver.Boolector
   ) where
 
 import           Control.Concurrent
+import           Control.Lens(folded)
 import           Control.Monad
 import           Control.Monad.Identity
 import qualified Data.ByteString.UTF8 as UTF8
@@ -82,11 +83,12 @@ instance SMT2.SMTLib2Tweaks Boolector where
 runBoolectorInOverride :: ExprBuilder t st fs
                        -> (Int -> String -> IO ())
                        -> String
-                       -> BoolExpr t
+                       -> [BoolExpr t]
                        -> IO (SatResult (GroundEvalFn t) ())
-runBoolectorInOverride sym logLn rsn p  = do
+runBoolectorInOverride sym logLn rsn ps = do
   -- Get boolector path.
   path <- findSolverPath boolectorPath (getConfiguration sym)
+  p <- andAllOf sym folded ps
 
   logSolverEvent sym
     SolverStartSATQuery

@@ -53,14 +53,13 @@ data SolverAdapter st =
            ExprBuilder t st fs
         -> (Int -> String -> IO ())
         -> String
-        -> BoolExpr t
---        -> [BoolExpr t]
+        -> [BoolExpr t]
         -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
         -> IO a)
 
     -- | Write an SMTLib2 problem instance onto the given handle, incorporating
     --   any solver-specific tweaks appropriate to this solver
-  , solver_adapter_write_smt2 :: !(forall t fs . ExprBuilder t st fs -> Handle -> BoolExpr t -> IO ())
+  , solver_adapter_write_smt2 :: !(forall t fs . ExprBuilder t st fs -> Handle -> [BoolExpr t] -> IO ())
   }
 
 

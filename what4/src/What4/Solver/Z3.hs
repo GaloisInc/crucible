@@ -93,7 +93,7 @@ z3Features = useNonlinearArithmetic
 writeZ3SMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> BoolExpr t
+   -> [BoolExpr t]
    -> IO ()
 writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 "Z3" z3Features
 
@@ -114,7 +114,7 @@ runZ3InOverride
   :: ExprBuilder t st fs
   -> (Int -> String -> IO ())
   -> String
-  -> BoolExpr t
+  -> [BoolExpr t]
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
 runZ3InOverride = SMT2.runSolverInOverride Z3

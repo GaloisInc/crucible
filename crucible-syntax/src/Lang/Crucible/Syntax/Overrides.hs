@@ -15,6 +15,7 @@ import Control.Lens hiding ((:>), Empty)
 import Control.Monad (forM_)
 import Control.Monad.IO.Class
 import Control.Monad.ST
+import Data.Foldable(toList)
 import System.IO
 
 import Data.Parameterized.Context hiding (view)
@@ -54,9 +55,9 @@ proveObligations =
        clearProofObligations sym
 
        forM_ obls $ \o ->
-         do asms <- andAllOf sym (folded.labeledPred) (proofAssumptions o)
-            gl   <- andPred sym asms =<< notPred sym ((proofGoal o)^.labeledPred)
-            runZ3InOverride sym (\_ -> hPutStrLn h) "assertion proof" gl $ \case
+         do let asms = map (view labeledPred) $ toList $ proofAssumptions o
+            gl <- notPred sym ((proofGoal o)^.labeledPred)
+            runZ3InOverride sym (\_ -> hPutStrLn h) "assertion proof" (asms ++ [gl]) $ \case
               Unsat{}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]

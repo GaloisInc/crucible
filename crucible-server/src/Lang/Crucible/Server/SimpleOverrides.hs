@@ -116,7 +116,7 @@ checkSatWithYicesOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    r <- liftIO $ Yices.runYicesInOverride sym logLn "checkSatWithYices" p (return . isSat)
+    r <- liftIO $ Yices.runYicesInOverride sym logLn "checkSatWithYices" [p] (return . isSat)
     return $ backendPred sym r
 
 ------------------------------------------------------------------------
@@ -137,7 +137,7 @@ writeSMTLib2Override = do
     case asString file_nm of
       Just path -> do
         liftIO $ withFile (Text.unpack path) WriteMode $ \h ->
-          SMT2.writeDefaultSMT2 () "SMTLIB2" defaultWriteSMTLIB2Features sym h p
+          SMT2.writeDefaultSMT2 () "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
       Nothing -> do
         fail "Expected concrete file name in write_SMTLIB2 override"
 

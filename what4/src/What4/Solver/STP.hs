@@ -89,7 +89,7 @@ runSTPInOverride
   :: ExprBuilder t st fs
   -> (Int -> String -> IO ())
   -> String
-  -> BoolExpr t
+  -> [BoolExpr t]
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
 runSTPInOverride = SMT2.runSolverInOverride STP

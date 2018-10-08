@@ -110,9 +110,9 @@ writeMultiAsmpCVC4SMT2File sym h ps = do
 writeCVC4SMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> BoolExpr t
+   -> [BoolExpr t]
    -> IO ()
-writeCVC4SMT2File sym h p = writeMultiAsmpCVC4SMT2File sym h [p]
+writeCVC4SMT2File sym h ps = writeMultiAsmpCVC4SMT2File sym h ps
 
 instance SMT2.SMTLib2GenericSolver CVC4 where
   defaultSolverPath _ = findSolverPath cvc4Path . getConfiguration
@@ -131,7 +131,7 @@ runCVC4InOverride
   :: ExprBuilder t st fs
   -> (Int -> String -> IO ())
   -> String
-  -> BoolExpr t
+  -> [BoolExpr t]
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
 runCVC4InOverride = SMT2.runSolverInOverride CVC4

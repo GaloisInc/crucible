@@ -57,7 +57,7 @@ module What4.Solver.Yices
   ) where
 
 import           Control.Exception (assert)
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), folded)
 import           Control.Monad
 import           Control.Monad.Identity
 import           Data.Bits
@@ -662,8 +662,8 @@ yicesAdapter =
    SolverAdapter
    { solver_adapter_name = "yices"
    , solver_adapter_config_options = yicesOptions
-   , solver_adapter_check_sat = \sym logLn rsn p cont ->
-       runYicesInOverride sym logLn rsn p
+   , solver_adapter_check_sat = \sym logLn rsn ps cont ->
+       runYicesInOverride sym logLn rsn ps
           (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
        writeDefaultSMT2 () "YICES"  yicesSMT2Features
@@ -839,12 +839,14 @@ writeYicesFile sym path p = do
 runYicesInOverride :: B.ExprBuilder t st fs
                    -> (Int -> String -> IO ())
                    -> String
-                   -> B.BoolExpr t
+                   -> [B.BoolExpr t]
                    -> (SatResult (GroundEvalFn t) () -> IO a)
                    -> IO a
-runYicesInOverride sym logLn rsn condition resultFn = do
+runYicesInOverride sym logLn rsn conditions resultFn = do
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
+  condition <- andAllOf sym folded conditions
+
   logLn 2 "Calling Yices to check sat"
   -- Check Problem features
   logSolverEvent sym
