@@ -156,7 +156,7 @@ checkWithAssumptions proc rsn ps =
        { satQuerySolverName = solverName proc
        , satQueryReason = rsn
        }
-     addCommand c (checkWithAssumptionsCommand c nms)
+     addCommandNoAck c (checkWithAssumptionsCommand c nms)
      sat_result <- getSatResult proc
      solverLogFn proc
        SolverEndSATQuery
@@ -188,7 +188,7 @@ check p rsn =
        { satQuerySolverName = solverName p
        , satQueryReason = rsn
        }
-     addCommand c (checkCommand c)
+     addCommandNoAck c (checkCommand c)
      sat_result <- getSatResult p
      solverLogFn p
        SolverEndSATQuery
