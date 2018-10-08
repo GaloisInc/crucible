@@ -176,21 +176,24 @@ checkWithAssumptions ::
   [BoolExpr scope] ->
   IO ([Text], SatResult () ())
 checkWithAssumptions proc rsn ps =
-  do let c = solverConn proc
-     nms <- forM ps (mkAtomicFormula c)
-     solverLogFn proc
-       SolverStartSATQuery
-       { satQuerySolverName = solverName proc
-       , satQueryReason = rsn
-       }
-     addCommandNoAck c (checkWithAssumptionsCommand c nms)
-     sat_result <- getSatResult proc
-     solverLogFn proc
-       SolverEndSATQuery
-       { satQueryResult = sat_result
-       , satQueryError = Nothing
-       }
-     return (nms, sat_result)
+  readIORef (solverEarlyUnsat proc) >>= \case
+    Just _  -> return ([], Unsat ())
+    Nothing ->
+      do let c = solverConn proc
+         nms <- forM ps (mkAtomicFormula c)
+         solverLogFn proc
+           SolverStartSATQuery
+           { satQuerySolverName = solverName proc
+           , satQueryReason = rsn
+           }
+         addCommandNoAck c (checkWithAssumptionsCommand c nms)
+         sat_result <- getSatResult proc
+         solverLogFn proc
+           SolverEndSATQuery
+           { satQueryResult = sat_result
+           , satQueryError = Nothing
+           }
+         return (nms, sat_result)
 
 checkWithAssumptionsAndModel ::
   SMTReadWriter solver =>
