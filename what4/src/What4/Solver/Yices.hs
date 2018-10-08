@@ -426,6 +426,9 @@ instance SMTWriter (Connection s) where
   popCommand _    = Cmd "(pop)"
   resetCommand _  = Cmd "(reset)"
   checkCommand _  = Cmd "(check)"
+  checkWithAssumptionsCommand _ nms =
+    Cmd $ app_list "check-assuming" (map Builder.fromText nms)
+
   setOptCommand _ x o = setParamCommand x o
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]
 
@@ -633,7 +636,7 @@ yicesEvalBV w conn resp tm = do
   l <- Text.unpack <$> yicesDoGetLine resp
   case l of
     '0' : 'b' : nm -> readBit w nm
-    _ -> fail "Could not parse value returned by yices as bitvector."
+    _ -> fail $ "Could not parse yices value " ++ show l ++ " as a bitvector."
 
 readBit :: Monad m => Int -> String -> m Integer
 readBit w0 = go 0 0

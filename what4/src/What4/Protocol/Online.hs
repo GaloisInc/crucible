@@ -8,6 +8,7 @@ This module defines an API for interacting with
 solvers that support online interaction modes.
 
 -}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module What4.Protocol.Online
@@ -19,6 +20,8 @@ module What4.Protocol.Online
   , reset
   , inNewFrame
   , check
+  , checkWithAssumptions
+  , checkWithAssumptionsAndModel
   , getModel
   , checkAndGetModel
   , getSatResult
@@ -28,7 +31,8 @@ module What4.Protocol.Online
 
 import           Control.Exception
                    ( SomeException(..), bracket_, catch, try, displayException )
-import           Control.Monad (void)
+import           Control.Monad (void, forM)
+import           Data.Text (Text)
 import qualified Data.Text.Lazy as LazyText
 import           Data.ByteString(ByteString)
 import           System.Exit
@@ -98,11 +102,7 @@ checkSatisfiable ::
   BoolExpr scope ->
   IO (SatResult () ())
 checkSatisfiable proc rsn p =
-  do let c = solverConn proc
-     p_smtexpr <- mkFormula c p
-     inNewFrame c $
-       do assumeFormula c p_smtexpr
-          check proc rsn
+  snd <$> checkWithAssumptions proc rsn [p]
 
 -- | Check if the formula is satisifiable in the current
 --   solver state.
@@ -111,21 +111,15 @@ checkSatisfiable proc rsn p =
 checkSatisfiableWithModel ::
   SMTReadWriter solver =>
   SolverProcess scope solver ->
-  BoolExpr scope ->
   String ->
+  BoolExpr scope ->
   (SatResult (GroundEvalFn scope) () -> IO a) ->
   IO a
-checkSatisfiableWithModel proc p rsn k =
-  do let c = solverConn proc
-     p_smtexpr <- mkFormula c p
-     inNewFrame c $
-       do assumeFormula c p_smtexpr
-          res <- check proc rsn
-          case res of
-            Sat _ -> do f <- smtExprGroundEvalFn c (solverEvalFuns proc)
-                        k (Sat f)
-            Unsat x -> k (Unsat x)
-            Unknown -> k Unknown
+checkSatisfiableWithModel proc rsn p k =
+  checkSatisfiable proc rsn p >>= \case
+    Sat{}   -> k . Sat =<< getModel proc
+    Unsat{} -> k (Unsat ())
+    Unknown -> k Unknown
 
 --------------------------------------------------------------------------------
 -- Basic solver interaction.
@@ -147,6 +141,42 @@ pop c = do popEntryStack c
 -- | Perform an action in the scope of a solver assumption frame.
 inNewFrame :: SMTReadWriter s => WriterConn t s -> IO a -> IO a
 inNewFrame c m = bracket_ (push c) (pop c) m
+
+checkWithAssumptions ::
+  SMTReadWriter solver =>
+  SolverProcess scope solver ->
+  String ->
+  [BoolExpr scope] ->
+  IO ([Text], SatResult () ())
+checkWithAssumptions proc rsn ps =
+  do let c = solverConn proc
+     nms <- forM ps (mkAtomicFormula c)
+     solverLogFn proc
+       SolverStartSATQuery
+       { satQuerySolverName = solverName proc
+       , satQueryReason = rsn
+       }
+     addCommand c (checkWithAssumptionsCommand c nms)
+     sat_result <- getSatResult proc
+     solverLogFn proc
+       SolverEndSATQuery
+       { satQueryResult = sat_result
+       , satQueryError = Nothing
+       }
+     return (nms, sat_result)
+
+checkWithAssumptionsAndModel ::
+  SMTReadWriter solver =>
+  SolverProcess scope solver ->
+  String ->
+  [BoolExpr scope] ->
+  IO (SatResult (GroundEvalFn scope) ())
+checkWithAssumptionsAndModel proc rsn ps =
+  do (_nms, sat_result) <- checkWithAssumptions proc rsn ps
+     case sat_result of
+       Unknown -> return Unknown
+       Unsat x -> return (Unsat x)
+       Sat{} -> Sat <$> getModel proc
 
 -- | Send a check command to the solver, and get the SatResult without asking
 --   a model.

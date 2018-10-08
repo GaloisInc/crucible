@@ -70,6 +70,7 @@ module What4.Protocol.SMTWriter
   , assume
   , mkSMTTerm
   , mkFormula
+  , mkAtomicFormula
   , SMTEvalFunctions(..)
   , smtExprGroundEvalFn
     -- * Reexports
@@ -724,6 +725,10 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 
   -- | Check if the current set of assumption is satisfiable
   checkCommand  :: f h -> Command h
+
+  -- | Check if a collection of assumptions is satisfiable in the current context.
+  --   The assumptions must be given as the names of literals already in scope.
+  checkWithAssumptionsCommand :: f h -> [Text] -> Command h
 
   -- | Set an option/parameter.
   setOptCommand :: f h -> Text -> Builder -> Command h
@@ -2357,6 +2362,12 @@ mkSMTTerm conn p = runOnLiveConnection conn $ mkBaseExpr p
 -- | Write a logical expression.
 mkFormula :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO (Term h)
 mkFormula = mkSMTTerm
+
+mkAtomicFormula :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO Text
+mkAtomicFormula conn p = runOnLiveConnection conn $
+  mkExpr p >>= \case
+    SMTName _ nm  -> return nm
+    SMTExpr ty tm -> freshBoundFn [] ty tm
 
 -- | Write assume formula predicates for asserting predicate holds.
 assume :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO ()
