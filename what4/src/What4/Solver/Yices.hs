@@ -57,8 +57,9 @@ module What4.Solver.Yices
   ) where
 
 import           Control.Exception (assert)
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), folded)
 import           Control.Monad
+import           Control.Monad.Identity
 import           Data.Bits
 import           Data.ByteString (ByteString)
 import           Data.IORef
@@ -427,6 +428,9 @@ instance SMTWriter (Connection s) where
   popCommand _    = Cmd "(pop)"
   resetCommand _  = Cmd "(reset)"
   checkCommand _  = Cmd "(check)"
+  checkWithAssumptionsCommand _ nms =
+    Cmd $ app_list "check-assuming" (map Builder.fromText nms)
+
   setOptCommand _ x o = setParamCommand x o
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]
 
@@ -612,7 +616,7 @@ getAckResponse resps =
 
 -- | Get the sat result from a previous SAT command.
 -- Throws an exception if something goes wrong.
-getSatResponse :: Streams.InputStream ByteString -> IO (SatResult ())
+getSatResponse :: Streams.InputStream ByteString -> IO (SatResult () ())
 getSatResponse resps =
   do res <- Streams.read resps
      case res of
@@ -621,7 +625,7 @@ getSatResponse resps =
                                  ]
        Just txt ->
          case txt of
-           "unsat"    -> return Unsat
+           "unsat"    -> return (Unsat ())
            "sat"      -> return (Sat ())
            "unknown"  -> return Unknown
            _  -> fail $ unlines
@@ -664,7 +668,7 @@ yicesEvalBV w conn resp tm = do
   l <- Text.unpack <$> yicesDoGetLine resp
   case l of
     '0' : 'b' : nm -> readBit w nm
-    _ -> fail ("Could not parse value returned by yices as bitvector:\n " ++ show l)
+    _ -> fail $ "Could not parse yices value " ++ show l ++ " as a bitvector."
 
 readBit :: Monad m => Int -> String -> m Integer
 readBit w0 = go 0 0
@@ -693,8 +697,9 @@ yicesAdapter =
    SolverAdapter
    { solver_adapter_name = "yices"
    , solver_adapter_config_options = yicesOptions
-   , solver_adapter_check_sat = \sym logLn rsn p cont ->
-       runYicesInOverride sym logLn rsn p (cont . fmap (\x -> (x,Nothing)))
+   , solver_adapter_check_sat = \sym logLn rsn ps cont ->
+       runYicesInOverride sym logLn rsn ps
+          (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
        writeDefaultSMT2 () (\_ -> return ()) "YICES" yicesSMT2Features
    }
@@ -869,12 +874,14 @@ writeYicesFile sym path p = do
 runYicesInOverride :: B.ExprBuilder t st fs
                    -> (Int -> String -> IO ())
                    -> String
-                   -> B.BoolExpr t
-                   -> (SatResult (GroundEvalFn t) -> IO a)
+                   -> [B.BoolExpr t]
+                   -> (SatResult (GroundEvalFn t) () -> IO a)
                    -> IO a
-runYicesInOverride sym logLn rsn condition resultFn = do
+runYicesInOverride sym logLn rsn conditions resultFn = do
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
+  condition <- andAllOf sym folded conditions
+
   logLn 2 "Calling Yices to check sat"
   -- Check Problem features
   logSolverEvent sym
@@ -928,9 +935,9 @@ runYicesInOverride sym logLn rsn condition resultFn = do
         }
       r <-
          case sat_result of
-           Unsat -> resultFn Unsat
-           Unknown -> resultFn Unknown
            Sat () -> resultFn . Sat =<< getModel yp
+           Unsat x -> resultFn (Unsat x)
+           Unknown -> resultFn Unknown
 
       yicesShutdownSolver yp
       return r

@@ -16,6 +16,7 @@ module What4.Protocol.SMTLib2.Syntax
   , setOption
   , exit
   , checkSat
+  , checkSatWithAssumptions
   , getValue
   , assert
   , resetAssertions
@@ -649,6 +650,10 @@ assert p = Cmd $ app "assert" [renderTerm p]
 -- | Check the satisfiability of the current assertions
 checkSat :: Command
 checkSat = Cmd "(check-sat)"
+
+-- | Check satisfiability of the given atomic assumptions in the current context.
+checkSatWithAssumptions :: [Text] -> Command
+checkSatWithAssumptions nms = Cmd $ app_list "check-sat-assuming" (map Builder.fromText nms)
 
 -- | Get the values associated with the terms from the last call to check-set.
 getValue :: [Term] -> Command

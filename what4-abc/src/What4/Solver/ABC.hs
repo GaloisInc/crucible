@@ -39,8 +39,8 @@ module What4.Solver.ABC
 import           Control.Concurrent
 import           Control.Exception hiding (evaluate)
 import           Control.Lens
+import           Control.Monad.Identity
 import           Control.Monad.ST
-import           Control.Monad.State.Strict
 import           Data.Bits
 import qualified Data.ABC as GIA
 import qualified Data.ABC.GIA as GIA
@@ -72,7 +72,7 @@ import           What4.BaseTypes
 import           What4.Concrete
 import           What4.Config
 import           What4.Interface
-                   (getConfiguration, IsExprBuilder, logSolverEvent, SolverEvent(..))
+                   (getConfiguration, IsExprBuilder, logSolverEvent, SolverEvent(..), andAllOf)
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import qualified What4.Expr.UnaryBV as UnaryBV
@@ -99,9 +99,10 @@ abcAdapter =
    SolverAdapter
    { solver_adapter_name = "abc"
    , solver_adapter_config_options = abcOptions
-   , solver_adapter_check_sat = \sym logLn rsn p cont -> do
+   , solver_adapter_check_sat = \sym logLn rsn ps cont -> do
+           p <- andAllOf sym folded ps
            res <- checkSat sym logLn rsn p
-           cont (fmap (\x -> (x,Nothing)) res)
+           cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
    , solver_adapter_write_smt2 = \_ _ _ -> do
        fail "ABC backend does not support writing SMTLIB2 files."
    }
@@ -122,14 +123,15 @@ genericSatAdapter =
    SolverAdapter
    { solver_adapter_name = "sat"
    , solver_adapter_config_options = genericSatOptions
-   , solver_adapter_check_sat = \sym logLn _rsn p cont -> do
+   , solver_adapter_check_sat = \sym logLn _rsn ps cont -> do
        let cfg = getConfiguration sym
        cmd <- T.unpack <$> (getOpt =<< getOptionSetting satCommand cfg)
        let mkCommand path = do
              let var_map = Map.fromList [("1",path)]
              Env.expandEnvironmentPath var_map cmd
+       p <- andAllOf sym folded ps
        mmdl <- runExternalDimacsSolver logLn mkCommand p
-       cont (fmap (\x -> (x, Nothing)) mmdl)
+       cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ mmdl
    , solver_adapter_write_smt2 = \_ _ _ -> do
        fail "SAT backend does not support writing SMTLIB2 files."
    }
@@ -524,7 +526,7 @@ evaluateSatModel :: forall t s
                   . Network t s
                  -> [Bool] -- ^ Fixed input arguments (used for QBF).
                  -> GIA.SatResult
-                 -> IO (SatResult (GroundEvalFn t))
+                 -> IO (SatResult (GroundEvalFn t) ())
 evaluateSatModel ntk initial_args sat_res = do
   case sat_res of
     GIA.Sat assignment -> do
@@ -541,7 +543,7 @@ evaluateSatModel ntk initial_args sat_res = do
                         evalGroundExpr f e
       return $ Sat $ GroundEvalFn f
 
-    GIA.Unsat -> return Unsat
+    GIA.Unsat -> return (Unsat ())
     GIA.SatUnknown ->
       fail "evaluateSatModel: ABC returned unknown sat result"
 
@@ -553,7 +555,7 @@ runQBF :: Network t s
           -- ^ Condition to check satifiability of.
        -> CInt
           -- ^ Maximum number of iterations to run.
-       -> IO (SatResult (GroundEvalFn t))
+       -> IO (SatResult (GroundEvalFn t) ())
 runQBF ntk e_cnt cond max_iter = do
   tot_cnt <- GIA.inputCount (gia ntk)
   let a_cnt = tot_cnt - e_cnt
@@ -658,7 +660,7 @@ checkSat :: IsExprBuilder sym
          -> (Int -> String -> IO ())
          -> String
          -> BoolExpr t
-         -> IO (SatResult (GroundEvalFn t))
+         -> IO (SatResult (GroundEvalFn t) ())
 checkSat sym logLn rsn e = do
   let cfg = getConfiguration sym
   -- Get variables in expression.
@@ -715,7 +717,7 @@ checkSat sym logLn rsn e = do
              runQBF ntk exist_cnt p max_qbf_iter
     logSolverEvent sym
       SolverEndSATQuery
-      { satQueryResult = fmap (const ()) res
+      { satQueryResult = forgetModelAndCore res
       , satQueryError  = Nothing
       }
     return res
@@ -820,7 +822,7 @@ writeDimacsFile ntk cnf_path condition = do
 runExternalDimacsSolver :: (Int -> String -> IO ()) -- ^ Logging function
                         -> (FilePath -> IO String)
                         -> BoolExpr t
-                        -> IO (SatResult (GroundEvalFn t))
+                        -> IO (SatResult (GroundEvalFn t) ())
 runExternalDimacsSolver logLn mkCommand condition = do
   temp_dir <- getTemporaryDirectory
   let close (path,h) = do

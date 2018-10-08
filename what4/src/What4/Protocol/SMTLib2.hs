@@ -71,6 +71,7 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Lens (folded)
 import           Control.Monad.State.Strict
 import           Data.Bits (bit, setBit, shiftL)
 import qualified Data.ByteString.UTF8 as UTF8
@@ -464,6 +465,9 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
   resetCommand _ = SMT2.resetAssertions
 
   checkCommand _ = SMT2.checkSat
+
+  checkWithAssumptionsCommand _ = SMT2.checkSatWithAssumptions
+
   setOptCommand _ x y = SMT2.setOption (SMT2.Option opt)
     where opt = Builder.fromText x <> Builder.fromText " " <> y
 
@@ -609,7 +613,7 @@ runGetValue s e = do
 runCheckSat :: forall b t a.
                SMTLib2Tweaks b
             => Session t b
-            -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+            -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
                -- ^ Function for evaluating model.
                -- The evaluation should be complete before
             -> IO a
@@ -619,7 +623,7 @@ runCheckSat s doEval =
      addCommandNoAck w (checkCommand w)
      res <- smtSatResult w r
      case res of
-       Unsat -> doEval Unsat
+       Unsat x -> doEval (Unsat x)
        Unknown -> doEval Unknown
        Sat _ ->
          do evalFn <- smtExprGroundEvalFn w (smtEvalFuns w r)
@@ -636,7 +640,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
             fail $ unlines [ "Could not parse check_sat result."
                            , "*** Exception: " ++ displayException e
                            ]
-         Right "unsat" -> return Unsat
+         Right "unsat" -> return (Unsat ())
          Right "sat" -> return (Sat ())
          Right "unknown" -> return Unknown
          Right res -> fail ("Could not interpret result from solver: " ++ res)
@@ -725,10 +729,12 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> B.ExprBuilder t st fs
     -> (Int -> String -> IO ())
     -> String
-    -> B.BoolExpr t
-    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO b)
+    -> [B.BoolExpr t]
+    -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO b)
     -> IO b
-  runSolverInOverride solver ack sym logLn reason predicate cont = do
+  runSolverInOverride solver ack sym logLn reason predicates cont = do
+    predicate <- I.andAllOf sym folded predicates
+
     I.logSolverEvent sym
       I.SolverStartSATQuery
         { I.satQuerySolverName = show solver
@@ -742,7 +748,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
       runCheckSat session $ \result -> do
         I.logSolverEvent sym
           I.SolverEndSATQuery
-            { I.satQueryResult = void result
+            { I.satQueryResult = forgetModelAndCore result
             , I.satQueryError  = Nothing
             }
         cont result
@@ -758,9 +764,10 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                     -- ^ Features supported by solver
                  -> B.ExprBuilder t st fs
                  -> IO.Handle
-                 -> B.BoolExpr t
+                 -> [B.BoolExpr t]
                  -> IO ()
-writeDefaultSMT2 a ack nm feat sym h p = do
+writeDefaultSMT2 a ack nm feat sym h ps = do
+  p <- I.andAllOf sym folded ps
   bindings <- B.getSymbolVarBimap sym
   c <- newWriter a h ack nm True feat True bindings
   setOption c (SMT2.produceModels True)
