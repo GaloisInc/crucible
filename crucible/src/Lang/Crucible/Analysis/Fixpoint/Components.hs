@@ -19,7 +19,11 @@
 
 module Lang.Crucible.Analysis.Fixpoint.Components (
   weakTopologicalOrdering,
-  WTOComponent(..)
+  WTOComponent(..),
+  -- * Special cases
+  cfgWeakTopologicalOrdering,
+  cfgSuccessors,
+  cfgStart
   ) where
 
 import Control.Applicative
@@ -30,6 +34,10 @@ import qualified Data.Map as M
 import qualified Data.Traversable as T
 
 import Prelude
+
+import           Data.Parameterized.Some (Some(Some))
+import           Lang.Crucible.CFG.Core (CFG, BlockID)
+import qualified Lang.Crucible.CFG.Core as CFG
 
 -- | Compute a weak topological ordering over a control flow graph.
 --
@@ -51,6 +59,25 @@ data WTOComponent n = SCC { wtoHead :: n
                           }
                     | Vertex n
                     deriving (Functor, F.Foldable, T.Traversable, Show)
+
+-- | Useful for creating a first argument to 'weakTopologicalOrdering'. See
+-- also 'cfgWeakTopologicalOrdering'.
+cfgSuccessors ::
+  CFG ext blocks init ret ->
+  Some (BlockID blocks) -> [Some (BlockID blocks)]
+cfgSuccessors cfg = \(Some bid) -> CFG.nextBlocks (CFG.getBlock bid bm) where
+  bm = CFG.cfgBlockMap cfg
+
+-- | Useful for creating a second argument to 'weakTopologicalOrdering'. See
+-- also 'cfgWeakTopologicalOrdering'.
+cfgStart :: CFG ext blocks init ret -> Some (BlockID blocks)
+cfgStart cfg = Some (CFG.cfgEntryBlockID cfg)
+
+-- | Compute a weak topological order for the CFG.
+cfgWeakTopologicalOrdering ::
+  CFG ext blocks init ret ->
+  [WTOComponent (Some (BlockID blocks))]
+cfgWeakTopologicalOrdering cfg = weakTopologicalOrdering (cfgSuccessors cfg) (cfgStart cfg)
 
 visit :: (Ord n) => n -> M n Label
 visit v = do
