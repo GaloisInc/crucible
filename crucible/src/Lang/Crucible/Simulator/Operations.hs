@@ -74,6 +74,7 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Monoid ((<>))
+import           Data.List (isPrefixOf)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Sequence (Seq)
@@ -283,7 +284,14 @@ data UnresolvableFunction where
 
 instance Ex.Exception UnresolvableFunction
 instance Show UnresolvableFunction where
-  show (UnresolvableFunction h) = "Could not resolve function: " ++ show (handleName h)
+  show (UnresolvableFunction h) =
+    let name = show $ handleName h
+    in if "llvm" `isPrefixOf` name
+       then unlines [ "Encountered unresolved LLVM intrinsic '" ++ name ++ "'"
+                    , "Please report this on the following issue:"
+                    , "https://github.com/GaloisInc/crucible/issues/73"
+                    ]
+       else "Could not resolve function: " ++ name
 
 -- | Given a set of function bindings, a function-
 --   value (which is possibly a closure) and a
