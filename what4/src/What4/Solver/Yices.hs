@@ -400,7 +400,6 @@ newConnection h reqFeatures bindings = do
   let features' = features
                   .|. featureIf efSolver useExistForall
                   .|. useStructs
-                  .|. useSymbolicArrays
   conn <- newWriterConn h nm features' bindings (Connection ())
   return $! conn { supportFunctionDefs = True
                  , supportFunctionArguments = True
@@ -508,7 +507,6 @@ yicesStartSolver sym = do
   -- Create new connection for sending commands to yices.
   let features = useLinearArithmetic
              .|. useBitvectors
-             .|. useSymbolicArrays
              .|. useComplexArithmetic
              .|. useStructs
   conn <- newConnection in_h features B.emptySymbolVarBimap
@@ -660,7 +658,6 @@ yicesSMT2Features
   .|. useIntegerArithmetic
   .|. useBitvectors
   .|. useQuantifiers
-  .|. useSymbolicArrays
 
 yicesAdapter :: SolverAdapter t
 yicesAdapter =

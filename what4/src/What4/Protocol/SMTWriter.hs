@@ -89,6 +89,8 @@ import           Data.Bits (shiftL)
 import           Data.IORef
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
+import           Data.Monoid
+import           Data.Parameterized.Classes (ShowF(..))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.HashTable as PH
 import           Data.Parameterized.Nonce (Nonce)
@@ -162,6 +164,22 @@ data TypeMap (tp::BaseType) where
   -- None of the fields should be arrays encoded as functions.
   StructTypeMap :: !(Ctx.Assignment TypeMap idx)
                 -> TypeMap (BaseStructType idx)
+
+
+instance ShowF TypeMap
+
+instance Show (TypeMap a) where
+  show BoolTypeMap              = "BoolTypeMap"
+  show NatTypeMap               = "NatTypeMap"
+  show IntegerTypeMap           = "IntegerTypeMap"
+  show RealTypeMap              = "RealTypeMap"
+  show (BVTypeMap n)            = "BVTypeMap " ++ show n
+  show (FloatTypeMap x)         = "FloatTypeMap " ++ show x
+  show (ComplexToStructTypeMap) = "ComplexToStructTypeMap"
+  show ComplexToArrayTypeMap    = "ComplexToArrayTypeMap"
+  show (PrimArrayTypeMap ctx a) = "PrimArrayTypeMap " ++ showF ctx ++ " " ++ showF a
+  show (FnArrayTypeMap ctx a)   = "FnArrayTypeMap " ++ showF ctx ++ " " ++ showF a
+  show (StructTypeMap ctx)      = "StructTypeMap " ++ showF ctx
 
 instance Eq (TypeMap tp) where
   x == y = isJust (testEquality x y)
@@ -874,21 +892,21 @@ data BaseTypeError = ComplexTypeUnsupported
 -- find the best encoding for a variable of that type supported by teh solver.
 typeMap :: WriterConn t h  -> BaseTypeRepr tp -> Either BaseTypeError (TypeMap tp)
 typeMap conn tp0 = do
-  case typeMapNoFunction conn tp0 of
+  case typeMapFirstClass conn tp0 of
     Right tm -> Right tm
     -- Recover from array unsupported if possible.
     Left ArrayUnsupported
       | supportFunctionDefs conn
       , BaseArrayRepr idxTp eltTp <- tp0 ->
-        FnArrayTypeMap <$> traverseFC (typeMapNoFunction conn) idxTp
-                       <*> typeMapNoFunction conn eltTp
+        FnArrayTypeMap <$> traverseFC (typeMapFirstClass conn) idxTp
+                       <*> typeMapFirstClass conn eltTp
     -- Pass other functions on.
     Left e -> Left e
 
 -- | This is a helper function for 'typeMap' that only returns values that can
 -- be passed as arguments to a function.
-typeMapNoFunction :: WriterConn t h -> BaseTypeRepr tp -> Either BaseTypeError (TypeMap tp)
-typeMapNoFunction conn tp0 = do
+typeMapFirstClass :: WriterConn t h -> BaseTypeRepr tp -> Either BaseTypeError (TypeMap tp)
+typeMapFirstClass conn tp0 = do
   let feat = supportedFeatures conn
   case tp0 of
     BaseBoolRepr -> Right $! BoolTypeMap
@@ -903,13 +921,15 @@ typeMapNoFunction conn tp0 = do
       | feat `hasProblemFeature` useSymbolicArrays -> Right $! ComplexToArrayTypeMap
       | otherwise -> Left $! ComplexTypeUnsupported
     BaseArrayRepr idxTp eltTp -> do
-      -- Check that solver supports primitive arrays, failing if not.
-      unless (feat `hasProblemFeature` useSymbolicArrays) $ do
-        Left $! ArrayUnsupported
-      PrimArrayTypeMap <$> traverseFC (typeMapNoFunction conn) idxTp
-                       <*> typeMapNoFunction conn eltTp
+      -- This is a proxy for the property we want, because we assume that EITHER
+      -- the solver uses symbolic arrays, OR functions are first-class objects
+      let mkArray = if feat `hasProblemFeature` useSymbolicArrays
+                    then PrimArrayTypeMap
+                    else FnArrayTypeMap
+      mkArray <$> traverseFC (typeMapFirstClass conn) idxTp
+              <*> typeMapFirstClass conn eltTp
     BaseStructRepr flds ->
-      StructTypeMap <$> traverseFC (typeMapNoFunction conn) flds
+      StructTypeMap <$> traverseFC (typeMapFirstClass conn) flds
 
 getBaseSMT_Type :: ExprBoundVar t tp -> SMTCollector t h (TypeMap tp)
 getBaseSMT_Type v = do
@@ -1172,6 +1192,7 @@ theoryUnsupported conn theory_name t =
     <+> text "term generated at" <+> pretty (plSourceLoc (exprLoc t)) <> text ":" <$$>
     indent 2 (pretty t)
 
+
 checkIntegerSupport :: Expr t tp -> SMTCollector t h ()
 checkIntegerSupport t = do
   conn <- asks scConn
@@ -1248,7 +1269,7 @@ evalFirstClassTypeRepr :: Monad m
                        -> BaseTypeRepr tp
                        -> m (TypeMap tp)
 evalFirstClassTypeRepr conn src base_tp =
-  case typeMapNoFunction conn base_tp of
+  case typeMapFirstClass conn base_tp of
     Left e -> fail $ show $ src (smtWriterName conn) e
     Right smt_ret -> return smt_ret
 
@@ -1499,6 +1520,7 @@ predSMTExpr e0 = do
       smt_args <- traverseFC mkExpr args
       (smt_f, ret_type) <- liftIO $ getSMTSymFn conn f (fmapFC smtExprType smt_args)
       freshBoundTerm ret_type $! smtFnApp (fromText smt_f) (toListFC asBase smt_args)
+
 
 appSMTExpr :: forall t h tp
             . SMTWriter h
@@ -2064,13 +2086,18 @@ appSMTExpr ae = do
     ConstantArray idxRepr _bRepr ve -> do
       v <- mkExpr ve
       let value_type = smtExprType v
+          smt_value_type = Some value_type
+          feat = supportedFeatures conn
+          mkArray = if feat `hasProblemFeature` useSymbolicArrays
+                    then PrimArrayTypeMap
+                    else FnArrayTypeMap
       idx_types <- liftIO $
         traverseFC (evalFirstClassTypeRepr conn (eltSource i)) idxRepr
       case arrayConstant @h of
         Just constFn
           | otherwise -> do
             let idx_smt_types = toListFC Some idx_types
-            let tp = PrimArrayTypeMap idx_types value_type
+            let tp = mkArray idx_types value_type
             freshBoundTerm tp $!
               constFn idx_smt_types (Some value_type) (asBase v)
         Nothing -> do
@@ -2078,7 +2105,7 @@ appSMTExpr ae = do
             fail $ show $ text (smtWriterName conn) <+>
               text "cannot encode constant arrays."
           -- Constant functions use unnamed variables.
-          let array_type = FnArrayTypeMap idx_types value_type
+          let array_type = mkArray idx_types value_type
           -- Create names for index variables.
           args <- liftIO $ createTypeMapArgsForArray conn idx_types
           SMTName array_type <$> freshBoundFn args value_type (asBase v)
@@ -2345,7 +2372,9 @@ getSMTSymFn conn fn arg_types = do
   cacheLookupFn conn n >>= \case
     Just (SMTSymFn nm param_types ret) -> do
       when (arg_types /= param_types) $ do
-        fail $ "Illegal arguments to function " ++ Text.unpack nm ++ "."
+        fail $ "Illegal arguments to function " ++ Text.unpack nm ++ ".\n"
+              ++ "\tExpected arguments: " ++ show param_types ++"\n"
+              ++ "\tActual arguments: " ++ show arg_types
       return (nm, ret)
     Nothing -> do
       -- Check argument types can be passed to a function.

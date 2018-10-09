@@ -26,6 +26,7 @@ packages:
   - dependencies/saw-core/
   - dependencies/saw-core-aig/
   - dependencies/saw-core-sbv/
+  - dependencies/saw-core-what4/
 extra-deps:
   - GraphSCC-1.0.4
   - data-inttrie-0.1.4
@@ -35,5 +36,8 @@ extra-deps:
   - fgl-visualize-0.1.0.1
   - dotgen-0.4.2
   - panic-0.3.0.0
+  - megaparsec-7.0.1
+  - s-cargot-0.1.4.0
+  - parser-combinators-1.0.0
 
 resolver: lts-10.6
