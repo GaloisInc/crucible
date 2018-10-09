@@ -180,7 +180,7 @@ initializeMemory sym llvm_ctx m = do
    gs_alloc <- mapM (\g -> do
                         ty <- either fail return $ liftMemType $ L.globalType g
                         let sz = memTypeSize dl ty
-                        return (L.globalSym g, sz))
+                        return (g, sz))
                     gs
    allocGlobals sym gs_alloc mem
 

@@ -383,7 +383,7 @@ type GlobalMap sym = Map L.Symbol (SomePointer sym)
 -- pointers in the global map.
 allocGlobals :: (IsSymInterface sym, HasPtrWidth wptr)
              => sym
-             -> [(L.Symbol, Bytes)]
+             -> [(L.Global, Bytes)]
              -> MemImpl sym
              -> IO (MemImpl sym)
 allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
@@ -391,11 +391,13 @@ allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
 allocGlobal :: (IsSymInterface sym, HasPtrWidth wptr)
             => sym
             -> MemImpl sym
-            -> (L.Symbol, Bytes)
+            -> (L.Global, Bytes)
             -> IO (MemImpl sym)
-allocGlobal sym mem (symbol@(L.Symbol sym_str), sz) = do
+allocGlobal sym mem (g, sz) = do
+  let symbol@(L.Symbol sym_str) = L.globalSym g
+  let mut = if L.gaConstant (L.globalAttrs g) then G.Immutable else G.Mutable
   sz' <- bvLit sym PtrWidth (bytesToInteger sz)
-  (ptr, mem') <- doMalloc sym G.GlobalAlloc G.Mutable sym_str mem sz' -- TODO
+  (ptr, mem') <- doMalloc sym G.GlobalAlloc mut sym_str mem sz'
   return (registerGlobal mem' symbol ptr)
 
 -- | Add an entry to the global map of the given 'MemImpl'.
