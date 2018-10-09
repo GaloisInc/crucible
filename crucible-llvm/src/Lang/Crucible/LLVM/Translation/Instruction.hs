@@ -146,7 +146,7 @@ instrResultType instr =
 
 
 liftMemType' :: (?lc::TypeContext, Monad m) => L.Type -> m MemType
-liftMemType' = either fail return . liftMemType 
+liftMemType' = either fail return . liftMemType
 
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
@@ -1450,9 +1450,18 @@ callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
      | L.ValSymbol nm <- fn
      , nm `elem` [ "llvm.dbg.declare"
                  , "llvm.dbg.value"
-                 , "llvm.lifetime.start"
-                 , "llvm.lifetime.end"
                  ] = k
+
+     -- Skip calls to instrinsics that (un)mark memory as dead. We might want to
+     -- support these in the future to catch undefined memory accesses.
+     --
+     -- We use @isPrefixOf@ because these are overloaded intrinsics (they can
+     -- be called like this: `llvm.lifetime.start.p0i8`). This is not noted
+     -- in the LLVM language reference manual, but happens in practice.
+     | L.ValSymbol (L.Symbol nm) <- fn
+     , any (`List.isPrefixOf` nm) [ "llvm.lifetime.start"
+                                  , "llvm.lifetime.end"
+                                  ] = k
 
      -- For varargs functions, any arguments beyond the ones found in the function
      -- declaration are gathered into a vector of 'ANY' type, which is then passed
@@ -1598,4 +1607,3 @@ doAssign (Some r) (VecExpr tp vs) = do
       case testEquality (typeOfReg r) (VectorRepr tpr) of
         Just Refl -> assignReg r ex
         Nothing -> reportError $ fromString $ "type mismatch when assigning vector value"
-
