@@ -466,6 +466,8 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
 
   checkWithAssumptionsCommand _ = SMT2.checkSatWithAssumptions
 
+  getUnsatAssumptionsCommand _ = SMT2.getUnsatAssumptions
+
   setOptCommand _ x y = SMT2.setOption (SMT2.Option opt)
     where opt = Builder.fromText x <> Builder.fromText " " <> y
 

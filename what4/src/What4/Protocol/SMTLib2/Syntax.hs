@@ -17,6 +17,7 @@ module What4.Protocol.SMTLib2.Syntax
   , exit
   , checkSat
   , checkSatWithAssumptions
+  , getUnsatAssumptions
   , getValue
   , assert
   , resetAssertions
@@ -27,6 +28,7 @@ module What4.Protocol.SMTLib2.Syntax
     -- * Option
   , Option(..)
   , produceModels
+  , produceUnsatAssumptions
   , ppDecimal
     -- * Logic
   , Logic(..)
@@ -162,6 +164,9 @@ ppBool False = "false"
 -- | Option to produce models when check-sat is called.
 produceModels :: Bool -> Option
 produceModels b = Option (":produce-models " <> ppBool b)
+
+produceUnsatAssumptions :: Bool -> Option
+produceUnsatAssumptions b = Option (":produce-unsat-assumptions " <> ppBool b)
 
 -- | Control pretty printing decimal values.
 ppDecimal :: Bool -> Option
@@ -654,6 +659,9 @@ checkSat = Cmd "(check-sat)"
 -- | Check satisfiability of the given atomic assumptions in the current context.
 checkSatWithAssumptions :: [Text] -> Command
 checkSatWithAssumptions nms = Cmd $ app_list "check-sat-assuming" (map Builder.fromText nms)
+
+getUnsatAssumptions :: Command
+getUnsatAssumptions = Cmd "(get-unsat-assumptions)"
 
 -- | Get the values associated with the terms from the last call to check-set.
 getValue :: [Term] -> Command

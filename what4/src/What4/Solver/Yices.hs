@@ -429,6 +429,8 @@ instance SMTWriter (Connection s) where
   checkWithAssumptionsCommand _ nms =
     Cmd $ app_list "check-assuming" (map Builder.fromText nms)
 
+  getUnsatAssumptionsCommand _ = Cmd "(show-unsat-assumptions)"
+
   setOptCommand _ x o = setParamCommand x o
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]
 

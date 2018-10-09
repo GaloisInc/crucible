@@ -730,6 +730,10 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   --   The assumptions must be given as the names of literals already in scope.
   checkWithAssumptionsCommand :: f h -> [Text] -> Command h
 
+  -- | Ask the solver to return an unsatisfiable core from among the assumptions
+  --   passed into the previous "check with assumptions" command.
+  getUnsatAssumptionsCommand :: f h -> Command h
+
   -- | Set an option/parameter.
   setOptCommand :: f h -> Text -> Builder -> Command h
 
@@ -2419,6 +2423,10 @@ class SMTWriter h => SMTReadWriter h where
   -- | Parse a set result from the solver's response.
   smtSatResult :: f h -> Streams.InputStream ByteString -> IO (SatResult () ())
 
+  -- | Parse a list of names of assumptions that form an unsatisfiable core.
+  --   The boolean indicates the polarity of the atom: true for an ordinary
+  --   atom, false for a negated atom.
+  smtUnsatAssumptionsResult :: f h -> Streams.InputStream ByteString -> IO [(Bool,Text)]
 
 -- | Return the terms associated with the given ground index variables.
 smtIndicesTerms :: forall v idx
