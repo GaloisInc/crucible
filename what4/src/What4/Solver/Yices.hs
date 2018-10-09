@@ -402,7 +402,6 @@ newConnection h ack reqFeatures bindings = do
   let features' = features
                   .|. featureIf efSolver useExistForall
                   .|. useStructs
-                  .|. useSymbolicArrays
   conn <- newWriterConn h ack nm features' bindings (Connection ())
   return $! conn { supportFunctionDefs = True
                  , supportFunctionArguments = True
@@ -430,6 +429,8 @@ instance SMTWriter (Connection s) where
   checkCommand _  = Cmd "(check)"
   checkWithAssumptionsCommand _ nms =
     Cmd $ app_list "check-assuming" (map Builder.fromText nms)
+
+  getUnsatAssumptionsCommand _ = Cmd "(show-unsat-assumptions)"
 
   setOptCommand _ x o = setParamCommand x o
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]
@@ -523,7 +524,6 @@ yicesStartSolver sym = do
   -- Create new connection for sending commands to yices.
   let features = useLinearArithmetic
              .|. useBitvectors
-             .|. useSymbolicArrays
              .|. useComplexArithmetic
              .|. useStructs
   err_reader <- startHandleReader err_h
@@ -690,7 +690,6 @@ yicesSMT2Features
   .|. useIntegerArithmetic
   .|. useBitvectors
   .|. useQuantifiers
-  .|. useSymbolicArrays
 
 yicesAdapter :: SolverAdapter t
 yicesAdapter =
