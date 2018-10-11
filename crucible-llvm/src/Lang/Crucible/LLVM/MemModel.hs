@@ -840,7 +840,7 @@ doMallocHandle sym allocType loc mem x = do
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym PtrWidth 0
 
-  let heap' = G.allocMem allocType (fromInteger blkNum) z G.Mutable loc (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) z G.Immutable loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
