@@ -31,6 +31,7 @@ library
     ansi-wl-pprint,
     bytestring,
     containers >= 0.5.9.0,
+    exceptions,
     fgl,
     filepath,
     ghc-prim,
