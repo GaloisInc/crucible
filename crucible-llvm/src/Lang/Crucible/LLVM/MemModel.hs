@@ -1109,10 +1109,6 @@ constToLLVMVal sym mem (SymbolConst symb i) = do
   let (blk, offset) = llvmPointerView ptr
   LLVMValInt blk <$> bvAdd sym offset ibv
 
--- We lose the information of what's a pointer and what's an integer in this
--- translation
-constToLLVMVal sym mem (PtrToIntConst c) = constToLLVMVal sym mem c
-
 constToLLVMVal _sym _mem (ZeroConst memty) = LLVMValZero <$> toStorableType memty
 
 
