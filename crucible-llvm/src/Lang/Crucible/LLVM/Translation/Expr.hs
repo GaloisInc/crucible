@@ -333,8 +333,6 @@ liftConstant c = case c of
        unless (length vs' == length ts)
               (fail "Type mismatch in structure constant")
        return (StructExpr (Seq.fromList (zip ts vs')))
-  PtrToIntConst s ->
-       liftConstant s
   SymbolConst sym 0 ->
     do memVar <- getMemVar
        base <- extensionStmt (LLVM_ResolveGlobal ?ptrWidth memVar (GlobalSymbol sym))

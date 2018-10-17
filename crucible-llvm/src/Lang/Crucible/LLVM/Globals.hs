@@ -43,10 +43,10 @@ module Lang.Crucible.LLVM.Globals
   , makeGlobalMap
   ) where
 
-import Control.Arrow ((>>>), (&&&))
+import Control.Arrow ((&&&))
 import Control.Monad.Except
 import Control.Lens hiding (op, (:>) )
-import qualified Data.List as List
+--import qualified Data.List as List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
@@ -84,20 +84,20 @@ import           Lang.Crucible.Backend (IsSymInterface)
 --
 -- To actually initialize globals, saw-script translates them into
 -- instances of @MemModel.LLVMVal@.
-type GlobalInitializerMap = Map L.Symbol (L.Global, Either String (MemType, LLVMConst))
+type GlobalInitializerMap = Map L.Symbol (L.Global, Either String (MemType, Maybe LLVMConst))
 
 
 ------------------------------------------------------------------------
 -- makeGlobalMap
 
--- | Commute an applicative with Maybe
-commuteMaybe :: Applicative n => Maybe (n a) -> n (Maybe a)
-commuteMaybe (Just val) = Just <$> val
-commuteMaybe Nothing    = pure Nothing
+-- -- | Commute an applicative with Maybe
+-- commuteMaybe :: Applicative n => Maybe (n a) -> n (Maybe a)
+-- commuteMaybe (Just val) = Just <$> val
+-- commuteMaybe Nothing    = pure Nothing
 
--- | Commute a functor with pairing
-fSnd :: Functor n => (a, n b) -> n (a, b)
-fSnd (a, nb) = fmap ((,) a) nb
+-- -- | Commute a functor with pairing
+-- fSnd :: Functor n => (a, n b) -> n (a, b)
+-- fSnd (a, nb) = fmap ((,) a) nb
 
 -- | @makeGlobalMap@ creates a map from names of LLVM global variables
 -- to the values of their initializers, if any are included in the module.
@@ -108,10 +108,12 @@ makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
 makeGlobalMap ctx m =
      Map.fromList $ map (L.globalSym &&& (id &&& globalToConst)) (L.modGlobals m)
   where -- Catch the error from @transConstant@, turn it into @Either@
-        globalToConst :: L.Global -> Either String (MemType, LLVMConst)
+        globalToConst :: L.Global -> Either String (MemType, Maybe LLVMConst)
         globalToConst g =
           catchError
-            (globalToConst' g >>=
+            (globalToConst' g)
+{-
+>>=
               flip maybeToEither
                 (List.intercalate " " $
                   [ "The global"
@@ -123,6 +125,7 @@ makeGlobalMap ctx m =
                   , "but was missing. Did you link all of the relevant .bc files"
                   , "together with `llvm-link'?"
                   ]))
+-}
             (\err -> Left $
               "Encountered error while processing global "
                 ++ showSymbol (L.globalSym g)
@@ -132,27 +135,19 @@ makeGlobalMap ctx m =
                   show $ let ?config = LPP.Config False False False
                          in LPP.ppSymbol $ sym
 
-        maybeToEither :: Maybe a -> b -> Either b a
-        maybeToEither Nothing b  = Left b
-        maybeToEither (Just a) _ = Right a
+        -- maybeToEither :: Maybe a -> b -> Either b a
+        -- maybeToEither Nothing b  = Left b
+        -- maybeToEither (Just a) _ = Right a
 
-        -- This is the pipeline:
-        -- L.Global
-        -- ==> (L.Type, Maybe L.Value)
-        -- ==> Maybe (L.Type, L.Value)
-        -- ==> Maybe (L.Typed L.Value)
-        -- ==> Maybe (m LLVMConst)
-        -- ==> m     (Maybe LLVMConst)
         globalToConst' :: forall m. (MonadError String m)
-                       => L.Global -> m (Maybe (MemType, LLVMConst))
-        globalToConst' =
-          let ?lc = ctx^.llvmTypeCtx -- implicitly passed to transConstant
-          in (L.globalType &&& L.globalValue)
-                >>> fSnd
-                >>> fmap (uncurry L.Typed)
-                >>> fmap transConstantWithType
-                >>> commuteMaybe
-
+                       => L.Global -> m (MemType, Maybe LLVMConst)
+        globalToConst' g =
+          do let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to transConstant
+             let gty  = L.globalType g
+             let gval = L.globalValue g
+             mt  <- liftMemType gty
+             val <- traverse (transConstant' mt) gval
+             return (mt, val)
 
 -------------------------------------------------------------------------
 -- initializeMemory
@@ -209,9 +204,10 @@ populateGlobals ::
   IO (MemImpl sym)
 populateGlobals select sym gimap mem0 = foldM f mem0 (Map.elems gimap)
   where
-  f mem (gl, _) | not (select gl) = return mem
-  f _   (_, Left msg)             = fail msg
-  f mem (gl, Right (mty, cval))   = populateGlobal sym gl mty cval mem
+  f mem (gl, _) | not (select gl)    = return mem
+  f _   (_, Left msg)                = fail msg
+  f mem (gl, Right (mty, Just cval)) = populateGlobal sym gl mty cval mem
+  f mem (_, Right (_, Nothing))      = return mem
 
 
 -- | Populate all the globals mentioned in the given @GlobalInitializerMap@.
