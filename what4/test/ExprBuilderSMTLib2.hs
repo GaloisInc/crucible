@@ -311,12 +311,10 @@ testUninterpretedFunctionScope = testCase "uninterpreted function scope" $
     p0 <- intEq sym x y
     p1 <- notPred sym =<< intEq sym e0 e1
     p2 <- andPred sym p0 p1
-    inNewFrame (solverConn s) $ do
-      res1 <- checkSatisfiable s "test" p2
-      isUnsat res1 @? "unsat"
-    inNewFrame (solverConn s) $ do
-      res2 <- checkSatisfiable s "test" p2
-      isUnsat res2 @? "unsat"
+    res1 <- checkSatisfiable s "test" p2
+    isUnsat res1 @? "unsat"
+    res2 <- checkSatisfiable s "test" p2
+    isUnsat res2 @? "unsat"
 
 main :: IO ()
 main = defaultMain $ testGroup "Tests"

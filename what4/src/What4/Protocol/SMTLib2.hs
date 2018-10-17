@@ -732,8 +732,6 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO b)
     -> IO b
   runSolverInOverride solver sym logLn reason predicates cont = do
-    predicate <- I.andAllOf sym folded predicates
-
     I.logSolverEvent sym
       I.SolverStartSATQuery
         { I.satQuerySolverName = show solver
@@ -742,7 +740,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     path <- defaultSolverPath solver sym
     withSolver solver sym path (logLn 2) $ \session -> do
       -- Assume the predicate holds.
-      SMTWriter.assume (sessionWriter session) predicate
+      forM predicates (SMTWriter.assume (sessionWriter session))
       -- Run check SAT and get the model back.
       runCheckSat session $ \result -> do
         I.logSolverEvent sym
@@ -765,11 +763,10 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                  -> [B.BoolExpr t]
                  -> IO ()
 writeDefaultSMT2 a nm feat sym h ps = do
-  p <- I.andAllOf sym folded ps
   bindings <- B.getSymbolVarBimap sym
   c <- newWriter a h nm True feat True bindings
   setOption c (SMT2.produceModels True)
-  SMTWriter.assume c p
+  forM_ ps (SMTWriter.assume c)
   writeCheckSat c
   writeExit c
 

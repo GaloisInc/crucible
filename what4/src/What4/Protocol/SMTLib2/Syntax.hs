@@ -657,8 +657,13 @@ checkSat :: Command
 checkSat = Cmd "(check-sat)"
 
 -- | Check satisfiability of the given atomic assumptions in the current context.
+--
+--   NOTE! The names of variables passed to this function MUST be generated using
+--   a `declare-fun` statement, and NOT a `define-fun` statement.  Thus, if you
+--   want to bind an arbitrary term, you must declare a new term and assert that
+--   it is equal to it's definition. Yes, this is quite irritating.
 checkSatWithAssumptions :: [Text] -> Command
-checkSatWithAssumptions nms = Cmd $ app_list "check-sat-assuming" (map Builder.fromText nms)
+checkSatWithAssumptions nms = Cmd $ app "check-sat-assuming" [builder_list (map Builder.fromText nms)]
 
 getUnsatAssumptions :: Command
 getUnsatAssumptions = Cmd "(get-unsat-assumptions)"

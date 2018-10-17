@@ -150,7 +150,8 @@ checkWithAssumptions ::
   IO ([Text], SatResult () ())
 checkWithAssumptions proc rsn ps =
   do let c = solverConn proc
-     nms <- forM ps (mkAtomicFormula c)
+     tms <- forM ps (mkFormula c)
+     nms <- forM tms (freshBoundVarName c EqualityDefinition [] BoolTypeMap)
      solverLogFn proc
        SolverStartSATQuery
        { satQuerySolverName = solverName proc
