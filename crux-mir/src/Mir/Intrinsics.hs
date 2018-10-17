@@ -379,7 +379,7 @@ type MirSlice tp     = StructType (EmptyCtx ::>
 
 pattern MirSliceRepr :: () => tp' ~ MirSlice tp => TypeRepr tp -> TypeRepr tp'
 pattern MirSliceRepr tp <- StructRepr
-     (view -> AssignExtend (view -> AssignExtend (view -> AssignExtend (view -> AssignEmpty)
+     (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
          (MirReferenceRepr (VectorRepr tp)))
          NatRepr)
          NatRepr)

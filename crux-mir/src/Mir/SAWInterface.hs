@@ -29,6 +29,7 @@ import qualified Lang.Crucible.Simulator.SimError as C
 import qualified What4.Interface as C hiding (mkStruct)
 import qualified Lang.Crucible.Backend.SAWCore as C
 import qualified Text.Regex as Regex
+import qualified Data.AIG.Interface as AIG
 
 import Control.Monad
 
@@ -47,7 +48,8 @@ cleanFnName t = T.pack $
         s2 = Regex.subRegex r2 s1 "" in
     s2
 
---extractMIR :: SC.SharedContext -> RustModule -> String -> IO SC.Term
+extractMIR :: AIG.IsAIG l g =>
+     AIG.Proxy l g -> SC.SharedContext -> RustModule -> String -> IO SC.Term
 extractMIR proxy sc rm n = do
     let cfgmap = rmCFGs rm
         link = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
