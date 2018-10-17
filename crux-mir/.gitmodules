@@ -1,0 +1,15 @@
+[submodule "deps/crucible"]
+	path = deps/crucible
+	url = git@github.com:GaloisInc/crucible.git
+[submodule "deps/saw-core"]
+	path = deps/saw-core
+	url = git@github.com:GaloisInc/saw-core.git
+[submodule "deps/parameterized-utils"]
+	path = deps/parameterized-utils
+	url = git@github.com:GaloisInc/parameterized-utils.git
+[submodule "deps/saw-core-aig"]
+	path = deps/saw-core-aig
+	url = git@github.com:GaloisInc/saw-core-aig.git
+[submodule "deps/aig"]
+	path = deps/aig
+	url = git@github.com:GaloisInc/aig
