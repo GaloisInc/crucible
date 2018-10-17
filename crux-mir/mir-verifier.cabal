@@ -16,22 +16,22 @@ extra-source-files:  README.md
 library
   default-language: Haskell2010
   build-depends: base >= 4.7 && < 5,
-                       aeson,
-                       ansi-wl-pprint,
-                       bytestring,
-                       text,
-                       unordered-containers,
-                       crucible,
-                       parameterized-utils,
-                       containers,
-                       lens,
-                       vector,
-                       mtl,
-                       regex-compat,
-                       regex-base,
-                       crucible-saw,
-                       transformers,
-                       saw-core,
+                 aeson,
+                 ansi-wl-pprint,
+                 bytestring,
+                 text,
+                 unordered-containers,
+                 crucible,
+                 parameterized-utils,
+                 containers,
+                 lens,
+                 vector,
+                 mtl,
+                 regex-compat,
+                 regex-base,
+                 crucible-saw,
+                 transformers,
+                 saw-core,
                  filepath,
                  directory,
                  what4,
@@ -40,7 +40,8 @@ library
                  tasty-hunit      >= 0.10,
                  tasty-quickcheck >= 0.8,
                  parsec,
-                 aig
+                 aig,
+                 crux
 
 
   hs-source-dirs: src
@@ -58,6 +59,56 @@ library
                  Mir.Run,
                  Mir.Trans
 
+executable crux-mir
+  hs-source-dirs: src
+  main-is: Main.hs
+
+  build-depends:
+                base >= 4.7 && < 5,
+                aeson,
+                ansi-wl-pprint,
+                bytestring,
+                text,
+                unordered-containers,
+                crucible,
+                parameterized-utils,
+                containers,
+                lens,
+                vector,
+                mtl,
+                regex-compat,
+                regex-base,
+                crucible-saw,
+                transformers,
+                saw-core,
+                filepath,
+                directory,
+                what4,
+                process,
+                tasty            >= 0.10,
+                tasty-hunit      >= 0.10,
+                tasty-quickcheck >= 0.8,
+                parsec,
+                aig,
+                crux
+                
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+  default-language: Haskell2010
+
+  other-modules: Mir.Intrinsics
+                 Mir.Mir
+                 Mir.Pass
+                 Mir.Pass.CollapseRefs
+                 Mir.Pass.MutRefReturnStatic
+                 Mir.Pass.RemoveBoxNullary
+                 Mir.Pass.RemoveStorage
+                 Mir.Pass.RewriteMutRef
+                 Mir.Run
+                 Mir.SAWInterface
+                 Mir.Trans
+                 
+                 
 test-suite test
   type: exitcode-stdio-1.0
   hs-source-dirs: test

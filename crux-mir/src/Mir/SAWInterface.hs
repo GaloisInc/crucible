@@ -59,8 +59,8 @@ extractMIR proxy sc rm n = do
     term <- extractFromCFGPure link proxy sc cfg
     return term
 
-loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
-loadMIR sc fp = do
+loadMIR :: HasCallStack => FilePath -> IO RustModule
+loadMIR fp = do
     f <- B.readFile fp
     let c = (J.eitherDecode f) :: Either String Collection
     case c of

@@ -78,7 +78,7 @@ oracleTest dir name step = do
     ExitSuccess -> return ()
 
   step "Loading MIR"
-  mir <- loadMIR sc (dir </> name <.> "mir")
+  mir <- loadMIR (dir </> name <.> "mir")
   step "Extracting function f"
   f <- extractMIR proxy sc mir "f"
   step "Extracting argument ARG"
