@@ -1,7 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 
+
 import           Data.Char (isSpace)
-import           Data.List (dropWhileEnd, isPrefixOf)
+import           Data.List (dropWhileEnd, isPrefixOf,intersperse)
 import qualified Data.Map as Map
 import           Data.Maybe (catMaybes)
 import           System.Directory (listDirectory, doesDirectoryExist, doesFileExist, removeFile)
@@ -16,13 +17,22 @@ import qualified Verifier.SAW.FiniteValue as FV
 import qualified Verifier.SAW.Prelude as SC
 import qualified Verifier.SAW.SCTypeCheck as SC
 import qualified Verifier.SAW.SharedTerm as SC
+import qualified Verifier.SAW.Typechecker as SC
 import qualified Verifier.SAW.Simulator.Concrete as Conc
 
 import           Test.Tasty (defaultMain, testGroup, TestTree)
 import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
 
+import qualified Data.AIG.Interface as AIG
+
+
+-- For newSAWCoreBackend
+proxy :: AIG.Proxy AIG.BasicLit AIG.BasicGraph
+proxy = AIG.basicProxy
+
 generateMIR :: FilePath -> String -> IO ExitCode
 generateMIR dir name = do
+  putStrLn $ "Generating " ++ dir ++ " " ++ name
   (ec, _, _) <- Proc.readProcessWithExitCode "mir-json" [dir </> name <.> "rs", "--crate-type", "lib"] ""
   let rlibFile = ("lib" ++ name) <.> "rlib"
   doesFileExist rlibFile >>= \case
@@ -51,8 +61,10 @@ compileAndRun dir name = do
 
 oracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
 oracleTest dir name step = do
-  sc <- SC.mkSharedContext SC.preludeModule
-
+  sc <- SC.mkSharedContext
+  step "Initializing saw-core Prelude"
+  SC.tcInsertModule sc SC.preludeModule
+  
   step "Compiling and running oracle program"
   oracleOut <- compileAndRun dir name >>= \case
     Nothing -> assertFailure "failed to compile and run"
@@ -68,14 +80,13 @@ oracleTest dir name step = do
   step "Loading MIR"
   mir <- loadMIR sc (dir </> name <.> "mir")
   step "Extracting function f"
-  f <- extractMIR sc mir "f"
+  f <- extractMIR proxy sc mir "f"
   step "Extracting argument ARG"
-  arg <- extractMIR sc mir "ARG"
-
+  arg <- extractMIR proxy sc mir "ARG"
   step "Typechecking f(ARG)"
   app <- SC.scApply sc f arg
-  rty <- SC.scTypeCheck sc app >>= \case
-    Left e -> assertFailure $ "ill-typed result: " ++ show (SC.prettyTCError e)
+  rty <- SC.scTypeCheck sc Nothing app >>= \case
+    Left e -> assertFailure $ "ill-typed result: " ++ concat (intersperse " " (SC.prettyTCError e))
     Right rty -> return rty
   ty <- FV.asFiniteType sc rty
 
@@ -87,8 +98,9 @@ oracleTest dir name step = do
 
   step "Comparing oracle output"
   eq <- SC.scEq sc oracle app
+  mm <- SC.scGetModuleMap sc
   assertBool "oracle output mismatch"
-    (Conc.toBool (Conc.evalSharedTerm (SC.scModule sc) Map.empty eq))
+    (Conc.toBool (Conc.evalSharedTerm mm Map.empty eq))
 
 main :: IO ()
 main = defaultMain =<< suite

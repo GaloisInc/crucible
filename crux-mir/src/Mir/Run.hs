@@ -71,7 +71,7 @@ unfoldAssign ::
     -> (forall ctx' tp. C.TypeRepr tp -> f tp  -> C.CtxRepr ctx' -> Ctx.Assignment f ctx' -> a)
     -> a
 unfoldAssign ctx0 asgn k =
-  case Ctx.view ctx0 of
+  case Ctx.viewAssign ctx0 of
     Ctx.AssignEmpty -> error "packType: ran out of actual arguments!"
     Ctx.AssignExtend ctx' ctp' ->
           let asgn' = Ctx.init asgn
