@@ -477,6 +477,7 @@ unpackMemValue sym (LLVMValZero tp) = unpackZero sym tp
 -- If the block number is 0, we know this is a raw bitvector, and not an actual pointer.
 unpackMemValue _sym (LLVMValInt blk bv)
   = return . AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
+
 unpackMemValue _ (LLVMValFloat sz x) =
   case sz of
     SingleSize ->
@@ -524,12 +525,12 @@ packMemValue _ (G.Type G.Double _) (FloatRepr DoubleFloatRepr) x =
        return $ LLVMValFloat DoubleSize x
 
 packMemValue sym (G.Type (G.Bitvector bytes) _) (BVRepr w) bv
-  | bytesToBits bytes == toInteger (natValue w) =
+  | bitsToBytes (natValue w) == bytes =
       do blk0 <- natLit sym 0
          return $ LLVMValInt blk0 bv
 
 packMemValue _sym (G.Type (G.Bitvector bytes) _) (LLVMPointerRepr w) (LLVMPointer blk off)
-  | bytesToBits bytes == toInteger (natValue w) =
+  | bitsToBytes (natValue w) == bytes =
        return $ LLVMValInt blk off
 
 packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec

@@ -199,7 +199,14 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
  where
   go :: forall l h. (1 <= l, 1 <= h) =>
     SymNat sym -> SymBV sym l -> SymNat sym -> SymBV sym h -> IO (PartLLVMVal sym)
-  go blk_low low blk_high high =
+  go blk_low low blk_high high
+    -- NB we check that the things we are concatenating are each an integral number of
+    -- bytes.  This prevents us from concatenating together the partial-byte writes that
+    -- result from e.g. writing an i1 or an i20 into memory.  This is consistent with LLVM
+    -- documentation, which says that non-integral number of bytes loads will only succeed
+    -- if the value was written orignally with the same type.
+    | natValue low_w' `mod` 8 == 0
+    , natValue high_w' `mod` 8 == 0 =
       do blk0   <- natLit sym 0
          p_blk1 <- natEq sym blk_low blk0
          p_blk2 <- natEq sym blk_high blk0
@@ -207,6 +214,8 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
          p <- andPred sym p1 =<< andPred sym p2 =<< andPred sym p_blk1 p_blk2
          bv <- bvConcat sym high low
          return $ PE p $ LLVMValInt blk0 bv
+    | otherwise =
+       return Unassigned
 
     where low_w' = bvWidth low
           high_w' = bvWidth high
