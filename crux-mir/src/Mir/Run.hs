@@ -20,6 +20,7 @@ import qualified Mir.Trans as T
 import qualified Data.Map.Strict as Map
 import qualified Mir.Mir as M
 import Control.Monad
+import qualified Control.Monad.Trans.State.Strict as SState
 import Control.Lens
 import Data.Foldable
 import qualified Data.Text as Text
@@ -55,8 +56,10 @@ import qualified Data.Parameterized.TraversableFC as Ctx
 import           Mir.Intrinsics
 import qualified Mir.Pass as Pass
 
+import qualified Data.AIG.Interface as AIG
 
-import qualified Control.Monad.Trans.State.Strict as SState
+
+
 
 type Sym = C.SAWCoreBackend GlobalNonceGenerator (C.Flags C.FloatReal)
 
@@ -114,17 +117,25 @@ print_cfg cfg = case cfg of
 
 
 --extractFromCFGPure :: SymOverride Ctx.EmptyCtx ret -> SC.SharedContext -> C.CFG MIR blocks argctx ret -> IO SC.Term -- no global variables
+extractFromCFGPure
+  :: AIG.IsAIG l g =>
+     SymOverride Ctx.EmptyCtx tp
+     -> AIG.Proxy l g
+     -> SC.SharedContext
+     -> C.CFG MIR blocks args tp
+     -> IO SC.Term
 extractFromCFGPure setup proxy sc cfg = do
-    let h = C.cfgHandle cfg
+    let h  =  C.cfgHandle cfg
     config <- C.initialConfig 0 C.sawOptions
-    sym <- C.newSAWCoreBackend proxy sc globalNonceGenerator
+    sym    <- C.newSAWCoreBackend proxy sc globalNonceGenerator
     halloc <- C.newHandleAllocator
     (ecs, args) <- setupArgs sc sym h
+    print $ "Type of h " ++ show (C.handleArgTypes h) ++ " -> " ++ show (C.handleReturnType h)
+    print $ "Length of ecs is " ++ show (length ecs)
     let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl C.SAWCruciblePersonality
-        simst = C.initSimState simctx C.emptyGlobals C.defaultAbortHandler
-        osim = do
-            setup
-            C.regValue <$> C.callCFG cfg args
+        simst  = C.initSimState simctx C.emptyGlobals C.defaultAbortHandler
+        osim   = do setup
+                    C.regValue <$> C.callCFG cfg args
     res <- C.executeCrucible simst $ C.runOverrideSim (C.handleReturnType h) osim
     case res of
       C.FinishedResult _ pr -> do
@@ -133,7 +144,7 @@ extractFromCFGPure setup proxy sc cfg = do
                   C.PartialRes _ gp _ -> do
                       putStrLn "Symbolic simulation failed along some paths"
                       return gp
-          t <- toSawCore sc sym (gp^.C.gpValue)
+          t  <- toSawCore sc sym (gp^.C.gpValue)
           t' <- SC.scAbstractExts sc (toList ecs) t
           return t'
       C.AbortedResult a ar -> do

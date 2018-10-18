@@ -56,7 +56,15 @@ extractMIR proxy sc rm n = do
     (C.AnyCFG cfg) <- case (M.lookup (T.pack n) cfgmap) of
              Just c -> return c
              _ -> fail $ "Could not find cfg: " ++ n
+             
+    print $ "CFG for " ++ n         
+    print $ C.ppCFG True cfg
+    
     term <- extractFromCFGPure link proxy sc cfg
+
+    print $ "SAW core for " ++ n
+    print $ SC.showTerm term
+    
     return term
 
 loadMIR :: HasCallStack => FilePath -> IO RustModule
