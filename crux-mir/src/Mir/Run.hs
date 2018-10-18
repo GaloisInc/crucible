@@ -13,40 +13,35 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+
+{-# OPTIONS_GHC -Wincomplete-patterns -Wall -fno-warn-name-shadowing -fno-warn-unused-top-binds #-}
+
 module Mir.Run (mirToCFG, extractFromCFGPure) where
 
 import System.IO
 import qualified Mir.Trans as T
 import qualified Data.Map.Strict as Map
 import qualified Mir.Mir as M
-import Control.Monad
-import qualified Control.Monad.Trans.State.Strict as SState
+
 import Control.Lens
 import Data.Foldable
 import qualified Data.Text as Text
 import Control.Monad.ST
 import Data.Parameterized.Nonce
-import System.IO
+
 import Data.IORef
 import qualified Data.Parameterized.Map as MapF
 import qualified Verifier.SAW.SharedTerm as SC
 import qualified Verifier.SAW.TypedAST as SC
 import qualified Lang.Crucible.FunctionHandle as C
 import qualified Lang.Crucible.CFG.Core as C
-import qualified Lang.Crucible.Analysis.Postdom as C
+
 import qualified What4.Config as C
 import qualified Lang.Crucible.Simulator as C
-import qualified Lang.Crucible.Simulator.ExecutionTree as C
-import qualified Lang.Crucible.Simulator.GlobalState as C
-import qualified Lang.Crucible.Simulator.Operations as C
-import qualified Lang.Crucible.Simulator.OverrideSim as C
-import qualified Lang.Crucible.Simulator.SimError as C
-import qualified Lang.Crucible.Simulator.RegMap as C
-import qualified Lang.Crucible.Simulator.SimError as C
 import qualified What4.Expr as C
-import qualified What4.Interface as C hiding (mkStruct)
+
 import qualified Lang.Crucible.Backend.SAWCore as C
-import qualified Lang.Crucible.CFG.Reg as Reg
+
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Vector as V
 import           Data.Sequence (Seq)
@@ -63,8 +58,6 @@ import qualified Data.AIG.Interface as AIG
 
 type Sym = C.SAWCoreBackend GlobalNonceGenerator (C.Flags C.FloatReal)
 
-type SimContext = C.SimContext (C.SAWCruciblePersonality Sym) Sym
-type SimGlobalState = C.SymGlobalState Sym
 
 type SymOverride arg_ctx ret = C.OverrideSim (C.SAWCruciblePersonality Sym) Sym MIR (C.RegEntry Sym ret) arg_ctx ret ()
 
@@ -86,14 +79,14 @@ unfoldAssign ctx0 asgn k =
 show_val :: C.TypeRepr tp -> C.RegValue Sym tp -> String
 show_val tp reg_val =
     case tp of
-      C.BVRepr w -> show reg_val
+      C.BVRepr _w -> show reg_val
       C.BoolRepr -> show reg_val
       C.StructRepr reprasgn -> show_regval_assgn reprasgn reg_val
       _ -> "Cannot show type: " ++ (show tp)
 
 show_regval_assgn :: C.CtxRepr ctx -> Ctx.Assignment (C.RegValue' Sym) ctx -> String
 show_regval_assgn ctxrepr asgn = "[" ++ go ctxrepr asgn (Ctx.sizeInt (Ctx.size ctxrepr)) ++ "]"
-    where go :: forall ctx sym. C.CtxRepr ctx -> Ctx.Assignment (C.RegValue' Sym) ctx -> Int -> String
+    where go :: forall ctx. C.CtxRepr ctx -> Ctx.Assignment (C.RegValue' Sym) ctx -> Int -> String
           go _ _ 0 = ""
           go cr as i = unfoldAssign cr as $ \repr val cr' as' ->
               go cr' as' (i-1) ++ ", " ++ show_val repr (C.unRV val)
@@ -126,7 +119,7 @@ extractFromCFGPure
      -> IO SC.Term
 extractFromCFGPure setup proxy sc cfg = do
     let h  =  C.cfgHandle cfg
-    config <- C.initialConfig 0 C.sawOptions
+    _config <- C.initialConfig 0 C.sawOptions
     sym    <- C.newSAWCoreBackend proxy sc globalNonceGenerator
     halloc <- C.newHandleAllocator
     (ecs, args) <- setupArgs sc sym h
@@ -147,9 +140,9 @@ extractFromCFGPure setup proxy sc cfg = do
           t  <- toSawCore sc sym (gp^.C.gpValue)
           t' <- SC.scAbstractExts sc (toList ecs) t
           return t'
-      C.AbortedResult a ar -> do
+      C.AbortedResult _a ar -> do
           fail $ "aborted failure: " ++ handleAbortedResult ar
-
+      C.TimeoutResult _ -> fail "timed out"
 
 handleAbortedResult :: C.AbortedResult sym MIR -> String
 handleAbortedResult (C.AbortedExec simerror _) = show simerror -- TODO
@@ -168,7 +161,7 @@ toSawCore sc sym (C.RegEntry tp v) =
         C.RealValRepr -> C.toSC sym v
         C.ComplexRealRepr -> C.toSC sym v
         C.BoolRepr -> C.toSC sym v
-        C.BVRepr w -> C.toSC sym v
+        C.BVRepr _w -> C.toSC sym v
         C.StructRepr ctx -> -- ctx is of type CtxRepr; v is of type Ctx.Assignment (RegValue' sym) ctx
             go_struct ctx v
         C.VectorRepr t -> go_vector t v
