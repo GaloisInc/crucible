@@ -76,8 +76,8 @@ loadMIR fp = do
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
       Right col -> do
-          print "Mir decoding"
-          putDoc (pretty col)
+          --print "Mir decoding"
+          --putDoc (pretty col)
           --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
           let passes = P.passRemoveBoxNullary
           -- DEBUGGING print functions

@@ -14,7 +14,7 @@
 
 module Main(main) where
 
-import           Control.Monad (forM_)
+import           Control.Monad (forM_, when)
 import           Control.Monad.IO.Class
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
@@ -106,15 +106,17 @@ printRegEntry :: forall sym tp. (W4.IsExpr (W4.SymExpr sym)) => C.RegEntry sym t
 printRegEntry (C.RegEntry tp rv) =
   case tp of 
     C.BoolRepr  ->
-      say "Crux" $ "Result of simulation: " ++ show (W4.printSymExpr rv)
+      putStrLn $ show (W4.printSymExpr rv)
     C.StringRepr  ->
-      say "Crux" $ "Result of simulation: " ++ show (W4.printSymExpr rv)
+      putStrLn $ show (W4.printSymExpr rv)
     C.NatRepr  ->
-      say "Crux" $ "Result of simulation: " ++ show (W4.printSymExpr rv)
+      putStrLn $ show (W4.printSymExpr rv)
     (C.BVRepr _w) ->
-      say "Crux" $ "Result of simulation: " ++ show (W4.printSymExpr rv)
+      case W4.asSignedBV rv of
+        Just i -> putStrLn $ show i
+        _      -> error "showBV, not an int-like type"
     C.RealValRepr  ->
-      say "Crux" $ "Result of simulation: " ++ show (W4.printSymExpr rv)
+      putStrLn $ show (W4.printSymExpr rv)
 
     _ -> say "Crux" "I don't know how to print result"
   
@@ -128,6 +130,10 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   let filename      = Crux.inputFile cruxOpts
   let (dir,nameExt) = splitFileName filename
   let (name,_ext)   = splitExtension nameExt
+
+  when (Crux.simVerbose cruxOpts > 2) $
+    say "Crux" $ "Generating " ++ dir </> name <.> "mir"
+    
   exitCode <- generateMIR dir name
   case exitCode of
     ExitFailure _ -> do
@@ -142,25 +148,35 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   let cfgmap = rmCFGs mir
       _link  = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
 
-
-  (C.AnyCFG cfg) <- case (Map.lookup (Text.pack mname) cfgmap) of
+  
+  (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "f") cfgmap) of
                         Just c -> return c
                         _      -> fail $ "Could not find cfg: " ++ mname
-  say "Crux" "main"
-  print $ C.ppCFG True cfg
+  (C.AnyCFG a_cfg) <- case (Map.lookup (Text.pack "ARG") cfgmap) of
+                        Just c -> return c
+                        _      -> fail $ "Could not find cfg: " ++ mname
 
-  let h = C.cfgHandle cfg
+  when (Crux.simVerbose cruxOpts > 2) $ do
+    say "Crux" "f CFG"
+    print $ C.ppCFG True f_cfg
+    say "Crux" "ARG CFG"
+    print $ C.ppCFG True a_cfg
+
+  let hf = C.cfgHandle f_cfg
+  let ha = C.cfgHandle a_cfg
   
-  Refl <- failIfNotEqual (C.handleArgTypes h) (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
-         $ "Invalid input to "  ++ mname
-  Refl <- failIfNotEqual (C.handleReturnType h) C.UnitRepr
-         $ "Invalid output from " ++ mname 
+  Refl <- failIfNotEqual (C.handleArgTypes ha)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
+         $ "Checking input to ARG" 
+  Refl <- failIfNotEqual (C.handleArgTypes hf) (Ctx.empty `Ctx.extend` C.handleReturnType ha)
+         $ "Checking agreement between f and ARG" 
 
   let
      osim :: Fun sym MIR Ctx.EmptyCtx C.UnitType
      osim   = do
-        res  <- C.callCFG cfg C.emptyRegMap
-        return (C.regValue res)
+        arg  <- C.callCFG a_cfg C.emptyRegMap
+        res <- C.callCFG f_cfg (C.RegMap (Ctx.empty `Ctx.extend` arg))
+        liftIO $ printRegEntry @sym res
+        return ()
   
   halloc <- C.newHandleAllocator
   let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl p
@@ -179,12 +195,11 @@ generateMIR :: FilePath -> String -> IO ExitCode
 generateMIR dir name = do
   let rustFile = dir </> name <.> "rs" 
   doesFileExist rustFile >>= \case
-    True -> say "Crux" "Found input file"
+    True -> return ()
     False -> say "Crux" $ "Cannot find input file " ++ rustFile
 
-  say "Crux" $ "Generating " ++ dir </> name <.> "mir"
   (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-    [rustFile, "--crate-type", "lib", "--cfg", "with_main"] ""
+    [rustFile, "--crate-type", "lib"] ""
   let rlibFile = ("lib" ++ name) <.> "rlib"
   doesFileExist rlibFile >>= \case
     True  -> removeFile rlibFile

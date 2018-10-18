@@ -117,7 +117,7 @@ test-suite test
   ghc-options: -Wall
   ghc-prof-options: -fprof-auto -O2
 
-  main-is: Test.hs
+  main-is: TestCrux.hs
 
   build-depends:
                 base             >= 4.7,
