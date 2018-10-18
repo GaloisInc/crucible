@@ -54,6 +54,7 @@ import Crux.Model
 import Crux.Log
 
 -- mir-verifier
+import           Mir.Mir
 import           Mir.Intrinsics(MIR,mirExtImpl)
 import           Mir.SAWInterface (loadMIR,RustModule(..))
 
@@ -141,34 +142,26 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   let cfgmap = rmCFGs mir
       _link  = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
 
-  (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "f") cfgmap) of
+
+  (C.AnyCFG cfg) <- case (Map.lookup (Text.pack mname) cfgmap) of
                         Just c -> return c
                         _      -> fail $ "Could not find cfg: " ++ mname
-  (C.AnyCFG a_cfg) <- case (Map.lookup (Text.pack "ARG") cfgmap) of
-                        Just c -> return c
-                        _      -> fail $ "Could not find cfg: " ++ mname
+  say "Crux" "main"
+  print $ C.ppCFG True cfg
 
-  say "Crux" "f CFG"
-  print $ C.ppCFG True f_cfg
-  say "Crux" "ARG CFG"
-  print $ C.ppCFG True a_cfg
-
-  let hf = C.cfgHandle f_cfg
-  let ha = C.cfgHandle a_cfg
+  let h = C.cfgHandle cfg
   
-  Refl <- failIfNotEqual (C.handleArgTypes ha)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
-         $ "Checking input to ARG" 
-  Refl <- failIfNotEqual (C.handleArgTypes hf) (Ctx.empty `Ctx.extend` C.handleReturnType ha)
-         $ "Checking agreement between f and ARG" 
+  Refl <- failIfNotEqual (C.handleArgTypes h) (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
+         $ "Invalid input to "  ++ mname
+  Refl <- failIfNotEqual (C.handleReturnType h) C.UnitRepr
+         $ "Invalid output from " ++ mname 
 
   let
      osim :: Fun sym MIR Ctx.EmptyCtx C.UnitType
      osim   = do
-        arg  <- C.callCFG a_cfg C.emptyRegMap
-        res <- C.callCFG f_cfg (C.RegMap (Ctx.empty `Ctx.extend` arg))
-        liftIO $ printRegEntry @sym res
-        return ()
-        
+        res  <- C.callCFG cfg C.emptyRegMap
+        return (C.regValue res)
+  
   halloc <- C.newHandleAllocator
   let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl p
       simst  = C.initSimState simctx C.emptyGlobals C.defaultAbortHandler
@@ -181,6 +174,7 @@ makeCounterExamplesMIR :: Crux.Options CruxMIR -> Maybe ProvedGoals -> IO ()
 makeCounterExamplesMIR _ _ = return ()
   
 
+-- | Run mir-json on the input
 generateMIR :: FilePath -> String -> IO ExitCode
 generateMIR dir name = do
   let rustFile = dir </> name <.> "rs" 
@@ -190,7 +184,7 @@ generateMIR dir name = do
 
   say "Crux" $ "Generating " ++ dir </> name <.> "mir"
   (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-    [rustFile, "--crate-type", "lib"] ""
+    [rustFile, "--crate-type", "lib", "--cfg", "with_main"] ""
   let rlibFile = ("lib" ++ name) <.> "rlib"
   doesFileExist rlibFile >>= \case
     True  -> removeFile rlibFile
