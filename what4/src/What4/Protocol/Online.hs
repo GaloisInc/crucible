@@ -20,10 +20,10 @@ module What4.Protocol.Online
   , reset
   , inNewFrame
   , check
+  , checkAndGetModel
   , checkWithAssumptions
   , checkWithAssumptionsAndModel
   , getModel
-  , checkAndGetModel
   , getSatResult
   , checkSatisfiable
   , checkSatisfiableWithModel
@@ -94,7 +94,8 @@ killSolver p =
      void $ waitForProcess (solverHandle p)
 
 -- | Check if the given formula is satisfiable in the current
---   solver state, without requesting a model.
+--   solver state, without requesting a model.  This is done in a
+--   fresh frame, which is exited after the check call.
 checkSatisfiable ::
   SMTReadWriter solver =>
   SolverProcess scope solver ->
@@ -102,11 +103,15 @@ checkSatisfiable ::
   BoolExpr scope ->
   IO (SatResult () ())
 checkSatisfiable proc rsn p =
-  snd <$> checkWithAssumptions proc rsn [p]
+  let conn = solverConn proc in
+  inNewFrame conn $
+    do assume conn p
+       check proc rsn
 
 -- | Check if the formula is satisifiable in the current
---   solver state.
---   The evaluation funciton can be used to query the model.
+--   solver state.  This is done in a
+--   fresh frame, which is exited after the continuation
+--   complets. The evaluation function can be used to query the model.
 --   The model is valid only in the given continuation.
 checkSatisfiableWithModel ::
   SMTReadWriter solver =>
@@ -116,10 +121,10 @@ checkSatisfiableWithModel ::
   (SatResult (GroundEvalFn scope) () -> IO a) ->
   IO a
 checkSatisfiableWithModel proc rsn p k =
-  checkSatisfiable proc rsn p >>= \case
-    Sat{}   -> k . Sat =<< getModel proc
-    Unsat{} -> k (Unsat ())
-    Unknown -> k Unknown
+  let conn = solverConn proc in
+  inNewFrame conn $
+    do assume conn p
+       checkAndGetModel proc rsn >>= k
 
 --------------------------------------------------------------------------------
 -- Basic solver interaction.
@@ -199,8 +204,6 @@ check p rsn =
      return sat_result
 
 -- | Send a check command to the solver and get the model in the case of a SAT result.
---
--- This may fail if the solver terminates.
 checkAndGetModel :: SMTReadWriter solver => SolverProcess scope solver -> String -> IO (SatResult (GroundEvalFn scope) ())
 checkAndGetModel yp rsn = do
   sat_result <- check yp rsn

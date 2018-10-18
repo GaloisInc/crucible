@@ -55,6 +55,7 @@ module What4.Protocol.SMTLib2
     -- * Option
   , SMT2.Option(..)
   , SMT2.produceModels
+  , SMT2.produceUnsatCores
   , SMT2.ppDecimal
   , setOption
     -- * Solvers and External interface
@@ -71,7 +72,6 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Exception
-import           Control.Lens (folded)
 import           Control.Monad.State.Strict
 import           Data.Bits (bit, setBit, shiftL)
 import qualified Data.ByteString.UTF8 as UTF8
@@ -458,6 +458,8 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
 
   assertCommand _ e = SMT2.assert e
 
+  assertNamedCommand _ e nm = SMT2.assertNamed e nm
+
   pushCommand _  = SMT2.push 1
   popCommand _   = SMT2.pop 1
   resetCommand _ = SMT2.resetAssertions
@@ -467,6 +469,7 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
   checkWithAssumptionsCommand _ = SMT2.checkSatWithAssumptions
 
   getUnsatAssumptionsCommand _ = SMT2.getUnsatAssumptions
+  getUnsatCoreCommand _ = SMT2.getUnsatCore
 
   setOptCommand _ x y = SMT2.setOption (SMT2.Option opt)
     where opt = Builder.fromText x <> Builder.fromText " " <> y
@@ -740,7 +743,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     path <- defaultSolverPath solver sym
     withSolver solver sym path (logLn 2) $ \session -> do
       -- Assume the predicate holds.
-      forM predicates (SMTWriter.assume (sessionWriter session))
+      forM_ predicates (SMTWriter.assume (sessionWriter session))
       -- Run check SAT and get the model back.
       runCheckSat session $ \result -> do
         I.logSolverEvent sym

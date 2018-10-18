@@ -66,6 +66,8 @@ module What4.Protocol.SMTWriter
   , TypeMap(..)
   , freshBoundVarName
   , assumeFormula
+  , assumeFormulaWithName
+  , assumeFormulaWithFreshName
   , DefineStyle(..)
     -- * SMTWriter operations
   , assume
@@ -733,6 +735,11 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Create a command that asserts a formula.
   assertCommand :: f h -> Term h -> Command h
 
+  -- | Create a command that asserts a formula and attaches
+  --   the given name to it (primarily for the purposes of
+  --   later reporting unsatisfiable cores).
+  assertNamedCommand :: f h -> Term h -> Text -> Command h
+
   -- | Push 1 new scope
   pushCommand   :: f h -> Command h
 
@@ -752,6 +759,11 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Ask the solver to return an unsatisfiable core from among the assumptions
   --   passed into the previous "check with assumptions" command.
   getUnsatAssumptionsCommand :: f h -> Command h
+
+  -- | Ask the solver to return an unsatisfiable core from among the named assumptions
+  --   previously asserted using the `assertNamedCommand` after an unsatisfiable
+  --   `checkCommand`.
+  getUnsatCoreCommand :: f h -> Command h
 
   -- | Set an option/parameter.
   setOptCommand :: f h -> Text -> Builder -> Command h
@@ -814,6 +826,16 @@ mkFreeVar' conn tp = SMTName tp <$> mkFreeVar conn Ctx.empty tp
 -- | Assume that the given formula holds.
 assumeFormula :: SMTWriter h => WriterConn t h -> Term h -> IO ()
 assumeFormula c p = addCommand c (assertCommand c p)
+
+assumeFormulaWithName :: SMTWriter h => WriterConn t h -> Term h -> Text -> IO ()
+assumeFormulaWithName c p nm = addCommand c (assertNamedCommand c p nm)
+
+assumeFormulaWithFreshName :: SMTWriter h => WriterConn t h -> Term h -> IO Text
+assumeFormulaWithFreshName conn p =
+  do var <- withWriterState conn $ freshVarName
+     assumeFormulaWithName conn p var
+     return var
+
 
 data DefineStyle
   = FunctionDefinition
