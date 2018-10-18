@@ -315,6 +315,7 @@ transBinOp bop op1 op2 = do
     me2 <- evalOperand  op2
     case (me1, me2) of
       (MirExp (CT.BVRepr n) e1, MirExp (CT.BVRepr m) e2) ->
+          -- TODO: if the BVs are not the same width extend the shorter one
           case (testEquality n m, bop, M.arithType op1) of
             (Just Refl, M.Add, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAdd n e1 e2)
             (Just Refl, M.Sub, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVSub n e1 e2)
@@ -336,7 +337,7 @@ transBinOp bop op1 op2 = do
             (Just Refl, M.Le, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSle n e1 e2)
             (Just Refl, M.Ne, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
             (Just Refl, M.Beq, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVEq n e1 e2)
-            _ -> fail "bad binop"
+            _ -> fail $ "bad binop: " ++ show (M.BinaryOp bop op1 op2)
       (MirExp CT.BoolRepr e1, MirExp CT.BoolRepr e2) ->
           case bop of
             M.BitAnd -> return $ MirExp CT.BoolRepr (S.app $ E.And e1 e2)
