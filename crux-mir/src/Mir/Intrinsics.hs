@@ -24,7 +24,8 @@
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns #-}
+{-# OPTIONS_GHC -Wincomplete-patterns -Wall #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.Intrinsics
 ( -- * Internal implementation types
@@ -83,7 +84,6 @@ import qualified Data.Parameterized.TH.GADT as U
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
-import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
@@ -93,8 +93,6 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
-import qualified Lang.Crucible.Utils.Structural as U
-import           Lang.Crucible.Utils.MuxTree
 
 import           What4.Interface
 import           What4.Utils.MonadST
@@ -117,7 +115,7 @@ type family MirReferenceFam (sym :: *) (ctx :: Ctx CrucibleType) :: * where
 instance IsExprBuilder sym => IntrinsicClass sym MirReferenceSymbol where
   type Intrinsic sym MirReferenceSymbol ctx = MirReferenceFam sym ctx
 
-  muxIntrinsic sym _tys _nm (Empty :> tp) = muxRef sym
+  muxIntrinsic sym _tys _nm (Empty :> _tp) = muxRef sym
   muxIntrinsic _sym _tys nm ctx = typeError nm ctx
 
 data MirReferencePath sym :: CrucibleType -> CrucibleType -> * where
@@ -306,8 +304,8 @@ execMirStmt stmt s =
             v' <- writeRefPath sym iTypes v path x
             let s' = s & stateTree . actFrame . gpGlobals %~ insertRef sym r v'
             return ((), s')
-       MirSubfieldRef ctx (regValue -> MirReference r path) idx ->
-         do let r' = MirReference r (Field_RefPath ctx path idx)
+       MirSubfieldRef ctx0 (regValue -> MirReference r path) idx ->
+         do let r' = MirReference r (Field_RefPath ctx0 path idx)
             return (r', s)
        MirSubindexRef tp (regValue -> MirReference r path) (regValue -> idx) ->
          do let r' = MirReference r (Index_RefPath tp path idx)
@@ -365,11 +363,12 @@ readRefPath sym iTypes v = \case
        indexVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx
 
 
-mirExtImpl :: IsSymInterface sym => ExtensionImpl p sym MIR
+mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR
 mirExtImpl = ExtensionImpl
-             { extensionEval = \_ -> \case
+             { extensionEval = \_sym -> \case
              , extensionExec = execMirStmt
              }
+
 
 
 type MirSlice tp     = StructType (EmptyCtx ::>
@@ -385,14 +384,14 @@ pattern MirSliceRepr tp <- StructRepr
          NatRepr)
  where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (VectorRepr tp) :> NatRepr :> NatRepr)
 
-
--- Basic definitions.
+--------------------------------------------------------------------------------
+-- ** Generator state for MIR translation to Crucible
 --
 
 
---
-
--- | Varmap maps identifiers to registers (if the id corresponds to a local variable), or an atom (if the id corresponds to a function argument)
+-- | a VarMap maps identifier names to registers (if the id
+--   corresponds to a local variable) or an atom (if the id
+--   corresponds to a function argument)
 type VarMap s = Map.Map Text.Text (Some (VarInfo s))
 data VarInfo s tp where
   VarRegister  :: Reg s tp -> VarInfo s tp
@@ -400,9 +399,9 @@ data VarInfo s tp where
   VarAtom      :: Atom s tp -> VarInfo s tp
 
 varInfoRepr :: VarInfo s tp -> TypeRepr tp
-varInfoRepr (VarRegister reg) = typeOfReg reg
-varInfoRepr (VarReference reg) =
-  case typeOfReg reg of
+varInfoRepr (VarRegister reg0)  = typeOfReg reg0
+varInfoRepr (VarReference reg0) =
+  case typeOfReg reg0 of
     MirReferenceRepr tp -> tp
     _ -> error "impossible: varInfoRepr"
 varInfoRepr (VarAtom a) = typeOfAtom a
@@ -411,8 +410,11 @@ varInfoRepr (VarAtom a) = typeOfAtom a
 -- | LabelMap maps identifiers to labels of their corresponding basicblock
 type LabelMap s = Map.Map BasicBlockInfo (Label s)
 
+-- | AdtMap maps ADT names to their definitions
 type AdtMap = Map.Map Text.Text [Variant]
 
+-- | A TraitMap maps trait names to their vtables and instances
+-- The 'ctx' parameter lists the required members of the trait
 data TraitMap = forall s. TraitMap (Map.Map Text.Text {- ^ trait name-} (Some (TraitImpls s)))
 data TraitImpls s ctx = TraitImpls
   {_vtableTyRepr :: TypeRepr (StructType ctx)
@@ -425,7 +427,10 @@ data TraitImpls s ctx = TraitImpls
    -- ^ gives vtables for each type implementing a given trait
   }
 
-traitImpls :: TypeRepr (StructType ctx) -> Map.Map Text.Text (Some (Index ctx)) -> Map.Map Text.Text {- ^ type name-} (Expr MIR s (StructType ctx)) -> TraitImpls s ctx
+traitImpls :: TypeRepr (StructType ctx)
+           -> Map.Map Text.Text (Some (Index ctx))
+           -> Map.Map Text.Text {- ^ type name-} (Expr MIR s (StructType ctx))
+           -> TraitImpls s ctx
 traitImpls str midx vtbls = TraitImpls {_vtableTyRepr = str
                                        ,_methodIndex = midx
                                        ,_vtables = vtbls
@@ -433,7 +438,7 @@ traitImpls str midx vtbls = TraitImpls {_vtableTyRepr = str
 
 makeLenses ''TraitImpls
 
--- | HandleMap maps identifiers to their corresponding function handle
+-- | HandleMap maps identifier names to their corresponding function handle
 type HandleMap = Map.Map Text.Text MirHandle
 data MirHandle where
     MirHandle :: FnHandle init ret -> MirHandle
@@ -442,14 +447,14 @@ instance Show MirHandle where
     show (MirHandle c) = show c
 
 -- | Generator state for MIR translation
-data FnState s = FnState { _varMap :: !(VarMap s),
-                           _labelMap :: !(LabelMap s),
+data FnState s = FnState { _varMap    :: !(VarMap s),
+                           _labelMap  :: !(LabelMap s),
                            _handleMap :: !HandleMap,
-                           _adtMap :: !AdtMap,
-                           _traitMap :: !TraitMap
+                           _adtMap    :: !AdtMap,
+                           _traitMap  :: !TraitMap
                          }
 
-
+makeLenses ''FnState
 
 -- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
 data MirExp s where
@@ -458,4 +463,4 @@ data MirExp s where
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
-makeLenses ''FnState
+
