@@ -122,8 +122,6 @@ import           What4.Symbol
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
 
-import           Data.Monoid
-
 ------------------------------------------------------------------------
 -- Term construction typeclasses
 
@@ -2077,7 +2075,6 @@ appSMTExpr ae = do
     ConstantArray idxRepr _bRepr ve -> do
       v <- mkExpr ve
       let value_type = smtExprType v
-          smt_value_type = Some value_type
           feat = supportedFeatures conn
           mkArray = if feat `hasProblemFeature` useSymbolicArrays
                     then PrimArrayTypeMap
