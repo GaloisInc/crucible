@@ -26,6 +26,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text, unpack)
 import Data.List
 import Control.Lens (makeLenses)
+import Data.Maybe (fromMaybe)
 
 import GHC.Stack
 
@@ -543,10 +544,17 @@ instance Replace Var Lvalue where
     replace old new (LProjection (LvalueProjection lbase lkind)) = LProjection $ LvalueProjection (replace old new lbase) lkind
 
 instance Replace Lvalue Lvalue where
-    replace old new v =
-        case repl_lv old new v of
-          Just c -> c
-          _ -> v
+    replace old new v = fromMaybe v (repl_lv v)
+      where
+        repl_lv :: Lvalue -> Maybe Lvalue -- some light unification
+        repl_lv v0 =
+          case v0 of
+            LProjection (LvalueProjection lb k)
+              | Just ans <- repl_lv lb -> Just $ LProjection (LvalueProjection ans k)
+            Tagged lb _ | Just ans <- repl_lv lb -> Just ans
+            _ | v == old -> Just new
+            _ -> Nothing
+
 
 instance (Replace v Lvalue) => Replace v Operand where
     replace old new (Consume lv) = Consume (replace old new lv)
@@ -578,14 +586,6 @@ replaceVar = replace
 
 replaceLvalue :: (Replace Lvalue a) => Lvalue -> Lvalue -> a -> a
 replaceLvalue = replace 
-
-repl_lv :: Lvalue -> Lvalue -> Lvalue -> Maybe Lvalue -- some light unification
-repl_lv old new v =
-    case v of
-      LProjection (LvalueProjection lb k) | Just ans <- repl_lv old new lb -> Just $ LProjection (LvalueProjection ans k)
-      Tagged lb _ | Just ans <- repl_lv old new lb -> Just ans
-      _ | v == old -> Just new
-      _ -> Nothing
 
 --------------------------------------------------------------------------------------
 --- Custom stuff
