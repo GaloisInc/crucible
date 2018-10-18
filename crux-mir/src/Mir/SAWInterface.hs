@@ -35,6 +35,8 @@ import Control.Monad
 
 import GHC.Stack
 
+import Mir.PP()
+import           Text.PrettyPrint.ANSI.Leijen (putDoc,Pretty(..))
 
 data RustModule = RustModule {
     rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
@@ -74,6 +76,8 @@ loadMIR fp = do
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
       Right col -> do
+          print "Mir decoding"
+          putDoc (pretty col)
           --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
           let passes = P.passRemoveBoxNullary
           -- DEBUGGING print functions

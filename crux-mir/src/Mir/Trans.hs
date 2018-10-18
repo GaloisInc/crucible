@@ -55,6 +55,8 @@ import GHC.Stack
 
 -- See end of [Intrinsics] for definition of generator state FnState
 
+-- h for state monad
+-- s phantom parameter for CFGs
 type MirGenerator h s ret = G.Generator MIR h s FnState ret
 
 -----------
@@ -1066,7 +1068,13 @@ buildFnState body argvars = do
     vm' <- buildIdentMapRegs body argvars
     varMap %= Map.union vm'
 
-initFnState :: AdtMap -> TraitMap -> [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> Map.Map Text.Text MirHandle -> FnState s
+initFnState :: AdtMap
+            -> TraitMap 
+            -> [(Text.Text, M.Ty)]
+            -> CT.CtxRepr args 
+            -> Ctx.Assignment (R.Atom s) args
+            -> Map.Map Text.Text MirHandle
+            -> FnState s
 initFnState am tm vars argsrepr args hmap =
     FnState (go (reverse vars) argsrepr args Map.empty) (Map.empty) hmap am tm
     where go :: [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
@@ -1127,7 +1135,12 @@ mkHandleMap halloc fns = Map.fromList <$> (mapM (mkHandle halloc) fns) where
 -- transDefine: make CFG using genDefn (with type info coming from above), using initial state from initState; return (fname, CFG)
 
 
-transDefine :: forall h. HasCallStack => AdtMap -> TraitMap -> Map.Map Text.Text MirHandle -> M.Fn -> ST h (Text.Text, Core.AnyCFG MIR)
+transDefine :: forall h. HasCallStack =>
+  AdtMap ->
+  TraitMap ->
+  Map.Map Text.Text MirHandle ->
+  M.Fn ->
+  ST h (Text.Text, Core.AnyCFG MIR)
 transDefine am tm hmap fn@(M.Fn fname fargs _ _) =
   case (Map.lookup fname hmap) of
     Nothing -> fail "bad handle!!"
@@ -1143,7 +1156,7 @@ transDefine am tm hmap fn@(M.Fn fname fargs _ _) =
       case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (fname, Core.AnyCFG g_ssa)
 
--- transCollection: initialize map of fn names to FnHandles.
+-- | transCollection: initialize map of fn names to FnHandles.
 transCollection :: HasCallStack => M.Collection -> FH.HandleAllocator s -> ST s (Map.Map Text.Text (Core.AnyCFG MIR))
 transCollection col halloc = do
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col^.M.adts ]

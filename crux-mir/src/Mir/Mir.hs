@@ -25,7 +25,7 @@ import qualified Text.Regex as Regex
 import qualified Data.Map.Strict as Map
 import Data.Text (Text, unpack)
 import Data.List
-import Control.Lens (makeLenses)
+import Control.Lens(makeLenses,(^.))
 import Data.Maybe (fromMaybe)
 
 import GHC.Stack
@@ -33,6 +33,8 @@ import GHC.Stack
 -- NOTE: below, all unwinding calls can be ignored
 --
 --
+
+-- Description of MIR: https://github.com/rust-lang/rfcs/blob/master/text/1211-mir.md
 
 data BaseSize =
     USize
@@ -146,11 +148,6 @@ data MirBody = MirBody {
     deriving (Show,Eq)
 
 
-instance FromJSON MirBody where
-    parseJSON = withObject "MirBody" $ \v -> MirBody
-        <$> v .: "vars"
-        <*> v .: "blocks"
-
 data BasicBlock = BasicBlock {
     _bbinfo :: BasicBlockInfo,
     _bbdata :: BasicBlockData
@@ -177,10 +174,10 @@ data Statement =
 
 
 data Lvalue =
-    Local { _lvar :: Var}
-      | Static
-      | LProjection LvalueProjection
-      | Tagged Lvalue Text -- for internal use during the translation
+      Local { _lvar :: Var}
+    | Static
+    | LProjection LvalueProjection
+    | Tagged Lvalue Text -- for internal use during the translation
     deriving (Show, Eq)
 
 instance Ord Lvalue where
@@ -189,9 +186,11 @@ instance Ord Lvalue where
 
 data Rvalue =
         Use { _uop :: Operand }
+        -- ^ just read an lvalue
       | Repeat { _rop :: Operand, _rlen :: ConstUsize }
       | Ref { _rbk :: BorrowKind, _rvar :: Lvalue, _rregion :: Text }
       | Len { _lenvar :: Lvalue }
+        -- ^ load length from a slice
       | Cast { _cck :: CastKind, _cop :: Operand, _cty :: Ty }
       | BinaryOp { _bop :: BinOp, _bop1 :: Operand, _bop2 :: Operand }
       | CheckedBinaryOp { _cbop :: BinOp, _cbop1 :: Operand, _cbop2 :: Operand }
@@ -209,14 +208,17 @@ data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
 
 data Terminator =
         Goto { _gbb :: BasicBlockInfo}
-      | SwitchInt { _sdiscr :: Operand,
+        -- ^ normal control flow
+      | SwitchInt { _sdiscr    :: Operand,
                     _switch_ty :: Ty,
-                    _svalues :: [Maybe Integer],
-                    _stargets :: [BasicBlockInfo] }
+                    _svalues   :: [Maybe Integer],
+                    _stargets  :: [BasicBlockInfo] }
+        -- ^ case  
       | Resume
       | Return
+        -- ^ return to caller normally
       | Unreachable
-      | Drop { _dloc :: Lvalue,
+      | Drop { _dloc    :: Lvalue,
                _dtarget :: BasicBlockInfo,
                _dunwind :: Maybe BasicBlockInfo }
       | DropAndReplace { _drloc    :: Lvalue,
@@ -305,9 +307,9 @@ data CastKind =
 
 data Literal =
     Item DefId [Maybe Ty]
-      | Value ConstVal
-      | LPromoted Promoted
-      deriving (Show,Eq)
+  | Value ConstVal
+  | LPromoted Promoted
+  deriving (Show,Eq)
 
 data IntLit
   = U8 Integer
@@ -329,27 +331,27 @@ data FloatLit
 
 data ConstVal =
     ConstFloat FloatLit
-      | ConstInt IntLit
-      | ConstStr String
-      | ConstByteStr B.ByteString
-      | ConstBool Bool
-      | ConstChar Char
-      | ConstVariant DefId
-      | ConstFunction DefId [Maybe Ty]
-      | ConstStruct
-      | ConstTuple [ConstVal]
-      | ConstArray [ConstVal]
-      | ConstRepeat ConstVal Int
-    deriving (Show,Eq)
+  | ConstInt IntLit
+  | ConstStr String
+  | ConstByteStr B.ByteString
+  | ConstBool Bool
+  | ConstChar Char
+  | ConstVariant DefId
+  | ConstFunction DefId [Maybe Ty]
+  | ConstStruct
+  | ConstTuple [ConstVal]
+  | ConstArray [ConstVal]
+  | ConstRepeat ConstVal Int
+  deriving (Show,Eq)
 
 data AggregateKind =
-    AKArray Ty
+        AKArray Ty
       | AKTuple
       | AKClosure DefId [Maybe Ty]
       deriving (Show,Eq)
 
 data CustomAggregate =
-    CARange Ty Operand Operand -- depreciated but here in case something else needs to go here
+    CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
     deriving (Show,Eq)
 
 type DefId = Text
@@ -365,8 +367,8 @@ data Trait = Trait Text [TraitItem]
 
 
 data TraitItem
-    = TraitMethod Text FnSig
-    | TraitType Text
+    = TraitMethod Text FnSig  
+    | TraitType Text         -- associated type
     | TraitConst Text Ty
     deriving (Eq, Show)
 
@@ -637,8 +639,6 @@ isCustomFunc fname1
 --------------------------------------------------------------------------------------
 -- | Pretty printing instances
 
--- TODO: why not use 
-
 class PPrint a where
     pprint :: a -> String
 
@@ -707,7 +707,7 @@ instance PPrint Mutability where
     pprint = show
 
 instance PPrint Var where
-    pprint (Var vn vm vty _vs _) = j ++ unpack vn ++ ": " ++  pprint vty
+    pprint (Var vn vm _vty _vs _) = j ++ unpack vn -- ++ ": " ++  pprint vty
         where
             j = case vm of
                   Mut -> "mut "
@@ -785,7 +785,7 @@ instance PPrint Operand where
 
 
 instance PPrint Constant where
-    pprint (Constant a b) = pprint_fn2 "Constant" a b
+    pprint (Constant _a b) = pprint b -- pprint_fn2 "Constant" a b
 
 instance PPrint LvalueProjection where
     pprint (LvalueProjection lv le) = "Projection(" ++ pprint lv ++", " ++  pprint le ++ ")"
@@ -854,6 +854,25 @@ instance PPrint Integer where
 instance PPrint (Map.Map Lvalue Lvalue) where
     pprint m = unwords $ Data.List.map (\(k,v) -> pprint k ++ " => " ++ pprint v ++ "\n") p
         where p = Map.toList m
+
+instance PPrint FnSig where
+  pprint (FnSig args ret) = pprint args ++ " -> " ++ pprint ret
+
+instance PPrint TraitItem where
+  pprint (TraitMethod name sig) = pprint name ++ ":" ++ pprint sig
+  pprint (TraitType name) = "name "  ++ pprint name
+  pprint (TraitConst name ty) = "const " ++ pprint name ++ ":" ++ pprint ty
+
+instance PPrint Trait where
+  pprint (Trait name items) =
+    "trait " ++ pprint name ++ pprint items
+
+instance PPrint Collection where
+  pprint col =
+    pprint (col^.functions) ++ "\n" ++
+    pprint (col^.adts)      ++ "\n" ++
+    pprint (col^.traits)    ++ "\n" 
+
 
 --------------------------------------------------------------------------------------
 -- | FromJSON instances
@@ -1162,3 +1181,9 @@ instance FromJSON TraitItem where
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
                   Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ show x
                   _ -> fail "Missing kind field in TraitItem"
+
+
+instance FromJSON MirBody where
+    parseJSON = withObject "MirBody" $ \v -> MirBody
+        <$> v .: "vars"
+        <*> v .: "blocks"
