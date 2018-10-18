@@ -161,6 +161,7 @@ tyToRepr t0 = case t0 of
                M.TyAdt _defid _tyargs -> Some taggedUnionType
                M.TyFloat _ -> Some CT.RealValRepr
                M.TyParam _ -> Some CT.AnyRepr -- FIXME??
+               M.TyFnPtr _fnSig -> Some CT.AnyRepr
                _ -> error $ unwords ["unknown type?", show t0]
 
 -- As in the CPS translation, functions which manipulate types must be
@@ -743,9 +744,6 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast i))) = do
             _ -> fail $ "bad type: expected anyrepr but got " ++ (show e_tp)
 
       _ -> fail "expected adt type!"
-
-
-
 
 evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 
