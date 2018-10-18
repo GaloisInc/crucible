@@ -380,11 +380,11 @@ makeLenses ''Fn
 
 lValueofOp :: HasCallStack => Operand -> Lvalue
 lValueofOp (Consume lv) = lv
-lValueofOp l = error $ "bad lvalue of op: " ++ (show l)
+lValueofOp l = error $ "bad lvalue of op: " ++ show l
 
 funcNameofOp :: HasCallStack => Operand -> Text
 funcNameofOp (OpConstant (Constant _ (Value (ConstFunction id1 _substs)))) = id1
-funcNameofOp _ = error $ "bad extract func name"
+funcNameofOp _ = error "bad extract func name"
 
 
 fromIntegerLit :: IntLit -> Integer
@@ -502,10 +502,10 @@ instance (Replace v [Var], Replace v [BasicBlock]) => Replace v MirBody where
     replace old new (MirBody a blocks) = MirBody a $ replace old new blocks
 
 instance Replace v a => Replace v (Map.Map b a) where
-    replace old new am = Map.map (replace old new) am
+    replace old new = Map.map (replace old new)
 
 instance Replace v a => Replace v [a] where
-    replace old new as = Data.List.map (replace old new) as
+    replace old new = Data.List.map (replace old new)
 
 instance (Replace v BasicBlockData) => Replace v BasicBlock where
     replace old new (BasicBlock bbi bbd) = BasicBlock bbi $ replace old new bbd
@@ -518,7 +518,7 @@ instance (Replace v Operand, Replace v Lvalue) => Replace v Terminator where
     replace old new (Drop loc targ un) = Drop (replace old new loc) targ un
     replace old new (DropAndReplace loc val targ un) = DropAndReplace (replace old new loc) (replace old new val) targ un
     replace old new (Call f args (Just (d1, d2)) cl)
-      = Call (replace old new f) (replace old new args) (Just ((replace old new d1), d2)) cl
+      = Call (replace old new f) (replace old new args) (Just (replace old new d1, d2)) cl
     replace old new (Assert cond exp1 m t cl) = Assert (replace old new cond) exp1 m t cl
     replace _old _new t = t
 
@@ -564,7 +564,7 @@ instance (Replace v Operand, Replace v Lvalue, Replace v Var) => Replace v Rvalu
     replace old new (Aggregate a bs) = Aggregate a (replace old new bs)
     replace old new (RCustom (CARange ty o1 o2)) = RCustom (CARange ty (replace old new o1) (replace old new o2))
     replace _old _new (UnaryOp a b) = UnaryOp a b
-    replace _old _new t = error $ "bad replacevar: " ++ (show t)
+    replace _old _new t = error $ "bad replacevar: " ++ show t
 
 
 
@@ -574,10 +574,10 @@ replaceList ((old,new) : vs) a = replaceList vs $ replace old new a
 
 
 replaceVar :: (Replace Var a) => Var -> Var -> a -> a
-replaceVar old new a = replace old new a
+replaceVar = replace 
 
 replaceLvalue :: (Replace Lvalue a) => Lvalue -> Lvalue -> a -> a
-replaceLvalue old new a = replace old new a
+replaceLvalue = replace 
 
 repl_lv :: Lvalue -> Lvalue -> Lvalue -> Maybe Lvalue -- some light unification
 repl_lv old new v =
@@ -643,23 +643,23 @@ class PPrint a where
     pprint :: a -> String
 
 pprint_fn1 :: (PPrint a) => String -> a -> String
-pprint_fn1 fn a = fn ++ "(" ++ (pprint a) ++ ");"
+pprint_fn1 fn a = fn ++ "(" ++ pprint a ++ ");"
 
 pprint_fn2 :: (PPrint a, PPrint b) => String -> a -> b -> String
-pprint_fn2 fn a b = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ");"
+pprint_fn2 fn a b = fn ++ "(" ++ pprint a ++ ", " ++ pprint b ++ ");"
 
 pprint_fn3 :: (PPrint a, PPrint b, PPrint c) => String -> a -> b -> c -> String
-pprint_fn3 fn a b c = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ", " ++ (pprint c) ++ ");"
+pprint_fn3 fn a b c = fn ++ "(" ++ pprint a ++ ", " ++ pprint b ++ ", " ++ pprint c ++ ");"
 
 pprint_fn4 :: (PPrint a, PPrint b, PPrint c, PPrint d) => String -> a -> b -> c -> d -> String
-pprint_fn4 fn a b c d = fn ++ "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ", " ++ (pprint c) ++ ", " ++ (pprint d) ++ ");"
+pprint_fn4 fn a b c d = fn ++ "(" ++ pprint a ++ ", " ++ pprint b ++ ", " ++ pprint c ++ ", " ++ pprint d ++ ");"
 
 instance PPrint a => PPrint (Maybe a) where
     pprint (Just a) = pprint a
     pprint Nothing = ""
 
 instance PPrint Text where
-    pprint a = unpack a
+    pprint = unpack
 
 instance PPrint Int where
     pprint = show
@@ -669,7 +669,7 @@ instance PPrint a => PPrint [a] where
         pas = mconcat $ Data.List.intersperse ", " (Prelude.map pprint as)
 
 instance (PPrint a, PPrint b) => PPrint (a,b) where
-    pprint (a,b) = "(" ++ (pprint a) ++ ", " ++ (pprint b) ++ ")"
+    pprint (a,b) = "(" ++ pprint a ++ ", " ++ pprint b ++ ")"
 
 instance PPrint Bool where
     pprint = show
@@ -707,14 +707,14 @@ instance PPrint Mutability where
     pprint = show
 
 instance PPrint Var where
-    pprint (Var vn vm vty _vs _) = j ++ (unpack vn) ++ ": " ++ ( pprint vty)
+    pprint (Var vn vm vty _vs _) = j ++ unpack vn ++ ": " ++  pprint vty
         where
             j = case vm of
                   Mut -> "mut "
                   _ -> ""
 
 instance PPrint Fn where
-    pprint (Fn fname1 fargs1 fty fbody1) = (pprint fname1) ++ "(" ++ pargs ++ ") -> " ++ (pprint fty) ++ " {\n" ++ (pprint fbody1) ++ "}\n"
+    pprint (Fn fname1 fargs1 fty fbody1) = pprint fname1 ++ "(" ++ pargs ++ ") -> " ++ pprint fty ++ " {\n" ++ pprint fbody1 ++ "}\n"
         where
             pargs = mconcat $ Data.List.intersperse "\n" (Prelude.map pprint fargs1)
 
@@ -725,27 +725,27 @@ instance PPrint MirBody where
             pbs = mconcat $ Data.List.intersperse "\n" (Prelude.map pprint mbs)
     
 instance PPrint BasicBlock where
-    pprint (BasicBlock info dat) = (pprint info) ++ " { \n" ++ (pprint dat) ++ "} \n"
+    pprint (BasicBlock info dat) = pprint info ++ " { \n" ++ pprint dat ++ "} \n"
 
 instance PPrint BasicBlockData where
-    pprint (BasicBlockData bbds bbt) = pbs ++ "\n" ++ "\t" ++ (pprint bbt) ++ "\n"
+    pprint (BasicBlockData bbds bbt) = pbs ++ "\n" ++ "\t" ++ pprint bbt ++ "\n"
         where
-            a = (Prelude.map pprint bbds)
-            b = (Prelude.map (\v -> "\t" ++ v) a)
+            a = Prelude.map pprint bbds
+            b = Prelude.map (\v -> "\t" ++ v) a
             pbs = mconcat $ Data.List.intersperse "\n" b
 
 instance PPrint Statement where
-    pprint (Assign lhs rhs _) = (pprint lhs) ++ " = " ++ (pprint rhs) ++ ";"
-    pprint (SetDiscriminant lhs rhs) = (pprint lhs) ++ " = " ++ (pprint rhs) ++ ";"
+    pprint (Assign lhs rhs _) = pprint lhs ++ " = " ++ pprint rhs ++ ";"
+    pprint (SetDiscriminant lhs rhs) = pprint lhs ++ " = " ++ pprint rhs ++ ";"
     pprint (StorageLive l) = pprint_fn1 "StorageLive" l
     pprint (StorageDead l) = pprint_fn1 "StorageDead" l
-    pprint (Nop) = "nop;"
+    pprint Nop = "nop;"
 
 instance PPrint Lvalue where
     pprint (Local v) = pprint v
-    pprint (Static) = "STATIC"
+    pprint Static = "STATIC"
     pprint (LProjection p) = pprint p
-    pprint (Tagged lv t) = (show t) ++ "(" ++ (pprint lv) ++ ")"
+    pprint (Tagged lv t) = show t ++ "(" ++ pprint lv ++ ")"
     
 instance PPrint Rvalue where
     pprint (Use a) = pprint_fn1 "Use" a
@@ -767,28 +767,28 @@ instance PPrint AdtAg where
 
 
 instance PPrint Terminator where
-    pprint (Goto g) = "goto " ++ (pprint g) ++ ";"
-    pprint (SwitchInt op ty vs bs) = "switchint " ++ (pprint op) ++ ": " ++ (pprint ty) ++ " " ++ (pprint vs) ++ " -> " ++ (pprint bs)
-    pprint (Return) = "return;"
-    pprint (Resume) = "resume;"
-    pprint (Unreachable) = "unreachable;"
+    pprint (Goto g) = "goto " ++ pprint g ++ ";"
+    pprint (SwitchInt op ty vs bs) = "switchint " ++ pprint op ++ ": " ++ pprint ty ++ " " ++ pprint vs ++ " -> " ++ pprint bs
+    pprint Return = "return;"
+    pprint Resume = "resume;"
+    pprint Unreachable = "unreachable;"
     pprint (Drop _l _target _unwind) = "drop;"
-    pprint (DropAndReplace _ _ _ _) = "dropreplace;"
-    pprint (Call f args dest _cleanup) = "call " ++ (pprint f) ++ (pprint args) ++ " -> " ++ (pprint dest)
-    pprint (Assert op expect _msg target1 _cleanup) = "assert " ++ (pprint op) ++ " == " ++ (pprint expect) ++ " -> " ++ (pprint target1)
+    pprint DropAndReplace{} = "dropreplace;"
+    pprint (Call f args dest _cleanup) = "call " ++ pprint f ++ pprint args ++ " -> " ++ pprint dest
+    pprint (Assert op expect _msg target1 _cleanup) = "assert " ++ pprint op ++ " == " ++ pprint expect ++ " -> " ++ pprint target1
 
 
 
 instance PPrint Operand where
-    pprint (Consume lv) = "Consume(" ++ (pprint lv) ++ ")"
-    pprint (OpConstant c) = "Constant(" ++ (pprint c) ++ ")"
+    pprint (Consume lv) = "Consume(" ++ pprint lv ++ ")"
+    pprint (OpConstant c) = "Constant(" ++ pprint c ++ ")"
 
 
 instance PPrint Constant where
     pprint (Constant a b) = pprint_fn2 "Constant" a b
 
 instance PPrint LvalueProjection where
-    pprint (LvalueProjection lv le) = "Projection(" ++ (pprint lv) ++", " ++  (pprint le) ++ ")"
+    pprint (LvalueProjection lv le) = "Projection(" ++ pprint lv ++", " ++  pprint le ++ ")"
 
 instance PPrint Lvpelem where
     pprint Deref = "Deref"
@@ -836,13 +836,13 @@ instance PPrint ConstVal where
         pcs = mconcat $ Data.List.intersperse ", " (Prelude.map pprint cs)
     pprint (ConstArray cs) = "["++pcs++"]" where
         pcs = mconcat $ Data.List.intersperse ", " (Prelude.map pprint cs)
-    pprint (ConstRepeat cv i) = "["++(pprint cv)++"; " ++ (show i) ++ "]"
-    pprint (ConstFunction a b) = show a
+    pprint (ConstRepeat cv i) = "["++pprint cv++"; " ++ show i ++ "]"
+    pprint (ConstFunction a _b) = show a
     pprint ConstStruct = "ConstStruct"
 
 instance PPrint AggregateKind where
-    pprint (AKArray t) = "[" ++ (pprint t) ++ "]"
-    pprint (AKTuple) = "tup"
+    pprint (AKArray t) = "[" ++ pprint t ++ "]"
+    pprint AKTuple = "tup"
     pprint f = show f
 
 instance PPrint CustomAggregate where
@@ -852,7 +852,7 @@ instance PPrint Integer where
     pprint = show
 
 instance PPrint (Map.Map Lvalue Lvalue) where
-    pprint m = unwords $ Data.List.map (\(k,v) -> (pprint k) ++ " => " ++ (pprint v) ++ "\n") p
+    pprint m = unwords $ Data.List.map (\(k,v) -> pprint k ++ " => " ++ pprint v ++ "\n") p
         where p = Map.toList m
 
 --------------------------------------------------------------------------------------
@@ -862,7 +862,7 @@ instance PPrint (Map.Map Lvalue Lvalue) where
 
 instance FromJSON BaseSize where
     parseJSON = withObject "BaseSize" $
-                \t -> case (HML.lookup "kind" t) of
+                \t -> case HML.lookup "kind" t of
                         Just (String "usize") -> pure USize
                         Just (String "u8") -> pure B8
                         Just (String "u16") -> pure B16
@@ -878,13 +878,13 @@ instance FromJSON BaseSize where
                         sz -> fail $ "unknown base size: " ++ show sz
 
 instance FromJSON FloatKind where
-    parseJSON = withObject "FloatKind" $ \t -> case (HML.lookup "kind" t) of
+    parseJSON = withObject "FloatKind" $ \t -> case HML.lookup "kind" t of
                                                  Just (String "f32") -> pure F32
                                                  Just (String "f64") -> pure F64
                                                  sz -> fail $ "unknown float type: " ++ show sz
 
 instance FromJSON Ty where
-    parseJSON = withObject "Ty" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Ty" $ \v -> case HML.lookup "kind" v of
                                           Just (String "Bool") -> pure TyBool
                                           Just (String "Char") -> pure TyChar
                                           Just (String "Int") -> TyInt <$> v .: "intkind"
@@ -914,13 +914,13 @@ instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
 
 instance FromJSON VariantDiscr where
-    parseJSON = withObject "VariantDiscr" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "VariantDiscr" $ \v -> case HML.lookup "kind" v of
                                                     Just (String "Explicit") -> Explicit <$> v .: "name"
                                                     Just (String "Relative") -> Relative <$> v .: "index"
                                                     _ -> fail "unspported variant discriminator"
 
 instance FromJSON CtorKind where
-    parseJSON = withObject "CtorKind" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "CtorKind" $ \v -> case HML.lookup "kind" v of
                                                 Just (String "Fn") -> pure FnKind
                                                 Just (String "Const") -> pure ConstKind
                                                 Just (String "Fictive") -> pure FictiveKind
@@ -932,14 +932,14 @@ instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
 
 instance FromJSON CustomTy where
-    parseJSON = withObject "CustomTy" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "CustomTy" $ \v -> case HML.lookup "kind" v of
                                                 Just (String "Box") -> BoxTy <$> v .: "box_ty"
                                                 Just (String "Vec") -> VecTy <$> v .: "vec_ty"
                                                 Just (String "Iter") -> IterTy <$> v .: "iter_ty"
                                                 x -> fail $ "bad custom type: " ++ show x
 
 instance FromJSON Mutability where
-    parseJSON = withObject "Mutability" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Mutability" $ \v -> case HML.lookup "kind" v of
                                                 Just (String "MutMutable") -> pure Mut
                                                 Just (String "Mut") -> pure Mut
                                                 Just (String "MutImmutable") -> pure Immut
@@ -980,7 +980,7 @@ instance FromJSON BasicBlockData where
         <*>  v .: "terminator"
 
 instance FromJSON Statement where
-    parseJSON = withObject "Statement" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Statement" $ \v -> case HML.lookup "kind" v of
                              Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs" <*> v .: "pos"
                              Just (String "SetDiscriminant") -> SetDiscriminant <$> v .: "lvalue" <*> v .: "variant_index"
                              Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
@@ -990,14 +990,14 @@ instance FromJSON Statement where
 
 
 instance FromJSON Lvalue where
-    parseJSON = withObject "Lvalue" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Lvalue" $ \v -> case HML.lookup "kind" v of
                                               Just (String "Local") ->  Local <$> v .: "localvar"
                                               Just (String "Static") -> pure Static
                                               Just (String "Projection") ->  LProjection <$> v .: "data"
                                               _ -> fail "kind not found"
 
 instance FromJSON Rvalue where
-    parseJSON = withObject "Rvalue" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Rvalue" $ \v -> case HML.lookup "kind" v of
                                               Just (String "Use") -> Use <$> v .: "usevar"
                                               Just (String "Repeat") -> Repeat <$> v .: "op" <*> v .: "len"
                                               Just (String "Ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
@@ -1017,7 +1017,7 @@ instance FromJSON AdtAg where
     parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
 
 instance FromJSON Terminator where
-    parseJSON = withObject "Terminator" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Terminator" $ \v -> case HML.lookup "kind" v of
                                                   Just (String "Goto") -> Goto <$> v .: "target"
                                                   Just (String "SwitchInt") -> SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> v .: "values" <*> v .: "targets"
                                                   Just (String "Resume") -> pure Resume
@@ -1030,7 +1030,7 @@ instance FromJSON Terminator where
                                                   _ -> fail "unsupported terminator"
 
 instance FromJSON Operand where
-    parseJSON = withObject "Operand" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Operand" $ \v -> case HML.lookup "kind" v of
                                                Just (String "Consume") -> Consume <$> v .: "data"
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
@@ -1039,7 +1039,7 @@ instance FromJSON LvalueProjection where
     parseJSON = withObject "LvalueProjection" $ \v -> LvalueProjection <$> v .: "base" <*> v .: "data"
 
 instance FromJSON Lvpelem where
-    parseJSON = withObject "Lvpelem" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Lvpelem" $ \v -> case HML.lookup "kind" v of
                                                Just (String "Deref") -> pure Deref
                                                Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
                                                Just (String "Index") -> Index <$> v .: "op"
@@ -1052,25 +1052,25 @@ instance FromJSON Constant where
     parseJSON = withObject "Constant" $ \v -> Constant <$> v .: "ty" <*> v .: "literal"
     
 instance FromJSON NullOp where
-    parseJSON = withObject "NullOp" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "NullOp" $ \v -> case HML.lookup "kind" v of
                                              Just (String "SizeOf") -> pure SizeOf
                                              Just (String "Box") -> pure Box
                                              x -> fail ("bad nullOp: " ++ show x)
 
 instance FromJSON BorrowKind where
-    parseJSON = withObject "BorrowKind" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "BorrowKind" $ \v -> case HML.lookup "kind" v of
                                              Just (String "Shared") -> pure Shared
                                              Just (String "Unique") -> pure Unique
                                              Just (String "Mut") -> pure Mutable
                                              x -> fail ("bad borrowKind: " ++ show x)
 
 instance FromJSON UnOp where
-    parseJSON = withObject "UnOp" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "UnOp" $ \v -> case HML.lookup "kind" v of
                                              Just (String "Not") -> pure Not
                                              Just (String "Neg") -> pure Neg
                                              x -> fail ("bad unOp: " ++ show x)
 instance FromJSON BinOp where
-    parseJSON = withObject "BinOp" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "BinOp" $ \v -> case HML.lookup "kind" v of
                                              Just (String "Add") -> pure Add
                                              Just (String "Sub") -> pure Sub
                                              Just (String "Mul") -> pure Mul
@@ -1090,7 +1090,7 @@ instance FromJSON BinOp where
                                              Just (String "Offset") -> pure Offset
                                              x -> fail ("bad binop: " ++ show x)
 instance FromJSON CastKind where
-    parseJSON = withObject "CastKind" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "CastKind" $ \v -> case HML.lookup "kind" v of
                                                Just (String "Misc") -> pure Misc
                                                Just (String "ReifyFnPointer") -> pure ReifyFnPointer
                                                Just (String "ClosureFnPointer") -> pure ClosureFnPointer
@@ -1099,7 +1099,7 @@ instance FromJSON CastKind where
                                                x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Literal where
-    parseJSON = withObject "Literal" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "Literal" $ \v -> case HML.lookup "kind" v of
                                                Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
                                                Just (String "Value") -> Value <$> v .: "value"
                                                Just (String "Promoted") -> LPromoted <$> v .: "index"
@@ -1107,7 +1107,7 @@ instance FromJSON Literal where
 
 
 instance FromJSON IntLit where
-    parseJSON = withObject "IntLit" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "IntLit" $ \v -> case HML.lookup "kind" v of
                                               Just (String "u8") -> U8 <$> v.: "val"
                                               Just (String "u16") -> U16 <$> v.: "val"
                                               Just (String "u32") -> U32 <$> v.: "val"
@@ -1125,7 +1125,7 @@ instance FromJSON FloatLit where
     parseJSON = withObject "FloatLit" $ \v -> FloatLit <$> v .: "ty" <*> v.: "bits"
 
 instance FromJSON ConstVal where
-    parseJSON = withObject "ConstVal" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "ConstVal" $ \v -> case HML.lookup "kind" v of
                                                 Just (String "Integral") -> ConstInt <$> v .: "data"
                                                 Just (String "Bool") -> ConstBool <$> v .: "data"
                                                 Just (String "Char") -> ConstChar <$> v .: "data"
@@ -1138,15 +1138,15 @@ instance FromJSON ConstVal where
                                                 r -> fail $ "const unimp: " ++ show r
 
 instance FromJSON AggregateKind where
-    parseJSON = withObject "AggregateKind" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "AggregateKind" $ \v -> case HML.lookup "kind" v of
                                                      Just (String "Array") -> AKArray <$> v .: "ty"
                                                      Just (String "Tuple") -> pure AKTuple
                                                      Just (String "Closure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
-                                                     Just (String unk) -> fail $ "unimp: " ++ (unpack unk)
+                                                     Just (String unk) -> fail $ "unimp: " ++ unpack unk
                                                      x -> fail ("bad AggregateKind: " ++ show x)
 
 instance FromJSON CustomAggregate where
-    parseJSON = withObject "CustomAggregate" $ \v -> case (HML.lookup "kind" v) of
+    parseJSON = withObject "CustomAggregate" $ \v -> case HML.lookup "kind" v of
                                                        Just (String "Range") -> CARange <$> v .: "range_ty" <*> v .: "f1" <*> v .: "f2"
                                                        x -> fail ("bad CustomAggregate: " ++ show x)
 
@@ -1155,10 +1155,10 @@ instance FromJSON Trait where
 
 instance FromJSON TraitItem where
     parseJSON = withObject "TraitItem" $ \v ->
-                case (HML.lookup "kind" v) of
+                case HML.lookup "kind" v of
                   Just (String "Method") -> TraitMethod <$> v .: "name" <*> v .: "signature"
                   Just (String "Type") -> TraitType <$> v .: "name"
                   Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
-                  Just (String unk) -> fail $ "unknown trait item type: " ++ (unpack unk)
-                  Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ (show x)
+                  Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
+                  Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ show x
                   _ -> fail "Missing kind field in TraitItem"
