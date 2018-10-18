@@ -277,8 +277,6 @@ data LLVMConst where
   StructConst   :: !StructInfo -> [LLVMConst] -> LLVMConst
   -- | A pointer value, consisting of a concrete offset from a global symbol.
   SymbolConst   :: !L.Symbol -> !Integer -> LLVMConst
-  -- | A special marker for pointer constants that have been cast as an integer type.
-  PtrToIntConst :: !LLVMConst -> LLVMConst
 
 
 -- | This also can't be derived, but is completely uninteresting.
@@ -293,7 +291,6 @@ instance Show LLVMConst where
       (VectorConst mem v) -> ["VectorConst", show mem, show v]
       (StructConst si a)  -> ["StructConst", show si, show a]
       (SymbolConst s x)   -> ["SymbolConst", show s, show x]
-      (PtrToIntConst c)   -> ["PtrToIntConst", show c]
 
 -- | The interesting case here is @IntConst@. GHC can't derive this because
 -- @IntConst@ existentially quantifies the integer's width. We say that
@@ -310,7 +307,6 @@ instance Eq LLVMConst where
   (VectorConst mem1 v1) == (VectorConst mem2 v2) = mem1 == mem2 && v1 == v2
   (StructConst si1 a1)  == (StructConst si2 a2)  = si1 == si2   && a1 == a2
   (SymbolConst s1 x1)   == (SymbolConst s2 x2)   = s1 == s2     && x1 == x2
-  (PtrToIntConst c1)    == (PtrToIntConst c2)    = c1 == c2
   _                     == _                     = False
 
 -- | Create an LLVM constant value from a boolean.
@@ -565,13 +561,13 @@ evalIarith op w (ArithInt x) (ArithInt y)
 evalIarith op w (ArithPtr sym x) (ArithInt y)
   | Just Refl <- testEquality w ?ptrWidth
   , L.Add _ _ <- op
-  = return $ PtrToIntConst $ SymbolConst sym (x+y)
+  = return $ SymbolConst sym (x+y)
   | otherwise
   = throwError "Illegal operation applied to pointer argument"
 evalIarith op w (ArithInt x) (ArithPtr sym y)
   | Just Refl <- testEquality w ?ptrWidth
   , L.Add _ _ <- op
-  = return $ PtrToIntConst $ SymbolConst sym (x+y)
+  = return $ SymbolConst sym (x+y)
   | otherwise
   = throwError "Illegal operation applied to pointer argument"
 evalIarith op w (ArithPtr symx x) (ArithPtr symy y)
@@ -786,18 +782,8 @@ evalConv expr op mt x = case op of
       , FloatConst f <- x
       -> return $ FloatConst f
 
-    L.IntToPtr
-      | PtrToIntConst p <- x
-      -> return p
-
-      | otherwise
-      -> badExp "cannot convert arbitrary constant values to pointers"
-
-    L.PtrToInt
-      | SymbolConst _ _  <- x
-      -> return $ PtrToIntConst x
-      | otherwise
-      -> badExp "invalid pointer value"
+    L.IntToPtr -> return x
+    L.PtrToInt -> return x
 
     _ -> badExp "unexpected conversion operation"
 
@@ -888,7 +874,7 @@ asArithInt n (ZeroConst (IntType m))
 asArithInt n (IntConst w x)
   | toInteger n == natValue w
   = return (ArithInt x)
-asArithInt n (PtrToIntConst (SymbolConst sym off))
+asArithInt n (SymbolConst sym off)
   | toInteger n == natValue ?ptrWidth
   = return (ArithPtr sym off)
 asArithInt _ _
@@ -944,8 +930,7 @@ transConstantExpr :: forall m wptr.
   m LLVMConst
 transConstantExpr _mt expr = case expr of
   L.ConstGEP _ _ _ [] -> badExp "Constant GEP must have at least two arguments"
-  L.ConstGEP _ (Just _) _ _ -> badExp "NYI: Constant GEP with `inrange`"
-  L.ConstGEP inbounds Nothing _ (base:exps) ->
+  L.ConstGEP inbounds _inrange _ (base:exps) -> -- TODO? pay attention to the inrange flag
     do gep <- translateGEP inbounds base exps
        gep' <- traverse transConstant gep
        snd <$> evalConstGEP gep'
