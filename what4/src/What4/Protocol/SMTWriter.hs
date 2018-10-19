@@ -590,7 +590,7 @@ data WriterConn t (h :: *) =
                -- ^ Symbol variables.
              , connState :: !h
                -- ^ The specific connection information.
-             , consumeAcknowledgement :: WriterConn t h -> IO ()
+             , consumeAcknowledgement :: WriterConn t h -> Command h -> IO ()
                -- ^ Consume an acknowledgement notifications the solver, if
                --   it produces one
              }
@@ -634,7 +634,7 @@ popEntryStack c = do
    (_:r) -> writeIORef (entryStack c) r
 
 newWriterConn :: Handle
-              -> (WriterConn t cs -> IO ())
+              -> (WriterConn t cs -> Command cs -> IO ())
               -- ^ An action to consume solver acknowledgement responses
               -> String
               -- ^ Name of solver for reporting purposes.
@@ -813,7 +813,7 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 addCommand :: SMTWriter h => WriterConn t h -> Command h -> IO ()
 addCommand conn cmd = do
   addCommandNoAck conn cmd
-  consumeAcknowledgement conn conn
+  consumeAcknowledgement conn conn cmd
 
 addCommandNoAck :: SMTWriter h => WriterConn t h -> Command h -> IO ()
 addCommandNoAck conn cmd = do

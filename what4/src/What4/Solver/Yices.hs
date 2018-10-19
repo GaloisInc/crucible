@@ -384,7 +384,7 @@ setParamCommand nm v = Cmd $ app "set-param" [ Builder.fromText nm, v ]
 -- Connection
 
 newConnection :: Handle
-              -> (WriterConn t (Connection s) -> IO ())    -- ^ Ack action
+              -> (WriterConn t (Connection s) -> Command (Connection s) -> IO ())    -- ^ Ack action
               -> ProblemFeatures -- ^ Indicates the problem features to support.
               -> B.SymbolVarBimap t
               -> IO (WriterConn t (Connection s))
@@ -468,7 +468,7 @@ instance OnlineSolver s (Connection s) where
   startSolverProcess = yicesStartSolver
   shutdownSolverProcess = yicesShutdownSolver
 
-yicesShutdownSolver :: SolverProcess s (Connection s) -> IO ()
+yicesShutdownSolver :: SolverProcess s (Connection s) -> IO (ExitCode, LazyText.Text)
 yicesShutdownSolver p =
    do hClose (solverStdin p)
 
@@ -476,16 +476,16 @@ yicesShutdownSolver p =
       txt <- readAllLines (solverStderr p)
 
       ec <- waitForProcess (solverHandle p)
-      case ec of
-        ExitSuccess -> do
-          return ()
-          --logLn 2 "Yices terminated."
-        ExitFailure exit_code -> do
-          fail $ "yices exited with unexpected code " ++ show exit_code ++ "\n"
-              ++ LazyText.unpack txt
+      return (ec,txt)
 
-yicesAck :: Streams.InputStream ByteString -> IORef (Maybe Int) -> WriterConn s (Connection s) -> IO ()
-yicesAck resp earlyUnsatRef conn =
+
+yicesAck ::
+  Streams.InputStream ByteString ->
+  IORef (Maybe Int) ->
+  WriterConn s (Connection s) ->
+  YicesCommand ->
+  IO ()
+yicesAck resp earlyUnsatRef conn (Cmd cmd) =
   do x <- getAckResponse resp
      case x of
        Nothing ->
@@ -497,6 +497,8 @@ yicesAck resp earlyUnsatRef conn =
          fail $ unlines
                  [ "Unexpected response from solver while awaiting acknowledgement"
                  , "*** result:" ++ show txt
+                 , "in response to command"
+                 , "***: " ++ LazyText.unpack (Builder.toLazyText cmd)
                  ]
 
 yicesStartSolver :: B.ExprBuilder s st fs -> IO (SolverProcess s (Connection s))
@@ -702,7 +704,7 @@ yicesAdapter =
        runYicesInOverride sym logLn rsn ps
           (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
-       writeDefaultSMT2 () (\_ -> return ()) "YICES" yicesSMT2Features
+       writeDefaultSMT2 () (\_ _ -> return ()) "YICES" yicesSMT2Features
    }
 
 -- | Path to yices
@@ -862,7 +864,7 @@ writeYicesFile sym path p = do
 
     bindings <- B.getSymbolVarBimap sym
 
-    c <- newConnection h (\_ -> return ()) features bindings
+    c <- newConnection h (\_ _ -> return ()) features bindings
     setYicesParams c cfg
     assume c p
     if efSolver then
@@ -904,7 +906,7 @@ runYicesInOverride sym logLn rsn conditions resultFn = do
 
       -- Create new connection for sending commands to yices.
       bindings <- B.getSymbolVarBimap sym
-      c <- newConnection in_h (\_ -> return ()) features bindings
+      c <- newConnection in_h (\_ _ -> return ()) features bindings
       -- Write yices parameters.
       setYicesParams c cfg
       -- Assert condition
@@ -940,5 +942,5 @@ runYicesInOverride sym logLn rsn conditions resultFn = do
            Unsat x -> resultFn (Unsat x)
            Unknown -> resultFn Unknown
 
-      yicesShutdownSolver yp
+      _ <- yicesShutdownSolver yp
       return r

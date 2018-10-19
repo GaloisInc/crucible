@@ -56,6 +56,8 @@ module What4.Protocol.SMTLib2
   , SMT2.Option(..)
   , SMT2.produceModels
   , SMT2.produceUnsatCores
+  , SMT2.produceUnsatAssumptions
+  , SMT2.printSuccess
   , SMT2.ppDecimal
   , setOption
     -- * Solvers and External interface
@@ -64,6 +66,8 @@ module What4.Protocol.SMTLib2
   , writeDefaultSMT2
   , startSolver
   , shutdownSolver
+  , smtAckResult
+  , SMTLib2Exception(..)
     -- * Re-exports
   , SMTWriter.WriterConn
   , SMTWriter.assume
@@ -77,6 +81,7 @@ import           Data.Bits (bit, setBit, shiftL)
 import qualified Data.ByteString.UTF8 as UTF8
 import           Data.Char (digitToInt)
 import           Data.IORef
+import qualified Data.Text.Lazy as LazyText
 import qualified Data.Map.Strict as Map
 import           Data.Monoid
 import qualified Data.Parameterized.Context as Ctx
@@ -88,7 +93,6 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String
 import           Data.Text (Text)
-import qualified Data.Text.Lazy as LazyText
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder
@@ -420,7 +424,7 @@ instance SupportTermOps Term where
 
 newWriter :: a
           -> IO.Handle
-          -> (WriterConn t (Writer a) -> IO ())
+          -> (WriterConn t (Writer a) -> Command (Writer a) -> IO ())
              -- ^ Action to run for consuming acknowledgement messages
           -> String
              -- ^ Name of solver for reporting purposes.
@@ -651,6 +655,46 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
          Right res -> fail ("Could not interpret result from solver: " ++ res)
 
 
+data SMTLib2Exception
+  = SMTLib2Unsupported SMT2.Command
+  | SMTLib2Error SMT2.Command String
+  | SMTLib2ParseError SMT2.Command String
+
+instance Show SMTLib2Exception where
+  show (SMTLib2Unsupported (SMT2.Cmd cmd)) =
+     unlines
+       [ "unsupported command:"
+       , "  " ++ LazyText.unpack (Builder.toLazyText cmd)
+       ]
+  show (SMTLib2Error (SMT2.Cmd cmd) msg) =
+     unlines
+       [ "Solver reported an error:"
+       , "  " ++ msg
+       , "in response to command:"
+       , "  " ++ LazyText.unpack (Builder.toLazyText cmd)
+       ]
+  show (SMTLib2ParseError (SMT2.Cmd cmd) msg) =
+     unlines
+       [ "Could not parse solver response:"
+       , "  " ++ msg
+       , "in response to command:"
+       , "  " ++ LazyText.unpack (Builder.toLazyText cmd)
+       ]
+
+instance Exception SMTLib2Exception
+
+smtAckResult :: Streams.InputStream UTF8.ByteString -> WriterConn t (Writer a) -> Command (Writer a) -> IO ()
+smtAckResult resp _conn cmd =
+  do mb <- try (Streams.parseFromStream parseSExp resp)
+     case mb of
+       Right (SAtom "success") -> return ()
+       Right (SAtom "unsupported") -> throw (SMTLib2Unsupported cmd)
+       Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
+       Right res -> throw (SMTLib2ParseError cmd (show res))
+       Left (SomeException e) -> throw $ SMTLib2ParseError cmd $
+               unlines [ "Could not parse acknowledgement result."
+                       , "*** Exception: " ++ displayException e
+                       ]
 
 smtLibEvalFuns ::
   forall t a. SMTLib2Tweaks a => Session t a -> SMTEvalFunctions (Writer a)
@@ -681,7 +725,9 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
   setDefaultLogicAndOptions :: WriterConn t (Writer a) -> IO()
 
   newDefaultWriter
-    :: a -> (WriterConn t (Writer a) -> IO ()) -> B.ExprBuilder t st fs -> IO.Handle -> IO (WriterConn t (Writer a))
+    :: a ->
+       (WriterConn t (Writer a) -> Command (Writer a) -> IO ()) ->
+       B.ExprBuilder t st fs -> IO.Handle -> IO (WriterConn t (Writer a))
   newDefaultWriter solver ack sym h =
     newWriter solver h ack (show solver) True (defaultFeatures solver) True
       =<< B.getSymbolVarBimap sym
@@ -689,7 +735,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
   -- | Run the solver in a session.
   withSolver
     :: a
-    -> (WriterConn t (Writer a) -> IO ()) -- ^ Acknowledgement action
+    -> (WriterConn t (Writer a) -> Command (Writer a) -> IO ()) -- ^ Acknowledgement action
     -> B.ExprBuilder t st fs
     -> FilePath
       -- ^ Path to solver executable
@@ -730,7 +776,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 
   runSolverInOverride
     :: a
-    -> (WriterConn t (Writer a) -> IO ()) -- ^ Acknowledgement action
+    -> (WriterConn t (Writer a) -> Command (Writer a) -> IO ()) -- ^ Acknowledgement action
     -> B.ExprBuilder t st fs
     -> (Int -> String -> IO ())
     -> String
@@ -760,7 +806,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 --   solver-specific tweaks.
 writeDefaultSMT2 :: SMTLib2Tweaks a
                  => a
-                 -> (WriterConn t (Writer a) -> IO ())
+                 -> (WriterConn t (Writer a) -> Command (Writer a) -> IO ())
                  -> String
                     -- ^ Name of solver for reporting.
                  -> ProblemFeatures
@@ -780,10 +826,12 @@ writeDefaultSMT2 a ack nm feat sym h ps = do
 startSolver
   :: SMTLib2GenericSolver a
   => a
-  -> (WriterConn t (Writer a) -> IO ())
+  -> (Streams.InputStream UTF8.ByteString -> WriterConn t (Writer a) -> Command (Writer a) -> IO ())
+        -- ^ Action for acknowledging command responses
+  -> (WriterConn t (Writer a) -> IO ()) -- ^ Action for setting start-up-time options and logic
   -> B.ExprBuilder t st fs
   -> IO (SolverProcess t (Writer a))
-startSolver solver ack sym = do
+startSolver solver ack setup sym = do
   path <- defaultSolverPath solver sym
   solver_process <- Process.createProcess $
     (Process.proc path (defaultSolverArgs solver))
@@ -800,13 +848,14 @@ startSolver solver ack sym = do
   -- Log stderr to output.
   err_reader <- startHandleReader err_h
 
-  -- Create writer
-  writer <- newDefaultWriter solver ack sym in_h
-
+  -- Connect to response stream
   out_stream <- Streams.handleToInputStream out_h
 
+  -- Create writer
+  writer <- newDefaultWriter solver (ack out_stream) sym in_h
+
   -- Set solver logic and solver-specific options
-  setDefaultLogicAndOptions writer
+  setup writer
 
   earlyUnsatRef <- newIORef Nothing
 
@@ -823,20 +872,10 @@ startSolver solver ack sym = do
     }
 
 shutdownSolver
-  :: SMTLib2GenericSolver a => a -> SolverProcess t (Writer a) -> IO ()
-shutdownSolver solver p = do
+  :: SMTLib2GenericSolver a => a -> SolverProcess t (Writer a) -> IO (Exit.ExitCode, LazyText.Text)
+shutdownSolver _solver p = do
   -- Tell solver to exit
   writeExit (solverConn p)
-
   txt <- readAllLines (solverStderr p)
-
-  ec  <- Process.waitForProcess (solverHandle p)
-  case ec of
-    Exit.ExitSuccess -> return ()
-    Exit.ExitFailure exit_code ->
-      fail $
-        show solver
-        ++ " exited with unexpected code: "
-        ++ show exit_code
-        ++ "\n"
-        ++ LazyText.unpack txt
+  ec <- Process.waitForProcess (solverHandle p)
+  return (ec,txt)

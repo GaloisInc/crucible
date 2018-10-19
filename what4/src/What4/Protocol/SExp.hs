@@ -34,6 +34,7 @@ parseNextWord = do
   UTF8.toString <$> mappend (takeWhile1 isAlphaNum) (fail "Unexpected end of stream.")
 
 data SExp = SAtom String
+          | SString String
           | SApp [SExp]
   deriving (Eq, Ord, Show)
 
@@ -43,15 +44,25 @@ instance IsString SExp where
 isTokenChar :: Char -> Bool
 isTokenChar '(' = False
 isTokenChar ')' = False
+isTokenChar '"' = False
 isTokenChar c = not (isSpace c)
+
+isStringChar :: Char -> Bool
+isStringChar '"'  = False
+isStringChar '\\' = False
+isStringChar _c   = True
 
 readToken :: Parser String
 readToken = UTF8.toString <$> takeWhile1 isTokenChar
+
+readString :: Parser String
+readString = UTF8.toString <$> takeWhile1 isStringChar
 
 parseSExp :: Parser SExp
 parseSExp = do
   skipSpaceOrNewline
   msum [ char '(' *> (SApp <$> many parseSExp) <* char ')'
+       , char '"' *> (SString <$> readString) <* char '"'
        , SAtom <$> readToken
        ]
 

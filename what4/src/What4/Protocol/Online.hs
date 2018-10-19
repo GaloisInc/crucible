@@ -58,7 +58,7 @@ class SMTReadWriter solver => OnlineSolver scope solver where
   --   a "polite" way, e.g., by sending an `(exit)` message, or by closing
   --   the process's `stdin`.  Use `killProcess` instead to shutdown a process
   --   via a signal.
-  shutdownSolverProcess :: SolverProcess scope solver -> IO ()
+  shutdownSolverProcess :: SolverProcess scope solver -> IO (ExitCode, LazyText.Text)
 
 -- | A live connection to a running solver process.
 data SolverProcess scope solver = SolverProcess
@@ -116,7 +116,7 @@ checkSatisfiable proc rsn p =
     Just _  -> return (Unsat ())
     Nothing ->
       let conn = solverConn proc in
-      inNewFrame conn $
+      inNewFrame proc $
         do assume conn p
            check proc rsn
 
@@ -134,10 +134,10 @@ checkSatisfiableWithModel ::
   IO a
 checkSatisfiableWithModel proc rsn p k =
   readIORef (solverEarlyUnsat proc) >>= \case
-    Just _  -> return (Unsat ())
+    Just _  -> k (Unsat ())
     Nothing ->
       let conn = solverConn proc in
-      inNewFrame conn $
+      inNewFrame proc $
         do assume conn p
            checkAndGetModel proc rsn >>= k
 

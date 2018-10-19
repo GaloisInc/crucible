@@ -32,6 +32,7 @@ module What4.Protocol.SMTLib2.Syntax
   , produceModels
   , produceUnsatCores
   , produceUnsatAssumptions
+  , printSuccess
   , ppDecimal
     -- * Logic
   , Logic(..)
@@ -173,6 +174,9 @@ produceUnsatCores b = Option (":produce-unsat-cores " <> ppBool b)
 
 produceUnsatAssumptions :: Bool -> Option
 produceUnsatAssumptions b = Option (":produce-unsat-assumptions " <> ppBool b)
+
+printSuccess :: Bool -> Option
+printSuccess b = Option (":print-success " <> ppBool b)
 
 -- | Control pretty printing decimal values.
 ppDecimal :: Bool -> Option
@@ -662,7 +666,8 @@ assert p = Cmd $ app "assert" [renderTerm p]
 --   it a name so it can appear in unsatisfiable core results.
 assertNamed :: Term -> Text -> Command
 assertNamed p nm =
-  Cmd $ app "assert" [builder_list [renderTerm p, Builder.fromText ":named", Builder.fromText nm]]
+  Cmd $ app "assert"
+    [builder_list [Builder.fromText "!", renderTerm p, Builder.fromText ":named", Builder.fromText nm]]
 
 -- | Check the satisfiability of the current assertions
 checkSat :: Command

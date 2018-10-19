@@ -249,7 +249,7 @@ resetSolverProcess sym = do
        -- Nothing to do
        SolverNotStarted -> return ()
        SolverStarted p ->
-         do shutdownSolverProcess p
+         do _ <- shutdownSolverProcess p
             writeIORef (solverProc st) SolverNotStarted
 
 -- | Get the solver process.
@@ -290,7 +290,7 @@ withOnlineBackend gen action = do
     `finally`
     (liftIO $ readIORef (solverProc st) >>= \case
         SolverNotStarted {} -> return ()
-        SolverStarted p     -> shutdownSolverProcess p
+        SolverStarted p     -> void $ shutdownSolverProcess p
     )
 
 

@@ -137,7 +137,7 @@ writeSMTLib2Override = do
     case asString file_nm of
       Just path -> do
         liftIO $ withFile (Text.unpack path) WriteMode $ \h ->
-          SMT2.writeDefaultSMT2 () (\_ -> return ()) "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
+          SMT2.writeDefaultSMT2 () (\_ _ -> return ()) "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
       Nothing -> do
         fail "Expected concrete file name in write_SMTLIB2 override"
 

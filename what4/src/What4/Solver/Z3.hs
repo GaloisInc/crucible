@@ -95,7 +95,7 @@ writeZ3SMT2File
    -> Handle
    -> [BoolExpr t]
    -> IO ()
-writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 (\_ -> return ()) "Z3" z3Features
+writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 (\_ _ -> return ()) "Z3" z3Features
 
 instance SMT2.SMTLib2GenericSolver Z3 where
   defaultSolverPath _ = findSolverPath z3Path . getConfiguration
@@ -107,7 +107,6 @@ instance SMT2.SMTLib2GenericSolver Z3 where
   setDefaultLogicAndOptions writer = do
     -- Tell Z3 to produce models.
     SMT2.setOption writer $ SMT2.produceModels True
-    SMT2.setOption writer $ SMT2.produceUnsatCores True
     -- Tell Z3 to round and print algebraic reals as decimal
     SMT2.setOption writer $ SMT2.ppDecimal True
 
@@ -118,7 +117,7 @@ runZ3InOverride
   -> [BoolExpr t]
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
-runZ3InOverride = SMT2.runSolverInOverride Z3 (\_ -> return ())
+runZ3InOverride = SMT2.runSolverInOverride Z3 (\_ _ -> return ())
 
 -- | Run CVC4 in a session. CVC4 will be configured to produce models, but
 -- otherwise left with the default configuration.
@@ -131,8 +130,21 @@ withZ3
   -> (SMT2.Session t Z3 -> IO a)
     -- ^ Action to run
   -> IO a
-withZ3 = SMT2.withSolver Z3 (\_ -> return ())
+withZ3 = SMT2.withSolver Z3 (\_ _ -> return ())
+
+
+setInteractiveLogicAndOptions ::
+  SMT2.SMTLib2Tweaks a =>
+  WriterConn t (SMT2.Writer a) ->
+  IO ()
+setInteractiveLogicAndOptions writer = do
+    -- Tell Z3 to acknowledge successful commands
+    SMT2.setOption writer $ SMT2.printSuccess True
+    -- Tell Z3 to produce models
+    SMT2.setOption writer $ SMT2.produceModels True
+    -- Tell Z3 to round and print algebraic reals as decimal
+    SMT2.setOption writer $ SMT2.ppDecimal True
 
 instance OnlineSolver t (SMT2.Writer Z3) where
-  startSolverProcess = SMT2.startSolver Z3 (\_ -> return ())
+  startSolverProcess = SMT2.startSolver Z3 SMT2.smtAckResult setInteractiveLogicAndOptions
   shutdownSolverProcess = SMT2.shutdownSolver Z3

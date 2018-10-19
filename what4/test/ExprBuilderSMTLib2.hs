@@ -12,6 +12,7 @@
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import           Control.Monad (void)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Text as T
@@ -55,7 +56,7 @@ withOnlineZ3' action = withSym $ \sym -> do
   extendConfig z3Options (getConfiguration sym)
   s <- startSolverProcess sym
   res <- action sym s
-  shutdownSolverProcess s
+  void (shutdownSolverProcess s)
   return res
 
 withModel
