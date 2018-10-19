@@ -642,13 +642,17 @@ pointed :: (forall tp . dom tp -> dom tp -> Pointed dom tp)
         -- ^ Join of contained domain elements
         -> (forall tp . dom tp -> dom tp -> Bool)
         -- ^ Equality for domain elements
+        -> IterationStrategy (Pointed dom)
         -> Domain (Pointed dom)
-pointed j eq =
+pointed j eq iterStrat =
   Domain { domTop = Top
          , domBottom = Bottom
          , domJoin = pointedJoin j
          , domEq = pointedEq eq
-         , domIter = Worklist -- TODO(conathan): test faExitRegs computation with WTO strategy
+           -- TODO(conathan): test faExitRegs computation with WTO
+           -- strategy. It was hardcoded to 'WTO' here before conathan
+           -- added block-exit point abstractions.
+         , domIter = iterStrat
          }
 
   where

@@ -28,7 +28,7 @@ instance C.ShowF EvenOdd
 type EvenOdd' = Pointed EvenOdd
 
 evenOddDom :: Domain EvenOdd'
-evenOddDom = pointed j (==)
+evenOddDom = pointed j (==) WTO
   where
     j Even Odd = Top
     j Odd Even = Top
