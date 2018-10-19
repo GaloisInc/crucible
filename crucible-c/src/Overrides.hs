@@ -87,6 +87,15 @@ setupOverrides ctxt =
      regOver ctxt "crucible_int64_t"
         (Empty :> tPtr) knownRepr (lib_fresh_i64 mvar)
 
+     regOver ctxt "crucible_uint8_t"
+        (Empty :> tPtr) knownRepr (lib_fresh_i8 mvar)
+     regOver ctxt "crucible_uint16_t"
+        (Empty :> tPtr) knownRepr (lib_fresh_i16 mvar)
+     regOver ctxt "crucible_uint32_t"
+        (Empty :> tPtr) knownRepr (lib_fresh_i32 mvar)
+     regOver ctxt "crucible_uint64_t"
+        (Empty :> tPtr) knownRepr (lib_fresh_i64 mvar)
+
      regOver ctxt "crucible_assume"
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr lib_assume
      regOver ctxt "crucible_assert"
