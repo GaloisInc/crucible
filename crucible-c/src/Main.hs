@@ -24,7 +24,7 @@ import System.Process
 import System.Exit
 import System.IO(stdout)
 import System.FilePath(takeExtension,dropExtension,takeFileName,(</>),(<.>))
-import System.Directory(createDirectoryIfMissing)
+import System.Directory(createDirectoryIfMissing,copyFile)
 
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Context(pattern Empty)
@@ -237,7 +237,9 @@ instance Crux.Language LangLLVM where
                 then opts2 { optsBCFile = odir </> name <.> "bc" }
                 else opts2
 
-    unless (takeExtension inp == ".bc") (genBitCode (cruxOpts2, opts3))
+    if takeExtension inp == ".bc"
+      then copyFile inp (optsBCFile opts3)
+      else (genBitCode (cruxOpts2, opts3))
 
     return (cruxOpts2, opts3)
 
@@ -321,12 +323,8 @@ runClang opts params =
 
 genBitCode :: Options -> IO ()
 genBitCode opts =
-  do let dir  = Crux.outDir (fst opts)
-     let libs = libDir (snd opts)
-     createDirectoryIfMissing True dir
-
-     let params = [ "-c", "-g", "-emit-llvm", "-O0"
-                  , "-I", libs </> "includes"
+  do let params = [ "-c", "-g", "-emit-llvm", "-O0"
+                  , "-I", libDir (snd opts) </> "includes"
                   , Crux.inputFile (fst opts)
                   , "-o", optsBCFile (snd opts)
                   ]

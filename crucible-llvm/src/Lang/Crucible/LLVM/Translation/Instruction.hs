@@ -36,7 +36,6 @@ module Lang.Crucible.LLVM.Translation.Instruction
   ) where
 
 import Control.Monad.Except
--- import Control.Monad.Fail ( MonadFail )
 import Control.Monad.State.Strict
 import Control.Lens hiding (op, (:>) )
 import Data.Foldable (toList)
@@ -511,9 +510,10 @@ translateConversion instr op x outty =
            _ -> fail (unlines [unwords ["invalid sign extension", show x, show outty], showI])
 
     L.BitCast -> do
+       tp <- either fail return $ liftMemType $ L.typedType x
        outty' <- liftMemType' outty
-       x' <- transTypedValue x
-       bitCast x' outty'
+       x' <- transValue tp (L.typedValue x)
+       bitCast tp x' outty'
 
     L.UiToFp -> do
        outty' <- liftMemType' outty
@@ -579,14 +579,15 @@ translateConversion instr op x outty =
 
 
 bitCast :: (?lc::TypeContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-          LLVMExpr s arch ->
-          MemType ->
+          MemType {- ^ starting type of the expression -} ->
+          LLVMExpr s arch {- ^ expression to cast -} ->
+          MemType {- ^ target type -} ->
           LLVMGenerator h s arch ret (LLVMExpr s arch)
 
-bitCast (ZeroExpr _) tgtT = return (ZeroExpr tgtT)
-bitCast (UndefExpr _) tgtT = return (UndefExpr tgtT)
+bitCast _ (ZeroExpr _) tgtT = return (ZeroExpr tgtT)
+bitCast _ (UndefExpr _) tgtT = return (UndefExpr tgtT)
 
-bitCast expr tgtT =
+bitCast srcT expr tgtT =
   llvmTypeAsRepr tgtT $ \cruT ->    -- Crucible version of the type
 
   -- First check if we are casting anything at all
@@ -609,27 +610,26 @@ bitCast expr tgtT =
                        Just (IntType w2, es)
                          | w1 > w2   -> vecSplitVec n es
                          | otherwise -> vecJoinVec es (fromIntegral (div w2 w1))
-                       _ -> err ["*** Source must be a vector of bit-vectors."]
+                       _ -> Nothing
 
                guard (length vs == len)
                return $ VecExpr ty $ Seq.fromList vs
 
-          | otherwise ->
-            err [ "*** We cannot cast to a vector of 0-length bit-vectors." ]
+          | otherwise -> Nothing
 
-        _ -> err [ "*** We can only to cast to a bit-vector,"
-                 , "*** or a vector of bit-vectors." ]
-
+        _ -> Nothing
 
   where
   mb    = maybe (err [ "*** Invalid coercion of expression"
                      , indent (show expr)
+                     , "of type"
+                     , indent (show srcT)
                      , "to type"
                      , indent (show tgtT)
                      ]) return
   mbEls = do (ty,se) <- asVectorWithType expr
              return (ty, toList se)
-  err msg = fail $ unlines ("[bitCast] Failed to perform cast:" : msg)
+  err msg = reportError $ fromString $ unlines ("[bitCast] Failed to perform cast:" : msg)
   indent msg = "  " ++ msg
 
 

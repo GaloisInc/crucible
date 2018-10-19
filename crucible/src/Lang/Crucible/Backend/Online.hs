@@ -19,10 +19,11 @@
 -- small solver queries in a tight interaction loop.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Lang.Crucible.Backend.Online
   ( -- * OnlineBackend
     OnlineBackend
@@ -57,10 +58,10 @@ module Lang.Crucible.Backend.Online
   ) where
 
 
-import           Control.Exception
-                    ( SomeException(..), throwIO, try )
 import           Control.Lens
 import           Control.Monad
+import           Control.Monad.Catch
+import           Control.Monad.IO.Class
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
@@ -116,13 +117,19 @@ type YicesOnlineBackend scope fs = OnlineBackend scope (Yices.Connection scope) 
 --
 --   The Yices configuration options will be automatically
 --   installed into the backend configuration object.
-withYicesOnlineBackend ::
-  NonceGenerator IO scope ->
-  (YicesOnlineBackend scope fs -> IO a) ->
-  IO a
+--
+--   n.b. the explicit forall allows the fs to be expressed as the
+--   first argument so that it can be dictated easily by type
+--   application from the caller. Example:
+--
+--   > withYicesOnlineBackend @(Flags FloatReal) ng f'
+withYicesOnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
+                          NonceGenerator IO scope
+                       -> (YicesOnlineBackend scope fs -> m a)
+                       -> m a
 withYicesOnlineBackend gen action =
   withOnlineBackend gen $ \sym ->
-    do extendConfig Yices.yicesOptions (getConfiguration sym)
+    do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
        action sym
 
 type Z3OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Z3.Z3) fs
@@ -132,13 +139,19 @@ type Z3OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Z3.Z3) fs
 --
 --   The Z3 configuration options will be automatically
 --   installed into the backend configuration object.
-withZ3OnlineBackend ::
-  NonceGenerator IO scope ->
-  (Z3OnlineBackend scope fs -> IO a) ->
-  IO a
+--
+--   n.b. the explicit forall allows the fs to be expressed as the
+--   first argument so that it can be dictated easily by type
+--   application from the caller. Example:
+--
+--   > withz3OnlineBackend @(Flags FloatReal) ng f'
+withZ3OnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
+                       NonceGenerator IO scope
+                    -> (Z3OnlineBackend scope fs -> m a)
+                    -> m a
 withZ3OnlineBackend gen action =
   withOnlineBackend gen $ \sym ->
-    do extendConfig Z3.z3Options (getConfiguration sym)
+    do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
        action sym
 
 type CVC4OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer CVC4.CVC4) fs
@@ -148,12 +161,18 @@ type CVC4OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer CVC4.CVC4) fs
 --
 --   The CVC4 configuration options will be automatically
 --   installed into the backend configuration object.
-withCVC4OnlineBackend
-  :: NonceGenerator IO scope
-  -> (CVC4OnlineBackend scope fs -> IO a)
-  -> IO a
+--
+--   n.b. the explicit forall allows the fs to be expressed as the
+--   first argument so that it can be dictated easily by type
+--   application from the caller. Example:
+--
+--   > withCVC4OnlineBackend @(Flags FloatReal) ng f'
+withCVC4OnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
+                         NonceGenerator IO scope
+                      -> (CVC4OnlineBackend scope fs -> m a)
+                      -> m a
 withCVC4OnlineBackend gen action = withOnlineBackend gen $ \sym -> do
-  extendConfig CVC4.cvc4Options (getConfiguration sym)
+  liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
   action sym
 
 type STPOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer STP.STP) fs
@@ -163,12 +182,18 @@ type STPOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer STP.STP) fs
 --
 --   The STO configuration options will be automatically
 --   installed into the backend configuration object.
-withSTPOnlineBackend
-  :: NonceGenerator IO scope
-  -> (STPOnlineBackend scope fs -> IO a)
-  -> IO a
+--
+--   n.b. the explicit forall allows the fs to be expressed as the
+--   first argument so that it can be dictated easily by type
+--   application from the caller.  Example:
+--
+--   > withSTPOnlineBackend @(Flags FloatReal) ng f'
+withSTPOnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
+                        NonceGenerator IO scope
+                     -> (STPOnlineBackend scope fs -> m a)
+                     -> m a
 withSTPOnlineBackend gen action = withOnlineBackend gen $ \sym -> do
-  extendConfig STP.stpOptions (getConfiguration sym)
+  liftIO $ extendConfig STP.stpOptions (getConfiguration sym)
   action sym
 
 ------------------------------------------------------------------------
@@ -250,25 +275,23 @@ getSolverProcess sym = do
 --   Configuration options are not automatically installed
 --   by this operation.
 withOnlineBackend ::
-  OnlineSolver scope solver =>
+  (OnlineSolver scope solver, MonadIO m, MonadMask m) =>
   NonceGenerator IO scope ->
-  (OnlineBackend scope solver fs -> IO a) ->
-  IO a
+  (OnlineBackend scope solver fs -> m a) ->
+  m a
 withOnlineBackend gen action = do
-  st  <- initialOnlineBackendState gen
-  sym <- B.newExprBuilder st gen
-  extendConfig onlineBackendOptions (getConfiguration sym)
-  pathSatOpt <- getOptionSetting checkPathSatisfiability (getConfiguration sym)
-  writeIORef (B.sbStateManager sym) st{ shouldCheckSat = getOpt pathSatOpt }
+  st  <- liftIO $ initialOnlineBackendState gen
+  sym <- liftIO $ B.newExprBuilder st gen
+  liftIO $ extendConfig onlineBackendOptions (getConfiguration sym)
+  pathSatOpt <- liftIO $ getOptionSetting checkPathSatisfiability (getConfiguration sym)
+  liftIO $ writeIORef (B.sbStateManager sym) st{ shouldCheckSat = getOpt pathSatOpt }
 
-  r   <- try (action sym)
-  mp  <- readIORef (solverProc st)
-  case mp of
-    SolverNotStarted {} -> return ()
-    SolverStarted p     -> shutdownSolverProcess p
-  case r of
-   Left e  -> throwIO (e :: SomeException)
-   Right x -> return x
+  action sym
+    `finally`
+    (liftIO $ readIORef (solverProc st) >>= \case
+        SolverNotStarted {} -> return ()
+        SolverStarted p     -> shutdownSolverProcess p
+    )
 
 
 instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver fs) where
