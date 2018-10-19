@@ -55,6 +55,7 @@ module What4.Protocol.SMTLib2
     -- * Option
   , SMT2.Option(..)
   , SMT2.produceModels
+  , SMT2.produceUnsatCores
   , SMT2.ppDecimal
   , setOption
     -- * Solvers and External interface
@@ -71,7 +72,6 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Concurrent
 import           Control.Exception
-import           Control.Lens (folded)
 import           Control.Monad.State.Strict
 import           Data.Bits (bit, setBit, shiftL)
 import qualified Data.ByteString.UTF8 as UTF8
@@ -460,6 +460,8 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
 
   assertCommand _ e = SMT2.assert e
 
+  assertNamedCommand _ e nm = SMT2.assertNamed e nm
+
   pushCommand _  = SMT2.push 1
   popCommand _   = SMT2.pop 1
   resetCommand _ = SMT2.resetAssertions
@@ -469,6 +471,7 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
   checkWithAssumptionsCommand _ = SMT2.checkSatWithAssumptions
 
   getUnsatAssumptionsCommand _ = SMT2.getUnsatAssumptions
+  getUnsatCoreCommand _ = SMT2.getUnsatCore
 
   setOptCommand _ x y = SMT2.setOption (SMT2.Option opt)
     where opt = Builder.fromText x <> Builder.fromText " " <> y
@@ -735,8 +738,6 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO b)
     -> IO b
   runSolverInOverride solver ack sym logLn reason predicates cont = do
-    predicate <- I.andAllOf sym folded predicates
-
     I.logSolverEvent sym
       I.SolverStartSATQuery
         { I.satQuerySolverName = show solver
@@ -744,8 +745,8 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
         }
     path <- defaultSolverPath solver sym
     withSolver solver ack sym path (logLn 2) $ \session -> do
-      -- Assume the predicate holds.
-      SMTWriter.assume (sessionWriter session) predicate
+      -- Assume the predicates hold.
+      forM_ predicates (SMTWriter.assume (sessionWriter session))
       -- Run check SAT and get the model back.
       runCheckSat session $ \result -> do
         I.logSolverEvent sym
@@ -769,11 +770,10 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
                  -> [B.BoolExpr t]
                  -> IO ()
 writeDefaultSMT2 a ack nm feat sym h ps = do
-  p <- I.andAllOf sym folded ps
   bindings <- B.getSymbolVarBimap sym
   c <- newWriter a h ack nm True feat True bindings
   setOption c (SMT2.produceModels True)
-  SMTWriter.assume c p
+  forM_ ps (SMTWriter.assume c)
   writeCheckSat c
   writeExit c
 

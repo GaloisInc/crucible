@@ -68,6 +68,9 @@ module What4.Protocol.SMTWriter
   , TypeMap(..)
   , freshBoundVarName
   , assumeFormula
+  , assumeFormulaWithName
+  , assumeFormulaWithFreshName
+  , DefineStyle(..)
     -- * SMTWriter operations
   , assume
   , mkSMTTerm
@@ -747,6 +750,11 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Create a command that asserts a formula.
   assertCommand :: f h -> Term h -> Command h
 
+  -- | Create a command that asserts a formula and attaches
+  --   the given name to it (primarily for the purposes of
+  --   later reporting unsatisfiable cores).
+  assertNamedCommand :: f h -> Term h -> Text -> Command h
+
   -- | Push 1 new scope
   pushCommand   :: f h -> Command h
 
@@ -766,6 +774,11 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Ask the solver to return an unsatisfiable core from among the assumptions
   --   passed into the previous "check with assumptions" command.
   getUnsatAssumptionsCommand :: f h -> Command h
+
+  -- | Ask the solver to return an unsatisfiable core from among the named assumptions
+  --   previously asserted using the `assertNamedCommand` after an unsatisfiable
+  --   `checkCommand`.
+  getUnsatCoreCommand :: f h -> Command h
 
   -- | Set an option/parameter.
   setOptCommand :: f h -> Text -> Builder -> Command h
@@ -835,9 +848,25 @@ mkFreeVar' conn tp = SMTName tp <$> mkFreeVar conn Ctx.empty tp
 assumeFormula :: SMTWriter h => WriterConn t h -> Term h -> IO ()
 assumeFormula c p = addCommand c (assertCommand c p)
 
+assumeFormulaWithName :: SMTWriter h => WriterConn t h -> Term h -> Text -> IO ()
+assumeFormulaWithName c p nm = addCommand c (assertNamedCommand c p nm)
+
+assumeFormulaWithFreshName :: SMTWriter h => WriterConn t h -> Term h -> IO Text
+assumeFormulaWithFreshName conn p =
+  do var <- withWriterState conn $ freshVarName
+     assumeFormulaWithName conn p var
+     return var
+
+
+data DefineStyle
+  = FunctionDefinition
+  | EqualityDefinition
+ deriving (Eq, Show)
+
 -- | Create a variable name eqivalent to the given expression.
 defineSMTVar :: SMTWriter h
              => WriterConn t h
+             -> DefineStyle
              -> Text
                 -- ^ Name of variable to define
                 -- Should not be defined or declared in the current SMT context
@@ -846,8 +875,8 @@ defineSMTVar :: SMTWriter h
              -> TypeMap rtp -- ^ Type of expression.
              -> Term h
              -> IO ()
-defineSMTVar conn var args return_type expr
-  | supportFunctionDefs conn = do
+defineSMTVar conn defSty var args return_type expr
+  | supportFunctionDefs conn && defSty == FunctionDefinition = do
     addCommand conn $ defineCommand conn var args return_type expr
   | otherwise = do
     when (not (null args)) $ do
@@ -858,14 +887,15 @@ defineSMTVar conn var args return_type expr
 -- | Create a variable name eqivalent to the given expression.
 freshBoundVarName :: SMTWriter h
                   => WriterConn t h
+                  -> DefineStyle
                   -> [(Text, Some TypeMap)]
                      -- ^ Names of variables in term and associated type.
                   -> TypeMap rtp -- ^ Type of expression.
                   -> Term h
                   -> IO Text
-freshBoundVarName conn args return_type expr = do
+freshBoundVarName conn defSty args return_type expr = do
   var <- withWriterState conn $ freshVarName
-  defineSMTVar conn var args return_type expr
+  defineSMTVar conn defSty var args return_type expr
   return var
 
 -- | Function for create a new name given a base type.
@@ -1015,7 +1045,7 @@ runOnLiveConnection :: SMTWriter h => WriterConn t h -> SMTCollector t h a -> IO
 runOnLiveConnection conn coll = runReaderT coll s
   where s = SMTCollectorState
               { scConn = conn
-              , freshBoundTermFn = defineSMTVar conn
+              , freshBoundTermFn = defineSMTVar conn FunctionDefinition
               , freshConstantFn  = Just $! FreshVarFn (mkFreeVar' conn)
               , recordSideCondFn = Just $! assumeFormula conn
               }
@@ -1376,7 +1406,7 @@ defineSMTFunction conn var action =
 
     let res = letExpr (reverse boundTerms) (asBase pair)
 
-    defineSMTVar conn var (reverse args) (smtExprType pair) res
+    defineSMTVar conn FunctionDefinition var (reverse args) (smtExprType pair) res
     return $! smtExprType pair
 
 ------------------------------------------------------------------------

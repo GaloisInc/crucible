@@ -107,6 +107,7 @@ instance SMT2.SMTLib2GenericSolver Z3 where
   setDefaultLogicAndOptions writer = do
     -- Tell Z3 to produce models.
     SMT2.setOption writer $ SMT2.produceModels True
+    SMT2.setOption writer $ SMT2.produceUnsatCores True
     -- Tell Z3 to round and print algebraic reals as decimal
     SMT2.setOption writer $ SMT2.ppDecimal True
 

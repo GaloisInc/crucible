@@ -18,8 +18,10 @@ module What4.Protocol.SMTLib2.Syntax
   , checkSat
   , checkSatWithAssumptions
   , getUnsatAssumptions
+  , getUnsatCore
   , getValue
   , assert
+  , assertNamed
   , resetAssertions
   , push
   , pop
@@ -28,6 +30,7 @@ module What4.Protocol.SMTLib2.Syntax
     -- * Option
   , Option(..)
   , produceModels
+  , produceUnsatCores
   , produceUnsatAssumptions
   , ppDecimal
     -- * Logic
@@ -164,6 +167,9 @@ ppBool False = "false"
 -- | Option to produce models when check-sat is called.
 produceModels :: Bool -> Option
 produceModels b = Option (":produce-models " <> ppBool b)
+
+produceUnsatCores :: Bool -> Option
+produceUnsatCores b = Option (":produce-unsat-cores " <> ppBool b)
 
 produceUnsatAssumptions :: Bool -> Option
 produceUnsatAssumptions b = Option (":produce-unsat-assumptions " <> ppBool b)
@@ -652,16 +658,30 @@ defineFun f args return_type e =
 assert :: Term -> Command
 assert p = Cmd $ app "assert" [renderTerm p]
 
+-- | Assert the predicate holds in the current context, and assign
+--   it a name so it can appear in unsatisfiable core results.
+assertNamed :: Term -> Text -> Command
+assertNamed p nm =
+  Cmd $ app "assert" [builder_list [renderTerm p, Builder.fromText ":named", Builder.fromText nm]]
+
 -- | Check the satisfiability of the current assertions
 checkSat :: Command
 checkSat = Cmd "(check-sat)"
 
 -- | Check satisfiability of the given atomic assumptions in the current context.
+--
+--   NOTE! The names of variables passed to this function MUST be generated using
+--   a `declare-fun` statement, and NOT a `define-fun` statement.  Thus, if you
+--   want to bind an arbitrary term, you must declare a new term and assert that
+--   it is equal to it's definition. Yes, this is quite irritating.
 checkSatWithAssumptions :: [Text] -> Command
-checkSatWithAssumptions nms = Cmd $ app_list "check-sat-assuming" (map Builder.fromText nms)
+checkSatWithAssumptions nms = Cmd $ app "check-sat-assuming" [builder_list (map Builder.fromText nms)]
 
 getUnsatAssumptions :: Command
 getUnsatAssumptions = Cmd "(get-unsat-assumptions)"
+
+getUnsatCore :: Command
+getUnsatCore = Cmd "(get-unsat-core)"
 
 -- | Get the values associated with the terms from the last call to check-set.
 getValue :: [Term] -> Command
