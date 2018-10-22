@@ -34,6 +34,7 @@ import           What4.Expr.GroundEval
 import           What4.Solver.Adapter
 import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
+import           What4.Protocol.SMTWriter
 import           What4.Utils.Process
 
 data STP = STP deriving Show
@@ -64,7 +65,8 @@ stpAdapter =
   { solver_adapter_name = "stp"
   , solver_adapter_config_options = stpOptions
   , solver_adapter_check_sat  = runSTPInOverride
-  , solver_adapter_write_smt2 = SMT2.writeDefaultSMT2 STP (\_ _ -> return ()) "STP" defaultWriteSMTLIB2Features
+  , solver_adapter_write_smt2 =
+       SMT2.writeDefaultSMT2 STP nullAcknowledgementAction "STP" defaultWriteSMTLIB2Features
   }
 
 instance SMT2.SMTLib2Tweaks STP where
@@ -92,7 +94,7 @@ runSTPInOverride
   -> [BoolExpr t]
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
-runSTPInOverride = SMT2.runSolverInOverride STP (\_ _ -> return ())
+runSTPInOverride = SMT2.runSolverInOverride STP nullAcknowledgementAction
 
 -- | Run STP in a session. STP will be configured to produce models, buth
 -- otherwise left with the default configuration.
@@ -105,8 +107,8 @@ withSTP
   -> (SMT2.Session t STP -> IO a)
     -- ^ Action to run
   -> IO a
-withSTP = SMT2.withSolver STP (\_ _ -> return ())
+withSTP = SMT2.withSolver STP nullAcknowledgementAction
 
 instance OnlineSolver t (SMT2.Writer STP) where
-  startSolverProcess = SMT2.startSolver STP (\_ _ _ -> return ()) SMT2.setDefaultLogicAndOptions
+  startSolverProcess = SMT2.startSolver STP (\_ -> nullAcknowledgementAction) SMT2.setDefaultLogicAndOptions
   shutdownSolverProcess = SMT2.shutdownSolver STP

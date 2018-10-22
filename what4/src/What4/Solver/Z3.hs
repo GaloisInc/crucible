@@ -95,7 +95,7 @@ writeZ3SMT2File
    -> Handle
    -> [BoolExpr t]
    -> IO ()
-writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 (\_ _ -> return ()) "Z3" z3Features
+writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 nullAcknowledgementAction "Z3" z3Features
 
 instance SMT2.SMTLib2GenericSolver Z3 where
   defaultSolverPath _ = findSolverPath z3Path . getConfiguration
@@ -117,9 +117,9 @@ runZ3InOverride
   -> [BoolExpr t]
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
-runZ3InOverride = SMT2.runSolverInOverride Z3 (\_ _ -> return ())
+runZ3InOverride = SMT2.runSolverInOverride Z3 nullAcknowledgementAction
 
--- | Run CVC4 in a session. CVC4 will be configured to produce models, but
+-- | Run Z3 in a session. Z3 will be configured to produce models, but
 -- otherwise left with the default configuration.
 withZ3
   :: ExprBuilder t st fs
@@ -130,7 +130,7 @@ withZ3
   -> (SMT2.Session t Z3 -> IO a)
     -- ^ Action to run
   -> IO a
-withZ3 = SMT2.withSolver Z3 (\_ _ -> return ())
+withZ3 = SMT2.withSolver Z3 nullAcknowledgementAction
 
 
 setInteractiveLogicAndOptions ::

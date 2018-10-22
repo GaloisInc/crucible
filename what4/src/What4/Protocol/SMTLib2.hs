@@ -424,7 +424,7 @@ instance SupportTermOps Term where
 
 newWriter :: a
           -> IO.Handle
-          -> (WriterConn t (Writer a) -> Command (Writer a) -> IO ())
+          -> AcknowledgementAction t (Writer a)
              -- ^ Action to run for consuming acknowledgement messages
           -> String
              -- ^ Name of solver for reporting purposes.
@@ -683,8 +683,8 @@ instance Show SMTLib2Exception where
 
 instance Exception SMTLib2Exception
 
-smtAckResult :: Streams.InputStream UTF8.ByteString -> WriterConn t (Writer a) -> Command (Writer a) -> IO ()
-smtAckResult resp _conn cmd =
+smtAckResult :: Streams.InputStream UTF8.ByteString -> AcknowledgementAction t (Writer a)
+smtAckResult resp = AckAction $ \_conn cmd ->
   do mb <- try (Streams.parseFromStream parseSExp resp)
      case mb of
        Right (SAtom "success") -> return ()
@@ -726,7 +726,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 
   newDefaultWriter
     :: a ->
-       (WriterConn t (Writer a) -> Command (Writer a) -> IO ()) ->
+       AcknowledgementAction t (Writer a) ->
        B.ExprBuilder t st fs -> IO.Handle -> IO (WriterConn t (Writer a))
   newDefaultWriter solver ack sym h =
     newWriter solver h ack (show solver) True (defaultFeatures solver) True
@@ -735,7 +735,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
   -- | Run the solver in a session.
   withSolver
     :: a
-    -> (WriterConn t (Writer a) -> Command (Writer a) -> IO ()) -- ^ Acknowledgement action
+    -> AcknowledgementAction t (Writer a)
     -> B.ExprBuilder t st fs
     -> FilePath
       -- ^ Path to solver executable
@@ -776,7 +776,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 
   runSolverInOverride
     :: a
-    -> (WriterConn t (Writer a) -> Command (Writer a) -> IO ()) -- ^ Acknowledgement action
+    -> AcknowledgementAction t (Writer a)
     -> B.ExprBuilder t st fs
     -> (Int -> String -> IO ())
     -> String
@@ -806,7 +806,7 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
 --   solver-specific tweaks.
 writeDefaultSMT2 :: SMTLib2Tweaks a
                  => a
-                 -> (WriterConn t (Writer a) -> Command (Writer a) -> IO ())
+                 -> AcknowledgementAction t (Writer a)
                  -> String
                     -- ^ Name of solver for reporting.
                  -> ProblemFeatures
@@ -826,7 +826,7 @@ writeDefaultSMT2 a ack nm feat sym h ps = do
 startSolver
   :: SMTLib2GenericSolver a
   => a
-  -> (Streams.InputStream UTF8.ByteString -> WriterConn t (Writer a) -> Command (Writer a) -> IO ())
+  -> (Streams.InputStream UTF8.ByteString -> AcknowledgementAction t (Writer a)) 
         -- ^ Action for acknowledging command responses
   -> (WriterConn t (Writer a) -> IO ()) -- ^ Action for setting start-up-time options and logic
   -> B.ExprBuilder t st fs

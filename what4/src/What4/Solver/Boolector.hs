@@ -46,7 +46,7 @@ import           What4.Expr.GroundEval
 import           What4.Solver.Adapter
 import qualified What4.Protocol.SMTLib2 as SMT2
 import           What4.Protocol.SMTWriter
-  (smtExprGroundEvalFn, SMTEvalFunctions(..))
+  (smtExprGroundEvalFn, SMTEvalFunctions(..), nullAcknowledgementAction)
 import           What4.Utils.Process
 import           What4.Utils.Streams
 
@@ -74,7 +74,7 @@ boolectorAdapter =
       res <- runBoolectorInOverride sym logLn rsn p
       cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
   , solver_adapter_write_smt2 =
-      SMT2.writeDefaultSMT2 () (\_ _ -> return ()) "Boolector" defaultWriteSMTLIB2Features
+      SMT2.writeDefaultSMT2 () nullAcknowledgementAction "Boolector" defaultWriteSMTLIB2Features
   }
 
 instance SMT2.SMTLib2Tweaks Boolector where
@@ -101,7 +101,7 @@ runBoolectorInOverride sym logLn rsn ps = do
       void $ forkIO $ logErrorStream err_stream (logLn 2)
       -- Write SMT2 input to Boolector.
       bindings <- getSymbolVarBimap sym
-      wtr <- SMT2.newWriter Boolector in_h (\_ _ -> return ()) "Boolector" False noFeatures False bindings
+      wtr <- SMT2.newWriter Boolector in_h nullAcknowledgementAction "Boolector" False noFeatures False bindings
       SMT2.setLogic wtr SMT2.qf_bv
       SMT2.assume wtr p
 

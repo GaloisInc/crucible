@@ -71,6 +71,8 @@ module What4.Protocol.SMTWriter
   , assumeFormulaWithName
   , assumeFormulaWithFreshName
   , DefineStyle(..)
+  , AcknowledgementAction(..)
+  , nullAcknowledgementAction
     -- * SMTWriter operations
   , assume
   , mkSMTTerm
@@ -590,10 +592,19 @@ data WriterConn t (h :: *) =
                -- ^ Symbol variables.
              , connState :: !h
                -- ^ The specific connection information.
-             , consumeAcknowledgement :: WriterConn t h -> Command h -> IO ()
+             , consumeAcknowledgement :: AcknowledgementAction t h
                -- ^ Consume an acknowledgement notifications the solver, if
                --   it produces one
              }
+
+-- | An action for consuming an acknowledgement message from the solver,
+--   if it is configured to produce ack messages.
+newtype AcknowledgementAction t h =
+  AckAction { runAckAction :: WriterConn t h -> Command h -> IO () }
+
+-- | An acknowledgement action that does nothing
+nullAcknowledgementAction :: AcknowledgementAction t h
+nullAcknowledgementAction = AckAction (\_ _ -> return ())
 
 newStackEntry :: IO (StackEntry t h)
 newStackEntry = do
@@ -634,7 +645,7 @@ popEntryStack c = do
    (_:r) -> writeIORef (entryStack c) r
 
 newWriterConn :: Handle
-              -> (WriterConn t cs -> Command cs -> IO ())
+              -> AcknowledgementAction t cs
               -- ^ An action to consume solver acknowledgement responses
               -> String
               -- ^ Name of solver for reporting purposes.
@@ -643,8 +654,7 @@ newWriterConn :: Handle
               -> SymbolVarBimap t
               -- ^ A bijective mapping between variables and their
               -- canonical name (if any).
-              -> cs
-                 -- ^ State information specific to the type of connection
+              -> cs -- ^ State information specific to the type of connection
               -> IO (WriterConn t cs)
 newWriterConn h ack solver_name features bindings cs = do
   entry <- newStackEntry
@@ -813,7 +823,7 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 addCommand :: SMTWriter h => WriterConn t h -> Command h -> IO ()
 addCommand conn cmd = do
   addCommandNoAck conn cmd
-  consumeAcknowledgement conn conn cmd
+  runAckAction (consumeAcknowledgement conn) conn cmd
 
 addCommandNoAck :: SMTWriter h => WriterConn t h -> Command h -> IO ()
 addCommandNoAck conn cmd = do

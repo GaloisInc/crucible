@@ -384,7 +384,7 @@ setParamCommand nm v = Cmd $ app "set-param" [ Builder.fromText nm, v ]
 -- Connection
 
 newConnection :: Handle
-              -> (WriterConn t (Connection s) -> Command (Connection s) -> IO ())    -- ^ Ack action
+              -> AcknowledgementAction t (Connection s)
               -> ProblemFeatures -- ^ Indicates the problem features to support.
               -> B.SymbolVarBimap t
               -> IO (WriterConn t (Connection s))
@@ -482,10 +482,8 @@ yicesShutdownSolver p =
 yicesAck ::
   Streams.InputStream ByteString ->
   IORef (Maybe Int) ->
-  WriterConn s (Connection s) ->
-  YicesCommand ->
-  IO ()
-yicesAck resp earlyUnsatRef conn (Cmd cmd) =
+  AcknowledgementAction s (Connection s)
+yicesAck resp earlyUnsatRef = AckAction $ \conn (Cmd cmd) ->
   do x <- getAckResponse resp
      case x of
        Nothing ->
@@ -704,7 +702,7 @@ yicesAdapter =
        runYicesInOverride sym logLn rsn ps
           (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
-       writeDefaultSMT2 () (\_ _ -> return ()) "YICES" yicesSMT2Features
+       writeDefaultSMT2 () nullAcknowledgementAction "YICES" yicesSMT2Features
    }
 
 -- | Path to yices
@@ -864,7 +862,7 @@ writeYicesFile sym path p = do
 
     bindings <- B.getSymbolVarBimap sym
 
-    c <- newConnection h (\_ _ -> return ()) features bindings
+    c <- newConnection h nullAcknowledgementAction features bindings
     setYicesParams c cfg
     assume c p
     if efSolver then
@@ -906,7 +904,7 @@ runYicesInOverride sym logLn rsn conditions resultFn = do
 
       -- Create new connection for sending commands to yices.
       bindings <- B.getSymbolVarBimap sym
-      c <- newConnection in_h (\_ _ -> return ()) features bindings
+      c <- newConnection in_h nullAcknowledgementAction features bindings
       -- Write yices parameters.
       setYicesParams c cfg
       -- Assert condition
