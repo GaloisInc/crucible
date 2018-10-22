@@ -69,6 +69,7 @@ module Lang.Crucible.CFG.Core
   , stmtSeqTermStmt
   , Stmt(..)
   , ppStmt
+  , nextStmtHeight
 
   , applyEmbeddingStmt
 

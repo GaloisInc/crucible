@@ -12,6 +12,7 @@ module Lang.Crucible.Analysis.Fixpoint (
   -- * Entry point
   forwardFixpoint,
   forwardFixpoint',
+  ScopedReg(..),
   Ignore(..),
   -- * Abstract Domains
   Domain(..),
@@ -30,13 +31,15 @@ import           Control.Applicative
 import           Control.Lens.Operators ( (^.), (%=), (.~), (&), (%~) )
 import qualified Control.Monad.State.Strict as St
 import qualified Data.Functor.Identity as I
+import qualified Data.Set as S
+import           Text.Printf
+
+import           Prelude
+
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as PU
 import qualified Data.Parameterized.Map as PM
 import qualified Data.Parameterized.TraversableFC as PU
-import qualified Data.Set as S
-
-import           Prelude
 
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension
@@ -74,7 +77,8 @@ data Domain (dom :: CrucibleType -> *) =
 -- | Transfer functions for each statement type
 data Interpretation ext (dom :: CrucibleType -> *) =
   Interpretation { interpExpr       :: forall ctx tp
-                                     . TypeRepr tp
+                                     . ScopedReg
+                                    -> TypeRepr tp
                                     -> Expr ext ctx tp
                                     -> PointAbstraction dom ctx
                                     -> (Maybe (PointAbstraction dom ctx), dom tp)
@@ -215,6 +219,42 @@ equalPointAbstractions dom pa1 pa2 =
     equalGlobals = and $ zipWith checkGlobal (PM.toList (pa1 ^. paGlobals)) (PM.toList (pa2 ^. paGlobals))
     pointwiseEqualRegs = PU.zipWith (\a b -> Ignore (domEq dom a b)) (pa1 ^. paRegisters) (pa2 ^. paRegisters)
 
+----------------------------------------------------------------
+
+-- | A CFG-scoped SSA temp register.
+--
+-- We don't care about the type params yet, hence the
+-- existential quantification. We may want to look up the instruction
+-- corresponding to a 'ScopedReg' after analysis though, and we'll
+-- surely want to compare 'ScopedReg's for equality, and use them to
+-- look up values in point abstractions after analysis.
+data ScopedReg {- :: Ctx (Ctx CrucibleType) -> * -} where
+  ScopedReg :: BlockID blocks ctx1 -> Reg ctx2 tp -> ScopedReg
+-- The pretty-show library can't parse the derived version, because it
+-- doesn't like bare "%" and/or "$" in atoms.
+{- deriving instance Show ScopedReg -}
+instance Show ScopedReg where
+  showsPrec p (ScopedReg b r) =
+    showParen (p > 0) $
+    showString (printf "ScopedReg \"%s\" \"%s\"" (show b) (show r))
+instance Eq ScopedReg where
+  sr1 == sr2 =
+    scopedRegIndexVals sr1 == scopedRegIndexVals sr2
+instance Ord ScopedReg where
+  sr1 `compare` sr2 =
+    scopedRegIndexVals sr1 `compare` scopedRegIndexVals sr2
+
+scopedRegIndexVals :: ScopedReg -> (Int, Int)
+scopedRegIndexVals (ScopedReg b r) = (blockIDIndexVal b, regIndexVal r)
+
+blockIDIndexVal :: BlockID ctx tp -> Int
+blockIDIndexVal = PU.indexVal . blockIDIndex
+
+regIndexVal :: Reg ctx tp -> Int
+regIndexVal = PU.indexVal . regIndex
+
+----------------------------------------------------------------
+
 -- | Apply the transfer functions from an interpretation to a block,
 -- given a starting set of abstract values.
 --
@@ -227,20 +267,36 @@ transfer :: forall ext dom blocks ret ctx
          -> Block ext blocks ret ctx
          -> PointAbstraction dom ctx
          -> M dom blocks ret (S.Set (Some (BlockID blocks)))
-transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
+transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
   where
+    blockInputSize :: PU.Size ctx
+    blockInputSize = PU.size $ blockInputs blk
+
+    -- We maintain the current 'Size' of the context so that we can
+    -- compute the SSA temp register corresponding to the current
+    -- statement.
     transferSeq :: forall ctx'
-                 . StmtSeq ext blocks ret ctx'
+                 . PU.Size ctx'
+                -> StmtSeq ext blocks ret ctx'
                 -> PointAbstraction dom ctx'
                 -> M dom blocks ret (S.Set (Some (BlockID blocks)))
-    transferSeq (ConsStmt _loc stmt ss) = transferSeq ss . transferStmt stmt
-    transferSeq (TermStmt _loc term) = transferTerm term
+    transferSeq sz (ConsStmt _loc stmt ss) =
+      transferSeq (nextStmtHeight sz stmt) ss .
+      transferStmt sz stmt
+    transferSeq _sz (TermStmt _loc term) = transferTerm term
 
-    transferStmt :: forall ctx1 ctx2 . Stmt ext ctx1 ctx2 -> PointAbstraction dom ctx1 -> PointAbstraction dom ctx2
-    transferStmt s assignment =
+    transferStmt :: forall ctx1 ctx2
+                  . PU.Size ctx1
+                 -> Stmt ext ctx1 ctx2
+                 -> PointAbstraction dom ctx1
+                 -> PointAbstraction dom ctx2
+    transferStmt sz s assignment =
       case s of
-        SetReg tp ex ->
-          let (assignment', absVal) = interpExpr interp tp ex assignment
+        SetReg (tp :: TypeRepr tp) ex ->
+          let reg :: Reg (ctx1 ::> tp) tp
+              reg = Reg (PU.nextIndex sz)
+              scopedReg = ScopedReg (blockID blk) reg
+              (assignment', absVal) = interpExpr interp scopedReg tp ex assignment
               assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
           in extendRegisters absVal assignment''
 
@@ -288,11 +344,15 @@ transfer dom interp retRepr blk = transferSeq (_blockStmts blk)
         WriteRefCell {} -> error "transferStmt: WriteRefCell not supported"
         DropRefCell {} -> error "transferStmt: DropRefCell not supported"
 
+    -- Transfer a block terminator statement.
     transferTerm :: forall ctx'
                   . TermStmt blocks ret ctx'
                  -> PointAbstraction dom ctx'
                  -> M dom blocks ret (S.Set (Some (BlockID blocks)))
     transferTerm s assignment = do
+      -- Save the current point abstraction as the exit point
+      -- abstraction since we won't be defining any more SSA tmps in
+      -- this block.
       let BlockID srcIdx = blockID blk
       isFuncAbstr %= (faExitRegs . ixF srcIdx .~ Ignore (Some assignment))
 
