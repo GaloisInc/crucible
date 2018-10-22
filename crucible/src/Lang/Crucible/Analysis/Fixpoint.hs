@@ -83,7 +83,8 @@ data Interpretation ext (dom :: CrucibleType -> *) =
                                     -> PointAbstraction dom ctx
                                     -> (Maybe (PointAbstraction dom ctx), dom tp)
                  , interpExt        :: forall ctx tp
-                                     . StmtExtension ext (Reg ctx) tp
+                                     . ScopedReg
+                                    -> StmtExtension ext (Reg ctx) tp
                                     -> PointAbstraction dom ctx
                                     -> (Maybe (PointAbstraction dom ctx), dom tp)
                  , interpCall       :: forall ctx args ret
@@ -234,9 +235,7 @@ data ScopedReg {- :: Ctx (Ctx CrucibleType) -> * -} where
 -- doesn't like bare "%" and/or "$" in atoms.
 {- deriving instance Show ScopedReg -}
 instance Show ScopedReg where
-  showsPrec p (ScopedReg b r) =
-    showParen (p > 0) $
-    showString (printf "ScopedReg \"%s\" \"%s\"" (show b) (show r))
+  show (ScopedReg b r) = printf "\"%s:%s\"" (show b) (show r)
 instance Eq ScopedReg where
   sr1 == sr2 =
     scopedRegIndexVals sr1 == scopedRegIndexVals sr2
@@ -300,8 +299,11 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
               assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
           in extendRegisters absVal assignment''
 
-        ExtendAssign estmt ->
-          let (assignment', absVal) = interpExt interp estmt assignment
+        ExtendAssign (estmt :: StmtExtension ext (Reg ctx1) tp) ->
+          let reg :: Reg (ctx1 ::> tp) tp
+              reg = Reg (PU.nextIndex sz)
+              scopedReg = ScopedReg (blockID blk) reg
+              (assignment', absVal) = interpExt interp scopedReg estmt assignment
               assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
           in extendRegisters absVal assignment''
 
@@ -454,7 +456,12 @@ isVisited bid = do
 --
 -- 1) For each block in the CFG, the abstraction computed at the *entry* to the block
 --
--- 2) The final abstract value for the value returned by the function
+-- 2) For each block in the CFG, the abstraction computed at the
+-- *exit* from the block. The 'PU.Assignment' for these "exit"
+-- abstractions ignores the @ctx@ index on the blocks, since that
+-- context is for *entry* to the blocks.
+--
+-- 3) The final abstract value for the value returned by the function
 forwardFixpoint' :: forall ext dom blocks ret init
                  . ShowF dom
                 => Domain dom
@@ -467,7 +474,9 @@ forwardFixpoint' :: forall ext dom blocks ret init
                 -- ^ Assignments of abstract values to global variables at the function start
                 -> PU.Assignment dom init
                 -- ^ Assignments of abstract values to the function arguments
-                -> (PU.Assignment (PointAbstraction dom) blocks, PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks, dom ret)
+                -> ( PU.Assignment (PointAbstraction dom) blocks
+                   , PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+                   , dom ret )
 forwardFixpoint' dom interp cfg globals0 assignment0 =
   let BlockID idx = cfgEntryBlockID cfg
       pa0 = PointAbstraction { _paGlobals = globals0
