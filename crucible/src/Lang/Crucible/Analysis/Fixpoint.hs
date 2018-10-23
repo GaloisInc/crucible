@@ -77,6 +77,13 @@ data Domain (dom :: CrucibleType -> *) =
          }
 
 -- | Transfer functions for each statement type
+--
+-- Interpretation functions for some statement types --
+-- e.g. @interpExpr@ and @interpExt@ -- receive 'ScopedReg' arguments
+-- corresponding to the SSA tmp that the result of the interpreted
+-- statement get assigned to. Some interpretation functions that could
+-- receive this argument do not -- e.g. @interpCall@ -- because
+-- conathan didn't have a use for that.
 data Interpretation ext (dom :: CrucibleType -> *) =
   Interpretation { interpExpr       :: forall ctx tp
                                      . ScopedReg
@@ -231,7 +238,7 @@ equalPointAbstractions dom pa1 pa2 =
 -- corresponding to a 'ScopedReg' after analysis though, and we'll
 -- surely want to compare 'ScopedReg's for equality, and use them to
 -- look up values in point abstractions after analysis.
-data ScopedReg {- :: Ctx (Ctx CrucibleType) -> * -} where
+data ScopedReg where
   ScopedReg :: BlockID blocks ctx1 -> Reg ctx2 tp -> ScopedReg
 -- The pretty-show library can't parse the derived version, because it
 -- doesn't like bare "%" and/or "$" in atoms.
@@ -298,6 +305,8 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
   where
     blockInputSize :: PU.Size ctx
     blockInputSize = PU.size $ blockInputs blk
+
+    lookupReg = flip lookupAbstractRegValue
 
     -- We maintain the current 'Size' of the context so that we can
     -- compute the SSA temp register corresponding to the current
@@ -651,9 +660,6 @@ lookupAssignment :: forall dom blocks ret tp
 lookupAssignment idx = do
   abstr <- St.get
   return ((abstr ^. isFuncAbstr . faEntryRegs) PU.! idx)
-
-lookupReg :: Reg ctx tp -> PointAbstraction dom ctx -> dom tp
-lookupReg reg assignment = (assignment ^. paRegisters) PU.! regIndex reg
 
 -- | Turn a non paramaterized type into a parameterized type.
 --

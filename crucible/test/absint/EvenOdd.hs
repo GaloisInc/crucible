@@ -47,11 +47,12 @@ evenOddInterp = Interpretation { interpExpr = eoIExpr
                                , interpMaybe = eoIMaybe
                                }
 
-eoIExpr :: C.TypeRepr tp
+eoIExpr :: ScopedReg
+        -> C.TypeRepr tp
         -> C.Expr ext ctx tp
         -> PointAbstraction EvenOdd' ctx
         -> (Maybe (PointAbstraction EvenOdd' ctx), EvenOdd' tp)
-eoIExpr _tr (C.App e) abstr =
+eoIExpr _sr _tr (C.App e) abstr =
   case e of
     C.IntLit i -> (Nothing, if i `mod` 2 == 0 then Pointed Even else Pointed Odd)
     C.IntAdd r1 r2 ->

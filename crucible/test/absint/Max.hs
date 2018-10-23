@@ -48,11 +48,12 @@ maxInterp = Interpretation { interpExpr = mExpr
                            , interpMaybe = mMaybe
                            }
 
-mExpr :: C.TypeRepr tp
+mExpr :: ScopedReg
+        -> C.TypeRepr tp
         -> C.Expr ext ctx tp
         -> PointAbstraction Max' ctx
         -> (Maybe (PointAbstraction Max' ctx), Max' tp)
-mExpr _tr (C.App e) abstr =
+mExpr _sr _tr (C.App e) abstr =
   case e of
     C.IntLit i -> (Nothing, Pointed (Max (fromIntegral i)))
     C.IntAdd r1 r2 ->
