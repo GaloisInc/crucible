@@ -13,6 +13,8 @@ module Lang.Crucible.Analysis.Fixpoint (
   forwardFixpoint,
   forwardFixpoint',
   ScopedReg(..),
+  lookupAbstractScopedRegValue,
+  lookupAbstractScopedRegValueByIndex,
   Ignore(..),
   -- * Abstract Domains
   Domain(..),
@@ -251,6 +253,32 @@ blockIDIndexVal = PU.indexVal . blockIDIndex
 
 regIndexVal :: Reg ctx tp -> Int
 regIndexVal = PU.indexVal . regIndex
+
+----------------------------------------------------------------
+
+-- | Lookup the abstract value of scoped reg in an exit assignment.
+lookupAbstractScopedRegValue :: ScopedReg
+  -> PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+  -> Maybe (Some dom)
+lookupAbstractScopedRegValue sr ass =
+  lookupAbstractScopedRegValueByIndex (scopedRegIndexVals sr) ass
+
+-- | Lookup the abstract value of scoped reg -- specified by 0-based
+-- int indices -- in an exit assignment.
+lookupAbstractScopedRegValueByIndex :: (Int, Int)
+  -> PU.Assignment (Ignore (Some (PointAbstraction dom))) blocks
+  -> Maybe (Some dom)
+lookupAbstractScopedRegValueByIndex (b, r) ass = do
+  Some (Ignore (Some pa)) <- assignmentLookupByIndex b ass
+  assignmentLookupByIndex r (pa ^. paRegisters)
+
+-- | Lookup a value in an assignment based on it's 0-based int index.
+assignmentLookupByIndex :: Int -> PU.Assignment f ctx -> Maybe (Some f)
+assignmentLookupByIndex i ass =
+  let sz = PU.size ass
+  in case PU.intIndex i sz of
+    Nothing -> Nothing
+    Just (Some ix) -> Just (Some (ass PU.! ix))
 
 ----------------------------------------------------------------
 
