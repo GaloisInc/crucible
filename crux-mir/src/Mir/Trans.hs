@@ -583,7 +583,7 @@ evalCast' ck ty1 e ty2  =
         mkTraitObject traitName baseType e
 
       _ -> fail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
-
+ 
 evalCast :: M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast ck op ty = do
     e <- evalOperand op
@@ -1324,10 +1324,10 @@ transCollection col halloc = do
     hmap <- mkHandleMap halloc (col^.M.functions)
     --traceM $ "\nHandle Map:"
     --traceM $ show hmap
-    let trs = fmap (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
+    let trs = catMaybes (fmap (getTraitImplementation (col^.M.traits)) (Map.assocs hmap))
     --traceM $ "\nTrait Implementations:"
     --traceM $ show trs
-    let tm = buildTraitMap col (catMaybes trs)
+    let tm = buildTraitMap col trs
     pairs <- mapM (transDefine am tm hmap) (col^.M.functions)
     return $ Map.fromList pairs
 
@@ -1376,7 +1376,7 @@ mkTraitImplementations _col trs trait@(M.Trait tname titems) =
                                             let name = getReprName elt in
                                             case Map.lookup name mmap of
                                                     Just (MirHandle _ fh) -> case testEquality (getReprTy elt) (handleTy fh) of
-                                                        Just Refl -> FnValue fh
+                                                        Just Refl -> undefined --- FnValue fh
                                                         Nothing -> error $ "type mismatch between trait declr " ++ show (pretty (getReprTy elt))
                                                                    ++  " and instance type " ++ show (pretty (handleTy fh))
                                                     Nothing -> error $ "Cannot find method " ++ show name ++ " for type " ++ show ty
@@ -1398,9 +1398,6 @@ getReprName (MethRepr name _) = name
 getReprTy :: MethRepr ty -> CT.TypeRepr ty
 getReprTy (MethRepr _ ty) = ty
 
-type TraitName = Text
-type MethName  = Text
-type TypeName  = Text
 
 
 

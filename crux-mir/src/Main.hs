@@ -49,6 +49,7 @@ import qualified Lang.Crucible.CFG.Core                as C
 import qualified Lang.Crucible.Analysis.Postdom        as C
 import qualified Lang.Crucible.FunctionHandle          as C
 import qualified Lang.Crucible.Backend                 as C
+import qualified Lang.Crucible.CFG.Expr                as C
 
 -- what4
 import qualified What4.Interface                       as W4
@@ -67,7 +68,8 @@ import Crux.Log
 -- mir-verifier
 import           Mir.Mir
 import           Mir.PP()
-import           Mir.Intrinsics(MIR,mirExtImpl)
+import           Mir.Intrinsics(MIR,mirExtImpl,cleanVariantName)
+import           Mir.Trans(tyToReprCont)
 import           Mir.SAWInterface (translateMIR,generateMIR,RustModule(..))
 
 
@@ -117,31 +119,57 @@ setSimulatorVerbosity verbosity sym = do
 
 showRegEntry :: forall sym arg p rtp args ret
    . C.IsSymInterface sym 
-  => Ty
+  => Collection
+  -> Ty
   -> C.RegEntry sym arg
   -> C.OverrideSim p sym MIR rtp args ret String
-showRegEntry _mty (C.RegEntry tp rv) =
-  case tp of 
-    C.BoolRepr  -> return $ case W4.asConstantPred rv of
-                     Just b -> show b
+showRegEntry col mty (C.RegEntry tp rv) =
+  case (mty,tp) of 
+    (TyBool, C.BoolRepr) -> return $ case W4.asConstantPred rv of
+                     Just b -> if b then "true" else "false"
                      Nothing -> "Symbolic bool"
-    C.StringRepr  -> return $ case W4.asString rv of
+    (TyStr, C.StringRepr) -> return $ case W4.asString rv of
                      Just s -> show s
                      Nothing -> "Symbolic string"
-    C.NatRepr  -> return $ case W4.asNat rv of
+    (TyInt USize, C.NatRepr) -> return $ case W4.asNat rv of
                      Just n -> show n
                      Nothing -> "Symbolic nat"
-    (C.BVRepr _w) -> return $ case W4.asSignedBV rv of
+    (TyUint USize, C.NatRepr) -> return $ case W4.asNat rv of
+                     Just n -> show n
+                     Nothing -> "Symbolic nat"                     
+    (TyInt _sz, C.BVRepr _w) -> return $ case W4.asSignedBV rv of
                      Just i  -> show i
                      Nothing -> "Symbolic BV"
-    C.RealValRepr  -> return $ case W4.asRational rv of
+    (TyUint _sz, C.BVRepr _w) -> return $ case W4.asUnsignedBV rv of
+                     Just i  -> show i
+                     Nothing -> "Symbolic BV"
+    (TyFloat _,  C.RealValRepr) -> return $ case W4.asRational rv of
                      Just f -> show f
                      Nothing -> "Symbolic real"
                      
-    C.StructRepr _ctx -> undefined
+    -- Tagged union type                                          
+    (TyAdt name _tyargs,                      
+      C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr))
+      | Just (Adt _ variants) <- List.find (\(Adt n _) -> name == n) (col^.adts) ->
+      let rv' :: Ctx.Assignment (C.RegValue' sym) (Ctx.EmptyCtx Ctx.::> C.NatType Ctx.::> C.AnyType)
+          rv' = rv in
+      let kv = rv'  Ctx.! Ctx.i1of2 in
+      case W4.asNat (C.unRV kv) of
+        Just k  -> let var = variants !! (fromInteger (toInteger k))
+                   in case (var^.vfields) of
+                        [] -> return $ Text.unpack (cleanVariantName (var^.vname))
+                        [Field _fName fty _fsubst] -> 
+                          case (rv' Ctx.! Ctx.i2of2 :: C.RegValue' sym C.AnyType) of
+                            (C.RV (C.AnyValue (C.StructRepr (Ctx.Empty Ctx.:> cty)) av)) -> do
+                              let argval = C.unRV (av Ctx.! Ctx.baseIndex)
+                              argstr <- showRegEntry col fty (C.RegEntry cty argval)
+                              return $ Text.unpack (cleanVariantName (var^.vname)) ++ "(" ++ argstr ++ ")"
+                            _ -> fail "invalid single field type"
+                        _ -> return $ show (var^.vname) ++ " with some fields that are not printed"
+        Nothing -> return $ "Symbolic ADT:" ++ show name
 
-    _ -> return $ "I don't know how to print result"
-  
+    _ -> return $ "I don't know how to print result of type " ++ show (pretty mty)
+ 
 
 -----------------------  
 
@@ -202,7 +230,7 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
         link
         arg <- C.callCFG a_cfg C.emptyRegMap
         res <- C.callCFG f_cfg (C.RegMap (Ctx.empty `Ctx.extend` arg))
-        str <- showRegEntry @sym res_ty res
+        str <- showRegEntry @sym col res_ty res
         liftIO $ putStrLn $ str
         return ()
   

@@ -380,6 +380,7 @@ data TraitItem
     deriving (Eq, Show)
 
 
+makeLenses ''Variant
 makeLenses ''Var
 makeLenses ''Collection
 makeLenses ''Fn
@@ -486,7 +487,7 @@ instance TypeOf LvalueProjection where
       Deref           -> peelRef (typeOf base)
       Index{}         -> peelIdx (typeOf base)
       ConstantIndex{} -> peelIdx (typeOf base)
-      Downcast{}      -> typeOf base
+      Downcast _i     -> typeOf base   --- TODO: check this
       Subslice{}      -> TySlice (peelIdx (typeOf base))
 
    where

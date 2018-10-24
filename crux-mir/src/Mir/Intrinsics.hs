@@ -399,21 +399,7 @@ pattern MirSliceRepr tp <- StructRepr
 
 --------------------------------------------------------------------------------
 -- ** Generator state for MIR translation to Crucible
---
-
-data MirValue (ty :: CrucibleType) where
-  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType args ret)
-
-
-valueToExpr :: MirValue ty -> Expr MIR s ty
-valueToExpr (FnValue handle) = App $ HandleLit handle where
-
-handleTy :: FnHandle args ret -> TypeRepr (FunctionHandleType args ret)
-handleTy handle = fty where
-    argtypes = handleArgTypes handle
-    rettype  = handleReturnType handle
-    fty      = FunctionHandleRepr argtypes rettype
-  
+--  
 
 -- | HandleMap maps mir function names to their corresponding function handle
 type HandleMap = Map.Map Text.Text MirHandle
@@ -492,8 +478,26 @@ data MirExp s where
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
-makeLenses ''TraitImpls
-makeLenses ''FnState
+------------------------------------------------------------------------------------
+-- helper function for traits
+
+data MirValue (ty :: CrucibleType) where
+  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType (args ::> AnyType) ret)
+
+
+toTraitFnTy :: TypeRepr (FunctionHandleType (args ::> a) ret) -> TypeRepr (FunctionHandleType (args ::> AnyType) ret)
+toTraitFnTy (FunctionHandleRepr (ctx :> _ar) ret) =
+  FunctionHandleRepr (ctx :> AnyRepr) ret
+
+valueToExpr :: MirValue ty -> Expr MIR s ty
+valueToExpr (FnValue _handle) = error "valToExpr"
+  -- App $ HandleLit handle where
+
+handleTy :: FnHandle args ret -> TypeRepr (FunctionHandleType args ret)
+handleTy handle = fty where
+    argtypes = handleArgTypes handle
+    rettype  = handleReturnType handle
+    fty      = FunctionHandleRepr argtypes rettype
 
 
 -- | Scan the function declarations to find ones that look like they
@@ -505,9 +509,15 @@ makeLenses ''FnState
 -- looks like: '::{{impl}}[n]::foo[m]'. This function uses a heuristic
 -- and looks at the names and the type of the first argument ('self')
 -- of all the function declarations to figure out which ones could be
--- implementations of methods. 
+-- implementations of methods.
 
-getTraitImplementation :: [Trait] -> (Text,MirHandle) ->  Maybe (Text.Text, Text.Text, MirHandle)
+type TraitName = Text
+type MethName  = Text
+type TypeName  = Text
+
+-- | Decide whether the given method definition is an implementation method for
+-- a declared trait. If so, return it along with the trait
+getTraitImplementation :: [Trait] -> (MethName,MirHandle) -> Maybe (MethName, TraitName, MirHandle)
 getTraitImplementation trts (name, handle) = do
   [methodName] <- parseFnName (show name)
   --traceM $ "Found method " ++ methodName
@@ -521,11 +531,14 @@ getTraitImplementation trts (name, handle) = do
   return (fromString methodName, traitName, handle)
 
 
+
+
 modid,impl,rustid,brk::String
 modid = "[A-Za-z0-9]*"
 impl = "{{impl}}" ++ brk
 rustid = "[A-Za-z0-9]+"
 brk = "\\[[0-9]+\\]"
+
 
 parseFnName :: String -> Maybe [String]
 parseFnName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::"++impl++"::("++rustid++brk++")"++".*")
@@ -536,11 +549,25 @@ parseTraitName = Regex.matchRegex (Regex.mkRegex $ "(" ++rustid++")"++brk++"::"+
 parseStaticMethodName :: String -> Maybe [String]
 parseStaticMethodName = Regex.matchRegex (Regex.mkRegex $ "(" ++ modid ++ ")::" ++ rustid++"(" ++ brk ++ ")" ++ "::" ++ "(" ++ rustid++brk++")")
 
+parseVariantName :: String -> Maybe [String]
+parseVariantName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::" ++ rustid ++ brk ++ "::" ++ "(" ++ rustid++")" ++ brk)
+
+cleanVariantName :: Text -> Text
+cleanVariantName txt = case parseVariantName (Text.unpack txt) of
+                         Just [ constrName ] -> Text.pack constrName
+                         Nothing             -> txt
+
 -- If we have a static call for a trait, we need to mangle the format so that it looks like
 -- a normal function call
 
 mangleTraitId :: DefId -> DefId 
 mangleTraitId defId = case parseStaticMethodName (Text.unpack defId) of
-  Just [modname,implbrk,name] -> Text.pack (modname ++ "::" ++ "{{impl}}"++implbrk++"::"++name) 
-                                   
+  Just [modname,implbrk,name] -> Text.pack (modname ++ "::" ++ "{{impl}}"++implbrk++"::"++name)    
   _ -> defId
+
+-------------------------------------------------------------------------------------------------------
+
+makeLenses ''TraitImpls
+makeLenses ''FnState
+
+-------------------------------------------------------------------------------------------------------

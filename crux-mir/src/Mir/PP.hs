@@ -224,14 +224,14 @@ instance Pretty Constant where
 
 instance Pretty LvalueProjection where
     pretty (LvalueProjection lv Deref) = text "*" <> pretty lv
-    pretty (LvalueProjection lv (PField i ty)) = pretty lv <> dot <> pretty i
+    pretty (LvalueProjection lv (PField i _ty)) = pretty lv <> dot <> pretty i
     pretty (LvalueProjection lv (Index op))    = pretty lv <> brackets (pretty op)
-    pretty (LvalueProjection lv (ConstantIndex co cl ce)) =
+    pretty (LvalueProjection lv (ConstantIndex co _cl ce)) =
       pretty lv <> brackets (if ce then empty else text "-" <> pretty co)
     pretty (LvalueProjection lv (Subslice f t)) =
       pretty lv <> brackets (pretty f <> dot <> dot <> pretty t)
     pretty (LvalueProjection lv (Downcast i)) =
-      parens (pretty lv <> text "as" <> pretty i)     
+      parens (pretty lv <+> text "as" <+> pretty i)     
 
 instance Pretty NullOp where
     pretty SizeOf = text "sizeof"
