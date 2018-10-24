@@ -92,8 +92,8 @@ extractMIR proxy sc rm n = do
 translateMIR :: Collection -> RustModule
 translateMIR col = RustModule cfgmap where
   passes  = P.passRemoveBoxNullary
-  cfgmap_ = mirToCFG col (Just passes)
-  cfgmap  = M.fromList $ map (\(k,v) -> (k, v)) $ M.toList cfgmap_
+  cfgmap  = mirToCFG col (Just passes)
+
   
 
 -- | Run mir-json on the input, generating lib file on disk 
@@ -129,7 +129,7 @@ generateMIR dir name = do
       Right col -> return col
 
 loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
-loadMIR sc fp = do
+loadMIR _sc fp = do
     f <- B.readFile fp
     let c = (J.eitherDecode f) :: Either String Collection
     case c of
@@ -141,7 +141,6 @@ loadMIR sc fp = do
           let passes = P.passRemoveBoxNullary
           -- DEBUGGING print functions
           -- mapM_ (putStrLn . pprint) fns
-          let cfgmap_ = mirToCFG col (Just passes)
-          let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
+          let cfgmap = mirToCFG col (Just passes)
           return $ RustModule cfgmap
       
