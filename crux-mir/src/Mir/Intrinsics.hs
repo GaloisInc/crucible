@@ -25,6 +25,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall #-}
+{-# OPTIONS_GHC -fno-warn-incomplete-patterns -fno-warn-unused-imports #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.Intrinsics
@@ -110,7 +111,7 @@ import           What4.Utils.MonadST
 
 import           Mir.Mir
 
-import           Debug.Trace
+--import           Debug.Trace
 
 type MirReferenceSymbol = "MirReference"
 type MirReferenceType tp = IntrinsicType MirReferenceSymbol (EmptyCtx ::> tp)
@@ -422,7 +423,7 @@ data MirHandle where
 
 
 instance Show MirHandle where
-    show (MirHandle _ c) = show c
+    show (MirHandle sig c) = show c ++ ":" ++ show sig
 
 
 -- | a VarMap maps identifier names to registers (if the id
@@ -452,7 +453,7 @@ type AdtMap = Map.Map Text.Text [Variant]
 
 -- | A TraitMap maps trait names to their vtables and instances
 -- The 'ctx' parameter lists the required members of the trait
-data TraitMap = TraitMap (Map.Map Text.Text {- ^ trait name-} (Some TraitImpls))
+data TraitMap = TraitMap (Map Text {- ^ trait name-} (Some TraitImpls))
 
 data TraitImpls ctx = TraitImpls
   {_vtableTyRepr :: CtxRepr ctx
@@ -509,14 +510,14 @@ makeLenses ''FnState
 getTraitImplementation :: [Trait] -> (Text,MirHandle) ->  Maybe (Text.Text, Text.Text, MirHandle)
 getTraitImplementation trts (name, handle) = do
   [methodName] <- parseFnName (show name)
-  traceM $ "Found method " ++ methodName
+  --traceM $ "Found method " ++ methodName
   let getItem (TraitMethod tm _ts) =
         case parseTraitName (show tm) of
           Just [_tn,mn] -> mn == methodName
           _ -> False
       getItem _ = False
   traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts, (TraitMethod _ _) <- List.filter getItem items ]
-  traceM $ "Found trait " ++ show traitName
+  --traceM $ "Found trait " ++ show traitName
   return (fromString methodName, traitName, handle)
 
 
@@ -532,5 +533,14 @@ parseFnName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::"++impl++"::("++rust
 parseTraitName :: String -> Maybe [String]
 parseTraitName = Regex.matchRegex (Regex.mkRegex $ "(" ++rustid++")"++brk++"::"++"("++rustid++brk++")")
 
-  
-  
+parseStaticMethodName :: String -> Maybe [String]
+parseStaticMethodName = Regex.matchRegex (Regex.mkRegex $ "(" ++ modid ++ ")::" ++ rustid++"(" ++ brk ++ ")" ++ "::" ++ "(" ++ rustid++brk++")")
+
+-- If we have a static call for a trait, we need to mangle the format so that it looks like
+-- a normal function call
+
+mangleTraitId :: DefId -> DefId 
+mangleTraitId defId = case parseStaticMethodName (Text.unpack defId) of
+  Just [modname,implbrk,name] -> Text.pack (modname ++ "::" ++ "{{impl}}"++implbrk++"::"++name) 
+                                   
+  _ -> defId

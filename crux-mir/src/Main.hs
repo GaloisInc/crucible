@@ -170,14 +170,15 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   let mir = translateMIR col
 
   let cfgmap = rmCFGs mir
-      link :: C.OverrideSim p sym MIR rtp a r ()
+
+  let link :: C.OverrideSim p sym MIR rtp a r ()
       link   = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
 
   
-  (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "f") cfgmap) of
+  (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "::f[0]") cfgmap) of
                         Just c -> return c
                         _      -> fail $ "Could not find cfg: " ++ "f"
-  (C.AnyCFG a_cfg) <- case (Map.lookup (Text.pack "ARG") cfgmap) of
+  (C.AnyCFG a_cfg) <- case (Map.lookup (Text.pack "::ARG[0]") cfgmap) of
                         Just c -> return c
                         _      -> fail $ "Could not find cfg: " ++ "g"
 

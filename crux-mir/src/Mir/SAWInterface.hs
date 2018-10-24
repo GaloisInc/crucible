@@ -55,6 +55,7 @@ data RustModule = RustModule {
     rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
 }
 
+{-
 cleanFnName :: T.Text -> T.Text
 cleanFnName t = T.pack $
     let r1 = Regex.mkRegex "\\[[0-9]+\\]"
@@ -62,13 +63,17 @@ cleanFnName t = T.pack $
         s1 = Regex.subRegex r1 (T.unpack t) ""
         s2 = Regex.subRegex r2 s1 "" in
     s2
+-}
+
+decorateFnName ::String -> String
+decorateFnName t = "::" ++ t ++ "[0]"
 
 extractMIR :: AIG.IsAIG l g =>
      AIG.Proxy l g -> SC.SharedContext -> RustModule -> String -> IO SC.Term
 extractMIR proxy sc rm n = do
     let cfgmap = rmCFGs rm
         link = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
-    (C.AnyCFG cfg) <- case (M.lookup (T.pack n) cfgmap) of
+    (C.AnyCFG cfg) <- case (M.lookup (T.pack (decorateFnName n)) cfgmap) of
              Just c -> return c
              _ -> fail $ "Could not find cfg: " ++ n
              
@@ -88,7 +93,7 @@ translateMIR :: Collection -> RustModule
 translateMIR col = RustModule cfgmap where
   passes  = P.passRemoveBoxNullary
   cfgmap_ = mirToCFG col (Just passes)
-  cfgmap  = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
+  cfgmap  = M.fromList $ map (\(k,v) -> (k, v)) $ M.toList cfgmap_
   
 
 -- | Run mir-json on the input, generating lib file on disk 

@@ -59,10 +59,9 @@ import Mir.Intrinsics
 import Mir.PP()
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
 
---import GHC.TypeLits
 import GHC.Stack
 
-import Debug.Trace
+--import Debug.Trace
 
 -- See end of [Intrinsics] for definition of generator state FnState
 
@@ -1075,11 +1074,13 @@ doReturn tr = do
     e <- lookupRetVar tr
     G.returnFromFunction e
 
+ 
 
 -- regular function calls: closure calls handled later
 doCall :: HasCallStack => Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
-doCall funid cargs cdest = do
+doCall funid0 cargs cdest = do
     hmap <- use handleMap
+    let funid = mangleTraitId funid0
     _tmap <- use traitMap
     case cdest of
       (Just (dest_lv, jdest))
@@ -1321,8 +1322,11 @@ transCollection :: HasCallStack => M.Collection -> FH.HandleAllocator s -> ST s 
 transCollection col halloc = do
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col^.M.adts ]
     hmap <- mkHandleMap halloc (col^.M.functions)
+    --traceM $ "\nHandle Map:"
+    --traceM $ show hmap
     let trs = fmap (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
-    traceM $ show trs
+    --traceM $ "\nTrait Implementations:"
+    --traceM $ show trs
     let tm = buildTraitMap col (catMaybes trs)
     pairs <- mapM (transDefine am tm hmap) (col^.M.functions)
     return $ Map.fromList pairs
@@ -1346,10 +1350,10 @@ mkTraitImplementations _col trs trait@(M.Trait tname titems) =
   let impls = thisTraitImpls trait trs 
       meths = [(tname, tsig) |(M.TraitMethod tname tsig) <- titems]
   in
-  trace ("Storing traits for " ++ show tname
+{-  trace ("Storing traits for " ++ show tname
            ++ "\nimpls is: " ++ show impls
            ++ "\ntrs is: " ++ show trs 
-           ++ "\nTrait meths are: " ++ show meths) $
+           ++ "\nTrait meths are: " ++ show meths) $ -}
   case foldl go (Some Ctx.empty) meths of
 
     Some (mctxr :: Ctx.Assignment MethRepr ctx) ->
@@ -1373,7 +1377,7 @@ mkTraitImplementations _col trs trait@(M.Trait tname titems) =
                                             case Map.lookup name mmap of
                                                     Just (MirHandle _ fh) -> case testEquality (getReprTy elt) (handleTy fh) of
                                                         Just Refl -> FnValue fh
-                                                        Nothing -> error $ "type mismatch between trait declr" ++ show (pretty (getReprTy elt))
+                                                        Nothing -> error $ "type mismatch between trait declr " ++ show (pretty (getReprTy elt))
                                                                    ++  " and instance type " ++ show (pretty (handleTy fh))
                                                     Nothing -> error $ "Cannot find method " ++ show name ++ " for type " ++ show ty
                                                                        ++ " in trait " ++ show tname)) impls
@@ -1399,15 +1403,23 @@ type MethName  = Text
 type TypeName  = Text
 
 
+
+-- | Find the mapping from types to method handles for *this* trait
 thisTraitImpls :: M.Trait -> [(MethName,TraitName,MirHandle)] -> Map TypeName (Map MethName MirHandle)
 thisTraitImpls (M.Trait trait _) trs = do
-  let impls = [ (methName, handle) | (methName, traitName, handle) <- trs,
-                                                   traitName == trait ]
+
+  -- pull out method handles just for this trait
+  let impls = [ (methName, handle) | (methName, traitName, handle) <- trs, traitName == trait ]
+
+  -- find type of first argument in the MirHandle
   let thisType (M.FnSig (ty:_) _ret) = typeName ty
       thisType (M.FnSig []     _ret) = error "BUG: no arg type!!!"
-    
-  let typed = map (\ (methName, handle@(MirHandle sig _h)) -> (thisType sig, (trait <> "::" <> methName, handle))) impls
 
+  -- organize methods by type
+  let typed :: [ (TypeName, (MethName, MirHandle)) ]
+      typed = map (\ (methName, handle@(MirHandle sig _h)) -> (thisType sig, (trait <> "::" <> methName, handle))) impls
+
+  -- convert double association list to double map
   foldr (\(ty,(mn,h)) -> Map.insertWith Map.union ty (Map.singleton mn h)) Map.empty typed
 
 
