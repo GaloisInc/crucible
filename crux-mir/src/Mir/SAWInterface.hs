@@ -2,7 +2,7 @@
 
 {-# OPTIONS_GHC -Wall -fno-warn-unused-imports #-}
 
-module Mir.SAWInterface (RustModule, extractMIR, generateMIR, rmCFGs, translateMIR) where
+module Mir.SAWInterface (RustModule, loadMIR, extractMIR, generateMIR, rmCFGs, translateMIR) where
 
 import Mir.Run
 import Mir.Intrinsics
@@ -127,5 +127,21 @@ generateMIR dir name = do
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> return col
-      
 
+loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
+loadMIR sc fp = do
+    f <- B.readFile fp
+    let c = (J.eitherDecode f) :: Either String Collection
+    case c of
+      Left msg -> fail $ "Decoding of MIR failed: " ++ msg
+      Right col -> do
+          --print "Mir decoding"
+          --putDoc (pretty col)
+          --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
+          let passes = P.passRemoveBoxNullary
+          -- DEBUGGING print functions
+          -- mapM_ (putStrLn . pprint) fns
+          let cfgmap_ = mirToCFG col (Just passes)
+          let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
+          return $ RustModule cfgmap
+      
