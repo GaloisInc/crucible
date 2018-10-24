@@ -1,4 +1,8 @@
-module Mir.SAWInterface (RustModule, loadMIR, extractMIR, rmCFGs) where
+{-# LANGUAGE LambdaCase #-}
+
+{-# OPTIONS_GHC -Wall -fno-warn-unused-imports #-}
+
+module Mir.SAWInterface (RustModule, extractMIR, generateMIR, rmCFGs, translateMIR) where
 
 import Mir.Run
 import Mir.Intrinsics
@@ -31,12 +35,21 @@ import qualified Lang.Crucible.Backend.SAWCore as C
 import qualified Text.Regex as Regex
 import qualified Data.AIG.Interface as AIG
 
+
+
 import Control.Monad
 
 import GHC.Stack
 
-import Mir.PP()
+import           Mir.PP()
 import           Text.PrettyPrint.ANSI.Leijen (putDoc,Pretty(..))
+import qualified System.Process as Proc
+import           System.Exit (ExitCode(..),exitWith)
+import           System.Directory (listDirectory, doesFileExist, removeFile)
+
+
+
+-----------------------------------------------------------------------
 
 data RustModule = RustModule {
     rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
@@ -59,29 +72,55 @@ extractMIR proxy sc rm n = do
              Just c -> return c
              _ -> fail $ "Could not find cfg: " ++ n
              
-    print $ "CFG for " ++ n         
-    print $ C.ppCFG True cfg
+    --print $ "CFG for " ++ n         
+    --print $ C.ppCFG True cfg
     
     term <- extractFromCFGPure link proxy sc cfg
 
-    print $ "SAW core for " ++ n
-    print $ SC.showTerm term
+    --print $ "SAW core for " ++ n
+    --print $ SC.showTerm term
     
     return term
 
-loadMIR :: HasCallStack => FilePath -> IO RustModule
-loadMIR fp = do
-    f <- B.readFile fp
-    let c = (J.eitherDecode f) :: Either String Collection
-    case c of
-      Left msg -> fail $ "Decoding of MIR failed: " ++ msg
-      Right col -> do
-          --print "Mir decoding"
-          --putDoc (pretty col)
-          --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
-          let passes = P.passRemoveBoxNullary
-          -- DEBUGGING print functions
-          -- mapM_ (putStrLn . pprint) fns
-          let cfgmap_ = mirToCFG col (Just passes)
-          let cfgmap = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
-          return $ RustModule cfgmap
+
+-- | Translate MIR to Crucible
+translateMIR :: Collection -> RustModule
+translateMIR col = RustModule cfgmap where
+  passes  = P.passRemoveBoxNullary
+  cfgmap_ = mirToCFG col (Just passes)
+  cfgmap  = M.fromList $ map (\(k,v) -> (cleanFnName k, v)) $ M.toList cfgmap_
+  
+
+-- | Run mir-json on the input, generating lib file on disk 
+-- This function uses 'failIO' if any error occurs
+generateMIR :: HasCallStack =>
+               FilePath          -- ^ location of input file
+            -> String            -- ^ file to processes, without extension
+            -> IO Collection
+generateMIR dir name = do
+  
+  let rustFile = dir </> name <.> "rs"
+  
+  doesFileExist rustFile >>= \case
+    True -> return ()
+    False -> fail $ "Cannot read " ++ rustFile 
+
+  (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
+    [rustFile, "--crate-type", "lib"] ""
+
+  case ec of
+    ExitFailure cd -> fail $ "Error while running mir-json: " ++ show cd
+    ExitSuccess    -> return ()
+
+  let rlibFile = ("lib" ++ name) <.> "rlib"
+  doesFileExist rlibFile >>= \case
+    True  -> removeFile rlibFile
+    False -> return ()
+
+  f <- B.readFile (dir </> name <.> "mir")
+  let c = (J.eitherDecode f) :: Either String Collection
+  case c of
+      Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
+      Right col -> return col
+      
+

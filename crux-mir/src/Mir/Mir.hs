@@ -13,8 +13,10 @@ License          : BSD3
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE DataKinds #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall #-}
+{-# OPTIONS_GHC -Wincomplete-patterns -Wall -fno-warn-unticked-promoted-constructors #-}
 
 module Mir.Mir where
 
@@ -28,13 +30,18 @@ import Data.List
 import Control.Lens(makeLenses,(^.))
 import Data.Maybe (fromMaybe)
 
+--import GHC.TypeLits
+import qualified Data.Parameterized.List as Param
+--import qualified Data.Parameterized.Classes as Param
+--import qualified Data.Parameterized.NatRepr as Param
+
 import GHC.Stack
 
 -- NOTE: below, all unwinding calls can be ignored
 --
 --
 
--- Description of MIR: https://github.com/rust-lang/rfcs/blob/master/text/1211-mir.md
+-- SCW: Description of MIR: https://github.com/rust-lang/rfcs/blob/master/text/1211-mir.md
 
 data BaseSize =
     USize
@@ -1187,3 +1194,46 @@ instance FromJSON MirBody where
     parseJSON = withObject "MirBody" $ \v -> MirBody
         <$> v .: "vars"
         <*> v .: "blocks"
+
+--------------------------------------------------------------------------------------------
+
+data BaseSizeRepr (b :: BaseSize) where
+  USizeRepr :: BaseSizeRepr USize
+  B8Repr    :: BaseSizeRepr B8
+  B16Repr    :: BaseSizeRepr B16
+  B32Repr    :: BaseSizeRepr B32
+  B64Repr    :: BaseSizeRepr B64
+  B128Repr    :: BaseSizeRepr B128
+
+data CustomTyRepr (b :: CustomTy) where
+  BoxTyRepr :: TyRepr t -> CustomTyRepr (BoxTy t)
+  IterTyRepr :: TyRepr t -> CustomTyRepr (IterTy t)
+
+data MutabilityRepr (m :: Mutability) where
+  ImmutRepr :: MutabilityRepr Immut
+  MutRepr   :: MutabilityRepr Mut
+
+data FloatKindRepr (k :: FloatKind) where
+
+data TyRepr (t :: Ty) where
+  TyBoolRepr  :: TyRepr TyBool
+  TyCharRepr  :: TyRepr TyChar
+  TyIntRepr   :: BaseSizeRepr sz -> TyRepr (TyInt sz)
+  TyUintRepr  :: BaseSizeRepr sz -> TyRepr  (TyUint sz)
+  TyTupleRepr :: Param.List TyRepr tys -> TyRepr (TyTuple tys)
+  TySliceRepr :: TyRepr t -> TyRepr (TySlice ty)
+--  TyArrayRepr :: TyRepr t -> Param.NatRepr i -> TyRepr (TyArray t i)
+  TyRefRepr   :: TyRepr t -> (MutabilityRepr m) -> TyRepr (TyRef t m)
+--  TyAdtRepr   ::  DefId [Maybe Ty] -> TyRepr 
+  TyUnsupportedRepr :: TyRepr TyUnsupported
+  TyCustomRepr      :: CustomTyRepr cu -> TyRepr (TyCustom cu)
+--  TyParamRepr       :: Param.NatRepr i -> TyRepr (TyParam i)
+--  TyFnDefRepr       ::  DefId [Maybe Ty] -> TyRepr 
+--  TyClosureRepr ::  DefId [Maybe Ty] -> TyRepr 
+  TyStrRepr :: TyRepr TyStr
+--  TyFnPtrRepr ::  FnSig -> TyRepr 
+  TyProjectionRepr :: TyRepr TyProjection
+--  TyDynamicRepr ::  DefId -> TyRepr 
+  TyRawPtrRepr ::  TyRepr ty -> MutabilityRepr mut -> TyRepr (TyRawPtr ty mut)
+  TyFloatRepr ::  FloatKindRepr ft -> TyRepr (TyFloat ft)
+

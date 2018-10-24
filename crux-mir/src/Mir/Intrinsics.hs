@@ -28,6 +28,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Mir.Intrinsics
+  {-
 ( -- * Internal implementation types
   MirReferenceSymbol
 , MirReferenceType
@@ -60,20 +61,29 @@ module Mir.Intrinsics
 , adtMap
 , handleMap
 , traitMap
+, MirValue(..)
+, valueToExpr
+  , getTraitImplementation  
   -- * MIR Syntax extension
 , MIR
 , MirStmt(..)
 , mirExtImpl
-) where
+) -} where
 
 import           GHC.TypeLits
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
+import qualified Data.List as List
+import qualified Data.Maybe as Maybe
+import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
+import           Data.Text (Text)
 import qualified Data.Text as Text
+import           Data.String
 
+import qualified Text.Regex as Regex
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Classes
@@ -82,7 +92,8 @@ import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.CFG.Extension
+import           Lang.Crucible.CFG.Expr
+--import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
@@ -99,6 +110,7 @@ import           What4.Utils.MonadST
 
 import           Mir.Mir
 
+import           Debug.Trace
 
 type MirReferenceSymbol = "MirReference"
 type MirReferenceType tp = IntrinsicType MirReferenceSymbol (EmptyCtx ::> tp)
@@ -388,6 +400,30 @@ pattern MirSliceRepr tp <- StructRepr
 -- ** Generator state for MIR translation to Crucible
 --
 
+data MirValue (ty :: CrucibleType) where
+  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType args ret)
+
+
+valueToExpr :: MirValue ty -> Expr MIR s ty
+valueToExpr (FnValue handle) = App $ HandleLit handle where
+
+handleTy :: FnHandle args ret -> TypeRepr (FunctionHandleType args ret)
+handleTy handle = fty where
+    argtypes = handleArgTypes handle
+    rettype  = handleReturnType handle
+    fty      = FunctionHandleRepr argtypes rettype
+  
+
+-- | HandleMap maps mir function names to their corresponding function handle
+type HandleMap = Map.Map Text.Text MirHandle
+data MirHandle where
+    MirHandle :: FnSig -> FnHandle init ret -> MirHandle
+
+
+
+instance Show MirHandle where
+    show (MirHandle _ c) = show c
+
 
 -- | a VarMap maps identifier names to registers (if the id
 --   corresponds to a local variable) or an atom (if the id
@@ -413,38 +449,31 @@ type LabelMap s = Map.Map BasicBlockInfo (Label s)
 -- | AdtMap maps ADT names to their definitions
 type AdtMap = Map.Map Text.Text [Variant]
 
+
 -- | A TraitMap maps trait names to their vtables and instances
 -- The 'ctx' parameter lists the required members of the trait
-data TraitMap = forall s. TraitMap (Map.Map Text.Text {- ^ trait name-} (Some (TraitImpls s)))
-data TraitImpls s ctx = TraitImpls
-  {_vtableTyRepr :: TypeRepr (StructType ctx)
+data TraitMap = TraitMap (Map.Map Text.Text {- ^ trait name-} (Some TraitImpls))
+
+data TraitImpls ctx = TraitImpls
+  {_vtableTyRepr :: CtxRepr ctx
    -- ^ Describes the types of Crucible structs that store the VTable
    -- of implementations
   ,_methodIndex :: Map.Map Text.Text (Some (Index ctx))
    -- ^ Tells which fields (indices) of the struct correspond to
    -- method names of the given trait
-  ,_vtables :: Map.Map Text.Text {- ^ type name-} (Expr MIR s (StructType ctx)) {- ^ VTable -}
+  ,_vtables :: Map.Map Text.Text (Assignment MirValue ctx)
    -- ^ gives vtables for each type implementing a given trait
   }
 
-traitImpls :: TypeRepr (StructType ctx)
+traitImpls :: CtxRepr ctx
            -> Map.Map Text.Text (Some (Index ctx))
-           -> Map.Map Text.Text {- ^ type name-} (Expr MIR s (StructType ctx))
-           -> TraitImpls s ctx
-traitImpls str midx vtbls = TraitImpls {_vtableTyRepr = str
-                                       ,_methodIndex = midx
-                                       ,_vtables = vtbls
-                                       }
-
-makeLenses ''TraitImpls
-
--- | HandleMap maps identifier names to their corresponding function handle
-type HandleMap = Map.Map Text.Text MirHandle
-data MirHandle where
-    MirHandle :: FnHandle init ret -> MirHandle
-
-instance Show MirHandle where
-    show (MirHandle c) = show c
+           -> Map.Map Text.Text (Assignment MirValue ctx)
+           -> TraitImpls ctx
+traitImpls str midx vtbls =
+  TraitImpls {_vtableTyRepr = str
+             ,_methodIndex  = midx
+             ,_vtables      = vtbls
+             }
 
 -- | Generator state for MIR translation
 data FnState s = FnState { _varMap    :: !(VarMap s),
@@ -454,7 +483,6 @@ data FnState s = FnState { _varMap    :: !(VarMap s),
                            _traitMap  :: !TraitMap
                          }
 
-makeLenses ''FnState
 
 -- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
 data MirExp s where
@@ -463,4 +491,46 @@ data MirExp s where
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
+makeLenses ''TraitImpls
+makeLenses ''FnState
 
+
+-- | Scan the function declarations to find ones that look like they
+-- implement a given trait. Record the type and function identifiers
+-- in a map (from type names to method names to names of implementing
+-- functions). The relation between methods and their implementations
+-- is not straightforward in MIR. The name of the function
+-- implementating a method 'foo' of a trait 'Bar' by a type 'Tar'
+-- looks like: '::{{impl}}[n]::foo[m]'. This function uses a heuristic
+-- and looks at the names and the type of the first argument ('self')
+-- of all the function declarations to figure out which ones could be
+-- implementations of methods. 
+
+getTraitImplementation :: [Trait] -> (Text,MirHandle) ->  Maybe (Text.Text, Text.Text, MirHandle)
+getTraitImplementation trts (name, handle) = do
+  [methodName] <- parseFnName (show name)
+  traceM $ "Found method " ++ methodName
+  let getItem (TraitMethod tm _ts) =
+        case parseTraitName (show tm) of
+          Just [_tn,mn] -> mn == methodName
+          _ -> False
+      getItem _ = False
+  traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts, (TraitMethod _ _) <- List.filter getItem items ]
+  traceM $ "Found trait " ++ show traitName
+  return (fromString methodName, traitName, handle)
+
+
+modid,impl,rustid,brk::String
+modid = "[A-Za-z0-9]*"
+impl = "{{impl}}" ++ brk
+rustid = "[A-Za-z0-9]+"
+brk = "\\[[0-9]+\\]"
+
+parseFnName :: String -> Maybe [String]
+parseFnName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::"++impl++"::("++rustid++brk++")"++".*")
+
+parseTraitName :: String -> Maybe [String]
+parseTraitName = Regex.matchRegex (Regex.mkRegex $ "(" ++rustid++")"++brk++"::"++"("++rustid++brk++")")
+
+  
+  

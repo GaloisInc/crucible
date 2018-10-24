@@ -1,20 +1,27 @@
 {- A more compact pretty printer that looks more similar to Rust syntax -}
 
+{-# OPTIONS_GHC -Wall -fno-warn-orphans #-}
+
 module Mir.PP where
 
 import qualified Data.Maybe as Maybe
 import qualified Data.List  as List
-import qualified Data.Map   as Map
+--import qualified Data.Map   as Map
 import           Data.Text (Text, unpack)
 
 
 
-import           Control.Lens(makeLenses,(^.))
+import           Control.Lens((^.))
 import           Text.PrettyPrint.ANSI.Leijen
 
 import           Mir.Mir
 
 -----------------------------------------------
+
+-- TODO: make these dynamic options for PP
+
+
+-- | if True, suppress the module name when pretty-printing MIR identifiers.
 hideModuleName :: Bool
 hideModuleName = True
 
@@ -47,11 +54,12 @@ arrow :: Doc
 arrow = text "->"
 
 size_str :: BaseSize -> String
-size_str B8 = "8"
-size_str B16 = "16"
-size_str B32 = "32"
-size_str B64 = "64"
+size_str B8   = "8"
+size_str B16  = "16"
+size_str B32  = "32"
+size_str B64  = "64"
 size_str B128 = "128"
+size_str USize = "USize"
 
 instance Pretty Text where
   pretty = text . unpack
@@ -65,18 +73,19 @@ instance Pretty FloatKind where
 
 instance Pretty Ty where
     pretty TyBool         = text "bool"
+    pretty TyChar         = text "char"
     pretty (TyInt sz)     = text $ "i" ++ size_str sz
     pretty (TyUint sz)    = text $ "u" ++ size_str sz
     pretty (TyTuple tys)  = tupled (map pretty tys)
     pretty (TySlice ty)   = brackets (pretty ty)
     pretty (TyArray ty i) = brackets (pretty ty <> comma <+> int i)
     pretty (TyRef ty mutability) = text "&" <> pretty mutability <> pretty ty
-    pretty (TyAdt defId tys)     = pr_id defId
+    pretty (TyAdt defId _tys)    = pr_id defId
     pretty TyUnsupported         = error "TODO: TyUnsupported"
     pretty (TyCustom customTy)   = pretty customTy
     pretty (TyParam i)           = text ("_" ++ show i)
-    pretty (TyFnDef defId tys)   = text "typeof" <+> pr_id defId
-    pretty (TyClosure defId tys) = text "typeof" <+> pr_id defId
+    pretty (TyFnDef defId _tys)  = text "typeof" <+> pr_id defId
+    pretty (TyClosure defId _tys) = text "typeof" <+> pr_id defId
     pretty TyStr                 = text "string"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
     pretty TyProjection          = error "TODO: TyProjection" -- TODO
@@ -85,7 +94,7 @@ instance Pretty Ty where
     pretty (TyFloat floatKind) = pretty floatKind
 
 instance Pretty Adt where
-   pretty (Adt nm vs) = pretty_fn2 "Adt" nm vs
+   pretty (Adt nm vs) = text "struct" <+> pr_id nm <> tupled (map pretty vs)
     
 instance Pretty VariantDiscr where
   pretty (Explicit a) = pretty_fn1 "Explicit" a
@@ -96,10 +105,10 @@ instance Pretty CtorKind where
   pretty = text . show
 
 instance Pretty Variant where
-  pretty (Variant nm dscr flds knd) = pretty_fn4 "Variant" nm dscr flds knd
+  pretty (Variant nm dscr flds knd) = pretty_fn4 "Variant" (pr_id nm) dscr flds knd
 
 instance Pretty Field where
-    pretty (Field nm ty sbs) = pretty_fn3 "Field" nm ty sbs
+    pretty (Field nm ty sbs) = pretty_fn3 "Field" (pr_id nm) ty sbs
 
 instance Pretty Mutability where
     pretty Mut   = text "mut " 
@@ -111,14 +120,14 @@ instance Pretty CustomTy where
     pretty (IterTy ty) = text "iter" <> parens (pretty ty)
 
 instance Pretty Var where
-    pretty (Var vn vm _vty _vs _) = pretty vn 
+    pretty (Var vn _vm _vty _vs _) = pretty vn 
 
 pretty_arg :: Var -> Doc
-pretty_arg (Var vn vm vty vs _) =
+pretty_arg (Var vn _vm vty _vs _) =
   pretty vn <+> colon <+> pretty vty
 
 pretty_temp :: Var -> Doc
-pretty_temp (Var vn vm vty vs _) =
+pretty_temp (Var vn vm vty _vs _) =
   text "let" <+>
     (if vm == Mut then text "mut" else text "const")
     <+> pretty vn <+> colon <+> pretty vty <> semi
@@ -175,11 +184,11 @@ instance Pretty Rvalue where
     pretty (UnaryOp a b) = pretty a <+> pretty b
     pretty (Discriminant a) = pretty_fn1 "Discriminant" a
     pretty (Aggregate a b) = pretty_fn2 "Aggregate" a b
-    pretty (RAdtAg a) = pretty_fn1 "RAdtAg" a
+    pretty (RAdtAg a) = pretty a
     pretty (RCustom a) = pretty_fn1 "RCustom" a
 
 instance Pretty AdtAg where
-  pretty (AdtAg adt i ops) = pretty_fn3 "AdtAg" adt i ops
+  pretty (AdtAg (Adt nm _vs) i ops) = pretty_fn3 "AdtAg" (pr_id nm) i ops
 
 
 instance Pretty Terminator where
@@ -196,7 +205,7 @@ instance Pretty Terminator where
       text "call" <> tupled ([pretty lv <+> text "="
                                        <+> pretty f <> tupled (map pretty args),
                              pretty bb0] ++ Maybe.maybeToList (fmap pretty bb1))
-    pretty (Call f args _ _ ) =
+    pretty (Call _f _args _ _ ) =
       error "call without return address"
       
     pretty (Assert op expect _msg target1 _cleanup) =
@@ -255,7 +264,6 @@ instance Pretty BinOp where
       Gt -> text ">="
       Offset -> text "Offset"
 
-
 instance Pretty CastKind where
     pretty = text . show
 
@@ -306,9 +314,9 @@ instance Pretty FnSig where
   pretty (FnSig args ret) = pretty args <+> arrow <+> pretty ret
 
 instance Pretty TraitItem where
-  pretty (TraitMethod name sig) = pretty name <> colon <> pretty sig
-  pretty (TraitType name) = text "name"  <> pretty name
-  pretty (TraitConst name ty) = text "const" <> pretty name <> colon <> pretty ty
+  pretty (TraitMethod name sig) = pr_id name <+> colon <> pretty sig
+  pretty (TraitType name) = text "name"  <+> pr_id name
+  pretty (TraitConst name ty) = text "const" <+> pr_id name <> colon <> pretty ty
 
 instance Pretty Trait where
   pretty (Trait name items) =
@@ -316,6 +324,9 @@ instance Pretty Trait where
 
 instance Pretty Collection where
   pretty col =
-    vcat (map pretty (col^.functions) ++
+    vcat ([text "FNS"] ++
+          map pretty (col^.functions) ++
+          [text "ADTs"] ++
           map pretty (col^.adts) ++
+          [text "TRAITs"] ++
           map pretty (col^.traits))

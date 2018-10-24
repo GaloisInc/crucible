@@ -9,6 +9,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 {-# OPTIONS_GHC -Wall -fno-warn-unused-imports #-}
 
 
@@ -16,9 +18,11 @@ module Main(main) where
 
 import           Control.Monad (forM_, when)
 import           Control.Monad.IO.Class
+import qualified Data.List       as List
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
+import qualified Data.String     as String
 
 import           System.IO (stdout)
 import           System.Directory (listDirectory, doesFileExist, removeFile)
@@ -26,7 +30,13 @@ import           System.Exit (ExitCode(..),exitWith)
 import           System.FilePath ((<.>), (</>), takeBaseName, takeExtension, splitFileName,splitExtension)
 import qualified System.Process as Proc
 
+import qualified Data.Aeson as J
+import qualified Data.ByteString.Lazy as B
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
+
+import           Control.Lens((^.))
+
+import           GHC.Stack
 
 -- parameterized-utils
 import qualified Data.Parameterized.Map     as MapF
@@ -38,6 +48,7 @@ import qualified Lang.Crucible.Simulator               as C
 import qualified Lang.Crucible.CFG.Core                as C
 import qualified Lang.Crucible.Analysis.Postdom        as C
 import qualified Lang.Crucible.FunctionHandle          as C
+import qualified Lang.Crucible.Backend                 as C
 
 -- what4
 import qualified What4.Interface                       as W4
@@ -55,8 +66,9 @@ import Crux.Log
 
 -- mir-verifier
 import           Mir.Mir
+import           Mir.PP()
 import           Mir.Intrinsics(MIR,mirExtImpl)
-import           Mir.SAWInterface (loadMIR,RustModule(..))
+import           Mir.SAWInterface (translateMIR,generateMIR,RustModule(..))
 
 
 
@@ -102,24 +114,35 @@ setSimulatorVerbosity verbosity sym = do
   _ <- W4.setOpt verbSetting (toInteger verbosity)
   return ()
 
-printRegEntry :: forall sym tp. (W4.IsExpr (W4.SymExpr sym)) => C.RegEntry sym tp -> IO ()
-printRegEntry (C.RegEntry tp rv) =
-  case tp of 
-    C.BoolRepr  ->
-      putStrLn $ show (W4.printSymExpr rv)
-    C.StringRepr  ->
-      putStrLn $ show (W4.printSymExpr rv)
-    C.NatRepr  ->
-      putStrLn $ show (W4.printSymExpr rv)
-    (C.BVRepr _w) ->
-      case W4.asSignedBV rv of
-        Just i -> putStrLn $ show i
-        _      -> error "showBV, not an int-like type"
-    C.RealValRepr  ->
-      putStrLn $ show (W4.printSymExpr rv)
 
-    _ -> say "Crux" "I don't know how to print result"
+showRegEntry :: forall sym arg p rtp args ret
+   . C.IsSymInterface sym 
+  => Ty
+  -> C.RegEntry sym arg
+  -> C.OverrideSim p sym MIR rtp args ret String
+showRegEntry _mty (C.RegEntry tp rv) =
+  case tp of 
+    C.BoolRepr  -> return $ case W4.asConstantPred rv of
+                     Just b -> show b
+                     Nothing -> "Symbolic bool"
+    C.StringRepr  -> return $ case W4.asString rv of
+                     Just s -> show s
+                     Nothing -> "Symbolic string"
+    C.NatRepr  -> return $ case W4.asNat rv of
+                     Just n -> show n
+                     Nothing -> "Symbolic nat"
+    (C.BVRepr _w) -> return $ case W4.asSignedBV rv of
+                     Just i  -> show i
+                     Nothing -> "Symbolic BV"
+    C.RealValRepr  -> return $ case W4.asRational rv of
+                     Just f -> show f
+                     Nothing -> "Symbolic real"
+                     
+    C.StructRepr _ctx -> undefined
+
+    _ -> return $ "I don't know how to print result"
   
+
 -----------------------  
 
 simulateMIR :: forall sym. Crux.Simulate sym CruxMIR
@@ -134,27 +157,29 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   when (Crux.simVerbose cruxOpts > 2) $
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
     
-  exitCode <- generateMIR dir name
-  case exitCode of
-    ExitFailure _ -> do
-        say "Crux" "Mir generation failed"
-        exitWith exitCode
-    ExitSuccess   -> return ()
+  col <- generateMIR dir name 
 
-  mir <- loadMIR (dir </> name <.> "mir")
+  when (Crux.simVerbose cruxOpts > 2) $ do
+    say "Crux" $ "MIR collection" 
+    putStrLn $ show (pretty col)
 
-  let mname = "main"
+  res_ty <- case List.find (\fn -> fn^.fname == "::f[0]") (col^.functions) of
+                   Just fn -> return (fn^.freturn_ty)
+                   Nothing  -> fail "cannot find f"
+
+  let mir = translateMIR col
 
   let cfgmap = rmCFGs mir
-      _link  = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
+      link :: C.OverrideSim p sym MIR rtp a r ()
+      link   = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
 
   
   (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "f") cfgmap) of
                         Just c -> return c
-                        _      -> fail $ "Could not find cfg: " ++ mname
+                        _      -> fail $ "Could not find cfg: " ++ "f"
   (C.AnyCFG a_cfg) <- case (Map.lookup (Text.pack "ARG") cfgmap) of
                         Just c -> return c
-                        _      -> fail $ "Could not find cfg: " ++ mname
+                        _      -> fail $ "Could not find cfg: " ++ "g"
 
   when (Crux.simVerbose cruxOpts > 2) $ do
     say "Crux" "f CFG"
@@ -173,9 +198,11 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   let
      osim :: Fun sym MIR Ctx.EmptyCtx C.UnitType
      osim   = do
-        arg  <- C.callCFG a_cfg C.emptyRegMap
+        link
+        arg <- C.callCFG a_cfg C.emptyRegMap
         res <- C.callCFG f_cfg (C.RegMap (Ctx.empty `Ctx.extend` arg))
-        liftIO $ printRegEntry @sym res
+        str <- showRegEntry @sym res_ty res
+        liftIO $ putStrLn $ str
         return ()
   
   halloc <- C.newHandleAllocator
@@ -190,21 +217,5 @@ makeCounterExamplesMIR :: Crux.Options CruxMIR -> Maybe ProvedGoals -> IO ()
 makeCounterExamplesMIR _ _ = return ()
   
 
--- | Run mir-json on the input
-generateMIR :: FilePath -> String -> IO ExitCode
-generateMIR dir name = do
-  let rustFile = dir </> name <.> "rs" 
-  doesFileExist rustFile >>= \case
-    True -> return ()
-    False -> say "Crux" $ "Cannot find input file " ++ rustFile
-
-  (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-    [rustFile, "--crate-type", "lib"] ""
-  let rlibFile = ("lib" ++ name) <.> "rlib"
-  doesFileExist rlibFile >>= \case
-    True  -> removeFile rlibFile
-    False -> return ()
-
-  return ec
 
 
