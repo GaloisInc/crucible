@@ -37,6 +37,8 @@ module What4.Protocol.SMTLib2
   , writeGetValue
   , runCheckSat
   , asSMT2Type
+  , setOption
+  , setProduceModels
     -- * Logic
   , SMT2.Logic(..)
   , SMT2.qf_bv
@@ -44,19 +46,14 @@ module What4.Protocol.SMTLib2
   , all_supported
   , setLogic
     -- * Type
-  , SMT2.Type(..)
-  , SMT2.arrayType
-  , structType
+  , SMT2.Sort(..)
+  , SMT2.arraySort
+  , structSort
     -- * Term
   , Term(..)
   , arrayConst
   , What4.Protocol.SMTLib2.arraySelect
   , arrayStore
-    -- * Option
-  , SMT2.Option(..)
-  , SMT2.produceModels
-  , SMT2.ppDecimal
-  , setOption
     -- * Solvers and External interface
   , Session(..)
   , SMTLib2GenericSolver(..)
@@ -163,7 +160,7 @@ nestedArrayUpdate a (h,[]) v  = SMT2.store a h v
 nestedArrayUpdate a (h,i:l) v = SMT2.store a h sub_a'
   where sub_a' = nestedArrayUpdate (SMT2.select a h) (i,l) v
 
-arrayConst :: SMT2.Type -> SMT2.Type -> Term -> Term
+arrayConst :: SMT2.Sort -> SMT2.Sort -> Term -> Term
 arrayConst = SMT2.arrayConst
 
 arraySelect :: Term -> Term -> Term
@@ -190,10 +187,10 @@ class SMTLib2Tweaks a where
   --
   -- By default, we encode symbolic arrays using a nested representation.  If the solver,
   -- supports tuples/structs it may wish to change this.
-  smtlib2arrayType :: [SMT2.Type] -> SMT2.Type -> SMT2.Type
-  smtlib2arrayType l r = foldr (\i v -> SMT2.arrayType i v) r l
+  smtlib2arrayType :: [SMT2.Sort] -> SMT2.Sort -> SMT2.Sort
+  smtlib2arrayType l r = foldr (\i v -> SMT2.arraySort i v) r l
 
-  smtlib2arrayConstant :: Maybe ([SMT2.Type] -> SMT2.Type -> Term -> Term)
+  smtlib2arrayConstant :: Maybe ([SMT2.Sort] -> SMT2.Sort -> Term -> Term)
   smtlib2arrayConstant = Nothing
 
   smtlib2arraySelect :: Term -> [Term] -> Term
@@ -206,23 +203,32 @@ class SMTLib2Tweaks a where
       [] -> error "arrayUpdate given empty list"
       i1:ir -> nestedArrayUpdate a (i1, ir) v
 
-asSMT2Type :: forall a tp . SMTLib2Tweaks a => TypeMap tp -> SMT2.Type
-asSMT2Type BoolTypeMap    = SMT2.boolType
-asSMT2Type NatTypeMap     = SMT2.intType
-asSMT2Type IntegerTypeMap = SMT2.intType
-asSMT2Type RealTypeMap    = SMT2.realType
-asSMT2Type (BVTypeMap w)  = SMT2.bvType (natValue w)
-asSMT2Type (FloatTypeMap fpp) = SMT2.Type $ mkFloatSymbol "FloatingPoint" (asSMTFloatPrecision fpp)
+-- | A struct with the given fields.
+--
+-- This uses SMTLIB2 datatypes and are not primitive to the language.
+structSort :: [SMT2.Sort] -> SMT2.Sort
+structSort flds = SMT2.Sort $ "(Struct" <> Builder.decimal n <> foldMap f flds <> ")"
+  where f :: SMT2.Sort -> Builder
+        f (SMT2.Sort s) = " " <> s
+        n = length flds
+
+asSMT2Type :: forall a tp . SMTLib2Tweaks a => TypeMap tp -> SMT2.Sort
+asSMT2Type BoolTypeMap    = SMT2.boolSort
+asSMT2Type NatTypeMap     = SMT2.intSort
+asSMT2Type IntegerTypeMap = SMT2.intSort
+asSMT2Type RealTypeMap    = SMT2.realSort
+asSMT2Type (BVTypeMap w)  = SMT2.bvSort (natValue w)
+asSMT2Type (FloatTypeMap fpp) = SMT2.Sort $ mkFloatSymbol "FloatingPoint" (asSMTFloatPrecision fpp)
 asSMT2Type ComplexToStructTypeMap =
-  structType [ SMT2.realType, SMT2.realType ]
+  structSort [ SMT2.realSort, SMT2.realSort ]
 asSMT2Type ComplexToArrayTypeMap =
-  smtlib2arrayType @a [SMT2.boolType] SMT2.realType
+  smtlib2arrayType @a [SMT2.boolSort] SMT2.realSort
 asSMT2Type (PrimArrayTypeMap i r) =
   smtlib2arrayType @a (toListFC (asSMT2Type @a) i) (asSMT2Type @a r)
 asSMT2Type (FnArrayTypeMap _ _) =
   error "SMTLIB backend does not support function types as first class."
 asSMT2Type (StructTypeMap f) =
-  structType (toListFC (asSMT2Type @a) f)
+  structSort (toListFC (asSMT2Type @a) f)
 
 -- Default instance.
 instance SMTLib2Tweaks () where
@@ -257,17 +263,8 @@ instance Num Term where
              (SMT2.negate (SMT2.numeral 1))
   fromInteger = SMT2.numeral
 
-varBinding :: forall a . SMTLib2Tweaks a => (Text, Some TypeMap) -> (Text, SMT2.Type)
+varBinding :: forall a . SMTLib2Tweaks a => (Text, Some TypeMap) -> (Text, SMT2.Sort)
 varBinding (nm, Some tp) = (nm, asSMT2Type @a tp)
-
--- | A struct with the given fields.
---
--- This uses SMTLIB2 datatypes and are not primitive to the language.
-structType :: [SMT2.Type] -> SMT2.Type
-structType flds = SMT2.Type $ "(Struct" <> Builder.decimal n <> foldMap f flds <> ")"
-  where f :: SMT2.Type -> Builder
-        f (SMT2.Type tp) = " " <> tp
-        n = length flds
 
 -- The SMTLIB2 exporter uses the datatypes theory for representing structures.
 --
@@ -462,8 +459,7 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
   resetCommand _ = SMT2.resetAssertions
 
   checkCommand _ = SMT2.checkSat
-  setOptCommand _ x y = SMT2.setOption (SMT2.Option opt)
-    where opt = Builder.fromText x <> Builder.fromText " " <> y
+  setOptCommand _ = SMT2.setOption
 
   declareCommand _proxy v argTypes retType =
     SMT2.declareFun v (toListFC (asSMT2Type @a) argTypes) (asSMT2Type @a retType)
@@ -504,8 +500,12 @@ writeExit w = addCommand w SMT2.exit
 setLogic :: SMTLib2Tweaks a => WriterConn t (Writer a) -> SMT2.Logic -> IO ()
 setLogic w l = addCommand w $ SMT2.setLogic l
 
-setOption :: SMTLib2Tweaks a => WriterConn t (Writer a) -> SMT2.Option -> IO ()
-setOption w o = addCommand w $ SMT2.setOption o
+setOption :: SMTLib2Tweaks a => WriterConn t (Writer a) -> Text -> Text -> IO ()
+setOption w nm val = addCommand w $ SMT2.setOption nm val
+
+-- | Set the produce models option (We typically want this)
+setProduceModels :: SMTLib2Tweaks a => WriterConn t (Writer a) -> Bool -> IO ()
+setProduceModels w b = addCommand w $ SMT2.setProduceModels b
 
 writeGetValue :: SMTLib2Tweaks a => WriterConn t (Writer a) -> [Term] -> IO ()
 writeGetValue w l = addCommand w $ SMT2.getValue l
@@ -759,7 +759,7 @@ writeDefaultSMT2 :: SMTLib2Tweaks a
 writeDefaultSMT2 a nm feat sym h p = do
   bindings <- B.getSymbolVarBimap sym
   c <- newWriter a h nm True feat True bindings
-  setOption c (SMT2.produceModels True)
+  setProduceModels c True
   SMTWriter.assume c p
   writeCheckSat c
   writeExit c

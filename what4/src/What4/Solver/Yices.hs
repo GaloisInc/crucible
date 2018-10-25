@@ -424,7 +424,7 @@ instance SMTWriter (Connection s) where
   popCommand _    = Cmd "(pop)"
   resetCommand _  = Cmd "(reset)"
   checkCommand _  = Cmd "(check)"
-  setOptCommand _ x o = setParamCommand x o
+  setOptCommand _ x o = setParamCommand x (Builder.fromText o)
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]
 
   declareCommand _ v args rtp =

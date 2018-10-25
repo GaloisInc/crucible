@@ -108,12 +108,11 @@ writeDRealSMT2File
 writeDRealSMT2File sym h p = do
   bindings <- getSymbolVarBimap sym
   c <- SMT2.newWriter DReal h "dReal" False useComputableReals False bindings
-  SMT2.setOption c (SMT2.produceModels True)
+  SMT2.setProduceModels c True
   SMT2.setLogic c (SMT2.Logic "QF_NRA")
   SMT2.assume c p
   SMT2.writeCheckSat c
   SMT2.writeExit c
-
 
 type DRealBindings = Map Text (Maybe Rational, Maybe Rational)
 

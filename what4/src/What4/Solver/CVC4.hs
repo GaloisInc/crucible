@@ -75,14 +75,14 @@ cvc4Adapter =
   , solver_adapter_write_smt2 = writeCVC4SMT2File
   }
 
-indexType :: [SMT2.Type] -> SMT2.Type
+indexType :: [SMT2.Sort] -> SMT2.Sort
 indexType [i] = i
-indexType il = SMT2.structType il
+indexType il = SMT2.structSort il
 
 instance SMT2.SMTLib2Tweaks CVC4 where
   smtlib2tweaks = CVC4
 
-  smtlib2arrayType il r = SMT2.arrayType (indexType il) r
+  smtlib2arrayType il r = SMT2.arraySort (indexType il) r
 
   -- | Adapted from the tweak of array constant for CVC4.
   smtlib2arrayConstant = Just $ \idx rtp v ->
@@ -102,7 +102,7 @@ writeMultiAsmpCVC4SMT2File sym h ps = do
   c <- SMT2.newWriter CVC4 h "CVC4" True cvc4Features True bindings
   --c <- SMT2.newWriter h "CVC4" True SMT2.LinearArithmetic
   SMT2.setLogic c SMT2.allSupported
-  SMT2.setOption c (SMT2.produceModels True)
+  SMT2.setProduceModels c True
   forM_ ps $ SMT2.assume c
   SMT2.writeCheckSat c
   SMT2.writeExit c
@@ -125,7 +125,7 @@ instance SMT2.SMTLib2GenericSolver CVC4 where
     -- Tell CVC4 to use all supported logics.
     SMT2.setLogic writer SMT2.allSupported
     -- Tell CVC4 to produce models
-    SMT2.setOption writer $ SMT2.produceModels True
+    SMT2.setProduceModels writer True
 
 runCVC4InOverride
   :: ExprBuilder t st fs

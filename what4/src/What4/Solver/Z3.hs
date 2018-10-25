@@ -65,9 +65,9 @@ z3Adapter =
   , solver_adapter_write_smt2 = writeZ3SMT2File
   }
 
-indexType :: [SMT2.Type] -> SMT2.Type
+indexType :: [SMT2.Sort] -> SMT2.Sort
 indexType [i] = i
-indexType il = SMT2.structType il
+indexType il = SMT2.structSort il
 
 indexCtor :: [SMT2.Term] -> SMT2.Term
 indexCtor [i] = i
@@ -76,7 +76,7 @@ indexCtor il = structCtor il
 instance SMT2.SMTLib2Tweaks Z3 where
   smtlib2tweaks = Z3
 
-  smtlib2arrayType il r = SMT2.arrayType (indexType il) r
+  smtlib2arrayType il r = SMT2.arraySort (indexType il) r
 
   smtlib2arrayConstant = Just $ \idx rtp v ->
     SMT2.arrayConst (indexType idx) rtp v
@@ -106,9 +106,9 @@ instance SMT2.SMTLib2GenericSolver Z3 where
 
   setDefaultLogicAndOptions writer = do
     -- Tell Z3 to produce models.
-    SMT2.setOption writer $ SMT2.produceModels True
+    SMT2.setProduceModels writer True
     -- Tell Z3 to round and print algebraic reals as decimal
-    SMT2.setOption writer $ SMT2.ppDecimal True
+    SMT2.setOption writer "pp.decimal" "true"
 
 runZ3InOverride
   :: ExprBuilder t st fs

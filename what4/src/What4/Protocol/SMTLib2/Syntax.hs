@@ -14,35 +14,40 @@ module What4.Protocol.SMTLib2.Syntax
     Command(..)
   , setLogic
   , setOption
-  , exit
-  , checkSat
-  , getValue
-  , assert
-  , resetAssertions
-  , push
-  , pop
+  , setProduceModels
+  , declareSort
+  , defineSort
+  , declareConst
   , declareFun
   , defineFun
-    -- * Option
-  , Option(..)
-  , produceModels
-  , ppDecimal
+  , Symbol
+  , assert
+  , exit
+  , checkSat
+  , checkSatAssuming
+  , getModel
+  , getValue
+  , push
+  , pop
+  , resetAssertions
     -- * Logic
   , Logic(..)
   , qf_bv
   , allSupported
-    -- * Type
-  , Type(..)
-  , boolType
-  , bvType
-  , intType
-  , realType
+    -- * Sort
+  , Sort(..)
+  , boolSort
+  , bvSort
+  , intSort
+  , realSort
+  , varSort
     -- * Term
   , Term(..)
   , un_app
   , bin_app
   , term_app
   , pairwise_app
+  , namedTerm
     -- * Core theory
   , true
   , false
@@ -104,14 +109,13 @@ module What4.Protocol.SMTLib2.Syntax
   , bvsdiv
   , bvsrem
     -- * Array theory
-  , arrayType
+  , arraySort
   , arrayConst
   , select
   , store
   ) where
 
 import           Data.Bits hiding (xor)
-import           Data.Monoid ( (<>) )
 import           Data.String
 import           Data.Text (Text)
 import           Data.Text.Lazy.Builder (Builder)
@@ -149,49 +153,40 @@ allSupported :: Logic
 allSupported = Logic "ALL_SUPPORTED"
 
 ------------------------------------------------------------------------
--- Option
+-- Symbol
 
--- | Identifies an option that can be set by the SMT solver.
-newtype Option = Option Builder
-
-ppBool :: Bool -> Builder
-ppBool True  = "true"
-ppBool False = "false"
-
--- | Option to produce models when check-sat is called.
-produceModels :: Bool -> Option
-produceModels b = Option (":produce-models " <> ppBool b)
-
--- | Control pretty printing decimal values.
-ppDecimal :: Bool -> Option
-ppDecimal b = Option (":pp.decimal " <> ppBool b)
+type Symbol = Text
 
 ------------------------------------------------------------------------
--- Type
+-- Sort
 
--- | Type for SMTLIB expressions
-newtype Type = Type { unType :: Builder }
+-- | Sort for SMTLIB expressions
+newtype Sort = Sort { unSort :: Builder }
+
+-- | Create a sort from a symbol name
+varSort :: Symbol -> Sort
+varSort = Sort . Builder.fromText
 
 -- | Booleans
-boolType :: Type
-boolType = Type "Bool"
+boolSort :: Sort
+boolSort = Sort "Bool"
 
 -- | Bitvectors with the given number of bits.
-bvType :: Integer -> Type
-bvType w | w >= 1 = Type $ "(_ BitVec " <> fromString (show w) <> ")"
-         | otherwise = error "bvType expects a positive number."
+bvSort :: Integer -> Sort
+bvSort w | w >= 1 = Sort $ "(_ BitVec " <> fromString (show w) <> ")"
+         | otherwise = error "bvSort expects a positive number."
 
 -- | Integers
-intType :: Type
-intType = Type "Int"
+intSort :: Sort
+intSort = Sort "Int"
 
 -- | Real numbers
-realType :: Type
-realType = Type "Real"
+realSort :: Sort
+realSort = Sort "Real"
 
--- | @arrayType a b@ denotes the set of functions from @a@ to be @b@.
-arrayType :: Type -> Type -> Type
-arrayType (Type i) (Type v) = Type $ "(Array " <> i <> " " <> v <> ")"
+-- | @arraySort a b@ denotes the set of functions from @a@ to be @b@.
+arraySort :: Sort -> Sort -> Sort
+arraySort (Sort i) (Sort v) = Sort $ "(Array " <> i <> " " <> v <> ")"
 
 ------------------------------------------------------------------------
 -- Term
@@ -223,6 +218,11 @@ chain_app f _ = error $ show f ++ " expects two or more arguments."
 assoc_app :: Builder -> Term -> [Term] -> Term
 assoc_app _ t [] = t
 assoc_app f t l = term_app f (t:l)
+
+-- | Append a "name" to a term so that it will be printed when
+-- @(get-assignment)@ is called.
+namedTerm :: Term -> Text -> Term
+namedTerm (T x) nm = T $ "(! " <> x <> " :named " <> Builder.fromText nm <> ")"
 
 ------------------------------------------------------------------------
 -- Core theory
@@ -282,19 +282,19 @@ distinct = pairwise_app "distinct"
 ite :: Term -> Term -> Term -> Term
 ite c x y = term_app "ite" [c, x, y]
 
-varBinding :: (Text,Type) -> Builder
-varBinding (nm, tp) = "(" <> Builder.fromText nm <> " " <> unType tp <> ")"
+varBinding :: (Text,Sort) -> Builder
+varBinding (nm, tp) = "(" <> Builder.fromText nm <> " " <> unSort tp <> ")"
 
 -- | @forall vars t@ denotes a predicate that holds if @t@ for every valuation of the
 -- variables in @vars@.
-forall :: [(Text, Type)] -> Term -> Term
+forall :: [(Text, Sort)] -> Term -> Term
 forall [] r = r
 forall vars r =
   T $ app "forall" [builder_list (varBinding <$> vars), renderTerm r]
 
 -- | @exists vars t@ denotes a predicate that holds if @t@ for some valuation of the
 -- variables in @vars@.
-exists :: [(Text, Type)] -> Term -> Term
+exists :: [(Text, Sort)] -> Term -> Term
 exists [] r = r
 exists vars r =
   T $ app "exists" [builder_list (varBinding <$> vars), renderTerm r]
@@ -445,10 +445,10 @@ isInt = un_app "is_int"
 -- This uses the non-standard SMTLIB2 syntax
 -- @((as const (Array t1 t2)) c)@ which is supported by CVC4 and Z3
 -- (and perhaps others).
-arrayConst :: Type -> Type -> Term -> Term
+arrayConst :: Sort -> Sort -> Term -> Term
 arrayConst itp rtp c =
-  let array_type = arrayType itp rtp
-      cast_app = builder_list [ "as" , "const" , unType array_type ]
+  let tp = arraySort itp rtp
+      cast_app = builder_list [ "as" , "const" , unSort tp ]
    in term_app cast_app [ c ]
 
 -- | @select a i@ denotes the value of @a@ at @i@.
@@ -612,33 +612,61 @@ newtype Command = Cmd Builder
 
 -- | Set the logic of the SMT solver
 setLogic :: Logic -> Command
-setLogic (Logic nm) = Cmd $ app "set-logic" [nm]
+setLogic (Logic nm) = Cmd $ "(set-logic " <> nm <> ")"
 
 -- | Set an option in the SMT solver
-setOption :: Option -> Command
-setOption (Option nm) = Cmd $ app "set-option" [nm]
+--
+-- The name should not need to be prefixed with a colon."
+setOption :: Text -> Text -> Command
+setOption nm val = Cmd $ app_list "set-option" [":" <> Builder.fromText nm, Builder.fromText val]
+
+-- | Set option to produce models
+--
+-- This is a widely used option so, we we have a custom command to make it.
+setProduceModels :: Bool -> Command
+setProduceModels b = setOption "produce-models" (if b then "true" else "false")
 
 -- | Request the SMT solver to exit
 exit :: Command
 exit = Cmd "(exit)"
 
+-- | Declare an uninterpreted sort with the given number of sort parameters.
+declareSort :: Symbol -> Integer -> Command
+declareSort v n = Cmd $ app "declare-sort" [Builder.fromText v, fromString (show n)]
+
+-- | Define a sort in terms of other sorts
+--
+defineSort :: Symbol -- ^ Name of new sort
+           -> [Symbol] -- ^ Parameters for polymorphic sorts
+           -> Sort -- ^ Definition
+           -> Command
+defineSort v params d =
+  Cmd $ app "define-sort" [ Builder.fromText v
+                          , builder_list (Builder.fromText <$> params)
+                          , unSort d
+                          ]
+
+-- | Declare a constant with the given name and return types.
+declareConst :: Text -> Sort -> Command
+declareConst v tp = Cmd $ app "declare-const" [Builder.fromText v, unSort tp]
+
 -- | Declare a function with the given name, argument types, and
 -- return type.
-declareFun :: Text -> [Type] -> Type -> Command
-declareFun v argTypes retType = Cmd $
+declareFun :: Text -> [Sort] -> Sort -> Command
+declareFun v argSorts retSort = Cmd $
   app "declare-fun" [ Builder.fromText v
-                    , builder_list $ unType <$> argTypes
-                    , unType retType
+                    , builder_list $ unSort <$> argSorts
+                    , unSort retSort
                     ]
 
 -- | Declare a function with the given name, argument types, and
 -- return type.
-defineFun :: Text -> [(Text,Type)] -> Type -> Term -> Command
+defineFun :: Text -> [(Text,Sort)] -> Sort -> Term -> Command
 defineFun f args return_type e =
-  let resolveArg (var, tp) = app (Builder.fromText var) [unType tp]
+  let resolveArg (var, tp) = app (Builder.fromText var) [unSort tp]
    in Cmd $ app "define-fun" [ Builder.fromText f
                              , builder_list (resolveArg <$> args)
-                             , unType return_type
+                             , unSort return_type
                              , renderTerm e
                              ]
 
@@ -650,7 +678,15 @@ assert p = Cmd $ app "assert" [renderTerm p]
 checkSat :: Command
 checkSat = Cmd "(check-sat)"
 
--- | Get the values associated with the terms from the last call to check-set.
+-- | Check the satisfiability of the current assertions and the additional ones in the list.
+checkSatAssuming :: [Term] -> Command
+checkSatAssuming l = Cmd $ "(check-sat-assuming " <> builder_list (renderTerm <$> l) <> ")"
+
+-- | Get the model associated with the last call to @check-sat@.
+getModel :: Command
+getModel = Cmd "(get-model)"
+
+-- | Get the values associated with the terms from the last call to @check-sat@.
 getValue :: [Term] -> Command
 getValue values = Cmd $ app "get-value" [builder_list (renderTerm <$> values)]
 

@@ -742,7 +742,7 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   checkCommand  :: f h -> Command h
 
   -- | Set an option/parameter.
-  setOptCommand :: f h -> Text -> Builder -> Command h
+  setOptCommand :: f h -> Text -> Text -> Command h
 
   -- | Declare a new symbol with the given name, arguments types, and result type.
   declareCommand :: f h
