@@ -404,12 +404,12 @@ pattern MirSliceRepr tp <- StructRepr
 -- | HandleMap maps mir function names to their corresponding function handle
 type HandleMap = Map.Map Text.Text MirHandle
 data MirHandle where
-    MirHandle :: FnSig -> FnHandle init ret -> MirHandle
+    MirHandle :: MethName -> FnSig -> FnHandle init ret -> MirHandle
 
 
 
 instance Show MirHandle where
-    show (MirHandle sig c) = show c ++ ":" ++ show sig
+    show (MirHandle _nm sig c) = show c ++ ":" ++ show sig
 
 
 -- | a VarMap maps identifier names to registers (if the id
@@ -482,7 +482,7 @@ instance Show (MirExp s) where
 -- helper function for traits
 
 data MirValue (ty :: CrucibleType) where
-  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType (args ::> AnyType) ret)
+  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType args ret)
 
 
 toTraitFnTy :: TypeRepr (FunctionHandleType (args ::> a) ret) -> TypeRepr (FunctionHandleType (args ::> AnyType) ret)
@@ -490,8 +490,7 @@ toTraitFnTy (FunctionHandleRepr (ctx :> _ar) ret) =
   FunctionHandleRepr (ctx :> AnyRepr) ret
 
 valueToExpr :: MirValue ty -> Expr MIR s ty
-valueToExpr (FnValue _handle) = error "valToExpr"
-  -- App $ HandleLit handle where
+valueToExpr (FnValue handle) = App $ HandleLit handle where
 
 handleTy :: FnHandle args ret -> TypeRepr (FunctionHandleType args ret)
 handleTy handle = fty where
@@ -519,19 +518,23 @@ type TypeName  = Text
 -- a declared trait. If so, return it along with the trait
 getTraitImplementation :: [Trait] -> (MethName,MirHandle) -> Maybe (MethName, TraitName, MirHandle)
 getTraitImplementation trts (name, handle) = do
-  [methodName] <- parseFnName (show name)
+  [methodName] <- parseImplName (show name)
   --traceM $ "Found method " ++ methodName
-  let getItem (TraitMethod tm _ts) =
+  let declaredTraitMethod (TraitMethod tm _ts) =
         case parseTraitName (show tm) of
           Just [_tn,mn] -> mn == methodName
           _ -> False
-      getItem _ = False
-  traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts, (TraitMethod _ _) <- List.filter getItem items ]
+      declaredTraitMethod _ = False
+  traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts, List.any declaredTraitMethod items ]
   --traceM $ "Found trait " ++ show traitName
-  return (fromString methodName, traitName, handle)
+  return (Text.pack methodName, traitName, handle)
 
 
 
+-------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------
+
+-- DefId matching and modification
 
 modid,impl,rustid,brk::String
 modid = "[A-Za-z0-9]*"
@@ -539,9 +542,9 @@ impl = "{{impl}}" ++ brk
 rustid = "[A-Za-z0-9]+"
 brk = "\\[[0-9]+\\]"
 
-
-parseFnName :: String -> Maybe [String]
-parseFnName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::"++impl++"::("++rustid++brk++")"++".*")
+-- | Detect a name that has {{impl}} in it and pull out the part after.
+parseImplName :: String -> Maybe [String]
+parseImplName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::"++impl++"::("++rustid++brk++")"++".*")
 
 parseTraitName :: String -> Maybe [String]
 parseTraitName = Regex.matchRegex (Regex.mkRegex $ "(" ++rustid++")"++brk++"::"++"("++rustid++brk++")")

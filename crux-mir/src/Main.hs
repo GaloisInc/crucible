@@ -146,8 +146,14 @@ showRegEntry col mty (C.RegEntry tp rv) =
     (TyFloat _,  C.RealValRepr) -> return $ case W4.asRational rv of
                      Just f -> show f
                      Nothing -> "Symbolic real"
-                     
-    -- Tagged union type                                          
+
+{-    (TyTuple tys, CT.StructRepr (ctxr :: CT.CtxRepr ctx)) ->
+      let rv' :: Ctx.Assignment (C.RegValue' sym) ctx
+          rv' = rv
+      in
+          undefined -}
+    -- Tagged union type
+    -- TODO: type arguments, 2 or more args to variants, fieldnames
     (TyAdt name _tyargs,                      
       C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr))
       | Just (Adt _ variants) <- List.find (\(Adt n _) -> name == n) (col^.adts) ->
@@ -165,9 +171,12 @@ showRegEntry col mty (C.RegEntry tp rv) =
                               argstr <- showRegEntry col fty (C.RegEntry cty argval)
                               return $ Text.unpack (cleanVariantName (var^.vname)) ++ "(" ++ argstr ++ ")"
                             _ -> fail "invalid single field type"
-                        _ -> return $ show (var^.vname) ++ " with some fields that are not printed"
+                        _ -> return $ Text.unpack (cleanVariantName (var^.vname)) ++ " with some fields that are not printed"
         Nothing -> return $ "Symbolic ADT:" ++ show name
 
+    (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
+
+    
     _ -> return $ "I don't know how to print result of type " ++ show (pretty mty)
  
 
