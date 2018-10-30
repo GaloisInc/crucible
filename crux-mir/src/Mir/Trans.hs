@@ -66,6 +66,14 @@ import Debug.Trace
 
 -- See end of [Intrinsics] for definition of generator state FnState
 
+
+-- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
+data MirExp s where
+    MirExp :: CT.TypeRepr tp -> G.Expr MIR s tp -> MirExp s
+
+instance Show (MirExp s) where
+    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
+
 -- h for state monad
 -- s phantom parameter for CFGs
 type MirGenerator h s ret = G.Generator MIR h s FnState ret
@@ -77,9 +85,16 @@ type MirGenerator h s ret = G.Generator MIR h s FnState ret
 -- References have the exact same semantics as their referent type.
 -- Arrays and slices are both crucible vectors; no difference between them.
 -- Tuples are crucible structs.
--- Non-custom ADTs are encoded as a tagged union [Nat, Any]. The first component records which injection is currently being stored; the second component is the injection. Structs and enums are encoded the same -- the only difference is that structs have only one summand. (Note that this means that symbolic ADTs don't work yet, since we are working with Anys.)
+
+-- Non-custom ADTs are encoded as a tagged union [Nat, Any]. The first
+-- component records which injection is currently being stored; the
+-- second component is the injection. Structs and enums are encoded
+-- the same -- the only difference is that structs have only one
+-- summand. (Note that this means that symbolic ADTs don't work yet,
+-- since we are working with Anys.)
 --
--- Closures are encoded as Any, but are internally encoded as [Handle, arguments], where arguments is itself a tuple.
+-- Closures are encoded as Any, but are internally encoded as [Handle,
+-- arguments], where arguments is itself a tuple.
 --
 -- Custom type translation is on the bottom of this file.
 
@@ -1312,8 +1327,6 @@ transCollection :: HasCallStack => M.Collection -> FH.HandleAllocator s -> ST s 
 transCollection col halloc = do
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col^.M.adts ]
     hmap <- mkHandleMap halloc (col^.M.functions)
-    --traceM $ "\nHandle Map:"
-    --traceM $ show hmap
     (tm, morePairs) <- buildTraitMap col halloc hmap
     pairs <- mapM (transDefine am tm hmap) (col^.M.functions)
     return $ Map.fromList (pairs ++ morePairs)
@@ -1349,7 +1362,7 @@ buildTraitMap col halloc hmap = do
                                     return (Map.singleton typeName vtable, cfgs)
                      let vtables = mconcat (map fst pairs)
                      let cfgs    = mconcat (map snd pairs)
-                     return ((trait, Some (traitImpls ctx methodIndex vtables)), cfgs)
+                     return ((trait, Some (TraitImpls ctx methodIndex vtables)), cfgs)
 
     let traitMap = TraitMap $ Map.fromList (map fst pairs)
 
@@ -1575,13 +1588,13 @@ mkTraitImplementations _col trs trait@(M.Trait tname titems) =
                                         (\idx ->
                                             let (MethRepr name cty) = mctxr Ctx.! idx in
                                             case Map.lookup name mmap of
-                                                    Just (MirHandle _ _ fh) -> case testEquality cty (handleTy fh) of
+                                                    Just (MirHandle _ _ fh) -> case testEquality cty (FH.handleType fh) of
                                                         Just Refl -> FnValue fh 
                                                         Nothing -> error $ "type mismatch between trait declr " ++ show (pretty cty)
-                                                                   ++  " and instance type " ++ show (pretty (handleTy fh))
+                                                                   ++  " and instance type " ++ show (pretty (FH.handleType fh))
                                                     Nothing -> error $ "Cannot find method " ++ show name ++ " for type " ++ show ty
                                                                        ++ " in trait " ++ show tname)) impls
-        in Some (traitImpls ctxr midx vtables) 
+        in Some (TraitImpls ctxr midx vtables) 
 
   where 
         go :: Some (Ctx.Assignment MethRepr) -> (Text.Text, M.FnSig) -> Some (Ctx.Assignment MethRepr)
@@ -1798,3 +1811,5 @@ performMap iterty iter closurety closure =
               return $ buildTuple [MirExp (CT.VectorRepr elemty) new_vec, iter_pos] -- we keep iter_pos the same as before. so if I called next() on an iterator and then map(), I'm where I left off. I assume this is right
 
       _ -> fail "bad type"
+
+------------------------------------------------------------------------------------------------
