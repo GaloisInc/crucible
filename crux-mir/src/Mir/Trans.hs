@@ -397,35 +397,51 @@ evalOperand (M.OpConstant (M.Constant conty conlit)) =
        M.Value constval -> transConstVal (tyToRepr conty) constval
        _ -> fail "value / promoted unimp"
 
+-- TODO check sign for extension!!!!
+extendToMax :: MirExp s -> MirExp s -> 
+   (forall n. (1 <= n) => NatRepr n -> G.Expr MIR s (CT.BVType n) -> G.Expr MIR s (CT.BVType n) -> a) -> a
+extendToMax (MirExp (CT.BVRepr n) e1) (MirExp (CT.BVRepr m) e2) k = 
+   case testEquality n m of
+      Just Refl -> k n e1 e2
+      Nothing   -> case testLeq (incNat n) m of
+                      Just LeqProof ->
+                         k m (S.app $ E.BVZext m n e1) e2
+                      Nothing -> case testLeq (incNat m) n of
+                          Just LeqProof ->
+                              k n e1 (S.app $ E.BVZext n m e2)
+                          Nothing -> error "impossible case"
+
+
 transBinOp :: M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
 transBinOp bop op1 op2 = do
     me1 <- evalOperand  op1
     me2 <- evalOperand  op2
     case (me1, me2) of
-      (MirExp (CT.BVRepr n) e1, MirExp (CT.BVRepr m) e2) ->
+      (MirExp (CT.BVRepr _n) _e1, MirExp (CT.BVRepr _m) _e2) ->
+          extendToMax me1 me2 $ \ n e1 e2 -> 
           -- TODO: if the BVs are not the same width extend the shorter one
-          case (testEquality n m, bop, M.arithType op1) of
-            (Just Refl, M.Add, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAdd n e1 e2)
-            (Just Refl, M.Sub, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVSub n e1 e2)
-            (Just Refl, M.Mul, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVMul n e1 e2)
-            (Just Refl, M.Div, Just M.Unsigned) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVUdiv n e1 e2)
-            (Just Refl, M.Div, Just M.Signed) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVSdiv n e1 e2)
-            (Just Refl, M.Rem, Just M.Unsigned) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVUrem n e1 e2)
-            (Just Refl, M.Rem, Just M.Signed) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVSrem n e1 e2)
-            (Just Refl, M.BitXor, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVXor n e1 e2)
-            (Just Refl, M.BitAnd, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAnd n e1 e2)
-            (Just Refl, M.BitOr, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVOr n e1 e2)
-            (Just Refl, M.Shl, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVShl n e1 e2)
-            (Just Refl, M.Shr, Just M.Unsigned) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
-            (Just Refl, M.Shr, Nothing) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
-            (Just Refl, M.Shr, Just M.Signed) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAshr n e1 e2)
-            (Just Refl, M.Lt, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUlt n e1 e2)
-            (Just Refl, M.Lt, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSlt n e1 e2)
-            (Just Refl, M.Le, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUle n e1 e2)
-            (Just Refl, M.Le, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSle n e1 e2)
-            (Just Refl, M.Ne, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
-            (Just Refl, M.Beq, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVEq n e1 e2)
-            _ -> fail $ "bad binop: " ++ show (M.BinaryOp bop op1 op2)
+            case (bop, M.arithType op1) of
+              (M.Add, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAdd n e1 e2)
+              (M.Sub, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVSub n e1 e2)
+              (M.Mul, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVMul n e1 e2)
+              (M.Div, Just M.Unsigned) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVUdiv n e1 e2)
+              (M.Div, Just M.Signed) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVSdiv n e1 e2)
+              (M.Rem, Just M.Unsigned) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVUrem n e1 e2)
+              (M.Rem, Just M.Signed) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVSrem n e1 e2)
+              (M.BitXor, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVXor n e1 e2)
+              (M.BitAnd, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAnd n e1 e2)
+              (M.BitOr, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVOr n e1 e2)
+              (M.Shl, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVShl n e1 e2)
+              (M.Shr, Just M.Unsigned) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
+              (M.Shr, Nothing) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
+              (M.Shr, Just M.Signed) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAshr n e1 e2)
+              (M.Lt, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUlt n e1 e2)
+              (M.Lt, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSlt n e1 e2)
+              (M.Le, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUle n e1 e2)
+              (M.Le, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSle n e1 e2)
+              (M.Ne, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
+              (M.Beq, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVEq n e1 e2)
+              _ -> fail $ "bad binop: " ++ show (M.BinaryOp bop op1 op2)
       (MirExp CT.BoolRepr e1, MirExp CT.BoolRepr e2) ->
           case bop of
             M.BitAnd -> return $ MirExp CT.BoolRepr (S.app $ E.And e1 e2)
