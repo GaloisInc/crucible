@@ -78,6 +78,7 @@ data Ty =
       | TyDynamic DefId
       | TyRawPtr Ty Mutability
       | TyFloat FloatKind
+      | TyDowncast Ty Integer   --- result type of downcasting an ADT. Ty must be an ADT type
       deriving (Eq, Show)
 
 data FnSig = FnSig [Ty] Ty
@@ -487,7 +488,7 @@ instance TypeOf LvalueProjection where
       Deref           -> peelRef (typeOf base)
       Index{}         -> peelIdx (typeOf base)
       ConstantIndex{} -> peelIdx (typeOf base)
-      Downcast _i     -> typeOf base   --- TODO: check this
+      Downcast i      -> TyDowncast (typeOf base) i   --- TODO: check this
       Subslice{}      -> TySlice (peelIdx (typeOf base))
 
    where

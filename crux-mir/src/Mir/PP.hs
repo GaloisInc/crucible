@@ -92,6 +92,7 @@ instance Pretty Ty where
     pretty (TyDynamic defId)     = text "dynamic" <+> pr_id defId 
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
+    pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
 
 instance Pretty Adt where
    pretty (Adt nm vs) = text "struct" <+> pr_id nm <> tupled (map pretty vs)
@@ -150,7 +151,8 @@ instance Pretty BasicBlock where
       vcat [
         pretty info <> colon <+> lbrace,
         indent 3 (pretty dat),
-        rbrace]
+        rbrace
+        ]
 
 instance Pretty BasicBlockData where
     pretty (BasicBlockData bbds bbt) =

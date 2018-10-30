@@ -172,6 +172,7 @@ tyToRepr t0 = case t0 of
   M.TyClosure _def_id _substs -> Some CT.AnyRepr
   M.TyStr -> Some CT.StringRepr
   M.TyAdt _defid _tyargs -> Some taggedUnionType
+  M.TyDowncast _adt _i   -> Some taggedUnionType
   M.TyFloat _ -> Some CT.RealValRepr
   M.TyParam _ -> Some CT.AnyRepr -- FIXME??
   M.TyFnPtr _fnSig -> Some CT.AnyRepr
@@ -514,12 +515,12 @@ getAllFields e =
         mapM (accessAggregate e) [0..(s-1)]
       _ -> fail "getallfields of non-struct"
 
-accessAggregate :: MirExp s -> Int -> MirGenerator h s ret (MirExp s)
+accessAggregate :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregate (MirExp (CT.StructRepr ctx) ag) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
       let tpr = ctx Ctx.! idx
       return $ MirExp tpr (S.getStruct idx ag)
-accessAggregate a b = fail $ "invalid access: " ++ (show a) ++ ", " ++ (show b)
+accessAggregate (MirExp ty a) b = fail $ "invalid access: " ++ (show a) ++ " : " ++ show ty ++ ", " ++ (show b)
 
 modifyAggregateIdx :: MirExp s -> -- aggregate to modify
                       MirExp s -> -- thing to insert
@@ -639,7 +640,7 @@ typeName ty = Text.pack (show (pretty ty))
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
-evalRefLvalue :: M.Lvalue -> MirGenerator h s ret (MirExp s)
+evalRefLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalRefLvalue lv =
       case lv of
         M.Local (M.Var nm _ _ _ pos) ->
@@ -653,9 +654,26 @@ evalRefLvalue lv =
 
         _ -> fail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
 
-evalRefProj :: M.LvalueProjection -> MirGenerator h s ret (MirExp s)
+getVariant :: HasCallStack => M.Ty -> MirGenerator h s ret (M.Variant, [Maybe M.Ty])
+getVariant (M.TyAdt nm args) = do
+    am <- use adtMap
+    case Map.lookup nm am of
+       Nothing -> fail ("Unknown ADT: " ++ show nm)
+       Just [struct_variant] -> return (struct_variant, args)
+       _      -> fail ("Expected ADT with exactly one variant: " ++ show nm)
+getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
+    let i = fromInteger ii
+    am <- use adtMap
+    case Map.lookup nm am of
+       Nothing -> fail ("Unknown ADT: " ++ show nm)
+       Just vars | i < length vars -> return $ (vars !! i, args)
+       _      -> fail ("Expected ADT with more than " ++ show i ++ " variants: " ++ show nm)
+getVariant ty = fail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
+
+evalRefProj :: HasCallStack => M.LvalueProjection -> MirGenerator h s ret (MirExp s)
 evalRefProj (M.LvalueProjection base projElem) =
   do MirExp tp ref <- evalRefLvalue base
+     traceM $ "evalRefProj:" ++ show (pretty base) ++ " of type " ++ show tp 
      case tp of
        MirReferenceRepr elty ->
          case projElem of
@@ -663,7 +681,18 @@ evalRefProj (M.LvalueProjection base projElem) =
 
           M.PField idx _mirTy
             | CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr) <- elty
-            , M.TyAdt nm args <- M.typeOf base
+            -> do
+             (struct_variant, args) <- getVariant (M.typeOf base)
+             Some ctx <- return $ variantToRepr struct_variant args
+             case Ctx.intIndex idx (Ctx.size ctx) of
+                     Nothing -> fail ("Invalid index: " ++ show idx)
+                     Just (Some idx') -> 
+                        do r' <- subfieldRef ctx ref idx'
+                           return (MirExp (MirReferenceRepr (ctx Ctx.! idx')) r')
+
+
+            
+{-            , M.TyAdt nm args <- M.typeOf base
             -> do am <- use adtMap
                   case Map.lookup nm am of
                     Nothing -> fail ("Unknown ADT: " ++ show nm)
@@ -674,7 +703,7 @@ evalRefProj (M.LvalueProjection base projElem) =
                            Just (Some idx') -> 
                              do r' <- subfieldRef ctx ref idx'
                                 return (MirExp (MirReferenceRepr (ctx Ctx.! idx')) r')
-                    Just _ -> fail ("Expected ADT with exactly one variant: " ++ show nm)
+                    Just _ -> fail ("Expected ADT with exactly one variant: " ++ show nm) --}
 
           M.ConstantIndex offset _min_len fromend
             | CT.VectorRepr tp' <- elty
@@ -803,7 +832,8 @@ filterMaybes ((Nothing):as) = filterMaybes as
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.Tagged l _) = evalLvalue l
-evalLvalue (M.Local var) = lookupVar var
+evalLvalue (M.Local var) = do traceM $ "evalLValue local" ++ show (pretty var)
+                              lookupVar var
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
     am <- use adtMap
     case M.typeOf lv of
@@ -825,6 +855,15 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
         unpack_closure <- unpackAny clty e
         clargs <- accessAggregate unpack_closure 1
         accessAggregate clargs field
+
+      mty@(M.TyDowncast _ _) -> do
+         (struct_variant, args) <- getVariant mty 
+         e <- evalLvalue lv
+         Some ctx <- return $ variantToRepr struct_variant args
+         struct <- unpackAny (Some (CT.StructRepr ctx)) e
+         res <- accessAggregate struct field
+         return res
+
 
       _ -> do -- otherwise, lv is a tuple
         ag <- evalLvalue lv
@@ -854,19 +893,27 @@ evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
        fail $ unwords ["Expected reference type in dereference", show tp, show lv]
 
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
-evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast i))) = do
-    etu <- evalLvalue lv
-    (MirExp e_tp e) <- accessAggregate etu 1
-    let adt_typ = M.typeOf lv
-    case adt_typ of
-      M.TyAdt _ variants -> do
-          let tr = tyToRepr <$> variants !! (fromInteger i)
-          case tr of
-            Just (Some tr) | Just Refl <- testEquality e_tp CT.AnyRepr ->
-                return $ MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
-            _ -> fail $ "bad type: expected anyrepr but got " ++ (show e_tp)
+-- We don't really do anything here --- all the action is when we project from the downcasted adt
+evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast _i))) = do
+    (MirExp tyr lve) <- evalLvalue lv
+    case testEquality tyr taggedUnionType of
+       Just Refl -> accessAggregate (MirExp tyr lve) 1
+       Nothing   -> fail $ "expected ADT type, instead found type: " ++ show (pretty (M.typeOf lv)) ++ " aka " ++ show tyr 
 
-      _ -> fail "expected adt type!"
+{-
+-    etu <- evalLvalue lv
+-    (MirExp e_tp e) <- accessAggregate etu 1
+-    let adt_typ = M.typeOf lv
+-    case adt_typ of
+-      M.TyAdt _ variants -> do
+-          let tr = tyToRepr <$> variants !! (fromInteger i)
+-          case tr of
+-            Just (Some tr) | Just Refl <- testEquality e_tp CT.AnyRepr ->
+-                return $ MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
+-            _ -> fail $ "bad type: expected anyrepr but got " ++ (show e_tp)
+-
+-      _ -> fail "expected adt type!"
+-}
 
 evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 
@@ -915,7 +962,7 @@ assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
         | otherwise ->
             fail $ "type error in assignment: got " ++ (show (pretty e_ty)) ++ " but expected "
                      ++ (show (varInfoRepr varinfo)) ++ " in assignment of " ++ (show vname) ++ " which has type "
-                     ++ (show (pretty vty)) ++ " with exp " ++ (show (pretty e)) ++ " at" ++ (Text.unpack pos)
+                     ++ (show (pretty vty)) ++ " with exp " ++ (show (pretty e)) ++ " at " ++ (Text.unpack pos)
       Nothing -> fail ("register not found: " ++ show vname ++ " at " ++ Text.unpack pos)
 
 -- lv := mirexp
