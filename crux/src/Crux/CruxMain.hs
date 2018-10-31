@@ -78,15 +78,17 @@ parseNominalDiffTime xs =
 
 -- Returns only non-trivial goals
 simulate :: Language a => Options a ->
-  IO (Maybe ProvedGoals)
+  IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
 simulate opts  =
   let (cruxOpts,_langOpts) = opts
   in
 
   withIONonceGenerator $ \nonceGen ->
 
-  --withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym -> do
-  withYicesOnlineBackend nonceGen $ \(sym :: YicesOnlineBackend scope (Flags FloatReal)) -> do
+  --withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
+  --withZ3OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
+  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym -> do
+  --withYicesOnlineBackend nonceGen $ \(sym :: YicesOnlineBackend scope (Flags FloatReal)) -> do
 
      -- set the verbosity level
      void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
@@ -95,6 +97,8 @@ simulate opts  =
      void $ join (setOpt <$> getOptionSetting checkPathSatisfiability (getConfiguration sym)
                          <*> pure (checkPathSat cruxOpts))
 
+     void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
+                         <*> pure ("crux-solver.out"))
 
      frm <- pushAssumptionFrame sym
 

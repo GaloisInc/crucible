@@ -473,7 +473,6 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
   resetCommand _ = SMT2.resetAssertions
 
   checkCommand _ = SMT2.checkSat
-
   checkWithAssumptionsCommand _ = SMT2.checkSatWithAssumptions
 
   getUnsatAssumptionsCommand _ = SMT2.getUnsatAssumptions

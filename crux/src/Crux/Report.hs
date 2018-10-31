@@ -28,7 +28,7 @@ import Crux.UI.Jquery (jquery)       -- ui/jquery.min.js
 import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 
 
-generateReport :: CruxOptions -> Maybe ProvedGoals -> IO ()
+generateReport :: CruxOptions -> Maybe (ProvedGoals b) -> IO ()
 generateReport opts xs =
   do createDirectoryIfMissing True (outDir opts)
      when (takeExtension (inputFile opts) == ".c") (generateSource opts)
@@ -47,7 +47,7 @@ generateSource opts =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: Maybe ProvedGoals -> [ JS ]
+renderSideConds :: Maybe (ProvedGoals b) -> [ JS ]
 renderSideConds = maybe [] (go [])
   where
   flatBranch (Branch x y : more) = flatBranch (x : y : more)
@@ -84,7 +84,7 @@ jsSideCond ::
   [(Maybe Int,AssumptionReason,String)] ->
   (SimError,String) ->
   Bool ->
-  ProofResult ->
+  ProofResult b ->
   JS
 jsSideCond path asmps (conc,_) triv status =
   jsObj
@@ -98,8 +98,8 @@ jsSideCond path asmps (conc,_) triv status =
   ]
   where
   proved = case status of
-             Proved -> jsBool True
-             _      -> jsBool False
+             Proved{} -> jsBool True
+             _        -> jsBool False
 
   example = case status of
              NotProved (Just m) -> JS (modelInJS m)

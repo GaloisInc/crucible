@@ -32,6 +32,7 @@ module What4.Protocol.Online
 
 import           Control.Exception
                    ( SomeException(..), catch, try, displayException )
+import           Control.Monad ( unless )
 import           Data.IORef
 import           Control.Monad (void, forM)
 import           Data.Text (Text)
@@ -41,6 +42,7 @@ import           System.IO
 import           System.Process
                    (ProcessHandle, interruptProcessGroupOf, waitForProcess)
 import qualified System.IO.Streams as Streams
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 
 import What4.Expr
 import What4.Interface (SolverEvent(..))
@@ -191,25 +193,25 @@ checkWithAssumptions ::
   [BoolExpr scope] ->
   IO ([Text], SatResult () ())
 checkWithAssumptions proc rsn ps =
-  readIORef (solverEarlyUnsat proc) >>= \case
-    Just _  -> return ([], Unsat ())
-    Nothing ->
-      do let c = solverConn proc
-         tms <- forM ps (mkFormula c)
-         nms <- forM tms (freshBoundVarName c EqualityDefinition [] BoolTypeMap)
-         solverLogFn proc
-           SolverStartSATQuery
-           { satQuerySolverName = solverName proc
-           , satQueryReason = rsn
-           }
-         addCommandNoAck c (checkWithAssumptionsCommand c nms)
-         sat_result <- getSatResult proc
-         solverLogFn proc
-           SolverEndSATQuery
-           { satQueryResult = sat_result
-           , satQueryError = Nothing
-           }
-         return (nms, sat_result)
+  do let conn = solverConn proc
+     readIORef (solverEarlyUnsat proc) >>= \case
+       Just _  -> return ([], Unsat ())
+       Nothing ->
+         do tms <- forM ps (mkFormula conn)
+            nms <- forM tms (freshBoundVarName conn EqualityDefinition [] BoolTypeMap)
+            solverLogFn proc
+              SolverStartSATQuery
+              { satQuerySolverName = solverName proc
+              , satQueryReason = rsn
+              }
+            addCommandNoAck conn (checkWithAssumptionsCommand conn nms)
+            sat_result <- getSatResult proc
+            solverLogFn proc
+              SolverEndSATQuery
+              { satQueryResult = sat_result
+              , satQueryError = Nothing
+              }
+            return (nms, sat_result)
 
 checkWithAssumptionsAndModel ::
   SMTReadWriter solver =>
@@ -267,6 +269,8 @@ getModel p = smtExprGroundEvalFn (solverConn p)
 getUnsatCore :: SMTReadWriter solver => SolverProcess scope solver -> IO [Text]
 getUnsatCore proc =
   do let conn = solverConn proc
+     unless (supportedFeatures conn `hasProblemFeature` useUnsatCores) $
+       fail $ show $ text (smtWriterName conn) <+> text "is not configured to produce UNSAT cores"
      addCommandNoAck conn (getUnsatCoreCommand conn)
      smtUnsatCoreResult conn (solverResponse proc)
 

@@ -32,8 +32,11 @@ module Lang.Crucible.Backend.Online
   , checkSatisfiableWithModel
   , getSolverProcess
   , resetSolverProcess
+  , UnsatFeatures(..)
+  , unsatFeaturesToProblemFeatures
     -- ** Configuration options
   , checkPathSatisfiability
+  , solverInteractionFile
   , onlineBackendOptions
     -- ** Yices
   , YicesOnlineBackend
@@ -62,9 +65,12 @@ import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.IO.Class
+import           Data.Bits
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
+import qualified Data.Text as Text
+import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Concrete
@@ -72,6 +78,7 @@ import           What4.Config
 import qualified What4.Expr.Builder as B
 import           What4.Interface
 import           What4.SatResult
+import           What4.ProblemFeatures
 import           What4.Protocol.Online
 import           What4.Protocol.SMTWriter as SMT
 import           What4.Protocol.SMTLib2 as SMT2
@@ -84,10 +91,26 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Simulator.SimError
 
+data UnsatFeatures
+  = NoUnsatFeatures
+     -- ^ Do not compute unsat cores or assumptions
+  | ProduceUnsatCores
+     -- ^ Enable named assumptions and unsat-core computations
+  | ProduceUnsatAssumptions
+     -- ^ Enable check-with-assumptions commands and unsat-assumptions computations
+
+unsatFeaturesToProblemFeatures :: UnsatFeatures -> ProblemFeatures
+unsatFeaturesToProblemFeatures x =
+  case x of
+    NoUnsatFeatures -> noFeatures
+    ProduceUnsatCores -> useUnsatCores
+    ProduceUnsatAssumptions -> useUnsatAssumptions
 
 checkPathSatisfiability :: ConfigOption BaseBoolType
 checkPathSatisfiability = configOption knownRepr "checkPathSat"
 
+solverInteractionFile :: ConfigOption BaseStringType
+solverInteractionFile = configOption knownRepr "solverInteractionFile"
 
 onlineBackendOptions :: [ConfigDesc]
 onlineBackendOptions =
@@ -96,6 +119,11 @@ onlineBackendOptions =
       boolOptSty
       (Just (PP.text "Perform path satisfiability checks at symbolic branches"))
       (Just (ConcreteBool True))
+  , mkOpt
+      solverInteractionFile
+      stringOptSty
+      (Just (PP.text "File to echo solver commands and responses for debugging purposes"))
+      Nothing
   ]
 
 
@@ -125,10 +153,12 @@ type YicesOnlineBackend scope fs = OnlineBackend scope (Yices.Connection scope) 
 --   > withYicesOnlineBackend @(Flags FloatReal) ng f'
 withYicesOnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
                           NonceGenerator IO scope
+                       -> UnsatFeatures
                        -> (YicesOnlineBackend scope fs -> m a)
                        -> m a
-withYicesOnlineBackend gen action =
-  withOnlineBackend gen $ \sym ->
+withYicesOnlineBackend gen unsatFeat action =
+  let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat in
+  withOnlineBackend gen feat  $ \sym ->
     do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
        action sym
 
@@ -147,10 +177,12 @@ type Z3OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Z3.Z3) fs
 --   > withz3OnlineBackend @(Flags FloatReal) ng f'
 withZ3OnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
                        NonceGenerator IO scope
+                    -> UnsatFeatures
                     -> (Z3OnlineBackend scope fs -> m a)
                     -> m a
-withZ3OnlineBackend gen action =
-  withOnlineBackend gen $ \sym ->
+withZ3OnlineBackend gen unsatFeat action =
+  let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat) in
+  withOnlineBackend gen (SMT2.defaultFeatures Z3.Z3 .|. useUnsatCores) $ \sym ->
     do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
        action sym
 
@@ -169,11 +201,14 @@ type CVC4OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer CVC4.CVC4) fs
 --   > withCVC4OnlineBackend @(Flags FloatReal) ng f'
 withCVC4OnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
                          NonceGenerator IO scope
+                      -> UnsatFeatures
                       -> (CVC4OnlineBackend scope fs -> m a)
                       -> m a
-withCVC4OnlineBackend gen action = withOnlineBackend gen $ \sym -> do
-  liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
-  action sym
+withCVC4OnlineBackend gen unsatFeat action =
+  let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat) in
+  withOnlineBackend gen feat $ \sym -> do
+    liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
+    action sym
 
 type STPOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer STP.STP) fs
 
@@ -192,9 +227,10 @@ withSTPOnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
                         NonceGenerator IO scope
                      -> (STPOnlineBackend scope fs -> m a)
                      -> m a
-withSTPOnlineBackend gen action = withOnlineBackend gen $ \sym -> do
-  liftIO $ extendConfig STP.stpOptions (getConfiguration sym)
-  action sym
+withSTPOnlineBackend gen action =
+  withOnlineBackend gen (SMT2.defaultFeatures STP.STP) $ \sym -> do
+    liftIO $ extendConfig STP.stpOptions (getConfiguration sym)
+    action sym
 
 ------------------------------------------------------------------------
 -- OnlineBackendState: implementation details.
@@ -202,7 +238,7 @@ withSTPOnlineBackend gen action = withOnlineBackend gen $ \sym -> do
 -- | Is the solver running or not?
 data SolverState scope solver =
     SolverNotStarted
-  | SolverStarted (SolverProcess scope solver)
+  | SolverStarted (SolverProcess scope solver) (Maybe Handle)
 
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertions and program location.
@@ -214,19 +250,23 @@ data OnlineBackendState solver scope = OnlineBackendState
     -- ^ The solver process, if any.
   , shouldCheckSat :: IO Bool
     -- ^ An action to query the state of the checkPathSat option
+  , currentFeatures :: !(IORef ProblemFeatures)
   }
 
 -- | Returns an initial execution state.
 initialOnlineBackendState ::
   NonceGenerator IO scope ->
+  ProblemFeatures ->
   IO (OnlineBackendState solver scope)
-initialOnlineBackendState gen =
+initialOnlineBackendState gen feats =
   do stk <- initAssumptionStack gen
      procref <- newIORef SolverNotStarted
+     featref <- newIORef feats
      return $! OnlineBackendState
                  { assumptionStack = stk
                  , solverProc = procref
                  , shouldCheckSat = return True
+                 , currentFeatures = featref
                  }
 
 getAssumptionStack ::
@@ -248,8 +288,9 @@ resetSolverProcess sym = do
      case mproc of
        -- Nothing to do
        SolverNotStarted -> return ()
-       SolverStarted p ->
+       SolverStarted p auxh ->
          do _ <- shutdownSolverProcess p
+            maybe (return ()) hClose auxh
             writeIORef (solverProc st) SolverNotStarted
 
 -- | Get the solver process.
@@ -261,12 +302,20 @@ getSolverProcess ::
 getSolverProcess sym = do
   st <- readIORef (B.sbStateManager sym)
   mproc <- readIORef (solverProc st)
+  auxOutSetting <- getOptionSetting solverInteractionFile (getConfiguration sym)
   case mproc of
-    SolverStarted p -> return p
+    SolverStarted p _ -> return p
     SolverNotStarted ->
-      do p <- startSolverProcess sym
+      do feats <- readIORef (currentFeatures st)
+         auxh <-
+           getMaybeOpt auxOutSetting >>= \case
+             Nothing -> return Nothing
+             Just fn
+               | Text.null fn -> return Nothing
+               | otherwise    -> Just <$> openFile (Text.unpack fn) WriteMode
+         p <- startSolverProcess feats auxh sym
          push p
-         writeIORef (solverProc st) (SolverStarted p)
+         writeIORef (solverProc st) (SolverStarted p auxh)
          return p
 
 -- | Do something with an online backend.
@@ -277,10 +326,11 @@ getSolverProcess sym = do
 withOnlineBackend ::
   (OnlineSolver scope solver, MonadIO m, MonadMask m) =>
   NonceGenerator IO scope ->
+  ProblemFeatures ->
   (OnlineBackend scope solver fs -> m a) ->
   m a
-withOnlineBackend gen action = do
-  st  <- liftIO $ initialOnlineBackendState gen
+withOnlineBackend gen feats action = do
+  st  <- liftIO $ initialOnlineBackendState gen feats
   sym <- liftIO $ B.newExprBuilder st gen
   liftIO $ extendConfig onlineBackendOptions (getConfiguration sym)
   pathSatOpt <- liftIO $ getOptionSetting checkPathSatisfiability (getConfiguration sym)
@@ -290,7 +340,9 @@ withOnlineBackend gen action = do
     `finally`
     (liftIO $ readIORef (solverProc st) >>= \case
         SolverNotStarted {} -> return ()
-        SolverStarted p     -> void $ shutdownSolverProcess p
+        SolverStarted p auxh ->
+         do _ <- shutdownSolverProcess p
+            maybe (return ()) hClose auxh
     )
 
 

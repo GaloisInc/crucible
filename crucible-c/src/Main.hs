@@ -85,7 +85,7 @@ main = Crux.main [Crux.LangConf (Crux.defaultOptions @LangLLVM)]
 -- main/checkBC implemented by Crux
 
 
-makeCounterExamplesLLVM :: Options -> Maybe ProvedGoals -> IO ()
+makeCounterExamplesLLVM :: Options -> Maybe (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
 makeCounterExamplesLLVM opts = maybe (return ()) go
  where
  go gs =

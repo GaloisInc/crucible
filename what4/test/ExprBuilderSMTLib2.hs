@@ -16,7 +16,6 @@ import           Control.Monad (void)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Text as T
-import           System.IO
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce

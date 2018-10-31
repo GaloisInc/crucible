@@ -1,8 +1,7 @@
-{-# Language RankNTypes, ConstraintKinds, TypeFamilies, ScopedTypeVariables, GADTs #-}
+{-# Language DeriveFunctor, RankNTypes, ConstraintKinds, TypeFamilies, ScopedTypeVariables, GADTs #-}
 module Crux.Types where
 
 import Data.Parameterized.Map (MapF)
-
 
 import Lang.Crucible.Simulator.RegMap(RegValue)
 import Lang.Crucible.Simulator.OverrideSim(OverrideSim)
@@ -55,16 +54,18 @@ data Result sym where
 
 
 
-data ProofResult = Proved
-                 | NotProved (Maybe ModelViews)   -- ^ Counter example, if any
+data ProofResult a
+   = Proved [a]
+   | NotProved (Maybe ModelViews)   -- ^ Counter example, if any
+ deriving (Functor)
 
 type LPred sym   = LabeledPred (Pred sym)
 
-data ProvedGoals =
-    AtLoc ProgramLoc (Maybe ProgramLoc) ProvedGoals
-  | Branch ProvedGoals ProvedGoals
+data ProvedGoals a =
+    AtLoc ProgramLoc (Maybe ProgramLoc) (ProvedGoals a)
+  | Branch (ProvedGoals a) (ProvedGoals a)
   | Goal [(Maybe Int,AssumptionReason,String)]
-         (SimError,String) Bool ProofResult
+         (SimError,String) Bool (ProofResult a)
     -- ^ Keeps only the explanations for the relevant assumptions.
     -- The 'Maybe Int' in the assumptions corresponds to its depth in the tree
     -- (i.e., the step number, if this is a path assumption)

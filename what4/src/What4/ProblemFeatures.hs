@@ -21,6 +21,7 @@
 --  9 : Uses strings
 -- 10 : Uses floating-point
 -- 11 : Computes UNSAT cores
+-- 12 : Computes UNSAT assumptions
 ------------------------------------------------------------------------
 
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -40,6 +41,7 @@ module What4.ProblemFeatures
   , useStrings
   , useFloatingPoint
   , useUnsatCores
+  , useUnsatAssumptions
   , hasProblemFeature
   ) where
 
@@ -116,6 +118,11 @@ useFloatingPoint = ProblemFeatures 0x400
 --   cores.
 useUnsatCores :: ProblemFeatures
 useUnsatCores = ProblemFeatures 0x800
+
+-- | Indicates if the solver is able and configured to compute UNSAT
+--   assumptions.
+useUnsatAssumptions :: ProblemFeatures
+useUnsatAssumptions = ProblemFeatures 0x1000
 
 hasProblemFeature :: ProblemFeatures -> ProblemFeatures -> Bool
 hasProblemFeature x y = (x .&. y) == y

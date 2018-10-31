@@ -15,12 +15,12 @@ import System.Console.GetOpt
 import Lang.Crucible.Simulator
 --import Lang.Crucible.Types
 import Lang.Crucible.CFG.Extension
-import qualified Lang.Crucible.CFG.Core as C
+--import qualified Lang.Crucible.CFG.Core as C
 
 
 import           Lang.Crucible.Backend
-import qualified What4.Interface                       as W4
-import qualified What4.InterpretedFloatingPoint        as W4
+--import qualified What4.Interface                       as W4
+--import qualified What4.InterpretedFloatingPoint        as W4
 
 import Data.Typeable(Typeable)
 
@@ -75,12 +75,10 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
       IO (ExecResult p sym ext rtp))
 
 -- Gathering of constraints on the sym used by the [simulate] method
-type SymConstraint sym =
-  (IsBoolSolver sym, W4.IsSymExprBuilder sym,
-    W4.IsInterpretedFloatSymExprBuilder sym,
-    IsSymInterface sym, 
-    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) 
+type SymConstraint sym = IsSymInterface sym
+--  (IsBoolSolver sym, IsSymInterface sym)
+--    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
+--    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) 
 
 -- Type of the [simulate] method
 type Simulate sym a = (SymConstraint sym)  =>
@@ -129,7 +127,7 @@ class (Typeable a) => Language a where
   simulate :: Simulate sym a 
 
   -- use the result of the simulation function
-  makeCounterExamples :: Options a -> Maybe ProvedGoals -> IO ()
+  makeCounterExamples :: Options a -> Maybe (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
   makeCounterExamples _opts _proved = return ()
 
 -- Trivial instance of the class

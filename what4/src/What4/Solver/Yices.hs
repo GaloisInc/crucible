@@ -407,7 +407,7 @@ newConnection stream ack reqFeatures bindings = do
   let features' = features
                   .|. featureIf efSolver useExistForall
                   .|. useStructs
-                  .|. (reqFeatures .&. useUnsatCores)
+                  .|. (reqFeatures .&. (useUnsatCores .|. useUnsatAssumptions))
 
   conn <- newWriterConn stream ack nm features' bindings (Connection ())
   return $! conn { supportFunctionDefs = True

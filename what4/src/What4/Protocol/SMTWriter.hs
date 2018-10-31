@@ -55,6 +55,7 @@ module What4.Protocol.SMTWriter
               , supportQuantifiers
               , supportedFeatures
               , connHandle
+              , smtWriterName
               )
   , connState
   , newWriterConn
