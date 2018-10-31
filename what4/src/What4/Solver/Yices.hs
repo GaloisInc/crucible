@@ -474,6 +474,18 @@ instance SMTReadWriter (Connection s) where
 
   smtSatResult _ = getSatResponse
 
+  smtUnsatAssumptionsResult p s =
+    do mb <- try (Streams.parseFromStream parseSExp s)
+       let cmd = getUnsatAssumptionsCommand p
+       case mb of
+         Right (asNegAtomList -> Just as) -> return as
+         Right (SApp [SAtom "error", SString msg]) -> throw (YicesError cmd msg)
+         Right res -> throw (YicesParseError cmd (Text.pack (show res)))
+         Left (SomeException e) -> throw $ YicesParseError cmd $ Text.pack $
+                 unlines [ "Could not parse unsat assumptions result."
+                         , "*** Exception: " ++ displayException e
+                         ]
+
   smtUnsatCoreResult p s =
     do mb <- try (Streams.parseFromStream parseSExp s)
        let cmd = getUnsatCoreCommand p

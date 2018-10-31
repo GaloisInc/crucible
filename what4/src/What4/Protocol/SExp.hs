@@ -7,12 +7,14 @@ Maintainer       : Joe Hendrix <jhendrix@galois.com>
 Provides an interface for parsing simple SExpressions
 returned by SMT solvers.
 -}
+{-# LANGUAGE OverloadedStrings #-}
 module What4.Protocol.SExp
   ( SExp(..)
   , parseSExp
   , stringToSExp
   , parseNextWord
   , asAtomList
+  , asNegAtomList
   , skipSpaceOrNewline
   ) where
 
@@ -75,6 +77,15 @@ stringToSExp s = do
   case parseOnly parseSExpList (Text.pack s) of
     Left e -> fail $ "stringToSExpr error: " ++ e
     Right v -> return v
+
+asNegAtomList :: SExp -> Maybe [(Bool,Text)]
+asNegAtomList (SApp xs) = go xs
+  where
+  go [] = Just []
+  go (SAtom a : ys) = ((True,a):) <$> go ys
+  go (SApp [SAtom "not", SAtom a] : ys) = ((False,a):) <$> go ys
+  go _ = Nothing
+asNegAtomList _ = Nothing
 
 asAtomList :: SExp -> Maybe [Text]
 asAtomList (SApp xs) = go xs

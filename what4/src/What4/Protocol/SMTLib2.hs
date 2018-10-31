@@ -660,6 +660,18 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
          Right "unknown" -> return Unknown
          Right res -> throw $ SMTLib2ParseError (checkCommand p) (Text.pack (show res))
 
+  smtUnsatAssumptionsResult p s =
+    do mb <- try (Streams.parseFromStream parseSExp s)
+       let cmd = getUnsatAssumptionsCommand p
+       case mb of
+         Right (asNegAtomList -> Just as) -> return as
+         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
+         Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
+         Left (SomeException e) -> throw $ SMTLib2ParseError cmd $ Text.pack $
+                 unlines [ "Could not parse unsat assumptions result."
+                         , "*** Exception: " ++ displayException e
+                         ]
+
   smtUnsatCoreResult p s =
     do mb <- try (Streams.parseFromStream parseSExp s)
        let cmd = getUnsatCoreCommand p

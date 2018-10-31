@@ -25,6 +25,7 @@ module What4.Protocol.Online
   , checkWithAssumptionsAndModel
   , getModel
   , getUnsatCore
+  , getUnsatAssumptions
   , getSatResult
   , checkSatisfiable
   , checkSatisfiableWithModel
@@ -262,6 +263,19 @@ checkAndGetModel yp rsn = do
 getModel :: SMTReadWriter solver => SolverProcess scope solver -> IO (GroundEvalFn scope)
 getModel p = smtExprGroundEvalFn (solverConn p)
              $ smtEvalFuns (solverConn p) (solverResponse p)
+
+-- | After an unsatisfiable check-with-assumptions command, compute a set of the supplied
+--   assumptions that (together with previous assertions) form an unsatisfiable core.
+--   Note: the returned unsatisfiable set might not be minimal.  The boolean value
+--   returned along with the name indicates if the assumption was negated or not:
+--   @True@ indidcates a positive atom, and @False@ represents a negated atom.
+getUnsatAssumptions :: SMTReadWriter solver => SolverProcess scope solver -> IO [(Bool,Text)]
+getUnsatAssumptions proc =
+  do let conn = solverConn proc
+     unless (supportedFeatures conn `hasProblemFeature` useUnsatAssumptions) $
+       fail $ show $ text (smtWriterName conn) <+> text "is not configured to produce UNSAT assumption lists"
+     addCommandNoAck conn (getUnsatAssumptionsCommand conn)
+     smtUnsatAssumptionsResult conn (solverResponse proc)
 
 -- | After an unsatisfiable check-sat command, compute a set of the named assertions
 --   that (together with all the unnamed assertions) form an unsatisfiable core.
