@@ -53,6 +53,7 @@ module What4.Protocol.SMTWriter
   , WriterConn( supportFunctionDefs
               , supportFunctionArguments
               , supportQuantifiers
+              , supportedFeatures
               , connHandle
               )
   , connState
@@ -112,9 +113,8 @@ import qualified Data.Text.Lazy.Builder.Int as Builder (decimal)
 import qualified Data.Text.Lazy as Lazy
 import           Data.Word
 import           Numeric.Natural
-import           System.IO
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
-import           Data.ByteString(ByteString)
+import           System.IO.Streams (OutputStream)
 import qualified System.IO.Streams as Streams
 
 import           What4.BaseTypes
@@ -564,7 +564,7 @@ data StackEntry t (h :: *) = StackEntry
 data WriterConn t (h :: *) =
   WriterConn { smtWriterName :: !String
                -- ^ Name of writer for error reporting purposes.
-             , connHandle :: !Handle
+             , connHandle :: !(OutputStream Text)
                -- ^ Handle to write to
              , supportFunctionDefs :: !Bool
                -- ^ Indicates if the writer can define constants or functions in terms
@@ -644,7 +644,7 @@ popEntryStack c = do
    [_] -> fail "Could not pop from empty entry stack."
    (_:r) -> writeIORef (entryStack c) r
 
-newWriterConn :: Handle
+newWriterConn :: OutputStream Text
               -> AcknowledgementAction t cs
               -- ^ An action to consume solver acknowledgement responses
               -> String
@@ -837,8 +837,6 @@ addCommandNoAck conn cmd = do
     withWriterState conn $ lastPosition .= cur
 
   writeCommand conn cmd
-  hFlush (connHandle conn)
-
 
 -- | Create a new variable with the given name.
 mkFreeVar :: SMTWriter h
@@ -859,7 +857,10 @@ assumeFormula :: SMTWriter h => WriterConn t h -> Term h -> IO ()
 assumeFormula c p = addCommand c (assertCommand c p)
 
 assumeFormulaWithName :: SMTWriter h => WriterConn t h -> Term h -> Text -> IO ()
-assumeFormulaWithName c p nm = addCommand c (assertNamedCommand c p nm)
+assumeFormulaWithName conn p nm =
+  do unless (supportedFeatures conn `hasProblemFeature` useUnsatCores) $
+       fail $ show $ text (smtWriterName conn) <+> text "is not configured to produce UNSAT cores"
+     addCommand conn (assertNamedCommand conn p nm)
 
 assumeFormulaWithFreshName :: SMTWriter h => WriterConn t h -> Term h -> IO Text
 assumeFormulaWithFreshName conn p =
@@ -2507,15 +2508,19 @@ data SMTEvalFunctions h
 class SMTWriter h => SMTReadWriter h where
   -- | Get functions for parsing values out of the solver.
   smtEvalFuns ::
-    WriterConn t h -> Streams.InputStream ByteString -> SMTEvalFunctions h
+    WriterConn t h -> Streams.InputStream Text -> SMTEvalFunctions h
 
   -- | Parse a set result from the solver's response.
-  smtSatResult :: f h -> Streams.InputStream ByteString -> IO (SatResult () ())
+  smtSatResult :: f h -> Streams.InputStream Text -> IO (SatResult () ())
+
+  -- | Parse a list of names of assumptions that form an unsatisfiable core.
+  --   These correspond to previously-named assertions.
+  smtUnsatCoreResult :: f h -> Streams.InputStream Text -> IO [Text]
 
   -- | Parse a list of names of assumptions that form an unsatisfiable core.
   --   The boolean indicates the polarity of the atom: true for an ordinary
   --   atom, false for a negated atom.
-  smtUnsatAssumptionsResult :: f h -> Streams.InputStream ByteString -> IO [(Bool,Text)]
+  smtUnsatAssumptionsResult :: f h -> Streams.InputStream Text -> IO [(Bool,Text)]
 
 -- | Return the terms associated with the given ground index variables.
 smtIndicesTerms :: forall v idx

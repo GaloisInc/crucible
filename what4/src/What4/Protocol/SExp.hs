@@ -12,15 +12,18 @@ module What4.Protocol.SExp
   , parseSExp
   , stringToSExp
   , parseNextWord
+  , asAtomList
+  , skipSpaceOrNewline
   ) where
 
 import           Control.Applicative
 import           Control.Monad (msum)
-import           Data.Attoparsec.ByteString.Char8
-import qualified Data.ByteString.UTF8 as UTF8
-import           Data.Char hiding (isSpace)
+import           Data.Attoparsec.Text
+import           Data.Char
 import           Data.Monoid
 import           Data.String
+import           Data.Text (Text)
+import qualified Data.Text as Text
 import           Prelude hiding (takeWhile)
 
 skipSpaceOrNewline :: Parser ()
@@ -28,18 +31,18 @@ skipSpaceOrNewline = skipWhile f
   where f c = isSpace c || c == '\r' || c == '\n'
 
 -- | Read next contiguous sequence of numbers or letters.
-parseNextWord :: Parser String
+parseNextWord :: Parser Text
 parseNextWord = do
   skipSpaceOrNewline
-  UTF8.toString <$> mappend (takeWhile1 isAlphaNum) (fail "Unexpected end of stream.")
+  mappend (takeWhile1 isAlphaNum) (fail "Unexpected end of stream.")
 
-data SExp = SAtom String
-          | SString String
+data SExp = SAtom Text
+          | SString Text
           | SApp [SExp]
   deriving (Eq, Ord, Show)
 
 instance IsString SExp where
-  fromString = SAtom
+  fromString = SAtom . Text.pack
 
 isTokenChar :: Char -> Bool
 isTokenChar '(' = False
@@ -52,16 +55,16 @@ isStringChar '"'  = False
 isStringChar '\\' = False
 isStringChar _c   = True
 
-readToken :: Parser String
-readToken = UTF8.toString <$> takeWhile1 isTokenChar
+readToken :: Parser Text
+readToken = takeWhile1 isTokenChar
 
-readString :: Parser String
-readString = UTF8.toString <$> takeWhile1 isStringChar
+readString :: Parser Text
+readString = takeWhile1 isStringChar
 
 parseSExp :: Parser SExp
 parseSExp = do
   skipSpaceOrNewline
-  msum [ char '(' *> (SApp <$> many parseSExp) <* char ')'
+  msum [ char '(' *> skipSpaceOrNewline *> (SApp <$> many parseSExp) <* skipSpaceOrNewline <* char ')'
        , char '"' *> (SString <$> readString) <* char '"'
        , SAtom <$> readToken
        ]
@@ -69,6 +72,14 @@ parseSExp = do
 stringToSExp :: Monad m => String -> m [SExp]
 stringToSExp s = do
   let parseSExpList = many parseSExp <* skipSpace <* endOfInput
-  case parseOnly parseSExpList (UTF8.fromString s) of
+  case parseOnly parseSExpList (Text.pack s) of
     Left e -> fail $ "stringToSExpr error: " ++ e
     Right v -> return v
+
+asAtomList :: SExp -> Maybe [Text]
+asAtomList (SApp xs) = go xs
+  where
+  go [] = Just []
+  go (SAtom a:ys) = (a:) <$> go ys
+  go _ = Nothing
+asAtomList _ = Nothing

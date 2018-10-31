@@ -49,6 +49,7 @@ import           What4.Protocol.SMTWriter
   (smtExprGroundEvalFn, SMTEvalFunctions(..), nullAcknowledgementAction)
 import           What4.Utils.Process
 import           What4.Utils.Streams
+import           What4.Utils.HandleReader
 
 data Boolector = Boolector
 
@@ -70,8 +71,8 @@ boolectorAdapter =
   SolverAdapter
   { solver_adapter_name = "boolector"
   , solver_adapter_config_options = boolectorOptions
-  , solver_adapter_check_sat = \sym logLn rsn p cont -> do
-      res <- runBoolectorInOverride sym logLn rsn p
+  , solver_adapter_check_sat = \sym logLn rsn p auxOutput cont -> do
+      res <- runBoolectorInOverride sym logLn rsn p auxOutput
       cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
   , solver_adapter_write_smt2 =
       SMT2.writeDefaultSMT2 () nullAcknowledgementAction "Boolector" defaultWriteSMTLIB2Features
@@ -84,8 +85,9 @@ runBoolectorInOverride :: ExprBuilder t st fs
                        -> (Int -> String -> IO ())
                        -> String
                        -> [BoolExpr t]
+                       -> Maybe Handle
                        -> IO (SatResult (GroundEvalFn t) ())
-runBoolectorInOverride sym logLn rsn ps = do
+runBoolectorInOverride sym logLn rsn ps auxOutput = do
   -- Get boolector path.
   path <- findSolverPath boolectorPath (getConfiguration sym)
   p <- andAllOf sym folded ps
@@ -101,14 +103,24 @@ runBoolectorInOverride sym logLn rsn ps = do
       void $ forkIO $ logErrorStream err_stream (logLn 2)
       -- Write SMT2 input to Boolector.
       bindings <- getSymbolVarBimap sym
-      wtr <- SMT2.newWriter Boolector in_h nullAcknowledgementAction "Boolector" False noFeatures False bindings
+
+      in_str  <-
+        case auxOutput of
+          Nothing -> Streams.encodeUtf8 =<< Streams.handleToOutputStream in_h
+          Just aux_h ->
+            do aux_str <- Streams.handleToOutputStream aux_h
+               Streams.encodeUtf8 =<< teeOutputStream aux_str =<< Streams.handleToOutputStream in_h
+
+      wtr <- SMT2.newWriter Boolector in_str nullAcknowledgementAction "Boolector"
+               False noFeatures False bindings
       SMT2.setLogic wtr SMT2.qf_bv
       SMT2.assume wtr p
 
       SMT2.writeCheckSat wtr
       SMT2.writeExit wtr
       -- Close input handle to tell boolector input is done.
-      hClose in_h
+      Streams.write Nothing in_str
+
       -- Read stdout to get output.
       out_stream <- Streams.handleToInputStream out_h
       line_stream <- Streams.map UTF8.toString =<< Streams.lines out_stream

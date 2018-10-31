@@ -24,18 +24,18 @@ module What4.Protocol.Online
   , checkWithAssumptions
   , checkWithAssumptionsAndModel
   , getModel
+  , getUnsatCore
   , getSatResult
   , checkSatisfiable
   , checkSatisfiableWithModel
   ) where
 
 import           Control.Exception
-                   ( SomeException(..), bracket_, catch, try, displayException )
+                   ( SomeException(..), catch, try, displayException )
 import           Data.IORef
 import           Control.Monad (void, forM)
 import           Data.Text (Text)
 import qualified Data.Text.Lazy as LazyText
-import           Data.ByteString(ByteString)
 import           System.Exit
 import           System.IO
 import           System.Process
@@ -44,6 +44,7 @@ import qualified System.IO.Streams as Streams
 
 import What4.Expr
 import What4.Interface (SolverEvent(..))
+import What4.ProblemFeatures
 import What4.Protocol.SMTWriter
 import What4.SatResult
 import What4.Utils.HandleReader
@@ -53,7 +54,8 @@ import What4.Utils.HandleReader
 --   online interaction modes.
 class SMTReadWriter solver => OnlineSolver scope solver where
   -- | Start a new solver process attached to the given `ExprBuilder`.
-  startSolverProcess    :: ExprBuilder scope st fs -> IO (SolverProcess scope solver)
+  startSolverProcess    :: ProblemFeatures -> Maybe Handle -> ExprBuilder scope st fs -> IO (SolverProcess scope solver)
+
   -- | Shut down a solver process.  The process will be asked to shut down in
   --   a "polite" way, e.g., by sending an `(exit)` message, or by closing
   --   the process's `stdin`.  Use `killProcess` instead to shutdown a process
@@ -68,10 +70,10 @@ data SolverProcess scope solver = SolverProcess
   , solverHandle :: !ProcessHandle
     -- ^ Handle to the solver process
 
-  , solverStdin :: !Handle
+  , solverStdin :: !(Streams.OutputStream Text)
     -- ^ Standard in for the solver process.
 
-  , solverResponse :: !(Streams.InputStream ByteString)
+  , solverResponse :: !(Streams.InputStream Text)
     -- ^ Wrap the solver's stdout, for easier parsing of responses.
 
   , solverStderr :: !HandleReader
@@ -176,7 +178,11 @@ pop p =
 
 -- | Perform an action in the scope of a solver assumption frame.
 inNewFrame :: SMTReadWriter solver => SolverProcess scope solver -> IO a -> IO a
-inNewFrame p m = bracket_ (push p) (pop p) m
+inNewFrame p m =
+  do push p
+     x <- m
+     pop p
+     return x
 
 checkWithAssumptions ::
   SMTReadWriter solver =>
@@ -255,6 +261,14 @@ getModel :: SMTReadWriter solver => SolverProcess scope solver -> IO (GroundEval
 getModel p = smtExprGroundEvalFn (solverConn p)
              $ smtEvalFuns (solverConn p) (solverResponse p)
 
+-- | After an unsatisfiable check-sat command, compute a set of the named assertions
+--   that (together with all the unnamed assertions) form an unsatisfiable core.
+--   Note: the returned unsatisfiable core might not be minimal.
+getUnsatCore :: SMTReadWriter solver => SolverProcess scope solver -> IO [Text]
+getUnsatCore proc =
+  do let conn = solverConn proc
+     addCommandNoAck conn (getUnsatCoreCommand conn)
+     smtUnsatCoreResult conn (solverResponse proc)
 
 -- | Get the sat result from a previous SAT command.
 getSatResult :: SMTReadWriter s => SolverProcess t s -> IO (SatResult () ())

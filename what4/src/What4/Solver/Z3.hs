@@ -14,7 +14,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 module What4.Solver.Z3
-  ( Z3
+  ( Z3(..)
   , z3Adapter
   , z3Path
   , z3Options
@@ -23,6 +23,7 @@ module What4.Solver.Z3
   , writeZ3SMT2File
   ) where
 
+import           Control.Monad ( when )
 import           Data.Bits
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -109,15 +110,20 @@ instance SMT2.SMTLib2GenericSolver Z3 where
     SMT2.setOption writer $ SMT2.produceModels True
     -- Tell Z3 to round and print algebraic reals as decimal
     SMT2.setOption writer $ SMT2.ppDecimal True
+    -- Tell Z3 to compute UNSAT cores, if that feature is enabled
+    when (supportedFeatures writer `hasProblemFeature` useUnsatCores)
+         (SMT2.setOption writer $ SMT2.produceUnsatCores True)
+
 
 runZ3InOverride
   :: ExprBuilder t st fs
   -> (Int -> String -> IO ())
   -> String
   -> [BoolExpr t]
+  -> Maybe Handle
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
-runZ3InOverride = SMT2.runSolverInOverride Z3 nullAcknowledgementAction
+runZ3InOverride = SMT2.runSolverInOverride Z3 nullAcknowledgementAction z3Features
 
 -- | Run Z3 in a session. Z3 will be configured to produce models, but
 -- otherwise left with the default configuration.
@@ -127,10 +133,11 @@ withZ3
     -- ^ Path to CVC4 executable
   -> (String -> IO ())
     -- ^ Function to print messages from CVC4 to.
+  -> Maybe Handle
   -> (SMT2.Session t Z3 -> IO a)
     -- ^ Action to run
   -> IO a
-withZ3 = SMT2.withSolver Z3 nullAcknowledgementAction
+withZ3 = SMT2.withSolver Z3 nullAcknowledgementAction z3Features
 
 
 setInteractiveLogicAndOptions ::
@@ -144,6 +151,9 @@ setInteractiveLogicAndOptions writer = do
     SMT2.setOption writer $ SMT2.produceModels True
     -- Tell Z3 to round and print algebraic reals as decimal
     SMT2.setOption writer $ SMT2.ppDecimal True
+    -- Tell Z3 to compute UNSAT cores, if that feature is enabled
+    when (supportedFeatures writer `hasProblemFeature` useUnsatCores)
+         (SMT2.setOption writer $ SMT2.produceUnsatCores True)
 
 instance OnlineSolver t (SMT2.Writer Z3) where
   startSolverProcess = SMT2.startSolver Z3 SMT2.smtAckResult setInteractiveLogicAndOptions

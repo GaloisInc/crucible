@@ -99,7 +99,7 @@ abcAdapter =
    SolverAdapter
    { solver_adapter_name = "abc"
    , solver_adapter_config_options = abcOptions
-   , solver_adapter_check_sat = \sym logLn rsn ps cont -> do
+   , solver_adapter_check_sat = \sym logLn rsn ps _auxOutput cont -> do
            p <- andAllOf sym folded ps
            res <- checkSat sym logLn rsn p
            cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
@@ -123,7 +123,7 @@ genericSatAdapter =
    SolverAdapter
    { solver_adapter_name = "sat"
    , solver_adapter_config_options = genericSatOptions
-   , solver_adapter_check_sat = \sym logLn _rsn ps cont -> do
+   , solver_adapter_check_sat = \sym logLn _rsn ps _auxOutput cont -> do
        let cfg = getConfiguration sym
        cmd <- T.unpack <$> (getOpt =<< getOptionSetting satCommand cfg)
        let mkCommand path = do

@@ -1,4 +1,4 @@
-------------------------------------------------------------------------
+        ------------------------------------------------------------------------
 -- |
 -- Module      : What4.Solver.Yices
 -- Description : Solver adapter code for Yices
@@ -24,6 +24,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 module What4.Solver.Yices
   ( -- * Low-level interface
     Connection
@@ -43,6 +44,7 @@ module What4.Solver.Yices
   , yicesType
   , assertForall
   , efSolveCommand
+  , YicesException(..)
 
     -- * Live connection
   , yicesEvalBool
@@ -54,14 +56,17 @@ module What4.Solver.Yices
   , writeYicesFile
   , yicesPath
   , yicesOptions
+  , yicesDefaultFeatures
   ) where
 
-import           Control.Exception (assert)
+import           Control.Exception
+                   (assert, SomeException(..), try, throw, displayException, Exception(..))
 import           Control.Lens ((^.), folded)
 import           Control.Monad
 import           Control.Monad.Identity
+import qualified Data.Attoparsec.Text as Atto
 import           Data.Bits
-import           Data.ByteString (ByteString)
+
 import           Data.IORef
 import           Data.Foldable (toList)
 import           Data.Parameterized.NatRepr
@@ -74,15 +79,14 @@ import qualified Data.Set as Set
 import           Data.String (fromString)
 import           Data.Text (Text)
 import qualified Data.Text as Text
-import           Data.Text.Encoding (decodeUtf8',decodeUtf8)
-import qualified Data.Text.Lazy as LazyText
+import qualified Data.Text.Lazy as Lazy
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
-import qualified Data.Text.Lazy.IO as Lazy
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
+import qualified System.IO.Streams.Attoparsec.Text as Streams
 import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -96,6 +100,7 @@ import           What4.SatResult
 import qualified What4.Expr.Builder as B
 import           What4.Expr.GroundEval
 import           What4.Expr.VarIdentification
+import           What4.Protocol.SExp
 import           What4.Protocol.SMTLib2 (writeDefaultSMT2)
 import           What4.Protocol.SMTWriter as SMTWriter
 import           What4.Protocol.Online
@@ -383,12 +388,12 @@ setParamCommand nm v = Cmd $ app "set-param" [ Builder.fromText nm, v ]
 ------------------------------------------------------------------------
 -- Connection
 
-newConnection :: Handle
+newConnection :: Streams.OutputStream Text
               -> AcknowledgementAction t (Connection s)
               -> ProblemFeatures -- ^ Indicates the problem features to support.
               -> B.SymbolVarBimap t
               -> IO (WriterConn t (Connection s))
-newConnection h ack reqFeatures bindings = do
+newConnection stream ack reqFeatures bindings = do
   let efSolver = reqFeatures `hasProblemFeature` useExistForall
   let nlSolver = reqFeatures `hasProblemFeature` useNonlinearArithmetic
   let features | efSolver  = useLinearArithmetic
@@ -402,7 +407,9 @@ newConnection h ack reqFeatures bindings = do
   let features' = features
                   .|. featureIf efSolver useExistForall
                   .|. useStructs
-  conn <- newWriterConn h ack nm features' bindings (Connection ())
+                  .|. (reqFeatures .&. useUnsatCores)
+
+  conn <- newWriterConn stream ack nm features' bindings (Connection ())
   return $! conn { supportFunctionDefs = True
                  , supportFunctionArguments = True
                  , supportQuantifiers = efSolver
@@ -451,7 +458,10 @@ instance SMTWriter (Connection s) where
   declareStructDatatype _ _ = return ()
 
   writeCommand conn (Cmd cmd) =
-    Lazy.hPutStrLn (connHandle conn) (Builder.toLazyText cmd)
+    do let cmdout = Lazy.toStrict (Builder.toLazyText cmd) <> "\n"
+       Streams.write (Just cmdout) (connHandle conn)
+       -- force a flush
+       Streams.write (Just "") (connHandle conn)
 
 instance SMTReadWriter (Connection s) where
   smtEvalFuns conn resp =
@@ -464,23 +474,67 @@ instance SMTReadWriter (Connection s) where
 
   smtSatResult _ = getSatResponse
 
+  smtUnsatCoreResult p s =
+    do mb <- try (Streams.parseFromStream parseSExp s)
+       let cmd = getUnsatCoreCommand p
+       case mb of
+         Right (asAtomList -> Just nms) -> return nms
+
+         Right (SApp [SAtom "error", SString msg]) -> throw (YicesError cmd msg)
+         Right res -> throw (YicesParseError cmd (Text.pack (show res)))
+         Left (SomeException e) -> throw $ YicesParseError cmd $ Text.pack $
+                 unlines [ "Could not parse unsat core result."
+                         , "*** Exception: " ++ displayException e
+                         ]
+
+-- | Exceptions that can occur when reading responses from Yices
+data YicesException
+  = YicesUnsupported YicesCommand
+  | YicesError YicesCommand Text
+  | YicesParseError YicesCommand Text
+
+instance Show YicesException where
+  show (YicesUnsupported (Cmd cmd)) =
+     unlines
+       [ "unsupported command:"
+       , "  " ++ Lazy.unpack (Builder.toLazyText cmd)
+       ]
+  show (YicesError (Cmd cmd) msg) =
+     unlines
+       [ "Solver reported an error:"
+       , "  " ++ Text.unpack msg
+       , "in response to command:"
+       , "  " ++ Lazy.unpack (Builder.toLazyText cmd)
+       ]
+  show (YicesParseError (Cmd cmd) msg) =
+     unlines
+       [ "Could not parse solver response:"
+       , "  " ++ Text.unpack msg
+       , "in response to command:"
+       , "  " ++ Lazy.unpack (Builder.toLazyText cmd)
+       ]
+
+instance Exception YicesException
+
+
 instance OnlineSolver s (Connection s) where
   startSolverProcess = yicesStartSolver
   shutdownSolverProcess = yicesShutdownSolver
 
-yicesShutdownSolver :: SolverProcess s (Connection s) -> IO (ExitCode, LazyText.Text)
+yicesShutdownSolver :: SolverProcess s (Connection s) -> IO (ExitCode, Lazy.Text)
 yicesShutdownSolver p =
-   do hClose (solverStdin p)
+   do Streams.write Nothing (solverStdin p)
 
       --logLn 2 "Waiting for yices to terminate"
       txt <- readAllLines (solverStderr p)
 
       ec <- waitForProcess (solverHandle p)
+      stopHandleReader (solverStderr p)
       return (ec,txt)
 
 
 yicesAck ::
-  Streams.InputStream ByteString ->
+  Streams.InputStream Text ->
   IORef (Maybe Int) ->
   AcknowledgementAction s (Connection s)
 yicesAck resp earlyUnsatRef = AckAction $ \conn (Cmd cmd) ->
@@ -496,11 +550,15 @@ yicesAck resp earlyUnsatRef = AckAction $ \conn (Cmd cmd) ->
                  [ "Unexpected response from solver while awaiting acknowledgement"
                  , "*** result:" ++ show txt
                  , "in response to command"
-                 , "***: " ++ LazyText.unpack (Builder.toLazyText cmd)
+                 , "***: " ++ Lazy.unpack (Builder.toLazyText cmd)
                  ]
 
-yicesStartSolver :: B.ExprBuilder s st fs -> IO (SolverProcess s (Connection s))
-yicesStartSolver sym = do
+yicesStartSolver ::
+  ProblemFeatures ->
+  Maybe Handle ->
+  B.ExprBuilder s st fs ->
+  IO (SolverProcess s (Connection s))
+yicesStartSolver features auxOutput sym = do -- FIXME
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
   let args = ["--mode=push-pop", "--print-success"]
@@ -522,22 +580,19 @@ yicesStartSolver sym = do
 
   (in_h,out_h,err_h,ph) <- startProcess
 
-  --void $ forkIO $ logErrorStream err_stream (logLn 2)
-  -- Create new connection for sending commands to yices.
-  let features = useLinearArithmetic
-             .|. useBitvectors
-             .|. useComplexArithmetic
-             .|. useStructs
-  err_reader <- startHandleReader err_h
-  out_stream <- Streams.lines =<< Streams.handleToInputStream out_h
+  (in_stream, out_stream, err_reader) <-
+    demuxProcessHandles in_h out_h err_h
+      (fmap (\x -> ("; ", x)) auxOutput)
 
   earlyUnsatRef <- newIORef Nothing
 
-  conn <- newConnection in_h (yicesAck out_stream earlyUnsatRef) features B.emptySymbolVarBimap
+  in_stream' <- Streams.atEndOfOutput (hClose in_h) in_stream
+
+  conn <- newConnection in_stream' (yicesAck out_stream earlyUnsatRef) features B.emptySymbolVarBimap
   setYicesParams conn cfg
 
   return $! SolverProcess { solverConn   = conn
-                          , solverStdin  = in_h
+                          , solverStdin  = in_stream'
                           , solverStderr = err_reader
                           , solverHandle = ph
                           , solverResponse = out_stream
@@ -583,94 +638,96 @@ eval c e = addCommandNoAck c (evalCommand e)
 sendShowModel :: WriterConn t (Connection s) -> IO ()
 sendShowModel c = addCommandNoAck c showModelCommand
 
-
-
--- | Get a line of output from Yices, if any.
-yicesGetLine :: Streams.InputStream ByteString -> IO (Maybe Text)
-yicesGetLine resp =
-  do mbBytes <- Streams.read resp
-     case mbBytes of
-       Nothing -> return Nothing
-       Just bytes ->
-         case decodeUtf8' bytes of
-           Left err -> fail (show err)
-           Right a  -> return (Just a)
-
--- | Get a line of output from Yices.  Throws an exception at EOF.
-yicesDoGetLine :: Streams.InputStream ByteString -> IO Text
-yicesDoGetLine resp =
-  do mb <- yicesGetLine resp
-     case mb of
-       Nothing -> fail "Missing response from the solver."
-       Just b  -> return b
-
-getAckResponse :: Streams.InputStream ByteString -> IO (Maybe ByteString)
+getAckResponse :: Streams.InputStream Text -> IO (Maybe Text)
 getAckResponse resps =
-  do res <- Streams.read resps
-     case res of
-       Nothing -> fail $ unlines [ "Unexpected end of input."
-                                 , "*** Expecting: 'ok'"
-                                 ]
-       Just txt ->
-         case txt of
-           "ok" -> return Nothing
-           _    -> return (Just txt)
+  do mb <- try (Streams.parseFromStream parseSExp resps)
+     case mb of
+       Right (SAtom "ok") -> return Nothing
+       Right (SAtom txt)  -> return (Just txt)
+       Right res -> fail $
+               unlines [ "Could not parse acknowledgement result."
+                       , "  " ++ show res
+                       ]
+       Left (SomeException e) -> fail $
+               unlines [ "Could not parse acknowledgement result."
+                       , "*** Exception: " ++ displayException e
+                       ]
 
 -- | Get the sat result from a previous SAT command.
 -- Throws an exception if something goes wrong.
-getSatResponse :: Streams.InputStream ByteString -> IO (SatResult () ())
+getSatResponse :: Streams.InputStream Text -> IO (SatResult () ())
 getSatResponse resps =
-  do res <- Streams.read resps
-     case res of
-       Nothing -> fail $ unlines [ "Unexpected end of input."
-                                 , "*** Expecting: sat result"
-                                 ]
-       Just txt ->
-         case txt of
-           "unsat"    -> return (Unsat ())
-           "sat"      -> return (Sat ())
-           "unknown"  -> return Unknown
-           _  -> fail $ unlines
-              [ "Unexpected sat result:"
-              , "*** Result: " ++ Text.unpack (decodeUtf8 txt)
-              , "*** Expecting: unsat/sat/unknown"
-              ]
+  do mb <- try (Streams.parseFromStream parseSExp resps)
+     case mb of
+       Right (SAtom "unsat")   -> return (Unsat ())
+       Right (SAtom "sat")     -> return (Sat ())
+       Right (SAtom "unknown") -> return Unknown
+       Right res -> fail $
+               unlines [ "Could not parse sat result."
+                       , "  " ++ show res
+                       ]
+       Left (SomeException e) -> fail $
+               unlines [ "Could not parse sat result."
+                       , "*** Exception: " ++ displayException e
+                       ]
 
 type Eval scope solver ty =
   WriterConn scope (Connection solver) ->
-  Streams.InputStream ByteString ->
+  Streams.InputStream Text ->
   Term (Connection solver) ->
   IO ty
 
 -- | Call eval to get a Rational term
 yicesEvalReal :: Eval s t Rational
 yicesEvalReal conn resp tm =
-    do eval conn tm
-       l <- yicesDoGetLine resp
-       case Root.fromYicesText l of
-         Nothing -> do
-           fail $ "Could not parse real value returned by yices:\n  " ++ show l
-         Just r -> pure $ Root.approximate r
+  do eval conn tm
+     mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> Root.parseYicesRoot) resp)
+     case mb of
+       Left (SomeException ex) ->
+           fail $ unlines
+             [ "Could not parse real value returned by yices: "
+             , displayException ex
+             ]
+       Right r -> pure $ Root.approximate r
+
+boolValue :: Atto.Parser Bool
+boolValue =
+  msum
+  [ Atto.string "true" *> pure True
+  , Atto.string "false" *> pure False
+  ]
 
 -- | Call eval to get a Boolean term.
 yicesEvalBool :: Eval s t Bool
-yicesEvalBool conn resp tm = do
-  eval conn tm
-  l <- yicesDoGetLine resp
-  case l of
-    "true"  -> return $! True
-    "false" -> return $! False
-    _ -> do
-      fail $ "Could not parse yices value " ++ show l ++ " as a Boolean."
+yicesEvalBool conn resp tm =
+  do eval conn tm
+     mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> boolValue) resp)
+     case mb of
+       Left (SomeException ex) ->
+           fail $ unlines
+             [ "Could not parse boolean value returned by yices: "
+             , displayException ex
+             ]
+       Right b -> pure b
+
+yicesBV :: Int -> Atto.Parser Integer
+yicesBV w =
+  do _ <- Atto.string "0b"
+     digits <- Atto.takeWhile (`elem` ("01"::String))
+     readBit w (Text.unpack digits)
 
 -- | Send eval command and get result back.
 yicesEvalBV :: Int -> Eval s t Integer
-yicesEvalBV w conn resp tm = do
-  eval conn tm
-  l <- Text.unpack <$> yicesDoGetLine resp
-  case l of
-    '0' : 'b' : nm -> readBit w nm
-    _ -> fail $ "Could not parse yices value " ++ show l ++ " as a bitvector."
+yicesEvalBV w conn resp tm =
+  do eval conn tm
+     mb <- try (Streams.parseFromStream (skipSpaceOrNewline *> yicesBV w) resp)
+     case mb of
+       Left (SomeException ex) ->
+           fail $ unlines
+             [ "Could not parse bitvector value returned by yices: "
+             , displayException ex
+             ]
+       Right b -> pure b
 
 readBit :: Monad m => Int -> String -> m Integer
 readBit w0 = go 0 0
@@ -693,13 +750,20 @@ yicesSMT2Features
   .|. useBitvectors
   .|. useQuantifiers
 
+yicesDefaultFeatures :: ProblemFeatures
+yicesDefaultFeatures
+    = useLinearArithmetic
+  .|. useBitvectors
+  .|. useComplexArithmetic
+  .|. useStructs
+
 yicesAdapter :: SolverAdapter t
 yicesAdapter =
    SolverAdapter
    { solver_adapter_name = "yices"
    , solver_adapter_config_options = yicesOptions
-   , solver_adapter_check_sat = \sym logLn rsn ps cont ->
-       runYicesInOverride sym logLn rsn ps
+   , solver_adapter_check_sat = \sym logLn rsn ps auxOutput cont ->
+       runYicesInOverride sym logLn rsn ps auxOutput
           (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
        writeDefaultSMT2 () nullAcknowledgementAction "YICES" yicesSMT2Features
@@ -862,7 +926,8 @@ writeYicesFile sym path p = do
 
     bindings <- B.getSymbolVarBimap sym
 
-    c <- newConnection h nullAcknowledgementAction features bindings
+    str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
+    c <- newConnection str nullAcknowledgementAction features bindings
     setYicesParams c cfg
     assume c p
     if efSolver then
@@ -876,9 +941,10 @@ runYicesInOverride :: B.ExprBuilder t st fs
                    -> (Int -> String -> IO ())
                    -> String
                    -> [B.BoolExpr t]
+                   -> Maybe Handle
                    -> (SatResult (GroundEvalFn t) () -> IO a)
                    -> IO a
-runYicesInOverride sym logLn rsn conditions resultFn = do
+runYicesInOverride sym logLn rsn conditions auxOutput resultFn = do
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
   condition <- andAllOf sym folded conditions
@@ -896,15 +962,17 @@ runYicesInOverride sym logLn rsn conditions resultFn = do
   let args | efSolver  = ["--mode=ef"] -- ,"--print-success"]
            | nlSolver  = ["--logic=QF_NRA"] -- ,"--print-success"]
            | otherwise = ["--mode=one-shot"] -- ,"--print-success"]
-  withProcessHandles yices_path args Nothing $ \(in_h, out_h, err_h, ph) -> do
-    -- Log stderr to output.
-    withHandleReader err_h $ \err_reader -> do
 
-      responses <- Streams.lines =<< Streams.handleToInputStream out_h
+  withProcessHandles yices_path args Nothing $ \(in_h, out_h, err_h, ph) -> do
+
+      (in_stream, out_stream, err_reader) <-
+        demuxProcessHandles in_h out_h err_h
+          (fmap (\x -> ("; ",x)) auxOutput)
 
       -- Create new connection for sending commands to yices.
       bindings <- B.getSymbolVarBimap sym
-      c <- newConnection in_h nullAcknowledgementAction features bindings
+
+      c <- newConnection in_stream nullAcknowledgementAction features bindings
       -- Write yices parameters.
       setYicesParams c cfg
       -- Assert condition
@@ -920,10 +988,10 @@ runYicesInOverride sym logLn rsn conditions resultFn = do
 
       let yp = SolverProcess { solverConn = c
                              , solverHandle = ph
-                             , solverStdin  = in_h
-                             , solverResponse = responses
+                             , solverStdin  = in_stream
+                             , solverResponse = out_stream
                              , solverStderr = err_reader
-                             , solverEvalFuns = smtEvalFuns c responses
+                             , solverEvalFuns = smtEvalFuns c out_stream
                              , solverName = "Yices"
                              , solverLogFn = logSolverEvent sym
                              , solverEarlyUnsat = earlyUnsatRef

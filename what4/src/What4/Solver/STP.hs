@@ -13,7 +13,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Solver.STP
-  ( STP
+  ( STP(..)
   , stpAdapter
   , stpPath
   , stpOptions
@@ -21,6 +21,7 @@ module What4.Solver.STP
   , withSTP
   ) where
 
+import           System.IO (Handle)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
@@ -83,8 +84,8 @@ instance SMT2.SMTLib2GenericSolver STP where
     -- Tell STP to use all supported logics
     SMT2.setLogic writer SMT2.qf_bv
 
-  newDefaultWriter solver ack sym h =
-    SMT2.newWriter solver h ack (show solver) True (SMT2.defaultFeatures solver) False
+  newDefaultWriter solver ack feats sym h =
+    SMT2.newWriter solver h ack (show solver) True feats False
       =<< getSymbolVarBimap sym
 
 runSTPInOverride
@@ -92,9 +93,10 @@ runSTPInOverride
   -> (Int -> String -> IO ())
   -> String
   -> [BoolExpr t]
+  -> Maybe Handle
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
-runSTPInOverride = SMT2.runSolverInOverride STP nullAcknowledgementAction
+runSTPInOverride = SMT2.runSolverInOverride STP nullAcknowledgementAction (SMT2.defaultFeatures STP)
 
 -- | Run STP in a session. STP will be configured to produce models, buth
 -- otherwise left with the default configuration.
@@ -104,11 +106,13 @@ withSTP
     -- ^ Path to STP executable
   -> (String -> IO ())
     -- ^ Function to print messages from STP to
+  -> Maybe Handle
   -> (SMT2.Session t STP -> IO a)
     -- ^ Action to run
   -> IO a
-withSTP = SMT2.withSolver STP nullAcknowledgementAction
+withSTP = SMT2.withSolver STP nullAcknowledgementAction (SMT2.defaultFeatures STP)
 
 instance OnlineSolver t (SMT2.Writer STP) where
-  startSolverProcess = SMT2.startSolver STP (\_ -> nullAcknowledgementAction) SMT2.setDefaultLogicAndOptions
+  startSolverProcess =
+    SMT2.startSolver STP (\_ -> nullAcknowledgementAction) SMT2.setDefaultLogicAndOptions
   shutdownSolverProcess = SMT2.shutdownSolver STP

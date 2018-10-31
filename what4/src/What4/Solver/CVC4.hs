@@ -25,9 +25,10 @@ module What4.Solver.CVC4
   , writeMultiAsmpCVC4SMT2File
   ) where
 
-import           Control.Monad (forM_)
+import           Control.Monad (forM_, when)
 import           Data.Bits
 import           System.IO
+import qualified System.IO.Streams as Streams
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
@@ -100,8 +101,9 @@ writeMultiAsmpCVC4SMT2File
    -> IO ()
 writeMultiAsmpCVC4SMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
-  c <- SMT2.newWriter CVC4 h nullAcknowledgementAction "CVC4" True cvc4Features True bindings
-  --c <- SMT2.newWriter h "CVC4" True SMT2.LinearArithmetic
+  in_str  <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
+  c <- SMT2.newWriter CVC4 in_str nullAcknowledgementAction "CVC4"
+         True cvc4Features True bindings
   SMT2.setLogic c SMT2.allSupported
   SMT2.setOption c (SMT2.produceModels True)
   forM_ ps $ SMT2.assume c
@@ -133,9 +135,10 @@ runCVC4InOverride
   -> (Int -> String -> IO ())
   -> String
   -> [BoolExpr t]
+  -> Maybe Handle
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
-runCVC4InOverride = SMT2.runSolverInOverride CVC4 nullAcknowledgementAction
+runCVC4InOverride = SMT2.runSolverInOverride CVC4 nullAcknowledgementAction (SMT2.defaultFeatures CVC4)
 
 -- | Run CVC4 in a session. CVC4 will be configured to produce models, but
 -- otherwise left with the default configuration.
@@ -145,11 +148,27 @@ withCVC4
     -- ^ Path to CVC4 executable
   -> (String -> IO ())
     -- ^ Function to print messages from CVC4 to.
+  -> Maybe Handle
   -> (SMT2.Session t CVC4 -> IO a)
     -- ^ Action to run
   -> IO a
-withCVC4 = SMT2.withSolver CVC4 nullAcknowledgementAction
+withCVC4 = SMT2.withSolver CVC4 nullAcknowledgementAction (SMT2.defaultFeatures CVC4)
+
+setInteractiveLogicAndOptions ::
+  SMT2.SMTLib2Tweaks a =>
+  WriterConn t (SMT2.Writer a) ->
+  IO ()
+setInteractiveLogicAndOptions writer = do
+    -- Tell CVC4 to acknowledge successful commands
+    SMT2.setOption writer $ SMT2.printSuccess True
+    -- Tell CVC4 to produce models
+    SMT2.setOption writer $ SMT2.produceModels True
+    -- Tell CVC4 to compute UNSAT cores, if that feature is enabled
+    when (supportedFeatures writer `hasProblemFeature` useUnsatCores)
+         (SMT2.setOption writer $ SMT2.produceUnsatCores True)
+    -- Tell CVC4 to use all supported logics.
+    SMT2.setLogic writer SMT2.allSupported
 
 instance OnlineSolver t (SMT2.Writer CVC4) where
-  startSolverProcess = SMT2.startSolver CVC4 (\_ -> nullAcknowledgementAction) SMT2.setDefaultLogicAndOptions
+  startSolverProcess = SMT2.startSolver CVC4 SMT2.smtAckResult setInteractiveLogicAndOptions
   shutdownSolverProcess = SMT2.shutdownSolver CVC4

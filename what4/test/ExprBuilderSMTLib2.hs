@@ -16,6 +16,7 @@ import           Control.Monad (void)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Text as T
+import           System.IO
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
@@ -47,14 +48,14 @@ withSym pred_gen = withIONonceGenerator $ \gen ->
 withZ3' :: (forall t . SimpleExprBuilder t fs -> Session t Z3 -> IO ()) -> IO ()
 withZ3' action = withIONonceGenerator $ \nonce_gen -> do
   sym <- newExprBuilder State nonce_gen
-  withZ3 sym "z3" putStrLn $ action sym
+  withZ3 sym "z3" putStrLn Nothing $ action sym
 
 withOnlineZ3'
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3) -> IO a)
   -> IO a
 withOnlineZ3' action = withSym $ \sym -> do
   extendConfig z3Options (getConfiguration sym)
-  s <- startSolverProcess sym
+  s <- startSolverProcess (defaultFeatures Z3) Nothing sym
   res <- action sym s
   void (shutdownSolverProcess s)
   return res

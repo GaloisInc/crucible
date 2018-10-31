@@ -54,6 +54,7 @@ data SolverAdapter st =
         -> (Int -> String -> IO ())
         -> String
         -> [BoolExpr t]
+        -> Maybe Handle
         -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
         -> IO a)
 

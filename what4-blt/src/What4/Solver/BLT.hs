@@ -110,7 +110,7 @@ bltAdapter =
    SolverAdapter
    { solver_adapter_name = "blt"
    , solver_adapter_config_options = bltOptions
-   , solver_adapter_check_sat = \sym _ rsn ps cont ->
+   , solver_adapter_check_sat = \sym _ rsn ps _auxOutput cont ->
            runBLTInOverride sym rsn ps
              (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 = \_ _ _ -> do

@@ -64,6 +64,7 @@ import qualified What4.Protocol.SMTLib2 as SMT2
 import qualified What4.Protocol.SMTWriter as SMTWriter
 import           What4.Utils.Process
 import           What4.Utils.Streams (logErrorStream)
+import           What4.Utils.HandleReader
 
 data DReal = DReal
 
@@ -85,8 +86,8 @@ drealAdapter =
   SolverAdapter
   { solver_adapter_name = "dreal"
   , solver_adapter_config_options = drealOptions
-  , solver_adapter_check_sat = \sym logLn rsn ps cont ->
-      runDRealInOverride sym logLn rsn ps $ \res ->
+  , solver_adapter_check_sat = \sym logLn rsn ps auxOutput cont ->
+      runDRealInOverride sym logLn rsn ps auxOutput $ \res ->
          case res of
            Sat (c,m) -> do
              evalFn <- getAvgBindings c m
@@ -108,7 +109,9 @@ writeDRealSMT2File
    -> IO ()
 writeDRealSMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
-  c <- SMT2.newWriter DReal h SMTWriter.nullAcknowledgementAction "dReal" False useComputableReals False bindings
+  in_str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
+  c <- SMT2.newWriter DReal in_str SMTWriter.nullAcknowledgementAction "dReal"
+          False useComputableReals False bindings
   SMT2.setOption c (SMT2.produceModels True)
   SMT2.setLogic c (SMT2.Logic "QF_NRA")
   forM_ ps (SMT2.assume c)
@@ -247,9 +250,10 @@ runDRealInOverride
    -> (Int -> String -> IO ())
    -> String
    -> [BoolExpr t]   -- ^ propositions to check
+   -> Maybe Handle
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) () -> IO a)
    -> IO a
-runDRealInOverride sym logLn rsn ps modelFn = do
+runDRealInOverride sym logLn rsn ps auxOutput modelFn = do
   p <- andAllOf sym folded ps
   solver_path <- findSolverPath drealPath (getConfiguration sym)
   logSolverEvent sym
@@ -268,7 +272,16 @@ runDRealInOverride sym logLn rsn ps modelFn = do
       logLn 2 "Sending Satisfiability problem to dReal"
       -- dReal does not support (define-fun ...)
       bindings <- getSymbolVarBimap sym
-      c <- SMT2.newWriter DReal in_h SMTWriter.nullAcknowledgementAction "dReal" False useComputableReals False bindings
+
+      in_str  <-
+        case auxOutput of
+          Nothing -> Streams.encodeUtf8 =<< Streams.handleToOutputStream in_h
+          Just aux_h ->
+            do aux_str <- Streams.handleToOutputStream aux_h
+               Streams.encodeUtf8 =<< teeOutputStream aux_str =<< Streams.handleToOutputStream in_h
+
+      c <- SMT2.newWriter DReal in_str SMTWriter.nullAcknowledgementAction "dReal"
+             False useComputableReals False bindings
 
       -- Set the dReal default logic
       SMT2.setLogic c (SMT2.Logic "QF_NRA")
