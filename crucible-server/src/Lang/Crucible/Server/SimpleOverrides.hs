@@ -36,12 +36,13 @@ import qualified Data.Parameterized.Context as Ctx
 
 import           What4.Config
 import           What4.Interface
+import qualified What4.Protocol.SMTLib2 as SMT2
+import           What4.Protocol.SMTWriter (nullAcknowledgementAction)
+import           What4.SatResult
 import           What4.Solver
 import           What4.Solver.Adapter
 import qualified What4.Solver.ABC as ABC
 import qualified What4.Solver.Yices as Yices
-import qualified What4.Protocol.SMTLib2 as SMT2
-import           What4.SatResult
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.Simple
@@ -116,7 +117,7 @@ checkSatWithYicesOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    r <- liftIO $ Yices.runYicesInOverride sym logLn "checkSatWithYices" [p] (return . isSat)
+    r <- liftIO $ Yices.runYicesInOverride sym logLn "checkSatWithYices" [p] Nothing (return . isSat)
     return $ backendPred sym r
 
 ------------------------------------------------------------------------
@@ -137,7 +138,7 @@ writeSMTLib2Override = do
     case asString file_nm of
       Just path -> do
         liftIO $ withFile (Text.unpack path) WriteMode $ \h ->
-          SMT2.writeDefaultSMT2 () (\_ _ -> return ()) "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
+          SMT2.writeDefaultSMT2 () nullAcknowledgementAction "SMTLIB2" defaultWriteSMTLIB2Features sym h [p]
       Nothing -> do
         fail "Expected concrete file name in write_SMTLIB2 override"
 
