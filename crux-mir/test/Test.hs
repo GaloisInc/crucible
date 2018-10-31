@@ -1,14 +1,18 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
-
+import           Control.Exception (bracket)
 import           Data.Char (isSpace)
 import           Data.List (dropWhileEnd, isPrefixOf,intersperse)
 import qualified Data.Map as Map
 import           Data.Maybe (catMaybes)
+import           GHC.IO.Handle (hDuplicate, hDuplicateTo, hGetBuffering, hSetBuffering, Handle)
 import           System.Directory (listDirectory, doesDirectoryExist, doesFileExist, removeFile)
+import           System.Environment (withArgs)
 import           System.Exit (ExitCode(..))
-import           System.FilePath ((<.>), (</>), takeBaseName, takeExtension)
+import           System.FilePath ((<.>), (</>), takeBaseName, takeExtension, replaceExtension)
+import           System.IO (IOMode(..), withFile, stdout, stderr)
 import qualified System.Process as Proc
 import           Text.Parsec (parse, (<|>), (<?>), string, many1, digit)
 import           Text.Parsec.String (Parser)
@@ -23,10 +27,12 @@ import qualified Verifier.SAW.Simulator.Concrete as Conc
 
 import           Test.Tasty (defaultMain, testGroup, TestTree)
 import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
+import           Test.Tasty.Golden (goldenVsFile, findByExtension)
 
 import qualified Data.AIG.Interface as AIG
 
 
+import qualified Mir.Language as Mir (main)
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
@@ -93,13 +99,44 @@ sawOracleTest dir name step = do
   assertBool "oracle output mismatch"
     (Conc.toBool (Conc.evalSharedTerm mm Map.empty eq))
 
+redir :: Handle -> [Handle] -> IO a -> IO a
+redir _ [] act = act
+redir out (h:hs) act =
+  do buf <- hGetBuffering h
+     let save =
+           do old <- hDuplicate h
+              hDuplicateTo out h
+              return old
+         restore old =
+           do hDuplicateTo old h
+              hSetBuffering h buf
+     bracket save restore (const $ redir out hs act)
+
+
+symbTest :: FilePath -> IO TestTree
+symbTest dir =
+  do rustFiles <- findByExtension [".rs"] dir
+     return $
+       testGroup "Output testing"
+         [ goldenVsFile (takeBaseName rustFile) goodFile outFile $
+           withArgs [rustFile] $
+           withFile outFile WriteMode $
+           \h -> redir h [stdout, stderr] (Mir.main)
+         | rustFile <- rustFiles
+         , let goodFile = replaceExtension rustFile ".good"
+         , let outFile = replaceExtension rustFile ".out"
+         ]
+
 main :: IO ()
 main = defaultMain =<< suite
 
 suite :: IO TestTree
 suite = do trees <- sequence $
              [ --testGroup "saw"  <$> sequence [testDir sawOracleTest "test/conc_eval"  ]
-               testGroup "crux" <$> sequence [testDir cruxOracleTest "test/conc_eval" ] ]
+               testGroup "crux" <$> sequence [ testDir cruxOracleTest "test/conc_eval"
+                                             , symbTest "test/symb_eval"
+                                             ]
+             ]
            return $ testGroup "mir-verifier" trees
 
 

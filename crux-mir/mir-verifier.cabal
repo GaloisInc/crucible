@@ -39,6 +39,7 @@ library
                  tasty            >= 0.10,
                  tasty-hunit      >= 0.10,
                  tasty-quickcheck >= 0.8,
+                 tasty-golden     >= 2.3,
                  parsec,
                  aig,
                  crux
@@ -46,6 +47,7 @@ library
 
   hs-source-dirs: src
   exposed-modules: Mir.SAWInterface,
+                   Mir.Language,
                    Mir.Mir
                    Mir.Pass,
                    Mir.Pass.CollapseRefs,
@@ -90,6 +92,7 @@ executable crux-mir
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
                 tasty-quickcheck >= 0.8,
+                tasty-golden     >= 2.3,
                 parsec,
                 aig,
                 crux
@@ -99,6 +102,7 @@ executable crux-mir
   default-language: Haskell2010
 
   other-modules: Mir.Intrinsics
+                 Mir.Language
                  Mir.Mir
                  Mir.Overrides
                  Mir.Pass
@@ -135,6 +139,7 @@ test-suite test
                 tasty            >= 0.10,
                 tasty-hunit      >= 0.10,
                 tasty-quickcheck >= 0.8,
+                tasty-golden     >= 2.3,
                 aig
 
   default-language: Haskell2010
