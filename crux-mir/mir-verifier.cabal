@@ -57,6 +57,7 @@ library
 
   other-modules: 
                  Mir.Intrinsics,
+                 Mir.Overrides,
                  Mir.Run,
                  Mir.Trans
 
@@ -99,6 +100,7 @@ executable crux-mir
 
   other-modules: Mir.Intrinsics
                  Mir.Mir
+                 Mir.Overrides
                  Mir.Pass
                  Mir.Pass.CollapseRefs
                  Mir.Pass.MutRefReturnStatic

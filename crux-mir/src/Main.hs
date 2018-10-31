@@ -69,6 +69,7 @@ import Crux.Log
 import           Mir.Mir
 import           Mir.PP()
 import           Mir.Intrinsics(MIR,mirExtImpl,cleanVariantName)
+import           Mir.Overrides
 import           Mir.Trans(tyToReprCont)
 import           Mir.SAWInterface (translateMIR,generateMIR,RustModule(..))
 
@@ -194,7 +195,7 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   when (Crux.simVerbose cruxOpts > 2) $
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
     
-  col <- generateMIR dir name 
+  col <- generateMIR dir name
 
   when (Crux.simVerbose cruxOpts > 2) $ do
     say "Crux" $ "MIR collection" 
@@ -209,7 +210,8 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   let cfgmap = rmCFGs mir
 
   let link :: C.OverrideSim p sym MIR rtp a r ()
-      link   = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
+      link   = forM_ (Map.toList cfgmap) $
+                 \(fn, C.AnyCFG cfg) -> bindFn fn cfg
 
   
   (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "::f[0]") cfgmap) of
