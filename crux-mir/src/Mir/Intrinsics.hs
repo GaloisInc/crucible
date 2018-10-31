@@ -399,23 +399,29 @@ pattern MirSliceRepr tp <- StructRepr
 
 --------------------------------------------------------------------------------
 -- ** Generator state for MIR translation to Crucible
---  
+--
 
--- | HandleMap maps mir function names to their corresponding function handle
-type HandleMap = Map.Map Text.Text MirHandle
+type TraitName = Text
+type MethName  = Text
+type TypeName  = Text
+
+
+-- | The HandleMap maps mir functions to their corresponding function
+-- handle. Function handles include the original method name (for
+-- convenience) and original Mir type (for trait resolution).
+type HandleMap = Map.Map MethName MirHandle
+
 data MirHandle where
     MirHandle :: MethName -> FnSig -> FnHandle init ret -> MirHandle
-
-
 
 instance Show MirHandle where
     show (MirHandle _nm sig c) = show c ++ ":" ++ show sig
 
 
--- | a VarMap maps identifier names to registers (if the id
+-- | The VarMap maps identifier names to registers (if the id
 --   corresponds to a local variable) or an atom (if the id
 --   corresponds to a function argument)
-type VarMap s = Map.Map Text.Text (Some (VarInfo s))
+type VarMap s = Map Text.Text (Some (VarInfo s))
 data VarInfo s tp where
   VarRegister  :: Reg s tp -> VarInfo s tp
   VarReference :: Reg s (MirReferenceType tp) -> VarInfo s tp
@@ -430,38 +436,35 @@ varInfoRepr (VarReference reg0) =
 varInfoRepr (VarAtom a) = typeOfAtom a
 
 
--- | LabelMap maps identifiers to labels of their corresponding basicblock
+-- | The LabelMap maps identifiers to labels of their corresponding basicblock
 type LabelMap s = Map.Map BasicBlockInfo (Label s)
 
--- | AdtMap maps ADT names to their definitions
+-- | The AdtMap maps ADT names to their definitions
 type AdtMap = Map.Map Text.Text [Variant]
 
 
 -- | A TraitMap maps trait names to their vtables and instances
--- The 'ctx' parameter lists the required members of the trait
-data TraitMap = TraitMap (Map Text {- ^ trait name-} (Some TraitImpls))
+data TraitMap = TraitMap (Map TraitName (Some TraitImpls))
 
+-- | The implementation of a Trait.
+-- The 'ctx' parameter lists the required members of the trait
 data TraitImpls ctx = TraitImpls
   {_vtableTyRepr :: CtxRepr ctx
    -- ^ Describes the types of Crucible structs that store the VTable
    -- of implementations
-  ,_methodIndex :: Map.Map Text.Text (Some (Index ctx))
+  ,_methodIndex :: Map MethName (Some (Index ctx))
    -- ^ Tells which fields (indices) of the struct correspond to
    -- method names of the given trait
-  ,_vtables :: Map.Map Text.Text (Assignment MirValue ctx)
-   -- ^ gives vtables for each type implementing a given trait
+  ,_vtables :: Map TypeName (Assignment MirValue ctx)
+   -- ^ gives the vtable for each type implementing a given trait
+   -- TODO: use Mir.Ty instead of TypeName? 
   }
 
-traitImpls :: CtxRepr ctx
-           -> Map.Map Text.Text (Some (Index ctx))
-           -> Map.Map Text.Text (Assignment MirValue ctx)
-           -> TraitImpls ctx
-traitImpls str midx vtbls =
-  TraitImpls {_vtableTyRepr = str
-             ,_methodIndex  = midx
-             ,_vtables      = vtbls
-             }
-
+-- | Values stored in the vtables. This cannot include expressions.
+-- TODO: For now, traits only include methods, not constants
+data MirValue (ty :: CrucibleType) where
+  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType args ret)
+  
 -- | Generator state for MIR translation
 data FnState s = FnState { _varMap    :: !(VarMap s),
                            _labelMap  :: !(LabelMap s),
@@ -471,70 +474,51 @@ data FnState s = FnState { _varMap    :: !(VarMap s),
                          }
 
 
--- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
-data MirExp s where
-    MirExp :: TypeRepr tp -> Expr MIR s tp -> MirExp s
-
-instance Show (MirExp s) where
-    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
 ------------------------------------------------------------------------------------
--- helper function for traits
-
-data MirValue (ty :: CrucibleType) where
-  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType args ret)
+-- ** helper function for traits
 
 
-toTraitFnTy :: TypeRepr (FunctionHandleType (args ::> a) ret) -> TypeRepr (FunctionHandleType (args ::> AnyType) ret)
-toTraitFnTy (FunctionHandleRepr (ctx :> _ar) ret) =
-  FunctionHandleRepr (ctx :> AnyRepr) ret
+-- | Smart constructor
+traitImpls :: CtxRepr ctx
+           -> Map.Map MethName (Some (Index ctx))
+           -> Map.Map TypeName (Assignment MirValue ctx)
+           -> TraitImpls ctx
+traitImpls str midx vtbls =
+  TraitImpls {_vtableTyRepr = str
+             ,_methodIndex  = midx
+             ,_vtables      = vtbls
+             }
 
 valueToExpr :: MirValue ty -> Expr MIR s ty
 valueToExpr (FnValue handle) = App $ HandleLit handle where
 
-handleTy :: FnHandle args ret -> TypeRepr (FunctionHandleType args ret)
-handleTy handle = fty where
-    argtypes = handleArgTypes handle
-    rettype  = handleReturnType handle
-    fty      = FunctionHandleRepr argtypes rettype
-
-
--- | Scan the function declarations to find ones that look like they
--- implement a given trait. Record the type and function identifiers
--- in a map (from type names to method names to names of implementing
--- functions). The relation between methods and their implementations
--- is not straightforward in MIR. The name of the function
--- implementating a method 'foo' of a trait 'Bar' by a type 'Tar'
--- looks like: '::{{impl}}[n]::foo[m]'. This function uses a heuristic
--- and looks at the names and the type of the first argument ('self')
--- of all the function declarations to figure out which ones could be
--- implementations of methods.
-
-type TraitName = Text
-type MethName  = Text
-type TypeName  = Text
 
 -- | Decide whether the given method definition is an implementation method for
--- a declared trait. If so, return it along with the trait
-getTraitImplementation :: [Trait] -> (MethName,MirHandle) -> Maybe (MethName, TraitName, MirHandle)
+-- a declared trait. If so, return it along with the trait.
+  
+getTraitImplementation :: [Trait] ->
+                          (MethName,MirHandle) ->
+                          Maybe (MethName, TraitName, MirHandle)
 getTraitImplementation trts (name, handle) = do
   [methodName] <- parseImplName (show name)
-  --traceM $ "Found method " ++ methodName
   let declaredTraitMethod (TraitMethod tm _ts) =
-        case parseTraitName (show tm) of
+        case parseTraitName (Text.unpack tm) of
           Just [_tn,mn] -> mn == methodName
           _ -> False
       declaredTraitMethod _ = False
   traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts, List.any declaredTraitMethod items ]
-  --traceM $ "Found trait " ++ show traitName
   return (Text.pack methodName, traitName, handle)
 
 
-
 -------------------------------------------------------------------------------------------------------
 -------------------------------------------------------------------------------------------------------
 
--- DefId matching and modification
+
+-- The relation between methods and their implementations
+-- is not straightforward in MIR. The name of the function
+-- implementating a method 'foo' of a trait 'Bar' by a type 'Tar'
+-- looks like: '::{{impl}}[n]::foo[m]'.
 
 modid,impl,rustid,brk::String
 modid = "[A-Za-z0-9]*"
@@ -546,6 +530,7 @@ brk = "\\[[0-9]+\\]"
 parseImplName :: String -> Maybe [String]
 parseImplName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::"++impl++"::("++rustid++brk++")"++".*")
 
+-- 
 parseTraitName :: String -> Maybe [String]
 parseTraitName = Regex.matchRegex (Regex.mkRegex $ "(" ++rustid++")"++brk++"::"++"("++rustid++brk++")")
 
@@ -555,10 +540,27 @@ parseStaticMethodName = Regex.matchRegex (Regex.mkRegex $ "(" ++ modid ++ ")::" 
 parseVariantName :: String -> Maybe [String]
 parseVariantName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::" ++ rustid ++ brk ++ "::" ++ "(" ++ rustid++")" ++ brk)
 
+parseVariantName2 :: String -> Maybe [String]
+parseVariantName2 = Regex.matchRegex (Regex.mkRegex $ modid ++ "::" ++ "(" ++ rustid++")" ++ brk)
+
+-- ret/8cd878b::E[0]::A[0]::0[0]  ==> 0
+-- ret/8cd878b::S[0]::x[0]        ==> x
+parseFieldName :: String -> Maybe [String]
+parseFieldName = Regex.matchRegex
+  (Regex.mkRegex $
+    modid ++ "::" ++ rustid ++ brk ++ "::" ++ "(" ++ rustid ++ brk ++ "::)?" ++ "(" ++ rustid ++ ")" ++ brk)
+
+
 cleanVariantName :: Text -> Text
-cleanVariantName txt = case parseVariantName (Text.unpack txt) of
-                         Just [ constrName ] -> Text.pack constrName
-                         Nothing             -> txt
+cleanVariantName txt | Just [ constrName ] <- parseVariantName (Text.unpack txt)
+                     = Text.pack constrName
+                     | Just [ constrName ] <- parseVariantName2 (Text.unpack txt)
+                     = Text.pack constrName
+                     | otherwise
+                     = txt
+
+                     
+
 
 -- If we have a static call for a trait, we need to mangle the format so that it looks like
 -- a normal function call

@@ -16,6 +16,8 @@
 
 module Main(main) where
 
+import qualified Data.Char       as Char
+import           Data.Functor.Const (Const(..))
 import           Control.Monad (forM_, when)
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
@@ -23,6 +25,8 @@ import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import qualified Data.String     as String
+import qualified Data.Vector     as Vector
+import qualified Text.Read       as Read
 
 import           System.IO (stdout)
 import           System.Directory (listDirectory, doesFileExist, removeFile)
@@ -41,6 +45,7 @@ import           GHC.Stack
 -- parameterized-utils
 import qualified Data.Parameterized.Map     as MapF
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.TraversableFC as Ctx
 
 -- crucible
 import qualified Lang.Crucible.Utils.MonadVerbosity    as C
@@ -68,8 +73,8 @@ import Crux.Log
 -- mir-verifier
 import           Mir.Mir
 import           Mir.PP()
-import           Mir.Intrinsics(MIR,mirExtImpl,cleanVariantName)
 import           Mir.Overrides
+import           Mir.Intrinsics(MIR,mirExtImpl,cleanVariantName,parseFieldName)
 import           Mir.Trans(tyToReprCont)
 import           Mir.SAWInterface (translateMIR,generateMIR,RustModule(..))
 
@@ -148,35 +153,67 @@ showRegEntry col mty (C.RegEntry tp rv) =
                      Just f -> show f
                      Nothing -> "Symbolic real"
 
-{-    (TyTuple tys, CT.StructRepr (ctxr :: CT.CtxRepr ctx)) ->
+    (TyTuple tys, C.StructRepr (ctxr :: C.CtxRepr ctx)) -> do
       let rv' :: Ctx.Assignment (C.RegValue' sym) ctx
           rv' = rv
-      in
-          undefined -}
+
+      let
+          go :: forall typ. Ctx.Index ctx typ -> C.RegValue' sym typ ->
+                (C.OverrideSim p sym MIR rtp args ret (Const String typ))
+          go idx (C.RV elt) = do
+            let i   = Ctx.indexVal idx
+            let mty0 = tys !! i
+            let tp0  = ctxr Ctx.! idx
+            str <- showRegEntry col mty0 (C.RegEntry tp0 elt)
+            return (Const str)
+            
+      (cstrs :: Ctx.Assignment (Const String) ctx) <- Ctx.traverseWithIndex go rv'
+      let strs = Ctx.toListFC (\(Const str) -> str) cstrs
+      return $ "[" ++ List.intercalate ", " strs ++ "]"
+
     -- Tagged union type
-    -- TODO: type arguments, 2 or more args to variants, fieldnames
+    -- TODO: type arguments
     (TyAdt name _tyargs,                      
       C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr))
-      | Just (Adt _ variants) <- List.find (\(Adt n _) -> name == n) (col^.adts) ->
+      | Just (Adt _ variants) <- List.find (\(Adt n _) -> name == n) (col^.adts) -> do
       let rv' :: Ctx.Assignment (C.RegValue' sym) (Ctx.EmptyCtx Ctx.::> C.NatType Ctx.::> C.AnyType)
-          rv' = rv in
-      let kv = rv'  Ctx.! Ctx.i1of2 in
+          rv' = rv 
+      let kv = rv'  Ctx.! Ctx.i1of2
       case W4.asNat (C.unRV kv) of
-        Just k  -> let var = variants !! (fromInteger (toInteger k))
-                   in case (var^.vfields) of
-                        [] -> return $ Text.unpack (cleanVariantName (var^.vname))
-                        [Field _fName fty _fsubst] -> 
-                          case (rv' Ctx.! Ctx.i2of2 :: C.RegValue' sym C.AnyType) of
-                            (C.RV (C.AnyValue (C.StructRepr (Ctx.Empty Ctx.:> cty)) av)) -> do
-                              let argval = C.unRV (av Ctx.! Ctx.baseIndex)
-                              argstr <- showRegEntry col fty (C.RegEntry cty argval)
-                              return $ Text.unpack (cleanVariantName (var^.vname)) ++ "(" ++ argstr ++ ")"
-                            _ -> fail "invalid single field type"
-                        _ -> return $ Text.unpack (cleanVariantName (var^.vname)) ++ " with some fields that are not printed"
+        Just k  -> do
+          let var = variants !! (fromInteger (toInteger k))
+          case rv'  Ctx.! Ctx.i2of2 of
+            (C.RV (C.AnyValue (C.StructRepr (ctxr :: C.CtxRepr ctx)) (av :: Ctx.Assignment (C.RegValue' sym) ctx))) -> do
+              let goField :: forall typ. Ctx.Index ctx typ -> C.RegValue' sym typ 
+                          -> (C.OverrideSim p sym MIR rtp args ret (Const String typ))
+                  goField idx (C.RV elt) = do
+                    let (Field fName fty _fsubst) = (var^.vfields) !! (Ctx.indexVal idx)
+                        cty0   = ctxr Ctx.! idx
+                    str <- showRegEntry col fty (C.RegEntry cty0 elt)
+                    case parseFieldName (Text.unpack fName) of
+                      Just [_, fn] -> case Read.readMaybe fn of
+                                        Just (_x :: Int) -> return $ (Const $ str)
+                                        _  -> return $ (Const $ fn ++ ": " ++ str)
+                      _       -> return $ (Const str)
+              cstrs <- Ctx.traverseWithIndex goField av
+              let strs = Ctx.toListFC (\(Const str) -> str) cstrs
+              let body = List.intercalate ", " strs
+              if Char.isDigit (head body) then 
+                return $ Text.unpack (cleanVariantName (var^.vname)) ++ "(" ++ body  ++ ")"
+              else
+                return $ Text.unpack (cleanVariantName (var^.vname)) ++ " { " ++ body ++ " }"
+            _ -> fail "invalide representation of ADT"
         Nothing -> return $ "Symbolic ADT:" ++ show name
 
     (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
 
+    (TyArray ty _sz, C.VectorRepr tyr) -> do
+      -- rv is a Vector (RegValue tyr)
+      let entries = Vector.map (C.RegEntry tyr) rv
+      values <- Vector.mapM (showRegEntry col ty) entries
+      let strs = Vector.toList values
+      return $ "[" ++ List.intercalate ", " strs ++ "]"
+      
     
     _ -> return $ "I don't know how to print result of type " ++ show (pretty mty)
  
