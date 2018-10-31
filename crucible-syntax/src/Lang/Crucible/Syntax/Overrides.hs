@@ -57,7 +57,7 @@ proveObligations =
        forM_ obls $ \o ->
          do let asms = map (view labeledPred) $ toList $ proofAssumptions o
             gl <- notPred sym ((proofGoal o)^.labeledPred)
-            runZ3InOverride sym (\_ -> hPutStrLn h) "assertion proof" (asms ++ [gl]) $ \case
+            runZ3InOverride sym (\_ -> hPutStrLn h) "assertion proof" (asms ++ [gl]) Nothing $ \case
               Unsat{}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
