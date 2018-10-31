@@ -158,7 +158,7 @@ withYicesOnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
                        -> m a
 withYicesOnlineBackend gen unsatFeat action =
   let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat in
-  withOnlineBackend gen feat  $ \sym ->
+  withOnlineBackend gen feat $ \sym ->
     do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
        action sym
 
@@ -182,7 +182,7 @@ withZ3OnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
                     -> m a
 withZ3OnlineBackend gen unsatFeat action =
   let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat) in
-  withOnlineBackend gen (SMT2.defaultFeatures Z3.Z3 .|. useUnsatCores) $ \sym ->
+  withOnlineBackend gen feat $ \sym ->
     do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
        action sym
 
