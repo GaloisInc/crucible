@@ -117,20 +117,20 @@ testFloatUninterpreted = testCase "Float uninterpreted" $ do
   actual   <- withSym $ iFloatTestPred @(Flags FloatUninterpreted)
   expected <- withSym $ \sym -> do
     let bvtp = BaseBVRepr $ knownNat @32
-    rne_rm           <- stringLit sym $ T.pack "RNE"
-    rtz_rm           <- stringLit sym $ T.pack "RTZ"
+    rne_rm           <- natLit sym $ fromIntegral $ fromEnum RNE
+    rtz_rm           <- natLit sym $ fromIntegral $ fromEnum RTZ
     x                <- freshConstant sym (userSymbol' "x") knownRepr
     real_to_float_fn <- freshTotalUninterpFn
       sym
       (userSymbol' "uninterpreted_real_to_float")
-      (Ctx.empty Ctx.:> BaseStringRepr Ctx.:> BaseRealRepr)
+      (Ctx.empty Ctx.:> BaseNatRepr Ctx.:> BaseRealRepr)
       bvtp
     e0 <- realLit sym 2.0
     e1 <- applySymFn sym real_to_float_fn $ Ctx.empty Ctx.:> rne_rm Ctx.:> e0
     add_fn <- freshTotalUninterpFn
       sym
       (userSymbol' "uninterpreted_float_add")
-      (Ctx.empty Ctx.:> BaseStringRepr Ctx.:> bvtp Ctx.:> bvtp)
+      (Ctx.empty Ctx.:> BaseNatRepr Ctx.:> bvtp Ctx.:> bvtp)
       bvtp
     e2    <- applySymFn sym add_fn $ Ctx.empty Ctx.:> rne_rm Ctx.:> x Ctx.:> e1
     e3    <- applySymFn sym add_fn $ Ctx.empty Ctx.:> rtz_rm Ctx.:> e2 Ctx.:> e2
