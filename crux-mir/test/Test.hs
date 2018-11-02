@@ -123,9 +123,14 @@ symbTest dir =
            withFile outFile WriteMode $
            \h -> redir h [stdout, stderr] (Mir.main)
          | rustFile <- rustFiles
+         , notHidden rustFile
          , let goodFile = replaceExtension rustFile ".good"
          , let outFile = replaceExtension rustFile ".out"
          ]
+ where
+   notHidden "" = True
+   notHidden ('.' : _) = False
+   notHidden _ = True
 
 main :: IO ()
 main = defaultMain =<< suite
@@ -133,9 +138,8 @@ main = defaultMain =<< suite
 suite :: IO TestTree
 suite = do trees <- sequence $
              [ --testGroup "saw"  <$> sequence [testDir sawOracleTest "test/conc_eval"  ]
-               testGroup "crux" <$> sequence [ testDir cruxOracleTest "test/conc_eval"
-                                             , symbTest "test/symb_eval"
-                                             ]
+               testGroup "crux concrete" <$> sequence [ testDir cruxOracleTest "test/conc_eval" ]
+             , testGroup "crux symbolic" <$> sequence [ symbTest "test/symb_eval" ]
              ]
            return $ testGroup "mir-verifier" trees
 

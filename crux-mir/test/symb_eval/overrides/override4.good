@@ -1,15 +1,21 @@
 evalLValue local_1
+evalLValue local_3
+evalLValue local_6
+evalLValue local_5
+evalLValue local_3
+evalLValue local_10
+evalLValue local_11
+evalLValue local_9
+evalLValue local_8
+evalLValue local_1
 evalLValue local_2
 evalLValue local_3
 evalLValue local_4
 evalLValue local_5
 evalLValue local_1
+evalLValue local_2
 evalLValue local_3
-evalLValue local_7
-evalLValue local_8
-evalLValue local_3
-evalLValue local_6
-evalLValue local_9
+evalLValue local_4
 evalLValue local_5
 evalLValue local_1
 0

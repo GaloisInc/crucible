@@ -15,17 +15,34 @@ fn crucible_assert_impl(
     ()
 }
 
+#[allow(unused_variables)]
+fn crucible_assume_impl(
+    cond: bool,
+    cond_str: &'static str,
+    file: &'static str,
+    line: u32,
+    col: u32,
+) -> () {
+    ()
+}
+
 macro_rules! crucible_assert {
     ($e:expr) => {
         crucible_assert_impl($e, stringify!($e), file!(), line!(), column!())
     };
 }
 
-#[allow(unused_variables)]
+macro_rules! crucible_assume {
+    ($e:expr) => {
+        crucible_assume_impl($e, stringify!($e), file!(), line!(), column!())
+    };
+}
+
 fn f(x: u8) -> u8 {
     // This call should be replaced by the test override
-    let foo = crucible_i8("foo");
-    crucible_assert!(foo + 1 == foo);
+    let foo = crucible_i8("x");
+    crucible_assume!(foo == 4);
+    crucible_assert!(foo + 1 == 5);
     0
 }
 

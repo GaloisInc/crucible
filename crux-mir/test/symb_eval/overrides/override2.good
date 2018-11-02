@@ -1,16 +1,16 @@
 evalLValue local_1
-evalLValue local_1
-evalLValue local_1
 evalLValue local_2
+evalLValue local_3
+evalLValue local_4
+evalLValue local_5
+evalLValue local_1
+evalLValue local_3
 evalLValue local_7
 evalLValue local_8
-evalLValue local_2
+evalLValue local_3
 evalLValue local_6
 evalLValue local_9
 evalLValue local_5
-Abort due to false assumption:
-  MIR assertion failed
-  in ::crucible_assert[0] at <function entry>
-  When calling ::crucible_assert[0]
-  In ::f[0] at test/symb_eval/overrides/override2.rs:4:21
+evalLValue local_1
+0
 Checking: 0 / 1[15D[[1;91mCrux[0m] Failed to prove 1 out of 1 side consitions.
