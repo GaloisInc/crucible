@@ -81,7 +81,7 @@ jsLoc x = case plSourceLoc x of
 
 jsSideCond ::
   [ JS ] ->
-  [(Maybe Int,AssumptionReason,String)] ->
+  [(AssumptionReason,String)] ->
   (SimError,String) ->
   Bool ->
   ProofResult b ->
@@ -105,9 +105,8 @@ jsSideCond path asmps (conc,_) triv status =
              NotProved (Just m) -> JS (modelInJS m)
              _                  -> jsNull
 
-  mkAsmp (lab,asmp,_) =
+  mkAsmp (asmp,_) =
     jsObj [ "line" ~> jsLoc (assumptionLoc asmp)
-          , "step" ~> jsMaybe ((path !!) <$> lab)
           ]
 
 

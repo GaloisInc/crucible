@@ -3,19 +3,19 @@
 module Crux.Goal where
 
 import Control.Lens((^.), view)
-import Control.Monad(forM, forM_, unless)
+import Control.Monad(forM_, unless)
 import Data.Either (partitionEithers)
 import Data.IORef
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 
 
-import What4.Interface (notPred, falsePred, Pred, printSymExpr,asConstantPred)
+import What4.Interface (notPred, printSymExpr,asConstantPred)
 import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
-import What4.Protocol.SMTWriter(mkFormula,assumeFormula,assumeFormulaWithFreshName,smtExprGroundEvalFn)
+import What4.Protocol.SMTWriter(mkFormula,assumeFormulaWithFreshName,smtExprGroundEvalFn)
 
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
@@ -73,16 +73,15 @@ proveToGoal ::
   ProvedGoals (Either AssumptionReason SimError)
 proveToGoal _ allAsmps p pr =
   case pr of
-    NotProved cex -> Goal (map showAsmp allAsmps) (showLabPred p) False (NotProved cex)
+    NotProved cex -> Goal (map showLabPred allAsmps) (showLabPred p) False (NotProved cex)
     Proved xs ->
       let xs' = map (either (Left . (view labeledPredMsg)) (Right . (view labeledPredMsg))) xs in
       case partitionEithers xs of
-        (asmps, [])  -> Goal (map showAsmp asmps) (showLabPred p) True (Proved xs')
-        (asmps, _:_) -> Goal (map showAsmp asmps) (showLabPred p) False (Proved xs')
+        (asmps, [])  -> Goal (map showLabPred asmps) (showLabPred p) True (Proved xs')
+        (asmps, _:_) -> Goal (map showLabPred asmps) (showLabPred p) False (Proved xs')
 
  where
  showLabPred x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
- showAsmp asm = let (x,y) = showLabPred asm in (Nothing, x, y)
 
 -- | Prove a collection of goals.  The result is a goal tree, where
 -- each goal is annotated with the outcome of the proof.

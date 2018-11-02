@@ -64,7 +64,7 @@ type LPred sym   = LabeledPred (Pred sym)
 data ProvedGoals a =
     AtLoc ProgramLoc (Maybe ProgramLoc) (ProvedGoals a)
   | Branch (ProvedGoals a) (ProvedGoals a)
-  | Goal [(Maybe Int,AssumptionReason,String)]
+  | Goal [(AssumptionReason,String)]
          (SimError,String) Bool (ProofResult a)
     -- ^ Keeps only the explanations for the relevant assumptions.
     -- The 'Maybe Int' in the assumptions corresponds to its depth in the tree
