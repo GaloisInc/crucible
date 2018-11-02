@@ -27,4 +27,8 @@ Use ghc-8.4.3
 ## Test suite
 
     $ cabal new-test
-    
+
+## Symbolic execution
+
+Please see the files in `text/symb_eval/` for examples of creating
+symbolic values and asserting properties about them.
