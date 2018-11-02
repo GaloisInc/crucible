@@ -3,6 +3,7 @@ module What4.Utils.HandleReader where
 
 import           Control.Monad (unless)
 import           Data.IORef
+import           Data.Semigroup ( (<>) )
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as LazyText
