@@ -14,3 +14,5 @@ evalLValue local_5
 evalLValue local_1
 0
 Checking: 0 / 1[15D[[1;91mCrux[0m] Failed to prove 1 out of 1 side consitions.
+[[1;91mCrux[0m] Failure for MIR assertion at test/symb_eval/overrides/override2.rs:28:4:
+	foo + 1 == foo

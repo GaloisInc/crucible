@@ -51,6 +51,7 @@ import qualified Lang.Crucible.CFG.Expr                as C
 -- what4
 import qualified What4.Interface                       as W4
 import qualified What4.Config                          as W4
+import qualified What4.ProgramLoc                      as W4
 
 -- crux
 import qualified Crux.Language as Crux
@@ -168,7 +169,22 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
 
 
 makeCounterExamplesMIR :: Crux.Options CruxMIR -> Maybe ProvedGoals -> IO ()
-makeCounterExamplesMIR _ _ = return ()
+makeCounterExamplesMIR opts = maybe (return ()) go
+  where
+    go gs =
+      case gs of
+        AtLoc _ _ gs1 -> go gs1
+        Branch g1 g2 -> go g1 >> go g2
+        Goal _ (c, _) _ res ->
+          let suff =
+                case W4.plSourceLoc (C.simErrorLoc c) of
+                  W4.SourcePos _ l _ -> show l
+                  _                  -> "unknown"
+              msg = show (C.simErrorReason c)
+          in case res of
+               NotProved (Just m) ->
+                 do sayFail "Crux" ("Failure for " ++ msg)
+               _ -> return ()
 
 -------------------------------------------------------
 -- maybe add these to crux, as they are not specific to MIR?
