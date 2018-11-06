@@ -352,6 +352,8 @@ execStateContext = \case
   SymbolicBranchState _ _ _ _ st -> st^.stateContext
   OverrideState _ st -> st^.stateContext
   ControlTransferState _ st -> st^.stateContext
+  InitialState stctx _ _ _ -> stctx
+
 
 -----------------------------------------------------------------------
 -- ExecState
@@ -462,6 +464,17 @@ data ExecState p sym ext (rtp :: *)
            {- Target of the control-flow transfer -}
          !(SimState p sym ext rtp f args)
            {- State of the simulator prior to the control-flow transfer -}
+
+   | forall ret. rtp ~ RegEntry sym ret =>
+       InitialState
+         !(SimContext p sym ext)
+            {- initial 'SimContxet' state -}
+         !(SymGlobalState sym)
+            {- state of Crucible global variables -}
+         !(AbortHandler p sym ext (RegEntry sym ret))
+            {- initial abort handler -}
+         !(ExecCont p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx))
+            {- Entry continuation -}
 
 -- | An action which will construct an 'ExecState' given a current
 --   'SimState'. Such continuations correspond to a single transition

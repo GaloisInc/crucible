@@ -15,7 +15,6 @@ import Data.Typeable(Typeable)
 import System.Console.GetOpt
 
 import Lang.Crucible.Simulator
-import Lang.Crucible.CFG.Extension
 import Lang.Crucible.Backend
 import Crux.Types
 
@@ -58,19 +57,9 @@ data LangConf where
 
 type EnvDescr a = (String, String -> a)
 
--- Type of the executeCrucible callback argument to
---  [simulate]. Implementations of the method should use this function
---  to execute symbolic simulation (automatically with and without
---  profiling)
-type ExecuteCrucible sym = (forall p ext rtp f a0.
-     IsSyntaxExtension ext =>
-      SimState p sym ext rtp f a0  ->
-      ExecCont p sym ext rtp f a0  ->
-      IO (ExecResult p sym ext rtp))
-
 -- Type of the [simulate] method
 type Simulate sym a = IsSymInterface sym =>
-    ExecuteCrucible sym    -- ^ callback to executeCrucible
+    [GenericExecutionFeature]
     -> Options a           -- ^ crux & lang-specific options
     -> sym
     -> Model sym

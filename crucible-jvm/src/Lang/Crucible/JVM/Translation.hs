@@ -1557,8 +1557,8 @@ manualDependencies =
   ,("java/util/Random",[])
   ,("java/math/BigInteger",[])
   ,("java/lang/StackTraceElement",[])
-    
-{-  -- DON'T need these anymore. 
+
+{-  -- DON'T need these anymore.
   ,("java/lang/Short", [])
   ,("java/lang/Byte", [])
   ,("java/lang/Long", [])
@@ -1569,9 +1569,9 @@ manualDependencies =
   ,("java/lang/Math", ["java/lang/StrictMath"])
   ,("java/lang/Number", [])
   ,("java/lang/Void", [])
-   
+
   ,("sun/misc/FloatingDecimal", [])
-    
+
   ,("java/io/FileOutputStream", [])
   ,("java/io/OutputStream", [])
   ,("java/io/ObjectStreamField", [])
@@ -1579,8 +1579,8 @@ manualDependencies =
   ,("java/io/File", [])
   ,("java/io/IOException", [])
   ,("java/io/DefaultFileSystem", [])
-    
-    
+
+
 
   ,("java/lang/Exception", ["java/lang/Throwable"])
   ,("java/lang/RuntimeException", ["java/lang/Exception"])
@@ -1601,7 +1601,7 @@ manualDependencies =
 -- | Class references that we shouldn't include in the transitive closure
 --   of class references.
 exclude :: J.ClassName -> Bool
-exclude cn = 
+exclude cn =
              ("java/nio/" `isPrefixOf` J.unClassName cn)
           || ("java/awt/" `isPrefixOf` J.unClassName cn)
           || ("java/io/" `isPrefixOf` J.unClassName cn)
@@ -1651,7 +1651,7 @@ findNextRefs cls
 -- to the current class.
 findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
 findAllRefs cb cls = do
-  names <- go Set.empty (Set.insert cls (Set.fromList (map J.mkClassName initClasses))) 
+  names <- go Set.empty (Set.insert cls (Set.fromList (map J.mkClassName initClasses)))
   mapM (lookupClass cb) names
   where
     go :: Set.Set J.ClassName -> Set.Set J.ClassName -> IO [J.ClassName]
@@ -1739,7 +1739,7 @@ extendJVMContext halloc c = do
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-    
+
 -- * make the simulation state & run a method
 
 -- | Make a binding for a Java method that, when invoked, immediately
@@ -1792,8 +1792,9 @@ mkSimSt :: (IsSymInterface sym) =>
         -> HandleAllocator RealWorld
         -> JVMContext
         -> Verbosity
-        -> C.SimState p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx)
-mkSimSt sym p halloc ctx verbosity = C.initSimState simctx globals C.defaultAbortHandler
+        -> C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx)
+        -> C.ExecState p sym JVM (C.RegEntry sym ret)
+mkSimSt sym p halloc ctx verbosity = C.InitialState simctx globals C.defaultAbortHandler
   where
       javaExtImpl :: C.ExtensionImpl p sym JVM
       javaExtImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
@@ -1810,7 +1811,7 @@ mkSimSt sym p halloc ctx verbosity = C.initSimState simctx globals C.defaultAbor
 
 -- (currently unused)
 -- Way to run initialization code before simulation starts
--- Currently this code initializes the current class 
+-- Currently this code initializes the current class
 runClassInit :: HandleAllocator RealWorld -> JVMContext -> Verbosity -> J.ClassName
              -> C.OverrideSim p sym JVM rtp a r (C.RegEntry sym C.UnitType)
 runClassInit halloc ctx verbosity name = do
@@ -1831,7 +1832,7 @@ runClassInit halloc ctx verbosity name = do
 -- | Install the standard overrides and run a Java method in the simulator
 runMethodHandleCrux
   :: IsSymInterface sym
-  => ExecuteCrucible sym
+  => [C.GenericExecutionFeature]
   -> sym
   -> p
   -> HandleAllocator RealWorld
@@ -1841,13 +1842,14 @@ runMethodHandleCrux
   -> FnHandle args ret
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-runMethodHandleCrux executeCrucible sym p halloc ctx verbosity _classname h args = do
+runMethodHandleCrux feats sym p halloc ctx verbosity _classname h args = do
   let simSt  = mkSimSt sym p halloc ctx verbosity
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
                        -- _ <- runClassInit halloc ctx classname
                        fnCall
-  executeCrucible simSt (C.runOverrideSim (handleReturnType h) overrideSim)
+  C.executeCrucible (map C.genericToExecutionFeature feats)
+     (simSt (C.runOverrideSim (handleReturnType h) overrideSim))
 
 
 runMethodHandle
@@ -1862,7 +1864,7 @@ runMethodHandle
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 
-runMethodHandle = runMethodHandleCrux C.executeCrucible
+runMethodHandle = runMethodHandleCrux []
 
 --------------------------------------------------------------------------------
 
@@ -1904,7 +1906,7 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
 executeCrucibleJVMCrux
   :: forall ret args sym p cb
    . (IsSymInterface sym, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
-  => ExecuteCrucible sym
+  => [C.GenericExecutionFeature]
   -> cb
   -> Int               -- ^ Verbosity level
   -> sym               -- ^ Simulator state
@@ -1913,7 +1915,7 @@ executeCrucibleJVMCrux
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVMCrux executeCrucible cb verbosity sym p cname mname args = do
+executeCrucibleJVMCrux feats cb verbosity sym p cname mname args = do
 
      when (verbosity > 2) $
        putStrLn "starting executeCrucibleJVM"
@@ -1951,7 +1953,7 @@ executeCrucibleJVMCrux executeCrucible cb verbosity sym p cname mname args = do
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
        $ "Checking return type for method " ++ mname
 
-     runMethodHandleCrux executeCrucible sym p halloc ctx verbosity (J.className mcls) h args
+     runMethodHandleCrux feats sym p halloc ctx verbosity (J.className mcls) h args
 
 
 executeCrucibleJVM
@@ -1965,7 +1967,7 @@ executeCrucibleJVM
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVM = executeCrucibleJVMCrux C.executeCrucible
+executeCrucibleJVM = executeCrucibleJVMCrux []
 
 
 getGlobalPair ::

@@ -16,7 +16,6 @@ import Data.String(fromString)
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST(RealWorld, stToIO)
-import Control.Monad(unless)
 import Control.Monad.State(evalStateT,liftIO,MonadIO)
 import Control.Exception
 
@@ -39,10 +38,10 @@ import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator
-  ( emptyRegMap, regValue
-  , fnBindingsFromList, initSimState, runOverrideSim, callCFG
-  , SimError(..)
-  , initSimContext, initSimState, defaultAbortHandler
+  ( emptyRegMap, regValue, SimError(..)
+  , fnBindingsFromList, runOverrideSim, callCFG
+  , initSimContext, ExecState( InitialState ), defaultAbortHandler
+  , executeCrucible, genericToExecutionFeature
   )
 
 -- crucible-llvm
@@ -146,7 +145,7 @@ registerFunctions ctx mtrans =
 
 -- Returns only non-trivial goals
 simulateLLVM :: Crux.Simulate sym LangLLVM
-simulateLLVM executeCrucible (_cruxOpts,llvmOpts) sym _p = do
+simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
 
     llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
     halloc     <- newHandleAllocator
@@ -160,12 +159,13 @@ simulateLLVM executeCrucible (_cruxOpts,llvmOpts) sym _p = do
           mem  <- populateAllGlobals sym (globalInitMap trans)
                     =<< initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
-          let simSt  = initSimState simctx globSt defaultAbortHandler
 
-          res <- executeCrucible simSt $ runOverrideSim UnitRepr $
-                   do registerFunctions llvmCtxt trans
-                      setupOverrides llvmCtxt
-                      checkFun "main" (cfgMap trans)
+          res <- executeCrucible (map genericToExecutionFeature fs) $
+                   InitialState simctx globSt defaultAbortHandler $
+                   runOverrideSim UnitRepr $
+                     do registerFunctions llvmCtxt trans
+                        setupOverrides llvmCtxt
+                        checkFun "main" (cfgMap trans)
           return $ Result res
 
 checkFun :: ArchOk arch => String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
