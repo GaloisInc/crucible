@@ -17,7 +17,7 @@ Description:
 
 library
   build-depends:
-    base >= 4.8 && < 4.12,
+    base >= 4.8 && < 4.13,
     attoparsec,
     ansi-wl-pprint,
     bimap >= 0.2,

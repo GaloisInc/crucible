@@ -23,7 +23,7 @@ executable crucible-c
     Overrides
 
   build-depends:
-    base >= 4.8 && < 4.12,
+    base >= 4.8 && < 4.13,
     ansi-wl-pprint,
     containers,
     data-binary-ieee754,

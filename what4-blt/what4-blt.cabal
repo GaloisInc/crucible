@@ -16,7 +16,7 @@ Description:
 
 library
   build-depends:
-    base >= 4.7 && < 4.12,
+    base >= 4.7 && < 4.13,
     ansi-wl-pprint,
     blt >= 0.12.1,
     containers,

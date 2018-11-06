@@ -27,7 +27,7 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.8 && < 4.12,
+    base >= 4.8 && < 4.13,
     ansi-wl-pprint,
     bytestring,
     containers >= 0.5.9.0,
