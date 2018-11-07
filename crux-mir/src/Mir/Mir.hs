@@ -15,6 +15,8 @@ License          : BSD3
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeOperators #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall -fno-warn-unticked-promoted-constructors #-}
 
@@ -29,6 +31,8 @@ import Data.Text (Text, unpack)
 import Data.List
 import Control.Lens(makeLenses,(^.))
 import Data.Maybe (fromMaybe)
+
+import GHC.Generics
 
 --import GHC.TypeLits
 import qualified Data.Parameterized.List as Param
@@ -50,7 +54,7 @@ data BaseSize =
       | B32
       | B64
       | B128
-      deriving (Eq, Show)
+      deriving (Eq, Show, Generic)
 
 data FloatKind
   = F32
@@ -385,6 +389,13 @@ makeLenses ''Variant
 makeLenses ''Var
 makeLenses ''Collection
 makeLenses ''Fn
+
+
+instance Semigroup Collection where
+  (Collection f1 a1 t1)<> (Collection f2 a2 t2) = Collection (f1 ++ f2) (a1 ++ a2) (t1 ++ t2)
+instance Monoid Collection where
+  mempty = Collection [] [] []
+  
 
 --------------------------------------------------------------------------------------
 --- aux functions ---
@@ -933,6 +944,7 @@ instance FromJSON Ty where
                                           Just (String "Dynamic") -> TyDynamic <$> v .: "data"
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
+                                          Just (String "Never") -> pure (TyAdt "Never" [])
                                           r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON FnSig where
@@ -1239,3 +1251,4 @@ data TyRepr (t :: Ty) where
   TyRawPtrRepr ::  TyRepr ty -> MutabilityRepr mut -> TyRepr (TyRawPtr ty mut)
   TyFloatRepr ::  FloatKindRepr ft -> TyRepr (TyFloat ft)
 
+---------------------------------------

@@ -17,7 +17,8 @@ import qualified System.Process as Proc
 import           Text.Parsec (parse, (<|>), (<?>), string, many1, digit)
 import           Text.Parsec.String (Parser)
 
-import           Mir.SAWInterface (translateMIR, extractMIR, generateMIR)
+import           Mir.Generate(generateMIR)
+import           Mir.SAWInterface (translateMIR, extractMIR)
 import qualified Verifier.SAW.FiniteValue as FV
 import qualified Verifier.SAW.Prelude as SC
 import qualified Verifier.SAW.SCTypeCheck as SC

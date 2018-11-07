@@ -46,22 +46,24 @@ library
 
 
   hs-source-dirs: src
-  exposed-modules: Mir.SAWInterface,
-                   Mir.Language,
+  exposed-modules: Mir.SAWInterface
+                   Mir.Language
                    Mir.Mir
-                   Mir.Pass,
-                   Mir.Pass.CollapseRefs,
-                   Mir.Pass.MutRefReturnStatic,
-                   Mir.Pass.RewriteMutRef,
-                   Mir.Pass.RemoveStorage,
-                   Mir.Pass.RemoveBoxNullary,
+                   Mir.Prims
+                   Mir.Pass
+                   Mir.Pass.CollapseRefs
+                   Mir.Pass.MutRefReturnStatic
+                   Mir.Pass.RewriteMutRef
+                   Mir.Pass.RemoveStorage
+                   Mir.Pass.RemoveBoxNullary
                    Mir.PP
-
+                   Mir.Generate
   other-modules: 
-                 Mir.Intrinsics,
-                 Mir.Overrides,
-                 Mir.Run,
+                 Mir.Intrinsics
+                 Mir.Overrides
+                 Mir.Run
                  Mir.Trans
+
 
 executable crux-mir
   hs-source-dirs: src
@@ -105,6 +107,7 @@ executable crux-mir
                  Mir.Language
                  Mir.Mir
                  Mir.Overrides
+                 Mir.Prims
                  Mir.Pass
                  Mir.Pass.CollapseRefs
                  Mir.Pass.MutRefReturnStatic
@@ -114,7 +117,8 @@ executable crux-mir
                  Mir.Run
                  Mir.SAWInterface
                  Mir.Trans
-                 Mir.PP                 
+                 Mir.PP
+                 Mir.Generate       
                  
 test-suite test
   type: exitcode-stdio-1.0

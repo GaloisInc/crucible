@@ -1,0 +1,6 @@
+[package]
+name = "mir_verif"
+version = "0.1.0"
+authors = ["Stephanie Weirich <sweirich@galois.com>"]
+
+[dependencies]

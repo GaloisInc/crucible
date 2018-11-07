@@ -2,7 +2,7 @@
 
 {-# OPTIONS_GHC -Wall -fno-warn-unused-imports #-}
 
-module Mir.SAWInterface (RustModule, loadMIR, extractMIR, generateMIR, rmCFGs, translateMIR) where
+module Mir.SAWInterface (RustModule, loadMIR, extractMIR, rmCFGs, translateMIR) where
 
 import Mir.Run
 import Mir.Intrinsics
@@ -46,6 +46,7 @@ import           Text.PrettyPrint.ANSI.Leijen (putDoc,Pretty(..))
 import qualified System.Process as Proc
 import           System.Exit (ExitCode(..),exitWith)
 import           System.Directory (listDirectory, doesFileExist, removeFile)
+import           Mir.Generate
 
 
 
@@ -93,40 +94,6 @@ translateMIR :: Collection -> RustModule
 translateMIR col = RustModule cfgmap where
   passes  = P.passRemoveBoxNullary
   cfgmap  = mirToCFG col (Just passes)
-
-  
-
--- | Run mir-json on the input, generating lib file on disk 
--- This function uses 'failIO' if any error occurs
-generateMIR :: HasCallStack =>
-               FilePath          -- ^ location of input file
-            -> String            -- ^ file to processes, without extension
-            -> IO Collection
-generateMIR dir name = do
-  
-  let rustFile = dir </> name <.> "rs"
-  
-  doesFileExist rustFile >>= \case
-    True -> return ()
-    False -> fail $ "Cannot read " ++ rustFile 
-
-  (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-    [rustFile, "--crate-type", "lib"] ""
-
-  case ec of
-    ExitFailure cd -> fail $ "Error while running mir-json: " ++ show cd
-    ExitSuccess    -> return ()
-
-  let rlibFile = ("lib" ++ name) <.> "rlib"
-  doesFileExist rlibFile >>= \case
-    True  -> removeFile rlibFile
-    False -> return ()
-
-  f <- B.readFile (dir </> name <.> "mir")
-  let c = (J.eitherDecode f) :: Either String Collection
-  case c of
-      Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
-      Right col -> return col
 
 loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
 loadMIR _sc fp = do

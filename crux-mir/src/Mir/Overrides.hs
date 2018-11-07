@@ -93,7 +93,6 @@ bindFn fn cfg =
          -- This is to know which variables to ask for when getting a model out of the solver
          return v
 
-
     overrides :: sym -> Map Text (FunctionName -> SomeOverride p sym)
     overrides s =
       fromList [ override "::one[0]" Empty (BVRepr (knownNat @ 8)) $

@@ -25,6 +25,7 @@ module Mir.Trans where
 import Control.Monad
 import Control.Monad.ST
 import Control.Lens hiding (op)
+import qualified Data.Char as Char
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
@@ -56,6 +57,8 @@ import Data.Parameterized.Some
 
 import qualified Mir.Mir as M
 import Mir.Intrinsics
+
+import Mir.Prims (relocateDefId)
 
 import Mir.PP()
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
@@ -182,17 +185,24 @@ tyToRepr t0 = case t0 of
 
 
 -- | Convert field to type. Perform the corresponding subtitution if field is a type param.
-fieldToRepr :: M.Field -> M.Ty
+fieldToRepr :: HasCallStack => M.Field -> M.Ty
 fieldToRepr (M.Field _ t substs) =
     case t of
-      M.TyParam i -> case substs !! fromInteger i of
+      M.TyParam i | fromInteger i < length substs ->
+                    case substs !! fromInteger i of
                         Nothing -> error "bad subst"
                         Just ty -> ty
+                  | otherwise -> error $ "Indexing at " ++ show i ++ "  from subst " ++ show substs
       ty -> ty
 
-variantToRepr :: M.Variant -> [Maybe M.Ty] -> Some CT.CtxRepr
-variantToRepr (M.Variant _vn _vd vfs _vct) _args = -- FIXME! incorporate args
-    tyListToCtx (map fieldToRepr vfs) $ \repr -> Some repr
+-- replace the subst on the Field 
+substField :: [Maybe M.Ty] -> M.Field -> M.Field
+substField subst (M.Field a t _subst)  = M.Field a t subst
+
+-- Note: any args on the fields are replaced by args on the variant
+variantToRepr :: HasCallStack => M.Variant -> [Maybe M.Ty] -> Some CT.CtxRepr
+variantToRepr (M.Variant _vn _vd vfs _vct) args = 
+    tyListToCtx (map fieldToRepr (map (substField args) vfs)) $ \repr -> Some repr
 
 adtToRepr :: M.Adt -> Some CT.TypeRepr
 adtToRepr (M.Adt _adtname _variants) = Some taggedUnionType
@@ -345,7 +355,9 @@ transConstVal (Some (CT.NatRepr)) (M.ConstInt i) =
 transConstVal (Some (CT.StringRepr)) (M.ConstStr str) =
     do let t = Text.pack str
        return $ MirExp CT.StringRepr (S.litExpr t)
-
+transConstVal (Some (CT.BVRepr w)) (M.ConstChar c) =
+    do let i = toInteger (Char.ord c)
+       return $ MirExp (CT.BVRepr w) (S.app $ E.BVLit w i)
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
@@ -370,12 +382,13 @@ lookupVar (M.Var vname _ vty _ pos) = do
 
 -- The return var in the MIR output is always "_0"
 
-lookupRetVar :: CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
+lookupRetVar :: HasCallStack => CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 lookupRetVar tr = do
     vm <- use varMap
     case (Map.lookup "_0" vm) of
-      Just (Some varinfo)
-        | Just CT.Refl <- CT.testEquality tr (varInfoRepr varinfo) ->
+      Just (Some varinfo) ->
+        case  CT.testEquality tr (varInfoRepr varinfo) of 
+          Just CT.Refl ->
             case varinfo of
               VarRegister reg ->
                 do G.readReg reg
@@ -383,8 +396,10 @@ lookupRetVar tr = do
                 do readMirRef tr =<< G.readReg reg
               VarAtom a ->
                 do return (R.AtomExpr a)
+          Nothing -> fail $ "return register has wrong type. Expected: "
+                       ++ show tr ++ "\n Found " ++ show (varInfoRepr varinfo)
 
-      _ -> fail "reg not found in retvar"
+      _ -> fail $ "reg not found in retvar " ++ show (Map.keys vm)
 
 
 -- ** Expressions: Operations and Aggregates
@@ -397,19 +412,35 @@ evalOperand (M.OpConstant (M.Constant conty conlit)) =
        M.Value constval -> transConstVal (tyToRepr conty) constval
        _ -> fail "value / promoted unimp"
 
--- TODO check sign for extension!!!!
-extendToMax :: MirExp s -> MirExp s -> 
+-- Given two bitvectors, extend the length of the shorter one so that they
+-- have the same length
+-- Use the sign of the first bitvector to determine how to sign extend
+extendToMax :: (1 <= n, 1 <= m) =>
+               NatRepr n -> G.Expr MIR s (CT.BVType n) ->
+               NatRepr m -> G.Expr MIR s (CT.BVType m) -> Maybe M.ArithType ->
    (forall n. (1 <= n) => NatRepr n -> G.Expr MIR s (CT.BVType n) -> G.Expr MIR s (CT.BVType n) -> a) -> a
-extendToMax (MirExp (CT.BVRepr n) e1) (MirExp (CT.BVRepr m) e2) k = 
-   case testEquality n m of
+extendToMax n e1 m e2 (Just arith) k =
+   let extend :: (1 <= w, 1 <= r, w+1 <= r) => (NatRepr r)
+         -> (NatRepr w)
+         -> (f (CT.BVType w))
+         -> E.App MIR f (CT.BVType r)
+       extend = case arith of
+                  M.Signed   -> E.BVSext
+                  M.Unsigned -> E.BVZext
+   in case testEquality n m of
       Just Refl -> k n e1 e2
       Nothing   -> case testLeq (incNat n) m of
                       Just LeqProof ->
-                         k m (S.app $ E.BVZext m n e1) e2
+                         k m (S.app $ extend m n e1) e2
                       Nothing -> case testLeq (incNat m) n of
                           Just LeqProof ->
-                              k n e1 (S.app $ E.BVZext n m e2)
+                              k n e1 (S.app $ extend n m e2)
                           Nothing -> error "impossible case"
+extendToMax n e1 m e2 Nothing k = 
+   case testEquality n m of
+      Just Refl -> k n e1 e2
+      Nothing   -> error "don't know the sign"
+
 
 
 transBinOp :: M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
@@ -417,8 +448,8 @@ transBinOp bop op1 op2 = do
     me1 <- evalOperand  op1
     me2 <- evalOperand  op2
     case (me1, me2) of
-      (MirExp (CT.BVRepr _n) _e1, MirExp (CT.BVRepr _m) _e2) ->
-          extendToMax me1 me2 $ \ n e1 e2 -> 
+      (MirExp (CT.BVRepr na) e1a, MirExp (CT.BVRepr ma) e2a) ->
+          extendToMax na e1a ma e2a (M.arithType op1) $ \ n e1 e2 -> 
           -- TODO: if the BVs are not the same width extend the shorter one
             case (bop, M.arithType op1) of
               (M.Add, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAdd n e1 e2)
@@ -706,21 +737,6 @@ evalRefProj (M.LvalueProjection base projElem) =
                         do r' <- subfieldRef ctx ref idx'
                            return (MirExp (MirReferenceRepr (ctx Ctx.! idx')) r')
 
-
-            
-{-            , M.TyAdt nm args <- M.typeOf base
-            -> do am <- use adtMap
-                  case Map.lookup nm am of
-                    Nothing -> fail ("Unknown ADT: " ++ show nm)
-                    Just [struct_variant] ->
-                      do Some ctx <- return $ variantToRepr struct_variant args
-                         case Ctx.intIndex idx (Ctx.size ctx) of
-                           Nothing -> fail ("Invalid index: " ++ show idx)
-                           Just (Some idx') -> 
-                             do r' <- subfieldRef ctx ref idx'
-                                return (MirExp (MirReferenceRepr (ctx Ctx.! idx')) r')
-                    Just _ -> fail ("Expected ADT with exactly one variant: " ++ show nm) --}
-
           M.ConstantIndex offset _min_len fromend
             | CT.VectorRepr tp' <- elty
             , fromend == False ->
@@ -835,7 +851,7 @@ unpackAny :: Some CT.TypeRepr -> MirExp s -> MirGenerator h s ret (MirExp s)
 unpackAny tr (MirExp e_tp e) =
     case tr of
       Some tr | Just Refl <- testEquality e_tp CT.AnyRepr -> do
-          return $ MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) ("Bad closure unpack"))
+          return $ MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) ("Bad Any unpack"))
       _ -> fail $ "bad anytype"
 
 packAny ::  MirExp s -> (MirExp s)
@@ -848,7 +864,7 @@ filterMaybes ((Nothing):as) = filterMaybes as
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.Tagged l _) = evalLvalue l
-evalLvalue (M.Local var) = do traceM $ "evalLValue local" ++ show (pretty var)
+evalLvalue (M.Local var) = do -- traceM $ "evalLValue local" ++ show (pretty var)
                               lookupVar var
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
     am <- use adtMap
@@ -915,22 +931,6 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast _i))) = do
     case testEquality tyr taggedUnionType of
        Just Refl -> accessAggregate (MirExp tyr lve) 1
        Nothing   -> fail $ "expected ADT type, instead found type: " ++ show (pretty (M.typeOf lv)) ++ " aka " ++ show tyr 
-
-{-
--    etu <- evalLvalue lv
--    (MirExp e_tp e) <- accessAggregate etu 1
--    let adt_typ = M.typeOf lv
--    case adt_typ of
--      M.TyAdt _ variants -> do
--          let tr = tyToRepr <$> variants !! (fromInteger i)
--          case tr of
--            Just (Some tr) | Just Refl <- testEquality e_tp CT.AnyRepr ->
--                return $ MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) "bad anytype")
--            _ -> fail $ "bad type: expected anyrepr but got " ++ (show e_tp)
--
--      _ -> fail "expected adt type!"
--}
-
 evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 
 
@@ -1152,23 +1152,33 @@ jumpToBlock' bbi = do
       Just lab -> G.jump lab
       _ -> fail "bad jump"
 
-doReturn :: CT.TypeRepr ret -> MirGenerator h s ret a
+doReturn :: HasCallStack => CT.TypeRepr ret -> MirGenerator h s ret a
 doReturn tr = do
     e <- lookupRetVar tr
     G.returnFromFunction e
 
+-- If you can't find the handle with its original name
+--   1. try adding the "stdlib" prefix
+--   2. try looking up a static trait method
+--   3. try both
+lookupHandle :: MethName -> HandleMap -> Maybe MirHandle
+lookupHandle funid hmap
+   | Just mh <- Map.lookup funid hmap = Just mh
+   | Just mh <- Map.lookup (relocateDefId funid) hmap = Just mh
+   | Just mh <- Map.lookup (mangleTraitId funid) hmap = Just mh
+   | Just mh <- Map.lookup (relocateDefId (mangleTraitId funid)) hmap = Just mh
+   | otherwise = Nothing
  
 
--- regular function calls: closure calls handled later
+-- regular function calls: closure calls & dynamic trait method calls handled later
 doCall :: HasCallStack => Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
-doCall funid0 cargs cdest = do
+doCall funid cargs cdest = do
     hmap <- use handleMap
-    let funid = mangleTraitId funid0
     _tmap <- use traitMap
-    case cdest of
+    case cdest of 
       (Just (dest_lv, jdest))
 
-        | Just (MirHandle _ _ fhandle) <- Map.lookup funid hmap -> do
+        | Just (MirHandle _ _ fhandle) <- lookupHandle funid hmap -> do
           exps <- mapM evalOperand cargs
           let fargctx = FH.handleArgTypes fhandle
           let fret    = FH.handleReturnType fhandle
@@ -1435,7 +1445,7 @@ groupByType :: [(MethName, MirHandle)] -> [(TypeName, [(MethName,MirHandle)])]
 groupByType meths = 
      let thisType (M.FnSig (M.TyRef ty _:_) _ret) = typeName ty
          thisType (M.FnSig (ty:_) _ret) = typeName ty
-         thisType (M.FnSig []     _ret) = error "BUG: no arg type!!!"
+         thisType (M.FnSig []     _ret) = error "traits must have an arg type"
 
          impls = map (\(methName, mh@(MirHandle _ sig _)) -> (thisType sig, (methName,mh))) meths
 
@@ -1547,7 +1557,7 @@ data WrappedMethod ty =
                   , wmWrappedName   :: MethName
                   , wmWrappedHandle :: MirValue ty
                   }
-buildWrappedTraitMethods :: forall s ctx. FH.HandleAllocator s
+buildWrappedTraitMethods :: forall s ctx. HasCallStack => FH.HandleAllocator s
                         -> TraitName
                         -> TraitDecl ctx
                         -> [(MethName, MirHandle)]       -- impls for that type, must be in correct order
@@ -1557,7 +1567,8 @@ buildWrappedTraitMethods halloc traitName (TraitDecl ctxr _idxs) meths = do
    -- allocate new function handles for the trait with the generic type
    let go :: forall ty. Ctx.Index ctx ty -> CT.TypeRepr ty -> ST s (WrappedMethod ty)
        go idx (CT.FunctionHandleRepr argsr retr) = do
-          let (implName, implHandle) = meths !! (Ctx.indexVal idx)
+          let i = Ctx.indexVal idx
+          let (implName, implHandle) = if i < length meths then meths !! i else error "buildWrappedTraitMethods"
           let wrappedName = Text.pack "wrapped" <> traitName <> "::" <> implName
           nhandle <- FH.mkHandle' halloc (FN.functionNameFromText wrappedName) argsr retr
           return $ WrappedMethod implName implHandle wrappedName (FnValue nhandle)

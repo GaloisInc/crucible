@@ -6,6 +6,8 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
+{-# OPTIONS_GHC -Wall #-}
+
 module Mir.Language (main) where
 
 import qualified Data.Char       as Char
@@ -16,23 +18,23 @@ import qualified Data.List       as List
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
-import qualified Data.String     as String
+--import qualified Data.String     as String
 import qualified Data.Vector     as Vector
 import qualified Text.Read       as Read
 
 import           System.IO (stdout)
-import           System.Directory (listDirectory, doesFileExist, removeFile)
-import           System.Exit (ExitCode(..),exitWith)
-import           System.FilePath ((<.>), (</>), takeBaseName, takeExtension, splitFileName,splitExtension)
-import qualified System.Process as Proc
+--import           System.Directory (listDirectory, doesFileExist, removeFile)
+--import           System.Exit (ExitCode(..),exitWith)
+import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
+--import qualified System.Process as Proc
 
-import qualified Data.Aeson as J
-import qualified Data.ByteString.Lazy as B
+--import qualified Data.Aeson as J
+-- import qualified Data.ByteString.Lazy as B
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
 import           Control.Lens((^.))
 
-import           GHC.Stack
+--import           GHC.Stack
 
 -- parameterized-utils
 import qualified Data.Parameterized.Map     as MapF
@@ -40,13 +42,13 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TraversableFC as Ctx
 
 -- crucible
-import qualified Lang.Crucible.Utils.MonadVerbosity    as C
+--import qualified Lang.Crucible.Utils.MonadVerbosity    as C
 import qualified Lang.Crucible.Simulator               as C
 import qualified Lang.Crucible.CFG.Core                as C
-import qualified Lang.Crucible.Analysis.Postdom        as C
+--import qualified Lang.Crucible.Analysis.Postdom        as C
 import qualified Lang.Crucible.FunctionHandle          as C
 import qualified Lang.Crucible.Backend                 as C
-import qualified Lang.Crucible.CFG.Expr                as C
+--import qualified Lang.Crucible.CFG.Expr                as C
 
 -- what4
 import qualified What4.Interface                       as W4
@@ -56,11 +58,11 @@ import qualified What4.ProgramLoc                      as W4
 -- crux
 import qualified Crux.Language as Crux
 import qualified Crux.CruxMain as Crux
-import qualified Crux.Error    as Crux
-import qualified Crux.Options  as Crux
+--import qualified Crux.Error    as Crux
+--import qualified Crux.Options  as Crux
 
 import Crux.Types
-import Crux.Model
+--import Crux.Model
 import Crux.Log
 
 -- mir-verifier
@@ -68,8 +70,10 @@ import           Mir.Mir
 import           Mir.PP()
 import           Mir.Overrides
 import           Mir.Intrinsics(MIR,mirExtImpl,cleanVariantName,parseFieldName)
-import           Mir.Trans(tyToReprCont)
-import           Mir.SAWInterface (translateMIR,generateMIR,RustModule(..))
+--import           Mir.Trans(tyToReprCont)
+import           Mir.SAWInterface (translateMIR,RustModule(..))
+import           Mir.Generate(generateMIR)
+import           Mir.Prims(loadPrims)
 
 main :: IO ()
 main = Crux.main [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
@@ -87,7 +91,7 @@ instance Crux.Language CruxMIR where
   data LangOptions CruxMIR = MIROptions
      {
      }
-
+ 
   defaultOptions = MIROptions
     {
     }
@@ -110,7 +114,10 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
   when (Crux.simVerbose cruxOpts > 2) $
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
 
-  col <- generateMIR dir name
+  col1 <- generateMIR dir name
+
+  prims <- liftIO $ loadPrims
+  let col = prims <> col1
 
   when (Crux.simVerbose cruxOpts > 2) $ do
     say "Crux" $ "MIR collection"
@@ -169,20 +176,20 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
 
 
 makeCounterExamplesMIR :: Crux.Options CruxMIR -> Maybe ProvedGoals -> IO ()
-makeCounterExamplesMIR opts = maybe (return ()) go
+makeCounterExamplesMIR _opts = maybe (return ()) go
   where
     go gs =
       case gs of
         AtLoc _ _ gs1 -> go gs1
         Branch g1 g2 -> go g1 >> go g2
         Goal _ (c, _) _ res ->
-          let suff =
+          let _suff =
                 case W4.plSourceLoc (C.simErrorLoc c) of
                   W4.SourcePos _ l _ -> show l
                   _                  -> "unknown"
               msg = show (C.simErrorReason c)
           in case res of
-               NotProved (Just m) ->
+               NotProved (Just _m) ->
                  do sayFail "Crux" ("Failure for " ++ msg)
                _ -> return ()
 

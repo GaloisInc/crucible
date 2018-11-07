@@ -20,3 +20,5 @@ cabal.project.local
 .HTF/
 .ghc.environment.*
 *.rlib
+*.out
+*.mir

@@ -23,7 +23,7 @@ import           Mir.Mir
 
 -- | if True, suppress the module name when pretty-printing MIR identifiers.
 hideModuleName :: Bool
-hideModuleName = True
+hideModuleName = False
 
 -----------------------------------------------
 
@@ -81,14 +81,14 @@ instance Pretty Ty where
     pretty (TyArray ty i) = brackets (pretty ty <> comma <+> int i)
     pretty (TyRef ty mutability) = text "&" <> pretty mutability <> pretty ty
     pretty (TyAdt defId _tys)    = pr_id defId
-    pretty TyUnsupported         = error "TODO: TyUnsupported"
+    pretty TyUnsupported         = text "Unsupported"
     pretty (TyCustom customTy)   = pretty customTy
     pretty (TyParam i)           = text ("_" ++ show i)
     pretty (TyFnDef defId _tys)  = text "typeof" <+> pr_id defId
     pretty (TyClosure defId _tys) = text "typeof" <+> pr_id defId
     pretty TyStr                 = text "string"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
-    pretty TyProjection          = error "TODO: TyProjection" -- TODO
+    pretty TyProjection          = text "TyProjection" -- TODO
     pretty (TyDynamic defId)     = text "dynamic" <+> pr_id defId 
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
@@ -207,8 +207,10 @@ instance Pretty Terminator where
       text "call" <> tupled ([pretty lv <+> text "="
                                        <+> pretty f <> tupled (map pretty args),
                              pretty bb0] ++ Maybe.maybeToList (fmap pretty bb1))
-    pretty (Call _f _args _ _ ) =
-      error "call without return address"
+    pretty (Call f args Nothing  bb1 ) =
+      text "call" <> tupled ([pretty f <> tupled (map pretty args)]
+                             ++ Maybe.maybeToList (fmap pretty bb1))
+
       
     pretty (Assert op expect _msg target1 _cleanup) =
       text "assert" <+> pretty op <+> text "==" <+> pretty expect
@@ -299,9 +301,9 @@ instance Pretty ConstVal where
     pretty (ConstChar i)    = pretty i
     pretty (ConstVariant i) = pr_id i
     pretty (ConstTuple cs)  = tupled (map pretty cs)
-    pretty (ConstArray cs)      = list (map pretty cs)
-    pretty (ConstRepeat cv i)   = brackets (pretty cv <> semi <+> int i)
-    pretty (ConstFunction a _b) = pr_id a
+    pretty (ConstArray cs)     = list (map pretty cs)
+    pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> int i)
+    pretty (ConstFunction a b) = pr_id a <> tupled (map pretty b)
     pretty ConstStruct = text "ConstStruct"
 
 instance Pretty AggregateKind where
