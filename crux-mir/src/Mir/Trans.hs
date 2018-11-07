@@ -848,11 +848,15 @@ buildClosureType defid args = do
 
 
 unpackAny :: Some CT.TypeRepr -> MirExp s -> MirGenerator h s ret (MirExp s)
-unpackAny tr (MirExp e_tp e) =
-    case tr of
-      Some tr | Just Refl <- testEquality e_tp CT.AnyRepr -> do
-          return $ MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) ("Bad Any unpack"))
-      _ -> fail $ "bad anytype"
+unpackAny (Some tr) e@(MirExp CT.AnyRepr _) = return $ unpackAnyE tr e
+unpackAny _ _ = fail $ "bad anytype"
+
+
+unpackAnyE :: CT.TypeRepr t -> MirExp s -> MirExp s
+unpackAnyE tr (MirExp CT.AnyRepr e) =
+   MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) ("Bad Any unpack"))
+unpackAnyE _ _ = error $ "bad anytype"
+
 
 packAny ::  MirExp s -> (MirExp s)
 packAny (MirExp e_ty e) = MirExp CT.AnyRepr (S.app $ E.PackAny e_ty e)
@@ -1168,7 +1172,21 @@ lookupHandle funid hmap
    | Just mh <- Map.lookup (mangleTraitId funid) hmap = Just mh
    | Just mh <- Map.lookup (relocateDefId (mangleTraitId funid)) hmap = Just mh
    | otherwise = Nothing
- 
+
+-- If we are calling a polymorphic function, we may need to coerce the type of the argument
+-- so that it has the right type.
+coerceArg :: M.Ty -> MirExp s -> MirExp s
+coerceArg (M.TyParam _) e = packAny e
+--coerceArg (M.TyAdt _def [Just (M.TyParam _)]) (MirExp CT.AnyRepr e) = MirExp CT.AnyRepr e
+-- leave all others alone
+coerceArg _ty exp = exp
+
+
+coerceRet :: M.Ty -> CT.TypeRepr t -> MirExp s -> MirExp s
+coerceRet (M.TyParam _) tr e = unpackAnyE tr e
+-- leave all others alone
+coerceRet _ty _tr exp = exp
+
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
 doCall :: HasCallStack => Text.Text -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
@@ -1178,17 +1196,20 @@ doCall funid cargs cdest = do
     case cdest of 
       (Just (dest_lv, jdest))
 
-        | Just (MirHandle _ _ fhandle) <- lookupHandle funid hmap -> do
-          exps <- mapM evalOperand cargs
-          let fargctx = FH.handleArgTypes fhandle
-          let fret    = FH.handleReturnType fhandle
-          exp_to_assgn exps $ \ctx asgn -> do
-            case (testEquality ctx fargctx) of
-              Just Refl -> do
-                ret_e <- G.call (S.app $ E.HandleLit fhandle) asgn
-                assignLvExp dest_lv Nothing (MirExp fret ret_e)
-                jumpToBlock jdest
-              _ -> fail $ "type error in call: args " ++ (show ctx) ++ " vs function params "
+        | Just (MirHandle _ (M.FnSig args ret) fhandle) <- lookupHandle funid hmap -> do
+          tyToReprCont (M.typeOf dest_lv) $ \ expected -> do            
+            exps <- mapM evalOperand cargs
+            let fargctx = FH.handleArgTypes fhandle
+            let fret    = FH.handleReturnType fhandle
+            let cexps   = zipWith coerceArg args exps
+            exp_to_assgn cexps $ \ctx asgn -> do
+              case (testEquality ctx fargctx) of
+                Just Refl -> do
+                  ret_e <- G.call (S.app $ E.HandleLit fhandle) asgn
+                  let cret_e = coerceRet ret expected (MirExp fret ret_e)
+                  assignLvExp dest_lv Nothing cret_e
+                  jumpToBlock jdest
+                _ -> fail $ "type error in call: args " ++ (show ctx) ++ " vs function params "
                                  ++ show fargctx ++ " while calling " ++ show funid
 
          | Just _fname <- M.isCustomFunc funid -> do
@@ -1703,7 +1724,8 @@ thisTraitImpls (M.Trait trait _) trs = do
 customtyToRepr :: M.CustomTy -> Some CT.TypeRepr
 customtyToRepr (M.BoxTy t) = tyToRepr t -- Box<T> is the same as T
 --customtyToRepr (M.VecTy t) = tyToRepr $ M.TySlice t -- Vec<T> is the same as [T]
-customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize] -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
+customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
+      -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
 customtyToRepr ty = error ("FIXME: unimplement custom type: " ++ M.pprint ty)
 
 mkNone :: MirExp s

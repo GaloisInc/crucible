@@ -1,5 +1,9 @@
 
-fn f<T>(x :T) -> T { x }
+fn g<T>(x :T) -> T { x }
+
+fn f (x : u32) -> u32 {
+    g (x)
+}
 
 const ARG :u32 = 0;
 
