@@ -80,7 +80,7 @@ instance Pretty Ty where
     pretty (TySlice ty)   = brackets (pretty ty)
     pretty (TyArray ty i) = brackets (pretty ty <> comma <+> int i)
     pretty (TyRef ty mutability) = text "&" <> pretty mutability <> pretty ty
-    pretty (TyAdt defId _tys)    = pr_id defId
+    pretty (TyAdt defId tys)    = pr_id defId <> list (map pretty tys)
     pretty TyUnsupported         = text "Unsupported"
     pretty (TyCustom customTy)   = pretty customTy
     pretty (TyParam i)           = text ("_" ++ show i)

@@ -121,7 +121,7 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
 
   when (Crux.simVerbose cruxOpts > 2) $ do
     say "Crux" $ "MIR collection"
-    putStrLn $ show (pretty col)
+    putStrLn $ show (pretty col1)
 
   res_ty <- case List.find (\fn -> fn^.fname == "::f[0]") (col^.functions) of
                    Just fn -> return (fn^.freturn_ty)

@@ -385,6 +385,7 @@ data TraitItem
     deriving (Eq, Show)
 
 
+
 makeLenses ''Variant
 makeLenses ''Var
 makeLenses ''Collection
@@ -430,6 +431,26 @@ isMutRefTy (TyArray t _) = isMutRefTy t
 isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
 isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
 isMutRefTy _ = False
+
+
+-- Does this type contain any type parameters
+isPoly :: Ty -> Bool
+isPoly (TyParam _) = True
+isPoly (TyTuple ts) = any isPoly ts
+isPoly (TySlice ty) = isPoly ty
+isPoly (TyArray ty _i) = isPoly ty
+isPoly (TyRef ty _mut) = isPoly ty
+isPoly (TyRawPtr ty _mut) = isPoly ty
+isPoly (TyAdt _ params) = any (any isPoly) params
+isPoly (TyFnDef _ params) = any (any isPoly) params
+isPoly (TyClosure _ params) = any (any isPoly) params
+isPoly (TyCustom (BoxTy ty)) = isPoly ty
+isPoly (TyCustom (VecTy ty)) = isPoly ty
+isPoly (TyCustom (IterTy ty)) = isPoly ty
+isPoly _x = False           
+
+
+
 
 --------------------------------------------------------------------------------------
 -- | arithType
