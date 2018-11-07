@@ -3,16 +3,12 @@
 
 
 
-pub fn g<T,U>(y : Result<T,U>) -> Option<T> {
-
-    match y {
-        Ok(x)  => Some(x),
-        Err(_) => None,
-    } 
+pub fn g<T>(y : Option<T>) -> Option<T> {
+    y
 }
 
 fn f (x : u32) -> u32 {
-    let z : Result<u32,u32> = Ok(x);
+    let z : Option<u32> = Some(x);
     match g(z) {
         Some (y) => return y,
         None => return 0

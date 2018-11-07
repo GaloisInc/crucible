@@ -723,7 +723,7 @@ getVariant ty = fail $ "Variant type expected, received " ++ show (pretty ty) ++
 evalRefProj :: HasCallStack => M.LvalueProjection -> MirGenerator h s ret (MirExp s)
 evalRefProj (M.LvalueProjection base projElem) =
   do MirExp tp ref <- evalRefLvalue base
-     traceM $ "evalRefProj:" ++ show (pretty base) ++ " of type " ++ show tp 
+     -- traceM $ "evalRefProj:" ++ show (pretty base) ++ " of type " ++ show tp 
      case tp of
        MirReferenceRepr elty ->
          case projElem of
@@ -850,15 +850,15 @@ buildClosureType defid args = do
        do fail ("buildClosureType: unknmown function: " ++ show defid)
 
 
-unpackAny :: Some CT.TypeRepr -> MirExp s -> MirGenerator h s ret (MirExp s)
+unpackAny :: HasCallStack => Some CT.TypeRepr -> MirExp s -> MirGenerator h s ret (MirExp s)
 unpackAny (Some tr) e@(MirExp CT.AnyRepr _) = return $ unpackAnyE tr e
-unpackAny _ _ = fail $ "bad anytype"
+unpackAny _ (MirExp tr _) = fail $ "bad anytype, found " ++ show (pretty tr) 
 
 
-unpackAnyE :: CT.TypeRepr t -> MirExp s -> MirExp s
+unpackAnyE :: HasCallStack => CT.TypeRepr t -> MirExp s -> MirExp s
 unpackAnyE tr (MirExp CT.AnyRepr e) =
    MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) ("Bad Any unpack"))
-unpackAnyE _ _ = error $ "bad anytype"
+unpackAnyE _ _ = error $ "bad anytype unpack"
 
 
 packAny ::  MirExp s -> (MirExp s)
@@ -1176,67 +1176,87 @@ lookupHandle funid hmap
    | Just mh <- Map.lookup (relocateDefId (mangleTraitId funid)) hmap = Just mh
    | otherwise = Nothing
 
+-- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
+-- The ADT is a tagged union, so to do the coercion, we need to switch through the potential
+-- variants, and when we find that one, coerce the fields of that variant.
+-- For simplicity, this function only works for Adts with variants that have <= 2 fields.
 
+type Coercion = forall h s ret. M.Ty -> (M.Ty, MirExp s) -> MirGenerator h s ret (MirExp s)
+
+coerceAdt :: forall h s ret. Bool ->
+      M.DefId
+   -> [Maybe M.Ty]
+   -> [Maybe M.Ty]
+   -> R.Expr MIR s TaggedUnion
+   -> MirGenerator h s ret (R.Expr MIR s TaggedUnion)
+coerceAdt dir adt substs asubsts e0 = do
+  let f :: Coercion
+      f = if dir then coerceArg else coerceRet
+
+  am <- use adtMap
+  let variants = am Map.! adt
+
+  let idx :: R.Expr MIR s CT.NatType
+      idx = (S.getStruct Ctx.i1of2 e0)
+  let dat :: R.Expr MIR s CT.AnyType
+      dat = (S.getStruct Ctx.i2of2 e0)
+
+  let loop :: Natural -> [M.Variant] -> R.Expr MIR s CT.AnyType
+           -> MirGenerator h s ret (R.Expr MIR s CT.AnyType)
+      loop _n [] e = return e 
+      loop n (variant@(M.Variant _name _ fields _) : variants) e = do 
+         G.ifte (R.App (E.BaseIsEq knownRepr (R.App (E.NatLit n)) idx))
+            (do let ec_type = if dir then variantToRepr variant asubsts
+                                     else variantToRepr variant substs
+
+                case ec_type of
+                   -- i.e. None
+                   Some Ctx.Empty -> return e
+                   -- i.e. Some
+                   Some cr@(Ctx.Empty Ctx.:> tr) -> do
+                     let atyp = fieldToRepr (substField asubsts (List.head fields))
+                     let typ  = fieldToRepr (substField substs  (List.head fields))
+                     let sr = CT.StructRepr cr
+                     let unp = (S.app $ E.FromJustValue sr (S.app $ E.UnpackAny sr e)
+                                       ("not the expected type"))
+                     (MirExp tr' e') <- f typ (atyp, MirExp tr (S.getStruct Ctx.baseIndex unp))
+                     let updated = S.mkStruct (Ctx.Empty Ctx.:> tr') (Ctx.empty `Ctx.extend` e')
+                     let packed  = R.App (E.PackAny (CT.StructRepr (Ctx.Empty Ctx.:> tr'))
+                                         updated)
+                     return $ packed
+                   -- i.e. cons
+                   Some cr@(Ctx.Empty Ctx.:> tr1 Ctx.:> tr2) -> do
+                     let aty1:aty2:[] = map (fieldToRepr . substField asubsts) fields
+                     let typ1:typ2:[] = map (fieldToRepr . substField substs) fields
+                     let sr = CT.StructRepr cr
+                     let unpacked = (S.app $ E.FromJustValue sr (S.app $ E.UnpackAny sr e)
+                                       ("not the expected type"))
+                     (MirExp tr1' e1') <- f typ1 (aty1, MirExp tr1 (S.getStruct Ctx.i1of2 unpacked))
+                     (MirExp tr2' e2') <- f typ2 (aty2, MirExp tr2 (S.getStruct Ctx.i2of2 unpacked))
+                     let cr' = (Ctx.Empty Ctx.:> tr1' Ctx.:> tr2')
+                     let updated = S.mkStruct cr' (Ctx.empty Ctx.:> e1' Ctx.:> e2' )
+                     let packed  = R.App (E.PackAny (CT.StructRepr cr') updated)
+                     return $ packed
+
+                   _ -> fail "unhandled coerceArg, variant with more than 1 field")
+            (loop (n+1) variants e)
+  res <- loop 0 variants dat
+  return $ S.mkStruct (Ctx.empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)
+                      (Ctx.empty Ctx.:> idx Ctx.:> res)
 
 
 
 -- If we are calling a polymorphic function, we may need to coerce the type of the argument
 -- so that it has the right type.
 coerceArg :: forall h s ret. M.Ty -> (M.Ty, MirExp s) -> MirGenerator h s ret (MirExp s)
-coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty = 
+coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
   case (ty,aty,tr) of
      (M.TyParam _,_, _) -> return $ packAny e
      (M.TyRef ty1 _mut, M.TyRef aty1 _, _) -> coerceArg ty1 (aty1, e)
      (M.TyAdt adt substs,   -- polymorphic type of the parameter
       M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
       CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)) -> do
-        am <- use adtMap
-        let variants = am Map.! adt
-
-        let idx :: R.Expr MIR s CT.NatType
-            idx = (S.getStruct Ctx.i1of2 e0)
-        let dat :: R.Expr MIR s CT.AnyType
-            dat = (S.getStruct Ctx.i2of2 e0)
-
-        let loop :: Natural -> [M.Variant] -> R.Expr MIR s CT.AnyType -> MirGenerator h s ret (R.Expr MIR s CT.AnyType)
-            loop _n [] e = return e 
-            loop n (variant@(M.Variant _name _ fields _) : variants) e = do 
-               G.ifte (R.App (E.BaseIsEq knownRepr (R.App (E.NatLit n)) idx))
-                  (do 
-                      case (variantToRepr variant asubsts) of
-                         -- i.e. None
-                         Some Ctx.Empty -> return e
-                         -- i.e. Some
-                         Some cr@(Ctx.Empty Ctx.:> tr) -> do
-                           let (M.Field _ fty _) = (substField asubsts (List.head fields))
-                           let typ = fieldToRepr (substField substs (List.head fields))
-                           let sr = CT.StructRepr cr
-                           let unpacked = (S.app $ E.FromJustValue sr (S.app $ E.UnpackAny sr e)
-                                             ("not the expected type"))
-                           (MirExp tr' e') <- coerceArg typ (fty, MirExp tr (S.getStruct Ctx.baseIndex unpacked))
-                           let updated = S.mkStruct (Ctx.Empty Ctx.:> tr') (Ctx.empty `Ctx.extend` e')
-                           let packed  = R.App (E.PackAny (CT.StructRepr (Ctx.Empty Ctx.:> tr')) updated)
-                           return $ packed
-                         -- i.e. cons
-                         Some cr@(Ctx.Empty Ctx.:> tr1 Ctx.:> tr2) -> do
-                           let (M.Field _ fty1 _):(M.Field _ fty2 _):[] = map (substField asubsts) fields
-                           let typ1:typ2:[] = map (fieldToRepr . substField substs) fields
-                           let sr = CT.StructRepr cr
-                           let unpacked = (S.app $ E.FromJustValue sr (S.app $ E.UnpackAny sr e)
-                                             ("not the expected type"))
-                           (MirExp tr1' e1') <- coerceArg typ1 (fty1, MirExp tr1 (S.getStruct Ctx.i1of2 unpacked))
-                           (MirExp tr2' e2') <- coerceArg typ2 (fty2, MirExp tr2 (S.getStruct Ctx.i2of2 unpacked))
-                           let cr' = (Ctx.Empty Ctx.:> tr1' Ctx.:> tr2')
-                           let updated = S.mkStruct cr' (Ctx.empty Ctx.:> e1' Ctx.:> e2' )
-                           let packed  = R.App (E.PackAny (CT.StructRepr cr') updated)
-                           return $ packed
-
-                         _ -> fail "unhandled coerceArg, variant with more than 1 field")
-                  (loop (n+1) variants e)
-        res <- loop 0 variants dat
-        let tagged  = S.mkStruct (Ctx.empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)
-                                 (Ctx.empty Ctx.:> idx Ctx.:> res)
-
+        tagged <- coerceAdt True adt substs asubsts e0
         return (MirExp taggedUnionType tagged)
 
      _ -> fail $ "poly type " ++ show (pretty ty) ++ " unsupported in fcn call for " ++ show tr
@@ -1245,17 +1265,24 @@ coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty =
                | otherwise = return e
 
 -- Coerce the return type of a polymorphic function 
-coerceRet :: M.Ty         -- ^ declared return type of the fcn
-         -> CT.TypeRepr t -- ^ expected return type by the context
-         -> MirExp s      -- ^ expression to coerce
-         -> MirExp s
-coerceRet ty tr e | M.isPoly ty =
-   case ty of 
-     (M.TyParam _) ->  unpackAnyE tr e
-     _ -> e
---     _ -> error $ "poly type " ++ show (pretty ty) ++ " unsupported in fcn return"
+coerceRet :: forall h s ret.
+            M.Ty             -- ^ declared return type of the fcn
+         -> (M.Ty, MirExp s) -- ^ expected return type by the context, expression to coerce
+         -> MirGenerator h s ret (MirExp s)
+coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
+   case (ty,aty,tr) of 
+     (M.TyParam _,_,CT.AnyRepr) -> do
+        unpackAny (tyToRepr aty) e
+     (M.TyRef ty1 _mut, M.TyRef aty2 _,_) -> coerceRet ty1 (aty2,e)
+     (M.TyAdt adt substs,   -- polymorphic type of the parameter
+      M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
+      CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)) -> do
+        tagged <- coerceAdt False adt substs asubsts e0
+        return (MirExp taggedUnionType tagged)
+     _ -> fail $ "poly type " ++ show (pretty ty) ++
+                 " unsupported in fcn return for " ++ show tr
 -- leave all others alone
-                   | otherwise = e
+                   | otherwise = return e
 
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
@@ -1267,7 +1294,6 @@ doCall funid cargs cdest = do
       (Just (dest_lv, jdest))
 
         | Just (MirHandle _ (M.FnSig args ret) fhandle) <- lookupHandle funid hmap -> do
-          tyToReprCont (M.typeOf dest_lv) $ \ expected -> do            
             exps <- mapM evalOperand cargs
             let fargctx = FH.handleArgTypes fhandle
             let fret    = FH.handleReturnType fhandle
@@ -1276,7 +1302,7 @@ doCall funid cargs cdest = do
               case (testEquality ctx fargctx) of
                 Just Refl -> do
                   ret_e <- G.call (S.app $ E.HandleLit fhandle) asgn
-                  let cret_e = coerceRet ret expected (MirExp fret ret_e)
+                  cret_e <- coerceRet ret ((M.typeOf dest_lv), MirExp fret ret_e)
                   assignLvExp dest_lv Nothing cret_e
                   jumpToBlock jdest
                 _ -> fail $ "type error in call: args " ++ (show ctx) ++ " vs function params "
