@@ -24,6 +24,7 @@ module Lang.Crucible.LLVM.MemModel.Type
   , bitvectorType
   , floatType
   , doubleType
+  , x86_fp80Type
   , arrayType
   , structType
   , mkStructType
@@ -65,6 +66,7 @@ data TypeF v
   = Bitvector Bytes -- ^ Size of bitvector in bytes (must be > 0).
   | Float
   | Double
+  | X86_FP80
   | Array Word64 v
   | Struct (Vector (Field v))
   deriving (Eq, Ord, Show, Typeable)
@@ -84,6 +86,7 @@ instance Show Type where
       Bitvector w -> showString "bitvectorType " . shows w
       Float -> showString "float"
       Double -> showString "double"
+      X86_FP80 -> showString "long double"
       Array n tp -> showString "arrayType " . shows n . showString " " . showsPrec 10 tp
       Struct v -> showString "mkStructType " . shows (V.toList (fldFn <$> v))
         where fldFn f = (f^.fieldVal, fieldPad f)
@@ -94,6 +97,7 @@ mkType tf = Type tf $
     Bitvector w -> w
     Float -> 4
     Double -> 8
+    X86_FP80 -> 10 -- TODO: is this right?
     Array n e -> (Bytes n) * typeSize e
     Struct flds -> assert (V.length flds > 0) (fieldEnd (V.last flds))
 
@@ -105,6 +109,9 @@ floatType = mkType Float
 
 doubleType :: Type
 doubleType = mkType Double
+
+x86_fp80Type :: Type
+x86_fp80Type = mkType X86_FP80
 
 arrayType :: Word64 -> Type -> Type
 arrayType n e = Type (Array n e) ((Bytes n) * typeSize e)
@@ -131,6 +138,7 @@ typeEnd a tp = seq a $
     Bitvector w -> a + w
     Float -> a + 4
     Double -> a + 8
+    X86_FP80 -> a + 10 -- TODO: is this right?
     Array n etp -> typeEnd (a + Bytes (n-1) * (typeSize etp)) etp
     Struct flds -> typeEnd (a + fieldOffset f) (f^.fieldVal)
       where f = V.last flds

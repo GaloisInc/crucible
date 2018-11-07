@@ -147,6 +147,7 @@ data ValueCtor a
   | ConcatBV (ValueCtor a) (ValueCtor a)
   | BVToFloat (ValueCtor a)
   | BVToDouble (ValueCtor a)
+  | BVToX86_FP80 (ValueCtor a)
     -- | Cons one value to beginning of array.
   | ConsArray (ValueCtor a) (ValueCtor a)
   | AppendArray (ValueCtor a) (ValueCtor a)
@@ -172,6 +173,7 @@ splitTypeValue tp d subFn = assert (d > 0) $
                (sz - d) (subFn d (bitvectorType (sz - d)))
     Float -> BVToFloat (subFn 0 (bitvectorType 4))
     Double -> BVToDouble (subFn 0 (bitvectorType 8))
+    X86_FP80 -> BVToX86_FP80 (subFn 0 (bitvectorType 10))
     Array n0 etp -> assert (n0 > 0) $ do
       let esz = typeSize etp
       let (c,part) = assert (esz > 0) $ unBytes d `divMod` unBytes esz
@@ -359,6 +361,7 @@ data ValueView
   | SelectSuffixBV Bytes Bytes ValueView
   | FloatToBV ValueView
   | DoubleToBV ValueView
+  | X86_FP80ToBV ValueView
   | ArrayElt Word64 Type Word64 ValueView
 
   | FieldVal (Vector (Field Type)) Int ValueView
@@ -382,6 +385,10 @@ viewType (DoubleToBV vv) =
   do tp <- typeF <$> viewType vv
      guard (Double == tp)
      pure $ bitvectorType 8
+viewType (X86_FP80ToBV vv) =
+  do tp <- typeF <$> viewType vv
+     guard (X86_FP80 == tp)
+     pure $ bitvectorType 10 -- TODO: is this right?
 viewType (ArrayElt n etp i vv) =
   do tp <- typeF <$> viewType vv
      guard (i < n && Array n etp == tp)
@@ -425,6 +432,7 @@ loadBitvector lo lw so v = do
         valueLoad lo ltp so (SelectPrefixBV lw (sw - lw) v)
     Float -> valueLoad lo ltp lo (FloatToBV v)
     Double -> valueLoad lo ltp lo (DoubleToBV v)
+    X86_FP80 -> valueLoad lo ltp lo (X86_FP80ToBV v)
     Array n tp -> snd $ foldl1 cv (val <$> r)
       where cv (wx,x) (wy,y) = (wx + wy, concatBV wx x wy y)
             esz = typeSize tp
@@ -473,6 +481,7 @@ valueLoad lo ltp so v
       Bitvector lw -> loadBitvector lo lw so v
       Float  -> BVToFloat  $ valueLoad 0 (bitvectorType 4) so v
       Double -> BVToDouble $ valueLoad 0 (bitvectorType 8) so v
+      X86_FP80 -> BVToX86_FP80 $ valueLoad 0 (bitvectorType 10) so v -- TODO: is this right?
       Array ln tp ->
         let leSize = typeSize tp
             val i = valueLoad (lo+leSize*fromIntegral i) tp so v
@@ -530,6 +539,7 @@ memsetValue byte = go
           | otherwise -> concatBV 1 val (sz - 1) (go (bitvectorType (sz - 1)))
         Float -> BVToFloat (go (bitvectorType 4))
         Double -> BVToDouble (go (bitvectorType 8))
+        X86_FP80 -> BVToX86_FP80 (go (bitvectorType 10)) -- TODO: is this right?
         Array n etp -> MkArray etp (V.replicate (fromIntegral n) (go etp))
         Struct flds -> MkStruct (fldFn <$> flds)
           where fldFn fld = (fld, go (fld^.fieldVal))
