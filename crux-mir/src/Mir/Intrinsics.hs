@@ -401,9 +401,10 @@ pattern MirSliceRepr tp <- StructRepr
 -- ** Generator state for MIR translation to Crucible
 --
 
-type TraitName = Text
-type MethName  = Text
-type TypeName  = Text
+type TraitName = DefId
+type MethName  = DefId
+type TypeName  = DefId
+type AdtName   = DefId
 
 
 -- | The HandleMap maps mir functions to their corresponding function
@@ -440,7 +441,7 @@ varInfoRepr (VarAtom a) = typeOfAtom a
 type LabelMap s = Map.Map BasicBlockInfo (Label s)
 
 -- | The AdtMap maps ADT names to their definitions
-type AdtMap = Map.Map Text.Text [Variant]
+type AdtMap = Map.Map AdtName [Variant]
 
 
 -- | A TraitMap maps trait names to their vtables and instances
@@ -503,12 +504,12 @@ getTraitImplementation :: [Trait] ->
 getTraitImplementation trts (name, handle) = do
   [methodName] <- parseImplName (show name)
   let declaredTraitMethod (TraitMethod tm _ts) =
-        case parseTraitName (Text.unpack tm) of
+        case parseTraitName (Text.unpack (idText tm)) of
           Just [_tn,mn] -> mn == methodName
           _ -> False
       declaredTraitMethod _ = False
   traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts, List.any declaredTraitMethod items ]
-  return (Text.pack methodName, traitName, handle)
+  return (textId $ Text.pack methodName, traitName, handle)
 
 
 -------------------------------------------------------------------------------------------------------
@@ -551,13 +552,13 @@ parseFieldName = Regex.matchRegex
     modid ++ "::" ++ rustid ++ brk ++ "::" ++ "(" ++ rustid ++ brk ++ "::)?" ++ "(" ++ rustid ++ ")" ++ brk)
 
 
-cleanVariantName :: Text -> Text
-cleanVariantName txt | Just [ constrName ] <- parseVariantName (Text.unpack txt)
+cleanVariantName :: DefId -> Text
+cleanVariantName txt | Just [ constrName ] <- parseVariantName (Text.unpack (idText txt))
                      = Text.pack constrName
-                     | Just [ constrName ] <- parseVariantName2 (Text.unpack txt)
+                     | Just [ constrName ] <- parseVariantName2 (Text.unpack (idText txt))
                      = Text.pack constrName
                      | otherwise
-                     = txt
+                     = idText txt 
 
                      
 
@@ -566,8 +567,8 @@ cleanVariantName txt | Just [ constrName ] <- parseVariantName (Text.unpack txt)
 -- a normal function call
 
 mangleTraitId :: DefId -> DefId 
-mangleTraitId defId = case parseStaticMethodName (Text.unpack defId) of
-  Just [modname,implbrk,name] -> Text.pack (modname ++ "::" ++ "{{impl}}"++implbrk++"::"++name)    
+mangleTraitId defId = case parseStaticMethodName (Text.unpack (idText defId)) of
+  Just [modname,implbrk,name] -> textId $ Text.pack (modname ++ "::" ++ "{{impl}}"++implbrk++"::"++name)    
   _ -> defId
 
 -------------------------------------------------------------------------------------------------------

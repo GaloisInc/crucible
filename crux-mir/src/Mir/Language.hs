@@ -18,18 +18,12 @@ import qualified Data.List       as List
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
---import qualified Data.String     as String
 import qualified Data.Vector     as Vector
 import qualified Text.Read       as Read
 
 import           System.IO (stdout)
---import           System.Directory (listDirectory, doesFileExist, removeFile)
---import           System.Exit (ExitCode(..),exitWith)
 import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
---import qualified System.Process as Proc
 
---import qualified Data.Aeson as J
--- import qualified Data.ByteString.Lazy as B
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
 import           Control.Lens((^.))
@@ -42,13 +36,10 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TraversableFC as Ctx
 
 -- crucible
---import qualified Lang.Crucible.Utils.MonadVerbosity    as C
 import qualified Lang.Crucible.Simulator               as C
 import qualified Lang.Crucible.CFG.Core                as C
---import qualified Lang.Crucible.Analysis.Postdom        as C
 import qualified Lang.Crucible.FunctionHandle          as C
 import qualified Lang.Crucible.Backend                 as C
---import qualified Lang.Crucible.CFG.Expr                as C
 
 -- what4
 import qualified What4.Interface                       as W4
@@ -70,7 +61,6 @@ import           Mir.Mir
 import           Mir.PP()
 import           Mir.Overrides
 import           Mir.Intrinsics(MIR,mirExtImpl,cleanVariantName,parseFieldName)
---import           Mir.Trans(tyToReprCont)
 import           Mir.SAWInterface (translateMIR,RustModule(..))
 import           Mir.Generate(generateMIR)
 import           Mir.Prims(loadPrims)
@@ -276,7 +266,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                     let (Field fName fty _fsubst) = (var^.vfields) !! (Ctx.indexVal idx)
                         cty0   = ctxr Ctx.! idx
                     str <- showRegEntry col fty (C.RegEntry cty0 elt)
-                    case parseFieldName (Text.unpack fName) of
+                    case parseFieldName (Text.unpack (idText fName)) of
                       Just [_, fn] -> case Read.readMaybe fn of
                                         Just (_x :: Int) -> return $ (Const $ str)
                                         _  -> return $ (Const $ fn ++ ": " ++ str)

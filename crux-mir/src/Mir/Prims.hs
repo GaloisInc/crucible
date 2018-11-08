@@ -47,7 +47,7 @@ loadPrims = do
 
 -- | 
 relocateDefId :: DefId -> DefId
-relocateDefId defId = if ':' `elem` name then T.pack (stdlib ++ rest) else defId where
+relocateDefId (DefId defId) = textId (if ':' `elem` name then T.pack (stdlib ++ rest) else defId) where
   name = T.unpack defId 
   (_mod,rest) = span (/= ':') name
 

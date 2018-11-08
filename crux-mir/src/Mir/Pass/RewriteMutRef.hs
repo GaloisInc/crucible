@@ -1,6 +1,9 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+
+{-# OPTIONS_GHC -Wall -fno-warn-name-shadowing #-}
+
 -----------------------------------------------------------------------
 -- |
 -- Module           : Mir.Pass.RewriteMutRef
@@ -25,19 +28,19 @@ import qualified Data.Map.Strict as Map
 import Data.List
 
 import Mir.Mir
-import Mir.Pass.CollapseRefs
+
 
 import GHC.Stack
 
 --other utils
 ints_list :: Int -> [Int]
 ints_list 0 = [0]
-ints_list i | i > 0 = (ints_list (i - 1)) ++ [i]
-            | i < 0 = error "bad intslist"
+ints_list i | i > 0     = (ints_list (i - 1)) ++ [i]
+            | otherwise = error "bad intslist"
 
 
 modifyVarTy :: Var -> Ty -> Var
-modifyVarTy (Var a b c d pos) e = Var a b e d pos
+modifyVarTy (Var a b _c d pos) e = Var a b e d pos
 
 vars_to_map :: [Var] -> Map.Map T.Text Var
 vars_to_map vs = Map.fromList $ map (\v -> (_varname v, v)) vs
@@ -59,7 +62,7 @@ changeTyToImmut t = t
 -- The algorithm is imperative -- everything is basically modified in place.
 
 data RewriteFnSt = RFS { --  state internal to function translation.
-    _fn_name :: T.Text,
+    _fn_name :: DefId,
     _ctr :: Int, -- counter for fresh variables
     _immut_arguments :: Map.Map T.Text Var, -- arguments to the function which don't need to be tampered with
     -- vvv arguments of the form &mut T (or variations thereof.) The translation creates a dummy variable for each one. The dummy variable is the second. fst will end up in internals, snd will end up in arguments
@@ -68,14 +71,15 @@ data RewriteFnSt = RFS { --  state internal to function translation.
     _internals :: Map.Map T.Text Var, -- local variables
     _blocks :: Map.Map T.Text BasicBlockData,
     _dummyret :: Maybe Var, -- this is where the original return value goes, which will later be aggregated with the mutref values
-    _fnargsmap :: Map.Map T.Text [Ty], -- maps argument names to their types in the function signature
+    _fnargsmap :: Map.Map DefId [Ty], -- maps argument names to their types in the function signature
+       -- TODO: update comment, it maps function names to the types of their arguments
     _fnsubstitutions :: Map.Map Lvalue Lvalue -- any substitutions which need to take place. all happen at the end
     }
 
 fnSubstitutions :: Simple Lens RewriteFnSt (Map.Map Lvalue Lvalue)
 fnSubstitutions = lens _fnsubstitutions (\s v -> s { _fnsubstitutions = v })
 
-fnName :: Simple Lens (RewriteFnSt) T.Text
+fnName :: Simple Lens (RewriteFnSt) DefId
 fnName = lens _fn_name (\s v -> s { _fn_name = v })
 
 dummy_ctr :: Simple Lens (RewriteFnSt) Int
@@ -84,7 +88,7 @@ dummy_ctr = lens _ctr (\s v -> s { _ctr = v })
 fnImmutArguments :: Simple Lens (RewriteFnSt) (Map.Map T.Text Var)
 fnImmutArguments = lens _immut_arguments (\s v -> s { _immut_arguments = v })
 
-fnArgsMap :: Simple Lens (RewriteFnSt) (Map.Map T.Text [Ty])
+fnArgsMap :: Simple Lens (RewriteFnSt) (Map.Map DefId [Ty])
 fnArgsMap = lens _fnargsmap (\s v -> s { _fnargsmap = v })
 
 fnMutArgPairs :: Simple Lens (RewriteFnSt) (Map.Map T.Text (Var, Var))
@@ -148,7 +152,7 @@ buildRewriteSt (Fn fname fargs fretty (MirBody internals blocks)) fns =
 insertMutvarsIntoInternals :: State RewriteFnSt ()
 insertMutvarsIntoInternals = do
     mutargpairs <- use fnMutArgPairs
-    forM_ (Map.toList mutargpairs) $ \(vname, (vmut, vimmut)) -> do
+    forM_ (Map.toList mutargpairs) $ \(vname, (vmut, _vimmut)) -> do
         internals <- use fnInternals
         fnInternals .= Map.insert vname vmut internals
 
@@ -219,7 +223,7 @@ processReturnBlocks = do
 mkFnCallVars :: Lvalue -> [Ty] -> State RewriteFnSt (Var, (Lvalue, [Lvalue]))
 mkFnCallVars orig_dest mut_tys = do
     let type_list = [typeOf orig_dest] ++ mut_tys
-        type_of_new = TyTuple type_list
+        type_of_new = TyTuple type_list 
     v <- newInternal type_of_new
     let destructures = zipWith (\ind ty -> LProjection (LvalueProjection (Local v) (PField ind ty))) (ints_list ((length type_list) - 1)) type_list
     return (v, (head destructures, tail destructures))
@@ -238,13 +242,13 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
     | Just _ <- isCustomFunc (funcNameofOp cfunc) = processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
     | otherwise = do
         fnargsmap <- use fnArgsMap
-        let (mut_cargs, immut_cargs) = sort_mutrefs cargs fnargsmap (funcNameofOp cfunc)
+        let (mut_cargs, _immut_cargs) = sort_mutrefs cargs fnargsmap (funcNameofOp cfunc)
         if (null mut_cargs) then do
             return ()
         else do
             do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs
 
-   where sort_mutrefs :: [Operand] -> Map.Map T.Text [Ty] -> T.Text -> ([Operand], [Operand])
+   where sort_mutrefs :: [Operand] -> Map.Map DefId [Ty] -> DefId -> ([Operand], [Operand])
          sort_mutrefs args fnmap fname = case Map.lookup fname fnmap of
                                            Just tys -> go args tys
                                            Nothing -> error $ "fn not found: " ++ (show fname)

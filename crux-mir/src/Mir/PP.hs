@@ -27,15 +27,18 @@ hideModuleName = False
 
 -----------------------------------------------
 
-pr_id :: Text -> Doc
-pr_id s = text $ 
-  if hideModuleName then
-    let (mn,rest) = List.break ( \x -> x == ':') (unpack s) in
-    case rest of
-      (':' : ':' : more) -> more
-      _                  -> mn ++ rest
-  else
-    (unpack s)
+pr_id :: DefId -> Doc
+pr_id = pretty
+
+instance Pretty DefId where
+  pretty (DefId s) = text $ 
+    if hideModuleName then
+      let (mn,rest) = List.break ( \x -> x == ':') (unpack s) in
+                                   case rest of
+                                     (':' : ':' : more) -> more
+                                     _                  -> mn ++ rest
+    else
+      (unpack s)
 
 pretty_fn1 :: Pretty a => String -> a -> Doc
 pretty_fn1 str x = text str <> parens (pretty x)
@@ -60,6 +63,8 @@ size_str B32  = "32"
 size_str B64  = "64"
 size_str B128 = "128"
 size_str USize = "USize"
+
+
 
 instance Pretty Text where
   pretty = text . unpack
@@ -95,7 +100,7 @@ instance Pretty Ty where
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
 
 instance Pretty Adt where
-   pretty (Adt nm vs) = text "struct" <+> pr_id nm <> tupled (map pretty vs)
+   pretty (Adt nm vs) = text "struct" <+> pretty nm <> tupled (map pretty vs)
     
 instance Pretty VariantDiscr where
   pretty (Explicit a) = pretty_fn1 "Explicit" a
@@ -106,10 +111,10 @@ instance Pretty CtorKind where
   pretty = text . show
 
 instance Pretty Variant where
-  pretty (Variant nm dscr flds knd) = pretty_fn4 "Variant" (pr_id nm) dscr flds knd
+  pretty (Variant nm dscr flds knd) = pretty_fn4 "Variant" (pretty nm) dscr flds knd
 
 instance Pretty Field where
-    pretty (Field nm ty sbs) = pretty_fn3 "Field" (pr_id nm) ty sbs
+    pretty (Field nm ty sbs) = pretty_fn3 "Field" (pretty nm) ty sbs
 
 instance Pretty Mutability where
     pretty Mut   = text "mut " 
@@ -136,7 +141,7 @@ pretty_temp (Var vn vm vty _vs _) =
   
 instance Pretty Fn where
     pretty (Fn fname1 fargs1 fty fbody1) =
-      vcat [text "fn" <+> pr_id fname1 <> tupled (map pretty_arg fargs1)
+      vcat [text "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
                       <+> arrow <+> pretty fty <+> lbrace,
             indent 3 (pretty fbody1),
             rbrace]

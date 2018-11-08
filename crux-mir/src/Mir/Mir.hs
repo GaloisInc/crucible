@@ -18,6 +18,8 @@ License          : BSD3
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeOperators #-}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall -fno-warn-unticked-promoted-constructors #-}
 
 module Mir.Mir where
@@ -31,6 +33,7 @@ import Data.Text (Text, unpack)
 import Data.List
 import Control.Lens(makeLenses,(^.))
 import Data.Maybe (fromMaybe)
+import Data.String (IsString(..))
 
 import GHC.Generics
 
@@ -88,7 +91,7 @@ data Ty =
 data FnSig = FnSig [Ty] Ty
     deriving (Eq, Show)
 
-data Adt = Adt {_adtname :: Text, _adtvariants :: [Variant]}
+data Adt = Adt {_adtname :: DefId, _adtvariants :: [Variant]}
     deriving (Eq, Show)
 
 data VariantDiscr
@@ -104,11 +107,11 @@ data CtorKind
   deriving (Eq, Show)
 
 
-data Variant = Variant {_vname :: Text, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
+data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
     deriving (Eq,Show)
 
 
-data Field = Field {_fName :: Text, _fty :: Ty, _fsubsts :: [Maybe Ty]}
+data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: [Maybe Ty]}
     deriving (Show, Eq)
 
 
@@ -144,7 +147,7 @@ data Collection = Collection {
 
 
 data Fn = Fn {
-    _fname :: Text,
+    _fname :: DefId,
     _fargs :: [Var],
     _freturn_ty :: Ty,
     _fbody :: MirBody
@@ -366,7 +369,24 @@ data CustomAggregate =
     CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
     deriving (Show,Eq)
 
-type DefId = Text
+
+-- DefIds
+-- Identifiers that can be qualified by paths
+data DefId = DefId { idText :: Text }
+  deriving (Eq, Ord)
+
+textId :: Text -> DefId
+textId = DefId
+
+instance Show DefId where
+  show (DefId defId) = show defId
+instance IsString DefId where
+  fromString str = DefId (fromString str)
+
+
+
+
+--- Other texts
 type Promoted = Text
 type ConstUsize = Integer
 type VisibilityScope = Text
@@ -374,14 +394,14 @@ type AssertMessage = Text
 type ClosureSubsts = Text
 type BasicBlockInfo = Text
 
-data Trait = Trait Text [TraitItem]
+data Trait = Trait DefId [TraitItem]
     deriving (Eq, Show)
 
 
 data TraitItem
-    = TraitMethod Text FnSig  
-    | TraitType Text         -- associated type
-    | TraitConst Text Ty
+    = TraitMethod DefId FnSig  
+    | TraitType DefId         -- associated type
+    | TraitConst DefId Ty
     deriving (Eq, Show)
 
 
@@ -406,7 +426,7 @@ lValueofOp :: HasCallStack => Operand -> Lvalue
 lValueofOp (Consume lv) = lv
 lValueofOp l = error $ "bad lvalue of op: " ++ show l
 
-funcNameofOp :: HasCallStack => Operand -> Text
+funcNameofOp :: HasCallStack => Operand -> DefId
 funcNameofOp (OpConstant (Constant _ (Value (ConstFunction id1 _substs)))) = id1
 funcNameofOp _ = error "bad extract func name"
 
@@ -636,33 +656,33 @@ replaceLvalue = replace
 
 -- Custom function calls are converted by hand. The below can probably do away with regex and use [0], but I'm not sure if that would always work
 
-isCustomFunc :: Text -> Maybe Text
+isCustomFunc :: DefId -> Maybe DefId
 isCustomFunc fname1
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::boxed\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::new\\[[0-9]+\\]") (unpack fname1)
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::boxed\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::new\\[[0-9]+\\]") (unpack (idText fname1))
     = Just "boxnew"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::slice\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::into_vec\\[[0-9]+\\]") (unpack fname1)
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::slice\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::into_vec\\[[0-9]+\\]") (unpack (idText fname1))
     = Just "slice_tovec"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::as_mut_slice\\[[0-9]+\\]") (unpack fname1)
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::as_mut_slice\\[[0-9]+\\]") (unpack (idText fname1))
     = Just "vec_asmutslice"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::index\\[[0-9]+\\]::Index\\[[0-9]+\\]::index\\[[0-9]+\\]") (unpack fname1)
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::index\\[[0-9]+\\]::Index\\[[0-9]+\\]::index\\[[0-9]+\\]") (unpack (idText fname1))
     = Just "index"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::from_elem\\[[0-9]+\\]") (unpack fname1)
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::from_elem\\[[0-9]+\\]") (unpack (idText fname1))
     = Just "vec_fromelem"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::function\\[[0-9]+\\]::Fn\\[[0-9]+\\]::call\\[[0-9]+\\]") (unpack fname1)
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::function\\[[0-9]+\\]::Fn\\[[0-9]+\\]::call\\[[0-9]+\\]") (unpack (idText fname1))
     = Just "call"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::traits\\[[0-9]+\\]::IntoIterator\\[[0-9]+\\]::into_iter\\[[0-9]+\\]") (unpack fname1) = Just "into_iter"
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::traits\\[[0-9]+\\]::IntoIterator\\[[0-9]+\\]::into_iter\\[[0-9]+\\]") (unpack (idText fname1)) = Just "into_iter"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::next\\[[0-9]+\\]") (unpack fname1) = Just "iter_next"
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::next\\[[0-9]+\\]") (unpack (idText fname1)) = Just "iter_next"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::map\\[[0-9]+\\]") (unpack fname1) = Just "iter_map"
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::map\\[[0-9]+\\]") (unpack (idText fname1)) = Just "iter_map"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::collect\\[[0-9]+\\]") (unpack fname1) = Just "iter_collect"
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::collect\\[[0-9]+\\]") (unpack (idText fname1)) = Just "iter_collect"
 
   -- TODO into_vec
   --    (vec, 0) -> vec
@@ -701,6 +721,9 @@ instance PPrint a => PPrint (Maybe a) where
 
 instance PPrint Text where
     pprint = unpack
+
+instance PPrint DefId where
+    pprint (DefId did) = pprint did
 
 instance PPrint Int where
     pprint = show
@@ -919,6 +942,8 @@ instance PPrint Collection where
 -- | FromJSON instances
 -- Aeson is used for JSON deserialization
 
+instance FromJSON DefId where
+    parseJSON x = textId <$> parseJSON x
 
 instance FromJSON BaseSize where
     parseJSON = withObject "BaseSize" $
