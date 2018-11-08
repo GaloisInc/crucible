@@ -57,10 +57,11 @@ import qualified Data.Parameterized.TraversableFC as Ctx
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 
+import Mir.Mir
 import qualified Mir.Mir as M
 import Mir.Intrinsics
 
-import Mir.Prims (relocateDefId)
+--import Mir.Prims (relocateDefId)
 
 import Mir.PP()
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
@@ -103,51 +104,6 @@ type MirGenerator h s ret = G.Generator MIR h s FnState ret
 --
 -- Custom type translation is on the bottom of this file.
 
-{-
-
-type family SizeToWidth (bs :: M.BaseSize) :: Nat where
-  SizeToWidth M.B8    = 8
-  SizeToWidth M.B16   = 16
-  SizeToWidth M.B32   = 32
-  SizeToWidth M.B64   = 64
-  SizeToWidth M.B128  = 128
-  
-type family TysToCtx (ts :: [M.Ty]) :: Ctx.Ctx CT.CrucibleType where
-  TysToCtx '[] = Ctx.EmptyCtx
-  TysToCtx (ty ': tys) = TysToCtx tys 'Ctx.::> MirTy ty
-
-type family CustomToTy (cu :: M.CustomTy) :: CT.CrucibleType where
-  CustomToTy (M.BoxTy t)  = MirTy t
-  CustomToTy (M.IterTy t) = MirTy (M.TyTuple (M.TySlice t ': M.TyUint M.USize ': '[]))
-    
--- | type abbreviations encoding the MIR -> Crucible type translation
-type family MirTy (t :: M.Ty) :: CT.CrucibleType where
-   MirTy M.TyBool             = CT.BoolType
-   MirTy M.TyChar             = CT.BVType 32
-   MirTy (M.TyInt M.USize)    = CT.NatType
-   MirTy (M.TyUint M.USize)   = CT.NatType
-   MirTy (M.TyInt sz)         = CT.BVType (SizeToWidth sz)
-   MirTy (M.TyUint sz)        = CT.BVType (SizeToWidth sz)
-   MirTy (M.TyTuple ts)       = CT.StructType (TysToCtx ts)  
-   MirTy (M.TySlice ty)       = CT.VectorType (MirTy ty)
-   MirTy (M.TyArray ty i)     = CT.VectorType (MirTy ty)
-   MirTy (M.TyRef ty M.Immut) = MirTy ty
-   MirTy (M.TyRef ty M.Mut)   = MirReferenceType (MirTy ty)
-   MirTy (M.TyCustom cu)      = CustomToTy cu
-   MirTy (M.TyParam i)        = CT.AnyType
-   MirTy (M.TyClosure _ _ )   = CT.AnyType
-   MirTy (M.TyAdt _ _)        = CT.StructType (Ctx.EmptyCtx 'Ctx.::> CT.NatType 'Ctx.::> CT.AnyType)
-   MirTy M.TyStr              = CT.StringType
-   MirTy (M.TyFnPtr _)        = CT.AnyType
-   MirTy (M.TyFloat fk)       = CT.RealValType   -- TODO (use FloatType instead?)
-   MirTy (M.TyDynamic _)      = TypeError (Text "Dynamic")
-   MirTy M.TyUnsupported      = TypeError (Text "Unsupported type")
-   MirTy (M.TyRawPtr ty mut)  = TypeError (Text "RawPtr")
-   MirTy M.TyProjection       = TypeError (Text "Projection")
-   MirTy (M.TyFnDef _ _)      = TypeError (Text "FnDef")
-
--}
-
 tyToRepr :: HasCallStack => M.Ty -> Some CT.TypeRepr
 tyToRepr t0 = case t0 of
   M.TyBool -> Some CT.BoolRepr
@@ -155,7 +111,7 @@ tyToRepr t0 = case t0 of
   M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
 
                -- FIXME, this should be configurable
-  M.TyInt M.USize  -> Some CT.NatRepr
+  M.TyInt M.USize  -> Some CT.IntegerRepr
   M.TyUint M.USize -> Some CT.NatRepr
 
   M.TyInt M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
@@ -355,6 +311,8 @@ transConstVal (Some (CT.BoolRepr)) (M.ConstBool b) = return $ MirExp (CT.BoolRep
 transConstVal (Some (CT.NatRepr)) (M.ConstInt i) =
     do let n = fromInteger (M.fromIntegerLit i)
        return $ MirExp CT.NatRepr (S.app $ E.NatLit n)
+transConstVal (Some (CT.IntegerRepr)) (ConstInt i) =
+      return $ MirExp CT.IntegerRepr (S.app $ E.IntLit (fromIntegerLit i))
 transConstVal (Some (CT.StringRepr)) (M.ConstStr str) =
     do let t = Text.pack str
        return $ MirExp CT.StringRepr (S.litExpr t)
@@ -551,11 +509,11 @@ buildTuple xs = exp_to_assgn (xs) $ \ctx asgn ->
 buildTaggedUnion :: Integer -> [MirExp s] -> MirExp s
 buildTaggedUnion i es =
     let v = buildTuple es in
-        buildTuple [MirExp (CT.NatRepr) (S.app $ E.NatLit (fromInteger i)), packAny v ]
+        buildTuple [MirExp knownRepr (S.app $ E.NatLit (fromInteger i)), packAny v ]
 
 buildTaggedUnion' :: Integer -> MirExp s -> MirExp s -- second argument is already a struct
 buildTaggedUnion' i v =
-    buildTuple [MirExp (CT.NatRepr) (S.app $ E.NatLit (fromInteger i)), packAny v ]
+    buildTuple [MirExp knownRepr (S.app $ E.NatLit (fromInteger i)), packAny v ]
 
 getAllFields :: MirExp s -> MirGenerator h s ret ([MirExp s])
 getAllFields e =
@@ -615,6 +573,12 @@ extendSignedBV (MirExp tp e) b =
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVSext (knownNat :: NatRepr 128) n e)
       _ -> fail "unimplemented unsigned bvext"
 
+baseSizeToNatCont :: M.BaseSize -> (forall w. (1 <= w) => CT.NatRepr w -> a) -> a
+baseSizeToNatCont M.B8   k = k (knownNat :: NatRepr 8)
+baseSizeToNatCont M.B16  k = k (knownNat :: NatRepr 16)
+baseSizeToNatCont M.B32  k = k (knownNat :: NatRepr 32)
+baseSizeToNatCont M.B64  k = k (knownNat :: NatRepr 64)
+baseSizeToNatCont M.B128 k = k (knownNat :: NatRepr 128)
 
 evalCast' :: M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast' ck ty1 e ty2  =
@@ -648,6 +612,14 @@ evalCast' ck ty1 e ty2  =
       -- Trait object creation.
       (M.Unsize, M.TyRef baseType _, M.TyRef (M.TyDynamic traitName) _) ->
         mkTraitObject traitName baseType e
+
+      -- C-style adts
+      (M.Misc, M.TyCustom (CEnum _n), M.TyInt USize) -> return e
+      (M.Misc, M.TyCustom (CEnum _n), M.TyInt sz) ->
+         baseSizeToNatCont sz $ \nat -> 
+           case e of
+             (MirExp CT.IntegerRepr e0) -> return $ MirExp (CT.BVRepr nat) (R.App $ E.IntegerToBV nat e0)
+
 
       _ -> fail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
  
@@ -802,7 +774,11 @@ evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
 evalRval (M.Discriminant lv) = do
     e <- evalLvalue lv
-    accessAggregate e 0
+    let ty = typeOf lv 
+    case ty of
+      TyCustom (CEnum _adt) -> return e
+      _ -> do (MirExp CT.NatRepr idx) <- accessAggregate e 0
+              return $ (MirExp knownRepr $ R.App (E.NatToInteger idx))
 
 evalRval (M.RCustom custom) = transCustomAgg custom
 evalRval (M.Aggregate ak ops) = case ak of
@@ -816,7 +792,9 @@ evalRval (M.Aggregate ak ops) = case ak of
                                    M.AKClosure defid _argsm -> do
                                        args <- mapM evalOperand ops
                                        buildClosureHandle defid args
-evalRval (M.RAdtAg (M.AdtAg _adt agv ops)) = do
+evalRval (M.RAdtAg (M.AdtAg adt agv [])) | isCStyle adt  = do
+    return $ (MirExp knownRepr (R.App (E.IntLit agv)))
+evalRval (M.RAdtAg (M.AdtAg _adt agv ops))  = do
     es <- mapM evalOperand ops
     return $ buildTaggedUnion agv es
 
@@ -1121,8 +1099,8 @@ transSwitch (MirExp (CT.BoolRepr) e) [v] [t1,t2] =
               doBoolBranch e t1 t2
     else
               doBoolBranch e t2 t1
-transSwitch (MirExp (CT.NatRepr) e) vs ts =
-    doNatBranch e vs ts
+transSwitch (MirExp (CT.IntegerRepr) e) vs ts =
+    doIntBranch e vs ts
 
 transSwitch (MirExp f _e) _ _  = error $ "bad switch: " ++ show f
 
@@ -1134,17 +1112,17 @@ doBoolBranch e t f = do
       _ -> error "bad lookup on boolbranch"
 
 -- nat branch: branch by iterating through list
-doNatBranch :: R.Expr MIR s CT.NatType -> [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
-doNatBranch _ _ [i] = do
+doIntBranch :: R.Expr MIR s CT.IntegerType -> [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
+doIntBranch _ _ [i] = do
     lm <- use labelMap
     case (Map.lookup i lm) of
       Just lab -> G.jump lab
       _ -> fail "bad jump"
-doNatBranch e (v:vs) (i:is) = do
-    let test = S.app $ E.NatEq e $ S.app $ E.NatLit (fromInteger v)
-    ifteAny test (jumpToBlock i) (doNatBranch e vs is)
-doNatBranch _ _ _ =
-    fail "doNatBranch: improper switch!"
+doIntBranch e (v:vs) (i:is) = do
+    let test = S.app $ E.IntEq e $ S.app $ E.IntLit v
+    ifteAny test (jumpToBlock i) (doIntBranch e vs is)
+doIntBranch _ _ _ =
+    fail "doIntBranch: improper switch!"
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
@@ -1172,9 +1150,9 @@ doReturn tr = do
 lookupHandle :: MethName -> HandleMap -> Maybe MirHandle
 lookupHandle funid hmap
    | Just mh <- Map.lookup funid hmap = Just mh
-   | Just mh <- Map.lookup (relocateDefId funid) hmap = Just mh
+   | Just mh <- Map.lookup (M.relocateDefId funid) hmap = Just mh
    | Just mh <- Map.lookup (mangleTraitId funid) hmap = Just mh
-   | Just mh <- Map.lookup (relocateDefId (mangleTraitId funid)) hmap = Just mh
+   | Just mh <- Map.lookup (M.relocateDefId (mangleTraitId funid)) hmap = Just mh
    | otherwise = Nothing
 
 -- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
@@ -1518,10 +1496,12 @@ mkHandleMap halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
 -- | transCollection: translate all functions
 transCollection :: HasCallStack => M.Collection -> FH.HandleAllocator s -> ST s (Map Text (Core.AnyCFG MIR))
 transCollection col halloc = do
-    let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col^.M.adts ]
-    hmap <- mkHandleMap halloc (col^.M.functions)
-    (tm, morePairs) <- buildTraitMap col halloc hmap
-    pairs <- mapM (transDefine am tm hmap) (col^.M.functions)
+    let cstyleAdts = List.map _adtname (List.filter isCStyle (col^.M.adts))
+    let col1 = markCStyle cstyleAdts col 
+    let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
+    hmap <- mkHandleMap halloc (col1^.M.functions)
+    (tm, morePairs) <- buildTraitMap col1 halloc hmap
+    pairs <- mapM (transDefine am tm hmap) (col1^.M.functions)
     return $ Map.fromList (pairs ++ morePairs)
 
 ----------------------------------------------------------------------------------------------------------
@@ -1825,6 +1805,8 @@ customtyToRepr (M.BoxTy t) = tyToRepr t -- Box<T> is the same as T
 --customtyToRepr (M.VecTy t) = tyToRepr $ M.TySlice t -- Vec<T> is the same as [T]
 customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
       -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
+-- Implement C-style enums as single integers
+customtyToRepr (CEnum _adt) = Some CT.IntegerRepr
 customtyToRepr ty = error ("FIXME: unimplement custom type: " ++ M.pprint ty)
 
 mkNone :: MirExp s

@@ -401,11 +401,7 @@ pattern MirSliceRepr tp <- StructRepr
 -- ** Generator state for MIR translation to Crucible
 --
 
-type TraitName = DefId
-type MethName  = DefId
 type TypeName  = DefId
-type AdtName   = DefId
-
 
 -- | The HandleMap maps mir functions to their corresponding function
 -- handle. Function handles include the original method name (for

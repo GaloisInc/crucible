@@ -20,12 +20,12 @@ pub mod ops {
 
 
 pub mod cmp {
-    // use self::Ordering::*;
+    use self::Ordering::*;
     use std::marker::Sized;
     use std::option::Option;
     use std::option::Option::*;
 
-/*    
+    
     pub enum Ordering {
         /// An ordering where a compared value is less [than another].
         Less = -1,
@@ -172,7 +172,7 @@ pub mod cmp {
             if self <= other { self } else { other }
         }
     }*/
-*/
+
     
 }
 

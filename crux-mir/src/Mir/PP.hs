@@ -93,7 +93,6 @@ instance Pretty Ty where
     pretty (TyClosure defId _tys) = text "typeof" <+> pr_id defId
     pretty TyStr                 = text "string"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
-    pretty TyProjection          = text "TyProjection" -- TODO
     pretty (TyDynamic defId)     = text "dynamic" <+> pr_id defId 
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
