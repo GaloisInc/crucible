@@ -418,25 +418,26 @@ overrideReturn' v = Sim $ StateContT $ \_ -> runReaderT $ returnValue v
 symbolicBranch ::
   IsSymInterface sym =>
   Pred sym {- ^ Predicate to branch on -} ->
-  RegMap sym new_args {- ^ argument values for the branches -} ->
-  OverrideSim p sym ext rtp (args <+> new_args) res a {- ^ then branch -} ->
+
+  RegMap sym then_args {- ^ argument values for the then branch -} ->
+  OverrideSim p sym ext rtp then_args res a {- ^ then branch -} ->
   Maybe Position {- ^ optinal location for then branch -} ->
-  OverrideSim p sym ext rtp (args <+> new_args) res a {- ^ else branch -} ->
+
+  RegMap sym else_args {- ^ argument values for the else branch -} ->
+  OverrideSim p sym ext rtp else_args res a {- ^ else branch -} ->
   Maybe Position {- ^ optional location for else branch -} ->
+
   OverrideSim p sym ext rtp args res a
-symbolicBranch p new_args thn thn_pos els els_pos =
+symbolicBranch p thn_args thn thn_pos els_args els els_pos =
   Sim $ StateContT $ \c -> runReaderT $
     do old_args <- view (stateTree.actFrame.overrideTopFrame.overrideRegMap)
-       let sz = regMapSize old_args
-       let sz' = regMapSize new_args
-       let all_args = appendRegs old_args new_args
-       let c' x st = c x (st & stateTree.actFrame.overrideTopFrame.overrideRegMap %~ takeRegs sz sz')
-       let thn' = ReaderT (runStateContT (unSim thn) c')
-       let els' = ReaderT (runStateContT (unSim els) c')
-       withReaderT
-         (stateTree.actFrame.overrideTopFrame.overrideRegMap .~ all_args)
-         (overrideSymbolicBranch p thn' thn_pos els' els_pos)
-
+       let thn' = ReaderT (runStateContT
+                            (unSim thn)
+                            (\x st -> c x (st & stateTree.actFrame.overrideTopFrame.overrideRegMap .~ old_args)))
+       let els' = ReaderT (runStateContT
+                            (unSim els)
+                            (\x st -> c x (st & stateTree.actFrame.overrideTopFrame.overrideRegMap .~ old_args)))
+       overrideSymbolicBranch p thn_args thn' thn_pos els_args els' els_pos
 
 -- | Perform a series of symbolic branches.  This operation will evaluate a
 --   series of branches, one for each element of the list.  The semantics of
@@ -462,18 +463,14 @@ symbolicBranches new_args xs0 =
     do sym <- view stateSymInterface
        top_loc <- liftIO $ getCurrentProgramLoc sym
        old_args <- view (stateTree.actFrame.overrideTopFrame.overrideRegMap)
-       let sz = regMapSize old_args
-       let sz' = regMapSize new_args
        let all_args = appendRegs old_args new_args
-       let c' x st = c x (st & stateTree.actFrame.overrideTopFrame.overrideRegMap %~ takeRegs sz sz')
+       let c' x st = c x (st & stateTree.actFrame.overrideTopFrame.overrideRegMap .~ old_args)
        let go _ [] = ReaderT $ runAbortHandler (VariantOptionsExhausted top_loc)
            go !i ((p,m,mpos):xs) =
              let msg = T.pack ("after branch " ++ show i)
                  m'  = ReaderT (runStateContT (unSim m) c')
-              in overrideSymbolicBranch p m' mpos (go (i+1) xs) (Just (OtherPos msg))
-       withReaderT
-         (stateTree.actFrame.overrideTopFrame.overrideRegMap .~ all_args)
-         (go (0::Integer) xs0)
+              in overrideSymbolicBranch p all_args m' mpos old_args (go (i+1) xs) (Just (OtherPos msg))
+       go (0::Integer) xs0
 
 --------------------------------------------------------------------------------
 -- FnBinding

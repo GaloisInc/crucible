@@ -17,6 +17,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.CallFrame
@@ -24,10 +25,10 @@ module Lang.Crucible.Simulator.CallFrame
     CrucibleBranchTarget(..)
   , ppBranchTarget
     -- * Call frame
-  , CallFrame
+  , CallFrame(..)
   , mkCallFrame
-  , frameBlockMap
   , framePostdomMap
+  , frameBlockMap
   , frameHandle
   , frameReturnType
   , frameBlockID
@@ -101,20 +102,30 @@ ppBranchTarget ReturnTarget = "return"
 
 -- | A call frame for a crucible block.
 data CallFrame sym ext blocks ret args
-   = CallFrame
-     { frameHandle     :: SomeHandle
+   = forall initialArgs.
+     CallFrame
+     { _frameCFG        :: CFG ext blocks initialArgs ret
        -- ^ Handle to control flow graph for the current frame.
-     , frameBlockMap   :: !(BlockMap ext blocks ret)
-       -- ^ Block map for current control flow graph.
-     , framePostdomMap :: !(CFGPostdom blocks)
+     , _framePostdomMap :: !(CFGPostdom blocks)
        -- ^ Post-dominator map for control flow graph associated with this
        -- function.
-     , frameReturnType :: !(TypeRepr ret)
      , _frameBlockID    :: !(Some (BlockID blocks))
      , _frameRegs      :: !(RegMap sym args)
      , _frameStmts     :: !(StmtSeq ext blocks ret args)
      , _framePostdom   :: !(Some (CrucibleBranchTarget (CrucibleLang blocks ret)))
      }
+
+frameBlockMap :: CallFrame sym ext blocks ret ctx -> BlockMap ext blocks ret
+frameBlockMap CallFrame { _frameCFG = g } = cfgBlockMap g
+
+frameHandle :: CallFrame sym ext blocks ret ctx -> SomeHandle
+frameHandle CallFrame { _frameCFG = g } = SomeHandle (cfgHandle g)
+
+frameReturnType :: CallFrame sym ext blocks ret ctx -> TypeRepr ret
+frameReturnType CallFrame { _frameCFG = g } = cfgReturnType g
+
+framePostdomMap :: Simple Lens (CallFrame sym ext blocks ret ctx) (CFGPostdom blocks)
+framePostdomMap = lens _framePostdomMap (\s x -> s{ _framePostdomMap = x })
 
 frameBlockID :: Simple Lens (CallFrame sym ext blocks ret ctx) (Some (BlockID blocks))
 frameBlockID = lens _frameBlockID (\s v -> s { _frameBlockID = v })
@@ -143,14 +154,12 @@ mkCallFrame g pdInfo args = do
   let bid@(BlockID block_id) = cfgEntryBlockID g
   let b = cfgBlockMap g Ctx.! block_id
   let pds = getConst $ pdInfo Ctx.! block_id
-  CallFrame { frameHandle   = SomeHandle (cfgHandle g)
-            , frameBlockMap = cfgBlockMap g
-            , framePostdomMap = pdInfo
-            , frameReturnType = cfgReturnType g
-            , _frameBlockID = Some bid
+  CallFrame { _frameCFG   = g
+            , _framePostdomMap = pdInfo
+            , _frameBlockID  = Some bid
             , _frameRegs     = args
-            , _frameStmts   = b^.blockStmts
-            , _framePostdom = mkFramePostdom pds
+            , _frameStmts    = b^.blockStmts
+            , _framePostdom  = mkFramePostdom pds
             }
 
 mkFramePostdom :: [Some (BlockID blocks)] -> Some (CrucibleBranchTarget (CrucibleLang blocks ret))
@@ -168,7 +177,7 @@ setFrameBlock :: BlockID blocks args
               -> CallFrame sym ext blocks ret args
 setFrameBlock bid@(BlockID block_id) args f = f'
     where b = frameBlockMap f Ctx.! block_id
-          pds = getConst $ framePostdomMap f Ctx.! block_id
+          pds = getConst $ (f^.framePostdomMap.ixF block_id)
           f' = f { _frameBlockID = Some bid
                  , _frameRegs =  args
                  , _frameStmts = b^.blockStmts

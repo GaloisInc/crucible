@@ -47,8 +47,9 @@ symbolicBranchTest :: IsSymInterface sym =>
   OverrideSim p sym ext r
     (EmptyCtx ::> BoolType ::> IntegerType ::> IntegerType) IntegerType (RegValue sym IntegerType)
 symbolicBranchTest =
-  do p <- reg @0 <$> getOverrideArgs
-     z <- symbolicBranch p emptyRegMap thn (Just (OtherPos "then branch")) els (Just (OtherPos "else branch"))
+  do args <- getOverrideArgs
+     let p = reg @0 args
+     z <- symbolicBranch p args thn (Just (OtherPos "then branch")) args els (Just (OtherPos "else branch"))
      return z
 
  where

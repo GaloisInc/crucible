@@ -327,7 +327,7 @@ updateProfilingTable tbl = \case
     modifyIORef' (metricAborts (metrics tbl)) succ
   UnwindCallState _ _ st ->
     exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-  ControlTransferState tgt st ->
+  BranchMergeState tgt st ->
     when (isMergeState tgt st)
          (modifyIORef' (metricMerges (metrics tbl)) succ)
   _ -> return ()

@@ -475,7 +475,7 @@ dispatchExecState getVerb exst kresult k =
     SymbolicBranchState p a_frame o_frame tgt st ->
       k (performIntraFrameSplit p a_frame o_frame tgt) st
 
-    ControlTransferState tgt st ->
+    BranchMergeState tgt st ->
       k (performIntraFrameMerge tgt) st
 
     UnwindCallState vfv ar st ->
