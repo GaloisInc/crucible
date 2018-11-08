@@ -9,6 +9,7 @@ module Mir.Prims where
 
 import Mir.Mir
 import Mir.Generate
+import Data.Foldable(fold)
 
 --import Data.Text (Text)
 import qualified Data.Text as T
@@ -32,8 +33,14 @@ libFile = "lib"
 -- | load the rs file containing the standard library
 loadPrims :: IO Collection
 loadPrims = do
-  col <- generateMIR libLoc libFile
-  return (relocate col)
+  cols <- mapM (generateMIR libLoc) [
+    "lib"
+    , "ops/range"
+    , "default"
+    , "option"
+    , "result"
+    ]
+  return (fold (map relocate cols))
 
 
 -------------------------------

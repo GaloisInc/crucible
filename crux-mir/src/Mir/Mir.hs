@@ -43,6 +43,7 @@ import qualified Data.Parameterized.List as Param
 --import qualified Data.Parameterized.NatRepr as Param
 
 import GHC.Stack
+import Debug.Trace
 
 -- NOTE: below, all unwinding calls can be ignored
 --
@@ -676,13 +677,17 @@ isCustomFunc fname1
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::function\\[[0-9]+\\]::Fn\\[[0-9]+\\]::call\\[[0-9]+\\]") (unpack (idText fname1))
     = Just "call"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::traits\\[[0-9]+\\]::IntoIterator\\[[0-9]+\\]::into_iter\\[[0-9]+\\]") (unpack (idText fname1)) = Just "into_iter"
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::traits\\[[0-9]+\\]::IntoIterator\\[[0-9]+\\]::into_iter\\[[0-9]+\\]") (unpack (idText fname1))
+    = trace "isCustomFunc: into_iter" $ Just "into_iter"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::next\\[[0-9]+\\]") (unpack (idText fname1)) = Just "iter_next"
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::next\\[[0-9]+\\]") (unpack (idText fname1))
+    = Just "iter_next"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::map\\[[0-9]+\\]") (unpack (idText fname1)) = Just "iter_map"
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::map\\[[0-9]+\\]") (unpack (idText fname1))
+    = Just "iter_map"
 
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::collect\\[[0-9]+\\]") (unpack (idText fname1)) = Just "iter_collect"
+  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::collect\\[[0-9]+\\]") (unpack (idText fname1))
+    = Just "iter_collect"
 
   -- TODO into_vec
   --    (vec, 0) -> vec
