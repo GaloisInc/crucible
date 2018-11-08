@@ -8,10 +8,13 @@ import qualified Data.ByteString.Lazy as B
 import System.FilePath
 import qualified System.Process as Proc
 import           System.Exit (ExitCode(..))
-import           System.Directory (doesFileExist, removeFile)
+import           System.Directory (doesFileExist, removeFile, getModificationTime)
 
 import GHC.Stack
 import Mir.Mir
+
+
+
 
 -- | Run mir-json on the input, generating lib file on disk 
 -- This function uses 'failIO' if any error occurs
@@ -22,13 +25,24 @@ generateMIR :: HasCallStack =>
 generateMIR dir name = do
   
   let rustFile = dir </> name <.> "rs"
+  let mirFile  = dir </> name <.> "mir"
   
   doesFileExist rustFile >>= \case
     True -> return ()
     False -> fail $ "Cannot read " ++ rustFile 
 
-  (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-    [rustFile, "--crate-type", "lib"] ""
+  rustModTime <- getModificationTime rustFile
+
+  let runMirJSON = do (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
+                                    [rustFile, "--crate-type", "lib"] ""
+                      return ec
+
+  ec <- doesFileExist mirFile >>= \case 
+    True  -> do mirModTime <- getModificationTime mirFile
+                if mirModTime >= rustModTime then
+                  return ExitSuccess
+                else runMirJSON
+    False -> runMirJSON
 
   case ec of
     ExitFailure cd -> fail $ "Error while running mir-json: " ++ show cd
