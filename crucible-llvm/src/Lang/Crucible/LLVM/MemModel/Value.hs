@@ -35,6 +35,7 @@ module Lang.Crucible.LLVM.MemModel.Value
   , bvConcatPartLLVMVal
   , bvToFloatPartLLVMVal
   , bvToDoublePartLLVMVal
+  , bvToX86_FP80PartLLVMVal
   , consArrayPartLLVMVal
   , appendArrayPartLLVMVal
   , mkArrayPartLLVMVal
@@ -72,12 +73,14 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 data FloatSize (fi :: FloatInfo) where
   SingleSize :: FloatSize SingleFloat
   DoubleSize :: FloatSize DoubleFloat
+  X86_FP80Size :: FloatSize X86_80Float
 deriving instance Eq (FloatSize fi)
 deriving instance Ord (FloatSize fi)
 deriving instance Show (FloatSize fi)
 instance TestEquality FloatSize where
   testEquality SingleSize SingleSize = Just Refl
   testEquality DoubleSize DoubleSize = Just Refl
+  testEquality X86_FP80Size X86_FP80Size = Just Refl
   testEquality _ _ = Nothing
 
 -- | This datatype describes the variety of values that can be stored in
@@ -106,6 +109,7 @@ llvmValStorableType v =
     LLVMValInt _ bv -> G.bitvectorType (G.bitsToBytes (natValue (bvWidth bv)))
     LLVMValFloat SingleSize _ -> G.floatType
     LLVMValFloat DoubleSize _ -> G.doubleType
+    LLVMValFloat X86_FP80Size _ -> G.x86_fp80Type
     LLVMValStruct fs -> G.structType (fmap fst fs)
     LLVMValArray tp vs -> G.arrayType (fromIntegral (V.length vs)) tp
     LLVMValZero tp -> tp
@@ -166,6 +170,23 @@ bvToDoublePartLLVMVal sym (PE p (LLVMValInt blk off))
        PE p' . LLVMValFloat DoubleSize <$> iFloatFromBinary sym DoubleFloatRepr off
 
 bvToDoublePartLLVMVal _ _ = return Unassigned
+
+-- TODO: are all the sizes correct below?
+bvToX86_FP80PartLLVMVal ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+
+bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (G.Type (G.Bitvector 10) _))) =
+  PE p . LLVMValFloat X86_FP80Size <$> (iFloatFromBinary sym X86_80FloatRepr =<< bvLit sym (knownNat @80) 0)
+
+bvToX86_FP80PartLLVMVal sym (PE p (LLVMValInt blk off))
+  | Just Refl <- testEquality (bvWidth off) (knownNat @80)
+  = do pz <- natEq sym blk =<< natLit sym 0
+       p' <- andPred sym p pz
+       PE p' . LLVMValFloat X86_FP80Size <$> iFloatFromBinary sym X86_80FloatRepr off
+
+bvToX86_FP80PartLLVMVal _ _ = return Unassigned
 
 -- | Concatenate partial LLVM bitvector values. The least-significant
 -- (low) bytes are given first. The allocation block number of each
@@ -422,6 +443,10 @@ muxLLVMVal sym = mergePartial sym muxval
         do zerof <- lift (iFloatLit sym DoubleFloatRepr 0)
            x'    <- lift (iFloatIte @_ @DoubleFloat sym cond zerof x)
            return $ LLVMValFloat DoubleSize x'
+      LLVMValFloat X86_FP80Size x ->
+        do zerof <- lift (iFloatLit sym X86_80FloatRepr 0)
+           x'    <- lift (iFloatIte @_ @X86_80Float sym cond zerof x)
+           return $ LLVMValFloat X86_FP80Size x'
 
       LLVMValArray tp vec ->
         LLVMValArray tp <$> traverse (muxzero cond tp) vec
@@ -467,6 +492,7 @@ instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
     | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
   show (LLVMValFloat SingleSize _) = "<float>"
   show (LLVMValFloat DoubleSize _) = "<double>"
+  show (LLVMValFloat X86_FP80Size _) = "<long double>"
   show (LLVMValStruct xs) =
     unwords $ [ "{" ]
            ++ intersperse ", " (map (show . snd) $ V.toList xs)

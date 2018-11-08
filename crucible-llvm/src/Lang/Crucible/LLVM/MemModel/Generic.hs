@@ -195,6 +195,8 @@ genValueCtor sym end v =
       bvToFloatPartLLVMVal sym =<< genValueCtor sym end x
     BVToDouble x ->
       bvToDoublePartLLVMVal sym =<< genValueCtor sym end x
+    BVToX86_FP80 x ->
+      bvToX86_FP80PartLLVMVal sym =<< genValueCtor sym end x
 
 -- | Compute the actual value of a value deconstructor expression.
 applyView ::
@@ -223,6 +225,8 @@ applyView sym end t val =
     DoubleToBV _ ->
       return Unassigned
       --fail "applyView: Floating point values not supported"
+    X86_FP80ToBV _ ->
+      return Unassigned
     ArrayElt sz tp idx v ->
       arrayEltPartLLVMVal sz tp idx =<< applyView sym end t v
     FieldVal flds idx v ->
@@ -981,6 +985,7 @@ ppType tp =
     Bitvector w -> text ('i': show (bytesToBits w))
     Float -> text "float"
     Double -> text "double"
+    X86_FP80 -> text "long double"
     Array n etp -> brackets (text (show n) <+> char 'x' <+> ppType etp)
     Struct flds -> braces $ hsep $ punctuate (char ',') $ V.toList $ ppFld <$> flds
       where ppFld f = ppType (f^.fieldVal)

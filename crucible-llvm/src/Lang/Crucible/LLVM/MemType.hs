@@ -119,6 +119,7 @@ data MemType
   | PtrType SymType
   | FloatType
   | DoubleType
+  | X86_FP80Type
   | ArrayType Int MemType
   | VecType Int MemType
   | StructType StructInfo
@@ -135,6 +136,7 @@ ppMemType mtp =
     IntType w -> ppIntType w
     FloatType -> text "float"
     DoubleType -> text "double"
+    X86_FP80Type -> text "long double"
     PtrType tp -> ppPtrType (ppSymType tp)
     ArrayType n tp -> ppArrayType n (ppMemType tp)
     VecType n tp  -> ppVectorType n (ppMemType tp)
@@ -225,6 +227,7 @@ memTypeSize dl mtp =
     IntType w -> intWidthSize w
     FloatType -> 4
     DoubleType -> 8
+    X86_FP80Type -> 10 -- TODO: is this right?
     PtrType{} -> dl ^. ptrSize
     ArrayType n tp -> fromIntegral n * memTypeSize dl tp
     VecType n tp -> fromIntegral n * memTypeSize dl tp
@@ -243,6 +246,8 @@ memTypeAlign dl mtp =
       where Just a = floatAlignment dl 32
     DoubleType -> a
       where Just a = floatAlignment dl 64
+    X86_FP80Type -> a
+      where Just a = floatAlignment dl 80
     PtrType{} -> dl ^. ptrAlign
     ArrayType _ tp -> memTypeAlign dl tp
     VecType _n _tp -> vectorAlignment dl (memTypeSizeInBits dl mtp)
