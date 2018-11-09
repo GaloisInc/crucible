@@ -118,6 +118,10 @@ module Lang.Crucible.Simulator
   , stepStmt
   , stepTerm
   , stepBasicBlock
+  , ExecutionFeature
+  , GenericExecutionFeature
+  , genericToExecutionFeature
+  , timeoutFeature
 
     -- * OverrideSim monad
   , module Lang.Crucible.Simulator.OverrideSim

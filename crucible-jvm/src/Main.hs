@@ -138,7 +138,7 @@ instance Crux.Language JVM where
   name = "jvm"
   validExtensions = [".java"]
   
-  simulate executeCrucible (copts,opts) sym ext = do
+  simulate feats (copts,opts) sym ext = do
      let file = Crux.inputFile copts
      let verbosity = Crux.simVerbose copts
      
@@ -152,7 +152,7 @@ instance Crux.Language JVM where
      let nullstr = RegEntry refRepr W4.Unassigned
      let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-     Crux.Result <$> executeCrucibleJVMCrux @UnitType executeCrucible  cb verbosity sym
+     Crux.Result <$> executeCrucibleJVMCrux @UnitType feats cb verbosity sym
        ext cname mname regmap
        
 

@@ -39,6 +39,7 @@ module Lang.Crucible.Analysis.Fixpoint (
   PointAbstraction(..),
   lookupAbstractRegValue,
   modifyAbstractRegValue,
+  computeOrdering,
   -- * Pointed domains
   -- $pointed
   Pointed(..),
