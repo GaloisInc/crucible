@@ -44,6 +44,8 @@ data CruxOptions = CruxOptions
   , profileSolver            :: Bool
   , globalTimeout            :: Maybe String
   , profileOutputInterval    :: Maybe String
+  , loopBound :: Maybe String
+    -- ^ Should we artifically bound the number of loop iterations
   }
 
 type Options a = (CruxOptions, LangOptions a)

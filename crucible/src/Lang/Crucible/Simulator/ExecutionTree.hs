@@ -442,6 +442,12 @@ data ExecState p sym ext (rtp :: *)
          !(CrucibleBranchTarget f postdom_args) {- merge point -}
          !(SimState p sym ext rtp f ('Just args))
 
+   {- | A control transfer state is entered just prior to invoking a
+        control resumption.  Control resumptions are responsible
+        for transitioning from the end of one basic block to another,
+        although there are also some intermediate states related to
+        resolving switch statements.
+    -}
    | forall f a.
        ControlTransferState
          !(ControlResumption p sym ext rtp f)
@@ -470,10 +476,15 @@ data ExecState p sym ext (rtp :: *)
          !(SimState p sym ext rtp f args)
            {- State of the simulator before merging pending branches -}
 
+   {- | An initial state indicates the state of a simulator just before execution begins.
+        It specifies all the initial data necessary to begin simulating.  The given
+        @ExecCont@ will be executed in a fresh @SimState@ representing the default starting
+        call frame.
+    -}
    | forall ret. rtp ~ RegEntry sym ret =>
        InitialState
          !(SimContext p sym ext)
-            {- initial 'SimContxet' state -}
+            {- initial 'SimContext' state -}
          !(SymGlobalState sym)
             {- state of Crucible global variables -}
          !(AbortHandler p sym ext (RegEntry sym ret))

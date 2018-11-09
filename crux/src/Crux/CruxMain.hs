@@ -30,6 +30,8 @@ import Data.Parameterized.Nonce(withIONonceGenerator)
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.Simulator
+import Lang.Crucible.Simulator.BoundedExec
+  ( boundedExecFeature )
 import Lang.Crucible.Simulator.Profiling
   ( newProfilingTable, startRecordingSolverEvents, symProUIString
   , profilingFeature, inProfilingFrame, ProfilingOptions(..) )
@@ -144,8 +146,18 @@ simulate opts  =
                    do tf <- timeoutFeature delta
                       return [tf]
 
+     bfs <-
+       case loopBound cruxOpts of
+         Just istr ->
+           case reads istr of
+             (i,""):_ ->
+               do bf <- boundedExecFeature (\_ -> return (Just i)) True {-produce side conditions-}
+                  return [bf]
+             _ -> fail ("Invalid loop iteration count: " ++ istr)
+         Nothing -> return []
+
      gls <- inFrame "<Crux>" $
-       do Result res <- CL.simulate (tfs ++ pfs) opts sym personality
+       do Result res <- CL.simulate (tfs ++ pfs ++ bfs) opts sym personality
 
           case res of
             TimeoutResult _ ->
