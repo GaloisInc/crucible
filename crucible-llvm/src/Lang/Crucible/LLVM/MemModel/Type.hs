@@ -97,7 +97,7 @@ mkType tf = Type tf $
     Bitvector w -> w
     Float -> 4
     Double -> 8
-    X86_FP80 -> 10 -- TODO: is this right?
+    X86_FP80 -> 10
     Array n e -> (Bytes n) * typeSize e
     Struct flds -> assert (V.length flds > 0) (fieldEnd (V.last flds))
 
@@ -138,7 +138,7 @@ typeEnd a tp = seq a $
     Bitvector w -> a + w
     Float -> a + 4
     Double -> a + 8
-    X86_FP80 -> a + 10 -- TODO: is this right?
+    X86_FP80 -> a + 10
     Array n etp -> typeEnd (a + Bytes (n-1) * (typeSize etp)) etp
     Struct flds -> typeEnd (a + fieldOffset f) (f^.fieldVal)
       where f = V.last flds

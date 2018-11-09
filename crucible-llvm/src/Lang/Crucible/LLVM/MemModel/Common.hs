@@ -388,7 +388,7 @@ viewType (DoubleToBV vv) =
 viewType (X86_FP80ToBV vv) =
   do tp <- typeF <$> viewType vv
      guard (X86_FP80 == tp)
-     pure $ bitvectorType 10 -- TODO: is this right?
+     pure $ bitvectorType 10
 viewType (ArrayElt n etp i vv) =
   do tp <- typeF <$> viewType vv
      guard (i < n && Array n etp == tp)
@@ -481,7 +481,7 @@ valueLoad lo ltp so v
       Bitvector lw -> loadBitvector lo lw so v
       Float  -> BVToFloat  $ valueLoad 0 (bitvectorType 4) so v
       Double -> BVToDouble $ valueLoad 0 (bitvectorType 8) so v
-      X86_FP80 -> BVToX86_FP80 $ valueLoad 0 (bitvectorType 10) so v -- TODO: is this right?
+      X86_FP80 -> BVToX86_FP80 $ valueLoad 0 (bitvectorType 10) so v
       Array ln tp ->
         let leSize = typeSize tp
             val i = valueLoad (lo+leSize*fromIntegral i) tp so v
@@ -539,7 +539,7 @@ memsetValue byte = go
           | otherwise -> concatBV 1 val (sz - 1) (go (bitvectorType (sz - 1)))
         Float -> BVToFloat (go (bitvectorType 4))
         Double -> BVToDouble (go (bitvectorType 8))
-        X86_FP80 -> BVToX86_FP80 (go (bitvectorType 10)) -- TODO: is this right?
+        X86_FP80 -> BVToX86_FP80 (go (bitvectorType 10))
         Array n etp -> MkArray etp (V.replicate (fromIntegral n) (go etp))
         Struct flds -> MkStruct (fldFn <$> flds)
           where fldFn fld = (fld, go (fld^.fieldVal))

@@ -227,7 +227,7 @@ memTypeSize dl mtp =
     IntType w -> intWidthSize w
     FloatType -> 4
     DoubleType -> 8
-    X86_FP80Type -> 10 -- TODO: is this right?
+    X86_FP80Type -> 10
     PtrType{} -> dl ^. ptrSize
     ArrayType n tp -> fromIntegral n * memTypeSize dl tp
     VecType n tp -> fromIntegral n * memTypeSize dl tp

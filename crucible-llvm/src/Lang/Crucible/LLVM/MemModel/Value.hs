@@ -171,7 +171,6 @@ bvToDoublePartLLVMVal sym (PE p (LLVMValInt blk off))
 
 bvToDoublePartLLVMVal _ _ = return Unassigned
 
--- TODO: are all the sizes correct below?
 bvToX86_FP80PartLLVMVal ::
   IsSymInterface sym => sym ->
   PartLLVMVal sym ->

@@ -1053,7 +1053,7 @@ toStorableType mt =
     PtrType _ -> return $ G.bitvectorType (bitsToBytes (natValue PtrWidth))
     FloatType -> return $ G.floatType
     DoubleType -> return $ G.doubleType
-    X86_FP80Type -> return $ G.doubleType
+    X86_FP80Type -> return $ G.x86_fp80Type
     ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
     VecType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
     MetadataType -> fail "toStorableType: Cannot store metadata values"
