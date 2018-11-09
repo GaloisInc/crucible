@@ -47,6 +47,7 @@ module Lang.Crucible.Simulator.Operations
   , performFunctionCall
   , performTailCall
   , performReturn
+  , performControlTransfer
   , resumeFrame
   , resumeValueFromValueAbort
   , overrideSymbolicBranch
@@ -395,12 +396,29 @@ jumpToBlock ::
   IsSymInterface sym =>
   ResolvedJump sym blocks {- ^ Jump target and arguments -} ->
   ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just a)
-jumpToBlock (ResolvedJump block_id args) =
-  withReaderT
-    (stateCrucibleFrame %~ setFrameBlock block_id args)
-    (checkForIntraFrameMerge (BlockTarget block_id))
+jumpToBlock jmp = ReaderT $ return . ControlTransferState (CheckMergeResumption jmp)
 {-# INLINE jumpToBlock #-}
 
+performControlTransfer ::
+  IsSymInterface sym =>
+  ControlResumption p sym ext rtp f ->
+  ExecCont p sym ext rtp f ('Just a)
+performControlTransfer res =
+  case res of
+    ContinueResumption (ResolvedJump block_id args) ->
+      withReaderT
+        (stateCrucibleFrame %~ setFrameBlock block_id args)
+        (continue (RunBlockStart block_id))
+    CheckMergeResumption (ResolvedJump block_id args) ->
+      withReaderT
+        (stateCrucibleFrame %~ setFrameBlock block_id args)
+        (checkForIntraFrameMerge (BlockTarget block_id))
+    SwitchResumption cs ->
+      variantCases cs
+    OverrideResumption k args ->
+      withReaderT
+        (stateOverrideFrame.overrideRegMap .~ args)
+        k
 
 -- | Perform a conditional branch on the given predicate.
 --   If the predicate is symbolic, this will record a symbolic
@@ -484,7 +502,7 @@ tailCallFunction fn args vfv =
      ReaderT $ return . TailCallState vfv rcall
 
 
--- | Immediately transition to the 'ControlTransferState'.
+-- | Immediately transition to the 'BranchMergeState'.
 --   On the next simulator step, this will checks for the
 --   opportunity to merge within a frame.
 --
@@ -698,23 +716,9 @@ resumeFrame (PausedFrame frm cont toLoc) ctx =
       Just l  ->
         do sym <- view stateSymInterface
            liftIO $ setCurrentProgramLoc sym l
-    case cont of
-      ContinueResumption (ResolvedJump block_id args) ->
-        withReaderT
-          (stateTree .~ ActiveTree ctx (frm & partialValue.gpValue.crucibleSimFrame %~ setFrameBlock block_id args))
-          (continue (RunBlockStart block_id))
-      CheckMergeResumption (ResolvedJump block_id args) ->
-        withReaderT
-          (stateTree .~ ActiveTree ctx (frm & partialValue.gpValue.crucibleSimFrame %~ setFrameBlock block_id args))
-          (checkForIntraFrameMerge (BlockTarget block_id))
-      SwitchResumption cs ->
-        withReaderT
-          (stateTree .~ ActiveTree ctx frm)
-          (variantCases cs)
-      OverrideResumption k args ->
-        withReaderT
-          (stateTree .~ ActiveTree ctx (frm & partialValue.gpValue.overrideSimFrame.overrideRegMap .~ args))
-          k
+    withReaderT
+      (stateTree .~ ActiveTree ctx frm)
+      (ReaderT $ return . ControlTransferState cont)
 {-# INLINABLE resumeFrame #-}
 
 

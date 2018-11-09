@@ -345,6 +345,7 @@ execStateContext = \case
   CallState _ _ st       -> st^.stateContext
   TailCallState _ _ st   -> st^.stateContext
   ReturnState _ _ _ st   -> st^.stateContext
+  ControlTransferState _ st -> st^.stateContext
   RunningState _ st      -> st^.stateContext
   SymbolicBranchState _ _ _ _ st -> st^.stateContext
   OverrideState _ st -> st^.stateContext
@@ -441,6 +442,11 @@ data ExecState p sym ext (rtp :: *)
          !(CrucibleBranchTarget f postdom_args) {- merge point -}
          !(SimState p sym ext rtp f ('Just args))
 
+   | forall f a.
+       ControlTransferState
+         !(ControlResumption p sym ext rtp f)
+         !(SimState p sym ext rtp f ('Just a))
+
    {- | An override state indicates the included 'SimState' is prepared to
         execute a code override. -}
    | forall args ret.
@@ -519,7 +525,7 @@ data ControlResumption p sym ext rtp f where
        for the presence of pending merge points before resuming. -}
   CheckMergeResumption ::
     !(ResolvedJump sym blocks) ->
-    ControlResumption p sym ext root (CrucibleLang blocks r)
+    ControlResumption p sym ext rtp (CrucibleLang blocks r)
 
   {- | When resuming a paused frame with a @SwitchResumption@, we must
        continue branching to possible alternatives in a variant elmination
@@ -528,16 +534,16 @@ data ControlResumption p sym ext rtp f where
        at a final @VariantElim@ terminal statement). -}
   SwitchResumption ::
     ![(Pred sym, ResolvedJump sym blocks)] {- remaining branches -} ->
-    ControlResumption p sym ext root (CrucibleLang blocks r)
+    ControlResumption p sym ext rtp (CrucibleLang blocks r)
 
   {- | When resuming a paused frame with an @OverrideResumption@, we
        simply return control to the included thunk, which represents
        the remaining computation for the override.
    -}
   OverrideResumption ::
-    ExecCont p sym ext root (OverrideLang r) ('Just args) ->
+    ExecCont p sym ext rtp (OverrideLang r) ('Just args) ->
     !(RegMap sym args) ->
-    ControlResumption p sym ext root (OverrideLang r)
+    ControlResumption p sym ext rtp (OverrideLang r)
 
 ------------------------------------------------------------------------
 -- Paused Frame
@@ -1078,9 +1084,11 @@ stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
 
 -- | Access the override frame inside a 'SimState'
 stateOverrideFrame ::
-  Simple Lens
+  Lens
      (SimState p sym ext q (OverrideLang r) ('Just a))
+     (SimState p sym ext q (OverrideLang r) ('Just a'))
      (OverrideFrame sym r a)
+     (OverrideFrame sym r a')
 stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
 
 -- | Get the symbolic interface out of a 'SimState'
