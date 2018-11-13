@@ -35,6 +35,7 @@ import           Control.Monad ( when )
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Semigroup( (<>) )
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 
