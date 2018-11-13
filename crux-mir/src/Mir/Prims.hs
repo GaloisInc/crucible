@@ -8,6 +8,7 @@
 
 module Mir.Prims where
 
+import Mir.DefId
 import Mir.Mir
 import Mir.Generate
 import Data.Foldable(fold)
@@ -17,26 +18,63 @@ import Data.Foldable(fold)
 libLoc :: String
 libLoc = "mir_verif/src/"
 
--- | The actual file containing these definitions
-libFile :: String
-libFile = "lib"
-
-
 -- | load the rs file containing the standard library
 loadPrims :: IO Collection
 loadPrims = do
-  cols <- mapM (generateMIR libLoc) [
-      "ops/range"
+  cols <- mapM (generateMIR libLoc)
+    [ "ops/range"
     , "default"
     , "option"
     , "result"
+    , "cmp"
     ]
-  return (fold (map relocate cols))
+  return (fold (hardCoded : map relocate cols)) 
+
+hardCoded :: Collection
+hardCoded = Collection [] [] [fnOnce, fn]
 
 
-  
-  
+-- FnOnce trait
+
+fnOnce :: Trait
+fnOnce = Trait fnOnce_defId [call_once, output] where
+
+           fnOnce_defId :: DefId
+           fnOnce_defId = textId $ (stdlib <> "::ops[0]::function[0]::FnOnce[0]")
+
+           fnOnce_Output_defId :: DefId
+           fnOnce_Output_defId = textId (stdlib <> "::ops[0]::function[0]::FnOnce[0]::Output[0]")
+
+           fnOnce_call_once_defId :: DefId
+           fnOnce_call_once_defId = textId (stdlib <> "::ops[0]::function[0]::FnOnce[0]::call_once[0]")
+
+           call_once :: TraitItem
+           call_once = TraitMethod fnOnce_call_once_defId
+               (FnSig [TyDynamic fnOnce_defId, TyParam 0] (TyProjection fnOnce_Output_defId []))
     
+           output :: TraitItem
+           output = TraitType fnOnce_Output_defId        
+
+fn :: Trait
+fn = Trait fn_defId [call_once, output] where
+
+           fn_defId :: DefId
+           fn_defId = textId $ ( "::ops[0]::function[0]::Fn[0]")
+
+           fn_Output_defId :: DefId
+           fn_Output_defId = textId  ("::ops[0]::function[0]::Fn[0]::Output[0]")
+
+           fn_call_defId :: DefId
+           fn_call_defId = textId  ("::ops[0]::function[0]::Fn[0]::call[0]")
+
+           call_once :: TraitItem
+           call_once = TraitMethod fn_call_defId
+               (FnSig [TyRef (TyDynamic fn_defId) Immut, TyParam 0] (TyProjection fn_Output_defId []))
+    
+           output :: TraitItem
+           output = TraitType fn_Output_defId        
+
+
 
 
 {-
@@ -47,7 +85,7 @@ loadPrims = do
 
 -- Option ADT
 
-none = Variant "core/ae3efe0::option[0]::None[0]" (Relative 0)
+none = Variant "core/ae3efe0::Option[0]::None[0]" (Relative 0)
        [] ConstKind
 some = Variant "core/ae3efe0::option[0]::Some[0]" (Relative 1)
        [ Field "core/ae3efe0::Option[0]::Some[0]::0[0]"

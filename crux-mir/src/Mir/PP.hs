@@ -15,6 +15,7 @@ import           Control.Lens((^.))
 import           Text.PrettyPrint.ANSI.Leijen
 
 import           Mir.Mir
+import           Mir.DefId
 
 -----------------------------------------------
 
@@ -31,14 +32,7 @@ pr_id :: DefId -> Doc
 pr_id = pretty
 
 instance Pretty DefId where
-  pretty (DefId s) = text $ 
-    if hideModuleName then
-      let (mn,rest) = List.break ( \x -> x == ':') (unpack s) in
-                                   case rest of
-                                     (':' : ':' : more) -> more
-                                     _                  -> mn ++ rest
-    else
-      (unpack s)
+  pretty did = text (show did)
 
 pretty_fn1 :: Pretty a => String -> a -> Doc
 pretty_fn1 str x = text str <> parens (pretty x)
@@ -97,6 +91,8 @@ instance Pretty Ty where
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
+    pretty (TyProjection defId tys) = text "projection" <+> brackets (pr_id defId <> list (map pretty tys))
+
 
 instance Pretty Adt where
    pretty (Adt nm vs) = text "struct" <+> pretty nm <> tupled (map pretty vs)
@@ -123,6 +119,7 @@ instance Pretty CustomTy where
     pretty (BoxTy ty)  = text "box"  <> parens (pretty ty)
     pretty (VecTy ty)  = text "vec"  <> parens (pretty ty)
     pretty (IterTy ty) = text "iter" <> parens (pretty ty)
+    pretty (CEnum did) = pr_id did
 
 instance Pretty Var where
     pretty (Var vn _vm _vty _vs _) = pretty vn 

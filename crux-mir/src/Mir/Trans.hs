@@ -59,12 +59,13 @@ import Data.Parameterized.Some
 
 import Mir.Mir
 import qualified Mir.Mir as M
+import qualified Mir.DefId as M
 import Mir.Intrinsics
 
 --import Mir.Prims (relocateDefId)
 
 import Mir.PP()
-import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
+import Text.PrettyPrint.ANSI.Leijen(Pretty(..),hang,text,vcat)
 
 import GHC.Stack
 
@@ -138,21 +139,14 @@ tyToRepr t0 = case t0 of
   M.TyParam _ -> Some CT.AnyRepr -- FIXME??
   M.TyFnPtr _fnSig -> Some CT.AnyRepr
   M.TyDynamic _def -> Some CT.AnyRepr
+  M.TyProjection _def _tyargs -> Some CT.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
-
 
 
 -- | Convert field to type. Perform the corresponding subtitution if field is a type param.
 -- TODO: deeper substitution
 fieldToRepr :: HasCallStack => M.Field -> M.Ty
-fieldToRepr (M.Field _ t substs) =
-    case t of
-      M.TyParam i | fromInteger i < length substs ->
-                    case substs !! fromInteger i of
-                        Nothing -> error "bad subst"
-                        Just ty -> ty
-                  | otherwise -> error $ "Indexing at " ++ show i ++ "  from subst " ++ show substs
-      ty -> ty
+fieldToRepr (M.Field _ t substs) = M.tySubst substs t
 
 -- replace the subst on the Field 
 substField :: [Maybe M.Ty] -> M.Field -> M.Field
@@ -370,8 +364,10 @@ evalOperand :: HasCallStack => M.Operand -> MirGenerator h s ret (MirExp s)
 evalOperand (M.Consume lv) = evalLvalue lv
 evalOperand (M.OpConstant (M.Constant conty conlit)) =
     case conlit of
-       M.Value constval -> transConstVal (tyToRepr conty) constval
-       _ -> fail "value / promoted unimp"
+       M.Value constval   -> transConstVal (tyToRepr conty) constval
+       M.Item defId _args -> fail $ "cannot translate item " ++ show defId
+       M.LPromoted prom   -> fail $ "cannot translate promoted " ++ show prom
+
 
 -- Given two bitvectors, extend the length of the shorter one so that they
 -- have the same length
@@ -573,12 +569,15 @@ extendSignedBV (MirExp tp e) b =
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVSext (knownNat :: NatRepr 128) n e)
       _ -> fail "unimplemented unsigned bvext"
 
-baseSizeToNatCont :: M.BaseSize -> (forall w. (1 <= w) => CT.NatRepr w -> a) -> a
+-- | convert a baseSize to a nat repr
+-- The BaseSize must *not* be USize.
+baseSizeToNatCont :: HasCallStack => M.BaseSize -> (forall w. (1 <= w) => CT.NatRepr w -> a) -> a
 baseSizeToNatCont M.B8   k = k (knownNat :: NatRepr 8)
 baseSizeToNatCont M.B16  k = k (knownNat :: NatRepr 16)
 baseSizeToNatCont M.B32  k = k (knownNat :: NatRepr 32)
 baseSizeToNatCont M.B64  k = k (knownNat :: NatRepr 64)
 baseSizeToNatCont M.B128 k = k (knownNat :: NatRepr 128)
+baseSizeToNatCont M.USize _k = error "BaseSize is undetermined"
 
 evalCast' :: M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast' ck ty1 e ty2  =
@@ -613,12 +612,17 @@ evalCast' ck ty1 e ty2  =
       (M.Unsize, M.TyRef baseType _, M.TyRef (M.TyDynamic traitName) _) ->
         mkTraitObject traitName baseType e
 
-      -- C-style adts
+      -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyCustom (CEnum _n), M.TyInt USize) -> return e
-      (M.Misc, M.TyCustom (CEnum _n), M.TyInt sz) ->
-         baseSizeToNatCont sz $ \nat -> 
-           case e of
-             (MirExp CT.IntegerRepr e0) -> return $ MirExp (CT.BVRepr nat) (R.App $ E.IntegerToBV nat e0)
+      (M.Misc, M.TyCustom (CEnum _n), M.TyInt sz) | (MirExp CT.IntegerRepr e0) <- e ->
+         baseSizeToNatCont sz $ \nat ->
+           -- TODO: what happened to E.IntegerToSBV? Will we lose the sign here?
+           return $ MirExp (CT.BVRepr nat) (R.App $ E.IntegerToBV nat e0)
+
+      -- C-style adts, casting a TyInt to an enum value
+      (M.Misc, M.TyInt USize, M.TyCustom (CEnum _n)) -> return e
+      (M.Misc, M.TyInt _sz,   M.TyCustom (CEnum _n)) | (MirExp (CT.BVRepr nat) e0) <- e ->
+           return $ MirExp knownRepr (R.App $ E.SbvToInteger nat e0)
 
 
       _ -> fail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
@@ -637,7 +641,7 @@ mkTraitObject traitName baseType (MirExp baseTyr baseValue) = do
   (Some timpls) <- traitImplsLookup traitName
   case Map.lookup (typeName baseType) (timpls^.vtables) of
     Nothing -> fail $ Text.unpack $ Text.unwords ["Error while creating a trait object: type ",
-                                                   M.idText $ typeName baseType," does not implement trait ", M.idText traitName]
+                                                   Text.pack (show baseType)," does not implement trait ", M.idText traitName]
     Just vtbl -> do
       let vtableCtx = timpls^.vtableTyRepr
       let ctxr      = Ctx.empty Ctx.:> CT.AnyRepr Ctx.:> CT.StructRepr vtableCtx
@@ -657,8 +661,8 @@ traitImplsLookup traitName = do
     
 -- | TODO: implement. Returns the name of the name, as seen MIR
 -- NOTE: this is very wrong
-typeName :: M.Ty -> M.DefId
-typeName ty = M.textId $ Text.pack (show (pretty ty))
+typeName :: M.Ty -> M.Ty
+typeName = id
 
 
 -- Expressions: evaluation of Rvalues and Lvalues
@@ -1151,8 +1155,8 @@ lookupHandle :: MethName -> HandleMap -> Maybe MirHandle
 lookupHandle funid hmap
    | Just mh <- Map.lookup funid hmap = Just mh
    | Just mh <- Map.lookup (M.relocateDefId funid) hmap = Just mh
-   | Just mh <- Map.lookup (mangleTraitId funid) hmap = Just mh
-   | Just mh <- Map.lookup (M.relocateDefId (mangleTraitId funid)) hmap = Just mh
+   | Just mh <- Map.lookup (M.mangleTraitId funid) hmap = Just mh
+   | Just mh <- Map.lookup (M.relocateDefId (M.mangleTraitId funid)) hmap = Just mh
    | otherwise = Nothing
 
 -- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
@@ -1351,7 +1355,10 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
     transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 
-transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) _ =
+transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) _ = do
+    traceM $ show (vcat [text "At function call of ", pretty funid, text " with arguments ", pretty cargs, 
+                   text "with type parameters: ", pretty funsubsts])
+             
     case (funsubsts, cargs) of
       (Just (M.TyDynamic traitName) : _, tobj:_args) -> -- this is a method call on a trait object
         methodCall traitName funid tobj cargs cretdest
@@ -1782,7 +1789,7 @@ mkTraitImplementations _col trs trait@(M.Trait tname titems) =
 
 
 
-
+ 
 -- | Find the mapping from types to method handles for *this* trait
 thisTraitImpls :: M.Trait -> [(MethName,TraitName,TypeName,MirHandle)] -> Map TypeName (Map MethName MirHandle)
 thisTraitImpls (M.Trait trait _) trs = do
@@ -1916,7 +1923,7 @@ doCustomCall fname ops lv dest
                             fail "type mismatch in call"
                    _ -> fail $ "bad handle type"
 
-       _ -> fail "unexpected type in Fn::call!"
+       _ -> fail $ "unexpected type in Fn::call!" ++ show (pretty (M.typeOf o1)) ++ " " ++  show (pretty (M.typeOf o2))
 
  | Just cf <- M.isCustomFunc fname = fail $ "custom function not handled: " ++ (show cf)
 

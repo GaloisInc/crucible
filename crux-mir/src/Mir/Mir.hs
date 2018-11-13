@@ -38,7 +38,7 @@ import Control.Lens(makeLenses,(^.))
 import Data.Maybe (fromMaybe)
 import Data.String (IsString(..))
 
-import GHC.Generics 
+
 
 
 --import GHC.TypeLits
@@ -46,8 +46,11 @@ import qualified Data.Parameterized.List as Param
 --import qualified Data.Parameterized.Classes as Param
 --import qualified Data.Parameterized.NatRepr as Param
 
+import GHC.Generics 
 import GHC.Stack
 import Debug.Trace
+
+import Mir.DefId
 
 -- NOTE: below, all unwinding calls can be ignored
 --
@@ -62,12 +65,12 @@ data BaseSize =
       | B32
       | B64
       | B128
-      deriving (Eq, Show, Generic, Relocate)
+      deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data FloatKind
   = F32
   | F64
-  deriving (Eq, Show, Generic, Relocate)
+  deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data Ty =
     TyBool
@@ -91,33 +94,34 @@ data Ty =
       | TyRawPtr Ty Mutability
       | TyFloat FloatKind
       | TyDowncast Ty Integer   --- result type of downcasting an ADT. Ty must be an ADT type
-      deriving (Eq, Show, Generic)
+      | TyProjection DefId [Maybe Ty]
+      deriving (Eq, Ord, Show, Generic)
 
 data FnSig = FnSig [Ty] Ty
-    deriving (Eq, Show, Generic, Relocate)
+    deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data Adt = Adt {_adtname :: DefId, _adtvariants :: [Variant]}
-    deriving (Eq, Show, Generic, Relocate)
+    deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data VariantDiscr
   = Explicit DefId
   | Relative Int
-  deriving (Eq, Show, Generic, Relocate)
+  deriving (Eq, Ord, Show, Generic, GenericOps)
 
 
 data CtorKind
   = FnKind
   | ConstKind
   | FictiveKind
-  deriving (Eq, Show, Generic, Relocate)
+  deriving (Eq, Ord, Show, Generic, GenericOps)
 
 
 data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
-    deriving (Eq,Show, Generic, Relocate)
+    deriving (Eq, Ord,Show, Generic, GenericOps)
 
 
 data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: [Maybe Ty]}
-    deriving (Show, Eq, Generic, Relocate)
+    deriving (Show, Eq, Ord, Generic, GenericOps)
 
 
 data CustomTy =
@@ -125,12 +129,12 @@ data CustomTy =
       | VecTy Ty
       | IterTy Ty
       | CEnum DefId
-    deriving (Eq, Show, Generic, Relocate)
+    deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data Mutability
   = Mut
   | Immut
-  deriving (Eq, Show, Generic, Relocate)
+  deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data Var = Var {
     _varname :: Text,
@@ -138,7 +142,7 @@ data Var = Var {
     _varty :: Ty,
     _varscope :: VisibilityScope,
     _varpos :: Text }
-    deriving (Eq, Show, Generic, Relocate)
+    deriving (Eq, Show, Generic, GenericOps)
 
 instance Ord Var where
     compare (Var n _ _ _ _) (Var m _ _ _ _) = compare n m
@@ -148,7 +152,7 @@ data Collection = Collection {
     _functions :: [Fn],
     _adts :: [Adt],
     _traits :: [Trait]
-} deriving (Show, Eq, Generic, Relocate)
+} deriving (Show, Eq, Ord, Generic, GenericOps)
 
 
 
@@ -158,7 +162,7 @@ data Fn = Fn {
     _freturn_ty :: Ty,
     _fbody :: MirBody
     }
-    deriving (Show,Eq, Generic, Relocate)
+    deriving (Show,Eq, Ord, Generic, GenericOps)
 
 
 
@@ -166,14 +170,14 @@ data MirBody = MirBody {
     _mvars :: [Var],
     _mblocks :: [BasicBlock]
 }
-    deriving (Show,Eq, Generic, Relocate)
+    deriving (Show,Eq, Ord, Generic, GenericOps)
 
 
 data BasicBlock = BasicBlock {
     _bbinfo :: BasicBlockInfo,
     _bbdata :: BasicBlockData
 }
-    deriving (Show,Eq, Generic, Relocate)
+    deriving (Show,Eq, Ord, Generic, GenericOps)
 
 
 
@@ -181,7 +185,7 @@ data BasicBlockData = BasicBlockData {
     _bbstmts :: [Statement],
     _bbterminator :: Terminator
 }
-    deriving (Show,Eq, Generic, Relocate)
+    deriving (Show,Eq, Ord, Generic, GenericOps)
 
 
 data Statement =
@@ -191,7 +195,7 @@ data Statement =
       | StorageLive { _sllv :: Lvalue }
       | StorageDead { _sdlv :: Lvalue }
       | Nop
-    deriving (Show,Eq, Generic, Relocate)
+    deriving (Show,Eq, Ord, Generic, GenericOps)
 
 
 data Lvalue =
@@ -199,7 +203,7 @@ data Lvalue =
     | Static
     | LProjection LvalueProjection
     | Tagged Lvalue Text -- for internal use during the translation
-    deriving (Show, Eq, Generic, Relocate)
+    deriving (Show, Eq, Generic, GenericOps)
 
 instance Ord Lvalue where
     compare l1 l2 = compare (show l1) (show l2)
@@ -221,10 +225,10 @@ data Rvalue =
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
       | RCustom CustomAggregate
-    deriving (Show,Eq, Generic, Relocate)
+    deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
-    deriving (Show, Eq, Generic, Relocate)
+    deriving (Show, Eq, Ord, Generic, GenericOps)
 
 
 data Terminator =
@@ -255,17 +259,17 @@ data Terminator =
                  _amsg      :: AssertMessage,
                  _atarget   :: BasicBlockInfo,
                  _acleanup  :: Maybe BasicBlockInfo}
-      deriving (Show,Eq, Generic, Relocate)
+      deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data Operand =
     Consume Lvalue
       | OpConstant Constant
-      deriving (Show, Eq, Generic, Relocate)
+      deriving (Show, Eq, Ord, Generic, GenericOps)
 
-data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Generic, Relocate)
+data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Ord, Generic, GenericOps)
 
 data LvalueProjection = LvalueProjection { _lvpbase :: Lvalue, _lvpkind :: Lvpelem }
-    deriving (Show,Eq, Generic, Relocate)
+    deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data Lvpelem =
     Deref
@@ -274,14 +278,14 @@ data Lvpelem =
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
       | Subslice { _sfrom :: Int, _sto :: Int }
       | Downcast Integer
-      deriving (Show, Eq, Generic, Relocate)
+      deriving (Show, Eq, Ord, Generic, GenericOps)
 
 
 
 data NullOp =
         SizeOf
       | Box
-      deriving (Show,Eq, Generic, Relocate)
+      deriving (Show,Eq, Ord, Generic, GenericOps)
 
 
 
@@ -289,13 +293,13 @@ data BorrowKind =
         Shared
       | Unique
       | Mutable
-      deriving (Show,Eq, Generic, Relocate)
+      deriving (Show,Eq, Ord, Generic, GenericOps)
 
 
 data UnOp =
     Not
   | Neg
-  deriving (Show,Eq, Generic, Relocate)
+  deriving (Show,Eq, Ord, Generic, GenericOps)
 
 
 data BinOp =
@@ -316,7 +320,7 @@ data BinOp =
       | Ge
       | Gt
       | Offset
-      deriving (Show,Eq, Generic, Relocate)
+      deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data CastKind =
     Misc
@@ -324,13 +328,13 @@ data CastKind =
       | ClosureFnPointer
       | UnsafeFnPointer
       | Unsize
-      deriving (Show,Eq, Generic, Relocate)
+      deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data Literal =
     Item DefId [Maybe Ty]
   | Value ConstVal
   | LPromoted Promoted
-  deriving (Show,Eq, Generic, Relocate)
+  deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data IntLit
   = U8 Integer
@@ -343,11 +347,11 @@ data IntLit
   | I32 Integer
   | I64 Integer
   | Isize Integer
-  deriving (Eq, Show, Generic, Relocate)
+  deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data FloatLit
   = FloatLit FloatKind String
-  deriving (Eq, Show, Generic, Relocate)
+  deriving (Eq, Ord, Show, Generic, GenericOps)
 
 
 data ConstVal =
@@ -363,30 +367,31 @@ data ConstVal =
   | ConstTuple [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
-  deriving (Show,Eq, Generic, Relocate)
+  deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data AggregateKind =
         AKArray Ty
       | AKTuple
       | AKClosure DefId [Maybe Ty]
-      deriving (Show,Eq, Generic, Relocate)
+      deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data CustomAggregate =
     CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
-    deriving (Show,Eq, Generic, Relocate)
+    deriving (Show,Eq, Ord, Generic, GenericOps)
 
 ---------------------------------------------------------------
 -- DefIds
 -- Identifiers that can be qualified by paths
+{-
 data DefId = DefId { idText :: Text }
-  deriving (Eq, Ord, Generic)
-
+  deriving (Eq, Ord, Ord, Generic)
+-}
 -- We use these for traits, functions, and types 
 type TraitName = DefId
 type MethName  = DefId
 type AdtName   = DefId
 
-
+{-
 textId :: Text -> DefId
 textId = DefId
 
@@ -394,7 +399,7 @@ instance Show DefId where
   show (DefId defId) = show defId
 instance IsString DefId where
   fromString str = DefId (fromString str)
-
+-}
 
 
 
@@ -407,112 +412,130 @@ type ClosureSubsts = Text
 type BasicBlockInfo = Text
 
 data Trait = Trait DefId [TraitItem]
-    deriving (Eq, Show, Generic, Relocate)
+    deriving (Eq, Ord, Show, Generic, GenericOps)
 
 
 data TraitItem
     = TraitMethod DefId FnSig  
     | TraitType DefId         -- associated type
     | TraitConst DefId Ty
-    deriving (Eq, Show, Generic, Relocate)
+    deriving (Eq, Ord, Show, Generic, GenericOps)
 
 
 
 --------------------------------------------------------------------------------------
 --
--- Generic relocation operation
+-- Generic operations
 --
--- | Crawl over the AST and rename the module that defIds live in.
--- We need this because we are loading our own variant of the standard
--- library, but all of the definitions there will have the wrong
--- name.
 
-class Relocate a where
+class GenericOps a where
 
-  -- rename defIds 
+  -- | Crawl over the AST and rename the module that defIds live in.
+  -- We need this because we are loading our own variant of the standard
+  -- library, but all of the definitions there will have the wrong name.
   relocate :: a -> a
-  default relocate :: (Generic a, Relocate' (Rep a)) => a -> a
+  default relocate :: (Generic a, GenericOps' (Rep a)) => a -> a
   relocate x = to (relocate' (from x))
 
-  -- find all C-style Adts in the AST and convert them to Custom (CEnum _) types
+  -- | find all C-style Adts in the AST and convert them to Custom (CEnum _) types
   markCStyle :: [AdtName] -> a -> a 
-  default markCStyle :: (Generic a, Relocate' (Rep a)) => [AdtName] -> a -> a
+  default markCStyle :: (Generic a, GenericOps' (Rep a)) => [AdtName] -> a -> a
   markCStyle s x = to (markCStyle' s (from x))
 
+
+  tySubst :: [Maybe Ty] -> a -> a 
+  default tySubst :: (Generic a, GenericOps' (Rep a)) => [Maybe Ty] -> a -> a
+  tySubst s x = to (tySubst' s (from x))
+  
+
+
 -- special case for DefIds
-instance Relocate DefId where
-  relocate     = relocateDefId
+instance GenericOps DefId where
+  relocate     = relocateDefId 
   markCStyle _ = id
 
 -- special case for Tys
 -- Translate C-style enums to CEnum types
-instance Relocate Ty where
-  relocate   x = to (relocate' (from x))
+instance GenericOps Ty where
 
   markCStyle s (TyAdt n [])  | n `elem` s = TyCustom (CEnum n)
   markCStyle s (TyAdt n _ps) | n `elem` s = error "Cannot have params to C-style enum!"
   markCStyle s ty = to (markCStyle' s (from ty))
 
+  tySubst substs (TyParam i)
+     | fromInteger i < length substs =
+         case substs !! fromInteger i of
+                        Nothing -> error "impossible"
+                        Just ty -> ty
+     | otherwise    = error $ "Indexing at " ++ show i ++ "  from subst " ++ show substs
+  tySubst substs ty = to (tySubst' substs (from ty))
 
-    
--- | The module name for the rust core library used by mir-json.
--- If mir-json changes, we will need to update this name.
-stdlib :: String
-stdlib = "core/ae3efe0"
-
-
-relocateDefId :: DefId -> DefId
-relocateDefId (DefId defId) = textId (if ':' `elem` name then pack (stdlib ++ rest) else defId) where
-  name = unpack defId 
-  (_mod,rest) = span (/= ':') name
-
-class Relocate' f where
-  relocate'  :: f p -> f p
+class GenericOps' f where
+  relocate'   :: f p -> f p
   markCStyle' :: [AdtName] -> f p -> f p
+  tySubst'    :: [Maybe Ty] -> f p -> f p 
 
-instance Relocate' V1 where
-  relocate' _x = error "impossible: this is a void type"
+instance GenericOps' V1 where
+  relocate' _x     = error "impossible: this is a void type"
   markCStyle' _ _x = error "impossible: this is a void type"
-instance (Relocate' f, Relocate' g) => Relocate' (f :+: g) where
-  relocate' (L1 x) = L1 (relocate' x)
-  relocate' (R1 x) = R1 (relocate' x)
+  tySubst' _ _     = error "impossible: this is a void type"
+
+instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
+  relocate'     (L1 x) = L1 (relocate' x)
+  relocate'     (R1 x) = R1 (relocate' x)
   markCStyle' s (L1 x) = L1 (markCStyle' s x)
   markCStyle' s (R1 x) = R1 (markCStyle' s x)
+  tySubst'    s (L1 x) = L1 (tySubst' s x)
+  tySubst'    s (R1 x) = R1 (tySubst' s x)
 
-instance (Relocate' f, Relocate' g) => Relocate' (f :*: g) where
-  relocate' (x :*: y) = relocate' x :*: relocate' y
+
+instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
+  relocate'     (x :*: y) = relocate' x     :*: relocate' y
   markCStyle' s (x :*: y) = markCStyle' s x :*: markCStyle' s y
-instance (Relocate c) => Relocate' (K1 i c) where
-  relocate' (K1 x) = K1 (relocate x)
+  tySubst'    s (x :*: y) = tySubst'    s x :*: tySubst'    s y
+
+instance (GenericOps c) => GenericOps' (K1 i c) where
+  relocate'     (K1 x) = K1 (relocate x)
   markCStyle' s (K1 x) = K1 (markCStyle s x)
-instance (Relocate' f) => Relocate' (M1 i t f) where
-  relocate' (M1 x) = M1 (relocate' x)
+  tySubst'    s (K1 x) = K1 (tySubst s x)
+
+instance (GenericOps' f) => GenericOps' (M1 i t f) where
+  relocate'     (M1 x) = M1 (relocate' x)
   markCStyle' s (M1 x) = M1 (markCStyle' s x)
-instance (Relocate' U1) where
-  relocate' U1 = U1
+  tySubst'    s (M1 x) = M1 (tySubst' s x)
+
+instance (GenericOps' U1) where
+  relocate'      U1 = U1
   markCStyle' _s U1 = U1
+  tySubst'    _s U1 = U1
                      
-instance Relocate a => Relocate [a]
-instance Relocate a => Relocate (Maybe a)
-instance (Relocate a, Relocate b) => Relocate (a,b)
-instance Relocate Int     where
+instance GenericOps a => GenericOps [a]
+instance GenericOps a => GenericOps (Maybe a)
+instance (GenericOps a, GenericOps b) => GenericOps (a,b)
+instance GenericOps Int     where
    relocate   = id
    markCStyle = const id
-instance Relocate Integer where
+   tySubst    = const id
+instance GenericOps Integer where
    relocate = id
    markCStyle = const id
-instance Relocate Char    where
+   tySubst    = const id
+instance GenericOps Char    where
    relocate = id
    markCStyle = const id
-instance Relocate Bool    where
+   tySubst    = const id
+instance GenericOps Bool    where
    relocate = id
    markCStyle = const id
-instance Relocate Text    where
+   tySubst    = const id
+instance GenericOps Text    where
    relocate = id
    markCStyle = const id
-instance Relocate B.ByteString where
+   tySubst    = const id
+instance GenericOps B.ByteString where
    relocate = id
    markCStyle = const id
+   tySubst    = const id
 
 -- A CStyle ADT is one that is an enumeration of numeric valued options
 -- containing no data
@@ -586,8 +609,6 @@ isPoly (TyCustom (BoxTy ty)) = isPoly ty
 isPoly (TyCustom (VecTy ty)) = isPoly ty
 isPoly (TyCustom (IterTy ty)) = isPoly ty
 isPoly _x = False           
-
-
 
 
 --------------------------------------------------------------------------------------
@@ -773,7 +794,7 @@ replaceLvalue = replace
 --
 
 -- Custom function calls are converted by hand. The below can probably do away with regex and use [0], but I'm not sure if that would always work
-
+{-
 isCustomFunc :: DefId -> Maybe DefId
 isCustomFunc fname1
   | Just _ <- Regex.matchRegex (Regex.mkRegex "::boxed\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::new\\[[0-9]+\\]") (unpack (idText fname1))
@@ -814,7 +835,7 @@ isCustomFunc fname1
   --    (vec, 0) -> vec
 
   | otherwise = Nothing
-
+-}
 
 
     
@@ -845,7 +866,7 @@ instance PPrint Text where
     pprint = unpack
 
 instance PPrint DefId where
-    pprint (DefId did) = pprint did
+    pprint = show 
 
 instance PPrint Int where
     pprint = show
@@ -1112,6 +1133,7 @@ instance FromJSON Ty where
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
                                           Just (String "Never") -> pure (TyAdt "Never" [])
+                                          Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
                                           r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON FnSig where

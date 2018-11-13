@@ -12,8 +12,11 @@ import           System.Directory (doesFileExist, removeFile, getModificationTim
 
 import GHC.Stack
 import Mir.Mir
+import Mir.PP()
+import Text.PrettyPrint.ANSI.Leijen (Pretty(..))
 
 
+import Debug.Trace
 
 
 -- | Run mir-json on the input, generating lib file on disk 
@@ -57,4 +60,9 @@ generateMIR dir name = do
   let c = (J.eitherDecode f) :: Either String Collection
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
-      Right col -> return col
+      Right col -> do
+        traceM "--------------------------------------------------------------"
+        traceM $ "Collection: " ++ name
+        traceM $ show (pretty col)
+        traceM "--------------------------------------------------------------"
+        return col

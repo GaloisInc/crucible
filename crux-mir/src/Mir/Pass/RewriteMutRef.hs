@@ -28,7 +28,7 @@ import qualified Data.Map.Strict as Map
 import Data.List
 
 import Mir.Mir
-
+import Mir.DefId
 
 import GHC.Stack
 

@@ -109,9 +109,10 @@ import           Lang.Crucible.Simulator.SimError
 import           What4.Interface
 import           What4.Utils.MonadST
 
+import           Mir.DefId
 import           Mir.Mir
 
---import           Debug.Trace
+import           Debug.Trace
 
 type MirReferenceSymbol = "MirReference"
 type MirReferenceType tp = IntrinsicType MirReferenceSymbol (EmptyCtx ::> tp)
@@ -401,7 +402,7 @@ pattern MirSliceRepr tp <- StructRepr
 -- ** Generator state for MIR translation to Crucible
 --
 
-type TypeName  = DefId
+type TypeName  = Ty
 
 -- | The HandleMap maps mir functions to their corresponding function
 -- handle. Function handles include the original method name (for
@@ -498,74 +499,12 @@ getTraitImplementation :: [Trait] ->
                           (MethName,MirHandle) ->
                           Maybe (MethName, TraitName, MirHandle)
 getTraitImplementation trts (name, handle) = do
-  [methodName] <- parseImplName (show name)
-  let declaredTraitMethod (TraitMethod tm _ts) =
-        case parseTraitName (Text.unpack (idText tm)) of
-          Just [_tn,mn] -> mn == methodName
-          _ -> False
+  methodName <- parseImplName name
+  let declaredTraitMethod (TraitMethod tm _ts) = sameMethod methodName tm
       declaredTraitMethod _ = False
-  traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts, List.any declaredTraitMethod items ]
-  return (textId $ Text.pack methodName, traitName, handle)
-
-
--------------------------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------------------------
-
-
--- The relation between methods and their implementations
--- is not straightforward in MIR. The name of the function
--- implementating a method 'foo' of a trait 'Bar' by a type 'Tar'
--- looks like: '::{{impl}}[n]::foo[m]'.
-
-modid,impl,rustid,brk::String
-modid = "[A-Za-z0-9]*"
-impl = "{{impl}}" ++ brk
-rustid = "[A-Za-z0-9]+"
-brk = "\\[[0-9]+\\]"
-
--- | Detect a name that has {{impl}} in it and pull out the part after.
-parseImplName :: String -> Maybe [String]
-parseImplName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::"++impl++"::("++rustid++brk++")"++".*")
-
--- 
-parseTraitName :: String -> Maybe [String]
-parseTraitName = Regex.matchRegex (Regex.mkRegex $ "(" ++rustid++")"++brk++"::"++"("++rustid++brk++")")
-
-parseStaticMethodName :: String -> Maybe [String]
-parseStaticMethodName = Regex.matchRegex (Regex.mkRegex $ "(" ++ modid ++ ")::" ++ rustid++"(" ++ brk ++ ")" ++ "::" ++ "(" ++ rustid++brk++")")
-
-parseVariantName :: String -> Maybe [String]
-parseVariantName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::" ++ rustid ++ brk ++ "::" ++ "(" ++ rustid++")" ++ brk)
-
-parseVariantName2 :: String -> Maybe [String]
-parseVariantName2 = Regex.matchRegex (Regex.mkRegex $ modid ++ "::" ++ "(" ++ rustid++")" ++ brk)
-
--- ret/8cd878b::E[0]::A[0]::0[0]  ==> 0
--- ret/8cd878b::S[0]::x[0]        ==> x
-parseFieldName :: String -> Maybe [String]
-parseFieldName = Regex.matchRegex
-  (Regex.mkRegex $
-    modid ++ "::" ++ rustid ++ brk ++ "::" ++ "(" ++ rustid ++ brk ++ "::)?" ++ "(" ++ rustid ++ ")" ++ brk)
-
-
-cleanVariantName :: DefId -> Text
-cleanVariantName txt | Just [ constrName ] <- parseVariantName (Text.unpack (idText txt))
-                     = Text.pack constrName
-                     | Just [ constrName ] <- parseVariantName2 (Text.unpack (idText txt))
-                     = Text.pack constrName
-                     | otherwise
-                     = idText txt 
-
-                     
-
-
--- If we have a static call for a trait, we need to mangle the format so that it looks like
--- a normal function call
-
-mangleTraitId :: DefId -> DefId 
-mangleTraitId defId = case parseStaticMethodName (Text.unpack (idText defId)) of
-  Just [modname,implbrk,name] -> textId $ Text.pack (modname ++ "::" ++ "{{impl}}"++implbrk++"::"++name)    
-  _ -> defId
+  traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts,
+                                   List.any declaredTraitMethod items ]
+  return (name, traitName, handle)
 
 -------------------------------------------------------------------------------------------------------
 

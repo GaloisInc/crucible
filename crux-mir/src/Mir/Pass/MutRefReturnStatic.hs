@@ -17,6 +17,7 @@ import Data.List
 import Data.Maybe (catMaybes)
 
 import Mir.Mir
+import Mir.DefId
 
 --import GHC.Stack
 

@@ -58,6 +58,7 @@ library
                    Mir.Pass.RemoveBoxNullary
                    Mir.PP
                    Mir.Generate
+                   Mir.DefId
   other-modules: 
                  Mir.Intrinsics
                  Mir.Overrides
@@ -118,7 +119,8 @@ executable crux-mir
                  Mir.SAWInterface
                  Mir.Trans
                  Mir.PP
-                 Mir.Generate       
+                 Mir.Generate
+                 Mir.DefId   
                  
 test-suite test
   type: exitcode-stdio-1.0

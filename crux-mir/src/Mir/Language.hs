@@ -60,7 +60,8 @@ import Crux.Log
 import           Mir.Mir
 import           Mir.PP()
 import           Mir.Overrides
-import           Mir.Intrinsics(MIR,mirExtImpl,cleanVariantName,parseFieldName)
+import           Mir.Intrinsics(MIR,mirExtImpl)
+import           Mir.DefId(cleanVariantName,parseFieldName)
 import           Mir.SAWInterface (translateMIR,RustModule(..))
 import           Mir.Generate(generateMIR)
 import           Mir.Prims(loadPrims)
@@ -266,10 +267,10 @@ showRegEntry col mty (C.RegEntry tp rv) =
                     let (Field fName fty _fsubst) = (var^.vfields) !! (Ctx.indexVal idx)
                         cty0   = ctxr Ctx.! idx
                     str <- showRegEntry col fty (C.RegEntry cty0 elt)
-                    case parseFieldName (Text.unpack (idText fName)) of
-                      Just [_, fn] -> case Read.readMaybe fn of
+                    case parseFieldName fName of
+                      Just fn -> case Read.readMaybe (Text.unpack fn) of
                                         Just (_x :: Int) -> return $ (Const $ str)
-                                        _  -> return $ (Const $ fn ++ ": " ++ str)
+                                        _  -> return $ (Const $ (Text.unpack fn) ++ ": " ++ str)
                       _       -> return $ (Const str)
               cstrs <- Ctx.traverseWithIndex goField av
               let strs = Ctx.toListFC (\(Const str) -> str) cstrs
