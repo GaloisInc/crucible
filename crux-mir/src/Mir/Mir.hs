@@ -128,7 +128,7 @@ data CustomTy =
         BoxTy Ty
       | VecTy Ty
       | IterTy Ty
-      | CEnum DefId
+      | CEnum DefId    -- C-style Enumeration, all variants must be trivial
     deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data Mutability

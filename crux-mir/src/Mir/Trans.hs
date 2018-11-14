@@ -632,16 +632,34 @@ evalCast ck op ty = do
     e <- evalOperand op
     evalCast' ck (M.typeOf op) e ty
 
+mkCustomTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
+mkCustomTraitObject traitName (TyClosure fname args) e@(MirExp baseTyr baseValue)
+   | M.did_name traitName == ("Fn", 0) = do
+      traceM $ "customTraitObj for " ++ show fname ++ " with args " ++ show args
+      -- a trait object for a closure is just the closure value
+      -- call is a custom operation
+      let vtableCtx = undefined
+      let assn      = undefined
+      let ctxr      = Ctx.empty Ctx.:> CT.AnyRepr Ctx.:> CT.StructRepr vtableCtx
+      let _obj      = R.App $ E.PackAny (CT.StructRepr ctxr)
+                       (R.App $ E.MkStruct ctxr (Ctx.empty Ctx.:> (R.App $ E.PackAny baseTyr baseValue) Ctx.:> assn))
+      return e
+mkCustomTraitObject traitName baseType _ =
+  fail $ Text.unpack $ Text.unwords ["Error while creating a trait object: type ",
+                                     Text.pack (show baseType)," does not implement trait ", M.idText traitName]
+    
+  
 
 
--- | Create a new trait object for the given trait for the given
--- value. Fails if the value does not implement the trait.
+-- | Create a new trait object for the given trait for the given value
+-- Fails if the value does not implement the trait.
+-- A trait object is pair of the (value coerced to AnyType) with its vtable for that trait.
+-- This pair is then packed to type AnyType.
 mkTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
-mkTraitObject traitName baseType (MirExp baseTyr baseValue) = do
+mkTraitObject traitName baseType e@(MirExp baseTyr baseValue) = do
   (Some timpls) <- traitImplsLookup traitName
   case Map.lookup (typeName baseType) (timpls^.vtables) of
-    Nothing -> fail $ Text.unpack $ Text.unwords ["Error while creating a trait object: type ",
-                                                   Text.pack (show baseType)," does not implement trait ", M.idText traitName]
+    Nothing -> mkCustomTraitObject traitName baseType e
     Just vtbl -> do
       let vtableCtx = timpls^.vtableTyRepr
       let ctxr      = Ctx.empty Ctx.:> CT.AnyRepr Ctx.:> CT.StructRepr vtableCtx
@@ -793,9 +811,9 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        exps <- mapM evalOperand ops
                                        tyToReprCont ty $ \repr ->
                                            buildArrayLit repr exps
-                                   M.AKClosure defid _argsm -> do
+                                   M.AKClosure defid argsm -> do
                                        args <- mapM evalOperand ops
-                                       buildClosureHandle defid args
+                                       buildClosureHandle defid argsm args
 evalRval (M.RAdtAg (M.AdtAg adt agv [])) | isCStyle adt  = do
     return $ (MirExp knownRepr (R.App (E.IntLit agv)))
 evalRval (M.RAdtAg (M.AdtAg _adt agv ops))  = do
@@ -803,8 +821,8 @@ evalRval (M.RAdtAg (M.AdtAg _adt agv ops))  = do
     return $ buildTaggedUnion agv es
 
 -- A closure is (packed into an any) of the form [handle, arguments] (arguments being those packed into the closure, not the function arguments)
-buildClosureHandle :: M.DefId -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildClosureHandle funid args = do
+buildClosureHandle :: M.DefId -> [Maybe M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildClosureHandle funid argsm args = do
     hmap <- use handleMap
     case (Map.lookup funid hmap) of
       Just (MirHandle _ _ fhandle) -> do
@@ -812,13 +830,13 @@ buildClosureHandle funid args = do
           let handle_cl = S.app $ E.HandleLit fhandle
               handle_cl_ty = FH.handleType fhandle
               handl = MirExp handle_cl_ty handle_cl
-          let closure_unpack = buildTuple [handl, closure_arg]
+          let closure_unpack = buildTuple [handl, (packAny closure_arg)]
           return $ packAny closure_unpack
       _ ->
        do fail ("buildClosureHandle: unknmown function: " ++ show funid)
 
 
-buildClosureType :: M.DefId -> [M.Ty] -> MirGenerator h s ret (Some CT.TypeRepr) -- get type of closure, in order to unpack the any
+buildClosureType :: M.DefId -> [M.Ty] -> MirGenerator h s ret (Some CT.TypeRepr, Some CT.TypeRepr) -- get type of closure, in order to unpack the any
 buildClosureType defid args = do
     hmap <- use handleMap
     case (Map.lookup defid hmap) of
@@ -827,10 +845,10 @@ buildClosureType defid args = do
           tyListToCtx args $ \argsctx -> do
               let argstruct = CT.StructRepr argsctx
                   handlerepr = FH.handleType fhandle
-              reprsToCtx [Some handlerepr, Some argstruct] $ \t ->
-                  return $ Some (CT.StructRepr t)
+              reprsToCtx [Some handlerepr, Some CT.AnyRepr] $ \t ->
+                  return $ (Some (CT.StructRepr t), Some argstruct)
       _ ->
-       do fail ("buildClosureType: unknmown function: " ++ show defid)
+       do fail ("buildClosureType: unknown function: " ++ show defid)
 
 
 unpackAny :: HasCallStack => Some CT.TypeRepr -> MirExp s -> MirGenerator h s ret (MirExp s)
@@ -840,7 +858,7 @@ unpackAny _ (MirExp tr _) = fail $ "bad anytype, found " ++ show (pretty tr)
 
 unpackAnyE :: HasCallStack => CT.TypeRepr t -> MirExp s -> MirExp s
 unpackAnyE tr (MirExp CT.AnyRepr e) =
-   MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) ("Bad Any unpack"))
+   MirExp tr (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr e) (fromString ("Bad Any unpack: " ++ show tr)))
 unpackAnyE _ _ = error $ "bad anytype unpack"
 
 
@@ -873,10 +891,11 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
       M.TyClosure defid argsm -> do -- if lv is a closure, then accessing the ith component means accessing the ith arg in the struct
         e <- evalLvalue lv
         let args = filterMaybes argsm
-        clty <- buildClosureType defid args
+        (clty, rty) <- buildClosureType defid args
         unpack_closure <- unpackAny clty e
         clargs <- accessAggregate unpack_closure 1
-        accessAggregate clargs field
+        clargs' <- unpackAny rty clargs
+        accessAggregate clargs' field
 
       mty@(M.TyDowncast _ _) -> do
          (struct_variant, args) <- getVariant mty 
@@ -1236,8 +1255,9 @@ coerceAdt dir adt substs asubsts e0 = do
 coerceArg :: forall h s ret. HasCallStack => M.Ty -> (M.Ty, MirExp s) -> MirGenerator h s ret (MirExp s)
 coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
   case (ty,aty,tr) of
-     (M.TyParam _,_, _) -> return $ packAny e
      (M.TyRef ty1 _mut, M.TyRef aty1 _, _) -> coerceArg ty1 (aty1, e)
+     (M.TyParam _, M.TyClosure _ _, _) -> return e
+     (M.TyParam _,_, _) -> return $ packAny e
      (M.TyAdt adt substs,   -- polymorphic type of the parameter
       M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
       CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)) -> do
@@ -1255,10 +1275,10 @@ coerceRet :: forall h s ret. HasCallStack =>
          -> (M.Ty, MirExp s) -- ^ expected return type by the context, expression to coerce
          -> MirGenerator h s ret (MirExp s)
 coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
-   case (ty,aty,tr) of 
-     (M.TyParam _,_,CT.AnyRepr) -> do
-        unpackAny (tyToRepr aty) e
+   case (ty,aty,tr) of
      (M.TyRef ty1 _mut, M.TyRef aty2 _,_) -> coerceRet ty1 (aty2,e)
+     (M.TyParam _, M.TyClosure _ _, _) -> return e
+     (M.TyParam _,_,CT.AnyRepr) -> unpackAny (tyToRepr aty) e
      (M.TyAdt adt substs,   -- polymorphic type of the parameter
       M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
       CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)) -> do
@@ -1271,14 +1291,23 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
 
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
-doCall :: HasCallStack => M.DefId -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
-doCall funid cargs cdest = do
+doCall :: HasCallStack => M.DefId -> [Maybe M.Ty] -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
+doCall funid funsubst cargs cdest = do
     hmap <- use handleMap
     _tmap <- use traitMap
     case cdest of 
       (Just (dest_lv, jdest))
 
+         | Just _fname <- M.isCustomFunc funid -> do
+            traceM $ show (vcat [text "At custom function call of ", pretty funid, text " with arguments ", pretty cargs, 
+                   text "with type parameters: ", pretty funsubst])
+
+            doCustomCall funid funsubst cargs dest_lv jdest
+
         | Just (MirHandle _ (M.FnSig args ret) fhandle) <- lookupHandle funid hmap -> do
+            traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs, 
+                   text "with type parameters: ", pretty funsubst])
+
             exps <- mapM evalOperand cargs
             let fargctx = FH.handleArgTypes fhandle
             let fret    = FH.handleReturnType fhandle
@@ -1290,12 +1319,8 @@ doCall funid cargs cdest = do
                   cret_e <- coerceRet ret ((M.typeOf dest_lv), MirExp fret ret_e)
                   assignLvExp dest_lv Nothing cret_e
                   jumpToBlock jdest
-                _ -> fail $ "type error in call: args " ++ (show ctx) ++ " vs function params "
-                                 ++ show fargctx ++ " while calling " ++ show funid
-
-         | Just _fname <- M.isCustomFunc funid -> do
-            doCustomCall funid cargs dest_lv jdest
-
+                _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
+                                 ++ show fargctx ++ "\n while calling " ++ show funid
 
          | otherwise -> fail $ "Don't know how to call " ++ show funid
 
@@ -1335,7 +1360,7 @@ methodCall traitName methodName traitObject args (Just (dest_lv,jdest)) = do
                        ret_e <- G.call fn asgn
                        assignLvExp dest_lv Nothing (MirExp fret ret_e)
                        jumpToBlock jdest
-                     Nothing -> fail $ "type error in call: args " ++ (show ctx) ++ " vs function params "
+                     Nothing -> fail $ "type error in TRAIT call: args " ++ (show ctx) ++ " vs function params "
                                  ++ show fargctx ++ " while calling " ++ show fn
              _ -> fail $ "type error in call: " ++ show fnRepr ++ " while calling " ++ show fn
                         
@@ -1356,14 +1381,16 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
     jumpToBlock dtarg
 
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) _ = do
-    traceM $ show (vcat [text "At function call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubsts])
              
     case (funsubsts, cargs) of
-      (Just (M.TyDynamic traitName) : _, tobj:_args) -> -- this is a method call on a trait object
+      (Just (M.TyDynamic traitName) : _, tobj:_args) | Nothing  <- M.isCustomFunc funid -> do -- this is a method call on a trait object
+        traceM $ show (vcat [text "At TRAIT function call of ", pretty funid, text " with arguments ", pretty cargs, 
+                   text "with type parameters: ", pretty funsubsts])
+
         methodCall traitName funid tobj cargs cretdest
-      _ -> -- this is a normal function call
-        doCall funid cargs cretdest  -- cleanup ignored
+
+      _ -> do -- this is a normal function call
+        doCall funid funsubsts cargs cretdest  -- cleanup ignored
         
 transTerminator (M.Assert _cond _expected _msg target _cleanup) _ =
     jumpToBlock target -- FIXME! asserts are ignored; is this the right thing to do? NO!
@@ -1827,8 +1854,8 @@ extractVecTy :: forall a t. CT.TypeRepr t -> (forall t2. CT.TypeRepr t2 -> a) ->
 extractVecTy (CT.VectorRepr a) f = f a
 extractVecTy _ _ = error "Expected vector type in extraction"
 
-doCustomCall :: HasCallStack => M.DefId -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
-doCustomCall fname ops lv dest
+doCustomCall :: forall h s ret a. HasCallStack => M.DefId -> [Maybe M.Ty] -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
+doCustomCall fname funsubst ops lv dest
   | Just "boxnew" <- M.isCustomFunc fname,
   [op] <- ops =  do
         e <- evalOperand op
@@ -1898,15 +1925,51 @@ doCustomCall fname ops lv dest
 
 
  | Just "call" <- M.isCustomFunc fname, -- perform call of closure
- [o1, o2] <- ops = do
+ [o1, o2] <- ops, [Just ty1, Just aty] <- funsubst   = do
+
+     -- is it the case that ty1 is always the same as M.typeOf o1???
+     when (ty1 /= M.typeOf o1) $ do
+          traceM $ "ty1 and o1 differ: " ++ show (pretty ty1) ++ " " ++ show (pretty (M.typeOf o1))
 
      argtuple <- evalOperand o2
-     case (M.typeOf o1, M.typeOf o2) of
-       (M.TyClosure defid clargsm, M.TyTuple _args) -> do
+
+     let unpackClosure :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
+         unpackClosure (M.TyClosure defid clargsm) _rty arg = do
+             let clargs = filterMaybes clargsm
+             (clty, _rty2) <- buildClosureType defid clargs
+             unpackAny clty arg
+
+         unpackClosure (M.TyRef ty M.Immut) rty  arg   = unpackClosure ty rty arg
+
+         unpackClosure (M.TyDynamic _id)    rty  arg   = do
+             tyToReprCont rty $ \rr -> 
+               tyToReprCont aty $ \(CT.StructRepr r2) ->  do
+                 let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
+                 let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
+                 -- second layer for the closure type
+                 unpackAny (Some (CT.StructRepr t)) arg
+              
+         unpackClosure (M.TyParam _i)       rty  arg   = do
+             -- a Fn object looks like a pair of
+             -- a function that takes any "Any" arguments (the closure) and a struct
+             --      of the actual arguments (from the funsubst) and returns type rty
+             -- and an environment of type "Any
+             -- TODO: check multiarguments and make this bit more robust
+             
+             tyToReprCont rty $ \rr -> 
+               tyToReprCont aty $ \(CT.StructRepr r2) ->  do
+                 let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
+                 let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
+                 -- second layer for the closure type
+                 unpackAny (Some (CT.StructRepr t)) arg
+         unpackClosure ty _ _arg      =
+           fail $ "Don't know how to unpack Fn::call arg of type " ++ show (pretty ty)
+
+
+     case (M.typeOf o2) of
+       (M.TyTuple _args) -> do
          closure_pack <- evalOperand o1
-         let clargs = filterMaybes clargsm
-         clty <- buildClosureType defid clargs
-         unpack_closure <- unpackAny clty closure_pack
+         unpack_closure <- unpackClosure (M.typeOf o1) (M.typeOf lv) closure_pack
          handle <- accessAggregate unpack_closure 0
          extra_args <- getAllFields argtuple
          case handle of
@@ -1920,10 +1983,10 @@ doCustomCall fname ops lv dest
                             assignLvExp lv Nothing (MirExp fretrepr ret_e)
                             jumpToBlock dest
                           Nothing ->
-                            fail "type mismatch in call"
+                            fail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
                    _ -> fail $ "bad handle type"
 
-       _ -> fail $ "unexpected type in Fn::call!" ++ show (pretty (M.typeOf o1)) ++ " " ++  show (pretty (M.typeOf o2))
+       _ -> fail $ "unexpected type in Fn::call " ++ show (pretty (M.typeOf o1)) ++ " " ++  show (pretty (M.typeOf o2))
 
  | Just cf <- M.isCustomFunc fname = fail $ "custom function not handled: " ++ (show cf)
 
@@ -1968,7 +2031,7 @@ performMap iterty iter closurety closure =
     case (iterty, closurety) of
       (M.TyCustom (M.IterTy _t), M.TyClosure defid clargsm) -> do
           let clargs = filterMaybes clargsm
-          clty <- buildClosureType defid clargs
+          (clty, rty) <- buildClosureType defid clargs
           unpack_closure <- unpackAny clty closure
           handle <- accessAggregate unpack_closure 0
           (MirExp (CT.VectorRepr elemty) iter_vec) <- accessAggregate iter 0

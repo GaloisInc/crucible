@@ -19,6 +19,9 @@ import GHC.Generics
 
 import Debug.Trace
 
+import           Text.PrettyPrint.ANSI.Leijen
+
+
 
 
 
@@ -128,6 +131,10 @@ idText :: DefId -> Text
 idText (DefId fl mods nm ex) =
   intercalate "::" (fl : map showEntry (mods++nm:ex))
 
+-- ignores filename and entry #s
+instance Pretty DefId where
+  pretty (DefId _fl mods nm ex) =
+    text $ unpack $ intercalate "::" (map fst (mods++nm:ex))
 
 instance Show DefId where
   show defId = unpack (idText defId)
@@ -188,9 +195,14 @@ matchCustomFunc fname1
 
 isCustomFunc :: DefId -> Maybe Text
 isCustomFunc defid = case (did_path defid, did_name defid, did_extra defid) of
+  
    ([("boxed", _)], ("{{impl}}",_), [("new",_)])            -> Just "new"
    ([("slice", _)], ("{{impl}}",_), [("slice_tovec",_)])    -> Just "slice_tovec"
    ([("vec", _)],   ("{{impl}}",_), [("vec_asmutslice",_)]) -> Just "vec_asmutslice"
+   
+   ([("ops",_),("function",_)], ("Fn", _), [("call", _)])            -> Just "call"
+   ([("ops",_),("function",_)], ("FnOnce", _), [("call_once", _)])   -> Just "call"
+
    -- TODO add more
    _ -> Nothing
 
