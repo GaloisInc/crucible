@@ -16,7 +16,7 @@ module What4.Solver
   , solverAdapterOptions
   , LogData(..)
   , logCallback
-
+  , defaultLogData
 
     -- * Boolector
   , boolectorAdapter
