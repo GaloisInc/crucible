@@ -103,7 +103,8 @@ checkSatWithAbcOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    r <- liftIO $ ABC.checkSat sym logLn "checkSatWithABC" p
+    let logData = defaultLogData { logCallbackVerbose = logLn, logReason = "checkSatWithABC" }
+    r <- liftIO $ ABC.checkSat sym logData p
     return $ backendPred sym (isSat r)
 
 ------------------------------------------------------------------------
@@ -117,7 +118,8 @@ checkSatWithYicesOverride = do
     let p = regValue $ args^._1
     sym <- getSymInterface
     logLn <- getLogFunction
-    r <- liftIO $ Yices.runYicesInOverride sym logLn "checkSatWithYices" [p] Nothing (return . isSat)
+    let logData = defaultLogData { logCallbackVerbose = logLn, logReason = "checkSatWithYices" }
+    r <- liftIO $ Yices.runYicesInOverride sym logData [p] (return . isSat)
     return $ backendPred sym r
 
 ------------------------------------------------------------------------

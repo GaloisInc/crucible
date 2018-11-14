@@ -117,10 +117,8 @@ instance SMT2.SMTLib2GenericSolver Z3 where
 
 runZ3InOverride
   :: ExprBuilder t st fs
-  -> (Int -> String -> IO ())
-  -> String
+  -> LogData
   -> [BoolExpr t]
-  -> Maybe Handle
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
 runZ3InOverride = SMT2.runSolverInOverride Z3 nullAcknowledgementAction z3Features
@@ -131,9 +129,7 @@ withZ3
   :: ExprBuilder t st fs
   -> FilePath
     -- ^ Path to CVC4 executable
-  -> (String -> IO ())
-    -- ^ Function to print messages from CVC4 to.
-  -> Maybe Handle
+  -> LogData
   -> (SMT2.Session t Z3 -> IO a)
     -- ^ Action to run
   -> IO a
