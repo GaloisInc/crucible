@@ -14,6 +14,9 @@ module What4.Solver
   , ExprRangeBindings
   , defaultSolverAdapter
   , solverAdapterOptions
+  , LogData(..)
+  , logCallback
+
 
     -- * Boolector
   , boolectorAdapter

@@ -132,10 +132,8 @@ instance SMT2.SMTLib2GenericSolver CVC4 where
 
 runCVC4InOverride
   :: ExprBuilder t st fs
-  -> (Int -> String -> IO ())
-  -> String
+  -> LogData
   -> [BoolExpr t]
-  -> Maybe Handle
   -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
 runCVC4InOverride = SMT2.runSolverInOverride CVC4 nullAcknowledgementAction (SMT2.defaultFeatures CVC4)
@@ -146,9 +144,7 @@ withCVC4
   :: ExprBuilder t st fs
   -> FilePath
     -- ^ Path to CVC4 executable
-  -> (String -> IO ())
-    -- ^ Function to print messages from CVC4 to.
-  -> Maybe Handle
+  -> LogData
   -> (SMT2.Session t CVC4 -> IO a)
     -- ^ Action to run
   -> IO a

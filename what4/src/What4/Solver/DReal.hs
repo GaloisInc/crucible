@@ -86,8 +86,8 @@ drealAdapter =
   SolverAdapter
   { solver_adapter_name = "dreal"
   , solver_adapter_config_options = drealOptions
-  , solver_adapter_check_sat = \sym logLn rsn ps auxOutput cont ->
-      runDRealInOverride sym logLn rsn ps auxOutput $ \res ->
+  , solver_adapter_check_sat = \sym logData ps cont ->
+      runDRealInOverride sym logData ps $ \res ->
          case res of
            Sat (c,m) -> do
              evalFn <- getAvgBindings c m
@@ -247,34 +247,32 @@ parseNextWord = do
 
 runDRealInOverride
    :: ExprBuilder t st fs
-   -> (Int -> String -> IO ())
-   -> String
+   -> LogData
    -> [BoolExpr t]   -- ^ propositions to check
-   -> Maybe Handle
    -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) () -> IO a)
    -> IO a
-runDRealInOverride sym logLn rsn ps auxOutput modelFn = do
+runDRealInOverride sym logData ps modelFn = do
   p <- andAllOf sym folded ps
   solver_path <- findSolverPath drealPath (getConfiguration sym)
   logSolverEvent sym
     SolverStartSATQuery
     { satQuerySolverName = "dReal"
-    , satQueryReason = rsn
+    , satQueryReason = logReason logData
     }
   withSystemTempDirectory "dReal.tmp" $ \tmpdir ->
       withProcessHandles solver_path ["-model"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
 
       -- Log stderr to output.
       err_stream <- Streams.handleToInputStream err_h
-      void $ forkIO $ logErrorStream err_stream (logLn 2)
+      void $ forkIO $ logErrorStream err_stream (logCallbackVerbose logData 2)
 
       -- Write SMTLIB to standard input.
-      logLn 2 "Sending Satisfiability problem to dReal"
+      logCallbackVerbose logData 2 "Sending Satisfiability problem to dReal"
       -- dReal does not support (define-fun ...)
       bindings <- getSymbolVarBimap sym
 
       in_str  <-
-        case auxOutput of
+        case logHandle logData of
           Nothing -> Streams.encodeUtf8 =<< Streams.handleToOutputStream in_h
           Just aux_h ->
             do aux_str <- Streams.handleToOutputStream aux_h
@@ -296,7 +294,7 @@ runDRealInOverride sym logLn rsn ps auxOutput modelFn = do
       SMT2.writeExit c
       hClose in_h
 
-      logLn 2 "Parsing result from solver"
+      logCallbackVerbose logData 2 "Parsing result from solver"
 
       msat_result <- try $ Streams.parseFromStream parseNextWord out_stream
 
@@ -322,15 +320,15 @@ runDRealInOverride sym logLn rsn ps auxOutput modelFn = do
       r <- modelFn res
 
       -- Log outstream as error messages.
-      void $ forkIO $ logErrorStream out_stream (logLn 2)
+      void $ forkIO $ logErrorStream out_stream (logCallbackVerbose logData 2)
       -- Check error code.
-      logLn 2 "Waiting for dReal to exit"
+      logCallbackVerbose logData 2 "Waiting for dReal to exit"
 
       ec <- waitForProcess ph
       case ec of
         ExitSuccess -> do
           -- Return result.
-          logLn 2 "dReal terminated."
+          logCallbackVerbose logData 2 "dReal terminated."
 
           logSolverEvent sym
              SolverEndSATQuery
