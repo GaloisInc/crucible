@@ -13,13 +13,9 @@ module What4.Protocol.SMTLib2.Syntax
   ( -- * Commands
     Command(..)
   , setLogic
-    -- * Options
   , setOption
   , setProduceModels
-  , setProduceModels
-  , setProduceUnsatCores
-  , setProduceUnsatAssumptions
-  , setPrintSuccess
+  , exit
      -- * Declarations
   , declareSort
   , defineSort
@@ -28,8 +24,6 @@ module What4.Protocol.SMTLib2.Syntax
   , defineFun
   , Symbol
     -- * Assertions and checking
-  , assert
-  , exit
   , checkSat
   , checkSatAssuming
   , checkSatWithAssumptions
@@ -42,7 +36,6 @@ module What4.Protocol.SMTLib2.Syntax
   , assertNamed
   , getUnsatAssumptions
   , getUnsatCore
-  , getValue
     -- * Logic
   , Logic(..)
   , qf_bv
@@ -633,30 +626,15 @@ setLogic (Logic nm) = Cmd $ "(set-logic " <> nm <> ")"
 setOption :: Text -> Text -> Command
 setOption nm val = Cmd $ app_list "set-option" [":" <> Builder.fromText nm, Builder.fromText val]
 
-
 ppBool :: Bool -> Text
 ppBool b = if b then "true" else "false"
 
 -- | Set option to produce models
 --
--- This is a widely used option so, we we have a custom command to make it.
+-- This is a widely used option so, we we have a custom command to
+-- make it.
 setProduceModels :: Bool -> Command
 setProduceModels b = setOption "produce-models" (ppBool b)
-
-setProduceUnsatCores :: Bool -> Command
-setProduceUnsatCores b = setOption "produce-unsat-cores" (ppBool b)
-
-setProduceUnsatAssumptions :: Bool -> Command
-setProduceUnsatAssumptions b = setOption "produce-unsat-assumptions" (ppBool b)
-
-setPrintSuccess :: Bool -> Command
-setPrintSuccess b = setOption "print-success" (ppBool b)
-
-{-
--- | Control pretty printing decimal values.
-ppDecimal :: Bool -> Option
-ppDecimal b = Option (":pp.decimal " <> ppBool b)
--}
 
 -- | Request the SMT solver to exit
 exit :: Command
