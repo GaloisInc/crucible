@@ -363,13 +363,10 @@ data ProfilingOptions =
 profilingFeature ::
   ProfilingTable ->
   Maybe ProfilingOptions ->
-  IO GenericExecutionFeature
+  IO (GenericExecutionFeature sym)
 
 profilingFeature tbl Nothing =
-  return $ GenericExecutionFeature $ \(kresult, knext) ->
-    ( kresult
-    , \exst -> updateProfilingTable tbl exst >> knext exst
-    )
+  return $ GenericExecutionFeature $ \exst -> updateProfilingTable tbl exst >> return Nothing
 
 profilingFeature tbl (Just profOpts) =
   do startTime <- getCurrentTime
@@ -377,19 +374,16 @@ profilingFeature tbl (Just profOpts) =
      return (feat stateRef)
 
  where
- feat stateRef = GenericExecutionFeature $ \(kresult, knext) ->
-   ( kresult
-   , \exst ->
+ feat stateRef = GenericExecutionFeature $ \exst ->
         do updateProfilingTable tbl exst
            deadline <- readIORef stateRef
            now <- getCurrentTime
            if deadline >= now then
-             knext exst
+             return Nothing
            else
              do writeProfilingReport
                 writeIORef stateRef (computeNextState now)
-                knext exst
-   )
+                return Nothing
 
  writeProfilingReport =
    withFile (periodicProfileFile profOpts) WriteMode $ \h ->

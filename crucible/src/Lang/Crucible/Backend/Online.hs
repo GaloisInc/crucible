@@ -35,9 +35,11 @@ module Lang.Crucible.Backend.Online
   , UnsatFeatures(..)
   , unsatFeaturesToProblemFeatures
     -- ** Configuration options
-  , checkPathSatisfiability
   , solverInteractionFile
   , onlineBackendOptions
+    -- ** Branch satisfiability
+  , BranchResult(..)
+  , considerSatisfiability
     -- ** Yices
   , YicesOnlineBackend
   , withYicesOnlineBackend
@@ -73,15 +75,14 @@ import qualified Data.Text as Text
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
-import           What4.Concrete
 import           What4.Config
 import qualified What4.Expr.Builder as B
 import           What4.Interface
-import           What4.SatResult
 import           What4.ProblemFeatures
 import           What4.Protocol.Online
 import           What4.Protocol.SMTWriter as SMT
 import           What4.Protocol.SMTLib2 as SMT2
+import           What4.SatResult
 import qualified What4.Solver.CVC4 as CVC4
 import qualified What4.Solver.STP as STP
 import qualified What4.Solver.Yices as Yices
@@ -106,20 +107,12 @@ unsatFeaturesToProblemFeatures x =
     ProduceUnsatCores -> useUnsatCores
     ProduceUnsatAssumptions -> useUnsatAssumptions
 
-checkPathSatisfiability :: ConfigOption BaseBoolType
-checkPathSatisfiability = configOption knownRepr "checkPathSat"
-
 solverInteractionFile :: ConfigOption BaseStringType
 solverInteractionFile = configOption knownRepr "solverInteractionFile"
 
 onlineBackendOptions :: [ConfigDesc]
 onlineBackendOptions =
   [ mkOpt
-      checkPathSatisfiability
-      boolOptSty
-      (Just (PP.text "Perform path satisfiability checks at symbolic branches"))
-      (Just (ConcreteBool True))
-  , mkOpt
       solverInteractionFile
       stringOptSty
       (Just (PP.text "File to echo solver commands and responses for debugging purposes"))
@@ -248,8 +241,6 @@ data OnlineBackendState solver scope = OnlineBackendState
       -- ^ Number of times we have pushed
   , solverProc :: !(IORef (SolverState scope solver))
     -- ^ The solver process, if any.
-  , shouldCheckSat :: IO Bool
-    -- ^ An action to query the state of the checkPathSat option
   , currentFeatures :: !(IORef ProblemFeatures)
   }
 
@@ -265,7 +256,6 @@ initialOnlineBackendState gen feats =
      return $! OnlineBackendState
                  { assumptionStack = stk
                  , solverProc = procref
-                 , shouldCheckSat = return True
                  , currentFeatures = featref
                  }
 
@@ -318,6 +308,39 @@ getSolverProcess sym = do
          writeIORef (solverProc st) (SolverStarted p auxh)
          return p
 
+-- | Result of attempting to branch on a predicate.
+data BranchResult
+     -- | The both branches of the predicate might be satisfiable
+     --   (although satisfiablility of either branch is not guaranteed).
+   = IndeterminateBranchResult
+
+     -- | Commit to the branch where the given predicate is equal to
+     --   the returned boolean.  The opposite branch is unsatisfiable
+     --   (although the given branch is not necessarily satisfiable).
+   | NoBranch !Bool
+
+     -- | The context before considering the given predicate was already
+     --   unsatisfiable.
+   | UnsatisfiableContext
+
+
+
+considerSatisfiability ::
+  (OnlineSolver scope solver) =>
+  OnlineBackend scope solver fs ->
+  B.BoolExpr scope ->
+  IO BranchResult
+considerSatisfiability sym p =
+  do proc <- getSolverProcess sym
+     pnot <- notPred sym p
+     p_res <- checkSatisfiable proc "branch satisfiability" p
+     pnot_res <- checkSatisfiable proc "branch satisfiability" pnot
+     case (p_res, pnot_res) of
+       (Unsat{}, Unsat{}) -> return UnsatisfiableContext
+       (_      , Unsat{}) -> return (NoBranch True)
+       (Unsat{}, _      ) -> return (NoBranch False)
+       _                  -> return IndeterminateBranchResult
+
 -- | Do something with an online backend.
 --   The backend is only valid in the continuation.
 --
@@ -333,8 +356,7 @@ withOnlineBackend gen feats action = do
   st  <- liftIO $ initialOnlineBackendState gen feats
   sym <- liftIO $ B.newExprBuilder st gen
   liftIO $ extendConfig onlineBackendOptions (getConfiguration sym)
-  pathSatOpt <- liftIO $ getOptionSetting checkPathSatisfiability (getConfiguration sym)
-  liftIO $ writeIORef (B.sbStateManager sym) st{ shouldCheckSat = getOpt pathSatOpt }
+  liftIO $ writeIORef (B.sbStateManager sym) st
 
   action sym
     `finally`
@@ -383,25 +405,6 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
 
   collectAssumptions sym =
     AS.collectAssumptions =<< getAssumptionStack sym
-
-  evalBranch sym p =
-    case asConstantPred p of
-      Just True  -> return $! NoBranch True
-      Just False -> return $! NoBranch False
-      Nothing ->
-        do doSat <- shouldCheckSat =<< readIORef (B.sbStateManager sym)
-           if doSat then
-             do proc     <- getSolverProcess sym
-                notP     <- notPred sym p
-                p_res    <- checkSatisfiable proc "branch feasibility" p
-                notp_res <- checkSatisfiable proc "branch feasibility" notP
-                case (p_res, notp_res) of
-                  (Unsat{}, Unsat{}) -> abortExecBecause InfeasibleBranch
-                  (Unsat{}, _ )      -> return $ NoBranch False
-                  (_    , Unsat{})   -> return $ NoBranch True
-                  (_    , _)         -> return $ SymbolicBranch True
-           else
-             return $ SymbolicBranch True
 
   pushAssumptionFrame sym =
     do proc <- getSolverProcess sym

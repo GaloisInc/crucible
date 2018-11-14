@@ -62,6 +62,15 @@ data FrameBoundData =
     , frameBoundCounts :: IORef (Seq Int)
     }
 
+-- | This function takes weak topological order data and computes
+--   a mapping from block ID number to (position, depth) pair.  The
+--   position value indicates which the position in the WTO listing
+--   in which the block ID appears, and the depth indicates the number
+--   of nested components the block ID appears in.  Loop backedges
+--   occur exactly at places where control flows from a higher position
+--   number to a lower position number.  Jumps that exit inner loops
+--   to the next iteration of an outer loop are identified by backedges
+--   that pass from higher depths to lower depths.
 buildWTOMap :: [WTOComponent (Some (BlockID blocks))] -> Map Int (Int,Int)
 buildWTOMap = snd . go 0 0 Map.empty
  where
@@ -113,10 +122,10 @@ boundedExecFeature ::
   (SomeHandle -> IO (Maybe Int))
     {- ^ Action for computing loop bounds for functions when they are called -} ->
   Bool {- ^ Produce a proof obligation when resources are exhausted? -} ->
-  IO GenericExecutionFeature
+  IO (GenericExecutionFeature sym)
 boundedExecFeature getLoopBounds generateSideConditions =
   do stackRef <- newIORef []
-     return $ GenericExecutionFeature $ \(kresult, knext) -> ( kresult, onStep stackRef knext )
+     return $ GenericExecutionFeature $ onStep stackRef
 
  where
  buildFrameData :: ResolvedCall p sym ext ret -> IO (Maybe FrameBoundData)
@@ -136,11 +145,6 @@ boundedExecFeature getLoopBounds generateSideConditions =
                        }
              return (Just fbd)
 
- onStep ::
-   IORef [Maybe FrameBoundData] ->
-   (ExecState p sym ext rtp -> IO z) ->
-   (ExecState p sym ext rtp -> IO z)
-
  checkBackedge :: IORef [Maybe FrameBoundData] -> Some (BlockID blocks) -> BlockID blocks tgt_args -> IO (Maybe Int)
  checkBackedge stackRef (Some bid_curr) bid_tgt =
    do readIORef stackRef >>= \case
@@ -159,37 +163,29 @@ boundedExecFeature getLoopBounds generateSideConditions =
 
         _ -> return Nothing
 
- onStep stackRef knext exst = case exst of
-   ResultState{} ->
-     do knext exst
-   AbortState{} ->
-     do knext exst
-   RunningState{} ->
-     do knext exst
+ onStep ::
+   IORef [Maybe FrameBoundData] ->
+   ExecState p sym ext rtp ->
+   IO (Maybe (ExecState p sym ext rtp))
+
+ onStep stackRef exst = case exst of
    UnwindCallState _vfv _ar _st ->
      do modifyIORef stackRef (drop 1)
-        knext exst
+        return Nothing
    InitialState{} ->
      do writeIORef stackRef [Nothing]
-        knext exst
+        return Nothing
    CallState _rh call _st ->
      do boundData <- buildFrameData call
         modifyIORef stackRef (boundData:)
-        knext exst
+        return Nothing
    TailCallState _vfv call _st ->
      do boundData <- buildFrameData call
         modifyIORef stackRef ((boundData:) . drop 1)
-        knext exst
+        return Nothing
    ReturnState _nm _vfv _pr _st ->
      do modifyIORef stackRef (drop 1)
-        knext exst
-   SymbolicBranchState{} ->
-     do knext exst
-   OverrideState _or _st ->
-     do knext exst
-   BranchMergeState{} ->
-     do knext exst
-
+        return Nothing
    ControlTransferState res st -> stateSolverProof st $
      let sym = st^.stateSymInterface
          msg n = "loop iterations (" ++ show n ++ ")"
@@ -203,8 +199,8 @@ boundedExecFeature getLoopBounds generateSideConditions =
               Just n ->
                 do when generateSideConditions
                         (addProofObligation sym (LabeledPred (falsePred sym) (err loc n)))
-                   knext (AbortState (AssumedFalse (AssumingNoError (err loc n))) st)
-              Nothing -> knext exst
+                   return (Just (AbortState (AssumedFalse (AssumingNoError (err loc n))) st))
+              Nothing -> return Nothing
 
        CheckMergeResumption (ResolvedJump tgt_id _) ->
          do let loc = st^.stateCrucibleFrame.to frameProgramLoc
@@ -213,8 +209,9 @@ boundedExecFeature getLoopBounds generateSideConditions =
               Just n ->
                 do when generateSideConditions
                         (addProofObligation sym (LabeledPred (falsePred sym) (err loc n)))
-                   knext (AbortState (AssumedFalse (AssumingNoError (err loc n))) st)
+                   return (Just (AbortState (AssumedFalse (AssumingNoError (err loc n))) st))
               Nothing ->
-                do knext exst
+                do return Nothing
 
-       _ -> knext exst
+       _ -> return Nothing
+   _ -> return Nothing

@@ -31,10 +31,8 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.BoundedExec
-  ( boundedExecFeature )
 import Lang.Crucible.Simulator.Profiling
-  ( newProfilingTable, startRecordingSolverEvents, symProUIString
-  , profilingFeature, inProfilingFrame, ProfilingOptions(..) )
+import Lang.Crucible.Simulator.PathSatisfiability
 
 -- crucible/what4
 import What4.Config (setOpt, getOptionSetting, verbosity)
@@ -95,9 +93,6 @@ simulate opts  =
      void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
                          <*> pure (toInteger (simVerbose cruxOpts)))
 
-     void $ join (setOpt <$> getOptionSetting checkPathSatisfiability (getConfiguration sym)
-                         <*> pure (checkPathSat cruxOpts))
-
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
 
@@ -156,8 +151,17 @@ simulate opts  =
              _ -> fail ("Invalid loop iteration count: " ++ istr)
          Nothing -> return []
 
+     psat_fs <-
+       if checkPathSat cruxOpts then
+         do psatf <- pathSatisfiabilityFeature sym (considerSatisfiability sym)
+            return [psatf]
+       else
+         return []
+
+     let execFeatures = tfs ++ pfs ++ bfs ++ psat_fs
+
      gls <- inFrame "<Crux>" $
-       do Result res <- CL.simulate (tfs ++ pfs ++ bfs) opts sym personality
+       do Result res <- CL.simulate execFeatures opts sym personality
 
           case res of
             TimeoutResult _ ->
