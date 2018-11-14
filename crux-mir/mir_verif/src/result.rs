@@ -9,7 +9,7 @@ pub mod result {
     use std::option::Option::*;
     use result::Result::*;
     
-    //use std::ops::FnOnce;
+    use std::ops::FnOnce;
 
     pub enum Result<T, E> {
         /// Contains the success value
@@ -153,7 +153,7 @@ pub mod result {
             }
         }
 
-/* Unexpected interior reference LProjection        
+/*  // mir_verifier BUG: Unexpected interior reference LProjection        
         /// Converts from `Result<T, E>` to `Result<&mut T, &mut E>`.
         ///
         /// # Examples
@@ -188,7 +188,7 @@ pub mod result {
         // Transforming contained values
         /////////////////////////////////////////////////////////////////////////
 
-/*        /// Maps a `Result<T, E>` to `Result<U, E>` by applying a function to a
+        /// Maps a `Result<T, E>` to `Result<U, E>` by applying a function to a
         /// contained [`Ok`] value, leaving an [`Err`] value untouched.
         ///
         /// This function can be used to compose the results of two functions.
@@ -276,7 +276,7 @@ pub mod result {
                 Err(e) => Err(op(e))
             }
         }
-*/
+
         
         ////////////////////////////////////////////////////////////////////////
         // Boolean operations on the values, eager and lazy
@@ -317,7 +317,7 @@ pub mod result {
             }
         }
 
- /*       /// Calls `op` if the result is [`Ok`], otherwise returns the [`Err`] value of `self`.
+        /// Calls `op` if the result is [`Ok`], otherwise returns the [`Err`] value of `self`.
         ///
         /// [`Ok`]: enum.Result.html#variant.Ok
         /// [`Err`]: enum.Result.html#variant.Err
@@ -343,7 +343,7 @@ pub mod result {
                 Ok(t) => op(t),
                 Err(e) => Err(e),
             }
-        } */
+        } 
 
         /// Returns `res` if the result is [`Err`], otherwise returns the [`Ok`] value of `self`.
         ///
@@ -385,7 +385,7 @@ pub mod result {
             }
         }
 
-/*        /// Calls `op` if the result is [`Err`], otherwise returns the [`Ok`] value of `self`.
+        /// Calls `op` if the result is [`Err`], otherwise returns the [`Ok`] value of `self`.
         ///
         /// This function can be used for control flow based on result values.
         ///
@@ -412,7 +412,7 @@ pub mod result {
                 Err(e) => op(e),
             }
         }
-*/
+
         /// Unwraps a result, yielding the content of an [`Ok`].
         /// Else, it returns `optb`.
         ///
@@ -445,7 +445,7 @@ pub mod result {
             }
         }
 
-/*        /// Unwraps a result, yielding the content of an [`Ok`].
+        /// Unwraps a result, yielding the content of an [`Ok`].
         /// If the value is an [`Err`] then it calls `op` with its value.
         ///
         /// [`Ok`]: enum.Result.html#variant.Ok
@@ -467,7 +467,7 @@ pub mod result {
                 Ok(t) => t,
                 Err(e) => op(e)
             }
-        } */
+        } 
     } 
 
 

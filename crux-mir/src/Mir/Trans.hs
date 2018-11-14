@@ -1934,20 +1934,13 @@ doCustomCall fname funsubst ops lv dest
      argtuple <- evalOperand o2
 
      let unpackClosure :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
+ 
+         unpackClosure (M.TyRef ty M.Immut) rty  arg   = unpackClosure ty rty arg
+
          unpackClosure (M.TyClosure defid clargsm) _rty arg = do
              let clargs = filterMaybes clargsm
              (clty, _rty2) <- buildClosureType defid clargs
              unpackAny clty arg
-
-         unpackClosure (M.TyRef ty M.Immut) rty  arg   = unpackClosure ty rty arg
-
-         unpackClosure (M.TyDynamic _id)    rty  arg   = do
-             tyToReprCont rty $ \rr -> 
-               tyToReprCont aty $ \(CT.StructRepr r2) ->  do
-                 let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
-                 let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
-                 -- second layer for the closure type
-                 unpackAny (Some (CT.StructRepr t)) arg
               
          unpackClosure (M.TyParam _i)       rty  arg   = do
              -- a Fn object looks like a pair of
@@ -1960,8 +1953,16 @@ doCustomCall fname funsubst ops lv dest
                tyToReprCont aty $ \(CT.StructRepr r2) ->  do
                  let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
                  let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
-                 -- second layer for the closure type
                  unpackAny (Some (CT.StructRepr t)) arg
+
+         -- this case is the same as the above
+         unpackClosure (M.TyDynamic _id)    rty  arg   = do
+             tyToReprCont rty $ \rr -> 
+               tyToReprCont aty $ \(CT.StructRepr r2) ->  do
+                 let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
+                 let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
+                 unpackAny (Some (CT.StructRepr t)) arg
+
          unpackClosure ty _ _arg      =
            fail $ "Don't know how to unpack Fn::call arg of type " ++ show (pretty ty)
 
