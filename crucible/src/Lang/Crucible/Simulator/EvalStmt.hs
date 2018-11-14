@@ -536,31 +536,39 @@ singleStepCrucible verb exst =
 
 -- | An execution feature represents a computation that is allowed to intercept
 --   the processing of execution states to perform additional processing at
---   each intermediate state.  The next state of processing is provided as
---   a continuation, which allows us to chain execution features together
---   and provides the possibility of short-cutting control flow, etc.
+--   each intermediate state.  A list of execution features is accepted by
+--   `executeCrucible`.  After each step of the simulator, the execution features
+--   are consulted, each in turn.  After all the execution features have run,
+--   the main simulator code is executed to advance the simulator one step.
+--
+--   If an execution feature wishes to make changes to the execution
+--   state before further execution happens, the return value can be
+--   used to return a modified state.  If this happens, the current
+--   stack of execution features is abandoned and a fresh step starts
+--   over immediately from the top of the exeuction features.  In
+--   essence, each execution feature can preempt all following
+--   execution features and the main simulator loop. In other words,
+--   the main simulator only gets reached if every execution feature
+--   returns @Nothing@.  It is important, therefore, that execution
+--   features make only a bounded number of modification in a row, or
+--   the main simulator loop will be starved out.
 newtype ExecutionFeature p sym ext rtp =
   ExecutionFeature
-  { runExecutionFeature :: forall z.
-      (ExecResult p sym ext rtp -> IO z, ExecState p sym ext rtp -> IO z) ->
-      (ExecResult p sym ext rtp -> IO z, ExecState p sym ext rtp -> IO z)
-  }
+  { runExecutionFeature :: ExecState p sym ext rtp -> IO (Maybe (ExecState p sym ext rtp)) }
 
 -- | A generic execution feature is an execution feature that is
 --   agnostic to the exeuction environmemnt, and is therefore
---   polymorphic over the @p@, @sym@, @ext@ and @rtp@ variables.
-newtype GenericExecutionFeature =
+--   polymorphic over the @p@, @ext@ and @rtp@ variables.
+newtype GenericExecutionFeature sym =
   GenericExecutionFeature
-  { runGenericExecutionFeature :: forall p sym ext rtp.
+  { runGenericExecutionFeature :: forall p ext rtp.
       (IsSymInterface sym, IsSyntaxExtension ext) =>
-      forall z.
-        (ExecResult p sym ext rtp -> IO z, ExecState p sym ext rtp -> IO z) ->
-        (ExecResult p sym ext rtp -> IO z, ExecState p sym ext rtp -> IO z)
+        ExecState p sym ext rtp -> IO (Maybe (ExecState p sym ext rtp))
   }
 
 genericToExecutionFeature ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
-  GenericExecutionFeature -> ExecutionFeature p sym ext rtp
+  GenericExecutionFeature sym -> ExecutionFeature p sym ext rtp
 genericToExecutionFeature (GenericExecutionFeature f) = ExecutionFeature f
 
 
@@ -585,10 +593,15 @@ executeCrucible execFeatures exst0 =
            dispatchExecState
              (fromInteger <$> getOpt verbOpt)
              exst
-             kresult
+             return
              (\m st -> knext =<< advanceCrucibleState m st)
 
-         (kresult, knext) = foldr runExecutionFeature (return, loop) execFeatures
+         applyExecutionFeature feat m =
+           \exst -> runExecutionFeature feat exst >>= \case
+                      Just exst' -> knext exst'
+                      Nothing    -> m exst
+
+         knext = foldr applyExecutionFeature loop execFeatures
 
      knext exst0
 
@@ -598,16 +611,13 @@ executeCrucible execFeatures exst0 =
 --   has elapsed.
 timeoutFeature ::
   NominalDiffTime ->
-  IO GenericExecutionFeature
+  IO (GenericExecutionFeature sym)
 timeoutFeature timeout =
   do startTime <- getCurrentTime
      let deadline = addUTCTime timeout startTime
-     return $ GenericExecutionFeature $ \(kresult, knext) ->
-       ( kresult
-       , \exst ->
-           do now <- getCurrentTime
-              if deadline >= now then
-                knext exst
-              else
-                kresult (TimeoutResult exst)
-       )
+     return $ GenericExecutionFeature $ \exst ->
+        do now <- getCurrentTime
+           if deadline >= now then
+             return Nothing
+           else
+             return (Just (ResultState (TimeoutResult exst)))

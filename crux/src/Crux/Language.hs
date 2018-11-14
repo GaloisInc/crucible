@@ -61,7 +61,7 @@ type EnvDescr a = (String, String -> a)
 
 -- Type of the [simulate] method
 type Simulate sym a = IsSymInterface sym =>
-    [GenericExecutionFeature]
+    [GenericExecutionFeature sym]
     -> Options a           -- ^ crux & lang-specific options
     -> sym
     -> Model sym

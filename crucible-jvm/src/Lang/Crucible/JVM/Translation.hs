@@ -1832,7 +1832,7 @@ runClassInit halloc ctx verbosity name = do
 -- | Install the standard overrides and run a Java method in the simulator
 runMethodHandleCrux
   :: IsSymInterface sym
-  => [C.GenericExecutionFeature]
+  => [C.GenericExecutionFeature sym]
   -> sym
   -> p
   -> HandleAllocator RealWorld
@@ -1906,7 +1906,7 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
 executeCrucibleJVMCrux
   :: forall ret args sym p cb
    . (IsSymInterface sym, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
-  => [C.GenericExecutionFeature]
+  => [C.GenericExecutionFeature sym]
   -> cb
   -> Int               -- ^ Verbosity level
   -> sym               -- ^ Simulator state

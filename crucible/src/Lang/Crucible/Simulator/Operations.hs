@@ -69,6 +69,7 @@ module Lang.Crucible.Simulator.Operations
   , isSingleCont
   , unwindContext
   , extractCurrentPath
+  , asContFrame
   ) where
 
 import qualified Control.Exception as Ex
@@ -825,13 +826,6 @@ asContFrame (ActiveTree ctx active_res) =
     PartialRes p _ex ar -> VFFPartial ctx p ar NoNeedToAbort
 
 
--- | @swap_unless b (x,y)@ returns @(x,y)@ when @b@ is @True@ and
--- @(y,x)@ when @b@ if @False@.
-swap_unless :: Bool -> (a, a) -> (a,a)
-swap_unless True p = p
-swap_unless False (x,y) = (y,x)
-{-# INLINE swap_unless #-}
-
 -- | Return assertion where predicate equals a constant
 predEqConst :: IsExprBuilder sym => sym -> Pred sym -> Bool -> IO (Pred sym)
 predEqConst _   p True  = return p
@@ -857,23 +851,17 @@ intra_branch ::
 intra_branch p t_label f_label tgt = do
   ctx <- asContFrame <$> view stateTree
   sym <- view stateSymInterface
-  r <- liftIO $ evalBranch sym p
 
-  case r of
-    SymbolicBranch chosen_branch ->
-      do -- Get correct predicate
-         p' <- liftIO $ predEqConst sym p chosen_branch
-         (a_frame, o_frame) <- return (swap_unless chosen_branch (t_label, f_label))
+  case asConstantPred p of
+    Nothing ->
+      ReaderT $ return . SymbolicBranchState p t_label f_label tgt
 
-         ReaderT $ return . SymbolicBranchState p' a_frame o_frame tgt
-
-    NoBranch chosen_branch ->
+    Just chosen_branch ->
       do p' <- liftIO $ predEqConst sym p chosen_branch
          let a_frame = if chosen_branch then t_label else f_label
          loc <- liftIO $ getCurrentProgramLoc sym
          liftIO $ addAssumption sym (LabeledPred p' (ExploringAPath loc (pausedLoc a_frame)))
          resumeFrame a_frame ctx
-
 {-# INLINABLE intra_branch #-}
 
 -- | Branch with a merge point inside this frame.

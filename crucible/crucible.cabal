@@ -88,6 +88,7 @@ library
     Lang.Crucible.Simulator.GlobalState
     Lang.Crucible.Simulator.Operations
     Lang.Crucible.Simulator.OverrideSim
+    Lang.Crucible.Simulator.PathSatisfiability
     Lang.Crucible.Simulator.Profiling
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
