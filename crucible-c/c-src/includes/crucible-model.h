@@ -1,5 +1,10 @@
 #ifndef CRUCIBLE_MODEL_H
 #define CRUCIBLE_MODEL_H
+
+#ifdef __cplusplus__
+extern "C" {
+#endif //__cplusplus__
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -16,6 +21,10 @@ mk_model_ty(int8_t)
 mk_model_ty(int16_t)
 mk_model_ty(int32_t)
 mk_model_ty(int64_t)
+
+#ifdef __cplusplus__
+}
+#endif //__cplusplus__
 
 #endif
 

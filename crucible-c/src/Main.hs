@@ -191,8 +191,8 @@ checkFun nm mp =
 -- before it has been created here.
 
 instance Crux.Language LangLLVM where
-  name = "c"
-  validExtensions = [".c", ".bc" ]
+  name = "llvm"
+  validExtensions = [".c", ".cpp", ".cxx", ".C", ".bc" ]
 
   type LangError LangLLVM = CError
   formatError = ppCError
@@ -212,7 +212,7 @@ instance Crux.Language LangLLVM where
     , optsBCFile = ""
     }
 
-  envOptions = [("CLANG", \v opts -> opts { clangBin = v })]
+  envOptions = [ ("CLANG",   \v opts -> opts { clangBin = v }) ]
 
   -- this is the replacement for "Clang.testOptions"
   ioOptions (cruxOpts,llvmOpts) = do
@@ -288,15 +288,30 @@ throwCError e = Crux.throwError @LangLLVM (Crux.Lang  e)
 
 type Options = Crux.Options LangLLVM
 
+data InputLanguage
+  = CSource
+  | CPPSource
+  | Bitcode
+
+optInputLanguage :: Options -> Maybe InputLanguage
+optInputLanguage opts =
+  case takeExtension (takeFileName (Crux.inputFile (fst opts))) of
+    ".c" -> Just CSource
+    ".cpp" -> Just CPPSource
+    ".cxx" -> Just CPPSource
+    ".C" -> Just CPPSource
+    ".bc" -> Just Bitcode
+    _ -> Nothing
+
 -- | attempt to find Clang executable by searching the file system
 -- throw an error if it cannot be found this way.
 -- (NOTE: do not look for environment var "CLANG". That is assumed
 --  to be tried already.)
 getClang :: IO FilePath
-getClang = attempt (map inPath opts)
+getClang = attempt (map inPath clangs)
   where
   inPath x = head . lines <$> readProcess "/usr/bin/which" [x] ""
-  opts     = [ "clang", "clang-4.0", "clang-3.6" ]
+  clangs   = [ "clang", "clang-4.0", "clang-3.6", "clang-3.8" ]
 
   attempt :: [IO FilePath] -> IO FilePath
   attempt ms =
@@ -319,16 +334,33 @@ runClang opts params =
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)
 
-
+llvmLink :: [FilePath] -> FilePath -> IO ()
+llvmLink ins out =
+  do let params = ins ++ [ "-o", out ]
+     -- TODO: make this work better for a range of clang versions
+     (res, sout, serr) <- readProcessWithExitCode "llvm-link-3.6" params ""
+     case res of
+       ExitSuccess   -> return ()
+       ExitFailure n -> throwCError (ClangError n sout serr)
 
 genBitCode :: Options -> IO ()
 genBitCode opts =
-  do let params = [ "-c", "-g", "-emit-llvm", "-O0"
+  do let lang = optInputLanguage opts
+         finalBCFile = optsBCFile (snd opts)
+         curBCFile = case lang of
+                       Just CPPSource -> finalBCFile ++ "-tmp"
+                       _ -> finalBCFile
+         params = [ "-c", "-g", "-emit-llvm", "-O0"
                   , "-I", libDir (snd opts) </> "includes"
                   , Crux.inputFile (fst opts)
-                  , "-o", optsBCFile (snd opts)
+                  , "-o", curBCFile
                   ]
      runClang opts params
+     case lang of
+       -- TODO: make this work better for a range of clang versions
+       Just CPPSource ->
+         llvmLink [ curBCFile, libDir (snd opts) </> "libcxx-36.bc" ] finalBCFile
+       _ -> return ()
 
 
 buildModelExes :: Options -> String -> String -> IO (FilePath,FilePath)
@@ -342,6 +374,9 @@ buildModelExes opts suff counter_src =
      writeFile counterFile counter_src
 
      let libs = libDir (snd opts)
+         libcxx = case optInputLanguage opts of
+                    Just CPPSource -> ["-lc++"]
+                    _ -> []
 
      runClang opts [ "-I", libs </> "includes"
                    , counterFile
@@ -349,12 +384,12 @@ buildModelExes opts suff counter_src =
                    , "-o", printExe
                    ]
 
-     runClang opts [ "-I", libs </> "includes"
-                   , counterFile
-                   , libs </> "concrete-backend.c"
-                   , optsBCFile (snd opts)
-                   , "-O0", "-g"
-                   , "-o", debugExe
-                   ]
+     runClang opts $ [ "-I", libs </> "includes"
+                     , counterFile
+                     , libs </> "concrete-backend.c"
+                     , Crux.inputFile (fst opts)
+                     , "-O0", "-g"
+                     , "-o", debugExe
+                     ] ++ libcxx
 
      return (printExe, debugExe)
