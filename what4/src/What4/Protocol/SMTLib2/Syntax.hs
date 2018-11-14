@@ -13,23 +13,36 @@ module What4.Protocol.SMTLib2.Syntax
   ( -- * Commands
     Command(..)
   , setLogic
+    -- * Options
   , setOption
   , setProduceModels
+  , setProduceModels
+  , setProduceUnsatCores
+  , setProduceUnsatAssumptions
+  , setPrintSuccess
+     -- * Declarations
   , declareSort
   , defineSort
   , declareConst
   , declareFun
   , defineFun
   , Symbol
+    -- * Assertions and checking
   , assert
   , exit
   , checkSat
   , checkSatAssuming
+  , checkSatWithAssumptions
   , getModel
   , getValue
   , push
   , pop
   , resetAssertions
+  , assert
+  , assertNamed
+  , getUnsatAssumptions
+  , getUnsatCore
+  , getValue
     -- * Logic
   , Logic(..)
   , qf_bv
@@ -620,11 +633,30 @@ setLogic (Logic nm) = Cmd $ "(set-logic " <> nm <> ")"
 setOption :: Text -> Text -> Command
 setOption nm val = Cmd $ app_list "set-option" [":" <> Builder.fromText nm, Builder.fromText val]
 
+
+ppBool :: Bool -> Text
+ppBool b = if b then "true" else "false"
+
 -- | Set option to produce models
 --
 -- This is a widely used option so, we we have a custom command to make it.
 setProduceModels :: Bool -> Command
-setProduceModels b = setOption "produce-models" (if b then "true" else "false")
+setProduceModels b = setOption "produce-models" (ppBool b)
+
+setProduceUnsatCores :: Bool -> Command
+setProduceUnsatCores b = setOption "produce-unsat-cores" (ppBool b)
+
+setProduceUnsatAssumptions :: Bool -> Command
+setProduceUnsatAssumptions b = setOption "produce-unsat-assumptions" (ppBool b)
+
+setPrintSuccess :: Bool -> Command
+setPrintSuccess b = setOption "print-success" (ppBool b)
+
+{-
+-- | Control pretty printing decimal values.
+ppDecimal :: Bool -> Option
+ppDecimal b = Option (":pp.decimal " <> ppBool b)
+-}
 
 -- | Request the SMT solver to exit
 exit :: Command
@@ -674,6 +706,13 @@ defineFun f args return_type e =
 assert :: Term -> Command
 assert p = Cmd $ app "assert" [renderTerm p]
 
+-- | Assert the predicate holds in the current context, and assign
+--   it a name so it can appear in unsatisfiable core results.
+assertNamed :: Term -> Text -> Command
+assertNamed p nm =
+  Cmd $ app "assert"
+    [builder_list [Builder.fromText "!", renderTerm p, Builder.fromText ":named", Builder.fromText nm]]
+
 -- | Check the satisfiability of the current assertions
 checkSat :: Command
 checkSat = Cmd "(check-sat)"
@@ -682,9 +721,24 @@ checkSat = Cmd "(check-sat)"
 checkSatAssuming :: [Term] -> Command
 checkSatAssuming l = Cmd $ "(check-sat-assuming " <> builder_list (renderTerm <$> l) <> ")"
 
+-- | Check satisfiability of the given atomic assumptions in the current context.
+--
+--   NOTE! The names of variables passed to this function MUST be generated using
+--   a `declare-fun` statement, and NOT a `define-fun` statement.  Thus, if you
+--   want to bind an arbitrary term, you must declare a new term and assert that
+--   it is equal to it's definition. Yes, this is quite irritating.
+checkSatWithAssumptions :: [Text] -> Command
+checkSatWithAssumptions nms = Cmd $ app "check-sat-assuming" [builder_list (map Builder.fromText nms)]
+
 -- | Get the model associated with the last call to @check-sat@.
 getModel :: Command
 getModel = Cmd "(get-model)"
+
+getUnsatAssumptions :: Command
+getUnsatAssumptions = Cmd "(get-unsat-assumptions)"
+
+getUnsatCore :: Command
+getUnsatCore = Cmd "(get-unsat-core)"
 
 -- | Get the values associated with the terms from the last call to @check-sat@.
 getValue :: [Term] -> Command

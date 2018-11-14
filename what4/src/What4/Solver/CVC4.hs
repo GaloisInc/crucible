@@ -25,9 +25,10 @@ module What4.Solver.CVC4
   , writeMultiAsmpCVC4SMT2File
   ) where
 
-import           Control.Monad (forM_)
+import           Control.Monad (forM_, when)
 import           Data.Bits
 import           System.IO
+import qualified System.IO.Streams as Streams
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
@@ -41,6 +42,7 @@ import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
+import           What4.Protocol.SMTWriter
 import           What4.Utils.Process
 
 
@@ -99,8 +101,9 @@ writeMultiAsmpCVC4SMT2File
    -> IO ()
 writeMultiAsmpCVC4SMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
-  c <- SMT2.newWriter CVC4 h "CVC4" True cvc4Features True bindings
-  --c <- SMT2.newWriter h "CVC4" True SMT2.LinearArithmetic
+  in_str  <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
+  c <- SMT2.newWriter CVC4 in_str nullAcknowledgementAction "CVC4"
+         True cvc4Features True bindings
   SMT2.setLogic c SMT2.allSupported
   SMT2.setProduceModels c True
   forM_ ps $ SMT2.assume c
@@ -110,9 +113,9 @@ writeMultiAsmpCVC4SMT2File sym h ps = do
 writeCVC4SMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> BoolExpr t
+   -> [BoolExpr t]
    -> IO ()
-writeCVC4SMT2File sym h p = writeMultiAsmpCVC4SMT2File sym h [p]
+writeCVC4SMT2File sym h ps = writeMultiAsmpCVC4SMT2File sym h ps
 
 instance SMT2.SMTLib2GenericSolver CVC4 where
   defaultSolverPath _ = findSolverPath cvc4Path . getConfiguration
@@ -129,12 +132,11 @@ instance SMT2.SMTLib2GenericSolver CVC4 where
 
 runCVC4InOverride
   :: ExprBuilder t st fs
-  -> (Int -> String -> IO ())
-  -> String
-  -> BoolExpr t
-  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+  -> LogData
+  -> [BoolExpr t]
+  -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
   -> IO a
-runCVC4InOverride = SMT2.runSolverInOverride CVC4
+runCVC4InOverride = SMT2.runSolverInOverride CVC4 nullAcknowledgementAction (SMT2.defaultFeatures CVC4)
 
 -- | Run CVC4 in a session. CVC4 will be configured to produce models, but
 -- otherwise left with the default configuration.
@@ -142,13 +144,27 @@ withCVC4
   :: ExprBuilder t st fs
   -> FilePath
     -- ^ Path to CVC4 executable
-  -> (String -> IO ())
-    -- ^ Function to print messages from CVC4 to.
+  -> LogData
   -> (SMT2.Session t CVC4 -> IO a)
     -- ^ Action to run
   -> IO a
-withCVC4 = SMT2.withSolver CVC4
+withCVC4 = SMT2.withSolver CVC4 nullAcknowledgementAction (SMT2.defaultFeatures CVC4)
+
+setInteractiveLogicAndOptions ::
+  SMT2.SMTLib2Tweaks a =>
+  WriterConn t (SMT2.Writer a) ->
+  IO ()
+setInteractiveLogicAndOptions writer = do
+    -- Tell CVC4 to acknowledge successful commands
+    SMT2.setOption writer "print-success"  "true"
+    -- Tell CVC4 to produce models
+    SMT2.setOption writer "produce-models" "true"
+    -- Tell CVC4 to compute UNSAT cores, if that feature is enabled
+    when (supportedFeatures writer `hasProblemFeature` useUnsatCores) $ do
+      SMT2.setOption writer "produce-unsat-cores" "true"
+    -- Tell CVC4 to use all supported logics.
+    SMT2.setLogic writer SMT2.allSupported
 
 instance OnlineSolver t (SMT2.Writer CVC4) where
-  startSolverProcess = SMT2.startSolver CVC4
+  startSolverProcess = SMT2.startSolver CVC4 SMT2.smtAckResult setInteractiveLogicAndOptions
   shutdownSolverProcess = SMT2.shutdownSolver CVC4

@@ -11,20 +11,13 @@
 
 module Crux.Language where
 
-import System.Console.GetOpt
-import Lang.Crucible.Simulator
---import Lang.Crucible.Types
-import Lang.Crucible.CFG.Extension
-import qualified Lang.Crucible.CFG.Core as C
-
-
-import           Lang.Crucible.Backend
-import qualified What4.Interface                       as W4
-import qualified What4.InterpretedFloatingPoint        as W4
-
 import Data.Typeable(Typeable)
+import System.Console.GetOpt
 
+import Lang.Crucible.Simulator
+import Lang.Crucible.Backend
 import Crux.Types
+
 
 type Verbosity = Int
 
@@ -51,6 +44,8 @@ data CruxOptions = CruxOptions
   , profileSolver            :: Bool
   , globalTimeout            :: Maybe String
   , profileOutputInterval    :: Maybe String
+  , loopBound :: Maybe String
+    -- ^ Should we artifically bound the number of loop iterations
   }
 
 type Options a = (CruxOptions, LangOptions a)
@@ -64,76 +59,58 @@ data LangConf where
 
 type EnvDescr a = (String, String -> a)
 
--- Type of the executeCrucible callback argument to
---  [simulate]. Implementations of the method should use this function
---  to execute symbolic simulation (automatically with and without
---  profiling)
-type ExecuteCrucible sym = (forall p ext rtp f a0.
-     IsSyntaxExtension ext =>
-      SimState p sym ext rtp f a0  ->
-      ExecCont p sym ext rtp f a0  ->
-      IO (ExecResult p sym ext rtp))
-
--- Gathering of constraints on the sym used by the [simulate] method
-type SymConstraint sym =
-  (IsBoolSolver sym, W4.IsSymExprBuilder sym,
-    W4.IsInterpretedFloatSymExprBuilder sym,
-    IsSymInterface sym, 
-    W4.SymInterpretedFloatType sym W4.SingleFloat ~ C.BaseRealType,
-    W4.SymInterpretedFloatType sym W4.DoubleFloat ~ C.BaseRealType) 
-
 -- Type of the [simulate] method
-type Simulate sym a = (SymConstraint sym)  =>
-    ExecuteCrucible sym    -- ^ callback to executeCrucible
+type Simulate sym a = IsSymInterface sym =>
+    [GenericExecutionFeature sym]
     -> Options a           -- ^ crux & lang-specific options
-    -> sym                
+    -> sym
     -> Model sym
     -> IO (Result sym)
-  
+
 
 class (Typeable a) => Language a where
 
   -- name of the language
   name :: String
-  
+
   -- extensions (must be non-empty)
   validExtensions :: [String]
-  
+
   -- additional options for this language
   -- (a data family, so must be instantiated by a data type declaration in each instance)
   data LangOptions a :: *
 
   -- all language-specific options must have default values
   defaultOptions :: LangOptions a
-  
+
   -- set language-specific options from the commandline
   cmdLineOptions :: [OptDescr (LangOptions a -> LangOptions a)]
   cmdLineOptions = []
-  
+
   -- set language-specific options using the environment
   envOptions :: [EnvDescr (LangOptions a -> LangOptions a)]
   envOptions = []
-  
+
   -- set options using IO monad
   -- (and do any necessary preprocessing)
   -- this function also has access to the crux options.
   -- All options should be set at the end of this function
   ioOptions :: Options a -> IO (Options a)
   ioOptions = return
-  
+
   -- how to display language-specfic errors during simulation
   type LangError a ::  *
   formatError :: LangError a -> String
 
   -- simulation function, see above for interface
-  simulate :: Simulate sym a 
+  simulate :: Simulate sym a
 
   -- use the result of the simulation function
-  makeCounterExamples :: Options a -> Maybe ProvedGoals -> IO ()
+  makeCounterExamples :: Options a -> Maybe (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
   makeCounterExamples _opts _proved = return ()
 
 -- Trivial instance of the class
--- For demonstration purposes only. 
+-- For demonstration purposes only.
 data Trivial = Trivial
 instance Language Trivial where
   name = "trivial"

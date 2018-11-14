@@ -30,10 +30,9 @@ import Data.Parameterized.Nonce(withIONonceGenerator)
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.Simulator
+import Lang.Crucible.Simulator.BoundedExec
 import Lang.Crucible.Simulator.Profiling
-  ( newProfilingTable, startRecordingSolverEvents, symProUIString
-  , executeCrucibleProfiling, inProfilingFrame, TimeoutOptions(..)
-  )
+import Lang.Crucible.Simulator.PathSatisfiability
 
 -- crucible/what4
 import What4.Config (setOpt, getOptionSetting, verbosity)
@@ -78,23 +77,24 @@ parseNominalDiffTime xs =
 
 -- Returns only non-trivial goals
 simulate :: Language a => Options a ->
-  IO (Maybe ProvedGoals)
+  IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
 simulate opts  =
   let (cruxOpts,_langOpts) = opts
   in
 
   withIONonceGenerator $ \nonceGen ->
 
-  --withZ3OnlineBackend @_ @(Flags FloatIEEE) @_ nonceGen $ \sym -> do
-  withYicesOnlineBackend nonceGen $ \(sym :: YicesOnlineBackend scope (Flags FloatReal)) -> do
+  --withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
+  --withZ3OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
+  --withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym -> do
+  withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
 
      -- set the verbosity level
      void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
                          <*> pure (toInteger (simVerbose cruxOpts)))
 
-     void $ join (setOpt <$> getOptionSetting checkPathSatisfiability (getConfiguration sym)
-                         <*> pure (checkPathSat cruxOpts))
-
+     void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
+                         <*> pure ("crux-solver.out"))
 
      frm <- pushAssumptionFrame sym
 
@@ -122,45 +122,64 @@ simulate opts  =
                    Just t  -> return t)
           (globalTimeout cruxOpts)
 
-     profileInterval <-
-        traverse
+     profOpts <-
+          traverse
           (\v -> case parseNominalDiffTime v of
                     Nothing -> fail $ "Invalid profiling output interval: " ++ v
-                    Just t  -> return (profOutFile, inputFile cruxOpts, inputFile cruxOpts, t))
+                    Just t  -> return $ ProfilingOptions t profOutFile (inputFile cruxOpts) (inputFile cruxOpts))
           (profileOutputInterval cruxOpts)
 
-     let timeOpts =
-          TimeoutOptions
-          { overallTimeout = glblTimeout
-          , periodicProfileOutput = profileInterval
-          }
+     pfs <- if (profileCrucibleFunctions cruxOpts) then
+              do pf <- profilingFeature tbl profOpts
+                 return [pf]
+            else
+              return []
 
-     gls <- inFrame "<Crux>" $ do
-       Result res <-
-         if (profileCrucibleFunctions cruxOpts) then
-           CL.simulate (executeCrucibleProfiling tbl timeOpts) opts sym personality
-         else
-           CL.simulate executeCrucible opts sym personality
+     tfs <- case glblTimeout of
+                 Nothing -> return []
+                 Just delta ->
+                   do tf <- timeoutFeature delta
+                      return [tf]
 
-       case res of
-         TimeoutResult _ ->
-           do putStrLn "Simulation timed out! Program might not be fully verified!"
-         _ -> return ()
+     bfs <-
+       case loopBound cruxOpts of
+         Just istr ->
+           case reads istr of
+             (i,""):_ ->
+               do bf <- boundedExecFeature (\_ -> return (Just i)) True {-produce side conditions-}
+                  return [bf]
+             _ -> fail ("Invalid loop iteration count: " ++ istr)
+         Nothing -> return []
 
-       popUntilAssumptionFrame sym frm
+     psat_fs <-
+       if checkPathSat cruxOpts then
+         do psatf <- pathSatisfiabilityFeature sym (considerSatisfiability sym)
+            return [psatf]
+       else
+         return []
 
-       let ctx' = execResultContext res
+     let execFeatures = tfs ++ pfs ++ bfs ++ psat_fs
 
-       inFrame "<Proof Phase>" $
-         do pg <- inFrame "<Prove Goals>" $
-              (proveGoals ctx' =<< getProofObligations sym)
-            inFrame "<SimplifyGoals>" $
-              provedGoalsTree ctx' pg
+     gls <- inFrame "<Crux>" $
+       do Result res <- CL.simulate execFeatures opts sym personality
+
+          case res of
+            TimeoutResult _ ->
+              do putStrLn "Simulation timed out! Program might not be fully verified!"
+            _ -> return ()
+
+          popUntilAssumptionFrame sym frm
+
+          let ctx' = execResultContext res
+
+          inFrame "<Prove Goals>" $
+            do pg <- proveGoals ctx' =<< getProofObligations sym
+               provedGoalsTree ctx' pg
 
      when (simVerbose cruxOpts > 1) $
         say "Crux" "Simulation complete."
 
-     when (profiling && outDir cruxOpts /= "") $ do
+     when profiling $ do
        createDirectoryIfMissing True (outDir cruxOpts)
        withFile profOutFile WriteMode $ \h ->
          hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl

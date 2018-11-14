@@ -132,6 +132,7 @@ llvmTypeToRepr (StructType si)   = [llvmTypesAsCtx tps (\ts -> Some (StructRepr 
 llvmTypeToRepr (PtrType _)  = [Some (LLVMPointerRepr PtrWidth)]
 llvmTypeToRepr FloatType    = [Some (FloatRepr SingleFloatRepr)]
 llvmTypeToRepr DoubleType   = [Some (FloatRepr DoubleFloatRepr)]
+llvmTypeToRepr X86_FP80Type   = [Some (FloatRepr X86_80FloatRepr)]
 llvmTypeToRepr MetadataType = []
 llvmTypeToRepr (IntType n) =
    case someNat (fromIntegral n) of

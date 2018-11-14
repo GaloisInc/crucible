@@ -24,8 +24,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 module Lang.Crucible.Simulator.Profiling
-  ( executeCrucibleProfiling
-  , TimeoutOptions(..)
+  ( profilingFeature
+  , ProfilingOptions(..)
   , newProfilingTable
   , recordSolverEvent
   , startRecordingSolverEvents
@@ -57,14 +57,12 @@ import           Data.Time.Format
 import           System.IO (withFile, IOMode(..), hPutStrLn)
 import           Text.JSON
 
-import           What4.Config
 import           What4.FunctionName
 import           What4.Interface
 import           What4.ProgramLoc
 import           What4.SatResult
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.ExecutionTree
@@ -248,7 +246,8 @@ newProfilingTable =
      evs <- newIORef mempty
      idref <- newIORef 0
      solverevs <- newIORef mempty
-     return (ProfilingTable evs m idref solverevs)
+     let tbl = ProfilingTable evs m idref solverevs
+     return tbl
 
 recordSolverEvent :: ProfilingTable -> SolverEvent -> IO ()
 recordSolverEvent tbl ev = do
@@ -313,6 +312,8 @@ updateProfilingTable ::
   ExecState p sym ext rtp ->
   IO ()
 updateProfilingTable tbl = \case
+  InitialState _ _ _ _ ->
+    enterEvent tbl startFunctionName Nothing
   CallState _rh call st ->
     enterEvent tbl (resolvedCallName call) (st^.stateLocation)
   ReturnState nm _ _ _ ->
@@ -326,7 +327,7 @@ updateProfilingTable tbl = \case
     modifyIORef' (metricAborts (metrics tbl)) succ
   UnwindCallState _ _ st ->
     exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-  ControlTransferState tgt st ->
+  BranchMergeState tgt st ->
     when (isMergeState tgt st)
          (modifyIORef' (metricMerges (metrics tbl)) succ)
   _ -> return ()
@@ -347,83 +348,46 @@ isMergeState tgt st =
     _ -> False
 
 
-data TimeoutOptions =
-  TimeoutOptions
-  { overallTimeout :: Maybe NominalDiffTime
-  , periodicProfileOutput :: Maybe (FilePath, String, String, NominalDiffTime)
+data ProfilingOptions =
+  ProfilingOptions
+  { periodicProfileInterval :: NominalDiffTime
+  , periodicProfileFile     :: FilePath
+  , periodicProfileName     :: String
+  , periodicProfileSource   :: String
   }
 
-executeCrucibleProfiling :: forall p sym ext rtp f a.
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+-- | This feature will pay attention to function call entry/exit events
+--   and track the elapsed time and various other metrics in the given
+--   profiling table.  The @ProfilingOptions@ can be used to export
+--   intermediate profiling data at regular intervals, if desired.
+profilingFeature ::
   ProfilingTable ->
-  TimeoutOptions ->
-  SimState p sym ext rtp f a {- ^ Initial simulator state -} ->
-  ExecCont p sym ext rtp f a {- ^ Execution continuation to run -} ->
-  IO (ExecResult p sym ext rtp)
-executeCrucibleProfiling tbl timeoutOpts st0 cont =
-  do let cfg = st0^.stateConfiguration
-     verbOpt <- getOptionSetting verbosity cfg
-     let getVerb = fromInteger <$> getOpt verbOpt
+  Maybe ProfilingOptions ->
+  IO (GenericExecutionFeature sym)
 
-     enterEvent tbl (st0^.stateTree.actFrame.gpValue.frameFunctionName) Nothing
-     now <- getCurrentTime
-     exst0 <- advanceCrucibleState cont st0
-     timeoutLoop getVerb now now exst0
+profilingFeature tbl Nothing =
+  return $ GenericExecutionFeature $ \exst -> updateProfilingTable tbl exst >> return Nothing
+
+profilingFeature tbl (Just profOpts) =
+  do startTime <- getCurrentTime
+     stateRef <- newIORef (computeNextState startTime)
+     return (feat stateRef)
 
  where
- timeoutLoop getVerb startTime lastOutputTime exst =
-   case timeoutOpts of
-     TimeoutOptions { overallTimeout = Just diff, periodicProfileOutput = Just (outf, nm, source, outdiff) }
-       | stopTime <= outputTime ->
-           loopUntil stopTime getVerb exst (return . TimeoutResult)
-       | otherwise ->
-           loopUntil outputTime getVerb exst $ \exst' ->
-             do withFile outf WriteMode $ \h ->
-                  hPutStrLn h =<< symProUIString nm source tbl
-                now <- getCurrentTime
-                timeoutLoop getVerb startTime now exst'
-      where
-       stopTime = addUTCTime diff startTime
-       outputTime = addUTCTime outdiff lastOutputTime
-
-     TimeoutOptions { overallTimeout = Just diff, periodicProfileOutput = Nothing } ->
-       loopUntil stopTime getVerb exst (return . TimeoutResult)
-      where
-       stopTime = addUTCTime diff startTime
-
-     TimeoutOptions { overallTimeout = Nothing, periodicProfileOutput = Just (outf, nm, source, outdiff) } ->
-       loopUntil outputTime getVerb exst $ \exst' ->
-             do withFile outf WriteMode $ \h ->
-                  hPutStrLn h =<< symProUIString nm source tbl
-                now <- getCurrentTime
-                timeoutLoop getVerb startTime now exst'
-      where
-       outputTime = addUTCTime outdiff lastOutputTime
-
-     TimeoutOptions Nothing Nothing -> basicLoop getVerb exst
-
- loopUntil ::
-   UTCTime ->
-   IO Int ->
-   ExecState p sym ext rtp ->
-   (ExecState p sym ext rtp -> IO (ExecResult p sym ext rtp)) ->
-   IO (ExecResult p sym ext rtp)
- loopUntil breakTime getVerb exst k =
-   do now <- getCurrentTime
-      if now >= breakTime then
-        k exst
-      else
+ feat stateRef = GenericExecutionFeature $ \exst ->
         do updateProfilingTable tbl exst
-           dispatchExecState getVerb exst return
-             (\m st ->
-               do exst' <- advanceCrucibleState m st
-                  loopUntil breakTime getVerb exst' k)
+           deadline <- readIORef stateRef
+           now <- getCurrentTime
+           if deadline >= now then
+             return Nothing
+           else
+             do writeProfilingReport
+                writeIORef stateRef (computeNextState now)
+                return Nothing
 
- basicLoop ::
-   IO Int ->
-   ExecState p sym ext rtp ->
-   IO (ExecResult p sym ext rtp)
- basicLoop getVerb exst =
-   do updateProfilingTable tbl exst
-      dispatchExecState getVerb exst return
-        (\m st -> basicLoop getVerb =<< advanceCrucibleState m st)
+ writeProfilingReport =
+   withFile (periodicProfileFile profOpts) WriteMode $ \h ->
+     hPutStrLn h =<< symProUIString (periodicProfileName profOpts) (periodicProfileSource profOpts) tbl
+
+ computeNextState :: UTCTime -> UTCTime
+ computeNextState lastOutputTime = addUTCTime (periodicProfileInterval profOpts) lastOutputTime

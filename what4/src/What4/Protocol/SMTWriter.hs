@@ -53,23 +53,33 @@ module What4.Protocol.SMTWriter
   , WriterConn( supportFunctionDefs
               , supportFunctionArguments
               , supportQuantifiers
+              , supportedFeatures
               , connHandle
+              , smtWriterName
               )
   , connState
   , newWriterConn
   , resetEntryStack
+  , entryStackHeight
   , pushEntryStack
   , popEntryStack
   , Command
   , addCommand
+  , addCommandNoAck
   , mkFreeVar
   , TypeMap(..)
   , freshBoundVarName
   , assumeFormula
+  , assumeFormulaWithName
+  , assumeFormulaWithFreshName
+  , DefineStyle(..)
+  , AcknowledgementAction(..)
+  , nullAcknowledgementAction
     -- * SMTWriter operations
   , assume
   , mkSMTTerm
   , mkFormula
+  , mkAtomicFormula
   , SMTEvalFunctions(..)
   , smtExprGroundEvalFn
     -- * Reexports
@@ -104,9 +114,8 @@ import qualified Data.Text.Lazy.Builder.Int as Builder (decimal)
 import qualified Data.Text.Lazy as Lazy
 import           Data.Word
 import           Numeric.Natural
-import           System.IO
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
-import           Data.ByteString(ByteString)
+import           System.IO.Streams (OutputStream)
 import qualified System.IO.Streams as Streams
 
 import           What4.BaseTypes
@@ -556,7 +565,7 @@ data StackEntry t (h :: *) = StackEntry
 data WriterConn t (h :: *) =
   WriterConn { smtWriterName :: !String
                -- ^ Name of writer for error reporting purposes.
-             , connHandle :: !Handle
+             , connHandle :: !(OutputStream Text)
                -- ^ Handle to write to
              , supportFunctionDefs :: !Bool
                -- ^ Indicates if the writer can define constants or functions in terms
@@ -584,7 +593,19 @@ data WriterConn t (h :: *) =
                -- ^ Symbol variables.
              , connState :: !h
                -- ^ The specific connection information.
+             , consumeAcknowledgement :: AcknowledgementAction t h
+               -- ^ Consume an acknowledgement notifications the solver, if
+               --   it produces one
              }
+
+-- | An action for consuming an acknowledgement message from the solver,
+--   if it is configured to produce ack messages.
+newtype AcknowledgementAction t h =
+  AckAction { runAckAction :: WriterConn t h -> Command h -> IO () }
+
+-- | An acknowledgement action that does nothing
+nullAcknowledgementAction :: AcknowledgementAction t h
+nullAcknowledgementAction = AckAction (\_ _ -> return ())
 
 newStackEntry :: IO (StackEntry t h)
 newStackEntry = do
@@ -601,6 +622,15 @@ resetEntryStack c = do
   entry <- newStackEntry
   writeIORef (entryStack c) [entry]
 
+-- | Return the number of pushed stack frames.  Note, this is one
+--   fewer than the number of entries in the stack beacuse the
+--   base entry is the top-level context that is not in the scope
+--   of any push.
+entryStackHeight :: WriterConn t h -> IO Int
+entryStackHeight c =
+  do es <- readIORef (entryStack c)
+     return (length es - 1)
+
 -- | Push a new frame to the stack for maintaining the writer cache.
 pushEntryStack :: WriterConn t h -> IO ()
 pushEntryStack c = do
@@ -615,7 +645,9 @@ popEntryStack c = do
    [_] -> fail "Could not pop from empty entry stack."
    (_:r) -> writeIORef (entryStack c) r
 
-newWriterConn :: Handle
+newWriterConn :: OutputStream Text
+              -> AcknowledgementAction t cs
+              -- ^ An action to consume solver acknowledgement responses
               -> String
               -- ^ Name of solver for reporting purposes.
               -> ProblemFeatures
@@ -623,10 +655,9 @@ newWriterConn :: Handle
               -> SymbolVarBimap t
               -- ^ A bijective mapping between variables and their
               -- canonical name (if any).
-              -> cs
-                 -- ^ State information specific to the type of connection
+              -> cs -- ^ State information specific to the type of connection
               -> IO (WriterConn t cs)
-newWriterConn h solver_name features bindings cs = do
+newWriterConn h ack solver_name features bindings cs = do
   entry <- newStackEntry
   stk_ref <- newIORef [entry]
   r <- newIORef emptyState
@@ -640,6 +671,7 @@ newWriterConn h solver_name features bindings cs = do
                        , stateRef     = r
                        , varBindings  = bindings
                        , connState    = cs
+                       , consumeAcknowledgement = ack
                        }
 
 -- | Status to indicate when term value will be uncached.
@@ -729,6 +761,11 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Create a command that asserts a formula.
   assertCommand :: f h -> Term h -> Command h
 
+  -- | Create a command that asserts a formula and attaches
+  --   the given name to it (primarily for the purposes of
+  --   later reporting unsatisfiable cores).
+  assertNamedCommand :: f h -> Term h -> Text -> Command h
+
   -- | Push 1 new scope
   pushCommand   :: f h -> Command h
 
@@ -740,6 +777,19 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 
   -- | Check if the current set of assumption is satisfiable
   checkCommand  :: f h -> Command h
+
+  -- | Check if a collection of assumptions is satisfiable in the current context.
+  --   The assumptions must be given as the names of literals already in scope.
+  checkWithAssumptionsCommand :: f h -> [Text] -> Command h
+
+  -- | Ask the solver to return an unsatisfiable core from among the assumptions
+  --   passed into the previous "check with assumptions" command.
+  getUnsatAssumptionsCommand :: f h -> Command h
+
+  -- | Ask the solver to return an unsatisfiable core from among the named assumptions
+  --   previously asserted using the `assertNamedCommand` after an unsatisfiable
+  --   `checkCommand`.
+  getUnsatCoreCommand :: f h -> Command h
 
   -- | Set an option/parameter.
   setOptCommand :: f h -> Text -> Text -> Command h
@@ -773,6 +823,11 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 -- if it differs from the last position.
 addCommand :: SMTWriter h => WriterConn t h -> Command h -> IO ()
 addCommand conn cmd = do
+  addCommandNoAck conn cmd
+  runAckAction (consumeAcknowledgement conn) conn cmd
+
+addCommandNoAck :: SMTWriter h => WriterConn t h -> Command h -> IO ()
+addCommandNoAck conn cmd = do
   las <- withWriterState conn $ use lastPosition
   cur <- withWriterState conn $ use position
 
@@ -783,7 +838,6 @@ addCommand conn cmd = do
     withWriterState conn $ lastPosition .= cur
 
   writeCommand conn cmd
-  hFlush (connHandle conn)
 
 -- | Create a new variable with the given name.
 mkFreeVar :: SMTWriter h
@@ -803,9 +857,28 @@ mkFreeVar' conn tp = SMTName tp <$> mkFreeVar conn Ctx.empty tp
 assumeFormula :: SMTWriter h => WriterConn t h -> Term h -> IO ()
 assumeFormula c p = addCommand c (assertCommand c p)
 
+assumeFormulaWithName :: SMTWriter h => WriterConn t h -> Term h -> Text -> IO ()
+assumeFormulaWithName conn p nm =
+  do unless (supportedFeatures conn `hasProblemFeature` useUnsatCores) $
+       fail $ show $ text (smtWriterName conn) <+> text "is not configured to produce UNSAT cores"
+     addCommand conn (assertNamedCommand conn p nm)
+
+assumeFormulaWithFreshName :: SMTWriter h => WriterConn t h -> Term h -> IO Text
+assumeFormulaWithFreshName conn p =
+  do var <- withWriterState conn $ freshVarName
+     assumeFormulaWithName conn p var
+     return var
+
+
+data DefineStyle
+  = FunctionDefinition
+  | EqualityDefinition
+ deriving (Eq, Show)
+
 -- | Create a variable name eqivalent to the given expression.
 defineSMTVar :: SMTWriter h
              => WriterConn t h
+             -> DefineStyle
              -> Text
                 -- ^ Name of variable to define
                 -- Should not be defined or declared in the current SMT context
@@ -814,8 +887,8 @@ defineSMTVar :: SMTWriter h
              -> TypeMap rtp -- ^ Type of expression.
              -> Term h
              -> IO ()
-defineSMTVar conn var args return_type expr
-  | supportFunctionDefs conn = do
+defineSMTVar conn defSty var args return_type expr
+  | supportFunctionDefs conn && defSty == FunctionDefinition = do
     addCommand conn $ defineCommand conn var args return_type expr
   | otherwise = do
     when (not (null args)) $ do
@@ -826,14 +899,15 @@ defineSMTVar conn var args return_type expr
 -- | Create a variable name eqivalent to the given expression.
 freshBoundVarName :: SMTWriter h
                   => WriterConn t h
+                  -> DefineStyle
                   -> [(Text, Some TypeMap)]
                      -- ^ Names of variables in term and associated type.
                   -> TypeMap rtp -- ^ Type of expression.
                   -> Term h
                   -> IO Text
-freshBoundVarName conn args return_type expr = do
+freshBoundVarName conn defSty args return_type expr = do
   var <- withWriterState conn $ freshVarName
-  defineSMTVar conn var args return_type expr
+  defineSMTVar conn defSty var args return_type expr
   return var
 
 -- | Function for create a new name given a base type.
@@ -983,7 +1057,7 @@ runOnLiveConnection :: SMTWriter h => WriterConn t h -> SMTCollector t h a -> IO
 runOnLiveConnection conn coll = runReaderT coll s
   where s = SMTCollectorState
               { scConn = conn
-              , freshBoundTermFn = defineSMTVar conn
+              , freshBoundTermFn = defineSMTVar conn FunctionDefinition
               , freshConstantFn  = Just $! FreshVarFn (mkFreeVar' conn)
               , recordSideCondFn = Just $! assumeFormula conn
               }
@@ -1344,7 +1418,7 @@ defineSMTFunction conn var action =
 
     let res = letExpr (reverse boundTerms) (asBase pair)
 
-    defineSMTVar conn var (reverse args) (smtExprType pair) res
+    defineSMTVar conn FunctionDefinition var (reverse args) (smtExprType pair) res
     return $! smtExprType pair
 
 ------------------------------------------------------------------------
@@ -2384,6 +2458,12 @@ mkSMTTerm conn p = runOnLiveConnection conn $ mkBaseExpr p
 mkFormula :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO (Term h)
 mkFormula = mkSMTTerm
 
+mkAtomicFormula :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO Text
+mkAtomicFormula conn p = runOnLiveConnection conn $
+  mkExpr p >>= \case
+    SMTName _ nm  -> return nm
+    SMTExpr ty tm -> freshBoundFn [] ty tm
+
 -- | Write assume formula predicates for asserting predicate holds.
 assume :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO ()
 assume c p = do
@@ -2429,11 +2509,19 @@ data SMTEvalFunctions h
 class SMTWriter h => SMTReadWriter h where
   -- | Get functions for parsing values out of the solver.
   smtEvalFuns ::
-    WriterConn t h -> Streams.InputStream ByteString -> SMTEvalFunctions h
+    WriterConn t h -> Streams.InputStream Text -> SMTEvalFunctions h
 
   -- | Parse a set result from the solver's response.
-  smtSatResult :: f h -> Streams.InputStream ByteString -> IO (SatResult ())
+  smtSatResult :: f h -> Streams.InputStream Text -> IO (SatResult () ())
 
+  -- | Parse a list of names of assumptions that form an unsatisfiable core.
+  --   These correspond to previously-named assertions.
+  smtUnsatCoreResult :: f h -> Streams.InputStream Text -> IO [Text]
+
+  -- | Parse a list of names of assumptions that form an unsatisfiable core.
+  --   The boolean indicates the polarity of the atom: true for an ordinary
+  --   atom, false for a negated atom.
+  smtUnsatAssumptionsResult :: f h -> Streams.InputStream Text -> IO [(Bool,Text)]
 
 -- | Return the terms associated with the given ground index variables.
 smtIndicesTerms :: forall v idx

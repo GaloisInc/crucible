@@ -139,6 +139,7 @@ tcType tp0 = do
           case ft of
             L.Float -> return $ MemType FloatType
             L.Double -> return $ MemType DoubleType
+            L.X86_fp80 -> return $ MemType X86_FP80Type
             _ -> badType
         L.Integer w -> return $ MemType $ IntType (fromIntegral w)
         L.Void -> return VoidType

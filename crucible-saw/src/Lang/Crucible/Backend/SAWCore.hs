@@ -887,7 +887,7 @@ evaluateExpr sym sc cache = f
 checkSatisfiable ::
   SAWCoreBackend n fs ->
   (Pred (SAWCoreBackend n fs)) ->
-  IO (SatResult ())
+  IO (SatResult () ())
 checkSatisfiable sym p = do
   mgr <- readIORef (B.sbStateManager sym)
   let sc = saw_ctx mgr
@@ -901,7 +901,7 @@ checkSatisfiable sym p = do
       BBSim.withBitBlastedPred proxy sc bbPrims t $ \be lit _shapes -> do
         satRes <- AIG.checkSat be lit
         case satRes of
-          AIG.Unsat -> return Unsat
+          AIG.Unsat -> return (Unsat ())
           _ -> return (Sat ())
     _ -> return (Sat ())
 
@@ -927,23 +927,6 @@ instance IsBoolSolver (SAWCoreBackend n fs) where
 
   collectAssumptions sym =
     AS.collectAssumptions =<< getAssumptionStack sym
-
-  evalBranch sym p0 =
-    case asConstantPred p0 of
-      Just True  -> return $! NoBranch True
-      Just False -> return $! NoBranch False
-      Nothing    ->
-        do p0_neg   <- notPred sym p0
-           p_prior  <- getPathCondition sym
-           p        <- andPred sym p_prior p0
-           p_neg    <- andPred sym p_prior p0_neg
-           p_res    <- checkSatisfiable sym p
-           notp_res <- checkSatisfiable sym p_neg
-           case (p_res, notp_res) of
-             (Unsat, Unsat) -> abortExecBecause InfeasibleBranch
-             (Unsat, _ )    -> return $! NoBranch False
-             (_    , Unsat) -> return $! NoBranch True
-             (_    , _)     -> return $! SymbolicBranch True
 
   getProofObligations sym = do
     stk <- getAssumptionStack sym

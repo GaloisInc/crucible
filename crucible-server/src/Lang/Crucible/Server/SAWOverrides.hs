@@ -162,11 +162,11 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
                   ret <- regValue <$> (checkedRegEntry (BVRepr w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_return_address))
                   fn  <- regValue <$> (checkedRegEntry (verifFnRepr rw w) =<< fromProtoValue sim (opts^.P.verificationSimulateOptions_program))
 
-                  let simSt = initSimState ctx emptyGlobals (serverErrorHandler sim)
+                  let simSt = InitialState ctx emptyGlobals (serverErrorHandler sim)
+                                $ runOverrideSim UnitRepr
+                                    (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
 
-                  exec_res <- executeCrucible simSt $ runOverrideSim UnitRepr
-                                (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
-
+                  exec_res <- executeCrucible [] simSt
                   case exec_res of
                     FinishedResult ctx' (TotalRes (GlobalPair _r _globals)) -> do
                       sendTextResponse sim "Finished!"

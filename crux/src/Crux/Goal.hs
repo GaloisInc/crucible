@@ -2,22 +2,26 @@
 {-# Language PatternSynonyms #-}
 module Crux.Goal where
 
-import Control.Lens((^.))
-import Control.Monad(forM, forM_)
+import Control.Lens((^.), view)
+import Control.Monad(forM_, unless)
+import Data.Either (partitionEithers)
 import Data.IORef
+import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 
 
-import What4.Interface (notPred, falsePred, Pred, printSymExpr,asConstantPred)
+import What4.Interface (notPred, printSymExpr,asConstantPred)
 import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
-                            , solverConn, check )
-import What4.Protocol.SMTWriter(mkFormula,assumeFormula,smtExprGroundEvalFn)
+                            , solverConn, check, getUnsatCore )
+import What4.Protocol.SMTWriter(mkFormula,assumeFormulaWithFreshName,smtExprGroundEvalFn)
 
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
         ( OnlineBackendState, getSolverProcess )
+import Lang.Crucible.Simulator.SimError
+        ( SimError )
 import Lang.Crucible.Simulator.ExecutionTree
         (ctxSymInterface, cruciblePersonality)
 
@@ -33,19 +37,15 @@ provedGoalsTree ::
   , OnlineSolver s solver
   ) =>
   SimCtxt sym p ->
-  Maybe (Goals (Assumption sym) (Assertion sym, ProofResult)) ->
-  IO (Maybe ProvedGoals)
+  Maybe (Goals (Assumption sym) (Assertion sym, ProofResult (Either (Assumption sym) (Assertion sym)))) ->
+  IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
 provedGoalsTree ctxt = traverse (go [])
   where
   go asmps gs =
     case gs of
       Assuming ps gs1 -> goAsmp asmps ps gs1
 
-      Prove (p,r) ->
-        -- For simplicity we call `simpProved` even when the goal wasn't proved
-        -- This shouldn't really matter, as we won't be able to simplify things
-        do (as1,triv) <- simpProved ctxt asmps p
-           return (Goal (map mkAsmp as1) (mkP p) triv r)
+      Prove (p,r) -> return $ proveToGoal ctxt asmps p r
 
       ProveConj g1 g2 -> Branch <$> go asmps g1 <*> go asmps g2
 
@@ -54,11 +54,6 @@ provedGoalsTree ctxt = traverse (go [])
         case p ^. labeledPredMsg of
           ExploringAPath from to -> AtLoc from to <$> goAsmp (p : asmps) ps gs
           _                      -> goAsmp (p : asmps) ps gs
-
-  mkAsmp (n,a) = let (x,y) = mkP a
-                 in (n,x,y)
-
-  mkP a = (a ^. labeledPredMsg, show (printSymExpr (a ^. labeledPred)))
 
 
 countGoals :: Goals a b -> Int
@@ -69,6 +64,25 @@ countGoals gs =
     ProveConj g1 g2 -> countGoals g1 + countGoals g2
 
 
+proveToGoal ::
+  sym ~ ExprBuilder s (OnlineBackendState solver) fs =>
+  SimCtxt sym p ->
+  [Assumption sym] ->
+  Assertion sym ->
+  ProofResult (Either (Assumption sym) (Assertion sym)) ->
+  ProvedGoals (Either AssumptionReason SimError)
+proveToGoal _ allAsmps p pr =
+  case pr of
+    NotProved cex -> Goal (map showLabPred allAsmps) (showLabPred p) False (NotProved cex)
+    Proved xs ->
+      let xs' = map (either (Left . (view labeledPredMsg)) (Right . (view labeledPredMsg))) xs in
+      case partitionEithers xs of
+        (asmps, [])  -> Goal (map showLabPred asmps) (showLabPred p) True (Proved xs')
+        (asmps, _:_) -> Goal (map showLabPred asmps) (showLabPred p) False (Proved xs')
+
+ where
+ showLabPred x = (x^.labeledPredMsg, show (printSymExpr (x^.labeledPred)))
+
 -- | Prove a collection of goals.  The result is a goal tree, where
 -- each goal is annotated with the outcome of the proof.
 proveGoals ::
@@ -77,7 +91,7 @@ proveGoals ::
   ) =>
   SimCtxt sym p ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
-  IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult)))
+  IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
 proveGoals _ctxt Nothing =
   do -- sayOK "Crux" $ unwords [ "No goals to prove." ]
@@ -87,7 +101,8 @@ proveGoals ctxt (Just gs0) =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
      goalNum <- newIORef (0,0) -- total, proved
-     res <- inNewFrame (solverConn sp) (go sp goalNum gs0)
+     nameMap <- newIORef Map.empty
+     res <- inNewFrame sp (go sp goalNum gs0 nameMap)
      (tot,proved) <- readIORef goalNum
      if proved /= tot
        then sayFail "Crux" $ unwords
@@ -98,108 +113,57 @@ proveGoals ctxt (Just gs0) =
   where
   (start,end) = prepStatus "Checking: " (countGoals gs0)
 
-  go sp gn gs =
+  bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
+
+  go sp gn gs nameMap =
     case gs of
 
       Assuming ps gs1 ->
         do forM_ ps $ \p ->
-             assumeFormula conn =<< mkFormula conn (p ^. labeledPred)
-           res <- go sp gn gs1
+             unless (asConstantPred (p^.labeledPred) == Just True) $
+              do nm <- assumeFormulaWithFreshName conn =<< mkFormula conn (p ^. labeledPred)
+                 bindName nm (Left p) nameMap
+           res <- go sp gn gs1 nameMap
            return (Assuming ps res)
 
       Prove p ->
         do num <- atomicModifyIORef' gn (\(val,y) -> ((val + 1,y), val))
            start num
            let sym  = ctxt ^. ctxSymInterface
-           assumeFormula conn =<< mkFormula conn
-                              =<< notPred sym (p ^. labeledPred)
+           nm <- assumeFormulaWithFreshName conn
+                    =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
+           bindName nm (Right p) nameMap
+
            res <- check sp "proof"
-           let mkRes status = Prove (p,status)
-           ret <- fmap mkRes $
-                    case res of
-                      Unsat   -> do modifyIORef' gn (\(x,f) -> (x,f+1))
-                                    return Proved
+           ret <- case res of
+                      Unsat () ->
+                        do modifyIORef' gn (\(x,f) -> (x,f+1))
+                           core <- getUnsatCore sp
+                           namemap <- readIORef nameMap
+                           let core' = map (lookupnm namemap) core
+                           return (Prove (p, (Proved core')))
+
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
                            str <- ppModel f model
-                           return (NotProved (Just str))
-                      Unknown -> return (NotProved Nothing)
+                           return (Prove (p, NotProved (Just str)))
+
+                      Unknown -> return (Prove (p, NotProved Nothing))
            end
            return ret
 
       ProveConj g1 g2 ->
-        do g1' <- inNewFrame conn (go sp gn g1)
+        do g1' <- inNewFrame sp (go sp gn g1 nameMap)
            -- NB, we don't need 'inNewFrame' here because
            --  we don't need to back up to this point again.
-           g2' <- go sp gn g2
+           g2' <- go sp gn g2 nameMap
            return (ProveConj g1' g2')
 
     where
     conn = solverConn sp
 
-
--- XXX: Factor out common with proveGoals
-canProve ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
-  , OnlineSolver s solver
-  ) =>
-  SimCtxt sym p ->
-  String ->
-  [LPred sym asmp] ->
-  Pred sym ->
-  IO ProofResult
-canProve ctxt rsn asmpPs concP =
-  do let sym = ctxt ^. ctxSymInterface
-     sp <- getSolverProcess sym
-     let conn = solverConn sp
-     asmps <- forM asmpPs $ \a -> mkFormula conn (a ^. labeledPred)
-     conc  <- mkFormula conn =<< notPred sym concP
-     inNewFrame conn $
-       do mapM_ (assumeFormula conn) asmps
-          assumeFormula conn conc
-          res <- check sp rsn
-          return $ case res of
-                     Unsat   -> Proved
-                     _       -> NotProved Nothing
-
-
-simpProved ::
-  ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
-  , OnlineSolver s solver
-  ) =>
-  SimCtxt sym p ->
-  [ Assumption sym ] ->
-  Assertion sym ->
-  IO ( [ (Maybe Int,Assumption sym) ], Bool )
-
-simpProved ctxt asmps0 conc =
-  do let false = falsePred (ctxt ^. ctxSymInterface)
-     res <- canProve ctxt "context satisfiability" asmps0 false
-     let (triv,g) = case res of
-                      Proved -> (True,false)
-                      _      -> (False,conc ^. labeledPred)
-
-     conn  <- solverConn <$> getSolverProcess (ctxt ^. ctxSymInterface)
-     asmps1 <- inNewFrame conn (dropAsmps conn 0 [] asmps0 g)
-     return (asmps1, triv)
-  where
-  -- A simple way to figure out what might be relevant assumptions.
-  dropAsmps conn n keep{-already assumed-} asmps{-to be filtered-} g =
-    case asmps of
-      [] -> return keep
-      a : as ->
-        let aP = a ^. labeledPred
-            next = case a ^. labeledPredMsg of
-                     ExploringAPath {} -> n+1
-                     _                 -> n
-        in case asConstantPred aP of
-             Just True -> dropAsmps conn next keep as g
-             _ ->
-               do res <- canProve ctxt "assumption simplification" as g
-                  case res of
-                    Proved       -> dropAsmps conn next keep as g
-                    NotProved {} ->
-                       do assumeFormula conn =<< mkFormula conn aP
-                          let lab = if n == next then Nothing else Just n
-                          dropAsmps conn next ((lab,a) : keep) as g
+    lookupnm namemap x =
+      case Map.lookup x namemap of
+        Just v  -> v
+        Nothing -> error $ "Named predicate " ++ show x ++ " not found!"
