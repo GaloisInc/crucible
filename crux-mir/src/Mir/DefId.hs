@@ -9,6 +9,8 @@
 module Mir.DefId where
 
 --import qualified Data.List as List
+import Data.Aeson
+
 import Data.Text (Text, pack, unpack, intercalate)
 import qualified Text.Regex as Regex
 
@@ -19,7 +21,7 @@ import GHC.Generics
 
 import Debug.Trace
 
-import           Text.PrettyPrint.ANSI.Leijen
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 
 
@@ -112,13 +114,13 @@ isPath str = isJust (Regex.matchRegex (Regex.mkRegex ( "^[a-z]+[A-Za-z0-9_]*")) 
            
 -- | Parse text from mir-json to produce a DefId       
 textId :: Text -> DefId
-textId text = case splitInput (unpack text) of
+textId txt = case splitInput (unpack txt) of
   (hd : rest ) -> let (fl, entries) = case parseEntry hd of
                         Nothing -> (hd, catMaybes $ map parseEntry rest)
                         Just entry -> ("", entry: (catMaybes $ map parseEntry rest))
                       pack2 (x,y) = (pack x, y)
                   in case span (isPath . fst) entries of
-                       ([], [])     -> error $ "cannot parse id " ++ unpack text
+                       ([], [])     -> error $ "cannot parse id " ++ unpack txt
                        ([], y:ys)   -> DefId (pack fl) [] (pack2 y) (map pack2 ys)
                        (xs, [])     -> DefId (pack fl) (map pack2 (init xs)) (pack2 (last xs)) []
                        (xs, y : ys) -> DefId (pack fl) (map pack2 xs)        (pack2 y)  (map pack2 ys)
@@ -140,6 +142,8 @@ instance Show DefId where
   show defId = unpack (idText defId)
 instance IsString DefId where
   fromString str = textId (fromString str)
+instance FromJSON DefId where
+    parseJSON x = textId <$> parseJSON x
 
 relocateDefId :: DefId -> DefId
 relocateDefId (DefId _did_file pth nm ex) = DefId stdlib pth nm ex
@@ -197,12 +201,20 @@ isCustomFunc :: DefId -> Maybe Text
 isCustomFunc defid = case (did_path defid, did_name defid, did_extra defid) of
   
    ([("boxed", _)], ("{{impl}}",_), [("new",_)])            -> Just "new"
+   
    ([("slice", _)], ("{{impl}}",_), [("slice_tovec",_)])    -> Just "slice_tovec"
+   ([("slice", _)], ("{{impl}}",_), [("len",_)])            -> Just "slice_len"
+   ([("slice", _)], ("{{impl}}",_), [("get",_)])            -> Just "slice_get"
+   ([("slice", _)], ("{{impl}}",_), [("get_mut",_)])        -> Just "slice_get_mut"
+
+
+   
    ([("vec", _)],   ("{{impl}}",_), [("vec_asmutslice",_)]) -> Just "vec_asmutslice"
    
    ([("ops",_),("function",_)], ("Fn", _), [("call", _)])            -> Just "call"
    ([("ops",_),("function",_)], ("FnOnce", _), [("call_once", _)])   -> Just "call"
 
+   ([("process",_)], ("exit",_), []) -> Just "exit"
    -- TODO add more
    _ -> Nothing
 

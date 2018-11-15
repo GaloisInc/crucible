@@ -17,6 +17,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall -fno-warn-name-shadowing
                 -fno-warn-unticked-promoted-constructors -fno-warn-unused-imports #-}
@@ -1291,7 +1292,8 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
 
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
-doCall :: HasCallStack => M.DefId -> [Maybe M.Ty] -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
+doCall :: HasCallStack => M.DefId -> [Maybe M.Ty] -> [M.Operand] 
+   -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
 doCall funid funsubst cargs cdest = do
     hmap <- use handleMap
     _tmap <- use traitMap
@@ -1324,7 +1326,14 @@ doCall funid funsubst cargs cdest = do
 
          | otherwise -> fail $ "Don't know how to call " ++ show funid
 
-      Nothing -> fail "bad dest in doCall"
+      Nothing
+         | Just "exit" <- M.isCustomFunc funid, [o] <- cargs -> do
+               traceM $ show (vcat [text "At an exit call "])
+               _exp <- evalOperand o
+               G.reportError (S.app $ E.TextLit "Program terminated with exit")
+
+
+         | otherwise -> fail "bad dest in doCall"
 
 -- Method/trait calls
       -- 1. translate `traitObject` -- should be a Ref to a tuple
@@ -1831,6 +1840,33 @@ thisTraitImpls (M.Trait trait _) trs = do
 --------------------------------------------------------------------------------------------------------------------------
 --- Custom stuff
 --
+-- G.Expr MIR s tp
+
+arrayCopy :: CT.TypeRepr elt ->
+             G.Expr MIR s CT.NatType ->
+             G.Expr MIR s CT.NatType ->
+             G.Expr MIR s (CT.VectorType elt) ->
+             MirGenerator h s ret (G.Expr MIR s (CT.VectorType elt))
+arrayCopy ety start stop inp = do
+  let elt = S.app $ E.VectorGetEntry ety inp (S.app $ E.NatLit 0)
+  let sz  = S.app $ E.NatSub stop start
+  let out = S.app $ E.VectorReplicate ety sz elt
+  ir <- G.newRef start
+  or <- G.newRef out
+  let pos = PL.InternalPos
+  G.while (pos, do i <- G.readRef ir
+                   return (G.App (E.NatLt i stop)))
+          (pos, do i <- G.readRef ir
+                   let elt = S.app $ E.VectorGetEntry ety inp i
+                   o   <- G.readRef or
+                   let o' = S.app $ E.VectorSetEntry ety o i elt
+                   G.writeRef or o'
+                   G.writeRef ir (G.App (E.NatAdd i (G.App $ E.NatLit 1))))
+  o <- G.readRef or
+  return o
+
+
+
 
 -- if we want to be able to insert custom information just before runtime, the below can be dynamic, and baked into the Override monad.
 
@@ -1922,6 +1958,30 @@ doCustomCall fname funsubst ops lv dest
      v <- accessAggregate iter 0
      assignLvExp lv Nothing v
      jumpToBlock dest
+
+
+ | Just "slice_get" <-  M.isCustomFunc fname, [vec,range] <- ops, [Just ty1, Just ty2] <- funsubst = do
+     vec_e <- evalOperand vec
+     range_e <- evalOperand range
+     let v = undefined
+     assignLvExp lv Nothing v
+     jumpToBlock dest
+
+ | Just "slice_get_mut" <-  M.isCustomFunc fname,
+   [vec,range] <- ops,
+   [Just elTy, Just idxTy] <- funsubst = do
+
+     -- type of the structure is &mut[ elTy ]
+     (MirExp vty vec_e) <- evalOperand vec
+     case vty of
+       CT.VectorRepr ety -> do
+         range_e <- evalOperand range
+         (MirExp CT.NatRepr start) <- accessAggregate range_e 0
+         (MirExp CT.NatRepr stop ) <- accessAggregate range_e 1
+         v <- arrayCopy ety start stop vec_e
+         assignLvExp lv Nothing (MirExp (CT.VectorRepr ety) v)
+         jumpToBlock dest
+       _ -> fail $ " slice_get_mut type is " ++ show vty
 
 
  | Just "call" <- M.isCustomFunc fname, -- perform call of closure

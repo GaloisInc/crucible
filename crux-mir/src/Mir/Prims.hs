@@ -27,6 +27,7 @@ loadPrims = do
     , "option"
     , "result"
     , "cmp"
+--    , "slice"
     ]
   return (fold (hardCoded : map relocate cols)) 
 

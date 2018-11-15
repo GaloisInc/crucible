@@ -16,7 +16,7 @@ import Mir.PP()
 import Text.PrettyPrint.ANSI.Leijen (Pretty(..))
 
 
---import Debug.Trace
+import Debug.Trace
 
 
 -- | Run mir-json on the input, generating lib file on disk 
@@ -61,8 +61,8 @@ generateMIR dir name = do
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> do
-{-        traceM "--------------------------------------------------------------"
+        traceM "--------------------------------------------------------------"
         traceM $ "Collection: " ++ name
         traceM $ show (pretty col)
-        traceM "--------------------------------------------------------------" -}
+        traceM "--------------------------------------------------------------" 
         return col

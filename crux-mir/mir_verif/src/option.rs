@@ -12,7 +12,7 @@ pub mod option {
     //use std::convert::From;
     //use std::iter::{FromIterator};
     //use std::iter::*;
-    //use std::ops::FnOnce;
+    use std::ops::FnOnce;
 
     pub enum Option<T> {
         /// No value
@@ -84,7 +84,7 @@ pub mod option {
             }
         }
 
-/*        #[inline]    
+        #[inline]    
         pub fn unwrap_or_else<F: FnOnce() -> T>(self, f: F) -> T {
             match self {
                 Some(x) => x,
@@ -114,7 +114,7 @@ pub mod option {
                 None => default(),
             }
         }
-*/
+
         #[inline]
         pub fn ok_or<E>(self, err: E) -> Result<T, E> {
             match self {
@@ -122,7 +122,7 @@ pub mod option {
                 None => Err(err),
             }
         }
-/*
+
         #[inline]
         pub fn ok_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<T, E> {
             match self {
@@ -130,7 +130,7 @@ pub mod option {
                 None => Err(err()),
             }
         }
-*/
+
 /*
         #[inline]
         pub fn iter(&self) -> Iter<T> {
@@ -150,7 +150,7 @@ pub mod option {
             }
         }
 
-/*        /// Returns [`None`] if the option is [`None`], otherwise calls `f` with the
+        /// Returns [`None`] if the option is [`None`], otherwise calls `f` with the
         /// wrapped value and returns the result.
         ///
         /// Some languages call this operation flatmap.
@@ -174,9 +174,9 @@ pub mod option {
                 Some(x) => f(x),
                 None => None,
             }
-        } */
+        } 
 
-/*        /// Returns `None` if the option is `None`, otherwise calls `predicate`
+        /// Returns `None` if the option is `None`, otherwise calls `predicate`
         /// with the wrapped value and returns:
         ///
         /// - `Some(t)` if `predicate` returns `true` (where `t` is the wrapped
@@ -207,7 +207,7 @@ pub mod option {
             }
             None
         }
-*/
+
       
         #[inline]
         
@@ -218,7 +218,7 @@ pub mod option {
             }
         }
 
-/*        /// Returns the option if it contains a value, otherwise calls `f` and
+        /// Returns the option if it contains a value, otherwise calls `f` and
         /// returns the result.
         ///
         /// # Examples
@@ -239,6 +239,6 @@ pub mod option {
                 None => f(),
             }
         } 
-*/
+
     }
 }

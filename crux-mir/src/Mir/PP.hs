@@ -56,7 +56,7 @@ size_str B16  = "16"
 size_str B32  = "32"
 size_str B64  = "64"
 size_str B128 = "128"
-size_str USize = "USize"
+size_str USize = "size"
 
 
 

@@ -30,25 +30,15 @@ module Mir.Mir where
 import Data.Aeson
 import qualified Data.HashMap.Lazy as HML
 import qualified Data.ByteString as B
-import qualified Text.Regex as Regex
 import qualified Data.Map.Strict as Map
-import Data.Text (Text, pack, unpack)
+import Data.Text (Text,  unpack)
 import Data.List
 import Control.Lens(makeLenses,(^.))
 import Data.Maybe (fromMaybe)
-import Data.String (IsString(..))
 
-
-
-
---import GHC.TypeLits
-import qualified Data.Parameterized.List as Param
---import qualified Data.Parameterized.Classes as Param
---import qualified Data.Parameterized.NatRepr as Param
 
 import GHC.Generics 
 import GHC.Stack
-import Debug.Trace
 
 import Mir.DefId
 
@@ -142,7 +132,7 @@ data Var = Var {
     _varty :: Ty,
     _varscope :: VisibilityScope,
     _varpos :: Text }
-    deriving (Eq, Show, Generic, GenericOps)
+    deriving (Eq, Show, Generic)
 
 instance Ord Var where
     compare (Var n _ _ _ _) (Var m _ _ _ _) = compare n m
@@ -203,7 +193,7 @@ data Lvalue =
     | Static
     | LProjection LvalueProjection
     | Tagged Lvalue Text -- for internal use during the translation
-    deriving (Show, Eq, Generic, GenericOps)
+    deriving (Show, Eq, Generic)
 
 instance Ord Lvalue where
     compare l1 l2 = compare (show l1) (show l2)
@@ -379,38 +369,6 @@ data CustomAggregate =
     CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
     deriving (Show,Eq, Ord, Generic, GenericOps)
 
----------------------------------------------------------------
--- DefIds
--- Identifiers that can be qualified by paths
-{-
-data DefId = DefId { idText :: Text }
-  deriving (Eq, Ord, Ord, Generic)
--}
--- We use these for traits, functions, and types 
-type TraitName = DefId
-type MethName  = DefId
-type AdtName   = DefId
-
-{-
-textId :: Text -> DefId
-textId = DefId
-
-instance Show DefId where
-  show (DefId defId) = show defId
-instance IsString DefId where
-  fromString str = DefId (fromString str)
--}
-
-
-
---- Other texts
-type Promoted = Text
-type ConstUsize = Integer
-type VisibilityScope = Text
-type AssertMessage = Text
-type ClosureSubsts = Text
-type BasicBlockInfo = Text
-
 data Trait = Trait DefId [TraitItem]
     deriving (Eq, Ord, Show, Generic, GenericOps)
 
@@ -423,10 +381,27 @@ data TraitItem
 
 
 
+-- Documentation for particular use-cases of DefIds
+type TraitName = DefId
+type MethName  = DefId
+type AdtName   = DefId
+
+--- Other texts
+type Promoted = Text
+type ConstUsize = Integer
+type VisibilityScope = Text
+type AssertMessage = Text
+type ClosureSubsts = Text
+type BasicBlockInfo = Text
+
+
 --------------------------------------------------------------------------------------
 --
 -- Generic operations
 --
+
+-- These operations are defined via GHC.Generics so that they can automatically
+-- adapt to changes in the Mir AST.  
 
 class GenericOps a where
 
@@ -437,31 +412,45 @@ class GenericOps a where
   default relocate :: (Generic a, GenericOps' (Rep a)) => a -> a
   relocate x = to (relocate' (from x))
 
-  -- | find all C-style Adts in the AST and convert them to Custom (CEnum _) types
+  -- | Find all C-style Adts in the AST and convert them to Custom (CEnum _)
   markCStyle :: [AdtName] -> a -> a 
   default markCStyle :: (Generic a, GenericOps' (Rep a)) => [AdtName] -> a -> a
   markCStyle s x = to (markCStyle' s (from x))
 
-
+  -- | Type variable substitution. Type variables are represented via indices.
   tySubst :: [Maybe Ty] -> a -> a 
   default tySubst :: (Generic a, GenericOps' (Rep a)) => [Maybe Ty] -> a -> a
   tySubst s x = to (tySubst' s (from x))
-  
 
+  -- | Renaming for term variables
+  replaceVar :: Var -> Var -> a -> a
+  default replaceVar :: (Generic a, GenericOps' (Rep a)) => Var -> Var -> a -> a
+  replaceVar o n x = to (replaceVar' o n (from x))
+
+  -- |
+  replaceLvalue :: Lvalue -> Lvalue -> a -> a
+  default replaceLvalue :: (Generic a, GenericOps' (Rep a)) => Lvalue -> Lvalue -> a -> a
+  replaceLvalue o n x = to (replaceLvalue' o n (from x))
+
+  
 
 -- special case for DefIds
 instance GenericOps DefId where
   relocate     = relocateDefId 
-  markCStyle _ = id
+  markCStyle _   = id
+  tySubst    _   = id
+  replaceVar _ _ = id
+  replaceLvalue _ _ = id  
 
 -- special case for Tys
--- Translate C-style enums to CEnum types
 instance GenericOps Ty where
 
+  -- Translate C-style enums to CEnum types
   markCStyle s (TyAdt n [])  | n `elem` s = TyCustom (CEnum n)
   markCStyle s (TyAdt n _ps) | n `elem` s = error "Cannot have params to C-style enum!"
   markCStyle s ty = to (markCStyle' s (from ty))
 
+  -- Substitute for type variables
   tySubst substs (TyParam i)
      | fromInteger i < length substs =
          case substs !! fromInteger i of
@@ -470,15 +459,40 @@ instance GenericOps Ty where
      | otherwise    = error $ "Indexing at " ++ show i ++ "  from subst " ++ show substs
   tySubst substs ty = to (tySubst' substs (from ty))
 
+-- special case for Vars
+instance GenericOps Var where
+  replaceVar old new v = if _varname v == _varname old then new else v
+
+  replaceLvalue (Local old) (Local new) v = replaceVar old new v
+  replaceLvalue _ _ v = v
+
+-- special case for LValue
+instance GenericOps Lvalue where
+    replaceLvalue old new v = fromMaybe v (repl_lv v)
+      where
+        repl_lv :: Lvalue -> Maybe Lvalue -- some light unification
+        repl_lv v0 =
+          case v0 of
+            LProjection (LvalueProjection lb k)
+              | Just ans <- repl_lv lb -> Just $ LProjection (LvalueProjection ans k)
+            Tagged lb _ | Just ans <- repl_lv lb -> Just ans
+            _ | v == old -> Just new
+            _ -> Nothing
+
+
 class GenericOps' f where
   relocate'   :: f p -> f p
   markCStyle' :: [AdtName] -> f p -> f p
   tySubst'    :: [Maybe Ty] -> f p -> f p 
-
+  replaceVar' :: Var -> Var -> f p -> f p
+  replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
+  
 instance GenericOps' V1 where
-  relocate' _x     = error "impossible: this is a void type"
-  markCStyle' _ _x = error "impossible: this is a void type"
-  tySubst' _ _     = error "impossible: this is a void type"
+  relocate' _x      = error "impossible: this is a void type"
+  markCStyle' _ _x  = error "impossible: this is a void type"
+  tySubst' _ _      = error "impossible: this is a void type"
+  replaceVar' _ _ _ = error "impossible: this is a void type"
+  replaceLvalue' _ _ _ = error "impossible: this is a void type"
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
   relocate'     (L1 x) = L1 (relocate' x)
@@ -487,28 +501,42 @@ instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
   markCStyle' s (R1 x) = R1 (markCStyle' s x)
   tySubst'    s (L1 x) = L1 (tySubst' s x)
   tySubst'    s (R1 x) = R1 (tySubst' s x)
+  replaceVar' o n (L1 x) = L1 (replaceVar' o n x)
+  replaceVar' o n (R1 x) = R1 (replaceVar' o n x)
+  replaceLvalue' o n (L1 x) = L1 (replaceLvalue' o n x)
+  replaceLvalue' o n (R1 x) = R1 (replaceLvalue' o n x)
 
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
-  relocate'     (x :*: y) = relocate' x     :*: relocate' y
-  markCStyle' s (x :*: y) = markCStyle' s x :*: markCStyle' s y
-  tySubst'    s (x :*: y) = tySubst'    s x :*: tySubst'    s y
+  relocate'       (x :*: y) = relocate'   x     :*: relocate' y
+  markCStyle' s   (x :*: y) = markCStyle'   s x :*: markCStyle' s y
+  tySubst'    s   (x :*: y) = tySubst'      s x :*: tySubst'    s y
+  replaceVar' o n (x :*: y) = replaceVar' o n x :*: replaceVar' o n y
+  replaceLvalue' o n (x :*: y) = replaceLvalue' o n x :*: replaceLvalue' o n y
+  
 
 instance (GenericOps c) => GenericOps' (K1 i c) where
   relocate'     (K1 x) = K1 (relocate x)
   markCStyle' s (K1 x) = K1 (markCStyle s x)
   tySubst'    s (K1 x) = K1 (tySubst s x)
-
+  replaceVar' o n (K1 x) = K1 (replaceVar o n x)
+  replaceLvalue' o n (K1 x) = K1 (replaceLvalue o n x)  
+  
 instance (GenericOps' f) => GenericOps' (M1 i t f) where
   relocate'     (M1 x) = M1 (relocate' x)
   markCStyle' s (M1 x) = M1 (markCStyle' s x)
   tySubst'    s (M1 x) = M1 (tySubst' s x)
+  replaceVar' o n (M1 x) = M1 (replaceVar' o n x)
+  replaceLvalue' o n (M1 x) = M1 (replaceLvalue' o n x)
 
 instance (GenericOps' U1) where
   relocate'      U1 = U1
   markCStyle' _s U1 = U1
   tySubst'    _s U1 = U1
-                     
+  replaceVar' _ _ U1 = U1
+  replaceLvalue' _ _ U1 = U1 
+
+                      
 instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)
 instance (GenericOps a, GenericOps b) => GenericOps (a,b)
@@ -516,33 +544,55 @@ instance GenericOps Int     where
    relocate   = id
    markCStyle = const id
    tySubst    = const id
+   replaceVar _ _ = id
+   replaceLvalue _ _ = id
+   
 instance GenericOps Integer where
    relocate = id
    markCStyle = const id
    tySubst    = const id
+   replaceVar _ _ = id
+   replaceLvalue _ _ = id
+   
 instance GenericOps Char    where
    relocate = id
    markCStyle = const id
    tySubst    = const id
+   replaceVar _ _ = id
+   replaceLvalue _ _ = id
+   
 instance GenericOps Bool    where
    relocate = id
    markCStyle = const id
    tySubst    = const id
+   replaceVar _ _ = id
+   replaceLvalue _ _ = id
+   
 instance GenericOps Text    where
    relocate = id
    markCStyle = const id
    tySubst    = const id
+   replaceVar _ _ = id
+   replaceLvalue _ _ = id
+   
 instance GenericOps B.ByteString where
    relocate = id
    markCStyle = const id
    tySubst    = const id
+   replaceVar _ _ = id
+   replaceLvalue _ _ = id   
 
--- A CStyle ADT is one that is an enumeration of numeric valued options
--- containing no data
-isCStyle :: Adt -> Bool
-isCStyle (Adt _ variants) = all isConst variants where
-    isConst (Variant _ _ [] ConstKind) = True
-    isConst _ = False
+instance GenericOps b => GenericOps (Map.Map a b) where
+   relocate       = Map.map relocate 
+   markCStyle s    = Map.map (markCStyle s)
+   tySubst s      = Map.map (tySubst s)
+   replaceVar o n = Map.map (replaceVar o n)
+   replaceLvalue o n = Map.map (replaceLvalue o n)   
+
+replaceList :: GenericOps a => [(Lvalue, Lvalue)] -> a -> a
+replaceList [] a = a
+replaceList ((old,new) : vs) a = replaceList vs $ replaceLvalue old new a
+    
 
 --------------------------------------------------------------------------------------
 
@@ -554,7 +604,8 @@ makeLenses ''Fn
 
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1)<> (Collection f2 a2 t2) = Collection (f1 ++ f2) (a1 ++ a2) (t1 ++ t2)
+  (Collection f1 a1 t1)<> (Collection f2 a2 t2) =
+    Collection (f1 ++ f2) (a1 ++ a2) (t1 ++ t2)
 instance Monoid Collection where
   mempty = Collection [] [] []
   
@@ -562,6 +613,14 @@ instance Monoid Collection where
 --------------------------------------------------------------------------------------
 --- aux functions ---
 --------------------------------------------------------------------------------------
+
+-- A CStyle ADT is one that is an enumeration of numeric valued options
+-- containing no data
+isCStyle :: Adt -> Bool
+isCStyle (Adt _ variants) = all isConst variants where
+    isConst (Variant _ _ [] ConstKind) = True
+    isConst _ = False
+
 
 lValueofOp :: HasCallStack => Operand -> Lvalue
 lValueofOp (Consume lv) = lv
@@ -695,6 +754,10 @@ instance TypeOf LvalueProjection where
     
 --------------------------------------------------------------------------------------
 
+{-
+
+-- SUBSUMED by generic version above
+
 class Replace v a where
     replace :: v -> v -> a -> a
 
@@ -789,55 +852,7 @@ replaceVar = replace
 replaceLvalue :: (Replace Lvalue a) => Lvalue -> Lvalue -> a -> a
 replaceLvalue = replace 
 
---------------------------------------------------------------------------------------
---- Custom stuff
---
-
--- Custom function calls are converted by hand. The below can probably do away with regex and use [0], but I'm not sure if that would always work
-{-
-isCustomFunc :: DefId -> Maybe DefId
-isCustomFunc fname1
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::boxed\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::new\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "boxnew"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::slice\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::into_vec\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "slice_tovec"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::\\{\\{impl\\}\\}\\[[0-9]+\\]::as_mut_slice\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "vec_asmutslice"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::index\\[[0-9]+\\]::Index\\[[0-9]+\\]::index\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "index"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::vec\\[[0-9]+\\]::from_elem\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "vec_fromelem"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::ops\\[[0-9]+\\]::function\\[[0-9]+\\]::Fn\\[[0-9]+\\]::call\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "call"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::traits\\[[0-9]+\\]::IntoIterator\\[[0-9]+\\]::into_iter\\[[0-9]+\\]") (unpack (idText fname1))
-    = trace "isCustomFunc: into_iter" $ Just "into_iter"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::next\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "iter_next"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::map\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "iter_map"
-
-  | Just _ <- Regex.matchRegex (Regex.mkRegex "::iter\\[[0-9]+\\]::iterator\\[[0-9]+\\]::Iterator\\[[0-9]+\\]::collect\\[[0-9]+\\]") (unpack (idText fname1))
-    = Just "iter_collect"
-
-  -- TODO into_vec
-  --    (vec, 0) -> vec
-  -- TODO Iterator::map
-  --    ((vec,0), closure) -> (closure of vec, 0)
-  -- TODO Iterator::collect
-  --    (vec, 0) -> vec
-
-  | otherwise = Nothing
 -}
-
-
     
 
 --------------------------------------------------------------------------------------
@@ -1085,8 +1100,6 @@ instance PPrint Collection where
 -- | FromJSON instances
 -- Aeson is used for JSON deserialization
 
-instance FromJSON DefId where
-    parseJSON x = textId <$> parseJSON x
 
 instance FromJSON BaseSize where
     parseJSON = withObject "BaseSize" $
@@ -1132,7 +1145,7 @@ instance FromJSON Ty where
                                           Just (String "Dynamic") -> TyDynamic <$> v .: "data"
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
-                                          Just (String "Never") -> pure (TyAdt "Never" [])
+                                          Just (String "Never") -> pure (TyAdt "::Never[0]" [])
                                           Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
                                           r -> fail $ "unsupported ty: " ++ show r
 
@@ -1399,43 +1412,3 @@ instance FromJSON MirBody where
         <*> v .: "blocks"
 
 --------------------------------------------------------------------------------------------
-
-data BaseSizeRepr (b :: BaseSize) where
-  USizeRepr :: BaseSizeRepr USize
-  B8Repr    :: BaseSizeRepr B8
-  B16Repr    :: BaseSizeRepr B16
-  B32Repr    :: BaseSizeRepr B32
-  B64Repr    :: BaseSizeRepr B64
-  B128Repr    :: BaseSizeRepr B128
-
-data CustomTyRepr (b :: CustomTy) where
-  BoxTyRepr :: TyRepr t -> CustomTyRepr (BoxTy t)
-  IterTyRepr :: TyRepr t -> CustomTyRepr (IterTy t)
-
-data MutabilityRepr (m :: Mutability) where
-  ImmutRepr :: MutabilityRepr Immut
-  MutRepr   :: MutabilityRepr Mut
-
-data FloatKindRepr (k :: FloatKind) where
-
-data TyRepr (t :: Ty) where
-  TyBoolRepr  :: TyRepr TyBool
-  TyCharRepr  :: TyRepr TyChar
-  TyIntRepr   :: BaseSizeRepr sz -> TyRepr (TyInt sz)
-  TyUintRepr  :: BaseSizeRepr sz -> TyRepr  (TyUint sz)
-  TyTupleRepr :: Param.List TyRepr tys -> TyRepr (TyTuple tys)
-  TySliceRepr :: TyRepr t -> TyRepr (TySlice ty)
---  TyArrayRepr :: TyRepr t -> Param.NatRepr i -> TyRepr (TyArray t i)
-  TyRefRepr   :: TyRepr t -> (MutabilityRepr m) -> TyRepr (TyRef t m)
---  TyAdtRepr   ::  DefId [Maybe Ty] -> TyRepr 
-  TyUnsupportedRepr :: TyRepr TyUnsupported
-  TyCustomRepr      :: CustomTyRepr cu -> TyRepr (TyCustom cu)
---  TyParamRepr       :: Param.NatRepr i -> TyRepr (TyParam i)
---  TyFnDefRepr       ::  DefId [Maybe Ty] -> TyRepr 
---  TyClosureRepr ::  DefId [Maybe Ty] -> TyRepr 
-  TyStrRepr :: TyRepr TyStr
---  TyFnPtrRepr ::  FnSig -> TyRepr 
---  TyDynamicRepr ::  DefId -> TyRepr 
-  TyRawPtrRepr ::  TyRepr ty -> MutabilityRepr mut -> TyRepr (TyRawPtr ty mut)
-  TyFloatRepr ::  FloatKindRepr ft -> TyRepr (TyFloat ft)
-
