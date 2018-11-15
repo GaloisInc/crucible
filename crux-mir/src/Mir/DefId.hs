@@ -151,6 +151,16 @@ mangleTraitId d@(DefId file path _name extra)
   | not (null extra) = DefId file (path ++ [("{{impl}}", 0)]) (head extra) (tail extra)
   | otherwise        = d
 
+-- | If we have a static call for a trait, we need to mangle the format so that it looks
+-- like a normal function call (and we can find the function handle)
+makeImpl0 :: DefId -> DefId
+makeImpl0 (DefId file path name extra) =
+  DefId file (changeImpl path) name extra where
+     changeImpl p | not (null p) && fst (last p) == ("{{impl}}"::Text) = init p ++ [("{{impl}}",0)]
+                  | otherwise = p
+
+
+
 -- | Find the variant name and return it, without any decoration
 cleanVariantName :: DefId -> Text
 cleanVariantName defid = case did_extra defid of

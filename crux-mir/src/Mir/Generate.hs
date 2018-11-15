@@ -61,8 +61,8 @@ generateMIR dir name = do
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> do
-        traceM "--------------------------------------------------------------"
+{-      traceM "--------------------------------------------------------------"
         traceM $ "Collection: " ++ name
         traceM $ show (pretty col)
-        traceM "--------------------------------------------------------------" 
+        traceM "--------------------------------------------------------------"  -}
         return col

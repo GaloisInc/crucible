@@ -404,16 +404,16 @@ pattern MirSliceRepr tp <- StructRepr
 
 type TypeName  = Ty
 
--- | The HandleMap maps mir functions to their corresponding function
--- handle. Function handles include the original method name (for
--- convenience) and original Mir type (for trait resolution).
-type HandleMap = Map.Map MethName MirHandle
-
 data MirHandle where
     MirHandle :: MethName -> FnSig -> FnHandle init ret -> MirHandle
 
 instance Show MirHandle where
     show (MirHandle _nm sig c) = show c ++ ":" ++ show sig
+
+-- | The HandleMap maps mir functions to their corresponding function
+-- handle. Function handles include the original method name (for
+-- convenience) and original Mir type (for trait resolution).
+type HandleMap = Map.Map MethName MirHandle
 
 
 -- | The VarMap maps identifier names to registers (if the id
@@ -462,13 +462,20 @@ data TraitImpls ctx = TraitImpls
 -- TODO: For now, traits only include methods, not constants
 data MirValue (ty :: CrucibleType) where
   FnValue :: FnHandle args ret -> MirValue (FunctionHandleType args ret)
+
+
+-- For static trait calls, we need to resolve the method name using the
+-- type as well as the name of the trait.
+type StaticTraitMap = Map.Map MethName (Map.Map TypeName MirHandle)
+
   
 -- | Generator state for MIR translation
 data FnState s = FnState { _varMap    :: !(VarMap s),
                            _labelMap  :: !(LabelMap s),
                            _handleMap :: !HandleMap,
                            _adtMap    :: !AdtMap,
-                           _traitMap  :: !TraitMap
+                           _traitMap  :: !TraitMap,
+                           _staticTraitMap :: !StaticTraitMap
                          }
 
 

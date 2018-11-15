@@ -669,6 +669,9 @@ isPoly (TyCustom (VecTy ty)) = isPoly ty
 isPoly (TyCustom (IterTy ty)) = isPoly ty
 isPoly _x = False           
 
+isNever :: Ty -> Bool
+isNever (TyAdt defId _) = fst (did_name defId) == "Never"
+isNever _ = False
 
 --------------------------------------------------------------------------------------
 -- | arithType

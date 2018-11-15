@@ -11,8 +11,15 @@ module Mir.Prims where
 import Mir.DefId
 import Mir.Mir
 import Mir.Generate
+import Mir.PP()
 import Data.Foldable(fold)
 
+import Text.PrettyPrint.ANSI.Leijen (pretty)
+import qualified Debug.Trace as Debug
+import Control.Monad(when)
+
+debug :: Bool
+debug = False
 
 -- | Location of the rust file with the standard library
 libLoc :: String
@@ -29,7 +36,15 @@ loadPrims = do
     , "cmp"
 --    , "slice"
     ]
-  return (fold (hardCoded : map relocate cols)) 
+    
+  let total = (fold (hardCoded : map relocate cols))
+  when debug $ do
+    Debug.traceM "--------------------------------------------------------------"
+    Debug.traceM $ "Collection: "
+    Debug.traceM $ show (pretty total)
+    Debug.traceM "--------------------------------------------------------------"  
+
+  return total
 
 hardCoded :: Collection
 hardCoded = Collection [] [] [fnOnce, fn]

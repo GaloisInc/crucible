@@ -443,6 +443,9 @@ transBinOp bop op1 op2 = do
             M.Beq -> return $ MirExp CT.BoolRepr (S.app $ E.NatEq e1 e2)
             M.Lt -> return $ MirExp CT.BoolRepr (S.app $ E.NatLt e1 e2)
             M.Le -> return $ MirExp CT.BoolRepr (S.app $ E.NatLe e1 e2)
+            M.Gt -> return $ MirExp CT.BoolRepr (S.app $ E.NatLe e2 e1)
+            M.Ge -> return $ MirExp CT.BoolRepr (S.app $ E.NatLt e2 e1)
+
             M.Add -> return $ MirExp CT.NatRepr (S.app $ E.NatAdd e1 e2)
             M.Sub -> return $ MirExp CT.NatRepr (S.app $ E.NatSub e1 e2)
             M.Mul -> return $ MirExp CT.NatRepr (S.app $ E.NatMul e1 e2)
@@ -964,13 +967,24 @@ assignVarExp :: HasCallStack => M.Var -> Maybe M.Ty -> MirExp s -> MirGenerator 
 -- invariant guarantee given by the borrow checker is that, so long as the immutable
 -- reference is live, the value will not change.  This justifies immediately deferencing
 -- the pointer to get out the value within.
-assignVarExp v@(M.Var _vnamd _ (M.TyRef lhs_ty M.Immut) _ _pos) (Just (M.TyRef _rhs_ty M.Mut)) (MirExp (MirReferenceRepr e_ty) e) =
-  case lhs_ty of
-    M.TySlice _ ->
-         do fail "FIXME! implement implict cast from mutable slice to immutable slice"
-    _ ->
+assignVarExp v@(M.Var _vnamd _ (M.TyRef _lhs_ty M.Immut) _ _pos)
+               _ (MirExp (MirReferenceRepr e_ty) e) =
          do r <- readMirRef e_ty e
             assignVarExp v Nothing (MirExp e_ty r)
+
+-- For mutable slice to immutable slice, we make a copy of the vector so that
+-- we have the correct range. Note: if we update immutable slices to also
+-- store bounds, then we can update this coercion.
+assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _pos)
+               _ (MirExp (MirSliceRepr e_ty) e) =
+ 
+         do let rvec  = S.getStruct Ctx.i1of3 e
+            let start = S.getStruct Ctx.i2of3 e
+            let stop  = S.getStruct Ctx.i3of3 e
+            r <- readMirRef (CT.VectorRepr e_ty) rvec
+            r2 <- vectorCopy e_ty start stop r
+            assignVarExp v Nothing (MirExp (CT.VectorRepr e_ty) r2)
+
 
 assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
     vm <- use varMap
@@ -988,13 +1002,14 @@ assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
         | otherwise ->
             fail $ "type error in assignment: got " ++ (show (pretty e_ty)) ++ " but expected "
                      ++ (show (varInfoRepr varinfo)) ++ " in assignment of " ++ (show vname) ++ " which has type "
-                     ++ (show (pretty vty)) ++ " with exp " ++ (show (pretty e)) ++ " at " ++ (Text.unpack pos)
+                     ++ (show vty) ++ " at " ++ (Text.unpack pos)
       Nothing -> fail ("register not found: " ++ show vname ++ " at " ++ Text.unpack pos)
 
 -- lv := mirexp
 
 -- FIXME... this 'Maybe Ty' argument should really just by 'Ty', but
 --  we need to reoganize call sites to pass this information through
+-- and there are a *lot* of places that pass in Nothing for this argument
 assignLvExp :: HasCallStack => M.Lvalue -> Maybe M.Ty -> MirExp s -> MirGenerator h s ret ()
 assignLvExp lv re_tp re = do
     case lv of
@@ -1169,21 +1184,43 @@ doReturn tr = do
 
 -- If you can't find the handle with its original name
 --   1. try adding the "stdlib" prefix
---   2. try looking up a static trait method
---   3. try both
-lookupHandle :: MethName -> HandleMap -> Maybe MirHandle
-lookupHandle funid hmap
-   | Just mh <- Map.lookup funid hmap = Just mh
-   | Just mh <- Map.lookup (M.relocateDefId funid) hmap = Just mh
-   | Just mh <- Map.lookup (M.mangleTraitId funid) hmap = Just mh
-   | Just mh <- Map.lookup (M.relocateDefId (M.mangleTraitId funid)) hmap = Just mh
-   | otherwise = Nothing
+--   2. try looking up as a static trait method 
+--   3. do both
+lookupHandle :: MethName -> [Maybe M.Ty] -> MirGenerator h s ret (Maybe MirHandle)
+lookupHandle funid substs = do
+  hmap <- use handleMap
+  stm  <- use staticTraitMap
+
+  -- If 
+  let rmTopRef (TyRef ty _) = ty
+      rmTopRef ty           = ty
+
+  traceM $ "lookupHandle (mangled) " ++ show (M.mangleTraitId funid)
+  traceM $ "lookupHandle (substs) "  ++ show (map (fmap rmTopRef) substs)
+
+  case () of
+   () | Just mh <- Map.lookup funid hmap -> return $ Just mh
+
+      | Just mh <- Map.lookup (M.relocateDefId funid) hmap -> return $ Just mh
+
+      | Just tym   <- Map.lookup (M.mangleTraitId funid) stm,
+        Just (Just x,_) <- uncons substs,
+        Just mh    <- Map.lookup (typeName (rmTopRef x)) tym        
+        -> return $ Just mh
+
+      | Just tym   <- Map.lookup (M.relocateDefId (M.mangleTraitId funid)) stm,
+        Just (Just x,_) <- uncons substs,
+        Just mh    <- Map.lookup (typeName (rmTopRef x)) tym        
+        -> return $ Just mh
+
+      | otherwise -> return Nothing
 
 -- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
 -- The ADT is a tagged union, so to do the coercion, we need to switch through the potential
 -- variants, and when we find that one, coerce the fields of that variant.
--- For simplicity, this function only works for Adts with variants that have <= 2 fields.
 
+-- For simplicity, this function only works for Adts with variants that have <= 2 fields.
+-- TODO: make it work with n fields
 type Coercion = forall h s ret. HasCallStack => M.Ty -> (M.Ty, MirExp s) -> MirGenerator h s ret (MirExp s)
 
 coerceAdt :: forall h s ret. HasCallStack => Bool ->
@@ -1256,16 +1293,22 @@ coerceAdt dir adt substs asubsts e0 = do
 coerceArg :: forall h s ret. HasCallStack => M.Ty -> (M.Ty, MirExp s) -> MirGenerator h s ret (MirExp s)
 coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
   case (ty,aty,tr) of
-     (M.TyRef ty1 _mut, M.TyRef aty1 _, _) -> coerceArg ty1 (aty1, e)
-     (M.TyParam _, M.TyClosure _ _, _) -> return e
-     (M.TyParam _,_, _) -> return $ packAny e
+     (M.TyRef ty1 M.Immut, M.TyRef aty1 M.Immut, _) -> coerceArg ty1 (aty1, e)
      (M.TyAdt adt substs,   -- polymorphic type of the parameter
       M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
       CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)) -> do
         tagged <- coerceAdt True adt substs asubsts e0
         return (MirExp taggedUnionType tagged)
 
-     _ -> fail $ "poly type " ++ show (pretty ty) ++ " unsupported in fcn call for " ++ show tr
+     (M.TyParam _, M.TyClosure _ _, _) -> return e     
+     (M.TySlice (M.TyParam _),   _, CT.VectorRepr CT.AnyRepr) -> return e
+     (M.TyArray (M.TyParam _) _, _, CT.VectorRepr CT.AnyRepr) -> return e
+     (M.TyRef (M.TySlice (M.TyParam _)) M.Mut, _, MirSliceRepr CT.AnyRepr) -> return e
+
+     (M.TyParam _,_, _) -> return $ packAny e
+
+     _ -> fail $ "poly type " ++ show ty ++ " unsupported in fcn call for " ++ show tr
+               ++ " with aty " ++ show aty
 
 -- leave all others alone
                | otherwise = return e
@@ -1277,8 +1320,13 @@ coerceRet :: forall h s ret. HasCallStack =>
          -> MirGenerator h s ret (MirExp s)
 coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
    case (ty,aty,tr) of
-     (M.TyRef ty1 _mut, M.TyRef aty2 _,_) -> coerceRet ty1 (aty2,e)
+     (M.TyRef ty1 M.Immut, M.TyRef aty2 M.Immut,_) -> coerceRet ty1 (aty2,e)
      (M.TyParam _, M.TyClosure _ _, _) -> return e
+
+     (M.TyArray (M.TyParam _) _, _, CT.VectorRepr CT.AnyRepr) -> return e
+     (M.TySlice (M.TyParam _), _, CT.VectorRepr CT.AnyRepr) -> return e
+     (M.TyRef (M.TySlice (M.TyParam _)) M.Mut, _, MirSliceRepr CT.AnyRepr) -> return e
+
      (M.TyParam _,_,CT.AnyRepr) -> unpackAny (tyToRepr aty) e
      (M.TyAdt adt substs,   -- polymorphic type of the parameter
       M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
@@ -1292,11 +1340,12 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
 
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
-doCall :: HasCallStack => M.DefId -> [Maybe M.Ty] -> [M.Operand] 
-   -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
-doCall funid funsubst cargs cdest = do
-    hmap <- use handleMap
+doCall :: (HasCallStack) => M.DefId -> [Maybe M.Ty] -> [M.Operand] 
+   -> Maybe (M.Lvalue, M.BasicBlockInfo) -> CT.TypeRepr ret -> MirGenerator h s ret a
+doCall funid funsubst cargs cdest retRepr = do
+    _hmap <- use handleMap
     _tmap <- use traitMap
+    mhand <- lookupHandle funid funsubst
     case cdest of 
       (Just (dest_lv, jdest))
 
@@ -1306,7 +1355,7 @@ doCall funid funsubst cargs cdest = do
 
             doCustomCall funid funsubst cargs dest_lv jdest
 
-        | Just (MirHandle _ (M.FnSig args ret) fhandle) <- lookupHandle funid hmap -> do
+        | Just (MirHandle _ (M.FnSig args ret) fhandle) <- mhand -> do
             traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs, 
                    text "with type parameters: ", pretty funsubst])
 
@@ -1330,10 +1379,31 @@ doCall funid funsubst cargs cdest = do
          -- special case for exit function that does not return
          | Just "exit" <- M.isCustomFunc funid, [o] <- cargs -> do
                _exp <- evalOperand o
-               G.reportError (S.app $ E.TextLit "Program terminated with exit")
+               G.reportError (S.app $ E.TextLit "Program terminated with exit:")
+
+        -- other functions that don't return.
+        | Just (MirHandle _ (M.FnSig args ret) fhandle) <- mhand,
+          isNever ret -> do
+
+            traceM $ show (vcat [text "At a tail call of ", pretty funid, text " with arguments ", pretty cargs, 
+                   text "with type parameters: ", pretty funsubst])
+
+            exps <- mapM evalOperand cargs
+            let fargctx = FH.handleArgTypes fhandle
+            let fret    = FH.handleReturnType fhandle
+            cexps <- zipWithM coerceArg args (zip (map M.typeOf cargs) exps)
+            exp_to_assgn cexps $ \ctx asgn -> do
+              case (testEquality ctx fargctx) of
+                (Just Refl) -> do
+                     _ <- G.call (S.app $ E.HandleLit fhandle) asgn
+                     G.reportError (S.app $ E.TextLit "Program terminated with exit:")
+
+                _ -> fail $ "type error in call: args " ++ (show ctx)   ++ " vs function params " ++ show fargctx 
+                                 ++ "\n expected ret " ++ show retRepr  ++ " vs function ret " ++ show fret
+                                 ++ "\n while calling " ++ show funid
 
 
-         | otherwise -> fail "bad dest in doCall"
+         | otherwise -> fail $ "no dest in doCall of " ++ show (pretty funid)
 
 -- Method/trait calls
       -- 1. translate `traitObject` -- should be a Ref to a tuple
@@ -1389,7 +1459,7 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
     transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 
-transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) _ = do
+transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) tr = do
              
     case (funsubsts, cargs) of
       (Just (M.TyDynamic traitName) : _, tobj:_args) | Nothing  <- M.isCustomFunc funid -> do
@@ -1400,7 +1470,7 @@ transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction fu
         methodCall traitName funid tobj cargs cretdest
 
       _ -> do -- this is a normal function call
-        doCall funid funsubsts cargs cretdest  -- cleanup ignored
+        doCall funid funsubsts cargs cretdest tr -- cleanup ignored
         
 transTerminator (M.Assert _cond _expected _msg target _cleanup) _ =
     jumpToBlock target -- FIXME! asserts are ignored; is this the right thing to do? NO!
@@ -1456,15 +1526,12 @@ buildLabel (M.BasicBlock bi _) = do
     lab <- G.newLabel
     return (bi, lab)
 
-initFnState :: AdtMap
-            -> TraitMap 
+initFnState :: FnState s
             -> [(Text.Text, M.Ty)]
             -> CT.CtxRepr args 
             -> Ctx.Assignment (R.Atom s) args
-            -> HandleMap
             -> FnState s
-initFnState am tm vars argsrepr args hmap =
-    FnState (go (reverse vars) argsrepr args Map.empty) (Map.empty) hmap am tm
+initFnState fnState vars argsrepr args = fnState { _varMap = (go (reverse vars) argsrepr args Map.empty) }
     where go :: [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
           go [] ctx _ m
             | Ctx.null ctx = m
@@ -1476,10 +1543,11 @@ initFnState am tm vars argsrepr args hmap =
 
 -- do the statements and then the terminator
 translateBlockBody :: HasCallStack => CT.TypeRepr ret -> M.BasicBlockData -> MirGenerator h s ret a
-translateBlockBody tr (M.BasicBlockData stmts terminator) = (mapM_ transStatement stmts) >> (transTerminator terminator tr)
+translateBlockBody tr (M.BasicBlockData stmts terminator) = (mapM_ transStatement stmts)
+   >> (transTerminator terminator tr)
 
 --
-registerBlock :: CT.TypeRepr ret -> M.BasicBlock -> MirGenerator h s ret ()
+registerBlock :: HasCallStack => CT.TypeRepr ret -> M.BasicBlock -> MirGenerator h s ret ()
 registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
     lm <- use labelMap
     case (Map.lookup bbinfo lm) of
@@ -1505,13 +1573,11 @@ genFn (M.Fn _fname argvars _fretty body) rettype = do
     _ -> fail "bad thing happened"
 
 transDefine :: forall h. HasCallStack =>
-  AdtMap ->
-  TraitMap ->
-  HandleMap ->
+  (forall s. FnState s) ->
   M.Fn ->
   ST h (Text, Core.AnyCFG MIR)
-transDefine am tm hmap fn@(M.Fn fname fargs _ _) =
-  case (Map.lookup fname hmap) of
+transDefine fnState fn@(M.Fn fname fargs _ _) =
+  case (Map.lookup fname (fnState^.handleMap)) of
     Nothing -> fail "bad handle!!"
     Just (MirHandle _ _ (handle :: FH.FnHandle args ret)) -> do
       let argtups  = map (\(M.Var n _ t _ _) -> (n,t)) fargs
@@ -1519,7 +1585,7 @@ transDefine am tm hmap fn@(M.Fn fname fargs _ _) =
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR handle FnState args ret
           def inputs = (s,f) where
-            s = initFnState am tm argtups argtypes inputs hmap
+            s = initFnState fnState argtups argtypes inputs
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
       case SSA.toSSA g of
@@ -1544,8 +1610,12 @@ transCollection col halloc = do
     let col1 = markCStyle cstyleAdts col 
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
     hmap <- mkHandleMap halloc (col1^.M.functions)
-    (tm, morePairs) <- buildTraitMap col1 halloc hmap
-    pairs <- mapM (transDefine am tm hmap) (col1^.M.functions)
+
+    (tm, stm, morePairs) <- buildTraitMap col1 halloc hmap
+
+    let fnState :: (forall s. FnState s)
+        fnState = FnState Map.empty Map.empty hmap am tm stm
+    pairs <- mapM (transDefine fnState) (col1^.M.functions)
     return $ Map.fromList (pairs ++ morePairs)
 
 ----------------------------------------------------------------------------------------------------------
@@ -1554,7 +1624,8 @@ transCollection col halloc = do
 -- | Build the mapping from traits and types that implement them to VTables
 -- This involves defining new functions that "wrap" (and potentially unwrap) the specific implementations,
 -- providing a uniform type for the trait methods. 
-buildTraitMap :: M.Collection -> FH.HandleAllocator s -> HandleMap -> ST s (TraitMap, [(Text, Core.AnyCFG MIR)])
+buildTraitMap :: M.Collection -> FH.HandleAllocator s -> HandleMap
+              -> ST s (TraitMap, StaticTraitMap, [(Text, Core.AnyCFG MIR)])
 buildTraitMap col halloc hmap = do
 
     -- find the crucible types of all of the methods for each trait
@@ -1571,40 +1642,51 @@ buildTraitMap col halloc hmap = do
     traceM $ ("\ndecls dom: " ++ show decls)
     traceM $ ("\nimpls are:" ++ show impls)
 
+    let tmEntry (x,_) = x
+    let cfgEntry (_,x) = x
     -- wrap the implementations to make the vtable
-    pairs <- forM (Map.assocs decls) $ \(trait, Some decl@(TraitDecl ctx methodIndex)) -> do
+    perTraitInfos <- forM (Map.assocs decls) $ \(trait, Some decl@(TraitDecl ctx methodIndex)) -> do
                      let implHandles = [(methName,mirHandle) | (methName, tn, mirHandle) <- impls, trait == tn]
+
                      pairs <- forM (groupByType implHandles) $ \(typeName, implHandlesByType) -> do
                                     (vtable, cfgs) <- buildWrappedTraitMethods halloc trait decl implHandlesByType
                                     return (Map.singleton typeName vtable, cfgs)
-                     let vtables = mconcat (map fst pairs)
-                     let cfgs    = mconcat (map snd pairs)
-                     return ((trait, Some (TraitImpls ctx methodIndex vtables)), cfgs)
 
-    let traitMap = TraitMap $ Map.fromList (map fst pairs)
+                     let vtables   = mconcat (map fst pairs)
+                     let traitImpl = Some (TraitImpls ctx methodIndex vtables)
+                     let cfgs      = mconcat (map snd pairs)
+ 
+                     return ((trait, traitImpl),  cfgs)
 
-    return (traitMap, concat $ map snd pairs)
+    let tm   = TraitMap $ Map.fromList (map tmEntry perTraitInfos)
+    let cfgs = concat $ map cfgEntry perTraitInfos
+
+    let stm  = groupByNameThenType (Map.assocs hmap)
+
+    traceM $ ("\nstm is:" ++ show stm)
+
+    return (tm, stm, cfgs)
+
+thisType :: M.FnSig -> Maybe TypeName
+thisType (M.FnSig (M.TyRef ty _:_) _ret) = Just $ typeName ty
+thisType (M.FnSig (ty:_) _ret)           = Just $ typeName ty
+thisType (M.FnSig []     _ret)           = Nothing
 
 groupByType :: [(MethName, MirHandle)] -> [(TypeName, [(MethName,MirHandle)])]
 groupByType meths = 
-     let thisType (M.FnSig (M.TyRef ty _:_) _ret) = typeName ty
-         thisType (M.FnSig (ty:_) _ret) = typeName ty
-         thisType (M.FnSig []     _ret) = error "traits must have an arg type"
-
-         impls = map (\(methName, mh@(MirHandle _ sig _)) -> (thisType sig, (methName,mh))) meths
-
-     in
-    
+  let impls = map (\(methName, mh@(MirHandle _ sig _)) -> (Maybe.fromJust $ thisType sig, (methName,mh))) meths
+  in   
       -- convert double association list to double map
-     let grouped = Map.assocs $ foldr (\(ty,(mn,h)) -> Map.insertWith (++) ty [(mn,h)]) Map.empty impls
+   Map.assocs $ foldr (\(ty,(mn,h)) -> Map.insertWith (++) ty [(mn,h)]) Map.empty impls
 
-     in
-
-       --trace ("\nimpls:" ++ show impls)
-       --trace ("\ngrouped:"++ show grouped)
-       grouped
-
-
+groupByNameThenType :: [(MethName, MirHandle)] -> Map MethName (Map TypeName MirHandle)
+groupByNameThenType meths =
+  let impls = map (\(methName, mh@(MirHandle _ sig _)) -> do
+                        ty <- thisType sig
+                        let mangled = M.makeImpl0 methName 
+                        return (mangled, (ty, mh))) meths
+  
+  in foldr (\(ty,(mn,h)) -> Map.insertWith (Map.union) ty (Map.singleton mn h)) Map.empty (Maybe.catMaybes impls)
 
 -- Part of the information we need for a trait implementation
 data TraitDecl ctx =
@@ -1740,7 +1822,7 @@ buildWrappedTraitMethods halloc traitName (TraitDecl ctxr _idxs) meths = do
 
                    let fnDef :: G.FunctionDef MIR h FnState args ret
                        fnDef (xs Ctx.:> x) = (res, body) where
-                          res  = FnState Map.empty Map.empty Map.empty Map.empty (TraitMap Map.empty)   -- CHECK THIS
+                          res  = FnState Map.empty Map.empty Map.empty Map.empty (TraitMap Map.empty) Map.empty   -- CHECK THIS
                           body =
                             let yo = R.App $ E.FromJustValue objTyRepr (R.App (E.UnpackAny objTyRepr (R.AtomExpr x)))
                                             (R.App (E.TextLit (Text.pack ("bad wrapper :" <> (show objTyRepr)))))
@@ -1841,12 +1923,12 @@ thisTraitImpls (M.Trait trait _) trs = do
 --
 -- G.Expr MIR s tp
 
-arrayCopy :: CT.TypeRepr elt ->
+vectorCopy :: CT.TypeRepr elt ->
              G.Expr MIR s CT.NatType ->
              G.Expr MIR s CT.NatType ->
              G.Expr MIR s (CT.VectorType elt) ->
              MirGenerator h s ret (G.Expr MIR s (CT.VectorType elt))
-arrayCopy ety start stop inp = do
+vectorCopy ety start stop inp = do
   let elt = S.app $ E.VectorGetEntry ety inp (S.app $ E.NatLit 0)
   let sz  = S.app $ E.NatSub stop start
   let out = S.app $ E.VectorReplicate ety sz elt
@@ -1958,6 +2040,15 @@ doCustomCall fname funsubst ops lv dest
      assignLvExp lv Nothing v
      jumpToBlock dest
 
+ | Just "slice_len" <-  M.isCustomFunc fname, [vec] <- ops, [Just _] <- funsubst = do
+     -- type of the structure is &mut[ elTy ]
+     (MirExp vty vec_e) <- evalOperand vec
+     case vty of
+       (CT.VectorRepr _) -> do
+           let ans = (MirExp CT.NatRepr  (G.App $ E.VectorSize vec_e))
+           assignLvExp lv Nothing ans
+           jumpToBlock dest
+       _ -> fail $ " slice_len type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
  | Just "slice_get" <-  M.isCustomFunc fname, [vec,range] <- ops, [Just ty1, Just ty2] <- funsubst = do
      vec_e <- evalOperand vec
@@ -1967,7 +2058,7 @@ doCustomCall fname funsubst ops lv dest
      jumpToBlock dest
 
  | Just "slice_get_mut" <-  M.isCustomFunc fname,
-   [vec,range] <- ops,
+   [vec, range] <- ops,
    [Just elTy, Just idxTy] <- funsubst = do
 
      -- type of the structure is &mut[ elTy ]
@@ -1977,10 +2068,10 @@ doCustomCall fname funsubst ops lv dest
          range_e <- evalOperand range
          (MirExp CT.NatRepr start) <- accessAggregate range_e 0
          (MirExp CT.NatRepr stop ) <- accessAggregate range_e 1
-         v <- arrayCopy ety start stop vec_e
+         v <- vectorCopy ety start stop vec_e
          assignLvExp lv Nothing (MirExp (CT.VectorRepr ety) v)
          jumpToBlock dest
-       _ -> fail $ " slice_get_mut type is " ++ show vty
+       _ -> fail $ " slice_get_mut type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
 
  | Just "call" <- M.isCustomFunc fname, -- perform call of closure
