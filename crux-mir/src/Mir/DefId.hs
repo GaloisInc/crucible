@@ -243,10 +243,10 @@ instance Pretty DefId where
         addmods = if hideModuleName then id else (mods++)
         addfl   = if hideSourceFile then id else (fl:)
     in
-    text (unpack fl) <> braces (text $ unpack $ intercalate "::" (map ppEntry mods))
+{-    text (unpack fl) <> braces (text $ unpack $ intercalate "::" (map ppEntry mods))
                      <> text (unpack (ppEntry nm))
-            <> braces (text $ unpack $  intercalate "::" (map ppEntry ex))
-    --text $ unpack $ intercalate "::" (addfl (map ppEntry  (addmods (nm:ex))))
+            <> braces (text $ unpack $  intercalate "::" (map ppEntry ex)) -}
+    text $ unpack $ intercalate "::" (addfl (map ppEntry  (addmods (nm:ex))))
 
 instance Show DefId where
   show defId = unpack (idText defId)
@@ -314,8 +314,12 @@ isCustomFunc defid = case (did_path defid, did_name defid, did_extra defid) of
    
    ([("slice", _),("{{impl}}",_)], ("slice_tovec",_), [])    -> Just "slice_tovec"
    ([("slice", _),("{{impl}}",_)], ("len",_), [])            -> Just "slice_len"
-   ([("slice", _),("{{impl}}",_)], ("get",_), [])            -> Just "slice_get"
-   ([("slice", _),("{{impl}}",_)], ("get_mut",_),[])         -> Just "slice_get_mut"
+   ([("slice", _),("{{impl}}",_)], ("get_unchecked",_), [])     -> Just "slice_get"
+   ([("slice", _),("{{impl}}",_)], ("get_unchecked_mut",_),[])  -> Just "slice_get_mut"
+
+   -- these are trait implementations
+   ([("ops", _), ("index",_)], ("Index", _), [("index",_)])     -> Just "index"
+   ([("ops", _), ("index",_)], ("IndexMut", _), [("index_mut",_)]) -> Just "index_mut"
 
    ([("vec", _), ("{{impl}}",_)], ("vec_asmutslice",_),[])   -> Just "vec_asmutslice"
    

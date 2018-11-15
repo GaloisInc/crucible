@@ -1191,12 +1191,13 @@ lookupHandle funid substs = do
   hmap <- use handleMap
   stm  <- use staticTraitMap
 
-  -- If 
+  -- We remove one layer of TyRef when we add the type to the domain of the
+  -- static trait map
   let rmTopRef (TyRef ty _) = ty
       rmTopRef ty           = ty
 
-  traceM $ "lookupHandle (mangled) " ++ show (M.mangleTraitId funid)
-  traceM $ "lookupHandle (substs) "  ++ show (map (fmap rmTopRef) substs)
+  --traceM $ "lookupHandle (mangled) " ++ show (M.mangleTraitId funid)
+  --traceM $ "lookupHandle (substs) "  ++ show (map (fmap rmTopRef) substs)
 
   case () of
    () | Just mh <- Map.lookup funid hmap -> return $ Just mh
@@ -1300,10 +1301,15 @@ coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
         tagged <- coerceAdt True adt substs asubsts e0
         return (MirExp taggedUnionType tagged)
 
+     -- Some types already have 'any' in the right place, so no need to coerce
      (M.TyParam _, M.TyClosure _ _, _) -> return e     
      (M.TySlice (M.TyParam _),   _, CT.VectorRepr CT.AnyRepr) -> return e
      (M.TyArray (M.TyParam _) _, _, CT.VectorRepr CT.AnyRepr) -> return e
+
+     -- however, if the type is mutable, this is a bit suspicious. I'm not sure that
+     -- we'll ever be able to call these polymorphic functions with mutable values
      (M.TyRef (M.TySlice (M.TyParam _)) M.Mut, _, MirSliceRepr CT.AnyRepr) -> return e
+     (M.TyRef (M.TyParam _) M.Mut,  _, MirReferenceRepr  CT.AnyRepr) -> return e
 
      (M.TyParam _,_, _) -> return $ packAny e
 
@@ -1326,6 +1332,7 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
      (M.TyArray (M.TyParam _) _, _, CT.VectorRepr CT.AnyRepr) -> return e
      (M.TySlice (M.TyParam _), _, CT.VectorRepr CT.AnyRepr) -> return e
      (M.TyRef (M.TySlice (M.TyParam _)) M.Mut, _, MirSliceRepr CT.AnyRepr) -> return e
+     (M.TyRef (M.TyParam _) M.Mut,  _, MirReferenceRepr  CT.AnyRepr) -> return e
 
      (M.TyParam _,_,CT.AnyRepr) -> unpackAny (tyToRepr aty) e
      (M.TyAdt adt substs,   -- polymorphic type of the parameter
@@ -1639,8 +1646,8 @@ buildTraitMap col halloc hmap = do
     let impls :: [(MethName, TraitName, MirHandle)]
         impls = Maybe.mapMaybe (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
 
-    traceM $ ("\ndecls dom: " ++ show decls)
-    traceM $ ("\nimpls are:" ++ show impls)
+    --traceM $ ("\ndecls dom: " ++ show decls)
+    --traceM $ ("\nimpls are:" ++ show impls)
 
     let tmEntry (x,_) = x
     let cfgEntry (_,x) = x
@@ -1663,7 +1670,7 @@ buildTraitMap col halloc hmap = do
 
     let stm  = groupByNameThenType (Map.assocs hmap)
 
-    traceM $ ("\nstm is:" ++ show stm)
+    -- traceM $ ("\nstm is:" ++ show stm)
 
     return (tm, stm, cfgs)
 
@@ -1996,6 +2003,14 @@ doCustomCall fname funsubst ops lv dest
         ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index op2)))
         assignLvExp lv Nothing ans
         jumpToBlock dest
+
+ | Just "index_mut" <- M.isCustomFunc fname,
+    [op1, op2] <- ops = do
+        ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index op2)))
+        assignLvExp lv Nothing ans
+        jumpToBlock dest
+
+
 
  | Just "vec_fromelem" <- M.isCustomFunc fname,
     [elem, u] <- ops = do

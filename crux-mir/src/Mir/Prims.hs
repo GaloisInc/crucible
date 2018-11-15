@@ -34,7 +34,7 @@ loadPrims = do
     , "option"
     , "result"
     , "cmp"
---    , "slice"
+    , "slice"
     ]
     
   let total = (fold (hardCoded : map relocate cols))
