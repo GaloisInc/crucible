@@ -499,11 +499,15 @@ getTraitImplementation :: [Trait] ->
                           (MethName,MirHandle) ->
                           Maybe (MethName, TraitName, MirHandle)
 getTraitImplementation trts (name, handle) = do
-  methodName <- parseImplName name
-  let declaredTraitMethod (TraitMethod tm _ts) = sameMethod methodName tm
-      declaredTraitMethod _ = False
+  -- find just the text of the method name
+  methodEntry <- parseImplName name
+  
+  -- find the first trait that include that same name
+  -- TODO: can there be only one?
+  let hasTraitMethod (TraitMethod tm _ts) = sameTraitMethod methodEntry tm
+      hasTraitMethod _ = False
   traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts,
-                                   List.any declaredTraitMethod items ]
+                                   List.any hasTraitMethod items ]
   return (name, traitName, handle)
 
 -------------------------------------------------------------------------------------------------------

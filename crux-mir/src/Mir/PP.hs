@@ -5,8 +5,6 @@
 module Mir.PP where
 
 import qualified Data.Maybe as Maybe
-import qualified Data.List  as List
---import qualified Data.Map   as Map
 import           Data.Text (Text, unpack)
 
 
@@ -19,14 +17,6 @@ import           Mir.DefId
 
 -----------------------------------------------
 
--- TODO: make these dynamic options for PP
-
-
--- | if True, suppress the module name when pretty-printing MIR identifiers.
-hideModuleName :: Bool
-hideModuleName = False
-
------------------------------------------------
 
 pr_id :: DefId -> Doc
 pr_id = pretty

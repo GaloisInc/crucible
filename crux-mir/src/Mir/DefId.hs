@@ -19,12 +19,105 @@ import Data.Maybe (catMaybes, isJust)
 import Data.String (IsString(..))
 import GHC.Generics
 
-import Debug.Trace
+import qualified Debug.Trace as Debug
 
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
+-----------------------------------------------
+{-
+
+ A DefId, when produced by mir-json, looks something like
+
+     core/ae3efe0::option[0]::Option[0]::None[0]
+
+     ::option[0]::{{impl}}[0]::unwrap_or_else[0]
+
+     core/ae3efe0::ops[0]::function[0]::FnOnce[0]::call_once[0]
+
+     ::Lmcp[0]::ser[0]
+
+     ::f[0]
 
 
+This module parses these names to help with identifying and extracting
+the underlying structure.
+
+For example, the 'None' data constructor is defined in the std library
+file, as part of the 'option' module, and the 'Option' ADT.
+
+     core/ae3efe0::option[0]::Option[0]::None[0]
+
+     ^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^
+        file         path       name      extra
+
+The filename can be omitted for local declarations. After the
+filename, each part includes a numeric annotation (the '[0]') for
+disambiguation. Most of the time, the names are unique within a file
+so the number is [0]. However, Rust definitions may be overloaded, and
+this number resolves that overloading at the Mir level.
+
+The module *path* may be empty (for local definitions) or may include
+nested modules (e.g. ::ops[0]::function[0]::FnOnce[0]). It may also
+include {{impl}}[0] and nested functions
+(e.g. ::{{impl}}[0]::ser[0]::{{closure}}, the anonymous function
+defined within another function.)
+
+The *name* is the first component of the defid that is not part of the
+module path. Anything after the name is part of *extra*.
+
+The name could be:
+
+  - a function name
+
+      ::f[0]
+
+      ::{{impl}}[0]::ser[0]
+
+      (extra will be nil)
+
+  - an ADT name
+
+      core/ae3efe0::option[0]::Option[0]::None[0]
+
+      ret/8cd878b::E[0]::A[0]::0[0]
+
+      (extra, if non-nil indicates a variant, and then a field within that variant)
+
+  - a trait name
+
+      ::Lmcp[0]::ser[0]
+
+      (extra, if non-nil, contains the trait function)
+
+
+  - {{closure}}
+
+      ::{{impl}}[0]::ser[0]::{{closure}}
+
+
+-}
+
+
+
+-----------------------------------------------
+-- These flags only control the behavior of 'pretty' for DefIds.
+-- The idText function always produces the full text of the DefId.
+
+-- TODO: make command-line options for PP
+
+-- | if True, suppress the module name when pretty-printing MIR identifiers.
+hideModuleName :: Bool
+hideModuleName = False
+
+-- | if True, suppress the source file when pretty-printing MIR identifiers.
+hideSourceFile :: Bool
+hideSourceFile = False
+
+-- | if True, suppress the [0] annotations when pretty-printing MIR identifiers.
+hideEntrySyms :: Bool
+hideEntrySyms = False
+
+-----------------------------------------------
 
 
 -- | The module name for the rust core library used by mir-json.
@@ -33,11 +126,10 @@ stdlib :: Text
 stdlib = pack "core/ae3efe0"
 
 type Entry = (Text,Int)
-
 -- | Identifiers that can be qualified by paths
 data DefId = DefId { did_file     :: Text    -- ^ e.g. core/ae3efe0    
                    , did_path     :: [Entry] -- ^ e.g. ::ops[0]::function[0] 
-                   , did_name     ::  Entry  -- ^ e.g. ::{{impl}}[0]   -- {{impl}}/{{clos}}
+                   , did_name     ::  Entry  -- ^ e.g. 
                                          --        ::T[0]          -- Trait name
                                          --        ::Option[0]     -- ADT type
                                          --        ::f[0]          -- function name, must be last
@@ -48,17 +140,16 @@ data DefId = DefId { did_file     :: Text    -- ^ e.g. core/ae3efe0
 
 
 isImpl :: DefId -> Bool
-isImpl defid = fst (did_name defid) == "{{impl}}"
-
+isImpl defid =
+  not (null (did_path defid)) &&
+  fst (last (did_path defid)) == "{{impl}}"
 
 -- | If we have a static call for a trait, we need to mangle the format so that it looks
 -- like a normal function call (and we can find the function handle)
 mangleTraitId :: DefId -> DefId
-mangleTraitId defid =
-  DefId (did_file defid)
-        (did_path     defid)
-        ("{{impl}}", snd (did_name defid))
-        (did_extra defid)
+mangleTraitId d@(DefId file path _name extra)
+  | not (null extra) = DefId file (path ++ [("{{impl}}", 0)]) (head extra) (tail extra)
+  | otherwise        = d
 
 -- | Find the variant name and return it, without any decoration
 cleanVariantName :: DefId -> Text
@@ -66,7 +157,7 @@ cleanVariantName defid = case did_extra defid of
    (varName, _):_ -> varName
    _              -> fst (did_name defid)
 
-
+-- | Find the field anem and return it, without any decoration
 -- ret/8cd878b::E[0]::A[0]::0[0]  ==> 0
 -- ret/8cd878b::S[0]::x[0]        ==> x
 parseFieldName :: DefId -> Maybe Text
@@ -75,22 +166,23 @@ parseFieldName defid = case (did_extra defid) of
   [ _ , (num, _m)] -> Just num
   _ -> Nothing
 
--- | Detect a name that has {{impl}} in it and pull out the part after.
+-- | Detect a defid is in an {{impl}} and pull out the method name.
+-- 
 parseImplName :: DefId -> Maybe Entry
-parseImplName defid | fst (did_name defid) == "{{impl}}" =
-    case did_extra defid of
-      (impl:_) -> Just impl
-      _        -> Nothing
-  | otherwise = Nothing
-
-sameMethod :: Entry -> DefId -> Bool
-sameMethod meth1 defid =
-  case did_extra defid of
-    (meth2:_) -> meth1 == meth2
-    _         -> False
+parseImplName (DefId _ path@(_:_) name _)
+  | fst (last path) == "{{impl}}" = Just name
+parseImplName _ = Nothing
 
 
--- | divide the input into double colons
+-- | Is this entry the same as the method name?
+-- NOTE: trait methods have the Trait as the name, and the specific
+-- method afterwards
+sameTraitMethod :: Entry -> DefId -> Bool
+sameTraitMethod meth1 (DefId _ _ _ (meth2:_)) = meth1 == meth2
+sameTraitMethod _     (DefId _ _ _ []) = False
+
+
+--  divide the input into components separated by double colons
 splitInput :: String -> [String]
 splitInput str = go str [ "" ] where
     go [] strs                 = reverse (map reverse strs)
@@ -98,18 +190,19 @@ splitInput str = go str [ "" ] where
     go (a : rest) (hd:strs)    = go rest ((a:hd):strs)
           
 
--- | recognize a string followed by a bracketted number
+--  recognize a string followed by a bracketed number
 parseEntry :: String -> Maybe (String, Int)
 parseEntry str = case Regex.matchRegex (Regex.mkRegex ( "^([{}A-Za-z0-9_]+)" ++ "\\[([0-9]+)\\]$")) str of
                   Just [idn, num] -> Just (idn, read num)
                   Nothing        -> Nothing
-
+       
 showEntry :: Entry -> Text
 showEntry (txt,n) = pack (unpack txt ++ "[" ++ (show n) ++ "]")
 
--- lowercase identifiers
+-- lowercase identifiers or {{impl}}
+-- the regex is more permissive than this...
 isPath :: String -> Bool
-isPath str = isJust (Regex.matchRegex (Regex.mkRegex ( "^[a-z]+[A-Za-z0-9_]*"))  str)
+isPath str = isJust (Regex.matchRegex (Regex.mkRegex ( "^[{a-z]+[{}A-Za-z0-9_]*"))  str)
 
            
 -- | Parse text from mir-json to produce a DefId       
@@ -135,8 +228,15 @@ idText (DefId fl mods nm ex) =
 
 -- ignores filename and entry #s
 instance Pretty DefId where
-  pretty (DefId _fl mods nm ex) =
-    text $ unpack $ intercalate "::" (map fst (mods++nm:ex))
+  pretty (DefId fl mods nm ex) =
+    let ppEntry = if hideEntrySyms  then fst else showEntry
+        addmods = if hideModuleName then id else (mods++)
+        addfl   = if hideSourceFile then id else (fl:)
+    in
+    text (unpack fl) <> braces (text $ unpack $ intercalate "::" (map ppEntry mods))
+                     <> text (unpack (ppEntry nm))
+            <> braces (text $ unpack $  intercalate "::" (map ppEntry ex))
+    --text $ unpack $ intercalate "::" (addfl (map ppEntry  (addmods (nm:ex))))
 
 instance Show DefId where
   show defId = unpack (idText defId)
@@ -200,16 +300,14 @@ matchCustomFunc fname1
 isCustomFunc :: DefId -> Maybe Text
 isCustomFunc defid = case (did_path defid, did_name defid, did_extra defid) of
   
-   ([("boxed", _)], ("{{impl}}",_), [("new",_)])            -> Just "new"
+   ([("boxed", _),("{{impl}}",_)], ("new",_), [])            -> Just "new"
    
-   ([("slice", _)], ("{{impl}}",_), [("slice_tovec",_)])    -> Just "slice_tovec"
-   ([("slice", _)], ("{{impl}}",_), [("len",_)])            -> Just "slice_len"
-   ([("slice", _)], ("{{impl}}",_), [("get",_)])            -> Just "slice_get"
-   ([("slice", _)], ("{{impl}}",_), [("get_mut",_)])        -> Just "slice_get_mut"
+   ([("slice", _),("{{impl}}",_)], ("slice_tovec",_), [])    -> Just "slice_tovec"
+   ([("slice", _),("{{impl}}",_)], ("len",_), [])            -> Just "slice_len"
+   ([("slice", _),("{{impl}}",_)], ("get",_), [])            -> Just "slice_get"
+   ([("slice", _),("{{impl}}",_)], ("get_mut",_),[])         -> Just "slice_get_mut"
 
-
-   
-   ([("vec", _)],   ("{{impl}}",_), [("vec_asmutslice",_)]) -> Just "vec_asmutslice"
+   ([("vec", _), ("{{impl}}",_)], ("vec_asmutslice",_),[])   -> Just "vec_asmutslice"
    
    ([("ops",_),("function",_)], ("Fn", _), [("call", _)])            -> Just "call"
    ([("ops",_),("function",_)], ("FnOnce", _), [("call_once", _)])   -> Just "call"
@@ -219,54 +317,3 @@ isCustomFunc defid = case (did_path defid, did_name defid, did_extra defid) of
    _ -> Nothing
 
 
--- The relation between methods and their implementations
--- is not straightforward in MIR. The name of the function
--- implementating a method 'foo' of a trait 'Bar' by a type 'Tar'
--- looks like: '::{{impl}}[n]::foo[m]'.
-
-{-
-modid,impl,rustid,brk::String
-modid = "[A-Za-z0-9]*"
-impl = "{{impl}}" ++ brk
-rustid = "[A-Za-z0-9]+"
-brk = "\\[[0-9]+\\]"
-
--- | Detect a name that has {{impl}} in it and pull out the part after.
-parseImplName :: String -> Maybe [String]
-parseImplName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::"++impl++"::("++rustid++brk++")"++".*")
-
--- 
-parseTraitName :: String -> Maybe [String]
-parseTraitName = Regex.matchRegex (Regex.mkRegex $ "(" ++rustid++")"++brk++"::"++"("++rustid++brk++")")
-
-parseStaticMethodName :: String -> Maybe [String]
-parseStaticMethodName = Regex.matchRegex (Regex.mkRegex $ "(" ++ modid ++ ")::" ++ rustid++"(" ++ brk ++ ")" ++ "::" ++ "(" ++ rustid++brk++")")
-
-parseVariantName :: String -> Maybe [String]
-parseVariantName = Regex.matchRegex (Regex.mkRegex $ modid ++ "::" ++ rustid ++ brk ++ "::" ++ "(" ++ rustid++")" ++ brk)
-
-parseVariantName2 :: String -> Maybe [String]
-parseVariantName2 = Regex.matchRegex (Regex.mkRegex $ modid ++ "::" ++ "(" ++ rustid++")" ++ brk)
-
-
-
-cleanVariantName :: DefId -> Text
-cleanVariantName txt | Just [ constrName ] <- parseVariantName (unpack (idText txt))
-                     = pack constrName
-                     | Just [ constrName ] <- parseVariantName2 (unpack (idText txt))
-                     = pack constrName
-                     | otherwise
-                     = idText txt 
-
-                     
-
-
--- If we have a static call for a trait, we need to mangle the format so that it looks like
--- a normal function call
-
-mangleTraitId :: DefId -> DefId 
-mangleTraitId defId = case parseStaticMethodName (unpack (idText defId)) of
-  Just [modname,implbrk,name] -> textId $ pack (modname ++ "::" ++ "{{impl}}"++implbrk++"::"++name)    
-  _ -> defId
-
--}              

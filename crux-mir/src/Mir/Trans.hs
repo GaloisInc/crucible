@@ -823,7 +823,7 @@ evalRval (M.RAdtAg (M.AdtAg _adt agv ops))  = do
 
 -- A closure is (packed into an any) of the form [handle, arguments] (arguments being those packed into the closure, not the function arguments)
 buildClosureHandle :: M.DefId -> [Maybe M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildClosureHandle funid argsm args = do
+buildClosureHandle funid _argsm args = do
     hmap <- use handleMap
     case (Map.lookup funid hmap) of
       Just (MirHandle _ _ fhandle) -> do
@@ -1324,11 +1324,11 @@ doCall funid funsubst cargs cdest = do
                 _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
                                  ++ show fargctx ++ "\n while calling " ++ show funid
 
-         | otherwise -> fail $ "Don't know how to call " ++ show funid
+         | otherwise -> fail $ "Don't know how to call " ++ show (pretty funid)
 
       Nothing
+         -- special case for exit function that does not return
          | Just "exit" <- M.isCustomFunc funid, [o] <- cargs -> do
-               traceM $ show (vcat [text "At an exit call "])
                _exp <- evalOperand o
                G.reportError (S.app $ E.TextLit "Program terminated with exit")
 
@@ -1392,7 +1392,8 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) _ = do
              
     case (funsubsts, cargs) of
-      (Just (M.TyDynamic traitName) : _, tobj:_args) | Nothing  <- M.isCustomFunc funid -> do -- this is a method call on a trait object
+      (Just (M.TyDynamic traitName) : _, tobj:_args) | Nothing  <- M.isCustomFunc funid -> do
+        -- this is a method call on a trait object, and is not a custom function
         traceM $ show (vcat [text "At TRAIT function call of ", pretty funid, text " with arguments ", pretty cargs, 
                    text "with type parameters: ", pretty funsubsts])
 
@@ -1567,8 +1568,8 @@ buildTraitMap col halloc hmap = do
     let impls :: [(MethName, TraitName, MirHandle)]
         impls = Maybe.mapMaybe (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
 
-    --traceM $ ("\ndecls dom: " ++ show decls)
-    --traceM $ ("\nimpls are:" ++ show impls)
+    traceM $ ("\ndecls dom: " ++ show decls)
+    traceM $ ("\nimpls are:" ++ show impls)
 
     -- wrap the implementations to make the vtable
     pairs <- forM (Map.assocs decls) $ \(trait, Some decl@(TraitDecl ctx methodIndex)) -> do
@@ -1659,14 +1660,12 @@ mkTraitDecl (M.Trait _tname titems) = do
 
 lookupMethodType :: Map TraitName (Some TraitDecl) -> TraitName -> MethName ->
     (forall ctx args ret. CT.CtxRepr ctx -> CT.CtxRepr args -> CT.TypeRepr ret -> a) -> a
-lookupMethodType traitDecls traitName implName k =
-    case Map.lookup traitName traitDecls  of
-      Nothing -> error "Internal error"
-      Just (Some (TraitDecl vreprs meths)) -> case Map.lookup implName meths of
-         Nothing -> error "Internal error"
-         Just (Some idx) -> case (vreprs Ctx.! idx) of
-           (CT.FunctionHandleRepr (argsr Ctx.:> CT.AnyRepr) retr) -> k vreprs argsr retr
-           _ -> error "Internal error"
+lookupMethodType traitDecls traitName implName k 
+   | Just (Some (TraitDecl vreprs meths)) <- Map.lookup traitName traitDecls,
+     Just (Some idx)                      <- Map.lookup implName  meths,
+     CT.FunctionHandleRepr (argsr Ctx.:> CT.AnyRepr) retr <- (vreprs Ctx.! idx)
+   = k vreprs argsr retr
+   | otherwise = error "Internal error"
   
 
 {-  Example of WRAPPING METHODS
