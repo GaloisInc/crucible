@@ -42,6 +42,9 @@ data SimErrorReason
    | Unsupported !String -- ^ We can't do that (yet?)
    | ReadBeforeWriteSimError !String -- FIXME? include relevant data instead of a string?
    | AssertFailureSimError !String
+   | ResourceExhausted String
+      -- ^ A loop iteration count, or similar resource limit,
+      --   was exceeded.
  deriving (Typeable)
 
 data SimError
@@ -56,6 +59,7 @@ simErrorReasonMsg (GenericSimError msg) = msg
 simErrorReasonMsg (Unsupported msg) = "Unsupported feature: " ++ msg
 simErrorReasonMsg (ReadBeforeWriteSimError msg) = msg
 simErrorReasonMsg (AssertFailureSimError msg) = msg
+simErrorReasonMsg (ResourceExhausted msg) = "Resource exhausted: " ++ msg
 
 instance IsString SimErrorReason where
   fromString = GenericSimError

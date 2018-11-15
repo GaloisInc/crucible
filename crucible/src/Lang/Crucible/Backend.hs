@@ -19,8 +19,7 @@ for interacting with the symbolic simulator.
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Backend
-  ( BranchResult(..)
-  , IsBoolSolver(..)
+  ( IsBoolSolver(..)
   , IsSymInterface
 
     -- * Assumption management
@@ -150,18 +149,6 @@ ppFn l = PP.pretty (plFunction l)
 ppLoc :: ProgramLoc -> PP.Doc
 ppLoc l = PP.pretty (plSourceLoc l)
 
--- | Result of attempting to branch on a predicate.
-data BranchResult
-     -- | Branch is symbolic.
-     --
-     -- The Boolean value indicates whether the backend suggests that the active
-     -- path should be the case where the condition is true or false.
-   = SymbolicBranch !Bool
-
-     -- | No branch is needed, and the predicate is evaluated to the
-     -- given value.
-   | NoBranch !Bool
-
 type IsSymInterface sym =
   ( IsBoolSolver sym
   , IsSymExprBuilder sym
@@ -175,12 +162,6 @@ class IsBoolSolver sym where
 
   ----------------------------------------------------------------------
   -- Branch manipulations
-
-  -- | Given a Boolean predicate that the simulator wishes to branch on,
-  --   this decides what the next course of action should be for the branch.
-  evalBranch :: sym
-             -> Pred sym -- Predicate to branch on.
-             -> IO BranchResult
 
   -- | Push a new assumption frame onto the stack.  Assumptions and assertions
   --   made will now be associated with this frame on the stack until a new
@@ -287,8 +268,6 @@ addFailedAssertion sym msg =
                         SimError { simErrorLoc = loc, simErrorReason = msg }
 
 
-
-
 -- | Run the given action to compute a predicate, and assert it.
 addAssertionM ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
@@ -341,4 +320,3 @@ ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
  ppGl = PP.indent 2
    (ppSimError (gl^.AS.labeledPredMsg) PP.<$>
     printSymExpr (gl^.AS.labeledPred))
-

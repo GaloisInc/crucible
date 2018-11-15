@@ -40,6 +40,7 @@ defaultCruxOptions = CruxOptions {
   , profileSolver            = True
   , globalTimeout = Nothing
   , profileOutputInterval = Nothing
+  , loopBound = Nothing
   }
 
 -- | All possible options that could be set from the command line.
@@ -99,6 +100,11 @@ cmdLineCruxOptions =
       (\v opts -> opts{ profileOutputInterval = Just (fromMaybe "5" v) })
       "seconds")
     "Time between intermediate profile data reports (default: 5 seconds)"
+
+  , Option "i" ["iteration-bound"]
+    (ReqArg (\v opts -> opts { loopBound = Just v })
+      "iterations")
+    "Bound all loops to at most this many iterations"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)

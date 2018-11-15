@@ -122,6 +122,7 @@ import           What4.Protocol.SMTWriter hiding (assume, Term)
 import           What4.SatResult
 import           What4.Utils.HandleReader
 import           What4.Utils.Process
+import           What4.Solver.Adapter
 
 -- | Set the logic to all supported logics.
 all_supported :: SMT2.Logic
@@ -772,20 +773,17 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> B.ExprBuilder t st fs
     -> FilePath
       -- ^ Path to solver executable
-    -> (String -> IO ())
-      -- ^ Function to print messages from the solver to
-    -> Maybe IO.Handle
-      -- ^ Auxiliary output handles for mirrioring solver input/responses
+    -> LogData
     -> (Session t a -> IO b)
       -- ^ Action to run
     -> IO b
-  withSolver solver ack feats sym path _logFn auxOutput action =
+  withSolver solver ack feats sym path logData action =
     withProcessHandles path (defaultSolverArgs solver) Nothing $
       \(in_h, out_h, err_h, ph) -> do
 
         (in_stream, out_stream, err_reader) <-
           demuxProcessHandles in_h out_h err_h
-            (fmap (\x -> ("; ", x)) auxOutput)
+            (fmap (\x -> ("; ", x)) $ logHandle logData)
 
         writer <- newDefaultWriter solver ack feats sym in_stream
         let s = Session
@@ -813,20 +811,18 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> AcknowledgementAction t (Writer a)
     -> ProblemFeatures
     -> B.ExprBuilder t st fs
-    -> (Int -> String -> IO ())
-    -> String
+    -> LogData
     -> [B.BoolExpr t]
-    -> Maybe IO.Handle
     -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO b)
     -> IO b
-  runSolverInOverride solver ack feats sym logLn reason predicates auxOutput cont = do
+  runSolverInOverride solver ack feats sym logData predicates cont = do
     I.logSolverEvent sym
       I.SolverStartSATQuery
         { I.satQuerySolverName = show solver
-        , I.satQueryReason     = reason
+        , I.satQueryReason     = logReason logData
         }
     path <- defaultSolverPath solver sym
-    withSolver solver ack feats sym path (logLn 2) auxOutput $ \session -> do
+    withSolver solver ack feats sym path (logData{logVerbosity=2}) $ \session -> do
       -- Assume the predicates hold.
       forM_ predicates (SMTWriter.assume (sessionWriter session))
       -- Run check SAT and get the model back.

@@ -30,7 +30,6 @@ import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as Text
 import qualified Data.Text.Lazy.Builder as Builder
 import           System.Exit
-import           System.IO
 import qualified System.IO.Streams as Streams
 import           System.Process
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -71,8 +70,8 @@ boolectorAdapter =
   SolverAdapter
   { solver_adapter_name = "boolector"
   , solver_adapter_config_options = boolectorOptions
-  , solver_adapter_check_sat = \sym logLn rsn p auxOutput cont -> do
-      res <- runBoolectorInOverride sym logLn rsn p auxOutput
+  , solver_adapter_check_sat = \sym logData p cont -> do
+      res <- runBoolectorInOverride sym logData p
       cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
   , solver_adapter_write_smt2 =
       SMT2.writeDefaultSMT2 () nullAcknowledgementAction "Boolector" defaultWriteSMTLIB2Features
@@ -82,12 +81,10 @@ instance SMT2.SMTLib2Tweaks Boolector where
   smtlib2tweaks = Boolector
 
 runBoolectorInOverride :: ExprBuilder t st fs
-                       -> (Int -> String -> IO ())
-                       -> String
+                       -> LogData
                        -> [BoolExpr t]
-                       -> Maybe Handle
                        -> IO (SatResult (GroundEvalFn t) ())
-runBoolectorInOverride sym logLn rsn ps auxOutput = do
+runBoolectorInOverride sym logData ps = do
   -- Get boolector path.
   path <- findSolverPath boolectorPath (getConfiguration sym)
   p <- andAllOf sym folded ps
@@ -95,17 +92,17 @@ runBoolectorInOverride sym logLn rsn ps auxOutput = do
   logSolverEvent sym
     SolverStartSATQuery
     { satQuerySolverName = "Boolector"
-    , satQueryReason = rsn
+    , satQueryReason = logReason logData
     }
   withProcessHandles path ["-m"] Nothing $ \(in_h, out_h, err_h, ph) -> do
       -- Log stderr to output.
       err_stream <- Streams.handleToInputStream err_h
-      void $ forkIO $ logErrorStream err_stream (logLn 2)
+      void $ forkIO $ logErrorStream err_stream (logCallbackVerbose logData 2)
       -- Write SMT2 input to Boolector.
       bindings <- getSymbolVarBimap sym
 
       in_str  <-
-        case auxOutput of
+        case logHandle logData of
           Nothing -> Streams.encodeUtf8 =<< Streams.handleToOutputStream in_h
           Just aux_h ->
             do aux_str <- Streams.handleToOutputStream aux_h

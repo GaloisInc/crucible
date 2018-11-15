@@ -32,7 +32,7 @@ module What4.Protocol.Online
   ) where
 
 import           Control.Exception
-                   ( SomeException(..), catch, try, displayException )
+                   ( SomeException(..), catch, try, displayException, bracket_ )
 import           Control.Monad ( unless )
 import           Data.IORef
 import           Control.Monad (void, forM)
@@ -181,11 +181,7 @@ pop p =
 
 -- | Perform an action in the scope of a solver assumption frame.
 inNewFrame :: SMTReadWriter solver => SolverProcess scope solver -> IO a -> IO a
-inNewFrame p m =
-  do push p
-     x <- m
-     pop p
-     return x
+inNewFrame p m = bracket_ (push p) (pop p) m
 
 checkWithAssumptions ::
   SMTReadWriter solver =>

@@ -26,6 +26,10 @@ module Lang.Crucible.Simulator.EvalStmt
   ( -- * High-level evaluation
     singleStepCrucible
   , executeCrucible
+  , ExecutionFeature(..)
+  , GenericExecutionFeature(..)
+  , genericToExecutionFeature
+  , timeoutFeature
 
     -- * Lower-level evaluation operations
   , dispatchExecState
@@ -48,6 +52,7 @@ import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
 import qualified Data.Text as Text
+import           Data.Time.Clock
 import           System.IO
 import           System.IO.Error as Ex
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -456,6 +461,10 @@ dispatchExecState getVerb exst kresult k =
     ResultState res ->
       kresult res
 
+    InitialState simctx globals ah cont ->
+      let st = initSimState simctx globals ah in
+      k cont st
+
     AbortState rsn st ->
       let (AH handler) = st^.abortHandler in
       k (handler rsn) st
@@ -466,7 +475,10 @@ dispatchExecState getVerb exst kresult k =
     SymbolicBranchState p a_frame o_frame tgt st ->
       k (performIntraFrameSplit p a_frame o_frame tgt) st
 
-    ControlTransferState tgt st ->
+    ControlTransferState resumption st ->
+      k (performControlTransfer resumption) st
+
+    BranchMergeState tgt st ->
       k (performIntraFrameMerge tgt) st
 
     UnwindCallState vfv ar st ->
@@ -520,6 +532,46 @@ singleStepCrucible verb exst =
     (return . ResultState)
     advanceCrucibleState
 
+
+
+-- | An execution feature represents a computation that is allowed to intercept
+--   the processing of execution states to perform additional processing at
+--   each intermediate state.  A list of execution features is accepted by
+--   `executeCrucible`.  After each step of the simulator, the execution features
+--   are consulted, each in turn.  After all the execution features have run,
+--   the main simulator code is executed to advance the simulator one step.
+--
+--   If an execution feature wishes to make changes to the execution
+--   state before further execution happens, the return value can be
+--   used to return a modified state.  If this happens, the current
+--   stack of execution features is abandoned and a fresh step starts
+--   over immediately from the top of the exeuction features.  In
+--   essence, each execution feature can preempt all following
+--   execution features and the main simulator loop. In other words,
+--   the main simulator only gets reached if every execution feature
+--   returns @Nothing@.  It is important, therefore, that execution
+--   features make only a bounded number of modification in a row, or
+--   the main simulator loop will be starved out.
+newtype ExecutionFeature p sym ext rtp =
+  ExecutionFeature
+  { runExecutionFeature :: ExecState p sym ext rtp -> IO (Maybe (ExecState p sym ext rtp)) }
+
+-- | A generic execution feature is an execution feature that is
+--   agnostic to the exeuction environmemnt, and is therefore
+--   polymorphic over the @p@, @ext@ and @rtp@ variables.
+newtype GenericExecutionFeature sym =
+  GenericExecutionFeature
+  { runGenericExecutionFeature :: forall p ext rtp.
+      (IsSymInterface sym, IsSyntaxExtension ext) =>
+        ExecState p sym ext rtp -> IO (Maybe (ExecState p sym ext rtp))
+  }
+
+genericToExecutionFeature ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  GenericExecutionFeature sym -> ExecutionFeature p sym ext rtp
+genericToExecutionFeature (GenericExecutionFeature f) = ExecutionFeature f
+
+
 -- | Given a 'SimState' and an execution continuation,
 --   apply the continuation and execute the resulting
 --   computation until completion.
@@ -528,24 +580,44 @@ singleStepCrucible verb exst =
 --   'AbortExecReason' exceptions and 'UserError'
 --   exceptions and invoking the 'errorHandler'
 --   contained in the state.
-executeCrucible :: forall p sym ext rtp f a.
+executeCrucible :: forall p sym ext rtp.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
-  SimState p sym ext rtp f a {- ^ Initial simulator state -} ->
-  ExecCont p sym ext rtp f a {- ^ Execution continuation to run -} ->
+  [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
+  ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
   IO (ExecResult p sym ext rtp)
-executeCrucible st0 cont =
-  do let cfg = st0^.stateConfiguration
+executeCrucible execFeatures exst0 =
+  do let cfg = getConfiguration . view ctxSymInterface . execStateContext $ exst0
      verbOpt <- getOptionSetting verbosity cfg
-     loop verbOpt =<< advanceCrucibleState cont st0
 
- where
- loop ::
-   OptionSetting BaseIntegerType ->
-   ExecState p sym ext rtp ->
-   IO (ExecResult p sym ext rtp)
- loop verbOpt exst =
-   dispatchExecState
-       (fromInteger <$> getOpt verbOpt)
-       exst
-       return
-       (\m st -> loop verbOpt =<< advanceCrucibleState m st)
+     let loop exst =
+           dispatchExecState
+             (fromInteger <$> getOpt verbOpt)
+             exst
+             return
+             (\m st -> knext =<< advanceCrucibleState m st)
+
+         applyExecutionFeature feat m =
+           \exst -> runExecutionFeature feat exst >>= \case
+                      Just exst' -> knext exst'
+                      Nothing    -> m exst
+
+         knext = foldr applyExecutionFeature loop execFeatures
+
+     knext exst0
+
+
+-- | This feature will terminate the execution of a crucible simulator
+--   with a @TimeoutResult@ after a given interval of wall-clock time
+--   has elapsed.
+timeoutFeature ::
+  NominalDiffTime ->
+  IO (GenericExecutionFeature sym)
+timeoutFeature timeout =
+  do startTime <- getCurrentTime
+     let deadline = addUTCTime timeout startTime
+     return $ GenericExecutionFeature $ \exst ->
+        do now <- getCurrentTime
+           if deadline >= now then
+             return Nothing
+           else
+             return (Just (ResultState (TimeoutResult exst)))

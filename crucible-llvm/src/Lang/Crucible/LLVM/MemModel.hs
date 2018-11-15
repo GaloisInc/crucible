@@ -419,6 +419,7 @@ asCrucibleType (G.Type tf _) k =
          _ -> error $ unwords ["invalid bitvector size", show sz]
     G.Float  -> k (FloatRepr SingleFloatRepr)
     G.Double -> k (FloatRepr DoubleFloatRepr)
+    G.X86_FP80 -> k (FloatRepr X86_80FloatRepr)
     G.Array _n t -> asCrucibleType t $ \tpr -> k (VectorRepr tpr)
     G.Struct xs -> go Ctx.empty (V.toList xs) $ \ctx -> k (StructRepr ctx)
       where go :: CtxRepr ctx0
@@ -457,6 +458,7 @@ unpackZero sym (G.Type tp _) = case tp of
       Just (blk, bv) -> return $ AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
   G.Float  -> AnyValue (FloatRepr SingleFloatRepr) <$> iFloatLit sym SingleFloatRepr 0
   G.Double -> AnyValue (FloatRepr DoubleFloatRepr) <$> iFloatLit sym DoubleFloatRepr 0
+  G.X86_FP80 -> AnyValue (FloatRepr X86_80FloatRepr) <$> iFloatLit sym X86_80FloatRepr 0
   G.Array n tp' ->
     do AnyValue tpr v <- unpackZero sym tp'
        return $ AnyValue (VectorRepr tpr) $ V.replicate (fromIntegral n) v
@@ -484,6 +486,8 @@ unpackMemValue _ (LLVMValFloat sz x) =
       return $ AnyValue (FloatRepr SingleFloatRepr) x
     DoubleSize ->
       return $ AnyValue (FloatRepr DoubleFloatRepr) x
+    X86_FP80Size ->
+      return $ AnyValue (FloatRepr X86_80FloatRepr) x
 
 unpackMemValue sym (LLVMValStruct xs) = do
   xs' <- traverse (unpackMemValue sym . snd) $ V.toList xs
@@ -1049,6 +1053,7 @@ toStorableType mt =
     PtrType _ -> return $ G.bitvectorType (bitsToBytes (natValue PtrWidth))
     FloatType -> return $ G.floatType
     DoubleType -> return $ G.doubleType
+    X86_FP80Type -> return $ G.x86_fp80Type
     ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
     VecType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
     MetadataType -> fail "toStorableType: Cannot store metadata values"

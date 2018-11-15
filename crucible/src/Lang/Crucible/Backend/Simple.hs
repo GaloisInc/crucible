@@ -67,11 +67,6 @@ getAssumptionStack :: SimpleBackend t fs -> IO (AssumptionStack (B.BoolExpr t) A
 getAssumptionStack sym = sbAssumptionStack <$> readIORef (B.sbStateManager sym)
 
 instance IsBoolSolver (SimpleBackend t fs) where
-  evalBranch _sym p =
-    case asConstantPred p of
-      Just True  -> return $! NoBranch True
-      Just False -> return $! NoBranch False
-      Nothing    -> return $! SymbolicBranch True
 
   addProofObligation sym a =
     case asConstantPred (a^.labeledPred) of

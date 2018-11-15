@@ -774,8 +774,8 @@ yicesAdapter =
    SolverAdapter
    { solver_adapter_name = "yices"
    , solver_adapter_config_options = yicesOptions
-   , solver_adapter_check_sat = \sym logLn rsn ps auxOutput cont ->
-       runYicesInOverride sym logLn rsn ps auxOutput
+   , solver_adapter_check_sat = \sym logData ps cont ->
+       runYicesInOverride sym logData ps
           (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
        writeDefaultSMT2 () nullAcknowledgementAction "YICES" yicesSMT2Features
@@ -950,23 +950,21 @@ writeYicesFile sym path p = do
 
 -- | Run writer and get a yices result.
 runYicesInOverride :: B.ExprBuilder t st fs
-                   -> (Int -> String -> IO ())
-                   -> String
+                   -> LogData
                    -> [B.BoolExpr t]
-                   -> Maybe Handle
                    -> (SatResult (GroundEvalFn t) () -> IO a)
                    -> IO a
-runYicesInOverride sym logLn rsn conditions auxOutput resultFn = do
+runYicesInOverride sym logData conditions resultFn = do
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
   condition <- andAllOf sym folded conditions
 
-  logLn 2 "Calling Yices to check sat"
+  logCallbackVerbose logData 2 "Calling Yices to check sat"
   -- Check Problem features
   logSolverEvent sym
     SolverStartSATQuery
     { satQuerySolverName = "Yices"
-    , satQueryReason = rsn
+    , satQueryReason = logReason logData
     }
   features <- checkSupportedByYices condition
   let efSolver = features `hasProblemFeature` useExistForall
@@ -979,7 +977,7 @@ runYicesInOverride sym logLn rsn conditions auxOutput resultFn = do
 
       (in_stream, out_stream, err_reader) <-
         demuxProcessHandles in_h out_h err_h
-          (fmap (\x -> ("; ",x)) auxOutput)
+          (fmap (\x -> ("; ",x)) $ logHandle logData)
 
       -- Create new connection for sending commands to yices.
       bindings <- B.getSymbolVarBimap sym
@@ -990,7 +988,7 @@ runYicesInOverride sym logLn rsn conditions auxOutput resultFn = do
       -- Assert condition
       assume c condition
 
-      logLn 2 "Running check sat"
+      logCallbackVerbose logData 2 "Running check sat"
       if efSolver then
         addCommandNoAck c efSolveCommand
       else

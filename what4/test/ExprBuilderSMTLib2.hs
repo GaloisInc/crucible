@@ -15,7 +15,6 @@ import Test.Tasty.HUnit
 import           Control.Monad (void)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
-import qualified Data.Text as T
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
@@ -28,6 +27,7 @@ import What4.InterpretedFloatingPoint
 import What4.Protocol.Online
 import What4.Protocol.SMTLib2
 import What4.SatResult
+import What4.Solver.Adapter
 import What4.Solver.Z3
 
 data State t = State
@@ -47,7 +47,7 @@ withSym pred_gen = withIONonceGenerator $ \gen ->
 withZ3' :: (forall t . SimpleExprBuilder t fs -> Session t Z3 -> IO ()) -> IO ()
 withZ3' action = withIONonceGenerator $ \nonce_gen -> do
   sym <- newExprBuilder State nonce_gen
-  withZ3 sym "z3" putStrLn Nothing $ action sym
+  withZ3 sym "z3" defaultLogData{ logCallbackVerbose = (\_ -> putStrLn) } (action sym)
 
 withOnlineZ3'
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3) -> IO a)
