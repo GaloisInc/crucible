@@ -26,6 +26,7 @@ library
     data-binary-ieee754,
     deepseq,
     directory,
+    exceptions,
     extra,
     filepath,
     hashable,
