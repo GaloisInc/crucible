@@ -148,7 +148,7 @@ import           Control.Monad.IO.Class
 import           Data.Coerce (coerce)
 import           Data.Foldable
 import           Data.Hashable
-import           Data.Kind
+import           Data.Kind ( Type )
 import qualified Data.Map as Map
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
