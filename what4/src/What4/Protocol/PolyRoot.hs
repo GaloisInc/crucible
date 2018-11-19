@@ -19,6 +19,7 @@ module What4.Protocol.PolyRoot
   ( Root
   , approximate
   , fromYicesText
+  , parseYicesRoot
   ) where
 
 import           Control.Applicative

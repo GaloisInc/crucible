@@ -35,6 +35,7 @@ module Lang.Crucible.LLVM.MemModel.Value
   , bvConcatPartLLVMVal
   , bvToFloatPartLLVMVal
   , bvToDoublePartLLVMVal
+  , bvToX86_FP80PartLLVMVal
   , consArrayPartLLVMVal
   , appendArrayPartLLVMVal
   , mkArrayPartLLVMVal
@@ -72,12 +73,14 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 data FloatSize (fi :: FloatInfo) where
   SingleSize :: FloatSize SingleFloat
   DoubleSize :: FloatSize DoubleFloat
+  X86_FP80Size :: FloatSize X86_80Float
 deriving instance Eq (FloatSize fi)
 deriving instance Ord (FloatSize fi)
 deriving instance Show (FloatSize fi)
 instance TestEquality FloatSize where
   testEquality SingleSize SingleSize = Just Refl
   testEquality DoubleSize DoubleSize = Just Refl
+  testEquality X86_FP80Size X86_FP80Size = Just Refl
   testEquality _ _ = Nothing
 
 -- | This datatype describes the variety of values that can be stored in
@@ -106,6 +109,7 @@ llvmValStorableType v =
     LLVMValInt _ bv -> G.bitvectorType (G.bitsToBytes (natValue (bvWidth bv)))
     LLVMValFloat SingleSize _ -> G.floatType
     LLVMValFloat DoubleSize _ -> G.doubleType
+    LLVMValFloat X86_FP80Size _ -> G.x86_fp80Type
     LLVMValStruct fs -> G.structType (fmap fst fs)
     LLVMValArray tp vs -> G.arrayType (fromIntegral (V.length vs)) tp
     LLVMValZero tp -> tp
@@ -167,6 +171,22 @@ bvToDoublePartLLVMVal sym (PE p (LLVMValInt blk off))
 
 bvToDoublePartLLVMVal _ _ = return Unassigned
 
+bvToX86_FP80PartLLVMVal ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+
+bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (G.Type (G.Bitvector 10) _))) =
+  PE p . LLVMValFloat X86_FP80Size <$> (iFloatFromBinary sym X86_80FloatRepr =<< bvLit sym (knownNat @80) 0)
+
+bvToX86_FP80PartLLVMVal sym (PE p (LLVMValInt blk off))
+  | Just Refl <- testEquality (bvWidth off) (knownNat @80)
+  = do pz <- natEq sym blk =<< natLit sym 0
+       p' <- andPred sym p pz
+       PE p' . LLVMValFloat X86_FP80Size <$> iFloatFromBinary sym X86_80FloatRepr off
+
+bvToX86_FP80PartLLVMVal _ _ = return Unassigned
+
 -- | Concatenate partial LLVM bitvector values. The least-significant
 -- (low) bytes are given first. The allocation block number of each
 -- argument is asserted to equal 0, indicating non-pointers.
@@ -199,7 +219,14 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
  where
   go :: forall l h. (1 <= l, 1 <= h) =>
     SymNat sym -> SymBV sym l -> SymNat sym -> SymBV sym h -> IO (PartLLVMVal sym)
-  go blk_low low blk_high high =
+  go blk_low low blk_high high
+    -- NB we check that the things we are concatenating are each an integral number of
+    -- bytes.  This prevents us from concatenating together the partial-byte writes that
+    -- result from e.g. writing an i1 or an i20 into memory.  This is consistent with LLVM
+    -- documentation, which says that non-integral number of bytes loads will only succeed
+    -- if the value was written orignally with the same type.
+    | natValue low_w' `mod` 8 == 0
+    , natValue high_w' `mod` 8 == 0 =
       do blk0   <- natLit sym 0
          p_blk1 <- natEq sym blk_low blk0
          p_blk2 <- natEq sym blk_high blk0
@@ -207,6 +234,8 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
          p <- andPred sym p1 =<< andPred sym p2 =<< andPred sym p_blk1 p_blk2
          bv <- bvConcat sym high low
          return $ PE p $ LLVMValInt blk0 bv
+    | otherwise =
+       return Unassigned
 
     where low_w' = bvWidth low
           high_w' = bvWidth high
@@ -413,6 +442,10 @@ muxLLVMVal sym = mergePartial sym muxval
         do zerof <- lift (iFloatLit sym DoubleFloatRepr 0)
            x'    <- lift (iFloatIte @_ @DoubleFloat sym cond zerof x)
            return $ LLVMValFloat DoubleSize x'
+      LLVMValFloat X86_FP80Size x ->
+        do zerof <- lift (iFloatLit sym X86_80FloatRepr 0)
+           x'    <- lift (iFloatIte @_ @X86_80Float sym cond zerof x)
+           return $ LLVMValFloat X86_FP80Size x'
 
       LLVMValArray tp vec ->
         LLVMValArray tp <$> traverse (muxzero cond tp) vec
@@ -458,6 +491,7 @@ instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
     | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
   show (LLVMValFloat SingleSize _) = "<float>"
   show (LLVMValFloat DoubleSize _) = "<double>"
+  show (LLVMValFloat X86_FP80Size _) = "<long double>"
   show (LLVMValStruct xs) =
     unwords $ [ "{" ]
            ++ intersperse ", " (map (show . snd) $ V.toList xs)

@@ -107,23 +107,20 @@ simulateProgram fn theInput outh profh opts setup =
                              | ACFG _ _ g <- cs
                              ]
                        let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fnBindings emptyExtensionImpl ()
-                       let simSt  = initSimState simCtx emptyGlobals defaultAbortHandler
+                       let simSt  = InitialState simCtx emptyGlobals defaultAbortHandler $
+                                      runOverrideSim retType $
+                                        do mapM_ (registerFnBinding . fst) ovrs
+                                           regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
 
                        hPutStrLn outh "==== Begin Simulation ===="
 
                        case profh of
                          Nothing ->
-                           void $ executeCrucible simSt $
-                           runOverrideSim retType $
-                             do mapM_ (registerFnBinding . fst) ovrs
-                                regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
+                           void $ executeCrucible [] simSt
                          Just ph ->
                            do proftab <- newProfilingTable
-                              let timeoutOpts = TimeoutOptions Nothing Nothing -- no timeouts
-                              void $ executeCrucibleProfiling proftab timeoutOpts simSt $
-                                runOverrideSim retType $
-                                do mapM_ (registerFnBinding . fst) ovrs
-                                   regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap
+                              pf <- profilingFeature proftab Nothing
+                              void $ executeCrucible [genericToExecutionFeature pf] simSt
                               hPutStrLn ph =<< symProUIString "crucibler-prof" fn proftab
 
                        hPutStrLn outh "\n==== Finish Simulation ===="

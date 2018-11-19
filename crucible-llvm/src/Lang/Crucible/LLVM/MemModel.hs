@@ -419,6 +419,7 @@ asCrucibleType (G.Type tf _) k =
          _ -> error $ unwords ["invalid bitvector size", show sz]
     G.Float  -> k (FloatRepr SingleFloatRepr)
     G.Double -> k (FloatRepr DoubleFloatRepr)
+    G.X86_FP80 -> k (FloatRepr X86_80FloatRepr)
     G.Array _n t -> asCrucibleType t $ \tpr -> k (VectorRepr tpr)
     G.Struct xs -> go Ctx.empty (V.toList xs) $ \ctx -> k (StructRepr ctx)
       where go :: CtxRepr ctx0
@@ -457,6 +458,7 @@ unpackZero sym (G.Type tp _) = case tp of
       Just (blk, bv) -> return $ AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
   G.Float  -> AnyValue (FloatRepr SingleFloatRepr) <$> iFloatLit sym SingleFloatRepr 0
   G.Double -> AnyValue (FloatRepr DoubleFloatRepr) <$> iFloatLit sym DoubleFloatRepr 0
+  G.X86_FP80 -> AnyValue (FloatRepr X86_80FloatRepr) <$> iFloatLit sym X86_80FloatRepr 0
   G.Array n tp' ->
     do AnyValue tpr v <- unpackZero sym tp'
        return $ AnyValue (VectorRepr tpr) $ V.replicate (fromIntegral n) v
@@ -477,12 +479,15 @@ unpackMemValue sym (LLVMValZero tp) = unpackZero sym tp
 -- If the block number is 0, we know this is a raw bitvector, and not an actual pointer.
 unpackMemValue _sym (LLVMValInt blk bv)
   = return . AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
+
 unpackMemValue _ (LLVMValFloat sz x) =
   case sz of
     SingleSize ->
       return $ AnyValue (FloatRepr SingleFloatRepr) x
     DoubleSize ->
       return $ AnyValue (FloatRepr DoubleFloatRepr) x
+    X86_FP80Size ->
+      return $ AnyValue (FloatRepr X86_80FloatRepr) x
 
 unpackMemValue sym (LLVMValStruct xs) = do
   xs' <- traverse (unpackMemValue sym . snd) $ V.toList xs
@@ -524,12 +529,12 @@ packMemValue _ (G.Type G.Double _) (FloatRepr DoubleFloatRepr) x =
        return $ LLVMValFloat DoubleSize x
 
 packMemValue sym (G.Type (G.Bitvector bytes) _) (BVRepr w) bv
-  | bytesToBits bytes == toInteger (natValue w) =
+  | bitsToBytes (natValue w) == bytes =
       do blk0 <- natLit sym 0
          return $ LLVMValInt blk0 bv
 
 packMemValue _sym (G.Type (G.Bitvector bytes) _) (LLVMPointerRepr w) (LLVMPointer blk off)
-  | bytesToBits bytes == toInteger (natValue w) =
+  | bitsToBytes (natValue w) == bytes =
        return $ LLVMValInt blk off
 
 packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec
@@ -1048,6 +1053,7 @@ toStorableType mt =
     PtrType _ -> return $ G.bitvectorType (bitsToBytes (natValue PtrWidth))
     FloatType -> return $ G.floatType
     DoubleType -> return $ G.doubleType
+    X86_FP80Type -> return $ G.x86_fp80Type
     ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
     VecType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
     MetadataType -> fail "toStorableType: Cannot store metadata values"
@@ -1108,10 +1114,6 @@ constToLLVMVal sym mem (SymbolConst symb i) = do
   -- In contrast to the case for @IntConst@ above, it is non-zero.
   let (blk, offset) = llvmPointerView ptr
   LLVMValInt blk <$> bvAdd sym offset ibv
-
--- We lose the information of what's a pointer and what's an integer in this
--- translation
-constToLLVMVal sym mem (PtrToIntConst c) = constToLLVMVal sym mem c
 
 constToLLVMVal _sym _mem (ZeroConst memty) = LLVMValZero <$> toStorableType memty
 

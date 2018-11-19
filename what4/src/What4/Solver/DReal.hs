@@ -28,6 +28,7 @@ module What4.Solver.DReal
 
 import           Control.Concurrent
 import           Control.Exception
+import           Control.Lens(folded)
 import           Control.Monad
 import           Data.Attoparsec.ByteString.Char8 hiding (try)
 import qualified Data.ByteString as BS
@@ -63,6 +64,7 @@ import qualified What4.Protocol.SMTLib2 as SMT2
 import qualified What4.Protocol.SMTWriter as SMTWriter
 import           What4.Utils.Process
 import           What4.Utils.Streams (logErrorStream)
+import           What4.Utils.HandleReader
 
 data DReal = DReal
 
@@ -84,14 +86,14 @@ drealAdapter =
   SolverAdapter
   { solver_adapter_name = "dreal"
   , solver_adapter_config_options = drealOptions
-  , solver_adapter_check_sat = \sym logLn rsn p cont ->
-      runDRealInOverride sym logLn rsn p $ \res ->
+  , solver_adapter_check_sat = \sym logData ps cont ->
+      runDRealInOverride sym logData ps $ \res ->
          case res of
            Sat (c,m) -> do
              evalFn <- getAvgBindings c m
              rangeFn <- getBoundBindings c m
              cont (Sat (evalFn, Just rangeFn))
-           Unsat -> cont Unsat
+           Unsat x -> cont (Unsat x)
            Unknown -> cont Unknown
 
   , solver_adapter_write_smt2 = writeDRealSMT2File
@@ -103,14 +105,16 @@ instance SMT2.SMTLib2Tweaks DReal where
 writeDRealSMT2File
    :: ExprBuilder t st fs
    -> Handle
-   -> BoolExpr t
+   -> [BoolExpr t]
    -> IO ()
-writeDRealSMT2File sym h p = do
+writeDRealSMT2File sym h ps = do
   bindings <- getSymbolVarBimap sym
-  c <- SMT2.newWriter DReal h "dReal" False useComputableReals False bindings
+  in_str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
+  c <- SMT2.newWriter DReal in_str SMTWriter.nullAcknowledgementAction "dReal"
+          False useComputableReals False bindings
   SMT2.setOption c (SMT2.produceModels True)
   SMT2.setLogic c (SMT2.Logic "QF_NRA")
-  SMT2.assume c p
+  forM_ ps (SMT2.assume c)
   SMT2.writeCheckSat c
   SMT2.writeExit c
 
@@ -243,30 +247,39 @@ parseNextWord = do
 
 runDRealInOverride
    :: ExprBuilder t st fs
-   -> (Int -> String -> IO ())
-   -> String
-   -> BoolExpr t   -- ^ proposition to check
-   -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) -> IO a)
+   -> LogData
+   -> [BoolExpr t]   -- ^ propositions to check
+   -> (SatResult (SMT2.WriterConn t (SMT2.Writer DReal), DRealBindings) () -> IO a)
    -> IO a
-runDRealInOverride sym logLn rsn p modelFn = do
+runDRealInOverride sym logData ps modelFn = do
+  p <- andAllOf sym folded ps
   solver_path <- findSolverPath drealPath (getConfiguration sym)
   logSolverEvent sym
     SolverStartSATQuery
     { satQuerySolverName = "dReal"
-    , satQueryReason = rsn
+    , satQueryReason = logReason logData
     }
   withSystemTempDirectory "dReal.tmp" $ \tmpdir ->
       withProcessHandles solver_path ["-model"] (Just tmpdir) $ \(in_h, out_h, err_h, ph) -> do
 
       -- Log stderr to output.
       err_stream <- Streams.handleToInputStream err_h
-      void $ forkIO $ logErrorStream err_stream (logLn 2)
+      void $ forkIO $ logErrorStream err_stream (logCallbackVerbose logData 2)
 
       -- Write SMTLIB to standard input.
-      logLn 2 "Sending Satisfiability problem to dReal"
+      logCallbackVerbose logData 2 "Sending Satisfiability problem to dReal"
       -- dReal does not support (define-fun ...)
       bindings <- getSymbolVarBimap sym
-      c <- SMT2.newWriter DReal in_h "dReal" False useComputableReals False bindings
+
+      in_str  <-
+        case logHandle logData of
+          Nothing -> Streams.encodeUtf8 =<< Streams.handleToOutputStream in_h
+          Just aux_h ->
+            do aux_str <- Streams.handleToOutputStream aux_h
+               Streams.encodeUtf8 =<< teeOutputStream aux_str =<< Streams.handleToOutputStream in_h
+
+      c <- SMT2.newWriter DReal in_str SMTWriter.nullAcknowledgementAction "dReal"
+             False useComputableReals False bindings
 
       -- Set the dReal default logic
       SMT2.setLogic c (SMT2.Logic "QF_NRA")
@@ -281,7 +294,7 @@ runDRealInOverride sym logLn rsn p modelFn = do
       SMT2.writeExit c
       hClose in_h
 
-      logLn 2 "Parsing result from solver"
+      logCallbackVerbose logData 2 "Parsing result from solver"
 
       msat_result <- try $ Streams.parseFromStream parseNextWord out_stream
 
@@ -292,7 +305,7 @@ runDRealInOverride sym logLn rsn p modelFn = do
       res <-
         case msat_result of
           Left Streams.ParseException{} -> fail "Could not parse sat result."
-          Right "unsat" -> return Unsat
+          Right "unsat" -> return (Unsat ())
           Right "sat" -> do
               ex <- doesFileExist modelfile
               m <- if ex
@@ -307,19 +320,19 @@ runDRealInOverride sym logLn rsn p modelFn = do
       r <- modelFn res
 
       -- Log outstream as error messages.
-      void $ forkIO $ logErrorStream out_stream (logLn 2)
+      void $ forkIO $ logErrorStream out_stream (logCallbackVerbose logData 2)
       -- Check error code.
-      logLn 2 "Waiting for dReal to exit"
+      logCallbackVerbose logData 2 "Waiting for dReal to exit"
 
       ec <- waitForProcess ph
       case ec of
         ExitSuccess -> do
           -- Return result.
-          logLn 2 "dReal terminated."
+          logCallbackVerbose logData 2 "dReal terminated."
 
           logSolverEvent sym
              SolverEndSATQuery
-             { satQueryResult = fmap (const ()) res
+             { satQueryResult = forgetModelAndCore res
              , satQueryError  = Nothing
              }
 

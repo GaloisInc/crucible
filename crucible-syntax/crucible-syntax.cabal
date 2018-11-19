@@ -56,7 +56,7 @@ library
 executable crucibler
   build-depends:
     ansi-wl-pprint,
-    base >= 4.7 && < 4.12,
+    base >= 4.7 && < 4.13,
     crucible,
     crucible-syntax,
     lens,

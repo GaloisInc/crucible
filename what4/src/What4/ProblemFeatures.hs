@@ -6,6 +6,22 @@
 -- License     : BSD3
 -- Maintainer  : Joe Hendrix <jhendrix@galois.com>
 -- Stability   : provisional
+--
+-- ProblemFeatures uses bit mask to represent the features.  The bits are:
+--
+--  0 : Uses linear arithmetic
+--  1 : Uses non-linear arithmetic, i.e. multiplication (should also set bit 0)
+--  2 : Uses computational reals (should also set bits 0 & 1)
+--  3 : Uses integer variables (should also set bit 0)
+--  4 : Uses bitvectors
+--  5 : Uses exists-forall.
+--  6 : Uses quantifiers (should also set bit 4)
+--  7 : Uses symbolic arrays or complex numbers.
+--  8 : Uses structs
+--  9 : Uses strings
+-- 10 : Uses floating-point
+-- 11 : Computes UNSAT cores
+-- 12 : Computes UNSAT assumptions
 ------------------------------------------------------------------------
 
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -24,6 +40,8 @@ module What4.ProblemFeatures
   , useStructs
   , useStrings
   , useFloatingPoint
+  , useUnsatCores
+  , useUnsatAssumptions
   , hasProblemFeature
   ) where
 
@@ -34,20 +52,6 @@ import Data.Word
 -- will need to support to solve the problem.
 newtype ProblemFeatures = ProblemFeatures Word64
   deriving (Eq, Bits)
-
--- ProblemFeatures uses bit mask to represent the features.  The bits are:
--- Bits
---  0 : Uses linear arithmetic
---  1 : Uses non-linear arithmetic, i.e. multiplication (should also set bit 0)
---  2 : Uses computational reals (should also set bits 0 & 1)
---  3 : Uses integer variables (should also set bit 0)
---  4 : Uses bitvectors
---  5 : Uses exists-forall.
---  6 : Uses quantifiers (should also set bit 4)
---  7 : Uses symbolic arrays or complex numbers.
---  8 : Uses structs
---  9 : Uses strings
--- 10 : Uses floating-point
 
 noFeatures :: ProblemFeatures
 noFeatures = ProblemFeatures 0
@@ -109,6 +113,16 @@ useStrings = ProblemFeatures 0x200
 --   Floating-point has some symbolic support in CVC4 and Z3.
 useFloatingPoint :: ProblemFeatures
 useFloatingPoint = ProblemFeatures 0x400
+
+-- | Indicates if the solver is able and configured to compute UNSAT
+--   cores.
+useUnsatCores :: ProblemFeatures
+useUnsatCores = ProblemFeatures 0x800
+
+-- | Indicates if the solver is able and configured to compute UNSAT
+--   assumptions.
+useUnsatAssumptions :: ProblemFeatures
+useUnsatAssumptions = ProblemFeatures 0x1000
 
 hasProblemFeature :: ProblemFeatures -> ProblemFeatures -> Bool
 hasProblemFeature x y = (x .&. y) == y

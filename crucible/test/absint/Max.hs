@@ -30,9 +30,9 @@ instance C.ShowF Max
 type Max' = Pointed Max
 
 maxDom :: Domain Max'
-maxDom = d { domIter = WTOWidening (>10) w }
+maxDom = d
   where
-    d = pointed j (==)
+    d = pointed j (==) (WTOWidening (>10) w)
     j (Max i1) (Max i2) = Pointed (Max (max i1 i2))
     w _ _ = Top
 
@@ -48,11 +48,12 @@ maxInterp = Interpretation { interpExpr = mExpr
                            , interpMaybe = mMaybe
                            }
 
-mExpr :: C.TypeRepr tp
+mExpr :: ScopedReg
+        -> C.TypeRepr tp
         -> C.Expr ext ctx tp
         -> PointAbstraction Max' ctx
         -> (Maybe (PointAbstraction Max' ctx), Max' tp)
-mExpr _tr (C.App e) abstr =
+mExpr _sr _tr (C.App e) abstr =
   case e of
     C.IntLit i -> (Nothing, Pointed (Max (fromIntegral i)))
     C.IntAdd r1 r2 ->
