@@ -78,9 +78,6 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ResolvedJump(..)
   , ControlResumption(..)
   , PausedFrame(..)
-  , SomePausedFrame(..)
-  , pausedFrame
-  , resume
 
     -- ** Sibling paths
   , VFFOtherPath(..)
@@ -348,10 +345,13 @@ execStateContext = \case
   CallState _ _ st       -> st^.stateContext
   TailCallState _ _ st   -> st^.stateContext
   ReturnState _ _ _ st   -> st^.stateContext
+  ControlTransferState _ st -> st^.stateContext
   RunningState _ st      -> st^.stateContext
   SymbolicBranchState _ _ _ _ st -> st^.stateContext
   OverrideState _ st -> st^.stateContext
-  ControlTransferState _ st -> st^.stateContext
+  BranchMergeState _ st -> st^.stateContext
+  InitialState stctx _ _ _ -> stctx
+
 
 -----------------------------------------------------------------------
 -- ExecState
@@ -430,17 +430,28 @@ data ExecState p sym ext (rtp :: *)
 
    {- | A symbolic branch state indicates that the execution needs to
         branch on a non-trivial symbolic condition.  The included @Pred@
-        is the condition to branch on.  The first @SomePausedFrame@ is
+        is the condition to branch on.  The first @PausedFrame@ is
         the path that corresponds to the @Pred@ being true, and the second
         is the false branch.
     -}
    | forall f args postdom_args.
        SymbolicBranchState
          !(Pred sym) {- predicate to branch on -}
-         !(SomePausedFrame p sym ext f rtp) {- true path-}
-         !(SomePausedFrame p sym ext f rtp)  {- false path -}
+         !(PausedFrame p sym ext rtp f) {- true path-}
+         !(PausedFrame p sym ext rtp f)  {- false path -}
          !(CrucibleBranchTarget f postdom_args) {- merge point -}
          !(SimState p sym ext rtp f ('Just args))
+
+   {- | A control transfer state is entered just prior to invoking a
+        control resumption.  Control resumptions are responsible
+        for transitioning from the end of one basic block to another,
+        although there are also some intermediate states related to
+        resolving switch statements.
+    -}
+   | forall f a.
+       ControlTransferState
+         !(ControlResumption p sym ext rtp f)
+         !(SimState p sym ext rtp f ('Just a))
 
    {- | An override state indicates the included 'SimState' is prepared to
         execute a code override. -}
@@ -451,17 +462,35 @@ data ExecState p sym ext (rtp :: *)
          !(SimState p sym ext rtp (OverrideLang ret) ('Just args))
            {- State of the simulator prior to activating the override -}
 
-   {- | A control transfer state occurs when the included 'SimState' is
+   {- | A branch merge state occurs when the included 'SimState' is
         in the process of transfering control to the included 'CrucibleBranchTarget'.
-        During this process, paths may have to be merged.  If several branches
-        must merge at the same control point, this state may be entered several
-        times in succession before returning to a 'RunningState'. -}
+        We enter a BranchMergeState every time we need to _check_ if there is a
+        pending branch, even if no branch is pending. During this process, paths may
+        have to be merged.  If several branches must merge at the same control point,
+        this state may be entered several times in succession before returning
+        to a 'RunningState'. -}
    | forall f args.
-       ControlTransferState
+       BranchMergeState
          !(CrucibleBranchTarget f args)
            {- Target of the control-flow transfer -}
          !(SimState p sym ext rtp f args)
-           {- State of the simulator prior to the control-flow transfer -}
+           {- State of the simulator before merging pending branches -}
+
+   {- | An initial state indicates the state of a simulator just before execution begins.
+        It specifies all the initial data necessary to begin simulating.  The given
+        @ExecCont@ will be executed in a fresh @SimState@ representing the default starting
+        call frame.
+    -}
+   | forall ret. rtp ~ RegEntry sym ret =>
+       InitialState
+         !(SimContext p sym ext)
+            {- initial 'SimContext' state -}
+         !(SymGlobalState sym)
+            {- state of Crucible global variables -}
+         !(AbortHandler p sym ext (RegEntry sym ret))
+            {- initial abort handler -}
+         !(ExecCont p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx))
+            {- Entry continuation -}
 
 -- | An action which will construct an 'ExecState' given a current
 --   'SimState'. Such continuations correspond to a single transition
@@ -495,19 +524,19 @@ data ResolvedJump sym blocks
 --   (while it first explores other paths), a 'ControlResumption'
 --   indicates what actions must later be taken in order to resume
 --   execution of that path.
-data ControlResumption p sym ext rtp f args where
+data ControlResumption p sym ext rtp f where
   {- | When resuming a paused frame with a @ContinueResumption@,
        no special work needs to be done, simply begin executing
        statements of the basic block. -}
   ContinueResumption ::
-    !(BlockID blocks args) {- Block ID we are transferring to -} ->
-    ControlResumption p sym ext rtp (CrucibleLang blocks r) args
+    !(ResolvedJump sym blocks) ->
+    ControlResumption p sym ext rtp (CrucibleLang blocks r)
 
   {- | When resuming with a @CheckMergeResumption@, we must check
        for the presence of pending merge points before resuming. -}
   CheckMergeResumption ::
-    !(BlockID blocks args) {- Block ID we are transferring to -} ->
-    ControlResumption p sym ext root (CrucibleLang blocks r) args
+    !(ResolvedJump sym blocks) ->
+    ControlResumption p sym ext rtp (CrucibleLang blocks r)
 
   {- | When resuming a paused frame with a @SwitchResumption@, we must
        continue branching to possible alternatives in a variant elmination
@@ -515,17 +544,17 @@ data ControlResumption p sym ext rtp f args where
        transfering control away from the current basic block (which is now
        at a final @VariantElim@ terminal statement). -}
   SwitchResumption ::
-    [(Pred sym, ResolvedJump sym blocks)] {- remaining branches -} ->
-    ControlResumption p sym ext root (CrucibleLang blocks r) args
-
+    ![(Pred sym, ResolvedJump sym blocks)] {- remaining branches -} ->
+    ControlResumption p sym ext rtp (CrucibleLang blocks r)
 
   {- | When resuming a paused frame with an @OverrideResumption@, we
        simply return control to the included thunk, which represents
        the remaining computation for the override.
    -}
   OverrideResumption ::
-    ExecCont p sym ext root (OverrideLang r) ('Just args) ->
-    ControlResumption p sym ext root (OverrideLang r) args
+    ExecCont p sym ext rtp (OverrideLang r) ('Just args) ->
+    !(RegMap sym args) ->
+    ControlResumption p sym ext rtp (OverrideLang r)
 
 ------------------------------------------------------------------------
 -- Paused Frame
@@ -534,34 +563,13 @@ data ControlResumption p sym ext rtp f args where
 --   while other paths are explored.  It consists of a (potentially partial)
 --   'SimFrame' togeter with some information about how to resume execution
 --   of that frame.
-data PausedFrame p sym ext root f args
-   = PausedFrame
-     { _pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext f ('Just args)))
-     , _resume       :: !(ControlResumption p sym ext root f args)
-     }
-
--- | Some frame, together with a location (if any) associated with
---   that frame.
-data SomePausedFrame p sym ext f (a :: *) =
-  forall args.
-    SomePausedFrame
-      !(PausedFrame p sym ext a f args)
-      !(Maybe ProgramLoc)
-
--- | Access the partial frame inside a 'PausedFrame'
-pausedFrame ::
-  Simple Lens
-    (PausedFrame p sym ext root f args)
-    (PartialResult sym ext (SimFrame sym ext f ('Just args)))
-pausedFrame = lens _pausedFrame (\ppf v -> ppf{ _pausedFrame = v })
-
--- | Access the 'ControlResumption' inside a 'PausedFrame'
-resume ::
-  Simple Lens
-    (PausedFrame p sym ext root f args)
-    (ControlResumption p sym ext root f args)
-resume = lens _resume (\ppf r -> ppf{ _resume = r })
-
+data PausedFrame p sym ext rtp f
+   = forall old_args.
+       PausedFrame
+       { pausedFrame  :: !(PartialResult sym ext (SimFrame sym ext f ('Just old_args)))
+       , resume       :: !(ControlResumption p sym ext rtp f)
+       , pausedLoc    :: !(Maybe ProgramLoc)
+       }
 
 -- | This describes the state of the sibling path at a symbolic branch point.
 --   A symbolic branch point starts with the sibling in the 'VFFActivePath'
@@ -574,11 +582,8 @@ resume = lens _resume (\ppf r -> ppf{ _resume = r })
 data VFFOtherPath p sym ext ret f args
 
      {- | This corresponds the a path that still needs to be analyzed. -}
-   = forall o_args.
-      VFFActivePath
-        !(Maybe ProgramLoc)
-          {- Location of branch target -}
-        !(PausedFrame p sym ext ret f o_args)
+   = VFFActivePath
+        !(PausedFrame p sym ext ret f)
           {- Other branch we still need to run -}
 
      {- | This is a completed execution path. -}
@@ -739,7 +744,7 @@ instance PP.Pretty (ValueFromFrame p ext sym ret f) where
   pretty = ppValueFromFrame
 
 instance PP.Pretty (VFFOtherPath ctx sym ext r f a) where
-  pretty (VFFActivePath _ _)   = PP.text "active_path"
+  pretty (VFFActivePath _)   = PP.text "active_path"
   pretty (VFFCompletePath _ _) = PP.text "complete_path"
 
 ppValueFromFrame :: ValueFromFrame p sym ext ret f -> PP.Doc
@@ -1090,9 +1095,11 @@ stateCrucibleFrame = stateTree . actFrame . crucibleTopFrame
 
 -- | Access the override frame inside a 'SimState'
 stateOverrideFrame ::
-  Simple Lens
+  Lens
      (SimState p sym ext q (OverrideLang r) ('Just a))
+     (SimState p sym ext q (OverrideLang r) ('Just a'))
      (OverrideFrame sym r a)
+     (OverrideFrame sym r a')
 stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
 
 -- | Get the symbolic interface out of a 'SimState'

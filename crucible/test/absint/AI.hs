@@ -29,7 +29,7 @@ import qualified Lang.Crucible.CFG.Expr as C
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.SSAConversion as SSA
 import Lang.Crucible.Syntax
-import Lang.Crucible.Analysis.Fixpoint
+import Lang.Crucible.Analysis.Fixpoint hiding ( Ignore(..) )
 
 import EvenOdd
 import Max
@@ -44,10 +44,10 @@ aiTests = T.testGroup "Abstract Interpretation" [
   runTest "max_p2" (const max_p2)
   ]
 
-runTest :: C.IsSyntaxExtension ext => String -> (forall h . () -> TestCase h ext dom) -> T.TestTree
+runTest :: (C.IsSyntaxExtension ext, C.ShowF dom) => String -> (forall h . () -> TestCase h ext dom) -> T.TestTree
 runTest name tc = T.testCase name $ runST $ testAI (tc ())
 
-testAI :: C.IsSyntaxExtension ext => TestCase h ext dom -> ST h T.Assertion
+testAI :: (C.IsSyntaxExtension ext, C.ShowF dom) => TestCase h ext dom -> ST h T.Assertion
 testAI TC { tcHandle = hdl
           , tcDef = def
           , tcGlobals = g
@@ -70,7 +70,7 @@ testAI TC { tcHandle = hdl
             return $ forwardFixpoint dom' interp cfg' g a0
       return (check cfg' assignment' rabs mWorklist)
 
-data (C.IsSyntaxExtension ext) => TestCase h ext dom =
+data TestCase h ext dom =
   forall init ret t .
   TC { tcDef :: G.FunctionDef ext h t init ret
      , tcHandle :: ST h (C.FnHandle init ret)
@@ -136,7 +136,7 @@ eo_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
       T.assertEqual "retVal" (Pointed Even) rabs
       case mWorklist of
         Nothing -> T.assertFailure "Expected worklist result"
-        Just (abstrs, rabs') -> do
+        Just (_, rabs') -> do
           T.assertEqual "WL Result" rabs rabs'
 
     gen initialAssignment = do

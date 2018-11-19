@@ -15,6 +15,7 @@ import Control.Lens hiding ((:>), Empty)
 import Control.Monad (forM_)
 import Control.Monad.IO.Class
 import Control.Monad.ST
+import Data.Foldable(toList)
 import System.IO
 
 import Data.Parameterized.Context hiding (view)
@@ -23,6 +24,7 @@ import What4.Expr.Builder
 import What4.Interface
 import What4.ProgramLoc
 import What4.SatResult
+import What4.Solver (LogData(..), defaultLogData)
 import What4.Solver.Z3 (runZ3InOverride)
 
 import Lang.Crucible.Backend
@@ -54,9 +56,11 @@ proveObligations =
        clearProofObligations sym
 
        forM_ obls $ \o ->
-         do asms <- andAllOf sym (folded.labeledPred) (proofAssumptions o)
-            gl   <- andPred sym asms =<< notPred sym ((proofGoal o)^.labeledPred)
-            runZ3InOverride sym (\_ -> hPutStrLn h) "assertion proof" gl $ \case
-              Unsat    -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
+         do let asms = map (view labeledPred) $ toList $ proofAssumptions o
+            gl <- notPred sym ((proofGoal o)^.labeledPred)
+            let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
+                                         , logReason = "assertion proof" }
+            runZ3InOverride sym logData (asms ++ [gl]) $ \case
+              Unsat{}  -> hPutStrLn h $ unlines ["Proof Succeeded!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Sat _mdl -> hPutStrLn h $ unlines ["Proof failed!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]
               Unknown  -> hPutStrLn h $ unlines ["Proof inconclusive!", show $ ppSimError $ (proofGoal o)^.labeledPredMsg]

@@ -267,6 +267,7 @@ zeroExpand (VecType n tp) k =
 zeroExpand (PtrType _tp) k = k PtrRepr nullPointerExpr
 zeroExpand FloatType   k  = k (FloatRepr SingleFloatRepr) (App (FloatLit 0))
 zeroExpand DoubleType  k  = k (FloatRepr DoubleFloatRepr) (App (DoubleLit 0))
+zeroExpand X86_FP80Type _  = ?err "Cannot zero expand x86_fp80 values"
 zeroExpand MetadataType _ = ?err "Cannot zero expand metadata"
 
 undefExpand :: (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
@@ -333,8 +334,6 @@ liftConstant c = case c of
        unless (length vs' == length ts)
               (fail "Type mismatch in structure constant")
        return (StructExpr (Seq.fromList (zip ts vs')))
-  PtrToIntConst s ->
-       liftConstant s
   SymbolConst sym 0 ->
     do memVar <- getMemVar
        base <- extensionStmt (LLVM_ResolveGlobal ?ptrWidth memVar (GlobalSymbol sym))

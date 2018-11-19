@@ -95,6 +95,9 @@ Now, you may use either `stack` or `cabal new-build` to compile the
 libraries, as you prefer.
 
 ```
+ls stack-ghc-*.yaml
+# Choose the GHC version you prefer
+ln -s stack-ghc-<version>.yaml stack.yaml
 ./scripts/build-sandbox.sh
 stack setup
 stack build

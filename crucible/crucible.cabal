@@ -27,10 +27,11 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.8 && < 4.12,
+    base >= 4.8 && < 4.13,
     ansi-wl-pprint,
     bytestring,
     containers >= 0.5.9.0,
+    exceptions,
     fgl,
     filepath,
     ghc-prim,
@@ -78,6 +79,7 @@ library
     Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.FunctionHandle
     Lang.Crucible.Simulator
+    Lang.Crucible.Simulator.BoundedExec
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
     Lang.Crucible.Simulator.EvalStmt
@@ -86,6 +88,7 @@ library
     Lang.Crucible.Simulator.GlobalState
     Lang.Crucible.Simulator.Operations
     Lang.Crucible.Simulator.OverrideSim
+    Lang.Crucible.Simulator.PathSatisfiability
     Lang.Crucible.Simulator.Profiling
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue

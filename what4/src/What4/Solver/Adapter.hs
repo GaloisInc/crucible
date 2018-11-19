@@ -16,6 +16,9 @@ module What4.Solver.Adapter
   , defaultWriteSMTLIB2Features
   , defaultSolverAdapter
   , solverAdapterOptions
+  , LogData(..)
+  , logCallback
+  , defaultLogData
   ) where
 
 import           Data.Bits
@@ -51,17 +54,34 @@ data SolverAdapter st =
   , solver_adapter_check_sat
         :: !(forall t fs a.
            ExprBuilder t st fs
-        -> (Int -> String -> IO ())
-        -> String
-        -> BoolExpr t
-        -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) -> IO a)
+        -> LogData
+        -> [BoolExpr t]
+        -> (SatResult (GroundEvalFn t, Maybe (ExprRangeBindings t)) () -> IO a)
         -> IO a)
 
     -- | Write an SMTLib2 problem instance onto the given handle, incorporating
     --   any solver-specific tweaks appropriate to this solver
-  , solver_adapter_write_smt2 :: !(forall t fs . ExprBuilder t st fs -> Handle -> BoolExpr t -> IO ())
+  , solver_adapter_write_smt2 :: !(forall t fs . ExprBuilder t st fs -> Handle -> [BoolExpr t] -> IO ())
   }
 
+data LogData = LogData { logCallbackVerbose :: Int -> String -> IO ()
+                       -- ^ takes a verbosity and a message to log
+                       , logVerbosity :: Int
+                       -- ^ the default verbosity; typical default is 2
+                       , logReason :: String
+                       -- ^ the reason for performing the operation
+                       , logHandle :: Maybe Handle
+                       -- ^ handle on which to mirror solver input/responses
+                       }
+
+logCallback :: LogData -> (String -> IO ())
+logCallback logData = logCallbackVerbose logData (logVerbosity logData)
+
+defaultLogData :: LogData
+defaultLogData = LogData { logCallbackVerbose = \_ _ -> return ()
+                         , logVerbosity = 2
+                         , logReason = "defaultReason"
+                         , logHandle = Nothing }
 
 instance Show (SolverAdapter st) where
   show = solver_adapter_name

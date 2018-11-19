@@ -376,7 +376,7 @@ data SolverEvent
     , satQueryReason     :: !String
     }
   | SolverEndSATQuery
-    { satQueryResult     :: !(SatResult ())
+    { satQueryResult     :: !(SatResult () ())
     , satQueryError      :: !(Maybe String)
     }
 
@@ -2105,7 +2105,7 @@ data RoundingMode
   | RTP -- ^ Round toward plus Infinity.
   | RTN -- ^ Round toward minus Infinity.
   | RTZ -- ^ Round toward zero.
-  deriving (Eq, Generic, Ord, Show)
+  deriving (Eq, Generic, Ord, Show, Enum)
 
 instance Hashable RoundingMode
 

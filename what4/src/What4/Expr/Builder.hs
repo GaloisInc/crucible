@@ -5411,7 +5411,7 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatUninterpret
   iFloatMax = floatUninterpArithBinOp "uninterpreted_float_max"
   iFloatFMA sym r x y z = do
     let ret_type = exprType x
-    r_arg <- roundingModeToSymString sym r
+    r_arg <- roundingModeToSymNat sym r
     mkUninterpFnApp sym
                     "uninterpreted_float_fma"
                     (Ctx.empty Ctx.:> r_arg Ctx.:> x Ctx.:> y Ctx.:> z)
@@ -5459,6 +5459,7 @@ floatUninterpArithBinOp
 floatUninterpArithBinOp fn sym x y =
   let ret_type = exprType x
   in  mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x Ctx.:> y) ret_type
+
 floatUninterpArithBinOpR
   :: (e ~ Expr t)
   => String
@@ -5469,8 +5470,9 @@ floatUninterpArithBinOpR
   -> IO (e bt)
 floatUninterpArithBinOpR fn sym r x y = do
   let ret_type = exprType x
-  r_arg <- roundingModeToSymString sym r
+  r_arg <- roundingModeToSymNat sym r
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> r_arg Ctx.:> x Ctx.:> y) ret_type
+
 floatUninterpArithUnOp
   :: (e ~ Expr t) => String -> ExprBuilder t st fs -> e bt -> IO (e bt)
 floatUninterpArithUnOp fn sym x =
@@ -5485,8 +5487,9 @@ floatUninterpArithUnOpR
   -> IO (e bt)
 floatUninterpArithUnOpR fn sym r x = do
   let ret_type = exprType x
-  r_arg <- roundingModeToSymString sym r
+  r_arg <- roundingModeToSymNat sym r
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> r_arg Ctx.:> x) ret_type
+
 floatUninterpArithCt
   :: (e ~ Expr t)
   => String
@@ -5495,6 +5498,7 @@ floatUninterpArithCt
   -> IO (e bt)
 floatUninterpArithCt fn sym ret_type =
   mkUninterpFnApp sym fn Ctx.empty ret_type
+
 floatUninterpLogicBinOp
   :: (e ~ Expr t)
   => String
@@ -5504,6 +5508,7 @@ floatUninterpLogicBinOp
   -> IO (e BaseBoolType)
 floatUninterpLogicBinOp fn sym x y =
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x Ctx.:> y) knownRepr
+
 floatUninterpLogicUnOp
   :: (e ~ Expr t)
   => String
@@ -5512,6 +5517,7 @@ floatUninterpLogicUnOp
   -> IO (e BaseBoolType)
 floatUninterpLogicUnOp fn sym x =
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> x) knownRepr
+
 floatUninterpCastOp
   :: (e ~ Expr t)
   => String
@@ -5521,11 +5527,12 @@ floatUninterpCastOp
   -> e bt'
   -> IO (e bt)
 floatUninterpCastOp fn sym ret_type r x = do
-  r_arg <- roundingModeToSymString sym r
+  r_arg <- roundingModeToSymNat sym r
   mkUninterpFnApp sym fn (Ctx.empty Ctx.:> r_arg Ctx.:> x) ret_type
-roundingModeToSymString
-  :: (sym ~ ExprBuilder t st fs) => sym -> RoundingMode -> IO (SymString sym)
-roundingModeToSymString sym = stringLit sym . Text.pack . show
+
+roundingModeToSymNat
+  :: (sym ~ ExprBuilder t st fs) => sym -> RoundingMode -> IO (SymNat sym)
+roundingModeToSymNat sym = natLit sym . fromIntegral . fromEnum
 
 
 type instance SymInterpretedFloatType (ExprBuilder t st (Flags FloatIEEE)) fi =
