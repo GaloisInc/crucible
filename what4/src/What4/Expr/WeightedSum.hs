@@ -48,6 +48,7 @@ module What4.Expr.WeightedSum
 import           Control.Lens
 import           Data.Bits
 import           Data.Hashable
+import           Data.Kind
 import           Data.Maybe
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -57,7 +58,7 @@ import           Numeric.Natural
 import           What4.BaseTypes
 
 
-newtype WrapF (f:: k -> *) (i :: k) = WrapF (f i)
+newtype WrapF (f:: k -> Type) (i :: k) = WrapF (f i)
 
 instance OrdF f => Ord (WrapF f i) where
   compare (WrapF x) (WrapF y) = toOrdering $ compareF x y
@@ -70,7 +71,7 @@ traverseWrap :: Functor m => (f i -> m (g i)) -> WrapF f i -> m (WrapF g i)
 traverseWrap f (WrapF x) = WrapF <$> f x
 
 class (Eq (Coefficient tp), Num (Coefficient tp), Hashable (Coefficient tp)) => SemiRingCoefficient tp where
-  type Coefficient tp :: *
+  type Coefficient tp :: Type
 
 type SemiRing f tp = (OrdF f, HashableF f, SemiRingCoefficient tp)
 
@@ -128,7 +129,7 @@ semiRingBase SemiRingReal = BaseRealRepr
 -- | A weighted sum of real values.
 --
 -- The type 'c' is the type for coeffiecients
-data WeightedSum (f :: BaseType -> *) tp
+data WeightedSum (f :: BaseType -> Type) tp
    = WeightedSum { _sumMap     :: !(Map (WrapF f tp) (Coefficient tp))
                  , _sumOffset  :: !(Coefficient tp)
                  , _sumHash    :: !Int -- ^ precomputed hash of the map part of the weighted sum

@@ -85,6 +85,7 @@ module What4.Utils.AbstractDomains
   ) where
 
 import           Control.Exception (assert)
+import           Data.Kind
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
@@ -584,7 +585,7 @@ natRangeToRange (NatMultiRange l u) = MultiRange (Inclusive (toInteger l)) (toIn
 
 
 -- | An abstract value represents a disjoint st of values.
-type family AbstractValue (tp::BaseType) :: * where
+type family AbstractValue (tp::BaseType) :: Type where
   AbstractValue BaseBoolType = Maybe Bool
   AbstractValue BaseNatType = NatValueRange
   AbstractValue BaseIntegerType = ValueRange Integer
@@ -599,7 +600,7 @@ type family AbstractValue (tp::BaseType) :: * where
 newtype AbstractValueWrapper tp
       = AbstractValueWrapper { unwrapAV :: AbstractValue tp }
 
-type family ConcreteValue (tp::BaseType) :: * where
+type family ConcreteValue (tp::BaseType) :: Type where
   ConcreteValue BaseBoolType = Bool
   ConcreteValue BaseNatType = Natural
   ConcreteValue BaseIntegerType = Integer

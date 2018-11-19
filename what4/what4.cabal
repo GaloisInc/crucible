@@ -17,7 +17,7 @@ Description:
 
 library
   build-depends:
-    base >= 4.8 && < 4.12,
+    base >= 4.8 && < 5,
     attoparsec,
     ansi-wl-pprint,
     bimap >= 0.2,
@@ -111,6 +111,8 @@ library
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
+  if impl(ghc >= 8.6)
+    default-extensions: NoStarIsType
 
 test-suite expr-builder-smtlib2
   type: exitcode-stdio-1.0
