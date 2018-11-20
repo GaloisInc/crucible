@@ -37,6 +37,7 @@ where
 
 import           Control.Lens
 import           Control.Monad.State.Strict
+import           Data.Kind
 import           Data.Parameterized.Context ( Assignment )
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
@@ -116,7 +117,7 @@ symbolicAnalysis =
 
 -------------------
 
-data KildallPair (a::k -> *) (c :: *) (tp::k) = KP (a tp) c
+data KildallPair (a::k -> Type) (c :: Type) (tp::k) = KP (a tp) c
 
 instance (ShowF a, Show c) => Show (KildallPair a c tp) where
   show (KP x y) = "(" ++ showF x ++ ", " ++ show y ++ ")"
@@ -132,7 +133,7 @@ instance Show a => Show (Ignore a tp) where
 instance Show a => ShowF (Ignore a)
 
 
-data KildallForward ext blocks (a :: CrucibleType -> *) c
+data KildallForward ext blocks (a :: CrucibleType -> Type) c
   = KildallForward
     { kfwd_lub      :: forall tp. a tp -> a tp -> a tp
     , kfwd_bot      :: forall tp. a tp

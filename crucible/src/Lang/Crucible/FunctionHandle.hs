@@ -42,6 +42,7 @@ module Lang.Crucible.FunctionHandle
 
 import           Control.Monad.ST
 import           Data.Hashable
+import           Data.Kind
 import           Data.Ord (comparing)
 
 import qualified Data.Parameterized.Context as Ctx
@@ -185,7 +186,7 @@ instance Ord (RefCell tp) where
 ------------------------------------------------------------------------
 -- FnHandleMap
 
-data HandleElt (f :: Ctx CrucibleType -> CrucibleType -> *) ctx where
+data HandleElt (f :: Ctx CrucibleType -> CrucibleType -> Type) ctx where
   HandleElt :: f args ret -> HandleElt f (args::>ret)
 
 newtype FnHandleMap f = FnHandleMap (MapF Nonce (HandleElt f))

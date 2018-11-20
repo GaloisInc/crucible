@@ -50,6 +50,7 @@ import           Control.Applicative
 import           Control.Lens.Operators ( (^.), (%=), (.~), (&), (%~) )
 import qualified Control.Monad.State.Strict as St
 import qualified Data.Functor.Identity as I
+import           Data.Kind
 import qualified Data.Set as S
 import           Text.Printf
 
@@ -79,13 +80,13 @@ data WideningOperator dom = WideningOperator (forall tp . dom tp -> dom tp -> do
 -- operator).
 --
 -- A simple worklist approach is also available.
-data IterationStrategy (dom :: CrucibleType -> *) where
+data IterationStrategy (dom :: CrucibleType -> Type) where
   WTO :: IterationStrategy dom
   WTOWidening :: (Int -> Bool) -> (forall tp . dom tp -> dom tp -> dom tp) -> IterationStrategy dom
   Worklist :: IterationStrategy dom
 
 -- | A domain of abstract values, parameterized by a term type
-data Domain (dom :: CrucibleType -> *) =
+data Domain (dom :: CrucibleType -> Type) =
   Domain { domTop    :: forall tp . dom tp
          , domBottom :: forall tp . dom tp
          , domJoin   :: forall tp . dom tp -> dom tp -> dom tp
@@ -101,7 +102,7 @@ data Domain (dom :: CrucibleType -> *) =
 -- statement get assigned to. Some interpretation functions that could
 -- receive this argument do not -- e.g. @interpCall@ -- because
 -- conathan didn't have a use for that.
-data Interpretation ext (dom :: CrucibleType -> *) =
+data Interpretation ext (dom :: CrucibleType -> Type) =
   Interpretation { interpExpr       :: forall ctx tp
                                      . ScopedReg
                                     -> TypeRepr tp
@@ -173,7 +174,7 @@ modifyAbstractRegValue pa (Reg ix) f = pa & paRegisters . ixF ix %~ f
 -- | The `FunctionAbstraction` contains the abstractions for the entry
 -- point of each basic block in the function, as well as the final
 -- abstract value for the returned register.
-data FunctionAbstraction (dom :: CrucibleType -> *) blocks ret =
+data FunctionAbstraction (dom :: CrucibleType -> Type) blocks ret =
   FunctionAbstraction { _faEntryRegs :: PU.Assignment (PointAbstraction dom) blocks
                         -- ^ Mapping from blocks to point abstractions
                         -- at entry to blocks.
@@ -188,13 +189,13 @@ data FunctionAbstraction (dom :: CrucibleType -> *) blocks ret =
                         -- ^ Abstract value at return from function.
                       }
 
-data IterationState (dom :: CrucibleType -> *) blocks ret =
+data IterationState (dom :: CrucibleType -> Type) blocks ret =
   IterationState { _isFuncAbstr :: FunctionAbstraction dom blocks ret
                  , _isRetAbstr  :: dom ret
                  , _processedOnce :: S.Set (Some (BlockID blocks))
                  }
 
-newtype M (dom :: CrucibleType -> *) blocks ret a = M { runM :: St.State (IterationState dom blocks ret) a }
+newtype M (dom :: CrucibleType -> Type) blocks ret a = M { runM :: St.State (IterationState dom blocks ret) a }
   deriving (St.MonadState (IterationState dom blocks ret), Monad, Applicative, Functor)
 
 extendRegisters :: dom tp -> PointAbstraction dom ctx -> PointAbstraction dom (ctx ::> tp)
@@ -208,14 +209,14 @@ extendRegisters domVal pa =
 -- there is an implicit join with bottom, which always results in the
 -- same element.  Since it is a no-op, we just skip it and keep the
 -- one present element.
-joinPointAbstractions :: forall (dom :: CrucibleType -> *) ctx
+joinPointAbstractions :: forall (dom :: CrucibleType -> Type) ctx
                        . Domain dom
                       -> PointAbstraction dom ctx
                       -> PointAbstraction dom ctx
                       -> PointAbstraction dom ctx
 joinPointAbstractions dom = zipPAWith (domJoin dom)
 
-zipPAWith :: forall (dom :: CrucibleType -> *) ctx
+zipPAWith :: forall (dom :: CrucibleType -> Type) ctx
                        . (forall tp . dom tp -> dom tp -> dom tp)
                       -> PointAbstraction dom ctx
                       -> PointAbstraction dom ctx
@@ -231,7 +232,7 @@ zipPAWith op pa1 pa2 =
 -- Note that the globals maps are converted to a list and the lists
 -- are checked for equality.  This should be safe if order is
 -- preserved properly in the list functions...
-equalPointAbstractions :: forall (dom :: CrucibleType -> *) ctx
+equalPointAbstractions :: forall (dom :: CrucibleType -> Type) ctx
                         . Domain dom
                        -> PointAbstraction dom ctx
                        -> PointAbstraction dom ctx

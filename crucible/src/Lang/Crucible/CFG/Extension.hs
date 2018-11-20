@@ -39,20 +39,21 @@ module Lang.Crucible.CFG.Extension
 , EmptyStmtExtension
 ) where
 
+import           Data.Kind
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Data.Parameterized.TraversableFC
 
 import           Lang.Crucible.Types
 
 
-class PrettyApp (app :: (k -> *) -> k -> *) where
+class PrettyApp (app :: (k -> Type) -> k -> Type) where
   ppApp :: (forall x. f x -> Doc) -> (forall x. app f x -> Doc)
 
-class TypeApp (app :: (CrucibleType -> *) -> CrucibleType -> *) where
+class TypeApp (app :: (CrucibleType -> Type) -> CrucibleType -> Type) where
   appType :: app f x -> TypeRepr x
 
-type family ExprExtension (ext :: *) :: (CrucibleType -> *) -> (CrucibleType -> *)
-type family StmtExtension (ext :: *) :: (CrucibleType -> *) -> (CrucibleType -> *)
+type family ExprExtension (ext :: Type) :: (CrucibleType -> Type) -> (CrucibleType -> Type)
+type family StmtExtension (ext :: Type) :: (CrucibleType -> Type) -> (CrucibleType -> Type)
 
 type PrettyExt ext =
   ( PrettyApp (ExprExtension ext)
@@ -84,14 +85,14 @@ class
    IsSyntaxExtension ext
 
 -- | The empty expression syntax extension, which adds no new syntactic forms.
-data EmptyExprExtension :: (CrucibleType -> *) -> (CrucibleType -> *)
+data EmptyExprExtension :: (CrucibleType -> Type) -> (CrucibleType -> Type)
 
 deriving instance Show (EmptyExprExtension f tp)
 
 type instance ExprExtension () = EmptyExprExtension
 
 -- | The empty statement syntax extension, which adds no new syntactic forms.
-data EmptyStmtExtension :: (CrucibleType -> *) -> (CrucibleType -> *) where
+data EmptyStmtExtension :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
 
 deriving instance Show (EmptyStmtExtension f tp)
 
