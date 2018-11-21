@@ -380,15 +380,6 @@ transfer dom interp retRepr blk = transferSeq blockInputSize (_blockStmts blk)
               assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
           in extendRegisters absVal assignment''
 
---        CallPHandle retTp funcHandle targs argTps actuals ->
---          let actualsAbstractions = PU.zipWith (\_ act -> lookupReg act assignment) argTps actuals
---              funcAbstraction = lookupReg funcHandle assignment
---              (assignment', absVal) = interpCall interp argTps retTp funcHandle funcAbstraction actualsAbstractions assignment
---              assignment'' = maybe assignment (joinPointAbstractions dom assignment) assignment'
---          in extendRegisters absVal assignment''
-
-
-
         -- FIXME: This would actually potentially be nice to
         -- capture. We would need to extend the context,
         -- though... maybe with a unit type.

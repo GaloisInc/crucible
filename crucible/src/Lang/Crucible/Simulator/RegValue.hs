@@ -76,7 +76,6 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
 
---import           Unsafe.Coerce(unsafeCoerce)
 
 type MuxFn p v = p -> v -> v -> IO v
 
@@ -118,6 +117,7 @@ data FnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) where
 
   HandleFnVal :: !(FnHandle a r) -> FnVal sym a r
 
+  -- A polymorphic function handle that has been instantiated
   InstantiatedHandleFnVal
     :: !(CtxRepr subst)
     -> !(FnHandle a r) 
@@ -128,17 +128,15 @@ closureFunctionName (ClosureFnVal c _ _) = closureFunctionName c
 closureFunctionName (HandleFnVal h) = handleName h
 closureFunctionName (InstantiatedHandleFnVal _ h) = handleName h
 
--- Need to know these two facts.
---axiom1 :: forall s1 s2 ty.  InstantiateType s1 (InstantiateType s2 ty) :~: InstantiateType (InstantiateCtx s1 s2) ty
---axiom1 = undefined
---axiom2 :: forall s1 s2 args.  InstantiateCtx s1 (InstantiateCtx s2 args) :~: InstantiateCtx (InstantiateCtx s1 s2) args
---axiom2 = undefined
-
--- 
-instantiateFnVal :: CtxRepr subst -> FnVal sym args res -> FnVal sym (Instantiate subst args) (Instantiate subst res)
+instantiateFnVal :: forall subst sym args res.
+  CtxRepr subst -> FnVal sym args res -> FnVal sym (Instantiate subst args) (Instantiate subst res)
 instantiateFnVal subst (HandleFnVal h) = InstantiatedHandleFnVal subst h
---instantiateFnVal subst (InstantiatedHandleFnVal subst' h) = unsafeCoerce (InstantiatedHandleFnVal (instantiateCtxRepr subst subst') h)
-instantiateFnVal _subst _ = error "Can only instantiate polymorphic function handles once."
+instantiateFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::FnHandle a r)) =
+  case (composeInstantiateAxiom @subst @subst' @a,
+        composeInstantiateAxiom @subst @subst' @r) of
+    (Refl, Refl) ->
+       InstantiatedHandleFnVal (instantiateCtxRepr subst subst') h
+instantiateFnVal _subst _ = error "TODO: instantiate polymorphic closures."
 
 
 -- | Extract the runtime representation of the type of the given 'FnVal'
