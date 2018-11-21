@@ -550,14 +550,13 @@ instance ExtendContext (TermStmt blocks ret) where
       extC :: forall f. ExtendContext  f => f ctx -> f ctx'
       extC  = extendContext  diff
 
+
+------------------------------------------------------------------------------------
+-- Instantiation
+
 {-
 class InstantiateClass ty where
   instantiate :: CtxRepr subst -> ty -> Instantiate subst ty
-type instance Instantiate subst (Ctx.Index ctx ty) = Ctx.Index (Instantiate subst ctx) (Instantiate subst ty)
-instance InstantiateClass (Ctx.Index ctx ty) where
-  instantiate idx = unsafeCoerce idx
-type instance Instantiate subst (Reg ctx ty) = Reg (Instantiate subst ctx) (Instantiate subst ty)
-instance InstantiateClass (Reg ctx ty) where
 -}
 
 -- Ctx.Index is just a number underneath
@@ -567,11 +566,6 @@ instantiateIndex subst idx = unsafeCoerce idx
 instantiateReg :: forall subst ctx ty.
   CtxRepr subst -> Reg ctx ty -> Reg (Instantiate subst ctx) (Instantiate subst ty)
 instantiateReg subst (Reg idx) = Reg (instantiateIndex subst idx)
-
---instantiatePolyReg :: forall subst ctx ty.
---  CtxRepr subst -> Reg ctx (PolyType ty) -> Reg (Instantiate subst ctx) (Instantiate subst ty)
---instantiatePolyReg subst (Reg idx) = Reg (instantiateIndex subst idx) where
-
 
 instantiateBlockID :: CtxRepr subst -> BlockID blocks ctx
                  -> BlockID (Instantiate subst blocks) (Instantiate subst ctx)
@@ -817,14 +811,14 @@ instantiateCFGPostdom subst assign =
     AssignEmpty -> Ctx.Empty
     AssignExtend bm b -> instantiateCFGPostdom subst bm Ctx.:> instantiatePostdomBlock subst b
 
-
-instantiateCFG :: CtxRepr subst -> CFG ext blocks init ret
+instantiateCFG :: forall subst ext blocks init ret. CtxRepr subst -> CFG ext blocks init ret
   -> CFG ext (Instantiate subst blocks) (Instantiate subst init) (Instantiate subst ret)
 instantiateCFG subst (CFG handle blockMap entryBlockID) =
   ICFG handle subst (instantiateBlockMap subst blockMap) (instantiateBlockID subst entryBlockID)
-instantiateCFG subst (ICFG subst' handle blockMap entryBlockID) = error "TODO"
-  -- ICFG (instantiateCtxRepr subst subst') handle (error "TODO") (error "TODO")
-  
+instantiateCFG subst (ICFG (handle :: FnHandle a r) (subst' ::CtxRepr subst')  blockMap entryBlockID) =
+  case (composeInstantiateAxiom @subst @subst' @a, composeInstantiateAxiom @subst @subst' @r) of
+    (Refl,Refl) ->
+       ICFG handle (instantiateCtxRepr subst subst') (instantiateBlockMap subst blockMap) (instantiateBlockID subst entryBlockID) 
 
 
 ------------------------------------------------------------------------
