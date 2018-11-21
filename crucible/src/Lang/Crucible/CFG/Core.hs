@@ -697,7 +697,8 @@ instantiateApp subst app = case app of
   PolyHandleLit fh -> PolyHandleLit fh
 
   PolyInstantiate (ty :: TypeRepr (PolyType (FunctionHandleType args ret))) r1 (targs :: CtxRepr targs) ->
-    case (axiom @subst @targs @ret, axiom @subst @targs @args) of
+    case (composeInstantiateAxiom @subst @targs @ret,
+          composeInstantiateAxiom @subst @targs @args) of
       (Refl, Refl) ->
         PolyInstantiate ty (instantiateReg subst r1) (instantiateCtxRepr subst targs)
 
@@ -713,8 +714,6 @@ instantiateApp subst app = case app of
   SetStruct ctx r1 idx r2 -> SetStruct (instantiateCtxRepr subst ctx) (instantiateReg subst r1)
     (instantiateIndex subst idx) (instantiateReg subst r2)
 
-axiom :: forall subst subst1 x. Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
-axiom = unsafeCoerce Refl
 
 instantiateStmt :: forall subst ext ctx ctx' .
   CtxRepr subst -> Stmt ext ctx ctx' -> Stmt ext (Instantiate subst ctx) (Instantiate subst ctx')
@@ -725,23 +724,12 @@ instantiateStmt subst (CallHandle ret reg argTys args) =
              (instantiateReg subst reg)
              (instantiateCtxRepr subst argTys)
              (instantiateArgs subst args)
-{-
-instantiateStmt subst (CallPHandle ret (reg     :: Reg ctx (PolyType (FunctionHandleType args' ret')))
-                        (subst1 :: CtxRepr subst1) argTys args) =
-  case (axiom @subst @subst1 @args', axiom @subst @subst1 @ret') of
-    (Refl, Refl) -> 
-      (CallPHandle ret' reg' subst1' argTys' args') where
-        ret'    = instantiateRepr subst ret
-        reg'    = instantiateReg subst reg
-        subst1' = instantiateCtxRepr subst subst1
-        argTys' = instantiateCtxRepr subst argTys
-        args'   = instantiateArgs    subst args
--}
 instantiateStmt subst (Print reg) = Print (instantiateReg subst reg)
   --- NOTE need to know that the types of global variables are CLOSED
   --- i.e. that Instantiate subst ty ~ ty
 instantiateStmt subst (ReadGlobal gv) = ReadGlobal (unsafeCoerce gv)
 instantiateStmt subst (WriteGlobal gv reg) = WriteGlobal (unsafeCoerce gv) (instantiateReg subst reg)
+
 instantiateStmt subst (FreshConstant bt ss) = FreshConstant bt ss
 instantiateStmt subst (NewRefCell ty reg) = NewRefCell (instantiateRepr subst ty) (instantiateReg subst reg)
 instantiateStmt subst (NewEmptyRefCell ty) = NewEmptyRefCell (instantiateRepr subst ty) 

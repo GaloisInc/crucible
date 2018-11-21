@@ -475,14 +475,6 @@ data AtomValue ext s (tp :: CrucibleType) where
        -> !(TypeRepr ret)
        -> AtomValue ext s ret
 
---  CallP :: (Instantiate subst args' ~ args,
---            Instantiate subst ret' ~ ret) =>
---           !(Atom s (PolyType (FunctionHandleType args' ret')))
---       -> CtxRepr subst
---       -> !(Assignment (Atom s) args)
---       -> !(TypeRepr ret)
---       -> AtomValue ext s ret
-
 instance PrettyExt ext => Pretty (AtomValue ext s tp) where
   pretty v =
     case v of
@@ -495,9 +487,6 @@ instance PrettyExt ext => Pretty (AtomValue ext s tp) where
       NewEmptyRef tp -> text "emptyref" <+> pretty tp
       FreshConstant bt nm -> text "fresh" <+> pretty bt <+> maybe mempty (text . show) nm
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
---      CallP f targs args _ -> pretty f <>
---         langle <> (commas (toListFC pretty targs)) <> rangle <>
---         parens (commas (toListFC pretty args)) 
 
 typeOfAtomValue :: (TypeApp (StmtExtension ext) , TypeApp (ExprExtension ext))
                 => AtomValue ext s tp -> TypeRepr tp
@@ -513,7 +502,6 @@ typeOfAtomValue v =
     NewEmptyRef tp -> ReferenceRepr tp
     FreshConstant bt _ -> baseToType bt
     Call _ _ r -> r
---    CallP _ _ _ r -> r
 
 -- | Fold over all values in an 'AtomValue'.
 foldAtomValueInputs :: TraverseExt ext
@@ -528,7 +516,6 @@ foldAtomValueInputs f (NewRef a)          b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)      b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs _ (FreshConstant _ _) b = b
 foldAtomValueInputs f (Call g a _)        b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
---foldAtomValueInputs f (CallP g _ a _)     b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
 substAtomValue :: ( Applicative m, TraverseExt ext )
                => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -861,6 +848,8 @@ data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
          , cfgEntryLabel :: !(Label s)
          , cfgBlocks :: ![Block ext s ret]
          }
+   -- An instantiated CFG.
+   -- TODO: maybe we can fold this instantiation into the FnHandle type
    | forall subst init' ret'.
       (Instantiate subst init' ~ init, Instantiate subst ret' ~ ret) =>
      ICFG { cfgIHandle :: !(FnHandle init' ret')

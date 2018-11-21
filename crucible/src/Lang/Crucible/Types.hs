@@ -81,7 +81,6 @@ module Lang.Crucible.Types
 
     -- * Parameterized types
   , VarType
-<<<<<<< HEAD
   , PolyFnType
   , Closed(..)
   , Instantiate
@@ -92,16 +91,9 @@ module Lang.Crucible.Types
   , closedInstantiate
   , closedInstantiateF
   , closedInstantiateFC
-
   , assumeClosed
-=======
-  , PolyType
-  , Instantiate
-  , instantiateRepr
-  , instantiateCtxRepr
   , instantiateTypeEmpty
   , instantiateCtxEmpty
->>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
 
     -- * IsRecursiveType
   , IsRecursiveType(..)
@@ -820,6 +812,12 @@ axiom1 = Refl
 =======
 -- Type substitution
 
+-- This is a property of the Instantiate function below. However, Haskell's type system
+-- is too weak to prove it automatically. (And we don't want to run any proofs either.)
+composeInstantiateAxiom :: forall subst subst1 x.
+  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
+composeInstantiateAxiom = unsafeCoerce Refl
+  
 
 
 -- | Use a list of types to fill in the type variables 0 .. n occurring in a type
@@ -887,6 +885,7 @@ axiom3 = Refl
 -}
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 -- see comments above for justification for [unsafeCoerce] in this function
 lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
 lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
@@ -903,6 +902,8 @@ instantiateTypeEmpty = unsafeCoerce Refl
 instantiateCtxEmpty :: Instantiate 'EmptyCtx ctx :~: ctx
 instantiateCtxEmpty = unsafeCoerce Refl
 
+=======
+>>>>>>> rough draft for polymorphic functions in crucible
 
 -- see comments above for justification for [unsafeCoerce] in this function
 lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr (LookupVarType i ctx)
@@ -912,11 +913,6 @@ lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) =
     NonZeroNat -> unsafeCoerce (lookupVarRepr (predNat n) ctx)
 lookupVarRepr _n Ctx.Empty = error "this case is a type error"
 
-{-
-class InstatiateClass t where
-  type InstantiateType subst t :: *
-  instantiate :: CtxRepr subst -> t -> InstantiateType subst t
--}
 
 instantiateRepr :: CtxRepr subst -> TypeRepr ty -> TypeRepr (Instantiate subst ty)
 instantiateRepr _subst BoolRepr = BoolRepr
