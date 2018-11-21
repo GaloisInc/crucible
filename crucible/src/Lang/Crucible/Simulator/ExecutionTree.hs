@@ -260,7 +260,7 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
    pp (SomeFrame (OF f)) =
       PP.text ("When calling " ++ show (f^.override))
    pp (SomeFrame (MF f)) =
-      PP.text "In" PP.<+> PP.text (show (frameHandle f)) PP.<+>
+      PP.text "In" PP.<+> PP.text (show (frameHandleName f)) PP.<+>
       PP.text "at" PP.<+> PP.pretty (plSourceLoc (frameProgramLoc f))
    pp (SomeFrame (RF nm _v)) =
       PP.text "While returning value from" PP.<+> PP.text (show nm)

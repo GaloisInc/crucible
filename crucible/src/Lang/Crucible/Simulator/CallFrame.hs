@@ -29,7 +29,7 @@ module Lang.Crucible.Simulator.CallFrame
   , mkCallFrame
   , framePostdomMap
   , frameBlockMap
-  , frameHandle
+  , frameHandleName
   , frameReturnType
   , frameBlockID
   , frameRegs
@@ -118,8 +118,8 @@ data CallFrame sym ext blocks ret args
 frameBlockMap :: CallFrame sym ext blocks ret ctx -> BlockMap ext blocks ret
 frameBlockMap CallFrame { _frameCFG = g } = cfgBlockMap g
 
-frameHandle :: CallFrame sym ext blocks ret ctx -> SomeHandle
-frameHandle CallFrame { _frameCFG = g } = SomeHandle (cfgHandle g)
+frameHandleName :: CallFrame sym ext blocks ret ctx -> FunctionName
+frameHandleName CallFrame { _frameCFG = g } = cfgHandleName g
 
 frameReturnType :: CallFrame sym ext blocks ret ctx -> TypeRepr ret
 frameReturnType CallFrame { _frameCFG = g } = cfgReturnType g
@@ -292,5 +292,5 @@ fromReturnFrame (RF _ x) = x
 frameFunctionName :: Getter (SimFrame sym ext f a) FunctionName
 frameFunctionName = to $ \case
   OF f -> f^.override
-  MF f -> case frameHandle f of SomeHandle h -> handleName h
+  MF f -> frameHandleName f 
   RF n _ -> n

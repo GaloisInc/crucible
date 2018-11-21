@@ -43,7 +43,10 @@ extractSubgraph :: (KnownCtx TypeRepr init, KnownRepr TypeRepr ret)
                 -> BlockID blocks init
                 -> HandleAllocator s
                 -> ST s (Maybe (SomeCFG ext init ret))
-extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry}) cuts bi halloc =
+extractSubgraph cfg cuts bi halloc =
+  let orig       = cfgBlockMap cfg
+      _origEntry = cfgEntryBlockID cfg
+  in
   extractSubgraphFirst orig cuts MapF.empty zeroSize bi $
     \(SubgraphIntermediate finalMap finalInitMap _sz entryID cb) -> do
         hn <- mkHandle halloc startFunctionName

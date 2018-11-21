@@ -118,10 +118,11 @@ reachableCFG g =
                  SomeCFG g'
         where oldToNew = mkOldMap newToOld
               new_map = remapBlockMap oldToNew newToOld
-              g' = CFG { cfgHandle = cfgHandle g
-                       , cfgBlockMap = new_map
-                       , cfgEntryBlockID = remapBlockID oldToNew entry_id
-                       }
-  where old_map = cfgBlockMap g
+              g' = updateCFG  new_map
+                       (remapBlockID oldToNew entry_id)
+                       g
+                       
+  where
+        old_map = cfgBlockMap g
         entry_id = cfgEntryBlockID g
         reachables = exploreReachable old_map entry_id

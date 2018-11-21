@@ -35,6 +35,7 @@ module Lang.Crucible.Simulator.RegValue
   , FnVal(..)
   , fnValType
   , RolledType(..)
+  , instantiateFnVal
 
     -- * Value mux functions
   , ValMuxFn
@@ -74,6 +75,8 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
 
+--import           Unsafe.Coerce(unsafeCoerce)
+
 type MuxFn p v = p -> v -> v -> IO v
 
 -- | Maps register types to the runtime representation.
@@ -93,10 +96,14 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
   RegValue sym (StringMapType tp) = Map Text (PartExpr (Pred sym) (RegValue sym tp))
+  -- only polymorphic functions in registers
+  RegValue sym (PolyType (FunctionHandleType a r)) = FnVal sym a r
 
 -- | A newtype wrapper around RegValue.  This is wrapper necessary because
 --   RegValue is a type family and, as such, cannot be partially applied.
 newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
+
+
 
 ------------------------------------------------------------------------
 -- FnVal
@@ -110,9 +117,28 @@ data FnVal (sym :: *) (args :: Ctx CrucibleType) (res :: CrucibleType) where
 
   HandleFnVal :: !(FnHandle a r) -> FnVal sym a r
 
+  InstantiatedHandleFnVal
+    :: !(CtxRepr subst)
+    -> !(FnHandle a r) 
+    -> FnVal sym (Instantiate subst a) (Instantiate subst r)
+
 closureFunctionName :: FnVal sym args res -> FunctionName
 closureFunctionName (ClosureFnVal c _ _) = closureFunctionName c
 closureFunctionName (HandleFnVal h) = handleName h
+closureFunctionName (InstantiatedHandleFnVal _ h) = handleName h
+
+-- Need to know these two facts.
+--axiom1 :: forall s1 s2 ty.  InstantiateType s1 (InstantiateType s2 ty) :~: InstantiateType (InstantiateCtx s1 s2) ty
+--axiom1 = undefined
+--axiom2 :: forall s1 s2 args.  InstantiateCtx s1 (InstantiateCtx s2 args) :~: InstantiateCtx (InstantiateCtx s1 s2) args
+--axiom2 = undefined
+
+-- 
+instantiateFnVal :: CtxRepr subst -> FnVal sym args res -> FnVal sym (Instantiate subst args) (Instantiate subst res)
+instantiateFnVal subst (HandleFnVal h) = InstantiatedHandleFnVal subst h
+--instantiateFnVal subst (InstantiatedHandleFnVal subst' h) = unsafeCoerce (InstantiatedHandleFnVal (instantiateCtxRepr subst subst') h)
+instantiateFnVal _subst _ = error "Can only instantiate polymorphic function handles once."
+
 
 -- | Extract the runtime representation of the type of the given 'FnVal'
 fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)
@@ -122,9 +148,12 @@ fnValType (ClosureFnVal fn _ _) =
     FunctionHandleRepr allArgs r ->
       case allArgs of
         args Ctx.:> _ -> FunctionHandleRepr args r
+fnValType (InstantiatedHandleFnVal subst h) =
+  instantiateRepr subst (fnValType (HandleFnVal h))
 
 instance Show (FnVal sym a r) where
   show = show . closureFunctionName
+
 
 -- | Version of 'MuxFn' specialized to 'RegValue'
 type ValMuxFn sym tp = MuxFn (Pred sym) (RegValue sym tp)

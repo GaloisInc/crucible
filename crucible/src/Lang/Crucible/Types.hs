@@ -42,6 +42,11 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+
+{-# LANGUAGE AllowAmbiguousTypes #-}
+
+
+
 module Lang.Crucible.Types
   ( -- * CrucibleType data kind
     type CrucibleType
@@ -72,6 +77,15 @@ module Lang.Crucible.Types
   , StringMapType
   , SymbolicArrayType
 
+    -- * Parameterized types
+  , VarType
+  , PolyType
+  , Instantiate
+  , instantiateRepr
+  , instantiateCtxRepr
+  , instantiateTypeEmpty
+  , instantiateCtxEmpty
+
     -- * IsRecursiveType
   , IsRecursiveType(..)
 
@@ -81,6 +95,8 @@ module Lang.Crucible.Types
 
   , AsBaseType(..)
   , asBaseType
+
+
 
     -- * Other stuff
   , CtxRepr
@@ -109,6 +125,7 @@ module Lang.Crucible.Types
 import           Data.Hashable
 import           Data.Type.Equality
 import           GHC.TypeLits
+import           Data.Type.Bool
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Ctx
@@ -120,6 +137,9 @@ import           Text.PrettyPrint.ANSI.Leijen
 import           What4.BaseTypes
 import           What4.InterpretedFloatingPoint
 
+
+-- GHC.TypeLits is under-powered
+import           Unsafe.Coerce (unsafeCoerce)
 ------------------------------------------------------------------------
 -- Crucible types
 
@@ -199,6 +219,12 @@ data CrucibleType where
    -- A partial map from strings to values.
    StringMapType :: CrucibleType -> CrucibleType
 
+   -- A type variable, represented as an index and quantified by enclosing 'PolyType'
+   VarType :: Nat -> CrucibleType
+   
+   -- A polymorphic type. Must be instantiated before use. Must quantify *all* free parameters
+   PolyType :: CrucibleType -> CrucibleType
+
 type BaseToType      = 'BaseToType                -- ^ @:: 'BaseType' -> 'CrucibleType'@.
 type BoolType        = BaseToType BaseBoolType    -- ^ @:: 'CrucibleType'@.
 type BVType w        = BaseToType (BaseBVType w)  -- ^ @:: 'Nat' -> 'CrucibleType'@.
@@ -275,6 +301,12 @@ type VectorType    = 'VectorType    -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
 -- index the map.
 type WordMapType   = 'WordMapType   -- ^ @:: 'Nat' -> 'BaseType' -> 'CrucibleType'@.
 
+-- | A type variable, represented as an index
+type VarType       = 'VarType -- ^ @:: 'Nat' -> 'CrucubleType'@
+
+-- | A polymorphic type
+type PolyType      = 'PolyType  -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+
 ----------------------------------------------------------------
 -- Base Type Injection
 
@@ -312,6 +344,12 @@ asBaseType tp =
       AsBaseType (BaseFloatRepr ps)
     SymbolicStructRepr flds -> AsBaseType (BaseStructRepr flds)
     _ -> NotBaseType
+
+
+    
+
+
+
 
 ----------------------------------------------------------------
 -- Type representatives
@@ -362,8 +400,9 @@ data TypeRepr (tp::CrucibleType) where
    -- A reference to a symbolic struct.
    SymbolicStructRepr :: Ctx.Assignment BaseTypeRepr ctx
                       -> TypeRepr (SymbolicStructType ctx)
-
-
+   
+   VarRepr :: !(NatRepr n) -> TypeRepr (VarType n)
+   PolyRepr :: !(TypeRepr ret) -> TypeRepr (PolyType ret)
 ------------------------------------------------------------------------------
 -- Representable class instances
 
@@ -411,6 +450,14 @@ instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (MaybeType tp) where
 
 instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (StringMapType tp) where
   knownRepr = StringMapRepr knownRepr
+
+instance KnownNat w => KnownRepr TypeRepr (VarType w) where
+  knownRepr = VarRepr knownRepr
+
+instance (KnownRepr TypeRepr ret)
+      => KnownRepr TypeRepr (PolyType ret) where
+  knownRepr = PolyRepr knownRepr
+  
 
 -- | Pattern synonym specifying bitvector TypeReprs.  Intended to be use
 --   with type applications, e.g., @KnownBV \@32@.
@@ -464,3 +511,129 @@ instance OrdF TypeRepr where
                      , [|compareF|])
                    ]
                   )
+
+
+----------------------------------------------------------------
+-- Type substitution
+
+
+
+-- | Use a list of types to fill in the type variables 0 .. n occurring in a type
+-- If there are not enough types in this substitution, this function will produce a
+-- type error --- all type variables in a type must be instantiated at once.
+type family Instantiate  (subst :: Ctx CrucibleType) (v :: k) :: k where
+  -- k = type
+  Instantiate subst (BaseToType b) = BaseToType b
+  Instantiate subst AnyType  = AnyType
+  Instantiate subst UnitType = UnitType
+  Instantiate subst (FloatType fi) = FloatType fi
+  Instantiate subst CharType = CharType
+  Instantiate subst (FunctionHandleType args ret) =
+    FunctionHandleType (Instantiate subst args ) (Instantiate subst ret)
+  Instantiate subst (MaybeType ty) =
+    MaybeType (Instantiate subst ty )
+  Instantiate subst (VectorType ty) = VectorType (Instantiate subst ty)
+  Instantiate subst (StructType ctx) = StructType (Instantiate subst ctx)
+  Instantiate subst (ReferenceType ty) = ReferenceType (Instantiate subst ty)
+  Instantiate subst (VariantType ctx) = VariantType (Instantiate subst ctx)
+  Instantiate subst (WordMapType n b) = WordMapType n b
+  Instantiate subst (RecursiveType sym ctx) = RecursiveType sym (Instantiate subst ctx)
+  Instantiate subst (IntrinsicType sym ctx) = IntrinsicType sym (Instantiate subst ctx)
+  Instantiate subst (StringMapType ty) = StringMapType (Instantiate subst ty)
+  Instantiate subst (VarType i) = LookupVarType i subst
+  Instantiate subst (PolyType ret) = PolyType ret
+  -- k = Ctx k'
+  Instantiate subst EmptyCtx = EmptyCtx
+  Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
+
+
+type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) :: CrucibleType
+type instance LookupVarType n (ctx ::> ty) = If (n <=? 0) ty (LookupVarType (n - 1) ctx)
+type instance LookupVarType n EmptyCtx     = TypeError ('Text "Invalid index in LookupVar")
+
+
+-- NOTE: we need the equality below to typecheck lookupVarRepr.
+-- However, TypeNatSolver cannot prove this equality, even though all
+-- of the pieces that we need are available --- something about
+-- putting them together with the type family LookupVarType above.
+-- Furthermore, we cannot even add this as an axiom that we use later
+-- in lookupVarRepr because the definition of IsZeroNat does not allow
+-- binding the type variable that is the predecessor of n (through a
+-- Proxy argument). As we cannot name this type variable, we cannot
+-- use a type application / proxy to invoke the axiom.
+
+{- 
+axiom1 :: forall n ctx ty .
+   (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx) axiom1 = Refl
+-}
+
+-- I am commenting these out so that we don't need to add 
+-- {-# OPTIONS_GHC -fplugin TypeNatSolver #-}
+-- to the top of this file and 
+-- type-nat-solver package to crucible.cabal, and
+-- dependencies/type-nat-solver/ to cabal.project, and
+-- git submodule add https://github.com/yav/type-nat-solver
+{-
+axiom2 :: forall n. (n + 1) - 1 :~: n
+axiom2 = Refl
+
+axiom3 :: forall n. ((n + 1) <=? 0) :~: 'False
+axiom3 = Refl
+-}
+
+instantiateTypeEmpty :: Instantiate 'EmptyCtx ty :~: ty
+instantiateTypeEmpty = unsafeCoerce Refl
+
+instantiateCtxEmpty :: Instantiate 'EmptyCtx ctx :~: ctx
+instantiateCtxEmpty = unsafeCoerce Refl
+
+
+-- see comments above for justification for [unsafeCoerce] in this function
+lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr (LookupVarType i ctx)
+lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) =
+  case isZeroNat n of
+    ZeroNat    -> ty
+    NonZeroNat -> unsafeCoerce (lookupVarRepr (predNat n) ctx)
+lookupVarRepr _n Ctx.Empty = error "this case is a type error"
+
+{-
+class InstatiateClass t where
+  type InstantiateType subst t :: *
+  instantiate :: CtxRepr subst -> t -> InstantiateType subst t
+-}
+
+instantiateRepr :: CtxRepr subst -> TypeRepr ty -> TypeRepr (Instantiate subst ty)
+instantiateRepr _subst BoolRepr = BoolRepr
+instantiateRepr _subst NatRepr = NatRepr
+instantiateRepr _subst IntegerRepr = IntegerRepr
+instantiateRepr _ubst RealValRepr = RealValRepr
+instantiateRepr _subst StringRepr = StringRepr
+instantiateRepr _subst (BVRepr w) = BVRepr w
+instantiateRepr _subst ComplexRealRepr = ComplexRealRepr 
+instantiateRepr _subst (SymbolicArrayRepr idx w) = SymbolicArrayRepr idx w
+instantiateRepr _subst (SymbolicStructRepr flds) = SymbolicStructRepr flds
+instantiateRepr _subst (IEEEFloatRepr ps) = IEEEFloatRepr ps
+
+instantiateRepr _subst AnyRepr  = AnyRepr
+instantiateRepr _subst UnitRepr = UnitRepr
+instantiateRepr _subst (FloatRepr fi) = FloatRepr fi
+instantiateRepr _subst CharRepr = CharRepr
+instantiateRepr subst (FunctionHandleRepr args ret) =
+    FunctionHandleRepr (instantiateCtxRepr subst args ) (instantiateRepr subst ret)
+instantiateRepr subst (MaybeRepr ty) =
+    MaybeRepr (instantiateRepr subst ty )
+instantiateRepr subst (VectorRepr ty) = VectorRepr (instantiateRepr subst ty)
+instantiateRepr subst (StructRepr ctx) = StructRepr (instantiateCtxRepr subst ctx)
+instantiateRepr subst (ReferenceRepr ty) = ReferenceRepr (instantiateRepr subst ty)
+instantiateRepr subst (VariantRepr ctx) = VariantRepr (instantiateCtxRepr subst ctx)
+instantiateRepr _subst (WordMapRepr n b) = WordMapRepr n b
+instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiateCtxRepr subst ctx)
+instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiateCtxRepr subst ctx)
+instantiateRepr subst (StringMapRepr ty) = StringMapRepr (instantiateRepr subst ty)
+instantiateRepr subst (VarRepr i) = lookupVarRepr i subst
+instantiateRepr _subst (PolyRepr ty) = PolyRepr ty
+
+instantiateCtxRepr :: CtxRepr subst -> CtxRepr ctx -> CtxRepr (Instantiate subst ctx)
+instantiateCtxRepr _subst Ctx.Empty = Ctx.Empty
+instantiateCtxRepr subst (ctx Ctx.:> ty) = instantiateCtxRepr subst ctx Ctx.:> instantiateRepr subst ty
+

@@ -28,6 +28,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fprint-explicit-kinds -Wall #-}
 module Lang.Crucible.Simulator.Operations
   ( -- * Control-flow operations
@@ -310,7 +311,7 @@ instance Show UnresolvableFunction where
 --   Will throw an 'UnresolvableFunction' exception if
 --   the underlying function handle is not found in the
 --   'FunctionBindings' map.
-resolveCall ::
+resolveCall :: forall p sym ext args ret.
   FunctionBindings p sym ext {- ^ Map from function handles to semantics -} ->
   FnVal sym args ret {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
@@ -329,12 +330,28 @@ resolveCall bindings c0 args =
                                 }
            in OverrideCall o f
         Just (UseCFG g pdInfo) -> do
-          CrucibleCall (cfgEntryBlockID g) (mkCallFrame g pdInfo args)
+            CrucibleCall (cfgEntryBlockID g) (mkCallFrame g pdInfo args)
+
+
+    InstantiatedHandleFnVal targs h -> do
+      case lookupHandleMap h bindings of
+        Nothing -> Ex.throw (UnresolvableFunction h)
+        Just (UseOverride o) -> do
+          let _f = OverrideFrame { _override = overrideName o
+                                , _overrideRegMap = args
+                                }
+--           in OverrideCall o f
+          undefined -- TODO!
+        Just (UseCFG g pdInfo) -> do
+          let g' = instantiateCFG targs g
+          let pdInfo' = instantiateCFGPostdom targs pdInfo
+          CrucibleCall (cfgEntryBlockID g') (mkCallFrame g' pdInfo' args)
+          
 
 
 resolvedCallName :: ResolvedCall p sym ext ret -> FunctionName
 resolvedCallName (OverrideCall _ f) = f^.override
-resolvedCallName (CrucibleCall _ f) = case frameHandle f of SomeHandle h -> handleName h
+resolvedCallName (CrucibleCall _ f) = frameHandleName f 
 
 ---------------------------------------------------------------------
 -- Control-flow operations

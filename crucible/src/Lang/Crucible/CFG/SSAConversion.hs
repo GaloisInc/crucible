@@ -51,7 +51,7 @@ import           Lang.Crucible.Analysis.Reachable
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Expr as C
 import           Lang.Crucible.CFG.Reg
-import           Lang.Crucible.FunctionHandle
+--import           Lang.Crucible.FunctionHandle
 
 #ifdef UNSAFE_OPS
 -- We deliberately import Context.Unsafe as it is the only one that supports
@@ -800,6 +800,19 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
           let appMap'   = appMap   & appRegMap_extend
           C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
 
+--        CallP h targs args _ -> do
+--          let return_type = typeOfAtom a
+--          let arg_types = fmapFC typeOfAtom args
+--          let h' = resolveAtom reg_map h
+--          let args' = fmapFC (resolveAtom reg_map) args
+--          let stmt = C.CallPHandle return_type h' targs arg_types args'
+--          let sz' = incSize sz
+--          let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
+--          let bindings' = bindings & extendRegExprs NothingF
+--          let appMap'   = appMap   & appRegMap_extend
+--          C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t) 
+
+
     Print e -> do
       C.ConsStmt pl
                  (C.Print (resolveAtom reg_map e))
@@ -856,20 +869,19 @@ toSSA :: C.IsSyntaxExtension ext
       => CFG ext s init ret
       -> C.SomeCFG ext init ret
 toSSA g = do
-  let h = cfgHandle g
+  let hn = cfgHandleName g
   let initTypes = cfgInputTypes g
   let blocks = cfgBlocks g
-  case resolveBlockMap (handleName h) blocks of
+  case resolveBlockMap hn blocks of
     SomeBlockMap idx block_map -> do
           let b = block_map ! idx
           case C.blockInputs b `testEquality` initTypes of
             Nothing -> error $
               "Input block type " ++ show (C.blockInputs b)
               ++ " does not match expected " ++ show initTypes
-              ++ ":\nwhile SSA converting function " ++ show h
+              ++ ":\nwhile SSA converting function " ++ show hn
             Just Refl -> do
-              let g' = C.CFG { C.cfgHandle = h
-                             , C.cfgBlockMap = block_map
-                             , C.cfgEntryBlockID = C.BlockID idx
-                             }
+              let cvtCFG (CFG h _ _ _) = C.CFG h block_map (C.BlockID idx)
+                  cvtCFG (ICFG s h _ _ _) = C.ICFG s h block_map (C.BlockID idx)
+              let g' = cvtCFG g
               reachableCFG g'

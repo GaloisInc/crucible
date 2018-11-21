@@ -240,6 +240,17 @@ muxRegForType s itefns p =
               [ "Unknown intrinsic type:"
               , "*** Name: " ++ show nm
               ]
+     VarRepr n          ->
+        panic "RegMap.muxRegForType"
+          [ "Found uninstantiated type parameter:"
+          , show n
+          ]
+     PolyRepr t@(FunctionHandleRepr _ _) -> muxRegForType s itefns t
+     PolyRepr n ->
+        panic "RegMap.muxRegForType"
+          [ "Found polymorphic type:"
+          , show n
+          ]
 
 -- | Mux two register entries.
 {-# INLINE muxRegEntry #-}
