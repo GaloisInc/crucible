@@ -99,6 +99,7 @@ stmtDiff stmt =
     SetReg {}        -> Ctx.knownDiff
     ExtendAssign{}   -> Ctx.knownDiff
     CallHandle {}    -> Ctx.knownDiff
+--    CallPHandle {}   -> Ctx.knownDiff
     Print {}         -> Ctx.knownDiff
     ReadGlobal {}    -> Ctx.knownDiff
     WriteGlobal {}   -> Ctx.knownDiff

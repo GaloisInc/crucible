@@ -142,7 +142,7 @@ validatePostdom :: CFG ext blocks init ret
 validatePostdom g pdInfo = flip execState [] $ do
   forMFC_ (cfgBlockMap g) $ \b -> do
     let Const b_pd = pdInfo Ctx.! blockIDIndex (blockID b)
-    let loc = show (cfgHandle g) ++ show (blockID b)
+    let loc = show (cfgHandleName g) ++ show (blockID b)
     mapM_ (validateTarget g pdInfo loc b_pd) (nextBlocks b)
 
     withBlockTermStmt b $ \_ ts -> do

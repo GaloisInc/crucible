@@ -16,6 +16,7 @@ as function pointers, but there are no operations to manipulate them.
 module Lang.Crucible.FunctionHandle
   ( -- * Function handle
     FnHandle
+  , FunctionName
   , handleID
   , handleName
   , handleArgTypes
@@ -62,6 +63,7 @@ import           Lang.Crucible.Types
 -- | A handle uniquely identifies a function.  The signature indicates the
 --   expected argument types and the return type of the function.
 data FnHandle (args :: Ctx CrucibleType) (ret :: CrucibleType)
+
    = H { handleID         :: !(Nonce (args ::> ret))
          -- ^ A unique identifier for the function.
        , handleName       :: !FunctionName
@@ -87,6 +89,7 @@ instance Hashable (FnHandle args ret) where
 -- | Return type of handle.
 handleType :: FnHandle args ret -> TypeRepr (FunctionHandleType args ret)
 handleType h = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+
 
 ------------------------------------------------------------------------
 -- SomeHandle
