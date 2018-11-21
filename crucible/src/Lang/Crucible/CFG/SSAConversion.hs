@@ -800,19 +800,6 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
           let appMap'   = appMap   & appRegMap_extend
           C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t)
 
---        CallP h targs args _ -> do
---          let return_type = typeOfAtom a
---          let arg_types = fmapFC typeOfAtom args
---          let h' = resolveAtom reg_map h
---          let args' = fmapFC (resolveAtom reg_map) args
---          let stmt = C.CallPHandle return_type h' targs arg_types args'
---          let sz' = incSize sz
---          let reg_map'  = reg_map  & assignRegister (AtomValue a) sz
---          let bindings' = bindings & extendRegExprs NothingF
---          let appMap'   = appMap   & appRegMap_extend
---          C.ConsStmt pl stmt (resolveStmts nm bi sz' reg_map' bindings' appMap' rest t) 
-
-
     Print e -> do
       C.ConsStmt pl
                  (C.Print (resolveAtom reg_map e))

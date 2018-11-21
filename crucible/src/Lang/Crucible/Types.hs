@@ -83,8 +83,7 @@ module Lang.Crucible.Types
   , Instantiate
   , instantiateRepr
   , instantiateCtxRepr
-  , instantiateTypeEmpty
-  , instantiateCtxEmpty
+  , composeInstantiateAxiom
 
     -- * IsRecursiveType
   , IsRecursiveType(..)
@@ -516,6 +515,12 @@ instance OrdF TypeRepr where
 ----------------------------------------------------------------
 -- Type substitution
 
+-- This is a property of the Instantiate function below. However, Haskell's type system
+-- is too weak to prove it automatically. (And we don't want to run any proofs either.)
+composeInstantiateAxiom :: forall subst subst1 x.
+  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
+composeInstantiateAxiom = unsafeCoerce Refl
+  
 
 
 -- | Use a list of types to fill in the type variables 0 .. n occurring in a type
@@ -581,12 +586,6 @@ axiom3 :: forall n. ((n + 1) <=? 0) :~: 'False
 axiom3 = Refl
 -}
 
-instantiateTypeEmpty :: Instantiate 'EmptyCtx ty :~: ty
-instantiateTypeEmpty = unsafeCoerce Refl
-
-instantiateCtxEmpty :: Instantiate 'EmptyCtx ctx :~: ctx
-instantiateCtxEmpty = unsafeCoerce Refl
-
 
 -- see comments above for justification for [unsafeCoerce] in this function
 lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr (LookupVarType i ctx)
@@ -596,11 +595,6 @@ lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) =
     NonZeroNat -> unsafeCoerce (lookupVarRepr (predNat n) ctx)
 lookupVarRepr _n Ctx.Empty = error "this case is a type error"
 
-{-
-class InstatiateClass t where
-  type InstantiateType subst t :: *
-  instantiate :: CtxRepr subst -> t -> InstantiateType subst t
--}
 
 instantiateRepr :: CtxRepr subst -> TypeRepr ty -> TypeRepr (Instantiate subst ty)
 instantiateRepr _subst BoolRepr = BoolRepr
