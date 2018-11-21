@@ -1147,10 +1147,15 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- Polymorphic functions
     
+<<<<<<< HEAD
     PolyHandleLit h -> PolyFnRepr (handleArgTypes h) (handleReturnType h)
     PolyInstantiate (PolyFnRepr args tp) _ subst ->
       FunctionHandleRepr (instantiate subst args)
                          (instantiate subst tp)
+=======
+    PolyHandleLit h -> PolyRepr (handleType h)
+    PolyInstantiate (PolyRepr tp) _ subst -> instantiateRepr subst tp
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
 
 
     ----------------------------------------------------------------------

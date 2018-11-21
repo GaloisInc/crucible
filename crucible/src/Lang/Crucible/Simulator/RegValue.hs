@@ -76,7 +76,6 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
 
-
 type MuxFn p v = p -> v -> v -> IO v
 
 -- | Maps register types to the runtime representation.
@@ -141,8 +140,6 @@ instantiateFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::F
 instantiateFnVal subst (ClosureFnVal fnv (ty :: TypeRepr ty) argty)
   | Refl <- closed @_ @ty subst
   = ClosureFnVal (instantiateFnVal subst fnv) ty argty
-
-
 
 -- | Extract the runtime representation of the type of the given 'FnVal'
 fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)

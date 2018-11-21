@@ -32,12 +32,18 @@
 module Lang.Crucible.CFG.Reg
   ( -- * CFG
     CFG(..)
+<<<<<<< HEAD
   , cfgEntryBlock
+=======
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
   , cfgHandleName
   , cfgInputTypes
   , cfgReturnType
   , updateCFG
+<<<<<<< HEAD
   , substCFG  
+=======
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
   , SomeCFG(..)
   , Label(..)
   , substLabel
@@ -46,9 +52,14 @@ module Lang.Crucible.CFG.Reg
   , BlockID(..)
   , substBlockID
   , Reg(..)
+<<<<<<< HEAD
   , substReg
 
   -- * Atoms
+=======
+  
+    -- * Atoms
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
   , Atom(..)
   , substAtom
   , AtomSource(..)
@@ -324,6 +335,11 @@ substReg f r =
       <*> f (regId r)
       <*> pure (typeOfReg r)
 
+-- Instantiate a polymorphic register value with type arguments.
+-- TODO: is this sound? Do we need to update the register in the reg_map???
+-- instantiateReg :: CtxRepr subst -> Reg s tp -> Reg s (InstantiateType subst tp)
+-- instantiateReg subst r = r { typeOfReg = instantiateRepr subst (typeOfReg r) }
+
 ------------------------------------------------------------------------
 -- Primitive operations
 
@@ -459,6 +475,14 @@ data AtomValue ext s (tp :: CrucibleType) where
        -> !(TypeRepr ret)
        -> AtomValue ext s ret
 
+--  CallP :: (Instantiate subst args' ~ args,
+--            Instantiate subst ret' ~ ret) =>
+--           !(Atom s (PolyType (FunctionHandleType args' ret')))
+--       -> CtxRepr subst
+--       -> !(Assignment (Atom s) args)
+--       -> !(TypeRepr ret)
+--       -> AtomValue ext s ret
+
 instance PrettyExt ext => Pretty (AtomValue ext s tp) where
   pretty v =
     case v of
@@ -471,6 +495,9 @@ instance PrettyExt ext => Pretty (AtomValue ext s tp) where
       NewEmptyRef tp -> text "emptyref" <+> pretty tp
       FreshConstant bt nm -> text "fresh" <+> pretty bt <+> maybe mempty (text . show) nm
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
+--      CallP f targs args _ -> pretty f <>
+--         langle <> (commas (toListFC pretty targs)) <> rangle <>
+--         parens (commas (toListFC pretty args)) 
 
 typeOfAtomValue :: (TypeApp (StmtExtension ext) , TypeApp (ExprExtension ext))
                 => AtomValue ext s tp -> TypeRepr tp
@@ -486,6 +513,7 @@ typeOfAtomValue v =
     NewEmptyRef tp -> ReferenceRepr tp
     FreshConstant bt _ -> baseToType bt
     Call _ _ r -> r
+--    CallP _ _ _ r -> r
 
 -- | Fold over all values in an 'AtomValue'.
 foldAtomValueInputs :: TraverseExt ext
@@ -500,6 +528,7 @@ foldAtomValueInputs f (NewRef a)          b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)      b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs _ (FreshConstant _ _) b = b
 foldAtomValueInputs f (Call g a _)        b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
+--foldAtomValueInputs f (CallP g _ a _)     b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
 substAtomValue :: ( Applicative m, TraverseExt ext )
                => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -832,6 +861,22 @@ data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
          , cfgEntryLabel :: !(Label s)
          , cfgBlocks :: ![Block ext s ret]
          }
+   | forall subst init' ret'.
+      (Instantiate subst init' ~ init, Instantiate subst ret' ~ ret) =>
+     ICFG { cfgIHandle :: !(FnHandle init' ret')
+         , cfgSubst  :: CtxRepr subst
+         , cfgBlocks :: !([Block ext s ret])
+         , cfgNextValue :: !Int
+         -- ^ A number greater than any atom or register ID appearing
+         -- in the CFG. This and 'cfgNextLabel' are primarily useful
+         -- for augmenting the CFG after creation.
+         , cfgNextLabel :: !Int
+         -- ^ A number greater than any label ID appearing in the CFG.
+         }
+
+cfgHandleName :: CFG ext s init ret -> FunctionName
+cfgHandleName (CFG {cfgHandle=h}) = handleName h
+cfgHandleName (ICFG {cfgIHandle=h}) = handleName h
 
 cfgHandleName :: CFG ext s init ret -> FunctionName
 cfgHandleName (CFG {cfgHandle=h}) = handleName h

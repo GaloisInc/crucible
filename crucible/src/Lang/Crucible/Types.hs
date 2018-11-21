@@ -49,8 +49,6 @@
 {-# LANGUAGE DefaultSignatures #-}
 
 
-
-
 module Lang.Crucible.Types
   ( -- * CrucibleType data kind
     type CrucibleType
@@ -83,6 +81,7 @@ module Lang.Crucible.Types
 
     -- * Parameterized types
   , VarType
+<<<<<<< HEAD
   , PolyFnType
   , Closed(..)
   , Instantiate
@@ -95,6 +94,14 @@ module Lang.Crucible.Types
   , closedInstantiateFC
 
   , assumeClosed
+=======
+  , PolyType
+  , Instantiate
+  , instantiateRepr
+  , instantiateCtxRepr
+  , instantiateTypeEmpty
+  , instantiateCtxEmpty
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
 
     -- * IsRecursiveType
   , IsRecursiveType(..)
@@ -105,6 +112,8 @@ module Lang.Crucible.Types
 
   , AsBaseType(..)
   , asBaseType
+
+
 
     -- * Other stuff
   , CtxRepr
@@ -147,10 +156,15 @@ import           What4.BaseTypes
 import           What4.InterpretedFloatingPoint
 
 
+<<<<<<< HEAD
 
 -- GHC.TypeLits is under-powered, plus other axioms
 import           Unsafe.Coerce (unsafeCoerce)
 
+=======
+-- GHC.TypeLits is under-powered
+import           Unsafe.Coerce (unsafeCoerce)
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
 ------------------------------------------------------------------------
 -- Crucible types
 
@@ -240,11 +254,19 @@ data CrucibleType where
    -- A partial map from strings to values.
    StringMapType :: CrucibleType -> CrucibleType
 
+<<<<<<< HEAD
    -- A type variable, represented as an index and quantified by enclosing 'PolyFnType'
    VarType :: Nat -> CrucibleType
    
    -- A polymorphic function type. Must be instantiated before use. Should quantify *all* free parameters.
    PolyFnType :: Ctx CrucibleType -> CrucibleType -> CrucibleType
+=======
+   -- A type variable, represented as an index and quantified by enclosing 'PolyType'
+   VarType :: Nat -> CrucibleType
+   
+   -- A polymorphic type. Must be instantiated before use. Must quantify *all* free parameters
+   PolyType :: CrucibleType -> CrucibleType
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
 
 type BaseToType      = 'BaseToType                -- ^ @:: 'BaseType' -> 'CrucibleType'@.
 type BoolType        = BaseToType BaseBoolType    -- ^ @:: 'CrucibleType'@.
@@ -325,8 +347,13 @@ type WordMapType   = 'WordMapType   -- ^ @:: 'Nat' -> 'BaseType' -> 'CrucibleTyp
 -- | A type variable, represented as an index
 type VarType       = 'VarType -- ^ @:: 'Nat' -> 'CrucubleType'@
 
+<<<<<<< HEAD
 -- | A polymorphic function type
 type PolyFnType      = 'PolyFnType  -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType' -> 'CrucibleType'@.
+=======
+-- | A polymorphic type
+type PolyType      = 'PolyType  -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
 
 ----------------------------------------------------------------
 -- Base Type Injection
@@ -423,7 +450,11 @@ data TypeRepr (tp::CrucibleType) where
                       -> TypeRepr (SymbolicStructType ctx)
    
    VarRepr :: !(NatRepr n) -> TypeRepr (VarType n)
+<<<<<<< HEAD
    PolyFnRepr :: !(CtxRepr args) -> !(TypeRepr ret) -> TypeRepr (PolyFnType args ret)
+=======
+   PolyRepr :: !(TypeRepr ret) -> TypeRepr (PolyType ret)
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
 ------------------------------------------------------------------------------
 -- Representable class instances
 
@@ -475,9 +506,15 @@ instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (StringMapType tp) where
 instance KnownNat w => KnownRepr TypeRepr (VarType w) where
   knownRepr = VarRepr knownRepr
 
+<<<<<<< HEAD
 instance (KnownRepr CtxRepr args, KnownRepr TypeRepr ret)
       => KnownRepr TypeRepr (PolyFnType args ret) where
   knownRepr = PolyFnRepr knownRepr knownRepr
+=======
+instance (KnownRepr TypeRepr ret)
+      => KnownRepr TypeRepr (PolyType ret) where
+  knownRepr = PolyRepr knownRepr
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
   
 
 -- | Pattern synonym specifying bitvector TypeReprs.  Intended to be use
@@ -586,6 +623,7 @@ instance OrdF TypeRepr where
 
 
 ----------------------------------------------------------------
+<<<<<<< HEAD
 -- "Closed" instances
 
 instance Closed (b :: BaseType) where
@@ -779,6 +817,59 @@ instantiateRepr _subst (PolyFnRepr args ty) = PolyFnRepr args ty
 axiom1 :: forall n ctx ty .
    (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
 axiom1 = Refl
+=======
+-- Type substitution
+
+
+
+-- | Use a list of types to fill in the type variables 0 .. n occurring in a type
+-- If there are not enough types in this substitution, this function will produce a
+-- type error --- all type variables in a type must be instantiated at once.
+type family Instantiate  (subst :: Ctx CrucibleType) (v :: k) :: k where
+  -- k = type
+  Instantiate subst (BaseToType b) = BaseToType b
+  Instantiate subst AnyType  = AnyType
+  Instantiate subst UnitType = UnitType
+  Instantiate subst (FloatType fi) = FloatType fi
+  Instantiate subst CharType = CharType
+  Instantiate subst (FunctionHandleType args ret) =
+    FunctionHandleType (Instantiate subst args ) (Instantiate subst ret)
+  Instantiate subst (MaybeType ty) =
+    MaybeType (Instantiate subst ty )
+  Instantiate subst (VectorType ty) = VectorType (Instantiate subst ty)
+  Instantiate subst (StructType ctx) = StructType (Instantiate subst ctx)
+  Instantiate subst (ReferenceType ty) = ReferenceType (Instantiate subst ty)
+  Instantiate subst (VariantType ctx) = VariantType (Instantiate subst ctx)
+  Instantiate subst (WordMapType n b) = WordMapType n b
+  Instantiate subst (RecursiveType sym ctx) = RecursiveType sym (Instantiate subst ctx)
+  Instantiate subst (IntrinsicType sym ctx) = IntrinsicType sym (Instantiate subst ctx)
+  Instantiate subst (StringMapType ty) = StringMapType (Instantiate subst ty)
+  Instantiate subst (VarType i) = LookupVarType i subst
+  Instantiate subst (PolyType ret) = PolyType ret
+  -- k = Ctx k'
+  Instantiate subst EmptyCtx = EmptyCtx
+  Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
+
+
+type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) :: CrucibleType
+type instance LookupVarType n (ctx ::> ty) = If (n <=? 0) ty (LookupVarType (n - 1) ctx)
+type instance LookupVarType n EmptyCtx     = TypeError ('Text "Invalid index in LookupVar")
+
+
+-- NOTE: we need the equality below to typecheck lookupVarRepr.
+-- However, TypeNatSolver cannot prove this equality, even though all
+-- of the pieces that we need are available --- something about
+-- putting them together with the type family LookupVarType above.
+-- Furthermore, we cannot even add this as an axiom that we use later
+-- in lookupVarRepr because the definition of IsZeroNat does not allow
+-- binding the type variable that is the predecessor of n (through a
+-- Proxy argument). As we cannot name this type variable, we cannot
+-- use a type application / proxy to invoke the axiom.
+
+{- 
+axiom1 :: forall n ctx ty .
+   (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx) axiom1 = Refl
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
 -}
 
 -- I am commenting these out so that we don't need to add 
@@ -795,6 +886,7 @@ axiom3 :: forall n. ((n + 1) <=? 0) :~: 'False
 axiom3 = Refl
 -}
 
+<<<<<<< HEAD
 -- see comments above for justification for [unsafeCoerce] in this function
 lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
 lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
@@ -804,3 +896,61 @@ lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
       --  (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
       unsafeCoerce (lookupVarRepr (predNat n) ctx def)
 lookupVarRepr _n Ctx.Empty def = def
+=======
+instantiateTypeEmpty :: Instantiate 'EmptyCtx ty :~: ty
+instantiateTypeEmpty = unsafeCoerce Refl
+
+instantiateCtxEmpty :: Instantiate 'EmptyCtx ctx :~: ctx
+instantiateCtxEmpty = unsafeCoerce Refl
+
+
+-- see comments above for justification for [unsafeCoerce] in this function
+lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr (LookupVarType i ctx)
+lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) =
+  case isZeroNat n of
+    ZeroNat    -> ty
+    NonZeroNat -> unsafeCoerce (lookupVarRepr (predNat n) ctx)
+lookupVarRepr _n Ctx.Empty = error "this case is a type error"
+
+{-
+class InstatiateClass t where
+  type InstantiateType subst t :: *
+  instantiate :: CtxRepr subst -> t -> InstantiateType subst t
+-}
+
+instantiateRepr :: CtxRepr subst -> TypeRepr ty -> TypeRepr (Instantiate subst ty)
+instantiateRepr _subst BoolRepr = BoolRepr
+instantiateRepr _subst NatRepr = NatRepr
+instantiateRepr _subst IntegerRepr = IntegerRepr
+instantiateRepr _ubst RealValRepr = RealValRepr
+instantiateRepr _subst StringRepr = StringRepr
+instantiateRepr _subst (BVRepr w) = BVRepr w
+instantiateRepr _subst ComplexRealRepr = ComplexRealRepr 
+instantiateRepr _subst (SymbolicArrayRepr idx w) = SymbolicArrayRepr idx w
+instantiateRepr _subst (SymbolicStructRepr flds) = SymbolicStructRepr flds
+instantiateRepr _subst (IEEEFloatRepr ps) = IEEEFloatRepr ps
+
+instantiateRepr _subst AnyRepr  = AnyRepr
+instantiateRepr _subst UnitRepr = UnitRepr
+instantiateRepr _subst (FloatRepr fi) = FloatRepr fi
+instantiateRepr _subst CharRepr = CharRepr
+instantiateRepr subst (FunctionHandleRepr args ret) =
+    FunctionHandleRepr (instantiateCtxRepr subst args ) (instantiateRepr subst ret)
+instantiateRepr subst (MaybeRepr ty) =
+    MaybeRepr (instantiateRepr subst ty )
+instantiateRepr subst (VectorRepr ty) = VectorRepr (instantiateRepr subst ty)
+instantiateRepr subst (StructRepr ctx) = StructRepr (instantiateCtxRepr subst ctx)
+instantiateRepr subst (ReferenceRepr ty) = ReferenceRepr (instantiateRepr subst ty)
+instantiateRepr subst (VariantRepr ctx) = VariantRepr (instantiateCtxRepr subst ctx)
+instantiateRepr _subst (WordMapRepr n b) = WordMapRepr n b
+instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiateCtxRepr subst ctx)
+instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiateCtxRepr subst ctx)
+instantiateRepr subst (StringMapRepr ty) = StringMapRepr (instantiateRepr subst ty)
+instantiateRepr subst (VarRepr i) = lookupVarRepr i subst
+instantiateRepr _subst (PolyRepr ty) = PolyRepr ty
+
+instantiateCtxRepr :: CtxRepr subst -> CtxRepr ctx -> CtxRepr (Instantiate subst ctx)
+instantiateCtxRepr _subst Ctx.Empty = Ctx.Empty
+instantiateCtxRepr subst (ctx Ctx.:> ty) = instantiateCtxRepr subst ctx Ctx.:> instantiateRepr subst ty
+
+>>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.

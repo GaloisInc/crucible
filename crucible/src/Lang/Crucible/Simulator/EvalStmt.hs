@@ -292,6 +292,12 @@ stepStmt verb stmt rest =
             args <- evalArgs arg_exprs
             callFunction hndl args (ReturnToCrucible ret_type rest)
 
+--       CallPHandle ret_type fnExpr targs _types arg_exprs ->
+--         do hndl <- evalReg fnExpr
+--            let hndl' = instantiateFnVal targs hndl
+--            args <- evalArgs arg_exprs
+--            callFunction hndl' args (ReturnToCrucible ret_type rest)
+
        Print e ->
          do msg <- evalReg e
             let msg' = case asString msg of

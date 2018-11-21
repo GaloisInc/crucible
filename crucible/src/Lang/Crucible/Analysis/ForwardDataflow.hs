@@ -178,6 +178,12 @@ kildall_transfer analysis retRepr blk = transfer_seq (_blockStmts blk)
                ex_sh = kfwd_reg analysis (FunctionHandleRepr argstp rettp) ex asgn
                a' = kfwd_call analysis argstp rettp ex ex_sh xs
             in (Ctx.extend asgn a', c)
+--       transfer_stmt (CallPHandle rettp ex targs argstp actuals) (asgn, c) =
+--           let xs = Ctx.zipWith (\tp act -> kfwd_reg analysis tp act asgn) argstp actuals
+--               ex_sh = kfwd_reg analysis (instantiateRepr targs (FunctionHandleRepr argstp rettp)) ex asgn
+--               a' = kfwd_call analysis argstp rettp ex ex_sh xs
+--            in (Ctx.extend asgn a', c)
+               
        transfer_stmt (Print _) asgn = asgn
        transfer_stmt (ReadGlobal gv) (asgn, c) = (Ctx.extend asgn (kfwd_rdglobal analysis gv), c)
        transfer_stmt FreshConstant{} _ = error "forward dataflow: fresh constant!"
