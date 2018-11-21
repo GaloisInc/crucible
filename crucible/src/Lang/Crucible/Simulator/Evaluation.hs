@@ -478,6 +478,13 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       v <- evalSub v_expr
       return $! ClosureFnVal h tp v
 
+    PolyHandleLit h -> return (HandleFnVal h)
+
+    PolyInstantiate _ h_expr subst -> do
+      h <- evalSub h_expr
+      let hv = instantiateFnVal subst h
+      return hv
+
     ----------------------------------------------------------------------
     -- RealVal
 

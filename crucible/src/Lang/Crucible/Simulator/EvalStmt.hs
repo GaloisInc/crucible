@@ -292,6 +292,12 @@ stepStmt verb stmt rest =
             args <- evalArgs arg_exprs
             callFunction hndl args (ReturnToCrucible ret_type rest)
 
+--       CallPHandle ret_type fnExpr targs _types arg_exprs ->
+--         do hndl <- evalReg fnExpr
+--            let hndl' = instantiateFnVal targs hndl
+--            args <- evalArgs arg_exprs
+--            callFunction hndl' args (ReturnToCrucible ret_type rest)
+
        Print e ->
          do msg <- evalReg e
             let msg' = case asString msg of
@@ -428,16 +434,16 @@ stepBasicBlock verb =
          do liftIO $
               do setCurrentProgramLoc sym pl
                  let sz = regMapSize (cf^.frameRegs)
-                 when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (ppStmt sz stmt)
+                 when (verb >= 4) $ ppStmtAndLoc h (frameHandleName cf) pl (ppStmt sz stmt)
             stepStmt verb stmt rest
 
        TermStmt pl termStmt -> do
          do liftIO $
               do setCurrentProgramLoc sym pl
-                 when (verb >= 4) $ ppStmtAndLoc h (frameHandle cf) pl (pretty termStmt)
+                 when (verb >= 4) $ ppStmtAndLoc h (frameHandleName cf) pl (pretty termStmt)
             stepTerm verb termStmt
 
-ppStmtAndLoc :: Handle -> SomeHandle -> ProgramLoc -> Doc -> IO ()
+ppStmtAndLoc :: Handle -> FunctionName -> ProgramLoc -> Doc -> IO ()
 ppStmtAndLoc h sh pl stmt = do
   hPrint h $
     text (show sh) <> char ':' <$$>

@@ -540,6 +540,19 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
           -> !(f tp)
           -> App ext f (FunctionHandleType args ret)
 
+
+  ------------------------------------------------------------------------
+  -- Polymorphism
+
+  -- Generalize the type of a function handle
+  PolyHandleLit   :: !(FnHandle args ret) -> App ext f (PolyType (FunctionHandleType args ret))
+
+  -- Instantiate the type of polymorphic function handle
+  PolyInstantiate :: !(TypeRepr (PolyType (FunctionHandleType args ret)))
+                   -> !(f (PolyType (FunctionHandleType args ret)))
+                   -> !(CtxRepr subst)
+                   -> App ext f (Instantiate subst (FunctionHandleType args ret))
+
   ----------------------------------------------------------------------
   -- Conversions
 
@@ -955,6 +968,12 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
               -> !(f (ReferenceType tp))
               -> App ext f BoolType
 
+ 
+
+  
+
+
+
 
 -- | Compute a run-time representation of the type of an application.
 instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
@@ -1112,6 +1131,13 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     HandleLit h -> handleType h
     Closure a r _ _ _ ->
       FunctionHandleRepr a r
+
+    ----------------------------------------------------------------------
+    -- Polymorphic functions
+    
+    PolyHandleLit h -> PolyRepr (handleType h)
+    PolyInstantiate (PolyRepr tp) _ subst -> instantiateRepr subst tp
+
 
     ----------------------------------------------------------------------
     -- Conversions

@@ -102,6 +102,7 @@ simulate opts  =
      let simulatorVerb = toInteger
                        $ if simVerbose cruxOpts > 1 then simVerbose cruxOpts - 1
                                                     else 0
+
      void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
                          <*> pure simulatorVerb)
 
