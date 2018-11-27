@@ -36,6 +36,7 @@ module Lang.Crucible.Simulator.Profiling
   , readMetrics
   , CrucibleProfile(..)
   , readProfilingState
+  , writeProfileReport
 
     -- * Profiling data structures
   , CGEvent(..)
@@ -373,10 +374,19 @@ isMergeState tgt st =
 data ProfilingOptions =
   ProfilingOptions
   { periodicProfileInterval :: NominalDiffTime
-  , periodicProfileFile     :: FilePath
-  , periodicProfileName     :: String
-  , periodicProfileSource   :: String
+  , periodicProfileAction   :: ProfilingTable -> IO ()
   }
+
+
+-- | Write a profiling report file in the JS/JSON format expected by tye symProUI front end.
+writeProfileReport ::
+  FilePath {- ^ File to write -} ->
+  String {- ^ "name" for the report -} ->
+  String {- ^ "source" for the report -} ->
+  ProfilingTable {- ^ profiling data to populate the report -} ->
+  IO ()
+writeProfileReport fp name source tbl =
+   withFile fp WriteMode $ \h -> hPutStrLn h =<< symProUIString name source tbl
 
 -- | This feature will pay attention to function call entry/exit events
 --   and track the elapsed time and various other metrics in the given
@@ -403,13 +413,9 @@ profilingFeature tbl (Just profOpts) =
            if deadline >= now then
              return Nothing
            else
-             do writeProfilingReport
+             do periodicProfileAction profOpts tbl
                 writeIORef stateRef (computeNextState now)
                 return Nothing
-
- writeProfilingReport =
-   withFile (periodicProfileFile profOpts) WriteMode $ \h ->
-     hPutStrLn h =<< symProUIString (periodicProfileName profOpts) (periodicProfileSource profOpts) tbl
 
  computeNextState :: UTCTime -> UTCTime
  computeNextState lastOutputTime = addUTCTime (periodicProfileInterval profOpts) lastOutputTime
