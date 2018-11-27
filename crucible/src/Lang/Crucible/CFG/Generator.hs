@@ -107,6 +107,7 @@ import           Control.Lens hiding (Index)
 import qualified Control.Monad.Fail as F
 import           Control.Monad.State.Strict
 import qualified Data.Foldable as Fold
+import           Data.Kind
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
@@ -155,7 +156,7 @@ cbsStmts = lens _cbsStmts (\s v -> s { _cbsStmts = v })
 -- GeneratorState
 
 -- | State for translating within a basic block.
-data IxGeneratorState ext s (t :: * -> *) ret i
+data IxGeneratorState ext s (t :: Type -> Type) ret i
   = GS { _gsBlocks    :: !(Seq (Block ext s ret))
        , _gsNextLabel :: !Int
        , _gsNextValue :: !Int
@@ -243,7 +244,7 @@ terminateBlock term gs =
 -- The 'ret' parameter is the return type of the CFG.
 -- The 'a' parameter is the value returned by the monad.
 
-newtype Generator ext h s (t :: * -> *) (ret :: CrucibleType) a
+newtype Generator ext h s (t :: Type -> Type) (ret :: CrucibleType) a
       = Generator { unGenerator :: StateContT (GeneratorState ext s t ret)
                                               (EndState ext s t ret)
                                               (ST h)

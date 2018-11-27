@@ -56,6 +56,7 @@ module Lang.Crucible.LLVM.Translation.Constant
 import           Control.Monad
 import           Control.Monad.Except
 import           Data.Bits
+import           Data.Kind
 import           Data.List (intercalate)
 import           Data.Traversable
 import           Data.Fixed (mod')
@@ -84,7 +85,7 @@ showInstr i = show (L.ppLLVM38 (L.ppInstr i))
 --   A @GEP n expr@ is a representation of a GEP with
 --   @n@ parallel vector lanes with expressions represented
 --   by @expr@ values.
-data GEP (n :: Nat) (expr :: *) where
+data GEP (n :: Nat) (expr :: Type) where
   -- | Start a GEP with a single base pointer
   GEP_scalar_base  :: expr -> GEP 1 expr
 

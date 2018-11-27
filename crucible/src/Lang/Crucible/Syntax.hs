@@ -86,6 +86,7 @@ module Lang.Crucible.Syntax
   ) where
 
 import           Control.Lens
+import           Data.Kind
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
@@ -102,7 +103,7 @@ import           Lang.Crucible.Types
 
 -- | A typeclass for injecting applications into expressions.
 class IsExpr e where
-  type ExprExt e :: *
+  type ExprExt e :: Type
   app   :: App (ExprExt e) e tp -> e tp
   asApp :: e tp -> Maybe (App (ExprExt e) e tp)
   exprType :: e tp -> TypeRepr tp

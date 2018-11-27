@@ -616,8 +616,11 @@ timeoutFeature timeout =
   do startTime <- getCurrentTime
      let deadline = addUTCTime timeout startTime
      return $ GenericExecutionFeature $ \exst ->
-        do now <- getCurrentTime
-           if deadline >= now then
-             return Nothing
-           else
-             return (Just (ResultState (TimeoutResult exst)))
+       case exst of
+         ResultState _ -> return Nothing
+         _ ->
+            do now <- getCurrentTime
+               if deadline >= now then
+                 return Nothing
+               else
+                 return (Just (ResultState (TimeoutResult exst)))

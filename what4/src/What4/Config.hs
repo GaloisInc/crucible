@@ -156,6 +156,7 @@ import           Control.Lens ((&))
 import           Control.Monad.Identity
 import           Control.Monad.IO.Class
 import           Control.Monad.Writer.Strict hiding ((<>))
+import           Data.Kind
 import           Data.Maybe
 import           Data.Typeable
 import           Data.Foldable (toList)
@@ -697,7 +698,7 @@ verbosityLogger cfg h =
 -- | A utility class for making working with option settings
 --   easier.  The @tp@ argument is a @BaseType@, and the @a@
 --   argument is an associcated Haskell type.
-class Opt (tp :: BaseType) (a :: *) | tp -> a where
+class Opt (tp :: BaseType) (a :: Type) | tp -> a where
   -- | Return the current value of the option, as a @Maybe@ value.
   getMaybeOpt :: OptionSetting tp -> IO (Maybe a)
 

@@ -124,3 +124,11 @@ cabal install
 cp ./cabal-sandbox/bin/hpb ⟨EXE_PATH⟩
 ```
 where `⟨EXE_PATH⟩` is a directory on your `$PATH`.
+
+Testing and Coverage
+--------------------
+
+Testing with coverage tracking is currently only available via
+`stack`, as `cabal new-*` [does not yet support coverage](https://github.com/haskell/cabal/issues/5213).
+Use `scripts/stack-test-coverage.sh` to generate a coverage
+report for all test suites.

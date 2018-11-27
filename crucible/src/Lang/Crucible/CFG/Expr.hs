@@ -56,6 +56,7 @@ module Lang.Crucible.CFG.Expr
 
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
+import           Data.Kind
 import           Data.Text (Text)
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -81,7 +82,7 @@ import qualified Lang.Crucible.Utils.Structural as U
 -- | Base terms represent the subset of expressions
 --   of base types, packaged together with a run-time
 --   representation of their type.
-data BaseTerm (f :: CrucibleType -> *) tp
+data BaseTerm (f :: CrucibleType -> Type) tp
    = BaseTerm { baseTermType :: !(BaseTypeRepr tp)
               , baseTermVal  :: !(f (BaseToType tp))
               }
@@ -164,7 +165,7 @@ pattern BVIte c w x y = BaseIte (BaseBVRepr w) c x y
 -- by the given expression form. Parameter @f@ is used everywhere a
 -- recursive sub-expression would go.  Uses of the 'App' type will
 -- tie the knot through this parameter.
-data App (ext :: *) (f :: CrucibleType -> *) (tp :: CrucibleType) where
+data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
 
   ----------------------------------------------------------------------
   -- Syntax Extension

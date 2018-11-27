@@ -31,6 +31,7 @@ module Lang.Crucible.Simulator.Intrinsics
   , typeError
   ) where
 
+import           Data.Kind
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.SymbolRepr
 import qualified GHC.TypeLits
@@ -56,10 +57,10 @@ import           Lang.Crucible.Types
 -- this case, "IntrinsicClass" contains a type family, and GHC will globally
 -- check consistency of all type family instances.  Consequently, there
 -- can be at most one implementation of InstrinsicClass in a program.
-class IntrinsicClass (sym :: *) (nm :: GHC.TypeLits.Symbol) where
+class IntrinsicClass (sym :: Type) (nm :: GHC.TypeLits.Symbol) where
   -- | The `Intrinsic` type family defines, for a given backend and symbol name,
   --   the runtime implementation of that Crucible intrisnic type.
-  type Intrinsic (sym :: *) (nm :: GHC.TypeLits.Symbol) (ctx :: Ctx CrucibleType) :: *
+  type Intrinsic (sym :: Type) (nm :: GHC.TypeLits.Symbol) (ctx :: Ctx CrucibleType) :: Type
 
   -- | The push branch function is called when an intrinsic value is
   --   passed through a symbolic branch.  This allows it to to any
@@ -107,7 +108,7 @@ class IntrinsicClass (sym :: *) (nm :: GHC.TypeLits.Symbol) where
 --   same signature as `muxIntrinsic`) we get the compiler to ensure that a single
 --   distinguished implementation is always used for each backend/symbol name combination.
 --   This prevents any possible confusion between different parts of the system.
-data IntrinsicMuxFn (sym :: *) (nm :: Symbol) where
+data IntrinsicMuxFn (sym :: Type) (nm :: Symbol) where
   IntrinsicMuxFn :: IntrinsicClass sym nm => IntrinsicMuxFn sym nm
 
 

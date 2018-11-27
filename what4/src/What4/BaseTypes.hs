@@ -73,6 +73,7 @@ module What4.BaseTypes
 
 
 import           Data.Hashable
+import           Data.Kind
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
@@ -147,7 +148,7 @@ type Prec128 = FloatingPointPrecision 15 113
 
 -- | A runtime representation of a solver interface type. Parameter @bt@
 -- has kind 'BaseType'.
-data BaseTypeRepr (bt::BaseType) :: * where
+data BaseTypeRepr (bt::BaseType) :: Type where
    BaseBoolRepr :: BaseTypeRepr BaseBoolType
    BaseBVRepr   :: (1 <= w) => !(NatRepr w) -> BaseTypeRepr (BaseBVType w)
    BaseNatRepr  :: BaseTypeRepr BaseNatType

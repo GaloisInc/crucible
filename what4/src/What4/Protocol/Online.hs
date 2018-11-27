@@ -32,25 +32,27 @@ module What4.Protocol.Online
   ) where
 
 import           Control.Exception
-                   ( SomeException(..), catch, try, displayException, bracket_ )
+                   ( SomeException(..), catch, try, displayException )
 import           Control.Monad ( unless )
-import           Data.IORef
 import           Control.Monad (void, forM)
+import           Control.Monad.Catch ( MonadMask, bracket_ )
+import           Control.Monad.IO.Class ( MonadIO, liftIO )
+import           Data.IORef
 import           Data.Text (Text)
 import qualified Data.Text.Lazy as LazyText
 import           System.Exit
 import           System.IO
+import qualified System.IO.Streams as Streams
 import           System.Process
                    (ProcessHandle, interruptProcessGroupOf, waitForProcess)
-import qualified System.IO.Streams as Streams
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 
-import What4.Expr
-import What4.Interface (SolverEvent(..))
-import What4.ProblemFeatures
-import What4.Protocol.SMTWriter
-import What4.SatResult
-import What4.Utils.HandleReader
+import           What4.Expr
+import           What4.Interface (SolverEvent(..))
+import           What4.ProblemFeatures
+import           What4.Protocol.SMTWriter
+import           What4.SatResult
+import           What4.Utils.HandleReader
 
 -- | This class provides an API for starting and shutting down
 --   connections to various different solvers that support
@@ -180,8 +182,8 @@ pop p =
       | otherwise -> writeIORef (solverEarlyUnsat p) $! (Just $! i-1)
 
 -- | Perform an action in the scope of a solver assumption frame.
-inNewFrame :: SMTReadWriter solver => SolverProcess scope solver -> IO a -> IO a
-inNewFrame p m = bracket_ (push p) (pop p) m
+inNewFrame :: (MonadIO m, MonadMask m, SMTReadWriter solver) => SolverProcess scope solver -> m a -> m a
+inNewFrame p = bracket_ (liftIO $ push p) (liftIO $ pop p)
 
 checkWithAssumptions ::
   SMTReadWriter solver =>

@@ -33,6 +33,7 @@ module Lang.Crucible.LLVM.Extension
   , LLVMStmt(..)
   ) where
 
+import           Data.Kind
 import           GHC.TypeLits
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -76,12 +77,12 @@ data LLVM (arch :: LLVMArch)
 type instance ExprExtension (LLVM arch) = LLVMExtensionExpr arch
 type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 
-data LLVMExtensionExpr (arch :: LLVMArch) :: (CrucibleType -> *) -> (CrucibleType -> *) where
+data LLVMExtensionExpr (arch :: LLVMArch) :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
   X86Expr :: !(X86.ExtX86 f t) -> LLVMExtensionExpr (X86 wptr) f t
 
 -- | Extension statements for LLVM.  These statements represent the operations
 --   necessary to interact with the LLVM memory model.
-data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> *) :: CrucibleType -> * where
+data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type where
 
   -- | Indicate the beginning of a new stack frame upon entry to a function.
   LLVM_PushFrame ::

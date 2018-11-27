@@ -32,6 +32,7 @@ module What4.Utils.Hashable
 
 import           Data.Bits
 import           Data.Hashable
+import           Data.Kind
 import           Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as V
@@ -65,7 +66,7 @@ hashVector = foldl' hashWithSalt
 -- | A newtype wrapper around a vector.
 --
 -- Solely implemented for a 'Hashable' instance.
-data Map (k :: k1 -> *) (i :: Ctx.Ctx k1) (vf :: k2 -> *) (vi :: k2) =
+data Map (k :: k1 -> Type) (i :: Ctx.Ctx k1) (vf :: k2 -> Type) (vi :: k2) =
   HashedMap
   { hmHash :: !Int
   , hmMap  :: Map.Map (Ctx.Assignment k i) (vf vi)

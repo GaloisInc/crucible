@@ -93,6 +93,7 @@ module Lang.Crucible.CFG.Core
 import Control.Applicative
 import Control.Lens
 import Data.Maybe
+import Data.Kind
 import Data.Parameterized.Classes
 import Data.Parameterized.Map (Pair(..))
 import Data.Parameterized.Some
@@ -745,7 +746,7 @@ extendBlockMap = fmapFC extendBlock
 -- the formal arguments of the function represented by this control-flow graph,
 -- which correspond to the formal arguments of the CFG entry point.
 -- The @ret@ type parameter indicates the return type of the function.
-data CFG (ext :: *)
+data CFG (ext :: Type)
          (blocks :: Ctx (Ctx CrucibleType))
          (init :: Ctx CrucibleType)
          (ret :: CrucibleType)

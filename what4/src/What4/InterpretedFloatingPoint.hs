@@ -39,6 +39,7 @@ module What4.InterpretedFloatingPoint
   ) where
 
 import           Data.Hashable
+import           Data.Kind
 import           Data.Parameterized.Classes
 import           Data.Parameterized.TH.GADT
 import           GHC.TypeLits
@@ -156,7 +157,7 @@ floatInfoToBVTypeRepr = \case
 
 
 -- | Interpretation of the floating point type.
-type family SymInterpretedFloatType (sym :: *) (fi :: FloatInfo) :: BaseType
+type family SymInterpretedFloatType (sym :: Type) (fi :: FloatInfo) :: BaseType
 
 -- | Symbolic floating point numbers.
 type SymInterpretedFloat sym fi = SymExpr sym (SymInterpretedFloatType sym fi)

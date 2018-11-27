@@ -27,7 +27,7 @@ flag unsafe-operations
 
 library
   build-depends:
-    base >= 4.8 && < 4.12,
+    base >= 4.8 && < 4.13,
     ansi-wl-pprint,
     bytestring,
     containers >= 0.5.9.0,
@@ -111,6 +111,9 @@ library
 
   if flag(unsafe-operations)
     cpp-options: -DUNSAFE_OPS
+
+  if impl(ghc >= 8.6)
+    default-extensions: NoStarIsType
 
 test-suite absint-tests
   type: exitcode-stdio-1.0
