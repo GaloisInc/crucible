@@ -312,6 +312,7 @@ instance Show UnresolvableFunction where
 --   the underlying function handle is not found in the
 --   'FunctionBindings' map.
 resolveCall :: forall p sym ext args ret.
+  IsSyntaxExtension ext =>
   FunctionBindings p sym ext {- ^ Map from function handles to semantics -} ->
   FnVal sym args ret {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
@@ -499,6 +500,7 @@ returnValue arg =
 
 
 callFunction ::
+  IsSyntaxExtension ext =>
   FnVal sym args ret {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   ReturnHandler ret p sym ext rtp f a {- ^ How to modify the caller's scope with the return value -} ->
@@ -509,7 +511,7 @@ callFunction fn args retHandler =
      ReaderT $ return . CallState retHandler rcall
 
 tailCallFunction ::
-  FrameRetType f ~ ret =>
+  (FrameRetType f ~ ret, IsSyntaxExtension ext) =>
   FnVal sym args ret {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   ValueFromValue p sym ext rtp ret ->

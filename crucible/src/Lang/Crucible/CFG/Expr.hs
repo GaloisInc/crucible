@@ -24,6 +24,9 @@ Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluati
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+
 -- This option is here because, without it, GHC takes an extremely
 -- long time (forever?) to compile this module with profiling enabled.
 -- The SpecConstr optimization appears to be the culprit, and this
@@ -76,13 +79,16 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Utils.PrettyPrint
 import qualified Lang.Crucible.Utils.Structural as U
 
+
+import Unsafe.Coerce(unsafeCoerce)
 ------------------------------------------------------------------------
 -- BaseTerm
 
 -- | Base terms represent the subset of expressions
 --   of base types, packaged together with a run-time
 --   representation of their type.
-data BaseTerm (f :: CrucibleType -> Type) tp
+
+data BaseTerm (f :: CrucibleType -> Type) (tp :: BaseType)
    = BaseTerm { baseTermType :: !(BaseTypeRepr tp)
               , baseTermVal  :: !(f (BaseToType tp))
               }
@@ -111,6 +117,12 @@ instance FoldableFC BaseTerm where
 
 instance TraversableFC BaseTerm where
   traverseFC f (BaseTerm tp x) = BaseTerm tp <$> f x
+
+type instance Instantiate subst BaseTerm = BaseTerm
+instance InstantiateF a => InstantiateType (BaseTerm a ctx) where
+  instantiate subst (BaseTerm (btr :: BaseTypeRepr btr) val)
+    | Refl <- closedType @(BaseTypeRepr btr) subst =
+    BaseTerm btr (instantiate subst val)
 
 ------------------------------------------------------------------------
 -- App
@@ -533,7 +545,8 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
             -> App ext f (FunctionHandleType args ret)
 
   -- Create a closure that captures the last argument.
-  Closure :: !(CtxRepr args)
+  Closure :: Closed tp =>
+             !(CtxRepr args)
           -> !(TypeRepr ret)
           -> !(f (FunctionHandleType (args::>tp) ret))
           -> !(TypeRepr tp)
@@ -545,11 +558,11 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Polymorphism
 
   -- Generalize the type of a function handle
-  PolyHandleLit   :: !(FnHandle args ret) -> App ext f (PolyType (FunctionHandleType args ret))
+  PolyHandleLit   :: !(FnHandle args ret) -> App ext f (PolyFnType args ret)
 
   -- Instantiate the type of polymorphic function handle
-  PolyInstantiate :: !(TypeRepr (PolyType (FunctionHandleType args ret)))
-                   -> !(f (PolyType (FunctionHandleType args ret)))
+  PolyInstantiate :: !(TypeRepr (PolyFnType args ret))
+                   -> !(f (PolyFnType args ret))
                    -> !(CtxRepr subst)
                    -> App ext f (Instantiate subst (FunctionHandleType args ret))
 
@@ -1135,8 +1148,10 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- Polymorphic functions
     
-    PolyHandleLit h -> PolyRepr (handleType h)
-    PolyInstantiate (PolyRepr tp) _ subst -> instantiateRepr subst tp
+    PolyHandleLit h -> PolyFnRepr (handleArgTypes h) (handleReturnType h)
+    PolyInstantiate (PolyFnRepr args tp) _ subst ->
+      FunctionHandleRepr (instantiateCtxRepr subst args)
+                         (instantiateRepr subst tp)
 
 
     ----------------------------------------------------------------------
@@ -1423,3 +1438,198 @@ foldApp f0 r0 a = execState (traverseApp (go f0) a) r0
 mapApp :: TraversableFC (ExprExtension ext)
        => (forall u . f u -> g u) -> App ext f tp -> App ext g tp
 mapApp f a = runIdentity (traverseApp (pure . f) a)
+
+-------------------------------------------------------------------------------------
+-- Type Instantiation
+
+-- App :: Type -> (CrucibleType -> Type) -> CrucibleType -> Type
+type instance Instantiate subst App = App  
+instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
+   instantiateFC (subst :: CtxRepr subst) app 
+      | Refl <- closedType @ext subst,
+        Refl <- closedFC @_ @_ @(ExprExtension ext) subst =
+      case app of
+          ExtensionApp ext -> ExtensionApp (instantiate subst ext)
+          
+          BaseIsEq bty r1 r2 -> BaseIsEq bty (instantiate subst r1) (instantiate subst r2)
+          BaseIte bty r1 r2 r3 -> BaseIte bty (instantiate subst r1)
+            (instantiate subst r2) (instantiate subst r3)
+          EmptyApp -> EmptyApp
+          PackAny ty reg   -> PackAny (instantiateRepr subst ty) (instantiate subst reg)
+          UnpackAny ty reg -> UnpackAny (instantiateRepr subst ty) (instantiate subst reg)
+          BoolLit b -> BoolLit b
+          Not r1 -> Not (instantiate subst r1)
+          And r1 r2 -> And (instantiate subst r1) (instantiate subst r2)
+          Or r1 r2 -> Or (instantiate subst r1) (instantiate subst r2)
+          BoolXor r1 r2 -> BoolXor (instantiate subst r1) (instantiate subst r2)
+          NatLit n -> NatLit n
+          NatLt  r1 r2 -> NatLt  (instantiate subst r1) (instantiate subst r2)
+          NatLe  r1 r2 -> NatLe  (instantiate subst r1) (instantiate subst r2)
+          NatAdd r1 r2 -> NatAdd (instantiate subst r1) (instantiate subst r2)
+          NatSub r1 r2 -> NatSub (instantiate subst r1) (instantiate subst r2)
+          NatMul r1 r2 -> NatMul (instantiate subst r1) (instantiate subst r2)
+          NatDiv r1 r2 -> NatDiv (instantiate subst r1) (instantiate subst r2)
+          NatMod r1 r2 -> NatMod (instantiate subst r1) (instantiate subst r2)
+
+          IntLit n -> IntLit n
+          IntLt  r1 r2 -> IntLt  (instantiate subst r1) (instantiate subst r2)
+          IntLe  r1 r2 -> IntLe  (instantiate subst r1) (instantiate subst r2)
+          IntNeg r1    -> IntNeg (instantiate subst r1)
+          IntAdd r1 r2 -> IntAdd (instantiate subst r1) (instantiate subst r2)
+          IntSub r1 r2 -> IntSub (instantiate subst r1) (instantiate subst r2)
+          IntMul r1 r2 -> IntMul (instantiate subst r1) (instantiate subst r2)
+          IntDiv r1 r2 -> IntDiv (instantiate subst r1) (instantiate subst r2)
+          IntMod r1 r2 -> IntMod (instantiate subst r1) (instantiate subst r2)
+          IntAbs r1    -> IntAbs (instantiate subst r1)
+
+          RationalLit n -> RationalLit n
+          RealLt  r1 r2 -> RealLt  (instantiate subst r1) (instantiate subst r2)
+          RealLe  r1 r2 -> RealLe  (instantiate subst r1) (instantiate subst r2)
+          RealNeg r1    -> RealNeg (instantiate subst r1)
+          RealAdd r1 r2 -> RealAdd (instantiate subst r1) (instantiate subst r2)
+          RealSub r1 r2 -> RealSub (instantiate subst r1) (instantiate subst r2)
+          RealMul r1 r2 -> RealMul (instantiate subst r1) (instantiate subst r2)
+          RealDiv r1 r2 -> RealDiv (instantiate subst r1) (instantiate subst r2)
+          RealMod r1 r2 -> RealMod (instantiate subst r1) (instantiate subst r2)
+          RealIsInteger r1 -> RealIsInteger (instantiate subst r1)
+
+          FloatLit n    -> FloatLit n
+          DoubleLit d   -> DoubleLit d
+          FloatNaN fi   -> FloatNaN fi
+          FloatPInf fi  -> FloatPInf fi
+          FloatNInf fi  -> FloatNInf fi
+          FloatPZero fi -> FloatPZero fi
+          FloatNZero fi -> FloatNZero fi
+
+          FloatNeg fi r1    -> FloatNeg fi (instantiate subst r1)
+          FloatAbs fi r1    -> FloatAbs fi (instantiate subst r1)
+          FloatSqrt fi rm r1  -> FloatSqrt fi rm (instantiate subst r1)
+          FloatAdd fi rm r1 r2 -> FloatAdd fi rm (instantiate subst r1) (instantiate subst r2)
+          FloatSub fi rm r1 r2 -> FloatSub fi rm (instantiate subst r1) (instantiate subst r2)
+          FloatMul fi rm r1 r2 -> FloatMul fi rm (instantiate subst r1) (instantiate subst r2)
+          FloatDiv fi rm r1 r2 -> FloatDiv fi rm (instantiate subst r1) (instantiate subst r2)
+          FloatRem fi r1 r2 -> FloatRem fi (instantiate subst r1) (instantiate subst r2)
+          FloatMin fi r1 r2 -> FloatMin fi (instantiate subst r1) (instantiate subst r2)
+          FloatMax fi r1 r2 -> FloatMax fi (instantiate subst r1) (instantiate subst r2)
+          FloatFMA fi rm r1 r2 r3 -> FloatFMA fi rm (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+
+          FloatEq  r1 r2 -> FloatEq  (instantiate subst r1) (instantiate subst r2)
+          FloatFpEq  r1 r2 -> FloatFpEq  (instantiate subst r1) (instantiate subst r2)          
+          FloatGt  r1 r2 -> FloatGt  (instantiate subst r1) (instantiate subst r2)
+          FloatGe  r1 r2 -> FloatGe  (instantiate subst r1) (instantiate subst r2)
+          FloatLt  r1 r2 -> FloatLt  (instantiate subst r1) (instantiate subst r2)
+          FloatLe  r1 r2 -> FloatLe  (instantiate subst r1) (instantiate subst r2)
+          FloatNe  r1 r2 -> FloatNe  (instantiate subst r1) (instantiate subst r2)
+          FloatFpNe  r1 r2 -> FloatFpNe  (instantiate subst r1) (instantiate subst r2)          
+
+          FloatIte fi r1 r2 r3 -> FloatIte fi (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+          
+
+          -- TODO: more floats
+
+          JustValue ty r1 -> JustValue (instantiateRepr subst ty) (instantiate subst r1)
+          NothingValue ty -> NothingValue (instantiateRepr subst ty) 
+          FromJustValue ty r1 r2 -> FromJustValue (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+
+          AddSideCondition bty r1 s r2 -> AddSideCondition bty (instantiate subst r1) s (instantiate subst r2)
+
+          RollRecursive (sr :: SymbolRepr nm) (ctr :: CtxRepr ctx) r1
+            | Refl <- eqInstUnroll @nm @_ @_ @ctx subst -> RollRecursive sr (instantiate subst ctr) (instantiate subst r1)
+          UnrollRecursive (sr :: SymbolRepr nm) (ctr :: CtxRepr ctx) r1
+            | Refl <- eqInstUnroll @nm @_ @_ @ctx subst -> UnrollRecursive sr (instantiate subst ctr) (instantiate subst r1)
+
+          VectorLit ty v1 -> VectorLit  (instantiateRepr subst ty) (V.map (instantiate subst) v1)
+          VectorReplicate ty r1 r2 -> VectorReplicate (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+          VectorIsEmpty r1 -> VectorIsEmpty (instantiate subst r1)
+          VectorSize r1 -> VectorSize (instantiate subst r1)
+          VectorGetEntry ty r1 r2 -> VectorGetEntry (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+          VectorSetEntry ty r1 r2 r3 ->
+            VectorSetEntry  (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+          VectorCons ty r1 r2 ->
+            VectorCons  (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+
+
+          HandleLit fh ->
+            -- We need a precondition that bare function handle literals in expressions do not contain any type parameters
+            -- If this is true, we know that
+            --    (Instantiate subst (FunctionHandleType args ret) ~ FunctionHandleType args ret)
+            -- maybe we want to add a ClosedType constraint to the HandleLit constructor?
+            unsafeCoerce (HandleLit fh)
+
+          Closure argTy retTy r1 (tp :: TypeRepr tp) r2
+            | Refl <- closed @tp subst
+            ->
+              Closure (instantiateCtxRepr subst argTy)
+                      (instantiateRepr subst retTy)
+                      (instantiate subst r1) (instantiate subst tp) (instantiate subst r2)
+
+          PolyHandleLit fh -> PolyHandleLit fh
+
+          PolyInstantiate (ty :: TypeRepr (PolyFnType args ret)) r1 (targs :: CtxRepr targs) 
+            | Refl <- composeInstantiateAxiom @subst @targs @ret,
+              Refl <- composeInstantiateAxiom @subst @targs @args 
+            ->
+              PolyInstantiate ty (instantiate subst r1) (instantiateCtxRepr subst targs)
+
+
+          NatToInteger r1 -> NatToInteger (instantiate subst r1)
+          IntegerToReal r1 -> IntegerToReal (instantiate subst r1)
+          RealRound r1 -> RealRound (instantiate subst r1)
+          RealFloor r1 -> RealFloor (instantiate subst r1)
+          RealCeil r1 -> RealCeil (instantiate subst r1)
+          IntegerToBV n r1 -> IntegerToBV n (instantiate subst r1)
+          RealToNat r1 -> RealToNat (instantiate subst r1)
+
+          Complex r1 r2 -> Complex (instantiate subst r1) (instantiate subst r2)
+          RealPart r1 -> RealPart (instantiate subst r1)
+          ImagPart r1 -> ImagPart (instantiate subst r1)
+
+
+          -- bv
+          BVUndef nr -> BVUndef nr
+          BVLit nr i -> BVLit nr i
+          BVConcat n1 n2 r1 r2 -> BVConcat n1 n2 (instantiate subst r1) (instantiate subst r2)
+          BVSelect n1 n2 n3 r1 -> BVSelect n1 n2 n3 (instantiate subst r1)
+          BVTrunc n1 n2 r1 -> BVTrunc n1 n2 (instantiate subst r1)
+
+          -- more BV
+
+          InjectVariant ctx idx r1 -> InjectVariant (instantiateCtxRepr subst ctx) (instantiate subst idx)
+            (instantiate subst r1)
+          ProjectVariant ctx idx r1 -> ProjectVariant (instantiateCtxRepr subst ctx) (instantiate subst idx)
+            (instantiate subst r1) 
+
+          MkStruct ctx args -> MkStruct (instantiateCtxRepr subst ctx) (instantiate subst args)
+          GetStruct r1 idx ty -> GetStruct (instantiate subst r1) (instantiate subst idx) (instantiateRepr subst ty)
+          SetStruct ctx r1 idx r2 -> SetStruct (instantiateCtxRepr subst ctx) (instantiate subst r1)
+            (instantiate subst idx) (instantiate subst r2)
+
+          EmptyStringMap ty -> EmptyStringMap (instantiateRepr subst ty)
+          LookupStringMapEntry ty r1 r2 -> LookupStringMapEntry (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+          InsertStringMapEntry ty r1 r2 r3 -> InsertStringMapEntry (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+
+
+          TextLit t -> TextLit t
+          ShowValue btr r1 -> ShowValue btr (instantiate subst r1)
+          AppendString r1 r2 -> AppendString (instantiate subst r1) (instantiate subst r2)
+
+          -- Sym Arrays
+{-          SymArrayLookup :: forall (b :: BaseType) (f :: CrucibleType
+                                                         -> *) (idx :: Ctx
+                                                                         BaseType) (tp :: BaseType) ext.
+                            BaseTypeRepr b
+                            -> f (SymbolicArrayType (idx ::> tp) b)
+                            -> Ctx.Assignment (BaseTerm f) (idx ::> tp)
+                            -> App ext f (BaseToType b), -}
+
+          SymArrayLookup (br :: BaseTypeRepr br) r1 (ctx :: Ctx.Assignment (BaseTerm f) (idx ::> tp))
+            | Refl <- closedBT @br subst,
+              Refl <- closedBT @tp subst
+            -> undefined -- SymArrayLookup br (instantiate subst r1) (instantiate subst ctx)
+          SymArrayUpdate (br :: BaseTypeRepr br) r1 ctx r2
+            | Refl <- closedBT @br subst
+            -> undefined -- SymArrayUpdate br (instantiate subst r1) (instantiate subst ctx) (instantiate subst r2)
+
+          IsConcrete btr r1 -> IsConcrete btr (instantiate subst r1)
+
+          ReferenceEq ty r1 r2 -> ReferenceEq (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)

@@ -245,12 +245,8 @@ muxRegForType s itefns p =
           [ "Found uninstantiated type parameter:"
           , show n
           ]
-     PolyRepr t@(FunctionHandleRepr _ _) -> muxRegForType s itefns t
-     PolyRepr n ->
-        panic "RegMap.muxRegForType"
-          [ "Found polymorphic type:"
-          , show n
-          ]
+     PolyFnRepr args ret -> muxRegForType s itefns (FunctionHandleRepr args ret)
+
 
 -- | Mux two register entries.
 {-# INLINE muxRegEntry #-}
