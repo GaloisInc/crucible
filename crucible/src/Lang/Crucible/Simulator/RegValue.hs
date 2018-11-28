@@ -95,8 +95,7 @@ type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
   RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
   RegValue sym (StringMapType tp) = Map Text (PartExpr (Pred sym) (RegValue sym tp))
-  -- only polymorphic functions in registers
-  RegValue sym (PolyType (FunctionHandleType a r)) = FnVal sym a r
+  RegValue sym (PolyFnType a r) = FnVal sym a r
 
 -- | A newtype wrapper around RegValue.  This is wrapper necessary because
 --   RegValue is a type family and, as such, cannot be partially applied.
@@ -109,14 +108,16 @@ newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
 
 -- | Represents a function closure.
 data FnVal (sym :: *) (args :: Ctx CrucibleType) (res :: CrucibleType) where
-  ClosureFnVal :: !(FnVal sym (args ::> tp) ret)
+  ClosureFnVal :: Closed tp =>
+                  !(FnVal sym (args ::> tp) ret)
                -> !(TypeRepr tp)
                -> !(RegValue sym tp)
                -> FnVal sym args ret
 
+  -- Either a monomorphic or polymorphic function
   HandleFnVal :: !(FnHandle a r) -> FnVal sym a r
 
-  -- A polymorphic function handle that has been instantiated
+  -- A polymorphic function that has been instantiated
   InstantiatedHandleFnVal
     :: !(CtxRepr subst)
     -> !(FnHandle a r) 
@@ -129,13 +130,16 @@ closureFunctionName (InstantiatedHandleFnVal _ h) = handleName h
 
 instantiateFnVal :: forall subst sym args res.
   CtxRepr subst -> FnVal sym args res -> FnVal sym (Instantiate subst args) (Instantiate subst res)
-instantiateFnVal subst (HandleFnVal h) = InstantiatedHandleFnVal subst h
-instantiateFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::FnHandle a r)) =
-  case (composeInstantiateAxiom @subst @subst' @a,
-        composeInstantiateAxiom @subst @subst' @r) of
-    (Refl, Refl) ->
-       InstantiatedHandleFnVal (instantiateCtxRepr subst subst') h
-instantiateFnVal _subst _ = error "TODO: instantiate polymorphic closures."
+instantiateFnVal subst (HandleFnVal h)
+  = InstantiatedHandleFnVal subst h
+instantiateFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::FnHandle a r)) 
+  | Refl <- composeInstantiateAxiom @subst @subst' @a,
+    Refl <- composeInstantiateAxiom @subst @subst' @r
+  = InstantiatedHandleFnVal (instantiateCtxRepr subst subst') h
+instantiateFnVal subst (ClosureFnVal fnv (ty :: TypeRepr ty) argty)
+  | Refl <- closed @ty (Proxy :: Proxy subst) 
+  = ClosureFnVal (instantiateFnVal subst fnv) ty argty
+
 
 
 -- | Extract the runtime representation of the type of the given 'FnVal'

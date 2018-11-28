@@ -25,6 +25,8 @@ extension methods (e.g., override functions).
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 module Lang.Crucible.CFG.Extension
 ( ExprExtension
 , StmtExtension
@@ -41,6 +43,7 @@ module Lang.Crucible.CFG.Extension
 
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Data.Parameterized.TraversableFC
+
 
 import           Lang.Crucible.Types
 
@@ -77,11 +80,17 @@ class
    , TraversableFC (ExprExtension ext)
    , PrettyApp (ExprExtension ext)
    , TypeApp (ExprExtension ext)
+   , InstantiateFC (ExprExtension ext)
    , TraversableFC (StmtExtension ext)
    , PrettyApp (StmtExtension ext)
    , TypeApp (StmtExtension ext)
+   , InstantiateFC (StmtExtension ext)
+   , ClosedFC (ExprExtension ext)
+   , ClosedFC (StmtExtension ext)
+   , ClosedType ext
    ) =>
-   IsSyntaxExtension ext
+   IsSyntaxExtension ext where
+
 
 -- | The empty expression syntax extension, which adds no new syntactic forms.
 data EmptyExprExtension :: (CrucibleType -> *) -> (CrucibleType -> *)
@@ -90,12 +99,17 @@ deriving instance Show (EmptyExprExtension f tp)
 
 type instance ExprExtension () = EmptyExprExtension
 
+type instance Instantiate subst EmptyExprExtension = EmptyExprExtension
+
 -- | The empty statement syntax extension, which adds no new syntactic forms.
 data EmptyStmtExtension :: (CrucibleType -> *) -> (CrucibleType -> *) where
 
 deriving instance Show (EmptyStmtExtension f tp)
 
 type instance StmtExtension () = EmptyStmtExtension
+
+type instance Instantiate subst EmptyStmtExtension = EmptyStmtExtension
+
 
 instance ShowFC EmptyExprExtension where
   showsPrecFC _ _ = \case
@@ -115,6 +129,10 @@ instance PrettyApp EmptyExprExtension where
   ppApp _ = \case
 instance TypeApp EmptyExprExtension where
   appType = \case
+instance InstantiateFC EmptyExprExtension where
+  instantiateFC _  = \case
+instance ClosedFC EmptyExprExtension where
+  closedFC _ = Refl    
 
 instance ShowFC EmptyStmtExtension where
   showsPrecFC _ _ = \case
@@ -134,5 +152,9 @@ instance PrettyApp EmptyStmtExtension where
   ppApp _ = \case
 instance TypeApp EmptyStmtExtension where
   appType = \case
+instance InstantiateFC EmptyStmtExtension where
+  instantiateFC _  = \case
+instance ClosedFC EmptyStmtExtension where
+  closedFC _ = Refl    
 
-instance IsSyntaxExtension ()
+instance IsSyntaxExtension () where

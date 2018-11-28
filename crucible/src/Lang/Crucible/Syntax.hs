@@ -325,6 +325,7 @@ closure :: ( IsExpr e
            , KnownRepr TypeRepr tp
            , KnownRepr TypeRepr ret
            , KnownCtx  TypeRepr args
+           , Closed tp
            )
         => e (FunctionHandleType (args::>tp) ret)
         -> e tp
