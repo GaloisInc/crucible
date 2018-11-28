@@ -306,11 +306,13 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
   Print :: !(Reg ctx StringType) -> Stmt ext ctx ctx
 
   -- Read a global variable.
-  ReadGlobal :: !(GlobalVar tp)
+  ReadGlobal :: -- Closed tp =>
+               !(GlobalVar tp)
              -> Stmt ext ctx (ctx ::> tp)
 
   -- Write to a global variable.
-  WriteGlobal :: !(GlobalVar tp)
+  WriteGlobal :: -- Closed tp =>
+               !(GlobalVar tp)
               -> !(Reg ctx tp)
               -> Stmt ext ctx ctx
 
@@ -551,8 +553,8 @@ instance (IsSyntaxExtension ext) => InstantiateF (Expr ext ctx) where
 type instance Instantiate subst Stmt = Stmt  
 instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
   instantiateF subst s 
-      | Refl <- closedType @ext subst,
-        Refl <- closedFC @_ @_ @(StmtExtension ext) subst =
+      | Refl <- closed @_ @ext subst,
+        Refl <- closed @_ @(StmtExtension ext) subst =
       case s of
         (SetReg ty expr) -> SetReg (instantiateRepr subst ty) (instantiate subst expr)
         (ExtendAssign exn) -> ExtendAssign (instantiate subst exn)
@@ -562,10 +564,15 @@ instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
                      (instantiateCtxRepr subst argTys)
                      (instantiateArgs subst args)
         (Print reg) -> Print (instantiate subst reg)
-          --- NOTE need to know that the types of global variables are CLOSED
-          --- i.e. that Instantiate subst ty ~ ty
-        (ReadGlobal gv) -> ReadGlobal (unsafeCoerce gv)
-        (WriteGlobal gv reg) -> WriteGlobal (unsafeCoerce gv) (instantiate subst reg)
+        
+        -- To get rid of the unsafeCoerce on these two cases, we need
+        -- to add a Closed constraint to these two constructors
+        (ReadGlobal (gv :: GlobalVar tp))
+          -- | Refl <- closed @_ @tp subst
+          -> ReadGlobal (unsafeCoerce gv)
+        (WriteGlobal (gv :: GlobalVar tp) reg)
+          -- | Refl <- closed @_ @tp subst
+          -> WriteGlobal (unsafeCoerce gv) (instantiate subst reg)
 
         (FreshConstant bt ss) -> FreshConstant bt ss
         (NewRefCell ty reg) -> NewRefCell (instantiateRepr subst ty) (instantiate subst reg)
@@ -604,7 +611,7 @@ instance IsSyntaxExtension ext => InstantiateF (StmtSeq ext block ret) where
   instantiateF = instantiateStmtSeq where
     instantiateStmtSeq :: forall subst ext block ctx ret. IsSyntaxExtension ext => CtxRepr subst -> StmtSeq ext block ret ctx
                        -> StmtSeq ext (Instantiate subst block) (Instantiate subst ret) (Instantiate subst ctx)
-    instantiateStmtSeq subst ss | Refl <- closedType @ext subst =
+    instantiateStmtSeq subst ss | Refl <- closed @_ @ext subst =
       case ss of
         (ConsStmt loc stmt sseq) -> ConsStmt loc (instantiate subst stmt) (instantiate subst sseq)
         (TermStmt loc termstmt)  -> TermStmt loc (instantiate subst termstmt)
@@ -759,7 +766,6 @@ nextStmtHeight h s =
     SetReg{} -> incSize h
     ExtendAssign{} -> incSize h
     CallHandle{} -> incSize h
---    CallPHandle{} -> incSize h
     Print{} -> h
     ReadGlobal{} -> incSize h
     WriteGlobal{} -> h
@@ -781,11 +787,6 @@ ppStmt r s =
       ppReg r <+> text "= call"
               <+> pretty h <> parens (commas (ppAssignment args))
                <> text ";"
-{-    CallPHandle _ h _targs _ args ->
-      ppReg r <+> text "= callp"
-              <+> pretty h <> langle <> rangle   --- TODO: print type arguments
-              <> parens (commas (ppAssignment args))
-              <> text ";"               -}
     Print msg -> ppFn "print" [ pretty msg ]
     ReadGlobal v -> text "read" <+> ppReg r <+> pretty v
     WriteGlobal v e -> text "write" <+> pretty v <+> pretty e

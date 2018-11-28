@@ -80,7 +80,6 @@ import           Lang.Crucible.Utils.PrettyPrint
 import qualified Lang.Crucible.Utils.Structural as U
 
 
-import Unsafe.Coerce(unsafeCoerce)
 ------------------------------------------------------------------------
 -- BaseTerm
 
@@ -118,9 +117,9 @@ instance TraversableFC BaseTerm where
   traverseFC f (BaseTerm tp x) = BaseTerm tp <$> f x
 
 type instance Instantiate subst BaseTerm = BaseTerm
-instance InstantiateF a => InstantiateType (BaseTerm a ctx) where
-  instantiate subst (BaseTerm (btr :: BaseTypeRepr btr) val)
-    | Refl <- closedType @(BaseTypeRepr btr) subst =
+instance InstantiateFC BaseTerm where
+  instantiateFC subst (BaseTerm (btr :: BaseTypeRepr btr) val)
+    | Refl <- closed @_ @(BaseTypeRepr btr) subst =
     BaseTerm btr (instantiate subst val)
 
 ------------------------------------------------------------------------
@@ -540,7 +539,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   ----------------------------------------------------------------------
   -- Handle
 
-  HandleLit :: !(FnHandle args ret)
+  HandleLit :: (Closed args, Closed ret) => !(FnHandle args ret)
             -> App ext f (FunctionHandleType args ret)
 
   -- Create a closure that captures the last argument.
@@ -1409,8 +1408,8 @@ mapApp f a = runIdentity (traverseApp (pure . f) a)
 type instance Instantiate subst App = App  
 instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
    instantiateFC (subst :: CtxRepr subst) app 
-      | Refl <- closedType @ext subst,
-        Refl <- closedFC @_ @_ @(ExprExtension ext) subst =
+      | Refl <- closed @_ @ext subst,
+        Refl <- closed @_ @(ExprExtension ext) subst =
       case app of
           ExtensionApp ext -> ExtensionApp (instantiate subst ext)
           
@@ -1512,15 +1511,12 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
             VectorCons  (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
 
 
-          HandleLit fh ->
-            -- We need a precondition that bare function handle literals in expressions do not contain any type parameters
-            -- If this is true, we know that
-            --    (Instantiate subst (FunctionHandleType args ret) ~ FunctionHandleType args ret)
-            -- maybe we want to add a ClosedType constraint to the HandleLit constructor?
-            unsafeCoerce (HandleLit fh)
+          HandleLit (fh :: FnHandle args ret)
+            | Refl <- closed @_ @(FunctionHandleType args ret) subst ->
+            HandleLit fh
 
           Closure argTy retTy r1 (tp :: TypeRepr tp) r2
-            | Refl <- closed @tp subst
+            | Refl <- closed @_ @tp subst
             ->
               Closure (instantiateCtxRepr subst argTy)
                       (instantiateRepr subst retTy)
@@ -1554,8 +1550,26 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           BVConcat n1 n2 r1 r2 -> BVConcat n1 n2 (instantiate subst r1) (instantiate subst r2)
           BVSelect n1 n2 n3 r1 -> BVSelect n1 n2 n3 (instantiate subst r1)
           BVTrunc n1 n2 r1 -> BVTrunc n1 n2 (instantiate subst r1)
-
+          BVZext n1 n2 r1 -> BVZext n1 n2 (instantiate subst r1)
+          BVSext n1 n2 r1 -> BVSext n1 n2 (instantiate subst r1)
+          BVNot n1 r1 -> BVNot n1 (instantiate subst r1)
+          BVAnd n1 r1 r2 -> BVAnd n1 (instantiate subst r1) (instantiate subst r2)
+          BVOr n1 r1 r2 -> BVOr n1 (instantiate subst r1) (instantiate subst r2)
+          BVXor n1 r1 r2 -> BVXor n1 (instantiate subst r1) (instantiate subst r2)
+          BVNeg n1 r1 -> BVNeg n1 (instantiate subst r1)
+          BVAdd n1 r1 r2 -> BVAdd n1 (instantiate subst r1) (instantiate subst r2)
+          BVSub n1 r1 r2 -> BVSub n1 (instantiate subst r1) (instantiate subst r2)
+          BVMul n1 r1 r2 -> BVMul n1 (instantiate subst r1) (instantiate subst r2)
+          BVUdiv n1 r1 r2 -> BVUdiv n1 (instantiate subst r1) (instantiate subst r2)
+          BVSdiv n1 r1 r2 -> BVSdiv n1 (instantiate subst r1) (instantiate subst r2)
+          BVUrem n1 r1 r2 -> BVUrem n1 (instantiate subst r1) (instantiate subst r2)
+          BVSrem n1 r1 r2 -> BVSrem n1 (instantiate subst r1) (instantiate subst r2)                              
           -- more BV
+          BoolToBV n1 r1 -> BoolToBV n1 (instantiate subst r1)
+          BvToInteger n1 r1 -> BvToInteger n1 (instantiate subst r1)
+          SbvToInteger n1 r1 -> SbvToInteger n1 (instantiate subst r1)
+          BvToNat n1 r1 -> BvToNat n1 (instantiate subst r1)
+          BVNonzero n1 r1 -> BVNonzero n1 (instantiate subst r1)
 
           InjectVariant ctx idx r1 -> InjectVariant (instantiateCtxRepr subst ctx) (instantiate subst idx)
             (instantiate subst r1)
@@ -1576,22 +1590,16 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           ShowValue btr r1 -> ShowValue btr (instantiate subst r1)
           AppendString r1 r2 -> AppendString (instantiate subst r1) (instantiate subst r2)
 
-          -- Sym Arrays
-{-          SymArrayLookup :: forall (b :: BaseType) (f :: CrucibleType
-                                                         -> *) (idx :: Ctx
-                                                                         BaseType) (tp :: BaseType) ext.
-                            BaseTypeRepr b
-                            -> f (SymbolicArrayType (idx ::> tp) b)
-                            -> Ctx.Assignment (BaseTerm f) (idx ::> tp)
-                            -> App ext f (BaseToType b), -}
-
           SymArrayLookup (br :: BaseTypeRepr br) r1 (ctx :: Ctx.Assignment (BaseTerm f) (idx ::> tp))
-            | Refl <- closedBT @br subst,
-              Refl <- closedBT @tp subst
-            -> undefined -- SymArrayLookup br (instantiate subst r1) (instantiate subst ctx)
-          SymArrayUpdate (br :: BaseTypeRepr br) r1 ctx r2
-            | Refl <- closedBT @br subst
-            -> undefined -- SymArrayUpdate br (instantiate subst r1) (instantiate subst ctx) (instantiate subst r2)
+            | Refl <- closed @_ @br subst,
+              Refl <- closed @_ @tp subst,
+              Refl <- closed @_ @idx subst
+            -> SymArrayLookup br (instantiate subst r1) (instantiate subst ctx)
+          SymArrayUpdate (br :: BaseTypeRepr br) r1 (ctx :: Ctx.Assignment (BaseTerm f) (idx ::> tp)) r2
+            | Refl <- closed @_ @br subst,
+              Refl <- closed @_ @tp subst,
+              Refl <- closed @_ @idx subst
+            -> SymArrayUpdate br (instantiate subst r1) (instantiate subst ctx) (instantiate subst r2)
 
           IsConcrete btr r1 -> IsConcrete btr (instantiate subst r1)
 
