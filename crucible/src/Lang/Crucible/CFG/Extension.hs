@@ -83,10 +83,6 @@ class
    , TypeApp (ExprExtension ext)
    , InstantiateFC (ExprExtension ext)
    , Closed (ExprExtension ext)
-   , TraversableFC (StmtExtension ext)
-   , PrettyApp (StmtExtension ext)
-   , TypeApp (StmtExtension ext)
-   , InstantiateFC (StmtExtension ext)
    , Closed (StmtExtension ext)
    , Closed ext
    ) =>

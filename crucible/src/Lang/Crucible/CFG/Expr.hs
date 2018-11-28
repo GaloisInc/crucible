@@ -80,13 +80,20 @@ import           Lang.Crucible.Utils.PrettyPrint
 import qualified Lang.Crucible.Utils.Structural as U
 
 
+<<<<<<< HEAD
+=======
+import Unsafe.Coerce(unsafeCoerce)
+>>>>>>> Added type classes in support of substitution through syntax extension.
 ------------------------------------------------------------------------
 -- BaseTerm
 
 -- | Base terms represent the subset of expressions
 --   of base types, packaged together with a run-time
 --   representation of their type.
+<<<<<<< HEAD
 
+=======
+>>>>>>> Added type classes in support of substitution through syntax extension.
 data BaseTerm (f :: CrucibleType -> Type) (tp :: BaseType)
    = BaseTerm { baseTermType :: !(BaseTypeRepr tp)
               , baseTermVal  :: !(f (BaseToType tp))
@@ -118,9 +125,15 @@ instance TraversableFC BaseTerm where
   traverseFC f (BaseTerm tp x) = BaseTerm tp <$> f x
 
 type instance Instantiate subst BaseTerm = BaseTerm
+<<<<<<< HEAD
 instance InstantiateFC BaseTerm where
   instantiateFC subst (BaseTerm (btr :: BaseTypeRepr btr) val)
     | Refl <- closed @_ @(BaseTypeRepr btr) subst =
+=======
+instance InstantiateF a => InstantiateType (BaseTerm a ctx) where
+  instantiate subst (BaseTerm (btr :: BaseTypeRepr btr) val)
+    | Refl <- closedType @(BaseTypeRepr btr) subst =
+>>>>>>> Added type classes in support of substitution through syntax extension.
     BaseTerm btr (instantiate subst val)
 
 ------------------------------------------------------------------------
@@ -1147,16 +1160,10 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- Polymorphic functions
     
-<<<<<<< HEAD
     PolyHandleLit h -> PolyFnRepr (handleArgTypes h) (handleReturnType h)
     PolyInstantiate (PolyFnRepr args tp) _ subst ->
       FunctionHandleRepr (instantiate subst args)
                          (instantiate subst tp)
-=======
-    PolyHandleLit h -> PolyRepr (handleType h)
-    PolyInstantiate (PolyRepr tp) _ subst -> instantiateRepr subst tp
->>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
-
 
     ----------------------------------------------------------------------
     -- Conversions
