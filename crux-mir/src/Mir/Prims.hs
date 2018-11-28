@@ -28,14 +28,14 @@ libLoc = "mir_verif/src/"
 -- | load the rs file containing the standard library
 loadPrims :: IO Collection
 loadPrims = do
-  cols <- mapM (generateMIR libLoc)
+  cols <- mapM (generateMIR libLoc) 
     [ "ops/range"
-    , "default"
-    , "option"
-    , "result"
-    , "cmp"
-    , "slice"
-    ]
+--    , "default"
+--    , "option"
+--    , "result"
+--    , "cmp"
+--    , "slice"
+    ]   
     
   let total = (fold (hardCoded : map relocate cols))
   when debug $ do
@@ -47,7 +47,7 @@ loadPrims = do
   return total
 
 hardCoded :: Collection
-hardCoded = Collection [] [] [fnOnce, fn]
+hardCoded = Collection [] [] [fnOnce, fn, index, indexMut]
 
 
 -- FnOnce trait
@@ -90,6 +90,50 @@ fn = Trait fn_defId [call_once, output] where
            output :: TraitItem
            output = TraitType fn_Output_defId        
 
+index :: Trait
+index = Trait index_defId [index_index, output] where
+
+           index_defId :: DefId
+           index_defId = textId $ (stdlib <> "::ops[0]::index[0]::Index[0]")
+
+           index_Output_defId :: DefId
+           index_Output_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::Output[0]")
+
+           index_index_defId :: DefId
+           index_index_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::index[0]")
+
+           index_index :: TraitItem
+           index_index = TraitMethod index_index_defId
+               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId []))
+    
+           output :: TraitItem
+           output = TraitType index_Output_defId        
+
+indexMut :: Trait
+indexMut = Trait index_defId [index_index, index_index_mut, output] where
+
+           index_defId :: DefId
+           index_defId = textId $ (stdlib <> "::ops[0]::index[0]::IndexMut[0]")
+
+           index_Output_defId :: DefId
+           index_Output_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::Output[0]")
+
+           index_index_defId :: DefId
+           index_index_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::index[0]")
+
+           index_index_mut_defId :: DefId
+           index_index_mut_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::index_mut[0]")
+
+           index_index :: TraitItem
+           index_index = TraitMethod index_index_defId
+               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId []))
+
+           index_index_mut :: TraitItem
+           index_index_mut = TraitMethod index_index_mut_defId
+               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId []))
+    
+           output :: TraitItem
+           output = TraitType index_Output_defId        
 
 
 

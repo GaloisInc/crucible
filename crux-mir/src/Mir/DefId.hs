@@ -191,6 +191,15 @@ sameTraitMethod :: Entry -> DefId -> Bool
 sameTraitMethod meth1 (DefId _ _ _ (meth2:_)) = meth1 == meth2
 sameTraitMethod _     (DefId _ _ _ []) = False
 
+{-
+isImplMethod :: DefId -> DefId -> Bool
+
+isImplMethod (DefId _ path1@(_:_) name1 _) (DefId _ path2 traitName (name2:_))
+   | fst (last path) == "{{impl}}", 
+     name1 == name2 
+  =
+  -}
+
 
 --  divide the input into components separated by double colons
 splitInput :: String -> [String]
@@ -314,8 +323,8 @@ isCustomFunc defid = case (did_path defid, did_name defid, did_extra defid) of
    
    ([("slice", _),("{{impl}}",_)], ("slice_tovec",_), [])    -> Just "slice_tovec"
    ([("slice", _),("{{impl}}",_)], ("len",_), [])            -> Just "slice_len"
-   ([("slice", _),("{{impl}}",_)], ("get_unchecked",_), [])     -> Just "slice_get"
-   ([("slice", _),("{{impl}}",_)], ("get_unchecked_mut",_),[])  -> Just "slice_get_mut"
+   ([("slice", _),("{{impl}}",_)], ("get_unchecked",_), [])     -> Just "slice_get_unchecked"
+   ([("slice", _),("{{impl}}",_)], ("get_unchecked_mut",_),[])  -> Just "slice_get_unchecked_mut"
 
    -- these are trait implementations
    ([("ops", _), ("index",_)], ("Index", _), [("index",_)])     -> Just "index"

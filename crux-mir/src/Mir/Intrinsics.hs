@@ -97,6 +97,7 @@ import           Lang.Crucible.CFG.Expr
 --import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
 import           Lang.Crucible.Simulator.Evaluation
@@ -111,6 +112,7 @@ import           What4.Utils.MonadST
 
 import           Mir.DefId
 import           Mir.Mir
+import           Mir.PP
 
 import           Debug.Trace
 
@@ -195,6 +197,8 @@ muxRef sym c (MirReference r1 p1) (MirReference r2 p2) =
 data MIR
 type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
+type instance Instantiate subst MIR = MIR
+instance ClosedType MIR where closedType _ = Refl
 
 type TaggedUnion = StructType (EmptyCtx ::> NatType ::> AnyType)
 
@@ -279,6 +283,18 @@ instance FoldableFC MirStmt where
   foldMapFC = foldMapFCDefault
 instance TraversableFC MirStmt where
   traverseFC = traverseMirStmt
+
+type instance Instantiate subst MirStmt = MirStmt
+instance ClosedFC MirStmt where closedFC _ = Refl
+instance InstantiateFC MirStmt where
+  instantiateFC subst stmt =
+    case stmt of
+      MirNewRef t -> MirNewRef (instantiate subst t)
+      MirReadRef t r -> MirReadRef (instantiate subst t) (instantiate subst r)
+      MirWriteRef r1 r2 -> MirWriteRef (instantiate subst r1) (instantiate subst r2)
+      MirDropRef r1 -> MirDropRef (instantiate subst r1)
+      MirSubfieldRef ctx r1 idx -> MirSubfieldRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
+      MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)      
 
 instance IsSyntaxExtension MIR
 
@@ -383,12 +399,12 @@ mirExtImpl = ExtensionImpl
              , extensionExec = execMirStmt
              }
 
-
+--------------------------------------------------------------------------------
 
 type MirSlice tp     = StructType (EmptyCtx ::>
                            MirReferenceType (VectorType tp) ::>
-                           NatType ::>
-                           NatType)
+                           NatType ::>    --- lower bound
+                           NatType)       --- upper bound
 
 pattern MirSliceRepr :: () => tp' ~ MirSlice tp => TypeRepr tp -> TypeRepr tp'
 pattern MirSliceRepr tp <- StructRepr
@@ -397,6 +413,29 @@ pattern MirSliceRepr tp <- StructRepr
          NatRepr)
          NatRepr)
  where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (VectorRepr tp) :> NatRepr :> NatRepr)
+
+mirSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
+                           MirReferenceType (VectorType tp) ::>
+                           NatType ::> 
+                           NatType)  
+mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (VectorRepr tp) :> NatRepr :> NatRepr)
+
+getSliceLB :: Expr MIR s (MirSlice tp) -> Expr MIR s NatType
+getSliceLB e = getStruct i2of3 e 
+
+getSliceLen :: Expr MIR s (MirSlice tp) -> Expr MIR s NatType
+getSliceLen e = getStruct i3of3 e
+
+updateSliceLB :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s NatType ->  Expr MIR s (MirSlice tp)
+updateSliceLB tp e start = setStruct (mirSliceCtxRepr tp) e i2of3 ns where
+   os = getStruct i2of3 e
+   ns = os .+ start
+
+updateSliceLen :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s NatType -> Expr MIR s (MirSlice tp)
+updateSliceLen tp e end = setStruct (mirSliceCtxRepr tp) e i3of3 end where
+--   oe = getStruct i3of3 e
+--   ne = oe .- end 
+
 
 --------------------------------------------------------------------------------
 -- ** Generator state for MIR translation to Crucible
@@ -409,6 +448,9 @@ data MirHandle where
 
 instance Show MirHandle where
     show (MirHandle _nm sig c) = show c ++ ":" ++ show sig
+
+instance Pretty MirHandle where
+    pretty (MirHandle nm sig _c) = text (show nm) <> colon <> pretty sig
 
 -- | The HandleMap maps mir functions to their corresponding function
 -- handle. Function handles include the original method name (for

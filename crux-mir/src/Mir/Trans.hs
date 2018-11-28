@@ -137,7 +137,9 @@ tyToRepr t0 = case t0 of
   M.TyAdt _defid _tyargs -> Some taggedUnionType
   M.TyDowncast _adt _i   -> Some taggedUnionType
   M.TyFloat _ -> Some CT.RealValRepr
-  M.TyParam _ -> Some CT.AnyRepr -- FIXME??
+  M.TyParam i -> case someNat i of
+    Just (Some nr) -> Some (CT.VarRepr nr) -- Some CT.AnyRepr -- FIXME??
+    Nothing        -> error "type params must be nonnegative"
   M.TyFnPtr _fnSig -> Some CT.AnyRepr
   M.TyDynamic _def -> Some CT.AnyRepr
   M.TyProjection _def _tyargs -> Some CT.AnyRepr
@@ -921,7 +923,22 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
           G.assertExpr (ind S..< (S.app (E.VectorSize arr)))
                        (S.litExpr "Index out of range")
           return $ MirExp elt_tp $ S.app $ E.VectorGetEntry elt_tp arr ind
-      _ -> fail "Bad index"
+      (MirSliceRepr elt_tp, CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)) ->
+           let mir_ty = M.typeOf i in
+           case mir_ty of
+             M.TyAdt did [Just (TyUint USize)] | did == M.textId "core/ae3efe0::ops[0]::range[0]::RangeFrom[0]" -> do
+               -- get the start of the range
+               let astart = (S.getStruct Ctx.i2of2 ind)
+               let indty  = CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr)
+               let start = S.getStruct Ctx.baseIndex
+                             (S.app $ E.FromJustValue indty (S.app $ E.UnpackAny indty astart) (fromString ("Bad Any unpack Nat")))
+               
+               let newSlice = updateSliceLB elt_tp arr start
+               return (MirExp arr_tp newSlice)
+               -- create a new slice by modifying the indices of the current one
+             _ -> 
+               fail $ "Unknown slice projection type:" ++ show mir_ty
+      _ -> fail $ "Bad index, arr_typ is:" ++ show arr_tp ++ "\nind_type is: " ++ show ind_tp
 
 evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
    case M.typeOf lv of
@@ -933,7 +950,13 @@ evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
               MirReferenceRepr tp ->
                  do r <- readMirRef tp ref
                     return $ MirExp tp r
-              _ -> error $ unwords ["Expected reference value in mutable dereference", show lv]
+              MirSliceRepr tp ->
+                 do let vr = S.getStruct Ctx.i1of3 ref
+                    v <- readMirRef (CT.VectorRepr tp) vr
+                    -- TODO: trim this vector relative to the slice....
+                    return $ MirExp (CT.VectorRepr tp) v
+--                    error $ unwords ["Found slice for " , show $ pretty tp]
+              _ -> error $ unwords ["Expected reference value in mutable dereference", show $ pretty lv]
      tp ->
        fail $ unwords ["Expected reference type in dereference", show tp, show lv]
 
@@ -1362,22 +1385,27 @@ doCall funid funsubst cargs cdest retRepr = do
 
             doCustomCall funid funsubst cargs dest_lv jdest
 
-        | Just (MirHandle _ (M.FnSig args ret) fhandle) <- mhand -> do
+        | Just (MirHandle _ (M.FnSig _args _ret) fhandle) <- mhand -> do
             traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs, 
                    text "with type parameters: ", pretty funsubst])
 
             exps <- mapM evalOperand cargs
-            let fargctx = FH.handleArgTypes fhandle
-            let fret    = FH.handleReturnType fhandle
-            cexps <- zipWithM coerceArg args (zip (map M.typeOf cargs) exps)
-            exp_to_assgn cexps $ \ctx asgn -> do
-              case (testEquality ctx fargctx) of
-                Just Refl -> do
-                  ret_e <- G.call (S.app $ E.HandleLit fhandle) asgn
-                  cret_e <- coerceRet ret ((M.typeOf dest_lv), MirExp fret ret_e)
-                  assignLvExp dest_lv Nothing cret_e
-                  jumpToBlock jdest
-                _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
+            tyListToCtx (Maybe.catMaybes funsubst) $ \tyargs -> do
+              let fargctx = FH.handleArgTypes fhandle
+              let fret    = FH.handleReturnType fhandle
+              let ifargctx = CT.instantiateCtxRepr tyargs fargctx
+              let ifret    = CT.instantiateRepr    tyargs fret
+            -- cexps <- zipWithM coerceArg args (zip (map M.typeOf cargs) exps)
+              exp_to_assgn exps $ \ctx asgn -> do
+                case (testEquality ctx ifargctx) of
+                  Just Refl -> do
+                    let polyfcn  = R.App $ E.PolyHandleLit fhandle
+                    let polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr fargctx fret) polyfcn tyargs
+                    ret_e <- G.call polyinst asgn
+--                    cret_e <- coerceRet ret ((M.typeOf dest_lv), MirExp fret ret_e)
+                    assignLvExp dest_lv Nothing (MirExp ifret ret_e)
+                    jumpToBlock jdest
+                  _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
                                  ++ show fargctx ++ "\n while calling " ++ show funid
 
          | otherwise -> fail $ "Don't know how to call " ++ show (pretty funid)
@@ -1396,16 +1424,23 @@ doCall funid funsubst cargs cdest retRepr = do
                    text "with type parameters: ", pretty funsubst])
 
             exps <- mapM evalOperand cargs
-            let fargctx = FH.handleArgTypes fhandle
-            let fret    = FH.handleReturnType fhandle
-            cexps <- zipWithM coerceArg args (zip (map M.typeOf cargs) exps)
-            exp_to_assgn cexps $ \ctx asgn -> do
-              case (testEquality ctx fargctx) of
-                (Just Refl) -> do
-                     _ <- G.call (S.app $ E.HandleLit fhandle) asgn
-                     G.reportError (S.app $ E.TextLit "Program terminated with exit:")
+            tyListToCtx (Maybe.catMaybes funsubst) $ \tyargs -> do
 
-                _ -> fail $ "type error in call: args " ++ (show ctx)   ++ " vs function params " ++ show fargctx 
+              let fargctx = FH.handleArgTypes fhandle
+              let fret    = FH.handleReturnType fhandle
+              let ifargctx = CT.instantiateCtxRepr tyargs fargctx
+
+--            cexps <- zipWithM coerceArg args (zip (map M.typeOf cargs) exps)
+              exp_to_assgn exps $ \ctx asgn -> do
+                case (testEquality ctx ifargctx) of
+                  (Just Refl) -> do
+                       let polyfcn  = R.App $ E.PolyHandleLit fhandle
+                       let polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr fargctx fret) polyfcn tyargs
+
+                       _ <- G.call polyinst asgn
+                       G.reportError (S.app $ E.TextLit "Program terminated with exit:")
+
+                  _ -> fail $ "type error in call: args " ++ (show ctx)   ++ " vs function params " ++ show fargctx 
                                  ++ "\n expected ret " ++ show retRepr  ++ " vs function ret " ++ show fret
                                  ++ "\n while calling " ++ show funid
 
@@ -1647,7 +1682,7 @@ buildTraitMap col halloc hmap = do
         impls = Maybe.mapMaybe (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
 
     --traceM $ ("\ndecls dom: " ++ show decls)
-    --traceM $ ("\nimpls are:" ++ show impls)
+    --traceM $ ("\nimpls are:" ++ show (vcat (map pretty impls)))
 
     let tmEntry (x,_) = x
     let cfgEntry (_,x) = x
@@ -1729,8 +1764,14 @@ mkTraitDecl (M.Trait _tname titems) = do
          -> Some (Ctx.Assignment MethRepr)
       go (Some tr) (mname, M.FnSig argtys retty) =
           case (tyToRepr retty, tyListToCtx argtys Some) of
-                (Some retrepr, Some argsrepr) ->
-                   Some (tr `Ctx.extend` MethRepr mname (CT.FunctionHandleRepr argsrepr retrepr))
+                (Some retrepr, Some (rest Ctx.:> CT.VarRepr _)) ->
+                   Some (tr `Ctx.extend` MethRepr mname (CT.FunctionHandleRepr (rest Ctx.:> CT.AnyRepr) retrepr))
+                (Some retrepr, Some (rest Ctx.:> ty)) ->
+                   -- TODO: maybe we should just skip these instead of throwing an error?
+                   error $ "all methods in a trait declaration must have first arg type Self, found " ++ show ty ++ " instead."
+                (Some retrepr, Some Ctx.Empty) ->
+                   error $ "all methods in a trait declaration must take arguments"
+
 
   case foldl go (Some Ctx.empty) meths of
     Some (mctxr :: Ctx.Assignment MethRepr ctx) ->
@@ -1769,6 +1810,8 @@ lookupMethodType traitDecls traitName implName k
        fn g (&self) { 4 }
     }
 
+    ==>
+
     f (x : A) { 3 }
 
     wrapped_f (Dyn x) -> u32 = 
@@ -1782,7 +1825,7 @@ lookupMethodType traitDecls traitName implName k
 -}
 
 
-data WrappedMethod ty =
+data WrappedMethod ty = 
     WrappedMethod { wmImplName      :: MethName
                   , wmImplHandle    :: MirHandle
                   , wmWrappedName   :: Text
@@ -1790,7 +1833,7 @@ data WrappedMethod ty =
                   }
 buildWrappedTraitMethods :: forall s ctx. HasCallStack => FH.HandleAllocator s
                         -> TraitName
-                        -> TraitDecl ctx
+                        -> TraitDecl ctx                 
                         -> [(MethName, MirHandle)]       -- impls for that type, must be in correct order
                         -> ST s (Ctx.Assignment MirValue ctx, [(Text,Core.AnyCFG MIR)])
 buildWrappedTraitMethods halloc traitName (TraitDecl ctxr _idxs) meths = do
@@ -1809,10 +1852,10 @@ buildWrappedTraitMethods halloc traitName (TraitDecl ctxr _idxs) meths = do
 
    -- bind functions to go with those handles
    let defineCFG :: forall ty. WrappedMethod ty -> ST s (Text,Core.AnyCFG MIR)
-       defineCFG (WrappedMethod _implName   (MirHandle _ _sig (implHandle :: FH.FnHandle implArgs implRet))
+       defineCFG (WrappedMethod implName   (MirHandle _ _sig (implHandle :: FH.FnHandle implArgs implRet))
                                 wrappedName (FnValue (handle :: FH.FnHandle args ret))) = do
 
-         --traceM ("\n wrapping " ++ Text.unpack implName ++ show (FH.handleArgTypes implHandle))
+         -- traceM ("\n wrapping " ++ Text.unpack implName ++ show (FH.handleArgTypes implHandle))
          let argsr = FH.handleArgTypes   handle
          let retr  = FH.handleReturnType handle
          -- make sure that there is at least one argument to the function
@@ -1821,7 +1864,9 @@ buildWrappedTraitMethods halloc traitName (TraitDecl ctxr _idxs) meths = do
            Ctx.Empty -> error "methods must take self"
            (rest Ctx.:> argr) -> case testEquality (CT.FunctionHandleRepr (rest Ctx.:> CT.AnyRepr) (FH.handleReturnType implHandle))
                                                    (CT.FunctionHandleRepr argsr retr) of
-              Nothing   -> error "types don't match"
+              Nothing   -> error $ "types don't match for:" ++ show implName
+                                 ++ "\ncomparing:  " ++ show (CT.FunctionHandleRepr (rest Ctx.:> CT.AnyRepr) (FH.handleReturnType implHandle))
+                                 ++ " with "  ++ show (CT.FunctionHandleRepr argsr retr)
               Just Refl -> do
 
                  -- type of trait implementation
@@ -2113,12 +2158,12 @@ doCustomCall fname funsubst ops lv dest
              --      of the actual arguments (from the funsubst) and returns type rty
              -- and an environment of type "Any
              -- TODO: check multiarguments and make this bit more robust
-             
+
              tyToReprCont rty $ \rr -> 
                tyToReprCont aty $ \(CT.StructRepr r2) ->  do
                  let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
                  let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
-                 unpackAny (Some (CT.StructRepr t)) arg
+                 unpackAny (Some (CT.StructRepr t)) arg 
 
          -- this case is the same as the above
          unpackClosure (M.TyDynamic _id)    rty  arg   = do

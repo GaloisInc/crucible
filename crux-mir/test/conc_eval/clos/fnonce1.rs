@@ -1,4 +1,6 @@
-
+/*
+ where clauses are currently unsupported
+*/
 
 fn call_with_one<F>(some_closure: F) -> i32
     where F: FnOnce(i32) -> i32 {

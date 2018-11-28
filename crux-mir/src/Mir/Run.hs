@@ -126,10 +126,13 @@ extractFromCFGPure setup proxy sc cfg = do
     print $ "Type of h " ++ show (C.handleArgTypes h) ++ " -> " ++ show (C.handleReturnType h)
     print $ "Length of ecs is " ++ show (length ecs)
     let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl C.SAWCruciblePersonality
-        simst  = C.initSimState simctx C.emptyGlobals C.defaultAbortHandler
+        --simst  = C.initSimState simctx C.emptyGlobals C.defaultAbortHandler
         osim   = do setup
                     C.regValue <$> C.callCFG cfg args
-    res <- C.executeCrucible simst $ C.runOverrideSim (C.handleReturnType h) osim
+        --rosim :: C.ExecCont _ Sym MIR _ _ _ 
+        rosim  = C.runOverrideSim (C.handleReturnType h) osim
+
+    res <- C.executeCrucible [] (C.InitialState simctx C.emptyGlobals C.defaultAbortHandler rosim)
     case res of
       C.FinishedResult _ pr -> do
           gp <- case pr of

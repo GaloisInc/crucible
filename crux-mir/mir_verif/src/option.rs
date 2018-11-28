@@ -68,14 +68,14 @@ pub mod option {
          */
         
 // CAN't handle static string        
-/*        #[inline]
+        #[inline]
         pub fn unwrap(self) -> T {
             match self {
                 Some(val) => val,
                 None => panic!("called `Option::unwrap()` on a `None` value"),
             }
         }
-*/
+
         #[inline]    
         pub fn unwrap_or(self, def: T) -> T {
             match self {
@@ -107,13 +107,13 @@ pub mod option {
                 None => default,
             }
         }
-        #[inline]
+/*        #[inline]
         pub fn map_or_else<U, D: FnOnce() -> U, F: FnOnce(T) -> U>(self, default: D, f: F) -> U {
             match self {
                 Some(t) => f(t),
                 None => default(),
             }
-        }
+        } */
 
         #[inline]
         pub fn ok_or<E>(self, err: E) -> Result<T, E> {
@@ -168,13 +168,13 @@ pub mod option {
         /// assert_eq!(Some(2).and_then(nope).and_then(sq), None);
         /// assert_eq!(None.and_then(sq).and_then(sq), None);
         /// ```
-        #[inline]
+/*        #[inline]
         pub fn and_then<U, F: FnOnce(T) -> Option<U>>(self, f: F) -> Option<U> {
             match self {
                 Some(x) => f(x),
                 None => None,
             }
-        } 
+        } */
 
         /// Returns `None` if the option is `None`, otherwise calls `predicate`
         /// with the wrapped value and returns:
@@ -198,7 +198,7 @@ pub mod option {
         /// assert_eq!(Some(3).filter(is_even), None);
         /// assert_eq!(Some(4).filter(is_even), Some(4));
         /// ```
-        #[inline]
+/*        #[inline]
         pub fn filter<P: FnOnce(&T) -> bool>(self, predicate: P) -> Self {
             if let Some(x) = self {
                 if predicate(&x) {
@@ -207,7 +207,7 @@ pub mod option {
             }
             None
         }
-
+*/
       
         #[inline]
         
@@ -217,7 +217,7 @@ pub mod option {
                 None => optb,
             }
         }
-
+/*
         /// Returns the option if it contains a value, otherwise calls `f` and
         /// returns the result.
         ///
@@ -238,7 +238,7 @@ pub mod option {
                 Some(_) => self,
                 None => f(),
             }
-        } 
+        } */
 
     }
 }
