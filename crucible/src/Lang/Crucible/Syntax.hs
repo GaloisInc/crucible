@@ -319,7 +319,7 @@ vecReplicate n v = app (VectorReplicate knownRepr n v)
 ------------------------------------------------------------------------
 -- Handles
 
-instance LitExpr e (FunctionHandleType args ret) (FnHandle args ret) where
+instance (Closed args, Closed ret) => LitExpr e (FunctionHandleType args ret) (FnHandle args ret) where
   litExpr h = app (HandleLit h)
 
 closure :: ( IsExpr e

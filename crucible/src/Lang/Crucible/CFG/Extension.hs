@@ -86,9 +86,9 @@ class
    , PrettyApp (StmtExtension ext)
    , TypeApp (StmtExtension ext)
    , InstantiateFC (StmtExtension ext)
-   , ClosedFC (ExprExtension ext)
-   , ClosedFC (StmtExtension ext)
-   , ClosedType ext
+   , Closed (ExprExtension ext)
+   , Closed (StmtExtension ext)
+   , Closed ext
    ) =>
    IsSyntaxExtension ext where
 
@@ -132,8 +132,8 @@ instance TypeApp EmptyExprExtension where
   appType = \case
 instance InstantiateFC EmptyExprExtension where
   instantiateFC _  = \case
-instance ClosedFC EmptyExprExtension where
-  closedFC _ = Refl    
+instance Closed EmptyExprExtension where
+  closed _ = Refl    
 
 instance ShowFC EmptyStmtExtension where
   showsPrecFC _ _ = \case
@@ -155,7 +155,7 @@ instance TypeApp EmptyStmtExtension where
   appType = \case
 instance InstantiateFC EmptyStmtExtension where
   instantiateFC _  = \case
-instance ClosedFC EmptyStmtExtension where
-  closedFC _ = Refl    
+instance Closed EmptyStmtExtension where
+  closed _ = Refl    
 
 instance IsSyntaxExtension () where

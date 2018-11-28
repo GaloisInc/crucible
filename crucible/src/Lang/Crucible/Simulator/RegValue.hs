@@ -139,7 +139,7 @@ instantiateFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::F
     Refl <- composeInstantiateAxiom @subst @subst' @r
   = InstantiatedHandleFnVal (instantiateCtxRepr subst subst') h
 instantiateFnVal subst (ClosureFnVal fnv (ty :: TypeRepr ty) argty)
-  | Refl <- closed @ty (Proxy :: Proxy subst) 
+  | Refl <- closed @_ @ty subst
   = ClosureFnVal (instantiateFnVal subst fnv) ty argty
 
 
