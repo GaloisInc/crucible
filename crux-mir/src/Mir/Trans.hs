@@ -333,7 +333,7 @@ transBinOp bop op1 op2 = do
             (Just Refl, M.Le, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSle n e1 e2)
             (Just Refl, M.Ne, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
             (Just Refl, M.Beq, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVEq n e1 e2)
-            _ -> fail "bad binop"
+            (a, b, _) -> fail ("bad binop: " ++ show a ++ " " ++ show b)
       (MirExp CT.BoolRepr e1, MirExp CT.BoolRepr e2) ->
           case bop of
             M.BitAnd -> return $ MirExp CT.BoolRepr (S.app $ E.And e1 e2)
@@ -458,7 +458,7 @@ extendUnsignedBV (MirExp tp e) b =
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 64)) (S.app $ E.BVZext (knownNat :: NatRepr 64) n e)
       (CT.BVRepr n, M.B128) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 128) ->
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVZext (knownNat :: NatRepr 128) n e)
-      _ -> fail "unimplemented unsigned bvext"
+      _ -> fail ("unimplemented unsigned bvext: " ++ show tp ++ "  " ++ show b)
 
 extendSignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
 extendSignedBV (MirExp tp e) b =
@@ -471,7 +471,7 @@ extendSignedBV (MirExp tp e) b =
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 64)) (S.app $ E.BVSext (knownNat :: NatRepr 64) n e)
       (CT.BVRepr n, M.B128) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 128) ->
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVSext (knownNat :: NatRepr 128) n e)
-      _ -> fail "unimplemented unsigned bvext"
+      _ -> fail "unimplemented signed bvext"
 
 
 evalCast' :: M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
