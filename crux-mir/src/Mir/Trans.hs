@@ -452,12 +452,20 @@ extendUnsignedBV (MirExp tp e) b =
     case (tp, b) of
       (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 16) ->
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 16)) (S.app $ E.BVZext (knownNat :: NatRepr 16) n e)
+      (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (knownNat :: NatRepr 17) n ->
+                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 16)) (S.app $ E.BVTrunc (knownNat :: NatRepr 16) n e)
       (CT.BVRepr n, M.B32) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 32) ->
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 32)) (S.app $ E.BVZext (knownNat :: NatRepr 32) n e)
+      (CT.BVRepr n, M.B32) | Just LeqProof <- testLeq (knownNat :: NatRepr 33) n ->
+                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 32)) (S.app $ E.BVTrunc (knownNat :: NatRepr 32) n e)
       (CT.BVRepr n, M.B64) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 64) ->
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 64)) (S.app $ E.BVZext (knownNat :: NatRepr 64) n e)
+      (CT.BVRepr n, M.B64) | Just LeqProof <- testLeq (knownNat :: NatRepr 65) n ->
+                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 64)) (S.app $ E.BVTrunc (knownNat :: NatRepr 64) n e)
       (CT.BVRepr n, M.B128) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 128) ->
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVZext (knownNat :: NatRepr 128) n e)
+      (CT.BVRepr n, M.B128) | Just LeqProof <- testLeq (knownNat :: NatRepr 129) n ->
+                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVTrunc (knownNat :: NatRepr 128) n e)
       _ -> fail ("unimplemented unsigned bvext: " ++ show tp ++ "  " ++ show b)
 
 extendSignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
