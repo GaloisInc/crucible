@@ -57,6 +57,7 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.Types
 
+import           Unsafe.Coerce (unsafeCoerce)
 
 -- | Data kind for representing LLVM architectures.
 --   Currently only X86 variants are supported.

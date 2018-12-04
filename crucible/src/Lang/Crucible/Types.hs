@@ -46,17 +46,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE InstanceSigs #-}
-<<<<<<< HEAD
 {-# LANGUAGE DefaultSignatures #-}
-
-=======
-
-<<<<<<< HEAD
 {-# LANGUAGE IncoherentInstances #-}
->>>>>>> Added type classes in support of substitution through syntax extension.
-=======
-
->>>>>>> clean up.
 
 module Lang.Crucible.Types
   ( -- * CrucibleType data kind
@@ -92,29 +83,11 @@ module Lang.Crucible.Types
   , VarType
   , PolyFnType
   , Closed(..)
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
   , ClosedCtx(..)
   , ClosedType(..)
   , ClosedF(..)
   , ClosedFC(..)
   , ClosedBaseType(..)
-=======
---  , ClosedCtx(..)
---  , ClosedType(..)
---  , ClosedF(..)
---  , ClosedFC(..)
---  , ClosedBaseType(..)
->>>>>>> clean up.
-  , instantiateRepr
-  , instantiateCtxRepr
->>>>>>> Added type classes in support of substitution through syntax extension.
-=======
---  , instantiateRepr
---  , instantiateCtxRepr
->>>>>>> cp. some clean up
   , Instantiate
   , InstantiateF(..)
   , InstantiateFC(..)
@@ -127,7 +100,6 @@ module Lang.Crucible.Types
   , instantiateTypeEmpty
   , instantiateCtxEmpty
 
-
     -- * IsRecursiveType
   , IsRecursiveType(..)
 
@@ -137,8 +109,6 @@ module Lang.Crucible.Types
 
   , AsBaseType(..)
   , asBaseType
-
-
 
     -- * Other stuff
   , CtxRepr
@@ -207,18 +177,10 @@ import           Unsafe.Coerce (unsafeCoerce)
 class IsRecursiveType (nm::Symbol) where
   type UnrollType nm (ctx :: Ctx CrucibleType) :: CrucibleType
   unrollType   :: SymbolRepr nm -> CtxRepr ctx -> TypeRepr (UnrollType nm ctx)
-<<<<<<< HEAD
 
   eqInstUnroll :: proxy subst
                -> Instantiate subst (UnrollType nm ctx) :~: UnrollType nm (Instantiate subst ctx)
   eqInstUnroll _ = error "eqInstUnroll: use of instantiate requires proof"
-=======
-  -- We need to know that the rhs of UnrollType does not include any 
-  -- type variables that were not already present in the ctx argument.
-  -- This is equivalent to adding a constraint "Closed (UnrollType nm)",
-  -- but we cannot partially apply the type family.
-  eqInstUnroll :: proxy subst -> Instantiate subst (UnrollType nm ctx) :~: UnrollType nm (Instantiate subst ctx)
->>>>>>> clean up.
 
 type CtxRepr = Ctx.Assignment TypeRepr
 
@@ -530,7 +492,6 @@ pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
 
 
 ------------------------------------------------------------------------
-<<<<<<< HEAD
 -- | Classes and type families for polymorphism
 
   
@@ -543,33 +504,16 @@ class Closed (t :: k) where
   closed = error "closed: must define closed to use instantiation"
 
 -- | Use a 'Ctx' of types to fill in the type variables 0 .. n occurring in a type
-=======
--- | Classes and type families polymorphism
-
--- This is a property of the Instantiate function below. However, Haskell's type system
--- is too weak to prove it automatically. (And we don't want to run any proofs either.)
--- Maybe a quantified constraint would help?
-composeInstantiateAxiom :: forall subst subst1 x.
-  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
-composeInstantiateAxiom = unsafeCoerce Refl
-
-
--- | Use a list of types to fill in the type variables 0 .. n occurring in a type
--- If there are not enough types in this substitution, this function will produce a
--- type error --- all type variables in a type must be instantiated at once.
->>>>>>> clean up.
 type family Instantiate  (subst :: Ctx CrucibleType) (v :: k) :: k
 
 -- | Class of types and types that support instantiation
 class InstantiateType (ty :: Type) where
   instantiate :: CtxRepr subst -> ty -> Instantiate subst ty
+  default instantiate :: Closed ty => CtxRepr subst -> ty -> Instantiate subst ty
+  instantiate subst | Refl <- closed @_ @ty subst = id
 
-<<<<<<< HEAD
 -- | Defines instantiation for SyntaxExtension (must create an instance of this
 -- class, but instance can be trivial if polymorphism is not used.
-=======
--- | These two classes are necessary to allow syntax extensions
->>>>>>> clean up.
 class InstantiateF (t :: k -> Type) where
   instantiateF :: CtxRepr subst -> t a -> (Instantiate subst t) (Instantiate subst a)
   instantiateF _ _ = error "instantiateF: must be defined to use polymorphism"
@@ -579,24 +523,6 @@ class InstantiateFC (t :: (k -> Type) -> l -> Type) where
   instantiateFC :: InstantiateF a => CtxRepr subst -> t a b -> Instantiate subst (t a b)
   instantiateFC _ _ = error "instantiateFC: must be defined to use polymorphism"
 
-<<<<<<< HEAD
-  
-
-
--- Types that are statically known to be closed can benefit from the following
--- default definitions for InstantiateType, InstantiateF and InstantiateFC
-=======
--- | Types that do not contain any free type variables. If they are closed
--- then we know that instantiation does nothing.
--- The proxy allows us to specify the 'subst' argument without using a type
--- application.
-class Closed (t :: k) where
-  closed     :: proxy subst -> Instantiate subst t :~: t
-
-
-------------------------------------------------------------------------
--- Misc typeclass instances
->>>>>>> clean up.
 
 closedInstantiate :: forall ty subst. Closed ty => CtxRepr subst -> ty -> Instantiate subst ty
 closedInstantiate subst | Refl <- closed @_ @ty subst = id
@@ -662,40 +588,18 @@ instance OrdF TypeRepr where
 
 
 ----------------------------------------------------------------
-<<<<<<< HEAD
 
 -- "Closed" instances
-=======
--- Closed type instances
-
->>>>>>> clean up.
 
 instance Closed (b :: BaseType) where
   closed _ = unsafeCoerce Refl -- don't want to do a runtime case analysis
 instance Closed (ctx :: Ctx BaseType) where
   closed _ = unsafeCoerce Refl  -- don't want to do induction over the list
 
-<<<<<<< HEAD
 -- k = Type
 instance Closed (BaseTypeRepr b :: Type) where
   closed p | Refl <- closed @_ @b p = Refl 
 instance Closed () where closed _ = Refl
-  
-=======
-
--- k = Type
--- NOTE: closed is polykinded so first specified type argument is k
--- and the second is t
-instance Closed (BaseTypeRepr b) where
-  closed p | Refl <- closed @_ @b p = Refl
-instance Closed () where closed _ = Refl
-
-  
-<<<<<<< HEAD
-
->>>>>>> clean up.
-=======
->>>>>>> cp. some clean up
 -- k = CrucibleType  
 instance Closed (BaseToType b) where closed _ = Refl
 instance Closed AnyType where closed _ = Refl
@@ -735,7 +639,6 @@ instance (Closed ty, Closed ctx) => Closed (ctx ::> ty)
  where
     closed p | Refl <- closed @_ @ctx p, Refl <- closed @_ @ty p = Refl
          
-<<<<<<< HEAD
 
 newtype Gift a r = Gift (Closed a => r)
 
@@ -753,16 +656,6 @@ assumeClosed k = unsafeCoerce (Gift k :: Gift a b)
 composeInstantiateAxiom :: forall subst subst1 x.
   Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
 composeInstantiateAxiom = unsafeCoerce Refl
-<<<<<<< HEAD
-
--- TypeCon apps
-=======
-=======
->>>>>>> cp. some clean up
-  
---------------------------------------------------------------------------------
--- Instantiate instances
->>>>>>> clean up.
 
 instance (InstantiateF t) => InstantiateType (t a) where
   instantiate = instantiateF
@@ -827,29 +720,6 @@ type instance Instantiate subst (IntrinsicType sym ctx) = IntrinsicType sym (Ins
 type instance Instantiate subst (StringMapType ty) = StringMapType (Instantiate subst ty)
 type instance Instantiate subst (VarType i) = LookupVarType i subst (VarType i)
 type instance Instantiate subst (PolyFnType args ret) = PolyFnType args ret
-<<<<<<< HEAD
-=======
-  -- k = Ctx k'
-type instance Instantiate subst EmptyCtx = EmptyCtx
-type instance Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
-
--- For empty syntax extensions
-type instance Instantiate subst () = ()
-type instance Instantiate subst (a b :: Type) = (Instantiate subst a) (Instantiate subst b)
-type instance Instantiate subst (a b :: k -> Type) = (Instantiate subst a) (Instantiate subst b)
-type instance Instantiate subst (a b :: k -> l -> Type) = (Instantiate subst a) (Instantiate subst b)
-
-
-<<<<<<< HEAD
-type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) :: CrucibleType
-type instance LookupVarType n (ctx ::> ty) = If (n <=? 0) ty (LookupVarType (n - 1) ctx)
-type instance LookupVarType n EmptyCtx     = TypeError ('Text "Invalid index in LookupVar")
->>>>>>> clean up.
-=======
-type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) (def :: CrucibleType) :: CrucibleType
-type instance LookupVarType n (ctx ::> ty) def = If (n <=? 0) ty (LookupVarType (n - 1) ctx def)
-type instance LookupVarType n EmptyCtx     def = def
->>>>>>> cp. some clean up
 
 -- helper definition for VarType instance
 type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) (def :: CrucibleType) :: CrucibleType
