@@ -47,6 +47,8 @@ import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
 
+import           Unsafe.Coerce (unsafeCoerce)
+
 newtype GlobalSymbol = GlobalSymbol L.Symbol
   deriving (Typeable, Eq, Ord, Show)
 
@@ -91,7 +93,7 @@ instance IsRecursiveType "LLVM_pointer" where
   type UnrollType "LLVM_pointer" ctx = LLVMPointerImpl ctx
   unrollType _nm (Empty :> (BVRepr w)) = StructRepr (Empty :> NatRepr :> BVRepr w)
   unrollType nm ctx = typeError nm ctx
-
+  eqInstUnroll _p = unsafeCoerce Refl
 
 -- | This pattern synonym makes it easy to build and destruct runtime
 --   representatives of @'LLVMPointerType' w@.
@@ -110,3 +112,5 @@ pattern PtrRepr = LLVMPointerRepr PtrWidth
 --   that are of the distinguished pointer width.
 pattern SizeT :: HasPtrWidth wptr => (ty ~ BVType wptr) => TypeRepr ty
 pattern SizeT = BVRepr PtrWidth
+
+

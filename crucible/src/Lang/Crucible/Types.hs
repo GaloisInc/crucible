@@ -46,6 +46,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE DefaultSignatures #-}
+
 
 
 
@@ -83,14 +85,11 @@ module Lang.Crucible.Types
   , VarType
   , PolyFnType
   , Closed(..)
---  , instantiateRepr
---  , instantiateCtxRepr
   , Instantiate
   , InstantiateF(..)
   , InstantiateFC(..)
   , InstantiateType(..)
   , composeInstantiateAxiom
-
 
     -- * IsRecursiveType
   , IsRecursiveType(..)
@@ -101,8 +100,6 @@ module Lang.Crucible.Types
 
   , AsBaseType(..)
   , asBaseType
-
-
 
     -- * Other stuff
   , CtxRepr
@@ -499,13 +496,26 @@ type family Instantiate  (subst :: Ctx CrucibleType) (v :: k) :: k
 -- | Class of types and types that support instantiation
 class InstantiateType (ty :: Type) where
   instantiate :: CtxRepr subst -> ty -> Instantiate subst ty
+  default instantiate :: Closed ty => CtxRepr subst -> ty -> Instantiate subst ty
+  instantiate subst | Refl <- closed @_ @ty subst = id
 
 -- | These two classes are necessary to allow syntax extensions
 class InstantiateF (t :: k -> Type) where
-  instantiateF :: CtxRepr subst -> t a -> Instantiate subst (t a)
+  instantiateF :: CtxRepr subst -> t a -> (Instantiate subst t) (Instantiate subst a)
+  default instantiateF :: (Closed t, Closed a) => CtxRepr subst -> t a -> (Instantiate subst t) (Instantiate subst a)
+  instantiateF subst = go subst where
+    go :: forall t0 a subst. (Closed t0, Closed a) => CtxRepr subst -> t0 a -> (Instantiate subst t0) (Instantiate subst a)
+    go s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s = id
+  
 class InstantiateFC (t :: (k -> Type) -> l -> Type) where
-  instantiateFC :: InstantiateF a => CtxRepr subst -> t a b -> Instantiate subst (t a b)
+  instantiateFC :: InstantiateF a => CtxRepr subst -> t a b -> (Instantiate subst t) (Instantiate subst a) (Instantiate subst b)
+  default instantiateFC :: (Closed t, Closed a, Closed b, InstantiateF a) => CtxRepr subst -> t a b -> (Instantiate subst t) (Instantiate subst a) (Instantiate subst b)
+  instantiateFC subst = go subst where
+    go ::  forall t0 a b subst. (Closed t0, Closed a, Closed b, InstantiateF a) => CtxRepr subst -> t0 a b -> (Instantiate subst t0) (Instantiate subst a) (Instantiate subst b)
+    go s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s, Refl <- closed @_ @b s = id
+  
 
+  
 -- | Types that do not contain any free type variables. If they are closed
 -- then we know that instantiation does nothing.
 -- The proxy allows us to specify the 'subst' argument without using a type

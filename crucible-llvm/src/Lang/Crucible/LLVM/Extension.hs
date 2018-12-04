@@ -6,6 +6,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE IncoherentInstances #-}
 
 -----------------------------------------------------------------------
 -- |
@@ -52,6 +57,7 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import qualified Lang.Crucible.LLVM.MemModel.Type as G
 import           Lang.Crucible.LLVM.Types
 
+import           Unsafe.Coerce (unsafeCoerce)
 
 -- | Data kind for representing LLVM architectures.
 --   Currently only X86 variants are supported.
@@ -315,3 +321,10 @@ instance TraversableFC (LLVMStmt wptr) where
     $(U.structuralTraversal [t|LLVMStmt|] [])
 
 instance (1 <= ArchWidth arch) => IsSyntaxExtension (LLVM arch)
+
+-- LLVM does not use polymorphism
+instance Closed (a :: k) where
+  closed _ = unsafeCoerce Refl
+instance InstantiateFC (LLVMExtensionExpr arch) where
+instance InstantiateFC (LLVMStmt arch) where
+
