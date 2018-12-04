@@ -394,12 +394,18 @@ arrayEltPartLLVMVal ::
   Word64 -> G.Type -> Word64 ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
+arrayEltPartLLVMVal sz tp idx (PE p (LLVMValZero _))
+  | 0 <= idx
+  , idx < sz =
+    return $ PE p (LLVMValZero tp)
+
 arrayEltPartLLVMVal sz tp idx (PE p (LLVMValArray tp' vec))
   | sz == fromIntegral (V.length vec)
   , 0 <= idx
   , idx < sz
   , tp == tp' =
     return $ PE p (vec V.! fromIntegral idx)
+
 arrayEltPartLLVMVal _ _ _ _ = return Unassigned
 
 -- | Look up a field in a partial LLVM struct value.
@@ -407,11 +413,17 @@ fieldValPartLLVMVal ::
   (Vector (G.Field G.Type)) -> Int ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
+fieldValPartLLVMVal flds idx (PE p (LLVMValZero _))
+  | 0 <= idx
+  , idx < V.length flds =
+      return $ PE p $ LLVMValZero $ view G.fieldVal $ flds V.! idx
+
 fieldValPartLLVMVal flds idx (PE p (LLVMValStruct vec))
   | flds == fmap fst vec
   , 0 <= idx
   , idx < V.length vec =
     return $ PE p $ snd $ (vec V.! idx)
+
 fieldValPartLLVMVal _ _ _ = return Unassigned
 
 -- | Mux partial LLVM values.
