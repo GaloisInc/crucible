@@ -1098,8 +1098,7 @@ generateInstr retType lab instr assign_f k =
     L.LandingPad _ _ _ _ ->
       reportError "FIXME landingPad not implemented"
 
-    L.Alloca tp num _align -> do
-      -- ?? FIXME assert that the alignment value is appropriate...
+    L.Alloca tp num align -> do
       tp' <- liftMemType' tp
       let dl = llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
@@ -1115,7 +1114,20 @@ generateInstr retType lab instr assign_f k =
                             do x' <- pointerAsBitvectorExpr w x
                                return $ app $ BVMul PtrWidth x' tp_sz'
                      _ -> fail $ "Invalid alloca argument: " ++ show num
-      p <- callAlloca sz
+
+      alignment <-
+       case align of
+         Just a | a > 0 ->
+           case toAlignment (G.toBytes a) of
+             Nothing -> fail $ "Invalid alignment value in alloca: " ++ show a
+             Just al ->
+               do unless (memTypeAlign dl tp' <= al)
+                         (fail $ "Specified alignment: " ++ show a ++ "\n  " ++
+                                 "insufficent for type: " ++ show tp)
+                  return al
+         _ -> return (memTypeAlign dl tp')
+
+      p <- callAlloca sz alignment
       assign_f (BaseExpr (LLVMPointerRepr PtrWidth) p)
       k
 

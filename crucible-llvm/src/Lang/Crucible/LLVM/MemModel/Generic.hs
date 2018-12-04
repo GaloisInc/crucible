@@ -104,8 +104,9 @@ data WriteSource sym w
   = MemCopy (LLVMPtr sym w) (SymBV sym w)
     -- | @MemSet val len@ fills the destination with @len@ copies of byte @val@.
   | MemSet (SymBV sym 8) (SymBV sym w)
-    -- | @MemStore val ty@ writes value @val@ with type @ty@ at the destination.
-  | MemStore (LLVMVal sym) Type
+    -- | @MemStore val ty al@ writes value @val@ with type @ty@ at the destination.
+    --   with alignment at least @al@.
+  | MemStore (LLVMVal sym) Type Alignment
 
 data MemWrite sym
     -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
@@ -409,10 +410,11 @@ readMemStore ::
   LLVMVal sym   {- ^ The value that was stored          -} ->
   Type          {- ^ The type of value that was written -} ->
   Alignment     {- ^ The alignment of the pointer we are reading from -} ->
+  Alignment     {- ^ The alignment of the store from which we are reading -} ->
   (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym))
   {- ^ A callback function for when reading fails -} ->
   IO (PartLLVMVal sym)
-readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign readPrev =
+readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign readPrev =
   do ssz <- bvLit sym w (bytesToInteger (typeSize stp))
      let varFn = (off, d, ssz)
      let ld = asUnsignedBV off
@@ -437,14 +439,6 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign readPrev =
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
-            let ctz :: Integer -> Alignment
-                ctz x | x == 0 = 64 -- maximum alignment (will be clamped to loadAlign)
-                      | odd x = 0
-                      | otherwise = 1 + ctz (x `div` 2)
-            let storeAlign =
-                  case dd of
-                    Just x -> ctz x
-                    _      -> 0
             let align' = min loadAlign storeAlign
             evalMuxValueCtor sym w end varFn subFn $
               symbolicValueLoad pref ltp (ValueViewVar stp) align'
@@ -540,7 +534,7 @@ readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
                           case wsrc of
                             MemCopy src sz -> readMemCopy sym w end l tp d src sz readPrev
                             MemSet v sz    -> readMemSet sym w end l tp d v sz readPrev
-                            MemStore v stp -> readMemStore sym w end l tp d v stp alignment readPrev
+                            MemStore v stp storeAlign -> readMemStore sym w end l tp d v stp alignment storeAlign readPrev
                     sameBlock <- natEq sym blk1 blk2
                     case asConstantPred sameBlock of
                       Just True -> readCurrent
@@ -786,13 +780,16 @@ writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
          -> Type
+         -> Alignment
          -> LLVMVal sym
          -> Mem sym
          -> IO (Pred sym, Mem sym)
-writeMem sym w ptr tp v m =
+writeMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p <- isAllocatedMutable sym w ptr sz m
-     return (p, memAddWrite (MemWrite ptr (MemStore v tp)) m)
+     p1 <- isAllocatedMutable sym w ptr sz m
+     p2 <- isAligned sym w ptr alignment
+     p  <- andPred sym p1 p2
+     return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
 
 -- | Write a value to any memory region, mutable or immutable. The
 -- returned 'Pred' asserts that the pointer falls within an allocated
@@ -803,13 +800,14 @@ writeConstMem ::
   NatRepr w     ->
   LLVMPtr sym w ->
   Type          ->
+  Alignment     ->
   LLVMVal sym   ->
   Mem sym       ->
   IO (Pred sym, Mem sym)
-writeConstMem sym w ptr tp v m =
+writeConstMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p <- isAllocated sym w ptr sz m
-     return (p, memAddWrite (MemWrite ptr (MemStore v tp)) m)
+     return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
 
 -- | Perform a mem copy. The returned 'Pred' asserts that the source
 -- and destination pointers both fall within allocated memory regions.
@@ -843,29 +841,31 @@ setMem sym w ptr val sz m =
 allocMem :: AllocType -- ^ Type of allocation
          -> Natural -- ^ Block id for allocation
          -> SymBV sym w -- ^ Size
+         -> Alignment
          -> Mutability -- ^ Is block read-only
          -> String -- ^ Source location
          -> Mem sym
          -> Mem sym
-allocMem a b sz mut loc = memAddAlloc (Alloc a b sz mut loc)
+allocMem a b sz _alignment mut loc = memAddAlloc (Alloc a b sz mut loc) -- TODO, pay attention to alignment
 
 -- | Allocate and initialize a new memory region.
 allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> AllocType -- ^ Type of allocation
                  -> Natural -- ^ Block id for allocation
                  -> Type
+                 -> Alignment
                  -> Mutability -- ^ Is block read-only
                  -> String -- ^ Source location
                  -> LLVMVal sym -- ^ Value to write
                  -> Mem sym
                  -> IO (Mem sym)
-allocAndWriteMem sym w a b tp mut loc v m = do
+allocAndWriteMem sym w a b tp alignment mut loc v m = do
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPointer base off
   return (m & memAddAlloc (Alloc a b sz mut loc)
-            & memAddWrite (MemWrite p (MemStore v tp)))
+            & memAddWrite (MemWrite p (MemStore v tp alignment)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -1022,7 +1022,7 @@ ppWrite (MemWrite d (MemCopy s l)) = do
   text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
 ppWrite (MemWrite d (MemSet v l)) = do
   text "memset" <+> ppPtr d <+> printSymExpr v <+> printSymExpr l
-ppWrite (MemWrite d (MemStore v _)) = do
+ppWrite (MemWrite d (MemStore v _ _)) = do
   char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y

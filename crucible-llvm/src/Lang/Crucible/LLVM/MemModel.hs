@@ -259,13 +259,13 @@ evalStmt sym = eval
         let heap' = G.popStackFrameMem (memImplHeap mem)
         setMem mvar mem{ memImplHeap = heap' }
 
-  eval (LLVM_Alloca _w mvar (regValue -> sz) loc) =
+  eval (LLVM_Alloca _w mvar (regValue -> sz) alignment loc) =
      do mem <- getMem mvar
         blkNum <- liftIO $ nextBlock (memImplBlockSource mem)
         blk <- liftIO $ natLit sym (fromIntegral blkNum)
         z <- liftIO $ bvLit sym PtrWidth 0
 
-        let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz G.Mutable (show loc) (memImplHeap mem)
+        let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz alignment G.Mutable (show loc) (memImplHeap mem)
         let ptr = LLVMPointer blk z
 
         setMem mvar mem{ memImplHeap = heap' }
@@ -282,9 +282,9 @@ evalStmt sym = eval
        mem' <- liftIO $ doMemset sym PtrWidth mem ptr z len
        setMem mvar mem'
 
-  eval (LLVM_Store mvar (regValue -> ptr) tpr valType _alignment (regValue -> val)) =
+  eval (LLVM_Store mvar (regValue -> ptr) tpr valType alignment (regValue -> val)) =
      do mem <- getMem mvar
-        mem' <- liftIO $ doStore sym mem ptr tpr valType val
+        mem' <- liftIO $ doStore sym mem ptr tpr valType alignment val
         setMem mvar mem'
 
   eval (LLVM_LoadHandle mvar (regValue -> ptr) args ret) =
@@ -383,7 +383,7 @@ type GlobalMap sym = Map L.Symbol (SomePointer sym)
 -- pointers in the global map.
 allocGlobals :: (IsSymInterface sym, HasPtrWidth wptr)
              => sym
-             -> [(L.Global, Bytes)]
+             -> [(L.Global, Bytes, Alignment)]
              -> MemImpl sym
              -> IO (MemImpl sym)
 allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
@@ -391,13 +391,13 @@ allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
 allocGlobal :: (IsSymInterface sym, HasPtrWidth wptr)
             => sym
             -> MemImpl sym
-            -> (L.Global, Bytes)
+            -> (L.Global, Bytes, Alignment)
             -> IO (MemImpl sym)
-allocGlobal sym mem (g, sz) = do
+allocGlobal sym mem (g, sz, alignment) = do
   let symbol@(L.Symbol sym_str) = L.globalSym g
   let mut = if L.gaConstant (L.globalAttrs g) then G.Immutable else G.Mutable
   sz' <- bvLit sym PtrWidth (bytesToInteger sz)
-  (ptr, mem') <- doMalloc sym G.GlobalAlloc mut sym_str mem sz'
+  (ptr, mem') <- doMalloc sym G.GlobalAlloc mut sym_str mem sz' alignment
   return (registerGlobal mem' symbol ptr)
 
 -- | Add an entry to the global map of the given 'MemImpl'.
@@ -653,10 +653,11 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
   -> G.Type           {- ^ type of value to store -}
+  -> Alignment
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
-storeRaw sym mem ptr valType val = do
-    (p, heap') <- G.writeMem sym PtrWidth ptr valType val (memImplHeap mem)
+storeRaw sym mem ptr valType alignment val = do
+    (p, heap') <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
     let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
     assert sym p (AssertFailureSimError errMsg)
@@ -670,10 +671,11 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
   -> G.Type           {- ^ type of value to store -}
+  -> Alignment
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
-storeConstRaw sym mem ptr valType val = do
-    (p, heap') <- G.writeConstMem sym PtrWidth ptr valType val (memImplHeap mem)
+storeConstRaw sym mem ptr valType alignment val = do
+    (p, heap') <- G.writeConstMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
     let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
                  " at type " ++ show (G.ppType valType)
     assert sym p (AssertFailureSimError errMsg)
@@ -688,12 +690,13 @@ doStore ::
   LLVMPtr sym wptr {- ^ pointer to store into  -} ->
   TypeRepr tp ->
   G.Type           {- ^ type of value to store -} ->
+  Alignment ->
   RegValue sym tp  {- ^ value to store         -} ->
   IO (MemImpl sym)
-doStore sym mem ptr tpr valType val = do
+doStore sym mem ptr tpr valType alignment val = do
     --putStrLn "MEM STORE"
     val' <- packMemValue sym valType tpr val
-    storeRaw sym mem ptr valType val'
+    storeRaw sym mem ptr valType alignment val'
 
 data SomeFnHandle where
   SomeFnHandle :: FnHandle args ret -> SomeFnHandle
@@ -781,15 +784,16 @@ doCalloc ::
   MemImpl sym ->
   SymBV sym wptr {- ^ size   -} ->
   SymBV sym wptr {- ^ number -} ->
+  Alignment {- ^ Minimum alignment of the resulting allocation -} ->
   IO (LLVMPtr sym wptr, MemImpl sym)
-doCalloc sym mem sz num = do
+doCalloc sym mem sz num alignment = do
   (ov, sz') <- unsignedWideMultiplyBV sym sz num
   ov_iszero <- notPred sym =<< bvIsNonzero sym ov
   assert sym ov_iszero
      (AssertFailureSimError "Multiplication overflow in calloc()")
 
   z <- bvLit sym knownNat 0
-  (ptr, mem') <- doMalloc sym G.HeapAlloc G.Mutable "<calloc>" mem sz'
+  (ptr, mem') <- doMalloc sym G.HeapAlloc G.Mutable "<calloc>" mem sz' alignment
   mem'' <- doMemset sym PtrWidth mem' ptr z sz'
   return (ptr, mem'')
 
@@ -802,12 +806,13 @@ doMalloc
   -> String {- ^ source location for use in error messages -}
   -> MemImpl sym
   -> SymBV sym wptr {- ^ allocation size -}
+  -> Alignment
   -> IO (LLVMPtr sym wptr, MemImpl sym)
-doMalloc sym allocType mut loc mem sz = do
+doMalloc sym allocType mut loc mem sz alignment = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym PtrWidth 0
-  let heap' = G.allocMem allocType (fromInteger blkNum) sz mut loc (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) sz alignment mut loc (memImplHeap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap' })
 
@@ -817,9 +822,10 @@ mallocRaw
   => sym
   -> MemImpl sym
   -> SymBV sym wptr {- ^ size in bytes -}
+  -> Alignment
   -> IO (LLVMPtr sym wptr, MemImpl sym)
-mallocRaw sym mem sz =
-  doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz
+mallocRaw sym mem sz alignment =
+  doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz alignment
 
 -- | Allocate a read-only memory region on the heap, with no source location info.
 mallocConstRaw
@@ -827,9 +833,10 @@ mallocConstRaw
   => sym
   -> MemImpl sym
   -> SymBV sym wptr
+  -> Alignment
   -> IO (LLVMPtr sym wptr, MemImpl sym)
-mallocConstRaw sym mem sz =
-  doMalloc sym G.HeapAlloc G.Immutable "<malloc>" mem sz
+mallocConstRaw sym mem sz alignment =
+  doMalloc sym G.HeapAlloc G.Immutable "<malloc>" mem sz alignment
 
 -- | Allocate a memory region for the given handle.
 doMallocHandle
@@ -845,7 +852,7 @@ doMallocHandle sym allocType loc mem x = do
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym PtrWidth 0
 
-  let heap' = G.allocMem allocType (fromInteger blkNum) z G.Immutable loc (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) z 1 G.Immutable loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })

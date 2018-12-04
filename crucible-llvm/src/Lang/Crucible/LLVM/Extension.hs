@@ -101,6 +101,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
      !(NatRepr wptr)       {- Pointer width -} ->
      !(GlobalVar Mem)      {- Memory global variable -} ->
      !(f (BVType wptr))    {- Number of bytes to allocate -} ->
+     !Alignment            {- Minimum alignment of this allocation -} ->
      !String               {- Location string to identify this allocation for debugging purposes -} ->
      LLVMStmt wptr f (LLVMPointerType wptr)
 
@@ -246,7 +247,7 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
   appType = \case
     LLVM_PushFrame{} -> knownRepr
     LLVM_PopFrame{} -> knownRepr
-    LLVM_Alloca w _ _ _ -> LLVMPointerRepr w
+    LLVM_Alloca w _ _ _ _ -> LLVMPointerRepr w
     LLVM_Load _ _ tp _ _  -> tp
     LLVM_Store{} -> knownRepr
     LLVM_MemClear{} -> knownRepr
@@ -263,8 +264,8 @@ instance PrettyApp (LLVMStmt wptr) where
        text "pushFrame" <+> text (show mvar)
     LLVM_PopFrame mvar  ->
        text "popFrame" <+> text (show mvar)
-    LLVM_Alloca _ mvar sz loc ->
-       text "alloca" <+> text (show mvar) <+> pp sz <+> text loc
+    LLVM_Alloca _ mvar sz a loc ->
+       text "alloca" <+> text (show mvar) <+> pp sz <+> text (show a) <+> text loc
     LLVM_Load mvar ptr _tpr tp a ->
        text "load" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a)
     LLVM_Store mvar ptr _tpr tp a v ->

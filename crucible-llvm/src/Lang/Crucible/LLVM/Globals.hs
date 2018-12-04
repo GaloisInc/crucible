@@ -55,6 +55,7 @@ import qualified Text.LLVM.PP as LPP
 
 import           Data.Parameterized.NatRepr as NatRepr
 
+import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemType
@@ -175,7 +176,21 @@ initializeMemory sym llvm_ctx m = do
    gs_alloc <- mapM (\g -> do
                         ty <- either fail return $ liftMemType $ L.globalType g
                         let sz = memTypeSize dl ty
-                        return (g, sz))
+                        let tyAlign = memTypeAlign dl ty
+                        alignment <-
+                          case L.globalAlign g of
+                            Just a | a > 0 ->
+                              case toAlignment (toBytes a) of
+                                Nothing -> fail $ "Invalid alignemnt: " ++ show a ++ "\n  " ++
+                                                  "specified for global: " ++ show (L.globalSym g)
+                                Just al -> do
+                                  unless (tyAlign <= al)
+                                         (fail $ "Specified alignment: " ++ show a ++ "\n  " ++
+                                                 "for global: " ++ show (L.globalSym g) ++ "\n  "++
+                                                 "is insufficent for type: " ++ show (L.globalType g))
+                                  return al
+                            _ -> return tyAlign
+                        return (g, sz, alignment))
                     gs
    allocGlobals sym gs_alloc mem
 
@@ -254,7 +269,8 @@ populateGlobal ::
   IO (MemImpl sym)
 populateGlobal sym gl mt cval mem =
   do let symb = L.globalSym gl 
+     let alignment = memTypeAlign (llvmDataLayout ?lc) mt
      ty <- toStorableType mt
      ptr <- doResolveGlobal sym mem symb
      val <- constToLLVMVal sym mem cval
-     storeConstRaw sym mem ptr ty val
+     storeConstRaw sym mem ptr ty alignment val

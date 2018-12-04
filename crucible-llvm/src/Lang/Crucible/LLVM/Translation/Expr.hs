@@ -302,7 +302,7 @@ unpackVarArgs :: forall s arch a
 unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList $ xs'
  where xs' = let ?err = error in
              map (\x -> unpackOne x (\tp x' -> App (PackAny tp x'))) xs
-  
+
 
 
 
@@ -449,11 +449,12 @@ callIsNull w ex =
 callAlloca
    :: wptr ~ ArchWidth arch
    => Expr (LLVM arch) s (BVType wptr)
+   -> Alignment
    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
-callAlloca sz = do
+callAlloca sz alignment = do
    memVar <- getMemVar
    loc <- show <$> getPosition
-   extensionStmt (LLVM_Alloca ?ptrWidth memVar sz loc)
+   extensionStmt (LLVM_Alloca ?ptrWidth memVar sz alignment loc)
 
 callPushFrame :: LLVMGenerator h s arch ret ()
 callPushFrame = do
@@ -515,4 +516,3 @@ callStore typ (asScalar -> Scalar PtrRepr ptr) v align =
 
 callStore _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callStore"]
-
