@@ -103,6 +103,8 @@ module What4.Protocol.SMTLib2.Syntax
   , bvlshr
   , bvult
     -- ** Extensions provided by QF_BV
+  , bit0
+  , bit1
   , bvdecimal
   , bvashr
   , bvslt
@@ -114,6 +116,8 @@ module What4.Protocol.SMTLib2.Syntax
   , bvuge
   , bvsdiv
   , bvsrem
+  , bvsignExtend
+  , bvzeroExtend
     -- * Array theory
   , arraySort
   , arrayConst
@@ -469,20 +473,33 @@ store a i v = term_app "store" [a,i,v]
 ------------------------------------------------------------------------
 -- Bitvector theory
 
+-- | A 1-bit bitvector representing @0@.
+bit0 :: Term
+bit0 = T "#b0"
+
+-- | A 1-bit bitvector representing @1@.
+bit1 :: Term
+bit1 = T "#b1"
+
 -- | @bvdecimal x w@ creates a bitvector term with width @w@ equal to @x `mod` 2^w@.
 bvdecimal :: Integer -> Integer -> Term
-bvdecimal u w = T $ mconcat [ "(_ bv", Builder.decimal d, " ", Builder.decimal w, ")"]
+bvdecimal u w
+    | w <= 0 = error "bvdecimal given a non-positive width."
+    | otherwise = T $ mconcat [ "(_ bv", Builder.decimal d, " ", Builder.decimal w, ")"]
   where d = u .&. (2^w - 1)
 
--- | @bvConcat x y@ returns the bitvector with the bits of @x@ followed by the bits of @y@.
+-- | @concat x y@ returns the bitvector with the bits of @x@ followed by the bits of @y@.
 concat :: Term -> Term -> Term
 concat = bin_app "concat"
 
--- | @bvExtract i j x@ returns the bitvector containing the bits @[i..j]@.
+-- | @extract i j x@ returns the bitvector containing the bits @[j..i]@.
 extract :: Integer -> Integer -> Term -> Term
-extract end begin x =
-  let e = "(_ extract " <> Builder.decimal end <> " " <> Builder.decimal begin <> ")"
-   in un_app e x
+extract i j x
+  | j < 0 = error "Initial bit is negative"
+  | i < j = error "End of bvExtract less than beginning."
+  | otherwise = -- We cannot check that j is small enough.
+    let e = "(_ extract " <> Builder.decimal i <> " " <> Builder.decimal j <> ")"
+     in un_app e x
 
 -- | Complement bits in term.
 bvnot :: Term -> Term
@@ -609,6 +626,24 @@ bvsdiv = bin_app "bvudiv"
 -- Note. This is in @QF_BV@, but not the bitvector theory.
 bvsrem :: Term -> Term -> Term
 bvsrem = bin_app "bvsrem"
+
+-- | @bvsignExtend w x@ adds an additional @w@ bits to the most
+-- significant bits of @x@ by sign extending @x@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvsignExtend :: Integer -> Term -> Term
+bvsignExtend w x =
+  let e = "(_ sign_extend " <> Builder.decimal w <> ")"
+   in un_app e x
+
+-- | @bvzeroExtend w x@ adds an additional @w@ zero bits to the most
+-- significant bits of @x@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvzeroExtend :: Integer -> Term -> Term
+bvzeroExtend w x =
+  let e = "(_ zero_extend " <> Builder.decimal w <> ")"
+   in un_app e x
 
 ------------------------------------------------------------------------
 -- Command
