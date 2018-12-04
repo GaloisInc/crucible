@@ -872,6 +872,5 @@ toSSA g = do
               ++ ":\nwhile SSA converting function " ++ show hn
             Just Refl -> do
               let cvtCFG (CFG h _ _ _) = C.CFG h block_map (C.BlockID idx)
-                  cvtCFG (ICFG s h _ _ _) = C.ICFG s h block_map (C.BlockID idx)
               let g' = cvtCFG g
               reachableCFG g'

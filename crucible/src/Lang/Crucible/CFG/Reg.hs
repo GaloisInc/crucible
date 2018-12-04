@@ -832,24 +832,9 @@ data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
          , cfgEntryLabel :: !(Label s)
          , cfgBlocks :: ![Block ext s ret]
          }
-   -- An instantiated CFG.
-   -- TODO: maybe we can fold this instantiation into the FnHandle type
-   | forall subst init' ret'.
-      (Instantiate subst init' ~ init, Instantiate subst ret' ~ ret) =>
-     ICFG { cfgIHandle :: !(FnHandle init' ret')
-         , cfgSubst  :: CtxRepr subst
-         , cfgBlocks :: !([Block ext s ret])
-         , cfgNextValue :: !Int
-         -- ^ A number greater than any atom or register ID appearing
-         -- in the CFG. This and 'cfgNextLabel' are primarily useful
-         -- for augmenting the CFG after creation.
-         , cfgNextLabel :: !Int
-         -- ^ A number greater than any label ID appearing in the CFG.
-         }
 
 cfgHandleName :: CFG ext s init ret -> FunctionName
 cfgHandleName (CFG {cfgHandle=h}) = handleName h
-cfgHandleName (ICFG {cfgIHandle=h}) = handleName h
 
 cfgEntryBlock :: CFG ext s init ret -> Block ext s ret
 cfgEntryBlock g =
@@ -859,16 +844,12 @@ cfgEntryBlock g =
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init
 cfgInputTypes (CFG {cfgHandle=h}) = handleArgTypes h
-cfgInputTypes (ICFG {cfgIHandle=h,cfgSubst=s}) = instantiate s (handleArgTypes h)
 
 cfgReturnType :: CFG ext s init ret -> TypeRepr ret
 cfgReturnType (CFG {cfgHandle=h}) = handleReturnType h
-cfgReturnType (ICFG {cfgIHandle=h,cfgSubst=s}) = instantiate s (handleReturnType h)
-
 
 updateCFG :: [Block ext s' ret] -> CFG ext s init ret -> CFG ext s' init ret
-updateCFG b  (CFG h _ n l) = CFG h b n l
-updateCFG b (ICFG s h _ n l) = ICFG s h b n l
+updateCFG b (CFG h _ n l) = CFG h b n l
 
 
 -- | Rename all the atoms, labels, and other named things in the CFG.
