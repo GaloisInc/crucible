@@ -46,6 +46,7 @@ module Lang.Crucible.LLVM.Translation.Expr
   , liftConstant
 
   , callIsNull
+  , callIntToBool
   , callAlloca
   , callPushFrame
   , callPopFrame
@@ -436,15 +437,22 @@ callIsNull
    => NatRepr w
    -> Expr (LLVM arch) s (LLVMPointerType w)
    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
-callIsNull w (BitvectorAsPointerExpr _ bv) =
+callIsNull w ex = App . Not <$> callIntToBool w ex
+
+callIntToBool
+  :: (1 <= w)
+  => NatRepr w
+  -> Expr (LLVM arch) s (LLVMPointerType w)
+  -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+callIntToBool w (BitvectorAsPointerExpr _ bv) =
   case bv of
     App (BVLit _ 0) -> return true
-    _ -> return (App (BVEq w bv (App (BVLit w 0))))
-callIsNull w ex =
+    _ -> return (App (BVNonzero w bv))
+callIntToBool w ex =
    do ex' <- forceEvaluation (App (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) ex))
       let blk = App (GetStruct ex' (Ctx.natIndex @0) NatRepr)
       let off = App (GetStruct ex' (Ctx.natIndex @1) (BVRepr w))
-      return (blk .== litExpr 0 .&& (App (BVEq w off (App (BVLit w 0)))))
+      return (blk ./= litExpr 0 .|| (App (BVNonzero w off)))
 
 callAlloca
    :: wptr ~ ArchWidth arch

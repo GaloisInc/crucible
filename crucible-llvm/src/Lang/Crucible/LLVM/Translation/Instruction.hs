@@ -1348,7 +1348,7 @@ generateInstr retType lab instr assign_f k =
          x' <- transTypedValue x
          y' <- transTypedValue (L.Typed (L.typedType x) y)
          e' <- case asScalar c' of
-                 Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
+                 Scalar (LLVMPointerRepr w) e -> callIntToBool w e
                  _ -> fail "expected boolean condition on select"
 
          ifte_ e' (assign_f x') (assign_f y')
@@ -1359,7 +1359,7 @@ generateInstr retType lab instr assign_f k =
     L.Br v l1 l2 -> do
         v' <- transTypedValue v
         e' <- case asScalar v' of
-                 Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
+                 Scalar (LLVMPointerRepr w) e -> callIntToBool w e
                  _ -> fail "expected boolean condition on branch"
 
         phi1 <- defineBlockLabel (definePhiBlock lab l1)
