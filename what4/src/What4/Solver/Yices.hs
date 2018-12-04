@@ -439,8 +439,8 @@ instance SMTWriter (Connection s) where
 
   getUnsatAssumptionsCommand _ = Cmd "(show-unsat-assumptions)"
   getUnsatCoreCommand _ = Cmd "(show-unsat-core)"
+  setOptCommand _ x o = setParamCommand x (Builder.fromText o)
 
-  setOptCommand _ x o = setParamCommand x o
   assertCommand _ (T nm) = Cmd $ app "assert" [nm]
   assertNamedCommand _ (T tm) nm = Cmd $ app "assert" [tm, Builder.fromText nm]
 
