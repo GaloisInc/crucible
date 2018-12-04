@@ -47,6 +47,8 @@ import qualified Text.LLVM.AST as L
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
 
+import           Unsafe.Coerce (unsafeCoerce)
+
 newtype GlobalSymbol = GlobalSymbol L.Symbol
   deriving (Typeable, Eq, Ord, Show)
 
@@ -81,6 +83,18 @@ type LLVMPointerType w = IntrinsicType "LLVM_pointer" (EmptyCtx ::> BVType w)
 -- | Symbolic LLVM pointer or bitvector values of width @w@.
 type LLVMPtr sym w = RegValue sym (LLVMPointerType w)
 
+-- | Type family defining how @LLVMPointerType@ unfolds.
+type family LLVMPointerImpl ctx where
+  LLVMPointerImpl (EmptyCtx ::> BVType w) = StructType (EmptyCtx ::> NatType ::> BVType w)
+  LLVMPointerImpl ctx = TypeError ('Text "LLVM_pointer expects a single argument of BVType, but was given" ':<>:
+                                   'ShowType ctx)
+
+instance IsRecursiveType "LLVM_pointer" where
+  type UnrollType "LLVM_pointer" ctx = LLVMPointerImpl ctx
+  unrollType _nm (Empty :> (BVRepr w)) = StructRepr (Empty :> NatRepr :> BVRepr w)
+  unrollType nm ctx = typeError nm ctx
+  eqInstUnroll _p = unsafeCoerce Refl
+
 -- | This pattern synonym makes it easy to build and destruct runtime
 --   representatives of @'LLVMPointerType' w@.
 pattern LLVMPointerRepr :: () => (1 <= w, ty ~ LLVMPointerType w) => NatRepr w -> TypeRepr ty
@@ -98,3 +112,5 @@ pattern PtrRepr = LLVMPointerRepr PtrWidth
 --   that are of the distinguished pointer width.
 pattern SizeT :: HasPtrWidth wptr => (ty ~ BVType wptr) => TypeRepr ty
 pattern SizeT = BVRepr PtrWidth
+
+
