@@ -83,13 +83,8 @@ module Lang.Crucible.Types
   , VarType
   , PolyFnType
   , Closed(..)
---  , ClosedCtx(..)
---  , ClosedType(..)
---  , ClosedF(..)
---  , ClosedFC(..)
---  , ClosedBaseType(..)
-  , instantiateRepr
-  , instantiateCtxRepr
+--  , instantiateRepr
+--  , instantiateCtxRepr
   , Instantiate
   , InstantiateF(..)
   , InstantiateFC(..)
@@ -488,6 +483,14 @@ pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
 ------------------------------------------------------------------------
 -- | Classes and type families polymorphism
 
+-- This is a property of the Instantiate function below. However, Haskell's type system
+-- is too weak to prove it automatically. (And we don't want to run any proofs either.)
+-- Maybe a quantified constraint would help?
+composeInstantiateAxiom :: forall subst subst1 x.
+  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
+composeInstantiateAxiom = unsafeCoerce Refl
+
+
 -- | Use a list of types to fill in the type variables 0 .. n occurring in a type
 -- If there are not enough types in this substitution, this function will produce a
 -- type error --- all type variables in a type must be instantiated at once.
@@ -505,6 +508,8 @@ class InstantiateFC (t :: (k -> Type) -> l -> Type) where
 
 -- | Types that do not contain any free type variables. If they are closed
 -- then we know that instantiation does nothing.
+-- The proxy allows us to specify the 'subst' argument without using a type
+-- application.
 class Closed (t :: k) where
   closed     :: proxy subst -> Instantiate subst t :~: t
 
@@ -576,7 +581,6 @@ instance Closed (BaseTypeRepr b) where
 instance Closed () where closed _ = Refl
 
   
-
 -- k = CrucibleType  
 instance Closed (BaseToType b) where closed _ = Refl
 instance Closed AnyType where closed _ = Refl
@@ -616,12 +620,6 @@ instance (Closed ty, Closed ctx) => Closed (ctx ::> ty)
  where
     closed p | Refl <- closed @_ @ctx p, Refl <- closed @_ @ty p = Refl
          
--- This is a property of the Instantiate function below. However, Haskell's type system
--- is too weak to prove it automatically. (And we don't want to run any proofs either.)
--- Maybe a quantified constraint would help?
-composeInstantiateAxiom :: forall subst subst1 x.
-  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
-composeInstantiateAxiom = unsafeCoerce Refl
   
 --------------------------------------------------------------------------------
 -- Instantiate instances
@@ -644,7 +642,7 @@ type instance Instantiate subst (WordMapType n b) = WordMapType n b
 type instance Instantiate subst (RecursiveType sym ctx) = RecursiveType sym (Instantiate subst ctx)
 type instance Instantiate subst (IntrinsicType sym ctx) = IntrinsicType sym (Instantiate subst ctx)
 type instance Instantiate subst (StringMapType ty) = StringMapType (Instantiate subst ty)
-type instance Instantiate subst (VarType i) = LookupVarType i subst
+type instance Instantiate subst (VarType i) = LookupVarType i subst (VarType i)
 type instance Instantiate subst (PolyFnType args ret) = PolyFnType args ret
   -- k = Ctx k'
 type instance Instantiate subst EmptyCtx = EmptyCtx
@@ -657,9 +655,9 @@ type instance Instantiate subst (a b :: k -> Type) = (Instantiate subst a) (Inst
 type instance Instantiate subst (a b :: k -> l -> Type) = (Instantiate subst a) (Instantiate subst b)
 
 
-type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) :: CrucibleType
-type instance LookupVarType n (ctx ::> ty) = If (n <=? 0) ty (LookupVarType (n - 1) ctx)
-type instance LookupVarType n EmptyCtx     = TypeError ('Text "Invalid index in LookupVar")
+type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) (def :: CrucibleType) :: CrucibleType
+type instance LookupVarType n (ctx ::> ty) def = If (n <=? 0) ty (LookupVarType (n - 1) ctx def)
+type instance LookupVarType n EmptyCtx     def = def
 
 
 
@@ -714,7 +712,7 @@ instantiateRepr _subst (WordMapRepr n b) = WordMapRepr n b
 instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiateCtxRepr subst ctx)
 instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiateCtxRepr subst ctx)
 instantiateRepr subst (StringMapRepr ty) = StringMapRepr (instantiateRepr subst ty)
-instantiateRepr subst (VarRepr i) = lookupVarRepr i subst
+instantiateRepr subst (VarRepr i) = lookupVarRepr i subst (VarRepr i)
 instantiateRepr _subst (PolyFnRepr args ty) = PolyFnRepr args ty
 
 
@@ -772,11 +770,11 @@ axiom3 = Refl
 
 
 -- see comments above for justification for [unsafeCoerce] in this function
-lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr (LookupVarType i ctx)
-lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) =
+lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
+lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
   case isZeroNat n of
     ZeroNat    -> ty
     NonZeroNat ->
       --  (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
-      unsafeCoerce (lookupVarRepr (predNat n) ctx)
-lookupVarRepr _n Ctx.Empty = error "this case is a type error"
+      unsafeCoerce (lookupVarRepr (predNat n) ctx def)
+lookupVarRepr _n Ctx.Empty def = def
