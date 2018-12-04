@@ -67,11 +67,12 @@ library
 
 
 executable crux-mir
-  hs-source-dirs: src
+  hs-source-dirs: exe
   main-is: Main.hs
 
   build-depends:
                 base >= 4.7 && < 5,
+                mir-verifier,
                 aeson,
                 ansi-wl-pprint,
                 bytestring,
@@ -104,23 +105,6 @@ executable crux-mir
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
 
-  other-modules: Mir.Intrinsics
-                 Mir.Language
-                 Mir.Mir
-                 Mir.Overrides
-                 Mir.Prims
-                 Mir.Pass
-                 Mir.Pass.CollapseRefs
-                 Mir.Pass.MutRefReturnStatic
-                 Mir.Pass.RemoveBoxNullary
-                 Mir.Pass.RemoveStorage
-                 Mir.Pass.RewriteMutRef
-                 Mir.Run
-                 Mir.SAWInterface
-                 Mir.Trans
-                 Mir.PP
-                 Mir.Generate
-                 Mir.DefId   
                  
 test-suite test
   type: exitcode-stdio-1.0
