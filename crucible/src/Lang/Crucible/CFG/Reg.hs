@@ -843,24 +843,9 @@ data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
          , cfgEntryLabel :: !(Label s)
          , cfgBlocks :: ![Block ext s ret]
          }
-   -- An instantiated CFG.
-   -- TODO: maybe we can fold this instantiation into the FnHandle type
-   | forall subst init' ret'.
-      (Instantiate subst init' ~ init, Instantiate subst ret' ~ ret) =>
-     ICFG { cfgIHandle :: !(FnHandle init' ret')
-         , cfgSubst  :: CtxRepr subst
-         , cfgBlocks :: !([Block ext s ret])
-         , cfgNextValue :: !Int
-         -- ^ A number greater than any atom or register ID appearing
-         -- in the CFG. This and 'cfgNextLabel' are primarily useful
-         -- for augmenting the CFG after creation.
-         , cfgNextLabel :: !Int
-         -- ^ A number greater than any label ID appearing in the CFG.
-         }
 
 cfgHandleName :: CFG ext s init ret -> FunctionName
 cfgHandleName (CFG {cfgHandle=h}) = handleName h
-cfgHandleName (ICFG {cfgIHandle=h}) = handleName h
 
 cfgHandleName :: CFG ext s init ret -> FunctionName
 cfgHandleName (CFG {cfgHandle=h}) = handleName h
