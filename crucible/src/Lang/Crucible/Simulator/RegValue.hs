@@ -137,7 +137,7 @@ instantiateFnVal subst (HandleFnVal h)
 instantiateFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::FnHandle a r)) 
   | Refl <- composeInstantiateAxiom @subst @subst' @a,
     Refl <- composeInstantiateAxiom @subst @subst' @r
-  = InstantiatedHandleFnVal (instantiateCtxRepr subst subst') h
+  = InstantiatedHandleFnVal (instantiate subst subst') h
 instantiateFnVal subst (ClosureFnVal fnv (ty :: TypeRepr ty) argty)
   | Refl <- closed @_ @ty subst
   = ClosureFnVal (instantiateFnVal subst fnv) ty argty
@@ -153,7 +153,7 @@ fnValType (ClosureFnVal fn _ _) =
       case allArgs of
         args Ctx.:> _ -> FunctionHandleRepr args r
 fnValType (InstantiatedHandleFnVal subst h) =
-  instantiateRepr subst (fnValType (HandleFnVal h))
+  instantiate subst (fnValType (HandleFnVal h))
 
 instance Show (FnVal sym a r) where
   show = show . closureFunctionName
