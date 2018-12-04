@@ -260,11 +260,6 @@ instance OrdF (Reg s) where
               Just Refl -> EQF
               Nothing -> error "Lang.Crucible.Generator.Reg compareF: mismatched types!"
 
--- Instantiate a polymorphic register value with type arguments.
--- TODO: is this sound? Do we need to update the register in the reg_map???
--- instantiateReg :: CtxRepr subst -> Reg s tp -> Reg s (InstantiateType subst tp)
--- instantiateReg subst r = r { typeOfReg = instantiateRepr subst (typeOfReg r) }
-
 ------------------------------------------------------------------------
 -- Primitive operations
 
@@ -707,11 +702,11 @@ cfgHandleName (ICFG {cfgIHandle=h}) = handleName h
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init
 cfgInputTypes (CFG {cfgHandle=h}) = handleArgTypes h
-cfgInputTypes (ICFG {cfgIHandle=h,cfgSubst=s}) = instantiateCtxRepr s (handleArgTypes h)
+cfgInputTypes (ICFG {cfgIHandle=h,cfgSubst=s}) = instantiate s (handleArgTypes h)
 
 cfgReturnType :: CFG ext s init ret -> TypeRepr ret
 cfgReturnType (CFG {cfgHandle=h}) = handleReturnType h
-cfgReturnType (ICFG {cfgIHandle=h,cfgSubst=s}) = instantiateRepr s (handleReturnType h)
+cfgReturnType (ICFG {cfgIHandle=h,cfgSubst=s}) = instantiate s (handleReturnType h)
 
 
 updateCFG :: [Block ext s' ret] -> CFG ext s init ret -> CFG ext s' init ret

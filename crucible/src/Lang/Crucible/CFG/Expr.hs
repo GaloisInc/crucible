@@ -1116,8 +1116,8 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     
     PolyHandleLit h -> PolyFnRepr (handleArgTypes h) (handleReturnType h)
     PolyInstantiate (PolyFnRepr args tp) _ subst ->
-      FunctionHandleRepr (instantiateCtxRepr subst args)
-                         (instantiateRepr subst tp)
+      FunctionHandleRepr (instantiate subst args)
+                         (instantiate subst tp)
 
 
     ----------------------------------------------------------------------
@@ -1417,8 +1417,8 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           BaseIte bty r1 r2 r3 -> BaseIte bty (instantiate subst r1)
             (instantiate subst r2) (instantiate subst r3)
           EmptyApp -> EmptyApp
-          PackAny ty reg   -> PackAny (instantiateRepr subst ty) (instantiate subst reg)
-          UnpackAny ty reg -> UnpackAny (instantiateRepr subst ty) (instantiate subst reg)
+          PackAny ty reg   -> PackAny (instantiate subst ty) (instantiate subst reg)
+          UnpackAny ty reg -> UnpackAny (instantiate subst ty) (instantiate subst reg)
           BoolLit b -> BoolLit b
           Not r1 -> Not (instantiate subst r1)
           And r1 r2 -> And (instantiate subst r1) (instantiate subst r2)
@@ -1489,9 +1489,9 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
 
           -- TODO: more floats
 
-          JustValue ty r1 -> JustValue (instantiateRepr subst ty) (instantiate subst r1)
-          NothingValue ty -> NothingValue (instantiateRepr subst ty) 
-          FromJustValue ty r1 r2 -> FromJustValue (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+          JustValue ty r1 -> JustValue (instantiate subst ty) (instantiate subst r1)
+          NothingValue ty -> NothingValue (instantiate subst ty) 
+          FromJustValue ty r1 r2 -> FromJustValue (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
 
           AddSideCondition bty r1 s r2 -> AddSideCondition bty (instantiate subst r1) s (instantiate subst r2)
 
@@ -1500,15 +1500,15 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           UnrollRecursive (sr :: SymbolRepr nm) (ctr :: CtxRepr ctx) r1
             | Refl <- eqInstUnroll @nm @_ @_ @ctx subst -> UnrollRecursive sr (instantiate subst ctr) (instantiate subst r1)
 
-          VectorLit ty v1 -> VectorLit  (instantiateRepr subst ty) (V.map (instantiate subst) v1)
-          VectorReplicate ty r1 r2 -> VectorReplicate (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+          VectorLit ty v1 -> VectorLit  (instantiate subst ty) (V.map (instantiate subst) v1)
+          VectorReplicate ty r1 r2 -> VectorReplicate (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
           VectorIsEmpty r1 -> VectorIsEmpty (instantiate subst r1)
           VectorSize r1 -> VectorSize (instantiate subst r1)
-          VectorGetEntry ty r1 r2 -> VectorGetEntry (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+          VectorGetEntry ty r1 r2 -> VectorGetEntry (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
           VectorSetEntry ty r1 r2 r3 ->
-            VectorSetEntry  (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+            VectorSetEntry  (instantiate subst ty) (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
           VectorCons ty r1 r2 ->
-            VectorCons  (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+            VectorCons  (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
 
 
           HandleLit (fh :: FnHandle args ret)
@@ -1518,8 +1518,8 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           Closure argTy retTy r1 (tp :: TypeRepr tp) r2
             | Refl <- closed @_ @tp subst
             ->
-              Closure (instantiateCtxRepr subst argTy)
-                      (instantiateRepr subst retTy)
+              Closure (instantiate subst argTy)
+                      (instantiate subst retTy)
                       (instantiate subst r1) (instantiate subst tp) (instantiate subst r2)
 
           PolyHandleLit fh -> PolyHandleLit fh
@@ -1528,7 +1528,7 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
             | Refl <- composeInstantiateAxiom @subst @targs @ret,
               Refl <- composeInstantiateAxiom @subst @targs @args 
             ->
-              PolyInstantiate ty (instantiate subst r1) (instantiateCtxRepr subst targs)
+              PolyInstantiate ty (instantiate subst r1) (instantiate subst targs)
 
 
           NatToInteger r1 -> NatToInteger (instantiate subst r1)
@@ -1571,19 +1571,19 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           BvToNat n1 r1 -> BvToNat n1 (instantiate subst r1)
           BVNonzero n1 r1 -> BVNonzero n1 (instantiate subst r1)
 
-          InjectVariant ctx idx r1 -> InjectVariant (instantiateCtxRepr subst ctx) (instantiate subst idx)
+          InjectVariant ctx idx r1 -> InjectVariant (instantiate subst ctx) (instantiate subst idx)
             (instantiate subst r1)
-          ProjectVariant ctx idx r1 -> ProjectVariant (instantiateCtxRepr subst ctx) (instantiate subst idx)
+          ProjectVariant ctx idx r1 -> ProjectVariant (instantiate subst ctx) (instantiate subst idx)
             (instantiate subst r1) 
 
-          MkStruct ctx args -> MkStruct (instantiateCtxRepr subst ctx) (instantiate subst args)
-          GetStruct r1 idx ty -> GetStruct (instantiate subst r1) (instantiate subst idx) (instantiateRepr subst ty)
-          SetStruct ctx r1 idx r2 -> SetStruct (instantiateCtxRepr subst ctx) (instantiate subst r1)
+          MkStruct ctx args -> MkStruct (instantiate subst ctx) (instantiate subst args)
+          GetStruct r1 idx ty -> GetStruct (instantiate subst r1) (instantiate subst idx) (instantiate subst ty)
+          SetStruct ctx r1 idx r2 -> SetStruct (instantiate subst ctx) (instantiate subst r1)
             (instantiate subst idx) (instantiate subst r2)
 
-          EmptyStringMap ty -> EmptyStringMap (instantiateRepr subst ty)
-          LookupStringMapEntry ty r1 r2 -> LookupStringMapEntry (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
-          InsertStringMapEntry ty r1 r2 r3 -> InsertStringMapEntry (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+          EmptyStringMap ty -> EmptyStringMap (instantiate subst ty)
+          LookupStringMapEntry ty r1 r2 -> LookupStringMapEntry (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
+          InsertStringMapEntry ty r1 r2 r3 -> InsertStringMapEntry (instantiate subst ty) (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
 
 
           TextLit t -> TextLit t
@@ -1603,4 +1603,4 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
 
           IsConcrete btr r1 -> IsConcrete btr (instantiate subst r1)
 
-          ReferenceEq ty r1 r2 -> ReferenceEq (instantiateRepr subst ty) (instantiate subst r1) (instantiate subst r2)
+          ReferenceEq ty r1 r2 -> ReferenceEq (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
