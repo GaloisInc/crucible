@@ -556,13 +556,13 @@ instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
       | Refl <- closed @_ @ext subst,
         Refl <- closed @_ @(StmtExtension ext) subst =
       case s of
-        (SetReg ty expr) -> SetReg (instantiateRepr subst ty) (instantiate subst expr)
+        (SetReg ty expr) -> SetReg (instantiate subst ty) (instantiate subst expr)
         (ExtendAssign exn) -> ExtendAssign (instantiate subst exn)
         (CallHandle ret reg argTys args) -> 
-          CallHandle (instantiateRepr subst ret)
+          CallHandle (instantiate subst ret)
                      (instantiate subst reg)
-                     (instantiateCtxRepr subst argTys)
-                     (instantiateArgs subst args)
+                     (instantiate subst argTys)
+                     (instantiate subst args)
         (Print reg) -> Print (instantiate subst reg)
         
         -- To get rid of the unsafeCoerce on these two cases, we need
@@ -575,8 +575,8 @@ instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
           -> WriteGlobal (unsafeCoerce gv) (instantiate subst reg)
 
         (FreshConstant bt ss) -> FreshConstant bt ss
-        (NewRefCell ty reg) -> NewRefCell (instantiateRepr subst ty) (instantiate subst reg)
-        (NewEmptyRefCell ty) -> NewEmptyRefCell (instantiateRepr subst ty) 
+        (NewRefCell ty reg) -> NewRefCell (instantiate subst ty) (instantiate subst reg)
+        (NewEmptyRefCell ty) -> NewEmptyRefCell (instantiate subst ty) 
         (ReadRefCell reg) -> ReadRefCell (instantiate subst reg)
         (WriteRefCell reg1 reg2) -> WriteRefCell (instantiate subst reg1)(instantiate subst reg2)
         (DropRefCell reg) -> DropRefCell (instantiate subst reg)
@@ -595,15 +595,15 @@ instance InstantiateF (TermStmt blocks ret) where
       (instantiate subst jt1)
       (instantiate subst jt2)
     instantiateTermStmt subst (MaybeBranch repr reg st1 jt2) =
-      MaybeBranch (instantiateRepr subst repr)
+      MaybeBranch (instantiate subst repr)
                   (instantiate subst reg)
                   (instantiate subst st1)
                   (instantiate subst jt2)
-    instantiateTermStmt subst (VariantElim repr reg switch) = VariantElim (instantiateCtxRepr subst repr) (instantiate subst reg)
-      (instantiateSwitchMap subst switch)
+    instantiateTermStmt subst (VariantElim repr reg switch) = VariantElim (instantiate subst repr) (instantiate subst reg)
+      (instantiate subst switch)
     instantiateTermStmt subst (Return reg) = Return (instantiate subst reg)
-    instantiateTermStmt subst (TailCall r1 ctx args) = TailCall (instantiate subst r1) (instantiateCtxRepr subst ctx)
-      (instantiateArgs subst args)
+    instantiateTermStmt subst (TailCall r1 ctx args) = TailCall (instantiate subst r1) (instantiate subst ctx)
+      (instantiate subst args)
     instantiateTermStmt subst (ErrorStmt reg) = ErrorStmt (instantiate subst reg)
 
 type instance Instantiate subst (StmtSeq ext) = StmtSeq ext
@@ -615,16 +615,16 @@ instance IsSyntaxExtension ext => InstantiateF (StmtSeq ext block ret) where
       case ss of
         (ConsStmt loc stmt sseq) -> ConsStmt loc (instantiate subst stmt) (instantiate subst sseq)
         (TermStmt loc termstmt)  -> TermStmt loc (instantiate subst termstmt)
-
+ 
 type instance Instantiate subst (Block ext) = Block ext 
-instance  IsSyntaxExtension ext => InstantiateType (Block ext blocks ret ctx) where
+instance  IsSyntaxExtension ext => InstantiateF (Block ext blocks ret) where
 
-  instantiate = instantiateBlock where
+  instantiateF = instantiateBlock where
     instantiateBlock :: CtxRepr subst -> Block ext blocks ret ctx
                      -> Block ext (Instantiate subst blocks) (Instantiate subst ret) (Instantiate subst ctx)
     instantiateBlock subst (Block id inputs stmts) = Block id' inputs' stmts' where
       id'     = instantiate subst id
-      inputs' = instantiateCtxRepr subst inputs
+      inputs' = instantiate subst inputs
       stmts'  = instantiate subst stmts
 
 type instance Instantiate subst SwitchTarget = SwitchTarget 
@@ -635,8 +635,8 @@ instance InstantiateF (SwitchTarget blocks ctx)  where
                       -> SwitchTarget (Instantiate subst blocks) (Instantiate subst ctx) (Instantiate subst tp)
     instantiateSwitch subst (SwitchTarget bid argTys args)  =
       SwitchTarget (instantiate subst bid)
-                   (instantiateCtxRepr subst argTys)
-                   (instantiateArgs subst args)
+                   (instantiate subst argTys)
+                   (instantiate subst args)
 
 type instance Instantiate subst JumpTarget = JumpTarget 
 instance InstantiateF (JumpTarget blocks) where
@@ -646,45 +646,8 @@ instance InstantiateF (JumpTarget blocks) where
                       -> JumpTarget (Instantiate subst blocks) (Instantiate subst ctx) 
     instantiateJumpTarget subst (JumpTarget bid argTys args)  =
       JumpTarget (instantiate subst bid)
-                   (instantiateCtxRepr subst argTys)
-                   (instantiateArgs subst args)
-
-
-{-
--- NOTE: it would be nice to combine all three of these into one instance. However, I think we need
--- quantified constraints for that. Or maybe an InstantiateClass1 class?
---
-instance (forall a. InstantiateClass (ty a)) => InstantiateClass (Assignment ty args) where ...
-
--- Or, hackily, make the InstantiateClass leave off the last variable?
---
-class InstantiateClass (ty :: k -> *) where
-   instantiate :: CtxRepr subst -> ty a -> (Instantiate subst ty)(Instantiate subst a)
-
-type instance Instantiate subst (Assignment ty) ctx = Assignment (Instantiate subst ty)
-instance (InstantiateClass ty) => InstantiateClass (Assignment ty) where
-  instantiate subst assign =
-    case viewAssign assign of
-      AssignEmpty -> Ctx.Empty
-      AssignExtend bm b -> (instantiate subst bm) Ctx.:> (instantiate subst b)
--}    
-
-instantiateSwitchMap :: CtxRepr subst
-  -> Assignment (SwitchTarget blocks ctx) args
-  -> Assignment (SwitchTarget (Instantiate subst blocks) (Instantiate subst ctx)) (Instantiate subst args)
-instantiateSwitchMap subst assign = instantiate subst assign
---  case viewAssign assign of
---    AssignEmpty -> Ctx.Empty
---    AssignExtend bm b -> (instantiateSwitchMap subst bm) Ctx.:> (instantiate subst b)
-
-instantiateArgs :: (InstantiateF a) =>
-  CtxRepr subst
-  -> Assignment a args
-  -> Assignment (Instantiate subst a) (Instantiate subst args)
-instantiateArgs subst assign = instantiate subst assign
---  case viewAssign assign of
---    AssignEmpty -> Ctx.Empty
---    AssignExtend bm b -> (instantiateArgs subst bm) Ctx.:> (instantiate subst b)
+                   (instantiate subst argTys)
+                   (instantiate subst args)
 
 instantiateBlockMap ::  (IsSyntaxExtension ext) => CtxRepr subst
   -> Assignment (Block ext blocks' ret) blocks
@@ -719,7 +682,7 @@ instantiateCFG subst (CFG handle blockMap entryBlockID) =
 instantiateCFG subst (ICFG (handle :: FnHandle a r) (subst' ::CtxRepr subst')  blockMap entryBlockID) =
   case (composeInstantiateAxiom @subst @subst' @a, composeInstantiateAxiom @subst @subst' @r) of
     (Refl,Refl) ->
-       ICFG handle (instantiateCtxRepr subst subst') (instantiateBlockMap subst blockMap) (instantiate subst entryBlockID) 
+       ICFG handle (instantiate subst subst') (instantiateBlockMap subst blockMap) (instantiate subst entryBlockID) 
 
 
 ------------------------------------------------------------------------------------

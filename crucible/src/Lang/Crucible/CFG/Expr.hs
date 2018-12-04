@@ -1152,7 +1152,6 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     PolyInstantiate (PolyFnRepr args tp) _ subst ->
       FunctionHandleRepr (instantiate subst args)
                          (instantiate subst tp)
-
     ----------------------------------------------------------------------
     -- Conversions
     NatToInteger{} -> knownRepr

@@ -94,6 +94,7 @@ module Lang.Crucible.Types
   , Closed(..)
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
   , ClosedCtx(..)
   , ClosedType(..)
@@ -110,6 +111,10 @@ module Lang.Crucible.Types
   , instantiateRepr
   , instantiateCtxRepr
 >>>>>>> Added type classes in support of substitution through syntax extension.
+=======
+--  , instantiateRepr
+--  , instantiateCtxRepr
+>>>>>>> cp. some clean up
   , Instantiate
   , InstantiateF(..)
   , InstantiateFC(..)
@@ -541,6 +546,14 @@ class Closed (t :: k) where
 =======
 -- | Classes and type families polymorphism
 
+-- This is a property of the Instantiate function below. However, Haskell's type system
+-- is too weak to prove it automatically. (And we don't want to run any proofs either.)
+-- Maybe a quantified constraint would help?
+composeInstantiateAxiom :: forall subst subst1 x.
+  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
+composeInstantiateAxiom = unsafeCoerce Refl
+
+
 -- | Use a list of types to fill in the type variables 0 .. n occurring in a type
 -- If there are not enough types in this substitution, this function will produce a
 -- type error --- all type variables in a type must be instantiated at once.
@@ -575,6 +588,8 @@ class InstantiateFC (t :: (k -> Type) -> l -> Type) where
 =======
 -- | Types that do not contain any free type variables. If they are closed
 -- then we know that instantiation does nothing.
+-- The proxy allows us to specify the 'subst' argument without using a type
+-- application.
 class Closed (t :: k) where
   closed     :: proxy subst -> Instantiate subst t :~: t
 
@@ -676,8 +691,11 @@ instance Closed (BaseTypeRepr b) where
 instance Closed () where closed _ = Refl
 
   
+<<<<<<< HEAD
 
 >>>>>>> clean up.
+=======
+>>>>>>> cp. some clean up
 -- k = CrucibleType  
 instance Closed (BaseToType b) where closed _ = Refl
 instance Closed AnyType where closed _ = Refl
@@ -717,6 +735,7 @@ instance (Closed ty, Closed ctx) => Closed (ctx ::> ty)
  where
     closed p | Refl <- closed @_ @ctx p, Refl <- closed @_ @ty p = Refl
          
+<<<<<<< HEAD
 
 newtype Gift a r = Gift (Closed a => r)
 
@@ -738,6 +757,8 @@ composeInstantiateAxiom = unsafeCoerce Refl
 
 -- TypeCon apps
 =======
+=======
+>>>>>>> cp. some clean up
   
 --------------------------------------------------------------------------------
 -- Instantiate instances
@@ -819,10 +840,16 @@ type instance Instantiate subst (a b :: k -> Type) = (Instantiate subst a) (Inst
 type instance Instantiate subst (a b :: k -> l -> Type) = (Instantiate subst a) (Instantiate subst b)
 
 
+<<<<<<< HEAD
 type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) :: CrucibleType
 type instance LookupVarType n (ctx ::> ty) = If (n <=? 0) ty (LookupVarType (n - 1) ctx)
 type instance LookupVarType n EmptyCtx     = TypeError ('Text "Invalid index in LookupVar")
 >>>>>>> clean up.
+=======
+type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) (def :: CrucibleType) :: CrucibleType
+type instance LookupVarType n (ctx ::> ty) def = If (n <=? 0) ty (LookupVarType (n - 1) ctx def)
+type instance LookupVarType n EmptyCtx     def = def
+>>>>>>> cp. some clean up
 
 -- helper definition for VarType instance
 type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) (def :: CrucibleType) :: CrucibleType
@@ -866,7 +893,6 @@ instantiateRepr subst (VarRepr i) = lookupVarRepr i subst (VarRepr i)
 instantiateRepr _subst (PolyFnRepr args ty) = PolyFnRepr args ty
 
 
-<<<<<<< HEAD
 -- NOTE: We need the equality below to typecheck lookupVarRepr.
 -- 
 -- However, TypeNatSolver cannot prove this equality, even though all
@@ -910,79 +936,12 @@ lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
 lookupVarRepr _n Ctx.Empty def = def
 
 -- see comments above for justification for [unsafeCoerce] in this function
-lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr (LookupVarType i ctx)
-lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) =
+lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
+lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
   case isZeroNat n of
     ZeroNat    -> ty
     NonZeroNat ->
       --  (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
+
       unsafeCoerce (lookupVarRepr (predNat n) ctx)
 lookupVarRepr _n Ctx.Empty = error "this case is a type error"
-=======
->>>>>>> clean up.
-
-------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------
--- InstantiateType instances
-
-instance (InstantiateF t) => InstantiateType (t a) where
-  instantiate = instantiateF
-instance (InstantiateFC t, InstantiateF a) => InstantiateF (t a) where
-  instantiateF = instantiateFC
-
--- BaseTypeRepr
-type instance Instantiate subst BaseTypeRepr = BaseTypeRepr
-instance InstantiateF BaseTypeRepr where
-  instantiateF subst (r :: BaseTypeRepr bt)
-    | Refl <- closed @_ @bt subst
-    = r
-
--- TypeRepr
-type instance Instantiate subst TypeRepr = TypeRepr 
-instance InstantiateF TypeRepr where
-  instantiateF = instantiateRepr
-  
-instantiateRepr :: CtxRepr subst -> TypeRepr ty -> TypeRepr (Instantiate subst ty)
-instantiateRepr _subst BoolRepr = BoolRepr
-instantiateRepr _subst NatRepr = NatRepr
-instantiateRepr _subst IntegerRepr = IntegerRepr
-instantiateRepr _ubst RealValRepr = RealValRepr
-instantiateRepr _subst StringRepr = StringRepr
-instantiateRepr _subst (BVRepr w) = BVRepr w
-instantiateRepr _subst ComplexRealRepr = ComplexRealRepr 
-instantiateRepr _subst (SymbolicArrayRepr idx w) = SymbolicArrayRepr idx w
-instantiateRepr _subst (SymbolicStructRepr flds) = SymbolicStructRepr flds
-instantiateRepr _subst (IEEEFloatRepr ps) = IEEEFloatRepr ps
-instantiateRepr _subst AnyRepr  = AnyRepr
-instantiateRepr _subst UnitRepr = UnitRepr
-instantiateRepr _subst (FloatRepr fi) = FloatRepr fi
-instantiateRepr _subst CharRepr = CharRepr
-instantiateRepr subst (FunctionHandleRepr args ret) =
-    FunctionHandleRepr (instantiateCtxRepr subst args ) (instantiateRepr subst ret)
-instantiateRepr subst (MaybeRepr ty) =
-    MaybeRepr (instantiateRepr subst ty )
-instantiateRepr subst (VectorRepr ty) = VectorRepr (instantiateRepr subst ty)
-instantiateRepr subst (StructRepr ctx) = StructRepr (instantiateCtxRepr subst ctx)
-instantiateRepr subst (ReferenceRepr ty) = ReferenceRepr (instantiateRepr subst ty)
-instantiateRepr subst (VariantRepr ctx) = VariantRepr (instantiateCtxRepr subst ctx)
-instantiateRepr _subst (WordMapRepr n b) = WordMapRepr n b
-instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiateCtxRepr subst ctx)
-instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiateCtxRepr subst ctx)
-instantiateRepr subst (StringMapRepr ty) = StringMapRepr (instantiateRepr subst ty)
-instantiateRepr subst (VarRepr i) = lookupVarRepr i subst
-instantiateRepr _subst (PolyFnRepr args ty) = PolyFnRepr args ty
-
-
--- Ctx.Assignment :: (k -> Type) -> Ctx k -> Type
--- NOTE: it seems like we could make an instance of InstantiateFC for Ctx.Assignment.
-type instance Instantiate subst Ctx.Assignment = Ctx.Assignment
---instance (InstantiateF a) => InstantiateType (Ctx.Assignment a ctx) where
---  instantiate = instantiateCtxRepr
-
-instance InstantiateFC Ctx.Assignment where
-  instantiateFC = instantiateCtxRepr
-
-instantiateCtxRepr :: InstantiateF a => CtxRepr subst -> Ctx.Assignment a ctx -> Ctx.Assignment (Instantiate subst a) (Instantiate subst ctx)
-instantiateCtxRepr _subst Ctx.Empty = Ctx.Empty
-instantiateCtxRepr subst (ctx Ctx.:> ty) = instantiateCtxRepr subst ctx Ctx.:> instantiate subst ty
-

@@ -335,11 +335,6 @@ substReg f r =
       <*> f (regId r)
       <*> pure (typeOfReg r)
 
--- Instantiate a polymorphic register value with type arguments.
--- TODO: is this sound? Do we need to update the register in the reg_map???
--- instantiateReg :: CtxRepr subst -> Reg s tp -> Reg s (InstantiateType subst tp)
--- instantiateReg subst r = r { typeOfReg = instantiateRepr subst (typeOfReg r) }
-
 ------------------------------------------------------------------------
 -- Primitive operations
 
