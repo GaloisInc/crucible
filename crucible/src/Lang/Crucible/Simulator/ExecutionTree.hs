@@ -135,6 +135,7 @@ module Lang.Crucible.Simulator.ExecutionTree
 import           Control.Lens
 import           Control.Monad.Reader
 import           Control.Monad.ST (RealWorld)
+import           Data.Kind
 import           Data.Parameterized.Ctx
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Sequence (Seq)
@@ -162,7 +163,7 @@ import           Lang.Crucible.Types
 -- GlobalPair
 
 -- | A value of some type 'v' together with a global state.
-data GlobalPair sym (v :: *) =
+data GlobalPair sym (v :: Type) =
    GlobalPair
    { _gpValue :: !v
    , _gpGlobals :: !(SymGlobalState sym)
@@ -234,7 +235,7 @@ data AbortedResult sym ext where
 
 -- | This represents an execution frame where its frame type
 --   and arguments have been hidden.
-data SomeFrame (f :: fk -> argk -> *) = forall l a . SomeFrame !(f l a)
+data SomeFrame (f :: fk -> argk -> Type) = forall l a . SomeFrame !(f l a)
 
 -- | Return the program locations of all the Crucible frames.
 filterCrucibleFrames :: SomeFrame (SimFrame sym ext) -> Maybe ProgramLoc
@@ -275,7 +276,7 @@ ppExceptionContext frames = PP.vcat (map pp (init frames))
 --   'PartialResult', then some of the computation paths that led to
 --   this result aborted for some reason, and the resulting value is
 --   only defined if the associated condition is true.
-data PartialResult sym ext (v :: *)
+data PartialResult sym ext (v :: Type)
 
      {- | A 'TotalRes' indicates that the the global pair is always defined. -}
    = TotalRes !(GlobalPair sym v)
@@ -321,7 +322,7 @@ data ResolvedCall p sym ext ret where
 
 -- | Executions that have completed either due to (partial or total)
 --   successful completion or by some abort condition.
-data ExecResult p sym ext (r :: *)
+data ExecResult p sym ext (r :: Type)
    = -- | At least one exeuction path resulted in some return result.
      FinishedResult !(SimContext p sym ext) !(PartialResult sym ext r)
      -- | All execution paths resulted in an abort condition, and there is
@@ -360,7 +361,7 @@ execStateContext = \case
 --   Crucible program.  The Crucible simulator executes by transistioning
 --   between these different states until it results in a 'ResultState',
 --   indicating the program has completed.
-data ExecState p sym ext (rtp :: *)
+data ExecState p sym ext (rtp :: Type)
    {- | The 'ResultState' is used to indicate that the program has completed. -}
    = ResultState
        !(ExecResult p sym ext rtp)
@@ -612,7 +613,7 @@ The type parameters have the following meanings:
   * @f@ is the type of the top frame.
 -}
 
-data ValueFromFrame p sym ext (ret :: *) (f :: *)
+data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
 
   {- | We are working on a branch;  this could be the first or the second
        of both branches (see the 'VFFOtherPath' field). -}
@@ -697,7 +698,7 @@ The type parameters have the following meanings:
 
   * @top_return@ is the return type of the top-most call on the stack.
 -}
-data ValueFromValue p sym ext (ret :: *) (top_return :: CrucibleType)
+data ValueFromValue p sym ext (ret :: Type) (top_return :: CrucibleType)
 
   {- | 'VFVCall' denotes a call site in the outer context, and represents
        the point to which a function higher on the stack will
@@ -850,7 +851,7 @@ data ReturnHandler (ret :: CrucibleType) p sym ext root f args where
 {- | An active execution tree contains at least one active execution.
      The data structure is organized so that the current execution
      can be accessed rapidly. -}
-data ActiveTree p sym ext root (f :: *) args
+data ActiveTree p sym ext root (f :: Type) args
    = ActiveTree
       { _actContext :: !(ValueFromFrame p sym ext root f)
       , _actResult  :: !(PartialResult sym ext (SimFrame sym ext f args))
@@ -959,7 +960,7 @@ type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
 --   remains persistent across all symbolic simulator actions.  In particular, it
 --   is not rolled back when the simulator returns previous program points to
 --   explore additional paths, etc.
-data SimContext (personality :: *) (sym :: *) (ext :: *)
+data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
    = SimContext { _ctxSymInterface       :: !sym
                   -- | Class dictionary for @'IsSymInterface' sym@
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
@@ -1020,7 +1021,7 @@ cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality
 --   events; in which case, the libary user may replace the default
 --   abort handler with their own.
 newtype AbortHandler p sym ext rtp
-      = AH { runAH :: forall (l :: *) args.
+      = AH { runAH :: forall (l :: Type) args.
                  AbortExecReason ->
                  ExecCont p sym ext rtp l args
            }

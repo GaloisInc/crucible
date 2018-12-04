@@ -165,6 +165,7 @@ import qualified Data.HashTable.Class as H (toList)
 import qualified Data.HashTable.ST.Cuckoo as H
 import           Data.Hashable
 import           Data.IORef
+import           Data.Kind
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
@@ -289,7 +290,7 @@ instance HashableF (ExprBoundVar t) where
 -- Parameter @e@ is used everywhere a recursive sub-expression would
 -- go. Uses of the 'NonceApp' type will tie the knot through this
 -- parameter. Parameter @tp@ indicates the type of the expression.
-data NonceApp t (e :: BaseType -> *) (tp :: BaseType) where
+data NonceApp t (e :: BaseType -> Type) (tp :: BaseType) where
   Forall :: !(ExprBoundVar t tp)
          -> !(e BaseBoolType)
          -> NonceApp t e BaseBoolType
@@ -328,7 +329,7 @@ data NonceApp t (e :: BaseType -> *) (tp :: BaseType) where
 -- Parameter @e@ is used everywhere a recursive sub-expression would
 -- go. Uses of the 'App' type will tie the knot through this
 -- parameter. Parameter @tp@ indicates the type of the expression.
-data App (e :: BaseType -> *) (tp :: BaseType) where
+data App (e :: BaseType -> Type) (tp :: BaseType) where
 
   ------------------------------------------------------------------------
   -- Boolean operations
@@ -1314,7 +1315,7 @@ data Flags (fi :: FloatInterpretation)
 
 -- | Cache for storing dag terms.
 -- Parameter @t@ is a phantom type brand used to track nonces.
-data ExprBuilder t (st :: * -> *) (fs :: *)
+data ExprBuilder t (st :: Type -> Type) (fs :: Type)
    = SB { sbTrue  :: !(BoolExpr t)
         , sbFalse :: !(BoolExpr t)
           -- | Constant zero.
@@ -1382,7 +1383,7 @@ ppVarTypeCode tp =
     BaseStructRepr _ -> "struct"
 
 -- | Either a argument or text or text
-type PrettyArg (e :: BaseType -> *) = Either (Some e) Text
+type PrettyArg (e :: BaseType -> Type) = Either (Some e) Text
 
 exprPrettyArg :: e tp -> PrettyArg e
 exprPrettyArg e = Left $! Some e
@@ -2544,7 +2545,7 @@ instance HashableF (App (Expr t)) where
 -- values with a corresponding type @f tp@. It is a mutable map using
 -- an 'IO' hash table. Parameter @t@ is a phantom type brand used to
 -- track nonces.
-newtype IdxCache t (f :: BaseType -> *)
+newtype IdxCache t (f :: BaseType -> Type)
       = IdxCache { cMap :: PH.HashTable RealWorld (Nonce t) f }
 
 -- | Create a new IdxCache

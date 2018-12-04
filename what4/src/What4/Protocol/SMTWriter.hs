@@ -96,6 +96,7 @@ import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
 import           Data.Bits (shiftL)
 import           Data.IORef
+import           Data.Kind
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Monoid
@@ -478,7 +479,7 @@ builder_list (h:l) = app_list h l
 -- Term
 
 -- | A term in the output language.
-type family Term (h :: *) :: *
+type family Term (h :: Type) :: Type
 
 ------------------------------------------------------------------------
 -- SMTExpr
@@ -552,7 +553,7 @@ data SMTSymFn ctx where
            -> !(TypeMap ret)
            -> SMTSymFn (args Ctx.::> ret)
 
-data StackEntry t (h :: *) = StackEntry
+data StackEntry t (h :: Type) = StackEntry
   { symExprCache :: !(IdxCache t (SMTExpr h))
   , symFnCache :: !(PH.HashTable PH.RealWorld (Nonce t) SMTSymFn)
   }
@@ -562,7 +563,7 @@ data StackEntry t (h :: *) = StackEntry
 -- It is responsible for knowing the capabilities of the solver; generating
 -- fresh names when needed; maintaining the stack of pushes and pops, and
 -- sending queries to the solver.
-data WriterConn t (h :: *) =
+data WriterConn t (h :: Type) =
   WriterConn { smtWriterName :: !String
                -- ^ Name of writer for error reporting purposes.
              , connHandle :: !(OutputStream Text)
@@ -731,7 +732,7 @@ withWriterState c m = do
 updateProgramLoc :: WriterConn t h -> ProgramLoc -> IO ()
 updateProgramLoc c l = withWriterState c $ position .= plSourceLoc l
 
-type family Command (h :: *) :: *
+type family Command (h :: Type) :: Type
 
 -- | Typeclass need to generate SMTLIB commands.
 class (SupportTermOps (Term h)) => SMTWriter h where

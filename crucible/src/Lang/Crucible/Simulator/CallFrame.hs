@@ -58,6 +58,7 @@ module Lang.Crucible.Simulator.CallFrame
   ) where
 
 import           Control.Lens
+import           Data.Kind
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.FunctionName
@@ -249,7 +250,7 @@ type family SimFrame sym ext l args :: * where
   SimFrame sym ext (CrucibleLang blocks ret) ('Nothing)   = RegEntry sym ret
 -}
 
-type family FrameRetType (f :: *) :: CrucibleType where
+type family FrameRetType (f :: Type) :: CrucibleType where
   FrameRetType (CrucibleLang b r) = r
   FrameRetType (OverrideLang r) = r
 

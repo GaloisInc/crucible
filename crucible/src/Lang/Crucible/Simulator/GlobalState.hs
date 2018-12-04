@@ -16,6 +16,7 @@ module Lang.Crucible.Simulator.GlobalState
   , globalMuxFn
   ) where
 
+import           Data.Kind
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableF
 
@@ -30,8 +31,8 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Panic(panic)
 
-newtype GlobalEntry (sym :: *) (tp :: CrucibleType) = GlobalEntry { globalEntryValue :: RegValue sym tp }
-data RefCellContents (sym :: *) (tp :: CrucibleType)
+newtype GlobalEntry (sym :: Type) (tp :: CrucibleType) = GlobalEntry { globalEntryValue :: RegValue sym tp }
+data RefCellContents (sym :: Type) (tp :: CrucibleType)
   = RefCellContents !(Pred sym) !(RegValue sym tp)
 
 ------------------------------------------------------------------------
@@ -42,7 +43,7 @@ data RefCellContents (sym :: *) (tp :: CrucibleType)
 --   currently pending.  We use this primarily as a sanity check
 --   to help find bugs where we fail to match up calls to
 --   globalPushBranch with globalAbortBranch/globalMuxFn
-data SymGlobalState (sym :: *) =
+data SymGlobalState (sym :: Type) =
   GlobalState
   { _globalPendingBranches :: Int
   , globalMap             :: MapF.MapF GlobalVar (GlobalEntry sym)

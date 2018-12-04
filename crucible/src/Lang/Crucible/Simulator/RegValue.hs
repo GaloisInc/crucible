@@ -51,6 +51,7 @@ module Lang.Crucible.Simulator.RegValue
 
 import           Control.Monad
 import           Control.Monad.Trans.Class
+import           Data.Kind
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Proxy
@@ -79,7 +80,7 @@ import           Lang.Crucible.Backend
 type MuxFn p v = p -> v -> v -> IO v
 
 -- | Maps register types to the runtime representation.
-type family RegValue (sym :: *) (tp :: CrucibleType) :: * where
+type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym (BaseToType bt) = SymExpr sym bt
   RegValue sym (FloatType fi) = SymInterpretedFloat sym fi
   RegValue sym AnyType = AnyValue sym
@@ -107,7 +108,8 @@ newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
 -- FnVal
 
 -- | Represents a function closure.
-data FnVal (sym :: *) (args :: Ctx CrucibleType) (res :: CrucibleType) where
+
+data FnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) where
   ClosureFnVal :: Closed tp =>
                   !(FnVal sym (args ::> tp) ret)
                -> !(TypeRepr tp)

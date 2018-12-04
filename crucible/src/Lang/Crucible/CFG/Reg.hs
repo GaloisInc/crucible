@@ -24,6 +24,8 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module Lang.Crucible.CFG.Reg
   ( -- * CFG
     CFG(..)
@@ -74,6 +76,7 @@ module Lang.Crucible.CFG.Reg
   ) where
 
 import qualified Data.Foldable as Fold
+import           Data.Kind
 import           Data.Maybe (maybe)
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
@@ -120,7 +123,7 @@ instance Pretty (Label s) where
 -- LambdaLabel
 
 -- | A label for a block that expects an argument of a specific type.
-data LambdaLabel (s :: *) (tp :: CrucibleType)
+data LambdaLabel (s :: Type) (tp :: CrucibleType)
    = LambdaLabel
       { lambdaInt :: !Int
         -- ^ Integer that uniquely identifies this label within the CFG.
@@ -140,7 +143,7 @@ instance Pretty (LambdaLabel s tp) where
 -- BlockID
 
 -- | A label for a block is either a standard label, or a label expecting an input.
-data BlockID (s :: *) where
+data BlockID (s :: Type) where
   LabelID :: Label s -> BlockID s
   LambdaID :: LambdaLabel s tp -> BlockID s
 

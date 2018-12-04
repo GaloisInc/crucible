@@ -28,6 +28,7 @@ module What4.Expr.MATLAB
 
 import           Control.Monad (join)
 import           Data.Hashable
+import           Data.Kind
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TH.GADT
@@ -40,7 +41,7 @@ import           What4.Utils.OnlyNatRepr
 
 -- | Data type that lists solver functions that need to be generated during
 -- symbolic ex
-data MatlabSolverFn (f :: BaseType -> *) args ret where
+data MatlabSolverFn (f :: BaseType -> Type) args ret where
   -- Returns true if the real value is an integer.
   IsIntegerFn :: MatlabSolverFn f (EmptyCtx ::> BaseRealType) BaseBoolType
 

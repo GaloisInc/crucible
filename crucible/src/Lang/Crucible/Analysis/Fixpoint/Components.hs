@@ -15,6 +15,8 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
+
 module Lang.Crucible.Analysis.Fixpoint.Components (
   weakTopologicalOrdering,
   WTOComponent(..)
@@ -65,15 +67,17 @@ visit v = do
     markDone v
     -- Note that we always have to pop, but we might only use the
     -- result if there was a loop
-    Just elt <- pop
-    case isLoop of
-      False ->
-        -- If there is no loop, add a singleton vertex to the partition
-        addComponent (Vertex v)
-      True -> do
-        -- Otherwise, unwind the stack and add a full component
-        unwindStack elt v
-        makeComponent v
+    pop >>= \case
+        Just elt ->
+            case isLoop of
+              False ->
+                -- If there is no loop, add a singleton vertex to the partition
+                addComponent (Vertex v)
+              True -> do
+                  -- Otherwise, unwind the stack and add a full component
+                unwindStack elt v
+                makeComponent v
+        Nothing -> error "Pop attempted on empty stack (Components:visit)"
   -- We return the least label in the strongly-connected component
   -- containing this vertex, which is used if we have to unwind back
   -- to the SCC head vertex.
@@ -89,8 +93,9 @@ unwindStack elt v =
     False -> return ()
     True -> do
       resetLabel elt
-      Just elt' <- pop
-      unwindStack elt' v
+      pop >>= \case
+          Just elt' -> unwindStack elt' v
+          Nothing -> error $ "Emptied stack without finding target element (Components:unwindStack)"
 
 -- | Make a component with the given head element by visiting
 -- everything in the SCC and recursively creating a new partition.

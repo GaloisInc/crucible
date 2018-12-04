@@ -148,6 +148,7 @@ import           Control.Monad.IO.Class
 import           Data.Coerce (coerce)
 import           Data.Foldable
 import           Data.Hashable
+import           Data.Kind ( Type )
 import qualified Data.Map as Map
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -209,13 +210,13 @@ type SymString sym = SymExpr sym BaseStringType
 -- Type families for the interface.
 
 -- | The class for expressions.
-type family SymExpr (sym :: *) :: BaseType -> *
+type family SymExpr (sym :: Type) :: BaseType -> Type
 
 ------------------------------------------------------------------------
 -- | Type of bound variable associated with symbolic state.
 --
 -- This type is used by some methods in class 'IsSymExprBuilder'.
-type family BoundVar (sym :: *) :: BaseType -> *
+type family BoundVar (sym :: Type) :: BaseType -> Type
 
 ------------------------------------------------------------------------
 -- IsBoolSolver
@@ -2128,7 +2129,7 @@ iteM ite sym p mx my = do
 --
 -- This type is used by some methods in classes 'IsExprBuilder' and
 -- 'IsSymExprBuilder'.
-type family SymFn sym :: Ctx BaseType -> BaseType -> *
+type family SymFn sym :: Ctx BaseType -> BaseType -> Type
 
 -- | A class for extracting type representatives from symbolic functions
 class IsSymFn fn where

@@ -13,6 +13,7 @@ which is a symbolic generalization of the 'Maybe' monad.
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-}
 module What4.Partial
  ( -- * PartExpr
    PartExpr(..)
