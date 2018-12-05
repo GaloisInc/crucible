@@ -22,7 +22,7 @@ import System.FilePath
 import System.IO
 import Data.Typeable
 
-import           Crux.Language (LangConf(..),LangOptions,Language,Options,CruxOptions(..))
+import Crux.Language (LangConf(..),LangOptions,Language,Options,CruxOptions(..))
 import qualified Crux.Language as CL
 
 -- Unfortunately, we need to construct these arguments *before* we
@@ -30,14 +30,14 @@ import qualified Crux.Language as CL
 -- value of outDir here.
 defaultCruxOptions :: CruxOptions
 defaultCruxOptions = CruxOptions {
-    showHelp     = False
-  , simVerbose   = 1
-  , outDir       = "" 
-  , inputFile    = ""
-  , showVersion  = False
+    showHelp = False
+  , simVerbose = 1
+  , outDir = ""
+  , inputFile = ""
+  , showVersion = False
   , checkPathSat = True
   , profileCrucibleFunctions = True
-  , profileSolver            = True
+  , profileSolver = True
   , globalTimeout = Nothing
   , profileOutputInterval = Nothing
   , loopBound = Nothing

@@ -1,9 +1,11 @@
-{-# Language TypeFamilies #-}
+{-# Language ImplicitParams #-}
 {-# Language PatternSynonyms #-}
+{-# Language TypeFamilies #-}
+
 module Crux.Goal where
 
-import Control.Lens((^.), view)
-import Control.Monad(forM_, unless)
+import Control.Lens ((^.), view)
+import Control.Monad (forM_, unless)
 import Data.Either (partitionEithers)
 import Data.IORef
 import qualified Data.Map as Map
@@ -88,6 +90,7 @@ proveToGoal _ allAsmps p pr =
 proveGoals ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
   , OnlineSolver s solver
+  , ?outputConfig :: OutputConfig
   ) =>
   SimCtxt sym p ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->

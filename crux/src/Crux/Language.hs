@@ -1,13 +1,14 @@
-{-# Language ExistentialQuantification #-}
-{-# Language TypeFamilies #-}
-{-# Language FlexibleInstances #-}
-{-# Language UndecidableInstances #-}
-{-# Language TypeApplications #-}
 {-# Language AllowAmbiguousTypes #-}
-{-# Language ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# Language ExistentialQuantification #-}
+{-# Language FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE RankNTypes #-}
+{-# Language ScopedTypeVariables #-}
+{-# Language TypeApplications #-}
+{-# Language TypeFamilies #-}
+{-# Language UndecidableInstances #-}
 
 module Crux.Language where
 
@@ -16,8 +17,9 @@ import System.Console.GetOpt
 
 import Lang.Crucible.Simulator
 import Lang.Crucible.Backend
-import Crux.Types
 
+import Crux.Log
+import Crux.Types
 
 type Verbosity = Int
 
@@ -103,10 +105,10 @@ class (Typeable a) => Language a where
   formatError :: LangError a -> String
 
   -- simulation function, see above for interface
-  simulate :: Simulate sym a
+  simulate :: (?outputConfig :: OutputConfig) => Simulate sym a
 
   -- use the result of the simulation function
-  makeCounterExamples :: Options a -> Maybe (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
+  makeCounterExamples :: (?outputConfig :: OutputConfig) => Options a -> Maybe (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
   makeCounterExamples _opts _proved = return ()
 
 -- Trivial instance of the class

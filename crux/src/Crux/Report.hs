@@ -4,11 +4,11 @@
 module Crux.Report where
 
 import System.FilePath
-import System.Directory(createDirectoryIfMissing)
-import Data.List(intercalate,partition)
-import Data.Maybe(fromMaybe)
-import Control.Exception(catch,SomeException(..))
-import Control.Monad(when)
+import System.Directory (createDirectoryIfMissing)
+import Data.List (intercalate, partition)
+import Data.Maybe (fromMaybe)
+import Control.Exception (catch, SomeException(..))
+import Control.Monad (when)
 
 import qualified Data.Text.IO as T
 
@@ -42,8 +42,8 @@ generateReport opts xs =
 generateSource :: CruxOptions -> IO ()
 generateSource opts =
   do src <- readFile (inputFile opts)
-     writeFile (outDir opts </> "source.js")
-        $ "var lines = " ++ show (lines src)
+     writeFile (outDir opts </> "source.js") $
+       "var lines = " ++ show (lines src)
   `catch` \(SomeException {}) -> return ()
 
 

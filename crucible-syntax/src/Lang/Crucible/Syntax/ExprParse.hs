@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -497,7 +498,7 @@ atomic = sideCondition "an atom" perhapsAtom (syntaxToDatum <$> anything)
 -- | Annotate a parser with a description, documenting its role in the
 -- grammar. These descriptions are used to construct error messages.
 describe :: MonadSyntax atom m => Text -> m a -> m a
-describe d p =
+describe !d p =
   do foc <- anything
      withReason (Reason foc d) p
 
@@ -612,7 +613,7 @@ later = withProgressStep Late
 -- | Impose a side condition on a parser, failing with the given
 -- description if the side condition is 'Nothing'.
 sideCondition :: MonadSyntax atom m => Text -> (a -> Maybe b) -> m a -> m b
-sideCondition msg ok p =
+sideCondition !msg ok p =
   do x <- p
      case ok x of
        Just y -> pure y
@@ -622,7 +623,7 @@ sideCondition msg ok p =
 -- | Impose a Boolean side condition on a parser, failing with the
 -- given description if the side condition is 'False'.
 sideCondition' :: MonadSyntax atom m => Text -> (a -> Bool) -> m a -> m a
-sideCondition' msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
+sideCondition' !msg ok p = sideCondition msg (\x -> if ok x then Just x else Nothing) p
 
 
 -- | Syntax errors explain why the error occurred.
