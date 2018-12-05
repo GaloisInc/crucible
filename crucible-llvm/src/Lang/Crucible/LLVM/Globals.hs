@@ -220,9 +220,9 @@ populateGlobals ::
 populateGlobals select sym gimap mem0 = foldM f mem0 (Map.elems gimap)
   where
   f mem (gl, _) | not (select gl)    = return mem
-  f _   (_, Left msg)                = fail msg
+  f _   (_,  Left msg)               = fail msg
   f mem (gl, Right (mty, Just cval)) = populateGlobal sym gl mty cval mem
-  f mem (_, Right (_, Nothing))      = return mem
+  f mem (_ , Right (_, Nothing))     = return mem
 
 
 -- | Populate all the globals mentioned in the given @GlobalInitializerMap@.
@@ -268,7 +268,7 @@ populateGlobal ::
   MemImpl sym ->
   IO (MemImpl sym)
 populateGlobal sym gl mt cval mem =
-  do let symb = L.globalSym gl 
+  do let symb = L.globalSym gl
      let alignment = memTypeAlign (llvmDataLayout ?lc) mt
      ty <- toStorableType mt
      ptr <- doResolveGlobal sym mem symb

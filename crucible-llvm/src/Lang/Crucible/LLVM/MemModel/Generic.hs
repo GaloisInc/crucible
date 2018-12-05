@@ -164,6 +164,7 @@ genCondVar sym w inst c =
     IntEq x y      -> join $ bvEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     IntLe x y      -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     And x y        -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
+    Or x y         -> join $ orPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
 
 genValueCtor :: forall sym .
   IsSymInterface sym => sym ->
@@ -248,9 +249,14 @@ evalMuxValueCtor sym _w end _vf subFn (MuxVar v) =
      genValueCtor sym end v'
 evalMuxValueCtor sym w end vf subFn (Mux c t1 t2) =
   do c' <- genCondVar sym w vf c
-     t1' <- evalMuxValueCtor sym w end vf subFn t1
-     t2' <- evalMuxValueCtor sym w end vf subFn t2
-     muxLLVMVal sym c' t1' t2'
+     case asConstantPred c' of
+       Just True  -> evalMuxValueCtor sym w end vf subFn t1
+       Just False -> evalMuxValueCtor sym w end vf subFn t2
+       Nothing ->
+        do t1' <- evalMuxValueCtor sym w end vf subFn t1
+           t2' <- evalMuxValueCtor sym w end vf subFn t2
+           muxLLVMVal sym c' t1' t2'
+
 evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
   do m' <- traverse (evalMuxValueCtor sym w end vf subFn) m
      t' <- evalMuxValueCtor sym w end vf subFn t
@@ -263,8 +269,12 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
     f :: Bytes -> PartLLVMVal sym -> IO (PartLLVMVal sym) -> IO (PartLLVMVal sym)
     f n t1 k =
       do c' <- genCondVar sym w vf (OffsetEq (aOffset n) b)
-         t2 <- k
-         muxLLVMVal sym c' t1 t2
+         case asConstantPred c' of
+           Just True -> return t1
+           Just False -> k
+           Nothing ->
+             do t2 <- k
+                muxLLVMVal sym c' t1 t2
 
     aOffset :: Bytes -> OffsetExpr
     aOffset n = OffsetAdd a (CValue n)
@@ -288,9 +298,12 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
                  else And (OffsetLe (aOffset n) b)
                           (OffsetLe b (aOffset (fst (last xps1))))
          c' <- genCondVar sym w vf c
-         p' <- simplPred xps2 p0
-         itePred sym c' p p'
-
+         case asConstantPred c' of
+           Just True -> return p
+           Just False -> simplPred xps2 p0
+           Nothing ->
+             do p' <- simplPred xps2 p0
+                itePred sym c' p p'
 
 -- | Read from a memory with a memcopy to the same block we are reading.
 readMemCopy ::
@@ -309,6 +322,7 @@ readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
      let varFn = (off, d, sz)
+
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
@@ -439,9 +453,12 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
+
             let align' = min loadAlign storeAlign
+            diff <- bvSub sym off d
+
             evalMuxValueCtor sym w end varFn subFn $
-              symbolicValueLoad pref ltp (ValueViewVar stp) align'
+              symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) align'
 
 readMem ::
   (1 <= w, IsSymInterface sym) => sym ->
@@ -535,6 +552,7 @@ readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
                             MemCopy src sz -> readMemCopy sym w end l tp d src sz readPrev
                             MemSet v sz    -> readMemSet sym w end l tp d v sz readPrev
                             MemStore v stp storeAlign -> readMemStore sym w end l tp d v stp alignment storeAlign readPrev
+
                     sameBlock <- natEq sym blk1 blk2
                     case asConstantPred sameBlock of
                       Just True -> readCurrent
@@ -806,7 +824,9 @@ writeConstMem ::
   IO (Pred sym, Mem sym)
 writeConstMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p <- isAllocated sym w ptr sz m
+     p1 <- isAllocated sym w ptr sz m
+     p2 <- isAligned sym w ptr alignment
+     p  <- andPred sym p1 p2
      return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
 
 -- | Perform a mem copy. The returned 'Pred' asserts that the source

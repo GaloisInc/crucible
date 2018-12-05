@@ -86,6 +86,7 @@ data Cond
   | IntEq IntExpr IntExpr
   | IntLe IntExpr IntExpr
   | And Cond Cond
+  | Or Cond Cond
   deriving (Show)
 
 (.==) :: OffsetExpr -> OffsetExpr -> Cond
@@ -496,32 +497,56 @@ valueLoad lo ltp so v
 symbolicValueLoad ::
   BasePreference {- ^ whether addresses are based on store or load -} ->
   Type           {- ^ load type            -} ->
+  Maybe (Integer, Integer) {- ^ optional bounds on the offset between load and store -} ->
   ValueView      {- ^ view of stored value -} ->
   Alignment      {- ^ alignment of store and load -} ->
   Mux (ValueCtor (ValueLoad OffsetExpr))
-symbolicValueLoad pref tp v alignment =
-  Mux (loadOffset lsz .<= Store) loadFail $
-  MuxTable Load Store (prefixTable stride) $
-  MuxTable Store Load (suffixTable 0) loadFail
+symbolicValueLoad pref tp bnd v alignment =
+  Mux (Or (loadOffset lsz .<= Store) (storeOffset (typeSize stp) .<= Load)) loadFail $
+  MuxTable Load Store prefixTable $
+  MuxTable Store Load suffixTable loadFail
   where
     stride = fromAlignment alignment
     lsz = typeEnd 0 tp
     Just stp = viewType v
 
-    prefixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad OffsetExpr)))
-    prefixTable i
-      | i < lsz = Map.insert i
+    prefixTable = mkPrefixTable prefixLoBound
+    suffixTable = mkSuffixTable suffixLoBound
+
+    suffixLoBound =
+      case bnd of
+        Just (lo, _hi) | lo >= 0 -> max 0 (toBytes lo)
+        _ -> 0
+
+    suffixHiBound =
+      case bnd of
+        Just (_lo, hi) | hi >= 0 -> min (typeSize stp) (toBytes hi + 1)
+        _ -> typeSize stp
+
+    prefixLoBound =
+      case bnd of
+        Just (_lo, hi) | hi < 0 -> max stride (toBytes (-hi))
+        _ -> stride
+
+    prefixHiBound =
+      case bnd of
+        Just (lo, _hi) | lo < 0 -> min lsz (toBytes (-lo) + 1)
+        _ -> lsz
+
+    mkPrefixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad OffsetExpr)))
+    mkPrefixTable i
+      | i < prefixHiBound = Map.insert i
         (MuxVar (fmap adjustFn <$> valueLoad 0 tp i v))
-        (prefixTable (i + stride))
+        (mkPrefixTable (i + stride))
       | otherwise = Map.empty
       where adjustFn = fixLoadBeforeStoreOffset pref i
 
-    suffixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad OffsetExpr)))
-    suffixTable i
-      | i < typeSize stp =
+    mkSuffixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad OffsetExpr)))
+    mkSuffixTable i
+      | i < suffixHiBound =
         Map.insert i
         (MuxVar (fmap adjustFn <$> valueLoad i tp 0 v))
-        (suffixTable (i + stride))
+        (mkSuffixTable (i + stride))
       | otherwise = Map.empty
       where adjustFn = fixLoadAfterStoreOffset pref i
 
