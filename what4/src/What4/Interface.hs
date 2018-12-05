@@ -272,6 +272,12 @@ class IsExpr e where
   asSignedBV   :: (1 <= w) => e (BaseBVType w) -> Maybe Integer
   asSignedBV _ = Nothing
 
+  -- | If we have bounds information about the term, return unsigned upper and lower bounds
+  unsignedBVBounds :: (1 <= w) => e (BaseBVType w) -> Maybe (Integer, Integer)
+
+  -- | If we have bounds information about the term, return signed upper and lower bounds
+  signedBVBounds :: (1 <= w) => e (BaseBVType w) -> Maybe (Integer, Integer)
+
   -- | Return the string value if this is a constant string
   asString :: e BaseStringType -> Maybe Text
   asString _ = Nothing
@@ -404,7 +410,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   getConfiguration :: sym -> Config
 
 
-  -- | Install an action that will be invoked before and after calls to 
+  -- | Install an action that will be invoked before and after calls to
   --   backend solvers.  This action is primarily intended to be used for
   --   logging/profiling/debugging purposes.  Passing `Nothing` to this
   --   function disables logging.

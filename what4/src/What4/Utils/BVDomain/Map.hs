@@ -634,13 +634,31 @@ udiv :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
 udiv w _x _y = any w -- TODO
 
 urem :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
-urem w _x _y = any w -- TODO
+urem w x y
+  | Just (ylo,yhi) <- ubounds w y, 0 < ylo
+  = let hi = case ubounds w x of
+               Just (_,xhi) -> min (yhi - 1) xhi
+               Nothing      -> (yhi - 1)
+     in range w 0 hi
+
+  | otherwise = any w
 
 sdiv :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
 sdiv w _x _y = any w -- TODO
 
 srem :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w -> BVDomain w
-srem w _x _y = any w -- TODO
+srem w x y
+  | Just (ylo,yhi) <- sbounds w y, 0 < ylo
+  , Just (xlo,xhi) <- sbounds w x, 0 <= xlo
+  = range w 0 (min (yhi - 1) xhi)
+
+  | Just (ylo,yhi) <- sbounds w y, 0 < ylo
+  , Just (xlo,xhi) <- sbounds w x, xhi < 0
+  = range w (max (-(yhi - 1)) xlo) 0
+
+  -- TODO, we could probably add ranges for negative denominators as well
+
+  | otherwise = any w
 
 -- | Return union of two domains.
 union :: (1 <= w)
