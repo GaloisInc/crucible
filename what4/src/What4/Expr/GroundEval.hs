@@ -379,7 +379,7 @@ evalGroundApp f0 a0 = do
     FloatIte{}        -> MaybeT $ return Nothing
     FloatCast{}       -> MaybeT $ return Nothing
     FloatRound{}      -> MaybeT $ return Nothing
-    FloatFromBinary{} -> MaybeT $ return Nothing
+    FloatFromBinary _ x -> f x
     FloatToBinary{}   -> MaybeT $ return Nothing
     BVToFloat{}       -> MaybeT $ return Nothing
     SBVToFloat{}      -> MaybeT $ return Nothing

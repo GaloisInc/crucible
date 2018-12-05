@@ -206,7 +206,7 @@ overrideTopFrame = gpValue . overrideSimFrame
 -- AbortedResult
 
 -- | An execution path that was prematurely aborted.  Note, an abort
---   does not necessarily inidicate an error condition.  An execution
+--   does not necessarily indicate an error condition.  An execution
 --   path might abort because it became infeasible (inconsistent path
 --   conditions), because the program called an exit primitive, or
 --   because of a true error condition (e.g., a failed assertion).

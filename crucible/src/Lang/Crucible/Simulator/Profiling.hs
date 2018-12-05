@@ -9,6 +9,7 @@
 --
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -33,6 +34,9 @@ module Lang.Crucible.Simulator.Profiling
   , exitEvent
   , inProfilingFrame
   , readMetrics
+  , CrucibleProfile(..)
+  , readProfilingState
+  , writeProfileReport
 
     -- * Profiling data structures
   , CGEvent(..)
@@ -56,6 +60,8 @@ import           Data.Time.Clock.POSIX
 import           Data.Time.Format
 import           System.IO (withFile, IOMode(..), hPutStrLn)
 import           Text.JSON
+import           GHC.Generics (Generic)
+
 
 import           What4.FunctionName
 import           What4.Interface
@@ -77,6 +83,7 @@ data Metrics f =
   }
 
 deriving instance Show (Metrics Identity)
+deriving instance Generic (Metrics Identity)
 
 traverseF_metrics :: Applicative m =>
   (forall s. e s -> m (f s)) ->
@@ -101,7 +108,7 @@ metricsToJSON m time = JSObject $ toJSObject $
 
 
 data CGEventType = ENTER | EXIT
- deriving (Show,Eq,Ord)
+ deriving (Show,Eq,Ord,Generic)
 
 data CGEvent =
   CGEvent
@@ -113,7 +120,7 @@ data CGEvent =
   , cgEvent_time     :: UTCTime
   , cgEvent_id       :: Integer
   }
- deriving (Show)
+ deriving (Show, Generic)
 
 -- FIXME... figure out why the UI seems to want this in milliseconds...
 utcTimeToJSON :: UTCTime -> JSValue
@@ -177,6 +184,7 @@ symProUIString nm source tbl =
   do js <- symProUIJSON nm source tbl
      return ("data.receiveData("++ encode js ++ ");")
 
+
 symProUIJSON :: String -> String -> ProfilingTable -> IO JSValue
 symProUIJSON nm source tbl =
   do now <- getCurrentTime
@@ -216,6 +224,21 @@ data ProfilingTable =
   , eventIDRef :: IORef Integer
   , solverEvents :: IORef (Seq (UTCTime, SolverEvent))
   }
+
+data CrucibleProfile =
+  CrucibleProfile
+  { crucibleProfileTime :: UTCTime
+  , crucibleProfileCGEvents :: [CGEvent]
+  , crucibleProfileSolverEvents :: [SolverEvent]
+  } deriving (Show, Generic)
+
+readProfilingState :: ProfilingTable -> IO (UTCTime, [CGEvent], [(UTCTime, SolverEvent)])
+readProfilingState tbl =
+  do now <- getCurrentTime
+     m <- readMetrics tbl
+     cgevs <- readIORef (callGraphEvents tbl)
+     sevs  <- readIORef (solverEvents tbl)
+     return (now, toList cgevs ++ closingEvents now m cgevs, toList sevs)
 
 openEventFrames :: Seq CGEvent -> [CGEvent]
 openEventFrames = go []
@@ -351,10 +374,19 @@ isMergeState tgt st =
 data ProfilingOptions =
   ProfilingOptions
   { periodicProfileInterval :: NominalDiffTime
-  , periodicProfileFile     :: FilePath
-  , periodicProfileName     :: String
-  , periodicProfileSource   :: String
+  , periodicProfileAction   :: ProfilingTable -> IO ()
   }
+
+
+-- | Write a profiling report file in the JS/JSON format expected by tye symProUI front end.
+writeProfileReport ::
+  FilePath {- ^ File to write -} ->
+  String {- ^ "name" for the report -} ->
+  String {- ^ "source" for the report -} ->
+  ProfilingTable {- ^ profiling data to populate the report -} ->
+  IO ()
+writeProfileReport fp name source tbl =
+   withFile fp WriteMode $ \h -> hPutStrLn h =<< symProUIString name source tbl
 
 -- | This feature will pay attention to function call entry/exit events
 --   and track the elapsed time and various other metrics in the given
@@ -381,13 +413,9 @@ profilingFeature tbl (Just profOpts) =
            if deadline >= now then
              return Nothing
            else
-             do writeProfilingReport
+             do periodicProfileAction profOpts tbl
                 writeIORef stateRef (computeNextState now)
                 return Nothing
-
- writeProfilingReport =
-   withFile (periodicProfileFile profOpts) WriteMode $ \h ->
-     hPutStrLn h =<< symProUIString (periodicProfileName profOpts) (periodicProfileSource profOpts) tbl
 
  computeNextState :: UTCTime -> UTCTime
  computeNextState lastOutputTime = addUTCTime (periodicProfileInterval profOpts) lastOutputTime

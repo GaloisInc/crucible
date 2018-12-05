@@ -379,6 +379,7 @@ data SolverEvent
     { satQueryResult     :: !(SatResult () ())
     , satQueryError      :: !(Maybe String)
     }
+ deriving (Show, Generic)
 
 ------------------------------------------------------------------------
 -- IsExprBuilder

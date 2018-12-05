@@ -8,6 +8,7 @@
 -- Stability   : provisional
 ------------------------------------------------------------------------
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 module What4.SatResult
   ( SatResult(..)
@@ -18,12 +19,13 @@ module What4.SatResult
   , traverseSatResult
   ) where
 
+import           GHC.Generics (Generic)
 
 data SatResult mdl core
    = Sat mdl
    | Unsat core
    | Unknown
- deriving (Show)
+ deriving (Show, Generic)
 
 traverseSatResult :: Applicative t =>
   (a -> t q) ->

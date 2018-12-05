@@ -21,7 +21,6 @@ module What4.Solver.STP
   , withSTP
   ) where
 
-import           System.IO (Handle)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes

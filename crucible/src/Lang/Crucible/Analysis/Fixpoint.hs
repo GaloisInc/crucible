@@ -39,7 +39,7 @@ module Lang.Crucible.Analysis.Fixpoint (
   PointAbstraction(..),
   lookupAbstractRegValue,
   modifyAbstractRegValue,
-  computeOrdering,
+  cfgWeakTopologicalOrdering,
   -- * Pointed domains
   -- $pointed
   Pointed(..),
@@ -630,7 +630,7 @@ wtoIteration :: forall ext dom blocks ret init
              -> Interpretation ext dom
              -> CFG ext blocks init ret
              -> M dom blocks ret ()
-wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
+wtoIteration mWiden dom interp cfg = loop (cfgWeakTopologicalOrdering cfg)
   where
     loop [] = return ()
     loop (Vertex (Some bid@(BlockID idx)) : rest) = do
@@ -663,14 +663,6 @@ wtoIteration mWiden dom interp cfg = loop (computeOrdering cfg)
                   isFuncAbstr %= (faEntryRegs . ixF idx .~ headInputW)
             _ -> return ()
           processSCC (Some hbid) comps (iterNum + 1)
-
--- | Compute a weak topological order for the wto fixpoint iteration
-computeOrdering :: CFG ext blocks init ret
-                -> [WTOComponent (Some (BlockID blocks))]
-computeOrdering cfg = weakTopologicalOrdering successors (Some block0)
-  where
-    block0 = cfgEntryBlockID cfg
-    successors (Some bid) = nextBlocks (getBlock bid (cfgBlockMap cfg))
 
 lookupAssignment :: forall dom blocks ret tp
                   . PU.Index blocks tp

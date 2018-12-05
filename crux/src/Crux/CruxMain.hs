@@ -111,6 +111,8 @@ simulate opts  =
      let profiling = profileCrucibleFunctions cruxOpts
                   || profileSolver cruxOpts
 
+     createDirectoryIfMissing True (outDir cruxOpts)
+
      tbl <- newProfilingTable
 
      let inFrame :: forall b. FunctionName -> IO b -> IO b
@@ -134,7 +136,8 @@ simulate opts  =
           traverse
           (\v -> case parseNominalDiffTime v of
                     Nothing -> fail $ "Invalid profiling output interval: " ++ v
-                    Just t  -> return $ ProfilingOptions t profOutFile (inputFile cruxOpts) (inputFile cruxOpts))
+                    Just t  -> return $
+                      ProfilingOptions t (writeProfileReport profOutFile (inputFile cruxOpts) (inputFile cruxOpts)))
           (profileOutputInterval cruxOpts)
 
      pfs <- if (profileCrucibleFunctions cruxOpts) then
@@ -188,8 +191,6 @@ simulate opts  =
         say "Crux" "Simulation complete."
 
      when profiling $ do
-       createDirectoryIfMissing True (outDir cruxOpts)
-       withFile profOutFile WriteMode $ \h ->
-         hPutStrLn h =<< symProUIString (inputFile cruxOpts) (inputFile cruxOpts) tbl
+       writeProfileReport profOutFile (inputFile cruxOpts) (inputFile cruxOpts) tbl
 
      return gls
