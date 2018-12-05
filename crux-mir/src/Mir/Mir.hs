@@ -28,10 +28,13 @@ License          : BSD3
 module Mir.Mir where
 
 import Data.Aeson
+import qualified Data.Aeson.Types  as Aeson
 import qualified Data.HashMap.Lazy as HML
 import qualified Data.ByteString as B
 import qualified Data.Map.Strict as Map
 import Data.Text (Text,  unpack)
+import qualified Data.Text as T
+import qualified Data.Text.Read  as T
 import Data.List
 import Control.Lens(makeLenses,(^.))
 import Data.Maybe (fromMaybe)
@@ -47,6 +50,7 @@ import Mir.DefId
 --
 
 -- SCW: Description of MIR: https://github.com/rust-lang/rfcs/blob/master/text/1211-mir.md
+-- https://github.com/rust-lang/rust/blob/master/src/librustc/mir/mod.rs
 
 data BaseSize =
     USize
@@ -87,7 +91,7 @@ data Ty =
       | TyProjection DefId [Maybe Ty]
       deriving (Eq, Ord, Show, Generic)
 
-data FnSig = FnSig [Ty] Ty
+data FnSig = FnSig [Ty] Ty 
     deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data Adt = Adt {_adtname :: DefId, _adtvariants :: [Variant]}
@@ -144,13 +148,31 @@ data Collection = Collection {
     _traits :: [Trait]
 } deriving (Show, Eq, Ord, Generic, GenericOps)
 
+data Predicate = Predicate {
+    _ptrait :: DefId,
+    _psubst :: [Ty]
+    }
+    | UnknownPredicate
+    deriving (Show, Eq, Ord, Generic, GenericOps)
+
+data Param = Param {
+    _pname :: Text
+} deriving (Show, Eq, Ord, Generic, GenericOps)
+
+newtype Params = Params [Param]
+   deriving (Show, Eq, Ord, Generic, GenericOps)
+
+newtype Predicates = Predicates [Predicate]
+   deriving (Show, Eq, Ord, Generic, GenericOps)
 
 
 data Fn = Fn {
     _fname :: DefId,
     _fargs :: [Var],
     _freturn_ty :: Ty,
-    _fbody :: MirBody
+    _fbody :: MirBody,
+    _fgenerics :: [Param],
+    _fpredicates :: [Predicate]
     }
     deriving (Show,Eq, Ord, Generic, GenericOps)
 
@@ -182,8 +204,8 @@ data Statement =
       Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: Text }
       -- TODO: the rest of these variants also have positions
       | SetDiscriminant { _sdlv :: Lvalue, _sdvi :: Int }
-      | StorageLive { _sllv :: Lvalue }
-      | StorageDead { _sdlv :: Lvalue }
+      | StorageLive { _slv :: Var }
+      | StorageDead { _sdv :: Var }
       | Nop
     deriving (Show,Eq, Ord, Generic, GenericOps)
 
@@ -252,7 +274,8 @@ data Terminator =
       deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data Operand =
-    Consume Lvalue
+        Copy Lvalue
+      | Move Lvalue
       | OpConstant Constant
       deriving (Show, Eq, Ord, Generic, GenericOps)
 
@@ -264,7 +287,7 @@ data LvalueProjection = LvalueProjection { _lvpbase :: Lvalue, _lvpkind :: Lvpel
 data Lvpelem =
     Deref
       | PField Int Ty
-      | Index Operand
+      | Index Var
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
       | Subslice { _sfrom :: Int, _sto :: Int }
       | Downcast Integer
@@ -623,7 +646,8 @@ isCStyle (Adt _ variants) = all isConst variants where
 
 
 lValueofOp :: HasCallStack => Operand -> Lvalue
-lValueofOp (Consume lv) = lv
+lValueofOp (Copy lv) = lv
+lValueofOp (Move lv) = lv
 lValueofOp l = error $ "bad lvalue of op: " ++ show l
 
 funcNameofOp :: HasCallStack => Operand -> DefId
@@ -696,7 +720,8 @@ instance ArithTyped Lvalue where
     arithType _ = error "unimpl arithtype"
 
 instance ArithTyped Operand where
-    arithType (Consume lv) = arithType lv
+    arithType (Move lv) = arithType lv
+    arithType (Copy lv) = arithType lv
     arithType (OpConstant (Constant ty _)) = arithType ty
 
 --------------------------------------------------------------------------------------
@@ -728,7 +753,8 @@ instance TypeOf Rvalue where
   typeOf rv = error ("typeOf Rvalue unimplemented: " ++ pprint rv)
 
 instance TypeOf Operand where
-    typeOf (Consume lv) = typeOf lv
+    typeOf (Move lv) = typeOf lv
+    typeOf (Copy lv) = typeOf lv
     typeOf (OpConstant c) = typeOf c
 
 instance TypeOf Constant where
@@ -754,7 +780,8 @@ instance TypeOf LvalueProjection where
    peelIdx (TySlice t)   = t
    peelIdx (TyRef t m)   = TyRef (peelIdx t) m
    peelIdx t             = t
-    
+
+  
 --------------------------------------------------------------------------------------
 
 {-
@@ -939,7 +966,7 @@ instance PPrint Var where
                   _ -> ""
 
 instance PPrint Fn where
-    pprint (Fn fname1 fargs1 fty fbody1) = pprint fname1 ++ "(" ++ pargs ++ ") -> " ++ pprint fty ++ " {\n" ++ pprint fbody1 ++ "}\n"
+    pprint (Fn fname1 fargs1 fty fbody1 _ _) = pprint fname1 ++ "(" ++ pargs ++ ") -> " ++ pprint fty ++ " {\n" ++ pprint fbody1 ++ "}\n"
         where
             pargs = mconcat $ Data.List.intersperse "\n" (Prelude.map pprint fargs1)
 
@@ -961,7 +988,7 @@ instance PPrint BasicBlockData where
 
 instance PPrint Statement where
     pprint (Assign lhs rhs _) = pprint lhs ++ " = " ++ pprint rhs ++ ";"
-    pprint (SetDiscriminant lhs rhs) = pprint lhs ++ " = " ++ pprint rhs ++ ";"
+    pprint (SetDiscriminant lhs rhs) = pprint lhs ++ " d= " ++ pprint rhs ++ ";"
     pprint (StorageLive l) = pprint_fn1 "StorageLive" l
     pprint (StorageDead l) = pprint_fn1 "StorageDead" l
     pprint Nop = "nop;"
@@ -1005,7 +1032,8 @@ instance PPrint Terminator where
 
 
 instance PPrint Operand where
-    pprint (Consume lv) = "Consume(" ++ pprint lv ++ ")"
+    pprint (Move lv) = "Move(" ++ pprint lv ++ ")"
+    pprint (Copy lv) = "Copy(" ++ pprint lv ++ ")"
     pprint (OpConstant c) = "Constant(" ++ pprint c ++ ")"
 
 
@@ -1136,7 +1164,12 @@ instance FromJSON Ty where
                                           Just (String "Unsupported") -> pure TyUnsupported
                                           Just (String "Tuple") -> TyTuple <$> v .: "tys"
                                           Just (String "Slice") -> TySlice <$> v .: "ty"
-                                          Just (String "Array") -> TyArray <$> v .: "ty" <*> v .: "size"
+                                          Just (String "Array") -> do
+                                            lit <- v .: "size"
+                                            case lit of
+                                              Value (ConstInt (Usize i)) ->
+                                                 TyArray <$> v .: "ty" <*> pure (fromInteger i)
+                                              _ -> fail $ "unsupported array size: " ++ show lit
                                           Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Custom") -> TyCustom <$> v .: "data"
                                           Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
@@ -1208,12 +1241,18 @@ instance FromJSON Collection where
         
 
 instance FromJSON Fn where
-    parseJSON = withObject "Fn" $ \v -> Fn
+    parseJSON = withObject "Fn" $ \v -> do
+      pg <- v .: "generics"
+      pp <- v .: "predicates"
+      Fn
         <$> v .: "name"
         <*> v .: "args"
         <*> v .: "return_ty"
         <*> v .: "body"
+        <*> (withObject "Param" (\u -> u .: "params") pg)
+        <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
 
+        
 instance FromJSON BasicBlock where
     parseJSON = withObject "BasicBlock" $ \v -> BasicBlock
         <$> v .: "blockid"
@@ -1239,7 +1278,7 @@ instance FromJSON Lvalue where
                                               Just (String "Local") ->  Local <$> v .: "localvar"
                                               Just (String "Static") -> pure Static
                                               Just (String "Projection") ->  LProjection <$> v .: "data"
-                                              _ -> fail "kind not found"
+                                              _ -> fail "kind not found for Lvalue"
 
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case HML.lookup "kind" v of
@@ -1276,7 +1315,9 @@ instance FromJSON Terminator where
 
 instance FromJSON Operand where
     parseJSON = withObject "Operand" $ \v -> case HML.lookup "kind" v of
-                                               Just (String "Consume") -> Consume <$> v .: "data"
+--                                               Just (String "Consume") -> Consume <$> v .: "data"
+                                               Just (String "Move") -> Move <$> v .: "data"
+                                               Just (String "Copy") -> Copy <$> v .: "data"  
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
 
@@ -1307,6 +1348,8 @@ instance FromJSON BorrowKind where
                                              Just (String "Shared") -> pure Shared
                                              Just (String "Unique") -> pure Unique
                                              Just (String "Mut") -> pure Mutable
+                                             -- s can be followed by "{ allow_two_phase_borrow: true }"
+                                             Just (String s) | T.isPrefixOf "Mut" s -> pure Mutable
                                              x -> fail ("bad borrowKind: " ++ show x)
 
 instance FromJSON UnOp where
@@ -1344,43 +1387,80 @@ instance FromJSON CastKind where
                                                x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Literal where
-    parseJSON = withObject "Literal" $ \v -> case HML.lookup "kind" v of
-                                               Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
-                                               Just (String "Value") -> Value <$> v .: "value"
-                                               Just (String "Promoted") -> LPromoted <$> v .: "index"
-                                               x -> fail ("bad Literal: " ++ show x)
+    parseJSON = withObject "Literal" $ \v ->
+      case HML.lookup "kind" v of
+        Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
+        Just (String "Const") -> do
+          lit <- parseConst <$> (v .: "ty") <*> (v .: "val") 
+          Value <$> lit
+        Just (String "Promoted") -> LPromoted <$> v .: "index"
+        x -> fail ("bad Literal: " ++ show x)
+
+-- | Need to look at both the val and the ty objects to figure out
+-- how to parse the constant
+parseConst :: Ty -> Value -> Aeson.Parser ConstVal
+parseConst ty v = do
+  case ty of
+    TyInt _bs  -> ConstInt   <$> parseInt ty v
+    TyUint _bs -> ConstInt   <$> parseInt ty v
+    TyFloat fk -> ConstFloat <$> parseFloat fk v
+    TyBool     -> ConstBool  <$> parseBoolText v
+    TyChar     -> ConstChar  <$> parseChar v
+    TyRef t Immut -> parseConst t v
+    TyStr      -> ConstStr   <$> parseJSON v
+    TyFnDef d ps -> pure $ ConstFunction d ps   -- TODO : don't need v?
+    TyTuple ts   -> ConstTuple <$> parseConsts ts v
+    TyArray t n  -> ConstArray <$> parseConsts (replicate n t) v
+    r            -> fail $ "TODO: don't know how to parse literals of type " ++ pprint r
 
 
-instance FromJSON IntLit where
-    parseJSON = withObject "IntLit" $ \v -> case HML.lookup "kind" v of
-                                              Just (String "u8") -> U8 <$> v.: "val"
-                                              Just (String "u16") -> U16 <$> v.: "val"
-                                              Just (String "u32") -> U32 <$> v.: "val"
-                                              Just (String "u64") -> U64 <$> v.: "val"
-                                              Just (String "usize") -> Usize <$> v.: "val"
-                                              Just (String "i8") -> I8 <$> v.: "val"
-                                              Just (String "i16") -> I16 <$> v.: "val"
-                                              Just (String "i32") -> I32 <$> v.: "val"
-                                              Just (String "i64") -> I64 <$> v.: "val"
-                                              Just (String "isize") -> Isize <$> v.: "val"
-                                              _ -> fail "invalid int literal"
+-- FromJSON instance for booleans assumes a "Bool" variant of the Value datatype
+-- not a "String" variant
+parseBoolText :: Value -> Aeson.Parser Bool
+parseBoolText = withText "Bool" $ \t -> case t of
+        "true"  -> pure True
+        "false" -> pure False
+        _       -> fail $ "Cannot parse key into Bool: " ++ T.unpack t
 
+parseIntegerText :: Value -> Aeson.Parser Integer
+parseIntegerText = withText "Integer" $ \t ->
+  case (T.signed T.decimal t) of
+    Right (i, _) -> return i
+    Left _       -> fail "Cannot parse Integer value"
+
+
+parseChar :: Value -> Aeson.Parser Char
+parseChar = withText "Char" $ \t -> fail $ "Don't know how to parse Text " ++ T.unpack t ++ " into a Char"
+
+parseString :: Value -> Aeson.Parser String
+parseString = withText "String" (pure . T.unpack)
+
+parseConsts :: [Ty] -> Value -> Aeson.Parser [ConstVal]
+parseConsts tys v = fail "TODO: parse tuples"
+
+
+
+parseInt :: Ty -> Value -> Aeson.Parser IntLit
+parseInt ty val = 
+  case ty of
+    (TyUint B8)    -> U8    <$> parseIntegerText val
+    (TyUint B16)   -> U16   <$> parseIntegerText val
+    (TyUint B32)   -> U32   <$> parseIntegerText val
+    (TyUint B64)   -> U64   <$> parseIntegerText val
+    (TyUint USize) -> Usize <$> parseIntegerText val
+    (TyInt B8)     -> I8    <$> parseIntegerText val
+    (TyInt B16)    -> I16   <$> parseIntegerText val
+    (TyInt B32)    -> I32   <$> parseIntegerText val
+    (TyInt B64)    -> I64   <$> parseIntegerText val
+    (TyInt USize)  -> Isize <$> parseIntegerText val
+    _ -> fail "invalid int literal"
+
+parseFloat :: FloatKind -> Value -> Aeson.Parser FloatLit
+parseFloat fk val = 
+    FloatLit <$> pure fk <*> parseJSON val
 
 instance FromJSON FloatLit where
     parseJSON = withObject "FloatLit" $ \v -> FloatLit <$> v .: "ty" <*> v.: "bits"
-
-instance FromJSON ConstVal where
-    parseJSON = withObject "ConstVal" $ \v -> case HML.lookup "kind" v of
-                                                Just (String "Integral") -> ConstInt <$> v .: "data"
-                                                Just (String "Bool") -> ConstBool <$> v .: "data"
-                                                Just (String "Char") -> ConstChar <$> v .: "data"
-                                                Just (String "Float") -> ConstFloat <$> v .: "data"
-                                                Just (String "Tuple") -> ConstTuple <$> v .: "data"
-                                                Just (String "Function") -> ConstFunction <$> v .: "fname" <*> v .: "substs"
-                                                Just (String "Array") -> ConstArray <$> v .: "data"
-                                                Just (String "Str") -> ConstStr <$> v .: "data"
-                                                Just (String "ByteStr") -> pure $ ConstByteStr "" -- TODO
-                                                r -> fail $ "const unimp: " ++ show r
 
 instance FromJSON AggregateKind where
     parseJSON = withObject "AggregateKind" $ \v -> case HML.lookup "kind" v of
@@ -1413,5 +1493,17 @@ instance FromJSON MirBody where
     parseJSON = withObject "MirBody" $ \v -> MirBody
         <$> v .: "vars"
         <*> v .: "blocks"
+
+instance FromJSON Predicate where
+    parseJSON obj = case obj of
+      Object v -> do
+         pobj <- v .: "trait_pred"
+         Predicate <$> pobj .: "trait" <*> pobj .: "substs"
+      String t | t == "unknown_pred" -> return UnknownPredicate
+      wat -> Aeson.typeMismatch "Predicate" wat           
+
+instance FromJSON Param where
+    parseJSON = withObject "Param" $ \v ->
+      Param <$> v .: "param_def"
 
 --------------------------------------------------------------------------------------------

@@ -23,7 +23,7 @@ debug = False
 
 -- | Location of the rust file with the standard library
 libLoc :: String
-libLoc = "mir_verif/src/"
+libLoc = "mir-lib/src/"
 
 -- | load the rs file containing the standard library
 loadPrims :: IO Collection

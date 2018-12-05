@@ -4,6 +4,7 @@
 
 #![feature(const_fn)]
 #![feature(specialization)]
+#![feature(doc_alias)]
 
 pub mod ops {
 

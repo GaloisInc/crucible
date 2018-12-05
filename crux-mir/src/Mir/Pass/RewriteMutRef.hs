@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing #-}
+{-# OPTIONS_GHC -fdefer-type-errors #-}
 
 -----------------------------------------------------------------------
 -- |
@@ -139,11 +140,11 @@ newInternal ty = do
 -- build initial rewrite state
 
 buildRewriteSt :: Fn -> [Fn] -> RewriteFnSt
-buildRewriteSt (Fn fname fargs fretty (MirBody internals blocks)) fns =
+buildRewriteSt (Fn fname fargs fretty (MirBody internals blocks) _gens _preds) fns =
     let (mut_args, immut_args) = partition (isMutRefTy . typeOf) fargs
         immut_map = vars_to_map immut_args
         mutpairmap = Map.map (\v -> (v, mutref_to_immut v)) (vars_to_map mut_args)
-        fnmap = Map.fromList $ map (\(Fn fn fa _ _) -> (fn, map typeOf fa)) fns in
+        fnmap = Map.fromList $ map (\(Fn fn fa _ _ _ _) -> (fn, map typeOf fa)) fns in
     RFS fname 0 immut_map mutpairmap fretty (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
 
 -- insertMutvarsIntoInternals
@@ -166,7 +167,7 @@ modifyAssignEntryBlock = do
                         Just b -> b
                         Nothing -> error "entry block not found"
 
-        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Consume $ Local vimmut) "internal") mutpairs
+        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Local vimmut) "internal") mutpairs
         new_bbd = BasicBlockData (new_asgns ++ entry_stmts) ei
     fnBlocks .= Map.insert (T.pack "bb0") new_bbd blocks
 
@@ -274,8 +275,8 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
          do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs = do
             (v, (v0, vrest)) <- mkFnCallVars dest_lv $ map typeOf mut_cargs
             newb <- newDummyBlock bbi $ BasicBlockData
-                ([Assign dest_lv (Use $ Consume v0) "internal"] ++
-                 (zipWith (\c v -> Assign (lValueofOp c) (Use $ Consume v) "internal") mut_cargs vrest))
+                ([Assign dest_lv (Use v0) "internal"] ++
+                 (zipWith (\c v -> Assign (lValueofOp c) (Use v) "internal") mut_cargs vrest))
                 (Goto dest_block)
 
             blocks <- use fnBlocks
@@ -303,7 +304,7 @@ extractFn = do
 
     let fnargs = (Map.elems immut_args) ++ (Map.elems $ Map.map snd mut_argpairs)
         fnblocks = map (\(k,v) -> BasicBlock k v) (Map.toList blocks_)
-    return $ Fn fname fnargs ret_ty (MirBody (Map.elems internals) fnblocks)
+    return $ Fn fname fnargs ret_ty (MirBody (Map.elems internals) fnblocks) (error "TODO: gens") (error "TODO:preds")
 
 
 -- if there are no mutref args, then the body of the function doesn't need to change

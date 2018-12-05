@@ -126,7 +126,7 @@ pretty_temp (Var vn vm vty _vs _) =
 
   
 instance Pretty Fn where
-    pretty (Fn fname1 fargs1 fty fbody1) =
+    pretty (Fn fname1 fargs1 fty fbody1 _generics _preds) =
       vcat [text "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
                       <+> arrow <+> pretty fty <+> lbrace,
             indent 3 (pretty fbody1),
@@ -210,9 +210,10 @@ instance Pretty Terminator where
 
 
 instance Pretty Operand where
-    pretty (Consume lv)   = pretty lv
+--    pretty (Consume lv)   = pretty lv
     pretty (OpConstant c) = pretty c
-
+    pretty (Move c) = pretty c
+    pretty (Copy c) = pretty c
 
 instance Pretty Constant where
     pretty (Constant _a b) = pretty b -- pretty_fn2 "Constant" a b
@@ -329,3 +330,10 @@ instance Pretty Collection where
           map pretty (col^.adts) ++
           [text "TRAITs"] ++
           map pretty (col^.traits))
+
+{-
+instance Pretty Usevar where
+  pretty (UseConstant c) = pretty_fn1 "Use" c
+  pretty (Copy c)        = pretty_fn1 "Copy" c
+  pretty (Move c)        = pretty_fn1 "Move" c
+-}

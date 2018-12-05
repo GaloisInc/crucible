@@ -58,7 +58,7 @@ mut_info fn fns =
 is_static_mut_return :: [Fn] -> Fn -> Bool
 is_static_mut_return fns fn =
     case fn of
-      Fn _fname _fargs _fretty (MirBody _internals fblocks) ->
+      Fn _fname _fargs _fretty (MirBody _internals fblocks) _gens _preds ->
           case exists (\(BasicBlock _ (BasicBlockData _ term)) -> is_branch term) fblocks of
             True -> False
             False ->
@@ -67,13 +67,13 @@ is_static_mut_return fns fn =
    where is_bad_call :: Terminator -> Bool
          is_bad_call term = case term of 
                               Call fname _ _ _ ->
-                                  case find (\(Fn n _ _t _) -> n == (funcNameofOp fname)) fns of
+                                  case find (\(Fn n _ _t _ _ _) -> n == (funcNameofOp fname)) fns of
                                     Just call_fn | isMutRefTy (_freturn_ty call_fn) -> (not . (is_static_mut_return fns)) call_fn
                                     _ -> False
                               _ -> False
 
 retrieve_static_mut_return :: Fn -> Int
-retrieve_static_mut_return (Fn _fname _fargs _fretty (MirBody _internals _blocks)) =
+retrieve_static_mut_return (Fn _fname _fargs _fretty (MirBody _internals _blocks) _gens _preds) =
     error "unimplemented" -- find most recent arg index assigned to return variable. the code is guaranteed to be straightline by now, so we can just iterate backwards through the blocks.
 
 
@@ -81,11 +81,11 @@ passMutRefReturnStatic :: [Fn] -> [Fn]
 passMutRefReturnStatic fns = map (\fn -> runReader (mrrs fn) (build_mrrs_st fns)) fns
 
 mrrs :: Fn -> Reader MrrsSt Fn
-mrrs (Fn fname fargs fretty (MirBody d blocks)) = do
+mrrs (Fn fname fargs fretty (MirBody d blocks) gens preds) = do
     (mrrs_map :: MrrsSt) <- ask
     let subs = catMaybes $ map (\(BasicBlock _bbi (BasicBlockData _stmts term)) -> get_sub term mrrs_map) blocks
 
-    return $ Fn fname fargs fretty (MirBody d (replaceList subs blocks))
+    return $ Fn fname fargs fretty (MirBody d (replaceList subs blocks)) gens preds
 
    where
        get_sub :: Terminator -> MrrsSt -> Maybe (Lvalue, Lvalue)

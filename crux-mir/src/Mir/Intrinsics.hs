@@ -19,7 +19,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
@@ -198,7 +201,7 @@ data MIR
 type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
 type instance Instantiate subst MIR = MIR
-instance ClosedType MIR where closedType _ = Refl
+instance Closed MIR where closed _ = Refl
 
 type TaggedUnion = StructType (EmptyCtx ::> NatType ::> AnyType)
 
@@ -285,7 +288,7 @@ instance TraversableFC MirStmt where
   traverseFC = traverseMirStmt
 
 type instance Instantiate subst MirStmt = MirStmt
-instance ClosedFC MirStmt where closedFC _ = Refl
+instance Closed MirStmt where closed _ = Refl
 instance InstantiateFC MirStmt where
   instantiateFC subst stmt =
     case stmt of
@@ -488,6 +491,8 @@ data TraitMap = TraitMap (Map TraitName (Some TraitImpls))
 
 -- | The implementation of a Trait.
 -- The 'ctx' parameter lists the required members of the trait
+-- NOTE: the vtables are an instance of the more general type
+-- listed in the vtableTyRepr
 data TraitImpls ctx = TraitImpls
   {_vtableTyRepr :: CtxRepr ctx
    -- ^ Describes the types of Crucible structs that store the VTable
@@ -495,16 +500,56 @@ data TraitImpls ctx = TraitImpls
   ,_methodIndex :: Map MethName (Some (Index ctx))
    -- ^ Tells which fields (indices) of the struct correspond to
    -- method names of the given trait
-  ,_vtables :: Map TypeName (Assignment MirValue ctx)
+  ,_vtables :: Map Ty (Assignment MirValue ctx)
    -- ^ gives the vtable for each type implementing a given trait
-   -- TODO: use Mir.Ty instead of TypeName? 
   }
 
 -- | Values stored in the vtables. This cannot include expressions.
+-- Param 0 must be specialized to the implementation type,
+-- but other type variables may be present
 -- TODO: For now, traits only include methods, not constants
+-- by default, we quantify over all type variables in the FnHandle's type
 data MirValue (ty :: CrucibleType) where
-  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType args ret)
+  FnValue :: TypeRepr (implTy :: CrucibleType)
+    -> FnHandle (Instantiate (EmptyCtx ::> implTy) args)
+                (Instantiate (EmptyCtx ::> implTy) ret)
+    -> MirValue (PolyFnType args ret)
 
+type family Specialize (implTy :: CrucibleType) (args :: k) :: k where
+  Specialize implTy args = Instantiate (EmptyCtx ::> implTy) args
+
+type family ImplementTrait (implTy :: CrucibleType) (arg :: k) :: k where
+  -- Ctx k
+  ImplementTrait implTy EmptyCtx = EmptyCtx
+  ImplementTrait implTy (ctx ::> ty) = ImplementTrait implTy ctx ::> ImplementTrait implTy ty
+  -- CrucibleType
+  ImplementTrait implTy (PolyFnType args ret) = PolyFnType (Instantiate (EmptyCtx ::> implTy) args)
+                                                           (Instantiate (EmptyCtx ::> implTy) ret)
+  -- Add other types for MirValue indices                                                
+
+
+implementRepr :: TypeRepr implTy -> TypeRepr ty -> TypeRepr (ImplementTrait implTy ty)
+implementRepr implTy (PolyFnRepr args ret) =
+  PolyFnRepr (instantiate (Empty :> implTy) args) (instantiate (Empty :> implTy) ret)
+
+implementCtxRepr :: TypeRepr implTy -> CtxRepr ctx -> CtxRepr (ImplementTrait implTy ctx)
+implementCtxRepr _implTy Empty = Empty
+implementCtxRepr implTy (ctx :> ty) = implementCtxRepr implTy ctx :> implementRepr implTy ty
+
+
+valueToExpr :: TypeRepr implTy -> MirValue ty -> Expr MIR s (ImplementTrait implTy ty)
+valueToExpr wantedImpl (FnValue implRepr handle)
+  | Just Refl <- testEquality wantedImpl implRepr 
+  =  App $ PolyHandleLit handle
+  | otherwise
+  = error $ "Invalid implementation type. Wanted: " ++ show wantedImpl ++ "\n Got: " ++ show implRepr
+
+vtblToStruct :: TypeRepr implTy -> Assignment MirValue ctx
+             -> Assignment (Expr MIR s) (ImplementTrait implTy ctx)
+vtblToStruct _implTy Empty = Empty
+vtblToStruct implTy (ctx :> val) = vtblToStruct implTy ctx :> valueToExpr implTy val
+
+------------------------------------------------------------------------------------
 
 -- For static trait calls, we need to resolve the method name using the
 -- type as well as the name of the trait.
@@ -537,8 +582,6 @@ traitImpls str midx vtbls =
              ,_vtables      = vtbls
              }
 
-valueToExpr :: MirValue ty -> Expr MIR s ty
-valueToExpr (FnValue handle) = App $ HandleLit handle where
 
 
 -- | Decide whether the given method definition is an implementation method for

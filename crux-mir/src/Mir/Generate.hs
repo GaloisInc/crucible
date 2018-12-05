@@ -38,17 +38,18 @@ generateMIR dir name = do
 
   let runMirJSON = do (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
                                     [rustFile, "--crate-type", "lib"] ""
+                      putStrLn $ "mir-json exit code is " ++ show ec ++ " for " ++ dir ++ name
                       return ec
 
   ec <- doesFileExist mirFile >>= \case 
-    True  -> do mirModTime <- getModificationTime mirFile
+    True  -> {- do mirModTime <- getModificationTime mirFile
                 if mirModTime >= rustModTime then
                   return ExitSuccess
-                else runMirJSON
+                else -} runMirJSON
     False -> runMirJSON
 
   case ec of
-    ExitFailure cd -> fail $ "Error while running mir-json: " ++ show cd
+    ExitFailure cd -> fail $ "Error " ++ show cd ++ " while running mir-json on " ++ dir ++ name
     ExitSuccess    -> return ()
 
   let rlibFile = ("lib" ++ name) <.> "rlib"
@@ -61,8 +62,8 @@ generateMIR dir name = do
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> do
-{-      traceM "--------------------------------------------------------------"
+        traceM "--------------------------------------------------------------"
         traceM $ "Collection: " ++ name
         traceM $ show (pretty col)
-        traceM "--------------------------------------------------------------"  -}
+        traceM "--------------------------------------------------------------"  
         return col
