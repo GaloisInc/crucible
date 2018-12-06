@@ -3,6 +3,7 @@
 
 module Mir.Generate(generateMIR) where
 
+import Control.Monad (when)
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
 import System.FilePath
@@ -18,6 +19,9 @@ import Text.PrettyPrint.ANSI.Leijen (Pretty(..))
 
 import Debug.Trace
 
+-- TODO: make this an argument of generateMIR
+debug :: Bool
+debug = False
 
 -- | Run mir-json on the input, generating lib file on disk 
 -- This function uses 'failIO' if any error occurs
@@ -38,14 +42,13 @@ generateMIR dir name = do
 
   let runMirJSON = do (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
                                     [rustFile, "--crate-type", "lib"] ""
-                      putStrLn $ "mir-json exit code is " ++ show ec ++ " for " ++ dir ++ name
                       return ec
 
   ec <- doesFileExist mirFile >>= \case 
-    True  -> {- do mirModTime <- getModificationTime mirFile
+    True  -> do mirModTime <- getModificationTime mirFile
                 if mirModTime >= rustModTime then
                   return ExitSuccess
-                else -} runMirJSON
+                else runMirJSON
     False -> runMirJSON
 
   case ec of
@@ -62,8 +65,9 @@ generateMIR dir name = do
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> do
-        traceM "--------------------------------------------------------------"
-        traceM $ "Collection: " ++ name
-        traceM $ show (pretty col)
-        traceM "--------------------------------------------------------------"  
+        when debug $ do
+          traceM "--------------------------------------------------------------"
+          traceM $ "Collection: " ++ name
+          traceM $ show (pretty col)
+          traceM "--------------------------------------------------------------"  
         return col

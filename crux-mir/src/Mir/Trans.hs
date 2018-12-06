@@ -21,7 +21,6 @@
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall -fno-warn-name-shadowing
                 -fno-warn-unticked-promoted-constructors -fno-warn-unused-imports #-}
-{-# OPTIONS_GHC -fdefer-type-errors #-}
 
 module Mir.Trans where
 
@@ -68,7 +67,7 @@ import Mir.Intrinsics
 --import Mir.Prims (relocateDefId)
 
 import Mir.PP()
-import Text.PrettyPrint.ANSI.Leijen(Pretty(..),hang,text,vcat)
+import Text.PrettyPrint.ANSI.Leijen(Pretty(..),hang,text,vcat,list)
 
 import GHC.Stack
 
@@ -80,7 +79,6 @@ import Debug.Trace
 -- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
 data MirExp s where
     MirExp :: CT.TypeRepr tp -> G.Expr MIR s tp -> MirExp s
-
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
@@ -318,6 +316,7 @@ transConstVal (Some (CT.StringRepr)) (M.ConstStr str) =
 transConstVal (Some (CT.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (CT.BVRepr w) (S.app $ E.BVLit w i)
+
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
@@ -774,9 +773,9 @@ evalRefProj (M.LvalueProjection base projElem) =
             , fromend == True ->
                 fail ("FIXME: implement constant fromend indexing in reference projection")
 
-          M.Index op
+          M.Index var
             | CT.VectorRepr tp' <- elty
-            -> do MirExp idxTy idx <- evalOperand op
+            -> do MirExp idxTy idx <- lookupVar var
                   case idxTy of
                     CT.NatRepr ->
                       do r' <- subindexRef tp' ref idx
@@ -793,7 +792,7 @@ evalRefProj (M.LvalueProjection base projElem) =
 
 
 evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
-evalRval (M.Use op) = error "FIXME! M.Use" -- evalLvalue op
+evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref bk lv _) =
   case bk of
@@ -944,7 +943,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
         accessAggregate ag field
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
     (MirExp arr_tp arr) <- evalLvalue lv
-    (MirExp ind_tp ind) <- evalOperand i
+    (MirExp ind_tp ind) <- lookupVar i
     case (arr_tp, ind_tp) of
       (CT.VectorRepr elt_tp, CT.NatRepr) -> do
           G.assertExpr (ind S..< (S.app (E.VectorSize arr)))
@@ -1089,11 +1088,11 @@ assignLvExp lv re_tp re = do
                 new_ag <- modifyAggregateIdx ag re field
                 assignLvExp lv Nothing new_ag
 
-        M.LProjection (M.LvalueProjection (M.LProjection (M.LvalueProjection lv' M.Deref)) (M.Index op))
+        M.LProjection (M.LvalueProjection (M.LProjection (M.LvalueProjection lv' M.Deref)) (M.Index v))
           | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv' ->
             do MirExp slice_tp slice <- evalLvalue lv'
 
-               MirExp ind_tp ind     <- evalOperand op
+               MirExp ind_tp ind     <- lookupVar v
                MirExp r_tp r         <- return re
                case (slice_tp, ind_tp) of
                  (MirSliceRepr el_tp, CT.NatRepr)
@@ -1110,9 +1109,9 @@ assignLvExp lv re_tp re = do
 
                  _ -> fail $ "bad type in slice assignment"
 
-        M.LProjection (M.LvalueProjection lv (M.Index op)) -> do
+        M.LProjection (M.LvalueProjection lv (M.Index v)) -> do
             (MirExp arr_tp arr) <- evalLvalue lv
-            (MirExp ind_tp ind) <- evalOperand op
+            (MirExp ind_tp ind) <- lookupVar v
             case re of
               MirExp r_tp r ->
                 case (arr_tp, ind_tp) of
@@ -1522,8 +1521,7 @@ transTerminator (M.SwitchInt swop _swty svals stargs) _ | all Maybe.isJust svals
 transTerminator (M.Return) tr =
     doReturn tr
 transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
-    error "TODO: figure out how to update M.Use below"
-    --transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
+    transStatement (M.Assign dlv (M.Use dop) "<dummy pos>")
     jumpToBlock dtarg
 
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) tr = do
@@ -1646,10 +1644,12 @@ transDefine :: forall h. HasCallStack =>
 transDefine fnState fn@(M.Fn fname fargs _ _ _ _) =
   case (Map.lookup fname (fnState^.handleMap)) of
     Nothing -> fail "bad handle!!"
-    Just (MirHandle _ _ (handle :: FH.FnHandle args ret)) -> do
+    Just (MirHandle _ _ (handle :: FH.FnHandle args ret)) -> do   
       let argtups  = map (\(M.Var n _ t _ _) -> (n,t)) fargs
       let argtypes = FH.handleArgTypes handle
       let rettype  = FH.handleReturnType handle
+      traceM $ "trans " ++ Text.unpack (M.idText fname) ++ " with args " ++ (show (list (map pretty argtups)))
+      traceM $ "handle argtypes: " ++ show argtypes
       let def :: G.FunctionDef MIR handle FnState args ret
           def inputs = (s,f) where
             s = initFnState fnState argtups argtypes inputs
@@ -2104,13 +2104,15 @@ doCustomCall fname funsubst ops lv dest
 
  | Just "index" <- M.isCustomFunc fname,
     [op1, op2] <- ops = do
-        ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index op2)))
+        let v2 = M.varOfLvalue (M.lValueofOp op2)
+        ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
         assignLvExp lv Nothing ans
         jumpToBlock dest
 
  | Just "index_mut" <- M.isCustomFunc fname,
     [op1, op2] <- ops = do
-        ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index op2)))
+        let v2 = M.varOfLvalue (M.lValueofOp op2)
+        ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
         assignLvExp lv Nothing ans
         jumpToBlock dest
 

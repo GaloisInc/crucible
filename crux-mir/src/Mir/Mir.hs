@@ -36,6 +36,7 @@ import Data.Text (Text,  unpack)
 import qualified Data.Text as T
 import qualified Data.Text.Read  as T
 import Data.List
+import qualified Data.Vector as V
 import Control.Lens(makeLenses,(^.))
 import Data.Maybe (fromMaybe)
 
@@ -209,11 +210,12 @@ data Statement =
       | Nop
     deriving (Show,Eq, Ord, Generic, GenericOps)
 
-
+-- This is called 'Place' now
 data Lvalue =
-      Local { _lvar :: Var}
-    | Static
-    | LProjection LvalueProjection
+      Local { _lvar :: Var}         -- ^ local variable
+    | Static                        -- ^ static or static mut variable
+    | LProjection LvalueProjection  -- ^ projection out of a place (access a field, deref a pointer, etc)
+    | Promoted Promoted Ty          -- ^ Constant code promoted to an injected static
     | Tagged Lvalue Text -- for internal use during the translation
     deriving (Show, Eq, Generic)
 
@@ -643,6 +645,10 @@ isCStyle :: Adt -> Bool
 isCStyle (Adt _ variants) = all isConst variants where
     isConst (Variant _ _ [] ConstKind) = True
     isConst _ = False
+
+varOfLvalue :: HasCallStack => Lvalue -> Var
+varOfLvalue (Local v) = v
+varOfLvalue l = error $ "bad var of lvalue: " ++ show l
 
 
 lValueofOp :: HasCallStack => Operand -> Lvalue
@@ -1270,15 +1276,23 @@ instance FromJSON Statement where
                              Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
                              Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
                              Just (String "Nop") -> pure Nop
-                             _ -> fail "kind not found for statement"
+                             k -> fail $ "kind not found for statement: " ++ show k
 
 
 instance FromJSON Lvalue where
-    parseJSON = withObject "Lvalue" $ \v -> case HML.lookup "kind" v of
-                                              Just (String "Local") ->  Local <$> v .: "localvar"
-                                              Just (String "Static") -> pure Static
-                                              Just (String "Projection") ->  LProjection <$> v .: "data"
-                                              _ -> fail "kind not found for Lvalue"
+    parseJSON = withObject "Lvalue" $ \v ->
+      case HML.lookup "kind" v of
+        Just (String "Local") ->  Local <$> v .: "localvar"
+        Just (String "Static") -> pure Static
+        Just (String "Projection") ->  LProjection <$> v .: "data"
+        Just (String "Promoted") -> do
+          ls <- v.: "data"
+          (string, ty) <- withArray "Promoted" (\arr -> do
+             string <- withText "String" pure (arr V.! 0)
+             ty     <- parseJSON (arr V.! 1)
+             return (string, ty)) ls
+          pure $ Promoted string ty
+        k -> fail $ "kind not found for Lvalue " ++ show k
 
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case HML.lookup "kind" v of
@@ -1295,7 +1309,7 @@ instance FromJSON Rvalue where
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
                                               Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
                                               Just (String "Custom") -> RCustom <$> v .: "data"
-                                              _ -> fail "unsupported RValue"
+                                              k -> fail $ "unsupported RValue " ++ show k
 
 instance FromJSON AdtAg where
     parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
@@ -1311,7 +1325,7 @@ instance FromJSON Terminator where
                                                   Just (String "DropAndReplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind"
                                                   Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
                                                   Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
-                                                  _ -> fail "unsupported terminator"
+                                                  k -> fail $ "unsupported terminator" ++ show k
 
 instance FromJSON Operand where
     parseJSON = withObject "Operand" $ \v -> case HML.lookup "kind" v of
@@ -1426,7 +1440,7 @@ parseIntegerText :: Value -> Aeson.Parser Integer
 parseIntegerText = withText "Integer" $ \t ->
   case (T.signed T.decimal t) of
     Right (i, _) -> return i
-    Left _       -> fail "Cannot parse Integer value"
+    Left _       -> fail $ "Cannot parse Integer value:" ++ T.unpack t
 
 
 parseChar :: Value -> Aeson.Parser Char
@@ -1436,7 +1450,7 @@ parseString :: Value -> Aeson.Parser String
 parseString = withText "String" (pure . T.unpack)
 
 parseConsts :: [Ty] -> Value -> Aeson.Parser [ConstVal]
-parseConsts tys v = fail "TODO: parse tuples"
+parseConsts _tys _v = fail "TODO: parse consts"
 
 
 
@@ -1486,7 +1500,7 @@ instance FromJSON TraitItem where
                   Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
                   Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ show x
-                  _ -> fail "Missing kind field in TraitItem"
+                  k -> fail $ "bad kind field in TraitItem " ++ show k
 
 
 instance FromJSON MirBody where

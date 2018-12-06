@@ -29,7 +29,7 @@ libLoc = "mir-lib/src/"
 loadPrims :: IO Collection
 loadPrims = do
   cols <- mapM (generateMIR libLoc) 
-    [ "ops/range"
+    [ -- "ops/range"
 --    , "default"
 --    , "option"
 --    , "result"
