@@ -1682,11 +1682,12 @@ declareMethod halloc mcls ctx meth =
       mkey     = J.methodKey meth
   in do
    jvmToFunHandleRepr (J.methodIsStatic meth) mkey $
-      \ argsRepr retRepr -> do
+      \ (argsRepr :: CtxRepr args) (retRepr :: TypeRepr ret) -> do
          --traceM $ "declaring " ++ J.unClassName cname ++ "/" ++ J.methodName meth
          --           ++ " : " ++ showJVMArgs argsRepr ++ " ---> " ++ showJVMType retRepr
          h <- mkHandle' halloc (methodHandleName cname mkey) argsRepr retRepr
-         return $ Map.insert (cname, mkey) (JVMHandleInfo mkey h) ctx
+         let hdl = assumeClosed @args $ assumeClosed @ret $ (JVMHandleInfo mkey h)
+         return $ Map.insert (cname, mkey) hdl ctx
 
 -- | allocate the static field (a global variable)
 -- and add it to the static field table

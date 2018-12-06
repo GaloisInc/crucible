@@ -214,7 +214,7 @@ initializeJVMClass c  = do
                                   (methodHandles ctx) ]
 
   let methTable0 = map (\(JVMHandleInfo m h) ->
-                           (methodKeyExpr m, App (PackAny (handleType h) (App (HandleLit h))))) handles
+                              (methodKeyExpr m, App (PackAny (handleType h) (App (HandleLit h))))) handles
 
   let methTable  = foldr insertMethodTable emptyMethodTable methTable0
 

@@ -90,6 +90,11 @@ module Lang.Crucible.Types
   , InstantiateFC(..)
   , InstantiateType(..)
   , composeInstantiateAxiom
+  , closedInstantiate
+  , closedInstantiateF
+  , closedInstantiateFC
+
+  , assumeClosed
 
     -- * IsRecursiveType
   , IsRecursiveType(..)
@@ -143,7 +148,7 @@ import           What4.InterpretedFloatingPoint
 
 
 
--- GHC.TypeLits is under-powered
+-- GHC.TypeLits is under-powered, plus other axioms
 import           Unsafe.Coerce (unsafeCoerce)
 
 ------------------------------------------------------------------------
@@ -160,14 +165,19 @@ import           Unsafe.Coerce (unsafeCoerce)
 --   time without requiring dynamic checks.
 --
 --   Parameter @nm@ has kind 'Symbol'.
+--
+--   If polymorphism is required, then 'eqInstUnroll' must be defined
+--   and prove that the rhs of the UnroolType does not include any type
+--   variables that were not already present in the ctx argument.
+--   (This is equivalent to the constraint "Closed (UnrollType nm)" but
+--   we cannot partially apply a type family.)
 class IsRecursiveType (nm::Symbol) where
   type UnrollType nm (ctx :: Ctx CrucibleType) :: CrucibleType
   unrollType   :: SymbolRepr nm -> CtxRepr ctx -> TypeRepr (UnrollType nm ctx)
-  -- We need to know that the rhs of UnrollType does not include any 
-  -- type variables that were not already present in the ctx argument.
-  -- This is equivalent to adding a constraint "Closed (UnrollType nm)",
-  -- but we cannot partially apply the type family.
-  eqInstUnroll :: proxy subst -> Instantiate subst (UnrollType nm ctx) :~: UnrollType nm (Instantiate subst ctx)
+
+  eqInstUnroll :: proxy subst
+               -> Instantiate subst (UnrollType nm ctx) :~: UnrollType nm (Instantiate subst ctx)
+  eqInstUnroll _ = error "eqInstUnroll: use of instantiate requires proof"
 
 type CtxRepr = Ctx.Assignment TypeRepr
 
@@ -233,7 +243,7 @@ data CrucibleType where
    -- A type variable, represented as an index and quantified by enclosing 'PolyFnType'
    VarType :: Nat -> CrucibleType
    
-   -- A polymorphic function type. Must be instantiated before use. Must quantify *all* free parameters.
+   -- A polymorphic function type. Must be instantiated before use. Should quantify *all* free parameters.
    PolyFnType :: Ctx CrucibleType -> CrucibleType -> CrucibleType
 
 type BaseToType      = 'BaseToType                -- ^ @:: 'BaseType' -> 'CrucibleType'@.
@@ -478,42 +488,7 @@ pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
 
 
 ------------------------------------------------------------------------
--- | Classes and type families polymorphism
-
--- This is a property of the Instantiate function below. However, Haskell's type system
--- is too weak to prove it automatically. (And we don't want to run any proofs either.)
--- Maybe a quantified constraint would help?
-composeInstantiateAxiom :: forall subst subst1 x.
-  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
-composeInstantiateAxiom = unsafeCoerce Refl
-
-
--- | Use a list of types to fill in the type variables 0 .. n occurring in a type
--- If there are not enough types in this substitution, this function will produce a
--- type error --- all type variables in a type must be instantiated at once.
-type family Instantiate  (subst :: Ctx CrucibleType) (v :: k) :: k
-
--- | Class of types and types that support instantiation
-class InstantiateType (ty :: Type) where
-  instantiate :: CtxRepr subst -> ty -> Instantiate subst ty
-  default instantiate :: Closed ty => CtxRepr subst -> ty -> Instantiate subst ty
-  instantiate subst | Refl <- closed @_ @ty subst = id
-
--- | These two classes are necessary to allow syntax extensions
-class InstantiateF (t :: k -> Type) where
-  instantiateF :: CtxRepr subst -> t a -> (Instantiate subst t) (Instantiate subst a)
-  default instantiateF :: (Closed t, Closed a) => CtxRepr subst -> t a -> (Instantiate subst t) (Instantiate subst a)
-  instantiateF subst = go subst where
-    go :: forall t0 a subst. (Closed t0, Closed a) => CtxRepr subst -> t0 a -> (Instantiate subst t0) (Instantiate subst a)
-    go s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s = id
-  
-class InstantiateFC (t :: (k -> Type) -> l -> Type) where
-  instantiateFC :: InstantiateF a => CtxRepr subst -> t a b -> (Instantiate subst t) (Instantiate subst a) (Instantiate subst b)
-  default instantiateFC :: (Closed t, Closed a, Closed b, InstantiateF a) => CtxRepr subst -> t a b -> (Instantiate subst t) (Instantiate subst a) (Instantiate subst b)
-  instantiateFC subst = go subst where
-    go ::  forall t0 a b subst. (Closed t0, Closed a, Closed b, InstantiateF a) => CtxRepr subst -> t0 a b -> (Instantiate subst t0) (Instantiate subst a) (Instantiate subst b)
-    go s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s, Refl <- closed @_ @b s = id
-  
+-- | Classes and type families for polymorphism
 
   
 -- | Types that do not contain any free type variables. If they are closed
@@ -521,15 +496,52 @@ class InstantiateFC (t :: (k -> Type) -> l -> Type) where
 -- The proxy allows us to specify the 'subst' argument without using a type
 -- application.
 class Closed (t :: k) where
-  closed     :: proxy subst -> Instantiate subst t :~: t
+  closed :: proxy subst -> Instantiate subst t :~: t
+  closed = error "closed: must define closed to use instantiation"
 
+-- | Use a 'Ctx' of types to fill in the type variables 0 .. n occurring in a type
+type family Instantiate  (subst :: Ctx CrucibleType) (v :: k) :: k
+
+-- | Class of types and types that support instantiation
+class InstantiateType (ty :: Type) where
+  instantiate :: CtxRepr subst -> ty -> Instantiate subst ty
+
+-- | Defines instantiation for SyntaxExtension (must create an instance of this
+-- class, but instance can be trivial if polymorphism is not used.
+class InstantiateF (t :: k -> Type) where
+  instantiateF :: CtxRepr subst -> t a -> (Instantiate subst t) (Instantiate subst a)
+  instantiateF _ _ = error "instantiateF: must be defined to use polymorphism"
+
+-- | Also for syntax extensions
+class InstantiateFC (t :: (k -> Type) -> l -> Type) where
+  instantiateFC :: InstantiateF a => CtxRepr subst -> t a b -> Instantiate subst (t a b)
+  instantiateFC _ _ = error "instantiateFC: must be defined to use polymorphism"
+
+  
+
+-- Types that are statically known to be closed can benefit from the following
+-- default definitions for InstantiateType, InstantiateF and InstantiateFC
+
+closedInstantiate :: forall ty subst. Closed ty => CtxRepr subst -> ty -> Instantiate subst ty
+closedInstantiate subst | Refl <- closed @_ @ty subst = id
+   -- NOTE: closed is polykinded so first specified type argument is the kind of ty
+
+closedInstantiateF :: forall t0 a subst. (Closed t0, Closed a)
+  => CtxRepr subst -> t0 a -> (Instantiate subst t0) (Instantiate subst a)
+closedInstantiateF s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s = id
+  
+closedInstantiateFC :: forall t0 a b subst. (Closed t0, Closed a, Closed b, InstantiateF a)
+  => CtxRepr subst -> t0 a b -> (Instantiate subst t0) (Instantiate subst a) (Instantiate subst b)
+closedInstantiateFC s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s, Refl <- closed @_ @b s = id
+  
+------------------------------------------------------------------------
+------------------------------------------------------------------------
+-- Force TypeRepr, etc. to be in context for next slice.
+$(return [])
 
 ------------------------------------------------------------------------
 -- Misc typeclass instances
 
-
--- Force TypeRepr, etc. to be in context for next slice.
-$(return [])
 
 instance HashableF TypeRepr where
   hashWithSaltF = hashWithSalt
@@ -574,22 +586,17 @@ instance OrdF TypeRepr where
 
 
 ----------------------------------------------------------------
--- Closed type instances
-
+-- "Closed" instances
 
 instance Closed (b :: BaseType) where
   closed _ = unsafeCoerce Refl -- don't want to do a runtime case analysis
 instance Closed (ctx :: Ctx BaseType) where
   closed _ = unsafeCoerce Refl  -- don't want to do induction over the list
 
-
 -- k = Type
--- NOTE: closed is polykinded so first specified type argument is k
--- and the second is t
-instance Closed (BaseTypeRepr b) where
-  closed p | Refl <- closed @_ @b p = Refl
+instance Closed (BaseTypeRepr b :: Type) where
+  closed p | Refl <- closed @_ @b p = Refl 
 instance Closed () where closed _ = Refl
-
   
 -- k = CrucibleType  
 instance Closed (BaseToType b) where closed _ = Refl
@@ -630,11 +637,70 @@ instance (Closed ty, Closed ctx) => Closed (ctx ::> ty)
  where
     closed p | Refl <- closed @_ @ctx p, Refl <- closed @_ @ty p = Refl
          
-  
---------------------------------------------------------------------------------
--- Instantiate instances
 
-  -- k = type
+newtype Gift a r = Gift (Closed a => r)
+
+-- | "assume" that a type is closed, without evidence
+assumeClosed :: forall a b. (Closed a => b) -> b
+assumeClosed k = unsafeCoerce (Gift k :: Gift a b)
+                       (error "No instance of Closed provided")
+    
+--------------------------------------------------------------------------------
+-- Instantiate/InstantiateType/InstantiateF/InstantiateFC instances
+
+-- This is a property of the Instantiate type family. However, Haskell's type system
+-- is too weak to prove it automatically. (And we don't want to run any proofs either.)
+-- Maybe a quantified constraint would help?
+composeInstantiateAxiom :: forall subst subst1 x.
+  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
+composeInstantiateAxiom = unsafeCoerce Refl
+
+-- TypeCon apps
+
+instance (InstantiateF t) => InstantiateType (t a) where
+  instantiate = instantiateF
+instance (InstantiateFC t, InstantiateF a) => InstantiateF (t a) where
+  instantiateF = instantiateFC
+
+-- k = Type (needed for trivial syntax extensions)
+type instance Instantiate subst () = ()
+type instance Instantiate subst (a b :: Type) = Instantiate subst a (Instantiate subst b)
+type instance Instantiate subst (a b :: k -> Type) = Instantiate subst a (Instantiate subst b)
+type instance Instantiate subst (a b :: k -> l -> Type) = Instantiate subst a (Instantiate subst b)
+
+
+-- Ctx & Assignment
+
+-- k = (k' -> Type) -> Ctx k' -> Type
+type instance Instantiate subst Ctx.Assignment = Ctx.Assignment
+
+-- k = Ctx k'
+type instance Instantiate subst EmptyCtx = EmptyCtx
+type instance Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
+
+-- Ctx.Assignment :: (k -> Type) -> Ctx k -> Type
+instance InstantiateFC Ctx.Assignment where
+  instantiateFC _subst Ctx.Empty = Ctx.Empty
+  instantiateFC subst (ctx Ctx.:> ty) = instantiate subst ctx Ctx.:> instantiate subst ty
+
+
+-- Ctx.Index :: Ctx k -> CrucibleType -> Type
+-- Ctx.Index is just a number
+type instance Instantiate subst Ctx.Index = Ctx.Index 
+instance InstantiateF (Ctx.Index ctx) where
+  instantiateF _subst idx = unsafeCoerce idx
+
+
+
+-- BaseTypeRepr
+type instance Instantiate subst BaseTypeRepr = BaseTypeRepr
+instance InstantiateF BaseTypeRepr where
+  instantiateF subst (r :: BaseTypeRepr bt)
+    | Refl <- closed @_ @bt subst
+    = r
+
+
+-- k = CrucibleType
 type instance Instantiate subst (BaseToType b) = BaseToType b
 type instance Instantiate subst AnyType  = AnyType
 type instance Instantiate subst UnitType = UnitType
@@ -654,41 +720,12 @@ type instance Instantiate subst (IntrinsicType sym ctx) = IntrinsicType sym (Ins
 type instance Instantiate subst (StringMapType ty) = StringMapType (Instantiate subst ty)
 type instance Instantiate subst (VarType i) = LookupVarType i subst (VarType i)
 type instance Instantiate subst (PolyFnType args ret) = PolyFnType args ret
-  -- k = Ctx k'
-type instance Instantiate subst EmptyCtx = EmptyCtx
-type instance Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
 
--- For empty syntax extensions
-type instance Instantiate subst () = ()
-type instance Instantiate subst (a b :: Type) = (Instantiate subst a) (Instantiate subst b)
-type instance Instantiate subst (a b :: k -> Type) = (Instantiate subst a) (Instantiate subst b)
-type instance Instantiate subst (a b :: k -> l -> Type) = (Instantiate subst a) (Instantiate subst b)
-
-
+-- helper definition for VarType instance
 type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) (def :: CrucibleType) :: CrucibleType
 type instance LookupVarType n (ctx ::> ty) def = If (n <=? 0) ty (LookupVarType (n - 1) ctx def)
 type instance LookupVarType n EmptyCtx     def = def
 
-
-
-
-
-
-------------------------------------------------------------------------------------
-------------------------------------------------------------------------------------
--- InstantiateType instances
-
-instance (InstantiateF t) => InstantiateType (t a) where
-  instantiate = instantiateF
-instance (InstantiateFC t, InstantiateF a) => InstantiateF (t a) where
-  instantiateF = instantiateFC
-
--- BaseTypeRepr
-type instance Instantiate subst BaseTypeRepr = BaseTypeRepr
-instance InstantiateF BaseTypeRepr where
-  instantiateF subst (r :: BaseTypeRepr bt)
-    | Refl <- closed @_ @bt subst
-    = r
 
 -- TypeRepr
 type instance Instantiate subst TypeRepr = TypeRepr 
@@ -711,39 +748,19 @@ instantiateRepr _subst UnitRepr = UnitRepr
 instantiateRepr _subst (FloatRepr fi) = FloatRepr fi
 instantiateRepr _subst CharRepr = CharRepr
 instantiateRepr subst (FunctionHandleRepr args ret) =
-    FunctionHandleRepr (instantiateCtxRepr subst args ) (instantiateRepr subst ret)
+    FunctionHandleRepr (instantiate subst args ) (instantiateRepr subst ret)
 instantiateRepr subst (MaybeRepr ty) =
     MaybeRepr (instantiateRepr subst ty )
 instantiateRepr subst (VectorRepr ty) = VectorRepr (instantiateRepr subst ty)
-instantiateRepr subst (StructRepr ctx) = StructRepr (instantiateCtxRepr subst ctx)
+instantiateRepr subst (StructRepr ctx) = StructRepr (instantiate subst ctx)
 instantiateRepr subst (ReferenceRepr ty) = ReferenceRepr (instantiateRepr subst ty)
-instantiateRepr subst (VariantRepr ctx) = VariantRepr (instantiateCtxRepr subst ctx)
+instantiateRepr subst (VariantRepr ctx) = VariantRepr (instantiate subst ctx)
 instantiateRepr _subst (WordMapRepr n b) = WordMapRepr n b
-instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiateCtxRepr subst ctx)
-instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiateCtxRepr subst ctx)
+instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiate subst ctx)
+instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiate subst ctx)
 instantiateRepr subst (StringMapRepr ty) = StringMapRepr (instantiateRepr subst ty)
 instantiateRepr subst (VarRepr i) = lookupVarRepr i subst (VarRepr i)
 instantiateRepr _subst (PolyFnRepr args ty) = PolyFnRepr args ty
-
-
--- Ctx.Assignment :: (k -> Type) -> Ctx k -> Type
--- NOTE: it seems like we could make an instance of InstantiateFC for Ctx.Assignment.
-type instance Instantiate subst Ctx.Assignment = Ctx.Assignment
---instance (InstantiateF a) => InstantiateType (Ctx.Assignment a ctx) where
---  instantiate = instantiateCtxRepr
-
-instance InstantiateFC Ctx.Assignment where
-  instantiateFC = instantiateCtxRepr
-
-instantiateCtxRepr :: InstantiateF a => CtxRepr subst -> Ctx.Assignment a ctx -> Ctx.Assignment (Instantiate subst a) (Instantiate subst ctx)
-instantiateCtxRepr _subst Ctx.Empty = Ctx.Empty
-instantiateCtxRepr subst (ctx Ctx.:> ty) = instantiateCtxRepr subst ctx Ctx.:> instantiate subst ty
-
--- Ctx.Index :: Ctx k -> CrucibleType -> Type
--- Ctx.Index is just a number
-type instance Instantiate subst Ctx.Index = Ctx.Index 
-instance InstantiateF (Ctx.Index ctx) where
-  instantiateF _subst idx = unsafeCoerce idx
 
 
 -- NOTE: We need the equality below to typecheck lookupVarRepr.
@@ -777,7 +794,6 @@ axiom2 = Refl
 axiom3 :: forall n. ((n + 1) <=? 0) :~: 'False
 axiom3 = Refl
 -}
-
 
 -- see comments above for justification for [unsafeCoerce] in this function
 lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
