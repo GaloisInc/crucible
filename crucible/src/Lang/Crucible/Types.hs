@@ -509,8 +509,6 @@ type family Instantiate  (subst :: Ctx CrucibleType) (v :: k) :: k
 -- | Class of types and types that support instantiation
 class InstantiateType (ty :: Type) where
   instantiate :: CtxRepr subst -> ty -> Instantiate subst ty
-  default instantiate :: Closed ty => CtxRepr subst -> ty -> Instantiate subst ty
-  instantiate subst | Refl <- closed @_ @ty subst = id
 
 -- | Defines instantiation for SyntaxExtension (must create an instance of this
 -- class, but instance can be trivial if polymorphism is not used.
@@ -588,7 +586,6 @@ instance OrdF TypeRepr where
 
 
 ----------------------------------------------------------------
-
 -- "Closed" instances
 
 instance Closed (b :: BaseType) where

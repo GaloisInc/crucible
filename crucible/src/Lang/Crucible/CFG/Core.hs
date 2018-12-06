@@ -565,14 +565,12 @@ instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
                      (instantiate subst args)
         (Print reg) -> Print (instantiate subst reg)
         
-        -- To get rid of the unsafeCoerce on these two cases, we need
-        -- to add a Closed constraint to these two constructors
         (ReadGlobal (gv :: GlobalVar tp))
-          -- | Refl <- closed @_ @tp subst
-          -> ReadGlobal (unsafeCoerce gv)
+          | Refl <- closed @_ @tp subst
+          -> ReadGlobal gv
         (WriteGlobal (gv :: GlobalVar tp) reg)
-          -- | Refl <- closed @_ @tp subst
-          -> WriteGlobal (unsafeCoerce gv) (instantiate subst reg)
+          | Refl <- closed @_ @tp subst
+          -> WriteGlobal gv (instantiate subst reg)
 
         (FreshConstant bt ss) -> FreshConstant bt ss
         (NewRefCell ty reg) -> NewRefCell (instantiate subst ty) (instantiate subst reg)
