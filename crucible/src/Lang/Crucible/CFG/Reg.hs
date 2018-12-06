@@ -444,7 +444,7 @@ data AtomValue ext s (tp :: CrucibleType) where
   -- Evaluate an extension statement
   EvalExt :: !(StmtExtension ext (Atom s) tp) -> AtomValue ext s tp
   -- Read from a global vlalue
-  ReadGlobal :: !(GlobalVar tp) -> AtomValue ext s tp
+  ReadGlobal :: Closed tp => !(GlobalVar tp) -> AtomValue ext s tp
   -- Read from a reference cell
   ReadRef :: !(Atom s (ReferenceType tp)) -> AtomValue ext s tp
   -- Create a fresh reference cell
@@ -526,7 +526,7 @@ ppAtomBinding a v = pretty a <+> text ":=" <+> pretty v
 -- | Statement in control flow graph.
 data Stmt ext s
    = forall tp . SetReg     !(Reg s tp)       !(Atom s tp)
-   | forall tp . WriteGlobal  !(GlobalVar tp) !(Atom s tp)
+   | forall tp . Closed tp => WriteGlobal  !(GlobalVar tp) !(Atom s tp)
    | forall tp . WriteRef !(Atom s (ReferenceType tp)) !(Atom s tp)
    | forall tp . DropRef  !(Atom s (ReferenceType tp))
    | forall tp . DefineAtom !(Atom s tp)      !(AtomValue ext s tp)

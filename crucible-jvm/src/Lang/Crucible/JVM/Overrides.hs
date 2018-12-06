@@ -241,7 +241,7 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
   sym <- lift $ C.getSymInterface
 
 
-  jvmToFunHandleRepr isStatic mk  $ \derivedArgs derivedRet -> do
+  jvmToFunHandleRepr isStatic mk  $ \(derivedArgs :: CtxRepr args) (derivedRet :: TypeRepr ret) -> do
     o <- lift $ build_jvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet (def sym)
     -- traceM $ "installing override for " ++ show fnm
     case Map.lookup (cn,mk) (methodHandles jvmctx) of
@@ -265,8 +265,10 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
            ctx <- lift $ use C.stateContext
            let ha = C.simHandleAllocator ctx
            h <- lift $ liftST $ mkHandle' ha fnm derivedArgs derivedRet
+           let jvmHandle = assumeClosed @args $
+                           assumeClosed @ret  $ (JVMHandleInfo mk h)
            lift $ C.bindFnHandle h (C.UseOverride o)
-           put (jvmctx { methodHandles = Map.insert (cn,mk) (JVMHandleInfo mk h) (methodHandles jvmctx) })
+           put (jvmctx { methodHandles = Map.insert (cn,mk) jvmHandle (methodHandles jvmctx) })
 
 --------------------------------------------------------------------------------
 

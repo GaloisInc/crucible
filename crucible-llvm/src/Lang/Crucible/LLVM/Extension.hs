@@ -57,7 +57,6 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.Types
 
-import           Unsafe.Coerce (unsafeCoerce)
 
 -- | Data kind for representing LLVM architectures.
 --   Currently only X86 variants are supported.
@@ -353,9 +352,9 @@ instance TraversableFC (LLVMStmt wptr) where
 
 instance (1 <= ArchWidth arch) => IsSyntaxExtension (LLVM arch)
 
--- LLVM does not use polymorphism
-instance Closed (a :: k) where
-  closed _ = unsafeCoerce Refl
-instance InstantiateFC (LLVMExtensionExpr arch) where
-instance InstantiateFC (LLVMStmt arch) where
-
+-- LLVM does not use polymorphism, so default definition suffices
+instance InstantiateFC (LLVMExtensionExpr arch)
+instance InstantiateFC (LLVMStmt arch)
+instance (Closed (LLVM arch))
+instance (Closed (LLVMStmt width))
+instance (Closed (LLVMExtensionExpr arch))

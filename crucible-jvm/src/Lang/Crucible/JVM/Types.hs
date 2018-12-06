@@ -51,6 +51,7 @@ newtype JVM = JVM ()
 type instance ExprExtension JVM = EmptyExprExtension
 type instance StmtExtension JVM = EmptyStmtExtension
 instance IsSyntaxExtension JVM
+instance Closed JVM
 
 
 type Verbosity = Int
