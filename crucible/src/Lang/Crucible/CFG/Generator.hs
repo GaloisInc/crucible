@@ -342,11 +342,11 @@ mkAtom (AtomExpr a)   = return a
 mkAtom (App a)        = freshAtom . EvalApp =<< traverseFC mkAtom a
 
 -- | Read a global variable.
-readGlobal :: IsSyntaxExtension ext => GlobalVar tp -> Generator ext h s t ret (Expr ext s tp)
+readGlobal :: (IsSyntaxExtension ext, Closed tp) => GlobalVar tp -> Generator ext h s t ret (Expr ext s tp)
 readGlobal v = AtomExpr <$> freshAtom (ReadGlobal v)
 
 -- | Write to a global variable.
-writeGlobal :: IsSyntaxExtension ext => GlobalVar tp -> Expr ext s tp -> Generator ext h s t ret ()
+writeGlobal :: (IsSyntaxExtension ext, Closed tp) => GlobalVar tp -> Expr ext s tp -> Generator ext h s t ret ()
 writeGlobal v e =
   do a <- mkAtom e
      addStmt (WriteGlobal v a)

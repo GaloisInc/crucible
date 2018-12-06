@@ -103,7 +103,7 @@ type StaticFieldTable = Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
 type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 
 data JVMHandleInfo where
-  JVMHandleInfo :: J.MethodKey -> FnHandle init ret -> JVMHandleInfo
+  JVMHandleInfo :: (Closed init, Closed ret) => J.MethodKey -> FnHandle init ret -> JVMHandleInfo
 
 -- | Contains information about crucible Function handles and Global variables
 -- that is statically known during the class translation.
