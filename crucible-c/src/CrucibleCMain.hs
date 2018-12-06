@@ -21,7 +21,9 @@ import Control.Exception
 import System.Process
 import System.Exit
 import System.IO (Handle, stdout)
-import System.FilePath (takeExtension, dropExtension, takeFileName, (</>), (<.>))
+import System.FilePath
+  ( takeExtension, dropExtension, takeFileName, (</>), (<.>)
+  , takeDirectory)
 import System.Directory (createDirectoryIfMissing, copyFile)
 
 import Data.Parameterized.Some (Some(..))
@@ -351,12 +353,14 @@ llvmLink ins out =
 genBitCode :: Options -> IO ()
 genBitCode opts =
   do let lang = optInputLanguage opts
+         srcDir = takeDirectory (Crux.inputFile (fst opts))
          finalBCFile = optsBCFile (snd opts)
          curBCFile = case lang of
                        Just CPPSource -> finalBCFile ++ "-tmp"
                        _ -> finalBCFile
          params = [ "-c", "-g", "-emit-llvm", "-O0"
                   , "-I", libDir (snd opts) </> "includes"
+                  , "-I", srcDir
                   , Crux.inputFile (fst opts)
                   , "-o", curBCFile
                   ]
