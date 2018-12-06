@@ -12,3 +12,4 @@ stack.yaml
 .*.swp
 cabal.project.local
 *.tix
+.ghc.environment.*
