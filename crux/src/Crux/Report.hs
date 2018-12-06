@@ -31,7 +31,8 @@ import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 generateReport :: CruxOptions -> Maybe (ProvedGoals b) -> IO ()
 generateReport opts xs =
   do createDirectoryIfMissing True (outDir opts)
-     when (takeExtension (inputFile opts) == ".c") (generateSource opts)
+     let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".ii"]
+     when (takeExtension (inputFile opts) `elem` exts) (generateSource opts)
      writeFile (outDir opts </> "report.js")
         $ "var goals = " ++ renderJS (jsList (renderSideConds xs))
      T.writeFile (outDir opts </> "index.html") indexHtml
@@ -90,7 +91,7 @@ jsSideCond path asmps (conc,_) triv status =
   jsObj
   [ "proved"          ~> proved
   , "counter-example" ~> example
-  , "goal"            ~> jsStr (simErrorReasonMsg (simErrorReason conc))
+  , "goal"            ~> jsStr (takeFileName (simErrorReasonMsg (simErrorReason conc)))
   , "location"        ~> jsLoc (simErrorLoc conc)
   , "assumptions"     ~> jsList (map mkAsmp asmps)
   , "trivial"         ~> jsBool triv
