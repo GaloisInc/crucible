@@ -33,7 +33,7 @@ loadPrims = do
     , "default"
     , "option"
     , "result"
-    , "cmp"
+    --, "cmp"
     , "slice"
     ]
     

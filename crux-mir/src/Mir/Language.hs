@@ -1,10 +1,12 @@
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -93,8 +95,8 @@ instance Crux.Language CruxMIR where
 
   makeCounterExamples = makeCounterExamplesMIR
 
-simulateMIR :: forall sym. Crux.Simulate sym CruxMIR
-simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
+simulateMIR :: forall sym. (?outputConfig :: OutputConfig) => Crux.Simulate sym CruxMIR
+simulateMIR fs (cruxOpts, _mirOpts) sym p = do
 
   setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
 
@@ -160,13 +162,18 @@ simulateMIR  executeCrucible (cruxOpts, _mirOpts) sym p = do
 
   halloc <- C.newHandleAllocator
   let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl p
-      simst  = C.initSimState simctx C.emptyGlobals C.defaultAbortHandler
 
-  res <- executeCrucible simst $ C.runOverrideSim (W4.knownRepr :: C.TypeRepr C.UnitType) osim
+  res <- C.executeCrucible (map C.genericToExecutionFeature fs) $
+         C.InitialState simctx C.emptyGlobals C.defaultAbortHandler $
+         C.runOverrideSim (W4.knownRepr :: C.TypeRepr C.UnitType) osim
   return $ Result res
 
 
-makeCounterExamplesMIR :: Crux.Options CruxMIR -> Maybe ProvedGoals -> IO ()
+makeCounterExamplesMIR
+  :: (?outputConfig :: OutputConfig) =>
+     Crux.Options CruxMIR ->
+     Maybe (ProvedGoals (Either C.AssumptionReason C.SimError)) ->
+     IO ()
 makeCounterExamplesMIR _opts = maybe (return ()) go
   where
     go gs =
