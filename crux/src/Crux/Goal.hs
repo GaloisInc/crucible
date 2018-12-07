@@ -110,8 +110,8 @@ proveGoals ctxt (Just gs0) =
      if proved /= tot
        then sayFail "Crux" $ unwords
              [ "Failed to prove", show (tot - proved)
-             , "out of", show tot, "side consitions." ]
-       else sayOK "Crux" $ unwords [ "Proved all", show tot, "side conditions." ]
+             , "out of", show tot, "goals." ]
+       else sayOK "Crux" $ unwords [ "Proved all", show tot, "goals." ]
      return (Just res)
   where
   (start,end) = prepStatus "Checking: " (countGoals gs0)
