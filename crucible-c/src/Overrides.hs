@@ -258,7 +258,7 @@ lib_assert mvar =
                  let lnMsg = case asUnsignedBV ln of
                                Nothing -> ""
                                Just x  -> ":" ++ show x
-                     msg = BS8.unpack file ++ lnMsg ++ ": Assertion failed."
+                     msg = BS8.unpack file ++ lnMsg ++ ": user assertion."
                  cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
                  let rsn = AssertFailureSimError msg
@@ -334,7 +334,7 @@ sv_comp_assert =
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 let msg = "Call to __VERIFIER_assert"
+                 let msg = "call to __VERIFIER_assert"
                      rsn = AssertFailureSimError msg
                  check <- notPred sym =<< bvEq sym cond zero
                  assert sym check rsn
@@ -344,5 +344,5 @@ sv_comp_error ::
   Fun sym (LLVM arch) (EmptyCtx ::> VectorType AnyType) UnitType
 sv_comp_error =
   do sym  <- getSymInterface
-     let rsn = AssertFailureSimError "Call to __VERIFIER_error"
+     let rsn = AssertFailureSimError "call to __VERIFIER_error"
      liftIO $ addFailedAssertion sym rsn
