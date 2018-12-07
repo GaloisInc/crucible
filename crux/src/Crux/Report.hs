@@ -20,7 +20,6 @@ import Crux.Types
 import Crux.Options
 import Crux.Loops
 
-
 -- Note these should be data files. However, cabal-new build doesn't make it easy for the installation
 -- to find data files, so they are embedded as Text constants instead.
 
@@ -89,18 +88,20 @@ jsSideCond ::
   JS
 jsSideCond path asmps (conc,_) triv status =
   jsObj
-  [ "proved"          ~> proved
+  [ "status"          ~> proved
   , "counter-example" ~> example
-  , "goal"            ~> jsStr (takeFileName (simErrorReasonMsg (simErrorReason conc)))
+  , "goal"            ~> jsStr (takeFileName (head (lines (simErrorReasonMsg (simErrorReason conc)))))
   , "location"        ~> jsLoc (simErrorLoc conc)
   , "assumptions"     ~> jsList (map mkAsmp asmps)
   , "trivial"         ~> jsBool triv
   , "path"            ~> jsList path
   ]
   where
-  proved = case status of
-             Proved{} -> jsBool True
-             _        -> jsBool False
+  proved = case (status, simErrorReason conc) of
+             (Proved{}, _) -> jsStr "ok"
+             (NotProved _, ResourceExhausted _) -> jsStr "unknown"
+             (NotProved Nothing, _) -> jsStr "unknown"
+             (NotProved (Just _), _) -> jsStr "fail"
 
   example = case status of
              NotProved (Just m) -> JS (modelInJS m)

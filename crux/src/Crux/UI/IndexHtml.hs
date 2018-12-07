@@ -31,11 +31,11 @@ function drawLines() {
 
 function getLine(n) { return $('#line-' + n) }
 
-function drawStatus(proved) {
+function drawStatus(status) {
   return $('<div/>')
          .addClass('tag')
-         .text(proved ? 'ok' : 'fail')
-                    .addClass(proved ? 'highlight-proved' : 'highlight-failed')
+         .text(status)
+                    .addClass('highlight-' + status)
 }
 
 function drawCounterExample(e) {
@@ -93,7 +93,7 @@ function drawGoals() {
   jQuery.each(goals, function(gNum,g) {
     var li = $('<div/>')
             .css('cursor','pointer')
-            .append( drawStatus(g.proved)
+            .append( drawStatus(g.status)
                    , $('<span/>').text(g.goal)
                    )
     li.click(function() {
@@ -101,9 +101,10 @@ function drawGoals() {
       li.addClass('selected')
       $('.ctr-example').remove()
       $('.asmp-lab').remove()
-      $('.line').removeClass('highlight-proved')
-                .removeClass('highlight-failed')
+      $('.line').removeClass('highlight-ok')
+                .removeClass('highlight-fail')
                 .removeClass('highlight-assumed')
+                .removeClass('highlight-unknown')
      jQuery.each(g.assumptions, function(ix,a) {
         var lnName = a.line
         if (lnName !== g.location) {
@@ -112,7 +113,7 @@ function drawGoals() {
       })
       if (g.location !== null)
         var it = getLine(g.location)
-        it.addClass(g.proved ? 'highlight-proved' : 'highlight-failed')
+        it.addClass('highlight-' + g.status)
         it[0].scrollIntoView({behavior:'smooth', block:'center'})
       drawCounterExample(g['counter-example'])
       if(g.path) drawPath(g.path)
@@ -175,9 +176,10 @@ body { height: 100%; padding: 0; margin: 0; }
 
 .goals { margin: 5px; }
 
-.highlight-proved  { background-color: green; }
-.highlight-failed  { background-color: red; }
-.highlight-assumed { background-color: cyan; }
+.highlight-ok      { background-color: green; color: white; }
+.highlight-fail    { background-color: red;  color: white; }
+.highlight-unknown { background-color: yellow; color: black; }
+.highlight-assumed { background-color: cyan; color: black; }
 .ctr-example {
   margin: 5px;
   background-color: #ff0000;
@@ -224,7 +226,6 @@ body { height: 100%; padding: 0; margin: 0; }
 
 .tag {
   font-weight: bold;
-  color:       white;
   font-family: monospace;
   display: inline-block;
   margin: 2px;
@@ -233,7 +234,7 @@ body { height: 100%; padding: 0; margin: 0; }
   padding-right: 4px;
   text-align: center;
   border-radius: 2px;
-  width: 3em;
+  width: 4em;
 }
 
 </style>
