@@ -45,6 +45,7 @@ data CruxOptions = CruxOptions
   , profileCrucibleFunctions :: Bool
   , profileSolver            :: Bool
   , globalTimeout            :: Maybe String
+  , goalTimeout            :: Integer
   , profileOutputInterval    :: Maybe String
   , loopBound :: Maybe String
     -- ^ Should we artifically bound the number of loop iterations

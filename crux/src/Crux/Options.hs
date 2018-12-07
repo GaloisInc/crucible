@@ -20,6 +20,7 @@ import System.Console.GetOpt
 import System.Environment
 import System.FilePath
 import System.IO
+import Text.Read (readMaybe)
 import Data.Typeable
 
 import Crux.Language (LangConf(..),LangOptions,Language,Options,CruxOptions(..))
@@ -39,6 +40,7 @@ defaultCruxOptions = CruxOptions {
   , profileCrucibleFunctions = True
   , profileSolver = True
   , globalTimeout = Nothing
+  , goalTimeout = 10
   , profileOutputInterval = Nothing
   , loopBound = Nothing
   }
@@ -94,6 +96,14 @@ cmdLineCruxOptions =
      (\v opts -> opts{ globalTimeout = Just (fromMaybe "60" v) })
      "seconds")
     "Stop executing the simulator after this many seconds (default: 60 seconds)"
+
+  , Option [] ["goal-timeout"]
+    (ReqArg
+     (\v opts -> case readMaybe v of
+                   Just t -> opts{ goalTimeout = t }
+                   Nothing -> opts)
+     "seconds")
+    "Stop trying to prove each goal after this many seconds (default: 10 seconds, 0 for none)"
 
   , Option "p" ["profiling-period"]
     (OptArg

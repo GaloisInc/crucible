@@ -39,6 +39,7 @@ import Lang.Crucible.Simulator.PathSatisfiability
 import What4.Config (setOpt, getOptionSetting, verbosity)
 import What4.Interface (getConfiguration)
 import What4.FunctionName (FunctionName)
+import What4.Solver.Z3 (z3Timeout)
 
 -- crux
 import Crux.Language(Language,Options)
@@ -94,8 +95,8 @@ simulate opts  =
 
   --withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
   --withZ3OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
-  --withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym -> do
-  withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
+  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym -> do
+  --withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
 
      -- set the verbosity level
      void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
@@ -103,6 +104,9 @@ simulate opts  =
 
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
+
+     void $ join (setOpt <$> getOptionSetting z3Timeout (getConfiguration sym)
+                         <*> pure (goalTimeout cruxOpts * 1000))
 
      frm <- pushAssumptionFrame sym
 

@@ -66,6 +66,6 @@ sayCol ::  (?outputConfig :: OutputConfig) => Color -> String -> String -> IO ()
 sayCol col x y =
   do output "["
      outputColored col x
-     output ("] " ++ y)
+     outputLn ("] " ++ y)
 
 
