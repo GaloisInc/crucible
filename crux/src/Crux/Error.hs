@@ -29,7 +29,7 @@ data Error a =
   | Lang (LangError a) 
 
 instance Language a => Show (Error a) where
-  show = show . ppError
+  show = ppError
 
 instance Language a => Exception (Error a) where
   toException      = SomeException
