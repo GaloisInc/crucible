@@ -97,9 +97,13 @@ simulate opts  =
   withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym -> do
   --withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
 
-     -- set the verbosity level
+     -- The simulator verbosity is one less than our verbosity.
+     -- In this way, we can say things, without the simulator also being verbose
+     let simulatorVerb = toInteger
+                       $ if simVerbose cruxOpts > 1 then simVerbose cruxOpts - 1
+                                                    else 0
      void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
-                         <*> pure (toInteger (simVerbose cruxOpts)))
+                         <*> pure simulatorVerb)
 
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
