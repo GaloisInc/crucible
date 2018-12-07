@@ -33,7 +33,7 @@ import           Test.Tasty.Golden (goldenVsFile, findByExtension)
 import qualified Data.AIG.Interface as AIG
 
 
-import qualified Mir.Language as Mir (main)
+import qualified Mir.Language as Mir (main, mainWithOutputTo)
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
@@ -41,7 +41,7 @@ type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
 cruxOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
 cruxOracleTest dir name step = do
-  
+
   step "Compiling and running oracle program"
   oracleOut <- compileAndRun dir name >>= \case
     Nothing -> assertFailure "failed to compile and run"
@@ -63,7 +63,7 @@ sawOracleTest dir name step = do
   sc <- SC.mkSharedContext
   step "Initializing saw-core Prelude"
   SC.tcInsertModule sc SC.preludeModule
-  
+
   step "Compiling and running oracle program"
   oracleOut <- compileAndRun dir name >>= \case
     Nothing -> assertFailure "failed to compile and run"
@@ -72,11 +72,11 @@ sawOracleTest dir name step = do
   step ("Oracle output: " ++ (dropWhileEnd isSpace oracleOut))
 
   step "Generating MIR JSON"
-  collection <- generateMIR dir name 
+  collection <- generateMIR dir name
 
   step "Tranlating MIR to Crucible"
   let mir = translateMIR collection
-  
+
   step "Extracting function f"
   f <- extractMIR proxy sc mir "f"
   step "Extracting argument ARG"
@@ -100,19 +100,6 @@ sawOracleTest dir name step = do
   assertBool "oracle output mismatch"
     (Conc.toBool (Conc.evalSharedTerm mm Map.empty eq))
 
-redir :: Handle -> [Handle] -> IO a -> IO a
-redir _ [] act = act
-redir out (h:hs) act =
-  do buf <- hGetBuffering h
-     let save =
-           do old <- hDuplicate h
-              hDuplicateTo out h
-              return old
-         restore old =
-           do hDuplicateTo old h
-              hSetBuffering h buf
-     bracket save restore (const $ redir out hs act)
-
 
 symbTest :: FilePath -> IO TestTree
 symbTest dir =
@@ -122,7 +109,7 @@ symbTest dir =
          [ goldenVsFile (takeBaseName rustFile) goodFile outFile $
            withArgs [rustFile] $
            withFile outFile WriteMode $
-           \h -> redir h [stdout, stderr] (Mir.main)
+           Mir.mainWithOutputTo
          | rustFile <- rustFiles
          , notHidden rustFile
          , let goodFile = replaceExtension rustFile ".good"
@@ -200,5 +187,3 @@ parseRustFV ft = panic <|> (Just <$> p)
           FV.FTVec _n _elt -> error "unimplemented"
           FV.FTTuple _elts -> error "unimplemented"
           FV.FTRec _fields -> error "unimplemented"
-
-

@@ -31,6 +31,7 @@ import Data.Aeson
 import qualified Data.HashMap.Lazy as HML
 import qualified Data.ByteString as B
 import qualified Data.Map.Strict as Map
+import Data.Semigroup
 import Data.Text (Text,  unpack)
 import Data.List
 import Control.Lens(makeLenses,(^.))
@@ -604,10 +605,11 @@ makeLenses ''Fn
 
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1)<> (Collection f2 a2 t2) =
+  (Collection f1 a1 t1) <> (Collection f2 a2 t2) =
     Collection (f1 ++ f2) (a1 ++ a2) (t1 ++ t2)
 instance Monoid Collection where
   mempty = Collection [] [] []
+  mappend = (<>)
   
 
 --------------------------------------------------------------------------------------

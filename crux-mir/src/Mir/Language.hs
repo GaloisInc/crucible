@@ -10,20 +10,21 @@
 
 {-# OPTIONS_GHC -Wall #-}
 
-module Mir.Language (main) where
+module Mir.Language (main, mainWithOutputTo) where
 
 import qualified Data.Char       as Char
 import           Data.Functor.Const (Const(..))
 import           Control.Monad (forM_, when)
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
+import           Data.Semigroup
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector     as Vector
 import qualified Text.Read       as Read
 
-import           System.IO (stdout)
+import           System.IO (Handle, stdout)
 import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
@@ -71,6 +72,8 @@ import           Mir.Prims(loadPrims)
 main :: IO ()
 main = Crux.main [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
 
+mainWithOutputTo :: Handle -> IO ()
+mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h) [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
 
 data CruxMIR
 
