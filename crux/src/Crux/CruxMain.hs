@@ -20,7 +20,6 @@ import Control.Monad.IO.Class
 import Control.Exception (SomeException(..), displayException)
 import Data.Time.Clock (NominalDiffTime)
 import Numeric (readFloat)
-import System.IO (hPutStrLn, withFile, IOMode(..))
 import System.FilePath ((</>))
 import System.Directory (createDirectoryIfMissing)
 
