@@ -120,7 +120,7 @@ writeCVC4SMT2File sym h ps = writeMultiAsmpCVC4SMT2File sym h ps
 instance SMT2.SMTLib2GenericSolver CVC4 where
   defaultSolverPath _ = findSolverPath cvc4Path . getConfiguration
 
-  defaultSolverArgs _ = ["--lang", "smt2", "--incremental"]
+  defaultSolverArgs _ _ = return ["--lang", "smt2", "--incremental"]
 
   defaultFeatures _ = useIntegerArithmetic
 

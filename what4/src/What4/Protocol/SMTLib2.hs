@@ -744,7 +744,7 @@ smtLibEvalFuns s = SMTEvalFunctions
 class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
   defaultSolverPath :: a -> B.ExprBuilder t st fs -> IO FilePath
 
-  defaultSolverArgs :: a -> [String]
+  defaultSolverArgs :: a -> B.ExprBuilder t st fs -> IO [String]
 
   defaultFeatures :: a -> ProblemFeatures
 
@@ -773,8 +773,9 @@ class (SMTLib2Tweaks a, Show a) => SMTLib2GenericSolver a where
     -> (Session t a -> IO b)
       -- ^ Action to run
     -> IO b
-  withSolver solver ack feats sym path logData action =
-    withProcessHandles path (defaultSolverArgs solver) Nothing $
+  withSolver solver ack feats sym path logData action = do
+    args <- defaultSolverArgs solver sym
+    withProcessHandles path args Nothing $
       \(in_h, out_h, err_h, ph) -> do
 
         (in_stream, out_stream, err_reader) <-
@@ -864,8 +865,9 @@ startSolver
   -> IO (SolverProcess t (Writer a))
 startSolver solver ack setup feats auxOutput sym = do
   path <- defaultSolverPath solver sym
+  args <- defaultSolverArgs solver sym
   solver_process <- Process.createProcess $
-    (Process.proc path (defaultSolverArgs solver))
+    (Process.proc path args)
       { Process.std_in       = Process.CreatePipe
       , Process.std_out      = Process.CreatePipe
       , Process.std_err      = Process.CreatePipe
