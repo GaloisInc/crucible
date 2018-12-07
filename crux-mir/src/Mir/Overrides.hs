@@ -20,6 +20,8 @@ import qualified Data.Map as Map
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import Data.Parameterized.NatRepr
 
+import Data.Semigroup
+
 import Data.Text (Text)
 import qualified Data.Text as Text
 

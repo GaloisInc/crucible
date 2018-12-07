@@ -35,6 +35,7 @@ import qualified Data.List as List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
+import Data.Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -42,7 +43,7 @@ import qualified Data.Text as Text
 import qualified Data.Vector as V
 import Data.String (fromString)
 import Numeric
-import Numeric.Natural 
+import Numeric.Natural
 
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.FunctionHandle as FH
