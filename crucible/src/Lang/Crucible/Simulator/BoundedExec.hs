@@ -188,7 +188,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
         return Nothing
    ControlTransferState res st -> stateSolverProof st $
      let sym = st^.stateSymInterface
-         msg n = "loop iterations (" ++ show n ++ ")"
+         msg n = "reached maximum number of loop iterations (" ++ show n ++ ")"
          err loc n = SimError loc (ResourceExhausted (msg n))
      in
      case res of
