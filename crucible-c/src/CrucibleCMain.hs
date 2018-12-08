@@ -384,7 +384,7 @@ buildModelExes opts suff counter_src =
 
      let libs = libDir (snd opts)
          libcxx = case optInputLanguage opts of
-                    Just CPPSource -> ["-lc++"]
+                    Just CPPSource -> ["-lstdc++"]
                     _ -> []
 
      runClang opts [ "-I", libs </> "includes"
