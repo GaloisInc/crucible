@@ -28,6 +28,12 @@ Use ghc-8.4.3
 
     $ cabal new-test
 
+## Test suite with coverage
+
+The `new-*` family of commands is not yet ready for coverage reports. Please run
+    $ stack test --coverage
+for a coverage report.
+
 ## Symbolic execution
 
 Please see the files in `text/symb_eval/` for examples of creating

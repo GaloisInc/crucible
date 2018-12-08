@@ -25,6 +25,8 @@ import Data.Semigroup
 import Data.Text (Text)
 import qualified Data.Text as Text
 
+import System.IO (hPutStrLn)
+
 import Lang.Crucible.Analysis.Postdom (postdomInfo)
 import Lang.Crucible.Backend (AssumptionReason(..), IsBoolSolver, LabeledPred(..), addAssumption, assert)
 import Lang.Crucible.CFG.Core (CFG, cfgArgTypes, cfgHandle, cfgReturnType, lastReg)
@@ -56,15 +58,13 @@ bindFn fn cfg =
   case Map.lookup fn (overrides s) of
     Nothing ->
       bindFnHandle (cfgHandle cfg) $ UseCFG cfg (postdomInfo cfg)
-    Just (($ functionNameFromText fn) -> o) ->
-      case o of
-        SomeOverride argTys retTy f ->
-          case (,) <$> testEquality (cfgReturnType cfg) retTy <*> testEquality (cfgArgTypes cfg) argTys of
-            Nothing -> error $ "Mismatching override type for " ++ Text.unpack fn ++
-                               ".\n\tExpected (" ++ show (cfgArgTypes cfg) ++ ") → " ++ show (cfgReturnType cfg) ++
-                               "\n\tbut got (" ++ show argTys ++ ") → (" ++ show retTy ++ ")."
-            Just (Refl, Refl) ->
-              bindFnHandle (cfgHandle cfg) $ UseOverride f
+    Just (($ functionNameFromText fn) -> SomeOverride argTys retTy f) ->
+      case (,) <$> testEquality (cfgReturnType cfg) retTy <*> testEquality (cfgArgTypes cfg) argTys of
+        Nothing -> error $ "Mismatching override type for " ++ Text.unpack fn ++
+                           ".\n\tExpected (" ++ show (cfgArgTypes cfg) ++ ") → " ++ show (cfgReturnType cfg) ++
+                           "\n\tbut got (" ++ show argTys ++ ") → (" ++ show retTy ++ ")."
+        Just (Refl, Refl) ->
+          bindFnHandle (cfgHandle cfg) $ UseOverride f
 
   where
     override ::
@@ -99,7 +99,8 @@ bindFn fn cfg =
     overrides :: sym -> Map Text (FunctionName -> SomeOverride p sym)
     overrides s =
       fromList [ override "::one[0]" Empty (BVRepr (knownNat @ 8)) $
-                 do liftIO (putStrLn "Hello, I'm an override")
+                 do h <- printHandle <$> getContext
+                    liftIO (hPutStrLn h "Hello, I'm an override")
                     v <- liftIO $ bvLit (s :: sym) knownNat 1
                     return v
                , symb_bv "::crucible_i8[0]"  (knownNat @ 8)
