@@ -29,7 +29,7 @@ import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
-import           Control.Lens((^.))
+import           Control.Lens((^.), view)
 
 --import           GHC.Stack
 
@@ -117,7 +117,7 @@ simulateMIR fs (cruxOpts, _mirOpts) sym p = do
 
   when (Crux.simVerbose cruxOpts > 2) $ do
     say "Crux" $ "MIR collection"
-    putStrLn $ show (pretty col1)
+    outputLn $ show (pretty col1)
 
   res_ty <- case List.find (\fn -> fn^.fname == "::f[0]") (col^.functions) of
                    Just fn -> return (fn^.freturn_ty)
@@ -160,11 +160,12 @@ simulateMIR fs (cruxOpts, _mirOpts) sym p = do
         arg <- C.callCFG a_cfg C.emptyRegMap
         res <- C.callCFG f_cfg (C.RegMap (Ctx.empty `Ctx.extend` arg))
         str <- showRegEntry @sym col res_ty res
-        liftIO $ putStrLn $ str
+        liftIO $ outputLn str
         return ()
 
   halloc <- C.newHandleAllocator
-  let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl p
+  let outH = view outputHandle ?outputConfig
+  let simctx = C.initSimContext sym MapF.empty halloc outH C.emptyHandleMap mirExtImpl p
 
   res <- C.executeCrucible (map C.genericToExecutionFeature fs) $
          C.InitialState simctx C.emptyGlobals C.defaultAbortHandler $
