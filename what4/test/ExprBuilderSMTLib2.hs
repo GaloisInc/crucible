@@ -47,7 +47,8 @@ withSym pred_gen = withIONonceGenerator $ \gen ->
 withZ3' :: (forall t . SimpleExprBuilder t fs -> Session t Z3 -> IO ()) -> IO ()
 withZ3' action = withIONonceGenerator $ \nonce_gen -> do
   sym <- newExprBuilder State nonce_gen
-  withZ3 sym "z3" defaultLogData{ logCallbackVerbose = (\_ -> putStrLn) } (action sym)
+  extendConfig z3Options (getConfiguration sym)
+  withZ3 sym "z3" defaultLogData { logCallbackVerbose = (\_ -> putStrLn) } (action sym)
 
 withOnlineZ3'
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3) -> IO a)
