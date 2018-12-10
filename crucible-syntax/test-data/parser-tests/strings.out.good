@@ -1,0 +1,21 @@
+(defun @test-str () String
+   (start start:
+      (let x "a")
+      (let y "\\")
+      (let q "\"")
+      (let w "\t\n ")
+      (return x)))
+
+test-str
+%0
+  % 5:12
+  $0 = textLit("a")
+  % 6:12
+  $1 = textLit("\\")
+  % 7:12
+  $2 = textLit("\"")
+  % 8:12
+  $3 = textLit("\t\n ")
+  % 9:5
+  return $0
+  % no postdom

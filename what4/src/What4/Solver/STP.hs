@@ -75,7 +75,7 @@ instance SMT2.SMTLib2Tweaks STP where
 instance SMT2.SMTLib2GenericSolver STP where
   defaultSolverPath _ = findSolverPath stpPath . getConfiguration
 
-  defaultSolverArgs _ = []
+  defaultSolverArgs _ _ = return []
 
   defaultFeatures _ = useIntegerArithmetic
 

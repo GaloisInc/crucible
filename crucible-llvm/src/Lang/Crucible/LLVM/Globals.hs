@@ -169,7 +169,7 @@ initializeMemory sym llvm_ctx m = do
    mem0 <- emptyMem endianness
    -- Allocate function handles
    let handles = Map.assocs (_symbolMap llvm_ctx)
-   mem <- foldM (allocLLVMHandleInfo sym) mem0 handles
+   mem <- foldM (allocLLVMHandleInfo sym m) mem0 handles
    -- Allocate global values
    let gs = L.modGlobals m
    gs_alloc <- mapM (\g -> do
@@ -182,12 +182,19 @@ initializeMemory sym llvm_ctx m = do
 
 allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     => sym
+                    -> L.Module
                     -> MemImpl sym
                     -> (L.Symbol, LLVMHandleInfo)
                     -> IO (MemImpl sym)
-allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
+allocLLVMHandleInfo sym m mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
   do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
-     return (registerGlobal mem' symbol ptr)
+     let syms =
+           symbol :
+           [ asym
+           | L.GlobalAlias asym _ (L.ValSymbol tsym) <- L.modAliases m
+           , tsym == symbol
+           ]
+     return $ foldr (\s m' -> registerGlobal m' s ptr) mem' syms
 
 
 -- | Populate the globals mentioned in the given @GlobalInitializerMap@

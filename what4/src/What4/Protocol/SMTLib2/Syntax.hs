@@ -129,6 +129,7 @@ module What4.Protocol.SMTLib2.Syntax
 
 import           Data.Bits hiding (xor)
 import           Data.Char (intToDigit)
+import           Data.Monoid ((<>))
 import           Data.String
 import           Data.Text (Text)
 import           Data.Text.Lazy.Builder (Builder)

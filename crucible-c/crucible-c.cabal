@@ -13,11 +13,11 @@ Description:
   This tool (and corresponding C library) are intended for writing Crucible
   specifications by using C as the specification language.
 
-
-executable crucible-c
+library
 
   hs-source-dirs: src
-  main-is: Main.hs
+
+  exposed-modules: CrucibleCMain
 
   other-modules:
     Overrides
@@ -49,4 +49,71 @@ executable crucible-c
 
   default-language: Haskell2010
 
+  
+
+executable crucible-c
+
+  hs-source-dirs: src
+  main-is: Main.hs
+  other-modules:
+    Overrides,
+    CrucibleCMain
+
+  build-depends:
+    base >= 4.8 && < 4.13,
+    ansi-wl-pprint,
+    containers,
+    crucible-c,
+    data-binary-ieee754,
+    lens,
+    mtl,
+    bytestring,
+    crucible,
+    crucible-llvm,
+    what4,
+    llvm-pretty,
+    llvm-pretty-bc-parser,
+    parameterized-utils,
+    filepath,
+    process,
+    directory,
+    template-haskell,
+    text,
+    ansi-terminal,
+    crux
+
+  ghc-options: -Wall
+  ghc-prof-options: -O2 -fprof-auto-top
+
+  default-language: Haskell2010
+
+
+test-suite crucible-c-test
+  type: exitcode-stdio-1.0
+  hs-source-dirs: test
+
+  ghc-options: -Wall
+  ghc-prof-options: -fprof-auto -O2
+
+  main-is: Test.hs
+
+  build-depends:
+                base             >= 4.7,
+                containers,
+                crucible,
+                crucible-c,
+                deepseq,
+                directory,
+                filepath,
+                parsec,
+                process,
+                saw-core,
+                QuickCheck,
+                tasty            >= 0.10,
+                tasty-hunit      >= 0.10,
+                tasty-golden     >= 2.3,
+                text,
+                what4
+
+  default-language: Haskell2010
 

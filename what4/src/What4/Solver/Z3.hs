@@ -13,10 +13,12 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 module What4.Solver.Z3
   ( Z3(..)
   , z3Adapter
   , z3Path
+  , z3Timeout
   , z3Options
   , runZ3InOverride
   , withZ3
@@ -48,6 +50,10 @@ data Z3 = Z3 deriving Show
 z3Path :: ConfigOption BaseStringType
 z3Path = configOption knownRepr "z3_path"
 
+-- | Timeout (zero is none)
+z3Timeout :: ConfigOption BaseIntegerType
+z3Timeout = configOption knownRepr "z3_timeout"
+
 z3Options :: [ConfigDesc]
 z3Options =
   [ mkOpt
@@ -55,6 +61,11 @@ z3Options =
       executablePathOptSty
       (Just (PP.text "Z3 executable path"))
       (Just (ConcreteString "z3"))
+  , mkOpt
+      z3Timeout
+      integerOptSty
+      (Just (PP.text "Timeout in seconds (zero is none)"))
+      (Just (ConcreteInteger 0))
   ]
 
 z3Adapter :: SolverAdapter st
@@ -101,7 +112,13 @@ writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 nullAcknowledgementAction "Z3" z3Feat
 instance SMT2.SMTLib2GenericSolver Z3 where
   defaultSolverPath _ = findSolverPath z3Path . getConfiguration
 
-  defaultSolverArgs _ = ["-smt2", "-in"]
+  defaultSolverArgs _ sym = do
+    let cfg = getConfiguration sym
+    timeout <- getOption =<< getOptionSetting z3Timeout cfg
+    let extraOpts = case timeout of
+                      Just (ConcreteInteger n) | n /= 0 -> ["-t:" ++ show n]
+                      _ -> []
+    return $ ["-smt2", "-in"] ++ extraOpts
 
   defaultFeatures _ = z3Features
 

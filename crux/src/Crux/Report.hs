@@ -4,11 +4,11 @@
 module Crux.Report where
 
 import System.FilePath
-import System.Directory(createDirectoryIfMissing)
-import Data.List(intercalate,partition)
-import Data.Maybe(fromMaybe)
-import Control.Exception(catch,SomeException(..))
-import Control.Monad(when)
+import System.Directory (createDirectoryIfMissing)
+import Data.List (intercalate, partition)
+import Data.Maybe (fromMaybe)
+import Control.Exception (catch, SomeException(..))
+import Control.Monad (when)
 
 import qualified Data.Text.IO as T
 
@@ -20,7 +20,6 @@ import Crux.Types
 import Crux.Options
 import Crux.Loops
 
-
 -- Note these should be data files. However, cabal-new build doesn't make it easy for the installation
 -- to find data files, so they are embedded as Text constants instead.
 
@@ -31,7 +30,8 @@ import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 generateReport :: CruxOptions -> Maybe (ProvedGoals b) -> IO ()
 generateReport opts xs =
   do createDirectoryIfMissing True (outDir opts)
-     when (takeExtension (inputFile opts) == ".c") (generateSource opts)
+     let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".ii"]
+     when (takeExtension (inputFile opts) `elem` exts) (generateSource opts)
      writeFile (outDir opts </> "report.js")
         $ "var goals = " ++ renderJS (jsList (renderSideConds xs))
      T.writeFile (outDir opts </> "index.html") indexHtml
@@ -42,8 +42,8 @@ generateReport opts xs =
 generateSource :: CruxOptions -> IO ()
 generateSource opts =
   do src <- readFile (inputFile opts)
-     writeFile (outDir opts </> "source.js")
-        $ "var lines = " ++ show (lines src)
+     writeFile (outDir opts </> "source.js") $
+       "var lines = " ++ show (lines src)
   `catch` \(SomeException {}) -> return ()
 
 
@@ -88,18 +88,20 @@ jsSideCond ::
   JS
 jsSideCond path asmps (conc,_) triv status =
   jsObj
-  [ "proved"          ~> proved
+  [ "status"          ~> proved
   , "counter-example" ~> example
-  , "goal"            ~> jsStr (simErrorReasonMsg (simErrorReason conc))
+  , "goal"            ~> jsStr (takeFileName (head (lines (simErrorReasonMsg (simErrorReason conc)))))
   , "location"        ~> jsLoc (simErrorLoc conc)
   , "assumptions"     ~> jsList (map mkAsmp asmps)
   , "trivial"         ~> jsBool triv
   , "path"            ~> jsList path
   ]
   where
-  proved = case status of
-             Proved{} -> jsBool True
-             _        -> jsBool False
+  proved = case (status, simErrorReason conc) of
+             (Proved{}, _) -> jsStr "ok"
+             (NotProved _, ResourceExhausted _) -> jsStr "unknown"
+             (NotProved Nothing, _) -> jsStr "unknown"
+             (NotProved (Just _), _) -> jsStr "fail"
 
   example = case status of
              NotProved (Just m) -> JS (modelInJS m)
