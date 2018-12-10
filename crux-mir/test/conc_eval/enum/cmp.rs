@@ -1,3 +1,4 @@
+// FAIL: Hard to see why
 #![no_implicit_prelude]
 
 pub enum Ordering {

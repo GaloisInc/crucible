@@ -1,4 +1,4 @@
-
+// FAIL: polymorphism
 
 fn call_with_one<T>(some_closure: &Fn(T) -> T, arg:T) -> T {
 

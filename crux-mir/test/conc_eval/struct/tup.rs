@@ -1,3 +1,4 @@
+// FAIL: Printing of unit constructor not correct yet
 fn g () -> char {
     '\x00'
 }

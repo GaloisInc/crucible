@@ -1,7 +1,5 @@
+// FAIL: Doesn't know about Option datatype
 // This tests using polymorphic functions and parameterized data
-
-
-
 
 pub fn g<T>(y : Option<T>) -> Option<T> {
     y

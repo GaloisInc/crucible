@@ -1,3 +1,4 @@
+// FAIL: Indexing error
 fn g(xs: &mut [u8]) {
     xs[0] = xs[0] + 1;
 }

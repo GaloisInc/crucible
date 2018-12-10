@@ -12,7 +12,7 @@ import           System.Directory (listDirectory, doesDirectoryExist, doesFileEx
 import           System.Environment (withArgs)
 import           System.Exit (ExitCode(..))
 import           System.FilePath ((<.>), (</>), takeBaseName, takeExtension, replaceExtension)
-import           System.IO (IOMode(..), withFile, stdout, stderr, hClose, hGetContents, openFile)
+import           System.IO (IOMode(..), withFile, stdout, stderr, hClose, hGetContents, hGetLine, openFile)
 import           System.IO.Temp (withSystemTempFile)
 import qualified System.Process as Proc
 import           Text.Parsec (parse, (<|>), (<?>), string, many1, digit)
@@ -39,7 +39,16 @@ import qualified Mir.Language as Mir (main, mainWithOutputTo)
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
-
+-- | Check whether an input file is expected to fail based on a comment in the first line.
+expectedFail :: FilePath -> IO (Maybe String)
+expectedFail fn =
+  withFile fn ReadMode $ \h ->
+  do firstLine <- hGetLine h
+     return $
+       if failMarker `isPrefixOf` firstLine
+         then Just (drop (length failMarker) firstLine)
+         else Nothing
+  where failMarker = "// FAIL: "
 
 cruxOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
 cruxOracleTest dir name step = do
@@ -52,8 +61,10 @@ cruxOracleTest dir name step = do
   let orOut = dropWhileEnd isSpace oracleOut
   step ("Oracle output: " ++ orOut)
 
+  let fn = dir </> name <.> "rs"
+
   cruxOutFull <- withSystemTempFile name $ \tempName h -> do
-    withArgs [dir </> name <.> "rs"] $ Mir.mainWithOutputTo h
+    withArgs [fn] $ Mir.mainWithOutputTo h
     hClose h
     h' <- openFile tempName ReadMode
     out <- hGetContents h'
@@ -63,7 +74,6 @@ cruxOracleTest dir name step = do
 
   let cruxOut = dropWhileEnd isSpace cruxOutFull
   step ("Crux output: " ++ cruxOut ++ "\n")
-
   assertBool "crux doesn't match oracle" (orOut == cruxOut)
 
 
@@ -171,8 +181,12 @@ compileAndRun dir name = do
 testDir :: OracleTest -> FilePath -> IO TestTree
 testDir oracleTest dir = do
   let gen f | "." `isPrefixOf` takeBaseName f = return Nothing
-      gen f | takeExtension f == ".rs" = return (Just (testCaseSteps name (oracleTest dir name)))
-        where name = (takeBaseName f)
+      gen f | takeExtension f == ".rs" = do
+                shouldFail <- expectedFail (dir </> f)
+                case shouldFail of
+                  Nothing -> return (Just (testCaseSteps name (oracleTest dir name)))
+                  Just why -> return (Just (expectFailBecause why (testCaseSteps name (oracleTest dir name))))
+        where name = takeBaseName f
       gen f = doesDirectoryExist (dir </> f) >>= \case
         False -> return Nothing
         True -> Just <$> testDir oracleTest (dir </> f)

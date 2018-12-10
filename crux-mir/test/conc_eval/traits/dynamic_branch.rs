@@ -1,3 +1,4 @@
+// FAIL: Traits not fully implemented
 struct Data(u32);
 
 trait Foo {

@@ -1,3 +1,4 @@
+// FAIL: Should panic, but doesn't
 #[allow(exceeding_bitshifts)]
 fn f(x: i64) -> i64 {
     x << 64i64

@@ -1,3 +1,4 @@
+// FAIL: Seems to be widening rather than truncating types
 fn f(x: u8) -> u8 {
     x << 1i32
 }

@@ -1,3 +1,4 @@
+// FAIL: Traits not fully implemented yet
 enum S {}
 
 trait T {

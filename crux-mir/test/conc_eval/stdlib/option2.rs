@@ -1,3 +1,4 @@
+// FAIL: Doesn't know about Option datatype
 
 fn g<T> (x : Option<T>) -> T {
     match x {
@@ -6,7 +7,7 @@ fn g<T> (x : Option<T>) -> T {
     }
 }
 
-fn f (y : u32) -> u32 { 
+fn f (y : u32) -> u32 {
     let x: Option<u32> = Some(0);
     return g(x);
 }

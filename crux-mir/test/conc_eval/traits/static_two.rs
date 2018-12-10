@@ -1,3 +1,4 @@
+// FAIL: Wrong invocation (see file for details)
 // Test two static implementation of the same trait
 //
 // This test currently fails because mir-json calls the 

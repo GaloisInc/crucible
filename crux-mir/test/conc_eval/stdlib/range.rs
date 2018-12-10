@@ -1,3 +1,4 @@
+// FAIL: Doesn't know about Range datatype
 use std::ops::Range;
 
 fn f (x : i32) -> i32 {

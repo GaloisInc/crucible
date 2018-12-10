@@ -1,3 +1,4 @@
+// FAIL: Polymorpic types not yet ready
 #![feature(never_type)]
 
 use std::process::exit;

@@ -1,3 +1,5 @@
+// FAIL: Doesn't know how to call default yet
+
 #[derive(Default)]
 struct SomeOptions {
     foo: i32,

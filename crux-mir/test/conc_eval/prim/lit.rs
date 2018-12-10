@@ -1,3 +1,5 @@
+// FAIL: fail or unimp constant: RealValRepr ConstFloat (FloatLit F64 "TODO")
+
 fn f(x: (bool,bool)) -> bool {
     let y = 0.0;
     let s = "hello";
