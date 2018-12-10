@@ -1,5 +1,5 @@
 Name:          what4
-Version:       0.4.1
+Version:       0.4.2
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com, rdockins@galois.com
 Copyright:     (c) Galois, Inc 2014-2018
@@ -42,6 +42,7 @@ library
     text,
     th-abstraction >=0.1 && <0.3,
     transformers,
+    unordered-containers,
     utf8-string,
     vector,
     ghc-prim
@@ -87,6 +88,7 @@ library
 
     What4.Protocol.Online
     What4.Protocol.SMTLib2
+    What4.Protocol.SMTLib2.Parse
     What4.Protocol.SMTLib2.Syntax
     What4.Protocol.SMTWriter
     What4.Protocol.ReadDecimal

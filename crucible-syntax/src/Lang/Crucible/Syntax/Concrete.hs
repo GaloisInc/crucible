@@ -27,7 +27,6 @@
 module Lang.Crucible.Syntax.Concrete
   ( -- * Errors
     ExprErr(..)
-  , errPos
   -- * Parsing and Results
   , ACFG(..)
   , top
@@ -134,23 +133,6 @@ data ExprErr s where
   NotGlobal :: Position -> AST s -> ExprErr s
   InvalidRegister :: Position -> AST s -> ExprErr s
   SyntaxParseError :: SP.SyntaxError Atomic -> ExprErr s
-
-errPos :: ExprErr s -> Position
-errPos (TrivialErr p) = p
-errPos (Errs e1 e2) = best (errPos e1) (errPos e2)
-  where best p@(SourcePos _ _ _) _ = p
-        best _ p@(SourcePos _ _ _) = p
-        best p@(BinaryPos _ _) _ = p
-        best _ p@(BinaryPos _ _) = p
-        best p@(OtherPos _) _ = p
-        best _ p@(OtherPos _) = p
-        best a _b = a
-errPos (DuplicateAtom p _) = p
-errPos (DuplicateLabel p _) = p
-errPos (EmptyBlock p) = p
-errPos (InvalidRegister p _) = p
-errPos (NotGlobal p _) = p
-errPos (SyntaxParseError (SP.SyntaxError (Reason e _ :| _))) = syntaxPos e
 
 deriving instance Show (ExprErr s)
 

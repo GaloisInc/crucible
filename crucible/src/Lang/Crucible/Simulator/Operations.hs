@@ -906,14 +906,18 @@ performFunctionCall ::
   ExecCont p sym ext rtp outer_frame outer_args
 performFunctionCall retHandler frm =
   do sym <- view stateSymInterface
-     let loc = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
-     liftIO $ setCurrentProgramLoc sym loc
      case frm of
        OverrideCall o f ->
+         -- Eventually, locations should be nested. However, for now,
+         -- while they're not, it's useful for the location of an
+         -- override to be the location of its call site, so we don't
+         -- change it here.
          withReaderT
            (stateTree %~ pushCallFrame retHandler (OF f))
            (runOverride o)
-       CrucibleCall entryID f ->
+       CrucibleCall entryID f -> do
+         let loc = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
+         liftIO $ setCurrentProgramLoc sym loc
          withReaderT
            (stateTree %~ pushCallFrame retHandler (MF f))
            (continue (RunBlockStart entryID))

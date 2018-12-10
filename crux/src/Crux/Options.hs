@@ -20,9 +20,10 @@ import System.Console.GetOpt
 import System.Environment
 import System.FilePath
 import System.IO
+import Text.Read (readMaybe)
 import Data.Typeable
 
-import           Crux.Language (LangConf(..),LangOptions,Language,Options,CruxOptions(..))
+import Crux.Language (LangConf(..),LangOptions,Language,Options,CruxOptions(..))
 import qualified Crux.Language as CL
 
 -- Unfortunately, we need to construct these arguments *before* we
@@ -30,15 +31,16 @@ import qualified Crux.Language as CL
 -- value of outDir here.
 defaultCruxOptions :: CruxOptions
 defaultCruxOptions = CruxOptions {
-    showHelp     = False
-  , simVerbose   = 1
-  , outDir       = "" 
-  , inputFile    = ""
-  , showVersion  = False
+    showHelp = False
+  , simVerbose = 1
+  , outDir = ""
+  , inputFile = ""
+  , showVersion = False
   , checkPathSat = True
   , profileCrucibleFunctions = True
-  , profileSolver            = True
+  , profileSolver = True
   , globalTimeout = Nothing
+  , goalTimeout = 10
   , profileOutputInterval = Nothing
   , loopBound = Nothing
   }
@@ -94,6 +96,14 @@ cmdLineCruxOptions =
      (\v opts -> opts{ globalTimeout = Just (fromMaybe "60" v) })
      "seconds")
     "Stop executing the simulator after this many seconds (default: 60 seconds)"
+
+  , Option [] ["goal-timeout"]
+    (ReqArg
+     (\v opts -> case readMaybe v of
+                   Just t -> opts{ goalTimeout = t }
+                   Nothing -> opts)
+     "seconds")
+    "Stop trying to prove each goal after this many seconds (default: 10 seconds, 0 for none)"
 
   , Option "p" ["profiling-period"]
     (OptArg

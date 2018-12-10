@@ -14,42 +14,46 @@ module What4.Protocol.SMTLib2.Syntax
     Command(..)
   , setLogic
   , setOption
+  , setProduceModels
   , exit
-  , checkSat
-  , checkSatWithAssumptions
-  , getUnsatAssumptions
-  , getUnsatCore
-  , getValue
-  , assert
-  , assertNamed
-  , resetAssertions
-  , push
-  , pop
+     -- * Declarations
+  , declareSort
+  , defineSort
+  , declareConst
   , declareFun
   , defineFun
-    -- * Option
-  , Option(..)
-  , produceModels
-  , produceUnsatCores
-  , produceUnsatAssumptions
-  , printSuccess
-  , ppDecimal
+  , Symbol
+    -- * Assertions and checking
+  , checkSat
+  , checkSatAssuming
+  , checkSatWithAssumptions
+  , getModel
+  , getValue
+  , push
+  , pop
+  , resetAssertions
+  , assert
+  , assertNamed
+  , getUnsatAssumptions
+  , getUnsatCore
     -- * Logic
   , Logic(..)
   , qf_bv
   , allSupported
-    -- * Type
-  , Type(..)
-  , boolType
-  , bvType
-  , intType
-  , realType
+    -- * Sort
+  , Sort(..)
+  , boolSort
+  , bvSort
+  , intSort
+  , realSort
+  , varSort
     -- * Term
   , Term(..)
   , un_app
   , bin_app
   , term_app
   , pairwise_app
+  , namedTerm
     -- * Core theory
   , true
   , false
@@ -99,7 +103,11 @@ module What4.Protocol.SMTLib2.Syntax
   , bvlshr
   , bvult
     -- ** Extensions provided by QF_BV
+  , bit0
+  , bit1
+  , bvbinary
   , bvdecimal
+  , bvhexadecimal
   , bvashr
   , bvslt
   , bvsle
@@ -110,15 +118,18 @@ module What4.Protocol.SMTLib2.Syntax
   , bvuge
   , bvsdiv
   , bvsrem
+  , bvsignExtend
+  , bvzeroExtend
     -- * Array theory
-  , arrayType
+  , arraySort
   , arrayConst
   , select
   , store
   ) where
 
 import           Data.Bits hiding (xor)
-import           Data.Monoid ( (<>) )
+import           Data.Char (intToDigit)
+import           Data.Monoid ((<>))
 import           Data.String
 import           Data.Text (Text)
 import           Data.Text.Lazy.Builder (Builder)
@@ -156,58 +167,40 @@ allSupported :: Logic
 allSupported = Logic "ALL_SUPPORTED"
 
 ------------------------------------------------------------------------
--- Option
+-- Symbol
 
--- | Identifies an option that can be set by the SMT solver.
-newtype Option = Option Builder
-
-ppBool :: Bool -> Builder
-ppBool True  = "true"
-ppBool False = "false"
-
--- | Option to produce models when check-sat is called.
-produceModels :: Bool -> Option
-produceModels b = Option (":produce-models " <> ppBool b)
-
-produceUnsatCores :: Bool -> Option
-produceUnsatCores b = Option (":produce-unsat-cores " <> ppBool b)
-
-produceUnsatAssumptions :: Bool -> Option
-produceUnsatAssumptions b = Option (":produce-unsat-assumptions " <> ppBool b)
-
-printSuccess :: Bool -> Option
-printSuccess b = Option (":print-success " <> ppBool b)
-
--- | Control pretty printing decimal values.
-ppDecimal :: Bool -> Option
-ppDecimal b = Option (":pp.decimal " <> ppBool b)
+type Symbol = Text
 
 ------------------------------------------------------------------------
--- Type
+-- Sort
 
--- | Type for SMTLIB expressions
-newtype Type = Type { unType :: Builder }
+-- | Sort for SMTLIB expressions
+newtype Sort = Sort { unSort :: Builder }
+
+-- | Create a sort from a symbol name
+varSort :: Symbol -> Sort
+varSort = Sort . Builder.fromText
 
 -- | Booleans
-boolType :: Type
-boolType = Type "Bool"
+boolSort :: Sort
+boolSort = Sort "Bool"
 
 -- | Bitvectors with the given number of bits.
-bvType :: Integer -> Type
-bvType w | w >= 1 = Type $ "(_ BitVec " <> fromString (show w) <> ")"
-         | otherwise = error "bvType expects a positive number."
+bvSort :: Integer -> Sort
+bvSort w | w >= 1 = Sort $ "(_ BitVec " <> fromString (show w) <> ")"
+         | otherwise = error "bvSort expects a positive number."
 
 -- | Integers
-intType :: Type
-intType = Type "Int"
+intSort :: Sort
+intSort = Sort "Int"
 
 -- | Real numbers
-realType :: Type
-realType = Type "Real"
+realSort :: Sort
+realSort = Sort "Real"
 
--- | @arrayType a b@ denotes the set of functions from @a@ to be @b@.
-arrayType :: Type -> Type -> Type
-arrayType (Type i) (Type v) = Type $ "(Array " <> i <> " " <> v <> ")"
+-- | @arraySort a b@ denotes the set of functions from @a@ to be @b@.
+arraySort :: Sort -> Sort -> Sort
+arraySort (Sort i) (Sort v) = Sort $ "(Array " <> i <> " " <> v <> ")"
 
 ------------------------------------------------------------------------
 -- Term
@@ -239,6 +232,11 @@ chain_app f _ = error $ show f ++ " expects two or more arguments."
 assoc_app :: Builder -> Term -> [Term] -> Term
 assoc_app _ t [] = t
 assoc_app f t l = term_app f (t:l)
+
+-- | Append a "name" to a term so that it will be printed when
+-- @(get-assignment)@ is called.
+namedTerm :: Term -> Text -> Term
+namedTerm (T x) nm = T $ "(! " <> x <> " :named " <> Builder.fromText nm <> ")"
 
 ------------------------------------------------------------------------
 -- Core theory
@@ -298,19 +296,19 @@ distinct = pairwise_app "distinct"
 ite :: Term -> Term -> Term -> Term
 ite c x y = term_app "ite" [c, x, y]
 
-varBinding :: (Text,Type) -> Builder
-varBinding (nm, tp) = "(" <> Builder.fromText nm <> " " <> unType tp <> ")"
+varBinding :: (Text,Sort) -> Builder
+varBinding (nm, tp) = "(" <> Builder.fromText nm <> " " <> unSort tp <> ")"
 
 -- | @forall vars t@ denotes a predicate that holds if @t@ for every valuation of the
 -- variables in @vars@.
-forall :: [(Text, Type)] -> Term -> Term
+forall :: [(Text, Sort)] -> Term -> Term
 forall [] r = r
 forall vars r =
   T $ app "forall" [builder_list (varBinding <$> vars), renderTerm r]
 
 -- | @exists vars t@ denotes a predicate that holds if @t@ for some valuation of the
 -- variables in @vars@.
-exists :: [(Text, Type)] -> Term -> Term
+exists :: [(Text, Sort)] -> Term -> Term
 exists [] r = r
 exists vars r =
   T $ app "exists" [builder_list (varBinding <$> vars), renderTerm r]
@@ -461,10 +459,10 @@ isInt = un_app "is_int"
 -- This uses the non-standard SMTLIB2 syntax
 -- @((as const (Array t1 t2)) c)@ which is supported by CVC4 and Z3
 -- (and perhaps others).
-arrayConst :: Type -> Type -> Term -> Term
+arrayConst :: Sort -> Sort -> Term -> Term
 arrayConst itp rtp c =
-  let array_type = arrayType itp rtp
-      cast_app = builder_list [ "as" , "const" , unType array_type ]
+  let tp = arraySort itp rtp
+      cast_app = builder_list [ "as" , "const" , unSort tp ]
    in term_app cast_app [ c ]
 
 -- | @select a i@ denotes the value of @a@ at @i@.
@@ -479,20 +477,74 @@ store a i v = term_app "store" [a,i,v]
 ------------------------------------------------------------------------
 -- Bitvector theory
 
--- | @bvdecimal x w@ creates a bitvector term with width @w@ equal to @x `mod` 2^w@.
+-- | A 1-bit bitvector representing @0@.
+bit0 :: Term
+bit0 = T "#b0"
+
+-- | A 1-bit bitvector representing @1@.
+bit1 :: Term
+bit1 = T "#b1"
+
+-- | @bvbinary x w@ constructs a bitvector term with width @w@ equal to @x `mod` 2^w@.
+--
+-- The width @w@ must be positive.
+--
+-- The literal uses a binary notation.
+bvbinary :: Integer -> Integer -> Term
+bvbinary u w0
+    | w0 <= 0 = error $ "bvbinary width must be positive."
+    | w0 > toInteger (maxBound :: Int) = error $ "Integer width is too large."
+    | otherwise = T $ "#b" <> go (fromIntegral w0)
+  where go :: Int -> Builder
+        go 0 = mempty
+        go w =
+          let i = w - 1
+              b :: Builder
+              b = if  u `testBit` i then "1" else "0"
+           in b <> go i
+
+-- | @bvdecimal x w@ constructs a bitvector term with width @w@ equal to @x `mod` 2^w@.
+--
+-- The width @w@ must be positive.
+--
+-- The literal uses a decimal notation.
 bvdecimal :: Integer -> Integer -> Term
-bvdecimal u w = T $ mconcat [ "(_ bv", Builder.decimal d, " ", Builder.decimal w, ")"]
+bvdecimal u w
+    | w <= 0 = error "bvdecimal width must be positive."
+    | otherwise = T $ mconcat [ "(_ bv", Builder.decimal d, " ", Builder.decimal w, ")"]
   where d = u .&. (2^w - 1)
 
--- | @bvConcat x y@ returns the bitvector with the bits of @x@ followed by the bits of @y@.
+-- | @bvhexadecimal x w@ constructs a bitvector term with width @w@ equal to @x `mod` 2^w@.
+--
+-- The width @w@ must be a positive multiple of 4.
+--
+-- The literal uses hex notation.
+bvhexadecimal :: Integer -> Integer -> Term
+bvhexadecimal u w0
+    | w0 <= 0 = error $ "bvhexadecimal width must be positive."
+    | w0 > toInteger (maxBound :: Int) = error $ "Integer width is too large."
+    | otherwise = T $ "#x" <> go (fromIntegral w0)
+  where go :: Int -> Builder
+        go 0 = mempty
+        go w | w < 4 = error "bvhexadecimal width must be a multiple of 4."
+        go w =
+          let i = w - 4
+              c :: Char
+              c = intToDigit $ fromInteger $ (u `shiftR` i) .&. 0xf
+           in Builder.singleton c <> go i
+
+-- | @concat x y@ returns the bitvector with the bits of @x@ followed by the bits of @y@.
 concat :: Term -> Term -> Term
 concat = bin_app "concat"
 
--- | @bvExtract i j x@ returns the bitvector containing the bits @[i..j]@.
+-- | @extract i j x@ returns the bitvector containing the bits @[j..i]@.
 extract :: Integer -> Integer -> Term -> Term
-extract end begin x =
-  let e = "(_ extract " <> Builder.decimal end <> " " <> Builder.decimal begin <> ")"
-   in un_app e x
+extract i j x
+  | j < 0 = error "Initial bit is negative"
+  | i < j = error $ "End of extract (" ++ show i ++ ") less than beginning (" ++ show j ++ ")."
+  | otherwise = -- We cannot check that j is small enough.
+    let e = "(_ extract " <> Builder.decimal i <> " " <> Builder.decimal j <> ")"
+     in un_app e x
 
 -- | Complement bits in term.
 bvnot :: Term -> Term
@@ -620,6 +672,24 @@ bvsdiv = bin_app "bvudiv"
 bvsrem :: Term -> Term -> Term
 bvsrem = bin_app "bvsrem"
 
+-- | @bvsignExtend w x@ adds an additional @w@ bits to the most
+-- significant bits of @x@ by sign extending @x@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvsignExtend :: Integer -> Term -> Term
+bvsignExtend w x =
+  let e = "(_ sign_extend " <> Builder.decimal w <> ")"
+   in un_app e x
+
+-- | @bvzeroExtend w x@ adds an additional @w@ zero bits to the most
+-- significant bits of @x@.
+--
+-- Note. This is in @QF_BV@, but not the bitvector theory.
+bvzeroExtend :: Integer -> Term -> Term
+bvzeroExtend w x =
+  let e = "(_ zero_extend " <> Builder.decimal w <> ")"
+   in un_app e x
+
 ------------------------------------------------------------------------
 -- Command
 
@@ -628,33 +698,65 @@ newtype Command = Cmd Builder
 
 -- | Set the logic of the SMT solver
 setLogic :: Logic -> Command
-setLogic (Logic nm) = Cmd $ app "set-logic" [nm]
+setLogic (Logic nm) = Cmd $ "(set-logic " <> nm <> ")"
 
 -- | Set an option in the SMT solver
-setOption :: Option -> Command
-setOption (Option nm) = Cmd $ app "set-option" [nm]
+--
+-- The name should not need to be prefixed with a colon."
+setOption :: Text -> Text -> Command
+setOption nm val = Cmd $ app_list "set-option" [":" <> Builder.fromText nm, Builder.fromText val]
+
+ppBool :: Bool -> Text
+ppBool b = if b then "true" else "false"
+
+-- | Set option to produce models
+--
+-- This is a widely used option so, we we have a custom command to
+-- make it.
+setProduceModels :: Bool -> Command
+setProduceModels b = setOption "produce-models" (ppBool b)
 
 -- | Request the SMT solver to exit
 exit :: Command
 exit = Cmd "(exit)"
 
+-- | Declare an uninterpreted sort with the given number of sort parameters.
+declareSort :: Symbol -> Integer -> Command
+declareSort v n = Cmd $ app "declare-sort" [Builder.fromText v, fromString (show n)]
+
+-- | Define a sort in terms of other sorts
+--
+defineSort :: Symbol -- ^ Name of new sort
+           -> [Symbol] -- ^ Parameters for polymorphic sorts
+           -> Sort -- ^ Definition
+           -> Command
+defineSort v params d =
+  Cmd $ app "define-sort" [ Builder.fromText v
+                          , builder_list (Builder.fromText <$> params)
+                          , unSort d
+                          ]
+
+-- | Declare a constant with the given name and return types.
+declareConst :: Text -> Sort -> Command
+declareConst v tp = Cmd $ app "declare-const" [Builder.fromText v, unSort tp]
+
 -- | Declare a function with the given name, argument types, and
 -- return type.
-declareFun :: Text -> [Type] -> Type -> Command
-declareFun v argTypes retType = Cmd $
+declareFun :: Text -> [Sort] -> Sort -> Command
+declareFun v argSorts retSort = Cmd $
   app "declare-fun" [ Builder.fromText v
-                    , builder_list $ unType <$> argTypes
-                    , unType retType
+                    , builder_list $ unSort <$> argSorts
+                    , unSort retSort
                     ]
 
 -- | Declare a function with the given name, argument types, and
 -- return type.
-defineFun :: Text -> [(Text,Type)] -> Type -> Term -> Command
+defineFun :: Text -> [(Text,Sort)] -> Sort -> Term -> Command
 defineFun f args return_type e =
-  let resolveArg (var, tp) = app (Builder.fromText var) [unType tp]
+  let resolveArg (var, tp) = app (Builder.fromText var) [unSort tp]
    in Cmd $ app "define-fun" [ Builder.fromText f
                              , builder_list (resolveArg <$> args)
-                             , unType return_type
+                             , unSort return_type
                              , renderTerm e
                              ]
 
@@ -673,6 +775,10 @@ assertNamed p nm =
 checkSat :: Command
 checkSat = Cmd "(check-sat)"
 
+-- | Check the satisfiability of the current assertions and the additional ones in the list.
+checkSatAssuming :: [Term] -> Command
+checkSatAssuming l = Cmd $ "(check-sat-assuming " <> builder_list (renderTerm <$> l) <> ")"
+
 -- | Check satisfiability of the given atomic assumptions in the current context.
 --
 --   NOTE! The names of variables passed to this function MUST be generated using
@@ -682,13 +788,17 @@ checkSat = Cmd "(check-sat)"
 checkSatWithAssumptions :: [Text] -> Command
 checkSatWithAssumptions nms = Cmd $ app "check-sat-assuming" [builder_list (map Builder.fromText nms)]
 
+-- | Get the model associated with the last call to @check-sat@.
+getModel :: Command
+getModel = Cmd "(get-model)"
+
 getUnsatAssumptions :: Command
 getUnsatAssumptions = Cmd "(get-unsat-assumptions)"
 
 getUnsatCore :: Command
 getUnsatCore = Cmd "(get-unsat-core)"
 
--- | Get the values associated with the terms from the last call to check-set.
+-- | Get the values associated with the terms from the last call to @check-sat@.
 getValue :: [Term] -> Command
 getValue values = Cmd $ app "get-value" [builder_list (renderTerm <$> values)]
 

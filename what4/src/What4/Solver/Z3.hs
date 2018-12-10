@@ -13,10 +13,12 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 module What4.Solver.Z3
   ( Z3(..)
   , z3Adapter
   , z3Path
+  , z3Timeout
   , z3Options
   , runZ3InOverride
   , withZ3
@@ -48,6 +50,10 @@ data Z3 = Z3 deriving Show
 z3Path :: ConfigOption BaseStringType
 z3Path = configOption knownRepr "z3_path"
 
+-- | Timeout (zero is none)
+z3Timeout :: ConfigOption BaseIntegerType
+z3Timeout = configOption knownRepr "z3_timeout"
+
 z3Options :: [ConfigDesc]
 z3Options =
   [ mkOpt
@@ -55,6 +61,11 @@ z3Options =
       executablePathOptSty
       (Just (PP.text "Z3 executable path"))
       (Just (ConcreteString "z3"))
+  , mkOpt
+      z3Timeout
+      integerOptSty
+      (Just (PP.text "Timeout in seconds (zero is none)"))
+      (Just (ConcreteInteger 0))
   ]
 
 z3Adapter :: SolverAdapter st
@@ -66,9 +77,9 @@ z3Adapter =
   , solver_adapter_write_smt2 = writeZ3SMT2File
   }
 
-indexType :: [SMT2.Type] -> SMT2.Type
+indexType :: [SMT2.Sort] -> SMT2.Sort
 indexType [i] = i
-indexType il = SMT2.structType il
+indexType il = SMT2.structSort il
 
 indexCtor :: [SMT2.Term] -> SMT2.Term
 indexCtor [i] = i
@@ -77,7 +88,7 @@ indexCtor il = structCtor il
 instance SMT2.SMTLib2Tweaks Z3 where
   smtlib2tweaks = Z3
 
-  smtlib2arrayType il r = SMT2.arrayType (indexType il) r
+  smtlib2arrayType il r = SMT2.arraySort (indexType il) r
 
   smtlib2arrayConstant = Just $ \idx rtp v ->
     SMT2.arrayConst (indexType idx) rtp v
@@ -101,19 +112,24 @@ writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 nullAcknowledgementAction "Z3" z3Feat
 instance SMT2.SMTLib2GenericSolver Z3 where
   defaultSolverPath _ = findSolverPath z3Path . getConfiguration
 
-  defaultSolverArgs _ = ["-smt2", "-in"]
+  defaultSolverArgs _ sym = do
+    let cfg = getConfiguration sym
+    timeout <- getOption =<< getOptionSetting z3Timeout cfg
+    let extraOpts = case timeout of
+                      Just (ConcreteInteger n) | n /= 0 -> ["-t:" ++ show n]
+                      _ -> []
+    return $ ["-smt2", "-in"] ++ extraOpts
 
   defaultFeatures _ = z3Features
 
   setDefaultLogicAndOptions writer = do
     -- Tell Z3 to produce models.
-    SMT2.setOption writer $ SMT2.produceModels True
+    SMT2.setOption writer "produce-models" "true"
     -- Tell Z3 to round and print algebraic reals as decimal
-    SMT2.setOption writer $ SMT2.ppDecimal True
+    SMT2.setOption writer "pp.decimal" "true"
     -- Tell Z3 to compute UNSAT cores, if that feature is enabled
-    when (supportedFeatures writer `hasProblemFeature` useUnsatCores)
-         (SMT2.setOption writer $ SMT2.produceUnsatCores True)
-
+    when (supportedFeatures writer `hasProblemFeature` useUnsatCores) $
+      SMT2.setOption writer "produce-unsat-cores" "true"
 
 runZ3InOverride
   :: ExprBuilder t st fs
@@ -142,14 +158,14 @@ setInteractiveLogicAndOptions ::
   IO ()
 setInteractiveLogicAndOptions writer = do
     -- Tell Z3 to acknowledge successful commands
-    SMT2.setOption writer $ SMT2.printSuccess True
+    SMT2.setOption writer "print-success"  "true"
     -- Tell Z3 to produce models
-    SMT2.setOption writer $ SMT2.produceModels True
+    SMT2.setOption writer "produce-models" "true"
     -- Tell Z3 to round and print algebraic reals as decimal
-    SMT2.setOption writer $ SMT2.ppDecimal True
+    SMT2.setOption writer "pp.decimal" "true"
     -- Tell Z3 to compute UNSAT cores, if that feature is enabled
-    when (supportedFeatures writer `hasProblemFeature` useUnsatCores)
-         (SMT2.setOption writer $ SMT2.produceUnsatCores True)
+    when (supportedFeatures writer `hasProblemFeature` useUnsatCores) $ do
+      SMT2.setOption writer "produce-unsat-cores" "true"
 
 instance OnlineSolver t (SMT2.Writer Z3) where
   startSolverProcess = SMT2.startSolver Z3 SMT2.smtAckResult setInteractiveLogicAndOptions

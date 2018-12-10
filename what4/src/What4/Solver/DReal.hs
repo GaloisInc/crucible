@@ -112,12 +112,11 @@ writeDRealSMT2File sym h ps = do
   in_str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
   c <- SMT2.newWriter DReal in_str SMTWriter.nullAcknowledgementAction "dReal"
           False useComputableReals False bindings
-  SMT2.setOption c (SMT2.produceModels True)
+  SMT2.setProduceModels c True
   SMT2.setLogic c (SMT2.Logic "QF_NRA")
   forM_ ps (SMT2.assume c)
   SMT2.writeCheckSat c
   SMT2.writeExit c
-
 
 type DRealBindings = Map Text (Maybe Rational, Maybe Rational)
 

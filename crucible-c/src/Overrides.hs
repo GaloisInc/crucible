@@ -200,7 +200,8 @@ lib_fresh_bits ::
   (ArchOk arch, IsSymInterface sym, 1 <= n) =>
   GlobalVar Mem -> NatRepr n -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits n)
 lib_fresh_bits mvar w =
-  do RegMap (Empty :> pName) <- getOverrideArgs
+  do RegMap args <- getOverrideArgs
+     pName <- case args of Empty :> pName -> pure pName
      name <- lookupString mvar pName
      x    <- mkFresh name (BaseBVRepr w)
      sym  <- getSymInterface
@@ -233,7 +234,8 @@ lib_assume ::
   Fun sym (LLVM arch) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32)
                UnitType
 lib_assume =
-  do RegMap (Empty :> p :> _file :> _line) <- getOverrideArgs
+  do RegMap args <- getOverrideArgs
+     p <- case args of Empty :> p :> _file :> _line -> pure p
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
@@ -248,14 +250,15 @@ lib_assert ::
   GlobalVar Mem ->
   Fun sym (LLVM arch) (EmptyCtx ::> TBits 8 ::> TPtr arch ::> TBits 32) UnitType
 lib_assert mvar =
-  do RegMap (Empty :> p :> pFile :> line) <- getOverrideArgs
+  do RegMap args <- getOverrideArgs
+     (p,pFile,line) <- case args of Empty :> a :> b :> c -> pure (a,b,c)
      sym  <- getSymInterface
      file <- BS8.pack <$> lookupString mvar pFile
      liftIO $ do ln   <- projectLLVM_bv sym (regValue line)
                  let lnMsg = case asUnsignedBV ln of
                                Nothing -> ""
                                Just x  -> ":" ++ show x
-                     msg = BS8.unpack file ++ lnMsg ++ ": Assertion failed."
+                     msg = BS8.unpack file ++ lnMsg ++ ": user assertion."
                  cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
                  let rsn = AssertFailureSimError msg
@@ -312,7 +315,8 @@ sv_comp_assume ::
   (ArchOk arch, IsSymInterface sym) =>
   Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
 sv_comp_assume =
-  do RegMap (Empty :> p) <- getOverrideArgs
+  do RegMap args <- getOverrideArgs
+     p           <- case args of Empty :> p -> pure p
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
@@ -325,11 +329,12 @@ sv_comp_assert ::
   (ArchOk arch, IsSymInterface sym) =>
   Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
 sv_comp_assert =
-  do RegMap (Empty :> p) <- getOverrideArgs
+  do RegMap args <- getOverrideArgs
+     p <- case args of Empty :> p -> pure p
      sym  <- getSymInterface
      liftIO $ do cond <- projectLLVM_bv sym (regValue p)
                  zero <- bvLit sym knownRepr 0
-                 let msg = "Call to __VERIFIER_assert"
+                 let msg = "call to __VERIFIER_assert"
                      rsn = AssertFailureSimError msg
                  check <- notPred sym =<< bvEq sym cond zero
                  assert sym check rsn
@@ -339,5 +344,5 @@ sv_comp_error ::
   Fun sym (LLVM arch) (EmptyCtx ::> VectorType AnyType) UnitType
 sv_comp_error =
   do sym  <- getSymInterface
-     let rsn = AssertFailureSimError "Call to __VERIFIER_error"
+     let rsn = AssertFailureSimError "call to __VERIFIER_error"
      liftIO $ addFailedAssertion sym rsn

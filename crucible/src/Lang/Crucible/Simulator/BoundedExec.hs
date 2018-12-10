@@ -41,7 +41,7 @@ import qualified Data.Sequence as Seq
 
 import qualified Data.Parameterized.Context as Ctx
 
-import           Lang.Crucible.Analysis.Fixpoint (computeOrdering)
+import           Lang.Crucible.Analysis.Fixpoint (cfgWeakTopologicalOrdering)
 import           Lang.Crucible.Analysis.Fixpoint.Components
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
@@ -131,7 +131,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
  buildFrameData :: ResolvedCall p sym ext ret -> IO (Maybe FrameBoundData)
  buildFrameData OverrideCall{} = return Nothing
  buildFrameData (CrucibleCall _entry CallFrame{ _frameCFG = g }) =
-   do let wtoMap = buildWTOMap (computeOrdering g)
+   do let wtoMap = buildWTOMap (cfgWeakTopologicalOrdering g)
       mn <- getLoopBounds (SomeHandle (cfgHandle g))
       case mn of
         Nothing -> return Nothing
@@ -188,7 +188,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
         return Nothing
    ControlTransferState res st -> stateSolverProof st $
      let sym = st^.stateSymInterface
-         msg n = "loop iterations (" ++ show n ++ ")"
+         msg n = "reached maximum number of loop iterations (" ++ show n ++ ")"
          err loc n = SimError loc (ResourceExhausted (msg n))
      in
      case res of

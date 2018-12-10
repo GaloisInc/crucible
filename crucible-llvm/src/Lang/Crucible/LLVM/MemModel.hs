@@ -619,11 +619,25 @@ loadRawWithCondition ::
   -- (assertion, assertion failure description, dereferenced value)
 loadRawWithCondition sym mem ptr valType =
   do v <- G.readMem sym PtrWidth ptr valType 0 (memImplHeap mem)
-     let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
-                  " at type "                     ++ show (G.ppType valType)
+     let errMsg = ptrMessage "Invalid memory load." ptr valType
      case v of
        Unassigned -> return (Left errMsg)
        PE p' v' -> return (Right (p', AssertFailureSimError errMsg, v'))
+
+
+-- | For now, the core message should be on the first line, with details
+-- on further lines. Later we should make it more structured.
+ptrMessage ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  String ->
+  LLVMPtr sym wptr {- ^ pointer involved in message -} ->
+  G.Type           {- ^ type of value pointed to    -} ->
+  String
+ptrMessage msg ptr ty =
+  unlines [ msg
+          , "  address " ++ show (G.ppPtr ptr)
+          , "  at type " ++ show (G.ppType ty)
+          ]
 
 -- | Load a 'RegValue' from memory. Also assert that the pointer is
 -- valid and aligned, and that the loaded value is defined.
@@ -637,8 +651,7 @@ doLoad ::
   IO (RegValue sym AnyType)
 doLoad sym mem ptr valType alignment = do
     --putStrLn "MEM LOAD"
-    let errMsg = "Invalid memory load: address " ++ show (G.ppPtr ptr) ++
-                 " at type " ++ show (G.ppType valType)
+    let errMsg = ptrMessage "Invalid memory load." ptr valType
     v <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
     case v of
       Unassigned -> addFailedAssertion sym (AssertFailureSimError errMsg)
@@ -658,8 +671,7 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType alignment val = do
     (p, heap') <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
-                 " at type " ++ show (G.ppType valType)
+    let errMsg = ptrMessage "Invalid memory store." ptr valType
     assert sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
 
@@ -676,8 +688,7 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> IO (MemImpl sym)
 storeConstRaw sym mem ptr valType alignment val = do
     (p, heap') <- G.writeConstMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg = "Invalid memory store: address " ++ show (G.ppPtr ptr) ++
-                 " at type " ++ show (G.ppType valType)
+    let errMsg = ptrMessage "Invalid memory store." ptr valType
     assert sym p (AssertFailureSimError errMsg)
     return mem{ memImplHeap = heap' }
 
@@ -973,7 +984,7 @@ doPtrAddOffset sym m x off = do
    let x_doc = G.ppPtr x
    let off_doc = printSymExpr off
    assert sym v
-       (AssertFailureSimError $ unlines ["Pointer arithmetic resulted in invalid pointer:", show x_doc, show off_doc])
+       (AssertFailureSimError $ unlines ["Pointer arithmetic resulted in invalid pointer.", show x_doc, show off_doc])
    return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer

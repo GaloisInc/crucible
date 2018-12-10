@@ -1,9 +1,11 @@
-{-# Language TypeFamilies #-}
+{-# Language ImplicitParams #-}
 {-# Language PatternSynonyms #-}
+{-# Language TypeFamilies #-}
+
 module Crux.Goal where
 
-import Control.Lens((^.), view)
-import Control.Monad(forM_, unless)
+import Control.Lens ((^.), view)
+import Control.Monad (forM_, unless)
 import Data.Either (partitionEithers)
 import Data.IORef
 import qualified Data.Map as Map
@@ -88,6 +90,7 @@ proveToGoal _ allAsmps p pr =
 proveGoals ::
   ( sym ~ ExprBuilder s (OnlineBackendState solver) fs
   , OnlineSolver s solver
+  , ?outputConfig :: OutputConfig
   ) =>
   SimCtxt sym p ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
@@ -107,8 +110,8 @@ proveGoals ctxt (Just gs0) =
      if proved /= tot
        then sayFail "Crux" $ unwords
              [ "Failed to prove", show (tot - proved)
-             , "out of", show tot, "side consitions." ]
-       else sayOK "Crux" $ unwords [ "Proved all", show tot, "side conditions." ]
+             , "out of", show tot, "goals." ]
+       else sayOK "Crux" $ unwords [ "Proved all", show tot, "goals." ]
      return (Just res)
   where
   (start,end) = prepStatus "Checking: " (countGoals gs0)

@@ -77,14 +77,14 @@ cvc4Adapter =
   , solver_adapter_write_smt2 = writeCVC4SMT2File
   }
 
-indexType :: [SMT2.Type] -> SMT2.Type
+indexType :: [SMT2.Sort] -> SMT2.Sort
 indexType [i] = i
-indexType il = SMT2.structType il
+indexType il = SMT2.structSort il
 
 instance SMT2.SMTLib2Tweaks CVC4 where
   smtlib2tweaks = CVC4
 
-  smtlib2arrayType il r = SMT2.arrayType (indexType il) r
+  smtlib2arrayType il r = SMT2.arraySort (indexType il) r
 
   -- | Adapted from the tweak of array constant for CVC4.
   smtlib2arrayConstant = Just $ \idx rtp v ->
@@ -105,7 +105,7 @@ writeMultiAsmpCVC4SMT2File sym h ps = do
   c <- SMT2.newWriter CVC4 in_str nullAcknowledgementAction "CVC4"
          True cvc4Features True bindings
   SMT2.setLogic c SMT2.allSupported
-  SMT2.setOption c (SMT2.produceModels True)
+  SMT2.setProduceModels c True
   forM_ ps $ SMT2.assume c
   SMT2.writeCheckSat c
   SMT2.writeExit c
@@ -120,7 +120,7 @@ writeCVC4SMT2File sym h ps = writeMultiAsmpCVC4SMT2File sym h ps
 instance SMT2.SMTLib2GenericSolver CVC4 where
   defaultSolverPath _ = findSolverPath cvc4Path . getConfiguration
 
-  defaultSolverArgs _ = ["--lang", "smt2", "--incremental"]
+  defaultSolverArgs _ _ = return ["--lang", "smt2", "--incremental"]
 
   defaultFeatures _ = useIntegerArithmetic
 
@@ -128,7 +128,7 @@ instance SMT2.SMTLib2GenericSolver CVC4 where
     -- Tell CVC4 to use all supported logics.
     SMT2.setLogic writer SMT2.allSupported
     -- Tell CVC4 to produce models
-    SMT2.setOption writer $ SMT2.produceModels True
+    SMT2.setProduceModels writer True
 
 runCVC4InOverride
   :: ExprBuilder t st fs
@@ -156,12 +156,12 @@ setInteractiveLogicAndOptions ::
   IO ()
 setInteractiveLogicAndOptions writer = do
     -- Tell CVC4 to acknowledge successful commands
-    SMT2.setOption writer $ SMT2.printSuccess True
+    SMT2.setOption writer "print-success"  "true"
     -- Tell CVC4 to produce models
-    SMT2.setOption writer $ SMT2.produceModels True
+    SMT2.setOption writer "produce-models" "true"
     -- Tell CVC4 to compute UNSAT cores, if that feature is enabled
-    when (supportedFeatures writer `hasProblemFeature` useUnsatCores)
-         (SMT2.setOption writer $ SMT2.produceUnsatCores True)
+    when (supportedFeatures writer `hasProblemFeature` useUnsatCores) $ do
+      SMT2.setOption writer "produce-unsat-cores" "true"
     -- Tell CVC4 to use all supported logics.
     SMT2.setLogic writer SMT2.allSupported
 

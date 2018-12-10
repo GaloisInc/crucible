@@ -1,27 +1,27 @@
 -- | Command line interface
 --
-
-{-# Language TypeFamilies #-}
-{-# Language RankNTypes #-}
-{-# Language PatternSynonyms #-}
-{-# Language FlexibleContexts #-}
-{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
+{-# Language FlexibleContexts #-}
+{-# Language ImplicitParams #-}
+{-# Language PatternSynonyms #-}
+{-# Language RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# Language TypeFamilies #-}
 {-# Language OverloadedStrings #-}
 
 module Crux.CruxMain where
 
 
 import Control.Monad
-import Control.Exception(SomeException(..),displayException)
-import Data.Time.Clock( NominalDiffTime )
-import Numeric( readFloat )
-import System.IO(hPutStrLn,withFile,IOMode(..))
-import System.FilePath((</>))
-import System.Directory(createDirectoryIfMissing)
+import Control.Monad.IO.Class
+import Control.Exception (SomeException(..), displayException)
+import Data.Time.Clock (NominalDiffTime)
+import Numeric (readFloat)
+import System.FilePath ((</>))
+import System.Directory (createDirectoryIfMissing)
 
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
@@ -36,8 +36,9 @@ import Lang.Crucible.Simulator.PathSatisfiability
 
 -- crucible/what4
 import What4.Config (setOpt, getOptionSetting, verbosity)
-import What4.Interface ( getConfiguration )
-import What4.FunctionName ( FunctionName )
+import What4.Interface (getConfiguration)
+import What4.FunctionName (FunctionName)
+import What4.Solver.Z3 (z3Timeout)
 
 -- crux
 import Crux.Language(Language,Options)
@@ -52,10 +53,17 @@ import Crux.Report
 
 -- | Entry point, parse command line opions
 main :: [CL.LangConf] -> IO ()
-main langs = processOptionsThen langs check
+main langs =
+  let ?outputConfig = defaultOutputConfig
+  in processOptionsThen langs check
+
+mainWithOutputConfig :: OutputConfig -> [CL.LangConf] -> IO ()
+mainWithOutputConfig cfg langs =
+  let ?outputConfig = cfg
+  in processOptionsThen langs check
 
 -- | simulate the "main" method in the given class
-check :: forall a. Language a => Options a -> IO ()
+check :: forall a. (Language a, ?outputConfig :: OutputConfig) => Options a -> IO ()
 check opts@(cruxOpts,_langOpts) =
   do let file = inputFile cruxOpts
      when (simVerbose cruxOpts > 1) $
@@ -65,8 +73,8 @@ check opts@(cruxOpts,_langOpts) =
        generateReport cruxOpts res
      CL.makeCounterExamples opts res
   `catch` \(SomeException e) ->
-      do putStrLn "TOP LEVEL EXCEPTION"
-         putStrLn (displayException e)
+      do outputLn "TOP LEVEL EXCEPTION"
+         outputLn (displayException e)
 
 
 parseNominalDiffTime :: String -> Maybe NominalDiffTime
@@ -76,25 +84,32 @@ parseNominalDiffTime xs =
     _ -> Nothing
 
 -- Returns only non-trivial goals
-simulate :: Language a => Options a ->
+simulate :: (Language a, ?outputConfig :: OutputConfig) => Options a ->
   IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
 simulate opts  =
   let (cruxOpts,_langOpts) = opts
   in
-
+  liftIO $
   withIONonceGenerator $ \nonceGen ->
 
   --withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
   --withZ3OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
-  --withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym -> do
-  withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
+  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym -> do
+  --withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
 
-     -- set the verbosity level
+     -- The simulator verbosity is one less than our verbosity.
+     -- In this way, we can say things, without the simulator also being verbose
+     let simulatorVerb = toInteger
+                       $ if simVerbose cruxOpts > 1 then simVerbose cruxOpts - 1
+                                                    else 0
      void $ join (setOpt <$> getOptionSetting verbosity (getConfiguration sym)
-                         <*> pure (toInteger (simVerbose cruxOpts)))
+                         <*> pure simulatorVerb)
 
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
+
+     void $ join (setOpt <$> getOptionSetting z3Timeout (getConfiguration sym)
+                         <*> pure (goalTimeout cruxOpts * 1000))
 
      frm <- pushAssumptionFrame sym
 
@@ -176,7 +191,7 @@ simulate opts  =
           let ctx' = execResultContext res
 
           inFrame "<Prove Goals>" $
-            do pg <- proveGoals ctx' =<< getProofObligations sym
+            do pg <- proveGoals ctx' =<< (getProofObligations sym)
                provedGoalsTree ctx' pg
 
      when (simVerbose cruxOpts > 1) $

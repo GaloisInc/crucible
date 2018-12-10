@@ -135,3 +135,23 @@ test-suite absint-tests
                  tasty-hunit >= 0.9,
                  tasty-quickcheck >= 0.8,
                  QuickCheck
+
+test-suite helper-tests
+  type: exitcode-stdio-1.0
+  default-language: Haskell2010
+  hs-source-dirs: test/helpers
+--  other-modules: 
+  ghc-options: -Wall
+  main-is: Main.hs
+  build-depends: base,
+                 containers,
+                 mtl,
+                 crucible,
+                 what4,
+                 parameterized-utils,
+                 panic >= 0.3,
+                 tasty >= 0.10,
+                 tasty-hunit >= 0.9,
+                 tasty-quickcheck >= 0.8,
+                 tasty-hspec >= 1.1
+

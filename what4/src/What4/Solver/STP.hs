@@ -21,7 +21,6 @@ module What4.Solver.STP
   , withSTP
   ) where
 
-import           System.IO (Handle)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.BaseTypes
@@ -76,7 +75,7 @@ instance SMT2.SMTLib2Tweaks STP where
 instance SMT2.SMTLib2GenericSolver STP where
   defaultSolverPath _ = findSolverPath stpPath . getConfiguration
 
-  defaultSolverArgs _ = []
+  defaultSolverArgs _ _ = return []
 
   defaultFeatures _ = useIntegerArithmetic
 
