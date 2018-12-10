@@ -1,0 +1,88 @@
+dist: xenial
+sudo : false
+
+language: c
+
+addons:
+  apt:
+    packages:
+      - libnuma-dev
+      - z3
+
+env:
+  global:
+    - PKGNAME=mir-verifier
+
+cache:
+  directories:
+    - $HOME/.cabsnap
+    - $HOME/.cabal/packages
+    - $HOME/.cabal/store
+    - $HOME/.stack
+    - $HOME/.ghcup/cache
+    - $HOME/.cargo
+
+git:
+    submodules: false
+
+
+before_cache:
+  - rm -fv $HOME/.cabal/packages/hackage.haskell.org/build-reports.log
+  - rm -fv $HOME/.cabal/packages/hackage.haskell.org/00-index.tar
+
+
+before_install:
+  # Use sed to replace the SSH URL with the public URL, then initialize submodules
+  - sed -i 's/git@github.com:/https:\/\/github.com\//' .gitmodules
+  - git submodule update --init --recursive
+  - if [[ $TRAVIS_OS_NAME == 'linux' ]];
+    then
+        export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$HOME/.cabal/bin:$PATH;
+        export SED=sed;
+        export ZCAT=zcat;
+    fi
+  # Get ahold of ghcup
+  - ( mkdir -p ~/.ghcup/bin && curl https://raw.githubusercontent.com/haskell/ghcup/master/ghcup > ~/.ghcup/bin/ghcup && chmod +x ~/.ghcup/bin/ghcup) && echo "Installed ghcup"
+  - export PATH="$HOME/.cabal/bin:$HOME/.ghcup/bin:$PATH"
+  - ghcup -c install-cabal
+  - ghcup -c install 8.4.4
+  - ghcup -c set 8.4.4
+  # Rust
+  - curl https://sh.rustup.rs -sSf | sh -s -- -y
+  - source $HOME/.cargo/env
+  - rustup toolchain install nightly-2017-08-16
+  - rustup default nightly-2017-08-16
+  - pushd .
+  - cd ..
+  - git clone https://github.com/GaloisInc/mir-json.git
+  - cd mir-json
+  - cargo build
+  - cargo install --force
+  - popd
+  - export LD_LIBRARY_PATH=$(rustc --print sysroot)/lib:$LD_LIBRARY_PATH
+
+install:
+  - which cabal
+  - which ghc
+  - cabal --version
+  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
+  - if [ -f $HOME/.cabal/packages/hackage.haskell.org/00-index.tar.gz ];
+    then
+      $ZCAT $HOME/.cabal/packages/hackage.haskell.org/00-index.tar.gz >
+              $HOME/.cabal/packages/hackage.haskell.org/00-index.tar;
+    fi
+  - travis_retry cabal update -v
+
+  # Run build with 2 parallel jobs
+  # The container environment reports 16 cores,
+  # causing cabal's default configuration (jobs: $ncpus)
+  # to run into the GHC #9221 bug which can result in longer build-times.
+  - $SED -i -r 's/(^jobs:).*/\1 2/' $HOME/.cabal/config
+  - cabal new-build --enable-tests
+
+
+# before_script:
+
+script:
+  - cabal new-configure --enable-tests
+  - cabal new-test
