@@ -36,11 +36,11 @@ defaultCruxOptions = CruxOptions {
   , outDir = ""
   , inputFile = ""
   , showVersion = False
-  , checkPathSat = True
+  , checkPathSat = False
   , profileCrucibleFunctions = True
   , profileSolver = True
   , globalTimeout = Nothing
-  , goalTimeout = 10
+  , goalTimeout = 60
   , profileOutputInterval = Nothing
   , loopBound = Nothing
   }
