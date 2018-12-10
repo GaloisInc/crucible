@@ -1,5 +1,3 @@
-// FAIL: needs implementation of slice.get_mut
-
 #![feature(never_type)]
 
 use std::process::exit;

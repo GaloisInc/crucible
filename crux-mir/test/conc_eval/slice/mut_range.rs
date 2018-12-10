@@ -1,6 +1,5 @@
-fn g(xs: &mut [u8]) -> u8 {
-    xs[0]
-//    xs[0] = xs[0] + 1;
+fn g(xs: &mut [u8]) {
+    xs[0] = xs[0] + 1;
 }
 
 fn f(x: u8) -> u8 {

@@ -1,3 +1,4 @@
+
 pub struct Rng<Idx> {
     /// The lower bound of the range (inclusive).
     

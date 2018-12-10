@@ -818,10 +818,10 @@ mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
       Nothing -> mkCustomTraitObject traitName baseType e
       Just vtbl -> do
         let baseTy    = (timpls^.vtableTyRepr)
-        traceM $ "pre-subst vtable type is  " ++ show baseTy
+        --traceM $ "pre-subst vtable type is  " ++ show baseTy
         let substR    = C.ExtendRepr C.AnyRepr C.IdRepr
         let vtableCtx = implementCtxRepr substR baseTy
-        traceM $ "post-subst vtable type is " ++ show vtableCtx
+        --traceM $ "post-subst vtable type is " ++ show vtableCtx
         let ctxr      = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.StructRepr vtableCtx
         let assn      = S.mkStruct vtableCtx (vtblToStruct substR vtbl)
         let cbv       = R.App $ E.PackAny implRepr baseValue
@@ -1007,7 +1007,7 @@ buildClosureHandle funid (Substs tys) args
                   handle_cl = R.App $ E.HandleLit fhandle
                   handl = MirExp inst_ty handle_cl
               let closure_unpack = buildTuple [handl, (packAny closure_arg)]
-              traceM $ "buildClosureHandle for " ++ show funid ++ " with ty args " ++ show (pretty tys)
+              -- traceM $ "buildClosureHandle for " ++ show funid ++ " with ty args " ++ show (pretty tys)
               return $ packAny closure_unpack
         _ ->
           do fail ("buildClosureHandle: unknown function: " ++ show funid ++ " or non-closed type ")
@@ -1018,7 +1018,7 @@ buildClosureType defid (Substs args') = do
     case (Map.lookup defid hmap) of
       Just (MirHandle _ _ _ fhandle) -> do
           let args = tail (tail args')
-          traceM $ "buildClosureType for " ++ show defid ++ " with ty args " ++ show (pretty args)
+          -- traceM $ "buildClosureType for " ++ show defid ++ " with ty args " ++ show (pretty args)
           -- build type StructRepr [HandleRepr, StructRepr [args types]]
           tyListToCtx args $ \argsctx -> do
               let argstruct = C.StructRepr argsctx

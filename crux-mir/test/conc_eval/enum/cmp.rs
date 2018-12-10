@@ -1,3 +1,5 @@
+// Make sure that we can include negative numbers in C-style enums
+
 #![no_implicit_prelude]
 
 pub enum Ordering {

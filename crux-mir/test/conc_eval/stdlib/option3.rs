@@ -1,7 +1,5 @@
 // This tests using polymorphic functions and parameterized data
-
-
-
+// relies on Option type from std library
 
 pub fn g<T>(y : Option<T>) -> Option<T> {
     y

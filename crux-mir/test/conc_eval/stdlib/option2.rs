@@ -1,3 +1,4 @@
+
 pub enum Opt<T> {
     N,
     S(T),
@@ -11,6 +12,7 @@ fn g<T> (x : Opt<T>) -> T {
         N    => g(x),
     }
 }
+
 
 fn f (y : u32) -> u32 { 
     let x: Opt<u32> = S(0);

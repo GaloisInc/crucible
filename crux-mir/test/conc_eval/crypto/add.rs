@@ -1,3 +1,5 @@
+// FAIL: mir-json constant
+
 // Remove the Scalar64 ADT
 
 

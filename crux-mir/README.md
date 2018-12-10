@@ -26,7 +26,19 @@ Use ghc-8.4.3
 
 ## Test suite
 
+To run the tests, use the following command:
+
     $ cabal new-test
+
+### Expected Failures
+
+Some tests are not yet expected to succeed, as crux-mir is still under
+development. These tests are marked accordingly, so that the entire
+test suite is still expected to pass.
+
+Files that are not yet expected to work correctly begin with `// FAIL: ` and
+a brief comment describing the reason for the expected failure.
+
 
 ## Test suite with coverage
 

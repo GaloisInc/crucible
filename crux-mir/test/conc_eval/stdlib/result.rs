@@ -25,9 +25,7 @@ pub fn map<T,E,U, F: FnOnce(T) -> U>(x:Res<T,E>, op: F) -> Res<U,E> {
 } 
 
 
-
 pub fn g<T,U>(y : Res<T,U>) -> Opt<T> {
-
     match y {
         O(x)  => S(x),
         E(_) => N,

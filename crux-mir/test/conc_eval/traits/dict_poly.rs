@@ -1,3 +1,4 @@
+// FAIL: can't find dictionary
 // a static trait invocation for a polymorphic type
 // calling the g method in h requires a dictionary argument 
 

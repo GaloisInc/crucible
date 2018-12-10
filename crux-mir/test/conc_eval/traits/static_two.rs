@@ -1,5 +1,6 @@
 // FAIL: can't match up the impls for the traits with their types
 //
+
 // Test two static implementation of the same trait
 //
 // We match the type of S::g and U::g against T::g.  But g's type
