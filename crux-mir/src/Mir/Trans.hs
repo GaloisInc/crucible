@@ -788,7 +788,7 @@ evalCast ck op ty = do
 mkCustomTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
 mkCustomTraitObject traitName (TyClosure fname args) e@(MirExp baseTyr baseValue)
    | M.did_name traitName == ("Fn", 0) = do
-      traceM $ "customTraitObj for " ++ show fname ++ " with args " ++ show args
+      -- traceM $ "customTraitObj for " ++ show fname ++ " with args " ++ show args
       -- a trait object for a closure is just the closure value
       -- call is a custom operation
       let vtableCtx = undefined
@@ -1671,6 +1671,7 @@ doCall funid funsubst cargs cdest retRepr = do
     case cdest of 
       (Just (dest_lv, jdest))
 
+
          -- custom call where we first evaluate the arguments to MirExps
          | Just (CustomOp op) <- lookupCustomFunc funid funsubst -> do
             when (db > 3) $
@@ -1746,8 +1747,8 @@ doCall funid funsubst cargs cdest retRepr = do
         | Just (MirHandle _ (M.FnSig _args ret) preds fhandle) <- mhand,
           isNever ret -> do
 
-            traceM $ show (vcat [text "At a tail call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubst])
+            -- traceM $ show (vcat [text "At a tail call of ", pretty funid, text " with arguments ", pretty cargs,
+            --       text "with type parameters: ", pretty funsubst])
 
             exps <- mapM evalOperand cargs
             tyListToCtx (Maybe.catMaybes funsubst) $ \tyargs -> do
@@ -3507,6 +3508,7 @@ doCustomCall fname funsubst ops lv dest
  | Just "call" <- isCustomFunc fname, -- perform function call with a closure
    [o1, o2] <- ops,
    Substs [_ty1, aty] <- funsubst = do
+
 
      fn           <- evalOperand o1
      argtuple     <- evalOperand o2
