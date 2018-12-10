@@ -71,10 +71,10 @@ cmdLineCruxOptions =
     )
     "Set simulator verbosity level"
 
-  , Option [] ["no-path-sat"]
+  , Option [] ["path-sat"]
     (NoArg
-     (\opts -> opts { checkPathSat = False }))
-    "Disable path satisfiability checking"
+     (\opts -> opts { checkPathSat = True }))
+    "Enable path satisfiability checking"
 
   , Option [] ["output-directory"]
     (OptArg (\mv opts -> maybe opts (\v -> opts { outDir = v }) mv)
