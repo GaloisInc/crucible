@@ -105,7 +105,9 @@ module What4.Protocol.SMTLib2.Syntax
     -- ** Extensions provided by QF_BV
   , bit0
   , bit1
+  , bvbinary
   , bvdecimal
+  , bvhexadecimal
   , bvashr
   , bvslt
   , bvsle
@@ -126,6 +128,7 @@ module What4.Protocol.SMTLib2.Syntax
   ) where
 
 import           Data.Bits hiding (xor)
+import           Data.Char (intToDigit)
 import           Data.String
 import           Data.Text (Text)
 import           Data.Text.Lazy.Builder (Builder)
@@ -481,12 +484,53 @@ bit0 = T "#b0"
 bit1 :: Term
 bit1 = T "#b1"
 
--- | @bvdecimal x w@ creates a bitvector term with width @w@ equal to @x `mod` 2^w@.
+-- | @bvbinary x w@ constructs a bitvector term with width @w@ equal to @x `mod` 2^w@.
+--
+-- The width @w@ must be positive.
+--
+-- The literal uses a binary notation.
+bvbinary :: Integer -> Integer -> Term
+bvbinary u w0
+    | w0 <= 0 = error $ "bvbinary width must be positive."
+    | w0 > toInteger (maxBound :: Int) = error $ "Integer width is too large."
+    | otherwise = T $ "#b" <> go (fromIntegral w0)
+  where go :: Int -> Builder
+        go 0 = mempty
+        go w =
+          let i = w - 1
+              b :: Builder
+              b = if  u `testBit` i then "1" else "0"
+           in b <> go i
+
+-- | @bvdecimal x w@ constructs a bitvector term with width @w@ equal to @x `mod` 2^w@.
+--
+-- The width @w@ must be positive.
+--
+-- The literal uses a decimal notation.
 bvdecimal :: Integer -> Integer -> Term
 bvdecimal u w
-    | w <= 0 = error "bvdecimal given a non-positive width."
+    | w <= 0 = error "bvdecimal width must be positive."
     | otherwise = T $ mconcat [ "(_ bv", Builder.decimal d, " ", Builder.decimal w, ")"]
   where d = u .&. (2^w - 1)
+
+-- | @bvhexadecimal x w@ constructs a bitvector term with width @w@ equal to @x `mod` 2^w@.
+--
+-- The width @w@ must be a positive multiple of 4.
+--
+-- The literal uses hex notation.
+bvhexadecimal :: Integer -> Integer -> Term
+bvhexadecimal u w0
+    | w0 <= 0 = error $ "bvhexadecimal width must be positive."
+    | w0 > toInteger (maxBound :: Int) = error $ "Integer width is too large."
+    | otherwise = T $ "#x" <> go (fromIntegral w0)
+  where go :: Int -> Builder
+        go 0 = mempty
+        go w | w < 4 = error "bvhexadecimal width must be a multiple of 4."
+        go w =
+          let i = w - 4
+              c :: Char
+              c = intToDigit $ fromInteger $ (u `shiftR` i) .&. 0xf
+           in Builder.singleton c <> go i
 
 -- | @concat x y@ returns the bitvector with the bits of @x@ followed by the bits of @y@.
 concat :: Term -> Term -> Term
@@ -496,7 +540,7 @@ concat = bin_app "concat"
 extract :: Integer -> Integer -> Term -> Term
 extract i j x
   | j < 0 = error "Initial bit is negative"
-  | i < j = error "End of bvExtract less than beginning."
+  | i < j = error $ "End of extract (" ++ show i ++ ") less than beginning (" ++ show j ++ ")."
   | otherwise = -- We cannot check that j is small enough.
     let e = "(_ extract " <> Builder.decimal i <> " " <> Builder.decimal j <> ")"
      in un_app e x
