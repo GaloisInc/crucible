@@ -640,7 +640,7 @@ evalCast ck op ty = do
 mkCustomTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
 mkCustomTraitObject traitName (TyClosure fname args) e@(MirExp baseTyr baseValue)
    | M.did_name traitName == ("Fn", 0) = do
-      traceM $ "customTraitObj for " ++ show fname ++ " with args " ++ show args
+      -- traceM $ "customTraitObj for " ++ show fname ++ " with args " ++ show args
       -- a trait object for a closure is just the closure value
       -- call is a custom operation
       let vtableCtx = undefined
@@ -1358,14 +1358,14 @@ doCall funid funsubst cargs cdest retRepr = do
       (Just (dest_lv, jdest))
 
          | Just _fname <- M.isCustomFunc funid -> do
-            traceM $ show (vcat [text "At custom function call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubst])
+            -- traceM $ show (vcat [text "At custom function call of ", pretty funid, text " with arguments ", pretty cargs,
+            --       text "with type parameters: ", pretty funsubst])
 
             doCustomCall funid funsubst cargs dest_lv jdest
 
         | Just (MirHandle _ (M.FnSig args ret) fhandle) <- mhand -> do
-            traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubst])
+            -- traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs,
+            --        text "with type parameters: ", pretty funsubst])
 
             exps <- mapM evalOperand cargs
             let fargctx = FH.handleArgTypes fhandle
@@ -1393,8 +1393,8 @@ doCall funid funsubst cargs cdest retRepr = do
         | Just (MirHandle _ (M.FnSig args ret) fhandle) <- mhand,
           isNever ret -> do
 
-            traceM $ show (vcat [text "At a tail call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubst])
+            -- traceM $ show (vcat [text "At a tail call of ", pretty funid, text " with arguments ", pretty cargs,
+            --       text "with type parameters: ", pretty funsubst])
 
             exps <- mapM evalOperand cargs
             let fargctx = FH.handleArgTypes fhandle
@@ -1472,8 +1472,8 @@ transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction fu
     case (funsubsts, cargs) of
       (Just (M.TyDynamic traitName) : _, tobj:_args) | Nothing  <- M.isCustomFunc funid -> do
         -- this is a method call on a trait object, and is not a custom function
-        traceM $ show (vcat [text "At TRAIT function call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubsts])
+        -- traceM $ show (vcat [text "At TRAIT function call of ", pretty funid, text " with arguments ", pretty cargs,
+        --            text "with type parameters: ", pretty funsubsts])
 
         methodCall traitName funid tobj cargs cretdest
 
@@ -2095,7 +2095,8 @@ doCustomCall fname funsubst ops lv dest
 
      -- is it the case that ty1 is always the same as M.typeOf o1???
      when (ty1 /= M.typeOf o1) $ do
-          traceM $ "ty1 and o1 differ: " ++ show (pretty ty1) ++ " " ++ show (pretty (M.typeOf o1))
+          -- traceM $ "ty1 and o1 differ: " ++ show (pretty ty1) ++ " " ++ show (pretty (M.typeOf o1))
+          return ()
 
      argtuple <- evalOperand o2
 

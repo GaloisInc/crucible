@@ -12,7 +12,8 @@ import           System.Directory (listDirectory, doesDirectoryExist, doesFileEx
 import           System.Environment (withArgs)
 import           System.Exit (ExitCode(..))
 import           System.FilePath ((<.>), (</>), takeBaseName, takeExtension, replaceExtension)
-import           System.IO (IOMode(..), withFile, stdout, stderr)
+import           System.IO (IOMode(..), withFile, stdout, stderr, hClose, hGetContents, openFile)
+import           System.IO.Temp (withSystemTempFile)
 import qualified System.Process as Proc
 import           Text.Parsec (parse, (<|>), (<?>), string, many1, digit)
 import           Text.Parsec.String (Parser)
@@ -29,6 +30,7 @@ import qualified Verifier.SAW.Simulator.Concrete as Conc
 import           Test.Tasty (defaultMain, testGroup, TestTree)
 import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
 import           Test.Tasty.Golden (goldenVsFile, findByExtension)
+import           Test.Tasty.ExpectedFailure (expectFailBecause)
 
 import qualified Data.AIG.Interface as AIG
 
@@ -50,7 +52,14 @@ cruxOracleTest dir name step = do
   let orOut = dropWhileEnd isSpace oracleOut
   step ("Oracle output: " ++ orOut)
 
-  (_cruxEC, cruxOutFull, _err) <- Proc.readProcessWithExitCode "cabal" ["new-exec", "crux-mir", dir </> name <.> "rs"] ""
+  cruxOutFull <- withSystemTempFile name $ \tempName h -> do
+    withArgs [dir </> name <.> "rs"] $ Mir.mainWithOutputTo h
+    hClose h
+    h' <- openFile tempName ReadMode
+    out <- hGetContents h'
+    length out `seq` hClose h'
+    return out
+  --(_cruxEC, cruxOutFull, _err) <- Proc.readProcessWithExitCode "cabal" ["new-exec", "crux-mir", dir </> name <.> "rs"] ""
 
   let cruxOut = dropWhileEnd isSpace cruxOutFull
   step ("Crux output: " ++ cruxOut ++ "\n")
