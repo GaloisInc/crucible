@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/GaloisInc/mir-verifier.svg?branch=master)](https://travis-ci.org/GaloisInc/mir-verifier)
+
 # haskmir
 
 This is a static simulator for Rust programs.  It includes both a
