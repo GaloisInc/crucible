@@ -49,7 +49,7 @@ import           Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemModel.Pointer
-import qualified Lang.Crucible.LLVM.MemModel.Type as G
+import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.Types
 
 
@@ -114,7 +114,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
      !(GlobalVar Mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
      !(TypeRepr tp)              {- Expected crucible type of the result -} ->
-     !G.Type                     {- Storable type -} ->
+     !StorageType                {- Storage type -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
      LLVMStmt wptr f tp
 
@@ -126,7 +126,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
      !(GlobalVar Mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
      !(TypeRepr tp)              {- Crucible type of the value being stored -} ->
-     !G.Type                     {- Storable type of the value -} ->
+     !StorageType                {- Storage type of the value -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
      !(f tp)                     {- Value to store -} ->
      LLVMStmt wptr f UnitType

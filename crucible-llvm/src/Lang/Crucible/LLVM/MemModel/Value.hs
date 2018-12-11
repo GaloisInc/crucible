@@ -26,7 +26,7 @@ module Lang.Crucible.LLVM.MemModel.Value
   ( -- * LLVM Value representation
     LLVMVal(..)
   , FloatSize(..)
-  , G.Field
+  , Field
   , ptrToPtrVal
   , zeroInt
 
@@ -66,8 +66,8 @@ import           What4.InterpretedFloatingPoint
 import           What4.Partial
 
 import           Lang.Crucible.Backend
-import qualified Lang.Crucible.LLVM.Bytes as G
-import qualified Lang.Crucible.LLVM.MemModel.Type as G
+import           Lang.Crucible.LLVM.Bytes
+import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Pointer
 
 data FloatSize (fi :: FloatInfo) where
@@ -94,24 +94,24 @@ data LLVMVal sym where
   -- offset from the base pointer of the allocation.
   LLVMValInt :: (1 <= w) => SymNat sym -> SymBV sym w -> LLVMVal sym
   LLVMValFloat :: FloatSize fi -> SymInterpretedFloat sym fi -> LLVMVal sym
-  LLVMValStruct :: Vector (G.Field G.Type, LLVMVal sym) -> LLVMVal sym
-  LLVMValArray :: G.Type -> Vector (LLVMVal sym) -> LLVMVal sym
+  LLVMValStruct :: Vector (Field StorageType, LLVMVal sym) -> LLVMVal sym
+  LLVMValArray :: StorageType -> Vector (LLVMVal sym) -> LLVMVal sym
 
-  -- The zero value exists at all storable types, and represents the the value
+  -- The zero value exists at all storage types, and represents the the value
   -- which is obtained by loading the approprite number of all zero bytes.
   -- It is useful for compactly representing large zero-initialized data structures.
-  LLVMValZero :: G.Type -> LLVMVal sym
+  LLVMValZero :: StorageType -> LLVMVal sym
 
 
-llvmValStorableType :: IsExprBuilder sym => LLVMVal sym -> G.Type
+llvmValStorableType :: IsExprBuilder sym => LLVMVal sym -> StorageType
 llvmValStorableType v =
   case v of
-    LLVMValInt _ bv -> G.bitvectorType (G.bitsToBytes (natValue (bvWidth bv)))
-    LLVMValFloat SingleSize _ -> G.floatType
-    LLVMValFloat DoubleSize _ -> G.doubleType
-    LLVMValFloat X86_FP80Size _ -> G.x86_fp80Type
-    LLVMValStruct fs -> G.structType (fmap fst fs)
-    LLVMValArray tp vs -> G.arrayType (fromIntegral (V.length vs)) tp
+    LLVMValInt _ bv -> bitvectorType (bitsToBytes (natValue (bvWidth bv)))
+    LLVMValFloat SingleSize _ -> floatType
+    LLVMValFloat DoubleSize _ -> doubleType
+    LLVMValFloat X86_FP80Size _ -> x86_fp80Type
+    LLVMValStruct fs -> structType (fmap fst fs)
+    LLVMValArray tp vs -> arrayType (fromIntegral (V.length vs)) tp
     LLVMValZero tp -> tp
 
 -- | Coerce an 'LLVMPtr' value into a memory-storable 'LLVMVal'.
@@ -127,11 +127,11 @@ type PartLLVMVal sym = PartExpr (Pred sym) (LLVMVal sym)
 zeroInt ::
   IsSymInterface sym =>
   sym ->
-  G.Bytes ->
+  Bytes ->
   (forall w. (1 <= w) => Maybe (SymNat sym, SymBV sym w) -> IO a) ->
   IO a
 zeroInt sym bytes k
-   | Just (Some w) <- someNat (G.bytesToBits bytes)
+   | Just (Some w) <- someNat (bytesToBits bytes)
    , Just LeqProof <- isPosNat w
    =   do blk <- natLit sym 0
           bv  <- bvLit sym w 0
@@ -143,7 +143,7 @@ bvToFloatPartLLVMVal ::
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToFloatPartLLVMVal sym (PE p (LLVMValZero (G.Type (G.Bitvector 4) _))) =
+bvToFloatPartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 4) _))) =
   PE p . LLVMValFloat SingleSize <$> (iFloatFromBinary sym SingleFloatRepr =<< bvLit sym (knownNat @32) 0)
 
 bvToFloatPartLLVMVal sym (PE p (LLVMValInt blk off))
@@ -160,7 +160,7 @@ bvToDoublePartLLVMVal ::
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToDoublePartLLVMVal sym (PE p (LLVMValZero (G.Type (G.Bitvector 8) _))) =
+bvToDoublePartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 8) _))) =
   PE p . LLVMValFloat DoubleSize <$> (iFloatFromBinary sym DoubleFloatRepr =<< bvLit sym (knownNat @64) 0)
 
 bvToDoublePartLLVMVal sym (PE p (LLVMValInt blk off))
@@ -176,7 +176,7 @@ bvToX86_FP80PartLLVMVal ::
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (G.Type (G.Bitvector 10) _))) =
+bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 10) _))) =
   PE p . LLVMValFloat X86_FP80Size <$> (iFloatFromBinary sym X86_80FloatRepr =<< bvLit sym (knownNat @80) 0)
 
 bvToX86_FP80PartLLVMVal sym (PE p (LLVMValInt blk off))
@@ -202,18 +202,18 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
     case (v1, v2) of
       (LLVMValInt blk_low low, LLVMValInt blk_high high) ->
         do go blk_low low blk_high high
-      (LLVMValInt blk_low low, LLVMValZero (G.Type (G.Bitvector high_bytes) _)) ->
+      (LLVMValInt blk_low low, LLVMValZero (StorageType (Bitvector high_bytes) _)) ->
         zeroInt sym high_bytes $ \case
           Nothing -> return Unassigned
           Just (blk_high, high) ->
             go blk_low low blk_high high
-      (LLVMValZero (G.Type (G.Bitvector low_bytes) _), LLVMValInt blk_high high) ->
+      (LLVMValZero (StorageType (Bitvector low_bytes) _), LLVMValInt blk_high high) ->
          zeroInt sym low_bytes $ \case
            Nothing -> return Unassigned
            Just (blk_low, low) ->
              go blk_low low blk_high high
-      (LLVMValZero (G.Type (G.Bitvector low_bytes) _), LLVMValZero (G.Type (G.Bitvector high_bytes) _)) ->
-        return (PE (truePred sym) (LLVMValZero (G.bitvectorType (low_bytes + high_bytes))))
+      (LLVMValZero (StorageType (Bitvector low_bytes) _), LLVMValZero (StorageType (Bitvector high_bytes) _)) ->
+        return (PE (truePred sym) (LLVMValZero (bitvectorType (low_bytes + high_bytes))))
       _ -> return Unassigned
 
  where
@@ -246,12 +246,12 @@ consArrayPartLLVMVal ::
   PartLLVMVal sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
-consArrayPartLLVMVal sym (PE p1 (LLVMValZero tp)) (PE p2 (LLVMValZero (G.Type (G.Array m tp') _)))
+consArrayPartLLVMVal sym (PE p1 (LLVMValZero tp)) (PE p2 (LLVMValZero (StorageType (Array m tp') _)))
   | tp == tp' =
     do p <- andPred sym p1 p2
-       return $ PE p $ LLVMValZero (G.arrayType (m+1) tp')
+       return $ PE p $ LLVMValZero (arrayType (m+1) tp')
 
-consArrayPartLLVMVal sym (PE p1 hd) (PE p2 (LLVMValZero (G.Type (G.Array m tp) _)))
+consArrayPartLLVMVal sym (PE p1 hd) (PE p2 (LLVMValZero (StorageType (Array m tp) _)))
   | llvmValStorableType hd == tp =
     do p <- andPred sym p1 p2
        return $ PE p $ LLVMValArray tp (V.cons hd (V.replicate (fromIntegral m) (LLVMValZero tp)))
@@ -271,14 +271,14 @@ appendArrayPartLLVMVal ::
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 appendArrayPartLLVMVal sym
-  (PE p1 (LLVMValZero (G.Type (G.Array n1 tp1) _)))
-  (PE p2 (LLVMValZero (G.Type (G.Array n2 tp2) _)))
+  (PE p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
+  (PE p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
   | tp1 == tp2 =
      do p <- andPred sym p1 p2
-        return $ PE p $ LLVMValZero (G.arrayType (n1+n2) tp1)
+        return $ PE p $ LLVMValZero (arrayType (n1+n2) tp1)
 
 appendArrayPartLLVMVal sym
-  (PE p1 (LLVMValZero (G.Type (G.Array n1 tp1) _)))
+  (PE p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
   (PE p2 (LLVMValArray tp2 v2))
   | tp1 == tp2 =
      do p <- andPred sym p1 p2
@@ -287,7 +287,7 @@ appendArrayPartLLVMVal sym
 
 appendArrayPartLLVMVal sym
   (PE p1 (LLVMValArray tp1 v1))
-  (PE p2 (LLVMValZero (G.Type (G.Array n2 tp2) _)))
+  (PE p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
   | tp1 == tp2 =
      do p <- andPred sym p1 p2
         let v2 = V.replicate (fromIntegral n2) (LLVMValZero tp1)
@@ -306,7 +306,8 @@ appendArrayPartLLVMVal _ _ _ = return Unassigned
 -- | Make a partial LLVM array value.
 mkArrayPartLLVMVal :: forall sym .
   IsSymInterface sym => sym ->
-  G.Type -> Vector (PartLLVMVal sym) ->
+  StorageType ->
+  Vector (PartLLVMVal sym) ->
   IO (PartLLVMVal sym)
 mkArrayPartLLVMVal sym tp vec =
   do let f :: PartLLVMVal sym -> StateT (Pred sym) (MaybeT IO) (LLVMVal sym)
@@ -324,11 +325,11 @@ mkArrayPartLLVMVal sym tp vec =
 -- | Make a partial LLVM struct value.
 mkStructPartLLVMVal :: forall sym .
   IsSymInterface sym => sym ->
-  Vector (G.Field G.Type, PartLLVMVal sym) ->
+  Vector (Field StorageType, PartLLVMVal sym) ->
   IO (PartLLVMVal sym)
 mkStructPartLLVMVal sym vec =
-  do let f :: (G.Field G.Type, PartLLVMVal sym)
-           -> StateT (Pred sym) (MaybeT IO) (G.Field G.Type, LLVMVal sym)
+  do let f :: (Field StorageType, PartLLVMVal sym)
+           -> StateT (Pred sym) (MaybeT IO) (Field StorageType, LLVMVal sym)
          f (_fld, Unassigned) = mzero
          f (fld, PE p1 x) = do
              p0 <- get
@@ -345,17 +346,18 @@ mkStructPartLLVMVal sym vec =
 -- asserted to equal 0, indicating a non-pointer.
 selectLowBvPartLLVMVal ::
   IsSymInterface sym => sym ->
-  G.Bytes -> G.Bytes ->
+  Bytes ->
+  Bytes ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-selectLowBvPartLLVMVal _sym low hi (PE p (LLVMValZero (G.Type (G.Bitvector bytes) _)))
+selectLowBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector bytes) _)))
   | low + hi == bytes =
-      return $ PE p $ LLVMValZero (G.bitvectorType low)
+      return $ PE p $ LLVMValZero (bitvectorType low)
 
 selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
-  | Just (Some (low_w)) <- someNat (G.bytesToBits low)
-  , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
+  | Just (Some (low_w)) <- someNat (bytesToBits low)
+  , Just (Some (hi_w))  <- someNat (bytesToBits hi)
   , Just LeqProof <- isPosNat low_w
   , Just Refl <- testEquality (addNat low_w hi_w) w
   , Just LeqProof <- testLeq low_w w =
@@ -370,17 +372,18 @@ selectLowBvPartLLVMVal _ _ _ _ = return Unassigned
 -- asserted to equal 0, indicating a non-pointer.
 selectHighBvPartLLVMVal ::
   IsSymInterface sym => sym ->
-  G.Bytes -> G.Bytes ->
+  Bytes ->
+  Bytes ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
-selectHighBvPartLLVMVal _sym low hi (PE p (LLVMValZero (G.Type (G.Bitvector bytes) _)))
+selectHighBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector bytes) _)))
   | low + hi == bytes =
-      return $ PE p $ LLVMValZero (G.bitvectorType hi)
+      return $ PE p $ LLVMValZero (bitvectorType hi)
 
 selectHighBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
-  | Just (Some (low_w)) <- someNat (G.bytesToBits low)
-  , Just (Some (hi_w))  <- someNat (G.bytesToBits hi)
+  | Just (Some (low_w)) <- someNat (bytesToBits low)
+  , Just (Some (hi_w))  <- someNat (bytesToBits hi)
   , Just LeqProof <- isPosNat hi_w
   , Just Refl <- testEquality (addNat low_w hi_w) w =
     do p' <- andPred sym p =<< natEq sym blk =<< natLit sym 0
@@ -391,7 +394,9 @@ selectHighBvPartLLVMVal _ _ _ _ = return Unassigned
 
 -- | Look up an element in a partial LLVM array value.
 arrayEltPartLLVMVal ::
-  Word64 -> G.Type -> Word64 ->
+  Word64 ->
+  StorageType ->
+  Word64 ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 arrayEltPartLLVMVal sz tp idx (PE p (LLVMValZero _))
@@ -410,13 +415,14 @@ arrayEltPartLLVMVal _ _ _ _ = return Unassigned
 
 -- | Look up a field in a partial LLVM struct value.
 fieldValPartLLVMVal ::
-  (Vector (G.Field G.Type)) -> Int ->
+  (Vector (Field StorageType)) ->
+  Int ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 fieldValPartLLVMVal flds idx (PE p (LLVMValZero _))
   | 0 <= idx
   , idx < V.length flds =
-      return $ PE p $ LLVMValZero $ view G.fieldVal $ flds V.! idx
+      return $ PE p $ LLVMValZero $ view fieldVal $ flds V.! idx
 
 fieldValPartLLVMVal flds idx (PE p (LLVMValStruct vec))
   | flds == fmap fst vec
@@ -437,7 +443,7 @@ muxLLVMVal :: forall sym
 muxLLVMVal sym = mergePartial sym muxval
   where
 
-    muxzero :: Pred sym -> G.Type -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
+    muxzero :: Pred sym -> StorageType -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
     muxzero cond _tp val = case val of
       LLVMValZero tp -> return $ LLVMValZero tp
       LLVMValInt base off ->
@@ -463,7 +469,7 @@ muxLLVMVal sym = mergePartial sym muxval
         LLVMValArray tp <$> traverse (muxzero cond tp) vec
 
       LLVMValStruct flds ->
-        LLVMValStruct <$> traverse (\(fld, v) -> (fld,) <$> muxzero cond (fld^.G.fieldVal) v) flds
+        LLVMValStruct <$> traverse (\(fld, v) -> (fld,) <$> muxzero cond (fld^.fieldVal) v) flds
 
 
     muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)

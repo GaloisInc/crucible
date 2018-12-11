@@ -152,23 +152,23 @@ data ValueCtor a
     -- | Cons one value to beginning of array.
   | ConsArray (ValueCtor a) (ValueCtor a)
   | AppendArray (ValueCtor a) (ValueCtor a)
-  | MkArray Type (Vector (ValueCtor a))
-  | MkStruct (Vector (Field Type, ValueCtor a))
+  | MkArray StorageType (Vector (ValueCtor a))
+  | MkStruct (Vector (Field StorageType, ValueCtor a))
   deriving (Functor, Foldable, Traversable, Show)
 
 concatBV :: Bytes -> ValueCtor a -> Bytes -> ValueCtor a -> ValueCtor a
 concatBV _xw x _yw y = ConcatBV x y
 
-singletonArray :: Type -> ValueCtor a -> ValueCtor a
+singletonArray :: StorageType -> ValueCtor a -> ValueCtor a
 singletonArray tp e = MkArray tp (V.singleton e)
 
 -- | Create value of type that splits at a particular byte offset.
-splitTypeValue :: Type   -- ^ Type of value to create
+splitTypeValue :: StorageType   -- ^ Type of value to create
                -> Offset -- ^ Bytes offset to slice type at.
-               -> (Offset -> Type -> ValueCtor a) -- ^ Function for subtypes.
+               -> (Offset -> StorageType -> ValueCtor a) -- ^ Function for subtypes.
                -> ValueCtor a
 splitTypeValue tp d subFn = assert (d > 0) $
-  case typeF tp of
+  case storageTypeF tp of
     Bitvector sz -> assert (d < sz) $
       concatBV d (subFn 0 (bitvectorType d))
                (sz - d) (subFn d (bitvectorType (sz - d)))
@@ -176,7 +176,7 @@ splitTypeValue tp d subFn = assert (d > 0) $
     Double -> BVToDouble (subFn 0 (bitvectorType 8))
     X86_FP80 -> BVToX86_FP80 (subFn 0 (bitvectorType 10))
     Array n0 etp -> assert (n0 > 0) $ do
-      let esz = typeSize etp
+      let esz = storageTypeSize etp
       let (c,part) = assert (esz > 0) $ unBytes d `divMod` unBytes esz
       let n = n0 - c
       let o = d - Bytes part -- (Bytes c) * esz
@@ -210,10 +210,10 @@ data BasePreference
 -- | A 'RangeLoad' describes different kinds of memory loads in the
 -- context of a byte range copied into an old memory.
 data RangeLoad a b
-  = OutOfRange a Type
+  = OutOfRange a StorageType
     -- ^ Load from an address range disjoint from the copied bytes.
     -- The arguments represent the address and type of the load.
-  | InRange b Type
+  | InRange b StorageType
     -- ^ Load consists of bytes within the copied range. The first
     -- argument represents the offset relative to the start of the
     -- copied bytes.
@@ -229,7 +229,7 @@ adjustOffset inFn _  (InRange b tp) = InRange (inFn b) tp
 -- simple value loads.
 rangeLoad ::
   Addr  {- ^ load offset  -} ->
-  Type  {- ^ load type    -} ->
+  StorageType {- ^ load type    -} ->
   Range {- ^ copied range -} ->
   ValueCtor (RangeLoad Addr Addr)
 rangeLoad lo ltp s@(R so se)
@@ -243,7 +243,7 @@ rangeLoad lo ltp s@(R so se)
        loadFail = ValueCtorVar (OutOfRange lo ltp)
 
 fixedOffsetRangeLoad :: Addr
-                     -> Type
+                     -> StorageType
                      -> Addr
                      -> Mux (ValueCtor (RangeLoad Addr Addr))
 fixedOffsetRangeLoad l tp s
@@ -278,7 +278,7 @@ fixLoadAfterStoreOffset pref i k = assert (k >= i) $
 -- | @loadFromStoreStart pref tp i j@ loads a value of type @tp@ from a range under the
 -- assumptions that @load + i == store@ and @j = i + min(StoreSize, typeEnd(tp)@.
 loadFromStoreStart :: BasePreference
-                   -> Type
+                   -> StorageType
                    -> Offset
                    -> Offset
                    -> ValueCtor (RangeLoad OffsetExpr IntExpr)
@@ -287,7 +287,7 @@ loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i
         outFn = fixLoadBeforeStoreOffset pref i
 
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
-                   -> Type
+                   -> StorageType
                    -> Bytes
                    -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
 fixedSizeRangeLoad _ tp 0 = MuxVar (ValueCtorVar (OutOfRange Load tp))
@@ -320,7 +320,7 @@ fixedSizeRangeLoad pref tp ssz =
     loadSucc = MuxVar (ValueCtorVar (InRange (Load .- Store) tp))
     loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
-symbolicRangeLoad :: BasePreference -> Type -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
+symbolicRangeLoad :: BasePreference -> StorageType -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
 symbolicRangeLoad pref tp =
   Mux (Store .<= Load)
   (Mux (loadOffset sz .<= storeEnd) (loadVal0 sz) (loadIter0 (sz-1)))
@@ -353,7 +353,7 @@ symbolicRangeLoad pref tp =
 
 -- | Represents a projection of a sub-component out of a larger LLVM value.
 data ValueView
-  = ValueViewVar Type
+  = ValueViewVar StorageType
     -- | Select low-address bytes in the bitvector.
     -- The sizes include the number of low bytes, and the number of high bytes.
   | SelectPrefixBV Bytes Bytes ValueView
@@ -363,51 +363,51 @@ data ValueView
   | FloatToBV ValueView
   | DoubleToBV ValueView
   | X86_FP80ToBV ValueView
-  | ArrayElt Word64 Type Word64 ValueView
+  | ArrayElt Word64 StorageType Word64 ValueView
 
-  | FieldVal (Vector (Field Type)) Int ValueView
+  | FieldVal (Vector (Field StorageType)) Int ValueView
   deriving Show
 
-viewType :: ValueView -> Maybe Type
+viewType :: ValueView -> Maybe StorageType
 viewType (ValueViewVar tp) = Just tp
 viewType (SelectPrefixBV u v vv) =
-  do tp <- typeF <$> viewType vv
+  do tp <- storageTypeF <$> viewType vv
      guard (Bitvector (u + v) == tp)
      pure $ bitvectorType u
 viewType (SelectSuffixBV u v vv) =
-  do tp <- typeF <$> viewType vv
+  do tp <- storageTypeF <$> viewType vv
      guard (Bitvector (u + v) == tp)
      pure $ bitvectorType v
 viewType (FloatToBV vv) =
-  do tp <- typeF <$> viewType vv
+  do tp <- storageTypeF <$> viewType vv
      guard (Float == tp)
      pure $ bitvectorType 4
 viewType (DoubleToBV vv) =
-  do tp <- typeF <$> viewType vv
+  do tp <- storageTypeF <$> viewType vv
      guard (Double == tp)
      pure $ bitvectorType 8
 viewType (X86_FP80ToBV vv) =
-  do tp <- typeF <$> viewType vv
+  do tp <- storageTypeF <$> viewType vv
      guard (X86_FP80 == tp)
      pure $ bitvectorType 10
 viewType (ArrayElt n etp i vv) =
-  do tp <- typeF <$> viewType vv
+  do tp <- storageTypeF <$> viewType vv
      guard (i < n && Array n etp == tp)
      pure $ etp
 viewType (FieldVal v i vv) =
-  do tp <- typeF <$> viewType vv
+  do tp <- storageTypeF <$> viewType vv
      guard (Struct v == tp)
      view fieldVal <$> (v V.!? i)
 
 -- | A 'ValueLoad' describes different kinds of memory loads in the
 -- context of a new value stored into an old memory.
 data ValueLoad v
-  = OldMemory v Type
+  = OldMemory v StorageType
     -- ^ Load from an address range disjoint from the stored value.
     -- The arguments represent the address and type of the load.
   | LastStore ValueView
     -- ^ Load consists of valid bytes within the stored value.
-  | InvalidMemory Type
+  | InvalidMemory StorageType
     -- ^ Load touches invalid memory (e.g. trying to read struct padding bytes as a bitvector).
   deriving (Functor,Show)
 
@@ -418,10 +418,10 @@ loadBitvector lo lw so v = do
   let stp = fromMaybe (error ("loadBitvector given bad view " ++ show v)) (viewType v)
   let retValue eo v' = (sz', valueLoad lo' (bitvectorType sz') eo v')
         where etp = fromMaybe (error ("Bad view " ++ show v')) (viewType v')
-              esz = typeSize etp
+              esz = storageTypeSize etp
               lo' = max lo eo
               sz' = min le (eo+esz) - lo'
-  case typeF stp of
+  case storageTypeF stp of
     Bitvector sw
       | so < lo -> do
         -- Number of bytes to drop.
@@ -436,7 +436,7 @@ loadBitvector lo lw so v = do
     X86_FP80 -> valueLoad lo ltp lo (X86_FP80ToBV v)
     Array n tp -> snd $ foldl1 cv (val <$> r)
       where cv (wx,x) (wy,y) = (wx + wy, concatBV wx x wy y)
-            esz = typeSize tp
+            esz = storageTypeSize tp
             c0 = assert (esz > 0) $ unBytes (lo - so) `div` unBytes esz
             (c1,p1) = unBytes (le - so) `divMod` unBytes esz
             -- Get range of indices to read.
@@ -448,7 +448,7 @@ loadBitvector lo lw so v = do
             r = concat (zipWith val [0..] (V.toList sflds))
             val i f = v1
               where eo = so + fieldOffset f
-                    ee = eo + typeSize (f^.fieldVal)
+                    ee = eo + storageTypeSize (f^.fieldVal)
                     v1 | le <= eo = v2
                        | ee <= lo = v2
                        | otherwise = retValue eo (FieldVal sflds i v) : v2
@@ -465,7 +465,7 @@ loadBitvector lo lw so v = do
 -- simple value loads.
 valueLoad ::
   Addr      {- ^ load address         -} ->
-  Type      {- ^ load type            -} ->
+  StorageType      {- ^ load type            -} ->
   Addr      {- ^ store address        -} ->
   ValueView {- ^ view of stored value -} ->
   ValueCtor (ValueLoad Addr)
@@ -478,13 +478,13 @@ valueLoad lo ltp so v
   | se < le  = splitTypeValue ltp (le - se) (\o tp -> valueLoad (lo+o) tp so v)
   | (lo,ltp) == (so,stp) = ValueCtorVar (LastStore v)
   | otherwise =
-    case typeF ltp of
+    case storageTypeF ltp of
       Bitvector lw -> loadBitvector lo lw so v
       Float  -> BVToFloat  $ valueLoad 0 (bitvectorType 4) so v
       Double -> BVToDouble $ valueLoad 0 (bitvectorType 8) so v
       X86_FP80 -> BVToX86_FP80 $ valueLoad 0 (bitvectorType 10) so v
       Array ln tp ->
-        let leSize = typeSize tp
+        let leSize = storageTypeSize tp
             val i = valueLoad (lo+leSize*fromIntegral i) tp so v
          in MkArray tp (V.generate (fromIntegral ln) val)
       Struct lflds ->
@@ -492,17 +492,17 @@ valueLoad lo ltp so v
          in MkStruct (val <$> lflds)
  where stp = fromMaybe (error ("Coerce value given bad view " ++ show v)) (viewType v)
        le = typeEnd lo ltp
-       se = so + typeSize stp
+       se = so + storageTypeSize stp
 
 symbolicValueLoad ::
   BasePreference {- ^ whether addresses are based on store or load -} ->
-  Type           {- ^ load type            -} ->
+  StorageType           {- ^ load type            -} ->
   Maybe (Integer, Integer) {- ^ optional bounds on the offset between load and store -} ->
   ValueView      {- ^ view of stored value -} ->
   Alignment      {- ^ alignment of store and load -} ->
   Mux (ValueCtor (ValueLoad OffsetExpr))
 symbolicValueLoad pref tp bnd v alignment =
-  Mux (Or (loadOffset lsz .<= Store) (storeOffset (typeSize stp) .<= Load)) loadFail $
+  Mux (Or (loadOffset lsz .<= Store) (storeOffset (storageTypeSize stp) .<= Load)) loadFail $
   MuxTable Load Store prefixTable $
   MuxTable Store Load suffixTable loadFail
   where
@@ -520,8 +520,8 @@ symbolicValueLoad pref tp bnd v alignment =
 
     suffixHiBound =
       case bnd of
-        Just (_lo, hi) | hi >= 0 -> min (typeSize stp) (toBytes hi + 1)
-        _ -> typeSize stp
+        Just (_lo, hi) | hi >= 0 -> min (storageTypeSize stp) (toBytes hi + 1)
+        _ -> storageTypeSize stp
 
     prefixLoBound =
       case bnd of
@@ -553,12 +553,12 @@ symbolicValueLoad pref tp bnd v alignment =
     loadFail = MuxVar (ValueCtorVar (OldMemory Load tp))
 
 -- | Create a value of the given type made up of copies of the given byte.
-memsetValue :: a -> Type -> ValueCtor a
+memsetValue :: a -> StorageType -> ValueCtor a
 memsetValue byte = go
   where
     val = ValueCtorVar byte
     go tp =
-      case typeF tp of
+      case storageTypeF tp of
         Bitvector sz
           | sz <= 1 -> val
           | otherwise -> concatBV 1 val (sz - 1) (go (bitvectorType (sz - 1)))

@@ -84,18 +84,18 @@ module Lang.Crucible.LLVM.MemModel
   , constToLLVMVal
 
     -- * Storage types
-  , G.Type
-  , G.typeF
-  , G.TypeF(..)
-  , G.Field
-  , G.typeSize
-  , G.fieldVal
-  , G.fieldPad
-  , G.bitvectorType
-  , G.arrayType
-  , G.mkStructType
-  , G.floatType
-  , G.doubleType
+  , StorageType
+  , storageTypeF
+  , StorageTypeF(..)
+  , Field
+  , storageTypeSize
+  , fieldVal
+  , fieldPad
+  , bitvectorType
+  , arrayType
+  , mkStructType
+  , floatType
+  , doubleType
   , toStorableType
 
     -- * Pointer operations
@@ -169,7 +169,7 @@ import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.MemType
-import qualified Lang.Crucible.LLVM.MemModel.Type as G
+import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Value
@@ -407,28 +407,28 @@ registerGlobal (MemImpl blockSource gMap hMap mem) symbol ptr =
   in MemImpl blockSource gMap' hMap mem
 
 asCrucibleType
-  :: G.Type
+  :: StorageType
   -> (forall tpr. TypeRepr tpr -> x)
   -> x
-asCrucibleType (G.Type tf _) k =
+asCrucibleType (StorageType tf _) k =
   case tf of
-    G.Bitvector sz ->
+    Bitvector sz ->
        case someNat (bytesToBits sz) of
          Just (Some w)
            | Just LeqProof <- isPosNat w -> k (LLVMPointerRepr w)
          _ -> error $ unwords ["invalid bitvector size", show sz]
-    G.Float  -> k (FloatRepr SingleFloatRepr)
-    G.Double -> k (FloatRepr DoubleFloatRepr)
-    G.X86_FP80 -> k (FloatRepr X86_80FloatRepr)
-    G.Array _n t -> asCrucibleType t $ \tpr -> k (VectorRepr tpr)
-    G.Struct xs -> go Ctx.empty (V.toList xs) $ \ctx -> k (StructRepr ctx)
+    Float  -> k (FloatRepr SingleFloatRepr)
+    Double -> k (FloatRepr DoubleFloatRepr)
+    X86_FP80 -> k (FloatRepr X86_80FloatRepr)
+    Array _n t -> asCrucibleType t $ \tpr -> k (VectorRepr tpr)
+    Struct xs -> go Ctx.empty (V.toList xs) $ \ctx -> k (StructRepr ctx)
       where go :: CtxRepr ctx0
-               -> [G.Field G.Type]
+               -> [Field StorageType]
                -> (forall ctx. CtxRepr ctx -> x)
                -> x
             go ctx [] k' = k' ctx
             go ctx (f:fs) k' =
-                 asCrucibleType (f^.G.fieldVal) $ \tpr ->
+                 asCrucibleType (f^.fieldVal) $ \tpr ->
                    go (ctx Ctx.:> tpr) fs k'
 
 coerceAny :: (HasCallStack, IsSymInterface sym)
@@ -449,21 +449,21 @@ coerceAny sym tpr (AnyValue tpr' x)
 unpackZero ::
   (HasCallStack, IsSymInterface sym) =>
   sym ->
-  G.Type ->
+  StorageType ->
   IO (AnyValue sym)
-unpackZero sym (G.Type tp _) = case tp of
-  G.Bitvector bytes ->
+unpackZero sym (StorageType tp _) = case tp of
+  Bitvector bytes ->
     zeroInt sym bytes $ \case
       Nothing -> fail ("Improper storable type: " ++ show tp)
       Just (blk, bv) -> return $ AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
-  G.Float  -> AnyValue (FloatRepr SingleFloatRepr) <$> iFloatLit sym SingleFloatRepr 0
-  G.Double -> AnyValue (FloatRepr DoubleFloatRepr) <$> iFloatLit sym DoubleFloatRepr 0
-  G.X86_FP80 -> AnyValue (FloatRepr X86_80FloatRepr) <$> iFloatLit sym X86_80FloatRepr 0
-  G.Array n tp' ->
+  Float  -> AnyValue (FloatRepr SingleFloatRepr) <$> iFloatLit sym SingleFloatRepr 0
+  Double -> AnyValue (FloatRepr DoubleFloatRepr) <$> iFloatLit sym DoubleFloatRepr 0
+  X86_FP80 -> AnyValue (FloatRepr X86_80FloatRepr) <$> iFloatLit sym X86_80FloatRepr 0
+  Array n tp' ->
     do AnyValue tpr v <- unpackZero sym tp'
        return $ AnyValue (VectorRepr tpr) $ V.replicate (fromIntegral n) v
-  G.Struct flds ->
-    do xs <- traverse (unpackZero sym . view G.fieldVal) (V.toList flds)
+  Struct flds ->
+    do xs <- traverse (unpackZero sym . view fieldVal) (V.toList flds)
        unpackStruct sym xs Ctx.empty Ctx.empty $ \ctx fls -> return $ AnyValue (StructRepr ctx) $ fls
 
 
@@ -517,39 +517,39 @@ unpackStruct sym (v:vs) ctx fls k =
 packMemValue ::
   IsSymInterface sym =>
   sym ->
-  G.Type      {- ^ LLVM storage type -} ->
+  StorageType {- ^ LLVM storage type -} ->
   TypeRepr tp {- ^ Crucible type     -} ->
   RegValue sym tp ->
   IO (LLVMVal sym)
 
-packMemValue _ (G.Type G.Float _) (FloatRepr SingleFloatRepr) x =
+packMemValue _ (StorageType Float _) (FloatRepr SingleFloatRepr) x =
        return $ LLVMValFloat SingleSize x
 
-packMemValue _ (G.Type G.Double _) (FloatRepr DoubleFloatRepr) x =
+packMemValue _ (StorageType Double _) (FloatRepr DoubleFloatRepr) x =
        return $ LLVMValFloat DoubleSize x
 
-packMemValue sym (G.Type (G.Bitvector bytes) _) (BVRepr w) bv
+packMemValue sym (StorageType (Bitvector bytes) _) (BVRepr w) bv
   | bitsToBytes (natValue w) == bytes =
       do blk0 <- natLit sym 0
          return $ LLVMValInt blk0 bv
 
-packMemValue _sym (G.Type (G.Bitvector bytes) _) (LLVMPointerRepr w) (LLVMPointer blk off)
+packMemValue _sym (StorageType (Bitvector bytes) _) (LLVMPointerRepr w) (LLVMPointer blk off)
   | bitsToBytes (natValue w) == bytes =
        return $ LLVMValInt blk off
 
-packMemValue sym (G.Type (G.Array sz tp) _) (VectorRepr tpr) vec
+packMemValue sym (StorageType (Array sz tp) _) (VectorRepr tpr) vec
   | V.length vec == fromIntegral sz = do
        vec' <- traverse (packMemValue sym tp tpr) vec
        return $ LLVMValArray tp vec'
 
-packMemValue sym (G.Type (G.Struct fls) _) (StructRepr ctx) xs = do
+packMemValue sym (StorageType (Struct fls) _) (StructRepr ctx) xs = do
   fls' <- V.generateM (V.length fls) $ \i -> do
               let fl = fls V.! i
               case Ctx.intIndex i (Ctx.size ctx) of
                 Just (Some idx) -> do
                   let tpr = ctx Ctx.! idx
                   let RV val = xs Ctx.! idx
-                  val' <- packMemValue sym (fl^.G.fieldVal) tpr val
+                  val' <- packMemValue sym (fl^.fieldVal) tpr val
                   return (fl, val')
                 _ -> panic "MemModel.packMemValue"
                       [ "Mismatch between LLVM and Crucible types"
@@ -594,7 +594,7 @@ loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
         => sym
         -> MemImpl sym
         -> LLVMPtr sym wptr
-        -> G.Type
+        -> StorageType
         -> IO (LLVMVal sym)
 loadRaw sym mem ptr valType =
   do res <- loadRawWithCondition sym mem ptr valType
@@ -611,7 +611,7 @@ loadRawWithCondition ::
   sym                  ->
   MemImpl sym          {- ^ LLVM heap       -} ->
   LLVMPtr sym wptr     {- ^ pointer         -} ->
-  G.Type               {- ^ pointed-to type -} ->
+  StorageType          {- ^ pointed-to type -} ->
   IO (Either
         String
         (Pred sym, SimErrorReason, LLVMVal sym))
@@ -631,7 +631,7 @@ ptrMessage ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   String ->
   LLVMPtr sym wptr {- ^ pointer involved in message -} ->
-  G.Type           {- ^ type of value pointed to    -} ->
+  StorageType      {- ^ type of value pointed to    -} ->
   String
 ptrMessage msg ptr ty =
   unlines [ msg
@@ -646,7 +646,7 @@ doLoad ::
   sym ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ pointer to load from      -} ->
-  G.Type           {- ^ type of value to load     -} ->
+  StorageType      {- ^ type of value to load     -} ->
   Alignment        {- ^ assumed pointer alignment -} ->
   IO (RegValue sym AnyType)
 doLoad sym mem ptr valType alignment = do
@@ -665,7 +665,7 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
-  -> G.Type           {- ^ type of value to store -}
+  -> StorageType      {- ^ type of value to store -}
   -> Alignment
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
@@ -682,7 +682,7 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
   -> LLVMPtr sym wptr {- ^ pointer to store into -}
-  -> G.Type           {- ^ type of value to store -}
+  -> StorageType      {- ^ type of value to store -}
   -> Alignment
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
@@ -700,7 +700,7 @@ doStore ::
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ pointer to store into  -} ->
   TypeRepr tp ->
-  G.Type           {- ^ type of value to store -} ->
+  StorageType      {- ^ type of value to store -} ->
   Alignment ->
   RegValue sym tp  {- ^ value to store         -} ->
   IO (MemImpl sym)
@@ -1023,7 +1023,7 @@ loadString sym mem = go id
   go :: ([Word8] -> [Word8]) -> LLVMPtr sym wptr -> Maybe Int -> IO [Word8]
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
-     v <- doLoad sym mem p (G.bitvectorType 1) 0 -- one byte, no alignment
+     v <- doLoad sym mem p (bitvectorType 1) 0 -- one byte, no alignment
      case v of
        AnyValue (LLVMPointerRepr w) x
          | Just Refl <- testEquality w (knownNat :: NatRepr 8) ->
@@ -1064,19 +1064,19 @@ loadMaybeString sym mem ptr n = do
 
 toStorableType :: (Monad m, HasPtrWidth wptr)
                => MemType
-               -> m G.Type
+               -> m StorageType
 toStorableType mt =
   case mt of
-    IntType n -> return $ G.bitvectorType (bitsToBytes n)
-    PtrType _ -> return $ G.bitvectorType (bitsToBytes (natValue PtrWidth))
-    FloatType -> return $ G.floatType
-    DoubleType -> return $ G.doubleType
-    X86_FP80Type -> return $ G.x86_fp80Type
-    ArrayType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
-    VecType n x -> G.arrayType (fromIntegral n) <$> toStorableType x
+    IntType n -> return $ bitvectorType (bitsToBytes n)
+    PtrType _ -> return $ bitvectorType (bitsToBytes (natValue PtrWidth))
+    FloatType -> return $ floatType
+    DoubleType -> return $ doubleType
+    X86_FP80Type -> return $ x86_fp80Type
+    ArrayType n x -> arrayType (fromIntegral n) <$> toStorableType x
+    VecType n x -> arrayType (fromIntegral n) <$> toStorableType x
     MetadataType -> fail "toStorableType: Cannot store metadata values"
-    StructType si -> G.mkStructType <$> traverse transField (siFields si)
-      where transField :: Monad m => FieldInfo -> m (G.Type, Bytes)
+    StructType si -> mkStructType <$> traverse transField (siFields si)
+      where transField :: Monad m => FieldInfo -> m (StorageType, Bytes)
             transField fi = do
                t <- toStorableType $ fiType fi
                return (t, fiPadding fi)
@@ -1137,6 +1137,6 @@ constToLLVMVal _sym _mem (ZeroConst memty) = LLVMValZero <$> toStorableType memt
 
 
 -- TODO are these types just identical? Maybe we should combine them.
-fiToFT :: (HasPtrWidth wptr, Monad m) => FieldInfo -> m (G.Field G.Type)
-fiToFT fi = fmap (\t -> G.mkField (fiOffset fi) t (fiPadding fi))
+fiToFT :: (HasPtrWidth wptr, Monad m) => FieldInfo -> m (Field StorageType)
+fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
                  (toStorableType $ fiType fi)

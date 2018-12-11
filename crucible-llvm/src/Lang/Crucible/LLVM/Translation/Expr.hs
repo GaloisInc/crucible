@@ -513,7 +513,7 @@ callStore :: MemType
 callStore typ (asScalar -> Scalar PtrRepr ptr) (ZeroExpr _mt) _align =
  do memVar <- getMemVar
     typ'   <- toStorableType typ
-    void $ extensionStmt (LLVM_MemClear memVar ptr (typeSize typ'))
+    void $ extensionStmt (LLVM_MemClear memVar ptr (storageTypeSize typ'))
 
 callStore typ (asScalar -> Scalar PtrRepr ptr) v align =
  do let ?err = fail

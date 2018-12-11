@@ -106,7 +106,7 @@ data WriteSource sym w
   | MemSet (SymBV sym 8) (SymBV sym w)
     -- | @MemStore val ty al@ writes value @val@ with type @ty@ at the destination.
     --   with alignment at least @al@.
-  | MemStore (LLVMVal sym) Type Alignment
+  | MemStore (LLVMVal sym) StorageType Alignment
 
 data MemWrite sym
     -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
@@ -312,11 +312,11 @@ readMemCopy ::
   NatRepr w ->
   EndianForm ->
   LLVMPtr sym w  {- ^ The loaded offset               -} ->
-  Type           {- ^ The type we are reading         -} ->
+  StorageType    {- ^ The type we are reading         -} ->
   SymBV sym w    {- ^ The destination of the memcopy  -} ->
   LLVMPtr sym w  {- ^ The source of the copied region -} ->
   SymBV sym w    {- ^ The length of the copied region -} ->
-  (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
+  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
   IO (PartLLVMVal sym)
 readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
   do let ld = asUnsignedBV off
@@ -363,11 +363,11 @@ readMemSet ::
   sym -> NatRepr w ->
   EndianForm ->
   LLVMPtr sym w {- ^ The loaded offset             -} ->
-  Type          {- ^ The type we are reading       -} ->
+  StorageType   {- ^ The type we are reading       -} ->
   SymBV sym w   {- ^ The destination of the memset -} ->
   SymBV sym 8   {- ^ The fill byte that was set    -} ->
   SymBV sym w   {- ^ The length of the set region  -} ->
-  (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
+  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
   IO (PartLLVMVal sym)
 readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
   do let ld = asUnsignedBV off
@@ -419,17 +419,17 @@ readMemStore ::
   NatRepr w ->
   EndianForm ->
   LLVMPtr sym w {- ^ The loaded address                 -} ->
-  Type          {- ^ The type we are reading            -} ->
+  StorageType   {- ^ The type we are reading            -} ->
   SymBV sym w   {- ^ The destination of the store       -} ->
   LLVMVal sym   {- ^ The value that was stored          -} ->
-  Type          {- ^ The type of value that was written -} ->
+  StorageType   {- ^ The type of value that was written -} ->
   Alignment     {- ^ The alignment of the pointer we are reading from -} ->
   Alignment     {- ^ The alignment of the store from which we are reading -} ->
-  (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym))
+  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym))
   {- ^ A callback function for when reading fails -} ->
   IO (PartLLVMVal sym)
 readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign readPrev =
-  do ssz <- bvLit sym w (bytesToInteger (typeSize stp))
+  do ssz <- bvLit sym w (bytesToInteger (storageTypeSize stp))
      let varFn = (off, d, ssz)
      let ld = asUnsignedBV off
      let dd = asUnsignedBV d
@@ -464,7 +464,7 @@ readMem ::
   (1 <= w, IsSymInterface sym) => sym ->
   NatRepr w ->
   LLVMPtr sym w ->
-  Type ->
+  StorageType ->
   Alignment ->
   Mem sym ->
   IO (PartLLVMVal sym)
@@ -485,7 +485,7 @@ andPartVal sym p val =
                      return (PE p'' v)
 
 data CacheEntry sym w =
-  CacheEntry !(Type) !(SymNat sym) !(SymBV sym w)
+  CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
 
 instance (TestEquality (SymExpr sym)) => Eq (CacheEntry sym w) where
   (CacheEntry tp1 blk1 off1) == (CacheEntry tp2 blk2 off2) =
@@ -497,7 +497,7 @@ instance IsSymInterface sym => Ord (CacheEntry sym w) where
       `mappend` toOrdering (compareF blk1 blk2)
       `mappend` toOrdering (compareF off1 off2)
 
-toCacheEntry :: Type -> LLVMPtr sym w -> CacheEntry sym w
+toCacheEntry :: StorageType -> LLVMPtr sym w -> CacheEntry sym w
 toCacheEntry tp (llvmPointerView -> (blk, bv)) = CacheEntry tp blk bv
 
 
@@ -511,21 +511,21 @@ readMem' ::
   NatRepr w ->
   EndianForm ->
   LLVMPtr sym w  {- ^ Address we are reading            -} ->
-  Type           {- ^ The type to read from memory      -} ->
+  StorageType    {- ^ The type to read from memory      -} ->
   Alignment      {- ^ Alignment of pointer to read from -} ->
   [MemWrite sym] {- ^ List of writes                    -} ->
   IO (PartLLVMVal sym)
 readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
   where
-    go :: (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
+    go :: (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
           LLVMPtr sym w ->
-          Type ->
+          StorageType ->
           [MemWrite sym] ->
           IO (PartLLVMVal sym)
     go fallback l tp [] = fallback tp l
     go fallback l tp (h : r) =
       do cache <- newIORef Map.empty
-         let readPrev :: Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)
+         let readPrev :: StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)
              readPrev tp' l' = do
                m <- readIORef cache
                case Map.lookup (toCacheEntry tp' l') m of
@@ -797,7 +797,7 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
-         -> Type
+         -> StorageType
          -> Alignment
          -> LLVMVal sym
          -> Mem sym
@@ -817,7 +817,7 @@ writeConstMem ::
   sym           ->
   NatRepr w     ->
   LLVMPtr sym w ->
-  Type          ->
+  StorageType   ->
   Alignment     ->
   LLVMVal sym   ->
   Mem sym       ->
@@ -872,7 +872,7 @@ allocMem a b sz _alignment mut loc = memAddAlloc (Alloc a b sz mut loc) -- TODO,
 allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> AllocType -- ^ Type of allocation
                  -> Natural -- ^ Block id for allocation
-                 -> Type
+                 -> StorageType
                  -> Alignment
                  -> Mutability -- ^ Is block read-only
                  -> String -- ^ Source location
@@ -1000,9 +1000,9 @@ ppTermExpr t = -- FIXME, do something with the predicate?
       where v' = ppTermExpr <$> V.toList v
 
 -- | Pretty print type.
-ppType :: Type -> Doc
+ppType :: StorageType -> Doc
 ppType tp =
-  case typeF tp of
+  case storageTypeF tp of
     Bitvector w -> text ('i': show (bytesToBits w))
     Float -> text "float"
     Double -> text "double"
