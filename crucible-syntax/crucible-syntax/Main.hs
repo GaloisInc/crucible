@@ -21,6 +21,7 @@ import What4.Config
 import What4.Solver.Z3 ( z3Options )
 
 import qualified Options.Applicative as Opt
+import           Options.Applicative ( (<**>) )
 
 --import System.Exit
 
@@ -58,7 +59,6 @@ input = file "input"
 output :: Opt.Parser TheFile
 output = file "output"
 
-
 repl :: TheFile -> IO ()
 repl f@(TheFile fn) =
   do putStr "> "
@@ -66,28 +66,20 @@ repl f@(TheFile fn) =
      doParseCheck fn l True stdout
      repl f
 
-
-
 command :: Opt.Parser Command
 command =
-  Opt.subparser
-    (Opt.command "check"
-     (Opt.info (CheckCommand <$> parseCheck)
-       (Opt.fullDesc <> Opt.progDesc "Check a file" <> Opt.header "crucibler")))
-  <|>
-  Opt.subparser
-    (Opt.command "simulate"
-     (Opt.info (SimulateCommand <$> simFile)
-       (Opt.fullDesc <> Opt.progDesc "Simulate a file" <> Opt.header "crucibler")))
-  <|>
-  Opt.subparser
-    (Opt.command "profile"
-     (Opt.info (ProfileCommand <$> profFile)
-       (Opt.fullDesc <> Opt.progDesc "Simulate a file, with profiling" <> Opt.header "crucibler")))
-  <|>
-  Opt.subparser
-    (Opt.command "repl"
-     (Opt.info (pure ReplCommand) (Opt.fullDesc <> Opt.progDesc "Open a REPL")))
+  Opt.subparser $
+       (Opt.command "check"
+        (Opt.info (CheckCommand <$> parseCheck)
+         (Opt.fullDesc <> Opt.progDesc "Check a file" <> Opt.header "crucibler")))
+    <> (Opt.command "simulate"
+        (Opt.info (SimulateCommand <$> simFile)
+         (Opt.fullDesc <> Opt.progDesc "Simulate a file" <> Opt.header "crucibler")))
+    <> (Opt.command "profile"
+        (Opt.info (ProfileCommand <$> profFile)
+         (Opt.fullDesc <> Opt.progDesc "Simulate a file, with profiling" <> Opt.header "crucibler")))
+    <> (Opt.command "repl"
+        (Opt.info (pure ReplCommand) (Opt.fullDesc <> Opt.progDesc "Open a REPL")))
 
 profFile :: Opt.Parser ProfCmd
 profFile =
@@ -107,7 +99,7 @@ configOptions = z3Options
 
 main :: IO ()
 main =
-  do cmd <- Opt.execParser options
+  do cmd <- Opt.customExecParser prefs info
      case cmd of
        ReplCommand -> hSetBuffering stdout NoBuffering >> repl (TheFile "stdin")
 
@@ -133,4 +125,5 @@ main =
             withFile outputFile WriteMode
                (\outh -> simulateProgram inputFile contents stdout (Just outh) configOptions setupOverrides)
 
-  where options = Opt.info command (Opt.fullDesc)
+  where info = Opt.info (command <**> Opt.helper) (Opt.fullDesc)
+        prefs = Opt.prefs $ Opt.showHelpOnError <> Opt.showHelpOnEmpty
