@@ -45,7 +45,9 @@ a brief comment describing the reason for the expected failure.
 ## Test suite with coverage
 
 The `new-*` family of commands is not yet ready for coverage reports. Please run
+
     $ stack test --coverage
+
 for a coverage report.
 
 ## Symbolic execution
