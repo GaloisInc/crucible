@@ -1521,9 +1521,23 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           FloatFpNe  r1 r2 -> FloatFpNe  (instantiate subst r1) (instantiate subst r2)          
 
           FloatIte fi r1 r2 r3 -> FloatIte fi (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
-          
 
-          -- TODO: more floats
+          FloatCast fi rm r1 -> FloatCast fi rm (instantiate subst r1)
+          FloatFromBinary fi r1 -> FloatFromBinary fi (instantiate subst r1)
+          FloatToBinary fi r1 -> FloatToBinary fi (instantiate subst r1)
+          FloatFromBV fi rm r1 -> FloatFromBV fi rm (instantiate subst r1)
+          FloatFromSBV fi rm r1 -> FloatFromSBV fi rm (instantiate subst r1)
+          FloatFromReal fi rm r1 -> FloatFromReal fi rm (instantiate subst r1)
+          FloatToBV w rm r1 -> FloatToBV w rm (instantiate subst r1)
+          FloatToSBV w rm r1 -> FloatToSBV  w rm (instantiate subst r1)
+          FloatToReal r1 -> FloatToReal (instantiate subst r1)
+          FloatIsNaN r1 -> FloatIsNaN  (instantiate subst r1)
+          FloatIsInfinite r1 -> FloatIsInfinite (instantiate subst r1)
+          FloatIsZero r1 -> FloatIsZero (instantiate subst r1)
+          FloatIsPositive r1 -> FloatIsPositive (instantiate subst r1)
+          FloatIsNegative r1 -> FloatIsNegative (instantiate subst r1)
+          FloatIsSubnormal r1 -> FloatIsSubnormal (instantiate subst r1)
+          FloatIsNormal r1 -> FloatIsNormal (instantiate subst r1)
 
           JustValue ty r1 -> JustValue (instantiate subst ty) (instantiate subst r1)
           NothingValue ty -> NothingValue (instantiate subst ty) 
@@ -1600,12 +1614,32 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           BVSdiv n1 r1 r2 -> BVSdiv n1 (instantiate subst r1) (instantiate subst r2)
           BVUrem n1 r1 r2 -> BVUrem n1 (instantiate subst r1) (instantiate subst r2)
           BVSrem n1 r1 r2 -> BVSrem n1 (instantiate subst r1) (instantiate subst r2)                              
-          -- more BV
+
+          BVUle n1 r1 r2 -> BVUle n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVUlt n1 r1 r2 -> BVUlt n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVSle n1 r1 r2 -> BVSle n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVSlt n1 r1 r2 -> BVSlt n1 (instantiate subst r1) (instantiate subst r2)                              
+
+          BVCarry n1 r1 r2 -> BVCarry n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVSCarry n1 r1 r2 -> BVSCarry n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVSBorrow n1 r1 r2 -> BVSBorrow n1 (instantiate subst r1) (instantiate subst r2)                              
+
+          BVShl n1 r1 r2 -> BVShl n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVLshr n1 r1 r2 -> BVLshr n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVAshr n1 r1 r2 -> BVAshr n1 (instantiate subst r1) (instantiate subst r2)                              
+
           BoolToBV n1 r1 -> BoolToBV n1 (instantiate subst r1)
           BvToInteger n1 r1 -> BvToInteger n1 (instantiate subst r1)
           SbvToInteger n1 r1 -> SbvToInteger n1 (instantiate subst r1)
           BvToNat n1 r1 -> BvToNat n1 (instantiate subst r1)
           BVNonzero n1 r1 -> BVNonzero n1 (instantiate subst r1)
+
+
+          EmptyWordMap nr bt -> EmptyWordMap nr bt
+          InsertWordMap nr bt r1 r2 r3 -> InsertWordMap nr bt (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+          LookupWordMap bt r1 r2 -> LookupWordMap bt  (instantiate subst r1) (instantiate subst r2)
+          LookupWordMapWithDefault bt r1 r2 r3 -> LookupWordMapWithDefault bt (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+
 
           InjectVariant ctx idx r1 -> InjectVariant (instantiate subst ctx) (instantiate subst idx)
             (instantiate subst r1)
