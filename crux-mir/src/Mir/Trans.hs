@@ -109,6 +109,7 @@ type MirGenerator h s ret = G.Generator MIR h s FnState ret
 tyToRepr :: HasCallStack => M.Ty -> Some CT.TypeRepr
 tyToRepr t0 = case t0 of
   M.TyBool -> Some CT.BoolRepr
+  M.TyTuple [] -> Some CT.UnitRepr
   M.TyTuple ts ->  tyListToCtx ts $ \repr -> Some (CT.StructRepr repr)
   M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
 
@@ -403,6 +404,13 @@ extendToMax n e1 m e2 Nothing k =
       Just Refl -> k n e1 e2
       Nothing   -> error "don't know the sign"
 
+natReprToBaseSize :: NatRepr n -> M.BaseSize
+natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 8) = M.B8
+natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 16) = M.B16
+natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 32) = M.B32
+natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 64) = M.B64
+natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 128) = M.B128
+
 
 
 transBinOp :: M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
@@ -424,10 +432,19 @@ transBinOp bop op1 op2 = do
               (M.BitXor, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVXor n e1 e2)
               (M.BitAnd, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAnd n e1 e2)
               (M.BitOr, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVOr n e1 e2)
-              (M.Shl, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVShl n e1 e2)
-              (M.Shr, Just M.Unsigned) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
-              (M.Shr, Nothing) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
-              (M.Shr, Just M.Signed) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAshr n e1 e2)
+              (M.Shl, _) ->
+                 let res = MirExp (CT.BVRepr n) (S.app $ E.BVShl n e1 e2)
+                 -- TODO check unsigned vs signed???
+                 in extendUnsignedBV res (natReprToBaseSize na)
+              (M.Shr, Just M.Unsigned) ->
+                 let res = MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
+                 in extendUnsignedBV res (natReprToBaseSize na)
+              (M.Shr, Nothing) ->
+                 let res = MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
+                 in extendUnsignedBV res (natReprToBaseSize na)
+              (M.Shr, Just M.Signed) ->
+                 let res = MirExp (CT.BVRepr n) (S.app $ E.BVAshr n e1 e2) 
+                 in extendSignedBV res (natReprToBaseSize na)
               (M.Lt, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUlt n e1 e2)
               (M.Lt, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSlt n e1 e2)
               (M.Le, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUle n e1 e2)
@@ -555,6 +572,8 @@ modifyAggregateIdx (MirExp ty _) _ _ =
 extendUnsignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
 extendUnsignedBV (MirExp tp e) b =
     case (tp, b) of
+      (CT.BVRepr n, M.B8) | Just LeqProof <- testLeq (knownNat :: NatRepr 9) n ->
+                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 8)) (S.app $ E.BVTrunc (knownNat :: NatRepr 8) n e)
       (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 16) ->
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 16)) (S.app $ E.BVZext (knownNat :: NatRepr 16) n e)
       (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (knownNat :: NatRepr 17) n ->
@@ -576,6 +595,8 @@ extendUnsignedBV (MirExp tp e) b =
 extendSignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
 extendSignedBV (MirExp tp e) b =
     case (tp, b) of
+      (CT.BVRepr n, M.B8) | Just LeqProof <- testLeq (knownNat :: NatRepr 9) n ->
+                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 8)) (S.app $ E.BVTrunc (knownNat :: NatRepr 8) n e)
       (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 16) ->
                 return $ MirExp (CT.BVRepr (knownNat :: NatRepr 16)) (S.app $ E.BVSext (knownNat :: NatRepr 16) n e)
       (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (knownNat :: NatRepr 17) n ->
@@ -1616,7 +1637,8 @@ registerBlock :: HasCallStack => CT.TypeRepr ret -> M.BasicBlock -> MirGenerator
 registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
     lm <- use labelMap
     case (Map.lookup bbinfo lm) of
-      Just lab -> G.defineBlock lab (translateBlockBody tr bbdata)
+      Just lab -> do
+        G.defineBlock lab (translateBlockBody tr bbdata)
       _ -> fail "bad label"
 
 
@@ -1624,15 +1646,18 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
 -- argvars are registers
 -- The first block in the list is the entrance block
 genFn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
-genFn (M.Fn _fname argvars _fretty body _gens _preds) rettype = do
+genFn (M.Fn fname argvars _fretty body _gens _preds) rettype = do
+--  traceM $ "generating code for: " ++ show fname ++ " with args " ++ show argvars
+--  traceM $ "body is " ++ show (pretty body)
   lm <- buildLabelMap body
   labelMap .= lm
   vm' <- buildIdentMapRegs body argvars
   varMap %= Map.union vm'
-  let (M.MirBody _vars blocks@(enter : _)) = body 
+  let (M.MirBody _mvars blocks@(enter : _)) = body
   mapM_ (registerBlock rettype) blocks
   let (M.BasicBlock bbi _) = enter
   lm <- use labelMap
+--  traceM $ "\n label map is " ++ show lm
   case (Map.lookup bbi lm) of
     Just lbl -> G.jump lbl
     _ -> fail "bad thing happened"
@@ -1648,8 +1673,8 @@ transDefine fnState fn@(M.Fn fname fargs _ _ _ _) =
       let argtups  = map (\(M.Var n _ t _ _) -> (n,t)) fargs
       let argtypes = FH.handleArgTypes handle
       let rettype  = FH.handleReturnType handle
-      traceM $ "trans " ++ Text.unpack (M.idText fname) ++ " with args " ++ (show (list (map pretty argtups)))
-      traceM $ "handle argtypes: " ++ show argtypes
+--      traceM $ "trans " ++ Text.unpack (M.idText fname) ++ " with args " ++ (show (list (map pretty argtups)))
+--      traceM $ "handle argtypes: " ++ show argtypes
       let def :: G.FunctionDef MIR handle FnState args ret
           def inputs = (s,f) where
             s = initFnState fnState argtups argtypes inputs
