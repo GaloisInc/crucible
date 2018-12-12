@@ -25,7 +25,7 @@ library
     hashable,
     hashtables,
     lens,
-    llvm-pretty >= 0.7.2 && < 0.9,
+    llvm-pretty >= 0.7.2 && < 0.10,
     mtl,
     parameterized-utils >= 1.0.4 && < 1.1,
     template-haskell,
