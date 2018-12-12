@@ -570,49 +570,25 @@ modifyAggregateIdx (MirExp ty _) _ _ =
 
 -- | Make sure that the expression has exactly the bitwidth requested. If the BV is too short, extend. If too long, truncate.
 extendUnsignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
-extendUnsignedBV (MirExp tp e) b =
-    case (tp, b) of
-      (CT.BVRepr n, M.B8) | Just LeqProof <- testLeq (knownNat :: NatRepr 9) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 8)) (S.app $ E.BVTrunc (knownNat :: NatRepr 8) n e)
-      (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 16) ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 16)) (S.app $ E.BVZext (knownNat :: NatRepr 16) n e)
-      (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (knownNat :: NatRepr 17) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 16)) (S.app $ E.BVTrunc (knownNat :: NatRepr 16) n e)
-      (CT.BVRepr n, M.B32) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 32) ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 32)) (S.app $ E.BVZext (knownNat :: NatRepr 32) n e)
-      (CT.BVRepr n, M.B32) | Just LeqProof <- testLeq (knownNat :: NatRepr 33) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 32)) (S.app $ E.BVTrunc (knownNat :: NatRepr 32) n e)
-      (CT.BVRepr n, M.B64) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 64) ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 64)) (S.app $ E.BVZext (knownNat :: NatRepr 64) n e)
-      (CT.BVRepr n, M.B64) | Just LeqProof <- testLeq (knownNat :: NatRepr 65) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 64)) (S.app $ E.BVTrunc (knownNat :: NatRepr 64) n e)
-      (CT.BVRepr n, M.B128) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 128) ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVZext (knownNat :: NatRepr 128) n e)
-      (CT.BVRepr n, M.B128) | Just LeqProof <- testLeq (knownNat :: NatRepr 129) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVTrunc (knownNat :: NatRepr 128) n e)
+extendUnsignedBV (MirExp tp e) b = baseSizeToNatCont b $ \ w ->
+    case tp of
+      (CT.BVRepr n) | Just Refl <- testEquality w n ->
+                return $ MirExp tp e
+      (CT.BVRepr n) | Just LeqProof <- testLeq (incNat w) n ->
+                return $ MirExp (CT.BVRepr w) (S.app $ E.BVTrunc w n e)
+      (CT.BVRepr n) | Just LeqProof <- testLeq (incNat n) w ->
+                return $ MirExp (CT.BVRepr w) (S.app $ E.BVZext w n e)
       _ -> fail ("unimplemented unsigned bvext: " ++ show tp ++ "  " ++ show b)
 
 extendSignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
-extendSignedBV (MirExp tp e) b =
-    case (tp, b) of
-      (CT.BVRepr n, M.B8) | Just LeqProof <- testLeq (knownNat :: NatRepr 9) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 8)) (S.app $ E.BVTrunc (knownNat :: NatRepr 8) n e)
-      (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 16) ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 16)) (S.app $ E.BVSext (knownNat :: NatRepr 16) n e)
-      (CT.BVRepr n, M.B16) | Just LeqProof <- testLeq (knownNat :: NatRepr 17) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 16)) (S.app $ E.BVTrunc (knownNat :: NatRepr 16) n e)
-      (CT.BVRepr n, M.B32) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 32) ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 32)) (S.app $ E.BVSext (knownNat :: NatRepr 32) n e)
-      (CT.BVRepr n, M.B32) | Just LeqProof <- testLeq (knownNat :: NatRepr 33) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 32)) (S.app $ E.BVTrunc (knownNat :: NatRepr 32) n e)
-      (CT.BVRepr n, M.B64) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 64) ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 64)) (S.app $ E.BVSext (knownNat :: NatRepr 64) n e)
-      (CT.BVRepr n, M.B64) | Just LeqProof <- testLeq (knownNat :: NatRepr 65) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 64)) (S.app $ E.BVTrunc (knownNat :: NatRepr 64) n e)
-      (CT.BVRepr n, M.B128) | Just LeqProof <- testLeq (incNat n) (knownNat :: NatRepr 128) ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVSext (knownNat :: NatRepr 128) n e)
-      (CT.BVRepr n, M.B128) | Just LeqProof <- testLeq (knownNat :: NatRepr 129) n ->
-                return $ MirExp (CT.BVRepr (knownNat :: NatRepr 128)) (S.app $ E.BVTrunc (knownNat :: NatRepr 128) n e)
+extendSignedBV (MirExp tp e) b = baseSizeToNatCont b $ \ w ->
+    case tp of
+      (CT.BVRepr n) | Just Refl <- testEquality w n ->
+                return $ MirExp tp e
+      (CT.BVRepr n) | Just LeqProof <- testLeq (incNat w) n ->
+                return $ MirExp (CT.BVRepr w) (S.app $ E.BVTrunc w n e)
+      (CT.BVRepr n) | Just LeqProof <- testLeq (incNat n) w ->
+                return $ MirExp (CT.BVRepr w) (S.app $ E.BVSext w n e)
       _ -> fail $ "unimplemented signed bvext" ++ show tp ++ " " ++ show b
 
 -- | convert a baseSize to a nat repr
