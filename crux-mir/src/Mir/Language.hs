@@ -5,6 +5,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ImplicitParams #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -93,7 +94,7 @@ instance Crux.Language CruxMIR where
 
   makeCounterExamples = makeCounterExamplesMIR
 
-simulateMIR :: forall sym. Crux.Simulate sym CruxMIR
+simulateMIR :: forall sym. (?outputConfig :: OutputConfig) => Crux.Simulate sym CruxMIR
 simulateMIR execFeatures (cruxOpts, _mirOpts) sym p = do
 
   setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
@@ -167,7 +168,7 @@ simulateMIR execFeatures (cruxOpts, _mirOpts) sym p = do
   return $ Result res
 
 
-makeCounterExamplesMIR :: Crux.Options CruxMIR -> Maybe (ProvedGoals a) -> IO ()
+makeCounterExamplesMIR :: (?outputConfig :: OutputConfig) => Crux.Options CruxMIR -> Maybe (ProvedGoals a) -> IO ()
 makeCounterExamplesMIR _opts = maybe (return ()) go
   where
     go gs =
