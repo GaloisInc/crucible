@@ -1598,12 +1598,10 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           BvToNat n1 r1 -> BvToNat n1 (instantiate subst r1)
           BVNonzero n1 r1 -> BVNonzero n1 (instantiate subst r1)
 
-
           EmptyWordMap nr bt -> EmptyWordMap nr bt
           InsertWordMap nr bt r1 r2 r3 -> InsertWordMap nr bt (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
           LookupWordMap bt r1 r2 -> LookupWordMap bt  (instantiate subst r1) (instantiate subst r2)
           LookupWordMapWithDefault bt r1 r2 r3 -> LookupWordMapWithDefault bt (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
-
 
           InjectVariant ctx idx r1 -> InjectVariant (instantiate subst ctx) (instantiate subst idx)
             (instantiate subst r1)

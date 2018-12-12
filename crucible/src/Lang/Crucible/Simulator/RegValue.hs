@@ -108,6 +108,7 @@ newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
 -- FnVal
 
 -- | Represents a function closure.
+
 data FnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) where
   ClosureFnVal :: Closed tp =>
                   !(FnVal sym (args ::> tp) ret)

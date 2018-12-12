@@ -916,6 +916,9 @@ extendBlockMap = fmapFC extendBlock
 -- which correspond to the formal arguments of the CFG entry point.
 -- The @ret@ type parameter indicates the return type of the function.
 
+--
+-- Some CFGs may have polymorphic FnHandles. In that case, they can include
+-- a type instantiation
 data CFG (ext :: Type)
          (blocks :: Ctx (Ctx CrucibleType))
          (init :: Ctx CrucibleType)

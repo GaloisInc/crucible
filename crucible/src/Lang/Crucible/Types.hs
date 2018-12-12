@@ -167,6 +167,7 @@ import           Unsafe.Coerce (unsafeCoerce)
 --   Parameter @nm@ has kind 'Symbol'.
 --
 --   If polymorphism is required, then 'eqInstUnroll' must be defined
+
 --   to prove that the rhs of the UnrollType does not include any type
 --   variables that were not already present in the ctx argument.
 --   (This is equivalent to the constraint "Closed (UnrollType nm)" but
@@ -240,6 +241,7 @@ data CrucibleType where
 
    -- A partial map from strings to values.
    StringMapType :: CrucibleType -> CrucibleType
+
 
    -- A type variable, represented as an index and quantified by an enclosing 'PolyFnType'
    VarType :: Nat -> CrucibleType
@@ -699,8 +701,6 @@ type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) (def :: Crucibl
   LookupVarType n EmptyCtx     def = def
   
 
-
-
 -- TypeCon apps
 
 instance (InstantiateF t) => InstantiateType (t a) where
@@ -723,7 +723,6 @@ type instance Instantiate subst Ctx.Assignment = Ctx.Assignment
 -- k = Ctx k'
 type instance Instantiate subst EmptyCtx = EmptyCtx
 type instance Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
-
 
 -- Ctx.Assignment :: (k -> Type) -> Ctx k -> Type
 instance InstantiateFC Ctx.Assignment where
