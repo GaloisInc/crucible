@@ -46,6 +46,7 @@ module Lang.Crucible.LLVM.Translation.Expr
   , liftConstant
 
   , callIsNull
+  , callIntToBool
   , callAlloca
   , callPushFrame
   , callPopFrame
@@ -302,7 +303,7 @@ unpackVarArgs :: forall s arch a
 unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList $ xs'
  where xs' = let ?err = error in
              map (\x -> unpackOne x (\tp x' -> App (PackAny tp x'))) xs
-  
+
 
 
 
@@ -436,24 +437,32 @@ callIsNull
    => NatRepr w
    -> Expr (LLVM arch) s (LLVMPointerType w)
    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
-callIsNull w (BitvectorAsPointerExpr _ bv) =
+callIsNull w ex = App . Not <$> callIntToBool w ex
+
+callIntToBool
+  :: (1 <= w)
+  => NatRepr w
+  -> Expr (LLVM arch) s (LLVMPointerType w)
+  -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+callIntToBool w (BitvectorAsPointerExpr _ bv) =
   case bv of
     App (BVLit _ 0) -> return true
-    _ -> return (App (BVEq w bv (App (BVLit w 0))))
-callIsNull w ex =
+    _ -> return (App (BVNonzero w bv))
+callIntToBool w ex =
    do ex' <- forceEvaluation (App (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) ex))
       let blk = App (GetStruct ex' (Ctx.natIndex @0) NatRepr)
       let off = App (GetStruct ex' (Ctx.natIndex @1) (BVRepr w))
-      return (blk .== litExpr 0 .&& (App (BVEq w off (App (BVLit w 0)))))
+      return (blk ./= litExpr 0 .|| (App (BVNonzero w off)))
 
 callAlloca
    :: wptr ~ ArchWidth arch
    => Expr (LLVM arch) s (BVType wptr)
+   -> Alignment
    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
-callAlloca sz = do
+callAlloca sz alignment = do
    memVar <- getMemVar
    loc <- show <$> getPosition
-   extensionStmt (LLVM_Alloca ?ptrWidth memVar sz loc)
+   extensionStmt (LLVM_Alloca ?ptrWidth memVar sz alignment loc)
 
 callPushFrame :: LLVMGenerator h s arch ret ()
 callPushFrame = do
@@ -504,7 +513,7 @@ callStore :: MemType
 callStore typ (asScalar -> Scalar PtrRepr ptr) (ZeroExpr _mt) _align =
  do memVar <- getMemVar
     typ'   <- toStorableType typ
-    void $ extensionStmt (LLVM_MemClear memVar ptr (typeSize typ'))
+    void $ extensionStmt (LLVM_MemClear memVar ptr (storageTypeSize typ'))
 
 callStore typ (asScalar -> Scalar PtrRepr ptr) v align =
  do let ?err = fail
@@ -515,4 +524,3 @@ callStore typ (asScalar -> Scalar PtrRepr ptr) v align =
 
 callStore _ _ _ _ =
   fail $ unwords ["Unexpected argument type in callStore"]
-

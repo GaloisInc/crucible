@@ -272,6 +272,12 @@ class IsExpr e where
   asSignedBV   :: (1 <= w) => e (BaseBVType w) -> Maybe Integer
   asSignedBV _ = Nothing
 
+  -- | If we have bounds information about the term, return unsigned upper and lower bounds
+  unsignedBVBounds :: (1 <= w) => e (BaseBVType w) -> Maybe (Integer, Integer)
+
+  -- | If we have bounds information about the term, return signed upper and lower bounds
+  signedBVBounds :: (1 <= w) => e (BaseBVType w) -> Maybe (Integer, Integer)
+
   -- | Return the string value if this is a constant string
   asString :: e BaseStringType -> Maybe Text
   asString _ = Nothing
@@ -404,7 +410,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   getConfiguration :: sym -> Config
 
 
-  -- | Install an action that will be invoked before and after calls to 
+  -- | Install an action that will be invoked before and after calls to
   --   backend solvers.  This action is primarily intended to be used for
   --   logging/profiling/debugging purposes.  Passing `Nothing` to this
   --   function disables logging.
@@ -2155,6 +2161,27 @@ class ( IsExprBuilder sym
 
   -- | Create a fresh latch variable.
   freshLatch    :: sym -> SolverSymbol -> BaseTypeRepr tp -> IO (SymExpr sym tp)
+
+  -- | Create a fresh bitvector value with optional upper and lower bounds (which bound the
+  --   unsigned value of the bitvector).
+  freshBoundedBV :: (1 <= w) => sym -> SolverSymbol -> NatRepr w -> Maybe Natural -> Maybe Natural -> IO (SymBV sym w)
+
+  -- | Create a fresh bitvector value with optional upper and lower bounds (which bound the
+  --   signed value of the bitvector)
+  freshBoundedSBV :: (1 <= w) => sym -> SolverSymbol -> NatRepr w -> Maybe Integer -> Maybe Integer -> IO (SymBV sym w)
+
+  -- | Create a fresh natural number constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedNat :: sym -> SolverSymbol -> Maybe Natural -> Maybe Natural -> IO (SymNat sym)
+
+  -- | Create a fresh integer constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedInt :: sym -> SolverSymbol -> Maybe Integer -> Maybe Integer -> IO (SymInteger sym)
+
+  -- | Create a fresh real constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedReal :: sym -> SolverSymbol -> Maybe Rational -> Maybe Rational -> IO (SymReal sym)
+
 
   ----------------------------------------------------------------------
   -- Functions needs to support quantifiers.

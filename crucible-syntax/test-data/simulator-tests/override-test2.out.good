@@ -3,7 +3,7 @@
 ==== Finish Simulation ====
 ==== Proof obligations ====
 Assuming:
-* The branch in symbolicBranchesTest from <function entry> to after branch 0
+* The branch in main from test-data/simulator-tests/override-test2.cbl:5:12 to after branch 0
     boolNot (intEq 1 cx@2:i)
 * The branch in symbolicBranchesTest from after branch 0 to after branch 1
     boolNot (intEq 2 cx@2:i)
