@@ -34,6 +34,7 @@ module What4.Utils.BVDomain.Map
   , ult
   , testBit
   , domainsOverlap
+  , ranges
     -- * Operations
   , empty
   , any
@@ -158,6 +159,10 @@ isValidBVDomain w d =
 
 ------------------------------------------------------------------------
 -- Projection functions
+
+-- | Convert domain to list of ranges.
+ranges :: NatRepr w -> BVDomain w -> [(Integer, Integer)]
+ranges _w d = toList d
 
 -- | Convert domain to list of ranges.
 toList :: BVDomain w -> [(Integer, Integer)]
@@ -514,12 +519,12 @@ fromList :: (1 <= w)
          -> NatRepr w
          -> [(Integer, Integer)]
          -> BVDomain w
-fromList nm params w ranges
-  | Prelude.not (checkRanges w ranges) =
+fromList nm params w rgs
+  | Prelude.not (checkRanges w rgs) =
       error $ nm ++ " provided invalid values to range with width " ++ show w ++ "\n  "
-         ++ show ranges
+         ++ show rgs
   | otherwise = boundedBVDomain nm params w $
-    Fold.foldl' (\p (l,h) -> insertRange l h p) emptyInterBVDomain ranges
+    Fold.foldl' (\p (l,h) -> insertRange l h p) emptyInterBVDomain rgs
 
 -- | Create a BVdomain from a list of ranges.
 --
@@ -535,7 +540,7 @@ modList :: forall u
              -- List of ranges
 
           -> BVDomain u
-modList nm params w ranges
+modList nm params w rgs
     -- If the width exceeds maxInt, then just return anything (otherwise we can't even shift.
   | natValue w > toInteger (maxBound :: Int) = any w
   | otherwise =
@@ -553,7 +558,7 @@ modList nm params w ranges
                 mapRange ((0, low_ubound) : (low_lbound, rangeSize w - 1) : processed)
                          next
             AnyRange -> any w
-     in mapRange [] ranges
+     in mapRange [] rgs
 
 -- | @concat x y@ returns domain where each element in @x@ has been
 -- concatenated with an element in @y@.  The most-significant bits

@@ -129,6 +129,8 @@ import qualified What4.Expr.UnaryBV as UnaryBV
 import           What4.ProgramLoc
 import           What4.SatResult
 import           What4.Symbol
+import           What4.Utils.AbstractDomains
+import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
 
@@ -393,12 +395,8 @@ class Num v => SupportTermOps v where
              -> v
 
   -- | Select a field from a struct.
-  --
-  -- The first argument contains the type of the fields of the struct.
-  -- The second argument contains the stuct value.
-  -- The third argument defines the index.
   structFieldSelect :: Int -- ^ Number of struct fields.
-                    -> v
+                    -> v   -- ^ Struct value to select from
                     -> Int -- ^ 0-based index of field.
                     -> v
 
@@ -1034,9 +1032,10 @@ freshBoundTerm' t = SMTName tp <$> freshBoundFn [] tp (asBase t)
   where tp = smtExprType t
 
 -- | Assert a predicate holds as a side condition to some formula.
-addSideCondition :: String     -- ^ Reason that condition is being added.
-                 -> Term h     -- ^ Predicate that should hold.
-                 -> SMTCollector t h ()
+addSideCondition ::
+   String {- ^ Reason that condition is being added. -} ->
+   Term h {- ^ Predicate that should hold. -} ->
+   SMTCollector t h ()
 addSideCondition nm t = do
   conn <- asks scConn
   mf <- asks recordSideCondFn
@@ -1048,10 +1047,86 @@ addSideCondition nm t = do
      fail $ "Cannot add a side condition within a function needed to define the "
        ++ nm ++ " term created at " ++ show loc ++ "."
 
-addPartialSideCond :: SupportTermOps (Term h)
-                   => Term h -> BaseTypeRepr tp -> SMTCollector t h ()
-addPartialSideCond t BaseNatRepr = addSideCondition "nat" $ t .>= 0
-addPartialSideCond _ _ = return ()
+addPartialSideCond ::
+  forall t h tp.
+  SMTWriter h =>
+  Term h ->
+  TypeMap tp ->
+  Maybe (AbstractValue tp) ->
+  SMTCollector t h ()
+
+-- NB, nats have a side condition even if there is no abstract domain
+addPartialSideCond t NatTypeMap Nothing =
+  do addSideCondition "nat_range" $ t .>= 0
+
+-- in all other cases, no abstract domain information means unconstrained values
+addPartialSideCond _ _ Nothing = return ()
+
+addPartialSideCond t BoolTypeMap (Just abv) =
+  case abv of
+    Nothing -> return ()
+    Just b  -> addSideCondition "bool_val" $ t .== boolExpr b
+
+addPartialSideCond t NatTypeMap (Just rng) =
+  do addSideCondition "nat_range" $ t .>= integerTerm (toInteger (natRangeLow rng))
+     case natRangeHigh rng of
+       Unbounded -> return ()
+       Inclusive hi -> addSideCondition "nat_range" $ t .<= integerTerm (toInteger hi)
+
+addPartialSideCond t IntegerTypeMap (Just rng) =
+  do case rangeLowBound rng of
+       Unbounded -> return ()
+       Inclusive lo -> addSideCondition "int_range" $ t .>= integerTerm lo
+     case rangeHiBound rng of
+       Unbounded -> return ()
+       Inclusive hi -> addSideCondition "int_range" $ t .<= integerTerm hi
+
+addPartialSideCond t RealTypeMap (Just rng) =
+  do case rangeLowBound (ravRange rng) of
+       Unbounded -> return ()
+       Inclusive lo -> addSideCondition "real_range" $ t .>= rationalTerm lo
+     case rangeHiBound (ravRange rng) of
+       Unbounded -> return ()
+       Inclusive hi -> addSideCondition "real_range" $ t .<= rationalTerm hi
+
+addPartialSideCond t (BVTypeMap w) (Just rng) = mapM_ assertRange (BVD.ranges w rng)
+ where
+ assertRange (lo,hi) =
+   do when (lo > 0)
+           (addSideCondition "bv_range" $ bvULe (bvTerm w lo) t)
+      when (hi < maxUnsigned w)
+           (addSideCondition "bv_range" $ bvULe t (bvTerm w hi))
+
+addPartialSideCond _ (FloatTypeMap _) (Just ()) = return ()
+
+addPartialSideCond t ComplexToStructTypeMap (Just (realRng :+ imagRng)) =
+  do let r = arrayComplexRealPart @h t
+     let i = arrayComplexImagPart @h t
+     addPartialSideCond r RealTypeMap (Just realRng)
+     addPartialSideCond i RealTypeMap (Just imagRng)
+
+addPartialSideCond t ComplexToArrayTypeMap (Just (realRng :+ imagRng)) =
+  do let r = arrayComplexRealPart @h t
+     let i = arrayComplexImagPart @h t
+     addPartialSideCond r RealTypeMap (Just realRng)
+     addPartialSideCond i RealTypeMap (Just imagRng)
+
+addPartialSideCond t (StructTypeMap ctx) (Just abvs) =
+  do let len = Ctx.sizeInt (Ctx.size ctx)
+     Ctx.forIndex (Ctx.size ctx)
+        (\start i ->
+            do start
+               addPartialSideCond
+                 (structFieldSelect len t (Ctx.indexVal i))
+                 (ctx Ctx.! i)
+                 (Just (unwrapAV (abvs Ctx.! i))))
+        (return ())
+
+addPartialSideCond _t (PrimArrayTypeMap _idxTp _resTp) (Just _abv) =
+  fail "SMTWriter.addPartialSideCond: bounds on array values not supported"
+addPartialSideCond _t (FnArrayTypeMap _idxTp _resTp) (Just _abv) =
+  fail "SMTWriter.addPartialSideCond: bounds on array values not supported"
+
 
 -- | This runs the collector on the connection
 runOnLiveConnection :: SMTWriter h => WriterConn t h -> SMTCollector t h a -> IO a
@@ -1474,7 +1549,7 @@ mkExpr (BoundVarExpr var) = do
        liftIO $ addCommand conn $ declareCommand conn var_name Ctx.empty smt_type
 
        -- Add assertion based on var type.
-       addPartialSideCond (fromText var_name) (bvarType var)
+       addPartialSideCond (fromText var_name) smt_type (bvarAbstractValue var)
 
        -- Return variable name
        return $ SMTName smt_type var_name
@@ -1510,7 +1585,7 @@ predSMTExpr e0 = do
           t <- liftIO $ f smtType
           bindVar var t
 
-          addPartialSideCond (asBase t) (bvarType var)
+          addPartialSideCond (asBase t) smtType (bvarAbstractValue var)
           mkBaseExpr e
       freshBoundTerm BoolTypeMap $ forallResult cr
     Exists var e -> do
@@ -1524,7 +1599,7 @@ predSMTExpr e0 = do
           t <- liftIO $ f smtType
           bindVar var t
 
-          addPartialSideCond (asBase t) (bvarType var)
+          addPartialSideCond (asBase t) smtType (bvarAbstractValue var)
           mkBaseExpr e
       freshBoundTerm BoolTypeMap $ existsResult cr
 

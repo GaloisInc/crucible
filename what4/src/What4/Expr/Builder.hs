@@ -106,6 +106,7 @@ module What4.Expr.Builder
   , bvarName
   , bvarType
   , bvarKind
+  , bvarAbstractValue
   , VarKind(..)
   , boundVars
   , ppBoundVar
@@ -247,18 +248,19 @@ data VarKind
 -- | Information about bound variables.
 -- Parameter @t@ is a phantom type brand used to track nonces.
 --
--- Type @'SimpleBoundVar' t@ instantiates the type family
+-- Type @'ExprBoundVar' t@ instantiates the type family
 -- @'BoundVar' ('ExprBuilder' t st)@.
 --
--- Selector functions are provided to destruct 'SimpleBoundVar'
+-- Selector functions are provided to destruct 'ExprBoundVar'
 -- values, but the constructor is kept hidden. The preferred way to
--- construct a 'SimpleBoundVar' is to use 'freshBoundVar'.
+-- construct a 'ExprBoundVar' is to use 'freshBoundVar'.
 data ExprBoundVar t (tp :: BaseType) =
   BVar { bvarId  :: {-# UNPACK #-} !(Nonce t tp)
        , bvarLoc :: !ProgramLoc
        , bvarName :: !SolverSymbol
        , bvarType :: !(BaseTypeRepr tp)
        , bvarKind :: !VarKind
+       , bvarAbstractValue :: !(Maybe (AbstractValue tp))
        }
 
 instance Eq (ExprBoundVar t tp) where
@@ -1585,7 +1587,8 @@ exprAbsValue (StringExpr{})   = ()
 exprAbsValue (BVExpr w c _)   = BVD.singleton w c
 exprAbsValue (NonceAppExpr e) = nonceExprAbsValue e
 exprAbsValue (AppExpr e)      = appExprAbsValue e
-exprAbsValue (BoundVarExpr v) = unconstrainedAbsValue (bvarType v)
+exprAbsValue (BoundVarExpr v) =
+  fromMaybe (unconstrainedAbsValue (bvarType v)) (bvarAbstractValue v)
 
 -- | Return an unconstrained abstract value.
 unconstrainedAbsValue :: BaseTypeRepr tp -> AbstractValue tp
@@ -2677,8 +2680,9 @@ sbMakeBoundVar :: ExprBuilder t st fs
                -> SolverSymbol
                -> BaseTypeRepr tp
                -> VarKind
+               -> Maybe (AbstractValue tp)
                -> IO (ExprBoundVar t tp)
-sbMakeBoundVar sym nm tp k = do
+sbMakeBoundVar sym nm tp k absVal = do
   n  <- sbFreshIndex sym
   pc <- curProgramLoc sym
   return $! BVar { bvarId   = n
@@ -2686,6 +2690,7 @@ sbMakeBoundVar sym nm tp k = do
                  , bvarName = nm
                  , bvarType = tp
                  , bvarKind = k
+                 , bvarAbstractValue = absVal
                  }
 
 -- | Create fresh index
@@ -5607,17 +5612,65 @@ instance IsInterpretedFloatExprBuilder (ExprBuilder t st (Flags FloatIEEE)) wher
 
 instance IsSymExprBuilder (ExprBuilder t st fs) where
   freshConstant sym nm tp = do
-    v <- sbMakeBoundVar sym nm tp UninterpVarKind
+    v <- sbMakeBoundVar sym nm tp UninterpVarKind Nothing
     updateVarBinding sym nm (VarSymbolBinding v)
     return $! BoundVarExpr v
 
+  freshBoundedBV sym nm w Nothing Nothing = freshConstant sym nm (BaseBVRepr w)
+  freshBoundedBV sym nm w mlo mhi =
+    do v <- sbMakeBoundVar sym nm (BaseBVRepr w) UninterpVarKind (Just $! (BVD.range w lo hi))
+       updateVarBinding sym nm (VarSymbolBinding v)
+       return $! BoundVarExpr v
+   where
+   lo = maybe (minUnsigned w) toInteger mlo
+   hi = maybe (maxUnsigned w) toInteger mhi
+
+  freshBoundedSBV sym nm w Nothing Nothing = freshConstant sym nm (BaseBVRepr w)
+  freshBoundedSBV sym nm w mlo mhi =
+    do v <- sbMakeBoundVar sym nm (BaseBVRepr w) UninterpVarKind (Just $! (BVD.range w lo hi))
+       updateVarBinding sym nm (VarSymbolBinding v)
+       return $! BoundVarExpr v
+   where
+   lo = fromMaybe (minSigned w) mlo
+   hi = fromMaybe (maxSigned w) mhi
+
+  freshBoundedInt sym nm mlo mhi =
+    do v <- sbMakeBoundVar sym nm BaseIntegerRepr UninterpVarKind (absVal mlo mhi)
+       updateVarBinding sym nm (VarSymbolBinding v)
+       return $! BoundVarExpr v
+   where
+   absVal Nothing Nothing = Nothing
+   absVal (Just lo) Nothing = Just $! MultiRange (Inclusive lo) Unbounded
+   absVal Nothing (Just hi) = Just $! MultiRange Unbounded (Inclusive hi)
+   absVal (Just lo) (Just hi) = Just $! MultiRange (Inclusive lo) (Inclusive hi)
+
+  freshBoundedReal sym nm mlo mhi =
+    do v <- sbMakeBoundVar sym nm BaseRealRepr UninterpVarKind (absVal mlo mhi)
+       updateVarBinding sym nm (VarSymbolBinding v)
+       return $! BoundVarExpr v
+   where
+   absVal Nothing Nothing = Nothing
+   absVal (Just lo) Nothing = Just $! RAV (MultiRange (Inclusive lo) Unbounded) Nothing
+   absVal Nothing (Just hi) = Just $! RAV (MultiRange Unbounded (Inclusive hi)) Nothing
+   absVal (Just lo) (Just hi) = Just $! RAV (MultiRange (Inclusive lo) (Inclusive hi)) Nothing
+
+  freshBoundedNat sym nm mlo mhi =
+    do v <- sbMakeBoundVar sym nm BaseNatRepr UninterpVarKind (absVal mlo mhi)
+       updateVarBinding sym nm (VarSymbolBinding v)
+       return $! BoundVarExpr v
+   where
+   absVal Nothing Nothing = Nothing
+   absVal (Just lo) Nothing = Just $! natRange lo Unbounded
+   absVal Nothing (Just hi) = Just $! natRange 0 (Inclusive hi)
+   absVal (Just lo) (Just hi) = Just $! natRange lo (Inclusive hi)
+
   freshLatch sym nm tp = do
-    v <- sbMakeBoundVar sym nm tp LatchVarKind
+    v <- sbMakeBoundVar sym nm tp LatchVarKind Nothing
     updateVarBinding sym nm (VarSymbolBinding v)
     return $! BoundVarExpr v
 
   freshBoundVar sym nm tp =
-    sbMakeBoundVar sym nm tp QuantifierVarKind
+    sbMakeBoundVar sym nm tp QuantifierVarKind Nothing
 
   varExpr _ = BoundVarExpr
 

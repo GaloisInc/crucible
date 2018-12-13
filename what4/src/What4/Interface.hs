@@ -2162,6 +2162,27 @@ class ( IsExprBuilder sym
   -- | Create a fresh latch variable.
   freshLatch    :: sym -> SolverSymbol -> BaseTypeRepr tp -> IO (SymExpr sym tp)
 
+  -- | Create a fresh bitvector value with optional upper and lower bounds (which bound the
+  --   unsigned value of the bitvector).
+  freshBoundedBV :: (1 <= w) => sym -> SolverSymbol -> NatRepr w -> Maybe Natural -> Maybe Natural -> IO (SymBV sym w)
+
+  -- | Create a fresh bitvector value with optional upper and lower bounds (which bound the
+  --   signed value of the bitvector)
+  freshBoundedSBV :: (1 <= w) => sym -> SolverSymbol -> NatRepr w -> Maybe Integer -> Maybe Integer -> IO (SymBV sym w)
+
+  -- | Create a fresh natural number constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedNat :: sym -> SolverSymbol -> Maybe Natural -> Maybe Natural -> IO (SymNat sym)
+
+  -- | Create a fresh integer constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedInt :: sym -> SolverSymbol -> Maybe Integer -> Maybe Integer -> IO (SymInteger sym)
+
+  -- | Create a fresh real constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedReal :: sym -> SolverSymbol -> Maybe Rational -> Maybe Rational -> IO (SymReal sym)
+
+
   ----------------------------------------------------------------------
   -- Functions needs to support quantifiers.
 
