@@ -59,7 +59,6 @@ import Data.Foldable
 import Data.Functor
 import qualified Data.Functor.Product as Functor
 import Data.Maybe
-import Data.List.NonEmpty (NonEmpty(..))
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.TraversableFC
