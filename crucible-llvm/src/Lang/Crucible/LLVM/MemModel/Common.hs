@@ -494,6 +494,16 @@ valueLoad lo ltp so v
        le = typeEnd lo ltp
        se = so + storageTypeSize stp
 
+-- | This function computes a mux tree value for loading a chunk from inside
+--   a previously-written value.  The @StorageType@ of the load indicates
+--   the size of the loaded value and how we intend to view it.  The bounds,
+--   if provided, are bounds on the difference between the load pointer and the
+--   store pointer.  Postive values indicate the Load offset is larger than the
+--   store offset.  These bounds, if provided, are used to shrink the size of
+--   the computed mux tree, and can lead to significantly smaller results.
+--   The @ValueView@ is the syntactic representation of the value being
+--   loaded from.  The @Alignment@ value is the largest common alignment of
+--   the load and the store.
 symbolicValueLoad ::
   BasePreference {- ^ whether addresses are based on store or load -} ->
   StorageType           {- ^ load type            -} ->
@@ -510,29 +520,58 @@ symbolicValueLoad pref tp bnd v alignment =
     lsz = typeEnd 0 tp
     Just stp = viewType v
 
+    -- The prefix table represents cases where the load pointer occurs strictly before the
+    -- write pointer, so that the end of the load may be partially satisfied by this write.
     prefixTable = mkPrefixTable prefixLoBound
+
+    -- The suffix table represents cases where the load pointer occurs at or after the write
+    -- pointer so that the load is fully satisfied or the beginning is partially satisfied
+    -- by this write.
     suffixTable = mkSuffixTable suffixLoBound
 
+    -- The smallest (non-negative) offset value that can occur in the suffix table.
+    -- This is either 0 (load = store) or is given by the difference bound when
+    -- the low value is positive.
     suffixLoBound =
       case bnd of
-        Just (lo, _hi) | lo >= 0 -> max 0 (toBytes lo)
+        Just (lo, _hi)
+          | lo > 0 -> toBytes lo
         _ -> 0
 
+    -- One past the largest offset value that can occur in the suffix table.
+    -- This is either the length of the written value, or is given by the
+    -- difference bound.  Note, in the case @hi@ is negative, the suffix table
+    -- will be empty.
     suffixHiBound =
       case bnd of
-        Just (_lo, hi) | hi >= 0 -> min (storageTypeSize stp) (toBytes hi + 1)
+        Just (_lo, hi)
+          | hi >= 0   -> min (storageTypeSize stp) (toBytes hi + 1)
+          | otherwise -> 0
         _ -> storageTypeSize stp
 
+    -- The smallest magnitude of offset that the load may occur
+    -- behind the write pointer.  This is at least the stride of the alignment,
+    -- but may also be given by the high bound value of the difference, if it is negative.
     prefixLoBound =
       case bnd of
-        Just (_lo, hi) | hi < 0 -> max stride (toBytes (-hi))
+        Just (_lo, hi)
+          | hi < 0 -> max stride (toBytes (-hi))
         _ -> stride
 
+    -- The largest magnitude of offset, plus one, that the load may occur
+    -- behind the write pointer.  This is at most the length of the read,
+    -- but may also be given by the low bound value of the offset difference,
+    -- if it is negative.  Note, in the case that @lo@ is positive, the
+    -- prefix table will be empty.
     prefixHiBound =
       case bnd of
-        Just (lo, _hi) | lo < 0 -> min lsz (toBytes (-lo) + 1)
+        Just (lo, _hi)
+          | lo < 0    -> min lsz (toBytes (-lo) + 1)
+          | otherwise -> 0
         _ -> lsz
 
+    -- Walk through prefix offset values, computing a mux tree of the values
+    -- for those prefix loads.
     mkPrefixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad OffsetExpr)))
     mkPrefixTable i
       | i < prefixHiBound = Map.insert i
@@ -541,6 +580,8 @@ symbolicValueLoad pref tp bnd v alignment =
       | otherwise = Map.empty
       where adjustFn = fixLoadBeforeStoreOffset pref i
 
+    -- Walk through suffix offset values, computing a mux tree of the values
+    -- for those suffix loads.
     mkSuffixTable :: Bytes -> Map Bytes (Mux (ValueCtor (ValueLoad OffsetExpr)))
     mkSuffixTable i
       | i < suffixHiBound =
