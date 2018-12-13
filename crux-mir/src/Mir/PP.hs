@@ -124,13 +124,19 @@ pretty_temp (Var vn vm vty _vs _) =
     (if vm == Mut then text "mut" else text "const")
     <+> pretty vn <+> colon <+> pretty vty <> semi
 
+instance Pretty Predicate where
+  pretty (Predicate trait args) =
+      pretty trait <> list (map pretty args)
+  pretty UnknownPredicate = text "UnknownPredicate"
   
 instance Pretty Fn where
-    pretty (Fn fname1 fargs1 fty fbody1 _generics _preds) =
+    pretty (Fn fname1 fargs1 fty fbody1 _generics preds) =
       vcat [text "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
-                      <+> arrow <+> pretty fty <+> lbrace,
+                      <+> arrow <+> pretty fty <+> prettyPreds preds <+> lbrace,
             indent 3 (pretty fbody1),
-            rbrace]
+            rbrace] where
+      prettyPreds [] = mempty
+      prettyPreds ps = text "where" <+> list (map pretty ps) where
       
 instance Pretty MirBody where
     pretty (MirBody mvs mbs) =
@@ -152,7 +158,7 @@ instance Pretty BasicBlockData where
 
 instance Pretty Statement where
     pretty (Assign lhs rhs _) = pretty lhs <+> equals <+> pretty rhs <> semi
-    pretty (SetDiscriminant lhs rhs) = pretty lhs <+> equals <+> pretty rhs <> semi
+    pretty (SetDiscriminant lhs rhs) = pretty lhs <+> equals <+> pretty lhs <> text "." <> pretty rhs <> semi
     pretty (StorageLive l) = pretty_fn1 "StorageLive" l <> semi
     pretty (StorageDead l) = pretty_fn1 "StorageDead" l <> semi
     pretty Nop = text "nop" <> semi

@@ -551,7 +551,7 @@ accessAggregate (MirExp (CT.StructRepr ctx) ag) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
       let tpr = ctx Ctx.! idx
       return $ MirExp tpr (S.getStruct idx ag)
-accessAggregate (MirExp ty a) b = fail $ "invalid access: " ++ (show a) ++ " : " ++ show ty ++ ", " ++ (show b)
+accessAggregate (MirExp ty a) b = fail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
 
 modifyAggregateIdx :: MirExp s -> -- aggregate to modify
                       MirExp s -> -- thing to insert
@@ -563,7 +563,7 @@ modifyAggregateIdx (MirExp (CT.StructRepr agctx) ag) (MirExp instr ins) i
       case (testEquality tpr instr) of
           Just Refl -> return $ MirExp (CT.StructRepr agctx) (S.setStruct agctx ag idx ins)
           _ -> fail "bad modify"
-
+  | otherwise = fail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdx (MirExp ty _) _ _ =
   do fail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
 
@@ -1061,8 +1061,8 @@ assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
 assignLvExp :: HasCallStack => M.Lvalue -> Maybe M.Ty -> MirExp s -> MirGenerator h s ret ()
 assignLvExp lv re_tp re = do
     case lv of
-        M.Tagged lv _ -> assignLvExp lv re_tp re
-        M.Local var -> assignVarExp var re_tp re
+        M.Tagged lv _ -> assignLvExp  lv re_tp re
+        M.Local var   -> assignVarExp var re_tp re
         M.Static -> fail "static"
         M.LProjection (M.LvalueProjection lv (M.PField field _ty)) -> do
             am <- use adtMap
@@ -1082,10 +1082,28 @@ assignLvExp lv re_tp re = do
 
               M.TyClosure _ _ -> fail "assign to closure unimp"
 
+              M.TyDowncast (M.TyAdt nm args) i -> 
+                case Map.lookup nm am of
+                  Nothing -> fail ("Unknown ADT: " ++ show nm)
+                  Just vars -> do
+                     let struct_variant = vars List.!! (fromInteger i)
+                     Some ctx <- return $ variantToRepr struct_variant args
+
+                     aetu <- evalLvalue lv
+                     etu <- unpackAny (Some taggedUnionType) aetu
+                     e   <- accessAggregate etu 1
+
+                     struct <- unpackAny (Some (CT.StructRepr ctx)) e
+                     struct' <- modifyAggregateIdx struct re field
+
+                     etu' <- modifyAggregateIdx etu (packAny struct') 1
+                     assignLvExp lv Nothing etu'
               _ -> do
                 ag <- evalLvalue lv
                 new_ag <- modifyAggregateIdx ag re field
                 assignLvExp lv Nothing new_ag
+        M.LProjection (M.LvalueProjection lv (M.Downcast i)) -> do
+          assignLvExp lv Nothing re
 
         M.LProjection (M.LvalueProjection (M.LProjection (M.LvalueProjection lv' M.Deref)) (M.Index v))
           | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv' ->
@@ -1129,8 +1147,7 @@ assignLvExp lv re_tp re = do
                case (ref_tp, re) of
                  (MirReferenceRepr tp, MirExp tp' e)
                    | Just CT.Refl <- testEquality tp tp' -> writeMirRef ref e
-                 _ -> fail $ unwords ["Type mismatch when assigning through a reference", show lv, ":=", show re]
-
+                 _ -> fail $ unwords ["Type mismatch when assigning through a reference", show lv, ":=", show re]            
         _ -> fail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
 storageLive :: M.Var -> MirGenerator h s ret ()
@@ -1169,8 +1186,20 @@ transStatement (M.StorageLive lv) =
   do storageLive lv
 transStatement (M.StorageDead lv) =
   do storageDead lv
-transStatement (M.SetDiscriminant _lv _i) =
-  fail "setdiscriminant unimp" -- this should just change the first component of the adt
+transStatement (M.SetDiscriminant lv i) = do
+  ev@(MirExp ty e) <- evalLvalue lv
+  case ty of
+    CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr) -> do
+       e' <- modifyAggregateIdx ev (MirExp CT.NatRepr (S.litExpr (fromInteger (toInteger i)))) 0
+       assignLvExp lv Nothing e'
+    CT.AnyRepr ->
+       fail "set discriminant: found any"
+    CT.IntegerRepr -> do
+       -- this is a C-style enum
+       let ty = TyInt USize
+       let idx = (Value (ConstInt (Isize (toInteger i))))
+       transStatement (M.Assign lv (Use (OpConstant (Constant ty idx))) "internal")
+    _ -> fail $ "set discriminant: cannot handle type " ++ show ty
 transStatement M.Nop = return ()
 
 ifteAny :: R.Expr MIR s CT.BoolType
@@ -1552,6 +1581,8 @@ transTerminator (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
 transTerminator (M.Drop _dl dt _dunwind) _ =
     jumpToBlock dt -- FIXME! drop: just keep going
+transTerminator M.Unreachable tr =
+    G.reportError (S.litExpr "Unreachable")
 transTerminator t _tr =
     fail $ "unknown terminator: " ++ (show t)
 
@@ -1628,6 +1659,8 @@ initialValue (M.TyDynamic _) =
    return $ Just $ packAny (MirExp CT.BoolRepr S.false)
 initialValue (M.TyProjection _ _) =
    return $ Just $ packAny (MirExp CT.BoolRepr S.false)
+initialValue (M.TyCustom (CEnum _n)) =
+   return $ Just $ MirExp CT.IntegerRepr (S.litExpr 0)
 
 -- Anything else: initialize with "false"
 -- We won't actually need it
