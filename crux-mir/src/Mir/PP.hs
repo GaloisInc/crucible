@@ -67,7 +67,7 @@ instance Pretty Ty where
     pretty (TyUint sz)    = text $ "u" ++ size_str sz
     pretty (TyTuple tys)  = tupled (map pretty tys)
     pretty (TySlice ty)   = brackets (pretty ty)
-    pretty (TyArray ty i) = brackets (pretty ty <> comma <+> int i)
+    pretty (TyArray ty i) = brackets (pretty ty <> semi <+> int i)
     pretty (TyRef ty mutability) = text "&" <> pretty mutability <> pretty ty
     pretty (TyAdt defId tys)    = pr_id defId <> pr_args tys
     pretty TyUnsupported         = text "Unsupported"
@@ -162,10 +162,11 @@ instance Pretty Lvalue where
     pretty Static = text "STATIC"
     pretty (LProjection p) = pretty p
     pretty (Tagged lv t) = pretty t <+> parens (pretty lv)
+    pretty (Promoted p _t) = pretty_fn1 "Promoted" p
     
 instance Pretty Rvalue where
     pretty (Use a) = pretty_fn1 "use" a
-    pretty (Repeat a b) = pretty_fn2 "Repeat" a b
+    pretty (Repeat a b) = brackets (pretty a <> semi <> pretty b) 
     pretty (Ref Shared b _c) = text "&" <> pretty b
     pretty (Ref Unique b _c) = text "*" <> pretty b
     pretty (Ref Mutable b _c) = text "&mut" <+> pretty b

@@ -19,7 +19,9 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-{-# OPTIONS_GHC -Wincomplete-patterns -Wall -fno-warn-name-shadowing
+{-# OPTIONS_GHC -Wincomplete-patterns -Wall
+                -fno-warn-name-shadowing
+                -fno-warn-unused-matches
                 -fno-warn-unticked-promoted-constructors -fno-warn-unused-imports #-}
 
 module Mir.Trans where
@@ -1044,7 +1046,7 @@ assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
                 do r <- G.readReg reg
                    writeMirRef r e
               VarAtom _ ->
-                do fail ("Cannot assign to atom: " <> show vname <> " at " <> Text.unpack pos)
+                do fail ("Cannot assign to atom: " <> show vname <> " of type " <> show (pretty vty) <> " at " <> Text.unpack pos)
         | otherwise ->
             fail $ "type error in assignment: got " ++ (show (pretty e_ty)) ++ " but expected "
                      ++ (show (varInfoRepr varinfo)) ++ " in assignment of " ++ (show vname) ++ " which has type "
@@ -1109,6 +1111,7 @@ assignLvExp lv re_tp re = do
         M.LProjection (M.LvalueProjection lv (M.Index v)) -> do
             (MirExp arr_tp arr) <- evalLvalue lv
             (MirExp ind_tp ind) <- lookupVar v
+            traceM $ "assigning to " ++ show lv ++ " of type " ++ show (pretty (M.typeOf lv)) ++ " at " ++ show ind
             case re of
               MirExp r_tp r ->
                 case (arr_tp, ind_tp) of
@@ -1131,13 +1134,22 @@ assignLvExp lv re_tp re = do
         _ -> fail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
 storageLive :: M.Var -> MirGenerator h s ret ()
-storageLive (M.Var nm _ _ _ _) =
+storageLive (M.Var nm _ ty _ _) = 
   do vm <- use varMap
      case Map.lookup nm vm of
-       Just (Some varinfo@(VarReference reg)) ->
-         do r <- newMirRef (varInfoRepr varinfo)
-            G.assignReg reg r
+       Just (Some varinfo@(VarReference reg)) -> do
+         r  <- newMirRef (varInfoRepr varinfo)
+         mv <- initialValue ty
+         _  <- case mv of
+           Nothing -> return ()
+           Just (MirExp rty e) -> 
+              case testEquality rty (varInfoRepr varinfo) of
+                 Just Refl -> do
+                   writeMirRef r e
+                 Nothing -> error "types don't match in storageLive. This is probably a bug"
+         G.assignReg reg r
        _ -> return ()
+
 
 storageDead :: M.Var -> MirGenerator h s ret ()
 storageDead (M.Var nm _ _ _ _) =
@@ -1546,23 +1558,115 @@ transTerminator t _tr =
 
 --- translation of toplevel glue ---
 
+{-
+MIR initializes compound structures by initializing their
+components. It does not include a general allocation. Here we add
+general code initialize the structures for local variables where we
+can. In general, we only need to produce a value of the correct type,
+theres no semantics for what that value should be.
+
+With this code, it is possible for mir-verifier to miss uninitialized values.
+So we should revisit this.
+
+-}
+initialValue :: M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
+initialValue M.TyBool       = return $ Just $ MirExp CT.BoolRepr (S.false)
+initialValue (M.TyTuple []) = return $ Just $ MirExp CT.UnitRepr (R.App E.EmptyApp)
+initialValue (M.TyTuple tys) = do
+    exps <- mapM initialValue tys
+    return $ Just $ buildTuple (Maybe.catMaybes exps)
+initialValue (M.TyInt M.USize) = return $ Just $ MirExp CT.IntegerRepr (S.litExpr 0)
+initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
+    return $ Just $ MirExp (CT.BVRepr w) (S.app (E.BVLit w 0))
+initialValue (M.TyUint M.USize) = return $ Just $ MirExp CT.NatRepr (S.litExpr 0)
+initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
+    return $ Just $ MirExp (CT.BVRepr w) (S.app (E.BVLit w 0))
+initialValue (M.TyArray t size) = do
+    mv <- initialValue t 
+    case mv of
+      Just (MirExp tp e) -> do
+        let n = fromInteger (toInteger size)
+        return $ Just $ MirExp (CT.VectorRepr tp) (S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e)
+      Nothing -> return Nothing
+initialValue (M.TyRef (M.TySlice t) M.Immut) = do
+    tyToReprCont t $ \ tr ->
+      return $ Just (MirExp (CT.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))
+initialValue (M.TyRef (M.TySlice t) M.Mut) = do
+    tyToReprCont t $ \ tr -> do
+      ref <- newMirRef (CT.VectorRepr tr)      
+      let i = (MirExp CT.NatRepr (S.litExpr 0))
+      return $ Just $ buildTuple [(MirExp (MirReferenceRepr (CT.VectorRepr tr)) ref), i, i]
+      -- fail ("don't know how to initialize slices for " ++ show t)
+initialValue (M.TyRef t M.Immut) = initialValue t
+initialValue (M.TyRef t M.Mut) = do
+    mv <- initialValue t
+    case mv of
+      Just (MirExp tp e) -> do
+        ref <- newMirRef tp
+        writeMirRef ref e
+        return $ Just (MirExp (MirReferenceRepr tp) ref)
+      Nothing -> return Nothing
+initialValue M.TyChar = do
+    let w = (knownNat :: NatRepr 32)
+    return $ Just $ MirExp (CT.BVRepr w) (S.app (E.BVLit w 0))
+initialValue (M.TyClosure _ _) =
+   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
+initialValue M.TyStr =
+   return $ Just $ (MirExp CT.StringRepr (S.litExpr ""))
+initialValue (M.TyAdt nm _args) = do
+    am <- use adtMap
+    case Map.lookup nm am of
+       Nothing -> initialValue M.TyBool
+       Just [] -> fail ("don't know how to initialize void adt " ++ show nm)
+       Just (Variant _vn _disc fds _kind :_) -> do
+          let initField (Field _name ty _subst) = initialValue ty
+          fds <- mapM initField fds
+          return $ Just $ buildTaggedUnion 0 (Maybe.catMaybes fds)
+initialValue (M.TyFnPtr _) =
+   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
+initialValue (M.TyDynamic _) =
+   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
+initialValue (M.TyProjection _ _) =
+   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
+
+-- Anything else: initialize with "false"
+-- We won't actually need it
+-- Maybe we should return a maybe instead???
+initialValue _ = return Nothing
+
+
+tyToInitReg :: HasCallStack => M.Ty -> MirGenerator h s ret (Some (R.Reg s))
+tyToInitReg t = do
+   mv  <- initialValue t
+   case mv of 
+      Just (MirExp _tp exp) -> Some <$> G.newReg exp
+      Nothing -> tyToFreshReg t
+
 tyToFreshReg :: HasCallStack => M.Ty -> MirGenerator h s ret (Some (R.Reg s))
 tyToFreshReg t = do
     tyToReprCont t $ \tp ->
         Some <$> G.newUnassignedReg tp
 
-buildIdentMapRegs_ :: HasCallStack => Set Text.Text -> [(Text.Text, M.Ty)] -> MirGenerator h s ret (VarMap s)
-buildIdentMapRegs_ addressTakenVars pairs = foldM f Map.empty pairs
+
+buildIdentMapRegs_ :: HasCallStack => Set Text.Text -> Set Text.Text -> [(Text.Text, M.Ty)] -> MirGenerator h s ret (VarMap s)
+buildIdentMapRegs_ addressTakenVars needsInitVars pairs = foldM f Map.empty pairs
   where
   f map_ (varname, varty)
     | varname `Set.member` addressTakenVars =
         tyToReprCont varty $ \tp ->
            do reg <- G.newUnassignedReg (MirReferenceRepr tp)
               return $ Map.insert varname (Some (VarReference reg)) map_
+
+    | varname `Set.member` needsInitVars = 
+        do Some r <- tyToInitReg varty
+           return $ Map.insert varname (Some (VarRegister r)) map_
+
     | otherwise =
         do Some r <- tyToFreshReg varty
            return $ Map.insert varname (Some (VarRegister r)) map_
 
+-- | Look at all of the assignments in the basic block and return
+-- the set of variables that have their addresses computed
 addrTakenVars :: M.BasicBlock -> Set Text.Text
 addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  where
@@ -1574,11 +1678,80 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  g (M.Tagged lv _) = g lv
  g _ = mempty
 
+
+{-
+assignedVar :: Statement -> [Var]
+assignedVar (M.Assign (Local v) _ _) = [v]
+assignedVar _ = []
+
+-- | Some local variables need to be initialized 
+-- because they are referenced before they are assigned to
+needsInit :: M.BasicBlock -> Set Text.Text
+needsInit bb = Set.foldr addName Set.empty lvs where
+
+  addName (Local v) s = Set.insert (_varname v) s
+  addName (Tagged lv _) s = addName lv s
+  addName (LProjection (LvalueProjection lv _)) s = addName lv s
+  addName _ s = s
+
+  lvs = go Set.empty Set.empty (M._bbstmts (M._bbdata bb)) 
+
+  addRef :: Set Lvalue -> Lvalue -> Set Lvalue -> Set Lvalue
+  addRef assigned name referenced  = if name `Set.member` assigned then referenced else Set.insert name referenced
+
+  lhsRef :: Lvalue -> [ Lvalue ]
+  lhsRef (LProjection (LvalueProjection base _kind)) = [base] ++ lhsRef base
+  lhsRef (Tagged lv _) = lhsRef lv
+  lhsRef _ = []
+
+  go :: Set Lvalue -> Set Lvalue -> [Statement] -> Set Lvalue
+  go referenced assigned [] = goTerm referenced assigned (M._bbterminator (M._bbdata bb))
+  go referenced assigned (M.Assign lhs rhs _ : rest)      = 
+        let refs = foldr (addRef assigned) referenced (lhsRef lhs) in
+        go (Set.delete lhs refs) (Set.insert lhs assigned) rest
+  go referenced assigned (M.SetDiscriminant lv _i : rest) = 
+        go (addRef assigned lv referenced) assigned rest
+  go referenced assigned (M.StorageLive v : rest) = go (Set.delete (Local v) referenced)
+                                                       (Set.insert (Local v) assigned) rest
+  go referenced assigned (M.StorageDead v : rest) = go referenced -- (addRef assigned (Local v) referenced)
+                                                       assigned rest
+  go referenced assigned (M.Nop : rest) = go referenced assigned rest
+
+  goTerm :: Set Lvalue -> Set Lvalue -> Terminator -> Set Lvalue
+  goTerm referenced _assigned (M.SwitchInt _op _ty _vals _args) = referenced
+  goTerm referenced assigned M.Return = addRef assigned (Local (Var "_0" Immut TyBool "" "")) referenced
+  goTerm referenced _assigned (M.DropAndReplace _dlv _dop _dtar _) = referenced
+  goTerm referenced _assigned (M.Call _ _ _ _) = referenced
+  goTerm referenced _assigned (M.Assert _ _ _ _ _) = referenced
+  goTerm referenced _assigned (M.Drop _ _ _) = referenced
+  goTerm referenced _assigned _ = referenced
+
+  getUses :: Rvalue -> [Lvalue]
+  getUses (Use op) = getUsesOp op
+  getUses (Repeat rop _) = getUsesOp rop
+  getUses (Ref _ lv _) = [lv]
+  getUses (Len lv) = [lv]
+  getUses (Cast _ op _) = getUsesOp op
+  getUses (BinaryOp _ b1 b2) = getUsesOp b1 ++ getUsesOp b2
+  getUses (CheckedBinaryOp _ b1 b2) = getUsesOp b1 ++ getUsesOp b2
+  getUses (UnaryOp _ op) = getUsesOp op
+  getUses (Discriminant lv) = [lv]
+  getUses (Aggregate _ ops) = concat (map getUsesOp ops)
+  getUses (RAdtAg (AdtAg _ _ ops)) = concat (map getUsesOp ops)
+  getUses _ = []
+
+  getUsesOp :: Operand -> [Lvalue]
+  getUsesOp (Copy lv) = [lv]
+  getUsesOp (Move lv) = [lv]
+  getUsesOp _ = []
+-}
+
 buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirGenerator h s ret (VarMap s)
 buildIdentMapRegs (M.MirBody vars blocks) _argvars =
-    buildIdentMapRegs_ addressTakenVars (map (\(M.Var name _ ty _ _) -> (name,ty)) vars) -- (vars ++ argvars))
+   buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _) -> (name,ty)) vars) -- (vars ++ argvars))
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
+   needsInitVars = Set.fromList (map _varname vars) -- (mconcat (map needsInit blocks)) `Set.difference` (Set.fromList (map _varname argvars))
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks) = Map.fromList <$> mapM buildLabel blocks
@@ -1617,25 +1790,39 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
         G.defineBlock lab (translateBlockBody tr bbdata)
       _ -> fail "bad label"
 
+-- generate code that allocates 
+allocLocalVar :: Var -> MirGenerator h s ret ()
+allocLocalVar var = do
+   vm <- use varMap
+   return ()
+--   case Map.lookup var vm  of
+--     Just vs -> return ()
+--     Nothing -> return ()
+{-   let ty = M.typeOf var
+   case ty of
+     M.Tuple [] ->
+       G.assign  -}
 
 -- | Translate a MIR function, returning a jump expression to its entry block
 -- argvars are registers
 -- The first block in the list is the entrance block
 genFn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 genFn (M.Fn fname argvars _fretty body _gens _preds) rettype = do
---  traceM $ "generating code for: " ++ show fname ++ " with args " ++ show argvars
---  traceM $ "body is " ++ show (pretty body)
+  traceM $ "generating code for: " ++ show fname ++ " with args " ++ show argvars
+  traceM $ "body is " ++ show (pretty body)
   lm <- buildLabelMap body
   labelMap .= lm
   vm' <- buildIdentMapRegs body argvars
   varMap %= Map.union vm'
-  let (M.MirBody _mvars blocks@(enter : _)) = body
+  let (M.MirBody mvars blocks@(enter : _)) = body
   mapM_ (registerBlock rettype) blocks
   let (M.BasicBlock bbi _) = enter
   lm <- use labelMap
 --  traceM $ "\n label map is " ++ show lm
   case (Map.lookup bbi lm) of
-    Just lbl -> G.jump lbl
+    Just lbl -> do
+       mapM_ allocLocalVar mvars
+       G.jump lbl
     _ -> fail "bad thing happened"
 
 transDefine :: forall h. HasCallStack =>
@@ -1718,8 +1905,6 @@ mkTraitDecl (M.Trait _tname titems) = do
                    -- TODO: maybe we should just skip these instead of throwing an error?
                    error $ "all methods in a trait declaration must have first arg type Self, found " ++ show ty ++ " instead."
 -}
-      go (Some tr) (mname, mty) =
-             error $ "traits may only have methods"
 
 
   case foldl go (Some Ctx.empty) meths of

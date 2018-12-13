@@ -745,7 +745,7 @@ instance TypeOf Lvalue where
     Tagged lv' _          -> typeOf lv'
     Local (Var _ _ t _ _) -> t
     LProjection proj      -> typeOf proj
-
+    Promoted _ t          -> t
 
 instance TypeOf Rvalue where
   typeOf (Use a) = typeOf a
@@ -1004,6 +1004,7 @@ instance PPrint Lvalue where
     pprint Static = "STATIC"
     pprint (LProjection p) = pprint p
     pprint (Tagged lv t) = show t ++ "(" ++ pprint lv ++ ")"
+    pprint (Promoted p _t) = pprint_fn1 "Promoted" p
     
 instance PPrint Rvalue where
     pprint (Use a) = pprint_fn1 "Use" a

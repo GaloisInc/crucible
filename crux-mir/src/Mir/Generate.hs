@@ -68,6 +68,6 @@ generateMIR dir name = do
         when debug $ do
           traceM "--------------------------------------------------------------"
           traceM $ "Collection: " ++ name
-          traceM $ show (pretty col)
+          traceM $ show col
           traceM "--------------------------------------------------------------"  
         return col
