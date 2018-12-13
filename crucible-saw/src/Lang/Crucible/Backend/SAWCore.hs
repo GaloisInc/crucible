@@ -52,6 +52,7 @@ import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Simulator.SimError
 
+import qualified Verifier.SAW.Recognizer as SC (asLambda)
 import qualified Verifier.SAW.SharedTerm as SC
 import qualified Verifier.SAW.Simulator.BitBlast as BBSim
 import qualified Verifier.SAW.TypedAST as SC
@@ -415,6 +416,24 @@ scIteNat :: SC.SharedContext
 scIteNat sc p (SAWExpr x) (SAWExpr y) =
   SAWExpr <$> (SC.scNatType sc >>= \tp -> SC.scIte sc tp p x y)
 
+scIte ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  BaseTypeRepr tp ->
+  SAWExpr BaseBoolType ->
+  SAWExpr tp ->
+  SAWExpr tp ->
+  IO (SAWExpr tp)
+scIte sym sc tp (SAWExpr p) x y =
+  case tp of
+    BaseRealRepr    -> scIteReal sym sc p x y
+    BaseNatRepr     -> scIteNat sc p x y
+    BaseIntegerRepr -> scIteInt sc p x y
+    _ ->
+      do tp' <- baseSCType sym sc tp
+         x' <- termOfSAWExpr sym sc x
+         y' <- termOfSAWExpr sym sc y
+         SAWExpr <$> SC.scIte sc tp' p x' y'
 
 scRealEq ::
   SAWCoreBackend n fs ->
@@ -436,6 +455,39 @@ scNatEq :: SC.SharedContext
         -> IO (SAWExpr BaseBoolType)
 scNatEq sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scEqualNat sc x y
 
+scEq ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  BaseTypeRepr tp ->
+  SAWExpr tp ->
+  SAWExpr tp ->
+  IO (SAWExpr BaseBoolType)
+scEq sym sc tp x y =
+  case tp of
+    BaseRealRepr    -> scRealEq sym sc x y
+    BaseNatRepr     -> scNatEq sc x y
+    BaseIntegerRepr -> scIntEq sc x y
+    BaseBVRepr w    ->
+      do let SAWExpr x' = x
+         let SAWExpr y' = y
+         w' <- SC.scNat sc $ fromIntegral (natValue w)
+         SAWExpr <$> SC.scBvEq sc w' x' y'
+    _ -> unsupported sym "SAW backend: equality comparison on unsupported type"
+
+scAllEq ::
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  Ctx.Assignment BaseTypeRepr ctx ->
+  Ctx.Assignment SAWExpr ctx ->
+  Ctx.Assignment SAWExpr ctx ->
+  IO (SAWExpr BaseBoolType)
+scAllEq _sym sc Ctx.Empty _ _ = SAWExpr <$> SC.scBool sc True
+scAllEq sym sc (ctx Ctx.:> tp) (xs Ctx.:> x) (ys Ctx.:> y)
+  | Ctx.null ctx = scEq sym sc tp x y
+  | otherwise =
+    do SAWExpr p <- scAllEq sym sc ctx xs ys
+       SAWExpr q <- scEq sym sc tp x y
+       SAWExpr <$> SC.scAnd sc p q
 
 scRealLe ::
   SAWCoreBackend n fs ->
@@ -511,7 +563,10 @@ applyArray sym sc (SAWExpr f) args = SAWExpr <$> go args
     go (xs Ctx.:> x) =
       do f' <- go xs
          x' <- termOfSAWExpr sym sc x
-         SC.scApply sc f' x'
+         -- beta-reduce application if possible
+         case SC.asLambda f' of
+           Just (_, _, body) -> SC.instantiateVar sc 0 x' body
+           Nothing           -> SC.scApply sc f' x'
 
 applyExprSymFn ::
   forall n fs args ret.
@@ -772,52 +827,31 @@ evaluateExpr sym sc cache = f
 
         B.ArrayMap{} -> unsupported sym "FIXME SAW backend does not support ArrayMap."
 
-        B.ConstantArray indexTypes _range v -> fmap SAWExpr $ do
-          case Ctx.viewAssign indexTypes of
-            Ctx.AssignExtend b dom -> do
-              when (not (Ctx.null b)) $ do
-                unsupported sym $ "SAW backend only supports single element arrays."
+        B.ConstantArray indexTypes _range v ->
+          makeArray sym sc indexTypes $ \_ -> eval v
 
-              ty <- baseSCType sym sc dom
-              v' <- SC.incVars sc 0 1 =<< f v
-              --v' <- f v
-              SC.scLambda sc "_" ty v'
+        B.SelectArray _ arr indexTerms ->
+          do arr' <- eval arr
+             xs <- traverseFC eval indexTerms
+             applyArray sym sc arr' xs
 
-        B.SelectArray _ arr indexTerms -> fmap SAWExpr $ do
-          case Ctx.viewAssign indexTerms of
-            Ctx.AssignExtend b idx -> do
-              when (not (Ctx.null b)) $ do
-                unsupported sym $ "SAW backend only supports single element arrays."
+        B.MuxArray indexTypes range p xs ys ->
+          makeArray sym sc indexTypes $ \vars ->
+          do p' <- eval p
+             xs' <- eval xs
+             ys' <- eval ys
+             x' <- applyArray sym sc xs' vars
+             y' <- applyArray sym sc ys' vars
+             scIte sym sc range p' x' y'
 
-              join $ SC.scApply sc <$> f arr <*> f idx
-
-        B.MuxArray indexTypes range p x y -> fmap SAWExpr $ do
-          case Ctx.viewAssign indexTypes of
-            Ctx.AssignExtend b dom -> do
-              when (not (Ctx.null b)) $ do
-                unsupported sym $ "SAW backend only supports single element arrays."
-              domTy   <- baseSCType sym sc dom
-              rangeTy <- baseSCType sym sc range
-              ty <- SC.scFun sc domTy rangeTy
-              join $ SC.scIte sc ty <$> f p <*> f x <*> f y
-
-        B.UpdateArray range _ arr indexTerms v -> fmap SAWExpr $ do
-          rangeTy <- baseSCType sym sc range
-          arr' <- f arr
-          v'   <- f v
-          case Ctx.viewAssign indexTerms of
-            Ctx.AssignExtend b idx -> do
-              when (not (Ctx.null b)) $ do
-                unsupported sym $ "SAW backend only supports single element arrays."
-              idx' <- f idx
-              case exprType idx of
-                BaseNatRepr -> do
-                  SC.scUpdNatFun sc rangeTy arr' idx' v'
-                BaseBVRepr w -> do
-                  n <- SC.scNat sc (fromIntegral (natValue w))
-                  SC.scUpdBvFun sc n rangeTy arr' idx' v'
-                _ -> do
-                  unsupported sym $ "SAWCore backend only currently supports integer and bitvector indices."
+        B.UpdateArray range indexTypes arr indexTerms v ->
+          makeArray sym sc indexTypes $ \vars ->
+          do idxs <- traverseFC eval indexTerms
+             p <- scAllEq sym sc indexTypes vars idxs
+             v' <- eval v
+             arr' <- eval arr
+             x <- applyArray sym sc arr' vars
+             scIte sym sc range p v' x
 
         B.NatToInteger x -> NatToIntSAWExpr <$> eval x
         B.IntegerToNat x ->
