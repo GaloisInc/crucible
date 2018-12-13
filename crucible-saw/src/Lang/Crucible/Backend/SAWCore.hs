@@ -149,19 +149,16 @@ baseSCType ::
   SC.SharedContext ->
   BaseTypeRepr tp ->
   IO SC.Term
-baseSCType sym ctx bt =
+baseSCType sym sc bt =
   case bt of
-    BaseBoolRepr -> SC.scBoolType ctx
-    BaseBVRepr w -> SC.scBitvector ctx $ fromIntegral (natValue w)
-    BaseNatRepr  -> SC.scNatType ctx
-    BaseIntegerRepr -> SC.scIntegerType ctx
+    BaseBoolRepr -> SC.scBoolType sc
+    BaseBVRepr w -> SC.scBitvector sc $ fromIntegral (natValue w)
+    BaseNatRepr  -> SC.scNatType sc
+    BaseIntegerRepr -> SC.scIntegerType sc
     BaseArrayRepr indexTypes range ->
-      case Ctx.viewAssign indexTypes of
-        Ctx.AssignExtend b dom -> do
-          when (not (Ctx.null b)) $ do
-            unsupported sym "SAW backend only supports single element arrays."
-          join $ SC.scFun ctx <$> baseSCType sym ctx dom
-                              <*> baseSCType sym ctx range
+      do ts <- baseSCTypes indexTypes
+         t <- baseSCType sym sc range
+         SC.scFunAll sc ts t
     BaseFloatRepr _ ->
       unsupported sym "SAW backend does not support IEEE-754 floating point values: baseSCType"
     BaseStringRepr   ->
@@ -170,8 +167,15 @@ baseSCType sym ctx bt =
       unsupported sym "SAW backend does not support complex values: baseSCType"
     BaseRealRepr     ->
       unsupported sym "SAW backend does not support real values: baseSCType"
-    BaseStructRepr _ ->
-      unsupported sym "FIXME baseSCType for structures"
+    BaseStructRepr ts ->
+      SC.scTupleType sc =<< baseSCTypes ts
+  where
+    baseSCTypes :: Ctx.Assignment BaseTypeRepr args -> IO [SC.Term]
+    baseSCTypes Ctx.Empty = return []
+    baseSCTypes (xs Ctx.:> x) =
+      do ts <- baseSCTypes xs
+         t <- baseSCType sym sc x
+         return (ts ++ [t])
 
 -- | Create a new symbolic variable.
 sawCreateVar :: SAWCoreBackend n fs
@@ -490,7 +494,7 @@ makeArray sym sc idx k =
     mkLambdas Ctx.Empty e = return e
     mkLambdas (tys Ctx.:> ty) e =
       do let x = "x" ++ show (Ctx.size tys)
-         ty' <- evaluateBaseTypeRepr sym sc ty
+         ty' <- baseSCType sym sc ty
          mkLambdas tys =<< SC.scLambda sc x ty' e
 
 applyArray ::
@@ -543,35 +547,6 @@ users of the library can choose if they will try to discharge them,
 fail in some other way, or just ignore them. -}
 unsupported :: SAWCoreBackend n fs -> String -> IO a
 unsupported sym x = addFailedAssertion sym (Unsupported x)
-
-evaluateBaseTypeRepr ::
-  forall n fs ret.
-  SAWCoreBackend n fs ->
-  SC.SharedContext ->
-  BaseTypeRepr ret ->
-  IO SC.Term
-evaluateBaseTypeRepr sym sc ty =
-  case ty of
-    BaseBoolRepr       -> SC.scBoolType sc
-    BaseBVRepr w       -> SC.scBitvector sc (fromInteger (natValue w))
-    BaseNatRepr        -> SC.scNatType sc
-    BaseIntegerRepr    -> SC.scIntegerType sc
-    BaseRealRepr       -> unsupported sym "SAW backend does not support real values"
-    BaseFloatRepr _    -> unsupported sym "SAW backend does not support floating-point values"
-    BaseStringRepr     -> unsupported sym "SAW backend does not support string values"
-    BaseComplexRepr    -> unsupported sym "SAW backend does not support complex values"
-    BaseStructRepr ts  -> do ts' <- evaluateBaseTypeReprs ts
-                             SC.scTupleType sc ts'
-    BaseArrayRepr ts t -> do ts' <- evaluateBaseTypeReprs ts
-                             t' <- evaluateBaseTypeRepr sym sc t
-                             SC.scFunAll sc ts' t'
-  where
-    evaluateBaseTypeReprs :: Ctx.Assignment BaseTypeRepr args -> IO [SC.Term]
-    evaluateBaseTypeReprs Ctx.Empty = return []
-    evaluateBaseTypeReprs (xs Ctx.:> x) =
-      do ts <- evaluateBaseTypeReprs xs
-         t <- evaluateBaseTypeRepr sym sc x
-         return (ts ++ [t])
 
 evaluateExpr :: forall n tp fs.
   SAWCoreBackend n fs ->
