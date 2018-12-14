@@ -98,6 +98,8 @@ register_llvm_overrides = do
   -- LLVM Compiler intrinsics
   register_llvm_override llvmLifetimeStartOverride
   register_llvm_override llvmLifetimeEndOverride
+  register_llvm_override (llvmLifetimeOverrideOverload "start" (knownNat @8))
+  register_llvm_override (llvmLifetimeOverrideOverload "end" (knownNat @8))
   register_llvm_override llvmMemcpyOverride_8_8_32
   register_llvm_override llvmMemcpyOverride_8_8_64
   register_llvm_override llvmMemmoveOverride_8_8_32
@@ -317,6 +319,8 @@ register_llvm_override llvmOverride = do
              panic "Intrinsics.register_llvm_override"
                [ "Argument type mismatch when registering LLVM mss override."
                , "*** Override name: " ++ show nm
+               , "*** Declared type: " ++ show (handleArgTypes h)
+               , "*** Expected type: " ++ show derivedArgs
                ]
            Just Refl ->
              case testEquality (handleReturnType h) derivedRet of
@@ -338,6 +342,12 @@ register_llvm_override llvmOverride = do
 llvmSizeT :: HasPtrWidth wptr => L.Type
 llvmSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 
+-- | This intrinsic is currently a no-op.
+--
+-- We might want to support this in the future to catch undefined memory
+-- accesses.
+--
+-- <https://llvm.org/docs/LangRef.html#llvm-lifetime-start-intrinsic LLVM docs>
 llvmLifetimeStartOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
@@ -357,6 +367,9 @@ llvmLifetimeStartOverride =
   UnitRepr
   (\_ops _sym _args -> return ())
 
+-- | See comment on 'llvmLifetimeStartOverride'
+--
+-- <https://llvm.org/docs/LangRef.html#llvm-lifetime-end-intrinsic LLVM docs>
 llvmLifetimeEndOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
@@ -376,6 +389,38 @@ llvmLifetimeEndOverride =
   UnitRepr
   (\_ops _sym _args -> return ())
 
+-- | This is a no-op.
+--
+-- The language reference doesn't mention the use of this intrinsic.
+llvmLifetimeOverrideOverload
+  :: forall width sym wptr arch p
+   . ( 1 <= width, KnownNat width
+     , IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => String -- ^ "start" or "end"
+  -> NatRepr width
+  -> LLVMOverride p sym arch
+        (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
+        UnitType -- It appears in practice that this is always void
+llvmLifetimeOverrideOverload startOrEnd widthRepr =
+  let
+    width' :: Int
+    width' = widthVal widthRepr
+    nm = "llvm.lifetime." ++ startOrEnd ++ ".p0i" ++ show width'
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PrimType $ L.Void
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
+                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
+                         ]
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      (Empty :> KnownBV @64 :> PtrRepr)
+      UnitRepr
+      (\_ops _sym _args -> return ())
 
 llvmObjectsizeOverride_32
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
