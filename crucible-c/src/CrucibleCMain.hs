@@ -214,7 +214,7 @@ instance Crux.Language LangLLVM where
 
   defaultOptions = LLVMOptions
     {
-      clangBin   = ""
+      clangBin   = "clang"
     , libDir     = "c-src"
     , optsBCFile = ""
     }
