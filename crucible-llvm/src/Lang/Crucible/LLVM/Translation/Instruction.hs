@@ -76,6 +76,8 @@ import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
 
+-- | Get the return type of an LLVM instruction
+-- See <https://llvm.org/docs/LangRef.html#instruction-reference the language reference>.
 instrResultType ::
   (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   L.Instr ->
@@ -139,6 +141,9 @@ instrResultType instr =
            _ -> fail $ unwords ["invalid shufflevector:", showInstr instr]
 
     L.LandingPad x _ _ _ -> liftMemType x
+
+    -- LLVM Language Reference: "The original value at the location is returned."
+    L.AtomicRW _ _ x _ _ _ -> liftMemType (L.typedType x)
 
     _ -> fail $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
 
@@ -1131,6 +1136,8 @@ generateInstr retType lab instr assign_f k =
       assign_f (BaseExpr (LLVMPointerRepr PtrWidth) p)
       k
 
+    -- We don't care if it's atomic, since the symbolic simulator is
+    -- effectively single-threaded.
     L.Load ptr _atomic align -> do
       tp'  <- liftMemType' (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
@@ -1145,7 +1152,9 @@ generateInstr retType lab instr assign_f k =
         _ ->
           fail $ unwords ["Invalid argument type on load", show ptr]
 
-    L.Store v ptr align -> do
+    -- We don't care if it's atomic, since the symbolic simulator is
+    -- effectively single-threaded.
+    L.Store v ptr _atomic align -> do
       tp'  <- liftMemType' (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
       case tp' of
