@@ -934,11 +934,17 @@ instance IsExpr (Expr t) where
   asNat (SemiRingLiteral SemiRingNat n _) = Just n
   asNat _ = Nothing
 
+  natBounds x = exprAbsValue x
+
   asInteger (SemiRingLiteral SemiRingInt n _) = Just n
   asInteger _ = Nothing
 
+  integerBounds x = exprAbsValue x
+
   asRational (SemiRingLiteral SemiRingReal r _) = Just r
   asRational _ = Nothing
+
+  rationalBounds x = ravRange $ exprAbsValue x
 
   asComplex e
     | Just (Cplx c) <- asApp e = traverse asRational c

@@ -139,6 +139,8 @@ module What4.Interface
   , What4.Symbol.SolverSymbol
   , What4.Symbol.emptySymbol
   , What4.Symbol.userSymbol
+  , NatValueRange(..)
+  , ValueRange(..)
   ) where
 
 import           Control.Exception (assert)
@@ -170,9 +172,11 @@ import           What4.ProgramLoc
 import           What4.Concrete
 import           What4.SatResult
 import           What4.Symbol
+import           What4.Utils.AbstractDomains
 import           What4.Utils.Arithmetic
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
+
 
 ------------------------------------------------------------------------
 -- SymExpr names
@@ -252,13 +256,22 @@ class IsExpr e where
   asNat :: e BaseNatType -> Maybe Natural
   asNat _ = Nothing
 
+  -- | Return any bounding information we have about the term
+  natBounds :: e BaseNatType -> NatValueRange
+
   -- | Return integer if this is a constant integer.
   asInteger :: e BaseIntegerType -> Maybe Integer
   asInteger _ = Nothing
 
+  -- | Return any bounding information we have about the term
+  integerBounds :: e BaseIntegerType -> ValueRange Integer
+
   -- | Return rational if this is a constant value.
   asRational :: e BaseRealType -> Maybe Rational
   asRational _ = Nothing
+
+  -- | Return any bounding information we have about the term
+  rationalBounds :: e BaseRealType -> ValueRange Rational
 
   -- | Return complex if this is a constant value.
   asComplex :: e BaseComplexType -> Maybe (Complex Rational)
