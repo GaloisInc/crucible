@@ -598,7 +598,7 @@ defaultAbortHandler :: IsSymInterface sym => AbortHandler p sym ext rtp
 defaultAbortHandler = AH abortExecAndLog
 
 -- | Abort the current execution and roll back to the nearest
---   symbolic branch point.  When verbosity is non-0 a message
+--   symbolic branch point.  When verbosity is 3 or more, a message
 --   will be logged indicating the reason for the abort.
 --
 --   The default abort handler calls this function.
@@ -611,7 +611,7 @@ abortExecAndLog rsn = do
   cfg <- view stateConfiguration
   ctx <- view stateContext
   v <- liftIO (getOpt =<< getOptionSetting verbosity cfg)
-  when (v > 0) $ do
+  when (v >= 3) $ do
     let frames = activeFrames t
     let msg = ppAbortExecReason rsn PP.<$$>
               PP.indent 2 (ppExceptionContext frames)
