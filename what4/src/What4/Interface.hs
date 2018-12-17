@@ -139,6 +139,8 @@ module What4.Interface
   , What4.Symbol.SolverSymbol
   , What4.Symbol.emptySymbol
   , What4.Symbol.userSymbol
+  , NatValueRange(..)
+  , ValueRange(..)
   ) where
 
 import           Control.Exception (assert)
@@ -170,9 +172,11 @@ import           What4.ProgramLoc
 import           What4.Concrete
 import           What4.SatResult
 import           What4.Symbol
+import           What4.Utils.AbstractDomains
 import           What4.Utils.Arithmetic
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
+
 
 ------------------------------------------------------------------------
 -- SymExpr names
@@ -252,13 +256,22 @@ class IsExpr e where
   asNat :: e BaseNatType -> Maybe Natural
   asNat _ = Nothing
 
+  -- | Return any bounding information we have about the term
+  natBounds :: e BaseNatType -> NatValueRange
+
   -- | Return integer if this is a constant integer.
   asInteger :: e BaseIntegerType -> Maybe Integer
   asInteger _ = Nothing
 
+  -- | Return any bounding information we have about the term
+  integerBounds :: e BaseIntegerType -> ValueRange Integer
+
   -- | Return rational if this is a constant value.
   asRational :: e BaseRealType -> Maybe Rational
   asRational _ = Nothing
+
+  -- | Return any bounding information we have about the term
+  rationalBounds :: e BaseRealType -> ValueRange Rational
 
   -- | Return complex if this is a constant value.
   asComplex :: e BaseComplexType -> Maybe (Complex Rational)
@@ -271,6 +284,12 @@ class IsExpr e where
   -- | Return the signed value if this is a constant bitvector.
   asSignedBV   :: (1 <= w) => e (BaseBVType w) -> Maybe Integer
   asSignedBV _ = Nothing
+
+  -- | If we have bounds information about the term, return unsigned upper and lower bounds
+  unsignedBVBounds :: (1 <= w) => e (BaseBVType w) -> Maybe (Integer, Integer)
+
+  -- | If we have bounds information about the term, return signed upper and lower bounds
+  signedBVBounds :: (1 <= w) => e (BaseBVType w) -> Maybe (Integer, Integer)
 
   -- | Return the string value if this is a constant string
   asString :: e BaseStringType -> Maybe Text
@@ -404,7 +423,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   getConfiguration :: sym -> Config
 
 
-  -- | Install an action that will be invoked before and after calls to 
+  -- | Install an action that will be invoked before and after calls to
   --   backend solvers.  This action is primarily intended to be used for
   --   logging/profiling/debugging purposes.  Passing `Nothing` to this
   --   function disables logging.
@@ -2155,6 +2174,27 @@ class ( IsExprBuilder sym
 
   -- | Create a fresh latch variable.
   freshLatch    :: sym -> SolverSymbol -> BaseTypeRepr tp -> IO (SymExpr sym tp)
+
+  -- | Create a fresh bitvector value with optional upper and lower bounds (which bound the
+  --   unsigned value of the bitvector).
+  freshBoundedBV :: (1 <= w) => sym -> SolverSymbol -> NatRepr w -> Maybe Natural -> Maybe Natural -> IO (SymBV sym w)
+
+  -- | Create a fresh bitvector value with optional upper and lower bounds (which bound the
+  --   signed value of the bitvector)
+  freshBoundedSBV :: (1 <= w) => sym -> SolverSymbol -> NatRepr w -> Maybe Integer -> Maybe Integer -> IO (SymBV sym w)
+
+  -- | Create a fresh natural number constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedNat :: sym -> SolverSymbol -> Maybe Natural -> Maybe Natural -> IO (SymNat sym)
+
+  -- | Create a fresh integer constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedInt :: sym -> SolverSymbol -> Maybe Integer -> Maybe Integer -> IO (SymInteger sym)
+
+  -- | Create a fresh real constant with optional upper and lower bounds.
+  --   If provided, the bounds are inclusive.
+  freshBoundedReal :: sym -> SolverSymbol -> Maybe Rational -> Maybe Rational -> IO (SymReal sym)
+
 
   ----------------------------------------------------------------------
   -- Functions needs to support quantifiers.

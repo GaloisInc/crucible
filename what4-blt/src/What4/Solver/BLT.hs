@@ -91,6 +91,7 @@ import           What4.Expr.GroundEval
 import           What4.Expr.Builder
 import qualified What4.Expr.WeightedSum as WSum
 import           What4.Solver.Adapter
+import qualified What4.Utils.AbstractDomains as AD
 import           What4.Utils.Complex
 
 import           BLT.Binding
@@ -583,7 +584,15 @@ evalInteger' h (BoundVarExpr info) =
       let i = fromEnum . indexValue $ bvarId info :: Int
       let v = mkBLTVar i
       stToIO $ PH.insert (varIndices h) (bvarId info) (IntegerVarIndex i)
-      return (mkBLT v)
+      let e = mkBLT v
+      case AD.rangeLowBound <$> (bvarAbstractValue info) of
+        Just (AD.Inclusive lo) -> recordLowerBound h (fromInteger lo) e
+        _ -> return ()
+      case AD.rangeHiBound <$> (bvarAbstractValue info) of
+        Just (AD.Inclusive hi) -> recordUpperBound h (fromInteger hi) e
+        _ -> return ()
+      return e
+
 -- Match integer constant
 evalInteger' h (SemiRingLiteral SemiRingInt i _) = do
   when (isVerb h) $ putStrLn ("BLT@evalInteger: integer const " ++ show i)

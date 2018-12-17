@@ -80,6 +80,8 @@ import           What4.Expr.VarIdentification
 import           What4.ProgramLoc
 import           What4.Solver.Adapter
 import           What4.SatResult
+import           What4.Utils.AbstractDomains
+import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
 import qualified What4.Utils.Environment as Env
 import           What4.Utils.MonadST
@@ -166,6 +168,7 @@ data VarBinding t s where
   BVBinding  :: (1 <= w)
              => Nonce t (BaseBVType w)
              -> AIG.BV (GIA.Lit s)
+             -> GIA.Lit s {- side condition -}
              -> VarBinding t s
 
 -- | Handle to the ABC interface.
@@ -600,26 +603,30 @@ getForallPred ntk (Some b) p e_binding a_binding = do
   case boundQuant b of
     ForallBound -> do
       -- Generate predicate p => (Av. t)
-      recordBinding ntk a_binding
+      a_conds <- recordBinding ntk a_binding
       B c_a <- eval ntk t
-      c1 <- GIA.implies g p c_a
+      c_a' <- GIA.implies g a_conds c_a
+      c1 <- GIA.implies g p c_a'
       -- Generate predicate (Av. t) => p
-      recordBinding ntk e_binding
+      e_conds <- recordBinding ntk e_binding
       B c_e <- eval ntk t
-      c2 <- GIA.implies g c_e p
+      c_e' <- GIA.implies g e_conds c_e
+      c2 <- GIA.implies g c_e' p
       -- Delete binding to elements.
       deleteBinding ntk e_binding
       -- Return both predicates.
       GIA.and g c1 c2
     ExistBound -> do
       -- Generate predicate p => (Ev. t)
-      recordBinding ntk e_binding
+      e_conds <- recordBinding ntk e_binding
       B c_e <- eval ntk t
-      c1 <- GIA.implies g p c_e
+      c_e' <- GIA.and g e_conds c_e
+      c1 <- GIA.implies g p c_e'
       -- Generate predicate (Ev. t) => p
-      recordBinding ntk a_binding
+      a_conds <- recordBinding ntk a_binding
       B c_a <- eval ntk t
-      c2 <- GIA.implies g c_a p
+      c_a' <- GIA.and g a_conds c_a
+      c2 <- GIA.implies g c_a' p
       -- Delete binding to elements.
       deleteBinding ntk a_binding
       -- Return both predicates.
@@ -645,12 +652,13 @@ checkNoForallVars vars = do
   unless (Map.null (vars^.forallQuantifiers)) $ do
     fail "This operation does not support universally quantified variables."
 
-recordUninterpConstants :: Network t s -> Set (Some (ExprBoundVar t)) -> IO ()
+recordUninterpConstants :: Network t s -> Set (Some (ExprBoundVar t)) -> IO (GIA.Lit s)
 recordUninterpConstants ntk s = do
   let recordCon v = recordBinding ntk =<< addBoundVar' ntk v
-  mapM_ recordCon (Fold.toList s)
+  conds <- mapM recordCon (Fold.toList s)
+  foldM (AIG.lAnd' (gia ntk)) GIA.true conds
 
-recordBoundVar :: Network t s -> Some (QuantifierInfo t) -> IO ()
+recordBoundVar :: Network t s -> Some (QuantifierInfo t) -> IO (GIA.Lit s)
 recordBoundVar ntk info = do
   recordBinding ntk =<< addBoundVar ntk info
 
@@ -676,7 +684,7 @@ checkSat sym logData e = do
     -- Get network
     let g = gia ntk
     -- Add bindings for uninterpreted bindings.
-    recordUninterpConstants ntk (vars^.uninterpConstants)
+    sideconds <- recordUninterpConstants ntk (vars^.uninterpConstants)
     -- Add bindings for bound variables.
     let e_quants = vars^.existQuantifiers
     let a_quants = vars^.forallQuantifiers
@@ -705,7 +713,7 @@ checkSat sym logData e = do
     preds <- sequence $ do
       zipWith4 (getForallPred ntk) both_quants both_preds e_both_bindings a_both_bindings
     -- Get final pred.
-    p <- foldM (GIA.and (gia ntk)) c preds
+    p <- foldM (AIG.lAnd' (gia ntk)) c (sideconds : preds)
     -- Add bindings for uninterpreted bindings.
     res <- if Map.null a_quants then do
              logCallbackVerbose logData 2 "Calling ABC's SAT solver"
@@ -722,17 +730,21 @@ checkSat sym logData e = do
     return res
 
 -- | Associate an element in a binding with the term.
-recordBinding :: Network t s -> VarBinding t s -> IO ()
+recordBinding :: Network t s -> VarBinding t s -> IO (GIA.Lit s)
 recordBinding ntk b = liftST $
   case b of
-    BoolBinding n r -> H.insert (nameCache ntk) n (B r)
-    BVBinding   n r -> H.insert (nameCache ntk) n (BV r)
+    BoolBinding n r ->
+      do H.insert (nameCache ntk) n (B r)
+         return GIA.true
+    BVBinding n r sidecond ->
+      do H.insert (nameCache ntk) n (BV r)
+         return sidecond
 
 deleteBinding :: Network t s -> VarBinding t s -> IO ()
 deleteBinding ntk b = liftST $
   case b of
-    BoolBinding n _ -> H.delete (nameCache ntk) n
-    BVBinding   n _ -> H.delete (nameCache ntk) n
+    BoolBinding n _   -> H.delete (nameCache ntk) n
+    BVBinding   n _ _ -> H.delete (nameCache ntk) n
 
 freshBV :: AIG.IsAIG l g => g s -> NatRepr n -> IO (AIG.BV (l s))
 freshBV g w = AIG.generateM_msb0 (widthVal w) (\_ -> GIA.newInput g)
@@ -745,14 +757,34 @@ freshBinding :: Network t s
                 -- ^ Location of binding.
              -> BaseTypeRepr tp
                 -- ^ Type of variable
+             -> Maybe (AbstractValue tp)
+                -- ^ Bounds on the value
              -> IO (VarBinding t s)
-freshBinding ntk n l tp = do
+freshBinding ntk n l tp mbnds = do
   let g = gia ntk
   case tp of
     BaseBoolRepr -> do
       BoolBinding n <$> GIA.newInput g
-    BaseBVRepr w -> do
-      BVBinding n <$> freshBV g w
+    BaseBVRepr w ->
+     do bv <- freshBV g w
+        cond <- case mbnds of
+            Nothing -> return GIA.true
+            Just bnds ->
+              do let wint = fromInteger (natValue w)
+                 let rangeCond (lo,hi) =
+                       do lop <- if lo > 0 then
+                                   AIG.ule g (AIG.bvFromInteger g wint lo) bv
+                                 else
+                                   return GIA.true
+                          hip <- if hi < maxUnsigned w then
+                                   AIG.ule g bv (AIG.bvFromInteger g wint hi)
+                                 else
+                                   return GIA.true
+                          AIG.lAnd' g lop hip
+                 conds <- mapM rangeCond (BVD.ranges w bnds)
+                 foldM (AIG.lAnd' g) GIA.true conds
+        return (BVBinding n bv cond)
+
     BaseNatRepr     -> failAt l "Natural number variables are not supported by ABC."
     BaseIntegerRepr -> failAt l "Integer variables are not supported by ABC."
     BaseRealRepr    -> failAt l "Real variables are not supported by ABC."
@@ -766,12 +798,12 @@ freshBinding ntk n l tp = do
 addBoundVar :: Network t s -> Some (QuantifierInfo t) -> IO (VarBinding t s)
 addBoundVar ntk (Some info) = do
   let bvar = boundVar info
-  freshBinding ntk (bvarId bvar) (bvarLoc bvar) (bvarType bvar)
+  freshBinding ntk (bvarId bvar) (bvarLoc bvar) (bvarType bvar) (bvarAbstractValue bvar)
 
 -- | Add a bound variable.
 addBoundVar' :: Network t s -> Some (ExprBoundVar t) -> IO (VarBinding t s)
 addBoundVar' ntk (Some bvar) = do
-  freshBinding ntk (bvarId bvar) (bvarLoc bvar) (bvarType bvar)
+  freshBinding ntk (bvarId bvar) (bvarLoc bvar) (bvarType bvar) (bvarAbstractValue bvar)
 
 readSATInput :: (String -> IO ())
              -> Streams.InputStream String
@@ -810,12 +842,14 @@ writeDimacsFile ntk cnf_path condition = do
   checkNoLatches vars
   checkNoForallVars vars
   -- Add bindings for uninterpreted bindings.
-  recordUninterpConstants ntk (vars^.uninterpConstants)
+  sideconds <- recordUninterpConstants ntk (vars^.uninterpConstants)
   -- Add bindings for existential variables.
   Fold.traverse_ (recordBoundVar ntk) (vars^.existQuantifiers)
   -- Generate predicate for top level term.
   B c <- eval ntk condition
-  GIA.writeCNF (gia ntk) c cnf_path
+  -- Assert any necessary sideconditions
+  c' <- AIG.lAnd' (gia ntk) sideconds c 
+  GIA.writeCNF (gia ntk) c' cnf_path
 
 -- | Run an external solver using competition dimacs format.
 runExternalDimacsSolver :: (Int -> String -> IO ()) -- ^ Logging function
@@ -869,7 +903,8 @@ writeAig path v latchOutputs = do
   -- Generate AIG
   withNetwork $ \ntk -> do
     -- Add bindings for uninterpreted bindings.
-    recordUninterpConstants ntk (vars^.uninterpConstants)
+    -- FIXME? should we do anything with these side conditions?
+    _sideconds <- recordUninterpConstants ntk (vars^.uninterpConstants)
     -- Add bindings for existential variables.
     Fold.traverse_ (recordBoundVar ntk) (vars^.existQuantifiers)
 

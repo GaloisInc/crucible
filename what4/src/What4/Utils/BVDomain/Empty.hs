@@ -29,6 +29,7 @@ module What4.Utils.BVDomain.Empty
   , ult
   , testBit
   , domainsOverlap
+  , ranges
     -- * Operations
   , empty
   , any
@@ -103,6 +104,9 @@ testBit :: (1 <= w)
         -> Integer -- ^ Index of bit (least-significant bit has index 0)
         -> Maybe Bool
 testBit _ _ _ = Nothing
+
+ranges :: NatRepr w -> BVDomain w -> [(Integer, Integer)]
+ranges w _ = [(0, maxUnsigned w)]
 
 ------------------------------------------------------------------------
 -- Operations

@@ -23,6 +23,7 @@ module What4.Utils.AbstractDomains
   , maxValueBound
     -- * ValueRange
   , ValueRange(..)
+  , unboundedRange
   , mapRange
   , rangeLowBound
   , rangeHiBound
@@ -63,10 +64,10 @@ module What4.Utils.AbstractDomains
   , natRangeMod
     -- * RealAbstractValue
   , RealAbstractValue(..)
+  , ravUnbounded
   , ravSingle
   , ravConcreteRange
   , ravJoin
-  , ravUnbounded
   , ravAdd
   , ravScalarMul
   , ravMul
