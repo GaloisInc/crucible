@@ -1117,7 +1117,7 @@ constToLLVMVal sym mem (StructConst sInfo xs) =
 -- SymbolConsts are offsets from global pointers. We translate them into the
 -- pointer they represent.
 constToLLVMVal sym mem (SymbolConst symb i) = do
-  ptr <- doResolveGlobal sym mem symb     -- Pointer to the global "symb"
+  ptr <- doResolveGlobal sym mem symb  -- Pointer to the global "symb"
   ibv <- bvLit sym ?ptrWidth i         -- Offset to be added, as a bitvector
 
   -- blk is the allocation number that this global is stored in.

@@ -108,7 +108,15 @@ makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
               -> L.Module
               -> GlobalInitializerMap
 makeGlobalMap ctx m =
-     Map.fromList $ map (L.globalSym &&& (id &&& globalToConst)) (L.modGlobals m)
+  let mp_     = Map.fromList $ map (L.globalSym &&& (id &&& globalToConst))
+                                   (L.modGlobals m)
+      insertAll ks v mp = foldr (flip Map.insert v) mp ks
+  in  -- Add in aliases to the initializer map
+      foldr (\(glob, aliases) mp' ->
+               case Map.lookup (L.globalSym glob) mp' of
+                 Just initzr -> insertAll (map L.aliasName aliases) initzr mp'
+                 Nothing     -> mp' -- should this be an error/exception?
+            ) mp_ (Map.toList (fmap Set.toList (globalAliases m)))
   where -- Catch the error from @transConstant@, turn it into @Either@
         globalToConst :: L.Global -> Either String (MemType, Maybe LLVMConst)
         globalToConst g =
