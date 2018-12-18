@@ -95,9 +95,14 @@ llvmIntrinsicTypes =
 register_llvm_overrides :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
                         => StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a) ()
 register_llvm_overrides = do
+  llvmctx <- get
+  let ?lc = llvmctx^.llvmTypeCtx
+
   -- LLVM Compiler intrinsics
   register_llvm_override llvmLifetimeStartOverride
   register_llvm_override llvmLifetimeEndOverride
+  register_llvm_override (llvmLifetimeOverrideOverload "start" (knownNat @8))
+  register_llvm_override (llvmLifetimeOverrideOverload "end" (knownNat @8))
   register_llvm_override llvmMemcpyOverride_8_8_32
   register_llvm_override llvmMemcpyOverride_8_8_64
   register_llvm_override llvmMemmoveOverride_8_8_32
@@ -317,6 +322,8 @@ register_llvm_override llvmOverride = do
              panic "Intrinsics.register_llvm_override"
                [ "Argument type mismatch when registering LLVM mss override."
                , "*** Override name: " ++ show nm
+               , "*** Declared type: " ++ show (handleArgTypes h)
+               , "*** Expected type: " ++ show derivedArgs
                ]
            Just Refl ->
              case testEquality (handleReturnType h) derivedRet of
@@ -338,6 +345,12 @@ register_llvm_override llvmOverride = do
 llvmSizeT :: HasPtrWidth wptr => L.Type
 llvmSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 
+-- | This intrinsic is currently a no-op.
+--
+-- We might want to support this in the future to catch undefined memory
+-- accesses.
+--
+-- <https://llvm.org/docs/LangRef.html#llvm-lifetime-start-intrinsic LLVM docs>
 llvmLifetimeStartOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
@@ -357,6 +370,9 @@ llvmLifetimeStartOverride =
   UnitRepr
   (\_ops _sym _args -> return ())
 
+-- | See comment on 'llvmLifetimeStartOverride'
+--
+-- <https://llvm.org/docs/LangRef.html#llvm-lifetime-end-intrinsic LLVM docs>
 llvmLifetimeEndOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr) UnitType
@@ -376,6 +392,38 @@ llvmLifetimeEndOverride =
   UnitRepr
   (\_ops _sym _args -> return ())
 
+-- | This is a no-op.
+--
+-- The language reference doesn't mention the use of this intrinsic.
+llvmLifetimeOverrideOverload
+  :: forall width sym wptr arch p
+   . ( 1 <= width, KnownNat width
+     , IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => String -- ^ "start" or "end"
+  -> NatRepr width
+  -> LLVMOverride p sym arch
+        (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
+        UnitType -- It appears in practice that this is always void
+llvmLifetimeOverrideOverload startOrEnd widthRepr =
+  let
+    width' :: Int
+    width' = widthVal widthRepr
+    nm = "llvm.lifetime." ++ startOrEnd ++ ".p0i" ++ show width'
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PrimType $ L.Void
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
+                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
+                         ]
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      (Empty :> KnownBV @64 :> PtrRepr)
+      UnitRepr
+      (\_ops _sym _args -> return ())
 
 llvmObjectsizeOverride_32
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -451,12 +499,13 @@ llvmAssertRtnOverride =
   )
 
 llvmCallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
   => LLVMOverride p sym arch
          (EmptyCtx ::> BVType wptr ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmCallocOverride =
   let nm = "calloc" in
+  let alignment = maxAlignment (llvmDataLayout ?lc) in
   LLVMOverride
   ( L.Declare
     { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
@@ -471,15 +520,16 @@ llvmCallocOverride =
   )
   (Empty :> SizeT :> SizeT)
   (PtrRepr)
-  (\memOps sym args -> Ctx.uncurryAssignment (callCalloc sym memOps) args)
+  (\memOps sym args -> Ctx.uncurryAssignment (callCalloc sym memOps alignment) args)
 
 llvmMallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
   => LLVMOverride p sym arch
          (EmptyCtx ::> BVType wptr)
          (LLVMPointerType wptr)
 llvmMallocOverride =
   let nm = "malloc" in
+  let alignment = maxAlignment (llvmDataLayout ?lc) in
   LLVMOverride
   ( L.Declare
     { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
@@ -493,7 +543,7 @@ llvmMallocOverride =
   )
   (Empty :> SizeT)
   (PtrRepr)
-  (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps) args)
+  (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
 
 llvmFreeOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -997,13 +1047,14 @@ callMalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
   -> GlobalVar Mem
+  -> Alignment
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callMalloc sym mvar
+callMalloc sym mvar alignment
            (regValue -> sz) = do
   --liftIO $ putStrLn "MEM MALLOC"
   mem <- readGlobal mvar
-  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz
+  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz alignment
   writeGlobal mvar mem'
   return p
 
@@ -1012,15 +1063,16 @@ callCalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
   -> GlobalVar Mem
+  -> Alignment
   -> RegEntry sym (BVType wptr)
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callCalloc sym mvar
+callCalloc sym mvar alignment
            (regValue -> sz)
            (regValue -> num) = do
   --liftIO $ putStrLn "MEM CALLOC"
   mem <- readGlobal mvar
-  (p, mem') <- liftIO $ doCalloc sym mem sz num
+  (p, mem') <- liftIO $ doCalloc sym mem sz num alignment
   writeGlobal mvar mem'
   return p
 
@@ -1304,25 +1356,25 @@ printfOps sym valist =
                  let w8 = knownNat :: NatRepr 8
                  let tp = G.bitvectorType 1
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w8 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w8) tp x
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w8) tp 1 x
                  put mem'
               Len_Short -> do
                  let w16 = knownNat :: NatRepr 16
                  let tp = G.bitvectorType 2
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w16 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w16) tp x
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w16) tp 1 x
                  put mem'
               Len_NoMod -> do
                  let w32  = knownNat :: NatRepr 32
                  let tp = G.bitvectorType 4
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w32 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w32) tp x
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w32) tp 1 x
                  put mem'
               Len_Long  -> do
                  let w64 = knownNat :: NatRepr 64
                  let tp = G.bitvectorType 8
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w64 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp x
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp 1 x
                  put mem'
               _ ->
                 lift $ addFailedAssertion sym

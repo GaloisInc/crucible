@@ -15,7 +15,7 @@ import Data.String (fromString)
 import qualified Data.Map as Map
 import Control.Lens ((^.), view)
 import Control.Monad.ST(RealWorld, stToIO)
-import Control.Monad.State(evalStateT, liftIO, modify, MonadIO)
+import Control.Monad.State(evalStateT, liftIO, MonadIO)
 import Control.Exception
 
 import System.Process
@@ -170,7 +170,6 @@ simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
                    runOverrideSim UnitRepr $
                      do registerFunctions llvmCtxt trans
                         setupOverrides llvmCtxt
-                        let foo = printHandle
                         checkFun "main" (cfgMap trans)
           return $ Result res
 
@@ -208,13 +207,12 @@ instance Crux.Language LangLLVM where
        clangBin   :: FilePath
      , libDir     :: FilePath
      , optsBCFile :: FilePath
-     , outputTo   :: Handle
      -- other options are tracked by Crux
      }
 
   defaultOptions = LLVMOptions
     {
-      clangBin   = ""
+      clangBin   = "clang"
     , libDir     = "c-src"
     , optsBCFile = ""
     }

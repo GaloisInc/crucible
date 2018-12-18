@@ -18,8 +18,8 @@ import Control.Applicative
 
 import Data.Char
 import Data.Functor
-import Data.Monoid
 import Data.Ratio
+import Data.Semigroup ( (<>) )
 import Data.Text (Text)
 import qualified Data.Text as T
 

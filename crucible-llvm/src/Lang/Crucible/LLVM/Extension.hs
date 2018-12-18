@@ -49,7 +49,7 @@ import           Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemModel.Pointer
-import qualified Lang.Crucible.LLVM.MemModel.Type as G
+import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.Types
 
 
@@ -101,6 +101,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
      !(NatRepr wptr)       {- Pointer width -} ->
      !(GlobalVar Mem)      {- Memory global variable -} ->
      !(f (BVType wptr))    {- Number of bytes to allocate -} ->
+     !Alignment            {- Minimum alignment of this allocation -} ->
      !String               {- Location string to identify this allocation for debugging purposes -} ->
      LLVMStmt wptr f (LLVMPointerType wptr)
 
@@ -113,7 +114,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
      !(GlobalVar Mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to load from -} ->
      !(TypeRepr tp)              {- Expected crucible type of the result -} ->
-     !G.Type                     {- Storable type -} ->
+     !StorageType                {- Storage type -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
      LLVMStmt wptr f tp
 
@@ -125,7 +126,7 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
      !(GlobalVar Mem)            {- Memory global variable -} ->
      !(f (LLVMPointerType wptr)) {- Pointer to store at -} ->
      !(TypeRepr tp)              {- Crucible type of the value being stored -} ->
-     !G.Type                     {- Storable type of the value -} ->
+     !StorageType                {- Storage type of the value -} ->
      !Alignment                  {- Assumed alignment of the pointer -} ->
      !(f tp)                     {- Value to store -} ->
      LLVMStmt wptr f UnitType
@@ -246,7 +247,7 @@ instance (1 <= wptr) => TypeApp (LLVMStmt wptr) where
   appType = \case
     LLVM_PushFrame{} -> knownRepr
     LLVM_PopFrame{} -> knownRepr
-    LLVM_Alloca w _ _ _ -> LLVMPointerRepr w
+    LLVM_Alloca w _ _ _ _ -> LLVMPointerRepr w
     LLVM_Load _ _ tp _ _  -> tp
     LLVM_Store{} -> knownRepr
     LLVM_MemClear{} -> knownRepr
@@ -263,8 +264,8 @@ instance PrettyApp (LLVMStmt wptr) where
        text "pushFrame" <+> text (show mvar)
     LLVM_PopFrame mvar  ->
        text "popFrame" <+> text (show mvar)
-    LLVM_Alloca _ mvar sz loc ->
-       text "alloca" <+> text (show mvar) <+> pp sz <+> text loc
+    LLVM_Alloca _ mvar sz a loc ->
+       text "alloca" <+> text (show mvar) <+> pp sz <+> text (show a) <+> text loc
     LLVM_Load mvar ptr _tpr tp a ->
        text "load" <+> text (show mvar) <+> pp ptr <+> text (show tp) <+> text (show a)
     LLVM_Store mvar ptr _tpr tp a v ->

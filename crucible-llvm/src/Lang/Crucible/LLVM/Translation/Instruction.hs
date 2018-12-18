@@ -76,6 +76,8 @@ import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
 
+-- | Get the return type of an LLVM instruction
+-- See <https://llvm.org/docs/LangRef.html#instruction-reference the language reference>.
 instrResultType ::
   (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
   L.Instr ->
@@ -139,6 +141,9 @@ instrResultType instr =
            _ -> fail $ unwords ["invalid shufflevector:", showInstr instr]
 
     L.LandingPad x _ _ _ -> liftMemType x
+
+    -- LLVM Language Reference: "The original value at the location is returned."
+    L.AtomicRW _ _ x _ _ _ -> liftMemType (L.typedType x)
 
     _ -> fail $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
 
@@ -1098,8 +1103,7 @@ generateInstr retType lab instr assign_f k =
     L.LandingPad _ _ _ _ ->
       reportError "FIXME landingPad not implemented"
 
-    L.Alloca tp num _align -> do
-      -- ?? FIXME assert that the alignment value is appropriate...
+    L.Alloca tp num align -> do
       tp' <- liftMemType' tp
       let dl = llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
@@ -1115,10 +1119,25 @@ generateInstr retType lab instr assign_f k =
                             do x' <- pointerAsBitvectorExpr w x
                                return $ app $ BVMul PtrWidth x' tp_sz'
                      _ -> fail $ "Invalid alloca argument: " ++ show num
-      p <- callAlloca sz
+
+      alignment <-
+       case align of
+         Just a | a > 0 ->
+           case toAlignment (G.toBytes a) of
+             Nothing -> fail $ "Invalid alignment value in alloca: " ++ show a
+             Just al ->
+               do unless (memTypeAlign dl tp' <= al)
+                         (fail $ "Specified alignment: " ++ show a ++ "\n  " ++
+                                 "insufficent for type: " ++ show tp)
+                  return al
+         _ -> return (memTypeAlign dl tp')
+
+      p <- callAlloca sz alignment
       assign_f (BaseExpr (LLVMPointerRepr PtrWidth) p)
       k
 
+    -- We don't care if it's atomic, since the symbolic simulator is
+    -- effectively single-threaded.
     L.Load ptr _atomic align -> do
       tp'  <- liftMemType' (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
@@ -1133,7 +1152,9 @@ generateInstr retType lab instr assign_f k =
         _ ->
           fail $ unwords ["Invalid argument type on load", show ptr]
 
-    L.Store v ptr align -> do
+    -- We don't care if it's atomic, since the symbolic simulator is
+    -- effectively single-threaded.
+    L.Store v ptr _atomic align -> do
       tp'  <- liftMemType' (L.typedType ptr)
       ptr' <- transValue tp' (L.typedValue ptr)
       case tp' of
@@ -1336,7 +1357,7 @@ generateInstr retType lab instr assign_f k =
          x' <- transTypedValue x
          y' <- transTypedValue (L.Typed (L.typedType x) y)
          e' <- case asScalar c' of
-                 Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
+                 Scalar (LLVMPointerRepr w) e -> callIntToBool w e
                  _ -> fail "expected boolean condition on select"
 
          ifte_ e' (assign_f x') (assign_f y')
@@ -1347,7 +1368,7 @@ generateInstr retType lab instr assign_f k =
     L.Br v l1 l2 -> do
         v' <- transTypedValue v
         e' <- case asScalar v' of
-                 Scalar (LLVMPointerRepr w) e -> notExpr <$> callIsNull w e
+                 Scalar (LLVMPointerRepr w) e -> callIntToBool w e
                  _ -> fail "expected boolean condition on branch"
 
         phi1 <- defineBlockLabel (definePhiBlock lab l1)

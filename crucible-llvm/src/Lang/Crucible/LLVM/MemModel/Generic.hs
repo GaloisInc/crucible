@@ -104,8 +104,9 @@ data WriteSource sym w
   = MemCopy (LLVMPtr sym w) (SymBV sym w)
     -- | @MemSet val len@ fills the destination with @len@ copies of byte @val@.
   | MemSet (SymBV sym 8) (SymBV sym w)
-    -- | @MemStore val ty@ writes value @val@ with type @ty@ at the destination.
-  | MemStore (LLVMVal sym) Type
+    -- | @MemStore val ty al@ writes value @val@ with type @ty@ at the destination.
+    --   with alignment at least @al@.
+  | MemStore (LLVMVal sym) StorageType Alignment
 
 data MemWrite sym
     -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
@@ -163,6 +164,7 @@ genCondVar sym w inst c =
     IntEq x y      -> join $ bvEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     IntLe x y      -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     And x y        -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
+    Or x y         -> join $ orPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
 
 genValueCtor :: forall sym .
   IsSymInterface sym => sym ->
@@ -247,9 +249,14 @@ evalMuxValueCtor sym _w end _vf subFn (MuxVar v) =
      genValueCtor sym end v'
 evalMuxValueCtor sym w end vf subFn (Mux c t1 t2) =
   do c' <- genCondVar sym w vf c
-     t1' <- evalMuxValueCtor sym w end vf subFn t1
-     t2' <- evalMuxValueCtor sym w end vf subFn t2
-     muxLLVMVal sym c' t1' t2'
+     case asConstantPred c' of
+       Just True  -> evalMuxValueCtor sym w end vf subFn t1
+       Just False -> evalMuxValueCtor sym w end vf subFn t2
+       Nothing ->
+        do t1' <- evalMuxValueCtor sym w end vf subFn t1
+           t2' <- evalMuxValueCtor sym w end vf subFn t2
+           muxLLVMVal sym c' t1' t2'
+
 evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
   do m' <- traverse (evalMuxValueCtor sym w end vf subFn) m
      t' <- evalMuxValueCtor sym w end vf subFn t
@@ -262,8 +269,12 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
     f :: Bytes -> PartLLVMVal sym -> IO (PartLLVMVal sym) -> IO (PartLLVMVal sym)
     f n t1 k =
       do c' <- genCondVar sym w vf (OffsetEq (aOffset n) b)
-         t2 <- k
-         muxLLVMVal sym c' t1 t2
+         case asConstantPred c' of
+           Just True -> return t1
+           Just False -> k
+           Nothing ->
+             do t2 <- k
+                muxLLVMVal sym c' t1 t2
 
     aOffset :: Bytes -> OffsetExpr
     aOffset n = OffsetAdd a (CValue n)
@@ -287,9 +298,12 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
                  else And (OffsetLe (aOffset n) b)
                           (OffsetLe b (aOffset (fst (last xps1))))
          c' <- genCondVar sym w vf c
-         p' <- simplPred xps2 p0
-         itePred sym c' p p'
-
+         case asConstantPred c' of
+           Just True -> return p
+           Just False -> simplPred xps2 p0
+           Nothing ->
+             do p' <- simplPred xps2 p0
+                itePred sym c' p p'
 
 -- | Read from a memory with a memcopy to the same block we are reading.
 readMemCopy ::
@@ -298,16 +312,17 @@ readMemCopy ::
   NatRepr w ->
   EndianForm ->
   LLVMPtr sym w  {- ^ The loaded offset               -} ->
-  Type           {- ^ The type we are reading         -} ->
+  StorageType    {- ^ The type we are reading         -} ->
   SymBV sym w    {- ^ The destination of the memcopy  -} ->
   LLVMPtr sym w  {- ^ The source of the copied region -} ->
   SymBV sym w    {- ^ The length of the copied region -} ->
-  (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
+  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
   IO (PartLLVMVal sym)
 readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
      let varFn = (off, d, sz)
+
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
@@ -348,11 +363,11 @@ readMemSet ::
   sym -> NatRepr w ->
   EndianForm ->
   LLVMPtr sym w {- ^ The loaded offset             -} ->
-  Type          {- ^ The type we are reading       -} ->
+  StorageType   {- ^ The type we are reading       -} ->
   SymBV sym w   {- ^ The destination of the memset -} ->
   SymBV sym 8   {- ^ The fill byte that was set    -} ->
   SymBV sym w   {- ^ The length of the set region  -} ->
-  (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
+  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
   IO (PartLLVMVal sym)
 readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
   do let ld = asUnsignedBV off
@@ -404,16 +419,17 @@ readMemStore ::
   NatRepr w ->
   EndianForm ->
   LLVMPtr sym w {- ^ The loaded address                 -} ->
-  Type          {- ^ The type we are reading            -} ->
+  StorageType   {- ^ The type we are reading            -} ->
   SymBV sym w   {- ^ The destination of the store       -} ->
   LLVMVal sym   {- ^ The value that was stored          -} ->
-  Type          {- ^ The type of value that was written -} ->
+  StorageType   {- ^ The type of value that was written -} ->
   Alignment     {- ^ The alignment of the pointer we are reading from -} ->
-  (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym))
+  Alignment     {- ^ The alignment of the store from which we are reading -} ->
+  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym))
   {- ^ A callback function for when reading fails -} ->
   IO (PartLLVMVal sym)
-readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign readPrev =
-  do ssz <- bvLit sym w (bytesToInteger (typeSize stp))
+readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign readPrev =
+  do ssz <- bvLit sym w (bytesToInteger (storageTypeSize stp))
      let varFn = (off, d, ssz)
      let ld = asUnsignedBV off
      let dd = asUnsignedBV d
@@ -437,23 +453,18 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign readPrev =
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
-            let ctz :: Integer -> Alignment
-                ctz x | x == 0 = 64 -- maximum alignment (will be clamped to loadAlign)
-                      | odd x = 0
-                      | otherwise = 1 + ctz (x `div` 2)
-            let storeAlign =
-                  case dd of
-                    Just x -> ctz x
-                    _      -> 0
+
             let align' = min loadAlign storeAlign
+            diff <- bvSub sym off d
+
             evalMuxValueCtor sym w end varFn subFn $
-              symbolicValueLoad pref ltp (ValueViewVar stp) align'
+              symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) align'
 
 readMem ::
   (1 <= w, IsSymInterface sym) => sym ->
   NatRepr w ->
   LLVMPtr sym w ->
-  Type ->
+  StorageType ->
   Alignment ->
   Mem sym ->
   IO (PartLLVMVal sym)
@@ -474,7 +485,7 @@ andPartVal sym p val =
                      return (PE p'' v)
 
 data CacheEntry sym w =
-  CacheEntry !(Type) !(SymNat sym) !(SymBV sym w)
+  CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
 
 instance (TestEquality (SymExpr sym)) => Eq (CacheEntry sym w) where
   (CacheEntry tp1 blk1 off1) == (CacheEntry tp2 blk2 off2) =
@@ -486,7 +497,7 @@ instance IsSymInterface sym => Ord (CacheEntry sym w) where
       `mappend` toOrdering (compareF blk1 blk2)
       `mappend` toOrdering (compareF off1 off2)
 
-toCacheEntry :: Type -> LLVMPtr sym w -> CacheEntry sym w
+toCacheEntry :: StorageType -> LLVMPtr sym w -> CacheEntry sym w
 toCacheEntry tp (llvmPointerView -> (blk, bv)) = CacheEntry tp blk bv
 
 
@@ -500,21 +511,21 @@ readMem' ::
   NatRepr w ->
   EndianForm ->
   LLVMPtr sym w  {- ^ Address we are reading            -} ->
-  Type           {- ^ The type to read from memory      -} ->
+  StorageType    {- ^ The type to read from memory      -} ->
   Alignment      {- ^ Alignment of pointer to read from -} ->
   [MemWrite sym] {- ^ List of writes                    -} ->
   IO (PartLLVMVal sym)
 readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
   where
-    go :: (Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
+    go :: (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
           LLVMPtr sym w ->
-          Type ->
+          StorageType ->
           [MemWrite sym] ->
           IO (PartLLVMVal sym)
     go fallback l tp [] = fallback tp l
     go fallback l tp (h : r) =
       do cache <- newIORef Map.empty
-         let readPrev :: Type -> LLVMPtr sym w -> IO (PartLLVMVal sym)
+         let readPrev :: StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)
              readPrev tp' l' = do
                m <- readIORef cache
                case Map.lookup (toCacheEntry tp' l') m of
@@ -540,7 +551,8 @@ readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
                           case wsrc of
                             MemCopy src sz -> readMemCopy sym w end l tp d src sz readPrev
                             MemSet v sz    -> readMemSet sym w end l tp d v sz readPrev
-                            MemStore v stp -> readMemStore sym w end l tp d v stp alignment readPrev
+                            MemStore v stp storeAlign -> readMemStore sym w end l tp d v stp alignment storeAlign readPrev
+
                     sameBlock <- natEq sym blk1 blk2
                     case asConstantPred sameBlock of
                       Just True -> readCurrent
@@ -785,14 +797,17 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
-         -> Type
+         -> StorageType
+         -> Alignment
          -> LLVMVal sym
          -> Mem sym
          -> IO (Pred sym, Mem sym)
-writeMem sym w ptr tp v m =
+writeMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p <- isAllocatedMutable sym w ptr sz m
-     return (p, memAddWrite (MemWrite ptr (MemStore v tp)) m)
+     p1 <- isAllocatedMutable sym w ptr sz m
+     p2 <- isAligned sym w ptr alignment
+     p  <- andPred sym p1 p2
+     return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
 
 -- | Write a value to any memory region, mutable or immutable. The
 -- returned 'Pred' asserts that the pointer falls within an allocated
@@ -802,14 +817,17 @@ writeConstMem ::
   sym           ->
   NatRepr w     ->
   LLVMPtr sym w ->
-  Type          ->
+  StorageType   ->
+  Alignment     ->
   LLVMVal sym   ->
   Mem sym       ->
   IO (Pred sym, Mem sym)
-writeConstMem sym w ptr tp v m =
+writeConstMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p <- isAllocated sym w ptr sz m
-     return (p, memAddWrite (MemWrite ptr (MemStore v tp)) m)
+     p1 <- isAllocated sym w ptr sz m
+     p2 <- isAligned sym w ptr alignment
+     p  <- andPred sym p1 p2
+     return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
 
 -- | Perform a mem copy. The returned 'Pred' asserts that the source
 -- and destination pointers both fall within allocated memory regions.
@@ -843,29 +861,31 @@ setMem sym w ptr val sz m =
 allocMem :: AllocType -- ^ Type of allocation
          -> Natural -- ^ Block id for allocation
          -> SymBV sym w -- ^ Size
+         -> Alignment
          -> Mutability -- ^ Is block read-only
          -> String -- ^ Source location
          -> Mem sym
          -> Mem sym
-allocMem a b sz mut loc = memAddAlloc (Alloc a b sz mut loc)
+allocMem a b sz _alignment mut loc = memAddAlloc (Alloc a b sz mut loc) -- TODO, pay attention to alignment
 
 -- | Allocate and initialize a new memory region.
 allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
                  -> AllocType -- ^ Type of allocation
                  -> Natural -- ^ Block id for allocation
-                 -> Type
+                 -> StorageType
+                 -> Alignment
                  -> Mutability -- ^ Is block read-only
                  -> String -- ^ Source location
                  -> LLVMVal sym -- ^ Value to write
                  -> Mem sym
                  -> IO (Mem sym)
-allocAndWriteMem sym w a b tp mut loc v m = do
+allocAndWriteMem sym w a b tp alignment mut loc v m = do
   sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   base <- natLit sym b
   off <- bvLit sym w 0
   let p = LLVMPointer base off
   return (m & memAddAlloc (Alloc a b sz mut loc)
-            & memAddWrite (MemWrite p (MemStore v tp)))
+            & memAddWrite (MemWrite p (MemStore v tp alignment)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -980,9 +1000,9 @@ ppTermExpr t = -- FIXME, do something with the predicate?
       where v' = ppTermExpr <$> V.toList v
 
 -- | Pretty print type.
-ppType :: Type -> Doc
+ppType :: StorageType -> Doc
 ppType tp =
-  case typeF tp of
+  case storageTypeF tp of
     Bitvector w -> text ('i': show (bytesToBits w))
     Float -> text "float"
     Double -> text "double"
@@ -1022,7 +1042,7 @@ ppWrite (MemWrite d (MemCopy s l)) = do
   text "memcopy" <+> ppPtr d <+> ppPtr s <+> printSymExpr l
 ppWrite (MemWrite d (MemSet v l)) = do
   text "memset" <+> ppPtr d <+> printSymExpr v <+> printSymExpr l
-ppWrite (MemWrite d (MemStore v _)) = do
+ppWrite (MemWrite d (MemStore v _ _)) = do
   char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y

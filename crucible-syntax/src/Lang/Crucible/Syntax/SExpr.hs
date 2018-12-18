@@ -27,19 +27,17 @@ module Lang.Crucible.Syntax.SExpr
   ) where
 
 import Data.Char (isDigit, isLetter)
-import Data.Monoid hiding ((<>))
 import Data.Semigroup (Semigroup(..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void
 import What4.ProgramLoc as C
 
-
-
 import Text.Megaparsec as MP
 import Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer as L
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
+
 
 -- | Syntax objects, in which each layer is annotated with a source position.
 newtype Syntax a = Syntax { unSyntax :: Posd (Layer Syntax a) }
