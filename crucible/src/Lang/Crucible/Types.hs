@@ -167,7 +167,6 @@ import           Unsafe.Coerce (unsafeCoerce)
 --   Parameter @nm@ has kind 'Symbol'.
 --
 --   If polymorphism is required, then 'eqInstUnroll' must be defined
-
 --   to prove that the rhs of the UnrollType does not include any type
 --   variables that were not already present in the ctx argument.
 --   (This is equivalent to the constraint "Closed (UnrollType nm)" but
@@ -495,7 +494,7 @@ pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
 ------------------------------------------------------------------------
 -- | Classes and type families for polymorphism
 
--- | Type-level substitution function.   
+-- | Type-level substitution function.
 -- Uses a Ctx of types to replace the type variables 0 .. n occurring in a type-level
 -- expression.
 -- This is an open type family that is homeomorphic on most arguments
@@ -620,6 +619,7 @@ instance Closed () where closed _ = Refl
 instance Closed (BaseToType b) where closed _ = Refl
 instance Closed AnyType where closed _ = Refl
 instance Closed UnitType where closed _ = Refl
+instance Closed CharType where closed _ = Refl
 instance Closed (FloatType fi) where closed _ = Refl
 instance (Closed args, Closed ret) => Closed (FunctionHandleType args ret)
   where
