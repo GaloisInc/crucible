@@ -324,7 +324,7 @@ transConstVal (Some (CT.BVRepr w)) (M.ConstChar c) =
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
-lookupVar :: M.Var -> MirGenerator h s ret (MirExp s)
+lookupVar :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
 lookupVar (M.Var vname _ vty _ pos) = do
     vm <- use varMap
     case (Map.lookup vname vm, tyToRepr vty) of
@@ -340,7 +340,8 @@ lookupVar (M.Var vname _ vty _ pos) = do
               VarAtom a ->
                 do return $ MirExp vtr (R.AtomExpr a)
 
-        | otherwise -> fail ("bad type in lookupVar: " <> show vname <> " at " <> Text.unpack pos)
+        | otherwise -> fail ("bad type in lookupVar: " <> show vname <> " at " <> Text.unpack pos <>
+                             "\n\t expected " <> show vtr <> " found " <> show (varInfoRepr varinfo))
       _ -> fail ("register not found: " <> show vname <> " at " <> Text.unpack pos)
 
 -- The return var in the MIR output is always "_0"
@@ -912,16 +913,24 @@ evalLvalue (M.Local var) = do -- traceM $ "evalLValue local" ++ show (pretty var
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
     am <- use adtMap
     case M.typeOf lv of
-      M.TyAdt nm args ->
-        case Map.lookup nm am of
-          Nothing -> fail ("Unknown ADT: " ++ show nm )
-          Just [struct_variant] ->
-            do etu <- evalLvalue lv
-               e   <- accessAggregate etu 1 -- get the ANY data payload
-               Some ctx <- return $ variantToRepr struct_variant args
-               struct <- unpackAny (Some (CT.StructRepr ctx)) e
-               accessAggregate struct field
-          Just _ -> fail ("Expected ADT with exactly one variant: " ++ show nm)
+
+      -- TODO: unify first two cases
+      mty@(M.TyAdt _ _) -> do
+         (struct_variant, args) <- getVariant mty
+         etu <- evalLvalue lv
+         e   <- accessAggregate etu 1 
+         Some ctx <- return $ variantToRepr struct_variant args
+         struct <- unpackAny (Some (CT.StructRepr ctx)) e
+         accessAggregate struct field
+
+      mty@(M.TyDowncast _ _) -> do
+         (struct_variant, args) <- getVariant mty
+         etu <- evalLvalue lv
+         e   <- accessAggregate etu 1
+         Some ctx <- return $ variantToRepr struct_variant args
+         struct <- unpackAny (Some (CT.StructRepr ctx)) e
+         accessAggregate struct field
+
 
       M.TyClosure defid argsm -> do
         -- if lv is a closure, then accessing the ith component means accessing the ith arg in the struct
@@ -932,14 +941,6 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
         clargs <- accessAggregate unpack_closure 1
         clargs' <- unpackAny rty clargs
         accessAggregate clargs' field
-
-      mty@(M.TyDowncast _ _) -> do
-         (struct_variant, args) <- getVariant mty 
-         e <- evalLvalue lv
-         Some ctx <- return $ variantToRepr struct_variant args
-         struct <- unpackAny (Some (CT.StructRepr ctx)) e
-         res <- accessAggregate struct field
-         return res
 
 
       _ -> do -- otherwise, lv is a tuple
@@ -993,10 +994,11 @@ evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
 -- We don't really do anything here --- all the action is when we project from the downcasted adt
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast _i))) = do
-    (MirExp tyr lve) <- evalLvalue lv
+    evalLvalue lv
+{-    (MirExp tyr lve) <- evalLvalue lv
     case testEquality tyr taggedUnionType of
        Just Refl -> accessAggregate (MirExp tyr lve) 1
-       Nothing   -> fail $ "expected ADT type, instead found type: " ++ show (pretty (M.typeOf lv)) ++ " aka " ++ show tyr 
+       Nothing   -> fail $ "expected ADT type, instead found type: " ++ show (pretty (M.typeOf lv)) ++ " aka " ++ show tyr  -}
 evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 
 
@@ -1070,7 +1072,8 @@ assignLvExp lv re = do
                 case Map.lookup nm am of
                   Nothing -> fail ("Unknown ADT: " ++ show nm)
                   Just [struct_variant] ->
-                    do etu <- evalLvalue lv
+                    do traceM $ "assignLvExp with lv " ++ show (pretty lv) ++ " at field " ++ show field
+                       etu <- evalLvalue lv
                        e   <- accessAggregate etu 1 -- get the ANY data payload
                        Some ctx <- return $ variantToRepr struct_variant args
                        struct <- unpackAny (Some (CT.StructRepr ctx)) e
@@ -1083,11 +1086,12 @@ assignLvExp lv re = do
                 case Map.lookup nm am of
                   Nothing -> fail ("Unknown ADT: " ++ show nm)
                   Just vars -> do
+                     traceM $ "assignLvExp with downcasted lv " ++ show (pretty lv) ++ " at field " ++ show field
                      let struct_variant = vars List.!! (fromInteger i)
                      Some ctx <- return $ variantToRepr struct_variant args
 
-                     aetu <- evalLvalue lv
-                     etu <- unpackAny (Some taggedUnionType) aetu
+                     etu <- evalLvalue lv
+--                     etu <- unpackAny (Some taggedUnionType) aetu
                      e   <- accessAggregate etu 1
 
                      struct <- unpackAny (Some (CT.StructRepr ctx)) e
@@ -1593,8 +1597,8 @@ transTerminator t _tr =
 MIR initializes compound structures by initializing their
 components. It does not include a general allocation. Here we add
 general code initialize the structures for local variables where we
-can. In general, we only need to produce a value of the correct type,
-theres no semantics for what that value should be.
+can. In general, we only need to produce a value of the correct type
+with a structure that is compatible for further initialization.
 
 With this code, it is possible for mir-verifier to miss uninitialized values.
 So we should revisit this.
@@ -1644,6 +1648,10 @@ initialValue (M.TyClosure _ _) =
    return $ Just $ packAny (MirExp CT.BoolRepr S.false)
 initialValue M.TyStr =
    return $ Just $ (MirExp CT.StringRepr (S.litExpr ""))
+-- TODO: this case is wrong --- we need to know which branch of the ADT to
+-- initialize. By default, we'll use the first, but that may not be the right one.
+-- we need to look ahead to see how we are initializing the components of the
+-- data structure and pass this as an extra argument to the function.
 initialValue (M.TyAdt nm _args) = do
     am <- use adtMap
     case Map.lookup nm am of
@@ -1652,7 +1660,8 @@ initialValue (M.TyAdt nm _args) = do
        Just (Variant _vn _disc fds _kind :_) -> do
           let initField (Field _name ty _subst) = initialValue ty
           fds <- mapM initField fds
-          return $ Just $ buildTaggedUnion 0 (Maybe.catMaybes fds)
+          let union = buildTaggedUnion 0 (Maybe.catMaybes fds)
+          return $ Just $ union
 initialValue (M.TyFnPtr _) =
    return $ Just $ packAny (MirExp CT.BoolRepr S.false)
 initialValue (M.TyDynamic _) =

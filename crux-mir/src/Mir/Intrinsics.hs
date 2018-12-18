@@ -119,6 +119,8 @@ import           Mir.PP
 
 import           Debug.Trace
 
+-- A MirReference is a Crucible RefCell paired with a path to a subcomponent
+
 type MirReferenceSymbol = "MirReference"
 type MirReferenceType tp = IntrinsicType MirReferenceSymbol (EmptyCtx ::> tp)
 
