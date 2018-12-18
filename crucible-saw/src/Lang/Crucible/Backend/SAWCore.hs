@@ -46,6 +46,7 @@ import           What4.SatResult
 import qualified What4.Expr.Builder as B
 import qualified What4.Expr.WeightedSum as WSum
 import           What4.Symbol
+import           What4.Utils.Hashable (hashedMap)
 
 import           Lang.Crucible.Panic(panic)
 import           Lang.Crucible.Backend
@@ -568,6 +569,74 @@ applyArray sym sc (SAWExpr f) args = SAWExpr <$> go args
            Just (_, _, body) -> SC.instantiateVar sc 0 x' body
            Nothing           -> SC.scApply sc f' x'
 
+sizeIndexLit :: forall tp. IndexLit tp -> Integer
+sizeIndexLit (NatIndexLit n) = toInteger n + 1
+sizeIndexLit (BVIndexLit _ n) = n + 1
+
+evalIndexLit :: SC.SharedContext -> IndexLit tp -> IO (SAWExpr tp)
+evalIndexLit sc l =
+  case l of
+    NatIndexLit n ->
+      do SAWExpr <$> SC.scNat sc (fromInteger (toInteger n))
+    BVIndexLit w n ->
+      do w' <- SC.scNat sc (fromInteger (natValue w))
+         n' <- SC.scNat sc (fromInteger n)
+         SAWExpr <$> SC.scBvNat sc w' n'
+
+makeTable ::
+  SC.SharedContext ->
+  Ctx.Assignment IndexLit ctx {- ^ maximum index -} ->
+  (Ctx.Assignment IndexLit ctx -> IO SC.Term) {- ^ generating function -} ->
+  SC.Term {- ^ table element type -} ->
+  IO SC.Term
+makeTable _sc Ctx.Empty mkElem _elemTy = mkElem Ctx.Empty
+makeTable sc (idxs Ctx.:> idx) mkElem elemTy =
+  do len <- SC.scNat sc (fromInteger (sizeIndexLit idx))
+     elemTy' <- SC.scVecType sc len elemTy
+     let mkElem' vars =
+           do elems <- traverse (\v -> mkElem (vars Ctx.:> v)) (upto idx)
+              SC.scVector sc elemTy elems
+     makeTable sc idxs mkElem' elemTy'
+  where
+    upto :: IndexLit tp -> [IndexLit tp]
+    upto (NatIndexLit n) = [ NatIndexLit i | i <- [0 .. n] ]
+    upto (BVIndexLit w n) = [ BVIndexLit w i | i <- [0 .. n] ]
+
+applyTable ::
+  forall n fs ctx ret.
+  SAWCoreBackend n fs ->
+  SC.SharedContext ->
+  SC.Term {- ^ table (nested vectors) -} ->
+  Ctx.Assignment IndexLit ctx {- ^ maximum index -} ->
+  Ctx.Assignment SAWExpr ctx {- ^ indices -} ->
+  SC.Term {- ^ element type -} ->
+  SAWExpr ret {- ^ fallback value for out-of-bounds -} ->
+  IO (SAWExpr ret)
+applyTable sym sc t0 maxidx vars ret fallback =
+  do fallback' <- termOfSAWExpr sym sc fallback
+     SAWExpr <$> go ret maxidx vars fallback'
+  where
+    go ::
+      SC.Term ->
+      Ctx.Assignment IndexLit ctx' ->
+      Ctx.Assignment SAWExpr ctx' ->
+      SC.Term ->
+      IO SC.Term
+    go _ty Ctx.Empty Ctx.Empty _fb = return t0
+    go ty (imax Ctx.:> NatIndexLit n) (xs Ctx.:> SAWExpr x) fb =
+      do len <- SC.scNat sc (fromInteger (toInteger (n + 1)))
+         ty' <- SC.scVecType sc len ty
+         fb' <- SC.scGlobalApply sc (SC.mkIdent SC.preludeName "replicate") [len, ty, fb]
+         vec <- go ty' imax xs fb'
+         SC.scGlobalApply sc (SC.mkIdent SC.preludeName "atWithDefault") [len, ty, fb, vec, x]
+    go ty (imax Ctx.:> BVIndexLit w n) (xs Ctx.:> SAWExpr x) fb =
+      do len <- SC.scNat sc (fromInteger (n + 1))
+         ty' <- SC.scVecType sc len ty
+         fb' <- SC.scGlobalApply sc (SC.mkIdent SC.preludeName "replicate") [len, ty, fb]
+         vec <- go ty' imax xs fb'
+         x' <- SC.scBvToNat sc (fromInteger (natValue w)) x
+         SC.scGlobalApply sc (SC.mkIdent SC.preludeName "atWithDefault") [len, ty, fb, vec, x']
+
 applyExprSymFn ::
   forall n fs args ret.
   SAWCoreBackend n fs ->
@@ -825,7 +894,37 @@ evaluateExpr sym sc cache = f
           x' <- f x
           SC.scBvSExt sc m n x'
 
-        B.ArrayMap{} -> unsupported sym "FIXME SAW backend does not support ArrayMap."
+        B.ArrayMap indexTypes range updates arr ->
+          do let m = hashedMap updates
+             let (maxidx, _) = Map.findMax m
+             let sizes = toListFC sizeIndexLit maxidx
+             case 2 * toInteger (Map.size m) >= product sizes of
+               -- Make vector table if it would be sufficiently (1/2) full.
+               True ->
+                 do elemTy <- baseSCType sym sc range
+                    arr' <- eval arr
+                    let mkElem idxs =
+                          termOfSAWExpr sym sc =<<
+                          case Map.lookup idxs m of
+                            Just x -> eval x
+                            Nothing ->
+                              do idxs' <- traverseFC (evalIndexLit sc) idxs
+                                 applyArray sym sc arr' idxs'
+                    table <- makeTable sc maxidx mkElem elemTy
+                    makeArray sym sc indexTypes $ \vars ->
+                      do fallback <- applyArray sym sc arr' vars
+                         applyTable sym sc table maxidx vars elemTy fallback
+               -- If table would be too sparse, treat as repeated updates.
+               False ->
+                 makeArray sym sc indexTypes $ \vars ->
+                 do arr' <- eval arr
+                    fallback <- applyArray sym sc arr' vars
+                    let upd fb (idxs, x) =
+                          do idxs' <- traverseFC (evalIndexLit sc) idxs
+                             x' <- eval x
+                             p <- scAllEq sym sc indexTypes vars idxs'
+                             scIte sym sc range p x' fb
+                    foldM upd fallback (Map.assocs m)
 
         B.ConstantArray indexTypes _range v ->
           makeArray sym sc indexTypes $ \_ -> eval v
