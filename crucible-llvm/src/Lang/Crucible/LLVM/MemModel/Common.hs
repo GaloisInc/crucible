@@ -609,3 +609,4 @@ memsetValue byte = go
         Array n etp -> MkArray etp (V.replicate (fromIntegral n) (go etp))
         Struct flds -> MkStruct (fldFn <$> flds)
           where fldFn fld = (fld, go (fld^.fieldVal))
+
