@@ -119,6 +119,7 @@ module Lang.Crucible.LLVM.MemModel
 
     -- * Globals
   , GlobalSymbol(..)
+  , globalAliases
   , doResolveGlobal
   , registerGlobal
   , allocGlobals
@@ -135,6 +136,8 @@ module Lang.Crucible.LLVM.MemModel
   , withPtrWidth
   ) where
 
+import           Prelude hiding (seq)
+
 import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -142,13 +145,19 @@ import           Control.Monad.ST
 import           Control.Monad.Trans (lift)
 import           Control.Monad.Trans.State
 import           Data.Dynamic
-import qualified Data.Map as Map
-import           Data.Map (Map)
 import           Data.IORef
+import qualified Data.List as List
+import           Data.Map (Map)
+import qualified Data.Map as Map
+import           Data.Maybe (mapMaybe)
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import           Data.Word
+import           GHC.TypeLits
 import           System.IO (Handle, hPutStrLn)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
-import           GHC.TypeLits
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -1128,6 +1137,92 @@ fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
 -- Globals
 --
 
+-- | Reverse a set of alias/aliasee relationships
+--
+-- Given a list of values @l : List A@ and a function @aliasOf : A -> A@,
+-- compute a map @Map A (Set A)@ which records the set of things that are
+-- transitive aliases of a given @a : A@.
+--
+-- The keys in the resulting map should be only terminals, e.g. those @a@
+-- which aren't aliases of another @a'@ in @l@.
+--
+-- Outline:
+-- * Initialize the empty map @M : Map A (Set A)@
+-- * Initialize an auxilary map @N : Map A A@ which records the final aliasee
+--   of each key (the last one in the chain of aliases).
+-- * For each @a : A@ in l,
+--   1. If @aliasOf a@ is in @N@ as @aliasee@,
+--       a. insert @aliasee@ at key @a@ in @N@ (memoize the result)
+--       b. insert @a@ into the set at key @aliasee@ in @M@ (record the result)
+--       c. recurse on @s@ minus @aliasee@ and @a@.
+--   2. If @aliasOf a@ is in @s@, recurse on @l ++ [a]@
+--   3. Otherwise,
+--       a. insert @a@ at key @a@ in @N@ (memoize the result)
+--       b. return the map as-is
+--
+-- For the sake of practical concerns, the implementation uses \"labels\" for
+-- comparison and @aliasOf@, and uses sequences rather than lists.
+reverseAliases :: (Ord a, Ord l)
+               => (a -> l)         -- ^ \"Label of\"
+               -> (a -> Maybe l)   -- ^ \"Alias of\"
+               -> Seq a
+               -> Map a (Set a)
+reverseAliases lab aliasOf seq = evalState (go Map.empty seq) (Map.empty :: Map l a)
+  where go map_ Seq.Empty                           = pure map_
+        go map_ (a@(aliasOf -> Nothing) Seq.:<| as) = go (Map.insert a Set.empty map_) as
+        go map_ (a@(aliasOf -> Just l)  Seq.:<| as) = do
+          st <- get
+          case Map.lookup l st of
+            Just aliasee ->
+              modify (Map.insert l aliasee) >>                              -- 1a
+              go (mapSetInsert aliasee a map_)                              -- 1b
+                 (Seq.filter (\b -> lab b /= lab aliasee && lab b /= l) as) -- 1c
+            Nothing      ->
+              if isJust (List.find ((l ==) . lab) as)
+              then go map_ (as <> Seq.singleton a)                          -- 2
+              else modify (Map.insert (lab a) a) >>                         -- 3a
+                   pure map_                                                -- 3b
+          where mapSetInsert k v m = Map.update (pure . Set.insert v) k m
+
+-- | This is one step closer to the application of 'reverseAliases':
+-- There are two \"sorts\" of objects:
+-- Objects in sort @a@ are never aliases (think global variables).
+-- Objects in sort @b@ are usually aliases, to things of either sort
+-- (think aliases to global variables).
+reverseAliasesTwoSorted :: (Ord a, Ord b, Ord l)
+                        => (a -> l)       -- ^ \"Label of\" for type @a@
+                        -> (b -> l)       -- ^ \"Label of\" for type @b@
+                        -> (b -> Maybe l) -- ^ \"Alias of\"
+                        -> Seq a
+                        -> Seq b
+                        -> Map a (Set b)
+reverseAliasesTwoSorted laba labb aliasOf seqa seqb =
+  Map.fromList . mapMaybe go . Map.toList $
+    reverseAliases (either laba labb)
+                   (either (const Nothing) aliasOf)
+                   (fmap Left seqa <> fmap Right seqb)
+  where -- Drop the b's which have been added as keys and
+        go (Right _, _) = Nothing
+        -- Call "error" if an a has been tagged as an alias
+        go (Left k, s) = Just (k, Set.map errLeft s)
+        -- TODO: Should this throw an exception?
+        errLeft (Left _)  = error "Internal error: unexpected Left value"
+        errLeft (Right v) = v
+
+-- | Get all the aliases that alias (transitively) to a certain global.
+globalAliases :: L.Module -> Map L.Global (Set L.GlobalAlias)
+globalAliases mod_ =
+    reverseAliasesTwoSorted L.globalSym L.aliasName aliasOf
+      (Seq.fromList (L.modGlobals mod_)) (Seq.fromList (L.modAliases mod_))
+  where aliasOf alias =
+          case L.aliasTarget alias of
+            -- L.ValConstExpr -> _ -- TODO evaluate these to a symbol?
+            L.ValSymbol s -> Just s
+            -- These silently get dropped.
+            -- It's invalid LLVM code to not have a symbol or constexpr.
+            _             -> Nothing
+
+
 -- | Look up a 'Symbol' in the global map of the given 'MemImpl'.
 -- Panic if the symbol is not present in the global map.
 doResolveGlobal ::
@@ -1137,24 +1232,28 @@ doResolveGlobal ::
   L.Symbol {- ^ name of global -} ->
   IO (LLVMPtr sym wptr)
 doResolveGlobal _sym mem symbol =
-  case Map.lookup symbol (memImplGlobalMap mem) of
-    Just (SomePointer ptr) | PtrWidth <- ptrWidth ptr -> return ptr
-    _ -> panic "MemModel.doResolveGlobal"
-            [ "Unable to resolve global symbol."
-            , "*** Name: " ++ show symbol
-            ]
+  let lookedUp = Map.lookup symbol (memImplGlobalMap mem)
+  in case Map.lookup symbol (memImplGlobalMap mem) of
+       Just (SomePointer ptr) | PtrWidth <- ptrWidth ptr -> return ptr
+       _ -> panic "MemModel.doResolveGlobal" $
+               (if isJust lookedUp
+               then "Symbol was not a pointer of the correct width."
+               else "Unable to resolve global symbol.") :
+               [ "*** Name: " ++ show symbol ]
 
 -- | Add an entry to the global map of the given 'MemImpl'.
-registerGlobal :: MemImpl sym -> L.Symbol -> LLVMPtr sym wptr -> MemImpl sym
-registerGlobal (MemImpl blockSource gMap hMap mem) symbol ptr =
-  let gMap' = Map.insert symbol (SomePointer ptr) gMap
+--
+-- This takes a list of symbols because there may be aliases to a global.
+registerGlobal :: MemImpl sym -> [L.Symbol] -> LLVMPtr sym wptr -> MemImpl sym
+registerGlobal (MemImpl blockSource gMap hMap mem) symbols ptr =
+  let gMap' = foldr (\s m -> Map.insert s (SomePointer ptr) m) gMap symbols
   in MemImpl blockSource gMap' hMap mem
 
 -- | Allocate memory for each global, and register all the resulting
 -- pointers in the global map.
 allocGlobals :: (IsSymInterface sym, HasPtrWidth wptr)
              => sym
-             -> [(L.Global, Bytes, Alignment)]
+             -> [(L.Global, [L.Symbol], Bytes, Alignment)]
              -> MemImpl sym
              -> IO (MemImpl sym)
 allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
@@ -1162,11 +1261,12 @@ allocGlobals sym gs mem = foldM (allocGlobal sym) mem gs
 allocGlobal :: (IsSymInterface sym, HasPtrWidth wptr)
             => sym
             -> MemImpl sym
-            -> (L.Global, Bytes, Alignment)
+            -> (L.Global, [L.Symbol], Bytes, Alignment)
             -> IO (MemImpl sym)
-allocGlobal sym mem (g, sz, alignment) = do
+allocGlobal sym mem (g, aliases, sz, alignment) = do
   let symbol@(L.Symbol sym_str) = L.globalSym g
   let mut = if L.gaConstant (L.globalAttrs g) then G.Immutable else G.Mutable
   sz' <- bvLit sym PtrWidth (bytesToInteger sz)
+  -- TODO: Aliases are not propagated to doMalloc for error messages
   (ptr, mem') <- doMalloc sym G.GlobalAlloc mut sym_str mem sz' alignment
-  return (registerGlobal mem' symbol ptr)
+  return (registerGlobal mem' (symbol:aliases) ptr)

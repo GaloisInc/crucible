@@ -43,12 +43,13 @@ module Lang.Crucible.LLVM.Globals
   , makeGlobalMap
   ) where
 
-import Control.Arrow ((&&&))
-import Control.Monad.Except
-import Control.Lens hiding (op, (:>) )
---import qualified Data.List as List
-import Data.Map.Strict (Map)
+import           Control.Arrow ((&&&))
+import           Control.Monad.Except
+import           Control.Lens hiding (op, (:>) )
+import qualified Data.Set as Set
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Maybe (fromMaybe)
 
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as LPP
@@ -172,11 +173,14 @@ initializeMemory sym llvm_ctx m = do
    let handles = Map.assocs (_symbolMap llvm_ctx)
    mem <- foldM (allocLLVMHandleInfo sym m) mem0 handles
    -- Allocate global values
-   let gs = L.modGlobals m
+   let globals    = L.modGlobals m
+   let allAliases = globalAliases m
    gs_alloc <- mapM (\g -> do
                         ty <- either fail return $ liftMemType $ L.globalType g
-                        let sz = memTypeSize dl ty
+                        let sz      = memTypeSize dl ty
                         let tyAlign = memTypeAlign dl ty
+                        let aliases = map L.aliasName . Set.toList $
+                              fromMaybe Set.empty (Map.lookup g (allAliases))
                         alignment <-
                           case L.globalAlign g of
                             Just a | a > 0 ->
@@ -190,8 +194,8 @@ initializeMemory sym llvm_ctx m = do
                                                  "is insufficent for type: " ++ show (L.globalType g))
                                   return al
                             _ -> return tyAlign
-                        return (g, sz, alignment))
-                    gs
+                        return (g, aliases, sz, alignment))
+                    globals
    allocGlobals sym gs_alloc mem
 
 
@@ -209,7 +213,7 @@ allocLLVMHandleInfo sym m mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
            | L.GlobalAlias asym _ (L.ValSymbol tsym) <- L.modAliases m
            , tsym == symbol
            ]
-     return $ foldr (\s m' -> registerGlobal m' s ptr) mem' syms
+     return $ registerGlobal mem' syms ptr
 
 
 -- | Populate the globals mentioned in the given @GlobalInitializerMap@
