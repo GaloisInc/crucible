@@ -135,6 +135,7 @@ tyToRepr t0 = case t0 of
   M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
   M.TyCustom custom_t -> customtyToRepr custom_t
+  -- FIXME: should this be a tuple? 
   M.TyClosure _def_id _substs -> Some CT.AnyRepr
   M.TyStr -> Some CT.StringRepr
   M.TyAdt _defid _tyargs -> Some taggedUnionType
@@ -862,16 +863,19 @@ buildClosureHandle funid argsm args =
                 handle_cl = R.App $ E.PolyInstantiate poly_ty (S.app $ E.PolyHandleLit fhandle) subst
                 handl = MirExp inst_ty handle_cl
             let closure_unpack = buildTuple [handl, (packAny closure_arg)]
+            traceM $ "buildClosureHandle for " ++ show funid ++ " with ty args " ++ show (pretty argsm)
             return $ packAny closure_unpack
         _ ->
           do fail ("buildClosureHandle: unknown function: " ++ show funid)
 
 
 buildClosureType :: M.DefId -> [M.Ty] -> MirGenerator h s ret (Some CT.TypeRepr, Some CT.TypeRepr) -- get type of closure, in order to unpack the any
-buildClosureType defid args = do
+buildClosureType defid args' = do
     hmap <- use handleMap
     case (Map.lookup defid hmap) of
       Just (MirHandle _ _ fhandle) -> do
+          let args = tail (tail args')
+          traceM $ "buildClosureType for " ++ show defid ++ " with ty args " ++ show (pretty args)
           -- build type StructRepr [HandleRepr, StructRepr [args types]]
           tyListToCtx args $ \argsctx -> do
               let argstruct = CT.StructRepr argsctx
@@ -919,7 +923,8 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
                accessAggregate struct field
           Just _ -> fail ("Expected ADT with exactly one variant: " ++ show nm)
 
-      M.TyClosure defid argsm -> do -- if lv is a closure, then accessing the ith component means accessing the ith arg in the struct
+      M.TyClosure defid argsm -> do
+        -- if lv is a closure, then accessing the ith component means accessing the ith arg in the struct
         e <- evalLvalue lv
         let args = filterMaybes argsm
         (clty, rty) <- buildClosureType defid args
@@ -1004,37 +1009,35 @@ evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 -- v := rvalue
 --
 assignVarRvalue :: M.Var -> M.Rvalue -> MirGenerator h s ret ()
-assignVarRvalue var rv = assignVarExp var (Just (M.typeOf rv)) =<< evalRval rv
+assignVarRvalue var rv = assignVarExp var =<< evalRval rv
 
 -- v := mirexp
--- FIXME... this 'Maybe Ty' argument should really just by 'Ty', but
---  we need to reoganize call sites to pass this information through
-assignVarExp :: HasCallStack => M.Var -> Maybe M.Ty -> MirExp s -> MirGenerator h s ret ()
+assignVarExp :: HasCallStack => M.Var -> MirExp s -> MirGenerator h s ret ()
 
 -- Implement implict coercion from mutable reference to immutable reference.  The major
 -- invariant guarantee given by the borrow checker is that, so long as the immutable
 -- reference is live, the value will not change.  This justifies immediately deferencing
 -- the pointer to get out the value within.
 assignVarExp v@(M.Var _vnamd _ (M.TyRef _lhs_ty M.Immut) _ _pos)
-               _ (MirExp (MirReferenceRepr e_ty) e) =
+               (MirExp (MirReferenceRepr e_ty) e) =
          do r <- readMirRef e_ty e
-            assignVarExp v Nothing (MirExp e_ty r)
+            assignVarExp v (MirExp e_ty r)
 
 -- For mutable slice to immutable slice, we make a copy of the vector so that
 -- we have the correct range. Note: if we update immutable slices to also
 -- store bounds, then we can update this coercion.
 assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _pos)
-               _ (MirExp (MirSliceRepr e_ty) e) =
+               (MirExp (MirSliceRepr e_ty) e) =
  
          do let rvec  = S.getStruct Ctx.i1of3 e
             let start = S.getStruct Ctx.i2of3 e
             let stop  = S.getStruct Ctx.i3of3 e
             r <- readMirRef (CT.VectorRepr e_ty) rvec
             r2 <- vectorCopy e_ty start stop r
-            assignVarExp v Nothing (MirExp (CT.VectorRepr e_ty) r2)
+            assignVarExp v (MirExp (CT.VectorRepr e_ty) r2)
 
 
-assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
+assignVarExp (M.Var vname _ vty _ pos) (MirExp e_ty e) = do
     vm <- use varMap
     case (Map.lookup vname vm) of
       Just (Some varinfo)
@@ -1054,15 +1057,11 @@ assignVarExp (M.Var vname _ vty _ pos) _ (MirExp e_ty e) = do
       Nothing -> fail ("register not found: " ++ show vname ++ " at " ++ Text.unpack pos)
 
 -- lv := mirexp
-
--- FIXME... this 'Maybe Ty' argument should really just by 'Ty', but
---  we need to reoganize call sites to pass this information through
--- and there are a *lot* of places that pass in Nothing for this argument
-assignLvExp :: HasCallStack => M.Lvalue -> Maybe M.Ty -> MirExp s -> MirGenerator h s ret ()
-assignLvExp lv re_tp re = do
+assignLvExp :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
+assignLvExp lv re = do
     case lv of
-        M.Tagged lv _ -> assignLvExp  lv re_tp re
-        M.Local var   -> assignVarExp var re_tp re
+        M.Tagged lv _ -> assignLvExp  lv re
+        M.Local var   -> assignVarExp var re
         M.Static -> fail "static"
         M.LProjection (M.LvalueProjection lv (M.PField field _ty)) -> do
             am <- use adtMap
@@ -1077,10 +1076,8 @@ assignLvExp lv re_tp re = do
                        struct <- unpackAny (Some (CT.StructRepr ctx)) e
                        struct' <- modifyAggregateIdx struct re field
                        etu' <- modifyAggregateIdx etu (packAny struct') 1
-                       assignLvExp lv (Just (M.TyAdt nm args)) etu'
+                       assignLvExp lv etu'
                   Just _ -> fail ("Expected ADT with exactly one variant: " ++ show nm)
-
-              M.TyClosure _ _ -> fail "assign to closure unimp"
 
               M.TyDowncast (M.TyAdt nm args) i -> 
                 case Map.lookup nm am of
@@ -1097,13 +1094,16 @@ assignLvExp lv re_tp re = do
                      struct' <- modifyAggregateIdx struct re field
 
                      etu' <- modifyAggregateIdx etu (packAny struct') 1
-                     assignLvExp lv Nothing etu'
+                     assignLvExp lv etu'
+
+              M.TyClosure _ _ -> fail "assign to closure unimp"
+
               _ -> do
                 ag <- evalLvalue lv
                 new_ag <- modifyAggregateIdx ag re field
-                assignLvExp lv Nothing new_ag
+                assignLvExp lv new_ag
         M.LProjection (M.LvalueProjection lv (M.Downcast i)) -> do
-          assignLvExp lv Nothing re
+          assignLvExp lv re
 
         M.LProjection (M.LvalueProjection (M.LProjection (M.LvalueProjection lv' M.Deref)) (M.Index v))
           | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv' ->
@@ -1139,7 +1139,7 @@ assignLvExp lv re_tp re = do
                           G.assertExpr (ind S..< (S.app (E.VectorSize arr)))
                                        (S.litExpr "Index out of range")
                           let arr' = MirExp arr_tp (S.app $ E.VectorSetEntry r_tp arr ind r)
-                          assignLvExp lv (Just (M.typeOf lv)) arr'
+                          assignLvExp lv arr'
                         Nothing -> fail "bad type in assign"
                   _ -> fail $ "bad type in assign"
         M.LProjection (M.LvalueProjection lv M.Deref) ->
@@ -1181,7 +1181,7 @@ transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
 transStatement (M.Assign lv rv pos) =
   do setPosition pos
      re <- evalRval rv
-     assignLvExp lv (Just (M.typeOf rv)) re
+     assignLvExp lv re
 transStatement (M.StorageLive lv) =
   do storageLive lv
 transStatement (M.StorageDead lv) =
@@ -1191,7 +1191,7 @@ transStatement (M.SetDiscriminant lv i) = do
   case ty of
     CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr) -> do
        e' <- modifyAggregateIdx ev (MirExp CT.NatRepr (S.litExpr (fromInteger (toInteger i)))) 0
-       assignLvExp lv Nothing e'
+       assignLvExp lv e'
     CT.AnyRepr ->
        fail "set discriminant: found any"
     CT.IntegerRepr -> do
@@ -1463,7 +1463,7 @@ doCall funid funsubst cargs cdest retRepr = do
                     let polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr fargctx fret) polyfcn tyargs
                     ret_e <- G.call polyinst asgn
 --                    cret_e <- coerceRet ret ((M.typeOf dest_lv), MirExp fret ret_e)
-                    assignLvExp dest_lv Nothing (MirExp ifret ret_e)
+                    assignLvExp dest_lv (MirExp ifret ret_e)
                     jumpToBlock jdest
                   _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
                                  ++ show fargctx ++ "\n while calling " ++ show funid
@@ -1540,7 +1540,7 @@ methodCall traitName methodName funsubst traitObject args (Just (dest_lv,jdest))
                   case (testEquality ctx fargctx ) of
                      Just Refl -> do
                        ret_e <- G.call fn asgn
-                       assignLvExp dest_lv Nothing (MirExp fret ret_e)
+                       assignLvExp dest_lv (MirExp fret ret_e)
                        jumpToBlock jdest
                      Nothing -> fail $ "type error in TRAIT call: args " ++ (show ctx) ++ " vs function params "
                                  ++ show fargctx ++ " while calling " ++ show fn
@@ -1841,7 +1841,7 @@ allocLocalVar var = do
 -- The first block in the list is the entrance block
 genFn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 genFn (M.Fn fname argvars _fretty body _gens _preds) rettype = do
-  traceM $ "generating code for: " ++ show fname ++ " with args " ++ show argvars
+  traceM $ "generating code for: " ++ show fname ++ " with args of type " ++ show (map pretty (map M.typeOf argvars))
   traceM $ "body is " ++ show (pretty body)
   lm <- buildLabelMap body
   labelMap .= lm
@@ -2306,33 +2306,33 @@ doCustomCall fname funsubst ops lv dest
   | Just "boxnew" <- M.isCustomFunc fname,
   [op] <- ops =  do
         e <- evalOperand op
-        assignLvExp lv Nothing e
+        assignLvExp lv e
         jumpToBlock dest
 
   | Just "slice_tovec" <- M.isCustomFunc fname,
   [op] <- ops = do
         e <- evalOperand op
-        assignLvExp lv Nothing e
+        assignLvExp lv e
         jumpToBlock dest
 
   | Just "vec_asmutslice" <- M.isCustomFunc fname,
   [op] <- ops = do
         ans <- evalOperand op
-        assignLvExp lv Nothing ans
+        assignLvExp lv ans
         jumpToBlock dest
 
  | Just "index" <- M.isCustomFunc fname,
     [op1, op2] <- ops = do
         let v2 = M.varOfLvalue (M.lValueofOp op2)
         ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
-        assignLvExp lv Nothing ans
+        assignLvExp lv ans
         jumpToBlock dest
 
  | Just "index_mut" <- M.isCustomFunc fname,
     [op1, op2] <- ops = do
         let v2 = M.varOfLvalue (M.lValueofOp op2)
         ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
-        assignLvExp lv Nothing ans
+        assignLvExp lv ans
         jumpToBlock dest
 
 
@@ -2340,14 +2340,14 @@ doCustomCall fname funsubst ops lv dest
  | Just "vec_fromelem" <- M.isCustomFunc fname,
     [elem, u] <- ops = do
         ans <- buildRepeat_ elem u
-        assignLvExp lv Nothing ans
+        assignLvExp lv ans
         jumpToBlock dest
 
  | Just "into_iter" <- M.isCustomFunc fname, -- vec -> (vec, 0)
     [v] <- ops = do
         vec <- evalOperand v
         let t = buildTuple [vec, MirExp (CT.NatRepr) (S.app $ E.NatLit 0)]
-        assignLvExp lv Nothing t
+        assignLvExp lv t
         jumpToBlock dest
 
  | Just "iter_next" <- M.isCustomFunc fname, [o] <- ops = do
@@ -2364,20 +2364,20 @@ doCustomCall fname funsubst ops lv dest
          bad_ret = buildTuple [bad_ret_1, bad_ret_2]
 
      ifteAny is_good
-             (assignLvExp lv Nothing good_ret >> jumpToBlock' dest)
-             (assignLvExp lv Nothing bad_ret >> jumpToBlock' dest)
+             (assignLvExp lv good_ret >> jumpToBlock' dest)
+             (assignLvExp lv bad_ret >> jumpToBlock' dest)
 
  | Just "iter_map" <- M.isCustomFunc fname, [iter, closure] <- ops = do
      iter_e <- evalOperand iter
      closure_e <- evalOperand closure
      iter2 <- performMap (M.typeOf iter) iter_e (M.typeOf closure) closure_e
-     assignLvExp lv Nothing iter2
+     assignLvExp lv iter2
      jumpToBlock dest
 
  | Just "iter_collect" <- M.isCustomFunc fname, [o] <- ops = do
      iter <- evalOperand o
      v <- accessAggregate iter 0
-     assignLvExp lv Nothing v
+     assignLvExp lv v
      jumpToBlock dest
 
  | Just "slice_len" <-  M.isCustomFunc fname, [vec] <- ops, [Just _] <- funsubst = do
@@ -2386,7 +2386,7 @@ doCustomCall fname funsubst ops lv dest
      case vty of
        (CT.VectorRepr _) -> do
            let ans = (MirExp CT.NatRepr  (G.App $ E.VectorSize vec_e))
-           assignLvExp lv Nothing ans
+           assignLvExp lv ans
            jumpToBlock dest
        _ -> fail $ " slice_len type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
@@ -2394,7 +2394,7 @@ doCustomCall fname funsubst ops lv dest
      vec_e <- evalOperand vec
      range_e <- evalOperand range
      let v = undefined
-     assignLvExp lv Nothing v
+     assignLvExp lv v
      jumpToBlock dest
 
  | Just "slice_get_mut" <-  M.isCustomFunc fname,
@@ -2409,7 +2409,7 @@ doCustomCall fname funsubst ops lv dest
          (MirExp CT.NatRepr start) <- accessAggregate range_e 0
          (MirExp CT.NatRepr stop ) <- accessAggregate range_e 1
          v <- vectorCopy ety start stop vec_e
-         assignLvExp lv Nothing (MirExp (CT.VectorRepr ety) v)
+         assignLvExp lv (MirExp (CT.VectorRepr ety) v)
          jumpToBlock dest
        _ -> fail $ " slice_get_mut type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
@@ -2471,7 +2471,7 @@ doCustomCall fname funsubst ops lv dest
                         case (testEquality ctx fargctx) of
                           Just Refl -> do
                             ret_e <- G.call handl asgn
-                            assignLvExp lv Nothing (MirExp fretrepr ret_e)
+                            assignLvExp lv (MirExp fretrepr ret_e)
                             jumpToBlock dest
                           Nothing ->
                             fail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
