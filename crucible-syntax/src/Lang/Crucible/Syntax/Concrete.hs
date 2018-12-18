@@ -1,3 +1,4 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -111,7 +112,7 @@ printExpr = toText (PrintRules rules)
 data E s t where
   EAtom  :: !(Atom s t) -> E s t
   EReg   :: !Position -> !(Reg s t) -> E s t
-  EGlob  :: !Position -> !(GlobalVar t) -> E s t
+  EGlob  :: Closed t => !Position -> !(GlobalVar t) -> E s t
   EDeref :: !Position -> !(E s (ReferenceType t)) -> E s t
   EApp   :: !(App () (E s) t) -> E s t
 
@@ -459,7 +460,7 @@ synthExpr typeHint =
 
     globRef :: m (SomeExpr s)
     globRef =
-      do Pair t g <- globRef'
+      do GlobalInfo t g <- globRef'
          loc <- position
          return (SomeE t (EGlob loc g))
 
@@ -916,16 +917,19 @@ data LabelInfo :: * -> * where
   NoArgLbl :: Label s -> LabelInfo s
   ArgLbl :: forall s ty . TypeRepr ty -> LambdaLabel s ty -> LabelInfo s
 
+data GlobalInfo :: * where
+  GlobalInfo :: forall t . Closed t => TypeRepr t -> GlobalVar t -> GlobalInfo
+
 data ProgramState h s =
   ProgramState { _progFunctions :: Map FunctionName FunctionHeader
-               , _progGlobals :: Map GlobalName (Pair TypeRepr GlobalVar)
+               , _progGlobals :: Map GlobalName GlobalInfo
                , _progHandleAlloc :: HandleAllocator h
                }
 
 progFunctions :: Simple Lens (ProgramState h s) (Map FunctionName FunctionHeader)
 progFunctions = lens _progFunctions (\s v -> s { _progFunctions = v })
 
-progGlobals :: Simple Lens (ProgramState h s) (Map GlobalName (Pair TypeRepr GlobalVar))
+progGlobals :: Simple Lens (ProgramState h s) (Map GlobalName GlobalInfo)
 progGlobals = lens _progGlobals (\s v -> s { _progGlobals = v })
 
 progHandleAlloc :: Simple Lens (ProgramState h s) (HandleAllocator h)
@@ -940,6 +944,65 @@ data SyntaxState h s =
               , _stxNextAtom :: Int
               , _stxProgState :: ProgramState h s
               }
+
+data Dict t where
+  Dict :: t => Dict t
+
+checkClosedCtx :: CtxRepr ts -> Maybe (Dict (Closed ts))
+checkClosedCtx ctx =
+  case Ctx.viewAssign ctx of
+    Ctx.AssignEmpty -> Just Dict
+    Ctx.AssignExtend ts t ->
+      do Dict <- checkClosedCtx ts
+         Dict <- checkClosed t
+         Just Dict
+
+checkClosed :: TypeRepr t -> Maybe (Dict (Closed t))
+checkClosed AnyRepr = Just Dict
+checkClosed UnitRepr = Just Dict
+checkClosed BoolRepr = Just Dict
+checkClosed NatRepr = Just Dict
+checkClosed IntegerRepr = Just Dict
+checkClosed RealValRepr = Just Dict
+checkClosed ComplexRealRepr = Just Dict
+checkClosed (BVRepr _) = Just Dict
+checkClosed (IntrinsicRepr _ args) =
+  do Dict <- checkClosedCtx args
+     Just Dict
+checkClosed (RecursiveRepr _ ctx) =
+  do Dict <- checkClosedCtx ctx
+     Just Dict
+checkClosed (FloatRepr _) = Just Dict
+checkClosed (IEEEFloatRepr _) = Just Dict
+checkClosed CharRepr = Just Dict
+checkClosed StringRepr = Just Dict
+checkClosed (FunctionHandleRepr args ret) =
+  do Dict <- checkClosedCtx args
+     Dict <- checkClosed ret
+     Just Dict
+checkClosed (MaybeRepr t) =
+  do Dict <- checkClosed t
+     Just Dict
+checkClosed (VectorRepr t) =
+  do Dict <- checkClosed t
+     Just Dict
+checkClosed (StructRepr fields) =
+  do Dict <- checkClosedCtx fields
+     Just Dict
+checkClosed (VariantRepr cases) =
+  do Dict <- checkClosedCtx cases
+     Just Dict
+checkClosed (ReferenceRepr t) =
+  do Dict <- checkClosed t
+     Just Dict
+checkClosed (WordMapRepr _ _) = Just Dict
+checkClosed (StringMapRepr t) =
+  do Dict <- checkClosed t
+     Just Dict
+checkClosed (SymbolicArrayRepr _ _) = Just Dict
+checkClosed (SymbolicStructRepr _) = Just Dict
+checkClosed (VarRepr _) = Nothing
+checkClosed (PolyFnRepr _ _) = Just Dict -- Can this possibly be right?
 
 initProgState :: [(SomeHandle,Position)] -> HandleAllocator h -> ProgramState h s
 initProgState builtIns ha = ProgramState fns Map.empty ha
@@ -957,6 +1020,8 @@ initProgState builtIns ha = ProgramState fns Map.empty ha
               p
            )
         | (SomeHandle h,p) <- builtIns
+        , Dict <- maybeToList (checkClosedCtx (handleArgTypes h))
+        , Dict <- maybeToList (checkClosed (handleReturnType h))
         ]
 
 initSyntaxState :: ProgramState h s -> SyntaxState h s
@@ -984,7 +1049,7 @@ stxProgState = lens _stxProgState (\s v -> s { _stxProgState = v })
 stxFunctions :: Simple Lens (SyntaxState h s) (Map FunctionName FunctionHeader)
 stxFunctions = stxProgState . progFunctions
 
-stxGlobals :: Simple Lens (SyntaxState h s) (Map GlobalName (Pair TypeRepr GlobalVar))
+stxGlobals :: Simple Lens (SyntaxState h s) (Map GlobalName GlobalInfo)
 stxGlobals = stxProgState . progGlobals
 
 
@@ -1130,7 +1195,7 @@ regRef' =
        Just reg -> return reg
        Nothing -> empty
 
-globRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState h s) m) => m (Pair TypeRepr GlobalVar)
+globRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState h s) m) => m GlobalInfo
 globRef' =
   describe "known global variable name" $
   do x <- globalName
@@ -1252,7 +1317,7 @@ normStmt' =
           use (stxGlobals . at g) >>=
             \case
               Nothing -> return $ Left "known global variable name"
-              Just (Pair t var) ->
+              Just (GlobalInfo t var) ->
                 do (Posd loc e) <- fst <$> cons (located $ reading $ check t) emptyList
                    a <- eval loc e
                    tell [Posd loc $ WriteGlobal var a]
@@ -1522,6 +1587,7 @@ saveArgs ctx1 ctx2 =
 
 data FunctionHeader =
   forall args ret .
+  (Closed args, Closed ret) =>
   FunctionHeader { _headerName :: FunctionName
                  , _headerArgs :: Ctx.Assignment Arg args
                  , _headerReturnType :: TypeRepr ret
@@ -1555,6 +1621,8 @@ functionHeader defun =
   do ((fnName, Some theArgs, Some ret, loc), src) <- liftSyntaxParse functionHeader' defun
      ha <- use $ stxProgState  . progHandleAlloc
      handle <- liftST $ mkHandle' ha fnName (argTypes theArgs) ret
+     Just Dict <- return $ checkClosed ret
+     Just Dict <- return $ checkClosedCtx (argTypes theArgs)
      let header = FunctionHeader fnName theArgs ret handle loc
 
      saveHeader fnName header
@@ -1569,9 +1637,10 @@ functionHeader defun =
 global :: AST s -> TopParser h s (Pair TypeRepr GlobalVar)
 global stx =
   do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary DefGlobal globalName isType)) stx
+     Just Dict <- return $ checkClosed t
      ha <- use $ stxProgState  . progHandleAlloc
      v <- liftST $ freshGlobalVar ha varName t
-     stxGlobals %= Map.insert var (Pair t v)
+     stxGlobals %= Map.insert var (GlobalInfo t v)
      return $ Pair t v
 
 topLevel :: AST s -> TopParser h s (Maybe (FunctionHeader, FunctionSource s))
