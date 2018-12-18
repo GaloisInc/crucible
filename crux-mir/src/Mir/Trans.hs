@@ -108,11 +108,14 @@ type MirGenerator h s ret = G.Generator MIR h s FnState ret
 --
 -- Custom type translation is on the bottom of this file.
 
+
 tyToRepr :: HasCallStack => M.Ty -> Some CT.TypeRepr
 tyToRepr t0 = case t0 of
   M.TyBool -> Some CT.BoolRepr
   M.TyTuple [] -> Some CT.UnitRepr
-  M.TyTuple ts ->  tyListToCtx ts $ \repr -> Some (CT.StructRepr repr)
+  -- tuples are mapped to structures of "maybe" types so that they
+  -- can be allocated but unitialized
+  M.TyTuple ts ->  tyListToCtxMaybe ts $ \repr -> Some (CT.StructRepr repr)
   M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
 
                -- FIXME, this should be configurable
@@ -180,7 +183,6 @@ tyToReprCont :: forall a. HasCallStack => M.Ty -> (forall tp. HasCallStack => CT
 tyToReprCont t f = case tyToRepr t of
                  Some x -> f x
 
-
 tyListToCtx :: forall a. HasCallStack => [M.Ty] -> (forall ctx. CT.CtxRepr ctx -> a) -> a
 tyListToCtx ts f =  go (map tyToRepr ts) Ctx.empty
  where go :: forall ctx. [Some CT.TypeRepr] -> CT.CtxRepr ctx -> a
@@ -192,6 +194,14 @@ reprsToCtx rs f = go rs Ctx.empty
  where go :: forall ctx. [Some CT.TypeRepr] -> CT.CtxRepr ctx -> a
        go []       ctx      = f ctx
        go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
+
+
+-- same as tyListToCtx, but each type in the list is wrapped in a Maybe
+tyListToCtxMaybe :: forall a. HasCallStack => [M.Ty] -> (forall ctx. CT.CtxRepr ctx -> a) -> a
+tyListToCtxMaybe ts f =  go (map tyToRepr ts) Ctx.empty
+ where go :: forall ctx. [Some CT.TypeRepr] -> CT.CtxRepr ctx -> a
+       go []       ctx      = f ctx
+       go (Some tp:tps) ctx = go tps (ctx Ctx.:> CT.MaybeRepr tp)
 
 
 -----------------------------------------------------------------------
@@ -279,6 +289,21 @@ exp_to_assgn =
         where go :: CT.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> [MirExp s] -> (forall ctx'. CT.CtxRepr ctx' -> Ctx.Assignment (R.Expr MIR s) ctx' -> a) -> a
               go ctx asgn [] k = k ctx asgn
               go ctx asgn ((MirExp tyr ex):vs) k = go (ctx Ctx.:> tyr) (asgn Ctx.:> ex) vs k
+
+exp_to_assgn_Maybe :: HasCallStack => [M.Ty] -> [Maybe (MirExp s)]
+  -> (forall ctx. CT.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> a) -> a
+exp_to_assgn_Maybe =
+    go Ctx.empty Ctx.empty 
+        where go :: CT.CtxRepr ctx -> Ctx.Assignment (R.Expr MIR s) ctx -> [M.Ty] -> [Maybe (MirExp s)]
+                -> (forall ctx'. CT.CtxRepr ctx' -> Ctx.Assignment (R.Expr MIR s) ctx' -> a) -> a
+              go ctx asgn [] [] k = k ctx asgn
+              go ctx asgn (_:tys) (Just (MirExp tyr ex):vs) k =
+                go (ctx Ctx.:> CT.MaybeRepr tyr) (asgn Ctx.:> (R.App $ E.JustValue tyr ex)) tys vs k
+              go ctx asgn (ty:tys) (Nothing:vs) k =
+                tyToReprCont ty $ \tyr -> 
+                   go (ctx Ctx.:> CT.MaybeRepr tyr) (asgn Ctx.:> (R.App $ E.NothingValue tyr)) tys vs k
+              go _ _ _ _ _ = error "BUG in mir-verifier: exp_to_assgn_Maybe"
+
 
 
 parsePosition :: Text.Text -> PL.Position
@@ -484,7 +509,8 @@ transBinOp bop op1 op2 = do
 transCheckedBinOp ::  M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s) -- returns tuple of (result, bool)
 transCheckedBinOp  a b c = do
     res <- transBinOp a b c
-    return $ buildTuple [res, MirExp (CT.BoolRepr) (S.litExpr False)] -- This always succeeds, since we're checking correctness. We can also check for overflow if desired.
+    return $ buildTupleMaybe [error "not needed", TyBool] [Just res, Just $ MirExp (CT.BoolRepr) (S.litExpr False)]
+         -- This always succeeds, since we're checking correctness. We can also check for overflow if desired.
 
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
@@ -531,6 +557,11 @@ buildTuple :: [MirExp s] -> MirExp s
 buildTuple xs = exp_to_assgn (xs) $ \ctx asgn ->
     MirExp (CT.StructRepr ctx) (S.app $ E.MkStruct ctx asgn)
 
+buildTupleMaybe :: [Ty] -> [Maybe (MirExp s)] -> MirExp s
+buildTupleMaybe tys xs = exp_to_assgn_Maybe tys xs $ \ctx asgn ->
+    MirExp (CT.StructRepr ctx) (S.app $ E.MkStruct ctx asgn)
+
+
 buildTaggedUnion :: Integer -> [MirExp s] -> MirExp s
 buildTaggedUnion i es =
     let v = buildTuple es in
@@ -548,12 +579,35 @@ getAllFields e =
         mapM (accessAggregate e) [0..(s-1)]
       _ -> fail "getallfields of non-struct"
 
+
+getAllFieldsMaybe :: MirExp s -> MirGenerator h s ret ([MirExp s])
+getAllFieldsMaybe e =
+    case e of
+      MirExp (CT.StructRepr ctx) _ -> do
+        let s = Ctx.sizeInt (Ctx.size ctx)
+        mapM (accessAggregateMaybe e) [0..(s-1)]
+      _ -> fail "getallfields of non-struct"
+
+
 accessAggregate :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregate (MirExp (CT.StructRepr ctx) ag) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
       let tpr = ctx Ctx.! idx
       return $ MirExp tpr (S.getStruct idx ag)
 accessAggregate (MirExp ty a) b = fail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
+
+accessAggregateMaybe :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
+accessAggregateMaybe (MirExp (CT.StructRepr ctx) ag) i
+  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
+      let tpr = ctx Ctx.! idx
+      case tpr of
+        CT.MaybeRepr tpr' -> let mv = R.App $ E.FromJustValue tpr' (S.getStruct idx ag) (R.App $ E.TextLit "Unitialized aggregate value")
+                             in return $ MirExp tpr' mv
+        _ -> fail "accessAggregateMaybe: non-maybe struct"
+      
+accessAggregateMaybe (MirExp ty a) b = fail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
+
+
 
 modifyAggregateIdx :: MirExp s -> -- aggregate to modify
                       MirExp s -> -- thing to insert
@@ -567,6 +621,26 @@ modifyAggregateIdx (MirExp (CT.StructRepr agctx) ag) (MirExp instr ins) i
           _ -> fail "bad modify"
   | otherwise = fail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdx (MirExp ty _) _ _ =
+  do fail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
+
+
+modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
+                      MirExp s -> -- thing to insert
+                      Int -> -- index
+                      MirGenerator h s ret (MirExp s)
+modifyAggregateIdxMaybe (MirExp (CT.StructRepr agctx) ag) (MirExp instr ins) i
+  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size agctx) = do
+      let tpr = agctx Ctx.! idx
+      case tpr of
+         CT.MaybeRepr tpr' -> 
+            case (testEquality tpr' instr) of
+                Just Refl -> do
+                    let ins' = R.App (E.JustValue tpr' ins)
+                    return $ MirExp (CT.StructRepr agctx) (S.setStruct agctx ag idx ins')
+                _ -> fail "bad modify"
+         _ -> fail "modifyAggregateIdxMaybe: expecting maybe type for struct component"
+  | otherwise = fail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
+modifyAggregateIdxMaybe (MirExp ty _) _ _ =
   do fail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
 
 
@@ -945,7 +1019,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
 
       _ -> do -- otherwise, lv is a tuple
         ag <- evalLvalue lv
-        accessAggregate ag field
+        accessAggregateMaybe ag field
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
     (MirExp arr_tp arr) <- evalLvalue lv
     (MirExp ind_tp ind) <- lookupVar i
@@ -1046,7 +1120,8 @@ assignVarExp (M.Var vname _ vty _ pos) (MirExp e_ty e) = do
         | Just CT.Refl <- testEquality e_ty (varInfoRepr varinfo) ->
             case varinfo of
               VarRegister reg ->
-                do G.assignReg reg e
+                do traceM $ "assigning to reg " ++ show reg
+                   G.assignReg reg e
               VarReference reg ->
                 do r <- G.readReg reg
                    writeMirRef r e
@@ -1100,11 +1175,22 @@ assignLvExp lv re = do
                      etu' <- modifyAggregateIdx etu (packAny struct') 1
                      assignLvExp lv etu'
 
-              M.TyClosure _ _ -> fail "assign to closure unimp"
+              M.TyClosure defid params -> do
+                let args = (map Maybe.fromJust params)
+                (Some top_ty, Some clos_ty) <- buildClosureType defid args
+                clos      <- evalLvalue lv
+                etu       <- unpackAny (Some top_ty) clos
+                clos_str  <- accessAggregate etu 1
+                cstr      <- unpackAny (Some clos_ty) clos_str
+                new_ag    <- modifyAggregateIdx cstr re field
+                let clos_str' = packAny new_ag
+                etu'      <- modifyAggregateIdx etu clos_str' 1
+                let clos' = packAny etu'
+                assignLvExp lv clos'
 
               _ -> do
                 ag <- evalLvalue lv
-                new_ag <- modifyAggregateIdx ag re field
+                new_ag <- modifyAggregateIdxMaybe ag re field
                 assignLvExp lv new_ag
         M.LProjection (M.LvalueProjection lv (M.Downcast i)) -> do
           assignLvExp lv re
@@ -1162,7 +1248,9 @@ storageLive (M.Var nm _ ty _ _) =
          r  <- newMirRef (varInfoRepr varinfo)
          mv <- initialValue ty
          _  <- case mv of
-           Nothing -> return ()
+           Nothing -> do
+              traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+              return ()
            Just (MirExp rty e) -> 
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
@@ -1608,8 +1696,8 @@ initialValue :: M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
 initialValue M.TyBool       = return $ Just $ MirExp CT.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp CT.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = do
-    exps <- mapM initialValue tys
-    return $ Just $ buildTuple (Maybe.catMaybes exps)
+    mexps <- mapM initialValue tys
+    return $ Just $ buildTupleMaybe tys mexps
 initialValue (M.TyInt M.USize) = return $ Just $ MirExp CT.IntegerRepr (S.litExpr 0)
 initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (CT.BVRepr w) (S.app (E.BVLit w 0))
@@ -1644,10 +1732,17 @@ initialValue (M.TyRef t M.Mut) = do
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (CT.BVRepr w) (S.app (E.BVLit w 0))
-initialValue (M.TyClosure _ _) =
-   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
 initialValue M.TyStr =
    return $ Just $ (MirExp CT.StringRepr (S.litExpr ""))
+initialValue (M.TyClosure defid (_:hty:params)) = do
+   -- TODO: eliminate the Maybe from the type of params
+   -- TODO: figure out what the first i8 type argument is for
+   
+   let closed_tys = filterMaybes params
+   mclosed_args <- mapM initialValue closed_tys
+   let closed_args = filterMaybes mclosed_args
+   handle <- buildClosureHandle defid params closed_args
+   return $ Just $ handle
 -- TODO: this case is wrong --- we need to know which branch of the ADT to
 -- initialize. By default, we'll use the first, but that may not be the right one.
 -- we need to look ahead to see how we are initializing the components of the
@@ -1670,7 +1765,8 @@ initialValue (M.TyProjection _ _) =
    return $ Just $ packAny (MirExp CT.BoolRepr S.false)
 initialValue (M.TyCustom (CEnum _n)) =
    return $ Just $ MirExp CT.IntegerRepr (S.litExpr 0)
-
+--initialValue (M.TyParam _) =
+--   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
 -- Anything else: initialize with "false"
 -- We won't actually need it
 -- Maybe we should return a maybe instead???
@@ -1682,12 +1778,16 @@ tyToInitReg t = do
    mv  <- initialValue t
    case mv of 
       Just (MirExp _tp exp) -> Some <$> G.newReg exp
-      Nothing -> tyToFreshReg t
+      Nothing -> do
+        traceM $ "tyToInitReg: Cannot initialize register of type " ++ show (pretty t)
+        tyToFreshReg t
 
 tyToFreshReg :: HasCallStack => M.Ty -> MirGenerator h s ret (Some (R.Reg s))
 tyToFreshReg t = do
-    tyToReprCont t $ \tp ->
-        Some <$> G.newUnassignedReg tp
+    tyToReprCont t $ \tp -> do
+        r <-  G.newUnassignedReg tp
+        traceM $ "allocating new register " ++ show r
+        return $ Some r
 
 
 buildIdentMapRegs_ :: HasCallStack => Set Text.Text -> Set Text.Text -> [(Text.Text, M.Ty)] -> MirGenerator h s ret (VarMap s)
@@ -1718,6 +1818,7 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  g (M.Local (M.Var nm _ _ _ _)) = Set.singleton nm
  g (M.LProjection (M.LvalueProjection lv _)) = g lv
  g (M.Tagged lv _) = g lv
+
  g _ = mempty
 
 
@@ -1793,6 +1894,7 @@ buildIdentMapRegs (M.MirBody vars blocks) _argvars =
    buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _) -> (name,ty)) vars) -- (vars ++ argvars))
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
+   -- allocate space for all local variables
    needsInitVars = Set.fromList (map _varname vars) -- (mconcat (map needsInit blocks)) `Set.difference` (Set.fromList (map _varname argvars))
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
@@ -2432,6 +2534,7 @@ doCustomCall fname funsubst ops lv dest
 
      argtuple <- evalOperand o2
 
+
      let unpackClosure :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
  
          unpackClosure (M.TyRef ty M.Immut) rty  arg   = unpackClosure ty rty arg
@@ -2441,26 +2544,29 @@ doCustomCall fname funsubst ops lv dest
              (clty, _rty2) <- buildClosureType defid clargs
              unpackAny clty arg
               
-         unpackClosure (M.TyParam _i)       rty  arg   = do
+         unpackClosure (M.TyParam _i)       rty  arg   = fail "cannot unpack type parameter"
              -- a Fn object looks like a pair of
              -- a function that takes any "Any" arguments (the closure) and a struct
              --      of the actual arguments (from the funsubst) and returns type rty
              -- and an environment of type "Any
              -- TODO: check multiarguments and make this bit more robust
-
-             tyToReprCont rty $ \rr -> 
-               tyToReprCont aty $ \(CT.StructRepr r2) ->  do
-                 let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
-                 let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
-                 unpackAny (Some (CT.StructRepr t)) arg 
-
-         -- this case is the same as the above
-         unpackClosure (M.TyDynamic _id)    rty  arg   = do
-             tyToReprCont rty $ \rr -> 
+             {-
+             tyToReprCont rty $ \rr ->
                tyToReprCont aty $ \(CT.StructRepr r2) ->  do
                  let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
                  let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
                  unpackAny (Some (CT.StructRepr t)) arg
+              -}
+
+         -- this case is the same as the above
+         unpackClosure (M.TyDynamic _id)    rty  arg   = do
+             tyToReprCont rty $ \rr ->
+               case aty of
+                  (TyTuple aas) -> tyListToCtx aas $ \r2 -> do
+                     let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
+                     let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
+                     unpackAny (Some (CT.StructRepr t)) arg
+                  _ -> fail $ "aty must be tuple type in dynamic call, found " ++ show (pretty aty)
 
          unpackClosure ty _ _arg      =
            fail $ "Don't know how to unpack Fn::call arg of type " ++ show (pretty ty)
@@ -2471,11 +2577,11 @@ doCustomCall fname funsubst ops lv dest
          closure_pack <- evalOperand o1
          unpack_closure <- unpackClosure (M.typeOf o1) (M.typeOf lv) closure_pack
          handle <- accessAggregate unpack_closure 0
-         extra_args <- getAllFields argtuple
+         extra_args <- getAllFieldsMaybe argtuple
          case handle of
            MirExp hand_ty handl ->
                case hand_ty of
-                   CT.FunctionHandleRepr fargctx fretrepr ->
+                   CT.FunctionHandleRepr fargctx fretrepr -> do
                     exp_to_assgn (closure_pack : extra_args) $ \ctx asgn ->
                         case (testEquality ctx fargctx) of
                           Just Refl -> do
@@ -2492,7 +2598,7 @@ doCustomCall fname funsubst ops lv dest
 
  | otherwise =  fail $ "doCustomCall unhandled: " ++ (show $ fname)
 
-transCustomAgg :: M.CustomAggregate -> MirGenerator h s ret (MirExp s) -- depreciated
+transCustomAgg :: M.CustomAggregate -> MirGenerator h s ret (MirExp s) -- deprecated
 transCustomAgg (M.CARange _ty f1 f2) = evalRval (M.Aggregate M.AKTuple [f1,f2])
 
 performUntil :: R.Expr MIR s CT.NatType -> (R.Reg s CT.NatType -> MirGenerator h s ret ()) -> MirGenerator h s ret ()
@@ -2560,3 +2666,5 @@ performMap iterty iter closurety closure =
       _ -> fail "bad type"
 
 ------------------------------------------------------------------------------------------------
+
+--  LocalWords:  params
