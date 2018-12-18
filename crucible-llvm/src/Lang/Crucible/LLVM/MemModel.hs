@@ -126,7 +126,6 @@ module Lang.Crucible.LLVM.MemModel
 
     -- * Misc
   , llvmStatementExec
-  , coerceAny
   , SomeFnHandle(..)
 
     -- * PtrWidth (re-exports)
@@ -157,7 +156,6 @@ import           Data.Parameterized.Some
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
-import           What4.ProgramLoc
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
 import           What4.Partial
@@ -325,7 +323,7 @@ evalStmt sym = eval
 
   eval (LLVM_Load mvar (regValue -> ptr) tpr valType alignment) =
      do mem <- getMem mvar
-        liftIO $ (coerceAny sym tpr =<< doLoad sym mem ptr valType alignment)
+        liftIO $ doLoad sym mem ptr valType tpr alignment
 
   eval (LLVM_MemClear mvar (regValue -> ptr) bytes) =
     do mem <- getMem mvar
@@ -401,45 +399,6 @@ mkMemVar :: HandleAllocator s
          -> ST s (GlobalVar Mem)
 mkMemVar halloc = freshGlobalVar halloc "llvm_memory" knownRepr
 
-asCrucibleType
-  :: StorageType
-  -> (forall tpr. TypeRepr tpr -> x)
-  -> x
-asCrucibleType (StorageType tf _) k =
-  case tf of
-    Bitvector sz ->
-       case someNat (bytesToBits sz) of
-         Just (Some w)
-           | Just LeqProof <- isPosNat w -> k (LLVMPointerRepr w)
-         _ -> error $ unwords ["invalid bitvector size", show sz]
-    Float  -> k (FloatRepr SingleFloatRepr)
-    Double -> k (FloatRepr DoubleFloatRepr)
-    X86_FP80 -> k (FloatRepr X86_80FloatRepr)
-    Array _n t -> asCrucibleType t $ \tpr -> k (VectorRepr tpr)
-    Struct xs -> go Ctx.empty (V.toList xs) $ \ctx -> k (StructRepr ctx)
-      where go :: CtxRepr ctx0
-               -> [Field StorageType]
-               -> (forall ctx. CtxRepr ctx -> x)
-               -> x
-            go ctx [] k' = k' ctx
-            go ctx (f:fs) k' =
-                 asCrucibleType (f^.fieldVal) $ \tpr ->
-                   go (ctx Ctx.:> tpr) fs k'
-
-coerceAny :: (HasCallStack, IsSymInterface sym)
-          => sym
-          -> TypeRepr tpr
-          -> AnyValue sym
-          -> IO (RegValue sym tpr)
-coerceAny sym tpr (AnyValue tpr' x)
-  | Just Refl <- testEquality tpr tpr' = return x
-  | otherwise =
-    do loc <- getCurrentProgramLoc sym
-       panic "coerceAny"
-                  [ unwords ["Cannot coerce from", show tpr', "to", show tpr]
-                  , "in: " ++ show (plFunction loc)
-                  , "at: " ++ show (plSourceLoc loc)
-                  ]
 
 -- | For now, the core message should be on the first line, with details
 -- on further lines. Later we should make it more structured.
@@ -463,17 +422,12 @@ doLoad ::
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ pointer to load from      -} ->
   StorageType      {- ^ type of value to load     -} ->
+  TypeRepr tp      {- ^ crucible type of the result -} ->
   Alignment        {- ^ assumed pointer alignment -} ->
-  IO (RegValue sym AnyType)
-doLoad sym mem ptr valType alignment = do
-    --putStrLn "MEM LOAD"
-    let errMsg = ptrMessage "Invalid memory load." ptr valType
-    v <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
-    case v of
-      Unassigned -> addFailedAssertion sym (AssertFailureSimError errMsg)
-      PE p' v' -> do
-        assert sym p' (AssertFailureSimError errMsg)
-        unpackMemValue sym v'
+  IO (RegValue sym tp)
+doLoad sym mem ptr valType tpr alignment = do
+  --putStrLn "MEM LOAD"
+  unpackMemValue sym tpr =<< loadRaw sym mem ptr valType alignment
 
 -- | Store a 'RegValue' in memory. Also assert that the pointer is
 -- valid and points to a mutable memory region.
@@ -726,23 +680,17 @@ loadString sym mem = go id
   go :: ([Word8] -> [Word8]) -> LLVMPtr sym wptr -> Maybe Int -> IO [Word8]
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
-     v <- doLoad sym mem p (bitvectorType 1) 0 -- one byte, no alignment
-     case v of
-       AnyValue (LLVMPointerRepr w) x
-         | Just Refl <- testEquality w (knownNat :: NatRepr 8) ->
-            do x' <- projectLLVM_bv sym x
-               case asUnsignedBV x' of
-                 Just 0 -> return $ f []
-                 Just c -> do
-                     let c' :: Word8 = toEnum $ fromInteger c
-                     p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
-                     go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
-                 Nothing ->
-                   addFailedAssertion sym
-                      $ Unsupported "Symbolic value encountered when loading a string"
-       _ -> panic "MemModel.loadString"
-              [ "Invalid value encountered when loading a string" ]
-
+     v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) 0 -- one byte, no alignment
+     x <- projectLLVM_bv sym v
+     case asUnsignedBV x of
+       Just 0 -> return $ f []
+       Just c -> do
+           let c' :: Word8 = toEnum $ fromInteger c
+           p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
+           go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
+       Nothing ->
+         addFailedAssertion sym
+            $ Unsupported "Symbolic value encountered when loading a string"
 
 -- | Like 'loadString', except the pointer to load may be null.  If
 --   the pointer is null, we return Nothing.  Otherwise we load
@@ -795,9 +743,10 @@ loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
         -> MemImpl sym
         -> LLVMPtr sym wptr
         -> StorageType
+        -> Alignment
         -> IO (LLVMVal sym)
-loadRaw sym mem ptr valType =
-  do res <- loadRawWithCondition sym mem ptr valType
+loadRaw sym mem ptr valType alignment =
+  do res <- loadRawWithCondition sym mem ptr valType alignment
      case res of
        Right (p,r,v) -> v <$ assert sym p r
        Left e        -> addFailedAssertion sym (AssertFailureSimError e)
@@ -811,14 +760,15 @@ loadRawWithCondition ::
   sym                  ->
   MemImpl sym          {- ^ LLVM heap       -} ->
   LLVMPtr sym wptr     {- ^ pointer         -} ->
-  StorageType               {- ^ pointed-to type -} ->
+  StorageType          {- ^ pointed-to type -} ->
+  Alignment            {- ^ alignment of this load -} ->
   IO (Either
         String
         (Pred sym, SimErrorReason, LLVMVal sym))
   -- ^ Either error message or
   -- (assertion, assertion failure description, dereferenced value)
-loadRawWithCondition sym mem ptr valType =
-  do v <- G.readMem sym PtrWidth ptr valType 0 (memImplHeap mem)
+loadRawWithCondition sym mem ptr valType alignment =
+  do v <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
      let errMsg = ptrMessage "Invalid memory load." ptr valType
      case v of
        Unassigned -> return (Left errMsg)
@@ -887,66 +837,96 @@ unpackZero ::
   (HasCallStack, IsSymInterface sym) =>
   sym ->
   StorageType ->
-  IO (AnyValue sym)
-unpackZero sym (StorageType tp _) = case tp of
+  TypeRepr tp {- ^ Crucible type     -} ->
+  IO (RegValue sym tp)
+unpackZero sym tp tpr =
+ let mismatch = storageTypeMismatch "MemModel.unpackZero" tp tpr in
+ case storageTypeF tp of
   Bitvector bytes ->
     zeroInt sym bytes $ \case
       Nothing -> fail ("Improper storable type: " ++ show tp)
-      Just (blk, bv) -> return $ AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
-  Float  -> AnyValue (FloatRepr SingleFloatRepr) <$> iFloatLit sym SingleFloatRepr 0
-  Double -> AnyValue (FloatRepr DoubleFloatRepr) <$> iFloatLit sym DoubleFloatRepr 0
-  X86_FP80 -> AnyValue (FloatRepr X86_80FloatRepr) <$> iFloatLit sym X86_80FloatRepr 0
-  Array n tp' ->
-    do AnyValue tpr v <- unpackZero sym tp'
-       return $ AnyValue (VectorRepr tpr) $ V.replicate (fromIntegral n) v
-  Struct flds ->
-    do xs <- traverse (unpackZero sym . view fieldVal) (V.toList flds)
-       unpackStruct sym xs Ctx.empty Ctx.empty $ \ctx fls -> return $ AnyValue (StructRepr ctx) $ fls
+      Just (blk, bv) ->
+        case tpr of
+          LLVMPointerRepr w | Just Refl <- testEquality (bvWidth bv) w -> return (LLVMPointer blk bv)
+          _ -> mismatch
 
+  Float  ->
+    case tpr of
+      FloatRepr SingleFloatRepr -> iFloatLit sym SingleFloatRepr 0
+      _ -> mismatch
+
+  Double ->
+    case tpr of
+      FloatRepr DoubleFloatRepr -> iFloatLit sym DoubleFloatRepr 0
+      _ -> mismatch
+
+  X86_FP80 ->
+    case tpr of
+      FloatRepr X86_80FloatRepr -> iFloatLit sym X86_80FloatRepr 0
+      _ -> mismatch
+
+  Array n tp' ->
+    case tpr of
+      VectorRepr tpr' ->
+        do v <- unpackZero sym tp' tpr'
+           return $ V.replicate (fromIntegral n) v
+      _ -> mismatch
+
+  Struct flds ->
+    case tpr of
+      StructRepr fldCtx | V.length flds == Ctx.sizeInt (Ctx.size fldCtx) ->
+        Ctx.traverseWithIndex
+          (\i tpr' -> RV <$> unpackZero sym (flds V.! (Ctx.indexVal i) ^. fieldVal) tpr')
+          fldCtx
+
+      _ -> mismatch
+
+
+storageTypeMismatch ::
+  String ->
+  StorageType ->
+  TypeRepr tp ->
+  IO a
+storageTypeMismatch nm tp tpr =
+  panic nm
+  [ "Storage type mismatch in " ++ nm
+  , "  Storage type: " ++ show tp
+  , "  Crucible type: " ++ show tpr
+  ]
 
 -- | Unpack an 'LLVMVal' to produce a 'RegValue'.
 unpackMemValue ::
   (HasCallStack, IsSymInterface sym) =>
   sym ->
+  TypeRepr tp ->
   LLVMVal sym ->
-  IO (AnyValue sym)
+  IO (RegValue sym tp)
 
-unpackMemValue sym (LLVMValZero tp) = unpackZero sym tp
+unpackMemValue sym tpr (LLVMValZero tp) = unpackZero sym tp tpr
 
--- If the block number is 0, we know this is a raw bitvector, and not an actual pointer.
-unpackMemValue _sym (LLVMValInt blk bv)
-  = return . AnyValue (LLVMPointerRepr (bvWidth bv)) $ LLVMPointer blk bv
+unpackMemValue _sym (LLVMPointerRepr w) (LLVMValInt blk bv)
+  | Just Refl <- testEquality (bvWidth bv) w
+  = return $ LLVMPointer blk bv
 
-unpackMemValue _ (LLVMValFloat sz x) =
-  case sz of
-    SingleSize ->
-      return $ AnyValue (FloatRepr SingleFloatRepr) x
-    DoubleSize ->
-      return $ AnyValue (FloatRepr DoubleFloatRepr) x
-    X86_FP80Size ->
-      return $ AnyValue (FloatRepr X86_80FloatRepr) x
+unpackMemValue _ (FloatRepr SingleFloatRepr) (LLVMValFloat SingleSize x) = return x
+unpackMemValue _ (FloatRepr DoubleFloatRepr) (LLVMValFloat DoubleSize x) = return x
+unpackMemValue _ (FloatRepr X86_80FloatRepr) (LLVMValFloat X86_FP80Size x) = return x
 
-unpackMemValue sym (LLVMValStruct xs) = do
-  xs' <- traverse (unpackMemValue sym . snd) $ V.toList xs
-  unpackStruct sym xs' Ctx.empty Ctx.empty $ \ctx fls -> return $ AnyValue (StructRepr ctx) $ fls
-unpackMemValue sym (LLVMValArray tp xs) =
-  asCrucibleType tp $ \tpr -> do
-    xs' <- traverse (coerceAny sym tpr <=< unpackMemValue sym) xs
-    return $ AnyValue (VectorRepr tpr) xs'
+unpackMemValue sym (StructRepr ctx) (LLVMValStruct xs)
+  | V.length xs == Ctx.sizeInt (Ctx.size ctx)
+  = Ctx.traverseWithIndex
+       (\i tpr -> RV <$> unpackMemValue sym tpr (xs V.! Ctx.indexVal i ^. _2))
+       ctx
 
-unpackStruct
-   :: IsSymInterface sym
-   => sym
-   -> [AnyValue sym]
-   -> CtxRepr ctx0
-   -> Ctx.Assignment (RegValue' sym) ctx0
-   -> (forall ctx. CtxRepr ctx -> Ctx.Assignment (RegValue' sym) ctx -> IO x)
-   -> IO x
-unpackStruct _ [] ctx fls k = k ctx fls
-unpackStruct sym (v:vs) ctx fls k =
-  case v of
-    AnyValue tpr x ->
-      unpackStruct sym vs (ctx Ctx.:> tpr) (fls Ctx.:> RV x) k
+unpackMemValue sym (VectorRepr tpr) (LLVMValArray _tp xs)
+  = traverse (unpackMemValue sym tpr) xs
+
+unpackMemValue _ tpr v =
+  panic "MemModel.unpackMemValue"
+    [ "Crucible type mismatch when unpacking LLVM value"
+    , "*** Crucible type: " ++ show tpr
+    , "*** LLVM value: " ++ show v
+    ]
 
 
 -- | Pack a 'RegValue' into an 'LLVMVal'. The LLVM storage type and
@@ -954,7 +934,7 @@ unpackStruct sym (v:vs) ctx fls k =
 packMemValue ::
   IsSymInterface sym =>
   sym ->
-  StorageType      {- ^ LLVM storage type -} ->
+  StorageType {- ^ LLVM storage type -} ->
   TypeRepr tp {- ^ Crucible type     -} ->
   RegValue sym tp ->
   IO (LLVMVal sym)
