@@ -70,6 +70,7 @@ module Lang.Crucible.LLVM.MemModel
   , doStore
   , loadString
   , loadMaybeString
+  , uncheckedMemcpy
 
     -- * \"Raw\" operations with LLVMVal
   , LLVMVal(..)
@@ -616,6 +617,21 @@ doMemcpy sym w mem dest src len = do
 
   return mem{ memImplHeap = heap' }
 
+
+-- | Copy memory from source to destination.  This version does
+--   no checks to verify that the source and destination allocations
+--   are allocated and appropriately sized.
+uncheckedMemcpy ::
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym ->
+  LLVMPtr sym wptr {- ^ destination -} ->
+  LLVMPtr sym wptr {- ^ source      -} ->
+  SymBV sym wptr   {- ^ length      -} ->
+  IO (MemImpl sym)
+uncheckedMemcpy sym mem dest src len = do
+  (_c, heap') <- G.copyMem sym PtrWidth dest src len (memImplHeap mem)
+  return mem{ memImplHeap = heap' }
 
 doPtrSubtract ::
   (IsSymInterface sym, HasPtrWidth wptr) =>

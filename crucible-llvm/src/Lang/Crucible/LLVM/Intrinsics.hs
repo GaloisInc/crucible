@@ -140,6 +140,7 @@ register_llvm_overrides llvm_module = do
   register_llvm_override llvmMallocOverride
   register_llvm_override llvmCallocOverride
   register_llvm_override llvmFreeOverride
+  register_llvm_override llvmReallocOverride
 
   register_llvm_override llvmPrintfOverride
   register_llvm_override llvmPutsOverride
@@ -582,6 +583,31 @@ llvmCallocOverride =
   (Empty :> SizeT :> SizeT)
   (PtrRepr)
   (\memOps sym args -> Ctx.uncurryAssignment (callCalloc sym memOps alignment) args)
+
+
+llvmReallocOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr)
+         (LLVMPointerType wptr)
+llvmReallocOverride =
+  let nm = "realloc" in
+  let alignment = maxAlignment (llvmDataLayout ?lc) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Void
+                     , llvmSizeT
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> SizeT)
+  (PtrRepr)
+  (\memOps sym args -> Ctx.uncurryAssignment (callRealloc sym memOps alignment) args)
 
 llvmMallocOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
@@ -1102,6 +1128,53 @@ llvmPrintfOverride =
   (Empty :> PtrRepr :> VectorRepr AnyRepr)
   (KnownBV @32)
   (\memOps sym args -> Ctx.uncurryAssignment (callPrintf sym memOps) args)
+
+
+callRealloc
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => sym
+  -> GlobalVar Mem
+  -> Alignment
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
+callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
+  do szZero  <- liftIO (notPred sym =<< bvIsNonzero sym sz)
+     ptrNull <- liftIO (ptrIsNull sym PtrWidth ptr)
+     symbolicBranches emptyRegMap
+       -- If the pointer is null, behave like malloc
+       [ (ptrNull
+         , do mem <- readGlobal mvar
+              (newp, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
+              writeGlobal mvar mem'
+              return newp
+         ,
+         Nothing)
+
+       -- If the size is zero, behave like malloc (of zero bytes) then free
+       , (szZero
+         , do mem <- readGlobal mvar
+              (newp, mem') <- liftIO $
+                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
+                   mem2 <- doFree sym mem1 ptr
+                   return (newp, mem2)
+              writeGlobal mvar mem'
+              return newp
+         , Nothing
+         )
+
+       -- Otherwise, allocate a new region, memcopy `sz` bytes and free the old pointer
+       , (truePred sym
+         , do mem  <- readGlobal mvar
+              (newp, mem') <- liftIO $
+                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment 
+                   mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
+                   mem3 <- doFree sym mem2 ptr
+                   return (newp, mem3)
+              writeGlobal mvar mem'
+              return newp
+         , Nothing)
+       ]
 
 
 callMalloc
