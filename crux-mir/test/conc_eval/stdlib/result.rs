@@ -1,21 +1,44 @@
 // This tests using polymorphic functions and parameterized data
 
+pub enum Opt<T> {
+    N,
+    S(T),
+}
+
+pub enum Res<T, E> {
+        /// Contains the success value
+        O(T),
+
+        /// Contains the error value
+        E(E),
+    }
+
+
+use Opt::*;
+use Res::*;
+
+pub fn map<T,E,U, F: FnOnce(T) -> U>(x:Res<T,E>, op: F) -> Res<U,E> {
+    match x {
+        O(t) => O(op(t)),
+        E(e) => E(e)
+    }
+} 
 
 
 
-pub fn g<T,U>(y : Result<T,U>) -> Option<T> {
+pub fn g<T,U>(y : Res<T,U>) -> Opt<T> {
 
     match y {
-        Ok(x)  => Some(x),
-        Err(_) => None,
+        O(x)  => S(x),
+        E(_) => N,
     } 
 }
 
 fn f (x : u32) -> u32 {
-    let z : Result<u32,u32> = Ok(x);
+    let z : Res<u32,u32> = O(x);
     match g(z) {
-        Some (y) => return y,
-        None => return 0
+        S (y) => return y,
+        N => return 0
     }
 }
 

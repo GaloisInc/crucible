@@ -78,11 +78,6 @@ import Debug.Trace
 -- See end of [Intrinsics] for definition of generator state FnState
 
 
--- | The main data type for values, bundling the term-level type tp along with a crucible expression of type tp.
-data MirExp s where
-    MirExp :: CT.TypeRepr tp -> G.Expr MIR s tp -> MirExp s
-instance Show (MirExp s) where
-    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
 -- h for state monad
 -- s phantom parameter for CFGs
@@ -772,7 +767,7 @@ mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
         return $ MirExp CT.AnyRepr obj
 
       
-traitImplsLookup :: HasCallStack => M.DefId -> MirGenerator h s ret (Some TraitImpls)
+traitImplsLookup :: HasCallStack => M.DefId -> MirGenerator h s ret (Some (TraitImpls s))
 traitImplsLookup traitName = do
   (TraitMap mp) <- use traitMap
   case Map.lookup traitName mp of
@@ -1368,6 +1363,66 @@ doReturn tr = do
     e <- lookupRetVar tr
     G.returnFromFunction e
 
+
+first :: (a -> Maybe b) -> [a] -> Maybe b
+first f [] = Nothing
+first f (x:xs) = case f x of Just y  -> Just y
+                             Nothing -> first f xs
+
+-- Find the function expression for this name
+-- It could be a regular function, a polymorphic function, or a trait
+-- We promise to return an expression of type (FnHandleType args ret)
+-- for some args/ret
+lookupFunction :: forall h s ret. MethName -> [M.Ty] -> MirGenerator h s ret (Maybe (MirExp s))
+lookupFunction nm funsubst = do
+
+  hmap <- use handleMap
+  (TraitMap tm) <- use traitMap
+  stm  <- use staticTraitMap
+
+  tyListToCtx (reverse funsubst) $ \tyargs -> do
+
+    let mkFunExp :: FH.FnHandle a r -> MirExp s
+        mkFunExp fhandle = 
+          let fargctx  = FH.handleArgTypes fhandle
+              fret     = FH.handleReturnType fhandle
+              ifargctx = CT.instantiate tyargs fargctx
+              ifret    = CT.instantiate tyargs fret
+              polyfcn  = R.App $ E.PolyHandleLit fhandle
+              polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr fargctx fret) polyfcn tyargs
+          in
+            (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
+
+    let getTraitValue :: Ty -> (Some (TraitImpls s)) -> Maybe (MirExp s)
+        getTraitValue ty (Some (TraitImpls repr mi vtab)) =
+           case (Map.lookup ty vtab, Map.lookup nm mi) of
+             (Just asgn, Just (Some idx)) -> case asgn Ctx.! idx of
+                MirValue _ tye e -> Just $ MirExp tye e 
+             (_,_) -> Nothing
+
+    case () of
+
+      () | Just (MirHandle _ _ fh) <- Map.lookup nm hmap -> return $ Just $ mkFunExp fh
+         | Just (MirHandle _ _ fh) <- Map.lookup (M.relocateDefId nm) hmap -> return $ Just $ mkFunExp fh
+
+         -- try to resolve trait statically, using the first type argument
+         | Just (ty,_) <- uncons funsubst,
+           tyargs' Ctx.:> _tyr <- tyargs,
+           Just traits <- Map.lookup nm stm,
+           Just (MirExp fty polyfcn) <- first (getTraitValue ty) (Maybe.mapMaybe (\tn -> Map.lookup tn tm) traits)
+           -> case fty of
+                CT.PolyFnRepr fargctx fret -> do
+                  let 
+                      ifargctx = CT.instantiate tyargs' fargctx
+                      ifret    = CT.instantiate tyargs' fret
+                      polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs'
+                  return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
+                _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type " ++ show (pretty ty) ++ " in the trait map: " ++ show fty
+         | otherwise -> do
+              traceM $ "Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
+              return Nothing
+
+{-
 -- If you can't find the handle with its original name
 --   1. try adding the "stdlib" prefix
 --   2. try looking up as a static trait method 
@@ -1401,6 +1456,7 @@ lookupHandle funid substs = do
         -> return $ Just mh
 
       | otherwise -> return Nothing
+-}
 
 -- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
 -- The ADT is a tagged union, so to do the coercion, we need to switch through the potential
@@ -1533,12 +1589,12 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
 
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
-doCall :: (HasCallStack) => M.DefId -> [Maybe M.Ty] -> [M.Operand] 
+doCall :: forall h s ret a. (HasCallStack) => M.DefId -> [Maybe M.Ty] -> [M.Operand] 
    -> Maybe (M.Lvalue, M.BasicBlockInfo) -> CT.TypeRepr ret -> MirGenerator h s ret a
 doCall funid funsubst cargs cdest retRepr = do
     _hmap <- use handleMap
     _tmap <- use traitMap
-    mhand <- lookupHandle funid funsubst
+    mhand <- lookupFunction funid (Maybe.catMaybes funsubst)
     case cdest of 
       (Just (dest_lv, jdest))
 
@@ -1548,6 +1604,22 @@ doCall funid funsubst cargs cdest retRepr = do
 
             doCustomCall funid funsubst cargs dest_lv jdest
 
+        | Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst) <- mhand -> do
+            traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs, 
+                   text "with type parameters: ", pretty funsubst])
+
+            exps <- mapM evalOperand cargs
+            exp_to_assgn exps $ \ctx asgn -> do
+                case (testEquality ctx ifargctx) of
+                  Just Refl -> do
+                    ret_e <- G.call polyinst asgn
+                    assignLvExp dest_lv (MirExp ifret ret_e)
+                    jumpToBlock jdest
+                  _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
+                                 ++ show ifargctx ++ "\n while calling " ++ show funid
+             
+
+{-
         | Just (MirHandle _ (M.FnSig _args _ret) fhandle) <- mhand -> do
             traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs, 
                    text "with type parameters: ", pretty funsubst])
@@ -1570,7 +1642,7 @@ doCall funid funsubst cargs cdest retRepr = do
                     jumpToBlock jdest
                   _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
                                  ++ show fargctx ++ "\n while calling " ++ show funid
-
+-}
          | otherwise -> fail $ "Don't know how to call " ++ show (pretty funid)
 
       Nothing
@@ -1580,6 +1652,7 @@ doCall funid funsubst cargs cdest retRepr = do
                G.reportError (S.app $ E.TextLit "Program terminated with exit:")
 
         -- other functions that don't return.
+{-
         | Just (MirHandle _ (M.FnSig _args ret) fhandle) <- mhand,
           isNever ret -> do
 
@@ -1607,7 +1680,7 @@ doCall funid funsubst cargs cdest retRepr = do
                                  ++ "\n expected ret " ++ show retRepr  ++ " vs function ret " ++ show fret
                                  ++ "\n while calling " ++ show funid
 
-
+-}
          | otherwise -> fail $ "no dest in doCall of " ++ show (pretty funid)
 
 -- Method/trait calls
@@ -1617,7 +1690,8 @@ doCall funid funsubst cargs cdest retRepr = do
       -- 4. index into that struct with `midx` and retrieve a FunctionHandle value
       -- 5. Call the FunctionHandle passing the reference to the base value (step 2), and the rest of the arguments (translated)
 
-methodCall :: HasCallStack => TraitName -> MethName -> [Maybe M.Ty] -> M.Operand -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
+methodCall :: HasCallStack =>
+     TraitName -> MethName -> [Maybe M.Ty] -> M.Operand -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
 methodCall traitName methodName funsubst traitObject args (Just (dest_lv,jdest)) = do
   (Some tis) <- traitImplsLookup traitName
   case Map.lookup methodName $ tis^.methodIndex of
@@ -1647,7 +1721,20 @@ methodCall traitName methodName funsubst traitObject args (Just (dest_lv,jdest))
                        jumpToBlock jdest
                      Nothing -> fail $ "type error in TRAIT call: args " ++ (show ctx) ++ " vs function params "
                                  ++ show fargctx ++ " while calling " ++ show fn
-             _ -> fail $ "type error in call: " ++ show fnRepr 
+             CT.PolyFnRepr fargctx fret ->
+               tyListToCtx (reverse (Maybe.catMaybes funsubst)) $ \subst -> do
+                 let fargctx' = CT.instantiate subst fargctx
+                 let fret'    = CT.instantiate subst fret
+                 exp_to_assgn exps $ \ctx asgn -> do
+                    case (testEquality ctx fargctx') of
+                      Just Refl -> do
+                        ret_e <- G.call (R.App $ E.PolyInstantiate fnRepr fn subst) asgn
+                        assignLvExp dest_lv (MirExp fret' ret_e)
+                        jumpToBlock jdest
+                      Nothing -> fail $ "type error in TRAIT call: args " ++ (show ctx) ++ " vs function params "
+                                 ++ show fargctx'
+
+             _ -> fail $ "type error in TRAIT call: " ++ show fnRepr 
                         
         Nothing -> fail $ unwords $ ["Type error when calling ", show methodName, " type is ", show tp]
 methodCall _ _ _ _ _ _ = fail "No destination for method call"
@@ -1969,7 +2056,7 @@ transDefine :: forall h. HasCallStack =>
   (forall s. FnState s) ->
   M.Fn ->
   ST h (Text, Core.AnyCFG MIR)
-transDefine fnState fn@(M.Fn fname fargs _ _ _ _) =
+transDefine fnState fn@(M.Fn fname fargs _ _ _ preds) =
   case (Map.lookup fname (fnState^.handleMap)) of
     Nothing -> fail "bad handle!!"
     Just (MirHandle _ _ (handle :: FH.FnHandle args ret)) -> do   
@@ -2004,10 +2091,11 @@ transCollection col halloc = do
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
     hmap <- mkHandleMap halloc (col1^.M.functions)
 
-    (tm, stm, morePairs) <- buildTraitMap col1 halloc hmap
+    (gtm, stm, morePairs) <- buildTraitMap col1 halloc hmap
 
     let fnState :: (forall s. FnState s)
-        fnState = FnState Map.empty Map.empty hmap am tm stm
+        fnState = case gtm of
+                     GenericTraitMap tm -> FnState Map.empty Map.empty hmap am (TraitMap tm) stm
     pairs <- mapM (transDefine fnState) (col1^.M.functions)
     return $ Map.fromList (pairs ++ morePairs)
 
@@ -2065,7 +2153,7 @@ mkTraitDecl (M.Trait _tname titems) = do
 -- This involves defining new functions that "wrap" (and potentially unwrap) the specific implementations,
 -- providing a uniform type for the trait methods. 
 buildTraitMap :: M.Collection -> FH.HandleAllocator s -> HandleMap
-              -> ST s (TraitMap, StaticTraitMap, [(Text, Core.AnyCFG MIR)])
+              -> ST s (GenericTraitMap, StaticTraitMap, [(Text, Core.AnyCFG MIR)])
 buildTraitMap col _halloc hmap = do
 
     -- translate the trait declarations
@@ -2080,25 +2168,26 @@ buildTraitMap col _halloc hmap = do
     --traceM $ ("\ndecls dom: " ++ show decls)
     --traceM $ ("\nimpls are:" ++ show (vcat (map pretty impls)))
 
-    let tmEntry (x,_) = x
-    let cfgEntry (_,x) = x
-
     let impl_vtable :: TraitDecl ctx
                     -> CT.TypeRepr implTy 
                     -> [(MethName, MirHandle)]       -- impls for that type, must be in correct order
-                    -> Ctx.Assignment MirValue ctx
+                    -> Ctx.Assignment GenericMirValue ctx
         impl_vtable (TraitDecl ctxr _methodIndex) implTy meths  =
-           let go :: Ctx.Index ctx ty -> CT.TypeRepr ty -> Identity (MirValue ty)
+           let go :: Ctx.Index ctx ty -> CT.TypeRepr ty -> Identity (GenericMirValue ty)
                go idx (CT.PolyFnRepr args ret) = do
                   let i = Ctx.indexVal idx
                   let (_implName, implHandle) = if i < length meths then meths !! i else error "impl_vtable: BUG"
-                  let subst = Ctx.Empty Ctx.:> implTy
+                  let subst = implementSubst implTy
                   case implHandle of 
                     (MirHandle _ _ (fh :: FH.FnHandle fargs fret)) ->                      
                       case (testEquality (FH.handleArgTypes   fh) (CT.instantiate subst args),
                             testEquality (FH.handleReturnType fh) (CT.instantiate subst ret)) of
-                          (Just Refl, Just Refl) -> return (FnValue implTy fh)
-                          (_,_)   -> error $ "eep!"
+                          (Just Refl, Just Refl) ->
+                            return (GenericMirValue (MirValue implTy (CT.PolyFnRepr (FH.handleArgTypes   fh) (FH.handleReturnType fh))
+                                                       (R.App $ E.PolyHandleLit fh)))
+                          (_,_)   -> error $ "Type mismatch in method table. implHandle type is: "
+                                        ++ show (FH.handleType fh) ++ " but expected type: "
+                                        ++ show (CT.instantiate subst (CT.FunctionHandleRepr args ret))
                   
            in runIdentity (Ctx.traverseWithIndex go ctxr)
 
@@ -2107,40 +2196,38 @@ buildTraitMap col _halloc hmap = do
     perTraitInfos <- forM (Map.assocs decls) $ \(trait, Some decl@(TraitDecl ctx methodIndex)) -> do
                      let implHandles = [(methName,mirHandle) | (methName, tn, mirHandle) <- impls, trait == tn]
 
-                     pairs <- forM (groupByType implHandles) $ \(typeName, implHandlesByType) -> do
+                     vtables' <- forM (groupByType implHandles) $ \(typeName, implHandlesByType) -> do
                                     case tyToRepr typeName of
                                       Some typeRepr -> do
                                          let vtable = impl_vtable decl typeRepr implHandlesByType
-                                         return (Map.singleton typeName vtable, [])
+                                         return (Map.singleton typeName vtable)
 
-                     let vtables   = mconcat (map fst pairs)
-                     let traitImpl = Some (TraitImpls ctx methodIndex vtables)
-                     let cfgs      = mconcat (map snd pairs)
+                     let vtables   = mconcat vtables'
+                     let traitImpl = Some (mkGenericTraitImpls ctx methodIndex vtables)
  
-                     return ((trait, traitImpl),  cfgs) 
+                     return (trait, traitImpl)
 
-    let tm   = TraitMap $ Map.fromList (map tmEntry perTraitInfos)
-    let cfgs = concat $ map cfgEntry perTraitInfos
-
-    let stm  = groupByNameThenType (Map.assocs hmap)
+    let tm   = mkGenericTraitMap perTraitInfos
+    let stm  = mkStaticTraitMap perTraitInfos
+    -- let stm  = groupByNameThenType (Map.assocs hmap)
 
     -- traceM $ ("\nstm is:" ++ show stm)
 
-    return (tm, stm, cfgs)
+    return (tm, stm, [])
 
-thisType :: M.FnSig -> Maybe TypeName
+thisType :: M.FnSig -> Maybe Ty
 thisType (M.FnSig (M.TyRef ty _:_) _ret) = Just $ typeName ty
 thisType (M.FnSig (ty:_) _ret)           = Just $ typeName ty
 thisType (M.FnSig []     _ret)           = Nothing
 
-groupByType :: [(MethName, MirHandle)] -> [(TypeName, [(MethName,MirHandle)])]
+groupByType :: [(MethName, MirHandle)] -> [(Ty, [(MethName,MirHandle)])]
 groupByType meths = 
   let impls = map (\(methName, mh@(MirHandle _ sig _)) -> (Maybe.fromJust $ thisType sig, (methName,mh))) meths
   in   
       -- convert double association list to double map
    Map.assocs $ foldr (\(ty,(mn,h)) -> Map.insertWith (++) ty [(mn,h)]) Map.empty impls
 
-groupByNameThenType :: [(MethName, MirHandle)] -> Map MethName (Map TypeName MirHandle)
+groupByNameThenType :: [(MethName, MirHandle)] -> Map MethName (Map Ty MirHandle)
 groupByNameThenType meths =
   let impls = map (\(methName, mh@(MirHandle _ sig _)) -> do
                         ty <- thisType sig
@@ -2198,7 +2285,7 @@ lookupMethodType traitDecls traitName implName k
 
 -}
 
-
+{-
 data WrappedMethod ty = 
     WrappedMethod { wmImplName      :: MethName
                   , wmImplHandle    :: MirHandle
@@ -2211,6 +2298,7 @@ buildWrappedTraitMethods :: forall s ctx. HasCallStack => FH.HandleAllocator s
                         -> [(MethName, MirHandle)]       -- impls for that type, must be in correct order
                         -> ST s (Ctx.Assignment MirValue ctx, [(Text,Core.AnyCFG MIR)])
 buildWrappedTraitMethods halloc traitName (TraitDecl ctxr _idxs) meths = undefined
+-}
  {-
    -- allocate new function handles for the trait with the generic type
    let go :: forall ty. Ctx.Index ctx ty -> CT.TypeRepr ty -> ST s (WrappedMethod ty)
@@ -2285,11 +2373,11 @@ buildWrappedTraitMethods halloc traitName (TraitDecl ctxr _idxs) meths = undefin
 -- data-type/trait pair.
 mkTraitImplementations ::
          M.Collection
-      -> [(MethName, TraitName, TypeName, MirHandle)]
+      -> [(MethName, TraitName, Ty, MirHandle)]
       -> M.Trait
       -> Some TraitImpls
 mkTraitImplementations _col trs trait@(M.Trait tname titems) =
-  let impls :: Map TypeName (Map MethName MirHandle)
+  let impls :: Map Ty (Map MethName MirHandle)
       impls = thisTraitImpls trait trs
 
       meths = [(tname, tsig) |(M.TraitMethod tname tsig) <- titems]
@@ -2313,7 +2401,7 @@ mkTraitImplementations _col trs trait@(M.Trait tname titems) =
 
             -- replace the (Map MethName MirHandle) with a
             -- an assignment from the method name to the appropriate function value
-            vtables :: Map TypeName (Ctx.Assignment MirValue ctx)
+            vtables :: Map Ty (Ctx.Assignment MirValue ctx)
             vtables = Map.mapWithKey 
                         (\ ty (mmap :: Map MethName MirHandle) ->
                            Ctx.generate (Ctx.size mctxr)
@@ -2342,7 +2430,7 @@ mkTraitImplementations _col trs trait@(M.Trait tname titems) =
 
  
 -- | Find the mapping from types to method handles for *this* trait
-thisTraitImpls :: M.Trait -> [(MethName,TraitName,TypeName,MirHandle)] -> Map TypeName (Map MethName MirHandle)
+thisTraitImpls :: M.Trait -> [(MethName,TraitName,Ty,MirHandle)] -> Map Ty (Map MethName MirHandle)
 thisTraitImpls (M.Trait trait _) trs = do
   -- pull out method handles just for this trait
   let impls = [ (typeName, (methName, handle)) | (methName, traitName, typeName, handle) <- trs, traitName == trait ]

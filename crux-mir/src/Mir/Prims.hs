@@ -40,10 +40,10 @@ libLoc = "mir-lib/src/"
 loadPrims :: IO Collection
 loadPrims = do
   cols <- mapM (generateMIR libLoc) 
-    [ -- "ops/range"
+    [ -- "result"
+--    ,  "option"
+--    ,  "ops/range"
 --    , "default"
---    , "option"
---    , "result"
 --    , "cmp"
 --    , "slice"
     ]   
@@ -77,7 +77,7 @@ fnOnce = Trait fnOnce_defId [call_once, output] where
 
            call_once :: TraitItem
            call_once = TraitMethod fnOnce_call_once_defId
-               (FnSig [TyDynamic fnOnce_defId, TyParam 0] (TyProjection fnOnce_Output_defId []))
+               (FnSig [TyParam 0, TyParam 1] (TyProjection fnOnce_Output_defId []))
     
            output :: TraitItem
            output = TraitType fnOnce_Output_defId        
@@ -96,7 +96,7 @@ fn = Trait fn_defId [call_once, output] where
 
            call_once :: TraitItem
            call_once = TraitMethod fn_call_defId
-               (FnSig [TyRef (TyDynamic fn_defId) Immut, TyParam 0] (TyProjection fn_Output_defId []))
+               (FnSig [TyRef (TyParam 0) Immut, TyParam 1] (TyProjection fn_Output_defId []))
     
            output :: TraitItem
            output = TraitType fn_Output_defId        
