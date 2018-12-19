@@ -1166,7 +1166,6 @@ assignLvExp lv re = do
                      Some ctx <- return $ variantToRepr struct_variant args
 
                      etu <- evalLvalue lv
---                     etu <- unpackAny (Some taggedUnionType) aetu
                      e   <- accessAggregate etu 1
 
                      struct <- unpackAny (Some (CT.StructRepr ctx)) e
@@ -1219,7 +1218,6 @@ assignLvExp lv re = do
         M.LProjection (M.LvalueProjection lv (M.Index v)) -> do
             (MirExp arr_tp arr) <- evalLvalue lv
             (MirExp ind_tp ind) <- lookupVar v
-            traceM $ "assigning to " ++ show lv ++ " of type " ++ show (pretty (M.typeOf lv)) ++ " at " ++ show ind
             case re of
               MirExp r_tp r ->
                 case (arr_tp, ind_tp) of
@@ -1240,23 +1238,34 @@ assignLvExp lv re = do
                  _ -> fail $ unwords ["Type mismatch when assigning through a reference", show lv, ":=", show re]            
         _ -> fail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
+-- "Allocate" space for the variable by constructing an initial value for it
 storageLive :: M.Var -> MirGenerator h s ret ()
 storageLive (M.Var nm _ ty _ _) = 
   do vm <- use varMap
      case Map.lookup nm vm of
+       Just (Some varinfo@(VarRegister reg)) -> do
+         mv <- initialValue ty
+         case mv of
+           Nothing -> do
+             fail $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+           Just (MirExp rty e) ->
+              case testEquality rty (varInfoRepr varinfo) of
+                 Just Refl -> do
+                   G.assignReg reg e
+                 Nothing -> error "types don't match in storageLive. This is probably a bug"
+             
        Just (Some varinfo@(VarReference reg)) -> do
          r  <- newMirRef (varInfoRepr varinfo)
          mv <- initialValue ty
-         _  <- case mv of
+         case mv of
            Nothing -> do
-              traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
-              return ()
+              fail $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
            Just (MirExp rty e) -> 
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
                    writeMirRef r e
+                   G.assignReg reg r
                  Nothing -> error "types don't match in storageLive. This is probably a bug"
-         G.assignReg reg r
        _ -> return ()
 
 
@@ -1773,20 +1782,19 @@ initialValue (M.TyCustom (CEnum _n)) =
 initialValue _ = return Nothing
 
 
-tyToInitReg :: HasCallStack => M.Ty -> MirGenerator h s ret (Some (R.Reg s))
-tyToInitReg t = do
+tyToInitReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
+tyToInitReg nm t = do
    mv  <- initialValue t
    case mv of 
       Just (MirExp _tp exp) -> Some <$> G.newReg exp
       Nothing -> do
         traceM $ "tyToInitReg: Cannot initialize register of type " ++ show (pretty t)
-        tyToFreshReg t
+        tyToFreshReg nm t
 
-tyToFreshReg :: HasCallStack => M.Ty -> MirGenerator h s ret (Some (R.Reg s))
-tyToFreshReg t = do
+tyToFreshReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
+tyToFreshReg nm t = do
     tyToReprCont t $ \tp -> do
         r <-  G.newUnassignedReg tp
-        traceM $ "allocating new register " ++ show r
         return $ Some r
 
 
@@ -1800,11 +1808,11 @@ buildIdentMapRegs_ addressTakenVars needsInitVars pairs = foldM f Map.empty pair
               return $ Map.insert varname (Some (VarReference reg)) map_
 
     | varname `Set.member` needsInitVars = 
-        do Some r <- tyToInitReg varty
+        do Some r <- tyToInitReg varname varty 
            return $ Map.insert varname (Some (VarRegister r)) map_
 
     | otherwise =
-        do Some r <- tyToFreshReg varty
+        do Some r <- tyToFreshReg varname varty
            return $ Map.insert varname (Some (VarRegister r)) map_
 
 -- | Look at all of the assignments in the basic block and return
@@ -1894,8 +1902,9 @@ buildIdentMapRegs (M.MirBody vars blocks) _argvars =
    buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _) -> (name,ty)) vars) -- (vars ++ argvars))
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
-   -- allocate space for all local variables
-   needsInitVars = Set.fromList (map _varname vars) -- (mconcat (map needsInit blocks)) `Set.difference` (Set.fromList (map _varname argvars))
+   -- "allocate" space for return variable
+   needsInitVars = Set.fromList ["_0"]
+   -- needsInitVars = Set.fromList (map _varname vars) -- (mconcat (map needsInit blocks)) `Set.difference` (Set.fromList (map _varname argvars))
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks) = Map.fromList <$> mapM buildLabel blocks
@@ -1934,19 +1943,6 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
         G.defineBlock lab (translateBlockBody tr bbdata)
       _ -> fail "bad label"
 
--- generate code that allocates 
-allocLocalVar :: Var -> MirGenerator h s ret ()
-allocLocalVar var = do
-   vm <- use varMap
-   return ()
---   case Map.lookup var vm  of
---     Just vs -> return ()
---     Nothing -> return ()
-{-   let ty = M.typeOf var
-   case ty of
-     M.Tuple [] ->
-       G.assign  -}
-
 -- | Translate a MIR function, returning a jump expression to its entry block
 -- argvars are registers
 -- The first block in the list is the entrance block
@@ -1958,14 +1954,12 @@ genFn (M.Fn fname argvars _fretty body _gens _preds) rettype = do
   labelMap .= lm
   vm' <- buildIdentMapRegs body argvars
   varMap %= Map.union vm'
-  let (M.MirBody mvars blocks@(enter : _)) = body
+  let (M.MirBody _mvars blocks@(enter : _)) = body
   mapM_ (registerBlock rettype) blocks
   let (M.BasicBlock bbi _) = enter
   lm <- use labelMap
---  traceM $ "\n label map is " ++ show lm
   case (Map.lookup bbi lm) of
     Just lbl -> do
-       mapM_ allocLocalVar mvars
        G.jump lbl
     _ -> fail "bad thing happened"
 
@@ -1980,8 +1974,6 @@ transDefine fnState fn@(M.Fn fname fargs _ _ _ _) =
       let argtups  = map (\(M.Var n _ t _ _) -> (n,t)) fargs
       let argtypes = FH.handleArgTypes handle
       let rettype  = FH.handleReturnType handle
---      traceM $ "trans " ++ Text.unpack (M.idText fname) ++ " with args " ++ (show (list (map pretty argtups)))
---      traceM $ "handle argtypes: " ++ show argtypes
       let def :: G.FunctionDef MIR handle FnState args ret
           def inputs = (s,f) where
             s = initFnState fnState argtups argtypes inputs
@@ -2105,7 +2097,6 @@ buildTraitMap col _halloc hmap = do
                             testEquality (FH.handleReturnType fh) (CT.instantiate subst ret)) of
                           (Just Refl, Just Refl) -> return (FnValue implTy fh)
                           (_,_)   -> error $ "eep!"
-
                   
            in runIdentity (Ctx.traverseWithIndex go ctxr)
 

@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
 
-{-# OPTIONS_GHC -fdefer-type-errors #-}
 -----------------------------------------------------------------------
 -- |
 -- Module           : Mir.Pass.CollapseRefs
@@ -52,8 +51,10 @@ registerStmt stmt = do
               case (typeOf lv) of
                   TyRef _ _ ->
                       case rv of
-                        Use lv' ->
+                        Use (Copy lv') ->
                             put $ Map.insert lv lv' refmap
+                        Use (Move lv') ->
+                            put $ Map.insert lv lv' refmap                            
                         Ref _ l _ -> do
                             put $ Map.insert lv l refmap
                         _ ->

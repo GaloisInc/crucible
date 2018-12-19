@@ -1,13 +1,19 @@
+pub enum Opt<T> {
+    N,
+    S(T),
+}
 
-fn g<T> (x : Option<T>) -> T {
+use Opt::*;
+
+fn g<T> (x : Opt<T>) -> T {
     match x {
-        Some(y) => y,
-        None    => g(x),
+        S(y) => y,
+        N    => g(x),
     }
 }
 
 fn f (y : u32) -> u32 { 
-    let x: Option<u32> = Some(0);
+    let x: Opt<u32> = S(0);
     return g(x);
 }
 

@@ -3,7 +3,6 @@
 {-# LANGUAGE GADTs #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-name-shadowing #-}
-{-# OPTIONS_GHC -fdefer-type-errors #-}
 
 -----------------------------------------------------------------------
 -- |
@@ -35,9 +34,7 @@ import GHC.Stack
 
 --other utils
 ints_list :: Int -> [Int]
-ints_list 0 = [0]
-ints_list i | i > 0     = (ints_list (i - 1)) ++ [i]
-            | otherwise = error "bad intslist"
+ints_list n = [n, n-1 .. 0]
 
 
 modifyVarTy :: Var -> Ty -> Var
@@ -167,7 +164,7 @@ modifyAssignEntryBlock = do
                         Just b -> b
                         Nothing -> error "entry block not found"
 
-        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Local vimmut) "internal") mutpairs
+        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Copy (Local vimmut)) "internal") mutpairs
         new_bbd = BasicBlockData (new_asgns ++ entry_stmts) ei
     fnBlocks .= Map.insert (T.pack "bb0") new_bbd blocks
 
@@ -202,7 +199,7 @@ mkPreReturnAssgn = do
     let muts = Map.elems $ Map.map fst mutpairs
     Just dummyret <- use fnDummyRet
     let (Just retvar) = Map.lookup "_0" internals
-    return $ Assign (Local retvar) (Aggregate AKTuple $  [Consume (Local dummyret)] ++ (map (Consume . Local) muts)) "internal"
+    return $ Assign (Local retvar) (Aggregate AKTuple $  [Copy (Local dummyret)] ++ (map (Copy . Local) muts)) "internal"
 
 processReturnBlock_ :: BasicBlockData -> State RewriteFnSt BasicBlockData
 processReturnBlock_ (BasicBlockData stmts Return) = do
@@ -275,8 +272,8 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
          do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs = do
             (v, (v0, vrest)) <- mkFnCallVars dest_lv $ map typeOf mut_cargs
             newb <- newDummyBlock bbi $ BasicBlockData
-                ([Assign dest_lv (Use v0) "internal"] ++
-                 (zipWith (\c v -> Assign (lValueofOp c) (Use v) "internal") mut_cargs vrest))
+                ([Assign dest_lv (Use (Copy v0)) "internal"] ++
+                 (zipWith (\c v -> Assign (lValueofOp c) (Use (Copy v)) "internal") mut_cargs vrest))
                 (Goto dest_block)
 
             blocks <- use fnBlocks

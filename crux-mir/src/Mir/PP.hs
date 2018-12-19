@@ -21,9 +21,6 @@ import           Mir.DefId
 pr_id :: DefId -> Doc
 pr_id = pretty
 
---instance Pretty DefId where
---  pretty did = text (show did)
-
 pretty_fn1 :: Pretty a => String -> a -> Doc
 pretty_fn1 str x = text str <> parens (pretty x)
 
@@ -158,7 +155,7 @@ instance Pretty BasicBlockData where
 
 instance Pretty Statement where
     pretty (Assign lhs rhs _) = pretty lhs <+> equals <+> pretty rhs <> semi
-    pretty (SetDiscriminant lhs rhs) = pretty lhs <+> equals <+> pretty lhs <> text "." <> pretty rhs <> semi
+    pretty (SetDiscriminant lhs rhs) = text "discr(" <> pretty lhs <> text ")" <+> equals <+> pretty rhs <> semi
     pretty (StorageLive l) = pretty_fn1 "StorageLive" l <> semi
     pretty (StorageDead l) = pretty_fn1 "StorageDead" l <> semi
     pretty Nop = text "nop" <> semi
@@ -217,13 +214,12 @@ instance Pretty Terminator where
 
 
 instance Pretty Operand where
---    pretty (Consume lv)   = pretty lv
     pretty (OpConstant c) = pretty c
     pretty (Move c) = pretty c
     pretty (Copy c) = pretty c
 
 instance Pretty Constant where
-    pretty (Constant _a b) = pretty b -- pretty_fn2 "Constant" a b
+    pretty (Constant _a b) = pretty b
 
 instance Pretty LvalueProjection where
     pretty (LvalueProjection lv Deref) = text "*" <> pretty lv
@@ -338,9 +334,3 @@ instance Pretty Collection where
           [text "TRAITs"] ++
           map pretty (col^.traits))
 
-{-
-instance Pretty Usevar where
-  pretty (UseConstant c) = pretty_fn1 "Use" c
-  pretty (Copy c)        = pretty_fn1 "Copy" c
-  pretty (Move c)        = pretty_fn1 "Move" c
--}
