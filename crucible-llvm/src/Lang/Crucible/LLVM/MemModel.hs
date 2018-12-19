@@ -1167,9 +1167,13 @@ reverseAliases :: (Ord a, Ord l)
                -> (a -> Maybe l)   -- ^ \"Alias of\"
                -> Seq a
                -> Map a (Set a)
-reverseAliases lab aliasOf seq = evalState (go Map.empty seq) (Map.empty :: Map l a)
+reverseAliases lab aliasOf seq =
+    evalState (go Map.empty seq) (Map.empty :: Map l a)
   where go map_ Seq.Empty                           = pure map_
-        go map_ (a@(aliasOf -> Nothing) Seq.:<| as) = go (Map.insert a Set.empty map_) as
+        go map_ (a@(aliasOf -> Nothing) Seq.:<| as) =
+          -- Don't overwrite it if it's already in the map
+          modify (Map.insert (lab a) a) >>
+          go (Map.insertWith (\_ old -> old) a Set.empty map_) as
         go map_ (a@(aliasOf -> Just l)  Seq.:<| as) = do
           st <- get
           case Map.lookup l st of
@@ -1182,7 +1186,7 @@ reverseAliases lab aliasOf seq = evalState (go Map.empty seq) (Map.empty :: Map 
               then go map_ (as <> Seq.singleton a)                          -- 2
               else modify (Map.insert (lab a) a) >>                         -- 3a
                    pure map_                                                -- 3b
-          where mapSetInsert k v m = Map.update (pure . Set.insert v) k m
+          where mapSetInsert k v m  = Map.update (pure . Set.insert v) k m
 
 -- | This is one step closer to the application of 'reverseAliases':
 -- There are two \"sorts\" of objects:
@@ -1233,7 +1237,7 @@ doResolveGlobal ::
   IO (LLVMPtr sym wptr)
 doResolveGlobal _sym mem symbol =
   let lookedUp = Map.lookup symbol (memImplGlobalMap mem)
-  in case Map.lookup symbol (memImplGlobalMap mem) of
+  in case lookedUp of
        Just (SomePointer ptr) | PtrWidth <- ptrWidth ptr -> return ptr
        _ -> panic "MemModel.doResolveGlobal" $
                (if isJust lookedUp
