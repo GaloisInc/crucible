@@ -569,6 +569,10 @@ applyArray sym sc (SAWExpr f) args = SAWExpr <$> go args
            Just (_, _, body) -> SC.instantiateVar sc 0 x' body
            Nothing           -> SC.scApply sc f' x'
 
+maxIndexLit :: IndexLit tp -> IndexLit tp -> IndexLit tp
+maxIndexLit (NatIndexLit x) (NatIndexLit y) = NatIndexLit (max x y)
+maxIndexLit (BVIndexLit w x) (BVIndexLit _ y) = BVIndexLit w (max x y)
+
 sizeIndexLit :: forall tp. IndexLit tp -> Integer
 sizeIndexLit (NatIndexLit n) = toInteger n + 1
 sizeIndexLit (BVIndexLit _ n) = n + 1
@@ -896,7 +900,7 @@ evaluateExpr sym sc cache = f
 
         B.ArrayMap indexTypes range updates arr ->
           do let m = hashedMap updates
-             let (maxidx, _) = Map.findMax m
+             let maxidx = foldr1 (Ctx.zipWith maxIndexLit) (Map.keys m)
              let sizes = toListFC sizeIndexLit maxidx
              case 2 * toInteger (Map.size m) >= product sizes of
                -- Make vector table if it would be sufficiently (1/2) full.
