@@ -32,6 +32,7 @@ import Data.Parameterized.Context (pattern Empty)
 import Text.LLVM.AST (Module)
 import Data.LLVM.BitCode (parseBitCodeFromFile)
 import qualified Data.LLVM.BitCode as LLVM
+import qualified Text.LLVM as LLVM
 
 -- crucible
 import Lang.Crucible.Backend
@@ -137,11 +138,12 @@ parseLLVM file =
 registerFunctions ::
   (ArchOk arch, IsSymInterface sym) =>
   LLVMContext arch ->
+  LLVM.Module ->
   ModuleTranslation arch ->
   OverM sym (LLVM arch) ()
-registerFunctions ctx mtrans =
+registerFunctions ctx llvm_module mtrans =
   do -- register the callable override functions
-     evalStateT register_llvm_overrides ctx
+     evalStateT (register_llvm_overrides llvm_module) ctx
 
      -- register all the functions defined in the LLVM module
      mapM_ registerModuleFn $ Map.toList $ cfgMap mtrans
@@ -168,7 +170,7 @@ simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
           res <- executeCrucible (map genericToExecutionFeature fs) $
                    InitialState simctx globSt defaultAbortHandler $
                    runOverrideSim UnitRepr $
-                     do registerFunctions llvmCtxt trans
+                     do registerFunctions llvmCtxt llvm_mod trans
                         setupOverrides llvmCtxt
                         checkFun "main" (cfgMap trans)
           return $ Result res
