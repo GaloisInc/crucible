@@ -1120,8 +1120,7 @@ assignVarExp (M.Var vname _ vty _ pos) (MirExp e_ty e) = do
         | Just CT.Refl <- testEquality e_ty (varInfoRepr varinfo) ->
             case varinfo of
               VarRegister reg ->
-                do traceM $ "assigning to reg " ++ show reg
-                   G.assignReg reg e
+                do G.assignReg reg e
               VarReference reg ->
                 do r <- G.readReg reg
                    writeMirRef r e
@@ -1238,7 +1237,8 @@ assignLvExp lv re = do
                  _ -> fail $ unwords ["Type mismatch when assigning through a reference", show lv, ":=", show re]            
         _ -> fail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
--- "Allocate" space for the variable by constructing an initial value for it
+-- "Allocate" space for the variable by constructing an initial value for it (if possible)
+-- This code will 
 storageLive :: M.Var -> MirGenerator h s ret ()
 storageLive (M.Var nm _ ty _ _) = 
   do vm <- use varMap
@@ -1247,19 +1247,21 @@ storageLive (M.Var nm _ ty _ _) =
          mv <- initialValue ty
          case mv of
            Nothing -> do
-             fail $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+             traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+             return ()
            Just (MirExp rty e) ->
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
                    G.assignReg reg e
-                 Nothing -> error "types don't match in storageLive. This is probably a bug"
+                 Nothing -> fail $ "Types don't match in storageLive. Created value of type: " ++ show rty ++ " for var of type: " ++ show (varInfoRepr varinfo)
              
        Just (Some varinfo@(VarReference reg)) -> do
          r  <- newMirRef (varInfoRepr varinfo)
          mv <- initialValue ty
          case mv of
            Nothing -> do
-              fail $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+              traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+              return ()
            Just (MirExp rty e) -> 
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
@@ -1759,7 +1761,7 @@ initialValue (M.TyClosure defid (_:hty:params)) = do
 initialValue (M.TyAdt nm _args) = do
     am <- use adtMap
     case Map.lookup nm am of
-       Nothing -> initialValue M.TyBool
+       Nothing -> return $ Nothing
        Just [] -> fail ("don't know how to initialize void adt " ++ show nm)
        Just (Variant _vn _disc fds _kind :_) -> do
           let initField (Field _name ty _subst) = initialValue ty
@@ -1767,11 +1769,11 @@ initialValue (M.TyAdt nm _args) = do
           let union = buildTaggedUnion 0 (Maybe.catMaybes fds)
           return $ Just $ union
 initialValue (M.TyFnPtr _) =
-   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
+   return $ Nothing
 initialValue (M.TyDynamic _) =
-   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
+   return $ Nothing
 initialValue (M.TyProjection _ _) =
-   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
+   return $ Nothing
 initialValue (M.TyCustom (CEnum _n)) =
    return $ Just $ MirExp CT.IntegerRepr (S.litExpr 0)
 --initialValue (M.TyParam _) =

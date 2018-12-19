@@ -79,13 +79,16 @@ isSetDiscriminant _ = Nothing
 makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> Statement
 makeAggregate updates (lv, k, adt) = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops)) pos where
   ops = map rhs updates
-  pos = upos (head updates)
+  pos = case updates of
+          u:_ -> upos u
+          []  -> "internal"
     
 
 findAllocEnum :: (?col :: Collection) => [Statement] -> Maybe ( Statement, [Statement] )
 findAllocEnum ss = f ss [] where
   f []     updates = Nothing
-  f (s:ss) updates | Just (lv,i,adt) <- isSetDiscriminant s  = Just (makeAggregate updates (lv,i,adt), ss)
+  f (s:ss) updates | Just (lv,i,adt) <- isSetDiscriminant s
+                   = Just (makeAggregate updates (lv,i,adt), ss)
                    | Just fd         <- isAdtFieldUpdate  s  = f ss (fd : updates)
                    | otherwise                               = Nothing
 
