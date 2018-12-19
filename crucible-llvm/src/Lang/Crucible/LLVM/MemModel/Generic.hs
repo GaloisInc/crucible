@@ -838,8 +838,9 @@ copyMem :: (1 <= w, IsSymInterface sym)
          -> SymBV sym w -- ^ Size
          -> Mem sym
          -> IO (Pred sym, Mem sym)
+
 copyMem sym w dst src sz m = do
-  (,) <$> (join $ andPred sym <$> isAllocated sym w dst sz m
+  (,) <$> (join $ andPred sym <$> isAllocatedMutable sym w dst sz m
                               <*> isAllocated sym w src sz m)
       <*> (return $ m & memAddWrite (MemWrite dst (MemCopy src sz)))
 
@@ -853,8 +854,9 @@ setMem ::
   SymBV sym 8 {- ^ Byte value -} ->
   SymBV sym w {- ^ Number of bytes to set -} ->
   Mem sym -> IO (Pred sym, Mem sym)
+
 setMem sym w ptr val sz m =
-  do p <- isAllocated sym w ptr sz m
+  do p <- isAllocatedMutable sym w ptr sz m
      return (p, memAddWrite (MemWrite ptr (MemSet val sz)) m)
 
 -- | Allocate a new empty memory region.
