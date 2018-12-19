@@ -1,23 +1,56 @@
 {-# LANGUAGE LambdaCase #-}
+-----------------------------------------------------------------------
+-- |
+-- Module           : Mir.Generate
+-- Description      : Produce MIR AST and translate to Crucible
+-- Copyright        : (c) Galois, Inc 2018
+-- License          : BSD3
+-- Stability        : provisional
+--
+-- This module sets up the process to compile the rust input file,
+-- extract the json representation, and parse as the MIR AST.
+-- It also includes the top-level translation function to produce the
+-- Crucible CFG from this AST.
+-----------------------------------------------------------------------
 
 
-module Mir.Generate(generateMIR) where
+module Mir.Generate(generateMIR, RustModule(..), translateMIR, mirToCFG) where
 
+import Control.Lens hiding((<.>))
 import Control.Monad (when)
+import Control.Monad.ST
+
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
+import qualified Data.Map as M
+import qualified Data.Text as T
+
 import System.FilePath
 import qualified System.Process as Proc
 import           System.Exit (ExitCode(..))
 import           System.Directory (doesFileExist, removeFile, getModificationTime)
 
 import GHC.Stack
-import Mir.Mir
-import Mir.PP()
+
 import Text.PrettyPrint.ANSI.Leijen (Pretty(..))
+
+import qualified Lang.Crucible.CFG.Core as C
+import qualified Lang.Crucible.FunctionHandle as C
+
+
+import Mir.Mir
+import Mir.Intrinsics(MIR)
+import Mir.PP()
+import Mir.Pass as P
+import Mir.Trans(transCollection)
 
 
 import Debug.Trace
+
+data RustModule = RustModule {
+    rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
+}
+
 
 -- TODO: make this an argument of generateMIR
 debug :: Bool
@@ -71,3 +104,14 @@ generateMIR dir name = do
           traceM $ show col
           traceM "--------------------------------------------------------------"  
         return col
+
+-- | Translate MIR to Crucible
+translateMIR :: Collection -> RustModule
+translateMIR col = RustModule cfgmap where
+  passes  = P.passRemoveBoxNullary
+  cfgmap  = mirToCFG col (Just passes)
+
+mirToCFG :: Collection ->  Maybe ([Fn] -> [Fn]) -> M.Map T.Text (C.AnyCFG MIR)
+mirToCFG col Nothing = mirToCFG col (Just P.passId)
+mirToCFG col (Just pass) =
+    runST $ C.withHandleAllocator $ transCollection $ col &functions %~ pass

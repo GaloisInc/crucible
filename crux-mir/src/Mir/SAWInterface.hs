@@ -52,21 +52,8 @@ import           Mir.Generate
 
 -----------------------------------------------------------------------
 
-data RustModule = RustModule {
-    rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
-}
 
-{-
-cleanFnName :: T.Text -> T.Text
-cleanFnName t = T.pack $
-    let r1 = Regex.mkRegex "\\[[0-9]+\\]"
-        r2 = Regex.mkRegex "::"
-        s1 = Regex.subRegex r1 (T.unpack t) ""
-        s2 = Regex.subRegex r2 s1 "" in
-    s2
--}
-
-decorateFnName ::String -> String
+decorateFnName :: String -> String
 decorateFnName t = "::" ++ t ++ "[0]"
 
 extractMIR :: AIG.IsAIG l g =>
@@ -89,25 +76,11 @@ extractMIR proxy sc rm n = do
     return term
 
 
--- | Translate MIR to Crucible
-translateMIR :: Collection -> RustModule
-translateMIR col = RustModule cfgmap where
-  passes  = P.passRemoveBoxNullary
-  cfgmap  = mirToCFG col (Just passes)
-
 loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
 loadMIR _sc fp = do
     f <- B.readFile fp
     let c = (J.eitherDecode f) :: Either String Collection
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
-      Right col -> do
-          --print "Mir decoding"
-          --putDoc (pretty col)
-          --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
-          let passes = P.passRemoveBoxNullary
-          -- DEBUGGING print functions
-          -- mapM_ (putStrLn . pprint) fns
-          let cfgmap = mirToCFG col (Just passes)
-          return $ RustModule cfgmap
+      Right col -> return $ translateMIR col
       
