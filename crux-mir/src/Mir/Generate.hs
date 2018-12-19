@@ -108,7 +108,7 @@ generateMIR dir name = do
 -- | Translate MIR to Crucible
 translateMIR :: Collection -> RustModule
 translateMIR col = RustModule cfgmap where
-  passes  = P.passRemoveBoxNullary
+  passes  = P.passRemoveBoxNullary . (P.passAllocateEnum col)
   cfgmap  = mirToCFG col (Just passes)
 
 mirToCFG :: Collection ->  Maybe ([Fn] -> [Fn]) -> M.Map T.Text (C.AnyCFG MIR)

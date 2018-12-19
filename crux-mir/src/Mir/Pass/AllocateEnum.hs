@@ -1,6 +1,5 @@
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 
 -----------------------------------------------------------------------
 -- |
@@ -23,21 +22,77 @@ import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 import Data.List
 
+import Mir.DefId
 import Mir.Mir
 
 import GHC.Stack
 
-mapTransClosure :: Ord a => Map.Map a a -> Map.Map a a
-mapTransClosure m = Map.map (\v -> mapIterate m v) m
-    where mapIterate m v = case (Map.lookup v m) of
-                             Just g -> mapIterate m g
-                             Nothing -> v
+{-
 
-passAllocateEnum :: HasCallStack => [Fn] -> [Fn]
-passAllocateEnum fns = map (\(Fn a b c (MirBody d blocks) e  f) -> Fn a b c (MirBody d (pcr_ blocks)) e f) fns
+Look for sequences of statements of the form
 
-pcr_ :: HasCallStack => [BasicBlock] -> [BasicBlock]
-pcr_ bs = evalState (pcr bs) (Map.empty)
+      (_0 as k).0 = use(op1);
+      (_0 as k).1 = use(op2);
+      set_discr(_0) = k;
 
-pcr :: HasCallStack => [BasicBlock] -> [BasicBlock]
-pcr bbs = 
+and replace them with a single aggregate assignment
+
+      _0 = RAdtAg (AdtAg adt k [op1, op2, ...])
+
+-}
+
+
+
+passAllocateEnum :: HasCallStack => Collection -> [Fn] -> [Fn]
+passAllocateEnum col fns =
+  let ?col = col in
+  map (\(Fn a b c (MirBody d blocks) e  f) -> Fn a b c (MirBody d (map pcr blocks)) e f) fns
+
+
+data FieldUpdate = FieldUpdate { adtLvalue :: Lvalue,
+                                 discr :: Integer,
+                                 fieldNum :: Int,
+                                 fieldTy :: Ty,
+                                 rhs :: Operand,
+                                 upos :: T.Text
+                               }
+
+
+lookupAdt :: (?col :: Collection) => DefId -> Maybe Adt
+lookupAdt defid = find (\adt -> _adtname adt == defid) (?col^.adts)
+  
+
+isAdtFieldUpdate :: Statement -> Maybe FieldUpdate
+isAdtFieldUpdate (Assign (LProjection (LvalueProjection (LProjection (LvalueProjection lv (Downcast j))) (PField i ty))) (Use rhs) pos) =
+  Just (FieldUpdate lv j i ty rhs pos)
+isAdtFieldUpdate _ = Nothing
+
+isSetDiscriminant :: (?col :: Collection) => Statement -> Maybe (Lvalue, Int, Adt)
+isSetDiscriminant (SetDiscriminant lv i) =
+  case typeOf lv of
+    TyAdt defid args -> case (lookupAdt defid) of
+                          Just adt -> Just (lv,i,adt)
+                          Nothing  -> Nothing
+    _ -> Nothing
+isSetDiscriminant _ = Nothing
+
+makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> Statement
+makeAggregate updates (lv, k, adt) = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops)) pos where
+  ops = map rhs updates
+  pos = upos (head updates)
+    
+
+findAllocEnum :: (?col :: Collection) => [Statement] -> Maybe ( Statement, [Statement] )
+findAllocEnum ss = f ss [] where
+  f []     updates = Nothing
+  f (s:ss) updates | Just (lv,i,adt) <- isSetDiscriminant s  = Just (makeAggregate updates (lv,i,adt), ss)
+                   | Just fd         <- isAdtFieldUpdate  s  = f ss (fd : updates)
+                   | otherwise                               = Nothing
+
+pcr :: HasCallStack => (?col :: Collection) => BasicBlock -> BasicBlock
+pcr (BasicBlock inf (BasicBlockData stmts term)) = BasicBlock inf (BasicBlockData (go stmts) term) where
+   go :: [Statement] -> [Statement]
+   go [] = []
+   go s  | Just (s', ss) <- findAllocEnum s = s' : go ss
+         | otherwise = head s : go (tail s)
+

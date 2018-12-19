@@ -8,7 +8,8 @@ module Mir.Pass (
     passMutRefReturnStatic,
     passRemoveBoxNullary,
     passRemoveStorage,
-    passMutRefArgs
+    passMutRefArgs,
+    passAllocateEnum
 ) where
 
 import Mir.Mir
@@ -25,6 +26,8 @@ import Mir.Pass.MutRefReturnStatic( passMutRefReturnStatic )
 import Mir.Pass.RemoveBoxNullary( passRemoveBoxNullary )
 import Mir.Pass.RemoveStorage( passRemoveStorage )
 import Mir.Pass.RewriteMutRef( passRewriteMutRefArg )
+import Mir.Pass.AllocateEnum ( passAllocateEnum )
+
 
 type Pass = [Fn] -> [Fn]
 

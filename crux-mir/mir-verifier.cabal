@@ -51,6 +51,7 @@ library
                    Mir.Mir
                    Mir.Prims
                    Mir.Pass
+                   Mir.Pass.AllocateEnum                   
                    Mir.Pass.CollapseRefs
                    Mir.Pass.MutRefReturnStatic
                    Mir.Pass.RewriteMutRef
