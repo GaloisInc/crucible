@@ -68,6 +68,8 @@ module Lang.Crucible.LLVM.MemModel
   , doFree
   , doLoad
   , doStore
+  , doArrayStore
+  , doArrayConstStore
   , loadString
   , loadMaybeString
 
@@ -639,6 +641,43 @@ doMemset sym w mem dest val len = do
      (AssertFailureSimError "Invalid memory region in memset")
 
   return mem{ memImplHeap = heap' }
+
+-- | Store an array in memory. Also assert that the pointer is
+-- valid and points to a mutable memory region.
+doArrayStore
+  :: (IsSymInterface sym, HasPtrWidth w)
+  => sym
+  -> MemImpl sym
+  -> LLVMPtr sym w {- ^ destination  -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
+  -> SymBV sym w {- ^ array length -}
+  -> IO (MemImpl sym)
+doArrayStore sym mem ptr alignment arr len = do
+  (p, heap') <-
+    G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
+  assert sym p $ AssertFailureSimError $
+    "Invalid memory array store at pointer: " ++ show (G.ppPtr ptr)
+  return mem { memImplHeap = heap' }
+
+-- | Store an array in memory. Also assert that the pointer is
+-- valid and points to a mutable or immutable memory region.
+-- Thus it can be used to initialize read-only memory regions.
+doArrayConstStore
+  :: (IsSymInterface sym, HasPtrWidth w)
+  => sym
+  -> MemImpl sym
+  -> LLVMPtr sym w {- ^ destination  -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
+  -> SymBV sym w {- ^ array length -}
+  -> IO (MemImpl sym)
+doArrayConstStore sym mem ptr alignment arr len = do
+  (p, heap') <-
+    G.writeArrayConstMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
+  assert sym p $ AssertFailureSimError $
+    "Invalid memory array store at pointer: " ++ show (G.ppPtr ptr)
+  return mem { memImplHeap = heap' }
 
 -- | Copy memory from source to destination. Also assert that the
 -- source and destination pointers fall within valid allocated
