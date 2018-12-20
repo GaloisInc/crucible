@@ -118,14 +118,26 @@ register_llvm_overrides llvm_module = do
   try_register_llvm_override llvm_module llvmObjectsizeOverride_32'
   try_register_llvm_override llvm_module llvmObjectsizeOverride_64'
 
-  -- FIXME, all variants of llvm.ctlz....
-  register_llvm_override llvmCtlz32
+  register_llvm_override (llvmCtlz (knownNat @8))
+  register_llvm_override (llvmCtlz (knownNat @16))
+  register_llvm_override (llvmCtlz (knownNat @32))
+  register_llvm_override (llvmCtlz (knownNat @64))
+
+  register_llvm_override (llvmCttz (knownNat @8))
+  register_llvm_override (llvmCttz (knownNat @16))
+  register_llvm_override (llvmCttz (knownNat @32))
+  register_llvm_override (llvmCttz (knownNat @64))
+
+  register_llvm_override (llvmCtpop (knownNat @8))
+  register_llvm_override (llvmCtpop (knownNat @16))
+  register_llvm_override (llvmCtpop (knownNat @32))
+  register_llvm_override (llvmCtpop (knownNat @64))
 
   register_llvm_override (llvmBSwapOverride (knownNat @2)) -- 16 = 2 * 8
   register_llvm_override (llvmBSwapOverride (knownNat @4)) -- 32 = 4 * 8
   register_llvm_override (llvmBSwapOverride (knownNat @8)) -- 64 = 8 * 8
 
-  -- FIXME, all variants of llvm.cttz, llvm.bitreverse, llvm.ctpop,
+  -- FIXME all variants of llvm.bitreverse
   -- llvm.sadd.with.overflow, llvm.uadd.with.overflow, llvm.ssub.with.overflow,
   -- llvm.usub.with.overflow, llvm.smul.with.overflow, llvm.umul.with.overflow,
 
@@ -865,18 +877,19 @@ llvmMemmoveOverride_8_8_64 =
   (\memOps sym args -> Ctx.uncurryAssignment (callMemmove sym memOps) args)
 
 
-llvmCtlz32
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> BVType 32 ::> BVType 1)
-         (BVType 32)
-llvmCtlz32 =
-  let nm = "llvm.ctlz.i32" in
+llvmCtlz
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w ->
+     LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w ::> BVType 1)
+         (BVType w)
+llvmCtlz w =
+  let nm = "llvm.ctlz.i" ++ show (natValue w) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 32
+    { L.decRetType = L.PrimType $ L.Integer (fromInteger (natValue w))
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer 32
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decVarArgs = False
@@ -884,9 +897,58 @@ llvmCtlz32 =
     , L.decComdat  = mempty
     }
   )
-  (Empty :> KnownBV @32 :> KnownBV @1)
-  (KnownBV @32)
+  (Empty :> BVRepr w :> KnownBV @1)
+  (BVRepr w)
   (\memOps sym args -> Ctx.uncurryAssignment (callCtlz sym memOps) args)
+
+
+llvmCttz
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w
+  -> LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w ::> BVType 1)
+         (BVType w)
+llvmCttz w =
+  let nm = "llvm.cttz.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w :> KnownBV @1)
+  (BVRepr w)
+  (\memOps sym args -> Ctx.uncurryAssignment (callCttz sym memOps) args)
+
+llvmCtpop
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w
+  -> LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w)
+         (BVType w)
+llvmCtpop w =
+  let nm = "llvm.ctpop.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w)
+  (BVRepr w)
+  (\memOps sym args -> Ctx.uncurryAssignment (callCtpop sym memOps) args)
+
 
 -- | <https://llvm.org/docs/LangRef.html#llvm-bswap-intrinsics LLVM docs>
 llvmBSwapOverride
@@ -1358,17 +1420,33 @@ callCtlz sym _mvar
        zeroOK    <- notPred sym =<< bvIsNonzero sym isZeroUndef
        p <- orPred sym isNonzero zeroOK
        assert sym p (AssertFailureSimError "Ctlz called with disallowed zero value")
-       -- FIXME: implement CTLZ as a SimpleBuilder primitive
-       go (0 :: Integer)
- where
- w = bvWidth val
- go i
-   | i < natValue w =
-       do c  <- testBitBV sym (natValue w - i - 1) val
-          i' <- bvLit sym w i
-          x  <- go $! (i+1)
-          bvIte sym c i' x
-   | otherwise = bvLit sym w (natValue w)
+       bvCountLeadingZeros sym val
+
+callCttz
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType 1)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
+callCttz sym _mvar
+  (regValue -> val)
+  (regValue -> isZeroUndef) = liftIO $
+    do isNonzero <- bvIsNonzero sym val
+       zeroOK    <- notPred sym =<< bvIsNonzero sym isZeroUndef
+       p <- orPred sym isNonzero zeroOK
+       assert sym p (AssertFailureSimError "Cttz called with disallowed zero value")
+       bvCountTrailingZeros sym val
+
+callCtpop
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
+callCtpop sym _mvar
+  (regValue -> val) = liftIO $ bvPopcount sym val
+
 
 callPutChar
   :: (IsSymInterface sym, HasPtrWidth wptr)
