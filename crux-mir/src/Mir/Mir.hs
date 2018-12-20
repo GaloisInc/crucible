@@ -90,6 +90,7 @@ data Ty =
       | TyFloat FloatKind
       | TyDowncast Ty Integer   --- result type of downcasting an ADT. Ty must be an ADT type
       | TyProjection DefId [Maybe Ty]
+      | TyLifetime
       deriving (Eq, Ord, Show, Generic)
 
 data FnSig = FnSig [Ty] Ty 
@@ -1190,6 +1191,7 @@ instance FromJSON Ty where
                                           Just (String "Float") -> TyFloat <$> v .: "size"
                                           Just (String "Never") -> pure (TyAdt "::Never[0]" [])
                                           Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
+                                          Just (String "Lifetime") -> pure TyLifetime
                                           r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON FnSig where

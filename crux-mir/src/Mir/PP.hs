@@ -79,7 +79,7 @@ instance Pretty Ty where
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
     pretty (TyProjection defId tys) = text "projection" <+> brackets (pr_id defId <> pr_args tys)
-
+    pretty TyLifetime = text "lifetime"
 
 instance Pretty Adt where
    pretty (Adt nm vs) = text "struct" <+> pretty nm <> tupled (map pretty vs)
