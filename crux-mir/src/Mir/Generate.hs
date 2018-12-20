@@ -47,22 +47,20 @@ import Mir.Trans(transCollection)
 
 import Debug.Trace
 
+-- Representation of a rust module as a Crucible CFG
 data RustModule = RustModule {
     rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
 }
 
 
--- TODO: make this an argument of generateMIR
-debug :: Bool
-debug = False
-
 -- | Run mir-json on the input, generating lib file on disk 
 -- This function uses 'failIO' if any error occurs
 generateMIR :: HasCallStack =>
-               FilePath          -- ^ location of input file
+               Int               -- ^ debug level
+            -> FilePath          -- ^ location of input file
             -> String            -- ^ file to processes, without extension
             -> IO Collection
-generateMIR dir name = do
+generateMIR debug dir name  = do
   
   let rustFile = dir </> name <.> "rs"
   let mirFile  = dir </> name <.> "mir"
@@ -98,7 +96,7 @@ generateMIR dir name = do
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> do
-        when debug $ do
+        when (debug > 3) $ do
           traceM "--------------------------------------------------------------"
           traceM $ "Collection: " ++ name
           traceM $ show col
@@ -106,12 +104,12 @@ generateMIR dir name = do
         return col
 
 -- | Translate MIR to Crucible
-translateMIR :: Collection -> RustModule
-translateMIR col = RustModule cfgmap where
+translateMIR :: Collection -> Int -> RustModule
+translateMIR col debug = RustModule cfgmap where
   passes  = P.passRemoveBoxNullary . (P.passAllocateEnum col)
-  cfgmap  = mirToCFG col (Just passes)
+  cfgmap  = mirToCFG col debug (Just passes)
 
-mirToCFG :: Collection ->  Maybe ([Fn] -> [Fn]) -> M.Map T.Text (C.AnyCFG MIR)
-mirToCFG col Nothing = mirToCFG col (Just P.passId)
-mirToCFG col (Just pass) =
-    runST $ C.withHandleAllocator $ transCollection $ col &functions %~ pass
+mirToCFG :: Collection -> Int -> Maybe ([Fn] -> [Fn]) -> M.Map T.Text (C.AnyCFG MIR)
+mirToCFG col debug Nothing = mirToCFG col debug (Just P.passId)
+mirToCFG col debug (Just pass) =
+    runST $ C.withHandleAllocator $ (transCollection (col &functions %~ pass) debug)

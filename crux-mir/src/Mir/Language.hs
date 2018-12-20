@@ -102,13 +102,14 @@ simulateMIR execFeatures (cruxOpts, _mirOpts) sym p = do
   let filename      = Crux.inputFile cruxOpts
   let (dir,nameExt) = splitFileName filename
   let (name,_ext)   = splitExtension nameExt
-
-  when (Crux.simVerbose cruxOpts > 2) $
+  let debugLevel    = Crux.simVerbose cruxOpts
+  
+  when (debugLevel > 2) $
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
 
-  col1 <- generateMIR dir name
+  col1 <- generateMIR debugLevel dir name
 
-  prims <- liftIO $ loadPrims
+  prims <- liftIO $ (loadPrims debugLevel)
   let col = prims <> col1
 
   when (Crux.simVerbose cruxOpts > 2) $ do
@@ -119,7 +120,7 @@ simulateMIR execFeatures (cruxOpts, _mirOpts) sym p = do
                    Just fn -> return (fn^.freturn_ty)
                    Nothing  -> fail "cannot find f"
 
-  let mir = translateMIR col
+  let mir = translateMIR col debugLevel
 
   let cfgmap = rmCFGs mir
 
@@ -135,7 +136,7 @@ simulateMIR execFeatures (cruxOpts, _mirOpts) sym p = do
                         Just c -> return c
                         _      -> fail $ "Could not find cfg: " ++ "g"
 
-  when (Crux.simVerbose cruxOpts > 2) $ do
+  when (debugLevel > 2) $ do
     say "Crux" "f CFG"
     print $ C.ppCFG True f_cfg
     say "Crux" "ARG CFG"

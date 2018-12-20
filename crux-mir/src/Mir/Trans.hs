@@ -2003,10 +2003,11 @@ buildLabel (M.BasicBlock bi _) = do
     lab <- G.newLabel
     return (bi, lab)
 
+-- | Build the initial state for translation
 initFnState :: FnState s
-            -> [(Text.Text, M.Ty)]
-            -> CT.CtxRepr args 
-            -> Ctx.Assignment (R.Atom s) args
+            -> [(Text.Text, M.Ty)]                 -- ^ names and MIR types of args
+            -> CT.CtxRepr args                     -- ^ crucible types of args
+            -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args
             -> FnState s
 initFnState fnState vars argsrepr args = fnState { _varMap = (go (reverse vars) argsrepr args Map.empty) }
     where go :: [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
@@ -2032,13 +2033,37 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
         G.defineBlock lab (translateBlockBody tr bbdata)
       _ -> fail "bad label"
 
+-- Predicates that we know something about and that we can turn into
+-- additional vtable arguments for this function
+argPred :: [TraitName] -> Predicate -> Maybe (TraitName, [Ty])
+argPred traits (Predicate name subst) | name `elem` traits, not (null subst)  = Just (name,subst)
+argPred traits _ = Nothing
+
+argPredType :: (TraitName, [Ty]) -> MirGenerator h s ret (Some CT.TypeRepr)
+argPredType (tn, ty:tys) = 
+  tyToReprCont ty $ \implTy -> 
+  tyListToCtx tys $ \subst -> do
+     TraitMap tm <- use traitMap
+     case Map.lookup tn tm of
+        Just (Some (TraitImpls repr _idx _vtab)) -> do
+           let preinst = (implementCtxRepr implTy repr)
+           return $ (Some (CT.StructRepr (CT.instantiate subst preinst)))
+        Nothing -> fail "impossible: we checked tn's in the domain"
+
 -- | Translate a MIR function, returning a jump expression to its entry block
 -- argvars are registers
 -- The first block in the list is the entrance block
 genFn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
-genFn (M.Fn fname argvars _fretty body _gens _preds) rettype = do
-  traceM $ "generating code for: " ++ show fname ++ " with args of type " ++ show (map pretty (map M.typeOf argvars))
-  traceM $ "body is " ++ show (pretty body)
+genFn (M.Fn fname argvars _fretty body _gens preds) rettype = do
+  TraitMap tm <- use traitMap
+  let argPreds = Maybe.mapMaybe (argPred $ Map.keys tm) preds
+  argPredTypes <- mapM argPredType argPreds
+  traceM $ "--------------------------------------------------------------------------------------------------------"
+  traceM $ "Generating code for: " ++ show fname ++ " with args of type: " ++ show (map pretty (map M.typeOf argvars))
+  traceM $ "ArgPreds are: " ++ show (map pretty argPreds)
+  traceM $ "ArgPred types: " ++ show argPredTypes
+  traceM $ "Body is:\n" ++ show (pretty body)
+  traceM $ "--------------------------------------------------------------------------------------------------------"
   lm <- buildLabelMap body
   labelMap .= lm
   vm' <- buildIdentMapRegs body argvars
@@ -2084,8 +2109,12 @@ mkHandleMap halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
 
 
 -- | transCollection: translate all functions
-transCollection :: HasCallStack => M.Collection -> FH.HandleAllocator s -> ST s (Map Text (Core.AnyCFG MIR))
-transCollection col halloc = do
+transCollection :: HasCallStack
+      => M.Collection
+      -> Int  
+      -> FH.HandleAllocator s
+      -> ST s (Map Text (Core.AnyCFG MIR))
+transCollection col debug halloc = do
     let cstyleAdts = List.map _adtname (List.filter isCStyle (col^.M.adts))
     let col1 = markCStyle cstyleAdts col 
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
@@ -2095,7 +2124,7 @@ transCollection col halloc = do
 
     let fnState :: (forall s. FnState s)
         fnState = case gtm of
-                     GenericTraitMap tm -> FnState Map.empty Map.empty hmap am (TraitMap tm) stm
+                     GenericTraitMap tm -> FnState Map.empty Map.empty hmap am (TraitMap tm) stm debug
     pairs <- mapM (transDefine fnState) (col1^.M.functions)
     return $ Map.fromList (pairs ++ morePairs)
 

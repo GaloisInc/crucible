@@ -454,7 +454,8 @@ data FnState (s :: Type)
               _handleMap :: !HandleMap,
               _adtMap    :: !AdtMap,
               _traitMap  :: !(TraitMap s),
-              _staticTraitMap :: !StaticTraitMap
+              _staticTraitMap :: !StaticTraitMap,
+              _debugLevel :: !Int
             }
 
 

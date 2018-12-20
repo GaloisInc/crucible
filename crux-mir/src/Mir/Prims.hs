@@ -29,17 +29,15 @@ import Text.PrettyPrint.ANSI.Leijen (pretty)
 import qualified Debug.Trace as Debug
 import Control.Monad(when)
 
-debug :: Bool
-debug = False
 
 -- | Location of the rust file with the standard library
 libLoc :: String
 libLoc = "mir-lib/src/"
 
 -- | load the rs file containing the standard library
-loadPrims :: IO Collection
-loadPrims = do
-  cols <- mapM (generateMIR libLoc) 
+loadPrims :: Int -> IO Collection
+loadPrims debugLevel = do
+  cols <- mapM (generateMIR debugLevel libLoc) 
     [ -- "result"
 --    ,  "option"
 --    ,  "ops/range"
@@ -49,7 +47,7 @@ loadPrims = do
     ]   
     
   let total = (fold (hardCoded : map relocate cols))
-  when debug $ do
+  when (debugLevel > 5) $ do
     Debug.traceM "--------------------------------------------------------------"
     Debug.traceM $ "Collection: "
     Debug.traceM $ show (pretty total)
@@ -67,13 +65,13 @@ fnOnce :: Trait
 fnOnce = Trait fnOnce_defId [call_once, output] where
 
            fnOnce_defId :: DefId
-           fnOnce_defId = textId $ (stdlib <> "::ops[0]::function[0]::FnOnce[0]")
+           fnOnce_defId = textId $ ("::ops[0]::function[0]::FnOnce[0]")
 
            fnOnce_Output_defId :: DefId
-           fnOnce_Output_defId = textId (stdlib <> "::ops[0]::function[0]::FnOnce[0]::Output[0]")
+           fnOnce_Output_defId = textId ("::ops[0]::function[0]::FnOnce[0]::Output[0]")
 
            fnOnce_call_once_defId :: DefId
-           fnOnce_call_once_defId = textId (stdlib <> "::ops[0]::function[0]::FnOnce[0]::call_once[0]")
+           fnOnce_call_once_defId = textId ("::ops[0]::function[0]::FnOnce[0]::call_once[0]")
 
            call_once :: TraitItem
            call_once = TraitMethod fnOnce_call_once_defId
