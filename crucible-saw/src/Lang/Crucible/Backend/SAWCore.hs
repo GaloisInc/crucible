@@ -898,6 +898,10 @@ evaluateExpr sym sc cache = f
           x' <- f x
           SC.scBvSExt sc m n x'
 
+        B.BVPopcount _w _x -> nyi --FIXME
+        B.BVCountLeadingZeros _w _x -> nyi --FIXME
+        B.BVCountTrailingZeros _w _x -> nyi -- FIXME
+
         B.ArrayMap indexTypes range updates arr ->
           do let m = hashedMap updates
              let maxidx = foldr1 (Ctx.zipWith maxIndexLit) (Map.keys m)

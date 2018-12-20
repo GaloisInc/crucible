@@ -134,6 +134,9 @@ appTheory a0 =
     BVBitAnd{} -> BitvectorTheory
     BVBitOr{}  -> BitvectorTheory
     BVBitXor{} -> BitvectorTheory
+    BVPopcount{} -> BitvectorTheory
+    BVCountLeadingZeros{} -> BitvectorTheory
+    BVCountTrailingZeros{} -> BitvectorTheory
 
     ----------------------------
     -- Bitvector operations

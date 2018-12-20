@@ -553,6 +553,24 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
          -> !(e (BaseBVType w))
          -> App e (BaseBVType r)
 
+  BVPopcount ::
+    (1 <= w) =>
+    !(NatRepr w) ->
+    !(e (BaseBVType w)) ->
+    App e (BaseBVType w)
+
+  BVCountTrailingZeros ::
+    (1 <= w) =>
+    !(NatRepr w) ->
+    !(e (BaseBVType w)) ->
+    App e (BaseBVType w)
+
+  BVCountLeadingZeros ::
+    (1 <= w) =>
+    !(NatRepr w) ->
+    !(e (BaseBVType w)) ->
+    App e (BaseBVType w)
+
   BVBitNot :: (1 <= w)
            => !(NatRepr w)
            -> !(e (BaseBVType w))
@@ -1160,6 +1178,9 @@ appType a =
     BVShl  w _ _  -> BaseBVRepr w
     BVLshr w _ _ -> BaseBVRepr w
     BVAshr w _ _ -> BaseBVRepr w
+    BVPopcount w _ -> BaseBVRepr w
+    BVCountLeadingZeros w _ -> BaseBVRepr w
+    BVCountTrailingZeros w _ -> BaseBVRepr w
     BVZext  w _ -> BaseBVRepr w
     BVSext  w _ -> BaseBVRepr w
     BVBitNot w _ -> BaseBVRepr w
@@ -1483,6 +1504,10 @@ abstractEval bvParams f a0 = do
     BVZext w x   -> BVD.zext (f x) w
     BVSext w x   -> BVD.sext bvParams (bvWidth x) (f x) w
 
+    BVPopcount w _ -> BVD.range w 0 (natValue w)
+    BVCountLeadingZeros w _ -> BVD.range w 0 (natValue w)
+    BVCountTrailingZeros w _ -> BVD.range w 0 (natValue w)
+
     BVBitNot w x   -> BVD.not w (f x)
     BVBitAnd w x y -> BVD.and w (f x) (f y)
     BVBitOr  w x y -> BVD.or  w (f x) (f y)
@@ -1789,6 +1814,10 @@ ppApp' a0 = do
 
     BVZext w x -> prettyApp "bvZext"   [showPrettyArg w, exprPrettyArg x]
     BVSext w x -> prettyApp "bvSext"   [showPrettyArg w, exprPrettyArg x]
+
+    BVPopcount w x -> prettyApp "bvPopcount" [showPrettyArg w, exprPrettyArg x]
+    BVCountLeadingZeros w x -> prettyApp "bvCountLeadingZeros" [showPrettyArg w, exprPrettyArg x]
+    BVCountTrailingZeros w x -> prettyApp "bvCountTrailingZeros" [showPrettyArg w, exprPrettyArg x]
 
     BVBitNot _ x   -> ppSExpr "bvNot" [x]
     BVBitAnd _ x y -> ppSExpr "bvAnd" [x, y]
@@ -3020,6 +3049,10 @@ reduceApp sym a0 = do
     BVAshr _ x y -> bvAshr sym x y
     BVZext  w x  -> bvZext sym w x
     BVSext  w x  -> bvSext sym w x
+    BVPopcount _ x -> bvPopcount sym x
+    BVCountLeadingZeros _ x -> bvCountLeadingZeros sym x
+    BVCountTrailingZeros _ x -> bvCountTrailingZeros sym x
+
     BVBitNot _ x -> bvNotBits sym x
     BVBitAnd _ x y -> bvAndBits sym x y
     BVBitOr  _ x y -> bvOrBits  sym x y
@@ -3768,6 +3801,7 @@ bvSum :: (1 <= w)
       -> IO (SymBV sym w)
 bvSum = undefined
 -}
+
 
 instance IsExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
@@ -4684,6 +4718,21 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   bvUrem = bvBinDivOp1 rem BVUrem
   bvSdiv = bvSignedBinDivOp quot BVSdiv
   bvSrem = bvSignedBinDivOp rem BVSrem
+
+  bvPopcount sym x
+    | Just i <- asUnsignedBV x = bvLit sym w (toInteger (Bits.popCount i))
+    | otherwise = sbMakeExpr sym $ BVPopcount w x
+   where w = bvWidth x
+
+  bvCountTrailingZeros sym x
+    | Just i <- asUnsignedBV x = bvLit sym w (ctz w i)
+    | otherwise = sbMakeExpr sym $ BVCountTrailingZeros w x
+   where w = bvWidth x
+
+  bvCountLeadingZeros sym x
+    | Just i <- asUnsignedBV x = bvLit sym w (clz w i)
+    | otherwise = sbMakeExpr sym $ BVCountLeadingZeros w x
+   where w = bvWidth x
 
   mkStruct sym args = do
     sbMakeExpr sym $ StructCtor (fmapFC exprType args) args

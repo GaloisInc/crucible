@@ -1,13 +1,13 @@
 ------------------------------------------------------------------------
 -- |
 -- Module           : What4.Utils.Arithmetic
--- Description      : Utility functions for execution of LLVM Symbolic
---                    programs.
+-- Description      : Utility functions for computing arithmetic
 -- Copyright        : (c) Galois, Inc 2015
 -- License          : BSD3
 -- Maintainer       : Joe Hendrix <jhendrix@galois.com>
 -- Stability        : provisional
 ------------------------------------------------------------------------
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 module What4.Utils.Arithmetic
   ( -- * Arithmetic utilities
@@ -19,11 +19,15 @@ module What4.Utils.Arithmetic
   , tryIntSqrt
   , tryRationalSqrt
   , roundAway
+  , ctz
+  , clz
   ) where
 
 import Control.Exception (assert)
 import Data.Bits (Bits(..))
 import Data.Ratio
+
+import Data.Parameterized.NatRepr
 
 -- | Returns true if number is a power of two.
 isPow2 :: (Bits a, Num a) => a -> Bool
@@ -41,6 +45,23 @@ lgCeil :: (Bits a, Num a, Ord a) => a -> Int
 lgCeil 1 = 0
 lgCeil i | i > 1 = 1 + lg (i-1)
          | otherwise = error "lgCeil given number that is not positive."
+
+-- | Count trailing zeros
+ctz :: NatRepr w -> Integer -> Integer
+ctz w x = go 0
+ where
+ go !i
+   | i < natValue w && testBit x (fromInteger i) == False = go (i+1)
+   | otherwise = i
+
+-- | Count leading zeros
+clz :: NatRepr w -> Integer -> Integer
+clz w x = go 0
+ where
+ go !i
+   | i < natValue w && testBit x (fromInteger (natValue w - i - 1)) == False = go (i+1)
+   | otherwise = i
+
 
 -- | @nextMultiple x y@ computes the next multiple m of x s.t. m >= y.  E.g.,
 -- nextMultiple 4 8 = 8 since 8 is a multiple of 8; nextMultiple 4 7 = 8;
