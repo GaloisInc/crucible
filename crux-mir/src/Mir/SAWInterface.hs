@@ -78,10 +78,10 @@ extractMIR proxy sc rm n = do
 
 loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
 loadMIR _sc fp = do
-    let debugLevel = 0
+    let debugLvl = 0
     f <- B.readFile fp
     let c = (J.eitherDecode f) :: Either String Collection
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
-      Right col -> return $ translateMIR col debugLevel
+      Right col -> return $ translateMIR col debugLvl
       

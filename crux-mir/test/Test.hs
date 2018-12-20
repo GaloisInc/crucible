@@ -37,7 +37,9 @@ import qualified Mir.Language as Mir (main)
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
-
+-- Don't show any debug output when testing (SAWInterface)
+debugLevel :: Int
+debugLevel = 0
 
 cruxOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
 cruxOracleTest dir name step = do
@@ -72,10 +74,10 @@ sawOracleTest dir name step = do
   step ("Oracle output: " ++ (dropWhileEnd isSpace oracleOut))
 
   step "Generating MIR JSON"
-  collection <- generateMIR dir name 
+  collection <- generateMIR debugLevel dir name 
 
   step "Tranlating MIR to Crucible"
-  let mir = translateMIR collection
+  let mir = translateMIR collection debugLevel
   
   step "Extracting function f"
   f <- extractMIR proxy sc mir "f"
