@@ -67,7 +67,8 @@ import qualified Mir.DefId as M
 import Mir.Intrinsics
 
 import Mir.PP()
-import Text.PrettyPrint.ANSI.Leijen(Pretty(..),text,vcat)
+import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import GHC.Stack
 
@@ -1003,7 +1004,8 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
       (MirSliceRepr elt_tp, CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)) ->
            let mir_ty = M.typeOf i in
            case mir_ty of
-             M.TyAdt did (Substs [TyUint USize]) | did == M.textId "core/ae3efe0::ops[0]::range[0]::RangeFrom[0]" -> do
+             M.TyAdt did (Substs [TyUint USize]) |
+               did == M.textId "::ops[0]::range[0]::RangeFrom[0]" -> do
                -- get the start of the range
                let astart = (S.getStruct Ctx.i2of2 ind)
                let indty  = CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr)
@@ -1357,47 +1359,47 @@ lookupFunction nm (Substs funsubst) = do
   (TraitMap tm) <- use traitMap
   stm  <- use staticTraitMap
 
-  tyListToCtx (reverse funsubst) $ \tyargs -> do
+  let mkFunExp :: FH.FnHandle a r -> MirExp s
+      mkFunExp fhandle = tyListToCtx (reverse funsubst) $ \tyargs ->
+        let fargctx  = FH.handleArgTypes fhandle
+            fret     = FH.handleReturnType fhandle
+            ifargctx = CT.instantiate tyargs fargctx
+            ifret    = CT.instantiate tyargs fret
+            polyfcn  = R.App $ E.PolyHandleLit fhandle
+            polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr fargctx fret) polyfcn tyargs
+        in
+          (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
 
-    let mkFunExp :: FH.FnHandle a r -> MirExp s
-        mkFunExp fhandle = 
-          let fargctx  = FH.handleArgTypes fhandle
-              fret     = FH.handleReturnType fhandle
-              ifargctx = CT.instantiate tyargs fargctx
-              ifret    = CT.instantiate tyargs fret
-              polyfcn  = R.App $ E.PolyHandleLit fhandle
-              polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr fargctx fret) polyfcn tyargs
-          in
-            (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
+  let getTraitValue :: Ty -> (Some (TraitImpls s)) -> Maybe (MirExp s)
+      getTraitValue ty (Some (TraitImpls repr mi vtab)) =
+         case (Map.lookup ty vtab, Map.lookup nm mi) of
+           (Just asgn, Just (Some idx)) -> case asgn Ctx.! idx of
+              MirValue _ tye e -> Just $ MirExp tye e 
+           (_,_) -> Nothing
 
-    let getTraitValue :: Ty -> (Some (TraitImpls s)) -> Maybe (MirExp s)
-        getTraitValue ty (Some (TraitImpls repr mi vtab)) =
-           case (Map.lookup ty vtab, Map.lookup nm mi) of
-             (Just asgn, Just (Some idx)) -> case asgn Ctx.! idx of
-                MirValue _ tye e -> Just $ MirExp tye e 
-             (_,_) -> Nothing
+  case () of
 
-    case () of
+    () | Just (MirHandle _ _ fh) <- Map.lookup nm hmap -> return $ Just $ mkFunExp fh
+       | Just (MirHandle _ _ fh) <- Map.lookup (M.relocateDefId nm) hmap -> return $ Just $ mkFunExp fh
 
-      () | Just (MirHandle _ _ fh) <- Map.lookup nm hmap -> return $ Just $ mkFunExp fh
-         | Just (MirHandle _ _ fh) <- Map.lookup (M.relocateDefId nm) hmap -> return $ Just $ mkFunExp fh
-
-         -- try to resolve trait statically, using the first type argument
-         | Just (ty,_) <- uncons funsubst,
-           tyargs' Ctx.:> _tyr <- tyargs,
-           Just traits <- Map.lookup nm stm,
-           Just (MirExp fty polyfcn) <- first (getTraitValue ty) (Maybe.mapMaybe (\tn -> Map.lookup tn tm) traits)
-           -> case fty of
-                CT.PolyFnRepr fargctx fret -> do
-                  let 
-                      ifargctx = CT.instantiate tyargs' fargctx
-                      ifret    = CT.instantiate tyargs' fret
-                      polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs'
-                  return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
-                _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type " ++ show (pretty ty) ++ " in the trait map: " ++ show fty
-         | otherwise -> do
-              traceM $ "Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
-              return Nothing
+       -- try to resolve trait statically, using the first type argument
+       | Just (ty,_) <- uncons funsubst,
+         Just traits <- Map.lookup nm stm,
+         Just (MirExp fty polyfcn)
+           <- first (getTraitValue ty) (Maybe.mapMaybe (\tn -> Map.lookup tn tm) traits)
+         -> tyListToCtx (reverse funsubst) $ \tyargs ->
+           case (fty, tyargs) of
+              (CT.PolyFnRepr fargctx fret, tyargs' Ctx.:> _tyr) -> do
+                let 
+                    ifargctx = CT.instantiate tyargs' fargctx
+                    ifret    = CT.instantiate tyargs' fret
+                    polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs'
+                return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
+              _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
+                          ++ show (pretty ty) ++ " in the trait map: " ++ show fty
+       | otherwise -> do
+            traceM $ "Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
+            return Nothing
 
 {-
 -- If you can't find the handle with its original name
@@ -1571,19 +1573,22 @@ doCall :: forall h s ret a. (HasCallStack) => M.DefId -> Substs -> [M.Operand]
 doCall funid funsubst cargs cdest retRepr = do
     _hmap <- use handleMap
     _tmap <- use traitMap
+    db    <- use debugLevel
     mhand <- lookupFunction funid funsubst
     case cdest of 
       (Just (dest_lv, jdest))
 
-         | Just _fname <- M.isCustomFunc funid -> do
-            traceM $ show (vcat [text "At custom function call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubst])
+         | Just _fname <- isCustomFunc funid -> do
+            when (db > 2) $
+              traceM $ show (PP.fillSep [PP.text "At custom function call of", pretty funid, PP.text "with arguments", pretty cargs, 
+                   PP.text "and type parameters:", pretty funsubst])
 
             doCustomCall funid funsubst cargs dest_lv jdest
 
         | Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst) <- mhand -> do
-            traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubst])
+            when (db > 2) $
+               traceM $ show (PP.fillSep [PP.text "At normal function call of", pretty funid, PP.text "with arguments", pretty cargs, 
+                   PP.text "and type parameters:", pretty funsubst])
 
             exps <- mapM evalOperand cargs
             exp_to_assgn exps $ \ctx asgn -> do
@@ -1624,7 +1629,7 @@ doCall funid funsubst cargs cdest retRepr = do
 
       Nothing
          -- special case for exit function that does not return
-         | Just "exit" <- M.isCustomFunc funid, [o] <- cargs -> do
+         | Just "exit" <- isCustomFunc funid, [o] <- cargs -> do
                _exp <- evalOperand o
                G.reportError (S.app $ E.TextLit "Program terminated with exit:")
 
@@ -1732,10 +1737,13 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) tr = do
              
     case (funsubsts, cargs) of
-      (Substs (M.TyDynamic traitName : _), tobj:_args) | Nothing  <- M.isCustomFunc funid -> do
+      (Substs (M.TyDynamic traitName : _), tobj:_args) |
+       Nothing  <- isCustomFunc funid -> do
         -- this is a method call on a trait object, and is not a custom function
-        traceM $ show (vcat [text "At TRAIT function call of ", pretty funid, text " with arguments ", pretty cargs, 
-                   text "with type parameters: ", pretty funsubsts])
+        db <- use debugLevel
+        when (db > 2) $
+           traceM $ show (PP.sep [PP.text "At TRAIT function call of ", pretty funid, PP.text " with arguments ", pretty cargs, 
+                   PP.text "with type parameters: ", pretty funsubsts])
 
         methodCall traitName funid funsubsts tobj cargs cretdest
 
@@ -1842,10 +1850,12 @@ initialValue _ = return Nothing
 tyToInitReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
 tyToInitReg nm t = do
    mv  <- initialValue t
+   db  <- use debugLevel
    case mv of 
       Just (MirExp _tp exp) -> Some <$> G.newReg exp
       Nothing -> do
-        traceM $ "tyToInitReg: Cannot initialize register of type " ++ show (pretty t)
+        when (db > 2) $ do
+           traceM $ "tyToInitReg: Cannot initialize register of type " ++ show (pretty t)
         tyToFreshReg nm t
 
 tyToFreshReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
@@ -1887,72 +1897,6 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  g _ = mempty
 
 
-{-
-assignedVar :: Statement -> [Var]
-assignedVar (M.Assign (Local v) _ _) = [v]
-assignedVar _ = []
-
--- | Some local variables need to be initialized 
--- because they are referenced before they are assigned to
-needsInit :: M.BasicBlock -> Set Text.Text
-needsInit bb = Set.foldr addName Set.empty lvs where
-
-  addName (Local v) s = Set.insert (_varname v) s
-  addName (Tagged lv _) s = addName lv s
-  addName (LProjection (LvalueProjection lv _)) s = addName lv s
-  addName _ s = s
-
-  lvs = go Set.empty Set.empty (M._bbstmts (M._bbdata bb)) 
-
-  addRef :: Set Lvalue -> Lvalue -> Set Lvalue -> Set Lvalue
-  addRef assigned name referenced  = if name `Set.member` assigned then referenced else Set.insert name referenced
-
-  lhsRef :: Lvalue -> [ Lvalue ]
-  lhsRef (LProjection (LvalueProjection base _kind)) = [base] ++ lhsRef base
-  lhsRef (Tagged lv _) = lhsRef lv
-  lhsRef _ = []
-
-  go :: Set Lvalue -> Set Lvalue -> [Statement] -> Set Lvalue
-  go referenced assigned [] = goTerm referenced assigned (M._bbterminator (M._bbdata bb))
-  go referenced assigned (M.Assign lhs rhs _ : rest)      = 
-        let refs = foldr (addRef assigned) referenced (lhsRef lhs) in
-        go (Set.delete lhs refs) (Set.insert lhs assigned) rest
-  go referenced assigned (M.SetDiscriminant lv _i : rest) = 
-        go (addRef assigned lv referenced) assigned rest
-  go referenced assigned (M.StorageLive v : rest) = go (Set.delete (Local v) referenced)
-                                                       (Set.insert (Local v) assigned) rest
-  go referenced assigned (M.StorageDead v : rest) = go referenced -- (addRef assigned (Local v) referenced)
-                                                       assigned rest
-  go referenced assigned (M.Nop : rest) = go referenced assigned rest
-
-  goTerm :: Set Lvalue -> Set Lvalue -> Terminator -> Set Lvalue
-  goTerm referenced _assigned (M.SwitchInt _op _ty _vals _args) = referenced
-  goTerm referenced assigned M.Return = addRef assigned (Local (Var "_0" Immut TyBool "" "")) referenced
-  goTerm referenced _assigned (M.DropAndReplace _dlv _dop _dtar _) = referenced
-  goTerm referenced _assigned (M.Call _ _ _ _) = referenced
-  goTerm referenced _assigned (M.Assert _ _ _ _ _) = referenced
-  goTerm referenced _assigned (M.Drop _ _ _) = referenced
-  goTerm referenced _assigned _ = referenced
-
-  getUses :: Rvalue -> [Lvalue]
-  getUses (Use op) = getUsesOp op
-  getUses (Repeat rop _) = getUsesOp rop
-  getUses (Ref _ lv _) = [lv]
-  getUses (Len lv) = [lv]
-  getUses (Cast _ op _) = getUsesOp op
-  getUses (BinaryOp _ b1 b2) = getUsesOp b1 ++ getUsesOp b2
-  getUses (CheckedBinaryOp _ b1 b2) = getUsesOp b1 ++ getUsesOp b2
-  getUses (UnaryOp _ op) = getUsesOp op
-  getUses (Discriminant lv) = [lv]
-  getUses (Aggregate _ ops) = concat (map getUsesOp ops)
-  getUses (RAdtAg (AdtAg _ _ ops)) = concat (map getUsesOp ops)
-  getUses _ = []
-
-  getUsesOp :: Operand -> [Lvalue]
-  getUsesOp (Copy lv) = [lv]
-  getUsesOp (Move lv) = [lv]
-  getUsesOp _ = []
--}
 
 buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirGenerator h s ret (VarMap s)
 buildIdentMapRegs (M.MirBody vars blocks) _argvars =
@@ -2435,7 +2379,40 @@ thisTraitImpls (M.Trait trait _) trs = do
 
 
 --------------------------------------------------------------------------------------------------------------------------
---- Custom stuff
+-- **  Custom stuff
+
+-- Function names that are handled  by doCustomCall below
+isCustomFunc :: M.DefId -> Maybe Text
+isCustomFunc defid = case (map fst (M.did_path defid), fst (M.did_name defid), map fst (M.did_extra defid)) of
+     
+   (["ops", "index"], "Index",    ["index"])     -> Just "index"
+   (["ops", "index"], "IndexMut", ["index_mut"]) -> Just "index_mut"
+
+   (["ops","function"], "Fn",     ["call"])      -> Just "call"
+   (["ops","function"], "FnOnce", ["call_once"]) -> Just "call"
+
+   (["process"], "exit", []) -> Just "exit"
+
+   (["vec", "{{impl}}"], "vec_asmutslice",[])    -> Just "vec_asmutslice"
+   (["vec"],             "from_elem",     [])    -> Just "vec_fromelem"
+
+   (["boxed","{{impl}}"], "new", [])             -> Just "new"
+
+   (["slice","{{impl}}"], "slice_tovec", [])      -> Just "slice_tovec"
+   (["slice","{{impl}}"], "len", [])              -> Just "slice_len"
+   (["slice","{{impl}}"], "get_unchecked", [])    -> Just "slice_get_unchecked"
+   (["slice","{{impl}}"], "get_unchecked_mut",[]) -> Just "slice_get_unchecked_mut"
+
+   (["iter","traits"], "IntoIterator", ["into_iter"]) -> Just "into_iter"
+   (["iter","iterator"],"Iterator", ["next"])         -> Just "iter_next"
+   (["iter","iterator"],"Iterator", ["map"])          -> Just "iter_map"
+   (["iter","iterator"],"Iterator", ["collect"])      -> Just "iter_collect"
+
+   _ -> Nothing
+
+
+
+
 --
 -- Generate a loop that copies a vector 
 vectorCopy :: CT.TypeRepr elt ->
@@ -2473,7 +2450,7 @@ customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USiz
       -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
 -- Implement C-style enums as single integers
 customtyToRepr (CEnum _adt) = Some CT.IntegerRepr
-customtyToRepr ty = error ("FIXME: unimplement custom type: " ++ show (pretty ty))
+customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ show (pretty ty))
 
 mkNone :: MirExp s
 mkNone =
@@ -2488,84 +2465,110 @@ extractVecTy _ _ = error "Expected vector type in extraction"
 
 doCustomCall :: forall h s ret a. HasCallStack => M.DefId -> Substs -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
 doCustomCall fname funsubst ops lv dest
-  | Just "boxnew" <- M.isCustomFunc fname,
+  | Just "boxnew" <- isCustomFunc fname,
   [op] <- ops =  do
         e <- evalOperand op
         assignLvExp lv e
         jumpToBlock dest
 
-  | Just "slice_tovec" <- M.isCustomFunc fname,
+  | Just "slice_tovec" <- isCustomFunc fname,
   [op] <- ops = do
         e <- evalOperand op
         assignLvExp lv e
         jumpToBlock dest
 
-  | Just "vec_asmutslice" <- M.isCustomFunc fname,
+  | Just "vec_asmutslice" <- isCustomFunc fname,
   [op] <- ops = do
         ans <- evalOperand op
         assignLvExp lv ans
         jumpToBlock dest
 
- | Just "index" <- M.isCustomFunc fname,
+ | Just "index" <- isCustomFunc fname,
     [op1, op2] <- ops = do
         let v2 = M.varOfLvalue (M.lValueofOp op2)
         ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
         assignLvExp lv ans
         jumpToBlock dest
 
- | Just "index_mut" <- M.isCustomFunc fname,
+ | Just "index_mut" <- isCustomFunc fname,
     [op1, op2] <- ops = do
         let v2 = M.varOfLvalue (M.lValueofOp op2)
         ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
         assignLvExp lv ans
         jumpToBlock dest
 
-
-
- | Just "vec_fromelem" <- M.isCustomFunc fname,
+ | Just "vec_fromelem" <- isCustomFunc fname,
     [elem, u] <- ops = do
         ans <- buildRepeat_ elem u
         assignLvExp lv ans
         jumpToBlock dest
 
- | Just "into_iter" <- M.isCustomFunc fname, -- vec -> (vec, 0)
-    [v] <- ops = do
-        vec <- evalOperand v
-        let t = buildTuple [vec, MirExp (CT.NatRepr) (S.app $ E.NatLit 0)]
+ | Just "into_iter" <- isCustomFunc fname, 
+    [v] <- ops,
+    Substs [ty] <- funsubst = do
+    arg <- evalOperand v
+    case ty of
+     TyAdt defid (Substs [itemTy]) | defid == M.textId "::ops[0]::range[0]::Range[0]" -> do
+     -- an identity function 
+        assignLvExp lv arg
+        jumpToBlock dest
+     _ -> do
+     -- default case: create a vec iterator
+     -- vec -> (vec, 0)    
+        let t = buildTuple [arg, MirExp (CT.NatRepr) (S.app $ E.NatLit 0)]
         assignLvExp lv t
         jumpToBlock dest
 
- | Just "iter_next" <- M.isCustomFunc fname, [o] <- ops = do
-     iter <- evalOperand o -- iter = struct (vec, pos of nat). if pos < size of vec, return (Some(vec[pos]), (vec, pos+1)). otherwise return (None, (vec, pos))
-     (MirExp (CT.VectorRepr elemty) iter_vec) <- accessAggregate iter 0
-     (MirExp CT.NatRepr iter_pos) <- accessAggregate iter 1
-     let is_good = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
-         good_ret_1 = mkSome $ MirExp elemty $ S.app $ E.VectorGetEntry elemty iter_vec iter_pos
-         good_ret_2 = buildTuple [MirExp (CT.VectorRepr elemty) iter_vec, MirExp CT.NatRepr (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))]
-         good_ret = buildTuple [good_ret_1, good_ret_2]
-
-         bad_ret_1 = mkNone
-         bad_ret_2 = buildTuple [MirExp (CT.VectorRepr elemty) iter_vec, MirExp CT.NatRepr iter_pos]
-         bad_ret = buildTuple [bad_ret_1, bad_ret_2]
-
-     ifteAny is_good
+ | Just "iter_next" <- isCustomFunc fname,
+     [o] <- ops,
+     Substs [ty] <- funsubst = do
+     iter <- evalOperand o 
+     case (ty, iter) of
+       (TyAdt defid (Substs [_]),
+        MirExp (MirReferenceRepr tr) ii) | defid == M.textId "::ops[0]::range[0]::Range[0]" -> do
+         -- iterator is a struct of a "start" and "end" value of type 'itemTy'
+         -- to increment the iterator, make sure the start < end and then         
+         r <- readMirRef tr ii
+         (MirExp CT.NatRepr start) <- accessAggregate (MirExp tr r) 0
+         (MirExp CT.NatRepr end)   <- accessAggregate (MirExp tr r) 0
+         let good_ret = mkSome (MirExp CT.NatRepr (start S..+ (S.litExpr 1)))
+         let bad_ret  = mkNone
+         ifteAny (start S..< end)
              (assignLvExp lv good_ret >> jumpToBlock' dest)
              (assignLvExp lv bad_ret >> jumpToBlock' dest)
 
- | Just "iter_map" <- M.isCustomFunc fname, [iter, closure] <- ops = do
+       _ -> do
+         -- iter = struct (vec, pos of nat).
+         -- if pos < size of vec, return (Some(vec[pos]), (vec, pos+1)).
+         -- otherwise return (None, (vec, pos))
+         (MirExp (CT.VectorRepr elemty) iter_vec) <- accessAggregate iter 0
+         (MirExp CT.NatRepr iter_pos) <- accessAggregate iter 1
+         let is_good = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
+             good_ret_1 = mkSome $ MirExp elemty $ S.app $ E.VectorGetEntry elemty iter_vec iter_pos
+             good_ret_2 = buildTuple [MirExp (CT.VectorRepr elemty) iter_vec, MirExp CT.NatRepr (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))]
+             good_ret = buildTuple [good_ret_1, good_ret_2]
+
+             bad_ret_1 = mkNone
+             bad_ret_2 = buildTuple [MirExp (CT.VectorRepr elemty) iter_vec, MirExp CT.NatRepr iter_pos]
+             bad_ret = buildTuple [bad_ret_1, bad_ret_2]
+
+         ifteAny is_good
+                 (assignLvExp lv good_ret >> jumpToBlock' dest)
+                 (assignLvExp lv bad_ret >> jumpToBlock' dest)
+ | Just "iter_map" <- isCustomFunc fname, [iter, closure] <- ops = do
      iter_e <- evalOperand iter
      closure_e <- evalOperand closure
      iter2 <- performMap (M.typeOf iter) iter_e (M.typeOf closure) closure_e
      assignLvExp lv iter2
      jumpToBlock dest
 
- | Just "iter_collect" <- M.isCustomFunc fname, [o] <- ops = do
+ | Just "iter_collect" <- isCustomFunc fname, [o] <- ops = do
      iter <- evalOperand o
      v <- accessAggregate iter 0
      assignLvExp lv v
      jumpToBlock dest
 
- | Just "slice_len" <-  M.isCustomFunc fname, [vec] <- ops, Substs [_] <- funsubst = do
+ | Just "slice_len" <-  isCustomFunc fname, [vec] <- ops, Substs [_] <- funsubst = do
      -- type of the structure is &mut[ elTy ]
      (MirExp vty vec_e) <- evalOperand vec
      case vty of
@@ -2575,7 +2578,7 @@ doCustomCall fname funsubst ops lv dest
            jumpToBlock dest
        _ -> fail $ " slice_len type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
- | Just "slice_get" <-  M.isCustomFunc fname,
+ | Just "slice_get" <-  isCustomFunc fname,
    [vec,range] <- ops,
    Substs [ty1, ty2] <- funsubst = do
      vec_e <- evalOperand vec
@@ -2584,7 +2587,7 @@ doCustomCall fname funsubst ops lv dest
      assignLvExp lv v
      jumpToBlock dest
 
- | Just "slice_get_mut" <-  M.isCustomFunc fname,
+ | Just "slice_get_mut" <-  isCustomFunc fname,
    [vec, range] <- ops,
    Substs [elTy, idxTy] <- funsubst = do
 
@@ -2601,15 +2604,9 @@ doCustomCall fname funsubst ops lv dest
        _ -> fail $ " slice_get_mut type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
 
- | Just "call" <- M.isCustomFunc fname, -- perform call of closure
- [o1, o2] <- ops, Substs [ty1, aty] <- funsubst   = do
-
-     -- is it the case that ty1 is always the same as M.typeOf o1???
-     when (ty1 /= M.typeOf o1) $ do
-          traceM $ "ty1 and o1 differ: " ++ show (pretty ty1) ++ " " ++ show (pretty (M.typeOf o1))
-
-     argtuple <- evalOperand o2
-
+ | Just "call" <- isCustomFunc fname, -- perform function call with a closure
+   [o1, o2] <- ops,
+   Substs [_ty1, aty] <- funsubst = do
 
      let unpackClosure :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
  
@@ -2620,21 +2617,13 @@ doCustomCall fname funsubst ops lv dest
              unpackAny clty arg
               
          unpackClosure (M.TyParam _i)       rty  arg   = fail "cannot unpack type parameter"
+
+         unpackClosure (M.TyDynamic _id)    rty  arg   = do
              -- a Fn object looks like a pair of
              -- a function that takes any "Any" arguments (the closure) and a struct
              --      of the actual arguments (from the funsubst) and returns type rty
              -- and an environment of type "Any
-             -- TODO: check multiarguments and make this bit more robust
-             {-
-             tyToReprCont rty $ \rr ->
-               tyToReprCont aty $ \(CT.StructRepr r2) ->  do
-                 let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
-                 let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
-                 unpackAny (Some (CT.StructRepr t)) arg
-              -}
 
-         -- this case is the same as the above
-         unpackClosure (M.TyDynamic _id)    rty  arg   = do
              tyToReprCont rty $ \rr ->
                case aty of
                   (TyTuple aas) -> tyListToCtx aas $ \r2 -> do
@@ -2646,30 +2635,26 @@ doCustomCall fname funsubst ops lv dest
          unpackClosure ty _ _arg      =
            fail $ "Don't know how to unpack Fn::call arg of type " ++ show (pretty ty)
 
+     closure_pack <- evalOperand o1
+     unpack_closure <- unpackClosure (M.typeOf o1) (M.typeOf lv) closure_pack
+     handle <- accessAggregate unpack_closure 0
+     argtuple <- evalOperand o2
+     extra_args <- getAllFieldsMaybe argtuple
+     case handle of
+       MirExp hand_ty handl ->
+           case hand_ty of
+             CT.FunctionHandleRepr fargctx fretrepr -> do
+                exp_to_assgn (closure_pack : extra_args) $ \ctx asgn ->
+                   case (testEquality ctx fargctx) of
+                     Just Refl -> do
+                       ret_e <- G.call handl asgn
+                       assignLvExp lv (MirExp fretrepr ret_e)
+                       jumpToBlock dest
+                     Nothing ->
+                       fail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
+             _ -> fail $ "bad handle type"
 
-     case (M.typeOf o2) of
-       (M.TyTuple _args) -> do
-         closure_pack <- evalOperand o1
-         unpack_closure <- unpackClosure (M.typeOf o1) (M.typeOf lv) closure_pack
-         handle <- accessAggregate unpack_closure 0
-         extra_args <- getAllFieldsMaybe argtuple
-         case handle of
-           MirExp hand_ty handl ->
-               case hand_ty of
-                   CT.FunctionHandleRepr fargctx fretrepr -> do
-                    exp_to_assgn (closure_pack : extra_args) $ \ctx asgn ->
-                        case (testEquality ctx fargctx) of
-                          Just Refl -> do
-                            ret_e <- G.call handl asgn
-                            assignLvExp lv (MirExp fretrepr ret_e)
-                            jumpToBlock dest
-                          Nothing ->
-                            fail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
-                   _ -> fail $ "bad handle type"
-
-       _ -> fail $ "unexpected type in Fn::call " ++ show (pretty (M.typeOf o1)) ++ " " ++  show (pretty (M.typeOf o2))
-
- | Just cf <- M.isCustomFunc fname = fail $ "custom function not handled: " ++ (show cf)
+ | Just cf <- isCustomFunc fname = fail $ "custom function not handled: " ++ (show cf)
 
  | otherwise =  fail $ "doCustomCall unhandled: " ++ (show $ fname)
 
@@ -2741,4 +2726,5 @@ performMap iterty iter closurety closure =
 
 ------------------------------------------------------------------------------------------------
 
---  LocalWords:  params
+--  LocalWords:  params IndexMut FnOnce Fn IntoIterator iter impl
+--  LocalWords:  tovec fromelem

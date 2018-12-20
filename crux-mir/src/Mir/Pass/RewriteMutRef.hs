@@ -29,6 +29,7 @@ import Data.List
 
 import Mir.Mir
 import Mir.DefId
+import Mir.Trans
 
 import GHC.Stack
 

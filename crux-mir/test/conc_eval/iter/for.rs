@@ -1,5 +1,5 @@
-fn f (mut x : u32) -> u32 {
-
+fn f (y : u32) -> u32 {
+    let mut x = y;
     for k in 0 .. 10 {
         x = x + k;
     }
