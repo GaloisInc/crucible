@@ -12,6 +12,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE Rank2Types #-}
@@ -40,6 +41,8 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , writeConstMem
   , copyMem
   , setMem
+  , writeArrayMem
+  , writeArrayConstMem
   , pushStackFrameMem
   , popStackFrameMem
   , freeMem
@@ -65,6 +68,8 @@ import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import Data.Parameterized.Classes
+import Data.Parameterized.Ctx (SingleCtx)
+import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some
 
 import What4.Interface
@@ -107,6 +112,9 @@ data WriteSource sym w
     -- | @MemStore val ty al@ writes value @val@ with type @ty@ at the destination.
     --   with alignment at least @al@.
   | MemStore (LLVMVal sym) StorageType Alignment
+    -- | @MemStoreBlock block len@ writes byte-array @block@ of size @len@
+    -- at the destination.
+  | MemArrayStore (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)) (SymBV sym w)
 
 data MemWrite sym
     -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
@@ -460,6 +468,65 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
             evalMuxValueCtor sym w end varFn subFn $
               symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) align'
 
+-- | Read from a memory with an array store to the same block we are reading.
+readMemArrayStore
+  :: forall sym w
+   . (1 <= w, IsSymInterface sym)
+  => sym
+  -> NatRepr w
+  -> EndianForm
+  -> LLVMPtr sym w {- ^ The loaded offset -}
+  -> StorageType {- ^ The type we are reading -}
+  -> SymBV sym w {- ^ The destination of the mem array store -}
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ The stored array -}
+  -> SymBV sym w {- ^ The length of the stored array -}
+  -> (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym))
+  -> IO (PartLLVMVal sym)
+readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size read_prev = do
+  let loadFn :: SymBV sym w -> StorageType -> IO (PartLLVMVal sym)
+      loadFn base tp' = do
+        let loadArrayByteFn :: Offset -> IO (PartLLVMVal sym)
+            loadArrayByteFn off = do
+              blk0 <- natLit sym 0
+              idx <- bvAdd sym base =<< bvLit sym w (bytesToInteger off)
+              byte <- arrayLookup sym arr $ Ctx.singleton idx
+              return $ PE (truePred sym) $ LLVMValInt blk0 byte
+        genValueCtor sym end =<< loadTypedValueFromBytes 0 tp' loadArrayByteFn
+  let varFn = (read_off, write_off, size)
+  case (asUnsignedBV read_off, asUnsignedBV write_off) of
+    -- known read and write offsets
+    (Just lo, Just so) -> do
+      let subFn :: RangeLoad Addr Addr -> IO (PartLLVMVal sym)
+          subFn = \case
+            OutOfRange o tp' -> do
+              o' <- bvLit sym w $ bytesToInteger o
+              read_prev tp' $ LLVMPointer blk o'
+            InRange o tp' -> do
+              o' <- bvLit sym w $ bytesToInteger o
+              loadFn o' tp'
+      case asUnsignedBV size of
+        Just concrete_size -> do
+          let s = R (fromInteger so) (fromInteger (so + concrete_size))
+          let vcr = rangeLoad (fromInteger lo) tp s
+          genValueCtor sym end =<< traverse subFn vcr
+        _ -> evalMuxValueCtor sym w end varFn subFn $
+          fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
+    -- Symbolic offsets
+    _ -> do
+      let subFn :: RangeLoad OffsetExpr IntExpr -> IO (PartLLVMVal sym)
+          subFn = \case
+            OutOfRange o tp' -> do
+              o' <- genOffsetExpr sym w varFn o
+              read_prev tp' $ LLVMPointer blk o'
+            InRange o tp' -> do
+              o' <- genIntExpr sym w varFn o
+              loadFn o' tp'
+      let pref
+            | Just{} <- asUnsignedBV write_off = FixedStore
+            | Just{} <- asUnsignedBV read_off = FixedLoad
+            | otherwise = NeitherFixed
+      evalMuxValueCtor sym w end varFn subFn $ symbolicRangeLoad pref tp
+
 readMem ::
   (1 <= w, IsSymInterface sym) => sym ->
   NatRepr w ->
@@ -552,7 +619,7 @@ readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
                             MemCopy src sz -> readMemCopy sym w end l tp d src sz readPrev
                             MemSet v sz    -> readMemSet sym w end l tp d v sz readPrev
                             MemStore v stp storeAlign -> readMemStore sym w end l tp d v stp alignment storeAlign readPrev
-
+                            MemArrayStore arr sz -> readMemArrayStore sym w end l tp d arr sz readPrev
                     sameBlock <- natEq sym blk1 blk2
                     case asConstantPred sameBlock of
                       Just True -> readCurrent
@@ -742,7 +809,7 @@ isAligned ::
   Alignment ->
   IO (Pred sym)
 isAligned sym _w _p a
-  | a == 0 = return (truePred sym)
+  | a == noAlignment = return (truePred sym)
 isAligned sym w (LLVMPointer _blk offset) a
   | Just (Some bits) <- someNat (alignmentToExponent a)
   , Just LeqProof <- isPosNat bits
@@ -858,6 +925,42 @@ setMem ::
 setMem sym w ptr val sz m =
   do p <- isAllocatedMutable sym w ptr sz m
      return (p, memAddWrite (MemWrite ptr (MemSet val sz)) m)
+
+-- | Write an array to memory. The returned 'Pred' asserts that
+-- the pointer falls within an allocated memory region.
+writeArrayMem
+  :: (IsSymInterface sym, 1 <= w)
+  => sym
+  -> NatRepr w
+  -> LLVMPtr sym w {- ^ Pointer -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -}
+  -> SymBV sym w {- ^ Array size -}
+  -> Mem sym
+  -> IO (Pred sym, Mem sym)
+writeArrayMem sym w ptr alignment arr sz m = do
+  p1 <- isAllocatedMutable sym w ptr sz m
+  p2 <- isAligned sym w ptr alignment
+  p  <- andPred sym p1 p2
+  return (p, memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m)
+
+-- | Write an array to memory. The returned 'Pred' asserts that
+-- the pointer falls within an allocated memory region.
+writeArrayConstMem
+  :: (IsSymInterface sym, 1 <= w)
+  => sym
+  -> NatRepr w
+  -> LLVMPtr sym w {- ^ Pointer -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -}
+  -> SymBV sym w {- ^ Array size -}
+  -> Mem sym
+  -> IO (Pred sym, Mem sym)
+writeArrayConstMem sym w ptr alignment arr sz m = do
+  p1 <- isAllocated sym w ptr sz m
+  p2 <- isAligned sym w ptr alignment
+  p  <- andPred sym p1 p2
+  return (p, memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m)
 
 -- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
@@ -1046,6 +1149,8 @@ ppWrite (MemWrite d (MemSet v l)) = do
   text "memset" <+> ppPtr d <+> printSymExpr v <+> printSymExpr l
 ppWrite (MemWrite d (MemStore v _ _)) = do
   char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
+ppWrite (MemWrite d (MemArrayStore arr _)) = do
+  char '*' <> ppPtr d <+> text ":=" <+> printSymExpr arr
 ppWrite (WriteMerge c x y) = do
   text "merge" <$$> ppMerge ppWrite c x y
 

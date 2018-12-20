@@ -68,6 +68,8 @@ module Lang.Crucible.LLVM.MemModel
   , doFree
   , doLoad
   , doStore
+  , doArrayStore
+  , doArrayConstStore
   , loadString
   , loadMaybeString
   , uncheckedMemcpy
@@ -521,7 +523,7 @@ doMallocHandle sym allocType loc mem x = do
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym PtrWidth 0
 
-  let heap' = G.allocMem allocType (fromInteger blkNum) z 1 G.Immutable loc (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) z noAlignment G.Immutable loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
@@ -594,6 +596,43 @@ doMemset sym w mem dest val len = do
      (AssertFailureSimError "Invalid memory region in memset")
 
   return mem{ memImplHeap = heap' }
+
+-- | Store an array in memory. Also assert that the pointer is
+-- valid and points to a mutable memory region.
+doArrayStore
+  :: (IsSymInterface sym, HasPtrWidth w)
+  => sym
+  -> MemImpl sym
+  -> LLVMPtr sym w {- ^ destination  -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
+  -> SymBV sym w {- ^ array length -}
+  -> IO (MemImpl sym)
+doArrayStore sym mem ptr alignment arr len = do
+  (p, heap') <-
+    G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
+  assert sym p $ AssertFailureSimError $
+    "Invalid memory array store at pointer: " ++ show (G.ppPtr ptr)
+  return mem { memImplHeap = heap' }
+
+-- | Store an array in memory. Also assert that the pointer is
+-- valid and points to a mutable or immutable memory region.
+-- Thus it can be used to initialize read-only memory regions.
+doArrayConstStore
+  :: (IsSymInterface sym, HasPtrWidth w)
+  => sym
+  -> MemImpl sym
+  -> LLVMPtr sym w {- ^ destination  -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
+  -> SymBV sym w {- ^ array length -}
+  -> IO (MemImpl sym)
+doArrayConstStore sym mem ptr alignment arr len = do
+  (p, heap') <-
+    G.writeArrayConstMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
+  assert sym p $ AssertFailureSimError $
+    "Invalid memory array store at pointer: " ++ show (G.ppPtr ptr)
+  return mem { memImplHeap = heap' }
 
 -- | Copy memory from source to destination. Also assert that the
 -- source and destination pointers fall within valid allocated
@@ -696,7 +735,7 @@ loadString sym mem = go id
   go :: ([Word8] -> [Word8]) -> LLVMPtr sym wptr -> Maybe Int -> IO [Word8]
   go f _ (Just 0) = return $ f []
   go f p maxChars = do
-     v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) 0 -- one byte, no alignment
+     v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat :: NatRepr 8)) noAlignment
      x <- projectLLVM_bv sym v
      case asUnsignedBV x of
        Just 0 -> return $ f []

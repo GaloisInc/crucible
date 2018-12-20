@@ -1501,25 +1501,25 @@ printfOps sym valist =
                  let w8 = knownNat :: NatRepr 8
                  let tp = G.bitvectorType 1
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w8 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w8) tp 1 x
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w8) tp noAlignment x
                  put mem'
               Len_Short -> do
                  let w16 = knownNat :: NatRepr 16
                  let tp = G.bitvectorType 2
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w16 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w16) tp 1 x
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w16) tp noAlignment x
                  put mem'
               Len_NoMod -> do
                  let w32  = knownNat :: NatRepr 32
                  let tp = G.bitvectorType 4
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w32 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w32) tp 1 x
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w32) tp noAlignment x
                  put mem'
               Len_Long  -> do
                  let w64 = knownNat :: NatRepr 64
                  let tp = G.bitvectorType 8
                  x <- liftIO (llvmPointer_bv sym =<< bvLit sym w64 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp 1 x
+                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp noAlignment x
                  put mem'
               _ ->
                 lift $ addFailedAssertion sym
