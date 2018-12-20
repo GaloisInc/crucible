@@ -39,6 +39,7 @@ import qualified Lang.Crucible.FunctionHandle as C
 
 
 import Mir.Mir
+import Mir.JSON
 import Mir.Intrinsics(MIR)
 import Mir.PP()
 import Mir.Pass as P

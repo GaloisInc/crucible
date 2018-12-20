@@ -314,12 +314,12 @@ instance Pretty CustomAggregate where
     pretty = (text . show)
 
 instance Pretty FnSig where
-  pretty (FnSig args ret) = pretty args <+> arrow <+> pretty ret
+  pretty (FnSig args ret) = text "fn" <> tupled (map pretty args) <+> arrow <+> pretty ret
 
 instance Pretty TraitItem where
   pretty (TraitMethod name sig) = pr_id name <+> colon <> pretty sig
-  pretty (TraitType name) = text "name"  <+> pr_id name
-  pretty (TraitConst name ty) = text "const" <+> pr_id name <> colon <> pretty ty
+  pretty (TraitType name)       = text "name"  <+> pr_id name
+  pretty (TraitConst name ty)   = text "const" <+> pr_id name <> colon <> pretty ty
 
 instance Pretty Trait where
   pretty (Trait name items) =

@@ -22,7 +22,7 @@
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall
                 -fno-warn-name-shadowing
                 -fno-warn-unused-matches
-                -fno-warn-unticked-promoted-constructors -fno-warn-unused-imports #-}
+                -fno-warn-unticked-promoted-constructors #-}
 
 module Mir.Trans where
 
@@ -66,25 +66,20 @@ import qualified Mir.Mir as M
 import qualified Mir.DefId as M
 import Mir.Intrinsics
 
---import Mir.Prims (relocateDefId)
-
 import Mir.PP()
-import Text.PrettyPrint.ANSI.Leijen(Pretty(..),hang,text,vcat,list)
+import Text.PrettyPrint.ANSI.Leijen(Pretty(..),text,vcat)
 
 import GHC.Stack
 
 import Debug.Trace
 
 -- See end of [Intrinsics] for definition of generator state FnState
-
-
-
 -- h for state monad
 -- s phantom parameter for CFGs
 type MirGenerator h s ret = G.Generator MIR h s FnState ret
 
 -----------------------------------------------------------------------
--- ** Type translation, MIR types to Crucible types
+-- ** Type translation: MIR types to Crucible types
 
 -- Type translation and type-level list utilities.
 -- References have the exact same semantics as their referent type.
@@ -103,30 +98,32 @@ type MirGenerator h s ret = G.Generator MIR h s FnState ret
 --
 -- Custom type translation is on the bottom of this file.
 
+-- | convert a baseSize to a nat repr
+-- The BaseSize must *not* be USize.
+baseSizeToNatCont :: HasCallStack => M.BaseSize -> (forall w. (1 <= w) => CT.NatRepr w -> a) -> a
+baseSizeToNatCont M.B8   k = k (knownNat :: NatRepr 8)
+baseSizeToNatCont M.B16  k = k (knownNat :: NatRepr 16)
+baseSizeToNatCont M.B32  k = k (knownNat :: NatRepr 32)
+baseSizeToNatCont M.B64  k = k (knownNat :: NatRepr 64)
+baseSizeToNatCont M.B128 k = k (knownNat :: NatRepr 128)
+baseSizeToNatCont M.USize _k = error "BUG: Nat is undetermined for usize"
+
 
 tyToRepr :: HasCallStack => M.Ty -> Some CT.TypeRepr
 tyToRepr t0 = case t0 of
   M.TyBool -> Some CT.BoolRepr
   M.TyTuple [] -> Some CT.UnitRepr
-  -- tuples are mapped to structures of "maybe" types so that they
-  -- can be allocated but unitialized
+  -- non-empty tuples are mapped to structures of "maybe" types so
+  -- that they can be allocated without being initialized
   M.TyTuple ts ->  tyListToCtxMaybe ts $ \repr -> Some (CT.StructRepr repr)
   M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
 
                -- FIXME, this should be configurable
   M.TyInt M.USize  -> Some CT.IntegerRepr
   M.TyUint M.USize -> Some CT.NatRepr
-
-  M.TyInt M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
-  M.TyInt M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
-  M.TyInt M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
-  M.TyInt M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
-  M.TyInt M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
-  M.TyUint M.B8 -> Some $ CT.BVRepr (knownNat :: NatRepr 8)
-  M.TyUint M.B16 -> Some $ CT.BVRepr (knownNat :: NatRepr 16)
-  M.TyUint M.B32 -> Some $ CT.BVRepr (knownNat :: NatRepr 32)
-  M.TyUint M.B64 -> Some $ CT.BVRepr (knownNat :: NatRepr 64)
-  M.TyUint M.B128 -> Some $ CT.BVRepr (knownNat :: NatRepr 128)
+  M.TyInt base  -> baseSizeToNatCont base $ \n -> Some $ CT.BVRepr n
+  M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ CT.BVRepr n
+  
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
   M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
@@ -140,7 +137,7 @@ tyToRepr t0 = case t0 of
   M.TyDowncast _adt _i   -> Some taggedUnionType
   M.TyFloat _ -> Some CT.RealValRepr
   M.TyParam i -> case someNat i of
-    Just (Some nr) -> Some (CT.VarRepr nr) -- Some CT.AnyRepr -- FIXME??
+    Just (Some nr) -> Some (CT.VarRepr nr) -- requires poly extension to crucible
     Nothing        -> error "type params must be nonnegative"
   M.TyFnPtr _fnSig -> Some CT.AnyRepr
   M.TyDynamic _def -> Some CT.AnyRepr
@@ -149,11 +146,10 @@ tyToRepr t0 = case t0 of
 
 
 -- | Convert field to type. Perform the corresponding subtitution if field is a type param.
--- TODO: deeper substitution
 fieldToRepr :: HasCallStack => M.Field -> M.Ty
 fieldToRepr (M.Field _ t substs) = M.tySubst substs t
 
--- replace the subst on the Field 
+-- | Replace the subst on the Field 
 substField :: Substs -> M.Field -> M.Field
 substField subst (M.Field a t _subst)  = M.Field a t subst
 
@@ -161,9 +157,6 @@ substField subst (M.Field a t _subst)  = M.Field a t subst
 variantToRepr :: HasCallStack => M.Variant -> Substs -> Some CT.CtxRepr
 variantToRepr (M.Variant _vn _vd vfs _vct) args = 
     tyListToCtx (map fieldToRepr (map (substField args) vfs)) $ \repr -> Some repr
-
-adtToRepr :: M.Adt -> Some CT.TypeRepr
-adtToRepr (M.Adt _adtname _variants) = Some taggedUnionType
 
 taggedUnionType :: CT.TypeRepr TaggedUnion
 taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr
@@ -428,15 +421,6 @@ extendToMax n e1 m e2 Nothing k =
       Just Refl -> k n e1 e2
       Nothing   -> error "don't know the sign"
 
-natReprToBaseSize :: NatRepr n -> M.BaseSize
-natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 8) = M.B8
-natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 16) = M.B16
-natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 32) = M.B32
-natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 64) = M.B64
-natReprToBaseSize n | Just Refl <- testEquality n (knownRepr :: NatRepr 128) = M.B128
-
-
-
 transBinOp :: M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
 transBinOp bop op1 op2 = do
     me1 <- evalOperand  op1
@@ -459,16 +443,16 @@ transBinOp bop op1 op2 = do
               (M.Shl, _) ->
                  let res = MirExp (CT.BVRepr n) (S.app $ E.BVShl n e1 e2)
                  -- TODO check unsigned vs signed???
-                 in extendUnsignedBV res (natReprToBaseSize na)
+                 in extendUnsignedBV res na
               (M.Shr, Just M.Unsigned) ->
                  let res = MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
-                 in extendUnsignedBV res (natReprToBaseSize na)
+                 in extendUnsignedBV res na
               (M.Shr, Nothing) ->
                  let res = MirExp (CT.BVRepr n) (S.app $ E.BVLshr n e1 e2)
-                 in extendUnsignedBV res (natReprToBaseSize na)
+                 in extendUnsignedBV res na
               (M.Shr, Just M.Signed) ->
                  let res = MirExp (CT.BVRepr n) (S.app $ E.BVAshr n e1 e2) 
-                 in extendSignedBV res (natReprToBaseSize na)
+                 in extendSignedBV res na
               (M.Lt, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUlt n e1 e2)
               (M.Lt, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSlt n e1 e2)
               (M.Le, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUle n e1 e2)
@@ -642,8 +626,8 @@ modifyAggregateIdxMaybe (MirExp ty _) _ _ =
 -- casts
 
 -- | Make sure that the expression has exactly the bitwidth requested. If the BV is too short, extend. If too long, truncate.
-extendUnsignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
-extendUnsignedBV (MirExp tp e) b = baseSizeToNatCont b $ \ w ->
+extendUnsignedBV :: (1 <= w) => MirExp s -> NatRepr w -> MirGenerator h s ret (MirExp s)
+extendUnsignedBV (MirExp tp e) w = 
     case tp of
       (CT.BVRepr n) | Just Refl <- testEquality w n ->
                 return $ MirExp tp e
@@ -651,10 +635,10 @@ extendUnsignedBV (MirExp tp e) b = baseSizeToNatCont b $ \ w ->
                 return $ MirExp (CT.BVRepr w) (S.app $ E.BVTrunc w n e)
       (CT.BVRepr n) | Just LeqProof <- testLeq (incNat n) w ->
                 return $ MirExp (CT.BVRepr w) (S.app $ E.BVZext w n e)
-      _ -> fail ("unimplemented unsigned bvext: " ++ show tp ++ "  " ++ show b)
+      _ -> fail ("unimplemented unsigned bvext: " ++ show tp ++ "  " ++ show w)
 
-extendSignedBV :: MirExp s -> M.BaseSize -> MirGenerator h s ret (MirExp s)
-extendSignedBV (MirExp tp e) b = baseSizeToNatCont b $ \ w ->
+extendSignedBV :: (1 <= w) => MirExp s -> NatRepr w -> MirGenerator h s ret (MirExp s)
+extendSignedBV (MirExp tp e) w = 
     case tp of
       (CT.BVRepr n) | Just Refl <- testEquality w n ->
                 return $ MirExp tp e
@@ -662,24 +646,18 @@ extendSignedBV (MirExp tp e) b = baseSizeToNatCont b $ \ w ->
                 return $ MirExp (CT.BVRepr w) (S.app $ E.BVTrunc w n e)
       (CT.BVRepr n) | Just LeqProof <- testLeq (incNat n) w ->
                 return $ MirExp (CT.BVRepr w) (S.app $ E.BVSext w n e)
-      _ -> fail $ "unimplemented signed bvext" ++ show tp ++ " " ++ show b
+      _ -> fail $ "unimplemented signed bvext" ++ show tp ++ " " ++ show w
 
--- | convert a baseSize to a nat repr
--- The BaseSize must *not* be USize.
-baseSizeToNatCont :: HasCallStack => M.BaseSize -> (forall w. (1 <= w) => CT.NatRepr w -> a) -> a
-baseSizeToNatCont M.B8   k = k (knownNat :: NatRepr 8)
-baseSizeToNatCont M.B16  k = k (knownNat :: NatRepr 16)
-baseSizeToNatCont M.B32  k = k (knownNat :: NatRepr 32)
-baseSizeToNatCont M.B64  k = k (knownNat :: NatRepr 64)
-baseSizeToNatCont M.B128 k = k (knownNat :: NatRepr 128)
-baseSizeToNatCont M.USize _k = error "BaseSize is undetermined"
 
 evalCast' :: M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast' ck ty1 e ty2  =
     case (ck, ty1, ty2) of
       (M.Misc,a,b) | a == b -> return e
-      (M.Misc, M.TyUint _, M.TyUint s) -> extendUnsignedBV e s
-      (M.Misc, M.TyInt _, M.TyInt s) -> extendSignedBV e s
+
+      (M.Misc, M.TyUint _, M.TyUint M.USize) -> fail "Cannot cast to unsized type"
+      (M.Misc, M.TyInt _,  M.TyInt  M.USize) -> fail "Cannot cast to unsized type"
+      (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e 
+      (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e 
       (M.Misc, M.TyCustom (M.BoxTy tb1), M.TyCustom (M.BoxTy tb2)) -> evalCast' ck tb1 e tb2
 
       (M.Unsize, M.TyRef (M.TyArray tp _sz) M.Immut, M.TyRef (M.TySlice tp') M.Immut)
@@ -2039,6 +2017,7 @@ argPredType (tn, Substs (ty:tys)) =
            let preinst = (implementCtxRepr implTy repr)
            return $ (Some (CT.StructRepr (CT.instantiate subst preinst)))
         Nothing -> fail "impossible: we checked tn's in the domain"
+argPredType (tn,_) = fail "impossible: we checked substs to be non-empty"
 
 -- | Translate a MIR function, returning a jump expression to its entry block
 -- argvars are registers
@@ -2186,9 +2165,6 @@ buildTraitMap col _halloc hmap = do
     let impls :: [(MethName, TraitName, MirHandle)]
         impls = Maybe.mapMaybe (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
 
-    --traceM $ ("\ndecls dom: " ++ show decls)
-    --traceM $ ("\nimpls are:" ++ show (vcat (map pretty impls)))
-
     let impl_vtable :: TraitDecl ctx
                     -> CT.TypeRepr implTy 
                     -> [(MethName, MirHandle)]       -- impls for that type, must be in correct order
@@ -2209,7 +2185,7 @@ buildTraitMap col _halloc hmap = do
                           (_,_)   -> error $ "Type mismatch in method table. implHandle type is: "
                                         ++ show (FH.handleType fh) ++ " but expected type: "
                                         ++ show (CT.instantiate subst (CT.FunctionHandleRepr args ret))
-                  
+               go idx _ = error "buildTraitMap: cannot only handle trait definitions with polmorphic functions (no constants allowed)"
            in runIdentity (Ctx.traverseWithIndex go ctxr)
 
 
@@ -2230,9 +2206,6 @@ buildTraitMap col _halloc hmap = do
 
     let tm   = mkGenericTraitMap perTraitInfos
     let stm  = mkStaticTraitMap perTraitInfos
-    -- let stm  = groupByNameThenType (Map.assocs hmap)
-
-    -- traceM $ ("\nstm is:" ++ show stm)
 
     return (tm, stm, [])
 
@@ -2464,8 +2437,7 @@ thisTraitImpls (M.Trait trait _) trs = do
 --------------------------------------------------------------------------------------------------------------------------
 --- Custom stuff
 --
--- G.Expr MIR s tp
-
+-- Generate a loop that copies a vector 
 vectorCopy :: CT.TypeRepr elt ->
              G.Expr MIR s CT.NatType ->
              G.Expr MIR s CT.NatType ->
@@ -2501,7 +2473,7 @@ customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USiz
       -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
 -- Implement C-style enums as single integers
 customtyToRepr (CEnum _adt) = Some CT.IntegerRepr
-customtyToRepr ty = error ("FIXME: unimplement custom type: " ++ M.pprint ty)
+customtyToRepr ty = error ("FIXME: unimplement custom type: " ++ show (pretty ty))
 
 mkNone :: MirExp s
 mkNone =

@@ -47,6 +47,7 @@ library
 
   hs-source-dirs: src
   exposed-modules: Mir.SAWInterface
+                   Mir.JSON
                    Mir.Language
                    Mir.Mir
                    Mir.Prims
