@@ -45,6 +45,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , symbolicValueLoad
 
   , memsetValue
+  , loadTypedValueFromBytes
   ) where
 
 import Control.Exception (assert)
@@ -610,3 +611,39 @@ memsetValue byte = go
         Struct flds -> MkStruct (fldFn <$> flds)
           where fldFn fld = (fld, go (fld^.fieldVal))
 
+-- | Create value of type that splits at a particular byte offset.
+loadTypedValueFromBytes
+  :: Offset
+  -> StorageType
+  -> (Offset -> IO a)
+  -> IO (ValueCtor a)
+loadTypedValueFromBytes off tp subFn = case storageTypeF tp of
+  Bitvector size
+    | size <= 1 -> ValueCtorVar <$> subFn off
+    | otherwise -> do
+      head_byte <- ValueCtorVar <$> subFn off
+      tail_bytes <- loadTypedValueFromBytes
+        (off + 1)
+        (bitvectorType (size - 1))
+        subFn
+      return $ concatBV 1 head_byte (size - 1) tail_bytes
+  Float ->
+    BVToFloat <$> loadTypedValueFromBytes off (bitvectorType 4) subFn
+  Double ->
+    BVToDouble <$> loadTypedValueFromBytes off (bitvectorType 8) subFn
+  X86_FP80 ->
+    BVToX86_FP80 <$> loadTypedValueFromBytes off (bitvectorType 10) subFn
+  Array len elem_type -> MkArray elem_type <$> V.generateM
+    (fromIntegral len)
+    (\idx -> loadTypedValueFromBytes
+      (off + (fromIntegral idx) * (storageTypeSize elem_type))
+      elem_type
+      subFn)
+  Struct fields -> MkStruct <$> V.mapM
+    (\field -> do
+      field_val <- loadTypedValueFromBytes
+        (off + (fieldOffset field))
+        (field^.fieldVal)
+        subFn
+      return (field, field_val))
+    fields
