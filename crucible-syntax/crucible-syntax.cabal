@@ -20,6 +20,7 @@ library
     base >= 4.7,
     bytestring >= 0.10.2,
     containers,
+    constraints >= 0.10 && < 0.11,
     crucible >= 0.1,
     executable-path,
     directory,

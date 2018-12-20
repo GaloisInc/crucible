@@ -56,6 +56,7 @@ import Control.Monad.Writer.Class ()
 
 import Lang.Crucible.Types
 
+import Data.Constraint (Dict(..))
 import Data.Foldable
 import Data.Functor
 import qualified Data.Functor.Product as Functor
@@ -944,64 +945,6 @@ data SyntaxState h s =
               , _stxProgState :: ProgramState h s
               }
 
-data Dict t where
-  Dict :: t => Dict t
-
-checkClosedCtx :: CtxRepr ts -> Maybe (Dict (Closed ts))
-checkClosedCtx ctx =
-  case Ctx.viewAssign ctx of
-    Ctx.AssignEmpty -> Just Dict
-    Ctx.AssignExtend ts t ->
-      do Dict <- checkClosedCtx ts
-         Dict <- checkClosed t
-         Just Dict
-
-checkClosed :: TypeRepr t -> Maybe (Dict (Closed t))
-checkClosed AnyRepr = Just Dict
-checkClosed UnitRepr = Just Dict
-checkClosed BoolRepr = Just Dict
-checkClosed NatRepr = Just Dict
-checkClosed IntegerRepr = Just Dict
-checkClosed RealValRepr = Just Dict
-checkClosed ComplexRealRepr = Just Dict
-checkClosed (BVRepr _) = Just Dict
-checkClosed (IntrinsicRepr _ args) =
-  do Dict <- checkClosedCtx args
-     Just Dict
-checkClosed (RecursiveRepr _ ctx) =
-  do Dict <- checkClosedCtx ctx
-     Just Dict
-checkClosed (FloatRepr _) = Just Dict
-checkClosed (IEEEFloatRepr _) = Just Dict
-checkClosed CharRepr = Just Dict
-checkClosed StringRepr = Just Dict
-checkClosed (FunctionHandleRepr args ret) =
-  do Dict <- checkClosedCtx args
-     Dict <- checkClosed ret
-     Just Dict
-checkClosed (MaybeRepr t) =
-  do Dict <- checkClosed t
-     Just Dict
-checkClosed (VectorRepr t) =
-  do Dict <- checkClosed t
-     Just Dict
-checkClosed (StructRepr fields) =
-  do Dict <- checkClosedCtx fields
-     Just Dict
-checkClosed (VariantRepr cases) =
-  do Dict <- checkClosedCtx cases
-     Just Dict
-checkClosed (ReferenceRepr t) =
-  do Dict <- checkClosed t
-     Just Dict
-checkClosed (WordMapRepr _ _) = Just Dict
-checkClosed (StringMapRepr t) =
-  do Dict <- checkClosed t
-     Just Dict
-checkClosed (SymbolicArrayRepr _ _) = Just Dict
-checkClosed (SymbolicStructRepr _) = Just Dict
-checkClosed (VarRepr _) = Nothing
-checkClosed (PolyFnRepr _ _) = Just Dict -- Can this possibly be right?
 
 initProgState :: [(SomeHandle,Position)] -> HandleAllocator h -> ProgramState h s
 initProgState builtIns ha = ProgramState fns Map.empty ha
