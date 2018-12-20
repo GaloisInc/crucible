@@ -96,10 +96,10 @@ generateMIR debug dir name  = do
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> do
-        when (debug > 3) $ do
+        when (debug > 5) $ do
           traceM "--------------------------------------------------------------"
-          traceM $ "Collection: " ++ name
-          traceM $ show col
+          traceM $ "Generated module: " ++ name
+          traceM $ show (pretty col)
           traceM "--------------------------------------------------------------"  
         return col
 

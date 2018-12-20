@@ -39,15 +39,16 @@ pub mod cmp {
         }
 
 
-        
+/* FnOnce bound        
         pub fn then_with<F: FnOnce() -> Ordering>(self, f: F) -> Ordering {
             match self {
                 Equal => f(),
                 _ => self,
             }
-        } 
+        }   */
     }
-
+        
+        
     /*
     impl PartialEq for Ordering {
     fn eq(&self, other: &Ordering) -> bool {

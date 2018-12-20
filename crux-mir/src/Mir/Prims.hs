@@ -37,19 +37,21 @@ libLoc = "mir-lib/src/"
 -- | load the rs file containing the standard library
 loadPrims :: Int -> IO Collection
 loadPrims debugLevel = do
-  cols <- mapM (generateMIR debugLevel libLoc) 
-    [ -- "result"
---    ,  "option"
---    ,  "ops/range"
---    , "default"
---    , "cmp"
+  -- Only print debugging info in the standard library at high debugging levels
+  cols <- mapM (generateMIR (debugLevel-3) libLoc) 
+    [ "default"
+    , "option"    -- some FnOnce bounds commented out
+    , "result"    -- some FnOnce bounds commented out
+    , "ops/range"
+    , "default"
+    , "cmp"
 --    , "slice"
     ]   
     
-  let total = (fold (hardCoded : map relocate cols))
-  when (debugLevel > 5) $ do
+  let total = (fold (hardCoded : cols))
+  when (debugLevel > 6) $ do
     Debug.traceM "--------------------------------------------------------------"
-    Debug.traceM $ "Collection: "
+    Debug.traceM $ "Complete Collection: "
     Debug.traceM $ show (pretty total)
     Debug.traceM "--------------------------------------------------------------"  
 

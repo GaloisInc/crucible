@@ -1141,8 +1141,7 @@ assignLvExp lv re = do
                 case Map.lookup nm am of
                   Nothing -> fail ("Unknown ADT: " ++ show nm)
                   Just [struct_variant] ->
-                    do traceM $ "assignLvExp with lv " ++ show (pretty lv) ++ " at field " ++ show field
-                       etu <- evalLvalue lv
+                    do etu <- evalLvalue lv
                        e   <- accessAggregate etu 1 -- get the ANY data payload
                        Some ctx <- return $ variantToRepr struct_variant args
                        struct <- unpackAny (Some (CT.StructRepr ctx)) e
@@ -1155,7 +1154,6 @@ assignLvExp lv re = do
                 case Map.lookup nm am of
                   Nothing -> fail ("Unknown ADT: " ++ show nm)
                   Just vars -> do
-                     traceM $ "assignLvExp with downcasted lv " ++ show (pretty lv) ++ " at field " ++ show field
                      let struct_variant = vars List.!! (fromInteger i)
                      Some ctx <- return $ variantToRepr struct_variant args
 
@@ -1237,12 +1235,14 @@ assignLvExp lv re = do
 storageLive :: M.Var -> MirGenerator h s ret ()
 storageLive (M.Var nm _ ty _ _) = 
   do vm <- use varMap
+     db <- use debugLevel
      case Map.lookup nm vm of
        Just (Some varinfo@(VarRegister reg)) -> do
          mv <- initialValue ty
          case mv of
            Nothing -> do
-             traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+             when (db > 6) $
+                traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
              return ()
            Just (MirExp rty e) ->
               case testEquality rty (varInfoRepr varinfo) of
@@ -1255,7 +1255,8 @@ storageLive (M.Var nm _ ty _ _) =
          mv <- initialValue ty
          case mv of
            Nothing -> do
-              traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+              when (db > 6) $
+                traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
               return ()
            Just (MirExp rty e) -> 
               case testEquality rty (varInfoRepr varinfo) of
@@ -1832,7 +1833,7 @@ initialValue M.TyChar = do
     return $ Just $ MirExp (CT.BVRepr w) (S.app (E.BVLit w 0))
 initialValue M.TyStr =
    return $ Just $ (MirExp CT.StringRepr (S.litExpr ""))
-initialValue (M.TyClosure defid (_:hty:params)) = do
+initialValue (M.TyClosure defid (_i8:hty:params)) = do
    -- TODO: eliminate the Maybe from the type of params
    -- TODO: figure out what the first i8 type argument is for
    
@@ -1842,9 +1843,8 @@ initialValue (M.TyClosure defid (_:hty:params)) = do
    handle <- buildClosureHandle defid params closed_args
    return $ Just $ handle
 -- TODO: this case is wrong --- we need to know which branch of the ADT to
--- initialize. By default, we'll use the first, but that may not be the right one.
--- we need to look ahead to see how we are initializing the components of the
--- data structure and pass this as an extra argument to the function.
+-- initialize. However, hopefully the allocateEnum pass will have converted
+-- the adt initializations to aggregates already so this won't matter.
 initialValue (M.TyAdt nm _args) = do
     am <- use adtMap
     case Map.lookup nm am of
@@ -1863,11 +1863,6 @@ initialValue (M.TyProjection _ _) =
    return $ Nothing
 initialValue (M.TyCustom (CEnum _n)) =
    return $ Just $ MirExp CT.IntegerRepr (S.litExpr 0)
---initialValue (M.TyParam _) =
---   return $ Just $ packAny (MirExp CT.BoolRepr S.false)
--- Anything else: initialize with "false"
--- We won't actually need it
--- Maybe we should return a maybe instead???
 initialValue _ = return Nothing
 
 
@@ -2056,14 +2051,16 @@ argPredType (tn, ty:tys) =
 genFn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 genFn (M.Fn fname argvars _fretty body _gens preds) rettype = do
   TraitMap tm <- use traitMap
+  db <- use debugLevel
   let argPreds = Maybe.mapMaybe (argPred $ Map.keys tm) preds
   argPredTypes <- mapM argPredType argPreds
-  traceM $ "--------------------------------------------------------------------------------------------------------"
-  traceM $ "Generating code for: " ++ show fname ++ " with args of type: " ++ show (map pretty (map M.typeOf argvars))
-  traceM $ "ArgPreds are: " ++ show (map pretty argPreds)
-  traceM $ "ArgPred types: " ++ show argPredTypes
-  traceM $ "Body is:\n" ++ show (pretty body)
-  traceM $ "--------------------------------------------------------------------------------------------------------"
+  when (db > 4) $ do
+     traceM $ "--------------------------------------------------------------------------------------------------------"
+     traceM $ "Generating code for: " ++ show fname ++ " with args of type: " ++ show (map pretty (map M.typeOf argvars))
+     traceM $ "ArgPreds are: " ++ show (map pretty argPreds)
+     traceM $ "ArgPred types: " ++ show argPredTypes
+     traceM $ "Body is:\n" ++ show (pretty body)
+     traceM $ "--------------------------------------------------------------------------------------------------------"
   lm <- buildLabelMap body
   labelMap .= lm
   vm' <- buildIdentMapRegs body argvars

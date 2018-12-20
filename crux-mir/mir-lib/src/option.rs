@@ -66,8 +66,9 @@ pub mod option {
             }
         }
          */
-        
-// CAN't handle static string        
+
+/*        
+// CAN't handle static string  
         #[inline]
         pub fn unwrap(self) -> T {
             match self {
@@ -75,7 +76,7 @@ pub mod option {
                 None => panic!("called `Option::unwrap()` on a `None` value"),
             }
         }
-
+*/
         #[inline]    
         pub fn unwrap_or(self, def: T) -> T {
             match self {
@@ -84,6 +85,7 @@ pub mod option {
             }
         }
 
+/* FnOnce bound        
         #[inline]    
         pub fn unwrap_or_else<F: FnOnce() -> T>(self, f: F) -> T {
             match self {
@@ -107,13 +109,15 @@ pub mod option {
                 None => default,
             }
         }
-/*        #[inline]
+
+        #[inline]
         pub fn map_or_else<U, D: FnOnce() -> U, F: FnOnce(T) -> U>(self, default: D, f: F) -> U {
             match self {
                 Some(t) => f(t),
                 None => default(),
             }
-        } */
+        } 
+*/
 
         #[inline]
         pub fn ok_or<E>(self, err: E) -> Result<T, E> {
@@ -122,7 +126,8 @@ pub mod option {
                 None => Err(err),
             }
         }
-
+/*
+// FnOnce bound!
         #[inline]
         pub fn ok_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<T, E> {
             match self {
@@ -130,7 +135,8 @@ pub mod option {
                 None => Err(err()),
             }
         }
-
+ */
+        
 /*
         #[inline]
         pub fn iter(&self) -> Iter<T> {

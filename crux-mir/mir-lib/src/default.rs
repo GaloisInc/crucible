@@ -23,7 +23,8 @@ pub mod default {
 
     default_impl! { (), (), "Returns the default value of `()`" }
     default_impl! { bool, false, "Returns the default value of `false`" }
-    default_impl! { char, '\x00', "Returns the default value of `\\x00`" }
+    // can't parse chars yet
+    //default_impl! { char, '\x00', "Returns the default value of `\\x00`" }
     
     default_impl! { usize, 0, "Returns the default value of `0`" }
     default_impl! { u8, 0, "Returns the default value of `0`" }
