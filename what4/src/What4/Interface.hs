@@ -78,6 +78,7 @@ module What4.Interface
   , bvJoinVector
   , bvSplitVector
   , bvSwap
+  , bvBitreverse
 
     -- ** Floating-point rounding modes
   , RoundingMode(..)
@@ -2130,6 +2131,16 @@ bvSwap :: forall sym n. (1 <= n, IsExprBuilder sym)
 bvSwap sym n v = do
   bvJoinVector sym (knownNat @8) . Vector.reverse
     =<< bvSplitVector sym n (knownNat @8) v
+
+-- | Swap the order of the bits in a bitvector.
+bvBitreverse :: forall sym w.
+  (1 <= w, IsExprBuilder sym) =>
+  sym ->
+  SymBV sym w ->
+  IO (SymBV sym w)
+bvBitreverse sym v = do
+  bvJoinVector sym (knownNat @1) . Vector.reverse
+    =<< bvSplitVector sym (bvWidth v) (knownNat @1) v
 
 -- | Rounding modes for IEEE-754 floating point operations.
 data RoundingMode
