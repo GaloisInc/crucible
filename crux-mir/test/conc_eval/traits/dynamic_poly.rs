@@ -21,9 +21,15 @@ fn k<F>(f : F) -> u32 where F : Foo<u32> {
     f.foo(3)
 }
 
+fn app<F,G>(x : &G, y:F) -> u32
+  where G : Fn(F) -> u32 {
+    x(y)
+}
+
+
 fn f(_: ()) -> u32 {
     let d = Data(32);
-    d.foo(3) + h(&d) 
+    app(&k,d)
 }
 
 const ARG: () = ();

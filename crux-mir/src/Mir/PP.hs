@@ -66,19 +66,19 @@ instance Pretty Ty where
     pretty (TySlice ty)   = brackets (pretty ty)
     pretty (TyArray ty i) = brackets (pretty ty <> semi <+> int i)
     pretty (TyRef ty mutability) = text "&" <> pretty mutability <> pretty ty
-    pretty (TyAdt defId tys)    = pr_id defId <> pr_args tys
+    pretty (TyAdt defId tys)    = pr_id defId <> pretty tys
     pretty TyUnsupported         = text "Unsupported"
     pretty (TyCustom customTy)   = pretty customTy
     pretty (TyParam i)           = text ("_" ++ show i)
-    pretty (TyFnDef defId tys)  = text "fnDef" <+> pr_id defId <> pr_args tys
-    pretty (TyClosure defId tys) = text "closure" <+> pr_id defId <> pr_args tys
+    pretty (TyFnDef defId tys)  = text "fnDef" <+> pr_id defId <> pretty tys
+    pretty (TyClosure defId tys) = text "closure" <+> pr_id defId <> pretty tys
     pretty TyStr                 = text "string"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
     pretty (TyDynamic defId)     = text "dynamic" <+> pr_id defId 
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
-    pretty (TyProjection defId tys) = text "projection" <+> brackets (pr_id defId <> pr_args tys)
+    pretty (TyProjection defId tys) = text "projection" <+> brackets (pr_id defId <> pretty tys)
     pretty TyLifetime = text "lifetime"
 
 instance Pretty Adt where
@@ -123,7 +123,7 @@ pretty_temp (Var vn vm vty _vs _) =
 
 instance Pretty Predicate where
   pretty (Predicate trait args) =
-      pretty trait <> list (map pretty args)
+      pretty trait <> pretty args
   pretty UnknownPredicate = text "UnknownPredicate"
   
 instance Pretty Fn where
@@ -288,8 +288,8 @@ instance Pretty FloatLit where
   pretty = text . show
 
 
-pr_args :: [Maybe Ty] -> Doc
-pr_args b = encloseSep langle rangle  comma (map pretty b)
+instance Pretty Substs where
+  pretty (Substs b) = encloseSep langle rangle  comma (map pretty b)
   
 instance Pretty ConstVal where
     pretty (ConstFloat i)   = pretty i
@@ -302,13 +302,13 @@ instance Pretty ConstVal where
     pretty (ConstTuple cs)  = tupled (map pretty cs)
     pretty (ConstArray cs)     = list (map pretty cs)
     pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> int i)
-    pretty (ConstFunction a b) = pr_id a <> pr_args b
+    pretty (ConstFunction a b) = pr_id a <> pretty b
     pretty ConstStruct = text "ConstStruct"
 
 instance Pretty AggregateKind where
     pretty (AKArray t) = brackets (pretty t)
     pretty AKTuple = text "tup"
-    pretty (AKClosure defid args) = pretty defid <> pr_args args
+    pretty (AKClosure defid args) = pretty defid <> pretty args
 
 instance Pretty CustomAggregate where
     pretty = (text . show)

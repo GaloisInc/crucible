@@ -77,7 +77,7 @@ fnOnce = Trait fnOnce_defId [call_once, output] where
 
            call_once :: TraitItem
            call_once = TraitMethod fnOnce_call_once_defId
-               (FnSig [TyParam 0, TyParam 1] (TyProjection fnOnce_Output_defId []))
+               (FnSig [TyParam 0, TyParam 1] (TyProjection fnOnce_Output_defId mempty))
     
            output :: TraitItem
            output = TraitType fnOnce_Output_defId        
@@ -96,7 +96,7 @@ fn = Trait fn_defId [call_once, output] where
 
            call_once :: TraitItem
            call_once = TraitMethod fn_call_defId
-               (FnSig [TyRef (TyParam 0) Immut, TyParam 1] (TyProjection fn_Output_defId []))
+               (FnSig [TyRef (TyParam 0) Immut, TyParam 1] (TyProjection fn_Output_defId mempty))
     
            output :: TraitItem
            output = TraitType fn_Output_defId        
@@ -115,7 +115,7 @@ index = Trait index_defId [index_index, output] where
 
            index_index :: TraitItem
            index_index = TraitMethod index_index_defId
-               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId []))
+               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId mempty))
     
            output :: TraitItem
            output = TraitType index_Output_defId        
@@ -137,11 +137,11 @@ indexMut = Trait index_defId [index_index, index_index_mut, output] where
 
            index_index :: TraitItem
            index_index = TraitMethod index_index_defId
-               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId []))
+               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId mempty))
 
            index_index_mut :: TraitItem
            index_index_mut = TraitMethod index_index_mut_defId
-               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId []))
+               (FnSig [TyDynamic index_defId, TyParam 0] (TyProjection index_Output_defId mempty))
     
            output :: TraitItem
            output = TraitType index_Output_defId        

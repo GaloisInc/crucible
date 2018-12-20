@@ -154,11 +154,11 @@ fieldToRepr :: HasCallStack => M.Field -> M.Ty
 fieldToRepr (M.Field _ t substs) = M.tySubst substs t
 
 -- replace the subst on the Field 
-substField :: [Maybe M.Ty] -> M.Field -> M.Field
+substField :: Substs -> M.Field -> M.Field
 substField subst (M.Field a t _subst)  = M.Field a t subst
 
 -- Note: any args on the fields are replaced by args on the variant
-variantToRepr :: HasCallStack => M.Variant -> [Maybe M.Ty] -> Some CT.CtxRepr
+variantToRepr :: HasCallStack => M.Variant -> Substs -> Some CT.CtxRepr
 variantToRepr (M.Variant _vn _vd vfs _vct) args = 
     tyListToCtx (map fieldToRepr (map (substField args) vfs)) $ \repr -> Some repr
 
@@ -796,7 +796,7 @@ evalRefLvalue lv =
 
         _ -> fail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
 
-getVariant :: HasCallStack => M.Ty -> MirGenerator h s ret (M.Variant, [Maybe M.Ty])
+getVariant :: HasCallStack => M.Ty -> MirGenerator h s ret (M.Variant, Substs)
 getVariant (M.TyAdt nm args) = do
     am <- use adtMap
     case Map.lookup nm am of
@@ -919,9 +919,9 @@ evalRval (M.RAdtAg (M.AdtAg _adt agv ops))  = do
 
 -- A closure is (packed into an any) of the form [handle, arguments]
 -- (arguments being those packed into the closure, not the function arguments)
-buildClosureHandle :: M.DefId -> [Maybe M.Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildClosureHandle funid argsm args =
-    tyListToCtx (map Maybe.fromJust argsm) $ \ subst -> do
+buildClosureHandle :: M.DefId -> Substs -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildClosureHandle funid (Substs tys) args =
+    tyListToCtx tys $ \ subst -> do
       hmap <- use handleMap
       case (Map.lookup funid hmap) of
         Just (MirHandle _ _ fhandle) -> do
@@ -933,14 +933,14 @@ buildClosureHandle funid argsm args =
                 handle_cl = R.App $ E.PolyInstantiate poly_ty (S.app $ E.PolyHandleLit fhandle) subst
                 handl = MirExp inst_ty handle_cl
             let closure_unpack = buildTuple [handl, (packAny closure_arg)]
-            traceM $ "buildClosureHandle for " ++ show funid ++ " with ty args " ++ show (pretty argsm)
+            traceM $ "buildClosureHandle for " ++ show funid ++ " with ty args " ++ show (pretty tys)
             return $ packAny closure_unpack
         _ ->
           do fail ("buildClosureHandle: unknown function: " ++ show funid)
 
 
-buildClosureType :: M.DefId -> [M.Ty] -> MirGenerator h s ret (Some CT.TypeRepr, Some CT.TypeRepr) -- get type of closure, in order to unpack the any
-buildClosureType defid args' = do
+buildClosureType :: M.DefId -> Substs -> MirGenerator h s ret (Some CT.TypeRepr, Some CT.TypeRepr) -- get type of closure, in order to unpack the any
+buildClosureType defid (Substs args') = do
     hmap <- use handleMap
     case (Map.lookup defid hmap) of
       Just (MirHandle _ _ fhandle) -> do
@@ -1001,10 +1001,9 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
          accessAggregate struct field
 
 
-      M.TyClosure defid argsm -> do
+      M.TyClosure defid args -> do
         -- if lv is a closure, then accessing the ith component means accessing the ith arg in the struct
         e <- evalLvalue lv
-        let args = filterMaybes argsm
         (clty, rty) <- buildClosureType defid args
         unpack_closure <- unpackAny clty e
         clargs <- accessAggregate unpack_closure 1
@@ -1026,7 +1025,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
       (MirSliceRepr elt_tp, CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr)) ->
            let mir_ty = M.typeOf i in
            case mir_ty of
-             M.TyAdt did [Just (TyUint USize)] | did == M.textId "core/ae3efe0::ops[0]::range[0]::RangeFrom[0]" -> do
+             M.TyAdt did (Substs [TyUint USize]) | did == M.textId "core/ae3efe0::ops[0]::range[0]::RangeFrom[0]" -> do
                -- get the start of the range
                let astart = (S.getStruct Ctx.i2of2 ind)
                let indty  = CT.StructRepr (Ctx.Empty Ctx.:> CT.NatRepr)
@@ -1166,8 +1165,7 @@ assignLvExp lv re = do
                      etu' <- modifyAggregateIdx etu (packAny struct') 1
                      assignLvExp lv etu'
 
-              M.TyClosure defid params -> do
-                let args = (map Maybe.fromJust params)
+              M.TyClosure defid args -> do
                 (Some top_ty, Some clos_ty) <- buildClosureType defid args
                 clos      <- evalLvalue lv
                 etu       <- unpackAny (Some top_ty) clos
@@ -1374,8 +1372,8 @@ first f (x:xs) = case f x of Just y  -> Just y
 -- It could be a regular function, a polymorphic function, or a trait
 -- We promise to return an expression of type (FnHandleType args ret)
 -- for some args/ret
-lookupFunction :: forall h s ret. MethName -> [M.Ty] -> MirGenerator h s ret (Maybe (MirExp s))
-lookupFunction nm funsubst = do
+lookupFunction :: forall h s ret. MethName -> Substs -> MirGenerator h s ret (Maybe (MirExp s))
+lookupFunction nm (Substs funsubst) = do
 
   hmap <- use handleMap
   (TraitMap tm) <- use traitMap
@@ -1428,7 +1426,7 @@ lookupFunction nm funsubst = do
 --   1. try adding the "stdlib" prefix
 --   2. try looking up as a static trait method 
 --   3. do both
-lookupHandle :: MethName -> [Maybe M.Ty] -> MirGenerator h s ret (Maybe MirHandle)
+lookupHandle :: MethName -> Substs -> MirGenerator h s ret (Maybe MirHandle)
 lookupHandle funid substs = do
   hmap <- use handleMap
   stm  <- use staticTraitMap
@@ -1469,8 +1467,8 @@ type Coercion = forall h s ret. HasCallStack => M.Ty -> (M.Ty, MirExp s) -> MirG
 
 coerceAdt :: forall h s ret. HasCallStack => Bool ->
       M.DefId
-   -> [Maybe M.Ty]
-   -> [Maybe M.Ty]
+   -> Substs
+   -> Substs
    -> R.Expr MIR s TaggedUnion
    -> MirGenerator h s ret (R.Expr MIR s TaggedUnion)
 coerceAdt dir adt substs asubsts e0 = do
@@ -1590,12 +1588,12 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
 
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
-doCall :: forall h s ret a. (HasCallStack) => M.DefId -> [Maybe M.Ty] -> [M.Operand] 
+doCall :: forall h s ret a. (HasCallStack) => M.DefId -> Substs -> [M.Operand] 
    -> Maybe (M.Lvalue, M.BasicBlockInfo) -> CT.TypeRepr ret -> MirGenerator h s ret a
 doCall funid funsubst cargs cdest retRepr = do
     _hmap <- use handleMap
     _tmap <- use traitMap
-    mhand <- lookupFunction funid (Maybe.catMaybes funsubst)
+    mhand <- lookupFunction funid funsubst
     case cdest of 
       (Just (dest_lv, jdest))
 
@@ -1692,8 +1690,8 @@ doCall funid funsubst cargs cdest retRepr = do
       -- 5. Call the FunctionHandle passing the reference to the base value (step 2), and the rest of the arguments (translated)
 
 methodCall :: HasCallStack =>
-     TraitName -> MethName -> [Maybe M.Ty] -> M.Operand -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
-methodCall traitName methodName funsubst traitObject args (Just (dest_lv,jdest)) = do
+     TraitName -> MethName -> Substs -> M.Operand -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
+methodCall traitName methodName (Substs funsubst) traitObject args (Just (dest_lv,jdest)) = do
   (Some tis) <- traitImplsLookup traitName
   case Map.lookup methodName $ tis^.methodIndex of
     Nothing -> fail $ Text.unpack $ Text.unwords $ ["Error while translating a method call: no such method ",
@@ -1723,7 +1721,7 @@ methodCall traitName methodName funsubst traitObject args (Just (dest_lv,jdest))
                      Nothing -> fail $ "type error in TRAIT call: args " ++ (show ctx) ++ " vs function params "
                                  ++ show fargctx ++ " while calling " ++ show fn
              CT.PolyFnRepr fargctx fret ->
-               tyListToCtx (reverse (Maybe.catMaybes funsubst)) $ \subst -> do
+               tyListToCtx (reverse funsubst) $ \subst -> do
                  let fargctx' = CT.instantiate subst fargctx
                  let fret'    = CT.instantiate subst fret
                  exp_to_assgn exps $ \ctx asgn -> do
@@ -1756,7 +1754,7 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) tr = do
              
     case (funsubsts, cargs) of
-      (Just (M.TyDynamic traitName) : _, tobj:_args) | Nothing  <- M.isCustomFunc funid -> do
+      (Substs (M.TyDynamic traitName : _), tobj:_args) | Nothing  <- M.isCustomFunc funid -> do
         -- this is a method call on a trait object, and is not a custom function
         traceM $ show (vcat [text "At TRAIT function call of ", pretty funid, text " with arguments ", pretty cargs, 
                    text "with type parameters: ", pretty funsubsts])
@@ -1833,14 +1831,11 @@ initialValue M.TyChar = do
     return $ Just $ MirExp (CT.BVRepr w) (S.app (E.BVLit w 0))
 initialValue M.TyStr =
    return $ Just $ (MirExp CT.StringRepr (S.litExpr ""))
-initialValue (M.TyClosure defid (_i8:hty:params)) = do
-   -- TODO: eliminate the Maybe from the type of params
-   -- TODO: figure out what the first i8 type argument is for
-   
-   let closed_tys = filterMaybes params
+initialValue (M.TyClosure defid (Substs (_i8:hty:closed_tys))) = do
+   -- TODO: figure out what the first i8 type argument is for   
    mclosed_args <- mapM initialValue closed_tys
    let closed_args = filterMaybes mclosed_args
-   handle <- buildClosureHandle defid params closed_args
+   handle <- buildClosureHandle defid (Substs closed_tys) closed_args
    return $ Just $ handle
 -- TODO: this case is wrong --- we need to know which branch of the ADT to
 -- initialize. However, hopefully the allocateEnum pass will have converted
@@ -2030,12 +2025,12 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
 
 -- Predicates that we know something about and that we can turn into
 -- additional vtable arguments for this function
-argPred :: [TraitName] -> Predicate -> Maybe (TraitName, [Ty])
-argPred traits (Predicate name subst) | name `elem` traits, not (null subst)  = Just (name,subst)
+argPred :: [TraitName] -> Predicate -> Maybe (TraitName, Substs)
+argPred traits (Predicate name s@(Substs subst)) | name `elem` traits, not (null subst)  = Just (name,s)
 argPred traits _ = Nothing
 
-argPredType :: (TraitName, [Ty]) -> MirGenerator h s ret (Some CT.TypeRepr)
-argPredType (tn, ty:tys) = 
+argPredType :: (TraitName, Substs) -> MirGenerator h s ret (Some CT.TypeRepr)
+argPredType (tn, Substs (ty:tys)) = 
   tyToReprCont ty $ \implTy -> 
   tyListToCtx tys $ \subst -> do
      TraitMap tm <- use traitMap
@@ -2519,7 +2514,7 @@ extractVecTy :: forall a t. CT.TypeRepr t -> (forall t2. CT.TypeRepr t2 -> a) ->
 extractVecTy (CT.VectorRepr a) f = f a
 extractVecTy _ _ = error "Expected vector type in extraction"
 
-doCustomCall :: forall h s ret a. HasCallStack => M.DefId -> [Maybe M.Ty] -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
+doCustomCall :: forall h s ret a. HasCallStack => M.DefId -> Substs -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
 doCustomCall fname funsubst ops lv dest
   | Just "boxnew" <- M.isCustomFunc fname,
   [op] <- ops =  do
@@ -2598,7 +2593,7 @@ doCustomCall fname funsubst ops lv dest
      assignLvExp lv v
      jumpToBlock dest
 
- | Just "slice_len" <-  M.isCustomFunc fname, [vec] <- ops, [Just _] <- funsubst = do
+ | Just "slice_len" <-  M.isCustomFunc fname, [vec] <- ops, Substs [_] <- funsubst = do
      -- type of the structure is &mut[ elTy ]
      (MirExp vty vec_e) <- evalOperand vec
      case vty of
@@ -2608,7 +2603,9 @@ doCustomCall fname funsubst ops lv dest
            jumpToBlock dest
        _ -> fail $ " slice_len type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
- | Just "slice_get" <-  M.isCustomFunc fname, [vec,range] <- ops, [Just ty1, Just ty2] <- funsubst = do
+ | Just "slice_get" <-  M.isCustomFunc fname,
+   [vec,range] <- ops,
+   Substs [ty1, ty2] <- funsubst = do
      vec_e <- evalOperand vec
      range_e <- evalOperand range
      let v = undefined
@@ -2617,7 +2614,7 @@ doCustomCall fname funsubst ops lv dest
 
  | Just "slice_get_mut" <-  M.isCustomFunc fname,
    [vec, range] <- ops,
-   [Just elTy, Just idxTy] <- funsubst = do
+   Substs [elTy, idxTy] <- funsubst = do
 
      -- type of the structure is &mut[ elTy ]
      (MirExp vty vec_e) <- evalOperand vec
@@ -2633,7 +2630,7 @@ doCustomCall fname funsubst ops lv dest
 
 
  | Just "call" <- M.isCustomFunc fname, -- perform call of closure
- [o1, o2] <- ops, [Just ty1, Just aty] <- funsubst   = do
+ [o1, o2] <- ops, Substs [ty1, aty] <- funsubst   = do
 
      -- is it the case that ty1 is always the same as M.typeOf o1???
      when (ty1 /= M.typeOf o1) $ do
@@ -2646,8 +2643,7 @@ doCustomCall fname funsubst ops lv dest
  
          unpackClosure (M.TyRef ty M.Immut) rty  arg   = unpackClosure ty rty arg
 
-         unpackClosure (M.TyClosure defid clargsm) _rty arg = do
-             let clargs = filterMaybes clargsm
+         unpackClosure (M.TyClosure defid clargs) _rty arg = do
              (clty, _rty2) <- buildClosureType defid clargs
              unpackAny clty arg
               
@@ -2742,8 +2738,7 @@ performClosureCall closure_pack handle args =
 performMap :: M.Ty -> MirExp s -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s) -- return result iterator
 performMap iterty iter closurety closure =
     case (iterty, closurety) of
-      (M.TyCustom (M.IterTy _t), M.TyClosure defid clargsm) -> do
-          let clargs = filterMaybes clargsm
+      (M.TyCustom (M.IterTy _t), M.TyClosure defid clargs) -> do
           (clty, rty) <- buildClosureType defid clargs
           unpack_closure <- unpackAny clty closure
           handle <- accessAggregate unpack_closure 0

@@ -16,6 +16,8 @@ License          : BSD3
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -46,6 +48,12 @@ import GHC.Stack
 
 import Mir.DefId
 
+-- Why isn't this in base???
+safeIndex :: [a] -> Int -> Maybe a
+safeIndex (x:_)  0         = Just x
+safeIndex (_:xs) n | n > 0 = safeIndex xs (n - 1)
+safeIndex _      _         = Nothing
+
 -- NOTE: below, all unwinding calls can be ignored
 --
 --
@@ -67,6 +75,11 @@ data FloatKind
   | F64
   deriving (Eq, Ord, Show, Generic, GenericOps)
 
+newtype Substs = Substs [Ty]
+  deriving (Eq, Ord, Show, Generic)
+  deriving anyclass (GenericOps)
+  deriving newtype (Semigroup, Monoid)
+
 data Ty =
     TyBool
       | TyChar
@@ -77,19 +90,19 @@ data Ty =
       | TyArray Ty Int
       | TyRef Ty Mutability
       | TyAdt DefId      -- ^ name
-              [Maybe Ty] -- ^ type parameters
+              Substs -- ^ type parameters
       | TyUnsupported
       | TyCustom CustomTy
       | TyParam Integer
-      | TyFnDef DefId [Maybe Ty]
-      | TyClosure DefId [Maybe Ty]
+      | TyFnDef DefId Substs
+      | TyClosure DefId Substs
       | TyStr
       | TyFnPtr FnSig
       | TyDynamic DefId
       | TyRawPtr Ty Mutability
       | TyFloat FloatKind
       | TyDowncast Ty Integer   --- result type of downcasting an ADT. Ty must be an ADT type
-      | TyProjection DefId [Maybe Ty]
+      | TyProjection DefId Substs
       | TyLifetime
       deriving (Eq, Ord, Show, Generic)
 
@@ -116,7 +129,7 @@ data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [F
     deriving (Eq, Ord,Show, Generic, GenericOps)
 
 
-data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: [Maybe Ty]}
+data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: Substs}
     deriving (Show, Eq, Ord, Generic, GenericOps)
 
 
@@ -152,7 +165,7 @@ data Collection = Collection {
 
 data Predicate = Predicate {
     _ptrait :: DefId,
-    _psubst :: [Ty]
+    _psubst :: Substs
     }
     | UnknownPredicate
     deriving (Show, Eq, Ord, Generic, GenericOps)
@@ -162,11 +175,12 @@ data Param = Param {
 } deriving (Show, Eq, Ord, Generic, GenericOps)
 
 newtype Params = Params [Param]
-   deriving (Show, Eq, Ord, Generic, GenericOps)
+   deriving (Show, Eq, Ord, Generic)
+   deriving anyclass (GenericOps)
 
 newtype Predicates = Predicates [Predicate]
-   deriving (Show, Eq, Ord, Generic, GenericOps)
-
+   deriving (Show, Eq, Ord, Generic)
+   deriving anyclass (GenericOps)
 
 data Fn = Fn {
     _fname :: DefId,
@@ -347,7 +361,7 @@ data CastKind =
       deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data Literal =
-    Item DefId [Maybe Ty]
+    Item DefId Substs
   | Value ConstVal
   | LPromoted Promoted
   deriving (Show,Eq, Ord, Generic, GenericOps)
@@ -378,7 +392,7 @@ data ConstVal =
   | ConstBool Bool
   | ConstChar Char
   | ConstVariant DefId
-  | ConstFunction DefId [Maybe Ty]
+  | ConstFunction DefId Substs
   | ConstStruct
   | ConstTuple [ConstVal]
   | ConstArray [ConstVal]
@@ -388,7 +402,7 @@ data ConstVal =
 data AggregateKind =
         AKArray Ty
       | AKTuple
-      | AKClosure DefId [Maybe Ty]
+      | AKClosure DefId Substs
       deriving (Show,Eq, Ord, Generic, GenericOps)
 
 data CustomAggregate =
@@ -444,8 +458,8 @@ class GenericOps a where
   markCStyle s x = to (markCStyle' s (from x))
 
   -- | Type variable substitution. Type variables are represented via indices.
-  tySubst :: [Maybe Ty] -> a -> a 
-  default tySubst :: (Generic a, GenericOps' (Rep a)) => [Maybe Ty] -> a -> a
+  tySubst :: Substs -> a -> a 
+  default tySubst :: (Generic a, GenericOps' (Rep a)) => Substs -> a -> a
   tySubst s x = to (tySubst' s (from x))
 
   -- | Renaming for term variables
@@ -472,16 +486,13 @@ instance GenericOps DefId where
 instance GenericOps Ty where
 
   -- Translate C-style enums to CEnum types
-  markCStyle s (TyAdt n [])  | n `elem` s = TyCustom (CEnum n)
+  markCStyle s (TyAdt n (Substs []))  | n `elem` s = TyCustom (CEnum n)
   markCStyle s (TyAdt n _ps) | n `elem` s = error "Cannot have params to C-style enum!"
   markCStyle s ty = to (markCStyle' s (from ty))
 
   -- Substitute for type variables
-  tySubst substs (TyParam i)
-     | fromInteger i < length substs =
-         case substs !! fromInteger i of
-                        Nothing -> error "impossible"
-                        Just ty -> ty
+  tySubst (Substs substs) (TyParam i)
+     | fromInteger i < length substs = substs !! fromInteger i 
      | otherwise    = error $ "Indexing at " ++ show i ++ "  from subst " ++ show substs
   tySubst substs ty = to (tySubst' substs (from ty))
 
@@ -509,7 +520,7 @@ instance GenericOps Lvalue where
 class GenericOps' f where
   relocate'   :: f p -> f p
   markCStyle' :: [AdtName] -> f p -> f p
-  tySubst'    :: [Maybe Ty] -> f p -> f p 
+  tySubst'    :: Substs -> f p -> f p 
   replaceVar' :: Var -> Var -> f p -> f p
   replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
   
@@ -692,9 +703,9 @@ isPoly (TySlice ty) = isPoly ty
 isPoly (TyArray ty _i) = isPoly ty
 isPoly (TyRef ty _mut) = isPoly ty
 isPoly (TyRawPtr ty _mut) = isPoly ty
-isPoly (TyAdt _ params) = any (any isPoly) params
-isPoly (TyFnDef _ params) = any (any isPoly) params
-isPoly (TyClosure _ params) = any (any isPoly) params
+isPoly (TyAdt _ (Substs params)) = any isPoly params
+isPoly (TyFnDef _ (Substs params)) = any isPoly params
+isPoly (TyClosure _ (Substs params)) = any isPoly params
 isPoly (TyCustom (BoxTy ty)) = isPoly ty
 isPoly (TyCustom (VecTy ty)) = isPoly ty
 isPoly (TyCustom (IterTy ty)) = isPoly ty
@@ -939,6 +950,9 @@ instance PPrint BaseSize where
 instance PPrint FloatKind where
     pprint = show
 
+instance PPrint Substs where
+    pprint = show
+
 instance PPrint Ty where
     pprint = show
 
@@ -1163,6 +1177,13 @@ instance FromJSON FloatKind where
                                                  Just (String "f64") -> pure F64
                                                  sz -> fail $ "unknown float type: " ++ show sz
 
+instance FromJSON Substs where
+    parseJSON v = do
+      ml <- parseJSONList v
+      case sequence ml of
+        Just l  -> pure $ Substs l
+        Nothing -> fail "invalid type argument found in substs"
+
 instance FromJSON Ty where
     parseJSON = withObject "Ty" $ \v -> case HML.lookup "kind" v of
                                           Just (String "Bool") -> pure TyBool
@@ -1189,7 +1210,7 @@ instance FromJSON Ty where
                                           Just (String "Dynamic") -> TyDynamic <$> v .: "data"
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
-                                          Just (String "Never") -> pure (TyAdt "::Never[0]" [])
+                                          Just (String "Never") -> pure (TyAdt "::Never[0]" (Substs []))
                                           Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
                                           Just (String "Lifetime") -> pure TyLifetime
                                           r -> fail $ "unsupported ty: " ++ show r
