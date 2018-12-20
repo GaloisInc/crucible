@@ -809,7 +809,7 @@ isAligned ::
   Alignment ->
   IO (Pred sym)
 isAligned sym _w _p a
-  | a == 0 = return (truePred sym)
+  | a == noAlignment = return (truePred sym)
 isAligned sym w (LLVMPointer _blk offset) a
   | Just (Some bits) <- someNat (alignmentToExponent a)
   , Just LeqProof <- isPosNat bits
