@@ -94,7 +94,10 @@ module Lang.Crucible.Types
   , closedInstantiateF
   , closedInstantiateFC
 
+  -- ** Evidence for closedness
   , assumeClosed
+  , checkClosed
+  , checkClosedCtx
 
     -- * IsRecursiveType
   , IsRecursiveType(..)
@@ -130,6 +133,7 @@ module Lang.Crucible.Types
   , floatInfoToBVTypeRepr
   ) where
 
+import           Data.Constraint (Dict(..))
 import           Data.Hashable
 import           Data.Kind
 import           Data.Type.Equality
@@ -662,7 +666,68 @@ newtype Gift a r = Gift (Closed a => r)
 assumeClosed :: forall a b. (Closed a => b) -> b
 assumeClosed k = unsafeCoerce (Gift k :: Gift a b)
                        (error "No instance of Closed provided")
-    
+
+-- | Attempt to construct evidence that a context is closed, assuming
+-- the invariant that type variables are well-scoped.
+checkClosedCtx :: CtxRepr ts -> Maybe (Dict (Closed ts))
+checkClosedCtx ctx =
+  case Ctx.viewAssign ctx of
+    Ctx.AssignEmpty -> Just Dict
+    Ctx.AssignExtend ts t ->
+      do Dict <- checkClosedCtx ts
+         Dict <- checkClosed t
+         Just Dict
+
+-- | Attempt to construct evidence that a type is closed, assuming
+-- the invariant that type variables are well-scoped.
+checkClosed :: TypeRepr t -> Maybe (Dict (Closed t))
+checkClosed AnyRepr = Just Dict
+checkClosed UnitRepr = Just Dict
+checkClosed BoolRepr = Just Dict
+checkClosed NatRepr = Just Dict
+checkClosed IntegerRepr = Just Dict
+checkClosed RealValRepr = Just Dict
+checkClosed ComplexRealRepr = Just Dict
+checkClosed (BVRepr _) = Just Dict
+checkClosed (IntrinsicRepr _ args) =
+  do Dict <- checkClosedCtx args
+     Just Dict
+checkClosed (RecursiveRepr _ ctx) =
+  do Dict <- checkClosedCtx ctx
+     Just Dict
+checkClosed (FloatRepr _) = Just Dict
+checkClosed (IEEEFloatRepr _) = Just Dict
+checkClosed CharRepr = Just Dict
+checkClosed StringRepr = Just Dict
+checkClosed (FunctionHandleRepr args ret) =
+  do Dict <- checkClosedCtx args
+     Dict <- checkClosed ret
+     Just Dict
+checkClosed (MaybeRepr t) =
+  do Dict <- checkClosed t
+     Just Dict
+checkClosed (VectorRepr t) =
+  do Dict <- checkClosed t
+     Just Dict
+checkClosed (StructRepr fields) =
+  do Dict <- checkClosedCtx fields
+     Just Dict
+checkClosed (VariantRepr cases) =
+  do Dict <- checkClosedCtx cases
+     Just Dict
+checkClosed (ReferenceRepr t) =
+  do Dict <- checkClosed t
+     Just Dict
+checkClosed (WordMapRepr _ _) = Just Dict
+checkClosed (StringMapRepr t) =
+  do Dict <- checkClosed t
+     Just Dict
+checkClosed (SymbolicArrayRepr _ _) = Just Dict
+checkClosed (SymbolicStructRepr _) = Just Dict
+checkClosed (VarRepr _) = Nothing
+checkClosed (PolyFnRepr _ _) = Just Dict -- Can this possibly be right?
+
+
 --------------------------------------------------------------------------------
 -- Instantiate/InstantiateType/InstantiateF/InstantiateFC instances
 
