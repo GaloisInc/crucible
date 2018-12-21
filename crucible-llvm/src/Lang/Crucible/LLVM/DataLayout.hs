@@ -21,6 +21,7 @@ module Lang.Crucible.LLVM.DataLayout
   , padToAlignment
   , toAlignment
   , fromAlignment
+  , exponentToAlignment
   , alignmentToExponent
     -- * Data layout declarations.
   , DataLayout
@@ -55,10 +56,11 @@ import Lang.Crucible.LLVM.Bytes
 ------------------------------------------------------------------------
 -- Data layout
 
--- | Alignments must be a power of two, so we just store the exponent.
--- e.g., alignment value of 3 indicates the pointer must align on 2^3-byte boundaries.
+-- | An @Alignment@ represents a number of bytes that must be a power of two.
 newtype Alignment = Alignment Word32
-  deriving (Eq, Ord, Num, Show)
+  deriving (Eq, Ord, Show)
+-- The representation just stores the exponent. E.g., @Alignment 3@
+-- indicates alignment to a 2^3-byte boundary.
 
 -- | 1-byte alignment, which is the minimum possible.
 noAlignment :: Alignment
@@ -72,12 +74,16 @@ padToAlignment x (Alignment n) = fromInteger (nextPow2Multiple (bytesToInteger x
 -- | Convert a number of bytes into an alignment, if it is a power of 2.
 toAlignment :: Bytes -> Maybe Alignment
 toAlignment (Bytes x)
-  | isPow2 x = Just (fromIntegral (lg x))
+  | isPow2 x = Just (Alignment (fromIntegral (lg x)))
   | otherwise = Nothing
 
 -- | Convert an alignment to a number of bytes.
 fromAlignment :: Alignment -> Bytes
 fromAlignment (Alignment n) = Bytes (2 ^ n)
+
+-- | Convert an exponent @n@ to an alignment of @2^n@ bytes.
+exponentToAlignment :: Integer -> Alignment
+exponentToAlignment n = Alignment (fromIntegral n)
 
 alignmentToExponent :: Alignment -> Integer
 alignmentToExponent (Alignment n) = toInteger n
@@ -217,7 +223,7 @@ fromBits :: Int -> Either String Alignment
 fromBits a | w <= 0 = Left $ "Alignment must be a positive number."
            | r /= 0 = Left $ "Alignment specification must occupy a byte boundary."
            | not (isPow2 w) = Left $ "Alignment must be a power of two."
-           | otherwise = Right $ fromIntegral (lg w)
+           | otherwise = Right $ Alignment (fromIntegral (lg w))
   where (w,r) = toInteger a `divMod` 8
 
 -- | Insert alignment into spec.
