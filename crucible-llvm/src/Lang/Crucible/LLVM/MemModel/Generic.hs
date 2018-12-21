@@ -98,7 +98,7 @@ data MemAlloc sym
      -- 'Mutability' indicates whether the region is read-only. The
      -- 'String' contains source location information for use in error
      -- messages.
-   = forall w. Alloc AllocType Natural (SymBV sym w) Mutability String
+   = forall w. Alloc AllocType Natural (SymBV sym w) Mutability Alignment String
      -- | Freeing of the given block ID.
    | MemFree (SymNat sym)
      -- | The merger of two allocations.
@@ -537,7 +537,7 @@ readMem ::
   IO (PartLLVMVal sym)
 readMem sym w l tp alignment m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocated sym w l sz m
+     p1 <- isAllocated sym w alignment l sz m
      p2 <- isAligned sym w l alignment
      p <- andPred sym p1 p2
      val <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
@@ -699,16 +699,19 @@ memEndian = memEndianForm
 
 -- This function is parameterized by a predicate on the mutability, so
 -- it can optionally be restricted to mutable regions only.
+-- It is also parameterized by a required alignment; only allocations
+-- with at least this level of alignment are considered.
 isAllocatedMut ::
   forall sym w .
   (1 <= w, IsSymInterface sym) =>
   (Mutability -> Bool) ->
   sym -> NatRepr w     ->
+  Alignment            ->
   LLVMPtr sym w        ->
   SymBV sym w          ->
   Mem sym              ->
   IO (Pred sym)
-isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
+isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m = do
    do (ov, end) <- addUnsignedOF sym off sz
       let step :: forall w'. Natural -> SymBV sym w' -> IO (Pred sym) -> IO (Pred sym)
           step a asz fallback
@@ -736,8 +739,8 @@ isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
 
       let go :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
           go fallback [] = fallback
-          go fallback (Alloc _ a asz mut _ : r)
-            | mutOk mut = step a asz (go fallback r)
+          go fallback (Alloc _ a asz mut align _ : r)
+            | mutOk mut && align >= minAlign = step a asz (go fallback r)
             | otherwise = go fallback r
           go fallback (MemFree a : r) =
             do sameBlock <- natEq sym blk a
@@ -770,18 +773,19 @@ isAllocatedMut mutOk sym w (llvmPointerView -> (blk, off)) sz m = do
 -- that is inside the range of the allocation OR ONE PAST THE END are considered
 -- "allocated"; this is intended, as it captures C's behavior regarding valid
 -- pointers.
-isAllocated :: forall sym w. (1 <= w, IsSymInterface sym)
-            => sym
-            -> NatRepr w
-            -> LLVMPtr sym w
-            -> SymBV sym w
-            -> Mem sym
-            -> IO (Pred sym)
+isAllocated ::
+  forall sym w. (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  Alignment        ->
+  LLVMPtr sym w    ->
+  SymBV sym w      ->
+  Mem sym          ->
+  IO (Pred sym)
 isAllocated = isAllocatedMut (const True)
 
 isAllocatedMutable ::
   (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w -> LLVMPtr sym w -> SymBV sym w -> Mem sym -> IO (Pred sym)
+  sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> SymBV sym w -> Mem sym -> IO (Pred sym)
 isAllocatedMutable = isAllocatedMut (== Mutable)
 
 -- | @isValidPointer sym w b m@ returns condition required to prove range
@@ -796,7 +800,7 @@ isValidPointer :: (1 <= w, IsSymInterface sym)
         => sym -> NatRepr w -> LLVMPtr sym w -> Mem sym -> IO (Pred sym)
 isValidPointer sym w p m = do
    sz <- constOffset sym w 0
-   isAllocated sym w p sz m
+   isAllocated sym w noAlignment p sz m
    -- NB We call isAllocated with a size of 0.
 
 -- | Generate a predicate asserting that the given pointer satisfies
@@ -843,8 +847,8 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
      orPred sym p0 =<< orPred sym p1 p2
   where
     isMutable _blk [] = return (falsePred sym)
-    isMutable blk (Alloc _ _ _ Immutable _ : r) = isMutable blk r
-    isMutable blk (Alloc _ a _ Mutable _ : r) =
+    isMutable blk (Alloc _ _ _ Immutable _ _ : r) = isMutable blk r
+    isMutable blk (Alloc _ a _ Mutable _ _ : r) =
       do p1 <- natEq sym blk =<< natLit sym a
          p2 <- isMutable blk r
          orPred sym p1 p2
@@ -871,7 +875,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
          -> IO (Pred sym, Mem sym)
 writeMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocatedMutable sym w ptr sz m
+     p1 <- isAllocatedMutable sym w alignment ptr sz m
      p2 <- isAligned sym w ptr alignment
      p  <- andPred sym p1 p2
      return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
@@ -891,25 +895,25 @@ writeConstMem ::
   IO (Pred sym, Mem sym)
 writeConstMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocated sym w ptr sz m
+     p1 <- isAllocated sym w alignment ptr sz m
      p2 <- isAligned sym w ptr alignment
      p  <- andPred sym p1 p2
      return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
 
 -- | Perform a mem copy. The returned 'Pred' asserts that the source
 -- and destination pointers both fall within allocated memory regions.
-copyMem :: (1 <= w, IsSymInterface sym)
-         => sym -> NatRepr w
-         -> LLVMPtr sym w -- ^ Dest
-         -> LLVMPtr sym w -- ^ Source
-         -> SymBV sym w -- ^ Size
-         -> Mem sym
-         -> IO (Pred sym, Mem sym)
-
-copyMem sym w dst src sz m = do
-  (,) <$> (join $ andPred sym <$> isAllocatedMutable sym w dst sz m
-                              <*> isAllocated sym w src sz m)
-      <*> (return $ m & memAddWrite (MemWrite dst (MemCopy src sz)))
+copyMem ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Dest   -} ->
+  LLVMPtr sym w {- ^ Source -} ->
+  SymBV sym w   {- ^ Size   -} ->
+  Mem sym -> IO (Pred sym, Mem sym)
+copyMem sym w dst src sz m =
+  do p1 <- isAllocatedMutable sym w noAlignment dst sz m
+     p2 <- isAllocated sym w noAlignment src sz m
+     p  <- andPred sym p1 p2
+     return (p, memAddWrite (MemWrite dst (MemCopy src sz)) m)
 
 -- | Perform a mem set, filling a number of bytes with a given 8-bit
 -- value. The returned 'Pred' asserts that the pointer falls within an
@@ -923,44 +927,40 @@ setMem ::
   Mem sym -> IO (Pred sym, Mem sym)
 
 setMem sym w ptr val sz m =
-  do p <- isAllocatedMutable sym w ptr sz m
+  do p <- isAllocatedMutable sym w noAlignment ptr sz m
      return (p, memAddWrite (MemWrite ptr (MemSet val sz)) m)
 
 -- | Write an array to memory. The returned 'Pred' asserts that
 -- the pointer falls within an allocated memory region.
-writeArrayMem
-  :: (IsSymInterface sym, 1 <= w)
-  => sym
-  -> NatRepr w
-  -> LLVMPtr sym w {- ^ Pointer -}
-  -> Alignment
-  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -}
-  -> SymBV sym w {- ^ Array size -}
-  -> Mem sym
-  -> IO (Pred sym, Mem sym)
-writeArrayMem sym w ptr alignment arr sz m = do
-  p1 <- isAllocatedMutable sym w ptr sz m
-  p2 <- isAligned sym w ptr alignment
-  p  <- andPred sym p1 p2
-  return (p, memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m)
+writeArrayMem ::
+  (IsSymInterface sym, 1 <= w) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Pointer -} ->
+  Alignment ->
+  SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
+  SymBV sym w {- ^ Array size -} ->
+  Mem sym -> IO (Pred sym, Mem sym)
+writeArrayMem sym w ptr alignment arr sz m =
+  do p1 <- isAllocatedMutable sym w alignment ptr sz m
+     p2 <- isAligned sym w ptr alignment
+     p  <- andPred sym p1 p2
+     return (p, memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m)
 
 -- | Write an array to memory. The returned 'Pred' asserts that
 -- the pointer falls within an allocated memory region.
-writeArrayConstMem
-  :: (IsSymInterface sym, 1 <= w)
-  => sym
-  -> NatRepr w
-  -> LLVMPtr sym w {- ^ Pointer -}
-  -> Alignment
-  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -}
-  -> SymBV sym w {- ^ Array size -}
-  -> Mem sym
-  -> IO (Pred sym, Mem sym)
-writeArrayConstMem sym w ptr alignment arr sz m = do
-  p1 <- isAllocated sym w ptr sz m
-  p2 <- isAligned sym w ptr alignment
-  p  <- andPred sym p1 p2
-  return (p, memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m)
+writeArrayConstMem ::
+  (IsSymInterface sym, 1 <= w) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Pointer -} ->
+  Alignment ->
+  SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
+  SymBV sym w {- ^ Array size -} ->
+  Mem sym -> IO (Pred sym, Mem sym)
+writeArrayConstMem sym w ptr alignment arr sz m =
+  do p1 <- isAllocated sym w alignment ptr sz m
+     p2 <- isAligned sym w ptr alignment
+     p  <- andPred sym p1 p2
+     return (p, memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m)
 
 -- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
@@ -971,26 +971,27 @@ allocMem :: AllocType -- ^ Type of allocation
          -> String -- ^ Source location
          -> Mem sym
          -> Mem sym
-allocMem a b sz _alignment mut loc = memAddAlloc (Alloc a b sz mut loc) -- TODO, pay attention to alignment
+allocMem a b sz alignment mut loc = memAddAlloc (Alloc a b sz mut alignment loc)
 
 -- | Allocate and initialize a new memory region.
-allocAndWriteMem :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w
-                 -> AllocType -- ^ Type of allocation
-                 -> Natural -- ^ Block id for allocation
-                 -> StorageType
-                 -> Alignment
-                 -> Mutability -- ^ Is block read-only
-                 -> String -- ^ Source location
-                 -> LLVMVal sym -- ^ Value to write
-                 -> Mem sym
-                 -> IO (Mem sym)
-allocAndWriteMem sym w a b tp alignment mut loc v m = do
-  sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-  base <- natLit sym b
-  off <- bvLit sym w 0
-  let p = LLVMPointer base off
-  return (m & memAddAlloc (Alloc a b sz mut loc)
-            & memAddWrite (MemWrite p (MemStore v tp alignment)))
+allocAndWriteMem ::
+  (1 <= w, IsExprBuilder sym) =>
+  sym -> NatRepr w ->
+  AllocType   {- ^ Type of allocation -}      ->
+  Natural     {- ^ Block id for allocation -} ->
+  StorageType                                 ->
+  Alignment                                   ->
+  Mutability  {- ^ Is block read-only -}      ->
+  String      {- ^ Source location -}         ->
+  LLVMVal sym {- ^ Value to write -}          ->
+  Mem sym -> IO (Mem sym)
+allocAndWriteMem sym w a b tp alignment mut loc v m =
+  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+     base <- natLit sym b
+     off <- bvLit sym w 0
+     let p = LLVMPointer base off
+     return (m & memAddAlloc (Alloc a b sz mut alignment loc)
+               & memAddWrite (MemWrite p (MemStore v tp alignment)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ StackFrame emptyChanges
@@ -1013,9 +1014,9 @@ popStackFrameMem m = m & memState %~ popf
 
         popf _ = error "popStackFrameMem given unexpected memory"
 
-        pa (Alloc StackAlloc _ _ _ _) = Nothing
-        pa a@(Alloc HeapAlloc _ _ _ _) = Just a
-        pa a@(Alloc GlobalAlloc _ _ _ _) = Just a
+        pa (Alloc StackAlloc _ _ _ _ _) = Nothing
+        pa a@(Alloc HeapAlloc _ _ _ _ _) = Just a
+        pa a@(Alloc GlobalAlloc _ _ _ _ _) = Just a
         pa a@(MemFree _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
@@ -1041,13 +1042,13 @@ freeMem sym w (LLVMPointer blk off) m =
     isHeapAllocated fallback [] = fallback
     isHeapAllocated fallback (alloc : r) =
       case alloc of
-        Alloc HeapAlloc a _ Mutable _ ->
+        Alloc HeapAlloc a _ Mutable _ _ ->
           do sameBlock <- natEq sym blk =<< natLit sym a
              case asConstantPred sameBlock of
                Just True  -> return (truePred sym)
                Just False -> isHeapAllocated fallback r
                Nothing    -> orPred sym sameBlock =<< isHeapAllocated fallback r
-        Alloc _ _ _ _ _ ->
+        Alloc _ _ _ _ _ _ ->
           isHeapAllocated fallback r
         MemFree a ->
           do sameBlock <- natEq sym blk a
@@ -1132,7 +1133,7 @@ ppMerge vpp c x y =
     indent 2 (vcat $ map vpp y)
 
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
-ppAlloc (Alloc atp base sz mut loc) =
+ppAlloc (Alloc atp base sz mut _alignment loc) =
   text (show atp) <+> text (show base) <+> printSymExpr sz <+> text (show mut) <+> text loc
 ppAlloc (MemFree base) =
   text "free" <+> printSymExpr base
