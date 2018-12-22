@@ -739,8 +739,8 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m = do
 
       let go :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
           go fallback [] = fallback
-          go fallback (Alloc _ a asz mut align _ : r)
-            | mutOk mut && align >= minAlign = step a asz (go fallback r)
+          go fallback (Alloc _ a asz mut alignment _ : r)
+            | mutOk mut && alignment >= minAlign = step a asz (go fallback r)
             | otherwise = go fallback r
           go fallback (MemFree a : r) =
             do sameBlock <- natEq sym blk a
