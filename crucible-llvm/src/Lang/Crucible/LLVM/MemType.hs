@@ -367,12 +367,13 @@ siIndexOfOffset si o = binarySearch f 0 (V.length flds)
 commas :: [Doc] -> Doc
 commas = hsep . punctuate (char ',')
 
-structBraces :: Doc -> Doc
-structBraces b = char '{' <+> b <+> char '}'
+structBraces :: Bool -> Doc -> Doc
+structBraces False b = char '{' <+> b <+> char '}'
+structBraces True  b = string "<{" <+> b <+> string "}>"
 
 -- | Pretty print struct info.
 ppStructInfo :: StructInfo -> Doc
-ppStructInfo si = structBraces $ commas (V.toList fields)
+ppStructInfo si = structBraces (siIsPacked si) $ commas (V.toList fields)
   where fields = ppMemType <$> siFieldTypes si
 
 -- | Removes the last field from a struct if at least one field exists.
