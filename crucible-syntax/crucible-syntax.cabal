@@ -38,7 +38,8 @@ library
     text,
     transformers,
     vector,
-    what4
+    what4,
+    word-wrap >=0.4.1 && < 0.5
 
   hs-source-dirs: src
 
@@ -67,7 +68,8 @@ executable crucibler
     parameterized-utils >= 0.1.7,
     s-cargot,
     text,
-    what4
+    what4,
+    word-wrap >=0.4.1 && < 0.5
 
   ghc-options: -Wall
 
@@ -95,5 +97,6 @@ test-suite crucible-syntax-tests
     tasty-golden,
     tasty-hunit,
     text,
-    what4
+    what4,
+    word-wrap >=0.4.1 && < 0.5
 

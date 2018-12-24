@@ -66,6 +66,7 @@ import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.TraversableFC
 import Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
+import Data.List (elemIndex, nub, sort)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
@@ -92,7 +93,8 @@ import Lang.Crucible.FunctionHandle
 import Numeric.Natural ()
 
 
-liftSyntaxParse :: MonadError (ExprErr s) m => SyntaxParse Atomic a -> AST s -> m a
+liftSyntaxParse :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
+                => SyntaxParse Atomic a -> AST s -> m a
 liftSyntaxParse p ast =
   case syntaxParse p ast of
     Left e -> throwError (SyntaxParseError e)
@@ -130,6 +132,7 @@ data ExprErr s where
   Errs :: ExprErr s -> ExprErr s -> ExprErr s
   DuplicateAtom :: Position -> AtomName -> ExprErr s
   DuplicateLabel :: Position -> LabelName -> ExprErr s
+  DuplicateTypeArg :: Position -> TyVarName -> ExprErr s
   EmptyBlock :: Position -> ExprErr s
   NotGlobal :: Position -> AST s -> ExprErr s
   InvalidRegister :: Position -> AST s -> ExprErr s
@@ -187,6 +190,10 @@ atomName = sideCondition "Crucible atom literal" isCAtom atomic
   where isCAtom (At a) = Just a
         isCAtom _ = Nothing
 
+typeVarName :: MonadSyntax Atomic m => m TyVarName
+typeVarName = sideCondition "type variable" isTV atomic
+  where isTV (TyV x) = Just x
+        isTV _ = Nothing
 
 bool :: MonadSyntax Atomic m => m  Bool
 bool = sideCondition "Boolean literal" isBool atomic
@@ -221,7 +228,7 @@ repUntilLast sp = describe "zero or more followed by one" $ repUntilLast' sp
           (cons p emptyList <&> \(x, ()) -> ([], x)) <|>
           (cons p (repUntilLast' p) <&> \(x, (xs, lst)) -> (x:xs, lst))
 
-isBaseType :: MonadSyntax Atomic m => m (Some BaseTypeRepr)
+isBaseType :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m) => m (Some BaseTypeRepr)
 isBaseType =
   describe "base type" $
   do Some tp <- isType
@@ -254,10 +261,10 @@ natRepr =
   where checkNonneg i | i >= 0 = Just i
         checkNonneg _ = Nothing
 
-isType :: MonadSyntax Atomic m => m (Some TypeRepr)
+isType :: forall h s m . (MonadState (SyntaxState h s) m, MonadSyntax Atomic m) => m (Some TypeRepr)
 isType =
   describe "type" $ call
-    (atomicType <|> vector <|> ref <|> bv <|> fun <|> maybeT <|> var)
+    (variable <|> atomicType <|> vector <|> ref <|> bv <|> fun <|> maybeT <|> variant)
 
   where
     atomicType =
@@ -281,12 +288,28 @@ isType =
                     Nothing -> empty
                     Just LeqProof -> return $ Some $ BVRepr len
 
-    fun :: MonadSyntax Atomic m => m (Some TypeRepr)
+    fun :: m (Some TypeRepr)
     fun = cons (kw FunT) (repUntilLast isType) <&> \((), (args, ret)) -> mkFunRepr args ret
 
     maybeT = unary MaybeT isType <&> \(Some t) -> Some (MaybeRepr t)
-    var :: MonadSyntax Atomic m => m (Some TypeRepr)
-    var = cons (kw VariantT) (rep isType) <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
+
+    variant :: m (Some TypeRepr)
+    variant = cons (kw VariantT) (rep isType) <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
+
+    variable :: m (Some TypeRepr)
+    variable =
+      describe "known type variable" $
+      do x <- typeVarName
+         ctx <- use stxTypeArgs
+         case elemIndex x ctx of
+           Just ix ->
+             later $
+             describe "type variable index" $
+             case someNat $ toInteger ix of
+               Nothing -> empty
+               Just (Some ixRepr) -> return $ Some $ VarRepr ixRepr
+           Nothing -> empty
+
 
 
 someExprType :: SomeExpr s -> Maybe (Some TypeRepr)
@@ -383,14 +406,17 @@ forceSynth (SomeIntLiteral ast _) =
   withFocus ast $ later (describe "unambiguous numeric literal (add type annotation to disambiguate)" empty)
 
 synth :: forall m h s.
-  (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m) => m (Pair TypeRepr (E s))
+  (MonadState (SyntaxState h s) m, MonadSyntax Atomic m) => m (Pair TypeRepr (E s))
 synth = forceSynth =<< synth'
 
 synth' :: forall m h s.
-  (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m) => m (SomeExpr s)
+  (MonadState (SyntaxState h s) m, MonadSyntax Atomic m) => m (SomeExpr s)
 synth' = synthExpr Nothing
 
-synthExpr :: forall m h s . (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m)
+
+
+
+synthExpr :: forall m h s . (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
        => Maybe (Some TypeRepr) -> m (SomeExpr s)
 synthExpr typeHint =
   describe "expression" $
@@ -407,26 +433,27 @@ synthExpr typeHint =
      ite <|>  intLit <|> rationalLit <|> intp <|>
      unaryBV BVNonzero_ BVNonzero <|> compareBV BVCarry_ BVCarry <|>
      compareBV BVSCarry_ BVSCarry <|> compareBV BVSBorrow_ BVSBorrow <|>
-     compareBV Slt BVSlt <|> compareBV Sle BVSle)
+     compareBV Slt BVSlt <|> compareBV Sle BVSle <|>
+     inst)
 
--- Syntactic constructs still to add (see issue #74)
+     -- Syntactic constructs still to add (see issue #74)
 
--- BvToInteger, SbvToInteger, BvToNat
--- MkStruct, GetStruct, SetStruct
--- NatToInteger, IntegerToReal
--- RealRound, RealFloor, RealCeil
--- IntegerToBV, RealToNat
+     -- BvToInteger, SbvToInteger, BvToNat
+     -- MkStruct, GetStruct, SetStruct
+     -- NatToInteger, IntegerToReal
+     -- RealRound, RealFloor, RealCeil
+     -- IntegerToBV, RealToNat
 
--- EmptyWordMap, InsertWordMap, LookupWordMap, LookupWordMapWithDefault
--- EmptyStringMap, LookupStringMapEntry, InsertStringMapEntry
--- SymArrayLookup, SymArrayUpdate
--- Complex, RealPart, ImagPart
--- IsConcrete
--- Closure
--- All the floating-point operations
--- What to do about RollRecursive, UnrollRecursive?
--- AddSideCondition????
--- BVUndef ????
+     -- EmptyWordMap, InsertWordMap, LookupWordMap, LookupWordMapWithDefault
+     -- EmptyStringMap, LookupStringMapEntry, InsertStringMapEntry
+     -- SymArrayLookup, SymArrayUpdate
+     -- Complex, RealPart, ImagPart
+     -- IsConcrete
+     -- Closure
+     -- All the floating-point operations
+     -- What to do about RollRecursive, UnrollRecursive?
+     -- AddSideCondition????
+     -- BVUndef ????
 
   where
     the :: m (SomeExpr s)
@@ -467,7 +494,7 @@ synthExpr typeHint =
 
     crucibleAtom :: m (SomeExpr s)
     crucibleAtom =
-      do theAtoms <- view stxAtoms
+      do theAtoms <- use stxAtoms
          sideCondition "known atom" (okAtom theAtoms) atomName
 
     unitCon = describe "unit constructor" (emptyList $> SomeE UnitRepr (EApp EmptyApp))
@@ -506,12 +533,14 @@ synthExpr typeHint =
 
     funNameLit =
       do fn <- funName
-         fh <- view $ stxFunctions . at fn
+         fh <- use $ stxFunctions . at fn
          describe "known function name" $
            case fh of
              Nothing -> empty
              Just (FunctionHeader _ funArgs ret handle _) ->
                return $ SomeE (FunctionHandleRepr (argTypes funArgs) ret) (EApp $ HandleLit handle)
+             Just (PolyFunctionHeader _ _ funArgs ret handle _) ->
+               return $ SomeE (PolyFnRepr (argTypes funArgs) ret) (EApp $ PolyHandleLit handle)
 
     notExpr =
       do e <- describe "negation expression" $ unary Not_ (check BoolRepr)
@@ -604,8 +633,22 @@ synthExpr typeHint =
     unaryBV k f =
       do Pair t x <- unary k synth
          case t of
-           BVRepr w ->return $ SomeE BoolRepr $ EApp $ f w x
+           BVRepr w -> return $ SomeE BoolRepr $ EApp $ f w x
            _ -> later $ describe "bitvector argument" empty
+
+    inst :: m (SomeExpr s)
+    inst =
+      followedBy (kw Inst) $
+      depConsCond synth $ \ (Pair t e) ->
+      case t of
+        PolyFnRepr args ret ->
+          do commit
+             Some typeArgs <- typeArguments
+             return $ Right $
+               SomeE (FunctionHandleRepr (instantiate typeArgs args) (instantiate typeArgs ret)) $
+               EApp $ PolyInstantiate t e typeArgs
+        other ->
+          return $ Left $ "polymorphic function, got " <> T.pack (show other)
 
     just :: m (SomeExpr s)
     just =
@@ -790,7 +833,7 @@ data NatHint
   | forall w. (1 <= w) => NatHint (NatRepr w)
 
 synthBV :: forall m h s .
-  (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m) =>
+  (MonadState (SyntaxState h s) m, MonadSyntax Atomic m) =>
   NatHint ->
   m (SomeBVExpr s)
 synthBV widthHint =
@@ -902,7 +945,7 @@ synthBV widthHint =
            _ -> later $ describe "valid zero extension" $ empty
 
 
-check :: forall m t h s . (MonadReader (SyntaxState h s) m, MonadSyntax Atomic m)
+check :: forall m t h s . (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
        => TypeRepr t -> m (E s t)
 check t =
   describe ("inhabitant of " <> T.pack (show t)) $
@@ -940,6 +983,7 @@ progHandleAlloc = lens _progHandleAlloc (\s v -> s { _progHandleAlloc = v })
 data SyntaxState h s =
   SyntaxState { _stxLabels :: Map LabelName (LabelInfo s)
               , _stxAtoms :: Map AtomName (Pair TypeRepr (Atom s))
+              , _stxTypeArgs :: [TyVarName]
               , _stxRegisters :: Map RegName (Pair TypeRepr (Reg s))
               , _stxNextLabel :: Int
               , _stxNextAtom :: Int
@@ -968,7 +1012,7 @@ initProgState builtIns ha = ProgramState fns Map.empty ha
         ]
 
 initSyntaxState :: ProgramState h s -> SyntaxState h s
-initSyntaxState = SyntaxState Map.empty Map.empty Map.empty 0 0
+initSyntaxState = SyntaxState Map.empty Map.empty [] Map.empty 0 0
 
 stxLabels :: Simple Lens (SyntaxState h s) (Map LabelName (LabelInfo s))
 stxLabels = lens _stxLabels (\s v -> s { _stxLabels = v })
@@ -979,6 +1023,8 @@ stxAtoms = lens _stxAtoms (\s v -> s { _stxAtoms = v })
 stxRegisters :: Simple Lens (SyntaxState h s) (Map RegName (Pair TypeRepr (Reg s)))
 stxRegisters = lens _stxRegisters (\s v -> s { _stxRegisters = v })
 
+stxTypeArgs :: Simple Lens (SyntaxState h s) [TyVarName]
+stxTypeArgs = lens _stxTypeArgs (\s v -> s { _stxTypeArgs = v })
 
 stxNextLabel :: Simple Lens (SyntaxState h s) Int
 stxNextLabel = lens _stxNextLabel (\s v -> s { _stxNextLabel = v })
@@ -1129,20 +1175,20 @@ newUnassignedReg t =
                    , typeOfReg = t
                    }
 
-regRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState h s) m) => m (Pair TypeRepr (Reg s))
+regRef' :: (MonadSyntax Atomic m, MonadState (SyntaxState h s) m) => m (Pair TypeRepr (Reg s))
 regRef' =
   describe "known register name" $
   do rn <- regName
-     perhapsReg <- view (stxRegisters . at rn)
+     perhapsReg <- use (stxRegisters . at rn)
      case perhapsReg of
        Just reg -> return reg
        Nothing -> empty
 
-globRef' :: (MonadSyntax Atomic m, MonadReader (SyntaxState h s) m) => m GlobalInfo
+globRef' :: (MonadSyntax Atomic m, MonadState (SyntaxState h s) m) => m GlobalInfo
 globRef' =
   describe "known global variable name" $
   do x <- globalName
-     perhapsGlobal <- view (stxGlobals . at x)
+     perhapsGlobal <- use (stxGlobals . at x)
      case perhapsGlobal of
        Just glob -> return glob
        Nothing -> empty
@@ -1490,9 +1536,30 @@ deriving instance Show ACFG
 
 data Arg t = Arg AtomName Position (TypeRepr t)
 
+data TypeArg = TypeArg { _typeArgName :: TyVarName
+                       , _typeArgPos :: Position
+                       }
+typeArgName :: Simple Lens TypeArg TyVarName
+typeArgName = lens _typeArgName (\s v -> s { _typeArgName = v })
 
+typeArgPos :: Simple Lens TypeArg Position
+typeArgPos = lens _typeArgPos (\s v -> s { _typeArgPos = v })
 
-arguments' :: forall m . MonadSyntax Atomic m => m (Some (Ctx.Assignment Arg))
+typeArguments :: forall m h s . (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
+              => m (Some (Ctx.Assignment TypeRepr))
+typeArguments = call (go (Some Ctx.empty))
+  where
+    go args@(Some prev) =
+      describe "type argument list" $
+      (emptyList *> pure args) <|>
+      (depCons oneArg $
+       \(Some a) ->
+         go (Some $ Ctx.extend prev a))
+    oneArg =
+      describe "type argument" $ isType
+
+arguments' :: forall m h s . (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
+           => m (Some (Ctx.Assignment Arg))
 arguments' = call (go (Some Ctx.empty))
   where
     go ::  Some (Ctx.Assignment Arg) -> m (Some (Ctx.Assignment Arg))
@@ -1508,6 +1575,39 @@ arguments' = call (go (Some Ctx.empty))
                located $
                cons atomName (cons isType emptyList)) <&>
               \(Posd loc (x, (Some t, ()))) -> Some (Arg x loc t)
+
+checkDups :: MonadError (ExprErr s) m => [TypeArg] -> m ()
+checkDups tvs = go Map.empty tvs
+  where go seen [] = return ()
+        go seen (v:vs) =
+          let n = view typeArgName v
+          in case Map.lookup n seen of
+               Nothing -> go (Map.insert n v seen) vs
+               Just seen -> throwError $ DuplicateTypeArg (view typeArgPos v) n
+
+saveTypeArgs :: (MonadState (SyntaxState h s) m)
+             => [TypeArg] -> m ()
+saveTypeArgs args = stxTypeArgs .= map (view typeArgName) args
+
+
+withTypeArgs :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
+             => [TypeArg] -> m a -> m a
+withTypeArgs args act =
+  do oldArgs <- use stxTypeArgs
+     catchError (do saveTypeArgs args
+                    res <- act
+                    stxTypeArgs .= oldArgs
+                    return res)
+       (\e -> do stxTypeArgs .= oldArgs ; throwError e)
+
+parseWithTypeArgs :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
+             => [TypeArg] -> m a -> m a
+parseWithTypeArgs args act =
+  do oldArgs <- use stxTypeArgs
+     saveTypeArgs args
+     res <- act
+     stxTypeArgs .= oldArgs
+     return res
 
 
 saveArgs :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
@@ -1537,13 +1637,21 @@ data FunctionHeader =
                  , _headerHandle :: FnHandle args ret
                  , _headerLoc :: Position
                  }
+  | forall args ret .
+    PolyFunctionHeader { _headerName :: FunctionName
+                       , _headerTypeArgs :: [TypeArg]
+                       , _headerArgs :: Ctx.Assignment Arg args
+                       , _headerReturnType :: TypeRepr ret
+                       , _headerHandle :: FnHandle args ret
+                       , _headerLoc :: Position
+                       }
 
 data FunctionSource s =
   FunctionSource { _functionRegisters :: [AST s]
                  , _functionBody :: AST s
                  }
 
-functionHeader' :: MonadSyntax Atomic m
+functionHeader' :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
                 => m ( (FunctionName, Some (Ctx.Assignment Arg), Some TypeRepr, Position)
                      , FunctionSource s
                      )
@@ -1559,9 +1667,36 @@ functionHeader' =
   where
     registers = call $ kw Registers `followedBy` anyList
 
+polyFunctionHeader' :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m)
+                    => m ( (FunctionName, [TypeArg], Some (Ctx.Assignment Arg), Some TypeRepr, Position)
+                         , FunctionSource s
+                         )
+polyFunctionHeader' =
+  do (tyArgs, (fnName, (Some theArgs, (Some ret, (regs, body))))) <-
+       followedBy (kw DefPoly) $
+       depCons typeArgs $ \tyArgs ->
+       (tyArgs ,) <$>
+       parseWithTypeArgs tyArgs
+         (cons funName $
+         cons arguments' $
+         cons isType $
+         cons registers anything <|> ([], ) <$> anything)
+     loc <- position
+     return ((fnName, tyArgs, Some theArgs, Some ret, loc), FunctionSource regs body)
+  where
+    typeArgs = call $ rep typeArg
+    typeArg =
+      describe "type variable" $
+      do loc <- position
+         x <- typeVarName
+         return $ TypeArg x loc
+    registers = call $ kw Registers `followedBy` anyList
+
+
 functionHeader :: AST s -> TopParser h s (FunctionHeader, FunctionSource s)
 functionHeader defun =
-  do ((fnName, Some theArgs, Some ret, loc), src) <- liftSyntaxParse functionHeader' defun
+  do st <- get
+     ((fnName, Some theArgs, Some ret, loc), src) <- fst <$> liftSyntaxParse (runStateT functionHeader' st) defun
      ha <- use $ stxProgState  . progHandleAlloc
      handle <- liftST $ mkHandle' ha fnName (argTypes theArgs) ret
      Just Dict <- return $ checkClosed ret
@@ -1574,12 +1709,27 @@ functionHeader defun =
     saveHeader n h =
       stxFunctions %= Map.insert n h
 
+polyFunctionHeader :: AST s -> TopParser h s (FunctionHeader, FunctionSource s)
+polyFunctionHeader defun =
+  do st <- get
+     ((fnName, tyArgs, Some theArgs, Some ret, loc), src) <- fst <$> liftSyntaxParse (runStateT polyFunctionHeader' st) defun
+     ha <- use $ stxProgState  . progHandleAlloc
+     handle <- liftST $ mkHandle' ha fnName (argTypes theArgs) ret
+     let header = PolyFunctionHeader fnName tyArgs theArgs ret handle loc
+
+     saveHeader fnName header
+     return $ (header, src)
+  where
+    saveHeader n h =
+      stxFunctions %= Map.insert n h
+
 
 
 
 global :: AST s -> TopParser h s (Pair TypeRepr GlobalVar)
 global stx =
-  do (var@(GlobalName varName), Some t) <- liftSyntaxParse (call (binary DefGlobal globalName isType)) stx
+  do st <- get
+     (var@(GlobalName varName), Some t) <- fst <$> liftSyntaxParse (runStateT (call (binary DefGlobal globalName isType)) st) stx
      Just Dict <- return $ checkClosed t
      ha <- use $ stxProgState  . progHandleAlloc
      v <- liftST $ freshGlobalVar ha varName t
@@ -1588,7 +1738,7 @@ global stx =
 
 topLevel :: AST s -> TopParser h s (Maybe (FunctionHeader, FunctionSource s))
 topLevel ast =
-  catchError (Just <$> functionHeader ast) $
+  catchError (Just <$> (functionHeader ast <|> polyFunctionHeader ast)) $
     \e ->
       catchError (global ast $> Nothing) $
         \_ -> throwError e
@@ -1706,20 +1856,29 @@ instance MonadST h (TopParser h s) where
 
 
 
-initParser :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
+initParser :: forall h s m
+            . (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
            => FunctionHeader
            -> FunctionSource s
            -> m ()
-initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (FunctionSource regs _) =
-  do with stxProgState $ put . initSyntaxState
+initParser header (FunctionSource regs _) =
+
+  do (Pair (Const tyArgs) funArgs) <-
+           case header of
+             FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _ -> return (Pair (Const []) funArgs)
+             PolyFunctionHeader _ ty (funArgs :: Ctx.Assignment Arg init) _ _ _ -> return (Pair (Const ty) funArgs)
+     with stxProgState $ put . initSyntaxState
      let types = argTypes funArgs
      let inputAtoms = mkInputAtoms (OtherPos "args") types
      saveArgs funArgs inputAtoms
+     saveTypeArgs tyArgs
      forM_ regs saveRegister
 
   where
+    saveRegister :: Syntax Atomic -> m ()
     saveRegister (L [A (Rg x), t]) =
-      do Some ty <- liftSyntaxParse isType t
+      do st <- get
+         Some ty <- fst <$> liftSyntaxParse (runStateT isType st) t
          r <- newUnassignedReg ty
          stxRegisters %= Map.insert x (Pair ty r)
     saveRegister other = throwError $ InvalidRegister (syntaxPos other) other
@@ -1729,13 +1888,24 @@ cfgs :: [AST s] -> TopParser h s [ACFG]
 cfgs defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      forM headers $
-       \(hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
-         do let types = argTypes funArgs
-            initParser hdr src
-            let ?returnType = ret
-            st <- get
-            (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
-            put st'
-            i <- freshAtomIndex
-            j <- freshLabelIndex
-            return $ ACFG types ret $ CFG handle theBlocks i j
+       \case
+         (hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
+           do let types = argTypes funArgs
+              initParser hdr src
+              let ?returnType = ret
+              st <- get
+              (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
+              put st'
+              i <- freshAtomIndex
+              j <- freshLabelIndex
+              return $ ACFG types ret $ CFG handle theBlocks i j
+         (hdr@(PolyFunctionHeader _ _ funArgs ret handle _), src@(FunctionSource _ body)) ->
+           do let types = argTypes funArgs
+              initParser hdr src
+              let ?returnType = ret
+              st <- get
+              (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
+              put st'
+              i <- freshAtomIndex
+              j <- freshLabelIndex
+              return $ ACFG types ret $ CFG handle theBlocks i j

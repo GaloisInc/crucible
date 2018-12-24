@@ -11,11 +11,12 @@ import Control.Monad
 import Data.List (find)
 import Data.Text (Text)
 import Data.String (IsString(..))
---import qualified Data.Text as T
+import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import System.IO
 import System.Exit
 import Text.Megaparsec as MP
+import Text.Wrap
 
 import Data.Parameterized.Nonce
 import Data.Parameterized.Context as Ctx
@@ -62,14 +63,29 @@ doParseCheck fn theInput pprint outh =
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
             cs <- stToIO $ top ha [] $ cfgs v
             case cs of
-              Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
-              Left err -> hPutStrLn outh $ show err
+              Left err -> T.hPutStrLn outh $ showErrs $ flattenErrs err
               Right ok ->
                 forM_ ok $
                  \(ACFG _ _ theCfg) ->
                    do C.SomeCFG ssa <- return $ toSSA theCfg
                       hPutStrLn outh $ show $ cfgHandle theCfg
                       hPutStrLn outh $ show $ C.ppCFG' True (postdomInfo ssa) ssa
+  where
+    showErrs []   = T.pack "Unknown error"
+    showErrs [e]  = showErr e
+    showErrs more = T.pack "Errors:\n" <> T.unlines (map (bullet . wrap . showErr) more)
+
+    wrap = wrapTextToLines (WrapSettings False True) 70
+
+    bullet []     = T.pack ""
+    bullet (l:ls) = T.unlines $ (T.pack "\t• " <> l) : [ T.pack "\t  " <> l' | l' <- ls ]
+
+    showErr (SyntaxParseError e) = printSyntaxError e
+    showErr other = T.pack $ show other
+
+    flattenErrs (Errs e1 e2) = flattenErrs e1 ++ flattenErrs e2
+    flattenErrs e = [e]
+
 
 simulateProgram
    :: FilePath -- ^ The name of the input (appears in source locations)

@@ -1,0 +1,22 @@
+(defpoly ('A) @id ((x 'A)) 'A (start here: (return x)))
+
+(defun @bool-id () (-> Bool Bool)
+   (start here:
+      (let id @id)
+      (let bool-id (inst id Bool))
+      (return bool-id)))
+
+id
+%0
+  % 3:5
+  return $0
+  % no postdom
+bool-id
+%0
+  % 7:14
+  $0 = polyHandleLit(id)
+  % 8:19
+  $1 = polyInstantiate(PolyFnRepr [VarRepr 0] (VarRepr 0), $0, [BoolRepr])
+  % 9:6
+  return $1
+  % no postdom
