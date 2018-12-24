@@ -11,6 +11,7 @@ module Lang.Crucible.Syntax.Atoms
   , RegName(..)
   , FunName(..)
   , GlobalName(..)
+  , TyVarName(..)
   , Keyword(..)
   ) where
 
@@ -39,9 +40,11 @@ newtype RegName = RegName Text deriving (Eq, Ord, Show)
 newtype FunName = FunName Text deriving (Eq, Ord, Show)
 -- | The name of a global variable (two dollar signs followed by identifier)
 newtype GlobalName = GlobalName Text deriving (Eq, Ord, Show)
+-- | The name of a type variable (single quote followed by identifier)
+newtype TyVarName = TyVarName Text deriving (Eq, Ord, Show)
 
 -- | Individual language keywords (reserved identifiers)
-data Keyword = Defun | DefBlock | DefGlobal
+data Keyword = Defun | DefBlock | DefGlobal | DefPoly
              | Registers
              | Start
              | SetGlobal
@@ -59,6 +62,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Not_ | And_ | Or_ | Xor_
              | Mod
              | Lt | Le
+             | Inst
              | Show
              | StringAppend
              | ToAny | FromAny
@@ -83,6 +87,7 @@ keywords =
   [ ("defun" , Defun)
   , ("defblock", DefBlock)
   , ("defglobal", DefGlobal)
+  , ("defpoly", DefPoly)
   , ("registers", Registers)
   , ("let", Let)
   , ("set-global!", SetGlobal)
@@ -90,6 +95,7 @@ keywords =
   , ("drop-ref!", DropRef_)
   , ("start" , Start)
   , ("unpack" , Unpack)
+  , ("inst", Inst)
   , ("+" , Plus)
   , ("-" , Minus)
   , ("*" , Times)
@@ -193,6 +199,7 @@ data Atomic = Kw !Keyword -- ^ Keywords are all the built-in operators and expre
             | At !AtomName -- ^ Atom names (which look like Scheme symbols)
             | Rg !RegName -- ^ Registers, whose names have a leading single $
             | Gl !GlobalName -- ^ Global variables, whose names have a leading double $$
+            | TyV !TyVarName -- ^ Type variables, whose names have a leading single quote
             | Fn !FunName -- ^ Function names, minus the leading @
             | Int !Integer -- ^ Literal integers
             | Rat !Rational -- ^ Literal rational numbers
@@ -208,6 +215,7 @@ instance IsAtom Atomic where
   showAtom (Gl (GlobalName r)) = "$$" <> r
   showAtom (At (AtomName a)) = a
   showAtom (Fn (FunName a)) = "@" <> a
+  showAtom (TyV (TyVarName x)) = "'" <> x
   showAtom (Int i) = T.pack (show i)
   showAtom (Rat r) = T.pack (show (numerator r) ++ "/" ++ show (denominator r))
   showAtom (Bool b) = if b then "#t" else "#f"
@@ -217,6 +225,7 @@ instance IsAtom Atomic where
 atom :: Parser Atomic
 atom =  try (Lbl . LabelName <$> identifier <* char ':')
     <|> Fn . FunName <$> (char '@' *> identifier)
+    <|> TyV . TyVarName <$> (char '\'' *> identifier)
     <|> (char '$' *> ((char '$' *> (Gl . GlobalName <$> identifier)) <|> Rg . RegName <$> identifier))
     <|> try (mkNum <$> signedPrefixedNumber <*> ((Just <$> (try (char '/') *> prefixedNumber)) <|> pure Nothing))
     <|> kwOrAtom
