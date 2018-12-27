@@ -82,7 +82,8 @@ import           Lang.Crucible.LLVM.Types
 
 -- | This pattern synonym gives an easy way to construct/deconstruct runtime values of type 'LLVMPtr'.
 pattern LLVMPointer :: RegValue sym NatType -> SymBV sym w -> LLVMPtr sym w
-pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV offset)
+pattern LLVMPointer blk offset <- (llvmPointerView -> (blk, offset))
+  where LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV offset)
 
 -- The COMPLETE pragma was not defined until ghc 8.2.*
 #if MIN_VERSION_base(4,10,0)
@@ -92,7 +93,7 @@ pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV o
 -- | Alternative to the 'LLVMPointer' pattern synonym, this function can be used as a view
 --   constructor instead to silence incomplete pattern warnings.
 llvmPointerView :: LLVMPtr sym w -> (SymNat sym, SymBV sym w)
-llvmPointerView (LLVMPointer blk offset) = (blk, offset)
+llvmPointerView (RolledType a) = (unRV (a Ctx.! Ctx.i1of2), unRV (a Ctx.! Ctx.i2of2))
 
 -- | Compute the width of a pointer value.
 ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
