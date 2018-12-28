@@ -58,13 +58,13 @@ import           Lang.Crucible.Types
 -- check consistency of all type family instances.  Consequently, there
 -- can be at most one implementation of InstrinsicClass in a program.
 class IntrinsicClass (sym :: Type) (nm :: GHC.TypeLits.Symbol) where
-  -- | The `Intrinsic` type family defines, for a given backend and symbol name,
-  --   the runtime implementation of that Crucible intrisnic type.
+  -- | The 'Intrinsic' type family defines, for a given backend and symbol name,
+  --   the runtime implementation of that Crucible intrinsic type.
   type Intrinsic (sym :: Type) (nm :: GHC.TypeLits.Symbol) (ctx :: Ctx CrucibleType) :: Type
 
   -- | The push branch function is called when an intrinsic value is
-  --   passed through a symbolic branch.  This allows it to to any
-  --   necessary bookeeping to prepare for an upcomming merge.
+  --   passed through a symbolic branch.  This allows it to do any
+  --   necessary bookkeeping to prepare for an upcoming merge.
   --   A push branch should eventually be followed by a matching
   --   abort or mux call.
   pushBranchIntrinsic
