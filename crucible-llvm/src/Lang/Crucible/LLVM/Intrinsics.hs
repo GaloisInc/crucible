@@ -89,6 +89,7 @@ import           Lang.Crucible.LLVM.TypeContext
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 llvmIntrinsicTypes =
    MapF.insert (knownSymbol :: SymbolRepr "LLVM_memory") IntrinsicMuxFn $
+   MapF.insert (knownSymbol :: SymbolRepr "LLVM_pointer") IntrinsicMuxFn $
    MapF.empty
 
 
