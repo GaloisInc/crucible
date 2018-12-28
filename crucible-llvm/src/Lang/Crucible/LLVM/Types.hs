@@ -44,9 +44,6 @@ import           Data.Parameterized.Context
 
 import qualified Text.LLVM.AST as L
 
-import qualified What4.Interface as W4
-
-import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
 
