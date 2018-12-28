@@ -446,7 +446,7 @@ callIntToBool
   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
 callIntToBool w (BitvectorAsPointerExpr _ bv) =
   case bv of
-    App (BVLit _ 0) -> return true
+    App (BVLit _ 0) -> return false
     _ -> return (App (BVNonzero w bv))
 callIntToBool w ex =
    do ex' <- forceEvaluation (App (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) ex))
