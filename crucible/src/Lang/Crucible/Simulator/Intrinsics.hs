@@ -54,7 +54,7 @@ import           Lang.Crucible.Types
 -- Note: Instances of this will typically end up as orphan instances.
 -- This warning is normally quite important, as orphan instances allow
 -- one to define multiple instances for a particular class.  However, in
--- this case, "IntrinsicClass" contains a type family, and GHC will globally
+-- this case, 'IntrinsicClass' contains a type family, and GHC will globally
 -- check consistency of all type family instances.  Consequently, there
 -- can be at most one implementation of InstrinsicClass in a program.
 class IntrinsicClass (sym :: Type) (nm :: GHC.TypeLits.Symbol) where
@@ -100,7 +100,7 @@ class IntrinsicClass (sym :: Type) (nm :: GHC.TypeLits.Symbol) where
 
 
 -- | The `IntrinsicMuxFn` datatype allows an `IntrinsicClass` instance
---   to be packaged up into a value.  This allows us to get access to IntrinsicClass
+--   to be packaged up into a value.  This allows us to get access to 'IntrinsicClass'
 --   instance methods (the `muxIntrinsic` method in particular) at runtime even
 --   for symbol names that are not known statically.
 --
