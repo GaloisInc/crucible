@@ -171,14 +171,7 @@ pattern BitvectorAsPointerExpr
     => NatRepr w
     -> Expr (LLVM arch) s (BVType w)
     -> Expr (LLVM arch) s (LLVMPointerType w)
-pattern BitvectorAsPointerExpr w ex <-
-   App (RollRecursive _ (Ctx.Empty :> BVRepr w)
-  (App (MkStruct _ (Ctx.Empty :> (App (NatLit 0)) :> ex))))
-
- where BitvectorAsPointerExpr w ex =
-          App (RollRecursive knownRepr (Ctx.Empty :> BVRepr w)
-          (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr w)
-                    (Ctx.Empty :> (App (NatLit 0)) :> ex))))
+pattern BitvectorAsPointerExpr w ex = PointerExpr w (App (NatLit 0)) ex
 
 pointerAsBitvectorExpr
     :: (1 <= w)
