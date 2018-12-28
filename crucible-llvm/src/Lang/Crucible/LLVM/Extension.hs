@@ -81,15 +81,15 @@ data LLVMExtensionExpr (arch :: LLVMArch) :: (CrucibleType -> Type) -> (Crucible
   X86Expr :: !(X86.ExtX86 f t) -> LLVMExtensionExpr (X86 wptr) f t
 
   LLVM_PointerExpr ::
-    !(NatRepr w) -> !(f NatType) -> !(f (BVType w)) ->
+    (1 <= w) => !(NatRepr w) -> !(f NatType) -> !(f (BVType w)) ->
     LLVMExtensionExpr arch f (LLVMPointerType w)
 
   LLVM_PointerBlock ::
-    !(NatRepr w) -> !(f (LLVMPointerType w)) ->
+    (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
     LLVMExtensionExpr arch f NatType
 
   LLVM_PointerOffset ::
-    !(NatRepr w) -> !(f (LLVMPointerType w)) ->
+    (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
     LLVMExtensionExpr arch f (BVType w)
 
 
@@ -227,10 +227,23 @@ instance OrdF ArchRepr where
         ])
 
 instance TypeApp (LLVMExtensionExpr arch) where
-  appType (X86Expr ex) = appType ex
+  appType e =
+    case e of
+      X86Expr ex             -> appType ex
+      LLVM_PointerExpr w _ _ -> LLVMPointerRepr w
+      LLVM_PointerBlock _ _  -> NatRepr
+      LLVM_PointerOffset w _ -> BVRepr w
 
 instance PrettyApp (LLVMExtensionExpr arch) where
-  ppApp pp (X86Expr ex) = ppApp pp ex
+  ppApp pp e =
+    case e of
+      X86Expr ex -> ppApp pp ex
+      LLVM_PointerExpr _ blk off ->
+        text "pointerExpr" <+> pp blk <+> pp off
+      LLVM_PointerBlock _ ptr ->
+        text "pointerBlock" <+> pp ptr
+      LLVM_PointerOffset _ ptr ->
+        text "pointerOffset" <+> pp ptr
 
 instance TestEqualityFC (LLVMExtensionExpr arch) where
   testEqualityFC testSubterm =

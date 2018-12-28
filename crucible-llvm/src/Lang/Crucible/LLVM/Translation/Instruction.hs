@@ -882,9 +882,9 @@ caseptr w tpr bvCase ptrCase x =
         Just (NatLit _) -> ptrCase blk off
         _               -> ptrSwitch blk off
 
-    _ -> do a_x <- forceEvaluation (app (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) x))
-            blk <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @0) NatRepr))
-            off <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @1) (BVRepr w)))
+    _ -> do a_x <- forceEvaluation x
+            blk <- forceEvaluation (App (ExtensionApp (LLVM_PointerBlock w a_x)))
+            off <- forceEvaluation (App (ExtensionApp (LLVM_PointerOffset w a_x)))
             ptrSwitch blk off
   where
   ptrSwitch blk off =

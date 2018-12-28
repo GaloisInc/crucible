@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -43,6 +44,8 @@ import           Data.Parameterized.Context
 
 import qualified Text.LLVM.AST as L
 
+import qualified What4.Interface as W4
+
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Types
@@ -76,30 +79,18 @@ withPtrWidth w a =
     LeqProof -> let ?ptrWidth = w in a
 
 -- | Crucible type of pointers/bitvector values of width @w@.
-type LLVMPointerType w = RecursiveType "LLVM_pointer" (EmptyCtx ::> BVType w)
+type LLVMPointerType w = IntrinsicType "LLVM_pointer" (EmptyCtx ::> BVType w)
 
 -- | Symbolic LLVM pointer or bitvector values of width @w@.
 type LLVMPtr sym w = RegValue sym (LLVMPointerType w)
 
--- | Type family defining how @LLVMPointerType@ unfolds.
-type family LLVMPointerImpl ctx where
-  LLVMPointerImpl (EmptyCtx ::> BVType w) = StructType (EmptyCtx ::> NatType ::> BVType w)
-  LLVMPointerImpl ctx = TypeError ('Text "LLVM_pointer expects a single argument of BVType, but was given" ':<>:
-                                   'ShowType ctx)
-
-instance IsRecursiveType "LLVM_pointer" where
-  type UnrollType "LLVM_pointer" ctx = LLVMPointerImpl ctx
-  unrollType _nm (Empty :> (BVRepr w)) = StructRepr (Empty :> NatRepr :> BVRepr w)
-  unrollType nm ctx = typeError nm ctx
-
-
 -- | This pattern synonym makes it easy to build and destruct runtime
 --   representatives of @'LLVMPointerType' w@.
 pattern LLVMPointerRepr :: () => (1 <= w, ty ~ LLVMPointerType w) => NatRepr w -> TypeRepr ty
-pattern LLVMPointerRepr w <- RecursiveRepr (testEquality (knownSymbol :: SymbolRepr "LLVM_pointer") -> Just Refl)
+pattern LLVMPointerRepr w <- IntrinsicRepr (testEquality (knownSymbol :: SymbolRepr "LLVM_pointer") -> Just Refl)
                                            (Empty :> BVRepr w)
   where
-    LLVMPointerRepr w = RecursiveRepr knownSymbol (Empty :> BVRepr w)
+    LLVMPointerRepr w = IntrinsicRepr knownSymbol (Empty :> BVRepr w)
 
 -- | This pattern creates/matches against the TypeRepr for LLVM pointer values
 --   that are of the distinguished pointer width.

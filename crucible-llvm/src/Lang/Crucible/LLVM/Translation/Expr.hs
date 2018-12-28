@@ -145,12 +145,8 @@ asVector :: LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
 asVector = fmap snd . asVectorWithType
 
 
-nullPointerExpr ::
-  (IsExpr e, HasPtrWidth wptr) => e (LLVMPointerType wptr)
-nullPointerExpr = app $ RollRecursive knownSymbol (Ctx.Empty Ctx.:> BVRepr PtrWidth)  $
-  app $ MkStruct
-          (Ctx.Empty :> NatRepr :> BVRepr PtrWidth)
-          (Ctx.Empty :> litExpr 0 :> app (BVLit PtrWidth 0))
+nullPointerExpr :: (HasPtrWidth w) => Expr (LLVM arch) s (LLVMPointerType w)
+nullPointerExpr = PointerExpr PtrWidth (App (NatLit 0)) (App (BVLit PtrWidth 0))
 
 pattern PointerExpr
     :: (1 <= w)
@@ -158,13 +154,7 @@ pattern PointerExpr
     -> Expr (LLVM arch) s NatType
     -> Expr (LLVM arch) s (BVType w)
     -> Expr (LLVM arch) s (LLVMPointerType w)
-pattern PointerExpr w blk off <-
-   App (RollRecursive _ (Ctx.Empty :> BVRepr w)
-  (App (MkStruct _ (Ctx.Empty :> blk :> off))))
- where PointerExpr w blk off =
-          App (RollRecursive knownRepr (Ctx.Empty :> BVRepr w)
-          (App (MkStruct (Ctx.Empty :> NatRepr :> BVRepr w)
-                    (Ctx.Empty :> blk :> off))))
+pattern PointerExpr w blk off = App (ExtensionApp (LLVM_PointerExpr w blk off))
 
 pattern BitvectorAsPointerExpr
     :: (1 <= w)
@@ -181,9 +171,9 @@ pointerAsBitvectorExpr
 pointerAsBitvectorExpr _ (BitvectorAsPointerExpr _ ex) =
      return ex
 pointerAsBitvectorExpr w ex =
-  do ex' <- forceEvaluation (App (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) ex))
-     let blk = App (GetStruct ex' (Ctx.natIndex @0) NatRepr)
-     let off = App (GetStruct ex' (Ctx.natIndex @1) (BVRepr w))
+  do ex' <- forceEvaluation ex
+     let blk = App (ExtensionApp (LLVM_PointerBlock w ex'))
+     let off = App (ExtensionApp (LLVM_PointerOffset w ex'))
      assertExpr (blk .== litExpr 0)
                 (litExpr "Expected bitvector, but found pointer")
      return off
@@ -442,10 +432,10 @@ callIntToBool w (BitvectorAsPointerExpr _ bv) =
     App (BVLit _ 0) -> return false
     _ -> return (App (BVNonzero w bv))
 callIntToBool w ex =
-   do ex' <- forceEvaluation (App (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) ex))
-      let blk = App (GetStruct ex' (Ctx.natIndex @0) NatRepr)
-      let off = App (GetStruct ex' (Ctx.natIndex @1) (BVRepr w))
-      return (blk ./= litExpr 0 .|| (App (BVNonzero w off)))
+  do ex' <- forceEvaluation ex
+     let blk = App (ExtensionApp (LLVM_PointerBlock w ex'))
+     let off = App (ExtensionApp (LLVM_PointerOffset w ex'))
+     return (blk ./= litExpr 0 .|| (App (BVNonzero w off)))
 
 callAlloca
    :: wptr ~ ArchWidth arch
