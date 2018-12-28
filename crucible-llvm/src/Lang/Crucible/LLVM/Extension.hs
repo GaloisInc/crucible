@@ -80,6 +80,19 @@ type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 data LLVMExtensionExpr (arch :: LLVMArch) :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
   X86Expr :: !(X86.ExtX86 f t) -> LLVMExtensionExpr (X86 wptr) f t
 
+  LLVM_PointerExpr ::
+    !(NatRepr w) -> !(f NatType) -> !(f (BVType w)) ->
+    LLVMExtensionExpr arch f (LLVMPointerType w)
+
+  LLVM_PointerBlock ::
+    !(NatRepr w) -> !(f (LLVMPointerType w)) ->
+    LLVMExtensionExpr arch f NatType
+
+  LLVM_PointerOffset ::
+    !(NatRepr w) -> !(f (LLVMPointerType w)) ->
+    LLVMExtensionExpr arch f (BVType w)
+
+
 -- | Extension statements for LLVM.  These statements represent the operations
 --   necessary to interact with the LLVM memory model.
 data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type where
@@ -222,13 +235,17 @@ instance PrettyApp (LLVMExtensionExpr arch) where
 instance TestEqualityFC (LLVMExtensionExpr arch) where
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|LLVMExtensionExpr|]
-       [ (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
+       [ (U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
+       , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
+       , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
        ])
 
 instance OrdFC (LLVMExtensionExpr arch) where
   compareFC testSubterm =
     $(U.structuralTypeOrd [t|LLVMExtensionExpr|]
-       [ (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFC testSubterm|])
+       [ (U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
+       , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+       , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFC testSubterm|])
        ])
 
 instance FunctorFC (LLVMExtensionExpr arch) where
