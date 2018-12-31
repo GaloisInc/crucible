@@ -421,7 +421,7 @@ symbolicBranch ::
 
   RegMap sym then_args {- ^ argument values for the then branch -} ->
   OverrideSim p sym ext rtp then_args res a {- ^ then branch -} ->
-  Maybe Position {- ^ optinal location for then branch -} ->
+  Maybe Position {- ^ optional location for then branch -} ->
 
   RegMap sym else_args {- ^ argument values for the else branch -} ->
   OverrideSim p sym ext rtp else_args res a {- ^ else branch -} ->

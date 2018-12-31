@@ -45,13 +45,19 @@ module Lang.Crucible.LLVM.Intrinsics
 
 import           GHC.TypeNats (KnownNat)
 import qualified Codec.Binary.UTF8.Generic as UTF8
+import           Control.Applicative
 import           Control.Lens hiding (op, (:>), Empty)
+import           Control.Monad.Reader
 import           Control.Monad.ST
 import           Control.Monad.State
+import           Control.Monad.Trans.Maybe
+import           Data.Foldable( asum )
+import qualified Data.List as List
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import qualified Data.Vector as V
+import           Numeric
 import           System.IO
 import qualified Text.LLVM.AST as L
 
@@ -59,6 +65,7 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.Some
+import           Data.Parameterized.TraversableFC
 
 import           What4.FunctionName
 import           What4.Interface
@@ -74,6 +81,7 @@ import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Panic(panic)
+import           Lang.Crucible.Utils.MonadVerbosity
 
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
@@ -92,73 +100,87 @@ llvmIntrinsicTypes =
    MapF.insert (knownSymbol :: SymbolRepr "LLVM_pointer") IntrinsicMuxFn $
    MapF.empty
 
-
 register_llvm_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
-  StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a) ()
-register_llvm_overrides llvm_module = do
+  LLVMContext arch ->
+  OverrideSim p sym (LLVM arch) rtp l a (LLVMContext arch)
+register_llvm_overrides llvm_module llvm_ctx =
+  flip execStateT llvm_ctx $
+    forM_ (L.modDeclares llvm_module) $ \decl ->
+      runMaybeT (runReaderT do_register_overrides decl) >> return ()
+
+do_register_overrides ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  RegOverrideM p sym arch rtp l a ()
+do_register_overrides = do
   llvmctx <- get
   let ?lc = llvmctx^.llvmTypeCtx
 
   -- LLVM Compiler intrinsics
-  register_llvm_override llvmLifetimeStartOverride
-  register_llvm_override llvmLifetimeEndOverride
-  register_llvm_override (llvmLifetimeOverrideOverload "start" (knownNat @8))
-  register_llvm_override (llvmLifetimeOverrideOverload "end" (knownNat @8))
-  register_llvm_override llvmMemcpyOverride_8_8_32
-  register_llvm_override llvmMemcpyOverride_8_8_64
-  register_llvm_override llvmMemmoveOverride_8_8_32
-  register_llvm_override llvmMemmoveOverride_8_8_64
-  register_llvm_override llvmMemsetOverride_8_32
-  register_llvm_override llvmMemsetOverride_8_64
+  asum
+   [ register_llvm_override llvmLifetimeStartOverride
+   , register_llvm_override llvmLifetimeEndOverride
+   , register_llvm_override (llvmLifetimeOverrideOverload "start" (knownNat @8))
+   , register_llvm_override (llvmLifetimeOverrideOverload "end" (knownNat @8))
+   , register_llvm_override llvmMemcpyOverride_8_8_32
+   , register_llvm_override llvmMemcpyOverride_8_8_64
+   , register_llvm_override llvmMemmoveOverride_8_8_32
+   , register_llvm_override llvmMemmoveOverride_8_8_64
+   , register_llvm_override llvmMemsetOverride_8_32
+   , register_llvm_override llvmMemsetOverride_8_64
 
-  try_register_llvm_override llvm_module llvmObjectsizeOverride_32
-  try_register_llvm_override llvm_module llvmObjectsizeOverride_64
+   , register_llvm_override llvmObjectsizeOverride_32
+   , register_llvm_override llvmObjectsizeOverride_64
 
-  try_register_llvm_override llvm_module llvmObjectsizeOverride_32'
-  try_register_llvm_override llvm_module llvmObjectsizeOverride_64'
+   , register_llvm_override llvmObjectsizeOverride_32'
+   , register_llvm_override llvmObjectsizeOverride_64'
 
-  register_llvm_override (llvmCtlz (knownNat @8))
-  register_llvm_override (llvmCtlz (knownNat @16))
-  register_llvm_override (llvmCtlz (knownNat @32))
-  register_llvm_override (llvmCtlz (knownNat @64))
+   , register_llvm_override llvmStacksave
+   , register_llvm_override llvmStackrestore
 
-  register_llvm_override (llvmCttz (knownNat @8))
-  register_llvm_override (llvmCttz (knownNat @16))
-  register_llvm_override (llvmCttz (knownNat @32))
-  register_llvm_override (llvmCttz (knownNat @64))
+   , register_1arg_polymorphic_override "llvm.ctlz" (\w -> SomeLLVMOverride (llvmCtlz w))
+   , register_1arg_polymorphic_override "llvm.cttz" (\w -> SomeLLVMOverride (llvmCttz w))
+   , register_1arg_polymorphic_override "llvm.ctpop" (\w -> SomeLLVMOverride (llvmCtpop w))
+   , register_1arg_polymorphic_override "llvm.bitreverse" (\w -> SomeLLVMOverride (llvmBitreverse w))
 
-  register_llvm_override (llvmCtpop (knownNat @8))
-  register_llvm_override (llvmCtpop (knownNat @16))
-  register_llvm_override (llvmCtpop (knownNat @32))
-  register_llvm_override (llvmCtpop (knownNat @64))
+   , register_llvm_override (llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
+   , register_llvm_override (llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
+   , register_llvm_override (llvmBSwapOverride (knownNat @6))  -- 48 = 6 * 8
+   , register_llvm_override (llvmBSwapOverride (knownNat @8))  -- 64 = 8 * 8
+   , register_llvm_override (llvmBSwapOverride (knownNat @10)) -- 80 = 10 * 8
+   , register_llvm_override (llvmBSwapOverride (knownNat @12)) -- 96 = 12 * 8
+   , register_llvm_override (llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
+   , register_llvm_override (llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
 
-  register_llvm_override (llvmBSwapOverride (knownNat @2)) -- 16 = 2 * 8
-  register_llvm_override (llvmBSwapOverride (knownNat @4)) -- 32 = 4 * 8
-  register_llvm_override (llvmBSwapOverride (knownNat @8)) -- 64 = 8 * 8
+   , register_1arg_polymorphic_override "llvm.sadd.with.overflow"
+       (\w -> SomeLLVMOverride (llvmSaddWithOverflow w))
+   , register_1arg_polymorphic_override "llvm.uadd.with.overflow"
+       (\w -> SomeLLVMOverride (llvmUaddWithOverflow w))
+   , register_1arg_polymorphic_override "llvm.ssub.with.overflow"
+       (\w -> SomeLLVMOverride (llvmSsubWithOverflow w))
+   , register_1arg_polymorphic_override "llvm.usub.with.overflow"
+       (\w -> SomeLLVMOverride (llvmUsubWithOverflow w))
+   , register_1arg_polymorphic_override "llvm.smul.with.overflow"
+       (\w -> SomeLLVMOverride (llvmSmulWithOverflow w))
+   , register_1arg_polymorphic_override "llvm.umul.with.overflow"
+       (\w -> SomeLLVMOverride (llvmUmulWithOverflow w))
 
-  -- FIXME all variants of llvm.bitreverse
-  -- llvm.sadd.with.overflow, llvm.uadd.with.overflow, llvm.ssub.with.overflow,
-  -- llvm.usub.with.overflow, llvm.smul.with.overflow, llvm.umul.with.overflow,
-
-  -- C standard library functions
-  register_llvm_override llvmAssertRtnOverride
-
-  register_llvm_override llvmMemcpyOverride
-  register_llvm_override llvmMemcpyChkOverride
-  register_llvm_override llvmMemmoveOverride
-  register_llvm_override llvmMemsetOverride
-  register_llvm_override llvmMemsetChkOverride
-  register_llvm_override llvmMallocOverride
-  register_llvm_override llvmCallocOverride
-  register_llvm_override llvmFreeOverride
-  register_llvm_override llvmReallocOverride
-
-  register_llvm_override llvmPrintfOverride
-  register_llvm_override llvmPutsOverride
-  register_llvm_override llvmPutCharOverride
-
+    -- C standard library functions
+   , register_llvm_override llvmAssertRtnOverride
+   , register_llvm_override llvmMemcpyOverride
+   , register_llvm_override llvmMemcpyChkOverride
+   , register_llvm_override llvmMemmoveOverride
+   , register_llvm_override llvmMemsetOverride
+   , register_llvm_override llvmMemsetChkOverride
+   , register_llvm_override llvmMallocOverride
+   , register_llvm_override llvmCallocOverride
+   , register_llvm_override llvmFreeOverride
+   , register_llvm_override llvmReallocOverride
+   , register_llvm_override llvmPrintfOverride
+   , register_llvm_override llvmPutsOverride
+   , register_llvm_override llvmPutCharOverride
+   ]
 ------------------------------------------------------------------------
 -- LLVMHandleInfo
 
@@ -239,6 +261,8 @@ data LLVMOverride p sym arch args ret =
     -- (@OverrideSim@).
   }
 
+data SomeLLVMOverride p sym arch =
+  forall args ret. SomeLLVMOverride (LLVMOverride p sym arch args ret)
 
 newtype ArgTransformer p sym args args' =
   ArgTransformer { applyArgTransformer :: (forall arch rtp l a.
@@ -282,6 +306,12 @@ transformLLVMRet sym (BVRepr w) (LLVMPointerRepr w')
 transformLLVMRet sym (LLVMPointerRepr w) (BVRepr w')
   | Just Refl <- testEquality w w'
   = return (ValTransformer (liftIO . projectLLVM_bv sym))
+transformLLVMRet sym (StructRepr ctx) (StructRepr ctx')
+  = do ArgTransformer tf <- transformLLVMArgs sym ctx' ctx
+       return (ValTransformer (\vals ->
+          let vals' = Ctx.zipWith (\tp (RV v) -> RegEntry tp v) ctx vals in
+          fmapFC (\x -> RV (regValue x)) <$> tf vals'))
+
 transformLLVMRet _sym ret ret'
   | Just Refl <- testEquality ret ret'
   = return (ValTransformer return)
@@ -314,62 +344,83 @@ build_llvm_override sym fnm args ret args' ret' llvmOverride =
                applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
 
 
-try_register_llvm_override :: forall p args ret sym arch wptr l a rtp.
+type RegOverrideM p sym arch rtp l a =
+  ReaderT L.Declare (MaybeT (StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a)))
+
+
+register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-  L.Module ->
+  String ->
+  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
+  RegOverrideM p sym arch rtp l a ()
+register_1arg_polymorphic_override prefix overrideFn =
+  do L.Symbol nm <- L.decName <$> ask
+     case List.stripPrefix prefix nm of
+       Just ('.':'i': (readDec -> (sz,[]):_))
+         | Just (Some w) <- someNat sz
+         , Just LeqProof <- isPosNat w
+         -> case overrideFn w of SomeLLVMOverride ovr -> register_llvm_override ovr
+       _ -> empty
+
+register_llvm_override :: forall p args ret sym arch wptr l a rtp.
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   LLVMOverride p sym arch args ret ->
-  StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a) ()
-try_register_llvm_override llvm_module ovr
-  | llvmOverride_declare ovr `elem` L.modDeclares llvm_module = register_llvm_override ovr
-try_register_llvm_override _ _ = return ()
-
-
-register_llvm_override :: forall p args ret sym arch wptr l a rtp
-                       . (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-                      => LLVMOverride p sym arch args ret
-                      -> StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a) ()
+  RegOverrideM p sym arch rtp l a ()
 register_llvm_override llvmOverride = do
+  requestedDecl <- ask
   llvmctx <- get
   let decl = llvmOverride_declare llvmOverride
-  let nm@(L.Symbol str_nm) = L.decName decl
-  let fnm  = functionNameFromText (Text.pack str_nm)
 
-  sym <- lift $ getSymInterface
+  if (requestedDecl /= decl) then
+    do when (L.decName requestedDecl == L.decName decl) $
+         do logFn <- lift $ lift $ lift $ getLogFunction
+            liftIO $ logFn 1 $ unwords
+              [ "Mismatch declaration signatures"
+              , " *** requested: " ++ show requestedDecl
+              , " *** found: "     ++ show decl
+              , ""
+              ]
+       empty
+  else
+   do let nm@(L.Symbol str_nm) = L.decName decl
+      let fnm  = functionNameFromText (Text.pack str_nm)
 
-  let mvar = llvmMemVar llvmctx
-  let overrideArgs = llvmOverride_args llvmOverride
-  let overrideRet  = llvmOverride_ret llvmOverride
+      sym <- lift $ lift $ lift $ getSymInterface
 
-  let ?lc = llvmctx^.llvmTypeCtx
+      let mvar = llvmMemVar llvmctx
+      let overrideArgs = llvmOverride_args llvmOverride
+      let overrideRet  = llvmOverride_ret llvmOverride
 
-  decl' <- either fail return $ liftDeclare decl
-  llvmDeclToFunHandleRepr decl' $ \derivedArgs derivedRet -> do
-    o <- lift $ build_llvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet
-                  (llvmOverride_def llvmOverride mvar sym)
-    case Map.lookup nm (llvmctx^.symbolMap) of
-      Just (LLVMHandleInfo _decl' h) -> do
-        case testEquality (handleArgTypes h) derivedArgs of
-           Nothing ->
-             panic "Intrinsics.register_llvm_override"
-               [ "Argument type mismatch when registering LLVM mss override."
-               , "*** Override name: " ++ show nm
-               , "*** Declared type: " ++ show (handleArgTypes h)
-               , "*** Expected type: " ++ show derivedArgs
-               ]
-           Just Refl ->
-             case testEquality (handleReturnType h) derivedRet of
+      let ?lc = llvmctx^.llvmTypeCtx
+
+      decl' <- either fail return $ liftDeclare decl
+      llvmDeclToFunHandleRepr decl' $ \derivedArgs derivedRet -> do
+        o <- lift $ lift $ lift $ build_llvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet
+                      (llvmOverride_def llvmOverride mvar sym)
+        case Map.lookup nm (llvmctx^.symbolMap) of
+          Just (LLVMHandleInfo _decl' h) -> do
+            case testEquality (handleArgTypes h) derivedArgs of
                Nothing ->
                  panic "Intrinsics.register_llvm_override"
-                   [ "return type mismatch when registering LLVM mss override"
+                   [ "Argument type mismatch when registering LLVM mss override."
                    , "*** Override name: " ++ show nm
+                   , "*** Declared type: " ++ show (handleArgTypes h)
+                   , "*** Expected type: " ++ show derivedArgs
                    ]
-               Just Refl -> lift $ bindFnHandle h (UseOverride o)
-      Nothing ->
-        do ctx <- lift $ use stateContext
-           let ha = simHandleAllocator ctx
-           h <- lift $ liftST $ mkHandle' ha fnm derivedArgs derivedRet
-           lift $ bindFnHandle h (UseOverride o)
-           put (llvmctx & symbolMap %~ Map.insert nm (LLVMHandleInfo decl h))
+               Just Refl ->
+                 case testEquality (handleReturnType h) derivedRet of
+                   Nothing ->
+                     panic "Intrinsics.register_llvm_override"
+                       [ "return type mismatch when registering LLVM mss override"
+                       , "*** Override name: " ++ show nm
+                       ]
+                   Just Refl -> lift $ lift $ lift $ bindFnHandle h (UseOverride o)
+          Nothing ->
+            do ctx <- lift $ lift $ lift $ use stateContext
+               let ha = simHandleAllocator ctx
+               h <- lift $ lift $ liftST $ mkHandle' ha fnm derivedArgs derivedRet
+               lift $ lift $ lift $ bindFnHandle h (UseOverride o)
+               put (llvmctx & symbolMap %~ Map.insert nm (LLVMHandleInfo decl h))
 
 
 -- | Convenient LLVM representation of the @size_t@ type.
@@ -455,6 +506,48 @@ llvmLifetimeOverrideOverload startOrEnd widthRepr =
       (Empty :> KnownBV @64 :> PtrRepr)
       UnitRepr
       (\_ops _sym _args -> return ())
+
+llvmStacksave
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch EmptyCtx (LLVMPointerType wptr)
+llvmStacksave =
+  let nm = "llvm.stacksave" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  Empty
+  PtrRepr
+  (\_memOps sym _args -> liftIO (mkNullPointer sym PtrWidth))
+
+
+llvmStackrestore
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) UnitType
+llvmStackrestore =
+  let nm = "llvm.stackrestore" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr)
+  UnitRepr
+  (\_memOps _sym _args -> return ())
+
 
 llvmObjectsizeOverride_32
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -608,9 +701,9 @@ llvmReallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
                      , llvmSizeT
                      ]
     , L.decVarArgs = False
@@ -632,7 +725,7 @@ llvmMallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
     , L.decName    = L.Symbol nm
     , L.decArgs    = [ llvmSizeT
                      ]
@@ -656,7 +749,7 @@ llvmFreeOverride =
   ( L.Declare
     { L.decRetType = L.PrimType $ L.Void
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
@@ -878,6 +971,172 @@ llvmMemmoveOverride_8_8_64 =
   (\memOps sym args -> Ctx.uncurryAssignment (callMemmove sym memOps) args)
 
 
+llvmSaddWithOverflow
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w ->
+     LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w ::> BVType w)
+         (StructType (EmptyCtx ::> BVType w ::> BVType 1))
+llvmSaddWithOverflow w =
+  let nm = "llvm.sadd.with.overflow.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.Struct
+                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w :> BVRepr w)
+  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
+  (\memOps sym args -> Ctx.uncurryAssignment (callSaddWithOverflow sym memOps) args)
+
+
+llvmUaddWithOverflow
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w ->
+     LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w ::> BVType w)
+         (StructType (EmptyCtx ::> BVType w ::> BVType 1))
+llvmUaddWithOverflow w =
+  let nm = "llvm.uadd.with.overflow.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.Struct
+                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w :> BVRepr w)
+  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
+  (\memOps sym args -> Ctx.uncurryAssignment (callUaddWithOverflow sym memOps) args)
+
+
+llvmSsubWithOverflow
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w ->
+     LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w ::> BVType w)
+         (StructType (EmptyCtx ::> BVType w ::> BVType 1))
+llvmSsubWithOverflow w =
+  let nm = "llvm.ssub.with.overflow.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.Struct
+                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w :> BVRepr w)
+  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
+  (\memOps sym args -> Ctx.uncurryAssignment (callSsubWithOverflow sym memOps) args)
+
+
+llvmUsubWithOverflow
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w ->
+     LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w ::> BVType w)
+         (StructType (EmptyCtx ::> BVType w ::> BVType 1))
+llvmUsubWithOverflow w =
+  let nm = "llvm.usub.with.overflow.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.Struct
+                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w :> BVRepr w)
+  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
+  (\memOps sym args -> Ctx.uncurryAssignment (callUsubWithOverflow sym memOps) args)
+
+llvmSmulWithOverflow
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w ->
+     LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w ::> BVType w)
+         (StructType (EmptyCtx ::> BVType w ::> BVType 1))
+llvmSmulWithOverflow w =
+  let nm = "llvm.smul.with.overflow.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.Struct
+                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w :> BVRepr w)
+  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
+  (\memOps sym args -> Ctx.uncurryAssignment (callSmulWithOverflow sym memOps) args)
+
+llvmUmulWithOverflow
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w ->
+     LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w ::> BVType w)
+         (StructType (EmptyCtx ::> BVType w ::> BVType 1))
+llvmUmulWithOverflow w =
+  let nm = "llvm.umul.with.overflow.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.Struct
+                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w :> BVRepr w)
+  (StructRepr (Empty :> BVRepr w :> BVRepr (knownNat @1)))
+  (\memOps sym args -> Ctx.uncurryAssignment (callUmulWithOverflow sym memOps) args)
+
+
 llvmCtlz
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => NatRepr w ->
@@ -950,19 +1209,42 @@ llvmCtpop w =
   (BVRepr w)
   (\memOps sym args -> Ctx.uncurryAssignment (callCtpop sym memOps) args)
 
+llvmBitreverse
+  :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr w
+  -> LLVMOverride p sym arch
+         (EmptyCtx ::> BVType w)
+         (BVType w)
+llvmBitreverse w =
+  let nm = "llvm.bitreverse.i" ++ show (natValue w) in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> BVRepr w)
+  (BVRepr w)
+  (\memOps sym args -> Ctx.uncurryAssignment (callBitreverse sym memOps) args)
+
 
 -- | <https://llvm.org/docs/LangRef.html#llvm-bswap-intrinsics LLVM docs>
 llvmBSwapOverride
   :: forall width sym wptr arch p
-   . ( 1 <= width, KnownNat width, KnownNat (width * 8)
-     , IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   . ( 1 <= width, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => NatRepr width
   -> LLVMOverride p sym arch
          (EmptyCtx ::> BVType (width * 8))
          (BVType (width * 8))
 llvmBSwapOverride widthRepr =
-  let width' :: Int
-      width' = widthVal widthRepr * 8
+  let width8 = natMultiply widthRepr (knownNat @8)
+      width' :: Int
+      width' = widthVal width8
       nm = "llvm.bswap.i" ++ show width'
   in
     case mulComm widthRepr (knownNat @8) of { Refl ->
@@ -981,8 +1263,8 @@ llvmBSwapOverride widthRepr =
           , L.decComdat  = mempty
           }
         )
-        (Empty :> KnownBV @(width * 8))
-        (KnownBV @(width * 8))
+        (Empty :> BVRepr width8)
+        (BVRepr width8)
         (\_ sym args -> liftIO $
             let vec :: SymBV sym (width * 8)
                 vec = regValue (args^._1)
@@ -1230,7 +1512,7 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
        , (truePred sym
          , do mem  <- readGlobal mvar
               (newp, mem') <- liftIO $
-                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment 
+                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
                    mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
                    mem3 <- doFree sym mem2 ptr
                    return (newp, mem3)
@@ -1423,6 +1705,91 @@ callCtlz sym _mvar
        assert sym p (AssertFailureSimError "Ctlz called with disallowed zero value")
        bvCountLeadingZeros sym val
 
+callSaddWithOverflow
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (StructType (EmptyCtx ::> BVType w ::> BVType 1)))
+callSaddWithOverflow sym _mvar
+  (regValue -> x)
+  (regValue -> y) = liftIO $
+    do (ov, z) <- addSignedOF sym x y
+       ov' <- predToBV sym ov (knownNat @1)
+       return (Empty :> RV z :> RV ov')
+
+callUaddWithOverflow
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (StructType (EmptyCtx ::> BVType w ::> BVType 1)))
+callUaddWithOverflow sym _mvar
+  (regValue -> x)
+  (regValue -> y) = liftIO $
+    do (ov, z) <- addUnsignedOF sym x y
+       ov' <- predToBV sym ov (knownNat @1)
+       return (Empty :> RV z :> RV ov')
+
+callUsubWithOverflow
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (StructType (EmptyCtx ::> BVType w ::> BVType 1)))
+callUsubWithOverflow sym _mvar
+  (regValue -> x)
+  (regValue -> y) = liftIO $
+    do (ov, z) <- subUnsignedOF sym x y
+       ov' <- predToBV sym ov (knownNat @1)
+       return (Empty :> RV z :> RV ov')
+
+callSsubWithOverflow
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (StructType (EmptyCtx ::> BVType w ::> BVType 1)))
+callSsubWithOverflow sym _mvar
+  (regValue -> x)
+  (regValue -> y) = liftIO $
+    do (ov, z) <- subSignedOF sym x y
+       ov' <- predToBV sym ov (knownNat @1)
+       return (Empty :> RV z :> RV ov')
+
+callSmulWithOverflow
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (StructType (EmptyCtx ::> BVType w ::> BVType 1)))
+callSmulWithOverflow sym _mvar
+  (regValue -> x)
+  (regValue -> y) = liftIO $
+    do (ov, z) <- mulSignedOF sym x y
+       ov' <- predToBV sym ov (knownNat @1)
+       return (Empty :> RV z :> RV ov')
+
+callUmulWithOverflow
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (StructType (EmptyCtx ::> BVType w ::> BVType 1)))
+callUmulWithOverflow sym _mvar
+  (regValue -> x)
+  (regValue -> y) = liftIO $
+    do (ov, z) <- mulUnsignedOF sym x y
+       ov' <- predToBV sym ov (knownNat @1)
+       return (Empty :> RV z :> RV ov')
+
+
 callCttz
   :: (1 <= w, IsSymInterface sym)
   => sym
@@ -1447,6 +1814,15 @@ callCtpop
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
 callCtpop sym _mvar
   (regValue -> val) = liftIO $ bvPopcount sym val
+
+callBitreverse
+  :: (1 <= w, IsSymInterface sym)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (BVType w)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
+callBitreverse sym _mvar
+  (regValue -> val) = liftIO $ bvBitreverse sym val
 
 
 callPutChar
