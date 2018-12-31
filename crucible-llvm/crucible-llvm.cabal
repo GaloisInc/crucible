@@ -93,6 +93,7 @@ test-suite crucible-llvm-tests
     mtl,
     parameterized-utils,
     process,
+    what4,
     tasty,
     tasty-golden,
     tasty-hunit

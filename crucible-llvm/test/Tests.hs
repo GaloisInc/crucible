@@ -1,39 +1,51 @@
 {-# LANGUAGE BangPatterns     #-}
 {-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE ExplicitForAll   #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Main where
 
-import Control.Monad.ST
+import           Control.Monad.ST
 
 -- Crucible
-import           Lang.Crucible.FunctionHandle (newHandleAllocator, HandleAllocator)
+import           Lang.Crucible.Backend.Simple (newSimpleBackend, SimpleBackend)
+import           Lang.Crucible.FunctionHandle (newHandleAllocator, withHandleAllocator, HandleAllocator)
+import           Lang.Crucible.LLVM.Globals (initializeMemory)
 import           Lang.Crucible.LLVM.MemType (i32)
+import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.Intrinsics (mkLLVMContext)
+import           Lang.Crucible.LLVM.Extension (ArchRepr(..))
+
 import           Data.Parameterized.Some (Some(..))
-import           Data.Parameterized.NatRepr (knownNat)
+import           Data.Parameterized.NatRepr (knownNat, LeqProof(..), NatRepr, testLeq)
+import           Data.Parameterized.Nonce (withIONonceGenerator, NonceGenerator)
+import           What4.Expr.Builder (ExprBuilder, Flags, FloatReal, newExprBuilder)
 
 -- LLVM
 import qualified Text.LLVM.AST as L
-import           Text.LLVM.AST     (Module)
+import           Text.LLVM.AST (Module)
 import           Data.LLVM.BitCode (parseBitCodeFromFile)
 
 
 -- Tasty
-import Test.Tasty (defaultMain, TestTree, testGroup)
-import Test.Tasty.HUnit
+import           Test.Tasty (defaultMain, TestTree, testGroup)
+import           Test.Tasty.HUnit (testCase, (@=?))
 
 -- General
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import           Control.Monad (when, forM_)
 import           Control.Monad.Except
 import qualified System.Directory as Dir
-import qualified System.Process   as Proc
+import qualified System.Process as Proc
 import           System.Exit (exitFailure, ExitCode(..))
 
 -- Modules being tested
-import Lang.Crucible.LLVM.Translation
+import           Lang.Crucible.LLVM.Translation
 
 
 doProc :: String -> [String] -> IO (Int, String, String)
@@ -139,4 +151,74 @@ tests int struct uninitialized _ lifetime = do
     -- exceptions.
     , testCase "lifetime" $
         False @=? Map.null (cfgMap lifetime)
-    ]
+    ] ++
+      ------------- Unit tests
+      -- It would be nice to have access to the Arbitrary instances for L.AST from
+      -- llvm-pretty-bc-parser here.
+      let mkGlobal name = L.Global (L.Symbol name) L.emptyGlobalAttrs L.Opaque Nothing Nothing Map.empty
+          mkAlias  name global = L.GlobalAlias (L.Symbol name) L.Opaque (L.ValSymbol (L.Symbol global))
+          mkModule as   gs     = L.emptyModule { L.modGlobals = gs
+                                               , L.modAliases = as
+                                               }
+      in [ testCase "globalAliases: empty module" $
+             Map.empty @=? globalAliases L.emptyModule
+         , testCase "globalAliases: singletons, no alias" $
+             let g = mkGlobal "g0"
+                 a = mkAlias  "a" "g"
+             in Map.singleton g (Set.empty) @=? globalAliases (mkModule [a] [g])
+         , testCase "globalAliases: singletons, aliased" $
+             let g = mkGlobal "g"
+                 a = mkAlias  "a" "g"
+             in Map.singleton g (Set.singleton a) @=? globalAliases (mkModule [a] [g])
+         , testCase "globalAliases: one alias, one erroneous" $
+             let g  = mkGlobal "g"
+                 a1 = mkAlias  "a1" "g"
+                 a2 = mkAlias  "a2" "g0"
+             in Map.singleton g (Set.singleton a1) @=? globalAliases (mkModule [a1, a2] [g])
+         , testCase "globalAliases: one alias, one erroneous" $
+             let g  = mkGlobal "g"
+                 a1 = mkAlias  "a1" "g"
+                 a2 = mkAlias  "a2" "g"
+             in Map.singleton g (Set.fromList [a1, a2]) @=? globalAliases (mkModule [a1, a2] [g])
+         ]
+
+      ++
+      -- The following test ensures that SAW treats global aliases properly in that
+      -- they are present in the @Map@ of globals after initializing the memory.
+      let t = L.PrimType (L.Integer 2)
+          mkGlobal name = L.Global (L.Symbol name) L.emptyGlobalAttrs t Nothing Nothing Map.empty
+          mkAlias  name global = L.GlobalAlias (L.Symbol name) t (L.ValSymbol (L.Symbol global))
+          mkModule as   gs     = L.emptyModule { L.modGlobals = gs
+                                               , L.modAliases = as
+                                               }
+      in [ testCase "initializeMemory" $
+           let g       = mkGlobal "g"
+               a       = mkAlias  "a" "g"
+               mod     = mkModule [a] [g]
+               inMap k = (Just () @=?) . fmap (const ()) . Map.lookup k
+
+               -- This is a separate function because we need to use the scoped type variable
+               -- @s@ in the binding of @sym@, which is difficult to do inline.
+               with :: forall s. NonceGenerator IO s -> HandleAllocator RealWorld -> IO ()
+               with nonceGen halloc = do
+                 sym       <- newSimpleBackend nonceGen :: IO (SimpleBackend s (Flags FloatReal))
+                 Some ctx0 <- stToIO $ mkLLVMContext halloc mod
+                 case llvmArch ctx0                  of { X86Repr width ->
+                 case assertLeq (knownNat @1)  width of { LeqProof      ->
+                 case assertLeq (knownNat @16) width of { LeqProof      -> do
+                   let ?ptrWidth = width
+                   result <- initializeMemory sym ctx0 mod
+                   inMap (L.Symbol "a") (memImplGlobalMap result)
+                 }}}
+           in withIONonceGenerator $ \nonceGen ->
+              withHandleAllocator  $ \halloc   -> with nonceGen halloc
+         ]
+
+-- Copied from what4/test/ExprBuilderSMTLib2
+data State t = State
+
+assertLeq :: forall m n . NatRepr m -> NatRepr n -> LeqProof m n
+assertLeq m n =
+  case testLeq m n of
+    Just LeqProof -> LeqProof
+    Nothing       -> error $ "No LeqProof for " ++ show m ++ " and " ++ show n

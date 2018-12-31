@@ -941,8 +941,11 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   addUnsignedOF sym x y = do
     -- Compute result
     r   <- bvAdd sym x y
-    -- Return that this overflows if x input value is greater than result.
-    (,) <$> bvUgt sym x r <*> pure r
+    -- Return that this overflows if r is less than either x or y
+    ovx  <- bvUlt sym r x
+    ovy  <- bvUlt sym r y
+    ov   <- orPred sym ovx ovy
+    return (ov, r)
 
   -- | Signed add with overflow bit. Overflow is true if positive +
   -- positive = negative, or if negative + negative = positive.
@@ -967,6 +970,18 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     ov2 <- andPred sym sxy =<< andPred sym not_sx not_sy
 
     ov  <- orPred sym ov1 ov2
+    return (ov, xy)
+
+  -- | Unsigned subtract with overflow bit. Overflow is true if x < y.
+  subUnsignedOF ::
+    (1 <= w) =>
+    sym ->
+    SymBV sym w ->
+    SymBV sym w ->
+    IO (Pred sym, SymBV sym w)
+  subUnsignedOF sym x y = do
+    xy <- bvSub sym x y
+    ov <- bvUlt sym x y
     return (ov, xy)
 
   -- | Signed subtract with overflow bit. Overflow is true if positive
@@ -1009,6 +1024,31 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
        hi  <- bvTrunc sym w =<< bvLshr sym s n
        return (hi, lo)
 
+  -- | Compute the unsigned multiply of two values with overflow bit.
+  mulUnsignedOF ::
+    (1 <= w) =>
+    sym ->
+    SymBV sym w ->
+    SymBV sym w ->
+    IO (Pred sym, SymBV sym w)
+  mulUnsignedOF sym x y =
+    do let w = bvWidth x
+       let dbl_w = addNat w w
+       -- Add dynamic check to assert w' is positive to work around
+       -- Haskell typechecker limitation.
+       Just LeqProof <- return (isPosNat dbl_w)
+       -- Add dynamic check to assert w+1 <= 2*w.
+       Just LeqProof <- return (testLeq (incNat w) dbl_w)
+       x'  <- bvZext sym dbl_w x
+       y'  <- bvZext sym dbl_w y
+       s   <- bvMul sym x' y'
+       lo  <- bvTrunc sym w s
+
+       -- overflow if the result is greater than the max representable value in w bits
+       ov  <- bvUgt sym s =<< bvLit sym dbl_w (maxUnsigned w)
+
+       return (ov, lo)
+
   -- | @signedWideMultiplyBV sym x y@ multiplies two signed 'w' bit numbers 'x' and 'y'.
   --
   -- It returns a pair containing the top 'w' bits as the first element, and the
@@ -1033,6 +1073,32 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
        n   <- bvLit sym dbl_w (fromIntegral (widthVal w))
        hi  <- bvTrunc sym w =<< bvLshr sym s n
        return (hi, lo)
+
+  -- | Compute the signed multiply of two values with overflow bit.
+  mulSignedOF ::
+    (1 <= w) =>
+    sym ->
+    SymBV sym w ->
+    SymBV sym w ->
+    IO (Pred sym, SymBV sym w)
+  mulSignedOF sym x y =
+    do let w = bvWidth x
+       let dbl_w = addNat w w
+       -- Add dynamic check to assert dbl_w is positive to work around
+       -- Haskell typechecker limitation.
+       Just LeqProof <- return (isPosNat dbl_w)
+       -- Add dynamic check to assert w+1 <= 2*w.
+       Just LeqProof <- return (testLeq (incNat w) dbl_w)
+       x'  <- bvSext sym dbl_w x
+       y'  <- bvSext sym dbl_w y
+       s   <- bvMul sym x' y'
+       lo  <- bvTrunc sym w s
+
+       -- overflow if greater or less than max representable values
+       ov1 <- bvSlt sym s =<< bvLit sym dbl_w (minSigned w)
+       ov2 <- bvSgt sym s =<< bvLit sym dbl_w (maxSigned w)
+       ov  <- orPred sym ov1 ov2
+       return (ov, lo)
 
   ----------------------------------------------------------------------
   -- Struct operations

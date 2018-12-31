@@ -15,7 +15,7 @@ import Data.String (fromString)
 import qualified Data.Map as Map
 import Control.Lens ((^.), view)
 import Control.Monad.ST(RealWorld, stToIO)
-import Control.Monad.State(evalStateT, liftIO, MonadIO)
+import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
 
 import System.Process
@@ -143,7 +143,7 @@ registerFunctions ::
   OverM sym (LLVM arch) ()
 registerFunctions ctx llvm_module mtrans =
   do -- register the callable override functions
-     evalStateT (register_llvm_overrides llvm_module) ctx
+     _ctx' <- register_llvm_overrides llvm_module ctx
 
      -- register all the functions defined in the LLVM module
      mapM_ registerModuleFn $ Map.toList $ cfgMap mtrans
