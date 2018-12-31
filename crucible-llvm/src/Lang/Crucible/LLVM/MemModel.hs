@@ -1203,25 +1203,28 @@ reverseAliases :: (Ord a, Ord l)
                -> Seq a
                -> Map a (Set a)
 reverseAliases lab aliasOf seq =
-    evalState (go Map.empty seq) (Map.empty :: Map l a)
-  where go map_ Seq.Empty                           = pure map_
-        go map_ (a@(aliasOf -> Nothing) Seq.:<| as) =
-          -- Don't overwrite it if it's already in the map
-          modify (Map.insert (lab a) a) >>
-          go (Map.insertWith (\_ old -> old) a Set.empty map_) as
-        go map_ (a@(aliasOf -> Just l)  Seq.:<| as) = do
-          st <- get
-          case Map.lookup l st of
-            Just aliasee ->
-              modify (Map.insert l aliasee) >>                              -- 1a
-              go (mapSetInsert aliasee a map_)                              -- 1b
-                 (Seq.filter (\b -> lab b /= lab aliasee && lab b /= l) as) -- 1c
-            Nothing      ->
-              if isJust (List.find ((l ==) . lab) as)
-              then go map_ (as <> Seq.singleton a)                          -- 2
-              else modify (Map.insert (lab a) a) >>                         -- 3a
-                   pure map_                                                -- 3b
-          where mapSetInsert k v m  = Map.update (pure . Set.insert v) k m
+   evalState (go Map.empty seq) (Map.empty :: Map l a)
+
+  where go map_ Seq.Empty      = pure map_
+        go map_ (a Seq.:<| as) =
+          case aliasOf a of
+            Nothing ->
+              do -- Don't overwrite it if it's already in the map
+                 modify (Map.insert (lab a) a)
+                 go (Map.insertWith (\_ old -> old) a Set.empty map_) as
+            Just l ->
+              do st <- get
+                 case Map.lookup l st of
+                   Just aliasee ->
+                     modify (Map.insert l aliasee) >>                              -- 1a
+                     go (mapSetInsert aliasee a map_)                              -- 1b
+                        (Seq.filter (\b -> lab b /= lab aliasee && lab b /= l) as) -- 1c
+                   Nothing      ->
+                     if isJust (List.find ((l ==) . lab) as)
+                     then go map_ (as <> Seq.singleton a)                          -- 2
+                     else modify (Map.insert (lab a) a) >>                         -- 3a
+                          pure map_                                                -- 3b
+                 where mapSetInsert k v m  = Map.update (pure . Set.insert v) k m
 
 -- | This is one step closer to the application of 'reverseAliases':
 -- There are two \"sorts\" of objects:

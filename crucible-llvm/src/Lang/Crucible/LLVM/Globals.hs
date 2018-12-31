@@ -46,6 +46,7 @@ module Lang.Crucible.LLVM.Globals
 import           Control.Arrow ((&&&))
 import           Control.Monad.Except
 import           Control.Lens hiding (op, (:>) )
+import           Data.List (foldl')
 import qualified Data.Set as Set
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -92,72 +93,48 @@ type GlobalInitializerMap = Map L.Symbol (L.Global, Either String (MemType, Mayb
 ------------------------------------------------------------------------
 -- makeGlobalMap
 
--- -- | Commute an applicative with Maybe
--- commuteMaybe :: Applicative n => Maybe (n a) -> n (Maybe a)
--- commuteMaybe (Just val) = Just <$> val
--- commuteMaybe Nothing    = pure Nothing
-
--- -- | Commute a functor with pairing
--- fSnd :: Functor n => (a, n b) -> n (a, b)
--- fSnd (a, nb) = fmap ((,) a) nb
-
 -- | @makeGlobalMap@ creates a map from names of LLVM global variables
 -- to the values of their initializers, if any are included in the module.
 makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
               => LLVMContext arch
               -> L.Module
               -> GlobalInitializerMap
-makeGlobalMap ctx m =
-  let mp_     = Map.fromList $ map (L.globalSym &&& (id &&& globalToConst))
-                                   (L.modGlobals m)
-      insertAll ks v mp = foldr (flip Map.insert v) mp ks
-  in  -- Add in aliases to the initializer map
-      foldr (\(glob, aliases) mp' ->
-               case Map.lookup (L.globalSym glob) mp' of
-                 Just initzr -> insertAll (map L.aliasName aliases) initzr mp'
-                 Nothing     -> mp' -- should this be an error/exception?
-            ) mp_ (Map.toList (fmap Set.toList (globalAliases m)))
-  where -- Catch the error from @transConstant@, turn it into @Either@
-        globalToConst :: L.Global -> Either String (MemType, Maybe LLVMConst)
-        globalToConst g =
-          catchError
-            (globalToConst' g)
-{-
->>=
-              flip maybeToEither
-                (List.intercalate " " $
-                  [ "The global"
-                  , showSymbol $ L.globalSym g
-                  , "is declared"
-                  , case L.modSourceName m of
-                      Nothing   -> ""
-                      Just name -> "in the module " ++ name
-                  , "but was missing. Did you link all of the relevant .bc files"
-                  , "together with `llvm-link'?"
-                  ]))
--}
-            (\err -> Left $
-              "Encountered error while processing global "
-                ++ showSymbol (L.globalSym g)
-                ++ ": "
-                ++ err)
-          where showSymbol sym =
-                  show $ let ?config = LPP.Config False False False
-                         in LPP.ppSymbol $ sym
+makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (globalAliases m))
 
-        -- maybeToEither :: Maybe a -> b -> Either b a
-        -- maybeToEither Nothing b  = Left b
-        -- maybeToEither (Just a) _ = Right a
+  where
+   addAliases mp (glob, aliases) =
+        case Map.lookup (L.globalSym glob) mp of
+          Just initzr -> insertAll (map L.aliasName (Set.toList aliases)) initzr mp
+          Nothing     -> mp -- should this be an error/exception?
 
-        globalToConst' :: forall m. (MonadError String m)
-                       => L.Global -> m (MemType, Maybe LLVMConst)
-        globalToConst' g =
-          do let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to transConstant
-             let gty  = L.globalType g
-             let gval = L.globalValue g
-             mt  <- liftMemType gty
-             val <- traverse (transConstant' mt) gval
-             return (mt, val)
+   globalMap = Map.fromList $ map (L.globalSym &&& (id &&& globalToConst))
+                                  (L.modGlobals m)
+
+   insertAll ks v mp = foldr (flip Map.insert v) mp ks
+
+   -- Catch the error from @transConstant@, turn it into @Either@
+   globalToConst :: L.Global -> Either String (MemType, Maybe LLVMConst)
+   globalToConst g =
+     catchError
+       (globalToConst' g)
+       (\err -> Left $
+         "Encountered error while processing global "
+           ++ showSymbol (L.globalSym g)
+           ++ ": "
+           ++ err)
+     where showSymbol sym =
+             show $ let ?config = LPP.Config False False False
+                    in LPP.ppSymbol $ sym
+
+   globalToConst' :: forall m. (MonadError String m)
+                  => L.Global -> m (MemType, Maybe LLVMConst)
+   globalToConst' g =
+     do let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to transConstant
+        let gty  = L.globalType g
+        let gval = L.globalValue g
+        mt  <- liftMemType gty
+        val <- traverse (transConstant' mt) gval
+        return (mt, val)
 
 -------------------------------------------------------------------------
 -- initializeMemory
