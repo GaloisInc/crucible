@@ -80,6 +80,19 @@ type instance StmtExtension (LLVM arch) = LLVMStmt (ArchWidth arch)
 data LLVMExtensionExpr (arch :: LLVMArch) :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
   X86Expr :: !(X86.ExtX86 f t) -> LLVMExtensionExpr (X86 wptr) f t
 
+  LLVM_PointerExpr ::
+    (1 <= w) => !(NatRepr w) -> !(f NatType) -> !(f (BVType w)) ->
+    LLVMExtensionExpr arch f (LLVMPointerType w)
+
+  LLVM_PointerBlock ::
+    (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
+    LLVMExtensionExpr arch f NatType
+
+  LLVM_PointerOffset ::
+    (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
+    LLVMExtensionExpr arch f (BVType w)
+
+
 -- | Extension statements for LLVM.  These statements represent the operations
 --   necessary to interact with the LLVM memory model.
 data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type where
@@ -214,21 +227,38 @@ instance OrdF ArchRepr where
         ])
 
 instance TypeApp (LLVMExtensionExpr arch) where
-  appType (X86Expr ex) = appType ex
+  appType e =
+    case e of
+      X86Expr ex             -> appType ex
+      LLVM_PointerExpr w _ _ -> LLVMPointerRepr w
+      LLVM_PointerBlock _ _  -> NatRepr
+      LLVM_PointerOffset w _ -> BVRepr w
 
 instance PrettyApp (LLVMExtensionExpr arch) where
-  ppApp pp (X86Expr ex) = ppApp pp ex
+  ppApp pp e =
+    case e of
+      X86Expr ex -> ppApp pp ex
+      LLVM_PointerExpr _ blk off ->
+        text "pointerExpr" <+> pp blk <+> pp off
+      LLVM_PointerBlock _ ptr ->
+        text "pointerBlock" <+> pp ptr
+      LLVM_PointerOffset _ ptr ->
+        text "pointerOffset" <+> pp ptr
 
 instance TestEqualityFC (LLVMExtensionExpr arch) where
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|LLVMExtensionExpr|]
-       [ (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
+       [ (U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
+       , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
+       , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
        ])
 
 instance OrdFC (LLVMExtensionExpr arch) where
   compareFC testSubterm =
     $(U.structuralTypeOrd [t|LLVMExtensionExpr|]
-       [ (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFC testSubterm|])
+       [ (U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
+       , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+       , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFC testSubterm|])
        ])
 
 instance FunctorFC (LLVMExtensionExpr arch) where

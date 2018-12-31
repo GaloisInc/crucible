@@ -189,18 +189,23 @@ initializeMemory sym llvm_ctx m = do
                         let tyAlign = memTypeAlign dl ty
                         let aliases = map L.aliasName . Set.toList $
                               fromMaybe Set.empty (Map.lookup g (allAliases))
+                        -- LLVM documentation regarding global variable alignment:
+                        --
+                        -- An explicit alignment may be specified for
+                        -- a global, which must be a power of 2. If
+                        -- not present, or if the alignment is set to
+                        -- zero, the alignment of the global is set by
+                        -- the target to whatever it feels
+                        -- convenient. If an explicit alignment is
+                        -- specified, the global is forced to have
+                        -- exactly that alignment.
                         alignment <-
                           case L.globalAlign g of
                             Just a | a > 0 ->
                               case toAlignment (toBytes a) of
                                 Nothing -> fail $ "Invalid alignemnt: " ++ show a ++ "\n  " ++
                                                   "specified for global: " ++ show (L.globalSym g)
-                                Just al -> do
-                                  unless (tyAlign <= al)
-                                         (fail $ "Specified alignment: " ++ show a ++ "\n  " ++
-                                                 "for global: " ++ show (L.globalSym g) ++ "\n  "++
-                                                 "is insufficent for type: " ++ show (L.globalType g))
-                                  return al
+                                Just al -> return al
                             _ -> return tyAlign
                         return (g, aliases, sz, alignment))
                     globals

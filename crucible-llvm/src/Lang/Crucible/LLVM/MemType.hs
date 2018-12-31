@@ -252,7 +252,7 @@ memTypeAlign dl mtp =
     ArrayType _ tp -> memTypeAlign dl tp
     VecType _n _tp -> vectorAlignment dl (memTypeSizeInBits dl mtp)
     StructType si  -> structAlign si
-    MetadataType -> 0
+    MetadataType   -> noAlignment
 
 -- | Information about size, alignment, and fields of a struct.
 data StructInfo = StructInfo
@@ -291,15 +291,15 @@ mkStructInfo :: DataLayout
              -> [MemType] -- ^ Field types
              -> StructInfo
 mkStructInfo dl packed tps0 = go [] 0 a0 tps0
-  where a0 | packed    = 0
-           | otherwise = nextAlign 0 tps0 `max` aggregateAlignment dl
+  where a0 | packed    = noAlignment
+           | otherwise = nextAlign noAlignment tps0 `max` aggregateAlignment dl
         -- Padding after each field depends on the alignment of the
         -- type of the next field, if there is one. Padding after the
         -- last field depends on the alignment of the whole struct
         -- (i.e. the maximum alignment of any field). Alignment value
         -- of n means to align on 2^n byte boundaries.
         nextAlign :: Alignment -> [MemType] -> Alignment
-        nextAlign _ _ | packed = 0
+        nextAlign _ _ | packed = noAlignment
         nextAlign maxAlign [] = maxAlign
         nextAlign _ (tp:_) = memTypeAlign dl tp
 
@@ -367,12 +367,13 @@ siIndexOfOffset si o = binarySearch f 0 (V.length flds)
 commas :: [Doc] -> Doc
 commas = hsep . punctuate (char ',')
 
-structBraces :: Doc -> Doc
-structBraces b = char '{' <+> b <+> char '}'
+structBraces :: Bool -> Doc -> Doc
+structBraces False b = char '{' <+> b <+> char '}'
+structBraces True  b = string "<{" <+> b <+> string "}>"
 
 -- | Pretty print struct info.
 ppStructInfo :: StructInfo -> Doc
-ppStructInfo si = structBraces $ commas (V.toList fields)
+ppStructInfo si = structBraces (siIsPacked si) $ commas (V.toList fields)
   where fields = ppMemType <$> siFieldTypes si
 
 -- | Removes the last field from a struct if at least one field exists.

@@ -12,12 +12,18 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- GHC 8.0 doesn't understand the COMPLETE pragma,
 -- so we just kill the incomplete pattern warning
@@ -42,6 +48,8 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , pattern LLVMPointer
   , ptrWidth
   , llvmPointerView
+  , llvmPointerBlock
+  , llvmPointerOffset
   , muxLLVMPtr
   , projectLLVM_bv
   , llvmPointer_bv
@@ -66,6 +74,8 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
+import           GHC.TypeLits
+
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
@@ -74,25 +84,38 @@ import           What4.Interface
 import           What4.InterpretedFloatingPoint
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Simulator.RegValue
+import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.Types
 
--- | This pattern synonym gives an easy way to construct/deconstruct runtime values of type 'LLVMPtr'.
-pattern LLVMPointer :: RegValue sym NatType -> SymBV sym w -> LLVMPtr sym w
-pattern LLVMPointer blk offset = RolledType (Ctx.Empty Ctx.:> RV blk Ctx.:> RV offset)
+data LLVMPointer sym w =
+  -- | This pattern synonym gives an easy way to construct/deconstruct runtime values of type 'LLVMPtr'.
+  LLVMPointer (SymNat sym) (SymBV sym w)
 
--- The COMPLETE pragma was not defined until ghc 8.2.*
-#if MIN_VERSION_base(4,10,0)
-{-# COMPLETE LLVMPointer #-}
-#endif
+llvmPointerBlock :: LLVMPtr sym w -> SymNat sym
+llvmPointerBlock (LLVMPointer blk _) = blk
+
+llvmPointerOffset :: LLVMPtr sym w -> SymBV sym w
+llvmPointerOffset (LLVMPointer _ off) = off
+
+-- | Type family defining how @LLVMPointerType@ unfolds.
+type family LLVMPointerImpl sym ctx where
+  LLVMPointerImpl sym (EmptyCtx ::> BVType w) = LLVMPointer sym w
+  LLVMPointerImpl sym ctx = TypeError ('Text "LLVM_pointer expects a single argument of BVType, but was given" ':<>:
+                                       'ShowType ctx)
+
+instance (IsSymInterface sym) => IntrinsicClass sym "LLVM_pointer" where
+  type Intrinsic sym "LLVM_pointer" ctx = LLVMPointerImpl sym ctx
+
+  muxIntrinsic sym _iTypes _nm (Ctx.Empty Ctx.:> (BVRepr _w)) = muxLLVMPtr sym
+  muxIntrinsic _ _ nm ctx = typeError nm ctx
 
 -- | Alternative to the 'LLVMPointer' pattern synonym, this function can be used as a view
 --   constructor instead to silence incomplete pattern warnings.
 llvmPointerView :: LLVMPtr sym w -> (SymNat sym, SymBV sym w)
-llvmPointerView (LLVMPointer blk offset) = (blk, offset)
+llvmPointerView (LLVMPointer blk off) = (blk, off)
 
 -- | Compute the width of a pointer value.
 ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w

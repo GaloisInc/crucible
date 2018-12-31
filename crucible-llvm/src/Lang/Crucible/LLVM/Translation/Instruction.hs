@@ -150,7 +150,7 @@ instrResultType instr =
 
 
 liftMemType' :: (?lc::TypeContext, Monad m) => L.Type -> m MemType
-liftMemType' = either fail return . liftMemType 
+liftMemType' = either fail return . liftMemType
 
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
@@ -882,9 +882,9 @@ caseptr w tpr bvCase ptrCase x =
         Just (NatLit _) -> ptrCase blk off
         _               -> ptrSwitch blk off
 
-    _ -> do a_x <- forceEvaluation (app (UnrollRecursive knownRepr (Ctx.Empty :> BVRepr w) x))
-            blk <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @0) NatRepr))
-            off <- forceEvaluation (app (GetStruct a_x (Ctx.natIndex @1) (BVRepr w)))
+    _ -> do a_x <- forceEvaluation x
+            blk <- forceEvaluation (App (ExtensionApp (LLVM_PointerBlock w a_x)))
+            off <- forceEvaluation (App (ExtensionApp (LLVM_PointerOffset w a_x)))
             ptrSwitch blk off
   where
   ptrSwitch blk off =
@@ -1120,16 +1120,20 @@ generateInstr retType lab instr assign_f k =
                                return $ app $ BVMul PtrWidth x' tp_sz'
                      _ -> fail $ "Invalid alloca argument: " ++ show num
 
+      -- LLVM documentation regarding `alloca` alignment:
+      --
+      -- If a constant alignment is specified, the value result of the
+      -- allocation is guaranteed to be aligned to at least that
+      -- boundary. The alignment may not be greater than 1 << 29. If
+      -- not specified, or if zero, the target can choose to align the
+      -- allocation on any convenient boundary compatible with the
+      -- type.
       alignment <-
        case align of
          Just a | a > 0 ->
            case toAlignment (G.toBytes a) of
              Nothing -> fail $ "Invalid alignment value in alloca: " ++ show a
-             Just al ->
-               do unless (memTypeAlign dl tp' <= al)
-                         (fail $ "Specified alignment: " ++ show a ++ "\n  " ++
-                                 "insufficent for type: " ++ show tp)
-                  return al
+             Just al -> return al
          _ -> return (memTypeAlign dl tp')
 
       p <- callAlloca sz alignment
@@ -1619,4 +1623,3 @@ doAssign (Some r) (VecExpr tp vs) = do
       case testEquality (typeOfReg r) (VectorRepr tpr) of
         Just Refl -> assignReg r ex
         Nothing -> reportError $ fromString $ "type mismatch when assigning vector value"
-

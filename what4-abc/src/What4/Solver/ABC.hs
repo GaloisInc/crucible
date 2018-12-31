@@ -380,6 +380,16 @@ bitblastExpr h ae = do
     BVLshr _w x y -> BV <$> join (AIG.ushr g <$> eval' h x <*> eval' h y)
     BVAshr _w x y -> BV <$> join (AIG.sshr g <$> eval' h x <*> eval' h y)
 
+    BVPopcount _w xe -> do
+      x <- eval' h xe
+      BV <$> AIG.popCount g x
+    BVCountLeadingZeros _w xe -> do
+      x <- eval' h xe
+      BV <$> AIG.countLeadingZeros g x
+    BVCountTrailingZeros _w xe -> do
+      x <- eval' h xe
+      BV <$> AIG.countTrailingZeros g x
+
     BVZext  w' xe -> do
       x <- eval' h xe
       return $ BV $ AIG.zext g x (widthVal w')

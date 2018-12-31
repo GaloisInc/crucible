@@ -55,7 +55,7 @@ import           What4.Interface
 import           What4.Expr.Builder
 import qualified What4.Expr.WeightedSum as WSum
 import qualified What4.Expr.UnaryBV as UnaryBV
-import           What4.Utils.Arithmetic ( roundAway )
+import           What4.Utils.Arithmetic ( roundAway, clz, ctz )
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
 
@@ -340,6 +340,13 @@ evalGroundApp f0 a0 = do
       case isPosNat w of
         Just LeqProof -> (toUnsigned w . toSigned w) <$> f0 x
         Nothing -> error "BVSext given bad width"
+
+    BVPopcount _w x ->
+      toInteger . popCount <$> f x
+    BVCountLeadingZeros w x ->
+      clz w <$> f x
+    BVCountTrailingZeros w x ->
+      ctz w <$> f x
 
     BVBitNot _ x   -> lift $ complement <$> f0 x
     BVBitAnd _ x y -> lift $ (.&.) <$> f0 x <*> f0 y

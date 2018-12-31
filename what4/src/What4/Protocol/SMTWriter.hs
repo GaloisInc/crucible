@@ -20,6 +20,7 @@ The solver should detect when something is not supported and give an
 error rather than sending invalid output to a file.
 -}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -99,7 +100,6 @@ import           Data.IORef
 import           Data.Kind
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import           Data.Monoid
 import           Data.Parameterized.Classes (ShowF(..))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.HashTable as PH
@@ -107,6 +107,7 @@ import           Data.Parameterized.Nonce (Nonce)
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
+import           Data.Semigroup( (<>) )
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Text.Lazy.Builder (Builder)
@@ -346,6 +347,10 @@ class Num v => SupportTermOps v where
   bvTestBit w i x = (bvExtract w i 1 x .== bvTerm w1 1)
     where w1 :: NatRepr 1
           w1 = knownNat
+
+  bvSumExpr :: NatRepr w -> [v] -> v
+  bvSumExpr w [] = bvTerm w 0
+  bvSumExpr _ (h:r) = foldl bvAdd h r
 
   floatPZero :: FloatPrecisionRepr fpp -> v
   floatNZero :: FloatPrecisionRepr fpp  -> v
@@ -2005,6 +2010,29 @@ appSMTExpr ae = do
           let sgn = bvTestBit w (natValue w - 1) x
           freshBoundTerm (BVTypeMap w') $ bvConcat (ite sgn ones zeros) x
         _ -> fail "invalid sign extension"
+
+    BVPopcount w xe ->
+      do x <- mkBaseExpr xe
+         let zs = [ ite (bvTestBit w idx x) (bvTerm w 1) (bvTerm w 0)
+                  | idx <- [ 0 .. natValue w - 1 ]
+                  ]
+         freshBoundTerm (BVTypeMap w) $! bvSumExpr w zs
+
+    BVCountLeadingZeros w xe ->
+      do x <- mkBaseExpr xe
+         freshBoundTerm (BVTypeMap w) $! go 0 x
+     where
+     go !idx x
+       | idx < natValue w = ite (bvTestBit w (natValue w - idx - 1) x) (bvTerm w idx) (go (idx+1) x)
+       | otherwise = bvTerm w (natValue w)
+
+    BVCountTrailingZeros w xe ->
+      do x <- mkBaseExpr xe
+         freshBoundTerm (BVTypeMap w) $! go 0 x
+     where
+     go !idx x
+       | idx < natValue w = ite (bvTestBit w idx x) (bvTerm w idx) (go (idx+1) x)
+       | otherwise = bvTerm w (natValue w)
 
     BVBitNot w xe -> do
       x <- mkBaseExpr xe

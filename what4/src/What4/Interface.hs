@@ -78,6 +78,7 @@ module What4.Interface
   , bvJoinVector
   , bvSplitVector
   , bvSwap
+  , bvBitreverse
 
     -- ** Floating-point rounding modes
   , RoundingMode(..)
@@ -917,6 +918,19 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   --   except the MSB, which is set.
   minSignedBV :: (1 <= w) => sym -> NatRepr w -> IO (SymBV sym w)
   minSignedBV sym w = bvLit sym w (minSigned w)
+
+  -- | Return the number of 1 bits in the input.
+  bvPopcount :: (1 <= w) => sym -> SymBV sym w -> IO (SymBV sym w)
+
+  -- | Return the number of consecutive 0 bits in the input, starting from
+  --   the most significant bit position.  If the input is zero, all bits are counted
+  --   as leading.
+  bvCountLeadingZeros :: (1 <= w) => sym -> SymBV sym w -> IO (SymBV sym w)
+
+  -- | Return the number of consecutive 0 bits in the input, starting from
+  --   the least significant bit position.  If the input is zero, all bits are counted
+  --   as leading.
+  bvCountTrailingZeros :: (1 <= w) => sym -> SymBV sym w -> IO (SymBV sym w)
 
   -- | Unsigned add with overflow bit.
   addUnsignedOF :: (1 <= w)
@@ -2118,6 +2132,16 @@ bvSwap sym n v = do
   bvJoinVector sym (knownNat @8) . Vector.reverse
     =<< bvSplitVector sym n (knownNat @8) v
 
+-- | Swap the order of the bits in a bitvector.
+bvBitreverse :: forall sym w.
+  (1 <= w, IsExprBuilder sym) =>
+  sym ->
+  SymBV sym w ->
+  IO (SymBV sym w)
+bvBitreverse sym v = do
+  bvJoinVector sym (knownNat @1) . Vector.reverse
+    =<< bvSplitVector sym (bvWidth v) (knownNat @1) v
+
 -- | Rounding modes for IEEE-754 floating point operations.
 data RoundingMode
   = RNE -- ^ Round to nearest even.
@@ -2531,10 +2555,10 @@ concreteToSym sym = \case
 {- | This function is used for selecting a value from among potential
 values in a range.
 
-'muxIntegerRange p ite f l h' returns an expression denoting the value obtained
-from the value 'f i' where 'i' is the smallest value in the range '[l..h]'
-such that 'p i' is true.  If 'p i' is true for no such value then,
-this returns the value 'f h'. -}
+@muxIntegerRange p ite f l h@ returns an expression denoting the value obtained
+from the value @f i@ where @i@ is the smallest value in the range @[l..h]@
+such that @p i@ is true.  If @p i@ is true for no such value, then
+this returns the value @f h@. -}
 muxIntegerRange :: Monad m
                 => (Integer -> m (e BaseBoolType))
                    -- ^ Returns predicate that holds if we have found the value we are looking

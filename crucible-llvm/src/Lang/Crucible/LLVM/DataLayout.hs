@@ -17,9 +17,11 @@
 module Lang.Crucible.LLVM.DataLayout
   ( -- * Alignments
     Alignment
+  , noAlignment
   , padToAlignment
   , toAlignment
   , fromAlignment
+  , exponentToAlignment
   , alignmentToExponent
     -- * Data layout declarations.
   , DataLayout
@@ -54,10 +56,15 @@ import Lang.Crucible.LLVM.Bytes
 ------------------------------------------------------------------------
 -- Data layout
 
--- | Alignments must be a power of two, so we just store the exponent.
--- e.g., alignment value of 3 indicates the pointer must align on 2^3-byte boundaries.
+-- | An @Alignment@ represents a number of bytes that must be a power of two.
 newtype Alignment = Alignment Word32
-  deriving (Eq, Ord, Num, Show)
+  deriving (Eq, Ord, Show)
+-- The representation just stores the exponent. E.g., @Alignment 3@
+-- indicates alignment to a 2^3-byte boundary.
+
+-- | 1-byte alignment, which is the minimum possible.
+noAlignment :: Alignment
+noAlignment = Alignment 0
 
 -- | @padToAlignment x a@ returns the smallest value greater than or
 -- equal to @x@ that is aligned to @a@.
@@ -67,12 +74,16 @@ padToAlignment x (Alignment n) = fromInteger (nextPow2Multiple (bytesToInteger x
 -- | Convert a number of bytes into an alignment, if it is a power of 2.
 toAlignment :: Bytes -> Maybe Alignment
 toAlignment (Bytes x)
-  | isPow2 x = Just (fromIntegral (lg x))
+  | isPow2 x = Just (Alignment (fromIntegral (lg x)))
   | otherwise = Nothing
 
 -- | Convert an alignment to a number of bytes.
 fromAlignment :: Alignment -> Bytes
 fromAlignment (Alignment n) = Bytes (2 ^ n)
+
+-- | Convert an exponent @n@ to an alignment of @2^n@ bytes.
+exponentToAlignment :: Integer -> Alignment
+exponentToAlignment n = Alignment (fromIntegral n)
 
 alignmentToExponent :: Alignment -> Integer
 alignmentToExponent (Alignment n) = toInteger n
@@ -102,7 +113,7 @@ integerAlignment dl w =
     Nothing ->
       case Map.toDescList t of
         ((_, a) : _) -> a
-        _ -> 0
+        _ -> noAlignment
   where AT t = dl^.integerInfo
 
 -- | Get alignment for a vector type of the specified bitwidth, using
@@ -114,7 +125,7 @@ vectorAlignment :: DataLayout -> Natural -> Alignment
 vectorAlignment dl w =
   case Map.lookupLE w t of
     Just (_, a) -> a
-    Nothing -> 0
+    Nothing -> noAlignment
   where AT t = dl^.vectorInfo
 
 -- | Get alignment for a float type of the specified bitwidth.
@@ -125,11 +136,11 @@ floatAlignment dl w = Map.lookup w t
 -- | Get the basic alignment for aggregate types.
 aggregateAlignment :: DataLayout -> Alignment
 aggregateAlignment dl =
-  fromMaybe 0 (findExact 0 (dl^.aggInfo))
+  fromMaybe noAlignment (findExact 0 (dl^.aggInfo))
 
 -- | Return maximum alignment constraint stored in tree.
 maxAlignmentInTree :: AlignInfo -> Alignment
-maxAlignmentInTree (AT t) = foldrOf folded max 0 t
+maxAlignmentInTree (AT t) = foldrOf folded max noAlignment t
 
 -- | Update alignment tree
 updateAlign :: Natural
@@ -212,7 +223,7 @@ fromBits :: Int -> Either String Alignment
 fromBits a | w <= 0 = Left $ "Alignment must be a positive number."
            | r /= 0 = Left $ "Alignment specification must occupy a byte boundary."
            | not (isPow2 w) = Left $ "Alignment must be a power of two."
-           | otherwise = Right $ fromIntegral (lg w)
+           | otherwise = Right $ Alignment (fromIntegral (lg w))
   where (w,r) = toInteger a `divMod` 8
 
 -- | Insert alignment into spec.
@@ -227,9 +238,9 @@ setAt f sz a = f . at sz ?= a
 defaultDataLayout :: DataLayout
 defaultDataLayout = execState defaults dl
   where dl = DL { _intLayout = BigEndian
-                , _stackAlignment = 1
+                , _stackAlignment = Alignment 1
                 , _ptrSize  = 8 -- 64 bit pointers = 8 bytes
-                , _ptrAlign = 3 -- 64 bit alignment: 2^3=8 byte boundaries
+                , _ptrAlign = Alignment 3 -- 64 bit alignment: 2^3=8 byte boundaries
                 , _integerInfo = emptyAlignInfo
                 , _floatInfo   = emptyAlignInfo
                 , _vectorInfo  = emptyAlignInfo
@@ -239,21 +250,21 @@ defaultDataLayout = execState defaults dl
                 }
         defaults = do
           -- Default integer alignments
-          setAt integerInfo  1 0 -- 1-bit values aligned on byte addresses.
-          setAt integerInfo  8 0 -- 8-bit values aligned on byte addresses.
-          setAt integerInfo 16 1 -- 16-bit values aligned on 2 byte addresses.
-          setAt integerInfo 32 2 -- 32-bit values aligned on 4 byte addresses.
-          setAt integerInfo 64 3 -- 64-bit values aligned on 8 byte addresses.
+          setAt integerInfo  1 noAlignment -- 1-bit values aligned on byte addresses.
+          setAt integerInfo  8 noAlignment -- 8-bit values aligned on byte addresses.
+          setAt integerInfo 16 (Alignment 1) -- 16-bit values aligned on 2 byte addresses.
+          setAt integerInfo 32 (Alignment 2) -- 32-bit values aligned on 4 byte addresses.
+          setAt integerInfo 64 (Alignment 3) -- 64-bit values aligned on 8 byte addresses.
           -- Default float alignments
-          setAt floatInfo  16 1 -- Half is aligned on 2 byte addresses.
-          setAt floatInfo  32 2 -- Float is aligned on 4 byte addresses.
-          setAt floatInfo  64 3 -- Double is aligned on 8 byte addresses.
-          setAt floatInfo 128 4 -- Quad is aligned on 16 byte addresses.
+          setAt floatInfo  16 (Alignment 1) -- Half is aligned on 2 byte addresses.
+          setAt floatInfo  32 (Alignment 2) -- Float is aligned on 4 byte addresses.
+          setAt floatInfo  64 (Alignment 3) -- Double is aligned on 8 byte addresses.
+          setAt floatInfo 128 (Alignment 4) -- Quad is aligned on 16 byte addresses.
           -- Default vector alignments.
-          setAt vectorInfo  64 3 -- 64-bit vector is 8 byte aligned.
-          setAt vectorInfo 128 4  -- 128-bit vector is 16 byte aligned.
+          setAt vectorInfo  64 (Alignment 3) -- 64-bit vector is 8 byte aligned.
+          setAt vectorInfo 128 (Alignment 4) -- 128-bit vector is 16 byte aligned.
           -- Default aggregate alignments.
-          setAt aggInfo  0 0  -- Aggregates are 1-byte aligned.
+          setAt aggInfo  0 noAlignment  -- Aggregates are 1-byte aligned.
 
 -- | Maximum alignment for any type (used by malloc).
 maxAlignment :: DataLayout -> Alignment
