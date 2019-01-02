@@ -897,10 +897,18 @@ evaluateExpr sym sc cache = f
           m <- SC.scNat sc (fromIntegral (widthVal w' - widthVal w))
           x' <- f x
           SC.scBvSExt sc m n x'
-
-        B.BVPopcount _w _x -> nyi --FIXME
-        B.BVCountLeadingZeros _w _x -> nyi --FIXME
-        B.BVCountTrailingZeros _w _x -> nyi -- FIXME
+        B.BVPopcount w x ->
+          do n  <- SC.scNat sc (fromIntegral (widthVal w))
+             x' <- f x
+             SAWExpr <$> SC.scBvPopcount sc n x'
+        B.BVCountLeadingZeros w x ->
+          do n  <- SC.scNat sc (fromIntegral (widthVal w))
+             x' <- f x
+             SAWExpr <$> SC.scBvCountLeadingZeros sc n x'
+        B.BVCountTrailingZeros w x ->
+          do n  <- SC.scNat sc (fromIntegral (widthVal w))
+             x' <- f x
+             SAWExpr <$> SC.scBvCountTrailingZeros sc n x'
 
         B.ArrayMap indexTypes range updates arr ->
           do let m = hashedMap updates
