@@ -109,6 +109,7 @@ import           Control.Monad.State.Strict
 import qualified Data.Foldable as Fold
 import           Data.Kind
 import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
@@ -156,56 +157,55 @@ cbsStmts = lens _cbsStmts (\s v -> s { _cbsStmts = v })
 -- GeneratorState
 
 -- | State for translating within a basic block.
-data IxGeneratorState ext s (t :: Type -> Type) ret i
-  = GS { _gsBlocks    :: !(Seq (Block ext s ret))
-       , _gsNextLabel :: !Int
-       , _gsNextValue :: !Int
+data IxGeneratorState ext h s (t :: Type -> Type) ret i
+  = GS { _gsEntryLabel :: !(Label s)
+       , _gsBlocks    :: !(Seq (Block ext s ret))
+       , _gsNonceGen  :: !(NonceGenerator (ST h) s)
        , _gsCurrent   :: !i
        , _gsPosition  :: !Position
        , _gsState     :: !(t s)
        , _seenFunctions :: ![AnyCFG ext]
        }
 
-type GeneratorState ext s t ret =
-  IxGeneratorState ext s t ret (CurrentBlockState ext s)
+type GeneratorState ext h s t ret =
+  IxGeneratorState ext h s t ret (CurrentBlockState ext s)
 
-type EndState ext s t ret =
-  IxGeneratorState ext s t ret ()
+type EndState ext h s t ret =
+  IxGeneratorState ext h s t ret ()
+
+-- | Label for entry block.
+gsEntryLabel :: Getter (IxGeneratorState ext h s t ret i) (Label s)
+gsEntryLabel = to _gsEntryLabel
 
 -- | List of previously processed blocks.
-gsBlocks :: Simple Lens (IxGeneratorState ext s t ret i) (Seq (Block ext s ret))
+gsBlocks :: Simple Lens (IxGeneratorState ext h s t ret i) (Seq (Block ext s ret))
 gsBlocks = lens _gsBlocks (\s v -> s { _gsBlocks = v })
 
--- | Index of next label.
-gsNextLabel :: Simple Lens (IxGeneratorState ext s t ret i) Int
-gsNextLabel = lens _gsNextLabel (\s v -> s { _gsNextLabel = v })
-
--- | Index used for register and atom identifiers.
-gsNextValue :: Simple Lens (IxGeneratorState ext s t ret i) Int
-gsNextValue = lens _gsNextValue (\s v -> s { _gsNextValue = v })
+gsNonceGen :: Getter (IxGeneratorState ext h s t ret i) (NonceGenerator (ST h) s)
+gsNonceGen = to _gsNonceGen
 
 -- | Information about current block.
-gsCurrent :: Lens (IxGeneratorState ext s t ret i) (IxGeneratorState ext s t ret j) i j
+gsCurrent :: Lens (IxGeneratorState ext h s t ret i) (IxGeneratorState ext h s t ret j) i j
 gsCurrent = lens _gsCurrent (\s v -> s { _gsCurrent = v })
 
 -- | Current source position.
-gsPosition :: Simple Lens (IxGeneratorState ext s t ret i) Position
+gsPosition :: Simple Lens (IxGeneratorState ext h s t ret i) Position
 gsPosition = lens _gsPosition (\s v -> s { _gsPosition = v })
 
 -- | User state for current block. This gets reset between blocks.
-gsState :: Simple Lens (IxGeneratorState ext s t ret i) (t s)
+gsState :: Simple Lens (IxGeneratorState ext h s t ret i) (t s)
 gsState = lens _gsState (\s v -> s { _gsState = v })
 
 -- | List of functions seen by current generator.
-seenFunctions :: Simple Lens (IxGeneratorState ext s t ret i) [AnyCFG ext]
+seenFunctions :: Simple Lens (IxGeneratorState ext h s t ret i) [AnyCFG ext]
 seenFunctions = lens _seenFunctions (\s v -> s { _seenFunctions = v })
 
 ------------------------------------------------------------------------
 
 startBlock ::
   BlockID s ->
-  EndState ext s t ret ->
-  GeneratorState ext s t ret
+  EndState ext h s t ret ->
+  GeneratorState ext h s t ret
 startBlock l gs =
   gs & gsCurrent .~ initCurrentBlockState Set.empty l
 
@@ -214,8 +214,8 @@ startBlock l gs =
 terminateBlock ::
   IsSyntaxExtension ext =>
   TermStmt s ret ->
-  GeneratorState ext s t ret ->
-  EndState ext s t ret
+  GeneratorState ext h s t ret ->
+  EndState ext h s t ret
 terminateBlock term gs =
   do let p = gs^.gsPosition
      let cbs = gs^.gsCurrent
@@ -245,8 +245,8 @@ terminateBlock term gs =
 -- The 'a' parameter is the value returned by the monad.
 
 newtype Generator ext h s (t :: Type -> Type) (ret :: CrucibleType) a
-      = Generator { unGenerator :: StateContT (GeneratorState ext s t ret)
-                                              (EndState ext s t ret)
+      = Generator { unGenerator :: StateContT (GeneratorState ext h s t ret)
+                                              (EndState ext h s t ret)
                                               (ST h)
                                               a
                   }
@@ -275,8 +275,8 @@ instance MonadState (t s) (Generator ext h s t ret) where
 -- 'terminateEarly'.
 runGenerator ::
   Generator ext h s t ret Void ->
-  GeneratorState ext s t ret ->
-  ST h (EndState ext s t ret)
+  GeneratorState ext h s t ret ->
+  ST h (EndState ext h s t ret)
 runGenerator m gs = runStateContT (unGenerator m) absurd gs
 
 -- | Get the current position.
@@ -298,19 +298,10 @@ withPosition p m =
      setPosition old_pos
      return v
 
-freshValueIndex :: Generator ext h s t ret Int
-freshValueIndex =
-  Generator $
-  do n <- use gsNextValue
-     gsNextValue .= n+1
-     return n
-
-freshLabelIndex :: Generator ext h s t ret Int
-freshLabelIndex =
-  Generator $
-  do n <- use gsNextLabel
-     gsNextLabel .= n+1
-     return n
+mkNonce :: Generator ext h s t ret (Nonce s tp)
+mkNonce =
+  do ng <- Generator $ use gsNonceGen
+     Generator $ lift $ freshNonce ng
 
 ----------------------------------------------------------------------
 -- Expressions and statements
@@ -326,9 +317,9 @@ addStmt s =
 freshAtom :: IsSyntaxExtension ext => AtomValue ext s tp -> Generator ext h s t ret (Atom s tp)
 freshAtom av =
   do p <- getPosition
-     i <- freshValueIndex
+     n <- mkNonce
      let atom = Atom { atomPosition = p
-                     , atomId = i
+                     , atomId = n
                      , atomSource = Assigned
                      , typeOfAtom = typeOfAtomValue av
                      }
@@ -397,7 +388,7 @@ newReg e =
 newUnassignedReg :: TypeRepr tp -> Generator ext h s t ret (Reg s tp)
 newUnassignedReg tp =
   do p <- getPosition
-     n <- freshValueIndex
+     n <- mkNonce
      return $! Reg { regPosition = p
                    , regId = n
                    , typeOfReg = tp
@@ -457,7 +448,7 @@ recordCFG g = Generator $ seenFunctions %= (g:)
 
 -- | Create a new block label.
 newLabel :: Generator ext h s t ret (Label s)
-newLabel = Label <$> freshLabelIndex
+newLabel = Label <$> mkNonce
 
 -- | Create a new lambda label.
 newLambdaLabel :: KnownRepr TypeRepr tp => Generator ext h s t ret (LambdaLabel s tp)
@@ -467,8 +458,8 @@ newLambdaLabel = newLambdaLabel' knownRepr
 newLambdaLabel' :: TypeRepr tp -> Generator ext h s t ret (LambdaLabel s tp)
 newLambdaLabel' tpr =
   do p <- getPosition
-     idx <- freshLabelIndex
-     i <- freshValueIndex
+     idx <- mkNonce
+     i <- mkNonce
      let lbl = LambdaLabel idx a
          a = Atom { atomPosition = p
                   , atomId = i
@@ -835,13 +826,12 @@ while (pcond,cond) (pbody,body) = do
 -- CFG
 
 cfgFromGenerator :: FnHandle init ret
-                 -> IxGeneratorState ext s t ret i
+                 -> IxGeneratorState ext h s t ret i
                  -> CFG ext s init ret
 cfgFromGenerator h s =
   CFG { cfgHandle = h
+      , cfgEntryLabel = s^.gsEntryLabel
       , cfgBlocks = Fold.toList (s^.gsBlocks)
-      , cfgNextValue = s^.gsNextValue
-      , cfgNextLabel = s^.gsNextLabel
       }
 
 -- | Given the arguments, this returns the initial state, and an action for
@@ -858,20 +848,22 @@ type FunctionDef ext h t init ret =
 --   and a list of CFGs for any other auxiliary function definitions
 --   generated along the way (e.g., for anonymous or inner functions).
 defineFunction :: IsSyntaxExtension ext
-               => Position                 -- ^ Source position for the function
-               -> FnHandle init ret        -- ^ Handle for the generated function
+               => Position                     -- ^ Source position for the function
+               -> FnHandle init ret            -- ^ Handle for the generated function
                -> FunctionDef ext h t init ret -- ^ Generator action and initial state
                -> ST h (SomeCFG ext init ret, [AnyCFG ext]) -- ^ Generated CFG and inner function definitions
 defineFunction p h f = seq h $ do
   let argTypes = handleArgTypes h
 
-  let inputs = mkInputAtoms p argTypes
+  Some ng <- newSTNonceGenerator
+  inputs <- mkInputAtoms ng p argTypes
   let inputSet = Set.fromList (toListFC (Some . AtomValue) inputs)
   let (init_state, action) = f $! inputs
-  let cbs = initCurrentBlockState inputSet (LabelID (Label 0))
-  let ts = GS { _gsBlocks = Seq.empty
-              , _gsNextLabel = 1
-              , _gsNextValue  = Ctx.sizeInt (Ctx.size argTypes)
+  lbl <- Label <$> freshNonce ng
+  let cbs = initCurrentBlockState inputSet (LabelID lbl)
+  let ts = GS { _gsEntryLabel = lbl
+              , _gsBlocks = Seq.empty
+              , _gsNonceGen = ng
               , _gsCurrent = cbs
               , _gsPosition = p
               , _gsState = init_state
