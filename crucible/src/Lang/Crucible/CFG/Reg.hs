@@ -21,33 +21,47 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Lang.Crucible.CFG.Reg
   ( -- * CFG
     CFG(..)
+  , cfgEntryBlock
   , cfgInputTypes
   , cfgReturnType
+  , substCFG
   , SomeCFG(..)
   , Label(..)
+  , substLabel
   , LambdaLabel(..)
+  , substLambdaLabel
   , BlockID(..)
+  , substBlockID
   , Reg(..)
+  , substReg
 
     -- * Atoms
   , Atom(..)
+  , substAtom
   , AtomSource(..)
+  , substAtomSource
   , mkInputAtoms
   , AtomValue(..)
   , typeOfAtomValue
+  , substAtomValue
 
     -- * Values
   , Value(..)
   , typeOfValue
+  , substValue
   , ValueSet
+  , substValueSet
 
     -- * Blocks
   , Block
@@ -58,16 +72,20 @@ module Lang.Crucible.CFG.Reg
   , blockExtraInputs
   , blockKnownInputs
   , blockAssignedValues
+  , substBlock
 
     -- * Statements
   , Stmt(..)
+  , substStmt, substPosdStmt
   , TermStmt(..)
   , termStmtInputs
   , termNextLabels
+  , substTermStmt, substPosdTermStmt
 
     -- * Expressions
   , Expr(..)
   , exprType
+  , substExpr
 
     -- * Re-exports
   , module Lang.Crucible.CFG.Common
@@ -75,15 +93,17 @@ module Lang.Crucible.CFG.Reg
 
 import qualified Data.Foldable as Fold
 import           Data.Kind
-import           Data.Maybe (maybe)
+import           Data.Maybe (isJust, maybe)
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.String
+import           Data.Word (Word64)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           What4.ProgramLoc
@@ -103,7 +123,10 @@ commas l = hcat (punctuate (comma <> char ' ') l)
 -- Label
 
 -- | A label for a block that does not expect an input.
-newtype Label s = Label { labelInt :: Int }
+newtype Label s = Label { labelId :: Nonce s UnitType }
+
+labelInt :: Label s -> Word64
+labelInt = indexValue . labelId
 
 instance Eq (Label s) where
   Label i == Label j = i == j
@@ -112,10 +135,16 @@ instance Ord (Label s) where
   Label i `compare` Label j = i `compare` j
 
 instance Show (Label s) where
-  show (Label i) = '%' : show i
+  show (Label i) = '%' : show (indexValue i)
 
 instance Pretty (Label s) where
   pretty = text . show
+
+substLabel :: Functor m
+           => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+           -> Label s
+           -> m (Label s')
+substLabel f l = Label <$> f (labelId l)
 
 ------------------------------------------------------------------------
 -- LambdaLabel
@@ -123,19 +152,29 @@ instance Pretty (Label s) where
 -- | A label for a block that expects an argument of a specific type.
 data LambdaLabel (s :: Type) (tp :: CrucibleType)
    = LambdaLabel
-      { lambdaInt :: !Int
-        -- ^ Integer that uniquely identifies this label within the CFG.
+      { lambdaId :: !(Nonce s tp)
+        -- ^ Nonce that uniquely identifies this label within the CFG.
       , lambdaAtom :: Atom s tp
         -- ^ The atom to store the output result in.
         --
         -- Note. This must be lazy to break a recursive cycle.
       }
 
+lambdaInt :: LambdaLabel s tp -> Word64
+lambdaInt = indexValue . lambdaId
+
 instance Show (LambdaLabel s tp) where
-  show l = '%' : show (lambdaInt l)
+  show l = '%' : show (indexValue (lambdaId l))
 
 instance Pretty (LambdaLabel s tp) where
   pretty = text . show
+
+substLambdaLabel :: Applicative m
+                 => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+                 -> LambdaLabel s tp
+                 -> m (LambdaLabel s' tp)
+substLambdaLabel f ll =
+  LambdaLabel <$> f (lambdaId ll) <*> substAtom f (lambdaAtom ll)
 
 ------------------------------------------------------------------------
 -- BlockID
@@ -151,7 +190,7 @@ instance Show (BlockID s) where
 
 instance Eq (BlockID s) where
   LabelID x == LabelID y = x == y
-  LambdaID x == LambdaID y = lambdaInt x == lambdaInt y
+  LambdaID x == LambdaID y = isJust (testEquality x y)
   _ == _ = False
 
 instance Ord (BlockID s) where
@@ -159,6 +198,15 @@ instance Ord (BlockID s) where
   LabelID  x `compare` LabelID  y = compare x y
   LambdaID x `compare` LabelID  y = compare (lambdaInt x) (labelInt y)
   LambdaID x `compare` LambdaID y = compare (lambdaInt x) (lambdaInt y)
+
+substBlockID :: Applicative m
+             => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+             -> BlockID s
+             -> m (BlockID s')
+substBlockID f bid =
+  case bid of
+    LabelID l -> LabelID <$> substLabel f l
+    LambdaID ll -> LambdaID <$> substLambdaLabel f ll
 
 -----------------------------------------------------------------------
 -- AtomSource
@@ -173,6 +221,16 @@ data AtomSource s (tp :: CrucibleType)
      -- other expressions.
    | LambdaArg !(LambdaLabel s tp)
 
+substAtomSource :: Applicative m
+                => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+                -> AtomSource s tp
+                -> m (AtomSource s' tp)
+substAtomSource f as =
+  case as of
+    Assigned -> pure Assigned
+    FnInput -> pure FnInput
+    LambdaArg ll -> LambdaArg <$> substLambdaLabel f ll
+
 ------------------------------------------------------------------------
 -- Atom
 
@@ -181,44 +239,52 @@ data AtomSource s (tp :: CrucibleType)
 data Atom s (tp :: CrucibleType)
    = Atom { atomPosition :: !Position
             -- ^ Position where register was declared (used for debugging).
-          , atomId :: !Int
+          , atomId :: !(Nonce s tp)
             -- ^ Unique identifier for atom.
           , atomSource :: !(AtomSource s tp)
             -- ^ How the atom expression was defined.
           , typeOfAtom :: !(TypeRepr tp)
           }
 
-mkInputAtoms :: forall s init . Position -> CtxRepr init -> Assignment (Atom s) init
-mkInputAtoms p argTypes = Ctx.generate (Ctx.size argTypes) f
-  where f :: Index init tp -> Atom s tp
-        f i = Atom { atomPosition = p
-                   , atomId = indexVal i
-                   , atomSource = FnInput
-                   , typeOfAtom = argTypes Ctx.! i
-                   }
+mkInputAtoms :: forall m s init
+              . Monad m
+             => NonceGenerator m s
+             -> Position
+             -> CtxRepr init
+             -> m (Assignment (Atom s) init)
+mkInputAtoms ng p argTypes = Ctx.generateM (Ctx.size argTypes) f
+  where f :: Index init tp -> m (Atom s tp)
+        f i = do
+          n <- freshNonce ng
+          return $
+            Atom { atomPosition = p
+                 , atomId = n
+                 , atomSource = FnInput
+                 , typeOfAtom = argTypes Ctx.! i
+                 }
 
 instance TestEquality (Atom s) where
-  testEquality x y
-    | atomId x == atomId y =
-      case testEquality (typeOfAtom x) (typeOfAtom y) of
-        Just Refl -> Just Refl
-        Nothing -> error "Lang.Crucible.Generator.Atom testEquality: mismatched types!"
-    | otherwise = Nothing
+  testEquality x y = testEquality (atomId x) (atomId y)
 
 instance OrdF (Atom s) where
-  compareF x y =
-    case compare (atomId x) (atomId y) of
-      LT -> LTF
-      GT -> GTF
-      EQ -> case testEquality (typeOfAtom x) (typeOfAtom y) of
-              Just Refl -> EQF
-              Nothing -> error "Lang.Crucible.Generator.Atom compareF: mismatched types!"
+  compareF x y = compareF (atomId x) (atomId y)
 
 instance Show (Atom s tp) where
-  show a = '$' : show (atomId a)
+  show a = '$' : show (indexValue (atomId a))
 
 instance Pretty (Atom s tp) where
   pretty a = text (show a)
+
+
+substAtom :: Applicative m
+          => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+          -> Atom s tp
+          -> m (Atom s' tp)
+substAtom f a =
+  Atom <$> pure (atomPosition a)
+       <*> f (atomId a)
+       <*> substAtomSource f (atomSource a)
+       <*> pure (typeOfAtom a)
 
 ------------------------------------------------------------------------
 -- Reg
@@ -228,7 +294,7 @@ data Reg s (tp :: CrucibleType)
    = Reg { -- | Position where register was declared (used for debugging).
            regPosition :: !Position
            -- | Unique identifier for register.
-         , regId :: !Int
+         , regId :: !(Nonce s tp)
            -- | Type of register.
          , typeOfReg :: !(TypeRepr tp)
          }
@@ -237,46 +303,33 @@ instance Pretty (Reg s tp) where
   pretty = text . show
 
 instance Show (Reg s tp) where
-  show r = 'r' : show (regId r)
+  show r = 'r' : show (indexValue (regId r))
 
 instance ShowF (Reg s)
 
 instance TestEquality (Reg s) where
-  testEquality x y
-    | regId x == regId y =
-      case testEquality (typeOfReg x) (typeOfReg y) of
-        Just Refl -> Just Refl
-        Nothing -> error "Lang.Crucible.Generator.Reg testEquality: mismatched types!"
-    | otherwise = Nothing
+  testEquality x y = testEquality (regId x) (regId y)
 
 instance OrdF (Reg s) where
-  compareF x y =
-    case compare (regId x) (regId y) of
-      LT -> LTF
-      GT -> GTF
-      EQ -> case testEquality (typeOfReg x) (typeOfReg y) of
-              Just Refl -> EQF
-              Nothing -> error "Lang.Crucible.Generator.Reg compareF: mismatched types!"
+  compareF x y = compareF (regId x) (regId y)
+
+substReg :: Applicative m
+         => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+         -> Reg s tp
+         -> m (Reg s' tp)
+substReg f r =
+  Reg <$> pure (regPosition r)
+      <*> f (regId r)
+      <*> pure (typeOfReg r)
 
 ------------------------------------------------------------------------
 -- Primitive operations
 
 instance TestEquality (LambdaLabel s) where
-  testEquality x y
-    | lambdaInt x == lambdaInt y =
-        case testEquality (typeOfAtom (lambdaAtom x)) (typeOfAtom (lambdaAtom y)) of
-          Just Refl -> Just Refl
-          Nothing   -> error "Lang.Crucible.LambdaLabel testEquality: type mismatch!"
-    | otherwise = Nothing
+  testEquality x y = testEquality (lambdaId x) (lambdaId y)
 
 instance OrdF (LambdaLabel s) where
-  compareF x y
-    | lambdaInt x < lambdaInt y = LTF
-    | lambdaInt x == lambdaInt y =
-        case testEquality (typeOfAtom (lambdaAtom x)) (typeOfAtom (lambdaAtom y)) of
-          Just Refl -> EQF
-          Nothing   -> error "Lang.Crucible.LambdaLabel testEquality: type mismatch!"
-    | otherwise = GTF
+  compareF x y = compareF (lambdaId x) (lambdaId y)
 
 ------------------------------------------------------------------------
 -- SomeValue and ValueSet
@@ -307,8 +360,25 @@ typeOfValue :: Value s tp -> TypeRepr tp
 typeOfValue (RegValue r) = typeOfReg r
 typeOfValue (AtomValue a) = typeOfAtom a
 
+substValue :: Applicative m
+           => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+           -> Value s tp
+           -> m (Value s' tp)
+substValue f v =
+  case v of
+    RegValue r -> RegValue <$> substReg f r
+    AtomValue a -> AtomValue <$> substAtom f a
+
 -- | A set of values.
 type ValueSet s = Set (Some (Value s))
+
+substValueSet :: Applicative m
+              => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+              -> ValueSet s
+              -> m (ValueSet s')
+substValueSet f vs =
+  Set.fromList <$>
+    traverse (\(Some v) -> Some <$> substValue f v) (Set.toList vs)
 
 ------------------------------------------------------------------------
 -- Expr
@@ -350,6 +420,14 @@ instance TypeApp (ExprExtension ext) => IsExpr (Expr ext s) where
 instance IsString (Expr ext s StringType) where
   fromString s = App (TextLit (fromString s))
 
+substExpr :: ( Applicative m, TraverseExt ext )
+          => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+          -> Expr ext s tp
+          -> m (Expr ext s' tp)
+substExpr f expr =
+  case expr of
+    App ap -> App <$> traverseFC (substExpr f) ap
+    AtomExpr a -> AtomExpr <$> substAtom f a
 
 
 ------------------------------------------------------------------------
@@ -421,6 +499,22 @@ foldAtomValueInputs f (EvalApp app0)      b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs _ (FreshConstant _ _) b = b
 foldAtomValueInputs f (Call g a _)        b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
+substAtomValue :: ( Applicative m, TraverseExt ext )
+               => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+               -> AtomValue ext s tp
+               -> m (AtomValue ext s' tp)
+substAtomValue f (ReadReg r) = ReadReg <$> substReg f r
+substAtomValue f (EvalExt stmt) = EvalExt <$> traverseFC (substAtom f) stmt
+substAtomValue _ (ReadGlobal g) = pure $ ReadGlobal g
+substAtomValue f (ReadRef r) = ReadRef <$> substAtom f r
+substAtomValue _ (NewEmptyRef tp) = pure $ NewEmptyRef tp
+substAtomValue f (NewRef a) = NewRef <$> substAtom f a
+substAtomValue f (EvalApp ap) = EvalApp <$> traverseFC (substAtom f) ap
+substAtomValue _ (FreshConstant tp sym) = pure $ FreshConstant tp sym
+substAtomValue f (Call g as ret) = Call <$> substAtom f g
+                                        <*> traverseFC (substAtom f) as
+                                        <*> pure ret
+
 ppAtomBinding :: PrettyExt ext => Atom s tp -> AtomValue ext s tp -> Doc
 ppAtomBinding a v = pretty a <+> text ":=" <+> pretty v
 
@@ -478,6 +572,28 @@ foldStmtInputs f s b =
     Print  e     -> f (AtomValue e) b
     Assert c m   -> f (AtomValue c) (f (AtomValue m) b)
     Assume c m   -> f (AtomValue c) (f (AtomValue m) b)
+
+substStmt :: ( Applicative m, TraverseExt ext )
+          => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+          -> Stmt ext s
+          -> m (Stmt ext s')
+substStmt f s =
+  case s of
+    SetReg r e -> SetReg <$> substReg f r <*> substAtom f e
+    WriteGlobal g a -> WriteGlobal <$> pure g <*> substAtom f a
+    WriteRef r a -> WriteRef <$> substAtom f r <*> substAtom f a
+    DropRef r -> DropRef <$> substAtom f r
+    DefineAtom a v -> DefineAtom <$> substAtom f a <*> substAtomValue f v
+    Print e -> Print <$> substAtom f e
+    Assert c m -> Assert <$> substAtom f c <*> substAtom f m
+    Assume c m -> Assume <$> substAtom f c <*> substAtom f m
+
+substPosdStmt :: ( Applicative m, TraverseExt ext )
+              => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+              -> Posd (Stmt ext s)
+              -> m (Posd (Stmt ext s'))
+substPosdStmt f s =
+  Posd <$> pure (pos s) <*> substStmt f (pos_val s)
 
 ------------------------------------------------------------------------
 -- TermStmt
@@ -563,6 +679,34 @@ foldTermStmtAtoms f stmt0 b =
     TailCall fn _ a -> f fn (foldrFC' f b a)
     ErrorStmt e -> f e b
 
+substTermStmt :: Applicative m
+              => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+              -> TermStmt s ret
+              -> m (TermStmt s' ret)
+substTermStmt f stmt =
+  case stmt of
+    Jump l -> Jump <$> substLabel f l
+    Output ll a -> Output <$> substLambdaLabel f ll <*> substAtom f a
+    Br e c a -> Br <$> substAtom f e <*> substLabel f c <*> substLabel f a
+    MaybeBranch tp a ll l -> MaybeBranch <$> pure tp
+                                         <*> substAtom f a
+                                         <*> substLambdaLabel f ll
+                                         <*> substLabel f l
+    VariantElim ctx a lls -> VariantElim <$> pure ctx
+                                         <*> substAtom f a
+                                         <*> traverseFC (substLambdaLabel f) lls
+    Return e -> Return <$> substAtom f e
+    TailCall fn ctx args -> TailCall <$> substAtom f fn
+                                     <*> pure ctx
+                                     <*> traverseFC (substAtom f) args
+    ErrorStmt e -> ErrorStmt <$> substAtom f e
+
+substPosdTermStmt :: Applicative m
+                  => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+                  -> Posd (TermStmt s ret)
+                  -> m (Posd (TermStmt s' ret))
+substPosdTermStmt f posd
+  = Posd <$> pure (pos posd) <*> substTermStmt f (pos_val posd)
 
 -- | Returns the set of registers appearing as inputs to a terminal
 -- statement.
@@ -661,6 +805,18 @@ mkBlock block_id inputs stmts term =
 
        (assigned_values, missing_values) = Fold.foldl' f initState stmts
 
+substBlock :: ( Applicative m, TraverseExt ext )
+           => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+           -> Block ext s ret
+           -> m (Block ext s' ret)
+substBlock f b =
+  Block <$> substBlockID f (blockID b)
+        <*> traverse (substPosdStmt f) (blockStmts b)
+        <*> substPosdTermStmt f (blockTerm b)
+        <*> substValueSet f (blockExtraInputs b)
+        <*> substValueSet f (blockKnownInputs b)
+        <*> substValueSet f (blockAssignedValues b)
+
 ------------------------------------------------------------------------
 -- CFG
 
@@ -671,14 +827,15 @@ mkBlock block_id inputs stmts term =
 -- types of the CFG, and @ret@ is the return type.
 data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
    = CFG { cfgHandle :: !(FnHandle init ret)
-         , cfgBlocks :: !([Block ext s ret])
-         , cfgNextValue :: !Int
-         -- ^ A number greater than any atom or register ID appearing
-         -- in the CFG. This and 'cfgNextLabel' are primarily useful
-         -- for augmenting the CFG after creation.
-         , cfgNextLabel :: !Int
-         -- ^ A number greater than any label ID appearing in the CFG.
+         , cfgEntryLabel :: !(Label s)
+         , cfgBlocks :: ![Block ext s ret]
          }
+
+cfgEntryBlock :: CFG ext s init ret -> Block ext s ret
+cfgEntryBlock g =
+  case Fold.find (\b -> blockID b == LabelID (cfgEntryLabel g)) (cfgBlocks g) of
+    Just b -> b
+    Nothing -> error "Missing entry block"
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init
 cfgInputTypes g = handleArgTypes (cfgHandle g)
@@ -686,14 +843,28 @@ cfgInputTypes g = handleArgTypes (cfgHandle g)
 cfgReturnType :: CFG ext s init ret -> TypeRepr ret
 cfgReturnType g = handleReturnType (cfgHandle g)
 
+-- | Rename all the atoms, labels, and other named things in the CFG.
+-- Useful for rewriting, since the names can be generated from a nonce
+-- generator the client controls (and can thus keep using to generate
+-- fresh names).
+substCFG :: ( Applicative m, TraverseExt ext )
+         => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
+         -> CFG ext s init ret
+         -> m (CFG ext s' init ret)
+substCFG f cfg =
+  CFG <$> pure (cfgHandle cfg)
+      <*> substLabel f (cfgEntryLabel cfg)
+      <*> traverse (substBlock f) (cfgBlocks cfg)
+
 instance PrettyExt ext => Show (CFG ext s init ret) where
   show = show . pretty
 
 instance PrettyExt ext => Pretty (CFG ext s init ret) where
   pretty g = do
     let nm = text (show (handleName (cfgHandle g)))
-    let inputs = mkInputAtoms InternalPos (cfgInputTypes g)
-    let args = commas $ toListFC pretty inputs
+    let args =
+          commas $ map (viewSome (pretty . show)) $ Set.toList $
+          blockExtraInputs (cfgEntryBlock g)
     pretty (cfgReturnType g) <+> nm <+> parens args <$$>
       vcat (pretty <$> cfgBlocks g)
 

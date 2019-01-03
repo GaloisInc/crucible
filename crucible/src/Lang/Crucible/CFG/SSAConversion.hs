@@ -37,6 +37,7 @@ import qualified Data.Foldable as Fold
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
@@ -822,9 +823,10 @@ data SomeBlockMap ext ret where
 resolveBlockMap :: forall ext s ret
                  . C.IsSyntaxExtension ext
                 => FunctionName
+                -> Label s
                 -> [Block ext s ret]
                 -> SomeBlockMap ext ret
-resolveBlockMap nm blocks = do
+resolveBlockMap nm entry blocks = do
   let resolveBlock :: BlockInfo ext s ret blocks
                    -> BlockInput ext s blocks ret args
                    -> C.Block ext blocks ret args
@@ -841,7 +843,7 @@ resolveBlockMap nm blocks = do
                 }
   case inferBlockInfo blocks of
     Some bi ->
-      case lookupJumpInfo (Label 0) (biJumpInfo bi) of
+      case lookupJumpInfo entry (biJumpInfo bi) of
         Nothing -> error "Missing initial block."
         Just (JumpInfo (C.BlockID idx) _ _) ->
           SomeBlockMap idx $ fmapFC (resolveBlock bi) (biBlocks bi)
@@ -858,8 +860,9 @@ toSSA :: C.IsSyntaxExtension ext
 toSSA g = do
   let h = cfgHandle g
   let initTypes = cfgInputTypes g
+  let entry = cfgEntryLabel g
   let blocks = cfgBlocks g
-  case resolveBlockMap (handleName h) blocks of
+  case resolveBlockMap (handleName h) entry blocks of
     SomeBlockMap idx block_map -> do
           let b = block_map ! idx
           case C.blockInputs b `testEquality` initTypes of

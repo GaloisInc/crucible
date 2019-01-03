@@ -375,7 +375,7 @@ register_llvm_override llvmOverride = do
     do when (L.decName requestedDecl == L.decName decl) $
          do logFn <- lift $ lift $ lift $ getLogFunction
             liftIO $ logFn 3 $ unwords
-              [ "Mismatch declaration signatures"
+              [ "Mismatched declaration signatures"
               , " *** requested: " ++ show requestedDecl
               , " *** found: "     ++ show decl
               , ""
