@@ -676,7 +676,7 @@ llvmCallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
     , L.decName    = L.Symbol nm
     , L.decArgs    = [ llvmSizeT
                      , llvmSizeT
@@ -826,10 +826,10 @@ llvmMemcpyOverride =
   let nm = "memcpy" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
-                     , L.PtrTo $ L.PrimType L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
+                     , L.PtrTo $ L.PrimType (L.Integer 8)
                      , llvmSizeT
                      ]
     , L.decVarArgs = False
@@ -860,10 +860,10 @@ llvmMemcpyChkOverride =
   let nm = "__memcpy_chk" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
-                     , L.PtrTo $ L.PrimType L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
+                     , L.PtrTo $ L.PrimType (L.Integer 8)
                      , llvmSizeT
                      , llvmSizeT
                      ]
@@ -894,10 +894,10 @@ llvmMemmoveOverride =
   let nm = "memmove" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
-                     , L.PtrTo $ L.PrimType L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
+                     , L.PtrTo $ L.PrimType (L.Integer 8)
                      , llvmSizeT
                      ]
     , L.decVarArgs = False
@@ -1344,9 +1344,9 @@ llvmMemsetOverride =
   let nm = "memset" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
                      , L.PrimType $ L.Integer 32
                      , llvmSizeT
                      ]
@@ -1382,9 +1382,9 @@ llvmMemsetChkOverride =
   let nm = "__memset_chk" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
                      , L.PrimType $ L.Integer 32
                      , llvmSizeT
                      , llvmSizeT
