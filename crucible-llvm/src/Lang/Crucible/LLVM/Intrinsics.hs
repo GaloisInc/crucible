@@ -177,6 +177,7 @@ do_register_overrides = do
    , register_llvm_override llvmCallocOverride
    , register_llvm_override llvmFreeOverride
    , register_llvm_override llvmReallocOverride
+   , register_llvm_override llvmStrlenOverride
    , register_llvm_override llvmPrintfOverride
    , register_llvm_override llvmPutsOverride
    , register_llvm_override llvmPutCharOverride
@@ -1450,6 +1451,25 @@ llvmPutsOverride =
   (KnownBV @32)
   (\memOps sym args -> Ctx.uncurryAssignment (callPuts sym memOps) args)
 
+llvmStrlenOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType 64)
+llvmStrlenOverride =
+  let nm = "strlen" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer 64
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr)
+  (KnownBV @64)
+  (\memOps sym args -> Ctx.uncurryAssignment (callStrlen sym memOps) args)
 
 llvmPrintfOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -1854,6 +1874,16 @@ callPuts sym mvar
     -- return non-negative value on success
     liftIO $ bvLit sym knownNat 1
 
+callStrlen
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 64))
+callStrlen sym mvar (regValue -> strPtr) = do
+  mem <- readGlobal mvar
+  len <- liftIO $ length <$> loadString sym mem strPtr Nothing
+  liftIO $ bvLit sym (knownNat @64) (fromIntegral len)
 
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr)
