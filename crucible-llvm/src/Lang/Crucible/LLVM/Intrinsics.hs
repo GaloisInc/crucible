@@ -1453,12 +1453,12 @@ llvmPutsOverride =
 
 llvmStrlenOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType 64)
+  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
 llvmStrlenOverride =
   let nm = "strlen" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 64
+    { L.decRetType = llvmSizeT
     , L.decName    = L.Symbol nm
     , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
                      ]
@@ -1468,7 +1468,7 @@ llvmStrlenOverride =
     }
   )
   (Empty :> PtrRepr)
-  (KnownBV @64)
+  SizeT
   (\memOps sym args -> Ctx.uncurryAssignment (callStrlen sym memOps) args)
 
 llvmPrintfOverride
@@ -1879,11 +1879,11 @@ callStrlen
   => sym
   -> GlobalVar Mem
   -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 64))
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType wptr))
 callStrlen sym mvar (regValue -> strPtr) = do
   mem <- readGlobal mvar
   len <- liftIO $ length <$> loadString sym mem strPtr Nothing
-  liftIO $ bvLit sym (knownNat @64) (fromIntegral len)
+  liftIO $ bvLit sym ?ptrWidth (fromIntegral len)
 
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr)
