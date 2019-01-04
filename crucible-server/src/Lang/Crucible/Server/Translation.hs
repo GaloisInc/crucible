@@ -29,10 +29,13 @@ import Control.Applicative
 import Control.Lens
 import Control.Monad
 import qualified Data.Foldable as Fold
-import Control.Monad.State.Strict
+import Control.Monad.Reader
+import Control.Monad.State
 import qualified Data.Map as Map
 import Data.IORef
 import Data.Maybe
+import Data.Parameterized.Nonce ( Nonce, NonceGenerator
+                                , freshNonce, newIONonceGenerator )
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Vector as V
@@ -60,33 +63,25 @@ import           Lang.Crucible.Server.TypeConv
 ------------------------------------------------------------------------
 -- UseCFG request
 
-newtype GenState = GenState { _genAtomCount :: Int
-                            }
-
--- | Return number of registers added so far.
-genAtomCount :: Simple Lens GenState Int
-genAtomCount = lens _genAtomCount (\s v -> s { _genAtomCount = v })
-
-newtype Gen s (ret :: CrucibleType) a = Gen { unGen :: State GenState a }
+newtype Gen s (ret :: CrucibleType) a =
+  Gen { unGen :: ReaderT (NonceGenerator IO s) IO a }
   deriving ( Functor
            , Applicative
            , Monad
-           , MonadState GenState
            )
 
-newAtomIdx :: Gen s ret Int
+newAtomIdx :: Gen s ret (Nonce s (tp :: CrucibleType))
 newAtomIdx = do
-  c <- use genAtomCount
-  genAtomCount .= c + 1
-  return c
+  ng <- Gen $ ask
+  Gen $ lift (freshNonce ng)
 
-genBlockID :: Int     -- ^ Index of block (0 is first index).
-           -> P.Block -- ^ Block to generate label for.
+genBlockID :: P.Block -- ^ Block to generate label for.
            -> Gen s ret (R.BlockID s)
-genBlockID idx b
+genBlockID b
   | b^.P.block_is_lambda = do
-     r_idx <- newAtomIdx
      Some tp <- fromProtoType (b^.P.block_lambda_type)
+     idx <- newAtomIdx
+     r_idx <- newAtomIdx
      let a = R.Atom { R.atomPosition = plSourceLoc $ fromProtoPos (b^.P.block_pos)
                     , R.atomId = r_idx
                     , R.atomSource = R.LambdaArg l
@@ -96,7 +91,7 @@ genBlockID idx b
                     }
          l = R.LambdaLabel idx a
      return $ R.LambdaID l
-  | otherwise = return $ R.LabelID (R.Label idx)
+  | otherwise = R.LabelID . R.Label <$> newAtomIdx
 
 type RegVector s = V.Vector (Some (R.Reg s))
 type StmtResultMap s = Map.Map (Word64, Word64) (Some (R.Atom s))
@@ -152,18 +147,16 @@ data TransState s = TransState { blockLabelMap :: !(Map.Map Word64 (R.BlockID s)
                                , handleMap :: !(Map.Map Word64 SomeHandle)
                                , argVec :: !(V.Vector (Some (R.Atom s)))
                                , regVec :: !(V.Vector (Some (R.Reg s)))
-                               , _atomIndex :: !Int
+                               , nonceGen :: NonceGenerator IO s
                                , stmtResultMap :: !(StmtResultMap s)
                                }
 
-atomIndex :: Simple Lens (TransState s) Int
-atomIndex = lens _atomIndex (\s v -> s { _atomIndex = v })
-
-newtype Trans s (ret :: CrucibleType) a = Trans { unTrans :: State (TransState s) a }
+newtype Trans s (ret :: CrucibleType) a = Trans { unTrans :: StateT (TransState s) IO a }
   deriving ( Functor
            , Applicative
            , Monad
            , MonadState (TransState s)
+           , MonadIO
            )
 
 getBlockID :: Word64 -> Trans s ret (R.BlockID s)
@@ -267,8 +260,8 @@ addStmt stmt = seq stmt $ do
 
 addAppStmt :: App () (R.Atom s) tp -> StmtTrans s r (R.Atom s tp)
 addAppStmt app = do
-  i <- lift $ use atomIndex
-  lift $ atomIndex .= i + 1
+  ng <- lift $ gets nonceGen
+  i <- liftIO $ freshNonce ng
   p <- gets blockPos
   let a = R.Atom { R.atomPosition = p
                  , R.atomId = i
@@ -458,22 +451,26 @@ transBlock retType idx b = do
     stmts <- gets blockStmts
     return $ R.mkBlock block_id inputs (Seq.fromList (reverse stmts)) term
 
-mkRegs :: Position
-       -> Int -- ^ Base for start of registers.
+mkRegs :: forall s ctx
+        . Position
+       -> NonceGenerator IO s
        -> CtxRepr ctx
-       -> V.Vector (Some (R.Reg s))
-mkRegs p base argTypes = V.generate (V.length v) f
+       -> IO (V.Vector (Some (R.Reg s)))
+mkRegs p ng argTypes = V.mapM (mapSomeM f) v
   where v = V.fromList (Fold.toList (ctxReprToSeq argTypes))
-        f :: Int -> Some (R.Reg s)
-        f i = mapSome (g i) (v V.! i)
+        f :: TypeRepr tp -> IO (R.Reg s tp)
+        f tp = do
+          i <- freshNonce ng
+          return $ R.Reg { R.regPosition = p
+                         , R.regId = i
+--                       , R.regSource = R.Assigned
+                         , R.typeOfReg = tp
+                         }
 
-        g :: Int -> TypeRepr tp -> R.Reg s tp
-        g i tp =
-          R.Reg { R.regPosition = p
-                , R.regId = base + i
---               , R.regSource = R.Assigned
-                , R.typeOfReg = tp
-                }
+        mapSomeM :: Functor m
+                 => (forall (x :: CrucibleType). a x -> m (b x))
+                 -> Some a -> m (Some b)
+        mapSomeM h (Some x) = Some <$> h x
 
 unpackCFG :: IsSymInterface sym
           => Simulator p sym
@@ -493,32 +490,31 @@ unpackCFG sim pg cont = do
 
   let p = plSourceLoc $ fromProtoPos $ pg^.P.cfg_pos
 
-  let argRegs = V.fromList $ toListFC Some $ R.mkInputAtoms p argTypes
-  let argCount = Ctx.sizeInt (Ctx.size argTypes)
-  let regRegs = mkRegs p argCount reg_types
+  Some ng <- newIONonceGenerator
+  argRegs <- V.fromList . toListFC Some <$> R.mkInputAtoms ng p argTypes
+  regRegs <- mkRegs p ng reg_types
 
-  let initGenState = GenState { _genAtomCount = argCount + V.length regRegs
-                              }
-  let initState = flip evalState initGenState $ unGen $ do
-        block_ids <- zipWithM genBlockID [0..] pblocks
-        let block_map = Map.fromList (zip [0..] block_ids)
-        stmt_result_map <- mkStmtResultMap regRegs pblocks
-        atom_cnt <- use genAtomCount
-        return TransState { blockLabelMap = block_map
-                          , handleMap = handle_map
-                          , argVec = argRegs
-                          , regVec = regRegs
-                          , _atomIndex = atom_cnt
-                          , stmtResultMap = stmt_result_map
-                          }
+  initState <- flip runReaderT ng $ unGen $ do
+    block_ids <- mapM genBlockID pblocks
+    let block_map = Map.fromList (zip [0..] block_ids)
+    stmt_result_map <- mkStmtResultMap regRegs pblocks
+    return TransState { blockLabelMap = block_map
+                      , handleMap = handle_map
+                      , argVec = argRegs
+                      , regVec = regRegs
+                      , nonceGen = ng
+                      , stmtResultMap = stmt_result_map
+                      }
 
-  let (blocks,finalSt) = flip runState initState $ unTrans $
-                           zipWithM (transBlock retType) [0..] pblocks
+  (blocks,_finalSt) <- flip runStateT initState $ unTrans $
+                         zipWithM (transBlock retType) [0..] pblocks
 
+  let entryLabel = case R.blockID (head blocks) of
+        R.LabelID lbl -> lbl
+        R.LambdaID {} -> error "entry block has lambda label"
 
   let g = R.CFG { R.cfgHandle = h
+                , R.cfgEntryLabel = entryLabel
                 , R.cfgBlocks = blocks
-                , R.cfgNextValue = finalSt^.atomIndex
-                , R.cfgNextLabel = length pblocks
                 }
   cont g

@@ -177,6 +177,7 @@ do_register_overrides = do
    , register_llvm_override llvmCallocOverride
    , register_llvm_override llvmFreeOverride
    , register_llvm_override llvmReallocOverride
+   , register_llvm_override llvmStrlenOverride
    , register_llvm_override llvmPrintfOverride
    , register_llvm_override llvmPutsOverride
    , register_llvm_override llvmPutCharOverride
@@ -374,8 +375,8 @@ register_llvm_override llvmOverride = do
   if (requestedDecl /= decl) then
     do when (L.decName requestedDecl == L.decName decl) $
          do logFn <- lift $ lift $ lift $ getLogFunction
-            liftIO $ logFn 1 $ unwords
-              [ "Mismatch declaration signatures"
+            liftIO $ logFn 3 $ unwords
+              [ "Mismatched declaration signatures"
               , " *** requested: " ++ show requestedDecl
               , " *** found: "     ++ show decl
               , ""
@@ -676,7 +677,7 @@ llvmCallocOverride =
   let alignment = maxAlignment (llvmDataLayout ?lc) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
     , L.decName    = L.Symbol nm
     , L.decArgs    = [ llvmSizeT
                      , llvmSizeT
@@ -826,10 +827,10 @@ llvmMemcpyOverride =
   let nm = "memcpy" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
-                     , L.PtrTo $ L.PrimType L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
+                     , L.PtrTo $ L.PrimType (L.Integer 8)
                      , llvmSizeT
                      ]
     , L.decVarArgs = False
@@ -860,10 +861,10 @@ llvmMemcpyChkOverride =
   let nm = "__memcpy_chk" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
-                     , L.PtrTo $ L.PrimType L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
+                     , L.PtrTo $ L.PrimType (L.Integer 8)
                      , llvmSizeT
                      , llvmSizeT
                      ]
@@ -894,10 +895,10 @@ llvmMemmoveOverride =
   let nm = "memmove" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
-                     , L.PtrTo $ L.PrimType L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
+                     , L.PtrTo $ L.PrimType (L.Integer 8)
                      , llvmSizeT
                      ]
     , L.decVarArgs = False
@@ -1344,9 +1345,9 @@ llvmMemsetOverride =
   let nm = "memset" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
                      , L.PrimType $ L.Integer 32
                      , llvmSizeT
                      ]
@@ -1382,9 +1383,9 @@ llvmMemsetChkOverride =
   let nm = "__memset_chk" in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType L.Void
+    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType L.Void
+    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
                      , L.PrimType $ L.Integer 32
                      , llvmSizeT
                      , llvmSizeT
@@ -1450,6 +1451,25 @@ llvmPutsOverride =
   (KnownBV @32)
   (\memOps sym args -> Ctx.uncurryAssignment (callPuts sym memOps) args)
 
+llvmStrlenOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
+llvmStrlenOverride =
+  let nm = "strlen" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = llvmSizeT
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr)
+  SizeT
+  (\memOps sym args -> Ctx.uncurryAssignment (callStrlen sym memOps) args)
 
 llvmPrintfOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -1854,6 +1874,16 @@ callPuts sym mvar
     -- return non-negative value on success
     liftIO $ bvLit sym knownNat 1
 
+callStrlen
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType wptr))
+callStrlen sym mvar (regValue -> strPtr) = do
+  mem <- readGlobal mvar
+  len <- liftIO $ length <$> loadString sym mem strPtr Nothing
+  liftIO $ bvLit sym ?ptrWidth (fromIntegral len)
 
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr)
