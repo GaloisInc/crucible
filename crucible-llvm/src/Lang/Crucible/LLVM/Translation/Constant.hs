@@ -372,10 +372,10 @@ transConstant' tp L.ValZeroInit =
 transConstant' (PtrType stp) L.ValNull =
   return (ZeroConst (PtrType stp))
 transConstant' (VecType n tp) (L.ValVector _tp xs)
-  | n == length xs
+  | n == fromIntegral (length xs)
   = VectorConst tp <$> traverse (transConstant' tp) xs
 transConstant' (ArrayType n tp) (L.ValArray _tp xs)
-  | n == length xs
+  | n == fromIntegral (length xs)
   = ArrayConst tp <$> traverse (transConstant' tp) xs
 transConstant' (StructType si) (L.ValStruct xs)
   | not (siIsPacked si)
@@ -387,7 +387,7 @@ transConstant' (StructType si) (L.ValPackedStruct xs)
   = StructConst si <$> traverse transConstant xs
 
 transConstant' (ArrayType n tp) (L.ValString cs)
-  | tp == IntType 8, n == length cs
+  | tp == IntType 8, n == fromIntegral (length cs)
   = return $ ArrayConst tp (map (IntConst (knownNat @8) . toInteger) cs)
 
 transConstant' tp (L.ValConstExpr cexpr) = transConstantExpr tp cexpr
@@ -410,7 +410,7 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
              (throwError "Unexpected vector length in result of constant GEP")
       case xs of
         [x] -> return ( PtrType (MemType finalMemType), x)
-        _   -> return ( VecType (length xs) (PtrType (MemType finalMemType))
+        _   -> return ( VecType (fromIntegral (length xs)) (PtrType (MemType finalMemType))
                       , VectorConst (PtrType (MemType finalMemType)) xs
                       )
 
@@ -470,7 +470,7 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
   -- each lane of the GEP componentwise.
   go (GEP_index_vector mt gep x)
     = do ps <- go gep
-         is <- asVectorOf (length ps) (asOffset mt) x
+         is <- asVectorOf (fromIntegral (length ps)) (asOffset mt) x
          zipWithM addOffset is ps
 
 -- | Evaluate a floating point comparison.
@@ -813,7 +813,7 @@ evalBitCast expr xty x toty =
       , Just LeqProof <- isPosNat w'
       -> do xint <- asInt w x
             -- NB little endian assumption!
-            let pieces = [ maxUnsigned w' .&. (xint `shiftR` (i * fromIntegral m))
+            let pieces = [ maxUnsigned w' .&. (xint `shiftR` fromIntegral (i * m))
                          | i <- [0 .. n-1]
                          ]
             return $ VectorConst (IntType m) (map (IntConst w') pieces)
@@ -824,7 +824,7 @@ evalBitCast expr xty x toty =
       , Just LeqProof <- isPosNat w'
       -> do xs <- asVectorOf n (asInt m) x
             -- NB little endian assumption!
-            let pieces = [ v `shiftL` (i * fromIntegral m)
+            let pieces = [ v `shiftL` fromIntegral (i * m)
                          | i <- [0 .. n-1]
                          | v <- xs
                          ]
@@ -838,16 +838,18 @@ evalBitCast expr xty x toty =
 
 asVectorOf ::
   MonadError String m =>
-  Int ->
+  Natural ->
   (LLVMConst -> m a) ->
   (LLVMConst -> m [a])
 asVectorOf n f (ZeroConst (VecType m mt))
   | n == m
   = do x <- f (ZeroConst mt)
-       return (replicate n x)
+       return (replicate (fromIntegral n) x)
+
 asVectorOf n f (VectorConst _ xs)
-  | n == length xs
+  | n == fromIntegral (length xs)
   = traverse f xs
+
 asVectorOf n _ _
   = throwError ("Expected vector constant value of length: " ++ show n)
 

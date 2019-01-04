@@ -17,6 +17,7 @@ module Lang.Crucible.LLVM.PrettyPrint
   , ppIntVector
   ) where
 
+import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen
 
 -- | Print list of documents separated by commas and spaces.
@@ -31,12 +32,11 @@ ppIntType i = char 'i' <> integer (toInteger i)
 ppPtrType :: Doc -> Doc
 ppPtrType tp = tp <> char '*'
 
-ppArrayType :: Int -> Doc -> Doc
-ppArrayType n e = brackets (int n <+> char 'x' <+> e)
+ppArrayType :: Natural -> Doc -> Doc
+ppArrayType n e = brackets (integer (toInteger n) <+> char 'x' <+> e)
 
-ppVectorType :: Int -> Doc -> Doc
-ppVectorType n e = angles (int n <+> char 'x' <+> e)
+ppVectorType :: Natural -> Doc -> Doc
+ppVectorType n e = angles (integer (toInteger n) <+> char 'x' <+> e)
 
-ppIntVector :: Integral a => Int -> a -> Doc
+ppIntVector :: Integral a => Natural -> a -> Doc
 ppIntVector n w = ppVectorType n (ppIntType w)
-

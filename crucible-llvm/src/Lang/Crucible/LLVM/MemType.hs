@@ -22,6 +22,7 @@ module Lang.Crucible.LLVM.MemType
   , memTypeSize
   , ppSymType
   , ppMemType
+  , memTypeBitwidth
     -- ** Function type information.
   , FunDecl(..)
   , RetType
@@ -120,8 +121,8 @@ data MemType
   | FloatType
   | DoubleType
   | X86_FP80Type
-  | ArrayType Int MemType
-  | VecType Int MemType
+  | ArrayType Natural MemType
+  | VecType Natural MemType
   | StructType StructInfo
   | MetadataType
   deriving (Eq)
@@ -185,6 +186,13 @@ data FunDecl = FunDecl { fdRetType  :: !RetType
                        , fdVarArgs  :: !Bool
                        }
  deriving( Eq )
+
+-- | Return the number of bits that represent the given memtype, which
+--   must be either integer types, vectors (of vectors...) of integer types.
+memTypeBitwidth :: MemType -> Maybe Natural
+memTypeBitwidth (IntType w) = Just w
+memTypeBitwidth (VecType n tp) = (fromIntegral n *) <$> memTypeBitwidth tp
+memTypeBitwidth _ = Nothing
 
 -- | Return type if any.
 type RetType = Maybe MemType

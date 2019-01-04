@@ -136,8 +136,8 @@ asScalar _ = NotScalar
 asVectorWithType :: LLVMExpr s arch -> Maybe (MemType, Seq (LLVMExpr s arch))
 asVectorWithType v =
   case v of
-    ZeroExpr (VecType n t)  -> Just (t, Seq.replicate n (ZeroExpr t))
-    UndefExpr (VecType n t) -> Just (t, Seq.replicate n (UndefExpr t))
+    ZeroExpr (VecType n t)  -> Just (t, Seq.replicate (fromIntegral n) (ZeroExpr t))
+    UndefExpr (VecType n t) -> Just (t, Seq.replicate (fromIntegral n) (UndefExpr t))
     VecExpr t s             -> Just (t, s)
     _                       -> Nothing
 

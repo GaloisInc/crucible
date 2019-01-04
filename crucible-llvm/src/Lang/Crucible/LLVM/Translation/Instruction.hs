@@ -617,7 +617,7 @@ bitCast srcT expr tgtT =
                          | otherwise -> vecJoinVec es (fromIntegral (div w2 w1))
                        _ -> Nothing
 
-               guard (length vs == len)
+               guard (fromIntegral (length vs) == len)
                return $ VecExpr ty $ Seq.fromList vs
 
           | otherwise -> Nothing
