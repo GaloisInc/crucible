@@ -53,6 +53,7 @@ module Lang.Crucible.LLVM.Translation.Constant
   , showInstr
   ) where
 
+import           Control.Lens( to, (^.) )
 import           Control.Monad
 import           Control.Monad.Except
 import           Data.Bits
@@ -72,6 +73,7 @@ import           Data.Parameterized.Some
 import           Data.Parameterized.DecidableEq (decEq)
 
 import           Lang.Crucible.LLVM.Bytes
+import           Lang.Crucible.LLVM.DataLayout( intLayout, EndianForm(..) )
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation.Types
@@ -791,49 +793,87 @@ evalConv expr op mt x = case op of
  where badExp msg = throwError $ unlines [msg, show expr]
 
 
+castToInt ::
+  MonadError String m =>
+  L.ConstExpr {- ^ original expression to evaluate -} ->
+  EndianForm ->
+  Natural ->
+  MemType ->
+  LLVMConst ->
+  m Integer
+castToInt _expr _endian _w (IntType w) x = asInt w x
+castToInt expr endian w (VecType n tp) x
+  | (m,0) <- w `divMod` n =
+  do xs <- asVectorOf n (castToInt expr endian m tp) x
+     let indices = case endian of
+                     LittleEndian -> [0 .. n-1]
+                     BigEndian -> reverse [0 .. n-1]
+     let pieces = [ v `shiftL` (fromIntegral (i * m))
+                  | i <- indices
+                  | v <- xs
+                  ]
+     return (foldr (.|.) 0 pieces)
+
+castToInt expr _ _ _ _ =
+  throwError $ unlines ["Cannot cast expression to integer type", show expr]
+
+castFromInt ::
+  MonadError String m =>
+  EndianForm ->
+  Integer ->
+  Natural ->
+  MemType ->
+  m LLVMConst
+castFromInt _ xint w (IntType w')
+  | w == w'
+  , Just (Some wsz) <- someNat (toInteger w)
+  , Just LeqProof <- isPosNat wsz
+  = return $ IntConst wsz xint
+
+castFromInt endian xint w (VecType n tp)
+  | (m,0) <- w `divMod` n =
+  do let mask = (1 `shiftL` fromIntegral m) - 1
+     let indices = case endian of
+                     LittleEndian -> [0 .. n-1]
+                     BigEndian -> reverse [0 .. n-1]
+     let pieces = [ mask .&. (xint `shiftR` fromIntegral (i * m))
+                  | i <- indices
+                  ]
+     VectorConst tp <$> mapM (\x -> castFromInt endian x m tp) pieces
+
+castFromInt _ _ _ tp =
+  throwError $ unlines ["Cant cast integer to type", show tp]
+
 -- | Evaluate a bitcast
 evalBitCast ::
-  MonadError String m =>
+  (?lc :: TypeContext, MonadError String m) =>
   L.ConstExpr {- ^ original expression to evaluate -} ->
   MemType     {- ^ input expressio type -} ->
   LLVMConst   {- ^ input expression -} ->
   MemType     {- ^ desired output type -} ->
   m LLVMConst
-evalBitCast expr xty x toty =
-  case (xty, toty) of
-    _ | xty == toty
-      -> return x
 
-    (PtrType _, PtrType _)
-      -> return x
+-- cast zero constants to relabeled zero constants
+evalBitCast _ _ (ZeroConst _) tgtT = return (ZeroConst tgtT)
 
-    (IntType w, VecType n (IntType m))
-      | w == (fromIntegral n) * m
-      , Just (Some w') <- someNat (toInteger m)
-      , Just LeqProof <- isPosNat w'
-      -> do xint <- asInt w x
-            -- NB little endian assumption!
-            let pieces = [ maxUnsigned w' .&. (xint `shiftR` fromIntegral (i * m))
-                         | i <- [0 .. n-1]
-                         ]
-            return $ VectorConst (IntType m) (map (IntConst w') pieces)
+-- pointer casts always succeed
+evalBitCast _ (PtrType _) expr (PtrType _) = return expr
 
-    (VecType n (IntType m), IntType w)
-      | w == fromIntegral n * m
-      , Just (Some w') <- someNat (toInteger w)
-      , Just LeqProof <- isPosNat w'
-      -> do xs <- asVectorOf n (asInt m) x
-            -- NB little endian assumption!
-            let pieces = [ v `shiftL` fromIntegral (i * m)
-                         | i <- [0 .. n-1]
-                         | v <- xs
-                         ]
-            return $ IntConst w' (foldr (.|.) 0 pieces)
+-- casts between vectors of the same length can just be done pointwise
+evalBitCast expr (VecType n srcT) (VectorConst _ xs) (VecType n' tgtT)
+  | n == n' = VectorConst tgtT <$> traverse (\x -> evalBitCast expr srcT x tgtT) xs
 
-    _ -> badExp "illegal bitcast"
+-- otherwise, cast via an intermediate integer type
+evalBitCast expr xty x toty
+  | Just w1 <- memTypeBitwidth xty
+  , Just w2 <- memTypeBitwidth toty
+  , w1 == w2
+  = do let endian = ?lc ^. to llvmDataLayout.intLayout
+       xint <- castToInt expr endian w1 xty x
+       castFromInt endian xint w1 toty
 
- where badExp msg = throwError $ unlines [msg, show expr]
-
+evalBitCast expr _ _ _ =
+   throwError $ unlines ["illegal constant bitcast", show expr]
 
 
 asVectorOf ::

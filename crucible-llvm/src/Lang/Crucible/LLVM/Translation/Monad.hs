@@ -60,8 +60,8 @@ type LLVMGenerator h s arch ret a =
     Generator (LLVM arch) h s (LLVMState arch) ret a
 
 -- | @LLVMGenerator@ without the constraint, can be nested further inside monads.
-type LLVMGenerator' h s arch ret a =
-  Generator (LLVM arch) h s (LLVMState arch) ret a
+type LLVMGenerator' h s arch ret =
+  Generator (LLVM arch) h s (LLVMState arch) ret
 
 
 -- LLVMState

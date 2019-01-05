@@ -37,6 +37,7 @@ module Lang.Crucible.LLVM.Translation.Instruction
 
 import Control.Monad.Except
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Maybe
 import Control.Lens hiding (op, (:>) )
 import Data.Foldable (toList)
 import Data.Int
@@ -48,6 +49,7 @@ import qualified Data.Sequence as Seq
 import Data.String
 import qualified Data.Vector as V
 import qualified Data.Text   as Text
+import           Numeric.Natural
 
 import qualified Text.LLVM.AST as L
 
@@ -590,39 +592,21 @@ bitCast :: (?lc::TypeContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
           LLVMGenerator h s arch ret (LLVMExpr s arch)
 
 bitCast _ (ZeroExpr _) tgtT = return (ZeroExpr tgtT)
+
 bitCast _ (UndefExpr _) tgtT = return (UndefExpr tgtT)
 
-bitCast srcT expr tgtT =
-  llvmTypeAsRepr tgtT $ \cruT ->    -- Crucible version of the type
+-- pointer casts always succeed
+bitCast (PtrType _) expr (PtrType _) = return expr
 
-  -- First check if we are casting anything at all
-  case asScalar expr of
-    Scalar tyx _ | Just Refl <- testEquality tyx cruT -> return expr  -- no cast
-    _ -> mb $
-      case tgtT of
+-- casts between vectors of the same length can just be done pointwise
+bitCast (VecType n srcT) (explodeVector n -> Just xs) (VecType n' tgtT)
+  | n == n' = VecExpr tgtT <$> traverse (\x -> bitCast srcT x tgtT) xs
 
-        -- Vector to bit-vector
-        IntType {} | Just (_,es) <- mbEls ->
-          do res@(BaseExpr ty _) <- vecJoin es
-             Refl <- testEquality ty cruT
-             return res
-
-        VecType len ty@(IntType w1)
-          | w1 > 0 ->
-            do VectorRepr (BVRepr n) <- return cruT
-               vs <- case mbEls of
-                       Nothing -> vecSplit n expr
-                       Just (IntType w2, es)
-                         | w1 > w2   -> vecSplitVec n es
-                         | otherwise -> vecJoinVec es (fromIntegral (div w2 w1))
-                       _ -> Nothing
-
-               guard (fromIntegral (length vs) == len)
-               return $ VecExpr ty $ Seq.fromList vs
-
-          | otherwise -> Nothing
-
-        _ -> Nothing
+-- otherwise, cast via an intermediate integer type of common width
+bitCast srcT expr tgtT = mb =<< runMaybeT (
+  case (memTypeBitwidth srcT, memTypeBitwidth tgtT) of
+    (Just w1, Just w2) | w1 == w2 -> castToInt srcT expr >>= castFromInt tgtT w2
+    _ -> mzero)
 
   where
   mb    = maybe (err [ "*** Invalid coercion of expression"
@@ -632,16 +616,45 @@ bitCast srcT expr tgtT =
                      , "to type"
                      , indent (show tgtT)
                      ]) return
-  mbEls = do (ty,se) <- asVectorWithType expr
-             return (ty, toList se)
   err msg = reportError $ fromString $ unlines ("[bitCast] Failed to perform cast:" : msg)
   indent msg = "  " ++ msg
 
 
+explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
+explodeVector n (VecExpr _tp xs)
+  | n == fromIntegral (length xs) = return xs
+explodeVector n (BaseExpr (VectorRepr tpr) v) =
+    let xs = [ BaseExpr tpr (app $ VectorGetEntry tpr v (litExpr i)) | i <- [0..n-1] ]
+     in return (Seq.fromList xs)
+explodeVector _ _ = Nothing
+
+castToInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  MemType -> LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
+castToInt (IntType w) (BaseExpr (LLVMPointerRepr wrepr) x)
+  | toInteger w == natValue wrepr
+  = lift (BaseExpr (BVRepr wrepr) <$> pointerAsBitvectorExpr wrepr x)
+castToInt (VecType n tp) (explodeVector n -> Just xs) =
+  do xs' <- traverse (castToInt tp) (toList xs)
+     MaybeT (return (vecJoin xs'))
+castToInt _ _ = mzero
+
+castFromInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+  MemType -> Natural -> LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
+castFromInt (IntType w1) w2 (BaseExpr (BVRepr w) x)
+  | w1 == w2, toInteger w1 == natValue w
+  = return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w x))
+castFromInt (VecType n tp) w expr
+  | (w',0) <- w `divMod` n
+  , Just (Some wrepr') <- someNat (toInteger w')
+  , Just LeqProof <- isPosNat wrepr'
+  = do xs <- MaybeT (return (vecSplit wrepr' expr))
+       VecExpr tp . Seq.fromList <$> traverse (castFromInt tp w') xs
+castFromInt _ _ _ = mzero
+
+
 -- | Join the elements of a vector into a single bit-vector value.
 -- The resulting bit-vector would be of length at least one.
-vecJoin ::
-  (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
+vecJoin :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   [LLVMExpr s arch] {- ^ Join these vector elements -} ->
   Maybe (LLVMExpr s arch)
 vecJoin exprs =
@@ -659,23 +672,6 @@ vecJoin exprs =
                            LittleEndian -> bits m n e2 e1
                            BigEndian    -> bits n m e1 e2
 
--- | Join the elements in a vector,
--- to get a shorter vector with larger elements.
-vecJoinVec ::
-  (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
-  [ LLVMExpr s arch ] {- ^ Input vector -} ->
-  Int            {- ^ Number of els. to join to get 1 el. of result -} ->
-  Maybe [ LLVMExpr s arch ]
-vecJoinVec exprs n = mapM vecJoin =<< chunk n exprs
-
--- | Split a list into sub-lists of the given length.
--- Fails if the list does not divide exactly.
-chunk :: Int -> [a] -> Maybe [[a]]
-chunk n xs = case xs of
-               [] -> Just []
-               _  -> case splitAt n xs of
-                       (_,[])  -> Nothing
-                       (as,bs) -> (as :) <$> chunk n bs
 
 bitVal :: (1 <= n) => NatRepr n ->
                   App (LLVM arch) (Expr (LLVM arch) s) (BVType n) ->
@@ -709,16 +705,6 @@ vecSplit elLen expr =
                  BigEndian    -> reverse els
   where
   lay = llvmDataLayout ?lc
-
--- | Split the elements in a vector,
--- to get a longer vector with smaller element.
-vecSplitVec ::
-  (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch, 1 <= n) =>
-  NatRepr n          {- ^ Length of a single element in the new vector -} ->
-  [LLVMExpr s arch ] {- ^ Vector to split -} ->
-  Maybe [ LLVMExpr s arch ]
-vecSplitVec n es = concat <$> mapM (vecSplit n) es
-
 
 intop :: (1 <= w)
       => L.ArithOp
