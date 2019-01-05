@@ -711,6 +711,109 @@ vecSplit elLen expr =
   where
   lay = llvmDataLayout ?lc
 
+
+bitop ::
+  L.BitOp ->
+  MemType ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (LLVMExpr s arch)
+bitop op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
+  VecExpr tp <$> sequence (Seq.zipWith (bitop op tp) xs ys)
+
+bitop op _ x y =
+  case (asScalar x, asScalar y) of
+    (Scalar (LLVMPointerRepr w) x',
+     Scalar (LLVMPointerRepr w') y')
+      | Just Refl <- testEquality w w'
+      , Just LeqProof <- isPosNat w -> do
+         xbv <- pointerAsBitvectorExpr w x'
+         ybv <- pointerAsBitvectorExpr w y'
+         ex  <- raw_bitop op w xbv ybv
+         return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w ex))
+
+    _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
+
+
+raw_bitop :: (1 <= w) =>
+  L.BitOp ->
+  NatRepr w ->
+  Expr (LLVM arch) s (BVType w) ->
+  Expr (LLVM arch) s (BVType w) ->
+  LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
+raw_bitop op w a b =
+  case op of
+      L.And -> return $ App (BVAnd w a b)
+      L.Or  -> return $ App (BVOr w a b)
+      L.Xor -> return $ App (BVXor w a b)
+
+      L.Shl nuw nsw -> do
+        let wlit = App (BVLit w (natValue w))
+        assertExpr (App (BVUlt w b wlit))
+                   (litExpr "shift amount too large in shl")
+
+        res <- AtomExpr <$> mkAtom (App (BVShl w a b))
+
+        let nuwCond expr
+             | nuw = do
+                 m <- AtomExpr <$> mkAtom (App (BVLshr w res b))
+                 return $ App $ AddSideCondition (BaseBVRepr w)
+                    (App (BVEq w a m))
+                    "unsigned overflow on shl"
+                    expr
+             | otherwise = return expr
+
+        let nswCond expr
+             | nsw = do
+                 m <- AtomExpr <$> mkAtom (App (BVAshr w res b))
+                 return $ App $ AddSideCondition (BaseBVRepr w)
+                    (App (BVEq w a m))
+                    "signed overflow on shl"
+                    expr
+             | otherwise = return expr
+
+        nuwCond =<< nswCond =<< return res
+
+      L.Lshr exact -> do
+        let wlit = App (BVLit w (natValue w))
+        assertExpr (App (BVUlt w b wlit))
+                   (litExpr "shift amount too large in lshr")
+
+        res <- AtomExpr <$> mkAtom (App (BVLshr w a b))
+
+        let exactCond expr
+             | exact = do
+                 m <- AtomExpr <$> mkAtom (App (BVShl w res b))
+                 return $ App $ AddSideCondition (BaseBVRepr w)
+                    (App (BVEq w a m))
+                    "inexact logical right shift"
+                    expr
+             | otherwise = return expr
+
+        exactCond res
+
+      L.Ashr exact
+        | Just LeqProof <- isPosNat w -> do
+           let wlit = App (BVLit w (natValue w))
+           assertExpr (App (BVUlt w b wlit))
+                      (litExpr "shift amount too large in ashr")
+
+           res <- AtomExpr <$> mkAtom (App (BVAshr w a b))
+
+           let exactCond expr
+                | exact = do
+                    m <- AtomExpr <$> mkAtom (App (BVShl w res b))
+                    return $ App $ AddSideCondition (BaseBVRepr w)
+                       (App (BVEq w a m))
+                       "inexact arithmetic right shift"
+                       expr
+                | otherwise = return expr
+
+           exactCond res
+
+        | otherwise -> fail "cannot arithmetic right shift a 0-width integer"
+
+
 intop :: (1 <= w)
       => L.ArithOp
       -> NatRepr w
@@ -1188,103 +1291,18 @@ generateInstr retType lab instr assign_f k =
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
         callFunctionWithCont fnTy fn args assign_f $ definePhiBlock lab normLabel
 
-    L.Bit op x y -> do
-           let bitop :: (1 <= w)
-                     => NatRepr w
-                     -> Expr (LLVM arch) s (BVType w)
-                     -> Expr (LLVM arch) s (BVType w)
-                     -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
-               bitop w a b =
-                     case op of
-                         L.And -> return $ App (BVAnd w a b)
-                         L.Or  -> return $ App (BVOr w a b)
-                         L.Xor -> return $ App (BVXor w a b)
-
-                         L.Shl nuw nsw -> do
-                           let wlit = App (BVLit w (natValue w))
-                           assertExpr (App (BVUlt w b wlit))
-                                      (litExpr "shift amount too large in shl")
-
-                           res <- AtomExpr <$> mkAtom (App (BVShl w a b))
-
-                           let nuwCond expr
-                                | nuw = do
-                                    m <- AtomExpr <$> mkAtom (App (BVLshr w res b))
-                                    return $ App $ AddSideCondition (BaseBVRepr w)
-                                       (App (BVEq w a m))
-                                       "unsigned overflow on shl"
-                                       expr
-                                | otherwise = return expr
-
-                           let nswCond expr
-                                | nsw = do
-                                    m <- AtomExpr <$> mkAtom (App (BVAshr w res b))
-                                    return $ App $ AddSideCondition (BaseBVRepr w)
-                                       (App (BVEq w a m))
-                                       "signed overflow on shl"
-                                       expr
-                                | otherwise = return expr
-
-                           nuwCond =<< nswCond =<< return res
-
-                         L.Lshr exact -> do
-                           let wlit = App (BVLit w (natValue w))
-                           assertExpr (App (BVUlt w b wlit))
-                                      (litExpr "shift amount too large in lshr")
-
-                           res <- AtomExpr <$> mkAtom (App (BVLshr w a b))
-
-                           let exactCond expr
-                                | exact = do
-                                    m <- AtomExpr <$> mkAtom (App (BVShl w res b))
-                                    return $ App $ AddSideCondition (BaseBVRepr w)
-                                       (App (BVEq w a m))
-                                       "inexact logical right shift"
-                                       expr
-                                | otherwise = return expr
-
-                           exactCond res
-
-                         L.Ashr exact
-                           | Just LeqProof <- isPosNat w -> do
-                              let wlit = App (BVLit w (natValue w))
-                              assertExpr (App (BVUlt w b wlit))
-                                         (litExpr "shift amount too large in ashr")
-
-                              res <- AtomExpr <$> mkAtom (App (BVAshr w a b))
-
-                              let exactCond expr
-                                   | exact = do
-                                       m <- AtomExpr <$> mkAtom (App (BVShl w res b))
-                                       return $ App $ AddSideCondition (BaseBVRepr w)
-                                          (App (BVEq w a m))
-                                          "inexact arithmetic right shift"
-                                          expr
-                                   | otherwise = return expr
-
-                              exactCond res
-
-                           | otherwise -> fail "cannot arithmetic right shift a 0-width integer"
-
-           x' <- transTypedValue x
-           y' <- transTypedValue (L.Typed (L.typedType x) y)
-           case (asScalar x', asScalar y') of
-             (Scalar (LLVMPointerRepr w) x'',
-              Scalar (LLVMPointerRepr w') y'')
-               | Just Refl <- testEquality w w'
-               , Just LeqProof <- isPosNat w -> do
-                  xbv <- pointerAsBitvectorExpr w x''
-                  ybv <- pointerAsBitvectorExpr w y''
-                  ex  <- bitop w xbv ybv
-                  assign_f (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w ex))
-                  k
-
-             _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
+    L.Bit op x y ->
+      do tp <- liftMemType' (L.typedType x)
+         x' <- transValue tp (L.typedValue x)
+         y' <- transValue tp y
+         assign_f =<< bitop op tp x' y'
+         k
 
     L.Arith op x y ->
-      do x' <- transTypedValue x
-         y' <- transTypedValue (L.Typed (L.typedType x) y)
-         assign_f =<< arithOp op x' y'
+      do tp <- liftMemType' (L.typedType x)
+         x' <- transValue tp (L.typedValue x)
+         y' <- transValue tp y
+         assign_f =<< arithOp op tp x' y'
          k
 
     L.FCmp op x y -> do
@@ -1396,10 +1414,16 @@ generateInstr retType lab instr assign_f k =
     _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", showInstr instr]
 
 
+arithOp ::
+  L.ArithOp ->
+  MemType ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (LLVMExpr s arch)
+arithOp op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
+  VecExpr tp <$> sequence (Seq.zipWith (arithOp op tp) xs ys)
 
-arithOp :: L.ArithOp -> LLVMExpr s arch -> LLVMExpr s arch ->
-         LLVMGenerator h s arch ret (LLVMExpr s arch)
-arithOp op x y =
+arithOp op _ x y =
   case (asScalar x, asScalar y) of
     (Scalar ty@(LLVMPointerRepr w)  x',
      Scalar    (LLVMPointerRepr w') y')
@@ -1419,10 +1443,6 @@ arithOp op x y =
       | Just Refl <- testEquality fi fi' ->
         do ex <- fop fi x' y'
            return (BaseExpr (FloatRepr fi) ex)
-
-    _ | Just (t,xs) <- asVectorWithType x
-      , Just ys     <- asVector y ->
-        VecExpr t <$> sequence (Seq.zipWith (arithOp op) xs ys)
 
     _ -> reportError
            $ fromString
