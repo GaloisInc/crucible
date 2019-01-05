@@ -1175,9 +1175,9 @@ generateInstr retType lab instr assign_f k =
                  outL :: Num b => b
                  outL = fromIntegral m
 
-             Just v1 <- asVector <$> transValue inV (L.typedValue sV1)
-             Just v2 <- asVector <$> transValue inV sV2
-             Just is <- asVector <$> transValue (VecType outL (IntType 32)) (L.typedValue sIxes)
+             Just v1 <- explodeVector outL <$> transValue inV (L.typedValue sV1)
+             Just v2 <- explodeVector inL  <$> transValue inV sV2
+             Just is <- explodeVector outL <$> transValue (VecType outL (IntType 32)) (L.typedValue sIxes)
 
              let getV x =
                    case asScalar x of
