@@ -147,6 +147,11 @@ instrResultType instr =
     -- LLVM Language Reference: "The original value at the location is returned."
     L.AtomicRW _ _ x _ _ _ -> liftMemType (L.typedType x)
 
+    L.CmpXchg _weak _volatile _ptr _old new _ _ _ ->
+      do let dl = llvmDataLayout ?lc
+         tp <- liftMemType (L.typedType new)
+         return (StructType (mkStructInfo dl False [tp, i1]))
+
     _ -> fail $ unwords ["instrResultType, unsupported instruction:", showInstr instr]
 
 
