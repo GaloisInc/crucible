@@ -190,6 +190,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Value
+import qualified Lang.Crucible.LLVM.MemModel.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.Panic (panic)
@@ -242,6 +243,20 @@ doDumpMem h mem = do
 ----------------------------------------------------------------------
 -- Memory operations
 --
+
+
+-- | Assert that some undefined behavior doesn't occur when performing memory
+-- model operations
+assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
+                => sym
+                -> Pred sym
+                -> Maybe UB.Config      -- ^ defaults to 'strictConfig'
+                -> UB.UndefinedBehavior -- ^ The undesirable behavior
+                -> [String]             -- ^ Additional error message lines
+                -> IO ()
+assertUndefined sym p (UB.defaultStrict -> ubConfig) ub extraErrMsg =
+  when (UB.getConfig ubConfig ub) $ assert sym p $
+    (AssertFailureSimError $ UB.pp ub ++ unlines extraErrMsg)
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -341,7 +356,7 @@ evalStmt sym = eval
     do mem <- getMem mvar
        z   <- liftIO $ bvLit sym knownNat 0
        len <- liftIO $ bvLit sym PtrWidth (bytesToInteger bytes)
-       mem' <- liftIO $ doMemset sym PtrWidth mem ptr z len
+       mem' <- liftIO $ doMemset sym Nothing PtrWidth mem ptr z len
        setMem mvar mem'
 
   eval (LLVM_Store mvar (regValue -> ptr) tpr valType alignment (regValue -> val)) =
@@ -377,10 +392,11 @@ evalStmt sym = eval
         v1 <- isValidPointer sym x mem
         v2 <- isValidPointer sym y mem
         v3 <- G.notAliasable sym x y (memImplHeap mem)
-        assert sym v1
-           (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show x_doc, show allocs_doc])
-        assert sym v2
-           (AssertFailureSimError $ unlines ["Invalid pointer compared for equality:", show y_doc, show allocs_doc])
+
+        assertUndefined sym v1 Nothing UB.CompareInvalidPointer $
+          ["Equality (==) comparison on pointer", show x_doc, show allocs_doc]
+        assertUndefined sym v2 Nothing UB.CompareInvalidPointer $
+          ["Equality (==) comparison on pointer", show y_doc, show allocs_doc]
         assert sym v3
            (AssertFailureSimError $ unlines ["Const pointers compared for equality:", show x_doc, show y_doc, show allocs_doc])
 
@@ -393,15 +409,15 @@ evalStmt sym = eval
            y_doc = G.ppPtr y
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
-       assert sym v1
-          (AssertFailureSimError $ unwords ["Invalid pointer compared for ordering:", show x_doc])
-       assert sym v2
-          (AssertFailureSimError $ unwords ["Invalid pointer compared for ordering:", show y_doc])
+       assertUndefined sym v1 Nothing UB.CompareInvalidPointer $
+         ["Ordering (<=) comparison on pointer", show x_doc]
+       assertUndefined sym v2 Nothing UB.CompareInvalidPointer $
+         ["Ordering (<=) comparison on pointer", show y_doc]
        ptrLe sym PtrWidth x y
 
   eval (LLVM_PtrAddOffset _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
-       liftIO $ doPtrAddOffset sym mem x y
+       liftIO $ doPtrAddOffset sym Nothing mem x y
 
   eval (LLVM_PtrSubtract _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
@@ -496,7 +512,7 @@ doCalloc sym mem sz num alignment = do
 
   z <- bvLit sym knownNat 0
   (ptr, mem') <- doMalloc sym G.HeapAlloc G.Mutable "<calloc>" mem sz' alignment
-  mem'' <- doMemset sym PtrWidth mem' ptr z sz'
+  mem'' <- doMemset sym Nothing PtrWidth mem' ptr z sz'
   return (ptr, mem'')
 
 -- | Allocate a memory region.
@@ -564,10 +580,11 @@ doLookupHandle _sym mem ptr = do
 doFree
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
+  -> Maybe UB.Config  {- ^ defaults to 'strictConfig' -}
   -> MemImpl sym
   -> LLVMPtr sym wptr
   -> IO (MemImpl sym)
-doFree sym mem ptr = do
+doFree sym ubConfig mem ptr = do
   let LLVMPointer blk _ = ptr
   (heap', p1, p2) <- G.freeMem sym PtrWidth ptr (memImplHeap mem)
 
@@ -577,15 +594,17 @@ doFree sym mem ptr = do
          Just i  -> Map.delete (toInteger i) (memImplHandleMap mem)
          Nothing -> memImplHandleMap mem
 
-  let errMsg1 = "Free of pointer to non-base address: " ++ show (G.ppPtr ptr)
-  let errMsg2 = "Invalid free (double free or invalid pointer): address " ++ show (G.ppPtr ptr)
 
   -- NB: free is defined and has no effect if passed a null pointer
   isNull <- ptrIsNull sym PtrWidth ptr
-  p1' <- orPred sym p1 isNull
-  p2' <- orPred sym p2 isNull
-  assert sym p1' (AssertFailureSimError errMsg1)
+  p1'    <- orPred sym p1 isNull
+  p2'    <- orPred sym p2 isNull
+
+  let errMsg1 = "Pointer didn't point to base of allocation. "
+  let errMsg2 = "Invalid free (double free or invalid pointer): address " ++ show (G.ppPtr ptr)
+  assertUndefined sym p1' ubConfig UB.FreeInvalidPointer [errMsg1, show (G.ppPtr ptr)]
   assert sym p2' (AssertFailureSimError errMsg2)
+
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
 -- | Fill a memory range with copies of the specified byte. Also
@@ -593,19 +612,21 @@ doFree sym mem ptr = do
 doMemset ::
   (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
+  Maybe UB.Config  {- ^ defaults to 'strictConfig' -} ->
   NatRepr w ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ destination -} ->
   SymBV sym 8      {- ^ fill byte   -} ->
   SymBV sym w      {- ^ length      -} ->
   IO (MemImpl sym)
-doMemset sym w mem dest val len = do
+doMemset sym ubConfig w mem dest val len = do
   len' <- sextendBVTo sym w PtrWidth len
 
-  (heap', c) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
+  (heap', p) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
 
-  assert sym c
-     (AssertFailureSimError "Invalid memory region in memset")
+  assertUndefined sym p ubConfig UB.MemsetInvalidRegion
+    -- [show (G.ppPtr dest), "Requested size: " ++ show len']
+    [show (G.ppPtr dest)]
 
   return mem{ memImplHeap = heap' }
 
@@ -704,18 +725,19 @@ doPtrSubtract sym _m x y =
 doPtrAddOffset ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
+  Maybe UB.Config  {- ^ defaults to 'strictConfig' -} ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ base pointer -} ->
   SymBV sym wptr   {- ^ offset       -} ->
   IO (LLVMPtr sym wptr)
-doPtrAddOffset sym m x off = do
-   x' <- ptrAdd sym PtrWidth x off
-   v  <- isValidPointer sym x' m
-   let x_doc = G.ppPtr x
-   let off_doc = printSymExpr off
-   assert sym v
-       (AssertFailureSimError $ unlines ["Pointer arithmetic resulted in invalid pointer.", show x_doc, show off_doc])
-   return x'
+doPtrAddOffset sym ubConfig m x off = do
+  x' <- ptrAdd sym PtrWidth x off
+  v  <- isValidPointer sym x' m
+
+  assertUndefined sym v ubConfig UB.PtrAddOffsetOutOfBounds $
+     [show (G.ppPtr x), show (printSymExpr off)]
+
+  return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer
 --   into the heap, OR is the distinguished NULL pointer.
@@ -759,7 +781,7 @@ loadString sym mem = go id
        Just 0 -> return $ f []
        Just c -> do
            let c' :: Word8 = toEnum $ fromInteger c
-           p' <- doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1
+           p' <- doPtrAddOffset sym Nothing mem p =<< bvLit sym PtrWidth 1
            go (f . (c':)) p' (fmap (\n -> n - 1) maxChars)
        Nothing ->
          addFailedAssertion sym
