@@ -1,4 +1,4 @@
-------------------------------------------------------------------------
+--------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.MemModel
 -- Description      : Core definitions of the symbolic C memory model
@@ -569,7 +569,7 @@ doFree
   -> IO (MemImpl sym)
 doFree sym mem ptr = do
   let LLVMPointer blk _ = ptr
-  (c, heap') <- G.freeMem sym PtrWidth ptr (memImplHeap mem)
+  (heap', p1, p2) <- G.freeMem sym PtrWidth ptr (memImplHeap mem)
 
   -- If this pointer is a handle pointer, remove the associated data
   let hMap' =
@@ -577,12 +577,15 @@ doFree sym mem ptr = do
          Just i  -> Map.delete (toInteger i) (memImplHandleMap mem)
          Nothing -> memImplHandleMap mem
 
-  let errMsg = "Invalid free (double free or invalid pointer): address " ++ show (G.ppPtr ptr)
+  let errMsg1 = "Free of pointer to non-base address: " ++ show (G.ppPtr ptr)
+  let errMsg2 = "Invalid free (double free or invalid pointer): address " ++ show (G.ppPtr ptr)
 
   -- NB: free is defined and has no effect if passed a null pointer
   isNull <- ptrIsNull sym PtrWidth ptr
-  c' <- orPred sym c isNull
-  assert sym c' (AssertFailureSimError errMsg)
+  p1' <- orPred sym p1 isNull
+  p2' <- orPred sym p2 isNull
+  assert sym p1' (AssertFailureSimError errMsg1)
+  assert sym p2' (AssertFailureSimError errMsg2)
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
 -- | Fill a memory range with copies of the specified byte. Also
@@ -599,7 +602,7 @@ doMemset ::
 doMemset sym w mem dest val len = do
   len' <- sextendBVTo sym w PtrWidth len
 
-  (c, heap') <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
+  (heap', c) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
 
   assert sym c
      (AssertFailureSimError "Invalid memory region in memset")
@@ -618,10 +621,12 @@ doArrayStore
   -> SymBV sym w {- ^ array length -}
   -> IO (MemImpl sym)
 doArrayStore sym mem ptr alignment arr len = do
-  (p, heap') <-
+  (heap', p1, p2) <-
     G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
-  assert sym p $ AssertFailureSimError $
-    "Invalid memory array store at pointer: " ++ show (G.ppPtr ptr)
+  let errMsg1 = "Array store to unallocated or immutable region: "
+  let errMsg2 = "Array store to improperly aligned region: "
+  assert sym p1 $ AssertFailureSimError $ errMsg1 ++ show (G.ppPtr ptr)
+  assert sym p2 $ AssertFailureSimError $ errMsg2 ++ show (G.ppPtr ptr)
   return mem { memImplHeap = heap' }
 
 -- | Store an array in memory. Also assert that the pointer is
@@ -637,10 +642,12 @@ doArrayConstStore
   -> SymBV sym w {- ^ array length -}
   -> IO (MemImpl sym)
 doArrayConstStore sym mem ptr alignment arr len = do
-  (p, heap') <-
+  (heap', p1, p2) <-
     G.writeArrayConstMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
-  assert sym p $ AssertFailureSimError $
-    "Invalid memory array store at pointer: " ++ show (G.ppPtr ptr)
+  let errMsg1 = "Array store to unallocated region: "
+  let errMsg2 = "Array store to improperly aligned region: "
+  assert sym p1 $ AssertFailureSimError $ errMsg1 ++ show (G.ppPtr ptr)
+  assert sym p2 $ AssertFailureSimError $ errMsg2 ++ show (G.ppPtr ptr)
   return mem { memImplHeap = heap' }
 
 -- | Copy memory from source to destination. Also assert that the
@@ -658,10 +665,12 @@ doMemcpy ::
 doMemcpy sym w mem dest src len = do
   len' <- sextendBVTo sym w PtrWidth len
 
-  (c, heap') <- G.copyMem sym PtrWidth dest src len' (memImplHeap mem)
+  (heap', p1, p2) <- G.copyMem sym PtrWidth dest src len' (memImplHeap mem)
 
-  assert sym c
-     (AssertFailureSimError "Invalid memory region in memcpy")
+  let errMsg1 = "Source region was not allocated:" ++ show (G.ppPtr src)
+  let errMsg2 = "Dest region was not allocated, or not mutable:" ++ show (G.ppPtr dest)
+  assert sym p1 (AssertFailureSimError errMsg1)
+  assert sym p2 (AssertFailureSimError errMsg2)
 
   return mem{ memImplHeap = heap' }
 
@@ -678,7 +687,7 @@ uncheckedMemcpy ::
   SymBV sym wptr   {- ^ length      -} ->
   IO (MemImpl sym)
 uncheckedMemcpy sym mem dest src len = do
-  (_c, heap') <- G.copyMem sym PtrWidth dest src len (memImplHeap mem)
+  (heap', _p1, _p2) <- G.copyMem sym PtrWidth dest src len (memImplHeap mem)
   return mem{ memImplHeap = heap' }
 
 doPtrSubtract ::
@@ -849,9 +858,11 @@ storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 storeRaw sym mem ptr valType alignment val = do
-    (p, heap') <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg = ptrMessage "Invalid memory store." ptr valType
-    assert sym p (AssertFailureSimError errMsg)
+    (heap', p1, p2) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
+    let errMsg1 = "Invalid memory store: the region wasn't allocated, or wasn't mutable"
+    let errMsg2 = "Invalid memory store: the region's alignment wasn't correct"
+    assert sym p1 (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
+    assert sym p2 (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
     return mem{ memImplHeap = heap' }
 
 -- | Store an LLVM value in memory. The pointed-to memory region may
@@ -866,9 +877,11 @@ storeConstRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 storeConstRaw sym mem ptr valType alignment val = do
-    (p, heap') <- G.writeConstMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
-    let errMsg = ptrMessage "Invalid memory store." ptr valType
-    assert sym p (AssertFailureSimError errMsg)
+    (heap', p1, p2) <- G.writeConstMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
+    let errMsg1 = "Invalid memory store: the region wasn't allocated"
+    let errMsg2 = "Invalid memory store: the region's alignment wasn't correct"
+    assert sym p1 (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
+    assert sym p2 (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
     return mem{ memImplHeap = heap' }
 
 -- | Allocate a memory region on the heap, with no source location info.
