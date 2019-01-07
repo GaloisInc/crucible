@@ -6,7 +6,7 @@ pub enum Ordering {
     /// An ordering where a compared value is greater [than another].
     Greater = 1,
     /// An ordering where a compared value is less [than another].
-    Less = -1,
+    Less = -23,
 }
 
 use self::Ordering::*;
@@ -26,8 +26,12 @@ impl Ordering {
 
 pub fn f (x : i32) -> i32 {
     let y = Greater;
-    let z = (y.reverse() as i32);
-    return z
+    let z = match y {
+            Less => Greater,
+            Equal => Equal,
+            Greater => Less,
+            };
+    return (z as i32);
 }
 
 

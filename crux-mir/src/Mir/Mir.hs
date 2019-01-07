@@ -128,7 +128,7 @@ data CustomTy =
         BoxTy Ty
       | VecTy Ty
       | IterTy Ty
-      | CEnum DefId    -- C-style Enumeration, all variants must be trivial
+      | CEnum DefId [Integer]    -- C-style Enumeration, all variants must be trivial
     deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data Mutability
@@ -247,7 +247,7 @@ data Rvalue =
       | RCustom CustomAggregate
     deriving (Show,Eq, Ord, Generic, GenericOps)
 
-data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
+data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
     deriving (Show, Eq, Ord, Generic, GenericOps)
 
 
@@ -444,8 +444,8 @@ class GenericOps a where
   relocate x = to (relocate' (from x))
 
   -- | Find all C-style Adts in the AST and convert them to Custom (CEnum _)
-  markCStyle :: [AdtName] -> a -> a 
-  default markCStyle :: (Generic a, GenericOps' (Rep a)) => [AdtName] -> a -> a
+  markCStyle :: ([Adt],Collection) -> a -> a 
+  default markCStyle :: (Generic a, GenericOps' (Rep a)) => ([Adt],Collection) -> a -> a
   markCStyle s x = to (markCStyle' s (from x))
 
   -- | Type variable substitution. Type variables are represented via indices.
@@ -464,6 +464,39 @@ class GenericOps a where
   replaceLvalue o n x = to (replaceLvalue' o n (from x))
 
   
+findAdt :: DefId -> [Adt] -> Maybe Adt
+findAdt n (a:as) = if n == _adtname a then Just a else findAdt n as
+findAdt _n []    = Nothing
+
+findFn :: DefId -> [Fn] -> Maybe Fn
+findFn n (f:fs) = if n == _fname f then Just f else findFn n fs
+findFn _n []    = Nothing
+
+fromIntegerLit :: IntLit -> Integer
+fromIntegerLit (U8 i) = i
+fromIntegerLit (U16 i) = i
+fromIntegerLit (U32 i) = i
+fromIntegerLit (U64 i) = i
+fromIntegerLit (Usize i) = i
+fromIntegerLit (I8 i) = i
+fromIntegerLit (I16 i) = i
+fromIntegerLit (I32 i) = i
+fromIntegerLit (I64 i) = i
+fromIntegerLit (Isize i) = i
+
+
+adtIndices :: Adt -> Collection -> [Integer]
+adtIndices (Adt _ vars) col = map go vars where
+ go (Variant _vname (Explicit did) _fields _knd) =
+    case findFn did (_functions col) of
+      Just (Fn _name _args _ret_ty (MirBody _vars blocks) _gens _preds) ->
+        case blocks of
+          [ BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (Value (ConstInt i))))) _loc] _term) ] ->
+            fromIntegerLit i
+            
+          _ -> error "CEnum should only have one basic block"
+          
+      Nothing -> error "cannot find CEnum value"
 
 -- special case for DefIds
 instance GenericOps DefId where
@@ -477,8 +510,11 @@ instance GenericOps DefId where
 instance GenericOps Ty where
 
   -- Translate C-style enums to CEnum types
-  markCStyle s (TyAdt n (Substs []))  | n `elem` s = TyCustom (CEnum n)
-  markCStyle s (TyAdt n _ps) | n `elem` s = error "Cannot have params to C-style enum!"
+  markCStyle (ads,s) (TyAdt n ps)  | Just adt <- findAdt n ads =
+   if ps == Substs [] then
+      TyCustom (CEnum n (adtIndices adt s))
+   else
+      error "Cannot have params to C-style enum!"
   markCStyle s ty = to (markCStyle' s (from ty))
 
   -- Substitute for type variables
@@ -510,7 +546,7 @@ instance GenericOps Lvalue where
 
 class GenericOps' f where
   relocate'   :: f p -> f p
-  markCStyle' :: [AdtName] -> f p -> f p
+  markCStyle' :: ([Adt],Collection) -> f p -> f p
   tySubst'    :: Substs -> f p -> f p 
   replaceVar' :: Var -> Var -> f p -> f p
   replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
@@ -664,17 +700,6 @@ funcNameofOp (OpConstant (Constant _ (Value (ConstFunction id1 _substs)))) = id1
 funcNameofOp _ = error "bad extract func name"
 
 
-fromIntegerLit :: IntLit -> Integer
-fromIntegerLit (U8 i) = i
-fromIntegerLit (U16 i) = i
-fromIntegerLit (U32 i) = i
-fromIntegerLit (U64 i) = i
-fromIntegerLit (Usize i) = i
-fromIntegerLit (I8 i) = i
-fromIntegerLit (I16 i) = i
-fromIntegerLit (I32 i) = i
-fromIntegerLit (I64 i) = i
-fromIntegerLit (Isize i) = i
 
 
 isMutRefTy :: Ty -> Bool
@@ -759,6 +784,7 @@ instance TypeOf Rvalue where
   typeOf (Len _) = TyUint USize
   typeOf (Cast _ _ ty) = ty
   typeOf (NullaryOp _op ty) = ty
+  typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
   typeOf rv = error ("typeOf Rvalue unimplemented: " ++ show rv)
 
 instance TypeOf Operand where

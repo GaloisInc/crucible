@@ -76,8 +76,12 @@ isSetDiscriminant (SetDiscriminant lv i) =
     _ -> Nothing
 isSetDiscriminant _ = Nothing
 
+-- TODO: if this is not a CStyle enum, the type is wrong
 makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> Statement
-makeAggregate updates (lv, k, adt) = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops)) pos where
+makeAggregate updates (lv, k, adt) = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos where
+  adt_did = _adtname adt
+  ty  = if isCStyle adt then TyCustom (CEnum adt_did (adtIndices adt ?col))
+        else TyAdt adt_did (Substs [])
   ops = map rhs updates
   pos = case updates of
           u:_ -> upos u

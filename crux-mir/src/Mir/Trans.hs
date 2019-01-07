@@ -687,15 +687,15 @@ evalCast' ck ty1 e ty2  =
         mkTraitObject traitName baseType e
 
       -- C-style adts, casting an enum value to a TyInt
-      (M.Misc, M.TyCustom (CEnum _n), M.TyInt USize) -> return e
-      (M.Misc, M.TyCustom (CEnum _n), M.TyInt sz) | (MirExp CT.IntegerRepr e0) <- e ->
+      (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt USize) -> return e
+      (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt sz) | (MirExp CT.IntegerRepr e0) <- e ->
          baseSizeToNatCont sz $ \nat ->
            -- TODO: what happened to E.IntegerToSBV? Will we lose the sign here?
            return $ MirExp (CT.BVRepr nat) (R.App $ E.IntegerToBV nat e0)
 
       -- C-style adts, casting a TyInt to an enum value
-      (M.Misc, M.TyInt USize, M.TyCustom (CEnum _n)) -> return e
-      (M.Misc, M.TyInt _sz,   M.TyCustom (CEnum _n)) | (MirExp (CT.BVRepr nat) e0) <- e ->
+      (M.Misc, M.TyInt USize, M.TyCustom (CEnum _n _i)) -> return e
+      (M.Misc, M.TyInt _sz,   M.TyCustom (CEnum _n _i)) | (MirExp (CT.BVRepr nat) e0) <- e ->
            return $ MirExp knownRepr (R.App $ E.SbvToInteger nat e0)
 
 
@@ -874,7 +874,7 @@ evalRval (M.Discriminant lv) = do
     e <- evalLvalue lv
     let ty = typeOf lv 
     case ty of
-      TyCustom (CEnum _adt) -> return e
+      TyCustom (CEnum _adt _i) -> return e
       _ -> do (MirExp CT.NatRepr idx) <- accessAggregate e 0
               return $ (MirExp knownRepr $ R.App (E.NatToInteger idx))
 
@@ -890,11 +890,15 @@ evalRval (M.Aggregate ak ops) = case ak of
                                    M.AKClosure defid argsm -> do
                                        args <- mapM evalOperand ops
                                        buildClosureHandle defid argsm args
-evalRval (M.RAdtAg (M.AdtAg adt agv [])) | isCStyle adt  = do
-    return $ (MirExp knownRepr (R.App (E.IntLit agv)))
-evalRval (M.RAdtAg (M.AdtAg _adt agv ops))  = do
-    es <- mapM evalOperand ops
-    return $ buildTaggedUnion agv es
+evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
+    case ty of
+      -- cstyle
+      TyCustom (CEnum _ vs) -> do
+         let j = vs !! fromInteger agv
+         return $ (MirExp knownRepr (R.App (E.IntLit j)))
+      _ -> do
+       es <- mapM evalOperand ops
+       return $ buildTaggedUnion agv es
 
 -- A closure is (packed into an any) of the form [handle, arguments]
 -- (arguments being those packed into the closure, not the function arguments)
@@ -1255,10 +1259,10 @@ storageDead (M.Var nm _ _ _ _) =
 
 
 transStatement :: HasCallStack => M.Statement -> MirGenerator h s ret ()
-transStatement (M.Assign lv rv pos) =
-  do setPosition pos
-     re <- evalRval rv
-     assignLvExp lv re
+transStatement (M.Assign lv rv pos) = do
+  setPosition pos
+  re <- evalRval rv
+  assignLvExp lv re
 transStatement (M.StorageLive lv) =
   do storageLive lv
 transStatement (M.StorageDead lv) =
@@ -1271,11 +1275,17 @@ transStatement (M.SetDiscriminant lv i) = do
        assignLvExp lv e'
     CT.AnyRepr ->
        fail "set discriminant: found any"
-    CT.IntegerRepr -> do
-       -- this is a C-style enum
-       let ty = TyInt USize
-       let idx = (Value (ConstInt (Isize (toInteger i))))
-       transStatement (M.Assign lv (Use (OpConstant (Constant ty idx))) "internal")
+    CT.IntegerRepr ->
+      case (M.typeOf lv) of
+       M.TyCustom (M.CEnum adt vs) -> do
+          -- TODO: this is Dead code, remove
+          -- this is a C-style enum
+          let ty = TyInt USize
+          let j = vs !! i  -- TODO: better error message if this fails (would be a bug in the translator)
+          traceM $ "j is " ++ show j
+          let idx = (Value (ConstInt (Isize (toInteger j))))
+          transStatement (M.Assign lv (Use (OpConstant (Constant ty idx))) "internal: set-discr")
+       _ -> fail "set discriminant: should find CEnum here"
     _ -> fail $ "set discriminant: cannot handle type " ++ show ty
 transStatement M.Nop = return ()
 
@@ -1842,7 +1852,7 @@ initialValue (M.TyDynamic _) =
    return $ Nothing
 initialValue (M.TyProjection _ _) =
    return $ Nothing
-initialValue (M.TyCustom (CEnum _n)) =
+initialValue (M.TyCustom (CEnum _n _i)) =
    return $ Just $ MirExp CT.IntegerRepr (S.litExpr 0)
 initialValue _ = return Nothing
 
@@ -2030,8 +2040,8 @@ transCollection :: HasCallStack
       -> FH.HandleAllocator s
       -> ST s (Map Text (Core.AnyCFG MIR))
 transCollection col debug halloc = do
-    let cstyleAdts = List.map _adtname (List.filter isCStyle (col^.M.adts))
-    let col1 = markCStyle cstyleAdts col 
+    let cstyleAdts = List.filter isCStyle (col^.M.adts)
+    let col1 = markCStyle (cstyleAdts,col) col 
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
     hmap <- mkHandleMap halloc (col1^.M.functions)
 
@@ -2449,7 +2459,7 @@ customtyToRepr (M.BoxTy t) = tyToRepr t -- Box<T> is the same as T
 customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
       -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
 -- Implement C-style enums as single integers
-customtyToRepr (CEnum _adt) = Some CT.IntegerRepr
+customtyToRepr (CEnum _adt _i) = Some CT.IntegerRepr
 customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ show (pretty ty))
 
 mkNone :: MirExp s

@@ -5,12 +5,16 @@ License          : BSD3
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Mir.JSON where
 
 import Data.Aeson
 import qualified Data.Aeson.Types  as Aeson
 import qualified Data.HashMap.Lazy as HML
+
+import Data.Word(Word64)
+import Data.Bits
 
 import Data.Text (Text,  unpack)
 import qualified Data.Text as T
@@ -21,6 +25,8 @@ import Control.Lens((^.))
 
 import Mir.DefId 
 import Mir.Mir
+
+import Debug.Trace
 
 --------------------------------------------------------------------------------------
 -- | FromJSON instances
@@ -204,17 +210,23 @@ instance FromJSON Rvalue where
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
-                                              Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
+--                                              Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
                                               Just (String "Custom") -> RCustom <$> v .: "data"
                                               k -> fail $ "unsupported RValue " ++ show k
 
-instance FromJSON AdtAg where
-    parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
+--instance FromJSON AdtAg where
+--    parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
 
 instance FromJSON Terminator where
     parseJSON = withObject "Terminator" $ \v -> case HML.lookup "kind" v of
                                                   Just (String "Goto") -> Goto <$> v .: "target"
-                                                  Just (String "SwitchInt") -> SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> v .: "values" <*> v .: "targets"
+                                                  Just (String "SwitchInt") ->
+                                                    let  q :: Aeson.Parser [Maybe Integer]
+                                                         q = do
+                                                           lmt <- v .: "values"
+                                                           mapM (mapM convertIntegerText) lmt
+                                                    in
+                                                    SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets"
                                                   Just (String "Resume") -> pure Resume
                                                   Just (String "Return") -> pure Return
                                                   Just (String "Unreachable") -> pure Unreachable
@@ -254,7 +266,6 @@ instance FromJSON NullOp where
                                              Just (String "Box") -> pure Box
                                              x -> fail ("bad nullOp: " ++ show x)
 
--- Some BorrowKinds are output by mir-json as strings (i.e. Ref of Rvalue), others as objects with a "kind"
 instance FromJSON BorrowKind where
     parseJSON = withText "BorrowKind" $ \t ->
            if t == "Shared" then pure Shared
@@ -337,11 +348,23 @@ parseBoolText = withText "Bool" $ \t -> case t of
         "false" -> pure False
         _       -> fail $ "Cannot parse key into Bool: " ++ T.unpack t
 
+-- mir-json integers are expressed as strings of 128-bit unsigned values
+-- for example, -1 is displayed as "18446744073709551615"
+-- we need to parse this as a 128 unsigned bit Int value and then
+-- cast it to a signed value
+convertIntegerText :: Text -> Aeson.Parser Integer
+convertIntegerText t = do
+  case (T.signed T.decimal) t of
+    Right ((i :: Word64), _) ->
+      if testBit i 63 then do
+        let ans = -1 * (toInteger (complement i + 1)) 
+        return $ ans
+      else do
+        return $ toInteger i
+    Left _       -> fail $ "Cannot parse Integer value: " ++ T.unpack t
+
 parseIntegerText :: Value -> Aeson.Parser Integer
-parseIntegerText = withText "Integer" $ \t ->
-  case (T.signed T.decimal t) of
-    Right (i, _) -> return i
-    Left _       -> fail $ "Cannot parse Integer value:" ++ T.unpack t
+parseIntegerText = withText "Integer" convertIntegerText
 
 
 parseChar :: Value -> Aeson.Parser Char
