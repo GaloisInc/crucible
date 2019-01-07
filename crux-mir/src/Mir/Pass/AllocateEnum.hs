@@ -76,7 +76,9 @@ isSetDiscriminant (SetDiscriminant lv i) =
     _ -> Nothing
 isSetDiscriminant _ = Nothing
 
--- TODO: if this is not a CStyle enum, the type is wrong
+-- TODO: if this is not a CStyle enum, the type is wrong because the substitution is empty.
+-- I'm not sure we can find the right type, so we shouldn't include the type in that case.
+-- However, we need the indices for cstyle-enums later, so compute them now.
 makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> Statement
 makeAggregate updates (lv, k, adt) = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos where
   adt_did = _adtname adt

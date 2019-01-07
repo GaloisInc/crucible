@@ -1276,16 +1276,17 @@ transStatement (M.SetDiscriminant lv i) = do
     CT.AnyRepr ->
        fail "set discriminant: found any"
     CT.IntegerRepr ->
-      case (M.typeOf lv) of
+       fail "set discriminant: this case should have been translated away by Pass/AllocEnum"
+{-      case (M.typeOf lv) of
        M.TyCustom (M.CEnum adt vs) -> do
-          -- TODO: this is Dead code, remove
+          -- TODO: this is dead code, remove
           -- this is a C-style enum
           let ty = TyInt USize
           let j = vs !! i  -- TODO: better error message if this fails (would be a bug in the translator)
           traceM $ "j is " ++ show j
           let idx = (Value (ConstInt (Isize (toInteger j))))
           transStatement (M.Assign lv (Use (OpConstant (Constant ty idx))) "internal: set-discr")
-       _ -> fail "set discriminant: should find CEnum here"
+       _ -> fail "set discriminant: should find CEnum here" -}
     _ -> fail $ "set discriminant: cannot handle type " ++ show ty
 transStatement M.Nop = return ()
 
