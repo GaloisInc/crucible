@@ -39,12 +39,12 @@ loadPrims :: Int -> IO Collection
 loadPrims debugLevel = do
   -- Only print debugging info in the standard library at high debugging levels
   cols <- mapM (generateMIR (debugLevel-3) libLoc) 
-    [ "default"
+    [ {- "default"
     , "option"    -- some FnOnce bounds commented out
     , "result"    -- some FnOnce bounds commented out
     , "ops/range"
     , "default"
-    , "cmp"
+    , "cmp" -}
 --    , "slice"
     ]   
     

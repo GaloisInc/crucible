@@ -254,15 +254,19 @@ instance FromJSON NullOp where
                                              Just (String "Box") -> pure Box
                                              x -> fail ("bad nullOp: " ++ show x)
 
+-- Some BorrowKinds are output by mir-json as strings (i.e. Ref of Rvalue), others as objects with a "kind"
 instance FromJSON BorrowKind where
-    parseJSON = withObject "BorrowKind" $ \v -> case HML.lookup "kind" v of
-                                             Just (String "Shared") -> pure Shared
-                                             Just (String "Unique") -> pure Unique
-                                             Just (String "Mut") -> pure Mutable
-                                             -- s can be followed by "{ allow_two_phase_borrow: true }"
-                                             Just (String s) | T.isPrefixOf "Mut" s -> pure Mutable
-                                             x -> fail ("bad borrowKind: " ++ show x)
+    parseJSON = withText "BorrowKind" $ \t ->
+           if t == "Shared" then pure Shared
+      else if t == "Unique" then pure Unique
+      else if t == "Mut"    then pure Mutable
+      -- s can be followed by "{ allow_two_phase_borrow: true }"
+      else if T.isPrefixOf "Mut" t then pure Mutable
+      else fail ("bad borrowKind: " ++ show t) 
+       
 
+
+      
 instance FromJSON UnOp where
     parseJSON = withObject "UnOp" $ \v -> case HML.lookup "kind" v of
                                              Just (String "Not") -> pure Not
