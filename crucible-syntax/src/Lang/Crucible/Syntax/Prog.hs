@@ -19,6 +19,7 @@ import Text.Megaparsec as MP
 
 import Data.Parameterized.Nonce
 import Data.Parameterized.Context as Ctx
+import Data.Parameterized.Some (Some(Some))
 
 import qualified Lang.Crucible.CFG.Core as C
 import Lang.Crucible.CFG.Reg
@@ -51,7 +52,8 @@ doParseCheck
    -> Handle   -- ^ A handle that will receive the output
    -> IO ()
 doParseCheck fn theInput pprint outh =
-  do ha <- newHandleAllocator
+  do Some ng <- stToIO $ newSTNonceGenerator
+     ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
          do putStrLn $ errorBundlePretty err
@@ -60,7 +62,7 @@ doParseCheck fn theInput pprint outh =
          do when pprint $
               forM_ v $
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
-            cs <- stToIO $ top ha [] $ cfgs v
+            cs <- stToIO $ top ng ha [] $ cfgs v
             case cs of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
@@ -81,7 +83,8 @@ simulateProgram
          sym -> HandleAllocator RealWorld -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
    -> IO ()
 simulateProgram fn theInput outh profh opts setup =
-  do ha <- newHandleAllocator
+  do Some ng <- stToIO $ newSTNonceGenerator
+     ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
          do putStrLn $ errorBundlePretty err
@@ -92,7 +95,7 @@ simulateProgram fn theInput outh profh opts setup =
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
-            parseResult <- stToIO $ top ha hdls $ cfgs v
+            parseResult <- stToIO $ top ng ha hdls $ cfgs v
             case parseResult of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err

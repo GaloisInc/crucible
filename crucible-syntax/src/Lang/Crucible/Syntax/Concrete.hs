@@ -63,6 +63,8 @@ import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.TraversableFC
 import Data.Parameterized.Classes
+import Data.Parameterized.Nonce ( NonceGenerator, Nonce
+                                , freshNonce, newSTNonceGenerator )
 import qualified Data.Parameterized.Context as Ctx
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -90,9 +92,10 @@ import Lang.Crucible.FunctionHandle
 import Numeric.Natural ()
 
 
-liftSyntaxParse :: MonadError (ExprErr s) m => SyntaxParse Atomic a -> AST s -> m a
+liftSyntaxParse :: (MonadError (ExprErr s) m, MonadST h m)
+                  => SyntaxParse Atomic h a -> AST s -> m a
 liftSyntaxParse p ast =
-  case syntaxParse p ast of
+  liftST (syntaxParseST p ast) >>= \case
     Left e -> throwError (SyntaxParseError e)
     Right v -> return v
 
@@ -936,8 +939,7 @@ data SyntaxState h s =
   SyntaxState { _stxLabels :: Map LabelName (LabelInfo s)
               , _stxAtoms :: Map AtomName (Pair TypeRepr (Atom s))
               , _stxRegisters :: Map RegName (Pair TypeRepr (Reg s))
-              , _stxNextLabel :: Int
-              , _stxNextAtom :: Int
+              , _stxNonceGen :: NonceGenerator (ST h) s
               , _stxProgState :: ProgramState h s
               }
 
@@ -959,8 +961,9 @@ initProgState builtIns ha = ProgramState fns Map.empty ha
         | (SomeHandle h,p) <- builtIns
         ]
 
-initSyntaxState :: ProgramState h s -> SyntaxState h s
-initSyntaxState = SyntaxState Map.empty Map.empty Map.empty 0 0
+initSyntaxState :: NonceGenerator (ST h) s -> ProgramState h s -> SyntaxState h s
+initSyntaxState =
+  SyntaxState Map.empty Map.empty Map.empty
 
 stxLabels :: Simple Lens (SyntaxState h s) (Map LabelName (LabelInfo s))
 stxLabels = lens _stxLabels (\s v -> s { _stxLabels = v })
@@ -971,12 +974,8 @@ stxAtoms = lens _stxAtoms (\s v -> s { _stxAtoms = v })
 stxRegisters :: Simple Lens (SyntaxState h s) (Map RegName (Pair TypeRepr (Reg s)))
 stxRegisters = lens _stxRegisters (\s v -> s { _stxRegisters = v })
 
-
-stxNextLabel :: Simple Lens (SyntaxState h s) Int
-stxNextLabel = lens _stxNextLabel (\s v -> s { _stxNextLabel = v })
-
-stxNextAtom :: Simple Lens (SyntaxState h s) Int
-stxNextAtom = lens _stxNextAtom (\s v -> s { _stxNextAtom = v })
+stxNonceGen :: Getter (SyntaxState h s) (NonceGenerator (ST h) s)
+stxNonceGen = to _stxNonceGen
 
 stxProgState :: Simple Lens (SyntaxState h s) (ProgramState h s)
 stxProgState = lens _stxProgState (\s v -> s { _stxProgState = v })
@@ -1027,25 +1026,18 @@ instance MonadST h (CFGParser h s ret) where
   liftST = CFGParser . lift . lift
 
 
-freshIndex :: (MonadState st m, Num n) => Simple Lens st n -> m n
-freshIndex l =
-  do n <- use l
-     l .= n + 1
-     return n
+freshId :: (MonadState (SyntaxState h s) m, MonadST h m) => m (Nonce s tp)
+freshId =
+  do ng <- use stxNonceGen
+     liftST $ freshNonce ng
 
-freshLabelIndex :: MonadState (SyntaxState h s) m => m Int
-freshLabelIndex = freshIndex stxNextLabel
+freshLabel :: (MonadState (SyntaxState h s) m, MonadST h m) => m (Label s)
+freshLabel = Label <$> freshId
 
-freshAtomIndex :: MonadState (SyntaxState h s) m => m Int
-freshAtomIndex = freshIndex stxNextAtom
-
-freshLabel :: MonadState (SyntaxState h s) m => m (Label s)
-freshLabel = Label <$> freshLabelIndex
-
-freshAtom :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m)
+freshAtom :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m, MonadST h m )
           => Position -> AtomValue () s t -> m (Atom s t)
 freshAtom loc v =
-  do i <- freshAtomIndex
+  do i <- freshId
      let theAtom = Atom { atomPosition = OtherPos "Parser internals"
                         , atomId = i
                         , atomSource = Assigned
@@ -1057,16 +1049,16 @@ freshAtom loc v =
 
 
 
-newLabel :: MonadState (SyntaxState h s) m => LabelName -> m (Label s)
+newLabel :: (MonadState (SyntaxState h s) m, MonadST h m) => LabelName -> m (Label s)
 newLabel x =
   do theLbl <- freshLabel
      stxLabels %= Map.insert x (NoArgLbl theLbl)
      return theLbl
 
-freshLambdaLabel :: MonadState (SyntaxState h s) m => TypeRepr tp -> m (LambdaLabel s tp, Atom s tp)
+freshLambdaLabel :: (MonadState (SyntaxState h s) m, MonadST h m) => TypeRepr tp -> m (LambdaLabel s tp, Atom s tp)
 freshLambdaLabel t =
-  do n <- freshLabelIndex
-     i <- freshAtomIndex
+  do n <- freshId
+     i <- freshId
      let lbl = LambdaLabel n a
          a   = Atom { atomPosition = OtherPos "Parser internals"
                     , atomId = i
@@ -1079,7 +1071,7 @@ with :: MonadState s m => Lens' s a -> (a -> m b) -> m b
 with l act = do x <- use l; act x
 
 
-lambdaLabelBinding :: (MonadSyntax Atomic m, MonadState (SyntaxState h s) m)
+lambdaLabelBinding :: (MonadSyntax Atomic m, MonadState (SyntaxState h s) m, MonadST h m)
                    => m (LabelName, (Pair TypeRepr (LambdaLabel s)))
 lambdaLabelBinding =
   call $
@@ -1112,9 +1104,9 @@ uniqueAtom =
                 Just _ -> Nothing)
        atomName
 
-newUnassignedReg :: MonadState (SyntaxState h s) m => TypeRepr t -> m (Reg s t)
+newUnassignedReg :: (MonadState (SyntaxState h s) m, MonadST h m) => TypeRepr t -> m (Reg s t)
 newUnassignedReg t =
-  do i <- freshAtomIndex
+  do i <- freshId
      let fakePos = OtherPos "Parser internals"
      return $! Reg { regPosition = fakePos
                    , regId = i
@@ -1146,7 +1138,7 @@ reading m = get >>= runReaderT m
 
 --------------------------------------------------------------------------
 
-atomSetter :: (MonadSyntax Atomic m, MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m)
+atomSetter :: (MonadSyntax Atomic m, MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m, MonadST h m)
            => AtomName -- ^ The name of the atom being set, used for fresh name internals
            -> m (Pair TypeRepr (Atom s))
 atomSetter (AtomName anText) =
@@ -1156,6 +1148,7 @@ atomSetter (AtomName anText) =
       :: ( MonadSyntax Atomic m
          , MonadWriter [Posd (Stmt () s)] m
          , MonadState (SyntaxState h s) m
+         , MonadST h m
          )
       => m (Pair TypeRepr (Atom s))
 
@@ -1193,6 +1186,7 @@ funcall
   :: ( MonadSyntax Atomic m
      , MonadWriter [Posd (Stmt () s)] m
      , MonadState (SyntaxState h s) m
+     , MonadST h m
      )
   => m (Pair TypeRepr (Atom s))
 funcall =
@@ -1224,7 +1218,7 @@ located :: MonadSyntax atom m => m a -> m (Posd a)
 located p = Posd <$> position <*> p
 
 normStmt' :: forall h s m
-           . (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState h s) m) =>
+           . (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState h s) m, MonadST h m) =>
              m ()
 normStmt' =
   call (printStmt <|> letStmt <|> (void funcall) <|>
@@ -1319,7 +1313,7 @@ normStmt' =
 
 
 blockBody' :: forall s h ret m
-            . (MonadSyntax Atomic m, MonadState (SyntaxState h s) m)
+            . (MonadSyntax Atomic m, MonadState (SyntaxState h s) m, MonadST h m)
            => TypeRepr ret
            -> m (Posd (TermStmt s ret), [Posd (Stmt () s)])
 blockBody' ret = runWriterT go
@@ -1329,7 +1323,7 @@ blockBody' ret = runWriterT go
       (snd <$> (cons (later normStmt') go))
 
 termStmt' :: forall m h s ret.
-   (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState h s) m) =>
+   (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState h s) m, MonadST h m) =>
    TypeRepr ret -> m (Posd (TermStmt s ret))
 termStmt' retTy =
   do stx <- anything
@@ -1518,7 +1512,6 @@ saveArgs ctx1 ctx2 =
              Just _ -> throwError $ DuplicateAtom argPos x
              Nothing ->
                do stxAtoms %= Map.insert x (Pair t y)
-                  stxNextAtom %= max (atomId y + 1)
 
 data FunctionHeader =
   forall args ret .
@@ -1588,7 +1581,7 @@ argTypes  = fmapFC (\(Arg _ _ t) -> t)
 type BlockTodo h s ret =
   (LabelName, BlockID s, Progress, AST s)
 
-blocks :: forall h s ret m . (MonadState (SyntaxState h s) m, MonadSyntax Atomic m) => TypeRepr ret -> m [Block () s ret]
+blocks :: forall h s ret m . (MonadState (SyntaxState h s) m, MonadSyntax Atomic m, MonadST h m) => TypeRepr ret -> m [Block () s ret]
 blocks ret =
       depCons startBlock' $
       \ startContents ->
@@ -1600,7 +1593,7 @@ blocks ret =
 
   where
 
-    startBlock' :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m) => m (BlockTodo h s ret)
+    startBlock' :: (MonadState (SyntaxState h s) m, MonadSyntax Atomic m, MonadST h m) => m (BlockTodo h s ret)
     startBlock' =
       call $
       describe "starting block" $
@@ -1638,7 +1631,7 @@ blocks ret =
                body <- anything
                return $ Right (l, LambdaID lbl, pr, body)
 
-eval :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m)
+eval :: (MonadWriter [Posd (Stmt () s)] m, MonadState (SyntaxState h s) m, MonadST h m)
      => Position -> E s t -> m (Atom s t)
 eval _   (EAtom theAtom)  = pure theAtom -- The expression is already evaluated
 eval loc (EApp e)         = freshAtom loc . EvalApp =<< traverseFC (eval loc) e
@@ -1653,9 +1646,9 @@ newtype TopParser h s a =
             }
   deriving (Functor)
 
-top :: HandleAllocator h -> [(SomeHandle,Position)] -> TopParser h s a -> ST h (Either (ExprErr s) a)
-top ha builtIns (TopParser (ExceptT (StateT act))) =
-  fst <$> act (initSyntaxState (initProgState builtIns ha))
+top :: NonceGenerator (ST h) s -> HandleAllocator h -> [(SomeHandle,Position)] -> TopParser h s a -> ST h (Either (ExprErr s) a)
+top ng ha builtIns (TopParser (ExceptT (StateT act))) =
+  fst <$> act (initSyntaxState ng (initProgState builtIns ha))
 
 instance Applicative (TopParser h s) where
   pure x = TopParser (pure x)
@@ -1694,18 +1687,22 @@ instance MonadST h (TopParser h s) where
 
 
 
-initParser :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
+initParser :: forall h s m
+            . (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m, MonadST h m)
            => FunctionHeader
            -> FunctionSource s
            -> m ()
 initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (FunctionSource regs _) =
-  do with stxProgState $ put . initSyntaxState
+  do ng <- use stxNonceGen
+     progState <- use stxProgState
+     put $ initSyntaxState ng progState
      let types = argTypes funArgs
-     let inputAtoms = mkInputAtoms (OtherPos "args") types
+     inputAtoms <- liftST $ mkInputAtoms ng (OtherPos "args") types
      saveArgs funArgs inputAtoms
      forM_ regs saveRegister
 
   where
+    saveRegister :: Syntax Atomic -> m ()
     saveRegister (L [A (Rg x), t]) =
       do Some ty <- liftSyntaxParse isType t
          r <- newUnassignedReg ty
@@ -1724,6 +1721,7 @@ cfgs defuns =
             st <- get
             (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
             put st'
-            i <- freshAtomIndex
-            j <- freshLabelIndex
-            return $ ACFG types ret $ CFG handle theBlocks i j
+            let entry = case blockID (head theBlocks) of
+                  LabelID lbl -> lbl
+                  LambdaID {} -> error "initial block is lambda"
+            return $ ACFG types ret $ CFG handle entry theBlocks

@@ -10,6 +10,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -18,6 +19,7 @@ module Lang.Crucible.Syntax.ExprParse
   ( MonadSyntax(..)
   , SyntaxParse
   , syntaxParse
+  , syntaxParseST
 
   -- * Describing syntax
   , describe
@@ -68,6 +70,7 @@ import Control.Applicative
 import Control.Lens hiding (List, cons, backwards)
 import Control.Monad (ap)
 import Control.Monad.Reader
+import Control.Monad.ST ( ST, runST, stToIO, RealWorld )
 import qualified Control.Monad.State.Strict as Strict
 import qualified Control.Monad.State.Lazy as Lazy
 import Control.Monad.State.Class
@@ -92,7 +95,7 @@ import Lang.Crucible.Syntax.SExpr
 import qualified Text.Megaparsec as MP
 
 import What4.ProgramLoc (Posd(..), Position)
-
+import What4.Utils.MonadST (MonadST(liftST))
 
 data Search a = Try a (Search a) | Fail | Cut
   deriving Functor
@@ -238,6 +241,23 @@ instance MonadPlus (P atom) where
   mzero = empty
   mplus = (<|>)
 
+newtype STP atom h a = STP { runSTP :: ST h (P atom a) }
+  deriving (Semigroup, Monoid)
+
+instance Functor (STP atom h) where
+  fmap f (STP x) = STP $ fmap (fmap f) x
+
+instance Applicative (STP atom h) where
+  pure = STP . pure . pure
+  (<*>) = ap
+
+instance Monad (STP atom h) where
+  STP m >>= f = STP $ do
+    P xs e <- m
+    mappend (runSTP (foldMap f xs)) (return $ P empty e)
+
+instance MonadST h (STP atom h) where
+  liftST m = STP $ return <$> m
 
 data SyntaxParseCtx atom =
   SyntaxParseCtx { _parseProgress :: Progress
@@ -256,17 +276,25 @@ parseFocus :: Simple Lens (SyntaxParseCtx atom) (Syntax atom)
 parseFocus = lens _parseFocus (\s v -> s { _parseFocus = v })
 
 -- | The default parsing monad. Use its 'MonadSyntax' instance to write parsers.
-newtype SyntaxParse atom a =
-  SyntaxParse { runSyntaxParse :: ReaderT (SyntaxParseCtx atom) (P atom) a }
-  deriving (Functor, Applicative, Monad, MonadReader (SyntaxParseCtx atom))
+newtype SyntaxParse atom h a =
+  SyntaxParse { runSyntaxParse :: ReaderT (SyntaxParseCtx atom)
+                                          (STP atom h)
+                                          a }
+  deriving ( Functor, Applicative, Monad
+           , MonadReader (SyntaxParseCtx atom), MonadST h
+           )
 
-instance Alternative (SyntaxParse atom) where
+instance Alternative (SyntaxParse atom h) where
   empty =
-    SyntaxParse $ ReaderT $ \(SyntaxParseCtx p r _) -> P empty (Oops p (pure r))
+    SyntaxParse $ ReaderT $ \(SyntaxParseCtx p r _) ->
+      STP $ return $ P empty (Oops p (pure r))
   (SyntaxParse (ReaderT x)) <|> (SyntaxParse (ReaderT y)) =
-    SyntaxParse $ ReaderT $ \ctx -> x ctx <|> y ctx
+    SyntaxParse $ ReaderT $ \ctx -> STP $ do
+      a <- runSTP $ x ctx
+      b <- runSTP $ y ctx
+      return $ a <|> b
 
-instance MonadPlus (SyntaxParse atom) where
+instance MonadPlus (SyntaxParse atom h) where
   mzero = empty
   mplus = (<|>)
 
@@ -299,7 +327,7 @@ class (Alternative m, Monad m) => MonadSyntax atom m | m -> atom where
   -- expander. Use when solutions are expected to be unique.
   call :: m a -> m a
 
-instance MonadSyntax atom (SyntaxParse atom) where
+instance MonadSyntax atom (SyntaxParse atom h) where
   anything = view parseFocus
   progress = view parseProgress
   withFocus stx = local $ set parseFocus stx
@@ -309,23 +337,23 @@ instance MonadSyntax atom (SyntaxParse atom) where
     SyntaxParse $
     ReaderT $
     \(SyntaxParseCtx p r _) ->
+      STP $ return $
       P cutSearch (Oops p (pure r))
   delimit (SyntaxParse (ReaderT f)) =
     SyntaxParse $
     ReaderT $
-    \r ->
-      let (P s e) = f r
-      in P (delimitSearch s) e
+    \r -> STP $ do
+      P s e <- runSTP $ f r
+      return $ P (delimitSearch s) e
   call (SyntaxParse (ReaderT p)) =
     SyntaxParse $
     ReaderT $
-    \r ->
-      let (P s e) = p r
-      in
-        case s of
-          Try x _ -> P (Try x Fail) Ok
-          Cut -> P Cut e
-          Fail -> P Fail e
+    \r -> STP $ do
+      P s e <- runSTP $ p r
+      return $ case s of
+        Try x _ -> P (Try x Fail) Ok
+        Cut -> P Cut e
+        Fail -> P Fail e
 
 instance MonadSyntax atom m => MonadSyntax atom (ReaderT r m) where
   anything = lift anything
@@ -650,19 +678,21 @@ printSyntaxError (SyntaxError rs) =
 -- | Invoke the default parsing monad on a piece of syntax, returning
 -- the first success found, or the error(s) with the greatest progress
 -- otherwise.
-syntaxParse :: IsAtom atom => SyntaxParse atom a -> Syntax atom -> Either (SyntaxError atom) a
-syntaxParse p stx =
-  let (P yes no) =
-        runReaderT (runSyntaxParse p) $
+syntaxParse :: IsAtom atom => (forall h. SyntaxParse atom h a) -> Syntax atom -> Either (SyntaxError atom) a
+syntaxParse p stx = runST $ syntaxParseST p stx
+
+syntaxParseST :: IsAtom atom => SyntaxParse atom h a -> Syntax atom -> ST h (Either (SyntaxError atom) a)
+syntaxParseST p stx = do
+  (P yes no) <-
+        runSTP $ runReaderT (runSyntaxParse p) $
           SyntaxParseCtx (Progress []) (Reason stx (T.pack "bad syntax")) stx
-  in
-    case Foldable.toList yes of
-      [] ->
-        Left $ SyntaxError $
-          case no of
-            Ok        -> error "Internal error: no reason provided, yet no successful parse found."
-            Oops _ rs -> rs
-      (r:_) -> Right r
+  case Foldable.toList yes of
+    [] ->
+      return $ Left $ SyntaxError $
+        case no of
+          Ok        -> error "Internal error: no reason provided, yet no successful parse found."
+          Oops _ rs -> rs
+    (r:_) -> return $ Right r
 
 -- | When the current focus is a list, reverse its contents while
 -- invoking another parser. If it is not a list, fail.
@@ -687,11 +717,11 @@ instance IsString TrivialAtom where
   fromString x = TrivialAtom (fromString x)
 
 -- | Test a parser on some input, displaying the result.
-test :: (HasCallStack, Show a) => Text -> SyntaxParse TrivialAtom a -> IO ()
+test :: (HasCallStack, Show a) => Text -> SyntaxParse TrivialAtom RealWorld a -> IO ()
 test txt p =
   case MP.parse (skipWhitespace *> sexp (TrivialAtom <$> identifier) <* MP.eof) "input" txt of
      Left err -> putStrLn "Reader error: " >> putStrLn (MP.errorBundlePretty err)
      Right sexpr ->
-       case syntaxParse p sexpr of
+       stToIO (syntaxParseST p sexpr) >>= \case
          Left e -> T.putStrLn (printSyntaxError e)
          Right ok -> print ok

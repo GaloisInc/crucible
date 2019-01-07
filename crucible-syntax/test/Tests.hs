@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 module Main where
 
 import Control.Applicative
@@ -100,9 +101,11 @@ data Lam = Lam [Text] (Datum TrivialAtom) deriving (Eq, Show)
 syntaxParsing :: TestTree
 syntaxParsing =
   let
+    anyUnit :: SyntaxParse TrivialAtom h ()
     anyUnit = anything *> pure ()
+    vars :: SyntaxParse TrivialAtom h [TrivialAtom]
     vars = describe "sequence of variable bindings" $ rep atomic
-    distinctVars :: SyntaxParse TrivialAtom [TrivialAtom]
+    distinctVars :: SyntaxParse TrivialAtom h [TrivialAtom]
     distinctVars = sideCondition' "sequence of distinct variable bindings" (\xs -> nub xs == xs) vars
     lambda =
       fmap (\(_, (xs, (body, ()))) -> Lam [x | TrivialAtom x <- xs] (syntaxToDatum body))
@@ -113,7 +116,7 @@ syntaxParsing =
        [ testCase "Empty list is empty list" $
          syntaxTest "()" emptyList @?= Right ()
        , testCase "Empty list is not atom" $
-         syntaxTest "()" (atom "foo") @?=
+         syntaxTest "()" (atom ("foo" :: TrivialAtom)) @?=
            Left
              (SyntaxError $ pure $
                Reason { expr = Syntax {unSyntax = Posd {pos = fakeFilePos 1 1, pos_val = List []}}
@@ -221,7 +224,7 @@ fakeFile = "test input"
 fakeFilePos :: Int -> Int -> Position
 fakeFilePos = SourcePos fakeFile
 
-syntaxTest :: Text -> SyntaxParse TrivialAtom a -> Either (SyntaxError TrivialAtom) a
+syntaxTest :: Text -> (forall h. SyntaxParse TrivialAtom h a) -> Either (SyntaxError TrivialAtom) a
 syntaxTest txt p =
   case MP.parse (skipWhitespace *> sexp (TrivialAtom <$> identifier) <* MP.eof) (T.unpack fakeFile) txt of
      Left err -> error $ "Reader error: " ++ MP.errorBundlePretty err
