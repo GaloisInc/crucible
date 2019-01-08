@@ -999,6 +999,41 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
        ov  <- join (pure (andPred sym) <*> xorPred sym sx sxy <*> xorPred sym sx sy)
        return (ov, xy)
 
+
+  -- | Compute the carryless multiply of the two input bitvectors.
+  --   This operation is essentially the same as a standard multiply, except that
+  --   the partial addends are simply XOR'd together instead of using a standard
+  --   adder.  This operation is useful for computing on GF(2^n) polynomials.
+  carrylessMultiply ::
+    (1 <= w) =>
+    sym ->
+    SymBV sym w ->
+    SymBV sym w ->
+    IO (SymBV sym (w+w))
+  carrylessMultiply sym x0 y0
+    | Just _  <- asUnsignedBV x0
+    , Nothing <- asUnsignedBV y0
+    = go y0 x0
+    | otherwise
+    = go x0 y0
+   where
+   go :: (1 <= w) => SymBV sym w -> SymBV sym w -> IO (SymBV sym (w+w))
+   go x y =
+    do let w = bvWidth x
+       let w2 = addNat w w
+       Just LeqProof <- return (testLeq (knownNat @1) w2)
+       Just LeqProof <- return (testLeq (addNat w (knownNat @1)) w2)
+       z  <- bvLit sym w2 0
+       x' <- bvZext sym w2 x
+       xs <- sequence [ do p <- testBitBV sym i y
+                           iteM bvIte sym
+                             p
+                             (bvShl sym x' =<< bvLit sym w2 i)
+                             (return z)
+                      | i <- [ 0 .. natValue w - 1 ]
+                      ]
+       foldM (bvXorBits sym) z xs
+
   -- | @unsignedWideMultiplyBV sym x y@ multiplies two unsigned 'w' bit numbers 'x' and 'y'.
   --
   -- It returns a pair containing the top 'w' bits as the first element, and the
