@@ -51,6 +51,7 @@ import           Control.Monad.Reader
 import           Control.Monad.ST
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
+import           Data.Bits
 import           Data.Foldable( asum )
 import qualified Data.List as List
 import           Data.Map.Strict (Map)
@@ -83,6 +84,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Panic(panic)
 import           Lang.Crucible.Utils.MonadVerbosity
 
+import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
@@ -181,6 +183,10 @@ do_register_overrides = do
    , register_llvm_override llvmPrintfOverride
    , register_llvm_override llvmPutsOverride
    , register_llvm_override llvmPutCharOverride
+
+   -- Some architecture-dependent intrinsics
+   , register_llvm_override llvmX86_SSE2_storeu_dq
+   , register_llvm_override llvmX86_pclmulqdq
    ]
 ------------------------------------------------------------------------
 -- LLVMHandleInfo
@@ -307,6 +313,9 @@ transformLLVMRet sym (BVRepr w) (LLVMPointerRepr w')
 transformLLVMRet sym (LLVMPointerRepr w) (BVRepr w')
   | Just Refl <- testEquality w w'
   = return (ValTransformer (liftIO . projectLLVM_bv sym))
+transformLLVMRet sym (VectorRepr tp) (VectorRepr tp')
+  = do ValTransformer f <- transformLLVMRet sym tp tp'
+       return (ValTransformer (traverse f))
 transformLLVMRet sym (StructRepr ctx) (StructRepr ctx')
   = do ArgTransformer tf <- transformLLVMArgs sym ctx' ctx
        return (ValTransformer (\vals ->
@@ -1272,6 +1281,60 @@ llvmBSwapOverride widthRepr =
             in bvSwap sym widthRepr vec)
     }}}
 
+
+llvmX86_pclmulqdq
+--declare <2 x i64> @llvm.x86.pclmulqdq(<2 x i64>, <2 x i64>, i8) #1
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> VectorType (BVType 64)
+                   ::> VectorType (BVType 64)
+                   ::> BVType 8)
+         (VectorType (BVType 64))
+llvmX86_pclmulqdq =
+  let nm = "llvm.x86.pclmulqdq" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.Vector 2 (L.PrimType $ L.Integer 64)
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.Vector 2 (L.PrimType $ L.Integer 64)
+                     , L.Vector 2 (L.PrimType $ L.Integer 64)
+                     , L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> VectorRepr (KnownBV @64) :> VectorRepr (KnownBV @64) :> KnownBV @8)
+  (VectorRepr (KnownBV @64))
+  (\memOps sym args -> Ctx.uncurryAssignment (callX86_pclmulqdq sym memOps) args)
+
+
+llvmX86_SSE2_storeu_dq
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr
+                   ::> VectorType (BVType 8))
+         UnitType
+llvmX86_SSE2_storeu_dq =
+  let nm = "llvm.x86.sse2.storeu.dq" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.Vector 16 (L.PrimType $ L.Integer 8)
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> VectorRepr (KnownBV @8))
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (callStoreudq sym memOps) args)
+
+
 llvmMemsetOverride_8_64
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
@@ -1637,6 +1700,7 @@ callMemmove sym mvar
   mem' <- liftIO $ doMemcpy sym w mem dest src len
   writeGlobal mvar mem'
 
+
 callMemset
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
@@ -1657,6 +1721,75 @@ callMemset sym mvar
   mem <- readGlobal mvar
   mem' <- liftIO $ doMemset sym w mem dest val len
   writeGlobal mvar mem'
+
+
+callX86_pclmulqdq :: forall p sym arch wptr r args ret.
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  sym ->
+  GlobalVar Mem ->
+  RegEntry sym (VectorType (BVType 64)) ->
+  RegEntry sym (VectorType (BVType 64)) ->
+  RegEntry sym (BVType 8) ->
+  OverrideSim p sym (LLVM arch) r args ret (RegValue sym (VectorType (BVType 64)))
+callX86_pclmulqdq sym _mvar
+  (regValue -> xs)
+  (regValue -> ys)
+  (regValue -> imm) =
+    do unless (V.length xs == 2) $
+          liftIO $ addFailedAssertion sym $ AssertFailureSimError $ unlines
+           ["Vector length mismatch in llvm.x86.pclmulqdq intrinsic"
+           ,"Expected <2 x i64>, but got vector of length ", show (V.length xs)
+           ]
+       unless (V.length ys == 2) $
+          liftIO $ addFailedAssertion sym $ AssertFailureSimError $ unlines
+           ["Vector length mismatch in llvm.x86.pclmulqdq intrinsic"
+           ,"Expected <2 x i64>, but got vector of length ", show (V.length ys)
+           ]
+       case asUnsignedBV imm of
+         Just byte ->
+           do let xidx = if byte .&. 0x01 == 0 then 0 else 1
+              let yidx = if byte .&. 0x10 == 0 then 0 else 1
+              liftIO $ doPcmul (xs V.! xidx) (ys V.! yidx)
+         _ ->
+             liftIO $ addFailedAssertion sym $ AssertFailureSimError $ unlines
+                ["Illegal selector argument to llvm.x86.pclmulqdq"
+                ,"  Expected concrete value but got ", show (printSymExpr imm)
+                ]
+  where
+  doPcmul :: SymBV sym 64 -> SymBV sym 64 -> IO (V.Vector (SymBV sym 64))
+  doPcmul x y =
+    do r <- carrylessMultiply sym x y
+       lo <- bvTrunc sym (knownNat @64) r
+       hi <- bvSelect sym (knownNat @64) (knownNat @64) r
+       -- NB, little endian because X86
+       return $ V.fromList [ lo, hi ]
+
+callStoreudq
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (VectorType (BVType 8))
+  -> OverrideSim p sym (LLVM arch) r args ret ()
+callStoreudq sym mvar
+  (regValue -> dest)
+  (regValue -> vec) =
+    do mem <- readGlobal mvar
+       unless (V.length vec == 16) $
+          liftIO $ addFailedAssertion sym $ AssertFailureSimError $ unlines
+           ["Vector length mismatch in stored_qu intrinsic."
+           ,"Expected <16 x i8>, but got vector of length ", show (V.length vec)
+           ]
+       mem' <- liftIO $ doStore
+                 sym
+                 mem
+                 dest
+                 (VectorRepr (KnownBV @8))
+                 (arrayType 16 (bitvectorType (Bytes 1)))
+                 noAlignment
+                 vec
+       writeGlobal mvar mem'
+
 
 -- Excerpt from the LLVM documentation:
 --

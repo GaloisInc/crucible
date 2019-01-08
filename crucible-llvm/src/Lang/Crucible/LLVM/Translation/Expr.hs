@@ -39,6 +39,7 @@ module Lang.Crucible.LLVM.Translation.Expr
   , unpackVarArgs
   , zeroExpand
   , undefExpand
+  , explodeVector
 
   , constToLLVMVal
   , transValue
@@ -67,6 +68,7 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.String
 import qualified Data.Vector as V
+import Numeric.Natural
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>) )
@@ -211,7 +213,7 @@ unpackOne (StructExpr vs) k =
   unpackArgs (map snd $ toList vs) $ \struct_ctx struct_asgn ->
       k (StructRepr struct_ctx) (mkStruct struct_ctx struct_asgn)
 unpackOne (VecExpr tp vs) k =
-  llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (toList (Seq.reverse vs)) $ k (VectorRepr tpr)
+  llvmTypeAsRepr tp $ \tpr -> unpackVec tpr (toList vs) $ k (VectorRepr tpr)
 
 unpackVec :: forall tpr s arch a
     . (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
@@ -219,7 +221,7 @@ unpackVec :: forall tpr s arch a
    -> [LLVMExpr s arch]
    -> (Expr (LLVM arch) s (VectorType tpr) -> a)
    -> a
-unpackVec tpr = go []
+unpackVec tpr = go [] . reverse
   where go :: [Expr (LLVM arch) s tpr] -> [LLVMExpr s arch] -> (Expr (LLVM arch) s (VectorType tpr) -> a) -> a
         go vs [] k = k (vectorLit tpr $ V.fromList vs)
         go vs (x:xs) k = unpackOne x $ \tpr' v ->
@@ -288,6 +290,16 @@ unpackVarArgs xs = App . VectorLit AnyRepr . V.fromList $ xs'
              map (\x -> unpackOne x (\tp x' -> App (PackAny tp x'))) xs
 
 
+
+explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
+explodeVector n (UndefExpr (VecType n' tp)) | n == n' = return (Seq.replicate (fromIntegral n) (UndefExpr tp))
+explodeVector n (ZeroExpr (VecType n' tp)) | n == n' = return (Seq.replicate (fromIntegral n) (ZeroExpr tp))
+explodeVector n (VecExpr _tp xs)
+  | n == fromIntegral (length xs) = return xs
+explodeVector n (BaseExpr (VectorRepr tpr) v) =
+    let xs = [ BaseExpr tpr (app $ VectorGetEntry tpr v (litExpr i)) | i <- [0..n-1] ]
+     in return (Seq.fromList xs)
+explodeVector _ _ = Nothing
 
 
 ---------------------------------------------------------------------------
