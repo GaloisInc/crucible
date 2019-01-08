@@ -21,7 +21,7 @@ import Data.Parameterized.Context(pattern Empty, pattern (:>))
 
 
 import What4.FunctionName(functionNameFromText)
-import What4.Symbol(userSymbol)
+import What4.Symbol(userSymbol, emptySymbol)
 import What4.Interface
           (freshConstant, bvLit, bvEq, asUnsignedBV,notPred
           , getCurrentProgramLoc)
@@ -43,6 +43,7 @@ import Lang.Crucible.Simulator.OverrideSim
         , registerFnBinding
         , getOverrideArgs
         , readGlobal
+        , writeGlobal
         )
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 import Lang.Crucible.Backend
@@ -53,9 +54,11 @@ import Lang.Crucible.LLVM.Translation
         , symbolMap
         , llvmMemVar
         )
+import Lang.Crucible.LLVM.DataLayout
+  (noAlignment)
 import Lang.Crucible.LLVM.MemModel
   (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth,
-   llvmPointer_bv, projectLLVM_bv)
+   llvmPointer_bv, projectLLVM_bv, doArrayStore)
 
 import Lang.Crucible.LLVM.Extension(LLVM)  
 import Lang.Crucible.LLVM.Extension(ArchWidth)
@@ -100,6 +103,9 @@ setupOverrides ctxt =
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr lib_assume
      regOver ctxt "crucible_assert"
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr (lib_assert mvar)
+
+     regOver ctxt "crucible_havoc_memory"
+        (Empty :> tPtr :> tPtr) knownRepr (lib_havoc_memory mvar)
 
      regOver ctxt "__VERIFIER_nondet_uint"
         Empty knownRepr sv_comp_fresh_i32
@@ -244,6 +250,20 @@ lib_assume =
                  let msg = AssumptionReason loc "(assumption)"
                  addAssumption sym (LabeledPred asmpP msg)
 
+lib_havoc_memory ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem ->
+  Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) UnitType
+lib_havoc_memory mvar =
+  do RegMap (Empty :> ptr :> len) <- getOverrideArgs
+     let tp = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
+     sym <- getSymInterface
+     mem <- readGlobal mvar
+     mem' <- liftIO $ do
+               len' <- projectLLVM_bv sym (regValue len)
+               arr <- freshConstant sym emptySymbol tp
+               doArrayStore sym mem (regValue ptr) noAlignment arr len'
+     writeGlobal mvar mem'
 
 lib_assert ::
   (ArchOk arch, IsSymInterface sym) =>
