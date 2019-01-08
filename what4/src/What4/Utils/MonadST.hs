@@ -27,6 +27,8 @@ import Control.Monad.Cont
 import Control.Monad.Reader
 import Control.Monad.State as L
 import Control.Monad.State.Strict as S
+import Control.Monad.Writer as L
+import Control.Monad.Writer.Strict as S
 
 class Monad m => MonadST s m | m -> s where
   liftST :: ST s a -> m a
@@ -47,4 +49,10 @@ instance MonadST s m => MonadST s (L.StateT u m) where
   liftST m = lift $ liftST m
 
 instance MonadST s m => MonadST s (S.StateT u m) where
+  liftST m = lift $ liftST m
+
+instance (MonadST s m, Monoid w) => MonadST s (L.WriterT w m) where
+  liftST m = lift $ liftST m
+
+instance (MonadST s m, Monoid w) => MonadST s (S.WriterT w m) where
   liftST m = lift $ liftST m

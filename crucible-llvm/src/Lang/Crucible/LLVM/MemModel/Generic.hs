@@ -697,7 +697,7 @@ memEndian = memEndianForm
 --------------------------------------------------------------------------------
 -- Pointer validity
 
--- This function is parameterized by a predicate on the mutability, so
+-- | This function is parameterized by a predicate on the mutability, so
 -- it can optionally be restricted to mutable regions only.
 -- It is also parameterized by a required alignment; only allocations
 -- with at least this level of alignment are considered.
@@ -863,8 +863,11 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
 --------------------------------------------------------------------------------
 -- Other memory operations
 
--- | Write a value to memory. The returned 'Pred' asserts that the
--- pointer falls within an allocated mutable memory region.
+-- | Write a value to memory.
+--
+-- The returned predicates assert (in this order):
+-- * the pointer falls within an allocated, mutable memory region
+-- * the pointer's alignment is correct
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
@@ -872,17 +875,18 @@ writeMem :: (1 <= w, IsSymInterface sym)
          -> Alignment
          -> LLVMVal sym
          -> Mem sym
-         -> IO (Pred sym, Mem sym)
+         -> IO (Mem sym, Pred sym, Pred sym)
 writeMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p1 <- isAllocatedMutable sym w alignment ptr sz m
      p2 <- isAligned sym w ptr alignment
-     p  <- andPred sym p1 p2
-     return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
+     return (memAddWrite (MemWrite ptr (MemStore v tp alignment)) m, p1, p2)
 
--- | Write a value to any memory region, mutable or immutable. The
--- returned 'Pred' asserts that the pointer falls within an allocated
--- memory region.
+-- | Write a value to any memory region, mutable or immutable.
+--
+-- The returned predicates assert (in this order):
+-- * the pointer falls within an allocated memory region
+-- * the pointer's alignment is correct
 writeConstMem ::
   (1 <= w, IsSymInterface sym) =>
   sym           ->
@@ -892,46 +896,50 @@ writeConstMem ::
   Alignment     ->
   LLVMVal sym   ->
   Mem sym       ->
-  IO (Pred sym, Mem sym)
+  IO (Mem sym, Pred sym, Pred sym)
 writeConstMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
      p1 <- isAllocated sym w alignment ptr sz m
      p2 <- isAligned sym w ptr alignment
-     p  <- andPred sym p1 p2
-     return (p, memAddWrite (MemWrite ptr (MemStore v tp alignment)) m)
+     return (memAddWrite (MemWrite ptr (MemStore v tp alignment)) m, p1, p2)
 
--- | Perform a mem copy. The returned 'Pred' asserts that the source
--- and destination pointers both fall within allocated memory regions.
+-- | Perform a mem copy (a la @memcpy@ in C).
+--
+-- The returned predicates assert (in this order):
+-- * the source pointer falls within an allocated memory region
+-- * the dest pointer falls within an allocated, mutable memory region
 copyMem ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   LLVMPtr sym w {- ^ Dest   -} ->
   LLVMPtr sym w {- ^ Source -} ->
   SymBV sym w   {- ^ Size   -} ->
-  Mem sym -> IO (Pred sym, Mem sym)
+  Mem sym -> IO (Mem sym, Pred sym, Pred sym)
 copyMem sym w dst src sz m =
-  do p1 <- isAllocatedMutable sym w noAlignment dst sz m
-     p2 <- isAllocated sym w noAlignment src sz m
-     p  <- andPred sym p1 p2
-     return (p, memAddWrite (MemWrite dst (MemCopy src sz)) m)
+  do p1 <- isAllocated sym w noAlignment src sz m
+     p2 <- isAllocatedMutable sym w noAlignment dst sz m
+     return (memAddWrite (MemWrite dst (MemCopy src sz)) m, p1, p2)
 
 -- | Perform a mem set, filling a number of bytes with a given 8-bit
 -- value. The returned 'Pred' asserts that the pointer falls within an
--- allocated memory region.
+-- allocated, mutable memory region.
 setMem ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   LLVMPtr sym w {- ^ Pointer -} ->
   SymBV sym 8 {- ^ Byte value -} ->
   SymBV sym w {- ^ Number of bytes to set -} ->
-  Mem sym -> IO (Pred sym, Mem sym)
+  Mem sym -> IO (Mem sym, Pred sym)
 
 setMem sym w ptr val sz m =
   do p <- isAllocatedMutable sym w noAlignment ptr sz m
-     return (p, memAddWrite (MemWrite ptr (MemSet val sz)) m)
+     return (memAddWrite (MemWrite ptr (MemSet val sz)) m, p)
 
--- | Write an array to memory. The returned 'Pred' asserts that
--- the pointer falls within an allocated memory region.
+-- | Write an array to memory.
+--
+-- The returned predicates assert (in this order):
+-- * the pointer falls within an allocated, mutable memory region
+-- * the pointer has the proper alignment
 writeArrayMem ::
   (IsSymInterface sym, 1 <= w) =>
   sym -> NatRepr w ->
@@ -939,15 +947,17 @@ writeArrayMem ::
   Alignment ->
   SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
   SymBV sym w {- ^ Array size -} ->
-  Mem sym -> IO (Pred sym, Mem sym)
+  Mem sym -> IO (Mem sym, Pred sym, Pred sym)
 writeArrayMem sym w ptr alignment arr sz m =
   do p1 <- isAllocatedMutable sym w alignment ptr sz m
      p2 <- isAligned sym w ptr alignment
-     p  <- andPred sym p1 p2
-     return (p, memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m)
+     return (memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m, p1, p2)
 
--- | Write an array to memory. The returned 'Pred' asserts that
--- the pointer falls within an allocated memory region.
+-- | Write an array to memory.
+--
+-- The returned predicates assert (in this order):
+-- * the pointer falls within an allocated memory region
+-- * the pointer has the proper alignment
 writeArrayConstMem ::
   (IsSymInterface sym, 1 <= w) =>
   sym -> NatRepr w ->
@@ -955,12 +965,11 @@ writeArrayConstMem ::
   Alignment ->
   SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
   SymBV sym w {- ^ Array size -} ->
-  Mem sym -> IO (Pred sym, Mem sym)
+  Mem sym -> IO (Mem sym, Pred sym, Pred sym)
 writeArrayConstMem sym w ptr alignment arr sz m =
   do p1 <- isAllocated sym w alignment ptr sz m
      p2 <- isAligned sym w ptr alignment
-     p  <- andPred sym p1 p2
-     return (p, memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m)
+     return (memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m, p1, p2)
 
 -- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
@@ -1020,23 +1029,24 @@ popStackFrameMem m = m & memState %~ popf
         pa a@(MemFree _) = Just a
         pa (AllocMerge c x y) = Just (AllocMerge c (mapMaybe pa x) (mapMaybe pa y))
 
--- | Free a heap-allocated block of memory. The returned 'Pred'
--- asserts that the pointer points to the base of a valid
--- heap-allocated mutable block. Because the LLVM memory model allows
--- immutable blocks to alias each other, freeing an immutable block
--- could lead to unsoundness.
+-- | Free a heap-allocated block of memory.
+--
+-- The returned predicates assert (in this order):
+-- * the pointer points to the base of a block
+-- * said block is valid, heap-allocated, and mutable
+--
+-- Because the LLVM memory model allows immutable blocks to alias each other,
+-- freeing an immutable block could lead to unsoundness.
 freeMem :: forall sym w .
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   LLVMPtr sym w {- ^ Base of allocation to free -} ->
   Mem sym ->
-  IO (Pred sym, Mem sym)
+  IO (Mem sym, Pred sym, Pred sym)
 freeMem sym w (LLVMPointer blk off) m =
-  do z <- bvLit sym w 0
-     p1 <- bvEq sym off z
+  do p1 <- bvEq sym off =<< bvLit sym w 0
      p2 <- isHeapAllocated (return (falsePred sym)) (memAllocs m)
-     p <- andPred sym p1 p2
-     return (p, memAddAlloc (MemFree blk) m)
+     return (memAddAlloc (MemFree blk) m, p1, p2)
   where
     isHeapAllocated :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
     isHeapAllocated fallback [] = fallback
