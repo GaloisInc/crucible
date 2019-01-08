@@ -624,15 +624,6 @@ bitCast srcT expr tgtT = mb =<< runMaybeT (
   err msg = reportError $ fromString $ unlines ("[bitCast] Failed to perform cast:" : msg)
   indent msg = "  " ++ msg
 
-
-explodeVector :: Natural -> LLVMExpr s arch -> Maybe (Seq (LLVMExpr s arch))
-explodeVector n (VecExpr _tp xs)
-  | n == fromIntegral (length xs) = return xs
-explodeVector n (BaseExpr (VectorRepr tpr) v) =
-    let xs = [ BaseExpr tpr (app $ VectorGetEntry tpr v (litExpr i)) | i <- [0..n-1] ]
-     in return (Seq.fromList xs)
-explodeVector _ _ = Nothing
-
 castToInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   MemType -> LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
 castToInt (IntType w) (BaseExpr (LLVMPointerRepr wrepr) x)
@@ -1175,20 +1166,22 @@ generateInstr retType lab instr assign_f k =
                  outL :: Num b => b
                  outL = fromIntegral m
 
-             Just v1 <- explodeVector outL <$> transValue inV (L.typedValue sV1)
+             Just v1 <- explodeVector inL  <$> transValue inV (L.typedValue sV1)
              Just v2 <- explodeVector inL  <$> transValue inV sV2
              Just is <- explodeVector outL <$> transValue (VecType outL (IntType 32)) (L.typedValue sIxes)
 
              let getV x =
-                   case asScalar x of
-                     Scalar _ (App (BVLit _ i))
-                       | i < 0     -> UndefExpr elTy
-                       | i < inL   -> Seq.index v1 (fromIntegral i)
-                       | i < 2*inL -> Seq.index v2 (fromIntegral (i - inL))
+                   case x of
+                     UndefExpr _ -> return $ UndefExpr elTy
+                     ZeroExpr _  -> return $ Seq.index v1 0
+                     BaseExpr (LLVMPointerRepr _) (BitvectorAsPointerExpr _ (App (BVLit _ i)))
+                       | 0   <= i && i < inL   -> return $ Seq.index v1 (fromIntegral i)
+                       | inL <= i && i < 2*inL -> return $ Seq.index v2 (fromIntegral (i - inL))
 
-                     _ -> UndefExpr elTy
+                     _ -> fail $ unwords ["[shuffle] Expected literal index values but got", show x]
 
-             assign_f (VecExpr elTy (getV <$> is))
+             is' <- traverse getV is
+             assign_f (VecExpr elTy is')
              k
 
         (t1,t2) -> fail $ unlines ["[shuffle] Type error", show t1, show t2 ]
