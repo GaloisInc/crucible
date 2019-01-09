@@ -400,7 +400,11 @@ evalStmt sym = eval
         assert sym v3
            (AssertFailureSimError $ unlines ["Const pointers compared for equality:", show x_doc, show y_doc, show allocs_doc])
 
-        ptrEq sym PtrWidth x y
+        (eq, valid) <- ptrEq sym PtrWidth x y
+        assertUndefined sym valid Nothing UB.CompareDifferentAllocs $
+          ["Pointer 1: " ++ show x_doc, "Pointer 2:" ++ show y_doc]
+
+        pure eq
 
   eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
     mem <- getMem mvar
@@ -413,7 +417,12 @@ evalStmt sym = eval
          ["Ordering (<=) comparison on pointer", show x_doc]
        assertUndefined sym v2 Nothing UB.CompareInvalidPointer $
          ["Ordering (<=) comparison on pointer", show y_doc]
-       ptrLe sym PtrWidth x y
+
+       (le, valid) <- ptrLe sym PtrWidth x y
+       assertUndefined sym valid Nothing UB.CompareDifferentAllocs $
+         ["Pointer 1: " ++ show x_doc, "Pointer 2:" ++ show y_doc]
+
+       pure le
 
   eval (LLVM_PtrAddOffset _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
@@ -421,7 +430,7 @@ evalStmt sym = eval
 
   eval (LLVM_PtrSubtract _w mvar (regValue -> x) (regValue -> y)) =
     do mem <- getMem mvar
-       liftIO $ doPtrSubtract sym mem x y
+       liftIO $ doPtrSubtract sym Nothing mem x y
 
 mkMemVar :: HandleAllocator s
          -> ST s (GlobalVar Mem)
@@ -714,12 +723,18 @@ uncheckedMemcpy sym mem dest src len = do
 doPtrSubtract ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
+  Maybe UB.Config  {- ^ defaults to 'strictConfig' -} ->
   MemImpl sym ->
   LLVMPtr sym wptr ->
   LLVMPtr sym wptr ->
   IO (SymBV sym wptr)
-doPtrSubtract sym _m x y =
-  do ptrDiff sym PtrWidth x y
+doPtrSubtract sym ubConfig _m x y = do
+  (diff, valid) <- ptrDiff sym PtrWidth x y
+  assertUndefined sym valid ubConfig UB.PtrSubDifferentAllocs $
+     map unwords [ ["Pointer 1:", show (G.ppPtr x)]
+                 , ["Pointer 2:", show (G.ppPtr y)]
+                 ]
+  pure diff
 
 -- | Add an offset to a pointer. Also assert that the result is a valid pointer.
 doPtrAddOffset ::

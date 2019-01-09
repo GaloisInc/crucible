@@ -200,40 +200,46 @@ ptrOffsetLe sym _w (LLVMPointer _ off1) (LLVMPointer _ off2) =
   bvUle sym off1 off2
 
 -- | Test whether two pointers are equal.
+--
+-- The returned predicates assert (in this order):
+--  * the pointers are equal
+--  * the comparison is valid: the pointers are to the same allocation
 ptrEq :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
       -> LLVMPtr sym w
       -> LLVMPtr sym w
-      -> IO (Pred sym)
+      -> IO (Pred sym, Pred sym)
 ptrEq sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  do p1 <- natEq sym base1 base2
-     p2 <- bvEq sym off1 off2
-     andPred sym p1 p2
+  (,) <$> bvEq sym off1 off2 <*> natEq sym base1 base2
 
+-- | Test whether one pointer is less than or equal to the other.
+--
+-- The returned predicates assert (in this order):
+--  * the first pointer is less than or equal to the second
+--  * the comparison is valid: the pointers are to the same allocation
 ptrLe :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
       -> LLVMPtr sym w
       -> LLVMPtr sym w
-      -> IO (Pred sym)
+      -> IO (Pred sym, Pred sym)
 ptrLe sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  do p1 <- natEq sym base1 base2
-     assert sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
-     bvUle sym off1 off2
+  (,) <$> bvUle sym off1 off2 <*> natEq sym base1 base2
 
+-- | Test whether one pointer is less than or equal to the other.
+--
+-- The returned predicates assert (in this order):
+--  * the first pointer is less than the second
+--  * the comparison is valid: the pointers are to the same allocation
 ptrLt :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
       -> LLVMPtr sym w
       -> LLVMPtr sym w
-      -> IO (Pred sym)
+      -> IO (Pred sym, Pred sym)
 ptrLt sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  do p1 <- natEq sym base1 base2
-     assert sym p1 (AssertFailureSimError "Attempted to compare pointers from different allocations")
-     bvUlt sym off1 off2
-
-
+  (,) <$> bvUlt sym off1 off2 <*> natEq sym base1 base2
 
 -- | Add an offset to a pointer.
 ptrAdd :: (1 <= w, IsExprBuilder sym)
@@ -243,22 +249,18 @@ ptrAdd :: (1 <= w, IsExprBuilder sym)
        -> SymBV sym w
        -> IO (LLVMPtr sym w)
 ptrAdd sym _w (LLVMPointer base off1) off2 =
-  do off' <- bvAdd sym off1 off2
-     return $ LLVMPointer base off'
+  LLVMPointer base <$> bvAdd sym off1 off2
 
--- | Compute the difference between two pointers. Also assert that the
--- pointers point into the same allocation block.
+-- | Compute the difference between two pointers. The returned predicate asserts
+-- that the pointers point into the same allocation block.
 ptrDiff :: (1 <= w, IsSymInterface sym)
         => sym
         -> NatRepr w
         -> LLVMPtr sym w
         -> LLVMPtr sym w
-        -> IO (SymBV sym w)
+        -> IO (SymBV sym w, Pred sym)
 ptrDiff sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  do p <- natEq sym base1 base2
-     assert sym p (AssertFailureSimError "Attempted to subtract pointers from different allocations")
-     diff <- bvSub sym off1 off2
-     return diff
+  (,) <$> bvSub sym off1 off2 <*> natEq sym base1 base2
 
 -- | Subtract an offset from a pointer.
 ptrSub :: (1 <= w, IsSymInterface sym)

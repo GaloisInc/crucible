@@ -60,7 +60,11 @@ data UndefinedBehavior =
   | FreeInvalidPointer
   | MemsetInvalidRegion
   | CompareInvalidPointer
-    -- ^ This one is a violation of a "shall" clause
+  | CompareDifferentAllocs
+    -- ^ "In all other cases, the behavior is undefined"
+  | PtrSubDifferentAllocs
+    -- ^ "When two pointers are subtracted, both shall point to elements of the
+    -- same array object"
   {-
   | MemcpyDisjoint
   | DoubleFree
@@ -74,10 +78,12 @@ data UndefinedBehavior =
 cite :: UndefinedBehavior -> String
 cite =
   \case
-    PtrAddOffsetOutOfBounds -> "C99: 6.5.6 Additive operators"
-    FreeInvalidPointer      -> "C99: 7.22.3.3 The free function"
+    PtrAddOffsetOutOfBounds -> "C99: 6.5.6 Additive operators, ¶8"
+    FreeInvalidPointer      -> "C99: 7.22.3.3 The free function, ¶2"
     MemsetInvalidRegion     -> "https://en.cppreference.com/w/cpp/string/byte/memset"
-    CompareInvalidPointer   -> "C99: 6.5.8 Relational operators"
+    CompareInvalidPointer   -> "C99: 6.5.8 Relational operators, ¶5"
+    CompareDifferentAllocs  -> "C99: 6.5.8 Relational operators, ¶5"
+    PtrSubDifferentAllocs   -> "C99: 6.5.6 Additive operators, ¶9"
     {-
     MemcpyDisjoint          -> "C99: 7.24.2.1 The memcpy function"
     DoubleFree              -> "C99: 7.22.3.3 The free function"
@@ -90,7 +96,7 @@ explain :: UndefinedBehavior -> String
 explain =
   \case
     PtrAddOffsetOutOfBounds -> unwords $
-      [ "Addition of an offset to a pointer that resulted in a pointer to an"
+      [ "Addition of an offset to a pointer resulted in a pointer to an"
       , "address outside of the allocation."
       ]
     FreeInvalidPointer -> unwords $
@@ -105,6 +111,8 @@ explain =
       [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
       , "object."
       ]
+    CompareDifferentAllocs -> "Comparison of pointers from different allocations"
+    PtrSubDifferentAllocs -> "Subtraction of pointers from different allocations"
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
     DoubleFree         -> "`free` called on already-freed memory"

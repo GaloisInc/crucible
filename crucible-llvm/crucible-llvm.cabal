@@ -61,6 +61,7 @@ library
     Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
+    Lang.Crucible.LLVM.MemModel.UndefinedBehavior
     Lang.Crucible.LLVM.Translation.Constant
     Lang.Crucible.LLVM.Translation.Expr
     Lang.Crucible.LLVM.Translation.Instruction
