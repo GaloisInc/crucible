@@ -735,7 +735,9 @@ doPtrAddOffset sym ubConfig m x off = do
   v  <- isValidPointer sym x' m
 
   assertUndefined sym v ubConfig UB.PtrAddOffsetOutOfBounds $
-     [show (G.ppPtr x), show (printSymExpr off)]
+     map unwords [ ["Pointer:", show (G.ppPtr x)]
+                 , ["Offset:", show (printSymExpr off)]
+                 ]
 
   return x'
 
