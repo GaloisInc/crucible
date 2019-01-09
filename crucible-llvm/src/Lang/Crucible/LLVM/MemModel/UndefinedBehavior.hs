@@ -20,18 +20,18 @@
 -- code essentially have an additional hypothesis: that the LLVM
 -- compiler/hardware platform behave identically to Crucible's simulator when
 -- encountering such behavior.
---
--- The following documents were used in the writing of this module:
---  * [C++17]: http://www.open-std.org/jtc1/sc22/wg14/www/abq/c17_updated_proposed_fdis.pdf
---  * [C99]: http://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf
---    (text: http://www.iso-9899.info/n1570.html)
 ------------------------------------------------------------------------
 
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE StrictData #-}
 
 module Lang.Crucible.LLVM.MemModel.UndefinedBehavior
-  ( UndefinedBehavior(..)
+  ( Standard(..)
+  , ppStd
+  , stdURL
+
+  -- ** Undefined Behavior
+  , UndefinedBehavior(..)
   , cite
   , pp
 
@@ -47,6 +47,73 @@ module Lang.Crucible.LLVM.MemModel.UndefinedBehavior
 
 import           Data.Maybe (fromMaybe)
 import           Data.Functor.Contravariant (Predicate(..))
+
+-- -----------------------------------------------------------------
+-- ** Standard
+
+-- | The various standards that prohibit certain behaviors
+data Standard =
+    CStd    CStdVer    -- ^ The C language standard
+  | CXXStd  CXXStdVer  -- ^ The C++ language standard
+  | LLVMRef LLVMRefVer -- ^ The LLVM language reference
+  deriving (Eq, Ord, Show)
+
+-- | Versions of the C standard
+data CStdVer =
+    C99
+  | C11
+  | C18
+  deriving (Eq, Enum, Ord, Show)
+
+-- | Versions of the C++ standard
+data CXXStdVer =
+    CXX03
+  | CXX11
+  | CXX14
+  | CXX17
+  deriving (Eq, Enum, Ord, Show)
+
+ppCXXStdVer :: CXXStdVer -> String
+ppCXXStdVer CXX03 = "C++03"
+ppCXXStdVer CXX11 = "C++11"
+ppCXXStdVer CXX14 = "C++14"
+ppCXXStdVer CXX17 = "C++17"
+
+-- | Versions of the LLVM Language Reference
+data LLVMRefVer =
+    LLVM38
+  | LLVM4
+  | LLVM5
+  | LLVM6
+  | LLVM7
+  | LLVM8
+  deriving (Eq, Enum, Ord, Show)
+
+ppLLVMRefVer :: LLVMRefVer -> String
+ppLLVMRefVer LLVM38 = "3.8"
+ppLLVMRefVer LLVM4  = "4"
+ppLLVMRefVer LLVM5  = "5"
+ppLLVMRefVer LLVM6  = "6"
+ppLLVMRefVer LLVM7  = "7"
+ppLLVMRefVer LLVM8  = "8"
+
+stdURL :: Standard -> Maybe String
+stdURL (CStd   C99)     = Just "http://www.iso-9899.info/n1570.html"
+stdURL (CXXStd CXX17)   = Just "http://www.open-std.org/jtc1/sc22/wg14/www/abq/c17_updated_proposed_fdis.pdf"
+stdURL (LLVMRef LLVM38) = Just "https://releases.llvm.org/3.8.0/docs/LangRef.html"
+stdURL (LLVMRef LLVM4)  = Just "https://releases.llvm.org/4.0.1/docs/LangRef.html"
+stdURL (LLVMRef LLVM5)  = Just "https://releases.llvm.org/5.0.0/docs/LangRef.html"
+stdURL (LLVMRef LLVM6)  = Just "https://releases.llvm.org/6.0.0/docs/LangRef.html"
+stdURL (LLVMRef LLVM7)  = Just "https://releases.llvm.org/7.0.0/docs/LangRef.html"
+stdURL (LLVMRef LLVM8)  = Just "https://llvm.org/docs/LangRef.html"
+stdURL _                = Nothing
+
+ppStd :: Standard -> String
+ppStd =
+  \case
+    CStd    ver -> "The C language standard, version " ++ show ver
+    CXXStd  ver -> "The C++ language standard, version " ++ ppCXXStdVer ver
+    LLVMRef ver -> "The LLVM language reference, version" ++ ppLLVMRefVer ver
 
 -- -----------------------------------------------------------------
 -- ** UndefinedBehavior
@@ -73,25 +140,42 @@ data UndefinedBehavior =
   -}
   deriving (Eq, Enum, Ord, Show)
 
--- | Which section(s) of the C or C++ specifications are relevant to this
--- behavior?
+-- | Which document prohibits this behavior?
+standard :: UndefinedBehavior -> Standard
+standard =
+  \case
+    PtrAddOffsetOutOfBounds -> CStd C99
+    FreeInvalidPointer      -> CStd C99
+    MemsetInvalidRegion     -> CXXStd CXX17
+    CompareInvalidPointer   -> CStd C99
+    CompareDifferentAllocs  -> CStd C99
+    PtrSubDifferentAllocs   -> CStd C99
+    {-
+    MemcpyDisjoint          -> CStd C99
+    DoubleFree              -> CStd C99
+    DereferenceBadAlignment -> CStd C99
+    ModifiedStringLiteral   -> CStd C99
+    -}
+
+-- | Which section(s) of the document prohibit this behavior?
 cite :: UndefinedBehavior -> String
 cite =
   \case
-    PtrAddOffsetOutOfBounds -> "C99: 6.5.6 Additive operators, ¶8"
-    FreeInvalidPointer      -> "C99: 7.22.3.3 The free function, ¶2"
+    PtrAddOffsetOutOfBounds -> "§6.5.6 Additive operators, ¶8"
+    FreeInvalidPointer      -> "§7.22.3.3 The free function, ¶2"
     MemsetInvalidRegion     -> "https://en.cppreference.com/w/cpp/string/byte/memset"
-    CompareInvalidPointer   -> "C99: 6.5.8 Relational operators, ¶5"
-    CompareDifferentAllocs  -> "C99: 6.5.8 Relational operators, ¶5"
-    PtrSubDifferentAllocs   -> "C99: 6.5.6 Additive operators, ¶9"
+    CompareInvalidPointer   -> "§6.5.8 Relational operators, ¶5"
+    CompareDifferentAllocs  -> "§6.5.8 Relational operators, ¶5"
+    PtrSubDifferentAllocs   -> "§6.5.6 Additive operators, ¶9"
     {-
-    MemcpyDisjoint          -> "C99: 7.24.2.1 The memcpy function"
-    DoubleFree              -> "C99: 7.22.3.3 The free function"
-    DereferenceBadAlignment -> "C99: 6.5.3.2 Address and indirection operators"
-    ModifiedStringLiteral   -> "C99: J.2 Undefined behavior"
+    MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
+    DoubleFree              -> "§7.22.3.3 The free function"
+    DereferenceBadAlignment -> "§6.5.3.2 Address and indirection operators"
+    ModifiedStringLiteral   -> "§J.2 Undefined behavior"
     -}
 
 
+-- | What happened, and why is it a problem?
 explain :: UndefinedBehavior -> String
 explain =
   \case
@@ -122,7 +206,13 @@ explain =
     -}
 
 pp :: UndefinedBehavior -> String
-pp ub = unlines [ "Undefined behavior: ", "Reference: " ++ cite ub, explain ub ]
+pp ub = unlines $
+  [ "Undefined behavior encountered: "
+  , explain ub
+  , unwords ["Reference: ", ppStd (standard ub), cite ub]
+  ] ++ case stdURL (standard ub) of
+         Just url -> ["Document URL: " ++ url]
+         Nothing  -> []
 
 -- -----------------------------------------------------------------
 -- ** Config
