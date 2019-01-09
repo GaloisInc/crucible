@@ -325,11 +325,11 @@ staticOverrides className methodKey
 ----------------------------------------------------------------------
 -- * JVMRef
 
--- | Crucible expression for Java null reference
+-- | Crucible expression for Java null reference.
 rNull :: JVMRef s
 rNull = App (NothingValue knownRepr)
 
--- | Crucible generator to test if reference is null
+-- | Crucible generator to test if reference is null.
 rIsNull :: JVMRef s -> JVMGenerator h s ret (JVMBool s)
 rIsNull mr =
   caseMaybe mr knownRepr
@@ -338,7 +338,7 @@ rIsNull mr =
     onJust = \_ -> return bFalse
     }
 
--- | Dynamically test whether two references are equal
+-- | Dynamically test whether two references are equal.
 rEqual :: JVMRef s -> JVMRef s -> JVMGenerator h s ret (JVMBool s)
 rEqual mr1 mr2 =
   caseMaybe mr1 knownRepr
@@ -356,7 +356,7 @@ rEqual mr1 mr2 =
 -- * Registers and stack values
 
 -- | Create a register value from a value with a statically
--- known tag
+-- known tag.
 newJVMReg :: JVMValue s -> JVMGenerator h s ret (JVMReg s)
 newJVMReg val =
   case val of
@@ -366,7 +366,6 @@ newJVMReg val =
     LValue v -> LReg <$> newReg v
     RValue v -> RReg <$> newReg v
 
--- | read a register tag the
 readJVMReg :: JVMReg s -> JVMGenerator h s ret (JVMValue s)
 readJVMReg reg =
   case reg of
@@ -1441,7 +1440,7 @@ packTypes (t : ts) ctx asgn =
         J.LongType    -> k LValue (knownRepr :: TypeRepr JVMLongType)
         J.ShortType   -> k IValue (knownRepr :: TypeRepr JVMIntType)
 
--- | Create the initial fram for a method translation
+-- | Create the initial frame for a method translation.
 initialJVMExprFrame :: HasCallStack =>
   J.ClassName ->
   J.Method ->
@@ -1459,7 +1458,7 @@ initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
     locals = Map.fromList (zip idxs' vals)
 
 
--- | Generate the CFG for a Java method
+-- | Generate the CFG for a Java method.
 generateMethod ::
   J.ClassName ->
   J.Method ->
@@ -1488,7 +1487,7 @@ defineLambdaBlockLabel action =
      defineLambdaBlock l action
      return l
 
--- | Top-level function for method translation
+-- | Top-level function for method translation.
 translateMethod :: JVMContext
                  -> Verbosity
                  -> J.ClassName
@@ -1513,7 +1512,7 @@ translateMethod ctx verbosity cName m h =
 
 -- | Classes that are always loaded into the initial
 -- environment.
--- THIS MUST INCLUDE ALL CLASSES in stdOverrides
+-- THIS MUST INCLUDE ALL CLASSES in 'stdOverrides'.
 -- (We could calculate automatically, but that would add an ambiguous
 -- sym constraint to this definition, so we do not.)
 
@@ -1671,7 +1670,7 @@ findAllRefs cb cls = do
 --    + allocate global vars for static fields (but do not initialize them yet)
 --    + add the class to Class table
 
--- | allocate a new method handle and add it to the table of method handles
+-- | Allocate a new method handle and add it to the table of method handles.
 declareMethod :: HandleAllocator s
               -> J.Class
               -> MethodHandleTable
@@ -1688,8 +1687,8 @@ declareMethod halloc mcls ctx meth =
          h <- mkHandle' halloc (methodHandleName cname mkey) argsRepr retRepr
          return $ Map.insert (cname, mkey) (JVMHandleInfo mkey h) ctx
 
--- | allocate the static field (a global variable)
--- and add it to the static field table
+-- | Allocate the static field (a global variable)
+-- and add it to the static field table.
 declareStaticField :: HandleAllocator s
     -> J.Class
     -> StaticFieldTable
@@ -1704,7 +1703,7 @@ declareStaticField halloc c m f = do
   return $ (Map.insert (cn,fieldId) gvar m)
 
 
--- | Create the initial JVMContext
+-- | Create the initial 'JVMContext'.
 mkInitialJVMContext :: HandleAllocator RealWorld -> IO JVMContext
 mkInitialJVMContext halloc = do
 
@@ -1718,10 +1717,10 @@ mkInitialJVMContext halloc = do
               , dynamicClassTable = gv
               })
 
--- | extend the JVM context in preparation for translating class c
--- by declaring handles for all methods
---    declaring global variables for all static fields and
---    adding the class information to the class table
+-- | Extend the JVM context in preparation for translating class @c@
+-- by declaring handles for all methods,
+--    declaring global variables for all static fields, and
+--    adding the class information to the class table.
 extendJVMContext :: HandleAllocator s -> J.Class -> StateT JVMContext (ST s) ()
 extendJVMContext halloc c = do
   sm <- lift $ foldM (declareMethod halloc c) Map.empty (J.classMethods c)
@@ -1771,8 +1770,8 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
     in
       C.FnBinding handle (C.UseOverride (C.mkOverride' fn retRepr overrideSim))
 
--- | make bindings for all methods in the JVMContext classTable that have
--- associated method handles
+-- | Make bindings for all methods in the 'JVMContext' classTable that have
+-- associated method handles.
 mkDelayedBindings :: forall p sym . JVMContext -> Verbosity -> C.FunctionBindings p sym JVM
 mkDelayedBindings ctx verbosity =
   let bindings = [ mkDelayedBinding ctx verbosity c m h | (cn,c) <- Map.assocs (classTable ctx)
@@ -1785,7 +1784,7 @@ mkDelayedBindings ctx verbosity =
 
 
 -- | Make the initial state for the simulator, binding the function handles so that
--- they translate method bodies when they are accessed
+-- they translate method bodies when they are accessed.
 mkSimSt :: (IsSymInterface sym) =>
            sym
         -> p
@@ -1829,7 +1828,7 @@ runClassInit halloc ctx verbosity name = do
 
 
 
--- | Install the standard overrides and run a Java method in the simulator
+-- | Install the standard overrides and run a Java method in the simulator.
 runMethodHandleCrux
   :: IsSymInterface sym
   => [C.GenericExecutionFeature sym]
@@ -1911,7 +1910,7 @@ executeCrucibleJVMCrux
   -> Int               -- ^ Verbosity level
   -> sym               -- ^ Simulator state
   -> p                 -- ^ Personality
-  -> String            -- ^ Class name
+  -> String            -- ^ Dot-separated class name
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
@@ -1963,7 +1962,7 @@ executeCrucibleJVM
   -> Int               -- ^ Verbosity level
   -> sym               -- ^ Simulator state
   -> p                 -- ^ Personality
-  -> String            -- ^ Class name
+  -> String            -- ^ Dot-separated class name
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
@@ -1983,7 +1982,7 @@ getGlobalPair pr =
 --------------------------------------------------------------------------------
 
 
--- | A type class for what we need from a java code base
+-- | A type class for what we need from a Java code base.
 -- This is here b/c we have two copies of the Codebase module, the one in this
 -- package and the one in the jvm-verifier package. Eventually,
 -- saw-script will want to transition to the code base in this package,
@@ -1994,7 +1993,7 @@ class IsCodebase cb where
 
    findMethod :: cb -> String -> J.Class -> IO (J.Class,J.Method)
 
-   findClass  :: cb -> String -> IO J.Class
+   findClass  :: cb -> String {- ^ Dot-separated class name -} -> IO J.Class
    findClass cb cname = (lookupClass cb . J.mkClassName . J.dotsToSlashes) cname
 
 ------------------------------------------------------------------------
@@ -2006,7 +2005,7 @@ instance IsCodebase JCB.Codebase where
    lookupClass = cbLookupClass
 
    -- | Returns method with given name in this class or one of its subclasses.
-   -- Throws an ExecException if method could not be found or is ambiguous.
+   -- Throws an 'ExecException' if method could not be found or is ambiguous.
    -- findMethod :: JCB.Codebase -> String -> J.Class -> IO (J.Class, J.Method)
    findMethod cb nm initClass = impl initClass
     where javaClassName = J.slashesToDots (J.unClassName (J.className initClass))
@@ -2030,7 +2029,7 @@ instance IsCodebase JCB.Codebase where
                     in throwIOExecException msg res
 
 
--- | Atempt to find class with given name, or throw ExecException if no class
+-- | Atempt to find class with given name, or throw 'ExecException' if no class
 -- with that name exists. Class name should be in slash-separated form.
 cbLookupClass :: JCB.Codebase -> J.ClassName -> IO J.Class
 cbLookupClass cb nm = do

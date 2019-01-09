@@ -21,14 +21,14 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 
 -- | Calculate the set of class names referred to in a particular
--- piece of JVM abstract syntax
+-- piece of JVM abstract syntax.
 class ClassRefs a where
   classRefs :: HasCallStack => a -> Set J.ClassName
 
 
 instance ClassRefs a => ClassRefs (Maybe a) where
   classRefs = maybe mempty classRefs
-  
+
 instance ClassRefs a => ClassRefs [a] where
   classRefs = foldMap classRefs
 
