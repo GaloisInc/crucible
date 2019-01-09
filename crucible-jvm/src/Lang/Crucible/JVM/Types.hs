@@ -45,7 +45,7 @@ import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.Types
 
 ----------------------------------------------------------------------
--- | JVM extension tag
+-- | JVM extension tag.
 
 newtype JVM = JVM ()
 type instance ExprExtension JVM = EmptyExprExtension
@@ -58,31 +58,31 @@ type Verbosity = Int
 ---------------------------------------------------------------------------------
 -- * Type abbreviations for expressions
 
--- | Symbolic booleans
+-- | Symbolic booleans.
 type JVMBool       s = Expr JVM s BoolType
--- | Symbolic double precision float
+-- | Symbolic double precision float.
 type JVMDouble     s = Expr JVM s JVMDoubleType
--- | Symbolic single precision  float
+-- | Symbolic single precision  float.
 type JVMFloat      s = Expr JVM s JVMFloatType
--- | Symbolic 32-bit signed integers
+-- | Symbolic 32-bit signed integers.
 type JVMInt        s = Expr JVM s JVMIntType
--- | Symbolic 64-bit signed integers
+-- | Symbolic 64-bit signed integers.
 type JVMLong       s = Expr JVM s JVMLongType
--- | Symbolic references
+-- | Symbolic references.
 type JVMRef        s = Expr JVM s JVMRefType
--- | Symbolic strings
+-- | Symbolic strings.
 type JVMString     s = Expr JVM s StringType
--- | Symbolic class table
+-- | Symbolic class table.
 type JVMClassTable s = Expr JVM s JVMClassTableType
--- | Symbolic data structure for class information
+-- | Symbolic data structure for class information.
 type JVMClass      s = Expr JVM s JVMClassType
--- | Symbolic class initialization
+-- | Symbolic class initialization.
 type JVMInitStatus s = Expr JVM s JVMInitStatusType
--- | Symbolic Java-encdoed array, includes type
+-- | Symbolic Java-encdoed array, includes type.
 type JVMArray      s = Expr JVM s JVMArrayType
--- | Symbolic array or class instance
+-- | Symbolic array or class instance.
 type JVMObject     s = Expr JVM s JVMObjectType
--- | Symbolic representation of Java type
+-- | Symbolic representation of Java type.
 type JVMTypeRep    s = Expr JVM s JVMTypeRepType
 ----------------------------------------------------------------------
 -- * JVM type definitions
@@ -93,7 +93,7 @@ type JVMTypeRep    s = Expr JVM s JVMTypeRepType
 -- ** Values
 --
 -- | A JVM value is either a double, float, int, long, or reference. If we were
--- to define these types in Haskell, they'd look something like this
+-- to define these types in Haskell, they'd look something like this:
 --
 -- @
 --  data Value = Double Double | Float Float | Int Int32
@@ -128,7 +128,7 @@ type JVMInstanceType =
   StructType (EmptyCtx ::> StringMapType JVMValueType ::> JVMClassType)
 
 -- | An array value is a length, a vector of values,
--- and an element type
+-- and an element type.
 type JVMArrayType =
   StructType (EmptyCtx ::> JVMIntType ::> VectorType JVMValueType ::> JVMTypeRepType)
 
@@ -189,7 +189,7 @@ instance IsRecursiveType "JVM_class" where
   type UnrollType "JVM_class" ctx = JVMClassImpl
   unrollType _nm _ctx = knownRepr :: TypeRepr JVMClassImpl
 
--- | A class initialization state is
+-- | A class initialization state is:
 --
 -- @
 --      data Initialization Status = NotStarted | Started | Initialized | Erroneous
@@ -199,18 +199,17 @@ instance IsRecursiveType "JVM_class" where
 --
 type JVMInitStatusType = BVType 2
 
--- | The method table is dynamically typed
+-- | The method table is dynamically typed.
 type JVMMethodTableType = StringMapType AnyType
 
 -- | The dynamic class table is a data structure that can be queried at runtime
--- for information about loaded classes
+-- for information about loaded classes.
 type JVMClassTableType = StringMapType JVMClassType
 
 
 ---------------------------------------------------------------------------------
 -- * Type representations
 
--- | Type reprs for the Crucible image of Java types
 refRepr    :: TypeRepr JVMRefType
 refRepr    = knownRepr
 intRepr    :: TypeRepr JVMIntType
@@ -239,7 +238,6 @@ showJVMArgs x =
     y Ctx.:> ty -> showJVMArgs y ++ ", "  ++ showJVMType ty
 
 
--- | Number reprs
 w1 :: NatRepr 1
 w1 = knownNat
 
@@ -259,7 +257,7 @@ w64 = knownNat
 -- * Translation between Java and Crucible Types
 
 
--- | Translate a single Java type to a Crucible type
+-- | Translate a single Java type to a Crucible type.
 javaTypeToRepr :: J.Type -> Some TypeRepr
 javaTypeToRepr t =
   case t of
@@ -274,7 +272,7 @@ javaTypeToRepr t =
     J.LongType      -> Some longRepr
     J.ShortType     -> Some intRepr
 
--- | Translate a sequence of Java types to a Crucible context
+-- | Translate a sequence of Java types to a Crucible context.
 javaTypesToCtxRepr :: [J.Type] -> Some CtxRepr
 javaTypesToCtxRepr [] = Some (knownRepr :: CtxRepr Ctx.EmptyCtx)
 javaTypesToCtxRepr (ty:args) =
@@ -284,13 +282,13 @@ javaTypesToCtxRepr (ty:args) =
 ---------------------------------------------------------------------------------
 -- * Working with JVM values
 
--- | Tagged JVM value
+-- | Tagged JVM value.
 --
--- NOTE: we could switch the below to "type JVMValue s = Expr JVM s
--- JVMValueType" However, that would give the translator less
+-- NOTE: we could switch the below to @type JVMValue s = Expr JVM s
+-- JVMValueType@. However, that would give the translator less
 -- information. With the type below, the translator can branch on the
 -- variant. This is important for translating stack manipulations such
--- as popType1 and popType2
+-- as 'popType1' and 'popType2'.
 data JVMValue s
   = DValue (JVMDouble s)
   | FValue (JVMFloat s)
@@ -313,7 +311,7 @@ defaultValue J.IntType         = IValue $ App $ BVLit knownRepr 0
 defaultValue J.LongType        = LValue $ App $ BVLit knownRepr 0
 defaultValue J.ShortType       = IValue $ App $ BVLit knownRepr 0
 
--- | Convert a statically tagged value to a dynamically tagged value
+-- | Convert a statically tagged value to a dynamically tagged value.
 valueToExpr :: JVMValue s -> Expr JVM s JVMValueType
 valueToExpr (DValue x) = App $ InjectVariant knownRepr tagD x
 valueToExpr (FValue x) = App $ InjectVariant knownRepr tagF x
@@ -341,7 +339,7 @@ tagR = Ctx.i5of5
 ---------------------------------------------------------------------------------
 -- * Working with Symbolic exprs
 
--- | Sketchy num interface, but it makes it easier to work with this type
+-- | Sketchy num interface, but it makes it easier to work with this type.
 instance Num (Expr p s JVMIntType) where
   n1 + n2 = App (BVAdd w32 n1 n2)
   n1 * n2 = App (BVMul w32 n1 n2)

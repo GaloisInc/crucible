@@ -104,16 +104,16 @@ import Debug.Trace
 
 -----------------------------------------------------------------------------
 
--- | Given the name of a class and the field name, define the name of the global variable
+-- | Given the name of a class and the field name, define the name of the global variable.
 globalVarName :: J.ClassName -> String -> Text
 globalVarName cn fn = fromString (J.unClassName cn ++ "." ++ fn)
 
--- | Given the name of a class and a method, define the standard name
+-- | Given the name of a class and a method, define the standard name.
 methodHandleName :: J.ClassName -> J.MethodKey -> FunctionName
 methodHandleName cn mn = fromString (J.unClassName cn ++ "." ++ J.methodKeyName mn)
 
 
--- | Add a reference to the object type if the method is nonstatic
+-- | Add a reference to the object type if the method is nonstatic.
 allParameterTypes :: J.ClassName -> Bool -> J.MethodKey -> [J.Type]
 allParameterTypes className isStatic m
   | isStatic  = J.methodKeyParameterTypes m
@@ -127,7 +127,7 @@ addThisAndUnit isStatic args =
      _  -> args)
 
 
--- | Translate the types of the method
+-- | Translate the types of the method.
 jvmToFunHandleRepr ::
   Bool -> J.MethodKey ->
   (forall args ret. CtxRepr args -> TypeRepr ret -> a)
@@ -270,9 +270,9 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
 
 --------------------------------------------------------------------------------
 
--- | This is an example of a nop override
+-- | This is an example of a nop override.
 -- Explicitly calling the garbage collector does nothing during symbolic
--- execution
+-- execution.
 gc_override ::(IsSymInterface sym) => JVMOverride p sym
 gc_override =
   let isStatic = False
@@ -330,7 +330,7 @@ data CClass =
 
 ------------------------------------------------------------------
 --
--- | Convert a concrete value to text
+-- | Convert a concrete value to text.
 --
 class ToText a where
   totext  :: a -> Text
@@ -353,8 +353,8 @@ toCharVec vec = traverse (\jv -> case jv of
                                    _               -> Nothing) vec
 
 --
--- | We don't try to call the toString method for objects
---   maybe we should??
+-- | We don't try to call the toString method for objects.
+--   Maybe we should??
 instance ToText CObject where
   totexts (CInstance (fields, cls)) f
     | cclassName cls == "java/lang/String"
@@ -368,7 +368,7 @@ instance ToText CObject where
     , Just (Just (CInt count)) <- Map.lookup "java/lang/AbstractStringBuilder.count" fields
     , Just chars <- toCharVec (V.take count vec)
     = pack (V.toList chars) <> f
-    
+
   totexts (CInstance (fields, cls)) f
     -- do not text out non-String objects.
     -- TODO: what about primitives such as java.lang.Integer?
