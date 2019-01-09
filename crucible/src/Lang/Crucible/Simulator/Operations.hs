@@ -92,7 +92,7 @@ import           What4.FunctionName
 import           What4.ProgramLoc
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.CFG.Core
+import           Lang.Crucible.CFG.Core hiding (lift)
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Panic(panic)
@@ -334,7 +334,7 @@ resolveCall bindings c0 args =
             CrucibleCall (cfgEntryBlockID g) (mkCallFrame g pdInfo args)
 
 
-    InstantiatedHandleFnVal targs h -> do
+    SubstitutedHandleFnVal targs h -> do
       case lookupHandleMap h bindings of
         Nothing -> Ex.throw (UnresolvableFunction h)
         Just (UseOverride o) -> do

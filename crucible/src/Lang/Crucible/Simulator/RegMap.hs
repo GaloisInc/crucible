@@ -245,7 +245,9 @@ muxRegForType s itefns p =
           [ "Found uninstantiated type parameter:"
           , show n
           ]
-     PolyFnRepr args ret -> muxRegForType s itefns (FunctionHandleRepr args ret)
+     PolyFnRepr _n _args _ret ->
+       muxReg s p
+       -- muxRegForType s itefns (FunctionHandleRepr args ret)
 
 
 -- | Mux two register entries.
