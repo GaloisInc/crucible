@@ -89,6 +89,7 @@ module Lang.Crucible.Types
   , ClosedFC(..)
   , ClosedBaseType(..)
   , Instantiate
+  , Lift
   , InstantiateF(..)
   , InstantiateFC(..)
   , InstantiateType(..)
@@ -96,6 +97,9 @@ module Lang.Crucible.Types
   , closedInstantiate
   , closedInstantiateF
   , closedInstantiateFC
+  , closedLift
+  , closedLiftF
+  , closedLiftFC
 
   , assumeClosed
   , instantiateTypeEmpty
@@ -181,9 +185,11 @@ class IsRecursiveType (nm::Symbol) where
   type UnrollType nm (ctx :: Ctx CrucibleType) :: CrucibleType
   unrollType   :: SymbolRepr nm -> CtxRepr ctx -> TypeRepr (UnrollType nm ctx)
 
-  eqInstUnroll :: proxy subst
-               -> Instantiate subst (UnrollType nm ctx) :~: UnrollType nm (Instantiate subst ctx)
+  eqInstUnroll :: NatRepr n -> proxy subst
+               -> Instantiate n subst (UnrollType nm ctx) :~: UnrollType nm (Instantiate n subst ctx)
   eqInstUnroll _ = error "eqInstUnroll: use of instantiate requires proof"
+
+
 
 type CtxRepr = Ctx.Assignment TypeRepr
 
@@ -249,10 +255,11 @@ data CrucibleType where
    -- A type variable, represented as an index and quantified by an enclosing 'PolyFnType'
    VarType :: Nat -> CrucibleType
    
-   -- A polymorphic function type consisting of a list of argument types and a result type.
-   -- Must be instantiated before use. Binds *all* type variables in the argument and
+   -- A polymorphic function type consisting of a number of bound variables (n),
+   -- a list of argument types and a result type.
+   -- Must be instantiated before use. Binds n variables in the argument and
    -- result types.
-   PolyFnType :: Ctx CrucibleType -> CrucibleType -> CrucibleType
+   PolyFnType :: Nat -> Ctx CrucibleType -> CrucibleType -> CrucibleType
 
 type BaseToType      = 'BaseToType                -- ^ @:: 'BaseType' -> 'CrucibleType'@.
 type BoolType        = BaseToType BaseBoolType    -- ^ @:: 'CrucibleType'@.
@@ -484,9 +491,9 @@ instance KnownRepr TypeRepr tp => KnownRepr TypeRepr (StringMapType tp) where
 instance KnownNat w => KnownRepr TypeRepr (VarType w) where
   knownRepr = VarRepr knownRepr
 
-instance (KnownRepr CtxRepr args, KnownRepr TypeRepr ret)
-      => KnownRepr TypeRepr (PolyFnType args ret) where
-  knownRepr = PolyFnRepr knownRepr knownRepr
+instance (KnownRepr NatRepr n, KnownRepr CtxRepr args, KnownRepr TypeRepr ret)
+      => KnownRepr TypeRepr (PolyFnType n args ret) where
+  knownRepr = PolyFnRepr knownRepr knownRepr knownRepr
   
 
 -- | Pattern synonym specifying bitvector TypeReprs.  Intended to be use
@@ -499,9 +506,27 @@ pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
 ------------------------------------------------------------------------
 -- | Classes and type families for polymorphism
 
--- | Type-level substitution function.
--- Uses a Ctx of types to replace the type variables 0 .. n occurring in a type-level
--- expression.
+
+-- We can view substitutions as an infinite stream of terms
+-- where Var i is mapped to the ith term in the list
+-- However, type-level Haskell is too strict for this, so we instead
+-- represent these streams with a finite representation
+data Substitution = 
+  | IdSubst
+  | SuccSubst
+  | ExtendSubst CrucibleType Substitution
+  | LiftSubst Substitution
+
+type family SubstVar (s :: Substitution) (n :: Nat) :: CrucibleType where
+  SubstVar IdSubst n   = VarType n
+  SubstVar SuccSubst n = VarType (S n)
+  SubstVar (ExtendSubst ty s) 0     = ty
+  SubstVar (ExtendSubst ty s) (S m) = SubstVar s m
+  SubstVar (LiftSubst s) 0 = VarType 0
+  SubstVar (LiftSubst s) m = InstantiateCT SuccSubst (SubstVar s m)
+  
+  
+-- | Type-level multi-substitution function.
 -- This is an open type family that is homeomorphic on most arguments
 -- The only exception is for CrucibleTypes, see InstantiateCT
 --
@@ -511,40 +536,86 @@ pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
 --    type instance Instantiate subst T = T
 -- However, this approach doesn't work for (ext :: Type). We don't know that
 -- all of the potential ext types do not contain CrucibleType as a subterm, so
--- GHC cannot reduce (Instantiate subst ext) = ext.
+-- GHC cannot reduce (Instantiate n subst ext) = ext.
 -- Using GHC-8.6 quantified constraints, we might be able to express this 
--- restriction, but I have not tried it. Until that time, if your code doesn't
--- type check, add an instance like the above.
-type family Instantiate  (subst :: Ctx CrucibleType) (v :: k) :: k
+-- restriction, but I have not tried it. 
+type family Instantiate (n :: Nat) (subst :: Ctx CrucibleType) (v :: k) :: k
 
--- | Class of types and types that support instantiation
+-- | Auxiliary function for instantiation, "lift"/increment all free variables by m steps
+-- n is the "cut-off", which determines which variables are free
+-- m is the number of steps we are lifting
+-- Typically, this is called with "Lift 0 m", but we need to increment n as we go
+-- under a binder.
+type family Lift (n :: Nat) (m :: Nat) (v :: k) :: k
+
+-- | Class of types that support instantiation
 class InstantiateType (ty :: Type) where
-  instantiate :: CtxRepr subst -> ty -> Instantiate subst ty
+  instantiate :: NatRepr n -> CtxRepr subst -> ty -> Instantiate n subst ty
+  lift        :: NatRepr n -> NatRepr m     -> ty -> Lift n m ty
 
 -- | Defines instantiation for SyntaxExtension (must create an instance of this
 -- class, but instance can be trivial if polymorphism is not used.
 class InstantiateF (t :: k -> Type) where
-  instantiateF :: CtxRepr subst -> t a -> (Instantiate subst t) (Instantiate subst a)
-  instantiateF _ _ = error "instantiateF: must be defined to use polymorphism"
+  instantiateF :: NatRepr n -> CtxRepr subst -> t a -> (Instantiate n subst t) (Instantiate n subst a)
+  instantiateF _ _ _ = error "instantiateF: must be defined to use polymorphism"
+
+  liftF :: NatRepr n -> NatRepr m -> t a -> Lift n m (t a)
+  liftF _ _ _ = error "liftF: must be defined to use polymorphism"
 
 -- | Also for syntax extensions
 class InstantiateFC (t :: (k -> Type) -> l -> Type) where
-  instantiateFC :: InstantiateF a => CtxRepr subst -> t a b -> Instantiate subst (t a b)
-  instantiateFC _ _ = error "instantiateFC: must be defined to use polymorphism"
+  instantiateFC :: InstantiateF a => NatRepr n -> CtxRepr subst -> t a b -> Instantiate n subst (t a b)
+  instantiateFC _ _ _ = error "instantiateFC: must be defined to use polymorphism"
+
+  liftFC :: InstantiateF a => NatRepr n -> NatRepr m -> t a b -> Lift n m (t a b)
+  liftFC _ _ _ = error "liftFC: must be defined to use polymorphism"
 
 
-closedInstantiate :: forall ty subst. Closed ty => CtxRepr subst -> ty -> Instantiate subst ty
-closedInstantiate subst | Refl <- closed @_ @ty subst = id
-   -- NOTE: closed is polykinded so first specified type argument is the kind of ty
+-- | Types that do not contain any free type variables. If they are
+-- closed then we know that instantiation and lifting does nothing.
+-- The proxies allows us to specify some of the arguments without
+-- using a type application.
+-- NOTE: Closed is polykinded so first specified type argument when using these
+-- methods is the kind of ty
 
-closedInstantiateF :: forall t0 a subst. (Closed t0, Closed a)
-  => CtxRepr subst -> t0 a -> (Instantiate subst t0) (Instantiate subst a)
-closedInstantiateF s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s = id
+<<<<<<< HEAD
+=======
+class Closed (t :: k) where
+  closed :: NatRepr n -> p2 subst -> Instantiate n subst t :~: t
+  closed = error "closed: must define closed to use instantiation"
+
+  liftid :: NatRepr n -> NatRepr m -> Lift n m t :~: t
+  liftid = error "liftid: must define liftid to use instantiation"
+
+-- Types that are statically known to be closed can benefit from the following
+-- default definitions 
+>>>>>>> midstream commit. Changing course on approach to polymorphism.
+
+closedInstantiate :: forall n ty subst. Closed ty => NatRepr n -> CtxRepr subst -> ty -> Instantiate n subst ty
+closedInstantiate n subst | Refl <- closed @_ @ty n subst = id
+
+closedInstantiateF :: forall n t0 a subst. (Closed t0, Closed a)
+  => NatRepr n -> CtxRepr subst -> t0 a -> (Instantiate n subst t0) (Instantiate n subst a)
+closedInstantiateF n s | Refl <- closed @_ @t0 n s, Refl <- closed @_ @a n s = id
   
-closedInstantiateFC :: forall t0 a b subst. (Closed t0, Closed a, Closed b, InstantiateF a)
-  => CtxRepr subst -> t0 a b -> (Instantiate subst t0) (Instantiate subst a) (Instantiate subst b)
-closedInstantiateFC s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s, Refl <- closed @_ @b s = id
+closedInstantiateFC :: forall n t0 a b subst. (Closed t0, Closed a, Closed b, InstantiateF a)
+  => NatRepr n -> CtxRepr subst -> t0 a b
+  -> (Instantiate n subst t0) (Instantiate n subst a) (Instantiate n subst b)
+closedInstantiateFC n s | Refl <- closed @_ @t0 n s, Refl <- closed @_ @a n s, Refl <- closed @_ @b n s = id
+
+closedLift :: forall n m ty. Closed ty => NatRepr n -> NatRepr m -> ty -> Lift n m ty
+closedLift n m | Refl <- liftid @_ @ty n m = id
+
+closedLiftF :: forall n t0 a m. (Closed t0, Closed a)
+  => NatRepr n -> NatRepr m -> t0 a -> (Lift n m t0) (Lift n m a)
+closedLiftF n s | Refl <- liftid @_ @t0 n s, Refl <- liftid @_ @a n s = id
   
+closedLiftFC :: forall n t0 a b m. (Closed t0, Closed a, Closed b, InstantiateF a)
+  => NatRepr n -> NatRepr m -> t0 a b
+  -> (Lift n m t0) (Lift n m a) (Lift n m b)
+closedLiftFC n s | Refl <- liftid @_ @t0 n s, Refl <- liftid @_ @a n s, Refl <- liftid @_ @b n s = id
+
+                        
 ------------------------------------------------------------------------
 ------------------------------------------------------------------------
 -- Force TypeRepr, etc. to be in context for next slice.
@@ -600,12 +671,15 @@ instance OrdF TypeRepr where
 -- "Closed" instances
 
 instance Closed (b :: BaseType) where
-  closed _ = unsafeCoerce Refl -- don't want to do a runtime case analysis
+  closed _ _ = unsafeCoerce Refl -- don't want to do a runtime case analysis
+  liftid _ _ = unsafeCoerce Refl -- don't want to do a runtime case analysis
 instance Closed (ctx :: Ctx BaseType) where
-  closed _ = unsafeCoerce Refl  -- don't want to do induction over the list
+  closed _ _ = unsafeCoerce Refl  -- don't want to do induction over the list
+  liftid _ _ = unsafeCoerce Refl  -- don't want to do induction over the list
 
 -- k = Type
 instance Closed (BaseTypeRepr b :: Type) where
+<<<<<<< HEAD
   closed p | Refl <- closed @_ @b p = Refl 
 instance Closed () where closed _ = Refl
 -- k = CrucibleType  
@@ -614,40 +688,86 @@ instance Closed AnyType where closed _ = Refl
 instance Closed UnitType where closed _ = Refl
 instance Closed CharType where closed _ = Refl
 instance Closed (FloatType fi) where closed _ = Refl
+=======
+  closed p1 p2 | Refl <- closed @_ @b p1 p2 = Refl
+  liftid p1 p2 | Refl <- liftid @_ @b p1 p2 = Refl 
+instance Closed () where
+  closed _ _ = Refl
+  liftid _ _ = Refl
+  
+-- k = CrucibleType
+instance Closed (BaseToType b) where
+  closed _ _ = Refl
+  liftid _ _ = Refl
+instance Closed AnyType where
+  closed _ _ = Refl
+  liftid _ _ = Refl  
+instance Closed UnitType where
+  closed _ _ = Refl
+  liftid _ _ = Refl  
+instance Closed CharType where
+  closed _ _ = Refl
+  liftid _ _ = Refl  
+instance Closed (FloatType fi) where
+  closed _ _ = Refl
+  liftid _ _ = Refl  
+>>>>>>> midstream commit. Changing course on approach to polymorphism.
 instance (Closed args, Closed ret) => Closed (FunctionHandleType args ret)
   where
-    closed p | Refl <- closed @_ @args p, Refl <- closed @_ @ret p = Refl
+    closed p1 p2 | Refl <- closed @_ @args p1 p2, Refl <- closed @_ @ret p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @args p1 p2, Refl <- liftid @_ @ret p1 p2 = Refl
+    
 instance (Closed ty) => Closed (MaybeType ty)
   where
-    closed p | Refl <- closed @_ @ty p = Refl
+    closed p1 p2 | Refl <- closed @_ @ty p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ty p1 p2 = Refl
+    
 instance (Closed ty) => Closed (VectorType ty)
   where
-    closed p | Refl <- closed @_ @ty p = Refl
+    closed p1 p2 | Refl <- closed @_ @ty p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ty p1 p2 = Refl
+    
 instance (Closed ctx) => Closed (StructType ctx)
   where
-    closed p | Refl <- closed @_ @ctx p = Refl
+    closed p1 p2 | Refl <- closed @_ @ctx p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ctx p1 p2 = Refl    
 instance (Closed ty) => Closed (ReferenceType ty)
   where
-    closed p | Refl <- closed @_ @ty p = Refl
+    closed p1 p2 | Refl <- closed @_ @ty p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ty p1 p2 = Refl    
 instance (Closed ctx) => Closed (VariantType ctx)
   where
-    closed p | Refl <- closed @_ @ctx p = Refl
-instance (Closed (WordMapType n b)) where closed _ = Refl
+    closed p1 p2 | Refl <- closed @_ @ctx p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ctx p1 p2 = Refl
+    
+instance (Closed (WordMapType n b)) where closed _ _ = Refl
 instance (Closed ctx) => Closed (RecursiveType sym ctx)
   where
-    closed p | Refl <- closed @_ @ctx p = Refl
+    closed p1 p2 | Refl <- closed @_ @ctx p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ctx p1 p2 = Refl
+    
 instance (Closed ctx) => Closed (IntrinsicType sym ctx)
   where
-    closed p | Refl <- closed @_ @ctx p = Refl
+    closed p1 p2 | Refl <- closed @_ @ctx p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ctx p1 p2 = Refl
+    
 instance (Closed ty)  => Closed (StringMapType ty) 
   where
-    closed p | Refl <- closed @_ @ty p = Refl
-instance (Closed (PolyFnType args ret)) where closed _ = Refl
-instance (Closed EmptyCtx) where closed _ = Refl
+    closed p1 p2 | Refl <- closed @_ @ty p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ty p1 p2 = Refl
+    
+instance (Closed EmptyCtx) where
+  closed _ _ = Refl
+  liftid _ _ = Refl  
+  
 instance (Closed ty, Closed ctx) => Closed (ctx ::> ty)
  where
-    closed p | Refl <- closed @_ @ctx p, Refl <- closed @_ @ty p = Refl
-         
+    closed p1 p2 | Refl <- closed @_ @ctx p1 p2, Refl <- closed @_ @ty p1 p2 = Refl
+    liftid p1 p2 | Refl <- liftid @_ @ctx p1 p2, Refl <- liftid @_ @ty p1 p2 = Refl
+    
+-- note: No instance for PolyFnType
+-- we would need to index the type class with the binding level
+-- to do this.
 
 newtype Gift a r = Gift (Closed a => r)
 
@@ -714,7 +834,7 @@ checkClosed (StringMapRepr t) =
 checkClosed (SymbolicArrayRepr _ _) = Just Dict
 checkClosed (SymbolicStructRepr _) = Just Dict
 checkClosed (VarRepr _) = Nothing
-checkClosed (PolyFnRepr _ _) = Just Dict -- Can this possibly be right?
+checkClosed (PolyFnRepr _ _ _) = Nothing -- conservative!!! -- Just Dict -- Can this possibly be right?
 
 
 --------------------------------------------------------------------------------
@@ -723,51 +843,130 @@ checkClosed (PolyFnRepr _ _) = Just Dict -- Can this possibly be right?
 -- This is a property of the Instantiate type family. However, Haskell's type system
 -- is too weak to prove it automatically. (And we don't want to run any proofs either.)
 -- Maybe a quantified constraint would help?
-composeInstantiateAxiom :: forall subst subst1 x.
-  Instantiate subst (Instantiate subst1 x) :~: Instantiate (Instantiate subst subst1) x
+composeInstantiateAxiom :: forall n2 subst2 n1 subst1 x.
+  Instantiate n2 subst2 (Instantiate n1 subst1 x) :~:
+  Instantiate n1 (Instantiate n2 subst2 subst1)
+                 (Instantiate n2 subst2 x)
 composeInstantiateAxiom = unsafeCoerce Refl
 
+<<<<<<< HEAD
+=======
+-- Lift a free variable k (i.e. not bound in scope n), by m places
+type family LiftVarType (n :: Nat) (m :: Nat) (k :: Nat) :: Nat where
+  LiftVarType n m k = If (n <=? k) (k + m) k
+
+type instance Lift n m (v :: CrucibleType) = LiftCT n m v
+type family LiftCT n m (v :: CrucibleType) :: CrucibleType where
+  LiftCT n m (BaseToType b) = BaseToType b
+  LiftCT n m AnyType  = AnyType
+  LiftCT n m UnitType = UnitType
+  LiftCT n m (FloatType fi) = FloatType fi
+  LiftCT n m CharType = CharType
+  LiftCT n m (FunctionHandleType args ret) =
+     FunctionHandleType (Lift n m args ) (LiftCT n m ret)
+  LiftCT n m (MaybeType ty) = MaybeType (LiftCT n m ty )
+  LiftCT n m (VectorType ty) = VectorType (LiftCT n m ty)
+  LiftCT n m (StructType ctx) = StructType (Lift n m ctx)
+  LiftCT n m (ReferenceType ty) = ReferenceType (LiftCT n m ty)
+  LiftCT n m (VariantType ctx) = VariantType (Lift n m ctx)
+  LiftCT n m (WordMapType n0 b) = WordMapType n0 b
+  LiftCT n m (RecursiveType sym ctx) = RecursiveType sym (Lift n m ctx)
+  LiftCT n m (IntrinsicType sym ctx) = IntrinsicType sym (Lift n m ctx)
+  LiftCT n m (StringMapType ty) = StringMapType (Lift n m ty)
+  LiftCT n m (VarType i) = VarType (LiftVarType n m i)
+  LiftCT n m (PolyFnType k args ret) = PolyFnType k (Lift (k + n) m args) (Lift (k + n) m ret)
+
+
+type instance Instantiate n subst (v :: CrucibleType) = InstantiateCT n subst v
+  
+type family InstantiateCT (n :: Nat) (subst :: Ctx CrucibleType) (v :: CrucibleType) :: CrucibleType where
+  InstantiateCT n subst (BaseToType b) = BaseToType b
+  InstantiateCT n subst AnyType  = AnyType
+  InstantiateCT n subst UnitType = UnitType
+  InstantiateCT n subst (FloatType fi) = FloatType fi
+  InstantiateCT n subst CharType = CharType
+  InstantiateCT n subst (FunctionHandleType args ret) =
+     FunctionHandleType (Instantiate n subst args ) (Instantiate n subst ret)
+  InstantiateCT n subst (MaybeType ty) = MaybeType (Instantiate n subst ty )
+  InstantiateCT n subst (VectorType ty) = VectorType (Instantiate n subst ty)
+  InstantiateCT n subst (StructType ctx) = StructType (Instantiate n subst ctx)
+  InstantiateCT n subst (ReferenceType ty) = ReferenceType (Instantiate n subst ty)
+  InstantiateCT n subst (VariantType ctx) = VariantType (Instantiate n subst ctx)
+  InstantiateCT n subst (WordMapType n0 b) = WordMapType n0 b
+  InstantiateCT n subst (RecursiveType sym ctx) = RecursiveType sym (Instantiate n subst ctx)
+  InstantiateCT n subst (IntrinsicType sym ctx) = IntrinsicType sym (Instantiate n subst ctx)
+  InstantiateCT n subst (StringMapType ty) = StringMapType (Instantiate n subst ty)
+  InstantiateCT n subst (VarType k) =
+    If (n <=? k) (LookupVarType (k - n) subst (VarType k)) (VarType k) 
+  InstantiateCT n subst (PolyFnType k args ret) =
+    PolyFnType k (Instantiate (n + k) (Lift 0 k subst) args) (Instantiate (n + k) (Lift 0 k subst) ret)
+-- helper definition for VarType instance
+type family LookupVarType (n :: Nat) (subst :: Ctx CrucibleType) (def :: CrucibleType) :: CrucibleType where
+  LookupVarType n (ctx ::> ty) def = If (n <=? 0)
+                                        ty
+                                        (LookupVarType (n - 1) ctx def)
+  LookupVarType n EmptyCtx     def = def
+  
+
+-- TypeCon apps
+
+>>>>>>> midstream commit. Changing course on approach to polymorphism.
 instance (InstantiateF t) => InstantiateType (t a) where
   instantiate = instantiateF
+  lift = liftF
 instance (InstantiateFC t, InstantiateF a) => InstantiateF (t a) where
   instantiateF = instantiateFC
+  liftF = liftFC
 
 -- k = Type (needed for trivial syntax extensions)
-type instance Instantiate subst () = ()
-type instance Instantiate subst (a b :: Type) = Instantiate subst a (Instantiate subst b)
-type instance Instantiate subst (a b :: k -> Type) = Instantiate subst a (Instantiate subst b)
-type instance Instantiate subst (a b :: k -> l -> Type) = Instantiate subst a (Instantiate subst b)
+type instance Instantiate n subst () = ()
+type instance Instantiate n subst (a b :: Type) = Instantiate n subst a (Instantiate n subst b)
+type instance Instantiate n subst (a b :: k -> Type) = Instantiate n subst a (Instantiate n subst b)
+type instance Instantiate n subst (a b :: k -> l -> Type) = Instantiate n subst a (Instantiate n subst b)
+
+type instance Lift n m () = ()
+type instance Lift n m (a b :: Type) = Lift n m a (Lift n m b)
+type instance Lift n m (a b :: k -> Type) = Lift n m a (Lift n m b)
+type instance Lift n m (a b :: k -> l -> Type) = Lift n m a (Lift n m b)
+
+
 
 
 -- Ctx & Assignment
 
 -- k = (k' -> Type) -> Ctx k' -> Type
-type instance Instantiate subst Ctx.Assignment = Ctx.Assignment
-
+type instance Instantiate n subst Ctx.Assignment = Ctx.Assignment
+type instance Lift n m Ctx.Assignment = Ctx.Assignment
 -- k = Ctx k'
-type instance Instantiate subst EmptyCtx = EmptyCtx
-type instance Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
+type instance Instantiate n subst EmptyCtx = EmptyCtx
+type instance Instantiate n subst (ctx ::> ty) = Instantiate n subst ctx ::> Instantiate n subst ty
+
+type instance Lift n m EmptyCtx     = EmptyCtx
+type instance Lift n m (ctx ::> ty) = Lift n m ctx ::> Lift n m ty 
+
 
 
 -- Ctx.Assignment :: (k -> Type) -> Ctx k -> Type
 instance InstantiateFC Ctx.Assignment where
-  instantiateFC _subst Ctx.Empty = Ctx.Empty
-  instantiateFC subst (ctx Ctx.:> ty) = instantiate subst ctx Ctx.:> instantiate subst ty
+  instantiateFC _n _subst Ctx.Empty = Ctx.Empty
+  instantiateFC n subst (ctx Ctx.:> ty) = instantiate n subst ctx Ctx.:> instantiate n subst ty
 
 
 -- Ctx.Index :: Ctx k -> CrucibleType -> Type
 -- Ctx.Index is just a number
-type instance Instantiate subst Ctx.Index = Ctx.Index 
+type instance Instantiate n subst Ctx.Index = Ctx.Index
+type instance Lift n m Ctx.Index = Ctx.Index 
 instance InstantiateF (Ctx.Index ctx) where
-  instantiateF _subst idx = unsafeCoerce idx
+  instantiateF _n _subst idx = unsafeCoerce idx
 
 
 
 -- BaseTypeRepr
-type instance Instantiate subst BaseTypeRepr = BaseTypeRepr
+type instance Instantiate n subst BaseTypeRepr = BaseTypeRepr
+type instance Lift n m BaseTypeRepr = BaseTypeRepr
 instance InstantiateF BaseTypeRepr where
-  instantiateF subst (r :: BaseTypeRepr bt)
-    | Refl <- closed @_ @bt subst
+  instantiateF n subst (r :: BaseTypeRepr bt)
+    | Refl <- closed @_ @bt n subst
     = r
 
 
@@ -775,39 +974,77 @@ instance InstantiateF BaseTypeRepr where
 
 
 -- TypeRepr
-type instance Instantiate subst TypeRepr = TypeRepr 
+type instance Instantiate n subst TypeRepr = TypeRepr
+type instance Lift n m TypeRepr = TypeRepr
+
 instance InstantiateF TypeRepr where
   instantiateF = instantiateRepr
+  liftF = liftRepr
   
-instantiateRepr :: CtxRepr subst -> TypeRepr ty -> TypeRepr (Instantiate subst ty)
-instantiateRepr _subst BoolRepr = BoolRepr
-instantiateRepr _subst NatRepr = NatRepr
-instantiateRepr _subst IntegerRepr = IntegerRepr
-instantiateRepr _ubst RealValRepr = RealValRepr
-instantiateRepr _subst StringRepr = StringRepr
-instantiateRepr _subst (BVRepr w) = BVRepr w
-instantiateRepr _subst ComplexRealRepr = ComplexRealRepr 
-instantiateRepr _subst (SymbolicArrayRepr idx w) = SymbolicArrayRepr idx w
-instantiateRepr _subst (SymbolicStructRepr flds) = SymbolicStructRepr flds
-instantiateRepr _subst (IEEEFloatRepr ps) = IEEEFloatRepr ps
-instantiateRepr _subst AnyRepr  = AnyRepr
-instantiateRepr _subst UnitRepr = UnitRepr
-instantiateRepr _subst (FloatRepr fi) = FloatRepr fi
-instantiateRepr _subst CharRepr = CharRepr
-instantiateRepr subst (FunctionHandleRepr args ret) =
-    FunctionHandleRepr (instantiate subst args ) (instantiateRepr subst ret)
-instantiateRepr subst (MaybeRepr ty) =
-    MaybeRepr (instantiateRepr subst ty )
-instantiateRepr subst (VectorRepr ty) = VectorRepr (instantiateRepr subst ty)
-instantiateRepr subst (StructRepr ctx) = StructRepr (instantiate subst ctx)
-instantiateRepr subst (ReferenceRepr ty) = ReferenceRepr (instantiateRepr subst ty)
-instantiateRepr subst (VariantRepr ctx) = VariantRepr (instantiate subst ctx)
-instantiateRepr _subst (WordMapRepr n b) = WordMapRepr n b
-instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiate subst ctx)
-instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiate subst ctx)
-instantiateRepr subst (StringMapRepr ty) = StringMapRepr (instantiateRepr subst ty)
-instantiateRepr subst (VarRepr i) = lookupVarRepr i subst (VarRepr i)
-instantiateRepr _subst (PolyFnRepr args ty) = PolyFnRepr args ty
+instantiateRepr :: NatRepr n -> CtxRepr subst -> TypeRepr ty -> TypeRepr (Instantiate n subst ty)
+instantiateRepr _n _subst BoolRepr = BoolRepr
+instantiateRepr _n _subst NatRepr = NatRepr
+instantiateRepr _n _subst IntegerRepr = IntegerRepr
+instantiateRepr _n _subst RealValRepr = RealValRepr
+instantiateRepr _n _subst StringRepr = StringRepr
+instantiateRepr _n _subst (BVRepr w) = BVRepr w
+instantiateRepr _n _subst ComplexRealRepr = ComplexRealRepr 
+instantiateRepr _n _subst (SymbolicArrayRepr idx w) = SymbolicArrayRepr idx w
+instantiateRepr _n _subst (SymbolicStructRepr flds) = SymbolicStructRepr flds
+instantiateRepr _n _subst (IEEEFloatRepr ps) = IEEEFloatRepr ps
+instantiateRepr _n _subst AnyRepr  = AnyRepr
+instantiateRepr _n _subst UnitRepr = UnitRepr
+instantiateRepr _n _subst (FloatRepr fi) = FloatRepr fi
+instantiateRepr _n _subst CharRepr = CharRepr
+instantiateRepr n subst (FunctionHandleRepr args ret) =
+    FunctionHandleRepr (instantiate n subst args ) (instantiateRepr n subst ret)
+instantiateRepr _n subst (MaybeRepr ty) =
+    MaybeRepr (instantiateRepr _n subst ty )
+instantiateRepr n subst (VectorRepr ty) = VectorRepr (instantiateRepr n subst ty)
+instantiateRepr n subst (StructRepr ctx) = StructRepr (instantiate n subst ctx)
+instantiateRepr n subst (ReferenceRepr ty) = ReferenceRepr (instantiateRepr n subst ty)
+instantiateRepr n subst (VariantRepr ctx) = VariantRepr (instantiate n subst ctx)
+instantiateRepr _n _subst (WordMapRepr n b) = WordMapRepr n b
+instantiateRepr n subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiate n subst ctx)
+instantiateRepr n subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiate n subst ctx)
+instantiateRepr n subst (StringMapRepr ty) = StringMapRepr (instantiateRepr n subst ty)
+instantiateRepr n subst (VarRepr k) = instantiateVarRepr n subst k
+instantiateRepr n subst (PolyFnRepr k args ty) =
+  PolyFnRepr k (instantiate (addNat n k) (lift (knownRepr :: NatRepr 0) k subst) args)
+               (instantiate (addNat n k) (lift (knownRepr :: NatRepr 0) k subst) ty)
+
+
+liftRepr :: NatRepr n -> NatRepr m -> TypeRepr ty -> TypeRepr (Lift n m ty)
+liftRepr _n _m BoolRepr = BoolRepr
+liftRepr _n _m NatRepr = NatRepr
+liftRepr _n _m IntegerRepr = IntegerRepr
+liftRepr _n _m RealValRepr = RealValRepr
+liftRepr _n _m StringRepr = StringRepr
+liftRepr _n _m (BVRepr w) = BVRepr w
+liftRepr _n _m ComplexRealRepr = ComplexRealRepr 
+liftRepr _n _m (SymbolicArrayRepr idx w) = SymbolicArrayRepr idx w
+liftRepr _n _m (SymbolicStructRepr flds) = SymbolicStructRepr flds
+liftRepr _n _m (IEEEFloatRepr ps) = IEEEFloatRepr ps
+liftRepr _n _m AnyRepr  = AnyRepr
+liftRepr _n _m UnitRepr = UnitRepr
+liftRepr _n _m (FloatRepr fi) = FloatRepr fi
+liftRepr _n _m CharRepr = CharRepr
+liftRepr n m (FunctionHandleRepr args ret) =
+    FunctionHandleRepr (lift n m args ) (liftRepr n m ret)
+liftRepr _n m (MaybeRepr ty) =
+    MaybeRepr (liftRepr _n m ty )
+liftRepr n m (VectorRepr ty) = VectorRepr (liftRepr n m ty)
+liftRepr n m (StructRepr ctx) = StructRepr (lift n m ctx)
+liftRepr n m (ReferenceRepr ty) = ReferenceRepr (liftRepr n m ty)
+liftRepr n m (VariantRepr ctx) = VariantRepr (lift n m ctx)
+liftRepr _n _m (WordMapRepr n b) = WordMapRepr n b
+liftRepr n m (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (lift n m ctx)
+liftRepr n m (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (lift n m ctx)
+liftRepr n m (StringMapRepr ty) = StringMapRepr (liftRepr n m ty)
+liftRepr n m (VarRepr i) = VarRepr (liftVarRepr n m i)
+liftRepr n m (PolyFnRepr k args ty) = PolyFnRepr k (lift (addNat k n) m args) (lift (addNat k n) m ty)
+
+
 
 
 -- NOTE: We need the equality below to typecheck lookupVarRepr.
@@ -843,6 +1080,7 @@ axiom3 = Refl
 -}
 
 -- see comments above for justification for [unsafeCoerce] in this function
+{-
 lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
 lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
   case isZeroNat n of
@@ -851,6 +1089,7 @@ lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
       --  (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
       unsafeCoerce (lookupVarRepr (predNat n) ctx def)
 lookupVarRepr _n Ctx.Empty def = def
+<<<<<<< HEAD
 
 -- see comments above for justification for [unsafeCoerce] in this function
 lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
@@ -862,3 +1101,48 @@ lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
 
       unsafeCoerce (lookupVarRepr (predNat n) ctx)
 lookupVarRepr _n Ctx.Empty = error "this case is a type error"
+=======
+-}
+
+
+-----------------------------------------------------------------
+
+data BoolRepr :: Bool -> Type where
+  TrueRepr :: BoolRepr 'True
+  FalseRepr :: BoolRepr 'False
+instance KnownRepr BoolRepr 'True where knownRepr = TrueRepr
+instance KnownRepr BoolRepr 'False where knownRepr = FalseRepr
+
+lteNat :: NatRepr n -> NatRepr k -> BoolRepr (n <=? k)
+lteNat n k = case compareNat n k of
+  NatLT _ -> unsafeCoerce TrueRepr
+  NatEQ -> unsafeCoerce TrueRepr
+  NatGT _ -> unsafeCoerce FalseRepr
+
+
+axiom :: forall n. ((n <=? 0) ~ 'False) => (1 <=? n) :~: 'True
+axiom = unsafeCoerce Refl
+
+-----------------------------------------------------------------
+
+lookupVarRepr :: forall n ctx1 def. NatRepr n -> CtxRepr ctx1 -> TypeRepr def -> TypeRepr (LookupVarType n ctx1 def)
+lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
+  case lteNat n (knownNat :: NatRepr 0) of
+    TrueRepr  -> ty
+    FalseRepr -> case axiom @n of
+      Refl -> lookupVarRepr (subNat n (knownNat :: NatRepr 1)) ctx def
+lookupVarRepr _n Ctx.Empty def = def
+
+
+
+instantiateVarRepr ::  NatRepr n -> CtxRepr subst -> NatRepr k -> TypeRepr (Instantiate n subst (VarType k))
+instantiateVarRepr n subst k =
+  case lteNat n k  of
+    TrueRepr  -> lookupVarRepr (subNat k n) subst (VarRepr k)
+    FalseRepr -> VarRepr k
+
+liftVarRepr :: NatRepr n -> NatRepr m -> NatRepr k -> NatRepr (LiftVarType n m k)
+liftVarRepr n m k = case lteNat n k of
+  TrueRepr -> (addNat k m)
+  FalseRepr -> k
+>>>>>>> midstream commit. Changing course on approach to polymorphism.

@@ -55,6 +55,7 @@ import           What4.WordMap
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
+import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
@@ -471,18 +472,22 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ----------------------------------------------------------------------
     -- Handle
 
-    HandleLit h -> return (HandleFnVal h)
+    HandleLit h -> return (HandleFnVal (MonoFnHandle h))
 
     Closure _ _ h_expr tp v_expr -> do
       h <- evalSub h_expr
       v <- evalSub v_expr
       return $! ClosureFnVal h tp v
 
-    PolyHandleLit h -> return (HandleFnVal h)
-
-    PolyInstantiate _ h_expr subst -> do
+    HandleExprLit h -> case
+      handleExprType h of
+         FunctionHandleRepr _ _ -> return (HandleFnVal @_ @sym h)
+         PolyFnRepr _ _ _ -> return (HandleFnVal @_ @sym h)
+         _ -> error "BUG: handle expressions must be FunctionHandleType or PolyFnType"
+         
+    PolyInstantiate _ty h_expr subst -> do
       h <- evalSub h_expr
-      let hv = instantiateFnVal subst h
+      let hv = instantiatePolyFnVal h subst
       return hv
 
     ----------------------------------------------------------------------

@@ -35,7 +35,7 @@ module Lang.Crucible.Simulator.RegValue
   , FnVal(..)
   , fnValType
   , RolledType(..)
-  , instantiateFnVal
+  , instantiatePolyFnVal
 
     -- * Value mux functions
   , ValMuxFn
@@ -50,7 +50,7 @@ module Lang.Crucible.Simulator.RegValue
   ) where
 
 import           Control.Monad
-import           Control.Monad.Trans.Class
+import           Control.Monad.Trans.Class 
 import           Data.Kind
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -72,7 +72,7 @@ import           What4.WordMap
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Types
+import           Lang.Crucible.Types hiding (lift)
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
 
@@ -85,7 +85,7 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym AnyType = AnyValue sym
   RegValue sym UnitType = ()
   RegValue sym CharType = Word16
-  RegValue sym (FunctionHandleType a r) = FnVal sym a r
+  RegValue sym (FunctionHandleType a r) = FnVal sym (FunctionHandleType a r)
   RegValue sym (MaybeType tp) = PartExpr (Pred sym) (RegValue sym tp)
   RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
   RegValue sym (StructType ctx) = Ctx.Assignment (RegValue' sym) ctx
@@ -95,7 +95,7 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
   RegValue sym (StringMapType tp) = Map Text (PartExpr (Pred sym) (RegValue sym tp))
-  RegValue sym (PolyFnType a r) = FnVal sym a r
+  RegValue sym (PolyFnType n a r) = FnVal sym (PolyFnType n a r)
 
 -- | A newtype wrapper around RegValue.  This is wrapper necessary because
 --   RegValue is a type family and, as such, cannot be partially applied.
@@ -104,55 +104,52 @@ newtype RegValue' sym tp = RV { unRV :: RegValue sym tp }
 
 
 ------------------------------------------------------------------------
--- FnVal
+-- FnVal, type index indicates whether it is polymorphic
 
--- | Represents a function closure.
 
-data FnVal (sym :: Type) (args :: Ctx CrucibleType) (res :: CrucibleType) where
+-- | Represents a function closure or function handle
+data FnVal (sym :: Type) ty where
   ClosureFnVal :: Closed tp =>
-                  !(FnVal sym (args ::> tp) ret)
+                  !(FnVal sym (FunctionHandleType (args ::> tp) ret))
                -> !(TypeRepr tp)
                -> !(RegValue sym tp)
-               -> FnVal sym args ret
+               -> FnVal sym (FunctionHandleType args ret)
 
-  -- Either a monomorphic or polymorphic function
-  HandleFnVal :: !(FnHandle a r) -> FnVal sym a r
+  -- NOTE: could have embedded instantiations
+  HandleFnVal :: !(HandleExpr ty) -> FnVal sym ty
 
-  -- A polymorphic function that has been instantiated
-  InstantiatedHandleFnVal
-    :: !(CtxRepr subst)
-    -> !(FnHandle a r) 
-    -> FnVal sym (Instantiate subst a) (Instantiate subst r)
-
-closureFunctionName :: FnVal sym args res -> FunctionName
+closureFunctionName :: FnVal sym t -> FunctionName
 closureFunctionName (ClosureFnVal c _ _) = closureFunctionName c
-closureFunctionName (HandleFnVal h) = handleName h
-closureFunctionName (InstantiatedHandleFnVal _ h) = handleName h
+closureFunctionName (HandleFnVal h) = handleExprName h
 
-instantiateFnVal :: forall subst sym args res.
-  CtxRepr subst -> FnVal sym args res -> FnVal sym (Instantiate subst args) (Instantiate subst res)
-instantiateFnVal subst (HandleFnVal h)
-  = InstantiatedHandleFnVal subst h
-instantiateFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::FnHandle a r)) 
-  | Refl <- composeInstantiateAxiom @subst @subst' @a,
-    Refl <- composeInstantiateAxiom @subst @subst' @r
-  = InstantiatedHandleFnVal (instantiate subst subst') h
-instantiateFnVal subst (ClosureFnVal fnv (ty :: TypeRepr ty) argty)
-  | Refl <- closed @_ @ty subst
+-- Instantiate a polymorphic function
+-- TODO: add constraint: n ~ CtxSize subst
+instantiatePolyFnVal :: forall subst sym n args res.
+     FnVal sym (PolyFnType n args res) -> CtxRepr subst
+  -> FnVal sym (FunctionHandleType (Instantiate 0 subst args) (Instantiate 0 subst res))
+instantiatePolyFnVal (HandleFnVal h) subst
+  = HandleFnVal (instantiatePolyHandleExpr h subst)
+
+{-  
+instantiatePolyFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::FnHandle a r)) 
+  | Refl <- composeInstantiateAxiom @0 @subst @0 @subst' @a,
+    Refl <- composeInstantiateAxiom @0 @subst @0 @subst' @r
+  = InstantiatedHandleFnVal (instantiate (knownRepr :: NatRepr 0) subst subst') h
+instantiatePolyFnVal subst (ClosureFnVal fnv (ty :: TypeRepr ty) argty)
+  | Refl <- closed @_ @ty (knownRepr :: NatRepr 0) subst
   = ClosureFnVal (instantiateFnVal subst fnv) ty argty
+-}
 
 -- | Extract the runtime representation of the type of the given 'FnVal'
-fnValType :: FnVal sym args res -> TypeRepr (FunctionHandleType args res)
-fnValType (HandleFnVal h) = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
+fnValType :: FnVal sym ty -> TypeRepr ty
+fnValType (HandleFnVal h) = handleExprType h
 fnValType (ClosureFnVal fn _ _) =
   case fnValType fn of
     FunctionHandleRepr allArgs r ->
       case allArgs of
         args Ctx.:> _ -> FunctionHandleRepr args r
-fnValType (InstantiatedHandleFnVal subst h) =
-  instantiate subst (fnValType (HandleFnVal h))
 
-instance Show (FnVal sym a r) where
+instance Show (FnVal sym t) where
   show = show . closureFunctionName
 
 
@@ -283,9 +280,9 @@ instance (IsExprBuilder sym, CanMux sym tp) => CanMux sym (MaybeType tp) where
 muxHandle :: IsExpr (SymExpr sym)
           => sym
           -> Pred sym
-          -> FnVal sym a r
-          -> FnVal sym a r
-          -> IO (FnVal sym a r)
+          -> FnVal sym t
+          -> FnVal sym t
+          -> IO (FnVal sym t)
 muxHandle _ c x y
   | Just b <- asConstantPred c = pure $! if b then x else y
   | otherwise = return x
@@ -294,6 +291,12 @@ instance IsExprBuilder sym => CanMux sym (FunctionHandleType a r) where
   {-# INLINE muxReg #-}
   muxReg s = \_ c x y -> do
     muxHandle s c x y
+
+instance IsExprBuilder sym => CanMux sym (PolyFnType k a r) where
+  {-# INLINE muxReg #-}
+  muxReg s = \_ c x y -> do
+    muxHandle s c x y
+
 
 ------------------------------------------------------------------------
 -- RegValue IdentValueMap instance
