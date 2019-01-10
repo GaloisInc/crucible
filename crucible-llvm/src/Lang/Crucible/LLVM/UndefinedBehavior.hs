@@ -164,6 +164,7 @@ data UndefinedBehavior =
   | AshrExact
   | AshrOp2Big
   | ExtractElementIndex
+  | GEPOutOfBounds
 
   {-
   | MemcpyDisjoint
@@ -210,6 +211,7 @@ standard =
     AshrExact               -> LLVMRef LLVM8
     AshrOp2Big              -> LLVMRef LLVM8
     ExtractElementIndex     -> LLVMRef LLVM8
+    GEPOutOfBounds          -> LLVMRef LLVM8
     {-
     MemcpyDisjoint          -> CStd C99
     DoubleFree              -> CStd C99
@@ -232,28 +234,29 @@ cite =
     PtrSubDifferentAllocs   -> "§6.5.6 Additive operators, ¶9"
 
     -------------------------------- LLVM poison and undefined values
-    AddNoUnsignedWrap       -> "‘add’ Instruction"
-    AddNoSignedWrap         -> "‘add’ Instruction"
-    SubNoUnsignedWrap       -> "‘sub’ Instruction"
-    SubNoSignedWrap         -> "‘sub’ Instruction"
-    MulNoUnsignedWrap       -> "‘mul’ Instruction"
-    MulNoSignedWrap         -> "‘mul’ Instruction"
-    UDivByZero              -> "‘udiv’ Instruction"
-    SDivByZero              -> "‘sdiv’ Instruction"
-    URemByZero              -> "‘urem’ Instruction"
-    SRemByZero              -> "‘srem’ Instruction"
-    UDivExact               -> "‘udiv’ Instruction"
-    SDivExact               -> "‘sdiv’ Instruction"
-    SDivOverflow            -> "‘sdiv’ Instruction"
-    SRemOverflow            -> "‘srem’ Instruction"
-    ShlOp2Big               -> "‘shl’ Instruction"
-    ShlNoUnsignedWrap       -> "‘shl’ Instruction"
-    ShlNoSignedWrap         -> "‘shl’ Instruction"
-    LshrExact               -> "‘lshr’ Instruction"
-    LshrOp2Big              -> "‘lshr’ Instruction"
-    AshrExact               -> "‘ashr’ Instruction"
-    AshrOp2Big              -> "‘ashr’ Instruction"
-    ExtractElementIndex     -> "‘extractelement’ Instruction"
+    AddNoUnsignedWrap       -> "‘add’ Instruction (Semantics)"
+    AddNoSignedWrap         -> "‘add’ Instruction (Semantics)"
+    SubNoUnsignedWrap       -> "‘sub’ Instruction (Semantics)"
+    SubNoSignedWrap         -> "‘sub’ Instruction (Semantics)"
+    MulNoUnsignedWrap       -> "‘mul’ Instruction (Semantics)"
+    MulNoSignedWrap         -> "‘mul’ Instruction (Semantics)"
+    UDivByZero              -> "‘udiv’ Instruction (Semantics)"
+    SDivByZero              -> "‘sdiv’ Instruction (Semantics)"
+    URemByZero              -> "‘urem’ Instruction (Semantics)"
+    SRemByZero              -> "‘srem’ Instruction (Semantics)"
+    UDivExact               -> "‘udiv’ Instruction (Semantics)"
+    SDivExact               -> "‘sdiv’ Instruction (Semantics)"
+    SDivOverflow            -> "‘sdiv’ Instruction (Semantics)"
+    SRemOverflow            -> "‘srem’ Instruction (Semantics)"
+    ShlOp2Big               -> "‘shl’ Instruction (Semantics)"
+    ShlNoUnsignedWrap       -> "‘shl’ Instruction (Semantics)"
+    ShlNoSignedWrap         -> "‘shl’ Instruction (Semantics)"
+    LshrExact               -> "‘lshr’ Instruction (Semantics)"
+    LshrOp2Big              -> "‘lshr’ Instruction (Semantics)"
+    AshrExact               -> "‘ashr’ Instruction (Semantics)"
+    AshrOp2Big              -> "‘ashr’ Instruction (Semantics)"
+    ExtractElementIndex     -> "‘extractelement’ Instruction (Semantics)"
+    GEPOutOfBounds          -> "‘getelementptr’ Instruction (Semantics)"
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
     DoubleFree              -> "§7.22.3.3 The free function"
@@ -337,10 +340,17 @@ explain =
       [ "The second operand of `ashr` was equal to or greater than the number of"
       , "bits in the first operand"
       ]
-
     ExtractElementIndex -> unwords $
       [ "Attempted to extract an element from a vector at an index that was"
       , "greater than the length of the vector"
+      ]
+    -- The following explanation is a bit unsatisfactory, because it is specific
+    -- to how we treat this instruction in Crucible.
+    GEPOutOfBounds -> unwords $
+      [ "Calling `getelementptr` resulted in an index that was out of bounds for"
+      , "the given allocation (likely due to arithmetic overflow), but Crucible"
+      , "currently treats all GEP instructions as if they had the `inbounds`"
+      , "flag set."
       ]
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"

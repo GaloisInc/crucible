@@ -449,10 +449,12 @@ calcGEP_array typ base idx =
        let maxidx = maxSigned PtrWidth `quot` (max isz 1)
        let minidx = minSigned PtrWidth `quot` (max isz 1)
 
-       -- Assert the necessary range condition
-       assertExpr ((app $ BVSle PtrWidth (app $ BVLit PtrWidth minidx) idx') .&&
-                   (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth maxidx)))
-                  (litExpr "Multiplication overflow in getelementpointer")
+       -- Multiplication overflow will result in a pointer which is not "in bounds"
+       -- for the given allocation. We translate all GEP instructions as if they
+       -- had the `inbounds` flag set, so the result would be a poison value.
+       assertUndefined Nothing UB.GEPOutOfBounds $
+         ((app $ BVSle PtrWidth (app $ BVLit PtrWidth minidx) idx') .&&
+          (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth maxidx)))
 
      -- Perform the multiply
      let off = app $ BVMul PtrWidth (app $ BVLit PtrWidth isz) idx'
