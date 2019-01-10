@@ -20,6 +20,10 @@
 -- code essentially have an additional hypothesis: that the LLVM
 -- compiler/hardware platform behave identically to Crucible's simulator when
 -- encountering such behavior.
+--
+-- TODO: Distinguish between LLVM \"poison\" values and undefined values. The
+-- latter follow control flow, wereas the former follow data flow. See the
+-- module-level comment on the "Translation" module.
 --------------------------------------------------------------------------
 
 {-# LANGUAGE LambdaCase #-}
@@ -150,6 +154,15 @@ data UndefinedBehavior =
   | SRemByZero
   | UDivExact
   | SDivExact
+  | SDivOverflow
+  | SRemOverflow
+  | ShlOp2Big
+  | ShlNoUnsignedWrap
+  | ShlNoSignedWrap
+  | LshrExact
+  | LshrOp2Big
+  | AshrExact
+  | AshrOp2Big
 
   {-
   | MemcpyDisjoint
@@ -186,6 +199,15 @@ standard =
     SRemByZero              -> LLVMRef LLVM8
     UDivExact               -> LLVMRef LLVM8
     SDivExact               -> LLVMRef LLVM8
+    SDivOverflow            -> LLVMRef LLVM8
+    SRemOverflow            -> LLVMRef LLVM8
+    ShlOp2Big               -> LLVMRef LLVM8
+    ShlNoUnsignedWrap       -> LLVMRef LLVM8
+    ShlNoSignedWrap         -> LLVMRef LLVM8
+    LshrExact               -> LLVMRef LLVM8
+    LshrOp2Big              -> LLVMRef LLVM8
+    AshrExact               -> LLVMRef LLVM8
+    AshrOp2Big              -> LLVMRef LLVM8
     {-
     MemcpyDisjoint          -> CStd C99
     DoubleFree              -> CStd C99
@@ -220,6 +242,15 @@ cite =
     SRemByZero              -> "‘srem’ Instruction"
     UDivExact               -> "‘udiv’ Instruction"
     SDivExact               -> "‘sdiv’ Instruction"
+    SDivOverflow            -> "‘sdiv’ Instruction"
+    SRemOverflow            -> "‘srem’ Instruction"
+    ShlOp2Big               -> "‘shl’ Instruction"
+    ShlNoUnsignedWrap       -> "‘shl’ Instruction"
+    ShlNoSignedWrap         -> "‘shl’ Instruction"
+    LshrExact               -> "‘lshr’ Instruction"
+    LshrOp2Big              -> "‘lshr’ Instruction"
+    AshrExact               -> "‘ashr’ Instruction"
+    AshrOp2Big              -> "‘ashr’ Instruction"
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
     DoubleFree              -> "§7.22.3.3 The free function"
@@ -275,6 +306,34 @@ explain =
       "Inexact signed division even though the `exact` flag was set"
     UDivExact         ->
       "Inexact unsigned division even though the `exact` flag was set"
+    SDivOverflow      -> "Overflow during signed division"
+    SRemOverflow      -> "Overflow during signed division (via signed remainder)"
+    ShlOp2Big         -> unwords $
+      [ "The second operand of `shl` was equal to or greater than the number of"
+      , "bits in the first operand"
+      ]
+    ShlNoUnsignedWrap ->
+      "Left shift shifted out non-zero bits even though the `nuw` flag was set"
+    ShlNoSignedWrap   -> unwords $
+      [ "Left shift shifted out some bits that disagreed with the sign bit "
+      , "even though the `nsw` flag was set"
+      ]
+    LshrExact         -> unwords $
+      [ "Inexact `lshr` (logical right shift) result even though the `exact`"
+      , "flag was set"
+      ]
+    LshrOp2Big        -> unwords $
+      [ "The second operand of `lshr` was equal to or greater than the number of"
+      , "bits in the first operand"
+      ]
+    AshrExact         -> unwords $
+      [ "Inexact `ashr` (arithmetic right shift) result even though the `exact`"
+      , "flag was set"
+      ]
+    AshrOp2Big        -> unwords $
+      [ "The second operand of `ashr` was equal to or greater than the number of"
+      , "bits in the first operand"
+      ]
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
     DoubleFree         -> "`free` called on already-freed memory"

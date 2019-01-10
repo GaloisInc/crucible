@@ -721,65 +721,88 @@ bitop op _ x y =
       , Just LeqProof <- isPosNat w -> do
          xbv <- pointerAsBitvectorExpr w x'
          ybv <- pointerAsBitvectorExpr w y'
-         ex  <- raw_bitop op w xbv ybv
+         ex  <- raw_bitop Nothing op w xbv ybv
          return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w ex))
 
     _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
+-- | Immediately assert that evaluation doesn't result in undefined behavior
+assertUndefined :: Maybe UB.Config      -- ^ Defaults to 'UB.strictConfig'
+                -> UB.UndefinedBehavior
+                -> Expr (LLVM arch) s BoolType  -- ^ The assertion
+                -> LLVMGenerator h s arch ret ()
+assertUndefined (UB.defaultStrict -> ubConfig) ub assert =
+  when (UB.getConfig ubConfig ub) $
+    assertExpr assert (litExpr (Text.pack (UB.pp ub)))
+
+-- | Add a side condition if the configuration asks us to check for it
+poisonSideCondition :: (1 <= w)
+                    => Maybe UB.Config -- ^ Defaults to 'UB.strictConfig'
+                    -> NatRepr w
+                    -> UB.UndefinedBehavior
+                    -> Expr (LLVM arch) s BoolType
+                    -> Expr (LLVM arch) s (BVType w)
+                    -> Expr (LLVM arch) s (BVType w)
+poisonSideCondition (UB.defaultStrict -> ubConfig) w ub boolExpr bvExpr =
+  if UB.getConfig ubConfig ub
+  then App $ AddSideCondition (BaseBVRepr w) boolExpr (UB.pp ub) bvExpr
+  else bvExpr
 
 raw_bitop :: (1 <= w) =>
+  Maybe UB.Config {- ^ Defaults to 'UB.strictConfig' -} ->
   L.BitOp ->
   NatRepr w ->
   Expr (LLVM arch) s (BVType w) ->
   Expr (LLVM arch) s (BVType w) ->
   LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
-raw_bitop op w a b =
-  case op of
+raw_bitop ubConfig op w a b =
+  let poisonSideCondition_ = poisonSideCondition ubConfig w
+      assertUndefined_     = assertUndefined ubConfig
+  in
+    case op of
       L.And -> return $ App (BVAnd w a b)
       L.Or  -> return $ App (BVOr w a b)
       L.Xor -> return $ App (BVXor w a b)
 
       L.Shl nuw nsw -> do
         let wlit = App (BVLit w (natValue w))
-        assertExpr (App (BVUlt w b wlit))
-                   (litExpr "shift amount too large in shl")
+        assertUndefined_ UB.ShlOp2Big (App (BVUlt w b wlit))
 
         res <- AtomExpr <$> mkAtom (App (BVShl w a b))
 
         let nuwCond expr
              | nuw = do
                  m <- AtomExpr <$> mkAtom (App (BVLshr w res b))
-                 return $ App $ AddSideCondition (BaseBVRepr w)
-                    (App (BVEq w a m))
-                    "unsigned overflow on shl"
-                    expr
+                 return $ poisonSideCondition_
+                            UB.ShlNoUnsignedWrap
+                            (App (BVEq w a m))
+                            expr
              | otherwise = return expr
 
         let nswCond expr
              | nsw = do
                  m <- AtomExpr <$> mkAtom (App (BVAshr w res b))
-                 return $ App $ AddSideCondition (BaseBVRepr w)
-                    (App (BVEq w a m))
-                    "signed overflow on shl"
-                    expr
+                 return $ poisonSideCondition_
+                            UB.ShlNoSignedWrap
+                            (App (BVEq w a m))
+                            expr
              | otherwise = return expr
 
         nuwCond =<< nswCond =<< return res
 
       L.Lshr exact -> do
         let wlit = App (BVLit w (natValue w))
-        assertExpr (App (BVUlt w b wlit))
-                   (litExpr "shift amount too large in lshr")
+        assertUndefined_ UB.LshrOp2Big (App (BVUlt w b wlit))
 
         res <- AtomExpr <$> mkAtom (App (BVLshr w a b))
 
         let exactCond expr
              | exact = do
                  m <- AtomExpr <$> mkAtom (App (BVShl w res b))
-                 return $ App $ AddSideCondition (BaseBVRepr w)
-                    (App (BVEq w a m))
-                    "inexact logical right shift"
-                    expr
+                 return $ poisonSideCondition_
+                            UB.LshrExact
+                            (App (BVEq w a m))
+                            expr
              | otherwise = return expr
 
         exactCond res
@@ -787,18 +810,17 @@ raw_bitop op w a b =
       L.Ashr exact
         | Just LeqProof <- isPosNat w -> do
            let wlit = App (BVLit w (natValue w))
-           assertExpr (App (BVUlt w b wlit))
-                      (litExpr "shift amount too large in ashr")
+           assertUndefined_ UB.AshrOp2Big (App (BVUlt w b wlit))
 
            res <- AtomExpr <$> mkAtom (App (BVAshr w a b))
 
            let exactCond expr
                 | exact = do
                     m <- AtomExpr <$> mkAtom (App (BVShl w res b))
-                    return $ App $ AddSideCondition (BaseBVRepr w)
-                       (App (BVEq w a m))
-                       "inexact arithmetic right shift"
-                       expr
+                    return $ poisonSideCondition_
+                               UB.AshrExact
+                               (App (BVEq w a m))
+                               expr
                 | otherwise = return expr
 
            exactCond res
@@ -817,34 +839,20 @@ intop :: forall w arch s h ret. (1 <= w)
       -> Expr (LLVM arch) s (BVType w)
       -> Expr (LLVM arch) s (BVType w)
       -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
-intop (UB.defaultStrict -> ubConfig) op w a b =
-  let -- Add a side condition if the configuration asks us to check for it
-      poisonSideCondition :: UB.UndefinedBehavior
-                          -> Expr (LLVM arch) s BoolType
-                          -> Expr (LLVM arch) s (BVType w)
-                          -> Expr (LLVM arch) s (BVType w)
-      poisonSideCondition ub boolExpr bvExpr =
-        if UB.getConfig ubConfig ub
-        then App $ AddSideCondition (BaseBVRepr w) boolExpr (UB.pp ub) bvExpr
-        else bvExpr
-      -- Immediately assert that evaluation doesn't result in undefined behavior
-      assertUndefined :: IsSyntaxExtension ext
-                      => UB.UndefinedBehavior
-                      -> Expr ext s BoolType  -- ^ The assertion
-                      -> Generator ext h s t ret ()
-      assertUndefined ub assert =
-        assertExpr assert (litExpr (Text.pack (UB.pp ub)))
+intop ubConfig op w a b =
+  let poisonSideCondition_ = poisonSideCondition ubConfig w
+      assertUndefined_     = assertUndefined ubConfig
   in case op of
        L.Add nuw nsw -> do
          let nuwCond expr
-               | nuw = return $ poisonSideCondition
+               | nuw = return $ poisonSideCondition_
                                   UB.AddNoUnsignedWrap
                                   (notExpr (App (BVCarry w a b)))
                                   expr
                | otherwise = return expr
 
          let nswCond expr
-               | nsw = return $ poisonSideCondition
+               | nsw = return $ poisonSideCondition_
                                   UB.AddNoSignedWrap
                                   (notExpr (App (BVSCarry w a b)))
                                   expr
@@ -854,14 +862,14 @@ intop (UB.defaultStrict -> ubConfig) op w a b =
 
        L.Sub nuw nsw -> do
          let nuwCond expr
-               | nuw = return $ poisonSideCondition
+               | nuw = return $ poisonSideCondition_
                                   UB.SubNoUnsignedWrap
                                   (notExpr (App (BVUlt w a b)))
                                   expr
                | otherwise = return expr
 
          let nswCond expr
-               | nsw = return $ poisonSideCondition
+               | nsw = return $ poisonSideCondition_
                                   UB.SubNoSignedWrap
                                   (notExpr (App (BVSBorrow w a b)))
                                   expr
@@ -881,7 +889,7 @@ intop (UB.defaultStrict -> ubConfig) op w a b =
                    bz <- AtomExpr <$> mkAtom (App (BVZext w' w b))
                    wideprod <- AtomExpr <$> mkAtom (App (BVMul w' az bz))
                    prodz <- AtomExpr <$> mkAtom (App (BVZext w' w prod))
-                   return $ poisonSideCondition
+                   return $ poisonSideCondition_
                               UB.MulNoUnsignedWrap
                               (App (BVEq w' wideprod prodz))
                               expr
@@ -893,7 +901,7 @@ intop (UB.defaultStrict -> ubConfig) op w a b =
                    bs <- AtomExpr <$> mkAtom (App (BVSext w' w b))
                    wideprod <- AtomExpr <$> mkAtom (App (BVMul w' as bs))
                    prods <- AtomExpr <$> mkAtom (App (BVSext w' w prod))
-                   return $ poisonSideCondition
+                   return $ poisonSideCondition_
                               UB.MulNoSignedWrap
                               (App (BVEq w' wideprod prods))
                               expr
@@ -903,13 +911,13 @@ intop (UB.defaultStrict -> ubConfig) op w a b =
 
        L.UDiv exact -> do
          let z = App (BVLit w 0)
-         assertUndefined UB.UDivByZero (notExpr (App (BVEq w z b)))
+         assertUndefined_ UB.UDivByZero (notExpr (App (BVEq w z b)))
          q <- AtomExpr <$> mkAtom (App (BVUdiv w a b))
 
          let exactCond expr
                | exact = do
                    m <- AtomExpr <$> mkAtom (App (BVMul w q b))
-                   return $ poisonSideCondition
+                   return $ poisonSideCondition_
                               UB.UDivExact
                               (App (BVEq w a m))
                               expr
@@ -923,20 +931,16 @@ intop (UB.defaultStrict -> ubConfig) op w a b =
            let neg1   = App (BVLit w (-1))
            let minInt = App (BVLit w (minSigned w))
 
-           assertUndefined UB.SDivByZero (notExpr (App (BVEq w z b)))
-
-           -- TODO: make this an 'assertUndefined'
-           assertExpr (notExpr ((App (BVEq w neg1 b))
-                                 .&&
-                                 (App (BVEq w minInt a)) ))
-                       (litExpr "signed division overflow (yes, really)")
+           assertUndefined_ UB.SDivByZero (notExpr (App (BVEq w z b)))
+           assertUndefined_ UB.SDivOverflow $
+             (notExpr ((App (BVEq w neg1 b)) .&& (App (BVEq w minInt a))))
 
            q <- AtomExpr <$> mkAtom (App (BVSdiv w a b))
 
            let exactCond expr
                  | exact = do
                      m <- AtomExpr <$> mkAtom (App (BVMul w q b))
-                     return $ poisonSideCondition
+                     return $ poisonSideCondition_
                                 UB.SDivExact
                                 (App (BVEq w a m))
                                 expr
@@ -948,7 +952,7 @@ intop (UB.defaultStrict -> ubConfig) op w a b =
 
        L.URem -> do
            let z = App (BVLit w 0)
-           assertUndefined UB.URemByZero (notExpr (App (BVEq w z b)))
+           assertUndefined_ UB.URemByZero (notExpr (App (BVEq w z b)))
            return $ App (BVUrem w a b)
 
        L.SRem
@@ -956,11 +960,9 @@ intop (UB.defaultStrict -> ubConfig) op w a b =
            let z      = App (BVLit w 0)
            let neg1   = App (BVLit w (-1))
            let minInt = App (BVLit w (minSigned w))
-           assertUndefined UB.SRemByZero (notExpr (App (BVEq w z b)))
-           assertExpr (notExpr ((App (BVEq w neg1 b))
-                                 .&&
-                                 (App (BVEq w minInt a)) ))
-                       (litExpr "signed division overflow in srem (yes, really)")
+           assertUndefined_ UB.SRemByZero (notExpr (App (BVEq w z b)))
+           assertUndefined_ UB.SRemOverflow $
+             (notExpr ((App (BVEq w neg1 b)) .&& (App (BVEq w minInt a))))
 
            return $ App (BVSrem w a b)
 
