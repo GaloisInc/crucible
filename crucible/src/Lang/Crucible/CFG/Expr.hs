@@ -80,6 +80,7 @@ import           Lang.Crucible.Utils.PrettyPrint
 import qualified Lang.Crucible.Utils.Structural as U
 
 
+import Unsafe.Coerce(unsafeCoerce)
 ------------------------------------------------------------------------
 -- BaseTerm
 
@@ -116,18 +117,14 @@ instance FoldableFC BaseTerm where
 instance TraversableFC BaseTerm where
   traverseFC f (BaseTerm tp x) = BaseTerm tp <$> f x
 
-type instance Instantiate n subst BaseTerm = BaseTerm
-type instance Lift n m BaseTerm = BaseTerm
+type instance Instantiate subst BaseTerm = BaseTerm
 
 instance InstantiateFC BaseTerm where
 
-  instantiateFC n subst (BaseTerm (btr :: BaseTypeRepr btr) val)
-    | Refl <- closed @_ @(BaseTypeRepr btr) n subst =
-    BaseTerm btr (instantiate n subst val)
+  instantiateFC subst (BaseTerm (btr :: BaseTypeRepr btr) val)
+    | Refl <- closed @_ @(BaseTypeRepr btr) subst =
+    BaseTerm btr (instantiate subst val)
 
-  liftFC n m (BaseTerm (btr :: BaseTypeRepr btr) val)
-    | Refl <- liftid @_ @(BaseTypeRepr btr) n m =
-    BaseTerm btr (lift n m val)
 
 ------------------------------------------------------------------------
 -- App
@@ -565,7 +562,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- FnHandles that generalize over all free type variables
   -- TODO check that k is greater than the largest occurrence
   -- of any VarType in args and ret
-  PolyHandleLit :: !(NatRepr k) -> !(FnHandle args ret)
+  PolyHandleLit :: !(PeanoRepr k) -> !(FnHandle args ret)
     -> App ext f (PolyFnType k args ret)
       
 
@@ -587,7 +584,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
        !(TypeRepr (PolyFnType k args ret))
     -> !(f (PolyFnType k args ret))
     -> !(CtxRepr targs)
-    -> App ext f (Instantiate 0 targs (FunctionHandleType args ret))
+    -> App ext f (Instantiate (MkSubst targs) (FunctionHandleType args ret))
 
   ----------------------------------------------------------------------
   -- Conversions
@@ -1145,10 +1142,10 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     -- HandleExprLit h ->
     --  handleExprType h
       
-    PolyInstantiate (PolyFnRepr k args ret) _ targs ->
+    PolyInstantiate (PolyFnRepr _k args ret) _ targs ->
       FunctionHandleRepr
-       (instantiate (knownRepr :: NatRepr 0) targs args)
-       (instantiate (knownRepr :: NatRepr 0) targs ret)
+       (instantiate (mkSubst targs) args)
+       (instantiate (mkSubst targs) ret)
 
     ----------------------------------------------------------------------
     -- Conversions
@@ -1368,8 +1365,8 @@ instance TestEqualityFC (ExprExtension ext) => TestEqualityFC (App ext) where
                    , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testFnHandle|])
 
-                   , (U.ConType [t|HandleExpr|]  `U.TypeApp` U.AnyType, [|testEquality|])
-
+--                   , (U.ConType [t|HandleExpr|]  `U.TypeApp` U.AnyType, [|testEquality|])
+                   , (U.TypeApp (U.ConType [t|PeanoRepr|]) U.AnyType, [|testEquality|])
                    , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|testVector testSubterm|])
                    ]
                   )
@@ -1402,8 +1399,8 @@ instance OrdFC (ExprExtension ext) => OrdFC (App ext) where
                      )
                    , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFnHandle|])
-                   , (U.ConType [t|HandleExpr|]  `U.TypeApp` U.AnyType, [|compareF|])
-
+--                   , (U.ConType [t|HandleExpr|]  `U.TypeApp` U.AnyType, [|compareF|])
+                   , (U.TypeApp (U.ConType [t|PeanoRepr|]) U.AnyType, [|compareF|])
                    , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|compareVector compareSubterm|])
                    ]
                   )
@@ -1441,56 +1438,55 @@ mapApp f a = runIdentity (traverseApp (pure . f) a)
 -- Type Instantiation
 
 -- App :: Type -> (CrucibleType -> Type) -> CrucibleType -> Type
-type instance Instantiate n subst App = App
-type instance Lift n m App = App  
+type instance Instantiate subst App = App
 instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
-   instantiateFC (n :: NatRepr n) (subst :: CtxRepr subst) app 
-      | Refl <- closed @_ @ext n subst,
-        Refl <- closed @_ @(ExprExtension ext) n subst =
+   instantiateFC (subst :: SubstRepr subst) app 
+      | Refl <- closed @_ @ext subst,
+        Refl <- closed @_ @(ExprExtension ext) subst =
       case app of
-          ExtensionApp ext -> ExtensionApp (instantiate n subst ext)
+          ExtensionApp ext -> ExtensionApp (instantiate subst ext)
           
-          BaseIsEq bty r1 r2 -> BaseIsEq bty (instantiate n subst r1) (instantiate n subst r2)
-          BaseIte bty r1 r2 r3 -> BaseIte bty (instantiate n subst r1)
-            (instantiate n subst r2) (instantiate n subst r3)
+          BaseIsEq bty r1 r2 -> BaseIsEq bty (instantiate subst r1) (instantiate subst r2)
+          BaseIte bty r1 r2 r3 -> BaseIte bty (instantiate subst r1)
+            (instantiate subst r2) (instantiate subst r3)
           EmptyApp -> EmptyApp
-          PackAny ty reg   -> PackAny (instantiate n subst ty) (instantiate n subst reg)
-          UnpackAny ty reg -> UnpackAny (instantiate n subst ty) (instantiate n subst reg)
+          PackAny ty reg   -> PackAny (instantiate subst ty) (instantiate subst reg)
+          UnpackAny ty reg -> UnpackAny (instantiate subst ty) (instantiate subst reg)
           BoolLit b -> BoolLit b
-          Not r1 -> Not (instantiate n subst r1)
-          And r1 r2 -> And (instantiate n subst r1) (instantiate n subst r2)
-          Or r1 r2 -> Or (instantiate n subst r1) (instantiate n subst r2)
-          BoolXor r1 r2 -> BoolXor (instantiate n subst r1) (instantiate n subst r2)
+          Not r1 -> Not (instantiate subst r1)
+          And r1 r2 -> And (instantiate subst r1) (instantiate subst r2)
+          Or r1 r2 -> Or (instantiate subst r1) (instantiate subst r2)
+          BoolXor r1 r2 -> BoolXor (instantiate subst r1) (instantiate subst r2)
           NatLit n -> NatLit n
-          NatLt  r1 r2 -> NatLt  (instantiate n subst r1) (instantiate n subst r2)
-          NatLe  r1 r2 -> NatLe  (instantiate n subst r1) (instantiate n subst r2)
-          NatAdd r1 r2 -> NatAdd (instantiate n subst r1) (instantiate n subst r2)
-          NatSub r1 r2 -> NatSub (instantiate n subst r1) (instantiate n subst r2)
-          NatMul r1 r2 -> NatMul (instantiate n subst r1) (instantiate n subst r2)
-          NatDiv r1 r2 -> NatDiv (instantiate n subst r1) (instantiate n subst r2)
-          NatMod r1 r2 -> NatMod (instantiate n subst r1) (instantiate n subst r2)
+          NatLt  r1 r2 -> NatLt  (instantiate subst r1) (instantiate subst r2)
+          NatLe  r1 r2 -> NatLe  (instantiate subst r1) (instantiate subst r2)
+          NatAdd r1 r2 -> NatAdd (instantiate subst r1) (instantiate subst r2)
+          NatSub r1 r2 -> NatSub (instantiate subst r1) (instantiate subst r2)
+          NatMul r1 r2 -> NatMul (instantiate subst r1) (instantiate subst r2)
+          NatDiv r1 r2 -> NatDiv (instantiate subst r1) (instantiate subst r2)
+          NatMod r1 r2 -> NatMod (instantiate subst r1) (instantiate subst r2)
 
           IntLit n -> IntLit n
-          IntLt  r1 r2 -> IntLt  (instantiate n subst r1) (instantiate n subst r2)
-          IntLe  r1 r2 -> IntLe  (instantiate n subst r1) (instantiate n subst r2)
-          IntNeg r1    -> IntNeg (instantiate n subst r1)
-          IntAdd r1 r2 -> IntAdd (instantiate n subst r1) (instantiate n subst r2)
-          IntSub r1 r2 -> IntSub (instantiate n subst r1) (instantiate n subst r2)
-          IntMul r1 r2 -> IntMul (instantiate n subst r1) (instantiate n subst r2)
-          IntDiv r1 r2 -> IntDiv (instantiate n subst r1) (instantiate n subst r2)
-          IntMod r1 r2 -> IntMod (instantiate n subst r1) (instantiate n subst r2)
-          IntAbs r1    -> IntAbs (instantiate n subst r1)
+          IntLt  r1 r2 -> IntLt  (instantiate subst r1) (instantiate subst r2)
+          IntLe  r1 r2 -> IntLe  (instantiate subst r1) (instantiate subst r2)
+          IntNeg r1    -> IntNeg (instantiate subst r1)
+          IntAdd r1 r2 -> IntAdd (instantiate subst r1) (instantiate subst r2)
+          IntSub r1 r2 -> IntSub (instantiate subst r1) (instantiate subst r2)
+          IntMul r1 r2 -> IntMul (instantiate subst r1) (instantiate subst r2)
+          IntDiv r1 r2 -> IntDiv (instantiate subst r1) (instantiate subst r2)
+          IntMod r1 r2 -> IntMod (instantiate subst r1) (instantiate subst r2)
+          IntAbs r1    -> IntAbs (instantiate subst r1)
 
           RationalLit n -> RationalLit n
-          RealLt  r1 r2 -> RealLt  (instantiate n subst r1) (instantiate n subst r2)
-          RealLe  r1 r2 -> RealLe  (instantiate n subst r1) (instantiate n subst r2)
-          RealNeg r1    -> RealNeg (instantiate n subst r1)
-          RealAdd r1 r2 -> RealAdd (instantiate n subst r1) (instantiate n subst r2)
-          RealSub r1 r2 -> RealSub (instantiate n subst r1) (instantiate n subst r2)
-          RealMul r1 r2 -> RealMul (instantiate n subst r1) (instantiate n subst r2)
-          RealDiv r1 r2 -> RealDiv (instantiate n subst r1) (instantiate n subst r2)
-          RealMod r1 r2 -> RealMod (instantiate n subst r1) (instantiate n subst r2)
-          RealIsInteger r1 -> RealIsInteger (instantiate n subst r1)
+          RealLt  r1 r2 -> RealLt  (instantiate subst r1) (instantiate subst r2)
+          RealLe  r1 r2 -> RealLe  (instantiate subst r1) (instantiate subst r2)
+          RealNeg r1    -> RealNeg (instantiate subst r1)
+          RealAdd r1 r2 -> RealAdd (instantiate subst r1) (instantiate subst r2)
+          RealSub r1 r2 -> RealSub (instantiate subst r1) (instantiate subst r2)
+          RealMul r1 r2 -> RealMul (instantiate subst r1) (instantiate subst r2)
+          RealDiv r1 r2 -> RealDiv (instantiate subst r1) (instantiate subst r2)
+          RealMod r1 r2 -> RealMod (instantiate subst r1) (instantiate subst r2)
+          RealIsInteger r1 -> RealIsInteger (instantiate subst r1)
 
           FloatLit n    -> FloatLit n
           DoubleLit d   -> DoubleLit d
@@ -1500,89 +1496,89 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           FloatPZero fi -> FloatPZero fi
           FloatNZero fi -> FloatNZero fi
 
-          FloatNeg fi r1    -> FloatNeg fi (instantiate n subst r1)
-          FloatAbs fi r1    -> FloatAbs fi (instantiate n subst r1)
-          FloatSqrt fi rm r1  -> FloatSqrt fi rm (instantiate n subst r1)
-          FloatAdd fi rm r1 r2 -> FloatAdd fi rm (instantiate n subst r1) (instantiate n subst r2)
-          FloatSub fi rm r1 r2 -> FloatSub fi rm (instantiate n subst r1) (instantiate n subst r2)
-          FloatMul fi rm r1 r2 -> FloatMul fi rm (instantiate n subst r1) (instantiate n subst r2)
-          FloatDiv fi rm r1 r2 -> FloatDiv fi rm (instantiate n subst r1) (instantiate n subst r2)
-          FloatRem fi r1 r2 -> FloatRem fi (instantiate n subst r1) (instantiate n subst r2)
-          FloatMin fi r1 r2 -> FloatMin fi (instantiate n subst r1) (instantiate n subst r2)
-          FloatMax fi r1 r2 -> FloatMax fi (instantiate n subst r1) (instantiate n subst r2)
-          FloatFMA fi rm r1 r2 r3 -> FloatFMA fi rm (instantiate n subst r1) (instantiate n subst r2) (instantiate n subst r3)
+          FloatNeg fi r1    -> FloatNeg fi (instantiate subst r1)
+          FloatAbs fi r1    -> FloatAbs fi (instantiate subst r1)
+          FloatSqrt fi rm r1  -> FloatSqrt fi rm (instantiate subst r1)
+          FloatAdd fi rm r1 r2 -> FloatAdd fi rm (instantiate subst r1) (instantiate subst r2)
+          FloatSub fi rm r1 r2 -> FloatSub fi rm (instantiate subst r1) (instantiate subst r2)
+          FloatMul fi rm r1 r2 -> FloatMul fi rm (instantiate subst r1) (instantiate subst r2)
+          FloatDiv fi rm r1 r2 -> FloatDiv fi rm (instantiate subst r1) (instantiate subst r2)
+          FloatRem fi r1 r2 -> FloatRem fi (instantiate subst r1) (instantiate subst r2)
+          FloatMin fi r1 r2 -> FloatMin fi (instantiate subst r1) (instantiate subst r2)
+          FloatMax fi r1 r2 -> FloatMax fi (instantiate subst r1) (instantiate subst r2)
+          FloatFMA fi rm r1 r2 r3 -> FloatFMA fi rm (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
 
-          FloatEq  r1 r2 -> FloatEq  (instantiate n subst r1) (instantiate n subst r2)
-          FloatFpEq  r1 r2 -> FloatFpEq  (instantiate n subst r1) (instantiate n subst r2)          
-          FloatGt  r1 r2 -> FloatGt  (instantiate n subst r1) (instantiate n subst r2)
-          FloatGe  r1 r2 -> FloatGe  (instantiate n subst r1) (instantiate n subst r2)
-          FloatLt  r1 r2 -> FloatLt  (instantiate n subst r1) (instantiate n subst r2)
-          FloatLe  r1 r2 -> FloatLe  (instantiate n subst r1) (instantiate n subst r2)
-          FloatNe  r1 r2 -> FloatNe  (instantiate n subst r1) (instantiate n subst r2)
-          FloatFpNe  r1 r2 -> FloatFpNe  (instantiate n subst r1) (instantiate n subst r2)          
+          FloatEq  r1 r2 -> FloatEq  (instantiate subst r1) (instantiate subst r2)
+          FloatFpEq  r1 r2 -> FloatFpEq  (instantiate subst r1) (instantiate subst r2)          
+          FloatGt  r1 r2 -> FloatGt  (instantiate subst r1) (instantiate subst r2)
+          FloatGe  r1 r2 -> FloatGe  (instantiate subst r1) (instantiate subst r2)
+          FloatLt  r1 r2 -> FloatLt  (instantiate subst r1) (instantiate subst r2)
+          FloatLe  r1 r2 -> FloatLe  (instantiate subst r1) (instantiate subst r2)
+          FloatNe  r1 r2 -> FloatNe  (instantiate subst r1) (instantiate subst r2)
+          FloatFpNe  r1 r2 -> FloatFpNe  (instantiate subst r1) (instantiate subst r2)          
 
-          FloatIte fi r1 r2 r3 -> FloatIte fi (instantiate n subst r1) (instantiate n subst r2) (instantiate n subst r3)
+          FloatIte fi r1 r2 r3 -> FloatIte fi (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
 
-          FloatCast fi rm r1 -> FloatCast fi rm (instantiate n subst r1)
-          FloatFromBinary fi r1 -> FloatFromBinary fi (instantiate n subst r1)
-          FloatToBinary fi r1 -> FloatToBinary fi (instantiate n subst r1)
-          FloatFromBV fi rm r1 -> FloatFromBV fi rm (instantiate n subst r1)
-          FloatFromSBV fi rm r1 -> FloatFromSBV fi rm (instantiate n subst r1)
-          FloatFromReal fi rm r1 -> FloatFromReal fi rm (instantiate n subst r1)
-          FloatToBV w rm r1 -> FloatToBV w rm (instantiate n subst r1)
-          FloatToSBV w rm r1 -> FloatToSBV  w rm (instantiate n subst r1)
-          FloatToReal r1 -> FloatToReal (instantiate n subst r1)
-          FloatIsNaN r1 -> FloatIsNaN  (instantiate n subst r1)
-          FloatIsInfinite r1 -> FloatIsInfinite (instantiate n subst r1)
-          FloatIsZero r1 -> FloatIsZero (instantiate n subst r1)
-          FloatIsPositive r1 -> FloatIsPositive (instantiate n subst r1)
-          FloatIsNegative r1 -> FloatIsNegative (instantiate n subst r1)
-          FloatIsSubnormal r1 -> FloatIsSubnormal (instantiate n subst r1)
-          FloatIsNormal r1 -> FloatIsNormal (instantiate n subst r1)
+          FloatCast fi rm r1 -> FloatCast fi rm (instantiate subst r1)
+          FloatFromBinary fi r1 -> FloatFromBinary fi (instantiate subst r1)
+          FloatToBinary fi r1 -> FloatToBinary fi (instantiate subst r1)
+          FloatFromBV fi rm r1 -> FloatFromBV fi rm (instantiate subst r1)
+          FloatFromSBV fi rm r1 -> FloatFromSBV fi rm (instantiate subst r1)
+          FloatFromReal fi rm r1 -> FloatFromReal fi rm (instantiate subst r1)
+          FloatToBV w rm r1 -> FloatToBV w rm (instantiate subst r1)
+          FloatToSBV w rm r1 -> FloatToSBV  w rm (instantiate subst r1)
+          FloatToReal r1 -> FloatToReal (instantiate subst r1)
+          FloatIsNaN r1 -> FloatIsNaN  (instantiate subst r1)
+          FloatIsInfinite r1 -> FloatIsInfinite (instantiate subst r1)
+          FloatIsZero r1 -> FloatIsZero (instantiate subst r1)
+          FloatIsPositive r1 -> FloatIsPositive (instantiate subst r1)
+          FloatIsNegative r1 -> FloatIsNegative (instantiate subst r1)
+          FloatIsSubnormal r1 -> FloatIsSubnormal (instantiate subst r1)
+          FloatIsNormal r1 -> FloatIsNormal (instantiate subst r1)
 
-          JustValue ty r1 -> JustValue (instantiate n subst ty) (instantiate n subst r1)
-          NothingValue ty -> NothingValue (instantiate n subst ty) 
-          FromJustValue ty r1 r2 -> FromJustValue (instantiate n subst ty) (instantiate n subst r1) (instantiate n subst r2)
+          JustValue ty r1 -> JustValue (instantiate subst ty) (instantiate subst r1)
+          NothingValue ty -> NothingValue (instantiate subst ty) 
+          FromJustValue ty r1 r2 -> FromJustValue (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
 
-          AddSideCondition bty r1 s r2 -> AddSideCondition bty (instantiate n subst r1) s (instantiate n subst r2)
+          AddSideCondition bty r1 s r2 -> AddSideCondition bty (instantiate subst r1) s (instantiate subst r2)
 
           RollRecursive (sr :: SymbolRepr nm) (ctr :: CtxRepr ctx) r1
-            | Refl <- eqInstUnroll @nm @_ @_ @_ @ctx n subst ->
-              RollRecursive sr (instantiate n subst ctr) (instantiate n subst r1)
+            | Refl <- eqInstUnroll @nm @_ @_ @ctx subst ->
+              RollRecursive sr (instantiate subst ctr) (instantiate subst r1)
               
           UnrollRecursive (sr :: SymbolRepr nm) (ctr :: CtxRepr ctx) r1
-            | Refl <- eqInstUnroll @nm @_ @_ @_ @ctx n subst ->
-              UnrollRecursive sr (instantiate n subst ctr) (instantiate n subst r1)
+            | Refl <- eqInstUnroll @nm @_ @_ @ctx subst ->
+              UnrollRecursive sr (instantiate subst ctr) (instantiate subst r1)
 
-          VectorLit ty v1 -> VectorLit  (instantiate n subst ty) (V.map (instantiate n subst) v1)
-          VectorReplicate ty r1 r2 -> VectorReplicate (instantiate n subst ty) (instantiate n subst r1) (instantiate n subst r2)
-          VectorIsEmpty r1 -> VectorIsEmpty (instantiate n subst r1)
-          VectorSize r1 -> VectorSize (instantiate n subst r1)
-          VectorGetEntry ty r1 r2 -> VectorGetEntry (instantiate n subst ty) (instantiate n subst r1) (instantiate n subst r2)
+          VectorLit ty v1 -> VectorLit  (instantiate subst ty) (V.map (instantiate subst) v1)
+          VectorReplicate ty r1 r2 -> VectorReplicate (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
+          VectorIsEmpty r1 -> VectorIsEmpty (instantiate subst r1)
+          VectorSize r1 -> VectorSize (instantiate subst r1)
+          VectorGetEntry ty r1 r2 -> VectorGetEntry (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
           VectorSetEntry ty r1 r2 r3 ->
-            VectorSetEntry  (instantiate n subst ty) (instantiate n subst r1) (instantiate n subst r2) (instantiate n subst r3)
+            VectorSetEntry  (instantiate subst ty) (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
           VectorCons ty r1 r2 ->
-            VectorCons  (instantiate n subst ty) (instantiate n subst r1) (instantiate n subst r2)
+            VectorCons  (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
 
 
           HandleLit (fh :: FnHandle args ret)
-            | Refl <- closed @_ @(FunctionHandleType args ret) n subst ->
+            | Refl <- closed @_ @(FunctionHandleType args ret) subst ->
             HandleLit fh
 
           Closure argTy retTy r1 (tp :: TypeRepr tp) r2
-            | Refl <- closed @_ @tp n subst
+            | Refl <- closed @_ @tp subst
             ->
-              Closure (instantiate n subst argTy)
-                      (instantiate n subst retTy)
-                      (instantiate n subst r1) (instantiate n subst tp) (instantiate n subst r2)
+              Closure (instantiate subst argTy)
+                      (instantiate subst retTy)
+                      (instantiate subst r1) (instantiate subst tp) (instantiate subst r2)
 
           PolyHandleLit k fh ->
             -- TODO: figure out how to prove that these function handles are closed
             -- for right now we will just coerce them.
             unsafeCoerce (PolyHandleLit k fh)
-          --HandleExprLit he ->
+            --HandleExprLit he ->
             -- Stack the substitution
-            -- HandleExprLit (SubstitutedFnHandle he n subst)
+            -- HandleExprLit (SubstitutedFnHandle he subst)
 
           -- This is tricky. We have a polymorphic function of type, say:
           --   f :: forall a b. (a -> b -> c -> (a,b,c))
@@ -1601,125 +1597,127 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           -- into the term
           --    PolyInstantiate (f [c|->d]) [d,d]
           -- by composing the substitutions in the right way
-          PolyInstantiate ty@(PolyFnRepr (k :: NatRepr k) (args :: CtxRepr args) (ret :: TypeRepr ret))
-            r1 (targs :: CtxRepr targs) 
-            | Refl <- composeInstantiateAxiom @n @subst @k @targs @ret,
-              Refl <- composeInstantiateAxiom @n @subst @k @targs @args
+          PolyInstantiate ty@(PolyFnRepr (_k :: PeanoRepr k)
+                               (_args :: CtxRepr args) (_ret :: TypeRepr ret))
+            r1 (targs :: CtxRepr targs)            
+            | Refl <- swapMkSubstAxiom @subst @k @targs @ret,
+              Refl <- swapMkSubstAxiom @subst @k @targs @args
             ->              
-              let  ty' :: PolyFnRepr k (Instantiate (n + k) (Lift 0 k subst) args)
-                                       (Instantiate (n + k) (Lift 0 k subst) ret)
-                   -- == (Instantiate n subst (PolyFnRepr k args ret))
-                   ty' = instantiate n subst ty
+{-              let  ty' :: PolyFnType k (Instantiate (Liftn k subst) args)
+                                       (Instantiate (Liftn k subst) ret)
+                   -- == (Instantiate subst (PolyFnRepr k args ret))
+                   ty' = instantiate subst ty
 
                    r1' :: _ ty'
-                   r1' = instantiate n subst r1
+                   r1' = instantiate subst r1
 
-                   targs' :: Instantiate n subst targs
-                   targs' = instantiate n subst targs
+                   targs' :: Instantiate subst targs
+                   targs' = instantiate subst targs
 
-                   ans :: Instantiate 0 (Instantiate n subst targs)
+                   ans :: Instantiate  (Instantiate subst targs)
                        (FunctionHandleType 
-                         (Instantiate (n + k) (Lift 0 k subst) args)
-                         (Instantiate (n + k) (Lift 0 k subst) ret))
+                         (Instantiate (Liftn k subst) args)
+                         (Instantiate (Liftn k subst) ret))
                    ans = PolyInstantiate ty' r1' targs'
                    
-              in
-                 (undefined ::
-                     (Instantiate n subst
-                        (Instantiate 0 targs
-                            (FunctionHandleType args ret)))
+              in -}
+                (PolyInstantiate
+                   (instantiate subst ty)
+                   (instantiate subst r1)
+                   (instantiate subst targs))
                      
 
 
 
-          NatToInteger r1 -> NatToInteger (instantiate n subst r1)
-          IntegerToReal r1 -> IntegerToReal (instantiate n subst r1)
-          RealRound r1 -> RealRound (instantiate n subst r1)
-          RealFloor r1 -> RealFloor (instantiate n subst r1)
-          RealCeil r1 -> RealCeil (instantiate n subst r1)
-          IntegerToBV n0 r1 -> IntegerToBV n0 (instantiate n subst r1)
-          RealToNat r1 -> RealToNat (instantiate n subst r1)
+          NatToInteger r1 -> NatToInteger (instantiate subst r1)
+          IntegerToReal r1 -> IntegerToReal (instantiate subst r1)
+          RealRound r1 -> RealRound (instantiate subst r1)
+          RealFloor r1 -> RealFloor (instantiate subst r1)
+          RealCeil r1 -> RealCeil (instantiate subst r1)
+          IntegerToBV n0 r1 -> IntegerToBV n0 (instantiate subst r1)
+          RealToNat r1 -> RealToNat (instantiate subst r1)
 
-          Complex r1 r2 -> Complex (instantiate n subst r1) (instantiate n subst r2)
-          RealPart r1 -> RealPart (instantiate n subst r1)
-          ImagPart r1 -> ImagPart (instantiate n subst r1)
+          Complex r1 r2 -> Complex (instantiate subst r1) (instantiate subst r2)
+          RealPart r1 -> RealPart (instantiate subst r1)
+          ImagPart r1 -> ImagPart (instantiate subst r1)
 
 
           -- bv
           BVUndef nr -> BVUndef nr
           BVLit nr i -> BVLit nr i
-          BVConcat n1 n2 r1 r2 -> BVConcat n1 n2 (instantiate n subst r1) (instantiate n subst r2)
-          BVSelect n1 n2 n3 r1 -> BVSelect n1 n2 n3 (instantiate n subst r1)
-          BVTrunc n1 n2 r1 -> BVTrunc n1 n2 (instantiate n subst r1)
-          BVZext n1 n2 r1 -> BVZext n1 n2 (instantiate n subst r1)
-          BVSext n1 n2 r1 -> BVSext n1 n2 (instantiate n subst r1)
-          BVNot n1 r1 -> BVNot n1 (instantiate n subst r1)
-          BVAnd n1 r1 r2 -> BVAnd n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVOr n1 r1 r2 -> BVOr n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVXor n1 r1 r2 -> BVXor n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVNeg n1 r1 -> BVNeg n1 (instantiate n subst r1)
-          BVAdd n1 r1 r2 -> BVAdd n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVSub n1 r1 r2 -> BVSub n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVMul n1 r1 r2 -> BVMul n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVUdiv n1 r1 r2 -> BVUdiv n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVSdiv n1 r1 r2 -> BVSdiv n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVUrem n1 r1 r2 -> BVUrem n1 (instantiate n subst r1) (instantiate n subst r2)
-          BVSrem n1 r1 r2 -> BVSrem n1 (instantiate n subst r1) (instantiate n subst r2)                              
+          BVConcat n1 n2 r1 r2 -> BVConcat n1 n2 (instantiate subst r1) (instantiate subst r2)
+          BVSelect n1 n2 n3 r1 -> BVSelect n1 n2 n3 (instantiate subst r1)
+          BVTrunc n1 n2 r1 -> BVTrunc n1 n2 (instantiate subst r1)
+          BVZext n1 n2 r1 -> BVZext n1 n2 (instantiate subst r1)
+          BVSext n1 n2 r1 -> BVSext n1 n2 (instantiate subst r1)
+          BVNot n1 r1 -> BVNot n1 (instantiate subst r1)
+          BVAnd n1 r1 r2 -> BVAnd n1 (instantiate subst r1) (instantiate subst r2)
+          BVOr n1 r1 r2 -> BVOr n1 (instantiate subst r1) (instantiate subst r2)
+          BVXor n1 r1 r2 -> BVXor n1 (instantiate subst r1) (instantiate subst r2)
+          BVNeg n1 r1 -> BVNeg n1 (instantiate subst r1)
+          BVAdd n1 r1 r2 -> BVAdd n1 (instantiate subst r1) (instantiate subst r2)
+          BVSub n1 r1 r2 -> BVSub n1 (instantiate subst r1) (instantiate subst r2)
+          BVMul n1 r1 r2 -> BVMul n1 (instantiate subst r1) (instantiate subst r2)
+          BVUdiv n1 r1 r2 -> BVUdiv n1 (instantiate subst r1) (instantiate subst r2)
+          BVSdiv n1 r1 r2 -> BVSdiv n1 (instantiate subst r1) (instantiate subst r2)
+          BVUrem n1 r1 r2 -> BVUrem n1 (instantiate subst r1) (instantiate subst r2)
+          BVSrem n1 r1 r2 -> BVSrem n1 (instantiate subst r1) (instantiate subst r2)                              
 
-          BVUle n1 r1 r2 -> BVUle n1 (instantiate n subst r1) (instantiate n subst r2)                              
-          BVUlt n1 r1 r2 -> BVUlt n1 (instantiate n subst r1) (instantiate n subst r2)                              
-          BVSle n1 r1 r2 -> BVSle n1 (instantiate n subst r1) (instantiate n subst r2)                              
-          BVSlt n1 r1 r2 -> BVSlt n1 (instantiate n subst r1) (instantiate n subst r2)                              
+          BVUle n1 r1 r2 -> BVUle n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVUlt n1 r1 r2 -> BVUlt n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVSle n1 r1 r2 -> BVSle n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVSlt n1 r1 r2 -> BVSlt n1 (instantiate subst r1) (instantiate subst r2)                              
 
-          BVCarry n1 r1 r2 -> BVCarry n1 (instantiate n subst r1) (instantiate n subst r2)                              
-          BVSCarry n1 r1 r2 -> BVSCarry n1 (instantiate n subst r1) (instantiate n subst r2)                              
-          BVSBorrow n1 r1 r2 -> BVSBorrow n1 (instantiate n subst r1) (instantiate n subst r2)                              
+          BVCarry n1 r1 r2 -> BVCarry n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVSCarry n1 r1 r2 -> BVSCarry n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVSBorrow n1 r1 r2 -> BVSBorrow n1 (instantiate subst r1) (instantiate subst r2)                              
 
-          BVShl n1 r1 r2 -> BVShl n1 (instantiate n subst r1) (instantiate n subst r2)                              
-          BVLshr n1 r1 r2 -> BVLshr n1 (instantiate n subst r1) (instantiate n subst r2)                              
-          BVAshr n1 r1 r2 -> BVAshr n1 (instantiate n subst r1) (instantiate n subst r2)                              
+          BVShl n1 r1 r2 -> BVShl n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVLshr n1 r1 r2 -> BVLshr n1 (instantiate subst r1) (instantiate subst r2)                              
+          BVAshr n1 r1 r2 -> BVAshr n1 (instantiate subst r1) (instantiate subst r2)                              
 
-          BoolToBV n1 r1 -> BoolToBV n1 (instantiate n subst r1)
-          BvToInteger n1 r1 -> BvToInteger n1 (instantiate n subst r1)
-          SbvToInteger n1 r1 -> SbvToInteger n1 (instantiate n subst r1)
-          BvToNat n1 r1 -> BvToNat n1 (instantiate n subst r1)
-          BVNonzero n1 r1 -> BVNonzero n1 (instantiate n subst r1)
+          BoolToBV n1 r1 -> BoolToBV n1 (instantiate subst r1)
+          BvToInteger n1 r1 -> BvToInteger n1 (instantiate subst r1)
+          SbvToInteger n1 r1 -> SbvToInteger n1 (instantiate subst r1)
+          BvToNat n1 r1 -> BvToNat n1 (instantiate subst r1)
+          BVNonzero n1 r1 -> BVNonzero n1 (instantiate subst r1)
 
           EmptyWordMap nr bt -> EmptyWordMap nr bt
-          InsertWordMap nr bt r1 r2 r3 -> InsertWordMap nr bt (instantiate n subst r1) (instantiate n subst r2) (instantiate n subst r3)
-          LookupWordMap bt r1 r2 -> LookupWordMap bt  (instantiate n subst r1) (instantiate n subst r2)
-          LookupWordMapWithDefault bt r1 r2 r3 -> LookupWordMapWithDefault bt (instantiate n subst r1) (instantiate n subst r2) (instantiate n subst r3)
+          InsertWordMap nr bt r1 r2 r3 -> InsertWordMap nr bt (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
+          LookupWordMap bt r1 r2 -> LookupWordMap bt  (instantiate subst r1) (instantiate subst r2)
+          LookupWordMapWithDefault bt r1 r2 r3 -> LookupWordMapWithDefault bt (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
 
-          InjectVariant ctx idx r1 -> InjectVariant (instantiate n subst ctx) (instantiate n subst idx)
-            (instantiate n subst r1)
-          ProjectVariant ctx idx r1 -> ProjectVariant (instantiate n subst ctx) (instantiate n subst idx)
-            (instantiate n subst r1) 
+          InjectVariant ctx idx r1 -> InjectVariant (instantiate subst ctx) (instantiate subst idx)
+            (instantiate subst r1)
+          ProjectVariant ctx idx r1 -> ProjectVariant (instantiate subst ctx) (instantiate subst idx)
+            (instantiate subst r1) 
 
-          MkStruct ctx args -> MkStruct (instantiate n subst ctx) (instantiate n subst args)
-          GetStruct r1 idx ty -> GetStruct (instantiate n subst r1) (instantiate n subst idx) (instantiate n subst ty)
-          SetStruct ctx r1 idx r2 -> SetStruct (instantiate n subst ctx) (instantiate n subst r1)
-            (instantiate n subst idx) (instantiate n subst r2)
+          MkStruct ctx args -> MkStruct (instantiate subst ctx) (instantiate subst args)
+          GetStruct r1 idx ty -> GetStruct (instantiate subst r1) (instantiate subst idx) (instantiate subst ty)
+          SetStruct ctx r1 idx r2 -> SetStruct (instantiate subst ctx) (instantiate subst r1)
+            (instantiate subst idx) (instantiate subst r2)
 
-          EmptyStringMap ty -> EmptyStringMap (instantiate n subst ty)
-          LookupStringMapEntry ty r1 r2 -> LookupStringMapEntry (instantiate n subst ty) (instantiate n subst r1) (instantiate n subst r2)
-          InsertStringMapEntry ty r1 r2 r3 -> InsertStringMapEntry (instantiate n subst ty) (instantiate n subst r1) (instantiate n subst r2) (instantiate n subst r3)
+          EmptyStringMap ty -> EmptyStringMap (instantiate subst ty)
+          LookupStringMapEntry ty r1 r2 -> LookupStringMapEntry (instantiate subst ty) (instantiate subst r1) (instantiate subst r2)
+          InsertStringMapEntry ty r1 r2 r3 -> InsertStringMapEntry (instantiate subst ty) (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
 
 
           TextLit t -> TextLit t
-          ShowValue btr r1 -> ShowValue btr (instantiate n subst r1)
-          AppendString r1 r2 -> AppendString (instantiate n subst r1) (instantiate n subst r2)
+          ShowValue btr r1 -> ShowValue btr (instantiate subst r1)
+          AppendString r1 r2 -> AppendString (instantiate subst r1) (instantiate subst r2)
 
           SymArrayLookup (br :: BaseTypeRepr br) r1 (ctx :: Ctx.Assignment (BaseTerm f) (idx ::> tp))
-            | Refl <- closed @_ @br n subst,
-              Refl <- closed @_ @tp n subst,
-              Refl <- closed @_ @idx n subst
-            -> SymArrayLookup br (instantiate n subst r1) (instantiate n subst ctx)
+            | Refl <- closed @_ @br subst,
+              Refl <- closed @_ @tp subst,
+              Refl <- closed @_ @idx subst
+            -> SymArrayLookup br (instantiate subst r1) (instantiate subst ctx)
           SymArrayUpdate (br :: BaseTypeRepr br) r1 (ctx :: Ctx.Assignment (BaseTerm f) (idx ::> tp)) r2
-            | Refl <- closed @_ @br n subst,
-              Refl <- closed @_ @tp n subst,
-              Refl <- closed @_ @idx n subst
-            -> SymArrayUpdate br (instantiate n subst r1) (instantiate n subst ctx) (instantiate n subst r2)
+            | Refl <- closed @_ @br subst,
+              Refl <- closed @_ @tp subst,
+              Refl <- closed @_ @idx subst
+            -> SymArrayUpdate br (instantiate subst r1) (instantiate subst ctx) (instantiate subst r2)
 
-          IsConcrete btr r1 -> IsConcrete btr (instantiate n subst r1)
+          IsConcrete btr r1 -> IsConcrete btr (instantiate subst r1)
 
-          ReferenceEq ty r1 r2 -> ReferenceEq (instantiate n subst ty) (instantiate n subst r1) (instantiate n subst r2)
+          ReferenceEq ty r1 r2 -> ReferenceEq (instantiate subst ty)
+                  (instantiate subst r1) (instantiate subst r2)

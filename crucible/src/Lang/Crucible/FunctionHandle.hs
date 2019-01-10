@@ -27,10 +27,10 @@ module Lang.Crucible.FunctionHandle
   , handleArgTypes
   , handleReturnType
   , handleType
-  , HandleExpr(..)
-  , handleExprType
-  , handleExprName
-  , instantiatePolyHandleExpr
+--  , HandleExpr(..)
+--  , handleExprType
+--  , handleExprName
+--  , instantiatePolyHandleExpr
   , SomeHandle(..)
     -- * Allocate handle.
   , HandleAllocator
@@ -53,7 +53,6 @@ module Lang.Crucible.FunctionHandle
 import           Control.Monad.ST
 import           Data.Hashable
 import           Data.Kind
-import qualified Data.Maybe as Maybe
 import           Data.Ord (comparing)
 
 import qualified Data.Parameterized.Context as Ctx
@@ -66,8 +65,6 @@ import           What4.FunctionName
 import           What4.Utils.MonadST
 
 import           Lang.Crucible.Types
-
-import           Unsafe.Coerce(unsafeCoerce)
 
 ------------------------------------------------------------------------
 -- FunctionHandle
@@ -119,6 +116,8 @@ handleType h = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
 
 
 ------------------------------------------------------------------------
+{-
+
 -- Polymorphism and function handles
 -- 
 -- Handle expressions are function handles that have a sequence of
@@ -298,6 +297,7 @@ instantiatePolyHandleExpr
                        (Instantiate 0 targs (Instantiate (n+k) (Lift 0 k subst) a'))
                        (Instantiate 0 targs (Instantiate (n+k) (Lift 0 k subst) r'))))
 
+-}
 
 ------------------------------------------------------------------------
 -- SomeHandle

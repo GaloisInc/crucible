@@ -100,8 +100,7 @@ deriving instance Show (EmptyExprExtension f tp)
 
 type instance ExprExtension () = EmptyExprExtension
 
-type instance Instantiate n subst EmptyExprExtension = EmptyExprExtension
-type instance Lift n m EmptyExprExtension = EmptyExprExtension
+type instance Instantiate subst EmptyExprExtension = EmptyExprExtension
 
 -- | The empty statement syntax extension, which adds no new syntactic forms.
 data EmptyStmtExtension :: (CrucibleType -> Type) -> (CrucibleType -> Type) where
@@ -110,8 +109,7 @@ deriving instance Show (EmptyStmtExtension f tp)
 
 type instance StmtExtension () = EmptyStmtExtension
 
-type instance Instantiate n subst EmptyStmtExtension = EmptyStmtExtension
-type instance Lift n m EmptyStmtExtension = EmptyStmtExtension
+type instance Instantiate subst EmptyStmtExtension = EmptyStmtExtension
 
 instance ShowFC EmptyExprExtension where
   showsPrecFC _ _ = \case
@@ -132,11 +130,10 @@ instance PrettyApp EmptyExprExtension where
 instance TypeApp EmptyExprExtension where
   appType = \case
 instance InstantiateFC EmptyExprExtension where
-  instantiateFC _ _ = \case
-  liftFC _ _ = \case
+  instantiateFC _ = \case
 instance Closed EmptyExprExtension where
-  closed _ _ = Refl
-  liftid _ _ = Refl
+  closed _ = Refl
+
 
 instance ShowFC EmptyStmtExtension where
   showsPrecFC _ _ = \case
@@ -157,10 +154,8 @@ instance PrettyApp EmptyStmtExtension where
 instance TypeApp EmptyStmtExtension where
   appType = \case
 instance InstantiateFC EmptyStmtExtension where
-  instantiateFC _ _ = \case
-  liftFC _ _ = \case
+  instantiateFC _ = \case
 instance Closed EmptyStmtExtension where
-  closed _ _ = Refl
-  liftid _ _ = Refl
+  closed _ = Refl
 
 instance IsSyntaxExtension () where
