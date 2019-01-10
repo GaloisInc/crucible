@@ -94,11 +94,11 @@ data Mutability = Mutable | Immutable
 
 -- | Stores writeable memory allocations.
 data MemAlloc sym
-     -- | Allocation with given block ID and number of bytes. The
-     -- 'Mutability' indicates whether the region is read-only. The
-     -- 'String' contains source location information for use in error
-     -- messages.
-   = forall w. Alloc AllocType Natural (SymBV sym w) Mutability Alignment String
+     -- | Allocation with given block ID. The 'Maybe SymBV' argument is either a
+     -- size or @Nothing@ represented an unbounded allocation. The 'Mutability'
+     -- indicates whether the region is read-only. The 'String' contains source
+     -- location information for use in error messages.
+   = forall w. Alloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
      -- | Freeing of the given block ID.
    | MemFree (SymNat sym)
      -- | The merger of two allocations.
@@ -112,9 +112,10 @@ data WriteSource sym w
     -- | @MemStore val ty al@ writes value @val@ with type @ty@ at the destination.
     --   with alignment at least @al@.
   | MemStore (LLVMVal sym) StorageType Alignment
-    -- | @MemStoreBlock block len@ writes byte-array @block@ of size @len@
-    -- at the destination.
-  | MemArrayStore (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)) (SymBV sym w)
+    -- | @MemStoreBlock block (Just len)@ writes byte-array @block@ of size
+    -- @len@ at the destination; @MemStoreBlock block Nothing@ writes byte-array
+    -- @block@ of unbounded size
+  | MemArrayStore (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)) (Maybe (SymBV sym w))
 
 data MemWrite sym
     -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
@@ -128,12 +129,16 @@ data MemWrite sym
 tgAddPtrC :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> LLVMPtr sym w -> Addr -> IO (LLVMPtr sym w)
 tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 
+data ExprData sym w = ExprData { loadOffset  :: SymBV sym w
+                               , storeOffset :: SymBV sym w
+                               , sizeData    :: Maybe (SymBV sym w) }
+
 genOffsetExpr ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
-  (SymBV sym w, SymBV sym w, SymBV sym w) ->
+  ExprData sym w ->
   OffsetExpr -> IO (SymBV sym w)
-genOffsetExpr sym w f@(load, store, _size) expr =
+genOffsetExpr sym w f@(ExprData load store _size) expr =
   case expr of
     OffsetAdd pe ie -> do
       pe' <- genOffsetExpr sym w f pe
@@ -145,9 +150,9 @@ genOffsetExpr sym w f@(load, store, _size) expr =
 genIntExpr ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
-  (SymBV sym w, SymBV sym w, SymBV sym w) ->
+  ExprData sym w ->
   IntExpr -> IO (SymBV sym w)
-genIntExpr sym w f@(_load, _store, size) expr =
+genIntExpr sym w f@(ExprData _load _store size) expr =
   case expr of
     OffsetDiff e1 e2 -> do
       e1' <- genOffsetExpr sym w f e1
@@ -158,12 +163,14 @@ genIntExpr sym w f@(_load, _store, size) expr =
       e2' <- genIntExpr sym w f e2
       bvAdd sym e1' e2'
     CValue i -> bvLit sym w (bytesToInteger i)
-    StoreSize -> return size
+    StoreSize -> case size of
+                   Just sz -> return sz
+                   Nothing -> error "Unknown size" -- TODO: is this the right behavior when size is Nothing?
 
 genCondVar ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
-  (SymBV sym w, SymBV sym w, SymBV sym w) ->
+  ExprData sym w ->
   Cond -> IO (Pred sym)
 genCondVar sym w inst c =
   case c of
@@ -248,7 +255,7 @@ evalMuxValueCtor ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   EndianForm ->
-  (SymBV sym w, SymBV sym w, SymBV sym w) {- ^ Evaluation function -} ->
+  ExprData sym w {- ^ Evaluation function -} ->
   (u -> IO (PartLLVMVal sym)) {- ^ Function for reading specific subranges -} ->
   Mux (ValueCtor u) ->
   IO (PartLLVMVal sym)
@@ -329,7 +336,7 @@ readMemCopy ::
 readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
-     let varFn = (off, d, sz)
+     let varFn = ExprData off d (Just sz)
 
      case (ld, dd) of
        -- Offset if known
@@ -380,7 +387,7 @@ readMemSet ::
 readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
-     let varFn = (off, d, sz)
+     let varFn = ExprData off d (Just sz)
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
@@ -438,7 +445,7 @@ readMemStore ::
   IO (PartLLVMVal sym)
 readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign readPrev =
   do ssz <- bvLit sym w (bytesToInteger (storageTypeSize stp))
-     let varFn = (off, d, ssz)
+     let varFn = ExprData off d (Just ssz)
      let ld = asUnsignedBV off
      let dd = asUnsignedBV d
      case (ld, dd) of
@@ -479,7 +486,7 @@ readMemArrayStore
   -> StorageType {- ^ The type we are reading -}
   -> SymBV sym w {- ^ The destination of the mem array store -}
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ The stored array -}
-  -> SymBV sym w {- ^ The length of the stored array -}
+  -> Maybe (SymBV sym w) {- ^ The length of the stored array -}
   -> (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym))
   -> IO (PartLLVMVal sym)
 readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size read_prev = do
@@ -492,7 +499,7 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
               byte <- arrayLookup sym arr $ Ctx.singleton idx
               return $ PE (truePred sym) $ LLVMValInt blk0 byte
         genValueCtor sym end =<< loadTypedValueFromBytes 0 tp' loadArrayByteFn
-  let varFn = (read_off, write_off, size)
+  let varFn = ExprData read_off write_off size
   case (asUnsignedBV read_off, asUnsignedBV write_off) of
     -- known read and write offsets
     (Just lo, Just so) -> do
@@ -504,8 +511,8 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
             InRange o tp' -> do
               o' <- bvLit sym w $ bytesToInteger o
               loadFn o' tp'
-      case asUnsignedBV size of
-        Just concrete_size -> do
+      case asUnsignedBV <$> size of
+        Just (Just concrete_size) -> do
           let s = R (fromInteger so) (fromInteger (so + concrete_size))
           let vcr = rangeLoad (fromInteger lo) tp s
           genValueCtor sym end =<< traverse subFn vcr
@@ -537,7 +544,7 @@ readMem ::
   IO (PartLLVMVal sym)
 readMem sym w l tp alignment m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocated sym w alignment l sz m
+     p1 <- isAllocated sym w alignment l (Just sz) m
      p2 <- isAligned sym w l alignment
      p <- andPred sym p1 p2
      val <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
@@ -697,10 +704,19 @@ memEndian = memEndianForm
 --------------------------------------------------------------------------------
 -- Pointer validity
 
--- | This function is parameterized by a predicate on the mutability, so
+-- | @isAllocatedMut isMut sym w p sz m@ returns the condition required to
+-- prove range @[p..p+sz)@ lies within a single allocation in @m@.
+--
+-- This function is parameterized by a predicate on the mutability, so
 -- it can optionally be restricted to mutable regions only.
 -- It is also parameterized by a required alignment; only allocations
 -- with at least this level of alignment are considered.
+--
+-- NB this algorithm is set up to explicitly allow both zero size allocations
+-- and zero-size chunks to be checked for validity.  When 'sz' is 0, every pointer
+-- that is inside the range of the allocation OR ONE PAST THE END are considered
+-- "allocated"; this is intended, as it captures C's behavior regarding valid
+-- pointers.
 isAllocatedMut ::
   forall sym w .
   (1 <= w, IsSymInterface sym) =>
@@ -708,17 +724,18 @@ isAllocatedMut ::
   sym -> NatRepr w     ->
   Alignment            ->
   LLVMPtr sym w        ->
-  SymBV sym w          ->
+  Maybe (SymBV sym w)  ->
   Mem sym              ->
   IO (Pred sym)
 isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m = do
-   do (ov, end) <- addUnsignedOF sym off sz
-      let step :: forall w'. Natural -> SymBV sym w' -> IO (Pred sym) -> IO (Pred sym)
-          step a asz fallback
+      let step :: forall w'. Natural -> Maybe (SymBV sym w') -> IO (Pred sym) -> IO (Pred sym)
+          step a sze fallback
             -- If the allocation is done at pointer width equal to 'w', check if this
             -- allocation covers the required range.
-            | Just Refl <- testEquality w (bvWidth asz) =
-                 do sameBlock <- natEq sym blk =<< natLit sym a
+            | Just asz  <- sze
+            , Just Refl <- testEquality w (bvWidth asz) =
+                 do (_ov, end) <- addUnsignedOF sym off asz
+                    sameBlock <- natEq sym blk =<< natLit sym a
                     inRange   <- bvUle sym end asz
                     okNow     <- andPred sym sameBlock inRange
                     case asConstantPred okNow of
@@ -726,9 +743,9 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m = do
                       Just False -> fallback
                       Nothing    -> orPred sym okNow =<< fallback
 
+          step a _sze fallback =
             -- If the allocation is done at pointer width not equal to 'w', check that
             -- this allocation is distinct from the base pointer.
-            | otherwise =
                  do sameBlock <- natEq sym blk =<< natLit sym a
                     case asConstantPred sameBlock of
                       Just True  -> return (falsePred sym)
@@ -757,16 +774,18 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m = do
                py <- go (return p) yr
                itePred sym c px py
 
-      -- It is an error if the offset+size calculation overflows.
-      case asConstantPred ov of
-        Just True  -> return (falsePred sym)
-        Just False -> go (pure (falsePred sym)) (memAllocs m)
-        Nothing    ->
-          do nov <- notPred sym ov
-             andPred sym nov =<< go (pure (falsePred sym)) (memAllocs m)
+      -- It is an error if the offset+size calculation overflows
+      -- produces @false@ if the offset+size calculation overflows; true otherwise
+      overflowPred <- case sz of
+                        Nothing  -> return (truePred sym)
+                        Just asz -> do (ov, _end) <- addUnsignedOF sym off asz
+                                       notPred sym ov
 
--- | @isAllocated sym w p sz m@ returns condition required to prove range
--- @[p..p+sz)@ lies within a single allocation in @m@.
+      andPred sym overflowPred =<< go (pure (falsePred sym)) (memAllocs m)      
+
+
+-- | @isAllocated sym w p sz m@ returns the condition required to prove
+-- range @[p..p+sz)@ lies within a single allocation in @m@. 
 --
 -- NB this algorithm is set up to explicitly allow both zero size allocations
 -- and zero-size chunks to be checked for validity.  When 'sz' is 0, every pointer
@@ -778,29 +797,30 @@ isAllocated ::
   sym -> NatRepr w ->
   Alignment        ->
   LLVMPtr sym w    ->
-  SymBV sym w      ->
+  Maybe (SymBV sym w) ->
   Mem sym          ->
   IO (Pred sym)
 isAllocated = isAllocatedMut (const True)
 
 isAllocatedMutable ::
   (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> SymBV sym w -> Mem sym -> IO (Pred sym)
+  sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)
 isAllocatedMutable = isAllocatedMut (== Mutable)
 
--- | @isValidPointer sym w b m@ returns condition required to prove range
---   that @p@ is a valid pointer in @m@.  This means that @p@ is in the
---   range of some allocation OR ONE PAST THE END of an allocation.  In other words
---   @p@ is a valid pointer if @b <= p <= b+sz@ for some allocation
---   at base @b@ of size @sz@.  Note that, even though @b+sz@ is outside the
---   allocation range of the allocation (loading through it will fail) it is
---   nonetheless a valid pointer value.  This strange special case is baked into
---   the C standard to allow certain common coding patterns to be defined.
+-- | @isValidPointer sym w b m@ returns condition required to prove range that
+--   @p@ is a valid pointer in @m@. This means that @p@ is in the range of some
+--   allocation OR ONE PAST THE END of an allocation. In other words @p@ is a
+--   valid pointer if @b <= p <= b+sz@ for some allocation at base @b@ of size
+--   @Just sz@, or if @b <= p@ for some allocation of size @Nothing@. Note that,
+--   even though @b+sz@ is outside the allocation range of the allocation
+--   (loading through it will fail) it is nonetheless a valid pointer value.
+--   This strange special case is baked into the C standard to allow certain
+--   common coding patterns to be defined.
 isValidPointer :: (1 <= w, IsSymInterface sym)
         => sym -> NatRepr w -> LLVMPtr sym w -> Mem sym -> IO (Pred sym)
 isValidPointer sym w p m = do
    sz <- constOffset sym w 0
-   isAllocated sym w noAlignment p sz m
+   isAllocated sym w noAlignment p (Just sz) m
    -- NB We call isAllocated with a size of 0.
 
 -- | Generate a predicate asserting that the given pointer satisfies
@@ -878,7 +898,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
          -> IO (Mem sym, Pred sym, Pred sym)
 writeMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocatedMutable sym w alignment ptr sz m
+     p1 <- isAllocatedMutable sym w alignment ptr (Just sz) m
      p2 <- isAligned sym w ptr alignment
      return (memAddWrite (MemWrite ptr (MemStore v tp alignment)) m, p1, p2)
 
@@ -899,7 +919,7 @@ writeConstMem ::
   IO (Mem sym, Pred sym, Pred sym)
 writeConstMem sym w ptr tp alignment v m =
   do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocated sym w alignment ptr sz m
+     p1 <- isAllocated sym w alignment ptr (Just sz) m
      p2 <- isAligned sym w ptr alignment
      return (memAddWrite (MemWrite ptr (MemStore v tp alignment)) m, p1, p2)
 
@@ -916,8 +936,8 @@ copyMem ::
   SymBV sym w   {- ^ Size   -} ->
   Mem sym -> IO (Mem sym, Pred sym, Pred sym)
 copyMem sym w dst src sz m =
-  do p1 <- isAllocated sym w noAlignment src sz m
-     p2 <- isAllocatedMutable sym w noAlignment dst sz m
+  do p1 <- isAllocated sym w noAlignment src (Just sz) m
+     p2 <- isAllocatedMutable sym w noAlignment dst (Just sz) m
      return (memAddWrite (MemWrite dst (MemCopy src sz)) m, p1, p2)
 
 -- | Perform a mem set, filling a number of bytes with a given 8-bit
@@ -932,7 +952,7 @@ setMem ::
   Mem sym -> IO (Mem sym, Pred sym)
 
 setMem sym w ptr val sz m =
-  do p <- isAllocatedMutable sym w noAlignment ptr sz m
+  do p <- isAllocatedMutable sym w noAlignment ptr (Just sz) m
      return (memAddWrite (MemWrite ptr (MemSet val sz)) m, p)
 
 -- | Write an array to memory.
@@ -946,7 +966,7 @@ writeArrayMem ::
   LLVMPtr sym w {- ^ Pointer -} ->
   Alignment ->
   SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
-  SymBV sym w {- ^ Array size -} ->
+  Maybe (SymBV sym w) {- ^ Array size; if @Nothing@, the size is unrestricted -} ->
   Mem sym -> IO (Mem sym, Pred sym, Pred sym)
 writeArrayMem sym w ptr alignment arr sz m =
   do p1 <- isAllocatedMutable sym w alignment ptr sz m
@@ -964,7 +984,7 @@ writeArrayConstMem ::
   LLVMPtr sym w {- ^ Pointer -} ->
   Alignment ->
   SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ Array value -} ->
-  SymBV sym w {- ^ Array size -} ->
+  Maybe (SymBV sym w) {- ^ Array size -} ->
   Mem sym -> IO (Mem sym, Pred sym, Pred sym)
 writeArrayConstMem sym w ptr alignment arr sz m =
   do p1 <- isAllocated sym w alignment ptr sz m
@@ -974,7 +994,7 @@ writeArrayConstMem sym w ptr alignment arr sz m =
 -- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
          -> Natural -- ^ Block id for allocation
-         -> SymBV sym w -- ^ Size
+         -> Maybe (SymBV sym w) -- ^ Size
          -> Alignment
          -> Mutability -- ^ Is block read-only
          -> String -- ^ Source location
@@ -999,7 +1019,7 @@ allocAndWriteMem sym w a b tp alignment mut loc v m =
      base <- natLit sym b
      off <- bvLit sym w 0
      let p = LLVMPointer base off
-     return (m & memAddAlloc (Alloc a b sz mut alignment loc)
+     return (m & memAddAlloc (Alloc a b (Just sz) mut alignment loc)
                & memAddWrite (MemWrite p (MemStore v tp alignment)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
@@ -1144,7 +1164,7 @@ ppMerge vpp c x y =
 
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
 ppAlloc (Alloc atp base sz mut _alignment loc) =
-  text (show atp) <+> text (show base) <+> printSymExpr sz <+> text (show mut) <+> text loc
+  text (show atp) <+> text (show base) <+> (pretty $ printSymExpr <$> sz) <+> text (show mut) <+> text loc
 ppAlloc (MemFree base) =
   text "free" <+> printSymExpr base
 ppAlloc (AllocMerge c x y) = do

@@ -58,6 +58,7 @@ module Lang.Crucible.LLVM.MemModel
 
     -- * Memory operations
   , doMalloc
+  , doMallocUnbounded
   , G.AllocType(..)
   , G.Mutability(..)
   , doMallocHandle
@@ -69,6 +70,7 @@ module Lang.Crucible.LLVM.MemModel
   , doLoad
   , doStore
   , doArrayStore
+  , doArrayStoreUnbounded
   , doArrayConstStore
   , loadString
   , loadMaybeString
@@ -327,7 +329,7 @@ evalStmt sym = eval
         blk <- liftIO $ natLit sym (fromIntegral blkNum)
         z <- liftIO $ bvLit sym PtrWidth 0
 
-        let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) sz alignment G.Mutable (show loc) (memImplHeap mem)
+        let heap' = G.allocMem G.StackAlloc (fromInteger blkNum) (Just sz) alignment G.Mutable (show loc) (memImplHeap mem)
         let ptr = LLVMPointer blk z
 
         setMem mvar mem{ memImplHeap = heap' }
@@ -510,13 +512,38 @@ doMalloc
   -> SymBV sym wptr {- ^ allocation size -}
   -> Alignment
   -> IO (LLVMPtr sym wptr, MemImpl sym)
-doMalloc sym allocType mut loc mem sz alignment = do
+doMalloc sym allocType mut loc mem sz alignment = doMallocSize (Just sz) sym allocType mut loc mem alignment
+
+-- | Allocate a memory region of unbounded size.
+doMallocUnbounded
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> G.AllocType {- ^ stack, heap, or global -}
+  -> G.Mutability {- ^ whether region is read-only -}
+  -> String {- ^ source location for use in error messages -}
+  -> MemImpl sym
+  -> Alignment
+  -> IO (LLVMPtr sym wptr, MemImpl sym)
+doMallocUnbounded = doMallocSize Nothing
+
+doMallocSize 
+  :: (IsSymInterface sym, HasPtrWidth wptr)
+  => Maybe (SymBV sym wptr) {- ^ allocation size -}
+  -> sym
+  -> G.AllocType {- ^ stack, heap, or global -}
+  -> G.Mutability {- ^ whether region is read-only -}
+  -> String {- ^ source location for use in error messages -}
+  -> MemImpl sym
+  -> Alignment
+  -> IO (LLVMPtr sym wptr, MemImpl sym)
+doMallocSize sz sym allocType mut loc mem alignment = do
   blkNum <- nextBlock (memImplBlockSource mem)
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym PtrWidth 0
   let heap' = G.allocMem allocType (fromInteger blkNum) sz alignment mut loc (memImplHeap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap' })
+
 
 -- | Allocate a memory region for the given handle.
 doMallocHandle
@@ -532,7 +559,7 @@ doMallocHandle sym allocType loc mem x = do
   blk <- natLit sym (fromIntegral blkNum)
   z <- bvLit sym PtrWidth 0
 
-  let heap' = G.allocMem allocType (fromInteger blkNum) z noAlignment G.Immutable loc (memImplHeap mem)
+  let heap' = G.allocMem allocType (fromInteger blkNum) (Just z) noAlignment G.Immutable loc (memImplHeap mem)
   let hMap' = Map.insert blkNum (toDyn x) (memImplHandleMap mem)
   let ptr = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap', memImplHandleMap = hMap' })
@@ -620,7 +647,31 @@ doArrayStore
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
   -> SymBV sym w {- ^ array length -}
   -> IO (MemImpl sym)
-doArrayStore sym mem ptr alignment arr len = do
+doArrayStore sym mem ptr alignment arr len = doArrayStoreLength (Just len) sym mem ptr alignment arr
+
+-- | Store an array of unbounded length in memory. Also assert that the pointer is
+-- valid and points to a mutable memory region.
+doArrayStoreUnbounded
+  :: (IsSymInterface sym, HasPtrWidth w)
+  => sym
+  -> MemImpl sym
+  -> LLVMPtr sym w {- ^ destination  -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
+  -> IO (MemImpl sym)
+doArrayStoreUnbounded = doArrayStoreLength Nothing
+
+
+doArrayStoreLength
+  :: (IsSymInterface sym, HasPtrWidth w)
+  => Maybe (SymBV sym w) {- ^ array length -}
+  -> sym
+  -> MemImpl sym
+  -> LLVMPtr sym w {- ^ destination  -}
+  -> Alignment
+  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
+  -> IO (MemImpl sym)
+doArrayStoreLength len sym mem ptr alignment arr = do
   (heap', p1, p2) <-
     G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
   let errMsg1 = "Array store to unallocated or immutable region: "
@@ -643,7 +694,7 @@ doArrayConstStore
   -> IO (MemImpl sym)
 doArrayConstStore sym mem ptr alignment arr len = do
   (heap', p1, p2) <-
-    G.writeArrayConstMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
+    G.writeArrayConstMem sym PtrWidth ptr alignment arr (Just len) (memImplHeap mem)
   let errMsg1 = "Array store to unallocated region: "
   let errMsg2 = "Array store to improperly aligned region: "
   assert sym p1 $ AssertFailureSimError $ errMsg1 ++ show (G.ppPtr ptr)
