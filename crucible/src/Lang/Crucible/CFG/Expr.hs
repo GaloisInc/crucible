@@ -764,6 +764,38 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
          -> !(f (BVType w)) -- The shift amount as an unsigned integer.
          -> App ext f (BVType w)
 
+  -- Return the minimum of the two arguments using unsigned comparisons
+  BVUMin ::
+    (1 <= w) =>
+    !(NatRepr w) ->
+    !(f (BVType w)) ->
+    !(f (BVType w)) ->
+    App ext f (BVType w)
+
+  -- Return the maximum of the two arguments using unsigned comparisons
+  BVUMax ::
+    (1 <= w) =>
+    !(NatRepr w) ->
+    !(f (BVType w)) ->
+    !(f (BVType w)) ->
+    App ext f (BVType w)
+
+  -- Return the minimum of the two arguments using signed comparisons
+  BVSMin ::
+    (1 <= w) =>
+    !(NatRepr w) ->
+    !(f (BVType w)) ->
+    !(f (BVType w)) ->
+    App ext f (BVType w)
+
+  -- Return the maximum of the two arguments using signed comparisons
+  BVSMax ::
+    (1 <= w) =>
+    !(NatRepr w) ->
+    !(f (BVType w)) ->
+    !(f (BVType w)) ->
+    App ext f (BVType w)
+
   -- Given a Boolean, returns one if Boolean is True and zero otherwise.
   BoolToBV :: (1 <= w)
            => !(NatRepr w)
@@ -1127,6 +1159,10 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     BVShl w _ _ -> BVRepr w
     BVLshr w _ _ -> BVRepr w
     BVAshr w _ _ -> BVRepr w
+    BVUMax w _ _ -> BVRepr w
+    BVUMin w _ _ -> BVRepr w
+    BVSMax w _ _ -> BVRepr w
+    BVSMin w _ _ -> BVRepr w
 
     BoolToBV w _ -> BVRepr w
     BvToNat{} -> knownRepr
