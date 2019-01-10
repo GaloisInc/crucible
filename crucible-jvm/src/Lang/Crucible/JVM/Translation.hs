@@ -2029,7 +2029,7 @@ instance IsCodebase JCB.Codebase where
                     in throwIOExecException msg res
 
 
--- | Atempt to find class with given name, or throw 'ExecException' if no class
+-- | Attempt to find class with given name, or throw 'ExecException' if no class
 -- with that name exists. Class name should be in slash-separated form.
 cbLookupClass :: JCB.Codebase -> J.ClassName -> IO J.Class
 cbLookupClass cb nm = do
