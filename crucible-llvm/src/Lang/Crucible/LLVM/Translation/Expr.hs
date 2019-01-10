@@ -253,7 +253,7 @@ zeroExpand (VecType n tp) k =
 zeroExpand (PtrType _tp) k = k PtrRepr nullPointerExpr
 zeroExpand FloatType   k  = k (FloatRepr SingleFloatRepr) (App (FloatLit 0))
 zeroExpand DoubleType  k  = k (FloatRepr DoubleFloatRepr) (App (DoubleLit 0))
-zeroExpand X86_FP80Type _  = ?err "Cannot zero expand x86_fp80 values"
+zeroExpand X86_FP80Type _ = ?err "Cannot zero expand x86_fp80 values"
 zeroExpand MetadataType _ = ?err "Cannot zero expand metadata"
 
 undefExpand :: (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth arch))
@@ -441,7 +441,7 @@ callIntToBool
   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
 callIntToBool w (BitvectorAsPointerExpr _ bv) =
   case bv of
-    App (BVLit _ 0) -> return false
+    App (BVLit _ i) -> if i == 0 then return false else return true
     _ -> return (App (BVNonzero w bv))
 callIntToBool w ex =
   do ex' <- forceEvaluation ex
