@@ -78,6 +78,36 @@ import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
+--------------------------------------------------------------------------------
+-- Assertions
+
+-- These assertions are used to check for poison or undefined values, and to
+-- provide helpful error messages in case they are encountered.
+
+-- | Immediately assert that evaluation doesn't result in undefined behavior
+assertUndefined :: Maybe UB.Config      -- ^ Defaults to 'UB.strictConfig'
+                -> UB.UndefinedBehavior
+                -> Expr (LLVM arch) s BoolType  -- ^ The assertion
+                -> LLVMGenerator h s arch ret ()
+assertUndefined (UB.defaultStrict -> ubConfig) ub assert =
+  when (UB.getConfig ubConfig ub) $
+    assertExpr assert (litExpr (Text.pack (UB.pp ub)))
+
+-- | Add a side condition if the configuration asks us to check for it
+poisonSideCondition :: (1 <= w)
+                    => Maybe UB.Config -- ^ Defaults to 'UB.strictConfig'
+                    -> NatRepr w
+                    -> UB.UndefinedBehavior
+                    -> Expr (LLVM arch) s BoolType
+                    -> Expr (LLVM arch) s (BVType w)
+                    -> Expr (LLVM arch) s (BVType w)
+poisonSideCondition (UB.defaultStrict -> ubConfig) w ub boolExpr bvExpr =
+  if UB.getConfig ubConfig ub
+  then App $ AddSideCondition (BaseBVRepr w) boolExpr (UB.pp ub) bvExpr
+  else bvExpr
+
+--------------------------------------------------------------------------------
+-- Translation
 
 -- | Get the return type of an LLVM instruction
 -- See <https://llvm.org/docs/LangRef.html#instruction-reference the language reference>.
@@ -198,7 +228,8 @@ extractElt instr _ n (BaseExpr (VectorRepr tyr) v) i =
   do idx <- case asScalar i of
                    Scalar (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
-                        assertExpr (App (BVUlt w bv (App (BVLit w n)))) "extract element index out of bounds!"
+                        assertUndefined Nothing UB.ExtractElementIndex $
+                          (App (BVUlt w bv (App (BVLit w n))))
                         return $ App (BvToNat w bv)
                    _ ->
                      fail (unlines ["invalid extractelement instruction", showInstr instr])
@@ -725,28 +756,6 @@ bitop op _ x y =
          return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w ex))
 
     _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
-
--- | Immediately assert that evaluation doesn't result in undefined behavior
-assertUndefined :: Maybe UB.Config      -- ^ Defaults to 'UB.strictConfig'
-                -> UB.UndefinedBehavior
-                -> Expr (LLVM arch) s BoolType  -- ^ The assertion
-                -> LLVMGenerator h s arch ret ()
-assertUndefined (UB.defaultStrict -> ubConfig) ub assert =
-  when (UB.getConfig ubConfig ub) $
-    assertExpr assert (litExpr (Text.pack (UB.pp ub)))
-
--- | Add a side condition if the configuration asks us to check for it
-poisonSideCondition :: (1 <= w)
-                    => Maybe UB.Config -- ^ Defaults to 'UB.strictConfig'
-                    -> NatRepr w
-                    -> UB.UndefinedBehavior
-                    -> Expr (LLVM arch) s BoolType
-                    -> Expr (LLVM arch) s (BVType w)
-                    -> Expr (LLVM arch) s (BVType w)
-poisonSideCondition (UB.defaultStrict -> ubConfig) w ub boolExpr bvExpr =
-  if UB.getConfig ubConfig ub
-  then App $ AddSideCondition (BaseBVRepr w) boolExpr (UB.pp ub) bvExpr
-  else bvExpr
 
 raw_bitop :: (1 <= w) =>
   Maybe UB.Config {- ^ Defaults to 'UB.strictConfig' -} ->

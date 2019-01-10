@@ -163,6 +163,7 @@ data UndefinedBehavior =
   | LshrOp2Big
   | AshrExact
   | AshrOp2Big
+  | ExtractElementIndex
 
   {-
   | MemcpyDisjoint
@@ -208,6 +209,7 @@ standard =
     LshrOp2Big              -> LLVMRef LLVM8
     AshrExact               -> LLVMRef LLVM8
     AshrOp2Big              -> LLVMRef LLVM8
+    ExtractElementIndex     -> LLVMRef LLVM8
     {-
     MemcpyDisjoint          -> CStd C99
     DoubleFree              -> CStd C99
@@ -251,6 +253,7 @@ cite =
     LshrOp2Big              -> "‘lshr’ Instruction"
     AshrExact               -> "‘ashr’ Instruction"
     AshrOp2Big              -> "‘ashr’ Instruction"
+    ExtractElementIndex     -> "‘extractelement’ Instruction"
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
     DoubleFree              -> "§7.22.3.3 The free function"
@@ -315,7 +318,7 @@ explain =
     ShlNoUnsignedWrap ->
       "Left shift shifted out non-zero bits even though the `nuw` flag was set"
     ShlNoSignedWrap   -> unwords $
-      [ "Left shift shifted out some bits that disagreed with the sign bit "
+      [ "Left shift shifted out some bits that disagreed with the sign bit"
       , "even though the `nsw` flag was set"
       ]
     LshrExact         -> unwords $
@@ -333,6 +336,11 @@ explain =
     AshrOp2Big        -> unwords $
       [ "The second operand of `ashr` was equal to or greater than the number of"
       , "bits in the first operand"
+      ]
+
+    ExtractElementIndex -> unwords $
+      [ "Attempted to extract an element from a vector at an index that was"
+      , "greater than the length of the vector"
       ]
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
