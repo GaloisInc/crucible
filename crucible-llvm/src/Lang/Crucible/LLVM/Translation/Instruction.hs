@@ -74,6 +74,7 @@ import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
+import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
 import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 
@@ -805,148 +806,167 @@ raw_bitop op w a b =
         | otherwise -> fail "cannot arithmetic right shift a 0-width integer"
 
 
-intop :: (1 <= w)
-      => L.ArithOp
+-- | Translate an LLVM integer operation into a Crucible CFG expression.
+--
+-- Poison values can arise from such operations (depending on the attached
+-- flags). Whether or not to enforce such flags is controlled by a 'UB.Config'.
+intop :: forall w arch s h ret. (1 <= w)
+      => Maybe UB.Config -- ^ Defaults to 'UB.strictConfig'
+      -> L.ArithOp
       -> NatRepr w
       -> Expr (LLVM arch) s (BVType w)
       -> Expr (LLVM arch) s (BVType w)
       -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
-intop op w a b =
-      case op of
-             L.Add nuw nsw -> do
-                let nuwCond expr
-                     | nuw = return $ App $ AddSideCondition (BaseBVRepr w)
-                                (notExpr (App (BVCarry w a b)))
-                                "unsigned overflow on addition"
-                                expr
-                     | otherwise = return expr
-
-                let nswCond expr
-                     | nsw = return $ App $ AddSideCondition (BaseBVRepr w)
-                                (notExpr (App (BVSCarry w a b)))
-                                "signed overflow on addition"
-                                expr
-                     | otherwise = return expr
-
-                nuwCond =<< nswCond (App (BVAdd w a b))
-
-             L.Sub nuw nsw -> do
-                let nuwCond expr
-                     | nuw = return $ App $ AddSideCondition (BaseBVRepr w)
-                                (notExpr (App (BVUlt w a b)))
-                                "unsigned overflow on subtraction"
-                                expr
-                     | otherwise = return expr
-
-                let nusCond expr
-                     | nsw = return $ App $ AddSideCondition (BaseBVRepr w)
-                                (notExpr (App (BVSBorrow w a b)))
-                                "signed overflow on subtraction"
-                                expr
-                     | otherwise = return expr
-
-                nuwCond =<< nusCond (App (BVSub w a b))
-
-             L.Mul nuw nsw -> do
-                let w' = addNat w w
-                Just LeqProof <- return $ isPosNat w'
-                Just LeqProof <- return $ testLeq (incNat w) w'
-
-                prod <- AtomExpr <$> mkAtom (App (BVMul w a b))
-                let nuwCond expr
-                     | nuw = do
-                         az <- AtomExpr <$> mkAtom (App (BVZext w' w a))
-                         bz <- AtomExpr <$> mkAtom (App (BVZext w' w b))
-                         wideprod <- AtomExpr <$> mkAtom (App (BVMul w' az bz))
-                         prodz <- AtomExpr <$> mkAtom (App (BVZext w' w prod))
-                         return $ App $ AddSideCondition (BaseBVRepr w)
-                                (App (BVEq w' wideprod prodz))
-                                "unsigned overflow on multiplication"
-                                expr
-                     | otherwise = return expr
-
-                let nswCond expr
-                     | nsw = do
-                         as <- AtomExpr <$> mkAtom (App (BVSext w' w a))
-                         bs <- AtomExpr <$> mkAtom (App (BVSext w' w b))
-                         wideprod <- AtomExpr <$> mkAtom (App (BVMul w' as bs))
-                         prods <- AtomExpr <$> mkAtom (App (BVSext w' w prod))
-                         return $ App $ AddSideCondition (BaseBVRepr w)
-                                (App (BVEq w' wideprod prods))
-                                "signed overflow on multiplication"
-                                expr
-                     | otherwise = return expr
-
-                nuwCond =<< nswCond prod
-
-             L.UDiv exact -> do
-                let z = App (BVLit w 0)
-                assertExpr (notExpr (App (BVEq w z b)))
-                           (litExpr "unsigned division-by-0")
-
-                q <- AtomExpr <$> mkAtom (App (BVUdiv w a b))
-
-                let exactCond expr
-                     | exact = do
-                         m <- AtomExpr <$> mkAtom (App (BVMul w q b))
-                         return $ App $ AddSideCondition (BaseBVRepr w)
-                                (App (BVEq w a m))
-                                "inexact result of unsigned division"
-                                expr
-                     | otherwise = return expr
-
-                exactCond q
-
-             L.SDiv exact
-               | Just LeqProof <- isPosNat w -> do
-                  let z      = App (BVLit w 0)
-                  let neg1   = App (BVLit w (-1))
-                  let minInt = App (BVLit w (minSigned w))
-                  assertExpr (notExpr (App (BVEq w z b)))
-                             (litExpr "signed division-by-0")
-                  assertExpr (notExpr ((App (BVEq w neg1 b))
-                                       .&&
-                                       (App (BVEq w minInt a)) ))
-                             (litExpr "signed division overflow (yes, really)")
-
-                  q <- AtomExpr <$> mkAtom (App (BVSdiv w a b))
-
-                  let exactCond expr
-                       | exact = do
-                           m <- AtomExpr <$> mkAtom (App (BVMul w q b))
-                           return $ App $ AddSideCondition (BaseBVRepr w)
-                                  (App (BVEq w a m))
-                                  "inexact result of signed division"
+intop (UB.defaultStrict -> ubConfig) op w a b =
+  let -- Add a side condition if the configuration asks us to check for it
+      poisonSideCondition :: UB.UndefinedBehavior
+                          -> Expr (LLVM arch) s BoolType
+                          -> Expr (LLVM arch) s (BVType w)
+                          -> Expr (LLVM arch) s (BVType w)
+      poisonSideCondition ub boolExpr bvExpr =
+        if UB.getConfig ubConfig ub
+        then App $ AddSideCondition (BaseBVRepr w) boolExpr (UB.pp ub) bvExpr
+        else bvExpr
+      -- Immediately assert that evaluation doesn't result in undefined behavior
+      assertUndefined :: IsSyntaxExtension ext
+                      => UB.UndefinedBehavior
+                      -> Expr ext s BoolType  -- ^ The assertion
+                      -> Generator ext h s t ret ()
+      assertUndefined ub assert =
+        assertExpr assert (litExpr (Text.pack (UB.pp ub)))
+  in case op of
+       L.Add nuw nsw -> do
+         let nuwCond expr
+               | nuw = return $ poisonSideCondition
+                                  UB.AddNoUnsignedWrap
+                                  (notExpr (App (BVCarry w a b)))
                                   expr
-                       | otherwise = return expr
+               | otherwise = return expr
 
-                  exactCond q
+         let nswCond expr
+               | nsw = return $ poisonSideCondition
+                                  UB.AddNoSignedWrap
+                                  (notExpr (App (BVSCarry w a b)))
+                                  expr
+               | otherwise = return expr
 
-               | otherwise -> fail "cannot take the signed quotient of a 0-width bitvector"
+         nuwCond =<< nswCond (App (BVAdd w a b))
 
-             L.URem -> do
-                  let z = App (BVLit w 0)
-                  assertExpr (notExpr (App (BVEq w z b)))
-                             (litExpr "unsigned division-by-0 in urem")
-                  return $ App (BVUrem w a b)
+       L.Sub nuw nsw -> do
+         let nuwCond expr
+               | nuw = return $ poisonSideCondition
+                                  UB.SubNoUnsignedWrap
+                                  (notExpr (App (BVUlt w a b)))
+                                  expr
+               | otherwise = return expr
 
-             L.SRem
-               | Just LeqProof <- isPosNat w -> do
-                  let z      = App (BVLit w 0)
-                  let neg1   = App (BVLit w (-1))
-                  let minInt = App (BVLit w (minSigned w))
-                  assertExpr (notExpr (App (BVEq w z b)))
-                             (litExpr "signed division-by-0 in srem")
-                  assertExpr (notExpr ((App (BVEq w neg1 b))
-                                       .&&
-                                       (App (BVEq w minInt a)) ))
-                             (litExpr "signed division overflow in srem (yes, really)")
+         let nswCond expr
+               | nsw = return $ poisonSideCondition
+                                  UB.SubNoSignedWrap
+                                  (notExpr (App (BVSBorrow w a b)))
+                                  expr
+               | otherwise = return expr
 
-                  return $ App (BVSrem w a b)
+         nuwCond =<< nswCond (App (BVSub w a b))
 
-               | otherwise -> fail "cannot take the signed remainder of a 0-width bitvector"
+       L.Mul nuw nsw -> do
+         let w' = addNat w w
+         Just LeqProof <- return $ isPosNat w'
+         Just LeqProof <- return $ testLeq (incNat w) w'
 
-             _ -> fail $ unwords ["unsupported integer arith operation", show op]
+         prod <- AtomExpr <$> mkAtom (App (BVMul w a b))
+         let nuwCond expr
+               | nuw = do
+                   az <- AtomExpr <$> mkAtom (App (BVZext w' w a))
+                   bz <- AtomExpr <$> mkAtom (App (BVZext w' w b))
+                   wideprod <- AtomExpr <$> mkAtom (App (BVMul w' az bz))
+                   prodz <- AtomExpr <$> mkAtom (App (BVZext w' w prod))
+                   return $ poisonSideCondition
+                              UB.MulNoUnsignedWrap
+                              (App (BVEq w' wideprod prodz))
+                              expr
+               | otherwise = return expr
+
+         let nswCond expr
+               | nsw = do
+                   as <- AtomExpr <$> mkAtom (App (BVSext w' w a))
+                   bs <- AtomExpr <$> mkAtom (App (BVSext w' w b))
+                   wideprod <- AtomExpr <$> mkAtom (App (BVMul w' as bs))
+                   prods <- AtomExpr <$> mkAtom (App (BVSext w' w prod))
+                   return $ poisonSideCondition
+                              UB.MulNoSignedWrap
+                              (App (BVEq w' wideprod prods))
+                              expr
+               | otherwise = return expr
+
+         nuwCond =<< nswCond prod
+
+       L.UDiv exact -> do
+         let z = App (BVLit w 0)
+         assertUndefined UB.UDivByZero (notExpr (App (BVEq w z b)))
+         q <- AtomExpr <$> mkAtom (App (BVUdiv w a b))
+
+         let exactCond expr
+               | exact = do
+                   m <- AtomExpr <$> mkAtom (App (BVMul w q b))
+                   return $ poisonSideCondition
+                              UB.UDivExact
+                              (App (BVEq w a m))
+                              expr
+               | otherwise = return expr
+
+         exactCond q
+
+       L.SDiv exact
+         | Just LeqProof <- isPosNat w -> do
+           let z      = App (BVLit w 0)
+           let neg1   = App (BVLit w (-1))
+           let minInt = App (BVLit w (minSigned w))
+
+           assertUndefined UB.SDivByZero (notExpr (App (BVEq w z b)))
+
+           -- TODO: make this an 'assertUndefined'
+           assertExpr (notExpr ((App (BVEq w neg1 b))
+                                 .&&
+                                 (App (BVEq w minInt a)) ))
+                       (litExpr "signed division overflow (yes, really)")
+
+           q <- AtomExpr <$> mkAtom (App (BVSdiv w a b))
+
+           let exactCond expr
+                 | exact = do
+                     m <- AtomExpr <$> mkAtom (App (BVMul w q b))
+                     return $ poisonSideCondition
+                                UB.SDivExact
+                                (App (BVEq w a m))
+                                expr
+                 | otherwise = return expr
+
+           exactCond q
+
+         | otherwise -> fail "cannot take the signed quotient of a 0-width bitvector"
+
+       L.URem -> do
+           let z = App (BVLit w 0)
+           assertUndefined UB.URemByZero (notExpr (App (BVEq w z b)))
+           return $ App (BVUrem w a b)
+
+       L.SRem
+         | Just LeqProof <- isPosNat w -> do
+           let z      = App (BVLit w 0)
+           let neg1   = App (BVLit w (-1))
+           let minInt = App (BVLit w (minSigned w))
+           assertUndefined UB.SRemByZero (notExpr (App (BVEq w z b)))
+           assertExpr (notExpr ((App (BVEq w neg1 b))
+                                 .&&
+                                 (App (BVEq w minInt a)) ))
+                       (litExpr "signed division overflow in srem (yes, really)")
+
+           return $ App (BVSrem w a b)
+
+         | otherwise -> fail "cannot take the signed remainder of a 0-width bitvector"
+
+       _ -> fail $ unwords ["unsupported integer arith operation", show op]
 
 caseptr
   :: (1 <= w)
@@ -1066,7 +1086,8 @@ pointerOp op x y =
   caseptr PtrWidth PtrRepr
     (\x_bv  ->
       caseptr PtrWidth PtrRepr
-        (\y_bv  -> BitvectorAsPointerExpr PtrWidth <$> intop op PtrWidth x_bv y_bv)
+        (\y_bv  -> BitvectorAsPointerExpr PtrWidth <$>
+                     intop Nothing op PtrWidth x_bv y_bv)
         (\_ _   -> bv_ptr_op x_bv)
         y)
     (\_ _ ->
@@ -1428,7 +1449,7 @@ arithOp op _ x y =
       | Just Refl <- testEquality w w' ->
         do xbv <- pointerAsBitvectorExpr w x'
            ybv <- pointerAsBitvectorExpr w y'
-           z   <- intop op w xbv ybv
+           z   <- intop Nothing op w xbv ybv
            return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w z))
 
     (Scalar (FloatRepr fi) x',

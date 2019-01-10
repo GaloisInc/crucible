@@ -190,7 +190,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Value
-import qualified Lang.Crucible.LLVM.MemModel.UndefinedBehavior as UB
+import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.Panic (panic)

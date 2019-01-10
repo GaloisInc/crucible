@@ -1,5 +1,5 @@
 -- |
--- Module           : Lang.Crucible.LLVM.MemModel.UndefinedBehavior
+-- Module           : Lang.Crucible.LLVM.UndefinedBehavior
 -- Description      : All about undefined behavior
 -- Copyright        : (c) Galois, Inc 2018
 -- License          : BSD3
@@ -20,12 +20,12 @@
 -- code essentially have an additional hypothesis: that the LLVM
 -- compiler/hardware platform behave identically to Crucible's simulator when
 -- encountering such behavior.
-------------------------------------------------------------------------
+--------------------------------------------------------------------------
 
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE StrictData #-}
 
-module Lang.Crucible.LLVM.MemModel.UndefinedBehavior
+module Lang.Crucible.LLVM.UndefinedBehavior
   ( Standard(..)
   , ppStd
   , stdURL
@@ -48,7 +48,7 @@ module Lang.Crucible.LLVM.MemModel.UndefinedBehavior
 import           Data.Maybe (fromMaybe)
 import           Data.Functor.Contravariant (Predicate(..))
 
--- -----------------------------------------------------------------
+-- -----------------------------------------------------------------------
 -- ** Standard
 
 -- | The various standards that prohibit certain behaviors
@@ -115,7 +115,7 @@ ppStd =
     CXXStd  ver -> "The C++ language standard, version " ++ ppCXXStdVer ver
     LLVMRef ver -> "The LLVM language reference, version" ++ ppLLVMRefVer ver
 
--- -----------------------------------------------------------------
+-- -----------------------------------------------------------------------
 -- ** UndefinedBehavior
 
 -- | See 'cite' and 'explain'.
@@ -123,15 +123,34 @@ ppStd =
 -- The commented-out constructors correspond to behaviors that don't have
 -- explicit checks yet (but probably should!).
 data UndefinedBehavior =
-    PtrAddOffsetOutOfBounds
-  | FreeInvalidPointer
+
+    -------------------------------- Memory management
+    FreeInvalidPointer
   | MemsetInvalidRegion
+
+    -------------------------------- Pointer arithmetic
+  | PtrAddOffsetOutOfBounds
   | CompareInvalidPointer
   | CompareDifferentAllocs
     -- ^ "In all other cases, the behavior is undefined"
   | PtrSubDifferentAllocs
     -- ^ "When two pointers are subtracted, both shall point to elements of the
     -- same array object"
+
+    -------------------------------- LLVM poison and undefined values
+  | AddNoUnsignedWrap
+  | AddNoSignedWrap
+  | SubNoUnsignedWrap
+  | SubNoSignedWrap
+  | MulNoUnsignedWrap
+  | MulNoSignedWrap
+  | UDivByZero
+  | SDivByZero
+  | URemByZero
+  | SRemByZero
+  | UDivExact
+  | SDivExact
+
   {-
   | MemcpyDisjoint
   | DoubleFree
@@ -144,12 +163,29 @@ data UndefinedBehavior =
 standard :: UndefinedBehavior -> Standard
 standard =
   \case
-    PtrAddOffsetOutOfBounds -> CStd C99
+    -------------------------------- Memory management
     FreeInvalidPointer      -> CStd C99
     MemsetInvalidRegion     -> CXXStd CXX17
+
+    -------------------------------- Pointer arithmetic
+    PtrAddOffsetOutOfBounds -> CStd C99
     CompareInvalidPointer   -> CStd C99
     CompareDifferentAllocs  -> CStd C99
     PtrSubDifferentAllocs   -> CStd C99
+
+    -------------------------------- LLVM poison and undefined values
+    AddNoUnsignedWrap       -> LLVMRef LLVM8
+    AddNoSignedWrap         -> LLVMRef LLVM8
+    SubNoUnsignedWrap       -> LLVMRef LLVM8
+    SubNoSignedWrap         -> LLVMRef LLVM8
+    MulNoUnsignedWrap       -> LLVMRef LLVM8
+    MulNoSignedWrap         -> LLVMRef LLVM8
+    UDivByZero              -> LLVMRef LLVM8
+    SDivByZero              -> LLVMRef LLVM8
+    URemByZero              -> LLVMRef LLVM8
+    SRemByZero              -> LLVMRef LLVM8
+    UDivExact               -> LLVMRef LLVM8
+    SDivExact               -> LLVMRef LLVM8
     {-
     MemcpyDisjoint          -> CStd C99
     DoubleFree              -> CStd C99
@@ -161,12 +197,29 @@ standard =
 cite :: UndefinedBehavior -> String
 cite =
   \case
-    PtrAddOffsetOutOfBounds -> "§6.5.6 Additive operators, ¶8"
+    -------------------------------- Memory management
     FreeInvalidPointer      -> "§7.22.3.3 The free function, ¶2"
     MemsetInvalidRegion     -> "https://en.cppreference.com/w/cpp/string/byte/memset"
+
+    -------------------------------- Pointer arithmetic
+    PtrAddOffsetOutOfBounds -> "§6.5.6 Additive operators, ¶8"
     CompareInvalidPointer   -> "§6.5.8 Relational operators, ¶5"
     CompareDifferentAllocs  -> "§6.5.8 Relational operators, ¶5"
     PtrSubDifferentAllocs   -> "§6.5.6 Additive operators, ¶9"
+
+    -------------------------------- LLVM poison and undefined values
+    AddNoUnsignedWrap       -> "‘add’ Instruction"
+    AddNoSignedWrap         -> "‘add’ Instruction"
+    SubNoUnsignedWrap       -> "‘sub’ Instruction"
+    SubNoSignedWrap         -> "‘sub’ Instruction"
+    MulNoUnsignedWrap       -> "‘mul’ Instruction"
+    MulNoSignedWrap         -> "‘mul’ Instruction"
+    UDivByZero              -> "‘udiv’ Instruction"
+    SDivByZero              -> "‘sdiv’ Instruction"
+    URemByZero              -> "‘urem’ Instruction"
+    SRemByZero              -> "‘srem’ Instruction"
+    UDivExact               -> "‘udiv’ Instruction"
+    SDivExact               -> "‘sdiv’ Instruction"
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
     DoubleFree              -> "§7.22.3.3 The free function"
@@ -179,10 +232,7 @@ cite =
 explain :: UndefinedBehavior -> String
 explain =
   \case
-    PtrAddOffsetOutOfBounds -> unwords $
-      [ "Addition of an offset to a pointer resulted in a pointer to an"
-      , "address outside of the allocation."
-      ]
+    -------------------------------- Memory management
     FreeInvalidPointer -> unwords $
       [ "`free` called on pointer that was not previously returned by `malloc`"
       , "`calloc`, or another memory management function"
@@ -191,12 +241,40 @@ explain =
       [ "Pointer passed to `memset` didn't point to a mutable allocation with"
       , "enough space."
       ]
+
+    -------------------------------- Pointer arithmetic
+    PtrAddOffsetOutOfBounds -> unwords $
+      [ "Addition of an offset to a pointer resulted in a pointer to an"
+      , "address outside of the allocation."
+      ]
     CompareInvalidPointer -> unwords $
       [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
       , "object."
       ]
     CompareDifferentAllocs -> "Comparison of pointers from different allocations"
     PtrSubDifferentAllocs -> "Subtraction of pointers from different allocations"
+
+    -------------------------------- LLVM poison and undefined values
+    AddNoUnsignedWrap ->
+      "Unsigned addition caused wrapping even though the `nuw` flag was set"
+    AddNoSignedWrap   ->
+      "Signed addition caused wrapping even though the `nsw` flag was set"
+    SubNoUnsignedWrap ->
+      "Unsigned subtraction caused wrapping even though the `nuw` flag was set"
+    SubNoSignedWrap   ->
+      "Signed subtraction caused wrapping even though the `nsw` flag was set"
+    MulNoUnsignedWrap ->
+      "Unsigned multiplication caused wrapping even though the `nuw` flag was set"
+    MulNoSignedWrap   ->
+      "Signed multiplication caused wrapping even though the `nsw` flag was set"
+    UDivByZero        -> "Unsigned division by zero"
+    SDivByZero        -> "Signed division by zero"
+    URemByZero        -> "Unsigned division by zero via remainder"
+    SRemByZero        -> "Signed division by zero via remainder"
+    SDivExact         ->
+      "Inexact signed division even though the `exact` flag was set"
+    UDivExact         ->
+      "Inexact unsigned division even though the `exact` flag was set"
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
     DoubleFree         -> "`free` called on already-freed memory"
@@ -214,7 +292,7 @@ pp ub = unlines $
          Just url -> ["Document URL: " ++ url]
          Nothing  -> []
 
--- -----------------------------------------------------------------
+-- -----------------------------------------------------------------------
 -- ** Config
 
 -- | 'Config' has a monoid instance which takes the piecewise logical and of its

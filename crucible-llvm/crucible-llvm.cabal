@@ -61,13 +61,13 @@ library
     Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
-    Lang.Crucible.LLVM.MemModel.UndefinedBehavior
     Lang.Crucible.LLVM.Translation.Constant
     Lang.Crucible.LLVM.Translation.Expr
     Lang.Crucible.LLVM.Translation.Instruction
     Lang.Crucible.LLVM.Translation.Monad
     Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
+    Lang.Crucible.LLVM.UndefinedBehavior
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
