@@ -538,155 +538,158 @@ instance ExtendContext (TermStmt blocks ret) where
 ------------------------------------------------------------------------------------
 -- Instantiation / type substitution
 
-type instance Instantiate n subst Reg = Reg
-type instance Lift n m Reg = Reg 
+type instance Instantiate subst Reg = Reg
 instance InstantiateF (Reg ctx) where
-  instantiateF n subst (Reg idx) = Reg (instantiate n subst idx)
-  liftF n m (Reg idx) = Reg (lift n m idx)
+  instantiateF subst (Reg idx) = Reg (instantiate subst idx)
 
-type instance Instantiate n subst BlockID = BlockID 
+type instance Instantiate subst BlockID = BlockID 
 instance InstantiateF (BlockID blocks) where
-  instantiateF n subst (BlockID idx) = BlockID (instantiate n subst idx)
+  instantiateF subst (BlockID idx) = BlockID (instantiate subst idx)
 
-type instance Instantiate n subst Expr = Expr 
+type instance Instantiate subst Expr = Expr 
 instance (IsSyntaxExtension ext) => InstantiateF (Expr ext ctx) where
-  instantiateF n subst (App app) = App (instantiate n subst app)
+  instantiateF subst (App app) = App (instantiate subst app)
 
-type instance Instantiate n subst Stmt = Stmt  
+type instance Instantiate subst Stmt = Stmt  
 instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
-  instantiateF n subst s 
-      | Refl <- closed @_ @ext n subst,
-        Refl <- closed @_ @(StmtExtension ext) n subst =
+  instantiateF subst s 
+      | Refl <- closed @_ @ext subst,
+        Refl <- closed @_ @(StmtExtension ext) subst =
       case s of
-        (SetReg ty expr) -> SetReg (instantiate n subst ty) (instantiate n subst expr)
-        (ExtendAssign exn) -> ExtendAssign (instantiate n subst exn)
+        (SetReg ty expr) -> SetReg (instantiate subst ty) (instantiate subst expr)
+        (ExtendAssign exn) -> ExtendAssign (instantiate subst exn)
         (CallHandle ret reg argTys args) -> 
-          CallHandle (instantiate n subst ret)
-                     (instantiate n subst reg)
-                     (instantiate n subst argTys)
-                     (instantiate n subst args)
-        (Print reg) -> Print (instantiate n subst reg)
+          CallHandle (instantiate subst ret)
+                     (instantiate subst reg)
+                     (instantiate subst argTys)
+                     (instantiate subst args)
+        (Print reg) -> Print (instantiate subst reg)
         
         (ReadGlobal (gv :: GlobalVar tp))
-          | Refl <- closed @_ @tp n subst
+          | Refl <- closed @_ @tp subst
           -> ReadGlobal gv
         (WriteGlobal (gv :: GlobalVar tp) reg)
-          | Refl <- closed @_ @tp n subst
-          -> WriteGlobal gv (instantiate n subst reg)
+          | Refl <- closed @_ @tp subst
+          -> WriteGlobal gv (instantiate subst reg)
 
         (FreshConstant bt ss) -> FreshConstant bt ss
-        (NewRefCell ty reg) -> NewRefCell (instantiate n subst ty) (instantiate n subst reg)
-        (NewEmptyRefCell ty) -> NewEmptyRefCell (instantiate n subst ty) 
-        (ReadRefCell reg) -> ReadRefCell (instantiate n subst reg)
-        (WriteRefCell reg1 reg2) -> WriteRefCell (instantiate n subst reg1)(instantiate n subst reg2)
-        (DropRefCell reg) -> DropRefCell (instantiate n subst reg)
-        (Assert reg1 reg2) -> Assert (instantiate n subst reg1) (instantiate n subst reg2)
-        (Assume reg1 reg2) -> Assume (instantiate n subst reg1) (instantiate n subst reg2)
+        (NewRefCell ty reg) -> NewRefCell (instantiate subst ty) (instantiate subst reg)
+        (NewEmptyRefCell ty) -> NewEmptyRefCell (instantiate subst ty) 
+        (ReadRefCell reg) -> ReadRefCell (instantiate subst reg)
+        (WriteRefCell reg1 reg2) -> WriteRefCell (instantiate subst reg1)(instantiate subst reg2)
+        (DropRefCell reg) -> DropRefCell (instantiate subst reg)
+        (Assert reg1 reg2) -> Assert (instantiate subst reg1) (instantiate subst reg2)
+        (Assume reg1 reg2) -> Assume (instantiate subst reg1) (instantiate subst reg2)
 
-type instance Instantiate n subst TermStmt = TermStmt 
+type instance Instantiate subst TermStmt = TermStmt 
 instance InstantiateF (TermStmt blocks ret) where
   instantiateF = instantiateTermStmt where
-    instantiateTermStmt :: NatRepr n -> CtxRepr subst
+    instantiateTermStmt :: SubstRepr subst
                         -> TermStmt blocks ret ctx
-                        -> TermStmt (Instantiate n subst blocks) (Instantiate n subst ret) (Instantiate n subst ctx)
-    instantiateTermStmt n subst (Jump target) = Jump (instantiate n subst target)
-    instantiateTermStmt n subst (Br reg jt1 jt2) = Br
-      (instantiate n subst reg)
-      (instantiate n subst jt1)
-      (instantiate n subst jt2)
-    instantiateTermStmt n subst (MaybeBranch repr reg st1 jt2) =
-      MaybeBranch (instantiate n subst repr)
-                  (instantiate n subst reg)
-                  (instantiate n subst st1)
-                  (instantiate n subst jt2)
-    instantiateTermStmt n subst (VariantElim repr reg switch) = VariantElim (instantiate n subst repr) (instantiate n subst reg)
-      (instantiate n subst switch)
-    instantiateTermStmt n subst (Return reg) = Return (instantiate n subst reg)
-    instantiateTermStmt n subst (TailCall r1 ctx args) = TailCall (instantiate n subst r1) (instantiate n subst ctx)
-      (instantiate n subst args)
-    instantiateTermStmt n subst (ErrorStmt reg) = ErrorStmt (instantiate n subst reg)
+                        -> TermStmt (Instantiate subst blocks) (Instantiate subst ret) (Instantiate subst ctx)
+    instantiateTermStmt subst (Jump target) = Jump (instantiate subst target)
+    instantiateTermStmt subst (Br reg jt1 jt2) = Br
+      (instantiate subst reg)
+      (instantiate subst jt1)
+      (instantiate subst jt2)
+    instantiateTermStmt subst (MaybeBranch repr reg st1 jt2) =
+      MaybeBranch (instantiate subst repr)
+                  (instantiate subst reg)
+                  (instantiate subst st1)
+                  (instantiate subst jt2)
+    instantiateTermStmt subst (VariantElim repr reg switch) = VariantElim (instantiate subst repr) (instantiate subst reg)
+      (instantiate subst switch)
+    instantiateTermStmt subst (Return reg) = Return (instantiate subst reg)
+    instantiateTermStmt subst (TailCall r1 ctx args) = TailCall (instantiate subst r1) (instantiate subst ctx)
+      (instantiate subst args)
+    instantiateTermStmt subst (ErrorStmt reg) = ErrorStmt (instantiate subst reg)
 
-type instance Instantiate n subst (StmtSeq ext) = StmtSeq ext
+type instance Instantiate subst (StmtSeq ext) = StmtSeq ext
 instance IsSyntaxExtension ext => InstantiateF (StmtSeq ext block ret) where
   instantiateF = instantiateStmtSeq where
-    instantiateStmtSeq :: forall n subst ext block ctx ret. IsSyntaxExtension ext
-      => NatRepr n -> CtxRepr subst -> StmtSeq ext block ret ctx
-                       -> StmtSeq ext (Instantiate n subst block) (Instantiate n subst ret) (Instantiate n subst ctx)
-    instantiateStmtSeq n subst ss | Refl <- closed @_ @ext n subst =
+    instantiateStmtSeq :: forall subst ext block ctx ret. IsSyntaxExtension ext
+      => SubstRepr subst -> StmtSeq ext block ret ctx
+                       -> StmtSeq ext (Instantiate subst block) (Instantiate subst ret) (Instantiate subst ctx)
+    instantiateStmtSeq subst ss | Refl <- closed @_ @ext subst =
       case ss of
-        (ConsStmt loc stmt sseq) -> ConsStmt loc (instantiate n subst stmt) (instantiate n subst sseq)
-        (TermStmt loc termstmt)  -> TermStmt loc (instantiate n subst termstmt)
+        (ConsStmt loc stmt sseq) -> ConsStmt loc (instantiate subst stmt) (instantiate subst sseq)
+        (TermStmt loc termstmt)  -> TermStmt loc (instantiate subst termstmt)
  
-type instance Instantiate n subst (Block ext) = Block ext 
+type instance Instantiate subst (Block ext) = Block ext 
 instance  IsSyntaxExtension ext => InstantiateF (Block ext blocks ret) where
 
   instantiateF = instantiateBlock where
-    instantiateBlock :: NatRepr n -> CtxRepr subst -> Block ext blocks ret ctx
-                     -> Block ext (Instantiate n subst blocks) (Instantiate n subst ret) (Instantiate n subst ctx)
-    instantiateBlock n subst (Block id inputs stmts) = Block id' inputs' stmts' where
-      id'     = instantiate n subst id
-      inputs' = instantiate n subst inputs
-      stmts'  = instantiate n subst stmts
+    instantiateBlock :: SubstRepr subst -> Block ext blocks ret ctx
+                     -> Block ext (Instantiate subst blocks) (Instantiate subst ret) (Instantiate subst ctx)
+    instantiateBlock subst (Block id inputs stmts) = Block id' inputs' stmts' where
+      id'     = instantiate subst id
+      inputs' = instantiate subst inputs
+      stmts'  = instantiate subst stmts
 
-type instance Instantiate n subst SwitchTarget = SwitchTarget 
+type instance Instantiate subst SwitchTarget = SwitchTarget 
 instance InstantiateF (SwitchTarget blocks ctx)  where
 
   instantiateF = instantiateSwitch where
-    instantiateSwitch :: NatRepr n -> CtxRepr subst -> SwitchTarget blocks ctx tp
-                      -> SwitchTarget (Instantiate n subst blocks) (Instantiate n subst ctx) (Instantiate n subst tp)
-    instantiateSwitch n subst (SwitchTarget bid argTys args)  =
-      SwitchTarget (instantiate n subst bid)
-                   (instantiate n subst argTys)
-                   (instantiate n subst args)
+    instantiateSwitch :: SubstRepr subst -> SwitchTarget blocks ctx tp
+                      -> SwitchTarget (Instantiate subst blocks) (Instantiate subst ctx) (Instantiate subst tp)
+    instantiateSwitch subst (SwitchTarget bid argTys args)  =
+      SwitchTarget (instantiate subst bid)
+                   (instantiate subst argTys)
+                   (instantiate subst args)
 
-type instance Instantiate n subst JumpTarget = JumpTarget 
+type instance Instantiate subst JumpTarget = JumpTarget 
 instance InstantiateF (JumpTarget blocks) where
 
   instantiateF = instantiateJumpTarget where
-    instantiateJumpTarget :: NatRepr n -> CtxRepr subst -> JumpTarget blocks ctx
-                      -> JumpTarget (Instantiate n subst blocks) (Instantiate n subst ctx) 
-    instantiateJumpTarget n subst (JumpTarget bid argTys args)  =
-      JumpTarget (instantiate n subst bid)
-                   (instantiate n subst argTys)
-                   (instantiate n subst args)
+    instantiateJumpTarget :: SubstRepr subst -> JumpTarget blocks ctx
+                      -> JumpTarget (Instantiate subst blocks) (Instantiate subst ctx) 
+    instantiateJumpTarget subst (JumpTarget bid argTys args)  =
+      JumpTarget (instantiate subst bid)
+                   (instantiate subst argTys)
+                   (instantiate subst args)
 
-instantiateBlockMap ::  (IsSyntaxExtension ext) => NatRepr n -> CtxRepr subst
+
+instantiateBlockMap ::  (IsSyntaxExtension ext) => SubstRepr subst
   -> Assignment (Block ext blocks' ret) blocks
-  -> Assignment (Block ext (Instantiate n subst blocks') (Instantiate n subst ret)) (Instantiate n subst blocks)
-instantiateBlockMap n subst assign = 
+  -> Assignment (Block ext (Instantiate subst blocks') (Instantiate subst ret)) (Instantiate subst blocks)
+instantiateBlockMap subst assign = 
    case viewAssign assign of
       AssignEmpty -> Ctx.Empty
-      AssignExtend bm b -> (instantiateBlockMap n subst bm) Ctx.:> (instantiate n subst b)
+      AssignExtend bm b -> (instantiateBlockMap subst bm) Ctx.:> (instantiate subst b)
 
 
-instantiatePostdomBlock :: forall n subst blocks' b.
-  NatRepr n -> CtxRepr subst -> Const [Some (BlockID blocks')] b -> 
-  Const [Some (BlockID (Instantiate n subst blocks'))] (Instantiate n subst b)
-instantiatePostdomBlock n subst (Const x) =
-  let  instSome :: Some (BlockID blocks') -> Some (BlockID (Instantiate n subst blocks'))
-       instSome (Some bid) = Some (instantiate n subst bid)
+instantiatePostdomBlock :: forall subst blocks' b.
+  SubstRepr subst -> Const [Some (BlockID blocks')] b -> 
+  Const [Some (BlockID (Instantiate subst blocks'))] (Instantiate subst b)
+instantiatePostdomBlock subst (Const x) =
+  let  instSome :: Some (BlockID blocks') -> Some (BlockID (Instantiate subst blocks'))
+       instSome (Some bid) = Some (instantiate subst bid)
   in
   Const (map instSome x)
 
-instantiateCFGPostdom :: NatRepr n -> CtxRepr subst
+instantiateCFGPostdom :: SubstRepr subst
                       -> Assignment (Const [Some (BlockID blocks')]) blocks
-                      -> Assignment (Const [Some (BlockID (Instantiate n subst blocks'))]) (Instantiate n subst blocks)
-instantiateCFGPostdom n subst assign =
+                      -> Assignment (Const [Some (BlockID (Instantiate subst blocks'))]) (Instantiate subst blocks)
+instantiateCFGPostdom subst assign =
   case viewAssign assign of
     AssignEmpty -> Ctx.Empty
-    AssignExtend bm b -> instantiateCFGPostdom n subst bm Ctx.:> instantiatePostdomBlock n subst b
+    AssignExtend bm b -> instantiateCFGPostdom subst bm Ctx.:> instantiatePostdomBlock subst b
 
-instantiateCFG :: forall n subst ext blocks init ret.  (IsSyntaxExtension ext)
-  => NatRepr n -> CtxRepr subst -> CFG ext blocks init ret
-  -> CFG ext (Instantiate n subst blocks) (Instantiate n subst init) (Instantiate n subst ret)
-instantiateCFG n subst (CFG handle blockMap entryBlockID) = undefined
-{-
-  ICFG handle subst (instantiateBlockMap n subst blockMap) (instantiate n subst entryBlockID)
-instantiateCFG n subst (ICFG (handle :: FnHandle a r) (subst' ::CtxRepr subst')  blockMap entryBlockID) =
-  case (composeInstantiateAxiom @subst @subst' @a, composeInstantiateAxiom @subst @subst' @r) of
-    (Refl,Refl) ->
-       ICFG handle (instantiate n subst subst') (instantiateBlockMap n subst blockMap) (instantiate n subst entryBlockID) 
--}
+instantiateCFG :: forall subst ext blocks init ret.  (IsSyntaxExtension ext)
+  => SubstRepr subst -> CFG ext blocks init ret
+  -> CFG ext (Instantiate subst blocks) (Instantiate subst init) (Instantiate subst ret)
+instantiateCFG subst (CFG handle blockMap entryBlockID) =
+  ICFG handle subst (instantiateBlockMap subst blockMap) (instantiate subst entryBlockID)
+
+instantiateCFG subst (ICFG (handle :: FnHandle init' ret')
+                           (subst1 :: SubstRepr subst1) blockMap entryBlockID)
+  | Refl <- composeInstantiateAxiom @subst1 @subst @init'
+  , Refl <- composeInstantiateAxiom @subst1 @subst @ret'
+  =
+    (ICFG handle (compose subst subst1)
+                   (instantiateBlockMap subst blockMap)
+                   (instantiate subst entryBlockID)) 
+
 
 ------------------------------------------------------------------------------------
 -- Instantiation / type substitution
@@ -1082,10 +1085,11 @@ data CFG (ext :: Type)
          }
      
    | forall subst init' ret'.
-     (Instantiate 0 subst init' ~ init, Instantiate 0 subst ret' ~ ret) =>
+     (Instantiate subst init' ~ init,
+      Instantiate subst ret' ~ ret) =>
      ICFG { 
             cfgIHandle :: (FnHandle init' ret')
-          , cfgSubst :: !(CtxRepr subst)
+          , cfgSubst :: !(SubstRepr subst)
           , cfgBlockMap :: !(BlockMap ext blocks ret)
           , cfgEntryBlockID :: !(BlockID blocks init)
          }
@@ -1096,11 +1100,11 @@ cfgHandleName (ICFG h _ _ _) = handleName h
 
 cfgArgTypes :: CFG ext blocks init ret -> CtxRepr init
 cfgArgTypes (CFG h _ _) = handleArgTypes h
-cfgArgTypes (ICFG h s _ _) = instantiate (knownRepr ::NatRepr 0) s (handleArgTypes h)
+cfgArgTypes (ICFG h s _ _) = instantiate s (handleArgTypes h)
 
 cfgReturnType :: CFG ext blocks init ret -> TypeRepr ret
 cfgReturnType (CFG h _ _) = handleReturnType h
-cfgReturnType (ICFG h s _ _) = instantiate (knownRepr :: NatRepr 0) s (handleReturnType h)
+cfgReturnType (ICFG h s _ _) = instantiate s (handleReturnType h)
 
 updateCFG :: (BlockMap ext blocks' ret) -> (BlockID blocks' init) -> CFG ext blocks init ret -> CFG ext blocks' init ret
 updateCFG b m (CFG h _ _) = CFG h b m
