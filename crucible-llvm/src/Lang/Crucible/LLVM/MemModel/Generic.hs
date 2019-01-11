@@ -22,6 +22,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE KindSignatures #-}
 
 module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
@@ -94,7 +95,7 @@ data Mutability = Mutable | Immutable
 
 -- | Stores writeable memory allocations.
 data MemAlloc sym
-     -- | Allocation with given block ID. The 'Maybe SymBV' argument is either a
+     -- | Allocation with given block ID. The @Maybe SymBV@ argument is either a
      -- size or @Nothing@ represented an unbounded allocation. The 'Mutability'
      -- indicates whether the region is read-only. The 'String' contains source
      -- location information for use in error messages.
@@ -129,57 +130,102 @@ data MemWrite sym
 tgAddPtrC :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> LLVMPtr sym w -> Addr -> IO (LLVMPtr sym w)
 tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 
-data ExprData sym w = ExprData { loadOffset  :: SymBV sym w
-                               , storeOffset :: SymBV sym w
-                               , sizeData    :: Maybe (SymBV sym w) }
+-- | An environment used to interpret 'OffsetExpr's, 'IntExpr's, and 'Cond's.
+-- These data structures may contain uninterpreted variables to be filled in
+-- with the offset address of a load or store, or the size of the current
+-- region. Since regions may be unbounded in size, the boolean-valued argument
+-- @f@ tracks whether the current region is known to be finite.
+{-
+data ExprEnv sym w (f :: Bool) = ExprEnv {  loadOffset  :: SymBV sym w
+                                          , storeOffset :: SymBV sym w
+                                          , sizeData    :: MaybeB f (SymBV sym w) }
+
+-- | Make a finite expr environment
+mkExprEnv :: SymBV sym w -> SymBV sym w -> SymBV sym w -> ExprEnv sym w True
+mkExprEnv loadO storeO sizeD = ExprEnv loadO storeO (JustB sizeD)
+
+-- | Make an unbounded expr environment
+mkUnboundedExprEnv :: SymBV sym w -> SymBV sym w -> ExprEnv sym w False
+mkUnboundedExprEnv loadO storeO = ExprEnv loadO storeO NothingB
+
+data MaybeB (b :: Bool) a where
+  JustB :: a -> MaybeB True a
+  NothingB :: MaybeB False a
+-}
+
+data ExprEnv sym w = ExprEnv { loadOffset  :: SymBV sym w
+                             , storeOffset :: SymBV sym w
+                             , sizeData    :: Maybe (SymBV sym w) }
+
+
+
 
 genOffsetExpr ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
-  ExprData sym w ->
-  OffsetExpr -> IO (SymBV sym w)
-genOffsetExpr sym w f@(ExprData load store _size) expr =
+  ExprEnv sym w -> -- ^ All offsets must be positive
+  OffsetExpr ->
+  IO (SymBV sym w)
+genOffsetExpr sym w f@(ExprEnv load store _size) expr =
   case expr of
     OffsetAdd pe ie -> do
       pe' <- genOffsetExpr sym w f pe
       ie' <- genIntExpr sym w f ie
-      bvAdd sym pe' ie'
+      case ie' of
+        Nothing -> error "Cannot construct an offset that references the size of an unbounded region"
+        Just ie'' -> bvAdd sym pe' ie''
     Load -> return load
     Store -> return store
 
 genIntExpr ::
   (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w ->
-  ExprData sym w ->
-  IntExpr -> IO (SymBV sym w)
-genIntExpr sym w f@(ExprData _load _store size) expr =
+  sym ->
+  NatRepr w ->
+  ExprEnv sym w ->
+  IntExpr ->
+  IO (Maybe (SymBV sym w))
+genIntExpr sym w f@(ExprEnv _load _store size) expr =
   case expr of
     OffsetDiff e1 e2 -> do
       e1' <- genOffsetExpr sym w f e1
       e2' <- genOffsetExpr sym w f e2
-      bvSub sym e1' e2'
+      Just <$> bvSub sym e1' e2'
     IntAdd e1 e2 -> do
       e1' <- genIntExpr sym w f e1
       e2' <- genIntExpr sym w f e2
-      bvAdd sym e1' e2'
-    CValue i -> bvLit sym w (bytesToInteger i)
-    StoreSize -> case size of
-                   Just sz -> return sz
-                   Nothing -> error "Unknown size" -- TODO: is this the right behavior when size is Nothing?
+      case (e1', e2') of
+        (Just e1'', Just e2'') -> Just <$> bvAdd sym e1'' e2''
+        _                      -> return Nothing -- Unbounded space added to anything is unbounded
+    CValue i -> Just <$> bvLit sym w (bytesToInteger i)
+    StoreSize -> return size
 
-genCondVar ::
+genCondVar :: forall sym w.
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
-  ExprData sym w ->
-  Cond -> IO (Pred sym)
+  ExprEnv sym w ->
+  Cond -> 
+  IO (Pred sym)
 genCondVar sym w inst c =
   case c of
     OffsetEq x y   -> join $ bvEq sym <$> genOffsetExpr sym w inst x <*> genOffsetExpr sym w inst y
     OffsetLe x y   -> join $ bvUle sym <$> genOffsetExpr sym w inst x <*> genOffsetExpr sym w inst y
-    IntEq x y      -> join $ bvEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
-    IntLe x y      -> join $ bvSle sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
+    IntEq x y      -> join $ maybeBVEq sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
+    IntLe x y      -> join $ maybeBVLe sym <$> genIntExpr sym w inst x <*> genIntExpr sym w inst y
     And x y        -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
     Or x y         -> join $ orPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
+
+
+maybeBVEq :: (1 <= w, IsExprBuilder sym)
+          => sym -> Maybe (SymBV sym w) -> Maybe (SymBV sym w) -> IO (Pred sym)
+maybeBVEq sym (Just x) (Just y) = bvEq sym x y
+maybeBVEq sym Nothing  Nothing  = return $ truePred sym
+maybeBVEq sym _        _        = return $ falsePred sym
+
+maybeBVLe :: (1 <= w, IsExprBuilder sym)
+          => sym -> Maybe (SymBV sym w) -> Maybe (SymBV sym w) -> IO (Pred sym)
+maybeBVLe sym (Just x) (Just y) = bvSle sym x y
+maybeBVLe sym _        Nothing  = return $ truePred sym
+maybeBVLe sym Nothing  (Just _) = return $ falsePred sym
 
 genValueCtor :: forall sym .
   IsSymInterface sym => sym ->
@@ -255,7 +301,7 @@ evalMuxValueCtor ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   EndianForm ->
-  ExprData sym w {- ^ Evaluation function -} ->
+  ExprEnv sym w {- ^ Evaluation function -} ->
   (u -> IO (PartLLVMVal sym)) {- ^ Function for reading specific subranges -} ->
   Mux (ValueCtor u) ->
   IO (PartLLVMVal sym)
@@ -320,6 +366,16 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
              do p' <- simplPred xps2 p0
                 itePred sym c' p p'
 
+-- Throws an error if passed an unbounded/@Nothing@ bitvector.
+maybePtrAdd :: (1 <= w, IsExprBuilder sym)
+            => sym
+            -> NatRepr w
+            -> LLVMPtr sym w
+            -> Maybe (SymBV sym w)
+            -> IO (LLVMPtr sym w)
+maybePtrAdd sym w ptr (Just bv) = ptrAdd sym w ptr bv
+maybePtrAdd _   _ _   Nothing   = error "Cannot use an unbounded bitvector as an offset"
+
 -- | Read from a memory with a memcopy to the same block we are reading.
 readMemCopy ::
   forall sym w.
@@ -336,7 +392,7 @@ readMemCopy ::
 readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
-     let varFn = ExprData off d (Just sz)
+     let varFn = ExprEnv off d (Just sz)
 
      case (ld, dd) of
        -- Offset if known
@@ -359,8 +415,10 @@ readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
                 subFn (OutOfRange o tp') =
                   do o' <- genOffsetExpr sym w varFn o
                      readPrev tp' (LLVMPointer blk o')
-                subFn (InRange o tp') =
-                  readPrev tp' =<< ptrAdd sym w src =<< genIntExpr sym w varFn o
+                subFn (InRange o tp') = do
+                  oExpr <- genIntExpr sym w varFn o
+                  srcPlusO <- maybePtrAdd sym w src oExpr
+                  readPrev tp' srcPlusO
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -387,7 +445,7 @@ readMemSet ::
 readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
   do let ld = asUnsignedBV off
      let dd = asUnsignedBV d
-     let varFn = ExprData off d (Just sz)
+     let varFn = ExprEnv off d (Just sz)
      case (ld, dd) of
        -- Offset if known
        (Just lo, Just so) ->
@@ -445,7 +503,7 @@ readMemStore ::
   IO (PartLLVMVal sym)
 readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign readPrev =
   do ssz <- bvLit sym w (bytesToInteger (storageTypeSize stp))
-     let varFn = ExprData off d (Just ssz)
+     let varFn = ExprEnv off d (Just ssz)
      let ld = asUnsignedBV off
      let dd = asUnsignedBV d
      case (ld, dd) of
@@ -499,7 +557,7 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
               byte <- arrayLookup sym arr $ Ctx.singleton idx
               return $ PE (truePred sym) $ LLVMValInt blk0 byte
         genValueCtor sym end =<< loadTypedValueFromBytes 0 tp' loadArrayByteFn
-  let varFn = ExprData read_off write_off size
+  let varFn = ExprEnv read_off write_off size
   case (asUnsignedBV read_off, asUnsignedBV write_off) of
     -- known read and write offsets
     (Just lo, Just so) -> do
@@ -527,7 +585,10 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
               read_prev tp' $ LLVMPointer blk o'
             InRange o tp' -> do
               o' <- genIntExpr sym w varFn o
-              loadFn o' tp'
+              -- should always produce a defined value
+              case o' of
+                Just o'' -> loadFn o'' tp'
+                Nothing  -> error "Unexpected unbounded size in RangeLoad"
       let pref
             | Just{} <- asUnsignedBV write_off = FixedStore
             | Just{} <- asUnsignedBV read_off = FixedLoad
@@ -781,11 +842,11 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m = do
                         Just asz -> do (ov, _end) <- addUnsignedOF sym off asz
                                        notPred sym ov
 
-      andPred sym overflowPred =<< go (pure (falsePred sym)) (memAllocs m)      
+      andPred sym overflowPred =<< go (pure (falsePred sym)) (memAllocs m)
 
 
 -- | @isAllocated sym w p sz m@ returns the condition required to prove
--- range @[p..p+sz)@ lies within a single allocation in @m@. 
+-- range @[p..p+sz)@ lies within a single allocation in @m@.
 --
 -- NB this algorithm is set up to explicitly allow both zero size allocations
 -- and zero-size chunks to be checked for validity.  When 'sz' is 0, every pointer
@@ -807,8 +868,8 @@ isAllocatedMutable ::
   sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)
 isAllocatedMutable = isAllocatedMut (== Mutable)
 
--- | @isValidPointer sym w b m@ returns condition required to prove range that
---   @p@ is a valid pointer in @m@. This means that @p@ is in the range of some
+-- | @isValidPointer sym w b m@ returns condition required to prove that @p@ is
+--   a valid pointer in @m@. This means that @p@ is in the range of some
 --   allocation OR ONE PAST THE END of an allocation. In other words @p@ is a
 --   valid pointer if @b <= p <= b+sz@ for some allocation at base @b@ of size
 --   @Just sz@, or if @b <= p@ for some allocation of size @Nothing@. Note that,
