@@ -57,9 +57,6 @@ module Lang.Crucible.LLVM.MemModel.Pointer
 
     -- * Operations on valid pointers
   , constOffset
-  , ptrComparable
-  , ptrOffsetEq
-  , ptrOffsetLe
   , ptrEq
   , ptrLe
   , ptrLt
@@ -175,29 +172,6 @@ instance TestEquality FloatSize where
 -- | Generate a concrete offset value from an @Addr@ value.
 constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
 constOffset sym w x = bvLit sym w (G.bytesToInteger x)
-
--- | Test whether pointers point into the same allocation unit.
-ptrComparable ::
-  (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
-ptrComparable sym _w (LLVMPointer base1 _) (LLVMPointer base2 _) =
-  natEq sym base1 base2
-
--- | Test whether pointers have equal offsets (assuming they point
--- into the same allocation unit).
-ptrOffsetEq ::
-  (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
-ptrOffsetEq sym _w (LLVMPointer _ off1) (LLVMPointer _ off2) =
-  bvEq sym off1 off2
-
--- | Test whether the first pointer's address is less than or equal to
--- the second (assuming they point into the same allocation unit).
-ptrOffsetLe ::
-  (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w -> LLVMPtr sym w -> LLVMPtr sym w -> IO (Pred sym)
-ptrOffsetLe sym _w (LLVMPointer _ off1) (LLVMPointer _ off2) =
-  bvUle sym off1 off2
 
 -- | Test whether two pointers are equal.
 ptrEq :: (1 <= w, IsSymInterface sym)
