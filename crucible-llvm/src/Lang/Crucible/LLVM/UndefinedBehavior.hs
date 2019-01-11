@@ -140,6 +140,9 @@ data UndefinedBehavior =
   | PtrSubDifferentAllocs
     -- ^ "When two pointers are subtracted, both shall point to elements of the
     -- same array object"
+  | ComparePointerToBV
+    -- ^ "One of the following shall hold: [...] one operand is a pointer and the
+    -- other is a null pointer constant."
 
     -------------------------------- LLVM poison and undefined values
   | AddNoUnsignedWrap
@@ -164,6 +167,7 @@ data UndefinedBehavior =
   | AshrExact
   | AshrOp2Big
   | ExtractElementIndex
+  | InsertElementIndex
   | GEPOutOfBounds
 
   {-
@@ -187,6 +191,7 @@ standard =
     CompareInvalidPointer   -> CStd C99
     CompareDifferentAllocs  -> CStd C99
     PtrSubDifferentAllocs   -> CStd C99
+    ComparePointerToBV      -> CStd C99
 
     -------------------------------- LLVM poison and undefined values
     AddNoUnsignedWrap       -> LLVMRef LLVM8
@@ -211,6 +216,7 @@ standard =
     AshrExact               -> LLVMRef LLVM8
     AshrOp2Big              -> LLVMRef LLVM8
     ExtractElementIndex     -> LLVMRef LLVM8
+    InsertElementIndex      -> LLVMRef LLVM8
     GEPOutOfBounds          -> LLVMRef LLVM8
     {-
     MemcpyDisjoint          -> CStd C99
@@ -232,6 +238,7 @@ cite =
     CompareInvalidPointer   -> "§6.5.8 Relational operators, ¶5"
     CompareDifferentAllocs  -> "§6.5.8 Relational operators, ¶5"
     PtrSubDifferentAllocs   -> "§6.5.6 Additive operators, ¶9"
+    ComparePointerToBV      -> "§6.5.9 Equality operators, ¶2"
 
     -------------------------------- LLVM poison and undefined values
     AddNoUnsignedWrap       -> "‘add’ Instruction (Semantics)"
@@ -256,6 +263,7 @@ cite =
     AshrExact               -> "‘ashr’ Instruction (Semantics)"
     AshrOp2Big              -> "‘ashr’ Instruction (Semantics)"
     ExtractElementIndex     -> "‘extractelement’ Instruction (Semantics)"
+    InsertElementIndex      -> "‘insertelement’ Instruction (Semantics)"
     GEPOutOfBounds          -> "‘getelementptr’ Instruction (Semantics)"
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
@@ -289,7 +297,9 @@ explain =
       , "object."
       ]
     CompareDifferentAllocs -> "Comparison of pointers from different allocations"
-    PtrSubDifferentAllocs -> "Subtraction of pointers from different allocations"
+    PtrSubDifferentAllocs  -> "Subtraction of pointers from different allocations"
+    ComparePointerToBV     ->
+      "Comparison of a pointer to a non zero (null) integer value"
 
     -------------------------------- LLVM poison and undefined values
     AddNoUnsignedWrap ->
@@ -342,6 +352,10 @@ explain =
       ]
     ExtractElementIndex -> unwords $
       [ "Attempted to extract an element from a vector at an index that was"
+      , "greater than the length of the vector"
+      ]
+    InsertElementIndex  -> unwords $
+      [ "Attempted to insert an element into a vector at an index that was"
       , "greater than the length of the vector"
       ]
     -- The following explanation is a bit unsatisfactory, because it is specific

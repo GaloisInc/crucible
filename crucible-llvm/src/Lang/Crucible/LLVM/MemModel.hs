@@ -537,10 +537,10 @@ doMalloc
   -> IO (LLVMPtr sym wptr, MemImpl sym)
 doMalloc sym allocType mut loc mem sz alignment = do
   blkNum <- nextBlock (memImplBlockSource mem)
-  blk <- natLit sym (fromIntegral blkNum)
-  z <- bvLit sym PtrWidth 0
+  blk    <- natLit sym (fromIntegral blkNum)
+  z      <- bvLit sym PtrWidth 0
   let heap' = G.allocMem allocType (fromInteger blkNum) sz alignment mut loc (memImplHeap mem)
-  let ptr = LLVMPointer blk z
+  let ptr   = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap' })
 
 -- | Allocate a memory region for the given handle.

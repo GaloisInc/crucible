@@ -94,17 +94,16 @@ assertUndefined (UB.defaultStrict -> ubConfig) ub assert =
     assertExpr assert (litExpr (Text.pack (UB.pp ub)))
 
 -- | Add a side condition if the configuration asks us to check for it
-poisonSideCondition :: (1 <= w)
-                    => Maybe UB.Config -- ^ Defaults to 'UB.strictConfig'
-                    -> NatRepr w
+poisonSideCondition :: Maybe UB.Config             -- ^ Defaults to 'UB.strictConfig'
+                    -> BaseTypeRepr basetype
                     -> UB.UndefinedBehavior
-                    -> Expr (LLVM arch) s BoolType
-                    -> Expr (LLVM arch) s (BVType w)
-                    -> Expr (LLVM arch) s (BVType w)
-poisonSideCondition (UB.defaultStrict -> ubConfig) w ub boolExpr bvExpr =
+                    -> Expr (LLVM arch) s BoolType -- ^ Condition to assert
+                    -> Expr (LLVM arch) s (BaseToType basetype) -- ^ Expression with side-condition
+                    -> Expr (LLVM arch) s (BaseToType basetype)
+poisonSideCondition (UB.defaultStrict -> ubConfig) btRepr ub boolExpr btExpr =
   if UB.getConfig ubConfig ub
-  then App $ AddSideCondition (BaseBVRepr w) boolExpr (UB.pp ub) bvExpr
-  else bvExpr
+  then App $ AddSideCondition btRepr boolExpr (UB.pp ub) btExpr
+  else btExpr
 
 --------------------------------------------------------------------------------
 -- Translation
@@ -228,9 +227,13 @@ extractElt instr _ n (BaseExpr (VectorRepr tyr) v) i =
   do idx <- case asScalar i of
                    Scalar (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
-                        assertUndefined Nothing UB.ExtractElementIndex $
-                          (App (BVUlt w bv (App (BVLit w n))))
-                        return $ App (BvToNat w bv)
+                        -- The value is poisoned if the index is out of bounds.
+                        return $ poisonSideCondition
+                                   Nothing
+                                   BaseNatRepr
+                                   UB.ExtractElementIndex
+                                   (App (BVUlt w bv (App (BVLit w n)))) -- assertion condition
+                                   (App (BvToNat w bv))                 -- returned expression
                    _ ->
                      fail (unlines ["invalid extractelement instruction", showInstr instr])
      return $ BaseExpr tyr (App (VectorGetEntry tyr v idx))
@@ -279,8 +282,13 @@ insertElt instr _ n (BaseExpr (VectorRepr tyr) v) a i =
          <- case asScalar i of
                    Scalar (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
-                        assertExpr (App (BVUlt w bv (App (BVLit w n)))) "insert element index out of bounds!"
-                        return $ App (BvToNat w bv)
+                        -- The value is poisoned if the index is out of bounds.
+                        return $ poisonSideCondition
+                                   Nothing
+                                   BaseNatRepr
+                                   UB.InsertElementIndex
+                                   (App (BVUlt w bv (App (BVLit w n)))) -- assertion condition
+                                   (App (BvToNat w bv))                 -- returned expression
                    _ ->
                      fail (unlines ["invalid insertelement instruction", showInstr instr, show i])
      let ?err = fail
@@ -767,7 +775,7 @@ raw_bitop :: (1 <= w) =>
   Expr (LLVM arch) s (BVType w) ->
   LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
 raw_bitop ubConfig op w a b =
-  let poisonSideCondition_ = poisonSideCondition ubConfig w
+  let poisonSideCondition_ = poisonSideCondition ubConfig (BaseBVRepr w)
       assertUndefined_     = assertUndefined ubConfig
   in
     case op of
@@ -851,7 +859,7 @@ intop :: forall w arch s h ret. (1 <= w)
       -> Expr (LLVM arch) s (BVType w)
       -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
 intop ubConfig op w a b =
-  let poisonSideCondition_ = poisonSideCondition ubConfig w
+  let poisonSideCondition_ = poisonSideCondition ubConfig (BaseBVRepr w)
       assertUndefined_     = assertUndefined ubConfig
   in case op of
        L.Add nuw nsw -> do
@@ -1054,17 +1062,18 @@ pointerCmp op x y =
 
   -- Special case: a pointer can be compared for equality with an integer, as long as
   -- that integer is 0, representing the null pointer.
-  ptr_bv_compare bv ptr =
-    do assertExpr (App (BVEq PtrWidth bv (App (BVLit PtrWidth 0))))
-                  "Attempted to compare a pointer to a non-0 integer value"
-       case op of
-         L.Ieq  -> do
-            res <- callIsNull PtrWidth ptr
-            return res
-         L.Ine  -> do
-            res <- callIsNull PtrWidth ptr
-            return (App (Not res))
-         _ -> reportError $ litExpr $ Text.pack $ unwords ["arithmetic comparison on incompatible values", show op, show x, show y]
+  ptr_bv_compare bv ptr = do
+    assertUndefined Nothing UB.ComparePointerToBV $
+      (App (BVEq PtrWidth bv (App (BVLit PtrWidth 0))))
+    case op of
+      L.Ieq  -> callIsNull PtrWidth ptr
+      L.Ine  -> App . Not <$> callIsNull PtrWidth ptr
+      _ -> reportError $ litExpr $ Text.pack $ unlines $
+            [ "Arithmetic comparison on incompatible values"
+            , "Comparison operation: " ++ show op
+            , "Value 1: " ++ show x
+            , "Value 2: " ++ show y
+            ]
 
   ptrOp =
     do memVar <- getMemVar
@@ -1087,7 +1096,12 @@ pointerCmp op x y =
          L.Iugt -> do
            isLe <- extensionStmt (LLVM_PtrLe memVar x y)
            return $ App (Not isLe)
-         _ -> reportError $ litExpr $ Text.pack $ unwords ["signed comparison on pointer values", show op, show x, show y]
+         _ -> reportError $ litExpr $ Text.pack $ unlines $
+                [ "Signed comparison on pointer values"
+                , "Comparison operation: " ++ show op
+                , "Value 1:" ++ show x
+                , "Value 2" ++ show y
+                ]
 
 pointerOp
    :: wptr ~ ArchWidth arch
@@ -1129,7 +1143,12 @@ pointerOp op x y =
       L.Sub _ _ -> BitvectorAsPointerExpr PtrWidth <$> callPtrSubtract x y
       _ -> err
 
-  err = reportError $ litExpr $ Text.pack $ unwords ["Invalid pointer operation", show op, show x, show y]
+  err = reportError $ litExpr $ Text.pack $ unlines $
+          [ "Invalid pointer operation"
+          , "Operation: " ++ show op
+          , "Value 1: " ++ show x
+          , "Value 2: " ++ show y
+          ]
 
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
