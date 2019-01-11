@@ -1323,13 +1323,13 @@ generateInstr retType lab instr assign_f k =
       assign_f v
       k
 
-    L.Call _tailCall (L.PtrTo fnTy) fn args ->
-      callFunctionWithCont fnTy fn args assign_f k
+    L.Call tailCall (L.PtrTo fnTy) fn args ->
+      callFunctionWithCont tailCall fnTy fn args assign_f k
     L.Call _ ty _ _ ->
       fail $ unwords ["unexpected function type in call:", show ty]
 
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
-        callFunctionWithCont fnTy fn args assign_f $ definePhiBlock lab normLabel
+        callFunctionWithCont False fnTy fn args assign_f $ definePhiBlock lab normLabel
 
     L.Bit op x y ->
       do tp <- liftMemType' (L.typedType x)
@@ -1565,11 +1565,14 @@ arithOp op _ x y =
 
 
 callFunctionWithCont :: forall h s arch ret a.
-                        L.Type -> L.Value -> [L.Typed L.Value]
-                     -> (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
-                     -> LLVMGenerator h s arch ret a
-                     -> LLVMGenerator h s arch ret a
-callFunctionWithCont fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
+   Bool    {- ^ Is the function a tail call? -} ->
+   L.Type  {- ^ type of the function to call -} ->
+   L.Value {- ^ function value to call -} ->
+   [L.Typed L.Value] {- ^ argument list -} ->
+   (LLVMExpr s arch -> LLVMGenerator h s arch ret ()) {- ^ assignment continuation for return value -} ->
+   LLVMGenerator h s arch ret a {- ^ continuation for next instructions -} ->
+   LLVMGenerator h s arch ret a
+callFunctionWithCont _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
      -- would require some work to support.
