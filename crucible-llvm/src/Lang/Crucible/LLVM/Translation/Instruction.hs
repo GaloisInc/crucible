@@ -145,7 +145,9 @@ instrResultType instr =
     L.LandingPad x _ _ _ -> liftMemType x
 
     -- LLVM Language Reference: "The original value at the location is returned."
-    L.AtomicRW _ _ x _ _ _ -> liftMemType (L.typedType x)
+    L.AtomicRW _ _ x _ _ _ -> case L.typedType x of
+                   L.PtrTo ty -> liftMemType ty
+                   _ -> fail $ unwords ["atomicrmw through non-pointer type", show (L.typedType x)]
 
     L.CmpXchg _weak _volatile _ptr _old new _ _ _ ->
       do let dl = llvmDataLayout ?lc
@@ -979,6 +981,50 @@ caseptr w tpr bvCase ptrCase x =
        ptr_label <- defineBlockLabel (ptrCase blk off >>= jumpToLambda c_label)
        continueLambda c_label (branch cond bv_label ptr_label)
 
+atomicRWOp ::
+  L.AtomicRWOp ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (LLVMExpr s arch)
+atomicRWOp op x y =
+  case (asScalar x, asScalar y) of
+    (Scalar (LLVMPointerRepr (w :: NatRepr w)) x', Scalar (LLVMPointerRepr w') y')
+      | Just Refl <- testEquality w w'
+      -> do xbv <- pointerAsBitvectorExpr w x'
+            ybv <- pointerAsBitvectorExpr w y'
+            let newval = case op of
+                   L.AtomicXchg -> ybv
+                   L.AtomicAdd  -> app $ BVAdd w xbv ybv
+                   L.AtomicSub  -> app $ BVSub w xbv ybv
+                   L.AtomicAnd  -> app $ BVAnd w xbv ybv
+                   L.AtomicNand -> app $ BVNot w $ app $ BVAnd w xbv ybv
+                   L.AtomicOr   -> app $ BVOr w xbv ybv
+                   L.AtomicXor  -> app $ BVXor w xbv ybv
+                   L.AtomicMax  -> app $ BVSMax w xbv ybv
+                   L.AtomicMin  -> app $ BVSMin w xbv ybv
+                   L.AtomicUMax -> app $ BVUMax w xbv ybv
+                   L.AtomicUMin -> app $ BVUMin w xbv ybv
+            return $ BaseExpr (LLVMPointerRepr w) $ BitvectorAsPointerExpr w newval
+
+    _ -> fail $ unwords ["atomicRW operation on incompatible values", show x, show y]
+
+integerCompare ::
+  L.ICmpOp ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+integerCompare op x y =
+  case (asScalar x, asScalar y) of
+    (Scalar (LLVMPointerRepr w) x'', Scalar (LLVMPointerRepr w') y'')
+       | Just Refl <- testEquality w w'
+       , Just Refl <- testEquality w PtrWidth
+       -> pointerCmp op x'' y''
+       | Just Refl <- testEquality w w'
+       -> do xbv <- pointerAsBitvectorExpr w x''
+             ybv <- pointerAsBitvectorExpr w y''
+             return (intcmp w op xbv ybv)
+    _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
+
 intcmp :: (1 <= w)
     => NatRepr w
     -> L.ICmpOp
@@ -1099,16 +1145,17 @@ pointerOp op x y =
 
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
-generateInstr :: forall h s arch ret a
-         . TypeRepr ret     -- ^ Type of the function return value
-        -> L.BlockLabel     -- ^ The label of the current LLVM basic block
-        -> L.Instr          -- ^ The instruction to translate
-        -> (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
-                            -- ^ A continuation to assign the produced value of this instruction to a register
-        -> LLVMGenerator h s arch ret a  -- ^ A continuation for translating the remaining statements in this function.
-                                   --   Straightline instructions should enter this continuation,
-                                   --   but block-terminating instructions should not.
-        -> LLVMGenerator h s arch ret a
+generateInstr :: forall h s arch ret a.
+   TypeRepr ret   {- ^ Type of the function return value -} ->
+   L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
+   L.Instr        {- ^ The instruction to translate -} ->
+   (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
+     {- ^ A continuation to assign the produced value of this instruction to a register -} ->
+   LLVMGenerator h s arch ret a
+     {- ^ A continuation for translating the remaining statements in this function.
+          Straightline instructions should enter this continuation,
+          but block-terminating instructions should not. -} ->
+   LLVMGenerator h s arch ret a
 generateInstr retType lab instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
@@ -1187,14 +1234,12 @@ generateInstr retType lab instr assign_f k =
         (t1,t2) -> fail $ unlines ["[shuffle] Type error", show t1, show t2 ]
 
 
-    L.LandingPad _ _ _ _ ->
-      reportError "FIXME landingPad not implemented"
-
     L.Alloca tp num align -> do
       tp' <- liftMemType' tp
       let dl = llvmDataLayout ?lc
       let tp_sz = memTypeSize dl tp'
       let tp_sz' = app $ BVLit PtrWidth $ G.bytesToInteger tp_sz
+
       sz <- case num of
                Nothing -> return $ tp_sz'
                Just num' -> do
@@ -1279,7 +1324,9 @@ generateInstr retType lab instr assign_f k =
       k
 
     L.Call _tailCall (L.PtrTo fnTy) fn args ->
-        callFunctionWithCont fnTy fn args assign_f k
+      callFunctionWithCont fnTy fn args assign_f k
+    L.Call _ ty _ _ ->
+      fail $ unwords ["unexpected function type in call:", show ty]
 
     L.Invoke fnTy fn args normLabel _unwindLabel -> do
         callFunctionWithCont fnTy fn args assign_f $ definePhiBlock lab normLabel
@@ -1340,23 +1387,10 @@ generateInstr retType lab instr assign_f k =
     L.ICmp op x y -> do
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
-           case (asScalar x', asScalar y') of
-             (Scalar (LLVMPointerRepr w) x'', Scalar (LLVMPointerRepr w') y'')
-                | Just Refl <- testEquality w w'
-                , Just Refl <- testEquality w PtrWidth
-                -> do b <- pointerCmp op x'' y''
-                      assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
-                                         (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
-                      k
-                | Just Refl <- testEquality w w'
-                -> do xbv <- pointerAsBitvectorExpr w x''
-                      ybv <- pointerAsBitvectorExpr w y''
-                      let b = intcmp w op xbv ybv
-                      assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
-                                         (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
-                      k
-
-             _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
+           b <- integerCompare op x' y'
+           assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+                              (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
+           k
 
     L.Select c x y -> do
          c' <- transTypedValue c
@@ -1404,7 +1438,70 @@ generateInstr retType lab instr assign_f k =
                        returnFromFunction (App EmptyApp)
                     Nothing -> fail $ unwords ["tried to void return from non-void function", show retType]
 
-    _ -> reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", showInstr instr]
+    -- NB, the symbolic simulator is essentially single-threaded, so fence
+    -- instructions are no-ops
+    L.Fence{} -> k
+
+    -- NB, the symbolic simulator is essentially single-threaded, so cmpxchg
+    -- always succeeds if the expected value is found in memory.
+    L.CmpXchg _weak _volatile ptr compareValue newValue _syncScope _syncOrderSuccess _syncOrderFail ->
+      do tp'  <- liftMemType' (L.typedType ptr)
+         ptr' <- transValue tp' (L.typedValue ptr)
+         case tp' of
+           PtrType (MemType resTy@(IntType _)) ->
+             llvmTypeAsRepr resTy $ \expectTy ->
+               do cmpVal <- transValue resTy (L.typedValue compareValue)
+                  newVal <- transValue resTy (L.typedValue newValue)
+
+                  let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
+                  oldVal <- callLoad resTy expectTy ptr' a0
+                  cmp <- integerCompare L.Ieq oldVal cmpVal
+                  let flag = BaseExpr (LLVMPointerRepr (knownNat @1))
+                                      (BitvectorAsPointerExpr knownNat
+                                         (App (BoolToBV knownNat cmp)))
+                  ifte_ cmp
+                    -- success case, write the new value
+                    (callStore resTy ptr' newVal a0)
+                    -- failure case, do nothing
+                    (return ())
+                  assign_f (StructExpr (Seq.fromList [(resTy,oldVal),(IntType 1,flag)]))
+                  k
+           _ -> fail $ unwords ["Invalid argument type on cmpxchg, expected pointer to integer type", show ptr]
+
+    -- NB, the symbolic simulator is essentially single-threaded, so no special
+    -- actions need to be taken to make operations atomic.  We simply execute
+    -- their straightforward load/modify/store semantics.
+    L.AtomicRW _volatile op ptr val _syncScope _ordering ->
+      do tp'  <- liftMemType' (L.typedType ptr)
+         ptr' <- transValue tp' (L.typedValue ptr)
+         case tp' of
+           PtrType (MemType valTy@(IntType _)) ->
+             llvmTypeAsRepr valTy $ \expectTy ->
+               do val' <- transValue tp' (L.typedValue val)
+                  let a0 = memTypeAlign (llvmDataLayout ?lc) valTy
+                  oldVal <- callLoad valTy expectTy ptr' a0
+                  newVal <- atomicRWOp op oldVal val'
+                  callStore valTy ptr' newVal a0
+                  assign_f oldVal
+                  k
+
+           _ -> fail $ unwords ["Invalid argument type on atomicrw, expected pointer to integer type", show ptr]
+
+    -- unwind, landingpad and resume are all exception-related, which we don't currently
+    -- support
+    L.Unwind{} -> unsupported
+    L.LandingPad{} -> unsupported
+    L.Resume{} -> unsupported
+
+    -- indirect branch could be supported, but requires some nontrivial work to deal
+    -- properly with mapping basic-block labels to pointer values.
+    L.IndirectBr{} -> unsupported
+
+    -- VaArg is uncommonly used and hard to support
+    L.VaArg{} -> unsupported
+
+ where
+ unsupported = reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", showInstr instr]
 
 
 arithOp ::
