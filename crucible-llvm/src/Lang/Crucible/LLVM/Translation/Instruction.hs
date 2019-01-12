@@ -1323,8 +1323,8 @@ generateInstr retType lab instr assign_f k =
       assign_f v
       k
 
-    L.Call tailCall (L.PtrTo fnTy) fn args ->
-      callFunctionWithCont tailCall fnTy fn args assign_f k
+    L.Call tailcall (L.PtrTo fnTy) fn args ->
+      callFunctionWithCont tailcall fnTy fn args assign_f k
     L.Call _ ty _ _ ->
       fail $ unwords ["unexpected function type in call:", show ty]
 
@@ -1625,7 +1625,7 @@ callFunctionWithCont _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args ass
                      k
 
                 _ -> fail $ unwords ["unsupported function value", show fn]
-callFunctionWithCont fnTy _fn _args _assign_f _k =
+callFunctionWithCont _tailCall fnTy _fn _args _assign_f _k =
     reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported function type", show fnTy]
 
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
