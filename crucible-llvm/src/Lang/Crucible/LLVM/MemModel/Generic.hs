@@ -866,8 +866,8 @@ notAliasable sym (llvmPointerView -> (blk1, _)) (llvmPointerView -> (blk2, _)) m
 -- | Write a value to memory.
 --
 -- The returned predicates assert (in this order):
--- * the pointer falls within an allocated, mutable memory region
--- * the pointer's alignment is correct
+--  * the pointer falls within an allocated, mutable memory region
+--  * the pointer's alignment is correct
 writeMem :: (1 <= w, IsSymInterface sym)
          => sym -> NatRepr w
          -> LLVMPtr sym w
@@ -885,8 +885,8 @@ writeMem sym w ptr tp alignment v m =
 -- | Write a value to any memory region, mutable or immutable.
 --
 -- The returned predicates assert (in this order):
--- * the pointer falls within an allocated memory region
--- * the pointer's alignment is correct
+--  * the pointer falls within an allocated memory region
+--  * the pointer's alignment is correct
 writeConstMem ::
   (1 <= w, IsSymInterface sym) =>
   sym           ->
@@ -906,8 +906,8 @@ writeConstMem sym w ptr tp alignment v m =
 -- | Perform a mem copy (a la @memcpy@ in C).
 --
 -- The returned predicates assert (in this order):
--- * the source pointer falls within an allocated memory region
--- * the dest pointer falls within an allocated, mutable memory region
+--  * the source pointer falls within an allocated memory region
+--  * the dest pointer falls within an allocated, mutable memory region
 copyMem ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
@@ -938,8 +938,8 @@ setMem sym w ptr val sz m =
 -- | Write an array to memory.
 --
 -- The returned predicates assert (in this order):
--- * the pointer falls within an allocated, mutable memory region
--- * the pointer has the proper alignment
+--  * the pointer falls within an allocated, mutable memory region
+--  * the pointer has the proper alignment
 writeArrayMem ::
   (IsSymInterface sym, 1 <= w) =>
   sym -> NatRepr w ->
@@ -956,8 +956,8 @@ writeArrayMem sym w ptr alignment arr sz m =
 -- | Write an array to memory.
 --
 -- The returned predicates assert (in this order):
--- * the pointer falls within an allocated memory region
--- * the pointer has the proper alignment
+--  * the pointer falls within an allocated memory region
+--  * the pointer has the proper alignment
 writeArrayConstMem ::
   (IsSymInterface sym, 1 <= w) =>
   sym -> NatRepr w ->
@@ -1032,8 +1032,8 @@ popStackFrameMem m = m & memState %~ popf
 -- | Free a heap-allocated block of memory.
 --
 -- The returned predicates assert (in this order):
--- * the pointer points to the base of a block
--- * said block is valid, heap-allocated, and mutable
+--  * the pointer points to the base of a block
+--  * said block is valid, heap-allocated, and mutable
 --
 -- Because the LLVM memory model allows immutable blocks to alias each other,
 -- freeing an immutable block could lead to unsoundness.

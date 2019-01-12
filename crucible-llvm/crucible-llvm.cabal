@@ -17,6 +17,7 @@ library
     attoparsec,
     bytestring,
     containers >= 0.5.8.0,
+    contravariant >= 1,
     crucible,
     what4 >= 0.4.1,
     deepseq,
@@ -66,6 +67,7 @@ library
     Lang.Crucible.LLVM.Translation.Monad
     Lang.Crucible.LLVM.Translation.Types
     Lang.Crucible.LLVM.Types
+    Lang.Crucible.LLVM.UndefinedBehavior
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
