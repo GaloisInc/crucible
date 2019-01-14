@@ -54,6 +54,8 @@ module Lang.Crucible.Simulator.OverrideSim
   , newEmptyRef
   , readRef
   , writeRef
+  , readMuxTreeRef
+  , writeMuxTreeRef
     -- * Function bindings
   , FnBinding(..)
   , fnBindingsFromList
@@ -87,6 +89,7 @@ import           System.IO.Error
 import           What4.Config
 import           What4.Interface
 import           What4.FunctionName
+import           What4.Partial (justPartExpr)
 import           What4.ProgramLoc
 import           What4.Utils.MonadST
 
@@ -98,6 +101,7 @@ import           Lang.Crucible.Panic(panic)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.CallFrame
+import qualified Lang.Crucible.Simulator.EvalStmt as EvalStmt (readRef, alterRef)
 import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.Operations
@@ -106,6 +110,7 @@ import           Lang.Crucible.Simulator.Operations
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MonadVerbosity
+import           Lang.Crucible.Utils.MuxTree (MuxTree)
 import           Lang.Crucible.Utils.StateContT
 
 ------------------------------------------------------------------------
@@ -252,7 +257,7 @@ writeGlobal ::
 writeGlobal g v = stateTree . actFrame . gpGlobals %= insertGlobal g v
 
 
--- | Create a new reference cell
+-- | Create a new reference cell.
 newRef ::
   IsSymInterface sym =>
   TypeRepr tp {- ^ Type of the reference cell -} ->
@@ -263,7 +268,7 @@ newRef tpr v =
      writeRef r v
      return r
 
--- | Create a new reference cell with no contents
+-- | Create a new reference cell with no contents.
 newEmptyRef ::
   TypeRepr tp {- ^ Type of the reference cell -} ->
   OverrideSim p sym ext rtp args ret (RefCell tp)
@@ -271,7 +276,7 @@ newEmptyRef tpr =
   do halloc <- use (stateContext . to simHandleAllocator)
      liftST (freshRefCell halloc tpr)
 
--- | Read the current value of a reference cell
+-- | Read the current value of a reference cell.
 readRef ::
   IsSymInterface sym =>
   RefCell tp {- ^ Reference cell to read -} ->
@@ -282,7 +287,7 @@ readRef r =
      let msg = ReadBeforeWriteSimError "Attempt to read undefined reference cell"
      liftIO $ readPartExpr sym (lookupRef r globals) msg
 
--- | Write a value into a reference cell
+-- | Write a value into a reference cell.
 writeRef ::
   IsSymInterface sym =>
   RefCell tp {- ^ Reference cell to write -} ->
@@ -292,9 +297,35 @@ writeRef r v =
   do sym <- getSymInterface
      stateTree . actFrame . gpGlobals %= insertRef sym r v
 
+-- | Read the current value of a mux tree of reference cells.
+readMuxTreeRef ::
+  IsSymInterface sym =>
+  TypeRepr tp ->
+  MuxTree sym (RefCell tp) {- ^ Reference cell to read -} ->
+  OverrideSim p sym ext rtp args ret (RegValue sym tp)
+readMuxTreeRef tpr r =
+  do sym <- getSymInterface
+     iTypes <- ctxIntrinsicTypes <$> use stateContext
+     globals <- use (stateTree . actFrame . gpGlobals)
+     liftIO $ EvalStmt.readRef sym iTypes tpr r globals
+
+-- | Write a value into a mux tree of reference cells.
+writeMuxTreeRef ::
+  IsSymInterface sym =>
+  TypeRepr tp ->
+  MuxTree sym (RefCell tp) {- ^ Reference cell to write -} ->
+  RegValue sym tp {- ^ Value to write into the cell -} ->
+  OverrideSim p sym ext rtp args ret ()
+writeMuxTreeRef tpr r v =
+  do sym <- getSymInterface
+     iTypes <- ctxIntrinsicTypes <$> use stateContext
+     globals <- use (stateTree . actFrame . gpGlobals)
+     globals' <- liftIO $ EvalStmt.alterRef sym iTypes tpr r (justPartExpr sym v) globals
+     stateTree . actFrame . gpGlobals .= globals'
+
 
 -- | Turn an 'OverrideSim' action into an 'ExecCont' that can be executed
---   using standard Crucible execution primitives like 'executeCrucible'
+--   using standard Crucible execution primitives like 'executeCrucible'.
 runOverrideSim ::
   TypeRepr tp {- ^ return type -} ->
   OverrideSim p sym ext rtp args tp (RegValue sym tp) {- ^ action to execute  -} ->
@@ -303,7 +334,7 @@ runOverrideSim tp m = ReaderT $ \s0 -> stateSolverProof s0 $
   runStateContT (unSim m) (\v -> runReaderT (returnValue (RegEntry tp v))) s0
 
 
--- | Create an override from an explicit return type and definition using `OverrideSim`.
+-- | Create an override from an explicit return type and definition using 'OverrideSim'.
 mkOverride' ::
   FunctionName ->
   TypeRepr ret ->
@@ -314,7 +345,7 @@ mkOverride' nm tp f =
            , overrideHandler = runOverrideSim tp f
            }
 
--- | Create an override from a statically inferrable return type and definition using `OverrideSim`.
+-- | Create an override from a statically inferrable return type and definition using 'OverrideSim'.
 mkOverride ::
   KnownRepr TypeRepr ret =>
   FunctionName ->
@@ -355,7 +386,7 @@ callFnVal' cl args =
      let args' = Ctx.zipWith (\tp (RV x) -> RegEntry tp x) tps args
      regValue <$> callFnVal cl (RegMap args')
 
--- | Call a control flow graph from OverrideSim.
+-- | Call a control flow graph from 'OverrideSim'.
 --
 -- Note that this computes the postdominator information, so there is some
 -- performance overhead in the call.

@@ -1584,7 +1584,7 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
          , do mem <- readGlobal mvar
               (newp, mem') <- liftIO $
                 do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-                   mem2 <- doFree sym mem1 ptr
+                   mem2 <- doFree sym Nothing mem1 ptr
                    return (newp, mem2)
               writeGlobal mvar mem'
               return newp
@@ -1597,7 +1597,7 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
               (newp, mem') <- liftIO $
                 do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
                    mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
-                   mem3 <- doFree sym mem2 ptr
+                   mem3 <- doFree sym Nothing mem2 ptr
                    return (newp, mem3)
               writeGlobal mvar mem'
               return newp
@@ -1649,7 +1649,7 @@ callFree sym mvar
            (regValue -> ptr) = do
   --liftIO $ putStrLn "MEM FREE"
   mem <- readGlobal mvar
-  mem' <- liftIO $ doFree sym mem ptr
+  mem' <- liftIO $ doFree sym Nothing mem ptr
   writeGlobal mvar mem'
 
 
@@ -1719,7 +1719,7 @@ callMemset sym mvar
   -- FIXME? add assertions about alignment
   --liftIO $ putStrLn "MEM SET"
   mem <- readGlobal mvar
-  mem' <- liftIO $ doMemset sym w mem dest val len
+  mem' <- liftIO $ doMemset sym Nothing w mem dest val len
   writeGlobal mvar mem'
 
 

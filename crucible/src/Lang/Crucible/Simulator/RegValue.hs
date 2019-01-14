@@ -89,7 +89,7 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym (VectorType tp) = V.Vector (RegValue sym tp)
   RegValue sym (StructType ctx) = Ctx.Assignment (RegValue' sym) ctx
   RegValue sym (VariantType ctx) = Ctx.Assignment (VariantBranch sym) ctx
-  RegValue sym (ReferenceType a) = MuxTree sym (RefCell a)
+  RegValue sym (ReferenceType tp) = MuxTree sym (RefCell tp)
   RegValue sym (WordMapType w tp) = WordMap sym w tp
   RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx

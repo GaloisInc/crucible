@@ -17,6 +17,7 @@ library
     attoparsec,
     bytestring,
     containers >= 0.5.8.0,
+    contravariant >= 1,
     crucible,
     what4 >= 0.4.1,
     deepseq,
@@ -53,6 +54,7 @@ library
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.TypeContext
+    Lang.Crucible.LLVM.UndefinedBehavior
 
   other-modules:
     Lang.Crucible.LLVM.MemModel.Common

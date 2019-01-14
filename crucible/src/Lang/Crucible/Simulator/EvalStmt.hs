@@ -43,6 +43,8 @@ module Lang.Crucible.Simulator.EvalStmt
   , stepStmt
   , stepTerm
   , stepBasicBlock
+  , readRef
+  , alterRef
   ) where
 
 import qualified Control.Exception as Ex
@@ -79,14 +81,14 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Utils.MuxTree
 
 
--- | Retrieve the value of a register
+-- | Retrieve the value of a register.
 evalReg ::
   Monad m =>
   Reg ctx tp ->
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (RegValue sym tp)
 evalReg r = (`regVal` r) <$> view (stateCrucibleFrame.frameRegs)
 
--- | Retrieve the value of a register, returning a 'RegEntry'
+-- | Retrieve the value of a register, returning a 'RegEntry'.
 evalReg' ::
   Monad m =>
   Reg ctx tp ->
@@ -133,7 +135,7 @@ evalArgs' m0 args = RegMap (fmapFC (getEntry m0) args)
         getEntry (RegMap m) r = m Ctx.! regIndex r
 {-# NOINLINE evalArgs' #-}
 
--- | Evaluate the actual arguments for a function call or block transfer
+-- | Evaluate the actual arguments for a function call or block transfer.
 evalArgs ::
   Monad m =>
   Ctx.Assignment (Reg ctx) args ->
@@ -141,14 +143,14 @@ evalArgs ::
 evalArgs args = ReaderT $ \s -> return $! evalArgs' (s^.stateCrucibleFrame.frameRegs) args
 {-# INLINE evalArgs #-}
 
--- | Resolve the arguments for a jump
+-- | Resolve the arguments for a jump.
 evalJumpTarget ::
   (IsSymInterface sym, Monad m) =>
   JumpTarget blocks ctx {- ^  Jump target to evaluate -} ->
   ReaderT (CrucibleState p sym ext rtp blocks r ctx) m (ResolvedJump sym blocks)
 evalJumpTarget (JumpTarget tgt _ a) = ResolvedJump tgt <$> evalArgs a
 
--- | Resolve the arguments for a switch target
+-- | Resolve the arguments for a switch target.
 evalSwitchTarget ::
   (IsSymInterface sym, Monad m) =>
   SwitchTarget blocks ctx tp {- ^ Switch target to evaluate -} ->
@@ -158,6 +160,8 @@ evalSwitchTarget (SwitchTarget tgt _tp a) x =
   do xs <- evalArgs a
      return (ResolvedJump tgt (assignReg' x xs))
 
+-- | Update a reference cell with a new value. Writing an unassigned
+-- value resets the reference cell to an uninitialized state.
 alterRef ::
   IsSymInterface sym =>
   sym ->
@@ -176,6 +180,7 @@ alterRef sym iTypes tpr rs newv globs = foldM upd globs (viewMuxTree rs)
        z <- mergePartial sym f p newv oldv
        return (gs & updateRef r z)
 
+-- | Read from a reference cell.
 readRef ::
   IsSymInterface sym =>
   sym ->
@@ -195,7 +200,7 @@ readRef sym iTypes tpr rs globs =
 -- | Evaluation operation for evaluating a single straight-line
 --   statement of the Crucible evaluator.
 --
---   This is allowed to throw user execeptions or SimError.
+--   This is allowed to throw user execeptions or 'SimError'.
 stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
@@ -324,7 +329,7 @@ stepStmt verb stmt rest =
 -- | Evaluation operation for evaluating a single block-terminator
 --   statement of the Crucible evaluator.
 --
---   This is allowed to throw user execeptions or SimError.
+--   This is allowed to throw user execeptions or 'SimError'.
 stepTerm :: forall p sym ext rtp blocks r ctx.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Verbosity -} ->
@@ -405,9 +410,9 @@ checkConsTerm verb =
           TermStmt _ _ -> continue (RunBlockEnd (cf^.frameBlockID))
 
 -- | Main evaluation operation for running a single step of
---   basic block evalaution.
+--   basic block evaluation.
 --
---   This is allowed to throw user execeptions or SimError.
+--   This is allowed to throw user execeptions or 'SimError'.
 stepBasicBlock ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
@@ -445,8 +450,8 @@ ppStmtAndLoc h sh pl stmt = do
 -- ExecState manipulations
 
 
--- | Given an @ExecState@, examine it and either enter the continuation
---   for final results, or construct the appropriate @ExecCont@ for
+-- | Given an 'ExecState', examine it and either enter the continuation
+--   for final results, or construct the appropriate 'ExecCont' for
 --   continuing the computation and enter the provided intermediate continuation.
 dispatchExecState ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>

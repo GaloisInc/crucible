@@ -105,26 +105,26 @@ type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
 data JVMHandleInfo where
   JVMHandleInfo :: J.MethodKey -> FnHandle init ret -> JVMHandleInfo
 
--- | Contains information about crucible Function handles and Global variables
+-- | Contains information about crucible function handles and global variables
 -- that is statically known during the class translation.
 data JVMContext = JVMContext
   { methodHandles :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
-      -- ^ map from static & dynamic methods to Crucible function handles
+      -- ^ Map from static and dynamic methods to Crucible function handles.
   , staticFields :: Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
-      -- ^ map from static field names to Crucible global variables
-      -- we know about these fields at translation time so we can allocate
-      -- global variables to store them
+      -- ^ Map from static field names to Crucible global variables.
+      -- We know about these fields at translation time so we can allocate
+      -- global variables to store them.
   , classTable :: Map J.ClassName J.Class
-      -- ^ map from class names to their declarations
-      -- this contains all of the information about class declarations at
-      -- translation time
+      -- ^ Map from class names to their declarations.
+      -- This contains all of the information about class declarations at
+      -- translation time.
   , dynamicClassTable :: GlobalVar JVMClassTableType
-      -- ^ a global variable storing information about the class that can be
+      -- ^ A global variable storing information about the class that can be
       -- used at runtime: includes initialization status, superclass (if any),
-      -- and a map from method names to their handles for dynamic dispatch
+      -- and a map from method names to their handles for dynamic dispatch.
   }
 
--- | left-biased merge of two contexts
+-- | Left-biased merge of two contexts.
 -- NOTE: There should only ever be one dynamic class table global variable.
 instance Semigroup JVMContext where
   c1 <> c2 =
@@ -185,18 +185,18 @@ methodCFG method =
 
 
 -- | Generator to construct a CFG from sequence of monadic actions:
--- See [Lang.Crucible.CFG.Generator]
+-- See "Lang.Crucible.CFG.Generator".
 --
--- 'h' is parameter from underlying ST monad
--- 's' is phantom to prevent mixing constructs from different CFGs
--- 'ret' is return type of CFG
+-- * 'h' is parameter from underlying ST monad
+-- * 's' is phantom to prevent mixing constructs from different CFGs
+-- * 'ret' is return type of CFG
 type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
 jvmFail :: HasCallStack => String -> JVMGenerator h s ret a
 jvmFail msg = error msg
 
--- | Output a message depending on the current verbosity level
+-- | Output a message depending on the current verbosity level.
 debug :: Int -> String -> JVMGenerator h s ret ()
 debug level mesg = do
   v <- use jsVerbosity
@@ -302,7 +302,7 @@ gen_isNothing expr =
   , onJust    = \_ -> return $ App $ BoolLit False
   }
 
--- | Generate code to test whether a 'Maybe' value is defined
+-- | Generate code to test whether a 'Maybe' value is defined.
 gen_isJust :: (IsSyntaxExtension p, KnownRepr TypeRepr tp) =>
   Expr p s (MaybeType tp)
            -> Generator p h s ret k (Expr p s BoolType)
@@ -315,7 +315,7 @@ gen_isJust expr =
 
 
 -- | Generate an expression that evaluates the function for
--- each element of an array
+-- each element of an array.
 forEach_ :: (IsSyntaxExtension p, KnownRepr TypeRepr tp)
             => Expr p s (VectorType tp)
             -> (Expr p s tp -> Generator p h s ret k ())
@@ -335,7 +335,7 @@ forEach_ vec body = do
         )
 
 -- | Generate an expression that evaluates the function for
--- each value in the range i = 0; i<count; i++
+-- each value in the range @i = 0; i<count; i++@.
 iterate_ :: (IsSyntaxExtension p)
   => Expr p s JVMIntType
   -> (Expr p s JVMIntType -> Generator p h s ret k ())

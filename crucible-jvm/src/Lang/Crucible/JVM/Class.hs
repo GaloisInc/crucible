@@ -136,8 +136,8 @@ import           What4.ProgramLoc (Position(InternalPos))
 import           GHC.Stack
 
 
--- | lookup the information that the generator has about a class
--- (i.e. methods, fields, superclass)
+-- | Lookup the information that the generator has about a class
+-- (i.e. methods, fields, superclass).
 
 lookupClassGen :: (HasCallStack) => J.ClassName -> JVMGenerator h s ret J.Class
 lookupClassGen cName = do
@@ -153,7 +153,7 @@ lookupClassGen cName = do
 -- * Runtime representation of class information (i.e. JVMClass)
 --
 
--- | initialization status values
+-- | Initialization status values.
 notStarted, started, initialized, erroneous :: JVMInitStatus f
 notStarted   = App $ BVLit knownRepr 0
 started      = App $ BVLit knownRepr 1
@@ -161,35 +161,35 @@ initialized  = App $ BVLit knownRepr 2
 erroneous    = App $ BVLit knownRepr 3
 
 
--- | Expression for the class name
+-- | Expression for the class name.
 classNameExpr :: J.ClassName -> JVMString s
 classNameExpr cn = App $ TextLit $ fromString (J.unClassName cn)
 
--- | Expression for method key
--- Includes the parameter type & result type to resolve overloading
--- TODO: This is an approximation of what the JVM actually does
+-- | Expression for method key.
+-- Includes the parameter type & result type to resolve overloading.
+-- TODO: This is an approximation of what the JVM actually does.
 methodKeyExpr :: J.MethodKey -> JVMString s
 methodKeyExpr c = App $ TextLit $ fromString (J.methodKeyName c ++ params ++ res) where
   params = concat (map show (J.methodKeyParameterTypes c))
   res    = show (J.methodKeyReturnType c)
 
 
--- | Method table
+-- | Method table.
 type JVMMethodTable s = Expr JVM s JVMMethodTableType
 
--- | initial table
+-- | Initial table.
 emptyMethodTable :: JVMMethodTable s
 emptyMethodTable = App (EmptyStringMap knownRepr)
 
--- | add a function handle to the method table
--- The function's type must be existentially quantified
+-- | Add a function handle to the method table.
+-- The function's type must be existentially quantified.
 insertMethodTable :: (JVMString s, Expr JVM s AnyType) -> JVMMethodTable s -> JVMMethodTable s
 insertMethodTable (s, v) sm = App (InsertStringMapEntry knownRepr sm s (App $ JustValue knownRepr v))
 
 --
--- | update the jvm class table to include an entry for the specified class
+-- | Update the jvm class table to include an entry for the specified class.
 --
--- This will also initalize the superclass (if present and necessary)
+-- This will also initalize the superclass (if present and necessary).
 --
 initializeJVMClass :: J.Class -> JVMGenerator h s t (JVMClass s)
 initializeJVMClass c  = do
@@ -279,28 +279,28 @@ interfacesImplemented ctx cn = toClassList (go (Set.singleton (J.className cn)))
 struct :: JVMClass s -> Expr JVM s JVMClassImpl
 struct ct = App $ UnrollRecursive knownRepr knownRepr ct
 
--- | access the name of the class (i.e java/lang/String)
+-- | Access the name of the class (e.g. @java\/lang\/String@).
 getJVMClassName :: JVMClass s -> Expr JVM s StringType
 getJVMClassName ct = App (GetStruct (struct ct) Ctx.i1of5 knownRepr)
 
--- | has the class been initialized
+-- | Whether the class has been initialized.
 getJVMClassInitStatus :: JVMClass s -> JVMInitStatus s
 getJVMClassInitStatus ct = App (GetStruct (struct ct) Ctx.i2of5 knownRepr)
 
--- | return the super class (or None, if this class is java/lang/Object)
+-- | Return the super class (or @None@, if this class is @java\/lang\/Object@).
 getJVMClassSuper :: JVMClass s -> Expr JVM s (MaybeType JVMClassType)
 getJVMClassSuper ct = App (GetStruct (struct ct) Ctx.i3of5 knownRepr)
 
--- | get the stringmap of method handles for the methods declared in this class
+-- | Get the stringmap of method handles for the methods declared in this class.
 getJVMClassMethodTable :: JVMClass s -> JVMMethodTable s
 getJVMClassMethodTable ct = App (GetStruct (struct ct) Ctx.i4of5 knownRepr)
 
--- | return a vector of *all* interfaces that this class implements
--- (both directly and indirectly through super classes and super interfaces)
+-- | Return a vector of *all* interfaces that this class implements
+-- (both directly and indirectly through super classes and super interfaces).
 getJVMClassInterfaces :: JVMClass s -> Expr JVM s (VectorType StringType)
 getJVMClassInterfaces ct = App (GetStruct (struct ct) Ctx.i5of5 knownRepr)
 
--- | replace the initialization status in the class data structure
+-- | Replace the initialization status in the class data structure.
 setJVMClassInitStatus :: JVMClass s -> JVMInitStatus s -> JVMClass s
 setJVMClassInitStatus ct status = App (RollRecursive knownRepr knownRepr
                                        (App (SetStruct knownRepr (struct ct) Ctx.i2of5 status)))
@@ -308,9 +308,9 @@ setJVMClassInitStatus ct status = App (RollRecursive knownRepr knownRepr
 ------------------------------------------------------------------------
 -- * Functions for working with the JVM class table
 
--- | Access the class table entry of a given class in the dynamic class table
--- If this class table entry has not yet been defined, define it
--- (Note: this function does not call the class initializer on the static variables,
+-- | Access the class table entry of a given class in the dynamic class table.
+-- If this class table entry has not yet been defined, define it.
+-- (Note: this function does not call the class initializer on the static variables;
 -- that is done separately.)
 getJVMClass :: J.Class -> JVMGenerator h s ret (JVMClass s)
 getJVMClass c = do
@@ -325,19 +325,19 @@ getJVMClass c = do
       , onJust    = return
       }
 
--- | lookup the data structure associated with a class
+-- | Lookup the data structure associated with a class.
 getJVMClassByName ::
   (HasCallStack) => J.ClassName -> JVMGenerator h s ret (Expr JVM s JVMClassType)
 getJVMClassByName name = do
   lookupClassGen name >>= getJVMClass
 
 
--- | Access the initialization status of the class in the dynamic class table
--- If the class table entry for this class has not yet been defined, define it
+-- | Access the initialization status of the class in the dynamic class table.
+-- If the class table entry for this class has not yet been defined, define it.
 getInitStatus :: J.Class -> JVMGenerator h s ret (JVMInitStatus s)
 getInitStatus c = getJVMClassInitStatus <$> getJVMClass c
 
--- | Update the initialization status of the class in the dynamic class table
+-- | Update the initialization status of the class in the dynamic class table.
 setInitStatus :: J.Class -> JVMInitStatus s -> JVMGenerator h s ret ()
 setInitStatus c status = do
   entry <- getJVMClass c
@@ -352,7 +352,7 @@ setInitStatus c status = do
 
 -- * Static Fields and Methods
 
--- | Read the global variable corresponding to the given static field
+-- | Read the global variable corresponding to the given static field.
 getStaticFieldValue :: J.FieldId -> JVMGenerator h s ret (JVMValue s)
 getStaticFieldValue fieldId = do
       let cls = J.fieldIdClass fieldId
@@ -365,7 +365,7 @@ getStaticFieldValue fieldId = do
         Nothing ->
           jvmFail $ "getstatic: field " ++ J.fieldIdName fieldId ++ " not found"
 
--- | Update the value of a static field
+-- | Update the value of a static field.
 setStaticFieldValue :: J.FieldId -> JVMValue s -> JVMGenerator h s ret ()
 setStaticFieldValue  fieldId val = do
     ctx <- gets jsContext
@@ -377,7 +377,7 @@ setStaticFieldValue  fieldId val = do
            jvmFail $ "putstatic: field " ++ J.unClassName cName
                      ++ "." ++ (J.fieldIdName fieldId) ++ " not found"
 
--- | Look up a method in the static method table (i.e. methodHandles)
+-- | Look up a method in the static method table (i.e. 'methodHandles').
 getStaticMethod :: J.ClassName -> J.MethodKey -> JVMGenerator h s ret JVMHandleInfo
 getStaticMethod className methodKey = do
    ctx <- gets jsContext
@@ -430,9 +430,9 @@ specialClinit = Map.fromList [
   ]
 
 
--- | initialize the static fields of a class (if they haven't already been
--- initialized)
--- make sure that the jvm class table entry for the class has been initialized
+-- | Initialize the static fields of a class (if they haven't already been
+-- initialized).
+-- Make sure that the jvm class table entry for the class has been initialized.
 initializeClass :: forall h s ret . HasCallStack => J.ClassName -> JVMGenerator h s ret ()
 initializeClass name = unless (skipInit name) $ do
 
@@ -471,10 +471,10 @@ initializeClass name = unless (skipInit name) $ do
 
 
 
--- | Call a JVM static initialer, such as <init>
+-- | Call a JVM static initializer, such as @<init>@
 -- These methods do not take arguments or produce results so they
 -- do not work with the stack. As a result we can call these methods
--- in the JVMGenerator monad.
+-- in the 'JVMGenerator' monad.
 callJVMInit :: JVMHandleInfo -> JVMGenerator h s ret ()
 callJVMInit (JVMHandleInfo _methodKey handle) =
   do let argTys = handleArgTypes handle
@@ -488,7 +488,7 @@ callJVMInit (JVMHandleInfo _methodKey handle) =
 
 
 -- | Compute the initial value of a field based on its
--- static initializer and/or type
+-- static initializer and/or type.
 initialFieldValue :: J.Field -> JVMGenerator h s ret (JVMValue s)
 initialFieldValue f =
   case J.fieldConstantValue f of
@@ -506,7 +506,7 @@ initialFieldValue f =
         return $ defaultValue (J.fieldType f)
      Just tp -> error $ "Unsupported field type" ++ show tp
 
--- | update the static field value of the class with its initial value
+-- | Update the static field value of the class with its initial value.
 initializeStaticField :: J.ClassName -> J.Field -> JVMGenerator h s ret ()
 initializeStaticField name f = do
   when (J.fieldIsStatic f) $ do
@@ -569,22 +569,22 @@ findDynamicMethod dcls methodKey = do
 -- * Dynamic type testing
 
 
--- | Create a runtime value for an array type rep, given the element type
+-- | Create a runtime value for an array type rep, given the element type.
 makeArrayTypeRep :: JVMTypeRep s -> JVMTypeRep s
 makeArrayTypeRep ety = App $ RollRecursive knownRepr knownRepr (App $ InjectVariant knownRepr Ctx.i1of3 ety)
 
--- | Create a runtime value for a class type rep, given the class rep
+-- | Create a runtime value for a class type rep, given the class rep.
 makeClassTypeRep :: JVMClass s -> JVMTypeRep s
 makeClassTypeRep cls =
   App (RollRecursive knownRepr knownRepr (App $ InjectVariant knownRepr Ctx.i2of3 cls))
 
--- | This function will initialize the class, if it hasn't been already
+-- | This function will initialize the class, if it hasn't been already.
 makeClassTypeRepByName :: J.ClassName -> JVMGenerator h s ret (JVMTypeRep s)
 makeClassTypeRepByName cn = do
   cls <- getJVMClassByName cn
   return $ makeClassTypeRep cls
 
--- | Convert a primitive type to an enum value
+-- | Convert a primitive type to an enum value.
 primIndex :: J.Type -> Maybe (JVMInt s)
 primIndex ty =
   case ty of
@@ -612,7 +612,7 @@ makeJVMTypeRep ty =
 
 
 
--- | Generate code that accesses the runtime type rep of an object
+-- | Generate code that accesses the runtime type rep of an object.
 getObjectType :: JVMObject s -> JVMGenerator h s ret (JVMTypeRep s)
 getObjectType obj =
   let unr = App $ UnrollRecursive knownRepr knownRepr obj in
@@ -635,7 +635,7 @@ getObjectType obj =
 
 -- | Generated a checkedcast instruction by reading the dynamic
 -- type of the reference and comparing it against the provided
--- type
+-- type.
 checkCast :: JVMRef s -> J.Type -> JVMGenerator h s ret ()
 checkCast objectRef ty =
   caseMaybe_ objectRef
@@ -648,12 +648,12 @@ checkCast objectRef ty =
       assertExpr b $ fromString ("java/lang/ClassCastException (" ++ show ty ++ ")" )
   }
 
--- | Classes and interfaces that are supertypes of array types
---   see https://docs.oracle.com/javase/specs/jls/se8/html/jls-4.html#jls-4.10.3
+-- | Classes and interfaces that are supertypes of array types.
+--   See <https://docs.oracle.com/javase/specs/jls/se8/html/jls-4.html#jls-4.10.3>.
 arraySuperTypes :: [J.ClassName]
 arraySuperTypes = map J.mkClassName ["java/lang/Object", "java/lang/Cloneable", "java/io/Serializable"]
 
--- | Test whether the dynamic class is a subtype of the given class name or interface name
+-- | Test whether the dynamic class is a subtype of the given class name or interface name.
 isSubType :: JVMTypeRep s -> J.Type -> JVMGenerator h s ret (Expr JVM s BoolType)
 isSubType tyS tyT = do
   debug 3 $ "isSubtype called with " ++ show tyT
@@ -689,9 +689,9 @@ isSubType tyS tyT = do
 
 
 -- | Test whether the given class implements the given interface name
--- by comparing it against all of the interfaces stored in the JVMClass
--- NOTE: for this implementation to be correct, the class must store the
--- transitive closure of *all* interfaces that it implements
+-- by comparing it against all of the interfaces stored in the 'JVMClass'.
+-- NOTE: For this implementation to be correct, the class must store the
+-- transitive closure of *all* interfaces that it implements.
 implements :: JVMClass s -> J.ClassName -> JVMGenerator h s ret (Expr JVM s BoolType)
 implements dcls interface = do
   let vec = getJVMClassInterfaces dcls
@@ -704,7 +704,7 @@ implements dcls interface = do
   readReg ansReg
 
 
--- | Test whether the given class is a subclass of the classname
+-- | Test whether the given class is a subclass of the classname.
 isSubclass :: JVMClass s
            -> J.ClassName
            -> JVMGenerator h s ret (Expr JVM s BoolType)
@@ -770,7 +770,7 @@ getAllFields cls = do
       supFlds <- getAllFields supCls
       return (supFlds ++ (map (mkFieldId cls) (J.classFields cls)))
 
--- | dynamic text name for a field
+-- | Dynamic text name for a field.
 fieldIdString :: J.FieldId -> String
 fieldIdString f = J.unClassName (J.fieldIdClass f) ++ "." ++ J.fieldIdName f
 
@@ -823,7 +823,7 @@ findField fields fieldId k = do
          Just super -> findField fields (fieldId { J.fieldIdClass = super }) k
    }
 
--- | Access the field component of a JVM object (must be a class instance, not an array)
+-- | Access the field component of a JVM object (must be a class instance, not an array).
 getInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMGenerator h s ret (JVMValue s)
 getInstanceFieldValue obj fieldId = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
@@ -834,7 +834,7 @@ getInstanceFieldValue obj fieldId = do
 
 
 
--- | Update a field of a JVM object (must be a class instance, not an array)
+-- | Update a field of a JVM object (must be a class instance, not an array).
 setInstanceFieldValue :: JVMObject s -> J.FieldId -> JVMValue s -> JVMGenerator h s ret (JVMObject s)
 setInstanceFieldValue obj fieldId val = do
   let dyn  = valueToExpr val
@@ -851,7 +851,7 @@ setInstanceFieldValue obj fieldId val = do
        let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
        return $ App (RollRecursive knownRepr knownRepr uobj')
 
--- | Access the runtime class information for the class that instantiated this instance
+-- | Access the runtime class information for the class that instantiated this instance.
 getJVMInstanceClass :: JVMObject s -> JVMGenerator h s ret (JVMClass s)
 getJVMInstanceClass obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)
@@ -866,7 +866,7 @@ getJVMInstanceClass obj = do
 charLit :: Char -> Expr JVM s JVMValueType
 charLit c = App (InjectVariant knownRepr tagI (App (BVLit w32 (toInteger (fromEnum c)))))
 
--- | Constructor for statically known string objects
+-- | Constructor for statically known string objects.
 --
 refFromString ::  HasCallStack => String -> JVMGenerator h s ret (JVMRef s)
 refFromString s =  do
@@ -912,7 +912,7 @@ refFromString s =  do
 -- * Arrays
 
 -- | Construct a new array object, with initial values determined
--- by the array type
+-- by the array type.
 newArray ::
   JVMInt s
   -- ^ array size, assertion failure if nonnegative
@@ -933,7 +933,7 @@ newArray count jty@(J.ArrayType elemType) = do
 newArray _count jty = jvmFail $ "newArray: expected array type, got: " ++ show jty
 
 -- | Construct an array of arrays, with initial values determined
--- by the array type
+-- by the array type.
 newMultiArray ::
   J.Type
   -- ^ type of the array to create
@@ -964,7 +964,7 @@ newMultiArray arrType counts = do
 
 
 -- | Construct a new array given a vector of initial values
--- (used for static array initializers.)
+-- (used for static array initializers).
 newarrayFromVec ::
   J.Type
   -- ^ Type of array
@@ -982,7 +982,7 @@ newarrayFromVec aty vec = do
     App $ RollRecursive knownRepr knownRepr uobj
 
 
--- | Index into an array object
+-- | Index into an array object.
 arrayIdx :: JVMObject s
   -- ^ the array
   -> JVMInt s
@@ -997,7 +997,7 @@ arrayIdx obj idx = do
      let val = App (VectorGetEntry knownRepr vec (App (BvToNat w32 idx)))
      return val
 
--- | Update an array object
+-- | Update an array object.
 arrayUpdate :: JVMObject s                          -- ^ the array
             -> JVMInt s                             -- ^ index
             -> Expr JVM s JVMValueType              -- ^ new value
@@ -1014,7 +1014,7 @@ arrayUpdate obj idx val = do
   let obj' = App (RollRecursive knownRepr knownRepr uobj')
   return obj'
 
--- | Access length of the array object
+-- | Access length of the array object.
 arrayLength :: JVMObject s -> JVMGenerator h s ret (JVMInt s)
 arrayLength obj = do
   let uobj = App (UnrollRecursive knownRepr knownRepr obj)

@@ -790,6 +790,26 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
       x <- evalSub xe
       y <- evalSub ye
       bvSle sym x y
+    BVUMin _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      c <- bvUle sym x y
+      bvIte sym c x y
+    BVUMax _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      c <- bvUgt sym x y
+      bvIte sym c x y
+    BVSMin _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      c <- bvSle sym x y
+      bvIte sym c x y
+    BVSMax _ xe ye -> do
+      x <- evalSub xe
+      y <- evalSub ye
+      c <- bvSgt sym x y
+      bvIte sym c x y
 
     --------------------------------------------------------------------
     -- Word Maps
