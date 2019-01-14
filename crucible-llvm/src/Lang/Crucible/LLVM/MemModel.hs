@@ -1074,6 +1074,9 @@ unpackMemValue sym tpr (LLVMValZero tp) = unpackZero sym tp tpr
 unpackMemValue _sym (LLVMPointerRepr w) (LLVMValInt blk bv)
   | Just Refl <- testEquality (bvWidth bv) w
   = return $ LLVMPointer blk bv
+unpackMemValue _sym (BVRepr w) (LLVMValInt _ bv) 
+  | Just Refl <- testEquality w (bvWidth bv) = return bv
+
 
 unpackMemValue _ (FloatRepr SingleFloatRepr) (LLVMValFloat SingleSize x) = return x
 unpackMemValue _ (FloatRepr DoubleFloatRepr) (LLVMValFloat DoubleSize x) = return x
@@ -1087,6 +1090,7 @@ unpackMemValue sym (StructRepr ctx) (LLVMValStruct xs)
 
 unpackMemValue sym (VectorRepr tpr) (LLVMValArray _tp xs)
   = traverse (unpackMemValue sym tpr) xs
+
 
 unpackMemValue _ tpr v =
   panic "MemModel.unpackMemValue"

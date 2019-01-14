@@ -765,6 +765,7 @@ memEndian = memEndianForm
 --------------------------------------------------------------------------------
 -- Pointer validity
 
+
 -- | @isAllocatedMut isMut sym w p sz m@ returns the condition required to
 -- prove range @[p..p+sz)@ lies within a single allocation in @m@.
 --
@@ -788,46 +789,37 @@ isAllocatedMut ::
   Maybe (SymBV sym w)  ->
   Mem sym              ->
   IO (Pred sym)
-isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m = do
-      let step :: forall w'. Natural -> Maybe (SymBV sym w') -> IO (Pred sym) -> IO (Pred sym)
-          step a sze fallback
-            -- If the allocation is done at pointer width equal to 'w', check if this
-            -- allocation covers the required range.
-            | Just asz  <- sze
-            , Just Refl <- testEquality w (bvWidth asz) =
-                 do (_ov, end) <- addUnsignedOF sym off asz
-                    sameBlock <- natEq sym blk =<< natLit sym a
-                    inRange   <- bvUle sym end asz
-                    okNow     <- andPred sym sameBlock inRange
-                    case asConstantPred okNow of
-                      Just True  -> return okNow
-                      Just False -> fallback
-                      Nothing    -> orPred sym okNow =<< fallback
-
-          step a _sze fallback =
-            -- If the allocation is done at pointer width not equal to 'w', check that
-            -- this allocation is distinct from the base pointer.
-                 do sameBlock <- natEq sym blk =<< natLit sym a
-                    case asConstantPred sameBlock of
-                      Just True  -> return (falsePred sym)
-                      Just False -> fallback
-                      Nothing    ->
-                        do notSameBlock <- notPred sym sameBlock
-                           andPred sym notSameBlock =<< fallback
+isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, off)) sz m = do
+      -- @inThisAllocation a allocatedSz@ produces the precidate that records
+      -- whether the pointer @ptr@ of size @sz@ falls within the allocation of block @a@ of size @allocatedSz@
+      let inThisAllocation :: forall w'. Natural -> Maybe (SymBV sym w') -> IO (Pred sym)
+          inThisAllocation a Nothing = isSameBlock sym ptr a
+            -- If the allocation is unbounded, we just have to check we are in the right block
+          inThisAllocation a (Just allocatedSize)
+            -- If the allocation is done at pointer width is equal to @w@, check
+            -- if this allocation covers the required range
+            | Just Refl <- testEquality w (bvWidth allocatedSize)
+            , Just currSize <- sz = do
+                sameBlock <- isSameBlock sym ptr a           -- a == blockname(ptr)
+                (_ov,end) <- addPtrOffsetOF sym ptr currSize -- ptr+currSize
+                inRange    <- bvUle sym end allocatedSize    -- offset(ptr)+currSize <= allocatedSize
+                andPred sym sameBlock inRange
+          inThisAllocation a (Just _allocatedSize)
+            -- If the allocation is done at pointer width not equal to @w@,
+            -- check that this allocation is distinct from the base pointer.
+            | otherwise = notPred sym =<< isSameBlock sym ptr a
 
       let go :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
           go fallback [] = fallback
           go fallback (Alloc _ a asz mut alignment _ : r)
-            | mutOk mut && alignment >= minAlign = step a asz (go fallback r)
+            | mutOk mut && alignment >= minAlign = do
+                hereOK <- inThisAllocation a asz
+                thereOK <- go fallback r
+                orPred sym hereOK thereOK
             | otherwise = go fallback r
           go fallback (MemFree a : r) =
-            do sameBlock <- natEq sym blk a
-               case asConstantPred sameBlock of
-                 Just True  -> return (falsePred sym)
-                 Just False -> go fallback r
-                 Nothing    ->
-                   do notSameBlock <- notPred sym sameBlock
-                      andPred sym notSameBlock =<< go fallback r
+            do notSameBlock <- notPred sym =<< natEq sym blk a
+               andPred sym notSameBlock =<< go fallback r
           go fallback (AllocMerge _ [] [] : r) = go fallback r
           go fallback (AllocMerge c xr yr : r) =
             do p <- go fallback r -- TODO: wrap this in a delay
@@ -844,6 +836,25 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m = do
 
       andPred sym overflowPred =<< go (pure (falsePred sym)) (memAllocs m)
 
+
+-- | Checks if the block ID given as a natural number is the same as the block
+-- in which the pointer is located
+isSameBlock :: (IsSymInterface sym)
+            => sym
+            -> LLVMPtr sym w
+            -> Natural
+            -> IO (Pred sym)
+isSameBlock sym (llvmPointerView -> (blk,_off)) n = do
+  natEq sym blk =<< natLit sym n
+
+-- | Adds the offset of the current pointer to the bitvector, producing the
+-- result and an overflow bit
+addPtrOffsetOF :: (1 <= w, IsSymInterface sym)
+               => sym
+               -> LLVMPtr sym w
+               -> SymBV sym w
+               -> IO (Pred sym, SymBV sym w)
+addPtrOffsetOF sym (llvmPointerView -> (_blk,off)) x = addUnsignedOF sym off x
 
 -- | @isAllocated sym w p sz m@ returns the condition required to prove
 -- range @[p..p+sz)@ lies within a single allocation in @m@.
