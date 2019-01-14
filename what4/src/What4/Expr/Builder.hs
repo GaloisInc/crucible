@@ -3814,6 +3814,10 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       Nothing -> return ()
       Just f  -> f ev
 
+  getStatistics sb = do
+    allocs <- countNoncesGenerated (exprCounter sb)
+    return $ Statistics { statAllocs = allocs }
+
   ----------------------------------------------------------------------
   -- Program location operations
 

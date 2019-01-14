@@ -80,6 +80,7 @@ data Metrics f =
   { metricSplits   :: f Integer
   , metricMerges   :: f Integer
   , metricAborts   :: f Integer
+  , metricAllocs   :: f Integer
   }
 
 deriving instance Show (Metrics Identity)
@@ -88,8 +89,8 @@ deriving instance Generic (Metrics Identity)
 traverseF_metrics :: Applicative m =>
   (forall s. e s -> m (f s)) ->
   Metrics e -> m (Metrics f)
-traverseF_metrics h (Metrics x1 x2 x3) =
-  Metrics <$> h x1 <*> h x2 <*> h x3
+traverseF_metrics h (Metrics x1 x2 x3 x4) =
+  Metrics <$> h x1 <*> h x2 <*> h x3 <*> h x4
 
 instance FunctorF Metrics where
   fmapF = fmapFDefault
@@ -101,6 +102,7 @@ instance TraversableF Metrics where
 metricsToJSON :: Metrics Identity -> UTCTime -> JSValue
 metricsToJSON m time = JSObject $ toJSObject $
     [ ("time", utcTimeToJSON time)
+    , ("allocs", showJSON $ runIdentity $ metricAllocs m )
     , ("paths", showJSON $ runIdentity $ metricSplits m )
     , ("merge-count", showJSON $ runIdentity $ metricMerges m )
     , ("abort-count", showJSON $ runIdentity $ metricAborts m )
@@ -195,17 +197,11 @@ symProUIJSON nm source tbl =
        [ JSObject $ toJSObject $ metadata now
        , callGraphJSON now m evs
        , JSObject $ toJSObject $ solver_calls solverEvs
-       , JSObject $ toJSObject $ unused_terms
        ]
  where
  solver_calls evs  =
    [ ("type", showJSON "solver-calls")
    , ("events", JSArray $ map solverEventToJSON $ toList evs)
-   ]
-
- unused_terms =
-   [ ("type", showJSON "unused-terms")
-   , ("data", JSArray [])
    ]
 
  metadata now =
@@ -264,6 +260,7 @@ closingEvents now m = map (openToCloseEvent now m) . openEventFrames
 newProfilingTable :: IO ProfilingTable
 newProfilingTable =
   do m <- Metrics <$> newIORef 0
+                  <*> newIORef 0
                   <*> newIORef 0
                   <*> newIORef 0
      evs <- newIORef mempty
@@ -331,30 +328,34 @@ exitEvent tbl nm =
 
 
 updateProfilingTable ::
+  IsExprBuilder sym =>
   ProfilingTable ->
   ExecState p sym ext rtp ->
   IO ()
-updateProfilingTable tbl = \case
-  InitialState _ _ _ _ ->
-    enterEvent tbl startFunctionName Nothing
-  CallState _rh call st ->
-    enterEvent tbl (resolvedCallName call) (st^.stateLocation)
-  ReturnState nm _ _ _ ->
-    exitEvent tbl nm
-  TailCallState _ call st ->
-    do exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-       enterEvent tbl (resolvedCallName call) (st^.stateLocation)
-  SymbolicBranchState{} ->
-    modifyIORef' (metricSplits (metrics tbl)) succ
-  AbortState{} ->
-    modifyIORef' (metricAborts (metrics tbl)) succ
-  UnwindCallState _ _ st ->
-    exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
-  BranchMergeState tgt st ->
-    when (isMergeState tgt st)
-         (modifyIORef' (metricMerges (metrics tbl)) succ)
-  _ -> return ()
-
+updateProfilingTable tbl exst = do
+  let sym = execStateContext exst ^. ctxSymInterface
+  stats <- getStatistics sym
+  writeIORef (metricAllocs (metrics tbl)) $ statAllocs stats
+  case exst of
+    InitialState _ _ _ _ ->
+      enterEvent tbl startFunctionName Nothing
+    CallState _rh call st ->
+      enterEvent tbl (resolvedCallName call) (st^.stateLocation)
+    ReturnState nm _ _ _ ->
+      exitEvent tbl nm
+    TailCallState _ call st ->
+      do exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
+         enterEvent tbl (resolvedCallName call) (st^.stateLocation)
+    SymbolicBranchState{} ->
+      modifyIORef' (metricSplits (metrics tbl)) succ
+    AbortState{} ->
+      modifyIORef' (metricAborts (metrics tbl)) succ
+    UnwindCallState _ _ st ->
+      exitEvent tbl (st^.stateTree.actFrame.gpValue.frameFunctionName)
+    BranchMergeState tgt st ->
+      when (isMergeState tgt st)
+           (modifyIORef' (metricMerges (metrics tbl)) succ)
+    _ -> return ()
 
 isMergeState ::
   CrucibleBranchTarget f args ->

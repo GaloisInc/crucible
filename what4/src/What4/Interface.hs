@@ -83,6 +83,10 @@ module What4.Interface
     -- ** Floating-point rounding modes
   , RoundingMode(..)
 
+    -- ** Run-time statistics
+  , Statistics(..)
+  , zeroStatistics
+
     -- * Type Aliases
   , Pred
   , SymNat
@@ -436,6 +440,12 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   -- | Provide the given even to the currently installed
   --   solver log listener, if any.
   logSolverEvent :: sym -> SolverEvent -> IO ()
+
+  -- | Get statistics on execution from the initialization of the
+  -- symbolic interface to this point.  May return zeros if gathering
+  -- statistics isn't supported.
+  getStatistics :: sym -> IO Statistics
+  getStatistics _ = return zeroStatistics
 
   ----------------------------------------------------------------------
   -- Program location operations
@@ -2687,3 +2697,18 @@ data SymEncoder sym v tp
                 , symFromExpr :: !(sym -> SymExpr sym tp -> IO v)
                 , symToExpr   :: !(sym -> v -> IO (SymExpr sym tp))
                 }
+
+----------------------------------------------------------------------
+-- Statistics
+
+-- | Statistics gathered on a running expression builder.  See
+-- 'getStatistics'.
+data Statistics
+  = Statistics { statAllocs :: !Integer
+                 -- ^ The number of times an expression node has been
+                 -- allocated.
+               }
+  deriving ( Show )
+
+zeroStatistics :: Statistics
+zeroStatistics = Statistics { statAllocs = 0 }
