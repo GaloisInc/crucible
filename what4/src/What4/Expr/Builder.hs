@@ -2722,6 +2722,8 @@ sbMakeExpr sym a = do
   params <- sbBVDomainParams sym
   pc <- curProgramLoc sym
   let v = abstractEval params exprAbsValue a
+  when (isNonLinearApp a) $
+    modifyIORef' (sbNonLinearOps sym) (+1)
   case appType a of
     -- Check if abstract interpretation concludes this is a constant.
     BaseBoolRepr | Just b <- v -> return $ backendPred sym b
