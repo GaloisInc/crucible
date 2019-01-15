@@ -2707,8 +2707,12 @@ data Statistics
   = Statistics { statAllocs :: !Integer
                  -- ^ The number of times an expression node has been
                  -- allocated.
+               , statNonLinearOps :: !Integer
+                 -- ^ The number of non-linear operations, such as
+                 -- multiplications, that have occurred.
                }
   deriving ( Show )
 
 zeroStatistics :: Statistics
-zeroStatistics = Statistics { statAllocs = 0 }
+zeroStatistics = Statistics { statAllocs = 0
+                            , statNonLinearOps = 0 }

@@ -81,6 +81,7 @@ data Metrics f =
   , metricMerges   :: f Integer
   , metricAborts   :: f Integer
   , metricAllocs   :: f Integer
+  , metricNonLinearOps :: f Integer
   }
 
 deriving instance Show (Metrics Identity)
@@ -89,8 +90,8 @@ deriving instance Generic (Metrics Identity)
 traverseF_metrics :: Applicative m =>
   (forall s. e s -> m (f s)) ->
   Metrics e -> m (Metrics f)
-traverseF_metrics h (Metrics x1 x2 x3 x4) =
-  Metrics <$> h x1 <*> h x2 <*> h x3 <*> h x4
+traverseF_metrics h (Metrics x1 x2 x3 x4 x5) =
+  Metrics <$> h x1 <*> h x2 <*> h x3 <*> h x4 <*> h x5
 
 instance FunctorF Metrics where
   fmapF = fmapFDefault
@@ -106,6 +107,7 @@ metricsToJSON m time = JSObject $ toJSObject $
     , ("paths", showJSON $ runIdentity $ metricSplits m )
     , ("merge-count", showJSON $ runIdentity $ metricMerges m )
     , ("abort-count", showJSON $ runIdentity $ metricAborts m )
+    , ("non-linear-count", showJSON $ runIdentity $ metricNonLinearOps m )
     ]
 
 
@@ -260,6 +262,7 @@ closingEvents now m = map (openToCloseEvent now m) . openEventFrames
 newProfilingTable :: IO ProfilingTable
 newProfilingTable =
   do m <- Metrics <$> newIORef 0
+                  <*> newIORef 0
                   <*> newIORef 0
                   <*> newIORef 0
                   <*> newIORef 0

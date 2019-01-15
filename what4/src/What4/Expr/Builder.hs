@@ -1369,6 +1369,9 @@ data ExprBuilder t (st :: Type -> Type) (fs :: Type)
         , exprCounter :: !(NonceGenerator IO t)
           -- | Reference to current allocator for expressions.
         , curAllocator :: !(IORef (ExprAllocator t))
+          -- | Number of times an 'Expr' for a non-linear operation has been
+          -- created.
+        , sbNonLinearOps :: !(IORef Integer)
           -- | The current program location
         , sbProgramLoc :: !(IORef ProgramLoc)
           -- | Additional state maintained by the state manager
@@ -2026,6 +2029,39 @@ traverseApp =
       )
     ]
    )
+
+-- | Return 'true' if an app represents a non-linear operation.
+-- Controls whether the non-linear counter ticks upward in the
+-- 'Statistics'.
+isNonLinearApp :: App e tp -> Bool
+isNonLinearApp app = case app of
+  -- FIXME: These are just guesses; someone who knows what's actually
+  -- slow in the solvers should correct them.
+  SemiRingMul {} -> True
+  NatDiv {} -> True
+  NatMod {} -> True
+  IntDiv {} -> True
+  IntMod {} -> True
+  IntDivisible {} -> True
+  RealDiv {} -> True
+  RealSqrt {} -> True
+  RealSin {} -> True
+  RealCos {} -> True
+  RealATan2 {} -> True
+  RealSinh {} -> True
+  RealCosh {} -> True
+  RealExp {} -> True
+  RealLog {} -> True
+  BVMul {} -> True
+  BVUdiv {} -> True
+  BVUrem {} -> True
+  BVSdiv {} -> True
+  BVSrem {} -> True
+  FloatSqrt {} -> True
+  FloatMul {} -> True
+  FloatDiv {} -> True
+  FloatRem {} -> True
+  _ -> False
 
 ------------------------------------------------------------------------
 -- Expr operations
@@ -2858,6 +2894,7 @@ newExprBuilder st gen = do
   domainRangeSetting <- CFG.getOptionSetting bvdomainRangeLimitOption cfg
   cacheStartSetting  <- CFG.getOptionSetting cacheStartSizeOption cfg
   CFG.extendConfig [cacheOptDesc gen storage_ref cacheStartSetting] cfg
+  nonLinearOps <- newIORef 0
 
   return $! SB { sbTrue  = t
                , sbFalse = f
@@ -2870,6 +2907,7 @@ newExprBuilder st gen = do
                , sbProgramLoc = loc_ref
                , exprCounter = gen
                , curAllocator = storage_ref
+               , sbNonLinearOps = nonLinearOps
                , sbStateManager = st_ref
                , sbVarBindings = bindings_ref
                , sbUninterpFnCache = uninterp_fn_cache_ref
@@ -3816,7 +3854,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
   getStatistics sb = do
     allocs <- countNoncesGenerated (exprCounter sb)
-    return $ Statistics { statAllocs = allocs }
+    nonLinearOps <- readIORef (sbNonLinearOps sb)
+    return $ Statistics { statAllocs = allocs
+                        , statNonLinearOps = nonLinearOps }
 
   ----------------------------------------------------------------------
   -- Program location operations
