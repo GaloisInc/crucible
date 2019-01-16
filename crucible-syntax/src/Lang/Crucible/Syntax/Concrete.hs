@@ -236,12 +236,9 @@ data PosNat =
 posNat :: MonadSyntax Atomic m => m PosNat
 posNat =
    do i <- sideCondition "positive nat literal" checkPosNat int
-      case someNat i of
-       Just (Some x) ->
-         do Just LeqProof <- return (isPosNat x)
-            return (PosNat x)
-       _ -> empty
-
+      maybe empty return $ do Some x <- someNat i
+                              LeqProof <- isPosNat x
+                              return $ PosNat x
   where checkPosNat i | i > 0 = Just i
         checkPosNat _ = Nothing
 
