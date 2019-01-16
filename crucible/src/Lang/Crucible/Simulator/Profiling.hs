@@ -80,7 +80,7 @@ data Metrics f =
   { metricSplits   :: f Integer
   , metricMerges   :: f Integer
   , metricAborts   :: f Integer
-  , metricAllocs   :: f Integer
+  , metricSolverStats :: f Statistics
   }
 
 deriving instance Show (Metrics Identity)
@@ -102,11 +102,14 @@ instance TraversableF Metrics where
 metricsToJSON :: Metrics Identity -> UTCTime -> JSValue
 metricsToJSON m time = JSObject $ toJSObject $
     [ ("time", utcTimeToJSON time)
-    , ("allocs", showJSON $ runIdentity $ metricAllocs m )
+    , ("allocs", showJSON $ statAllocs $ solverStats )
     , ("paths", showJSON $ runIdentity $ metricSplits m )
     , ("merge-count", showJSON $ runIdentity $ metricMerges m )
     , ("abort-count", showJSON $ runIdentity $ metricAborts m )
+    , ("non-linear-count", showJSON $ statNonLinearOps $ solverStats )
     ]
+    where
+      solverStats = runIdentity $ metricSolverStats m
 
 
 data CGEventType = ENTER | EXIT
@@ -262,7 +265,7 @@ newProfilingTable =
   do m <- Metrics <$> newIORef 0
                   <*> newIORef 0
                   <*> newIORef 0
-                  <*> newIORef 0
+                  <*> newIORef zeroStatistics
      evs <- newIORef mempty
      idref <- newIORef 0
      solverevs <- newIORef mempty
@@ -335,7 +338,7 @@ updateProfilingTable ::
 updateProfilingTable tbl exst = do
   let sym = execStateContext exst ^. ctxSymInterface
   stats <- getStatistics sym
-  writeIORef (metricAllocs (metrics tbl)) $ statAllocs stats
+  writeIORef (metricSolverStats (metrics tbl)) stats
   case exst of
     InitialState _ _ _ _ ->
       enterEvent tbl startFunctionName Nothing
