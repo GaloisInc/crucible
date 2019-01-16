@@ -400,6 +400,45 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
              do p' <- simplPred xps2 p0
                 itePred sym c' p p'
 
+evalMuxValueCtor' ::
+  forall u sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  EndianForm ->
+  (SymBV sym w, SymBV sym w, SymBV sym w) {- ^ Evaluation function -} ->
+  (u -> IO (PartLLVMVal' sym)) {- ^ Function for reading specific subranges -} ->
+  Mux (ValueCtor u) ->
+  IO (PartLLVMVal' sym)
+evalMuxValueCtor' sym _w end _vf subFn (MuxVar v) =
+  do v' <- traverse subFn v
+     genValueCtor' sym end v'
+evalMuxValueCtor' sym w end vf subFn (Mux c t1 t2) =
+  do c' <- genCondVar sym w vf c
+     case asConstantPred c' of
+       Just True  -> evalMuxValueCtor' sym w end vf subFn t1
+       Just False -> evalMuxValueCtor' sym w end vf subFn t2
+       Nothing ->
+        do t1' <- evalMuxValueCtor' sym w end vf subFn t1
+           t2' <- evalMuxValueCtor' sym w end vf subFn t2
+           Partial.muxLLVMVal sym c' t1' t2'
+
+evalMuxValueCtor' sym w end vf subFn (MuxTable a b m t) =
+  do m' <- traverse (evalMuxValueCtor' sym w end vf subFn) m
+     t' <- evalMuxValueCtor' sym w end vf subFn t
+     -- TODO: simplification?
+     Map.foldrWithKey f (return t') m'
+  where
+    f :: Bytes -> PartLLVMVal' sym -> IO (PartLLVMVal' sym) -> IO (PartLLVMVal' sym)
+    f n t1 k =
+      do c' <- genCondVar sym w vf (OffsetEq (aOffset n) b)
+         case asConstantPred c' of
+           Just True  -> return t1
+           Just False -> k
+           Nothing    -> Partial.muxLLVMVal sym c' t1 =<< k
+
+    aOffset :: Bytes -> OffsetExpr
+    aOffset n = OffsetAdd a (CValue n)
+
 -- | Read from a memory with a memcopy to the same block we are reading.
 readMemCopy ::
   forall sym w.
@@ -538,16 +577,15 @@ readMemSet' sym w end (LLVMPointer blk off) tp d byte sz readPrev =
                                               readPrev tp' (LLVMPointer blk o')
                 subFn (InRange   _o tp') = do blk0 <- natLit sym 0
                                               let val = LLVMValInt blk0 byte
-                                              let b = PE (truePred sym) val
+                                              let b = Partial.returnPartLLVMVal' sym val
                                               genValueCtor' sym end (memsetValue b tp')
             case asUnsignedBV sz of
-              Just csz ->
-                do let s = R (fromInteger so) (fromInteger (so + csz))
-                   let vcr = rangeLoad (fromInteger lo) tp s
-                   genValueCtor' sym end =<< traverse subFn vcr
-              _ ->
-                evalMuxValueCtor sym w end varFn subFn $
-                  fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
+              Just csz -> do
+                let s = R (fromInteger so) (fromInteger (so + csz))
+                let vcr = rangeLoad (fromInteger lo) tp s
+                genValueCtor' sym end =<< traverse subFn vcr
+              _ -> evalMuxValueCtor' sym w end varFn subFn $
+                     fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
        -- Symbolic offsets
        _ ->
          do let subFn :: RangeLoad OffsetExpr IntExpr -> IO (PartLLVMVal' sym)
@@ -557,7 +595,7 @@ readMemSet' sym w end (LLVMPointer blk off) tp d byte sz readPrev =
                 subFn (InRange _o tp') =
                   do blk0 <- natLit sym 0
                      let val = LLVMValInt blk0 byte
-                     let b = PE (truePred sym) val
+                     let b = Partial.returnPartLLVMVal' sym val
                      genValueCtor' sym end (memsetValue b tp')
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
@@ -566,7 +604,7 @@ readMemSet' sym w end (LLVMPointer blk off) tp d byte sz readPrev =
                          fixedSizeRangeLoad pref tp (fromInteger csz)
                      | otherwise =
                          symbolicRangeLoad pref tp
-            evalMuxValueCtor sym w end varFn subFn mux0
+            evalMuxValueCtor' sym w end varFn subFn mux0
 
 
 -- | Read from a memory with a store to the same block we are reading.

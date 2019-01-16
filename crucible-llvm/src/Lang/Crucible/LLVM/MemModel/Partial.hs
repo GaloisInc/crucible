@@ -36,6 +36,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -46,9 +47,10 @@ module Lang.Crucible.LLVM.MemModel.Partial where
 
 import           Prelude hiding (pred)
 
+import           Control.Lens ((^.))
 import           Control.Monad (foldM)
--- import           Control.Monad.IO.Class (liftIO)
--- import           Control.Monad.Trans.Maybe (MaybeT, runMaybeT)
+import           Control.Monad.IO.Class (liftIO, MonadIO)
+import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.State.Strict (State, get, put, runState)
 import           Data.Data (Data)
 import           Data.Text (Text)
@@ -64,11 +66,16 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..), PartLLVMVal)
 import qualified What4.Interface as W4I
-import           What4.Interface (Pred)
+import           What4.Interface (Pred, IsExprBuilder)
 import qualified What4.InterpretedFloatingPoint as W4IFP
 import qualified What4.Partial as W4P
 import           What4.Partial (PartExpr(..))
 
+------------------------------------------------------------------------
+-- ** AndOrITE
+--
+
+-- Specializing the above type to the case of LLVM values...
 -- | A type representing an AST consisting of
 --  * "atomic" predicates
 --  * a list of predicates 'And'-ed together
@@ -83,6 +90,8 @@ import           What4.Partial (PartExpr(..))
 --
 -- NB: The semigroup instance isn't /actually/ associative, it is \"semantically\"
 -- associative.
+--
+-- TODO: Consider constantly-true and constantly-false leaves ('returnLLVMVal'')
 data AndOrITE a =
     Leaf a
   | And    [AndOrITE a]
@@ -155,7 +164,7 @@ type AssertionTree sym = AndOrITE (LLVMValAssertion sym)
 type PartLLVMVal' sym = PartExpr (AssertionTree sym) (LLVMVal sym)
 
 -- | A monadic catamorphism, collapsing everything to one predicate.
-collapseAssertionTree :: (W4I.IsExprBuilder sym)
+collapseAssertionTree :: (IsExprBuilder sym)
                       => sym
                       -> AssertionTree sym
                       -> IO (Pred sym)
@@ -172,19 +181,20 @@ fromPart' (W4P.PE p v) txt = W4P.PE (Leaf (LLVMValAssertion txt Nothing p)) v
 fromPart :: PartLLVMVal sym -> PartLLVMVal' sym
 fromPart = flip fromPart' "<fromPart>"
 
-toPart :: (W4I.IsExprBuilder sym) => sym -> PartLLVMVal' sym -> IO (PartLLVMVal sym)
+toPart :: (IsExprBuilder sym) => sym -> PartLLVMVal' sym -> IO (PartLLVMVal sym)
 toPart _   Unassigned  = pure Unassigned
 toPart sym (W4P.PE t v) = W4P.PE <$> (collapseAssertionTree sym t) <*> pure v
 
 -- | An 'LLVMVal' which is always valid.
-returnPartLLVMVal' :: (W4I.IsExprBuilder sym) => sym -> LLVMVal sym -> PartLLVMVal' sym
+returnPartLLVMVal' :: (IsExprBuilder sym) => sym -> LLVMVal sym -> PartLLVMVal' sym
 returnPartLLVMVal' sym v = fromPart' (W4P.PE (W4I.truePred sym) v) "<const true>"
 
 explainPartLLVMVal' :: Pred sym -> Text -> LLVMVal sym -> PartLLVMVal' sym
 explainPartLLVMVal' p txt v = fromPart' (W4P.PE p v) txt
 
-----------------------------------------------------------------------
--- PartLLVMVal interface
+------------------------------------------------------------------------
+-- ** PartLLVMVal interface
+--
 
 -- | Convert a bitvector to a float, asserting that it is not a pointer
 bvToFloatPartLLVMVal ::
@@ -507,38 +517,101 @@ fieldValPartLLVMVal flds idx (PE p (LLVMValStruct vec))
 
 fieldValPartLLVMVal _ _ _ = return Unassigned
 
+-}
+
+------------------------------------------------------------------------
+-- ** Merging and muxing
+--
+
+-- | If-then-else on partial expressions.
+mergePartial :: (IsExprBuilder sym, MonadIO m) =>
+  sym ->
+  (Pred sym -> LLVMVal sym -> LLVMVal sym -> m (PartLLVMVal' sym))
+    {- ^ Operation to combine inner values. The 'Pred' parameter is the
+         if/then/else condition -} ->
+  Pred sym {- ^ condition to merge on -} ->
+  PartLLVMVal' sym {- ^ 'if' value -}  ->
+  PartLLVMVal' sym {- ^ 'then' value -} ->
+  m (PartLLVMVal' sym)
+
+{-# SPECIALIZE mergePartial ::
+      IsExprBuilder sym =>
+      sym ->
+      (Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal' sym)) ->
+      Pred sym ->
+      PartLLVMVal' sym ->
+      PartLLVMVal' sym ->
+      IO (PartLLVMVal' sym)   #-}
+
+mergePartial _ _ _ Unassigned Unassigned  = return Unassigned
+mergePartial _ _ c (PE px x) Unassigned = do
+  let expl = "If-then-else of partial LLVM values, second was 'Unassigned'"
+  return $ PE (And [Leaf (llvmAssert expl c), px]) x
+mergePartial sym _ c Unassigned (PE py y) = do
+  p <- liftIO $ W4I.notPred sym c
+  let expl = "If-then-else of partial LLVM values, first was 'Unassigned'"
+  return $! PE (And [Leaf (llvmAssert expl p), py]) y
+mergePartial _ f c (PE px x) (PE py y) = do
+  let expl    = "If-then-else of partial LLVM values"
+  z0 <- f c x y
+  pure $
+    case z0 of
+      Unassigned -> Unassigned
+      PE pz z    -> PE (And [Ite (llvmAssert expl c) px py, pz]) z
+
+{-
+-- | Merge a collection of partial values in an if-then-else tree.
+--   For example, if we merge a list like @[(xp,x),(yp,y),(zp,z)]@,
+--   we get a value that is morally equivalant to:
+--   @if xp then x else (if yp then y else (if zp then z else undefined))@.
+mergePartials :: (IsExprBuilder sym, MonadIO m) =>
+  sym ->
+  (Pred sym -> a -> a -> W4P.PartialT sym m a)
+    {- ^ Operation to combine inner values.
+         The 'Pred' parameter is the if/then/else condition
+     -} ->
+  [(Pred sym, PartExpr (Pred sym) a)]      {- ^ values to merge -} ->
+  m (PartExpr (Pred sym) a)
+mergePartials sym f = go
+  where
+  go [] = return Unassigned
+  go ((c,x):xs) =
+    do y <- go xs
+       mergePartial sym f c x y
+-}
+
 -- | Mux partial LLVM values.
 muxLLVMVal :: forall sym
     . IsSymInterface sym
    => sym
    -> Pred sym
-   -> PartLLVMVal sym
-   -> PartLLVMVal sym
-   -> IO (PartLLVMVal sym)
+   -> PartLLVMVal' sym
+   -> PartLLVMVal' sym
+   -> IO (PartLLVMVal' sym)
 muxLLVMVal sym = mergePartial sym muxval
   where
 
-    muxzero :: Pred sym -> StorageType -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
+    muxzero :: Pred sym -> StorageType -> LLVMVal sym -> IO (LLVMVal sym)
     muxzero cond _tp val = case val of
       LLVMValZero tp -> return $ LLVMValZero tp
       LLVMValInt base off ->
-        do zbase <- lift $ W4I.natLit sym 0
-           zoff  <- lift $ W4I.bvLit sym (W4I.bvWidth off) 0
-           base' <- lift $ natIte sym cond zbase base
-           off'  <- lift $ bvIte sym cond zoff off
+        do zbase <- W4I.natLit sym 0
+           zoff  <- W4I.bvLit sym (W4I.bvWidth off) 0
+           base' <- W4I.natIte sym cond zbase base
+           off'  <- W4I.bvIte sym cond zoff off
            return $ LLVMValInt base' off'
-      LLVMValFloat SingleSize x ->
-        do zerof <- lift (iFloatLit sym SingleFloatRepr 0)
-           x'    <- lift (iFloatIte @_ @SingleFloat sym cond zerof x)
-           return $ LLVMValFloat SingleSize x'
-      LLVMValFloat DoubleSize x ->
-        do zerof <- lift (iFloatLit sym DoubleFloatRepr 0)
-           x'    <- lift (iFloatIte @_ @DoubleFloat sym cond zerof x)
-           return $ LLVMValFloat DoubleSize x'
-      LLVMValFloat X86_FP80Size x ->
-        do zerof <- lift (iFloatLit sym X86_80FloatRepr 0)
-           x'    <- lift (iFloatIte @_ @X86_80Float sym cond zerof x)
-           return $ LLVMValFloat X86_FP80Size x'
+      LLVMValFloat Value.SingleSize x ->
+        do zerof <- (W4IFP.iFloatLit sym W4IFP.SingleFloatRepr 0)
+           x'    <- (W4IFP.iFloatIte @_ @W4IFP.SingleFloat sym cond zerof x)
+           return $ LLVMValFloat Value.SingleSize x'
+      LLVMValFloat Value.DoubleSize x ->
+        do zerof <- (W4IFP.iFloatLit sym W4IFP.DoubleFloatRepr 0)
+           x'    <- (W4IFP.iFloatIte @_ @W4IFP.DoubleFloat sym cond zerof x)
+           return $ LLVMValFloat Value.DoubleSize x'
+      LLVMValFloat Value.X86_FP80Size x ->
+        do zerof <- (W4IFP.iFloatLit sym W4IFP.X86_80FloatRepr 0)
+           x'    <- (W4IFP.iFloatIte @_ @W4IFP.X86_80Float sym cond zerof x)
+           return $ LLVMValFloat Value.X86_FP80Size x'
 
       LLVMValArray tp vec ->
         LLVMValArray tp <$> traverse (muxzero cond tp) vec
@@ -547,32 +620,29 @@ muxLLVMVal sym = mergePartial sym muxval
         LLVMValStruct <$> traverse (\(fld, v) -> (fld,) <$> muxzero cond (fld^.fieldVal) v) flds
 
 
-    muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
-
-    muxval cond (LLVMValZero tp) v = muxzero cond tp v
-    muxval cond v (LLVMValZero tp) =
-      do cond' <- lift $ notPred sym cond
-         muxzero cond' tp v
+    muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal' sym)
+    muxval cond (LLVMValZero tp) v = returnPartLLVMVal' sym <$> muxzero cond tp v
+    muxval cond v (LLVMValZero tp) = do cond' <- W4I.notPred sym cond
+                                        returnPartLLVMVal' sym <$> muxzero cond' tp v
 
     muxval cond (LLVMValInt base1 off1) (LLVMValInt base2 off2)
       | Just Refl <- testEquality (W4I.bvWidth off1) (W4I.bvWidth off2)
-      = do base <- liftIO $ natIte sym cond base1 base2
-           off  <- liftIO $ bvIte sym cond off1 off2
-           return $ LLVMValInt base off
+      = do base <- liftIO $ W4I.natIte sym cond base1 base2
+           off  <- liftIO $ W4I.bvIte sym cond off1 off2
+           pure $ returnPartLLVMVal' sym $ LLVMValInt base off
 
-    muxval cond (LLVMValFloat (xsz :: FloatSize fi) x) (LLVMValFloat ysz y)
+    muxval cond (LLVMValFloat (xsz :: Value.FloatSize fi) x) (LLVMValFloat ysz y)
       | Just Refl <- testEquality xsz ysz
-      = LLVMValFloat xsz <$> (liftIO $ iFloatIte @_ @fi sym cond x y)
+      = returnPartLLVMVal' sym .  LLVMValFloat xsz <$>
+          (liftIO $ W4IFP.iFloatIte @_ @fi sym cond x y)
 
     muxval cond (LLVMValStruct fls1) (LLVMValStruct fls2)
-      | fmap fst fls1 == fmap fst fls2 = do
-          fls <- traverse id $ V.zipWith (\(f,x) (_,y) -> (f,) <$> muxval cond x y) fls1 fls2
-          return $ LLVMValStruct fls
+      | fmap fst fls1 == fmap fst fls2 =
+          mkStructPartLLVMVal <$>
+            V.zipWithM (\(f, x) (_, y) -> (f,) <$> muxval cond x y) fls1 fls2
 
     muxval cond (LLVMValArray tp1 v1) (LLVMValArray tp2 v2)
       | tp1 == tp2 && V.length v1 == V.length v2 = do
-          v <- traverse id $ V.zipWith (muxval cond) v1 v2
-          return $ LLVMValArray tp1 v
+          mkArrayPartLLVMVal tp1 <$> V.zipWithM (muxval cond) v1 v2
 
-    muxval _ _ _ = returnUnassigned
--}
+    muxval _ _ _ = pure Unassigned
