@@ -80,8 +80,7 @@ data Metrics f =
   { metricSplits   :: f Integer
   , metricMerges   :: f Integer
   , metricAborts   :: f Integer
-  , metricAllocs   :: f Integer
-  , metricNonLinearOps :: f Integer
+  , metricSolverStats :: f Statistics
   }
 
 deriving instance Show (Metrics Identity)
@@ -90,8 +89,8 @@ deriving instance Generic (Metrics Identity)
 traverseF_metrics :: Applicative m =>
   (forall s. e s -> m (f s)) ->
   Metrics e -> m (Metrics f)
-traverseF_metrics h (Metrics x1 x2 x3 x4 x5) =
-  Metrics <$> h x1 <*> h x2 <*> h x3 <*> h x4 <*> h x5
+traverseF_metrics h (Metrics x1 x2 x3 x4) =
+  Metrics <$> h x1 <*> h x2 <*> h x3 <*> h x4
 
 instance FunctorF Metrics where
   fmapF = fmapFDefault
@@ -103,12 +102,14 @@ instance TraversableF Metrics where
 metricsToJSON :: Metrics Identity -> UTCTime -> JSValue
 metricsToJSON m time = JSObject $ toJSObject $
     [ ("time", utcTimeToJSON time)
-    , ("allocs", showJSON $ runIdentity $ metricAllocs m )
+    , ("allocs", showJSON $ statAllocs $ solverStats )
     , ("paths", showJSON $ runIdentity $ metricSplits m )
     , ("merge-count", showJSON $ runIdentity $ metricMerges m )
     , ("abort-count", showJSON $ runIdentity $ metricAborts m )
-    , ("non-linear-count", showJSON $ runIdentity $ metricNonLinearOps m )
+    , ("non-linear-count", showJSON $ statNonLinearOps $ solverStats )
     ]
+    where
+      solverStats = runIdentity $ metricSolverStats m
 
 
 data CGEventType = ENTER | EXIT
@@ -264,8 +265,7 @@ newProfilingTable =
   do m <- Metrics <$> newIORef 0
                   <*> newIORef 0
                   <*> newIORef 0
-                  <*> newIORef 0
-                  <*> newIORef 0
+                  <*> newIORef zeroStatistics
      evs <- newIORef mempty
      idref <- newIORef 0
      solverevs <- newIORef mempty
@@ -338,7 +338,7 @@ updateProfilingTable ::
 updateProfilingTable tbl exst = do
   let sym = execStateContext exst ^. ctxSymInterface
   stats <- getStatistics sym
-  writeIORef (metricAllocs (metrics tbl)) $ statAllocs stats
+  writeIORef (metricSolverStats (metrics tbl)) stats
   case exst of
     InitialState _ _ _ _ ->
       enterEvent tbl startFunctionName Nothing
