@@ -64,7 +64,7 @@ import Data.Parameterized.Pair (Pair(..))
 import Data.Parameterized.TraversableFC
 import Data.Parameterized.Classes
 import Data.Parameterized.Nonce ( NonceGenerator, Nonce
-                                , freshNonce, newSTNonceGenerator )
+                                , freshNonce )
 import qualified Data.Parameterized.Context as Ctx
 import Data.Map (Map)
 import qualified Data.Map as Map
