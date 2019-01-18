@@ -593,7 +593,12 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
             | Just{} <- asUnsignedBV write_off = FixedStore
             | Just{} <- asUnsignedBV read_off = FixedLoad
             | otherwise = NeitherFixed
-      evalMuxValueCtor sym w end varFn subFn $ symbolicRangeLoad pref tp
+      let rngLd
+            -- if the size of the data is bounded, use symbolicRangeLoad
+            | Just _  <- size = symbolicRangeLoad pref tp
+            -- otherwise, use symbolicUnboundedRangeLoad
+            | Nothing <- size = symbolicUnboundedRangeLoad pref tp
+      evalMuxValueCtor sym w end varFn subFn rngLd
 
 readMem ::
   (1 <= w, IsSymInterface sym) => sym ->
