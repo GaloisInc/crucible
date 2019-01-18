@@ -47,10 +47,9 @@ module Lang.Crucible.LLVM.MemModel.Partial where
 
 import           Prelude hiding (pred)
 
-import           Control.Lens ((^.))
+import           Control.Lens ((^.), view)
 import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (liftIO, MonadIO)
-import           Control.Monad.Trans.Class (lift)
 import           Control.Monad.State.Strict (State, get, put, runState)
 import           Data.Data (Data)
 import           Data.Text (Text)
@@ -58,9 +57,15 @@ import           Data.Semigroup (sconcat)
 import           Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Vector as V
 import           Data.Vector (Vector)
+import           Data.Word (Word64)
 
 import           Data.Parameterized.NatRepr
+import           Data.Parameterized.Some (Some(..))
+
 import           Lang.Crucible.Backend
+import           Lang.Crucible.Panic (panic)
+import qualified Lang.Crucible.LLVM.Bytes as Bytes
+import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
@@ -424,7 +429,6 @@ mkStructPartLLVMVal vec =
        Nothing   -> Unassigned
        Just vec' -> PE (And ps) $ LLVMValStruct vec'
 
-{-
 
 -- | Select some of the least significant bytes of a partial LLVM
 -- bitvector value. The allocation block number of the argument is
@@ -433,22 +437,24 @@ selectLowBvPartLLVMVal ::
   IsSymInterface sym => sym ->
   Bytes ->
   Bytes ->
-  PartLLVMVal sym ->
-  IO (PartLLVMVal sym)
+  PartLLVMVal' sym ->
+  IO (PartLLVMVal' sym)
 
 selectLowBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector bytes) _)))
   | low + hi == bytes =
       return $ PE p $ LLVMValZero (bitvectorType low)
 
 selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
-  | Just (Some (low_w)) <- someNat (bytesToBits low)
-  , Just (Some (hi_w))  <- someNat (bytesToBits hi)
-  , Just LeqProof <- isPosNat low_w
-  , Just Refl <- testEquality (addNat low_w hi_w) w
-  , Just LeqProof <- testLeq low_w w =
-    do p' <- W4I.andPred sym p =<< W4I.natEq sym blk =<< W4I.natLit sym 0
-       bv' <- bvSelect sym (knownNat :: NatRepr 0) low_w bv
-       return $ PE p' (LLVMValInt blk bv')
+  | Just (Some (low_w)) <- someNat (Bytes.bytesToBits low)
+  , Just (Some (hi_w))  <- someNat (Bytes.bytesToBits hi)
+  , Just LeqProof       <- isPosNat low_w
+  , Just Refl           <- testEquality (addNat low_w hi_w) w
+  , Just LeqProof       <- testLeq low_w w = do
+      let expl = ("When selecting the least-significant bytes of a bitvector: " <>)
+      let exp0 = expl "The bitvector is really an integer (not a pointer)"
+      pz  <- W4I.natEq sym blk =<< W4I.natLit sym 0
+      bv' <- W4I.bvSelect sym (knownNat :: NatRepr 0) low_w bv
+      return $ PE (And [Leaf (llvmAssert exp0 pz), p]) (LLVMValInt blk bv')
   where w = W4I.bvWidth bv
 selectLowBvPartLLVMVal _ _ _ _ = return Unassigned
 
@@ -459,32 +465,35 @@ selectHighBvPartLLVMVal ::
   IsSymInterface sym => sym ->
   Bytes ->
   Bytes ->
-  PartLLVMVal sym ->
-  IO (PartLLVMVal sym)
+  PartLLVMVal' sym ->
+  IO (PartLLVMVal' sym)
 
 selectHighBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector bytes) _)))
   | low + hi == bytes =
       return $ PE p $ LLVMValZero (bitvectorType hi)
 
 selectHighBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
-  | Just (Some (low_w)) <- someNat (bytesToBits low)
-  , Just (Some (hi_w))  <- someNat (bytesToBits hi)
+  | Just (Some (low_w)) <- someNat (Bytes.bytesToBits low)
+  , Just (Some (hi_w))  <- someNat (Bytes.bytesToBits hi)
   , Just LeqProof <- isPosNat hi_w
   , Just Refl <- testEquality (addNat low_w hi_w) w =
-    do p' <- W4I.andPred sym p =<< W4I.natEq sym blk =<< W4I.natLit sym 0
-       bv' <- bvSelect sym low_w hi_w bv
-       return $ PE p' $ LLVMValInt blk bv'
+    do let expl = ("When selecting the most-significant bytes of a bitvector: " <>)
+       let exp0 = expl "The bitvector is really an integer (not a pointer)"
+       pz <-  W4I.natEq sym blk =<< W4I.natLit sym 0
+       bv' <- W4I.bvSelect sym low_w hi_w bv
+       return $ PE (And [Leaf (llvmAssert exp0 pz), p]) $ LLVMValInt blk bv'
   where w = W4I.bvWidth bv
 selectHighBvPartLLVMVal _ _ _ _ = return Unassigned
+
 
 -- | Look up an element in a partial LLVM array value.
 arrayEltPartLLVMVal ::
   Word64 ->
   StorageType ->
   Word64 ->
-  PartLLVMVal sym ->
-  IO (PartLLVMVal sym)
-arrayEltPartLLVMVal sz tp idx (PE p (LLVMValZero _))
+  PartLLVMVal' sym ->
+  IO (PartLLVMVal' sym)
+arrayEltPartLLVMVal sz tp idx (PE p (LLVMValZero _)) -- TODO(langston) typecheck
   | 0 <= idx
   , idx < sz =
     return $ PE p (LLVMValZero tp)
@@ -502,9 +511,9 @@ arrayEltPartLLVMVal _ _ _ _ = return Unassigned
 fieldValPartLLVMVal ::
   (Vector (Field StorageType)) ->
   Int ->
-  PartLLVMVal sym ->
-  IO (PartLLVMVal sym)
-fieldValPartLLVMVal flds idx (PE p (LLVMValZero _))
+  PartLLVMVal' sym ->
+  IO (PartLLVMVal' sym)
+fieldValPartLLVMVal flds idx (PE p (LLVMValZero _)) -- TODO(langston) typecheck
   | 0 <= idx
   , idx < V.length flds =
       return $ PE p $ LLVMValZero $ view fieldVal $ flds V.! idx
@@ -516,8 +525,6 @@ fieldValPartLLVMVal flds idx (PE p (LLVMValStruct vec))
     return $ PE p $ snd $ (vec V.! idx)
 
 fieldValPartLLVMVal _ _ _ = return Unassigned
-
--}
 
 ------------------------------------------------------------------------
 -- ** Merging and muxing
@@ -592,8 +599,13 @@ muxLLVMVal sym = mergePartial sym muxval
   where
 
     muxzero :: Pred sym -> StorageType -> LLVMVal sym -> IO (LLVMVal sym)
-    muxzero cond _tp val = case val of
+    muxzero cond tpz val = case val of
       LLVMValZero tp -> return $ LLVMValZero tp
+      LLVMValUndef tpu ->
+        -- TODO: Is this the right behavior?
+        panic "Cannot mux zero and undef" [ "Zero type: " ++ show tpz
+                                          , "Undef type: " ++ show tpu
+                                          ]
       LLVMValInt base off ->
         do zbase <- W4I.natLit sym 0
            zoff  <- W4I.bvLit sym (W4I.bvWidth off) 0
@@ -644,5 +656,8 @@ muxLLVMVal sym = mergePartial sym muxval
     muxval cond (LLVMValArray tp1 v1) (LLVMValArray tp2 v2)
       | tp1 == tp2 && V.length v1 == V.length v2 = do
           mkArrayPartLLVMVal tp1 <$> V.zipWithM (muxval cond) v1 v2
+
+    muxval _ v1@(LLVMValUndef tp1) (LLVMValUndef tp2)
+      | tp1 == tp2 = pure (returnPartLLVMVal' sym v1)
 
     muxval _ _ _ = pure Unassigned
