@@ -42,6 +42,7 @@ module Lang.Crucible.Simulator.Profiling
   , CGEvent(..)
   , CGEventType(..)
   , ProfilingTable(..)
+  , Lang.Crucible.Simulator.ExecutionTree.Metric(..)
   , Metrics(..)
   , symProUIJSON
   , symProUIString
@@ -52,9 +53,13 @@ import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Foldable (toList)
 import           Data.IORef
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import           Data.Parameterized.TraversableF
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import           Data.Text (Text)
+import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
 import           Data.Time.Format
@@ -81,6 +86,7 @@ data Metrics f =
   , metricMerges   :: f Integer
   , metricAborts   :: f Integer
   , metricSolverStats :: f Statistics
+  , metricExtraMetrics :: f (Map Text Integer)
   }
 
 deriving instance Show (Metrics Identity)
@@ -89,8 +95,8 @@ deriving instance Generic (Metrics Identity)
 traverseF_metrics :: Applicative m =>
   (forall s. e s -> m (f s)) ->
   Metrics e -> m (Metrics f)
-traverseF_metrics h (Metrics x1 x2 x3 x4) =
-  Metrics <$> h x1 <*> h x2 <*> h x3 <*> h x4
+traverseF_metrics h (Metrics x1 x2 x3 x4 x5) =
+  Metrics <$> h x1 <*> h x2 <*> h x3 <*> h x4 <*> h x5
 
 instance FunctorF Metrics where
   fmapF = fmapFDefault
@@ -107,7 +113,8 @@ metricsToJSON m time = JSObject $ toJSObject $
     , ("merge-count", showJSON $ runIdentity $ metricMerges m )
     , ("abort-count", showJSON $ runIdentity $ metricAborts m )
     , ("non-linear-count", showJSON $ statNonLinearOps $ solverStats )
-    ]
+    ] ++ [ (Text.unpack k, showJSON v)
+         | (k, v) <- Map.toList $ runIdentity $ metricExtraMetrics m ]
     where
       solverStats = runIdentity $ metricSolverStats m
 
@@ -266,6 +273,15 @@ newProfilingTable =
                   <*> newIORef 0
                   <*> newIORef 0
                   <*> newIORef zeroStatistics
+                  <*> newIORef Map.empty
+                        -- TODO: Find the actual custom metrics and
+                        -- initialize them to zero.  Needs a change in
+                        -- the Crux API; currently 'newProfilingTable'
+                        -- is called before the custom metrics are set
+                        -- up.  For now, the extra metrics are missing
+                        -- from the very earliest events in the log;
+                        -- the JS front end works around this by
+                        -- assuming that any missing value is a zero.
      evs <- newIORef mempty
      idref <- newIORef 0
      solverevs <- newIORef mempty
@@ -339,6 +355,21 @@ updateProfilingTable tbl exst = do
   let sym = execStateContext exst ^. ctxSymInterface
   stats <- getStatistics sym
   writeIORef (metricSolverStats (metrics tbl)) stats
+
+  case execStateSimState exst of
+    Just (SomeSimState simst) -> do
+      let extraMetrics = execStateContext exst ^. profilingMetrics
+      extraMetricValues <- traverse (\m -> runMetric m simst) extraMetrics
+      writeIORef (metricExtraMetrics (metrics tbl)) extraMetricValues
+    Nothing ->
+      -- We can't poll custom metrics at the VERY beginning or end of
+      -- execution because 'ResultState' and 'InitialState' have no
+      -- 'SimState' values. This is probably fine---we still get to
+      -- poll them before and after the top-level function being
+      -- simulated, since it gets a 'CallState' and 'ReturnState' like
+      -- any other function.
+      return ()
+
   case exst of
     InitialState _ _ _ _ ->
       enterEvent tbl startFunctionName Nothing
