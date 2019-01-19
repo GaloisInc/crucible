@@ -312,6 +312,8 @@ liftConstant ::
 liftConstant c = case c of
   ZeroConst mt ->
     return $ ZeroExpr mt
+  UndefConst mt ->
+    return $ UndefExpr mt
   IntConst w i ->
     return $ BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w (App (BVLit w i)))
   FloatConst f ->

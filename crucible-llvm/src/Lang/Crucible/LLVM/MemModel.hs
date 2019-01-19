@@ -1033,7 +1033,7 @@ unpackMemValue ::
   LLVMVal sym ->
   IO (RegValue sym tp)
 
-unpackMemValue sym tpr (LLVMValZero tp) = unpackZero sym tp tpr
+unpackMemValue sym tpr (LLVMValZero tp)  = unpackZero sym tp tpr
 
 unpackMemValue _sym (LLVMPointerRepr w) (LLVMValInt blk bv)
   | Just Refl <- testEquality (bvWidth bv) w
@@ -1051,6 +1051,13 @@ unpackMemValue sym (StructRepr ctx) (LLVMValStruct xs)
 
 unpackMemValue sym (VectorRepr tpr) (LLVMValArray _tp xs)
   = traverse (unpackMemValue sym tpr) xs
+
+unpackMemValue _ tpr v@(LLVMValUndef _) =
+  panic "MemModel.unpackMemValue"
+    [ "Cannot unpack an `undef` value"
+    , "*** Crucible type: " ++ show tpr
+    , "*** Undef value: " ++ show v
+    ]
 
 unpackMemValue _ tpr v =
   panic "MemModel.unpackMemValue"
@@ -1228,6 +1235,7 @@ constToLLVMVal sym mem (SymbolConst symb i) = do
   LLVMValInt blk <$> bvAdd sym offset ibv
 
 constToLLVMVal _sym _mem (ZeroConst memty) = LLVMValZero <$> toStorableType memty
+constToLLVMVal _sym _mem (UndefConst memty) = LLVMValUndef <$> toStorableType memty
 
 
 -- TODO are these types just identical? Maybe we should combine them.
