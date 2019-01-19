@@ -39,6 +39,8 @@ module Lang.Crucible.LLVM.MemModel
   , GlobalMap
   , emptyMem
   , memEndian
+  , memAllocCount
+  , memWriteCount
   , ppMem
   , doDumpMem
   , BlockSource(..)
@@ -223,6 +225,12 @@ data MemImpl sym =
 
 memEndian :: MemImpl sym -> EndianForm
 memEndian = G.memEndian . memImplHeap
+
+memAllocCount :: MemImpl sym -> Int
+memAllocCount = G.memAllocCount . memImplHeap
+
+memWriteCount :: MemImpl sym -> Int
+memWriteCount = G.memWriteCount . memImplHeap
 
 -- | Produce a fresh empty memory.
 --   NB, we start counting allocation blocks at '1'.

@@ -13,10 +13,11 @@ module CrucibleCMain (main, mainWithOutputTo) where
 
 import Data.String (fromString)
 import qualified Data.Map as Map
-import Control.Lens ((^.), view)
+import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
+import Data.Text (Text)
 
 import System.Process
 import System.Exit
@@ -42,19 +43,24 @@ import Lang.Crucible.FunctionHandle(newHandleAllocator,HandleAllocator)
 import Lang.Crucible.Simulator
   ( emptyRegMap, regValue, SimError(..)
   , fnBindingsFromList, runOverrideSim, callCFG
-  , initSimContext, ExecState( InitialState ), defaultAbortHandler
+  , initSimContext, profilingMetrics
+  , ExecState( InitialState ), SimState, defaultAbortHandler
   , executeCrucible, genericToExecutionFeature, printHandle
   )
+import Lang.Crucible.Simulator.ExecutionTree ( stateGlobals )
+import Lang.Crucible.Simulator.GlobalState ( lookupGlobal )
+import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
 
 -- crucible-llvm
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.Globals
         ( initializeMemory, populateAllGlobals )
-import Lang.Crucible.LLVM.MemModel(withPtrWidth)
+import Lang.Crucible.LLVM.MemModel
+        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
         , transContext, cfgMap
-        , LLVMContext, ModuleCFGMap
+        , LLVMContext, llvmMemVar, ModuleCFGMap
         )
 import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, llvmPtrWidth, register_llvm_overrides, llvmTypeCtx)
@@ -116,8 +122,9 @@ setupSimCtxt ::
   (ArchOk arch, IsSymInterface sym) =>
   HandleAllocator RealWorld ->
   sym ->
+  LLVMContext arch ->
   SimCtxt sym (LLVM arch)
-setupSimCtxt halloc sym =
+setupSimCtxt halloc sym llvmCtxt =
   initSimContext sym
                  llvmIntrinsicTypes
                  halloc
@@ -125,6 +132,7 @@ setupSimCtxt halloc sym =
                  (fnBindingsFromList [])
                  llvmExtensionImpl
                  emptyModel
+    & profilingMetrics %~ Map.union (llvmMetrics llvmCtxt)
 
 
 -- | Parse an LLVM bit-code file.
@@ -153,7 +161,6 @@ registerFunctions ctx llvm_module mtrans =
 -- Returns only non-trivial goals
 simulateLLVM :: (?outputConfig :: OutputConfig) => Crux.Simulate sym LangLLVM
 simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
-
     llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
     halloc     <- newHandleAllocator
     Some trans <- stToIO (translateModule halloc llvm_mod)
@@ -162,8 +169,8 @@ simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
     llvmPtrWidth llvmCtxt $ \ptrW ->
       withPtrWidth ptrW $ do
           let ?lc = llvmCtxt^.llvmTypeCtx
-          let simctx = (setupSimCtxt halloc sym) { printHandle = view outputHandle ?outputConfig }
-          mem  <- populateAllGlobals sym (globalInitMap trans)
+          let simctx = (setupSimCtxt halloc sym llvmCtxt) { printHandle = view outputHandle ?outputConfig }
+          mem <- populateAllGlobals sym (globalInitMap trans)
                     =<< initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
 
@@ -288,6 +295,29 @@ ppErr aberr =
 
 throwCError :: (MonadIO m) => CError -> m b
 throwCError e = Crux.throwError @LangLLVM (Crux.Lang  e)
+
+---------------------------------------------------------------------
+---------------------------------------------------------------------
+-- Profiling
+
+llvmMetrics :: forall arch p sym ext
+             . LLVMContext arch
+            -> Map.Map Text (Metric p sym ext)
+llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
+                                    , ("LLVM.writes", writes)
+                                    ]
+  where
+    allocs = Metric $ measureMemBy memAllocCount
+    writes = Metric $ measureMemBy memWriteCount
+
+    measureMemBy :: (MemImpl sym -> Int)
+                 -> SimState p sym ext r f args
+                 -> IO Integer
+    measureMemBy f st = do
+      let globals = st ^. stateGlobals
+      case lookupGlobal (llvmMemVar llvmCtxt) globals of
+        Just mem -> return $ toInteger (f mem)
+        Nothing -> fail "Memory missing from global vars"
 
 ---------------------------------------------------------------------
 ---------------------------------------------------------------------

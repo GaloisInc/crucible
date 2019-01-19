@@ -31,6 +31,8 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , MemAlloc(..)
   , memAllocs
   , memEndian
+  , memAllocCount
+  , memWriteCount
   , allocMem
   , allocAndWriteMem
   , readMem
@@ -637,41 +639,33 @@ data Mem sym = Mem { memEndianForm :: EndianForm, _memState :: MemState sym }
 memState :: Simple Lens (Mem sym) (MemState sym)
 memState = lens _memState (\s v -> s { _memState = v })
 
--- | A state of memory as of a stack push, branch, or merge.
+-- | A state of memory as of a stack push, branch, or merge.  Counts
+-- of the total number of allocations and writes are kept for
+-- performance metrics.
 data MemState sym =
     -- | Represents initial memory and changes since then.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-    EmptyMem (MemChanges sym)
+    EmptyMem !Int !Int (MemChanges sym)
     -- | Represents a push of a stack frame, and changes since that stack push.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | StackFrame (MemChanges sym) (MemState sym)
+  | StackFrame !Int !Int (MemChanges sym) (MemState sym)
     -- | Represents a push of a branch frame, and changes since that branch.
     -- Changes are stored in order, with more recent changes closer to the head
     -- of the list.
-  | BranchFrame (MemChanges sym) (MemState sym)
+  | BranchFrame !Int !Int (MemChanges sym) (MemState sym)
 
 type MemChanges sym = ([MemAlloc sym], [MemWrite sym])
-
-memStateLastChanges :: Simple Lens (MemState sym) (MemChanges sym)
-memStateLastChanges f s0 =
-  case s0 of
-    EmptyMem l -> EmptyMem <$> f l
-    StackFrame l s  -> flip StackFrame s  <$> f l
-    BranchFrame l s -> flip BranchFrame s <$> f l
-
-prependChanges :: MemChanges sym -> MemChanges sym -> MemChanges sym
-prependChanges (xa,xw) (ya,yw) = (xa ++ ya, xw ++ yw)
 
 muxChanges :: Pred sym -> MemChanges sym -> MemChanges sym -> MemChanges sym
 muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya], [WriteMerge c xw yw])
 
 memChanges :: (MemChanges sym -> [d]) -> Mem sym -> [d]
 memChanges f m = go (m^.memState)
-  where go (EmptyMem l)      = f l
-        go (StackFrame l s)  = f l ++ go s
-        go (BranchFrame l s) = f l ++ go s
+  where go (EmptyMem _ _ l)      = f l
+        go (StackFrame _ _ l s)  = f l ++ go s
+        go (BranchFrame _ _ l s) = f l ++ go s
 
 memAllocs :: Mem sym -> [MemAlloc sym]
 memAllocs = memChanges fst
@@ -679,17 +673,50 @@ memAllocs = memChanges fst
 memWrites :: Mem sym -> [MemWrite sym]
 memWrites = memChanges snd
 
+memStateAllocCount :: MemState sym -> Int
+memStateAllocCount s = case s of
+  EmptyMem ac _ _ -> ac
+  StackFrame ac _ _ _ -> ac
+  BranchFrame ac _ _ _ -> ac
+
+memStateWriteCount :: MemState sym -> Int
+memStateWriteCount s = case s of
+  EmptyMem _ wc _ -> wc
+  StackFrame _ wc _ _ -> wc
+  BranchFrame _ wc _ _ -> wc
+
+memAllocCount :: Mem sym -> Int
+memAllocCount m = memStateAllocCount (m ^. memState)
+
+memWriteCount :: Mem sym -> Int
+memWriteCount m = memStateWriteCount (m ^. memState)
+
 memAddAlloc :: MemAlloc sym -> Mem sym -> Mem sym
-memAddAlloc x = memState . memStateLastChanges . _1 %~ (x:)
+memAddAlloc x = memState %~ \case
+  EmptyMem ac wc (a, w) -> EmptyMem (ac+1) wc (x:a, w)
+  StackFrame ac wc (a, w) s -> StackFrame (ac+1) wc (x:a, w) s
+  BranchFrame ac wc (a, w) s -> BranchFrame (ac+1) wc (x:a, w) s
 
 memAddWrite :: MemWrite sym -> Mem sym -> Mem sym
-memAddWrite x = memState . memStateLastChanges . _2 %~ (x:)
+memAddWrite x = memState %~ \case
+  EmptyMem ac wc (a, w) -> EmptyMem ac (wc+1) (a, x:w)
+  StackFrame ac wc (a, w) s -> StackFrame ac (wc+1) (a, x:w) s
+  BranchFrame ac wc (a, w) s -> BranchFrame ac (wc+1) (a, x:w) s
+
+memStateAddChanges :: MemChanges sym -> MemState sym -> MemState sym
+memStateAddChanges (a, w) s = case s of
+  EmptyMem ac wc (a0, w0) ->
+    EmptyMem (length a + ac) (length w + wc) (a ++ a0, w ++ w0)
+  StackFrame ac wc (a0, w0) s' ->
+    StackFrame (length a + ac) (length w + wc) (a ++ a0, w ++ w0) s'
+  BranchFrame ac wc (a0, w0) s' ->
+    BranchFrame (length a + ac) (length w + wc) (a ++ a0, w ++ w0) s'
 
 emptyChanges :: MemChanges sym
 emptyChanges = ([],[])
 
 emptyMem :: EndianForm -> Mem sym
-emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem emptyChanges }
+emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem 0 0 emptyChanges }
 
 memEndian :: Mem sym -> EndianForm
 memEndian = memEndianForm
@@ -1003,11 +1030,13 @@ allocAndWriteMem sym w a b tp alignment mut loc v m =
                & memAddWrite (MemWrite p (MemStore v tp alignment)))
 
 pushStackFrameMem :: Mem sym -> Mem sym
-pushStackFrameMem = memState %~ StackFrame emptyChanges
+pushStackFrameMem = memState %~ \s ->
+  StackFrame (memStateAllocCount s) (memStateWriteCount s) emptyChanges s
 
 popStackFrameMem :: Mem sym -> Mem sym
 popStackFrameMem m = m & memState %~ popf
-  where popf (StackFrame (a,w) s) = s & memStateLastChanges %~ prependChanges c
+  where popf (StackFrame _ _ (a,w) s) =
+          s & memStateAddChanges c
           where c = (mapMaybe pa a, w)
 
         -- WARNING: The following code executes a stack pop underneath a branch
@@ -1018,7 +1047,8 @@ popStackFrameMem m = m & memState %~ popf
         -- memory locations that have just been popped off the stack.
         -- This does not appear to be causing problems for our
         -- examples, but may be a source of subtle errors.
-        popf (BranchFrame (a,w) s) = BranchFrame c $ popf s
+        popf (BranchFrame _ wc (a,w) s) =
+          BranchFrame (length (fst c)) wc c $ popf s
           where c = (mapMaybe pa a, w)
 
         popf _ = error "popStackFrameMem given unexpected memory"
@@ -1078,18 +1108,19 @@ freeMem sym w (LLVMPointer blk off) m =
 
 
 branchMem :: Mem sym -> Mem sym
-branchMem = memState %~ BranchFrame emptyChanges
+branchMem = memState %~ \s ->
+  BranchFrame (memStateAllocCount s) (memStateWriteCount s) emptyChanges s
 
 branchAbortMem :: Mem sym -> Mem sym
 branchAbortMem = memState %~ popf
-  where popf (BranchFrame c s) = s & memStateLastChanges %~ prependChanges c
+  where popf (BranchFrame _ _ c s) = s & memStateAddChanges c
         popf _ = error "branchAbortMem given unexpected memory"
 
 mergeMem :: Pred sym -> Mem sym -> Mem sym -> Mem sym
 mergeMem c x y =
   case (x^.memState, y^.memState) of
-    (BranchFrame a s, BranchFrame b _) ->
-      let s' = s & memStateLastChanges %~ prependChanges (muxChanges c a b)
+    (BranchFrame _ _ a s, BranchFrame _ _ b _) ->
+      let s' = s & memStateAddChanges (muxChanges c a b)
       in x & memState .~ s'
     _ -> error "mergeMem given unexpected memories"
 
@@ -1173,13 +1204,13 @@ ppMemChanges (al,wl) =
   indent 2 (vcat (map ppWrite wl))
 
 ppMemState :: (MemChanges sym -> Doc) -> MemState sym -> Doc
-ppMemState f (EmptyMem d) = do
+ppMemState f (EmptyMem _ _ d) = do
   text "Base memory" <$$> indent 2 (f d)
-ppMemState f (StackFrame d ms) = do
+ppMemState f (StackFrame _ _ d ms) = do
   text "Stack frame" <$$>
     indent 2 (f d) <$$>
     ppMemState f ms
-ppMemState f (BranchFrame d ms) = do
+ppMemState f (BranchFrame _ _ d ms) = do
   text "Branch frame" <$$>
     indent 2 (f d) <$$>
     ppMemState f ms
