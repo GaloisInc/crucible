@@ -529,6 +529,11 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
             | otherwise = NeitherFixed
       evalMuxValueCtor sym w end varFn subFn $ symbolicRangeLoad pref tp
 
+-- | Read a value from memory.
+--
+-- The returned predicates assert (in this order):
+--  * the pointer falls within an allocated region
+--  * the pointer's alignment is correct
 readMem ::
   (1 <= w, IsSymInterface sym) => sym ->
   NatRepr w ->
@@ -536,22 +541,13 @@ readMem ::
   StorageType ->
   Alignment ->
   Mem sym ->
-  IO (PartLLVMVal sym)
-readMem sym w l tp alignment m =
-  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocated sym w alignment l sz m
-     p2 <- isAligned sym w l alignment
-     p <- andPred sym p1 p2
-     val <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
-     val' <- andPartVal sym p val
-     return val'
-
-andPartVal :: IsSymInterface sym => sym -> Pred sym -> PartLLVMVal sym -> IO (PartLLVMVal sym)
-andPartVal sym p val =
-  case val of
-    Unassigned -> return Unassigned
-    PE p' v    -> do p'' <- andPred sym p p'
-                     return (PE p'' v)
+  IO (PartLLVMVal sym, Pred sym, Pred sym)
+readMem sym w l tp alignment m = do
+  sz   <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+  p1   <- isAllocated sym w alignment l sz m
+  p2   <- isAligned sym w l alignment
+  val  <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
+  return (val, p1, p2)
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
