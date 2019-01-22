@@ -67,6 +67,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ResolvedCall(..)
   , execResultContext
   , execStateContext
+  , execStateSimState
 
     -- * Simulator context trees
     -- ** Main context data structures
@@ -107,13 +108,16 @@ module Lang.Crucible.Simulator.ExecutionTree
     -- ** SimContext record
   , IsSymInterfaceProof
   , SimContext(..)
+  , Metric(..)
   , initSimContext
   , ctxSymInterface
   , functionBindings
   , cruciblePersonality
+  , profilingMetrics
 
     -- * SimState
   , SimState(..)
+  , SomeSimState(..)
   , initSimState
   , stateLocation
 
@@ -129,6 +133,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , stateSolverProof
   , stateIntrinsicTypes
   , stateOverrideFrame
+  , stateGlobals
   , stateConfiguration
   ) where
 
@@ -136,9 +141,12 @@ import           Control.Lens
 import           Control.Monad.Reader
 import           Control.Monad.ST (RealWorld)
 import           Data.Kind
+import           Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import           Data.Parameterized.Ctx
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Sequence (Seq)
+import           Data.Text (Text)
 import           System.Exit (ExitCode)
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -353,6 +361,21 @@ execStateContext = \case
   BranchMergeState _ st -> st^.stateContext
   InitialState stctx _ _ _ -> stctx
 
+execStateSimState :: ExecState p sym ext r
+                  -> Maybe (SomeSimState p sym ext r)
+execStateSimState = \case
+  ResultState _                  -> Nothing
+  AbortState _ st                -> Just (SomeSimState st)
+  UnwindCallState _ _ st         -> Just (SomeSimState st)
+  CallState _ _ st               -> Just (SomeSimState st)
+  TailCallState _ _ st           -> Just (SomeSimState st)
+  ReturnState _ _ _ st           -> Just (SomeSimState st)
+  ControlTransferState _ st      -> Just (SomeSimState st)
+  RunningState _ st              -> Just (SomeSimState st)
+  SymbolicBranchState _ _ _ _ st -> Just (SomeSimState st)
+  OverrideState _ st             -> Just (SomeSimState st)
+  BranchMergeState _ st          -> Just (SomeSimState st)
+  InitialState _ _ _ _           -> Nothing
 
 -----------------------------------------------------------------------
 -- ExecState
@@ -955,6 +978,10 @@ emptyExtensionImpl =
   }
 
 type IsSymInterfaceProof sym a = (IsSymInterface sym => a) -> a
+newtype Metric p sym ext =
+  Metric {
+    runMetric :: forall rtp f args. SimState p sym ext rtp f args -> IO Integer
+  }
 
 -- | Top-level state record for the simulator.  The state contained in this record
 --   remains persistent across all symbolic simulator actions.  In particular, it
@@ -972,6 +999,7 @@ data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
                 , extensionImpl          :: ExtensionImpl personality sym ext
                 , _functionBindings      :: !(FunctionBindings personality sym ext)
                 , _cruciblePersonality   :: !personality
+                , _profilingMetrics      :: !(Map Text (Metric personality sym ext))
                 }
 
 -- | Create a new 'SimContext' with the given bindings.
@@ -994,6 +1022,7 @@ initSimContext sym muxFns halloc h bindings extImpl personality =
              , extensionImpl        = extImpl
              , _functionBindings    = bindings
              , _cruciblePersonality = personality
+             , _profilingMetrics    = Map.empty
              }
 
 -- | Access the symbolic backend inside a 'SimContext'.
@@ -1007,6 +1036,10 @@ functionBindings = lens _functionBindings (\s v -> s { _functionBindings = v })
 -- | Access the custom user-state inside the 'SimContext'.
 cruciblePersonality :: Simple Lens (SimContext p sym ext) p
 cruciblePersonality = lens _cruciblePersonality (\s v -> s{ _cruciblePersonality = v })
+
+profilingMetrics :: Simple Lens (SimContext p sym ext)
+                                (Map Text (Metric p sym ext))
+profilingMetrics = lens _profilingMetrics (\s v -> s { _profilingMetrics = v })
 
 ------------------------------------------------------------------------
 -- SimState
@@ -1034,6 +1067,9 @@ data SimState p sym ext rtp f (args :: Maybe (Ctx.Ctx CrucibleType))
               , _abortHandler      :: !(AbortHandler p sym ext rtp)
               , _stateTree         :: !(ActiveTree p sym ext rtp f args)
               }
+
+data SomeSimState p sym ext rtp =
+  forall f args. SomeSimState !(SimState p sym ext rtp f args)
 
 -- | A simulator state that is currently executing Crucible instructions.
 type CrucibleState p sym ext rtp blocks ret args
@@ -1102,6 +1138,10 @@ stateOverrideFrame ::
      (OverrideFrame sym r a)
      (OverrideFrame sym r a')
 stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
+
+-- | Access the globals inside a 'SimState'
+stateGlobals :: Simple Lens (SimState p sym ext q f args) (SymGlobalState sym)
+stateGlobals = stateTree . actFrame . gpGlobals
 
 -- | Get the symbolic interface out of a 'SimState'
 stateSymInterface :: Getter (SimState p sym ext r f a) sym

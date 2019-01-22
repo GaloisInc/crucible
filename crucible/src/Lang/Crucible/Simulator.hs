@@ -95,6 +95,7 @@ module Lang.Crucible.Simulator
   , ctxSymInterface
   , functionBindings
   , cruciblePersonality
+  , profilingMetrics
 
     -- * SimState
   , SimState
