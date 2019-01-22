@@ -88,6 +88,7 @@ module Lang.Crucible.LLVM.MemModel
   , mallocRaw
   , mallocConstRaw
   , constToLLVMVal
+  , ptrMessage
 
     -- * Storage types
   , StorageType
