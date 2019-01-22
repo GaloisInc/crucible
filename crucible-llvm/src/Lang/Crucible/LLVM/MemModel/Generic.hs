@@ -1,3 +1,4 @@
+
 ------------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.MemModel.Generic
@@ -96,7 +97,7 @@ data Mutability = Mutable | Immutable
 -- | Stores writeable memory allocations.
 data MemAlloc sym
      -- | Allocation with given block ID. The @Maybe SymBV@ argument is either a
-     -- size or @Nothing@ represented an unbounded allocation. The 'Mutability'
+     -- size or @Nothing@ representing an unbounded allocation. The 'Mutability'
      -- indicates whether the region is read-only. The 'String' contains source
      -- location information for use in error messages.
    = forall w. Alloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
@@ -113,8 +114,8 @@ data WriteSource sym w
     -- | @MemStore val ty al@ writes value @val@ with type @ty@ at the destination.
     --   with alignment at least @al@.
   | MemStore (LLVMVal sym) StorageType Alignment
-    -- | @MemStoreBlock block (Just len)@ writes byte-array @block@ of size
-    -- @len@ at the destination; @MemStoreBlock block Nothing@ writes byte-array
+    -- | @MemArrayStore block (Just len)@ writes byte-array @block@ of size
+    -- @len@ at the destination; @MemArrayStore block Nothing@ writes byte-array
     -- @block@ of unbounded size
   | MemArrayStore (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)) (Maybe (SymBV sym w))
 
@@ -133,37 +134,21 @@ tgAddPtrC sym w x y = ptrAdd sym w x =<< constOffset sym w y
 -- | An environment used to interpret 'OffsetExpr's, 'IntExpr's, and 'Cond's.
 -- These data structures may contain uninterpreted variables to be filled in
 -- with the offset address of a load or store, or the size of the current
--- region. Since regions may be unbounded in size, the boolean-valued argument
--- @f@ tracks whether the current region is known to be finite.
-{-
-data ExprEnv sym w (f :: Bool) = ExprEnv {  loadOffset  :: SymBV sym w
-                                          , storeOffset :: SymBV sym w
-                                          , sizeData    :: MaybeB f (SymBV sym w) }
-
--- | Make a finite expr environment
-mkExprEnv :: SymBV sym w -> SymBV sym w -> SymBV sym w -> ExprEnv sym w True
-mkExprEnv loadO storeO sizeD = ExprEnv loadO storeO (JustB sizeD)
-
--- | Make an unbounded expr environment
-mkUnboundedExprEnv :: SymBV sym w -> SymBV sym w -> ExprEnv sym w False
-mkUnboundedExprEnv loadO storeO = ExprEnv loadO storeO NothingB
-
-data MaybeB (b :: Bool) a where
-  JustB :: a -> MaybeB True a
-  NothingB :: MaybeB False a
--}
-
+-- region. Since regions may be unbounded in size, the size argument is a
+-- 'Maybe' type.
 data ExprEnv sym w = ExprEnv { loadOffset  :: SymBV sym w
                              , storeOffset :: SymBV sym w
                              , sizeData    :: Maybe (SymBV sym w) }
 
-
-
-
+-- | Interpret an 'OffsetExpr' as a 'SymBV'. Although 'OffsetExpr's may contain
+-- 'IntExpr's, which may be undefined if they refer to the size of an unbounded
+-- memory region, this function will throw an error if both (1) the 'sizeData'
+-- in the 'ExprEnv' is 'Nothing' and (2) 'StoreSize' occurs anywhere in the
+-- 'OffsetExpr'.
 genOffsetExpr ::
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
-  ExprEnv sym w -> -- ^ All offsets must be positive
+  ExprEnv sym w ->
   OffsetExpr ->
   IO (SymBV sym w)
 genOffsetExpr sym w f@(ExprEnv load store _size) expr =
@@ -177,6 +162,9 @@ genOffsetExpr sym w f@(ExprEnv load store _size) expr =
     Load -> return load
     Store -> return store
 
+-- | Interpret an 'IntExpr' as a 'SymBV'. If the 'IntExpr' contains an
+-- occurrence of 'StoreSize' and the store size in the 'ExprEnv' is unbounded,
+-- will return 'Nothing'.
 genIntExpr ::
   (1 <= w, IsSymInterface sym) =>
   sym ->
@@ -199,11 +187,12 @@ genIntExpr sym w f@(ExprEnv _load _store size) expr =
     CValue i -> Just <$> bvLit sym w (bytesToInteger i)
     StoreSize -> return size
 
+-- | Interpret a conditional as a symbolic predicate.
 genCondVar :: forall sym w.
   (1 <= w, IsSymInterface sym) =>
   sym -> NatRepr w ->
   ExprEnv sym w ->
-  Cond -> 
+  Cond ->
   IO (Pred sym)
 genCondVar sym w inst c =
   case c of
@@ -214,13 +203,14 @@ genCondVar sym w inst c =
     And x y        -> join $ andPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
     Or x y         -> join $ orPred sym <$> genCondVar sym w inst x <*> genCondVar sym w inst y
 
-
+-- | Compare the equality of two @Maybe SymBV@s
 maybeBVEq :: (1 <= w, IsExprBuilder sym)
           => sym -> Maybe (SymBV sym w) -> Maybe (SymBV sym w) -> IO (Pred sym)
 maybeBVEq sym (Just x) (Just y) = bvEq sym x y
 maybeBVEq sym Nothing  Nothing  = return $ truePred sym
 maybeBVEq sym _        _        = return $ falsePred sym
 
+-- | Compare two @Maybe SymBV@s
 maybeBVLe :: (1 <= w, IsExprBuilder sym)
           => sym -> Maybe (SymBV sym w) -> Maybe (SymBV sym w) -> IO (Pred sym)
 maybeBVLe sym (Just x) (Just y) = bvSle sym x y
@@ -366,7 +356,7 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
              do p' <- simplPred xps2 p0
                 itePred sym c' p p'
 
--- Throws an error if passed an unbounded/@Nothing@ bitvector.
+-- | Throws an error if passed an unbounded/@Nothing@ bitvector.
 maybePtrAdd :: (1 <= w, IsExprBuilder sym)
             => sym
             -> NatRepr w
@@ -832,7 +822,6 @@ isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, off)) sz m = d
                py <- go (return p) yr
                itePred sym c px py
 
-      -- It is an error if the offset+size calculation overflows
       -- produces @false@ if the offset+size calculation overflows; true otherwise
       overflowPred <- case sz of
                         Nothing  -> return (truePred sym)
@@ -884,8 +873,8 @@ isAllocatedMutable ::
   sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)
 isAllocatedMutable = isAllocatedMut (== Mutable)
 
--- | @isValidPointer sym w b m@ returns condition required to prove that @p@ is
---   a valid pointer in @m@. This means that @p@ is in the range of some
+-- | @isValidPointer sym w b m@ returns the condition required to prove that @p@
+--   is a valid pointer in @m@. This means that @p@ is in the range of some
 --   allocation OR ONE PAST THE END of an allocation. In other words @p@ is a
 --   valid pointer if @b <= p <= b+sz@ for some allocation at base @b@ of size
 --   @Just sz@, or if @b <= p@ for some allocation of size @Nothing@. Note that,

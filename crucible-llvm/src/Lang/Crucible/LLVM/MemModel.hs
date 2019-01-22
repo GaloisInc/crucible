@@ -453,8 +453,9 @@ ptrMessage msg ptr ty =
           , "  at type " ++ show (G.ppType ty)
           ]
 
--- | Load a 'RegValue' from memory. Also assert that the pointer is
--- valid and aligned, and that the loaded value is defined.
+-- | Load a 'RegValue' from memory.
+-- 
+-- Precondition: the pointer is valid and aligned, and the loaded value is defined.
 doLoad ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
@@ -468,8 +469,9 @@ doLoad sym mem ptr valType tpr alignment = do
   --putStrLn "MEM LOAD"
   unpackMemValue sym tpr =<< loadRaw sym mem ptr valType alignment
 
--- | Store a 'RegValue' in memory. Also assert that the pointer is
--- valid and points to a mutable memory region.
+-- | Store a 'RegValue' in memory.
+--
+-- Precondition: the pointer is valid and points to a mutable memory region.
 doStore ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
@@ -506,7 +508,8 @@ sextendBVTo sym w w' x
 
 
 -- | Allocate and zero a memory region with /size * number/ bytes.
--- Also assert that the multiplication does not overflow.
+--
+-- Precondition: the multiplication /size * number/ does not overflow.
 doCalloc ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
@@ -551,7 +554,7 @@ doMallocUnbounded
   -> IO (LLVMPtr sym wptr, MemImpl sym)
 doMallocUnbounded = doMallocSize Nothing
 
-doMallocSize 
+doMallocSize
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => Maybe (SymBV sym wptr) {- ^ allocation size -}
   -> sym
@@ -568,7 +571,6 @@ doMallocSize sz sym allocType mut loc mem alignment = do
   let heap' = G.allocMem allocType (fromInteger blkNum) sz alignment mut loc (memImplHeap mem)
   let ptr   = LLVMPointer blk z
   return (ptr, mem{ memImplHeap = heap' })
-
 
 -- | Allocate a memory region for the given handle.
 doMallocHandle
@@ -610,9 +612,10 @@ doLookupHandle _sym mem ptr = do
                 Nothing -> return (Left ("Function handle did not have expected type:" <$$> ppPtr ptr))
                 Just a  -> return (Right a)
 
--- | Free the memory region pointed to by the given pointer. Also
--- assert that the pointer either points to the beginning of an
--- allocated region, or is null. Freeing a null pointer has no effect.
+-- | Free the memory region pointed to by the given pointer.
+--
+-- Precondition: the pointer either points to the beginning of an allocated
+-- region, or is null. Freeing a null pointer has no effect.
 doFree
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
@@ -643,8 +646,9 @@ doFree sym ubConfig mem ptr = do
 
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
--- | Fill a memory range with copies of the specified byte. Also
--- assert that the memory range falls within a valid allocated region.
+-- | Fill a memory range with copies of the specified byte.
+--
+-- Precondition: the memory range falls within a valid allocated region.
 doMemset ::
   (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
@@ -666,8 +670,9 @@ doMemset sym ubConfig w mem dest val len = do
 
   return mem{ memImplHeap = heap' }
 
--- | Store an array in memory. Also assert that the pointer is
--- valid and points to a mutable memory region.
+-- | Store an array in memory.
+--
+-- Precondition: the pointer is valid and points to a mutable memory region.
 doArrayStore
   :: (IsSymInterface sym, HasPtrWidth w)
   => sym
@@ -677,10 +682,11 @@ doArrayStore
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
   -> SymBV sym w {- ^ array length -}
   -> IO (MemImpl sym)
-doArrayStore sym mem ptr alignment arr len = doArrayStoreLength (Just len) sym mem ptr alignment arr
+doArrayStore sym mem ptr alignment arr len = doArrayStoreSize (Just len) sym mem ptr alignment arr
 
--- | Store an array of unbounded length in memory. Also assert that the pointer is
--- valid and points to a mutable memory region.
+-- | Store an array of unbounded length in memory.
+--
+-- Precondition: the pointer is valid and points to a mutable memory region.
 doArrayStoreUnbounded
   :: (IsSymInterface sym, HasPtrWidth w)
   => sym
@@ -689,19 +695,19 @@ doArrayStoreUnbounded
   -> Alignment
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
   -> IO (MemImpl sym)
-doArrayStoreUnbounded = doArrayStoreLength Nothing
+doArrayStoreUnbounded = doArrayStoreSize Nothing
 
 
-doArrayStoreLength
+doArrayStoreSize
   :: (IsSymInterface sym, HasPtrWidth w)
-  => Maybe (SymBV sym w) {- ^ array length -}
+  => Maybe (SymBV sym w) {- ^ possibly-unbounded array length -}
   -> sym
   -> MemImpl sym
   -> LLVMPtr sym w {- ^ destination  -}
   -> Alignment
   -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ array value  -}
   -> IO (MemImpl sym)
-doArrayStoreLength len sym mem ptr alignment arr = do
+doArrayStoreSize len sym mem ptr alignment arr = do
   (heap', p1, p2) <-
     G.writeArrayMem sym PtrWidth ptr alignment arr len (memImplHeap mem)
   let errMsg1 = "Array store to unallocated or immutable region: "
@@ -710,9 +716,10 @@ doArrayStoreLength len sym mem ptr alignment arr = do
   assert sym p2 $ AssertFailureSimError $ errMsg2 ++ show (G.ppPtr ptr)
   return mem { memImplHeap = heap' }
 
--- | Store an array in memory. Also assert that the pointer is
--- valid and points to a mutable or immutable memory region.
--- Thus it can be used to initialize read-only memory regions.
+-- | Store an array in memory.
+--
+-- Precondition: the pointer is valid and points to a mutable or immutable memory region.
+-- Therefore it can be used to initialize read-only memory regions.
 doArrayConstStore
   :: (IsSymInterface sym, HasPtrWidth w)
   => sym
@@ -731,8 +738,9 @@ doArrayConstStore sym mem ptr alignment arr len = do
   assert sym p2 $ AssertFailureSimError $ errMsg2 ++ show (G.ppPtr ptr)
   return mem { memImplHeap = heap' }
 
--- | Copy memory from source to destination. Also assert that the
--- source and destination pointers fall within valid allocated
+-- | Copy memory from source to destination. 
+--
+-- Precondition: the source and destination pointers fall within valid allocated
 -- regions.
 doMemcpy ::
   (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
@@ -787,7 +795,7 @@ doPtrSubtract sym ubConfig _m x y = do
                  ]
   pure diff
 
--- | Add an offset to a pointer. Also assert that the result is a valid pointer.
+-- | Add an offset to a pointer and asserts that the result is a valid pointer.
 doPtrAddOffset ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
@@ -899,8 +907,8 @@ toStorableType mt =
 -- "Raw" operations
 --
 
--- | Load an LLVM value from memory. Also assert that the pointer is
--- valid and the result value is not undefined.
+-- | Load an LLVM value from memory. Asserts that the pointer is valid and the
+-- result value is not undefined.
 loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
         => sym
         -> MemImpl sym
@@ -937,8 +945,8 @@ loadRawWithCondition sym mem ptr valType alignment =
        Unassigned -> return (Left errMsg)
        PE p' v' -> return (Right (p', AssertFailureSimError errMsg, v'))
 
--- | Store an LLVM value in memory. Also assert that the pointer is
--- valid and points to a mutable memory region.
+-- | Store an LLVM value in memory. Asserts that the pointer is valid and points
+-- to a mutable memory region.
 storeRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
   -> MemImpl sym
@@ -1074,9 +1082,8 @@ unpackMemValue sym tpr (LLVMValZero tp) = unpackZero sym tp tpr
 unpackMemValue _sym (LLVMPointerRepr w) (LLVMValInt blk bv)
   | Just Refl <- testEquality (bvWidth bv) w
   = return $ LLVMPointer blk bv
-unpackMemValue _sym (BVRepr w) (LLVMValInt _ bv) 
+unpackMemValue _sym (BVRepr w) (LLVMValInt _ bv)
   | Just Refl <- testEquality w (bvWidth bv) = return bv
-
 
 unpackMemValue _ (FloatRepr SingleFloatRepr) (LLVMValFloat SingleSize x) = return x
 unpackMemValue _ (FloatRepr DoubleFloatRepr) (LLVMValFloat DoubleSize x) = return x
