@@ -45,6 +45,7 @@ import           Lang.Crucible.Simulator.Operations
 import           What4.Concrete
 import           What4.Config
 import           What4.Interface
+import           What4.ProgramLoc
 import           What4.SatResult
 
 checkPathSatisfiability :: ConfigOption BaseBoolType
@@ -63,7 +64,7 @@ pathSatOptions =
 pathSatisfiabilityFeature :: forall sym.
   IsSymInterface sym =>
   sym ->
-  (Pred sym -> IO BranchResult)
+  (Maybe ProgramLoc -> Pred sym -> IO BranchResult)
    {- ^ An action for considering the satisfiability of a predicate.
         In the current state of the symbolic interface, indicate what
         we can determine about the given predicate. -} ->
@@ -82,7 +83,7 @@ pathSatisfiabilityFeature sym considerSatisfiability =
  onStep pathSatOpt (SymbolicBranchState p tp fp _tgt st) =
    getOpt pathSatOpt >>= \case
      False -> return Nothing
-     True -> considerSatisfiability p >>= \case
+     True -> considerSatisfiability ploc p >>= \case
                IndeterminateBranchResult ->
                  return Nothing
                NoBranch chosen_branch ->
@@ -93,6 +94,8 @@ pathSatisfiabilityFeature sym considerSatisfiability =
                     Just <$> runReaderT (resumeFrame frm (asContFrame (st^.stateTree))) st
                UnsatisfiableContext ->
                  return (Just (AbortState InfeasibleBranch st))
+   where
+     ploc = st ^. stateLocation
 
  onStep _ _ = return Nothing
 
