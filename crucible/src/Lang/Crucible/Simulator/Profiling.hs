@@ -164,12 +164,13 @@ positionToJSON p = showJSON $ show $ p
 solverEventToJSON :: (UTCTime, SolverEvent) -> JSValue
 solverEventToJSON (time, ev) =
    case ev of
-     SolverStartSATQuery nm _rsn ->
+     SolverStartSATQuery nm rsn ->
        JSObject $ toJSObject $
          [ ("type", showJSON "start")
          , ("time", utcTimeToJSON time)
-         , ("part", showJSON "solver") -- showJSON rsn)
+         , ("part", showJSON "solver")
          , ("solver", showJSON nm)
+         , ("description", showJSON rsn)
          ]
      SolverEndSATQuery res _err ->
        JSObject $ toJSObject $

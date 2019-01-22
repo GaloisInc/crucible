@@ -79,6 +79,7 @@ import           What4.Config
 import qualified What4.Expr.Builder as B
 import           What4.Interface
 import           What4.ProblemFeatures
+import           What4.ProgramLoc
 import           What4.Protocol.Online
 import           What4.Protocol.SMTWriter as SMT
 import           What4.Protocol.SMTLib2 as SMT2
@@ -328,13 +329,18 @@ data BranchResult
 considerSatisfiability ::
   (OnlineSolver scope solver) =>
   OnlineBackend scope solver fs ->
+  Maybe ProgramLoc ->
   B.BoolExpr scope ->
   IO BranchResult
-considerSatisfiability sym p =
+considerSatisfiability sym mbPloc p =
   do proc <- getSolverProcess sym
      pnot <- notPred sym p
-     p_res <- checkSatisfiable proc "branch satisfiability" p
-     pnot_res <- checkSatisfiable proc "branch satisfiability" pnot
+     let locDesc = case mbPloc of
+           Just ploc -> show (plSourceLoc ploc)
+           Nothing -> "(unknown location)"
+     let rsn = "branch sat: " ++ locDesc
+     p_res <- checkSatisfiable proc rsn p
+     pnot_res <- checkSatisfiable proc rsn pnot
      case (p_res, pnot_res) of
        (Unsat{}, Unsat{}) -> return UnsatisfiableContext
        (_      , Unsat{}) -> return (NoBranch True)
