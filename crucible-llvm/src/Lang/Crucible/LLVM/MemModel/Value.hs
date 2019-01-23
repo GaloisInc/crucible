@@ -66,6 +66,7 @@ import           What4.InterpretedFloatingPoint
 import           What4.Partial
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Pointer
@@ -86,7 +87,7 @@ instance TestEquality FloatSize where
 -- | This datatype describes the variety of values that can be stored in
 --   the LLVM heap.
 data LLVMVal sym where
-  -- NOTE! The ValInt constructor uniformly represents both pointers and
+  -- | NOTE! The ValInt constructor uniformly represents both pointers and
   -- raw bitvector values.  The 'SymNat' value is an allocation block number
   -- that identifies specific allocations.  The block number '0' is special,
   -- and indicates that this value is actually a bitvector.  Non-zero block
@@ -97,10 +98,13 @@ data LLVMVal sym where
   LLVMValStruct :: Vector (Field StorageType, LLVMVal sym) -> LLVMVal sym
   LLVMValArray :: StorageType -> Vector (LLVMVal sym) -> LLVMVal sym
 
-  -- The zero value exists at all storage types, and represents the the value
+  -- | The zero value exists at all storage types, and represents the the value
   -- which is obtained by loading the approprite number of all zero bytes.
   -- It is useful for compactly representing large zero-initialized data structures.
   LLVMValZero :: StorageType -> LLVMVal sym
+
+  -- | The @undef@ value exists at all storage types.
+  LLVMValUndef :: StorageType -> LLVMVal sym
 
 
 llvmValStorableType :: IsExprBuilder sym => LLVMVal sym -> StorageType
@@ -113,6 +117,7 @@ llvmValStorableType v =
     LLVMValStruct fs -> structType (fmap fst fs)
     LLVMValArray tp vs -> arrayType (fromIntegral (V.length vs)) tp
     LLVMValZero tp -> tp
+    LLVMValUndef tp -> tp
 
 -- | Coerce an 'LLVMPtr' value into a memory-storable 'LLVMVal'.
 ptrToPtrVal :: (1 <= w) => LLVMPtr sym w -> LLVMVal sym
@@ -444,8 +449,13 @@ muxLLVMVal sym = mergePartial sym muxval
   where
 
     muxzero :: Pred sym -> StorageType -> LLVMVal sym -> PartialT sym IO (LLVMVal sym)
-    muxzero cond _tp val = case val of
-      LLVMValZero tp -> return $ LLVMValZero tp
+    muxzero cond tpz val = case val of
+      LLVMValZero  tp -> return $ LLVMValZero tp
+      LLVMValUndef tpu ->
+        -- TODO: Is this the right behavior?
+        panic "Cannot mux zero and undef" [ "Zero type: " ++ show tpz
+                                          , "Undef type: " ++ show tpu
+                                          ]
       LLVMValInt base off ->
         do zbase <- lift $ natLit sym 0
            zoff  <- lift $ bvLit sym (bvWidth off) 0
@@ -499,11 +509,16 @@ muxLLVMVal sym = mergePartial sym muxval
           v <- traverse id $ V.zipWith (muxval cond) v1 v2
           return $ LLVMValArray tp1 v
 
+    muxval _ v1@(LLVMValUndef tp1) (LLVMValUndef tp2)
+      | tp1 == tp2 =
+        return v1
+
     muxval _ _ _ = returnUnassigned
 
 
 instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValZero _tp) = "0"
+  show (LLVMValUndef tp) = "<undef : " ++ show tp ++ ">"
   show (LLVMValInt blk w)
     | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
     | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
