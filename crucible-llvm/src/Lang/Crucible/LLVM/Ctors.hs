@@ -52,7 +52,6 @@ import qualified Data.Parameterized.Context.Unsafe as Ctx
 import           What4.FunctionName (functionNameFromText)
 import           What4.ProgramLoc (Position(InternalPos))
 
-import           Lang.Crucible.CFG.Core (AnyCFG(..))
 import qualified Lang.Crucible.CFG.Core as Core
 import           Lang.Crucible.CFG.Expr (App(EmptyApp))
 import           Lang.Crucible.CFG.Generator (FunctionDef, defineFunction)
@@ -92,7 +91,7 @@ extractCtors val =
   case val of
     -- This is permissive about the integer widths... No reason to get caught up.
     L.ValStruct [ L.Typed (L.PrimType (L.Integer _w0)) (L.ValInteger priority)
-                , L.Typed (L.FunTy _ _ _bool) (L.ValSymbol symb)
+                , L.Typed (L.PtrTo (L.FunTy (L.PrimType L.Void) [] _bool)) (L.ValSymbol symb)
                 , L.Typed (L.PtrTo (L.PrimType (L.Integer _w1))) data0_
                 ] -> Just . Ctor priority symb $
                        case data0_ of
@@ -133,7 +132,7 @@ callCtors :: (Ctor -> Bool) -- ^ Filter function
           -> L.Module
           -> LLVMGenerator h s arch UnitType (Expr (LLVM arch) s UnitType)
 callCtors select mod_ = do
-  let ctors = filter select $ either fail id (globalCtors mod_)
+  ctors <- either fail (pure . filter select) (globalCtors mod_)
   _ <- forM ctors $ \ctor ->
     let ty = L.FunTy (L.PrimType L.Void) [] False
     in callFunction False ty (L.ValSymbol (ctorFunction ctor)) [] (const (pure ()))
