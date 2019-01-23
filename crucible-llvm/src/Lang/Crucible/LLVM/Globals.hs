@@ -38,7 +38,6 @@ module Lang.Crucible.LLVM.Globals
   , populateGlobals
   , populateAllGlobals
   , populateConstGlobals
-  , populateGlobalCtors
 
   , GlobalInitializerMap
   , makeGlobalMap
@@ -280,33 +279,3 @@ populateGlobal sym gl memty cval mem =
      ptr <- doResolveGlobal sym mem symb
      val <- constToLLVMVal sym mem cval
      storeConstRaw sym mem ptr ty alignment val
-
--- | Initialize the special @llvm.global_ctors@ global variable
---
--- We don't use 'populateGlobals' with a filter function because it doesn't fail
--- eagerly enough for this use-case.
-populateGlobalCtors ::
-  ( ?lc :: TypeContext
-  , 16 <= wptr
-  , HasPtrWidth wptr
-  , IsSymInterface sym ) =>
-  sym ->
-  GlobalInitializerMap ->
-  MemImpl sym ->
-  IO (MemImpl sym)
-populateGlobalCtors sym gimap mem = do
-  let symb = L.Symbol "llvm.global_ctors"
-  case Map.lookup symb gimap of
-    Nothing               -> fail "Couldn't find llvm.global_ctors" -- TODO: better message
-    Just (glob, Left err) -> fail $ unlines $
-      [ "The llvm.global_ctors global couldn't be initialized:"
-      , "Error:" ++ err
-      , "Global: " ++ show glob
-      ]
-    Just (glob, Right (memty, Nothing)) -> fail $ unlines $
-      [ "The llvm.global_ctors global wasn't a constant:"
-      , "Global: " ++ show glob
-      , "Type: " ++ show (ppMemType memty)
-      ]
-    Just (glob, Right (memty, Just const_)) ->
-      populateGlobal sym glob memty const_ mem
