@@ -38,6 +38,7 @@ module Lang.Crucible.LLVM.Globals
   , populateGlobals
   , populateAllGlobals
   , populateConstGlobals
+  , populateGlobalCtors
 
   , GlobalInitializerMap
   , makeGlobalMap
@@ -77,9 +78,11 @@ import           Lang.Crucible.Backend (IsSymInterface)
 --
 -- The @Left@ constructor is used to signal errors in translation,
 -- which can happen when:
--- * The global isn't actually a compile-time constant
--- * The declaration is ill-typed
--- * The global isn't linked ("extern global")
+--  * The declaration is ill-typed
+--  * The global isn't linked (@extern global@)
+--
+-- The @Nothing@ constructor is used to signal that the global isn't actually a
+-- compile-time constant.
 --
 -- These failures are as granular as possible (attached to the values)
 -- so that simulation still succeeds if the module has a bad global that the
@@ -188,7 +191,6 @@ initializeMemory sym llvm_ctx m = do
                     globals
    allocGlobals sym gs_alloc mem
 
-
 allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     => sym
                     -> L.Module
@@ -205,6 +207,9 @@ allocLLVMHandleInfo sym m mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
            ]
      return $ registerGlobal mem' syms ptr
 
+
+------------------------------------------------------------------------
+-- ** populateGlobals
 
 -- | Populate the globals mentioned in the given @GlobalInitializerMap@
 --   provided they satisfy the given filter function.
@@ -268,10 +273,40 @@ populateGlobal ::
   LLVMConst ->
   MemImpl sym ->
   IO (MemImpl sym)
-populateGlobal sym gl mt cval mem =
+populateGlobal sym gl memty cval mem =
   do let symb = L.globalSym gl
-     let alignment = memTypeAlign (llvmDataLayout ?lc) mt
-     ty <- toStorableType mt
+     let alignment = memTypeAlign (llvmDataLayout ?lc) memty
+     ty <- toStorableType memty
      ptr <- doResolveGlobal sym mem symb
      val <- constToLLVMVal sym mem cval
      storeConstRaw sym mem ptr ty alignment val
+
+-- | Initialize the special @llvm.global_ctors@ global variable
+--
+-- We don't use 'populateGlobals' with a filter function because it doesn't fail
+-- eagerly enough for this use-case.
+populateGlobalCtors ::
+  ( ?lc :: TypeContext
+  , 16 <= wptr
+  , HasPtrWidth wptr
+  , IsSymInterface sym ) =>
+  sym ->
+  GlobalInitializerMap ->
+  MemImpl sym ->
+  IO (MemImpl sym)
+populateGlobalCtors sym gimap mem = do
+  let symb = L.Symbol "llvm.global_ctors"
+  case Map.lookup symb gimap of
+    Nothing               -> fail "Couldn't find llvm.global_ctors" -- TODO: better message
+    Just (glob, Left err) -> fail $ unlines $
+      [ "The llvm.global_ctors global couldn't be initialized:"
+      , "Error:" ++ err
+      , "Global: " ++ show glob
+      ]
+    Just (glob, Right (memty, Nothing)) -> fail $ unlines $
+      [ "The llvm.global_ctors global wasn't a constant:"
+      , "Global: " ++ show glob
+      , "Type: " ++ show (ppMemType memty)
+      ]
+    Just (glob, Right (memty, Just const_)) ->
+      populateGlobal sym glob memty const_ mem

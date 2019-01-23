@@ -44,6 +44,7 @@ library
     Lang.Crucible.LLVM.Arch.X86
     Lang.Crucible.LLVM.Arch.Util
     Lang.Crucible.LLVM.Bytes
+    Lang.Crucible.LLVM.Ctors
     Lang.Crucible.LLVM.DataLayout
     Lang.Crucible.LLVM.Extension
     Lang.Crucible.LLVM.Intrinsics

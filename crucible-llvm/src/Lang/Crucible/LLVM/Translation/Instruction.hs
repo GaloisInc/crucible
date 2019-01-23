@@ -33,6 +33,7 @@ module Lang.Crucible.LLVM.Translation.Instruction
   , generateInstr
   , definePhiBlock
   , assignLLVMReg
+  , callFunction
   ) where
 
 import Control.Monad.Except
@@ -1615,8 +1616,52 @@ arithOp op _ x y =
                         , show op, show x, show y
                         ]
 
+-- | Generate a call to an LLVM function.
+callFunction ::
+   Bool    {- ^ Is the function a tail call? -} ->
+   L.Type  {- ^ type of the function to call -} ->
+   L.Value {- ^ function value to call -} ->
+   [L.Typed L.Value] {- ^ argument list -} ->
+   (LLVMExpr s arch -> LLVMGenerator h s arch ret ()) {- ^ assignment continuation for return value -} ->
+   LLVMGenerator h s arch ret ()
+callFunction _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f = do
+  let ?err = fail
+  fnTy'  <- liftMemType' (L.PtrTo fnTy)
+  retTy' <- either fail return $ liftRetType lretTy
+  fn'    <- transValue fnTy' fn
+  args'  <- mapM transTypedValue args
+
+  -- For varargs functions, any arguments beyond the ones found in the function
+  -- declaration are gathered into a vector of 'ANY' type, which is then passed
+  -- as an additional final argument to the underlying Crucible function.  The
+  -- called function is expected to know the types of these additional arguments,
+  -- which it can unpack from the ANY values when it knows those types.
+  let (mainArgs, varArgs) = splitAt (length largTys) args'
+  unpackArgs mainArgs $ \argTypes mainArgs' ->
+    llvmRetTypeAsRepr retTy' $ \retTy ->
+      case asScalar fn' of
+        Scalar PtrRepr ptr -> do
+          memVar <- getMemVar
+          if varargs
+          then do
+            v   <- extensionStmt (LLVM_LoadHandle memVar ptr (argTypes :> varArgsRepr) retTy)
+            ret <- call v (mainArgs' :> unpackVarArgs varArgs)
+            assign_f (BaseExpr retTy ret)
+          else do
+            v   <- extensionStmt (LLVM_LoadHandle memVar ptr argTypes retTy)
+            ret <- call v mainArgs'
+            assign_f (BaseExpr retTy ret)
+        _ -> fail $ unwords ["unsupported function value", show fn]
+
+callFunction _tailCall fnTy _fn _args _assign_f =
+  reportError $ App $ TextLit $ Text.pack $ unwords $
+    [ "[callFunction] Unsupported function type"
+    , show fnTy
+    ]
 
 
+-- | Generate a call to an LLVM function, with a continuation to fetch more
+-- instructions.
 callFunctionWithCont :: forall h s arch ret a.
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
@@ -1625,7 +1670,7 @@ callFunctionWithCont :: forall h s arch ret a.
    (LLVMExpr s arch -> LLVMGenerator h s arch ret ()) {- ^ assignment continuation for return value -} ->
    LLVMGenerator h s arch ret a {- ^ continuation for next instructions -} ->
    LLVMGenerator h s arch ret a
-callFunctionWithCont _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f k
+callFunctionWithCont tailCall_ fnTy fn args assign_f k
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
      -- would require some work to support.
@@ -1636,50 +1681,7 @@ callFunctionWithCont _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args ass
                  , "llvm.lifetime.end"
                  ] = k
 
-     -- For varargs functions, any arguments beyond the ones found in the function
-     -- declaration are gathered into a vector of 'ANY' type, which is then passed
-     -- as an additional final argument to the underlying Crucible function.  The
-     -- called function is expected to know the types of these additional arguments,
-     -- which it can unpack from the ANY values when it knows those types.
-     | varargs = do
-           fnTy' <- liftMemType' (L.PtrTo fnTy)
-           retTy' <- either fail return $ liftRetType lretTy
-           fn' <- transValue fnTy' fn
-           args' <- mapM transTypedValue args
-           let ?err = fail
-           let (mainArgs, varArgs) = splitAt (length largTys) args'
-           let varArgs' = unpackVarArgs varArgs
-           unpackArgs mainArgs $ \argTypes mainArgs' ->
-            llvmRetTypeAsRepr retTy' $ \retTy ->
-             case asScalar fn' of
-                Scalar PtrRepr ptr ->
-                  do memVar <- getMemVar
-                     v <- extensionStmt (LLVM_LoadHandle memVar ptr (argTypes :> varArgsRepr) retTy)
-                     ret <- call v (mainArgs' :> varArgs')
-                     assign_f (BaseExpr retTy ret)
-                     k
-                _ -> fail $ unwords ["unsupported function value", show fn]
-
-     -- Ordinary (non varargs) function call
-     | otherwise = do
-           fnTy' <- liftMemType' (L.PtrTo fnTy)
-           retTy' <- either fail return $ liftRetType lretTy
-           fn' <- transValue fnTy' fn
-           args' <- mapM transTypedValue args
-           let ?err = fail
-           unpackArgs args' $ \argTypes args'' ->
-            llvmRetTypeAsRepr retTy' $ \retTy ->
-              case asScalar fn' of
-                Scalar PtrRepr ptr ->
-                  do memVar <- getMemVar
-                     v <- extensionStmt (LLVM_LoadHandle memVar ptr argTypes retTy)
-                     ret <- call v args''
-                     assign_f (BaseExpr retTy ret)
-                     k
-
-                _ -> fail $ unwords ["unsupported function value", show fn]
-callFunctionWithCont _tailCall fnTy _fn _args _assign_f _k =
-    reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported function type", show fnTy]
+     | otherwise = callFunction tailCall_ fnTy fn args assign_f >> k
 
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
 --   FIXME? this could be more efficient if we sort the list and do binary search instead...
