@@ -70,6 +70,7 @@ import qualified Data.Map as Map
 import qualified Data.Vector as V
 import Numeric.Natural
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Lang.Crucible.Panic (panic)
 
 import Data.Parameterized.Classes
 import Data.Parameterized.Ctx (SingleCtx)
@@ -144,7 +145,7 @@ data ExprEnv sym w = ExprEnv { loadOffset  :: SymBV sym w
 
 -- | Interpret an 'OffsetExpr' as a 'SymBV'. Although 'OffsetExpr's may contain
 -- 'IntExpr's, which may be undefined if they refer to the size of an unbounded
--- memory region, this function will throw an error if both (1) the 'sizeData'
+-- memory region, this function will panic if both (1) the 'sizeData'
 -- in the 'ExprEnv' is 'Nothing' and (2) 'StoreSize' occurs anywhere in the
 -- 'OffsetExpr'.
 genOffsetExpr ::
@@ -159,9 +160,13 @@ genOffsetExpr sym w f@(ExprEnv load store _size) expr =
       pe' <- genOffsetExpr sym w f pe
       ie' <- genIntExpr sym w f ie
       case ie' of
-        Nothing -> error "Cannot construct an offset that references the size of an unbounded region"
+        Nothing -> panic "Generic.genOffsetExpr"
+                     [ "Cannot construct an offset that references the size of an unbounded region"
+                     , "*** Invalid offset expression:  " ++ show expr
+                     , "*** Under environment:  " ++ show (ppExprEnv f)
+                     ]
         Just ie'' -> bvAdd sym pe' ie''
-    Load -> return load
+    Load  -> return load
     Store -> return store
 
 -- | Interpret an 'IntExpr' as a 'SymBV'. If the 'IntExpr' contains an
@@ -358,16 +363,6 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
              do p' <- simplPred xps2 p0
                 itePred sym c' p p'
 
--- | Throws an error if passed an unbounded/@Nothing@ bitvector.
-maybePtrAdd :: (1 <= w, IsExprBuilder sym)
-            => sym
-            -> NatRepr w
-            -> LLVMPtr sym w
-            -> Maybe (SymBV sym w)
-            -> IO (LLVMPtr sym w)
-maybePtrAdd sym w ptr (Just bv) = ptrAdd sym w ptr bv
-maybePtrAdd _   _ _   Nothing   = error "Cannot use an unbounded bitvector as an offset"
-
 -- | Read from a memory with a memcopy to the same block we are reading.
 readMemCopy ::
   forall sym w.
@@ -409,7 +404,13 @@ readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
                      readPrev tp' (LLVMPointer blk o')
                 subFn (InRange o tp') = do
                   oExpr <- genIntExpr sym w varFn o
-                  srcPlusO <- maybePtrAdd sym w src oExpr
+                  srcPlusO <- case oExpr of 
+                                Just oExpr' -> ptrAdd sym w src oExpr'
+                                Nothing     -> panic "Generic.readMemCopy"
+                                                ["Cannot use an unbounded bitvector expression as an offset"
+                                                ,"*** In offset epxression:  " ++ show o
+                                                ,"*** Under environment:  " ++ show (ppExprEnv varFn)
+                                                ]
                   readPrev tp' srcPlusO
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
@@ -580,7 +581,11 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
               -- should always produce a defined value
               case o' of
                 Just o'' -> loadFn o'' tp'
-                Nothing  -> error "Unexpected unbounded size in RangeLoad"
+                Nothing  -> panic "Generic.readMemArrayStore"
+                              [ "Unexpected unbounded size in RangeLoad"
+                              , "*** Integer expression:  " ++ show o
+                              , "*** Under environment:  " ++ show (ppExprEnv varFn)
+                              ]
       let pref
             | Just{} <- asUnsignedBV write_off = FixedStore
             | Just{} <- asUnsignedBV read_off = FixedLoad
@@ -1299,3 +1304,9 @@ ppMemState f (BranchFrame _ _ d ms) = do
 
 ppMem :: IsExprBuilder sym => Mem sym -> Doc
 ppMem m = ppMemState ppMemChanges (m^.memState)
+
+ppExprEnv :: IsExprBuilder sym => ExprEnv sym w -> Doc
+ppExprEnv f = text "ExprEnv" <$$> (indent 4 $ vcat
+     [text "loadOffset:"  <+> printSymExpr (loadOffset f)
+     ,text "storeOffset:" <+> printSymExpr (storeOffset f)
+     ,text "sizeData:"    <+> pretty (printSymExpr <$> sizeData f)])

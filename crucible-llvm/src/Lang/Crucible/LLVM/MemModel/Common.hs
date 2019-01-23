@@ -288,6 +288,8 @@ loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i
   where inFn = CValue
         outFn = fixLoadBeforeStoreOffset pref i
 
+-- | Produces a @Mux ValueCtor@ expression representing the range load conditions
+-- when the load and store values are concrete
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                    -> StorageType
                    -> Bytes
@@ -322,6 +324,8 @@ fixedSizeRangeLoad pref tp ssz =
     loadSucc = MuxVar (ValueCtorVar (InRange (Load .- Store) tp))
     loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
+-- | Produces a @Mux ValueCtor@ expression representing the range load conditions
+-- when the load and store values are symbolic and the @StoreSize@ is bounded.
 symbolicRangeLoad :: BasePreference -> StorageType -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
 symbolicRangeLoad pref tp =
   Mux (Store .<= Load)
@@ -351,7 +355,8 @@ symbolicRangeLoad pref tp =
     loadVal i j = MuxVar (loadFromStoreStart pref tp i j)
     loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
--- | Symbolic range load when the storagesize is unbounded
+-- | Produces a @Mux ValueCtor@ expression representing the RangeLoad conditions
+-- when the load and store values are symbolic and the @StoreSize@ is unbounded.
 symbolicUnboundedRangeLoad :: BasePreference -> StorageType -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
 symbolicUnboundedRangeLoad pref tp =
   Mux (Store .<= Load)
