@@ -70,9 +70,21 @@ import Mir.PP()
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
+-- will eventually move to parameterized-utils
+import Lang.Crucible.Types (Peano(..), PeanoRepr(..))
+
 import GHC.Stack
 
 import Debug.Trace
+
+somePeano :: Integer -> Maybe (Some PeanoRepr)
+somePeano 0 = Just (Some ZRepr)
+somePeano i | i < 0 = Nothing
+somePeano i = case somePeano (i - 1) of
+  Just (Some r) -> Just (Some (SRepr r))
+
+
+
 
 -- See end of [Intrinsics] for definition of generator state FnState
 -- h for state monad
@@ -137,7 +149,7 @@ tyToRepr t0 = case t0 of
   M.TyAdt _defid _tyargs -> Some taggedUnionType
   M.TyDowncast _adt _i   -> Some taggedUnionType
   M.TyFloat _ -> Some CT.RealValRepr
-  M.TyParam i -> case someNat i of
+  M.TyParam i -> case somePeano i of
     Just (Some nr) -> Some (CT.VarRepr nr) -- requires poly extension to crucible
     Nothing        -> error "type params must be nonnegative"
   M.TyFnPtr _fnSig -> Some CT.AnyRepr
@@ -903,24 +915,25 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
 -- A closure is (packed into an any) of the form [handle, arguments]
 -- (arguments being those packed into the closure, not the function arguments)
 buildClosureHandle :: M.DefId -> Substs -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildClosureHandle funid (Substs tys) args =
-    tyListToCtx tys $ \ subst -> do
+buildClosureHandle funid (Substs tys) args
+  | Just (Some k) <- somePeano (toInteger (length tys))
+  = tyListToCtx tys $ \ subst -> do
       hmap <- use handleMap
       case (Map.lookup funid hmap) of
         Just (MirHandle _ _ fhandle) -> do
             let closure_arg = buildTuple args
                 arg_tys = FH.handleArgTypes fhandle
                 ret_ty  = FH.handleReturnType fhandle
-                poly_ty = CT.PolyFnRepr arg_tys ret_ty
-                inst_ty = CT.FunctionHandleRepr (CT.instantiate subst arg_tys) (CT.instantiate subst ret_ty)
-                handle_cl = R.App $ E.PolyInstantiate poly_ty (S.app $ E.PolyHandleLit fhandle) subst
+                poly_ty = CT.PolyFnRepr k arg_tys ret_ty
+                inst_ty = CT.FunctionHandleRepr (CT.instantiate (CT.mkSubst subst) arg_tys) (CT.instantiate (CT.mkSubst subst) ret_ty)
+                handle_cl = R.App $ E.PolyInstantiate poly_ty (S.app $ E.PolyHandleLit k fhandle) subst
                 handl = MirExp inst_ty handle_cl
             let closure_unpack = buildTuple [handl, (packAny closure_arg)]
             traceM $ "buildClosureHandle for " ++ show funid ++ " with ty args " ++ show (pretty tys)
             return $ packAny closure_unpack
         _ ->
           do fail ("buildClosureHandle: unknown function: " ++ show funid)
-
+buildClosureHandle _ _ _ = error "internal error"
 
 buildClosureType :: M.DefId -> Substs -> MirGenerator h s ret (Some CT.TypeRepr, Some CT.TypeRepr) -- get type of closure, in order to unpack the any
 buildClosureType defid (Substs args') = do
@@ -1364,8 +1377,8 @@ first f (x:xs) = case f x of Just y  -> Just y
 -- We promise to return an expression of type (FnHandleType args ret)
 -- for some args/ret
 lookupFunction :: forall h s ret. MethName -> Substs -> MirGenerator h s ret (Maybe (MirExp s))
-lookupFunction nm (Substs funsubst) = do
-
+lookupFunction nm (Substs funsubst)
+  | Just (Some k) <- somePeano (toInteger (length funsubst)) = do
   hmap <- use handleMap
   (TraitMap tm) <- use traitMap
   stm  <- use staticTraitMap
@@ -1374,10 +1387,10 @@ lookupFunction nm (Substs funsubst) = do
       mkFunExp fhandle = tyListToCtx (reverse funsubst) $ \tyargs ->
         let fargctx  = FH.handleArgTypes fhandle
             fret     = FH.handleReturnType fhandle
-            ifargctx = CT.instantiate tyargs fargctx
-            ifret    = CT.instantiate tyargs fret
-            polyfcn  = R.App $ E.PolyHandleLit fhandle
-            polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr fargctx fret) polyfcn tyargs
+            ifargctx = CT.instantiate (CT.mkSubst tyargs) fargctx
+            ifret    = CT.instantiate (CT.mkSubst tyargs) fret
+            polyfcn  = R.App $ E.PolyHandleLit k fhandle
+            polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr k fargctx fret) polyfcn tyargs
         in
           (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
 
@@ -1400,10 +1413,10 @@ lookupFunction nm (Substs funsubst) = do
            <- first (getTraitValue ty) (Maybe.mapMaybe (\tn -> Map.lookup tn tm) traits)
          -> tyListToCtx (reverse funsubst) $ \tyargs ->
            case (fty, tyargs) of
-              (CT.PolyFnRepr fargctx fret, tyargs' Ctx.:> _tyr) -> do
+              (CT.PolyFnRepr k fargctx fret, tyargs' Ctx.:> _tyr) -> do
                 let 
-                    ifargctx = CT.instantiate tyargs' fargctx
-                    ifret    = CT.instantiate tyargs' fret
+                    ifargctx = CT.instantiate (CT.mkSubst tyargs') fargctx
+                    ifret    = CT.instantiate (CT.mkSubst tyargs') fret
                     polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs'
                 return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
               _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
@@ -1714,10 +1727,10 @@ methodCall traitName methodName (Substs funsubst) traitObject args (Just (dest_l
                        jumpToBlock jdest
                      Nothing -> fail $ "type error in TRAIT call: args " ++ (show ctx) ++ " vs function params "
                                  ++ show fargctx ++ " while calling " ++ show fn
-             CT.PolyFnRepr fargctx fret ->
+             CT.PolyFnRepr k fargctx fret ->
                tyListToCtx (reverse funsubst) $ \subst -> do
-                 let fargctx' = CT.instantiate subst fargctx
-                 let fret'    = CT.instantiate subst fret
+                 let fargctx' = CT.instantiate (CT.mkSubst subst) fargctx
+                 let fret'    = CT.instantiate (CT.mkSubst subst) fret
                  exp_to_assgn exps $ \ctx asgn -> do
                     case (testEquality ctx fargctx') of
                       Just Refl -> do
@@ -1970,7 +1983,7 @@ argPredType (tn, Substs (ty:tys)) =
      case Map.lookup tn tm of
         Just (Some (TraitImpls repr _idx _vtab)) -> do
            let preinst = (implementCtxRepr implTy repr)
-           return $ (Some (CT.StructRepr (CT.instantiate subst preinst)))
+           return $ (Some (CT.StructRepr (CT.instantiate (CT.mkSubst subst) preinst)))
         Nothing -> fail "impossible: we checked tn's in the domain"
 argPredType (tn,_) = fail "impossible: we checked substs to be non-empty"
 
@@ -2068,6 +2081,29 @@ instance Show (TraitDecl ctx) where
   show (TraitDecl _vtable mm) = "TraitDecl(" ++ show (Map.keys mm) ++ ")"
 instance ShowF TraitDecl
 
+numParams :: M.FnSig -> Integer
+numParams (M.FnSig argtys retty) = maximum (paramBound retty : map paramBound argtys)
+
+paramBound :: Ty -> Integer
+paramBound (TyParam x) = x + 1
+paramBound (TyTuple []) = 0
+paramBound (TyTuple tys) = maximum (map paramBound tys)
+paramBound (TySlice ty)  = paramBound ty
+paramBound (TyArray ty _) = paramBound ty
+paramBound (TyRef ty _)   = paramBound ty
+paramBound (TyAdt _ substs) = paramBoundSubsts substs
+paramBound (TyFnDef _ substs) = paramBoundSubsts substs
+paramBound (TyClosure _ substs) = paramBoundSubsts substs
+paramBound (TyFnPtr sig) = numParams sig   --- no top-level generalization???
+paramBound (TyRawPtr ty _) = paramBound ty
+paramBound (TyDowncast ty _) = paramBound ty
+paramBound (TyProjection _ substs) = paramBoundSubsts substs
+paramBound _ = 0
+
+paramBoundSubsts :: Substs -> Integer
+paramBoundSubsts (Substs []) = 0
+paramBoundSubsts (Substs tys) = maximum (map paramBound tys)
+
 
 -- | Translate a trait declaration
 mkTraitDecl :: M.Trait -> Some TraitDecl
@@ -2077,15 +2113,11 @@ mkTraitDecl (M.Trait _tname titems) = do
   let go :: Some (Ctx.Assignment MethRepr)
          -> (MethName, M.FnSig)
          -> Some (Ctx.Assignment MethRepr)
-      go (Some tr) (mname, M.FnSig argtys retty) =
-          case (tyToRepr retty, tyListToCtx argtys Some) of
-                (Some ret, Some args) -> Some (tr `Ctx.extend` MethRepr mname (CT.PolyFnRepr args ret))
-{-
-                   Some (tr `Ctx.extend` MethRepr mname (CT.FunctionHandleRepr (rest Ctx.:> CT.AnyRepr) retrepr))
-                (Some retrepr, Some (rest Ctx.:> ty)) ->
-                   -- TODO: maybe we should just skip these instead of throwing an error?
-                   error $ "all methods in a trait declaration must have first arg type Self, found " ++ show ty ++ " instead."
--}
+      go (Some tr) (mname, sig@(M.FnSig argtys retty))
+        | Some ret  <- tyToRepr retty
+        , Some args <- tyListToCtx argtys Some
+        , Just (Some k) <- somePeano (numParams sig)
+        =  Some (tr `Ctx.extend` MethRepr mname (CT.PolyFnRepr k args ret))
 
 
   case foldl go (Some Ctx.empty) meths of
@@ -2126,7 +2158,7 @@ buildTraitMap col _halloc hmap = do
                     -> Ctx.Assignment GenericMirValue ctx
         impl_vtable (TraitDecl ctxr _methodIndex) implTy meths  =
            let go :: Ctx.Index ctx ty -> CT.TypeRepr ty -> Identity (GenericMirValue ty)
-               go idx (CT.PolyFnRepr args ret) = do
+               go idx (CT.PolyFnRepr k args ret) = do
                   let i = Ctx.indexVal idx
                   let (_implName, implHandle) = if i < length meths then meths !! i else error "impl_vtable: BUG"
                   let subst = implementSubst implTy
@@ -2135,8 +2167,8 @@ buildTraitMap col _halloc hmap = do
                       case (testEquality (FH.handleArgTypes   fh) (CT.instantiate subst args),
                             testEquality (FH.handleReturnType fh) (CT.instantiate subst ret)) of
                           (Just Refl, Just Refl) ->
-                            return (GenericMirValue (MirValue implTy (CT.PolyFnRepr (FH.handleArgTypes   fh) (FH.handleReturnType fh))
-                                                       (R.App $ E.PolyHandleLit fh)))
+                            return (GenericMirValue (MirValue implTy (CT.PolyFnRepr k (FH.handleArgTypes   fh) (FH.handleReturnType fh))
+                                                       (R.App $ E.PolyHandleLit k fh)))
                           (_,_)   -> error $ "Type mismatch in method table. implHandle type is: "
                                         ++ show (FH.handleType fh) ++ " but expected type: "
                                         ++ show (CT.instantiate subst (CT.FunctionHandleRepr args ret))
@@ -2167,7 +2199,7 @@ buildTraitMap col _halloc hmap = do
 thisType :: M.FnSig -> Maybe Ty
 thisType (M.FnSig (M.TyRef ty _:_) _ret) = Just $ typeName ty
 thisType (M.FnSig (ty:_) _ret)           = Just $ typeName ty
-thisType (M.FnSig []     _ret)           = Nothing
+thisType sig@(M.FnSig []     _ret)       = error $ "no first argument in groupByType for type " ++ show (pretty sig)
 
 groupByType :: [(MethName, MirHandle)] -> [(Ty, [(MethName,MirHandle)])]
 groupByType meths = 

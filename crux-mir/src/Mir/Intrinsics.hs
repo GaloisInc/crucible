@@ -538,24 +538,25 @@ data TraitImpls (s::Type) ctx = TraitImpls
 -- TODO: For now, traits only include methods, not constants
 -- by default, we quantify over all type variables in the FnHandle's type
 
-type ImplementSubst implTy = EmptyCtx ::> VarType 0 ::> implTy
-implementSubst :: TypeRepr implTy -> CtxRepr (ImplementSubst implTy)
-implementSubst implTy = Empty :> VarRepr (knownRepr :: NatRepr 0) :> implTy
+type ImplementSubst implTy = ExtendSubst (VarType ZP) (ExtendSubst implTy IdSubst)
+
+implementSubst :: TypeRepr implTy -> SubstRepr (ImplementSubst implTy)
+implementSubst implTy =  ExtendRepr (VarRepr ZRepr) (ExtendRepr implTy IdRepr)
 
 type family ImplementTrait (implTy :: CrucibleType) (arg :: k) :: k where
   -- Ctx k
   ImplementTrait implTy EmptyCtx = EmptyCtx
   ImplementTrait implTy (ctx ::> ty) = ImplementTrait implTy ctx ::> ImplementTrait implTy ty
   -- CrucibleType
-  ImplementTrait implTy (PolyFnType args ret) = PolyFnType (Instantiate (ImplementSubst implTy) args)
-                                                           (Instantiate (ImplementSubst implTy) ret)
+  ImplementTrait implTy (PolyFnType k args ret) = PolyFnType k (Instantiate (ImplementSubst implTy) args)
+                                                               (Instantiate (ImplementSubst implTy) ret)
   ImplementTrait implTy (ty :: CrucibleType)  = Instantiate (ImplementSubst implTy) ty                                               
   -- Add other types for MirValue indices                                                
 
 
 implementRepr :: TypeRepr implTy -> TypeRepr ty -> TypeRepr (ImplementTrait implTy ty)
-implementRepr implTy (PolyFnRepr args ret) =
-  PolyFnRepr (instantiate (implementSubst implTy) args) (instantiate (implementSubst implTy) ret)
+implementRepr implTy (PolyFnRepr k args ret) =
+  PolyFnRepr k (instantiate (implementSubst implTy) args) (instantiate (implementSubst implTy) ret)
 
 implementCtxRepr :: TypeRepr implTy -> CtxRepr ctx -> CtxRepr (ImplementTrait implTy ctx)
 implementCtxRepr _implTy Empty = Empty
