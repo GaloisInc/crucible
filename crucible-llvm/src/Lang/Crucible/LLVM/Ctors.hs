@@ -154,7 +154,7 @@ generatorToCFG :: forall h arch wptr ret. (HasPtrWidth wptr, wptr ~ ArchWidth ar
                -> LLVMContext arch
                -> (forall s. LLVMGenerator h s arch ret (Expr (LLVM arch) s ret))
                -> TypeRepr ret
-               -> ST h (AnyCFG (LLVM arch))
+               -> ST h (Core.SomeCFG (LLVM arch) Core.EmptyCtx ret)
 generatorToCFG name halloc llvmctx gen ret = do
   let ?lc = _llvmTypeCtx llvmctx
   let def :: forall args. FunctionDef (LLVM arch) h (LLVMState arch) args ret
@@ -166,8 +166,7 @@ generatorToCFG name halloc llvmctx gen ret = do
 
   hand <- mkHandle' halloc (functionNameFromText name) Ctx.empty ret
   (Reg.SomeCFG g, []) <- defineFunction InternalPos hand def
-  case toSSA g of
-    Core.SomeCFG ssa -> return (AnyCFG ssa)
+  return $! toSSA g
 
 -- | Create a CFG that calls some of the functions in @llvm.global_ctors@.
 callCtorsCFG :: forall s arch wptr. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16 <= wptr)
@@ -175,6 +174,6 @@ callCtorsCFG :: forall s arch wptr. (HasPtrWidth wptr, wptr ~ ArchWidth arch, 16
              -> L.Module
              -> HandleAllocator s
              -> LLVMContext arch
-             -> ST s (AnyCFG (LLVM arch))
+             -> ST s (Core.SomeCFG (LLVM arch) Core.EmptyCtx UnitType)
 callCtorsCFG select mod_ halloc llvmctx = do
   generatorToCFG "llvm_global_ctors" halloc llvmctx (callCtors select mod_) UnitRepr
