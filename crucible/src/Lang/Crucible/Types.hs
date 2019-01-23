@@ -83,11 +83,6 @@ module Lang.Crucible.Types
   , VarType
   , PolyFnType
   , Closed(..)
-  , ClosedCtx(..)
-  , ClosedType(..)
-  , ClosedF(..)
-  , ClosedFC(..)
-  , ClosedBaseType(..)
   , Instantiate
   , Liftn
   , InstantiateF(..)
@@ -111,9 +106,10 @@ module Lang.Crucible.Types
   , Peano(..)
   , PeanoRepr(..)
 
+  -- ** Evidence for closedness
   , assumeClosed
-  , instantiateTypeEmpty
-  , instantiateCtxEmpty
+  , checkClosed
+  , checkClosedCtx
 
     -- * IsRecursiveType
   , IsRecursiveType(..)
@@ -621,6 +617,12 @@ class InstantiateFC (t :: (k -> Type) -> l -> Type) where
 -- NOTE: Closed is polykinded so first specified type argument when using these
 -- methods is the kind of ty
 
+class Closed (t :: k) where
+  closed ::  p2 subst -> Instantiate subst t :~: t
+  closed = error "closed: must define closed to use instantiation"
+
+-- Types that are statically known to be closed can benefit from the following
+-- default definitions 
 
 closedInstantiate :: forall ty subst. Closed ty => SubstRepr subst -> ty -> Instantiate subst ty
 closedInstantiate subst | Refl <- closed @_ @ty subst = id
@@ -728,25 +730,6 @@ instance Closed AnyType where closed _ = Refl
 instance Closed UnitType where closed _ = Refl
 instance Closed CharType where closed _ = Refl
 instance Closed (FloatType fi) where closed _ = Refl
-instance Closed () where
-  closed _ = Refl
-
-  
--- k = CrucibleType
-instance Closed (BaseToType b) where
-  closed _ = Refl
-
-instance Closed AnyType where
-  closed _ = Refl
-
-instance Closed UnitType where
-  closed _ = Refl
-
-instance Closed CharType where
-  closed _ = Refl
-
-instance Closed (FloatType fi) where
-  closed _ = Refl
 
 instance (Closed args, Closed ret) => Closed (FunctionHandleType args ret)
   where
@@ -875,6 +858,47 @@ composeInstantiateAxiom :: forall subst2 subst1 x.
   Instantiate (Compose subst1 subst2) x
 composeInstantiateAxiom = unsafeCoerce Refl
 
+-- We need this property in Expr.hs to show that type substitution in the case
+-- of type instantiation type checks. It allows us to commute the
+-- instantiation of the polymorphic function with the substitution. 
+swapMkSubstAxiom :: forall sub k targs x.
+  -- (CtxSize targs ~ k) =>   -- TODO: add this constraint
+  Instantiate sub (Instantiate (MkSubst targs) x) :~: 
+  Instantiate (MkSubst (Instantiate sub targs)) (Instantiate (Liftn k sub) x) 
+swapMkSubstAxiom = unsafeCoerce Refl
+
+
+-- Apply the "lift" substitution m-times.
+type family Liftn (m :: Peano) (s :: Substitution) :: Substitution where
+  Liftn ZP s     = s
+  Liftn (SP m) s = LiftSubst (Liftn m s)
+
+type instance Instantiate subst (v :: CrucibleType) = InstantiateCT subst v
+  
+type family InstantiateCT (subst :: Substitution) (v :: CrucibleType) :: CrucibleType where
+  InstantiateCT subst (BaseToType b) = BaseToType b
+  InstantiateCT subst AnyType  = AnyType
+  InstantiateCT subst UnitType = UnitType
+  InstantiateCT subst (FloatType fi) = FloatType fi
+  InstantiateCT subst CharType = CharType
+  InstantiateCT subst (FunctionHandleType args ret) =
+     FunctionHandleType (Instantiate subst args ) (Instantiate subst ret)
+  InstantiateCT subst (MaybeType ty) = MaybeType (Instantiate subst ty )
+  InstantiateCT subst (VectorType ty) = VectorType (Instantiate subst ty)
+  InstantiateCT subst (StructType ctx) = StructType (Instantiate subst ctx)
+  InstantiateCT subst (ReferenceType ty) = ReferenceType (Instantiate subst ty)
+  InstantiateCT subst (VariantType ctx) = VariantType (Instantiate subst ctx)
+  InstantiateCT subst (WordMapType n0 b) = WordMapType n0 b
+  InstantiateCT subst (RecursiveType sym ctx) = RecursiveType sym (Instantiate subst ctx)
+  InstantiateCT subst (IntrinsicType sym ctx) = IntrinsicType sym (Instantiate subst ctx)
+  InstantiateCT subst (StringMapType ty) = StringMapType (Instantiate subst ty)
+  InstantiateCT subst (VarType k) = SubstVar subst k
+  InstantiateCT subst (PolyFnType k args ret) =
+    PolyFnType k (Instantiate (Liftn k subst) args) (Instantiate (Liftn k subst) ret)
+  
+
+-- TypeCon apps
+
 instance (InstantiateF t) => InstantiateType (t a) where
   instantiate = instantiateF
 instance (InstantiateFC t, InstantiateF a) => InstantiateF (t a) where
@@ -893,7 +917,6 @@ type instance Instantiate subst Ctx.Assignment = Ctx.Assignment
 -- k = Ctx k'
 type instance Instantiate subst EmptyCtx = EmptyCtx
 type instance Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
-
 
 
 -- Ctx.Assignment :: (k -> Type) -> Ctx k -> Type
@@ -1015,7 +1038,6 @@ axiom1 = Refl
 {-
 axiom2 :: forall n. (n + 1) - 1 :~: n
 axiom2 = Refl
-
 axiom3 :: forall n. ((n + 1) <=? 0) :~: 'False
 axiom3 = Refl
 -}
@@ -1030,14 +1052,40 @@ lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
       --  (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
       unsafeCoerce (lookupVarRepr (predNat n) ctx def)
 lookupVarRepr _n Ctx.Empty def = def
+-}
 
--- see comments above for justification for [unsafeCoerce] in this function
-lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
+{-
+-----------------------------------------------------------------
+data BoolRepr :: Bool -> Type where
+  TrueRepr :: BoolRepr 'True
+  FalseRepr :: BoolRepr 'False
+instance KnownRepr BoolRepr 'True where knownRepr = TrueRepr
+instance KnownRepr BoolRepr 'False where knownRepr = FalseRepr
+lteNat :: NatRepr n -> NatRepr k -> BoolRepr (n <=? k)
+lteNat n k = case compareNat n k of
+  NatLT _ -> unsafeCoerce TrueRepr
+  NatEQ ->   unsafeCoerce TrueRepr
+  NatGT _ -> unsafeCoerce FalseRepr
+axiom :: forall n. ((n <=? 0) ~ 'False) => (1 <=? n) :~: 'True
+axiom = unsafeCoerce Refl
+-}
+-----------------------------------------------------------------
+{-
+lookupVarRepr :: forall n ctx1 def.  CtxRepr ctx1 -> TypeRepr def -> TypeRepr (LookupVarType n ctx1 def)
 lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
-  case isZeroNat n of
-    ZeroNat    -> ty
-    NonZeroNat ->
-      --  (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
+  case lteNat n (knownNat :: NatRepr 0) of
+    TrueRepr  -> ty
+    FalseRepr -> case axiom @n of
+      Refl -> lookupVarRepr (subNat n (knownNat :: NatRepr 1)) ctx def
+lookupVarRepr _n Ctx.Empty def = def
+instantiateVarRepr ::   CtxRepr subst -> NatRepr k -> TypeRepr (Instantiate subst (VarType k))
+instantiateVarRepr n subst k =
+  case lteNat n k  of
+    TrueRepr  -> lookupVarRepr (subNat k n) subst (VarRepr k)
+    FalseRepr -> VarRepr k
+liftVarRepr ::  NatRepr m -> NatRepr k -> NatRepr (LiftVarType n m k)
+liftVarRepr n m k = case lteNat n k of
+  TrueRepr -> (addNat k m)
+  FalseRepr -> k
+-}
 
-      unsafeCoerce (lookupVarRepr (predNat n) ctx)
-lookupVarRepr _n Ctx.Empty = error "this case is a type error"

@@ -95,7 +95,7 @@ import Lang.Crucible.FunctionHandle
 import Numeric.Natural ()
 
 
-liftSyntaxParse :: (MonadError (ExprErr s) m, MonadST h m)
+liftSyntaxParse :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
                   => SyntaxParse Atomic h a -> AST s -> m a
 liftSyntaxParse p ast =
   liftST (syntaxParseST p ast) >>= \case
@@ -1009,14 +1009,10 @@ initProgState builtIns ha = ProgramState fns Map.empty ha
         , Dict <- maybeToList (checkClosed (handleReturnType h))
         ]
 
-<<<<<<< HEAD
-initSyntaxState :: NonceGenerator (ST h) s -> ProgramState h s -> SyntaxState h s
-initSyntaxState =
-  SyntaxState Map.empty Map.empty Map.empty
-=======
+
 initSyntaxState :: ProgramState h s -> SyntaxState h s
-initSyntaxState = SyntaxState Map.empty Map.empty [] Map.empty 0 0
->>>>>>> Preliminary parser support for polymorphism
+initSyntaxState =
+  SyntaxState Map.empty Map.empty [] Map.empty 0 0 
 
 stxLabels :: Simple Lens (SyntaxState h s) (Map LabelName (LabelInfo s))
 stxLabels = lens _stxLabels (\s v -> s { _stxLabels = v })
@@ -1027,19 +1023,12 @@ stxAtoms = lens _stxAtoms (\s v -> s { _stxAtoms = v })
 stxRegisters :: Simple Lens (SyntaxState h s) (Map RegName (Pair TypeRepr (Reg s)))
 stxRegisters = lens _stxRegisters (\s v -> s { _stxRegisters = v })
 
-<<<<<<< HEAD
+
 stxNonceGen :: Getter (SyntaxState h s) (NonceGenerator (ST h) s)
 stxNonceGen = to _stxNonceGen
-=======
+
 stxTypeArgs :: Simple Lens (SyntaxState h s) [TyVarName]
 stxTypeArgs = lens _stxTypeArgs (\s v -> s { _stxTypeArgs = v })
-
-stxNextLabel :: Simple Lens (SyntaxState h s) Int
-stxNextLabel = lens _stxNextLabel (\s v -> s { _stxNextLabel = v })
-
-stxNextAtom :: Simple Lens (SyntaxState h s) Int
-stxNextAtom = lens _stxNextAtom (\s v -> s { _stxNextAtom = v })
->>>>>>> Preliminary parser support for polymorphism
 
 stxProgState :: Simple Lens (SyntaxState h s) (ProgramState h s)
 stxProgState = lens _stxProgState (\s v -> s { _stxProgState = v })
@@ -1860,28 +1849,18 @@ instance MonadST h (TopParser h s) where
 
 
 initParser :: forall h s m
-<<<<<<< HEAD
             . (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m, MonadST h m)
            => FunctionHeader
            -> FunctionSource s
            -> m ()
-initParser (FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _) (FunctionSource regs _) =
-  do ng <- use stxNonceGen
-     progState <- use stxProgState
-     put $ initSyntaxState ng progState
-=======
-            . (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
-           => FunctionHeader
-           -> FunctionSource s
-           -> m ()
 initParser header (FunctionSource regs _) =
+  do ng <- use stxNonceGen
 
-  do (Pair (Const tyArgs) funArgs) <-
+     (Pair (Const tyArgs) funArgs) <-
            case header of
              FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _ -> return (Pair (Const []) funArgs)
              PolyFunctionHeader _ ty (funArgs :: Ctx.Assignment Arg init) _ _ _ -> return (Pair (Const ty) funArgs)
      with stxProgState $ put . initSyntaxState
->>>>>>> Preliminary parser support for polymorphism
      let types = argTypes funArgs
      inputAtoms <- liftST $ mkInputAtoms ng (OtherPos "args") types
      saveArgs funArgs inputAtoms
@@ -1902,19 +1881,6 @@ cfgs :: [AST s] -> TopParser h s [ACFG]
 cfgs defuns =
   do headers <- catMaybes <$> traverse topLevel defuns
      forM headers $
-<<<<<<< HEAD
-       \(hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
-         do let types = argTypes funArgs
-            initParser hdr src
-            let ?returnType = ret
-            st <- get
-            (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
-            put st'
-            let entry = case blockID (head theBlocks) of
-                  LabelID lbl -> lbl
-                  LambdaID {} -> error "initial block is lambda"
-            return $ ACFG types ret $ CFG handle entry theBlocks
-=======
        \case
          (hdr@(FunctionHeader _ funArgs ret handle _), src@(FunctionSource _ body)) ->
            do let types = argTypes funArgs
@@ -1936,4 +1902,4 @@ cfgs defuns =
               i <- freshAtomIndex
               j <- freshLabelIndex
               return $ ACFG types ret $ CFG handle theBlocks i j
->>>>>>> Preliminary parser support for polymorphism
+

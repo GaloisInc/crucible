@@ -1044,7 +1044,7 @@ atomicRWOp op x y =
                    L.AtomicMax  -> app $ BVSMax w xbv ybv
                    L.AtomicMin  -> app $ BVSMin w xbv ybv
                    L.AtomicUMax -> app $ BVUMax w xbv ybv
-                   L.AtomicUMin -> app $ BVUMin w xbv ybv
+                   L.AcomicUMin -> app $ BVUMin w xbv ybv  -- TODO: typo in Text.LLVM.AST
             return $ BaseExpr (LLVMPointerRepr w) $ BitvectorAsPointerExpr w newval
 
     _ -> fail $ unwords ["atomicRW operation on incompatible values", show x, show y]

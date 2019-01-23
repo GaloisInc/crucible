@@ -1168,10 +1168,10 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- Polymorphic functions
     
-    PolyHandleLit h -> PolyFnRepr (handleArgTypes h) (handleReturnType h)
-    PolyInstantiate (PolyFnRepr args tp) _ subst ->
-      FunctionHandleRepr (instantiate subst args)
-                         (instantiate subst tp)
+    PolyHandleLit k h -> PolyFnRepr k (handleArgTypes h) (handleReturnType h)
+    PolyInstantiate (PolyFnRepr _k args ret) _ targs ->
+      FunctionHandleRepr (instantiate (mkSubst targs) args)
+                         (instantiate (mkSubst targs) ret)
     ----------------------------------------------------------------------
     -- Conversions
     NatToInteger{} -> knownRepr

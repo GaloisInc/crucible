@@ -871,6 +871,6 @@ toSSA g = do
               ++ " does not match expected " ++ show initTypes
               ++ ":\nwhile SSA converting function " ++ show hn
             Just Refl -> do
-              let cvtCFG (CFG h _ _ _) = C.CFG h block_map (C.BlockID idx)
+              let cvtCFG (CFG h _ _ ) = C.CFG h block_map (C.BlockID idx)
               let g' = cvtCFG g
               reachableCFG g'

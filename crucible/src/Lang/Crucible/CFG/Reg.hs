@@ -32,18 +32,12 @@
 module Lang.Crucible.CFG.Reg
   ( -- * CFG
     CFG(..)
-<<<<<<< HEAD
   , cfgEntryBlock
-=======
->>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
   , cfgHandleName
   , cfgInputTypes
   , cfgReturnType
   , updateCFG
-<<<<<<< HEAD
   , substCFG  
-=======
->>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
   , SomeCFG(..)
   , Label(..)
   , substLabel
@@ -52,14 +46,9 @@ module Lang.Crucible.CFG.Reg
   , BlockID(..)
   , substBlockID
   , Reg(..)
-<<<<<<< HEAD
   , substReg
 
   -- * Atoms
-=======
-  
-    -- * Atoms
->>>>>>> midstream commit. Not sure if we need polymorphic calls as statements.
   , Atom(..)
   , substAtom
   , AtomSource(..)
@@ -847,9 +836,6 @@ data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
 cfgHandleName :: CFG ext s init ret -> FunctionName
 cfgHandleName (CFG {cfgHandle=h}) = handleName h
 
-cfgHandleName :: CFG ext s init ret -> FunctionName
-cfgHandleName (CFG {cfgHandle=h}) = handleName h
-
 cfgEntryBlock :: CFG ext s init ret -> Block ext s ret
 cfgEntryBlock g =
   case Fold.find (\b -> blockID b == LabelID (cfgEntryLabel g)) (cfgBlocks g) of
@@ -862,8 +848,8 @@ cfgInputTypes (CFG {cfgHandle=h}) = handleArgTypes h
 cfgReturnType :: CFG ext s init ret -> TypeRepr ret
 cfgReturnType (CFG {cfgHandle=h}) = handleReturnType h
 
-updateCFG :: [Block ext s' ret] -> CFG ext s init ret -> CFG ext s' init ret
-updateCFG b (CFG h _ n l) = CFG h b n l
+updateCFG :: [Block ext s ret] -> CFG ext s init ret -> CFG ext s init ret
+updateCFG b (CFG h e _) = CFG h e b 
 
 
 -- | Rename all the atoms, labels, and other named things in the CFG.

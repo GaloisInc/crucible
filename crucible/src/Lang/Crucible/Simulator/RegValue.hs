@@ -177,22 +177,6 @@ instantiatePolyFnVal subst (ClosureFnVal fnv (ty :: TypeRepr ty) argty)
   = ClosureFnVal (instantiateFnVal subst fnv) ty argty
 -}
 
--- | Extract the runtime representation of the type of the given 'FnVal'
-fnValType :: FnVal sym ty -> TypeRepr ty
-fnValType (HandleFnVal h) = handleExprType h
-fnValType (ClosureFnVal fn _ _) =
-  case fnValType fn of
-    FunctionHandleRepr allArgs r ->
-      case allArgs of
-        args Ctx.:> _ -> FunctionHandleRepr args r
-
-instance Show (FnVal sym t) where
-  show = show . closureFunctionName
-
-
--- | Version of 'MuxFn' specialized to 'RegValue'
-type ValMuxFn sym tp = MuxFn (Pred sym) (RegValue sym tp)
-
 ------------------------------------------------------------------------
 -- CanMux
 
