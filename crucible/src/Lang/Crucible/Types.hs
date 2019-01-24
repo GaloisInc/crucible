@@ -85,6 +85,7 @@ module Lang.Crucible.Types
   , Closed(..)
   , Instantiate
   , Liftn
+  , liftn
   , InstantiateF(..)
   , InstantiateFC(..)
   , InstantiateType(..)
@@ -107,6 +108,7 @@ module Lang.Crucible.Types
   , PeanoRepr(..)
 
   -- ** Evidence for closedness
+  , Dict(..)
   , assumeClosed
   , checkClosed
   , checkClosedCtx
@@ -599,15 +601,23 @@ class InstantiateType (ty :: Type) where
   instantiate :: SubstRepr subst -> ty -> Instantiate subst ty
 
 -- | Defines instantiation for SyntaxExtension (must create an instance of this
--- class, but instance can be trivial if polymorphism is not used.
-class InstantiateF (t :: k -> Type) where
-  instantiateF ::  SubstRepr subst -> t a -> (Instantiate subst t) (Instantiate subst a)
+-- class, but instance can be trivial if polymorphism is not used.)
+type instance Instantiate subst ((a :: (CrucibleType -> Type) -> CrucibleType -> Type) b)
+  = Instantiate subst a (Instantiate subst b)
+class InstantiateFC (a :: (CrucibleType -> Type) -> CrucibleType -> Type) where
+  instantiateFC :: InstantiateF b =>  SubstRepr subst -> a b c
+    -> Instantiate subst (a b) (Instantiate subst c)
+  instantiateFC _ _ = error "instantiateFC: must be defined to use polymorphism"
+
+-- | Helper class for syntax extensions and also assignments.
+-- Because we want to use this with Ctx.Assignment, it must be *polymorphic*
+type instance Instantiate subst ((a :: k -> Type) b)
+  = Instantiate subst a (Instantiate subst b)
+class InstantiateF (a :: k -> Type) where
+  instantiateF ::  SubstRepr subst -> a b -> Instantiate subst (a b)
   instantiateF _ _ = error "instantiateF: must be defined to use polymorphism"
 
 -- | Also for syntax extensions
-class InstantiateFC (t :: (k -> Type) -> l -> Type) where
-  instantiateFC :: InstantiateF a =>  SubstRepr subst -> t a b -> Instantiate subst (t a b)
-  instantiateFC _ _ = error "instantiateFC: must be defined to use polymorphism"
 
 
 -- | Types that do not contain any free type variables. If they are
@@ -844,7 +854,7 @@ checkClosed (StringMapRepr t) =
 checkClosed (SymbolicArrayRepr _ _) = Just Dict
 checkClosed (SymbolicStructRepr _) = Just Dict
 checkClosed (VarRepr _) = Nothing
-checkClosed (PolyFnRepr _ _ _) = Nothing -- conservative!!! -- Just Dict -- Can this possibly be right?
+checkClosed (PolyFnRepr _ _ _) = Nothing -- conservative!!! 
 
 
 --------------------------------------------------------------------------------
@@ -906,37 +916,31 @@ instance (InstantiateFC t, InstantiateF a) => InstantiateF (t a) where
 
 -- k = Type (needed for trivial syntax extensions)
 type instance Instantiate subst () = ()
-type instance Instantiate subst (a b :: Type) = Instantiate subst a (Instantiate subst b)
-type instance Instantiate subst (a b :: k -> Type) = Instantiate subst a (Instantiate subst b)
-type instance Instantiate subst (a b :: k -> l -> Type) = Instantiate subst a (Instantiate subst b)
 
 -- Ctx & Assignment
 
--- k = (k' -> Type) -> Ctx k' -> Type
-type instance Instantiate subst Ctx.Assignment = Ctx.Assignment
+-- k = (CrucibleType -> Type) -> Ctx CrucibleType -> Type
+type instance Instantiate subst (Ctx.Assignment f) = Ctx.Assignment (Instantiate subst f) 
 -- k = Ctx k'
 type instance Instantiate subst EmptyCtx = EmptyCtx
 type instance Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
 
-
 -- Ctx.Assignment :: (k -> Type) -> Ctx k -> Type
-instance InstantiateFC Ctx.Assignment where
-  instantiateFC _subst Ctx.Empty = Ctx.Empty
-  instantiateFC subst (ctx Ctx.:> ty) = instantiate subst ctx Ctx.:> instantiate subst ty
+instance InstantiateF f => InstantiateType (Ctx.Assignment f ctx) where
+  instantiate _subst Ctx.Empty = Ctx.Empty
+  instantiate subst (ctx Ctx.:> ty) = instantiate subst ctx Ctx.:> instantiate subst ty
 
 
 -- Ctx.Index :: Ctx k -> CrucibleType -> Type
 -- Ctx.Index is just a number
-type instance Instantiate subst Ctx.Index = Ctx.Index
+type instance Instantiate subst (Ctx.Index ctx) = Ctx.Index (Instantiate subst ctx)
 instance InstantiateF (Ctx.Index ctx) where
   instantiateF _subst idx = unsafeCoerce idx
 
-
-
 -- BaseTypeRepr
-type instance Instantiate subst BaseTypeRepr = BaseTypeRepr
-instance InstantiateF BaseTypeRepr where
-  instantiateF subst (r :: BaseTypeRepr bt)
+type instance Instantiate subst BaseTypeRepr = BaseTypeRepr 
+instance InstantiateType (BaseTypeRepr ty) where
+  instantiate subst (r :: BaseTypeRepr bt)
     | Refl <- closed @_ @bt subst
     = r
 
@@ -944,8 +948,6 @@ instance InstantiateF BaseTypeRepr where
 
   
 -- TypeRepr
-
-
 substVar :: SubstRepr s -> PeanoRepr n -> TypeRepr (SubstVar s n)
 substVar IdRepr n = VarRepr n
 substVar SuccRepr n = VarRepr (SRepr n)

@@ -537,19 +537,19 @@ instance ExtendContext (TermStmt blocks ret) where
 ------------------------------------------------------------------------------------
 -- Instantiation / type substitution
 
-type instance Instantiate subst Reg = Reg
+type instance Instantiate subst (Reg ctx) = Reg (Instantiate subst ctx)
 instance InstantiateF (Reg ctx) where
   instantiateF subst (Reg idx) = Reg (instantiate subst idx)
 
-type instance Instantiate subst BlockID = BlockID 
+type instance Instantiate subst (BlockID blocks) = BlockID (Instantiate subst blocks)
 instance InstantiateF (BlockID blocks) where
   instantiateF subst (BlockID idx) = BlockID (instantiate subst idx)
 
-type instance Instantiate subst Expr = Expr 
+type instance Instantiate subst (Expr ext ctx) = Expr ext (Instantiate subst ctx)
 instance (IsSyntaxExtension ext) => InstantiateF (Expr ext ctx) where
   instantiateF subst (App app) = App (instantiate subst app)
 
-type instance Instantiate subst Stmt = Stmt  
+type instance Instantiate subst (Stmt ext ctx) = Stmt ext (Instantiate subst ctx)  
 instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
   instantiateF subst s 
       | Refl <- closed @_ @ext subst,
@@ -580,7 +580,8 @@ instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
         (Assert reg1 reg2) -> Assert (instantiate subst reg1) (instantiate subst reg2)
         (Assume reg1 reg2) -> Assume (instantiate subst reg1) (instantiate subst reg2)
 
-type instance Instantiate subst TermStmt = TermStmt 
+type instance Instantiate subst (TermStmt blocks ret)
+  = TermStmt (Instantiate subst blocks) (Instantiate subst ret)
 instance InstantiateF (TermStmt blocks ret) where
   instantiateF = instantiateTermStmt where
     instantiateTermStmt :: SubstRepr subst
@@ -603,7 +604,8 @@ instance InstantiateF (TermStmt blocks ret) where
       (instantiate subst args)
     instantiateTermStmt subst (ErrorStmt reg) = ErrorStmt (instantiate subst reg)
 
-type instance Instantiate subst (StmtSeq ext) = StmtSeq ext
+type instance Instantiate subst (StmtSeq ext block ret)
+  = StmtSeq ext (Instantiate subst block) (Instantiate subst ret)
 instance IsSyntaxExtension ext => InstantiateF (StmtSeq ext block ret) where
   instantiateF = instantiateStmtSeq where
     instantiateStmtSeq :: forall subst ext block ctx ret. IsSyntaxExtension ext
@@ -614,7 +616,8 @@ instance IsSyntaxExtension ext => InstantiateF (StmtSeq ext block ret) where
         (ConsStmt loc stmt sseq) -> ConsStmt loc (instantiate subst stmt) (instantiate subst sseq)
         (TermStmt loc termstmt)  -> TermStmt loc (instantiate subst termstmt)
  
-type instance Instantiate subst (Block ext) = Block ext 
+type instance Instantiate subst (Block ext blocks ret)
+  = Block ext (Instantiate subst blocks)(Instantiate subst ret)
 instance  IsSyntaxExtension ext => InstantiateF (Block ext blocks ret) where
 
   instantiateF = instantiateBlock where
@@ -625,7 +628,8 @@ instance  IsSyntaxExtension ext => InstantiateF (Block ext blocks ret) where
       inputs' = instantiate subst inputs
       stmts'  = instantiate subst stmts
 
-type instance Instantiate subst SwitchTarget = SwitchTarget 
+type instance Instantiate subst (SwitchTarget blocks ctx)
+  = SwitchTarget (Instantiate subst blocks) (Instantiate subst ctx)
 instance InstantiateF (SwitchTarget blocks ctx)  where
 
   instantiateF = instantiateSwitch where
@@ -636,7 +640,7 @@ instance InstantiateF (SwitchTarget blocks ctx)  where
                    (instantiate subst argTys)
                    (instantiate subst args)
 
-type instance Instantiate subst JumpTarget = JumpTarget 
+type instance Instantiate subst (JumpTarget blocks) = JumpTarget (Instantiate subst blocks)
 instance InstantiateF (JumpTarget blocks) where
 
   instantiateF = instantiateJumpTarget where

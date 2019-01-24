@@ -117,11 +117,11 @@ instance FoldableFC BaseTerm where
 instance TraversableFC BaseTerm where
   traverseFC f (BaseTerm tp x) = BaseTerm tp <$> f x
 
-type instance Instantiate subst BaseTerm = BaseTerm
+type instance Instantiate subst (BaseTerm f) 
+  = BaseTerm (Instantiate subst f) 
 
-instance InstantiateFC BaseTerm where
-
-  instantiateFC subst (BaseTerm (btr :: BaseTypeRepr btr) val)
+instance InstantiateF f => InstantiateF (BaseTerm f) where
+  instantiateF subst (BaseTerm (btr :: BaseTypeRepr btr) val)
     | Refl <- closed @_ @(BaseTypeRepr btr) subst =
     BaseTerm btr (instantiate subst val)
 
@@ -1467,7 +1467,7 @@ mapApp f a = runIdentity (traverseApp (pure . f) a)
 -- Type Instantiation
 
 -- App :: Type -> (CrucibleType -> Type) -> CrucibleType -> Type
-type instance Instantiate subst App = App
+type instance Instantiate subst (App ext) = App ext
 instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
    instantiateFC (subst :: SubstRepr subst) app 
       | Refl <- closed @_ @ext subst,
@@ -1632,28 +1632,10 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
             | Refl <- swapMkSubstAxiom @subst @k @targs @ret,
               Refl <- swapMkSubstAxiom @subst @k @targs @args
             ->              
-{-              let  ty' :: PolyFnType k (Instantiate (Liftn k subst) args)
-                                       (Instantiate (Liftn k subst) ret)
-                   -- == (Instantiate subst (PolyFnRepr k args ret))
-                   ty' = instantiate subst ty
-
-                   r1' :: _ ty'
-                   r1' = instantiate subst r1
-
-                   targs' :: Instantiate subst targs
-                   targs' = instantiate subst targs
-
-                   ans :: Instantiate  (Instantiate subst targs)
-                       (FunctionHandleType 
-                         (Instantiate (Liftn k subst) args)
-                         (Instantiate (Liftn k subst) ret))
-                   ans = PolyInstantiate ty' r1' targs'
-                   
-              in -}
-                (PolyInstantiate
+              PolyInstantiate
                    (instantiate subst ty)
                    (instantiate subst r1)
-                   (instantiate subst targs))
+                   (instantiate subst targs)
                      
 
 
