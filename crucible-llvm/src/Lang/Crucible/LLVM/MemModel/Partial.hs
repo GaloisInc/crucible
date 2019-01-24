@@ -23,7 +23,12 @@
 -- generalized in a suitable way for inclusion into What4? See also the
 -- comment on 'AndOrITE'.
 --
+-- More detail: There should be a type (family) of safety assertions keyed on
+-- the syntax extension. Instead of strings, these assertions should be paired
+-- with one of those values.
+--
 -- TODO: Better story for error messages for 'Unassigned' values
+--
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
@@ -52,18 +57,21 @@ import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (liftIO, MonadIO)
 import           Control.Monad.State.Strict (State, get, put, runState)
 import           Data.Data (Data)
-import           Data.Text (Text)
-import           Data.Semigroup (sconcat)
 import           Data.List.NonEmpty (NonEmpty((:|)))
-import qualified Data.Vector as V
+import           Data.Maybe (catMaybes)
+import           Data.Semigroup (sconcat)
+import           Data.Text (Text, unpack)
 import           Data.Vector (Vector)
 import           Data.Word (Word64)
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import qualified Data.Vector as V
 
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(..))
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Panic (panic)
+import           Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
@@ -80,7 +88,6 @@ import           What4.Partial (PartExpr(..))
 -- ** AndOrITE
 --
 
--- Specializing the above type to the case of LLVM values...
 -- | A type representing an AST consisting of
 --  * "atomic" predicates
 --  * a list of predicates 'And'-ed together
@@ -99,7 +106,7 @@ import           What4.Partial (PartExpr(..))
 -- TODO: Consider constantly-true and constantly-false leaves ('returnLLVMVal'')
 data AndOrITE a =
     Leaf a
-  | And    [AndOrITE a]
+  | And    [AndOrITE a] -- TODO: nonempty lists
   | Or     [AndOrITE a]
   | Ite  a (AndOrITE a) (AndOrITE a)
   deriving (Data, Eq, Functor, Foldable, Traversable, Ord, Show)
@@ -109,8 +116,8 @@ instance Semigroup (AndOrITE a) where
   a1 <> a2 = And [a1, a2]
 
 -- | Also not really associative...
-(<+>) :: AndOrITE a -> AndOrITE a -> AndOrITE a
-a1 <+> a2 = Or [a1, a2]
+-- (<+>) :: AndOrITE a -> AndOrITE a -> AndOrITE a
+-- a1 <+> a2 = Or [a1, a2]
 
 -- | Catamorphisms for the 'AndOrITE' type
 cataAOI :: (a -> b)           -- ^ 'Leaf' case
@@ -126,6 +133,28 @@ cataAOI leaf and_ or_ ite val =
     Or   l      -> or_  (map r l)
     Ite a t1 t2 -> ite a (r t1) (r t2)
   where r = cataAOI leaf and_ or_ ite
+
+-- | Add an additional piece of information to an 'AndOrIte' tree
+tagAOI :: (a   -> c)         -- ^ 'Leaf' case
+       -> ([c] -> c)         -- ^ Summarize child tags ('And' case)
+       -> ([c] -> c)         -- ^ Summarize child tags ('Or' case)
+       -> (a -> c -> c -> c) -- ^ Summarize child tags ('Ite' case)
+       -> AndOrITE a
+       -> (AndOrITE (a, c), c)
+tagAOI leaf summarizeAnd summarizeOr summarizeITE =
+  cataAOI
+    (\lf      ->
+       let tag = leaf lf
+       in (Leaf (lf, tag), tag))
+    (\factors ->
+       let tag = summarizeAnd (map snd factors)
+       in (And (map fst factors), tag))
+    (\summands ->
+       let tag = summarizeOr (map snd summands)
+       in (Or (map fst summands), tag))
+    (\cond t1 t2 ->
+       let tag = summarizeITE cond (snd t1) (snd t2)
+       in (Ite (cond, tag) (fst t1) (fst t2), tag))
 
 -- | Monadic catamorphisms for the 'AndOrITE' type
 --
@@ -146,8 +175,43 @@ cataMAOI leaf and_ or_ ite = cataAOI
     t2' <- t2
     ite a t1' t2') -- Ite
 
--- ppAndOrITE :: (a -> Text) -> AndOrITE a -> Text
--- ppAndOrITE = _ -- TODO
+-- | Simplify an tree with 'Pred' in it with 'asConstantPred'
+--
+-- The original tree is included with a 'Maybe Bool' that might summarize it's
+-- (constant) value.
+asConstAOI_ :: (IsExprBuilder sym) =>
+  sym -> (a -> Pred sym) -> AndOrITE a -> (AndOrITE (a, Maybe Bool), Maybe Bool)
+asConstAOI_ _sym f =
+  tagAOI
+    (W4I.asConstantPred . f)
+    (\factors    ->
+       let factors' = catMaybes factors
+       in if any not factors'
+          then Just False
+          else if length factors' == length factors
+               then Just True
+               else Nothing)
+    (\summands    ->
+       let summands' = catMaybes summands
+       in if or summands'
+          then Just True
+          else if length summands' == length summands
+               then Just False
+               else Nothing)
+    (\_ t1 t2 ->
+       case (t1, t2) of
+         (Just True, Just True)   -> Just True
+         (Just False, Just False) -> Just False
+         _                        -> Nothing)
+
+-- | Like 'asConstPred', but for assertion trees.
+asConstAOI :: (IsExprBuilder sym)
+           => sym
+           -> (a -> Pred sym)
+           -> AndOrITE a
+           -> Maybe Bool
+asConstAOI sym f = snd . asConstAOI_ sym f
+
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal'
@@ -166,6 +230,29 @@ llvmAssert = flip LLVMValAssertion Nothing
 
 type AssertionTree sym = AndOrITE (LLVMValAssertion sym)
 
+ppAssertionTree :: (IsExprBuilder sym) => sym -> AssertionTree sym -> Doc
+ppAssertionTree sym tree =
+  let (tree', _) = asConstAOI_ sym _pred tree
+  in
+    cataAOI
+      (\(lf, mb) -> text' (_explanation lf) <+> mbToText mb) -- TODO(langston): UB
+      (\factors ->
+         text' "All of "
+         <$$> indent 2 (vcat factors))
+      (\summands ->
+         text' "Any of "
+         <$$> indent 2 (vcat summands))
+      (\(cond, mb) doc1 doc2 ->
+         text' "If " <+> text' (_explanation cond) <+> mbToText mb <$$>
+         indent 2 (vcat [ "then " <+> doc1
+                        , "else " <+> doc2
+                        ]))
+      tree'
+  where mbToText (Just True)  = text "(known-true)"
+        mbToText (Just False) = text "(known-false)"
+        mbToText Nothing      = mempty
+        text' = text . unpack
+
 type PartLLVMVal' sym = PartExpr (AssertionTree sym) (LLVMVal sym)
 
 -- | A monadic catamorphism, collapsing everything to one predicate.
@@ -183,12 +270,12 @@ fromPart' :: PartLLVMVal sym -> Text -> PartLLVMVal' sym
 fromPart' Unassigned   _   = Unassigned
 fromPart' (W4P.PE p v) txt = W4P.PE (Leaf (LLVMValAssertion txt Nothing p)) v
 
-fromPart :: PartLLVMVal sym -> PartLLVMVal' sym
-fromPart = flip fromPart' "<fromPart>"
+-- fromPart :: PartLLVMVal sym -> PartLLVMVal' sym
+-- fromPart = flip fromPart' "<fromPart>"
 
-toPart :: (IsExprBuilder sym) => sym -> PartLLVMVal' sym -> IO (PartLLVMVal sym)
-toPart _   Unassigned  = pure Unassigned
-toPart sym (W4P.PE t v) = W4P.PE <$> (collapseAssertionTree sym t) <*> pure v
+-- toPart :: (IsExprBuilder sym) => sym -> PartLLVMVal' sym -> IO (PartLLVMVal sym)
+-- toPart _   Unassigned  = pure Unassigned
+-- toPart sym (W4P.PE t v) = W4P.PE <$> (collapseAssertionTree sym t) <*> pure v
 
 -- | An 'LLVMVal' which is always valid.
 returnPartLLVMVal' :: (IsExprBuilder sym) => sym -> LLVMVal sym -> PartLLVMVal' sym
@@ -196,6 +283,17 @@ returnPartLLVMVal' sym v = fromPart' (W4P.PE (W4I.truePred sym) v) "<const true>
 
 explainPartLLVMVal' :: Pred sym -> Text -> LLVMVal sym -> PartLLVMVal' sym
 explainPartLLVMVal' p txt v = fromPart' (W4P.PE p v) txt
+
+assertPartLLVMVal' ::
+  (IsExprBuilder sym, IsBoolSolver sym) =>
+  sym ->
+  PartLLVMVal' sym ->
+  IO (Maybe (LLVMVal sym))
+assertPartLLVMVal' _sym Unassigned    = pure Nothing
+assertPartLLVMVal' sym  (PE tree val) = do
+  collapsed <- collapseAssertionTree sym tree
+  assert sym collapsed (AssertFailureSimError (show (ppAssertionTree sym tree)))
+  pure (Just val)
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal interface

@@ -66,6 +66,7 @@ import Control.Lens
 import Control.Monad
 import Data.IORef
 import Data.Maybe
+import Data.Text ()
 import qualified Data.Map as Map
 import qualified Data.Vector as V
 import Numeric.Natural
@@ -928,13 +929,20 @@ readMem ::
   StorageType ->
   Alignment ->
   Mem sym ->
-  IO (PartLLVMVal sym, Pred sym, Pred sym)
+  IO (PartLLVMVal' sym)
 readMem sym w l tp alignment m = do
-  sz   <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-  p1   <- isAllocated sym w alignment l (Just sz) m
-  p2   <- isAligned sym w l alignment
-  val  <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
-  return (val, p1, p2)
+  sz      <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
+  p1      <- isAllocated sym w alignment l (Just sz) m
+  p2      <- isAligned sym w l alignment
+  PE p v  <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
+  let expl s = "While reading a value from memory:" <> s
+  let exp1   = expl "The pointer should fall in an allocated region"
+  let exp2   = expl "The pointer's alignment should be correct"
+  let p' = Partial.And [ p
+                       , Partial.Leaf (Partial.llvmAssert exp1 p1)
+                       , Partial.Leaf (Partial.llvmAssert exp2 p2)
+                       ]
+  return $ PE p' v
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
