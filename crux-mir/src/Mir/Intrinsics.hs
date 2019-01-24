@@ -121,6 +121,8 @@ import           Mir.PP
 
 import           Debug.Trace
 
+import           Unsafe.Coerce
+
 -- A MirReference is a Crucible RefCell paired with a path to a subcomponent
 
 type MirReferenceSymbol = "MirReference"
@@ -455,7 +457,8 @@ data FnState (s :: Type)
               _adtMap    :: !AdtMap,
               _traitMap  :: !(TraitMap s),
               _staticTraitMap :: !StaticTraitMap,
-              _debugLevel :: !Int
+              _debugLevel :: !Int,
+              _preds     :: [Predicate]
             }
 
 
@@ -538,44 +541,41 @@ data TraitImpls (s::Type) ctx = TraitImpls
 -- TODO: For now, traits only include methods, not constants
 -- by default, we quantify over all type variables in the FnHandle's type
 
-type ImplementSubst implTy = ExtendSubst (VarType ZP) (ExtendSubst implTy IdSubst)
+-- Map 0 -> implTy and decrement all other type variables
+type ImplementSubst implTy = ('ExtendSubst implTy 'IdSubst)
 
 implementSubst :: TypeRepr implTy -> SubstRepr (ImplementSubst implTy)
-implementSubst implTy =  ExtendRepr (VarRepr ZRepr) (ExtendRepr implTy IdRepr)
+implementSubst implTy = ExtendRepr implTy IdRepr
 
 type family ImplementTrait (implTy :: CrucibleType) (arg :: k) :: k where
   -- Ctx k
   ImplementTrait implTy EmptyCtx = EmptyCtx
   ImplementTrait implTy (ctx ::> ty) = ImplementTrait implTy ctx ::> ImplementTrait implTy ty
   -- CrucibleType
-  ImplementTrait implTy (PolyFnType k args ret) = PolyFnType k (Instantiate (ImplementSubst implTy) args)
-                                                               (Instantiate (ImplementSubst implTy) ret)
+  ImplementTrait implTy (PolyFnType ('SP k) args ret) =
+      PolyFnType k  (Instantiate (ImplementSubst implTy) args)
+                    (Instantiate (ImplementSubst implTy) ret )
   ImplementTrait implTy (ty :: CrucibleType)  = Instantiate (ImplementSubst implTy) ty                                               
   -- Add other types for MirValue indices                                                
 
 
 implementRepr :: TypeRepr implTy -> TypeRepr ty -> TypeRepr (ImplementTrait implTy ty)
-implementRepr implTy (PolyFnRepr k args ret) =
+implementRepr implTy (PolyFnRepr (SRepr k) args ret) =
   PolyFnRepr k (instantiate (implementSubst implTy) args) (instantiate (implementSubst implTy) ret)
+--implementRepr implTy ty = instantiate (implementSubst implTy) ty
 
 implementCtxRepr :: TypeRepr implTy -> CtxRepr ctx -> CtxRepr (ImplementTrait implTy ctx)
 implementCtxRepr _implTy Empty = Empty
 implementCtxRepr implTy (ctx :> ty) = implementCtxRepr implTy ctx :> implementRepr implTy ty
 
+implementIdx :: TypeRepr implTy -> Index ctx a -> Index (ImplementTrait implTy ctx) (ImplementTrait implTy a)
+implementIdx _implTy idx = unsafeCoerce idx
 
 data MirValue s ty where
-  MirValue :: TypeRepr (implTy :: CrucibleType)
-           -> TypeRepr (ImplementTrait implTy ty)
-           -> Expr MIR s (ImplementTrait implTy ty)
+  MirValue :: TypeRepr (implTy :: CrucibleType)    
+           -> TypeRepr   (ImplementTrait implTy ty)
+           -> Expr MIR s (ImplementTrait implTy ty)  
            -> MirValue s ty
-{-
-data MirValue (ty :: CrucibleType) where
-  FnValue :: TypeRepr (implTy :: CrucibleType)
-    -> FnHandle (Instantiate (EmptyCtx ::> implTy) args)
-                (Instantiate (EmptyCtx ::> implTy) ret)
-    -> MirValue (PolyFnType args ret)
--}
-
 
 valueToExpr :: TypeRepr implTy -> MirValue s ty -> Expr MIR s (ImplementTrait implTy ty)
 valueToExpr wantedImpl (MirValue implRepr _ e)
@@ -584,13 +584,6 @@ valueToExpr wantedImpl (MirValue implRepr _ e)
   | otherwise 
   = error $ "Invalid implementation type. Wanted: " ++ show wantedImpl ++ "\n Got: " ++ show implRepr
   
-{-
-valueToExpr wantedImpl (FnValue implRepr handle)
-  | Just Refl <- testEquality wantedImpl implRepr 
-  =  App $ PolyHandleLit handle
-  | otherwise
-  = error $ "Invalid implementation type. Wanted: " ++ show wantedImpl ++ "\n Got: " ++ show implRepr
--}
 
 vtblToStruct :: TypeRepr implTy -> Assignment (MirValue s) ctx
              -> Assignment (Expr MIR s) (ImplementTrait implTy ctx)

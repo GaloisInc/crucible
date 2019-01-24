@@ -223,8 +223,8 @@ instance FromJSON Terminator where
                                                   Just (String "SwitchInt") ->
                                                     let  q :: Aeson.Parser [Maybe Integer]
                                                          q = do
-                                                           lmt <- v .: "values"
-                                                           mapM (mapM convertIntegerText) lmt
+                                                               lmt <- v .: "values"
+                                                               mapM (mapM convertIntegerText) lmt
                                                     in
                                                     SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> q <*> v .: "targets"
                                                   Just (String "Resume") -> pure Resume
@@ -435,8 +435,17 @@ instance FromJSON MirBody where
 instance FromJSON Predicate where
     parseJSON obj = case obj of
       Object v -> do
-         pobj <- v .: "trait_pred"
-         Predicate <$> pobj .: "trait" <*> pobj .: "substs"
+        mpobj <- v .:? "trait_pred"
+        case mpobj of
+          Just pobj -> do
+            TraitPredicate <$> pobj .: "trait" <*> pobj .: "substs"
+          Nothing -> do
+            mpobj <- v .:? "trait_proj"
+            case mpobj of
+              Just ppobj -> do
+                pobj <- ppobj .: "projection_ty"
+                TraitProjection <$> pobj .: "item_def_id" <*> pobj .: "substs" <*> ppobj .: "ty"
+              Nothing -> return UnknownPredicate
       String t | t == "unknown_pred" -> return UnknownPredicate
       wat -> Aeson.typeMismatch "Predicate" wat           
 

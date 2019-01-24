@@ -27,6 +27,8 @@ import Mir.Mir
 
 import GHC.Stack
 
+import Debug.Trace
+
 {-
 
 Look for sequences of statements of the form
@@ -80,7 +82,9 @@ isSetDiscriminant _ = Nothing
 -- I'm not sure we can find the right type, so we shouldn't include the type in that case.
 -- However, we need the indices for cstyle-enums later, so compute them now.
 makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> Statement
-makeAggregate updates (lv, k, adt) = Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos where
+makeAggregate updates (lv, k, adt) =
+      trace ("Creating aggregate for " ++ show adt_did) 
+        (Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos) where
   adt_did = _adtname adt
   ty  = if isCStyle adt then TyCustom (CEnum adt_did (adtIndices adt ?col))
         else TyAdt adt_did (Substs [])

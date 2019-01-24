@@ -18,6 +18,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TupleSections #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall
                 -fno-warn-name-shadowing
@@ -71,10 +72,11 @@ import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 -- will eventually move to parameterized-utils
-import Lang.Crucible.Types (Peano(..), PeanoRepr(..))
+import Lang.Crucible.Types (PeanoRepr(..))
 
 import GHC.Stack
 
+import Unsafe.Coerce
 import Debug.Trace
 
 somePeano :: Integer -> Maybe (Some PeanoRepr)
@@ -82,8 +84,12 @@ somePeano 0 = Just (Some ZRepr)
 somePeano i | i < 0 = Nothing
 somePeano i = case somePeano (i - 1) of
   Just (Some r) -> Just (Some (SRepr r))
+  Nothing -> Nothing
 
-
+peanoLength :: [a] -> Some PeanoRepr
+peanoLength [] = Some ZRepr
+peanoLength (_:xs) = case peanoLength xs of
+  Some n -> Some (SRepr n)
 
 
 -- See end of [Intrinsics] for definition of generator state FnState
@@ -155,6 +161,7 @@ tyToRepr t0 = case t0 of
   M.TyFnPtr _fnSig -> Some CT.AnyRepr
   M.TyDynamic _def -> Some CT.AnyRepr
   M.TyProjection _def _tyargs -> Some CT.AnyRepr
+  M.TyFnDef _def substs -> Some CT.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
 
 
@@ -346,7 +353,9 @@ transConstVal (Some (CT.StringRepr)) (M.ConstStr str) =
 transConstVal (Some (CT.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (CT.BVRepr w) (S.app $ E.BVLit w i)
-
+transConstVal (Some (CT.AnyRepr)) (M.ConstFunction did _substs) =
+    -- TODO: use this substs
+    buildClosureHandle did (Substs []) [] 
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
@@ -566,6 +575,8 @@ buildTaggedUnion' i v =
 getAllFields :: MirExp s -> MirGenerator h s ret ([MirExp s])
 getAllFields e =
     case e of
+      MirExp CT.UnitRepr _ -> do
+        return []
       MirExp (CT.StructRepr ctx) _ -> do
         let s = Ctx.sizeInt (Ctx.size ctx)
         mapM (accessAggregate e) [0..(s-1)]
@@ -575,6 +586,8 @@ getAllFields e =
 getAllFieldsMaybe :: MirExp s -> MirGenerator h s ret ([MirExp s])
 getAllFieldsMaybe e =
     case e of
+      MirExp CT.UnitRepr _ -> do
+        return []
       MirExp (CT.StructRepr ctx) _ -> do
         let s = Ctx.sizeInt (Ctx.size ctx)
         mapM (accessAggregateMaybe e) [0..(s-1)]
@@ -718,6 +731,8 @@ evalCast ck op ty = do
     e <- evalOperand op
     evalCast' ck (M.typeOf op) e ty
 
+-- Some dynamic traits have special implementation as objects
+
 mkCustomTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
 mkCustomTraitObject traitName (TyClosure fname args) e@(MirExp baseTyr baseValue)
    | M.did_name traitName == ("Fn", 0) = do
@@ -738,7 +753,8 @@ mkCustomTraitObject traitName baseType _ =
 -- | Create a new trait object for the given trait for the given value
 -- Fails if the type of the value does not implement the trait.
 -- A trait object is pair of the value (first coerced to Any) with
--- a coerced copy of the vtable for that type.
+-- a copy of the vtable for that type. To make this work we need to *wrap* the standard vtable
+-- for this type so that it accepted "Any" instead
 -- This pair is then packed to type AnyType.
 mkTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
 mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
@@ -749,9 +765,12 @@ mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
     case Map.lookup (typeName baseType) (timpls^.vtables) of
       Nothing -> mkCustomTraitObject traitName baseType e
       Just vtbl -> do
-        let vtableCtx = implementCtxRepr implRepr (timpls^.vtableTyRepr)
+        let baseTy    = (timpls^.vtableTyRepr)
+        traceM $ "pre-subst vtable type is  " ++ show baseTy
+        let vtableCtx = implementCtxRepr CT.AnyRepr baseTy
+        traceM $ "post-subst vtable type is " ++ show vtableCtx
         let ctxr      = Ctx.empty Ctx.:> CT.AnyRepr Ctx.:> CT.StructRepr vtableCtx
-        let assn      = S.mkStruct vtableCtx (vtblToStruct implRepr vtbl)
+        let assn      = S.mkStruct vtableCtx (vtblToStruct CT.AnyRepr vtbl)
         let cbv       = R.App $ E.PackAny implRepr baseValue
         let obj       = R.App $ E.PackAny (CT.StructRepr ctxr)
                            (S.mkStruct ctxr (Ctx.empty Ctx.:> cbv Ctx.:> assn))
@@ -912,28 +931,33 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
        es <- mapM evalOperand ops
        return $ buildTaggedUnion agv es
 
+
+
+
 -- A closure is (packed into an any) of the form [handle, arguments]
--- (arguments being those packed into the closure, not the function arguments)
-buildClosureHandle :: M.DefId -> Substs -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+-- (arguments being those variables packed into the closure, not the function arguments)
+-- NOTE: what if the closure has a polymorphic types?? How can we tell?
+buildClosureHandle :: M.DefId      -- ^ name of the function
+                    -> Substs      -- ^ types of the closed over variables 
+                    -> [MirExp s]  -- ^ values of the closed over variables
+                    -> MirGenerator h s ret (MirExp s)
 buildClosureHandle funid (Substs tys) args
-  | Just (Some k) <- somePeano (toInteger (length tys))
   = tyListToCtx tys $ \ subst -> do
       hmap <- use handleMap
       case (Map.lookup funid hmap) of
-        Just (MirHandle _ _ fhandle) -> do
-            let closure_arg = buildTuple args
-                arg_tys = FH.handleArgTypes fhandle
-                ret_ty  = FH.handleReturnType fhandle
-                poly_ty = CT.PolyFnRepr k arg_tys ret_ty
-                inst_ty = CT.FunctionHandleRepr (CT.instantiate (CT.mkSubst subst) arg_tys) (CT.instantiate (CT.mkSubst subst) ret_ty)
-                handle_cl = R.App $ E.PolyInstantiate poly_ty (S.app $ E.PolyHandleLit k fhandle) subst
-                handl = MirExp inst_ty handle_cl
-            let closure_unpack = buildTuple [handl, (packAny closure_arg)]
-            traceM $ "buildClosureHandle for " ++ show funid ++ " with ty args " ++ show (pretty tys)
-            return $ packAny closure_unpack
+        Just (MirHandle _ _ fhandle)
+          | Just CT.Dict <- CT.checkClosedCtx (FH.handleArgTypes fhandle)
+          , Just CT.Dict <- CT.checkClosed (FH.handleReturnType fhandle)
+            -> do
+              let closure_arg = buildTuple args
+                  inst_ty = FH.handleType fhandle
+                  handle_cl = R.App $ E.HandleLit fhandle
+                  handl = MirExp inst_ty handle_cl
+              let closure_unpack = buildTuple [handl, (packAny closure_arg)]
+              traceM $ "buildClosureHandle for " ++ show funid ++ " with ty args " ++ show (pretty tys)
+              return $ packAny closure_unpack
         _ ->
-          do fail ("buildClosureHandle: unknown function: " ++ show funid)
-buildClosureHandle _ _ _ = error "internal error"
+          do fail ("buildClosureHandle: unknown function: " ++ show funid ++ " or non-closed type ")
 
 buildClosureType :: M.DefId -> Substs -> MirGenerator h s ret (Some CT.TypeRepr, Some CT.TypeRepr) -- get type of closure, in order to unpack the any
 buildClosureType defid (Substs args') = do
@@ -1378,7 +1402,7 @@ first f (x:xs) = case f x of Just y  -> Just y
 -- for some args/ret
 lookupFunction :: forall h s ret. MethName -> Substs -> MirGenerator h s ret (Maybe (MirExp s))
 lookupFunction nm (Substs funsubst)
-  | Just (Some k) <- somePeano (toInteger (length funsubst)) = do
+  | Some k <- peanoLength funsubst = do
   hmap <- use handleMap
   (TraitMap tm) <- use traitMap
   stm  <- use staticTraitMap
@@ -1422,44 +1446,8 @@ lookupFunction nm (Substs funsubst)
               _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
                           ++ show (pretty ty) ++ " in the trait map: " ++ show fty
        | otherwise -> do
-            traceM $ "Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
+            -- traceM $ "Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
             return Nothing
-
-{-
--- If you can't find the handle with its original name
---   1. try adding the "stdlib" prefix
---   2. try looking up as a static trait method 
---   3. do both
-lookupHandle :: MethName -> Substs -> MirGenerator h s ret (Maybe MirHandle)
-lookupHandle funid substs = do
-  hmap <- use handleMap
-  stm  <- use staticTraitMap
-
-  -- We remove one layer of TyRef when we add the type to the domain of the
-  -- static trait map
-  let rmTopRef (TyRef ty _) = ty
-      rmTopRef ty           = ty
-
-  --traceM $ "lookupHandle (mangled) " ++ show (M.mangleTraitId funid)
-  --traceM $ "lookupHandle (substs) "  ++ show (map (fmap rmTopRef) substs)
-
-  case () of
-   () | Just mh <- Map.lookup funid hmap -> return $ Just mh
-
-      | Just mh <- Map.lookup (M.relocateDefId funid) hmap -> return $ Just mh
-
-      | Just tym   <- Map.lookup (M.mangleTraitId funid) stm,
-        Just (Just x,_) <- uncons substs,
-        Just mh    <- Map.lookup (typeName (rmTopRef x)) tym        
-        -> return $ Just mh
-
-      | Just tym   <- Map.lookup (M.relocateDefId (M.mangleTraitId funid)) stm,
-        Just (Just x,_) <- uncons substs,
-        Just mh    <- Map.lookup (typeName (rmTopRef x)) tym        
-        -> return $ Just mh
-
-      | otherwise -> return Nothing
--}
 
 -- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
 -- The ADT is a tagged union, so to do the coercion, we need to switch through the potential
@@ -1704,19 +1692,24 @@ methodCall traitName methodName (Substs funsubst) traitObject args (Just (dest_l
     Nothing -> fail $ Text.unpack $ Text.unwords $ ["Error while translating a method call: no such method ",
                                                     M.idText methodName, " in trait ", M.idText traitName]
     Just (Some midx) -> do
-      let vtableRepr = tis^.vtableTyRepr
-      -- polymorphic type of the function
-      let fnRepr     = vtableRepr Ctx.! midx
+      -- type of the vtable for this trait object, instantiated with "Any"
+      let vtableRepr = implementCtxRepr CT.AnyRepr (tis^.vtableTyRepr)
+      -- polymorphic type of the method <<specialized to object>>
+      let midx'      = implementIdx CT.AnyRepr midx
+      let fnRepr     = vtableRepr Ctx.! midx'
+
+      -- the object itself and its type (which should be CT.AnyRepr)
       (MirExp tp e) <- evalOperand traitObject
       exps          <- mapM evalOperand args
       case testEquality tp CT.AnyRepr of 
         Just Refl -> do
+          
           let objTy     = CT.StructRepr (Ctx.Empty Ctx.:> CT.AnyRepr Ctx.:> CT.StructRepr vtableRepr)
           let e1        = R.App $ E.UnpackAny objTy e
           let e2        = R.App $ E.FromJustValue objTy e1 (R.App (E.TextLit (fromString "unpack to struct")))
           let _baseValue = R.App $ E.GetStruct e2 Ctx.i1of2 CT.AnyRepr 
           let vtable    = R.App $ E.GetStruct e2 Ctx.i2of2 (CT.StructRepr vtableRepr)
-          let fn        = R.App $ E.GetStruct vtable midx fnRepr
+          let fn        = R.App $ E.GetStruct vtable midx' fnRepr
           case fnRepr of
              CT.FunctionHandleRepr fargctx fret ->
                 exp_to_assgn exps $ \ctx asgn -> do
@@ -1847,16 +1840,19 @@ initialValue (M.TyClosure defid (Substs (_i8:hty:closed_tys))) = do
    let closed_args = filterMaybes mclosed_args
    handle <- buildClosureHandle defid (Substs closed_tys) closed_args
    return $ Just $ handle
--- TODO: this case is wrong --- we need to know which branch of the ADT to
--- initialize. However, hopefully the allocateEnum pass will have converted
--- the adt initializations to aggregates already so this won't matter.
-initialValue (M.TyAdt nm _args) = do
+
+-- NOTE: this case is wrong in the case of enums --- we need to know
+-- which branch of the ADT to initialize, so we arbitrarily pick the
+-- first one. However, hopefully the allocateEnum pass will have
+-- converted these adt initializations to aggregates already so this
+-- won't matter.
+initialValue (M.TyAdt nm args) = do
     am <- use adtMap
     case Map.lookup nm am of
        Nothing -> return $ Nothing
        Just [] -> fail ("don't know how to initialize void adt " ++ show nm)
-       Just (Variant _vn _disc fds _kind :_) -> do
-          let initField (Field _name ty _subst) = initialValue ty
+       Just (Variant _vn _disc fds _kind:_) -> do
+          let initField (Field _name ty _subst) = initialValue (tySubst args ty)
           fds <- mapM initField fds
           let union = buildTaggedUnion 0 (Maybe.catMaybes fds)
           return $ Just $ union
@@ -1944,8 +1940,9 @@ initFnState :: FnState s
             -> [(Text.Text, M.Ty)]                 -- ^ names and MIR types of args
             -> CT.CtxRepr args                     -- ^ crucible types of args
             -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args
+            -> [Predicate]                         -- ^ predicates on type args
             -> FnState s
-initFnState fnState vars argsrepr args = fnState { _varMap = (go (reverse vars) argsrepr args Map.empty) }
+initFnState fnState vars argsrepr args preds = fnState { _varMap = (go (reverse vars) argsrepr args Map.empty), _preds = preds }
     where go :: [(Text.Text, M.Ty)] -> CT.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
           go [] ctx _ m
             | Ctx.null ctx = m
@@ -1969,11 +1966,14 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
         G.defineBlock lab (translateBlockBody tr bbdata)
       _ -> fail "bad label"
 
--- Predicates that we know something about and that we can turn into
+-- Predicates that we know something about and that perhaps we can turn into
 -- additional vtable arguments for this function
 argPred :: [TraitName] -> Predicate -> Maybe (TraitName, Substs)
-argPred traits (Predicate name s@(Substs subst)) | name `elem` traits, not (null subst)  = Just (name,s)
-argPred traits _ = Nothing
+argPred traits (TraitPredicate name s@(Substs subst)) | name `elem` traits, not (null subst)  = Just (name,s)
+                                                      | otherwise  = Nothing
+
+argPred traits (TraitProjection _ _ _) = Nothing
+argPred traits UnknownPredicate = Nothing
 
 argPredType :: (TraitName, Substs) -> MirGenerator h s ret (Some CT.TypeRepr)
 argPredType (tn, Substs (ty:tys)) = 
@@ -1998,8 +1998,9 @@ genFn (M.Fn fname argvars _fretty body _gens preds) rettype = do
   argPredTypes <- mapM argPredType argPreds
   when (db > 4) $ do
      traceM $ "--------------------------------------------------------------------------------------------------------"
-     traceM $ "Generating code for: " ++ show fname ++ " with args of type: " ++ show (map pretty (map M.typeOf argvars))
-     traceM $ "ArgPreds are: " ++ show (map pretty argPreds)
+     traceM $ "Generating code for: " ++ show fname
+     traceM $ "Parameters:" ++ concat (map (\var -> "\n\t" ++ show (pretty var) ++ ":" ++ show (pretty (M.typeOf var))) argvars)
+     traceM $ "ArgPreds are: " ++ show (map pretty preds)
      traceM $ "ArgPred types: " ++ show argPredTypes
      traceM $ "Body is:\n" ++ show (pretty body)
      traceM $ "--------------------------------------------------------------------------------------------------------"
@@ -2029,7 +2030,7 @@ transDefine fnState fn@(M.Fn fname fargs _ _ _ preds) =
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR handle FnState args ret
           def inputs = (s,f) where
-            s = initFnState fnState argtups argtypes inputs
+            s = initFnState fnState argtups argtypes inputs preds
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
       case SSA.toSSA g of
@@ -2040,8 +2041,9 @@ transDefine fnState fn@(M.Fn fname fargs _ _ _ preds) =
 mkHandleMap :: HasCallStack => FH.HandleAllocator s -> [M.Fn] -> ST s HandleMap
 mkHandleMap halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
     mkHandle :: FH.HandleAllocator s -> M.Fn -> ST s (MethName, MirHandle)
-    mkHandle halloc (M.Fn fname fargs fretty _fbody _gens _preds) =
+    mkHandle halloc (M.Fn fname fargs fretty _fbody gens preds) =
         tyListToCtx (map M.typeOf fargs) $ \argctx ->  tyToReprCont fretty $ \retrepr -> do
+            -- traceM $ "declaring fnHandle for " ++ show fname ++ " with gens " ++ show gens ++ " and preds " ++ show (pretty preds)
             h <- FH.mkHandle' halloc (FN.functionNameFromText (M.idText fname)) argctx retrepr
             let mh = MirHandle fname (M.FnSig (map M.typeOf fargs) fretty) h
             return (fname, mh)
@@ -2063,7 +2065,7 @@ transCollection col debug halloc = do
 
     let fnState :: (forall s. FnState s)
         fnState = case gtm of
-                     GenericTraitMap tm -> FnState Map.empty Map.empty hmap am (TraitMap tm) stm debug
+                     GenericTraitMap tm -> FnState Map.empty Map.empty hmap am (TraitMap tm) stm debug []
     pairs <- mapM (transDefine fnState) (col1^.M.functions)
     return $ Map.fromList (pairs ++ morePairs)
 
@@ -2118,7 +2120,7 @@ mkTraitDecl (M.Trait _tname titems) = do
         , Some args <- tyListToCtx argtys Some
         , Just (Some k) <- somePeano (numParams sig)
         =  Some (tr `Ctx.extend` MethRepr mname (CT.PolyFnRepr k args ret))
-
+      go _ _ = error "mkTraitDecl bug: numParams should always return a natural number"
 
   case foldl go (Some Ctx.empty) meths of
     Some (mctxr :: Ctx.Assignment MethRepr ctx) ->
@@ -2152,26 +2154,33 @@ buildTraitMap col _halloc hmap = do
     let impls :: [(MethName, TraitName, MirHandle)]
         impls = Maybe.mapMaybe (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
 
+    -- forM_ impls $ \(mn, tn, mh) ->
+    --     traceM $ show mn ++ " implements " ++ show tn ++ " with " ++ show mh ++ "\n"
+
     let impl_vtable :: TraitDecl ctx
                     -> CT.TypeRepr implTy 
                     -> [(MethName, MirHandle)]       -- impls for that type, must be in correct order
                     -> Ctx.Assignment GenericMirValue ctx
         impl_vtable (TraitDecl ctxr _methodIndex) implTy meths  =
            let go :: Ctx.Index ctx ty -> CT.TypeRepr ty -> Identity (GenericMirValue ty)
-               go idx (CT.PolyFnRepr k args ret) = do
+               go idx (CT.PolyFnRepr (SRepr k) args ret) = do
                   let i = Ctx.indexVal idx
                   let (_implName, implHandle) = if i < length meths then meths !! i else error "impl_vtable: BUG"
                   let subst = implementSubst implTy
+                  traceM $ "args before subst: " ++ show args
+                  traceM $ "args after  subst: " ++ show (CT.instantiate subst args)
                   case implHandle of 
                     (MirHandle _ _ (fh :: FH.FnHandle fargs fret)) ->                      
                       case (testEquality (FH.handleArgTypes   fh) (CT.instantiate subst args),
                             testEquality (FH.handleReturnType fh) (CT.instantiate subst ret)) of
                           (Just Refl, Just Refl) ->
-                            return (GenericMirValue (MirValue implTy (CT.PolyFnRepr k (FH.handleArgTypes   fh) (FH.handleReturnType fh))
-                                                       (R.App $ E.PolyHandleLit k fh)))
+                            return (GenericMirValue $ 
+                              let expr   = R.App $ E.PolyHandleLit k fh in
+                              let exprTy = CT.PolyFnRepr k (FH.handleArgTypes   fh) (FH.handleReturnType fh) in
+                              (MirValue implTy exprTy expr))
                           (_,_)   -> error $ "Type mismatch in method table. implHandle type is: "
                                         ++ show (FH.handleType fh) ++ " but expected type: "
-                                        ++ show (CT.instantiate subst (CT.FunctionHandleRepr args ret))
+                                        ++ show (CT.instantiate subst (CT.PolyFnRepr k args ret))
                go idx _ = error "buildTraitMap: cannot only handle trait definitions with polmorphic functions (no constants allowed)"
            in runIdentity (Ctx.traverseWithIndex go ctxr)
 
@@ -2646,20 +2655,23 @@ doCustomCall fname funsubst ops lv dest
          jumpToBlock dest
        _ -> fail $ " slice_get_mut type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
-
  | Just "call" <- isCustomFunc fname, -- perform function call with a closure
    [o1, o2] <- ops,
    Substs [_ty1, aty] <- funsubst = do
 
-     let unpackClosure :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
- 
+     fn           <- evalOperand o1
+     argtuple     <- evalOperand o2
+     extra_args   <- getAllFieldsMaybe argtuple
+
+     -- returns the function (perhaps with a coerced type, in the case of polymorphism)
+     -- paired with it unpacked as a closure
+     let unpackClosure :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s, MirExp s)
+
          unpackClosure (M.TyRef ty M.Immut) rty  arg   = unpackClosure ty rty arg
 
          unpackClosure (M.TyClosure defid clargs) _rty arg = do
              (clty, _rty2) <- buildClosureType defid clargs
-             unpackAny clty arg
-              
-         unpackClosure (M.TyParam _i)       rty  arg   = fail "cannot unpack type parameter"
+             (arg,) <$> unpackAny clty arg
 
          unpackClosure (M.TyDynamic _id)    rty  arg   = do
              -- a Fn object looks like a pair of
@@ -2672,22 +2684,51 @@ doCustomCall fname funsubst ops lv dest
                   (TyTuple aas) -> tyListToCtx aas $ \r2 -> do
                      let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> r2
                      let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
-                     unpackAny (Some (CT.StructRepr t)) arg
+                     (arg,) <$> unpackAny (Some (CT.StructRepr t)) arg
                   _ -> fail $ "aty must be tuple type in dynamic call, found " ++ show (pretty aty)
+
+         unpackClosure (M.TyParam i) rty arg = do
+           -- TODO: this is a really hacky implementation of higher-order function calls
+           -- we should replace it with additional arguments being passed in for the constraints
+           -- Here, instead we assume that the type that is instantiating the type variable i is
+           -- some closure type. We then look at the constraint to see what type of closure type it
+           -- could be and then instantiate that type variable with "Any" 
+           -- If we are wrong, we'll get a segmentation fault(!!!)
+           -- (This means we have some unsafe instantiation code around, e.g. for Nonces,
+           -- so we should get rid of that too!)
+           ps <- use preds
+           let findFnType (TraitProjection defid (Substs ([M.TyParam j, M.TyTuple argTys])) retTy : rest)
+                 | i == j     = 
+                  tyListToCtx argTys $ \argsctx -> 
+                  tyToReprCont retTy $ \ret     ->
+                     (Some argsctx, Some ret)
+
+                 | otherwise  =  findFnType rest
+               findFnType (_ : rest) = findFnType rest
+               findFnType [] = error $ "no appropriate predicate in scope for call: " ++ show (pretty ps)
+
+           case (arg, findFnType ps) of 
+             (MirExp _ty cp,
+              (Some (argsctx :: CT.CtxRepr args), Some (rr :: CT.TypeRepr r))) -> do
+                let cp'  :: R.Expr MIR s CT.AnyType
+                    cp'  = unsafeCoerce cp
+                let args = (Ctx.empty Ctx.:> CT.AnyRepr)  Ctx.<++> argsctx
+                let t = Ctx.empty Ctx.:> CT.FunctionHandleRepr args rr Ctx.:> CT.AnyRepr
+                let arg' = MirExp CT.AnyRepr cp'
+                (arg',) <$> unpackAny (Some (CT.StructRepr t)) arg'
+
 
          unpackClosure ty _ _arg      =
            fail $ "Don't know how to unpack Fn::call arg of type " ++ show (pretty ty)
 
-     closure_pack <- evalOperand o1
-     unpack_closure <- unpackClosure (M.typeOf o1) (M.typeOf lv) closure_pack
+     (fn', unpack_closure) <- unpackClosure (M.typeOf o1) (M.typeOf lv) fn
      handle <- accessAggregate unpack_closure 0
-     argtuple <- evalOperand o2
      extra_args <- getAllFieldsMaybe argtuple
      case handle of
        MirExp hand_ty handl ->
            case hand_ty of
              CT.FunctionHandleRepr fargctx fretrepr -> do
-                exp_to_assgn (closure_pack : extra_args) $ \ctx asgn ->
+                exp_to_assgn (fn' : extra_args) $ \ctx asgn ->
                    case (testEquality ctx fargctx) of
                      Just Refl -> do
                        ret_e <- G.call handl asgn

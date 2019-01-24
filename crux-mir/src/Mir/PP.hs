@@ -46,7 +46,6 @@ size_str B128 = "128"
 size_str USize = "size"
 
 
-
 instance Pretty Text where
   pretty = text . unpack
   
@@ -122,8 +121,10 @@ pretty_temp (Var vn vm vty _vs _) =
     <+> pretty vn <+> colon <+> pretty vty <> semi
 
 instance Pretty Predicate where
-  pretty (Predicate trait args) =
+  pretty (TraitPredicate trait args) =
       pretty trait <> pretty args
+  pretty (TraitProjection trait args ty) =
+      pretty trait <> pretty args <> text "=" <> pretty ty
   pretty UnknownPredicate = text "UnknownPredicate"
   
 instance Pretty Fn where

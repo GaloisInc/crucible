@@ -85,7 +85,7 @@ pub mod option {
             }
         }
 
-/* FnOnce bound        
+/* FnOnce bound        */
         #[inline]    
         pub fn unwrap_or_else<F: FnOnce() -> T>(self, f: F) -> T {
             match self {
@@ -117,7 +117,7 @@ pub mod option {
                 None => default(),
             }
         } 
-*/
+
 
         #[inline]
         pub fn ok_or<E>(self, err: E) -> Result<T, E> {
@@ -126,8 +126,7 @@ pub mod option {
                 None => Err(err),
             }
         }
-/*
-// FnOnce bound!
+
         #[inline]
         pub fn ok_or_else<E, F: FnOnce() -> E>(self, err: F) -> Result<T, E> {
             match self {
@@ -135,7 +134,7 @@ pub mod option {
                 None => Err(err()),
             }
         }
- */
+
         
 /*
         #[inline]
@@ -174,13 +173,13 @@ pub mod option {
         /// assert_eq!(Some(2).and_then(nope).and_then(sq), None);
         /// assert_eq!(None.and_then(sq).and_then(sq), None);
         /// ```
-/*        #[inline]
+        #[inline]
         pub fn and_then<U, F: FnOnce(T) -> Option<U>>(self, f: F) -> Option<U> {
             match self {
                 Some(x) => f(x),
                 None => None,
             }
-        } */
+        } 
 
         /// Returns `None` if the option is `None`, otherwise calls `predicate`
         /// with the wrapped value and returns:
@@ -204,7 +203,7 @@ pub mod option {
         /// assert_eq!(Some(3).filter(is_even), None);
         /// assert_eq!(Some(4).filter(is_even), Some(4));
         /// ```
-/*        #[inline]
+        #[inline]
         pub fn filter<P: FnOnce(&T) -> bool>(self, predicate: P) -> Self {
             if let Some(x) = self {
                 if predicate(&x) {
@@ -213,17 +212,15 @@ pub mod option {
             }
             None
         }
-*/
       
-        #[inline]
-        
+        #[inline]        
         pub fn or(self, optb: Option<T>) -> Option<T> {
             match self {
                 Some(_) => self,
                 None => optb,
             }
         }
-/*
+
         /// Returns the option if it contains a value, otherwise calls `f` and
         /// returns the result.
         ///
@@ -244,7 +241,7 @@ pub mod option {
                 Some(_) => self,
                 None => f(),
             }
-        } */
+        } 
 
     }
 }

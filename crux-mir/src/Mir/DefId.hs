@@ -214,7 +214,8 @@ parseEntry :: String -> Maybe (String, Int)
 parseEntry str = case Regex.matchRegex (Regex.mkRegex ( "^([{}A-Za-z0-9_]+)" ++ "\\[([0-9]+)\\]$")) str of
                   Just [idn, num] -> Just (idn, read num)
                   Nothing        -> Nothing
-       
+
+-- leave off [0], only add it for nonzero defid's       
 showEntry :: Entry -> Text
 showEntry (txt,n) = pack (unpack txt ++ "[" ++ (show n) ++ "]")
 
@@ -248,13 +249,10 @@ idText (DefId fl mods nm ex) =
 -- ignores filename and entry #s
 instance Pretty DefId where
   pretty (DefId fl mods nm ex) =
-    let ppEntry = if hideEntrySyms  then fst else showEntry
+    let ppEntry (txt, n) = if hideEntrySyms  then txt else if n == 0 then txt else showEntry (txt,n)
         addmods = if hideModuleName then id else (mods++)
         addfl   = if hideSourceFile then id else (fl:)
     in
-{-    text (unpack fl) <> braces (text $ unpack $ intercalate "::" (map ppEntry mods))
-                     <> text (unpack (ppEntry nm))
-            <> braces (text $ unpack $  intercalate "::" (map ppEntry ex)) -}
     text $ unpack $ intercalate "::" (addfl (map ppEntry  (addmods (nm:ex))))
 
 instance Show DefId where

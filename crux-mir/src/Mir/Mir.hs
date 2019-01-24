@@ -154,11 +154,17 @@ data Collection = Collection {
     _traits    :: [Trait]
 } deriving (Show, Eq, Ord, Generic, GenericOps)
 
-data Predicate = Predicate {
+data Predicate =
+  TraitPredicate {
     _ptrait :: DefId,
     _psubst :: Substs
     }
-    | UnknownPredicate
+  | TraitProjection {
+    _pitemid :: DefId,
+    _psubst  :: Substs,
+    _ty      :: Ty
+    }
+  | UnknownPredicate
     deriving (Show, Eq, Ord, Generic, GenericOps)
 
 data Param = Param {
@@ -485,8 +491,10 @@ fromIntegerLit (I64 i) = i
 fromIntegerLit (Isize i) = i
 
 
+-- | For ADTs that are represented as CEnums, we need to find the actual numbers that we
+-- use to represent each of the constructors.
 adtIndices :: Adt -> Collection -> [Integer]
-adtIndices (Adt _ vars) col = map go vars where
+adtIndices (Adt _aname vars) col = map go vars where
  go (Variant _vname (Explicit did) _fields _knd) =
     case findFn did (_functions col) of
       Just (Fn _name _args _ret_ty (MirBody _vars blocks) _gens _preds) ->
@@ -497,7 +505,9 @@ adtIndices (Adt _ vars) col = map go vars where
           _ -> error "CEnum should only have one basic block"
           
       Nothing -> error "cannot find CEnum value"
+ go (Variant _vname (Relative i) _fields _kind) = toInteger i    --- TODO: check this
 
+    
 -- special case for DefIds
 instance GenericOps DefId where
   relocate     = relocateDefId 

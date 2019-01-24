@@ -153,7 +153,8 @@ pub mod result {
             }
         }
 
-/*  // mir_verifier BUG: Unexpected interior reference LProjection        
+  // Mutable reference-taken variable not backed by reference! "_1"
+/*
         /// Converts from `Result<T, E>` to `Result<&mut T, &mut E>`.
         ///
         /// # Examples
@@ -182,12 +183,11 @@ pub mod result {
                 Ok(ref mut x) => Ok(x),
                 Err(ref mut x) => Err(x),
             }
-        }
-*/
+        } */
+
         /////////////////////////////////////////////////////////////////////////
         // Transforming contained values
         /////////////////////////////////////////////////////////////////////////
-/* FnOnce bound        
         /// Maps a `Result<T, E>` to `Result<U, E>` by applying a function to a
         /// contained [`Ok`] value, leaving an [`Err`] value untouched.
         ///
@@ -277,7 +277,6 @@ pub mod result {
             }
         }
 
-*/        
         ////////////////////////////////////////////////////////////////////////
         // Boolean operations on the values, eager and lazy
         /////////////////////////////////////////////////////////////////////////
@@ -317,7 +316,6 @@ pub mod result {
             }
         }
 
-/* FnOnce bound        
         /// Calls `op` if the result is [`Ok`], otherwise returns the [`Err`] value of `self`.
         ///
         /// [`Ok`]: enum.Result.html#variant.Ok
@@ -345,7 +343,7 @@ pub mod result {
                 Err(e) => Err(e),
             }
         } 
-*/
+
         /// Returns `res` if the result is [`Err`], otherwise returns the [`Ok`] value of `self`.
         ///
         /// Arguments passed to `or` are eagerly evaluated; if you are passing the
@@ -386,7 +384,6 @@ pub mod result {
             }
         }
 
-/* FnOnce bound        
         /// Calls `op` if the result is [`Err`], otherwise returns the [`Ok`] value of `self`.
         ///
         /// This function can be used for control flow based on result values.
@@ -414,7 +411,7 @@ pub mod result {
                 Err(e) => op(e),
             }
         }
-*/
+
         /// Unwraps a result, yielding the content of an [`Ok`].
         /// Else, it returns `optb`.
         ///
@@ -447,7 +444,6 @@ pub mod result {
             }
         }
 
-/* FnOnce bound        
         /// Unwraps a result, yielding the content of an [`Ok`].
         /// If the value is an [`Err`] then it calls `op` with its value.
         ///
@@ -471,7 +467,6 @@ pub mod result {
                 Err(e) => op(e)
             }
         } 
-         */
         
     } 
 
