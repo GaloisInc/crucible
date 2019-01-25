@@ -74,7 +74,7 @@ import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
 import           Lang.Crucible.LLVM.Bytes (Bytes)
-import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
+import qualified Lang.Crucible.LLVM.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..), PartLLVMVal)

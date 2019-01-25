@@ -62,34 +62,33 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , ppMem
   ) where
 
-import Control.Lens
-import Control.Monad
-import Data.IORef
-import Data.Maybe
-import Data.Text ()
+import           Control.Lens
+import           Control.Monad
+import           Data.IORef
+import           Data.Maybe
+import           Data.Text ()
 import qualified Data.Map as Map
 import qualified Data.Vector as V
-import Numeric.Natural
-import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
-import Lang.Crucible.Panic (panic)
+import           Numeric.Natural
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Lang.Crucible.Panic (panic)
 
-import Data.Parameterized.Classes
-import Data.Parameterized.Ctx (SingleCtx)
+import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
-import Data.Parameterized.Some
+import           Data.Parameterized.Ctx (SingleCtx)
+import           Data.Parameterized.Some
 
-import What4.Interface
-import What4.Partial
+import           What4.Interface
+import           What4.Partial
 
-import Lang.Crucible.LLVM.Bytes
-import Lang.Crucible.LLVM.DataLayout
-import Lang.Crucible.LLVM.MemModel.Type
-import Lang.Crucible.LLVM.MemModel.Common
-import Lang.Crucible.LLVM.MemModel.Pointer
-import Lang.Crucible.LLVM.MemModel.Value
-import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
-import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal')
-import Lang.Crucible.Backend
+import           Lang.Crucible.Backend
+import           Lang.Crucible.LLVM.Bytes
+import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.MemModel.Common
+import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.MemModel.Type
+import           Lang.Crucible.LLVM.MemModel.Value
+import qualified Lang.Crucible.LLVM.Safety as Safety
 
 
 --import Debug.Trace as Debug
