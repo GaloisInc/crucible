@@ -111,7 +111,7 @@ llvmTypeAsRepr xs f = go (llvmTypeToRepr xs)
        go []       = f UnitRepr
        go [Some x] = f x
 
-       go _ = error $ unwords ["llvmTypesAsRepr: expected a single value type", show xs]
+       go _ = error $ unwords ["llvmTypeAsRepr: expected a single value type", show xs]
 
 -- | Translate an LLVM return type into a crucible type, which is passed into
 --   the given continuation

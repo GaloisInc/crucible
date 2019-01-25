@@ -461,7 +461,10 @@ ptrMessage msg ptr ty =
           , "  at type " ++ show (G.ppType ty)
           ]
 
--- | Load a 'RegValue' from memory.
+-- | Load a 'RegValue' from memory. Both the 'StorageType' and 'TypeRepr'
+-- arguments should be computed from a single 'MemType' using
+-- 'toStorableType' and 'Lang.Crucible.LLVM.Translation.Types.llvmTypeAsRepr'
+-- respectively.
 -- 
 -- Precondition: the pointer is valid and aligned, and the loaded value is defined.
 doLoad ::
@@ -477,7 +480,10 @@ doLoad sym mem ptr valType tpr alignment = do
   --putStrLn "MEM LOAD"
   unpackMemValue sym tpr =<< loadRaw sym mem ptr valType alignment
 
--- | Store a 'RegValue' in memory.
+-- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'
+-- arguments should be computed from a single 'MemType' using
+-- 'toStorableType' and 'Lang.Crucible.LLVM.Translation.Types.llvmTypeAsRepr'
+-- respectively.
 --
 -- Precondition: the pointer is valid and points to a mutable memory region.
 doStore ::
@@ -1096,8 +1102,6 @@ unpackMemValue sym tpr (LLVMValZero tp) = unpackZero sym tp tpr
 unpackMemValue _sym (LLVMPointerRepr w) (LLVMValInt blk bv)
   | Just Refl <- testEquality (bvWidth bv) w
   = return $ LLVMPointer blk bv
-unpackMemValue _sym (BVRepr w) (LLVMValInt _ bv)
-  | Just Refl <- testEquality w (bvWidth bv) = return bv
 
 unpackMemValue _ (FloatRepr SingleFloatRepr) (LLVMValFloat SingleSize x) = return x
 unpackMemValue _ (FloatRepr DoubleFloatRepr) (LLVMValFloat DoubleSize x) = return x
@@ -1112,6 +1116,12 @@ unpackMemValue sym (StructRepr ctx) (LLVMValStruct xs)
 unpackMemValue sym (VectorRepr tpr) (LLVMValArray _tp xs)
   = traverse (unpackMemValue sym tpr) xs
 
+unpackMemValue _sym ctp@(BVRepr _) lval@(LLVMValInt _ _) =
+    panic "MemModel.unpackMemValue"
+      [ "Cannot unpack an integer LLVM value to a crucible bitvector type"
+      , "*** Crucible type: " ++ show ctp
+      , "*** LLVM value: " ++ show lval
+      ]
 
 unpackMemValue _ tpr v =
   panic "MemModel.unpackMemValue"
