@@ -1795,18 +1795,20 @@ mkSimSt :: (IsSymInterface sym) =>
         -> C.ExecState p sym JVM (C.RegEntry sym ret)
 mkSimSt sym p halloc ctx verbosity = C.InitialState simctx globals C.defaultAbortHandler
   where
-      javaExtImpl :: C.ExtensionImpl p sym JVM
-      javaExtImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
       simctx = C.initSimContext sym
-                 MapF.empty  -- intrinsics
+                 jvmIntrinsicTypes
                  halloc
                  stdout
                  (mkDelayedBindings ctx verbosity)
-                 javaExtImpl
+                 jvmExtensionImpl
                  p
       globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
 
+jvmIntrinsicTypes :: C.IntrinsicTypes sym
+jvmIntrinsicTypes = C.emptyIntrinsicTypes
 
+jvmExtensionImpl :: C.ExtensionImpl p sym JVM
+jvmExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
 
 -- (currently unused)
 -- Way to run initialization code before simulation starts

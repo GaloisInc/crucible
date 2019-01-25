@@ -1223,6 +1223,7 @@ ppTermExpr
 ppTermExpr t = -- FIXME, do something with the predicate?
   case t of
     LLVMValZero _tp -> text "0"
+    LLVMValUndef tp -> text "<undef : " <> text (show tp) <> text ">"
     LLVMValInt base off -> ppPtr @sym (LLVMPointer base off)
     LLVMValFloat _ v -> printSymExpr v
     LLVMValStruct v -> encloseSep lbrace rbrace comma v''

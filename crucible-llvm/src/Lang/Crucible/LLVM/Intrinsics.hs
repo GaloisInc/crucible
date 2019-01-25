@@ -181,6 +181,7 @@ do_register_overrides = do
    , register_llvm_override llvmReallocOverride
    , register_llvm_override llvmStrlenOverride
    , register_llvm_override llvmPrintfOverride
+   , register_llvm_override llvmPrintfChkOverride
    , register_llvm_override llvmPutsOverride
    , register_llvm_override llvmPutCharOverride
 
@@ -1556,6 +1557,31 @@ llvmPrintfOverride =
   (Empty :> PtrRepr :> VectorRepr AnyRepr)
   (KnownBV @32)
   (\memOps sym args -> Ctx.uncurryAssignment (callPrintf sym memOps) args)
+
+llvmPrintfChkOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> BVType 32
+                   ::> LLVMPointerType wptr
+                   ::> VectorType AnyType)
+         (BVType 32)
+llvmPrintfChkOverride =
+  let nm = "__printf_chk" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer 32
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PrimType $ L.Integer 32
+                     , L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = True
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> KnownBV @32 :> PtrRepr :> VectorRepr AnyRepr)
+  (KnownBV @32)
+  (\memOps sym args -> Ctx.uncurryAssignment (\_flg -> callPrintf sym memOps) args)
 
 
 callRealloc
