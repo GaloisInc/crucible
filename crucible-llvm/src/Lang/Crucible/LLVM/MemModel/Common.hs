@@ -37,6 +37,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , fixedOffsetRangeLoad
   , fixedSizeRangeLoad
   , symbolicRangeLoad
+  , symbolicUnboundedRangeLoad
 
   , ValueView(..)
 
@@ -287,6 +288,8 @@ loadFromStoreStart pref tp i j = adjustOffset inFn outFn <$> rangeLoad 0 tp (R i
   where inFn = CValue
         outFn = fixLoadBeforeStoreOffset pref i
 
+-- | Produces a @Mux ValueCtor@ expression representing the range load conditions
+-- when the load and store values are concrete
 fixedSizeRangeLoad :: BasePreference -- ^ Whether addresses are based on store or load.
                    -> StorageType
                    -> Bytes
@@ -321,6 +324,8 @@ fixedSizeRangeLoad pref tp ssz =
     loadSucc = MuxVar (ValueCtorVar (InRange (Load .- Store) tp))
     loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
 
+-- | Produces a @Mux ValueCtor@ expression representing the range load conditions
+-- when the load and store values are symbolic and the @StoreSize@ is bounded.
 symbolicRangeLoad :: BasePreference -> StorageType -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
 symbolicRangeLoad pref tp =
   Mux (Store .<= Load)
@@ -332,6 +337,33 @@ symbolicRangeLoad pref tp =
     loadIter0 j
       | j > 0     = Mux (loadOffset j .== storeEnd) (loadVal0 j) (loadIter0 (j-1))
       | otherwise = loadFail
+
+    loadVal0 j = MuxVar $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
+      where inFn k  = IntAdd (OffsetDiff Load Store) (CValue k)
+            outFn k = OffsetAdd Load (CValue k)
+
+    storeAfterLoad i
+      | i < sz = Mux (loadOffset i .== Store) (loadFromOffset i) (storeAfterLoad (i+1))
+      | otherwise = loadFail
+
+    loadFromOffset i =
+      assert (0 < i && i < sz) $
+      Mux (IntLe (CValue (sz - i)) StoreSize) (loadVal i (i+sz)) (f (sz-1))
+      where f j | j > i = Mux (IntEq (CValue (j-i)) StoreSize) (loadVal i j) (f (j-1))
+                | otherwise = loadFail
+
+    loadVal i j = MuxVar (loadFromStoreStart pref tp i j)
+    loadFail = MuxVar (ValueCtorVar (OutOfRange Load tp))
+
+-- | Produces a @Mux ValueCtor@ expression representing the RangeLoad conditions
+-- when the load and store values are symbolic and the @StoreSize@ is unbounded.
+symbolicUnboundedRangeLoad :: BasePreference -> StorageType -> Mux (ValueCtor (RangeLoad OffsetExpr IntExpr))
+symbolicUnboundedRangeLoad pref tp =
+  Mux (Store .<= Load)
+  (loadVal0 sz)
+  (storeAfterLoad 1)
+  where
+    sz = typeEnd 0 tp
 
     loadVal0 j = MuxVar $ adjustOffset inFn outFn <$> rangeLoad 0 tp (R 0 j)
       where inFn k  = IntAdd (OffsetDiff Load Store) (CValue k)
