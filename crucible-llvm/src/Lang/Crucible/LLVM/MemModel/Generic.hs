@@ -79,15 +79,18 @@ import           Data.Parameterized.Ctx (SingleCtx)
 import           Data.Parameterized.Some
 
 import           What4.Interface
-import           What4.Partial
+import qualified What4.Partial as Partial
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemModel.Common
+import           Lang.Crucible.LLVM.MemModel.Partial
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
+
+import           Lang.Crucible.LLVM.Safety (PartLLVMVal, LLVMSafetyAssertion)
 import qualified Lang.Crucible.LLVM.Safety as Safety
 
 
@@ -238,63 +241,28 @@ genValueCtor sym end v =
       do vl <- genValueCtor sym end vcl
          vh <- genValueCtor sym end vch
          case end of
-           BigEndian    -> bvConcatPartLLVMVal sym vh vl
-           LittleEndian -> bvConcatPartLLVMVal sym vl vh
-    ConsArray vc1 vc2 ->
-      do lv1 <- genValueCtor sym end vc1
-         lv2 <- genValueCtor sym end vc2
-         consArrayPartLLVMVal sym lv1 lv2
-    AppendArray vc1 vc2 ->
-      do lv1 <- genValueCtor sym end vc1
-         lv2 <- genValueCtor sym end vc2
-         appendArrayPartLLVMVal sym lv1 lv2
-    MkArray tp vv ->
-      do vec <- traverse (genValueCtor sym end) vv
-         mkArrayPartLLVMVal sym tp vec
-    MkStruct vv ->
-      do vec <- traverse (traverse (genValueCtor sym end)) vv
-         mkStructPartLLVMVal sym vec
-    BVToFloat x ->
-      bvToFloatPartLLVMVal sym =<< genValueCtor sym end x
-    BVToDouble x ->
-      bvToDoublePartLLVMVal sym =<< genValueCtor sym end x
-    BVToX86_FP80 x ->
-      bvToX86_FP80PartLLVMVal sym =<< genValueCtor sym end x
-
-genValueCtor' :: forall sym .
-  IsSymInterface sym => sym ->
-  EndianForm ->
-  ValueCtor (PartLLVMVal' sym) ->
-  IO (PartLLVMVal' sym)
-genValueCtor' sym end v =
-  case v of
-    ValueCtorVar x -> return x
-    ConcatBV vcl vch ->
-      do vl <- genValueCtor' sym end vcl
-         vh <- genValueCtor' sym end vch
-         case end of
            BigEndian    -> Partial.bvConcatPartLLVMVal sym vh vl
            LittleEndian -> Partial.bvConcatPartLLVMVal sym vl vh
     ConsArray vc1 vc2 ->
-      do lv1 <- genValueCtor' sym end vc1
-         lv2 <- genValueCtor' sym end vc2
+      do lv1 <- genValueCtor sym end vc1
+         lv2 <- genValueCtor sym end vc2
          pure $ Partial.consArrayPartLLVMVal lv1 lv2
     AppendArray vc1 vc2 ->
-      do lv1 <- genValueCtor' sym end vc1
-         lv2 <- genValueCtor' sym end vc2
+      do lv1 <- genValueCtor sym end vc1
+         lv2 <- genValueCtor sym end vc2
          pure $ Partial.appendArrayPartLLVMVal lv1 lv2
     MkArray tp vv ->
       Partial.mkArrayPartLLVMVal tp <$>
-        traverse (genValueCtor' sym end) vv
+        traverse (genValueCtor sym end) vv
     MkStruct vv ->
       Partial.mkStructPartLLVMVal <$>
-        traverse (traverse (genValueCtor' sym end)) vv
+        traverse (traverse (genValueCtor sym end)) vv
     BVToFloat x ->
-      Partial.bvToFloatPartLLVMVal sym =<< genValueCtor' sym end x
+      Partial.bvToFloatPartLLVMVal sym =<< genValueCtor sym end x
     BVToDouble x ->
-      Partial.bvToDoublePartLLVMVal sym =<< genValueCtor' sym end x
+      Partial.bvToDoublePartLLVMVal sym =<< genValueCtor sym end x
     BVToX86_FP80 x ->
-      Partial.bvToX86_FP80PartLLVMVal sym =<< genValueCtor' sym end x
+      Partial.bvToX86_FP80PartLLVMVal sym =<< genValueCtor sym end x
 
 -- | Compute the actual value of a value deconstructor expression.
 applyView ::
@@ -310,44 +278,10 @@ applyView sym end t val =
     SelectPrefixBV i j v ->
       do t' <- applyView sym end t v
          case end of
-           BigEndian -> selectHighBvPartLLVMVal sym j i t'
-           LittleEndian -> selectLowBvPartLLVMVal sym i j t'
-    SelectSuffixBV i j v ->
-      do t' <- applyView sym end t v
-         case end of
-           BigEndian -> selectLowBvPartLLVMVal sym j i t'
-           LittleEndian -> selectHighBvPartLLVMVal sym i j t'
-    FloatToBV _ ->
-      return Unassigned
-      --fail "applyView: Floating point values not supported"
-    DoubleToBV _ ->
-      return Unassigned
-      --fail "applyView: Floating point values not supported"
-    X86_FP80ToBV _ ->
-      return Unassigned
-    ArrayElt sz tp idx v ->
-      arrayEltPartLLVMVal sz tp idx =<< applyView sym end t v
-    FieldVal flds idx v ->
-      fieldValPartLLVMVal flds idx =<< applyView sym end t v
-
--- | Compute the actual value of a value deconstructor expression.
-applyView' ::
-  IsSymInterface sym => sym ->
-  EndianForm ->
-  PartLLVMVal' sym ->
-  ValueView ->
-  IO (PartLLVMVal' sym)
-applyView' sym end t val =
-  case val of
-    ValueViewVar _ ->
-      return t
-    SelectPrefixBV i j v ->
-      do t' <- applyView' sym end t v
-         case end of
            BigEndian -> Partial.selectHighBvPartLLVMVal sym j i t'
            LittleEndian -> Partial.selectLowBvPartLLVMVal sym i j t'
     SelectSuffixBV i j v ->
-      do t' <- applyView' sym end t v
+      do t' <- applyView sym end t v
          case end of
            BigEndian -> Partial.selectLowBvPartLLVMVal sym j i t'
            LittleEndian -> Partial.selectHighBvPartLLVMVal sym i j t'
@@ -360,9 +294,9 @@ applyView' sym end t val =
     X86_FP80ToBV _ ->
       return Unassigned
     ArrayElt sz tp idx v ->
-      Partial.arrayEltPartLLVMVal sz tp idx =<< applyView' sym end t v
+      Partial.arrayEltPartLLVMVal sz tp idx =<< applyView sym end t v
     FieldVal flds idx v ->
-      Partial.fieldValPartLLVMVal flds idx =<< applyView' sym end t v
+      Partial.fieldValPartLLVMVal flds idx =<< applyView sym end t v
 
 evalMuxValueCtor ::
   forall u sym w .
@@ -384,85 +318,15 @@ evalMuxValueCtor sym w end vf subFn (Mux c t1 t2) =
        Nothing ->
         do t1' <- evalMuxValueCtor sym w end vf subFn t1
            t2' <- evalMuxValueCtor sym w end vf subFn t2
-           muxLLVMVal sym c' t1' t2'
+           Partial.muxLLVMVal sym c' t1' t2'
 
 evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
   do m' <- traverse (evalMuxValueCtor sym w end vf subFn) m
      t' <- evalMuxValueCtor sym w end vf subFn t
-     result <- Map.foldrWithKey f (return t') m'
-     p' <- simplPred (Map.assocs (fmap predOf m')) (predOf t')
-     case result of
-       Unassigned -> return Unassigned
-       PE _ v     -> return (PE p' v) -- replace predicate with simplified one
-  where
-    f :: Bytes -> PartLLVMVal sym -> IO (PartLLVMVal sym) -> IO (PartLLVMVal sym)
-    f n t1 k =
-      do c' <- genCondVar sym w vf (OffsetEq (aOffset n) b)
-         case asConstantPred c' of
-           Just True -> return t1
-           Just False -> k
-           Nothing ->
-             do t2 <- k
-                muxLLVMVal sym c' t1 t2
-
-    aOffset :: Bytes -> OffsetExpr
-    aOffset n = OffsetAdd a (CValue n)
-
-    predOf :: PartLLVMVal sym -> Pred sym
-    predOf Unassigned = falsePred sym
-    predOf (PE p _) = p
-
-    samePred :: Pred sym -> Pred sym -> Bool
-    samePred p1 p2 =
-      case (asConstantPred p1, asConstantPred p2) of
-        (Just b1, Just b2) -> b1 == b2
-        _ -> False
-
-    simplPred :: [(Bytes, Pred sym)] -> Pred sym -> IO (Pred sym)
-    simplPred [] p0 = return p0
-    simplPred ((n, p) : xps) p0 =
-      do let (xps1, xps2) = span (samePred p . snd) xps
-         let c = if null xps1
-                 then OffsetEq (aOffset n) b
-                 else And (OffsetLe (aOffset n) b)
-                          (OffsetLe b (aOffset (fst (last xps1))))
-         c' <- genCondVar sym w vf c
-         case asConstantPred c' of
-           Just True -> return p
-           Just False -> simplPred xps2 p0
-           Nothing ->
-             do p' <- simplPred xps2 p0
-                itePred sym c' p p'
-
-evalMuxValueCtor' ::
-  forall u sym w .
-  (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w ->
-  EndianForm ->
-  (SymBV sym w, SymBV sym w, SymBV sym w) {- ^ Evaluation function -} ->
-  (u -> IO (PartLLVMVal' sym)) {- ^ Function for reading specific subranges -} ->
-  Mux (ValueCtor u) ->
-  IO (PartLLVMVal' sym)
-evalMuxValueCtor' sym _w end _vf subFn (MuxVar v) =
-  do v' <- traverse subFn v
-     genValueCtor' sym end v'
-evalMuxValueCtor' sym w end vf subFn (Mux c t1 t2) =
-  do c' <- genCondVar sym w vf c
-     case asConstantPred c' of
-       Just True  -> evalMuxValueCtor' sym w end vf subFn t1
-       Just False -> evalMuxValueCtor' sym w end vf subFn t2
-       Nothing ->
-        do t1' <- evalMuxValueCtor' sym w end vf subFn t1
-           t2' <- evalMuxValueCtor' sym w end vf subFn t2
-           Partial.muxLLVMVal sym c' t1' t2'
-
-evalMuxValueCtor' sym w end vf subFn (MuxTable a b m t) =
-  do m' <- traverse (evalMuxValueCtor' sym w end vf subFn) m
-     t' <- evalMuxValueCtor' sym w end vf subFn t
      -- TODO: simplification?
      Map.foldrWithKey f (return t') m'
   where
-    f :: Bytes -> PartLLVMVal' sym -> IO (PartLLVMVal' sym) -> IO (PartLLVMVal' sym)
+    f :: Bytes -> PartLLVMVal sym -> IO (PartLLVMVal sym) -> IO (PartLLVMVal sym)
     f n t1 k =
       do c' <- genCondVar sym w vf (OffsetEq (aOffset n) b)
          case asConstantPred c' of
@@ -531,57 +395,6 @@ readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
                          symbolicRangeLoad pref tp
             evalMuxValueCtor sym w end varFn subFn mux0
 
--- | Read from a memory with a memcopy to the same block we are reading.
-readMemCopy' ::
-  forall sym w.
-  (1 <= w, IsSymInterface sym) => sym ->
-  NatRepr w ->
-  EndianForm ->
-  LLVMPtr sym w  {- ^ The loaded offset               -} ->
-  StorageType    {- ^ The type we are reading         -} ->
-  SymBV sym w    {- ^ The destination of the memcopy  -} ->
-  LLVMPtr sym w  {- ^ The source of the copied region -} ->
-  SymBV sym w    {- ^ The length of the copied region -} ->
-  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal' sym)) ->
-  IO (PartLLVMVal' sym)
-readMemCopy' sym w end (LLVMPointer blk off) tp d src sz readPrev =
-  do let ld = asUnsignedBV off
-     let dd = asUnsignedBV d
-     let varFn = (off, d, sz)
-
-     case (ld, dd) of
-       -- Offset if known
-       (Just lo, Just so) ->
-         do let subFn :: RangeLoad Addr Addr -> IO (PartLLVMVal' sym)
-                subFn (OutOfRange o tp') = do o' <- bvLit sym w (bytesToInteger o)
-                                              readPrev tp' (LLVMPointer blk o')
-                subFn (InRange    o tp') = readPrev tp' =<< tgAddPtrC sym w src o
-            case asUnsignedBV sz of
-              Just csz -> do
-                let s = R (fromInteger so) (fromInteger (so + csz))
-                let vcr = rangeLoad (fromInteger lo) tp s
-                genValueCtor' sym end =<< traverse subFn vcr
-              _ ->
-                evalMuxValueCtor' sym w end varFn subFn $
-                  fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
-         -- Symbolic offsets
-       _ ->
-         do let subFn :: RangeLoad OffsetExpr IntExpr -> IO (PartLLVMVal' sym)
-                subFn (OutOfRange o tp') =
-                  do o' <- genOffsetExpr sym w varFn o
-                     readPrev tp' (LLVMPointer blk o')
-                subFn (InRange o tp') =
-                  readPrev tp' =<< ptrAdd sym w src =<< genIntExpr sym w varFn o
-            let pref | Just{} <- dd = FixedStore
-                     | Just{} <- ld = FixedLoad
-                     | otherwise = NeitherFixed
-            let mux0 | Just csz <- asUnsignedBV sz =
-                         fixedSizeRangeLoad pref tp (fromInteger csz)
-                     | otherwise =
-                         symbolicRangeLoad pref tp
-            evalMuxValueCtor' sym w end varFn subFn mux0
-
--- | Read from a memory with a memset to the same block we are reading.
 readMemSet ::
   forall sym w .
   (1 <= w, IsSymInterface sym) =>
@@ -606,16 +419,15 @@ readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
                                               readPrev tp' (LLVMPointer blk o')
                 subFn (InRange   _o tp') = do blk0 <- natLit sym 0
                                               let val = LLVMValInt blk0 byte
-                                              let b = PE (truePred sym) val
+                                              let b = Partial.returnPartLLVMVal sym val
                                               genValueCtor sym end (memsetValue b tp')
             case asUnsignedBV sz of
-              Just csz ->
-                do let s = R (fromInteger so) (fromInteger (so + csz))
-                   let vcr = rangeLoad (fromInteger lo) tp s
-                   genValueCtor sym end =<< traverse subFn vcr
-              _ ->
-                evalMuxValueCtor sym w end varFn subFn $
-                  fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
+              Just csz -> do
+                let s = R (fromInteger so) (fromInteger (so + csz))
+                let vcr = rangeLoad (fromInteger lo) tp s
+                genValueCtor sym end =<< traverse subFn vcr
+              _ -> evalMuxValueCtor sym w end varFn subFn $
+                     fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
        -- Symbolic offsets
        _ ->
          do let subFn :: RangeLoad OffsetExpr IntExpr -> IO (PartLLVMVal sym)
@@ -625,7 +437,7 @@ readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
                 subFn (InRange _o tp') =
                   do blk0 <- natLit sym 0
                      let val = LLVMValInt blk0 byte
-                     let b = PE (truePred sym) val
+                     let b = Partial.returnPartLLVMVal sym val
                      genValueCtor sym end (memsetValue b tp')
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
@@ -635,60 +447,6 @@ readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
                      | otherwise =
                          symbolicRangeLoad pref tp
             evalMuxValueCtor sym w end varFn subFn mux0
-
-readMemSet' ::
-  forall sym w .
-  (1 <= w, IsSymInterface sym) =>
-  sym -> NatRepr w ->
-  EndianForm ->
-  LLVMPtr sym w {- ^ The loaded offset             -} ->
-  StorageType   {- ^ The type we are reading       -} ->
-  SymBV sym w   {- ^ The destination of the memset -} ->
-  SymBV sym 8   {- ^ The fill byte that was set    -} ->
-  SymBV sym w   {- ^ The length of the set region  -} ->
-  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal' sym)) ->
-  IO (PartLLVMVal' sym)
-readMemSet' sym w end (LLVMPointer blk off) tp d byte sz readPrev =
-  do let ld = asUnsignedBV off
-     let dd = asUnsignedBV d
-     let varFn = (off, d, sz)
-     case (ld, dd) of
-       -- Offset if known
-       (Just lo, Just so) ->
-         do let subFn :: RangeLoad Addr Addr -> IO (PartLLVMVal' sym)
-                subFn (OutOfRange o tp') = do o' <- bvLit sym w (bytesToInteger o)
-                                              readPrev tp' (LLVMPointer blk o')
-                subFn (InRange   _o tp') = do blk0 <- natLit sym 0
-                                              let val = LLVMValInt blk0 byte
-                                              let b = Partial.returnPartLLVMVal' sym val
-                                              genValueCtor' sym end (memsetValue b tp')
-            case asUnsignedBV sz of
-              Just csz -> do
-                let s = R (fromInteger so) (fromInteger (so + csz))
-                let vcr = rangeLoad (fromInteger lo) tp s
-                genValueCtor' sym end =<< traverse subFn vcr
-              _ -> evalMuxValueCtor' sym w end varFn subFn $
-                     fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
-       -- Symbolic offsets
-       _ ->
-         do let subFn :: RangeLoad OffsetExpr IntExpr -> IO (PartLLVMVal' sym)
-                subFn (OutOfRange o tp') =
-                  do o' <- genOffsetExpr sym w varFn o
-                     readPrev tp' (LLVMPointer blk o')
-                subFn (InRange _o tp') =
-                  do blk0 <- natLit sym 0
-                     let val = LLVMValInt blk0 byte
-                     let b = Partial.returnPartLLVMVal' sym val
-                     genValueCtor' sym end (memsetValue b tp')
-            let pref | Just{} <- dd = FixedStore
-                     | Just{} <- ld = FixedLoad
-                     | otherwise = NeitherFixed
-            let mux0 | Just csz <- asUnsignedBV sz =
-                         fixedSizeRangeLoad pref tp (fromInteger csz)
-                     | otherwise =
-                         symbolicRangeLoad pref tp
-            evalMuxValueCtor' sym w end varFn subFn mux0
-
 
 -- | Read from a memory with a store to the same block we are reading.
 readMemStore ::
@@ -717,7 +475,7 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
          do let subFn :: ValueLoad Addr -> IO (PartLLVMVal sym)
                 subFn (OldMemory o tp')   = do o' <- bvLit sym w (bytesToInteger o)
                                                readPrev tp' (LLVMPointer blk o')
-                subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
+                subFn (LastStore v)       = applyView sym end (Partial.returnPartLLVMVal sym t) v
                 subFn (InvalidMemory _tp) = return Unassigned
             let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
             genValueCtor sym end =<< traverse subFn vcr
@@ -726,7 +484,7 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
          do let subFn :: ValueLoad OffsetExpr -> IO (PartLLVMVal sym)
                 subFn (OldMemory o tp')   = do o' <- genOffsetExpr sym w varFn o
                                                readPrev tp' (LLVMPointer blk o')
-                subFn (LastStore v)       = applyView sym end (PE (truePred sym) t) v
+                subFn (LastStore v)       = applyView sym end (Partial.returnPartLLVMVal sym t) v
                 subFn (InvalidMemory _tp) = return Unassigned
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
@@ -736,54 +494,6 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
             diff <- bvSub sym off d
 
             evalMuxValueCtor sym w end varFn subFn $
-              symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) align'
-
--- | Read from a memory with a store to the same block we are reading.
-readMemStore' ::
-  forall sym w.
-  (1 <= w, IsSymInterface sym) => sym ->
-  NatRepr w ->
-  EndianForm ->
-  LLVMPtr sym w {- ^ The loaded address                 -} ->
-  StorageType   {- ^ The type we are reading            -} ->
-  SymBV sym w   {- ^ The destination of the store       -} ->
-  LLVMVal sym   {- ^ The value that was stored          -} ->
-  StorageType   {- ^ The type of value that was written -} ->
-  Alignment     {- ^ The alignment of the pointer we are reading from -} ->
-  Alignment     {- ^ The alignment of the store from which we are reading -} ->
-  (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal' sym))
-  {- ^ A callback function for when reading fails -} ->
-  IO (PartLLVMVal' sym)
-readMemStore' sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign readPrev =
-  do ssz <- bvLit sym w (bytesToInteger (storageTypeSize stp))
-     let varFn = (off, d, ssz)
-     let ld = asUnsignedBV off
-     let dd = asUnsignedBV d
-     case (ld, dd) of
-       -- Offset if known
-       (Just lo, Just so) ->
-         do let subFn :: ValueLoad Addr -> IO (PartLLVMVal' sym)
-                subFn (OldMemory o tp')   = do o' <- bvLit sym w (bytesToInteger o)
-                                               readPrev tp' (LLVMPointer blk o')
-                subFn (LastStore v)       = applyView' sym end (Partial.returnPartLLVMVal' sym t) v
-                subFn (InvalidMemory _tp) = return Unassigned
-            let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
-            genValueCtor' sym end =<< traverse subFn vcr
-       -- Symbolic offsets
-       _ ->
-         do let subFn :: ValueLoad OffsetExpr -> IO (PartLLVMVal' sym)
-                subFn (OldMemory o tp')   = do o' <- genOffsetExpr sym w varFn o
-                                               readPrev tp' (LLVMPointer blk o')
-                subFn (LastStore v)       = applyView' sym end (Partial.returnPartLLVMVal' sym t) v
-                subFn (InvalidMemory _tp) = return Unassigned
-            let pref | Just{} <- dd = FixedStore
-                     | Just{} <- ld = FixedLoad
-                     | otherwise = NeitherFixed
-
-            let align' = min loadAlign storeAlign
-            diff <- bvSub sym off d
-
-            evalMuxValueCtor' sym w end varFn subFn $
               symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) align'
 
 -- | Read from a memory with an array store to the same block we are reading.
@@ -808,7 +518,7 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
               blk0 <- natLit sym 0
               idx <- bvAdd sym base =<< bvLit sym w (bytesToInteger off)
               byte <- arrayLookup sym arr $ Ctx.singleton idx
-              return $ PE (truePred sym) $ LLVMValInt blk0 byte
+              return $ Partial.returnPartLLVMVal sym $ LLVMValInt blk0 byte
         genValueCtor sym end =<< loadTypedValueFromBytes 0 tp' loadArrayByteFn
   let varFn = ExprEnv read_off write_off size
   case (asUnsignedBV read_off, asUnsignedBV write_off) of
@@ -857,65 +567,6 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
             | Nothing <- size = symbolicUnboundedRangeLoad pref tp
       evalMuxValueCtor sym w end varFn subFn rngLd
 
--- | Read from a memory with an array store to the same block we are reading.
-readMemArrayStore'
-  :: forall sym w
-   . (1 <= w, IsSymInterface sym)
-  => sym
-  -> NatRepr w
-  -> EndianForm
-  -> LLVMPtr sym w {- ^ The loaded offset -}
-  -> StorageType {- ^ The type we are reading -}
-  -> SymBV sym w {- ^ The destination of the mem array store -}
-  -> SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) {- ^ The stored array -}
-  -> SymBV sym w {- ^ The length of the stored array -}
-  -> (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal' sym))
-  -> IO (PartLLVMVal' sym)
-readMemArrayStore' sym w end (LLVMPointer blk read_off) tp write_off arr size read_prev = do
-  let loadFn :: SymBV sym w -> StorageType -> IO (PartLLVMVal' sym)
-      loadFn base tp' = do
-        let loadArrayByteFn :: Offset -> IO (PartLLVMVal' sym)
-            loadArrayByteFn off = do
-              blk0 <- natLit sym 0
-              idx <- bvAdd sym base =<< bvLit sym w (bytesToInteger off)
-              byte <- arrayLookup sym arr $ Ctx.singleton idx
-              return $ Partial.returnPartLLVMVal' sym $ LLVMValInt blk0 byte
-        genValueCtor' sym end =<< loadTypedValueFromBytes 0 tp' loadArrayByteFn
-  let varFn = (read_off, write_off, size)
-  case (asUnsignedBV read_off, asUnsignedBV write_off) of
-    -- known read and write offsets
-    (Just lo, Just so) -> do
-      let subFn :: RangeLoad Addr Addr -> IO (PartLLVMVal' sym)
-          subFn = \case
-            OutOfRange o tp' -> do
-              o' <- bvLit sym w $ bytesToInteger o
-              read_prev tp' $ LLVMPointer blk o'
-            InRange o tp' -> do
-              o' <- bvLit sym w $ bytesToInteger o
-              loadFn o' tp'
-      case asUnsignedBV size of
-        Just concrete_size -> do
-          let s = R (fromInteger so) (fromInteger (so + concrete_size))
-          let vcr = rangeLoad (fromInteger lo) tp s
-          genValueCtor' sym end =<< traverse subFn vcr
-        _ -> evalMuxValueCtor' sym w end varFn subFn $
-          fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
-    -- Symbolic offsets
-    _ -> do
-      let subFn :: RangeLoad OffsetExpr IntExpr -> IO (PartLLVMVal' sym)
-          subFn = \case
-            OutOfRange o tp' -> do
-              o' <- genOffsetExpr sym w varFn o
-              read_prev tp' $ LLVMPointer blk o'
-            InRange o tp' -> do
-              o' <- genIntExpr sym w varFn o
-              loadFn o' tp'
-      let pref
-            | Just{} <- asUnsignedBV write_off = FixedStore
-            | Just{} <- asUnsignedBV read_off = FixedLoad
-            | otherwise = NeitherFixed
-      evalMuxValueCtor' sym w end varFn subFn $ symbolicRangeLoad pref tp
-
 -- | Read a value from memory.
 --
 -- The returned predicates assert (in this order):
@@ -928,7 +579,7 @@ readMem ::
   StorageType ->
   Alignment ->
   Mem sym ->
-  IO (PartLLVMVal' sym)
+  IO (PartLLVMVal sym)
 readMem sym w l tp alignment m = do
   sz      <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   p1      <- isAllocated sym w alignment l (Just sz) m
@@ -975,18 +626,18 @@ readMem' ::
   StorageType    {- ^ The type to read from memory      -} ->
   Alignment      {- ^ Alignment of pointer to read from -} ->
   [MemWrite sym] {- ^ List of writes                    -} ->
-  IO (PartLLVMVal' sym)
+  IO (PartLLVMVal sym)
 readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
   where
-    go :: (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal' sym)) ->
+    go :: (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)) ->
           LLVMPtr sym w ->
           StorageType ->
           [MemWrite sym] ->
-          IO (PartLLVMVal' sym)
+          IO (PartLLVMVal sym)
     go fallback l tp [] = fallback tp l
     go fallback l tp (h : r) =
       do cache <- newIORef Map.empty
-         let readPrev :: StorageType -> LLVMPtr sym w -> IO (PartLLVMVal' sym)
+         let readPrev :: StorageType -> LLVMPtr sym w -> IO (PartLLVMVal sym)
              readPrev tp' l' = do
                m <- readIORef cache
                case Map.lookup (toCacheEntry tp' l') m of
@@ -1010,10 +661,10 @@ readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return Unassigned) l0 tp0
                     let LLVMPointer blk2 d = dst
                     let readCurrent =
                           case wsrc of
-                            MemCopy src sz -> readMemCopy' sym w end l tp d src sz readPrev
-                            MemSet v sz    -> readMemSet' sym w end l tp d v sz readPrev
-                            MemStore v stp storeAlign -> readMemStore' sym w end l tp d v stp alignment storeAlign readPrev
-                            MemArrayStore arr sz -> readMemArrayStore' sym w end l tp d arr sz readPrev
+                            MemCopy src sz -> readMemCopy sym w end l tp d src sz readPrev
+                            MemSet v sz    -> readMemSet sym w end l tp d v sz readPrev
+                            MemStore v stp storeAlign -> readMemStore sym w end l tp d v stp alignment storeAlign readPrev
+                            MemArrayStore arr sz -> readMemArrayStore sym w end l tp d arr sz readPrev
                     sameBlock <- natEq sym blk1 blk2
                     case asConstantPred sameBlock of
                       Just True -> readCurrent

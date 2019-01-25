@@ -23,6 +23,7 @@
 --------------------------------------------------------------------------
 
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -43,15 +44,17 @@ module Lang.Crucible.LLVM.Safety.UndefinedBehavior
   , defaultStrict
   ) where
 
-import           Data.Functor.Contravariant (Predicate(..))
-import           Data.Maybe (fromMaybe)
-import           Data.Text (Text, unwords, unlines)
-import           Data.Typeable (Typeable)
 import           Prelude hiding (unwords, unlines)
+
+import           Data.Functor.Contravariant (Predicate(..))
+import           Data.Maybe (fromMaybe, maybeToList)
+import           Data.Text (Text, unwords, unlines, pack)
+import           Data.Typeable (Typeable)
 
 import qualified What4.Interface as W4I
 
 import           Lang.Crucible.LLVM.Safety.Standards
+import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
 
 -- -----------------------------------------------------------------------
 -- ** UndefinedBehavior
@@ -81,6 +84,10 @@ data UndefinedBehavior sym where
   -- ^ "One of the following shall hold: [...] one operand is a pointer and the
   -- other is a null pointer constant."
 
+  PointerCast :: W4I.SymNat sym  -- ^ Pointer's allocation number
+              -> StorageTypeF () -- ^ Type being cast to
+              -> UndefinedBehavior sym
+
   {-
   | MemcpyDisjoint
   | DoubleFree
@@ -103,6 +110,8 @@ standard =
     CompareDifferentAllocs  -> CStd C99
     PtrSubDifferentAllocs   -> CStd C99
     ComparePointerToBV      -> CStd C99
+    PointerCast _ _         -> CStd C99
+
 
     -------------------------------- LLVM poison and undefined values
     {-
@@ -126,6 +135,7 @@ cite =
     CompareDifferentAllocs  -> "§6.5.8 Relational operators, ¶5"
     PtrSubDifferentAllocs   -> "§6.5.6 Additive operators, ¶9"
     ComparePointerToBV      -> "§6.5.9 Equality operators, ¶2"
+    PointerCast _ _         -> "TODO"
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
     DoubleFree              -> "§7.22.3.3 The free function"
@@ -135,7 +145,7 @@ cite =
 
 
 -- | What happened, and why is it a problem?
-explain :: UndefinedBehavior sym -> Text
+explain :: W4I.IsExpr (W4I.SymExpr sym) => UndefinedBehavior sym -> Text
 explain =
   \case
     -------------------------------- Memory management
@@ -161,6 +171,11 @@ explain =
     PtrSubDifferentAllocs  -> "Subtraction of pointers from different allocations"
     ComparePointerToBV     ->
       "Comparison of a pointer to a non zero (null) integer value"
+    PointerCast allocNum castToType -> unlines $
+      [ "Cast of a pointer to a non-integer type"
+      , "Cast to: " <> pack (show castToType)
+      ] ++ maybeToList (fmap (\n -> "Allocation number: " <> pack (show n))
+                             (W4I.asNat allocNum))
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
     DoubleFree         -> "`free` called on already-freed memory"
@@ -169,7 +184,7 @@ explain =
     ModifiedStringLiteral -> "Modified the underlying array of a string literal"
     -}
 
-pp :: UndefinedBehavior sym -> Text
+pp :: W4I.IsExpr (W4I.SymExpr sym) => UndefinedBehavior sym -> Text
 pp ub = unlines $
   [ "Undefined behavior encountered: "
   , explain ub

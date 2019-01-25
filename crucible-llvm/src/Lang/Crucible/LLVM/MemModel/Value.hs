@@ -30,28 +30,9 @@ module Lang.Crucible.LLVM.MemModel.Value
   , ptrToPtrVal
   , zeroInt
 
-  , PartLLVMVal
   , llvmValStorableType
-  , bvConcatPartLLVMVal
-  , bvToFloatPartLLVMVal
-  , bvToDoublePartLLVMVal
-  , bvToX86_FP80PartLLVMVal
-  , consArrayPartLLVMVal
-  , appendArrayPartLLVMVal
-  , mkArrayPartLLVMVal
-  , mkStructPartLLVMVal
-  , selectLowBvPartLLVMVal
-  , selectHighBvPartLLVMVal
-  , arrayEltPartLLVMVal
-  , fieldValPartLLVMVal
-  , muxLLVMVal
   ) where
 
-import           Control.Lens
-import           Control.Monad
-import           Control.Monad.IO.Class
-import           Control.Monad.Trans.Maybe
-import           Control.Monad.State.Strict
 import           Data.List (intersperse)
 
 import           Data.Parameterized.Classes
@@ -59,14 +40,11 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Vector( Vector )
 import qualified Data.Vector as V
-import           Data.Word (Word64)
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
-import           What4.Partial
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Pointer
@@ -123,12 +101,6 @@ llvmValStorableType v =
 ptrToPtrVal :: (1 <= w) => LLVMPtr sym w -> LLVMVal sym
 ptrToPtrVal (LLVMPointer blk off) = LLVMValInt blk off
 
-----------------------------------------------------------------------
--- PartLLVMVal
-
--- | Partial LLVM values.
-type PartLLVMVal sym = PartExpr (Pred sym) (LLVMVal sym)
-
 zeroInt ::
   IsSymInterface sym =>
   sym ->
@@ -142,6 +114,31 @@ zeroInt sym bytes k
           bv  <- bvLit sym w 0
           k (Just (blk, bv))
 zeroInt _ _ k = k @1 Nothing
+
+instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
+  show (LLVMValZero _tp) = "0"
+  show (LLVMValUndef tp) = "<undef : " ++ show tp ++ ">"
+  show (LLVMValInt blk w)
+    | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
+    | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
+  show (LLVMValFloat SingleSize _) = "<float>"
+  show (LLVMValFloat DoubleSize _) = "<double>"
+  show (LLVMValFloat X86_FP80Size _) = "<long double>"
+  show (LLVMValStruct xs) =
+    unwords $ [ "{" ]
+           ++ intersperse ", " (map (show . snd) $ V.toList xs)
+           ++ [ "}" ]
+  show (LLVMValArray _ xs) =
+    unwords $ [ "[" ]
+           ++ intersperse ", " (map show $ V.toList xs)
+           ++ [ "]" ]
+
+----------------------------------------------------------------------
+-- PartLLVMVal
+
+  {-
+-- | Partial LLVM values.
+type PartLLVMVal sym = PartExpr (Pred sym) (LLVMVal sym)
 
 bvToFloatPartLLVMVal ::
   IsSymInterface sym => sym ->
@@ -515,21 +512,4 @@ muxLLVMVal sym = mergePartial sym muxval
 
     muxval _ _ _ = returnUnassigned
 
-
-instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
-  show (LLVMValZero _tp) = "0"
-  show (LLVMValUndef tp) = "<undef : " ++ show tp ++ ">"
-  show (LLVMValInt blk w)
-    | Just 0 <- asNat blk = "<int" ++ show (bvWidth w) ++ ">"
-    | otherwise = "<ptr " ++ show (bvWidth w) ++ ">"
-  show (LLVMValFloat SingleSize _) = "<float>"
-  show (LLVMValFloat DoubleSize _) = "<double>"
-  show (LLVMValFloat X86_FP80Size _) = "<long double>"
-  show (LLVMValStruct xs) =
-    unwords $ [ "{" ]
-           ++ intersperse ", " (map (show . snd) $ V.toList xs)
-           ++ [ "}" ]
-  show (LLVMValArray _ xs) =
-    unwords $ [ "[" ]
-           ++ intersperse ", " (map show $ V.toList xs)
-           ++ [ "]" ]
+-}

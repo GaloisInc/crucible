@@ -39,6 +39,8 @@ module What4.Partial
  , joinMaybePE
    -- * AssertionTree
  , AssertionTree(..)
+ , binaryAnd
+ , binaryOr
  , cataAT
  , tagAT
  , cataMAT
@@ -128,6 +130,12 @@ data AssertionTree a =
   | Ite  a (AssertionTree a) (AssertionTree a)
   deriving (Data, Eq, Functor, Generic, Generic1, Foldable, Traversable, Ord, Show)
 
+binaryAnd :: AssertionTree a -> AssertionTree a -> AssertionTree a
+binaryAnd t1 t2 = And (t1 :| [t2])
+
+binaryOr :: AssertionTree a -> AssertionTree a -> AssertionTree a
+binaryOr t1 t2 = Or (t1 :| [t2])
+
 -- | Not really associative...
 instance Semigroup (AssertionTree a) where
   a1 <> a2 = And (a1 :| [a2])
@@ -135,6 +143,12 @@ instance Semigroup (AssertionTree a) where
 -- | Also not really associative...
 -- (<+>) :: AssertionTree a -> AssertionTree a -> AssertionTree a
 -- a1 <+> a2 = Or [a1, a2]
+
+-- | 'And' a condition onto an assertion tree
+addCondition :: AssertionTree a
+             -> a
+             -> AssertionTree a
+addCondition tree cond = binaryAnd (Leaf cond) tree
 
 -- | Catamorphisms for the 'AssertionTree' type
 cataAT :: (a -> b)           -- ^ 'Leaf' case
@@ -243,6 +257,31 @@ collapseAT sym toPred = cataMAT
   (foldM (andPred sym) (truePred sym))
   (foldM (orPred sym) (falsePred sym))
   (\a -> itePred sym (toPred a))
+
+{-
+ppAssertionTree :: (IsExprBuilder sym) => sym -> AssertionTree sym -> Doc
+ppAssertionTree sym tree =
+  let (tree', _) = asConstAOI_ sym _pred tree
+  in
+    cataAOI
+      (\(lf, mb) -> text' (_explanation lf) <+> mbToText mb) -- TODO(langston): UB
+      (\factors ->
+         text' "All of "
+         <$$> indent 2 (vcat factors))
+      (\summands ->
+         text' "Any of "
+         <$$> indent 2 (vcat summands))
+      (\(cond, mb) doc1 doc2 ->
+         text' "If " <+> text' (_explanation cond) <+> mbToText mb <$$>
+         indent 2 (vcat [ "then " <+> doc1
+                        , "else " <+> doc2
+                        ]))
+      tree'
+  where mbToText (Just True)  = text "(known-true)"
+        mbToText (Just False) = text "(known-false)"
+        mbToText Nothing      = mempty
+        text' = text . unpack
+-}
 
 ------------------------------------------------------------------------
 -- Merge
@@ -359,9 +398,3 @@ returnPartial :: (IsExprBuilder sym, MonadIO m)
               -> PartialT sym m a
 returnPartial Unassigned = returnUnassigned
 returnPartial (PE q a) = PartialT $ \sym p -> liftIO (mkPE <$> andPred sym p q <*> pure a)
-
--- | Add an extra condition to the current partial computation.
-addCondition :: (IsExprBuilder sym, MonadIO m)
-              => Pred sym
-              -> PartialT sym m ()
-addCondition q = returnPartial (mkPE q ())
