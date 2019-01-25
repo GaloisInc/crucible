@@ -17,16 +17,19 @@ module Lang.Crucible.CFG.Extension.Safety
 , HasSafetyAssertions(..)
 ) where
 
-import           Data.Kind
-import           Lang.Crucible.Backend
-import           Lang.Crucible.Simulator.SimError (SimErrorReason(..))
-import           Text.PrettyPrint.ANSI.Leijen (Doc)
-import           What4.Partial
-import           What4.Interface
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Kind
+import Lang.Crucible.Backend
+import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
+import Text.PrettyPrint.ANSI.Leijen (Doc)
+import What4.Interface
+import What4.Partial
 
 -- | This is the type of "safety assertions" that will be made about operations
 -- of the syntax extension. For example, for the LLVM syntax extension, this type
 -- contains constructors for instances of undefined behavior.
+--
+-- It is assumed to be an injective type family.
 type family SafetyAssertion (ext :: Type) = sa | sa -> ext
 
 -- | The empty safety assertion extension, which adds no new possible assertions.
@@ -48,20 +51,33 @@ class HasSafetyAssertions (ext :: Type) where
   -- | This is in this class because a given syntax extension might have a more
   -- efficient implementation, e.g. by realizing that one part of an And
   -- encompasses another. Same goes for 'explainTree'.
-  treeToPredicate :: IsExprBuilder sym
+  treeToPredicate :: (MonadIO io, IsExprBuilder sym)
                   => sym
                   -> AssertionTree (SafetyAssertion ext)
-                  -> IO (Pred sym)
-  treeToPredicate sym = collapseAT sym (toPredicate sym)
+                  -> io (Pred sym)
+  treeToPredicate sym = liftIO $ collapseAT sym (toPredicate sym)
 
   explain     :: SafetyAssertion ext -> Doc
   explainTree :: AssertionTree (SafetyAssertion ext) -> Doc
 
-  assertSafe :: (IsExprBuilder sym, IsBoolSolver sym)
+  assertSafe :: (MonadIO io, IsExprBuilder sym, IsBoolSolver sym)
              => sym
              -> SafetyAssertion ext
-             -> IO ()
+             -> io ()
   assertSafe sym assertion =
     let predicate = toPredicate sym assertion
     -- TODO: Should SimErrorReason have another constructor for this?
     in assert sym predicate (AssertFailureSimError (show (explain assertion)))
+
+  assertTreeSafe :: (MonadIO io, IsExprBuilder sym, IsBoolSolver sym)
+                 => sym
+                 -> SafetyAssertion ext
+                 -> io ()
+  assertTreeSafe sym tree =
+    let predicate = treeToPredicate sym tree
+    in assert sym predicate (AssertFailureSimError (show (explainTree assertion)))
+
+  -- TODO: a method that descends into an AssertionTree, asserting e.g. the
+  -- conjuncts separately and reporting on their success or failure individually,
+  -- within the context of a larger assertion i.e. "The following assertion
+  -- failed: _. It was part of the larger assertion _."
