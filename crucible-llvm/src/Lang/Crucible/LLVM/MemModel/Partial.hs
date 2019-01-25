@@ -1,8 +1,8 @@
 ------------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM.MemModel.Partial
--- Description      : Partial values in the LLVM memory model
--- Copyright        : (c) Galois, Inc 2015-2016
+-- Description      : Operations on partial values in the LLVM memory model
+-- Copyright        : (c) Galois, Inc 2015-2018
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
@@ -35,7 +35,7 @@ import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (liftIO, MonadIO)
 import           Control.Monad.State.Strict (State, get, put, runState)
 import           Data.Data (Data)
-import           Data.List.NonEmpty (NonEmpty((:|)))
+import           Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
 import           Data.Maybe (catMaybes)
 import           Data.Semigroup (sconcat)
 import           Data.Text (Text, unpack)
@@ -70,7 +70,7 @@ import qualified What4.Partial as W4P
 -- | An optional LLVMValue, paired with a tree of predicates explaining
 -- just when it is actually valid.
 type PartLLVMVal arch sym =
-  PartExpr (W4P.AssertionTree (LLVMSafetyAssertion arch sym)) (LLVMVal sym)
+  PartExpr (LLVMSafetyAssertionTree arch sym) (LLVMVal sym)
 
 -- | Make an assertion that isn't about undefined behavior
 -- llvmAssert :: Text -> Pred sym -> LLVMValAssertion sym
@@ -83,10 +83,10 @@ totalLLVMVal sym v = W4P.PE (Leaf (safe sym)) v
 -- | Add a side-condition to a value that might have caused undefined behavior
 addUndefinedBehaviorCondition :: UB.UndefinedBehavior sym
                               -> Pred sym
-                              -> W4P.AssertionTree (LLVMSafetyAssertion arch sym)
-                              -> W4P.AssertionTree (LLVMSafetyAssertion arch sym)
+                              -> LLVMSafetyAssertionTree arch sym
+                              -> LLVMSafetyAssertionTree arch sym
 addUndefinedBehaviorCondition ub pred tree =
-  W4P.addCondition (undefinedBehavior ub pred) tree
+  W4P.addCondition tree (undefinedBehavior ub pred)
 
 -- addPoisonCondition ::
 
@@ -122,12 +122,12 @@ bvToDoublePartLLVMVal ::
   PartLLVMVal arch sym ->
   IO (PartLLVMVal arch sym)
 
-bvToDoublePartLLVMVal arch sym (PE p (LLVMValZero (StorageType (Bitvector 8) _))) =
+bvToDoublePartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 8) _))) =
   PE p . LLVMValFloat Value.DoubleSize <$>
     (W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr =<<
        W4I.bvLit sym (knownNat @64) 0)
 
-bvToDoublePartLLVMVal arch sym (PE p (LLVMValInt blk off))
+bvToDoublePartLLVMVal sym (PE p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @64) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
       let ub = UB.PointerCast blk Float
@@ -144,17 +144,17 @@ bvToX86_FP80PartLLVMVal ::
   PartLLVMVal arch sym ->
   IO (PartLLVMVal arch sym)
 
-bvToX86_FP80PartLLVMVal arch sym (PE p (LLVMValZero (StorageType (Bitvector 10) _))) =
+bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 10) _))) =
   PE p . LLVMValFloat Value.X86_FP80Size <$>
     (W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr =<<
        W4I.bvLit sym (knownNat @80) 0)
 
-bvToX86_FP80PartLLVMVal arch sym (PE p (LLVMValInt blk off))
+bvToX86_FP80PartLLVMVal sym (PE p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @80) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
       let ub = UB.PointerCast blk X86_FP80
       PE (addUndefinedBehaviorCondition ub pz p) .
-      LLVMValFloat Value.X86_FP80Size <$>
+        LLVMValFloat Value.X86_FP80Size <$>
         W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
 
 bvToX86_FP80PartLLVMVal _ _ = return Unassigned
@@ -168,9 +168,8 @@ bvConcatPartLLVMVal :: forall arch sym.
   PartLLVMVal arch sym ->
   IO (PartLLVMVal arch sym)
 bvConcatPartLLVMVal _ Unassigned _ = return Unassigned
-bvConcatPartLLVMVal _ _ Unassigned = return Unassigned
 
-bvConcatPartLLVMVal arch sym (PE p1 v1) (PE p2 v2) =
+bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
     case (v1, v2) of
       (LLVMValInt blk_low low, LLVMValInt blk_high high) ->
         do go blk_low low blk_high high
@@ -185,7 +184,7 @@ bvConcatPartLLVMVal arch sym (PE p1 v1) (PE p2 v2) =
            Just (blk_low, low) ->
              go blk_low low blk_high high
       (LLVMValZero (StorageType (Bitvector low_bytes) _), LLVMValZero (StorageType (Bitvector high_bytes) _)) ->
-        pure $ returnPartLLVMVal arch sym (LLVMValZero (bitvectorType (low_bytes + high_bytes)))
+        pure $ totalLLVMVal sym (LLVMValZero (bitvectorType (low_bytes + high_bytes)))
       _ -> return Unassigned
 
  where
@@ -202,20 +201,18 @@ bvConcatPartLLVMVal arch sym (PE p1 v1) (PE p2 v2) =
       do blk0   <- W4I.natLit sym 0
          -- TODO: Why won't this pattern match fail?
          Just LeqProof <- return $ isPosNat (addNat high_w' low_w')
-         p_blk1 <- W4I.natEq sym blk_low blk0
-         p_blk2 <- W4I.natEq sym blk_high blk0
-         bv <- W4I.bvConcat sym high low
-         return $ flip W4P.PE (LLVMValInt blk0 bv) $ sconcat $
-           let
-             expl s = "While concatenating bitvectors: " <> s
-             exp1 = expl "The first bitvector is really an integer (not a pointer)"
-             exp2 = expl "The second bitvector is really an integer (not a pointer)"
+         predLow       <- W4I.natEq sym blk_low blk0
+         predHigh      <- W4I.natEq sym blk_high blk0
+         bv            <- W4I.bvConcat sym high low
+         return $ flip W4P.PE (LLVMValInt blk0 bv) $
+           let ub1 = UB.PointerCast blk_low  (Bitvector 0)
+               ub2 = UB.PointerCast blk_high (Bitvector 0)
            in
-             (Leaf (llvmAssert exp1 p_blk1) :|
-               [ Leaf (llvmAssert exp2 p_blk2)
-               , p1
-               , p2
-               ])
+             W4P.And (Leaf (undefinedBehavior ub1 predLow) :|
+                        [ Leaf (undefinedBehavior ub2 predHigh)
+                        , p1
+                        , p2
+                        ])
     | otherwise =
        return Unassigned
 
@@ -230,15 +227,15 @@ consArrayPartLLVMVal ::
   PartLLVMVal arch sym
 consArrayPartLLVMVal (PE p1 (LLVMValZero tp)) (PE p2 (LLVMValZero (StorageType (Array m tp') _)))
   | tp == tp' =
-      PE (And [p1, p2]) $ LLVMValZero (arrayType (m+1) tp')
+      PE (W4P.binaryAnd p1 p2) $ LLVMValZero (arrayType (m+1) tp')
 
 consArrayPartLLVMVal (PE p1 hd) (PE p2 (LLVMValZero (StorageType (Array m tp) _)))
   | Value.llvmValStorableType hd == tp =
-      PE (And [p1, p2]) $ LLVMValArray tp (V.cons hd (V.replicate (fromIntegral m) (LLVMValZero tp)))
+      PE (W4P.binaryAnd p1 p2) $ LLVMValArray tp (V.cons hd (V.replicate (fromIntegral m) (LLVMValZero tp)))
 
 consArrayPartLLVMVal (PE p1 hd) (PE p2 (LLVMValArray tp vec))
   | Value.llvmValStorableType hd == tp =
-      PE (And [p1, p2]) $ LLVMValArray tp (V.cons hd vec)
+      PE (W4P.binaryAnd p1 p2) $ LLVMValArray tp (V.cons hd vec)
 
 consArrayPartLLVMVal _ _ = Unassigned
 
@@ -251,27 +248,27 @@ appendArrayPartLLVMVal ::
 appendArrayPartLLVMVal
   (PE p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
   (PE p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
-  | tp1 == tp2 = PE (And [p1, p2]) $ LLVMValZero (arrayType (n1+n2) tp1)
+  | tp1 == tp2 = PE (W4P.binaryAnd p1 p2) $ LLVMValZero (arrayType (n1+n2) tp1)
 
 appendArrayPartLLVMVal
   (PE p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
   (PE p2 (LLVMValArray tp2 v2))
   | tp1 == tp2 =
       let v1 = V.replicate (fromIntegral n1) (LLVMValZero tp1)
-      in PE (And [p1, p2]) $ LLVMValArray tp1 (v1 V.++ v2)
+      in PE (W4P.binaryAnd p1 p2) $ LLVMValArray tp1 (v1 V.++ v2)
 
 appendArrayPartLLVMVal
   (PE p1 (LLVMValArray tp1 v1))
   (PE p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
   | tp1 == tp2 =
       let v2 = V.replicate (fromIntegral n2) (LLVMValZero tp1)
-      in PE (And [p1, p2]) $ LLVMValArray tp1 (v1 V.++ v2)
+      in PE (W4P.binaryAnd p1 p2) $ LLVMValArray tp1 (v1 V.++ v2)
 
 appendArrayPartLLVMVal
   (PE p1 (LLVMValArray tp1 v1))
   (PE p2 (LLVMValArray tp2 v2))
   | tp1 == tp2 =
-      PE (And [p1, p2]) $ LLVMValArray tp1 (v1 V.++ v2)
+      PE (W4P.binaryAnd p1 p2) $ LLVMValArray tp1 (v1 V.++ v2)
 
 appendArrayPartLLVMVal _ _ = Unassigned
 
@@ -281,12 +278,13 @@ appendArrayPartLLVMVal _ _ = Unassigned
 -- It returns 'Unassigned' if any of the elements of the vector are
 -- 'Unassigned'. Otherwise, the 'AssertionTree' on the returned value
 -- is the 'And' of all the assertions on the values.
-mkArrayPartLLVMVal :: forall arch sym. IsSymInterface sym =>
+mkArrayPartLLVMVal :: forall arch sym. (IsExprBuilder sym, IsSymInterface sym) =>
+  sym ->
   StorageType ->
   Vector (PartLLVMVal arch sym) ->
   PartLLVMVal arch sym
-mkArrayPartLLVMVal tp vec =
-  let f :: PartLLVMVal arch sym -> State [W4P.AssertionTree sym] (Maybe (LLVMVal sym))
+mkArrayPartLLVMVal sym tp vec =
+  let f :: PartLLVMVal arch sym -> State [LLVMSafetyAssertionTree arch sym] (Maybe (LLVMVal sym))
       f Unassigned = pure Nothing
       f (PE p x) = do
         ps_ <- get     -- Current predicates
@@ -294,8 +292,11 @@ mkArrayPartLLVMVal tp vec =
         pure (Just x)
       (vecMay, ps) = flip runState [] $ (traverse f vec)
   in case sequence vecMay of
-       Nothing  -> Unassigned
-       Just vec' -> PE (And ps) $ LLVMValArray tp vec'
+       Nothing   -> Unassigned
+       Just vec' ->
+         case nonEmpty ps of
+           Just ps' -> PE (And ps') $ LLVMValArray tp vec'
+           Nothing  -> totalLLVMVal sym (LLVMValArray tp vec')
 
 
 -- | Make a partial LLVM struct value.
@@ -303,12 +304,13 @@ mkArrayPartLLVMVal tp vec =
 -- It returns 'Unassigned' if any of the struct fields are 'Unassigned'.
 -- Otherwise, the 'AssertionTree' on the returned value is the 'And' of all the
 -- assertions on the values.
-mkStructPartLLVMVal :: forall arch sym.
+mkStructPartLLVMVal :: forall arch sym. IsExprBuilder sym =>
+  sym ->
   Vector (Field StorageType, PartLLVMVal arch sym) ->
   (PartLLVMVal arch sym)
-mkStructPartLLVMVal vec =
+mkStructPartLLVMVal sym vec =
   let f :: (Field StorageType, PartLLVMVal arch sym)
-        -> State [W4P.AssertionTree sym] (Maybe (Field StorageType, LLVMVal sym))
+        -> State [LLVMSafetyAssertionTree arch sym] (Maybe (Field StorageType, LLVMVal sym))
       f (_fld, Unassigned) = pure Nothing
       f (fld, PE p x) = do
         ps_ <- get
@@ -317,7 +319,10 @@ mkStructPartLLVMVal vec =
       (vecMay, ps) = flip runState [] $ (traverse f vec)
   in case sequence vecMay of
        Nothing   -> Unassigned
-       Just vec' -> PE (And ps) $ LLVMValStruct vec'
+       Just vec' ->
+         case nonEmpty ps of
+           Just ps' -> PE (And ps') $ LLVMValStruct vec'
+           Nothing  -> totalLLVMVal sym (LLVMValStruct vec')
 
 
 -- | Select some of the least significant bytes of a partial LLVM
@@ -334,17 +339,16 @@ selectLowBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector by
   | low + hi == bytes =
       return $ PE p $ LLVMValZero (bitvectorType low)
 
-selectLowBvPartLLVMVal arch sym low hi (PE p (LLVMValInt blk bv))
+selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
   | Just (Some (low_w)) <- someNat (Bytes.bytesToBits low)
   , Just (Some (hi_w))  <- someNat (Bytes.bytesToBits hi)
   , Just LeqProof       <- isPosNat low_w
   , Just Refl           <- testEquality (addNat low_w hi_w) w
   , Just LeqProof       <- testLeq low_w w = do
-      let expl = ("When selecting the least-significant bytes of a bitvector: " <>)
-      let exp0 = expl "The bitvector is really an integer (not a pointer)"
       pz  <- W4I.natEq sym blk =<< W4I.natLit sym 0
       bv' <- W4I.bvSelect sym (knownNat :: NatRepr 0) low_w bv
-      return $ PE (And [Leaf (llvmAssert exp0 pz), p]) (LLVMValInt blk bv')
+      let ub = UB.PointerCast blk (Bitvector 0)
+      return $ PE (addUndefinedBehaviorCondition ub pz p) $ LLVMValInt blk bv'
   where w = W4I.bvWidth bv
 selectLowBvPartLLVMVal _ _ _ _ = return Unassigned
 
@@ -362,16 +366,15 @@ selectHighBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector b
   | low + hi == bytes =
       return $ PE p $ LLVMValZero (bitvectorType hi)
 
-selectHighBvPartLLVMVal arch sym low hi (PE p (LLVMValInt blk bv))
+selectHighBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
   | Just (Some (low_w)) <- someNat (Bytes.bytesToBits low)
   , Just (Some (hi_w))  <- someNat (Bytes.bytesToBits hi)
   , Just LeqProof <- isPosNat hi_w
   , Just Refl <- testEquality (addNat low_w hi_w) w =
-    do let expl = ("When selecting the most-significant bytes of a bitvector: " <>)
-       let exp0 = expl "The bitvector is really an integer (not a pointer)"
-       pz <-  W4I.natEq sym blk =<< W4I.natLit sym 0
+    do pz <-  W4I.natEq sym blk =<< W4I.natLit sym 0
        bv' <- W4I.bvSelect sym low_w hi_w bv
-       return $ PE (And [Leaf (llvmAssert exp0 pz), p]) $ LLVMValInt blk bv'
+       let ub = UB.PointerCast blk (Bitvector 0)
+       return $ PE (addUndefinedBehaviorCondition ub pz p) $ LLVMValInt blk bv'
   where w = W4I.bvWidth bv
 selectHighBvPartLLVMVal _ _ _ _ = return Unassigned
 
@@ -441,13 +444,8 @@ mergePartial :: (IsExprBuilder sym, MonadIO m) =>
       IO (PartLLVMVal arch sym)   #-}
 
 mergePartial _ _ _ Unassigned Unassigned  = return Unassigned
-mergePartial _ _ c (PE px x) Unassigned = do
-  let expl = "If-then-else of partial LLVM values, second was 'Unassigned'"
-  return $ PE (And [Leaf (llvmAssert expl c), px]) x
-mergePartial sym _ c Unassigned (PE py y) = do
-  p <- liftIO $ W4I.notPred sym c
-  let expl = "If-then-else of partial LLVM values, first was 'Unassigned'"
-  return $! PE (And [Leaf (llvmAssert expl p), py]) y
+mergePartial _ _ c v Unassigned           = return v -- TODO: too optimistic?
+mergePartial sym _ c Unassigned v         = return v -- TODO: too optimistic?
 mergePartial _ f c (PE px x) (PE py y) = do
   let expl    = "If-then-else of partial LLVM values"
   z0 <- f c x y
@@ -523,19 +521,19 @@ muxLLVMVal sym = mergePartial sym muxval
 
 
     muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal arch sym)
-    muxval cond (LLVMValZero tp) v = returnPartLLVMVal arch sym <$> muxzero cond tp v
+    muxval cond (LLVMValZero tp) v = totalLLVMVal arch sym <$> muxzero cond tp v
     muxval cond v (LLVMValZero tp) = do cond' <- W4I.notPred sym cond
-                                        returnPartLLVMVal arch sym <$> muxzero cond' tp v
+                                        totalLLVMVal arch sym <$> muxzero cond' tp v
 
     muxval cond (LLVMValInt base1 off1) (LLVMValInt base2 off2)
       | Just Refl <- testEquality (W4I.bvWidth off1) (W4I.bvWidth off2)
       = do base <- liftIO $ W4I.natIte sym cond base1 base2
            off  <- liftIO $ W4I.bvIte sym cond off1 off2
-           pure $ returnPartLLVMVal arch sym $ LLVMValInt base off
+           pure $ totalLLVMVal arch sym $ LLVMValInt base off
 
     muxval cond (LLVMValFloat (xsz :: Value.FloatSize fi) x) (LLVMValFloat ysz y)
       | Just Refl <- testEquality xsz ysz
-      = returnPartLLVMVal arch sym .  LLVMValFloat xsz <$>
+      = totalLLVMVal arch sym .  LLVMValFloat xsz <$>
           (liftIO $ W4IFP.iFloatIte @_ @fi sym cond x y)
 
     muxval cond (LLVMValStruct fls1) (LLVMValStruct fls2)
@@ -548,6 +546,6 @@ muxLLVMVal sym = mergePartial sym muxval
           mkArrayPartLLVMVal tp1 <$> V.zipWithM (muxval cond) v1 v2
 
     muxval _ v1@(LLVMValUndef tp1) (LLVMValUndef tp2)
-      | tp1 == tp2 = pure (returnPartLLVMVal arch sym v1)
+      | tp1 == tp2 = pure (totalLLVMVal arch sym v1)
 
     muxval _ _ _ = pure Unassigned

@@ -22,6 +22,7 @@
 
 module Lang.Crucible.LLVM.Safety
   ( LLVMSafetyAssertion
+  , LLVMSafetyAssertionTree
   , undefinedBehavior
   , undefinedBehavior'
   , poison
@@ -65,6 +66,9 @@ data LLVMSafetyAssertion (arch :: LLVMArch) sym =
     , _extra      :: Maybe Text      -- ^ Additional human-readable context
     }
   deriving (Generic, Typeable)
+
+type LLVMSafetyAssertionTree arch sym =
+  AssertionTree (LLVMSafetyAssertion arch sym)
 
 -- -----------------------------------------------------------------------
 -- ** Constructors

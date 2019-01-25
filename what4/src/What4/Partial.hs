@@ -398,3 +398,9 @@ returnPartial :: (IsExprBuilder sym, MonadIO m)
               -> PartialT sym m a
 returnPartial Unassigned = returnUnassigned
 returnPartial (PE q a) = PartialT $ \sym p -> liftIO (mkPE <$> andPred sym p q <*> pure a)
+
+-- | Add an extra condition to the current partial computation.
+addCondition_ :: (IsExprBuilder sym, MonadIO m)
+              => Pred sym
+              -> PartialT sym m ()
+addCondition_ q = returnPartial (mkPE q ())
