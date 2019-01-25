@@ -129,7 +129,7 @@ tests :: ModuleTranslation arch1
       -> ModuleTranslation arch5
       -> TestTree
 tests int struct uninitialized _ lifetime = do
-  testGroup "Tests"
+  testGroup "Tests" $
     [ testCase "int" $
         Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) 42)) @=?
            Map.map snd (globalInitMap int)
