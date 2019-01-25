@@ -1,0 +1,10 @@
+-- |
+-- Module           : Lang.Crucible.LLVM.Safety.Poison
+-- Description      : All about LLVM poison values
+-- Copyright        : (c) Galois, Inc 2018
+-- License          : BSD3
+-- Maintainer       : Langston Barrett <lbarrett@galois.com>
+-- Stability        : provisional
+--
+-- This module is intended to be imported qualified.
+--------------------------------------------------------------------------

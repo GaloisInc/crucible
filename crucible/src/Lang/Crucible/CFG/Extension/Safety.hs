@@ -55,7 +55,7 @@ class HasSafetyAssertions (ext :: Type) where
                   => sym
                   -> AssertionTree (SafetyAssertion ext)
                   -> io (Pred sym)
-  treeToPredicate sym = liftIO $ collapseAT sym (toPredicate sym)
+  treeToPredicate sym = liftIO . collapseAT sym (toPredicate sym)
 
   explain     :: SafetyAssertion ext -> Doc
   explainTree :: AssertionTree (SafetyAssertion ext) -> Doc
@@ -67,15 +67,17 @@ class HasSafetyAssertions (ext :: Type) where
   assertSafe sym assertion =
     let predicate = toPredicate sym assertion
     -- TODO: Should SimErrorReason have another constructor for this?
-    in assert sym predicate (AssertFailureSimError (show (explain assertion)))
+    in liftIO $
+      assert sym predicate (AssertFailureSimError (show (explain assertion)))
 
   assertTreeSafe :: (MonadIO io, IsExprBuilder sym, IsBoolSolver sym)
                  => sym
-                 -> SafetyAssertion ext
+                 -> AssertionTree (SafetyAssertion ext)
                  -> io ()
-  assertTreeSafe sym tree =
-    let predicate = treeToPredicate sym tree
-    in assert sym predicate (AssertFailureSimError (show (explainTree assertion)))
+  assertTreeSafe sym tree = do
+    predicate <- treeToPredicate sym tree
+    liftIO $
+      assert sym predicate (AssertFailureSimError (show (explainTree tree)))
 
   -- TODO: a method that descends into an AssertionTree, asserting e.g. the
   -- conjuncts separately and reporting on their success or failure individually,

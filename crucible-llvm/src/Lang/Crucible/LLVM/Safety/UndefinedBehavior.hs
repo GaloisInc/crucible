@@ -1,5 +1,5 @@
 -- |
--- Module           : Lang.Crucible.LLVM.UndefinedBehavior
+-- Module           : Lang.Crucible.LLVM.Safety.UndefinedBehavior
 -- Description      : All about undefined behavior
 -- Copyright        : (c) Galois, Inc 2018
 -- License          : BSD3
@@ -29,7 +29,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE StrictData #-}
 
-module Lang.Crucible.LLVM.UndefinedBehavior
+module Lang.Crucible.LLVM.Safety.UndefinedBehavior
   ( Standard(..)
   , ppStd
   , stdURL
@@ -126,6 +126,8 @@ ppStd =
 --
 -- The commented-out constructors correspond to behaviors that don't have
 -- explicit checks yet (but probably should!).
+--
+-- TODO: Add the relevant information to these instructions
 data UndefinedBehavior =
 
     -------------------------------- Memory management

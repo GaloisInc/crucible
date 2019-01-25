@@ -54,7 +54,8 @@ library
     Lang.Crucible.LLVM.Printf
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.TypeContext
-    Lang.Crucible.LLVM.UndefinedBehavior
+    Lang.Crucible.LLVM.Safety
+    Lang.Crucible.LLVM.Safety.UndefinedBehavior
 
   other-modules:
     Lang.Crucible.LLVM.MemModel.Common

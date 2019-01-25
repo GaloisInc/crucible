@@ -932,7 +932,7 @@ loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
         -> IO (LLVMVal sym)
 loadRaw sym mem ptr valType alignment = do
   partVal <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
-  _
+  undefined
   -- case res of
   --   Right (v, p1, p2, p3) -> v <$ (sequence $
   --     [ assert sym p1 (AssertFailureSimError "Read from unallocated memory")
