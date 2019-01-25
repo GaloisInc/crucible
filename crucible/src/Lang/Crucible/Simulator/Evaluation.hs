@@ -48,7 +48,7 @@ import           Numeric.Natural
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
-import           What4.Partial
+import           What4.Partial (PartExpr(..), joinMaybePE)
 import           What4.Symbol (emptySymbol)
 import           What4.Utils.Complex
 import           What4.WordMap

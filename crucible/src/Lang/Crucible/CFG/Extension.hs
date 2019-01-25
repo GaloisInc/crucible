@@ -40,8 +40,8 @@ module Lang.Crucible.CFG.Extension
 ) where
 
 import           Data.Kind
-import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Data.Parameterized.TraversableFC
+import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 import           Lang.Crucible.Types
 
