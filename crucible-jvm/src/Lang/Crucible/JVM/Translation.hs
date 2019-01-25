@@ -677,9 +677,6 @@ popArguments ::
 popArguments args =
   case Ctx.viewAssign args of
     Ctx.AssignEmpty -> return Ctx.empty
-    Ctx.AssignExtend tps UnitRepr ->
-      do xs <- popArguments tps
-         return (Ctx.extend xs (App EmptyApp))
     Ctx.AssignExtend tps tp ->
       do x <- popArgument tp
          xs <- popArguments tps
@@ -983,10 +980,7 @@ generateInstruction (pc, instr) =
       lift $ debug 2 $ "invoke: " ++ mname
 
       -- find the static type of the method (without this!)
-      let methArgs = case (J.methodKeyParameterTypes methodKey) of
-            [] -> [Some UnitRepr]
-            args -> map javaTypeToRepr args
-      let argTys = Ctx.fromList methArgs
+      let argTys = Ctx.fromList (map javaTypeToRepr (J.methodKeyParameterTypes methodKey))
       let retTy  = maybe (Some C.UnitRepr) javaTypeToRepr (J.methodKeyReturnType methodKey)
 
       case (argTys, retTy) of
@@ -1415,8 +1409,6 @@ packTypes (t : ts) ctx asgn =
   case ctx of
     Ctx.Empty ->
       error "packTypes: arguments do not match JVM types"
-    ctx' Ctx.:> UnitRepr ->
-      packTypes (t :ts) ctx' (Ctx.init asgn)
     ctx' Ctx.:> ctp' ->
       case testEquality ctp ctp' of
         Nothing -> error $ unwords ["crucible type mismatch", show ctp, show ctp']

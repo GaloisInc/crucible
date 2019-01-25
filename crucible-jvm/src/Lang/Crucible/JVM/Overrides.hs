@@ -119,12 +119,9 @@ allParameterTypes className isStatic m
   | isStatic  = J.methodKeyParameterTypes m
   | otherwise = J.ClassType className : J.methodKeyParameterTypes m
 
-addThisAndUnit :: Bool -> [Some TypeRepr] -> [Some TypeRepr]
-addThisAndUnit isStatic args =
-  (if isStatic then [] else [Some refRepr]) ++
-  (case args of
-     [] -> [Some UnitRepr]
-     _  -> args)
+addThis :: Bool -> [Some TypeRepr] -> [Some TypeRepr]
+addThis isStatic args =
+  (if isStatic then [] else [Some refRepr]) ++ args
 
 
 -- | Translate the types of the method.
@@ -133,7 +130,7 @@ jvmToFunHandleRepr ::
   (forall args ret. CtxRepr args -> TypeRepr ret -> a)
   -> a
 jvmToFunHandleRepr isStatic meth k =
-   let args  = Ctx.fromList (addThisAndUnit isStatic (map javaTypeToRepr (J.methodKeyParameterTypes meth)))
+   let args  = Ctx.fromList (addThis isStatic (map javaTypeToRepr (J.methodKeyParameterTypes meth)))
        ret   = maybe (Some C.UnitRepr) javaTypeToRepr (J.methodKeyReturnType meth)
    in case (args, ret) of
      (Some argsRepr, Some retRepr) -> k argsRepr retRepr
@@ -626,13 +623,9 @@ printStream name showNewline descr t =
                 , jvmOverride_ret=UnitRepr
                 , jvmOverride_def=
                   \_sym args -> do
-                    let arg = Ctx.last args
+                    let reg = C.regValue (Ctx.last args)
+                    str <- showReg @sym (head (J.methodKeyParameterTypes mk)) t reg
                     h   <- C.printHandle <$> C.getContext
-                    str <- case t of
-                      UnitRepr -> return ""
-                      _ -> do let reg = C.regValue (Ctx.last args)
-                              showReg @sym (head (J.methodKeyParameterTypes mk)) t reg
-
                     liftIO $ (if showNewline then hPutStrLn else hPutStr) h str
                     liftIO $ hFlush h
                 }
@@ -702,9 +695,9 @@ isArray_override =
 
 stdOverrides :: IsSymInterface sym => [JVMOverride p sym]
 stdOverrides =
-   [  printlnMthd "()V"   UnitRepr
-      -- printStreamUnit "println" True -- TODO: methods that take no arguments?
-    , printlnMthd "(Z)V"  intRepr
+   [  -- printlnMthd "()V"   UnitRepr  -- TODO: methods that take no arguments?
+      -- printStreamUnit "println" True
+      printlnMthd "(Z)V"  intRepr
     , printlnMthd "(C)V"  intRepr  -- TODO: special case for single char, i.e. binary output
     , printlnMthd "([C)V" refRepr  -- TODO: array of chars
     , printlnMthd "(D)V"  doubleRepr
@@ -714,7 +707,7 @@ stdOverrides =
     , printlnMthd "(Ljava/lang/Object;)V" refRepr -- TODO: object toString
     , printlnMthd "(Ljava/lang/String;)V" refRepr -- TODO: String objects
 
-    , printMthd "()V"   UnitRepr
+    -- , printMthd "()V"   UnitRepr
     -- , printStreamUnit "print" False
     , printMthd "(Z)V"  intRepr
     , printMthd "(C)V"  intRepr  -- TODO: special case for single char, i.e. binary output
