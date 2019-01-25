@@ -200,7 +200,7 @@ readRef sym iTypes tpr rs globs =
 -- | Evaluation operation for evaluating a single straight-line
 --   statement of the Crucible evaluator.
 --
---   This is allowed to throw user execeptions or 'SimError'.
+--   This is allowed to throw user exceptions or 'SimError'.
 stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->

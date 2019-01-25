@@ -76,7 +76,7 @@ mergePartial :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
   (Pred sym -> a -> a -> PartialT sym m a)
     {- ^ Operation to combine inner values. The 'Pred' parameter is the
-         if/then/else condition -} ->
+         if-then-else condition. -} ->
   Pred sym {- ^ condition to merge on -} ->
   PartExpr (Pred sym) a {- ^ 'if' value -}  ->
   PartExpr (Pred sym) a {- ^ 'then' value -} ->
@@ -105,13 +105,13 @@ mergePartial sym f c (PE px x) (PE py y) =
 
 -- | Merge a collection of partial values in an if-then-else tree.
 --   For example, if we merge a list like @[(xp,x),(yp,y),(zp,z)]@,
---   we get a value that is morally equivalant to:
+--   we get a value that is morally equivalent to:
 --   @if xp then x else (if yp then y else (if zp then z else undefined))@.
 mergePartials :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
   (Pred sym -> a -> a -> PartialT sym m a)
     {- ^ Operation to combine inner values.
-         The 'Pred' parameter is the if/then/else condition
+         The 'Pred' parameter is the if-then-else condition.
      -} ->
   [(Pred sym, PartExpr (Pred sym) a)]      {- ^ values to merge -} ->
   m (PartExpr (Pred sym) a)
