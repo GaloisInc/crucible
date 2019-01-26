@@ -53,6 +53,7 @@ import qualified Text.LLVM.AST as L
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 
+import           Lang.Crucible.Panic(panic)
 import           Lang.Crucible.Types
 
 import           Lang.Crucible.LLVM.MemModel.Pointer
@@ -94,7 +95,7 @@ llvmTypesAsCtx :: forall a wptr
                => [MemType]
                -> (forall ctx. CtxRepr ctx -> a)
                -> a
-llvmTypesAsCtx xs f = go (concatMap llvmTypeToRepr xs) Ctx.empty
+llvmTypesAsCtx xs f = go (concatMap (toList . llvmTypeToRepr) xs) Ctx.empty
  where go :: forall ctx. [Some TypeRepr] -> CtxRepr ctx -> a
        go []       ctx      = f ctx
        go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
@@ -107,11 +108,9 @@ llvmTypeAsRepr :: forall a wptr
                -> (forall tp. TypeRepr tp -> a)
                -> a
 llvmTypeAsRepr xs f = go (llvmTypeToRepr xs)
- where go :: [Some TypeRepr] -> a
-       go []       = f UnitRepr
-       go [Some x] = f x
-
-       go _ = error $ unwords ["llvmTypeAsRepr: expected a single value type", show xs]
+ where go :: Maybe (Some TypeRepr) -> a
+       go Nothing         = f UnitRepr
+       go (Just (Some x)) = f x
 
 -- | Translate an LLVM return type into a crucible type, which is passed into
 --   the given continuation
@@ -124,20 +123,21 @@ llvmRetTypeAsRepr Nothing   f = f UnitRepr
 llvmRetTypeAsRepr (Just tp) f = llvmTypeAsRepr tp f
 
 -- | Actually perform the type translation
-llvmTypeToRepr :: (HasPtrWidth wptr, ?lc :: TypeContext) => MemType -> [Some TypeRepr]
-llvmTypeToRepr (ArrayType _ tp)  = [llvmTypeAsRepr tp (\t -> Some (VectorRepr t))]
-llvmTypeToRepr (VecType _ tp)    = [llvmTypeAsRepr tp (\t-> Some (VectorRepr t))]
-llvmTypeToRepr (StructType si)   = [llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))]
+llvmTypeToRepr :: (HasPtrWidth wptr, ?lc :: TypeContext) => MemType -> Maybe (Some TypeRepr)
+llvmTypeToRepr (ArrayType _ tp)  = Just $ llvmTypeAsRepr tp (\t -> Some (VectorRepr t))
+llvmTypeToRepr (VecType _ tp)    = Just $ llvmTypeAsRepr tp (\t-> Some (VectorRepr t))
+llvmTypeToRepr (StructType si)   = Just $ llvmTypesAsCtx tps (\ts -> Some (StructRepr ts))
   where tps = map fiType $ toList $ siFields si
-llvmTypeToRepr (PtrType _)  = [Some (LLVMPointerRepr PtrWidth)]
-llvmTypeToRepr FloatType    = [Some (FloatRepr SingleFloatRepr)]
-llvmTypeToRepr DoubleType   = [Some (FloatRepr DoubleFloatRepr)]
-llvmTypeToRepr X86_FP80Type   = [Some (FloatRepr X86_80FloatRepr)]
-llvmTypeToRepr MetadataType = []
+llvmTypeToRepr (PtrType _)  = Just $ Some (LLVMPointerRepr PtrWidth)
+llvmTypeToRepr FloatType    = Just $ Some (FloatRepr SingleFloatRepr)
+llvmTypeToRepr DoubleType   = Just $ Some (FloatRepr DoubleFloatRepr)
+llvmTypeToRepr X86_FP80Type = Just $ Some (FloatRepr X86_80FloatRepr)
+llvmTypeToRepr MetadataType = Nothing
 llvmTypeToRepr (IntType n) =
    case someNat (fromIntegral n) of
-      Just (Some w) | Just LeqProof <- isPosNat w -> [Some (LLVMPointerRepr w)]
-      _ -> error $ unwords ["invalid integer width",show n]
+      Just (Some w) | Just LeqProof <- isPosNat w -> Just $ Some (LLVMPointerRepr w)
+      _ -> panic "Translation.Types.llvmTypeToRepr"
+              [" *** invalid integer width " ++ show n]
 
 -- | Compute the function Crucible function signature
 --   that corresponds to the given LLVM function declaration.
