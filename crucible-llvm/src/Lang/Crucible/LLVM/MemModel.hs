@@ -160,6 +160,8 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
+import           Data.Text (Text)
+import qualified Data.Text as Text (pack, unpack, unlines)
 import           Data.Word
 import           GHC.TypeLits
 import           System.IO (Handle, hPutStrLn)
@@ -174,7 +176,7 @@ import qualified Text.LLVM.AST as L
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
-import           What4.Partial
+import           What4.Partial as W4P
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
@@ -262,11 +264,11 @@ assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
                 -> Pred sym
                 -> Maybe (UB.Config sym)      -- ^ defaults to 'strictConfig'
                 -> (UB.UndefinedBehavior sym) -- ^ The undesirable behavior
-                -> [String]                   -- ^ Additional error message lines
+                -> [Text]                     -- ^ Additional error message lines
                 -> IO ()
 assertUndefined sym p (UB.defaultStrict -> ubConfig) ub extraErrMsg =
   when (UB.getConfig ubConfig ub) $ assert sym p $
-    (AssertFailureSimError $ UB.pp ub ++ unlines extraErrMsg)
+    (AssertFailureSimError $ Text.unpack $ UB.pp ub <> Text.unlines extraErrMsg)
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -382,8 +384,7 @@ evalStmt sym = eval
            Right (SomeFnHandle h)
              | Just Refl <- testEquality handleTp expectedTp -> return (HandleFnVal h)
              | otherwise -> failedAssert
-                 $ unlines ["Expected function handle of type " ++
-                                                              show expectedTp
+                 $ unwords ["Expected function handle of type " <> show expectedTp
                            ,"but found handle of type " ++ show handleTp]
             where handleTp   = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
                   expectedTp = FunctionHandleRepr args ret
@@ -404,15 +405,26 @@ evalStmt sym = eval
         v3 <- G.notAliasable sym x y (memImplHeap mem)
 
         assertUndefined sym v1 Nothing UB.CompareInvalidPointer $
-          ["Equality (==) comparison on pointer", show x_doc, show allocs_doc]
+          ["Equality (==) comparison on pointer"
+          , Text.pack (show x_doc)
+          , Text.pack (show allocs_doc)
+          ]
         assertUndefined sym v2 Nothing UB.CompareInvalidPointer $
-          ["Equality (==) comparison on pointer", show y_doc, show allocs_doc]
+          ["Equality (==) comparison on pointer"
+          , Text.pack (show y_doc)
+          , Text.pack (show allocs_doc)
+          ]
         assert sym v3
-           (AssertFailureSimError $ unlines ["Const pointers compared for equality:", show x_doc, show y_doc, show allocs_doc])
+           (AssertFailureSimError $ unlines [ "Const pointers compared for equality:"
+                                            , show x_doc
+                                            , show y_doc
+                                            , show allocs_doc])
 
         (eq, valid) <- ptrEq sym PtrWidth x y
         assertUndefined sym valid Nothing UB.CompareDifferentAllocs $
-          ["Pointer 1: " ++ show x_doc, "Pointer 2:" ++ show y_doc]
+          [ "Pointer 1: " <> Text.pack (show x_doc)
+          , "Pointer 2: " <> Text.pack (show y_doc)
+          ]
 
         pure eq
 
@@ -424,13 +436,15 @@ evalStmt sym = eval
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
        assertUndefined sym v1 Nothing UB.CompareInvalidPointer $
-         ["Ordering (<=) comparison on pointer", show x_doc]
+         ["Ordering (<=) comparison on pointer", Text.pack (show x_doc)]
        assertUndefined sym v2 Nothing UB.CompareInvalidPointer $
-         ["Ordering (<=) comparison on pointer", show y_doc]
+         ["Ordering (<=) comparison on pointer", Text.pack (show y_doc)]
 
        (le, valid) <- ptrLe sym PtrWidth x y
        assertUndefined sym valid Nothing UB.CompareDifferentAllocs $
-         ["Pointer 1: " ++ show x_doc, "Pointer 2:" ++ show y_doc]
+         [ "Pointer 1: " <> Text.pack (show x_doc)
+         , "Pointer 2: " <> Text.pack (show y_doc)
+         ]
 
        pure le
 
@@ -633,12 +647,12 @@ doLookupHandle _sym mem ptr = do
 doFree
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
-  -> Maybe UB.Config  {- ^ defaults to 'strictConfig' -}
+  -> Maybe (UB.Config sym)  {- ^ defaults to 'strictConfig' -}
   -> MemImpl sym
   -> LLVMPtr sym wptr
   -> IO (MemImpl sym)
 doFree sym ubConfig mem ptr = do
-  let LLVMPointer blk _ = ptr
+  let LLVMPointer blk off = ptr
   (heap', p1, p2) <- G.freeMem sym PtrWidth ptr (memImplHeap mem)
 
   -- If this pointer is a handle pointer, remove the associated data
@@ -647,7 +661,6 @@ doFree sym ubConfig mem ptr = do
          Just i  -> Map.delete (toInteger i) (memImplHandleMap mem)
          Nothing -> memImplHandleMap mem
 
-
   -- NB: free is defined and has no effect if passed a null pointer
   isNull <- ptrIsNull sym PtrWidth ptr
   p1'    <- orPred sym p1 isNull
@@ -655,7 +668,11 @@ doFree sym ubConfig mem ptr = do
 
   let errMsg1 = "Pointer didn't point to base of allocation. "
   let errMsg2 = "Invalid free (double free or invalid pointer): address " ++ show (G.ppPtr ptr)
-  assertUndefined sym p1' ubConfig UB.FreeInvalidPointer [errMsg1, show (G.ppPtr ptr)]
+  let ub      = UB.FreeInvalidPointer blk off
+  assertUndefined sym p1' ubConfig ub $
+    [ errMsg1
+    , Text.pack (show (G.ppPtr ptr))
+    ]
   assert sym p2' (AssertFailureSimError errMsg2)
 
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
@@ -666,7 +683,7 @@ doFree sym ubConfig mem ptr = do
 doMemset ::
   (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
-  Maybe UB.Config  {- ^ defaults to 'strictConfig' -} ->
+  Maybe (UB.Config sym)  {- ^ defaults to 'strictConfig' -} ->
   NatRepr w ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ destination -} ->
@@ -680,7 +697,7 @@ doMemset sym ubConfig w mem dest val len = do
 
   assertUndefined sym p ubConfig UB.MemsetInvalidRegion
     -- [show (G.ppPtr dest), "Requested size: " ++ show len']
-    [show (G.ppPtr dest)]
+    [Text.pack (show (G.ppPtr dest))] -- TODO(langston): add this info as extra to MemsetInvalidRegion
 
   return mem{ memImplHeap = heap' }
 
@@ -796,7 +813,7 @@ uncheckedMemcpy sym mem dest src len = do
 doPtrSubtract ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
-  Maybe UB.Config  {- ^ defaults to 'strictConfig' -} ->
+  Maybe (UB.Config sym)  {- ^ defaults to 'strictConfig' -} ->
   MemImpl sym ->
   LLVMPtr sym wptr ->
   LLVMPtr sym wptr ->
@@ -813,7 +830,7 @@ doPtrSubtract sym ubConfig _m x y = do
 doPtrAddOffset ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
-  Maybe UB.Config  {- ^ defaults to 'strictConfig' -} ->
+  Maybe (UB.Config sym)  {- ^ defaults to 'strictConfig' -} ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ base pointer -} ->
   SymBV sym wptr   {- ^ offset       -} ->
