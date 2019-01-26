@@ -107,7 +107,7 @@ joinMaybePE (Just pe) = pe
 ------------------------------------------------------------------------
 -- ** AssertionTree
 
--- See also "Lang.Crucible.CFG.Safety"
+-- See also "Lang.Crucible.CFG.Extension.Safety"
 
 -- | A type representing an AST consisting of
 --  * "atomic" predicates with labels
@@ -116,62 +116,49 @@ joinMaybePE (Just pe) = pe
 --  * the if-then-else of two predicates
 --
 -- Often, the type parameter 'a' will be some combination of a 'BaseBoolType'
--- with some information about it, and this tree will be used as the predicate
--- in a 'PartExpr'.
---
--- NB: The semigroup instance isn't /actually/ associative, it is \"semantically\"
--- associative.
---
--- TODO: Consider constantly-true and constantly-false leaves
-data AssertionTree a =
+-- with some information about it, whereas 'c' will just be the 'BaseBoolType'.
+-- This tree can be used as the predicate in a 'PartExpr'.
+data AssertionTree c a =
     Leaf a
-  | And  (NonEmpty (AssertionTree a))
-  | Or   (NonEmpty (AssertionTree a))
-  | Ite  a (AssertionTree a) (AssertionTree a)
+  | And  (NonEmpty (AssertionTree c a))
+  | Or   (NonEmpty (AssertionTree c a))
+  | Ite  c (AssertionTree c a) (AssertionTree c a)
   deriving (Data, Eq, Functor, Generic, Generic1, Foldable, Traversable, Ord, Show)
 
-binaryAnd :: AssertionTree a -> AssertionTree a -> AssertionTree a
+binaryAnd :: AssertionTree c a -> AssertionTree c a -> AssertionTree c a
 binaryAnd t1 t2 = And (t1 :| [t2])
 
-binaryOr :: AssertionTree a -> AssertionTree a -> AssertionTree a
+binaryOr :: AssertionTree c a -> AssertionTree c a -> AssertionTree c a
 binaryOr t1 t2 = Or (t1 :| [t2])
 
--- | Not really associative...
-instance Semigroup (AssertionTree a) where
-  a1 <> a2 = And (a1 :| [a2])
-
--- | Also not really associative...
--- (<+>) :: AssertionTree a -> AssertionTree a -> AssertionTree a
--- a1 <+> a2 = Or [a1, a2]
-
 -- | 'And' a condition onto an assertion tree
-addCondition :: AssertionTree a
+addCondition :: AssertionTree c a
              -> a
-             -> AssertionTree a
+             -> AssertionTree c a
 addCondition tree cond = binaryAnd (Leaf cond) tree
 
 -- | Catamorphisms for the 'AssertionTree' type
 cataAT :: (a -> b)           -- ^ 'Leaf' case
        -> (NonEmpty b -> b)  -- ^ 'And' case
        -> (NonEmpty b -> b)  -- ^ 'Or' case
-       -> (a -> b -> b -> b) -- ^ 'Ite' case
-       -> AssertionTree a
+       -> (c -> b -> b -> b) -- ^ 'Ite' case
+       -> AssertionTree c a
        -> b
 cataAT leaf and_ or_ ite val =
   case val of
     Leaf a      -> leaf a
     And  l      -> and_ (NonEmpty.map r l)
     Or   l      -> or_  (NonEmpty.map r l)
-    Ite a t1 t2 -> ite a (r t1) (r t2)
+    Ite c t1 t2 -> ite c (r t1) (r t2)
   where r = cataAT leaf and_ or_ ite
 
 -- | Add an additional piece of information to an 'AndOrIte' tree
-tagAT :: (a -> c)           -- ^ 'Leaf' case
-      -> (NonEmpty c -> c)  -- ^ Summarize child tags ('And' case)
-      -> (NonEmpty c -> c)  -- ^ Summarize child tags ('Or' case)
-      -> (a -> c -> c -> c) -- ^ Summarize child tags ('Ite' case)
-      -> AssertionTree a
-      -> (AssertionTree (a, c), c)
+tagAT :: (a -> b)           -- ^ 'Leaf' case
+      -> (NonEmpty b -> b)  -- ^ Summarize child tags ('And' case)
+      -> (NonEmpty b -> b)  -- ^ Summarize child tags ('Or' case)
+      -> (c -> b -> b -> b) -- ^ Summarize child tags ('Ite' case)
+      -> AssertionTree c a
+      -> (AssertionTree c (a, b), b)
 tagAT leaf summarizeAnd summarizeOr summarizeITE =
   cataAT
     (\lf      ->
@@ -185,7 +172,7 @@ tagAT leaf summarizeAnd summarizeOr summarizeITE =
        in (Or (NonEmpty.map fst summands), tag))
     (\cond t1 t2 ->
        let tag = summarizeITE cond (snd t1) (snd t2)
-       in (Ite (cond, tag) (fst t1) (fst t2), tag))
+       in (Ite cond (fst t1) (fst t2), tag))
 
 -- | Monadic catamorphisms for the 'AssertionTree' type
 --
@@ -194,8 +181,8 @@ cataMAT :: Monad f
         => (a -> f b)           -- ^ 'Leaf' case
         -> (NonEmpty b -> f b)  -- ^ 'And' case
         -> (NonEmpty b -> f b)  -- ^ 'Or' case
-        -> (a -> b -> b -> f b) -- ^ 'Ite' case
-        -> AssertionTree a
+        -> (c -> b -> b -> f b) -- ^ 'Ite' case
+        -> AssertionTree c a
         -> f b
 cataMAT leaf and_ or_ ite = cataAT
   leaf             -- Leaf
@@ -213,8 +200,8 @@ cataMAT leaf and_ or_ ite = cataAT
 asConstAT_ :: (IsExprBuilder sym)
            => sym
            -> (a -> Pred sym)
-           -> AssertionTree a
-           -> (AssertionTree (a, Maybe Bool), Maybe Bool)
+           -> AssertionTree c a
+           -> (AssertionTree c (a, Maybe Bool), Maybe Bool)
 asConstAT_ _sym f =
   tagAT
     (asConstantPred . f)
@@ -242,21 +229,22 @@ asConstAT_ _sym f =
 asConstAT :: (IsExprBuilder sym)
           => sym
           -> (a -> Pred sym)
-          -> AssertionTree a
+          -> AssertionTree c a
           -> Maybe Bool
 asConstAT sym f = snd . asConstAT_ sym f
 
 -- | A monadic catamorphism, collapsing everything to one predicate.
 collapseAT :: (IsExprBuilder sym)
            => sym
-           -> (a -> Pred sym)
-           -> AssertionTree a
+           -> (a -> Pred sym) -- ^ 'Leaf' case
+           -> (c -> Pred sym) -- ^ 'Ite' case
+           -> AssertionTree c a
            -> IO (Pred sym)
-collapseAT sym toPred = cataMAT
-  (pure . toPred)
+collapseAT sym leafToPred iteToPred = cataMAT
+  (pure . leafToPred)
   (foldM (andPred sym) (truePred sym))
   (foldM (orPred sym) (falsePred sym))
-  (\a -> itePred sym (toPred a))
+  (\c -> itePred sym (iteToPred c))
 
 {-
 ppAssertionTree :: (IsExprBuilder sym) => sym -> AssertionTree sym -> Doc
