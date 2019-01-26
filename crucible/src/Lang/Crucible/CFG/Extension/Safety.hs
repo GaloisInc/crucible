@@ -52,12 +52,12 @@ class HasSafetyAssertions (ext :: Type) sym where
   -- encompasses another. Same goes for 'explainTree'.
   treeToPredicate :: (MonadIO io, IsExprBuilder sym)
                   => sym
-                  -> AssertionTree (SafetyAssertion ext sym)
+                  -> AssertionTree (Pred sym) (SafetyAssertion ext sym)
                   -> io (Pred sym)
-  treeToPredicate sym = liftIO . collapseAT sym (toPredicate sym)
+  treeToPredicate sym = liftIO . collapseAT sym (toPredicate sym) id
 
   explain     :: SafetyAssertion ext sym -> Doc
-  explainTree :: AssertionTree (SafetyAssertion ext sym) -> Doc
+  explainTree :: AssertionTree (Pred sym) (SafetyAssertion ext sym) -> Doc
 
   -- | TODO(langston): Default implementation in terms of 'assertTreeSafe'
   assertSafe :: (MonadIO io, IsExprBuilder sym, IsBoolSolver sym)
@@ -72,7 +72,7 @@ class HasSafetyAssertions (ext :: Type) sym where
 
   assertTreeSafe :: (MonadIO io, IsExprBuilder sym, IsBoolSolver sym)
                  => sym
-                 -> AssertionTree (SafetyAssertion ext sym)
+                 -> AssertionTree (Pred sym) (SafetyAssertion ext sym)
                  -> io ()
   assertTreeSafe sym tree = do
     predicate <- treeToPredicate sym tree

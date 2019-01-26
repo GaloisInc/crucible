@@ -194,7 +194,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Value
-import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
+import qualified Lang.Crucible.LLVM.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.Panic (panic)
@@ -260,9 +260,9 @@ doDumpMem h mem = do
 assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
                 => sym
                 -> Pred sym
-                -> Maybe UB.Config      -- ^ defaults to 'strictConfig'
-                -> UB.UndefinedBehavior -- ^ The undesirable behavior
-                -> [String]             -- ^ Additional error message lines
+                -> Maybe (UB.Config sym)      -- ^ defaults to 'strictConfig'
+                -> (UB.UndefinedBehavior sym) -- ^ The undesirable behavior
+                -> [String]                   -- ^ Additional error message lines
                 -> IO ()
 assertUndefined sym p (UB.defaultStrict -> ubConfig) ub extraErrMsg =
   when (UB.getConfig ubConfig ub) $ assert sym p $

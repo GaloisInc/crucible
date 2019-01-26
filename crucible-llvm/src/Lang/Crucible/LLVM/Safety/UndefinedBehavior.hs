@@ -53,8 +53,9 @@ import           Data.Typeable (Typeable)
 
 import qualified What4.Interface as W4I
 
-import           Lang.Crucible.LLVM.Safety.Standards
+import           Lang.Crucible.LLVM.DataLayout (Alignment)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
+import           Lang.Crucible.LLVM.Safety.Standards
 
 -- -----------------------------------------------------------------------
 -- ** UndefinedBehavior
@@ -71,6 +72,16 @@ data UndefinedBehavior sym where
                       -> W4I.SymBV sym w        -- ^ What offset? (Should have been zero)
                       -> UndefinedBehavior sym
   MemsetInvalidRegion :: UndefinedBehavior sym
+
+  -- | Is this actually undefined? I (Langston) can't find anything about it
+  ReadBadAlignment    :: W4I.SymNat sym         -- ^ Which allocation?
+                      -> W4I.SymBV sym w        -- ^ What offset?
+                      -> Alignment              -- ^ What alignment?
+                      -> UndefinedBehavior sym
+
+  ReadUnallocated    :: W4I.SymNat sym         -- ^ Which allocation?
+                     -> W4I.SymBV sym w        -- ^ What offset?
+                     -> UndefinedBehavior sym
 
   -------------------------------- Pointer arithmetic
   PtrAddOffsetOutOfBounds :: UndefinedBehavior sym
@@ -103,6 +114,8 @@ standard =
     -------------------------------- Memory management
     FreeInvalidPointer _ _  -> CStd C99
     MemsetInvalidRegion     -> CXXStd CXX17
+    ReadBadAlignment _ _ _  -> CStd C99
+    ReadUnallocated _ _     -> CStd C99
 
     -------------------------------- Pointer arithmetic
     PtrAddOffsetOutOfBounds -> CStd C99
@@ -128,6 +141,8 @@ cite =
     -------------------------------- Memory management
     FreeInvalidPointer _ _  -> "§7.22.3.3 The free function, ¶2"
     MemsetInvalidRegion     -> "https://en.cppreference.com/w/cpp/string/byte/memset"
+    ReadBadAlignment _ _ _  -> "§6.2.8 Alignment of objects, ¶?"
+    ReadUnallocated _ _     -> "§6.2.4 Storage durations of objects, ¶2"
 
     -------------------------------- Pointer arithmetic
     PtrAddOffsetOutOfBounds -> "§6.5.6 Additive operators, ¶8"
@@ -157,6 +172,16 @@ explain =
       [ "Pointer passed to `memset` didn't point to a mutable allocation with"
       , "enough space."
       ]
+    ReadBadAlignment allocNum offst align -> unlines $
+      [ "Read a value from a pointer with incorrect alignment"
+      , "Alignment: " <> pack (show align)
+      ] ++ allocNumber allocNum
+        ++ offset offst
+
+    ReadUnallocated allocNum offst       -> unlines $
+      [ "Read a value from a pointer into an unallocated region"
+      ] ++ allocNumber allocNum
+        ++ offset offst
 
     -------------------------------- Pointer arithmetic
     PtrAddOffsetOutOfBounds -> unwords $
@@ -174,8 +199,7 @@ explain =
     PointerCast allocNum castToType -> unlines $
       [ "Cast of a pointer to a non-integer type"
       , "Cast to: " <> pack (show castToType)
-      ] ++ maybeToList (fmap (\n -> "Allocation number: " <> pack (show n))
-                             (W4I.asNat allocNum))
+      ] ++ allocNumber allocNum
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
     DoubleFree         -> "`free` called on already-freed memory"
@@ -183,6 +207,10 @@ explain =
       "Dereferenced a pointer to a type with the wrong alignment"
     ModifiedStringLiteral -> "Modified the underlying array of a string literal"
     -}
+  where explainIfConcrete expl =
+          maybeToList . fmap (\x -> expl <> ": " <> pack (show x))
+        allocNumber = explainIfConcrete "Allocation number" . W4I.asNat
+        offset      = explainIfConcrete "Offset" . W4I.asUnsignedBV
 
 pp :: W4I.IsExpr (W4I.SymExpr sym) => UndefinedBehavior sym -> Text
 pp ub = unlines $

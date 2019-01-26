@@ -68,7 +68,7 @@ data LLVMSafetyAssertion (arch :: LLVMArch) sym =
   deriving (Generic, Typeable)
 
 type LLVMSafetyAssertionTree arch sym =
-  AssertionTree (LLVMSafetyAssertion arch sym)
+  AssertionTree (Pred sym) (LLVMSafetyAssertion arch sym)
 
 -- -----------------------------------------------------------------------
 -- ** Constructors

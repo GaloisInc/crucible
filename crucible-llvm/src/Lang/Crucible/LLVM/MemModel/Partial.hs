@@ -447,12 +447,11 @@ mergePartial _ _ _ Unassigned Unassigned  = return Unassigned
 mergePartial _ _ c v Unassigned           = return v -- TODO: too optimistic?
 mergePartial sym _ c Unassigned v         = return v -- TODO: too optimistic?
 mergePartial _ f c (PE px x) (PE py y) = do
-  let expl    = "If-then-else of partial LLVM values"
   z0 <- f c x y
   pure $
     case z0 of
       Unassigned -> Unassigned
-      PE pz z    -> PE (And [Ite (llvmAssert expl c) px py, pz]) z
+      PE pz z    -> PE (W4P.binaryAnd (Ite c px py) pz) z
 
 {-
 -- | Merge a collection of partial values in an if-then-else tree.
@@ -521,31 +520,31 @@ muxLLVMVal sym = mergePartial sym muxval
 
 
     muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal arch sym)
-    muxval cond (LLVMValZero tp) v = totalLLVMVal arch sym <$> muxzero cond tp v
+    muxval cond (LLVMValZero tp) v = totalLLVMVal sym <$> muxzero cond tp v
     muxval cond v (LLVMValZero tp) = do cond' <- W4I.notPred sym cond
-                                        totalLLVMVal arch sym <$> muxzero cond' tp v
+                                        totalLLVMVal sym <$> muxzero cond' tp v
 
     muxval cond (LLVMValInt base1 off1) (LLVMValInt base2 off2)
       | Just Refl <- testEquality (W4I.bvWidth off1) (W4I.bvWidth off2)
       = do base <- liftIO $ W4I.natIte sym cond base1 base2
            off  <- liftIO $ W4I.bvIte sym cond off1 off2
-           pure $ totalLLVMVal arch sym $ LLVMValInt base off
+           pure $ totalLLVMVal sym $ LLVMValInt base off
 
     muxval cond (LLVMValFloat (xsz :: Value.FloatSize fi) x) (LLVMValFloat ysz y)
       | Just Refl <- testEquality xsz ysz
-      = totalLLVMVal arch sym .  LLVMValFloat xsz <$>
+      = totalLLVMVal sym .  LLVMValFloat xsz <$>
           (liftIO $ W4IFP.iFloatIte @_ @fi sym cond x y)
 
     muxval cond (LLVMValStruct fls1) (LLVMValStruct fls2)
       | fmap fst fls1 == fmap fst fls2 =
-          mkStructPartLLVMVal <$>
+          mkStructPartLLVMVal sym <$>
             V.zipWithM (\(f, x) (_, y) -> (f,) <$> muxval cond x y) fls1 fls2
 
     muxval cond (LLVMValArray tp1 v1) (LLVMValArray tp2 v2)
       | tp1 == tp2 && V.length v1 == V.length v2 = do
-          mkArrayPartLLVMVal tp1 <$> V.zipWithM (muxval cond) v1 v2
+          mkArrayPartLLVMVal sym tp1 <$> V.zipWithM (muxval cond) v1 v2
 
     muxval _ v1@(LLVMValUndef tp1) (LLVMValUndef tp2)
-      | tp1 == tp2 = pure (totalLLVMVal arch sym v1)
+      | tp1 == tp2 = pure (totalLLVMVal sym v1)
 
     muxval _ _ _ = pure Unassigned
