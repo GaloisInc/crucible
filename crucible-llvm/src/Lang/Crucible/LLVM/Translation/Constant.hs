@@ -280,6 +280,9 @@ data LLVMConst where
   StructConst   :: !StructInfo -> [LLVMConst] -> LLVMConst
   -- | A pointer value, consisting of a concrete offset from a global symbol.
   SymbolConst   :: !L.Symbol -> !Integer -> LLVMConst
+  -- | The @undef@ value is quite strange. See: The LLVM Language Reference,
+  -- § Undefined Values.
+  UndefConst    :: !MemType -> LLVMConst
 
 
 -- | This also can't be derived, but is completely uninteresting.
@@ -294,10 +297,13 @@ instance Show LLVMConst where
       (VectorConst mem v) -> ["VectorConst", show mem, show v]
       (StructConst si a)  -> ["StructConst", show si, show a]
       (SymbolConst s x)   -> ["SymbolConst", show s, show x]
+      (UndefConst mem)    -> ["UndefConst", show mem]
 
--- | The interesting case here is @IntConst@. GHC can't derive this because
--- @IntConst@ existentially quantifies the integer's width. We say that
--- two integers are equal when they have the same width *and* the same value.
+-- | The interesting cases here are:
+--  * @IntConst@: GHC can't derive this because @IntConst@ existentially
+--    quantifies the integer's width. We say that two integers are equal when
+--    they have the same width *and* the same value.
+--  * @UndefConst@: Two @undef@ values aren't necessarily the same...
 instance Eq LLVMConst where
   (ZeroConst mem1)      == (ZeroConst mem2)      = mem1 == mem2
   (IntConst w1 x1)      == (IntConst w2 x2)      =
@@ -310,6 +316,7 @@ instance Eq LLVMConst where
   (VectorConst mem1 v1) == (VectorConst mem2 v2) = mem1 == mem2 && v1 == v2
   (StructConst si1 a1)  == (StructConst si2 a2)  = si1 == si2   && a1 == a2
   (SymbolConst s1 x1)   == (SymbolConst s2 x2)   = s1 == s2     && x1 == x2
+  (UndefConst  _)       == (UndefConst _)        = False
   _                     == _                     = False
 
 -- | Create an LLVM constant value from a boolean.
@@ -357,8 +364,8 @@ transConstant' ::
   MemType ->
   L.Value ->
   m LLVMConst
-transConstant' _tp (L.ValUndef) =
-  throwError "Undefined constant value"
+transConstant' tp (L.ValUndef) =
+  return (UndefConst tp)
 transConstant' (IntType n) (L.ValInteger x) =
   intConst n x
 transConstant' (IntType 1) (L.ValBool b) =
@@ -426,11 +433,18 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
        unless (x' <= maxUnsigned ?ptrWidth)
               (throwError "Computed offset overflow in constant GEP")
        return x'
-  asOffset _ _ = throwError "Expected offset value in constant GEP"
+  asOffset ty val = throwError $ unlines $
+    [ "Expected offset value in constant GEP"
+    , "Type: " ++ show ty
+    , "Offset: " ++ show val
+    ]
 
   addOffset :: Integer -> LLVMConst -> m LLVMConst
   addOffset x (SymbolConst sym off) = return (SymbolConst sym (off+x))
-  addOffset _ _ = throwError "Expected symbol constant in constant GEP"
+  addOffset _ constant = throwError $ unlines $
+    [ "Expected symbol constant in constant GEP"
+    , "Constant: " ++ show constant
+    ]
 
   -- Given a processed GEP instruction, compute the sequence of output
   -- pointer values that result from the instruction.  If the GEP is
