@@ -259,16 +259,17 @@ doDumpMem h mem = do
 
 -- | Assert that some undefined behavior doesn't occur when performing memory
 -- model operations
+-- TODO(langston): Replace with 'assertTreeSafe' and 'explainTree'
 assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
                 => sym
                 -> Pred sym
                 -> Maybe (UB.Config sym)      -- ^ defaults to 'strictConfig'
                 -> (UB.UndefinedBehavior sym) -- ^ The undesirable behavior
-                -> [Text]                     -- ^ Additional error message lines
+                -- -> [Text]                     -- ^ Additional error message lines
                 -> IO ()
-assertUndefined sym p (UB.defaultStrict -> ubConfig) ub extraErrMsg =
+assertUndefined sym p (UB.defaultStrict -> ubConfig) ub =
   when (UB.getConfig ubConfig ub) $ assert sym p $
-    (AssertFailureSimError $ Text.unpack $ UB.pp ub <> Text.unlines extraErrMsg)
+    (AssertFailureSimError $ Text.unpack $ UB.pp ub)
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -404,16 +405,12 @@ evalStmt sym = eval
         v2 <- isValidPointer sym y mem
         v3 <- G.notAliasable sym x y (memImplHeap mem)
 
-        assertUndefined sym v1 Nothing UB.CompareInvalidPointer $
-          ["Equality (==) comparison on pointer"
-          , Text.pack (show x_doc)
-          , Text.pack (show allocs_doc)
-          ]
-        assertUndefined sym v2 Nothing UB.CompareInvalidPointer $
-          ["Equality (==) comparison on pointer"
-          , Text.pack (show y_doc)
-          , Text.pack (show allocs_doc)
-          ]
+        assertUndefined sym v1 Nothing $
+          UB.CompareInvalidPointer UB.Eq x y
+        assertUndefined sym v2 Nothing $
+          UB.CompareInvalidPointer UB.Eq y x
+
+        -- TODO: Is this undefined behavior? If so, add to the UB module
         assert sym v3
            (AssertFailureSimError $ unlines [ "Const pointers compared for equality:"
                                             , show x_doc
@@ -421,10 +418,8 @@ evalStmt sym = eval
                                             , show allocs_doc])
 
         (eq, valid) <- ptrEq sym PtrWidth x y
-        assertUndefined sym valid Nothing UB.CompareDifferentAllocs $
-          [ "Pointer 1: " <> Text.pack (show x_doc)
-          , "Pointer 2: " <> Text.pack (show y_doc)
-          ]
+        assertUndefined sym valid Nothing $
+          UB.CompareDifferentAllocs x y
 
         pure eq
 
@@ -435,16 +430,11 @@ evalStmt sym = eval
            y_doc = G.ppPtr y
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
-       assertUndefined sym v1 Nothing UB.CompareInvalidPointer $
-         ["Ordering (<=) comparison on pointer", Text.pack (show x_doc)]
-       assertUndefined sym v2 Nothing UB.CompareInvalidPointer $
-         ["Ordering (<=) comparison on pointer", Text.pack (show y_doc)]
+       assertUndefined sym v1 Nothing (UB.CompareInvalidPointer UB.Leq x y)
+       assertUndefined sym v2 Nothing (UB.CompareInvalidPointer UB.Leq y x)
 
        (le, valid) <- ptrLe sym PtrWidth x y
-       assertUndefined sym valid Nothing UB.CompareDifferentAllocs $
-         [ "Pointer 1: " <> Text.pack (show x_doc)
-         , "Pointer 2: " <> Text.pack (show y_doc)
-         ]
+       assertUndefined sym valid Nothing (UB.CompareDifferentAllocs x y)
 
        pure le
 
@@ -665,15 +655,8 @@ doFree sym ubConfig mem ptr = do
   isNull <- ptrIsNull sym PtrWidth ptr
   p1'    <- orPred sym p1 isNull
   p2'    <- orPred sym p2 isNull
-
-  let errMsg1 = "Pointer didn't point to base of allocation. "
-  let errMsg2 = "Invalid free (double free or invalid pointer): address " ++ show (G.ppPtr ptr)
-  let ub      = UB.FreeInvalidPointer blk off
-  assertUndefined sym p1' ubConfig ub $
-    [ errMsg1
-    , Text.pack (show (G.ppPtr ptr))
-    ]
-  assert sym p2' (AssertFailureSimError errMsg2)
+  assertUndefined sym p1' ubConfig (UB.FreeBadOffset ptr)
+  assertUndefined sym p2' ubConfig (UB.FreeUnallocated ptr)
 
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
@@ -695,9 +678,8 @@ doMemset sym ubConfig w mem dest val len = do
 
   (heap', p) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
 
-  assertUndefined sym p ubConfig UB.MemsetInvalidRegion
-    -- [show (G.ppPtr dest), "Requested size: " ++ show len']
-    [Text.pack (show (G.ppPtr dest))] -- TODO(langston): add this info as extra to MemsetInvalidRegion
+  assertUndefined sym p ubConfig $
+    UB.MemsetInvalidRegion dest val len
 
   return mem{ memImplHeap = heap' }
 
@@ -820,10 +802,8 @@ doPtrSubtract ::
   IO (SymBV sym wptr)
 doPtrSubtract sym ubConfig _m x y = do
   (diff, valid) <- ptrDiff sym PtrWidth x y
-  assertUndefined sym valid ubConfig UB.PtrSubDifferentAllocs $
-     map unwords [ ["Pointer 1:", show (G.ppPtr x)]
-                 , ["Pointer 2:", show (G.ppPtr y)]
-                 ]
+  assertUndefined sym valid ubConfig $
+    UB.PtrSubDifferentAllocs x y
   pure diff
 
 -- | Add an offset to a pointer and asserts that the result is a valid pointer.
@@ -838,12 +818,7 @@ doPtrAddOffset ::
 doPtrAddOffset sym ubConfig m x off = do
   x' <- ptrAdd sym PtrWidth x off
   v  <- isValidPointer sym x' m
-
-  assertUndefined sym v ubConfig UB.PtrAddOffsetOutOfBounds $
-     map unwords [ ["Pointer:", show (G.ppPtr x)]
-                 , ["Offset:", show (printSymExpr off)]
-                 ]
-
+  assertUndefined sym v ubConfig (UB.PtrAddOffsetOutOfBounds x off)
   return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer

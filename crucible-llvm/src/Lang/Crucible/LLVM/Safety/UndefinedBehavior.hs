@@ -22,7 +22,10 @@
 -- encountering such behavior.
 --------------------------------------------------------------------------
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -32,7 +35,8 @@
 module Lang.Crucible.LLVM.Safety.UndefinedBehavior
   (
   -- ** Undefined Behavior
-    UndefinedBehavior(..)
+    PtrComparisonOperator(..)
+  , UndefinedBehavior(..)
   , cite
   , pp
 
@@ -46,58 +50,102 @@ module Lang.Crucible.LLVM.Safety.UndefinedBehavior
 
 import           Prelude hiding (unwords, unlines)
 
+import           GHC.Generics (Generic)
+import           Data.Data (Data)
 import           Data.Functor.Contravariant (Predicate(..))
-import           Data.Maybe (fromMaybe, maybeToList)
+import           Data.Maybe (fromMaybe)
 import           Data.Text (Text, unwords, unlines, pack)
 import           Data.Typeable (Typeable)
 
 import qualified What4.Interface as W4I
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
+import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
+import           Lang.Crucible.LLVM.Types (LLVMPtr)
 import           Lang.Crucible.LLVM.Safety.Standards
 
 -- -----------------------------------------------------------------------
 -- ** UndefinedBehavior
 
+-- | The various comparison operators you can use on pointers
+data PtrComparisonOperator =
+    Eq
+  | Leq
+  deriving (Data, Eq, Generic, Enum, Ord, Read, Show)
+
+ppPtrComparison :: PtrComparisonOperator -> Text
+ppPtrComparison Eq  = "Equality comparison (==)"
+ppPtrComparison Leq = "Ordering comparison (<=)"
+
 -- | See 'cite' and 'explain'.
 --
 -- The commented-out constructors correspond to behaviors that don't have
 -- explicit checks yet (but probably should!).
---
--- TODO: Add the relevant information to these instructions
 data UndefinedBehavior sym where
+
   -------------------------------- Memory management
-  FreeInvalidPointer  :: W4I.SymNat sym         -- ^ Which allocation?
-                      -> W4I.SymBV sym w        -- ^ What offset? (Should have been zero)
+
+  FreeBadOffset :: LLVMPtr sym w
+                -> UndefinedBehavior sym
+
+  FreeUnallocated :: LLVMPtr sym w
+                  -> UndefinedBehavior sym
+
+  MemsetInvalidRegion :: LLVMPtr sym w   -- ^ Destination
+                      -> W4I.SymBV sym 8 -- ^ Fill byte
+                      -> W4I.SymBV sym v -- ^ Length
                       -> UndefinedBehavior sym
-  MemsetInvalidRegion :: UndefinedBehavior sym
 
   -- | Is this actually undefined? I (Langston) can't find anything about it
-  ReadBadAlignment    :: W4I.SymNat sym         -- ^ Which allocation?
-                      -> W4I.SymBV sym w        -- ^ What offset?
-                      -> Alignment              -- ^ What alignment?
-                      -> UndefinedBehavior sym
+  ReadBadAlignment :: LLVMPtr sym w   -- ^ Read from where?
+                   -> Alignment       -- ^ What alignment?
+                   -> UndefinedBehavior sym
 
-  ReadUnallocated    :: W4I.SymNat sym         -- ^ Which allocation?
-                     -> W4I.SymBV sym w        -- ^ What offset?
-                     -> UndefinedBehavior sym
+  ReadUnallocated :: LLVMPtr sym w -- ^ Read from where?
+                  -> UndefinedBehavior sym
 
   -------------------------------- Pointer arithmetic
-  PtrAddOffsetOutOfBounds :: UndefinedBehavior sym
-  CompareInvalidPointer :: UndefinedBehavior sym
-  CompareDifferentAllocs :: UndefinedBehavior sym
-  -- ^ "In all other cases, the behavior is undefined"
-  PtrSubDifferentAllocs :: UndefinedBehavior sym
-  -- ^ "When two pointers are subtracted, both shall point to elements of the
+
+  PtrAddOffsetOutOfBounds :: LLVMPtr sym w   -- ^ The pointer
+                          -> W4I.SymBV sym w -- ^ Offset added
+                          -> UndefinedBehavior sym
+
+  CompareInvalidPointer :: PtrComparisonOperator -- ^ Kind of comparison
+                        -> LLVMPtr sym w  -- ^ The invalid pointer
+                        -> LLVMPtr sym w  -- ^ The pointer it was compared to
+                        -> UndefinedBehavior sym
+
+  -- | "In all other cases, the behavior is undefined"
+  CompareDifferentAllocs :: LLVMPtr sym w
+                         -> LLVMPtr sym w
+                         -> UndefinedBehavior sym
+
+  -- | "When two pointers are subtracted, both shall point to elements of the
   -- same array object"
-  ComparePointerToBV :: UndefinedBehavior sym
-  -- ^ "One of the following shall hold: [...] one operand is a pointer and the
+  PtrSubDifferentAllocs :: LLVMPtr sym w
+                        -> LLVMPtr sym w
+                        -> UndefinedBehavior sym
+
+  -- | "One of the following shall hold: [...] one operand is a pointer and the
   -- other is a null pointer constant."
+  ComparePointerToBV :: LLVMPtr sym w -- ^ Pointer
+                     -> LLVMPtr sym w -- ^ Bitvector
+                     -> UndefinedBehavior sym
 
   PointerCast :: W4I.SymNat sym  -- ^ Pointer's allocation number
+              -> W4I.SymBV sym w -- ^ Offset
               -> StorageTypeF () -- ^ Type being cast to
               -> UndefinedBehavior sym
+
+  -------------------------------- LLVM: arithmetic
+
+  UDivByZero   :: W4I.SymBV sym w -> UndefinedBehavior sym
+  SDivByZero   :: W4I.SymBV sym w -> UndefinedBehavior sym
+  URemByZero   :: W4I.SymBV sym w -> UndefinedBehavior sym
+  SRemByZero   :: W4I.SymBV sym w -> UndefinedBehavior sym
+  SDivOverflow :: W4I.SymBV sym w -> UndefinedBehavior sym
+  SRemOverflow :: W4I.SymBV sym w -> UndefinedBehavior sym
 
   {-
   | MemcpyDisjoint
@@ -111,22 +159,33 @@ data UndefinedBehavior sym where
 standard :: UndefinedBehavior sym -> Standard
 standard =
   \case
+
     -------------------------------- Memory management
-    FreeInvalidPointer _ _  -> CStd C99
-    MemsetInvalidRegion     -> CXXStd CXX17
-    ReadBadAlignment _ _ _  -> CStd C99
-    ReadUnallocated _ _     -> CStd C99
+
+    FreeBadOffset _           -> CStd C99
+    FreeUnallocated _         -> CStd C99
+    MemsetInvalidRegion _ _ _ -> CXXStd CXX17
+    ReadBadAlignment _ _      -> CStd C99
+    ReadUnallocated _         -> CStd C99
 
     -------------------------------- Pointer arithmetic
-    PtrAddOffsetOutOfBounds -> CStd C99
-    CompareInvalidPointer   -> CStd C99
-    CompareDifferentAllocs  -> CStd C99
-    PtrSubDifferentAllocs   -> CStd C99
-    ComparePointerToBV      -> CStd C99
-    PointerCast _ _         -> CStd C99
 
+    PtrAddOffsetOutOfBounds _ _ -> CStd C99
+    CompareInvalidPointer _ _ _ -> CStd C99
+    CompareDifferentAllocs _ _  -> CStd C99
+    PtrSubDifferentAllocs _ _   -> CStd C99
+    ComparePointerToBV _ _      -> CStd C99
+    PointerCast _ _ _           -> CStd C99
 
-    -------------------------------- LLVM poison and undefined values
+    -------------------------------- LLVM: arithmetic
+
+    UDivByZero _   -> LLVMRef LLVM8
+    SDivByZero _   -> LLVMRef LLVM8
+    URemByZero _   -> LLVMRef LLVM8
+    SRemByZero _   -> LLVMRef LLVM8
+    SDivOverflow _ -> LLVMRef LLVM8
+    SRemOverflow _ -> LLVMRef LLVM8
+
     {-
     MemcpyDisjoint          -> CStd C99
     DoubleFree              -> CStd C99
@@ -138,19 +197,33 @@ standard =
 cite :: UndefinedBehavior sym -> Text
 cite =
   \case
+
     -------------------------------- Memory management
-    FreeInvalidPointer _ _  -> "§7.22.3.3 The free function, ¶2"
-    MemsetInvalidRegion     -> "https://en.cppreference.com/w/cpp/string/byte/memset"
-    ReadBadAlignment _ _ _  -> "§6.2.8 Alignment of objects, ¶?"
-    ReadUnallocated _ _     -> "§6.2.4 Storage durations of objects, ¶2"
+
+    FreeBadOffset _           -> "§7.22.3.3 The free function, ¶2"
+    FreeUnallocated _         -> "§7.22.3.3 The free function, ¶2"
+    MemsetInvalidRegion _ _ _ -> "https://en.cppreference.com/w/cpp/string/byte/memset"
+    ReadBadAlignment _ _      -> "§6.2.8 Alignment of objects, ¶?"
+    ReadUnallocated _         -> "§6.2.4 Storage durations of objects, ¶2"
 
     -------------------------------- Pointer arithmetic
-    PtrAddOffsetOutOfBounds -> "§6.5.6 Additive operators, ¶8"
-    CompareInvalidPointer   -> "§6.5.8 Relational operators, ¶5"
-    CompareDifferentAllocs  -> "§6.5.8 Relational operators, ¶5"
-    PtrSubDifferentAllocs   -> "§6.5.6 Additive operators, ¶9"
-    ComparePointerToBV      -> "§6.5.9 Equality operators, ¶2"
-    PointerCast _ _         -> "TODO"
+
+    PtrAddOffsetOutOfBounds _ _ -> "§6.5.6 Additive operators, ¶8"
+    CompareInvalidPointer _ _ _ -> "§6.5.8 Relational operators, ¶5"
+    CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
+    PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
+    ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
+    PointerCast _ _ _           -> "TODO"
+
+    -------------------------------- LLVM: arithmetic
+
+    UDivByZero _   -> "‘udiv’ Instruction (Semantics)"
+    SDivByZero _   -> "‘sdiv’ Instruction (Semantics)"
+    URemByZero _   -> "‘urem’ Instruction (Semantics)"
+    SRemByZero _   -> "‘srem’ Instruction (Semantics)"
+    SDivOverflow _ -> "‘sdiv’ Instruction (Semantics)"
+    SRemOverflow _ -> "‘srem’ Instruction (Semantics)"
+
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
     DoubleFree              -> "§7.22.3.3 The free function"
@@ -163,43 +236,81 @@ cite =
 explain :: W4I.IsExpr (W4I.SymExpr sym) => UndefinedBehavior sym -> Text
 explain =
   \case
+
     -------------------------------- Memory management
-    FreeInvalidPointer _ _ -> unwords $
+
+    FreeBadOffset ptr -> unlines $
       [ "`free` called on pointer that was not previously returned by `malloc`"
-      , "`calloc`, or another memory management function"
+      , "`calloc`, or another memory management function (the pointer did not"
+      , "point to the base of an allocation, its offset should be 0)."
+      , "Pointer: " <++> ppPtr ptr
       ]
-    MemsetInvalidRegion -> unwords $
+    FreeUnallocated ptr -> unlines $
+      [ "`free` called on pointer that didn't point to a live region of the heap."
+      , "Pointer: " <++> ppPtr ptr
+      ]
+    MemsetInvalidRegion destPtr fillByte len -> unlines $
       [ "Pointer passed to `memset` didn't point to a mutable allocation with"
       , "enough space."
+      , "Destination pointer: " <++> ppPtr destPtr
+      , "Fill byte: " <++> W4I.printSymExpr fillByte
+      , "Length: " <++> W4I.printSymExpr len
       ]
-    ReadBadAlignment allocNum offst align -> unlines $
+    ReadBadAlignment ptr align -> unlines $
       [ "Read a value from a pointer with incorrect alignment"
-      , "Alignment: " <> pack (show align)
-      ] ++ allocNumber allocNum
-        ++ offset offst
-
-    ReadUnallocated allocNum offst       -> unlines $
+      , "Alignment: " <++> pack (show align)
+      , ppPtr1 ptr
+      ]
+    ReadUnallocated ptr -> unlines $
       [ "Read a value from a pointer into an unallocated region"
-      ] ++ allocNumber allocNum
-        ++ offset offst
+      , ppPtr1 ptr
+      ]
 
     -------------------------------- Pointer arithmetic
-    PtrAddOffsetOutOfBounds -> unwords $
+
+    PtrAddOffsetOutOfBounds ptr offset -> unlines $
       [ "Addition of an offset to a pointer resulted in a pointer to an"
       , "address outside of the allocation."
+      , ppPtr1 ptr
+      , ppOffset offset
       ]
-    CompareInvalidPointer -> unwords $
+    CompareInvalidPointer comparison invalid other -> unlines $
       [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
       , "object."
+      , "Comparison:                     " <> ppPtrComparison comparison
+      , "Invalid pointer:                " <++> ppPtr invalid
+      , "Other (possibly valid) pointer: " <++> ppPtr other
       ]
-    CompareDifferentAllocs -> "Comparison of pointers from different allocations"
-    PtrSubDifferentAllocs  -> "Subtraction of pointers from different allocations"
-    ComparePointerToBV     ->
-      "Comparison of a pointer to a non zero (null) integer value"
-    PointerCast allocNum castToType -> unlines $
+    CompareDifferentAllocs ptr1 ptr2 -> unlines $
+      [ "Comparison of pointers from different allocations"
+      , ppPtr2 ptr1 ptr2
+      ]
+    PtrSubDifferentAllocs ptr1 ptr2 -> unlines $
+      [ "Subtraction of pointers from different allocations"
+      , ppPtr2 ptr1 ptr2
+      ]
+    ComparePointerToBV ptr bv -> unlines $
+      [ "Comparison of a pointer to a non zero (null) integer value"
+      , ppPtr1 ptr
+      , "Bitvector: " <++> ppPtr bv
+      ]
+    PointerCast allocNum offset castToType -> unlines $
       [ "Cast of a pointer to a non-integer type"
-      , "Cast to: " <> pack (show castToType)
-      ] ++ allocNumber allocNum
+      , "Allocation number: " <++> W4I.printSymExpr allocNum
+      , "Offset:            " <++> W4I.printSymExpr offset
+      , "Cast to:           " <++> castToType
+      ]
+
+    -------------------------------- LLVM: arithmetic
+
+    -- TODO: use the values
+    UDivByZero _   -> "Unsigned division by zero"
+    SDivByZero _   -> "Signed division by zero"
+    URemByZero _   -> "Unsigned division by zero via remainder"
+    SRemByZero _   -> "Signed division by zero via remainder"
+    SDivOverflow _ -> "Overflow during signed division"
+    SRemOverflow _ -> "Overflow during signed division (via signed remainder)"
+
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
     DoubleFree         -> "`free` called on already-freed memory"
@@ -207,10 +318,15 @@ explain =
       "Dereferenced a pointer to a type with the wrong alignment"
     ModifiedStringLiteral -> "Modified the underlying array of a string literal"
     -}
-  where explainIfConcrete expl =
-          maybeToList . fmap (\x -> expl <> ": " <> pack (show x))
-        allocNumber = explainIfConcrete "Allocation number" . W4I.asNat
-        offset      = explainIfConcrete "Offset" . W4I.asUnsignedBV
+  where ppPtrText :: forall sym w. W4I.IsExpr (W4I.SymExpr sym)
+                  => LLVMPtr sym w -> Text
+        ppPtrText = pack . show . ppPtr
+        ppPtr1 = ("Pointer: " <>) . ppPtrText
+        ppPtr2 ptr1 ptr2 = unlines [ "Pointer 1: " <>  ppPtrText ptr1
+                                   , "Pointer 2: " <>  ppPtrText ptr2
+                                   ]
+        ppOffset = ("Offset: " <++>) . W4I.printSymExpr
+        txt <++> doc = txt <> pack (show doc)
 
 pp :: W4I.IsExpr (W4I.SymExpr sym) => UndefinedBehavior sym -> Text
 pp ub = unlines $

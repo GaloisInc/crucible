@@ -578,7 +578,7 @@ readMem :: forall arch sym w.
   Alignment ->
   Mem sym ->
   IO (PartLLVMVal arch sym)
-readMem sym w l@(llvmPointerView -> (blk, off)) tp alignment m = do
+readMem sym w l tp alignment m = do
   -- sz         <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   p1         <- isAllocated sym w alignment l undefined m
   p2         <- isAligned sym w l alignment
@@ -588,8 +588,8 @@ readMem sym w l@(llvmPointerView -> (blk, off)) tp alignment m = do
   p2         <- isAligned sym w l alignment
   W4P.PE p v <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
   let ub1, ub2 :: UB.UndefinedBehavior sym
-      ub1 = UB.ReadUnallocated  blk off
-      ub2 = UB.ReadBadAlignment blk off alignment
+      ub1 = UB.ReadUnallocated  l
+      ub2 = UB.ReadBadAlignment l alignment
   let p'  = W4P.And (p :| [ W4P.Leaf (Safety.undefinedBehavior ub1 p1)
                           , W4P.Leaf (Safety.undefinedBehavior ub2 p2)
                           ])
