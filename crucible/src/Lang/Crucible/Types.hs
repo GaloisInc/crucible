@@ -580,6 +580,25 @@ instance KnownRepr SubstRepr s => KnownRepr SubstRepr (LiftSubst s) where
   knownRepr = LiftRepr knownRepr
 instance KnownRepr SubstRepr s => KnownRepr SubstRepr (TailSubst s) where
   knownRepr = TailRepr knownRepr
+
+instance TestEquality SubstRepr where
+  testEquality IdRepr IdRepr
+    = return Refl
+  testEquality SuccRepr SuccRepr
+    = return Refl
+  testEquality (ExtendRepr t1 s1) (ExtendRepr t2 s2)
+    | Just Refl <- testEquality t1 t2
+    , Just Refl <- testEquality s1 s2
+    = return Refl
+  testEquality (LiftRepr s1) (LiftRepr s2)
+    | Just Refl <- testEquality s1 s2
+    = return Refl
+  testEquality (TailRepr s1)(TailRepr s2)
+    | Just Refl <- testEquality s1 s2
+    = return Refl
+  testEquality _ _ = Nothing
+
+-- TODO: Show instance
   
 -- | Type-level multi-substitution function.
 -- This is an open type family that is homeomorphic on most arguments
