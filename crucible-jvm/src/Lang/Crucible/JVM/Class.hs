@@ -378,16 +378,25 @@ setStaticFieldValue  fieldId val = do
                      ++ "." ++ (J.fieldIdName fieldId) ++ " not found"
 
 -- | Look up a method in the static method table (i.e. 'methodHandles').
+-- (See section 5.4.3.3 "Method Resolution" of the JVM spec.)
 getStaticMethod :: J.ClassName -> J.MethodKey -> JVMGenerator h s ret JVMHandleInfo
-getStaticMethod className methodKey = do
-   ctx <- gets jsContext
-   let mhandle = Map.lookup (className, methodKey) (methodHandles ctx)
-   case mhandle of
-      Nothing -> jvmFail $ "getStaticMethod: method " ++ show methodKey ++ " in class "
-                               ++ show className ++ " not found"
-      Just handle@(JVMHandleInfo _ h) -> do
-        debug 3 $ "invoking static method with return type " ++ show (handleReturnType h)
-        return handle
+getStaticMethod className methodKey =
+  do ctx <- gets jsContext
+     case resolveMethod ctx className of
+       Just handle@(JVMHandleInfo _ h) ->
+         do debug 3 $ "invoking static method with return type " ++ show (handleReturnType h)
+            return handle
+       Nothing -> jvmFail $ "getStaticMethod: method " ++ show methodKey ++ " in class "
+                                 ++ show className ++ " not found"
+  where
+    resolveMethod :: JVMContext -> J.ClassName -> Maybe JVMHandleInfo
+    resolveMethod ctx cname =
+      case Map.lookup (cname, methodKey) (methodHandles ctx) of
+        Just handle -> Just handle
+        Nothing ->
+          do cls <- Map.lookup cname (classTable ctx)
+             super <- J.superClass cls
+             resolveMethod ctx super
 
 ------------------------------------------------------------------------
 -- * Class Initialization
