@@ -35,20 +35,21 @@ module Lang.Crucible.LLVM.Translation.Instruction
   , assignLLVMReg
   ) where
 
-import Control.Monad.Except
-import Control.Monad.State.Strict
-import Control.Monad.Trans.Maybe
-import Control.Lens hiding (op, (:>) )
-import Data.Foldable (toList)
-import Data.Int
+import           Control.Monad.Except
+import           Control.Monad.State.Strict
+import           Control.Monad.Trans.Maybe
+import           Control.Lens hiding (op, (:>) )
+import           Data.Foldable (toList)
+import           Data.Functor.Compose (Compose(..))
+import           Data.Int
 import qualified Data.List as List
-import Data.Maybe
+import           Data.Maybe
 import qualified Data.Map.Strict as Map
-import Data.Sequence (Seq)
+import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import Data.String
+import           Data.String
 import qualified Data.Vector as V
-import qualified Data.Text   as Text
+import qualified Data.Text as Text
 import           Numeric.Natural
 
 import qualified Text.LLVM.AST as L
@@ -57,8 +58,8 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>) )
 import           Data.Parameterized.NatRepr as NatRepr
 
-import Data.Parameterized.Some
-import Text.PrettyPrint.ANSI.Leijen (pretty)
+import           Data.Parameterized.Some
+import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
 import           What4.Interface (IsExpr, SymExpr)
 
@@ -71,13 +72,13 @@ import           Lang.Crucible.LLVM.MemType
 
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.MemModel
+import qualified Lang.Crucible.LLVM.Safety.Poison as Poison
+import qualified Lang.Crucible.LLVM.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Translation.Expr
 import           Lang.Crucible.LLVM.Translation.Monad
 import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
-import qualified Lang.Crucible.LLVM.Safety.UndefinedBehavior as UB
-import qualified Lang.Crucible.LLVM.Safety.Poison as Poison
 import           Lang.Crucible.Syntax hiding (IsExpr)
 import           Lang.Crucible.Types
 
@@ -88,18 +89,39 @@ import           Lang.Crucible.Types
 -- provide helpful error messages in case they are encountered.
 
 -- | Immediately assert that evaluation doesn't result in undefined behavior
-assertUndefined :: IsExpr (SymExpr sym)
-                => Maybe (UB.Config sym)        -- ^ Defaults to 'UB.strictConfig'
-                -> UB.UndefinedBehavior sym
-                -> Expr (LLVM arch) s BoolType  -- ^ The assertion
-                -> LLVMGenerator h s arch ret ()
-assertUndefined (UB.defaultStrict -> ubConfig) ub assert =
+assertUndefinedSym_ :: IsExpr (SymExpr sym)
+                    => proxy sym                       -- ^ Unused, pins down ambiguous type
+                    -> Maybe (UB.Config (SymExpr sym)) -- ^ Defaults to 'UB.strictConfig'
+                    -> UB.UndefinedBehavior (SymExpr sym)
+                    -> Expr (LLVM arch) s BoolType     -- ^ The assertion
+                    -> LLVMGenerator h s arch ret ()
+assertUndefinedSym_ proxySym (UB.defaultStrict -> ubConfig) ub assert =
   when (UB.getConfig ubConfig ub) $
-    assertExpr assert (litExpr (UB.pp ub))
+    assertExpr assert (litExpr (UB.ppSym proxySym ub))
+
+-- | Immediately assert that evaluation doesn't result in undefined behavior
+assertUndefinedSym :: IsExpr (SymExpr sym)
+                   => sym                             -- ^ Unused, pins down ambiguous type
+                   -> Maybe (UB.Config (SymExpr sym)) -- ^ Defaults to 'UB.strictConfig'
+                   -> UB.UndefinedBehavior (SymExpr sym)
+                   -> Expr (LLVM arch) s BoolType     -- ^ The assertion
+                   -> LLVMGenerator h s arch ret ()
+assertUndefinedSym sym = assertUndefinedSym_ (Just sym)
+
+-- | Immediately assert that evaluation doesn't result in undefined behavior
+assertUndefinedExpr :: IsExpr e
+                    => Maybe (UB.Config e)         -- ^ Defaults to 'UB.strictConfig'
+                    -> UB.UndefinedBehavior e
+                    -> Expr (LLVM arch) s BoolType -- ^ The assertion
+                    -> LLVMGenerator h s arch ret ()
+assertUndefinedExpr (UB.defaultStrict -> ubConfig) ub assert =
+  when (UB.getConfig ubConfig ub) $
+    assertExpr assert (litExpr (UB.ppExpr ub))
 
 -- | Add a side condition if the configuration asks us to check for it
-poisonSideCondition :: BaseTypeRepr basetype
-                    -> Poison.Poison sym
+poisonSideCondition :: IsExpr e
+                    => BaseTypeRepr basetype
+                    -> Poison.Poison e
                     -> Expr (LLVM arch) s BoolType              -- ^ Condition to assert
                     -> Expr (LLVM arch) s (BaseToType basetype) -- ^ Expression with side-condition
                     -> Expr (LLVM arch) s (BaseToType basetype)
@@ -231,7 +253,8 @@ extractElt instr _ n (BaseExpr (VectorRepr tyr) v) i =
                    Scalar (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
                         -- The value is poisoned if the index is out of bounds.
-                        let poison = Poison.ExtractElementIndex v bv
+                        let poison :: Poison.Poison (Compose _ _)
+                            poison = Poison.ExtractElementIndex (Compose bv)
                         return $ poisonSideCondition
                                    BaseNatRepr
                                    poison
@@ -286,7 +309,7 @@ insertElt instr _ n (BaseExpr (VectorRepr tyr) v) a i =
                    Scalar (LLVMPointerRepr w) x ->
                      do bv <- pointerAsBitvectorExpr w x
                         -- The value is poisoned if the index is out of bounds.
-                        let poison = Poison.InsertElementIndex v bv
+                        let poison = Poison.InsertElementIndex (Compose bv)
                         return $ poisonSideCondition BaseNatRepr
                             poison
                             (App (BVUlt w bv (App (BVLit w n)))) -- assertion condition
@@ -465,7 +488,7 @@ calcGEP_array typ base idx =
                -- maximum and minimum indices to prevent multiplication overflow
                maxidx = maxSigned PtrWidth `quot` (max isz 1)
                minidx = minSigned PtrWidth `quot` (max isz 1)
-               poison = Poison.GEPOutOfBounds base idx'
+               poison = Poison.GEPOutOfBounds (Compose idx')
                cond   =
                 (app $ BVSle PtrWidth (app $ BVLit PtrWidth minidx) idx') .&&
                   (app $ BVSle PtrWidth idx' (app $ BVLit PtrWidth maxidx))
@@ -777,7 +800,7 @@ bitop op _ x y =
     _ -> fail $ unwords ["bitwise operation on unsupported values", show x, show y]
 
 raw_bitop :: (1 <= w) =>
-  Maybe (UB.Config sym) {- ^ Defaults to 'UB.strictConfig' -} ->
+  Maybe (UB.Config e) {- ^ Defaults to 'UB.strictConfig' -} ->
   L.BitOp ->
   NatRepr w ->
   Expr (LLVM arch) s (BVType w) ->
@@ -785,7 +808,6 @@ raw_bitop :: (1 <= w) =>
   LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
 raw_bitop ubConfig op w a b =
   let poisonSideCondition_ = poisonSideCondition (BaseBVRepr w)
-      assertUndefined_     = assertUndefined ubConfig
   in
     case op of
       L.And -> return $ App (BVAnd w a b)
@@ -794,15 +816,19 @@ raw_bitop ubConfig op w a b =
 
       L.Shl nuw nsw -> do
         let wlit = App (BVLit w (natValue w))
-        assertUndefined_ Poison.ShlOp2Big (App (BVUlt w b wlit))
 
-        res <- AtomExpr <$> mkAtom (App (BVShl w a b))
+        res0 <- AtomExpr <$> mkAtom (App (BVShl w a b))
+        let res =
+              poisonSideCondition_
+                (Poison.ShlOp2Big (Compose a) (Compose b))
+                (App (BVUlt w b wlit)) -- TODO: is this the right condition?
+                res0
 
         let nuwCond expr
              | nuw = do
                  m <- AtomExpr <$> mkAtom (App (BVLshr w res b))
                  return $ poisonSideCondition_
-                            Poison.ShlNoUnsignedWrap
+                            (Poison.ShlNoUnsignedWrap (Compose a) (Compose b))
                             (App (BVEq w a m))
                             expr
              | otherwise = return expr
@@ -811,7 +837,7 @@ raw_bitop ubConfig op w a b =
              | nsw = do
                  m <- AtomExpr <$> mkAtom (App (BVAshr w res b))
                  return $ poisonSideCondition_
-                            Poison.ShlNoSignedWrap
+                            (Poison.ShlNoSignedWrap (Compose a) (Compose b))
                             (App (BVEq w a m))
                             expr
              | otherwise = return expr
@@ -820,15 +846,19 @@ raw_bitop ubConfig op w a b =
 
       L.Lshr exact -> do
         let wlit = App (BVLit w (natValue w))
-        assertUndefined_ Poison.LshrOp2Big (App (BVUlt w b wlit))
 
-        res <- AtomExpr <$> mkAtom (App (BVLshr w a b))
+        res0 <- AtomExpr <$> mkAtom (App (BVLshr w a b))
+        let res =
+              poisonSideCondition_
+                (Poison.LshrOp2Big (Compose a) (Compose b))
+                (App (BVUlt w b wlit))
+                res0
 
         let exactCond expr
              | exact = do
                  m <- AtomExpr <$> mkAtom (App (BVShl w res b))
                  return $ poisonSideCondition_
-                            Poison.LshrExact
+                            (Poison.LshrExact (Compose a) (Compose b))
                             (App (BVEq w a m))
                             expr
              | otherwise = return expr
@@ -837,21 +867,25 @@ raw_bitop ubConfig op w a b =
 
       L.Ashr exact
         | Just LeqProof <- isPosNat w -> do
-           let wlit = App (BVLit w (natValue w))
-           assertUndefined_ Poison.AshrOp2Big (App (BVUlt w b wlit))
+            let wlit = App (BVLit w (natValue w))
 
-           res <- AtomExpr <$> mkAtom (App (BVAshr w a b))
+            res0 <- AtomExpr <$> mkAtom (App (BVAshr w a b))
+            let res =
+                  poisonSideCondition_
+                    (Poison.AshrOp2Big (Compose a) (Compose b))
+                    (App (BVUlt w b wlit))
+                    res0
 
-           let exactCond expr
-                | exact = do
-                    m <- AtomExpr <$> mkAtom (App (BVShl w res b))
-                    return $ poisonSideCondition_
-                               Poison.AshrExact
-                               (App (BVEq w a m))
-                               expr
-                | otherwise = return expr
+            let exactCond expr
+                 | exact = do
+                     m <- AtomExpr <$> mkAtom (App (BVShl w res b))
+                     return $ poisonSideCondition_
+                                (Poison.AshrExact (Compose a) (Compose b))
+                                (App (BVEq w a m))
+                                expr
+                 | otherwise = return expr
 
-           exactCond res
+            exactCond res
 
         | otherwise -> fail "cannot arithmetic right shift a 0-width integer"
 
@@ -860,28 +894,28 @@ raw_bitop ubConfig op w a b =
 --
 -- Poison values can arise from such operations (depending on the attached
 -- flags). Whether or not to enforce such flags is controlled by a 'UB.Config'.
-intop :: forall w arch sym s h ret. (1 <= w)
-      => Maybe (UB.Config sym) -- ^ Defaults to 'UB.strictConfig'
+intop :: forall w arch e s h ret. (1 <= w)
+      => (forall e. Maybe (UB.Config e)) -- ^ Defaults to 'UB.strictConfig'
       -> L.ArithOp
       -> NatRepr w
       -> Expr (LLVM arch) s (BVType w)
       -> Expr (LLVM arch) s (BVType w)
       -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
 intop ubConfig op w a b =
-  let poisonSideCondition_ = poisonSideCondition ubConfig (BaseBVRepr w)
-      assertUndefined_     = assertUndefined ubConfig
+  let poisonSideCondition_ = poisonSideCondition (BaseBVRepr w)
+      -- assertUndefinedExpr_ = assertUndefinedExpr ubConfig
   in case op of
        L.Add nuw nsw -> do
          let nuwCond expr
                | nuw = return $ poisonSideCondition_
-                                  (Poison.AddNoUnsignedWrap a)
+                                  (Poison.AddNoUnsignedWrap (Compose a) (Compose b))
                                   (notExpr (App (BVCarry w a b)))
                                   expr
                | otherwise = return expr
 
          let nswCond expr
                | nsw = return $ poisonSideCondition_
-                                  Poison.AddNoSignedWrap
+                                  (Poison.AddNoSignedWrap (Compose a) (Compose b))
                                   (notExpr (App (BVSCarry w a b)))
                                   expr
                | otherwise = return expr
@@ -891,14 +925,14 @@ intop ubConfig op w a b =
        L.Sub nuw nsw -> do
          let nuwCond expr
                | nuw = return $ poisonSideCondition_
-                                  Poison.SubNoUnsignedWrap
+                                  (Poison.SubNoUnsignedWrap (Compose a) (Compose b))
                                   (notExpr (App (BVUlt w a b)))
                                   expr
                | otherwise = return expr
 
          let nswCond expr
                | nsw = return $ poisonSideCondition_
-                                  Poison.SubNoSignedWrap
+                                  (Poison.SubNoSignedWrap (Compose a) (Compose b))
                                   (notExpr (App (BVSBorrow w a b)))
                                   expr
                | otherwise = return expr
@@ -918,7 +952,7 @@ intop ubConfig op w a b =
                    wideprod <- AtomExpr <$> mkAtom (App (BVMul w' az bz))
                    prodz <- AtomExpr <$> mkAtom (App (BVZext w' w prod))
                    return $ poisonSideCondition_
-                              Poison.MulNoUnsignedWrap
+                              (Poison.MulNoUnsignedWrap (Compose a) (Compose b))
                               (App (BVEq w' wideprod prodz))
                               expr
                | otherwise = return expr
@@ -930,7 +964,7 @@ intop ubConfig op w a b =
                    wideprod <- AtomExpr <$> mkAtom (App (BVMul w' as bs))
                    prods <- AtomExpr <$> mkAtom (App (BVSext w' w prod))
                    return $ poisonSideCondition_
-                              Poison.MulNoSignedWrap
+                              (Poison.MulNoSignedWrap (Compose a) (Compose b))
                               (App (BVEq w' wideprod prods))
                               expr
                | otherwise = return expr
@@ -939,14 +973,15 @@ intop ubConfig op w a b =
 
        L.UDiv exact -> do
          let z = App (BVLit w 0)
-         assertUndefined_ UB.UDivByZero (notExpr (App (BVEq w z b)))
+         -- extensionStmt (LLVM_PtrEq memVar x y)
+         -- assertUndefinedExpr_ (UB.UDivByZero _) (notExpr (App (BVEq w z b)))
          q <- AtomExpr <$> mkAtom (App (BVUdiv w a b))
 
          let exactCond expr
                | exact = do
                    m <- AtomExpr <$> mkAtom (App (BVMul w q b))
                    return $ poisonSideCondition_
-                              Poison.UDivExact
+                              (Poison.UDivExact (Compose a) (Compose b))
                               (App (BVEq w a m))
                               expr
                | otherwise = return expr
@@ -959,9 +994,9 @@ intop ubConfig op w a b =
            let neg1   = App (BVLit w (-1))
            let minInt = App (BVLit w (minSigned w))
 
-           assertUndefined_ UB.SDivByZero (notExpr (App (BVEq w z b)))
-           assertUndefined_ UB.SDivOverflow $
-             (notExpr ((App (BVEq w neg1 b)) .&& (App (BVEq w minInt a))))
+           -- assertUndefinedExpr_ (UB.SDivByZero _) (notExpr (App (BVEq w z b)))
+           -- assertUndefinedExpr_ (UB.SDivOverflow _ _) $
+             -- (notExpr ((App (BVEq w neg1 b)) .&& (App (BVEq w minInt a))))
 
            q <- AtomExpr <$> mkAtom (App (BVSdiv w a b))
 
@@ -969,7 +1004,7 @@ intop ubConfig op w a b =
                  | exact = do
                      m <- AtomExpr <$> mkAtom (App (BVMul w q b))
                      return $ poisonSideCondition_
-                                Poison.SDivExact
+                                (Poison.SDivExact (Compose a) (Compose b))
                                 (App (BVEq w a m))
                                 expr
                  | otherwise = return expr
@@ -980,7 +1015,7 @@ intop ubConfig op w a b =
 
        L.URem -> do
            let z = App (BVLit w 0)
-           assertUndefined_ UB.URemByZero (notExpr (App (BVEq w z b)))
+           -- assertUndefinedExpr_ (UB.URemByZero _) (notExpr (App (BVEq w z b)))
            return $ App (BVUrem w a b)
 
        L.SRem
@@ -988,9 +1023,9 @@ intop ubConfig op w a b =
            let z      = App (BVLit w 0)
            let neg1   = App (BVLit w (-1))
            let minInt = App (BVLit w (minSigned w))
-           assertUndefined_ UB.SRemByZero (notExpr (App (BVEq w z b)))
-           assertUndefined_ UB.SRemOverflow $
-             (notExpr ((App (BVEq w neg1 b)) .&& (App (BVEq w minInt a))))
+           -- assertUndefinedExpr_ (UB.SRemByZero _) (notExpr (App (BVEq w z b)))
+           -- assertUndefinedExpr_ (UB.SRemOverflow _ _) $
+           --   (notExpr ((App (BVEq w neg1 b)) .&& (App (BVEq w minInt a))))
 
            return $ App (BVSrem w a b)
 
@@ -1093,7 +1128,7 @@ intcmp w op a b =
       L.Isge -> App (BVSle w b a)
 
 pointerCmp
-   :: wptr ~ ArchWidth arch
+   :: (wptr ~ ArchWidth arch)
    => L.ICmpOp
    -> Expr (LLVM arch) s (LLVMPointerType wptr)
    -> Expr (LLVM arch) s (LLVMPointerType wptr)
@@ -1116,8 +1151,11 @@ pointerCmp op x y =
   -- Special case: a pointer can be compared for equality with an integer, as long as
   -- that integer is 0, representing the null pointer.
   ptr_bv_compare bv ptr = do
-    assertUndefined Nothing UB.ComparePointerToBV $
+    -- TODO: We can't use assertUndefinedSym here since the type variable 'sym'
+    -- isn't in scope. How should this be fixed?
+    assertExpr
       (App (BVEq PtrWidth bv (App (BVLit PtrWidth 0))))
+      (litExpr "Undefined comparison between pointer and integer")
     case op of
       L.Ieq  -> callIsNull PtrWidth ptr
       L.Ine  -> App . Not <$> callIsNull PtrWidth ptr

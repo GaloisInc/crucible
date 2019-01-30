@@ -22,7 +22,7 @@
 
 module Lang.Crucible.LLVM.Safety
   ( LLVMSafetyAssertion
-  , LLVMSafetyAssertionTree
+  , LLVMAssertionTree
   , undefinedBehavior
   , undefinedBehavior'
   , poison
@@ -30,6 +30,7 @@ module Lang.Crucible.LLVM.Safety
   , safe
   ) where
 
+import           Data.Kind (Type)
 import           Data.Data (Data)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic, Generic1)
@@ -52,23 +53,24 @@ import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 -- | Combine the three types of bad behaviors
 --
 -- TODO(langston): should there just be a 'BadBehavior' class?
-data BadBehavior sym =
-    BBUndefinedBehavior (UB.UndefinedBehavior sym)
-  | BBPoison            (Poison.Poison sym)
-  | BBUndef             (UV.UndefValue sym)
+-- TODO(langston): parameterize on kind :: BaseType -> Type
+data BadBehavior e =
+    BBUndefinedBehavior (UB.UndefinedBehavior e)
+  | BBPoison            (Poison.Poison e)
+  -- | BBUndef             (UV.UndefValue e)
   | BBSafe                                  -- ^ This value is always safe
   deriving (Generic, Typeable)
 
-data LLVMSafetyAssertion (arch :: LLVMArch) sym =
+data LLVMSafetyAssertion (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
   LLVMSafetyAssertion
-    { _classifier :: BadBehavior sym -- ^ What could have gone wrong?
-    , _predicate  :: Pred sym        -- ^ Is the value safe/defined?
-    , _extra      :: Maybe Text      -- ^ Additional human-readable context
+    { _classifier :: BadBehavior e      -- ^ What could have gone wrong?
+    , _predicate  :: e W4I.BaseBoolType -- ^ Is the value safe/defined?
+    , _extra      :: Maybe Text         -- ^ Additional human-readable context
     }
   deriving (Generic, Typeable)
 
-type LLVMSafetyAssertionTree arch sym =
-  AssertionTree (Pred sym) (LLVMSafetyAssertion arch sym)
+type LLVMAssertionTree (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
+  AssertionTree (e W4I.BaseBoolType) (LLVMSafetyAssertion arch e)
 
 -- -----------------------------------------------------------------------
 -- ** Constructors
@@ -76,54 +78,84 @@ type LLVMSafetyAssertionTree arch sym =
 -- We expose these rather than the constructors to retain the freedom to
 -- change the internal representation.
 
-undefinedBehavior' :: UB.UndefinedBehavior sym
-                   -> Pred sym
+undefinedBehavior' :: UB.UndefinedBehavior e
+                   -> e W4I.BaseBoolType
                    -> Text
-                   -> LLVMSafetyAssertion arch sym
+                   -> LLVMSafetyAssertion arch e
 undefinedBehavior' ub pred expl =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred (Just expl)
 
-undefinedBehavior :: UB.UndefinedBehavior sym
-                  -> Pred sym
-                  -> LLVMSafetyAssertion arch sym
+undefinedBehavior :: UB.UndefinedBehavior e
+                  -> e W4I.BaseBoolType
+                  -> LLVMSafetyAssertion arch e
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
 
-poison' :: Poison.Poison sym
-        -> Pred sym
+poison' :: Poison.Poison e
+        -> e W4I.BaseBoolType
         -> Text
-        -> LLVMSafetyAssertion arch sym
+        -> LLVMSafetyAssertion arch e
 poison' poison pred expl = LLVMSafetyAssertion (BBPoison poison) pred (Just expl)
 
-poison :: Poison.Poison sym
-       -> Pred sym
-       -> LLVMSafetyAssertion arch sym
+poison :: Poison.Poison e
+       -> e W4I.BaseBoolType
+       -> LLVMSafetyAssertion arch e
 poison ub pred = LLVMSafetyAssertion (BBPoison ub) pred Nothing
+
+-- undefinedBehavior' :: UB.UndefinedBehavior (W4I.SymExpr sym)
+--                    -> proxy sym -- ^ Unused, resolves ambiguous types
+--                    -> Pred sym
+--                    -> Text
+--                    -> LLVMSafetyAssertion arch (W4I.SymExpr sym)
+-- undefinedBehavior' _proxySym ub pred expl =
+--   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred (Just expl)
+
+-- undefinedBehavior :: UB.UndefinedBehavior (W4I.SymExpr sym)
+--                    -> proxy sym -- ^ Unused, resolves ambiguous types
+--                   -> Pred sym
+--                   -> LLVMSafetyAssertion arch (W4I.SymExpr sym)
+-- undefinedBehavior _proxySym ub pred =
+--   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
+
+
+-- poison' :: Poison.Poison (W4I.SymExpr sym)
+--         -> proxy sym  -- ^ Unused, resolves ambiguous types
+--         -> Pred sym
+--         -> Text
+--         -> LLVMSafetyAssertion arch (W4I.SymExpr sym)
+-- poison' _proxySym poison pred expl = LLVMSafetyAssertion (BBPoison poison) pred (Just expl)
+
+-- poison :: Poison.Poison (W4I.SymExpr sym)
+--        -> proxy sym  -- ^ Unused, resolves ambiguous types
+--        -> Pred sym
+--        -> LLVMSafetyAssertion arch (W4I.SymExpr sym)
+-- poison _proxySym ub pred = LLVMSafetyAssertion (BBPoison ub) pred Nothing
 
 -- | For values that are always safe, but are expected to be paired with safety
 -- assertions.
-safe :: W4I.IsExprBuilder sym => sym -> LLVMSafetyAssertion arch sym
+safe :: W4I.IsExprBuilder sym => sym -> LLVMSafetyAssertion arch (W4I.SymExpr sym)
 safe sym = LLVMSafetyAssertion BBSafe (W4I.truePred sym) (Just "always safe")
 
 -- -----------------------------------------------------------------------
 -- ** Lenses
 
-classifier :: Simple Lens (LLVMSafetyAssertion arch sym) (BadBehavior sym)
+classifier :: Simple Lens (LLVMSafetyAssertion arch e) (BadBehavior e)
 classifier = lens _classifier (\s v -> s { _classifier = v})
 
-predicate :: Simple Lens (LLVMSafetyAssertion arch sym) (Pred sym)
+predicate :: Simple Lens (LLVMSafetyAssertion arch e) (e W4I.BaseBoolType)
 predicate = lens _predicate (\s v -> s { _predicate = v})
 
-extra :: Simple Lens (LLVMSafetyAssertion arch sym) (Maybe Text)
+extra :: Simple Lens (LLVMSafetyAssertion arch e) (Maybe Text)
 extra = lens _extra (\s v -> s { _extra = v})
 
 -- -----------------------------------------------------------------------
 -- ** HasSafetyAssertions
 
-type instance SafetyAssertion (LLVM arch) sym = LLVMSafetyAssertion arch sym
+type instance SafetyAssertion (LLVM arch) (e :: W4I.BaseType -> Type) =
+  LLVMSafetyAssertion arch e
 
-instance HasSafetyAssertions (LLVM arch) sym where
-  toPredicate sym = view predicate
+-- instance HasSafetyAssertions (LLVM arch) sym where
+--   toPredicate sym = view predicate
     -- \case
     --   SAUndefinedBehavior p ->

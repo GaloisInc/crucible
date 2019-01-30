@@ -212,6 +212,13 @@ data LLVMStmt (wptr :: Nat) (f :: CrucibleType -> Type) :: CrucibleType -> Type 
      !(f (LLVMPointerType wptr)) {- Second pointer -} ->
      LLVMStmt wptr f (BVType wptr)
 
+  -- | Assert that some undefined behavior doesn't occur
+  LLVM_Assert ::
+     !(GlobalVar Mem)            {- Pointer width -} ->
+     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
+     !(f (LLVMPointerType wptr)) {- First pointer to compare -} ->
+     LLVMStmt wptr f BoolType
+
 $(return [])
 
 instance TestEquality ArchRepr where

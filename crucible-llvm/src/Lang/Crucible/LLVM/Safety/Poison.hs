@@ -15,8 +15,10 @@
 -- values: https://lists.llvm.org/pipermail/llvm-dev/2016-October/106182.html
 --------------------------------------------------------------------------
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
@@ -27,77 +29,83 @@ module Lang.Crucible.LLVM.Safety.Poison
   , pp
   ) where
 
+import           Data.Kind (Type)
 import           Data.Text (Text, unwords, unlines)
 import           Data.Typeable (Typeable)
 import           Prelude hiding (unwords, unlines)
+
+import qualified What4.Interface as W4I
 
 import           Lang.Crucible.CFG.Generator (Expr)
 import           Lang.Crucible.LLVM.Extension (LLVM)
 import           Lang.Crucible.LLVM.Safety.Standards
 import           Lang.Crucible.LLVM.Translation.Types (LLVMPointerType)
-import           Lang.Crucible.Types (BaseToType, VectorType)
-import           What4.BaseTypes (BaseBVType)
+import           Data.Parameterized.TraversableFC
+
+import           Data.Functor.Compose
+import           Lang.Crucible.Types
+import           What4.BaseTypes
 
 -- | TODO(langston): Record type information for error messages
-data Poison sym where
+data Poison (e :: W4I.BaseType -> Type) where
 
-  AddNoUnsignedWrap   :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  AddNoSignedWrap     :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  SubNoUnsignedWrap   :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  SubNoSignedWrap     :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  MulNoUnsignedWrap   :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  MulNoSignedWrap     :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  UDivExact           :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  SDivExact           :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  ShlOp2Big           :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  ShlNoUnsignedWrap   :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  ShlNoSignedWrap     :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  LshrExact           :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  LshrOp2Big          :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  AshrExact           :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  AshrOp2Big          :: Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op1@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @op2@
-                      -> Poison sym
-  ExtractElementIndex :: Expr (LLVM arch) e (VectorType ty)             -- ^ @val@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @idx@
-                      -> Poison sym
-  InsertElementIndex  :: Expr (LLVM arch) e (VectorType ty)             -- ^ @val@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @idx@
-                      -> Poison sym
-  GEPOutOfBounds      :: Expr (LLVM arch) e (LLVMPointerType w)         -- ^ @ptrval@
-                      -> Expr (LLVM arch) e (BaseToType (BaseBVType w)) -- ^ @idx@
-                      -> Poison sym
+  AddNoUnsignedWrap   :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  AddNoSignedWrap     :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  SubNoUnsignedWrap   :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  SubNoSignedWrap     :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  MulNoUnsignedWrap   :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  MulNoSignedWrap     :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  UDivExact           :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  SDivExact           :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  ShlOp2Big           :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  ShlNoUnsignedWrap   :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  ShlNoSignedWrap     :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  LshrExact           :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  LshrOp2Big          :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  AshrExact           :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  AshrOp2Big          :: e (W4I.BaseBVType w) -- ^ @op1@
+                      -> e (W4I.BaseBVType w) -- ^ @op2@
+                      -> Poison e
+  -- | TODO(langston): Figure out how to store the 'Vector'
+  ExtractElementIndex :: e (W4I.BaseBVType w)       -- ^ @idx@
+                      -> Poison e
+  -- | TODO(langston): Figure out how to store the 'Vector'
+  InsertElementIndex  :: e (W4I.BaseBVType w)       -- ^ @idx@
+                      -> Poison e
+  -- | TODO(langston): Figure out how to store the 'LLVMPointerType'
+  GEPOutOfBounds      :: e (W4I.BaseBVType w) -- ^ @idx@
+                      -> Poison e
   deriving (Typeable)
 
-standard :: Poison sym -> Standard
+standard :: Poison e -> Standard
 standard =
   \case
     AddNoUnsignedWrap _ _   -> LLVMRef LLVM8
@@ -115,12 +123,12 @@ standard =
     LshrOp2Big _ _          -> LLVMRef LLVM8
     AshrExact _ _           -> LLVMRef LLVM8
     AshrOp2Big _ _          -> LLVMRef LLVM8
-    ExtractElementIndex _ _ -> LLVMRef LLVM8
-    InsertElementIndex _ _  -> LLVMRef LLVM8
-    GEPOutOfBounds _ _      -> LLVMRef LLVM8
+    -- ExtractElementIndex _ _ -> LLVMRef LLVM8
+    -- InsertElementIndex _ _  -> LLVMRef LLVM8
+    -- GEPOutOfBounds _ _      -> LLVMRef LLVM8
 
 -- | Which section(s) of the document state that this is poison?
-cite :: Poison sym -> Text
+cite :: Poison e -> Text
 cite =
   \case
     AddNoUnsignedWrap _ _   -> "‘add’ Instruction (Semantics)"
@@ -138,11 +146,11 @@ cite =
     LshrOp2Big _ _          -> "‘lshr’ Instruction (Semantics)"
     AshrExact _ _           -> "‘ashr’ Instruction (Semantics)"
     AshrOp2Big _ _          -> "‘ashr’ Instruction (Semantics)"
-    ExtractElementIndex _ _ -> "‘extractelement’ Instruction (Semantics)"
-    InsertElementIndex _ _  -> "‘insertelement’ Instruction (Semantics)"
-    GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
+    -- ExtractElementIndex _ _ -> "‘extractelement’ Instruction (Semantics)"
+    -- InsertElementIndex _ _  -> "‘insertelement’ Instruction (Semantics)"
+    -- GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
 
-explain :: Poison sym -> Text
+explain :: Poison e -> Text
 explain =
   \case
     AddNoUnsignedWrap _ _ ->
@@ -183,28 +191,28 @@ explain =
       [ "Inexact `ashr` (arithmetic right shift) result even though the `exact`"
       , "flag was set"
       ]
-    AshrOp2Big _ _ -> unwords $
+    AshrOp2Big _ _   -> unwords $
       [ "The second operand of `ashr` was equal to or greater than the number of"
       , "bits in the first operand"
       ]
-    ExtractElementIndex _ _ -> unwords $
-      [ "Attempted to extract an element from a vector at an index that was"
-      , "greater than the length of the vector"
-      ]
-    InsertElementIndex _ _ -> unwords $
-      [ "Attempted to insert an element into a vector at an index that was"
-      , "greater than the length of the vector"
-      ]
+    -- ExtractElementIndex _ _ -> unwords $
+    --   [ "Attempted to extract an element from a vector at an index that was"
+    --   , "greater than the length of the vector"
+    --   ]
+    -- InsertElementIndex _ _ -> unwords $
+    --   [ "Attempted to insert an element into a vector at an index that was"
+    --   , "greater than the length of the vector"
+    --   ]
     -- The following explanation is a bit unsatisfactory, because it is specific
     -- to how we treat this instruction in Crucible.
-    GEPOutOfBounds _ _ -> unwords $
-      [ "Calling `getelementptr` resulted in an index that was out of bounds for"
-      , "the given allocation (likely due to arithmetic overflow), but Crucible"
-      , "currently treats all GEP instructions as if they had the `inbounds`"
-      , "flag set."
-      ]
+    -- GEPOutOfBounds _ _ -> unwords $
+    --   [ "Calling `getelementptr` resulted in an index that was out of bounds for"
+    --   , "the given allocation (likely due to arithmetic overflow), but Crucible"
+    --   , "currently treats all GEP instructions as if they had the `inbounds`"
+    --   , "flag set."
+    --   ]
 
-pp :: Poison sym -> Text
+pp :: Poison (Compose (Expr ext s) BaseToType) -> Text
 pp poison = unlines $
   [ "Poison value encountered: "
   , explain poison
@@ -212,3 +220,12 @@ pp poison = unlines $
   ] ++ case stdURL (standard poison) of
          Just url -> ["Document URL: " <> url]
          Nothing  -> []
+
+-- pp :: W4I.IsExpr e => Poison e -> Text
+-- pp poison = unlines $
+--   [ "Poison value encountered: "
+--   , explain poison
+--   , unwords ["Reference: ", ppStd (standard poison), cite poison]
+--   ] ++ case stdURL (standard poison) of
+--          Just url -> ["Document URL: " <> url]
+--          Nothing  -> []

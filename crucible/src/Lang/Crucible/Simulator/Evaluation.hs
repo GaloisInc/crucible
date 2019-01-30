@@ -40,6 +40,7 @@ import           Data.Maybe
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
+import           Data.Parameterized.TraversableF
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word
@@ -414,9 +415,10 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     ----------------------------------------------------------------------
     -- Side conditions
 
-    AddSideCondition _ pe rsn e -> do
-      addAssertionM sym (evalSub pe) (AssertFailureSimError rsn)
-      evalSub e
+    AddSideCondition _baseTyRep assertion expr -> do
+      -- (traverseF evalSub assertion)
+      addAssertionM sym _ (AssertFailureSimError rsn)
+      evalSub expr
 
     ----------------------------------------------------------------------
     -- Recursive Types

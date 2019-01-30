@@ -70,7 +70,7 @@ import qualified What4.Partial as W4P
 -- | An optional LLVMValue, paired with a tree of predicates explaining
 -- just when it is actually valid.
 type PartLLVMVal arch sym =
-  PartExpr (LLVMSafetyAssertionTree arch sym) (LLVMVal sym)
+  PartExpr (LLVMAssertionTree arch (W4I.SymExpr sym)) (LLVMVal sym)
 
 -- | Make an assertion that isn't about undefined behavior
 -- llvmAssert :: Text -> Pred sym -> LLVMValAssertion sym
@@ -81,12 +81,20 @@ totalLLVMVal :: (IsExprBuilder sym) => sym -> LLVMVal sym -> PartLLVMVal arch sy
 totalLLVMVal sym v = W4P.PE (Leaf (safe sym)) v
 
 -- | Add a side-condition to a value that might have caused undefined behavior
-addUndefinedBehaviorCondition :: UB.UndefinedBehavior sym
-                              -> Pred sym
-                              -> LLVMSafetyAssertionTree arch sym
-                              -> LLVMSafetyAssertionTree arch sym
-addUndefinedBehaviorCondition ub pred tree =
+addUndefinedBehaviorCondition_ :: proxy sym -- ^ Unused, pins down ambiguous type
+                               -> UB.UndefinedBehavior (W4I.SymExpr sym)
+                               -> Pred sym
+                               -> LLVMAssertionTree arch (W4I.SymExpr sym)
+                               -> LLVMAssertionTree arch (W4I.SymExpr sym)
+addUndefinedBehaviorCondition_ _proxySym ub pred tree =
   W4P.addCondition tree (undefinedBehavior ub pred)
+
+addUndefinedBehaviorCondition :: sym -- ^ Unused, pins down ambiguous type
+                              -> UB.UndefinedBehavior (W4I.SymExpr sym)
+                              -> Pred sym
+                              -> LLVMAssertionTree arch (W4I.SymExpr sym)
+                              -> LLVMAssertionTree arch (W4I.SymExpr sym)
+addUndefinedBehaviorCondition sym = addUndefinedBehaviorCondition_ (Just sym)
 
 -- addPoisonCondition ::
 
@@ -108,8 +116,8 @@ bvToFloatPartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 4) _))) =
 bvToFloatPartLLVMVal sym (PE p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @32) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
-      let ub = UB.PointerCast blk off Float
-      PE (addUndefinedBehaviorCondition ub pz p) .
+      let ub = UB.PointerCast (Just sym) blk off Float
+      PE (addUndefinedBehaviorCondition sym ub pz p) .
         LLVMValFloat Value.SingleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr off
 
@@ -130,8 +138,8 @@ bvToDoublePartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 8) _))) =
 bvToDoublePartLLVMVal sym (PE p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @64) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
-      let ub = UB.PointerCast blk off Float
-      PE (addUndefinedBehaviorCondition ub pz p) .
+      let ub = UB.PointerCast (Just sym) blk off Float
+      PE (addUndefinedBehaviorCondition sym ub pz p) .
         LLVMValFloat Value.DoubleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr off
 
@@ -152,8 +160,8 @@ bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 10) _))) 
 bvToX86_FP80PartLLVMVal sym (PE p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @80) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
-      let ub = UB.PointerCast blk off X86_FP80
-      PE (addUndefinedBehaviorCondition ub pz p) .
+      let ub = UB.PointerCast (Just sym) blk off X86_FP80
+      PE (addUndefinedBehaviorCondition sym ub pz p) .
         LLVMValFloat Value.X86_FP80Size <$>
         W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
 
@@ -205,8 +213,8 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
          predHigh      <- W4I.natEq sym blk_high blk0
          bv            <- W4I.bvConcat sym high low
          return $ flip W4P.PE (LLVMValInt blk0 bv) $
-           let ub1 = UB.PointerCast blk_low  low  (Bitvector 0)
-               ub2 = UB.PointerCast blk_high high (Bitvector 0)
+           let ub1 = UB.PointerCast (Just sym) blk_low  low  (Bitvector 0)
+               ub2 = UB.PointerCast (Just sym) blk_high high (Bitvector 0)
            in
              W4P.And (Leaf (undefinedBehavior ub1 predLow) :|
                         [ Leaf (undefinedBehavior ub2 predHigh)
@@ -284,7 +292,8 @@ mkArrayPartLLVMVal :: forall arch sym. (IsExprBuilder sym, IsSymInterface sym) =
   Vector (PartLLVMVal arch sym) ->
   PartLLVMVal arch sym
 mkArrayPartLLVMVal sym tp vec =
-  let f :: PartLLVMVal arch sym -> State [LLVMSafetyAssertionTree arch sym] (Maybe (LLVMVal sym))
+  let f :: PartLLVMVal arch sym
+        -> State [LLVMAssertionTree arch (W4I.SymExpr sym)] (Maybe (LLVMVal sym))
       f Unassigned = pure Nothing
       f (PE p x) = do
         ps_ <- get     -- Current predicates
@@ -310,7 +319,8 @@ mkStructPartLLVMVal :: forall arch sym. IsExprBuilder sym =>
   (PartLLVMVal arch sym)
 mkStructPartLLVMVal sym vec =
   let f :: (Field StorageType, PartLLVMVal arch sym)
-        -> State [LLVMSafetyAssertionTree arch sym] (Maybe (Field StorageType, LLVMVal sym))
+        -> State [LLVMAssertionTree arch (W4I.SymExpr sym)]
+                 (Maybe (Field StorageType, LLVMVal sym))
       f (_fld, Unassigned) = pure Nothing
       f (fld, PE p x) = do
         ps_ <- get
@@ -347,8 +357,8 @@ selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
   , Just LeqProof       <- testLeq low_w w = do
       pz  <- W4I.natEq sym blk =<< W4I.natLit sym 0
       bv' <- W4I.bvSelect sym (knownNat :: NatRepr 0) low_w bv
-      let ub = UB.PointerCast blk bv (Bitvector 0)
-      return $ PE (addUndefinedBehaviorCondition ub pz p) $ LLVMValInt blk bv'
+      let ub = UB.PointerCast (Just sym) blk bv (Bitvector 0)
+      return $ PE (addUndefinedBehaviorCondition sym ub pz p) $ LLVMValInt blk bv'
   where w = W4I.bvWidth bv
 selectLowBvPartLLVMVal _ _ _ _ = return Unassigned
 
@@ -373,8 +383,8 @@ selectHighBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
   , Just Refl <- testEquality (addNat low_w hi_w) w =
     do pz <-  W4I.natEq sym blk =<< W4I.natLit sym 0
        bv' <- W4I.bvSelect sym low_w hi_w bv
-       let ub = UB.PointerCast blk bv (Bitvector 0)
-       return $ PE (addUndefinedBehaviorCondition ub pz p) $ LLVMValInt blk bv'
+       let ub = UB.PointerCast (Just sym) blk bv (Bitvector 0)
+       return $ PE (addUndefinedBehaviorCondition sym ub pz p) $ LLVMValInt blk bv'
   where w = W4I.bvWidth bv
 selectHighBvPartLLVMVal _ _ _ _ = return Unassigned
 

@@ -41,9 +41,11 @@ module Lang.Crucible.CFG.Extension
 
 import           Data.Kind
 import           Data.Parameterized.TraversableFC
+import           Data.Parameterized.TraversableF (TraversableF)
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 import           Lang.Crucible.Types
+import           Lang.Crucible.CFG.Extension.Safety
 
 
 class PrettyApp (app :: (k -> Type) -> k -> Type) where
@@ -63,6 +65,7 @@ type PrettyExt ext =
 type TraverseExt ext =
   ( TraversableFC (ExprExtension ext)
   , TraversableFC (StmtExtension ext)
+  , TraversableF (SafetyAssertion ext)
   )
 
 -- | This class captures all the grungy technical capabilities
