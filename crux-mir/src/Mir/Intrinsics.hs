@@ -492,13 +492,13 @@ type LabelMap s = Map.Map BasicBlockInfo (Label s)
 -- *** HandleMap
 
 data MirHandle where
-    MirHandle :: MethName -> FnSig -> FnHandle init ret -> MirHandle
+    MirHandle :: MethName -> FnSig -> [Predicate] -> FnHandle init ret -> MirHandle
 
 instance Show MirHandle where
-    show (MirHandle _nm sig c) = show c ++ ":" ++ show sig
+    show (MirHandle _nm sig preds c) = show c ++ ":" ++ show sig ++ " where " ++ show preds
 
 instance Pretty MirHandle where
-    pretty (MirHandle nm sig _c) = text (show nm) <> colon <> pretty sig
+    pretty (MirHandle nm sig preds _c) = text (show nm) <> colon <> pretty sig <+> text "where" <+> pretty preds
 
 -- | The HandleMap maps mir functions to their corresponding function
 -- handle. Function handles include the original method name (for
@@ -515,11 +515,10 @@ type AdtMap = Map.Map AdtName [Variant]
 -- | A TraitMap maps trait names to their vtables and instances
 data TraitMap (s::Type) = TraitMap (Map TraitName (Some (TraitImpls s)))
 
--- | For static trait calls, we need to resolve the method name using the
--- type as well as the name of the trait.
-
---type StaticTraitMap = Map.Map MethName (Map.Map Ty MirHandle)
+-- | A StaticTraitMap maps trait method names to all traits that contain them
+-- (There could be multiple, and will need to use type info to resolve further)
 type StaticTraitMap = Map.Map MethName [TraitName]
+
 
 -- | The implementation of a Trait.
 -- The 'ctx' parameter lists the required members of the trait
@@ -724,7 +723,7 @@ matchTys _ _ = Nothing
 getTraitImplementation :: [Trait] ->
                           (MethName,MirHandle) ->
                           Maybe (MethName, TraitName, MirHandle, Substs)
-getTraitImplementation trts (name, handle@(MirHandle _mname sig _fh)) = do
+getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh)) = do
   -- find just the text of the method name
   methodEntry <- parseImplName name
   

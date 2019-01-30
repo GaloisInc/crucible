@@ -1,15 +1,13 @@
-// FAIL: Don't know how to call ::G::g
-//
 // a static trait invocation for a polymorphic type
 // calling the g method in h requires a dictionary argument 
 
-struct Data(u32);
+struct Data<T>(T);
 
 trait G {
     fn g (&self) -> u32;
 }
 
-impl G for Data {
+impl G for Data<u32> {
     fn g(&self) -> u32 {
         self.0
     }

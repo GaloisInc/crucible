@@ -159,7 +159,10 @@ tyToRepr t0 = case t0 of
   M.TyParam i -> case somePeano i of
     Just (Some nr) -> Some (CT.VarRepr nr) -- requires poly extension to crucible
     Nothing        -> error "type params must be nonnegative"
-  M.TyFnPtr _fnSig -> Some CT.AnyRepr
+  M.TyFnPtr (M.FnSig args ret) ->
+     tyListToCtx args $ \argsr ->
+     tyToReprCont ret $ \retr ->
+        Some (CT.FunctionHandleRepr argsr retr)
   M.TyDynamic _def -> Some CT.AnyRepr
   M.TyProjection _def _tyargs -> Some CT.AnyRepr
   M.TyFnDef _def substs -> Some CT.AnyRepr
@@ -263,7 +266,7 @@ subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
 -- ** Expression generation
 
 packBase
-    :: CT.TypeRepr tp
+    :: HasCallStack => CT.TypeRepr tp
     -> CT.CtxRepr ctx
     -> Ctx.Assignment (R.Atom s) ctx
     -> (forall ctx'. Some (R.Atom s) -> CT.CtxRepr ctx' -> Ctx.Assignment (R.Atom s) ctx' -> a)
@@ -378,7 +381,7 @@ lookupVar (M.Var vname _ vty _ pos) = do
 
         | otherwise -> fail ("bad type in lookupVar: " <> show vname <> " at " <> Text.unpack pos <>
                              "\n\t expected " <> show vtr <> " found " <> show (varInfoRepr varinfo))
-      _ -> fail ("register not found: " <> show vname <> " at " <> Text.unpack pos)
+      _ -> error ("register not found: " <> show vname <> " at " <> Text.unpack pos)
 
 -- NOTE: The return var in the MIR output is always "_0"
 lookupRetVar :: HasCallStack => CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
@@ -946,7 +949,7 @@ buildClosureHandle funid (Substs tys) args
   = tyListToCtx tys $ \ subst -> do
       hmap <- use handleMap
       case (Map.lookup funid hmap) of
-        Just (MirHandle _ _ fhandle)
+        Just (MirHandle _ _ _ fhandle)
           | Just CT.Dict <- CT.checkClosedCtx (FH.handleArgTypes fhandle)
           , Just CT.Dict <- CT.checkClosed (FH.handleReturnType fhandle)
             -> do
@@ -964,7 +967,7 @@ buildClosureType :: M.DefId -> Substs -> MirGenerator h s ret (Some CT.TypeRepr,
 buildClosureType defid (Substs args') = do
     hmap <- use handleMap
     case (Map.lookup defid hmap) of
-      Just (MirHandle _ _ fhandle) -> do
+      Just (MirHandle _ _ _ fhandle) -> do
           let args = tail (tail args')
           traceM $ "buildClosureType for " ++ show defid ++ " with ty args " ++ show (pretty args)
           -- build type StructRepr [HandleRepr, StructRepr [args types]]
@@ -998,14 +1001,14 @@ filterMaybes ((Nothing):as) = filterMaybes as
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.Tagged l _) = evalLvalue l
-evalLvalue (M.Local var) = do -- traceM $ "evalLValue local" ++ show (pretty var)
-                              lookupVar var
+evalLvalue (M.Local var) = lookupVar var
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
     am <- use adtMap
+    db <- use debugLevel
     case M.typeOf lv of
 
       -- TODO: unify first two cases
-      mty@(M.TyAdt _ _) -> do
+      mty@(M.TyAdt did _) -> do
          (struct_variant, args) <- getVariant mty
          etu <- evalLvalue lv
          e   <- accessAggregate etu 1 
@@ -1394,15 +1397,19 @@ first f (x:xs) = case f x of Just y  -> Just y
                              Nothing -> first f xs
 
 -- | Find the function expression for this name (instantiated with the given type arguments) 
--- It could be a regular function or a static trait invocation
+-- It could be a regular function, a static trait invocation, or a dictionary argument
+-- 
 -- We promise to return an expression of type (FnHandleType args ret)
--- for some args/ret
-lookupFunction :: forall h s ret. MethName -> Substs -> MirGenerator h s ret (Maybe (MirExp s))
+-- Also returns any predicates that must be satisfied for this function call
+lookupFunction :: forall h s ret. MethName -> Substs -> MirGenerator h s ret (Maybe (MirExp s, [Predicate]))
 lookupFunction nm (Substs funsubst)
   | Some k <- peanoLength funsubst = do
   hmap <- use handleMap
   (TraitMap tm) <- use traitMap
   stm  <- use staticTraitMap
+  db <- use debugLevel
+  vm <- use varMap
+  am <- use adtMap
 
   let mkFunExp :: FH.FnHandle a r -> MirExp s
       mkFunExp fhandle = tyListToCtx (reverse funsubst) $ \tyargs ->
@@ -1413,7 +1420,7 @@ lookupFunction nm (Substs funsubst)
             polyfcn  = R.App $ E.PolyHandleLit k fhandle
             polyinst = R.App $ E.PolyInstantiate (CT.PolyFnRepr k fargctx fret) polyfcn tyargs
         in
-          (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
+          MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst
 
   let getTraitValue :: Ty -> (Some (TraitImpls s)) -> Maybe (MirExp s)
       getTraitValue ty (Some (TraitImpls repr mi vtab)) =
@@ -1424,34 +1431,46 @@ lookupFunction nm (Substs funsubst)
 
   case () of 
        -- a normal function
-    () | Just (MirHandle _ _ fh) <- Map.lookup nm hmap
-       -> return $ Just $ mkFunExp fh
+    () | Just (MirHandle _ _ preds fh) <- Map.lookup nm hmap
+       -> return $ Just $ (mkFunExp fh, M.tySubst (Substs funsubst) preds)
 
        -- a normal function from the standard library (that we had to relocate to find)
-       | Just (MirHandle _ _ fh) <- Map.lookup (M.relocateDefId nm) hmap -> return $ Just $ mkFunExp fh
+       | Just (MirHandle _ _ preds fh) <- Map.lookup (M.relocateDefId nm) hmap
+       -> return $ Just (mkFunExp fh, M.tySubst (Substs funsubst) preds)
 
        -- a static trait call, keyed by the first type in the substitution
-       | Just (ty,_) <- uncons funsubst,
-         Just traits <- Map.lookup nm stm,
-         Just (MirExp fty polyfcn)
+       | Just (ty,_) <- uncons funsubst
+       , Just traits <- Map.lookup nm stm
+       , Just (MirExp fty polyfcn)
            <- first (getTraitValue ty) (Maybe.mapMaybe (\tn -> Map.lookup tn tm) traits)
          -> tyListToCtx (reverse funsubst) $ \tyargs ->
            case (fty, tyargs) of
-              (CT.PolyFnRepr k fargctx fret, tyargs' Ctx.:> _tyr) -> do
+              (CT.PolyFnRepr n fargctx fret, tyargs' Ctx.:> _tyr) -> do
                 let 
                     ifargctx = CT.instantiate (CT.mkSubst tyargs') fargctx
                     ifret    = CT.instantiate (CT.mkSubst tyargs') fret
                     polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs'
-                return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
+                return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst, [])
               _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
                           ++ show (pretty ty) ++ " in the trait map: " ++ show fty
+
+       -- call via a dictionary argument
+       | Just traits@(tn:_) <- Map.lookup nm stm
+       , Just [Variant _ _ fields _] <- Map.lookup tn am
+       , Just idx <- List.findIndex (\(Field fn _ _) -> nm == fn) fields
+       , Map.member (M.idText tn) vm
+       -> do
+             let var = mkPredVar tn (Substs funsubst)
+             let (Field _ ty _) = fields !! idx
+             let exp = M.Use (M.Copy (M.LProjection (M.LvalueProjection (M.Local var) (M.PField idx ty))))
+             fun <- evalRval exp
+             return $ (Just (fun, []))
 
        -- we will find it elsewhere
        | Just _ <- isCustomFunc nm
        -> return Nothing
 
        | otherwise -> do
-            db <- use debugLevel
             when (db > 1) $ do
                traceM $ "Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
             return Nothing
@@ -1592,6 +1611,7 @@ doCall :: forall h s ret a. (HasCallStack) => M.DefId -> Substs -> [M.Operand]
 doCall funid funsubst cargs cdest retRepr = do
     _hmap <- use handleMap
     _tmap <- use traitMap
+    am    <- use adtMap
     db    <- use debugLevel
     mhand <- lookupFunction funid funsubst
     case cdest of 
@@ -1605,14 +1625,32 @@ doCall funid funsubst cargs cdest retRepr = do
 
             doCustomCall funid funsubst cargs dest_lv jdest
 
-        | Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst) <- mhand -> do
+        | Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst, preds) <- mhand -> do
             when (db > 3) $
                traceM $ show (PP.fillSep [PP.text "At normal function call of",
                    pretty funid, PP.text "with arguments", pretty cargs, 
                    PP.text "and type parameters:", pretty funsubst])
 
+            let mkDict :: M.Var -> MirGenerator h s ret (MirExp s)
+                mkDict var = do
+                  let (TyAdt did subst)      = var^.varty
+                  let [Variant _ _ fields _] = am Map.! did
+                  let go :: Field -> MirGenerator h s ret (MirExp s)
+                      go (Field fn _ _) = do
+                        mhand <- lookupFunction fn subst
+                        case mhand of
+                          Just (e,[]) -> return e
+                          Just (e,_)  -> error $ "found predicates when building a dictionary for " ++ show var
+                          Nothing     -> error $ "when building a dictionary for " ++ show var
+                                              ++ " couldn't find an entry for " ++ show fn
+                  entries <- mapM go fields
+                  return $ buildTaggedUnion 0 entries
+
             exps <- mapM evalOperand cargs
-            exp_to_assgn exps $ \ctx asgn -> do
+
+            dexps <- mapM mkDict (Maybe.mapMaybe (predVar am) preds)
+
+            exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
                 case (testEquality ctx ifargctx) of
                   Just Refl -> do
                     ret_e <- G.call polyinst asgn
@@ -1623,7 +1661,7 @@ doCall funid funsubst cargs cdest retRepr = do
              
 
 {-
-        | Just (MirHandle _ (M.FnSig _args _ret) fhandle) <- mhand -> do
+        | Just (MirHandle _ (M.FnSig _args _ret) preds fhandle) <- mhand -> do
             traceM $ show (vcat [text "At normal function call of ", pretty funid, text " with arguments ", pretty cargs, 
                    text "with type parameters: ", pretty funsubst])
 
@@ -1647,7 +1685,7 @@ doCall funid funsubst cargs cdest retRepr = do
                                  ++ show fargctx ++ "\n while calling " ++ show funid
 -}
          | otherwise -> fail $ "Don't know how to call " ++ show (pretty funid)
-                            ++ "\nmhand is " ++ show mhand
+
       Nothing
          -- special case for exit function that does not return
          | Just "exit" <- isCustomFunc funid, [o] <- cargs -> do
@@ -1656,7 +1694,7 @@ doCall funid funsubst cargs cdest retRepr = do
 
         -- other functions that don't return.
 {-
-        | Just (MirHandle _ (M.FnSig _args ret) fhandle) <- mhand,
+        | Just (MirHandle _ (M.FnSig _args ret) preds fhandle) <- mhand,
           isNever ret -> do
 
             traceM $ show (vcat [text "At a tail call of ", pretty funid, text " with arguments ", pretty cargs, 
@@ -1929,10 +1967,9 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  g _ = mempty
 
 
-
 buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirGenerator h s ret (VarMap s)
-buildIdentMapRegs (M.MirBody vars blocks) _argvars =
-   buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _) -> (name,ty)) vars) -- (vars ++ argvars))
+buildIdentMapRegs (M.MirBody localvars blocks) extravars =
+   buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _) -> (name,ty)) (localvars ++ extravars))
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
    -- "allocate" space for return variable
@@ -1946,7 +1983,6 @@ buildLabel :: forall h s ret. M.BasicBlock -> MirGenerator h s ret (M.BasicBlock
 buildLabel (M.BasicBlock bi _) = do
     lab <- G.newLabel
     return (bi, lab)
-
 -- | Build the initial state for translation
 initFnState :: FnState s
             -> [(Text.Text, M.Ty)]                 -- ^ names and MIR types of args
@@ -1987,17 +2023,20 @@ argPred traits (TraitPredicate name s@(Substs subst)) | name `elem` traits, not 
 argPred traits (TraitProjection _ _ _) = Nothing
 argPred traits UnknownPredicate = Nothing
 
-argPredType :: (TraitName, Substs) -> MirGenerator h s ret (Some CT.TypeRepr)
-argPredType (tn, Substs (ty:tys)) = 
-  tyToReprCont ty $ \implTy -> 
-  tyListToCtx tys $ \subst -> do
-     TraitMap tm <- use traitMap
-     case Map.lookup tn tm of
-        Just (Some (TraitImpls repr _idx _vtab)) -> do
-           let preinst = (implementCtxRepr (CT.ExtendRepr implTy CT.IdRepr) repr)
-           return $ (Some (CT.StructRepr (CT.instantiate (CT.mkSubst subst) preinst)))
-        Nothing -> fail "impossible: we checked tn's in the domain"
-argPredType (tn,_) = fail "impossible: we checked substs to be non-empty"
+-- Determine whether to add a new parameter for a given predicate of the function
+predVar :: AdtMap -> Predicate -> Maybe M.Var
+predVar adts (TraitPredicate did substs) | did `Map.member` adts = 
+   Just $ mkPredVar did substs
+predVar traits _ = Nothing
+
+mkPredVar :: M.DefId -> Substs -> M.Var
+mkPredVar did substs = Var { _varname  = M.idText did
+              , _varmut   = M.Immut
+              , _varty    = M.TyAdt did substs
+              , _varscope = "dictionary"
+              , _varpos   = "dictionary argument"
+              }
+
 
 -- | Translate a MIR function, returning a jump expression to its entry block
 -- argvars are registers
@@ -2005,22 +2044,25 @@ argPredType (tn,_) = fail "impossible: we checked substs to be non-empty"
 genFn :: HasCallStack => M.Fn -> CT.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 genFn (M.Fn fname argvars _fretty body _gens preds) rettype = do
   TraitMap tm <- use traitMap
-  db <- use debugLevel
-  let argPreds = Maybe.mapMaybe (argPred $ Map.keys tm) preds
-  argPredTypes <- mapM argPredType argPreds
-  when (db > 4) $ do
-     traceM $ "--------------------------------------------------------------------------------------------------------"
-     traceM $ "Generating code for: " ++ show fname
-     traceM $ "Parameters:" ++ concat (map (\var -> "\n\t" ++ show (pretty var) ++ ":" ++ show (pretty (M.typeOf var))) argvars)
-     traceM $ "ArgPreds are: " ++ show (map pretty preds)
-     traceM $ "ArgPred types: " ++ show argPredTypes
-     traceM $ "Body is:\n" ++ show (pretty body)
-     traceM $ "--------------------------------------------------------------------------------------------------------"
+  adts <- use adtMap
   lm <- buildLabelMap body
   labelMap .= lm
-  vm' <- buildIdentMapRegs body argvars
+  vm' <- buildIdentMapRegs body []
   varMap %= Map.union vm'
+
+  db <- use debugLevel
+  when (db > 4) $ do
+     vmm <- use varMap
+     let showVar var = show (pretty var) ++ " : " ++ show (pretty (M.typeOf var))
+     traceM $ "--------------------------------------------------------------------------------------------------------"
+     traceM $ "Generating code for: " ++ show fname
+     traceM $ "Predicates are: " ++ show (map pretty preds)
+     traceM $ "Parameters: " ++ List.intercalate "," (map showVar argvars)
+     traceM $ "VarMap is: " ++ show (Map.keys vmm)
+     traceM $ "Body is:\n" ++ show (pretty body)
+     traceM $ "--------------------------------------------------------------------------------------------------------"
   let (M.MirBody _mvars blocks@(enter : _)) = body
+  -- actually translate all of the blocks of the function
   mapM_ (registerBlock rettype) blocks
   let (M.BasicBlock bbi _) = enter
   lm <- use labelMap
@@ -2030,14 +2072,16 @@ genFn (M.Fn fname argvars _fretty body _gens preds) rettype = do
     _ -> fail "bad thing happened"
 
 transDefine :: forall h. HasCallStack =>
+  AdtMap ->
   (forall s. FnState s) ->
   M.Fn ->
   ST h (Text, Core.AnyCFG MIR)
-transDefine fnState fn@(M.Fn fname fargs _ _ _ preds) =
+transDefine adts fnState fn@(M.Fn fname fargs _ _ _ preds) =
   case (Map.lookup fname (fnState^.handleMap)) of
     Nothing -> fail "bad handle!!"
-    Just (MirHandle _ _ (handle :: FH.FnHandle args ret)) -> do   
-      let argtups  = map (\(M.Var n _ t _ _) -> (n,t)) fargs
+    Just (MirHandle _ _ _ (handle :: FH.FnHandle args ret)) -> do
+      let argPredVars = Maybe.mapMaybe (predVar adts) preds
+      let argtups  = map (\(M.Var n _ t _ _) -> (n,t)) (fargs ++ argPredVars)
       let argtypes = FH.handleArgTypes handle
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR handle FnState args ret
@@ -2048,17 +2092,43 @@ transDefine fnState fn@(M.Fn fname fargs _ _ _ preds) =
       case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
 
+-- Get the function type (augmented with dictionary arguments)
+getFunctionType :: AdtMap -> M.Fn -> M.FnSig
+getFunctionType adts (M.Fn _fname fargs fretty _fbody _gens preds) =
+    let argPredVars = Maybe.mapMaybe (predVar adts) preds
+    in M.FnSig (map M.typeOf (fargs ++ argPredVars)) fretty
+
 
 -- | Allocate method handles for each of the functions in the Collection
-mkHandleMap :: HasCallStack => FH.HandleAllocator s -> [M.Fn] -> ST s HandleMap
-mkHandleMap halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
+mkHandleMap :: HasCallStack => AdtMap -> FH.HandleAllocator s -> [M.Fn] -> ST s HandleMap
+mkHandleMap adts halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
     mkHandle :: FH.HandleAllocator s -> M.Fn -> ST s (MethName, MirHandle)
-    mkHandle halloc (M.Fn fname fargs fretty _fbody gens preds) =
-        tyListToCtx (map M.typeOf fargs) $ \argctx ->  tyToReprCont fretty $ \retrepr -> do
-            -- traceM $ "declaring fnHandle for " ++ show fname ++ " with gens " ++ show gens ++ " and preds " ++ show (pretty preds)
-            h <- FH.mkHandle' halloc (FN.functionNameFromText (M.idText fname)) argctx retrepr
-            let mh = MirHandle fname (M.FnSig (map M.typeOf fargs) fretty) h
-            return (fname, mh)
+    mkHandle halloc fn =
+       let ty@(FnSig fargs fretty) = getFunctionType adts fn 
+           nm :: M.DefId
+           nm = fn^.fname
+       in
+         tyListToCtx fargs $ \argctx ->  tyToReprCont fretty $ \retrepr -> do
+             h <- FH.mkHandle' halloc (FN.functionNameFromText (M.idText nm)) argctx retrepr
+             let mh = MirHandle nm ty (fn^.fpredicates) h
+             return (nm, mh)
+
+-- Create the dictionary adt type for a trait
+-- The dictionary is a record (i.e. an ADT with a single variant) with
+-- a field for each method in the trait.
+traitToAdt :: M.Trait -> Maybe M.Adt
+traitToAdt (M.Trait did items) = do
+  let itemToField :: M.TraitItem -> Maybe M.Field
+      itemToField (M.TraitMethod did fnsig) =
+        return $ M.Field did (TyFnPtr fnsig) (Substs [])
+      itemToField _ = Nothing
+  fields <- mapM itemToField items
+  return $ M.Adt did [M.Variant did (Relative 0) fields M.FnKind]
+
+
+addTraitAdts :: M.Collection -> M.Collection
+addTraitAdts col = col & adts %~ (++ new) where
+  new = Maybe.mapMaybe traitToAdt (col^.M.traits)
 
 
 -- | transCollection: translate all functions
@@ -2067,18 +2137,28 @@ transCollection :: HasCallStack
       -> Int  
       -> FH.HandleAllocator s
       -> ST s (Map Text (Core.AnyCFG MIR))
-transCollection col debug halloc = do
+transCollection col0 debug halloc = do
+    -- add adts for declared traits
+    let col = addTraitAdts col0
+
+    -- figure out which ADTs are enums and mark them in the code base
     let cstyleAdts = List.filter isCStyle (col^.M.adts)
-    let col1 = markCStyle (cstyleAdts,col) col 
-    let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
-    hmap <- mkHandleMap halloc (col1^.M.functions)
+    let col1 = markCStyle (cstyleAdts,col) col
+
+    when (debug > 2) $ do
+      traceM $ "MIR collection"
+      traceM $ show (pretty col1)
+
+
+    let amap = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
+    hmap <- mkHandleMap amap halloc (col1^.M.functions)
 
     (gtm, stm, morePairs) <- buildTraitMap debug col1 halloc hmap
 
     let fnState :: (forall s. FnState s)
         fnState = case gtm of
-                     GenericTraitMap tm -> FnState Map.empty Map.empty hmap am (TraitMap tm) stm debug []
-    pairs <- mapM (transDefine fnState) (col1^.M.functions)
+                     GenericTraitMap tm -> FnState Map.empty Map.empty hmap amap (TraitMap tm) stm debug []
+    pairs <- mapM (transDefine amap fnState) (col1^.M.functions)
     return $ Map.fromList (pairs ++ morePairs)
 
 ----------------------------------------------------------------------------------------------------------
@@ -2193,7 +2273,7 @@ buildTraitMap debug col _halloc hmap = do
                   let (_declName, _declTy)     = if i < length methDecls then methDecls !! i else error "impl_vtable: BUG in methDecls"
                   substToSubstCont implSubst $ \subst -> 
                     case implHandle of 
-                      (MirHandle mname sig (fh :: FH.FnHandle fargs fret)) ->                      
+                      (MirHandle mname sig _pred (fh :: FH.FnHandle fargs fret)) ->                      
                         case (testEquality (FH.handleArgTypes   fh) (CT.instantiate subst args),
                               testEquality (FH.handleReturnType fh) (CT.instantiate subst ret)) of
                             (Just Refl, Just Refl) ->

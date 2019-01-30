@@ -120,10 +120,6 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
   prims <- liftIO $ (loadPrims (useStdLib mirOpts) debugLevel)
   let col = prims <> col1
 
-  when (Crux.simVerbose cruxOpts > 2) $ do
-    say "Crux" $ "MIR collection"
-    putStrLn $ show (pretty col1)
-
   res_ty <- case List.find (\fn -> fn^.fname == "::f[0]") (col^.functions) of
                    Just fn -> return (fn^.freturn_ty)
                    Nothing  -> fail "cannot find f"

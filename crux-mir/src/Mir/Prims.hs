@@ -43,7 +43,8 @@ loadPrims useStdLib debugLevel = do
               , "result"
               , "cmp"      
               , "ops/range"  
-              , "default"   
+              , "default"
+              , "ops/function"
           --    , "slice"    -- need dictionary translation to make this work
               ] else []
         
@@ -61,10 +62,10 @@ loadPrims useStdLib debugLevel = do
   return total
 
 hardCoded :: Collection
-hardCoded = Collection [] [] [fnOnce, fn, index, indexMut]
+hardCoded = Collection [] [] []
 
 
--- FnOnce trait
+-- FnOnce trait (no longer needed, defined in ops/function.rs
 
 fnOnce :: Trait
 fnOnce = Trait fnOnce_defId [call_once, output] where
@@ -108,13 +109,13 @@ index :: Trait
 index = Trait index_defId [index_index, output] where
 
            index_defId :: DefId
-           index_defId = textId $ (stdlib <> "::ops[0]::index[0]::Index[0]")
+           index_defId = textId $ ("::ops[0]::index[0]::Index[0]")
 
            index_Output_defId :: DefId
-           index_Output_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::Output[0]")
+           index_Output_defId = textId ("::ops[0]::index[0]::Index[0]::Output[0]")
 
            index_index_defId :: DefId
-           index_index_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::index[0]")
+           index_index_defId = textId ("::ops[0]::index[0]::Index[0]::index[0]")
 
            index_index :: TraitItem
            index_index = TraitMethod index_index_defId
@@ -127,16 +128,16 @@ indexMut :: Trait
 indexMut = Trait index_defId [index_index, index_index_mut, output] where
 
            index_defId :: DefId
-           index_defId = textId $ (stdlib <> "::ops[0]::index[0]::IndexMut[0]")
+           index_defId = textId $ ("::ops[0]::index[0]::IndexMut[0]")
 
            index_Output_defId :: DefId
-           index_Output_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::Output[0]")
+           index_Output_defId = textId ("::ops[0]::index[0]::Index[0]::Output[0]")
 
            index_index_defId :: DefId
-           index_index_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::index[0]")
+           index_index_defId = textId ("::ops[0]::index[0]::Index[0]::index[0]")
 
            index_index_mut_defId :: DefId
-           index_index_mut_defId = textId (stdlib <> "::ops[0]::index[0]::Index[0]::index_mut[0]")
+           index_index_mut_defId = textId ("::ops[0]::index[0]::Index[0]::index_mut[0]")
 
            index_index :: TraitItem
            index_index = TraitMethod index_index_defId
