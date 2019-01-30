@@ -1393,8 +1393,8 @@ first f [] = Nothing
 first f (x:xs) = case f x of Just y  -> Just y
                              Nothing -> first f xs
 
--- Find the function expression for this name
--- It could be a regular function, a polymorphic function, or a trait
+-- | Find the function expression for this name (instantiated with the given type arguments) 
+-- It could be a regular function or a static trait invocation
 -- We promise to return an expression of type (FnHandleType args ret)
 -- for some args/ret
 lookupFunction :: forall h s ret. MethName -> Substs -> MirGenerator h s ret (Maybe (MirExp s))
@@ -1422,12 +1422,15 @@ lookupFunction nm (Substs funsubst)
               MirValue _ tye e -> Just $ MirExp tye e 
            (_,_) -> Nothing
 
-  case () of
+  case () of 
+       -- a normal function
+    () | Just (MirHandle _ _ fh) <- Map.lookup nm hmap
+       -> return $ Just $ mkFunExp fh
 
-    () | Just (MirHandle _ _ fh) <- Map.lookup nm hmap -> return $ Just $ mkFunExp fh
+       -- a normal function from the standard library (that we had to relocate to find)
        | Just (MirHandle _ _ fh) <- Map.lookup (M.relocateDefId nm) hmap -> return $ Just $ mkFunExp fh
 
-       -- try to resolve trait statically, using the first type argument
+       -- a static trait call, keyed by the first type in the substitution
        | Just (ty,_) <- uncons funsubst,
          Just traits <- Map.lookup nm stm,
          Just (MirExp fty polyfcn)
@@ -1442,9 +1445,14 @@ lookupFunction nm (Substs funsubst)
                 return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst)
               _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
                           ++ show (pretty ty) ++ " in the trait map: " ++ show fty
+
+       -- we will find it elsewhere
+       | Just _ <- isCustomFunc nm
+       -> return Nothing
+
        | otherwise -> do
             db <- use debugLevel
-            when (db > 3) $ do
+            when (db > 1) $ do
                traceM $ "Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
             return Nothing
 
@@ -1783,6 +1791,8 @@ transTerminator t _tr =
 
 --- translation of toplevel glue ---
 
+---- "Allocation" 
+
 {-
 MIR initializes compound structures by initializing their
 components. It does not include a general allocation. Here we add
@@ -2063,7 +2073,7 @@ transCollection col debug halloc = do
     let am = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
     hmap <- mkHandleMap halloc (col1^.M.functions)
 
-    (gtm, stm, morePairs) <- buildTraitMap col1 halloc hmap
+    (gtm, stm, morePairs) <- buildTraitMap debug col1 halloc hmap
 
     let fnState :: (forall s. FnState s)
         fnState = case gtm of
@@ -2151,9 +2161,9 @@ substToSubstCont (Substs (ty:rest)) f =
 -- | Build the mapping from traits and types that implement them to VTables
 -- This will (eventually) involve defining new functions that "wrap" (and potentially unwrap) the specific implementations,
 -- providing a uniform type for the trait methods. 
-buildTraitMap :: M.Collection -> FH.HandleAllocator s -> HandleMap
+buildTraitMap :: Int -> M.Collection -> FH.HandleAllocator s -> HandleMap
               -> ST s (GenericTraitMap, StaticTraitMap, [(Text, Core.AnyCFG MIR)])
-buildTraitMap col _halloc hmap = do
+buildTraitMap debug col _halloc hmap = do
 
     -- translate the trait declarations
     let decls :: Map TraitName (Some TraitDecl)
@@ -2165,8 +2175,9 @@ buildTraitMap col _halloc hmap = do
     let impls :: [(MethName, TraitName, MirHandle, Substs)]
         impls = Maybe.mapMaybe (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
 
-    forM_ impls $ \(mn, tn, mh, sub) ->
-        traceM $ "Implementing " ++ show tn ++ " with " ++ show (pretty mh) ++ show (pretty sub)
+    when (debug > 3) $ do
+      forM_ impls $ \(mn, tn, mh, sub) ->
+         traceM $ "Implementing method of trait " ++ show tn ++ show (pretty sub) ++ " with " ++ show (pretty mh) 
 
     let impl_vtable :: TraitDecl ctx
                     -> CT.TypeRepr implTy 

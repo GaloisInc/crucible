@@ -1,5 +1,4 @@
-// example of a rust program with two different traits
-// currently, mir-json does *not* produce info about both
+// FAIL: dynamic trait object
 
 struct Data(u32);
 

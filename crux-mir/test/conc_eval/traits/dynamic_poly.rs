@@ -1,3 +1,4 @@
+// FAIL: needs dynamic trait object
 struct Data(u32);
 
 trait Foo<A> {

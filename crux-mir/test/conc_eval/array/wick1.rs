@@ -1,5 +1,6 @@
 // FAIL: needs Vec data structure from stdlib
 // https://github.com/rust-lang/rust/blob/master/src/liballoc/vec.rs
+
 pub fn addn(x: &[u32], y: &[u32]) -> Vec<u32>
 {
     let mut res = Vec::with_capacity(x.len() + 1);

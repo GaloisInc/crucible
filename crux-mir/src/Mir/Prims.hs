@@ -38,14 +38,14 @@ libLoc = "mir-lib/src/"
 loadPrims :: Bool -> Int -> IO Collection
 loadPrims useStdLib debugLevel = do
 
-  let lib = if useStdLib then [
-             "option"    
-            , "result"
-            , "cmp"      
-            , "ops/range"  
-            , "default"    -- cannot handle traits that don't use Self as method argument 
-            , "slice"
-                              ] else []
+  let lib = if useStdLib then
+              [ "option"    
+              , "result"
+              , "cmp"      
+              , "ops/range"  
+              , "default"   
+          --    , "slice"    -- need dictionary translation to make this work
+              ] else []
         
   
   -- Only print debugging info in the standard library at high debugging levels

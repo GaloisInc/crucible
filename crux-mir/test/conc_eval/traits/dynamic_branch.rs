@@ -1,3 +1,5 @@
+// FAIL: dynamic trait. Also use of "::convert::From::from"
+
 struct Data(u32);
 
 trait Foo {

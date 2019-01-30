@@ -1,3 +1,4 @@
+// FAIL: Mutable reference-taken variable not backed by reference! "_1"
 
 pub enum Res<T, E> {
         /// Contains the success value

@@ -1,10 +1,12 @@
+// FAIL: can't match up the impls for the traits with their types
+//
 // Test two static implementation of the same trait
 //
-// This test currently fails because mir-json calls the 
-// S version {{impl}}[0]::g[0] and the
-// U version {{impl}}[1]::g[0].
+// We match the type of S::g and U::g against T::g.  But g's type
+// does not include 'Self' so there is no information to be gained.
 //
-// However, the invocation in f is to T[0]::g[0]
+// We need more info from mir-json to make progress: Issue #4
+
 
 
 enum S {}

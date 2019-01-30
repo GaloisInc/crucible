@@ -1,3 +1,5 @@
+// FAIL: dynamic trait object
+
 struct Data(u32);
 
 trait Foo {

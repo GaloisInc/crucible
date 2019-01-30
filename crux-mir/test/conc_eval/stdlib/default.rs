@@ -1,7 +1,9 @@
+// Tests deriving for stdlib trait
+
 #[derive(Default)]
 struct SomeOptions {
     foo: i32,
-    bar: f32,
+    bar: i16,
 }
 
 fn f(x : i32) -> bool {
