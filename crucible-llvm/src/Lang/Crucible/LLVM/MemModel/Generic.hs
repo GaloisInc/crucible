@@ -305,7 +305,6 @@ evalMuxValueCtor ::
   sym -> NatRepr w ->
   EndianForm ->
   ExprEnv sym w {- ^ Evaluation function -} ->
-  (SymBV sym w, SymBV sym w, SymBV sym w) {- ^ Evaluation function -} ->
   (u -> IO (PartLLVMVal arch sym)) {- ^ Function for reading specific subranges -} ->
   Mux (ValueCtor u) ->
   IO (PartLLVMVal arch sym)
@@ -583,7 +582,6 @@ readMem sym w l tp alignment m = do
   p1         <- isAllocated sym w alignment l (Just sz) m
   p2         <- isAligned sym w l alignment
   W4P.PE p v <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
-  let ub1, ub2 :: UB.UndefinedBehavior sym
   let ub1, ub2 :: UB.UndefinedBehavior (SymExpr sym)
       ub1 = UB.ReadUnallocated  l
       ub2 = UB.ReadBadAlignment l alignment
