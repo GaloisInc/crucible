@@ -12,12 +12,13 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PartialTypeSignatures #-}
@@ -547,48 +548,47 @@ type ImplementSubst implTy = ('ExtendSubst implTy 'IdSubst)
 implementSubst :: TypeRepr implTy -> SubstRepr (ImplementSubst implTy)
 implementSubst implTy = ExtendRepr implTy IdRepr
 
-type family ImplementTrait (implTy :: CrucibleType) (arg :: k) :: k where
+type family ImplementTrait (implSubst :: Substitution) (arg :: k) :: k where
   -- Ctx k
-  ImplementTrait implTy EmptyCtx = EmptyCtx
-  ImplementTrait implTy (ctx ::> ty) = ImplementTrait implTy ctx ::> ImplementTrait implTy ty
+  ImplementTrait implSubst EmptyCtx = EmptyCtx
+  ImplementTrait implSubst (ctx ::> ty) = ImplementTrait implSubst ctx ::> ImplementTrait implSubst ty
   -- CrucibleType
-  ImplementTrait implTy (PolyFnType ('SP k) args ret) =
-      PolyFnType k  (Instantiate (ImplementSubst implTy) args)
-                    (Instantiate (ImplementSubst implTy) ret )
-  ImplementTrait implTy (ty :: CrucibleType)  = Instantiate (ImplementSubst implTy) ty                                               
+  ImplementTrait implSubst (PolyFnType k args ret) =
+      PolyFnType k  (Instantiate implSubst args)
+                    (Instantiate implSubst ret )
+  ImplementTrait implSubst (ty :: CrucibleType)  = Instantiate implSubst ty                                               
   -- Add other types for MirValue indices                                                
 
 
-implementRepr :: TypeRepr implTy -> TypeRepr ty -> TypeRepr (ImplementTrait implTy ty)
-implementRepr implTy (PolyFnRepr (SRepr k) args ret) =
-  PolyFnRepr k (instantiate (implementSubst implTy) args) (instantiate (implementSubst implTy) ret)
---implementRepr implTy ty = instantiate (implementSubst implTy) ty
+implementRepr :: SubstRepr implSubst -> TypeRepr ty -> TypeRepr (ImplementTrait implSubst ty)
+implementRepr implSubst (PolyFnRepr k args ret) =
+  PolyFnRepr k (instantiate ( implSubst) args) (instantiate ( implSubst) ret)
+--implementRepr implSubst ty = instantiate ( implSubst) ty
 
-implementCtxRepr :: TypeRepr implTy -> CtxRepr ctx -> CtxRepr (ImplementTrait implTy ctx)
-implementCtxRepr _implTy Empty = Empty
-implementCtxRepr implTy (ctx :> ty) = implementCtxRepr implTy ctx :> implementRepr implTy ty
+implementCtxRepr :: SubstRepr implSubst -> CtxRepr ctx -> CtxRepr (ImplementTrait implSubst ctx)
+implementCtxRepr _implSubst Empty = Empty
+implementCtxRepr implSubst (ctx :> ty) = implementCtxRepr implSubst ctx :> implementRepr implSubst ty
 
-implementIdx :: TypeRepr implTy -> Index ctx a -> Index (ImplementTrait implTy ctx) (ImplementTrait implTy a)
-implementIdx _implTy idx = unsafeCoerce idx
+implementIdx :: SubstRepr implSubst -> Index ctx a -> Index (ImplementTrait implSubst ctx) (ImplementTrait implSubst a)
+implementIdx _implSubst idx = unsafeCoerce idx
 
 data MirValue s ty where
-  MirValue :: TypeRepr (implTy :: CrucibleType)    
-           -> TypeRepr   (ImplementTrait implTy ty)
-           -> Expr MIR s (ImplementTrait implTy ty)  
+  MirValue :: SubstRepr implSubst
+           -> TypeRepr   (ImplementTrait implSubst ty)
+           -> Expr MIR s (ImplementTrait implSubst ty)  
            -> MirValue s ty
 
-valueToExpr :: TypeRepr implTy -> MirValue s ty -> Expr MIR s (ImplementTrait implTy ty)
+valueToExpr :: SubstRepr implSubst -> MirValue s ty -> Expr MIR s (ImplementTrait implSubst ty)
 valueToExpr wantedImpl (MirValue implRepr _ e)
   | Just Refl <- testEquality wantedImpl implRepr
   = e
   | otherwise 
-  = error $ "Invalid implementation type. Wanted: " ++ show wantedImpl ++ "\n Got: " ++ show implRepr
-  
+  = error $ "Invalid implementation type. "
 
-vtblToStruct :: TypeRepr implTy -> Assignment (MirValue s) ctx
-             -> Assignment (Expr MIR s) (ImplementTrait implTy ctx)
-vtblToStruct _implTy Empty = Empty
-vtblToStruct implTy (ctx :> val) = vtblToStruct implTy ctx :> valueToExpr implTy val
+vtblToStruct :: SubstRepr implSubst -> Assignment (MirValue s) ctx
+             -> Assignment (Expr MIR s) (ImplementTrait implSubst ctx)
+vtblToStruct _implSubst Empty = Empty
+vtblToStruct implSubst (ctx :> val) = vtblToStruct implSubst ctx :> valueToExpr implSubst val
 
 ------------------------------------------------------------------------------------
 -- ** Working with generic traits (i.e. not specialized to any particular translation)
@@ -634,8 +634,8 @@ instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
    
 
-addVTable :: forall s implTy. TraitName -> Ty -> TypeRepr implTy -> [ (MethName, MirExp s) ] -> TraitMap s -> TraitMap s
-addVTable tname ty implTy meths (TraitMap tm) =
+addVTable :: forall s implSubst. TraitName -> Ty -> SubstRepr implSubst -> [ (MethName, MirExp s) ] -> TraitMap s -> TraitMap s
+addVTable tname ty implSubst meths (TraitMap tm) =
   case Map.lookup tname tm of
     Nothing -> error "Trait not found"
     Just (Some (timpl@(TraitImpls ctxr _mi vtab))) ->
@@ -645,8 +645,8 @@ addVTable tname ty implTy meths (TraitMap tm) =
             let (_implName, smv) = if i < length meths then meths !! i else error "impl_vtable: BUG"
             case smv of
               (MirExp tyr e) ->                
-                case testEquality tyr (implementRepr implTy tyr2)  of
-                  Just Refl -> return (MirValue implTy tyr e)
+                case testEquality tyr (implementRepr implSubst tyr2)  of
+                  Just Refl -> return (MirValue implSubst tyr e)
                   Nothing   -> error "Invalid type for addVTable"
                    
           asgn'  = runIdentity (traverseWithIndex go ctxr)
@@ -669,25 +669,89 @@ traitImpls str midx vtbls =
              ,_vtables      = vtbls
              }
 
+combineMaps :: Map Integer Ty -> Map Integer Ty -> Maybe (Map Integer Ty)
+combineMaps m1 m2 = Map.foldrWithKey go (Just m2) m1 where
+  go :: Integer -> Ty -> Maybe (Map Integer Ty) -> Maybe (Map Integer Ty)
+  go _k _ty Nothing = Nothing
+  go k ty (Just res) =
+    case Map.lookup k res of
+      Just ty' -> if ty == ty' then Just res else Nothing
+      Nothing ->  Just (Map.insert k ty res)
 
+-- | Try to match an implementation type against a trait type
+matchSig :: FnSig -> FnSig -> Maybe (Map Integer Ty)
+matchSig (FnSig instArgs instRet) (FnSig genArgs genRet) = do
+  m1 <- matchTys instArgs genArgs
+  m2 <- matchTy  instRet  genRet
+  combineMaps m1 m2
 
+-- | Try to match an implementation type against a trait type  
+matchTy :: Ty -> Ty -> Maybe (Map Integer Ty)
+matchTy inst arg
+  | inst == arg
+  = return Map.empty
+matchTy ty (TyParam i) 
+  = return  (Map.insert i ty Map.empty)
+matchTy (TyTuple instTys) (TyTuple genTys) =
+  matchTys instTys genTys
+matchTy (TySlice t1) (TySlice t2) = matchTy t1 t2
+matchTy (TyArray t1 i1) (TyArray t2 i2) | i1 == i2 = matchTy t1 t2
+matchTy (TyRef t1 m1) (TyRef t2 m2) | m1 == m2 = matchTy t1 t2
+matchTy (TyAdt d1 s1) (TyAdt d2 s2) | d1 == d2 = matchSubsts s1 s2
+matchTy (TyFnDef d1 s1) (TyFnDef d2 s2) | d1 == d2 = matchSubsts s1 s2
+matchTy (TyClosure d1 s1) (TyClosure d2 s2) | d1 == d2 =  matchSubsts s1 s2
+matchTy (TyFnPtr sig1) (TyFnPtr sig2) = matchSig sig1 sig2
+matchTy (TyRawPtr t1 m1)(TyRawPtr t2 m2) | m1 == m2 = matchTy t1 t2
+matchTy (TyDowncast t1 i1) (TyDowncast t2 i2) | i1 == i2 = matchTy t1 t2
+matchTy (TyProjection d1 s1) (TyProjection d2 s2) | d1 == d2 = matchSubsts s1 s2
+-- more
+matchTy _ _ = Nothing
+
+matchSubsts :: Substs -> Substs -> Maybe (Map Integer Ty)
+matchSubsts (Substs tys1) (Substs tys2) = matchTys tys1 tys2
+
+matchTys :: [Ty] -> [Ty] -> Maybe (Map Integer Ty)
+matchTys [] [] = return Map.empty
+matchTys (t1:instTys) (t2:genTys) = do
+  m1 <- matchTy t1 t2
+  m2 <- matchTys instTys genTys
+  combineMaps m1 m2
+matchTys _ _ = Nothing  
+  
 -- | Decide whether the given method definition is an implementation method for
 -- a declared trait. If so, return it along with the trait.
   
 getTraitImplementation :: [Trait] ->
                           (MethName,MirHandle) ->
-                          Maybe (MethName, TraitName, MirHandle)
-getTraitImplementation trts (name, handle) = do
+                          Maybe (MethName, TraitName, MirHandle, Substs)
+getTraitImplementation trts (name, handle@(MirHandle _mname sig _fh)) = do
   -- find just the text of the method name
   methodEntry <- parseImplName name
   
-  -- find the first trait that include that same name
-  -- TODO: can there be only one?
-  let hasTraitMethod (TraitMethod tm _ts) = sameTraitMethod methodEntry tm
-      hasTraitMethod _ = False
-  traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts,
-                                   List.any hasTraitMethod items ]
-  return (name, traitName, handle)
+  -- find signature of methods that share this name
+  let hasTraitMethod (TraitMethod tm ts) = if sameTraitMethod methodEntry tm then Just (tm,ts) else Nothing
+      hasTraitMethod _ = Nothing
+
+  let namedTraits = [ (tn, tm, ts) | (Trait tn items) <- trts, Just (tm,ts) <- map hasTraitMethod items ]
+  
+  let typedTraits = Maybe.mapMaybe (\(tn,tm,ts) -> (tn,tm,ts,) <$> matchSig sig ts) namedTraits
+
+  (traitName,_,_,instMap) <- Maybe.listToMaybe typedTraits
+
+  -- TODO: hope all of the params actually appear....
+  -- otherwise there will be a gap
+  let substs = Substs (Map.elems instMap)
+
+
+{-
+  when (namedTraits /= []) $ do
+      traceM $ "Method sig is: " ++ show (pretty sig)
+      traceM $ "Potential implementations of these " ++ show namedTraits
+      traceM $ "Found implementations are " ++ show typedTraits
+-}
+      
+  
+  return (name, traitName, handle, substs)
 
 -------------------------------------------------------------------------------------------------------
 

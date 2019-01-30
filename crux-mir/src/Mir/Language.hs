@@ -24,6 +24,7 @@ import qualified Text.Read       as Read
 
 import           System.IO (stdout)
 import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
+import           System.Console.GetOpt(OptDescr(..), ArgDescr(..))
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
@@ -82,10 +83,12 @@ instance Crux.Language CruxMIR where
 
   data LangOptions CruxMIR = MIROptions
      {
+       useStdLib :: Bool
      }
  
   defaultOptions = MIROptions
     {
+      useStdLib = True
     }
 
   envOptions = []
@@ -94,8 +97,13 @@ instance Crux.Language CruxMIR where
 
   makeCounterExamples = makeCounterExamplesMIR
 
+  cmdLineOptions =
+    [ Option ['n'] ["no-std-lib"]
+      (NoArg (\opts -> opts { useStdLib = False }))
+      "suppress standard library" ]
+
 simulateMIR :: forall sym. (?outputConfig :: OutputConfig) => Crux.Simulate sym CruxMIR
-simulateMIR execFeatures (cruxOpts, _mirOpts) sym p = do
+simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
 
   setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
 
@@ -103,13 +111,13 @@ simulateMIR execFeatures (cruxOpts, _mirOpts) sym p = do
   let (dir,nameExt) = splitFileName filename
   let (name,_ext)   = splitExtension nameExt
   let debugLevel    = Crux.simVerbose cruxOpts
-  
+
   when (debugLevel > 2) $
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
 
   col1 <- generateMIR debugLevel dir name
 
-  prims <- liftIO $ (loadPrims debugLevel)
+  prims <- liftIO $ (loadPrims (useStdLib mirOpts) debugLevel)
   let col = prims <> col1
 
   when (Crux.simVerbose cruxOpts > 2) $ do

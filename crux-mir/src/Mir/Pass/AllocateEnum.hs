@@ -83,8 +83,7 @@ isSetDiscriminant _ = Nothing
 -- However, we need the indices for cstyle-enums later, so compute them now.
 makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> Statement
 makeAggregate updates (lv, k, adt) =
-      trace ("Creating aggregate for " ++ show adt_did) 
-        (Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos) where
+    (Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos) where
   adt_did = _adtname adt
   ty  = if isCStyle adt then TyCustom (CEnum adt_did (adtIndices adt ?col))
         else TyAdt adt_did (Substs [])

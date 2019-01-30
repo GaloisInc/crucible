@@ -35,18 +35,21 @@ libLoc :: String
 libLoc = "mir-lib/src/"
 
 -- | load the rs file containing the standard library
-loadPrims :: Int -> IO Collection
-loadPrims debugLevel = do
+loadPrims :: Bool -> Int -> IO Collection
+loadPrims useStdLib debugLevel = do
+
+  let lib = if useStdLib then [
+             "option"    
+            , "result"
+            , "cmp"      
+            , "ops/range"  
+            , "default"    -- cannot handle traits that don't use Self as method argument 
+            , "slice"
+                              ] else []
+        
+  
   -- Only print debugging info in the standard library at high debugging levels
-  cols <- mapM (generateMIR (debugLevel-3) libLoc) 
-    [
-     "option"    
-    , "result"
-    , "cmp"      
-    , "ops/range"  
---    , "default"    -- cannot handle traits that don't use Self as method argument 
---    , "slice"
-    ]   
+  cols <- mapM (generateMIR (debugLevel-3) libLoc) lib
     
   let total = (fold (hardCoded : cols))
   when (debugLevel > 6) $ do

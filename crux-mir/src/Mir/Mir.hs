@@ -126,7 +126,7 @@ data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: Substs}
 
 data CustomTy =
         BoxTy Ty
-      | VecTy Ty
+      | VecTy Ty                 -- ::vec::Vec<Ty>
       | IterTy Ty
       | CEnum DefId [Integer]    -- C-style Enumeration, all variants must be trivial
     deriving (Eq, Ord, Show, Generic, GenericOps)
