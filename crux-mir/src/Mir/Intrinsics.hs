@@ -533,19 +533,15 @@ data TraitImpls (s::Type) ctx = TraitImpls
    -- method names of the given trait
   ,_vtables :: Map Ty (Assignment (MirValue s) ctx)
    -- ^ gives the vtable for each type implementing a given trait
+   -- the type Ty may have free type variables, in which case the lookup
+   -- function will match against the type to resolve the instance 
   }
 
--- | Values stored in the vtables. This cannot include expressions.
--- Param 0 must be specialized to the implementation type,
--- but other type variables may be present
--- TODO: For now, traits only include methods, not constants
--- by default, we quantify over all type variables in the FnHandle's type
 
 -- Map 0 -> implTy and decrement all other type variables
-type ImplementSubst implTy = ('ExtendSubst implTy 'IdSubst)
-
-implementSubst :: TypeRepr implTy -> SubstRepr (ImplementSubst implTy)
-implementSubst implTy = ExtendRepr implTy IdRepr
+--type ImplementSubst implTy = ('ExtendSubst implTy 'IdSubst)
+--implementSubst :: TypeRepr implTy -> SubstRepr (ImplementSubst implTy)
+--implementSubst implTy = ExtendRepr implTy IdRepr
 
 type family ImplementTrait (implSubst :: Substitution) (arg :: k) :: k where
   -- Ctx k
@@ -553,16 +549,13 @@ type family ImplementTrait (implSubst :: Substitution) (arg :: k) :: k where
   ImplementTrait implSubst (ctx ::> ty) = ImplementTrait implSubst ctx ::> ImplementTrait implSubst ty
   -- CrucibleType
   ImplementTrait implSubst (PolyFnType k args ret) =
-      PolyFnType k  (Instantiate implSubst args)
-                    (Instantiate implSubst ret )
-  ImplementTrait implSubst (ty :: CrucibleType)  = Instantiate implSubst ty                                               
-  -- Add other types for MirValue indices                                                
-
+      PolyFnType k  (Instantiate implSubst args) (Instantiate implSubst ret )
+-- ImplementTrait implSubst (ty :: CrucibleType)  = Instantiate implSubst ty                                               
 
 implementRepr :: SubstRepr implSubst -> TypeRepr ty -> TypeRepr (ImplementTrait implSubst ty)
 implementRepr implSubst (PolyFnRepr k args ret) =
-  PolyFnRepr k (instantiate ( implSubst) args) (instantiate ( implSubst) ret)
---implementRepr implSubst ty = instantiate ( implSubst) ty
+  PolyFnRepr k (instantiate implSubst args) (instantiate implSubst ret)
+--implementRepr implSubst ty = instantiate implSubst ty
 
 implementCtxRepr :: SubstRepr implSubst -> CtxRepr ctx -> CtxRepr (ImplementTrait implSubst ctx)
 implementCtxRepr _implSubst Empty = Empty
@@ -571,6 +564,8 @@ implementCtxRepr implSubst (ctx :> ty) = implementCtxRepr implSubst ctx :> imple
 implementIdx :: SubstRepr implSubst -> Index ctx a -> Index (ImplementTrait implSubst ctx) (ImplementTrait implSubst a)
 implementIdx _implSubst idx = unsafeCoerce idx
 
+-- | Compute the type of values stored in the vtables. 
+-- This type must be a specialization of the expected type of the vtable
 data MirValue s ty where
   MirValue :: SubstRepr implSubst
            -> TypeRepr   (ImplementTrait implSubst ty)
@@ -757,4 +752,50 @@ getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh)) = do
 makeLenses ''TraitImpls
 makeLenses ''FnState
 
+
+$(return [])
+
+------------------------------------------------------------------------------------
+
+first :: (a -> Maybe b) -> [a] -> Maybe b
+first f [] = Nothing
+first f (x:xs) = case f x of Just y   -> Just y
+                             Nothing  -> first f xs
+
+-- TODO: remove errors and return Nothing instead
+resolveStaticTrait :: StaticTraitMap -> TraitMap s -> MethName -> Substs -> Maybe (MirExp s)
+resolveStaticTrait stm tm mn sub =
+  case  Map.lookup mn stm of
+    Just ts -> case sub of
+      (Substs (_:_)) -> first (\tn -> resolveTraitMethod tm tn sub mn) ts
+      Substs []      -> error $ "Cannot resolve trait " ++ show mn ++ " without type arguments"
+    Nothing -> Nothing
+
+resolveTraitMethod :: TraitMap s -> TraitName -> Substs -> MethName -> Maybe (MirExp s)
+resolveTraitMethod (TraitMap tmap) tn (Substs subs@(ty:_)) mn
+  | Just (Some timpls) <- Map.lookup tn tmap
+  , Just (Some idx)    <- Map.lookup mn (timpls^.methodIndex)
+  = do
+     let vtab = timpls^.vtables
+     case Map.lookup ty vtab of
+       Just assn -> case assn ! idx of 
+         MirValue _ tye e -> return (MirExp tye e)
+       Nothing   ->
+         let -- go :: Ty -> Assignment (MirValue s) ctx -> Maybe (MirExp s) -> Maybe (MirExp s)
+             go keyTy assn res =
+               case matchTy ty keyTy of
+                 Nothing -> res
+                 Just _inst -> case (assn ! idx) of
+                   MirValue _ ty e -> Just $ MirExp ty e
+         in                     
+            Map.foldrWithKey go Nothing vtab
+            
+resolveTraitMethod _ tn (Substs (_:_)) mn = 
+  error $ "Cannot find trait " ++ show tn ++ " or its method " ++ show mn
+resolveTraitMethod (TraitMap tmap) tn (Substs []) mn =
+  error $ "Cannot resolve trait without type arguments"
+
+
 -------------------------------------------------------------------------------------------------------
+
+--  LocalWords:  ty ImplementTrait ctx vtable

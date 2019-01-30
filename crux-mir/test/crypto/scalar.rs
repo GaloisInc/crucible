@@ -11,8 +11,6 @@
 //! (0xfffffffffffff^2) * 5 = 0x4ffffffffffff60000000000005 (107 bits).
 //! ```
 
-#![feature(i128_type)]
-
 //use core::fmt::Debug;
 use std::ops::{Index, IndexMut};
 
@@ -25,7 +23,7 @@ fn main() {
    println!("{:?}", f(ARG));
 }
 
-fn f(w : u64 ) -> bool {
+fn f(_w : u64 ) -> bool {
         // a = 2351415481556538453565687241199399922945659411799870114962672658845158063753
     let a = Scalar64(
         [0x0005236c07b3be89, 0x0001bc3d2a67c0c4, 0x000a4aa782aae3ee, 0x0006b3f6e4fec4c4,
@@ -57,7 +55,7 @@ mod constants {
     pub(crate) const LFACTOR: u64 = 0x51da312547e1b;
 
     /// `R` = R % L where R = 2^260
-pub(crate) const R: Scalar64 = Scalar64([ 0x000f48bd6721e6ed, 0x0003bab5ac67e45a, 0x000fffffeb35e51b, 0x000fffffffffffff, 0x00000fffffffffff ]);
+    pub(crate) const R: Scalar64 = Scalar64([ 0x000f48bd6721e6ed, 0x0003bab5ac67e45a, 0x000fffffeb35e51b, 0x000fffffffffffff, 0x00000fffffffffff ]);
 
     /// `RR` = (R^2) % L where R = 2^260
     pub(crate) const RR: Scalar64 = Scalar64([ 0x0009d265e952d13b, 0x000d63c715bea69f, 0x0005be65cb687604, 0x0003dceec73d217f, 0x000009411b7c309a ]);

@@ -1391,11 +1391,6 @@ doReturn tr = do
     G.returnFromFunction e
 
 
-first :: (a -> Maybe b) -> [a] -> Maybe b
-first f [] = Nothing
-first f (x:xs) = case f x of Just y  -> Just y
-                             Nothing -> first f xs
-
 -- | Find the function expression for this name (instantiated with the given type arguments) 
 -- It could be a regular function, a static trait invocation, or a dictionary argument
 -- 
@@ -1405,7 +1400,7 @@ lookupFunction :: forall h s ret. MethName -> Substs -> MirGenerator h s ret (Ma
 lookupFunction nm (Substs funsubst)
   | Some k <- peanoLength funsubst = do
   hmap <- use handleMap
-  (TraitMap tm) <- use traitMap
+  tm <- use traitMap
   stm  <- use staticTraitMap
   db <- use debugLevel
   vm <- use varMap
@@ -1422,13 +1417,6 @@ lookupFunction nm (Substs funsubst)
         in
           MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst
 
-  let getTraitValue :: Ty -> (Some (TraitImpls s)) -> Maybe (MirExp s)
-      getTraitValue ty (Some (TraitImpls repr mi vtab)) =
-         case (Map.lookup ty vtab, Map.lookup nm mi) of
-           (Just asgn, Just (Some idx)) -> case asgn Ctx.! idx of
-              MirValue _ tye e -> Just $ MirExp tye e 
-           (_,_) -> Nothing
-
   case () of 
        -- a normal function
     () | Just (MirHandle _ _ preds fh) <- Map.lookup nm hmap
@@ -1438,21 +1426,9 @@ lookupFunction nm (Substs funsubst)
        | Just (MirHandle _ _ preds fh) <- Map.lookup (M.relocateDefId nm) hmap
        -> return $ Just (mkFunExp fh, M.tySubst (Substs funsubst) preds)
 
-       -- a static trait call, keyed by the first type in the substitution
-       | Just (ty,_) <- uncons funsubst
-       , Just traits <- Map.lookup nm stm
-       , Just (MirExp fty polyfcn)
-           <- first (getTraitValue ty) (Maybe.mapMaybe (\tn -> Map.lookup tn tm) traits)
-         -> tyListToCtx (reverse funsubst) $ \tyargs ->
-           case (fty, tyargs) of
-              (CT.PolyFnRepr n fargctx fret, tyargs' Ctx.:> _tyr) -> do
-                let 
-                    ifargctx = CT.instantiate (CT.mkSubst tyargs') fargctx
-                    ifret    = CT.instantiate (CT.mkSubst tyargs') fret
-                    polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs'
-                return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst, [])
-              _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
-                          ++ show (pretty ty) ++ " in the trait map: " ++ show fty
+       -- we will find it elsewhere
+       | Just _ <- isCustomFunc nm
+       -> return Nothing
 
        -- call via a dictionary argument
        | Just traits@(tn:_) <- Map.lookup nm stm
@@ -1466,9 +1442,20 @@ lookupFunction nm (Substs funsubst)
              fun <- evalRval exp
              return $ (Just (fun, []))
 
-       -- we will find it elsewhere
-       | Just _ <- isCustomFunc nm
-       -> return Nothing
+       -- a static invocation of a trait
+       -- currently resolveStaticTrait will error instead of return Nothing
+       | Just (MirExp fty polyfcn) <- resolveStaticTrait stm tm nm (Substs funsubst)
+         -> tyListToCtx (reverse funsubst) $ \tyargs ->
+           case (fty, tyargs) of
+              (CT.PolyFnRepr n fargctx fret, tyargs' Ctx.:> _tyr) -> do
+                let 
+                    ifargctx = CT.instantiate (CT.mkSubst tyargs') fargctx
+                    ifret    = CT.instantiate (CT.mkSubst tyargs') fret
+                    polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs'
+                return $ Just (MirExp (CT.FunctionHandleRepr ifargctx ifret) polyinst, [])
+              _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
+                          ++ show (pretty funsubst) ++ " in the trait map: " ++ show fty
+
 
        | otherwise -> do
             when (db > 1) $ do
@@ -1641,8 +1628,9 @@ doCall funid funsubst cargs cdest retRepr = do
                         case mhand of
                           Just (e,[]) -> return e
                           Just (e,_)  -> error $ "found predicates when building a dictionary for " ++ show var
-                          Nothing     -> error $ "when building a dictionary for " ++ show var
+                          Nothing     -> error $ "when building a dictionary for " ++ show (pretty var)
                                               ++ " couldn't find an entry for " ++ show fn
+                                              ++ " of type " ++ show (pretty (var^.varty))
                   entries <- mapM go fields
                   return $ buildTaggedUnion 0 entries
 
