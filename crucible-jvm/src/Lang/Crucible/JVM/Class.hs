@@ -50,7 +50,6 @@ module Lang.Crucible.JVM.Class
    (
      lookupClassGen
    , getAllFields
-   , fieldIdString
    -- * Working with `JVMClass` data
    , getJVMClass
    , getJVMClassByName
@@ -97,19 +96,23 @@ module Lang.Crucible.JVM.Class
    , arrayIdx
    , arrayUpdate
    , arrayLength
+   -- * Map keys
+   , methodKeyText
+   , classNameText
+   , fieldIdText
    )
    where
 
-import Data.Maybe (maybeToList, mapMaybe)
-import Control.Monad.State.Strict
--- import Control.Lens hiding (op, (:>))
+import           Control.Monad.State.Strict
 import           Data.Map(Map)
 import qualified Data.Map.Strict as Map
+import           Data.Maybe (maybeToList, mapMaybe)
 import           Data.Set(Set)
 import qualified Data.Set as Set
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
 import           Data.String (fromString)
+import qualified Data.Text as Text
 
 
 -- parameterized-utils
@@ -163,16 +166,13 @@ erroneous    = App $ BVLit knownRepr 3
 
 -- | Expression for the class name.
 classNameExpr :: J.ClassName -> JVMString s
-classNameExpr cn = App $ TextLit $ fromString (J.unClassName cn)
+classNameExpr cn = App $ TextLit $ classNameText cn
 
 -- | Expression for method key.
 -- Includes the parameter type & result type to resolve overloading.
 -- TODO: This is an approximation of what the JVM actually does.
 methodKeyExpr :: J.MethodKey -> JVMString s
-methodKeyExpr c = App $ TextLit $ fromString (J.methodKeyName c ++ params ++ res) where
-  params = concat (map show (J.methodKeyParameterTypes c))
-  res    = show (J.methodKeyReturnType c)
-
+methodKeyExpr c = App $ TextLit $ methodKeyText c
 
 -- | Method table.
 type JVMMethodTable s = Expr JVM s JVMMethodTableType
@@ -189,7 +189,7 @@ insertMethodTable (s, v) sm = App (InsertStringMapEntry knownRepr sm s (App $ Ju
 --
 -- | Update the jvm class table to include an entry for the specified class.
 --
--- This will also initalize the superclass (if present and necessary).
+-- This will also initialize the superclass (if present and necessary).
 --
 initializeJVMClass :: J.Class -> JVMGenerator h s t (JVMClass s)
 initializeJVMClass c  = do
@@ -704,7 +704,7 @@ isSubType tyS tyT = do
 implements :: JVMClass s -> J.ClassName -> JVMGenerator h s ret (Expr JVM s BoolType)
 implements dcls interface = do
   let vec = getJVMClassInterfaces dcls
-  let str = App $ TextLit (fromString (J.unClassName interface))
+  let str = App $ TextLit $ classNameText interface
   ansReg <- newReg (App $ BoolLit False)
   forEach_ vec (\cn ->
                    ifte_ (App $ BaseIsEq knownRepr str cn)
@@ -722,7 +722,7 @@ isSubclass dcls cn2 = do
   sm <- readGlobal (dynamicClassTable ctx)
 
   let className = getJVMClassName dcls
-  let className2 = App $ TextLit (fromString (J.unClassName cn2))
+  let className2 = App $ TextLit $ classNameText cn2
 
   ifte (App (BaseIsEq knownRepr className className2))
     (return (App (BoolLit True)))
@@ -779,10 +779,6 @@ getAllFields cls = do
       supFlds <- getAllFields supCls
       return (supFlds ++ (map (mkFieldId cls) (J.classFields cls)))
 
--- | Dynamic text name for a field.
-fieldIdString :: J.FieldId -> String
-fieldIdString f = J.unClassName (J.fieldIdClass f) ++ "." ++ J.fieldIdName f
-
 -- | Construct a new JVM object instance, given the class data structure
 -- and the list of fields. The fields will be initialized with the
 -- default values, according to their types.
@@ -801,7 +797,7 @@ newInstanceInstr cls fieldIds = do
     return $ App (RollRecursive knownRepr knownRepr uobj)
   where
     createField fieldId = do
-      let str  = App (TextLit (fromString (fieldIdString fieldId)))
+      let str  = App (TextLit (fieldIdText fieldId))
       let expr = valueToExpr (defaultValue (J.fieldIdType fieldId))
       let val  = App $ JustValue knownRepr expr
       return (str, val)
@@ -818,8 +814,8 @@ findField :: (KnownRepr TypeRepr a) => Expr JVM s (StringMapType JVMValueType) -
           -> JVMGenerator h s ret (Expr JVM s a)
 findField fields fieldId k = do
   let currClassName = J.fieldIdClass fieldId
-  let str    = fieldIdString fieldId
-  let key    = App (TextLit (fromString str))
+  let str    = fieldIdText fieldId
+  let key    = App (TextLit str)
   let mval   = App (LookupStringMapEntry knownRepr fields key)
   caseMaybe mval knownRepr
    MatchMaybe
@@ -827,8 +823,7 @@ findField fields fieldId k = do
    , onNothing = do
        cls <- lookupClassGen currClassName
        case (J.superClass cls) of
-         Nothing    -> reportError
-           (App $ TextLit (fromString ("getfield: field " ++ str ++ " not found")))
+         Nothing    -> reportError $ App $ TextLit ("getfield: field " <> str <> " not found")
          Just super -> findField fields (fieldId { J.fieldIdClass = super }) k
    }
 
@@ -853,8 +848,8 @@ setInstanceFieldValue obj fieldId val = do
   inst <- projectVariant Ctx.i1of2 uobj
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
   findField fields fieldId $ \fieldId' _x -> do
-       let str = fieldIdString fieldId'
-       let key = App (TextLit (fromString str))
+       let str = fieldIdText fieldId'
+       let key = App (TextLit str)
        let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
        let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
        let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
@@ -1034,3 +1029,24 @@ arrayLength obj = do
 
 
 ------------------------------------------------------------------------
+
+-- * Map keys
+
+-- | Given a 'J.MethodKey', produce a key suitable for use with 'JVMMethodTableType'. Should be injective.
+methodKeyText :: J.MethodKey -> Text.Text
+methodKeyText k = Text.pack (J.methodKeyName k ++ params ++ res)
+  where
+    params = concatMap show (J.methodKeyParameterTypes k)
+    res    = show (J.methodKeyReturnType k)
+
+-- | Given a 'J.ClassName', produce a key suitable for use with
+-- 'JVMClassTableType', or as a component of 'JVMClassType'. Should be
+-- injective.
+classNameText :: J.ClassName -> Text.Text
+classNameText cname = Text.pack (J.unClassName cname)
+
+-- | Given a 'J.FieldId', produce a key suitable for use with the
+-- field table of a 'JVMInstanceType'. Should be injective.
+fieldIdText :: J.FieldId -> Text.Text
+fieldIdText f = Text.pack (J.unClassName (J.fieldIdClass f) ++ "." ++ J.fieldIdName f)
+-- FIXME: This should probably also consider the type of the FieldId.
