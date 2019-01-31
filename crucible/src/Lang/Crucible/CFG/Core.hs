@@ -92,8 +92,8 @@ module Lang.Crucible.CFG.Core
 
 import Control.Applicative
 import Control.Lens
-import Data.Maybe
-import Data.Kind
+import Data.Maybe (fromMaybe)
+import Data.Kind (Type)
 import Data.Parameterized.Classes
 import Data.Parameterized.Map (Pair(..))
 import Data.Parameterized.Some
