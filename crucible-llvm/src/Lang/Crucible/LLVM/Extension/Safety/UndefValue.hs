@@ -20,7 +20,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
 
-module Lang.Crucible.LLVM.Safety.UndefValue
+module Lang.Crucible.LLVM.Extension.Safety.UndefValue
   ( UndefValue(..)
   , standard
   , cite
@@ -32,7 +32,7 @@ import Prelude hiding (unlines)
 import Data.Text (Text, unlines, pack)
 import Lang.Crucible.LLVM.MemModel.Type (StorageType)
 
-import Lang.Crucible.LLVM.Safety.Standards
+import Lang.Crucible.LLVM.Extension.Safety.Standards
 
 data UndefValue sym where
   UndefValue :: Text        -- ^ Where did it come from? e.g. a global var?

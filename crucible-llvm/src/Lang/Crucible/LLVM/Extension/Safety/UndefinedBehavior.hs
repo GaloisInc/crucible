@@ -32,7 +32,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
 
-module Lang.Crucible.LLVM.Safety.UndefinedBehavior
+module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   (
   -- ** Undefined Behavior
     PtrComparisonOperator(..)
@@ -49,22 +49,23 @@ module Lang.Crucible.LLVM.Safety.UndefinedBehavior
   , defaultStrict
   ) where
 
-import           Prelude hiding (unwords, unlines)
+import           Prelude
 
 import           GHC.Generics (Generic)
 import           Data.Data (Data)
 import           Data.Kind (Type)
 import           Data.Functor.Contravariant (Predicate(..))
 import           Data.Maybe (fromMaybe)
-import           Data.Text (Text, unwords, unlines, pack)
 import           Data.Typeable (Typeable)
+import           Data.Text (unpack)
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified What4.Interface as W4I
 
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
 import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
-import           Lang.Crucible.LLVM.Safety.Standards
+import           Lang.Crucible.LLVM.Extension.Safety.Standards
 import           Lang.Crucible.LLVM.Types (LLVMPtr)
 
 -- -----------------------------------------------------------------------
@@ -76,9 +77,9 @@ data PtrComparisonOperator =
   | Leq
   deriving (Data, Eq, Generic, Enum, Ord, Read, Show)
 
-ppPtrComparison :: PtrComparisonOperator -> Text
-ppPtrComparison Eq  = "Equality comparison (==)"
-ppPtrComparison Leq = "Ordering comparison (<=)"
+ppPtrComparison :: PtrComparisonOperator -> Doc
+ppPtrComparison Eq  = text "Equality comparison (==)"
+ppPtrComparison Leq = text "Ordering comparison (<=)"
 
 -- | This type is parameterized on a higher-kinded term constructor so that it
 -- can be instantiated for expressions at translation time (i.e. the 'Expr' in
@@ -207,8 +208,8 @@ standard =
     -}
 
 -- | Which section(s) of the document prohibit this behavior?
-cite :: UndefinedBehavior e -> Text
-cite =
+cite :: UndefinedBehavior e -> Doc
+cite = text .
   \case
 
     -------------------------------- Memory management
@@ -247,35 +248,35 @@ cite =
 -- | What happened, and why is it a problem?
 --
 -- This is a generic explanation that doesn't use the included data.
-explain :: UndefinedBehavior e -> Text
+explain :: UndefinedBehavior e -> Doc
 explain =
   \case
 
     -------------------------------- Memory management
 
-    FreeBadOffset _ -> unlines $
+    FreeBadOffset _ -> cat $
       [ "`free` called on pointer that was not previously returned by `malloc`"
       , "`calloc`, or another memory management function (the pointer did not"
       , "point to the base of an allocation, its offset should be 0)."
       ]
-    FreeUnallocated _ -> 
+    FreeUnallocated _ ->
       "`free` called on pointer that didn't point to a live region of the heap."
-    MemsetInvalidRegion _ _ _ -> unlines $
+    MemsetInvalidRegion _ _ _ -> cat $
       [ "Pointer passed to `memset` didn't point to a mutable allocation with"
       , "enough space."
       ]
-    ReadBadAlignment _ _ -> 
+    ReadBadAlignment _ _ ->
       "Read a value from a pointer with incorrect alignment"
-    ReadUnallocated _ -> 
+    ReadUnallocated _ ->
       "Read a value from a pointer into an unallocated region"
 
     -------------------------------- Pointer arithmetic
 
-    PtrAddOffsetOutOfBounds _ _ -> unlines $
+    PtrAddOffsetOutOfBounds _ _ -> cat $
       [ "Addition of an offset to a pointer resulted in a pointer to an"
       , "address outside of the allocation."
       ]
-    CompareInvalidPointer _ _ _ -> unlines $
+    CompareInvalidPointer _ _ _ -> cat $
       [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
       , "object."
       ]
@@ -306,21 +307,20 @@ explain =
     -}
 
 -- | Pretty-print the additional information held by the constructors
-detailsExpr :: W4I.IsExpr e => UndefinedBehavior e -> [Text]
+detailsExpr :: W4I.IsExpr e => UndefinedBehavior e -> [Doc]
 detailsExpr =
   \case
-    UDivByZero v       -> [ "op1: " <++> W4I.printSymExpr v ]
-    SDivByZero v       -> [ "op1: " <++> W4I.printSymExpr v ]
-    URemByZero v       -> [ "op1: " <++> W4I.printSymExpr v ]
-    SRemByZero v       -> [ "op1: " <++> W4I.printSymExpr v ]
-    SDivOverflow v1 v2 -> [ "op1: " <++> W4I.printSymExpr v1
-                          , "op2: " <++> W4I.printSymExpr v2
+    UDivByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
+    SDivByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
+    URemByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
+    SRemByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
+    SDivOverflow v1 v2 -> [ "op1: " <+> W4I.printSymExpr v1
+                          , "op2: " <+> W4I.printSymExpr v2
                           ]
-    SRemOverflow v1 v2 -> [ "op1: " <++> W4I.printSymExpr v1
-                          , "op2: " <++> W4I.printSymExpr v2
+    SRemOverflow v1 v2 -> [ "op1: " <+> W4I.printSymExpr v1
+                          , "op2: " <+> W4I.printSymExpr v2
                           ]
     _                  -> []
-  where txt <++> doc = txt <> pack (show doc)
 
 
 -- | Pretty-print the additional information held by the constructors
@@ -329,21 +329,21 @@ detailsSym :: W4I.IsExpr (W4I.SymExpr sym)
            => proxy sym
            -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
            -> UndefinedBehavior (W4I.SymExpr sym)
-           -> [Text]
+           -> [Doc]
 detailsSym proxySym =
   \case
 
     -------------------------------- Memory management
 
-    FreeBadOffset ptr   -> [ "Pointer: " <++> ppPtr ptr ]
-    FreeUnallocated ptr -> [ "Pointer: " <++> ppPtr ptr ]
+    FreeBadOffset ptr   -> [ "Pointer:" <+> ppPtr ptr ]
+    FreeUnallocated ptr -> [ "Pointer:" <+> ppPtr ptr ]
     MemsetInvalidRegion destPtr fillByte len ->
-      [ "Destination pointer: " <++> ppPtr destPtr
-      , "Fill byte: " <++> W4I.printSymExpr fillByte
-      , "Length: " <++> W4I.printSymExpr len
+      [ "Destination pointer:" <+> ppPtr destPtr
+      , "Fill byte:          " <+> W4I.printSymExpr fillByte
+      , "Length:             " <+> W4I.printSymExpr len
       ]
-    ReadBadAlignment ptr align -> 
-      [ "Alignment: " <++> pack (show align)
+    ReadBadAlignment ptr alignment ->
+      [ "Alignment: " <+> text (show alignment)
       , ppPtr1 ptr
       ]
     ReadUnallocated ptr -> [ ppPtr1 ptr ]
@@ -355,20 +355,20 @@ detailsSym proxySym =
       , ppOffset proxySym offset
       ]
     CompareInvalidPointer comparison invalid other ->
-      [ "Comparison:                     " <> ppPtrComparison comparison
-      , "Invalid pointer:                " <++> ppPtr invalid
-      , "Other (possibly valid) pointer: " <++> ppPtr other
+      [ "Comparison:                    " <+> ppPtrComparison comparison
+      , "Invalid pointer:               " <+> ppPtr invalid
+      , "Other (possibly valid) pointer:" <+> ppPtr other
       ]
     CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
     PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
     ComparePointerToBV ptr bv ->
-      [ "Pointer:   " <++> W4I.printSymExpr ptr
-      , "Bitvector: " <++> W4I.printSymExpr bv
+      [ "Pointer:  " <+> W4I.printSymExpr ptr
+      , "Bitvector:" <+> W4I.printSymExpr bv
       ]
     PointerCast _proxySym allocNum offset castToType ->
-      [ "Allocation number: " <++> W4I.printSymExpr allocNum
-      , "Offset:            " <++> W4I.printSymExpr offset
-      , "Cast to:           " <++> castToType
+      [ "Allocation number:" <+> W4I.printSymExpr allocNum
+      , "Offset:           " <+> W4I.printSymExpr offset
+      , "Cast to:          " <+> text (show castToType)
       ]
 
     -------------------------------- LLVM: arithmetic
@@ -382,31 +382,32 @@ detailsSym proxySym =
     v@(SDivOverflow _ _) -> detailsExpr v
     v@(SRemOverflow _ _) -> detailsExpr v
 
-  where ppPtrText :: W4I.IsExpr (W4I.SymExpr sym) => LLVMPtr sym w -> Text
-        ppPtrText = pack . show . ppPtr
+  where ppPtrText :: W4I.IsExpr (W4I.SymExpr sym) => LLVMPtr sym w -> Doc
+        ppPtrText = text . show . ppPtr
 
-        ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => LLVMPtr sym w -> Text
-        ppPtr1 = ("Pointer: " <>) . ppPtrText
+        ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => LLVMPtr sym w -> Doc
+        ppPtr1 = ("Pointer:" <+>) . ppPtrText
 
-        ppPtr2 ptr1 ptr2 = unlines [ "Pointer 1: " <>  ppPtrText ptr1
-                                   , "Pointer 2: " <>  ppPtrText ptr2
-                                   ]
+        ppPtr2 ptr1 ptr2 = vcat [ "Pointer 1:" <+>  ppPtrText ptr1
+                                , "Pointer 2:" <+>  ppPtrText ptr2
+                                ]
 
-        ppOffset :: W4I.IsExpr (W4I.SymExpr sym) => proxy sym -> W4I.SymBV sym w -> Text
-        ppOffset _ = ("Offset: " <++>) . W4I.printSymExpr
+        ppOffset :: W4I.IsExpr (W4I.SymExpr sym) => proxy sym -> W4I.SymBV sym w -> Doc
+        ppOffset _ = ("Offset:" <+>) . W4I.printSymExpr
 
-        txt <++> doc = txt <> pack (show doc)
-
-pp :: (UndefinedBehavior e -> [Text]) -- ^ Printer for constructor data
+pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
    -> UndefinedBehavior e
-   -> Text
-pp extra ub = unlines $
+   -> Doc
+pp extra ub = vcat $
   "Undefined behavior encountered: "
   : explain ub
   : extra ub
-  ++ unwords ["Reference: ", ppStd (standard ub), cite ub]
+  ++ cat [ "Reference: "
+         , text (unpack (ppStd (standard ub)))
+         , cite ub
+         ]
      : case stdURL (standard ub) of
-         Just url -> ["Document URL: " <> url]
+         Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
 
 -- | Pretty-printer for symbolic backends
@@ -414,13 +415,13 @@ ppSym :: W4I.IsExpr (W4I.SymExpr sym)
       => proxy sym
       -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
       -> UndefinedBehavior (W4I.SymExpr sym)
-      -> Text
+      -> Doc
 ppSym proxySym = pp (detailsSym proxySym)
 
 -- | General-purpose pretty-printer
 ppExpr :: W4I.IsExpr e
        => UndefinedBehavior e
-       -> Text
+       -> Doc
 ppExpr = pp detailsExpr
 
 -- -----------------------------------------------------------------------

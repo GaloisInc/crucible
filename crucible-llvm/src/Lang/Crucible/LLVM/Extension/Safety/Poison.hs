@@ -23,28 +23,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
 
-module Lang.Crucible.LLVM.Safety.Poison
+module Lang.Crucible.LLVM.Extension.Safety.Poison
   ( Poison(..)
   , cite
   , pp
   ) where
 
 import           Data.Kind (Type)
-import           Data.Text (Text, unwords, unlines)
+import           Data.Text (unpack)
 import           Data.Typeable (Typeable)
-import           Prelude hiding (unwords, unlines)
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import qualified What4.Interface as W4I
-
-import           Lang.Crucible.CFG.Generator (Expr)
-import           Lang.Crucible.LLVM.Extension (LLVM)
-import           Lang.Crucible.LLVM.Safety.Standards
-import           Lang.Crucible.LLVM.Translation.Types (LLVMPointerType)
-import           Data.Parameterized.TraversableFC
-
-import           Data.Functor.Compose
-import           Lang.Crucible.Types
-import           What4.BaseTypes
+import           Lang.Crucible.LLVM.Extension.Safety.Standards
 
 -- | TODO(langston): Record type information for error messages
 data Poison (e :: W4I.BaseType -> Type) where
@@ -123,13 +114,13 @@ standard =
     LshrOp2Big _ _          -> LLVMRef LLVM8
     AshrExact _ _           -> LLVMRef LLVM8
     AshrOp2Big _ _          -> LLVMRef LLVM8
-    -- ExtractElementIndex _ _ -> LLVMRef LLVM8
-    -- InsertElementIndex _ _  -> LLVMRef LLVM8
-    -- GEPOutOfBounds _ _      -> LLVMRef LLVM8
+    ExtractElementIndex _   -> LLVMRef LLVM8
+    InsertElementIndex _    -> LLVMRef LLVM8
+    GEPOutOfBounds _        -> LLVMRef LLVM8
 
 -- | Which section(s) of the document state that this is poison?
-cite :: Poison e -> Text
-cite =
+cite :: Poison e -> Doc
+cite = text .
   \case
     AddNoUnsignedWrap _ _   -> "‘add’ Instruction (Semantics)"
     AddNoSignedWrap _ _     -> "‘add’ Instruction (Semantics)"
@@ -146,11 +137,12 @@ cite =
     LshrOp2Big _ _          -> "‘lshr’ Instruction (Semantics)"
     AshrExact _ _           -> "‘ashr’ Instruction (Semantics)"
     AshrOp2Big _ _          -> "‘ashr’ Instruction (Semantics)"
-    -- ExtractElementIndex _ _ -> "‘extractelement’ Instruction (Semantics)"
-    -- InsertElementIndex _ _  -> "‘insertelement’ Instruction (Semantics)"
-    -- GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
+    ExtractElementIndex _   -> "‘extractelement’ Instruction (Semantics)"
+    InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
+    GEPOutOfBounds _        -> "‘getelementptr’ Instruction (Semantics)"
 
-explain :: Poison e -> Text
+-- TODO: print values
+explain :: Poison e -> Doc
 explain =
   \case
     AddNoUnsignedWrap _ _ ->
@@ -169,63 +161,57 @@ explain =
       "Inexact signed division even though the `exact` flag was set"
     UDivExact _ _ ->
       "Inexact unsigned division even though the `exact` flag was set"
-    ShlOp2Big _ _ -> unwords $
+    ShlOp2Big _ _ -> cat $
       [ "The second operand of `shl` was equal to or greater than the number of"
       , "bits in the first operand"
       ]
     ShlNoUnsignedWrap _ _ ->
       "Left shift shifted out non-zero bits even though the `nuw` flag was set"
-    ShlNoSignedWrap _ _ -> unwords $
+    ShlNoSignedWrap _ _ -> cat $
       [ "Left shift shifted out some bits that disagreed with the sign bit"
       , "even though the `nsw` flag was set"
       ]
-    LshrExact _ _ -> unwords $
+    LshrExact _ _ -> cat $
       [ "Inexact `lshr` (logical right shift) result even though the `exact`"
       , "flag was set"
       ]
-    LshrOp2Big _ _ -> unwords $
+    LshrOp2Big _ _ -> cat $
       [ "The second operand of `lshr` was equal to or greater than the number of"
       , "bits in the first operand"
       ]
-    AshrExact _ _ -> unwords $
+    AshrExact _ _ -> cat $
       [ "Inexact `ashr` (arithmetic right shift) result even though the `exact`"
       , "flag was set"
       ]
-    AshrOp2Big _ _   -> unwords $
+    AshrOp2Big _ _   -> cat $
       [ "The second operand of `ashr` was equal to or greater than the number of"
       , "bits in the first operand"
       ]
-    -- ExtractElementIndex _ _ -> unwords $
-    --   [ "Attempted to extract an element from a vector at an index that was"
-    --   , "greater than the length of the vector"
-    --   ]
-    -- InsertElementIndex _ _ -> unwords $
-    --   [ "Attempted to insert an element into a vector at an index that was"
-    --   , "greater than the length of the vector"
-    --   ]
+    ExtractElementIndex _   -> cat $
+      [ "Attempted to extract an element from a vector at an index that was"
+      , "greater than the length of the vector"
+      ]
+    InsertElementIndex _   -> cat $
+      [ "Attempted to insert an element into a vector at an index that was"
+      , "greater than the length of the vector"
+      ]
     -- The following explanation is a bit unsatisfactory, because it is specific
     -- to how we treat this instruction in Crucible.
-    -- GEPOutOfBounds _ _ -> unwords $
-    --   [ "Calling `getelementptr` resulted in an index that was out of bounds for"
-    --   , "the given allocation (likely due to arithmetic overflow), but Crucible"
-    --   , "currently treats all GEP instructions as if they had the `inbounds`"
-    --   , "flag set."
-    --   ]
+    GEPOutOfBounds _   -> cat $
+      [ "Calling `getelementptr` resulted in an index that was out of bounds for"
+      , "the given allocation (likely due to arithmetic overflow), but Crucible"
+      , "currently treats all GEP instructions as if they had the `inbounds`"
+      , "flag set."
+      ]
 
-pp :: Poison (Compose (Expr ext s) BaseToType) -> Text
-pp poison = unlines $
+pp :: Poison e -> Doc
+pp poison = vcat $
   [ "Poison value encountered: "
   , explain poison
-  , unwords ["Reference: ", ppStd (standard poison), cite poison]
+  , cat [ "Reference: "
+         , text (unpack (ppStd (standard poison)))
+         , cite poison
+         ]
   ] ++ case stdURL (standard poison) of
-         Just url -> ["Document URL: " <> url]
+         Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
-
--- pp :: W4I.IsExpr e => Poison e -> Text
--- pp poison = unlines $
---   [ "Poison value encountered: "
---   , explain poison
---   , unwords ["Reference: ", ppStd (standard poison), cite poison]
---   ] ++ case stdURL (standard poison) of
---          Just url -> ["Document URL: " <> url]
---          Nothing  -> []

@@ -160,8 +160,7 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
-import           Data.Text (Text)
-import qualified Data.Text as Text (pack, unpack, unlines)
+import qualified Data.Text as Text (unpack)
 import           Data.Word
 import           GHC.TypeLits
 import           System.IO (Handle, hPutStrLn)
@@ -176,7 +175,6 @@ import qualified Text.LLVM.AST as L
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
-import           What4.Partial as W4P
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
@@ -196,7 +194,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Value
-import qualified Lang.Crucible.LLVM.Safety.UndefinedBehavior as UB
+import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.Panic (panic)
@@ -259,7 +257,7 @@ doDumpMem h mem = do
 
 -- | Assert that some undefined behavior doesn't occur when performing memory
 -- model operations
--- TODO(langston): Replace with 'assertTreeSafe' and 'explainTree'
+-- TODO(langston): Replace with generic operations
 assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
                 => sym
                 -> Pred sym
@@ -425,8 +423,6 @@ evalStmt sym = eval
   eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
     mem <- getMem mvar
     liftIO $ do
-       let x_doc = G.ppPtr x
-           y_doc = G.ppPtr y
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
        assertUndefined sym v1 Nothing (UB.CompareInvalidPointer UB.Leq x y)
@@ -641,7 +637,7 @@ doFree
   -> LLVMPtr sym wptr
   -> IO (MemImpl sym)
 doFree sym ubConfig mem ptr = do
-  let LLVMPointer blk off = ptr
+  let LLVMPointer blk _off = ptr
   (heap', p1, p2) <- G.freeMem sym PtrWidth ptr (memImplHeap mem)
 
   -- If this pointer is a handle pointer, remove the associated data

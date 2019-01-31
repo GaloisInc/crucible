@@ -31,17 +31,11 @@ module Lang.Crucible.LLVM.MemModel.Partial where
 import           Prelude hiding (pred)
 
 import           Control.Lens ((^.), view)
-import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (liftIO, MonadIO)
 import           Control.Monad.State.Strict (State, get, put, runState)
-import           Data.Data (Data)
 import           Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
-import           Data.Maybe (catMaybes)
-import           Data.Semigroup (sconcat)
-import           Data.Text (Text, unpack)
 import           Data.Vector (Vector)
 import           Data.Word (Word64)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Data.Vector as V
 
 import           Data.Parameterized.NatRepr
@@ -53,10 +47,9 @@ import qualified Lang.Crucible.LLVM.Bytes as Bytes
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
-import           Lang.Crucible.LLVM.Safety
-import qualified Lang.Crucible.LLVM.Safety.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.Extension.Safety
+import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.Panic (panic)
-import           Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 
 import           What4.Interface (Pred, IsExprBuilder)
 import qualified What4.Interface as W4I

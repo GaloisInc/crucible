@@ -14,7 +14,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
 
-module Lang.Crucible.LLVM.Safety.Standards
+module Lang.Crucible.LLVM.Extension.Safety.Standards
   ( Standard(..)
   , CStdVer(..)
   , CXXStdVer(..)

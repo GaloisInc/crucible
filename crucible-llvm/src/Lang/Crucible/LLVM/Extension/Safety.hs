@@ -18,43 +18,54 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Lang.Crucible.LLVM.Safety
+module Lang.Crucible.LLVM.Extension.Safety
   ( LLVMSafetyAssertion
   , LLVMAssertionTree
+  , BadBehavior(..)
   , undefinedBehavior
   , undefinedBehavior'
   , poison
   , poison'
   , safe
+    -- ** Lenses
+  , classifier
+  , predicate
+  , extra
   ) where
 
-import           Data.Kind (Type)
-import           Data.Data (Data)
-import           Data.Typeable (Typeable)
-import           GHC.Generics (Generic, Generic1)
+import           Prelude hiding (pred)
 
 import           Control.Lens
+import           Data.Kind (Type)
 import           Data.Text (Text)
+import           Data.Type.Equality (TestEquality(..))
+import           Data.Typeable (Typeable)
+import           GHC.Generics (Generic)
 
 import           Lang.Crucible.CFG.Extension.Safety
-import           Lang.Crucible.LLVM.Extension
-import           What4.Partial
-import qualified What4.Interface as W4I
+import           What4.BaseTypes (BaseType)
 import           What4.Interface (Pred, IsExprBuilder)
+import qualified What4.Interface as W4I
+import           What4.Partial
 
-import qualified Lang.Crucible.LLVM.Safety.Poison as Poison
-import qualified Lang.Crucible.LLVM.Safety.UndefValue as UV
-import qualified Lang.Crucible.LLVM.Safety.UndefinedBehavior as UB
+import           Data.Parameterized.Classes (OrdF(..))
+import qualified Data.Parameterized.TH.GADT as U
+import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
+
+import           Lang.Crucible.LLVM.Extension.Arch (LLVMArch)
+import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
+import qualified Lang.Crucible.LLVM.Extension.Safety.UndefValue as UV
+import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 -- import qualified Lang.Crucible.LLVM.MemModel.Value as Value
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 
 -- | Combine the three types of bad behaviors
 --
 -- TODO(langston): should there just be a 'BadBehavior' class?
--- TODO(langston): parameterize on kind :: BaseType -> Type
-data BadBehavior e =
+data BadBehavior (e :: BaseType -> Type) =
     BBUndefinedBehavior (UB.UndefinedBehavior e)
   | BBPoison            (Poison.Poison e)
   -- | BBUndef             (UV.UndefValue e)
@@ -68,6 +79,28 @@ data LLVMSafetyAssertion (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
     , _extra      :: Maybe Text         -- ^ Additional human-readable context
     }
   deriving (Generic, Typeable)
+
+instance TestEquality (LLVMSafetyAssertion arch) where
+  testEquality testSubterm = undefined
+-- instance TestEqualityFC (LLVMExtensionExpr arch) where
+--   testEqualityFC testSubterm =
+--     $(U.structuralTypeEquality [t|LLVMExtensionExpr|]
+--        [ (U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
+--        , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
+--        , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
+--        ])
+
+instance OrdF (LLVMSafetyAssertion arch) where
+  compareF _ _ = undefined
+
+instance FunctorF (LLVMSafetyAssertion arch) where
+  fmapF _ _ = undefined
+
+instance FoldableF (LLVMSafetyAssertion arch) where
+  foldMapF _ _ = undefined
+
+instance TraversableF (LLVMSafetyAssertion arch) where
+  traverseF _ _ = undefined
 
 type LLVMAssertionTree (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
   AssertionTree (e W4I.BaseBoolType) (LLVMSafetyAssertion arch e)
@@ -148,14 +181,3 @@ predicate = lens _predicate (\s v -> s { _predicate = v})
 
 extra :: Simple Lens (LLVMSafetyAssertion arch e) (Maybe Text)
 extra = lens _extra (\s v -> s { _extra = v})
-
--- -----------------------------------------------------------------------
--- ** HasSafetyAssertions
-
-type instance SafetyAssertion (LLVM arch) (e :: W4I.BaseType -> Type) =
-  LLVMSafetyAssertion arch e
-
--- instance HasSafetyAssertions (LLVM arch) sym where
---   toPredicate sym = view predicate
-    -- \case
-    --   SAUndefinedBehavior p ->

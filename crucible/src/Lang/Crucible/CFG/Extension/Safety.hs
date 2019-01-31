@@ -25,17 +25,16 @@ module Lang.Crucible.CFG.Extension.Safety
 , traverseSafetyAssertion
 ) where
 
-import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Functor.Compose (Compose(..))
 import Data.Kind (Type)
 import Data.Parameterized.Classes (EqF(..), OrdF(..), HashableF(..), ShowF(..))
 import Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
 import Lang.Crucible.Backend (IsSymInterface)
--- import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 import Lang.Crucible.Types (CrucibleType, BaseToType)
 import Text.PrettyPrint.ANSI.Leijen (Doc)
 import What4.Interface
--- import What4.Partial
+import qualified What4.Partial as W4P
 
 -- | This is the type of \"safety assertions\" that will be made about operations
 -- of the syntax extension. For example, for the LLVM syntax extension, this type
@@ -60,7 +59,7 @@ instance TraversableF EmptySafetyAssertion where traverseF _     = \case
 instance TestEquality EmptySafetyAssertion where testEquality _  = \case
 
 instance HasSafetyAssertions () where
-  explain _       = \case
+  explain _ _     = \case
   toPredicate _ _ = \case
 
 -- | The two key operations on safety assertions are to collapse them into symbolic
@@ -70,29 +69,38 @@ instance HasSafetyAssertions () where
 -- For the sake of consistency, such explanations should contain the word \"should\",
 -- e.g. \"the pointer should fall in a live allocation.\"
 class HasSafetyAssertions (ext :: Type) where
-  toPredicate :: (MonadIO io, IsSymInterface sym)
+  toPredicate :: (IsExprBuilder sym, IsSymInterface sym)
               => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> sym
               -> SafetyAssertion ext (SymExpr sym)
-              -> io (Pred sym)
+              -> Pred sym
 
-  explain     :: proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
-              -> SafetyAssertion ext sym
+  -- | This is in this class because a given syntax extension might have a more
+  -- efficient implementation, e.g. by realizing that one part of an 'And'
+  -- encompasses another. Same goes for 'explainTree'.
+  treeToPredicate :: (MonadIO io, IsExprBuilder sym, IsSymInterface sym)
+                  => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+                  -> sym
+                  -> W4P.AssertionTree (Pred sym) (SafetyAssertion ext (SymExpr sym))
+                  -> io (Pred sym)
+  treeToPredicate proxyExt sym =
+    liftIO . W4P.collapseAT sym (toPredicate proxyExt sym) id
+
+  -- | Explain an assertion, including any relevant data.
+  explain     :: IsExprBuilder sym
+              => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> proxy sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> SafetyAssertion ext (SymExpr sym)
               -> Doc
 
+  explainTree :: (IsExprBuilder sym)
+              => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> proxy sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> W4P.AssertionTree (Pred sym) (SafetyAssertion ext (SymExpr sym))
+              -> Doc
+  explainTree _proxyExt _proxySym = undefined -- TODO
+
   {-
-  -- | This is in this class because a given syntax extension might have a more
-  -- efficient implementation, e.g. by realizing that one part of an And
-  -- encompasses another. Same goes for 'explainTree'.
-  treeToPredicate :: (MonadIO io, IsExprBuilder sym)
-                  => sym
-                  -> AssertionTree (Pred sym) (SafetyAssertion ext sym)
-                  -> io (Pred sym)
-  treeToPredicate sym = liftIO . collapseAT sym (toPredicate sym) id
-
-  explain     :: SafetyAssertion ext sym -> Doc
-  explainTree :: AssertionTree (Pred sym) (SafetyAssertion ext sym) -> Doc
-
   -- | TODO(langston): Default implementation in terms of 'assertTreeSafe'
   assertSafe :: (MonadIO io, IsExprBuilder sym, IsBoolSolver sym)
              => sym

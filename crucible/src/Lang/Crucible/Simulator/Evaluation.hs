@@ -431,7 +431,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       -- RegValue sym (BaseToType BaseBoolType) = SymExpr sym BaseBoolType
       let pred_ :: SafetyAssertion ext (SymExpr sym)
           pred_ = fmapF (unRV . getCompose) pred0
-      addAssertionM sym (toPredicate (Proxy :: Proxy ext) sym pred_)
+      addAssertionM sym (pure (toPredicate (Proxy :: Proxy ext) sym pred_))
                         (AssertFailureSimError "TODO")
       evalSub expr
 

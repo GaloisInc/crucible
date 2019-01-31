@@ -90,9 +90,9 @@ import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
 import           Lang.Crucible.LLVM.MemModel.Partial
-import           Lang.Crucible.LLVM.Safety (LLVMSafetyAssertion)
-import qualified Lang.Crucible.LLVM.Safety as Safety
-import qualified Lang.Crucible.LLVM.Safety.UndefinedBehavior as UB
+import           Lang.Crucible.LLVM.Extension.Safety (LLVMSafetyAssertion)
+import qualified Lang.Crucible.LLVM.Extension.Safety as Safety
+import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 
 
 --import Debug.Trace as Debug
