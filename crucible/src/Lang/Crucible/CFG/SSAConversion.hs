@@ -36,9 +36,11 @@ import           Control.Monad.State.Strict
 import qualified Data.Foldable as Fold
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Maybe
+import           Data.Maybe (isJust, fromMaybe)
+import           Data.Parameterized.Classes (OrdF)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
+import           Data.Parameterized.TraversableF (TraversableF)
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
 import           Data.Set (Set)
@@ -51,6 +53,7 @@ import           What4.ProgramLoc
 import           Lang.Crucible.Analysis.Reachable
 import qualified Lang.Crucible.CFG.Core as C
 import qualified Lang.Crucible.CFG.Expr as C
+import qualified Lang.Crucible.CFG.Extension.Safety as C
 import           Lang.Crucible.CFG.Reg
 import           Lang.Crucible.FunctionHandle
 
@@ -626,14 +629,20 @@ type AppRegMap ext ctx = MapF (C.App ext (C.Reg ctx)) (C.Reg ctx)
 appRegMap_extend :: AppRegMap ext ctx -> AppRegMap ext (ctx ::> tp)
 appRegMap_extend = unsafeCoerce
 
-appRegMap_insert :: (TraversableFC (C.ExprExtension ext), OrdFC (C.ExprExtension ext))
+appRegMap_insert :: ( TraversableFC (C.ExprExtension ext)
+                    , OrdFC (C.ExprExtension ext)
+                    , TraversableF (C.SafetyAssertion ext)
+                    , OrdF (C.SafetyAssertion ext)
+                    )
                  => C.App ext (C.Reg ctx) tp
                  -> C.Reg (ctx ::> tp) tp
                  -> AppRegMap ext ctx
                  -> AppRegMap ext (ctx ::> tp)
 appRegMap_insert k v m = MapF.insert (fmapFC C.extendReg k) v (appRegMap_extend m)
 
-appRegMap_lookup :: OrdFC (C.ExprExtension ext)
+appRegMap_lookup :: ( OrdFC (C.ExprExtension ext)
+                    , OrdF (C.SafetyAssertion ext)
+                    )
                  => C.App ext (C.Reg ctx) tp
                  -> AppRegMap ext ctx
                  -> Maybe (C.Reg ctx tp)

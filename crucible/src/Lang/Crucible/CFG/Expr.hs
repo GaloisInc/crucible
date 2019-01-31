@@ -59,21 +59,20 @@ module Lang.Crucible.CFG.Expr
 
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
-import           Data.Kind
+import           Data.Kind (Type)
+import           Data.Proxy (Proxy(..))
 import           Data.Text (Text)
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
-
 import           Data.Functor.Compose (Compose(..))
-import           Data.Coerce (coerce)
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TH.GADT as U
-import           Data.Parameterized.TraversableFC
 import           Data.Parameterized.TraversableF
+import           Data.Parameterized.TraversableFC
 
 import           What4.Interface (RoundingMode(..))
 
@@ -1323,52 +1322,26 @@ traverseApp =
      --   )
      , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
          (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
-       , [|
-            let
-              blah :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
-                  => (forall (u :: k). f u -> m (g u))
-                  -> (forall (u :: j). Compose f h u -> m (Compose g h u))
-              blah f (Compose v) = Compose <$> (f v)
-              traver :: forall (f :: CrucibleType -> *) (g :: CrucibleType -> *) m proxy.
-                        ( TraversableF (SafetyAssertion ext)
-                        , Applicative m
-                        )
-                    => (forall (u :: CrucibleType). f u -> m (g u))
-                    -> SafetyAssertion ext (Compose f BaseToType)
-                    -> m (SafetyAssertion ext (Compose g BaseToType))
-              traver f v = traverseF (blah f) v
-            in traver
-          -- TODO: is this more general than just this situation? an instance?
+       , [| traverseSafetyAssertion (Proxy :: Proxy ext)
+            -- let
+            --   mkF :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
+            --       => (forall (u :: k). f u -> m (g u))
+            --       -> (forall (u :: j). Compose f h u -> m (Compose g h u))
+            --   mkF f (Compose v) = Compose <$> (f v)
+            --   t :: forall s (f :: k -> *) (g :: k -> *) (h :: l -> k) m.
+            --         ( TraversableF s
+            --         , Applicative m
+            --         )
+            --     => (forall (u :: k). f u -> m (g u))
+            --     -> s (Compose f h)
+            --     -> m (s (Compose g h))
+            --   t f v = traverseF (mkF f) v
+            -- in -- Instantiate @s@ as @SafetyAssertion ext@ and @h@ as @BaseToType@
+            --    -- TODO: are the above at all generally useful? an instance of anything?
+            --    t
           |]
        )
      ])
-
-instance TraversableF (f :: (k -> *) -> *) =>
-         FunctorF (Compose f (g :: (j -> *) -> (k -> *))) where
-  fmapF = fmapFDefault
-
-instance TraversableF (f :: (k -> *) -> *) =>
-         FoldableF (Compose f (g :: (j -> *) -> (k -> *))) where
-  foldMapF = foldMapFDefault
-
-instance TraversableF (f :: (k -> *) -> *) =>
-         TraversableF (Compose f (g :: (j -> *) -> (k -> *))) where
-  traverseF =
-    let
-      mkF :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
-          => (forall (u :: k). f u -> m (g u))
-          -> (forall (u :: j). Compose f h u -> m (Compose g h u))
-      mkF f (Compose v) = Compose <$> (f v)
-      traver :: forall (f :: j -> *) (g :: k -> *) h m proxy.
-                ( TraversableF h
-                , Applicative m
-                )
-            => (forall (u :: CrucibleType). f u -> m (g u))
-            -> h (Compose f BaseToType)
-            -> m (h (Compose g BaseToType))
-      traver f v = traverseF (mkF f) v
-    in traverseF (mkF f) v
-
 
 ------------------------------------------------------------------------------
 -- Parameterized Eq and Ord instances
@@ -1401,11 +1374,14 @@ instance ( TestEqualityFC (ExprExtension ext)
                    , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
                    , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testFnHandle|])
                    , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|testVector testSubterm|])
-                   , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp` U.DataArg 1
+                   -- , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp` U.DataArg 1
+                   --   , [| testEquality |]
+                   --   )
+                   , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
+                       (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
                      , [| testEquality |]
                      )
-                   ]
-                  )
+                   ])
 
 instance (TestEqualityFC (ExprExtension ext)
          , TestEquality (SafetyAssertion ext)

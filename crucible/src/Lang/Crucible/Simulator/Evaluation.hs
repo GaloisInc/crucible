@@ -11,6 +11,7 @@
 ------------------------------------------------------------------------
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
@@ -35,6 +36,8 @@ module Lang.Crucible.Simulator.Evaluation
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
+import           Data.Functor.Compose (Compose(..))
+import           Data.Proxy (Proxy(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes
@@ -56,6 +59,7 @@ import           What4.WordMap
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
+import           Lang.Crucible.CFG.Extension.Safety
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
@@ -249,15 +253,18 @@ type EvalAppFunc sym app = forall f.
 
 {-# INLINE evalApp #-}
 -- | Evaluate the application.
-evalApp :: forall sym ext
-         . IsSymInterface sym
+evalApp :: forall sym ext.
+           ( IsSymInterface sym
+           , HasSafetyAssertions ext
+           , TraversableF (SafetyAssertion ext)
+           )
         => sym
         -> IntrinsicTypes sym
         -> (Int -> String -> IO ())
            -- ^ Function for logging messages.
         -> EvalAppFunc sym (ExprExtension ext)
         -> EvalAppFunc sym (App ext)
-evalApp sym itefns _logFn evalExt evalSub a0 = do
+evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sym tp)) a0 = do
   case a0 of
 
     BaseIsEq tp xe ye -> do
@@ -416,8 +423,16 @@ evalApp sym itefns _logFn evalExt evalSub a0 = do
     -- Side conditions
 
     AddSideCondition _baseTyRep assertion expr -> do
-      -- (traverseF evalSub assertion)
-      addAssertionM sym _ (AssertFailureSimError rsn)
+      let evalSub' :: forall tp. f tp -> IO (RegValue' sym tp)
+          evalSub' e = RV <$> evalSub e
+      pred0 <-
+        traverseSafetyAssertion (Proxy :: Proxy ext) evalSub' assertion
+      -- This works because
+      -- RegValue sym (BaseToType BaseBoolType) = SymExpr sym BaseBoolType
+      let pred_ :: SafetyAssertion ext (SymExpr sym)
+          pred_ = fmapF (unRV . getCompose) pred0
+      addAssertionM sym (toPredicate (Proxy :: Proxy ext) sym pred_)
+                        (AssertFailureSimError "TODO")
       evalSub expr
 
     ----------------------------------------------------------------------

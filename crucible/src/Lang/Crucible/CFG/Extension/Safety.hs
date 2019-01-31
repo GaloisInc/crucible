@@ -1,5 +1,8 @@
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-|
 Module           : Lang.Crucible.CFG.Extension.Safety
@@ -18,19 +21,21 @@ extensions. These are used internally to syntax extensions.
 module Lang.Crucible.CFG.Extension.Safety
 ( SafetyAssertion
 , EmptySafetyAssertion
--- , HasSafetyAssertions(..)
+, HasSafetyAssertions(..)
+, traverseSafetyAssertion
 ) where
 
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (MonadIO)
+import Data.Functor.Compose (Compose(..))
 import Data.Kind (Type)
 import Data.Parameterized.Classes (EqF(..), OrdF(..), HashableF(..), ShowF(..))
 import Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
-import Lang.Crucible.Backend
-import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
-import Lang.Crucible.Types (CrucibleType, BaseToType, UnitType)
+import Lang.Crucible.Backend (IsSymInterface)
+-- import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
+import Lang.Crucible.Types (CrucibleType, BaseToType)
 import Text.PrettyPrint.ANSI.Leijen (Doc)
 import What4.Interface
-import What4.Partial
+-- import What4.Partial
 
 -- | This is the type of \"safety assertions\" that will be made about operations
 -- of the syntax extension. For example, for the LLVM syntax extension, this type
@@ -45,17 +50,18 @@ type instance SafetyAssertion () = EmptySafetyAssertion
 
 deriving instance Show (EmptySafetyAssertion ext)
 
-instance EqF          EmptySafetyAssertion where eqF _             = \case
-instance OrdF         EmptySafetyAssertion where compareF _        = \case
-instance HashableF    EmptySafetyAssertion where hashWithSaltF _   = \case
-instance ShowF        EmptySafetyAssertion where showsPrecF _ _    = \case
-instance FunctorF     EmptySafetyAssertion where fmapF _           = \case
-instance FoldableF    EmptySafetyAssertion where foldlF _ _        = \case
-instance TraversableF EmptySafetyAssertion where traverseF _       = \case
-instance TestEquality EmptySafetyAssertion where testEquality _    = \case
+instance EqF          EmptySafetyAssertion where eqF _           = \case
+instance OrdF         EmptySafetyAssertion where compareF _      = \case
+instance HashableF    EmptySafetyAssertion where hashWithSaltF _ = \case
+instance ShowF        EmptySafetyAssertion where showsPrecF _    = \case
+instance FunctorF     EmptySafetyAssertion where fmapF _         = \case
+instance FoldableF    EmptySafetyAssertion where foldMapF _      = \case
+instance TraversableF EmptySafetyAssertion where traverseF _     = \case
+instance TestEquality EmptySafetyAssertion where testEquality _  = \case
 
--- newtype CrucibleSymExpr sym baseTy =
---   CrucibleSymExpr { getExpr :: SymExpr sym baseTy }
+instance HasSafetyAssertions () where
+  explain _       = \case
+  toPredicate _ _ = \case
 
 -- | The two key operations on safety assertions are to collapse them into symbolic
 -- predicates which can be added to the proof obligations, and to explain to the
@@ -63,21 +69,18 @@ instance TestEquality EmptySafetyAssertion where testEquality _    = \case
 --
 -- For the sake of consistency, such explanations should contain the word \"should\",
 -- e.g. \"the pointer should fall in a live allocation.\"
-
 class HasSafetyAssertions (ext :: Type) where
-  toPredicate :: IsSymInterface sym
-              => proxy ext
+  toPredicate :: (MonadIO io, IsSymInterface sym)
+              => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> sym
               -> SafetyAssertion ext (SymExpr sym)
-              -> Pred sym
+              -> io (Pred sym)
+
+  explain     :: proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> SafetyAssertion ext sym
+              -> Doc
 
   {-
-  -- | TODO(langston): Default implementation in terms of 'treeToPredicate'
-  toPredicate :: IsExprBuilder sym
-              => sym
-              -> SafetyAssertion ext sym
-              -> Pred sym
-
   -- | This is in this class because a given syntax extension might have a more
   -- efficient implementation, e.g. by realizing that one part of an And
   -- encompasses another. Same goes for 'explainTree'.
@@ -115,3 +118,28 @@ class HasSafetyAssertions (ext :: Type) where
   -- within the context of a larger assertion i.e. "The following assertion
   -- failed: _. It was part of the larger assertion _."
   -}
+
+-- | Change the underlying type family of kind @CrucibleType -> Type@
+traverseSafetyAssertion :: forall ext f g proxy m.
+     (TraversableF (SafetyAssertion ext), Applicative m)
+  => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+  -> (forall (u :: CrucibleType). f u -> m (g u))
+  -> SafetyAssertion ext (Compose f BaseToType)
+  -> m (SafetyAssertion ext (Compose g BaseToType))
+traverseSafetyAssertion _proxy =
+  let
+    mkF :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
+        => (forall (u :: k). f u -> m (g u))
+        -> (forall (u :: j). Compose f h u -> m (Compose g h u))
+    mkF f (Compose v) = Compose <$> (f v)
+    t :: forall s (f :: k -> *) (g :: k -> *) (h :: l -> k) m.
+          ( TraversableF s
+          , Applicative m
+          )
+      => (forall (u :: k). f u -> m (g u))
+      -> s (Compose f h)
+      -> m (s (Compose g h))
+    t f v = traverseF (mkF f) v
+  in -- Instantiate @s@ as @SafetyAssertion ext@ and @h@ as @BaseToType@
+     -- TODO: are the above at all generally useful? an instance of anything?
+     t
