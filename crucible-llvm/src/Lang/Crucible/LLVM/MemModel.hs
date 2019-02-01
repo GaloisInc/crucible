@@ -160,7 +160,6 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
-import qualified Data.Text as Text (unpack)
 import           Data.Word
 import           GHC.TypeLits
 import           System.IO (Handle, hPutStrLn)
@@ -266,7 +265,7 @@ assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
                 -> IO ()
 assertUndefined sym p (UB.defaultStrict -> ubConfig) ub =
   when (UB.getConfig ubConfig ub) $ assert sym p $
-    (AssertFailureSimError $ Text.unpack $ UB.ppSym (Just sym) ub)
+    (AssertFailureSimError $ show $ UB.ppSym (Just sym) ub)
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym

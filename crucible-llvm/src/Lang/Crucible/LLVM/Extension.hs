@@ -29,7 +29,7 @@ module Lang.Crucible.LLVM.Extension
   , LLVM
   ) where
 
-import           Control.Lens (view)
+import           Control.Lens ((^.), view)
 import           Data.Kind (Type)
 import           Data.Proxy (Proxy(..))
 import           GHC.TypeLits
@@ -46,6 +46,8 @@ import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Extension.Safety
 import           Lang.Crucible.Types
+
+import           What4.Interface (IsExprBuilder, SymExpr)
 
 import           Lang.Crucible.LLVM.Arch.X86 as X86
 import           Lang.Crucible.LLVM.Bytes
@@ -79,8 +81,14 @@ type instance SafetyAssertion (LLVM arch) = LLVMSafetyAssertion arch
 
 instance HasSafetyAssertions (LLVM arch) where
   toPredicate _proxy _sym     = view predicate
-  explain     proxy assertion =
-    case view classifier assertion of
-      BBUndefinedBehavior ub -> UB.ppSym _ ub
+
+  explain     :: IsExprBuilder sym
+              => proxy ext
+              -> proxy sym
+              -> SafetyAssertion (LLVM arch) (SymExpr sym)
+              -> Doc
+  explain _proxyExt proxySym assertion =
+    case assertion ^. classifier of
+      BBUndefinedBehavior ub -> UB.ppSym proxySym ub
       BBPoison poison        -> Poison.pp poison
       BBSafe                 -> "A value that's always safe"

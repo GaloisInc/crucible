@@ -246,31 +246,6 @@ collapseAT sym leafToPred iteToPred = cataMAT
   (foldM (orPred sym) (falsePred sym))
   (\c -> itePred sym (iteToPred c))
 
-{-
-ppAssertionTree :: (IsExprBuilder sym) => sym -> AssertionTree sym -> Doc
-ppAssertionTree sym tree =
-  let (tree', _) = asConstAOI_ sym _pred tree
-  in
-    cataAOI
-      (\(lf, mb) -> text' (_explanation lf) <+> mbToText mb) -- TODO(langston): UB
-      (\factors ->
-         text' "All of "
-         <$$> indent 2 (vcat factors))
-      (\summands ->
-         text' "Any of "
-         <$$> indent 2 (vcat summands))
-      (\(cond, mb) doc1 doc2 ->
-         text' "If " <+> text' (_explanation cond) <+> mbToText mb <$$>
-         indent 2 (vcat [ "then " <+> doc1
-                        , "else " <+> doc2
-                        ]))
-      tree'
-  where mbToText (Just True)  = text "(known-true)"
-        mbToText (Just False) = text "(known-false)"
-        mbToText Nothing      = mempty
-        text' = text . unpack
--}
-
 ------------------------------------------------------------------------
 -- Merge
 
