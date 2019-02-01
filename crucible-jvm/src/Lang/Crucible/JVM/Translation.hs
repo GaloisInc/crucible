@@ -64,7 +64,6 @@ import qualified Language.JVM.CFG as J
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr as NR
-import qualified Data.Parameterized.Map as MapF
 
 
 -- crucible
