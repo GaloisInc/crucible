@@ -22,6 +22,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Lang.Crucible.LLVM.Extension.Safety.Poison
   ( Poison(..)
@@ -29,13 +30,15 @@ module Lang.Crucible.LLVM.Extension.Safety.Poison
   , pp
   ) where
 
+import           Data.Type.Equality (TestEquality(..))
+import qualified Data.Parameterized.TH.GADT as U
 import           Data.Kind (Type)
 import           Data.Text (unpack)
 import           Data.Typeable (Typeable)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import qualified What4.Interface as W4I
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
+import qualified What4.Interface as W4I
 
 -- | TODO(langston): Record type information for error messages
 data Poison (e :: W4I.BaseType -> Type) where
@@ -215,3 +218,14 @@ pp poison = vcat $
   ] ++ case stdURL (standard poison) of
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
+
+$(return [])
+
+instance TestEquality (Poison e) where
+  testEquality testSubterm =
+    $(U.structuralTypeEquality [t|Poison|]
+        [ ( U.DataArg 1 `U.TypeApp` U.AnyType
+          , [|testSubterm|]
+          )
+        ]
+     )
