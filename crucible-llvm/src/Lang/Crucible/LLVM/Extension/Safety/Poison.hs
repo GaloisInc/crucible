@@ -18,9 +18,11 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
 
@@ -30,12 +32,16 @@ module Lang.Crucible.LLVM.Extension.Safety.Poison
   , pp
   ) where
 
-import           Data.Type.Equality (TestEquality(..))
-import qualified Data.Parameterized.TH.GADT as U
 import           Data.Kind (Type)
 import           Data.Text (unpack)
+import           Data.Maybe (isJust)
 import           Data.Typeable (Typeable)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+
+import qualified Data.Parameterized.TraversableF as TF
+import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
+import qualified Data.Parameterized.TH.GADT as U
+import           Data.Parameterized.ClassesC (TestEqualityC(..))
 
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
 import qualified What4.Interface as W4I
@@ -221,11 +227,55 @@ pp poison = vcat $
 
 $(return [])
 
-instance TestEquality (Poison e) where
-  testEquality testSubterm =
-    $(U.structuralTypeEquality [t|Poison|]
-        [ ( U.DataArg 1 `U.TypeApp` U.AnyType
-          , [|testSubterm|]
-          )
-        ]
-     )
+instance TestEqualityC Poison where
+  testEqualityC testSubterm t1 t2 =
+    case (t1, t2) of
+      ( AddNoUnsignedWrap s1 s2, AddNoUnsignedWrap r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (AddNoSignedWrap s1 s2, AddNoSignedWrap r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (SubNoUnsignedWrap s1 s2, SubNoUnsignedWrap r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (SubNoSignedWrap s1 s2, SubNoSignedWrap r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (MulNoUnsignedWrap s1 s2, MulNoUnsignedWrap r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (MulNoSignedWrap s1 s2, MulNoSignedWrap r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (UDivExact s1 s2, UDivExact r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (SDivExact s1 s2, SDivExact r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (ShlOp2Big s1 s2, ShlOp2Big r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (ShlNoUnsignedWrap s1 s2, ShlNoUnsignedWrap r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (ShlNoSignedWrap s1 s2, ShlNoSignedWrap r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (LshrExact s1 s2, LshrExact r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (LshrOp2Big s1 s2, LshrOp2Big r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (AshrExact s1 s2, AshrExact r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (AshrOp2Big s1 s2, AshrOp2Big r1 r2) ->
+        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
+      (ExtractElementIndex s, ExtractElementIndex r) ->
+        isJust (testSubterm s r)
+      (InsertElementIndex s, InsertElementIndex r) ->
+        isJust (testSubterm s r)
+      (GEPOutOfBounds s, GEPOutOfBounds r) ->
+        isJust (testSubterm s r)
+      (_, _) -> False
+
+-- instance OrdF Poison where
+--   compareF = _
+
+instance FunctorF Poison where
+  fmapF = TF.fmapFDefault
+
+instance FoldableF Poison where
+  foldMapF = TF.foldMapFDefault
+
+instance TraversableF Poison where
+  traverseF = $(U.structuralTraversal [t|Poison|] [])
