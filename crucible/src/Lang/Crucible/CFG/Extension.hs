@@ -40,7 +40,7 @@ module Lang.Crucible.CFG.Extension
 ) where
 
 import           Data.Kind (Type)
-import           Data.Parameterized.Classes (OrdF)
+import           Data.Parameterized.ClassesC (OrdC)
 import           Data.Parameterized.TraversableF (TraversableF)
 import           Data.Parameterized.TraversableFC
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
@@ -87,7 +87,7 @@ class
    , PrettyApp (StmtExtension ext)
    , TypeApp (StmtExtension ext)
    --
-   , OrdF (SafetyAssertion ext)
+   , OrdC (SafetyAssertion ext)
    , TraversableF (SafetyAssertion ext)
    , HasSafetyAssertions ext
    ) =>

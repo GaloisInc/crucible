@@ -1,4 +1,5 @@
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeApplications #-}
 {- |
@@ -59,16 +60,19 @@ module Lang.Crucible.CFG.Expr
 
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
+import           Data.Coerce (coerce)
+import           Data.Functor.Compose (Compose(..))
 import           Data.Kind (Type)
 import           Data.Proxy (Proxy(..))
 import           Data.Text (Text)
 import           Data.Vector (Vector)
-import qualified Data.Vector as V
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
-import           Data.Functor.Compose (Compose(..))
+import qualified Data.Vector as V
 
 import           Data.Parameterized.Classes
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
+import           Data.Parameterized.Compose (testEqualityComposeBare)
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF
@@ -78,10 +82,11 @@ import           What4.Interface (RoundingMode(..))
 
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Extension.Safety
-import           Lang.Crucible.Types
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.PrettyPrint
 import qualified Lang.Crucible.Utils.Structural as U
+import           Unsafe.Coerce (unsafeCoerce)
 
 ------------------------------------------------------------------------
 -- BaseTerm
@@ -1241,6 +1246,7 @@ testVector testF x y = do
     Nothing -> Nothing
 
 compareVector :: forall f tp. (forall x y. f x -> f y -> OrderingF x y)
+
               -> Vector (f tp) -> Vector (f tp) -> OrderingF Int Int
 compareVector cmpF x y
     | V.length x < V.length y = LTF
@@ -1317,81 +1323,72 @@ traverseApp =
          `U.TypeApp` U.AnyType
        , [| traverseBaseTerm |]
        )
-     -- , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
-     --   , [| traverseF |]
-     --   )
      , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
          (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
-       , [| traverseSafetyAssertion (Proxy :: Proxy ext)
-            -- let
-            --   mkF :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
-            --       => (forall (u :: k). f u -> m (g u))
-            --       -> (forall (u :: j). Compose f h u -> m (Compose g h u))
-            --   mkF f (Compose v) = Compose <$> (f v)
-            --   t :: forall s (f :: k -> *) (g :: k -> *) (h :: l -> k) m.
-            --         ( TraversableF s
-            --         , Applicative m
-            --         )
-            --     => (forall (u :: k). f u -> m (g u))
-            --     -> s (Compose f h)
-            --     -> m (s (Compose g h))
-            --   t f v = traverseF (mkF f) v
-            -- in -- Instantiate @s@ as @SafetyAssertion ext@ and @h@ as @BaseToType@
-            --    -- TODO: are the above at all generally useful? an instance of anything?
-            --    t
-          |]
+       , [| traverseSafetyAssertion (Proxy :: Proxy ext) |]
        )
      ])
 
 ------------------------------------------------------------------------------
 -- Parameterized Eq and Ord instances
 
-instance ( TestEqualityFC (ExprExtension ext)
-         , TestEquality (SafetyAssertion ext)
-         ) => TestEqualityFC (App ext) where
-  testEqualityFC testSubterm
-      = $(U.structuralTypeEquality [t|App|]
-                   [ (U.DataArg 1                   `U.TypeApp` U.AnyType, [|testSubterm|])
-                   , (U.ConType [t|ExprExtension|] `U.TypeApp`
-                           U.DataArg 0 `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType,
-                       [|testEqualityFC testSubterm|]
-                     )
-                   , (U.ConType [t|NatRepr |]       `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|SymbolRepr |]    `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|TypeRepr|]       `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|BaseTypeRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|FloatInfoRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
-                         (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
-                     , [| testEqualityFC (testEqualityFC testSubterm) |]
-                     )
-                   , (U.ConType [t|Ctx.Assignment|] `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType
-                     , [| testEqualityFC testSubterm |]
-                     )
-                   , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType
-                     , [| testEquality |]
-                     )
-                   , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
-                   , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testFnHandle|])
-                   , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|testVector testSubterm|])
-                   -- , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp` U.DataArg 1
-                   --   , [| testEquality |]
-                   --   )
-                   , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
-                       (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
-                     , [| testEquality |]
-                     )
-                   ])
+compareComposeBare :: (forall x y. f x -> f y -> OrderingF x y)
+                   -> Compose f BaseToType x
+                   -> Compose f BaseToType y
+                   -> OrderingF (Compose f BaseToType) (Compose f BaseToType)
+compareComposeBare compareF_ (Compose x) (Compose y) =
+  case compareF_ x y of
+    LTF -> LTF
+    GTF -> GTF
+    EQF -> EQF
 
-instance (TestEqualityFC (ExprExtension ext)
-         , TestEquality (SafetyAssertion ext)
+instance ( TestEqualityFC (ExprExtension ext)
+         , TestEqualityC (SafetyAssertion ext)
+         ) => TestEqualityFC (App ext) where
+  testEqualityFC testSubterm =
+    $(U.structuralTypeEquality [t|App|]
+        [ (U.DataArg 1                   `U.TypeApp` U.AnyType, [|testSubterm|])
+        , (U.ConType [t|ExprExtension|] `U.TypeApp`
+                U.DataArg 0 `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType,
+            [|testEqualityFC testSubterm|]
+          )
+        , (U.ConType [t|NatRepr |]       `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|SymbolRepr |]    `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|TypeRepr|]       `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|BaseTypeRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|FloatInfoRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
+              (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
+          , [| testEqualityFC (testEqualityFC testSubterm) |]
+          )
+        , (U.ConType [t|Ctx.Assignment|] `U.TypeApp` U.DataArg 1 `U.TypeApp` U.AnyType
+          , [| testEqualityFC testSubterm |]
+          )
+        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType
+          , [| testEquality |]
+          )
+        , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testFnHandle|])
+        , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|testVector testSubterm|])
+        , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
+            (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
+          , [| \t1 t2 ->
+                if testEqualityC (testEqualityComposeBare testSubterm) t1 t2
+                then Just Refl
+                else Nothing
+            |]
+          )
+        ])
+
+instance ( TestEqualityFC (ExprExtension ext)
+         , TestEqualityC (SafetyAssertion ext)
          , TestEquality f
          ) => TestEquality (App ext f) where
   testEquality = testEqualityFC testEquality
 
 instance ( OrdFC (ExprExtension ext)
-         , OrdF (SafetyAssertion ext)
-         )=> OrdFC (App ext) where
+         , OrdC (SafetyAssertion ext)
+         ) => OrdFC (App ext) where
   compareFC compareSubterm
         = $(U.structuralTypeOrd [t|App|]
                    [ (U.DataArg 1            `U.TypeApp` U.AnyType, [|compareSubterm|])
@@ -1419,12 +1416,20 @@ instance ( OrdFC (ExprExtension ext)
                    , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|compareVector compareSubterm|])
                    , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
                        (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
-                     , [|compareF|]
+                     , [| \t1 t2 ->
+                           let promote = 
+                                 \case
+                                    LT -> LTF
+                                    EQ -> EQF
+                                    GT -> GTF
+                           in promote (compareC (compareComposeBare compareSubterm) t1 t2)
+                       |]
                      )
                    ]
                   )
+
 instance ( OrdFC (ExprExtension ext)
-         , OrdF (SafetyAssertion ext)
+         , OrdC (SafetyAssertion ext)
          , OrdF f
          ) => OrdF (App ext f) where
   compareF = compareFC compareF

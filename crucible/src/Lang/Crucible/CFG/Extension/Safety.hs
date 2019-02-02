@@ -37,6 +37,7 @@ import           Data.Type.Equality (TestEquality(..))
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Classes (EqF(..), OrdF(..), HashableF(..), ShowF(..))
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
 
@@ -83,12 +84,20 @@ class HasSafetyAssertions (ext :: Type) where
   treeToPredicate proxyExt sym =
     liftIO . W4P.collapseAT sym (toPredicate proxyExt sym) id
 
-  -- | Explain an assertion, including any relevant data.
+  -- | Offer a one-line summary of what the assertion is about
   explain     :: (IsExprBuilder sym, IsExpr (SymExpr sym))
               => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> SafetyAssertion ext (SymExpr sym)
               -> Doc
+
+  -- | Explain an assertion in detail, including all relevant data.
+  detail      :: (IsExprBuilder sym, IsExpr (SymExpr sym))
+              => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> SafetyAssertion ext (SymExpr sym)
+              -> Doc
+  detail = explain
 
   explainTree :: (IsExprBuilder sym, IsExpr (SymExpr sym))
               => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
@@ -97,7 +106,7 @@ class HasSafetyAssertions (ext :: Type) where
               -> Doc
   explainTree proxyExt proxySym =
     W4P.cataAT
-      (explain proxyExt proxySym)
+      (explain proxyExt proxySym) -- detail would be too much information
       (\factors ->
          "All of "
          <$$> indent 2 (vcat (toList factors)))
@@ -174,14 +183,16 @@ type instance SafetyAssertion () = EmptySafetyAssertion
 
 deriving instance Show (EmptySafetyAssertion ext)
 
-instance EqF          EmptySafetyAssertion where eqF _           = \case
-instance OrdF         EmptySafetyAssertion where compareF _      = \case
-instance HashableF    EmptySafetyAssertion where hashWithSaltF _ = \case
-instance ShowF        EmptySafetyAssertion where showsPrecF _    = \case
-instance FunctorF     EmptySafetyAssertion where fmapF _         = \case
-instance FoldableF    EmptySafetyAssertion where foldMapF _      = \case
-instance TraversableF EmptySafetyAssertion where traverseF _     = \case
-instance TestEquality EmptySafetyAssertion where testEquality _  = \case
+instance EqF           EmptySafetyAssertion where eqF _           = \case
+instance TestEqualityC EmptySafetyAssertion where testEqualityC _ = \case
+instance OrdC          EmptySafetyAssertion where compareC _      = \case
+instance OrdF          EmptySafetyAssertion where compareF _      = \case
+instance HashableF     EmptySafetyAssertion where hashWithSaltF _ = \case
+instance ShowF         EmptySafetyAssertion where showsPrecF _    = \case
+instance FunctorF      EmptySafetyAssertion where fmapF _         = \case
+instance FoldableF     EmptySafetyAssertion where foldMapF _      = \case
+instance TraversableF  EmptySafetyAssertion where traverseF _     = \case
+instance TestEquality  EmptySafetyAssertion where testEquality _  = \case
 
 instance HasSafetyAssertions () where
   explain _ _     = \case
