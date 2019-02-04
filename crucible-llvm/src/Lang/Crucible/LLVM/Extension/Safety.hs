@@ -51,8 +51,9 @@ import           What4.Partial
 
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.TH.GADT as U
-import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
+import           Data.Parameterized.TraversableFC (FunctorFC(..), FoldableFC(..), TraversableFC(..))
 
+import           Lang.Crucible.Types (CrucibleType, BaseToType)
 import           Lang.Crucible.LLVM.Extension.Arch (LLVMArch)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
@@ -67,36 +68,45 @@ data BadBehavior (e :: BaseType -> Type) =
   | BBSafe                                  -- ^ This value is always safe
   deriving (Generic, Typeable)
 
-data LLVMSafetyAssertion (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
-  LLVMSafetyAssertion
-    { _classifier :: BadBehavior e      -- ^ What could have gone wrong?
-    , _predicate  :: e W4I.BaseBoolType -- ^ Is the value safe/defined?
-    , _extra      :: Maybe Text         -- ^ Additional human-readable context
+data LLVMAssertionData (e :: W4I.BaseType -> Type) =
+  LLVMAssertionData
+    { _classifier :: BadBehavior e                -- ^ What could have gone wrong?
+    , _predicate  :: e W4I.BaseBoolType           -- ^ Is the value safe/defined?
+    , _extra      :: Maybe Text                   -- ^ Additional human-readable context
     }
   deriving (Generic, Typeable)
 
+data LLVMSafetyAssertion (arch :: LLVMArch)
+                         (e :: W4I.BaseType -> Type)
+                         (ty :: CrucibleType) =
+  LLVMSafetyAssertion
+    { _data  :: LLVMAssertionData e
+    , _value :: forall bt. (ty ~ BaseToType bt) => e bt
+    }
+  deriving (Typeable)
+
 $(return [])
 
-instance TestEqualityC (LLVMSafetyAssertion arch) where
-  testEqualityC testSubterm =
-    $(U.structuralTypeEquality [t|LLVMSafetyAssertion|]
-        [ ( U.ConType [t|BadBehavior|] `U.TypeApp` U.AnyType
-          , [|testEqualityC testSubterm|]
-          )
-        ]
-     )
+-- instance TestEqualityC (LLVMSafetyAssertion arch) where
+--   testEqualityC testSubterm = _
+--     $(U.structuralTypeEquality [t|LLVMSafetyAssertion|]
+--         [ ( U.ConType [t|BadBehavior|] `U.TypeApp` U.AnyType
+--           , [|testEqualityC testSubterm|]
+--           )
+--         ]
+--      )
 
-instance FunctorF (LLVMSafetyAssertion arch) where
-  fmapF _ _ = undefined
+instance FunctorFC (LLVMSafetyAssertion arch) where
+  fmapFC _ _ = undefined
 
-instance FoldableF (LLVMSafetyAssertion arch) where
-  foldMapF _ _ = undefined
+instance FoldableFC (LLVMSafetyAssertion arch) where
+  foldMapFC _ _ = undefined
 
-instance TraversableF (LLVMSafetyAssertion arch) where
-  traverseF _ _ = undefined
+instance TraversableFC (LLVMSafetyAssertion arch) where
+  traverseFC _ _ = undefined
 
-type LLVMAssertionTree (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
-  AssertionTree (e W4I.BaseBoolType) (LLVMSafetyAssertion arch e)
+-- type LLVMAssertionTree (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
+--   AssertionTree (e W4I.BaseBoolType) (LLVMSafetyAssertion arch e)
 
 -- -----------------------------------------------------------------------
 -- ** Constructors
@@ -107,13 +117,13 @@ type LLVMAssertionTree (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
 undefinedBehavior' :: UB.UndefinedBehavior e
                    -> e W4I.BaseBoolType
                    -> Text
-                   -> LLVMSafetyAssertion arch e
+                   -> LLVMSafetyAssertion arch e ty
 undefinedBehavior' ub pred expl =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred (Just expl)
 
 undefinedBehavior :: UB.UndefinedBehavior e
                   -> e W4I.BaseBoolType
-                  -> LLVMSafetyAssertion arch e
+                  -> LLVMSafetyAssertion arch e ty
 undefinedBehavior ub pred =
   LLVMSafetyAssertion (BBUndefinedBehavior ub) pred Nothing
 
@@ -121,12 +131,12 @@ undefinedBehavior ub pred =
 poison' :: Poison.Poison e
         -> e W4I.BaseBoolType
         -> Text
-        -> LLVMSafetyAssertion arch e
+        -> LLVMSafetyAssertion arch e ty
 poison' poison pred expl = LLVMSafetyAssertion (BBPoison poison) pred (Just expl)
 
 poison :: Poison.Poison e
        -> e W4I.BaseBoolType
-       -> LLVMSafetyAssertion arch e
+       -> LLVMSafetyAssertion arch e ty
 poison ub pred = LLVMSafetyAssertion (BBPoison ub) pred Nothing
 
 -- undefinedBehavior' :: UB.UndefinedBehavior (W4I.SymExpr sym)

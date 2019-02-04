@@ -630,8 +630,9 @@ appRegMap_extend = unsafeCoerce
 
 appRegMap_insert :: ( TraversableFC (C.ExprExtension ext)
                     , OrdFC (C.ExprExtension ext)
-                    , TraversableFC (C.SafetyAssertion ext)
-                    , OrdFC (C.SafetyAssertion ext)
+                    , TraversableF (C.AssertionClassifier ext)
+                    , MapF.EqF (C.AssertionClassifier ext) -- TODO: why??
+                    , MapF.OrdF (C.AssertionClassifier ext)
                     )
                  => C.App ext (C.Reg ctx) tp
                  -> C.Reg (ctx ::> tp) tp
@@ -640,7 +641,8 @@ appRegMap_insert :: ( TraversableFC (C.ExprExtension ext)
 appRegMap_insert k v m = MapF.insert (fmapFC C.extendReg k) v (appRegMap_extend m)
 
 appRegMap_lookup :: ( OrdFC (C.ExprExtension ext)
-                    , OrdFC (C.SafetyAssertion ext)
+                    , MapF.EqF (C.AssertionClassifier ext) -- TODO: why??
+                    , MapF.OrdF (C.AssertionClassifier ext)
                     )
                  => C.App ext (C.Reg ctx) tp
                  -> AppRegMap ext ctx

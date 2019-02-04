@@ -1,7 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE EmptyDataDeriving #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-|
 Module           : Lang.Crucible.CFG.Extension.Safety
 Copyright        : (c) Galois, Inc 2014-2016
@@ -9,53 +6,65 @@ License          : BSD3
 Maintainer       : Langston Barrett <langston@galois.com>
 
 Explainable, composable side conditions raised by operations in syntax
-extensions. These are used internally to syntax extensions.
+extensions.
 -}
 
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyCase #-}
-{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE EmptyDataDeriving #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilyDependencies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.CFG.Extension.Safety
-( SafetyAssertion
-, EmptySafetyAssertion
-, HasSafetyAssertions(..)
--- , assertSafe
-, traverseSafetyAssertion
+( AssertionClassifier
+, PartialExpr(..)
+, classifier
+, value
+, HasStructuredAssertions(..)
+, NoAssertionClassifier
 ) where
 
 import           Prelude hiding (pred)
 
 import           GHC.Generics (Generic)
 
+import           Control.Applicative ((<*))
+import           Control.Lens ((^.), (&), (%~))
+import           Control.Lens (Simple(..), Lens, lens)
+import           Control.Monad (guard, join)
 import           Control.Monad.IO.Class (MonadIO, liftIO)
--- import           Data.Foldable (toList)
+import           Data.Data (Data)
 import           Data.Functor.Compose (Compose(..))
 import           Data.Kind (Type)
-import           Data.Data (Data)
+import           Data.Maybe (isJust)
+import           Data.Type.Equality (TestEquality(..))
 import           Data.Typeable (Typeable)
--- import           Data.Type.Equality (TestEquality(..))
+import           Data.Void (Void)
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Data.Parameterized.TraversableFC
+import           Data.Parameterized.Classes
 import           Data.Parameterized.Compose ()
+import qualified Data.Parameterized.TH.GADT as U
+import           Data.Parameterized.TraversableF
+import           Data.Parameterized.TraversableFC
 
 import           Lang.Crucible.Backend (assert, IsSymInterface)
 import           Lang.Crucible.Simulator.SimError (SimErrorReason(..))
-import           Lang.Crucible.Types (CrucibleType, BaseToType)
+import           Lang.Crucible.Simulator.RegValue (RegValue')
+import           Lang.Crucible.Types
 
-import           What4.BaseTypes (BaseType)
 import           What4.Interface (SymExpr, IsExpr, IsExprBuilder, Pred, printSymExpr)
-import           What4.Partial (AssertionTree(..))
-import qualified What4.Partial as W4P
+import           What4.Partial (AssertionTree(..), eqAssertionTree, mapIte)
 
 -- -----------------------------------------------------------------------
 -- ** Safety assertions
@@ -64,11 +73,92 @@ import qualified What4.Partial as W4P
 -- of the syntax extension. For example, for the LLVM syntax extension, this type
 -- contains constructors for instances of undefined behavior.
 --
--- The parameter after @ext@ is frequently @'SymExpr' sym@
+-- The parameter after @ext@ is usually @'RegValue' sym@ or @'Expr' ext@
+type family AssertionClassifier (ext :: Type) :: (CrucibleType -> Type) -> Type
+
+type AssertionClassifierTree ext e =
+  AssertionTree (e BoolType) (AssertionClassifier ext e)
+
+-- | This is like What4's 'PartExpr', but significantly more structured. We can't
+-- reuse that datatype because we need a constraint in a constructor.
 --
--- The idea is that this type will wrap an underlying value that the assertions
--- apply to.
-type family SafetyAssertion (ext :: Type) :: (BaseType -> Type) -> (CrucibleType -> Type)
+-- Should only contain 'Nothing' if the assertion is constantly-false.
+data PartialExpr (ext :: Type)
+                 (e   :: CrucibleType -> Type)
+                 (bt  :: CrucibleType) =
+  PartialExpr
+    { _classifier :: AssertionClassifierTree ext e
+    , _value      :: Maybe (e bt)
+    }
+  deriving (Typeable)
+
+-- -----------------------------------------------------------------------
+-- *** Lenses
+
+classifier :: Simple Lens (PartialExpr ext e ty) (AssertionClassifierTree ext e)
+classifier = lens _classifier (\s v -> s { _classifier = v})
+
+value :: Simple Lens (PartialExpr ext e ty) (Maybe (e ty))
+value = lens _value (\s v -> s { _value = v })
+
+-- -----------------------------------------------------------------------
+-- *** Instances
+
+$(return [])
+
+-- instance EqF f => Eq (f a) where
+--   (==) = eqF
+
+instance ( EqF (AssertionClassifier ext)
+         )
+         => TestEqualityFC (PartialExpr ext) where
+  testEqualityFC :: forall f. (forall x y. f x -> f y -> (Maybe (x :~: y))) ->
+                              (forall x y. PartialExpr ext f x
+                                        -> PartialExpr ext f y
+                                        -> (Maybe (x :~: y)))
+  testEqualityFC subterms (PartialExpr class1 val1) (PartialExpr class2 val2) =
+    let justSubterms x y = isJust (subterms x y)
+    in join (subterms <$> val1 <*> val2) <*
+         guard (eqAssertionTree justSubterms eqF class1 class2)
+
+-- instance ( OrdF (AssertionClassifier ext)
+--          )
+--          => OrdFC (PartialExpr ext) where
+--   compareFC subterms =
+    -- $(U.structuralTypeOrd [t|PartialExpr|]
+    --    [ 
+    --    ]
+     -- )
+    -- case join (ordF <$> val1 <*> val2) of
+    --   EQF ->
+    --     case
+         -- guard (eqAssertionTree justSubterms eqF class1 class2)
+
+instance ( FunctorF (AssertionClassifier ext)
+         )
+         => FunctorFC (PartialExpr ext) where
+  fmapFC :: forall f g. (forall x. f x -> g x) ->
+                        (forall x. PartialExpr ext f x -> PartialExpr ext g x)
+  fmapFC trans v =
+    PartialExpr
+      (mapIte trans (fmap (fmapF trans) (v ^. classifier)))
+      (fmap trans (v ^. value))
+
+instance ( TraversableF (AssertionClassifier ext)
+         ) =>
+         FoldableFC (PartialExpr ext) where
+  foldMapFC = foldMapFCDefault
+
+instance ( TraversableF (AssertionClassifier ext)
+         ) =>
+         TraversableFC (PartialExpr ext) where
+  traverseFC :: forall f g m. Applicative m
+             => (forall x. f x -> m (g x))
+             -> (forall x. PartialExpr ext f x -> m (PartialExpr ext g x))
+  traverseFC traverseSubterm = undefined
+
+-- -----------------------------------------------------------------------
+-- ** HasStructuredAssertions
 
 -- | The two key operations on safety assertions are to collapse them into symbolic
 -- predicates which can be added to the proof obligations, and to explain to the
@@ -76,15 +166,11 @@ type family SafetyAssertion (ext :: Type) :: (BaseType -> Type) -> (CrucibleType
 --
 -- For the sake of consistency, such explanations should contain the word \"should\",
 -- e.g. \"the pointer should fall in a live allocation.\"
-class HasSafetyAssertions (ext :: Type) where
-  toValue :: proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
-          -> SafetyAssertion ext e (BaseToType baseTy)
-          -> e baseTy
-
+class HasStructuredAssertions (ext :: Type) where
   toPredicate :: (MonadIO io, IsExprBuilder sym, IsSymInterface sym)
               => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> sym
-              -> SafetyAssertion ext (SymExpr sym) ty
+              -> AssertionClassifierTree ext (RegValue' sym)
               -> io (Pred sym)
 
   -- -- | This is in this class because a given syntax extension might have a more
@@ -102,7 +188,7 @@ class HasSafetyAssertions (ext :: Type) where
   explain     :: (IsExprBuilder sym, IsExpr (SymExpr sym))
               => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
-              -> SafetyAssertion ext (SymExpr sym) baseTy
+              -> AssertionClassifierTree ext e
               -> Doc
 
   -- -- | Explain an assertion in detail, including all relevant data.
@@ -164,19 +250,19 @@ class HasSafetyAssertions (ext :: Type) where
 -- @'SafetyAssertion' ext (Compose (Expr ext s) 'BaseToType')@
 -- into the run-time
 -- @'SafetyAssertion' ext ('SymExpr' sym)@
-traverseSafetyAssertion :: forall ext f g baseTy proxy m.
-     (TraversableFC (SafetyAssertion ext), Applicative m)
-  => proxy ext
-  -> (forall (u :: CrucibleType). f u -> m (g u))
-  -> SafetyAssertion ext (Compose f BaseToType) baseTy
-  -> m (SafetyAssertion ext (Compose g BaseToType) baseTy)
-traverseSafetyAssertion _proxy f sa =
-  let mkF :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
-          => (forall (u :: k). f u -> m (g u))
-          -> (forall (u :: j). Compose f h u -> m (Compose g h u))
-      mkF f (Compose v) = Compose <$> (f v)
-  in -- Instantiate @s@ as @SafetyAssertion ext@ and @h@ as @BaseToType@
-     traverseFC (mkF f) sa
+-- traverseSafetyAssertion :: forall ext f g baseTy proxy m.
+--      (TraversableFC (SafetyAssertion ext), Applicative m)
+--   => proxy ext
+--   -> (forall (u :: CrucibleType). f u -> m (g u))
+--   -> SafetyAssertion ext (Compose f BaseToType) baseTy
+--   -> m (SafetyAssertion ext (Compose g BaseToType) baseTy)
+-- traverseSafetyAssertion _proxy f sa =
+--   let mkF :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
+--           => (forall (u :: k). f u -> m (g u))
+--           -> (forall (u :: j). Compose f h u -> m (Compose g h u))
+--       mkF f (Compose v) = Compose <$> (f v)
+--   in -- Instantiate @s@ as @SafetyAssertion ext@ and @h@ as @BaseToType@
+--      traverseFC (mkF f) sa
 
 {-
 traverseSafetyAssertion :: forall ext f g baseTy proxy m.
@@ -208,20 +294,27 @@ traverseSafetyAssertion _proxy =
 -- ** The empty safety assertion
 
 -- | The empty safety assertion extension, which adds no new possible assertions.
-data EmptySafetyAssertion :: (BaseType -> Type) -> (CrucibleType -> Type)
+data NoAssertionClassifier :: (CrucibleType -> Type) -> Type
   deriving (Data, Eq, Generic, Ord, Read, Show, Typeable)
 
-type instance SafetyAssertion () = EmptySafetyAssertion
+type instance AssertionClassifier () = NoAssertionClassifier
 
-instance TestEqualityFC EmptySafetyAssertion where testEqualityFC _ = \case
-instance OrdFC          EmptySafetyAssertion where compareFC _      = \case
-instance HashableFC     EmptySafetyAssertion where hashWithSaltFC _ = \case
-instance ShowFC         EmptySafetyAssertion where showsPrecFC _    = \case
-instance FunctorFC      EmptySafetyAssertion where fmapFC _         = \case
-instance FoldableFC     EmptySafetyAssertion where foldMapFC _      = \case
-instance TraversableFC  EmptySafetyAssertion where traverseFC _     = \case
+instance EqF           NoAssertionClassifier where eqF _           = \case
+instance OrdF          NoAssertionClassifier where compareF _      = \case
+instance HashableF     NoAssertionClassifier where hashWithSaltF _ = \case
+instance ShowF         NoAssertionClassifier where showsPrecF _    = \case
+instance FunctorF      NoAssertionClassifier where fmapF _         = \case
+instance FoldableF     NoAssertionClassifier where foldMapF _      = \case
+instance TraversableF  NoAssertionClassifier where traverseF _     = \case
+instance TestEquality  NoAssertionClassifier where testEquality _  = \case
 
-instance HasSafetyAssertions () where
-  explain _ _     = \case
-  toPredicate _ _ = \case
-  toValue _       = \case
+absurdTree :: (v -> Void)
+           -> AssertionTree x v
+           -> a
+absurdTree = undefined
+
+instance HasStructuredAssertions () where
+  explain _ _     = absurdTree (\case)
+  toPredicate _ _ = absurdTree (\case)
+  -- toValue _       = \case
+

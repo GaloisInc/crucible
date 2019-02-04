@@ -256,8 +256,8 @@ type EvalAppFunc sym app = forall f.
 -- | Evaluate the application.
 evalApp :: forall sym ext.
            ( IsSymInterface sym
-           , HasSafetyAssertions ext
-           , TraversableFC (SafetyAssertion ext)
+           , HasStructuredAssertions ext
+           , TraversableFC (PartialExpr ext)
            )
         => sym
         -> IntrinsicTypes sym
@@ -438,6 +438,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       evalSub expr
   -}
 
+  {-
     AddSafetyAssertion tyRep assertion -> do
       let proxy = Proxy :: Proxy ext
 
@@ -462,6 +463,15 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
 
       where panic = error
 
+  -}
+    WithAssertion tyRep (PartialExpr assertions value) ->
+      case value of
+        Nothing  ->
+          let msg = "TODO"
+          in addFailedAssertion sym (AssertFailureSimError msg)
+        Just val ->
+          -- TODO: make an assertion
+          evalSub val
 
     ----------------------------------------------------------------------
     -- Recursive Types
