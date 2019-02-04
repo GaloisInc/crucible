@@ -36,16 +36,17 @@ import           Prelude hiding (pred)
 import           GHC.Generics (Generic)
 
 import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.Foldable (toList)
+-- import           Data.Foldable (toList)
 import           Data.Functor.Compose (Compose(..))
 import           Data.Kind (Type)
 import           Data.Data (Data)
 import           Data.Typeable (Typeable)
-import           Data.Type.Equality (TestEquality(..))
+-- import           Data.Type.Equality (TestEquality(..))
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.TraversableFC
+import           Data.Parameterized.Compose ()
 
 import           Lang.Crucible.Backend (assert, IsSymInterface)
 import           Lang.Crucible.Simulator.SimError (SimErrorReason(..))
@@ -80,11 +81,11 @@ class HasSafetyAssertions (ext :: Type) where
           -> SafetyAssertion ext e (BaseToType baseTy)
           -> e baseTy
 
-  toPredicate :: (IsExprBuilder sym, IsSymInterface sym)
+  toPredicate :: (MonadIO io, IsExprBuilder sym, IsSymInterface sym)
               => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> sym
               -> SafetyAssertion ext (SymExpr sym) ty
-              -> Pred sym
+              -> io (Pred sym)
 
   -- -- | This is in this class because a given syntax extension might have a more
   -- -- efficient implementation, e.g. by realizing that one part of an 'And'
@@ -157,10 +158,6 @@ class HasSafetyAssertions (ext :: Type) where
 -- -----------------------------------------------------------------------
 -- ** Utilities
 
--- _ :: (f u0 -> m (g u0))
---   -> SafetyAssertion ext (Compose f BaseToType) bt
---   -> m (SafetyAssertion ext (Compose g BaseToType) bt)
-
 -- | Change the underlying type family of kind @CrucibleType -> Type@
 --
 -- This is used e.g. to trnasform the translation-time
@@ -227,3 +224,4 @@ instance TraversableFC  EmptySafetyAssertion where traverseFC _     = \case
 instance HasSafetyAssertions () where
   explain _ _     = \case
   toPredicate _ _ = \case
+  toValue _       = \case

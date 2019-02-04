@@ -173,12 +173,12 @@ ppAssignment :: Assignment (Reg ctx) args -> [Doc]
 ppAssignment = toListFC pretty
 
 instance ( TraversableFC (ExprExtension ext)
-         , TraversableF (SafetyAssertion ext)
+         , TraversableFC (SafetyAssertion ext)
          ) => ApplyEmbedding' (Expr ext) where
   applyEmbedding' ctxe (App e) = App (mapApp (applyEmbedding' ctxe) e)
 
 instance ( TraversableFC (ExprExtension ext)
-         , TraversableF (SafetyAssertion ext)
+         , TraversableFC (SafetyAssertion ext)
          ) => ExtendContext' (Expr ext) where
   extendContext' diff (App e) = App (mapApp (extendContext' diff) e)
 

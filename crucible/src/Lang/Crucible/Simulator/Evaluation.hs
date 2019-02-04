@@ -1,4 +1,4 @@
-------------------------------------------------------------------------
+-----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Simulator.Evaluation
 -- Description      : Evaluation functions for Crucible core expressions
@@ -33,17 +33,18 @@ module Lang.Crucible.Simulator.Evaluation
   , updateVectorWithSymNat
   ) where
 
+import           Prelude hiding (pred)
+
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import           Data.Functor.Compose (Compose(..))
-import           Data.Proxy (Proxy(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
-import           Data.Parameterized.TraversableF
+import           Data.Proxy (Proxy(..))
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word
@@ -59,7 +60,7 @@ import           What4.WordMap
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
-import           Lang.Crucible.CFG.Extension.Safety
+import           Lang.Crucible.CFG.Extension.Safety as Safety
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
@@ -256,7 +257,7 @@ type EvalAppFunc sym app = forall f.
 evalApp :: forall sym ext.
            ( IsSymInterface sym
            , HasSafetyAssertions ext
-           , TraversableF (SafetyAssertion ext)
+           , TraversableFC (SafetyAssertion ext)
            )
         => sym
         -> IntrinsicTypes sym
@@ -422,6 +423,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ----------------------------------------------------------------------
     -- Side conditions
 
+  {-
     AddSideCondition _baseTyRep assertion expr -> do
       let evalSub' :: forall tp. f tp -> IO (RegValue' sym tp)
           evalSub' e = RV <$> evalSub e
@@ -434,6 +436,32 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       addAssertionM sym (pure (toPredicate (Proxy :: Proxy ext) sym pred_))
                         (AssertFailureSimError "TODO")
       evalSub expr
+  -}
+
+    AddSafetyAssertion tyRep assertion -> do
+      let proxy = Proxy :: Proxy ext
+
+      case asBaseType tyRep of
+        NotBaseType          -> panic "eval" [ "Not a base type"
+                                             , show tyRep
+                                             ]
+        AsBaseType _ -> do
+          let (Compose v) = Safety.toValue proxy assertion
+          let evalSub' :: forall tp. f tp -> IO (RegValue' sym tp)
+              evalSub' e = RV <$> evalSub e
+
+          -- Evaluate any subexpressions and massage the type parameter into
+          -- @'SymExpr' sym@. This works because
+          -- @RegValue sym (BaseToType BaseBoolType) = SymExpr sym BaseBoolType@
+          pred0 <-
+            traverseSafetyAssertion proxy evalSub' assertion
+          let pred = fmapFC (unRV . getCompose) pred0
+          addAssertionM sym (toPredicate proxy sym pred)
+                            (AssertFailureSimError "TODO")
+          evalSub v
+
+      where panic = error
+
 
     ----------------------------------------------------------------------
     -- Recursive Types

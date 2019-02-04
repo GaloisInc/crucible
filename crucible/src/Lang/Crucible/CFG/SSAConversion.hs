@@ -37,7 +37,6 @@ import qualified Data.Foldable as Fold
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (isJust, fromMaybe)
-import           Data.Parameterized.ClassesC (OrdC)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableF (TraversableF)
@@ -631,8 +630,8 @@ appRegMap_extend = unsafeCoerce
 
 appRegMap_insert :: ( TraversableFC (C.ExprExtension ext)
                     , OrdFC (C.ExprExtension ext)
-                    , TraversableF (C.SafetyAssertion ext)
-                    , OrdC (C.SafetyAssertion ext)
+                    , TraversableFC (C.SafetyAssertion ext)
+                    , OrdFC (C.SafetyAssertion ext)
                     )
                  => C.App ext (C.Reg ctx) tp
                  -> C.Reg (ctx ::> tp) tp
@@ -641,7 +640,7 @@ appRegMap_insert :: ( TraversableFC (C.ExprExtension ext)
 appRegMap_insert k v m = MapF.insert (fmapFC C.extendReg k) v (appRegMap_extend m)
 
 appRegMap_lookup :: ( OrdFC (C.ExprExtension ext)
-                    , OrdC (C.SafetyAssertion ext)
+                    , OrdFC (C.SafetyAssertion ext)
                     )
                  => C.App ext (C.Reg ctx) tp
                  -> AppRegMap ext ctx

@@ -478,9 +478,9 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   ----------------------------------------------------------------------
   -- Side conditions
 
-  AddSideCondition :: BaseTypeRepr bt
-                   -> !(SafetyAssertion ext (Compose f BaseToType) (BaseToType bt))
-                   -> App ext f (BaseToType bt)
+  AddSafetyAssertion :: !(TypeRepr tp)
+                     -> !(SafetyAssertion ext (Compose f BaseToType) tp)
+                     -> App ext f tp
 
   ----------------------------------------------------------------------
   -- Recursive Types
@@ -1083,7 +1083,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
 
     ----------------------------------------------------------------------
     -- Side conditions
-    AddSideCondition tp _ -> baseToType tp
+    AddSafetyAssertion tp _ -> tp
 
     ----------------------------------------------------------------------
     -- Recursive Types
@@ -1332,16 +1332,6 @@ traverseApp =
 ------------------------------------------------------------------------------
 -- Parameterized Eq and Ord instances
 
-compareComposeBare :: (forall x y. f x -> f y -> OrderingF x y)
-                   -> Compose f BaseToType x
-                   -> Compose f BaseToType y
-                   -> OrderingF (Compose f BaseToType) (Compose f BaseToType)
-compareComposeBare compareF_ (Compose x) (Compose y) =
-  case compareF_ x y of
-    LTF -> LTF
-    GTF -> GTF
-    EQF -> EQF
-
 instance ( TestEqualityFC (ExprExtension ext)
          , TestEqualityFC (SafetyAssertion ext)
          ) => TestEqualityFC (App ext) where
@@ -1373,13 +1363,9 @@ instance ( TestEqualityFC (ExprExtension ext)
         , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType
                                            `U.TypeApp` U.AnyType
                                            `U.TypeApp` U.AnyType
-          , [| _ |]
+          , [| testEqualityFC (testEqualityComposeBare testSubterm) |]
           )
         ])
-_ :: SafetyAssertion ext (Compose f BaseToType) (BaseToType bt)
-  -> SafetyAssertion ext (Compose f BaseToType) (BaseToType bt)
-  -> Maybe (a0 :~: b0)
-
 
 instance ( TestEqualityFC (ExprExtension ext)
          , TestEqualityFC (SafetyAssertion ext)
@@ -1418,7 +1404,7 @@ instance ( OrdFC (ExprExtension ext)
                    , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType
                                                       `U.TypeApp` U.AnyType
                                                       `U.TypeApp` U.AnyType
-                     , [| compareFC compareSubterm |]
+                     , [| compareFC (ordFCompose compareSubterm) |]
                      )
                    ]
                   )
