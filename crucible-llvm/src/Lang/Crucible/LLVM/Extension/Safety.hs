@@ -45,22 +45,17 @@ import           Data.Type.Equality (TestEquality(..))
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 
-import           Lang.Crucible.CFG.Extension.Safety
 import           What4.BaseTypes (BaseType)
-import           What4.Interface (Pred, IsExprBuilder)
 import qualified What4.Interface as W4I
 import           What4.Partial
 
-import           Data.Parameterized.Classes (OrdF(..))
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
 
 import           Lang.Crucible.LLVM.Extension.Arch (LLVMArch)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefValue as UV
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
--- import qualified Lang.Crucible.LLVM.MemModel.Value as Value
-import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 
 -- | Combine the three types of bad behaviors
 --
@@ -80,18 +75,16 @@ data LLVMSafetyAssertion (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
     }
   deriving (Generic, Typeable)
 
-instance TestEquality (LLVMSafetyAssertion arch) where
-  testEquality testSubterm = undefined
--- instance TestEqualityFC (LLVMExtensionExpr arch) where
---   testEqualityFC testSubterm =
---     $(U.structuralTypeEquality [t|LLVMExtensionExpr|]
---        [ (U.DataArg 1 `U.TypeApp` U.AnyType, [|testSubterm|])
---        , (U.ConType [t|NatRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
---        , (U.ConType [t|X86.ExtX86|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEqualityFC testSubterm|])
---        ])
+$(return [])
 
-instance OrdF (LLVMSafetyAssertion arch) where
-  compareF _ _ = undefined
+instance TestEqualityC (LLVMSafetyAssertion arch) where
+  testEqualityC testSubterm =
+    $(U.structuralTypeEquality [t|LLVMSafetyAssertion|]
+        [ ( U.ConType [t|BadBehavior|] `U.TypeApp` U.AnyType
+          , [|testEqualityC testSubterm|]
+          )
+        ]
+     )
 
 instance FunctorF (LLVMSafetyAssertion arch) where
   fmapF _ _ = undefined

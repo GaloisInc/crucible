@@ -27,10 +27,13 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   (
@@ -58,7 +61,14 @@ import           Data.Functor.Contravariant (Predicate(..))
 import           Data.Maybe (fromMaybe)
 import           Data.Typeable (Typeable)
 import           Data.Text (unpack)
+import           Data.Type.Equality
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+-- import           Data.Type.Equality (TestEquality(..))
+
+import qualified Data.Parameterized.TraversableF as TF
+import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
+import qualified Data.Parameterized.TH.GADT as U
+import           Data.Parameterized.Classes (OrdF(..))
 
 import qualified What4.Interface as W4I
 
@@ -80,6 +90,9 @@ data PtrComparisonOperator =
 ppPtrComparison :: PtrComparisonOperator -> Doc
 ppPtrComparison Eq  = text "Equality comparison (==)"
 ppPtrComparison Leq = text "Ordering comparison (<=)"
+
+data PtrExpr e where
+  PtrExpr :: e W4I.BaseNatType -> e (W4I.BaseBVType w) -> PtrExpr e
 
 -- | This type is parameterized on a higher-kinded term constructor so that it
 -- can be instantiated for expressions at translation time (i.e. the 'Expr' in
@@ -135,11 +148,10 @@ data UndefinedBehavior (e :: W4I.BaseType -> Type) where
                         -> LLVMPtr sym w
                         -> UndefinedBehavior (W4I.SymExpr sym)
 
-  PointerCast :: proxy sym        -- ^ (Eliminate ambiguous type error)
-              -> W4I.SymNat sym   -- ^ Pointer's allocation number
-              -> W4I.SymBV sym w
-              -> StorageTypeF ()  -- ^ Type being cast to
-              -> UndefinedBehavior (W4I.SymExpr sym)
+  PointerCast :: e (W4I.BaseNatType)   -- ^ Pointer's allocation number
+              -> e (W4I.BaseBVType w)  -- ^ Offset
+              -> StorageTypeF ()       -- ^ Type being cast to
+              -> UndefinedBehavior e
 
   -- | "One of the following shall hold: [...] one operand is a pointer and the
   -- other is a null pointer constant."
@@ -189,7 +201,7 @@ standard =
     CompareDifferentAllocs _ _  -> CStd C99
     PtrSubDifferentAllocs _ _   -> CStd C99
     ComparePointerToBV _ _      -> CStd C99
-    PointerCast _ _ _ _         -> CStd C99
+    PointerCast _ _ _           -> CStd C99
 
     -------------------------------- LLVM: arithmetic
 
@@ -227,7 +239,7 @@ cite = text .
     CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
     PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
     ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
-    PointerCast _ _ _ _         -> "TODO"
+    PointerCast _ _ _           -> "TODO"
 
     -------------------------------- LLVM: arithmetic
 
@@ -286,7 +298,7 @@ explain =
       "Subtraction of pointers from different allocations"
     ComparePointerToBV _ _ ->
       "Comparison of a pointer to a non zero (null) integer value"
-    PointerCast _ _ _ _ ->
+    PointerCast _ _ _   ->
       "Cast of a pointer to a non-integer type"
 
     -------------------------------- LLVM: arithmetic
@@ -365,7 +377,7 @@ detailsSym proxySym =
       [ "Pointer:  " <+> W4I.printSymExpr ptr
       , "Bitvector:" <+> W4I.printSymExpr bv
       ]
-    PointerCast _proxySym allocNum offset castToType ->
+    PointerCast allocNum offset castToType ->
       [ "Allocation number:" <+> W4I.printSymExpr allocNum
       , "Offset:           " <+> W4I.printSymExpr offset
       , "Cast to:          " <+> text (show castToType)
@@ -449,3 +461,48 @@ laxConfig = Predicate $ const False
 -- | For use in ViewPatterns.
 defaultStrict :: Maybe (Config e) -> Config e
 defaultStrict = fromMaybe strictConfig
+
+-- -----------------------------------------------------------------------
+-- ** Instances
+
+$(return [])
+
+instance FunctorF UndefinedBehavior where
+  fmapF = TF.fmapFDefault
+
+instance FoldableF UndefinedBehavior where
+  foldMapF = TF.foldMapFDefault
+
+instance TraversableF UndefinedBehavior where
+  traverseF :: Applicative m
+            => (forall s. e s -> m (f s))
+            -> UndefinedBehavior e
+            -> m (UndefinedBehavior f)
+  traverseF traverseSubterm = undefined
+    -- \case
+      -------------------------------- Memory management
+
+      -- FreeBadOffset ptr         -> _
+      --   -- FreeBadOffset <$> traverseSubterm ptr
+      -- FreeUnallocated _         -> _
+      -- MemsetInvalidRegion _ _ _ -> _
+      -- ReadBadAlignment _ _      -> _
+      -- ReadUnallocated _         -> _
+
+      -------------------------------- Pointer arithmetic
+
+      -- PtrAddOffsetOutOfBounds _ _ -> _
+      -- CompareInvalidPointer _ _ _ -> _
+      -- CompareDifferentAllocs _ _  -> _
+      -- PtrSubDifferentAllocs _ _   -> _
+      -- ComparePointerToBV _ _      -> _
+      -- PointerCast _ _ _         -> PointerCast _ _ _
+
+      -------------------------------- LLVM: arithmetic
+
+      -- UDivByZero _     -> _
+      -- SDivByZero _     -> _
+      -- URemByZero _     -> _
+      -- SRemByZero _     -> _
+      -- SDivOverflow _ _ -> _
+      -- SRemOverflow _ _ -> _

@@ -1,7 +1,3 @@
-{-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE TypeApplications #-}
 {- |
 Module           : Lang.Crucible.CFG.Expr
 Description      : Expression syntax definitions
@@ -16,15 +12,20 @@ and for the core SSA-form CFGs ("Lang.Crucible.CFG.Core").
 
 Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluation".
 -}
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -60,7 +61,6 @@ module Lang.Crucible.CFG.Expr
 
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
-import           Data.Coerce (coerce)
 import           Data.Functor.Compose (Compose(..))
 import           Data.Kind (Type)
 import           Data.Proxy (Proxy(..))
@@ -70,9 +70,8 @@ import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Data.Vector as V
 
-import           Data.Parameterized.Classes
-import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Compose (testEqualityComposeBare)
+import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF
@@ -86,7 +85,6 @@ import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.PrettyPrint
 import qualified Lang.Crucible.Utils.Structural as U
-import           Unsafe.Coerce (unsafeCoerce)
 
 ------------------------------------------------------------------------
 -- BaseTerm
@@ -481,8 +479,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Side conditions
 
   AddSideCondition :: BaseTypeRepr bt
-                   -> !(SafetyAssertion ext (Compose f BaseToType))
-                   -> !(f (BaseToType bt))
+                   -> !(SafetyAssertion ext (Compose f BaseToType) (BaseToType bt))
                    -> App ext f (BaseToType bt)
 
   ----------------------------------------------------------------------
@@ -1086,7 +1083,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
 
     ----------------------------------------------------------------------
     -- Side conditions
-    AddSideCondition tp _ _ -> baseToType tp
+    AddSideCondition tp _ -> baseToType tp
 
     ----------------------------------------------------------------------
     -- Recursive Types
@@ -1285,7 +1282,9 @@ instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
           , ( U.ConType [t|Vector|] `U.TypeApp` U.AnyType
             , [| \pp v -> brackets (commas (fmap pp v)) |]
             )
-          , (U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
+          , (U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType
+                                            `U.TypeApp` U.AnyType
+                                            `U.TypeApp` U.AnyType
             , [| \pp v -> text "<TODO: safety assertion>" |]
             )
           ])
@@ -1303,7 +1302,7 @@ traverseBaseTerm f = traverseFC (traverseFC f)
 -- subterm of an application. Used for the 'TraversableFC' instance.
 traverseApp :: forall ext m f g tp.
                ( TraversableFC (ExprExtension ext)
-               , TraversableF (SafetyAssertion ext)
+               , TraversableFC (SafetyAssertion ext)
                , Applicative m
                )
             => (forall u . f u -> m (g u))
@@ -1323,8 +1322,9 @@ traverseApp =
          `U.TypeApp` U.AnyType
        , [| traverseBaseTerm |]
        )
-     , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
-         (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
+     , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType
+                                        `U.TypeApp` U.AnyType
+                                        `U.TypeApp` U.AnyType
        , [| traverseSafetyAssertion (Proxy :: Proxy ext) |]
        )
      ])
@@ -1343,7 +1343,7 @@ compareComposeBare compareF_ (Compose x) (Compose y) =
     EQF -> EQF
 
 instance ( TestEqualityFC (ExprExtension ext)
-         , TestEqualityC (SafetyAssertion ext)
+         , TestEqualityFC (SafetyAssertion ext)
          ) => TestEqualityFC (App ext) where
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|App|]
@@ -1370,24 +1370,25 @@ instance ( TestEqualityFC (ExprExtension ext)
         , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|testFnHandle|])
         , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|testVector testSubterm|])
-        , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
-            (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
-          , [| \t1 t2 ->
-                if testEqualityC (testEqualityComposeBare testSubterm) t1 t2
-                then Just Refl
-                else Nothing
-            |]
+        , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType
+                                           `U.TypeApp` U.AnyType
+                                           `U.TypeApp` U.AnyType
+          , [| _ |]
           )
         ])
+_ :: SafetyAssertion ext (Compose f BaseToType) (BaseToType bt)
+  -> SafetyAssertion ext (Compose f BaseToType) (BaseToType bt)
+  -> Maybe (a0 :~: b0)
+
 
 instance ( TestEqualityFC (ExprExtension ext)
-         , TestEqualityC (SafetyAssertion ext)
+         , TestEqualityFC (SafetyAssertion ext)
          , TestEquality f
          ) => TestEquality (App ext f) where
   testEquality = testEqualityFC testEquality
 
 instance ( OrdFC (ExprExtension ext)
-         , OrdC (SafetyAssertion ext)
+         , OrdFC (SafetyAssertion ext)
          ) => OrdFC (App ext) where
   compareFC compareSubterm
         = $(U.structuralTypeOrd [t|App|]
@@ -1414,22 +1415,16 @@ instance ( OrdFC (ExprExtension ext)
                    , (U.ConType [t|Ctx.Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|FnHandle|]  `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareFnHandle|])
                    , (U.ConType [t|Vector|]    `U.TypeApp` U.AnyType, [|compareVector compareSubterm|])
-                   , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType `U.TypeApp`
-                       (U.ConType [t|Compose|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType)
-                     , [| \t1 t2 ->
-                           let promote = 
-                                 \case
-                                    LT -> LTF
-                                    EQ -> EQF
-                                    GT -> GTF
-                           in promote (compareC (compareComposeBare compareSubterm) t1 t2)
-                       |]
+                   , ( U.ConType [t|SafetyAssertion|] `U.TypeApp` U.AnyType
+                                                      `U.TypeApp` U.AnyType
+                                                      `U.TypeApp` U.AnyType
+                     , [| compareFC compareSubterm |]
                      )
                    ]
                   )
 
 instance ( OrdFC (ExprExtension ext)
-         , OrdC (SafetyAssertion ext)
+         , OrdFC (SafetyAssertion ext)
          , OrdF f
          ) => OrdF (App ext f) where
   compareF = compareFC compareF
@@ -1438,23 +1433,23 @@ instance ( OrdFC (ExprExtension ext)
 -- Traversals and such
 
 instance ( TraversableFC (ExprExtension ext)
-         , TraversableF (SafetyAssertion ext)
+         , TraversableFC (SafetyAssertion ext)
          ) => FunctorFC (App ext) where
   fmapFC = fmapFCDefault
 
 instance ( TraversableFC (ExprExtension ext)
-         , TraversableF (SafetyAssertion ext)
+         , TraversableFC (SafetyAssertion ext)
          ) => FoldableFC (App ext) where
   foldMapFC = foldMapFCDefault
 
 instance ( TraversableFC (ExprExtension ext)
-         , TraversableF (SafetyAssertion ext)
+         , TraversableFC (SafetyAssertion ext)
          ) => TraversableFC (App ext) where
   traverseFC = traverseApp
 
 -- | Fold over an application.
 foldApp :: ( TraversableFC (ExprExtension ext)
-           , TraversableF (SafetyAssertion ext)
+           , TraversableFC (SafetyAssertion ext)
            )
         => (forall x . f x -> r -> r)
         -> r
@@ -1466,7 +1461,7 @@ foldApp f0 r0 a = execState (traverseApp (go f0) a) r0
 -- | Map a Crucible-type-preserving function over the immediate
 -- subterms of an application.
 mapApp :: ( TraversableFC (ExprExtension ext)
-          , TraversableF (SafetyAssertion ext)
+          , TraversableFC (SafetyAssertion ext)
           )
        => (forall u . f u -> g u) -> App ext f tp -> App ext g tp
 mapApp f a = runIdentity (traverseApp (pure . f) a)
