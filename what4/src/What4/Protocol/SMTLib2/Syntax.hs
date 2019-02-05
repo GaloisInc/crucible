@@ -546,19 +546,19 @@ extract i j x
     let e = "(_ extract " <> Builder.decimal i <> " " <> Builder.decimal j <> ")"
      in un_app e x
 
--- | Complement bits in term.
+-- | Bitwise negation of term.
 bvnot :: Term -> Term
 bvnot = un_app "bvnot"
 
--- | Take conjunction of corresponding bits in terms.
+-- | Bitwise and of all arguments.
 bvand :: Term -> [Term] -> Term
 bvand = assoc_app "bvand"
 
--- | Take disjunction of corresponding bits in terms.
+-- | Bitwise include or of all arguments.
 bvor :: Term -> [Term] -> Term
 bvor = assoc_app "bvor"
 
--- | Bitvector exclusive or (must have at least one argument.
+-- | Bitvector exclusive or of all arguments.
 bvxor :: Term -> [Term] -> Term
 bvxor = assoc_app "bvxor"
 
