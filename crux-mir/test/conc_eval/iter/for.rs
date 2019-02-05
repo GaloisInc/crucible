@@ -1,3 +1,4 @@
+// FAILS: returns 2 instead of 47
 fn f (y : u32) -> u32 {
     let mut x = y;
     for k in 0 .. 10 {

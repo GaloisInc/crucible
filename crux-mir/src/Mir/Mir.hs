@@ -748,31 +748,21 @@ data ArithType = Signed | Unsigned
 
 class ArithTyped a where
     arithType :: a -> Maybe ArithType
-
-instance ArithTyped Ty where
-    arithType (TyInt _) = Just Signed
-    arithType (TyUint _) = Just Unsigned
-    arithType _ = Nothing
-
-instance ArithTyped Var where
-    arithType (Var _ _ ty _ _) = arithType ty
-
-instance ArithTyped Lvalue where
-    arithType (Local var) = arithType var
-    arithType Static = Nothing
-    arithType (LProjection (LvalueProjection _a (PField _f ty))) = arithType ty
-    arithType _ = error "unimpl arithtype"
-
-instance ArithTyped Operand where
-    arithType (Move lv) = arithType lv
-    arithType (Copy lv) = arithType lv
-    arithType (OpConstant (Constant ty _)) = arithType ty
+instance TypeOf a => ArithTyped a where
+    arithType a =
+      case typeOf a of
+        (TyInt _) -> Just Signed
+        (TyUint _ ) -> Just Unsigned
+        _  -> Nothing
 
 --------------------------------------------------------------------------------------
 -- | TypeOf
 
 class TypeOf a where
     typeOf :: a -> Ty
+
+instance TypeOf Ty where
+    typeOf ty = ty
 
 instance TypeOf Var where
     typeOf (Var _ _ t _ _) = t

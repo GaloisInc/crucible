@@ -336,7 +336,7 @@ parseConst ty v = do
     TyStr      -> ConstStr   <$> parseJSON v
     TyFnDef d ps -> pure $ ConstFunction d ps   -- TODO : don't need v?
     TyTuple ts   -> ConstTuple <$> parseConsts ts v
-    TyArray t n  -> ConstArray <$> parseConsts (replicate n t) v
+    TyArray t n  -> ConstArray <$> parseConsts (replicate n t)  v
     r            -> fail $ "TODO: don't know how to parse literals of type " ++ show r
 
 
@@ -373,8 +373,16 @@ parseChar = withText "Char" $ \t -> fail $ "Don't know how to parse Text " ++ T.
 parseString :: Value -> Aeson.Parser String
 parseString = withText "String" (pure . T.unpack)
 
+parseArray :: Ty -> Value -> Aeson.Parser [ConstVal]
+parseArray ty = withArray "expecting array"
+  (\array -> V.foldM go [] array) where
+     go :: [ConstVal] -> Value -> Aeson.Parser [ConstVal]
+     go vals val = do
+       v <- parseConst ty val
+       return (v : vals)
+
 parseConsts :: [Ty] -> Value -> Aeson.Parser [ConstVal]
-parseConsts _tys _v = fail "TODO: parse consts"
+parseConsts tys v = fail $ "TODO: parse consts " ++ show v
 
 
 

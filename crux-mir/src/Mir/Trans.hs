@@ -182,8 +182,13 @@ variantToRepr :: HasCallStack => M.Variant -> Substs -> Some CT.CtxRepr
 variantToRepr (M.Variant _vn _vd vfs _vct) args = 
     tyListToCtx (map fieldToRepr (map (substField args) vfs)) $ \repr -> Some repr
 
+
+taggedUnionCtx :: Ctx.Assignment CT.TypeRepr
+                          ((Ctx.EmptyCtx Ctx.::> CT.NatType) Ctx.::> CT.AnyType)
+taggedUnionCtx = Ctx.empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr
+
 taggedUnionType :: CT.TypeRepr TaggedUnion
-taggedUnionType = CT.StructRepr $ Ctx.empty Ctx.:> CT.NatRepr Ctx.:> CT.AnyRepr
+taggedUnionType = CT.StructRepr $ taggedUnionCtx
 
 
 
@@ -446,15 +451,35 @@ extendToMax n e1 m e2 Nothing k =
       Just Refl -> k n e1 e2
       Nothing   -> error "don't know the sign"
 
+
+-- Rust implements left and right shift operations via the trait
+
 transBinOp :: M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
 transBinOp bop op1 op2 = do
     me1 <- evalOperand  op1
     me2 <- evalOperand  op2
+    evalBinOp bop (M.arithType op1) me1 me2
+
+evalBinOp :: M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
+evalBinOp bop mat me1 me2 = 
     case (me1, me2) of
-      (MirExp (CT.BVRepr na) e1a, MirExp (CT.BVRepr ma) e2a) ->
+      (MirExp ty1@(CT.BVRepr na) e1a, MirExp ty2@CT.NatRepr e2a) ->
+         case (bop, mat) of
+            (M.Shl, _) -> do
+                let e2bv = S.app (E.IntegerToBV na (S.app (E.NatToInteger e2a)))
+                return $ MirExp (CT.BVRepr na) (S.app $ E.BVShl na e1a e2bv)
+            (M.Shr, Just M.Unsigned) -> do
+                let e2bv = S.app (E.IntegerToBV na (S.app (E.NatToInteger e2a)))
+                return $ MirExp (CT.BVRepr na) (S.app $ E.BVLshr na e1a e2bv)
+            (M.Shr, Just M.Signed) -> do
+                let e2bv = S.app (E.IntegerToBV na (S.app (E.NatToInteger e2a)))
+                return $ MirExp (CT.BVRepr na) (S.app $ E.BVAshr na e1a e2bv)
+
+            _ -> fail $ "bad binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
+      (MirExp ty1@(CT.BVRepr na) e1a, MirExp ty2@(CT.BVRepr ma) e2a) ->
           -- if the BVs are not the same width extend the shorter one
-          extendToMax na e1a ma e2a (M.arithType op1) $ \ n e1 e2 -> 
-            case (bop, M.arithType op1) of
+          extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
+            case (bop, mat) of
               (M.Add, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVAdd n e1 e2)
               (M.Sub, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVSub n e1 e2)
               (M.Mul, _) -> return $ MirExp (CT.BVRepr n) (S.app $ E.BVMul n e1 e2)
@@ -484,7 +509,7 @@ transBinOp bop op1 op2 = do
               (M.Le, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSle n e1 e2)
               (M.Ne, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
               (M.Beq, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVEq n e1 e2)
-              _ -> fail $ "bad binop: " ++ show (M.BinaryOp bop op1 op2)
+              _ -> fail $ "bad binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
       (MirExp CT.BoolRepr e1, MirExp CT.BoolRepr e2) ->
           case bop of
             M.BitAnd -> return $ MirExp CT.BoolRepr (S.app $ E.And e1 e2)
@@ -2611,9 +2636,29 @@ mkNone =
 mkSome :: MirExp s -> MirExp s
 mkSome a = buildTuple [MirExp CT.NatRepr (S.app $ E.NatLit 1), packAny $ buildTuple [a]]
 
+-- Type-indexed version of "1"
+oneExp :: CT.TypeRepr ty -> MirExp s
+oneExp CT.NatRepr    = MirExp CT.NatRepr (S.litExpr 1)
+oneExp (CT.BVRepr w) = MirExp (CT.BVRepr w) (R.App (E.BVLit w 1))
+oneExp ty = error $ "oneExp: unimplemented for type " ++ show ty
+
+-- Add one to an expression
+incrExp :: CT.TypeRepr ty -> R.Expr MIR s ty -> MirGenerator h s ret (R.Expr MIR s ty)
+incrExp ty e = do res <- evalBinOp M.Add Nothing (MirExp ty e) (oneExp ty)
+                  case res of 
+                    (MirExp ty' e') | Just Refl <- testEquality ty ty'
+                                    -> return e'
+                    _ -> error "BUG: incrExp should return same type"
+
+
+
 extractVecTy :: forall a t. CT.TypeRepr t -> (forall t2. CT.TypeRepr t2 -> a) -> a
 extractVecTy (CT.VectorRepr a) f = f a
 extractVecTy _ _ = error "Expected vector type in extraction"
+
+
+
+
 
 doCustomCall :: forall h s ret a. HasCallStack => M.DefId -> Substs -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
 doCustomCall fname funsubst ops lv dest
@@ -2666,7 +2711,8 @@ doCustomCall fname funsubst ops lv dest
     arg <- evalOperand v
     case ty of
      TyAdt defid (Substs [itemTy]) | defid == M.textId "::ops[0]::range[0]::Range[0]" -> do
-     -- an identity function 
+        -- an identity function
+        -- the range type just uses the default implementation of this trait
         assignLvExp lv arg
         jumpToBlock dest
      _ -> do
@@ -2681,18 +2727,40 @@ doCustomCall fname funsubst ops lv dest
      Substs [ty] <- funsubst = do
      iter <- evalOperand o 
      case (ty, iter) of
-       (TyAdt defid (Substs [_]),
-        MirExp (MirReferenceRepr tr) ii) | defid == M.textId "::ops[0]::range[0]::Range[0]" -> do
-         -- iterator is a struct of a "start" and "end" value of type 'itemTy'
-         -- to increment the iterator, make sure the start < end and then         
-         r <- readMirRef tr ii
-         (MirExp CT.NatRepr start) <- accessAggregate (MirExp tr r) 0
-         (MirExp CT.NatRepr end)   <- accessAggregate (MirExp tr r) 0
-         let good_ret = mkSome (MirExp CT.NatRepr (start S..+ (S.litExpr 1)))
-         let bad_ret  = mkNone
-         ifteAny (start S..< end)
-             (assignLvExp lv good_ret >> jumpToBlock' dest)
-             (assignLvExp lv bad_ret >> jumpToBlock' dest)
+       (TyAdt defid (Substs [itemTy]),
+        MirExp (MirReferenceRepr tr) ii) 
+         | defid == M.textId "::ops[0]::range[0]::Range[0]"
+         , Just Refl <- testEquality tr taggedUnionType
+         -> do -- iterator is a struct of a "start" and "end" value of type 'itemTy'
+               -- to increment the iterator, make sure the start < end and then
+               tyToReprCont itemTy $ \itemRepr -> do
+
+                  r <- readMirRef tr ii
+                  (MirExp CT.AnyRepr tup) <- accessAggregate (MirExp tr r) 1
+
+                  -- a "Range" is a pair of a start and end value
+                  let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
+                  let strTy = CT.StructRepr ctx
+                  let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
+                                       (fromString ("Bad Any unpack: " ++ show strTy))
+                  let start = S.getStruct Ctx.i1of2 unp
+                  let end   = S.getStruct Ctx.i2of2 unp
+
+                  plus_one <- incrExp itemRepr start
+                  let good_ret = mkSome (MirExp itemRepr start)
+                  let bad_ret  = mkNone
+                  let  updateRange :: MirGenerator h s ret ()
+                       updateRange = let y  = S.app $ E.PackAny strTy (S.app $ E.SetStruct ctx unp Ctx.i1of2 plus_one)
+                                         jj = S.app $ E.MkStruct taggedUnionCtx (Ctx.empty `Ctx.extend` (S.litExpr 0) `Ctx.extend` y)
+                                    in
+                                        writeMirRef ii jj
+
+                  (MirExp CT.BoolRepr boundsCheck)
+                       <- evalBinOp M.Lt (arithType itemTy) (MirExp itemRepr start)
+                                                            (MirExp itemRepr end)
+                  ifteAny boundsCheck
+                      (updateRange >> assignLvExp lv good_ret >> jumpToBlock' dest)
+                      (assignLvExp lv bad_ret >> jumpToBlock' dest)
 
        _ -> do
          -- iter = struct (vec, pos of nat).
