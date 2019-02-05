@@ -143,7 +143,10 @@ tyToRepr t0 = case t0 of
   M.TyUint M.USize -> Some CT.NatRepr
   M.TyInt base  -> baseSizeToNatCont base $ \n -> Some $ CT.BVRepr n
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ CT.BVRepr n
-  
+
+  -- SCW: is this correct???
+  M.TySlice t  -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
   M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
@@ -2313,6 +2316,7 @@ buildTraitMap debug col _halloc hmap = do
                      let implHandles = [(methName,mirHandle, substs) | (methName, tn, mirHandle, substs) <- impls, trait == tn]
 
                      vtables' <- forM (groupByType implHandles) $ \(typeName, implHandlesByType) -> do
+                                    traceM $ "making vtable for " ++ show trait ++ "<" ++ show typeName ++ ">"
                                     case tyToRepr typeName of
                                       Some typeRepr -> do
                                          let vtable = impl_vtable decl typeRepr (reverse implHandlesByType)
@@ -2557,6 +2561,16 @@ thisTraitImpls (M.Trait trait _) trs = do
 --------------------------------------------------------------------------------------------------------------------------
 -- **  Custom stuff
 
+-- if we want to be able to insert custom information just before runtime, the below can be dynamic, and baked into the Override monad.
+
+customtyToRepr :: M.CustomTy -> Some CT.TypeRepr
+customtyToRepr (M.BoxTy t) = tyToRepr t -- Box<T> is the same as T
+customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
+-- Implement C-style enums as single integers
+customtyToRepr (CEnum _adt _i) = Some CT.IntegerRepr
+customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ show (pretty ty))
+
+
 -- Function names that are handled  by doCustomCall below
 isCustomFunc :: M.DefId -> Maybe Text
 isCustomFunc defid = case (map fst (M.did_path defid), fst (M.did_name defid), map fst (M.did_extra defid)) of
@@ -2577,17 +2591,19 @@ isCustomFunc defid = case (map fst (M.did_path defid), fst (M.did_name defid), m
 
    (["slice","{{impl}}"], "slice_tovec", [])      -> Just "slice_tovec"
    (["slice","{{impl}}"], "len", [])              -> Just "slice_len"
-   (["slice","{{impl}}"], "get_unchecked", [])    -> Just "slice_get_unchecked"
-   (["slice","{{impl}}"], "get_unchecked_mut",[]) -> Just "slice_get_unchecked_mut"
+   (["slice"],"SliceIndex", ["get_unchecked"])    -> Just "slice_get_unchecked"
+   (["slice"],"SliceIndex", ["get_unchecked_mut"]) -> Just "slice_get_unchecked_mut"
 
    (["iter","traits"], "IntoIterator", ["into_iter"]) -> Just "into_iter"
    (["iter","iterator"],"Iterator", ["next"])         -> Just "iter_next"
    (["iter","iterator"],"Iterator", ["map"])          -> Just "iter_map"
    (["iter","iterator"],"Iterator", ["collect"])      -> Just "iter_collect"
 
+   (["num","{{impl}}"], "wrapping_sub", [])       -> Just "wrapping_sub"
+
    _ -> Nothing
 
-
+--------------------------------------------------------------------------------------------------------------------------
 
 
 --
@@ -2618,16 +2634,6 @@ vectorCopy ety start stop inp = do
 
 
 
--- if we want to be able to insert custom information just before runtime, the below can be dynamic, and baked into the Override monad.
-
-customtyToRepr :: M.CustomTy -> Some CT.TypeRepr
-customtyToRepr (M.BoxTy t) = tyToRepr t -- Box<T> is the same as T
---customtyToRepr (M.VecTy t) = tyToRepr $ M.TySlice t -- Vec<T> is the same as [T]
-customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
-      -- Iter<T> => ([T], nat). The second component is the current index into the array, beginning at zero.
--- Implement C-style enums as single integers
-customtyToRepr (CEnum _adt _i) = Some CT.IntegerRepr
-customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ show (pretty ty))
 
 mkNone :: MirExp s
 mkNone =
@@ -2657,11 +2663,70 @@ extractVecTy (CT.VectorRepr a) f = f a
 extractVecTy _ _ = error "Expected vector type in extraction"
 
 
+-- Coerce an expression to be appropriate as an array index
+generateIndex :: MirExp s -> MirGenerator h s ret (R.Expr MIR s CT.NatType)
+generateIndex (MirExp CT.NatRepr e) = return e
+generateIndex (MirExp ty _) = error $ "Don't know how to create an index from an " ++ show ty
 
 
 
 doCustomCall :: forall h s ret a. HasCallStack => M.DefId -> Substs -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
 doCustomCall fname funsubst ops lv dest
+  | Just "slice_get_unchecked" <- isCustomFunc fname
+  ,  [op1, op2] <- ops
+  ,  Substs subs <- funsubst = do
+       self  <- evalOperand op1
+       sl <- evalOperand op2
+
+       error $ "slice get_unchecked unimplemented " ++ show (pretty subs)
+
+  | Just "slice_get_unchecked_mut" <- isCustomFunc fname
+  ,  [op1, op2] <- ops
+  ,  Substs subs <- funsubst = do
+       self  <- evalOperand op1
+       sl <- evalOperand op2
+       case sl of
+         (MirExp (MirSliceRepr ty) slice) -> do
+           idx <- generateIndex self
+           let ref  = S.getStruct Ctx.i1of3 slice
+           let base = getSliceLB slice
+           v <- subindexRef ty ref (S.app (E.NatAdd idx base))
+
+           -- vec <- readMirRef (CT.VectorRepr ty) ref
+           -- let v = S.app $ E.VectorGetEntry ty vec 
+           assignLvExp lv (MirExp (MirReferenceRepr ty) v)
+           jumpToBlock dest
+
+         _ -> error $ "slice get_unchecked_mut unimplemented " ++ show (pretty (typeOf op1)) ++ " and " ++ show (pretty (typeOf op2))
+
+
+ | Just "slice_get" <-  isCustomFunc fname,
+   [vec,range] <- ops,
+   Substs [ty1, ty2] <- funsubst = do
+     vec_e <- evalOperand vec
+     range_e <- evalOperand range
+     let v = error "slice_get: unimplemented"
+     assignLvExp lv v
+     jumpToBlock dest
+
+ | Just "slice_get_mut" <-  isCustomFunc fname,
+   [vec, range] <- ops,
+   Substs [elTy, idxTy] <- funsubst = do
+
+     -- type of the structure is &mut[ elTy ]
+     (MirExp vty vec_e) <- evalOperand vec
+     case vty of
+       CT.VectorRepr ety -> do
+         range_e <- evalOperand range
+         (MirExp CT.NatRepr start) <- accessAggregate range_e 0
+         (MirExp CT.NatRepr stop ) <- accessAggregate range_e 1
+         v <- vectorCopy ety start stop vec_e
+         assignLvExp lv (MirExp (CT.VectorRepr ety) v)
+         jumpToBlock dest
+       _ -> fail $ " slice_get_mut type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
+
+
+
   | Just "boxnew" <- isCustomFunc fname,
   [op] <- ops =  do
         e <- evalOperand op
@@ -2803,30 +2868,21 @@ doCustomCall fname funsubst ops lv dest
            jumpToBlock dest
        _ -> fail $ " slice_len type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
- | Just "slice_get" <-  isCustomFunc fname,
-   [vec,range] <- ops,
-   Substs [ty1, ty2] <- funsubst = do
-     vec_e <- evalOperand vec
-     range_e <- evalOperand range
-     let v = undefined
-     assignLvExp lv v
-     jumpToBlock dest
 
- | Just "slice_get_mut" <-  isCustomFunc fname,
-   [vec, range] <- ops,
-   Substs [elTy, idxTy] <- funsubst = do
+ | Just "wrapping_sub" <- isCustomFunc fname,
+    [o1, o2] <- ops = do
+       (MirExp aty a) <- evalOperand o1
+       (MirExp bty b) <- evalOperand o2
+       -- return (a - b) mod 2N  (this is the default behavior for BVSub)
+       case (aty, bty) of
+         (CT.BVRepr wa, CT.BVRepr wb) | Just Refl <- testEquality wa wb -> do
+             traceM "WARNING: wrapping_sub does not actually wrap"
+             let sub = R.App $ E.BVSub wa a b 
+             let v = MirExp aty sub
+             assignLvExp lv v
+             jumpToBlock dest
+         (_,_) -> error $ "wrapping_sub: cannot call with types " ++ show aty ++ " and " ++ show bty
 
-     -- type of the structure is &mut[ elTy ]
-     (MirExp vty vec_e) <- evalOperand vec
-     case vty of
-       CT.VectorRepr ety -> do
-         range_e <- evalOperand range
-         (MirExp CT.NatRepr start) <- accessAggregate range_e 0
-         (MirExp CT.NatRepr stop ) <- accessAggregate range_e 1
-         v <- vectorCopy ety start stop vec_e
-         assignLvExp lv (MirExp (CT.VectorRepr ety) v)
-         jumpToBlock dest
-       _ -> fail $ " slice_get_mut type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
 
  | Just "call" <- isCustomFunc fname, -- perform function call with a closure
    [o1, o2] <- ops,

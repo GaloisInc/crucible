@@ -65,10 +65,12 @@ fn f(_w : u64 ) -> bool {
 
     let res = add(&a, &b);
     let zero = zero();
+    let mut ans = true;
     for i in 0..5 {
-        assert!(res[i] == zero[i]);
+        // Cannot do assert! yet
+        ans = ans && (res[i] == zero[i]);
     }
-    true
+    ans
 }
 
 

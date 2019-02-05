@@ -39,13 +39,14 @@ loadPrims :: Bool -> Int -> IO Collection
 loadPrims useStdLib debugLevel = do
 
   let lib = if useStdLib then
-              [ "option"    
+              [ 
+                "option"
               , "result"
               , "cmp"      
               , "ops/range"  
               , "default"
-              , "ops/function"
-          --    , "slice"    -- need dictionary translation to make this work
+              , "ops/function" 
+              , "slice"    -- need dictionary translation to make this work
               ] else []
         
   

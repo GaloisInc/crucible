@@ -124,7 +124,10 @@ import           Debug.Trace
 
 import           Unsafe.Coerce
 
--- A MirReference is a Crucible RefCell paired with a path to a subcomponent
+
+--------------------------------------------------------------
+-- * A MirReference is a Crucible RefCell paired with a path to a subcomponent
+
 
 type MirReferenceSymbol = "MirReference"
 type MirReferenceType tp = IntrinsicType MirReferenceSymbol (EmptyCtx ::> tp)
@@ -410,11 +413,15 @@ mirExtImpl = ExtensionImpl
              }
 
 --------------------------------------------------------------------------------
+-- ** Slices
+
+-- A Slice is a reference to a sequence of values plus an index to the first element
+-- and a length.
 
 type MirSlice tp     = StructType (EmptyCtx ::>
                            MirReferenceType (VectorType tp) ::>
-                           NatType ::>    --- lower bound
-                           NatType)       --- upper bound
+                           NatType ::>    --- first element
+                           NatType)       --- length 
 
 pattern MirSliceRepr :: () => tp' ~ MirSlice tp => TypeRepr tp -> TypeRepr tp'
 pattern MirSliceRepr tp <- StructRepr

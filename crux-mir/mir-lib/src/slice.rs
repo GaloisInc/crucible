@@ -167,7 +167,7 @@ pub mod slice {
             exit(0);
         }
     }
-    
+    /*
     impl<T> SliceIndex<[T]> for  Range<usize> {
         type Output = [T];
 
@@ -226,7 +226,7 @@ pub mod slice {
                 self.get_unchecked_mut(slice)
             }
         }
-    } 
+    }*/
 
 
 }
