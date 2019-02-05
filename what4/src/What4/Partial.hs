@@ -28,7 +28,8 @@ the 'Maybe' monad.
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module What4.Partial
  ( -- * PartExpr
@@ -39,7 +40,6 @@ module What4.Partial
  , joinMaybePE
    -- * AssertionTree
  , AssertionTree(..)
- , eqAssertionTree
  , binaryAnd
  , binaryOr
  , cataAT
@@ -48,7 +48,7 @@ module What4.Partial
  , asConstAT_
  , asConstAT
  , collapseAT
- , mapIte
+ , absurdAT
    -- * PartialT
  , PartialT(..)
  , runPartialT
@@ -64,8 +64,13 @@ import           GHC.Generics (Generic, Generic1)
 import           Data.Data (Data)
 
 import           Data.Maybe (catMaybes)
+import           Data.Bifunctor.TH (deriveBifunctor, deriveBifoldable, deriveBitraversable)
+import           Data.Eq.Deriving (deriveEq1, deriveEq2)
+import           Data.Ord.Deriving (deriveOrd1, deriveOrd2)
+import           Text.Show.Deriving (deriveShow1, deriveShow2)
 import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NonEmpty
+import           Data.Void (Void, absurd)
 import           Control.Monad (foldM)
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Class
@@ -127,18 +132,15 @@ data AssertionTree c a =
   | Ite  c (AssertionTree c a) (AssertionTree c a)
   deriving (Data, Eq, Functor, Generic, Generic1, Foldable, Traversable, Ord, Show)
 
-eqAssertionTree :: (c -> c -> Bool)
-                -> (a -> a -> Bool)
-                -> AssertionTree c a
-                -> AssertionTree c a
-                -> Bool
-eqAssertionTree eqCond eqLeaf t1 t2 =
-  let eqTree = eqAssertionTree eqCond eqLeaf
-  in case (t1, t2) of
-       (Leaf a1, Leaf a2) -> eqLeaf a1 a2
-       (And ts1, And ts2) -> and (NonEmpty.zipWith eqTree ts1 ts2)
-       (Or  ts1, Or  ts2) -> and (NonEmpty.zipWith eqTree ts1 ts2)
-       (_, _)   -> False
+$(deriveBifunctor     ''AssertionTree)
+$(deriveBifoldable    ''AssertionTree)
+$(deriveBitraversable ''AssertionTree)
+$(deriveEq1           ''AssertionTree)
+$(deriveEq2           ''AssertionTree)
+$(deriveOrd1          ''AssertionTree)
+$(deriveOrd2          ''AssertionTree)
+$(deriveShow1         ''AssertionTree)
+$(deriveShow2         ''AssertionTree)
 
 binaryAnd :: AssertionTree c a -> AssertionTree c a -> AssertionTree c a
 binaryAnd t1 t2 = And (t1 :| [t2])
@@ -261,17 +263,19 @@ collapseAT sym leafToPred iteToPred = cataMAT
   (foldM (orPred sym) (falsePred sym))
   (\c -> itePred sym (iteToPred c))
 
--- | Map over the predicates in the tree
-mapIte :: (c -> d)
-       -> AssertionTree c a
-       -> AssertionTree d a
-mapIte f tree =
-  case tree of
-    Leaf a     -> Leaf a
-    And  trees -> And (fmap (mapIte f) trees)
-    Or   trees -> Or (fmap (mapIte f) trees)
-    Ite  cond thenTree elseTree ->
-      Ite (f cond) (mapIte f thenTree) (mapIte f elseTree)
+-- | If the leaves are absurd, so is the whole structure.
+--
+-- This could be written as a catamorphism, but we only need to travel down
+-- at most one branch.
+absurdAT :: (a -> Void)
+         -> AssertionTree c a
+         -> b
+absurdAT getVoid =
+  \case
+    Leaf a        -> absurd (getVoid a)
+    Or   (t :| _) -> absurdAT getVoid t
+    And  (t :| _) -> absurdAT getVoid t
+    Ite  _ t _    -> absurdAT getVoid t
 
 ------------------------------------------------------------------------
 -- Merge
