@@ -44,6 +44,10 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   -- , ppSym
   -- , ppExpr
 
+  -- ** Pointers
+  , PointerPair
+  , pointerView
+
   -- ** Config
   , Config
   , getConfig
@@ -73,8 +77,9 @@ import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified What4.Interface as W4I
 
 import           Lang.Crucible.Types
+import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
-import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr)
+import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr, llvmPointerView)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
 import           Lang.Crucible.LLVM.Types (LLVMPtr)
@@ -92,6 +97,11 @@ ppPtrComparison :: PtrComparisonOperator -> Doc
 ppPtrComparison Eq  = text "Equality comparison (==)"
 ppPtrComparison Leq = text "Ordering comparison (<=)"
 
+type PointerPair e w = (e NatType, e (BVType w))
+
+pointerView :: LLVMPtr sym w -> (RegValue' sym NatType, RegValue' sym (BVType w))
+pointerView ptr = let (blk, off) = llvmPointerView ptr in (RV blk, RV off)
+
 -- | This type is parameterized on a higher-kinded term constructor so that it
 -- can be instantiated for expressions at translation time (i.e. the 'Expr' in
 -- 'LLVMGenerator'), or for expressions at runtime ('SymExpr').
@@ -105,46 +115,46 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
   -- -------------------------------- Memory management
 
   -- FreeBadOffset :: LLVMPtr sym w
-  --               -> UndefinedBehavior (RegValue' sym)
+  --               -> UndefinedBehavior e
 
   -- FreeUnallocated :: LLVMPtr sym w
-  --                 -> UndefinedBehavior (RegValue' sym)
+  --                 -> UndefinedBehavior e
 
   -- MemsetInvalidRegion :: LLVMPtr sym w   -- ^ Destination
   --                     -> W4I.SymBV sym 8 -- ^ Fill byte
   --                     -> W4I.SymBV sym v -- ^ Length
-  --                     -> UndefinedBehavior (RegValue' sym)
+  --                     -> UndefinedBehavior e
 
-  -- -- | Is this actually undefined? I (Langston) can't find anything about it
-  -- ReadBadAlignment :: LLVMPtr sym w   -- ^ Read from where?
-  --                  -> Alignment       -- ^ What alignment?
-  --                  -> UndefinedBehavior (RegValue' sym)
+  -- | Is this actually undefined? I (Langston) can't find anything about it
+  ReadBadAlignment :: PointerPair e w     -- ^ Read from where?
+                   -> Alignment           -- ^ What alignment?
+                   -> UndefinedBehavior e
 
-  -- ReadUnallocated :: LLVMPtr sym w -- ^ Read from where?
-  --                 -> UndefinedBehavior (RegValue' sym)
+  ReadUnallocated :: PointerPair e w     -- ^ Read from where?
+                  -> UndefinedBehavior e
 
   -- -------------------------------- Pointer arithmetic
 
   -- PtrAddOffsetOutOfBounds :: LLVMPtr sym w   -- ^ The pointer
   --                         -> W4I.SymBV sym w -- ^ Offset added
-  --                         -> UndefinedBehavior (RegValue' sym)
+  --                         -> UndefinedBehavior e
 
   -- CompareInvalidPointer :: PtrComparisonOperator -- ^ Kind of comparison
   --                       -> LLVMPtr sym w  -- ^ The invalid pointer
   --                       -> LLVMPtr sym w  -- ^ The pointer it was compared to
-  --                       -> UndefinedBehavior (RegValue' sym)
+  --                       -> UndefinedBehavior e
 
   -- -- | "In all other cases, the behavior is undefined"
   -- -- TODO: 'PtrComparisonOperator' argument?
   -- CompareDifferentAllocs :: LLVMPtr sym w
   --                        -> LLVMPtr sym w
-  --                        -> UndefinedBehavior (RegValue' sym)
+  --                        -> UndefinedBehavior e
 
   -- -- | "When two pointers are subtracted, both shall point to elements of the
   -- -- same array object"
   -- PtrSubDifferentAllocs :: LLVMPtr sym w
   --                       -> LLVMPtr sym w
-  --                       -> UndefinedBehavior (RegValue' sym)
+  --                       -> UndefinedBehavior e
 
   PointerCast :: e NatType       -- ^ Pointer's allocation number
               -> e (BVType w)    -- ^ Offset
@@ -338,7 +348,7 @@ explain =
 -- detailsSym :: W4I.IsExpr (RegValue' sym)
 --            => proxy sym
 --            -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
---            -> UndefinedBehavior (RegValue' sym)
+--            -> UndefinedBehavior e
 --            -> [Doc]
 -- detailsSym proxySym =
 --   \case
@@ -424,7 +434,7 @@ pp extra ub = vcat $
 -- ppSym :: W4I.IsExpr (RegValue' sym)
 --       => proxy sym
 --       -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
---       -> UndefinedBehavior (RegValue' sym)
+--       -> UndefinedBehavior e
 --       -> Doc
 -- ppSym proxySym = pp (detailsSym proxySym)
 

@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-|
 Module           : Lang.Crucible.CFG.Extension.Safety
 Copyright        : (c) Galois, Inc 2014-2016
@@ -25,6 +26,7 @@ extensions.
 
 module Lang.Crucible.CFG.Extension.Safety
 ( AssertionClassifier
+, AssertionClassifierTree
 , PartialExpr(..)
 , classifier
 , value
@@ -63,7 +65,7 @@ import           Lang.Crucible.Simulator.RegValue (RegValue')
 import           Lang.Crucible.Types
 
 import           What4.Interface (SymExpr, IsExpr, IsExprBuilder, Pred, printSymExpr)
-import           What4.Partial (AssertionTree(..), eqAssertionTree, mapIte)
+import           What4.Partial
 
 -- -----------------------------------------------------------------------
 -- ** Safety assertions
@@ -78,10 +80,16 @@ type family AssertionClassifier (ext :: Type) :: (CrucibleType -> Type) -> Type
 type AssertionClassifierTree ext e =
   AssertionTree (e BoolType) (AssertionClassifier ext e)
 
--- | This is like What4's 'PartExpr', but significantly more structured. We can't
--- reuse that datatype because we need a constraint in a constructor.
+-- |
 --
 -- Should only contain 'Nothing' if the assertion is constantly-false.
+--
+-- This is subtly but significantly different from What4's 'PartExpr':
+-- @PartExpr pred val ≅ Maybe (pred, val)@ but
+-- @PartialExpr ext e bt@ is more like @(pred, Maybe val)@. It records
+-- the provenance of the assertions regardless of whether the value is present.
+--
+-- TODO: get rid of What4's PartExpr in favor of this
 data PartialExpr (ext :: Type)
                  (e   :: CrucibleType -> Type)
                  (bt  :: CrucibleType) =
@@ -89,7 +97,27 @@ data PartialExpr (ext :: Type)
     { _classifier :: AssertionClassifierTree ext e
     , _value      :: Maybe (e bt)
     }
-  deriving (Typeable)
+  deriving (Generic, Typeable)
+
+deriving instance ( Data (e bt)
+                  , Data (e BoolType)
+                  , Data (AssertionClassifier ext e)
+                  , Typeable e
+                  , Typeable ext
+                  , Typeable bt
+                  ) => (Data (PartialExpr ext e bt))
+deriving instance ( Eq (e bt)
+                  , Eq (e BoolType)
+                  , Eq (AssertionClassifier ext e)
+                  ) => (Eq (PartialExpr ext e bt))
+deriving instance ( Ord (e bt)
+                  , Ord (e BoolType)
+                  , Ord (AssertionClassifier ext e)
+                  ) => (Ord (PartialExpr ext e bt))
+deriving instance ( Show (e bt)
+                  , Show (e BoolType)
+                  , Show (AssertionClassifier ext e)
+                  ) => (Show (PartialExpr ext e bt))
 
 -- -----------------------------------------------------------------------
 -- *** Lenses

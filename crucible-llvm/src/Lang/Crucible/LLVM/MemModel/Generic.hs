@@ -82,10 +82,11 @@ import           What4.Interface
 import qualified What4.Partial as W4P
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.Types (NatType, BVType)
+import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.MemModel.Common
-import           Lang.Crucible.LLVM.MemModel.Partial
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
@@ -133,6 +134,14 @@ data MemWrite sym
   = forall w. MemWrite (LLVMPtr sym w) (WriteSource sym w)
     -- | The merger of two memories.
   | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
+
+--------------------------------------------------------------------------------
+-- Assertions
+
+undefinedBehavior :: UB.UndefinedBehavior (RegValue' sym)
+                  -> Pred sym
+                  -> LLVMSafetyAssertion (RegValue' sym)
+undefinedBehavior ub pred = Safety.undefinedBehavior ub (RV pred)
 
 --------------------------------------------------------------------------------
 -- Reading from memory
@@ -582,11 +591,10 @@ readMem sym w l tp alignment m = do
   p1         <- isAllocated sym w alignment l (Just sz) m
   p2         <- isAligned sym w l alignment
   W4P.PE p v <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
-  let ub1, ub2 :: UB.UndefinedBehavior (SymExpr sym)
-      ub1 = UB.ReadUnallocated  l
-      ub2 = UB.ReadBadAlignment l alignment
-  let p'  = W4P.And (p :| [ W4P.Leaf (Safety.undefinedBehavior ub1 p1)
-                          , W4P.Leaf (Safety.undefinedBehavior ub2 p2)
+  let ub1 = UB.ReadUnallocated  (UB.pointerView l)
+      ub2 = UB.ReadBadAlignment (UB.pointerView l) alignment
+  let p'  = W4P.And (p :| [ W4P.Leaf (undefinedBehavior ub1 p1)
+                          , W4P.Leaf (undefinedBehavior ub2 p2)
                           ])
   return $ W4P.PE p' v
 

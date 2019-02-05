@@ -24,6 +24,7 @@
 module Lang.Crucible.LLVM.Extension.Safety
   ( LLVMSafetyAssertion
   , BadBehavior(..)
+  , LLVMAssertionTree
   , undefinedBehavior
   , undefinedBehavior'
   , poison
@@ -57,6 +58,9 @@ import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Extension.Arch (LLVMArch)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
+
+type LLVMAssertionTree (arch :: LLVMArch) (e :: CrucibleType -> Type) =
+  AssertionTree (e BoolType) (LLVMSafetyAssertion e)
 
 -- | Combine the three types of bad behaviors
 --
@@ -108,9 +112,6 @@ instance FoldableF LLVMSafetyAssertion where
 
 instance TraversableF LLVMSafetyAssertion where
   traverseF _ _ = undefined
-
--- type LLVMAssertionTree (arch :: LLVMArch) (e :: W4I.BaseType -> Type) =
---   AssertionTree (e BoolType) (LLVMSafetyAssertion e)
 
 -- -----------------------------------------------------------------------
 -- ** Constructors
