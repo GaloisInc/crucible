@@ -260,12 +260,12 @@ doDumpMem h mem = do
 assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
                 => sym
                 -> Pred sym
-                -> Maybe (UB.Config (SymExpr sym))      -- ^ defaults to 'strictConfig'
-                -> (UB.UndefinedBehavior (SymExpr sym)) -- ^ The undesirable behavior
+                -> Maybe (UB.Config (RegValue' sym))      -- ^ defaults to 'strictConfig'
+                -> (UB.UndefinedBehavior (RegValue' sym)) -- ^ The undesirable behavior
                 -> IO ()
 assertUndefined sym p (UB.defaultStrict -> ubConfig) ub =
   when (UB.getConfig ubConfig ub) $ assert sym p $
-    (AssertFailureSimError $ show $ UB.ppSym (Just sym) ub)
+    (AssertFailureSimError $ show $ UB.ppReg (Just sym) ub)
 
 instance IntrinsicClass sym "LLVM_memory" where
   type Intrinsic sym "LLVM_memory" ctx = MemImpl sym
@@ -402,9 +402,9 @@ evalStmt sym = eval
         v3 <- G.notAliasable sym x y (memImplHeap mem)
 
         assertUndefined sym v1 Nothing $
-          UB.CompareInvalidPointer UB.Eq x y
+          UB.CompareInvalidPointer UB.Eq (UB.pointerView x) (UB.pointerView y)
         assertUndefined sym v2 Nothing $
-          UB.CompareInvalidPointer UB.Eq y x
+          UB.CompareInvalidPointer UB.Eq (UB.pointerView x) (UB.pointerView y)
 
         -- TODO: Is this undefined behavior? If so, add to the UB module
         assert sym v3
@@ -415,7 +415,7 @@ evalStmt sym = eval
 
         (eq, valid) <- ptrEq sym PtrWidth x y
         assertUndefined sym valid Nothing $
-          UB.CompareDifferentAllocs x y
+          UB.CompareDifferentAllocs (UB.pointerView x) (UB.pointerView y)
 
         pure eq
 
@@ -424,11 +424,17 @@ evalStmt sym = eval
     liftIO $ do
        v1 <- isValidPointer sym x mem
        v2 <- isValidPointer sym y mem
-       assertUndefined sym v1 Nothing (UB.CompareInvalidPointer UB.Leq x y)
-       assertUndefined sym v2 Nothing (UB.CompareInvalidPointer UB.Leq y x)
+       assertUndefined sym v1 Nothing
+        (UB.CompareInvalidPointer UB.Leq
+          (UB.pointerView x) (UB.pointerView y))
+       assertUndefined sym v2 Nothing
+        (UB.CompareInvalidPointer UB.Leq
+          (UB.pointerView x) (UB.pointerView y))
 
        (le, valid) <- ptrLe sym PtrWidth x y
-       assertUndefined sym valid Nothing (UB.CompareDifferentAllocs x y)
+       assertUndefined sym valid Nothing
+         (UB.CompareDifferentAllocs
+           (UB.pointerView x) (UB.pointerView y))
 
        pure le
 
@@ -631,7 +637,7 @@ doLookupHandle _sym mem ptr = do
 doFree
   :: (IsSymInterface sym, HasPtrWidth wptr)
   => sym
-  -> Maybe (UB.Config (SymExpr sym))  {- ^ defaults to 'strictConfig' -}
+  -> Maybe (UB.Config (RegValue' sym))  {- ^ defaults to 'strictConfig' -}
   -> MemImpl sym
   -> LLVMPtr sym wptr
   -> IO (MemImpl sym)
@@ -649,8 +655,10 @@ doFree sym ubConfig mem ptr = do
   isNull <- ptrIsNull sym PtrWidth ptr
   p1'    <- orPred sym p1 isNull
   p2'    <- orPred sym p2 isNull
-  assertUndefined sym p1' ubConfig (UB.FreeBadOffset ptr)
-  assertUndefined sym p2' ubConfig (UB.FreeUnallocated ptr)
+  assertUndefined sym p1' ubConfig
+    (UB.FreeBadOffset (UB.pointerView ptr))
+  assertUndefined sym p2' ubConfig
+    (UB.FreeUnallocated (UB.pointerView ptr))
 
   return mem{ memImplHeap = heap', memImplHandleMap = hMap' }
 
@@ -660,7 +668,7 @@ doFree sym ubConfig mem ptr = do
 doMemset ::
   (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
-  Maybe (UB.Config (SymExpr sym))  {- ^ defaults to 'strictConfig' -} ->
+  Maybe (UB.Config (RegValue' sym))  {- ^ defaults to 'strictConfig' -} ->
   NatRepr w ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ destination -} ->
@@ -673,7 +681,7 @@ doMemset sym ubConfig w mem dest val len = do
   (heap', p) <- G.setMem sym PtrWidth dest val len' (memImplHeap mem)
 
   assertUndefined sym p ubConfig $
-    UB.MemsetInvalidRegion dest val len
+    UB.MemsetInvalidRegion (UB.pointerView dest) (RV val) (RV len)
 
   return mem{ memImplHeap = heap' }
 
@@ -789,7 +797,7 @@ uncheckedMemcpy sym mem dest src len = do
 doPtrSubtract ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
-  Maybe (UB.Config (SymExpr sym))  {- ^ defaults to 'strictConfig' -} ->
+  Maybe (UB.Config (RegValue' sym))  {- ^ defaults to 'strictConfig' -} ->
   MemImpl sym ->
   LLVMPtr sym wptr ->
   LLVMPtr sym wptr ->
@@ -797,14 +805,14 @@ doPtrSubtract ::
 doPtrSubtract sym ubConfig _m x y = do
   (diff, valid) <- ptrDiff sym PtrWidth x y
   assertUndefined sym valid ubConfig $
-    UB.PtrSubDifferentAllocs x y
+    UB.PtrSubDifferentAllocs (UB.pointerView x) (UB.pointerView y)
   pure diff
 
 -- | Add an offset to a pointer and asserts that the result is a valid pointer.
 doPtrAddOffset ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
   sym ->
-  Maybe (UB.Config (SymExpr sym))  {- ^ defaults to 'strictConfig' -} ->
+  Maybe (UB.Config (RegValue' sym))  {- ^ defaults to 'strictConfig' -} ->
   MemImpl sym ->
   LLVMPtr sym wptr {- ^ base pointer -} ->
   SymBV sym wptr   {- ^ offset       -} ->
@@ -812,7 +820,8 @@ doPtrAddOffset ::
 doPtrAddOffset sym ubConfig m x off = do
   x' <- ptrAdd sym PtrWidth x off
   v  <- isValidPointer sym x' m
-  assertUndefined sym v ubConfig (UB.PtrAddOffsetOutOfBounds x off)
+  assertUndefined sym v ubConfig
+    (UB.PtrAddOffsetOutOfBounds (UB.pointerView x) (RV off))
   return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer

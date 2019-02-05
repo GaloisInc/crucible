@@ -31,6 +31,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -41,7 +42,7 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
     PtrComparisonOperator(..)
   , UndefinedBehavior(..)
   , cite
-  -- , ppSym
+  , ppReg
   -- , ppExpr
 
   -- ** Pointers
@@ -82,7 +83,7 @@ import           Lang.Crucible.LLVM.DataLayout (Alignment)
 import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr, llvmPointerView)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
-import           Lang.Crucible.LLVM.Types (LLVMPtr)
+import           Lang.Crucible.LLVM.Types (LLVMPtr(..))
 
 -- -----------------------------------------------------------------------
 -- ** UndefinedBehavior
@@ -97,7 +98,19 @@ ppPtrComparison :: PtrComparisonOperator -> Doc
 ppPtrComparison Eq  = text "Equality comparison (==)"
 ppPtrComparison Leq = text "Ordering comparison (<=)"
 
+-- | We can't use LLVMPtr, because one of those can't be constructed at
+-- translation time, whereas we don't want 'UndefinedBehavior' to be a GADT
+-- (beyond some existential quantification of bitvector widths).
 type PointerPair e w = (e NatType, e (BVType w))
+
+-- | TODO: duplication with ppPtr
+ppPointerPair :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
+ppPointerPair (RV blk, RV bv)
+  | Just 0 <- W4I.asNat blk = W4I.printSymExpr bv
+  | otherwise =
+     let blk_doc = W4I.printSymExpr blk
+         off_doc = W4I.printSymExpr bv
+      in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
 
 pointerView :: LLVMPtr sym w -> (RegValue' sym NatType, RegValue' sym (BVType w))
 pointerView ptr = let (blk, off) = llvmPointerView ptr in (RV blk, RV off)
@@ -114,16 +127,16 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
 
   -- -------------------------------- Memory management
 
-  -- FreeBadOffset :: LLVMPtr sym w
-  --               -> UndefinedBehavior e
+  FreeBadOffset :: PointerPair e w
+                -> UndefinedBehavior e
 
-  -- FreeUnallocated :: LLVMPtr sym w
-  --                 -> UndefinedBehavior e
+  FreeUnallocated :: PointerPair e w
+                  -> UndefinedBehavior e
 
-  -- MemsetInvalidRegion :: LLVMPtr sym w   -- ^ Destination
-  --                     -> W4I.SymBV sym 8 -- ^ Fill byte
-  --                     -> W4I.SymBV sym v -- ^ Length
-  --                     -> UndefinedBehavior e
+  MemsetInvalidRegion :: PointerPair e w   -- ^ Destination
+                      -> e (BVType 8) -- ^ Fill byte
+                      -> e (BVType v) -- ^ Length
+                      -> UndefinedBehavior e
 
   -- | Is this actually undefined? I (Langston) can't find anything about it
   ReadBadAlignment :: PointerPair e w     -- ^ Read from where?
@@ -135,26 +148,26 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
 
   -- -------------------------------- Pointer arithmetic
 
-  -- PtrAddOffsetOutOfBounds :: LLVMPtr sym w   -- ^ The pointer
-  --                         -> W4I.SymBV sym w -- ^ Offset added
-  --                         -> UndefinedBehavior e
+  PtrAddOffsetOutOfBounds :: PointerPair e w   -- ^ The pointer
+                          -> e (BVType w)      -- ^ Offset added
+                          -> UndefinedBehavior e
 
-  -- CompareInvalidPointer :: PtrComparisonOperator -- ^ Kind of comparison
-  --                       -> LLVMPtr sym w  -- ^ The invalid pointer
-  --                       -> LLVMPtr sym w  -- ^ The pointer it was compared to
-  --                       -> UndefinedBehavior e
+  CompareInvalidPointer :: PtrComparisonOperator -- ^ Kind of comparison
+                        -> PointerPair e w       -- ^ The invalid pointer
+                        -> PointerPair e w       -- ^ The pointer it was compared to
+                        -> UndefinedBehavior e
 
-  -- -- | "In all other cases, the behavior is undefined"
-  -- -- TODO: 'PtrComparisonOperator' argument?
-  -- CompareDifferentAllocs :: LLVMPtr sym w
-  --                        -> LLVMPtr sym w
-  --                        -> UndefinedBehavior e
+  -- | "In all other cases, the behavior is undefined"
+  -- TODO: 'PtrComparisonOperator' argument?
+  CompareDifferentAllocs :: PointerPair e w
+                         -> PointerPair e w
+                         -> UndefinedBehavior e
 
-  -- -- | "When two pointers are subtracted, both shall point to elements of the
-  -- -- same array object"
-  -- PtrSubDifferentAllocs :: LLVMPtr sym w
-  --                       -> LLVMPtr sym w
-  --                       -> UndefinedBehavior e
+  -- | "When two pointers are subtracted, both shall point to elements of the
+  -- same array object"
+  PtrSubDifferentAllocs :: PointerPair e w
+                        -> PointerPair e w
+                        -> UndefinedBehavior e
 
   PointerCast :: e NatType       -- ^ Pointer's allocation number
               -> e (BVType w)    -- ^ Offset
@@ -196,8 +209,8 @@ standard =
 
     -- -------------------------------- Memory management
 
-    -- FreeBadOffset _           -> CStd C99
-    -- FreeUnallocated _         -> CStd C99
+    FreeBadOffset _           -> CStd C99
+    FreeUnallocated _         -> CStd C99
     -- MemsetInvalidRegion _ _ _ -> CXXStd CXX17
     -- ReadBadAlignment _ _      -> CStd C99
     -- ReadUnallocated _         -> CStd C99
@@ -234,8 +247,8 @@ cite = text .
 
     -------------------------------- Memory management
 
-    -- FreeBadOffset _           -> "§7.22.3.3 The free function, ¶2"
-    -- FreeUnallocated _         -> "§7.22.3.3 The free function, ¶2"
+    FreeBadOffset _           -> "§7.22.3.3 The free function, ¶2"
+    FreeUnallocated _         -> "§7.22.3.3 The free function, ¶2"
     -- MemsetInvalidRegion _ _ _ -> "https://en.cppreference.com/w/cpp/string/byte/memset"
     -- ReadBadAlignment _ _      -> "§6.2.8 Alignment of objects, ¶?"
     -- ReadUnallocated _         -> "§6.2.4 Storage durations of objects, ¶2"
@@ -274,13 +287,13 @@ explain =
 
     -- -------------------------------- Memory management
 
-    -- FreeBadOffset _ -> cat $
-    --   [ "`free` called on pointer that was not previously returned by `malloc`"
-    --   , "`calloc`, or another memory management function (the pointer did not"
-    --   , "point to the base of an allocation, its offset should be 0)."
-    --   ]
-    -- FreeUnallocated _ ->
-    --   "`free` called on pointer that didn't point to a live region of the heap."
+    FreeBadOffset _ -> cat $
+      [ "`free` called on pointer that was not previously returned by `malloc`"
+      , "`calloc`, or another memory management function (the pointer did not"
+      , "point to the base of an allocation, its offset should be 0)."
+      ]
+    FreeUnallocated _ ->
+      "`free` called on pointer that didn't point to a live region of the heap."
     -- MemsetInvalidRegion _ _ _ -> cat $
     --   [ "Pointer passed to `memset` didn't point to a mutable allocation with"
     --   , "enough space."
@@ -327,93 +340,78 @@ explain =
     -}
 
 -- | Pretty-print the additional information held by the constructors
--- detailsExpr :: W4I.IsExpr e => UndefinedBehavior e -> [Doc]
--- detailsExpr =
---   \case
---     UDivByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
---     SDivByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
---     URemByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
---     SRemByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
---     SDivOverflow v1 v2 -> [ "op1: " <+> W4I.printSymExpr v1
---                           , "op2: " <+> W4I.printSymExpr v2
---                           ]
---     SRemOverflow v1 v2 -> [ "op1: " <+> W4I.printSymExpr v1
---                           , "op2: " <+> W4I.printSymExpr v2
---                           ]
---     _                  -> []
-
-
--- | Pretty-print the additional information held by the constructors
 -- (for symbolic expressions)
--- detailsSym :: W4I.IsExpr (RegValue' sym)
---            => proxy sym
---            -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
---            -> UndefinedBehavior e
---            -> [Doc]
--- detailsSym proxySym =
---   \case
+detailsReg :: W4I.IsExpr (W4I.SymExpr sym)
+           => proxy sym
+           -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
+           -> UndefinedBehavior (RegValue' sym)
+           -> [Doc]
+detailsReg proxySym =
+  \case
 
---     -------------------------------- Memory management
+    -------------------------------- Memory management
 
---     FreeBadOffset ptr   -> [ "Pointer:" <+> ppPtr ptr ]
---     FreeUnallocated ptr -> [ "Pointer:" <+> ppPtr ptr ]
---     MemsetInvalidRegion destPtr fillByte len ->
---       [ "Destination pointer:" <+> ppPtr destPtr
---       , "Fill byte:          " <+> W4I.printSymExpr fillByte
---       , "Length:             " <+> W4I.printSymExpr len
---       ]
---     ReadBadAlignment ptr alignment ->
---       [ "Alignment: " <+> text (show alignment)
---       , ppPtr1 ptr
---       ]
---     ReadUnallocated ptr -> [ ppPtr1 ptr ]
+    FreeBadOffset ptr   -> [ "Pointer:" <+> ppPointerPair ptr ]
+    FreeUnallocated ptr -> [ "Pointer:" <+> ppPointerPair ptr ]
+    -- MemsetInvalidRegion destPtr fillByte len ->
+    --   [ "Destination pointer:" <+> ppPtr destPtr
+    --   , "Fill byte:          " <+> W4I.printSymExpr fillByte
+    --   , "Length:             " <+> W4I.printSymExpr len
+    --   ]
+    -- ReadBadAlignment ptr alignment ->
+    --   [ "Alignment: " <+> text (show alignment)
+    --   , ppPtr1 ptr
+    --   ]
+    -- ReadUnallocated ptr -> [ ppPtr1 ptr ]
 
---     -------------------------------- Pointer arithmetic
+    -------------------------------- Pointer arithmetic
 
---     PtrAddOffsetOutOfBounds ptr offset ->
---       [ ppPtr1 ptr
---       , ppOffset proxySym offset
---       ]
---     CompareInvalidPointer comparison invalid other ->
---       [ "Comparison:                    " <+> ppPtrComparison comparison
---       , "Invalid pointer:               " <+> ppPtr invalid
---       , "Other (possibly valid) pointer:" <+> ppPtr other
---       ]
---     CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
---     PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
---     ComparePointerToBV ptr bv ->
---       [ "Pointer:  " <+> W4I.printSymExpr ptr
---       , "Bitvector:" <+> W4I.printSymExpr bv
---       ]
---     PointerCast allocNum offset castToType ->
---       [ "Allocation number:" <+> W4I.printSymExpr allocNum
---       , "Offset:           " <+> W4I.printSymExpr offset
---       , "Cast to:          " <+> text (show castToType)
---       ]
+    -- PtrAddOffsetOutOfBounds ptr offset ->
+    --   [ ppPtr1 ptr
+    --   , ppOffset proxySym offset
+    --   ]
+    -- CompareInvalidPointer comparison invalid other ->
+    --   [ "Comparison:                    " <+> ppPtrComparison comparison
+    --   , "Invalid pointer:               " <+> ppPtr invalid
+    --   , "Other (possibly valid) pointer:" <+> ppPtr other
+    --   ]
+    -- CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
+    -- PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
+    -- ComparePointerToBV ptr bv ->
+    --   [ "Pointer:  " <+> W4I.printSymExpr ptr
+    --   , "Bitvector:" <+> W4I.printSymExpr bv
+    --   ]
+    -- PointerCast allocNum offset castToType ->
+    --   [ "Allocation number:" <+> W4I.printSymExpr allocNum
+    --   , "Offset:           " <+> W4I.printSymExpr offset
+    --   , "Cast to:          " <+> text (show castToType)
+    --   ]
 
---     -------------------------------- LLVM: arithmetic
+    -------------------------------- LLVM: arithmetic
 
---     -- The cases are manually listed to prevent unintentional fallthrough if a
---     -- constructor is added.
---     v@(UDivByZero _)     -> detailsExpr v
---     v@(SDivByZero _)     -> detailsExpr v
---     v@(URemByZero _)     -> detailsExpr v
---     v@(SRemByZero _)     -> detailsExpr v
---     v@(SDivOverflow _ _) -> detailsExpr v
---     v@(SRemOverflow _ _) -> detailsExpr v
+    -- The cases are manually listed to prevent unintentional fallthrough if a
+    -- constructor is added.
+    UDivByZero (RV v)            -> [ "op1: " <+> W4I.printSymExpr v ]
+    SDivByZero (RV v)            -> [ "op1: " <+> W4I.printSymExpr v ]
+    URemByZero (RV v)            -> [ "op1: " <+> W4I.printSymExpr v ]
+    SRemByZero (RV v)            -> [ "op1: " <+> W4I.printSymExpr v ]
+    SDivOverflow (RV v1) (RV v2) -> [ "op1: " <+> W4I.printSymExpr v1
+                                    , "op2: " <+> W4I.printSymExpr v2
+                                    ]
+    SRemOverflow (RV v1) (RV v2) -> [ "op1: " <+> W4I.printSymExpr v1
+                                    , "op2: " <+> W4I.printSymExpr v2
+                                    ]
 
---   where ppPtrText :: W4I.IsExpr (RegValue' sym) => LLVMPtr sym w -> Doc
---         ppPtrText = text . show . ppPtr
+  where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
+        ppPtr1 = ("Pointer:" <+>) . ppPointerPair
 
---         ppPtr1 :: W4I.IsExpr (RegValue' sym) => LLVMPtr sym w -> Doc
---         ppPtr1 = ("Pointer:" <+>) . ppPtrText
+        ppPtr2 ptr1 ptr2 = vcat [ "Pointer 1:" <+>  ppPointerPair ptr1
+                                , "Pointer 2:" <+>  ppPointerPair ptr2
+                                ]
 
---         ppPtr2 ptr1 ptr2 = vcat [ "Pointer 1:" <+>  ppPtrText ptr1
---                                 , "Pointer 2:" <+>  ppPtrText ptr2
---                                 ]
-
---         ppOffset :: W4I.IsExpr (RegValue' sym) => proxy sym -> W4I.SymBV sym w -> Doc
---         ppOffset _ = ("Offset:" <+>) . W4I.printSymExpr
+        ppOffset :: W4I.IsExpr (W4I.SymExpr sym)
+                 => proxy sym -> W4I.SymExpr sym (BaseBVType w) -> Doc
+        ppOffset _ = ("Offset:" <+>) . W4I.printSymExpr
 
 pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
    -> UndefinedBehavior e
@@ -430,13 +428,13 @@ pp extra ub = vcat $
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
 
--- -- | Pretty-printer for symbolic backends
--- ppSym :: W4I.IsExpr (RegValue' sym)
---       => proxy sym
---       -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
---       -> UndefinedBehavior e
---       -> Doc
--- ppSym proxySym = pp (detailsSym proxySym)
+-- | Pretty-printer for symbolic backends
+ppReg :: W4I.IsExpr (W4I.SymExpr sym)
+      => proxy sym
+      -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
+      -> UndefinedBehavior (RegValue' sym)
+      -> Doc
+ppReg proxySym = pp (detailsReg proxySym)
 
 -- -- | General-purpose pretty-printer
 -- ppExpr :: W4I.IsExpr e
