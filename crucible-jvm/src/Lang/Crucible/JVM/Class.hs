@@ -104,16 +104,16 @@ module Lang.Crucible.JVM.Class
    where
 
 import           Control.Monad.State.Strict
-import           Data.Map(Map)
+import           Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (maybeToList, mapMaybe)
-import           Data.Set(Set)
+import           Data.Semigroup
 import qualified Data.Set as Set
-import           Data.Vector (Vector)
-import qualified Data.Vector as V
+import           Data.Set (Set)
 import           Data.String (fromString)
 import qualified Data.Text as Text
-
+import           Data.Vector (Vector)
+import qualified Data.Vector as V
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
@@ -135,8 +135,8 @@ import           Lang.Crucible.JVM.Generator
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
 
-
 import           GHC.Stack
+import           Prelude
 
 
 -- | Lookup the information that the generator has about a class
