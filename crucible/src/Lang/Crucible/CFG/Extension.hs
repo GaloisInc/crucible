@@ -40,7 +40,7 @@ module Lang.Crucible.CFG.Extension
 ) where
 
 import           Data.Kind (Type)
-import           Data.Parameterized.Classes (EqF(..), OrdF(..))
+import           Data.Parameterized.ClassesC (OrdC(..))
 import           Data.Parameterized.TraversableF (TraversableF)
 import           Data.Parameterized.TraversableFC
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
@@ -87,8 +87,7 @@ class
    , PrettyApp (StmtExtension ext)
    , TypeApp (StmtExtension ext)
    --
-   , EqF (AssertionClassifier ext) -- TODO: why??
-   , OrdF (AssertionClassifier ext)
+   , OrdC (AssertionClassifier ext)
    , TraversableF (AssertionClassifier ext)
    , HasStructuredAssertions ext
    ) =>

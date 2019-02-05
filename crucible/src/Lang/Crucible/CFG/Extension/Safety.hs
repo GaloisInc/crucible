@@ -20,7 +20,6 @@ extensions.
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -53,8 +52,8 @@ import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Classes
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Compose ()
-import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 
@@ -104,12 +103,10 @@ value = lens _value (\s v -> s { _value = v })
 -- -----------------------------------------------------------------------
 -- *** Instances
 
-$(return [])
-
 -- instance EqF f => Eq (f a) where
 --   (==) = eqF
 
-instance ( EqF (AssertionClassifier ext)
+instance ( TestEqualityC (AssertionClassifier ext)
          )
          => TestEqualityFC (PartialExpr ext) where
   testEqualityFC :: forall f. (forall x y. f x -> f y -> (Maybe (x :~: y))) ->
@@ -119,20 +116,12 @@ instance ( EqF (AssertionClassifier ext)
   testEqualityFC subterms (PartialExpr class1 val1) (PartialExpr class2 val2) =
     let justSubterms x y = isJust (subterms x y)
     in join (subterms <$> val1 <*> val2) <*
-         guard (eqAssertionTree justSubterms eqF class1 class2)
+         guard (eqAssertionTree justSubterms (testEqualityC subterms) class1 class2)
 
 -- instance ( OrdF (AssertionClassifier ext)
 --          )
 --          => OrdFC (PartialExpr ext) where
 --   compareFC subterms =
-    -- $(U.structuralTypeOrd [t|PartialExpr|]
-    --    [ 
-    --    ]
-     -- )
-    -- case join (ordF <$> val1 <*> val2) of
-    --   EQF ->
-    --     case
-         -- guard (eqAssertionTree justSubterms eqF class1 class2)
 
 instance ( FunctorF (AssertionClassifier ext)
          )
@@ -301,6 +290,8 @@ type instance AssertionClassifier () = NoAssertionClassifier
 
 instance EqF           NoAssertionClassifier where eqF _           = \case
 instance OrdF          NoAssertionClassifier where compareF _      = \case
+instance TestEqualityC NoAssertionClassifier where testEqualityC _ = \case
+instance OrdC          NoAssertionClassifier where compareC _      = \case
 instance HashableF     NoAssertionClassifier where hashWithSaltF _ = \case
 instance ShowF         NoAssertionClassifier where showsPrecF _    = \case
 instance FunctorF      NoAssertionClassifier where fmapF _         = \case

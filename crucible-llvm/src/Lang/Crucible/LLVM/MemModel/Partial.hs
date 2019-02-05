@@ -42,6 +42,8 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(..))
 
 import           Lang.Crucible.Backend
+import           Lang.Crucible.CFG.Extension.Safety
+import           Lang.Crucible.Simulator.RegValue (RegValue')
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
 import           Lang.Crucible.LLVM.MemModel.Type
@@ -62,32 +64,31 @@ import qualified What4.Partial as W4P
 
 -- | An optional LLVMValue, paired with a tree of predicates explaining
 -- just when it is actually valid.
-type PartLLVMVal arch sym =
-  PartExpr (LLVMAssertionTree arch (W4I.SymExpr sym)) (LLVMVal sym)
+type PartLLVMVal sym = PartialExpr (RegValue' sym)
 
 -- | Make an assertion that isn't about undefined behavior
 -- llvmAssert :: Text -> Pred sym -> LLVMValAssertion sym
 -- llvmAssert = flip LLVMValAssertion Nothing
 
 -- | An 'LLVMVal' which is always valid.
-totalLLVMVal :: (IsExprBuilder sym) => sym -> LLVMVal sym -> PartLLVMVal arch sym
+totalLLVMVal :: (IsExprBuilder sym) => sym -> LLVMVal sym -> PartLLVMVal sym
 totalLLVMVal sym v = W4P.PE (Leaf (safe sym)) v
 
 -- | Add a side-condition to a value that might have caused undefined behavior
-addUndefinedBehaviorCondition_ :: proxy sym -- ^ Unused, pins down ambiguous type
-                               -> UB.UndefinedBehavior (W4I.SymExpr sym)
-                               -> Pred sym
-                               -> LLVMAssertionTree arch (W4I.SymExpr sym)
-                               -> LLVMAssertionTree arch (W4I.SymExpr sym)
-addUndefinedBehaviorCondition_ _proxySym ub pred tree =
-  W4P.addCondition tree (undefinedBehavior ub pred)
+-- addUndefinedBehaviorCondition_ :: proxy sym -- ^ Unused, pins down ambiguous type
+--                                -> UB.UndefinedBehavior (W4I.SymExpr sym)
+--                                -> Pred sym
+--                                -> LLVMAssertionTree arch (W4I.SymExpr sym)
+--                                -> LLVMAssertionTree arch (W4I.SymExpr sym)
+-- addUndefinedBehaviorCondition_ _proxySym ub pred tree =
+--   W4P.addCondition tree (undefinedBehavior ub pred)
 
-addUndefinedBehaviorCondition :: sym -- ^ Unused, pins down ambiguous type
-                              -> UB.UndefinedBehavior (W4I.SymExpr sym)
-                              -> Pred sym
-                              -> LLVMAssertionTree arch (W4I.SymExpr sym)
-                              -> LLVMAssertionTree arch (W4I.SymExpr sym)
-addUndefinedBehaviorCondition sym = addUndefinedBehaviorCondition_ (Just sym)
+-- addUndefinedBehaviorCondition :: sym -- ^ Unused, pins down ambiguous type
+--                               -> UB.UndefinedBehavior (W4I.SymExpr sym)
+--                               -> Pred sym
+--                               -> LLVMAssertionTree arch (W4I.SymExpr sym)
+--                               -> LLVMAssertionTree arch (W4I.SymExpr sym)
+-- addUndefinedBehaviorCondition sym = addUndefinedBehaviorCondition_ (Just sym)
 
 -- addPoisonCondition ::
 
@@ -98,8 +99,8 @@ addUndefinedBehaviorCondition sym = addUndefinedBehaviorCondition_ (Just sym)
 -- | Convert a bitvector to a float, asserting that it is not a pointer
 bvToFloatPartLLVMVal ::
   IsSymInterface sym => sym ->
-  PartLLVMVal arch sym ->
-  IO (PartLLVMVal arch sym)
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
 
 bvToFloatPartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 4) _))) =
   PE p . LLVMValFloat Value.SingleSize <$>
@@ -120,8 +121,8 @@ bvToFloatPartLLVMVal _ _ = return Unassigned
 -- | Convert a bitvector to a double, asserting that it is not a pointer
 bvToDoublePartLLVMVal ::
   IsSymInterface sym => sym ->
-  PartLLVMVal arch sym ->
-  IO (PartLLVMVal arch sym)
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
 
 bvToDoublePartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 8) _))) =
   PE p . LLVMValFloat Value.DoubleSize <$>
@@ -142,8 +143,8 @@ bvToDoublePartLLVMVal _ _ = return Unassigned
 -- | Convert a bitvector to an FP80 float, asserting that it is not a pointer
 bvToX86_FP80PartLLVMVal ::
   IsSymInterface sym => sym ->
-  PartLLVMVal arch sym ->
-  IO (PartLLVMVal arch sym)
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
 
 bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 10) _))) =
   PE p . LLVMValFloat Value.X86_FP80Size <$>
@@ -165,9 +166,9 @@ bvToX86_FP80PartLLVMVal _ _ = return Unassigned
 -- argument is asserted to equal 0, indicating non-pointers.
 bvConcatPartLLVMVal :: forall arch sym.
   IsSymInterface sym => sym ->
-  PartLLVMVal arch sym ->
-  PartLLVMVal arch sym ->
-  IO (PartLLVMVal arch sym)
+  PartLLVMVal sym ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
 bvConcatPartLLVMVal _ Unassigned _ = return Unassigned
 
 bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
@@ -190,7 +191,7 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
 
  where
   go :: forall l h. (1 <= l, 1 <= h) =>
-    W4I.SymNat sym -> W4I.SymBV sym l -> W4I.SymNat sym -> W4I.SymBV sym h -> IO (PartLLVMVal arch sym)
+    W4I.SymNat sym -> W4I.SymBV sym l -> W4I.SymNat sym -> W4I.SymBV sym h -> IO (PartLLVMVal sym)
   go blk_low low blk_high high
     -- NB we check that the things we are concatenating are each an integral number of
     -- bytes.  This prevents us from concatenating together the partial-byte writes that
@@ -223,9 +224,9 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
 -- | Cons an element onto a partial LLVM array value.
 consArrayPartLLVMVal ::
   IsSymInterface sym =>
-  PartLLVMVal arch sym ->
-  PartLLVMVal arch sym ->
-  PartLLVMVal arch sym
+  PartLLVMVal sym ->
+  PartLLVMVal sym ->
+  PartLLVMVal sym
 consArrayPartLLVMVal (PE p1 (LLVMValZero tp)) (PE p2 (LLVMValZero (StorageType (Array m tp') _)))
   | tp == tp' =
       PE (W4P.binaryAnd p1 p2) $ LLVMValZero (arrayType (m+1) tp')
@@ -243,9 +244,9 @@ consArrayPartLLVMVal _ _ = Unassigned
 -- | Append two partial LLVM array values.
 appendArrayPartLLVMVal ::
   IsSymInterface sym =>
-  PartLLVMVal arch sym ->
-  PartLLVMVal arch sym ->
-  PartLLVMVal arch sym
+  PartLLVMVal sym ->
+  PartLLVMVal sym ->
+  PartLLVMVal sym
 appendArrayPartLLVMVal
   (PE p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
   (PE p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
@@ -282,10 +283,10 @@ appendArrayPartLLVMVal _ _ = Unassigned
 mkArrayPartLLVMVal :: forall arch sym. (IsExprBuilder sym, IsSymInterface sym) =>
   sym ->
   StorageType ->
-  Vector (PartLLVMVal arch sym) ->
-  PartLLVMVal arch sym
+  Vector (PartLLVMVal sym) ->
+  PartLLVMVal sym
 mkArrayPartLLVMVal sym tp vec =
-  let f :: PartLLVMVal arch sym
+  let f :: PartLLVMVal sym
         -> State [LLVMAssertionTree arch (W4I.SymExpr sym)] (Maybe (LLVMVal sym))
       f Unassigned = pure Nothing
       f (PE p x) = do
@@ -308,10 +309,10 @@ mkArrayPartLLVMVal sym tp vec =
 -- assertions on the values.
 mkStructPartLLVMVal :: forall arch sym. IsExprBuilder sym =>
   sym ->
-  Vector (Field StorageType, PartLLVMVal arch sym) ->
-  (PartLLVMVal arch sym)
+  Vector (Field StorageType, PartLLVMVal sym) ->
+  (PartLLVMVal sym)
 mkStructPartLLVMVal sym vec =
-  let f :: (Field StorageType, PartLLVMVal arch sym)
+  let f :: (Field StorageType, PartLLVMVal sym)
         -> State [LLVMAssertionTree arch (W4I.SymExpr sym)]
                  (Maybe (Field StorageType, LLVMVal sym))
       f (_fld, Unassigned) = pure Nothing
@@ -335,8 +336,8 @@ selectLowBvPartLLVMVal ::
   IsSymInterface sym => sym ->
   Bytes ->
   Bytes ->
-  PartLLVMVal arch sym ->
-  IO (PartLLVMVal arch sym)
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
 
 selectLowBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector bytes) _)))
   | low + hi == bytes =
@@ -362,8 +363,8 @@ selectHighBvPartLLVMVal ::
   IsSymInterface sym => sym ->
   Bytes ->
   Bytes ->
-  PartLLVMVal arch sym ->
-  IO (PartLLVMVal arch sym)
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
 
 selectHighBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector bytes) _)))
   | low + hi == bytes =
@@ -387,8 +388,8 @@ arrayEltPartLLVMVal ::
   Word64 ->
   StorageType ->
   Word64 ->
-  PartLLVMVal arch sym ->
-  IO (PartLLVMVal arch sym)
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
 arrayEltPartLLVMVal sz tp idx (PE p (LLVMValZero _)) -- TODO(langston) typecheck
   | 0 <= idx
   , idx < sz =
@@ -407,8 +408,8 @@ arrayEltPartLLVMVal _ _ _ _ = return Unassigned
 fieldValPartLLVMVal ::
   (Vector (Field StorageType)) ->
   Int ->
-  PartLLVMVal arch sym ->
-  IO (PartLLVMVal arch sym)
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
 fieldValPartLLVMVal flds idx (PE p (LLVMValZero _)) -- TODO(langston) typecheck
   | 0 <= idx
   , idx < V.length flds =
@@ -429,22 +430,22 @@ fieldValPartLLVMVal _ _ _ = return Unassigned
 -- | If-then-else on partial expressions.
 mergePartial :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
-  (Pred sym -> LLVMVal sym -> LLVMVal sym -> m (PartLLVMVal arch sym))
+  (Pred sym -> LLVMVal sym -> LLVMVal sym -> m (PartLLVMVal sym))
     {- ^ Operation to combine inner values. The 'Pred' parameter is the
          if/then/else condition -} ->
   Pred sym {- ^ condition to merge on -} ->
-  PartLLVMVal arch sym {- ^ 'if' value -}  ->
-  PartLLVMVal arch sym {- ^ 'then' value -} ->
-  m (PartLLVMVal arch sym)
+  PartLLVMVal sym {- ^ 'if' value -}  ->
+  PartLLVMVal sym {- ^ 'then' value -} ->
+  m (PartLLVMVal sym)
 
 {-# SPECIALIZE mergePartial ::
       IsExprBuilder sym =>
       sym ->
-      (Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal arch sym)) ->
+      (Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal sym)) ->
       Pred sym ->
-      PartLLVMVal arch sym ->
-      PartLLVMVal arch sym ->
-      IO (PartLLVMVal arch sym)   #-}
+      PartLLVMVal sym ->
+      PartLLVMVal sym ->
+      IO (PartLLVMVal sym)   #-}
 
 mergePartial _ _ _ Unassigned Unassigned  = return Unassigned
 mergePartial _ _ c v Unassigned           = return v -- TODO: too optimistic?
@@ -482,9 +483,9 @@ muxLLVMVal :: forall arch sym
     . IsSymInterface sym
    => sym
    -> Pred sym
-   -> PartLLVMVal arch sym
-   -> PartLLVMVal arch sym
-   -> IO (PartLLVMVal arch sym)
+   -> PartLLVMVal sym
+   -> PartLLVMVal sym
+   -> IO (PartLLVMVal sym)
 muxLLVMVal sym = mergePartial sym muxval
   where
 
@@ -522,7 +523,7 @@ muxLLVMVal sym = mergePartial sym muxval
         LLVMValStruct <$> traverse (\(fld, v) -> (fld,) <$> muxzero cond (fld^.fieldVal) v) flds
 
 
-    muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal arch sym)
+    muxval :: Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal sym)
     muxval cond (LLVMValZero tp) v = totalLLVMVal sym <$> muxzero cond tp v
     muxval cond v (LLVMValZero tp) = do cond' <- W4I.notPred sym cond
                                         totalLLVMVal sym <$> muxzero cond' tp v

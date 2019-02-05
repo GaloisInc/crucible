@@ -43,65 +43,66 @@ import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), T
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.ClassesC (TestEqualityC(..))
 
+import           Lang.Crucible.Types
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
 import qualified What4.Interface as W4I
 
 -- | TODO(langston): Record type information for error messages
-data Poison (e :: W4I.BaseType -> Type) where
+data Poison (e :: CrucibleType -> Type) where
 
-  AddNoUnsignedWrap   :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  AddNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  AddNoSignedWrap     :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  AddNoSignedWrap     :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  SubNoUnsignedWrap   :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  SubNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  SubNoSignedWrap     :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  SubNoSignedWrap     :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  MulNoUnsignedWrap   :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  MulNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  MulNoSignedWrap     :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  MulNoSignedWrap     :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  UDivExact           :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  UDivExact           :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  SDivExact           :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  SDivExact           :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  ShlOp2Big           :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  ShlOp2Big           :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  ShlNoUnsignedWrap   :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  ShlNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  ShlNoSignedWrap     :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  ShlNoSignedWrap     :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  LshrExact           :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  LshrExact           :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  LshrOp2Big          :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  LshrOp2Big          :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  AshrExact           :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
+  AshrExact           :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  AshrOp2Big          :: e (W4I.BaseBVType w) -- ^ @op1@
-                      -> e (W4I.BaseBVType w) -- ^ @op2@
-                      -> Poison e
-  -- | TODO(langston): Figure out how to store the 'Vector'
-  ExtractElementIndex :: e (W4I.BaseBVType w)       -- ^ @idx@
+  AshrOp2Big          :: e (BVType w) -- ^ @op1@
+                      -> e (BVType w) -- ^ @op2@
                       -> Poison e
   -- | TODO(langston): Figure out how to store the 'Vector'
-  InsertElementIndex  :: e (W4I.BaseBVType w)       -- ^ @idx@
+  ExtractElementIndex :: e (BVType w)       -- ^ @idx@
+                      -> Poison e
+  -- | TODO(langston): Figure out how to store the 'Vector'
+  InsertElementIndex  :: e (BVType w)       -- ^ @idx@
                       -> Poison e
   -- | TODO(langston): Figure out how to store the 'LLVMPointerType'
-  GEPOutOfBounds      :: e (W4I.BaseBVType w) -- ^ @idx@
+  GEPOutOfBounds      :: e (BVType w) -- ^ @idx@
                       -> Poison e
   deriving (Typeable)
 
@@ -208,7 +209,7 @@ explain =
     -- to how we treat this instruction in Crucible.
     GEPOutOfBounds _   -> cat $
       [ "Calling `getelementptr` resulted in an index that was out of bounds for"
-      , "the given allocation (likely due to arithmetic overflow), but Crucible"
+      , "the given allocation (likely due to arithmetic overflo(BVType w), but Crucible"
       , "currently treats all GEP instructions as if they had the `inbounds`"
       , "flag set."
       ]

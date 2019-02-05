@@ -54,7 +54,8 @@ import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension.Arch
 import           Lang.Crucible.LLVM.Extension.Syntax
-import           Lang.Crucible.LLVM.Extension.Safety
+import           Lang.Crucible.LLVM.Extension.Safety (BadBehavior(..), LLVMSafetyAssertion)
+import qualified Lang.Crucible.LLVM.Extension.Safety as LLVMSafe
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefValue as UV
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
@@ -77,18 +78,18 @@ instance (1 <= ArchWidth arch) => IsSyntaxExtension (LLVM arch)
 -- -----------------------------------------------------------------------
 -- ** Safety Assertions
 
-type instance SafetyAssertion (LLVM arch) = LLVMSafetyAssertion arch
+type instance AssertionClassifier (LLVM arch) = LLVMSafetyAssertion
 
-instance HasSafetyAssertions (LLVM arch) where
-  toPredicate _proxy _sym     = view predicate
+instance HasStructuredAssertions (LLVM arch) where
+  toPredicate _proxy _sym     = undefined -- TODO
 
   explain     :: IsExprBuilder sym
-              => proxy ext
-              -> proxy sym
-              -> SafetyAssertion (LLVM arch) (SymExpr sym)
+              => proxy1 ext
+              -> proxy2 sym
+              -> a
               -> Doc
-  explain _proxyExt proxySym assertion =
-    case assertion ^. classifier of
-      BBUndefinedBehavior ub -> UB.ppSym proxySym ub
-      BBPoison poison        -> Poison.pp poison
-      BBSafe                 -> "A value that's always safe"
+  explain _proxyExt proxySym assertion = "TODO"
+    -- case assertion ^. classifier of
+    --   BBUndefinedBehavior ub -> "ub" -- TODO
+    --   BBPoison poison        -> Poison.pp poison
+    --   BBSafe                 -> "A value that's always safe"

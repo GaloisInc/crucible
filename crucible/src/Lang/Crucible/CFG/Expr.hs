@@ -71,6 +71,7 @@ import qualified Data.Vector as V
 
 import           Data.Parameterized.Compose (testEqualityComposeBare)
 import           Data.Parameterized.Classes
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF
@@ -1332,7 +1333,7 @@ traverseApp =
 -- Parameterized Eq and Ord instances
 
 instance ( TestEqualityFC (ExprExtension ext)
-         , EqF (AssertionClassifier ext)
+         , TestEqualityC (AssertionClassifier ext)
          ) => TestEqualityFC (App ext) where
   testEqualityFC testSubterm =
     $(U.structuralTypeEquality [t|App|]
@@ -1367,14 +1368,14 @@ instance ( TestEqualityFC (ExprExtension ext)
         ])
 
 instance ( TestEqualityFC (ExprExtension ext)
-         , EqF (AssertionClassifier ext)
+         , TestEqualityC (AssertionClassifier ext)
          , TestEquality f
          ) => TestEquality (App ext f) where
   testEquality = testEqualityFC testEquality
 
 instance ( OrdFC (ExprExtension ext)
-         , OrdF  (AssertionClassifier ext)
-         , EqF   (AssertionClassifier ext)
+         , OrdC  (AssertionClassifier ext)
+         , TestEqualityC (AssertionClassifier ext)
          ) => OrdFC (App ext) where
   compareFC compareSubterm
         = $(U.structuralTypeOrd [t|App|]
@@ -1410,8 +1411,8 @@ instance ( OrdFC (ExprExtension ext)
                   )
 
 instance ( OrdFC (ExprExtension ext)
-         , OrdF (AssertionClassifier ext)
-         , EqF  (AssertionClassifier ext)
+         , OrdC (AssertionClassifier ext)
+         , TestEqualityC (AssertionClassifier ext)
          , OrdF f
          ) => OrdF (App ext f) where
   compareF = compareFC compareF

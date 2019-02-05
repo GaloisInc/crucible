@@ -41,8 +41,8 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
     PtrComparisonOperator(..)
   , UndefinedBehavior(..)
   , cite
-  , ppSym
-  , ppExpr
+  -- , ppSym
+  -- , ppExpr
 
   -- ** Config
   , Config
@@ -68,10 +68,11 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Data.Parameterized.TraversableF as TF
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
 import qualified Data.Parameterized.TH.GADT as U
-import           Data.Parameterized.Classes (OrdF(..))
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 
 import qualified What4.Interface as W4I
 
+import           Lang.Crucible.Types
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
 import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
@@ -91,9 +92,6 @@ ppPtrComparison :: PtrComparisonOperator -> Doc
 ppPtrComparison Eq  = text "Equality comparison (==)"
 ppPtrComparison Leq = text "Ordering comparison (<=)"
 
-data PtrExpr e where
-  PtrExpr :: e W4I.BaseNatType -> e (W4I.BaseBVType w) -> PtrExpr e
-
 -- | This type is parameterized on a higher-kinded term constructor so that it
 -- can be instantiated for expressions at translation time (i.e. the 'Expr' in
 -- 'LLVMGenerator'), or for expressions at runtime ('SymExpr').
@@ -102,75 +100,75 @@ data PtrExpr e where
 --
 -- The commented-out constructors correspond to behaviors that don't have
 -- explicit checks yet (but probably should!).
-data UndefinedBehavior (e :: W4I.BaseType -> Type) where
+data UndefinedBehavior (e :: CrucibleType -> Type) where
 
-  -------------------------------- Memory management
+  -- -------------------------------- Memory management
 
-  FreeBadOffset :: LLVMPtr sym w
-                -> UndefinedBehavior (W4I.SymExpr sym)
+  -- FreeBadOffset :: LLVMPtr sym w
+  --               -> UndefinedBehavior (RegValue' sym)
 
-  FreeUnallocated :: LLVMPtr sym w
-                  -> UndefinedBehavior (W4I.SymExpr sym)
+  -- FreeUnallocated :: LLVMPtr sym w
+  --                 -> UndefinedBehavior (RegValue' sym)
 
-  MemsetInvalidRegion :: LLVMPtr sym w   -- ^ Destination
-                      -> W4I.SymBV sym 8 -- ^ Fill byte
-                      -> W4I.SymBV sym v -- ^ Length
-                      -> UndefinedBehavior (W4I.SymExpr sym)
+  -- MemsetInvalidRegion :: LLVMPtr sym w   -- ^ Destination
+  --                     -> W4I.SymBV sym 8 -- ^ Fill byte
+  --                     -> W4I.SymBV sym v -- ^ Length
+  --                     -> UndefinedBehavior (RegValue' sym)
 
-  -- | Is this actually undefined? I (Langston) can't find anything about it
-  ReadBadAlignment :: LLVMPtr sym w   -- ^ Read from where?
-                   -> Alignment       -- ^ What alignment?
-                   -> UndefinedBehavior (W4I.SymExpr sym)
+  -- -- | Is this actually undefined? I (Langston) can't find anything about it
+  -- ReadBadAlignment :: LLVMPtr sym w   -- ^ Read from where?
+  --                  -> Alignment       -- ^ What alignment?
+  --                  -> UndefinedBehavior (RegValue' sym)
 
-  ReadUnallocated :: LLVMPtr sym w -- ^ Read from where?
-                  -> UndefinedBehavior (W4I.SymExpr sym)
+  -- ReadUnallocated :: LLVMPtr sym w -- ^ Read from where?
+  --                 -> UndefinedBehavior (RegValue' sym)
 
-  -------------------------------- Pointer arithmetic
+  -- -------------------------------- Pointer arithmetic
 
-  PtrAddOffsetOutOfBounds :: LLVMPtr sym w   -- ^ The pointer
-                          -> W4I.SymBV sym w -- ^ Offset added
-                          -> UndefinedBehavior (W4I.SymExpr sym)
+  -- PtrAddOffsetOutOfBounds :: LLVMPtr sym w   -- ^ The pointer
+  --                         -> W4I.SymBV sym w -- ^ Offset added
+  --                         -> UndefinedBehavior (RegValue' sym)
 
-  CompareInvalidPointer :: PtrComparisonOperator -- ^ Kind of comparison
-                        -> LLVMPtr sym w  -- ^ The invalid pointer
-                        -> LLVMPtr sym w  -- ^ The pointer it was compared to
-                        -> UndefinedBehavior (W4I.SymExpr sym)
+  -- CompareInvalidPointer :: PtrComparisonOperator -- ^ Kind of comparison
+  --                       -> LLVMPtr sym w  -- ^ The invalid pointer
+  --                       -> LLVMPtr sym w  -- ^ The pointer it was compared to
+  --                       -> UndefinedBehavior (RegValue' sym)
 
-  -- | "In all other cases, the behavior is undefined"
-  -- TODO: 'PtrComparisonOperator' argument?
-  CompareDifferentAllocs :: LLVMPtr sym w
-                         -> LLVMPtr sym w
-                         -> UndefinedBehavior (W4I.SymExpr sym)
+  -- -- | "In all other cases, the behavior is undefined"
+  -- -- TODO: 'PtrComparisonOperator' argument?
+  -- CompareDifferentAllocs :: LLVMPtr sym w
+  --                        -> LLVMPtr sym w
+  --                        -> UndefinedBehavior (RegValue' sym)
 
-  -- | "When two pointers are subtracted, both shall point to elements of the
-  -- same array object"
-  PtrSubDifferentAllocs :: LLVMPtr sym w
-                        -> LLVMPtr sym w
-                        -> UndefinedBehavior (W4I.SymExpr sym)
+  -- -- | "When two pointers are subtracted, both shall point to elements of the
+  -- -- same array object"
+  -- PtrSubDifferentAllocs :: LLVMPtr sym w
+  --                       -> LLVMPtr sym w
+  --                       -> UndefinedBehavior (RegValue' sym)
 
-  PointerCast :: e (W4I.BaseNatType)   -- ^ Pointer's allocation number
-              -> e (W4I.BaseBVType w)  -- ^ Offset
-              -> StorageTypeF ()       -- ^ Type being cast to
+  PointerCast :: e NatType       -- ^ Pointer's allocation number
+              -> e (BVType w)    -- ^ Offset
+              -> StorageTypeF () -- ^ Type being cast to
               -> UndefinedBehavior e
 
-  -- | "One of the following shall hold: [...] one operand is a pointer and the
-  -- other is a null pointer constant."
-  ComparePointerToBV :: e (W4I.BaseBVType w) -- ^ Pointer
-                     -> e (W4I.BaseBVType w) -- ^ Bitvector
-                     -> UndefinedBehavior e
+  -- -- | "One of the following shall hold: [...] one operand is a pointer and the
+  -- -- other is a null pointer constant."
+  -- ComparePointerToBV :: e (BVType w) -- ^ Pointer
+  --                    -> e (BVType w) -- ^ Bitvector
+  --                    -> UndefinedBehavior e
 
   -------------------------------- LLVM: arithmetic
 
   -- | @SymBV@ or @Expr _ _ (BVType w)@
-  UDivByZero   :: e (W4I.BaseBVType w) -> UndefinedBehavior e
-  SDivByZero   :: e (W4I.BaseBVType w) -> UndefinedBehavior e
-  URemByZero   :: e (W4I.BaseBVType w) -> UndefinedBehavior e
-  SRemByZero   :: e (W4I.BaseBVType w) -> UndefinedBehavior e
-  SDivOverflow :: e (W4I.BaseBVType w)
-               -> e (W4I.BaseBVType w)
+  UDivByZero   :: e (BVType w) -> UndefinedBehavior e
+  SDivByZero   :: e (BVType w) -> UndefinedBehavior e
+  URemByZero   :: e (BVType w) -> UndefinedBehavior e
+  SRemByZero   :: e (BVType w) -> UndefinedBehavior e
+  SDivOverflow :: e (BVType w)
+               -> e (BVType w)
                -> UndefinedBehavior e
-  SRemOverflow :: e (W4I.BaseBVType w)
-               -> e (W4I.BaseBVType w)
+  SRemOverflow :: e (BVType w)
+               -> e (BVType w)
                -> UndefinedBehavior e
 
   {-
@@ -186,24 +184,24 @@ standard :: UndefinedBehavior e -> Standard
 standard =
   \case
 
-    -------------------------------- Memory management
+    -- -------------------------------- Memory management
 
-    FreeBadOffset _           -> CStd C99
-    FreeUnallocated _         -> CStd C99
-    MemsetInvalidRegion _ _ _ -> CXXStd CXX17
-    ReadBadAlignment _ _      -> CStd C99
-    ReadUnallocated _         -> CStd C99
+    -- FreeBadOffset _           -> CStd C99
+    -- FreeUnallocated _         -> CStd C99
+    -- MemsetInvalidRegion _ _ _ -> CXXStd CXX17
+    -- ReadBadAlignment _ _      -> CStd C99
+    -- ReadUnallocated _         -> CStd C99
 
-    -------------------------------- Pointer arithmetic
+    -- -------------------------------- Pointer arithmetic
 
-    PtrAddOffsetOutOfBounds _ _ -> CStd C99
-    CompareInvalidPointer _ _ _ -> CStd C99
-    CompareDifferentAllocs _ _  -> CStd C99
-    PtrSubDifferentAllocs _ _   -> CStd C99
-    ComparePointerToBV _ _      -> CStd C99
-    PointerCast _ _ _           -> CStd C99
+    -- PtrAddOffsetOutOfBounds _ _ -> CStd C99
+    -- CompareInvalidPointer _ _ _ -> CStd C99
+    -- CompareDifferentAllocs _ _  -> CStd C99
+    -- PtrSubDifferentAllocs _ _   -> CStd C99
+    -- ComparePointerToBV _ _      -> CStd C99
+    -- PointerCast _ _ _           -> CStd C99
 
-    -------------------------------- LLVM: arithmetic
+    -- -------------------------------- LLVM: arithmetic
 
     UDivByZero _     -> LLVMRef LLVM8
     SDivByZero _     -> LLVMRef LLVM8
@@ -226,20 +224,20 @@ cite = text .
 
     -------------------------------- Memory management
 
-    FreeBadOffset _           -> "§7.22.3.3 The free function, ¶2"
-    FreeUnallocated _         -> "§7.22.3.3 The free function, ¶2"
-    MemsetInvalidRegion _ _ _ -> "https://en.cppreference.com/w/cpp/string/byte/memset"
-    ReadBadAlignment _ _      -> "§6.2.8 Alignment of objects, ¶?"
-    ReadUnallocated _         -> "§6.2.4 Storage durations of objects, ¶2"
+    -- FreeBadOffset _           -> "§7.22.3.3 The free function, ¶2"
+    -- FreeUnallocated _         -> "§7.22.3.3 The free function, ¶2"
+    -- MemsetInvalidRegion _ _ _ -> "https://en.cppreference.com/w/cpp/string/byte/memset"
+    -- ReadBadAlignment _ _      -> "§6.2.8 Alignment of objects, ¶?"
+    -- ReadUnallocated _         -> "§6.2.4 Storage durations of objects, ¶2"
 
-    -------------------------------- Pointer arithmetic
+    -- -------------------------------- Pointer arithmetic
 
-    PtrAddOffsetOutOfBounds _ _ -> "§6.5.6 Additive operators, ¶8"
-    CompareInvalidPointer _ _ _ -> "§6.5.8 Relational operators, ¶5"
-    CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
-    PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
-    ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
-    PointerCast _ _ _           -> "TODO"
+    -- PtrAddOffsetOutOfBounds _ _ -> "§6.5.6 Additive operators, ¶8"
+    -- CompareInvalidPointer _ _ _ -> "§6.5.8 Relational operators, ¶5"
+    -- CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
+    -- PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
+    -- ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
+    -- PointerCast _ _ _           -> "TODO"
 
     -------------------------------- LLVM: arithmetic
 
@@ -264,42 +262,42 @@ explain :: UndefinedBehavior e -> Doc
 explain =
   \case
 
-    -------------------------------- Memory management
+    -- -------------------------------- Memory management
 
-    FreeBadOffset _ -> cat $
-      [ "`free` called on pointer that was not previously returned by `malloc`"
-      , "`calloc`, or another memory management function (the pointer did not"
-      , "point to the base of an allocation, its offset should be 0)."
-      ]
-    FreeUnallocated _ ->
-      "`free` called on pointer that didn't point to a live region of the heap."
-    MemsetInvalidRegion _ _ _ -> cat $
-      [ "Pointer passed to `memset` didn't point to a mutable allocation with"
-      , "enough space."
-      ]
-    ReadBadAlignment _ _ ->
-      "Read a value from a pointer with incorrect alignment"
-    ReadUnallocated _ ->
-      "Read a value from a pointer into an unallocated region"
+    -- FreeBadOffset _ -> cat $
+    --   [ "`free` called on pointer that was not previously returned by `malloc`"
+    --   , "`calloc`, or another memory management function (the pointer did not"
+    --   , "point to the base of an allocation, its offset should be 0)."
+    --   ]
+    -- FreeUnallocated _ ->
+    --   "`free` called on pointer that didn't point to a live region of the heap."
+    -- MemsetInvalidRegion _ _ _ -> cat $
+    --   [ "Pointer passed to `memset` didn't point to a mutable allocation with"
+    --   , "enough space."
+    --   ]
+    -- ReadBadAlignment _ _ ->
+    --   "Read a value from a pointer with incorrect alignment"
+    -- ReadUnallocated _ ->
+    --   "Read a value from a pointer into an unallocated region"
 
-    -------------------------------- Pointer arithmetic
+    -- -------------------------------- Pointer arithmetic
 
-    PtrAddOffsetOutOfBounds _ _ -> cat $
-      [ "Addition of an offset to a pointer resulted in a pointer to an"
-      , "address outside of the allocation."
-      ]
-    CompareInvalidPointer _ _ _ -> cat $
-      [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
-      , "object."
-      ]
-    CompareDifferentAllocs _ _ ->
-      "Comparison of pointers from different allocations"
-    PtrSubDifferentAllocs _ _ ->
-      "Subtraction of pointers from different allocations"
-    ComparePointerToBV _ _ ->
-      "Comparison of a pointer to a non zero (null) integer value"
-    PointerCast _ _ _   ->
-      "Cast of a pointer to a non-integer type"
+    -- PtrAddOffsetOutOfBounds _ _ -> cat $
+    --   [ "Addition of an offset to a pointer resulted in a pointer to an"
+    --   , "address outside of the allocation."
+    --   ]
+    -- CompareInvalidPointer _ _ _ -> cat $
+    --   [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
+    --   , "object."
+    --   ]
+    -- CompareDifferentAllocs _ _ ->
+    --   "Comparison of pointers from different allocations"
+    -- PtrSubDifferentAllocs _ _ ->
+    --   "Subtraction of pointers from different allocations"
+    -- ComparePointerToBV _ _ ->
+    --   "Comparison of a pointer to a non zero (null) integer value"
+    -- PointerCast _ _ _   ->
+    --   "Cast of a pointer to a non-integer type"
 
     -------------------------------- LLVM: arithmetic
 
@@ -319,93 +317,93 @@ explain =
     -}
 
 -- | Pretty-print the additional information held by the constructors
-detailsExpr :: W4I.IsExpr e => UndefinedBehavior e -> [Doc]
-detailsExpr =
-  \case
-    UDivByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
-    SDivByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
-    URemByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
-    SRemByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
-    SDivOverflow v1 v2 -> [ "op1: " <+> W4I.printSymExpr v1
-                          , "op2: " <+> W4I.printSymExpr v2
-                          ]
-    SRemOverflow v1 v2 -> [ "op1: " <+> W4I.printSymExpr v1
-                          , "op2: " <+> W4I.printSymExpr v2
-                          ]
-    _                  -> []
+-- detailsExpr :: W4I.IsExpr e => UndefinedBehavior e -> [Doc]
+-- detailsExpr =
+--   \case
+--     UDivByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
+--     SDivByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
+--     URemByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
+--     SRemByZero v       -> [ "op1: " <+> W4I.printSymExpr v ]
+--     SDivOverflow v1 v2 -> [ "op1: " <+> W4I.printSymExpr v1
+--                           , "op2: " <+> W4I.printSymExpr v2
+--                           ]
+--     SRemOverflow v1 v2 -> [ "op1: " <+> W4I.printSymExpr v1
+--                           , "op2: " <+> W4I.printSymExpr v2
+--                           ]
+--     _                  -> []
 
 
 -- | Pretty-print the additional information held by the constructors
 -- (for symbolic expressions)
-detailsSym :: W4I.IsExpr (W4I.SymExpr sym)
-           => proxy sym
-           -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
-           -> UndefinedBehavior (W4I.SymExpr sym)
-           -> [Doc]
-detailsSym proxySym =
-  \case
+-- detailsSym :: W4I.IsExpr (RegValue' sym)
+--            => proxy sym
+--            -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
+--            -> UndefinedBehavior (RegValue' sym)
+--            -> [Doc]
+-- detailsSym proxySym =
+--   \case
 
-    -------------------------------- Memory management
+--     -------------------------------- Memory management
 
-    FreeBadOffset ptr   -> [ "Pointer:" <+> ppPtr ptr ]
-    FreeUnallocated ptr -> [ "Pointer:" <+> ppPtr ptr ]
-    MemsetInvalidRegion destPtr fillByte len ->
-      [ "Destination pointer:" <+> ppPtr destPtr
-      , "Fill byte:          " <+> W4I.printSymExpr fillByte
-      , "Length:             " <+> W4I.printSymExpr len
-      ]
-    ReadBadAlignment ptr alignment ->
-      [ "Alignment: " <+> text (show alignment)
-      , ppPtr1 ptr
-      ]
-    ReadUnallocated ptr -> [ ppPtr1 ptr ]
+--     FreeBadOffset ptr   -> [ "Pointer:" <+> ppPtr ptr ]
+--     FreeUnallocated ptr -> [ "Pointer:" <+> ppPtr ptr ]
+--     MemsetInvalidRegion destPtr fillByte len ->
+--       [ "Destination pointer:" <+> ppPtr destPtr
+--       , "Fill byte:          " <+> W4I.printSymExpr fillByte
+--       , "Length:             " <+> W4I.printSymExpr len
+--       ]
+--     ReadBadAlignment ptr alignment ->
+--       [ "Alignment: " <+> text (show alignment)
+--       , ppPtr1 ptr
+--       ]
+--     ReadUnallocated ptr -> [ ppPtr1 ptr ]
 
-    -------------------------------- Pointer arithmetic
+--     -------------------------------- Pointer arithmetic
 
-    PtrAddOffsetOutOfBounds ptr offset ->
-      [ ppPtr1 ptr
-      , ppOffset proxySym offset
-      ]
-    CompareInvalidPointer comparison invalid other ->
-      [ "Comparison:                    " <+> ppPtrComparison comparison
-      , "Invalid pointer:               " <+> ppPtr invalid
-      , "Other (possibly valid) pointer:" <+> ppPtr other
-      ]
-    CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
-    PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
-    ComparePointerToBV ptr bv ->
-      [ "Pointer:  " <+> W4I.printSymExpr ptr
-      , "Bitvector:" <+> W4I.printSymExpr bv
-      ]
-    PointerCast allocNum offset castToType ->
-      [ "Allocation number:" <+> W4I.printSymExpr allocNum
-      , "Offset:           " <+> W4I.printSymExpr offset
-      , "Cast to:          " <+> text (show castToType)
-      ]
+--     PtrAddOffsetOutOfBounds ptr offset ->
+--       [ ppPtr1 ptr
+--       , ppOffset proxySym offset
+--       ]
+--     CompareInvalidPointer comparison invalid other ->
+--       [ "Comparison:                    " <+> ppPtrComparison comparison
+--       , "Invalid pointer:               " <+> ppPtr invalid
+--       , "Other (possibly valid) pointer:" <+> ppPtr other
+--       ]
+--     CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
+--     PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
+--     ComparePointerToBV ptr bv ->
+--       [ "Pointer:  " <+> W4I.printSymExpr ptr
+--       , "Bitvector:" <+> W4I.printSymExpr bv
+--       ]
+--     PointerCast allocNum offset castToType ->
+--       [ "Allocation number:" <+> W4I.printSymExpr allocNum
+--       , "Offset:           " <+> W4I.printSymExpr offset
+--       , "Cast to:          " <+> text (show castToType)
+--       ]
 
-    -------------------------------- LLVM: arithmetic
+--     -------------------------------- LLVM: arithmetic
 
-    -- The cases are manually listed to prevent unintentional fallthrough if a
-    -- constructor is added.
-    v@(UDivByZero _)     -> detailsExpr v
-    v@(SDivByZero _)     -> detailsExpr v
-    v@(URemByZero _)     -> detailsExpr v
-    v@(SRemByZero _)     -> detailsExpr v
-    v@(SDivOverflow _ _) -> detailsExpr v
-    v@(SRemOverflow _ _) -> detailsExpr v
+--     -- The cases are manually listed to prevent unintentional fallthrough if a
+--     -- constructor is added.
+--     v@(UDivByZero _)     -> detailsExpr v
+--     v@(SDivByZero _)     -> detailsExpr v
+--     v@(URemByZero _)     -> detailsExpr v
+--     v@(SRemByZero _)     -> detailsExpr v
+--     v@(SDivOverflow _ _) -> detailsExpr v
+--     v@(SRemOverflow _ _) -> detailsExpr v
 
-  where ppPtrText :: W4I.IsExpr (W4I.SymExpr sym) => LLVMPtr sym w -> Doc
-        ppPtrText = text . show . ppPtr
+--   where ppPtrText :: W4I.IsExpr (RegValue' sym) => LLVMPtr sym w -> Doc
+--         ppPtrText = text . show . ppPtr
 
-        ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => LLVMPtr sym w -> Doc
-        ppPtr1 = ("Pointer:" <+>) . ppPtrText
+--         ppPtr1 :: W4I.IsExpr (RegValue' sym) => LLVMPtr sym w -> Doc
+--         ppPtr1 = ("Pointer:" <+>) . ppPtrText
 
-        ppPtr2 ptr1 ptr2 = vcat [ "Pointer 1:" <+>  ppPtrText ptr1
-                                , "Pointer 2:" <+>  ppPtrText ptr2
-                                ]
+--         ppPtr2 ptr1 ptr2 = vcat [ "Pointer 1:" <+>  ppPtrText ptr1
+--                                 , "Pointer 2:" <+>  ppPtrText ptr2
+--                                 ]
 
-        ppOffset :: W4I.IsExpr (W4I.SymExpr sym) => proxy sym -> W4I.SymBV sym w -> Doc
-        ppOffset _ = ("Offset:" <+>) . W4I.printSymExpr
+--         ppOffset :: W4I.IsExpr (RegValue' sym) => proxy sym -> W4I.SymBV sym w -> Doc
+--         ppOffset _ = ("Offset:" <+>) . W4I.printSymExpr
 
 pp :: (UndefinedBehavior e -> [Doc]) -- ^ Printer for constructor data
    -> UndefinedBehavior e
@@ -422,19 +420,19 @@ pp extra ub = vcat $
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
 
--- | Pretty-printer for symbolic backends
-ppSym :: W4I.IsExpr (W4I.SymExpr sym)
-      => proxy sym
-      -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
-      -> UndefinedBehavior (W4I.SymExpr sym)
-      -> Doc
-ppSym proxySym = pp (detailsSym proxySym)
+-- -- | Pretty-printer for symbolic backends
+-- ppSym :: W4I.IsExpr (RegValue' sym)
+--       => proxy sym
+--       -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
+--       -> UndefinedBehavior (RegValue' sym)
+--       -> Doc
+-- ppSym proxySym = pp (detailsSym proxySym)
 
--- | General-purpose pretty-printer
-ppExpr :: W4I.IsExpr e
-       => UndefinedBehavior e
-       -> Doc
-ppExpr = pp detailsExpr
+-- -- | General-purpose pretty-printer
+-- ppExpr :: W4I.IsExpr e
+--        => UndefinedBehavior e
+--        -> Doc
+-- ppExpr = pp detailsExpr
 
 -- -----------------------------------------------------------------------
 -- ** Config
@@ -466,6 +464,12 @@ defaultStrict = fromMaybe strictConfig
 -- ** Instances
 
 $(return [])
+
+instance TestEqualityC UndefinedBehavior where
+  testEqualityC subterms ub1 ub2 = undefined
+
+instance OrdC UndefinedBehavior where
+  compareC subterms ub1 ub2 = undefined
 
 instance FunctorF UndefinedBehavior where
   fmapF = TF.fmapFDefault

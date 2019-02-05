@@ -38,6 +38,7 @@ import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (isJust, fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.ClassesC (OrdC(..))
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableF (TraversableF)
 import           Data.Parameterized.TraversableFC
@@ -631,8 +632,7 @@ appRegMap_extend = unsafeCoerce
 appRegMap_insert :: ( TraversableFC (C.ExprExtension ext)
                     , OrdFC (C.ExprExtension ext)
                     , TraversableF (C.AssertionClassifier ext)
-                    , MapF.EqF (C.AssertionClassifier ext) -- TODO: why??
-                    , MapF.OrdF (C.AssertionClassifier ext)
+                    , OrdC (C.AssertionClassifier ext)
                     )
                  => C.App ext (C.Reg ctx) tp
                  -> C.Reg (ctx ::> tp) tp
@@ -641,8 +641,7 @@ appRegMap_insert :: ( TraversableFC (C.ExprExtension ext)
 appRegMap_insert k v m = MapF.insert (fmapFC C.extendReg k) v (appRegMap_extend m)
 
 appRegMap_lookup :: ( OrdFC (C.ExprExtension ext)
-                    , MapF.EqF (C.AssertionClassifier ext) -- TODO: why??
-                    , MapF.OrdF (C.AssertionClassifier ext)
+                    , OrdC (C.AssertionClassifier ext)
                     )
                  => C.App ext (C.Reg ctx) tp
                  -> AppRegMap ext ctx

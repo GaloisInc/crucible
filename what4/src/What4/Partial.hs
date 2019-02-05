@@ -39,6 +39,7 @@ module What4.Partial
  , joinMaybePE
    -- * AssertionTree
  , AssertionTree(..)
+ , eqAssertionTree
  , binaryAnd
  , binaryOr
  , cataAT
@@ -47,6 +48,7 @@ module What4.Partial
  , asConstAT_
  , asConstAT
  , collapseAT
+ , mapIte
    -- * PartialT
  , PartialT(..)
  , runPartialT
@@ -124,6 +126,19 @@ data AssertionTree c a =
   | Or   (NonEmpty (AssertionTree c a))
   | Ite  c (AssertionTree c a) (AssertionTree c a)
   deriving (Data, Eq, Functor, Generic, Generic1, Foldable, Traversable, Ord, Show)
+
+eqAssertionTree :: (c -> c -> Bool)
+                -> (a -> a -> Bool)
+                -> AssertionTree c a
+                -> AssertionTree c a
+                -> Bool
+eqAssertionTree eqCond eqLeaf t1 t2 =
+  let eqTree = eqAssertionTree eqCond eqLeaf
+  in case (t1, t2) of
+       (Leaf a1, Leaf a2) -> eqLeaf a1 a2
+       (And ts1, And ts2) -> and (NonEmpty.zipWith eqTree ts1 ts2)
+       (Or  ts1, Or  ts2) -> and (NonEmpty.zipWith eqTree ts1 ts2)
+       (_, _)   -> False
 
 binaryAnd :: AssertionTree c a -> AssertionTree c a -> AssertionTree c a
 binaryAnd t1 t2 = And (t1 :| [t2])
@@ -245,6 +260,18 @@ collapseAT sym leafToPred iteToPred = cataMAT
   (foldM (andPred sym) (truePred sym))
   (foldM (orPred sym) (falsePred sym))
   (\c -> itePred sym (iteToPred c))
+
+-- | Map over the predicates in the tree
+mapIte :: (c -> d)
+       -> AssertionTree c a
+       -> AssertionTree d a
+mapIte f tree =
+  case tree of
+    Leaf a     -> Leaf a
+    And  trees -> And (fmap (mapIte f) trees)
+    Or   trees -> Or (fmap (mapIte f) trees)
+    Ite  cond thenTree elseTree ->
+      Ite (f cond) (mapIte f thenTree) (mapIte f elseTree)
 
 ------------------------------------------------------------------------
 -- Merge
