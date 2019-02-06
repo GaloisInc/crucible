@@ -34,38 +34,43 @@ module Lang.Crucible.CFG.Extension.Safety
 , NoAssertionClassifier
 ) where
 
-import           Prelude hiding (pred)
+import Prelude hiding (pred)
 
-import           GHC.Generics (Generic)
+import GHC.Generics (Generic)
 
-import           Control.Applicative ((<*))
-import           Control.Lens ((^.), (&), (%~))
-import           Control.Lens (Simple(..), Lens, lens)
-import           Control.Monad (guard, join)
-import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Data.Data (Data)
-import           Data.Functor.Compose (Compose(..))
-import           Data.Kind (Type)
-import           Data.Maybe (isJust)
-import           Data.Type.Equality (TestEquality(..))
-import           Data.Typeable (Typeable)
-import           Data.Void (Void)
-import           Text.PrettyPrint.ANSI.Leijen (Doc)
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Control.Applicative ((<*))
+import Control.Lens ((^.), (&), (%~))
+import Control.Lens (Simple(..), Lens, lens)
+import Control.Lens.Iso (Iso, iso, au)
+import Control.Monad (guard, join)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Data (Data)
+import Data.Bifunctor (Bifunctor(..))
+import Data.Bitraversable (Bitraversable(..))
+import Data.Functor.Compose (Compose(..))
+import Data.Foldable (toList)
+import Data.Functor.Classes (Eq2(liftEq2), Ord2(liftCompare2))
+import Data.Kind (Type)
+import Data.Maybe (isJust)
+import Data.Type.Equality (TestEquality(..))
+import Data.Typeable (Typeable)
+import Data.Void (Void, absurd)
+import Text.PrettyPrint.ANSI.Leijen (Doc)
+import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import           Data.Parameterized.Classes
-import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
-import           Data.Parameterized.Compose ()
-import           Data.Parameterized.TraversableF
-import           Data.Parameterized.TraversableFC
+import Data.Parameterized.Classes
+import Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
+import Data.Parameterized.Compose ()
+import Data.Parameterized.TraversableF
+import Data.Parameterized.TraversableFC
 
-import           Lang.Crucible.Backend (assert, IsSymInterface)
-import           Lang.Crucible.Simulator.SimError (SimErrorReason(..))
-import           Lang.Crucible.Simulator.RegValue (RegValue')
-import           Lang.Crucible.Types
+import Lang.Crucible.Backend (assert, IsSymInterface)
+import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
+import Lang.Crucible.Simulator.RegValue (RegValue, RegValue'(..))
+import Lang.Crucible.Types
 
-import           What4.Interface (SymExpr, IsExpr, IsExprBuilder, Pred, printSymExpr)
-import           What4.Partial
+import What4.Interface (SymExpr, IsExpr, IsExprBuilder, Pred, printSymExpr)
+import What4.Partial
 
 -- -----------------------------------------------------------------------
 -- ** Safety assertions
@@ -105,19 +110,26 @@ deriving instance ( Data (e bt)
                   , Typeable e
                   , Typeable ext
                   , Typeable bt
-                  ) => (Data (PartialExpr ext e bt))
+                  ) =>
+                  (Data (PartialExpr ext e bt))
+
 deriving instance ( Eq (e bt)
                   , Eq (e BoolType)
                   , Eq (AssertionClassifier ext e)
-                  ) => (Eq (PartialExpr ext e bt))
+                  ) =>
+                  (Eq (PartialExpr ext e bt))
+
 deriving instance ( Ord (e bt)
                   , Ord (e BoolType)
                   , Ord (AssertionClassifier ext e)
-                  ) => (Ord (PartialExpr ext e bt))
+                  ) =>
+                  (Ord (PartialExpr ext e bt))
+
 deriving instance ( Show (e bt)
                   , Show (e BoolType)
                   , Show (AssertionClassifier ext e)
-                  ) => (Show (PartialExpr ext e bt))
+                  ) =>
+                  (Show (PartialExpr ext e bt))
 
 -- -----------------------------------------------------------------------
 -- *** Lenses
@@ -131,9 +143,6 @@ value = lens _value (\s v -> s { _value = v })
 -- -----------------------------------------------------------------------
 -- *** Instances
 
--- instance EqF f => Eq (f a) where
---   (==) = eqF
-
 instance ( TestEqualityC (AssertionClassifier ext)
          )
          => TestEqualityFC (PartialExpr ext) where
@@ -144,12 +153,28 @@ instance ( TestEqualityC (AssertionClassifier ext)
   testEqualityFC subterms (PartialExpr class1 val1) (PartialExpr class2 val2) =
     let justSubterms x y = isJust (subterms x y)
     in join (subterms <$> val1 <*> val2) <*
-         guard (eqAssertionTree justSubterms (testEqualityC subterms) class1 class2)
+         guard (liftEq2 justSubterms (testEqualityC subterms) class1 class2)
 
--- instance ( OrdF (AssertionClassifier ext)
---          )
---          => OrdFC (PartialExpr ext) where
---   compareFC subterms =
+instance ( OrdC (AssertionClassifier ext)
+         , TestEqualityC (AssertionClassifier ext)
+         )
+         => OrdFC (PartialExpr ext) where
+  compareFC subterms (PartialExpr class1 val1) (PartialExpr class2 val2) =
+    let demote s x y = toOrdering (s x y)
+    in
+      case (val1, val2) of
+        (Just _, Nothing)  -> LTF
+        (Nothing, Just _)  -> GTF
+        (Just v1, Just v2) ->
+          case subterms v1 v2 of
+            LTF -> LTF
+            GTF -> GTF
+            EQF ->
+              case liftCompare2
+                     (demote subterms) (compareC subterms) class1 class2 of
+                LT -> LTF
+                GT -> GTF
+                EQ -> EQF
 
 instance ( FunctorF (AssertionClassifier ext)
          )
@@ -158,7 +183,7 @@ instance ( FunctorF (AssertionClassifier ext)
                         (forall x. PartialExpr ext f x -> PartialExpr ext g x)
   fmapFC trans v =
     PartialExpr
-      (mapIte trans (fmap (fmapF trans) (v ^. classifier)))
+      (bimap trans (fmapF trans) (v ^. classifier))
       (fmap trans (v ^. value))
 
 instance ( TraversableF (AssertionClassifier ext)
@@ -172,7 +197,10 @@ instance ( TraversableF (AssertionClassifier ext)
   traverseFC :: forall f g m. Applicative m
              => (forall x. f x -> m (g x))
              -> (forall x. PartialExpr ext f x -> m (PartialExpr ext g x))
-  traverseFC traverseSubterm = undefined
+  traverseFC traverseSubterm (PartialExpr cls val) =
+    PartialExpr
+    <$> bitraverse traverseSubterm (traverseF traverseSubterm) cls
+    <*> traverse traverseSubterm val
 
 -- -----------------------------------------------------------------------
 -- ** HasStructuredAssertions
@@ -187,71 +215,70 @@ class HasStructuredAssertions (ext :: Type) where
   toPredicate :: (MonadIO io, IsExprBuilder sym, IsSymInterface sym)
               => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> sym
-              -> AssertionClassifierTree ext (RegValue' sym)
+              -> AssertionClassifier ext (RegValue' sym)
               -> io (Pred sym)
 
-  -- -- | This is in this class because a given syntax extension might have a more
-  -- -- efficient implementation, e.g. by realizing that one part of an 'And'
-  -- -- encompasses another. Same goes for 'explainTree'.
-  -- treeToPredicate :: (MonadIO io, IsExprBuilder sym, IsSymInterface sym)
-  --                 => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
-  --                 -> sym
-  --                 -> AssertionTree (Pred sym) (SafetyAssertion ext (SymExpr sym))
-  --                 -> io (Pred sym)
-  -- treeToPredicate proxyExt sym =
-  --   liftIO . W4P.collapseAT sym (toPredicate proxyExt sym) id
+  -- | This is in this class because a given syntax extension might have a more
+  -- efficient implementation, e.g. by realizing that one part of an 'And'
+  -- encompasses another. Same goes for 'explainTree'.
+  treeToPredicate :: (MonadIO io, IsExprBuilder sym, IsSymInterface sym)
+                  => proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+                  -> sym
+                  -> AssertionClassifierTree ext (RegValue' sym)
+                  -> io (Pred sym)
+  treeToPredicate proxyExt sym tree =
+    liftIO $ collapseAT sym (toPredicate proxyExt sym) (pure . unRV) tree
 
   -- | Offer a one-line summary of what the assertion is about
   explain     :: (IsExprBuilder sym, IsExpr (SymExpr sym))
               => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
-              -> AssertionClassifierTree ext e
+              -> AssertionClassifier ext e
               -> Doc
 
-  -- -- | Explain an assertion in detail, including all relevant data.
-  -- detail      :: (IsExprBuilder sym, IsExpr (SymExpr sym))
-  --             => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
-  --             -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
-  --             -> SafetyAssertion ext (SymExpr sym)
-  --             -> Doc
-  -- detail = explain
+  -- | Explain an assertion in detail, including all relevant data.
+  detail      :: (IsExprBuilder sym, IsExpr (SymExpr sym))
+              => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> AssertionClassifier ext e
+              -> Doc
+  detail = explain
 
-  -- explainTree :: (IsExprBuilder sym, IsExpr (SymExpr sym))
-  --             => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
-  --             -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
-  --             -> AssertionTree (Pred sym) (SafetyAssertion ext (SymExpr sym))
-  --             -> Doc
-  -- explainTree proxyExt proxySym =
-  --   W4P.cataAT
-  --     (explain proxyExt proxySym) -- detail would be too much information
-  --     (\factors ->
-  --        "All of "
-  --        <$$> indent 2 (vcat (toList factors)))
-  --     (\summands ->
-  --        "Any of "
-  --        <$$> indent 2 (vcat (toList summands)))
-  --     (\cond doc1 doc2 ->
-  --        "If " <+> printSymExpr cond <$$>
-  --         vcat [ "then " <$$> indent 2 doc1
-  --              , "else " <$$> indent 2 doc2
-  --              ])
+  explainTree :: (IsExprBuilder sym, IsExpr (SymExpr sym))
+              => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
+              -> AssertionClassifierTree ext (RegValue' sym)
+              -> Doc
+  explainTree proxyExt proxySym =
+    cataAT
+      (explain proxyExt proxySym)
+      (\factors ->
+         "All of "
+         <$$> indent 2 (vcat (toList factors)))
+      (\summands ->
+         "Any of "
+         <$$> indent 2 (vcat (toList summands)))
+      (\cond doc1 doc2 ->
+         "If " <+> printSymExpr (unRV cond) <$$>
+          vcat [ "then " <$$> indent 2 doc1
+               , "else " <$$> indent 2 doc2
+               ])
 
 -- | Take a partial value and assert its safety
--- assertSafe :: ( MonadIO io
---               , IsSymInterface sym
---               , HasSafetyAssertions ext
---               )
---            => proxy ext
---            -> sym
---            -> W4P.PartExpr (AssertionTree (Pred sym) (SafetyAssertion ext (SymExpr sym))) a
---            -> io (Maybe a)
--- assertSafe _proxyExt _sym W4P.Unassigned = pure Nothing
--- assertSafe proxyExt sym (W4P.PE tree a) = do
---   pred <- treeToPredicate proxyExt sym tree
---   -- TODO: Should SimErrorReason have another constructor for this?
---   liftIO $ assert sym pred $ AssertFailureSimError $
---     show $ explainTree proxyExt (Just sym) tree
---   pure (Just a)
+assertSafe :: ( MonadIO io
+              , IsSymInterface sym
+              , HasStructuredAssertions ext
+              )
+           => proxy ext
+           -> sym
+           -> PartialExpr ext (RegValue' sym) bt
+           -> io (Maybe (RegValue sym bt))
+assertSafe proxyExt sym (PartialExpr tree a) = do
+  pred <- treeToPredicate proxyExt sym tree
+  -- TODO: Should SimErrorReason have another constructor for this?
+  liftIO $ assert sym pred $ AssertFailureSimError $
+    show $ explainTree proxyExt (Just sym) tree
+  pure (unRV <$> a)
 
 -- TODO: a method that descends into an AssertionTree, asserting e.g. the
 -- conjuncts separately and reporting on their success or failure individually,
@@ -259,60 +286,14 @@ class HasStructuredAssertions (ext :: Type) where
 -- failed: _. It was part of the larger assertion _."
 
 -- -----------------------------------------------------------------------
--- ** Utilities
-
--- | Change the underlying type family of kind @CrucibleType -> Type@
---
--- This is used e.g. to trnasform the translation-time
--- @'SafetyAssertion' ext (Compose (Expr ext s) 'BaseToType')@
--- into the run-time
--- @'SafetyAssertion' ext ('SymExpr' sym)@
--- traverseSafetyAssertion :: forall ext f g baseTy proxy m.
---      (TraversableFC (SafetyAssertion ext), Applicative m)
---   => proxy ext
---   -> (forall (u :: CrucibleType). f u -> m (g u))
---   -> SafetyAssertion ext (Compose f BaseToType) baseTy
---   -> m (SafetyAssertion ext (Compose g BaseToType) baseTy)
--- traverseSafetyAssertion _proxy f sa =
---   let mkF :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
---           => (forall (u :: k). f u -> m (g u))
---           -> (forall (u :: j). Compose f h u -> m (Compose g h u))
---       mkF f (Compose v) = Compose <$> (f v)
---   in -- Instantiate @s@ as @SafetyAssertion ext@ and @h@ as @BaseToType@
---      traverseFC (mkF f) sa
-
-{-
-traverseSafetyAssertion :: forall ext f g baseTy proxy m.
-     (TraversableFC (SafetyAssertion ext), Applicative m)
-  => proxy ext
-  -> (forall (u :: CrucibleType). f u -> m (g u))
-  -> SafetyAssertion ext (Compose f BaseToType) baseTy
-  -> m (SafetyAssertion ext (Compose g BaseToType) baseTy)
-traverseSafetyAssertion _proxy =
-  let
-    mkF :: forall  (f :: k -> *) (g :: k -> *) (h :: j -> k) m. Functor m
-        => (forall (u :: k). f u -> m (g u))
-        -> (forall (u :: j). Compose f h u -> m (Compose g h u))
-    mkF f (Compose v) = Compose <$> (f v)
-    t :: forall s (f :: k -> *) (g :: k -> *) (h :: l -> k) m.
-          ( TraversableFC s
-          , Applicative m
-          )
-      => (forall (u :: k). f u -> m (g u))
-      -> s (Compose f h)
-      -> m (s (Compose g h))
-    t f v = traverseF (mkF f) v
-  in -- Instantiate @s@ as @SafetyAssertion ext@ and @h@ as @BaseToType@
-     -- TODO: are the above at all generally useful? an instance of anything?
-     t
--}
-
--- -----------------------------------------------------------------------
 -- ** The empty safety assertion
 
 -- | The empty safety assertion extension, which adds no new possible assertions.
 data NoAssertionClassifier :: (CrucibleType -> Type) -> Type
   deriving (Data, Eq, Generic, Ord, Read, Show, Typeable)
+
+isoVoid :: Simple Iso Void (NoAssertionClassifier e)
+isoVoid = iso (\case) (\case)
 
 type instance AssertionClassifier () = NoAssertionClassifier
 
@@ -327,13 +308,7 @@ instance FoldableF     NoAssertionClassifier where foldMapF _      = \case
 instance TraversableF  NoAssertionClassifier where traverseF _     = \case
 instance TestEquality  NoAssertionClassifier where testEquality _  = \case
 
-absurdTree :: (v -> Void)
-           -> AssertionTree x v
-           -> a
-absurdTree = undefined
-
 instance HasStructuredAssertions () where
-  explain _ _     = absurdTree (\case)
-  toPredicate _ _ = absurdTree (\case)
-  -- toValue _       = \case
+  explain _ _     = \case
+  toPredicate _ _ = \case
 

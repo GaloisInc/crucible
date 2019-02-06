@@ -42,16 +42,18 @@ import           Control.Lens
 import           Data.Kind (Type)
 import           Data.Text (Text)
 import           Data.Type.Equality (TestEquality(..))
+import           Data.Maybe (isJust)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 
 import qualified What4.Interface as W4I
 import           What4.Partial
 
-import           Data.Parameterized.Classes (EqF(..))
+import           Data.Parameterized.Classes (EqF(..), toOrdering, fromOrdering)
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
+import qualified Data.Parameterized.TraversableF as TF
 
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
@@ -59,8 +61,8 @@ import           Lang.Crucible.LLVM.Extension.Arch (LLVMArch)
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 
-type LLVMAssertionTree (arch :: LLVMArch) (e :: CrucibleType -> Type) =
-  AssertionTree (e BoolType) (LLVMSafetyAssertion e)
+-- -----------------------------------------------------------------------
+-- ** BadBehavior
 
 -- | Combine the three types of bad behaviors
 --
@@ -72,12 +74,50 @@ data BadBehavior (e :: CrucibleType -> Type) =
   | BBSafe                                  -- ^ This value is always safe
   deriving (Generic, Typeable)
 
+-- -----------------------------------------------------------------------
+-- *** Instances
+
+$(return [])
+
 instance TestEqualityC BadBehavior where
-  testEqualityC subterms (BBUndefinedBehavior ub1) (BBUndefinedBehavior ub2) =
-    testEqualityC subterms ub1 ub2
-  testEqualityC subterms (BBPoison p1) (BBPoison p2) =
-    testEqualityC subterms p1 p2
-  testEqualityC subterms BBSafe BBSafe = True
+  testEqualityC subterms =
+    $(U.structuralEquality [t|BadBehavior|]
+      [ ( U.AnyType `U.TypeApp` U.DataArg 0
+        , [| \x y -> if testEqualityC subterms x y
+                     then Just Refl
+                     else Nothing
+          |]
+        )
+      ]
+     )
+
+instance OrdC BadBehavior where
+  compareC subterms sa1 sa2 = toOrdering $
+    $(U.structuralTypeOrd [t|BadBehavior|]
+       [ ( U.AnyType `U.TypeApp` U.DataArg 0
+         , [| \x y -> fromOrdering (compareC subterms x y) |]
+         )
+       ]
+     ) sa1 sa2
+
+instance FunctorF BadBehavior where
+  fmapF f (BBUndefinedBehavior ub) = BBUndefinedBehavior $ fmapF f ub
+  fmapF f (BBPoison p)             = BBPoison $ fmapF f p
+
+instance FoldableF BadBehavior where
+  foldMapF = TF.foldMapFDefault
+
+instance TraversableF BadBehavior where
+  traverseF subterms=
+    $(U.structuralTraversal [t|BadBehavior|]
+      [ ( U.AnyType `U.TypeApp` U.DataArg 0
+        , [| \_ -> traverseF subterms |]
+        )
+      ]
+     ) subterms
+
+-- -----------------------------------------------------------------------
+-- ** LLVMSafetyAssertion
 
 data LLVMSafetyAssertion (e :: CrucibleType -> Type) =
   LLVMSafetyAssertion
@@ -87,31 +127,34 @@ data LLVMSafetyAssertion (e :: CrucibleType -> Type) =
     }
   deriving (Generic, Typeable)
 
+type LLVMAssertionTree (arch :: LLVMArch) (e :: CrucibleType -> Type) =
+  AssertionTree (e BoolType) (LLVMSafetyAssertion e)
+
+-- -----------------------------------------------------------------------
+-- *** Instances
+
 $(return [])
 
--- instance TestEqualityC (LLVMSafetyAssertion) where
---   testEqualityC testSubterm = _
---     $(U.structuralTypeEquality [t|LLVMSafetyAssertion|]
---         [ ( U.ConType [t|BadBehavior|] `U.TypeApp` U.AnyType
---           , [|testEqualityC testSubterm|]
---           )
---         ]
---      )
-
 instance TestEqualityC LLVMSafetyAssertion where
-  testEqualityC subterms sa1 sa2 = undefined
+  testEqualityC testSubterm (LLVMSafetyAssertion cls1 pred1 ext1)
+                            (LLVMSafetyAssertion cls2 pred2 ext2) =
+    and [ testEqualityC testSubterm cls1 cls2
+        , isJust (testSubterm pred1 pred2)
+        , ext1 == ext2
+        ]
 
 instance OrdC LLVMSafetyAssertion where
-  compareC subterms sa1 sa2 = undefined
+  compareC subterms sa1 sa2 = _
 
 instance FunctorF LLVMSafetyAssertion where
-  fmapF _ _ = undefined
+  fmapF f (LLVMSafetyAssertion cls pred ext) =
+    LLVMSafetyAssertion (fmapF f cls) (fmapF f pred) ext
 
 instance FoldableF LLVMSafetyAssertion where
-  foldMapF _ _ = undefined
+  foldMapF = foldMapFDefault
 
 instance TraversableF LLVMSafetyAssertion where
-  traverseF _ _ = undefined
+  traverseF subterms = _
 
 -- -----------------------------------------------------------------------
 -- ** Constructors

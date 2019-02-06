@@ -41,13 +41,13 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Data.Parameterized.TraversableF as TF
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
 import qualified Data.Parameterized.TH.GADT as U
-import           Data.Parameterized.ClassesC (TestEqualityC(..))
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
+import           Data.Parameterized.Classes (OrderingF(..), toOrdering)
 
-import           Lang.Crucible.Types
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
+import           Lang.Crucible.Types
 import qualified What4.Interface as W4I
 
--- | TODO(langston): Record type information for error messages
 data Poison (e :: CrucibleType -> Type) where
 
   AddNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
@@ -95,13 +95,13 @@ data Poison (e :: CrucibleType -> Type) where
   AshrOp2Big          :: e (BVType w) -- ^ @op1@
                       -> e (BVType w) -- ^ @op2@
                       -> Poison e
-  -- | TODO(langston): Figure out how to store the 'Vector'
+  -- | TODO(langston): store the 'Vector'
   ExtractElementIndex :: e (BVType w)       -- ^ @idx@
                       -> Poison e
-  -- | TODO(langston): Figure out how to store the 'Vector'
+  -- | TODO(langston): store the 'Vector'
   InsertElementIndex  :: e (BVType w)       -- ^ @idx@
                       -> Poison e
-  -- | TODO(langston): Figure out how to store the 'LLVMPointerType'
+  -- | TODO(langston): store the 'LLVMPointerType'
   GEPOutOfBounds      :: e (BVType w) -- ^ @idx@
                       -> Poison e
   deriving (Typeable)
@@ -226,51 +226,36 @@ pp poison = vcat $
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
 
+-- -----------------------------------------------------------------------
+-- ** Instances
+
+-- The weirdness in these instances is due to existential quantification over
+-- the width. We have to make sure the type variable doesn't escape its scope.
+
 $(return [])
 
 instance TestEqualityC Poison where
-  testEqualityC testSubterm t1 t2 =
-    case (t1, t2) of
-      ( AddNoUnsignedWrap s1 s2, AddNoUnsignedWrap r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (AddNoSignedWrap s1 s2, AddNoSignedWrap r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (SubNoUnsignedWrap s1 s2, SubNoUnsignedWrap r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (SubNoSignedWrap s1 s2, SubNoSignedWrap r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (MulNoUnsignedWrap s1 s2, MulNoUnsignedWrap r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (MulNoSignedWrap s1 s2, MulNoSignedWrap r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (UDivExact s1 s2, UDivExact r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (SDivExact s1 s2, SDivExact r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (ShlOp2Big s1 s2, ShlOp2Big r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (ShlNoUnsignedWrap s1 s2, ShlNoUnsignedWrap r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (ShlNoSignedWrap s1 s2, ShlNoSignedWrap r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (LshrExact s1 s2, LshrExact r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (LshrOp2Big s1 s2, LshrOp2Big r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (AshrExact s1 s2, AshrExact r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (AshrOp2Big s1 s2, AshrOp2Big r1 r2) ->
-        isJust (testSubterm s1 s2) && isJust (testSubterm r1 r2)
-      (ExtractElementIndex s, ExtractElementIndex r) ->
-        isJust (testSubterm s r)
-      (InsertElementIndex s, InsertElementIndex r) ->
-        isJust (testSubterm s r)
-      (GEPOutOfBounds s, GEPOutOfBounds r) ->
-        isJust (testSubterm s r)
-      (_, _) -> False
+  testEqualityC subterms x y = isJust $
+    $(U.structuralTypeEquality [t|Poison|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+         , [| \z w -> subterms z w >> Just Refl |]
+         )
+       ]
+     ) x y
 
--- instance OrdF Poison where
---   compareF = _
+instance OrdC Poison where
+  compareC subterms p1 p2 = toOrdering $
+    $(U.structuralTypeOrd [t|Poison|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+         , [| \z w -> case subterms z w of
+                        EQF -> (EQF :: OrderingF () ())
+                        GTF -> (GTF :: OrderingF () ())
+                        LTF -> (LTF :: OrderingF () ())
+
+            |]
+         )
+       ]
+     ) p1 p2
 
 instance FunctorF Poison where
   fmapF = TF.fmapFDefault
@@ -279,4 +264,14 @@ instance FoldableF Poison where
   foldMapF = TF.foldMapFDefault
 
 instance TraversableF Poison where
-  traverseF = $(U.structuralTraversal [t|Poison|] [])
+  traverseF :: forall m e f. Applicative m
+            => (forall s. e s -> m (f s))
+            -> Poison e
+            -> m (Poison f)
+  traverseF =
+    $(U.structuralTraversal [t|Poison|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+         , [| ($) |] -- \f x -> f x
+         )
+       ]
+     )

@@ -253,15 +253,15 @@ asConstAT sym f = snd . asConstAT_ sym f
 -- | A monadic catamorphism, collapsing everything to one predicate.
 collapseAT :: (IsExprBuilder sym)
            => sym
-           -> (a -> Pred sym)   -- ^ 'Leaf' case
-           -> (c -> Pred sym)   -- ^ 'Ite' case
+           -> (a -> IO (Pred sym))   -- ^ 'Leaf' case
+           -> (c -> IO (Pred sym))   -- ^ 'Ite' case
            -> AssertionTree c a
            -> IO (Pred sym)
 collapseAT sym leafToPred iteToPred = cataMAT
-  (pure . leafToPred)
+  leafToPred
   (foldM (andPred sym) (truePred sym))
   (foldM (orPred sym) (falsePred sym))
-  (\c -> itePred sym (iteToPred c))
+  (\c p1 p2 -> iteToPred c >>= \p -> itePred sym p p1 p2)
 
 -- | If the leaves are absurd, so is the whole structure.
 --

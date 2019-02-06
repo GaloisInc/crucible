@@ -32,9 +32,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StrictData #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   (
@@ -63,27 +66,26 @@ import           GHC.Generics (Generic)
 import           Data.Data (Data)
 import           Data.Kind (Type)
 import           Data.Functor.Contravariant (Predicate(..))
-import           Data.Maybe (fromMaybe)
+import           Data.Maybe (fromMaybe, isJust)
 import           Data.Typeable (Typeable)
 import           Data.Text (unpack)
-import           Data.Type.Equality
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
--- import           Data.Type.Equality (TestEquality(..))
 
 import qualified Data.Parameterized.TraversableF as TF
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
+import           Data.Parameterized.Classes (toOrdering, OrderingF(..))
 
 import qualified What4.Interface as W4I
 
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.DataLayout (Alignment)
-import           Lang.Crucible.LLVM.MemModel.Pointer (ppPtr, llvmPointerView)
+import           Lang.Crucible.LLVM.MemModel.Pointer (llvmPointerView)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageTypeF(..))
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
-import           Lang.Crucible.LLVM.Types (LLVMPtr(..))
+import           Lang.Crucible.LLVM.Types (LLVMPtr)
 
 -- -----------------------------------------------------------------------
 -- ** UndefinedBehavior
@@ -174,11 +176,11 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
               -> StorageTypeF () -- ^ Type being cast to
               -> UndefinedBehavior e
 
-  -- -- | "One of the following shall hold: [...] one operand is a pointer and the
-  -- -- other is a null pointer constant."
-  -- ComparePointerToBV :: e (BVType w) -- ^ Pointer
-  --                    -> e (BVType w) -- ^ Bitvector
-  --                    -> UndefinedBehavior e
+  -- | "One of the following shall hold: [...] one operand is a pointer and the
+  -- other is a null pointer constant."
+  ComparePointerToBV :: e (BVType w) -- ^ Pointer
+                     -> e (BVType w) -- ^ Bitvector
+                     -> UndefinedBehavior e
 
   -------------------------------- LLVM: arithmetic
 
@@ -211,18 +213,18 @@ standard =
 
     FreeBadOffset _           -> CStd C99
     FreeUnallocated _         -> CStd C99
-    -- MemsetInvalidRegion _ _ _ -> CXXStd CXX17
-    -- ReadBadAlignment _ _      -> CStd C99
-    -- ReadUnallocated _         -> CStd C99
+    MemsetInvalidRegion _ _ _ -> CXXStd CXX17
+    ReadBadAlignment _ _      -> CStd C99
+    ReadUnallocated _         -> CStd C99
 
     -- -------------------------------- Pointer arithmetic
 
-    -- PtrAddOffsetOutOfBounds _ _ -> CStd C99
-    -- CompareInvalidPointer _ _ _ -> CStd C99
-    -- CompareDifferentAllocs _ _  -> CStd C99
-    -- PtrSubDifferentAllocs _ _   -> CStd C99
-    -- ComparePointerToBV _ _      -> CStd C99
-    -- PointerCast _ _ _           -> CStd C99
+    PtrAddOffsetOutOfBounds _ _ -> CStd C99
+    CompareInvalidPointer _ _ _ -> CStd C99
+    CompareDifferentAllocs _ _  -> CStd C99
+    PtrSubDifferentAllocs _ _   -> CStd C99
+    ComparePointerToBV _ _      -> CStd C99
+    PointerCast _ _ _           -> CStd C99
 
     -- -------------------------------- LLVM: arithmetic
 
@@ -249,18 +251,18 @@ cite = text .
 
     FreeBadOffset _           -> "§7.22.3.3 The free function, ¶2"
     FreeUnallocated _         -> "§7.22.3.3 The free function, ¶2"
-    -- MemsetInvalidRegion _ _ _ -> "https://en.cppreference.com/w/cpp/string/byte/memset"
-    -- ReadBadAlignment _ _      -> "§6.2.8 Alignment of objects, ¶?"
-    -- ReadUnallocated _         -> "§6.2.4 Storage durations of objects, ¶2"
+    MemsetInvalidRegion _ _ _ -> "https://en.cppreference.com/w/cpp/string/byte/memset"
+    ReadBadAlignment _ _      -> "§6.2.8 Alignment of objects, ¶?"
+    ReadUnallocated _         -> "§6.2.4 Storage durations of objects, ¶2"
 
     -- -------------------------------- Pointer arithmetic
 
-    -- PtrAddOffsetOutOfBounds _ _ -> "§6.5.6 Additive operators, ¶8"
-    -- CompareInvalidPointer _ _ _ -> "§6.5.8 Relational operators, ¶5"
-    -- CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
-    -- PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
-    -- ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
-    -- PointerCast _ _ _           -> "TODO"
+    PtrAddOffsetOutOfBounds _ _ -> "§6.5.6 Additive operators, ¶8"
+    CompareInvalidPointer _ _ _ -> "§6.5.8 Relational operators, ¶5"
+    CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
+    PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
+    ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
+    PointerCast _ _ _           -> "TODO"
 
     -------------------------------- LLVM: arithmetic
 
@@ -294,33 +296,33 @@ explain =
       ]
     FreeUnallocated _ ->
       "`free` called on pointer that didn't point to a live region of the heap."
-    -- MemsetInvalidRegion _ _ _ -> cat $
-    --   [ "Pointer passed to `memset` didn't point to a mutable allocation with"
-    --   , "enough space."
-    --   ]
-    -- ReadBadAlignment _ _ ->
-    --   "Read a value from a pointer with incorrect alignment"
-    -- ReadUnallocated _ ->
-    --   "Read a value from a pointer into an unallocated region"
+    MemsetInvalidRegion _ _ _ -> cat $
+      [ "Pointer passed to `memset` didn't point to a mutable allocation with"
+      , "enough space."
+      ]
+    ReadBadAlignment _ _ ->
+      "Read a value from a pointer with incorrect alignment"
+    ReadUnallocated _ ->
+      "Read a value from a pointer into an unallocated region"
 
     -- -------------------------------- Pointer arithmetic
 
-    -- PtrAddOffsetOutOfBounds _ _ -> cat $
-    --   [ "Addition of an offset to a pointer resulted in a pointer to an"
-    --   , "address outside of the allocation."
-    --   ]
-    -- CompareInvalidPointer _ _ _ -> cat $
-    --   [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
-    --   , "object."
-    --   ]
-    -- CompareDifferentAllocs _ _ ->
-    --   "Comparison of pointers from different allocations"
-    -- PtrSubDifferentAllocs _ _ ->
-    --   "Subtraction of pointers from different allocations"
-    -- ComparePointerToBV _ _ ->
-    --   "Comparison of a pointer to a non zero (null) integer value"
-    -- PointerCast _ _ _   ->
-    --   "Cast of a pointer to a non-integer type"
+    PtrAddOffsetOutOfBounds _ _ -> cat $
+      [ "Addition of an offset to a pointer resulted in a pointer to an"
+      , "address outside of the allocation."
+      ]
+    CompareInvalidPointer _ _ _ -> cat $
+      [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
+      , "object."
+      ]
+    CompareDifferentAllocs _ _ ->
+      "Comparison of pointers from different allocations"
+    PtrSubDifferentAllocs _ _ ->
+      "Subtraction of pointers from different allocations"
+    ComparePointerToBV _ _ ->
+      "Comparison of a pointer to a non zero (null) integer value"
+    PointerCast _ _ _   ->
+      "Cast of a pointer to a non-integer type"
 
     -------------------------------- LLVM: arithmetic
 
@@ -353,54 +355,54 @@ detailsReg proxySym =
 
     FreeBadOffset ptr   -> [ "Pointer:" <+> ppPointerPair ptr ]
     FreeUnallocated ptr -> [ "Pointer:" <+> ppPointerPair ptr ]
-    -- MemsetInvalidRegion destPtr fillByte len ->
-    --   [ "Destination pointer:" <+> ppPtr destPtr
-    --   , "Fill byte:          " <+> W4I.printSymExpr fillByte
-    --   , "Length:             " <+> W4I.printSymExpr len
-    --   ]
-    -- ReadBadAlignment ptr alignment ->
-    --   [ "Alignment: " <+> text (show alignment)
-    --   , ppPtr1 ptr
-    --   ]
-    -- ReadUnallocated ptr -> [ ppPtr1 ptr ]
+    MemsetInvalidRegion destPtr fillByte len ->
+      [ "Destination pointer:" <+> ppPointerPair destPtr
+      , "Fill byte:          " <+> (W4I.printSymExpr $ unRV fillByte)
+      , "Length:             " <+> (W4I.printSymExpr $ unRV len)
+      ]
+    ReadBadAlignment ptr alignment ->
+      [ "Alignment: " <+> text (show alignment)
+      , ppPtr1 ptr
+      ]
+    ReadUnallocated ptr -> [ ppPtr1 ptr ]
 
     -------------------------------- Pointer arithmetic
 
-    -- PtrAddOffsetOutOfBounds ptr offset ->
-    --   [ ppPtr1 ptr
-    --   , ppOffset proxySym offset
-    --   ]
-    -- CompareInvalidPointer comparison invalid other ->
-    --   [ "Comparison:                    " <+> ppPtrComparison comparison
-    --   , "Invalid pointer:               " <+> ppPtr invalid
-    --   , "Other (possibly valid) pointer:" <+> ppPtr other
-    --   ]
-    -- CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
-    -- PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
-    -- ComparePointerToBV ptr bv ->
-    --   [ "Pointer:  " <+> W4I.printSymExpr ptr
-    --   , "Bitvector:" <+> W4I.printSymExpr bv
-    --   ]
-    -- PointerCast allocNum offset castToType ->
-    --   [ "Allocation number:" <+> W4I.printSymExpr allocNum
-    --   , "Offset:           " <+> W4I.printSymExpr offset
-    --   , "Cast to:          " <+> text (show castToType)
-    --   ]
+    PtrAddOffsetOutOfBounds ptr offset ->
+      [ ppPtr1 ptr
+      , ppOffset proxySym (unRV offset)
+      ]
+    CompareInvalidPointer comparison invalid other ->
+      [ "Comparison:                    " <+> ppPtrComparison comparison
+      , "Invalid pointer:               " <+> ppPointerPair invalid
+      , "Other (possibly valid) pointer:" <+> ppPointerPair other
+      ]
+    CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
+    PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
+    ComparePointerToBV ptr bv ->
+      [ "Pointer:  " <+> (W4I.printSymExpr $ unRV ptr)
+      , "Bitvector:" <+> (W4I.printSymExpr $ unRV bv)
+      ]
+    PointerCast allocNum offset castToType ->
+      [ "Allocation number:" <+> (W4I.printSymExpr $ unRV allocNum)
+      , "Offset:           " <+> (W4I.printSymExpr $ unRV offset)
+      , "Cast to:          " <+> text (show castToType)
+      ]
 
     -------------------------------- LLVM: arithmetic
 
     -- The cases are manually listed to prevent unintentional fallthrough if a
     -- constructor is added.
-    UDivByZero (RV v)            -> [ "op1: " <+> W4I.printSymExpr v ]
-    SDivByZero (RV v)            -> [ "op1: " <+> W4I.printSymExpr v ]
-    URemByZero (RV v)            -> [ "op1: " <+> W4I.printSymExpr v ]
-    SRemByZero (RV v)            -> [ "op1: " <+> W4I.printSymExpr v ]
-    SDivOverflow (RV v1) (RV v2) -> [ "op1: " <+> W4I.printSymExpr v1
-                                    , "op2: " <+> W4I.printSymExpr v2
-                                    ]
-    SRemOverflow (RV v1) (RV v2) -> [ "op1: " <+> W4I.printSymExpr v1
-                                    , "op2: " <+> W4I.printSymExpr v2
-                                    ]
+    UDivByZero v       -> [ "op1: " <+> (W4I.printSymExpr $ unRV v) ]
+    SDivByZero v       -> [ "op1: " <+> (W4I.printSymExpr $ unRV v) ]
+    URemByZero v       -> [ "op1: " <+> (W4I.printSymExpr $ unRV v) ]
+    SRemByZero v       -> [ "op1: " <+> (W4I.printSymExpr $ unRV v) ]
+    SDivOverflow v1 v2 -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
+                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
+                          ]
+    SRemOverflow v1 v2 -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
+                          , "op2: " <+> (W4I.printSymExpr $ unRV v2)
+                          ]
 
   where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
         ppPtr1 = ("Pointer:" <+>) . ppPointerPair
@@ -474,10 +476,39 @@ defaultStrict = fromMaybe strictConfig
 $(return [])
 
 instance TestEqualityC UndefinedBehavior where
-  testEqualityC subterms ub1 ub2 = undefined
+  testEqualityC subterms x y = isJust $
+    $(U.structuralTypeEquality [t|UndefinedBehavior|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+         , [| subterms |]
+         )
+       , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
+         , [| \(b1, o1) (b2, o2) -> subterms o1 o2 >> subterms b1 b2 |]
+         )
+       ]
+     ) x y
 
 instance OrdC UndefinedBehavior where
-  compareC subterms ub1 ub2 = undefined
+  compareC subterms ub1 ub2 = toOrdering $
+    $(U.structuralTypeOrd [t|UndefinedBehavior|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+         , [| subterms |]
+         )
+       , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
+         , [| \(b1, o1) (b2, o2) ->
+               -- This looks pretty strange, but we can't use the EQF from the
+               -- second comparison because of the existentially-quantified width
+               case subterms b1 b2 of
+                 GTF -> GTF
+                 LTF -> LTF
+                 e@EQF ->
+                  case subterms o1 o2 of
+                    GTF -> (GTF :: OrderingF NatType NatType)
+                    LTF -> (GTF :: OrderingF NatType NatType)
+                    EQF -> e
+           |]
+         )
+       ]
+     ) ub1 ub2
 
 instance FunctorF UndefinedBehavior where
   fmapF = TF.fmapFDefault
@@ -486,35 +517,13 @@ instance FoldableF UndefinedBehavior where
   foldMapF = TF.foldMapFDefault
 
 instance TraversableF UndefinedBehavior where
-  traverseF :: Applicative m
-            => (forall s. e s -> m (f s))
-            -> UndefinedBehavior e
-            -> m (UndefinedBehavior f)
-  traverseF traverseSubterm = undefined
-    -- \case
-      -------------------------------- Memory management
-
-      -- FreeBadOffset ptr         -> _
-      --   -- FreeBadOffset <$> traverseSubterm ptr
-      -- FreeUnallocated _         -> _
-      -- MemsetInvalidRegion _ _ _ -> _
-      -- ReadBadAlignment _ _      -> _
-      -- ReadUnallocated _         -> _
-
-      -------------------------------- Pointer arithmetic
-
-      -- PtrAddOffsetOutOfBounds _ _ -> _
-      -- CompareInvalidPointer _ _ _ -> _
-      -- CompareDifferentAllocs _ _  -> _
-      -- PtrSubDifferentAllocs _ _   -> _
-      -- ComparePointerToBV _ _      -> _
-      -- PointerCast _ _ _         -> PointerCast _ _ _
-
-      -------------------------------- LLVM: arithmetic
-
-      -- UDivByZero _     -> _
-      -- SDivByZero _     -> _
-      -- URemByZero _     -> _
-      -- SRemByZero _     -> _
-      -- SDivOverflow _ _ -> _
-      -- SRemOverflow _ _ -> _
+  traverseF subterms =
+    $(U.structuralTraversal [t|UndefinedBehavior|]
+       [ ( U.DataArg 0 `U.TypeApp` U.AnyType
+         , [| \_ x -> subterms x |]
+         )
+       , ( U.ConType [t|PointerPair|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType
+         , [| \_ (b, o) -> (,) <$> subterms b <*> subterms o |]
+         )
+       ]
+     ) subterms
