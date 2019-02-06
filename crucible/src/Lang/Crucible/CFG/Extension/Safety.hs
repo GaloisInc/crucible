@@ -1,5 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-|
 Module           : Lang.Crucible.CFG.Extension.Safety
 Copyright        : (c) Galois, Inc 2014-2016
@@ -15,12 +13,14 @@ extensions.
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -37,17 +37,15 @@ module Lang.Crucible.CFG.Extension.Safety
 import Prelude hiding (pred)
 
 import GHC.Generics (Generic)
-
 import Control.Applicative ((<*))
-import Control.Lens ((^.), (&), (%~))
+import Control.Lens ((^.))
 import Control.Lens (Simple(..), Lens, lens)
-import Control.Lens.Iso (Iso, iso, au)
+import Control.Lens.Iso (Iso, iso)
 import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Data (Data)
-import Data.Bifunctor (Bifunctor(..))
-import Data.Bitraversable (Bitraversable(..))
-import Data.Functor.Compose (Compose(..))
+import Data.Bifunctor (bimap)
+import Data.Bitraversable (bitraverse)
 import Data.Foldable (toList)
 import Data.Functor.Classes (Eq2(liftEq2), Ord2(liftCompare2))
 import Data.Kind (Type)
@@ -57,10 +55,11 @@ import Data.Typeable (Typeable)
 import Data.Void (Void, absurd)
 import Text.PrettyPrint.ANSI.Leijen (Doc)
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import Unsafe.Coerce (unsafeCoerce)
 
-import Data.Parameterized.Classes
+import Data.Parameterized.Classes (EqF(..), OrdF(..), HashableF(..), ShowF(..))
+import Data.Parameterized.Classes (OrderingF(..), toOrdering)
 import Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
-import Data.Parameterized.Compose ()
 import Data.Parameterized.TraversableF
 import Data.Parameterized.TraversableFC
 
@@ -165,6 +164,14 @@ instance ( OrdC (AssertionClassifier ext)
       case (val1, val2) of
         (Just _, Nothing)  -> LTF
         (Nothing, Just _)  -> GTF
+        (Nothing, Nothing) ->
+          case liftCompare2
+                  (demote subterms) (compareC subterms) class1 class2 of
+            LT -> LTF
+            GT -> GTF
+            EQ -> -- This is safe as long as the 'compareC' is doing a nontrivial
+                  -- comparison, i.e. actually using 'subterms'
+                  unsafeCoerce EQF
         (Just v1, Just v2) ->
           case subterms v1 v2 of
             LTF -> LTF
@@ -230,9 +237,7 @@ class HasStructuredAssertions (ext :: Type) where
     liftIO $ collapseAT sym (toPredicate proxyExt sym) (pure . unRV) tree
 
   -- | Offer a one-line summary of what the assertion is about
-  explain     :: (IsExprBuilder sym, IsExpr (SymExpr sym))
-              => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
-              -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
+  explain     :: proxy ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> AssertionClassifier ext e
               -> Doc
 
@@ -240,9 +245,9 @@ class HasStructuredAssertions (ext :: Type) where
   detail      :: (IsExprBuilder sym, IsExpr (SymExpr sym))
               => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
               -> proxy2 sym -- ^ Avoid ambiguous types, can use "Data.Proxy"
-              -> AssertionClassifier ext e
+              -> AssertionClassifier ext (RegValue' sym)
               -> Doc
-  detail = explain
+  detail proxyExt _proxySym = explain proxyExt
 
   explainTree :: (IsExprBuilder sym, IsExpr (SymExpr sym))
               => proxy1 ext -- ^ Avoid ambiguous types, can use "Data.Proxy"
@@ -250,8 +255,7 @@ class HasStructuredAssertions (ext :: Type) where
               -> AssertionClassifierTree ext (RegValue' sym)
               -> Doc
   explainTree proxyExt proxySym =
-    cataAT
-      (explain proxyExt proxySym)
+    cataAT (explain proxyExt)
       (\factors ->
          "All of "
          <$$> indent 2 (vcat (toList factors)))
@@ -309,6 +313,5 @@ instance TraversableF  NoAssertionClassifier where traverseF _     = \case
 instance TestEquality  NoAssertionClassifier where testEquality _  = \case
 
 instance HasStructuredAssertions () where
-  explain _ _     = \case
+  explain _       = \case
   toPredicate _ _ = \case
-
