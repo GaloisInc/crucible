@@ -29,40 +29,23 @@ module Lang.Crucible.LLVM.Extension
   , LLVM
   ) where
 
-import           Control.Lens ((^.), view, (&))
-import           Data.Kind (Type)
-import           Data.Proxy (Proxy(..))
-import           GHC.TypeLits
-import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Control.Lens ((^.), (&))
 import           Data.Data (Data)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic, Generic1)
 
-import           Data.Parameterized.Classes
-import qualified Data.Parameterized.TH.GADT as U
-import           Data.Parameterized.TraversableFC
-
-import           Lang.Crucible.CFG.Common
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.Simulator.RegValue (RegValue'(unRV))
 import           Lang.Crucible.CFG.Extension.Safety
 import           Lang.Crucible.Types
 
-import           What4.Interface (IsExprBuilder, SymExpr)
-
-import           Lang.Crucible.LLVM.Arch.X86 as X86
-import           Lang.Crucible.LLVM.Bytes
-import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension.Arch
-import           Lang.Crucible.LLVM.Extension.Syntax
-import           Lang.Crucible.LLVM.Extension.Safety (BadBehavior(..), LLVMSafetyAssertion(..))
+import           Lang.Crucible.LLVM.Extension.Safety (BadBehavior(..), LLVMSafetyAssertion)
 import qualified Lang.Crucible.LLVM.Extension.Safety as LLVMSafe
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
-import qualified Lang.Crucible.LLVM.Extension.Safety.UndefValue as UV
+import           Lang.Crucible.LLVM.Extension.Syntax
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
-import           Lang.Crucible.LLVM.MemModel.Pointer
-import           Lang.Crucible.LLVM.MemModel.Type
-import           Lang.Crucible.LLVM.Types
+-- import qualified Lang.Crucible.LLVM.Extension.Safety.UndefValue as UV
 
 -- | The Crucible extension type marker for LLVM.
 data LLVM (arch :: LLVMArch)

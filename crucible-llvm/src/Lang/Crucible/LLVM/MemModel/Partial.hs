@@ -24,9 +24,22 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Lang.Crucible.LLVM.MemModel.Partial where
-  -- ( AndOrITE(..)
-  -- ) where
+module Lang.Crucible.LLVM.MemModel.Partial
+  ( PartLLVMVal(..)
+  , bvConcatPartLLVMVal
+  , consArrayPartLLVMVal
+  , appendArrayPartLLVMVal
+  , mkArrayPartLLVMVal
+  , mkStructPartLLVMVal
+  , bvToDoublePartLLVMVal
+  , bvToFloatPartLLVMVal
+  , bvToX86_FP80PartLLVMVal
+  , selectHighBvPartLLVMVal
+  , selectLowBvPartLLVMVal
+  , arrayEltPartLLVMVal
+  , fieldValPartLLVMVal
+  , muxLLVMVal
+  ) where
 
 import           Prelude hiding (pred)
 
