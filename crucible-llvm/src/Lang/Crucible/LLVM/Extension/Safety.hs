@@ -41,7 +41,6 @@ import           Prelude hiding (pred)
 import           Control.Lens
 import           Data.Kind (Type)
 import           Data.Text (Text)
-import           Data.Type.Equality (TestEquality(..))
 import           Data.Maybe (isJust)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
@@ -49,7 +48,7 @@ import           GHC.Generics (Generic)
 import qualified What4.Interface as W4I
 import           What4.Partial
 
-import           Data.Parameterized.Classes (EqF(..), toOrdering, fromOrdering)
+import           Data.Parameterized.Classes (EqF(..), OrderingF(..), toOrdering, fromOrdering)
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
@@ -144,17 +143,35 @@ instance TestEqualityC LLVMSafetyAssertion where
         ]
 
 instance OrdC LLVMSafetyAssertion where
-  compareC subterms sa1 sa2 = _
+  compareC subterms sa1 sa2 = toOrdering $
+    $(U.structuralTypeOrd [t|LLVMSafetyAssertion|]
+       [ ( U.AnyType `U.TypeApp` U.DataArg 0
+         , [| \x y -> fromOrdering (compareC subterms x y) |]
+         )
+       , ( U.DataArg 0 `U.TypeApp` U.AnyType
+         , [| subterms |]
+         )
+       ]
+     ) sa1 sa2
 
 instance FunctorF LLVMSafetyAssertion where
   fmapF f (LLVMSafetyAssertion cls pred ext) =
-    LLVMSafetyAssertion (fmapF f cls) (fmapF f pred) ext
+    LLVMSafetyAssertion (fmapF f cls) (f pred) ext
 
 instance FoldableF LLVMSafetyAssertion where
-  foldMapF = foldMapFDefault
+  foldMapF = TF.foldMapFDefault
 
 instance TraversableF LLVMSafetyAssertion where
-  traverseF subterms = _
+  traverseF subterms=
+    $(U.structuralTraversal [t|LLVMSafetyAssertion|]
+      [ ( U.AnyType `U.TypeApp` U.DataArg 0
+        , [| \_ -> traverseF subterms |]
+        )
+      , ( U.DataArg 0 `U.TypeApp` U.AnyType
+        , [| \_ -> subterms |]
+        )
+      ]
+     ) subterms
 
 -- -----------------------------------------------------------------------
 -- ** Constructors
