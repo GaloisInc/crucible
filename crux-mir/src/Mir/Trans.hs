@@ -61,42 +61,32 @@ import Data.Parameterized.Classes
 import qualified Data.Parameterized.TraversableFC as Ctx
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
+import Data.Parameterized.Peano
 
 import Mir.Mir
 import qualified Mir.Mir as M
 import qualified Mir.DefId as M
+
 import Mir.Intrinsics
+import Mir.Generator
+
 
 import Mir.PP()
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
-
--- will eventually move to parameterized-utils
-import Lang.Crucible.Types (PeanoRepr(..))
 
 import GHC.Stack
 
 import Unsafe.Coerce
 import Debug.Trace
 
-somePeano :: Integer -> Maybe (Some PeanoRepr)
-somePeano 0 = Just (Some ZRepr)
-somePeano i | i < 0 = Nothing
-somePeano i = case somePeano (i - 1) of
-  Just (Some r) -> Just (Some (SRepr r))
-  Nothing -> Nothing
-
 peanoLength :: [a] -> Some PeanoRepr
-peanoLength [] = Some ZRepr
+peanoLength [] = Some zeroP
 peanoLength (_:xs) = case peanoLength xs of
-  Some n -> Some (SRepr n)
+  Some n -> Some (succP n)
 
 
 
--- See end of [Intrinsics] for definition of generator state FnState
--- h for state monad
--- s phantom parameter for CFGs
-type MirGenerator h s ret = G.Generator MIR h s FnState ret
 
 -----------------------------------------------------------------------
 -- ** Type translation: MIR types to Crucible types
@@ -144,11 +134,12 @@ tyToRepr t0 = case t0 of
   M.TyInt base  -> baseSizeToNatCont base $ \n -> Some $ CT.BVRepr n
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ CT.BVRepr n
 
-  -- SCW: is this correct???
-  M.TySlice t  -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
-
+  -- These definitions are *not* compositional
+  -- What is the translation of "M.TySlice t" by itself?? Maybe just a Vector??
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+
+  
   M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
   M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   M.TyChar -> Some $ CT.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
@@ -159,7 +150,7 @@ tyToRepr t0 = case t0 of
   M.TyAdt _defid _tyargs -> Some taggedUnionType
   M.TyDowncast _adt _i   -> Some taggedUnionType
   M.TyFloat _ -> Some CT.RealValRepr
-  M.TyParam i -> case somePeano i of
+  M.TyParam i -> case somePeano (fromInteger i) of
     Just (Some nr) -> Some (CT.VarRepr nr) -- requires poly extension to crucible
     Nothing        -> error "type params must be nonnegative"
   M.TyFnPtr (M.FnSig args ret) ->
@@ -2228,7 +2219,7 @@ mkTraitDecl (M.Trait tname titems) = do
       go (Some tr) (mname, sig@(M.FnSig argtys retty))
         | Some ret  <- tyToRepr retty
         , Some args <- tyListToCtx argtys Some
-        , Just (Some k) <- somePeano (numParams sig)
+        , Just (Some k) <- somePeano (fromInteger (numParams sig))
         =  Some (tr `Ctx.extend` MethRepr mname (CT.PolyFnRepr k args ret))
       go _ _ = error "mkTraitDecl bug: numParams should always return a natural number"
 
@@ -2305,7 +2296,7 @@ buildTraitMap debug col _halloc hmap = do
                                                                                                             (CT.instantiate subst ret))
                                         ++ "\n\targs before subst: " ++ show args
                                         ++ "\n\targs after subst: "  ++ show (CT.instantiate subst args)
-                                        ++ "\n\tdeclared type is: "  ++ show (CT.PolyFnRepr (SRepr k) args ret)
+                                        ++ "\n\tdeclared type is: "  ++ show (CT.PolyFnRepr (succP k) args ret)
                go idx _ = error "buildTraitMap: cannot only handle trait definitions with polmorphic functions (no constants allowed)"
            in 
               runIdentity (Ctx.traverseWithIndex go ctxr)

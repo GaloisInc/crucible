@@ -22,7 +22,7 @@ library
                  text,
                  unordered-containers,
                  crucible,
-                 parameterized-utils,
+                 parameterized-utils >= 1.0.8,
                  containers,
                  lens,
                  vector,
@@ -48,6 +48,7 @@ library
   hs-source-dirs: src
   exposed-modules: Mir.SAWInterface
                    Mir.JSON
+                   Mir.Generator
                    Mir.Language
                    Mir.Mir
                    Mir.Prims

@@ -99,11 +99,9 @@ fn f(_w : u64 ) -> bool {
     let a = [a0, a1, a2, a3, a4];
     let b = from_bytes(&to_bytes(&a));
 
-    crucible_assert!(a0 == b[0]);
-    crucible_assert!(a1 == b[1]);
-    crucible_assert!(a2 == b[2]);
-    crucible_assert!(a3 == b[3]);
-    crucible_assert!(a4 == b[4]);
+    for i in 0..5 {
+      crucible_assert!(a[i] == b[i]);
+    } 
 
     true
 }
