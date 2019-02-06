@@ -2316,7 +2316,7 @@ buildTraitMap debug col _halloc hmap = do
                      let implHandles = [(methName,mirHandle, substs) | (methName, tn, mirHandle, substs) <- impls, trait == tn]
 
                      vtables' <- forM (groupByType implHandles) $ \(typeName, implHandlesByType) -> do
-                                    traceM $ "making vtable for " ++ show trait ++ "<" ++ show typeName ++ ">"
+                                    -- traceM $ "making vtable for " ++ show trait ++ "<" ++ show typeName ++ ">"
                                     case tyToRepr typeName of
                                       Some typeRepr -> do
                                          let vtable = impl_vtable decl typeRepr (reverse implHandlesByType)

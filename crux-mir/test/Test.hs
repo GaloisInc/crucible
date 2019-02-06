@@ -154,6 +154,7 @@ suite = do trees <- sequence $
 proxy :: AIG.Proxy AIG.BasicLit AIG.BasicGraph
 proxy = AIG.basicProxy
 
+-- | Compile using 'rustc' and run executable
 compileAndRun :: FilePath -> String -> IO (Maybe String)
 compileAndRun dir name = do
   (ec, _, _) <- Proc.readProcessWithExitCode "rustc" [dir </> name <.> "rs", "--cfg", "with_main"] ""

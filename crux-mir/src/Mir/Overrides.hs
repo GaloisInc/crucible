@@ -83,12 +83,13 @@ bindFn fn cfg =
       override name (Empty :> StringRepr) (BVRepr n) $
       do RegMap (Empty :> str) <- getOverrideArgs
          x <- maybe (fail "not a constant string") pure (asString (regValue str))
-         name <-
-           case userSymbol (Text.unpack x) of
-             Left err -> fail (show err)
+         let y = filter ((/=) '\"') (Text.unpack x)
+         nname <-
+           case userSymbol y of
+             Left err -> fail (show err ++ " " ++ y)
              Right a -> return a
          s <- getSymInterface
-         v <- liftIO (freshConstant s name (BaseBVRepr n))
+         v <- liftIO (freshConstant s nname (BaseBVRepr n))
          -- TODO crucible-c has references to stateContext.cruciblePersonality with a variable added
          -- This is to know which variables to ask for when getting a model out of the solver
          return v
@@ -108,7 +109,7 @@ bindFn fn cfg =
                , symb_bv "::crucible_u32[0]" (knownNat @ 32)
                , symb_bv "::crucible_u64[0]" (knownNat @ 64)
                , let argTys = (Empty :> BoolRepr :> StringRepr :> StringRepr :> u32repr :> u32repr)
-                 in override "::crucible_assert_impl[0]" argTys (StructRepr Empty) $
+                 in override "::crucible_assert_impl[0]" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        s <- getSymInterface
                        src <- maybe (fail "not a constant src string")
@@ -120,9 +121,9 @@ bindFn fn cfg =
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src)
                        liftIO $ assert s (regValue c) reason
-                       return knownRepr
+                       return ()
                , let argTys = (Empty :> BoolRepr :> StringRepr :> StringRepr :> u32repr :> u32repr)
-                 in override "::crucible_assume_impl[0]" argTys (StructRepr Empty) $
+                 in override "::crucible_assume_impl[0]" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        s <- getSymInterface
                        loc <- liftIO $ getCurrentProgramLoc s
@@ -135,5 +136,5 @@ bindFn fn cfg =
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = AssumptionReason loc $ "Assumption \n\t" <> src <> "\nfrom " <> locStr
                        liftIO $ addAssumption s (LabeledPred (regValue c) reason)
-                       return knownRepr
+                       return ()
                ]

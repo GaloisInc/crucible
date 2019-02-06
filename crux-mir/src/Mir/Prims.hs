@@ -46,7 +46,7 @@ loadPrims useStdLib debugLevel = do
               , "ops/range"  
               , "default"
               , "ops/function" 
-              , "slice"    -- need dictionary translation to make this work
+--              , "slice"    -- need custom primitives (get_unchecked)
               ] else []
         
   
