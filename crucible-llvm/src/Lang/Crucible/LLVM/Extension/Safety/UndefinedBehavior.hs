@@ -45,6 +45,7 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
     PtrComparisonOperator(..)
   , UndefinedBehavior(..)
   , cite
+  , explain
   , ppReg
   -- , ppExpr
 
@@ -437,12 +438,6 @@ ppReg :: W4I.IsExpr (W4I.SymExpr sym)
       -> UndefinedBehavior (RegValue' sym)
       -> Doc
 ppReg proxySym = pp (detailsReg proxySym)
-
--- -- | General-purpose pretty-printer
--- ppExpr :: W4I.IsExpr e
---        => UndefinedBehavior e
---        -> Doc
--- ppExpr = pp detailsExpr
 
 -- -----------------------------------------------------------------------
 -- ** Config

@@ -17,6 +17,7 @@
 
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE KindSignatures #-}
@@ -29,7 +30,9 @@
 module Lang.Crucible.LLVM.Extension.Safety.Poison
   ( Poison(..)
   , cite
+  , explain
   , pp
+  , ppReg
   ) where
 
 import           Data.Kind (Type)
@@ -45,6 +48,7 @@ import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Classes (OrderingF(..), toOrdering)
 
 import           Lang.Crucible.LLVM.Extension.Safety.Standards
+import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.Types
 import qualified What4.Interface as W4I
 
@@ -151,7 +155,6 @@ cite = text .
     InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
     GEPOutOfBounds _        -> "‘getelementptr’ Instruction (Semantics)"
 
--- TODO: print values
 explain :: Poison e -> Doc
 explain =
   \case
@@ -214,17 +217,51 @@ explain =
       , "flag set."
       ]
 
-pp :: Poison e -> Doc
-pp poison = vcat $
+detailsReg :: W4I.IsExpr (W4I.SymExpr sym)
+           => proxy sym
+           -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
+           -> Poison (RegValue' sym)
+           -> [Doc]
+detailsReg _proxySym = const ["TODO: details"]
+  -- \case
+  --   AddNoUnsignedWrap _ _ -> _
+  --   AddNoSignedWrap _ _ -> _
+  --   SubNoUnsignedWrap _ _ -> _
+  --   SubNoSignedWrap _ _  -> _
+  --   MulNoUnsignedWrap _ _ -> _
+  --   MulNoSignedWrap _ _ -> _
+  --   SDivExact _ _ -> _
+  --   UDivExact _ _ -> _
+  --   ShlOp2Big _ _ -> _
+  --   ShlNoUnsignedWrap _ _ -> _
+  --   ShlNoSignedWrap _ _ -> _
+  --   LshrExact _ _ -> _
+  --   LshrOp2Big _ _ -> _
+  --   AshrExact _ _ -> _
+  --   AshrOp2Big _ _   -> _
+  --   ExtractElementIndex _   -> _
+  --   InsertElementIndex _   -> _
+  --   GEPOutOfBounds _   -> _
+
+pp :: (Poison e -> [Doc]) -> Poison e -> Doc
+pp extra poison = vcat $
   [ "Poison value encountered: "
   , explain poison
+  , vcat (extra poison)
   , cat [ "Reference: "
-         , text (unpack (ppStd (standard poison)))
-         , cite poison
-         ]
+        , text (unpack (ppStd (standard poison)))
+        , cite poison
+        ]
   ] ++ case stdURL (standard poison) of
          Just url -> ["Document URL:" <+> text (unpack url)]
          Nothing  -> []
+
+ppReg :: W4I.IsExpr (W4I.SymExpr sym)
+      => proxy sym
+      -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
+      -> Poison (RegValue' sym)
+      -> Doc
+ppReg proxySym = pp (detailsReg proxySym)
 
 -- -----------------------------------------------------------------------
 -- ** Instances

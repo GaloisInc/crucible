@@ -39,7 +39,7 @@ import Prelude hiding (pred)
 import GHC.Generics (Generic)
 import Control.Applicative ((<*))
 import Control.Lens ((^.))
-import Control.Lens (Simple(..), Lens, lens)
+import Control.Lens (Simple, Lens, lens)
 import Control.Lens.Iso (Iso, iso)
 import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -52,7 +52,7 @@ import Data.Kind (Type)
 import Data.Maybe (isJust)
 import Data.Type.Equality (TestEquality(..))
 import Data.Typeable (Typeable)
-import Data.Void (Void, absurd)
+import Data.Void (Void)
 import Text.PrettyPrint.ANSI.Leijen (Doc)
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import Unsafe.Coerce (unsafeCoerce)
@@ -255,7 +255,7 @@ class HasStructuredAssertions (ext :: Type) where
               -> AssertionClassifierTree ext (RegValue' sym)
               -> Doc
   explainTree proxyExt proxySym =
-    cataAT (explain proxyExt)
+    cataAT (detail proxyExt proxySym) -- may want to use 'explain'
       (\factors ->
          "All of "
          <$$> indent 2 (vcat (toList factors)))

@@ -48,7 +48,7 @@ import           GHC.Generics (Generic)
 import qualified What4.Interface as W4I
 import           What4.Partial
 
-import           Data.Parameterized.Classes (EqF(..), OrderingF(..), toOrdering, fromOrdering)
+import           Data.Parameterized.Classes (toOrdering, fromOrdering)
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
