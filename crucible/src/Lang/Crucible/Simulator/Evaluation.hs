@@ -38,18 +38,20 @@ import           Prelude hiding (pred)
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
-import           Data.Functor.Compose (Compose(..))
+import           Data.Bitraversable (bitraverse)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
-import           Data.Parameterized.Classes
-import           Data.Parameterized.Context as Ctx
-import           Data.Parameterized.TraversableFC
 import           Data.Proxy (Proxy(..))
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word
 import           Numeric ( showHex )
 import           Numeric.Natural
+
+import           Data.Parameterized.Classes
+import           Data.Parameterized.Context as Ctx
+import           Data.Parameterized.TraversableF (TraversableF(traverseF))
+import           Data.Parameterized.TraversableFC
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
@@ -257,6 +259,7 @@ type EvalAppFunc sym app = forall f.
 evalApp :: forall sym ext.
            ( IsSymInterface sym
            , HasStructuredAssertions ext
+           , TraversableF (AssertionClassifier ext)
            , TraversableFC (PartialExpr ext)
            )
         => sym
@@ -423,55 +426,25 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ----------------------------------------------------------------------
     -- Side conditions
 
-  {-
-    AddSideCondition _baseTyRep assertion expr -> do
-      let evalSub' :: forall tp. f tp -> IO (RegValue' sym tp)
-          evalSub' e = RV <$> evalSub e
-      pred0 <-
-        traverseSafetyAssertion (Proxy :: Proxy ext) evalSub' assertion
-      -- This works because
-      -- RegValue sym (BaseToType BaseBoolType) = SymExpr sym BaseBoolType
-      let pred_ :: SafetyAssertion ext (SymExpr sym)
-          pred_ = fmapF (unRV . getCompose) pred0
-      addAssertionM sym (pure (toPredicate (Proxy :: Proxy ext) sym pred_))
-                        (AssertFailureSimError "TODO")
-      evalSub expr
-  -}
+    WithAssertion _tyRep (PartialExpr assertions val) -> do
+      let (pext, psym) = (Proxy :: Proxy ext, Proxy :: Proxy sym)
 
-  {-
-    AddSafetyAssertion tyRep assertion -> do
-      let proxy = Proxy :: Proxy ext
+      -- Evaluate any subexpressions and massage the type parameter into
+      -- @'SymExpr' sym@. This works because
+      -- @RegValue sym (BaseToType BaseBoolType) = SymExpr sym BaseBoolType@
+      assertions' <-
+        let rvEval :: forall tp. f tp -> IO (RegValue' sym tp)
+            rvEval x = RV <$> evalSub x
+        in bitraverse rvEval (traverseF rvEval) assertions
 
-      case asBaseType tyRep of
-        NotBaseType          -> panic "eval" [ "Not a base type"
-                                             , show tyRep
-                                             ]
-        AsBaseType _ -> do
-          let (Compose v) = Safety.toValue proxy assertion
-          let evalSub' :: forall tp. f tp -> IO (RegValue' sym tp)
-              evalSub' e = RV <$> evalSub e
+      let expl = explainTree pext psym assertions'
+      let err  = AssertFailureSimError (show expl)
 
-          -- Evaluate any subexpressions and massage the type parameter into
-          -- @'SymExpr' sym@. This works because
-          -- @RegValue sym (BaseToType BaseBoolType) = SymExpr sym BaseBoolType@
-          pred0 <-
-            traverseSafetyAssertion proxy evalSub' assertion
-          let pred = fmapFC (unRV . getCompose) pred0
-          addAssertionM sym (toPredicate proxy sym pred)
-                            (AssertFailureSimError "TODO")
-          evalSub v
-
-      where panic = error
-
-  -}
-    WithAssertion tyRep (PartialExpr assertions value) ->
-      case value of
-        Nothing  ->
-          let msg = "TODO"
-          in addFailedAssertion sym (AssertFailureSimError msg)
-        Just val ->
-          -- TODO: make an assertion
-          evalSub val
+      case val of
+        Nothing  -> addFailedAssertion sym err
+        Just val' -> do
+          addAssertionM sym (treeToPredicate pext sym assertions') err
+          evalSub val'
 
     ----------------------------------------------------------------------
     -- Recursive Types
