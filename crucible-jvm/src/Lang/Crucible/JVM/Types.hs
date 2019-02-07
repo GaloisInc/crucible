@@ -6,24 +6,31 @@ License          : BSD3
 Maintainer       : sweirich@galois.com
 Stability        : provisional
 -}
+
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE BangPatterns #-}
 
 {-# OPTIONS_GHC -haddock #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -31,17 +38,32 @@ Stability        : provisional
 
 module Lang.Crucible.JVM.Types where
 
+import           Prelude hiding (pred)
+
+import           GHC.Generics (Generic)
+import           Data.Typeable (Typeable)
+import           Data.Maybe (isJust)
+import           Data.List (intercalate)
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+
 -- jvm-parser
 import qualified Language.JVM.Parser as J
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
+import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
+import qualified Data.Parameterized.TraversableF as TF
+import           Data.Parameterized.Classes (toOrdering)
+import qualified Data.Parameterized.TH.GADT as U
 
 -- crucible
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
+import           Lang.Crucible.Simulator.RegValue (RegValue'(unRV))
 import           Lang.Crucible.CFG.Generator
+import qualified Lang.Crucible.CFG.Extension.Safety as Safety
 import           Lang.Crucible.Types
 
 ----------------------------------------------------------------------
@@ -50,10 +72,70 @@ import           Lang.Crucible.Types
 newtype JVM = JVM ()
 type instance ExprExtension JVM = EmptyExprExtension
 type instance StmtExtension JVM = EmptyStmtExtension
+
 instance IsSyntaxExtension JVM
 
-
 type Verbosity = Int
+
+----------------------------------------------------------------------
+-- * Structured assertions
+
+data JVMAssertionClassifier (e :: CrucibleType -> *) =
+  JVMAssertionClassifier { exceptionClass :: [String]
+                           -- ^ Class path of the associated exception
+                         , pred :: e BoolType
+                         }
+  deriving (Generic, Typeable)
+
+type instance Safety.AssertionClassifier JVM = JVMAssertionClassifier
+
+-- -----------------------------------------------------------------------
+-- *** Instances
+
+$(return [])
+
+instance TestEqualityC JVMAssertionClassifier where
+  testEqualityC testSubterm (JVMAssertionClassifier cls1 pred1)
+                            (JVMAssertionClassifier cls2 pred2) =
+    and [ isJust (testSubterm pred1 pred2)
+        , cls1 == cls2
+        ]
+
+instance OrdC JVMAssertionClassifier where
+  compareC subterms sa1 sa2 = toOrdering $
+    $(U.structuralTypeOrd [t|JVMAssertionClassifier|]
+       [ ( U.AnyType `U.TypeApp` U.DataArg 0
+         , [| \x y -> fromOrdering (compareC subterms x y) |]
+         )
+       , ( U.DataArg 0 `U.TypeApp` U.AnyType
+         , [| subterms |]
+         )
+       ]
+     ) sa1 sa2
+
+instance FunctorF JVMAssertionClassifier where
+  fmapF f (JVMAssertionClassifier cls pred_) =
+    JVMAssertionClassifier cls (f pred_)
+
+instance FoldableF JVMAssertionClassifier where
+  foldMapF = TF.foldMapFDefault
+
+instance TraversableF JVMAssertionClassifier where
+  traverseF subterms=
+    $(U.structuralTraversal [t|JVMAssertionClassifier|]
+      [ ( U.AnyType `U.TypeApp` U.DataArg 0
+        , [| \_ -> traverseF subterms |]
+        )
+      , ( U.DataArg 0 `U.TypeApp` U.AnyType
+        , [| \_ -> subterms |]
+        )
+      ]
+     ) subterms
+
+instance Safety.HasStructuredAssertions JVM where
+  explain _proxyExt (JVMAssertionClassifier cls _pred) =
+    text ("Exception of class " ++ intercalate "." cls)
+  toPredicate _proxyExt _sym = pure . unRV . pred
 
 ---------------------------------------------------------------------------------
 -- * Type abbreviations for expressions
