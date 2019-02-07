@@ -144,7 +144,7 @@ bvToFloatPartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 4) _))) =
 bvToFloatPartLLVMVal sym (PE p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @32) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
-      let ub = UB.PointerCast (RV blk) (RV off) Float
+      let ub = UB.PointerCast (RV blk, RV off) Float
       PE (addUndefinedBehaviorCondition sym ub pz p) .
         LLVMValFloat Value.SingleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.SingleFloatRepr off
@@ -166,7 +166,7 @@ bvToDoublePartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 8) _))) =
 bvToDoublePartLLVMVal sym (PE p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @64) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
-      let ub = UB.PointerCast (RV blk) (RV off) Float
+      let ub = UB.PointerCast (RV blk, RV off) Float
       PE (addUndefinedBehaviorCondition sym ub pz p) .
         LLVMValFloat Value.DoubleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr off
@@ -188,7 +188,7 @@ bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 10) _))) 
 bvToX86_FP80PartLLVMVal sym (PE p (LLVMValInt blk off))
   | Just Refl <- testEquality (W4I.bvWidth off) (knownNat @80) = do
       pz <- W4I.natEq sym blk =<< W4I.natLit sym 0
-      let ub = UB.PointerCast (RV blk) (RV off) X86_FP80
+      let ub = UB.PointerCast (RV blk, RV off) X86_FP80
       PE (addUndefinedBehaviorCondition sym ub pz p) .
         LLVMValFloat Value.X86_FP80Size <$>
         W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
@@ -242,8 +242,8 @@ bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
          predHigh      <- W4I.natEq sym blk_high blk0
          bv            <- W4I.bvConcat sym high low
          return $ flip W4P.PE (LLVMValInt blk0 bv) $
-           let ub1 = UB.PointerCast (RV blk_low)  (RV low)  (Bitvector 0)
-               ub2 = UB.PointerCast (RV blk_high) (RV high) (Bitvector 0)
+           let ub1 = UB.PointerCast (RV blk_low, RV low)   (Bitvector 0)
+               ub2 = UB.PointerCast (RV blk_high, RV high) (Bitvector 0)
            in
              W4P.And (Leaf (undefinedBehavior ub1 (RV predLow)) :|
                         [ Leaf (undefinedBehavior ub2 (RV predHigh))
@@ -387,7 +387,7 @@ selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
   , Just LeqProof       <- testLeq low_w w = do
       pz  <- W4I.natEq sym blk =<< W4I.natLit sym 0
       bv' <- W4I.bvSelect sym (knownNat :: NatRepr 0) low_w bv
-      let ub = UB.PointerCast (RV blk) (RV bv) (Bitvector 0)
+      let ub = UB.PointerCast (RV blk, RV bv) (Bitvector 0)
       return $ PE (addUndefinedBehaviorCondition sym ub pz p) $ LLVMValInt blk bv'
   where w = W4I.bvWidth bv
 selectLowBvPartLLVMVal _ _ _ _ = return Unassigned
@@ -413,7 +413,7 @@ selectHighBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
   , Just Refl <- testEquality (addNat low_w hi_w) w =
     do pz <-  W4I.natEq sym blk =<< W4I.natLit sym 0
        bv' <- W4I.bvSelect sym low_w hi_w bv
-       let ub = UB.PointerCast (RV blk) (RV bv) (Bitvector 0)
+       let ub = UB.PointerCast (RV blk, RV bv) (Bitvector 0)
        return $ PE (addUndefinedBehaviorCondition sym ub pz p) $ LLVMValInt blk bv'
   where w = W4I.bvWidth bv
 selectHighBvPartLLVMVal _ _ _ _ = return Unassigned

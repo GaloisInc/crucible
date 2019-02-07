@@ -53,60 +53,74 @@ import           Lang.Crucible.Types
 import qualified What4.Interface as W4I
 
 data Poison (e :: CrucibleType -> Type) where
-
-  AddNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  AddNoUnsignedWrap   :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  AddNoSignedWrap     :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  AddNoSignedWrap     :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  SubNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  SubNoUnsignedWrap   :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  SubNoSignedWrap     :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  SubNoSignedWrap     :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  MulNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  MulNoUnsignedWrap   :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  MulNoSignedWrap     :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  MulNoSignedWrap     :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  UDivExact           :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  UDivExact           :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  SDivExact           :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  SDivExact           :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  ShlOp2Big           :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  ShlOp2Big           :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  ShlNoUnsignedWrap   :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  ShlNoUnsignedWrap   :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  ShlNoSignedWrap     :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  ShlNoSignedWrap     :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  LshrExact           :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  LshrExact           :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  LshrOp2Big          :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  LshrOp2Big          :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  AshrExact           :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  AshrExact           :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
-  AshrOp2Big          :: e (BVType w) -- ^ @op1@
-                      -> e (BVType w) -- ^ @op2@
+  -- | Arguments: @op1@, @op2@
+  AshrOp2Big          :: e (BVType w)
+                      -> e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'Vector'
-  ExtractElementIndex :: e (BVType w)       -- ^ @idx@
+  ExtractElementIndex :: e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'Vector'
-  InsertElementIndex  :: e (BVType w)       -- ^ @idx@
+  InsertElementIndex  :: e (BVType w)
                       -> Poison e
   -- | TODO(langston): store the 'LLVMPointerType'
-  GEPOutOfBounds      :: e (BVType w) -- ^ @idx@
+  GEPOutOfBounds      :: e (BVType w)
                       -> Poison e
   deriving (Typeable)
 

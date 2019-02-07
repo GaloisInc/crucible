@@ -136,25 +136,29 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
   FreeUnallocated :: PointerPair e w
                   -> UndefinedBehavior e
 
-  MemsetInvalidRegion :: PointerPair e w   -- ^ Destination
-                      -> e (BVType 8) -- ^ Fill byte
-                      -> e (BVType v) -- ^ Length
+  -- | Arguments: Destination pointer, fill byte, length
+  MemsetInvalidRegion :: PointerPair e w
+                      -> e (BVType 8)
+                      -> e (BVType v)
                       -> UndefinedBehavior e
 
   -- | Is this actually undefined? I (Langston) can't find anything about it
-  ReadBadAlignment :: PointerPair e w     -- ^ Read from where?
-                   -> Alignment           -- ^ What alignment?
+  --
+  -- Arguments: Read destination, alignment
+  ReadBadAlignment :: PointerPair e w
+                   -> Alignment
                    -> UndefinedBehavior e
 
-  ReadUnallocated :: PointerPair e w     -- ^ Read from where?
+  ReadUnallocated :: PointerPair e w
                   -> UndefinedBehavior e
 
   -- -------------------------------- Pointer arithmetic
 
-  PtrAddOffsetOutOfBounds :: PointerPair e w   -- ^ The pointer
-                          -> e (BVType w)      -- ^ Offset added
+  PtrAddOffsetOutOfBounds :: PointerPair e w
+                          -> e (BVType w)
                           -> UndefinedBehavior e
 
+  -- | Arguments: kind of comparison, the invalid pointer, the other pointer
   CompareInvalidPointer :: PtrComparisonOperator -- ^ Kind of comparison
                         -> PointerPair e w       -- ^ The invalid pointer
                         -> PointerPair e w       -- ^ The pointer it was compared to
@@ -172,15 +176,14 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
                         -> PointerPair e w
                         -> UndefinedBehavior e
 
-  PointerCast :: e NatType       -- ^ Pointer's allocation number
-              -> e (BVType w)    -- ^ Offset
-              -> StorageTypeF () -- ^ Type being cast to
+  PointerCast :: PointerPair e w
+              -> StorageTypeF ()
               -> UndefinedBehavior e
 
   -- | "One of the following shall hold: [...] one operand is a pointer and the
   -- other is a null pointer constant."
-  ComparePointerToBV :: e (BVType w) -- ^ Pointer
-                     -> e (BVType w) -- ^ Bitvector
+  ComparePointerToBV :: PointerPair e w
+                     -> e (BVType w)
                      -> UndefinedBehavior e
 
   -------------------------------- LLVM: arithmetic
