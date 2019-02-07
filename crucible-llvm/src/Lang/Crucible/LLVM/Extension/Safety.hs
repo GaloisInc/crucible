@@ -65,11 +65,9 @@ import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 
 -- | Combine the three types of bad behaviors
 --
--- TODO(langston): should there just be a 'BadBehavior' class?
 data BadBehavior (e :: CrucibleType -> Type) =
     BBUndefinedBehavior (UB.UndefinedBehavior e)
   | BBPoison            (Poison.Poison e)
-  -- | BBUndef             (UV.UndefValue e)
   | BBSafe                                  -- ^ This value is always safe
   deriving (Generic, Typeable)
 
@@ -102,6 +100,7 @@ instance OrdC BadBehavior where
 instance FunctorF BadBehavior where
   fmapF f (BBUndefinedBehavior ub) = BBUndefinedBehavior $ fmapF f ub
   fmapF f (BBPoison p)             = BBPoison $ fmapF f p
+  fmapF _ BBSafe                   = BBSafe
 
 instance FoldableF BadBehavior where
   foldMapF = TF.foldMapFDefault
@@ -197,7 +196,7 @@ poison' :: Poison.Poison e
         -> e BoolType
         -> Text
         -> LLVMSafetyAssertion e
-poison' poison pred expl = LLVMSafetyAssertion (BBPoison poison) pred (Just expl)
+poison' poison_ pred expl = LLVMSafetyAssertion (BBPoison poison_) pred (Just expl)
 
 poison :: Poison.Poison e
        -> e BoolType

@@ -193,6 +193,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Value
+import           Lang.Crucible.LLVM.MemModel.Partial (assertSafe)
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
@@ -256,7 +257,6 @@ doDumpMem h mem = do
 
 -- | Assert that some undefined behavior doesn't occur when performing memory
 -- model operations
--- TODO(langston): Replace with generic operations
 assertUndefined :: (IsSymInterface sym, HasPtrWidth wptr)
                 => sym
                 -> Pred sym
@@ -926,16 +926,12 @@ loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
         -> Alignment
         -> IO (LLVMVal sym)
 loadRaw sym mem ptr valType alignment = do
-  partVal <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
-  undefined
-  -- case res of
-  --   Right (v, p1, p2, p3) -> v <$ (sequence $
-  --     [ assert sym p1 (AssertFailureSimError "Read from unallocated memory")
-  --     , assert sym p2 (AssertFailureSimError "Read from unaligned memory")
-  --     , assert sym p3 (AssertFailureSimError "Invalid memory load")
-  --     ])
-    -- Left e        -> addFailedAssertion sym (AssertFailureSimError e)
-
+  partVal  <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
+  maybeVal <- assertSafe sym partVal
+  case maybeVal of
+    Nothing ->
+      addFailedAssertion sym (AssertFailureSimError "Invalid memory load")
+    Just val -> pure val
 
 -- | Load an LLVM value from memory. This version of 'loadRaw'
 -- returns the side-conditions explicitly so that they can

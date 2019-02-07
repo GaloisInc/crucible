@@ -62,14 +62,12 @@ module Lang.Crucible.CFG.Expr
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
 import           Data.Kind (Type)
-import           Data.Proxy (Proxy(..))
 import           Data.Text (Text)
 import           Data.Vector (Vector)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import qualified Data.Vector as V
 
-import           Data.Parameterized.Compose (testEqualityComposeBare)
 import           Data.Parameterized.Classes
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import qualified Data.Parameterized.Context as Ctx
@@ -1282,10 +1280,10 @@ instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
           , ( U.ConType [t|Vector|] `U.TypeApp` U.AnyType
             , [| \pp v -> brackets (commas (fmap pp v)) |]
             )
-          , (U.ConType [t|PartialExpr|] `U.TypeApp` U.AnyType
-                                        `U.TypeApp` U.AnyType
-                                        `U.TypeApp` U.AnyType
-            , [| \pp v -> text "<TODO: assertion>" |]
+          , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.AnyType
+                                         `U.TypeApp` U.AnyType
+                                         `U.TypeApp` U.AnyType
+            , [| \_ _ -> text "<some assertion>" |]
             )
           ])
 

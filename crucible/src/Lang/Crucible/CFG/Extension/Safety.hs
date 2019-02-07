@@ -31,6 +31,7 @@ module Lang.Crucible.CFG.Extension.Safety
 , classifier
 , value
 , HasStructuredAssertions(..)
+, assertSafe
 , NoAssertionClassifier
 ) where
 
@@ -40,7 +41,6 @@ import GHC.Generics (Generic)
 import Control.Applicative ((<*))
 import Control.Lens ((^.))
 import Control.Lens (Simple, Lens, lens)
-import Control.Lens.Iso (Iso, iso)
 import Control.Monad (guard, join)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Data (Data)
@@ -52,7 +52,6 @@ import Data.Kind (Type)
 import Data.Maybe (isJust)
 import Data.Type.Equality (TestEquality(..))
 import Data.Typeable (Typeable)
-import Data.Void (Void)
 import Text.PrettyPrint.ANSI.Leijen (Doc)
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import Unsafe.Coerce (unsafeCoerce)
@@ -295,9 +294,6 @@ assertSafe proxyExt sym (PartialExpr tree a) = do
 -- | The empty safety assertion extension, which adds no new possible assertions.
 data NoAssertionClassifier :: (CrucibleType -> Type) -> Type
   deriving (Data, Eq, Generic, Ord, Read, Show, Typeable)
-
-isoVoid :: Simple Iso Void (NoAssertionClassifier e)
-isoVoid = iso (\case) (\case)
 
 type instance AssertionClassifier () = NoAssertionClassifier
 

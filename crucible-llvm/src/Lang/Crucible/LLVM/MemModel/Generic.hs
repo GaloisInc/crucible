@@ -62,6 +62,8 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , ppMem
   ) where
 
+import           Prelude hiding (pred)
+
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
@@ -82,7 +84,6 @@ import           What4.Interface
 import qualified What4.Partial as W4P
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.Types (NatType, BVType)
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout

@@ -43,9 +43,8 @@ import           Lang.Crucible.LLVM.Extension.Arch
 import           Lang.Crucible.LLVM.Extension.Safety (BadBehavior(..), LLVMSafetyAssertion)
 import qualified Lang.Crucible.LLVM.Extension.Safety as LLVMSafe
 import qualified Lang.Crucible.LLVM.Extension.Safety.Poison as Poison
-import           Lang.Crucible.LLVM.Extension.Syntax
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
--- import qualified Lang.Crucible.LLVM.Extension.Safety.UndefValue as UV
+import           Lang.Crucible.LLVM.Extension.Syntax
 
 -- | The Crucible extension type marker for LLVM.
 data LLVM (arch :: LLVMArch)

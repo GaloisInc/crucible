@@ -25,7 +25,9 @@
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.MemModel.Partial
-  ( PartLLVMVal(..)
+  ( PartLLVMVal
+  , totalLLVMVal
+  , assertSafe
   , bvConcatPartLLVMVal
   , consArrayPartLLVMVal
   , appendArrayPartLLVMVal
@@ -49,13 +51,15 @@ import           Control.Monad.State.Strict (State, get, put, runState)
 import           Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
 import           Data.Vector (Vector)
 import           Data.Word (Word64)
+import           Data.Proxy (Proxy(Proxy))
 import qualified Data.Vector as V
 
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(..))
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.CFG.Extension.Safety
+import           Lang.Crucible.Simulator.SimError
+import           Lang.Crucible.CFG.Extension.Safety hiding (assertSafe)
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import           Lang.Crucible.LLVM.Extension (LLVM)
@@ -65,7 +69,6 @@ import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
 import qualified Lang.Crucible.LLVM.MemModel.Value as Value
 import           Lang.Crucible.LLVM.Extension.Safety
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
-import           Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior (UndefinedBehavior)
 import           Lang.Crucible.Panic (panic)
 
 import           What4.Interface (Pred, IsExprBuilder)
@@ -109,7 +112,18 @@ addUndefinedBehaviorCondition :: sym -- ^ Unused, pins down ambiguous type
                               -> LLVMAssertionTree arch (RegValue' sym)
 addUndefinedBehaviorCondition sym = addUndefinedBehaviorCondition_ (Just sym)
 
--- addPoisonCondition ::
+-- | Take a partial value and assert its safety
+assertSafe :: (IsSymInterface sym)
+           => sym
+           -> PartLLVMVal arch sym
+           -> IO (Maybe (LLVMVal sym))
+assertSafe _ Unassigned  = pure Nothing
+assertSafe sym (PE tree a) = do
+  let proxy = Proxy :: Proxy (LLVM arch)
+  pred <- treeToPredicate proxy sym tree
+  liftIO $ assert sym pred $ AssertFailureSimError $
+    show $ explainTree proxy (Just sym) tree
+  pure (Just a)
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal interface
@@ -190,6 +204,7 @@ bvConcatPartLLVMVal :: forall arch sym.
   PartLLVMVal arch sym ->
   IO (PartLLVMVal arch sym)
 bvConcatPartLLVMVal _ Unassigned _ = return Unassigned
+bvConcatPartLLVMVal _ _ Unassigned = return Unassigned
 
 bvConcatPartLLVMVal sym (PE p1 v1) (PE p2 v2) =
     case (v1, v2) of
@@ -449,34 +464,28 @@ fieldValPartLLVMVal _ _ _ = return Unassigned
 --
 
 -- | If-then-else on partial expressions.
-mergePartial :: (IsExprBuilder sym, MonadIO m) =>
+mergePartial :: forall arch sym m. (IsExprBuilder sym, MonadIO m) =>
   sym ->
   (Pred sym -> LLVMVal sym -> LLVMVal sym -> m (PartLLVMVal arch sym))
     {- ^ Operation to combine inner values. The 'Pred' parameter is the
          if/then/else condition -} ->
   Pred sym {- ^ condition to merge on -} ->
-  PartLLVMVal arch sym {- ^ 'if' value -}  ->
-  PartLLVMVal arch sym {- ^ 'then' value -} ->
+  PartLLVMVal arch sym {- ^ 'then' value -}  ->
+  PartLLVMVal arch sym {- ^ 'else' value -} ->
   m (PartLLVMVal arch sym)
-
-{-# SPECIALIZE mergePartial ::
-      IsExprBuilder sym =>
-      sym ->
-      (Pred sym -> LLVMVal sym -> LLVMVal sym -> IO (PartLLVMVal arch sym)) ->
-      Pred sym ->
-      PartLLVMVal arch sym ->
-      PartLLVMVal arch sym ->
-      IO (PartLLVMVal arch sym)   #-}
-
 mergePartial _ _ _ Unassigned Unassigned  = return Unassigned
-mergePartial _ _ c v Unassigned           = return v -- TODO: too optimistic?
-mergePartial sym _ c Unassigned v         = return v -- TODO: too optimistic?
-mergePartial _ f c (PE px x) (PE py y) = do
-  z0 <- f c x y
+mergePartial _ _ cond (PE p v) Unassigned = pure $
+  let ub = UB.Other "muxing of partial values (then)"
+  in PE (W4P.addCondition p (undefinedBehavior ub (RV cond))) v
+mergePartial _ _ cond Unassigned (PE p v)    = pure $
+  let ub = UB.Other "muxing of parial values (else)"
+  in PE (W4P.addCondition p (undefinedBehavior ub (RV cond))) v
+mergePartial _ f cond (PE px x) (PE py y) = do
+  z0 <- f cond x y
   pure $
     case z0 of
       Unassigned -> Unassigned
-      PE pz z    -> PE (W4P.binaryAnd (Ite (RV c) px py) pz) z
+      PE pz z    -> PE (W4P.binaryAnd (Ite (RV cond) px py) pz) z
 
 {-
 -- | Merge a collection of partial values in an if-then-else tree.

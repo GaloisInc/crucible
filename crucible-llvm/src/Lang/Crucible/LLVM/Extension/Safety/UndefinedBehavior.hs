@@ -66,17 +66,17 @@ import           Prelude
 import           GHC.Generics (Generic)
 import           Data.Data (Data)
 import           Data.Kind (Type)
+import           Data.Text (Text, unpack)
 import           Data.Functor.Contravariant (Predicate(..))
 import           Data.Maybe (fromMaybe, isJust)
 import           Data.Typeable (Typeable)
-import           Data.Text (unpack)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
-import qualified Data.Parameterized.TraversableF as TF
-import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
-import qualified Data.Parameterized.TH.GADT as U
-import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
 import           Data.Parameterized.Classes (toOrdering, OrderingF(..))
+import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
+import qualified Data.Parameterized.TH.GADT as U
+import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
+import qualified Data.Parameterized.TraversableF as TF
 
 import qualified What4.Interface as W4I
 
@@ -197,6 +197,11 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
                -> e (BVType w)
                -> UndefinedBehavior e
 
+  -------------------------------- Other
+
+  -- | Use sparingly! Currently used only when muxing values.
+  Other :: Text -> UndefinedBehavior e
+
   {-
   MemcpyDisjoint          :: UndefinedBehavior e
   DoubleFree              :: UndefinedBehavior e
@@ -236,6 +241,10 @@ standard =
     SDivOverflow _ _ -> LLVMRef LLVM8
     SRemOverflow _ _ -> LLVMRef LLVM8
 
+    -------------------------------- Other
+
+    Other _ -> CStd C99
+
     {-
     MemcpyDisjoint          -> CStd C99
     DoubleFree              -> CStd C99
@@ -273,6 +282,10 @@ cite = text .
     SRemByZero _     -> "‘srem’ Instruction (Semantics)"
     SDivOverflow _ _ -> "‘sdiv’ Instruction (Semantics)"
     SRemOverflow _ _ -> "‘srem’ Instruction (Semantics)"
+
+    -------------------------------- Other
+
+    Other _ -> "n/a"
 
     {-
     MemcpyDisjoint          -> "§7.24.2.1 The memcpy function"
@@ -333,6 +346,10 @@ explain =
     SRemByZero _     -> "Signed division by zero via remainder"
     SDivOverflow _ _ -> "Overflow during signed division"
     SRemOverflow _ _ -> "Overflow during signed division (via signed remainder)"
+
+    -------------------------------- Other
+
+    Other txt -> text (unpack txt)
 
     {-
     MemcpyDisjoint     -> "Use of `memcpy` with non-disjoint regions of memory"
@@ -404,6 +421,10 @@ detailsReg proxySym =
     SRemOverflow v1 v2 -> [ "op1: " <+> (W4I.printSymExpr $ unRV v1)
                           , "op2: " <+> (W4I.printSymExpr $ unRV v2)
                           ]
+
+    -------------------------------- Other
+
+    Other _ -> []
 
   where ppPtr1 :: W4I.IsExpr (W4I.SymExpr sym) => PointerPair (RegValue' sym) w -> Doc
         ppPtr1 = ("Pointer:" <+>) . ppPointerPair

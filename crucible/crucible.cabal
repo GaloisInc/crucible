@@ -1,5 +1,5 @@
 Name:          crucible
-Version:       0.4
+Version:       0.5
 Author:        Galois Inc.
 Maintainer:    jhendrix@galois.com, rdockins@galois.com
 Copyright:     (c) Galois, Inc 2014-2018
@@ -41,7 +41,7 @@ library
     lens,
     mtl,
     panic >= 0.3,
-    parameterized-utils >= 1.0.5 && < 1.1,
+    parameterized-utils >= 1.0.8 && < 1.1,
     process,
     template-haskell,
     text,
