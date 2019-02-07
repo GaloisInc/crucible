@@ -159,9 +159,9 @@ data UndefinedBehavior (e :: CrucibleType -> Type) where
                           -> UndefinedBehavior e
 
   -- | Arguments: kind of comparison, the invalid pointer, the other pointer
-  CompareInvalidPointer :: PtrComparisonOperator -- ^ Kind of comparison
-                        -> PointerPair e w       -- ^ The invalid pointer
-                        -> PointerPair e w       -- ^ The pointer it was compared to
+  CompareInvalidPointer :: PtrComparisonOperator
+                        -> PointerPair e w
+                        -> PointerPair e w
                         -> UndefinedBehavior e
 
   -- | "In all other cases, the behavior is undefined"
@@ -233,7 +233,7 @@ standard =
     CompareDifferentAllocs _ _  -> CStd C99
     PtrSubDifferentAllocs _ _   -> CStd C99
     ComparePointerToBV _ _      -> CStd C99
-    PointerCast _ _ _           -> CStd C99
+    PointerCast _ _             -> CStd C99
 
     -- -------------------------------- LLVM: arithmetic
 
@@ -275,7 +275,7 @@ cite = text .
     CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
     PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
     ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
-    PointerCast _ _ _           -> "TODO"
+    PointerCast _ _             -> "TODO"
 
     -------------------------------- LLVM: arithmetic
 
@@ -338,7 +338,7 @@ explain =
       "Subtraction of pointers from different allocations"
     ComparePointerToBV _ _ ->
       "Comparison of a pointer to a non zero (null) integer value"
-    PointerCast _ _ _   ->
+    PointerCast _ _     ->
       "Cast of a pointer to a non-integer type"
 
     -------------------------------- LLVM: arithmetic
@@ -401,13 +401,12 @@ detailsReg proxySym =
     CompareDifferentAllocs ptr1 ptr2 -> [ ppPtr2 ptr1 ptr2 ]
     PtrSubDifferentAllocs ptr1 ptr2  -> [ ppPtr2 ptr1 ptr2 ]
     ComparePointerToBV ptr bv ->
-      [ "Pointer:  " <+> (W4I.printSymExpr $ unRV ptr)
+      [ ppPtr1 ptr
       , "Bitvector:" <+> (W4I.printSymExpr $ unRV bv)
       ]
-    PointerCast allocNum offset castToType ->
-      [ "Allocation number:" <+> (W4I.printSymExpr $ unRV allocNum)
-      , "Offset:           " <+> (W4I.printSymExpr $ unRV offset)
-      , "Cast to:          " <+> text (show castToType)
+    PointerCast ptr castToType ->
+      [ ppPtr1 ptr
+      , "Cast to:" <+> text (show castToType)
       ]
 
     -------------------------------- LLVM: arithmetic
