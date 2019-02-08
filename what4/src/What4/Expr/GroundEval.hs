@@ -338,7 +338,7 @@ evalGroundApp f0 a0 = do
     BVZext _ x -> lift $ f0 x
     BVSext w x -> lift $ do
       case isPosNat w of
-        Just LeqProof -> (toUnsigned w . toSigned w) <$> f0 x
+        Just LeqProof -> (toUnsigned w . toSigned (bvWidth x)) <$> f0 x
         Nothing -> error "BVSext given bad width"
 
     BVPopcount _w x ->
