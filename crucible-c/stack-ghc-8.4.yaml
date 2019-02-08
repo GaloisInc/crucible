@@ -19,4 +19,4 @@ extra-deps:
   - monadLib-3.7.3
   - panic-0.4.0.1
   - sbv-8.0
-resolver: lts-11.22
+resolver: lts-12.26
