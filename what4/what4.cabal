@@ -64,7 +64,6 @@ library
     What4.InterpretedFloatingPoint
     What4.Partial
     What4.Partial.AssertionTree
-    What4.Partial.PartExpr
     What4.ProblemFeatures
     What4.ProgramLoc
     What4.SatResult
