@@ -438,7 +438,7 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
 
   -- Return value of bit at given index.
   BVTestBit :: (1 <= w)
-            => !Integer -- Index of bit to test
+            => !Natural -- Index of bit to test
                         -- (least-significant bit has index 0)
             -> !(e (BaseBVType w))
             -> App e BaseBoolType
@@ -1507,9 +1507,9 @@ abstractEval bvParams f a0 = do
     BVZext w x   -> BVD.zext (f x) w
     BVSext w x   -> BVD.sext bvParams (bvWidth x) (f x) w
 
-    BVPopcount w _ -> BVD.range w 0 (natValue w)
-    BVCountLeadingZeros w _ -> BVD.range w 0 (natValue w)
-    BVCountTrailingZeros w _ -> BVD.range w 0 (natValue w)
+    BVPopcount w _ -> BVD.range w 0 (intValue w)
+    BVCountLeadingZeros w _ -> BVD.range w 0 (intValue w)
+    BVCountTrailingZeros w _ -> BVD.range w 0 (intValue w)
 
     BVBitNot w x   -> BVD.not w (f x)
     BVBitAnd w x y -> BVD.and w (f x) (f y)
@@ -4431,8 +4431,8 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
       -- Constant evaluation
     | Just yc <- asUnsignedBV y
-    , i <= toInteger (maxBound :: Int) =
-      return $! backendPred sym (yc `Bits.testBit` fromInteger i)
+    , i <= fromIntegral (maxBound :: Int) =
+      return $! backendPred sym (yc `Bits.testBit` fromIntegral i)
 
     | Just (BVZext _w y') <- asApp y =
       if i >= natValue (bvWidth y') then

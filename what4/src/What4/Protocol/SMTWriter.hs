@@ -339,11 +339,11 @@ class Num v => SupportTermOps v where
   -- bitvector.   @v@ must contain at least @w@ elements, and @i+n@
   -- must be less than or equal to @w@.  The result has @n@ elements.
   -- The least significant bit of @v@ should have index @0@.
-  bvExtract :: NatRepr w -> Integer -> Integer -> v -> v
+  bvExtract :: NatRepr w -> Natural -> Natural -> v -> v
 
   -- | @bvTestBit w i x@ returns predicate that holds if bit @i@
   -- in @x@ is set to true.  @w@ should be the number of bits in @x@.
-  bvTestBit :: NatRepr w -> Integer -> v -> v
+  bvTestBit :: NatRepr w -> Natural -> v -> v
   bvTestBit w i x = (bvExtract w i 1 x .== bvTerm w1 1)
     where w1 :: NatRepr 1
           w1 = knownNat
@@ -391,8 +391,8 @@ class Num v => SupportTermOps v where
   bvToFloat       :: FloatPrecisionRepr fpp -> RoundingMode -> v -> v
   sbvToFloat      :: FloatPrecisionRepr fpp -> RoundingMode -> v -> v
   realToFloat     :: FloatPrecisionRepr fpp -> RoundingMode -> v -> v
-  floatToBV       :: Integer -> RoundingMode -> v -> v
-  floatToSBV      :: Integer -> RoundingMode -> v -> v
+  floatToBV       :: Natural -> RoundingMode -> v -> v
+  floatToSBV      :: Natural -> RoundingMode -> v -> v
   floatToReal     :: v -> v
 
   -- | Create a struct with the given fields.
@@ -1283,7 +1283,7 @@ bvIntTerm :: forall v w
           -> v
           -> v
 bvIntTerm w x = sumExpr ((\i -> digit (i-1)) <$> [1..natValue w])
- where digit :: Integer -> v
+ where digit :: Natural -> v
        digit d = ite (bvTestBit w d x)
                      (fromInteger (2^d))
                      (fromInteger 0)
@@ -1296,14 +1296,14 @@ sbvIntTerm w0 x0 = sumExpr (signed_offset : go w0 x0 (natValue w0 - 2))
  where signed_offset = ite (bvTestBit w0 (natValue w0 - 1) x0)
                            (fromInteger (negate (2^(widthVal w0 - 1))))
                            (fromInteger 0)
-       go :: SupportTermOps v => NatRepr w -> v -> Integer -> [v]
+       go :: SupportTermOps v => NatRepr w -> v -> Natural -> [v]
        go w x n
         | n > 0     = digit w x n : go w x (n-1)
         | n == 0    = [digit w x 0]
         | otherwise = [] -- this branch should only be called in the degenerate case
                          -- of length 1 signed bitvectors
 
-       digit :: SupportTermOps v => NatRepr w -> v -> Integer -> v
+       digit :: SupportTermOps v => NatRepr w -> v -> Natural -> v
        digit w x d = ite (bvTestBit w d x)
                          (fromInteger (2^d))
                          (fromInteger 0)
@@ -1716,7 +1716,7 @@ appSMTExpr ae = do
         ite pb (bvTerm (knownNat @1) 1) (bvTerm (knownNat @1) 0)
     BVTestBit n xe -> do
       x <- mkBaseExpr xe
-      let this_bit = bvExtract (bvWidth xe) (toInteger n) 1 x
+      let this_bit = bvExtract (bvWidth xe) n 1 x
           one = bvTerm (knownNat :: NatRepr 1) 1
       freshBoundTerm BoolTypeMap $ this_bit .== one
     BVEq xe ye -> do
@@ -1992,8 +1992,8 @@ appSMTExpr ae = do
     BVZext w' xe -> do
       let w = bvWidth xe
       x <- mkBaseExpr xe
-      let n = widthVal w' - widthVal w
-      case someNat (fromIntegral n) of
+      let n = intValue w' - intValue w
+      case someNat n of
         Just (Some w2) | Just LeqProof <- isPosNat w' -> do
           let zeros = bvTerm w2 0
           freshBoundTerm (BVTypeMap w') $ bvConcat zeros x
@@ -2002,7 +2002,7 @@ appSMTExpr ae = do
     BVSext w' xe -> do
       let w = bvWidth xe
       x <- mkBaseExpr xe
-      let n = natValue w' - natValue w
+      let n = intValue w' - intValue w
       case someNat n of
         Just (Some w2) | Just LeqProof <- isPosNat w' -> do
           let zeros = bvTerm w2 0
@@ -2023,16 +2023,16 @@ appSMTExpr ae = do
          freshBoundTerm (BVTypeMap w) $! go 0 x
      where
      go !idx x
-       | idx < natValue w = ite (bvTestBit w (natValue w - idx - 1) x) (bvTerm w idx) (go (idx+1) x)
-       | otherwise = bvTerm w (natValue w)
+       | idx < natValue w = ite (bvTestBit w (natValue w - idx - 1) x) (bvTerm w (toInteger idx)) (go (idx+1) x)
+       | otherwise = bvTerm w (intValue w)
 
     BVCountTrailingZeros w xe ->
       do x <- mkBaseExpr xe
          freshBoundTerm (BVTypeMap w) $! go 0 x
      where
      go !idx x
-       | idx < natValue w = ite (bvTestBit w idx x) (bvTerm w idx) (go (idx+1) x)
-       | otherwise = bvTerm w (natValue w)
+       | idx < natValue w = ite (bvTestBit w idx x) (bvTerm w (toInteger idx)) (go (idx+1) x)
+       | otherwise = bvTerm w (intValue w)
 
     BVBitNot w xe -> do
       x <- mkBaseExpr xe
