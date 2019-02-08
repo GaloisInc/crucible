@@ -1403,7 +1403,7 @@ instance ( OrdFC (ExprExtension ext)
                    , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.AnyType
                                                   `U.TypeApp` U.AnyType
                                                   `U.TypeApp` U.AnyType
-                     , [| undefined |]
+                     , [| compareFC compareSubterm |]
                      )
                    ]
                   )

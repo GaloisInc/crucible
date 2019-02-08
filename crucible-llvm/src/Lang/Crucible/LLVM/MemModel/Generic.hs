@@ -389,7 +389,7 @@ readMemCopy sym w end (LLVMPointer blk off) tp d src sz readPrev =
                      readPrev tp' (LLVMPointer blk o')
                 subFn (InRange o tp') = do
                   oExpr <- genIntExpr sym w varFn o
-                  srcPlusO <- case oExpr of 
+                  srcPlusO <- case oExpr of
                                 Just oExpr' -> ptrAdd sym w src oExpr'
                                 Nothing     -> panic "Generic.readMemCopy"
                                                 ["Cannot use an unbounded bitvector expression as an offset"
@@ -591,13 +591,16 @@ readMem sym w l tp alignment m = do
   sz         <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   p1         <- isAllocated sym w alignment l (Just sz) m
   p2         <- isAligned sym w l alignment
-  W4P.PE p v <- readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
-  let ub1 = UB.ReadUnallocated  (UB.pointerView l)
-      ub2 = UB.ReadBadAlignment (UB.pointerView l) alignment
-  let p'  = W4P.And (p :| [ W4P.Leaf (undefinedBehavior ub1 p1)
-                          , W4P.Leaf (undefinedBehavior ub2 p2)
-                          ])
-  return $ W4P.PE p' v
+  readMem' sym w (memEndianForm m) l tp alignment (memWrites m) >>=
+    \case
+      p@W4P.Unassigned -> return p
+      W4P.PE p v ->
+        let ub1 = UB.ReadUnallocated  (UB.pointerView l)
+            ub2 = UB.ReadBadAlignment (UB.pointerView l) alignment
+            p'  = W4P.And (p :| [ W4P.Leaf (undefinedBehavior ub1 p1)
+                                , W4P.Leaf (undefinedBehavior ub2 p2)
+                                ])
+        in return $ W4P.PE p' v
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
