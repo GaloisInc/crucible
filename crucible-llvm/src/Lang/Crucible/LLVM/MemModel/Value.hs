@@ -136,7 +136,7 @@ zeroInt ::
   (forall w. (1 <= w) => Maybe (SymNat sym, SymBV sym w) -> IO a) ->
   IO a
 zeroInt sym bytes k
-   | Just (Some w) <- someNat (bytesToBits bytes)
+   | Some w <- mkNatRepr (bytesToBits bytes)
    , Just LeqProof <- isPosNat w
    =   do blk <- natLit sym 0
           bv  <- bvLit sym w 0
@@ -361,8 +361,8 @@ selectLowBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector by
       return $ PE p $ LLVMValZero (bitvectorType low)
 
 selectLowBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
-  | Just (Some (low_w)) <- someNat (bytesToBits low)
-  , Just (Some (hi_w))  <- someNat (bytesToBits hi)
+  | Some (low_w) <- mkNatRepr (bytesToBits low)
+  , Some (hi_w)  <- mkNatRepr (bytesToBits hi)
   , Just LeqProof <- isPosNat low_w
   , Just Refl <- testEquality (addNat low_w hi_w) w
   , Just LeqProof <- testLeq low_w w =
@@ -387,8 +387,8 @@ selectHighBvPartLLVMVal _sym low hi (PE p (LLVMValZero (StorageType (Bitvector b
       return $ PE p $ LLVMValZero (bitvectorType hi)
 
 selectHighBvPartLLVMVal sym low hi (PE p (LLVMValInt blk bv))
-  | Just (Some (low_w)) <- someNat (bytesToBits low)
-  , Just (Some (hi_w))  <- someNat (bytesToBits hi)
+  | Some (low_w) <- mkNatRepr (bytesToBits low)
+  , Some (hi_w)  <- mkNatRepr (bytesToBits hi)
   , Just LeqProof <- isPosNat hi_w
   , Just Refl <- testEquality (addNat low_w hi_w) w =
     do p' <- andPred sym p =<< natEq sym blk =<< natLit sym 0

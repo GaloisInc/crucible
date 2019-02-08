@@ -16,12 +16,14 @@ module Lang.Crucible.LLVM.Bytes
   , Addr
   , Offset
   , bytesToBits
+  , bytesToNatural
   , bytesToInteger
   , toBytes
   , bitsToBytes
   )  where
 
 import Data.Word
+import Numeric.Natural
 
 -- | A newtype for expressing numbers of bytes.
 --   This newtype is explicitly introduced to avoid confusion
@@ -32,11 +34,14 @@ newtype Bytes = Bytes { unBytes :: Word64 }
 instance Show Bytes where
   show (Bytes n) = show n
 
-bytesToBits :: Bytes -> Integer
-bytesToBits (Bytes n) = 8 * toInteger n
+bytesToBits :: Bytes -> Natural
+bytesToBits (Bytes n) = 8 * fromIntegral n
+
+bytesToNatural :: Bytes -> Natural
+bytesToNatural (Bytes n) = fromIntegral n
 
 bytesToInteger :: Bytes -> Integer
-bytesToInteger (Bytes n) = toInteger n
+bytesToInteger (Bytes n) = fromIntegral n
 
 toBytes :: Integral a => a -> Bytes
 toBytes = Bytes . fromIntegral

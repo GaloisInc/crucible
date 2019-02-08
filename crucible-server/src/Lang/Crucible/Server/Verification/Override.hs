@@ -162,7 +162,7 @@ verificationHarnessOverride sim rw w sc cryEnv harness =
              pc' <- lookupWord sym w ReturnAddressVar sub
              return (Ctx.Empty Ctx.:> RV pc' Ctx.:> RV regs' Ctx.:> RV mem')
 
-        _ -> fail "Impossible! failed to deconstruct verification override arguments"
+       -- _ -> fail "Impossible! failed to deconstruct verification override arguments"
 
 assertConditions ::
    SharedContext ->

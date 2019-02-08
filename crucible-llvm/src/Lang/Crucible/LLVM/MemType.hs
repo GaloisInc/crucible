@@ -243,7 +243,7 @@ memTypeSize dl mtp =
     MetadataType -> 0
 
 memTypeSizeInBits :: DataLayout -> MemType -> Natural
-memTypeSizeInBits dl tp = fromInteger $ bytesToBits (memTypeSize dl tp)
+memTypeSizeInBits dl tp = bytesToBits (memTypeSize dl tp)
 
 -- | Returns ABI byte alignment constraint in bytes.
 memTypeAlign :: DataLayout -> MemType -> Alignment

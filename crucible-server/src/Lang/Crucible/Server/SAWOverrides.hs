@@ -29,7 +29,7 @@ import           Data.Foldable (toList)
 import           Data.IORef
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
-import           Data.Sequence (Seq)
+--import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified Data.Vector as V

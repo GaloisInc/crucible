@@ -34,7 +34,7 @@ module Lang.Crucible.LLVM.Extension
   ) where
 
 import           Data.Kind
-import           GHC.TypeLits
+import           GHC.TypeNats
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Classes

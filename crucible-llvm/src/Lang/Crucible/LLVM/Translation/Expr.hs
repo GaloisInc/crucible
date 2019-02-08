@@ -235,8 +235,8 @@ zeroExpand :: forall s arch a
            -> (forall tp. TypeRepr tp -> Expr (LLVM arch) s tp -> a)
            -> a
 zeroExpand (IntType w) k =
-  case someNat (fromIntegral w) of
-    Just (Some w') | Just LeqProof <- isPosNat w' ->
+  case mkNatRepr w of
+    Some w' | Just LeqProof <- isPosNat w' ->
       k (LLVMPointerRepr w') $
          BitvectorAsPointerExpr w' $
          App $ BVLit w' 0
@@ -261,8 +261,8 @@ undefExpand :: (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth 
             -> (forall tp. TypeRepr tp -> Expr (LLVM arch) s tp -> a)
             -> a
 undefExpand (IntType w) k =
-  case someNat (fromIntegral w) of
-    Just (Some w') | Just LeqProof <- isPosNat w' ->
+  case mkNatRepr w of
+    Some w' | Just LeqProof <- isPosNat w' ->
       k (LLVMPointerRepr w') $
          BitvectorAsPointerExpr w' $
          App $ BVUndef w'

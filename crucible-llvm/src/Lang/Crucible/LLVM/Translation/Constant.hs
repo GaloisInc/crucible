@@ -63,7 +63,7 @@ import           Data.Traversable
 import           Data.Fixed (mod')
 import qualified Data.Vector as V
 import           Numeric.Natural
-import           GHC.TypeLits
+import           GHC.TypeNats
 
 import qualified Text.LLVM.AST as L
 import qualified Text.LLVM.PP as L
@@ -165,7 +165,7 @@ translateGEP inbounds base elts =
        -- Vector base case, with as many lanes as there are input pointers
        VecType n (PtrType baseSymType)
          | Right baseMemType <- asMemType baseSymType
-         , Just (Some lanes) <- someNat (toInteger n)
+         , Some lanes <- mkNatRepr n
          , Just LeqProof <- isPosNat lanes
          ->  let mt' = ArrayType 0 baseMemType in
              go lanes mt' (GEP_vector_base lanes base) elts
@@ -211,14 +211,14 @@ translateGEP inbounds base elts =
             -- Vector of indices, matching the current number of lanes, apply
             -- each offset to the corresponding base pointer
             VecType n (IntType _)
-              | natValue lanes == toInteger n
+              | natValue lanes == n
               -> go lanes mt' (GEP_index_vector mt' gep off) xs
 
             -- Vector of indices, with a single incomming base pointer.  Scatter
             -- the base pointer across the correct number of lanes, and then
             -- apply the vector of offsets componentwise.
             VecType n (IntType _)
-              | Just (Some n') <- someNat (toInteger n)
+              | Some n' <- mkNatRepr n
               , Just LeqProof <- isPosNat n'
               , Just Refl <- testEquality lanes (knownNat @1)
               -> go n' mt' (GEP_index_vector mt' (GEP_scatter n' gep) off) xs
@@ -334,7 +334,7 @@ intConst ::
 intConst n 0
   = return (ZeroConst (IntType n))
 intConst n x
-  | Just (Some w) <- someNat (fromIntegral n)
+  | Some w <- mkNatRepr n
   , Just LeqProof <- isPosNat w
   = return (IntConst w (toUnsigned w x))
 intConst n _
@@ -415,7 +415,7 @@ evalConstGEP :: forall m wptr.
   m (MemType, LLVMConst)
 evalConstGEP (GEPResult lanes finalMemType gep0) =
    do xs <- go gep0
-      unless (toInteger (length xs) == natValue lanes)
+      unless (fromIntegral (length xs) == natValue lanes)
              (throwError "Unexpected vector length in result of constant GEP")
       case xs of
         [x] -> return ( PtrType (MemType finalMemType), x)
@@ -458,13 +458,13 @@ evalConstGEP (GEPResult lanes finalMemType gep0) =
   -- Vector base, deconstruct the input value and return the
   -- corresponding values.
   go (GEP_vector_base n x)
-    = asVectorOf (fromInteger (natValue n)) return x
+    = asVectorOf (natValue n) return x
 
   -- Scatter a scalar input across n lanes
   go (GEP_scatter n gep)
     = do ps <- go gep
          case ps of
-           [p] -> return (replicate (fromInteger (natValue n)) p)
+           [p] -> return (replicate (widthVal n) p)
            _   -> throwError "vector length mismatch in GEP scatter"
 
   -- Add the offset corresponding to the given field across
@@ -546,7 +546,7 @@ evalArith ::
   MemType ->
   Arith -> Arith -> m LLVMConst
 evalArith op (IntType m) (ArithI x) (ArithI y)
-  | Just (Some w) <- someNat (toInteger m)
+  | Just (Some w) <- someNat m
   , Just LeqProof <- isPosNat w
   = evalIarith op w x y
 evalArith op FloatType (ArithF x) (ArithF y) = FloatConst <$> evalFarith op x y
@@ -707,26 +707,26 @@ evalConv ::
 evalConv expr op mt x = case op of
     L.FpToUi
       | IntType n <- mt
-      , Just (Some w) <- someNat (toInteger n)
+      , Just (Some w) <- someNat n
       , Just LeqProof <- isPosNat w
       , FloatConst f <- x
       -> return $ IntConst w (truncate f)
 
       | IntType n <- mt
-      , Just (Some w) <- someNat (toInteger n)
+      , Just (Some w) <- someNat n
       , Just LeqProof <- isPosNat w
       , DoubleConst d <- x
       -> return $ IntConst w (truncate d)
 
     L.FpToSi
       | IntType n <- mt
-      , Just (Some w) <- someNat (toInteger n)
+      , Just (Some w) <- someNat n
       , Just LeqProof <- isPosNat w
       , FloatConst f <- x
       -> return $ IntConst w (truncate f)
 
       | IntType n <- mt
-      , Just (Some w) <- someNat (toInteger n)
+      , Just (Some w) <- someNat n
       , Just LeqProof <- isPosNat w
       , DoubleConst d <- x
       -> return $ IntConst w (truncate d)
@@ -752,7 +752,7 @@ evalConv expr op mt x = case op of
     L.Trunc
       | IntType n <- mt
       , IntConst w i <- x
-      , Just (Some w') <- someNat (toInteger n)
+      , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
       , Just LeqProof <- testLeq w' w
       -> return $ IntConst w' (toUnsigned w' i)
@@ -760,7 +760,7 @@ evalConv expr op mt x = case op of
     L.ZExt
       | IntType n <- mt
       , IntConst w i <- x
-      , Just (Some w') <- someNat (toInteger n)
+      , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
       , Just LeqProof <- testLeq w w'
       -> return $ IntConst w' (toUnsigned w' i)
@@ -768,7 +768,7 @@ evalConv expr op mt x = case op of
     L.SExt
       | IntType n <- mt
       , IntConst w i <- x
-      , Just (Some w') <- someNat (toInteger n)
+      , Just (Some w') <- someNat n
       , Just LeqProof <- isPosNat w'
       , Just LeqProof <- testLeq w w'
       -> return $ IntConst w' (toSigned w' i)
@@ -840,7 +840,7 @@ castFromInt ::
   m LLVMConst
 castFromInt _ xint w (IntType w')
   | w == w'
-  , Just (Some wsz) <- someNat (toInteger w)
+  , Some wsz <- mkNatRepr w
   , Just LeqProof <- isPosNat wsz
   = return $ IntConst wsz xint
 
@@ -929,10 +929,10 @@ asArithInt n (ZeroConst (IntType m))
   | n == m
   = return (ArithInt 0)
 asArithInt n (IntConst w x)
-  | toInteger n == natValue w
+  | fromIntegral n == natValue w
   = return (ArithInt x)
 asArithInt n (SymbolConst sym off)
-  | toInteger n == natValue ?ptrWidth
+  | fromIntegral n == natValue ?ptrWidth
   = return (ArithPtr sym off)
 asArithInt _ _
   = throwError "Expected integer value"
@@ -956,7 +956,7 @@ asInt n (ZeroConst (IntType m))
   | n == m
   = return 0
 asInt n (IntConst w x)
-  | toInteger n == natValue w
+  | fromIntegral n == natValue w
   = return x
 asInt n _
   = throwError ("Expected integer constant of size " ++ show n)
@@ -1030,13 +1030,13 @@ transConstantExpr _mt expr = case expr of
     do mt <- liftMemType (L.typedType a)
        case mt of
          VecType n (IntType m)
-           | Just (Some w) <- someNat (toInteger m)
+           | Some w <- mkNatRepr m
            , Just LeqProof <- isPosNat w
            -> do a' <- asVectorOf n (asInt m) =<< transConstant a
                  b' <- asVectorOf n (asInt m) =<< transConstant b
                  return $ VectorConst (IntType 1) $ zipWith (evalIcmp op w) a' b'
          IntType m
-           | Just (Some w) <- someNat (toInteger m)
+           | Some w <- mkNatRepr m
            , Just LeqProof <- isPosNat w
            -> do a' <- asInt m =<< transConstant a
                  b' <- asInt m =<< transConstant b
@@ -1059,13 +1059,13 @@ transConstantExpr _mt expr = case expr of
     do mt <- liftMemType tp
        case mt of
          VecType n (IntType m)
-           | Just (Some w) <- someNat (toInteger m)
+           | Some w <- mkNatRepr m
            , Just LeqProof <- isPosNat w
            -> do a' <- asVectorOf n (asInt m) =<< transConstant' mt a
                  b' <- asVectorOf n (asInt m) =<< transConstant' mt b
                  VectorConst (IntType m) <$> zipWithM (evalBitwise op w) a' b'
          IntType m
-           | Just (Some w) <- someNat (toInteger m)
+           | Some w <- mkNatRepr m
            , Just LeqProof <- isPosNat w
            -> do a' <- asInt m =<< transConstant' mt a
                  b' <- asInt m =<< transConstant' mt b
