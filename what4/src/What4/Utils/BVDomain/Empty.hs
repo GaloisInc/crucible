@@ -60,8 +60,8 @@ module What4.Utils.BVDomain.Empty
 
 import Control.Exception (assert)
 import Data.Parameterized.NatRepr
-
-import GHC.TypeLits
+import Numeric.Natural
+import GHC.TypeNats
 
 import Prelude hiding (any, concat, negate, not, and, or)
 
@@ -101,7 +101,7 @@ ult _ _ _ = Nothing
 testBit :: (1 <= w)
         => NatRepr w
         -> BVDomain w
-        -> Integer -- ^ Index of bit (least-significant bit has index 0)
+        -> Natural -- ^ Index of bit (least-significant bit has index 0)
         -> Maybe Bool
 testBit _ _ _ = Nothing
 

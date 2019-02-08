@@ -41,7 +41,7 @@ library
     lens,
     mtl,
     panic >= 0.3,
-    parameterized-utils >= 1.0.5 && < 1.1,
+    parameterized-utils >= 1.0.8 && < 1.1,
     process,
     template-haskell,
     text,
@@ -154,4 +154,3 @@ test-suite helper-tests
                  tasty-hunit >= 0.9,
                  tasty-quickcheck >= 0.8,
                  tasty-hspec >= 1.1
-
