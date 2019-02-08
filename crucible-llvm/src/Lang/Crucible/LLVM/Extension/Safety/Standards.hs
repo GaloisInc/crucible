@@ -13,6 +13,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StrictData #-}
+{-# LANGUAGE Safe #-}
 
 module Lang.Crucible.LLVM.Extension.Safety.Standards
   ( Standard(..)
