@@ -55,7 +55,7 @@ import           Data.Parameterized.TraversableFC
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
-import           What4.Partial (PartExpr(..), joinMaybePE)
+import           What4.Partial.PartExpr (PartExpr(..), joinMaybePE)
 import           What4.Symbol (emptySymbol)
 import           What4.Utils.Complex
 import           What4.WordMap
@@ -426,7 +426,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ----------------------------------------------------------------------
     -- Side conditions
 
-    WithAssertion _tyRep (PartialExpr assertions val) -> do
+    WithAssertion _tyRep (Safety.PartialExp assertions val) -> do
       let (pext, psym) = (Proxy :: Proxy ext, Proxy :: Proxy sym)
 
       -- Evaluate any subexpressions and massage the type parameter into
@@ -439,12 +439,10 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
 
       let expl = explainTree pext psym assertions'
       let err  = AssertFailureSimError (show expl)
+      addAssertionM sym (treeToPredicate pext sym assertions') err
+      evalSub val
 
-      case val of
-        Nothing  -> addFailedAssertion sym err
-        Just val' -> do
-          addAssertionM sym (treeToPredicate pext sym assertions') err
-          evalSub val'
+    WithAssertion _tyRep _ -> error "evalApp: Impossible"
 
     ----------------------------------------------------------------------
     -- Recursive Types

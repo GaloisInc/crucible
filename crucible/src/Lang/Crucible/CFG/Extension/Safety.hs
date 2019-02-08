@@ -17,6 +17,7 @@ extensions.
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -28,6 +29,7 @@ module Lang.Crucible.CFG.Extension.Safety
 ( AssertionClassifier
 , AssertionClassifierTree
 , PartialExpr(..)
+, pattern PartialExp
 , classifier
 , value
 , HasStructuredAssertions(..)
@@ -39,9 +41,10 @@ import Prelude hiding (pred)
 
 import GHC.Generics (Generic)
 import Control.Applicative ((<*))
-import Control.Lens ((^.))
+import Control.Lens ((^.), (&), (.~))
 import Control.Lens (Simple, Lens, lens)
-import Control.Monad (guard, join)
+import Control.Lens.Wrapped
+import Control.Monad (guard)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Data.Data (Data)
 import Data.Bifunctor (bimap)
@@ -54,7 +57,6 @@ import Data.Type.Equality (TestEquality(..))
 import Data.Typeable (Typeable)
 import Text.PrettyPrint.ANSI.Leijen (Doc)
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
-import Unsafe.Coerce (unsafeCoerce)
 
 import Data.Parameterized.Classes (EqF(..), OrdF(..), HashableF(..), ShowF(..))
 import Data.Parameterized.Classes (OrderingF(..), toOrdering)
@@ -63,12 +65,14 @@ import Data.Parameterized.TraversableF
 import Data.Parameterized.TraversableFC
 
 import Lang.Crucible.Backend (assert, IsSymInterface)
+import Lang.Crucible.Panic (panic)
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 import Lang.Crucible.Simulator.RegValue (RegValue, RegValue'(..))
 import Lang.Crucible.Types
 
 import What4.Interface (SymExpr, IsExpr, IsExprBuilder, Pred, printSymExpr)
 import What4.Partial
+import What4.Partial.AssertionTree
 
 -- -----------------------------------------------------------------------
 -- ** Safety assertions
@@ -83,24 +87,17 @@ type family AssertionClassifier (ext :: Type) :: (CrucibleType -> Type) -> Type
 type AssertionClassifierTree ext e =
   AssertionTree (e BoolType) (AssertionClassifier ext e)
 
--- |
---
--- Should only contain 'Nothing' if the assertion is constantly-false.
---
--- This is subtly but significantly different from What4's 'PartExpr':
--- @PartExpr pred val ≅ Maybe (pred, val)@ but
--- @PartialExpr ext e bt@ is more like @(pred, Maybe val)@. It records
--- the provenance of the assertions regardless of whether the value is present.
---
--- TODO: get rid of What4's PartExpr in favor of this
-data PartialExpr (ext :: Type)
-                 (e   :: CrucibleType -> Type)
-                 (bt  :: CrucibleType) =
-  PartialExpr
-    { _classifier :: AssertionClassifierTree ext e
-    , _value      :: Maybe (e bt)
-    }
+-- | A value packaged with a predicate expressing its partiality
+newtype PartialExpr (ext :: Type)
+                    (e   :: CrucibleType -> Type)
+                    (bt  :: CrucibleType) =
+  PartialExpr { _unPartialExpr :: Partial (AssertionClassifierTree ext e) (e bt) }
   deriving (Generic, Typeable)
+
+-- | A simply-bidirectional pattern for deconstructing a 'PartialExpr' into the
+-- underlying 'Partial'.
+pattern PartialExp :: AssertionClassifierTree ext e -> e bt -> PartialExpr ext e bt
+pattern PartialExp p v = PartialExpr (Partial p v)
 
 deriving instance ( Data (e bt)
                   , Data (e BoolType)
@@ -129,14 +126,22 @@ deriving instance ( Show (e bt)
                   ) =>
                   (Show (PartialExpr ext e bt))
 
+instance Wrapped (PartialExpr ext e bt)
+
 -- -----------------------------------------------------------------------
 -- *** Lenses
 
-classifier :: Simple Lens (PartialExpr ext e ty) (AssertionClassifierTree ext e)
-classifier = lens _classifier (\s v -> s { _classifier = v})
+-- | TODO: Should use 'Control.Lens.Wrapped' here somehow?
+unPartialExpr :: Simple Lens (PartialExpr ext e ty) (Partial (AssertionClassifierTree ext e) (e ty))
+unPartialExpr = lens _unPartialExpr (\_ v -> PartialExpr v)
 
-value :: Simple Lens (PartialExpr ext e ty) (Maybe (e ty))
-value = lens _value (\s v -> s { _value = v })
+classifier :: Simple Lens (PartialExpr ext e ty) (AssertionClassifierTree ext e)
+classifier = lens (^. unPartialExpr . partialPred)
+                  (\pexp tree -> pexp & unPartialExpr . partialPred .~ tree)
+
+value :: Simple Lens (PartialExpr ext e ty) (e ty)
+value = lens (^. unPartialExpr . partialValue)
+             (\pexp val -> pexp & unPartialExpr . partialValue .~ val)
 
 -- -----------------------------------------------------------------------
 -- *** Instances
@@ -148,39 +153,29 @@ instance ( TestEqualityC (AssertionClassifier ext)
                               (forall x y. PartialExpr ext f x
                                         -> PartialExpr ext f y
                                         -> (Maybe (x :~: y)))
-  testEqualityFC subterms (PartialExpr class1 val1) (PartialExpr class2 val2) =
+  testEqualityFC subterms (PartialExp class1 val1) (PartialExp class2 val2) =
     let justSubterms x y = isJust (subterms x y)
-    in join (subterms <$> val1 <*> val2) <*
+    in subterms val1 val2 <*
          guard (liftEq2 justSubterms (testEqualityC subterms) class1 class2)
+  testEqualityFC _ _ _ = panic "Safety.testEqualityFC" []
 
 instance ( OrdC (AssertionClassifier ext)
          , TestEqualityC (AssertionClassifier ext)
          )
          => OrdFC (PartialExpr ext) where
-  compareFC subterms (PartialExpr class1 val1) (PartialExpr class2 val2) =
+  compareFC subterms (PartialExp class1 val1) (PartialExp class2 val2) =
     let demote s x y = toOrdering (s x y)
     in
-      case (val1, val2) of
-        (Just _, Nothing)  -> LTF
-        (Nothing, Just _)  -> GTF
-        (Nothing, Nothing) ->
+      case subterms val1 val2 of
+        LTF -> LTF
+        GTF -> GTF
+        EQF ->
           case liftCompare2
                   (demote subterms) (compareC subterms) class1 class2 of
             LT -> LTF
             GT -> GTF
-            EQ -> -- This is safe as long as the 'compareC' is doing a nontrivial
-                  -- comparison, i.e. actually using 'subterms'
-                  unsafeCoerce EQF
-        (Just v1, Just v2) ->
-          case subterms v1 v2 of
-            LTF -> LTF
-            GTF -> GTF
-            EQF ->
-              case liftCompare2
-                     (demote subterms) (compareC subterms) class1 class2 of
-                LT -> LTF
-                GT -> GTF
-                EQ -> EQF
+            EQ -> EQF
+  compareFC _ _ _ = panic "Safety.compareFC" []
 
 instance ( FunctorF (AssertionClassifier ext)
          )
@@ -188,9 +183,9 @@ instance ( FunctorF (AssertionClassifier ext)
   fmapFC :: forall f g. (forall x. f x -> g x) ->
                         (forall x. PartialExpr ext f x -> PartialExpr ext g x)
   fmapFC trans v =
-    PartialExpr
+    PartialExp
       (bimap trans (fmapF trans) (v ^. classifier))
-      (fmap trans (v ^. value))
+      (trans (v ^. value))
 
 instance ( TraversableF (AssertionClassifier ext)
          ) =>
@@ -203,10 +198,11 @@ instance ( TraversableF (AssertionClassifier ext)
   traverseFC :: forall f g m. Applicative m
              => (forall x. f x -> m (g x))
              -> (forall x. PartialExpr ext f x -> m (PartialExpr ext g x))
-  traverseFC traverseSubterm (PartialExpr cls val) =
-    PartialExpr
+  traverseFC traverseSubterm (PartialExp cls val) =
+    PartialExp
     <$> bitraverse traverseSubterm (traverseF traverseSubterm) cls
-    <*> traverse traverseSubterm val
+    <*> traverseSubterm val
+  traverseFC _ _ = panic "Safety.traverseFC" []
 
 -- -----------------------------------------------------------------------
 -- ** HasStructuredAssertions
@@ -275,13 +271,14 @@ assertSafe :: ( MonadIO io
            => proxy ext
            -> sym
            -> PartialExpr ext (RegValue' sym) bt
-           -> io (Maybe (RegValue sym bt))
-assertSafe proxyExt sym (PartialExpr tree a) = do
+           -> io (RegValue sym bt)
+assertSafe proxyExt sym (PartialExp tree a) = do
   pred <- treeToPredicate proxyExt sym tree
   -- TODO: Should SimErrorReason have another constructor for this?
-  liftIO $ assert sym pred $ AssertFailureSimError $
-    show $ explainTree proxyExt (Just sym) tree
-  pure (unRV <$> a)
+  let rsn = AssertFailureSimError (show (explainTree proxyExt (Just sym) tree))
+  liftIO $ assert sym pred rsn
+  pure (unRV a)
+assertSafe _ _ _ = panic "assertSafe" []
 
 -- TODO: a method that descends into an AssertionTree, asserting e.g. the
 -- conjuncts separately and reporting on their success or failure individually,

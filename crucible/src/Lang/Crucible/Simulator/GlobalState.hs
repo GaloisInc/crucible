@@ -21,7 +21,7 @@ import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableF
 
 import           What4.Interface
-import           What4.Partial
+import           What4.Partial.PartExpr
 import           What4.ProgramLoc
 
 import           Lang.Crucible.CFG.Core

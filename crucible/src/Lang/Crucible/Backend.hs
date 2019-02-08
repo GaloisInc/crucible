@@ -66,7 +66,7 @@ import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
-import           What4.Partial
+import           What4.Partial.PartExpr
 import           What4.ProgramLoc
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS

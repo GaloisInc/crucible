@@ -46,7 +46,7 @@ import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 
 import qualified What4.Interface as W4I
-import           What4.Partial
+import           What4.Partial.AssertionTree
 
 import           Data.Parameterized.Classes (toOrdering, fromOrdering)
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))

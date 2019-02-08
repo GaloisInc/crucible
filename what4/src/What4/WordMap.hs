@@ -22,7 +22,7 @@ import qualified Data.Parameterized.Context as Ctx
 
 import What4.BaseTypes
 import What4.Interface
-import What4.Partial
+import What4.Partial.PartExpr
 
 -----------------------------------------------------------------------
 -- WordMap operations

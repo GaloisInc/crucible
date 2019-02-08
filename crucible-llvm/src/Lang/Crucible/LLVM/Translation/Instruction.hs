@@ -63,11 +63,11 @@ import           Data.Parameterized.Context ( pattern (:>) )
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
 
-import qualified What4.Partial as W4P
+import qualified What4.Partial.AssertionTree as W4P
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
-import           Lang.Crucible.CFG.Extension.Safety (PartialExpr(..))
+import           Lang.Crucible.CFG.Extension.Safety (pattern PartialExp)
 
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.DataLayout
@@ -117,10 +117,10 @@ sideConditionsA tyRepr expr conds =
                     Right poi -> Safety.poison poi pred
   in flip fmap conds' $
       \case
-        []     -> expr -- No assertions left, nothing to do. 
+        []     -> expr -- No assertions left, nothing to do.
         (x:xs) ->
           let assertion = W4P.And (fmap W4P.Leaf (x :| xs))
-          in App $ WithAssertion tyRepr (PartialExpr assertion (Just expr))
+          in App $ WithAssertion tyRepr (PartialExp assertion expr)
 
 -- | Assert that evaluation doesn't result in a poison value
 poisonSideCondition :: TypeRepr ty

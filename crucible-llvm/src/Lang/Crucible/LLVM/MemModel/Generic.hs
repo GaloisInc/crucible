@@ -81,7 +81,8 @@ import           Data.Parameterized.Ctx (SingleCtx)
 import           Data.Parameterized.Some
 
 import           What4.Interface
-import qualified What4.Partial as W4P
+import qualified What4.Partial.PartExpr as W4P
+import qualified What4.Partial.AssertionTree as W4P
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
