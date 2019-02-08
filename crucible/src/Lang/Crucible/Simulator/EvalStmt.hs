@@ -61,7 +61,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           What4.Config
 import           What4.Interface
-import           What4.Partial.PartExpr
+import           What4.Partial
 import           What4.ProgramLoc
 import           What4.Symbol (emptySymbol)
 import           What4.Utils.MonadST

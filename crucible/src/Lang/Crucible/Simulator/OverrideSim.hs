@@ -89,7 +89,7 @@ import           System.IO.Error
 import           What4.Config
 import           What4.Interface
 import           What4.FunctionName
-import           What4.Partial.PartExpr (justPartExpr)
+import           What4.Partial (justPartExpr)
 import           What4.ProgramLoc
 import           What4.Utils.MonadST
 

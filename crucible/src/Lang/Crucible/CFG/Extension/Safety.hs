@@ -67,7 +67,7 @@ import Data.Parameterized.TraversableFC
 import Lang.Crucible.Backend (assert, IsSymInterface)
 import Lang.Crucible.Panic (panic)
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
-import Lang.Crucible.Simulator.RegValue (RegValue, RegValue'(..))
+import Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import Lang.Crucible.Types
 
 import What4.Interface (SymExpr, IsExpr, IsExprBuilder, Pred, printSymExpr)
@@ -270,15 +270,14 @@ assertSafe :: ( MonadIO io
               )
            => proxy ext
            -> sym
-           -> PartialExpr ext (RegValue' sym) bt
-           -> io (RegValue sym bt)
-assertSafe proxyExt sym (PartialExp tree a) = do
+           -> Partial (AssertionClassifierTree ext (RegValue' sym)) a
+           -> io a
+assertSafe proxyExt sym (Partial tree a) = do
   pred <- treeToPredicate proxyExt sym tree
   -- TODO: Should SimErrorReason have another constructor for this?
   let rsn = AssertFailureSimError (show (explainTree proxyExt (Just sym) tree))
   liftIO $ assert sym pred rsn
-  pure (unRV a)
-assertSafe _ _ _ = panic "assertSafe" []
+  pure a
 
 -- TODO: a method that descends into an AssertionTree, asserting e.g. the
 -- conjuncts separately and reporting on their success or failure individually,
