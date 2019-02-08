@@ -77,9 +77,11 @@ import           Lang.Crucible.Backend (IsSymInterface)
 --
 -- The @Left@ constructor is used to signal errors in translation,
 -- which can happen when:
--- * The global isn't actually a compile-time constant
--- * The declaration is ill-typed
--- * The global isn't linked ("extern global")
+--  * The declaration is ill-typed
+--  * The global isn't linked (@extern global@)
+--
+-- The @Nothing@ constructor is used to signal that the global isn't actually a
+-- compile-time constant.
 --
 -- These failures are as granular as possible (attached to the values)
 -- so that simulation still succeeds if the module has a bad global that the
@@ -188,7 +190,6 @@ initializeMemory sym llvm_ctx m = do
                     globals
    allocGlobals sym gs_alloc mem
 
-
 allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     => sym
                     -> L.Module
@@ -205,6 +206,9 @@ allocLLVMHandleInfo sym m mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
            ]
      return $ registerGlobal mem' syms ptr
 
+
+------------------------------------------------------------------------
+-- ** populateGlobals
 
 -- | Populate the globals mentioned in the given @GlobalInitializerMap@
 --   provided they satisfy the given filter function.
@@ -268,10 +272,10 @@ populateGlobal ::
   LLVMConst ->
   MemImpl sym ->
   IO (MemImpl sym)
-populateGlobal sym gl mt cval mem =
+populateGlobal sym gl memty cval mem =
   do let symb = L.globalSym gl
-     let alignment = memTypeAlign (llvmDataLayout ?lc) mt
-     ty <- toStorableType mt
+     let alignment = memTypeAlign (llvmDataLayout ?lc) memty
+     ty <- toStorableType memty
      ptr <- doResolveGlobal sym mem symb
      val <- constToLLVMVal sym mem cval
      storeConstRaw sym mem ptr ty alignment val
