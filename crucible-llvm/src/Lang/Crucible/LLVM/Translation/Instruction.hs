@@ -819,7 +819,7 @@ raw_bitop op w a b =
       L.Xor -> return $ App (BVXor w a b)
 
       L.Shl nuw nsw -> do
-        let wlit = App (BVLit w (natValue w))
+        let wlit = App (BVLit w (intValue w))
         result <- AtomExpr <$> mkAtom (App (BVShl w a b))
         withSideConds result
           [ ( True
@@ -839,7 +839,7 @@ raw_bitop op w a b =
           ]
 
       L.Lshr exact -> do
-        let wlit = App (BVLit w (natValue w))
+        let wlit = App (BVLit w (intValue w))
         result <- AtomExpr <$> mkAtom (App (BVLshr w a b))
         withSideConds result
           [ ( True
@@ -855,7 +855,7 @@ raw_bitop op w a b =
 
       L.Ashr exact
         | Just LeqProof <- isPosNat w -> do
-            let wlit = App (BVLit w (natValue w))
+            let wlit = App (BVLit w (intValue w))
             result <- AtomExpr <$> mkAtom (App (BVAshr w a b))
             withSideConds result
               [ ( True
