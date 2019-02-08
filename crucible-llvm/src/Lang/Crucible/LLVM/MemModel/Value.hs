@@ -108,7 +108,7 @@ zeroInt ::
   (forall w. (1 <= w) => Maybe (SymNat sym, SymBV sym w) -> IO a) ->
   IO a
 zeroInt sym bytes k
-   | Just (Some w) <- someNat (bytesToBits bytes)
+   | Some w <- mkNatRepr (bytesToBits bytes)
    , Just LeqProof <- isPosNat w
    =   do blk <- natLit sym 0
           bv  <- bvLit sym w 0

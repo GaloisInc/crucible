@@ -801,7 +801,7 @@ generateInstruction (pc, instr) =
       rPush $ App (JustValue knownRepr rawRef)
 
     J.Getfield fieldId -> do
-      lift $ debug 2 $ "getfield " ++ show (fieldIdString fieldId)
+      lift $ debug 2 $ "getfield " ++ show (fieldIdText fieldId)
       objectRef <- rPop
       rawRef <- throwIfRefNull objectRef
       obj <- lift $ readRef rawRef
@@ -809,7 +809,7 @@ generateInstruction (pc, instr) =
       pushValue val
 
     J.Putfield fieldId -> do
-      lift $ debug 2 $ "putfield " ++ show (fieldIdString fieldId)
+      lift $ debug 2 $ "putfield " ++ show (fieldIdText fieldId)
       val <- popValue
       objectRef <- rPop
       rawRef <- throwIfRefNull objectRef

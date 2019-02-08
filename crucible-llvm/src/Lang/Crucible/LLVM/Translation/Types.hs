@@ -134,9 +134,9 @@ llvmTypeToRepr DoubleType   = Just $ Some (FloatRepr DoubleFloatRepr)
 llvmTypeToRepr X86_FP80Type = Just $ Some (FloatRepr X86_80FloatRepr)
 llvmTypeToRepr MetadataType = Nothing
 llvmTypeToRepr (IntType n) =
-   case someNat (fromIntegral n) of
-      Just (Some w) | Just LeqProof <- isPosNat w -> Just $ Some (LLVMPointerRepr w)
-      _ -> panic "Translation.Types.llvmTypeToRepr"
+   case mkNatRepr n of
+     Some w | Just LeqProof <- isPosNat w -> Just $ Some (LLVMPointerRepr w)
+     _ -> panic "Translation.Types.llvmTypeToRepr"
               [" *** invalid integer width " ++ show n]
 
 -- | Compute the function Crucible function signature

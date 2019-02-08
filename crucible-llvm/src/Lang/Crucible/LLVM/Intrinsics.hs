@@ -233,8 +233,8 @@ mkLLVMContext halloc m = do
          $ [ "Failed to construct LLVM type context:" ] ++ map show errs
   let dl = llvmDataLayout typeCtx
 
-  case someNat (toInteger (ptrBitwidth dl)) of
-    Just (Some (wptr :: NatRepr wptr)) | Just LeqProof <- testLeq (knownNat @16) wptr ->
+  case mkNatRepr (ptrBitwidth dl) of
+    Some (wptr :: NatRepr wptr) | Just LeqProof <- testLeq (knownNat @16) wptr ->
       withPtrWidth wptr $
         do mvar <- mkMemVar halloc
            let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
@@ -368,7 +368,7 @@ register_1arg_polymorphic_override prefix overrideFn =
   do L.Symbol nm <- L.decName <$> ask
      case List.stripPrefix prefix nm of
        Just ('.':'i': (readDec -> (sz,[]):_))
-         | Just (Some w) <- someNat sz
+         | Some w <- mkNatRepr sz
          , Just LeqProof <- isPosNat w
          -> case overrideFn w of SomeLLVMOverride ovr -> register_llvm_override ovr
        _ -> empty
@@ -993,12 +993,12 @@ llvmSaddWithOverflow w =
   LLVMOverride
   ( L.Declare
     { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
-                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
+                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
@@ -1021,12 +1021,12 @@ llvmUaddWithOverflow w =
   LLVMOverride
   ( L.Declare
     { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
-                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
+                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
@@ -1049,12 +1049,12 @@ llvmSsubWithOverflow w =
   LLVMOverride
   ( L.Declare
     { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
-                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
+                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
@@ -1077,12 +1077,12 @@ llvmUsubWithOverflow w =
   LLVMOverride
   ( L.Declare
     { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
-                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
+                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
@@ -1104,12 +1104,12 @@ llvmSmulWithOverflow w =
   LLVMOverride
   ( L.Declare
     { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
-                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
+                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
@@ -1131,12 +1131,12 @@ llvmUmulWithOverflow w =
   LLVMOverride
   ( L.Declare
     { L.decRetType = L.Struct
-                     [ L.PrimType $ L.Integer (fromInteger (natValue w))
+                     [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
-                     , L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
+                     , L.PrimType $ L.Integer (fromIntegral (natValue w))
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
@@ -1158,9 +1158,9 @@ llvmCtlz w =
   let nm = "llvm.ctlz.i" ++ show (natValue w) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer (fromInteger (natValue w))
+    { L.decRetType = L.PrimType $ L.Integer (fromIntegral (natValue w))
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decVarArgs = False
@@ -1183,9 +1183,9 @@ llvmCttz w =
   let nm = "llvm.cttz.i" ++ show (natValue w) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer (fromInteger (natValue w))
+    { L.decRetType = L.PrimType $ L.Integer (fromIntegral (natValue w))
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      , L.PrimType $ L.Integer 1
                      ]
     , L.decVarArgs = False
@@ -1207,9 +1207,9 @@ llvmCtpop w =
   let nm = "llvm.ctpop.i" ++ show (natValue w) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer (fromInteger (natValue w))
+    { L.decRetType = L.PrimType $ L.Integer (fromIntegral (natValue w))
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []
@@ -1230,9 +1230,9 @@ llvmBitreverse w =
   let nm = "llvm.bitreverse.i" ++ show (natValue w) in
   LLVMOverride
   ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer (fromInteger (natValue w))
+    { L.decRetType = L.PrimType $ L.Integer (fromIntegral (natValue w))
     , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer (fromInteger (natValue w))
+    , L.decArgs    = [ L.PrimType $ L.Integer (fromIntegral (natValue w))
                      ]
     , L.decVarArgs = False
     , L.decAttrs   = []

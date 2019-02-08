@@ -34,7 +34,7 @@ module Lang.Crucible.Simulator.Intrinsics
 import           Data.Kind
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.SymbolRepr
-import qualified GHC.TypeLits
+import qualified GHC.TypeLits (Symbol)
 import           GHC.Stack
 
 import           What4.Interface

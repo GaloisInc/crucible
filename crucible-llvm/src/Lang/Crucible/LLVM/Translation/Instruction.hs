@@ -164,7 +164,7 @@ instrResultType instr =
           case gepRes of
             Left err -> fail err
             Right (GEPResult lanes tp _gep) ->
-              let n = fromInteger (natValue lanes) in
+              let n = natValue lanes in
               if n == 1 then
                 return (PtrType (MemType tp))
               else
@@ -426,13 +426,13 @@ evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
 
  go (GEP_vector_base n x) =
       do xs <- maybe badGEP (traverse asPtr) (asVector x)
-         unless (toInteger (Seq.length xs) == natValue n) badGEP
+         unless (fromIntegral (Seq.length xs) == natValue n) badGEP
          return xs
 
  go (GEP_scatter n gep) =
       do xs <- go gep
          unless (Seq.length xs == 1) badGEP
-         return (Seq.cycleTaking (fromInteger (natValue n)) xs)
+         return (Seq.cycleTaking (widthVal n) xs)
 
  go (GEP_field fi gep) =
       do xs <- go gep
@@ -705,7 +705,7 @@ bitCast srcT expr tgtT = mb =<< runMaybeT (
 castToInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   MemType -> LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
 castToInt (IntType w) (BaseExpr (LLVMPointerRepr wrepr) x)
-  | toInteger w == natValue wrepr
+  | w == natValue wrepr
   = lift (BaseExpr (BVRepr wrepr) <$> pointerAsBitvectorExpr wrepr x)
 castToInt (VecType n tp) (explodeVector n -> Just xs) =
   do xs' <- traverse (castToInt tp) (toList xs)
@@ -715,11 +715,12 @@ castToInt _ _ = mzero
 castFromInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   MemType -> Natural -> LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
 castFromInt (IntType w1) w2 (BaseExpr (BVRepr w) x)
-  | w1 == w2, toInteger w1 == natValue w
+  | w1 == w2, w1 == natValue w
   = return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w x))
 castFromInt (VecType n tp) w expr
-  | (w',0) <- w `divMod` n
-  , Just (Some wrepr') <- someNat (toInteger w')
+  | n > 0
+  , (w',0) <- w `divMod` n
+  , Some wrepr' <- mkNatRepr w'
   , Just LeqProof <- isPosNat wrepr'
   = do xs <- MaybeT (return (vecSplit wrepr' expr))
        VecExpr tp . Seq.fromList <$> traverse (castFromInt tp w') xs
@@ -818,7 +819,7 @@ raw_bitop op w a b =
       L.Xor -> return $ App (BVXor w a b)
 
       L.Shl nuw nsw -> do
-        let wlit = App (BVLit w (natValue w))
+        let wlit = App (BVLit w (intValue w))
         result <- AtomExpr <$> mkAtom (App (BVShl w a b))
         withSideConds result
           [ ( True
@@ -838,7 +839,7 @@ raw_bitop op w a b =
           ]
 
       L.Lshr exact -> do
-        let wlit = App (BVLit w (natValue w))
+        let wlit = App (BVLit w (intValue w))
         result <- AtomExpr <$> mkAtom (App (BVLshr w a b))
         withSideConds result
           [ ( True
@@ -854,7 +855,7 @@ raw_bitop op w a b =
 
       L.Ashr exact
         | Just LeqProof <- isPosNat w -> do
-            let wlit = App (BVLit w (natValue w))
+            let wlit = App (BVLit w (intValue w))
             result <- AtomExpr <$> mkAtom (App (BVAshr w a b))
             withSideConds result
               [ ( True

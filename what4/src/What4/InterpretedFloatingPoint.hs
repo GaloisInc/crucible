@@ -42,7 +42,7 @@ import           Data.Hashable
 import           Data.Kind
 import           Data.Parameterized.Classes
 import           Data.Parameterized.TH.GADT
-import           GHC.TypeLits
+import           GHC.TypeNats
 import           Text.PrettyPrint.ANSI.Leijen
 
 import           What4.BaseTypes
@@ -113,7 +113,7 @@ type family FloatPrecisionToInfo (fpp :: FloatPrecision) :: FloatInfo where
   FloatPrecisionToInfo Prec64  = DoubleFloat
   FloatPrecisionToInfo Prec128 = QuadFloat
 
-type family FloatInfoToBitWidth (fi :: FloatInfo) :: GHC.TypeLits.Nat where
+type family FloatInfoToBitWidth (fi :: FloatInfo) :: GHC.TypeNats.Nat where
   FloatInfoToBitWidth HalfFloat         = 16
   FloatInfoToBitWidth SingleFloat       = 32
   FloatInfoToBitWidth DoubleFloat       = 64

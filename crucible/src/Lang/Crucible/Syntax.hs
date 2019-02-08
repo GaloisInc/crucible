@@ -399,7 +399,7 @@ bigEndianStore
 bigEndianStore addrWidth cellWidth valWidth num basePtr v wordMap = go num
   where go 0 = wordMap
         go n
-          | Just (Some idx) <- someNat $ (toInteger (num-n)) * (toInteger (natValue cellWidth))
+          | Just (Some idx) <- someNat $ (fromIntegral (num-n)) * (intValue cellWidth)
           , Just LeqProof <- testLeq (addNat idx cellWidth) valWidth
             = app $ InsertWordMap addrWidth (BaseBVRepr cellWidth)
                   (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (toInteger (n-1))))
@@ -420,7 +420,7 @@ littleEndianStore
 littleEndianStore addrWidth cellWidth valWidth num basePtr v wordMap = go num
   where go 0 = wordMap
         go n
-          | Just (Some idx) <- someNat $ (toInteger (n-1)) * (toInteger (natValue cellWidth))
+          | Just (Some idx) <- someNat $ (fromIntegral (n-1)) * (intValue cellWidth)
           , Just LeqProof <- testLeq (addNat idx cellWidth) valWidth
             = app $ InsertWordMap addrWidth (BaseBVRepr cellWidth)
                   (app $ BVAdd addrWidth basePtr (app $ BVLit addrWidth (toInteger (n-1))))

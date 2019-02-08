@@ -583,7 +583,7 @@ evalIndexLit sc l =
     NatIndexLit n ->
       do SAWExpr <$> SC.scNat sc (fromInteger (toInteger n))
     BVIndexLit w n ->
-      do w' <- SC.scNat sc (fromInteger (natValue w))
+      do w' <- SC.scNat sc (natValue w)
          n' <- SC.scNat sc (fromInteger n)
          SAWExpr <$> SC.scBvNat sc w' n'
 
@@ -638,7 +638,7 @@ applyTable sym sc t0 maxidx vars ret fallback =
          ty' <- SC.scVecType sc len ty
          fb' <- SC.scGlobalApply sc (SC.mkIdent SC.preludeName "replicate") [len, ty, fb]
          vec <- go ty' imax xs fb'
-         x' <- SC.scBvToNat sc (fromInteger (natValue w)) x
+         x' <- SC.scBvToNat sc (natValue w) x
          SC.scGlobalApply sc (SC.mkIdent SC.preludeName "atWithDefault") [len, ty, fb, vec, x']
 
 applyExprSymFn ::
@@ -1007,19 +1007,19 @@ evaluateExpr sym sc cache = f
              SAWExpr <$> (SC.scIntEq sc z =<< SC.scIntegerConst sc 0)
 
         B.BVToNat x ->
-          let n = fromInteger (natValue (bvWidth x)) in
+          let n = natValue (bvWidth x) in
           SAWExpr <$> (SC.scBvToNat sc n =<< f x)
 
         B.IntegerToBV x w ->
-          do n <- SC.scNat sc (fromInteger (natValue w))
+          do n <- SC.scNat sc (natValue w)
              SAWExpr <$> (SC.scIntToBv sc n =<< f x)
 
         B.BVToInteger x ->
-          do n <- SC.scNat sc (fromInteger (natValue (bvWidth x)))
+          do n <- SC.scNat sc (natValue (bvWidth x))
              SAWExpr <$> (SC.scBvToInt sc n =<< f x)
 
         B.SBVToInteger x ->
-          do n <- SC.scNat sc (fromInteger (natValue (bvWidth x)))
+          do n <- SC.scNat sc (natValue (bvWidth x))
              SAWExpr <$> (SC.scSbvToInt sc n =<< f x)
 
         -- Proper support for real and complex numbers will require additional

@@ -48,6 +48,8 @@ instance OrdF GlobalVar where
 instance Show (GlobalVar tp) where
   show = Text.unpack . globalName
 
+instance ShowF GlobalVar
+
 instance Pretty (GlobalVar tp) where
   pretty  = text . show
 

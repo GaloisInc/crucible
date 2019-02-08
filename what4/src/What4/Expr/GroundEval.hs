@@ -211,8 +211,8 @@ evalGroundApp f0 a0 = do
       if xv then f y else f z
 
     RealIsInteger x -> (\xv -> denominator xv == 1) <$> f x
-    BVTestBit i x -> assert (i <= toInteger (maxBound :: Int)) $
-        (`testBit` (fromInteger i)) <$> f x
+    BVTestBit i x -> assert (i <= fromIntegral (maxBound :: Int)) $
+        (`testBit` (fromIntegral i)) <$> f x
     BVEq  x y -> (==) <$> f x <*> f y
     BVSlt x y -> (<) <$> (toSigned w <$> f x)
                      <*> (toSigned w <$> f y)
@@ -338,7 +338,7 @@ evalGroundApp f0 a0 = do
     BVZext _ x -> lift $ f0 x
     BVSext w x -> lift $ do
       case isPosNat w of
-        Just LeqProof -> (toUnsigned w . toSigned w) <$> f0 x
+        Just LeqProof -> (toUnsigned w . toSigned (bvWidth x)) <$> f0 x
         Nothing -> error "BVSext given bad width"
 
     BVPopcount _w x ->
