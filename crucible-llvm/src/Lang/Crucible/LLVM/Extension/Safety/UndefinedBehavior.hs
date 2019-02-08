@@ -52,13 +52,6 @@ module Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
   -- ** Pointers
   , PointerPair
   , pointerView
-
-  -- ** Config
-  , Config
-  , getConfig
-  , strictConfig
-  , laxConfig
-  , defaultStrict
   ) where
 
 import           Prelude
@@ -67,8 +60,7 @@ import           GHC.Generics (Generic)
 import           Data.Data (Data)
 import           Data.Kind (Type)
 import           Data.Text (Text, unpack)
-import           Data.Functor.Contravariant (Predicate(..))
-import           Data.Maybe (fromMaybe, isJust)
+import           Data.Maybe (isJust)
 import           Data.Typeable (Typeable)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -461,32 +453,6 @@ ppReg :: W4I.IsExpr (W4I.SymExpr sym)
       -> UndefinedBehavior (RegValue' sym)
       -> Doc
 ppReg proxySym = pp (detailsReg proxySym)
-
--- -----------------------------------------------------------------------
--- ** Config
-
--- | 'Config' has a monoid instance which takes the piecewise logical and of its
--- arguments
-type Config e = Predicate (UndefinedBehavior e)
-
--- | Apply a 'Config' as a predicate
-getConfig :: Config e -> UndefinedBehavior e -> Bool
-getConfig = getPredicate
-{-# INLINE getConfig #-}
-
--- | Disallow all undefined behavior.
-strictConfig :: Config e
-strictConfig = Predicate $ const True
-{-# INLINE strictConfig #-}
-
--- | Allow all undefined behavior.
-laxConfig :: Config e
-laxConfig = Predicate $ const False
-{-# INLINE laxConfig #-}
-
--- | For use in ViewPatterns.
-defaultStrict :: Maybe (Config e) -> Config e
-defaultStrict = fromMaybe strictConfig
 
 -- -----------------------------------------------------------------------
 -- ** Instances

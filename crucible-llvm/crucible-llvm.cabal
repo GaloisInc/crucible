@@ -17,7 +17,6 @@ library
     attoparsec,
     bytestring,
     containers >= 0.5.8.0,
-    contravariant >= 1,
     crucible >= 0.5,
     what4 >= 0.4.1,
     deepseq,
