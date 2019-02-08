@@ -226,7 +226,7 @@ explain =
     -- to how we treat this instruction in Crucible.
     GEPOutOfBounds _   -> cat $
       [ "Calling `getelementptr` resulted in an index that was out of bounds for"
-      , "the given allocation (likely due to arithmetic overflo(BVType w), but Crucible"
+      , "the given allocation (likely due to arithmetic overflow), but Crucible"
       , "currently treats all GEP instructions as if they had the `inbounds`"
       , "flag set."
       ]
