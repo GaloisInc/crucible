@@ -92,7 +92,7 @@ import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
-import           Lang.Crucible.LLVM.MemModel.Partial
+import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import           Lang.Crucible.LLVM.Extension.Safety (LLVMSafetyAssertion)
 import qualified Lang.Crucible.LLVM.Extension.Safety as Safety
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
@@ -253,28 +253,28 @@ genValueCtor sym end v =
       do vl <- genValueCtor sym end vcl
          vh <- genValueCtor sym end vch
          case end of
-           BigEndian    -> bvConcatPartLLVMVal sym vh vl
-           LittleEndian -> bvConcatPartLLVMVal sym vl vh
+           BigEndian    -> Partial.bvConcat sym vh vl
+           LittleEndian -> Partial.bvConcat sym vl vh
     ConsArray vc1 vc2 ->
       do lv1 <- genValueCtor sym end vc1
          lv2 <- genValueCtor sym end vc2
-         pure $ consArrayPartLLVMVal lv1 lv2
+         pure $ Partial.consArray lv1 lv2
     AppendArray vc1 vc2 ->
       do lv1 <- genValueCtor sym end vc1
          lv2 <- genValueCtor sym end vc2
-         pure $ appendArrayPartLLVMVal lv1 lv2
+         pure $ Partial.appendArray lv1 lv2
     MkArray tp vv ->
-      mkArrayPartLLVMVal sym tp <$>
+      Partial.mkArray sym tp <$>
         traverse (genValueCtor sym end) vv
     MkStruct vv ->
-      mkStructPartLLVMVal sym <$>
+      Partial.mkStruct sym <$>
         traverse (traverse (genValueCtor sym end)) vv
     BVToFloat x ->
-      bvToFloatPartLLVMVal sym =<< genValueCtor sym end x
+      Partial.bvToFloat sym =<< genValueCtor sym end x
     BVToDouble x ->
-      bvToDoublePartLLVMVal sym =<< genValueCtor sym end x
+      Partial.bvToDouble sym =<< genValueCtor sym end x
     BVToX86_FP80 x ->
-      bvToX86_FP80PartLLVMVal sym =<< genValueCtor sym end x
+      Partial.bvToX86_FP80 sym =<< genValueCtor sym end x
 
 -- | Compute the actual value of a value deconstructor expression.
 applyView ::
@@ -290,13 +290,13 @@ applyView sym end t val =
     SelectPrefixBV i j v ->
       do t' <- applyView sym end t v
          case end of
-           BigEndian -> selectHighBvPartLLVMVal sym j i t'
-           LittleEndian -> selectLowBvPartLLVMVal sym i j t'
+           BigEndian -> Partial.selectHighBv sym j i t'
+           LittleEndian -> Partial.selectLowBv sym i j t'
     SelectSuffixBV i j v ->
       do t' <- applyView sym end t v
          case end of
-           BigEndian -> selectLowBvPartLLVMVal sym j i t'
-           LittleEndian -> selectHighBvPartLLVMVal sym i j t'
+           BigEndian -> Partial.selectLowBv sym j i t'
+           LittleEndian -> Partial.selectHighBv sym i j t'
     FloatToBV _ ->
       return W4P.Unassigned
       --fail "applyView: Floating point values not supported"
@@ -306,9 +306,9 @@ applyView sym end t val =
     X86_FP80ToBV _ ->
       return W4P.Unassigned
     ArrayElt sz tp idx v ->
-      arrayEltPartLLVMVal sz tp idx =<< applyView sym end t v
+      Partial.arrayElt sz tp idx =<< applyView sym end t v
     FieldVal flds idx v ->
-      fieldValPartLLVMVal flds idx =<< applyView sym end t v
+      Partial.fieldVal flds idx =<< applyView sym end t v
 
 evalMuxValueCtor ::
   forall u arch sym w .
