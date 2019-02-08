@@ -753,7 +753,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   -- | Returns true if the corresponding bit in the bitvector is set.
   testBitBV :: (1 <= w)
             => sym
-            -> Integer -- ^ Index of bit (0 is the least significant bit)
+            -> Natural -- ^ Index of bit (0 is the least significant bit)
             -> SymBV sym w
             -> IO (Pred sym)
 
@@ -895,10 +895,10 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
          . (1 <= w)
         => sym         -- ^ Symbolic interface
         -> SymBV sym w -- ^ Bitvector to updaate
-        -> Integer     -- ^ 0-based index to set
+        -> Natural     -- ^ 0-based index to set
         -> Pred sym    -- ^ Predicate to set.
         -> IO (SymBV sym w)
-  bvSet sym v i p = assert (0 <= i && i < natValue (bvWidth v)) $ do
+  bvSet sym v i p = assert (i < natValue (bvWidth v)) $ do
     let setCase :: IO (SymBV sym w)
         setCase = do
           bvOrBits sym v =<< bvLit sym (bvWidth v) (2^i)
@@ -1038,7 +1038,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
        xs <- sequence [ do p <- testBitBV sym i y
                            iteM bvIte sym
                              p
-                             (bvShl sym x' =<< bvLit sym w2 i)
+                             (bvShl sym x' =<< bvLit sym w2 (toInteger i))
                              (return z)
                       | i <- [ 0 .. natValue w - 1 ]
                       ]
@@ -1065,7 +1065,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
        y'  <- bvZext sym dbl_w y
        s   <- bvMul sym x' y'
        lo  <- bvTrunc sym w s
-       n   <- bvLit sym dbl_w (natValue w)
+       n   <- bvLit sym dbl_w (intValue w)
        hi  <- bvTrunc sym w =<< bvLshr sym s n
        return (hi, lo)
 

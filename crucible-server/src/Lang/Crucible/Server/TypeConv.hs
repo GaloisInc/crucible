@@ -104,7 +104,7 @@ varTypeFromProto tp =
       let wv = tp^.P.varType_width
       when (wv == 0) $ do
         fail $ "Bitvector variables must have a positive width."
-      case someNat (toInteger wv) of
+      case someNat wv of
         Just (Some w) | Just LeqProof <- isPosNat w -> do
           return $ Some (BaseBVRepr w)
         _ -> error "Illegal type width"
@@ -159,7 +159,7 @@ fromProtoType tp = do
     P.ComplexType -> do
       return $ Some ComplexRealRepr
     P.BitvectorType -> do
-      case someNat (toInteger (tp^.P.crucibleType_width)) of
+      case someNat (tp^.P.crucibleType_width) of
         Just (Some w) | Just LeqProof <- isPosNat w -> return $ Some $ BVRepr w
         _ -> error "Could not parse bitwidth."
 
@@ -205,7 +205,7 @@ fromProtoType tp = do
       Some etp <- fromProtoType (params `Seq.index` 0)
       case asBaseType etp of
         AsBaseType bt ->
-          case someNat (toInteger (tp^.P.crucibleType_width)) of
+          case someNat (tp^.P.crucibleType_width) of
             Just (Some w) | Just LeqProof <- isPosNat w ->
                 return $ Some $ WordMapRepr w bt
             _ -> error $ unwords ["Invalid word map type: ", show etp]

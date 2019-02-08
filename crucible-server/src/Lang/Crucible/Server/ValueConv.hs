@@ -153,9 +153,9 @@ toProtoValue sim e@(RegEntry tp v) =
                       & P.value_data .~ toByteString (encodeRational r)
     BVRepr w | Just r <- asSignedBV v
              , wv <- natValue w
-             , wv <= toInteger (maxBound :: Word64) -> do
+             , wv <= fromIntegral (maxBound :: Word64) -> do
       return $ mempty & P.value_code  .~ P.BitvectorValue
-                      & P.value_width .~ fromInteger wv
+                      & P.value_width .~ fromIntegral wv
                       & P.value_data  .~ toByteString (encodeSigned r)
     StringRepr
       | Just txt <- asString v -> do

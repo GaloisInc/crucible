@@ -73,8 +73,8 @@ import qualified Data.Map.Strict as Map
 import           Data.Parameterized.NatRepr
 import           Data.Set (Set)
 import qualified Data.Set as Set
-
-import           GHC.TypeLits
+import           Numeric.Natural
+import           GHC.TypeNats
 
 import           Prelude hiding (any, concat, negate, and, or)
 
@@ -111,8 +111,8 @@ modRange w lbound ubound
         ExclusiveRange low_ubound low_lbound
       -- Otherwise return all elements.
     | otherwise = AnyRange
-  where high_lbound = lbound `shiftR` fromInteger (natValue w)
-        high_ubound = ubound `shiftR` fromInteger (natValue w)
+  where high_lbound = lbound `shiftR` widthVal w
+        high_ubound = ubound `shiftR` widthVal w
         low_lbound  = maxUnsigned w .&. lbound
         low_ubound  = maxUnsigned w .&. ubound
 
@@ -304,13 +304,13 @@ ult _ _ _ = Nothing
 -- | Return true if bits in domain are set.
 testBit :: NatRepr w
         -> BVDomain w
-        -> Integer -- ^ Index of bit (least-significant bit has index 0)
+        -> Natural -- ^ Index of bit (least-significant bit has index 0)
         -> Maybe Bool
 testBit w d i = assert (i < natValue w) $
     case uncurry testRange <$> toList d of
       (mb@Just{}:r) | all (== mb) r -> mb
       _ -> Nothing
-  where j = fromInteger i
+  where j = fromIntegral i
         testRange :: Integer -> Integer -> Maybe Bool
         testRange l h | (l `shiftR` j) == (h `shiftR` j) =
                         Just (l `Bits.testBit` j)
@@ -542,7 +542,7 @@ modList :: forall u
           -> BVDomain u
 modList nm params w rgs
     -- If the width exceeds maxInt, then just return anything (otherwise we can't even shift.
-  | natValue w > toInteger (maxBound :: Int) = any w
+  | natValue w > fromIntegral (maxBound :: Int) = any w
   | otherwise =
     -- This entries over each range, and returns either @Nothing@ if
     -- the range contains all elements or the range.
