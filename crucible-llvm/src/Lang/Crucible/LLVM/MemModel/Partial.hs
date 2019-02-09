@@ -436,7 +436,7 @@ mkArray sym tp vec =
   in
     case sequence vec' of
       Left err -> Err err
-      Right vec'' -> 
+      Right vec'' ->
         case nonEmpty ps of
           Nothing  -> totalLLVMVal sym (LLVMValArray tp vec'')
           Just ps' -> PartLLVMVal (And ps') $ LLVMValArray tp vec''
@@ -464,7 +464,7 @@ mkStruct sym vec =
   in
     case sequence vec' of
       Left err -> Err err
-      Right vec'' -> 
+      Right vec'' ->
         case nonEmpty ps of
           Just ps' -> PartLLVMVal (And ps') $ LLVMValStruct vec''
           Nothing  -> totalLLVMVal sym (LLVMValStruct vec'')
@@ -600,6 +600,16 @@ merge :: forall arch sym m. (IsExprBuilder sym, MonadIO m) =>
   PartLLVMVal arch sym {- ^ 'then' value -}  ->
   PartLLVMVal arch sym {- ^ 'else' value -} ->
   m (PartLLVMVal arch sym)
+merge _ _ _ (Err e1) (Err e2) =
+  let msg = "When muxing partial LLVM values"
+  in pure $ Err $ PreviousErrors msg [e1, e2]
+merge _ _ cond (PartLLVMVal p v) (Err _) = pure $
+  let ub = UB.Other "muxing of partial values (then)" -- TODO: better message
+  in PartLLVMVal (W4AT.addCondition p (undefinedBehavior ub (RV cond))) v
+merge sym _ cond (Err _) (PartLLVMVal p v) = do
+  let ub = UB.Other "muxing of parial values (else)" -- TODO: better message
+  cond' <- liftIO $ W4I.notPred sym cond
+  pure $ PartLLVMVal (W4AT.addCondition p (undefinedBehavior ub (RV cond'))) v
 merge _ f cond (PartLLVMVal px x) (PartLLVMVal py y) = do
   v <- f cond x y
   case v of
