@@ -29,6 +29,9 @@
 
 module Lang.Crucible.LLVM.MemModel.Partial
   ( PartLLVMVal
+  , pattern PartLLVMVal
+  , assertSafe
+  , MemoryLoadError(..)
   , totalLLVMVal
   , bvConcat
   , consArray
@@ -51,12 +54,13 @@ import           GHC.Generics (Generic)
 import           Control.Lens ((^.), view)
 import           Control.Monad.IO.Class (liftIO, MonadIO)
 import           Control.Monad.State.Strict (State, get, put, runState)
+import           Data.Proxy (Proxy(..))
 import           Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
 import           Data.Vector (Vector)
-import           Data.Text (Text)
+import           Data.Text (Text, unpack)
 import           Data.Word (Word64)
-import           Data.Proxy (Proxy(Proxy))
 import qualified Data.Vector as V
+import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(..))
@@ -64,10 +68,12 @@ import           Data.Parameterized.Some (Some(..))
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.CFG.Extension.Safety hiding (assertSafe)
+import qualified Lang.Crucible.CFG.Extension.Safety as Safety
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
 import           Lang.Crucible.LLVM.Extension (LLVM)
 import qualified Lang.Crucible.LLVM.Bytes as Bytes
+import           Lang.Crucible.LLVM.MemModel.Common (ValueView)
 import           Lang.Crucible.LLVM.MemModel.Type (StorageType(..), StorageTypeF(..), Field(..))
 import qualified Lang.Crucible.LLVM.MemModel.Type as Type
 import           Lang.Crucible.LLVM.MemModel.Value (LLVMVal(..))
@@ -81,24 +87,54 @@ import qualified What4.Interface as W4I
 import qualified What4.InterpretedFloatingPoint as W4IFP
 import           What4.Partial
 import           What4.Partial.AssertionTree (AssertionTree(..))
-import           What4.Partial.AssertionTree as W4P
+import           What4.Partial.AssertionTree as W4AT
 
 ------------------------------------------------------------------------
--- ** PartLLVMVal
+-- ** MemoryLoadError
 
 -- | The kinds of type errors that arise while reading memory/constructing LLVM
 -- values
-data TypeError sym =
+data MemoryLoadError sym =
     TypeMismatch StorageType StorageType
   | UnexpectedArgumentType Text [LLVMVal sym]
-  | PreviousErrors Text [TypeError sym]
+  | PreviousErrors Text [MemoryLoadError sym]
+  | ApplyViewFail ValueView
+  | Invalid StorageType
+  | Other -- TODO: eliminate this constructor, replace with more specific messages
   deriving (Generic)
+
+ppMemoryLoadError :: IsSymInterface sym => sym -> MemoryLoadError sym -> Doc
+ppMemoryLoadError sym =
+  \case
+    TypeMismatch ty1 ty2 ->
+      "Type mismatch: "
+      <$$> indent 2 (vcat [ text (show ty1)
+                          , text (show ty2)
+                          ])
+    UnexpectedArgumentType txt vals ->
+      vcat [ "Unexpected argument type:"
+           , text (unpack txt)
+           ]
+      <$$> indent 2 (vcat (map (text . show) vals))
+    PreviousErrors txt errs ->
+      vcat [ "Operation failed due to previous errors: "
+           , text (unpack txt)
+           ]
+      <$$> indent 2 (vcat (map (ppMemoryLoadError sym) errs))
+    ApplyViewFail vw ->
+      "Failure when applying value view" <+> text (show vw)
+    Invalid ty ->
+      "Load from invalid memory at type " <+> text (show ty)
+    Other -> "Generic memory load error"
+
+------------------------------------------------------------------------
+-- ** PartLLVMVal
 
 -- | Either an 'LLVMValue' paired with a tree of predicates explaining
 -- just when it is actually valid, or a type mismatch.
 type PartLLVMVal arch sym =
   PartialWithErr
-    (TypeError sym)
+    (MemoryLoadError sym)
     (LLVMAssertionTree arch (RegValue' sym))
     (LLVMVal sym)
 
@@ -107,14 +143,12 @@ pattern PartLLVMVal :: LLVMAssertionTree arch (RegValue' sym)
                     -> PartLLVMVal arch sym
 pattern PartLLVMVal p v = NoErr (Partial p v)
 
+{-# COMPLETE PartLLVMVal, Err #-}
+
 typeOfBitvector :: W4I.IsExpr (W4I.SymExpr sym)
                 => proxy sym -> W4I.SymBV sym w -> StorageType
 typeOfBitvector _ =
   Type.bitvectorType . Bytes.toBytes . natValue . W4I.bvWidth
-
--- | Make an assertion that isn't about undefined behavior
--- llvmAssert :: Text -> Pred sym -> LLVMValAssertion sym
--- llvmAssert = flip LLVMValAssertion Nothing
 
 -- | An 'LLVMVal' which is always valid.
 totalLLVMVal :: (IsExprBuilder sym)
@@ -130,7 +164,7 @@ addUndefinedBehaviorCondition_ :: proxy sym -- ^ Unused, pins down ambiguous typ
                                -> LLVMAssertionTree arch (RegValue' sym)
                                -> LLVMAssertionTree arch (RegValue' sym)
 addUndefinedBehaviorCondition_ _proxySym ub pred tree =
-  W4P.addCondition tree (undefinedBehavior ub (RV pred))
+  W4AT.addCondition tree (undefinedBehavior ub (RV pred))
 
 addUndefinedBehaviorCondition :: sym -- ^ Unused, pins down ambiguous type
                               -> UB.UndefinedBehavior (RegValue' sym)
@@ -140,16 +174,16 @@ addUndefinedBehaviorCondition :: sym -- ^ Unused, pins down ambiguous type
 addUndefinedBehaviorCondition sym = addUndefinedBehaviorCondition_ (Just sym)
 
 -- | Take a partial value and assert its safety
--- assertSafe :: (IsSymInterface sym)
---            => sym
---            -> PartLLVMVal arch sym
---            -> IO (LLVMVal sym)
--- assertSafe sym (Partial tree a) = do
---   let proxy = Proxy :: Proxy (LLVM arch)
---   pred <- treeToPredicate proxy sym tree
---   liftIO $ assert sym pred $ AssertFailureSimError $
---     show $ explainTree proxy (Just sym) tree
---   pure a
+assertSafe :: (IsSymInterface sym)
+           => sym
+           -> PartLLVMVal arch sym
+           -> IO (LLVMVal sym)
+assertSafe sym (NoErr v) = Safety.assertSafe (Proxy :: Proxy (LLVM arch)) sym v
+assertSafe sym (Err e)   = do
+  let msg = unlines [ "Error during memory load: "
+                    , show (ppMemoryLoadError sym e)
+                    ]
+  addFailedAssertion sym $ AssertFailureSimError msg
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal interface
@@ -197,6 +231,14 @@ bvToDouble sym (PartLLVMVal p (LLVMValInt blk off))
         LLVMValFloat Value.DoubleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr off
 
+bvToDouble _ (PartLLVMVal _ v) =
+  let msg = "While converting from a bitvector to a double"
+  in return $ Err $ UnexpectedArgumentType msg [v]
+
+bvToDouble _ (Err e) =
+  let msg = "While converting from a bitvector to a double"
+  in return $ Err $ PreviousErrors msg [e]
+
 
 -- | Convert a bitvector to an FP80 float, asserting that it is not a pointer
 bvToX86_FP80 ::
@@ -216,6 +258,14 @@ bvToX86_FP80 sym (PartLLVMVal p (LLVMValInt blk off))
       PartLLVMVal (addUndefinedBehaviorCondition sym ub pz p) .
         LLVMValFloat Value.X86_FP80Size <$>
         W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
+
+bvToX86_FP80 _ (PartLLVMVal _ v) =
+  let msg = "While converting from a bitvector to a X86_FP80"
+  in return $ Err $ UnexpectedArgumentType msg [v]
+
+bvToX86_FP80 _ (Err e) =
+  let msg = "While converting from a bitvector to a X86_FP80"
+  in return $ Err $ PreviousErrors msg [e]
 
 -- | Concatenate partial LLVM bitvector values. The least-significant
 -- (low) bytes are given first. The allocation block number of each
@@ -265,7 +315,7 @@ bvConcat sym (PartLLVMVal p1 v1) (PartLLVMVal p2 v2) =
            let ub1 = UB.PointerCast (RV blk_low, RV low)   (Bitvector 0)
                ub2 = UB.PointerCast (RV blk_high, RV high) (Bitvector 0)
            in
-             W4P.And (Leaf (undefinedBehavior ub1 (RV predLow)) :|
+             W4AT.And (Leaf (undefinedBehavior ub1 (RV predLow)) :|
                         [ Leaf (undefinedBehavior ub2 (RV predHigh))
                         , p1
                         , p2
@@ -276,6 +326,18 @@ bvConcat sym (PartLLVMVal p1 v1) (PartLLVMVal p2 v2) =
     where low_w' = W4I.bvWidth low
           high_w' = W4I.bvWidth high
 
+bvConcat _ _ (PartLLVMVal _ v) =
+  let msg = "While concatenating bitvectors"
+  in return $ Err $ UnexpectedArgumentType msg [v]
+
+bvConcat _ (Err e1) (Err e2) =
+  let msg = "While concatenating bitvectors"
+  in return $ Err $ PreviousErrors msg [e1, e2]
+
+bvConcat _ _ (Err e) =
+  let msg = "While concatenating bitvectors"
+  in return $ Err $ PreviousErrors msg [e]
+
 -- | Cons an element onto a partial LLVM array value.
 consArray ::
   IsSymInterface sym =>
@@ -284,21 +346,24 @@ consArray ::
   PartLLVMVal arch sym
 consArray (PartLLVMVal p1 (LLVMValZero tp)) (PartLLVMVal p2 (LLVMValZero (StorageType (Array m tp') _)))
   | tp == tp' =
-      PartLLVMVal (W4P.binaryAnd p1 p2) $ LLVMValZero (Type.arrayType (m+1) tp')
+      PartLLVMVal (W4AT.binaryAnd p1 p2) $ LLVMValZero (Type.arrayType (m+1) tp')
 
 consArray (PartLLVMVal p1 hd) (PartLLVMVal p2 (LLVMValZero (StorageType (Array m tp) _)))
   | Value.llvmValStorableType hd == tp =
-      PartLLVMVal (W4P.binaryAnd p1 p2) $ LLVMValArray tp (V.cons hd (V.replicate (fromIntegral m) (LLVMValZero tp)))
+      PartLLVMVal (W4AT.binaryAnd p1 p2) $ LLVMValArray tp (V.cons hd (V.replicate (fromIntegral m) (LLVMValZero tp)))
 
 consArray (PartLLVMVal p1 hd) (PartLLVMVal p2 (LLVMValArray tp vec))
   | Value.llvmValStorableType hd == tp =
-      PartLLVMVal (W4P.binaryAnd p1 p2) $ LLVMValArray tp (V.cons hd vec)
+      PartLLVMVal (W4AT.binaryAnd p1 p2) $ LLVMValArray tp (V.cons hd vec)
 
 consArray _ (PartLLVMVal _ v) =
   Err $ UnexpectedArgumentType "Non-array value" [v]
 
 consArray (Err e1) (Err e2) =
   Err $ PreviousErrors "While consing onto an array" [e1, e2]
+
+consArray _ (Err e) =
+  Err $ PreviousErrors "While consing onto an array" [e]
 
 -- | Append two partial LLVM array values.
 appendArray ::
@@ -309,7 +374,7 @@ appendArray ::
 appendArray
   (PartLLVMVal p1 (LLVMValZero (StorageType (Array n1 tp1) _)))
   (PartLLVMVal p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
-  | tp1 == tp2 = PartLLVMVal (W4P.binaryAnd p1 p2) $
+  | tp1 == tp2 = PartLLVMVal (W4AT.binaryAnd p1 p2) $
                    LLVMValZero (Type.arrayType (n1+n2) tp1)
 
 appendArray
@@ -317,7 +382,7 @@ appendArray
   (PartLLVMVal p2 (LLVMValArray tp2 v2))
   | tp1 == tp2 =
       let v1 = V.replicate (fromIntegral n1) (LLVMValZero tp1)
-      in PartLLVMVal (W4P.binaryAnd p1 p2) $
+      in PartLLVMVal (W4AT.binaryAnd p1 p2) $
            LLVMValArray tp1 (v1 V.++ v2)
 
 appendArray
@@ -325,14 +390,14 @@ appendArray
   (PartLLVMVal p2 (LLVMValZero (StorageType (Array n2 tp2) _)))
   | tp1 == tp2 =
       let v2 = V.replicate (fromIntegral n2) (LLVMValZero tp1)
-      in PartLLVMVal (W4P.binaryAnd p1 p2) $
+      in PartLLVMVal (W4AT.binaryAnd p1 p2) $
            LLVMValArray tp1 (v1 V.++ v2)
 
 appendArray
   (PartLLVMVal p1 (LLVMValArray tp1 v1))
   (PartLLVMVal p2 (LLVMValArray tp2 v2))
   | tp1 == tp2 =
-      PartLLVMVal (W4P.binaryAnd p1 p2) $
+      PartLLVMVal (W4AT.binaryAnd p1 p2) $
         LLVMValArray tp1 (v1 V.++ v2)
 
 appendArray (PartLLVMVal _ v1) (PartLLVMVal _ v2) =
@@ -361,16 +426,20 @@ mkArray :: forall arch sym. (IsExprBuilder sym, IsSymInterface sym) =>
 mkArray sym tp vec =
   let f :: PartLLVMVal arch sym
         -> State [AssertionClassifierTree (LLVM arch) (RegValue' sym)]
-                 (LLVMVal sym)
+                 (Either (MemoryLoadError sym) (LLVMVal sym))
+      f (Err e)           = pure (Left e)
       f (PartLLVMVal p x) = do
         ps_ <- get     -- Current predicates
         put (p:ps_)    -- Append this one
-        pure x
+        pure $ Right x
       (vec', ps) = flip runState [] $ (traverse f vec)
   in
-    case nonEmpty ps of
-      Just ps' -> PartLLVMVal (And ps') $ LLVMValArray tp vec'
-      Nothing  -> totalLLVMVal sym (LLVMValArray tp vec')
+    case sequence vec' of
+      Left err -> Err err
+      Right vec'' -> 
+        case nonEmpty ps of
+          Nothing  -> totalLLVMVal sym (LLVMValArray tp vec'')
+          Just ps' -> PartLLVMVal (And ps') $ LLVMValArray tp vec''
 
 
 -- | Make a partial LLVM struct value.
@@ -385,16 +454,20 @@ mkStruct :: forall arch sym. IsExprBuilder sym =>
 mkStruct sym vec =
   let f :: (Field StorageType, PartLLVMVal arch sym)
         -> State [AssertionClassifierTree (LLVM arch) (RegValue' sym)]
-                 (Field StorageType, LLVMVal sym)
+                 (Either (MemoryLoadError sym) (Field StorageType, LLVMVal sym))
+      f (_, Err e)             = pure (Left e)
       f (fld, PartLLVMVal p x) = do
         ps_ <- get
         put (p:ps_)
-        pure (fld, x)
+        pure $ Right (fld, x)
       (vec', ps) = flip runState [] $ (traverse f vec)
   in
-    case nonEmpty ps of
-      Just ps' -> PartLLVMVal (And ps') $ LLVMValStruct vec'
-      Nothing  -> totalLLVMVal sym (LLVMValStruct vec')
+    case sequence vec' of
+      Left err -> Err err
+      Right vec'' -> 
+        case nonEmpty ps of
+          Just ps' -> PartLLVMVal (And ps') $ LLVMValStruct vec''
+          Nothing  -> totalLLVMVal sym (LLVMValStruct vec'')
 
 
 -- | Select some of the least significant bytes of a partial LLVM
@@ -528,8 +601,11 @@ merge :: forall arch sym m. (IsExprBuilder sym, MonadIO m) =>
   PartLLVMVal arch sym {- ^ 'else' value -} ->
   m (PartLLVMVal arch sym)
 merge _ f cond (PartLLVMVal px x) (PartLLVMVal py y) = do
-  PartLLVMVal pz z <- f cond x y
-  pure $ PartLLVMVal (W4P.binaryAnd (Ite (RV cond) px py) pz) z
+  v <- f cond x y
+  case v of
+    err@(Err _)      -> pure err
+    PartLLVMVal pz z ->
+      pure $ PartLLVMVal (W4AT.binaryAnd (Ite (RV cond) px py) pz) z
 
 -- | Mux partial LLVM values.
 muxLLVMVal :: forall arch sym

@@ -65,7 +65,6 @@ import Data.Parameterized.TraversableF
 import Data.Parameterized.TraversableFC
 
 import Lang.Crucible.Backend (assert, IsSymInterface)
-import Lang.Crucible.Panic (panic)
 import Lang.Crucible.Simulator.SimError (SimErrorReason(..))
 import Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import Lang.Crucible.Types
@@ -98,6 +97,8 @@ newtype PartialExpr (ext :: Type)
 -- underlying 'Partial'.
 pattern PartialExp :: AssertionClassifierTree ext e -> e bt -> PartialExpr ext e bt
 pattern PartialExp p v = PartialExpr (Partial p v)
+
+{-# COMPLETE PartialExp #-}
 
 deriving instance ( Data (e bt)
                   , Data (e BoolType)
@@ -157,7 +158,6 @@ instance ( TestEqualityC (AssertionClassifier ext)
     let justSubterms x y = isJust (subterms x y)
     in subterms val1 val2 <*
          guard (liftEq2 justSubterms (testEqualityC subterms) class1 class2)
-  testEqualityFC _ _ _ = panic "Safety.testEqualityFC" []
 
 instance ( OrdC (AssertionClassifier ext)
          , TestEqualityC (AssertionClassifier ext)
@@ -175,7 +175,6 @@ instance ( OrdC (AssertionClassifier ext)
             LT -> LTF
             GT -> GTF
             EQ -> EQF
-  compareFC _ _ _ = panic "Safety.compareFC" []
 
 instance ( FunctorF (AssertionClassifier ext)
          )
@@ -202,7 +201,6 @@ instance ( TraversableF (AssertionClassifier ext)
     PartialExp
     <$> bitraverse traverseSubterm (traverseF traverseSubterm) cls
     <*> traverseSubterm val
-  traverseFC _ _ = panic "Safety.traverseFC" []
 
 -- -----------------------------------------------------------------------
 -- ** HasStructuredAssertions

@@ -190,10 +190,10 @@ import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.MemModel.Type
+import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Value
-import           Lang.Crucible.LLVM.MemModel.Partial (assertSafe)
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
@@ -480,8 +480,9 @@ doLoad ::
   Alignment        {- ^ assumed pointer alignment -} ->
   IO (RegValue sym tp)
 doLoad sym mem ptr valType tpr alignment = do
-  --putStrLn "MEM LOAD"
-  unpackMemValue sym tpr =<< loadRaw sym mem ptr valType alignment
+  unpackMemValue sym tpr =<<
+    Partial.assertSafe sym =<<
+      loadRaw sym mem ptr valType alignment
 
 -- | Store a 'RegValue' in memory. Both the 'StorageType' and 'TypeRepr'
 -- arguments should be computed from a single 'MemType' using
@@ -917,38 +918,9 @@ loadRaw :: (IsSymInterface sym, HasPtrWidth wptr)
         -> LLVMPtr sym wptr
         -> StorageType
         -> Alignment
-        -> IO (LLVMVal sym)
+        -> IO (Partial.PartLLVMVal arch sym)
 loadRaw sym mem ptr valType alignment = do
-  partVal  <- G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
-  maybeVal <- assertSafe sym partVal
-  case maybeVal of
-    Nothing ->
-      addFailedAssertion sym (AssertFailureSimError "Invalid memory load")
-    Just val -> pure val
-
--- | Load an LLVM value from memory. This version of 'loadRaw'
--- returns the side-conditions explicitly so that they can
--- be conditionally asserted.
---
--- The side conditions assert that:
--- 1. The region of memory is allocated
--- 2. The region of memory has the proper alignment
--- 3. A /lot/ of other things, see the source of "MemModel.Generic"
--- loadRawWithCondition ::
---   (IsSymInterface sym, HasPtrWidth wptr) =>
---   sym                  ->
---   MemImpl sym          {- ^ LLVM heap       -} ->
---   LLVMPtr sym wptr     {- ^ pointer         -} ->
---   StorageType          {- ^ pointed-to type -} ->
---   Alignment            {- ^ alignment of this load -} ->
---   IO (Either String (LLVMVal sym, Pred sym, Pred sym, Pred sym))
--- loadRawWithCondition sym mem ptr valType alignment =
---   do partVal <-
---        G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
---      let errMsg = ptrMessage "Invalid memory load." ptr valType
---      case v of
---        Unassigned -> return (Left errMsg)
---        PE p' v' -> return (Right (v', isAllocated, isAligned, p'))
+  G.readMem sym PtrWidth ptr valType alignment (memImplHeap mem)
 
 -- | Store an LLVM value in memory. Asserts that the pointer is valid and points
 -- to a mutable memory region.

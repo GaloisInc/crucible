@@ -138,6 +138,9 @@ pattern Unassigned = Err ()
 pattern PE :: p -> v -> PartExpr p v
 pattern PE p v = NoErr (Partial p v)
 
+-- Claim that the above two patterns are exhaustive for @PartExpr p v@
+{-# COMPLETE Unassigned, PE #-}
+
 mkPE :: IsExpr p => p BaseBoolType -> a -> PartExpr (p BaseBoolType) a
 mkPE p v =
   case asConstantPred p of
@@ -194,9 +197,6 @@ mergePartial sym f c (PE px x) (PE py y) =
     do p <- liftIO (itePred sym c px py)
        runPartialT sym p (f c x y)
 
--- GHC doesn't think the above patterns are exhaustive, but they are.
-mergePartial _ _ _ _ _ = error "mergePartial: Impossible"
-
 -- | Merge a collection of partial values in an if-then-else tree.
 --   For example, if we merge a list like @[(xp,x),(yp,y),(zp,z)]@,
 --   we get a value that is morally equivalent to:
@@ -235,8 +235,6 @@ instance Functor m => Functor (PartialT sym m) where
   fmap f mx = PartialT $ \sym p -> fmap resolve (unPartial mx sym p)
     where resolve Unassigned = Unassigned
           resolve (PE q x) = PE q (f x)
-          -- GHC doesn't think the above patterns are exhaustive, but they are.
-          resolve _ = error "resolve: Impossible"
 
 -- We depend on the monad transformer as partialT explicitly orders
 -- the calls to the functions in (<*>).  This ordering allows us to
@@ -253,8 +251,6 @@ instance (IsExpr (SymExpr sym), Monad m) => Monad (PartialT sym m) where
       case pr of
         Unassigned -> pure Unassigned
         PE q r -> unPartial (h r) sym q
-          -- GHC doesn't think the above patterns are exhaustive, but they are.
-        _ -> error "resolve: Impossible"
   fail msg = PartialT $ \_ _ -> fail msg
 
 instance MonadTrans (PartialT sym) where
@@ -281,8 +277,6 @@ returnPartial :: (IsExprBuilder sym, MonadIO m)
               -> PartialT sym m a
 returnPartial Unassigned = returnUnassigned
 returnPartial (PE q a) = PartialT $ \sym p -> liftIO (mkPE <$> andPred sym p q <*> pure a)
--- GHC doesn't think the above patterns are exhaustive, but they are.
-returnPartial _ = error "resolve: Impossible"
 
 -- | Add an extra condition to the current partial computation.
 addCondition :: (IsExprBuilder sym, MonadIO m)

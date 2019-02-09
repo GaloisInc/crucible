@@ -11,11 +11,13 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -23,7 +25,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE KindSignatures #-}
 
 module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
@@ -81,8 +82,8 @@ import           Data.Parameterized.Ctx (SingleCtx)
 import           Data.Parameterized.Some
 
 import           What4.Interface
-import qualified What4.Partial.PartExpr as W4P
-import qualified What4.Partial.AssertionTree as W4P
+import qualified What4.Partial as W4P
+import qualified What4.Partial.AssertionTree as W4AT
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
@@ -92,6 +93,7 @@ import           Lang.Crucible.LLVM.MemModel.Common
 import           Lang.Crucible.LLVM.MemModel.Pointer
 import           Lang.Crucible.LLVM.MemModel.Type
 import           Lang.Crucible.LLVM.MemModel.Value
+import           Lang.Crucible.LLVM.MemModel.Partial (PartLLVMVal, pattern PartLLVMVal)
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import           Lang.Crucible.LLVM.Extension.Safety (LLVMSafetyAssertion)
 import qualified Lang.Crucible.LLVM.Extension.Safety as Safety
@@ -297,14 +299,9 @@ applyView sym end t val =
          case end of
            BigEndian -> Partial.selectLowBv sym j i t'
            LittleEndian -> Partial.selectHighBv sym i j t'
-    FloatToBV _ ->
-      return W4P.Unassigned
-      --fail "applyView: Floating point values not supported"
-    DoubleToBV _ ->
-      return W4P.Unassigned
-      --fail "applyView: Floating point values not supported"
-    X86_FP80ToBV _ ->
-      return W4P.Unassigned
+    v@(FloatToBV _)    -> return $ W4P.Err $ Partial.ApplyViewFail v
+    v@(DoubleToBV _)   -> return $ W4P.Err $ Partial.ApplyViewFail v
+    v@(X86_FP80ToBV _) -> return $ W4P.Err $ Partial.ApplyViewFail v
     ArrayElt sz tp idx v ->
       Partial.arrayElt sz tp idx =<< applyView sym end t v
     FieldVal flds idx v ->
@@ -330,7 +327,7 @@ evalMuxValueCtor sym w end vf subFn (Mux c t1 t2) =
        Nothing ->
         do t1' <- evalMuxValueCtor sym w end vf subFn t1
            t2' <- evalMuxValueCtor sym w end vf subFn t2
-           muxLLVMVal sym c' t1' t2'
+           Partial.muxLLVMVal sym c' t1' t2'
 
 evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
   do m' <- traverse (evalMuxValueCtor sym w end vf subFn) m
@@ -344,7 +341,7 @@ evalMuxValueCtor sym w end vf subFn (MuxTable a b m t) =
          case asConstantPred c' of
            Just True  -> return t1
            Just False -> k
-           Nothing    -> muxLLVMVal sym c' t1 =<< k
+           Nothing    -> Partial.muxLLVMVal sym c' t1 =<< k
 
     aOffset :: Bytes -> OffsetExpr
     aOffset n = OffsetAdd a (CValue n)
@@ -431,7 +428,7 @@ readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
                                               readPrev tp' (LLVMPointer blk o')
                 subFn (InRange   _o tp') = do blk0 <- natLit sym 0
                                               let val = LLVMValInt blk0 byte
-                                              let b   = totalLLVMVal sym val
+                                              let b   = Partial.totalLLVMVal sym val
                                               genValueCtor sym end (memsetValue b tp')
             case asUnsignedBV sz of
               Just csz -> do
@@ -449,7 +446,7 @@ readMemSet sym w end (LLVMPointer blk off) tp d byte sz readPrev =
                 subFn (InRange _o tp') =
                   do blk0 <- natLit sym 0
                      let val = LLVMValInt blk0 byte
-                     let b = totalLLVMVal sym val
+                     let b = Partial.totalLLVMVal sym val
                      genValueCtor sym end (memsetValue b tp')
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
@@ -487,8 +484,8 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
          do let subFn :: ValueLoad Addr -> IO (PartLLVMVal arch sym)
                 subFn (OldMemory o tp')   = do o' <- bvLit sym w (bytesToInteger o)
                                                readPrev tp' (LLVMPointer blk o')
-                subFn (LastStore v)       = applyView sym end (totalLLVMVal sym t) v
-                subFn (InvalidMemory _tp) = return W4P.Unassigned
+                subFn (LastStore v)       = applyView sym end (Partial.totalLLVMVal sym t) v
+                subFn (InvalidMemory tp) = return $ W4P.Err $ Partial.Invalid tp
             let vcr = valueLoad (fromInteger lo) ltp (fromInteger so) (ValueViewVar stp)
             genValueCtor sym end =<< traverse subFn vcr
        -- Symbolic offsets
@@ -496,8 +493,8 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
          do let subFn :: ValueLoad OffsetExpr -> IO (PartLLVMVal arch sym)
                 subFn (OldMemory o tp')   = do o' <- genOffsetExpr sym w varFn o
                                                readPrev tp' (LLVMPointer blk o')
-                subFn (LastStore v)       = applyView sym end (totalLLVMVal sym t) v
-                subFn (InvalidMemory _tp) = return W4P.Unassigned
+                subFn (LastStore v)       = applyView sym end (Partial.totalLLVMVal sym t) v
+                subFn (InvalidMemory tp) = return $ W4P.Err $ Partial.Invalid tp
             let pref | Just{} <- dd = FixedStore
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
@@ -530,7 +527,7 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
               blk0 <- natLit sym 0
               idx <- bvAdd sym base =<< bvLit sym w (bytesToInteger off)
               byte <- arrayLookup sym arr $ Ctx.singleton idx
-              return $ totalLLVMVal sym $ LLVMValInt blk0 byte
+              return $ Partial.totalLLVMVal sym $ LLVMValInt blk0 byte
         genValueCtor sym end =<< loadTypedValueFromBytes 0 tp' loadArrayByteFn
   let varFn = ExprEnv read_off write_off size
   case (asUnsignedBV read_off, asUnsignedBV write_off) of
@@ -594,14 +591,14 @@ readMem sym w l tp alignment m = do
   p2         <- isAligned sym w l alignment
   readMem' sym w (memEndianForm m) l tp alignment (memWrites m) >>=
     \case
-      p@W4P.Unassigned -> return p
-      W4P.PE p v ->
+      e@(W4P.Err _) -> return e
+      PartLLVMVal p v ->
         let ub1 = UB.ReadUnallocated  (UB.pointerView l)
             ub2 = UB.ReadBadAlignment (UB.pointerView l) alignment
-            p'  = W4P.And (p :| [ W4P.Leaf (undefinedBehavior ub1 p1)
-                                , W4P.Leaf (undefinedBehavior ub2 p2)
-                                ])
-        in return $ W4P.PE p' v
+            p'  = W4AT.And (p :| [ W4AT.Leaf (undefinedBehavior ub1 p1)
+                                 , W4AT.Leaf (undefinedBehavior ub2 p2)
+                                 ])
+        in return $ PartLLVMVal p' v
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
@@ -631,7 +628,8 @@ readMem' ::
   Alignment      {- ^ Alignment of pointer to read from -} ->
   [MemWrite sym] {- ^ List of writes                    -} ->
   IO (PartLLVMVal arch sym)
-readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return W4P.Unassigned) l0 tp0
+readMem' sym w end l0 tp0 alignment =
+  go (\_tp _l -> return $ W4P.Err $ Partial.Other) l0 tp0
   where
     go :: (StorageType -> LLVMPtr sym w -> IO (PartLLVMVal arch sym)) ->
           LLVMPtr sym w ->
@@ -656,7 +654,7 @@ readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return W4P.Unassigned) l0 t
            WriteMerge c xr yr ->
              do x <- go readPrev l tp xr
                 y <- go readPrev l tp yr
-                muxLLVMVal sym c x y
+                Partial.muxLLVMVal sym c x y
            MemWrite dst wsrc ->
              case testEquality (ptrWidth dst) w of
                Nothing   -> readPrev tp l
@@ -676,7 +674,7 @@ readMem' sym w end l0 tp0 alignment = go (\_tp _l -> return W4P.Unassigned) l0 t
                       Nothing ->
                         do x <- readCurrent
                            y <- readPrev tp l
-                           muxLLVMVal sym sameBlock x y
+                           Partial.muxLLVMVal sym sameBlock x y
 
 --------------------------------------------------------------------------------
 
