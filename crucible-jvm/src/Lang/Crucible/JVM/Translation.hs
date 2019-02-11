@@ -70,7 +70,7 @@ import           Data.Parameterized.NatRepr as NR
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
-import qualified Lang.Crucible.CFG.Extension.Safety as Safety
+import           Lang.Crucible.CFG.Extension.Safety (pattern PartialExp)
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
@@ -90,7 +90,7 @@ import           What4.ProgramLoc (Position(InternalPos))
 import           What4.FunctionName
 import qualified What4.Interface as W4
 import qualified What4.Config as W4
-import qualified What4.Partial as W4P
+import qualified What4.Partial.AssertionTree as W4AT
 
 import           What4.Utils.MonadST (liftST)
 
@@ -1080,12 +1080,17 @@ generateInstruction (pc, instr) =
       do void rPop
     J.Nop ->
       do return ()
-  where nonzero w b expr = 
+  where nonzero :: (1 <= n)
+                => NatRepr n
+                -> Expr JVM s (BVType n)
+                -> Expr JVM s (BVType n)
+                -> Expr JVM s (BVType n)
+
+        nonzero w b expr =
           let assertion =
                 JVMAssertionClassifier ["java", "lang", "ArithmeticException"]
                                        (App (BVNonzero w b))
-              partExpr =
-                Safety.PartialExpr (W4P.Leaf assertion) (Just expr)
+              partExpr = PartialExp (W4AT.Leaf assertion) expr
           in App (WithAssertion (BVRepr w) partExpr)
 
 unary ::
