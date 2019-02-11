@@ -46,13 +46,13 @@ Currently, the repository consists of the following Haskell packages:
    and verification.  This includes most of the setup steps required
    to actually set the simulator off and running, as well as
    functionality for collecting and discharging safety conditions and
-   generated assertions via solvers.  Both the `crucible-c` and `crucible-jvm`
+   generated assertions via solvers.  Both the `crux-llvm` and `crucible-jvm`
    executables are thin wrappers around the functionality provided
    by `crux`.
 
 In addition, there are the following library/executable packages:
 
- * **`crucible-c`**, a standalone frontend for executing C programs
+ * **`crux-llvm`**, a standalone frontend for executing C and C++ programs
    in the crucible symbolic simulator.  The front-end invokes `clang`
    to produce LLVM bitcode, and runs the resulting programs using
    the `crucible-llvm` language frontend.  Programs interact directly
@@ -63,7 +63,7 @@ In addition, there are the following library/executable packages:
 
  * **`crucible-jvm`**, also contains an executable for directly
    running compiled JVM bytecode programs, in a similar vein
-   to the `crucible-c` package.
+   to the `crux-llvm` package.
 
  * **`crucible-server`**, a standalone process that allows constructing
    and symbolically executing Crucible programs via [Protocol Buffers][pb].

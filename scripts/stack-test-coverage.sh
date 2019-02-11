@@ -10,7 +10,7 @@
 
 stack test --coverage
 stack hpc report \
-      crucible crucible-syntax crucible-c \
+      crucible crucible-syntax crux-llvm \
       crucible-jvm crucible-llvm crucible-saw \
       crucible-server crux what4 \
       what4-abc what4-blt

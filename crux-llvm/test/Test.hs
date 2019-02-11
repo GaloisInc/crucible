@@ -13,21 +13,21 @@ import Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
 import Test.Tasty.Golden (goldenVsFile, findByExtension)
 
 
-import qualified CrucibleCMain as C
+import qualified CruxLLVMMain as C
 
 main :: IO ()
 main = defaultMain =<< suite
 
 suite :: IO TestTree
 suite =
-  testGroup "crucible-c" . pure <$> goldenTests "test-data/golden"
+  testGroup "crux-llvm" . pure <$> goldenTests "test-data/golden"
 
 
 goldenTests :: FilePath -> IO TestTree
 goldenTests dir =
   do cFiles <- findByExtension [".c"] dir
      return $
-       testGroup "Golden testing of crucible-c"
+       testGroup "Golden testing of crux-llvm"
          [ goldenVsFile (takeBaseName cFile) goodFile outFile $
            withArgs [cFile] $
            withFile outFile WriteMode $

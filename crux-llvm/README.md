@@ -1,4 +1,4 @@
-The `crucible-c` tool (and corresponding C library) are intended for
+The `crux-llvm` tool (and corresponding C library) are intended for
 verifying C programs containing inline specifications (in the form of
 function calls to create non-deterministic values and assert
 properties). The API defined by SV-COMP is supported, as it an
@@ -6,7 +6,7 @@ alternative, slightly more flexible API.
 
 # Prerequisites
 
-Before running `crucible-c`, you'll need to install the following
+Before running `crux-llvm`, you'll need to install the following
 software:
 
 * The Stack build tool for Haskell:
@@ -22,30 +22,29 @@ We have tested it with Stack 1.7.1, Yices 2.6.0, Z3 4.7.1, and LLVM 6.0.1.
 
 # Building
 
-The `crucible-c` tool can be built by doing the following:
+The `crux-llvm` tool can be built by doing the following:
 
 * Clone the enclosing `crucible` repository into a directory `$DIR`.
 
-* Change to the `$DIR/crucible-c` directory and run
+* Change to the `$DIR/crux-llvm` directory and run
 
   `./build-stack.sh`
 
 # Invocation
 
-In the `crucible-c` directory, to analyze `file.c`, run
+In the `crux-llvm` directory, to analyze `file.c`, run
 
-    ./bin/crucible-c file.c
+    ./bin/crux-llvm file.c
 
 You'll see output indicating the progress of analysis, how many proof
-goals are generated, and how many were successfully proved. In
-addition, the `results` directory will contain a subdirectory for the
-file you provided. This directory will contain an `index.html` file
-that shows a visualization of proof results overlaid on the C source
-code. If `crucible-c` found a counter-example to any of the attempted
-proofs, the values of that counter-example will be overlaid on the
-source code (at the location of calls to create non-deterministic
-values), and the following two files will also exist in the `results`
-directory:
+goals are generated, and how many were successfully proved. In addition,
+the `results` directory will contain a subdirectory for the file you
+provided. This directory will contain an `index.html` file that shows a
+visualization of proof results overlaid on the C source code. If
+`crux-llvm` found a counter-example to any of the attempted proofs, the
+values of that counter-example will be overlaid on the source code (at
+the location of calls to create non-deterministic values), and the
+following two files will also exist in the `results` directory:
 
 * `debug-NNN`: an executable file that runs the program and provides it
 with the counter-example values. The number `NNN` indicates the line
@@ -58,7 +57,7 @@ associated with the counter-example.
 
 # API
 
-The `crucible-c` [header file](c-src/includes/crucible.h) contains
+The `crux-llvm` [header file](c-src/includes/crucible.h) contains
 declarations of several functions that can be used to describe the
 properties of a program that you would like to prove.
 
