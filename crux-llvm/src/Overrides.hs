@@ -255,7 +255,8 @@ lib_havoc_memory ::
   GlobalVar Mem ->
   Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch ::> TBits (ArchWidth arch)) UnitType
 lib_havoc_memory mvar =
-  do RegMap (Empty :> ptr :> len) <- getOverrideArgs
+  do RegMap args <- getOverrideArgs
+     (ptr, len) <- case args of Empty :> ptr :> len -> pure (ptr, len)
      let tp = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
      sym <- getSymInterface
      mem <- readGlobal mvar
