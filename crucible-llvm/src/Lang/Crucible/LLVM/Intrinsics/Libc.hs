@@ -56,7 +56,7 @@ import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.Types (pattern SizeT)
 import           Lang.Crucible.LLVM.TypeContext
 
-import           Lang.Crucible.LLVM.Intrinsics.Types
+import           Lang.Crucible.LLVM.Intrinsics.Common
 
 ------------------------------------------------------------------------
 -- ** Declarations
