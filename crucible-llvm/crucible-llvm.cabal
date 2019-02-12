@@ -58,6 +58,8 @@ library
     Lang.Crucible.LLVM.UndefinedBehavior
 
   other-modules:
+    Lang.Crucible.LLVM.Intrinsics.Libc
+    Lang.Crucible.LLVM.Intrinsics.Types
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Generic
     Lang.Crucible.LLVM.MemModel.Value
