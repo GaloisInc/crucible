@@ -65,15 +65,14 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Utils.MonadVerbosity
+import           Lang.Crucible.Simulator.SimError (SimErrorReason(AssertFailureSimError))
 
-import           Lang.Crucible.LLVM.Bytes
-import           Lang.Crucible.LLVM.DataLayout
-import           Lang.Crucible.LLVM.Extension
+import           Lang.Crucible.LLVM.Bytes (Bytes(..))
+import           Lang.Crucible.LLVM.DataLayout (noAlignment)
+import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Translation.Types
-import           Lang.Crucible.LLVM.TypeContext
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
