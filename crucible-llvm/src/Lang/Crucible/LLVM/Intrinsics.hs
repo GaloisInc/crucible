@@ -220,7 +220,9 @@ define_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   [RegOverrideM p sym arch rtp l a ()]
 define_overrides =
-  [ Libcxx.register_cpp_override Libcxx.endlOverride
+  [ Libcxx.register_cpp_override Libcxx.putToOverride12
+  , Libcxx.register_cpp_override Libcxx.endlOverride
+  , Libcxx.register_cpp_override Libcxx.sentryOverride
   ]
 
 
