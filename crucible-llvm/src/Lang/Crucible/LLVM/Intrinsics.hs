@@ -44,57 +44,39 @@ module Lang.Crucible.LLVM.Intrinsics
 ) where
 
 import           GHC.TypeNats (KnownNat)
-import qualified Codec.Binary.UTF8.Generic as UTF8
-import           Control.Applicative
 import           Control.Lens hiding (op, (:>), Empty)
 import           Control.Monad.Reader
-import           Control.Monad.ST
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
 import           Data.Bits
 import           Data.Foldable( asum )
-import qualified Data.List as List
-import           Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import qualified Data.Text as Text
 import qualified Data.Vector as V
-import           Numeric
-import           System.IO
 import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.Some
-import           Data.Parameterized.TraversableFC
 
-import           What4.FunctionName
 import           What4.Interface
-import           What4.Utils.MonadST
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
-import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
-import           Lang.Crucible.Simulator.ExecutionTree
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
-import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.Panic(panic)
-import           Lang.Crucible.Utils.MonadVerbosity
+import           Lang.Crucible.Simulator.SimError (SimErrorReason(AssertFailureSimError))
 
-import           Lang.Crucible.LLVM.Bytes
-import           Lang.Crucible.LLVM.DataLayout
-import           Lang.Crucible.LLVM.Extension
+import           Lang.Crucible.LLVM.Bytes (Bytes(..))
+import           Lang.Crucible.LLVM.DataLayout (noAlignment)
+import           Lang.Crucible.LLVM.Extension (ArchWidth, LLVM)
 import           Lang.Crucible.LLVM.MemModel
-import           Lang.Crucible.LLVM.MemModel.Pointer
-import qualified Lang.Crucible.LLVM.MemModel.Type as G
-import qualified Lang.Crucible.LLVM.MemModel.Generic as G
-import           Lang.Crucible.LLVM.Printf
 import           Lang.Crucible.LLVM.Translation.Types
-import           Lang.Crucible.LLVM.TypeContext
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
+import           Lang.Crucible.LLVM.Intrinsics.Common
+import qualified Lang.Crucible.LLVM.Intrinsics.Libc as Libc
+import qualified Lang.Crucible.LLVM.Intrinsics.Libcxx as Libcxx
 
 llvmIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
 llvmIntrinsicTypes =
@@ -102,341 +84,147 @@ llvmIntrinsicTypes =
    MapF.insert (knownSymbol :: SymbolRepr "LLVM_pointer") IntrinsicMuxFn $
    MapF.empty
 
+-- | Register all declare and define overrides
 register_llvm_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   L.Module ->
   LLVMContext arch ->
   OverrideSim p sym (LLVM arch) rtp l a (LLVMContext arch)
-register_llvm_overrides llvm_module llvm_ctx =
-  flip execStateT llvm_ctx $
-    forM_ (L.modDeclares llvm_module) $ \decl ->
-      runMaybeT (runReaderT do_register_overrides decl) >> return ()
+register_llvm_overrides llvmModule llvmctx =
+  register_llvm_define_overrides llvmModule llvmctx >>=
+    register_llvm_declare_overrides llvmModule
 
-do_register_overrides ::
+-- | Helper function for registering overrides
+register_llvm_overrides_ ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-  RegOverrideM p sym arch rtp l a ()
-do_register_overrides = do
-  llvmctx <- get
+  LLVMContext arch ->
+  [RegOverrideM p sym arch rtp l a ()] ->
+  [L.Declare] ->
+  OverrideSim p sym (LLVM arch) rtp l a (LLVMContext arch)
+register_llvm_overrides_ llvmctx acts decls =
+  flip execStateT llvmctx $
+    forM_ decls $ \decl ->
+      runMaybeT (flip runReaderT decl $ asum acts) >> return ()
+
+register_llvm_define_overrides ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  L.Module ->
+  LLVMContext arch ->
+  OverrideSim p sym (LLVM arch) rtp l a (LLVMContext arch)
+register_llvm_define_overrides llvmModule llvmctx =
   let ?lc = llvmctx^.llvmTypeCtx
+  in register_llvm_overrides_ llvmctx define_overrides $
+       map defToDecl (L.modDefines llvmModule) ++ L.modDeclares llvmModule
+  where defToDecl :: L.Define -> L.Declare
+        defToDecl def =
+          L.Declare { L.decRetType = L.defRetType def
+                    , L.decName    = L.defName def
+                    , L.decArgs    = map L.typedType (L.defArgs def)
+                    , L.decVarArgs = L.defVarArgs def
+                    , L.decAttrs   = L.defAttrs def
+                    , L.decComdat  = Nothing
+                    }
 
-  -- LLVM Compiler intrinsics
-  asum
-   [ register_llvm_override llvmLifetimeStartOverride
-   , register_llvm_override llvmLifetimeEndOverride
-   , register_llvm_override (llvmLifetimeOverrideOverload "start" (knownNat @8))
-   , register_llvm_override (llvmLifetimeOverrideOverload "end" (knownNat @8))
-   , register_llvm_override llvmMemcpyOverride_8_8_32
-   , register_llvm_override llvmMemcpyOverride_8_8_64
-   , register_llvm_override llvmMemmoveOverride_8_8_32
-   , register_llvm_override llvmMemmoveOverride_8_8_64
-   , register_llvm_override llvmMemsetOverride_8_32
-   , register_llvm_override llvmMemsetOverride_8_64
-
-   , register_llvm_override llvmObjectsizeOverride_32
-   , register_llvm_override llvmObjectsizeOverride_64
-
-   , register_llvm_override llvmObjectsizeOverride_32'
-   , register_llvm_override llvmObjectsizeOverride_64'
-
-   , register_llvm_override llvmStacksave
-   , register_llvm_override llvmStackrestore
-
-   , register_1arg_polymorphic_override "llvm.ctlz" (\w -> SomeLLVMOverride (llvmCtlz w))
-   , register_1arg_polymorphic_override "llvm.cttz" (\w -> SomeLLVMOverride (llvmCttz w))
-   , register_1arg_polymorphic_override "llvm.ctpop" (\w -> SomeLLVMOverride (llvmCtpop w))
-   , register_1arg_polymorphic_override "llvm.bitreverse" (\w -> SomeLLVMOverride (llvmBitreverse w))
-
-   , register_llvm_override (llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
-   , register_llvm_override (llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
-   , register_llvm_override (llvmBSwapOverride (knownNat @6))  -- 48 = 6 * 8
-   , register_llvm_override (llvmBSwapOverride (knownNat @8))  -- 64 = 8 * 8
-   , register_llvm_override (llvmBSwapOverride (knownNat @10)) -- 80 = 10 * 8
-   , register_llvm_override (llvmBSwapOverride (knownNat @12)) -- 96 = 12 * 8
-   , register_llvm_override (llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
-   , register_llvm_override (llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
-
-   , register_1arg_polymorphic_override "llvm.sadd.with.overflow"
-       (\w -> SomeLLVMOverride (llvmSaddWithOverflow w))
-   , register_1arg_polymorphic_override "llvm.uadd.with.overflow"
-       (\w -> SomeLLVMOverride (llvmUaddWithOverflow w))
-   , register_1arg_polymorphic_override "llvm.ssub.with.overflow"
-       (\w -> SomeLLVMOverride (llvmSsubWithOverflow w))
-   , register_1arg_polymorphic_override "llvm.usub.with.overflow"
-       (\w -> SomeLLVMOverride (llvmUsubWithOverflow w))
-   , register_1arg_polymorphic_override "llvm.smul.with.overflow"
-       (\w -> SomeLLVMOverride (llvmSmulWithOverflow w))
-   , register_1arg_polymorphic_override "llvm.umul.with.overflow"
-       (\w -> SomeLLVMOverride (llvmUmulWithOverflow w))
-
-    -- C standard library functions
-   , register_llvm_override llvmAssertRtnOverride
-   , register_llvm_override llvmMemcpyOverride
-   , register_llvm_override llvmMemcpyChkOverride
-   , register_llvm_override llvmMemmoveOverride
-   , register_llvm_override llvmMemsetOverride
-   , register_llvm_override llvmMemsetChkOverride
-   , register_llvm_override llvmMallocOverride
-   , register_llvm_override llvmCallocOverride
-   , register_llvm_override llvmFreeOverride
-   , register_llvm_override llvmReallocOverride
-   , register_llvm_override llvmStrlenOverride
-   , register_llvm_override llvmPrintfOverride
-   , register_llvm_override llvmPrintfChkOverride
-   , register_llvm_override llvmPutsOverride
-   , register_llvm_override llvmPutCharOverride
-
-   -- Some architecture-dependent intrinsics
-   , register_llvm_override llvmX86_SSE2_storeu_dq
-   , register_llvm_override llvmX86_pclmulqdq
-   ]
-------------------------------------------------------------------------
--- LLVMHandleInfo
-
--- | Information about an LLVM handle, including both its
---   LLVM and Crucible type information as well as the Crucible
---   handle allocated to this symbol.
-data LLVMHandleInfo where
-  LLVMHandleInfo :: L.Declare
-                 -> FnHandle init ret
-                 -> LLVMHandleInfo
-
-------------------------------------------------------------------------
--- LLVMContext
-
--- | Maps symbol to information about associated handle.
-type SymbolHandleMap = Map L.Symbol LLVMHandleInfo
-
--- | Information about the LLVM module.
-data LLVMContext arch
-   = LLVMContext
-   { -- | Map LLVM symbols to their associated state.
-     _symbolMap     :: !SymbolHandleMap
-   , llvmArch       :: ArchRepr arch
-   , llvmPtrWidth   :: forall a. (16 <= (ArchWidth arch) => NatRepr (ArchWidth arch) -> a) -> a
-   , llvmMemVar     :: GlobalVar Mem
-   , _llvmTypeCtx   :: TypeContext
-   }
-
-symbolMap :: Simple Lens (LLVMContext arch) SymbolHandleMap
-symbolMap = lens _symbolMap (\s v -> s { _symbolMap = v })
-
-llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
-llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
-
-mkLLVMContext :: HandleAllocator s
-              -> L.Module
-              -> ST s (Some LLVMContext)
-mkLLVMContext halloc m = do
-  let (errs, typeCtx) = typeContextFromModule m
-  unless (null errs) $
-    fail $ unlines
-         $ [ "Failed to construct LLVM type context:" ] ++ map show errs
-  let dl = llvmDataLayout typeCtx
-
-  case mkNatRepr (ptrBitwidth dl) of
-    Some (wptr :: NatRepr wptr) | Just LeqProof <- testLeq (knownNat @16) wptr ->
-      withPtrWidth wptr $
-        do mvar <- mkMemVar halloc
-           let archRepr = X86Repr wptr -- FIXME! we should select the architecture based on
-                                       -- the target triple, but llvm-pretty doesn't capture this
-                                       -- currently.
-           let ctx :: LLVMContext (X86 wptr)
-               ctx = LLVMContext
-                     { _symbolMap = Map.empty
-                     , llvmArch     = archRepr
-                     , llvmMemVar   = mvar
-                     , llvmPtrWidth = \x -> x wptr
-                     , _llvmTypeCtx = typeCtx
-                     }
-           return (Some ctx)
-    _ ->
-      fail ("Cannot load LLVM bitcode file with illegal pointer width: " ++ show (dl^.ptrSize))
-
--- | This type represents an implementation of an LLVM intrinsic function in
--- Crucible.
-data LLVMOverride p sym arch args ret =
-  LLVMOverride
-  { llvmOverride_declare :: L.Declare -- ^ An LLVM name and signature for this intrinsic
-  , llvmOverride_args :: CtxRepr args -- ^ A representation of the argument types
-  , llvmOverride_ret  :: TypeRepr ret -- ^ A representation of the return type
-  , llvmOverride_def ::
-       forall rtp args' ret'.
-         GlobalVar Mem ->
-         sym ->
-         Ctx.Assignment (RegEntry sym) args ->
-         OverrideSim p sym (LLVM arch) rtp args' ret' (RegValue sym ret)
-    -- ^ The implementation of the intrinsic in the simulator monad
-    -- (@OverrideSim@).
-  }
-
-data SomeLLVMOverride p sym arch =
-  forall args ret. SomeLLVMOverride (LLVMOverride p sym arch args ret)
-
-newtype ArgTransformer p sym args args' =
-  ArgTransformer { applyArgTransformer :: (forall arch rtp l a.
-    Ctx.Assignment (RegEntry sym) args ->
-    OverrideSim p sym (LLVM arch) rtp l a (Ctx.Assignment (RegEntry sym) args')) }
-
-newtype ValTransformer p sym tp tp' =
-  ValTransformer { applyValTransformer :: (forall arch rtp l a.
-    RegValue sym tp ->
-    OverrideSim p sym (LLVM arch) rtp l a (RegValue sym tp')) }
-
-transformLLVMArgs :: forall m p sym args args'.
-  (IsSymInterface sym, Monad m) =>
-  sym ->
-  CtxRepr args' ->
-  CtxRepr args ->
-  m (ArgTransformer p sym args args')
-transformLLVMArgs _ Empty Empty =
-  return (ArgTransformer (\_ -> return Ctx.Empty))
-transformLLVMArgs sym (rest' :> tp') (rest :> tp) = do
-  return (ArgTransformer
-           (\(xs Ctx.:> x) ->
-              do (ValTransformer f)  <- transformLLVMRet sym tp tp'
-                 (ArgTransformer fs) <- transformLLVMArgs sym rest' rest
-                 xs' <- fs xs
-                 x'  <- RegEntry tp' <$> f (regValue x)
-                 pure (xs' :> x')))
-transformLLVMArgs _ _ _ =
-  panic "Intrinsics.transformLLVMArgs"
-    [ "transformLLVMArgs: argument shape mismatch!" ]
-
-transformLLVMRet ::
-  (IsSymInterface sym, Monad m) =>
-  sym ->
-  TypeRepr ret  ->
-  TypeRepr ret' ->
-  m (ValTransformer p sym ret ret')
-transformLLVMRet sym (BVRepr w) (LLVMPointerRepr w')
-  | Just Refl <- testEquality w w'
-  = return (ValTransformer (liftIO . llvmPointer_bv sym))
-transformLLVMRet sym (LLVMPointerRepr w) (BVRepr w')
-  | Just Refl <- testEquality w w'
-  = return (ValTransformer (liftIO . projectLLVM_bv sym))
-transformLLVMRet sym (VectorRepr tp) (VectorRepr tp')
-  = do ValTransformer f <- transformLLVMRet sym tp tp'
-       return (ValTransformer (traverse f))
-transformLLVMRet sym (StructRepr ctx) (StructRepr ctx')
-  = do ArgTransformer tf <- transformLLVMArgs sym ctx' ctx
-       return (ValTransformer (\vals ->
-          let vals' = Ctx.zipWith (\tp (RV v) -> RegEntry tp v) ctx vals in
-          fmapFC (\x -> RV (regValue x)) <$> tf vals'))
-
-transformLLVMRet _sym ret ret'
-  | Just Refl <- testEquality ret ret'
-  = return (ValTransformer return)
-transformLLVMRet _sym ret ret'
-  = panic "Intrinsics.transformLLVMRet"
-      [ "Cannot transform types"
-      , "*** Source type: " ++ show ret
-      , "*** Target type: " ++ show ret'
-      ]
-
--- | Do some pipe-fitting to match a Crucible override function into the shape
---   expected by the LLVM calling convention.  This basically just coerces
---   between values of @BVType w@ and values of @LLVMPointerType w@.
-build_llvm_override ::
-  IsSymInterface sym =>
-  sym ->
-  FunctionName ->
-  CtxRepr args ->
-  TypeRepr ret ->
-  CtxRepr args' ->
-  TypeRepr ret' ->
-  (forall rtp' l' a'. Ctx.Assignment (RegEntry sym) args ->
-   OverrideSim p sym (LLVM arch) rtp' l' a' (RegValue sym ret)) ->
-  OverrideSim p sym (LLVM arch) rtp l a (Override p sym (LLVM arch) args' ret')
-build_llvm_override sym fnm args ret args' ret' llvmOverride =
-  do fargs <- transformLLVMArgs sym args args'
-     fret  <- transformLLVMRet  sym ret  ret'
-     return $ mkOverride' fnm ret' $
-            do RegMap xs <- getOverrideArgs
-               applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
-
-
-type RegOverrideM p sym arch rtp l a =
-  ReaderT L.Declare (MaybeT (StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a)))
-
-
-register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
+register_llvm_declare_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-  String ->
-  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
-  RegOverrideM p sym arch rtp l a ()
-register_1arg_polymorphic_override prefix overrideFn =
-  do L.Symbol nm <- L.decName <$> ask
-     case List.stripPrefix prefix nm of
-       Just ('.':'i': (readDec -> (sz,[]):_))
-         | Some w <- mkNatRepr sz
-         , Just LeqProof <- isPosNat w
-         -> case overrideFn w of SomeLLVMOverride ovr -> register_llvm_override ovr
-       _ -> empty
-
-register_llvm_override :: forall p args ret sym arch wptr l a rtp.
-  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
-  LLVMOverride p sym arch args ret ->
-  RegOverrideM p sym arch rtp l a ()
-register_llvm_override llvmOverride = do
-  requestedDecl <- ask
-  llvmctx <- get
-  let decl = llvmOverride_declare llvmOverride
-
-  if (requestedDecl /= decl) then
-    do when (L.decName requestedDecl == L.decName decl) $
-         do logFn <- lift $ lift $ lift $ getLogFunction
-            liftIO $ logFn 3 $ unwords
-              [ "Mismatched declaration signatures"
-              , " *** requested: " ++ show requestedDecl
-              , " *** found: "     ++ show decl
-              , ""
-              ]
-       empty
-  else
-   do let nm@(L.Symbol str_nm) = L.decName decl
-      let fnm  = functionNameFromText (Text.pack str_nm)
-
-      sym <- lift $ lift $ lift $ getSymInterface
-
-      let mvar = llvmMemVar llvmctx
-      let overrideArgs = llvmOverride_args llvmOverride
-      let overrideRet  = llvmOverride_ret llvmOverride
-
-      let ?lc = llvmctx^.llvmTypeCtx
-
-      decl' <- either fail return $ liftDeclare decl
-      llvmDeclToFunHandleRepr decl' $ \derivedArgs derivedRet -> do
-        o <- lift $ lift $ lift $ build_llvm_override sym fnm overrideArgs overrideRet derivedArgs derivedRet
-                      (llvmOverride_def llvmOverride mvar sym)
-        case Map.lookup nm (llvmctx^.symbolMap) of
-          Just (LLVMHandleInfo _decl' h) -> do
-            case testEquality (handleArgTypes h) derivedArgs of
-               Nothing ->
-                 panic "Intrinsics.register_llvm_override"
-                   [ "Argument type mismatch when registering LLVM mss override."
-                   , "*** Override name: " ++ show nm
-                   , "*** Declared type: " ++ show (handleArgTypes h)
-                   , "*** Expected type: " ++ show derivedArgs
-                   ]
-               Just Refl ->
-                 case testEquality (handleReturnType h) derivedRet of
-                   Nothing ->
-                     panic "Intrinsics.register_llvm_override"
-                       [ "return type mismatch when registering LLVM mss override"
-                       , "*** Override name: " ++ show nm
-                       ]
-                   Just Refl -> lift $ lift $ lift $ bindFnHandle h (UseOverride o)
-          Nothing ->
-            do ctx <- lift $ lift $ lift $ use stateContext
-               let ha = simHandleAllocator ctx
-               h <- lift $ lift $ liftST $ mkHandle' ha fnm derivedArgs derivedRet
-               lift $ lift $ lift $ bindFnHandle h (UseOverride o)
-               put (llvmctx & symbolMap %~ Map.insert nm (LLVMHandleInfo decl h))
+  L.Module ->
+  LLVMContext arch ->
+  OverrideSim p sym (LLVM arch) rtp l a (LLVMContext arch)
+register_llvm_declare_overrides llvmModule llvmctx =
+  let ?lc = llvmctx^.llvmTypeCtx
+  in register_llvm_overrides_ llvmctx declare_overrides $
+       L.modDeclares llvmModule
 
 
--- | Convenient LLVM representation of the @size_t@ type.
-llvmSizeT :: HasPtrWidth wptr => L.Type
-llvmSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
+-- | Register overrides for declared-but-not-defined functions
+declare_overrides ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  [RegOverrideM p sym arch rtp l a ()]
+declare_overrides =
+  [ register_llvm_override llvmLifetimeStartOverride
+  , register_llvm_override llvmLifetimeEndOverride
+  , register_llvm_override (llvmLifetimeOverrideOverload "start" (knownNat @8))
+  , register_llvm_override (llvmLifetimeOverrideOverload "end" (knownNat @8))
+  , register_llvm_override llvmMemcpyOverride_8_8_32
+  , register_llvm_override llvmMemcpyOverride_8_8_64
+  , register_llvm_override llvmMemmoveOverride_8_8_32
+  , register_llvm_override llvmMemmoveOverride_8_8_64
+  , register_llvm_override llvmMemsetOverride_8_32
+  , register_llvm_override llvmMemsetOverride_8_64
+
+  , register_llvm_override llvmObjectsizeOverride_32
+  , register_llvm_override llvmObjectsizeOverride_64
+
+  , register_llvm_override llvmObjectsizeOverride_32'
+  , register_llvm_override llvmObjectsizeOverride_64'
+
+  , register_llvm_override llvmStacksave
+  , register_llvm_override llvmStackrestore
+
+  , register_1arg_polymorphic_override "llvm.ctlz" (\w -> SomeLLVMOverride (llvmCtlz w))
+  , register_1arg_polymorphic_override "llvm.cttz" (\w -> SomeLLVMOverride (llvmCttz w))
+  , register_1arg_polymorphic_override "llvm.ctpop" (\w -> SomeLLVMOverride (llvmCtpop w))
+  , register_1arg_polymorphic_override "llvm.bitreverse" (\w -> SomeLLVMOverride (llvmBitreverse w))
+
+  , register_llvm_override (llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
+  , register_llvm_override (llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
+  , register_llvm_override (llvmBSwapOverride (knownNat @6))  -- 48 = 6 * 8
+  , register_llvm_override (llvmBSwapOverride (knownNat @8))  -- 64 = 8 * 8
+  , register_llvm_override (llvmBSwapOverride (knownNat @10)) -- 80 = 10 * 8
+  , register_llvm_override (llvmBSwapOverride (knownNat @12)) -- 96 = 12 * 8
+  , register_llvm_override (llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
+  , register_llvm_override (llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
+
+  , register_1arg_polymorphic_override "llvm.sadd.with.overflow"
+      (\w -> SomeLLVMOverride (llvmSaddWithOverflow w))
+  , register_1arg_polymorphic_override "llvm.uadd.with.overflow"
+      (\w -> SomeLLVMOverride (llvmUaddWithOverflow w))
+  , register_1arg_polymorphic_override "llvm.ssub.with.overflow"
+      (\w -> SomeLLVMOverride (llvmSsubWithOverflow w))
+  , register_1arg_polymorphic_override "llvm.usub.with.overflow"
+      (\w -> SomeLLVMOverride (llvmUsubWithOverflow w))
+  , register_1arg_polymorphic_override "llvm.smul.with.overflow"
+      (\w -> SomeLLVMOverride (llvmSmulWithOverflow w))
+  , register_1arg_polymorphic_override "llvm.umul.with.overflow"
+      (\w -> SomeLLVMOverride (llvmUmulWithOverflow w))
+
+  -- C standard library functions
+  , register_llvm_override Libc.llvmAssertRtnOverride
+  , register_llvm_override Libc.llvmMemcpyOverride
+  , register_llvm_override Libc.llvmMemcpyChkOverride
+  , register_llvm_override Libc.llvmMemmoveOverride
+  , register_llvm_override Libc.llvmMemsetOverride
+  , register_llvm_override Libc.llvmMemsetChkOverride
+  , register_llvm_override Libc.llvmMallocOverride
+  , register_llvm_override Libc.llvmCallocOverride
+  , register_llvm_override Libc.llvmFreeOverride
+  , register_llvm_override Libc.llvmReallocOverride
+  , register_llvm_override Libc.llvmStrlenOverride
+  , register_llvm_override Libc.llvmPrintfOverride
+  , register_llvm_override Libc.llvmPrintfChkOverride
+  , register_llvm_override Libc.llvmPutsOverride
+  , register_llvm_override Libc.llvmPutCharOverride
+
+  -- C++ standard library functions
+  , Libcxx.register_cpp_override Libcxx.endlOverride
+
+  -- Some architecture-dependent intrinsics
+  , register_llvm_override llvmX86_SSE2_storeu_dq
+  , register_llvm_override llvmX86_pclmulqdq
+  ]
+
+
+-- | Register those overrides that should apply even when the corresponding
+-- function has a definition
+define_overrides ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  [RegOverrideM p sym arch rtp l a ()]
+define_overrides =
+  [ Libcxx.register_cpp_override Libcxx.putToOverride12
+  , Libcxx.register_cpp_override Libcxx.endlOverride
+  , Libcxx.register_cpp_override Libcxx.sentryOverride
+  ]
+
 
 -- | This intrinsic is currently a no-op.
 --
@@ -559,6 +347,177 @@ llvmStackrestore =
   UnitRepr
   (\_memOps _sym _args -> return ())
 
+llvmMemmoveOverride_8_8_32
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
+                   ::> BVType 32 ::> BVType 32 ::> BVType 1)
+         UnitType
+llvmMemmoveOverride_8_8_32 =
+  let nm = "llvm.memmove.p0i8.p0i8.i32" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemmove sym memOps) args)
+
+
+llvmMemmoveOverride_8_8_64
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
+                   ::> BVType 64 ::> BVType 32 ::> BVType 1)
+         UnitType
+llvmMemmoveOverride_8_8_64 =
+  let nm = "llvm.memmove.p0i8.p0i8.i64" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PrimType $ L.Integer 64
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> PtrRepr :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemmove sym memOps) args)
+
+
+llvmMemsetOverride_8_64
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr
+                   ::> BVType  8
+                   ::> BVType 64
+                   ::> BVType 32
+                   ::> BVType 1)
+         UnitType
+llvmMemsetOverride_8_64 =
+  let nm = "llvm.memset.p0i8.i64" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PrimType $ L.Integer  8
+                     , L.PrimType $ L.Integer 64
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer  1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemset sym memOps) args)
+
+
+llvmMemsetOverride_8_32
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr
+                   ::> BVType  8
+                   ::> BVType 32
+                   ::> BVType 32
+                   ::> BVType 1)
+         UnitType
+llvmMemsetOverride_8_32 =
+  let nm = "llvm.memset.p0i8.i32" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PrimType $ L.Integer  8
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer  1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemset sym memOps) args)
+
+llvmMemcpyOverride_8_8_32
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
+                    ::> BVType 32 ::> BVType 32 ::> BVType 1)
+          UnitType
+llvmMemcpyOverride_8_8_32 =
+  let nm = "llvm.memcpy.p0i8.p0i8.i32" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemcpy sym memOps) args)
+
+
+llvmMemcpyOverride_8_8_64
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
+                   ::> BVType 64 ::> BVType 32 ::> BVType 1)
+         UnitType
+llvmMemcpyOverride_8_8_64 =
+  let nm = "llvm.memcpy.p0i8.p0i8.i64" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PrimType $ L.Integer 64
+                     , L.PrimType $ L.Integer 32
+                     , L.PrimType $ L.Integer 1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> PtrRepr :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemcpy sym memOps) args)
 
 llvmObjectsizeOverride_32
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -645,342 +604,6 @@ llvmObjectsizeOverride_64' =
   (Empty :> PtrRepr :> KnownBV @1 :> KnownBV @1)
   (KnownBV @64)
   (\memOps sym args -> Ctx.uncurryAssignment (callObjectsize' sym memOps knownNat) args)
-
-llvmAssertRtnOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-        (EmptyCtx ::> LLVMPointerType wptr
-                  ::> LLVMPointerType wptr
-                  ::> BVType 32
-                  ::> LLVMPointerType wptr)
-        UnitType
-llvmAssertRtnOverride =
-  let nm = "__assert_rtn" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     , L.PtrTo $ L.PrimType $ L.Integer 8
-                     , L.PrimType $ L.Integer 32
-                     , L.PtrTo $ L.PrimType $ L.Integer 8
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> PtrRepr)
-  UnitRepr
-  (\_ sym _args ->
-       do let err = AssertFailureSimError "Call to __assert_rtn"
-          liftIO $ assert sym (falsePred sym) err
-  )
-
-llvmCallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> BVType wptr ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmCallocOverride =
-  let nm = "calloc" in
-  let alignment = maxAlignment (llvmDataLayout ?lc) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ llvmSizeT
-                     , llvmSizeT
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> SizeT :> SizeT)
-  (PtrRepr)
-  (\memOps sym args -> Ctx.uncurryAssignment (callCalloc sym memOps alignment) args)
-
-
-llvmReallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmReallocOverride =
-  let nm = "realloc" in
-  let alignment = maxAlignment (llvmDataLayout ?lc) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     , llvmSizeT
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> SizeT)
-  (PtrRepr)
-  (\memOps sym args -> Ctx.uncurryAssignment (callRealloc sym memOps alignment) args)
-
-llvmMallocOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMallocOverride =
-  let nm = "malloc" in
-  let alignment = maxAlignment (llvmDataLayout ?lc) in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ llvmSizeT
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> SizeT)
-  (PtrRepr)
-  (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
-
-llvmFreeOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr)
-         UnitType
-llvmFreeOverride =
-  let nm = "free" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr)
-  UnitRepr
-  (\memOps sym args -> Ctx.uncurryAssignment (callFree sym memOps) args)
-
-llvmMemcpyOverride_8_8_32
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-          (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
-                    ::> BVType 32 ::> BVType 32 ::> BVType 1)
-          UnitType
-llvmMemcpyOverride_8_8_32 =
-  let nm = "llvm.memcpy.p0i8.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
-  (\memOps sym args -> Ctx.uncurryAssignment (callMemcpy sym memOps) args)
-
-
-llvmMemcpyOverride_8_8_64
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
-                   ::> BVType 64 ::> BVType 32 ::> BVType 1)
-         UnitType
-llvmMemcpyOverride_8_8_64 =
-  let nm = "llvm.memcpy.p0i8.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
-  (\memOps sym args -> Ctx.uncurryAssignment (callMemcpy sym memOps) args)
-
-llvmMemcpyOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-           (EmptyCtx ::> LLVMPointerType wptr
-                     ::> LLVMPointerType wptr
-                     ::> BVType wptr)
-           (LLVMPointerType wptr)
-llvmMemcpyOverride =
-  let nm = "memcpy" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
-                     , L.PtrTo $ L.PrimType (L.Integer 8)
-                     , llvmSizeT
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> SizeT)
-  PtrRepr
-  (\memOps sym args ->
-     do align    <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
-        volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
-        Ctx.uncurryAssignment (callMemcpy sym memOps)
-                              (args :> align :> volatile)
-        return $ regValue $ args^._1 -- return first argument
-  )
-
-
-llvmMemcpyChkOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr
-                   ::> LLVMPointerType wptr
-                   ::> BVType wptr
-                   ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMemcpyChkOverride =
-  let nm = "__memcpy_chk" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
-                     , L.PtrTo $ L.PrimType (L.Integer 8)
-                     , llvmSizeT
-                     , llvmSizeT
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> SizeT :> SizeT)
-  PtrRepr
-  (\memOps sym args ->
-    do let args' = Ctx.empty :> (args^._1) :> (args^._2) :> (args^._3)
-       align    <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
-       volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
-       Ctx.uncurryAssignment (callMemcpy sym memOps)
-                             (args' :> align :> volatile)
-       return $ regValue $ args^._1 -- return first argument
-  )
-
-llvmMemmoveOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> (LLVMPointerType wptr)
-                   ::> (LLVMPointerType wptr)
-                   ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMemmoveOverride =
-  let nm = "memmove" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
-                     , L.PtrTo $ L.PrimType (L.Integer 8)
-                     , llvmSizeT
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> SizeT)
-  PtrRepr
-  (\memOps sym args ->
-    do align <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       Ctx.uncurryAssignment (callMemmove sym memOps)
-                             (args :> align :> volatile)
-       return $ regValue $ args^._1 -- return first argument
-  )
-
-llvmMemmoveOverride_8_8_32
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
-                   ::> BVType 32 ::> BVType 32 ::> BVType 1)
-         UnitType
-llvmMemmoveOverride_8_8_32 =
-  let nm = "llvm.memmove.p0i8.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
-  (\memOps sym args -> Ctx.uncurryAssignment (callMemmove sym memOps) args)
-
-
-llvmMemmoveOverride_8_8_64
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr
-                   ::> BVType 64 ::> BVType 32 ::> BVType 1)
-         UnitType
-llvmMemmoveOverride_8_8_64 =
-  let nm = "llvm.memmove.p0i8.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> PtrRepr :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
-  (\memOps sym args -> Ctx.uncurryAssignment (callMemmove sym memOps) args)
-
 
 llvmSaddWithOverflow
   :: (1 <= w, IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -1335,420 +958,6 @@ llvmX86_SSE2_storeu_dq =
   UnitRepr
   (\memOps sym args -> Ctx.uncurryAssignment (callStoreudq sym memOps) args)
 
-
-llvmMemsetOverride_8_64
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr
-                   ::> BVType  8
-                   ::> BVType 64
-                   ::> BVType 32
-                   ::> BVType 1)
-         UnitType
-llvmMemsetOverride_8_64 =
-  let nm = "llvm.memset.p0i8.i64" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer  8
-                     , L.PrimType $ L.Integer 64
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer  1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
-  (\memOps sym args -> Ctx.uncurryAssignment (callMemset sym memOps) args)
-
-
-llvmMemsetOverride_8_32
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr
-                   ::> BVType  8
-                   ::> BVType 32
-                   ::> BVType 32
-                   ::> BVType 1)
-         UnitType
-llvmMemsetOverride_8_32 =
-  let nm = "llvm.memset.p0i8.i32" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Void
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
-                     , L.PrimType $ L.Integer  8
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer 32
-                     , L.PrimType $ L.Integer  1
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @32 :> KnownBV @32 :> KnownBV @1)
-  UnitRepr
-  (\memOps sym args -> Ctx.uncurryAssignment (callMemset sym memOps) args)
-
-
-llvmMemsetOverride :: forall p sym arch wptr.
-     (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr
-                   ::> BVType 32
-                   ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMemsetOverride =
-  let nm = "memset" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
-                     , L.PrimType $ L.Integer 32
-                     , llvmSizeT
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @32 :> SizeT)
-  PtrRepr
-  (\memOps sym args ->
-    do LeqProof <- return (leqTrans @9 @16 @wptr LeqProof LeqProof)
-       let dest = args^._1
-       val <- liftIO (RegEntry knownRepr <$> bvTrunc sym (knownNat @8) (regValue (args^._2)))
-       let len = args^._3
-       align <- liftIO
-          (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       volatile <- liftIO
-          (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       callMemset sym memOps dest val len align volatile
-       return (regValue dest)
-  )
-
-llvmMemsetChkOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr
-                 ::> BVType 32
-                 ::> BVType wptr
-                 ::> BVType wptr)
-         (LLVMPointerType wptr)
-llvmMemsetChkOverride =
-  let nm = "__memset_chk" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PtrTo $ L.PrimType (L.Integer 8)
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType (L.Integer 8)
-                     , L.PrimType $ L.Integer 32
-                     , llvmSizeT
-                     , llvmSizeT
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> KnownBV @32 :> SizeT :> SizeT)
-  PtrRepr
-  (\memOps sym args ->
-    do let dest = args^._1
-       val <- liftIO
-            (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args^._2)))
-       let len = args^._3
-       align <- liftIO
-          (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       volatile <- liftIO
-          (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       callMemset sym memOps dest val len align volatile
-       return (regValue dest)
-  )
-
-llvmPutCharOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch (EmptyCtx ::> BVType 32) (BVType 32)
-llvmPutCharOverride =
-  let nm = "putchar" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 32
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer 32
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> KnownBV @32)
-  (KnownBV @32)
-  (\memOps sym args -> Ctx.uncurryAssignment (callPutChar sym memOps) args)
-
-
-llvmPutsOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType 32)
-llvmPutsOverride =
-  let nm = "puts" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 32
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr)
-  (KnownBV @32)
-  (\memOps sym args -> Ctx.uncurryAssignment (callPuts sym memOps) args)
-
-llvmStrlenOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch (EmptyCtx ::> LLVMPointerType wptr) (BVType wptr)
-llvmStrlenOverride =
-  let nm = "strlen" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = llvmSizeT
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     ]
-    , L.decVarArgs = False
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr)
-  SizeT
-  (\memOps sym args -> Ctx.uncurryAssignment (callStrlen sym memOps) args)
-
-llvmPrintfOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> LLVMPointerType wptr
-                   ::> VectorType AnyType)
-         (BVType 32)
-llvmPrintfOverride =
-  let nm = "printf" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 32
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
-                     ]
-    , L.decVarArgs = True
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> PtrRepr :> VectorRepr AnyRepr)
-  (KnownBV @32)
-  (\memOps sym args -> Ctx.uncurryAssignment (callPrintf sym memOps) args)
-
-llvmPrintfChkOverride
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => LLVMOverride p sym arch
-         (EmptyCtx ::> BVType 32
-                   ::> LLVMPointerType wptr
-                   ::> VectorType AnyType)
-         (BVType 32)
-llvmPrintfChkOverride =
-  let nm = "__printf_chk" in
-  LLVMOverride
-  ( L.Declare
-    { L.decRetType = L.PrimType $ L.Integer 32
-    , L.decName    = L.Symbol nm
-    , L.decArgs    = [ L.PrimType $ L.Integer 32
-                     , L.PtrTo $ L.PrimType $ L.Integer 8
-                     ]
-    , L.decVarArgs = True
-    , L.decAttrs   = []
-    , L.decComdat  = mempty
-    }
-  )
-  (Empty :> KnownBV @32 :> PtrRepr :> VectorRepr AnyRepr)
-  (KnownBV @32)
-  (\memOps sym args -> Ctx.uncurryAssignment (\_flg -> callPrintf sym memOps) args)
-
-
-callRealloc
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => sym
-  -> GlobalVar Mem
-  -> Alignment
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
-  do szZero  <- liftIO (notPred sym =<< bvIsNonzero sym sz)
-     ptrNull <- liftIO (ptrIsNull sym PtrWidth ptr)
-     symbolicBranches emptyRegMap
-       -- If the pointer is null, behave like malloc
-       [ (ptrNull
-         , do mem <- readGlobal mvar
-              (newp, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-              writeGlobal mvar mem'
-              return newp
-         ,
-         Nothing)
-
-       -- If the size is zero, behave like malloc (of zero bytes) then free
-       , (szZero
-         , do mem <- readGlobal mvar
-              (newp, mem') <- liftIO $
-                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-                   mem2 <- doFree sym mem1 ptr
-                   return (newp, mem2)
-              writeGlobal mvar mem'
-              return newp
-         , Nothing
-         )
-
-       -- Otherwise, allocate a new region, memcopy `sz` bytes and free the old pointer
-       , (truePred sym
-         , do mem  <- readGlobal mvar
-              (newp, mem') <- liftIO $
-                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-                   mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
-                   mem3 <- doFree sym mem2 ptr
-                   return (newp, mem3)
-              writeGlobal mvar mem'
-              return newp
-         , Nothing)
-       ]
-
-
-callMalloc
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => sym
-  -> GlobalVar Mem
-  -> Alignment
-  -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callMalloc sym mvar alignment
-           (regValue -> sz) = do
-  --liftIO $ putStrLn "MEM MALLOC"
-  mem <- readGlobal mvar
-  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz alignment
-  writeGlobal mvar mem'
-  return p
-
-
-callCalloc
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => sym
-  -> GlobalVar Mem
-  -> Alignment
-  -> RegEntry sym (BVType wptr)
-  -> RegEntry sym (BVType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callCalloc sym mvar alignment
-           (regValue -> sz)
-           (regValue -> num) = do
-  --liftIO $ putStrLn "MEM CALLOC"
-  mem <- readGlobal mvar
-  (p, mem') <- liftIO $ doCalloc sym mem sz num alignment
-  writeGlobal mvar mem'
-  return p
-
-
-callFree
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
-callFree sym mvar
-           (regValue -> ptr) = do
-  --liftIO $ putStrLn "MEM FREE"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doFree sym mem ptr
-  writeGlobal mvar mem'
-
-
-callMemcpy
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 32)
-  -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
-callMemcpy sym mvar
-           (regValue -> dest)
-           (regValue -> src)
-           (RegEntry (BVRepr w) len)
-           _align _volatile = do
-  -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM COPY"
-  mem <- readGlobal mvar
-  liftIO $ assertDisjointRegions sym w dest src len
-  mem' <- liftIO $ doMemcpy sym w mem dest src len
-  writeGlobal mvar mem'
-
--- NB the only difference between memcpy and memove
--- is that memmove does not assert that the memory
--- ranges are disjoint.  The underlying operation
--- works correctly in both cases.
-callMemmove
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 32)
-  -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
-callMemmove sym mvar
-           (regValue -> dest)
-           (regValue -> src)
-           (RegEntry (BVRepr w) len)
-           _align _volatile = do
-  -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM MOVE"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doMemcpy sym w mem dest src len
-  writeGlobal mvar mem'
-
-
-callMemset
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType 8)
-  -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 32)
-  -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
-callMemset sym mvar
-           (regValue -> dest)
-           (regValue -> val)
-           (RegEntry (BVRepr w) len)
-           _align _volatile = do
-  -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM SET"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doMemset sym w mem dest val len
-  writeGlobal mvar mem'
-
-
 callX86_pclmulqdq :: forall p sym arch wptr r args ret.
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   sym ->
@@ -2002,182 +1211,3 @@ callBitreverse
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType w))
 callBitreverse sym _mvar
   (regValue -> val) = liftIO $ bvBitreverse sym val
-
-
-callPutChar
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (BVType 32)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
-callPutChar _sym _mvar
- (regValue -> ch) = do
-    h <- printHandle <$> getContext
-    let chval = maybe '?' (toEnum . fromInteger) (asUnsignedBV ch)
-    liftIO $ hPutChar h chval
-    return ch
-
-
-callPuts
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
-callPuts sym mvar
-  (regValue -> strPtr) = do
-    mem <- readGlobal mvar
-    str <- liftIO $ loadString sym mem strPtr Nothing
-    h <- printHandle <$> getContext
-    liftIO $ hPutStrLn h (UTF8.toString str)
-    -- return non-negative value on success
-    liftIO $ bvLit sym knownNat 1
-
-callStrlen
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType wptr))
-callStrlen sym mvar (regValue -> strPtr) = do
-  mem <- readGlobal mvar
-  len <- liftIO $ length <$> loadString sym mem strPtr Nothing
-  liftIO $ bvLit sym ?ptrWidth (fromIntegral len)
-
-callPrintf
-  :: (IsSymInterface sym, HasPtrWidth wptr)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (VectorType AnyType)
-  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
-callPrintf sym mvar
-  (regValue -> strPtr)
-  (regValue -> valist) = do
-    mem <- readGlobal mvar
-    formatStr <- liftIO $ loadString sym mem strPtr Nothing
-    case parseDirectives formatStr of
-      Left err -> overrideError $ AssertFailureSimError err
-      Right ds -> do
-        ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
-        writeGlobal mvar mem'
-        h <- printHandle <$> getContext
-        liftIO $ hPutStr h str
-        liftIO $ bvLit sym knownNat (toInteger n)
-
-printfOps :: (IsSymInterface sym, HasPtrWidth wptr)
-          => sym
-          -> V.Vector (AnyValue sym)
-          -> PrintfOperations (StateT (MemImpl sym) IO)
-printfOps sym valist =
-  PrintfOperations
-  { printfUnsupported = \x -> lift $ addFailedAssertion sym
-                                   $ Unsupported x
-
-  , printfGetInteger = \i sgn _len ->
-     case valist V.!? (i-1) of
-       Just (AnyValue (LLVMPointerRepr _w) x) ->
-         do bv <- liftIO (projectLLVM_bv sym x)
-            if sgn then
-              return $ asSignedBV bv
-            else
-              return $ asUnsignedBV bv
-       Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords ["Type mismatch in printf.  Expected integer, but got:"
-                        , show tpr]
-       Nothing ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
-
-  , printfGetFloat = \i _len ->
-     case valist V.!? (i-1) of
-       Just (AnyValue (FloatRepr _fi) _x) ->
-         -- TODO: handle interpreted floats
-         return Nothing
-       Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords [ "Type mismatch in printf."
-                        , "Expected floating-point, but got:", show tpr]
-       Nothing ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
-
-  , printfGetString  = \i numchars ->
-     case valist V.!? (i-1) of
-       Just (AnyValue PtrRepr ptr) ->
-           do mem <- get
-              liftIO $ loadString sym mem ptr numchars
-       Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords [ "Type mismatch in printf."
-                        , "Expected char*, but got:", show tpr]
-       Nothing ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
-
-  , printfGetPointer = \i ->
-     case valist V.!? (i-1) of
-       Just (AnyValue PtrRepr ptr) ->
-         return $ show (G.ppPtr ptr)
-       Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords [ "Type mismatch in printf."
-                        , "Expected void*, but got:", show tpr]
-       Nothing ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
-
-  , printfSetInteger = \i len v ->
-     case valist V.!? (i-1) of
-       Just (AnyValue PtrRepr ptr) ->
-         do mem <- get
-            case len of
-              Len_Byte  -> do
-                 let w8 = knownNat :: NatRepr 8
-                 let tp = G.bitvectorType 1
-                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w8 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w8) tp noAlignment x
-                 put mem'
-              Len_Short -> do
-                 let w16 = knownNat :: NatRepr 16
-                 let tp = G.bitvectorType 2
-                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w16 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w16) tp noAlignment x
-                 put mem'
-              Len_NoMod -> do
-                 let w32  = knownNat :: NatRepr 32
-                 let tp = G.bitvectorType 4
-                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w32 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w32) tp noAlignment x
-                 put mem'
-              Len_Long  -> do
-                 let w64 = knownNat :: NatRepr 64
-                 let tp = G.bitvectorType 8
-                 x <- liftIO (llvmPointer_bv sym =<< bvLit sym w64 (toInteger v))
-                 mem' <- liftIO $ doStore sym mem ptr (LLVMPointerRepr w64) tp noAlignment x
-                 put mem'
-              _ ->
-                lift $ addFailedAssertion sym
-                     $ Unsupported
-                     $ unwords ["Unsupported size modifier in %n conversion:", show len]
-
-       Just (AnyValue tpr _) ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords [ "Type mismatch in printf."
-                        , "Expected void*, but got:", show tpr]
-
-       Nothing ->
-         lift $ addFailedAssertion sym
-              $ AssertFailureSimError
-              $ unwords ["Out-of-bounds argument access in printf:", show i]
-  }

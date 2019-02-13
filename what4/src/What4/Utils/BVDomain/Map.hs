@@ -80,10 +80,11 @@ import           Prelude hiding (any, concat, negate, and, or)
 
 -- | @halfRange n@ returns @2^(n-1)@.
 halfRange :: NatRepr w -> Integer
-halfRange w = 2^(natValue w - 1)
+halfRange w = bit (widthVal w - 1)
 
+-- | @rangeSize n@ returns @2^n@.
 rangeSize :: NatRepr w -> Integer
-rangeSize w = 2^(natValue w)
+rangeSize w = bit (widthVal w)
 
 ------------------------------------------------------------------------
 -- ModRange
@@ -437,26 +438,26 @@ insertRange l h inputs = seq l $ seq h $ seq inputs $
 
 -- | Convert unsigned ranges to signed ranges
 toSignedRanges :: (1 <= w) => NatRepr w -> BVDomain w -> [(Integer,Integer)]
-toSignedRanges w d = go (toList d)
-  where go :: [(Integer,Integer)] -> [(Integer,Integer)]
-        go [] = []
-        go ((l,h):r)
-          | h <= maxSigned w = (l,h):go r
-          | l <= maxSigned w =
-            (l, maxSigned w) : (minSigned w, h - rangeSize w) : go2 r
-          | otherwise =
-            go2 r
-        -- Decrement each pair
-        go2 :: [(Integer,Integer)] -> [(Integer,Integer)]
-        go2 = fmap (\(l,h) -> (l - rangeSize w, h - rangeSize w))
+toSignedRanges w d = concatMap go (toList d)
+  where go :: (Integer,Integer) -> [(Integer,Integer)]
+        go (l,h)
+            -- both l and h represent nonnegative numbers
+          | h <= maxSigned w = [(l,h)]
+            -- only h is negative, split the range
+          | l <= maxSigned w = [(l, maxSigned w), (minSigned w, h - rangeSize w)]
+            -- both l and h are negative
+          | otherwise = [(l - rangeSize w, h - rangeSize w)]
 
 -- | Return list of signed ranges in domain.
 signedToUnsignedRanges :: NatRepr w -> [(Integer,Integer)] -> [(Integer,Integer)]
 signedToUnsignedRanges w l0 = concatMap go l0
   where go :: (Integer,Integer) -> [(Integer,Integer)]
         go (l,h)
+            -- both l and h are negative
           | h < 0 = [(toUnsigned w l, toUnsigned w h)]
+            -- only l is negative, split the range
           | l < 0 = [(toUnsigned w l, maxUnsigned w), (0,h)]
+            -- both positive
           | otherwise = [(l,h)]
 
 
@@ -686,14 +687,13 @@ ashr w _x _y = any w -- TODO
 zext :: (1 <= w, w+1 <= u) => BVDomain w -> NatRepr u -> BVDomain u
 zext x _ = BVDomain (domainRanges x)
 
-sext :: forall w u
-     .  (1 <= w, w+1 <= u)
-     => BVDomainParams
-     -> NatRepr w
-     -> BVDomain w
-     -> NatRepr u
-     -> BVDomain u
-sext params uw x w = do
+sext :: forall w u. (1 <= w, w+1 <= u) =>
+  BVDomainParams ->
+  NatRepr w ->
+  BVDomain w ->
+  NatRepr u ->
+  BVDomain u
+sext params w x u = do
   let wProof :: LeqProof 1 w
       wProof = LeqProof
       uProof :: LeqProof (w+1) u
@@ -701,8 +701,8 @@ sext params uw x w = do
       fProof :: LeqProof 1 u
       fProof = leqTrans (leqAdd wProof (knownNat :: NatRepr 1)) uProof
   case fProof of
-    LeqProof -> fromList "sext" params w $ do
-      signedToUnsignedRanges w (toSignedRanges uw x)
+    LeqProof -> fromList "sext" params u $
+      signedToUnsignedRanges u (toSignedRanges w x)
 
 -- | Complement bits in range.
 not :: (1 <= w) => NatRepr w -> BVDomain w -> BVDomain w

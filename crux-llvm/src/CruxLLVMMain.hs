@@ -9,7 +9,7 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module CrucibleCMain (main, mainWithOutputTo) where
+module CruxLLVMMain (main, mainWithOutputTo) where
 
 import Data.String (fromString)
 import qualified Data.Map as Map
