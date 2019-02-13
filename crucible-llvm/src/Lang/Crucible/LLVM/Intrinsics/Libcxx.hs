@@ -48,18 +48,21 @@ import           Data.Type.Equality ((:~:)(Refl), testEquality)
 import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.NatRepr (knownNat)
 
-import           What4.Interface (truePred)
+import           What4.Interface (bvLit, natLit)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.FunctionHandle (handleArgTypes, handleReturnType)
 import           Lang.Crucible.Simulator.RegMap (RegValue, regValue)
 import           Lang.Crucible.Panic (panic)
-import           Lang.Crucible.Types (TypeRepr(BoolRepr, UnitRepr))
+import           Lang.Crucible.Types (TypeRepr(UnitRepr))
 
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.MemModel.Pointer (pattern LLVMPointer)
+import           Lang.Crucible.LLVM.Types (pattern LLVMPointerRepr)
 
 import           Lang.Crucible.LLVM.Intrinsics.Common
 
@@ -182,7 +185,7 @@ constOverride =
 -- | Make an override that always returns the same value.
 fixedOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
               => TypeRepr ty
-              -> (GlobalVar Mem -> sym -> RegValue sym ty)
+              -> (GlobalVar Mem -> sym -> IO (RegValue sym ty))
               -> (L.Symbol -> Bool)
               -> SomeCPPOverride p sym arch
 fixedOverride ty regval =
@@ -190,17 +193,17 @@ fixedOverride ty regval =
     case (handleArgTypes handle, handleReturnType handle) of
       (argTys, retTy) | Just Refl <- testEquality retTy ty ->
         SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem sym _args ->
-          pure (regval mem sym)
+          liftIO (regval mem sym)
 
       (argTys, retTy) -> panic_ "trueOverride" decl argTys retTy
 
--- | Make an override for a function of (LLVM) type @a -> bool@, for any @a@.
---
--- The override simply returns @true@.
+-- | Return @true@.
 trueOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
              => (L.Symbol -> Bool)
              -> SomeCPPOverride p sym arch
-trueOverride = fixedOverride BoolRepr (\_mem sym -> truePred sym)
+trueOverride =
+  fixedOverride (LLVMPointerRepr knownNat) $ \_mem sym ->
+    LLVMPointer <$> natLit sym 0 <*> bvLit sym (knownNat @1) 1
 
 ------------------------------------------------------------------------
 -- ** Declarations
@@ -271,7 +274,9 @@ sentryOverride =
              _) -> True
       _ -> False
 
--- | An override of the @bool@ operator (cast) on the @sentry@ class
+-- | An override of the @bool@ operator (cast) on the @sentry@ class,
+--
+-- @sentry::operator bool()@
 sentryBoolOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
                    => SomeCPPOverride p sym arch
 sentryBoolOverride =
