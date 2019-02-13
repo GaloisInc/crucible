@@ -244,11 +244,18 @@ rangeLoad lo ltp s@(R so se)
  where le = typeEnd lo ltp
        loadFail = ValueCtorVar (OutOfRange lo ltp)
 
+-- | Produces a @Mux ValueCtor@ expression representing the range load conditions
+-- when the load and store offsets are concrete and the store size is bounded
 fixedOffsetRangeLoad :: Addr
+                     -- ^ Address of load
                      -> StorageType
+                     -- ^ Type to load
                      -> Addr
+                     -- ^ Address of store
                      -> Mux (ValueCtor (RangeLoad Addr Addr))
 fixedOffsetRangeLoad l tp s
+  | le < l = -- the load crosses a boundary
+    MuxVar . ValueCtorVar $ InRange (l-s) tp
   | s < l = do -- Store is before load.
     let sd = l - s -- Number of bytes load comes after store
     Mux (IntLe StoreSize (CValue sd)) loadFail (loadCase (sd+1))

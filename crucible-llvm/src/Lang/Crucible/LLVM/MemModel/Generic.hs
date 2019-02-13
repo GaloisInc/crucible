@@ -856,7 +856,8 @@ isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, off)) sz m = d
                         Just asz -> do (ov, _end) <- addUnsignedOF sym off asz
                                        notPred sym ov
 
-      andPred sym overflowPred =<< go (pure (falsePred sym)) (memAllocs m)
+      -- andPred sym overflowPred =<<
+      go (pure (falsePred sym)) (memAllocs m)
 
 
 -- | Checks if the block ID given as a natural number is the same as the block
