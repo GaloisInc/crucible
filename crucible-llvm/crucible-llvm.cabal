@@ -62,6 +62,7 @@ library
     Lang.Crucible.LLVM.Intrinsics.Common
     Lang.Crucible.LLVM.Intrinsics.Libc
     Lang.Crucible.LLVM.Intrinsics.Libcxx
+    Lang.Crucible.LLVM.Intrinsics.LLVM
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Generic
     Lang.Crucible.LLVM.MemModel.Value
