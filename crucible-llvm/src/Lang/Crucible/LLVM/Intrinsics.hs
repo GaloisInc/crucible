@@ -48,8 +48,8 @@ import           Control.Lens hiding (op, (:>), Empty)
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
-import           Data.Bits
-import           Data.Foldable( asum )
+import           Data.Bits ((.&.))
+import           Data.Foldable (asum)
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
@@ -60,7 +60,7 @@ import qualified Data.Parameterized.Map as MapF
 import           What4.Interface
 
 import           Lang.Crucible.Backend
-import           Lang.Crucible.CFG.Common
+import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.OverrideSim
@@ -221,8 +221,10 @@ define_overrides ::
   [RegOverrideM p sym arch rtp l a ()]
 define_overrides =
   [ Libcxx.register_cpp_override Libcxx.putToOverride12
+  , Libcxx.register_cpp_override Libcxx.putToOverride9
   , Libcxx.register_cpp_override Libcxx.endlOverride
   , Libcxx.register_cpp_override Libcxx.sentryOverride
+  , Libcxx.register_cpp_override Libcxx.sentryBoolOverride
   ]
 
 

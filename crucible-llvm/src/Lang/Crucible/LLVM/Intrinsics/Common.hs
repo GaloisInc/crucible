@@ -55,7 +55,7 @@ import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.TraversableFC (fmapFC)
 
 import           Lang.Crucible.Backend (IsSymInterface)
-import           Lang.Crucible.CFG.Common
+import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
 import           Lang.Crucible.FunctionHandle (FnHandle(..), mkHandle')
 import           Lang.Crucible.FunctionHandle (HandleAllocator)

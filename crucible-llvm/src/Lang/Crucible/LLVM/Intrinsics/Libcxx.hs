@@ -31,8 +31,10 @@ module Lang.Crucible.LLVM.Intrinsics.Libcxx
   ( register_cpp_override
     -- ** iostream
   , putToOverride12
+  , putToOverride9
   , endlOverride
   , sentryOverride
+  , sentryBoolOverride
   ) where
 
 import qualified ABI.Itanium as ABI
@@ -47,11 +49,14 @@ import qualified Text.LLVM.AST as L
 
 import qualified Data.Parameterized.Context as Ctx
 
+import           What4.Interface (truePred)
+
 import           Lang.Crucible.Backend
+import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.FunctionHandle (handleArgTypes, handleReturnType)
-import           Lang.Crucible.Simulator.RegMap (regValue)
+import           Lang.Crucible.Simulator.RegMap (RegValue, regValue)
 import           Lang.Crucible.Panic (panic)
-import           Lang.Crucible.Types (TypeRepr(UnitRepr))
+import           Lang.Crucible.Types (TypeRepr(BoolRepr, UnitRepr))
 
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
@@ -110,27 +115,36 @@ panic_ from decl args ret =
              ]
   where L.Symbol nm = L.decName decl
 
+-- | If the requested declaration's symbol matches the filter, look up its
+-- function handle in the symbol table and use that to construct an override
+mkOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+           => String -- ^ Name (for 'panic')
+           -> (LLVMHandleInfo -> Maybe (SomeLLVMOverride p sym arch))
+           -> (L.Symbol -> Bool)
+           -> SomeCPPOverride p sym arch
+mkOverride name ov filt requestedDecl llvmctx =
+  matchSymbolName filt requestedDecl $
+    case (Map.lookup (L.decName requestedDecl) (llvmctx ^. symbolMap)) of
+      Nothing         -> panic name [ "No function handle for symbol:"
+                                    , show (L.decName requestedDecl)
+                                    ]
+      Just handleInfo -> ov handleInfo
+
 ------------------------------------------------------------------------
 -- *** No-op override builders
 
 -- | Make an override for a function which doesn't return anything.
 voidOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-              => (L.Symbol -> Bool)
-              -> SomeCPPOverride p sym arch
-voidOverride filt requestedDecl llvmctx =
-  matchSymbolName filt requestedDecl $
-    case (Map.lookup (L.decName requestedDecl) (llvmctx ^. symbolMap)) of
-      Just (LLVMHandleInfo decl hand) -> Just $
-        let (args, ret) = (handleArgTypes hand, handleReturnType hand)
-        in 
-          case (args, ret) of
-            (_, UnitRepr) ->
-              SomeLLVMOverride $ LLVMOverride decl args ret $ \_mem _sym _args ->
-                pure ()
+             => (L.Symbol -> Bool)
+             -> SomeCPPOverride p sym arch
+voidOverride =
+  mkOverride "voidOverride" $ \(LLVMHandleInfo decl handle) -> Just $
+    case (handleArgTypes handle, handleReturnType handle) of
+      (argTys, retTy@UnitRepr) ->
+        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym _args ->
+          pure ()
 
-            _ -> panic_ "voidOverride" requestedDecl args ret
-      _ -> panic "voidOverride"
-                 ["No function handle for " ++ show (L.decName requestedDecl)]
+      (argTys, retTy) -> panic_ "voidOverride" decl argTys retTy
 
 -- | Make an override for a function of (LLVM) type @a -> a@, for any @a@.
 --
@@ -138,44 +152,55 @@ voidOverride filt requestedDecl llvmctx =
 identityOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
                  => (L.Symbol -> Bool)
                  -> SomeCPPOverride p sym arch
-identityOverride filt requestedDecl llvmctx =
-  matchSymbolName filt requestedDecl $
-    case (Map.lookup (L.decName requestedDecl) (llvmctx ^. symbolMap)) of
-      Just (LLVMHandleInfo decl hand) -> Just $
-        let (args, ret) = (handleArgTypes hand, handleReturnType hand)
-        in 
-          case (args, ret) of
-            (Ctx.Empty Ctx.:> ty1, ty2) | Just Refl <- testEquality ty1 ty2 ->
-              SomeLLVMOverride $ LLVMOverride decl args ret $ \_mem _sym args' ->
-                -- Just return the input
-                pure (Ctx.uncurryAssignment regValue args')
+identityOverride =
+  mkOverride "identityOverride" $ \(LLVMHandleInfo decl handle) -> Just $
+    case (handleArgTypes handle, handleReturnType handle) of
+      (argTys@(Ctx.Empty Ctx.:> argTy), retTy)
+        | Just Refl <- testEquality argTy retTy ->
+            SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym args ->
+              -- Just return the input
+              pure (Ctx.uncurryAssignment regValue args)
 
-            _ -> panic_ "identityOverride" requestedDecl args ret
-      _ -> panic "identityOverride"
-                 ["No function handle for " ++ show (L.decName requestedDecl)]
+      (argTys, retTy) -> panic_ "identityOverride" decl argTys retTy
 
 -- | Make an override for a function of (LLVM) type @a -> b -> a@, for any @a@.
 --
 -- The override simply returns its first input.
 constOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-                 => (L.Symbol -> Bool)
-                 -> SomeCPPOverride p sym arch
-constOverride filt requestedDecl llvmctx =
-  matchSymbolName filt requestedDecl $
-    case (Map.lookup (L.decName requestedDecl) (llvmctx ^. symbolMap)) of
-      Just (LLVMHandleInfo decl hand) -> Just $
-        let (args, ret) = (handleArgTypes hand, handleReturnType hand)
-        in 
-          case (args, ret) of
-            (Ctx.Empty Ctx.:> ty1 Ctx.:> _, ty2)
-              | Just Refl <- testEquality ty1 ty2 ->
-              SomeLLVMOverride $ LLVMOverride decl args ret $ \_mem _sym args' ->
-                pure (Ctx.uncurryAssignment (const . regValue) args')
+              => (L.Symbol -> Bool)
+              -> SomeCPPOverride p sym arch
+constOverride =
+  mkOverride "constOverride" $ \(LLVMHandleInfo decl handle) -> Just $
+    case (handleArgTypes handle, handleReturnType handle) of
+      (argTys@(Ctx.Empty Ctx.:> fstTy Ctx.:> _), retTy)
+        | Just Refl <- testEquality fstTy retTy ->
+        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \_mem _sym args ->
+          pure (Ctx.uncurryAssignment (const . regValue) args)
 
-            _ -> panic_ "constOverride" requestedDecl args ret
+      (argTys, retTy) -> panic_ "constOverride" decl argTys retTy
 
-      _ -> panic "constOverride"
-                 ["No function handle for " ++ show (L.decName requestedDecl)]
+-- | Make an override that always returns the same value.
+fixedOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+              => TypeRepr ty
+              -> (GlobalVar Mem -> sym -> RegValue sym ty)
+              -> (L.Symbol -> Bool)
+              -> SomeCPPOverride p sym arch
+fixedOverride ty regval =
+  mkOverride "fixedOverride" $ \(LLVMHandleInfo decl handle) -> Just $
+    case (handleArgTypes handle, handleReturnType handle) of
+      (argTys, retTy) | Just Refl <- testEquality retTy ty ->
+        SomeLLVMOverride $ LLVMOverride decl argTys retTy $ \mem sym _args ->
+          pure (regval mem sym)
+
+      (argTys, retTy) -> panic_ "trueOverride" decl argTys retTy
+
+-- | Make an override for a function of (LLVM) type @a -> bool@, for any @a@.
+--
+-- The override simply returns @true@.
+trueOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+             => (L.Symbol -> Bool)
+             -> SomeCPPOverride p sym arch
+trueOverride = fixedOverride BoolRepr (\_mem sym -> truePred sym)
 
 ------------------------------------------------------------------------
 -- ** Declarations
@@ -186,7 +211,7 @@ constOverride filt requestedDecl llvmctx =
 ------------------------------------------------------------------------
 -- **** basic_ostream
 
--- | The override for the \"put to\" operator, @<<@
+-- | Override for the \"put to\" operator, @<<@
 --
 -- This is the override for the 12th function signature listed here:
 -- https://en.cppreference.com/w/cpp/io/basic_ostream/operator_ltlt
@@ -207,6 +232,16 @@ putToOverride12 =
               [ABI.PointerToType (ABI.FunctionType _)]) -> True
       _ -> False
 
+-- | Override for the \"put to\" operator, @<<@
+--
+-- This is the override for the 9th function signature listed here (I think):
+-- https://en.cppreference.com/w/cpp/io/basic_ostream/operator_ltlt
+putToOverride9 :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+               => SomeCPPOverride p sym arch
+putToOverride9 =
+  constOverride $ \(L.Symbol nm) ->
+    nm == "_ZNSt3__1lsINS_11char_traitsIcEEEERNS_13basic_ostreamIcT_EES6_PKc"
+
 -- | TODO: When @itanium-abi@ get support for parsing templates, make this a
 -- more structured match
 endlOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -217,7 +252,6 @@ endlOverride =
         , "char_traits"   `isInfixOf` nm
         , "basic_ostream" `isInfixOf` nm
         ]
-
 
 sentryOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
                => SomeCPPOverride p sym arch
@@ -236,3 +270,23 @@ sentryOverride =
               _)
              _) -> True
       _ -> False
+
+-- | An override of the @bool@ operator (cast) on the @sentry@ class
+sentryBoolOverride :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+                   => SomeCPPOverride p sym arch
+sentryBoolOverride =
+  trueOverride $ \(L.Symbol nm) ->
+    case ABI.demangleName nm of
+      Right (ABI.Function
+             (ABI.NestedName
+              [ABI.Const]
+              [ ABI.SubstitutionPrefix ABI.SubStdNamespace
+              , _
+              , ABI.UnqualifiedPrefix (ABI.SourceName "basic_ostream")
+              , _
+              , ABI.UnqualifiedPrefix (ABI.SourceName "sentry")
+              ]
+              (ABI.OperatorName (ABI.OpCast ABI.BoolType)))
+              [ABI.VoidType]) -> True
+      _ -> False
+
