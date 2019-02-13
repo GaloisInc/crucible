@@ -1049,7 +1049,11 @@ atomicRWOp op x y =
                    L.AtomicUMin -> app $ BVUMin w xbv ybv
             return $ BaseExpr (LLVMPointerRepr w) $ BitvectorAsPointerExpr w newval
 
-    _ -> fail $ unwords ["atomicRW operation on incompatible values", show x, show y]
+    _ -> fail $ unlines [ "atomicRW operation on incompatible values"
+                        , "Operation: " ++ show op
+                        , "Value 1: " ++ show x
+                        , "Value 2: " ++ show y
+                        ]
 
 integerCompare ::
   L.ICmpOp ->
@@ -1066,7 +1070,11 @@ integerCompare op x y =
        -> do xbv <- pointerAsBitvectorExpr w x''
              ybv <- pointerAsBitvectorExpr w y''
              return (intcmp w op xbv ybv)
-    _ -> fail $ unwords ["arithmetic comparison on incompatible values", show x, show y]
+    _ -> fail $ unlines [ "arithmetic comparison on incompatible values"
+                        , "Comparison: " ++ show op
+                        , "Value 1: " ++ show x
+                        , "Value 2: " ++ show y
+                        ]
 
 intcmp :: (1 <= w)
     => NatRepr w
