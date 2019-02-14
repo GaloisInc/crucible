@@ -1364,7 +1364,10 @@ generateInstr retType lab instr assign_f k =
              vTp <- liftMemType' (L.typedType v)
              v' <- transValue vTp (L.typedValue v)
              unless (resTy == vTp)
-                (fail "Pointer type does not match value type in store instruction")
+                (fail $ unlines [ "Pointer type does not match value type in store instruction"
+                                , "Pointer type: " ++ show tp'
+                                , "Value type:   " ++ show vTp
+                                ])
              callStore vTp ptr' v' align'
              k
         _ ->
