@@ -824,9 +824,10 @@ isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, off)) sz m = d
             | Just Refl <- testEquality w (bvWidth allocatedSize)
             , Just currSize <- sz = do
                 sameBlock <- isSameBlock sym ptr a           -- a == blockname(ptr)
-                (_ov,end) <- addPtrOffsetOF sym ptr currSize -- ptr+currSize
-                inRange    <- bvUle sym end allocatedSize    -- offset(ptr)+currSize <= allocatedSize
-                andPred sym sameBlock inRange
+                (ov,end)  <- addPtrOffsetOF sym ptr currSize -- ptr+currSize
+                noOv      <- notPred sym ov                  -- make sure we don't wrap around
+                inRange   <- bvUle sym end allocatedSize     -- offset(ptr)+currSize <= allocatedSize
+                andPred sym sameBlock =<< andPred sym noOv inRange
           inThisAllocation a (Just _allocatedSize)
             -- If the allocation is done at pointer width not equal to @w@,
             -- check that this allocation is distinct from the base pointer.
@@ -850,13 +851,6 @@ isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, off)) sz m = d
                py <- go (return p) yr
                itePred sym c px py
 
-      -- produces @false@ if the offset+size calculation overflows; true otherwise
-      overflowPred <- case sz of
-                        Nothing  -> return (truePred sym)
-                        Just asz -> do (ov, _end) <- addUnsignedOF sym off asz
-                                       notPred sym ov
-
-      -- andPred sym overflowPred =<<
       go (pure (falsePred sym)) (memAllocs m)
 
 
