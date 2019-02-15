@@ -1271,28 +1271,36 @@ generateInstr retType lab instr assign_f k =
         (L.Vector m ty, L.Vector n (L.PrimType (L.Integer 32))) ->
           do elTy <- liftMemType' ty
              let inL :: Num b => b
-                 inL  = fromIntegral n
+                 inL  = fromIntegral m
+
                  inV  = VecType inL elTy
+
                  outL :: Num b => b
-                 outL = fromIntegral m
+                 outL = fromIntegral n
 
-             Just v1 <- explodeVector inL  <$> transValue inV (L.typedValue sV1)
-             Just v2 <- explodeVector inL  <$> transValue inV sV2
-             Just is <- explodeVector outL <$> transValue (VecType outL (IntType 32)) (L.typedValue sIxes)
+             xv1 <- transValue inV (L.typedValue sV1)
+             xv2 <- transValue inV sV2
+             xis <- transValue (VecType outL (IntType 32)) (L.typedValue sIxes)
 
-             let getV x =
-                   case x of
-                     UndefExpr _ -> return $ UndefExpr elTy
-                     ZeroExpr _  -> return $ Seq.index v1 0
-                     BaseExpr (LLVMPointerRepr _) (BitvectorAsPointerExpr _ (App (BVLit _ i)))
-                       | 0   <= i && i < inL   -> return $ Seq.index v1 (fromIntegral i)
-                       | inL <= i && i < 2*inL -> return $ Seq.index v2 (fromIntegral (i - inL))
+             case (explodeVector inL xv1, explodeVector inL xv2, explodeVector outL xis) of
+               (Just v1, Just v2, Just is) ->
+                 do let getV x =
+                          case x of
+                            UndefExpr _ -> return $ UndefExpr elTy
+                            ZeroExpr _  -> return $ Seq.index v1 0
+                            BaseExpr (LLVMPointerRepr _) (BitvectorAsPointerExpr _ (App (BVLit _ i)))
+                              | 0   <= i && i < inL   -> return $ Seq.index v1 (fromIntegral i)
+                              | inL <= i && i < 2*inL -> return $ Seq.index v2 (fromIntegral (i - inL))
 
-                     _ -> fail $ unwords ["[shuffle] Expected literal index values but got", show x]
+                            _ -> fail $ unwords ["[shuffle] Expected literal index values but got", show x]
 
-             is' <- traverse getV is
-             assign_f (VecExpr elTy is')
-             k
+                    is' <- traverse getV is
+                    assign_f (VecExpr elTy is')
+                    k
+
+               _ -> fail $ unlines ["[shuffle] unexpected values:"
+                                   , showInstr instr
+                                   , show xv1, show xv2, show xis]
 
         (t1,t2) -> fail $ unlines ["[shuffle] Type error", show t1, show t2 ]
 
