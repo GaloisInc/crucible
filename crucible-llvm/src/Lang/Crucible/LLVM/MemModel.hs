@@ -411,11 +411,7 @@ evalStmt sym = eval
         assert sym v3
            (AssertFailureSimError $ unlines ["Const pointers compared for equality:", show x_doc, show y_doc, show allocs_doc])
 
-        (eq, valid) <- ptrEq sym PtrWidth x y
-        assertUndefined sym valid Nothing UB.CompareDifferentAllocs $
-          ["Pointer 1: " ++ show x_doc, "Pointer 2:" ++ show y_doc]
-
-        pure eq
+        ptrEq sym PtrWidth x y
 
   eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
     mem <- getMem mvar
@@ -430,6 +426,7 @@ evalStmt sym = eval
          ["Ordering (<=) comparison on pointer", show y_doc]
 
        (le, valid) <- ptrLe sym PtrWidth x y
+
        assertUndefined sym valid Nothing UB.CompareDifferentAllocs $
          ["Pointer 1: " ++ show x_doc, "Pointer 2:" ++ show y_doc]
 
@@ -466,7 +463,7 @@ ptrMessage msg ptr ty =
 -- arguments should be computed from a single 'MemType' using
 -- 'toStorableType' and 'Lang.Crucible.LLVM.Translation.Types.llvmTypeAsRepr'
 -- respectively.
--- 
+--
 -- Precondition: the pointer is valid and aligned, and the loaded value is defined.
 doLoad ::
   (IsSymInterface sym, HasPtrWidth wptr) =>
@@ -753,7 +750,7 @@ doArrayConstStore sym mem ptr alignment arr len = do
   assert sym p2 $ AssertFailureSimError $ errMsg2 ++ show (G.ppPtr ptr)
   return mem { memImplHeap = heap' }
 
--- | Copy memory from source to destination. 
+-- | Copy memory from source to destination.
 --
 -- Precondition: the source and destination pointers fall within valid allocated
 -- regions.
