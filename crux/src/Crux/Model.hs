@@ -85,7 +85,7 @@ ppValsC ty (Vals xs) =
           -> ("float", show . IEEE754.wordToFloat . fromInteger)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 11, natValue sb == 53
-          -> ("float", show . IEEE754.wordToDouble . fromInteger)
+          -> ("double", show . IEEE754.wordToDouble . fromInteger)
         _ -> throwBug ("Type not implemented: " ++ show ty)
   in unlines
       [ "size_t const crucible_values_number_" ++ cty ++
