@@ -824,10 +824,9 @@ isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, off)) sz m = d
             | Just Refl <- testEquality w (bvWidth allocatedSize)
             , Just currSize <- sz = do
                 sameBlock <- isSameBlock sym ptr a           -- a == blockname(ptr)
-                (ov,end)  <- addPtrOffsetOF sym ptr currSize -- ptr+currSize
-                noOv      <- notPred sym ov                  -- make sure we don't wrap around
+                end       <- ptrRangeEnd sym ptr currSize    -- ptr+currSize
                 inRange   <- bvUle sym end allocatedSize     -- offset(ptr)+currSize <= allocatedSize
-                andPred sym sameBlock =<< andPred sym noOv inRange
+                andPred sym sameBlock inRange
           inThisAllocation a (Just _allocatedSize)
             -- If the allocation is done at pointer width not equal to @w@,
             -- check that this allocation is distinct from the base pointer.
@@ -851,7 +850,9 @@ isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, off)) sz m = d
                py <- go (return p) yr
                itePred sym c px py
 
-      go (pure (falsePred sym)) (memAllocs m)
+      overflowPred <- ptrRangeNoOF sym ptr sz
+
+      andPred sym overflowPred =<< go (pure (falsePred sym)) (memAllocs m)
 
 
 -- | Checks if the block ID given as a natural number is the same as the block
@@ -864,14 +865,32 @@ isSameBlock :: (IsSymInterface sym)
 isSameBlock sym (llvmPointerView -> (blk,_off)) n = do
   natEq sym blk =<< natLit sym n
 
--- | Adds the offset of the current pointer to the bitvector, producing the
--- result and an overflow bit
-addPtrOffsetOF :: (1 <= w, IsSymInterface sym)
-               => sym
-               -> LLVMPtr sym w
-               -> SymBV sym w
-               -> IO (Pred sym, SymBV sym w)
-addPtrOffsetOF sym (llvmPointerView -> (_blk,off)) x = addUnsignedOF sym off x
+-- | Adds the offset of the given pointer to the bitvector, which represents the
+-- number of bytes to read. Produces a bitvector corresponding to the upper
+-- bound of the range.
+ptrRangeEnd :: (1 <= w, IsSymInterface sym)
+           => sym
+           -> LLVMPtr sym w
+           -> SymBV sym w
+           -> IO (SymBV sym w)
+ptrRangeEnd sym (llvmPointerView -> (_blk,off)) x = do
+    (_ov,v) <- addUnsignedOF sym off x
+    return v
+
+-- | Produces an overflow bit that is false if the range overflows the address
+-- space. That is, the overflow bit will be false iff @0 < off + sz < min(off,sz)@
+ptrRangeNoOF ::  (1 <= w, IsSymInterface sym)
+             => sym
+             -> LLVMPtr sym w
+             -> Maybe (SymBV sym w)
+             -> IO (Pred sym)
+ptrRangeNoOF sym _ptr Nothing   = return (truePred sym)
+ptrRangeNoOF sym ptr@(llvmPointerView -> (_blk,off)) (Just sz) = do
+    (litOF,v) <- addUnsignedOF sym off sz
+    vEq0      <- bvEq sym v =<< bvLit sym (bvWidth sz) 0
+    -- there is no overflow if @litOF --> v=0@
+    impliesPred sym litOF vEq0
+
 
 -- | @isAllocated sym w p sz m@ returns the condition required to prove
 -- range @[p..p+sz)@ lies within a single allocation in @m@.
