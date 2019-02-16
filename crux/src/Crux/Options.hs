@@ -43,6 +43,7 @@ defaultCruxOptions = CruxOptions {
   , goalTimeout = 60
   , profileOutputInterval = Nothing
   , loopBound = Nothing
+  , makeCexes = True
   }
 
 -- | All possible options that could be set from the command line.
@@ -115,6 +116,11 @@ cmdLineCruxOptions =
     (ReqArg (\v opts -> opts { loopBound = Just v })
       "iterations")
     "Bound all loops to at most this many iterations"
+
+  , Option "x" ["no-execs"]
+    (NoArg
+     (\opts -> opts { makeCexes = False }))
+    "Disable generating counter-example executables"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)
