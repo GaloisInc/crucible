@@ -22,23 +22,22 @@ module Lang.Crucible.LLVM.Bytes
   , bitsToBytes
   )  where
 
-import Data.Word
 import Numeric.Natural
 
 -- | A newtype for expressing numbers of bytes.
 --   This newtype is explicitly introduced to avoid confusion
 --   between widths expressed as numbers of bits vs numbers of bytes.
-newtype Bytes = Bytes { unBytes :: Word64 }
-  deriving (Eq, Ord, Num)
+newtype Bytes = Bytes { unBytes :: Natural }
+  deriving (Eq, Ord, Num, Enum, Real, Integral)
 
 instance Show Bytes where
   show (Bytes n) = show n
 
 bytesToBits :: Bytes -> Natural
-bytesToBits (Bytes n) = 8 * fromIntegral n
+bytesToBits (Bytes n) = 8 * n
 
 bytesToNatural :: Bytes -> Natural
-bytesToNatural (Bytes n) = fromIntegral n
+bytesToNatural (Bytes n) = n
 
 bytesToInteger :: Bytes -> Integer
 bytesToInteger (Bytes n) = fromIntegral n

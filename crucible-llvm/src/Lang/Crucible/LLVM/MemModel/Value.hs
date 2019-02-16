@@ -59,7 +59,6 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Vector( Vector )
 import qualified Data.Vector as V
-import           Data.Word (Word64)
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
@@ -399,9 +398,9 @@ selectHighBvPartLLVMVal _ _ _ _ = return Unassigned
 
 -- | Look up an element in a partial LLVM array value.
 arrayEltPartLLVMVal ::
-  Word64 ->
+  Bytes ->
   StorageType ->
-  Word64 ->
+  Bytes ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 arrayEltPartLLVMVal sz tp idx (PE p (LLVMValZero _))
