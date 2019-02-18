@@ -653,20 +653,46 @@ bitCast srcT expr tgtT = mb =<< runMaybeT (
   indent msg = "  " ++ msg
 
 castToInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
-  MemType -> LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
+  MemType {- ^ type of input expression -} ->
+  LLVMExpr s arch ->
+  MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
 castToInt (IntType w) (BaseExpr (LLVMPointerRepr wrepr) x)
   | w == natValue wrepr
   = lift (BaseExpr (BVRepr wrepr) <$> pointerAsBitvectorExpr wrepr x)
+
+castToInt FloatType (BaseExpr (FloatRepr SingleFloatRepr) x)
+  = return (BaseExpr (BVRepr (knownNat @32)) (app (FloatToBinary SingleFloatRepr x)))
+castToInt DoubleType (BaseExpr (FloatRepr DoubleFloatRepr) x)
+  = return (BaseExpr (BVRepr (knownNat @64)) (app (FloatToBinary DoubleFloatRepr x)))
+castToInt X86_FP80Type (BaseExpr (FloatRepr X86_80FloatRepr) x)
+  = return (BaseExpr (BVRepr (knownNat @80)) (app (FloatToBinary X86_80FloatRepr x)))
+
 castToInt (VecType n tp) (explodeVector n -> Just xs) =
   do xs' <- traverse (castToInt tp) (toList xs)
      MaybeT (return (vecJoin xs'))
 castToInt _ _ = mzero
 
 castFromInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
-  MemType -> Natural -> LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
+  MemType {- ^ target type -} ->
+  Natural {- ^ bitvector width in bits -} ->
+  LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
+
 castFromInt (IntType w1) w2 (BaseExpr (BVRepr w) x)
   | w1 == w2, w1 == natValue w
   = return (BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w x))
+
+castFromInt FloatType 32 (BaseExpr (BVRepr w) x)
+  | Just Refl <- testEquality w (knownNat @32)
+  = return (BaseExpr (FloatRepr SingleFloatRepr) (app (FloatFromBinary SingleFloatRepr x)))
+
+castFromInt DoubleType 64 (BaseExpr (BVRepr w) x)
+  | Just Refl <- testEquality w (knownNat @64)
+  = return (BaseExpr (FloatRepr DoubleFloatRepr) (app (FloatFromBinary DoubleFloatRepr x)))
+
+castFromInt X86_FP80Type 80 (BaseExpr (BVRepr w) x)
+  | Just Refl <- testEquality w (knownNat @80)
+  = return (BaseExpr (FloatRepr X86_80FloatRepr) (app (FloatFromBinary X86_80FloatRepr x)))
+
 castFromInt (VecType n tp) w expr
   | n > 0
   , (w',0) <- w `divMod` n
@@ -698,9 +724,11 @@ vecJoin exprs =
                            BigEndian    -> bits n m e1 e2
 
 
-bitVal :: (1 <= n) => NatRepr n ->
-                  App (LLVM arch) (Expr (LLVM arch) s) (BVType n) ->
-                  LLVMExpr s arch
+bitVal ::
+  (1 <= n) =>
+  NatRepr n ->
+  App (LLVM arch) (Expr (LLVM arch) s) (BVType n) ->
+  LLVMExpr s arch
 bitVal n e = BaseExpr (BVRepr n) (App e)
 
 
