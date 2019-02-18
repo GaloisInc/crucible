@@ -98,7 +98,7 @@ type GlobalInitializerMap = Map L.Symbol (L.Global, Either String (MemType, Mayb
 
 -- | @makeGlobalMap@ creates a map from names of LLVM global variables
 -- to the values of their initializers, if any are included in the module.
-makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
+makeGlobalMap :: forall arch wptr. (?lc :: TypeContext, HasPtrWidth wptr)
               => LLVMContext arch
               -> L.Module
               -> GlobalInitializerMap

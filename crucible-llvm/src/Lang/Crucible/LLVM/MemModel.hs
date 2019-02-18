@@ -199,6 +199,7 @@ import           Lang.Crucible.LLVM.MemModel.Value
 import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.Panic (panic)
 
 import           GHC.Stack
@@ -1397,23 +1398,32 @@ reverseAliasesTwoSorted laba labb aliasOf_ seqa seqb =
         errLeft (Right v) = v
 
 -- | What does this alias point to?
-aliasOf :: L.GlobalAlias -> Maybe L.Symbol
+aliasOf :: (?lc :: TypeContext, HasPtrWidth wptr)
+        => L.GlobalAlias
+        -> Maybe L.Symbol
 aliasOf alias =
   case L.aliasTarget alias of
-    -- L.ValConstExpr -> _ -- TODO evaluate these to a symbol?
-    L.ValSymbol s -> Just s
-    -- These silently get dropped.
-    -- It's invalid LLVM code to not have a symbol or constexpr.
-    _             -> Nothing
+    L.ValSymbol    symb      -> Just symb
+    L.ValConstExpr constExpr ->
+      case transConstantExpr constExpr of
+        Right (SymbolConst symb 0) -> Just symb
+        _ -> Nothing
+    -- All other things silently get dropped; it's invalid LLVM code to not have
+    -- a symbol or constexpr.
+    _ -> Nothing
 
 -- | Get all the aliases that alias (transitively) to a certain global.
-globalAliases :: L.Module -> Map L.Global (Set L.GlobalAlias)
+globalAliases :: (?lc :: TypeContext, HasPtrWidth wptr)
+              => L.Module
+              -> Map L.Global (Set L.GlobalAlias)
 globalAliases mod_ =
   reverseAliasesTwoSorted L.globalSym L.aliasName aliasOf
     (Seq.fromList (L.modGlobals mod_)) (Seq.fromList (L.modAliases mod_))
 
 -- | Get all the aliases that alias (transitively) to a certain function.
-functionAliases :: L.Module -> Map L.Define (Set L.GlobalAlias)
+functionAliases :: (?lc :: TypeContext, HasPtrWidth wptr)
+                => L.Module
+                -> Map L.Define (Set L.GlobalAlias)
 functionAliases mod_ =
   reverseAliasesTwoSorted L.defName L.aliasName aliasOf
     (Seq.fromList (L.modDefines mod_)) (Seq.fromList (L.modAliases mod_))
