@@ -280,14 +280,12 @@ applyView sym end t val =
          case end of
            BigEndian -> selectLowBvPartLLVMVal sym j i t'
            LittleEndian -> selectHighBvPartLLVMVal sym i j t'
-    FloatToBV _ ->
-      return Unassigned
-      --fail "applyView: Floating point values not supported"
-    DoubleToBV _ ->
-      return Unassigned
-      --fail "applyView: Floating point values not supported"
-    X86_FP80ToBV _ ->
-      return Unassigned
+    FloatToBV v ->
+      floatToBVPartLLVMVal sym =<< applyView sym end t v
+    DoubleToBV v ->
+      doubleToBVPartLLVMVal sym =<< applyView sym end t v
+    X86_FP80ToBV v ->
+      fp80ToBVPartLLVMVal sym =<< applyView sym end t v
     ArrayElt sz tp idx v ->
       arrayEltPartLLVMVal sz tp idx =<< applyView sym end t v
     FieldVal flds idx v ->

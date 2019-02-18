@@ -36,6 +36,9 @@ module Lang.Crucible.LLVM.MemModel.Value
   , bvToFloatPartLLVMVal
   , bvToDoublePartLLVMVal
   , bvToX86_FP80PartLLVMVal
+  , floatToBVPartLLVMVal
+  , doubleToBVPartLLVMVal
+  , fp80ToBVPartLLVMVal
   , consArrayPartLLVMVal
   , appendArrayPartLLVMVal
   , mkArrayPartLLVMVal
@@ -143,10 +146,77 @@ zeroInt sym bytes k
           k (Just (blk, bv))
 zeroInt _ _ k = k @1 Nothing
 
+
+floatToBVPartLLVMVal ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+floatToBVPartLLVMVal _ (PE p (LLVMValUndef (StorageType Float _))) =
+  return (PE p (LLVMValUndef (bitvectorType 4)))
+
+floatToBVPartLLVMVal sym (PE p (LLVMValZero (StorageType Float _))) =
+  do nz <- natLit sym 0
+     iz <- bvLit sym (knownNat @32) 0
+     return (PE p (LLVMValInt nz iz))
+
+floatToBVPartLLVMVal sym (PE p (LLVMValFloat SingleSize v)) =
+  do nz <- natLit sym 0
+     i  <- iFloatToBinary sym SingleFloatRepr v
+     return (PE p (LLVMValInt nz i))
+
+floatToBVPartLLVMVal _ _ = return Unassigned
+
+
+doubleToBVPartLLVMVal ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+doubleToBVPartLLVMVal _ (PE p (LLVMValUndef (StorageType Double _))) =
+  return (PE p (LLVMValUndef (bitvectorType 8)))
+
+doubleToBVPartLLVMVal sym (PE p (LLVMValZero (StorageType Double _))) =
+  do nz <- natLit sym 0
+     iz <- bvLit sym (knownNat @64) 0
+     return (PE p (LLVMValInt nz iz))
+
+doubleToBVPartLLVMVal sym (PE p (LLVMValFloat DoubleSize v)) =
+  do nz <- natLit sym 0
+     i  <- iFloatToBinary sym DoubleFloatRepr v
+     return (PE p (LLVMValInt nz i))
+
+doubleToBVPartLLVMVal _ _ = return Unassigned
+
+
+fp80ToBVPartLLVMVal ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal sym ->
+  IO (PartLLVMVal sym)
+fp80ToBVPartLLVMVal _ (PE p (LLVMValUndef (StorageType X86_FP80 _))) =
+  return (PE p (LLVMValUndef (bitvectorType 10)))
+
+fp80ToBVPartLLVMVal sym (PE p (LLVMValZero (StorageType X86_FP80 _))) =
+  do nz <- natLit sym 0
+     iz <- bvLit sym (knownNat @80) 0
+     return (PE p (LLVMValInt nz iz))
+
+fp80ToBVPartLLVMVal sym (PE p (LLVMValFloat X86_FP80Size v)) =
+  do nz <- natLit sym 0
+     i  <- iFloatToBinary sym X86_80FloatRepr v
+     return (PE p (LLVMValInt nz i))
+
+fp80ToBVPartLLVMVal _ _ = return Unassigned
+
+
+
+
+
 bvToFloatPartLLVMVal ::
   IsSymInterface sym => sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
+
+bvToFloatPartLLVMVal _ (PE p (LLVMValUndef (StorageType (Bitvector 4) _))) =
+  return (PE p (LLVMValUndef floatType))
 
 bvToFloatPartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 4) _))) =
   PE p . LLVMValFloat SingleSize <$> (iFloatFromBinary sym SingleFloatRepr =<< bvLit sym (knownNat @32) 0)
@@ -165,6 +235,9 @@ bvToDoublePartLLVMVal ::
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
 
+bvToDoublePartLLVMVal _ (PE p (LLVMValUndef (StorageType (Bitvector 8) _))) =
+  return (PE p (LLVMValUndef doubleType))
+
 bvToDoublePartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 8) _))) =
   PE p . LLVMValFloat DoubleSize <$> (iFloatFromBinary sym DoubleFloatRepr =<< bvLit sym (knownNat @64) 0)
 
@@ -180,6 +253,9 @@ bvToX86_FP80PartLLVMVal ::
   IsSymInterface sym => sym ->
   PartLLVMVal sym ->
   IO (PartLLVMVal sym)
+
+bvToX86_FP80PartLLVMVal _ (PE p (LLVMValUndef (StorageType (Bitvector 10) _))) =
+  return (PE p (LLVMValUndef x86_fp80Type))
 
 bvToX86_FP80PartLLVMVal sym (PE p (LLVMValZero (StorageType (Bitvector 10) _))) =
   PE p . LLVMValFloat X86_FP80Size <$> (iFloatFromBinary sym X86_80FloatRepr =<< bvLit sym (knownNat @80) 0)
