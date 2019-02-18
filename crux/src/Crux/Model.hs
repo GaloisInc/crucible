@@ -34,11 +34,14 @@ import Prelude
 
 
 emptyModel :: Model sym
-emptyModel = Model $ MapF.fromList [ noVars (BaseBVRepr (knownNat @8))
-                                   , noVars (BaseBVRepr (knownNat @16))
-                                   , noVars (BaseBVRepr (knownNat @32))
-                                   , noVars (BaseBVRepr (knownNat @64))
-                                   ]
+emptyModel = Model $ MapF.fromList
+  [ noVars (BaseBVRepr (knownNat @8))
+  , noVars (BaseBVRepr (knownNat @16))
+  , noVars (BaseBVRepr (knownNat @32))
+  , noVars (BaseBVRepr (knownNat @64))
+  , noVars (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)))
+  , noVars (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
+  ]
 
 noVars :: BaseTypeRepr ty -> Pair BaseTypeRepr (Vars sym)
 noVars ty = Pair ty (Vars [])
