@@ -20,4 +20,6 @@ extra-deps:
   - panic-0.4.0.1
   - sbv-8.0
   - crackNum-2.3
+  - itanium-abi-0.1.1.0
+  - boomerang-1.4.5.6
 resolver: lts-11.22
