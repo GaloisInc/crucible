@@ -385,6 +385,7 @@ translateModule halloc m = do
        -- Translate definitions
        pairs <- mapM (transDefine ctx) (L.modDefines m)
        -- Return result.
+       let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
        return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
                                        , globalInitMap = makeGlobalMap ctx m
                                        , _transContext = ctx
