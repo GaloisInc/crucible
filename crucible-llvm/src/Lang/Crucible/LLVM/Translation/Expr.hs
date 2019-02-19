@@ -107,7 +107,7 @@ data LLVMExpr s arch where
    StructExpr :: Seq (MemType, LLVMExpr s arch) -> LLVMExpr s arch
 
 instance Show (LLVMExpr s arch) where
-  show (BaseExpr _ x)   = C.showF x
+  show (BaseExpr ty x)  = C.showF x ++ " : " ++ show ty
   show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
   show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
   show (VecExpr _mt xs) = "[" ++ concat (List.intersperse ", " (map show (toList xs))) ++ "]"

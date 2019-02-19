@@ -59,7 +59,6 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , constOffset
   , ptrEq
   , ptrLe
-  , ptrLt
   , ptrAdd
   , ptrDiff
   , ptrSub
@@ -175,18 +174,16 @@ constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (
 constOffset sym w x = bvLit sym w (G.bytesToInteger x)
 
 -- | Test whether two pointers are equal.
---
--- The returned predicates assert (in this order):
---  * the pointers are equal
---  * the comparison is valid: the pointers are to the same allocation
 ptrEq :: (1 <= w, IsSymInterface sym)
       => sym
       -> NatRepr w
       -> LLVMPtr sym w
       -> LLVMPtr sym w
-      -> IO (Pred sym, Pred sym)
+      -> IO (Pred sym)
 ptrEq sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  (,) <$> bvEq sym off1 off2 <*> natEq sym base1 base2
+  do p1 <- natEq sym base1 base2
+     p2 <- bvEq sym off1 off2
+     andPred sym p1 p2
 
 -- | Test whether one pointer is less than or equal to the other.
 --
@@ -200,21 +197,14 @@ ptrLe :: (1 <= w, IsSymInterface sym)
       -> LLVMPtr sym w
       -> IO (Pred sym, Pred sym)
 ptrLe sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  (,) <$> bvUle sym off1 off2 <*> natEq sym base1 base2
+  do --plt <- natLt sym base1 base2
+     peq <- natEq sym base1 base2
+     bvle <- bvUle sym off1 off2
 
--- | Test whether one pointer is less than or equal to the other.
---
--- The returned predicates assert (in this order):
---  * the first pointer is less than the second
---  * the comparison is valid: the pointers are to the same allocation
-ptrLt :: (1 <= w, IsSymInterface sym)
-      => sym
-      -> NatRepr w
-      -> LLVMPtr sym w
-      -> LLVMPtr sym w
-      -> IO (Pred sym, Pred sym)
-ptrLt sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  (,) <$> bvUlt sym off1 off2 <*> natEq sym base1 base2
+     --p <- orPred sym plt =<< andPred sym peq bvle
+
+     return (bvle, peq)
+
 
 -- | Add an offset to a pointer.
 ptrAdd :: (1 <= w, IsExprBuilder sym)

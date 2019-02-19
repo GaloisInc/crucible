@@ -6,6 +6,7 @@
 {-# Language DataKinds #-}
 {-# Language PatternSynonyms #-}
 {-# Language ConstraintKinds #-}
+{-# Language LambdaCase #-}
 module Overrides where
 
 import Data.String(fromString)
@@ -107,28 +108,57 @@ setupOverrides ctxt =
      regOver ctxt "crucible_havoc_memory"
         (Empty :> tPtr :> tPtr) knownRepr (lib_havoc_memory mvar)
 
-     regOver ctxt "__VERIFIER_nondet_uint"
-        Empty knownRepr sv_comp_fresh_i32
-     regOver ctxt "__VERIFIER_nondet_int"
-        Empty knownRepr sv_comp_fresh_i32
-     regOver ctxt "__VERIFIER_nondet_ushort"
-        Empty knownRepr sv_comp_fresh_i16
-     regOver ctxt "__VERIFIER_nondet_short"
-        Empty knownRepr sv_comp_fresh_i16
-     regOver ctxt "__VERIFIER_nondet_float"
-        Empty knownRepr sv_comp_fresh_float
-     regOver ctxt "__VERIFIER_nondet_double"
-        Empty knownRepr sv_comp_fresh_double
-     regOver ctxt "__VERIFIER_nondet_char"
-        (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
-     regOver ctxt "__VERIFIER_nondet_uchar"
-        Empty knownRepr sv_comp_fresh_i8'
+     isVarargs ctxt "__VERIFIER_nondet_ulong" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i64
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i64
+     isVarargs ctxt "__VERIFIER_nondet_long" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i64
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i64
+     isVarargs ctxt "__VERIFIER_nondet_uint" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i32
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i32
+     isVarargs ctxt "__VERIFIER_nondet_int" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i32
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i32
+     isVarargs ctxt "__VERIFIER_nondet_ushort" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i16
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i16
+     isVarargs ctxt "__VERIFIER_nondet_short" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i16
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i16
+     isVarargs ctxt "__VERIFIER_nondet_float" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_float
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_float
+     isVarargs ctxt "__VERIFIER_nondet_double" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_double
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_double
+     isVarargs ctxt "__VERIFIER_nondet_char" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i8
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
+     isVarargs ctxt "__VERIFIER_nondet_uchar" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i8
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
+
      regOver ctxt "__VERIFIER_assert"
         (Empty :> knownRepr) knownRepr sv_comp_assert
      regOver ctxt "__VERIFIER_assume"
         (Empty :> knownRepr) knownRepr sv_comp_assume
-     regOver ctxt "__VERIFIER_error"
-        (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_error
+     isVarargs ctxt "__VERIFIER_error" >>= \case
+       (False, s) -> regOver ctxt s Empty knownRepr sv_comp_error
+       (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_error
+
+isVarargs ::
+  (ArchOk arch, IsSymInterface b) =>
+  LLVMContext arch ->
+  String ->
+  OverM b (LLVM arch) (Bool, String)
+isVarargs ctxt nm =
+  case Map.lookup (fromString nm) (ctxt ^. symbolMap) of
+    Just (LLVMHandleInfo _ h) ->
+      case testEquality (Empty :> VectorRepr AnyRepr) (handleArgTypes h) of
+        Just Refl -> return (True, nm)
+        Nothing -> return (False, nm)
+    Nothing -> return (False, nm)
 
 regOver ::
   (ArchOk arch, IsSymInterface b) =>
@@ -292,23 +322,15 @@ lib_assert mvar =
 
 sv_comp_fresh_i8 ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) (EmptyCtx ::> VectorType AnyType)  (TBits 8)
+  Fun sym (LLVM arch) args (TBits 8)
 sv_comp_fresh_i8 =
-  do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
-     sym <- getSymInterface
-     liftIO (llvmPointer_bv sym x)
-
-sv_comp_fresh_i8' ::
-  (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) EmptyCtx (TBits 8)
-sv_comp_fresh_i8' =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @8))
      sym <- getSymInterface
      liftIO (llvmPointer_bv sym x)
 
 sv_comp_fresh_i16 ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) EmptyCtx (TBits 16)
+  Fun sym (LLVM arch) args (TBits 16)
 sv_comp_fresh_i16 =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @16))
      sym <- getSymInterface
@@ -316,20 +338,28 @@ sv_comp_fresh_i16 =
 
 sv_comp_fresh_i32 ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) EmptyCtx (TBits 32)
+  Fun sym (LLVM arch) args (TBits 32)
 sv_comp_fresh_i32 =
   do x <- mkFresh "X" (BaseBVRepr (knownNat @32))
      sym <- getSymInterface
      liftIO (llvmPointer_bv sym x)
 
+sv_comp_fresh_i64 ::
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym (LLVM arch) args (TBits 64)
+sv_comp_fresh_i64 =
+  do x <- mkFresh "X" (BaseBVRepr (knownNat @64))
+     sym <- getSymInterface
+     liftIO (llvmPointer_bv sym x)
+
 sv_comp_fresh_float
   :: (ArchOk arch, IsSymInterface sym)
-  => Fun sym (LLVM arch) EmptyCtx (FloatType SingleFloat)
+  => Fun sym (LLVM arch) args (FloatType SingleFloat)
 sv_comp_fresh_float = mkFreshFloat "X" SingleFloatRepr
 
 sv_comp_fresh_double
   :: (ArchOk arch, IsSymInterface sym)
-  => Fun sym (LLVM arch) EmptyCtx (FloatType DoubleFloat)
+  => Fun sym (LLVM arch) args (FloatType DoubleFloat)
 sv_comp_fresh_double = mkFreshFloat "X" DoubleFloatRepr
 
 sv_comp_assume ::
@@ -362,7 +392,7 @@ sv_comp_assert =
 
 sv_comp_error ::
   (ArchOk arch, IsSymInterface sym) =>
-  Fun sym (LLVM arch) (EmptyCtx ::> VectorType AnyType) UnitType
+  Fun sym (LLVM arch) args UnitType
 sv_comp_error =
   do sym  <- getSymInterface
      let rsn = AssertFailureSimError "call to __VERIFIER_error"

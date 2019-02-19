@@ -27,12 +27,21 @@ mk_crux_func(int8_t)
 mk_crux_func(int16_t)
 mk_crux_func(int32_t)
 mk_crux_func(int64_t)
+mk_crux_func(float)
+mk_crux_func(double)
 
-
-unsigned int __VERIFIER_nondet_uint (void) { return crucible_int32_t("x"); }
-int          __VERIFIER_nondet_int  (void) { return crucible_int32_t("x"); }
-char         __VERIFIER_nondet_char ()     { return crucible_int8_t("x"); }
-void         __VERIFIER_assume(int x)      { crucible_assume(x, "??", 0); }
-void         __VERIFIER_error(void)        { crucible_assert(0, "??", 0); }
+unsigned long  __VERIFIER_nondet_ulong (void)  { return crucible_int64_t("x"); }
+long           __VERIFIER_nondet_long  (void)  { return crucible_int64_t("x"); }
+unsigned int   __VERIFIER_nondet_uint (void)   { return crucible_int32_t("x"); }
+int            __VERIFIER_nondet_int  (void)   { return crucible_int32_t("x"); }
+unsigned short __VERIFIER_nondet_ushort (void) { return crucible_int16_t("x"); }
+short          __VERIFIER_nondet_short (void)  { return crucible_int16_t("x"); }
+unsigned char  __VERIFIER_nondet_uchar (void)  { return crucible_int8_t("x");  }
+char           __VERIFIER_nondet_char (void)   { return crucible_int8_t("x");  }
+int            __VERIFIER_nondet_bool (void)   { return crucible_int32_t("x"); }
+float          __VERIFIER_nondet_float (void)  { return crucible_float("x");   }
+double         __VERIFIER_nondet_double (void) { return crucible_double("x");  }
+void           __VERIFIER_assume(int x)        { crucible_assume(x, "??", 0);  }
+void           __VERIFIER_error(void)          { crucible_assert(0, "??", 0);  }
 
 
