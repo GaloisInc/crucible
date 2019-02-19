@@ -41,5 +41,5 @@ extra-deps:
   - parser-combinators-1.0.0
   - itanium-abi-0.1.1.0
   - crackNum-2.3
-
-resolver: lts-11.22
+  - boomerang-1.4.5.6
+resolver: lts-12.26
