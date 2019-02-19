@@ -57,7 +57,6 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
 
 import Lang.Crucible.LLVM.Bytes
 import Lang.Crucible.LLVM.DataLayout
@@ -179,9 +178,9 @@ splitTypeValue tp d subFn = assert (d > 0) $
     X86_FP80 -> BVToX86_FP80 (subFn 0 (bitvectorType 10))
     Array n0 etp -> assert (n0 > 0) $ do
       let esz = storageTypeSize etp
-      let (c,part) = assert (esz > 0) $ unBytes d `divMod` unBytes esz
+      let (c,part) = assert (esz > 0) $ d `divMod` esz
       let n = n0 - c
-      let o = d - Bytes part -- (Bytes c) * esz
+      let o = d - part -- (Bytes c) * esz
       let consPartial
             | part == 0 = subFn o (arrayType n etp)
             | n > 1 =
@@ -244,9 +243,14 @@ rangeLoad lo ltp s@(R so se)
  where le = typeEnd lo ltp
        loadFail = ValueCtorVar (OutOfRange lo ltp)
 
+-- | Produces a @Mux ValueCtor@ expression representing the range load conditions
+-- when the load and store offsets are concrete and the store size is bounded
 fixedOffsetRangeLoad :: Addr
+                     -- ^ Address of load
                      -> StorageType
+                     -- ^ Type to load
                      -> Addr
+                     -- ^ Address of store
                      -> Mux (ValueCtor (RangeLoad Addr Addr))
 fixedOffsetRangeLoad l tp s
   | s < l = do -- Store is before load.
@@ -396,7 +400,7 @@ data ValueView
   | FloatToBV ValueView
   | DoubleToBV ValueView
   | X86_FP80ToBV ValueView
-  | ArrayElt Word64 StorageType Word64 ValueView
+  | ArrayElt Bytes StorageType Bytes ValueView
 
   | FieldVal (Vector (Field StorageType)) Int ValueView
   deriving Show
@@ -470,12 +474,12 @@ loadBitvector lo lw so v = do
     Array n tp -> snd $ foldl1 cv (val <$> r)
       where cv (wx,x) (wy,y) = (wx + wy, concatBV wx x wy y)
             esz = storageTypeSize tp
-            c0 = assert (esz > 0) $ unBytes (lo - so) `div` unBytes esz
-            (c1,p1) = unBytes (le - so) `divMod` unBytes esz
+            c0 = assert (esz > 0) $ (lo - so) `div` esz
+            (c1,p1) = (le - so) `divMod` esz
             -- Get range of indices to read.
             r | p1 == 0 = assert (c1 > c0) [c0..c1-1]
               | otherwise = assert (c1 >= c0) [c0..c1]
-            val i = retValue (so+(Bytes i)*esz) (ArrayElt n tp i v)
+            val i = retValue (so + i*esz) (ArrayElt n tp i v)
     Struct sflds -> assert (not (null r)) $ snd $ foldl1 cv r
       where cv (wx,x) (wy,y) = (wx+wy, concatBV wx x wy y)
             r = concat (zipWith val [0..] (V.toList sflds))
