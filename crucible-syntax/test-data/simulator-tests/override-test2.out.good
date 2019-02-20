@@ -9,8 +9,6 @@ Assuming:
     boolNot (intEq 2 cx@2:i)
 * The branch in symbolicBranchesTest from after branch 1 to after branch 2
     boolNot (intEq 3 cx@2:i)
-* The branch in symbolicBranchesTest from after branch 2 to default branch
-    true
 Prove:
   fall-through branch
   in symbolicBranchesTest at default branch
