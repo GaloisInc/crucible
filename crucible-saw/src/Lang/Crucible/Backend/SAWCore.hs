@@ -226,9 +226,10 @@ newSAWCoreBackend proxy sc gen = do
   return sym
 
 
--- | Register an interpretation for a symbolic function.
--- This is not used during simulation, but rather, when we translate
--- crucible values back into SAW.
+-- | Register an interpretation for a symbolic function. This is not
+-- used during simulation, but rather, when we translate Crucible
+-- values back into SAW. The interpretation function takes a list of
+-- arguments in regular (left-to-right) order.
 sawRegisterSymFunInterp ::
   SAWCoreBackend n fs ->
   B.ExprSymFn n args ret ->
@@ -658,7 +659,7 @@ applyExprSymFn sym sc fn args =
                     ]
          Just mk -> return mk
      ts <- evaluateAsgn args
-     SAWExpr <$> mk sc ts
+     SAWExpr <$> mk sc (reverse ts)
   where
     evaluateAsgn :: Ctx.Assignment SAWExpr args' -> IO [SC.Term]
     evaluateAsgn Ctx.Empty = return []
