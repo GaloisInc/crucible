@@ -105,6 +105,7 @@ module Lang.Crucible.LLVM.MemModel
   , mkStructType
   , floatType
   , doubleType
+  , x86_fp80Type
   , toStorableType
 
     -- * Pointer operations
