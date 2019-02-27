@@ -872,9 +872,8 @@ synthBV widthHint =
     bvConcat :: m (SomeBVExpr s)
     bvConcat =
       do (SomeBVExpr wx x, SomeBVExpr wy y) <- binary BVConcat_ (bvSubterm NoHint) (bvSubterm NoHint)
-         let w = addNat wx wy
-         Just LeqProof <- return (isPosNat w)
-         return $ SomeBVExpr w (EApp $ BVConcat wx wy x y)
+         withLeqProof (leqAdd (leqProof (knownNat @1) wx) wy) $
+           return $ SomeBVExpr (addNat wx wy) (EApp $ BVConcat wx wy x y)
 
     bvTrunc :: m (SomeBVExpr s)
     bvTrunc =

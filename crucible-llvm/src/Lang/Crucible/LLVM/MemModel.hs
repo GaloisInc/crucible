@@ -133,6 +133,7 @@ module Lang.Crucible.LLVM.MemModel
   , registerGlobal
   , allocGlobals
   , allocGlobal
+  , functionAliases
 
     -- * Misc
   , llvmStatementExec
@@ -199,6 +200,7 @@ import           Lang.Crucible.LLVM.MemModel.Value
 import qualified Lang.Crucible.LLVM.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.Panic (panic)
 
 import           GHC.Stack
@@ -1347,12 +1349,12 @@ reverseAliases :: (Ord a, Ord l)
                -> (a -> Maybe l)   -- ^ \"Alias of\"
                -> Seq a
                -> Map a (Set a)
-reverseAliases lab aliasOf seq =
+reverseAliases lab aliasOf_ seq =
    evalState (go Map.empty seq) (Map.empty :: Map l a)
 
   where go map_ Seq.Empty      = pure map_
         go map_ (a Seq.:<| as) =
-          case aliasOf a of
+          case aliasOf_ a of
             Nothing ->
               do -- Don't overwrite it if it's already in the map
                  modify (Map.insert (lab a) a)
@@ -1383,10 +1385,10 @@ reverseAliasesTwoSorted :: (Ord a, Ord b, Ord l)
                         -> Seq a
                         -> Seq b
                         -> Map a (Set b)
-reverseAliasesTwoSorted laba labb aliasOf seqa seqb =
+reverseAliasesTwoSorted laba labb aliasOf_ seqa seqb =
   Map.fromList . mapMaybe go . Map.toList $
     reverseAliases (either laba labb)
-                   (either (const Nothing) aliasOf)
+                   (either (const Nothing) aliasOf_)
                    (fmap Left seqa <> fmap Right seqb)
   where -- Drop the b's which have been added as keys and
         go (Right _, _) = Nothing
@@ -1396,19 +1398,36 @@ reverseAliasesTwoSorted laba labb aliasOf seqa seqb =
         errLeft (Left _)  = error "Internal error: unexpected Left value"
         errLeft (Right v) = v
 
--- | Get all the aliases that alias (transitively) to a certain global.
-globalAliases :: L.Module -> Map L.Global (Set L.GlobalAlias)
-globalAliases mod_ =
-    reverseAliasesTwoSorted L.globalSym L.aliasName aliasOf
-      (Seq.fromList (L.modGlobals mod_)) (Seq.fromList (L.modAliases mod_))
-  where aliasOf alias =
-          case L.aliasTarget alias of
-            -- L.ValConstExpr -> _ -- TODO evaluate these to a symbol?
-            L.ValSymbol s -> Just s
-            -- These silently get dropped.
-            -- It's invalid LLVM code to not have a symbol or constexpr.
-            _             -> Nothing
+-- | What does this alias point to?
+aliasOf :: (?lc :: TypeContext, HasPtrWidth wptr)
+        => L.GlobalAlias
+        -> Maybe L.Symbol
+aliasOf alias =
+  case L.aliasTarget alias of
+    L.ValSymbol    symb      -> Just symb
+    L.ValConstExpr constExpr ->
+      case transConstantExpr constExpr of
+        Right (SymbolConst symb 0) -> Just symb
+        _ -> Nothing
+    -- All other things silently get dropped; it's invalid LLVM code to not have
+    -- a symbol or constexpr.
+    _ -> Nothing
 
+-- | Get all the aliases that alias (transitively) to a certain global.
+globalAliases :: (?lc :: TypeContext, HasPtrWidth wptr)
+              => L.Module
+              -> Map L.Global (Set L.GlobalAlias)
+globalAliases mod_ =
+  reverseAliasesTwoSorted L.globalSym L.aliasName aliasOf
+    (Seq.fromList (L.modGlobals mod_)) (Seq.fromList (L.modAliases mod_))
+
+-- | Get all the aliases that alias (transitively) to a certain function.
+functionAliases :: (?lc :: TypeContext, HasPtrWidth wptr)
+                => L.Module
+                -> Map L.Define (Set L.GlobalAlias)
+functionAliases mod_ =
+  reverseAliasesTwoSorted L.defName L.aliasName aliasOf
+    (Seq.fromList (L.modDefines mod_)) (Seq.fromList (L.modAliases mod_))
 
 -- | Look up a 'Symbol' in the global map of the given 'MemImpl'.
 -- Panic if the symbol is not present in the global map.

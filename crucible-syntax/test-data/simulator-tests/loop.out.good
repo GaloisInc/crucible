@@ -5,12 +5,6 @@
 Assuming:
 * in main test-data/simulator-tests/loop.cbl:10:5: nonzero start
     boolNot (natEq 0 cx@2:n)
-* The branch in main from test-data/simulator-tests/loop.cbl:16:5 to test-data/simulator-tests/loop.cbl:14:23
-    true
-* The branch in main from test-data/simulator-tests/loop.cbl:16:5 to test-data/simulator-tests/loop.cbl:14:23
-    true
-* The branch in main from test-data/simulator-tests/loop.cbl:16:5 to test-data/simulator-tests/loop.cbl:19:14
-    true
 Prove:
   nonzero
   in main at test-data/simulator-tests/loop.cbl:19:5

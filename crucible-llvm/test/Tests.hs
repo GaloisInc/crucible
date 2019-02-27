@@ -1,15 +1,15 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns     #-}
 {-# LANGUAGE DataKinds        #-}
 {-# LANGUAGE ExplicitForAll   #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Main where
-
-import           Control.Monad.ST
 
 -- Crucible
 import           Lang.Crucible.Backend.Simple (newSimpleBackend, SimpleBackend)
@@ -18,17 +18,19 @@ import           Lang.Crucible.LLVM.Globals (initializeMemory)
 import           Lang.Crucible.LLVM.MemType (i32)
 import           Lang.Crucible.LLVM.MemModel
 import           Lang.Crucible.LLVM.Intrinsics (mkLLVMContext)
-import           Lang.Crucible.LLVM.Extension (ArchRepr(..))
+import           Lang.Crucible.LLVM.Extension (ArchRepr(..), ArchWidth, X86(..))
 
 import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.NatRepr (knownNat, LeqProof(..), NatRepr, testLeq)
 import           Data.Parameterized.Nonce (withIONonceGenerator, NonceGenerator)
 import           What4.Expr.Builder (ExprBuilder, Flags, FloatReal, newExprBuilder)
+import           Lang.Crucible.Backend (IsSymInterface)
 
 -- LLVM
 import qualified Text.LLVM.AST as L
 import           Text.LLVM.AST (Module)
 import           Data.LLVM.BitCode (parseBitCodeFromFile)
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 
 
 -- Tasty
@@ -36,13 +38,14 @@ import           Test.Tasty (defaultMain, TestTree, testGroup)
 import           Test.Tasty.HUnit (testCase, (@=?))
 
 -- General
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
+import           Control.Monad.ST
 import           Control.Monad (when, forM_)
 import           Control.Monad.Except
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified System.Directory as Dir
-import qualified System.Process as Proc
 import           System.Exit (exitFailure, ExitCode(..))
+import qualified System.Process as Proc
 
 -- Modules being tested
 import           Lang.Crucible.LLVM.Translation
@@ -153,6 +156,7 @@ tests int struct uninitialized _ lifetime = do
         False @=? Map.null (cfgMap lifetime)
     ] ++
       ------------- Unit tests
+
       -- It would be nice to have access to the Arbitrary instances for L.AST from
       -- llvm-pretty-bc-parser here.
       let mkGlobal name = L.Global (L.Symbol name) L.emptyGlobalAttrs L.Opaque Nothing Nothing Map.empty
@@ -160,26 +164,32 @@ tests int struct uninitialized _ lifetime = do
           mkModule as   gs     = L.emptyModule { L.modGlobals = gs
                                                , L.modAliases = as
                                                }
-      in [ testCase "globalAliases: empty module" $
+      in
+         [ testCase "globalAliases: empty module" $
+             withInitializedMemory (mkModule [] []) $ \_ ->
              Map.empty @=? globalAliases L.emptyModule
          , testCase "globalAliases: singletons, no alias" $
              let g = mkGlobal "g0"
                  a = mkAlias  "a" "g"
-             in Map.singleton g (Set.empty) @=? globalAliases (mkModule [a] [g])
+             in withInitializedMemory (mkModule [] []) $ \_ ->
+                Map.singleton g (Set.empty) @=? globalAliases (mkModule [a] [g])
          , testCase "globalAliases: singletons, aliased" $
              let g = mkGlobal "g"
                  a = mkAlias  "a" "g"
-             in Map.singleton g (Set.singleton a) @=? globalAliases (mkModule [a] [g])
+             in withInitializedMemory (mkModule [] []) $ \_ ->
+                Map.singleton g (Set.singleton a) @=? globalAliases (mkModule [a] [g])
          , testCase "globalAliases: one alias, one erroneous" $
              let g  = mkGlobal "g"
                  a1 = mkAlias  "a1" "g"
                  a2 = mkAlias  "a2" "g0"
-             in Map.singleton g (Set.singleton a1) @=? globalAliases (mkModule [a1, a2] [g])
+             in withInitializedMemory (mkModule [] []) $ \_ ->
+                Map.singleton g (Set.singleton a1) @=? globalAliases (mkModule [a1, a2] [g])
          , testCase "globalAliases: one alias, one erroneous" $
              let g  = mkGlobal "g"
                  a1 = mkAlias  "a1" "g"
                  a2 = mkAlias  "a2" "g"
-             in Map.singleton g (Set.fromList [a1, a2]) @=? globalAliases (mkModule [a1, a2] [g])
+             in withInitializedMemory (mkModule [] []) $ \_ ->
+                Map.singleton g (Set.fromList [a1, a2]) @=? globalAliases (mkModule [a1, a2] [g])
          ]
 
       ++
@@ -192,27 +202,105 @@ tests int struct uninitialized _ lifetime = do
                                                , L.modAliases = as
                                                }
       in [ testCase "initializeMemory" $
-           let g       = mkGlobal "g"
-               a       = mkAlias  "a" "g"
-               mod     = mkModule [a] [g]
+           let mod     = mkModule [mkAlias  "a" "g"] [mkGlobal "g"]
                inMap k = (Just () @=?) . fmap (const ()) . Map.lookup k
-
-               -- This is a separate function because we need to use the scoped type variable
-               -- @s@ in the binding of @sym@, which is difficult to do inline.
-               with :: forall s. NonceGenerator IO s -> HandleAllocator RealWorld -> IO ()
-               with nonceGen halloc = do
-                 sym       <- newSimpleBackend nonceGen :: IO (SimpleBackend s (Flags FloatReal))
-                 Some ctx0 <- stToIO $ mkLLVMContext halloc mod
-                 case llvmArch ctx0                  of { X86Repr width ->
-                 case assertLeq (knownNat @1)  width of { LeqProof      ->
-                 case assertLeq (knownNat @16) width of { LeqProof      -> do
-                   let ?ptrWidth = width
-                   result <- initializeMemory sym ctx0 mod
-                   inMap (L.Symbol "a") (memImplGlobalMap result)
-                 }}}
-           in withIONonceGenerator $ \nonceGen ->
-              withHandleAllocator  $ \halloc   -> with nonceGen halloc
+           in withInitializedMemory mod $ \result ->
+                inMap (L.Symbol "a") (memImplGlobalMap result)
          ]
+      ++
+      -- The following ensures that Crucible treats aliases to functions properly
+      let alias = L.GlobalAlias
+            { L.aliasName = L.Symbol "aliasName"
+            , L.aliasType =
+                L.FunTy
+                  (L.PrimType L.Void)
+                  [ L.PtrTo (L.Alias (L.Ident "class.std::cls")) ]
+                  False
+            , L.aliasTarget =
+                L.ValSymbol (L.Symbol "defName")
+            }
+
+          def = L.Define
+            { L.defLinkage = Just L.WeakODR
+            , L.defRetType = L.PrimType L.Void
+            , L.defName = L.Symbol "defName"
+            , L.defArgs =
+                [ L.Typed
+                    { L.typedType = L.PtrTo (L.Alias (L.Ident "class.std::cls"))
+                    , L.typedValue = L.Ident "0"
+                    }
+                ]
+            , L.defVarArgs = False
+            , L.defAttrs = []
+            , L.defSection = Nothing
+            , L.defGC = Nothing
+            , L.defBody =
+                [ L.BasicBlock
+                  { L.bbLabel = Just (L.Anon 1)
+                  , L.bbStmts =
+                      [ L.Result
+                          (L.Ident "2")
+                          (L.Alloca
+                             (L.PtrTo
+                              (L.Alias (L.Ident "class.std::cls"))) Nothing (Just 8))
+                          []
+                      , L.Effect L.RetVoid []
+                      ]
+                  }
+              ]
+            , L.defMetadata = mempty
+            , L.defComdat = Nothing
+            }
+      in [ testCase "initializeMemory (functions)" $
+           let mod     = L.emptyModule { L.modDefines = [def]
+                                       , L.modAliases = [alias]
+                                       }
+               inMap k = (Just () @=?) . fmap (const ()) . Map.lookup k
+           in withInitializedMemory mod $ \memImpl ->
+              inMap
+                (L.Symbol "aliasName")
+                (memImplGlobalMap memImpl)
+        ]
+
+-- | Create an LLVM context from a module and make some assertions about it.
+withLLVMCtx :: forall a. L.Module
+            -> (forall arch sym. ( ?lc :: TypeContext
+                                 , HasPtrWidth (ArchWidth arch)
+                                 , IsSymInterface sym
+                                 )
+                => LLVMContext arch
+                -> sym
+                -> IO a)
+            -> IO a
+withLLVMCtx mod action =
+  let -- This is a separate function because we need to use the scoped type variable
+      -- @s@ in the binding of @sym@, which is difficult to do inline.
+      with :: forall s. NonceGenerator IO s -> HandleAllocator RealWorld -> IO a
+      with nonceGen halloc = do
+        sym <- newSimpleBackend nonceGen :: IO (SimpleBackend s (Flags FloatReal))
+        Some (ModuleTranslation _ ctx _) <- stToIO $ translateModule halloc mod
+        case llvmArch ctx                   of { X86Repr width ->
+        case assertLeq (knownNat @1)  width of { LeqProof      ->
+        case assertLeq (knownNat @16) width of { LeqProof      -> do
+          let ?ptrWidth = width
+          let ?lc = _llvmTypeCtx ctx
+          action ctx sym
+        }}}
+  in withIONonceGenerator $ \nonceGen ->
+     withHandleAllocator  $ \halloc   -> with nonceGen halloc
+
+-- | Call 'initializeMemory' and get the result
+withInitializedMemory :: forall a. L.Module
+                      -> (forall wptr sym. ( ?lc :: TypeContext
+                                           , HasPtrWidth wptr
+                                           , IsSymInterface sym
+                                           )
+                          => MemImpl sym
+                          -> IO a)
+                      -> IO a
+withInitializedMemory mod action =
+  withLLVMCtx mod $ \(ctx :: LLVMContext arch) sym ->
+    action @(ArchWidth arch) =<< initializeMemory sym ctx mod
 
 -- Copied from what4/test/ExprBuilderSMTLib2
 data State t = State

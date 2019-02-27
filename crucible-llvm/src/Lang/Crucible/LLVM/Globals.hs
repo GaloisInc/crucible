@@ -48,6 +48,7 @@ import           Control.Monad.Except
 import           Control.Lens hiding (op, (:>) )
 import           Data.List (foldl')
 import qualified Data.Set as Set
+import           Data.Set (Set)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
@@ -97,7 +98,7 @@ type GlobalInitializerMap = Map L.Symbol (L.Global, Either String (MemType, Mayb
 
 -- | @makeGlobalMap@ creates a map from names of LLVM global variables
 -- to the values of their initializers, if any are included in the module.
-makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
+makeGlobalMap :: forall arch wptr. (?lc :: TypeContext, HasPtrWidth wptr)
               => LLVMContext arch
               -> L.Module
               -> GlobalInitializerMap
@@ -157,17 +158,22 @@ initializeMemory sym llvm_ctx m = do
    let endianness = dl^.intLayout
    mem0 <- emptyMem endianness
    -- Allocate function handles
-   let handles = Map.assocs (_symbolMap llvm_ctx)
-   mem <- foldM (allocLLVMHandleInfo sym m) mem0 handles
+   let funAliases = Map.mapKeys L.defName (functionAliases m)
+   let lookupFunAliases symb =
+         Set.map L.aliasName $ fromMaybe Set.empty (Map.lookup symb funAliases)
+   let handles =
+         map (\(symb, hinfo) -> (symb, lookupFunAliases symb, hinfo)) $
+           Map.assocs (_symbolMap llvm_ctx)
+   mem <- foldM (allocLLVMHandleInfo sym) mem0 handles
    -- Allocate global values
-   let globals    = L.modGlobals m
-   let allAliases = globalAliases m
+   let globAliases = globalAliases m
+   let globals     = L.modGlobals m
    gs_alloc <- mapM (\g -> do
                         ty <- either fail return $ liftMemType $ L.globalType g
                         let sz      = memTypeSize dl ty
                         let tyAlign = memTypeAlign dl ty
                         let aliases = map L.aliasName . Set.toList $
-                              fromMaybe Set.empty (Map.lookup g (allAliases))
+                              fromMaybe Set.empty (Map.lookup g globAliases)
                         -- LLVM documentation regarding global variable alignment:
                         --
                         -- An explicit alignment may be specified for
@@ -192,19 +198,12 @@ initializeMemory sym llvm_ctx m = do
 
 allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     => sym
-                    -> L.Module
                     -> MemImpl sym
-                    -> (L.Symbol, LLVMHandleInfo)
+                    -> (L.Symbol, Set L.Symbol, LLVMHandleInfo)
                     -> IO (MemImpl sym)
-allocLLVMHandleInfo sym m mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
+allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), aliases, LLVMHandleInfo _ h) =
   do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
-     let syms =
-           symbol :
-           [ asym
-           | L.GlobalAlias asym _ (L.ValSymbol tsym) <- L.modAliases m
-           , tsym == symbol
-           ]
-     return $ registerGlobal mem' syms ptr
+     return $ registerGlobal mem' (symbol:Set.toList aliases) ptr
 
 
 ------------------------------------------------------------------------

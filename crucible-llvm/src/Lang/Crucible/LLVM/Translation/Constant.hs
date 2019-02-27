@@ -399,7 +399,7 @@ transConstant' (ArrayType n tp) (L.ValString cs)
   | tp == IntType 8, n == fromIntegral (length cs)
   = return $ ArrayConst tp (map (IntConst (knownNat @8) . toInteger) cs)
 
-transConstant' tp (L.ValConstExpr cexpr) = transConstantExpr tp cexpr
+transConstant' _ (L.ValConstExpr cexpr) = transConstantExpr cexpr
 
 transConstant' tp val =
   throwError $ unlines [ "Cannot compute constant value for expression: "
@@ -982,10 +982,9 @@ asDouble _ = throwError "Expected double constant"
 --   the expression does not actually represent a constant value.
 transConstantExpr :: forall m wptr.
   (?lc :: TypeContext, MonadError String m, HasPtrWidth wptr) =>
-  MemType ->
   L.ConstExpr ->
   m LLVMConst
-transConstantExpr _mt expr = case expr of
+transConstantExpr expr = case expr of
   L.ConstGEP _ _ _ [] -> badExp "Constant GEP must have at least two arguments"
   L.ConstGEP inbounds _inrange _ (base:exps) -> -- TODO? pay attention to the inrange flag
     do gep <- translateGEP inbounds base exps
