@@ -88,9 +88,6 @@ import Lang.Crucible.LLVM.MemModel.Pointer
 import Lang.Crucible.LLVM.MemModel.Value
 import Lang.Crucible.Backend
 
-
---import Debug.Trace as Debug
-
 data AllocType = StackAlloc | HeapAlloc | GlobalAlloc
   deriving (Show)
 

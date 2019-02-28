@@ -90,6 +90,7 @@ module Lang.Crucible.LLVM.MemModel
   , mallocRaw
   , mallocConstRaw
   , constToLLVMVal
+  , constToLLVMValP
   , ptrMessage
 
     -- * Storage types
@@ -1261,53 +1262,74 @@ assertDisjointRegions sym w dest src len =
 --
 -- In this translation, we lose the distinction between pointers and ints.
 --
-constToLLVMVal :: forall wptr sym.
-  ( HasPtrWidth wptr
+-- This is parameterized (hence, \"P\") over a function for looking up the
+-- pointer values of global symbols. This parameter is used by @populateGlobal@
+-- to recursively populate globals that may reference one another.
+constToLLVMValP :: forall io wptr sym.
+  ( MonadIO io
+  , HasPtrWidth wptr
   , IsSymInterface sym
-  ) => sym               -- ^ The symbolic backend
-    -> MemImpl sym       -- ^ The current memory state, for looking up globals
-    -> LLVMConst         -- ^ Constant expression to translate
-    -> IO (LLVMVal sym)  -- ^ Runtime representation of the constant expression
+  ) => sym                                 -- ^ The symbolic backend
+    -> (L.Symbol -> io (LLVMPtr sym wptr)) -- ^ How to look up global symbols
+    -> LLVMConst                           -- ^ Constant expression to translate
+    -> io (LLVMVal sym)
 
 -- See comment on @LLVMVal@ on why we use a literal 0.
-constToLLVMVal sym _ (IntConst w i) =
+constToLLVMValP sym _ (IntConst w i) = liftIO $
   LLVMValInt <$> natLit sym 0 <*> (bvLit sym w i)
 
-constToLLVMVal sym _ (FloatConst f) =
+constToLLVMValP sym _ (FloatConst f) = liftIO $
   LLVMValFloat SingleSize <$> iFloatLitSingle sym f
 
-constToLLVMVal sym _ (DoubleConst d) =
+constToLLVMValP sym _ (DoubleConst d) = liftIO $
   LLVMValFloat DoubleSize <$> iFloatLitDouble sym d
 
-constToLLVMVal sym mem (ArrayConst memty xs) =
-  LLVMValArray <$> toStorableType memty
-               <*> (V.fromList <$> traverse (constToLLVMVal sym mem) xs)
+constToLLVMValP sym look (ArrayConst memty xs) =
+  LLVMValArray <$> liftIO (toStorableType memty)
+               <*> (V.fromList <$> traverse (constToLLVMValP sym look) xs)
 
 -- Same as the array case
-constToLLVMVal sym mem (VectorConst memty xs) =
-  LLVMValArray <$> toStorableType memty
-               <*> (V.fromList <$> traverse (constToLLVMVal sym mem) xs)
+constToLLVMValP sym look (VectorConst memty xs) =
+  LLVMValArray <$> liftIO (toStorableType memty)
+               <*> (V.fromList <$> traverse (constToLLVMValP sym look) xs)
 
-constToLLVMVal sym mem (StructConst sInfo xs) =
+constToLLVMValP sym look (StructConst sInfo xs) =
   LLVMValStruct <$>
-    V.zipWithM (\x y -> (,) <$> fiToFT x <*> constToLLVMVal sym mem y)
+    V.zipWithM (\x y -> (,) <$> liftIO (fiToFT x) <*> constToLLVMValP sym look y)
                (siFields sInfo)
                (V.fromList xs)
 
 -- SymbolConsts are offsets from global pointers. We translate them into the
 -- pointer they represent.
-constToLLVMVal sym mem (SymbolConst symb i) = do
-  ptr <- doResolveGlobal sym mem symb  -- Pointer to the global "symb"
-  ibv <- bvLit sym ?ptrWidth i         -- Offset to be added, as a bitvector
+constToLLVMValP sym look (SymbolConst symb i) = do
+  ptr <- look symb                       -- Pointer to the global "symb"
+  ibv <- liftIO $ bvLit sym ?ptrWidth i  -- Offset to be added, as a bitvector
 
   -- blk is the allocation number that this global is stored in.
   -- In contrast to the case for @IntConst@ above, it is non-zero.
   let (blk, offset) = llvmPointerView ptr
-  LLVMValInt blk <$> bvAdd sym offset ibv
+  LLVMValInt blk <$> liftIO (bvAdd sym offset ibv)
 
-constToLLVMVal _sym _mem (ZeroConst memty) = LLVMValZero <$> toStorableType memty
-constToLLVMVal _sym _mem (UndefConst memty) = LLVMValUndef <$> toStorableType memty
+constToLLVMValP _sym _look (ZeroConst memty) = liftIO $
+  LLVMValZero <$> toStorableType memty
+constToLLVMValP _sym _look (UndefConst memty) = liftIO $
+  LLVMValUndef <$> toStorableType memty
 
+
+-- | Translate a constant into an LLVM runtime value. Assumes all necessary
+-- globals have already been populated into the @'MemImpl'@.
+constToLLVMVal :: forall io wptr sym.
+  ( MonadIO io
+  , HasPtrWidth wptr
+  , IsSymInterface sym
+  ) => sym               -- ^ The symbolic backend
+    -> MemImpl sym       -- ^ The current memory state, for looking up globals
+    -> LLVMConst         -- ^ Constant expression to translate
+    -> io (LLVMVal sym)  -- ^ Runtime representation of the constant expression
+
+-- See comment on @LLVMVal@ on why we use a literal 0.
+constToLLVMVal sym mem =
+  constToLLVMValP sym (\symb -> liftIO $ doResolveGlobal sym mem symb)
 
 -- TODO are these types just identical? Maybe we should combine them.
 fiToFT :: (HasPtrWidth wptr, Monad m) => FieldInfo -> m (Field StorageType)

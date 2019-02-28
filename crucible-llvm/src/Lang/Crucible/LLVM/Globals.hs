@@ -51,6 +51,7 @@ import qualified Data.Set as Set
 import           Data.Set (Set)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Control.Monad.State (StateT, runStateT, get, put)
 import           Data.Maybe (fromMaybe)
 
 import qualified Text.LLVM.AST as L
@@ -70,6 +71,8 @@ import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Backend (IsSymInterface)
+import           Lang.Crucible.Panic (panic)
+
 
 ------------------------------------------------------------------------
 -- GlobalInitializerMap
@@ -211,6 +214,9 @@ allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), aliases, LLVMHandleInfo 
 
 -- | Populate the globals mentioned in the given @GlobalInitializerMap@
 --   provided they satisfy the given filter function.
+--
+--   This will (necessarily) populate any globals that the ones in the
+--   filtered list transitively reference.
 populateGlobals ::
   ( ?lc :: TypeContext
   , 16 <= wptr
@@ -225,7 +231,7 @@ populateGlobals select sym gimap mem0 = foldM f mem0 (Map.elems gimap)
   where
   f mem (gl, _) | not (select gl)    = return mem
   f _   (_,  Left msg)               = fail msg
-  f mem (gl, Right (mty, Just cval)) = populateGlobal sym gl mty cval mem
+  f mem (gl, Right (mty, Just cval)) = populateGlobal sym gl mty cval gimap mem
   f mem (_ , Right (_, Nothing))     = return mem
 
 
@@ -243,7 +249,7 @@ populateAllGlobals = populateGlobals (const True)
 
 
 -- | Populate only the constant global variables mentioned in the
---   given @GlobalInitializerMap@.
+--   given @GlobalInitializerMap@ (and any they transitively refer to).
 populateConstGlobals ::
   ( ?lc :: TypeContext
   , 16 <= wptr
@@ -260,21 +266,54 @@ populateConstGlobals = populateGlobals f
 -- | Write the value of the given LLVMConst into the given global variable.
 --   This is intended to be used at initialization time, and will populate
 --   even read-only global data.
-populateGlobal ::
+populateGlobal :: forall sym wptr.
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
   , IsSymInterface sym ) =>
   sym ->
-  L.Global ->
-  MemType ->
-  LLVMConst ->
+  L.Global {- ^ The global to populate -} ->
+  MemType {- ^ Type of the global -} ->
+  LLVMConst {- ^ Constant value to initialize with -} ->
+  GlobalInitializerMap ->
   MemImpl sym ->
   IO (MemImpl sym)
-populateGlobal sym gl memty cval mem =
-  do let symb = L.globalSym gl
-     let alignment = memTypeAlign (llvmDataLayout ?lc) memty
+populateGlobal sym gl memty cval giMap mem =
+  do let alignment = memTypeAlign (llvmDataLayout ?lc) memty
+
+     -- So that globals can populate and look up the globals they reference
+     -- during initialization
+     let populateRec :: L.Symbol -> StateT (MemImpl sym) IO (LLVMPtr sym wptr)
+         populateRec symbol = do
+           memimpl0 <- get
+           memimpl <-
+            case Map.lookup symbol (memImplGlobalMap mem) of
+              Just _  -> pure memimpl0 -- We already populated this one
+              Nothing ->
+                -- For explanations of the various modes of failure, see the
+                -- comment on 'GlobalInitializerMap'.
+                case Map.lookup symbol giMap of
+                  Nothing -> panic "populateGlobal" $
+                    [ "Couldn't find global variable: " ++ show symbol ]
+                  Just (glob, Left str) -> panic "populateGlobal" $
+                    [ "Couldn't find global variable's initializer: " ++
+                        show symbol
+                    , "Reason:"
+                    , str
+                    , "Full definition:"
+                    , show glob
+                    ]
+                  Just (glob, Right (_, Nothing)) -> panic "populateGlobal" $
+                    [ "Global was not a compile-time constant:" ++ show symbol
+                    , "Full definition:"
+                    , show glob
+                    ]
+                  Just (glob, Right (memty_, Just cval_)) ->
+                    liftIO $ populateGlobal sym glob memty_ cval_ giMap mem
+           put memimpl
+           liftIO $ doResolveGlobal sym memimpl symbol
+
      ty <- toStorableType memty
-     ptr <- doResolveGlobal sym mem symb
-     val <- constToLLVMVal sym mem cval
-     storeConstRaw sym mem ptr ty alignment val
+     ptr <- doResolveGlobal sym mem (L.globalSym gl)
+     (val, mem') <- runStateT (constToLLVMValP sym populateRec cval) mem
+     storeConstRaw sym mem' ptr ty alignment val
