@@ -1265,7 +1265,7 @@ assertDisjointRegions sym w dest src len =
 -- This is parameterized (hence, \"P\") over a function for looking up the
 -- pointer values of global symbols. This parameter is used by @populateGlobal@
 -- to recursively populate globals that may reference one another.
-constToLLVMValP :: forall io wptr sym.
+constToLLVMValP :: forall wptr sym io.
   ( MonadIO io
   , HasPtrWidth wptr
   , IsSymInterface sym
@@ -1318,7 +1318,7 @@ constToLLVMValP _sym _look (UndefConst memty) = liftIO $
 
 -- | Translate a constant into an LLVM runtime value. Assumes all necessary
 -- globals have already been populated into the @'MemImpl'@.
-constToLLVMVal :: forall io wptr sym.
+constToLLVMVal :: forall wptr sym io.
   ( MonadIO io
   , HasPtrWidth wptr
   , IsSymInterface sym
