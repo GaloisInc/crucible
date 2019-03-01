@@ -73,6 +73,7 @@ import           Lang.Crucible.LLVM.TypeContext
 import           Lang.Crucible.Backend (IsSymInterface)
 import           Lang.Crucible.Panic (panic)
 
+import           GHC.Stack
 
 ------------------------------------------------------------------------
 -- GlobalInitializerMap
@@ -270,7 +271,9 @@ populateGlobal :: forall sym wptr.
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
-  , IsSymInterface sym ) =>
+  , IsSymInterface sym
+  , HasCallStack
+  ) =>
   sym ->
   L.Global {- ^ The global to populate -} ->
   MemType {- ^ Type of the global -} ->
@@ -283,7 +286,8 @@ populateGlobal sym gl memty cval giMap mem =
 
      -- So that globals can populate and look up the globals they reference
      -- during initialization
-     let populateRec :: L.Symbol -> StateT (MemImpl sym) IO (LLVMPtr sym wptr)
+     let populateRec :: HasCallStack
+                     => L.Symbol -> StateT (MemImpl sym) IO (LLVMPtr sym wptr)
          populateRec symbol = do
            memimpl0 <- get
            memimpl <-

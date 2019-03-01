@@ -134,6 +134,7 @@ module Lang.Crucible.LLVM.MemModel
   , allocGlobals
   , allocGlobal
   , functionAliases
+  , reverseAliases
 
     -- * Misc
   , llvmStatementExec
@@ -202,6 +203,7 @@ import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
 import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.Panic (panic)
+
 
 import           GHC.Stack
 
@@ -312,7 +314,7 @@ type EvalM p sym ext rtp blocks ret args a =
 --   that modifes the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
 evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, HasCallStack) =>
   sym ->
   LLVMStmt wptr (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
@@ -1269,6 +1271,7 @@ constToLLVMValP :: forall wptr sym io.
   ( MonadIO io
   , HasPtrWidth wptr
   , IsSymInterface sym
+  , HasCallStack
   ) => sym                                 -- ^ The symbolic backend
     -> (L.Symbol -> io (LLVMPtr sym wptr)) -- ^ How to look up global symbols
     -> LLVMConst                           -- ^ Constant expression to translate
@@ -1322,6 +1325,7 @@ constToLLVMVal :: forall wptr sym io.
   ( MonadIO io
   , HasPtrWidth wptr
   , IsSymInterface sym
+  , HasCallStack
   ) => sym               -- ^ The symbolic backend
     -> MemImpl sym       -- ^ The current memory state, for looking up globals
     -> LLVMConst         -- ^ Constant expression to translate
@@ -1349,6 +1353,8 @@ fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
 -- The keys in the resulting map should be only terminals, e.g. those @a@
 -- which aren't aliases of another @a'@ in @l@.
 --
+-- Requires that the elements of the input sequence are unique.
+--
 -- Outline:
 -- * Initialize the empty map @M : Map A (Set A)@
 -- * Initialize an auxilary map @N : Map A A@ which records the final aliasee
@@ -1359,13 +1365,11 @@ fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
 --       b. insert @a@ into the set at key @aliasee@ in @M@ (record the result)
 --       c. recurse on @s@ minus @aliasee@ and @a@.
 --   2. If @aliasOf a@ is in @s@, recurse on @l ++ [a]@
---   3. Otherwise,
---       a. insert @a@ at key @a@ in @N@ (memoize the result)
---       b. return the map as-is
+--   3. Otherwise, panic! The target of the alias was invalid.
 --
 -- For the sake of practical concerns, the implementation uses \"labels\" for
 -- comparison and @aliasOf@, and uses sequences rather than lists.
-reverseAliases :: (Ord a, Ord l)
+reverseAliases :: (Ord a, Ord l, Show a, Show l)
                => (a -> l)         -- ^ \"Label of\"
                -> (a -> Maybe l)   -- ^ \"Alias of\"
                -> Seq a
@@ -1381,17 +1385,21 @@ reverseAliases lab aliasOf_ seq =
                  modify (Map.insert (lab a) a)
                  go (Map.insertWith (\_ old -> old) a Set.empty map_) as
             Just l ->
-              do st <- get
+              do when (lab a == l) $
+                   panic "reverseAliases" [ "Self-alias:", show a ]
+                 st <- get
                  case Map.lookup l st of
                    Just aliasee ->
-                     modify (Map.insert l aliasee) >>                              -- 1a
+                     modify (Map.insert (lab a) aliasee) >>                        -- 1a
                      go (mapSetInsert aliasee a map_)                              -- 1b
                         (Seq.filter (\b -> lab b /= lab aliasee && lab b /= l) as) -- 1c
                    Nothing      ->
                      if isJust (List.find ((l ==) . lab) as)
                      then go map_ (as <> Seq.singleton a)                          -- 2
-                     else modify (Map.insert (lab a) a) >>                         -- 3a
-                          pure map_                                                -- 3b
+                     else panic "reverseAliases" [ "Could not find target of alias"
+                                                 , "Item: " ++ show a
+                                                 , "Alias of: " ++ show l
+                                                 ]
                  where mapSetInsert k v m  = Map.update (pure . Set.insert v) k m
 
 -- | This is one step closer to the application of 'reverseAliases':
@@ -1399,7 +1407,7 @@ reverseAliases lab aliasOf_ seq =
 -- Objects in sort @a@ are never aliases (think global variables).
 -- Objects in sort @b@ are usually aliases, to things of either sort
 -- (think aliases to global variables).
-reverseAliasesTwoSorted :: (Ord a, Ord b, Ord l)
+reverseAliasesTwoSorted :: (Ord a, Ord b, Ord l, Show a, Show b, Show l)
                         => (a -> l)       -- ^ \"Label of\" for type @a@
                         -> (b -> l)       -- ^ \"Label of\" for type @b@
                         -> (b -> Maybe l) -- ^ \"Alias of\"
@@ -1453,7 +1461,7 @@ functionAliases mod_ =
 -- | Look up a 'Symbol' in the global map of the given 'MemImpl'.
 -- Panic if the symbol is not present in the global map.
 doResolveGlobal ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, HasCallStack) =>
   sym ->
   MemImpl sym ->
   L.Symbol {- ^ name of global -} ->

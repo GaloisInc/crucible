@@ -104,4 +104,5 @@ test-suite crucible-llvm-tests
     what4,
     tasty,
     tasty-golden,
+    tasty-quickcheck,
     tasty-hunit
