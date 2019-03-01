@@ -28,6 +28,7 @@ module Lang.Crucible.Backend.Online
   ( -- * OnlineBackend
     OnlineBackend
   , withOnlineBackend
+  , initialOnlineBackendState
   , checkSatisfiable
   , checkSatisfiableWithModel
   , getSolverProcess
@@ -53,7 +54,7 @@ module Lang.Crucible.Backend.Online
   , STPOnlineBackend
   , withSTPOnlineBackend
     -- * OnlineBackendState
-  , OnlineBackendState
+  , OnlineBackendState(..)
     -- * Re-exports
   , B.FloatInterpretation
   , B.FloatIEEE
