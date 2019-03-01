@@ -1365,7 +1365,9 @@ fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
 --       b. insert @a@ into the set at key @aliasee@ in @M@ (record the result)
 --       c. recurse on @s@ minus @aliasee@ and @a@.
 --   2. If @aliasOf a@ is in @s@, recurse on @l ++ [a]@
---   3. Otherwise, panic! The target of the alias was invalid.
+--   3. Otherwise,
+--       a. insert @a@ at key @a@ in @N@ (memoize the result)
+--       b. return the map as-is
 --
 -- For the sake of practical concerns, the implementation uses \"labels\" for
 -- comparison and @aliasOf@, and uses sequences rather than lists.
@@ -1396,10 +1398,8 @@ reverseAliases lab aliasOf_ seq =
                    Nothing      ->
                      if isJust (List.find ((l ==) . lab) as)
                      then go map_ (as <> Seq.singleton a)                          -- 2
-                     else panic "reverseAliases" [ "Could not find target of alias"
-                                                 , "Item: " ++ show a
-                                                 , "Alias of: " ++ show l
-                                                 ]
+                     else modify (Map.insert (lab a) a) >>                         -- 3a
+                          go map_ as                                               -- 3b
                  where mapSetInsert k v m  = Map.update (pure . Set.insert v) k m
 
 -- | This is one step closer to the application of 'reverseAliases':
