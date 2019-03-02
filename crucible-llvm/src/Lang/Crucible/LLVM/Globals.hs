@@ -71,7 +71,6 @@ import           Lang.Crucible.LLVM.Translation.Types
 import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Backend (IsSymInterface)
-import           Lang.Crucible.Panic (panic)
 
 import           GHC.Stack
 
@@ -297,9 +296,9 @@ populateGlobal sym gl memty cval giMap mem =
                 -- For explanations of the various modes of failure, see the
                 -- comment on 'GlobalInitializerMap'.
                 case Map.lookup symbol giMap of
-                  Nothing -> panic "populateGlobal" $
+                  Nothing -> fail $ unlines $
                     [ "Couldn't find global variable: " ++ show symbol ]
-                  Just (glob, Left str) -> panic "populateGlobal" $
+                  Just (glob, Left str) -> fail $ unlines $
                     [ "Couldn't find global variable's initializer: " ++
                         show symbol
                     , "Reason:"
@@ -307,7 +306,7 @@ populateGlobal sym gl memty cval giMap mem =
                     , "Full definition:"
                     , show glob
                     ]
-                  Just (glob, Right (_, Nothing)) -> panic "populateGlobal" $
+                  Just (glob, Right (_, Nothing)) -> fail $ unlines $
                     [ "Global was not a compile-time constant:" ++ show symbol
                     , "Full definition:"
                     , show glob
