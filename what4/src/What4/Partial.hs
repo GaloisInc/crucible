@@ -1,3 +1,4 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-|
 Module           : What4.Solver.Partial
 Copyright        : (c) Galois, Inc 2014-2016
