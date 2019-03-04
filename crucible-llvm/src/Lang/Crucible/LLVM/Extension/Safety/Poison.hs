@@ -236,7 +236,7 @@ detailsReg :: W4I.IsExpr (W4I.SymExpr sym)
            -- ^ Not really used, prevents ambiguous types. Can use "Data.Proxy".
            -> Poison (RegValue' sym)
            -> [Doc]
-detailsReg _proxySym = const ["TODO: details"]
+detailsReg _proxySym = const [] -- TODO: details
   -- \case
   --   AddNoUnsignedWrap _ _ -> _
   --   AddNoSignedWrap _ _ -> _
