@@ -36,12 +36,16 @@ import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 -- Tasty
 import           Test.Tasty (defaultMain, TestTree, testGroup)
 import           Test.Tasty.HUnit (testCase, (@=?))
+import           Test.Tasty.QuickCheck (testProperty)
 
 -- General
 import           Control.Monad.ST
+import           Data.Foldable (toList)
+import           Data.Sequence (Seq)
 import           Control.Monad (when, forM_)
 import           Control.Monad.Except
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified System.Directory as Dir
 import           System.Exit (exitFailure, ExitCode(..))
@@ -49,7 +53,9 @@ import qualified System.Process as Proc
 
 -- Modules being tested
 import           Lang.Crucible.LLVM.Translation
+import           Lang.Crucible.LLVM.MemModel (reverseAliases)
 
+import           Debug.Trace
 
 doProc :: String -> [String] -> IO (Int, String, String)
 doProc !exe !args = do
@@ -132,30 +138,65 @@ tests :: ModuleTranslation arch1
       -> ModuleTranslation arch5
       -> TestTree
 tests int struct uninitialized _ lifetime = do
-  testGroup "Tests" $
-    [ testCase "int" $
-        Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) 42)) @=?
-           Map.map snd (globalInitMap int)
-    , testCase "struct" $
-        IntConst (knownNat @32) 17 @=?
-           case snd <$> Map.lookup (L.Symbol "z") (globalInitMap struct) of
-             Just (Right (_, Just (StructConst _ (x : _)))) -> x
-             _ -> IntConst (knownNat @1) 0
-    , testCase "unitialized" $
-        Map.singleton (L.Symbol "x") (Right $ (i32, Just $ ZeroConst i32)) @=?
-           Map.map snd (globalInitMap uninitialized)
-    -- The actual value for this one contains the error message, so it's a pain
-    -- to type out. Uncomment this test to take a look.
-    -- , testCase "extern" $
-    --     Map.singleton (L.Symbol "x") (Left $ "") @=?
-    --        (globalMap extern)
+  testGroup "Tests" $ concat
+    [ [ testCase "int" $
+          Map.singleton (L.Symbol "x") (Right $ (i32, Just $ IntConst (knownNat @32) 42)) @=?
+             Map.map snd (globalInitMap int)
+      , testCase "struct" $
+          IntConst (knownNat @32) 17 @=?
+             case snd <$> Map.lookup (L.Symbol "z") (globalInitMap struct) of
+               Just (Right (_, Just (StructConst _ (x : _)))) -> x
+               _ -> IntConst (knownNat @1) 0
+      , testCase "unitialized" $
+          Map.singleton (L.Symbol "x") (Right $ (i32, Just $ ZeroConst i32)) @=?
+             Map.map snd (globalInitMap uninitialized)
+      -- The actual value for this one contains the error message, so it's a pain
+      -- to type out. Uncomment this test to take a look.
+      -- , testCase "extern" $
+      --     Map.singleton (L.Symbol "x") (Left $ "") @=?
+      --        (globalMap extern)
 
-    -- We're really just checking that the translation succeeds without
-    -- exceptions.
-    , testCase "lifetime" $
-        False @=? Map.null (cfgMap lifetime)
-    ] ++
-      ------------- Unit tests
+      -- We're really just checking that the translation succeeds without
+      -- exceptions.
+      , testCase "lifetime" $
+          False @=? Map.null (cfgMap lifetime)
+      ]
+
+    , ------------- Tests for reverseAliases
+
+      let evenAlias xs x =
+            let s = Set.fromList (toList xs)
+            in if even x && Set.member x s
+               then Just (x `div` 2)
+               else Nothing
+          addTargets xs = xs <> fmap (`div` 2) (Seq.filter even xs)
+      in
+        [ testCase "reverseAliases: empty" $
+            Map.empty @=?
+              reverseAliases id (const Nothing) (Seq.empty :: Seq Int)
+        , testProperty "reverseAliases: singleton" $ \x ->
+            Map.singleton (x :: Int) Set.empty ==
+              reverseAliases id (const Nothing) (Seq.singleton x)
+        , -- The result should not depend on ordering
+          testProperty "reverseAliases: reverse" $ \xs ->
+            let -- no self-aliasing allowed
+                xs' = addTargets (Seq.filter (/= 0) xs)
+            in reverseAliases id (evenAlias xs) (xs' :: Seq Int) ==
+                 reverseAliases id (evenAlias xs) (Seq.reverse xs')
+        , -- Every item should appear exactly once
+          testProperty "reverseAliases: xor" $ \xs ->
+            let xs'    = addTargets (Seq.filter (/= 0) xs)
+                result = reverseAliases id (evenAlias xs) (xs' :: Seq Int)
+                keys   = Map.keysSet result
+                values = Set.unions (Map.elems result)
+                --
+                xor True a = not a
+                xor False a = a
+                --
+            in all (\x -> Set.member x keys `xor` Set.member x values) xs'
+        ]
+
+    , ------------- Handling of global aliases
 
       -- It would be nice to have access to the Arbitrary instances for L.AST from
       -- llvm-pretty-bc-parser here.
@@ -168,23 +209,12 @@ tests int struct uninitialized _ lifetime = do
          [ testCase "globalAliases: empty module" $
              withInitializedMemory (mkModule [] []) $ \_ ->
              Map.empty @=? globalAliases L.emptyModule
-         , testCase "globalAliases: singletons, no alias" $
-             let g = mkGlobal "g0"
-                 a = mkAlias  "a" "g"
-             in withInitializedMemory (mkModule [] []) $ \_ ->
-                Map.singleton g (Set.empty) @=? globalAliases (mkModule [a] [g])
          , testCase "globalAliases: singletons, aliased" $
              let g = mkGlobal "g"
                  a = mkAlias  "a" "g"
              in withInitializedMemory (mkModule [] []) $ \_ ->
                 Map.singleton g (Set.singleton a) @=? globalAliases (mkModule [a] [g])
-         , testCase "globalAliases: one alias, one erroneous" $
-             let g  = mkGlobal "g"
-                 a1 = mkAlias  "a1" "g"
-                 a2 = mkAlias  "a2" "g0"
-             in withInitializedMemory (mkModule [] []) $ \_ ->
-                Map.singleton g (Set.singleton a1) @=? globalAliases (mkModule [a1, a2] [g])
-         , testCase "globalAliases: one alias, one erroneous" $
+         , testCase "globalAliases: two aliases" $
              let g  = mkGlobal "g"
                  a1 = mkAlias  "a1" "g"
                  a2 = mkAlias  "a2" "g"
@@ -192,9 +222,9 @@ tests int struct uninitialized _ lifetime = do
                 Map.singleton g (Set.fromList [a1, a2]) @=? globalAliases (mkModule [a1, a2] [g])
          ]
 
-      ++
-      -- The following test ensures that SAW treats global aliases properly in that
+    , -- The following test ensures that SAW treats global aliases properly in that
       -- they are present in the @Map@ of globals after initializing the memory.
+
       let t = L.PrimType (L.Integer 2)
           mkGlobal name = L.Global (L.Symbol name) L.emptyGlobalAttrs t Nothing Nothing Map.empty
           mkAlias  name global = L.GlobalAlias (L.Symbol name) t (L.ValSymbol (L.Symbol global))
@@ -207,8 +237,9 @@ tests int struct uninitialized _ lifetime = do
            in withInitializedMemory mod $ \result ->
                 inMap (L.Symbol "a") (memImplGlobalMap result)
          ]
-      ++
-      -- The following ensures that Crucible treats aliases to functions properly
+
+    , -- The following ensures that Crucible treats aliases to functions properly
+
       let alias = L.GlobalAlias
             { L.aliasName = L.Symbol "aliasName"
             , L.aliasType =
@@ -261,6 +292,8 @@ tests int struct uninitialized _ lifetime = do
                 (L.Symbol "aliasName")
                 (memImplGlobalMap memImpl)
         ]
+    ]
+
 
 -- | Create an LLVM context from a module and make some assertions about it.
 withLLVMCtx :: forall a. L.Module
