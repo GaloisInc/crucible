@@ -41,19 +41,19 @@ module Lang.Crucible.JVM.Translation
   where
 
 -- base
-import Data.Maybe (maybeToList)
-import Data.Semigroup(Semigroup(..),(<>))
-import Control.Monad.State.Strict
-import Control.Monad.ST
-import Control.Lens hiding (op, (:>))
-import Data.Int (Int32)
-import Data.Map.Strict (Map)
+import           Data.Maybe (maybeToList)
+import           Data.Semigroup (Semigroup(..),(<>))
+import           Control.Monad.State.Strict
+import           Control.Monad.ST
+import           Control.Lens hiding (op, (:>))
+import           Data.Int (Int32)
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import Data.String (fromString)
-import Data.List (isPrefixOf)
+import           Data.String (fromString)
+import           Data.List (isPrefixOf)
 
-import System.IO
+import           System.IO
 
 -- jvm-parser
 import qualified Language.JVM.Common as J
@@ -70,6 +70,7 @@ import           Data.Parameterized.NatRepr as NR
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
+import           Lang.Crucible.CFG.Extension.Safety (pattern PartialExp)
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
@@ -78,17 +79,18 @@ import           Lang.Crucible.Panic
 
 import           Lang.Crucible.Utils.MonadVerbosity
 
-import qualified Lang.Crucible.Simulator               as C
-import qualified Lang.Crucible.Simulator.GlobalState   as C
-import qualified Lang.Crucible.Analysis.Postdom        as C
-import qualified Lang.Crucible.Simulator.CallFrame     as C
+import qualified Lang.Crucible.Simulator as C
+import qualified Lang.Crucible.Simulator.GlobalState as C
+import qualified Lang.Crucible.Analysis.Postdom as C
+import qualified Lang.Crucible.Simulator.CallFrame as C
 
 
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
 import           What4.FunctionName
-import qualified What4.Interface                       as W4
-import qualified What4.Config                          as W4
+import qualified What4.Interface as W4
+import qualified What4.Config as W4
+import qualified What4.Partial.AssertionTree as W4AT
 
 import           What4.Utils.MonadST (liftST)
 
@@ -102,7 +104,7 @@ import           Lang.Crucible.JVM.Overrides
 import qualified Lang.JVM.Codebase as JCB
 
 
-import Debug.Trace
+import           Debug.Trace
 
 {-
    This module is in two parts, the first part includes functions for translating
@@ -739,14 +741,8 @@ generateInstruction (pc, instr) =
     J.Iadd  -> binary iPop iPop iPush (\a b -> App (BVAdd w32 a b))
     J.Isub  -> binary iPop iPop iPush (\a b -> App (BVSub w32 a b))
     J.Imul  -> binary iPop iPop iPush (\a b -> App (BVMul w32 a b))
-    J.Idiv  -> binary iPop iPop iPush
-               (\a b -> App (AddSideCondition (BaseBVRepr w32) (App (BVNonzero w32 b))
-                             "java/lang/ArithmeticException"
-                             (App (BVSdiv w32 a b))))
-    J.Irem -> binary iPop iPop iPush
-               (\a b -> App (AddSideCondition (BaseBVRepr w32) (App (BVNonzero w32 b))
-                             "java/lang/ArithmeticException"
-                             (App (BVSrem w32 a b))))
+    J.Idiv  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSdiv w32 a b)))
+    J.Irem  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSrem w32 a b)))
     J.Ineg  -> unaryGen iPop iPush iNeg
     J.Iand  -> binary iPop iPop iPush (\a b -> App (BVAnd w32 a b))
     J.Ior   -> binary iPop iPop iPush (\a b -> App (BVOr  w32 a b))
@@ -761,13 +757,8 @@ generateInstruction (pc, instr) =
     J.Ldiv  -> binary lPop lPop lPush -- TODO: why was this lPush an error?
                -- there is also a special case when when dividend is maxlong
                -- and divisor is -1
-               (\a b -> App (AddSideCondition (BaseBVRepr w64) (App (BVNonzero w64 b))
-                             "java/lang/ArithmeticException"
-                             (App (BVSdiv w64 a b))))
-    J.Lrem -> binary lPop lPop lPush
-               (\a b -> App (AddSideCondition (BaseBVRepr w64) (App (BVNonzero w64 b))
-                             "java/lang/ArithmeticException"
-                             (App (BVSrem w64 a b))))
+               (\a b -> nonzero w64 b (App (BVSdiv w64 a b)))
+    J.Lrem  -> binary lPop lPop lPush (\a b -> nonzero w64 b (App (BVSrem w64 a b)))
     J.Land  -> binary lPop lPop lPush (\a b -> App (BVAnd w64 a b))
     J.Lor   -> binary lPop lPop lPush (\a b -> App (BVOr  w64 a b))
     J.Lxor  -> binary lPop lPop lPush (\a b -> App (BVXor w64 a b))
@@ -1089,6 +1080,18 @@ generateInstruction (pc, instr) =
       do void rPop
     J.Nop ->
       do return ()
+  where nonzero :: (1 <= n)
+                => NatRepr n
+                -> Expr JVM s (BVType n)
+                -> Expr JVM s (BVType n)
+                -> Expr JVM s (BVType n)
+
+        nonzero w b expr =
+          let assertion =
+                JVMAssertionClassifier ["java", "lang", "ArithmeticException"]
+                                       (App (BVNonzero w b))
+              partExpr = PartialExp (W4AT.Leaf assertion) expr
+          in App (WithAssertion (BVRepr w) partExpr)
 
 unary ::
   JVMStmtGen h s ret a ->

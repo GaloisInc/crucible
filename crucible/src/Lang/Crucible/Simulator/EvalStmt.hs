@@ -586,7 +586,9 @@ genericToExecutionFeature (GenericExecutionFeature f) = ExecutionFeature f
 --   exceptions and invoking the 'errorHandler'
 --   contained in the state.
 executeCrucible :: forall p sym ext rtp.
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  ( IsSymInterface sym
+  , IsSyntaxExtension ext
+  ) =>
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
   IO (ExecResult p sym ext rtp)
