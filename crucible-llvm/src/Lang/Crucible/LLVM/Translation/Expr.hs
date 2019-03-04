@@ -107,7 +107,7 @@ data LLVMExpr s arch where
    StructExpr :: Seq (MemType, LLVMExpr s arch) -> LLVMExpr s arch
 
 instance Show (LLVMExpr s arch) where
-  show (BaseExpr _ x)   = C.showF x
+  show (BaseExpr ty x)  = C.showF x ++ " : " ++ show ty
   show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
   show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
   show (VecExpr _mt xs) = "[" ++ concat (List.intersperse ", " (map show (toList xs))) ++ "]"
@@ -419,8 +419,8 @@ transValue (VecType _ tp) (L.ValVector _ vs) = do
 transValue _ (L.ValSymbol symbol) = do
      liftConstant (SymbolConst symbol 0)
 
-transValue mt (L.ValConstExpr cexp) =
-  do res <- runExceptT (transConstantExpr mt cexp)
+transValue _ (L.ValConstExpr cexp) =
+  do res <- runExceptT (transConstantExpr cexp)
      case res of
        Left err -> reportError $ fromString $ unlines ["Error translating constant", err]
        Right cv -> liftConstant cv

@@ -55,7 +55,7 @@ import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.TraversableFC (fmapFC)
 
 import           Lang.Crucible.Backend (IsSymInterface)
-import           Lang.Crucible.CFG.Common
+import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
 import           Lang.Crucible.FunctionHandle (FnHandle(..), mkHandle')
 import           Lang.Crucible.FunctionHandle (HandleAllocator)
@@ -277,7 +277,7 @@ register_llvm_override llvmOverride = do
   if (requestedDecl /= decl) then
     do when (L.decName requestedDecl == L.decName decl) $
          do logFn <- lift $ lift $ lift $ getLogFunction
-            liftIO $ logFn 3 $ unwords
+            liftIO $ logFn 3 $ unlines
               [ "Mismatched declaration signatures"
               , " *** requested: " ++ show requestedDecl
               , " *** found: "     ++ show decl

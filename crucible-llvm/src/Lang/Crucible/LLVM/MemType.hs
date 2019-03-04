@@ -188,9 +188,13 @@ data FunDecl = FunDecl { fdRetType  :: !RetType
  deriving( Eq )
 
 -- | Return the number of bits that represent the given memtype, which
---   must be either integer types, vectors (of vectors...) of integer types.
+--   must be either integer types, floating point types or vectors of
+--   the same.
 memTypeBitwidth :: MemType -> Maybe Natural
-memTypeBitwidth (IntType w) = Just w
+memTypeBitwidth (IntType w)  = Just w
+memTypeBitwidth FloatType    = Just 32
+memTypeBitwidth DoubleType   = Just 64
+memTypeBitwidth X86_FP80Type = Just 80
 memTypeBitwidth (VecType n tp) = (fromIntegral n *) <$> memTypeBitwidth tp
 memTypeBitwidth _ = Nothing
 

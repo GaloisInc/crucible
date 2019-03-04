@@ -38,6 +38,10 @@ module Lang.Crucible.LLVM.MemModel.Partial
   , appendArray
   , mkArray
   , mkStruct
+  --
+  , floatToBV
+  , doubleToBV
+  , fp80ToBV
   , bvToDouble
   , bvToFloat
   , bvToX86_FP80
@@ -58,7 +62,6 @@ import           Data.Proxy (Proxy(..))
 import           Data.List.NonEmpty (NonEmpty((:|)), nonEmpty)
 import           Data.Vector (Vector)
 import           Data.Text (Text, unpack)
-import           Data.Word (Word64)
 import qualified Data.Vector as V
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -188,6 +191,83 @@ assertSafe sym (Err e)   = do
 ------------------------------------------------------------------------
 -- ** PartLLVMVal interface
 --
+
+floatToBV ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal arch sym ->
+  IO (PartLLVMVal arch sym)
+floatToBV _ (PartLLVMVal p (LLVMValUndef (StorageType Float _))) =
+  return (PartLLVMVal p (LLVMValUndef (Type.bitvectorType 4)))
+
+floatToBV sym (PartLLVMVal p (LLVMValZero (StorageType Float _))) =
+  do nz <- W4I.natLit sym 0
+     iz <- W4I.bvLit sym (knownNat @32) 0
+     return (PartLLVMVal p (LLVMValInt nz iz))
+
+floatToBV sym (PartLLVMVal p (LLVMValFloat Value.SingleSize v)) =
+  do nz <- W4I.natLit sym 0
+     i  <- W4IFP.iFloatToBinary sym W4IFP.SingleFloatRepr v
+     return (PartLLVMVal p (LLVMValInt nz i))
+
+floatToBV _ (Err e) =
+  let msg = "While converting from a float to a bitvector"
+  in return $ Err $ PreviousErrors msg [e]
+
+floatToBV _ (PartLLVMVal _ v) =
+  let msg = "While converting from a float to a bitvector"
+  in return $ Err $ UnexpectedArgumentType msg [v]
+
+
+doubleToBV ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal arch sym ->
+  IO (PartLLVMVal arch sym)
+doubleToBV _ (PartLLVMVal p (LLVMValUndef (StorageType Double _))) =
+  return (PartLLVMVal p (LLVMValUndef (Type.bitvectorType 8)))
+
+doubleToBV sym (PartLLVMVal p (LLVMValZero (StorageType Double _))) =
+  do nz <- W4I.natLit sym 0
+     iz <- W4I.bvLit sym (knownNat @64) 0
+     return (PartLLVMVal p (LLVMValInt nz iz))
+
+doubleToBV sym (PartLLVMVal p (LLVMValFloat Value.DoubleSize v)) =
+  do nz <- W4I.natLit sym 0
+     i  <- W4IFP.iFloatToBinary sym W4IFP.DoubleFloatRepr v
+     return (PartLLVMVal p (LLVMValInt nz i))
+
+doubleToBV _ (Err e) =
+  let msg = "While converting from a double to a bitvector"
+  in return $ Err $ PreviousErrors msg [e]
+
+doubleToBV _ (PartLLVMVal _ v) =
+  let msg = "While converting from a double to a bitvector"
+  in return $ Err $ UnexpectedArgumentType msg [v]
+
+
+fp80ToBV ::
+  IsSymInterface sym => sym ->
+  PartLLVMVal arch sym ->
+  IO (PartLLVMVal arch sym)
+fp80ToBV _ (PartLLVMVal p (LLVMValUndef (StorageType X86_FP80 _))) =
+  return (PartLLVMVal p (LLVMValUndef (Type.bitvectorType 10)))
+
+fp80ToBV sym (PartLLVMVal p (LLVMValZero (StorageType X86_FP80 _))) =
+  do nz <- W4I.natLit sym 0
+     iz <- W4I.bvLit sym (knownNat @80) 0
+     return (PartLLVMVal p (LLVMValInt nz iz))
+
+fp80ToBV sym (PartLLVMVal p (LLVMValFloat Value.X86_FP80Size v)) =
+  do nz <- W4I.natLit sym 0
+     i  <- W4IFP.iFloatToBinary sym W4IFP.X86_80FloatRepr v
+     return (PartLLVMVal p (LLVMValInt nz i))
+
+fp80ToBV _ (Err e) =
+  let msg = "While converting from a FP80 to a bitvector"
+  in return $ Err $ PreviousErrors msg [e]
+
+fp80ToBV _ (PartLLVMVal _ v) =
+  let msg = "While converting from a FP80 to a bitvector"
+  in return $ Err $ UnexpectedArgumentType msg [v]
 
 -- | Convert a bitvector to a float, asserting that it is not a pointer
 bvToFloat :: forall arch sym.
@@ -536,9 +616,9 @@ selectHighBv _ _ _ (Err e) =
 
 -- | Look up an element in a partial LLVM array value.
 arrayElt ::
-  Word64 ->
+  Bytes ->
   StorageType ->
-  Word64 ->
+  Bytes ->
   PartLLVMVal arch sym ->
   IO (PartLLVMVal arch sym)
 arrayElt sz tp idx (PartLLVMVal p (LLVMValZero _)) -- TODO(langston) typecheck

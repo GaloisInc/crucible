@@ -21,6 +21,8 @@ mk_model_ty(int8_t)
 mk_model_ty(int16_t)
 mk_model_ty(int32_t)
 mk_model_ty(int64_t)
+mk_model_ty(float)
+mk_model_ty(double)
 
 #ifdef __cplusplus__
 }

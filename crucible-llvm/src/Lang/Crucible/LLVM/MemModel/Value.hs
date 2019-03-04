@@ -53,6 +53,7 @@ data FloatSize (fi :: FloatInfo) where
   SingleSize :: FloatSize SingleFloat
   DoubleSize :: FloatSize DoubleFloat
   X86_FP80Size :: FloatSize X86_80Float
+
 deriving instance Eq (FloatSize fi)
 deriving instance Ord (FloatSize fi)
 deriving instance Show (FloatSize fi)

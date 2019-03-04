@@ -391,7 +391,7 @@ instance HashableF e => HashableF (ArrayResultWrapper e idx) where
 
 
 -- | This datatype describes events that involve interacting with
---   solvers.  A @SolverEvent@ will be provieded to the action
+--   solvers.  A @SolverEvent@ will be provided to the action
 --   installed via @setSolverLogListener@ whenever an interesting
 --   event occurs.
 data SolverEvent

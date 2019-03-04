@@ -308,14 +308,17 @@ ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc
 ppProofObligation _ (AS.ProofGoal (toList -> as) gl) =
   (if null as then PP.empty else
     PP.text "Assuming:" PP.<$$>
-    PP.vcat (map ppAsm (toList as)))
+    PP.vcat (concatMap ppAsm (toList as)))
   PP.<$>
   PP.text "Prove:" PP.<$>
   ppGl
  where
- ppAsm asm = PP.text "* " PP.<> PP.hang 2
-   (ppAssumptionReason (asm^.AS.labeledPredMsg) PP.<$>
-    printSymExpr (asm^.AS.labeledPred))
+ ppAsm asm
+   | asConstantPred (asm^.AS.labeledPred) /= Just True =
+      [PP.text "* " PP.<> PP.hang 2
+        (ppAssumptionReason (asm^.AS.labeledPredMsg) PP.<$>
+        printSymExpr (asm^.AS.labeledPred))]
+   | otherwise = []
 
  ppGl = PP.indent 2
    (ppSimError (gl^.AS.labeledPredMsg) PP.<$>

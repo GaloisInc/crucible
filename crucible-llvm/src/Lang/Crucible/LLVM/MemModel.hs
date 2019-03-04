@@ -89,6 +89,7 @@ module Lang.Crucible.LLVM.MemModel
   , mallocRaw
   , mallocConstRaw
   , constToLLVMVal
+  , constToLLVMValP
   , ptrMessage
 
     -- * Storage types
@@ -104,6 +105,7 @@ module Lang.Crucible.LLVM.MemModel
   , mkStructType
   , floatType
   , doubleType
+  , x86_fp80Type
   , toStorableType
 
     -- * Pointer operations
@@ -131,6 +133,8 @@ module Lang.Crucible.LLVM.MemModel
   , registerGlobal
   , allocGlobals
   , allocGlobal
+  , functionAliases
+  , reverseAliases
 
     -- * Misc
   , llvmStatementExec
@@ -197,7 +201,9 @@ import           Lang.Crucible.LLVM.MemModel.Value
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
 import           Lang.Crucible.LLVM.Types
+import           Lang.Crucible.LLVM.TypeContext (TypeContext)
 import           Lang.Crucible.Panic (panic)
+
 
 import           GHC.Stack
 
@@ -306,7 +312,7 @@ type EvalM p sym ext rtp blocks ret args a =
 --   that modifes the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
 evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, HasCallStack) =>
   sym ->
   LLVMStmt wptr (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
@@ -411,12 +417,7 @@ evalStmt sym = eval
                                             , show x_doc
                                             , show y_doc
                                             , show allocs_doc])
-
-        (eq, valid) <- ptrEq sym PtrWidth x y
-        assertUndefined sym valid $
-          UB.CompareDifferentAllocs (UB.pointerView x) (UB.pointerView y)
-
-        pure eq
+        ptrEq sym PtrWidth x y
 
   eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
     mem <- getMem mvar
@@ -1218,53 +1219,76 @@ assertDisjointRegions sym w dest src len =
 --
 -- In this translation, we lose the distinction between pointers and ints.
 --
-constToLLVMVal :: forall wptr sym.
-  ( HasPtrWidth wptr
+-- This is parameterized (hence, \"P\") over a function for looking up the
+-- pointer values of global symbols. This parameter is used by @populateGlobal@
+-- to recursively populate globals that may reference one another.
+constToLLVMValP :: forall wptr sym io.
+  ( MonadIO io
+  , HasPtrWidth wptr
   , IsSymInterface sym
-  ) => sym               -- ^ The symbolic backend
-    -> MemImpl sym       -- ^ The current memory state, for looking up globals
-    -> LLVMConst         -- ^ Constant expression to translate
-    -> IO (LLVMVal sym)  -- ^ Runtime representation of the constant expression
+  , HasCallStack
+  ) => sym                                 -- ^ The symbolic backend
+    -> (L.Symbol -> io (LLVMPtr sym wptr)) -- ^ How to look up global symbols
+    -> LLVMConst                           -- ^ Constant expression to translate
+    -> io (LLVMVal sym)
 
 -- See comment on @LLVMVal@ on why we use a literal 0.
-constToLLVMVal sym _ (IntConst w i) =
+constToLLVMValP sym _ (IntConst w i) = liftIO $
   LLVMValInt <$> natLit sym 0 <*> (bvLit sym w i)
 
-constToLLVMVal sym _ (FloatConst f) =
+constToLLVMValP sym _ (FloatConst f) = liftIO $
   LLVMValFloat SingleSize <$> iFloatLitSingle sym f
 
-constToLLVMVal sym _ (DoubleConst d) =
+constToLLVMValP sym _ (DoubleConst d) = liftIO $
   LLVMValFloat DoubleSize <$> iFloatLitDouble sym d
 
-constToLLVMVal sym mem (ArrayConst memty xs) =
-  LLVMValArray <$> toStorableType memty
-               <*> (V.fromList <$> traverse (constToLLVMVal sym mem) xs)
+constToLLVMValP sym look (ArrayConst memty xs) =
+  LLVMValArray <$> liftIO (toStorableType memty)
+               <*> (V.fromList <$> traverse (constToLLVMValP sym look) xs)
 
 -- Same as the array case
-constToLLVMVal sym mem (VectorConst memty xs) =
-  LLVMValArray <$> toStorableType memty
-               <*> (V.fromList <$> traverse (constToLLVMVal sym mem) xs)
+constToLLVMValP sym look (VectorConst memty xs) =
+  LLVMValArray <$> liftIO (toStorableType memty)
+               <*> (V.fromList <$> traverse (constToLLVMValP sym look) xs)
 
-constToLLVMVal sym mem (StructConst sInfo xs) =
+constToLLVMValP sym look (StructConst sInfo xs) =
   LLVMValStruct <$>
-    V.zipWithM (\x y -> (,) <$> fiToFT x <*> constToLLVMVal sym mem y)
+    V.zipWithM (\x y -> (,) <$> liftIO (fiToFT x) <*> constToLLVMValP sym look y)
                (siFields sInfo)
                (V.fromList xs)
 
 -- SymbolConsts are offsets from global pointers. We translate them into the
 -- pointer they represent.
-constToLLVMVal sym mem (SymbolConst symb i) = do
-  ptr <- doResolveGlobal sym mem symb  -- Pointer to the global "symb"
-  ibv <- bvLit sym ?ptrWidth i         -- Offset to be added, as a bitvector
+constToLLVMValP sym look (SymbolConst symb i) = do
+  ptr <- look symb                       -- Pointer to the global "symb"
+  ibv <- liftIO $ bvLit sym ?ptrWidth i  -- Offset to be added, as a bitvector
 
   -- blk is the allocation number that this global is stored in.
   -- In contrast to the case for @IntConst@ above, it is non-zero.
   let (blk, offset) = llvmPointerView ptr
-  LLVMValInt blk <$> bvAdd sym offset ibv
+  LLVMValInt blk <$> liftIO (bvAdd sym offset ibv)
 
-constToLLVMVal _sym _mem (ZeroConst memty) = LLVMValZero <$> toStorableType memty
-constToLLVMVal _sym _mem (UndefConst memty) = LLVMValUndef <$> toStorableType memty
+constToLLVMValP _sym _look (ZeroConst memty) = liftIO $
+  LLVMValZero <$> toStorableType memty
+constToLLVMValP _sym _look (UndefConst memty) = liftIO $
+  LLVMValUndef <$> toStorableType memty
 
+
+-- | Translate a constant into an LLVM runtime value. Assumes all necessary
+-- globals have already been populated into the @'MemImpl'@.
+constToLLVMVal :: forall wptr sym io.
+  ( MonadIO io
+  , HasPtrWidth wptr
+  , IsSymInterface sym
+  , HasCallStack
+  ) => sym               -- ^ The symbolic backend
+    -> MemImpl sym       -- ^ The current memory state, for looking up globals
+    -> LLVMConst         -- ^ Constant expression to translate
+    -> io (LLVMVal sym)  -- ^ Runtime representation of the constant expression
+
+-- See comment on @LLVMVal@ on why we use a literal 0.
+constToLLVMVal sym mem =
+  constToLLVMValP sym (\symb -> liftIO $ doResolveGlobal sym mem symb)
 
 -- TODO are these types just identical? Maybe we should combine them.
 fiToFT :: (HasPtrWidth wptr, Monad m) => FieldInfo -> m (Field StorageType)
@@ -1284,6 +1308,8 @@ fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
 -- The keys in the resulting map should be only terminals, e.g. those @a@
 -- which aren't aliases of another @a'@ in @l@.
 --
+-- Requires that the elements of the input sequence are unique.
+--
 -- Outline:
 -- * Initialize the empty map @M : Map A (Set A)@
 -- * Initialize an auxilary map @N : Map A A@ which records the final aliasee
@@ -1300,33 +1326,35 @@ fiToFT fi = fmap (\t -> mkField (fiOffset fi) t (fiPadding fi))
 --
 -- For the sake of practical concerns, the implementation uses \"labels\" for
 -- comparison and @aliasOf@, and uses sequences rather than lists.
-reverseAliases :: (Ord a, Ord l)
+reverseAliases :: (Ord a, Ord l, Show a, Show l)
                => (a -> l)         -- ^ \"Label of\"
                -> (a -> Maybe l)   -- ^ \"Alias of\"
                -> Seq a
                -> Map a (Set a)
-reverseAliases lab aliasOf seq =
+reverseAliases lab aliasOf_ seq =
    evalState (go Map.empty seq) (Map.empty :: Map l a)
 
   where go map_ Seq.Empty      = pure map_
         go map_ (a Seq.:<| as) =
-          case aliasOf a of
+          case aliasOf_ a of
             Nothing ->
               do -- Don't overwrite it if it's already in the map
                  modify (Map.insert (lab a) a)
                  go (Map.insertWith (\_ old -> old) a Set.empty map_) as
             Just l ->
-              do st <- get
+              do when (lab a == l) $
+                   panic "reverseAliases" [ "Self-alias:", show a ]
+                 st <- get
                  case Map.lookup l st of
                    Just aliasee ->
-                     modify (Map.insert l aliasee) >>                              -- 1a
+                     modify (Map.insert (lab a) aliasee) >>                        -- 1a
                      go (mapSetInsert aliasee a map_)                              -- 1b
                         (Seq.filter (\b -> lab b /= lab aliasee && lab b /= l) as) -- 1c
                    Nothing      ->
                      if isJust (List.find ((l ==) . lab) as)
                      then go map_ (as <> Seq.singleton a)                          -- 2
                      else modify (Map.insert (lab a) a) >>                         -- 3a
-                          pure map_                                                -- 3b
+                          go map_ as                                               -- 3b
                  where mapSetInsert k v m  = Map.update (pure . Set.insert v) k m
 
 -- | This is one step closer to the application of 'reverseAliases':
@@ -1334,17 +1362,17 @@ reverseAliases lab aliasOf seq =
 -- Objects in sort @a@ are never aliases (think global variables).
 -- Objects in sort @b@ are usually aliases, to things of either sort
 -- (think aliases to global variables).
-reverseAliasesTwoSorted :: (Ord a, Ord b, Ord l)
+reverseAliasesTwoSorted :: (Ord a, Ord b, Ord l, Show a, Show b, Show l)
                         => (a -> l)       -- ^ \"Label of\" for type @a@
                         -> (b -> l)       -- ^ \"Label of\" for type @b@
                         -> (b -> Maybe l) -- ^ \"Alias of\"
                         -> Seq a
                         -> Seq b
                         -> Map a (Set b)
-reverseAliasesTwoSorted laba labb aliasOf seqa seqb =
+reverseAliasesTwoSorted laba labb aliasOf_ seqa seqb =
   Map.fromList . mapMaybe go . Map.toList $
     reverseAliases (either laba labb)
-                   (either (const Nothing) aliasOf)
+                   (either (const Nothing) aliasOf_)
                    (fmap Left seqa <> fmap Right seqb)
   where -- Drop the b's which have been added as keys and
         go (Right _, _) = Nothing
@@ -1354,24 +1382,41 @@ reverseAliasesTwoSorted laba labb aliasOf seqa seqb =
         errLeft (Left _)  = error "Internal error: unexpected Left value"
         errLeft (Right v) = v
 
--- | Get all the aliases that alias (transitively) to a certain global.
-globalAliases :: L.Module -> Map L.Global (Set L.GlobalAlias)
-globalAliases mod_ =
-    reverseAliasesTwoSorted L.globalSym L.aliasName aliasOf
-      (Seq.fromList (L.modGlobals mod_)) (Seq.fromList (L.modAliases mod_))
-  where aliasOf alias =
-          case L.aliasTarget alias of
-            -- L.ValConstExpr -> _ -- TODO evaluate these to a symbol?
-            L.ValSymbol s -> Just s
-            -- These silently get dropped.
-            -- It's invalid LLVM code to not have a symbol or constexpr.
-            _             -> Nothing
+-- | What does this alias point to?
+aliasOf :: (?lc :: TypeContext, HasPtrWidth wptr)
+        => L.GlobalAlias
+        -> Maybe L.Symbol
+aliasOf alias =
+  case L.aliasTarget alias of
+    L.ValSymbol    symb      -> Just symb
+    L.ValConstExpr constExpr ->
+      case transConstantExpr constExpr of
+        Right (SymbolConst symb 0) -> Just symb
+        _ -> Nothing
+    -- All other things silently get dropped; it's invalid LLVM code to not have
+    -- a symbol or constexpr.
+    _ -> Nothing
 
+-- | Get all the aliases that alias (transitively) to a certain global.
+globalAliases :: (?lc :: TypeContext, HasPtrWidth wptr)
+              => L.Module
+              -> Map L.Global (Set L.GlobalAlias)
+globalAliases mod_ =
+  reverseAliasesTwoSorted L.globalSym L.aliasName aliasOf
+    (Seq.fromList (L.modGlobals mod_)) (Seq.fromList (L.modAliases mod_))
+
+-- | Get all the aliases that alias (transitively) to a certain function.
+functionAliases :: (?lc :: TypeContext, HasPtrWidth wptr)
+                => L.Module
+                -> Map L.Define (Set L.GlobalAlias)
+functionAliases mod_ =
+  reverseAliasesTwoSorted L.defName L.aliasName aliasOf
+    (Seq.fromList (L.modDefines mod_)) (Seq.fromList (L.modAliases mod_))
 
 -- | Look up a 'Symbol' in the global map of the given 'MemImpl'.
 -- Panic if the symbol is not present in the global map.
 doResolveGlobal ::
-  (IsSymInterface sym, HasPtrWidth wptr) =>
+  (IsSymInterface sym, HasPtrWidth wptr, HasCallStack) =>
   sym ->
   MemImpl sym ->
   L.Symbol {- ^ name of global -} ->
