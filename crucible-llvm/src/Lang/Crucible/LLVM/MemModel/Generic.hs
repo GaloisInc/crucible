@@ -793,7 +793,7 @@ isAllocatedMut ::
   Maybe (SymBV sym w)  ->
   Mem sym              ->
   IO (Pred sym)
-isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, off)) sz m = do
+isAllocatedMut mutOk sym w minAlign ptr@(llvmPointerView -> (blk, _off)) sz m = do
       -- @inThisAllocation a allocatedSz@ produces the precidate that records
       -- whether the pointer @ptr@ of size @sz@ falls within the allocation of block @a@ of size @allocatedSz@
       let inThisAllocation :: forall w'. Natural -> Maybe (SymBV sym w') -> IO (Pred sym)
@@ -866,7 +866,7 @@ ptrRangeNoOF ::  (1 <= w, IsSymInterface sym)
              -> Maybe (SymBV sym w)
              -> IO (Pred sym)
 ptrRangeNoOF sym _ptr Nothing   = return (truePred sym)
-ptrRangeNoOF sym ptr@(llvmPointerView -> (_blk,off)) (Just sz) = do
+ptrRangeNoOF sym (llvmPointerView -> (_blk,off)) (Just sz) = do
     (litOF,v) <- addUnsignedOF sym off sz
     vEq0      <- bvEq sym v =<< bvLit sym (bvWidth sz) 0
     -- there is no overflow if @litOF --> v=0@
