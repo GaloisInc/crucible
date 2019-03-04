@@ -42,6 +42,9 @@ import           What4.Config
 import           What4.Interface
 import qualified What4.Expr.Builder as B
 import qualified What4.Expr.WeightedSum as WSum
+import           What4.ProgramLoc
+import           What4.Protocol.Online
+import           What4.SatResult
 import qualified What4.Solver.Yices as Yices
 import           What4.Symbol
 import           What4.Utils.Hashable (hashedMap)
@@ -200,7 +203,8 @@ newSAWCoreBackend sc gen = do
               , saw_online_state = ob_st
               }
   sym <- B.newExprBuilder st gen
-  extendConfig onlineBackendOptions (getConfiguration sym)
+  let options = onlineBackendOptions ++ Yices.yicesOptions
+  extendConfig options (getConfiguration sym)
   writeIORef (B.sbStateManager sym) st
   return sym
 
@@ -644,6 +648,28 @@ applyExprSymFn sym sc fn args =
       do vs <- evaluateAsgn xs
          v <- termOfSAWExpr sym sc x
          return (v : vs)
+
+
+considerSatisfiability ::
+  (OnlineSolver n solver) =>
+  SAWCoreBackend n solver fs ->
+  Maybe ProgramLoc ->
+  B.BoolExpr n ->
+  IO BranchResult
+considerSatisfiability sym mbPloc p =
+  do proc <- getSolverProcess' (\sym' -> saw_online_state <$> readIORef (B.sbStateManager sym')) sym
+     pnot <- notPred sym p
+     let locDesc = case mbPloc of
+           Just ploc -> show (plSourceLoc ploc)
+           Nothing -> "(unknown location)"
+     let rsn = "branch sat: " ++ locDesc
+     p_res <- checkSatisfiable proc rsn p
+     pnot_res <- checkSatisfiable proc rsn pnot
+     case (p_res, pnot_res) of
+       (Unsat{}, Unsat{}) -> return UnsatisfiableContext
+       (_      , Unsat{}) -> return (NoBranch True)
+       (Unsat{}, _      ) -> return (NoBranch False)
+       _                  -> return IndeterminateBranchResult
 
 {- | Declare that we don't support something or other.
 This aborts the current path of execution, and adds a proof
