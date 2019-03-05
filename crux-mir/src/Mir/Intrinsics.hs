@@ -1,12 +1,15 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
@@ -16,12 +19,10 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 
 {-# LANGUAGE AllowAmbiguousTypes #-}
 
@@ -77,7 +78,7 @@ import qualified Data.Parameterized.TH.GADT as U
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
---import           Lang.Crucible.CFG.Extension
+import           Lang.Crucible.CFG.Extension.Safety(AssertionClassifier,NoAssertionClassifier,HasStructuredAssertions(..))
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Syntax
@@ -113,7 +114,7 @@ pattern MirReferenceRepr tp <-
      IntrinsicRepr (testEquality (knownSymbol @MirReferenceSymbol) -> Just Refl) (Empty :> tp)
  where MirReferenceRepr tp = IntrinsicRepr (knownSymbol @MirReferenceSymbol) (Empty :> tp)
 
-type family MirReferenceFam (sym :: *) (ctx :: Ctx CrucibleType) :: * where
+type family MirReferenceFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MirReferenceFam sym (EmptyCtx ::> tp) = MirReference sym tp
   MirReferenceFam sym ctx = TypeError ('Text "MirRefeence expects a single argument, but was given" ':<>:
                                        'ShowType ctx)
@@ -123,7 +124,7 @@ instance IsExprBuilder sym => IntrinsicClass sym MirReferenceSymbol where
   muxIntrinsic sym _tys _nm (Empty :> _tp) = muxRef sym
   muxIntrinsic _sym _tys nm ctx = typeError nm ctx
 
-data MirReferencePath sym :: CrucibleType -> CrucibleType -> * where
+data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
   Empty_RefPath :: MirReferencePath sym tp tp
   Field_RefPath ::
     !(CtxRepr ctx) ->
@@ -186,12 +187,13 @@ muxRef sym c (MirReference r1 p1) (MirReference r2 p2) =
 data MIR
 type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
+type instance AssertionClassifier MIR = NoAssertionClassifier
 type instance Instantiate subst MIR = MIR
-instance Closed MIR where closed _ = Refl
+instance ClosedK CrucibleType MIR where closed _ _ = Refl
 
 type TaggedUnion = StructType (EmptyCtx ::> NatType ::> AnyType)
 
-data MirStmt :: (CrucibleType -> *) -> CrucibleType -> * where
+data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirNewRef ::
      !(TypeRepr tp) ->
      MirStmt f (MirReferenceType tp)
@@ -245,8 +247,8 @@ instance OrdFC MirStmt where
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
        ])
-instance OrdF f => OrdF (MirStmt f) where
-  compareF = compareFC compareF
+--instance OrdFC f => OrdF (MirStmt f) where
+--  compareF = compareFC compareF
 
 instance TypeApp MirStmt where
   appType = \case
@@ -274,8 +276,8 @@ instance TraversableFC MirStmt where
   traverseFC = traverseMirStmt
 
 type instance Instantiate subst MirStmt = MirStmt
-instance Closed MirStmt where closed _ = Refl
-instance InstantiateFC MirStmt where
+instance ClosedK CrucibleType MirStmt where closed _ _ = Refl
+instance InstantiateFC CrucibleType MirStmt where
   instantiateFC subst stmt =
     case stmt of
       MirNewRef t -> MirNewRef (instantiate subst t)
@@ -283,7 +285,13 @@ instance InstantiateFC MirStmt where
       MirWriteRef r1 r2 -> MirWriteRef (instantiate subst r1) (instantiate subst r2)
       MirDropRef r1 -> MirDropRef (instantiate subst r1)
       MirSubfieldRef ctx r1 idx -> MirSubfieldRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
-      MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)      
+      MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)
+
+
+instance HasStructuredAssertions MIR where
+  explain _       = \case
+  toPredicate _ _ = \case
+      
 
 instance IsSyntaxExtension MIR
 

@@ -39,8 +39,8 @@ loadPrims :: Bool -> Int -> IO Collection
 loadPrims useStdLib debugLevel = do
 
   let lib = if useStdLib then
-              [ "convert"
-              , "option"
+              [ -- "convert"
+                "option"
               , "result"
               , "cmp"      
               , "ops/range"  

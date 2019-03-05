@@ -54,6 +54,7 @@ import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Core as Core
 import qualified Lang.Crucible.Syntax as S
 import qualified Lang.Crucible.Types as CT
+import qualified Lang.Crucible.Substitution as CT
 
 
 import qualified Data.Parameterized.Context as Ctx
@@ -139,6 +140,7 @@ tyToRepr t0 = case t0 of
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
 
+  M.TySlice t -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
   
   M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
   M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
@@ -150,7 +152,7 @@ tyToRepr t0 = case t0 of
   M.TyAdt _defid _tyargs -> Some taggedUnionType
   M.TyDowncast _adt _i   -> Some taggedUnionType
   M.TyFloat _ -> Some CT.RealValRepr
-  M.TyParam i -> case somePeano (fromInteger i) of
+  M.TyParam i -> case somePeano i of
     Just (Some nr) -> Some (CT.VarRepr nr) -- requires poly extension to crucible
     Nothing        -> error "type params must be nonnegative"
   M.TyFnPtr (M.FnSig args ret) ->
@@ -2219,7 +2221,7 @@ mkTraitDecl (M.Trait tname titems) = do
       go (Some tr) (mname, sig@(M.FnSig argtys retty))
         | Some ret  <- tyToRepr retty
         , Some args <- tyListToCtx argtys Some
-        , Just (Some k) <- somePeano (fromInteger (numParams sig))
+        , Just (Some k) <- somePeano (numParams sig)
         =  Some (tr `Ctx.extend` MethRepr mname (CT.PolyFnRepr k args ret))
       go _ _ = error "mkTraitDecl bug: numParams should always return a natural number"
 
