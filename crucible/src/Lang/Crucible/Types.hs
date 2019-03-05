@@ -50,6 +50,7 @@
 {-# LANGUAGE IncoherentInstances #-}
 {-# LANGUAGE TypeInType #-}
 
+
 module Lang.Crucible.Types
   ( -- * CrucibleType data kind
     type CrucibleType
@@ -199,6 +200,7 @@ type Substitution = SubstK CrucibleType
 --   (This is equivalent to the constraint "Closed (UnrollType nm)" but
 --   we cannot partially apply a type family.)
 --   Languages that do not use polymorphism may use the default instance
+--
 class IsRecursiveType (nm::Symbol) where
   type UnrollType nm (ctx :: Ctx CrucibleType) :: CrucibleType
   unrollType   :: SymbolRepr nm -> CtxRepr ctx -> TypeRepr (UnrollType nm ctx)
@@ -520,6 +522,7 @@ pattern KnownBV :: forall n. (1 <= n, KnownNat n) => TypeRepr (BVType n)
 pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
   where KnownBV = knownRepr
 
+
 ------------------------------------------------------------------------
 ------------------------------------------------------------------------
 -- Force TypeRepr, etc. to be in context for next slice.
@@ -571,6 +574,7 @@ instance OrdF TypeRepr where
                      , [|compareF|])
                    ]
                   )
+
 
 ----------------------------------------------------------------
 -- "Closed" instances
@@ -633,7 +637,6 @@ instance (ClosedK CrucibleType ty)  => ClosedK CrucibleType (StringMapType ty)
 -- note: No instance for PolyFnType
 -- we would need to index the type class with the binding level
 -- to do this.
-
 
 newtype Gift a r = Gift (Closed a => r)
 

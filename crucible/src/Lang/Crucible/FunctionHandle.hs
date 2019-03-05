@@ -27,10 +27,6 @@ module Lang.Crucible.FunctionHandle
   , handleArgTypes
   , handleReturnType
   , handleType
---  , HandleExpr(..)
---  , handleExprType
---  , handleExprName
---  , instantiatePolyHandleExpr
   , SomeHandle(..)
     -- * Allocate handle.
   , HandleAllocator

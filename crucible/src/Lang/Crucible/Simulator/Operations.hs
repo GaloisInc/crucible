@@ -334,6 +334,7 @@ resolveCall bindings c0 args =
           Just (UseCFG g pdInfo) -> do
              CrucibleCall (cfgEntryBlockID g) (mkCallFrame g pdInfo args)
 
+
     InstantiatedFnVal (h :: FnHandle args1 ret1) targs -> do
       case lookupHandleMap h bindings of
         Nothing -> Ex.throw (UnresolvableFunction h)

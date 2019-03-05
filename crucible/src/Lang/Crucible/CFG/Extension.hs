@@ -46,6 +46,7 @@ import           Data.Kind
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Data.Parameterized.TraversableFC
 
+
 import           Lang.Crucible.Substitution
 import           Lang.Crucible.Types
 

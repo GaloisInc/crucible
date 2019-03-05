@@ -249,6 +249,8 @@ muxRegForType s itefns p =
        muxReg s p
        -- muxRegForType s itefns (FunctionHandleRepr args ret)
 
+
+
 -- | Mux two register entries.
 {-# INLINE muxRegEntry #-}
 muxRegEntry :: IsSymInterface sym

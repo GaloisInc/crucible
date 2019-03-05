@@ -80,6 +80,7 @@ import           Lang.Crucible.Types
 import           Lang.Crucible.Utils.MuxTree
 import           Lang.Crucible.Backend
 
+
 type MuxFn p v = p -> v -> v -> IO v
 
 -- | Maps register types to the runtime representation.
@@ -167,15 +168,6 @@ instantiatePolyFnVal :: forall subst sym n args res.
 instantiatePolyFnVal (HandlePolyFnVal _ h) subst
   = InstantiatedFnVal h subst
 
-{-  
-instantiatePolyFnVal subst (InstantiatedHandleFnVal (subst' :: CtxRepr subst') (h::FnHandle a r)) 
-  | Refl <- composeInstantiateAxiom @0 @subst @0 @subst' @a,
-    Refl <- composeInstantiateAxiom @0 @subst @0 @subst' @r
-  = InstantiatedHandleFnVal (instantiate (knownRepr :: NatRepr 0) subst subst') h
-instantiatePolyFnVal subst (ClosureFnVal fnv (ty :: TypeRepr ty) argty)
-  | Refl <- closed @_ @ty (knownRepr :: NatRepr 0) subst
-  = ClosureFnVal (instantiateFnVal subst fnv) ty argty
--}
 
 ------------------------------------------------------------------------
 -- CanMux

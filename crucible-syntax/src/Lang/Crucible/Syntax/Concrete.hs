@@ -1023,6 +1023,8 @@ stxAtoms = lens _stxAtoms (\s v -> s { _stxAtoms = v })
 stxRegisters :: Simple Lens (SyntaxState h s) (Map RegName (Pair TypeRepr (Reg s)))
 stxRegisters = lens _stxRegisters (\s v -> s { _stxRegisters = v })
 
+stxTypeArgs :: Simple Lens (SyntaxState h s) [TyVarName]
+stxTypeArgs = lens _stxTypeArgs (\s v -> s { _stxTypeArgs = v })
 
 stxNonceGen :: Getter (SyntaxState h s) (NonceGenerator (ST h) s)
 stxNonceGen = to _stxNonceGen
@@ -1902,4 +1904,3 @@ cfgs defuns =
               i <- freshAtomIndex
               j <- freshLabelIndex
               return $ ACFG types ret $ CFG handle theBlocks i j
-

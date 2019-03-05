@@ -538,6 +538,7 @@ instance ExtendContext (TermStmt blocks ret) where
 ------------------------------------------------------------------------------------
 -- Instantiation / type substitution
 
+
 type instance Instantiate subst Reg = Reg 
 instance InstantiateF CrucibleType (Reg ctx) where
   instantiateF subst (Reg idx) = Reg (instantiate subst idx)
@@ -605,6 +606,7 @@ instance InstantiateF CrucibleType (TermStmt blocks ret) where
       (instantiate subst args)
     instantiateTermStmt subst (ErrorStmt reg) = ErrorStmt (instantiate subst reg)
 
+
 type instance Instantiate subst (StmtSeq ext block)
   = StmtSeq ext (Instantiate subst block)
 instance IsSyntaxExtension ext => InstantiateF CrucibleType (StmtSeq ext block ret) where
@@ -617,10 +619,10 @@ instance IsSyntaxExtension ext => InstantiateF CrucibleType (StmtSeq ext block r
         (ConsStmt loc stmt sseq) -> ConsStmt loc (instantiate subst stmt) (instantiate subst sseq)
         (TermStmt loc termstmt)  -> TermStmt loc (instantiate subst termstmt)
  
+
 type instance Instantiate subst (Block ext blocks)
   = Block ext (Instantiate subst blocks)
 instance  IsSyntaxExtension ext => InstantiateF CrucibleType (Block ext blocks ret) where
-
   instantiateF = instantiateBlock where
     instantiateBlock :: SubstRepr subst -> Block ext blocks ret ctx
                      -> Block ext (Instantiate subst blocks) (Instantiate subst ret) (Instantiate subst ctx)
@@ -632,7 +634,6 @@ instance  IsSyntaxExtension ext => InstantiateF CrucibleType (Block ext blocks r
 type instance Instantiate subst (SwitchTarget blocks)
   = SwitchTarget (Instantiate subst blocks)
 instance InstantiateF CrucibleType (SwitchTarget blocks ctx)  where
-
   instantiateF = instantiateSwitch where
     instantiateSwitch :: SubstRepr subst -> SwitchTarget blocks ctx tp
                       -> SwitchTarget (Instantiate subst blocks) (Instantiate subst ctx) (Instantiate subst tp)
@@ -643,7 +644,6 @@ instance InstantiateF CrucibleType (SwitchTarget blocks ctx)  where
 
 type instance Instantiate subst JumpTarget = JumpTarget 
 instance InstantiateF CrucibleType (JumpTarget blocks) where
-
   instantiateF = instantiateJumpTarget where
     instantiateJumpTarget :: SubstRepr subst -> JumpTarget blocks ctx
                       -> JumpTarget (Instantiate subst blocks) (Instantiate subst ctx) 

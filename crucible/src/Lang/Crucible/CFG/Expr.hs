@@ -1173,6 +1173,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     PolyInstantiate (PolyFnRepr _k args ret) _ targs ->
       FunctionHandleRepr (instantiate (mkSubst targs) args)
                          (instantiate (mkSubst targs) ret)
+
     ----------------------------------------------------------------------
     -- Conversions
     NatToInteger{} -> knownRepr
@@ -1468,6 +1469,7 @@ mapApp f a = runIdentity (traverseApp (pure . f) a)
 -- Type Instantiation
 
 -- App :: Type -> (CrucibleType -> Type) -> CrucibleType -> Type
+
 type instance Instantiate subst (App ext) = App ext
 instance (IsSyntaxExtension ext) => InstantiateFC CrucibleType (App ext) where
    instantiateFC (subst :: SubstRepr subst) app 
@@ -1639,8 +1641,6 @@ instance (IsSyntaxExtension ext) => InstantiateFC CrucibleType (App ext) where
                    (instantiate subst targs)
                      
 
-
-
           NatToInteger r1 -> NatToInteger (instantiate subst r1)
           IntegerToReal r1 -> IntegerToReal (instantiate subst r1)
           RealRound r1 -> RealRound (instantiate subst r1)
@@ -1693,7 +1693,6 @@ instance (IsSyntaxExtension ext) => InstantiateFC CrucibleType (App ext) where
           SbvToInteger n1 r1 -> SbvToInteger n1 (instantiate subst r1)
           BvToNat n1 r1 -> BvToNat n1 (instantiate subst r1)
           BVNonzero n1 r1 -> BVNonzero n1 (instantiate subst r1)
-
 
           EmptyWordMap nr bt -> EmptyWordMap nr bt
           InsertWordMap nr bt r1 r2 r3 -> InsertWordMap nr bt (instantiate subst r1) (instantiate subst r2) (instantiate subst r3)
