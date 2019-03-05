@@ -406,7 +406,10 @@ data CustomAggregate =
     CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
     deriving (Show,Eq, Ord, Generic, GenericOps)
 
-data Trait = Trait DefId [TraitItem]
+data Trait = Trait { _traitName   :: DefId,
+                     _traitItems  :: [TraitItem],
+                     _traitSupers :: [TraitName]
+                   } 
     deriving (Eq, Ord, Show, Generic, GenericOps)
 
 
@@ -675,7 +678,7 @@ makeLenses ''Variant
 makeLenses ''Var
 makeLenses ''Collection
 makeLenses ''Fn
-
+makeLenses ''Trait
 
 instance Semigroup Collection where
   (Collection f1 a1 t1)<> (Collection f2 a2 t2) =

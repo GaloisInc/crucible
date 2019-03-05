@@ -69,7 +69,7 @@ hardCoded = Collection [] [] []
 -- FnOnce trait (no longer needed, defined in ops/function.rs
 
 fnOnce :: Trait
-fnOnce = Trait fnOnce_defId [call_once, output] where
+fnOnce = Trait fnOnce_defId [call_once, output] [] where
 
            fnOnce_defId :: DefId
            fnOnce_defId = textId $ ("::ops[0]::function[0]::FnOnce[0]")
@@ -88,7 +88,7 @@ fnOnce = Trait fnOnce_defId [call_once, output] where
            output = TraitType fnOnce_Output_defId        
 
 fn :: Trait
-fn = Trait fn_defId [call_once, output] where
+fn = Trait fn_defId [call_once, output] [] where
 
            fn_defId :: DefId
            fn_defId = textId $ ( "::ops[0]::function[0]::Fn[0]")
@@ -107,7 +107,7 @@ fn = Trait fn_defId [call_once, output] where
            output = TraitType fn_Output_defId        
 
 index :: Trait
-index = Trait index_defId [index_index, output] where
+index = Trait index_defId [index_index, output] [] where
 
            index_defId :: DefId
            index_defId = textId $ ("::ops[0]::index[0]::Index[0]")
@@ -126,7 +126,7 @@ index = Trait index_defId [index_index, output] where
            output = TraitType index_Output_defId        
 
 indexMut :: Trait
-indexMut = Trait index_defId [index_index, index_index_mut, output] where
+indexMut = Trait index_defId [index_index, index_index_mut, output] [] where
 
            index_defId :: DefId
            index_defId = textId $ ("::ops[0]::index[0]::IndexMut[0]")

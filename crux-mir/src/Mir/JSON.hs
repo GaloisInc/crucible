@@ -422,7 +422,7 @@ instance FromJSON CustomAggregate where
                                                        x -> fail ("bad CustomAggregate: " ++ show x)
 
 instance FromJSON Trait where
-    parseJSON = withObject "Trait" $ \v -> Trait <$> v .: "name" <*> v .: "items"
+    parseJSON = withObject "Trait" $ \v -> Trait <$> v .: "name" <*> v .: "items" <*> v .: "supertraits"
 
 instance FromJSON TraitItem where
     parseJSON = withObject "TraitItem" $ \v ->

@@ -81,6 +81,7 @@ import GHC.Stack
 import Unsafe.Coerce
 import Debug.Trace
 
+-- Move to Data.Parameterized.Peano
 peanoLength :: [a] -> Some PeanoRepr
 peanoLength [] = Some zeroP
 peanoLength (_:xs) = case peanoLength xs of
@@ -165,7 +166,7 @@ tyToRepr t0 = case t0 of
   _ -> error $ unwords ["unknown type?", show t0]
 
 
--- | Convert field to type. Perform the corresponding subtitution if field is a type param.
+-- | Convert field to type. Perform the corresponding substitution if field is a type param.
 fieldToRepr :: HasCallStack => M.Field -> M.Ty
 fieldToRepr (M.Field _ t substs) = M.tySubst substs t
 
@@ -1452,10 +1453,11 @@ lookupFunction nm (Substs funsubst)
        -> return Nothing
 
        -- call via a dictionary argument
-       | Just traits@(tn:_) <- Map.lookup nm stm
-       , Just [Variant _ _ fields _] <- Map.lookup tn am
-       , Just idx <- List.findIndex (\(Field fn _ _) -> nm == fn) fields
-       , Map.member (M.idText tn) vm
+       | Just traits <- Map.lookup nm stm
+       , ((tn, idx, fields):_) <- [ (tn, idx, fields)
+                          | (tn, Just [Variant _ _ fields _]) <- map (\tn -> (tn,Map.lookup tn am)) traits 
+                          , idx <- Maybe.maybeToList (List.findIndex (\(Field fn _ _) -> nm == fn) fields)
+                          , Map.member (M.idText tn) vm ]
        -> do
              let var = mkPredVar tn (Substs funsubst)
              let (Field _ ty _) = fields !! idx
@@ -1481,6 +1483,11 @@ lookupFunction nm (Substs funsubst)
        | otherwise -> do
             when (db > 1) $ do
                traceM $ "Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
+               case Map.lookup nm stm of
+                  Just traits -> do
+                     traceM $ "Potential traits: " ++ show traits
+                     traceM $ "Potential variants:  " ++ show (map (\tn -> Map.lookup tn am) traits)
+                  Nothing -> return ()
             return Nothing
 
 -- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
@@ -2125,14 +2132,15 @@ mkHandleMap adts halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
 -- Create the dictionary adt type for a trait
 -- The dictionary is a record (i.e. an ADT with a single variant) with
 -- a field for each method in the trait.
+-- TODO: add entries for supertrait methods too.
 traitToAdt :: M.Trait -> Maybe M.Adt
-traitToAdt (M.Trait did items) = do
+traitToAdt tr = do
   let itemToField :: M.TraitItem -> Maybe M.Field
       itemToField (M.TraitMethod did fnsig) =
         return $ M.Field did (TyFnPtr fnsig) (Substs [])
       itemToField _ = Nothing
-  fields <- mapM itemToField items
-  return $ M.Adt did [M.Variant did (Relative 0) fields M.FnKind]
+  fields <- mapM itemToField (tr^.traitItems)
+  return $ M.Adt (tr^.traitName) [M.Variant (tr^.traitName) (Relative 0) fields M.FnKind]
 
 
 addTraitAdts :: M.Collection -> M.Collection
@@ -2140,19 +2148,43 @@ addTraitAdts col = col & adts %~ (++ new) where
   new = Maybe.mapMaybe traitToAdt (col^.M.traits)
 
 
--- | transCollection: translate all functions
+-- Explicitly inherit all supertrait methods
+expandSuperTraits :: [M.Trait] -> [M.Trait]
+expandSuperTraits traits =  map nubTrait (Map.elems (go traits Map.empty)) where
+   nubTrait tr = tr & traitItems %~ List.nub
+   go :: [M.Trait] -> Map M.TraitName M.Trait -> Map M.TraitName M.Trait
+   go trs done = if null this then done else go next step where
+         (this, next) = List.partition processed trs
+
+         processed :: M.Trait -> Bool
+         processed tr = all (\n -> Map.member n done) (tail (tr^.traitSupers))
+
+         addSupers :: M.Trait -> (M.TraitName, M.Trait)
+         addSupers tr = (tr^.traitName, tr & traitItems %~ (++ newItems)) where
+
+           newItems = concat [ (done Map.! superName) ^.traitItems
+                             | superName  <- tail (tr^.traitSupers) ]
+
+         step :: Map M.TraitName M.Trait
+         step = Map.union done (Map.fromList (List.map addSupers this))
+
+
+-- | transCollection: translate a MIR module
 transCollection :: HasCallStack
       => M.Collection
       -> Int  
       -> FH.HandleAllocator s
       -> ST s (Map Text (Core.AnyCFG MIR))
 transCollection col0 debug halloc = do
+    -- add supertrait items
+    let col1 = col0 & traits %~ expandSuperTraits
+
     -- add adts for declared traits
-    let col = addTraitAdts col0
+    let col = addTraitAdts col1
 
     -- figure out which ADTs are enums and mark them in the code base
     let cstyleAdts = List.filter isCStyle (col^.M.adts)
-    let col1 = markCStyle (cstyleAdts,col) col
+    let col1 = markCStyle (cstyleAdts, col) col
 
     when (debug > 2) $ do
       traceM $ "MIR collection"
@@ -2162,7 +2194,11 @@ transCollection col0 debug halloc = do
     let amap = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
     hmap <- mkHandleMap amap halloc (col1^.M.functions)
 
-    (gtm, stm, morePairs) <- buildTraitMap debug col1 halloc hmap
+    (gtm@(GenericTraitMap gm), stm, morePairs) <- buildTraitMap debug col1 halloc hmap
+
+    when (debug > 2) $ do
+      traceM $ "Trait map"
+      traceM $ show (Map.keys gm)
 
     let fnState :: (forall s. FnState s)
         fnState = case gtm of
@@ -2212,8 +2248,10 @@ numParams (M.FnSig argtys retty) = maximum (paramBound retty : map paramBound ar
 
 -- | Translate a trait declaration
 mkTraitDecl :: M.Trait -> Some TraitDecl
-mkTraitDecl (M.Trait tname titems) = do
-  let meths = [(mname, tsig) |(M.TraitMethod mname tsig) <- titems]
+mkTraitDecl tr = do
+  let tname  = tr^.traitName
+  let titems = tr^.traitItems
+  let meths  = [(mname, tsig) |(M.TraitMethod mname tsig) <- titems]
 
   let go :: Some (Ctx.Assignment MethRepr)
          -> (MethName, M.FnSig)
@@ -2256,17 +2294,26 @@ buildTraitMap debug col _halloc hmap = do
 
     -- translate the trait declarations
     let decls :: Map TraitName (Some TraitDecl)
-        decls = foldr (\ trait@(M.Trait tname _) m -> Map.insert tname (mkTraitDecl trait) m)
+        decls = foldr (\ trait m -> Map.insert (trait^.M.traitName) (mkTraitDecl trait) m)
                  Map.empty (col^.M.traits)
+
+    when (debug > 6) $ do
+       traceM $ "handle map contents:" 
+       forM_ (Map.assocs hmap) $ \(methName, methHandle) -> do
+           traceM $ "\t" ++ show methName
+
 
     -- find all methods that are the implementations of traits
     -- this uses the name of the method and its type 
     let impls :: [(MethName, TraitName, MirHandle, Substs)]
-        impls = Maybe.mapMaybe (getTraitImplementation (col^.M.traits)) (Map.assocs hmap)
+        impls = [ (methName, traitName, methHandle, substs) 
+                | (methName, methHandle) <- (Map.assocs hmap)
+                , (traitName, substs)    <- getTraitImplementation (col^.M.traits) (methName,methHandle) ]
 
-    when (debug > 3) $ do
-      forM_ impls $ \(mn, tn, mh, sub) ->
-         traceM $ "Implementing method of trait " ++ show tn ++ show (pretty sub) ++ " with " ++ show (pretty mh) 
+    when (debug > 2) $ do
+      forM_ impls $ \(mn, tn, mh, sub) -> do
+         traceM $ "Implementing method of trait " ++ show tn ++ show (pretty sub)
+         traceM $ "\t with " ++ show (pretty mh) 
 
     let impl_vtable :: TraitDecl ctx
                     -> CT.TypeRepr implTy 
@@ -2276,10 +2323,11 @@ buildTraitMap debug col _halloc hmap = do
            let go :: Ctx.Index ctx ty -> CT.TypeRepr ty -> Identity (GenericMirValue ty)
                go idx (CT.PolyFnRepr k args ret) = do
                   let i = Ctx.indexVal idx
-                  let (_implName, implHandle, implSubst) = if i < length meths then meths !! i
+                  let (implName, implHandle, implSubst) = if i < length meths then meths !! i
                       else error $  "impl_vtable BUG: trying to access " ++ show i ++ " from methods\n"
                                  ++ show (map (\(x,y,z)->x) meths)
-                  let (_declName, _declTy)     = if i < length methDecls then methDecls !! i else error "impl_vtable: BUG in methDecls"
+                  traceM $ "Found method: " ++ show implName 
+                  let (declName, _declTy)     = if i < length methDecls then methDecls !! i else error "impl_vtable: BUG in methDecls"
                   substToSubstCont implSubst $ \subst -> 
                     case implHandle of 
                       (MirHandle mname sig _pred (fh :: FH.FnHandle fargs fret)) ->                      
@@ -2298,13 +2346,14 @@ buildTraitMap debug col _halloc hmap = do
                                                                                                             (CT.instantiate subst ret))
                                         ++ "\n\targs before subst: " ++ show args
                                         ++ "\n\targs after subst: "  ++ show (CT.instantiate subst args)
+                                        ++ "\n\tdeclared name is: " ++ show declName
                                         ++ "\n\tdeclared type is: "  ++ show (CT.PolyFnRepr (succP k) args ret)
                go idx _ = error "buildTraitMap: cannot only handle trait definitions with polmorphic functions (no constants allowed)"
            in 
               runIdentity (Ctx.traverseWithIndex go ctxr)
 
 
-    -- make the vtables for each implementations
+    -- make the vtables for each implementation
     perTraitInfos <- forM (Map.assocs decls) $ \(trait, Some decl@(TraitDecl _tname _msigs ctx methodIndex)) -> do
                      let implHandles = [(methName,mirHandle, substs) | (methName, tn, mirHandle, substs) <- impls, trait == tn]
 
@@ -2312,7 +2361,17 @@ buildTraitMap debug col _halloc hmap = do
                                     -- traceM $ "making vtable for " ++ show trait ++ "<" ++ show typeName ++ ">"
                                     case tyToRepr typeName of
                                       Some typeRepr -> do
-                                         let vtable = impl_vtable decl typeRepr (reverse implHandlesByType)
+                                         --traceM $ "declared method table" 
+                                         --forM_ (Map.toList methodIndex) $ \(methName, idx) ->
+                                         --         traceM $ "\t" ++ show methName ++ " : " ++ show idx
+
+                                         let sortedImpls = reorderImpls (Map.toList (Map.map (\(Some v) -> (Ctx.indexVal v)) methodIndex))
+                                                           implHandlesByType
+
+                                         --traceM $ "implHandlesByType: "
+                                         --forM_ sortedImpls $ \(methName, _, _) -> do
+                                         --         traceM $ "\t" ++ show methName
+                                         let vtable = impl_vtable decl typeRepr sortedImpls
                                          return (Map.singleton typeName vtable)
 
                      let vtables   = mconcat vtables'
@@ -2324,6 +2383,18 @@ buildTraitMap debug col _halloc hmap = do
     let stm  = mkStaticTraitMap perTraitInfos
 
     return (tm, stm, [])
+
+reorderImpls :: [(MethName, Int)] -> [(MethName,MirHandle, Substs)] -> [(MethName,MirHandle, Substs)]
+reorderImpls declIndices implHandlesByType = List.sortBy cmpMeths implHandlesByType where
+   cmpMeths meth1@(implName1,_,_) meth2@(implName2,_,_) =
+      let findIdx implName | Just methodEntry <- M.parseImplName implName = 
+                                 List.find (\ (m, i) -> M.sameTraitMethod methodEntry m) declIndices
+                           | otherwise = error $  "BUG: should be able to parseImplName " ++ show implName
+      in case (findIdx implName1, findIdx implName2) of
+            (Just (_, i1), Just (_, i2)) -> compare i1 i2
+            (Nothing     , _           ) -> error $ "BUG: cannot find idx for " ++ show implName1
+            ( _          , Nothing     ) -> error $ "BUG: cannot find idx for " ++ show implName2
+
 
 thisType :: Substs -> Ty
 thisType (Substs (ty:_)) = ty
@@ -2542,9 +2613,10 @@ mkTraitImplementations _col trs trait@(M.Trait tname titems) =
  
 -- | Find the mapping from types to method handles for *this* trait
 thisTraitImpls :: M.Trait -> [(MethName,TraitName,Ty,MirHandle)] -> Map Ty (Map MethName MirHandle)
-thisTraitImpls (M.Trait trait _) trs = do
+thisTraitImpls trait trs = do
   -- pull out method handles just for this trait
-  let impls = [ (typeName, (methName, handle)) | (methName, traitName, typeName, handle) <- trs, traitName == trait ]
+  let impls = [ (typeName, (methName, handle)) |
+         (methName, traitName, typeName, handle) <- trs, traitName == trait^.M.traitName ]
   -- convert double association list to double map
   foldr (\(ty,(mn,h)) -> Map.insertWith Map.union ty (Map.singleton mn h)) Map.empty impls
 

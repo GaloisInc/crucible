@@ -67,6 +67,7 @@ import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import           Data.Functor.Identity
+--import           Control.Monad
 
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -87,7 +88,7 @@ import           Mir.Intrinsics
 
 
 import           Unsafe.Coerce(unsafeCoerce)
-
+-- import           Debug.Trace
 
 -- h for state monad
 -- s phantom parameter for CFGs
@@ -354,39 +355,35 @@ matchTys (t1:instTys) (t2:genTys) = do
 matchTys _ _ = Nothing  
   
 -- | Decide whether the given method definition is an implementation method for
--- a declared trait. If so, return it along with the trait.
+-- a declared trait. If so, return any such declared traits along with the type substitution
   
 getTraitImplementation :: [Trait] ->
                           (MethName,MirHandle) ->
-                          Maybe (MethName, TraitName, MirHandle, Substs)
-getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh)) = do
+                          [(TraitName, Substs)]
+getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh))
   -- find just the text of the method name
-  methodEntry <- parseImplName name
+  | Just methodEntry <- parseImplName name = do
   
-  -- find signature of methods that share this name
-  let hasTraitMethod (TraitMethod tm ts) = if sameTraitMethod methodEntry tm then Just (tm,ts) else Nothing
-      hasTraitMethod _ = Nothing
+    -- find signature of methods that use this name
+    let isTraitMethod (TraitMethod tm ts) = if sameTraitMethod methodEntry tm then Just (tm,ts) else Nothing
+        isTraitMethod _ = Nothing
 
-  let namedTraits = [ (tn, tm, ts) | (Trait tn items) <- trts, Just (tm,ts) <- map hasTraitMethod items ]
+    let namedTraits = [ (tn, tm, ts) | (Trait tn items _supers) <- trts,
+                                       (tm,ts) <- Maybe.mapMaybe isTraitMethod items ]
+
+    -- traceM $ "named Traits for : " ++ show name
+    -- forM_ namedTraits $ \(tn,tm,ts) -> do
+    --   traceM $ "\t" ++ show tn ++ " " ++ show tm ++ " " ++ show (pretty ts)
   
-  let typedTraits = Maybe.mapMaybe (\(tn,tm,ts) -> (tn,tm,ts,) <$> matchSig sig ts) namedTraits
+    let typedTraits = Maybe.mapMaybe (\(tn,tm,ts) -> (tn,tm,ts,) <$> matchSig sig ts) namedTraits
 
-  (traitName,_,_,instMap) <- Maybe.listToMaybe typedTraits
+    let g (traitName,_,_,instMap) =
+        -- TODO: hope all of the params actually appear....
+         -- otherwise there will be a gap
+              (traitName, Substs (Map.elems instMap))
 
-  -- TODO: hope all of the params actually appear....
-  -- otherwise there will be a gap
-  let substs = Substs (Map.elems instMap)
-
-
-{-
-  when (namedTraits /= []) $ do
-      traceM $ "Method sig is: " ++ show (pretty sig)
-      traceM $ "Potential implementations of these " ++ show namedTraits
-      traceM $ "Found implementations are " ++ show typedTraits
--}
-      
-  
-  return (name, traitName, handle, substs)
+    map g typedTraits
+getTraitImplementation _ _ = []
 
 -------------------------------------------------------------------------------------------------------
 
