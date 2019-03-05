@@ -67,6 +67,7 @@ import Data.Parameterized.TraversableFC
 import Data.Parameterized.Classes
 import Data.Parameterized.Nonce ( NonceGenerator, Nonce
                                 , freshNonce )
+import Data.Parameterized.Peano       
 import qualified Data.Parameterized.Context as Ctx
 import Data.List (elemIndex, nub, sort)
 import Data.Map (Map)
@@ -95,8 +96,14 @@ import Lang.Crucible.FunctionHandle
 
 import Numeric.Natural ()
 
+-- move to Data.Parameterized.Peano
+peanoLength :: [a] -> Some PeanoRepr
+peanoLength [] = Some zeroP
+peanoLength (_:xs) = case peanoLength xs of
+  Some n -> Some (succP n)
 
-liftSyntaxParse :: (MonadState (SyntaxState h s) m, MonadError (ExprErr s) m)
+
+liftSyntaxParse :: (MonadError (ExprErr s) m, MonadST h m)
                   => SyntaxParse Atomic h a -> AST s -> m a
 liftSyntaxParse p ast =
   liftST (syntaxParseST p ast) >>= \case
@@ -302,7 +309,7 @@ isType =
            Just ix ->
              later $
              describe "type variable index" $
-             case someNat $ toInteger ix of
+             case somePeano $ toInteger ix of
                Nothing -> empty
                Just (Some ixRepr) -> return $ Some $ VarRepr ixRepr
            Nothing -> empty
@@ -536,8 +543,11 @@ synthExpr typeHint =
              Nothing -> empty
              Just (FunctionHeader _ funArgs ret handle _) ->
                return $ SomeE (FunctionHandleRepr (argTypes funArgs) ret) (EApp $ HandleLit handle)
-             Just (PolyFunctionHeader _ _ funArgs ret handle _) ->
-               return $ SomeE (PolyFnRepr (argTypes funArgs) ret) (EApp $ PolyHandleLit handle)
+             Just (PolyFunctionHeader _ args funArgs ret handle _) ->
+               case peanoLength args of
+                 Some numArgs ->
+                   return $ SomeE (PolyFnRepr numArgs (argTypes funArgs) ret)
+                   (EApp $ PolyHandleLit numArgs handle)
 
     notExpr =
       do e <- describe "negation expression" $ unary Not_ (check BoolRepr)
@@ -638,11 +648,11 @@ synthExpr typeHint =
       followedBy (kw Inst) $
       depConsCond synth $ \ (Pair t e) ->
       case t of
-        PolyFnRepr args ret ->
+        PolyFnRepr k args ret ->
           do commit
              Some typeArgs <- typeArguments
              return $ Right $
-               SomeE (FunctionHandleRepr (instantiate typeArgs args) (instantiate typeArgs ret)) $
+               SomeE (instantiate (mkSubst typeArgs) (FunctionHandleRepr args ret)) $
                EApp $ PolyInstantiate t e typeArgs
         other ->
           return $ Left $ "polymorphic function, got " <> T.pack (show other)
@@ -1007,9 +1017,8 @@ initProgState builtIns ha = ProgramState fns Map.empty ha
         ]
 
 
-initSyntaxState :: ProgramState h s -> SyntaxState h s
-initSyntaxState =
-  SyntaxState Map.empty Map.empty [] Map.empty 0 0 
+initSyntaxState :: NonceGenerator (ST h) s -> ProgramState h s -> SyntaxState h s
+initSyntaxState ng ss = SyntaxState Map.empty Map.empty [] Map.empty ng ss
 
 stxLabels :: Simple Lens (SyntaxState h s) (Map LabelName (LabelInfo s))
 stxLabels = lens _stxLabels (\s v -> s { _stxLabels = v })
@@ -1025,9 +1034,6 @@ stxTypeArgs = lens _stxTypeArgs (\s v -> s { _stxTypeArgs = v })
 
 stxNonceGen :: Getter (SyntaxState h s) (NonceGenerator (ST h) s)
 stxNonceGen = to _stxNonceGen
-
-stxTypeArgs :: Simple Lens (SyntaxState h s) [TyVarName]
-stxTypeArgs = lens _stxTypeArgs (\s v -> s { _stxTypeArgs = v })
 
 stxProgState :: Simple Lens (SyntaxState h s) (ProgramState h s)
 stxProgState = lens _stxProgState (\s v -> s { _stxProgState = v })
@@ -1859,7 +1865,8 @@ initParser header (FunctionSource regs _) =
            case header of
              FunctionHeader _ (funArgs :: Ctx.Assignment Arg init) _ _ _ -> return (Pair (Const []) funArgs)
              PolyFunctionHeader _ ty (funArgs :: Ctx.Assignment Arg init) _ _ _ -> return (Pair (Const ty) funArgs)
-     with stxProgState $ put . initSyntaxState
+     progState <- use stxProgState
+     put $ initSyntaxState ng progState
      let types = argTypes funArgs
      inputAtoms <- liftST $ mkInputAtoms ng (OtherPos "args") types
      saveArgs funArgs inputAtoms
@@ -1888,9 +1895,10 @@ cfgs defuns =
               st <- get
               (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
               put st'
-              i <- freshAtomIndex
-              j <- freshLabelIndex
-              return $ ACFG types ret $ CFG handle theBlocks i j
+              let entry = case blockID (head theBlocks) of
+                             LabelID lbl -> lbl
+                             LambdaID {} -> error "initial block is lambda"
+              return $ ACFG types ret $ CFG handle entry theBlocks 
          (hdr@(PolyFunctionHeader _ _ funArgs ret handle _), src@(FunctionSource _ body)) ->
            do let types = argTypes funArgs
               initParser hdr src
@@ -1898,6 +1906,7 @@ cfgs defuns =
               st <- get
               (theBlocks, st') <- liftSyntaxParse (runStateT (blocks ret) st) body
               put st'
-              i <- freshAtomIndex
-              j <- freshLabelIndex
-              return $ ACFG types ret $ CFG handle theBlocks i j
+              let entry = case blockID (head theBlocks) of
+                            LabelID lbl -> lbl
+                            LambdaID {} -> error "initial block is lambda"
+              return $ ACFG types ret $ CFG handle entry theBlocks
