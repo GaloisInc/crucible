@@ -26,6 +26,7 @@ Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluati
 
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 -- This option is here because, without it, GHC takes an extremely
 -- long time (forever?) to compile this module with profiling enabled.
@@ -59,7 +60,8 @@ module Lang.Crucible.CFG.Expr
 
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict hiding (lift)
-import           Data.Kind
+import           Data.Kind(Type)
+import           Data.Proxy(Proxy(..))
 import           Data.Text (Text)
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
@@ -117,12 +119,11 @@ instance FoldableFC BaseTerm where
 instance TraversableFC BaseTerm where
   traverseFC f (BaseTerm tp x) = BaseTerm tp <$> f x
 
-type instance Instantiate subst (BaseTerm f) 
-  = BaseTerm (Instantiate subst f) 
+type instance Instantiate subst BaseTerm = BaseTerm 
 
-instance InstantiateF f => InstantiateF (BaseTerm f) where
+instance InstantiateF CrucibleType f => InstantiateF CrucibleType (BaseTerm f) where
   instantiateF subst (BaseTerm (btr :: BaseTypeRepr btr) val)
-    | Refl <- closed @_ @(BaseTypeRepr btr) subst =
+    | Refl <- closed (Proxy :: Proxy btr) subst =
     BaseTerm btr (instantiate subst val)
 
 
@@ -1468,10 +1469,10 @@ mapApp f a = runIdentity (traverseApp (pure . f) a)
 
 -- App :: Type -> (CrucibleType -> Type) -> CrucibleType -> Type
 type instance Instantiate subst (App ext) = App ext
-instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
+instance (IsSyntaxExtension ext) => InstantiateFC CrucibleType (App ext) where
    instantiateFC (subst :: SubstRepr subst) app 
-      | Refl <- closed @_ @ext subst,
-        Refl <- closed @_ @(ExprExtension ext) subst =
+      | Refl <- closed (Proxy :: Proxy ext) subst,
+        Refl <- closed (Proxy :: Proxy (ExprExtension ext)) subst =
       case app of
           ExtensionApp ext -> ExtensionApp (instantiate subst ext)
           
@@ -1591,11 +1592,11 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
 
 
           HandleLit (fh :: FnHandle args ret)
-            | Refl <- closed @_ @(FunctionHandleType args ret) subst ->
+            | Refl <- closed (Proxy :: Proxy (FunctionHandleType args ret)) subst ->
             HandleLit fh
 
           Closure argTy retTy r1 (tp :: TypeRepr tp) r2
-            | Refl <- closed @_ @tp subst
+            | Refl <- closed (Proxy :: Proxy tp) subst
             ->
               Closure (instantiate subst argTy)
                       (instantiate subst retTy)
@@ -1719,14 +1720,14 @@ instance (IsSyntaxExtension ext) => InstantiateFC (App ext) where
           AppendString r1 r2 -> AppendString (instantiate subst r1) (instantiate subst r2)
 
           SymArrayLookup (br :: BaseTypeRepr br) r1 (ctx :: Ctx.Assignment (BaseTerm f) (idx ::> tp))
-            | Refl <- closed @_ @br subst,
-              Refl <- closed @_ @tp subst,
-              Refl <- closed @_ @idx subst
+            | Refl <- closed (Proxy :: Proxy br) subst,
+              Refl <- closed (Proxy :: Proxy tp) subst,
+              Refl <- closed (Proxy :: Proxy idx) subst
             -> SymArrayLookup br (instantiate subst r1) (instantiate subst ctx)
           SymArrayUpdate (br :: BaseTypeRepr br) r1 (ctx :: Ctx.Assignment (BaseTerm f) (idx ::> tp)) r2
-            | Refl <- closed @_ @br subst,
-              Refl <- closed @_ @tp subst,
-              Refl <- closed @_ @idx subst
+            | Refl <- closed (Proxy :: Proxy br) subst,
+              Refl <- closed (Proxy :: Proxy tp) subst,
+              Refl <- closed (Proxy :: Proxy idx) subst
             -> SymArrayUpdate br (instantiate subst r1) (instantiate subst ctx) (instantiate subst r2)
 
           IsConcrete btr r1 -> IsConcrete btr (instantiate subst r1)

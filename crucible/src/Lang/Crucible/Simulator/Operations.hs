@@ -80,6 +80,7 @@ import           Data.Monoid ((<>))
 import           Data.List (isPrefixOf)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
+import           Data.Proxy (Proxy(..))
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Type.Equality hiding (sym)
@@ -333,15 +334,23 @@ resolveCall bindings c0 args =
           Just (UseCFG g pdInfo) -> do
              CrucibleCall (cfgEntryBlockID g) (mkCallFrame g pdInfo args)
 
-    InstantiatedFnVal h targs -> do
+    InstantiatedFnVal (h :: FnHandle args1 ret1) targs -> do
       case lookupHandleMap h bindings of
         Nothing -> Ex.throw (UnresolvableFunction h)
         Just (UseOverride o) -> do
-          let _f = OverrideFrame { _override = overrideName o
-                                , _overrideRegMap = args
-                                }
---           in OverrideCall o f
-          undefined -- TODO!
+          case handleType h of 
+             (FunctionHandleRepr argsrepr retrepr) ->
+                case (checkClosedCtx argsrepr,
+                         checkClosed retrepr) of
+                   (Just Dict, Just Dict) ->
+                     case (closed (Proxy :: Proxy args1) targs, closed (Proxy :: Proxy ret1) targs) of
+                       (Refl, Refl) ->
+                          let f = OverrideFrame { _override = overrideName o
+                                                , _overrideRegMap = args
+                                                }
+                          in OverrideCall o f
+                    
+                   (_,_) -> error $ "Override functions must have closed, monomorphic types. Found: " ++ show h
         Just (UseCFG g pdInfo) -> do
           let g' = instantiateCFG targs g
           let pdInfo' = instantiateCFGPostdom targs pdInfo

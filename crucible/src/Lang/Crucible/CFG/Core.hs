@@ -109,6 +109,7 @@ import Data.Parameterized.Classes
 import Data.Parameterized.Map (Pair(..))
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableFC
+import Data.Proxy
 import Data.String
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
@@ -537,23 +538,23 @@ instance ExtendContext (TermStmt blocks ret) where
 ------------------------------------------------------------------------------------
 -- Instantiation / type substitution
 
-type instance Instantiate subst (Reg ctx) = Reg (Instantiate subst ctx)
-instance InstantiateF (Reg ctx) where
+type instance Instantiate subst Reg = Reg 
+instance InstantiateF CrucibleType (Reg ctx) where
   instantiateF subst (Reg idx) = Reg (instantiate subst idx)
 
-type instance Instantiate subst (BlockID blocks) = BlockID (Instantiate subst blocks)
-instance InstantiateF (BlockID blocks) where
+type instance Instantiate subst BlockID  = BlockID 
+instance InstantiateF CrucibleType (BlockID blocks) where
   instantiateF subst (BlockID idx) = BlockID (instantiate subst idx)
 
-type instance Instantiate subst (Expr ext ctx) = Expr ext (Instantiate subst ctx)
-instance (IsSyntaxExtension ext) => InstantiateF (Expr ext ctx) where
+type instance Instantiate subst (Expr ext) = Expr ext 
+instance (IsSyntaxExtension ext) => InstantiateF CrucibleType (Expr ext ctx) where
   instantiateF subst (App app) = App (instantiate subst app)
 
-type instance Instantiate subst (Stmt ext ctx) = Stmt ext (Instantiate subst ctx)  
-instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
+type instance Instantiate subst (Stmt ext) = Stmt ext 
+instance (IsSyntaxExtension ext) => InstantiateF CrucibleType (Stmt ext ctx) where
   instantiateF subst s 
-      | Refl <- closed @_ @ext subst,
-        Refl <- closed @_ @(StmtExtension ext) subst =
+      | Refl <- closed (Proxy :: Proxy ext) subst,
+        Refl <- closed (Proxy :: Proxy (StmtExtension ext)) subst =
       case s of
         (SetReg ty expr) -> SetReg (instantiate subst ty) (instantiate subst expr)
         (ExtendAssign exn) -> ExtendAssign (instantiate subst exn)
@@ -565,10 +566,10 @@ instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
         (Print reg) -> Print (instantiate subst reg)
         
         (ReadGlobal (gv :: GlobalVar tp))
-          | Refl <- closed @_ @tp subst
+          | Refl <- closed (Proxy :: Proxy tp) subst
           -> ReadGlobal gv
         (WriteGlobal (gv :: GlobalVar tp) reg)
-          | Refl <- closed @_ @tp subst
+          | Refl <- closed (Proxy :: Proxy tp) subst
           -> WriteGlobal gv (instantiate subst reg)
 
         (FreshConstant bt ss) -> FreshConstant bt ss
@@ -580,9 +581,9 @@ instance (IsSyntaxExtension ext) => InstantiateF (Stmt ext ctx) where
         (Assert reg1 reg2) -> Assert (instantiate subst reg1) (instantiate subst reg2)
         (Assume reg1 reg2) -> Assume (instantiate subst reg1) (instantiate subst reg2)
 
-type instance Instantiate subst (TermStmt blocks ret)
-  = TermStmt (Instantiate subst blocks) (Instantiate subst ret)
-instance InstantiateF (TermStmt blocks ret) where
+type instance Instantiate subst (TermStmt blocks)
+  = TermStmt (Instantiate subst blocks)
+instance InstantiateF CrucibleType (TermStmt blocks ret) where
   instantiateF = instantiateTermStmt where
     instantiateTermStmt :: SubstRepr subst
                         -> TermStmt blocks ret ctx
@@ -604,21 +605,21 @@ instance InstantiateF (TermStmt blocks ret) where
       (instantiate subst args)
     instantiateTermStmt subst (ErrorStmt reg) = ErrorStmt (instantiate subst reg)
 
-type instance Instantiate subst (StmtSeq ext block ret)
-  = StmtSeq ext (Instantiate subst block) (Instantiate subst ret)
-instance IsSyntaxExtension ext => InstantiateF (StmtSeq ext block ret) where
+type instance Instantiate subst (StmtSeq ext block)
+  = StmtSeq ext (Instantiate subst block)
+instance IsSyntaxExtension ext => InstantiateF CrucibleType (StmtSeq ext block ret) where
   instantiateF = instantiateStmtSeq where
     instantiateStmtSeq :: forall subst ext block ctx ret. IsSyntaxExtension ext
       => SubstRepr subst -> StmtSeq ext block ret ctx
                        -> StmtSeq ext (Instantiate subst block) (Instantiate subst ret) (Instantiate subst ctx)
-    instantiateStmtSeq subst ss | Refl <- closed @_ @ext subst =
+    instantiateStmtSeq subst ss | Refl <- closed (Proxy::Proxy ext) subst =
       case ss of
         (ConsStmt loc stmt sseq) -> ConsStmt loc (instantiate subst stmt) (instantiate subst sseq)
         (TermStmt loc termstmt)  -> TermStmt loc (instantiate subst termstmt)
  
-type instance Instantiate subst (Block ext blocks ret)
-  = Block ext (Instantiate subst blocks)(Instantiate subst ret)
-instance  IsSyntaxExtension ext => InstantiateF (Block ext blocks ret) where
+type instance Instantiate subst (Block ext blocks)
+  = Block ext (Instantiate subst blocks)
+instance  IsSyntaxExtension ext => InstantiateF CrucibleType (Block ext blocks ret) where
 
   instantiateF = instantiateBlock where
     instantiateBlock :: SubstRepr subst -> Block ext blocks ret ctx
@@ -628,9 +629,9 @@ instance  IsSyntaxExtension ext => InstantiateF (Block ext blocks ret) where
       inputs' = instantiate subst inputs
       stmts'  = instantiate subst stmts
 
-type instance Instantiate subst (SwitchTarget blocks ctx)
-  = SwitchTarget (Instantiate subst blocks) (Instantiate subst ctx)
-instance InstantiateF (SwitchTarget blocks ctx)  where
+type instance Instantiate subst (SwitchTarget blocks)
+  = SwitchTarget (Instantiate subst blocks)
+instance InstantiateF CrucibleType (SwitchTarget blocks ctx)  where
 
   instantiateF = instantiateSwitch where
     instantiateSwitch :: SubstRepr subst -> SwitchTarget blocks ctx tp
@@ -640,8 +641,8 @@ instance InstantiateF (SwitchTarget blocks ctx)  where
                    (instantiate subst argTys)
                    (instantiate subst args)
 
-type instance Instantiate subst (JumpTarget blocks) = JumpTarget (Instantiate subst blocks)
-instance InstantiateF (JumpTarget blocks) where
+type instance Instantiate subst JumpTarget = JumpTarget 
+instance InstantiateF CrucibleType (JumpTarget blocks) where
 
   instantiateF = instantiateJumpTarget where
     instantiateJumpTarget :: SubstRepr subst -> JumpTarget blocks ctx

@@ -42,7 +42,7 @@ library
     lens,
     mtl,
     panic >= 0.3,
-    parameterized-utils >= 1.0.5 && < 1.1,
+    parameterized-utils >= 1.0.8 && < 1.1,
     process,
     template-haskell,
     text,
@@ -94,6 +94,7 @@ library
     Lang.Crucible.Simulator.RegMap
     Lang.Crucible.Simulator.RegValue
     Lang.Crucible.Simulator.SimError
+    Lang.Crucible.Substitution                
     Lang.Crucible.Syntax
     Lang.Crucible.Types
     Lang.Crucible.Vector

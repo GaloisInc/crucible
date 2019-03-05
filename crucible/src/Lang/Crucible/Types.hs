@@ -48,6 +48,7 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE IncoherentInstances #-}
+{-# LANGUAGE TypeInType #-}
 
 module Lang.Crucible.Types
   ( -- * CrucibleType data kind
@@ -82,7 +83,8 @@ module Lang.Crucible.Types
     -- * Parameterized types
   , VarType
   , PolyFnType
-  , Closed(..)
+  , Closed
+  , ClosedK(..)
   , Instantiate
   , Liftn
   , liftn
@@ -96,15 +98,17 @@ module Lang.Crucible.Types
   , closedInstantiateFC
 
   -- ** Substitutions
-  , Substitution(..)
-  , SubstRepr(..)
+  , Substitution
+  , SubstRepr
   , Compose
   , compose
-  , MkSubst(..)
+  , MkSubst
   , mkSubst
 
-  -- ** Peano numbers (move)
-  , Peano(..)
+  -- ** Peano numbers
+  , Peano
+  , PeanoView(..)
+  , peanoView
   , PeanoRepr(..)
 
   -- ** Evidence for closedness
@@ -147,40 +151,36 @@ module Lang.Crucible.Types
   , floatInfoToBVTypeRepr
   ) where
 
+import           Data.Proxy(Proxy(..))
 import           Data.Constraint (Dict(..))
 import           Data.Hashable
 import           Data.Kind
 import           Data.Type.Equality
+
 import           GHC.TypeLits
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Ctx
 import           Data.Parameterized.NatRepr
+import           Data.Parameterized.Peano
 import           Data.Parameterized.SymbolRepr
 import qualified Data.Parameterized.TH.GADT as U
 import           Text.PrettyPrint.ANSI.Leijen
+
+import           Lang.Crucible.Substitution
 
 import           What4.BaseTypes
 import           What4.InterpretedFloatingPoint
 
 
--- GHC.TypeLits is under-powered, plus other axioms
 import           Unsafe.Coerce (unsafeCoerce)
-
-------------------------------------------------------------------------
--- Peano numbers
-
-data Peano = ZP | SP Peano
-data PeanoRepr (p :: Peano) where
-  ZRepr :: PeanoRepr ZP
-  SRepr :: PeanoRepr n -> PeanoRepr (SP n)
-instance KnownRepr PeanoRepr ZP where knownRepr = ZRepr
-instance KnownRepr PeanoRepr n => KnownRepr PeanoRepr (SP n) where
-  knownRepr = SRepr knownRepr
 
 ------------------------------------------------------------------------
 -- Crucible types
 
+type Closed    = ClosedK CrucibleType
+type SubstRepr = SubstReprK CrucibleType
+type Substitution = SubstK CrucibleType
 
 -- | This typeclass is used to register recursive Crucible types
 --   with the compiler.  This class defines, for a given symbol,
@@ -198,7 +198,7 @@ instance KnownRepr PeanoRepr n => KnownRepr PeanoRepr (SP n) where
 --   variables that were not already present in the ctx argument.
 --   (This is equivalent to the constraint "Closed (UnrollType nm)" but
 --   we cannot partially apply a type family.)
---   Languages that do not use polymorphism can use the default instance
+--   Languages that do not use polymorphism may use the default instance
 class IsRecursiveType (nm::Symbol) where
   type UnrollType nm (ctx :: Ctx CrucibleType) :: CrucibleType
   unrollType   :: SymbolRepr nm -> CtxRepr ctx -> TypeRepr (UnrollType nm ctx)
@@ -520,151 +520,6 @@ pattern KnownBV :: forall n. (1 <= n, KnownNat n) => TypeRepr (BVType n)
 pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
   where KnownBV = knownRepr
 
-
-------------------------------------------------------------------------
--- | Classes and type families for polymorphism
-
-
--- We can view substitutions as an infinite stream of terms
--- where Var i is mapped to the ith term in the list
--- However, type-level Haskell is too strict for this, so we instead
--- represent these streams with a finite representation
--- Usually, these representations are based on HOFs, but for type-level
--- programming, we need to defunctionalize. So we have some basic operations
--- for constructing substitutions from others as well.
-data Substitution = 
-    IdSubst
-  | SuccSubst
-  | ExtendSubst CrucibleType Substitution
-  | LiftSubst Substitution
-  | TailSubst Substitution
-
--- Apply the substitution to a variable (n)
-type family SubstVar (s :: Substitution) (n :: Peano) :: CrucibleType where
-  SubstVar IdSubst n   = VarType n
-  SubstVar SuccSubst n = VarType (SP n)
-  SubstVar (ExtendSubst ty s) ZP = ty
-  SubstVar (ExtendSubst ty s) (SP m) = SubstVar s m
-  SubstVar (LiftSubst s) ZP  = VarType ZP
-  SubstVar (LiftSubst s) (SP m) = Instantiate SuccSubst (SubstVar s m)
-  SubstVar (TailSubst s) x = SubstVar s (SP x)
-  
--- Create a substitution from a Ctx of types
-type family MkSubst (c :: Ctx CrucibleType) :: Substitution where
-  MkSubst EmptyCtx = IdSubst
-  MkSubst (ctx ::> ty) = ExtendSubst ty (MkSubst ctx)
-
--- Compose two substitutions together.
--- see: composeInstantiateAxiom for a specification of Compose
-type family Compose (s1 :: Substitution) (s2 :: Substitution) :: Substitution where
-  Compose s1 IdSubst = s1
-  Compose s1 SuccSubst = TailSubst s1
-  Compose s1 (ExtendSubst ty s2) = ExtendSubst (Instantiate s1 ty) (Compose s1 s2)
-  Compose s1 (LiftSubst s2) = ExtendSubst (SubstVar s1 ZP) (Compose (TailSubst s1) s2)
-  Compose s1 (TailSubst s2) = TailSubst (Compose s1 s2)
-  
--- Singleton type for Substitutions
-data SubstRepr (s :: Substitution) where
-  IdRepr     :: SubstRepr IdSubst
-  SuccRepr   :: SubstRepr SuccSubst
-  ExtendRepr :: TypeRepr ty -> SubstRepr s -> SubstRepr (ExtendSubst ty s)
-  LiftRepr   :: SubstRepr s -> SubstRepr (LiftSubst s)
-  TailRepr   :: SubstRepr s -> SubstRepr (TailSubst s)
-instance KnownRepr SubstRepr IdSubst where
-  knownRepr = IdRepr
-instance KnownRepr SubstRepr SuccSubst where
-  knownRepr = SuccRepr
-instance (KnownRepr SubstRepr s, KnownRepr TypeRepr ty) => KnownRepr SubstRepr (ExtendSubst ty s) where
-  knownRepr = ExtendRepr knownRepr knownRepr
-instance KnownRepr SubstRepr s => KnownRepr SubstRepr (LiftSubst s) where
-  knownRepr = LiftRepr knownRepr
-instance KnownRepr SubstRepr s => KnownRepr SubstRepr (TailSubst s) where
-  knownRepr = TailRepr knownRepr
-
-instance TestEquality SubstRepr where
-  testEquality IdRepr IdRepr
-    = return Refl
-  testEquality SuccRepr SuccRepr
-    = return Refl
-  testEquality (ExtendRepr t1 s1) (ExtendRepr t2 s2)
-    | Just Refl <- testEquality t1 t2
-    , Just Refl <- testEquality s1 s2
-    = return Refl
-  testEquality (LiftRepr s1) (LiftRepr s2)
-    | Just Refl <- testEquality s1 s2
-    = return Refl
-  testEquality (TailRepr s1)(TailRepr s2)
-    | Just Refl <- testEquality s1 s2
-    = return Refl
-  testEquality _ _ = Nothing
-
--- TODO: Show instance
-  
--- | Type-level multi-substitution function.
--- This is an open type family that is homeomorphic on most arguments
--- The only exception is for CrucibleTypes, see InstantiateCT
---
--- NOTE: it is tempting to make this a closed type family that dispatches to
--- InstantiateCT when k is CrucibleType and is defined homeomorphically elsewhere.
--- This would remove many instances of the form
---    type instance Instantiate subst T = T
--- However, this approach doesn't work for (ext :: Type). We don't know that
--- all of the potential ext types do not contain CrucibleType as a subterm, so
--- GHC cannot reduce (Instantiate n subst ext) = ext.
--- Using GHC-8.6 quantified constraints, we might be able to express this 
--- restriction, but I have not tried it. 
-type family Instantiate (subst :: Substitution) (v :: k) :: k
-
--- | Class of types that support instantiation
-class InstantiateType (ty :: Type) where
-  instantiate :: SubstRepr subst -> ty -> Instantiate subst ty
-
--- | Defines instantiation for SyntaxExtension (must create an instance of this
--- class, but instance can be trivial if polymorphism is not used.)
-type instance Instantiate subst ((a :: (CrucibleType -> Type) -> CrucibleType -> Type) b)
-  = Instantiate subst a (Instantiate subst b)
-class InstantiateFC (a :: (CrucibleType -> Type) -> CrucibleType -> Type) where
-  instantiateFC :: InstantiateF b =>  SubstRepr subst -> a b c
-    -> Instantiate subst (a b) (Instantiate subst c)
-  instantiateFC _ _ = error "instantiateFC: must be defined to use polymorphism"
-
--- | Helper class for syntax extensions and also assignments.
--- Because we want to use this with Ctx.Assignment, it must be *polymorphic*
-type instance Instantiate subst ((a :: k -> Type) b)
-  = Instantiate subst a (Instantiate subst b)
-class InstantiateF (a :: k -> Type) where
-  instantiateF ::  SubstRepr subst -> a b -> Instantiate subst (a b)
-  instantiateF _ _ = error "instantiateF: must be defined to use polymorphism"
-
--- | Also for syntax extensions
-
-
--- | Types that do not contain any free type variables. If they are
--- closed then we know that instantiation and lifting does nothing.
--- The proxies allows us to specify some of the arguments without
--- using a type application.
--- NOTE: Closed is polykinded so first specified type argument when using these
--- methods is the kind of ty
-
-class Closed (t :: k) where
-  closed ::  p2 subst -> Instantiate subst t :~: t
-  closed = error "closed: must define closed to use instantiation"
-
--- Types that are statically known to be closed can benefit from the following
--- default definitions 
-
-closedInstantiate :: forall ty subst. Closed ty => SubstRepr subst -> ty -> Instantiate subst ty
-closedInstantiate subst | Refl <- closed @_ @ty subst = id
-
-closedInstantiateF :: forall t0 a subst. (Closed t0, Closed a)
-  =>  SubstRepr subst -> t0 a -> (Instantiate subst t0) (Instantiate subst a)
-closedInstantiateF s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s = id
-  
-closedInstantiateFC :: forall t0 a b subst. (Closed t0, Closed a, Closed b, InstantiateF a)
-  =>  SubstRepr subst -> t0 a b
-  -> (Instantiate subst t0) (Instantiate subst a) (Instantiate subst b)
-closedInstantiateFC s | Refl <- closed @_ @t0 s, Refl <- closed @_ @a s, Refl <- closed @_ @b s = id
-
 ------------------------------------------------------------------------
 ------------------------------------------------------------------------
 -- Force TypeRepr, etc. to be in context for next slice.
@@ -717,96 +572,68 @@ instance OrdF TypeRepr where
                    ]
                   )
 
-instance HashableF PeanoRepr where
-  hashWithSaltF = hashWithSalt
-instance Hashable (PeanoRepr ty) where
-  hashWithSalt = $(U.structuralHash [t|PeanoRepr|])
-
-instance Pretty (PeanoRepr tp) where
-  pretty = text . show
-
-instance Show (PeanoRepr tp) where
-  showsPrec = $(U.structuralShowsPrec [t|PeanoRepr|])
-instance ShowF PeanoRepr
-
-instance TestEquality PeanoRepr where
-  testEquality = $(U.structuralTypeEquality [t|PeanoRepr|]
-                  [ (U.TypeApp (U.ConType [t|PeanoRepr|]) U.AnyType, [|testEquality|])
-                  ])
-instance OrdF PeanoRepr where
-  compareF = $(U.structuralTypeOrd [t|PeanoRepr|]
-                  [ (U.TypeApp (U.ConType [t|PeanoRepr|]) U.AnyType, [|compareF|])
-                  ])
-
-
 ----------------------------------------------------------------
 -- "Closed" instances
 
-instance Closed (b :: BaseType) where
-  closed _ = unsafeCoerce Refl -- don't want to do a runtime case analysis
+instance ClosedK CrucibleType (b :: BaseType) where
+  closed _ _ = unsafeCoerce Refl -- don't want to do a runtime case analysis
 
-instance Closed (ctx :: Ctx BaseType) where
-  closed _ = unsafeCoerce Refl  -- don't want to do induction over the list
-
+instance ClosedK CrucibleType (ctx :: Ctx BaseType) where
+  closed _ _ = unsafeCoerce Refl  -- don't want to do induction over the list
 
 -- k = Type
-instance Closed (BaseTypeRepr b :: Type) where
-  closed p | Refl <- closed @_ @b p = Refl 
-instance Closed () where closed _ = Refl
+instance ClosedK CrucibleType (BaseTypeRepr b :: Type) where
+  closed _ p | Refl <- closed (Proxy :: Proxy b) p = Refl 
+
 -- k = CrucibleType  
-instance Closed (BaseToType b) where closed _ = Refl
-instance Closed AnyType where closed _ = Refl
-instance Closed UnitType where closed _ = Refl
-instance Closed CharType where closed _ = Refl
-instance Closed (FloatType fi) where closed _ = Refl
+instance ClosedK CrucibleType (BaseToType b) where closed _ _ = Refl
+instance ClosedK CrucibleType AnyType where closed _ _ = Refl
+instance ClosedK CrucibleType UnitType where closed _ _ = Refl
+instance ClosedK CrucibleType CharType where closed _ _ = Refl
+instance ClosedK CrucibleType (FloatType fi) where closed _ _ = Refl
 
-instance (Closed args, Closed ret) => Closed (FunctionHandleType args ret)
+instance (Closed args, Closed ret) => ClosedK CrucibleType (FunctionHandleType args ret)
   where
-    closed p1 | Refl <- closed @_ @args p1, Refl <- closed @_ @ret p1 = Refl
+    closed __ p1 | Refl <- closed (Proxy :: Proxy args) p1, Refl <- closed (Proxy :: Proxy ret) p1 = Refl
 
-instance (Closed ty) => Closed (MaybeType ty)
-  where
-    closed p1 | Refl <- closed @_ @ty p1 = Refl
-    
-instance (Closed ty) => Closed (VectorType ty)
-  where
-    closed p1 | Refl <- closed @_ @ty p1 = Refl
-    
-instance (Closed ctx) => Closed (StructType ctx)
-  where
-    closed p1 | Refl <- closed @_ @ctx p1 = Refl
 
-instance (Closed ty) => Closed (ReferenceType ty)
+instance (Closed ty) => ClosedK CrucibleType (MaybeType ty)
   where
-    closed p1 | Refl <- closed @_ @ty p1 = Refl
+    closed _ p1 | Refl <- closed (Proxy :: Proxy ty) p1 = Refl
+    
+instance (Closed ty) => ClosedK CrucibleType (VectorType ty)
+  where
+    closed _ p1 | Refl <- closed (Proxy :: Proxy ty) p1 = Refl
+    
+instance (Closed ctx) => ClosedK CrucibleType (StructType ctx)
+  where
+    closed _ p1 | Refl <- closed (Proxy :: Proxy ctx) p1 = Refl
 
-instance (Closed ctx) => Closed (VariantType ctx)
+instance (Closed ty) => ClosedK CrucibleType (ReferenceType ty)
   where
-    closed p1 | Refl <- closed @_ @ctx p1 = Refl
-    
-instance (Closed (WordMapType n b)) where closed _ = Refl
-instance (Closed ctx) => Closed (RecursiveType sym ctx)
+    closed _ p1 | Refl <- closed (Proxy :: Proxy ty) p1 = Refl
+
+instance (Closed ctx) => ClosedK CrucibleType (VariantType ctx)
   where
-    closed p1 | Refl <- closed @_ @ctx p1 = Refl
+    closed _ p1 | Refl <- closed (Proxy :: Proxy ctx) p1 = Refl
     
-instance (Closed ctx) => Closed (IntrinsicType sym ctx)
+instance (ClosedK CrucibleType (WordMapType n b)) where closed _ _ = Refl
+
+instance (ClosedK CrucibleType ctx) => ClosedK CrucibleType (RecursiveType sym ctx)
   where
-    closed p1 | Refl <- closed @_ @ctx p1 = Refl
+    closed _ p1 | Refl <- closed (Proxy :: Proxy ctx) p1 = Refl
     
-instance (Closed ty)  => Closed (StringMapType ty) 
+instance (ClosedK CrucibleType ctx) => ClosedK CrucibleType (IntrinsicType sym ctx)
   where
-    closed p1 | Refl <- closed @_ @ty p1 = Refl
+    closed _ p1 | Refl <- closed (Proxy :: Proxy ctx) p1 = Refl
     
-instance (Closed EmptyCtx) where
-  closed _ = Refl
-  
-instance (Closed ty, Closed ctx) => Closed (ctx ::> ty)
- where
-    closed p1 | Refl <- closed @_ @ctx p1, Refl <- closed @_ @ty p1 = Refl
-    
+instance (ClosedK CrucibleType ty)  => ClosedK CrucibleType (StringMapType ty) 
+  where
+    closed _ p1 | Refl <- closed (Proxy :: Proxy ty) p1 = Refl
 -- note: No instance for PolyFnType
 -- we would need to index the type class with the binding level
 -- to do this.
+
 
 newtype Gift a r = Gift (Closed a => r)
 
@@ -815,20 +642,17 @@ assumeClosed :: forall a b. (Closed a => b) -> b
 assumeClosed k = unsafeCoerce (Gift k :: Gift a b)
                        (error "No instance of Closed provided")
 
+
 -- | Attempt to construct evidence that a context is closed, assuming
 -- the invariant that type variables are well-scoped.
-checkClosedCtx :: CtxRepr ts -> Maybe (Dict (Closed ts))
-checkClosedCtx ctx =
-  case Ctx.viewAssign ctx of
-    Ctx.AssignEmpty -> Just Dict
-    Ctx.AssignExtend ts t ->
-      do Dict <- checkClosedCtx ts
-         Dict <- checkClosed t
-         Just Dict
+
+checkClosedCtx :: CtxRepr ts -> Maybe (Dict (ClosedK CrucibleType ts))
+checkClosedCtx = checkClosedAssignment checkClosed 
+
 
 -- | Attempt to construct evidence that a type is closed, assuming
 -- the invariant that type variables are well-scoped.
-checkClosed :: TypeRepr t -> Maybe (Dict (Closed t))
+checkClosed :: TypeRepr t -> Maybe (Dict (ClosedK CrucibleType t))
 checkClosed AnyRepr = Just Dict
 checkClosed UnitRepr = Just Dict
 checkClosed BoolRepr = Just Dict
@@ -897,10 +721,12 @@ swapMkSubstAxiom :: forall sub k targs x.
 swapMkSubstAxiom = unsafeCoerce Refl
 
 
--- Apply the "lift" substitution m-times.
-type family Liftn (m :: Peano) (s :: Substitution) :: Substitution where
-  Liftn ZP s     = s
-  Liftn (SP m) s = LiftSubst (Liftn m s)
+-- BaseTypeRepr
+type instance Instantiate subst BaseTypeRepr = BaseTypeRepr 
+instance InstantiateType CrucibleType (BaseTypeRepr ty) where
+  instantiate subst (r :: BaseTypeRepr bt)
+    | Refl <- closed (Proxy :: Proxy bt) subst
+    = r
 
 type instance Instantiate subst (v :: CrucibleType) = InstantiateCT subst v
   
@@ -925,188 +751,44 @@ type family InstantiateCT (subst :: Substitution) (v :: CrucibleType) :: Crucibl
   InstantiateCT subst (PolyFnType k args ret) =
     PolyFnType k (Instantiate (Liftn k subst) args) (Instantiate (Liftn k subst) ret)
   
+instance Term CrucibleType where
+  type MkVar CrucibleType = VarType
+  type Repr  CrucibleType = TypeRepr
+  varRepr    = VarRepr
+    
+  axiomSubstVar _ _ = Refl
 
--- TypeCon apps
+  instantiateRepr _subst BoolRepr = BoolRepr
+  instantiateRepr _subst NatRepr = NatRepr
+  instantiateRepr _subst IntegerRepr = IntegerRepr
+  instantiateRepr _subst RealValRepr = RealValRepr
+  instantiateRepr _subst StringRepr = StringRepr
+  instantiateRepr _subst (BVRepr w) = BVRepr w
+  instantiateRepr _subst ComplexRealRepr = ComplexRealRepr 
+  instantiateRepr _subst (SymbolicArrayRepr idx w) = SymbolicArrayRepr idx w
+  instantiateRepr _subst (SymbolicStructRepr flds) = SymbolicStructRepr flds
+  instantiateRepr _subst (IEEEFloatRepr ps) = IEEEFloatRepr ps
+  instantiateRepr _subst AnyRepr  = AnyRepr
+  instantiateRepr _subst UnitRepr = UnitRepr
+  instantiateRepr _subst (FloatRepr fi) = FloatRepr fi
+  instantiateRepr _subst CharRepr = CharRepr
+  instantiateRepr subst (FunctionHandleRepr args ret) =
+      FunctionHandleRepr (instantiate subst args ) (instantiateRepr subst ret)
+  instantiateRepr subst (MaybeRepr ty) =
+      MaybeRepr (instantiateRepr subst ty )
+  instantiateRepr subst (VectorRepr ty) = VectorRepr (instantiateRepr subst ty)
+  instantiateRepr subst (StructRepr ctx) = StructRepr (instantiate subst ctx)
+  instantiateRepr subst (ReferenceRepr ty) = ReferenceRepr (instantiateRepr subst ty)
+  instantiateRepr subst (VariantRepr ctx) = VariantRepr (instantiate subst ctx)
+  instantiateRepr _subst (WordMapRepr n b) = WordMapRepr n b
+  instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiate subst ctx)
+  instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiate subst ctx)
+  instantiateRepr subst (StringMapRepr ty) = StringMapRepr (instantiateRepr subst ty)
+  instantiateRepr subst (VarRepr k) = substVar subst k
+  instantiateRepr subst (PolyFnRepr k args ty) =
+    PolyFnRepr k (instantiate (liftn k subst) args)
+                 (instantiate (liftn k subst) ty)
 
-instance (InstantiateF t) => InstantiateType (t a) where
-  instantiate = instantiateF
-instance (InstantiateFC t, InstantiateF a) => InstantiateF (t a) where
-  instantiateF = instantiateFC
-
--- k = Type (needed for trivial syntax extensions)
-type instance Instantiate subst () = ()
-
--- Ctx & Assignment
-
--- k = (CrucibleType -> Type) -> Ctx CrucibleType -> Type
-type instance Instantiate subst (Ctx.Assignment f) = Ctx.Assignment (Instantiate subst f) 
--- k = Ctx k'
-type instance Instantiate subst EmptyCtx = EmptyCtx
-type instance Instantiate subst (ctx ::> ty) = Instantiate subst ctx ::> Instantiate subst ty
-
--- Ctx.Assignment :: (k -> Type) -> Ctx k -> Type
-instance InstantiateF f => InstantiateType (Ctx.Assignment f ctx) where
-  instantiate _subst Ctx.Empty = Ctx.Empty
-  instantiate subst (ctx Ctx.:> ty) = instantiate subst ctx Ctx.:> instantiate subst ty
-
-
--- Ctx.Index :: Ctx k -> CrucibleType -> Type
--- Ctx.Index is just a number
-type instance Instantiate subst (Ctx.Index ctx) = Ctx.Index (Instantiate subst ctx)
-instance InstantiateF (Ctx.Index ctx) where
-  instantiateF _subst idx = unsafeCoerce idx
-
--- BaseTypeRepr
-type instance Instantiate subst BaseTypeRepr = BaseTypeRepr 
-instance InstantiateType (BaseTypeRepr ty) where
-  instantiate subst (r :: BaseTypeRepr bt)
-    | Refl <- closed @_ @bt subst
-    = r
-
--- Add to Data.Parameterized.Utils.
-
-  
--- TypeRepr
-substVar :: SubstRepr s -> PeanoRepr n -> TypeRepr (SubstVar s n)
-substVar IdRepr n = VarRepr n
-substVar SuccRepr n = VarRepr (SRepr n)
-substVar (ExtendRepr ty _s) ZRepr = ty
-substVar (ExtendRepr _ty s) (SRepr m) = substVar s m
-substVar (LiftRepr _s) ZRepr = (VarRepr ZRepr)
-substVar (LiftRepr s) (SRepr m) = instantiate SuccRepr (substVar s m)
-substVar (TailRepr s) n = substVar s (SRepr n)
-
-mkSubst :: CtxRepr ctx -> SubstRepr (MkSubst ctx)
-mkSubst ctx =
-  case Ctx.viewAssign ctx of
-    Ctx.AssignEmpty -> IdRepr
-    Ctx.AssignExtend ctx ty -> ExtendRepr ty (mkSubst ctx)
-
-compose :: SubstRepr ctx1 -> SubstRepr ctx2 -> SubstRepr (Compose ctx1 ctx2)
-compose s1 IdRepr = s1
-compose s1 SuccRepr = TailRepr s1
-compose s1 (ExtendRepr ty s2) =
-  ExtendRepr (instantiate s1 ty) (compose s1 s2)
-compose s1 (LiftRepr s2) =
-  ExtendRepr (substVar s1 ZRepr) (compose (TailRepr s1) s2)
-compose s1 (TailRepr s2) =
-  TailRepr (compose s1 s2)
-
-liftn :: PeanoRepr m -> SubstRepr s -> SubstRepr (Liftn m s)
-liftn ZRepr s = s
-liftn (SRepr m) s = LiftRepr (liftn m s)
-  
 type instance Instantiate subst TypeRepr = TypeRepr
-instance InstantiateF TypeRepr where
+instance InstantiateF CrucibleType TypeRepr where
   instantiateF = instantiateRepr
-  
-instantiateRepr ::  SubstRepr subst -> TypeRepr ty -> TypeRepr (Instantiate subst ty)
-instantiateRepr _subst BoolRepr = BoolRepr
-instantiateRepr _subst NatRepr = NatRepr
-instantiateRepr _subst IntegerRepr = IntegerRepr
-instantiateRepr _subst RealValRepr = RealValRepr
-instantiateRepr _subst StringRepr = StringRepr
-instantiateRepr _subst (BVRepr w) = BVRepr w
-instantiateRepr _subst ComplexRealRepr = ComplexRealRepr 
-instantiateRepr _subst (SymbolicArrayRepr idx w) = SymbolicArrayRepr idx w
-instantiateRepr _subst (SymbolicStructRepr flds) = SymbolicStructRepr flds
-instantiateRepr _subst (IEEEFloatRepr ps) = IEEEFloatRepr ps
-instantiateRepr _subst AnyRepr  = AnyRepr
-instantiateRepr _subst UnitRepr = UnitRepr
-instantiateRepr _subst (FloatRepr fi) = FloatRepr fi
-instantiateRepr _subst CharRepr = CharRepr
-instantiateRepr subst (FunctionHandleRepr args ret) =
-    FunctionHandleRepr (instantiate subst args ) (instantiateRepr subst ret)
-instantiateRepr subst (MaybeRepr ty) =
-    MaybeRepr (instantiateRepr subst ty )
-instantiateRepr subst (VectorRepr ty) = VectorRepr (instantiateRepr subst ty)
-instantiateRepr subst (StructRepr ctx) = StructRepr (instantiate subst ctx)
-instantiateRepr subst (ReferenceRepr ty) = ReferenceRepr (instantiateRepr subst ty)
-instantiateRepr subst (VariantRepr ctx) = VariantRepr (instantiate subst ctx)
-instantiateRepr _subst (WordMapRepr n b) = WordMapRepr n b
-instantiateRepr subst (RecursiveRepr sym0 ctx) = RecursiveRepr sym0 (instantiate subst ctx)
-instantiateRepr subst (IntrinsicRepr sym0 ctx) = IntrinsicRepr sym0 (instantiate subst ctx)
-instantiateRepr subst (StringMapRepr ty) = StringMapRepr (instantiateRepr subst ty)
-instantiateRepr subst (VarRepr k) = substVar subst k
-instantiateRepr subst (PolyFnRepr k args ty) =
-  PolyFnRepr k (instantiate (liftn k subst) args)
-               (instantiate (liftn k subst) ty)
-
--- NOTE: We need the equality below to typecheck lookupVarRepr.
--- 
--- However, TypeNatSolver cannot prove this equality, even though all
--- of the pieces that we need are available --- something about
--- putting them together with the type family LookupVarType above.
---
--- Furthermore, we cannot actually use this axiom in the definition of
--- lookupVarRepr because the datatype IsZeroNat does not allow
--- binding the type variable that is the predecessor of n (e.g.
--- through a Proxy argument). As we cannot name this type variable, we
--- cannot invoke the axiom.
-
-{- 
-axiom1 :: forall n ctx ty .
-   (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
-axiom1 = Refl
--}
-
--- I am commenting these out so that we don't need to add 
--- {-# OPTIONS_GHC -fplugin TypeNatSolver #-}
--- to the top of this file and 
--- type-nat-solver package to crucible.cabal, and
--- dependencies/type-nat-solver/ to cabal.project, and
--- git submodule add https://github.com/yav/type-nat-solver
-{-
-axiom2 :: forall n. (n + 1) - 1 :~: n
-axiom2 = Refl
-axiom3 :: forall n. ((n + 1) <=? 0) :~: 'False
-axiom3 = Refl
--}
-
--- see comments above for justification for [unsafeCoerce] in this function
-{-
-lookupVarRepr :: NatRepr i -> CtxRepr ctx -> TypeRepr def -> TypeRepr (LookupVarType i ctx def)
-lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
-  case isZeroNat n of
-    ZeroNat    -> ty
-    NonZeroNat ->
-      --  (LookupVarType (n + 1) (ctx ::> ty) :~: LookupVarType n ctx)
-      unsafeCoerce (lookupVarRepr (predNat n) ctx def)
-lookupVarRepr _n Ctx.Empty def = def
--}
-
-{-
------------------------------------------------------------------
-data BoolRepr :: Bool -> Type where
-  TrueRepr :: BoolRepr 'True
-  FalseRepr :: BoolRepr 'False
-instance KnownRepr BoolRepr 'True where knownRepr = TrueRepr
-instance KnownRepr BoolRepr 'False where knownRepr = FalseRepr
-lteNat :: NatRepr n -> NatRepr k -> BoolRepr (n <=? k)
-lteNat n k = case compareNat n k of
-  NatLT _ -> unsafeCoerce TrueRepr
-  NatEQ ->   unsafeCoerce TrueRepr
-  NatGT _ -> unsafeCoerce FalseRepr
-axiom :: forall n. ((n <=? 0) ~ 'False) => (1 <=? n) :~: 'True
-axiom = unsafeCoerce Refl
--}
------------------------------------------------------------------
-{-
-lookupVarRepr :: forall n ctx1 def.  CtxRepr ctx1 -> TypeRepr def -> TypeRepr (LookupVarType n ctx1 def)
-lookupVarRepr n ((ctx :: CtxRepr ctx) Ctx.:> (ty::TypeRepr ty)) def =
-  case lteNat n (knownNat :: NatRepr 0) of
-    TrueRepr  -> ty
-    FalseRepr -> case axiom @n of
-      Refl -> lookupVarRepr (subNat n (knownNat :: NatRepr 1)) ctx def
-lookupVarRepr _n Ctx.Empty def = def
-instantiateVarRepr ::   CtxRepr subst -> NatRepr k -> TypeRepr (Instantiate subst (VarType k))
-instantiateVarRepr n subst k =
-  case lteNat n k  of
-    TrueRepr  -> lookupVarRepr (subNat k n) subst (VarRepr k)
-    FalseRepr -> VarRepr k
-liftVarRepr ::  NatRepr m -> NatRepr k -> NatRepr (LiftVarType n m k)
-liftVarRepr n m k = case lteNat n k of
-  TrueRepr -> (addNat k m)
-  FalseRepr -> k
--}
-

@@ -26,7 +26,8 @@ extension methods (e.g., override functions).
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+
 module Lang.Crucible.CFG.Extension
 ( ExprExtension
 , StmtExtension
@@ -45,7 +46,7 @@ import           Data.Kind
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
 import           Data.Parameterized.TraversableFC
 
-
+import           Lang.Crucible.Substitution
 import           Lang.Crucible.Types
 
 
@@ -81,12 +82,12 @@ class
    , TraversableFC (ExprExtension ext)
    , PrettyApp (ExprExtension ext)
    , TypeApp (ExprExtension ext)
-   , InstantiateFC (ExprExtension ext)
+   , InstantiateFC CrucibleType (ExprExtension ext)
    , Closed (ExprExtension ext)
    , TraversableFC (StmtExtension ext)
    , PrettyApp (StmtExtension ext)
    , TypeApp (StmtExtension ext)
-   , InstantiateFC (StmtExtension ext)
+   , InstantiateFC CrucibleType (StmtExtension ext)
    , Closed (StmtExtension ext)
    , Closed ext
    ) =>
@@ -129,10 +130,10 @@ instance PrettyApp EmptyExprExtension where
   ppApp _ = \case
 instance TypeApp EmptyExprExtension where
   appType = \case
-instance InstantiateFC EmptyExprExtension where
+instance InstantiateFC CrucibleType EmptyExprExtension where
   instantiateFC _ = \case
-instance Closed EmptyExprExtension where
-  closed _ = Refl
+instance ClosedK CrucibleType EmptyExprExtension where
+  closed _ _ = Refl
 
 
 instance ShowFC EmptyStmtExtension where
@@ -153,9 +154,9 @@ instance PrettyApp EmptyStmtExtension where
   ppApp _ = \case
 instance TypeApp EmptyStmtExtension where
   appType = \case
-instance InstantiateFC EmptyStmtExtension where
+instance InstantiateFC CrucibleType EmptyStmtExtension where
   instantiateFC _ = \case
-instance Closed EmptyStmtExtension where
-  closed _ = Refl
+instance ClosedK CrucibleType EmptyStmtExtension where
+  closed _ _ = Refl
 
 instance IsSyntaxExtension () where
