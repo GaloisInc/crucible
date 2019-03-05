@@ -260,7 +260,9 @@ instance Monad (Generator ext h s t ret) where
   x >>= f = Generator (unGenerator x >>= unGenerator . f)
   fail msg = Generator $ do
      p <- use gsPosition
-     fail $ "at " ++ show p ++ ": " ++ msg
+     fail $ unwords [ "Failure encountered while generating a Crucible CFG:"
+                    , "at " ++ show p ++ ": " ++ msg
+                    ]
 
 instance F.MonadFail (Generator ext h s t ret) where
   fail = fail

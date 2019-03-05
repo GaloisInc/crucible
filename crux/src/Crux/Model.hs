@@ -34,11 +34,14 @@ import Prelude
 
 
 emptyModel :: Model sym
-emptyModel = Model $ MapF.fromList [ noVars (BaseBVRepr (knownNat @8))
-                                   , noVars (BaseBVRepr (knownNat @16))
-                                   , noVars (BaseBVRepr (knownNat @32))
-                                   , noVars (BaseBVRepr (knownNat @64))
-                                   ]
+emptyModel = Model $ MapF.fromList
+  [ noVars (BaseBVRepr (knownNat @8))
+  , noVars (BaseBVRepr (knownNat @16))
+  , noVars (BaseBVRepr (knownNat @32))
+  , noVars (BaseBVRepr (knownNat @64))
+  , noVars (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @8) (knownNat @24)))
+  , noVars (BaseFloatRepr (FloatingPointPrecisionRepr (knownNat @11) (knownNat @53)))
+  ]
 
 noVars :: BaseTypeRepr ty -> Pair BaseTypeRepr (Vars sym)
 noVars ty = Pair ty (Vars [])
@@ -85,7 +88,7 @@ ppValsC ty (Vals xs) =
           -> ("float", show . IEEE754.wordToFloat . fromInteger)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 11, natValue sb == 53
-          -> ("float", show . IEEE754.wordToDouble . fromInteger)
+          -> ("double", show . IEEE754.wordToDouble . fromInteger)
         _ -> throwBug ("Type not implemented: " ++ show ty)
   in unlines
       [ "size_t const crucible_values_number_" ++ cty ++

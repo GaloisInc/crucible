@@ -5,13 +5,13 @@ packages:
   - what4-blt/
 
   - crucible/
-  - crucible-c/
   - crucible-jvm/
   - crucible-llvm/
   - crucible-saw/
   - crucible-server/
   - crucible-syntax/
   - crux/
+  - crux-llvm/
 
   - dependencies/abcBridge/
   - dependencies/aig/
@@ -32,12 +32,14 @@ extra-deps:
   - data-inttrie-0.1.4
   - monadLib-3.7.3
   - simple-smt-0.7.1
-  - sbv-7.7
+  - sbv-8.0
   - fgl-visualize-0.1.0.1
   - dotgen-0.4.2
   - panic-0.3.0.0
   - megaparsec-7.0.1
   - s-cargot-0.1.4.0
   - parser-combinators-1.0.0
+  - itanium-abi-0.1.1.0
+  - crackNum-2.3
 
-resolver: lts-11.1
+resolver: lts-11.22

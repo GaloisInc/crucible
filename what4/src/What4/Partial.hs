@@ -1,27 +1,55 @@
+{-# LANGUAGE UndecidableInstances #-}
 {-|
 Module           : What4.Solver.Partial
 Copyright        : (c) Galois, Inc 2014-2016
 License          : BSD3
-Maintainer       : Joe Hendrix <jhendrix@galois.com>
+Maintainer       : Langston Barrett <langston@galois.com>
 
-This defines a partial expression data type 'PartExpr' which is essentially a
-generalization of 'Maybe' as a datatype, and a monad transformer 'PartialT'
-which is a symbolic generalization of the 'Maybe' monad.
+Often, various operations on values are only partially defined (in the case of
+Crucible expressions, consider loading a value from a pointer - this is only
+defined in the case that the pointer is valid and non-null). The 'PartExpr'
+type allows for packaging values together with predicates that express their
+partiality: the value is only valid if the predicate is true.
+
 -}
+
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
+
 module What4.Partial
- ( -- * PartExpr
-   PartExpr(..)
+ ( -- ** Partial
+   Partial(..)
+ , partialPred
+ , partialValue
+
+   -- ** PartialWithErr
+ , PartialWithErr(..)
+
+   -- ** PartExpr
+ , PartExpr
+ , pattern PE
+ , pattern Unassigned
  , mkPE
  , justPartExpr
  , maybePartExpr
  , joinMaybePE
-   -- * PartialT
+
+   -- ** PartialT
  , PartialT(..)
  , runPartialT
  , returnUnassigned
@@ -32,19 +60,87 @@ module What4.Partial
  , mergePartials
  ) where
 
+import GHC.Generics (Generic, Generic1)
+import Data.Data (Data)
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 
 import What4.BaseTypes
-import What4.Interface
+import What4.Interface (IsExprBuilder, SymExpr, IsExpr, Pred)
+import What4.Interface (truePred, andPred, notPred, itePred, asConstantPred)
 
--- | A partial value represents a value that may or may not be assigned.
-data PartExpr p v
-   = PE { _pePred :: !p
-        , _peValue :: !v
-        }
-   | Unassigned
- deriving ( Functor, Foldable, Traversable )
+import Control.Lens.TH (makeLenses)
+import Data.Bifunctor.TH (deriveBifunctor, deriveBifoldable, deriveBitraversable)
+import Data.Eq.Deriving (deriveEq1, deriveEq2)
+import Data.Ord.Deriving (deriveOrd1, deriveOrd2)
+import Text.Show.Deriving (deriveShow1, deriveShow2)
+
+------------------------------------------------------------------------
+-- ** Partial
+
+-- | A partial value represents a value that may or may not be valid.
+--
+-- The '_partialPred' field represents a predicate (optionally with additional
+-- provenance information) embodying the value's partiality.
+data Partial p v =
+  Partial { _partialPred  :: !p
+          , _partialValue :: !v
+          }
+  deriving (Data, Eq, Functor, Generic, Generic1, Foldable, Traversable, Ord, Show)
+
+makeLenses ''Partial
+
+$(deriveBifunctor     ''Partial)
+$(deriveBifoldable    ''Partial)
+$(deriveBitraversable ''Partial)
+$(deriveEq1           ''Partial)
+$(deriveEq2           ''Partial)
+$(deriveOrd1          ''Partial)
+$(deriveOrd2          ''Partial)
+$(deriveShow1         ''Partial)
+$(deriveShow2         ''Partial)
+
+-- | Create a 'Partial' expression from a value that is always defined.
+total :: IsExprBuilder sym
+      => sym
+      -> v
+      -> Partial (Pred sym) v
+total sym = Partial (truePred sym)
+
+------------------------------------------------------------------------
+-- ** PartialWithErr
+
+-- | Either a partial value, or a straight-up error.
+data PartialWithErr e p v =
+    NoErr (Partial p v)
+  | Err e
+  deriving (Data, Eq, Functor, Generic, Generic1, Foldable, Traversable, Ord, Show)
+
+$(deriveBifunctor     ''PartialWithErr)
+$(deriveBifoldable    ''PartialWithErr)
+$(deriveBitraversable ''PartialWithErr)
+$(deriveEq1           ''PartialWithErr)
+$(deriveEq2           ''PartialWithErr)
+$(deriveOrd1          ''PartialWithErr)
+$(deriveOrd2          ''PartialWithErr)
+$(deriveShow1         ''PartialWithErr)
+$(deriveShow2         ''PartialWithErr)
+
+------------------------------------------------------------------------
+-- ** PartExpr
+
+-- | A 'PartExpr' is a 'PartialWithErr' that provides no information about what
+-- went wrong. Its name is historic.
+type PartExpr p v = PartialWithErr () p v
+
+pattern Unassigned :: PartExpr p v
+pattern Unassigned = Err ()
+
+pattern PE :: p -> v -> PartExpr p v
+pattern PE p v = NoErr (Partial p v)
+
+-- Claim that the above two patterns are exhaustive for @PartExpr p v@
+{-# COMPLETE Unassigned, PE #-}
 
 mkPE :: IsExpr p => p BaseBoolType -> a -> PartExpr (p BaseBoolType) a
 mkPE p v =
@@ -53,9 +149,8 @@ mkPE p v =
     _ -> PE p v
 
 -- | Create a part expression from a value that is always defined.
-justPartExpr :: IsExprBuilder sym
-             => sym -> v -> PartExpr (Pred sym) v
-justPartExpr sym = PE (truePred sym)
+justPartExpr :: IsExprBuilder sym => sym -> v -> PartExpr (Pred sym) v
+justPartExpr sym = NoErr . total sym
 
 -- | Create a part expression from a maybe value.
 maybePartExpr :: IsExprBuilder sym
@@ -69,14 +164,14 @@ joinMaybePE Nothing = Unassigned
 joinMaybePE (Just pe) = pe
 
 ------------------------------------------------------------------------
--- Merge
+-- *** Merge
 
 -- | If-then-else on partial expressions.
 mergePartial :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
   (Pred sym -> a -> a -> PartialT sym m a)
     {- ^ Operation to combine inner values. The 'Pred' parameter is the
-         if/then/else condition -} ->
+         if-then-else condition. -} ->
   Pred sym {- ^ condition to merge on -} ->
   PartExpr (Pred sym) a {- ^ 'if' value -}  ->
   PartExpr (Pred sym) a {- ^ 'then' value -} ->
@@ -105,13 +200,13 @@ mergePartial sym f c (PE px x) (PE py y) =
 
 -- | Merge a collection of partial values in an if-then-else tree.
 --   For example, if we merge a list like @[(xp,x),(yp,y),(zp,z)]@,
---   we get a value that is morally equivalant to:
+--   we get a value that is morally equivalent to:
 --   @if xp then x else (if yp then y else (if zp then z else undefined))@.
 mergePartials :: (IsExprBuilder sym, MonadIO m) =>
   sym ->
   (Pred sym -> a -> a -> PartialT sym m a)
     {- ^ Operation to combine inner values.
-         The 'Pred' parameter is the if/then/else condition
+         The 'Pred' parameter is the if-then-else condition.
      -} ->
   [(Pred sym, PartExpr (Pred sym) a)]      {- ^ values to merge -} ->
   m (PartExpr (Pred sym) a)
@@ -123,7 +218,7 @@ mergePartials sym f = go
        mergePartial sym f c x y
 
 ------------------------------------------------------------------------
--- PartialT
+-- *** PartialT
 
 -- | A monad transformer which enables symbolic partial computations to run by
 -- maintaining a predicate on the value.
@@ -186,6 +281,6 @@ returnPartial (PE q a) = PartialT $ \sym p -> liftIO (mkPE <$> andPred sym p q <
 
 -- | Add an extra condition to the current partial computation.
 addCondition :: (IsExprBuilder sym, MonadIO m)
-              => Pred sym
-              -> PartialT sym m ()
+             => Pred sym
+             -> PartialT sym m ()
 addCondition q = returnPartial (mkPE q ())

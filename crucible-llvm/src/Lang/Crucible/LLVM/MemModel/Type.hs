@@ -43,7 +43,6 @@ import Control.Monad.State
 import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
-import Data.Word
 
 import Lang.Crucible.LLVM.Bytes
 
@@ -66,7 +65,7 @@ data StorageTypeF v
   | Float
   | Double
   | X86_FP80
-  | Array !Word64 !v
+  | Array !Bytes !v
   | Struct !(Vector (Field v))
   deriving (Eq, Ord, Show, Typeable)
 
@@ -97,7 +96,7 @@ mkStorageType tf = StorageType tf $
     Float -> 4
     Double -> 8
     X86_FP80 -> 10
-    Array n e -> (Bytes n) * storageTypeSize e
+    Array n e -> n * storageTypeSize e
     Struct flds -> assert (V.length flds > 0) (fieldEnd (V.last flds))
 
 bitvectorType :: Bytes -> StorageType
@@ -112,8 +111,8 @@ doubleType = mkStorageType Double
 x86_fp80Type :: StorageType
 x86_fp80Type = mkStorageType X86_FP80
 
-arrayType :: Word64 -> StorageType -> StorageType
-arrayType n e = StorageType (Array n e) ((Bytes n) * storageTypeSize e)
+arrayType :: Bytes -> StorageType -> StorageType
+arrayType n e = StorageType (Array n e) (n * storageTypeSize e)
 
 structType :: V.Vector (Field StorageType) -> StorageType
 structType flds = assert (V.length flds > 0) $
@@ -138,7 +137,7 @@ typeEnd a tp = seq a $
     Float -> a + 4
     Double -> a + 8
     X86_FP80 -> a + 10
-    Array n etp -> typeEnd (a + Bytes (n-1) * (storageTypeSize etp)) etp
+    Array n etp -> typeEnd (a + (n-1) * (storageTypeSize etp)) etp
     Struct flds -> typeEnd (a + fieldOffset f) (f^.fieldVal)
       where f = V.last flds
 

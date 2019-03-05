@@ -1,4 +1,4 @@
-Name:          crucible-c
+Name:          crux-llvm
 Version:       0.3.2
 Author:        Galois Inc.
 Maintainer:    iavor.diatchki@gmail.com
@@ -17,7 +17,7 @@ library
 
   hs-source-dirs: src
 
-  exposed-modules: CrucibleCMain
+  exposed-modules: CruxLLVMMain
 
   other-modules:
     Overrides
@@ -51,19 +51,19 @@ library
 
   
 
-executable crucible-c
+executable crux-llvm
 
   hs-source-dirs: src
   main-is: Main.hs
   other-modules:
     Overrides,
-    CrucibleCMain
+    CruxLLVMMain
 
   build-depends:
     base >= 4.8 && < 4.13,
     ansi-wl-pprint,
     containers,
-    crucible-c,
+    crux-llvm,
     data-binary-ieee754,
     lens,
     mtl,
@@ -88,7 +88,7 @@ executable crucible-c
   default-language: Haskell2010
 
 
-test-suite crucible-c-test
+test-suite crux-llvm-test
   type: exitcode-stdio-1.0
   hs-source-dirs: test
 
@@ -101,7 +101,7 @@ test-suite crucible-c-test
                 base             >= 4.7,
                 containers,
                 crucible,
-                crucible-c,
+                crux-llvm,
                 deepseq,
                 directory,
                 filepath,

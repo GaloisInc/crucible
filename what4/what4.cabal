@@ -21,7 +21,9 @@ library
     attoparsec,
     ansi-wl-pprint,
     bimap >= 0.2,
+    bifunctors >= 5,
     bytestring,
+    deriving-compat >= 0.5,
     containers >= 0.5.0.0,
     data-binary-ieee754,
     deepseq,
@@ -34,7 +36,7 @@ library
     io-streams,
     lens,
     mtl,
-    parameterized-utils >= 1.0.4 && < 1.1,
+    parameterized-utils >= 1.0.8 && < 1.1,
     process,
     scientific,
     temporary >= 1.2,
@@ -61,6 +63,7 @@ library
     What4.Interface
     What4.InterpretedFloatingPoint
     What4.Partial
+    What4.Partial.AssertionTree
     What4.ProblemFeatures
     What4.ProgramLoc
     What4.SatResult

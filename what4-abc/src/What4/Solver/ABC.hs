@@ -284,8 +284,8 @@ bitblastExpr h ae = do
 
     RealIsInteger{} -> realFail
     PredToBV p -> BV . AIG.singleton <$> eval' h p
-    BVTestBit i xe -> assert (i <= toInteger (maxBound :: Int)) $
-       (\v -> B $ v AIG.! (fromInteger i)) <$> eval' h xe
+    BVTestBit i xe -> assert (i <= fromIntegral (maxBound :: Int)) $
+       (\v -> B $ v AIG.! (fromIntegral i)) <$> eval' h xe
     BVEq  x y -> B <$> join (AIG.bvEq g <$> eval' h x <*> eval' h y)
     BVSlt x y -> B <$> join (AIG.slt  g <$> eval' h x <*> eval' h y)
     BVUlt x y -> B <$> join (AIG.ult  g <$> eval' h x <*> eval' h y)
@@ -780,7 +780,7 @@ freshBinding ntk n l tp mbnds = do
         cond <- case mbnds of
             Nothing -> return GIA.true
             Just bnds ->
-              do let wint = fromInteger (natValue w)
+              do let wint = fromIntegral (natValue w)
                  let rangeCond (lo,hi) =
                        do lop <- if lo > 0 then
                                    AIG.ule g (AIG.bvFromInteger g wint lo) bv

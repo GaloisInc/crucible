@@ -9,7 +9,7 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module CrucibleCMain (main, mainWithOutputTo) where
+module CruxLLVMMain (main, mainWithOutputTo) where
 
 import Data.String (fromString)
 import qualified Data.Map as Map
@@ -107,7 +107,7 @@ makeCounterExamplesLLVM opts = maybe (return ()) go
       let suff = case plSourceLoc (simErrorLoc c) of
                    SourcePos _ l _ -> show l
                    _               -> "unknown"
-          msg = show (simErrorReason c)
+          msg = show c
 
       in case res of
            NotProved (Just m) ->

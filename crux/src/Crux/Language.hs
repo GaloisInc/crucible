@@ -49,6 +49,8 @@ data CruxOptions = CruxOptions
   , profileOutputInterval    :: Maybe String
   , loopBound :: Maybe String
     -- ^ Should we artifically bound the number of loop iterations
+  , makeCexes :: Bool
+    -- ^ Should we construct counter-example executables
   }
 
 type Options a = (CruxOptions, LangOptions a)

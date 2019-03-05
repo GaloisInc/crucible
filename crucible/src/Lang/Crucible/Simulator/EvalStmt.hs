@@ -200,7 +200,7 @@ readRef sym iTypes tpr rs globs =
 -- | Evaluation operation for evaluating a single straight-line
 --   statement of the Crucible evaluator.
 --
---   This is allowed to throw user execeptions or 'SimError'.
+--   This is allowed to throw user exceptions or 'SimError'.
 stepStmt :: forall p sym ext rtp blocks r ctx ctx'.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
@@ -586,7 +586,9 @@ genericToExecutionFeature (GenericExecutionFeature f) = ExecutionFeature f
 --   exceptions and invoking the 'errorHandler'
 --   contained in the state.
 executeCrucible :: forall p sym ext rtp.
-  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  ( IsSymInterface sym
+  , IsSyntaxExtension ext
+  ) =>
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
   IO (ExecResult p sym ext rtp)

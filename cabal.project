@@ -10,13 +10,13 @@ packages:
   what4-blt/
 
   crucible/
-  crucible-c/
   crucible-jvm/
   crucible-llvm/
   crucible-saw/
   crucible-server/
   crucible-syntax/
   crux/
+  crux-llvm/
   
 optional-packages:
   dependencies/abcBridge/

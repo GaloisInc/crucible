@@ -107,7 +107,7 @@ data LLVMExpr s arch where
    StructExpr :: Seq (MemType, LLVMExpr s arch) -> LLVMExpr s arch
 
 instance Show (LLVMExpr s arch) where
-  show (BaseExpr _ x)   = C.showF x
+  show (BaseExpr ty x)  = C.showF x ++ " : " ++ show ty
   show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
   show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
   show (VecExpr _mt xs) = "[" ++ concat (List.intersperse ", " (map show (toList xs))) ++ "]"
@@ -235,8 +235,8 @@ zeroExpand :: forall s arch a
            -> (forall tp. TypeRepr tp -> Expr (LLVM arch) s tp -> a)
            -> a
 zeroExpand (IntType w) k =
-  case someNat (fromIntegral w) of
-    Just (Some w') | Just LeqProof <- isPosNat w' ->
+  case mkNatRepr w of
+    Some w' | Just LeqProof <- isPosNat w' ->
       k (LLVMPointerRepr w') $
          BitvectorAsPointerExpr w' $
          App $ BVLit w' 0
@@ -261,8 +261,8 @@ undefExpand :: (?lc :: TypeContext, ?err :: String -> a, HasPtrWidth (ArchWidth 
             -> (forall tp. TypeRepr tp -> Expr (LLVM arch) s tp -> a)
             -> a
 undefExpand (IntType w) k =
-  case someNat (fromIntegral w) of
-    Just (Some w') | Just LeqProof <- isPosNat w' ->
+  case mkNatRepr w of
+    Some w' | Just LeqProof <- isPosNat w' ->
       k (LLVMPointerRepr w') $
          BitvectorAsPointerExpr w' $
          App $ BVUndef w'
@@ -312,6 +312,8 @@ liftConstant ::
 liftConstant c = case c of
   ZeroConst mt ->
     return $ ZeroExpr mt
+  UndefConst mt ->
+    return $ UndefExpr mt
   IntConst w i ->
     return $ BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w (App (BVLit w i)))
   FloatConst f ->
@@ -417,8 +419,8 @@ transValue (VecType _ tp) (L.ValVector _ vs) = do
 transValue _ (L.ValSymbol symbol) = do
      liftConstant (SymbolConst symbol 0)
 
-transValue mt (L.ValConstExpr cexp) =
-  do res <- runExceptT (transConstantExpr mt cexp)
+transValue _ (L.ValConstExpr cexp) =
+  do res <- runExceptT (transConstantExpr cexp)
      case res of
        Left err -> reportError $ fromString $ unlines ["Error translating constant", err]
        Right cv -> liftConstant cv

@@ -226,9 +226,10 @@ newSAWCoreBackend proxy sc gen = do
   return sym
 
 
--- | Register an interpretation for a symbolic function.
--- This is not used during simulation, but rather, when we translate
--- crucible values back into SAW.
+-- | Register an interpretation for a symbolic function. This is not
+-- used during simulation, but rather, when we translate Crucible
+-- values back into SAW. The interpretation function takes a list of
+-- arguments in regular (left-to-right) order.
 sawRegisterSymFunInterp ::
   SAWCoreBackend n fs ->
   B.ExprSymFn n args ret ->
@@ -583,7 +584,7 @@ evalIndexLit sc l =
     NatIndexLit n ->
       do SAWExpr <$> SC.scNat sc (fromInteger (toInteger n))
     BVIndexLit w n ->
-      do w' <- SC.scNat sc (fromInteger (natValue w))
+      do w' <- SC.scNat sc (natValue w)
          n' <- SC.scNat sc (fromInteger n)
          SAWExpr <$> SC.scBvNat sc w' n'
 
@@ -638,7 +639,7 @@ applyTable sym sc t0 maxidx vars ret fallback =
          ty' <- SC.scVecType sc len ty
          fb' <- SC.scGlobalApply sc (SC.mkIdent SC.preludeName "replicate") [len, ty, fb]
          vec <- go ty' imax xs fb'
-         x' <- SC.scBvToNat sc (fromInteger (natValue w)) x
+         x' <- SC.scBvToNat sc (natValue w) x
          SC.scGlobalApply sc (SC.mkIdent SC.preludeName "atWithDefault") [len, ty, fb, vec, x']
 
 applyExprSymFn ::
@@ -658,7 +659,7 @@ applyExprSymFn sym sc fn args =
                     ]
          Just mk -> return mk
      ts <- evaluateAsgn args
-     SAWExpr <$> mk sc ts
+     SAWExpr <$> mk sc (reverse ts)
   where
     evaluateAsgn :: Ctx.Assignment SAWExpr args' -> IO [SC.Term]
     evaluateAsgn Ctx.Empty = return []
@@ -1007,19 +1008,19 @@ evaluateExpr sym sc cache = f
              SAWExpr <$> (SC.scIntEq sc z =<< SC.scIntegerConst sc 0)
 
         B.BVToNat x ->
-          let n = fromInteger (natValue (bvWidth x)) in
+          let n = natValue (bvWidth x) in
           SAWExpr <$> (SC.scBvToNat sc n =<< f x)
 
         B.IntegerToBV x w ->
-          do n <- SC.scNat sc (fromInteger (natValue w))
+          do n <- SC.scNat sc (natValue w)
              SAWExpr <$> (SC.scIntToBv sc n =<< f x)
 
         B.BVToInteger x ->
-          do n <- SC.scNat sc (fromInteger (natValue (bvWidth x)))
+          do n <- SC.scNat sc (natValue (bvWidth x))
              SAWExpr <$> (SC.scBvToInt sc n =<< f x)
 
         B.SBVToInteger x ->
-          do n <- SC.scNat sc (fromInteger (natValue (bvWidth x)))
+          do n <- SC.scNat sc (natValue (bvWidth x))
              SAWExpr <$> (SC.scSbvToInt sc n =<< f x)
 
         -- Proper support for real and complex numbers will require additional

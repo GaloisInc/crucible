@@ -109,8 +109,8 @@ type TailSubst   = 'TailSubst
 type family SubstVar (s :: SubstK k) (n :: Peano) :: k where
   SubstVar ('IdSubst :: SubstK k) n   = MkVar k n
   SubstVar ('SuccSubst :: SubstK k) n = MkVar k (S n)
-  SubstVar ('ExtendSubst ty s) ('S m) = SubstVar s m
-  SubstVar ('ExtendSubst ty s) 'Z     = ty
+  SubstVar ('ExtendSubst ty s) (S m) = SubstVar s m
+  SubstVar ('ExtendSubst ty s) Z     = ty
   SubstVar (('LiftSubst s) :: SubstK k) Z     = MkVar k Z
   SubstVar (('LiftSubst s) :: SubstK k) (S m) = Instantiate ('SuccSubst :: SubstK k) (SubstVar s m)
   SubstVar ('TailSubst s) x          = SubstVar s (S x)
@@ -181,7 +181,7 @@ class Term (k :: Type) where
    axiomSubstVar :: p1 subst -> p2 n ->
          Instantiate subst (MkVar k n) :~: SubstVar subst n
    
-    -- | This datakind must have a runtime representation
+   -- | This datakind must have a runtime representation
    type Repr  k :: k -> Type
 
    varRepr :: PeanoRepr n -> Repr k (MkVar k n)

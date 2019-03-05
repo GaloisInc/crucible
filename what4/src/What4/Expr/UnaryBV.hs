@@ -61,7 +61,7 @@ import           Data.Bits
 import           Data.Hashable
 import           Data.Parameterized.Classes
 import           Data.Parameterized.NatRepr
-import qualified GHC.TypeLits as Type
+import qualified GHC.TypeNats as Type
 
 import           What4.BaseTypes
 import           What4.Interface

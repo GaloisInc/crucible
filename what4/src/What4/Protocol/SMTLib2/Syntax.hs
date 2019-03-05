@@ -135,6 +135,7 @@ import           Data.Text (Text)
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder
+import           Numeric.Natural
 
 import qualified Prelude
 import           Prelude hiding (and, or, concat, negate, div, mod, abs, not)
@@ -186,7 +187,7 @@ boolSort :: Sort
 boolSort = Sort "Bool"
 
 -- | Bitvectors with the given number of bits.
-bvSort :: Integer -> Sort
+bvSort :: Natural -> Sort
 bvSort w | w >= 1 = Sort $ "(_ BitVec " <> fromString (show w) <> ")"
          | otherwise = error "bvSort expects a positive number."
 
@@ -490,10 +491,9 @@ bit1 = T "#b1"
 -- The width @w@ must be positive.
 --
 -- The literal uses a binary notation.
-bvbinary :: Integer -> Integer -> Term
+bvbinary :: Integer -> Natural -> Term
 bvbinary u w0
-    | w0 <= 0 = error $ "bvbinary width must be positive."
-    | w0 > toInteger (maxBound :: Int) = error $ "Integer width is too large."
+    | w0 > fromIntegral (maxBound :: Int) = error $ "Integer width is too large."
     | otherwise = T $ "#b" <> go (fromIntegral w0)
   where go :: Int -> Builder
         go 0 = mempty
@@ -508,9 +508,8 @@ bvbinary u w0
 -- The width @w@ must be positive.
 --
 -- The literal uses a decimal notation.
-bvdecimal :: Integer -> Integer -> Term
+bvdecimal :: Integer -> Natural -> Term
 bvdecimal u w
-    | w <= 0 = error "bvdecimal width must be positive."
     | otherwise = T $ mconcat [ "(_ bv", Builder.decimal d, " ", Builder.decimal w, ")"]
   where d = u .&. (2^w - 1)
 
@@ -538,27 +537,26 @@ concat :: Term -> Term -> Term
 concat = bin_app "concat"
 
 -- | @extract i j x@ returns the bitvector containing the bits @[j..i]@.
-extract :: Integer -> Integer -> Term -> Term
+extract :: Natural -> Natural -> Term -> Term
 extract i j x
-  | j < 0 = error "Initial bit is negative"
   | i < j = error $ "End of extract (" ++ show i ++ ") less than beginning (" ++ show j ++ ")."
   | otherwise = -- We cannot check that j is small enough.
     let e = "(_ extract " <> Builder.decimal i <> " " <> Builder.decimal j <> ")"
      in un_app e x
 
--- | Complement bits in term.
+-- | Bitwise negation of term.
 bvnot :: Term -> Term
 bvnot = un_app "bvnot"
 
--- | Take conjunction of corresponding bits in terms.
+-- | Bitwise and of all arguments.
 bvand :: Term -> [Term] -> Term
 bvand = assoc_app "bvand"
 
--- | Take disjunction of corresponding bits in terms.
+-- | Bitwise include or of all arguments.
 bvor :: Term -> [Term] -> Term
 bvor = assoc_app "bvor"
 
--- | Bitvector exclusive or (must have at least one argument.
+-- | Bitvector exclusive or of all arguments.
 bvxor :: Term -> [Term] -> Term
 bvxor = assoc_app "bvxor"
 

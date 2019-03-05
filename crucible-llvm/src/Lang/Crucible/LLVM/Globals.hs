@@ -48,8 +48,10 @@ import           Control.Monad.Except
 import           Control.Lens hiding (op, (:>) )
 import           Data.List (foldl')
 import qualified Data.Set as Set
+import           Data.Set (Set)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Control.Monad.State (StateT, runStateT, get, put)
 import           Data.Maybe (fromMaybe)
 
 import qualified Text.LLVM.AST as L
@@ -70,6 +72,8 @@ import           Lang.Crucible.LLVM.TypeContext
 
 import           Lang.Crucible.Backend (IsSymInterface)
 
+import           GHC.Stack
+
 ------------------------------------------------------------------------
 -- GlobalInitializerMap
 
@@ -77,9 +81,11 @@ import           Lang.Crucible.Backend (IsSymInterface)
 --
 -- The @Left@ constructor is used to signal errors in translation,
 -- which can happen when:
--- * The global isn't actually a compile-time constant
--- * The declaration is ill-typed
--- * The global isn't linked ("extern global")
+--  * The declaration is ill-typed
+--  * The global isn't linked (@extern global@)
+--
+-- The @Nothing@ constructor is used to signal that the global isn't actually a
+-- compile-time constant.
 --
 -- These failures are as granular as possible (attached to the values)
 -- so that simulation still succeeds if the module has a bad global that the
@@ -95,7 +101,7 @@ type GlobalInitializerMap = Map L.Symbol (L.Global, Either String (MemType, Mayb
 
 -- | @makeGlobalMap@ creates a map from names of LLVM global variables
 -- to the values of their initializers, if any are included in the module.
-makeGlobalMap :: forall arch wptr. (HasPtrWidth wptr)
+makeGlobalMap :: forall arch wptr. (?lc :: TypeContext, HasPtrWidth wptr)
               => LLVMContext arch
               -> L.Module
               -> GlobalInitializerMap
@@ -155,17 +161,22 @@ initializeMemory sym llvm_ctx m = do
    let endianness = dl^.intLayout
    mem0 <- emptyMem endianness
    -- Allocate function handles
-   let handles = Map.assocs (_symbolMap llvm_ctx)
-   mem <- foldM (allocLLVMHandleInfo sym m) mem0 handles
+   let funAliases = Map.mapKeys L.defName (functionAliases m)
+   let lookupFunAliases symb =
+         Set.map L.aliasName $ fromMaybe Set.empty (Map.lookup symb funAliases)
+   let handles =
+         map (\(symb, hinfo) -> (symb, lookupFunAliases symb, hinfo)) $
+           Map.assocs (_symbolMap llvm_ctx)
+   mem <- foldM (allocLLVMHandleInfo sym) mem0 handles
    -- Allocate global values
-   let globals    = L.modGlobals m
-   let allAliases = globalAliases m
+   let globAliases = globalAliases m
+   let globals     = L.modGlobals m
    gs_alloc <- mapM (\g -> do
                         ty <- either fail return $ liftMemType $ L.globalType g
                         let sz      = memTypeSize dl ty
                         let tyAlign = memTypeAlign dl ty
                         let aliases = map L.aliasName . Set.toList $
-                              fromMaybe Set.empty (Map.lookup g (allAliases))
+                              fromMaybe Set.empty (Map.lookup g globAliases)
                         -- LLVM documentation regarding global variable alignment:
                         --
                         -- An explicit alignment may be specified for
@@ -188,26 +199,24 @@ initializeMemory sym llvm_ctx m = do
                     globals
    allocGlobals sym gs_alloc mem
 
-
 allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     => sym
-                    -> L.Module
                     -> MemImpl sym
-                    -> (L.Symbol, LLVMHandleInfo)
+                    -> (L.Symbol, Set L.Symbol, LLVMHandleInfo)
                     -> IO (MemImpl sym)
-allocLLVMHandleInfo sym m mem (symbol@(L.Symbol sym_str), LLVMHandleInfo _ h) =
+allocLLVMHandleInfo sym mem (symbol@(L.Symbol sym_str), aliases, LLVMHandleInfo _ h) =
   do (ptr, mem') <- doMallocHandle sym G.GlobalAlloc sym_str mem (SomeFnHandle h)
-     let syms =
-           symbol :
-           [ asym
-           | L.GlobalAlias asym _ (L.ValSymbol tsym) <- L.modAliases m
-           , tsym == symbol
-           ]
-     return $ registerGlobal mem' syms ptr
+     return $ registerGlobal mem' (symbol:Set.toList aliases) ptr
 
+
+------------------------------------------------------------------------
+-- ** populateGlobals
 
 -- | Populate the globals mentioned in the given @GlobalInitializerMap@
 --   provided they satisfy the given filter function.
+--
+--   This will (necessarily) populate any globals that the ones in the
+--   filtered list transitively reference.
 populateGlobals ::
   ( ?lc :: TypeContext
   , 16 <= wptr
@@ -222,7 +231,7 @@ populateGlobals select sym gimap mem0 = foldM f mem0 (Map.elems gimap)
   where
   f mem (gl, _) | not (select gl)    = return mem
   f _   (_,  Left msg)               = fail msg
-  f mem (gl, Right (mty, Just cval)) = populateGlobal sym gl mty cval mem
+  f mem (gl, Right (mty, Just cval)) = populateGlobal sym gl mty cval gimap mem
   f mem (_ , Right (_, Nothing))     = return mem
 
 
@@ -240,7 +249,7 @@ populateAllGlobals = populateGlobals (const True)
 
 
 -- | Populate only the constant global variables mentioned in the
---   given @GlobalInitializerMap@.
+--   given @GlobalInitializerMap@ (and any they transitively refer to).
 populateConstGlobals ::
   ( ?lc :: TypeContext
   , 16 <= wptr
@@ -257,21 +266,57 @@ populateConstGlobals = populateGlobals f
 -- | Write the value of the given LLVMConst into the given global variable.
 --   This is intended to be used at initialization time, and will populate
 --   even read-only global data.
-populateGlobal ::
+populateGlobal :: forall sym wptr.
   ( ?lc :: TypeContext
   , 16 <= wptr
   , HasPtrWidth wptr
-  , IsSymInterface sym ) =>
+  , IsSymInterface sym
+  , HasCallStack
+  ) =>
   sym ->
-  L.Global ->
-  MemType ->
-  LLVMConst ->
+  L.Global {- ^ The global to populate -} ->
+  MemType {- ^ Type of the global -} ->
+  LLVMConst {- ^ Constant value to initialize with -} ->
+  GlobalInitializerMap ->
   MemImpl sym ->
   IO (MemImpl sym)
-populateGlobal sym gl mt cval mem =
-  do let symb = L.globalSym gl
-     let alignment = memTypeAlign (llvmDataLayout ?lc) mt
-     ty <- toStorableType mt
-     ptr <- doResolveGlobal sym mem symb
-     val <- constToLLVMVal sym mem cval
-     storeConstRaw sym mem ptr ty alignment val
+populateGlobal sym gl memty cval giMap mem =
+  do let alignment = memTypeAlign (llvmDataLayout ?lc) memty
+
+     -- So that globals can populate and look up the globals they reference
+     -- during initialization
+     let populateRec :: HasCallStack
+                     => L.Symbol -> StateT (MemImpl sym) IO (LLVMPtr sym wptr)
+         populateRec symbol = do
+           memimpl0 <- get
+           memimpl <-
+            case Map.lookup symbol (memImplGlobalMap mem) of
+              Just _  -> pure memimpl0 -- We already populated this one
+              Nothing ->
+                -- For explanations of the various modes of failure, see the
+                -- comment on 'GlobalInitializerMap'.
+                case Map.lookup symbol giMap of
+                  Nothing -> fail $ unlines $
+                    [ "Couldn't find global variable: " ++ show symbol ]
+                  Just (glob, Left str) -> fail $ unlines $
+                    [ "Couldn't find global variable's initializer: " ++
+                        show symbol
+                    , "Reason:"
+                    , str
+                    , "Full definition:"
+                    , show glob
+                    ]
+                  Just (glob, Right (_, Nothing)) -> fail $ unlines $
+                    [ "Global was not a compile-time constant:" ++ show symbol
+                    , "Full definition:"
+                    , show glob
+                    ]
+                  Just (glob, Right (memty_, Just cval_)) ->
+                    liftIO $ populateGlobal sym glob memty_ cval_ giMap mem
+           put memimpl
+           liftIO $ doResolveGlobal sym memimpl symbol
+
+     ty <- toStorableType memty
+     ptr <- doResolveGlobal sym mem (L.globalSym gl)
+     (val, mem') <- runStateT (constToLLVMValP sym populateRec cval) mem
+     storeConstRaw sym mem' ptr ty alignment val

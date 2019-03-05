@@ -273,14 +273,11 @@ popFramesUntil ident stk = atomicModifyIORef' (proofObligations stk) (go 1)
  go n gc =
     case gcPop gc of
       Left (ident', _assumes, mg, gc1)
-        | ident == ident' ->
-            let gc' = case mg of
-                        Nothing -> gc1
-                        Just g  -> gcAddGoals g gc1
-             in (gc', n)
-        | otherwise ->
-             go (n+1) gc1
-
+        | ident == ident' -> (gc',n)
+        | otherwise -> go (n+1) gc'
+       where gc' = case mg of
+                     Nothing -> gc1
+                     Just g  -> gcAddGoals g gc1
       Right _ ->
         panic "AssumptionStack.popFrameUntil"
           [ "Frame not found in stack."

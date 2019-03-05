@@ -71,7 +71,8 @@ check opts@(cruxOpts,_langOpts) =
      res <- simulate opts
      when (outDir cruxOpts /= "") $
        generateReport cruxOpts res
-     CL.makeCounterExamples opts res
+     when (makeCexes cruxOpts) $
+       CL.makeCounterExamples opts res
   `catch` \(SomeException e) ->
       do outputLn "TOP LEVEL EXCEPTION"
          outputLn (displayException e)

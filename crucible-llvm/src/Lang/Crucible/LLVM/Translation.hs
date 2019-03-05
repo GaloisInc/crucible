@@ -231,34 +231,45 @@ setLocation
   :: [(String,L.ValMd)]
   -> LLVMGenerator h s arch ret ()
 setLocation [] = return ()
-setLocation (("dbg",L.ValMdLoc dl):_) = do
-   let ln   = fromIntegral $ L.dlLine dl
-       col  = fromIntegral $ L.dlCol dl
-       file = Text.pack $ findFile $ L.dlScope dl
-    in setPosition (SourcePos file ln col)
-setLocation (("dbg",L.ValMdDebugInfo (L.DebugInfoSubprogram subp)) :_)
-  | Just file' <- L.dispFile subp
-  = do let ln = fromIntegral $ L.dispLine subp
-       let file = Text.pack $ findFile file'
-       setPosition (SourcePos file ln 0)
-setLocation (_:xs) = setLocation xs
+setLocation (x:xs) =
+  case x of
+    ("dbg",L.ValMdLoc dl) ->
+      let ln   = fromIntegral $ L.dlLine dl
+          col  = fromIntegral $ L.dlCol dl
+          file = getFile $ L.dlScope dl
+       in setPosition (SourcePos file ln col)
+    ("dbg",L.ValMdDebugInfo (L.DebugInfoSubprogram subp))
+      | Just file' <- L.dispFile subp
+      -> let ln = fromIntegral $ L.dispLine subp
+             file = getFile file'
+          in setPosition (SourcePos file ln 0)
+    _ -> setLocation xs
 
-findFile :: (?lc :: TypeContext) => L.ValMd -> String
+ where
+ getFile = Text.pack . maybe "" filenm . findFile
+ filenm di = L.difDirectory di ++ "/" ++ L.difFilename di
+
+
+findFile :: (?lc :: TypeContext) => L.ValMd -> Maybe L.DIFile
 findFile (L.ValMdRef x) =
   case lookupMetadata x of
     Just (L.ValMdNode (_:Just (L.ValMdRef y):_)) ->
       case lookupMetadata y of
-        Just (L.ValMdNode [Just (L.ValMdString fname), Just (L.ValMdString _fpath)]) -> fname
-        _ -> ""
+        Just (L.ValMdNode [Just (L.ValMdString fname), Just (L.ValMdString fpath)]) ->
+            Just (L.DIFile fname fpath)
+        _ -> Nothing
     Just (L.ValMdDebugInfo di) ->
       case di of
-        L.DebugInfoLexicalBlock (L.dilbFile -> Just (L.ValMdDebugInfo (L.DebugInfoFile dif))) ->
-          L.difFilename dif
-        L.DebugInfoSubprogram (L.dispFile -> Just (L.ValMdDebugInfo (L.DebugInfoFile dif))) ->
-          L.difFilename dif
-        _ -> ""
-    _ -> ""
-findFile _ = ""
+        L.DebugInfoFile dif -> Just dif
+        L.DebugInfoLexicalBlock dilex
+          | Just (L.ValMdDebugInfo (L.DebugInfoFile dif)) <- L.dilbFile dilex -> Just dif
+          | Just md <- L.dilbScope dilex -> findFile md
+        L.DebugInfoSubprogram disub
+          | Just (L.ValMdDebugInfo (L.DebugInfoFile dif)) <- L.dispFile disub -> Just dif
+          | Just md <- L.dispScope disub -> findFile md
+        _ -> Nothing
+    _ -> Nothing
+findFile _ = Nothing
 
 -- | Lookup the block info for the given LLVM block and then define a new crucible block
 --   by translating the given LLVM statements.
@@ -374,6 +385,7 @@ translateModule halloc m = do
        -- Translate definitions
        pairs <- mapM (transDefine ctx) (L.modDefines m)
        -- Return result.
+       let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
        return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
                                        , globalInitMap = makeGlobalMap ctx m
                                        , _transContext = ctx

@@ -51,7 +51,7 @@ ctz :: NatRepr w -> Integer -> Integer
 ctz w x = go 0
  where
  go !i
-   | i < natValue w && testBit x (fromInteger i) == False = go (i+1)
+   | i < toInteger (natValue w) && testBit x (fromInteger i) == False = go (i+1)
    | otherwise = i
 
 -- | Count leading zeros
@@ -59,7 +59,7 @@ clz :: NatRepr w -> Integer -> Integer
 clz w x = go 0
  where
  go !i
-   | i < natValue w && testBit x (fromInteger (natValue w - i - 1)) == False = go (i+1)
+   | i < toInteger (natValue w) && testBit x (widthVal w - fromInteger i - 1) == False = go (i+1)
    | otherwise = i
 
 
