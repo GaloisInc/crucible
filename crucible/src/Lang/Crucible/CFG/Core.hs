@@ -92,11 +92,12 @@ module Lang.Crucible.CFG.Core
 
 import Control.Applicative
 import Control.Lens
-import Data.Maybe
-import Data.Kind
+import Data.Maybe (fromMaybe)
+import Data.Kind (Type)
 import Data.Parameterized.Classes
 import Data.Parameterized.Map (Pair(..))
 import Data.Parameterized.Some
+import Data.Parameterized.TraversableF
 import Data.Parameterized.TraversableFC
 import Data.String
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -106,6 +107,7 @@ import What4.Symbol
 
 import Lang.Crucible.CFG.Common
 import Lang.Crucible.CFG.Expr
+import Lang.Crucible.CFG.Extension.Safety
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.Types
 import Lang.Crucible.Utils.PrettyPrint
@@ -170,10 +172,14 @@ instance PrettyApp (ExprExtension ext) => Pretty (Expr ext ctx tp) where
 ppAssignment :: Assignment (Reg ctx) args -> [Doc]
 ppAssignment = toListFC pretty
 
-instance TraversableFC (ExprExtension ext) => ApplyEmbedding' (Expr ext) where
+instance ( TraversableFC (ExprExtension ext)
+         , TraversableF (AssertionClassifier ext)
+         ) => ApplyEmbedding' (Expr ext) where
   applyEmbedding' ctxe (App e) = App (mapApp (applyEmbedding' ctxe) e)
 
-instance TraversableFC (ExprExtension ext) => ExtendContext' (Expr ext) where
+instance ( TraversableFC (ExprExtension ext)
+         , TraversableF (AssertionClassifier ext)
+         ) => ExtendContext' (Expr ext) where
   extendContext' diff (App e) = App (mapApp (extendContext' diff) e)
 
 ------------------------------------------------------------------------

@@ -6,6 +6,7 @@ Maintainer       : Rob Dockins <rdockins@galois.com>
 -}
 
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 module What4.WordMap
@@ -22,7 +23,7 @@ import qualified Data.Parameterized.Context as Ctx
 
 import What4.BaseTypes
 import What4.Interface
-import What4.Partial
+import What4.Partial (PartExpr, pattern PE, pattern Unassigned) -- TODO(langston): use PartialWithErr
 
 -----------------------------------------------------------------------
 -- WordMap operations

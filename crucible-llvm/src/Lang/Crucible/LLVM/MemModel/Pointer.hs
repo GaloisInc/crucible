@@ -88,7 +88,7 @@ import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.Types
 
 data LLVMPointer sym w =
-  -- | This pattern synonym gives an easy way to construct/deconstruct runtime values of type 'LLVMPtr'.
+  -- |A pointer is a base point offset.
   LLVMPointer (SymNat sym) (SymBV sym w)
 
 llvmPointerBlock :: LLVMPtr sym w -> SymNat sym
