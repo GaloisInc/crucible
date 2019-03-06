@@ -237,6 +237,8 @@ showRegEntry col mty (C.RegEntry tp rv) =
                      Just f -> show f
                      Nothing -> "Symbolic real"
 
+    (TyTuple [], C.UnitRepr) -> return "()"
+
     (TyTuple tys, C.StructRepr (ctxr :: C.CtxRepr ctx)) -> do
       let rv' :: Ctx.Assignment (C.RegValue' sym) ctx
           rv' = rv

@@ -1,4 +1,4 @@
-// FAIL: user error (JSON Decoding of MIR failed: Error in $.fns[2].body.blocks[0].block.data[0].rhs.usevar.data.literal: Don't know how to parse Text 'a' into a Char)
+
 
 fn g () -> char {
     'a'

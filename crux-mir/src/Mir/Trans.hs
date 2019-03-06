@@ -361,7 +361,14 @@ transConstVal (Some (CT.BVRepr w)) (M.ConstChar c) =
        return $ MirExp (CT.BVRepr w) (S.app $ E.BVLit w i)
 transConstVal (Some (CT.AnyRepr)) (M.ConstFunction did _substs) =
     -- TODO: use this substs
-    buildClosureHandle did (Substs []) [] 
+    buildClosureHandle did (Substs []) []
+
+-- RealValRepr ConstFloat (FloatLit F64 "0f64")
+transConstVal (Some (CT.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
+    case reads str of
+      (d , _):_ -> let rat = toRational (d :: Double) in
+                   return (MirExp CT.RealValRepr (S.app $ E.RationalLit rat))
+      []        -> fail $ "cannot parse float constant: " ++ show str
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
@@ -504,6 +511,12 @@ evalBinOp bop mat me1 me2 =
               (M.Lt, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSlt n e1 e2)
               (M.Le, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUle n e1 e2)
               (M.Le, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSle n e1 e2)
+
+              (M.Gt, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUle n e2 e1)
+              (M.Gt, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSle n e2 e1)
+              (M.Ge, Just M.Unsigned) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVUlt n e2 e1)
+              (M.Ge, Just M.Signed) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVSlt n e2 e1)
+
               (M.Ne, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
               (M.Beq, _) -> return $ MirExp (CT.BoolRepr) (S.app $ E.BVEq n e1 e2)
               _ -> fail $ "bad binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
@@ -526,6 +539,19 @@ evalBinOp bop mat me1 me2 =
             M.Sub -> return $ MirExp CT.NatRepr (S.app $ E.NatSub e1 e2)
             M.Mul -> return $ MirExp CT.NatRepr (S.app $ E.NatMul e1 e2)
             M.Ne -> return $ MirExp CT.BoolRepr (S.app $ E.Not $ S.app $ E.NatEq e1 e2)
+            _ -> fail "bad natural number binop"
+      (MirExp CT.RealValRepr e1, MirExp CT.RealValRepr e2) ->
+          case bop of
+            M.Beq -> return $ MirExp CT.BoolRepr (S.app $ E.RealEq e1 e2)
+            M.Lt -> return $ MirExp CT.BoolRepr (S.app $ E.RealLt e1 e2)
+            M.Le -> return $ MirExp CT.BoolRepr (S.app $ E.RealLe e1 e2)
+            M.Gt -> return $ MirExp CT.BoolRepr (S.app $ E.RealLe e2 e1)
+            M.Ge -> return $ MirExp CT.BoolRepr (S.app $ E.RealLt e2 e1)
+
+            M.Add -> return $ MirExp CT.RealValRepr (S.app $ E.RealAdd e1 e2)
+            M.Sub -> return $ MirExp CT.RealValRepr (S.app $ E.RealSub e1 e2)
+            M.Mul -> return $ MirExp CT.RealValRepr (S.app $ E.RealMul e1 e2)
+            M.Ne -> return $ MirExp CT.BoolRepr (S.app $ E.Not $ S.app $ E.RealEq e1 e2)
             _ -> fail "bad natural number binop"
 
       (_, _) -> fail $ "bad or unimplemented type: " ++ (show bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
@@ -2170,8 +2196,9 @@ expandSuperTraits traits =  map nubTrait (Map.elems (go traits Map.empty)) where
          addSupers :: M.Trait -> (M.TraitName, M.Trait)
          addSupers tr = (tr^.traitName, tr & traitItems %~ (++ newItems)) where
 
-           newItems = concat [ (done Map.! superName) ^.traitItems
-                             | superName  <- tail (tr^.traitSupers) ]
+           newItems = concat [ tr^.traitItems
+                               | superName  <- tail (tr^.traitSupers)
+                               , tr <- Maybe.maybeToList (done Map.!? superName) ]
 
          step :: Map M.TraitName M.Trait
          step = Map.union done (Map.fromList (List.map addSupers this))

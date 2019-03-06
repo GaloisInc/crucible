@@ -15,7 +15,7 @@ import qualified Data.HashMap.Lazy as HML
 
 import Data.Word(Word64)
 import Data.Bits
-
+import qualified Data.Char as Char
 import Data.Text (Text,  unpack)
 import qualified Data.Text as T
 import qualified Data.Text.Read  as T
@@ -30,6 +30,7 @@ import Debug.Trace
 
 --------------------------------------------------------------------------------------
 -- | FromJSON instances
+
 -- Aeson is used for JSON deserialization
 
 
@@ -368,7 +369,10 @@ parseIntegerText = withText "Integer" convertIntegerText
 
 
 parseChar :: Value -> Aeson.Parser Char
-parseChar = withText "Char" $ \t -> fail $ "Don't know how to parse Text " ++ T.unpack t ++ " into a Char"
+parseChar = withText "Char" $ \t ->
+  case Char.readLitChar (T.unpack t) of
+    (c , _):_  -> return c
+    _          -> fail $ "Don't know how to parse Text " ++ T.unpack t ++ " into a Char"
 
 parseString :: Value -> Aeson.Parser String
 parseString = withText "String" (pure . T.unpack)

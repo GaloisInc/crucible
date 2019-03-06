@@ -1,4 +1,4 @@
-// FAIL: fail or unimp constant: RealValRepr ConstFloat (FloatLit F64 "0f64")
+// FAIL:  Don't know how to call ::str::{{impl}}[35]::len
 
 fn f(x: (bool,bool)) -> bool {
     let y = 0.0;
