@@ -28,9 +28,11 @@ module Lang.Crucible.Backend.Online
   ( -- * OnlineBackend
     OnlineBackend
   , withOnlineBackend
+  , initialOnlineBackendState
   , checkSatisfiable
   , checkSatisfiableWithModel
   , getSolverProcess
+  , getSolverProcess'
   , resetSolverProcess
   , UnsatFeatures(..)
   , unsatFeaturesToProblemFeatures
@@ -53,7 +55,7 @@ module Lang.Crucible.Backend.Online
   , STPOnlineBackend
   , withSTPOnlineBackend
     -- * OnlineBackendState
-  , OnlineBackendState
+  , OnlineBackendState(..)
     -- * Re-exports
   , B.FloatInterpretation
   , B.FloatIEEE
@@ -286,12 +288,13 @@ resetSolverProcess sym = do
 
 -- | Get the solver process.
 --   Starts the solver, if that hasn't happened already.
-getSolverProcess ::
+getSolverProcess' ::
   OnlineSolver scope solver =>
-  OnlineBackend scope solver fs ->
+  (B.ExprBuilder scope s fs -> IO (OnlineBackendState solver scope)) ->
+  B.ExprBuilder scope s fs ->
   IO (SolverProcess scope solver)
-getSolverProcess sym = do
-  st <- readIORef (B.sbStateManager sym)
+getSolverProcess' getSolver sym = do
+  st <- getSolver sym
   mproc <- readIORef (solverProc st)
   auxOutSetting <- getOptionSetting solverInteractionFile (getConfiguration sym)
   case mproc of
@@ -308,6 +311,13 @@ getSolverProcess sym = do
          push p
          writeIORef (solverProc st) (SolverStarted p auxh)
          return p
+
+-- | Get the solver process, specialized to @OnlineBackend@.
+getSolverProcess ::
+  OnlineSolver scope solver =>
+  OnlineBackend scope solver fs ->
+  IO (SolverProcess scope solver)
+getSolverProcess = getSolverProcess' (\sym -> readIORef (B.sbStateManager sym))
 
 -- | Result of attempting to branch on a predicate.
 data BranchResult
