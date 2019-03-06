@@ -2132,7 +2132,6 @@ mkHandleMap adts halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
 -- Create the dictionary adt type for a trait
 -- The dictionary is a record (i.e. an ADT with a single variant) with
 -- a field for each method in the trait.
--- TODO: add entries for supertrait methods too.
 traitToAdt :: M.Trait -> Maybe M.Adt
 traitToAdt tr = do
   let itemToField :: M.TraitItem -> Maybe M.Field
@@ -2149,15 +2148,24 @@ addTraitAdts col = col & adts %~ (++ new) where
 
 
 -- Explicitly inherit all supertrait methods
+-- NOTE: if we include a trait that derive from an unknown supertrait, we will do the
+-- "best effort" We won't inherit any of the declarations, that bit will just be
+-- ignored.
 expandSuperTraits :: [M.Trait] -> [M.Trait]
 expandSuperTraits traits =  map nubTrait (Map.elems (go traits Map.empty)) where
+
+   -- remove duplicates
    nubTrait tr = tr & traitItems %~ List.nub
+
    go :: [M.Trait] -> Map M.TraitName M.Trait -> Map M.TraitName M.Trait
    go trs done = if null this then done else go next step where
          (this, next) = List.partition processed trs
 
+         inTrs :: M.TraitName -> Bool
+         inTrs tn = List.any (\tr -> tr^.traitName == tn) trs
+
          processed :: M.Trait -> Bool
-         processed tr = all (\n -> Map.member n done) (tail (tr^.traitSupers))
+         processed tr = all (\n -> Map.member n done || not (inTrs n)) (tail (tr^.traitSupers))
 
          addSupers :: M.Trait -> (M.TraitName, M.Trait)
          addSupers tr = (tr^.traitName, tr & traitItems %~ (++ newItems)) where

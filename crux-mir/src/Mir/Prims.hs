@@ -40,11 +40,11 @@ loadPrims useStdLib debugLevel = do
 
   let lib = if useStdLib then
               [ -- "convert"
-                "option"
-              , "result"
-              , "cmp"      
-              , "ops/range"  
-              , "default"
+              --  "option"
+              --, "result"
+              --, "cmp"      
+              --, "ops/range"  
+               "default"
               , "ops/function" 
 --              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
               ] else []
