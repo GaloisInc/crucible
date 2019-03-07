@@ -136,6 +136,69 @@ llvmLifetimeOverrideOverload startOrEnd widthRepr =
       UnitRepr
       (\_ops _sym _args -> return ())
 
+-- | This intrinsic is currently a no-op.
+--
+-- We might want to support this in the future to catch undefined memory
+-- writes.
+--
+-- <https://llvm.org/docs/LangRef.html#llvm-invariant-start-intrinsic LLVM docs>
+llvmInvariantStartOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr width
+  -> LLVMOverride p sym arch
+       (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
+       (LLVMPointerType wptr)
+llvmInvariantStartOverride widthRepr =
+  let
+    width' :: Int
+    width' = widthVal widthRepr
+    nm = "llvm.invariant.start.p0i" ++ show width'
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PtrTo (L.Struct [])
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
+                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
+                         ]
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      (Empty :> KnownBV @64 :> PtrRepr)
+      PtrRepr
+      (\_ops sym _args -> liftIO (mkNullPointer sym PtrWidth))
+
+
+-- | See comment on 'llvmInvariantStartOverride'.
+llvmInvariantEndOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr width
+  -> LLVMOverride p sym arch
+       (EmptyCtx ::> LLVMPointerType wptr ::> BVType 64 ::> LLVMPointerType wptr)
+       UnitType
+llvmInvariantEndOverride widthRepr =
+  let
+    width' :: Int
+    width' = widthVal widthRepr
+    nm = "llvm.invariant.start.p0i" ++ show width'
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PrimType $ L.Void
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
+                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
+                         ]
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      (Empty :> PtrRepr :> KnownBV @64 :> PtrRepr)
+      UnitRepr
+      (\_ops _sym _args -> return ())
+
+
 llvmStacksave
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch EmptyCtx (LLVMPointerType wptr)
