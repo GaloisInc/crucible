@@ -231,6 +231,30 @@ llvmExpectOverride widthRepr =
          Ctx.uncurryAssignment (\val _ -> pure (regValue val)) args)
 
 
+-- | This intrinsic asserts that its argument is equal to 1.
+--
+-- We could have this generate a verification condition, but that would catch
+-- clang compiler bugs (or Crucible bugs) more than user code bugs.
+llvmAssumeOverride
+  :: (IsSymInterface sym)
+  => LLVMOverride p sym arch (EmptyCtx ::> BVType 1) UnitType
+llvmAssumeOverride =
+  let nm = "llvm.assume"
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PrimType $ L.Void
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = [ L.PrimType $ L.Integer 1 ]
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      (Empty :> KnownBV @1)
+      UnitRepr
+      (\_ops _sym _args -> return ())
+
+
 llvmStacksave
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch EmptyCtx (LLVMPointerType wptr)
