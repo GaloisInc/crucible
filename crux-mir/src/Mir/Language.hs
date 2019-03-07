@@ -128,6 +128,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
 
   let cfgmap = rmCFGs mir
 
+  -- overrides
   let link :: C.OverrideSim p sym MIR rtp a r ()
       link   = forM_ (Map.toList cfgmap) $
                  \(fn, C.AnyCFG cfg) -> bindFn fn cfg

@@ -90,6 +90,26 @@ import           Mir.Intrinsics
 import           Unsafe.Coerce(unsafeCoerce)
 -- import           Debug.Trace
 
+
+---------------------------------------------------------------------------------
+-- Should be in Data.Parameterized.Classes
+-- 
+-- Safe usage requires that f be a singleton type
+newtype DI f a = Don'tInstantiate (KnownRepr f a => Dict (KnownRepr f a))
+
+knownInstance :: forall a f . f a -> Dict (KnownRepr f a)
+knownInstance s = with_sing_i Dict
+  where
+    with_sing_i :: (KnownRepr f a => Dict (KnownRepr f a)) -> Dict (KnownRepr f a)
+    with_sing_i si = unsafeCoerce (Don'tInstantiate si) s
+
+-- | convert an explicit repr to an implicit repr
+withKnownRepr :: forall n r f. f n -> (KnownRepr f n => r) -> r
+withKnownRepr si r = case knownInstance si of
+                        Dict -> r
+---------------------------------------------------------------------------------
+  
+
 -- h for state monad
 -- s phantom parameter for CFGs
 type MirGenerator h s ret = Generator MIR h s FnState ret
