@@ -198,6 +198,38 @@ llvmInvariantEndOverride widthRepr =
       UnitRepr
       (\_ops _sym _args -> return ())
 
+-- | This instruction is a hint to optimizers, it isn't really useful for us.
+--
+-- Its runtime behavior of that of Haskell\'s 'const': just ignore the second
+-- argument.
+llvmExpectOverride
+  :: (IsSymInterface sym, 1 <= width)
+  => NatRepr width
+  -> LLVMOverride p sym arch
+       (EmptyCtx ::> BVType width ::> BVType width)
+       (BVType width)
+llvmExpectOverride widthRepr =
+  let
+    width' :: Int
+    width' = widthVal widthRepr
+    nm = "llvm.expect.i" ++ show width'
+  in LLVMOverride
+      ( let intType = L.PrimType $ L.Integer $ fromIntegral width'
+        in
+          L.Declare
+          { L.decRetType = intType
+          , L.decName    = L.Symbol nm
+          , L.decArgs    = [ intType, intType ]
+          , L.decVarArgs = False
+          , L.decAttrs   = []
+          , L.decComdat  = mempty
+          }
+      )
+      (Empty :> BVRepr widthRepr :> BVRepr widthRepr)
+      (BVRepr widthRepr)
+      (\_ops _sym args ->
+         Ctx.uncurryAssignment (\val _ -> pure (regValue val)) args)
+
 
 llvmStacksave
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
