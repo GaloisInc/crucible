@@ -143,6 +143,7 @@ declare_overrides =
   , register_llvm_override LLVM.llvmMemmoveOverride_8_8_64
   , register_llvm_override LLVM.llvmMemsetOverride_8_32
   , register_llvm_override LLVM.llvmMemsetOverride_8_64
+  , register_llvm_override LLVM.llvmMemsetOverride_8_64_noalign
 
   , register_llvm_override LLVM.llvmObjectsizeOverride_32
   , register_llvm_override LLVM.llvmObjectsizeOverride_64

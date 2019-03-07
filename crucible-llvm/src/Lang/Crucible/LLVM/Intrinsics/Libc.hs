@@ -599,6 +599,18 @@ callMemmove sym mvar
   writeGlobal mvar mem'
 
 
+callMemsetNoalign
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType 8)
+  -> RegEntry sym (BVType w)
+  -> RegEntry sym (BVType 1)
+  -> OverrideSim p sym (LLVM arch) r args ret ()
+callMemsetNoalign sym mvar dest val len volatile =
+  callMemset sym mvar dest val len undefined volatile -- TODO
+
 callMemset
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym

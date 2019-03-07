@@ -263,6 +263,34 @@ llvmMemsetOverride_8_64 =
   UnitRepr
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemset sym memOps) args)
 
+llvmMemsetOverride_8_64_noalign
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr
+                   ::> BVType  8
+                   ::> BVType 64
+                   ::> BVType 1)
+         UnitType
+llvmMemsetOverride_8_64_noalign =
+  let nm = "llvm.memset.p0i8.i64" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PrimType $ L.Integer  8
+                     , L.PrimType $ L.Integer 64
+                     , L.PrimType $ L.Integer  1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @64 :> KnownBV @1)
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemsetNoalign sym memOps) args)
+
 
 llvmMemsetOverride_8_32
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
