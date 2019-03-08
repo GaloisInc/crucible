@@ -91,6 +91,8 @@ module Lang.Crucible.LLVM.MemModel
   , constToLLVMVal
   , constToLLVMValP
   , ptrMessage
+  , Partial.PartLLVMVal
+  , pattern Partial.PartLLVMVal
   , Partial.assertSafe
 
     -- * Storage types
