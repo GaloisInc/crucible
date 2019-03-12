@@ -75,6 +75,7 @@ module Lang.Crucible.Simulator.OverrideSim
 import           Control.Exception
 import           Control.Lens
 import           Control.Monad
+import qualified Control.Monad.Catch as X
 import           Control.Monad.Reader
 import           Control.Monad.ST
 import           Control.Monad.State.Strict
@@ -188,6 +189,9 @@ instance MonadST RealWorld (OverrideSim p sym ext rtp args ret) where
 
 instance MonadCont (OverrideSim p sym ext rtp args ret) where
   callCC f = Sim $ callCC (\k -> unSim (f (\a -> Sim (k a))))
+
+instance X.MonadThrow (OverrideSim p sym ext rtp args ret) where
+  throwM = liftIO . throwIO
 
 getContext :: OverrideSim p sym ext rtp args ret (SimContext p sym ext)
 getContext = use stateContext

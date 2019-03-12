@@ -137,12 +137,17 @@ declare_overrides =
   , register_llvm_override LLVM.llvmLifetimeEndOverride
   , register_llvm_override (LLVM.llvmLifetimeOverrideOverload "start" (knownNat @8))
   , register_llvm_override (LLVM.llvmLifetimeOverrideOverload "end" (knownNat @8))
+  , register_llvm_override (LLVM.llvmInvariantStartOverride (knownNat @8))
+  , register_llvm_override (LLVM.llvmInvariantEndOverride (knownNat @8))
+  , register_llvm_override (LLVM.llvmExpectOverride (knownNat @64))
+  , register_llvm_override LLVM.llvmAssumeOverride
   , register_llvm_override LLVM.llvmMemcpyOverride_8_8_32
   , register_llvm_override LLVM.llvmMemcpyOverride_8_8_64
   , register_llvm_override LLVM.llvmMemmoveOverride_8_8_32
   , register_llvm_override LLVM.llvmMemmoveOverride_8_8_64
   , register_llvm_override LLVM.llvmMemsetOverride_8_32
   , register_llvm_override LLVM.llvmMemsetOverride_8_64
+  , register_llvm_override LLVM.llvmMemsetOverride_8_64_noalign
 
   , register_llvm_override LLVM.llvmObjectsizeOverride_32
   , register_llvm_override LLVM.llvmObjectsizeOverride_64

@@ -24,6 +24,7 @@ extensions.
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Lang.Crucible.CFG.Extension.Safety
 ( AssertionClassifier

@@ -106,8 +106,14 @@ data MemoryLoadError sym =
   | Other -- TODO: eliminate this constructor, replace with more specific messages
   deriving (Generic)
 
-ppMemoryLoadError :: IsSymInterface sym => sym -> MemoryLoadError sym -> Doc
-ppMemoryLoadError sym =
+instance IsSymInterface sym => Pretty (MemoryLoadError sym) where
+  pretty = ppMemoryLoadError
+
+instance IsSymInterface sym => Show (MemoryLoadError sym) where
+  show = show . ppMemoryLoadError
+
+ppMemoryLoadError :: IsSymInterface sym => MemoryLoadError sym -> Doc
+ppMemoryLoadError =
   \case
     TypeMismatch ty1 ty2 ->
       "Type mismatch: "
@@ -123,7 +129,7 @@ ppMemoryLoadError sym =
       vcat [ "Operation failed due to previous errors: "
            , text (unpack txt)
            ]
-      <$$> indent 2 (vcat (map (ppMemoryLoadError sym) errs))
+      <$$> indent 2 (vcat (map ppMemoryLoadError errs))
     ApplyViewFail vw ->
       "Failure when applying value view" <+> text (show vw)
     Invalid ty ->
@@ -184,7 +190,7 @@ assertSafe :: (IsSymInterface sym)
 assertSafe sym (NoErr v) = Safety.assertSafe (Proxy :: Proxy (LLVM arch)) sym v
 assertSafe sym (Err e)   = do
   let msg = unlines [ "Error during memory load: "
-                    , show (ppMemoryLoadError sym e)
+                    , show (ppMemoryLoadError e)
                     ]
   addFailedAssertion sym $ AssertFailureSimError msg
 

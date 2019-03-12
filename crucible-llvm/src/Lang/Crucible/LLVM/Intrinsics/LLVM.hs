@@ -136,6 +136,125 @@ llvmLifetimeOverrideOverload startOrEnd widthRepr =
       UnitRepr
       (\_ops _sym _args -> return ())
 
+-- | This intrinsic is currently a no-op.
+--
+-- We might want to support this in the future to catch undefined memory
+-- writes.
+--
+-- <https://llvm.org/docs/LangRef.html#llvm-invariant-start-intrinsic LLVM docs>
+llvmInvariantStartOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr width
+  -> LLVMOverride p sym arch
+       (EmptyCtx ::> BVType 64 ::> LLVMPointerType wptr)
+       (LLVMPointerType wptr)
+llvmInvariantStartOverride widthRepr =
+  let
+    width' :: Int
+    width' = widthVal widthRepr
+    nm = "llvm.invariant.start.p0i" ++ show width'
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PtrTo (L.Struct [])
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
+                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
+                         ]
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      (Empty :> KnownBV @64 :> PtrRepr)
+      PtrRepr
+      (\_ops sym _args -> liftIO (mkNullPointer sym PtrWidth))
+
+
+-- | See comment on 'llvmInvariantStartOverride'.
+llvmInvariantEndOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => NatRepr width
+  -> LLVMOverride p sym arch
+       (EmptyCtx ::> LLVMPointerType wptr ::> BVType 64 ::> LLVMPointerType wptr)
+       UnitType
+llvmInvariantEndOverride widthRepr =
+  let
+    width' :: Int
+    width' = widthVal widthRepr
+    nm = "llvm.invariant.start.p0i" ++ show width'
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PrimType $ L.Void
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = [ L.PrimType $ L.Integer $ 64
+                         , L.PtrTo $ L.PrimType $ L.Integer $ fromIntegral width'
+                         ]
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      (Empty :> PtrRepr :> KnownBV @64 :> PtrRepr)
+      UnitRepr
+      (\_ops _sym _args -> return ())
+
+-- | This instruction is a hint to optimizers, it isn't really useful for us.
+--
+-- Its runtime behavior of that of Haskell\'s 'const': just ignore the second
+-- argument.
+llvmExpectOverride
+  :: (IsSymInterface sym, 1 <= width)
+  => NatRepr width
+  -> LLVMOverride p sym arch
+       (EmptyCtx ::> BVType width ::> BVType width)
+       (BVType width)
+llvmExpectOverride widthRepr =
+  let
+    width' :: Int
+    width' = widthVal widthRepr
+    nm = "llvm.expect.i" ++ show width'
+  in LLVMOverride
+      ( let intType = L.PrimType $ L.Integer $ fromIntegral width'
+        in
+          L.Declare
+          { L.decRetType = intType
+          , L.decName    = L.Symbol nm
+          , L.decArgs    = [ intType, intType ]
+          , L.decVarArgs = False
+          , L.decAttrs   = []
+          , L.decComdat  = mempty
+          }
+      )
+      (Empty :> BVRepr widthRepr :> BVRepr widthRepr)
+      (BVRepr widthRepr)
+      (\_ops _sym args ->
+         Ctx.uncurryAssignment (\val _ -> pure (regValue val)) args)
+
+
+-- | This intrinsic asserts that its argument is equal to 1.
+--
+-- We could have this generate a verification condition, but that would catch
+-- clang compiler bugs (or Crucible bugs) more than user code bugs.
+llvmAssumeOverride
+  :: (IsSymInterface sym)
+  => LLVMOverride p sym arch (EmptyCtx ::> BVType 1) UnitType
+llvmAssumeOverride =
+  let nm = "llvm.assume"
+  in LLVMOverride
+      ( L.Declare
+        { L.decRetType = L.PrimType $ L.Void
+        , L.decName    = L.Symbol nm
+        , L.decArgs    = [ L.PrimType $ L.Integer 1 ]
+        , L.decVarArgs = False
+        , L.decAttrs   = []
+        , L.decComdat  = mempty
+        }
+      )
+      (Empty :> KnownBV @1)
+      UnitRepr
+      (\_ops _sym _args -> return ())
+
+
 llvmStacksave
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch EmptyCtx (LLVMPointerType wptr)
@@ -262,6 +381,34 @@ llvmMemsetOverride_8_64 =
   (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @64 :> KnownBV @32 :> KnownBV @1)
   UnitRepr
   (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemset sym memOps) args)
+
+llvmMemsetOverride_8_64_noalign
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr
+                   ::> BVType  8
+                   ::> BVType 64
+                   ::> BVType 1)
+         UnitType
+llvmMemsetOverride_8_64_noalign =
+  let nm = "llvm.memset.p0i8.i64" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Void
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo (L.PrimType $ L.Integer 8)
+                     , L.PrimType $ L.Integer  8
+                     , L.PrimType $ L.Integer 64
+                     , L.PrimType $ L.Integer  1
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> KnownBV @8 :> KnownBV @64 :> KnownBV @1)
+  UnitRepr
+  (\memOps sym args -> Ctx.uncurryAssignment (Libc.callMemsetNoalign sym memOps) args)
 
 
 llvmMemsetOverride_8_32
