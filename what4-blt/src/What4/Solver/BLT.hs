@@ -87,6 +87,7 @@ import           What4.ProgramLoc
 import           What4.Concrete
 import           What4.Interface
 import           What4.SatResult
+import           What4.Expr
 import           What4.Expr.GroundEval
 import           What4.Expr.Builder
 import qualified What4.Expr.WeightedSum as WSum
@@ -420,11 +421,11 @@ assume h b@(AppExpr ba) = do
         when (isVerb h) $ warnAt l "problem assumes False"
         setUNSAT h
       AndBool x y -> assume h x >> assume h y
-      SemiRingLe SemiRingInt x y  -> do
+      SemiRingLe OrderedSemiRingIntegerRepr x y  -> do
         x' <- evalInteger h x
         y' <- evalInteger h y
         appLEq x' y'
-      SemiRingLe SemiRingReal x y  -> do
+      SemiRingLe OrderedSemiRingRealRepr x y  -> do
         x' <- evalReal h x
         y' <- evalReal h y
         appLEq x' y'
@@ -522,7 +523,7 @@ evalReal' :: Handle t -> RealExpr t -> IO BLTExpr
 -- Integer variables are supported, but not Real
 evalReal' _ (BoundVarExpr v) =
   failAt (bvarLoc v) "Real variables are not supported by BLT."
-evalReal' h (SemiRingLiteral SemiRingReal r _) = do
+evalReal' h (SemiRingLiteral SemiRingRealRepr r _) = do
   when (isVerb h) $ putStrLn ("BLT@evalReal: rational const " ++ show r)
   return (mkBLT r)
 evalReal' _ (NonceAppExpr ea) =
@@ -539,15 +540,18 @@ evalReal' h epr@(AppExpr epa) = do
       return i
 
     -- support only linear expressions
-    SemiRingMul SemiRingReal x y -> do
+    SemiRingMul SemiRingRealRepr x y -> do
       x' <- evalReal h x
       y' <- evalReal h y
       when (isVerb h) $ putStrLn ("real mult " ++ show x' ++ " " ++ show y')
       return $ multBLTE x' y'
 
-    SemiRingSum SemiRingReal s -> WSum.eval (liftM2 addBLTE) smul con s
-      where smul sm e = multBLTE (mkBLT sm) <$> evalReal h e
-            con = return . mkBLT
+    SemiRingSum s ->
+      case WSum.sumRepr s of
+        SemiRingRealRepr ->
+          WSum.eval (liftM2 addBLTE) smul con s
+         where smul sm e = multBLTE (mkBLT sm) <$> evalReal h e
+               con = return . mkBLT
 
     IntegerToReal x ->
       evalInteger h x
@@ -594,7 +598,7 @@ evalInteger' h (BoundVarExpr info) =
       return e
 
 -- Match integer constant
-evalInteger' h (SemiRingLiteral SemiRingInt i _) = do
+evalInteger' h (SemiRingLiteral SemiRingIntegerRepr i _) = do
   when (isVerb h) $ putStrLn ("BLT@evalInteger: integer const " ++ show i)
   return $ mkBLT (toRational i)
 -- Match expression
@@ -604,15 +608,17 @@ evalInteger' h (AppExpr epa) = do
   let l = appExprLoc epa
   case appExprApp epa of
     -- support only linear expressions
-    SemiRingMul SemiRingInt x y -> do
+    SemiRingMul SemiRingIntegerRepr x y -> do
       x' <- evalInteger h x
       y' <- evalInteger h y
       when (isVerb h) $ putStrLn ("integer mult " ++ show x' ++ " " ++ show y')
       return $ multBLTE x' y'
 
-    SemiRingSum SemiRingInt s -> WSum.eval (liftM2 addBLTE) smul con s
-      where smul sm e = multBLTE (mkBLT sm) <$> evalInteger h e
-            con = return . mkBLT
+    SemiRingSum s ->
+      case WSum.sumRepr s of
+        SemiRingIntegerRepr -> WSum.eval (liftM2 addBLTE) smul con s
+          where smul sm e = multBLTE (mkBLT sm) <$> evalInteger h e
+                con = return . mkBLT
 
     RealToInteger x -> evalReal h x
 
@@ -630,9 +636,9 @@ evalCplx h (AppExpr ea) =
       r' <- evalReal h r
       i' <- evalReal h i
       return (r' :+ i')
-    SemiRingSum sr _ -> case sr of {}
+    SemiRingSum s -> case WSum.sumRepr s of {}
     SemiRingMul sr _ _ -> case sr of {}
-    SemiRingIte sr _ _ _ -> case sr of {}
+    BaseIte{} -> failAt (appExprLoc ea) "complex if/then/else"
     SelectArray{} -> failAt (appExprLoc ea) "symbolic arrays"
     StructField{} -> failAt (appExprLoc ea) "symbolic arrays"
 

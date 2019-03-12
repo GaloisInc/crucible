@@ -75,6 +75,7 @@ import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Numeric.Natural
 import           GHC.TypeNats
+import           GHC.Stack
 
 import           Prelude hiding (any, concat, negate, and, or)
 
@@ -498,7 +499,7 @@ any w = BVDomain { domainRanges = Map.singleton 0 (maxUnsigned w)
                  }
 
 -- | Create a bitvector domain representing the integer.
-singleton :: (1 <= w) => NatRepr w -> Integer -> BVDomain w
+singleton :: (HasCallStack, 1 <= w) => NatRepr w -> Integer -> BVDomain w
 singleton w v
   | 0 <= v && v <= maxUnsigned w = BVDomain { domainRanges = Map.singleton v v }
   | otherwise = error "singleton given invalid input."

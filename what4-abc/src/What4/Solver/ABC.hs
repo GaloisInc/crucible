@@ -73,10 +73,12 @@ import           What4.Concrete
 import           What4.Config
 import           What4.Interface
                    (getConfiguration, IsExprBuilder, logSolverEvent, SolverEvent(..), andAllOf)
+import           What4.Expr
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import qualified What4.Expr.UnaryBV as UnaryBV
 import           What4.Expr.VarIdentification
+import qualified What4.Expr.WeightedSum as WSum
 import           What4.ProgramLoc
 import           What4.Solver.Adapter
 import           What4.SatResult
@@ -194,10 +196,11 @@ memoExprNonce ntk n ev = do
       return r
 
 eval :: Network t s -> Expr t tp -> IO (NameType s tp)
-eval _ (SemiRingLiteral SemiRingNat n _) = return (GroundNat n)
-eval _ (SemiRingLiteral SemiRingInt n _) = return (GroundInt n)
-eval _ (SemiRingLiteral SemiRingReal r _) = return (GroundRat r)
-eval ntk (BVExpr w v _) = return $ BV $ AIG.bvFromInteger (gia ntk) (widthVal w) v
+eval _ (SemiRingLiteral SemiRingNatRepr n _) = return (GroundNat n)
+eval _ (SemiRingLiteral SemiRingIntegerRepr n _) = return (GroundInt n)
+eval _ (SemiRingLiteral SemiRingRealRepr r _) = return (GroundRat r)
+eval ntk (SemiRingLiteral (SemiRingBVRepr _ w) v _) =
+    return $ BV $ AIG.bvFromInteger (gia ntk) (widthVal w) v
 eval _ (StringExpr s _) = return (GroundString s)
 
 eval ntk (NonceAppExpr e) = do
@@ -267,49 +270,43 @@ bitblastExpr h ae = do
       structFail = failTerm (AppExpr ae) "struct expression"
   let floatFail :: IO a
       floatFail = failTerm (AppExpr ae) "floating-point expression"
+  let stringFail :: IO a
+      stringFail = failTerm (AppExpr ae) "string expression"
+
   case appExprApp ae of
 
-    TrueBool  -> do
+    TrueBool ->
       return $ B $ GIA.true
-    FalseBool -> do
+    FalseBool ->
       return $ B $ GIA.false
-    NotBool xe -> do
+    NotBool xe ->
       B . GIA.not <$> eval' h xe
-    AndBool x y -> do
+    AndBool x y ->
       B <$> (join $ GIA.and g <$> eval' h x <*> eval' h y)
-    XorBool x y -> do
+    XorBool x y ->
       B <$> (join $ GIA.xor g <$> eval' h x <*> eval' h y)
-    IteBool c x y -> do
+    BaseIte BaseBoolRepr _ c x y ->
       B <$> (join $ GIA.mux g <$> eval' h c <*> eval' h x <*> eval' h y)
 
     RealIsInteger{} -> realFail
     PredToBV p -> BV . AIG.singleton <$> eval' h p
     BVTestBit i xe -> assert (i <= fromIntegral (maxBound :: Int)) $
        (\v -> B $ v AIG.! (fromIntegral i)) <$> eval' h xe
-    BVEq  x y -> B <$> join (AIG.bvEq g <$> eval' h x <*> eval' h y)
     BVSlt x y -> B <$> join (AIG.slt  g <$> eval' h x <*> eval' h y)
     BVUlt x y -> B <$> join (AIG.ult  g <$> eval' h x <*> eval' h y)
-    ArrayEq{} -> arrayFail
 
     ------------------------------------------------------------------------
     -- Nat operations
 
-    SemiRingMul SemiRingNat _ _ -> natFail
-    SemiRingSum SemiRingNat _ -> natFail
-    SemiRingEq SemiRingNat _ _ -> natFail
-    SemiRingLe SemiRingNat _ _ -> natFail
-    SemiRingIte SemiRingNat _ _ _ -> natFail
+    SemiRingLe OrderedSemiRingNatRepr _ _ -> natFail
+
     NatDiv{} -> natFail
     NatMod{} -> natFail
 
     ------------------------------------------------------------------------
     -- Integer operations
 
-    SemiRingMul SemiRingInt _ _ -> intFail
-    SemiRingSum SemiRingInt _ -> intFail
-    SemiRingEq  SemiRingInt _ _ -> intFail
-    SemiRingLe  SemiRingInt _ _ -> intFail
-    SemiRingIte SemiRingInt _ _ _ -> intFail
+    SemiRingLe OrderedSemiRingIntegerRepr _ _ -> intFail
     IntAbs{} -> intFail
     IntDiv{} -> intFail
     IntMod{} -> intFail
@@ -318,11 +315,7 @@ bitblastExpr h ae = do
     ------------------------------------------------------------------------
     -- Real value operations
 
-    SemiRingMul SemiRingReal _ _ -> realFail
-    SemiRingSum SemiRingReal _ -> realFail
-    SemiRingEq  SemiRingReal _ _ -> realFail
-    SemiRingLe  SemiRingReal _ _ -> realFail
-    SemiRingIte SemiRingReal _ _ _ -> realFail
+    SemiRingLe  OrderedSemiRingRealRepr _ _ -> realFail
     RealDiv{} -> realFail
     RealSqrt{} -> realFail
 
@@ -340,6 +333,36 @@ bitblastExpr h ae = do
 
     --------------------------------------------------------------------
     -- Bitvector operations
+
+    BaseIte bt _ c x y ->
+      case bt of
+        BaseBoolRepr ->
+           do c' <- eval' h c
+              B <$> AIG.lazyMux g c' (eval' h x) (eval' h y)
+        BaseBVRepr _ ->
+           do c' <- eval' h c
+              BV <$> AIG.iteM g c' (eval' h x) (eval' h y)
+        BaseNatRepr  -> natFail
+        BaseIntegerRepr -> intFail
+        BaseRealRepr -> realFail
+        BaseComplexRepr -> realFail
+        BaseFloatRepr _ -> floatFail
+        BaseArrayRepr _ _ -> arrayFail
+        BaseStructRepr _ -> structFail
+        BaseStringRepr -> stringFail
+
+    BaseEq bt x y ->
+      case bt of
+        BaseBoolRepr -> B <$> join (AIG.eq g <$> eval' h x <*> eval' h y)
+        BaseBVRepr _ -> B <$> join (AIG.bvEq g <$> eval' h x <*> eval' h y)
+        BaseNatRepr  -> natFail
+        BaseIntegerRepr -> intFail
+        BaseRealRepr -> realFail
+        BaseComplexRepr -> realFail
+        BaseFloatRepr _ -> floatFail
+        BaseArrayRepr _ _ -> arrayFail
+        BaseStructRepr _ -> structFail
+        BaseStringRepr -> stringFail
 
     BVUnaryTerm u -> do
       let w = UnaryBV.width u
@@ -359,12 +382,35 @@ bitblastExpr h ae = do
     BVSelect idx n xe -> do
       x <- eval' h xe
       return $ BV $ AIG.sliceRev x (fromIntegral (natValue idx)) (fromIntegral (natValue n))
-    BVNeg _w x -> do
-      BV <$> join (AIG.neg g <$> eval' h x)
-    BVAdd _w x y -> do
-      BV <$> join (AIG.add g <$> eval' h x <*> eval' h y)
-    BVMul _w x y -> do
-      BV <$> join (AIG.mul g <$> eval' h x <*> eval' h y)
+
+    SemiRingSum s ->
+      case WSum.sumRepr s of
+        SemiRingBVRepr BVArithRepr w -> BV <$> WSum.evalM (AIG.add g) smul cnst s
+          where
+          smul c e =
+             -- NB, better constant folding if the constant is the second value
+             flip (AIG.mul g) (AIG.bvFromInteger g (widthVal w) c) =<< eval' h e
+          cnst c = pure (AIG.bvFromInteger g (widthVal w) c)
+
+        SemiRingBVRepr BVBitsRepr w -> BV <$> WSum.evalM (AIG.zipWithM (AIG.lXor' g)) smul cnst s
+          where
+          smul c e = AIG.zipWithM (AIG.lAnd' g) (AIG.bvFromInteger g (widthVal w) c) =<< eval' h e
+          cnst c   = pure (AIG.bvFromInteger g (widthVal w) c)
+
+        SemiRingNatRepr -> natFail
+        SemiRingIntegerRepr -> intFail
+        SemiRingRealRepr -> realFail
+
+    SemiRingMul sr x y ->
+      case sr of
+        SemiRingBVRepr BVArithRepr _w ->
+          BV <$> join (AIG.mul g <$> eval' h x <*> eval' h y)
+        SemiRingBVRepr BVBitsRepr _w ->
+          BV <$> join (AIG.zipWithM (AIG.lAnd' g) <$> eval' h x <*> eval' h y)
+        SemiRingNatRepr -> natFail
+        SemiRingIntegerRepr -> intFail
+        SemiRingRealRepr -> realFail
+
     BVUdiv _w x y -> do
      BV <$> join (AIG.uquot g <$> eval' h x <*> eval' h y)
     BVUrem _w x y -> do
@@ -373,8 +419,6 @@ bitblastExpr h ae = do
       BV <$> join (AIG.squot g <$> eval' h x <*> eval' h y)
     BVSrem _w x y ->
       BV <$> join (AIG.srem g  <$> eval' h x <*> eval' h y)
-
-    BVIte _ _ c x y -> BV <$> join (AIG.ite g <$> eval' h c <*> eval' h x <*> eval' h y)
 
     BVShl _w x y -> BV <$> join (AIG.shl g <$> eval' h x <*> eval' h y)
     BVLshr _w x y -> BV <$> join (AIG.ushr g <$> eval' h x <*> eval' h y)
@@ -396,14 +440,6 @@ bitblastExpr h ae = do
     BVSext  w' xe -> do
       x <- eval' h xe
       return $ BV $ AIG.sext g x (widthVal w')
-    BVBitNot _w x -> do
-      BV . fmap (AIG.lNot' g) <$> eval' h x
-    BVBitAnd _w x y -> do
-      BV <$> join (AIG.zipWithM (AIG.lAnd' g) <$> eval' h x <*> eval' h y)
-    BVBitOr _w x y -> do
-      BV <$> join (AIG.zipWithM (AIG.lOr' g) <$> eval' h x <*> eval' h y)
-    BVBitXor _w x y -> do
-      BV <$> join (AIG.zipWithM (AIG.lXor' g) <$> eval' h x <*> eval' h y)
 
     ------------------------------------------------------------------------
     -- Floating point operations
@@ -424,7 +460,6 @@ bitblastExpr h ae = do
     FloatMin{}  -> floatFail
     FloatMax{}  -> floatFail
     FloatFMA{}  -> floatFail
-    FloatEq{}  -> floatFail
     FloatFpEq{}  -> floatFail
     FloatFpNe{}  -> floatFail
     FloatLe{}  -> floatFail
@@ -436,7 +471,6 @@ bitblastExpr h ae = do
     FloatIsNeg{}  -> floatFail
     FloatIsSubnorm{}  -> floatFail
     FloatIsNorm{}  -> floatFail
-    FloatIte{}  -> floatFail
     FloatCast{}  -> floatFail
     FloatRound{} -> floatFail
     FloatFromBinary{}  -> floatFail
@@ -453,7 +487,6 @@ bitblastExpr h ae = do
 
     ArrayMap{} -> arrayFail
     ConstantArray{} -> arrayFail
-    MuxArray{} -> arrayFail
     SelectArray{} -> arrayFail
     UpdateArray{} -> arrayFail
 
@@ -489,7 +522,6 @@ bitblastExpr h ae = do
 
     StructCtor{}  -> structFail
     StructField{} -> structFail
-    StructIte{}   -> structFail
 
 newNetwork :: IO (GIA.SomeGraph (Network t))
 newNetwork = do
@@ -858,7 +890,7 @@ writeDimacsFile ntk cnf_path condition = do
   -- Generate predicate for top level term.
   B c <- eval ntk condition
   -- Assert any necessary sideconditions
-  c' <- AIG.lAnd' (gia ntk) sideconds c 
+  c' <- AIG.lAnd' (gia ntk) sideconds c
   GIA.writeCNF (gia ntk) c' cnf_path
 
 -- | Run an external solver using competition dimacs format.

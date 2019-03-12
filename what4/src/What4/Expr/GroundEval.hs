@@ -52,6 +52,7 @@ import           Numeric.Natural
 
 import           What4.BaseTypes
 import           What4.Interface
+import qualified What4.SemiRing as SR
 import           What4.Expr.Builder
 import qualified What4.Expr.WeightedSum as WSum
 import qualified What4.Expr.UnaryBV as UnaryBV
@@ -152,10 +153,10 @@ evalGroundExpr f e =
 tryEvalGroundExpr :: (forall u . Expr t u -> IO (GroundValue u))
                  -> Expr t tp
                  -> MaybeT IO (GroundValue tp)
-tryEvalGroundExpr _ (SemiRingLiteral SemiRingNat c _) = return c
-tryEvalGroundExpr _ (SemiRingLiteral SemiRingInt c _) = return c
-tryEvalGroundExpr _ (SemiRingLiteral SemiRingReal c _) = return c
-tryEvalGroundExpr _ (BVExpr _ c _) = return c
+tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingNatRepr c _) = return c
+tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingIntegerRepr c _) = return c
+tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingRealRepr c _) = return c
+tryEvalGroundExpr _ (SemiRingLiteral (SR.SemiRingBVRepr _ _ ) c _) = return c
 tryEvalGroundExpr _ (StringExpr x _) = return x
 tryEvalGroundExpr f (NonceAppExpr a0) = evalGroundNonceApp (lift . f) (nonceExprApp a0)
 tryEvalGroundExpr f (AppExpr a0)      = evalGroundApp f (appExprApp a0)
@@ -187,6 +188,37 @@ evalGroundNonceApp _ a0 = lift $ fail $
 forallIndex :: Ctx.Size (ctx :: Ctx.Ctx k) -> (forall tp . Ctx.Index ctx tp -> Bool) -> Bool
 forallIndex sz f = Ctx.forIndex sz (\b j -> f j && b) True
 
+
+newtype MAnd x = MAnd { unMAnd :: Maybe Bool }
+instance Functor MAnd where
+  fmap _f (MAnd x) = MAnd x
+instance Applicative MAnd where
+  pure _ = MAnd (Just True)
+  MAnd (Just a) <*> MAnd (Just b) = MAnd (Just $! (a && b))
+  _ <*> _ = MAnd Nothing
+
+mand :: Bool -> MAnd z
+mand = MAnd . Just
+
+coerceMAnd :: MAnd a -> MAnd b
+coerceMAnd (MAnd x) = MAnd x
+
+
+groundEq :: BaseTypeRepr tp -> GroundValue tp -> GroundValue tp -> MAnd z
+groundEq bt x y = case bt of
+  BaseBoolRepr    -> mand $ x == y
+  BaseRealRepr    -> mand $ x == y
+  BaseIntegerRepr -> mand $ x == y
+  BaseNatRepr     -> mand $ x == y
+  BaseBVRepr _    -> mand $ x == y
+  BaseFloatRepr _ -> mand $ x == y
+  BaseStringRepr  -> mand $ x == y
+  BaseComplexRepr -> mand $ x == y
+  BaseStructRepr flds ->
+    coerceMAnd (Ctx.traverseWithIndex
+      (\i tp -> groundEq tp (unGVW (x Ctx.! i)) (unGVW (y Ctx.! i))) flds)
+  BaseArrayRepr{} -> MAnd Nothing
+
 -- | Helper function for evaluating @App@ expressions.
 --
 --   This function is intended for implementers of symbolic backends.
@@ -198,6 +230,14 @@ evalGroundApp f0 a0 = do
   let f :: forall u . Expr t u -> MaybeT IO (GroundValue u)
       f = lift . f0
   case a0 of
+    BaseEq bt x y ->
+      do x' <- f x
+         y' <- f y
+         MaybeT (return (unMAnd (groundEq bt x' y')))
+
+    BaseIte _ _ x y z -> do
+      xv <- f x
+      if xv then f y else f z
 
     TrueBool -> return True
     FalseBool -> return False
@@ -206,22 +246,14 @@ evalGroundApp f0 a0 = do
       xv <- f x
       if xv then f y else return False
     XorBool x y -> (/=) <$> f x <*> f y
-    IteBool x y z -> do
-      xv <- f x
-      if xv then f y else f z
 
     RealIsInteger x -> (\xv -> denominator xv == 1) <$> f x
     BVTestBit i x -> assert (i <= fromIntegral (maxBound :: Int)) $
         (`testBit` (fromIntegral i)) <$> f x
-    BVEq  x y -> (==) <$> f x <*> f y
     BVSlt x y -> (<) <$> (toSigned w <$> f x)
                      <*> (toSigned w <$> f y)
       where w = bvWidth x
     BVUlt x y -> (<) <$> f x <*> f y
-
-    -- Note, we punt on calculating the value of array equalities beacause it is
-    -- difficult to get accurate models of arrays out of solvers.
-    ArrayEq _x _y -> mzero
 
     NatDiv x y -> g <$> f x <*> f y
       where g _ 0 = 0
@@ -248,29 +280,34 @@ evalGroundApp f0 a0 = do
       g u | k == 0    = u == 0
           | otherwise = mod u (toInteger k) == 0
 
-    SemiRingEq SemiRingReal x y -> (==) <$> f x <*> f y
-    SemiRingEq SemiRingInt  x y -> (==) <$> f x <*> f y
-    SemiRingEq SemiRingNat  x y -> (==) <$> f x <*> f y
+    SemiRingLe SR.OrderedSemiRingRealRepr    x y -> (<=) <$> f x <*> f y
+    SemiRingLe SR.OrderedSemiRingIntegerRepr x y -> (<=) <$> f x <*> f y
+    SemiRingLe SR.OrderedSemiRingNatRepr     x y -> (<=) <$> f x <*> f y
 
-    SemiRingLe SemiRingReal x y -> (<=) <$> f x <*> f y
-    SemiRingLe SemiRingInt  x y -> (<=) <$> f x <*> f y
-    SemiRingLe SemiRingNat  x y -> (<=) <$> f x <*> f y
+    SemiRingSum s ->
+      case WSum.sumRepr s of
+        SR.SemiRingNatRepr -> WSum.evalM (\x y -> pure (x+y)) smul pure s
+           where smul sm e = (sm *) <$> f e
+        SR.SemiRingIntegerRepr -> WSum.evalM (\x y -> pure (x+y)) smul pure s
+           where smul sm e = (sm *) <$> f e
+        SR.SemiRingRealRepr -> WSum.evalM (\x y -> pure (x+y)) smul pure s
+           where smul sm e = (sm *) <$> f e
+        SR.SemiRingBVRepr SR.BVArithRepr w -> WSum.evalM sadd smul pure s
+           where
+           smul sm e = toUnsigned w . (sm *) <$> f e
+           sadd x y  = pure (toUnsigned w (x + y))
+        SR.SemiRingBVRepr SR.BVBitsRepr _w -> WSum.evalM sadd smul pure s
+           where
+           smul sm e = (sm .&.) <$> f e
+           sadd x y  = pure (x `xor` y)
 
-    SemiRingSum SemiRingNat s -> WSum.eval (\x y -> (+) <$> x <*> y) smul pure s
-      where smul sm e = (sm *) <$> f e
-    SemiRingMul SemiRingNat x y -> (*) <$> f x <*> f y
-
-    SemiRingSum SemiRingInt s -> WSum.eval (\x y -> (+) <$> x <*> y) smul pure s
-      where smul sm e = (sm *) <$> f e
-    SemiRingMul SemiRingInt x y -> (*) <$> f x <*> f y
-
-    SemiRingMul SemiRingReal x y -> (*) <$> f x <*> f y
-    SemiRingSum SemiRingReal s -> WSum.eval (\x y -> (+) <$> x <*> y) smul pure s
-      where smul sm e = (sm *) <$> f e
-
-    SemiRingIte _sr x y z -> do
-      xv <- f x
-      if xv then f y else f z
+    SemiRingMul SR.SemiRingNatRepr x y     -> (*) <$> f x <*> f y
+    SemiRingMul SR.SemiRingIntegerRepr x y -> (*) <$> f x <*> f y
+    SemiRingMul SR.SemiRingRealRepr x y    -> (*) <$> f x <*> f y
+    SemiRingMul (SR.SemiRingBVRepr SR.BVArithRepr w) x y ->
+      toUnsigned w <$> ((*) <$> f x <*> f y)
+    SemiRingMul (SR.SemiRingBVRepr SR.BVBitsRepr _) x y ->
+      (.&.) <$> f x <*> f y
 
     RealDiv x y -> do
       xv <- f x
@@ -312,9 +349,6 @@ evalGroundApp f0 a0 = do
     BVSelect idx n x -> sel <$> f x
       where sel a = toUnsigned n (a `shiftR` shft)
             shft = fromIntegral (natValue (bvWidth x) - natValue idx - natValue n)
-    BVNeg w x -> toUnsigned w <$> f x
-    BVAdd w x y -> toUnsigned w <$> ((+) <$> f x <*> f y)
-    BVMul w x y -> toUnsigned w <$> ((*) <$> f x <*> f y)
     BVUdiv w x y -> toUnsigned w <$> (myDiv <$> f x <*> f y)
       where myDiv _ 0 = 0
             myDiv u v = u `div` v
@@ -327,9 +361,6 @@ evalGroundApp f0 a0 = do
     BVSrem w x y -> toUnsigned w <$> (myRem <$> f x <*> f y)
       where myRem u 0 = u
             myRem u v = toSigned w u `rem` toSigned w v
-    BVIte _ _ x y z -> do
-      xv <- f x
-      if xv then f y else f z
     BVShl  w x y -> toUnsigned w <$> (shiftL <$> f x <*> (fromInteger <$> f y))
     BVLshr w x y -> lift $
       toUnsigned w <$> (shiftR <$> f0 x <*> (fromInteger <$> f0 y))
@@ -347,11 +378,6 @@ evalGroundApp f0 a0 = do
       clz w <$> f x
     BVCountTrailingZeros w x ->
       ctz w <$> f x
-
-    BVBitNot _ x   -> lift $ complement <$> f0 x
-    BVBitAnd _ x y -> lift $ (.&.) <$> f0 x <*> f0 y
-    BVBitOr  _ x y -> lift $ (.|.) <$> f0 x <*> f0 y
-    BVBitXor _ x y -> lift $ xor <$> f0 x <*> f0 y
 
     ------------------------------------------------------------------------
     -- Bitvector Operations
@@ -371,7 +397,6 @@ evalGroundApp f0 a0 = do
     FloatMin{}        -> MaybeT $ return Nothing
     FloatMax{}        -> MaybeT $ return Nothing
     FloatFMA{}        -> MaybeT $ return Nothing
-    FloatEq{}         -> MaybeT $ return Nothing
     FloatFpEq{}       -> MaybeT $ return Nothing
     FloatFpNe{}       -> MaybeT $ return Nothing
     FloatLe{}         -> MaybeT $ return Nothing
@@ -383,7 +408,6 @@ evalGroundApp f0 a0 = do
     FloatIsNeg{}      -> MaybeT $ return Nothing
     FloatIsSubnorm{}  -> MaybeT $ return Nothing
     FloatIsNorm{}     -> MaybeT $ return Nothing
-    FloatIte{}        -> MaybeT $ return Nothing
     FloatCast{}       -> MaybeT $ return Nothing
     FloatRound{}      -> MaybeT $ return Nothing
     FloatFromBinary _ x -> f x
@@ -413,10 +437,6 @@ evalGroundApp f0 a0 = do
     ConstantArray _ _ v -> lift $ do
       val <- f0 v
       return $ ArrayConcrete val Map.empty
-
-    MuxArray _ _ p x y -> lift $ do
-      b <- f0 p
-      if b then f0 x else f0 y
 
     SelectArray _ a i -> do
       arr <- f a
@@ -483,6 +503,3 @@ evalGroundApp f0 a0 = do
     StructField s i _ -> do
       sv <- f s
       return $! unGVW (sv Ctx.! i)
-    StructIte _ p x y -> do
-      pv <- f p
-      if pv then f x else f y

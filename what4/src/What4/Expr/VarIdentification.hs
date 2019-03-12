@@ -57,6 +57,7 @@ import           What4.Interface (ArrayResultWrapper(..))
 import           What4.Expr.AppTheory
 import           What4.Expr.Builder
 import           What4.ProblemFeatures
+import qualified What4.SemiRing as SR
 import           What4.Utils.MonadST
 
 data BoundQuant = ForallBound | ExistBound
@@ -304,7 +305,7 @@ recurseAssertedAppExprVars scope p ea0 =
   case appExprApp ea0 of
     NotBool x -> recordAssertionVars scope (negatePolarity p) x
     AndBool x y -> mapM_ (recordAssertionVars scope p) [x, y]
-    IteBool c x y -> do
+    BaseIte BaseBoolRepr _ c x y -> do
       recordExprVars scope c
       recordAssertionVars scope p x
       recordAssertionVars scope p y
@@ -324,8 +325,10 @@ memoExprVars n recurse = do
 
 -- | Record the variables in an element.
 recordExprVars :: Scope -> Expr t tp -> VarRecorder s t ()
-recordExprVars _ SemiRingLiteral{} = addFeatures useLinearArithmetic
-recordExprVars _ BVExpr{}  = addFeatures useBitvectors
+recordExprVars _ (SemiRingLiteral sr _ _) =
+  case sr of
+    SR.SemiRingBVRepr _ _ -> addFeatures useBitvectors
+    _                     -> addFeatures useLinearArithmetic
 recordExprVars _ StringExpr{} = addFeatures useStrings
 recordExprVars scope (NonceAppExpr e0) = do
   memoExprVars (nonceExprId e0) $ do

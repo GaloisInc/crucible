@@ -67,6 +67,7 @@ library
     What4.ProblemFeatures
     What4.ProgramLoc
     What4.SatResult
+    What4.SemiRing
     What4.Symbol
     What4.WordMap
 

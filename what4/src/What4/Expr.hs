@@ -31,6 +31,8 @@ module What4.Expr
 
     -- * Expression datatypes
   , Expr(..)
+  , exprLoc
+  , ppExpr
 
    -- ** App expressions
   , AppExpr
@@ -62,9 +64,12 @@ module What4.Expr
   , symFnReturnType
 
     -- ** Semirings
-  , Coefficient
-  , SemiRing
-  , SemiRingRepr(..)
+  , SR.Coefficient
+  , SR.SemiRing
+  , SR.BVFlavor
+  , SR.SemiRingRepr(..)
+  , SR.BVFlavorRepr(..)
+  , SR.OrderedSemiRingRepr(..)
   , WeightedSum
 
     -- ** Unary BV
@@ -85,6 +90,7 @@ module What4.Expr
 
   ) where
 
+import qualified What4.SemiRing as SR
 import What4.Expr.AppTheory
 import What4.Expr.Builder
 import What4.Expr.GroundEval
