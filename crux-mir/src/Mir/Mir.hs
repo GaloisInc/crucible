@@ -712,6 +712,9 @@ funcNameofOp :: HasCallStack => Operand -> DefId
 funcNameofOp (OpConstant (Constant _ (Value (ConstFunction id1 _substs)))) = id1
 funcNameofOp _ = error "bad extract func name"
 
+funcSubstsofOp :: HasCallStack => Operand -> Substs
+funcSubstsofOp (OpConstant (Constant _ (Value (ConstFunction _id1 substs)))) = substs
+funcSubstsofOp _ = error "bad extract func name"
 
 
 

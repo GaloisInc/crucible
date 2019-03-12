@@ -121,26 +121,32 @@ pub mod slice {
     impl<T> SliceIndex<[T]> for usize {
         type Output = T;
 
+        // SCW: we don't (yet) get the predicates when translating this op
+        // so we'll make it primitive
+        
         #[inline]
         fn get(self, slice: &[T]) -> Option<&T> {
-            if self < slice.len() {
+            exit (0);
+/*            if self < slice.len() {
                 unsafe {
                     Some(self.get_unchecked(slice))
                 }
             } else {
                 None
-            }
+            } */
         }
 
         #[inline]
         fn get_mut(self, slice: &mut [T]) -> Option<&mut T> {
+            exit(0);
+/*            
             if self < slice.len() {
                 unsafe {
                     Some(self.get_unchecked_mut(slice))
                 }
             } else {
                 None
-            }
+            } */
         }
 
         #[inline]

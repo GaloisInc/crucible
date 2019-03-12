@@ -105,6 +105,8 @@ import           Unsafe.Coerce
 
 --------------------------------------------------------------
 -- * A MirReference is a Crucible RefCell paired with a path to a subcomponent
+--
+-- We use this to represent mutable data
 
 type MirReferenceSymbol = "MirReference"
 type MirReferenceType tp = IntrinsicType MirReferenceSymbol (EmptyCtx ::> tp)
@@ -247,8 +249,6 @@ instance OrdFC MirStmt where
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
        ])
---instance OrdFC f => OrdF (MirStmt f) where
---  compareF = compareFC compareF
 
 instance TypeApp MirStmt where
   appType = \case
@@ -403,7 +403,7 @@ mirExtImpl = ExtensionImpl
 -- and a length.
 
 type MirSlice tp     = StructType (EmptyCtx ::>
-                           MirReferenceType (VectorType tp) ::>
+                           MirReferenceType (VectorType tp) ::> -- values
                            NatType ::>    --- first element
                            NatType)       --- length 
 

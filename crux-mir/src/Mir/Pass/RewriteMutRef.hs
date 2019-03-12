@@ -238,7 +238,8 @@ mkFnCallVars orig_dest mut_tys = do
     --          jump to dest
 processFnCall_ :: HasCallStack => BasicBlockInfo -> BasicBlockData -> State RewriteFnSt ()
 processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
-    | Just _ <- isCustomFunc (funcNameofOp cfunc) = processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
+    | memberCustomFunc (funcNameofOp cfunc) (funcSubstsofOp cfunc) =
+        processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
     | otherwise = do
         fnargsmap <- use fnArgsMap
         let (mut_cargs, _immut_cargs) = sort_mutrefs cargs fnargsmap (funcNameofOp cfunc)
@@ -260,6 +261,7 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
 
          processCustomFnCall :: HasCallStack => BasicBlockInfo -> BasicBlockData -> State RewriteFnSt ()
          processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
+{-
           | Just "vec_asmutslice" <- isCustomFunc (funcNameofOp cfunc),
           [op] <- cargs = do -- collapse return var into input.
               fnsubs <- use fnSubstitutions
@@ -267,7 +269,7 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
           | Just "iter_next" <- isCustomFunc (funcNameofOp cfunc), [op] <- cargs = do -- op acts like a mutref.
             do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) [op]
 
-          | otherwise = return ()
+          | otherwise -} = return ()
 
          do_mutrefarg_trans :: HasCallStack => BasicBlockInfo -> BasicBlockData -> [Operand] -> State RewriteFnSt ()
          do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs = do

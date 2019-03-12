@@ -46,7 +46,7 @@ loadPrims useStdLib debugLevel = do
               , "ops/range"  
               , "default"
               , "ops/function" 
---              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
+              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
               ] else []
         
   

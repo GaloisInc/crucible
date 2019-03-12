@@ -1476,7 +1476,7 @@ lookupFunction nm (Substs funsubst)
        -> return $ Just (mkFunExp fh, M.tySubst (Substs funsubst) preds)
 
        -- a custom function (we will find it elsewhere)
-       | Just _ <- isCustomFunc nm
+       | True <- memberCustomFunc nm (Substs funsubst)
        -> return Nothing
 
        -- call via a dictionary argument
@@ -1660,7 +1660,7 @@ doCall funid funsubst cargs cdest retRepr = do
       (Just (dest_lv, jdest))
 
          -- custom call where we first evaluate the arguments to MirExps
-         | Just (CustomOp op) <- lookupCustomFunc funid -> do
+         | Just (CustomOp op) <- lookupCustomFunc funid funsubst -> do
             when (db > 3) $
               traceM $ show (PP.fillSep [PP.text "At custom function call of",
                    pretty funid, PP.text "with arguments", pretty cargs, 
@@ -1668,18 +1668,18 @@ doCall funid funsubst cargs cdest retRepr = do
 
             ops <- mapM evalOperand cargs
             let opTys = map M.typeOf cargs
-            res <- op funsubst opTys (M.typeOf dest_lv) ops
+            res <- op opTys (M.typeOf dest_lv) ops
             assignLvExp dest_lv res
             jumpToBlock jdest
 
          -- custom call where we pass the arguments in directly (as Mir operands)
-         | Just (CustomMirOp op) <- lookupCustomFunc funid -> do
+         | Just (CustomMirOp op) <- lookupCustomFunc funid funsubst -> do
             when (db > 3) $
               traceM $ show (PP.fillSep [PP.text "At custom function call of",
                    pretty funid, PP.text "with arguments", pretty cargs, 
                    PP.text "and type parameters:", pretty funsubst])
 
-            res <- op funsubst cargs
+            res <- op cargs
             assignLvExp dest_lv res
             jumpToBlock jdest
 
@@ -1724,7 +1724,7 @@ doCall funid funsubst cargs cdest retRepr = do
 
       Nothing
          -- special case for exit function that does not return
-         | Just CustomOpExit <- lookupCustomFunc funid,
+         | Just CustomOpExit <- lookupCustomFunc funid funsubst,
                [o] <- cargs -> do
                _exp <- evalOperand o
                G.reportError (S.app $ E.TextLit "Program terminated with exit:")
@@ -1840,7 +1840,7 @@ transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction fu
              
     case (funsubsts, cargs) of
       (Substs (M.TyDynamic traitName : _), tobj:_args) |
-       False  <- memberCustomFunc funid -> do
+       False  <- memberCustomFunc funid funsubsts -> do
         -- this is a method call on a trait object, and is not a custom function
         db <- use debugLevel
         when (db > 2) $
@@ -2337,7 +2337,7 @@ buildTraitMap debug col _halloc hmap = do
     -- this uses the name of the method and its type 
     let impls :: [(MethName, TraitName, MirHandle, Substs)]
         impls = [ (methName, traitName, methHandle, substs) 
-                | (methName, methHandle) <- (Map.assocs hmap)
+                | (methName, methHandle) <- Map.assocs hmap
                 , (traitName, substs)    <- getTraitImplementation (col^.M.traits) (methName,methHandle) ]
 
     when (debug > 2) $ do
@@ -2660,18 +2660,21 @@ thisTraitImpls trait trs = do
 type ExplodedDefId = ([Text], Text, [Text])
 data CustomOp      =
     CustomOp (forall h s ret. HasCallStack =>
-      Substs -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s))
+      [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s))
   | CustomMirOp (forall h s ret. HasCallStack =>
-      Substs -> [M.Operand] -> MirGenerator h s ret (MirExp s))
+      [M.Operand] -> MirGenerator h s ret (MirExp s))
   | CustomOpExit            
 
-customOps :: Map ExplodedDefId CustomOp
+type CustomRHS = Substs -> Maybe CustomOp
+
+customOps :: Map ExplodedDefId CustomRHS
 customOps = Map.fromList [
                            fn_call
                          , fn_call_once
 
                          , slice_get_unchecked_mut
                          , slice_len
+                         , slice_get_mut
 
                          , into_iter
                          , iter_next
@@ -2679,17 +2682,25 @@ customOps = Map.fromList [
                          , iter_collect
 
                          , wrapping_sub
+
+                         , exit
                          ]
 
-memberCustomFunc :: M.DefId -> Bool
-memberCustomFunc defid =
+-- Can use the (static) type arguments to decide whether to override
+memberCustomFunc :: M.DefId -> M.Substs -> Bool
+memberCustomFunc defid substs =
   let edid = (map fst (M.did_path defid), fst (M.did_name defid), map fst (M.did_extra defid)) in
-  Map.member edid customOps
+  case Map.lookup edid customOps of
+    Just f  -> isJust (f substs)
+    Nothing -> False
 
-lookupCustomFunc :: M.DefId -> Maybe CustomOp
-lookupCustomFunc defid = 
+lookupCustomFunc :: M.DefId -> M.Substs -> Maybe CustomOp
+lookupCustomFunc defid substs = 
   let edid = (map fst (M.did_path defid), fst (M.did_name defid), map fst (M.did_extra defid)) in
-  Map.lookup edid customOps
+  case (Map.lookup edid customOps) of
+    Just f -> f substs
+    Nothing -> Nothing
+
  
 
 
@@ -2702,8 +2713,8 @@ customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USiz
 customtyToRepr (CEnum _adt _i) = Some C.IntegerRepr
 customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ show (pretty ty))
 
-
 -- Function names that are handled  by doCustomCall below
+{-
 isCustomFunc :: M.DefId -> Maybe Text
 isCustomFunc defid = case (map fst (M.did_path defid), fst (M.did_name defid), map fst (M.did_extra defid)) of
      
@@ -2734,25 +2745,26 @@ isCustomFunc defid = case (map fst (M.did_path defid), fst (M.did_name defid), m
 --   (["num","{{impl}}"], "wrapping_sub", [])       -> Just "wrapping_sub"
 
    _ -> Nothing
+-}
 
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: Exit
 
-exit :: (ExplodedDefId, CustomOp)
-exit = ((["process"], "exit", []), CustomOpExit)
+exit :: (ExplodedDefId, CustomRHS)
+exit = ((["process"], "exit", []), \s -> Just CustomOpExit)
 
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: Index
 
-index :: (ExplodedDefId, CustomOp)
+index :: (ExplodedDefId, CustomRHS)
 index = ((["ops", "index"], "Index", ["index"]), index_op )
 
-index_mut :: (ExplodedDefId, CustomOp)
+index_mut :: (ExplodedDefId, CustomRHS)
 index_mut = ((["ops", "index"], "IndexMut", ["index_mut"]), index_op )
 
 
-index_op :: CustomOp
-index_op =  CustomMirOp $ \ _subst ops ->
+index_op :: Substs -> Maybe CustomOp
+index_op substs = Just $ CustomMirOp $ \ ops ->
              case ops of
                [op1, op2] -> do
                   let v2 = M.varOfLvalue (M.lValueofOp op2)
@@ -2762,9 +2774,9 @@ index_op =  CustomMirOp $ \ _subst ops ->
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_sub
 
-wrapping_sub :: (ExplodedDefId, CustomOp)
+wrapping_sub :: (ExplodedDefId, CustomRHS)
 wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
-   CustomOp $ \ _subst _opTys _retTy ops ->
+   \ _substs -> Just $ CustomOp $ \ _opTys _retTy ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
          -- return (a - b) mod 2N  (this is the default behavior for BVSub)
@@ -2779,9 +2791,9 @@ wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: Iterator
 
-into_iter :: (ExplodedDefId, CustomOp)
+into_iter :: (ExplodedDefId, CustomRHS)
 into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
-    CustomOp $ \ (Substs subs) _opTys _retTy ops ->
+    \ (Substs subs) -> Just $ CustomOp $ \ _opTys _retTy ops ->
      case (subs, ops) of 
        ([ty], [arg]) -> do
          case ty of
@@ -2793,81 +2805,87 @@ into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
              return $ buildTuple [arg, MirExp (C.NatRepr) (S.app $ E.NatLit 0)]
        _ -> fail $ "BUG: invalid arguments for into_iter")
 
-iter_next :: (ExplodedDefId, CustomOp)
-iter_next = ((["iter","iterator"],"Iterator", ["next"]), CustomOp iter_next_op)
+iter_next :: (ExplodedDefId, CustomRHS)
+iter_next = ((["iter","iterator"],"Iterator", ["next"]), iter_next_op) where
+  iter_next_op (Substs [TyAdt defid (Substs [itemTy])])
+    | defid == M.textId "::ops[0]::range[0]::Range[0]"  = Just (CustomOp (iter_next_op_range itemTy))
+  iter_next_op (Substs [TyArray itemTy _len]) = Just (CustomOp (iter_next_op_array itemTy))
+  iter_next_op _ = Nothing
 
-iter_next_op :: forall h s ret. HasCallStack => Substs -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_next_op (Substs subs) _opTys _retTy ops =
-    case (subs, ops) of 
-      ([ty], [iter]) -> do
-         case (ty,iter) of
-           (TyAdt defid (Substs [itemTy]),  MirExp (MirReferenceRepr tr) ii) 
-             | defid == M.textId "::ops[0]::range[0]::Range[0]" 
-             , Just Refl <- testEquality tr taggedUnionType
+iter_next_op_range :: forall h s ret. HasCallStack => M.Ty -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+iter_next_op_range itemTy _opTys _retTy ops =
+    case ops of 
+       [ MirExp (MirReferenceRepr tr) ii ]
+         | Just Refl <- testEquality tr taggedUnionType
+         -> do
+             -- iterator is a struct of a "start" and "end" value of type 'itemTy'
+             -- to increment the iterator, make sure the start < end and then
+             tyToReprCont itemTy $ \itemRepr -> do
 
-             -> do -- iterator is a struct of a "start" and "end" value of type 'itemTy'
-                   -- to increment the iterator, make sure the start < end and then
-                   tyToReprCont itemTy $ \itemRepr -> do
+                r <- readMirRef tr ii
+                (MirExp C.AnyRepr tup) <- accessAggregate (MirExp tr r) 1
 
-                      r <- readMirRef tr ii
-                      (MirExp C.AnyRepr tup) <- accessAggregate (MirExp tr r) 1
+                -- a "Range" is a pair of a start and end value
+                let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
+                let strTy = C.StructRepr ctx
+                let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
+                                     (fromString ("Bad Any unpack iter_next:" ++ show strTy))
+                let start = S.getStruct Ctx.i1of2 unp
+                let end   = S.getStruct Ctx.i2of2 unp
 
-                      -- a "Range" is a pair of a start and end value
-                      let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
-                      let strTy = C.StructRepr ctx
-                      let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
-                                           (fromString ("Bad Any unpack iter_next:" ++ show strTy))
-                      let start = S.getStruct Ctx.i1of2 unp
-                      let end   = S.getStruct Ctx.i2of2 unp
+                plus_one <- incrExp itemRepr start
+                let good_ret = mkSome' itemRepr start
+                let bad_ret  = mkNone'
+                let  updateRange :: MirGenerator h s ret ()
+                     updateRange = let y  = S.app $ E.PackAny strTy (S.app $ E.SetStruct ctx unp Ctx.i1of2 plus_one)
+                                       jj = S.app $ E.MkStruct taggedUnionCtx (Ctx.empty `Ctx.extend` (S.litExpr 0) `Ctx.extend` y)
+                                  in
+                                      writeMirRef ii jj
 
-                      plus_one <- incrExp itemRepr start
-                      let good_ret = mkSome' itemRepr start
-                      let bad_ret  = mkNone'
-                      let  updateRange :: MirGenerator h s ret ()
-                           updateRange = let y  = S.app $ E.PackAny strTy (S.app $ E.SetStruct ctx unp Ctx.i1of2 plus_one)
-                                             jj = S.app $ E.MkStruct taggedUnionCtx (Ctx.empty `Ctx.extend` (S.litExpr 0) `Ctx.extend` y)
-                                        in
-                                            writeMirRef ii jj
+                (MirExp C.BoolRepr boundsCheck)
+                     <- evalBinOp M.Lt (arithType itemTy) (MirExp itemRepr start)
+                                                          (MirExp itemRepr end)
+                ret <- G.ifte boundsCheck
+                           (updateRange >> return good_ret)
+                           (return bad_ret)
+                return (MirExp taggedUnionType ret)
+       _ -> fail $ "BUG: invalid arguments for iter_next"
 
-                      (MirExp C.BoolRepr boundsCheck)
-                           <- evalBinOp M.Lt (arithType itemTy) (MirExp itemRepr start)
-                                                                (MirExp itemRepr end)
-                      ret <- G.ifte boundsCheck
-                                 (updateRange >> return good_ret)
-                                 (return bad_ret)
-                      return (MirExp taggedUnionType ret)
 
-           _ -> do
-             -- iterator is a struct containing (vec, pos of nat)
-             -- if pos < size of vec, return (Some(vec[pos]), (vec, pos+1)).
-             -- otherwise return (None, (vec, pos))
-             (MirExp (C.VectorRepr elemTy) iter_vec) <- accessAggregate iter 0
-             (MirExp C.NatRepr iter_pos) <- accessAggregate iter 1
-             let is_good    = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
-                 ret_1_ty   = taggedUnionType
-                 ret_2_ctx  = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
-                 ret_2_ty   = C.StructRepr ret_2_ctx
-                 ty_ctx     = (Ctx.empty Ctx.:> ret_1_ty Ctx.:> ret_2_ty)
-                 ty         = C.StructRepr ty_ctx
+iter_next_op_array :: forall h s ret. HasCallStack => M.Ty -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+iter_next_op_array itemTy _opTys retTy ops = 
+    -- iterator is a struct containing (vec, pos of nat)
+    -- if pos < size of vec, return (Some(vec[pos]), (vec, pos+1)).
+    -- otherwise return (None, (vec, pos))
+  case ops of
+    [iter] -> do
+      (MirExp (C.VectorRepr elemTy) iter_vec) <- accessAggregate iter 0
+      (MirExp C.NatRepr iter_pos) <- accessAggregate iter 1
+      let is_good    = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
+          ret_1_ty   = taggedUnionType
+          ret_2_ctx  = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
+          ret_2_ty   = C.StructRepr ret_2_ctx
+          ty_ctx     = (Ctx.empty Ctx.:> ret_1_ty Ctx.:> ret_2_ty)
+          ty         = C.StructRepr ty_ctx
 
-                 mk_ret opt vec pos = G.App (E.MkStruct ty_ctx (Ctx.empty Ctx.:> opt Ctx.:> ret_2)) where
-                    ret_2 = G.App (E.MkStruct ret_2_ctx (Ctx.empty Ctx.:> vec Ctx.:> pos))
+          mk_ret opt vec pos = G.App (E.MkStruct ty_ctx (Ctx.empty Ctx.:> opt Ctx.:> ret_2)) where
+             ret_2 = G.App (E.MkStruct ret_2_ctx (Ctx.empty Ctx.:> vec Ctx.:> pos))
 
-                 good_ret_1 = mkSome' elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)
+          good_ret_1 = mkSome' elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)
 
-                 good_ret   = mk_ret good_ret_1 iter_vec (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))
-                 bad_ret    = mk_ret mkNone'    iter_vec iter_pos
+          good_ret   = mk_ret good_ret_1 iter_vec (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))
+          bad_ret    = mk_ret mkNone'    iter_vec iter_pos
 
-             ret <- withKnownRepr ty $ G.ifte is_good
-                     (return good_ret)
-                     (return bad_ret)
-             return $ MirExp ty ret
+      ret <- withKnownRepr ty $ G.ifte is_good
+              (return good_ret)
+              (return bad_ret)
+      return $ MirExp ty ret
+    _ -> fail $ "BUG: invalid args to iter_next_op_array"
 
-      _ -> fail $ "BUG: invalid arguments for iter_next"
 
 -- SCW: not sure if this one is up-to-date
-iter_map :: (ExplodedDefId, CustomOp)
-iter_map = ((["iter","iterator"],"Iterator", ["map"]), CustomOp iter_map_op)
+iter_map :: (ExplodedDefId, CustomRHS)
+iter_map = ((["iter","iterator"],"Iterator", ["map"]), \subst -> Just $ CustomOp $ iter_map_op subst)
 
 iter_map_op :: forall h s ret. HasCallStack => Substs -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 iter_map_op _subst opTys _retTy ops =
@@ -2876,8 +2894,8 @@ iter_map_op _subst opTys _retTy ops =
       performMap iter_ty iter_e closure_ty closure_e
    _ -> fail $ "BUG: invalid arguments to iter_map"
 
-iter_collect :: (ExplodedDefId, CustomOp)
-iter_collect = ((["iter","iterator"],"Iterator", ["collect"]), CustomOp iter_collect_op)
+iter_collect :: (ExplodedDefId, CustomRHS)
+iter_collect = ((["iter","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
 
 iter_collect_op ::  forall h s ret. HasCallStack => Substs -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 iter_collect_op _subst _opTys _retTy ops =
@@ -2889,10 +2907,37 @@ iter_collect_op _subst _opTys _retTy ops =
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: slice
 
-slice_get_unchecked_mut :: (ExplodedDefId, CustomOp)
+
+slice_len :: (ExplodedDefId, CustomRHS)
+slice_len =
+  ((["slice","{{impl}}"], "len", [])
+  , \(Substs [_]) -> Just $ CustomOp $ \ _optys _retTy ops -> 
+     case ops of 
+     -- type of the structure is &mut[ elTy ]
+       [MirExp (C.VectorRepr _) vec_e] -> do
+            return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
+       _ -> fail $ "BUG: invalid arguments to " ++ "slice_len")
+
+
+--- SCW: currently unused.
+-- Only works when the sequence is an immutable array, accessed by a range
+slice_get_mut :: (ExplodedDefId, CustomRHS)
+slice_get_mut =
+  ((["slice", "{{impl}}"],"get_mut", [])
+  , \(Substs _subs) -> Just $ CustomOp $ \ optys retTy ops -> do
+      case ops of
+        [MirExp (C.VectorRepr ety) vec_e, range_e] -> do
+           (MirExp C.NatRepr start) <- accessAggregate range_e 0
+           (MirExp C.NatRepr stop ) <- accessAggregate range_e 1
+           v <- vectorCopy ety start stop vec_e
+           return $ (MirExp (C.VectorRepr ety) v)
+        _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops)
+
+
+slice_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
 slice_get_unchecked_mut =
   ((["slice"],"SliceIndex", ["get_unchecked_mut"])
-  , CustomOp $ \ (Substs subs) optys _retTy ops -> do
+  , \(Substs _subs) -> Just $ CustomOp $ \ optys _retTy ops -> do
       case ops of
         [self, MirExp (MirSliceRepr ty) slice] -> do
            idx <- generateIndex self
@@ -2902,38 +2947,31 @@ slice_get_unchecked_mut =
            return (MirExp (MirReferenceRepr ty) v)
         _ -> fail $ "BUG: invalid arguments to " ++ "slice_get_unchecked_mut")
 
-slice_len :: (ExplodedDefId, CustomOp)
-slice_len =
-  ((["slice","{{impl}}"], "len", [])
-  , CustomOp $ \ (Substs [_]) _optys _retTy ops -> 
-     case ops of 
-     -- type of the structure is &mut[ elTy ]
-       [MirExp (C.VectorRepr _) vec_e] -> do
-            return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
-       _ -> fail $ "BUG: invalid arguments to " ++ "slice_len")
+--------------------------------------------------------------------------------------------------------------------------
+-- ** Custom: vec
+
+-- A vector is an array tupled with a length, as an Adt
+-- 
+
+{-
+vec_with_capacity :: (ExplodedDefId, CustomRHS)
+vec_with_capacity =
+  ((["vec"],"Vec", "with_capacity"),
+  \subst -> Just $ CustomOp $ \optys _retTy ops -> do
+     case ops of
+       [ MirExp C.NatRepr capacity ] -> 
+-}     
 
 
---- SCW: currently unused. 
-slice_get_mut :: (ExplodedDefId, CustomOp)
-slice_get_mut =
-  ((["slice"],"SliceIndex", ["get_mut"])
-  , CustomOp $ \ (Substs subs) optys retTy ops -> do
-      case ops of
-        [MirExp (C.VectorRepr ety) vec_e, range_e] -> do
-           (MirExp C.NatRepr start) <- accessAggregate range_e 0
-           (MirExp C.NatRepr stop ) <- accessAggregate range_e 1
-           v <- vectorCopy ety start stop vec_e
-           return $ (MirExp (C.VectorRepr ety) v)
-        _ -> fail $ "BUG: invalid arguments to slice_get_mut")
 
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: call
 
-fn_call :: (ExplodedDefId, CustomOp)
-fn_call = ((["ops","function"], "Fn", ["call"]), CustomOp fn_call_op)
+fn_call :: (ExplodedDefId, CustomRHS)
+fn_call = ((["ops","function"], "Fn", ["call"]), \subst -> Just $ CustomOp $ fn_call_op subst)
 
-fn_call_once :: (ExplodedDefId, CustomOp)
-fn_call_once = ((["ops","function"], "FnOnce", ["call_once"]), CustomOp fn_call_op)
+fn_call_once :: (ExplodedDefId, CustomRHS)
+fn_call_once = ((["ops","function"], "FnOnce", ["call_once"]), \subst -> Just $ CustomOp $ fn_call_op subst)
 
 
 fn_call_op ::  forall h s ret. HasCallStack => Substs -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)

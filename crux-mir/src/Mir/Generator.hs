@@ -25,8 +25,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 
-
+-- Turn off some warnings during active development
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall
+                -fno-warn-unused-imports
                 -fno-warn-name-shadowing
                 -fno-warn-unused-matches
                 -fno-warn-unticked-promoted-constructors #-}
@@ -88,7 +89,8 @@ import           Mir.Intrinsics
 
 
 import           Unsafe.Coerce(unsafeCoerce)
--- import           Debug.Trace
+import           Control.Monad
+import           Debug.Trace
 
 
 ---------------------------------------------------------------------------------
@@ -388,12 +390,15 @@ getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh))
     let isTraitMethod (TraitMethod tm ts) = if sameTraitMethod methodEntry tm then Just (tm,ts) else Nothing
         isTraitMethod _ = Nothing
 
+    -- trait names, potential methods, plus their method signatures
     let namedTraits = [ (tn, tm, ts) | (Trait tn items _supers) <- trts,
                                        (tm,ts) <- Maybe.mapMaybe isTraitMethod items ]
 
-    -- traceM $ "named Traits for : " ++ show name
-    -- forM_ namedTraits $ \(tn,tm,ts) -> do
-    --   traceM $ "\t" ++ show tn ++ " " ++ show tm ++ " " ++ show (pretty ts)
+--    traceM $ "named Traits for : " ++ show name
+--    traceM $ "\t with sig: " ++ show (pretty sig)
+--    forM_ namedTraits $ \(tn,tm,ts) -> do
+--         traceM $ "\t traitName:" ++ show tn ++ " " ++ show tm 
+--         traceM $ "\t withSig:  " ++ show (pretty ts)         
   
     let typedTraits = Maybe.mapMaybe (\(tn,tm,ts) -> (tn,tm,ts,) <$> matchSig sig ts) namedTraits
 
@@ -402,6 +407,11 @@ getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh))
          -- otherwise there will be a gap
               (traitName, Substs (Map.elems instMap))
 
+--    traceM $ "TypedTraits for : " ++ show name
+--    forM_ typedTraits $ \(tn,_tm,_ts,_) -> do
+--         traceM $ "\t" ++ show tn 
+
+    
     map g typedTraits
 getTraitImplementation _ _ = []
 
