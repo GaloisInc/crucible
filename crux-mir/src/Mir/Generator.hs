@@ -327,9 +327,12 @@ traitImpls str midx vtbls =
              ,_vtables      = vtbls
              }
 
-combineMaps :: Map Integer Ty -> Map Integer Ty -> Maybe (Map Integer Ty)
+
+type Solution = Integer 
+
+combineMaps :: Map Solution Ty -> Map Solution Ty -> Maybe (Map Solution Ty)
 combineMaps m1 m2 = Map.foldrWithKey go (Just m2) m1 where
-  go :: Integer -> Ty -> Maybe (Map Integer Ty) -> Maybe (Map Integer Ty)
+  go :: Solution -> Ty -> Maybe (Map Solution Ty) -> Maybe (Map Solution Ty)
   go _k _ty Nothing = Nothing
   go k ty (Just res) =
     case Map.lookup k res of
@@ -337,19 +340,19 @@ combineMaps m1 m2 = Map.foldrWithKey go (Just m2) m1 where
       Nothing ->  Just (Map.insert k ty res)
 
 -- | Try to match an implementation type against a trait type
-matchSig :: FnSig -> FnSig -> Maybe (Map Integer Ty)
+matchSig :: FnSig -> FnSig -> Maybe (Map Solution Ty)
 matchSig (FnSig instArgs instRet) (FnSig genArgs genRet) = do
   m1 <- matchTys instArgs genArgs
   m2 <- matchTy  instRet  genRet
   combineMaps m1 m2
 
--- | Try to match an implementation type against a trait type  
-matchTy :: Ty -> Ty -> Maybe (Map Integer Ty)
+-- | Try to match an implementation type (first argument) against a (generic) trait type  
+matchTy :: Ty -> Ty -> Maybe (Map Solution Ty)
 matchTy inst arg
   | inst == arg
   = return Map.empty
 matchTy ty (TyParam i) 
-  = return  (Map.insert i ty Map.empty)
+  = return (Map.insert i ty Map.empty)
 matchTy (TyTuple instTys) (TyTuple genTys) =
   matchTys instTys genTys
 matchTy (TySlice t1) (TySlice t2) = matchTy t1 t2
@@ -361,14 +364,16 @@ matchTy (TyClosure d1 s1) (TyClosure d2 s2) | d1 == d2 =  matchSubsts s1 s2
 matchTy (TyFnPtr sig1) (TyFnPtr sig2) = matchSig sig1 sig2
 matchTy (TyRawPtr t1 m1)(TyRawPtr t2 m2) | m1 == m2 = matchTy t1 t2
 matchTy (TyDowncast t1 i1) (TyDowncast t2 i2) | i1 == i2 = matchTy t1 t2
-matchTy (TyProjection d1 s1) (TyProjection d2 s2) | d1 == d2 = matchSubsts s1 s2
+matchTy ty (TyProjection d2 s2) = error "BUG: found a type projection when trying to match a trait signature"
+  
+
 -- more
 matchTy _ _ = Nothing
 
-matchSubsts :: Substs -> Substs -> Maybe (Map Integer Ty)
+matchSubsts :: Substs -> Substs -> Maybe (Map Solution Ty)
 matchSubsts (Substs tys1) (Substs tys2) = matchTys tys1 tys2
 
-matchTys :: [Ty] -> [Ty] -> Maybe (Map Integer Ty)
+matchTys :: [Ty] -> [Ty] -> Maybe (Map Solution Ty)
 matchTys [] [] = return Map.empty
 matchTys (t1:instTys) (t2:genTys) = do
   m1 <- matchTy t1 t2
@@ -390,22 +395,22 @@ getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh))
     let isTraitMethod (TraitMethod tm ts) = if sameTraitMethod methodEntry tm then Just (tm,ts) else Nothing
         isTraitMethod _ = Nothing
 
-    -- trait names, potential methods, plus their method signatures
-    let namedTraits = [ (tn, tm, ts) | (Trait tn items _supers) <- trts,
+    -- traits, potential methods, plus their method signatures
+    let namedTraits = [ (tr, tm, ts) | tr@(Trait _tn items _supers) <- trts,
                                        (tm,ts) <- Maybe.mapMaybe isTraitMethod items ]
 
---    traceM $ "named Traits for : " ++ show name
---    traceM $ "\t with sig: " ++ show (pretty sig)
---    forM_ namedTraits $ \(tn,tm,ts) -> do
---         traceM $ "\t traitName:" ++ show tn ++ " " ++ show tm 
---         traceM $ "\t withSig:  " ++ show (pretty ts)         
+    traceM $ "named Traits for : " ++ show name
+    traceM $ "\t with sig: " ++ show (pretty sig)
+    forM_ namedTraits $ \(tr,tm,ts) -> do
+         traceM $ "\t traitName:" ++ show (tr^.traitName) ++ " has method " ++ show tm 
+         traceM $ "\t withSig:  " ++ show (pretty ts)         
   
-    let typedTraits = Maybe.mapMaybe (\(tn,tm,ts) -> (tn,tm,ts,) <$> matchSig sig ts) namedTraits
+    let typedTraits = Maybe.mapMaybe (\(tr,tm,ts) -> (tr,tm,ts,) <$> matchSig sig ts) namedTraits
 
-    let g (traitName,_,_,instMap) =
+    let g (trait,_,_,instMap) =
         -- TODO: hope all of the params actually appear....
          -- otherwise there will be a gap
-              (traitName, Substs (Map.elems instMap))
+              (trait^.traitName, Substs (Map.elems instMap))
 
 --    traceM $ "TypedTraits for : " ++ show name
 --    forM_ typedTraits $ \(tn,_tm,_ts,_) -> do

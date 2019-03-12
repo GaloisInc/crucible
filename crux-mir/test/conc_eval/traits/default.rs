@@ -1,8 +1,5 @@
-// FAIL: default implementation ignored
-
 // Test trait with default implementation
 //
-// See https://github.com/GaloisInc/mir-json/issues/8
 
 trait T {
     fn m (&self) -> i32;

@@ -191,6 +191,8 @@ sameTraitMethod :: Entry -> DefId -> Bool
 sameTraitMethod meth1 (DefId _ _ _ (meth2:_)) = meth1 == meth2
 sameTraitMethod _     (DefId _ _ _ []) = False
 
+
+
 {-
 isImplMethod :: DefId -> DefId -> Bool
 
@@ -254,6 +256,9 @@ instance Pretty DefId where
         addfl   = if hideSourceFile then id else (fl:)
     in
     text $ unpack $ intercalate "::" (addfl (map ppEntry  (addmods (nm:ex))))
+
+  
+
 
 instance Show DefId where
   show defId = unpack (idText defId)

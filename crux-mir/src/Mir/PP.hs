@@ -246,6 +246,8 @@ instance Pretty NullOp where
 instance Pretty BorrowKind where
     pretty = text . show
 
+
+
 instance Pretty UnOp where
     pretty Not = text "!"
     pretty Neg = text "-"
@@ -321,12 +323,12 @@ instance Pretty CustomAggregate where
     pretty = (text . show)
 
 instance Pretty FnSig where
-  pretty (FnSig args ret) = text "fn" <> tupled (map pretty args) <+> arrow <+> pretty ret
+  pretty (FnSig args ret) = tupled (map pretty args) <+> arrow <+> pretty ret
 
 instance Pretty TraitItem where
-  pretty (TraitMethod name sig) = pr_id name <+> colon <> pretty sig
-  pretty (TraitType name)       = text "name"  <+> pr_id name
-  pretty (TraitConst name ty)   = text "const" <+> pr_id name <> colon <> pretty ty
+  pretty (TraitMethod name sig) = text "fn"    <+> pr_id name <> pretty sig <> semi
+  pretty (TraitType name)       = text "name"  <+> pr_id name <> semi
+  pretty (TraitConst name ty)   = text "const" <+> pr_id name <> colon <> pretty ty <> semi
 
 instance Pretty Trait where
   pretty (Trait name items supers) =
@@ -335,11 +337,13 @@ instance Pretty Trait where
               ( _self : rest ) -> pretty rest
               [] -> error "BUG: supertrait list should always start with self"
     in                    
-        text "trait" <+> pretty name <+> sd <+> pretty items
+        vcat [text "trait" <+> pretty name <+> sd <+> lbrace ,
+              indent 3 (vcat (map pretty items)),
+              rbrace]
 
 instance Pretty Collection where
   pretty col =
-    vcat ([text "FNS"] ++
+    vcat ([text "FNs"] ++
           map pretty (col^.functions) ++
           [text "ADTs"] ++
           map pretty (col^.adts) ++

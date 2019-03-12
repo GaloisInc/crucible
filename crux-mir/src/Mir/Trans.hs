@@ -124,12 +124,13 @@ tyToRepr :: HasCallStack => M.Ty -> Some C.TypeRepr
 tyToRepr t0 = case t0 of
   M.TyBool -> Some C.BoolRepr
   M.TyTuple [] -> Some C.UnitRepr
+  
   -- non-empty tuples are mapped to structures of "maybe" types so
   -- that they can be allocated without being initialized
-  M.TyTuple ts ->  tyListToCtxMaybe ts $ \repr -> Some (C.StructRepr repr)
+  M.TyTuple ts    -> tyListToCtxMaybe ts $ \repr -> Some (C.StructRepr repr)
   M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
 
-               -- FIXME, this should be configurable
+  -- FIXME, this should be configurable
   M.TyInt M.USize  -> Some C.IntegerRepr
   M.TyUint M.USize -> Some C.NatRepr
   M.TyInt base  -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
@@ -149,11 +150,11 @@ tyToRepr t0 = case t0 of
   -- FIXME: should this be a tuple? 
   M.TyClosure _def_id _substs -> Some C.AnyRepr
   M.TyStr -> Some C.StringRepr
-  M.TyAdt _defid _tyargs -> Some taggedUnionType
-  M.TyDowncast _adt _i   -> Some taggedUnionType
+  M.TyAdt _defid _tyargs -> Some taggedUnionRepr
+  M.TyDowncast _adt _i   -> Some taggedUnionRepr
   M.TyFloat _ -> Some C.RealValRepr
   M.TyParam i -> case somePeano i of
-    Just (Some nr) -> Some (C.VarRepr nr) -- requires poly extension to crucible
+    Just (Some nr) -> Some (C.VarRepr nr) 
     Nothing        -> error "type params must be nonnegative"
   M.TyFnPtr (M.FnSig args ret) ->
      tyListToCtx args $ \argsr ->
@@ -165,26 +166,18 @@ tyToRepr t0 = case t0 of
   _ -> error $ unwords ["unknown type?", show t0]
 
 
--- | Convert field to type. Perform the corresponding substitution if field is a type param.
-fieldToRepr :: HasCallStack => M.Field -> M.Ty
-fieldToRepr (M.Field _ t substs) = M.tySubst substs t
+taggedUnionCtx :: Ctx.Assignment C.TypeRepr ((Ctx.EmptyCtx Ctx.::> C.NatType) Ctx.::> C.AnyType)
+taggedUnionCtx = Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr
 
--- | Replace the subst on the Field 
-substField :: Substs -> M.Field -> M.Field
-substField subst (M.Field a t _subst)  = M.Field a t subst
+-- | All ADTs are mapped to tagged unions
+taggedUnionRepr :: C.TypeRepr TaggedUnion
+taggedUnionRepr = C.StructRepr $ taggedUnionCtx
+
 
 -- Note: any args on the fields are replaced by args on the variant
 variantToRepr :: HasCallStack => M.Variant -> Substs -> Some C.CtxRepr
 variantToRepr (M.Variant _vn _vd vfs _vct) args = 
-    tyListToCtx (map fieldToRepr (map (substField args) vfs)) $ \repr -> Some repr
-
-
-taggedUnionCtx :: Ctx.Assignment C.TypeRepr
-                          ((Ctx.EmptyCtx Ctx.::> C.NatType) Ctx.::> C.AnyType)
-taggedUnionCtx = Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr
-
-taggedUnionType :: C.TypeRepr TaggedUnion
-taggedUnionType = C.StructRepr $ taggedUnionCtx
+    tyListToCtx (map M.fieldToTy (map (M.substField args) vfs)) $ \repr -> Some repr
 
 
 
@@ -215,6 +208,15 @@ tyListToCtxMaybe ts f =  go (map tyToRepr ts) Ctx.empty
  where go :: forall ctx. [Some C.TypeRepr] -> C.CtxRepr ctx -> a
        go []       ctx      = f ctx
        go (Some tp:tps) ctx = go tps (ctx Ctx.:> C.MaybeRepr tp)
+
+
+-- | Translate a Mir type substitution to a Crucible type substitution
+substToSubstCont :: HasCallStack => Substs -> (forall subst. C.SubstRepr subst -> a) -> a
+substToSubstCont (Substs []) f        = f C.IdRepr
+substToSubstCont (Substs (ty:rest)) f =
+  tyToReprCont ty $ \tyr ->
+    substToSubstCont (Substs rest) $ \rr ->
+       f (C.ExtendRepr tyr rr)
 
 
 -----------------------------------------------------------------------
@@ -362,7 +364,6 @@ transConstVal (Some (C.AnyRepr)) (M.ConstFunction did _substs) =
     -- TODO: use this substs
     buildClosureHandle did (Substs []) []
 
--- RealValRepr ConstFloat (FloatLit F64 "0f64")
 transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
       (d , _):_ -> let rat = toRational (d :: Double) in
@@ -1096,17 +1097,27 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
       (MirSliceRepr elt_tp, C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr)) ->
            let mir_ty = M.typeOf i in
            case mir_ty of
-             M.TyAdt did (Substs [TyUint USize]) |
-               did == M.textId "::ops[0]::range[0]::RangeFrom[0]" -> do
-               -- get the start of the range
-               let astart = (S.getStruct Ctx.i2of2 ind)
-               let indty  = C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr)
-               let start = S.getStruct Ctx.baseIndex
-                             (S.app $ E.FromJustValue indty (S.app $ E.UnpackAny indty astart) (fromString ("Bad Any unpack Nat")))
-               
-               let newSlice = updateSliceLB elt_tp arr start
-               return (MirExp arr_tp newSlice)
-               -- create a new slice by modifying the indices of the current one
+             M.TyAdt did (Substs [TyUint USize]) 
+               | did == M.textId "::ops[0]::range[0]::RangeFrom[0]" -> do
+                  -- get the start of the range
+                  let astart = (S.getStruct Ctx.i2of2 ind)
+                  let indty  = C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr)
+                  let start = S.getStruct Ctx.baseIndex
+                                (S.app $ E.FromJustValue indty (S.app $ E.UnpackAny indty astart) (fromString ("Bad Any unpack Nat")))
+                  -- create a new slice by modifying the indices of the current one
+                  let newSlice = updateSliceLB elt_tp arr start
+                  return (MirExp arr_tp newSlice)
+               | did == M.textId "::ops[0]::range[0]::Range[0]" -> do
+                  -- get the start of the range
+                  let astart = (S.getStruct Ctx.i2of2 ind)
+                  let indty  = C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.NatRepr)
+                  let start = S.getStruct Ctx.i1of2
+                                (S.app $ E.FromJustValue indty (S.app $ E.UnpackAny indty astart) (fromString ("Bad Any unpack Nat")))
+                  -- create a new slice by modifying the indices of the current one
+                  let newSlice = updateSliceLB elt_tp arr start
+                  return (MirExp arr_tp newSlice)
+   
+
              _ -> 
                fail $ "Unknown slice projection type:" ++ show mir_ty
       _ -> fail $ "Bad index, arr_typ is:" ++ show arr_tp ++ "\nind_type is: " ++ show ind_tp
@@ -1558,8 +1569,8 @@ coerceAdt dir adt substs asubsts e0 = do
                    Some Ctx.Empty -> return e
                    -- i.e. Some
                    Some cr@(Ctx.Empty Ctx.:> tr) -> do
-                     let atyp = fieldToRepr (substField asubsts (List.head fields))
-                     let typ  = fieldToRepr (substField substs  (List.head fields))
+                     let atyp = fieldToTy (substField asubsts (List.head fields))
+                     let typ  = fieldToTy (substField substs  (List.head fields))
                      let sr = C.StructRepr cr
                      let unp = (S.app $ E.FromJustValue sr (S.app $ E.UnpackAny sr e)
                                        ("not the expected type"))
@@ -1570,8 +1581,8 @@ coerceAdt dir adt substs asubsts e0 = do
                      return $ packed
                    -- i.e. cons
                    Some cr@(Ctx.Empty Ctx.:> tr1 Ctx.:> tr2) -> do
-                     let aty1:aty2:[] = map (fieldToRepr . substField asubsts) fields
-                     let typ1:typ2:[] = map (fieldToRepr . substField substs) fields
+                     let aty1:aty2:[] = map (fieldToTy . substField asubsts) fields
+                     let typ1:typ2:[] = map (fieldToTy . substField substs) fields
                      let sr = C.StructRepr cr
                      let unpacked = (S.app $ E.FromJustValue sr (S.app $ E.UnpackAny sr e)
                                        ("not the expected type"))
@@ -1600,7 +1611,7 @@ coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
       M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
       C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr)) -> do
         tagged <- coerceAdt True adt substs asubsts e0
-        return (MirExp taggedUnionType tagged)
+        return (MirExp taggedUnionRepr tagged)
 
      -- Some types already have 'any' in the right place, so no need to coerce
      (M.TyParam _, M.TyClosure _ _, _) -> return e     
@@ -1617,7 +1628,7 @@ coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
      _ -> fail $ "poly type " ++ show ty ++ " unsupported in fcn call for " ++ show tr
                ++ " with aty " ++ show aty
 
--- leave all others alone
+     -- leave all others alone
                | otherwise = return e
 
 -- Coerce the return type of a polymorphic function 
@@ -1640,7 +1651,7 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
       M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
       C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr)) -> do
         tagged <- coerceAdt False adt substs asubsts e0
-        return (MirExp taggedUnionType tagged)
+        return (MirExp taggedUnionRepr tagged)
      _ -> fail $ "poly type " ++ show (pretty ty) ++
                  " unsupported in fcn return for " ++ show tr
 -- leave all others alone
@@ -2169,7 +2180,7 @@ addTraitAdts col = col & adts %~ (++ new) where
 
 
 -- Explicitly inherit all supertrait methods
--- NOTE: if we include a trait that derive from an unknown supertrait, we will do the
+-- NOTE: if we include a trait that derives from an unknown supertrait, we will do the
 -- "best effort" We won't inherit any of the declarations, that bit will just be
 -- ignored.
 expandSuperTraits :: [M.Trait] -> [M.Trait]
@@ -2198,6 +2209,13 @@ expandSuperTraits traits =  map nubTrait (Map.elems (go traits Map.empty)) where
          step :: Map M.TraitName M.Trait
          step = Map.union done (Map.fromList (List.map addSupers this))
 
+abstractAssociatedTypes :: [M.Trait] -> [M.Trait]
+abstractAssociatedTypes = map processTrait where
+   processTrait trait = trait & traitItems %~ processItems
+   processItems titems = map processItem titems where
+     atys   = [ did | (M.TraitType did) <- titems]
+     processItem (TraitMethod name sig) = TraitMethod name (abstractSig atys sig)
+     processItem item = item
 
 -- | transCollection: translate a MIR module
 transCollection :: HasCallStack
@@ -2209,16 +2227,20 @@ transCollection col0 debug halloc = do
     -- add supertrait items
     let col1 = col0 & traits %~ expandSuperTraits
 
+    -- replace associated types with additional type parameters
+    let col2 = col1 & traits %~ abstractAssociatedTypes
+
     -- add adts for declared traits
-    let col = addTraitAdts col1
+    let col = addTraitAdts col2
 
     -- figure out which ADTs are enums and mark them in the code base
     let cstyleAdts = List.filter isCStyle (col^.M.adts)
     let col1 = markCStyle (cstyleAdts, col) col
 
+
     when (debug > 2) $ do
       traceM $ "MIR collection"
-      traceM $ show (pretty col1)
+      traceM $ show (pretty col2)
 
 
     let amap = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
@@ -2243,24 +2265,45 @@ transCollection col0 debug halloc = do
 -- | The translation of the methods in a trait declaration: includes the types of all components
 --   and an indexing map for the vtables
 data TraitDecl ctx =
-   TraitDecl M.DefId                                -- name of trait (for debugging only)
+   TraitDecl M.DefId                                -- name of trait (for debugging/error messages)
              [(M.DefId,M.FnSig)]                    -- declared types of the methods
              (C.CtxRepr ctx)                        -- vtable type 
              (Map MethName (Some (Ctx.Index ctx)))  -- indices into the vtable
-             (Map Int MethName)                     -- reverse index
+             (Map Int MethName)                     -- reverse vtable index (for convenience)
 
 instance Show (TraitDecl ctx) where
   show (TraitDecl nm _msig _vtable mm _rm) = "TraitDecl(" ++ show nm ++ ":" ++ show (Map.keys mm) ++ ")"
 instance ShowF TraitDecl
 
 
+-- abstract associated types as additional arguments to the method
+abstractSig :: [M.DefId] -> FnSig -> FnSig
+abstractSig atys sig@(FnSig instArgs instRet) = FnSig (map abstractTy instArgs) (abstractTy instRet) where
+   nextParam = numParams sig
+
+   abstractTy (TyProjection d (Substs [TyParam 0]))
+     | Just k <- List.findIndex (==d) atys = TyParam nextParam 
+     | otherwise = error $ "Projection " ++ show d ++ " from trait that doesn't define it"
+   abstractTy (TyProjection d subst)
+     = error $ "Projection from non-first type param: " ++ show (pretty subst)
+   abstractTy (TyTuple tys) = TyTuple (map abstractTy tys)
+   abstractTy (TySlice ty)  = TySlice (abstractTy ty)
+   abstractTy (TyArray ty mut) = TyArray (abstractTy ty) mut
+   abstractTy (TyRef ty mut)   = TyRef   (abstractTy ty) mut
+   abstractTy (TyFnDef did (Substs tys)) = TyFnDef did (Substs (map abstractTy tys))
+   abstractTy (TyClosure did (Substs tys)) = TyClosure did (Substs (map abstractTy tys))
+   abstractTy (TyFnPtr (FnSig args ret)) = TyFnPtr (FnSig (map abstractTy args) (abstractTy ret))
+   abstractTy (TyRawPtr ty x) = TyRawPtr (abstractTy ty) x
+   abstractTy (TyDowncast ty x) = TyDowncast (abstractTy ty) x
+   abstractTy ty = ty
 
 -- | Translate a trait declaration
 mkTraitDecl :: M.Trait -> Some TraitDecl
 mkTraitDecl tr = do
   let tname  = tr^.traitName
   let titems = tr^.traitItems
-  let meths  = [(mname, tsig) |(M.TraitMethod mname tsig) <- titems]
+
+  let meths  = [ (mname, tsig) |(M.TraitMethod mname tsig) <- titems]
 
   let go :: Some (Ctx.Assignment MethRepr)
          -> (MethName, M.FnSig)
@@ -2291,12 +2334,6 @@ mkTraitDecl tr = do
 
         in Some (TraitDecl tname meths ctxr midx rm) 
 
-substToSubstCont :: HasCallStack => Substs -> (forall subst. C.SubstRepr subst -> a) -> a
-substToSubstCont (Substs []) f        = f C.IdRepr
-substToSubstCont (Substs (ty:rest)) f =
-  tyToReprCont ty $ \tyr ->
-    substToSubstCont (Substs rest) $ \rr ->
-       f (C.ExtendRepr tyr rr)
 
 
 -- | Build the mapping from traits and types that implement them to VTables
@@ -2334,15 +2371,17 @@ buildTraitMap debug col _halloc hmap = do
                 , (traitName, substs)    <- getTraitImplementation (col^.M.traits) (methName,methHandle) ]
 
     when (debug > 3) $ do
-      forM_ impls $ \(mn, tn, mh, sub) -> do
-         traceM $ "Implementing method of trait " ++ show tn ++ show (pretty sub)
-         traceM $ "\t with " ++ show (pretty mh) 
+      if null impls
+        then traceM "buildTraitMap: No trait implementations found"
+        else forM_ impls $ \(mn, tn, mh, sub) -> do
+          traceM $ "buildTraitMap: Implementing method of trait " ++ show tn ++ show (pretty sub)
+          traceM $ "\t with " ++ show (pretty mh) 
 
     let impl_vtable :: TraitDecl ctx                      
-                    -> C.TypeRepr implTy                  -- ^ implementation type for the trait
+                    -> (C.TypeRepr implTy)                  -- ^ implementation type for the trait
                     -> [(MethName, MirHandle, Substs)]    -- ^ impls for that type, must be in correct order
                     -> Ctx.Assignment GenericMirValue ctx
-        impl_vtable (TraitDecl tname methDecls ctxr methodIndex revIndex) implTy methImpls  =
+        impl_vtable (TraitDecl tname methDecls ctxr methodIndex revIndex) implTy methImpls =
            let go :: Ctx.Index ctx ty -> C.TypeRepr ty -> Identity (GenericMirValue ty)
                go idx (C.PolyFnRepr k args ret) = do
                   let i = Ctx.indexVal idx
@@ -2378,40 +2417,41 @@ buildTraitMap debug col _halloc hmap = do
            in 
               runIdentity (Ctx.traverseWithIndex go ctxr)
 
+    -- find the implementing methods (or default, if none is present)
+    let implsWithDefaults traitName revMap (typeName, implHandlesByType) = List.map getImpl (Map.assocs revMap) where
+          isImpl methName implName
+            | Just methodEntry <- M.parseImplName implName
+            = M.sameTraitMethod methodEntry methName
+          isImpl _ _ = False
+
+          getImpl (_idx, methName)
+            -- there is a concrete implementation
+            | Just (implName, implHandle, implSubst) <-
+                  List.find (\(implName, _, _) -> isImpl methName implName) implHandlesByType 
+            = (implName, implHandle, implSubst)
+
+            -- there is a default implementation
+            | Just ms <- Map.lookup traitName default_methods
+            , Just (_, implHandle) <- List.find (\(mn,_) -> methName == mn) ms
+            = (methName, implHandle, Substs [])
+
+            -- can't find the implementation
+            | otherwise
+            = error $ "BUG: Cannot find implementation of " ++ show methName
+                    ++ " trait " ++ show traitName ++ " for type " ++ show typeName
+
 
     -- make the vtables for each implementation
     perTraitInfos <- forM (Map.assocs decls) $ \(traitName, Some decl@(TraitDecl _tname _msigs ctx methodIndex revMap)) -> do
-                     let implHandles = [(methName,mirHandle, substs) | (methName, tn, mirHandle, substs) <- impls, traitName == tn]
 
-                     vtables' <- forM (groupByType implHandles) $ \(typeName, implHandlesByType) -> do
-                                    case tyToRepr typeName of
-                                      Some typeRepr -> do
-                                        
-                                         let implsWithDefaults = List.map getImpl (Map.assocs revMap) where
+                     let implHandles = [ (methName, mirHandle, substs)
+                                       | (methName, tn, mirHandle, substs) <- impls, traitName == tn]
 
-                                             isImpl methName implName
-                                               | Just methodEntry <- M.parseImplName implName
-                                               = M.sameTraitMethod methodEntry methName
-                                             isImpl _ _ = False
-
-                                             getImpl (_idx, methName)
-                                               -- there is a concrete implementation
-                                               | Just (implName, implHandle, implSubst) <-
-                                                     List.find (\(implName, _, _) -> isImpl methName implName) implHandlesByType 
-                                               = (implName, implHandle, implSubst)
-
-                                               -- there is a default implementation
-                                               | Just ms <- Map.lookup traitName default_methods
-                                               , Just (_, implHandle) <- List.find (\(mn,_) -> methName == mn) ms
-                                               = (methName, implHandle, Substs [])
-
-                                               -- can't find the implementation
-                                               | otherwise
-                                               = error $ "BUG: Cannot find implementation of " ++ show methName
-                                                       ++ " trait " ++ show traitName ++ " for type " ++ show typeName
-
-                                         let vtable = impl_vtable decl typeRepr implsWithDefaults
-                                         return (Map.singleton typeName vtable)
+                     vtables' <- forM (groupByType implHandles) $ \pr@(typeName, _) -> 
+                                   case tyToRepr typeName of
+                                     Some typeRepr -> do
+                                        let vtable = impl_vtable decl typeRepr (implsWithDefaults traitName revMap pr)
+                                        return (Map.singleton typeName vtable)
 
                      let vtables   = mconcat vtables'
                      let traitImpl = Some (mkGenericTraitImpls ctx methodIndex vtables)
@@ -2651,6 +2691,66 @@ thisTraitImpls trait trs = do
 
 
 --------------------------------------------------------------------------------------------------------------------------
+-- * Data structure manipulation for implementing primitives
+
+-- ** options
+
+-- statically-typed option creation
+
+mkSome' :: C.TypeRepr tp -> G.Expr MIR s tp -> G.Expr MIR s TaggedUnion
+mkSome' ty val =
+   let tty  = C.StructRepr (Ctx.empty Ctx.:> ty) in
+   let tval = G.App $ E.MkStruct (Ctx.empty Ctx.:> ty) (Ctx.empty Ctx.:> val) in
+   G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
+                      (Ctx.empty Ctx.:> (S.app $ E.NatLit 1) Ctx.:> (S.app $ E.PackAny tty tval))
+
+mkNone' :: G.Expr MIR s TaggedUnion
+mkNone'=
+  let ty  = C.StructRepr Ctx.empty in
+  let val = S.app $ E.MkStruct Ctx.empty Ctx.empty in
+  G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
+                     (Ctx.empty Ctx.:> (S.app $ E.NatLit 0) Ctx.:> (S.app $ E.PackAny ty val))
+
+-- dynamically-typed option
+
+mkNone :: MirExp s
+mkNone =
+    buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 0), packAny $ buildTuple []]
+
+mkSome :: MirExp s -> MirExp s
+mkSome a = buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 1), packAny $ buildTuple [a]]
+
+-- ** range
+
+rangeStart :: C.TypeRepr ty -> R.Expr MIR s TaggedUnion -> MirGenerator h s ret (R.Expr MIR s ty)
+rangeStart itemRepr r = do
+   (MirExp C.AnyRepr tup) <- accessAggregate (MirExp taggedUnionRepr r) 1
+   let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
+   let strTy = C.StructRepr ctx
+   let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
+                                     (fromString ("Bad Any unpack iter_next:" ++ show strTy))
+   let start = S.getStruct Ctx.i1of2 unp
+   return start
+
+rangeEnd :: C.TypeRepr ty -> R.Expr MIR s TaggedUnion -> MirGenerator h s ret (R.Expr MIR s ty)
+rangeEnd itemRepr r = do
+   (MirExp C.AnyRepr tup) <- accessAggregate (MirExp taggedUnionRepr r) 1
+   let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
+   let strTy = C.StructRepr ctx
+   let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
+                                     (fromString ("Bad Any unpack iter_next:" ++ show strTy))
+   let end   = S.getStruct Ctx.i2of2 unp
+   return end
+
+mkRange :: C.TypeRepr ty -> R.Expr MIR s ty -> R.Expr MIR s ty -> R.Expr MIR s TaggedUnion
+mkRange itemRepr start end = 
+   let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
+       strTy = C.StructRepr ctx
+       y     = S.app $ E.PackAny strTy (S.app $ E.MkStruct ctx (Ctx.empty `Ctx.extend` start `Ctx.extend` end))
+       j     = S.app $ E.MkStruct taggedUnionCtx (Ctx.empty `Ctx.extend` (S.litExpr 0) `Ctx.extend` y)
+   in  j
+
+
 --------------------------------------------------------------------------------------------------------------------------
 -- *  Primitives & other custom stuff
 
@@ -2673,6 +2773,9 @@ customOps = Map.fromList [
                          , slice_get_unchecked_mut
                          , slice_len
                          , slice_get_mut
+              
+                         , ops_index
+                         , ops_index_mut
 
                          , into_iter
                          , iter_next
@@ -2754,11 +2857,11 @@ exit = ((["process"], "exit", []), \s -> Just CustomOpExit)
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: Index
 
-index :: (ExplodedDefId, CustomRHS)
-index = ((["ops", "index"], "Index", ["index"]), index_op )
+ops_index :: (ExplodedDefId, CustomRHS)
+ops_index = ((["ops", "index"], "Index", ["index"]), index_op )
 
-index_mut :: (ExplodedDefId, CustomRHS)
-index_mut = ((["ops", "index"], "IndexMut", ["index_mut"]), index_op )
+ops_index_mut :: (ExplodedDefId, CustomRHS)
+ops_index_mut = ((["ops", "index"], "IndexMut", ["index_mut"]), index_op )
 
 
 index_op :: Substs -> Maybe CustomOp
@@ -2789,6 +2892,7 @@ wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: Iterator
 
+
 into_iter :: (ExplodedDefId, CustomRHS)
 into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
     \ (Substs subs) -> Just $ CustomOp $ \ _opTys _retTy ops ->
@@ -2799,46 +2903,49 @@ into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
              -- an identity function
              -- the range type just uses the default implementation of this trait
              return arg
+{-           TyAdt defid (Substs [_,itemTy]) | defid == M.textId "::slice[0]::Iter[0]" -> do
+             traceM $ "Found slice Iter"
+             let x = buildTuple [arg, MirExp (C.NatRepr) (S.app $ E.NatLit 0)]
+             let y = buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 0), packAny x]
+             return y -}
            _ -> do
-             return $ buildTuple [arg, MirExp (C.NatRepr) (S.app $ E.NatLit 0)]
+             -- vector iterator: a pair of the vector and the index
+             traceM $ "Found " ++ show ty
+             let x = buildTuple [arg, MirExp (C.NatRepr) (S.app $ E.NatLit 0)]
+             let y = buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 0), packAny x]
+             return y
+             
        _ -> fail $ "BUG: invalid arguments for into_iter")
 
 iter_next :: (ExplodedDefId, CustomRHS)
 iter_next = ((["iter","iterator"],"Iterator", ["next"]), iter_next_op) where
   iter_next_op (Substs [TyAdt defid (Substs [itemTy])])
     | defid == M.textId "::ops[0]::range[0]::Range[0]"  = Just (CustomOp (iter_next_op_range itemTy))
+  iter_next_op (Substs [TyAdt defid (Substs [_,itemTy])])
+    | defid == M.textId "::slice[0]::Iter[0]" = Just (CustomOp (iter_next_op_array itemTy))
   iter_next_op (Substs [TyArray itemTy _len]) = Just (CustomOp (iter_next_op_array itemTy))
   iter_next_op _ = Nothing
+
 
 iter_next_op_range :: forall h s ret. HasCallStack => M.Ty -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 iter_next_op_range itemTy _opTys _retTy ops =
     case ops of 
        [ MirExp (MirReferenceRepr tr) ii ]
-         | Just Refl <- testEquality tr taggedUnionType
+         | Just Refl <- testEquality tr taggedUnionRepr
          -> do
              -- iterator is a struct of a "start" and "end" value of type 'itemTy'
              -- to increment the iterator, make sure the start < end and then
              tyToReprCont itemTy $ \itemRepr -> do
 
                 r <- readMirRef tr ii
-                (MirExp C.AnyRepr tup) <- accessAggregate (MirExp tr r) 1
-
-                -- a "Range" is a pair of a start and end value
-                let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
-                let strTy = C.StructRepr ctx
-                let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
-                                     (fromString ("Bad Any unpack iter_next:" ++ show strTy))
-                let start = S.getStruct Ctx.i1of2 unp
-                let end   = S.getStruct Ctx.i2of2 unp
+                start <- rangeStart itemRepr r
+                end   <- rangeEnd   itemRepr r
 
                 plus_one <- incrExp itemRepr start
                 let good_ret = mkSome' itemRepr start
                 let bad_ret  = mkNone'
                 let  updateRange :: MirGenerator h s ret ()
-                     updateRange = let y  = S.app $ E.PackAny strTy (S.app $ E.SetStruct ctx unp Ctx.i1of2 plus_one)
-                                       jj = S.app $ E.MkStruct taggedUnionCtx (Ctx.empty `Ctx.extend` (S.litExpr 0) `Ctx.extend` y)
-                                  in
-                                      writeMirRef ii jj
+                     updateRange = writeMirRef ii (mkRange itemRepr plus_one end)
 
                 (MirExp C.BoolRepr boundsCheck)
                      <- evalBinOp M.Lt (arithType itemTy) (MirExp itemRepr start)
@@ -2846,7 +2953,7 @@ iter_next_op_range itemTy _opTys _retTy ops =
                 ret <- G.ifte boundsCheck
                            (updateRange >> return good_ret)
                            (return bad_ret)
-                return (MirExp taggedUnionType ret)
+                return (MirExp taggedUnionRepr ret)
        _ -> fail $ "BUG: invalid arguments for iter_next"
 
 
@@ -2860,7 +2967,7 @@ iter_next_op_array itemTy _opTys retTy ops =
       (MirExp (C.VectorRepr elemTy) iter_vec) <- accessAggregate iter 0
       (MirExp C.NatRepr iter_pos) <- accessAggregate iter 1
       let is_good    = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
-          ret_1_ty   = taggedUnionType
+          ret_1_ty   = taggedUnionRepr
           ret_2_ctx  = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
           ret_2_ty   = C.StructRepr ret_2_ctx
           ty_ctx     = (Ctx.empty Ctx.:> ret_1_ty Ctx.:> ret_2_ty)
@@ -2906,6 +3013,8 @@ iter_collect_op _subst _opTys _retTy ops =
 -- ** Custom: slice
 
 
+
+
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
   ((["slice","{{impl}}"], "len", [])
@@ -2917,20 +3026,33 @@ slice_len =
        _ -> fail $ "BUG: invalid arguments to " ++ "slice_len")
 
 
---- SCW: currently unused.
--- Only works when the sequence is an immutable array, accessed by a range
+-- Only works when the sequence is accessed by a range
 slice_get_mut :: (ExplodedDefId, CustomRHS)
 slice_get_mut =
   ((["slice", "{{impl}}"],"get_mut", [])
-  , \(Substs _subs) -> Just $ CustomOp $ \ optys retTy ops -> do
-      case ops of
-        [MirExp (C.VectorRepr ety) vec_e, range_e] -> do
-           (MirExp C.NatRepr start) <- accessAggregate range_e 0
-           (MirExp C.NatRepr stop ) <- accessAggregate range_e 1
-           v <- vectorCopy ety start stop vec_e
-           return $ (MirExp (C.VectorRepr ety) v)
-        _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops)
+  , \subs -> case subs of
+               (Substs [elTy, TyAdt defid (Substs [M.TyUint M.USize])])
+                 | defid == M.textId "::ops[0]::range[0]::Range[0]"
+                 -> Just $ CustomOp $ \ optys retTy ops -> do
+                    case ops of
+                      [MirExp (C.VectorRepr ety) vec_e, MirExp tr range_e ]
+                        | Just Refl <- testEquality tr taggedUnionRepr -> do
+                         start <- rangeStart C.NatRepr range_e
+                         stop  <- rangeEnd   C.NatRepr range_e 
+                         v <- vectorCopy ety start stop vec_e
+                         return $ mkSome (MirExp (C.VectorRepr ety) v)
 
+                      [MirExp (MirSliceRepr ty) vec_e, MirExp tr range_e] 
+                        | Just Refl <- testEquality tr taggedUnionRepr -> do
+                         start <- rangeStart C.NatRepr range_e
+                         stop  <- rangeEnd   C.NatRepr range_e 
+                         let newLen = (S.app $ E.NatSub stop start)
+                         let s1 = updateSliceLB  ty vec_e start
+                         let s2 = updateSliceLen ty s1    newLen
+                         return $ mkSome (MirExp (MirSliceRepr ty) s2)
+
+                      _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops
+               (Substs _) -> Nothing)
 
 slice_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
 slice_get_unchecked_mut =
@@ -3081,30 +3203,6 @@ vectorCopy ety start stop inp = do
   o <- G.readRef or
   return o
 
--- statically-typed option creation
-
-mkSome' :: C.TypeRepr tp -> G.Expr MIR s tp -> G.Expr MIR s TaggedUnion
-mkSome' ty val =
-   let tty  = C.StructRepr (Ctx.empty Ctx.:> ty) in
-   let tval = G.App $ E.MkStruct (Ctx.empty Ctx.:> ty) (Ctx.empty Ctx.:> val) in
-   G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
-                      (Ctx.empty Ctx.:> (S.app $ E.NatLit 1) Ctx.:> (S.app $ E.PackAny tty tval))
-
-mkNone' :: G.Expr MIR s TaggedUnion
-mkNone'=
-  let ty  = C.StructRepr Ctx.empty in
-  let val = S.app $ E.MkStruct Ctx.empty Ctx.empty in
-  G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
-                     (Ctx.empty Ctx.:> (S.app $ E.NatLit 0) Ctx.:> (S.app $ E.PackAny ty val))
-
--- dynamically-typed option
-
-mkNone :: MirExp s
-mkNone =
-    buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 0), packAny $ buildTuple []]
-
-mkSome :: MirExp s -> MirExp s
-mkSome a = buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 1), packAny $ buildTuple [a]]
 
 -- Type-indexed version of "1"
 oneExp :: C.TypeRepr ty -> MirExp s
@@ -3119,6 +3217,7 @@ incrExp ty e = do res <- evalBinOp M.Add Nothing (MirExp ty e) (oneExp ty)
                     (MirExp ty' e') | Just Refl <- testEquality ty ty'
                                     -> return e'
                     _ -> error "BUG: incrExp should return same type"
+
 
 
 
@@ -3266,7 +3365,7 @@ doCustomCall fname funsubst ops lv dest
        (TyAdt defid (Substs [itemTy]),
         MirExp (MirReferenceRepr tr) ii) 
          | defid == M.textId "::ops[0]::range[0]::Range[0]"
-         , Just Refl <- testEquality tr taggedUnionType
+         , Just Refl <- testEquality tr taggedUnionRepr
          -> do -- iterator is a struct of a "start" and "end" value of type 'itemTy'
                -- to increment the iterator, make sure the start < end and then
                tyToReprCont itemTy $ \itemRepr -> do

@@ -25,6 +25,7 @@ import qualified Text.Read       as Read
 import           System.IO (stdout)
 import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
 import           System.Console.GetOpt(OptDescr(..), ArgDescr(..))
+import           System.Exit(exitSuccess)
 
 import           Text.PrettyPrint.ANSI.Leijen (pretty)
 
@@ -84,11 +85,13 @@ instance Crux.Language CruxMIR where
   data LangOptions CruxMIR = MIROptions
      {
        useStdLib :: Bool
+     , onlyPP    :: Bool
      }
  
   defaultOptions = MIROptions
     {
       useStdLib = True
+    , onlyPP    = False
     }
 
   envOptions = []
@@ -100,7 +103,12 @@ instance Crux.Language CruxMIR where
   cmdLineOptions =
     [ Option ['n'] ["no-std-lib"]
       (NoArg (\opts -> opts { useStdLib = False }))
-      "suppress standard library" ]
+      "suppress standard library"
+      
+    , Option []    ["print-mir"]
+      (NoArg (\opts -> opts { onlyPP = True }))
+      "pretty-print mir and exit"
+    ]
 
 simulateMIR :: forall sym. (?outputConfig :: OutputConfig) => Crux.Simulate sym CruxMIR
 simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
@@ -116,6 +124,11 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
 
   col1 <- generateMIR debugLevel dir name
+
+  when (onlyPP mirOpts) $ do
+    -- TODO: make this exit more gracefully
+    print $ pretty col1
+    liftIO $ exitSuccess
 
   prims <- liftIO $ (loadPrims (useStdLib mirOpts) debugLevel)
   let col = prims <> col1
