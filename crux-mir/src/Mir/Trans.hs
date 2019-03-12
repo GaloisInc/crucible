@@ -2240,40 +2240,19 @@ transCollection col0 debug halloc = do
 -- * Traits
 
 
--- | The translation of a trait declaration: includes the types of all components
+-- | The translation of the methods in a trait declaration: includes the types of all components
 --   and an indexing map for the vtables
 data TraitDecl ctx =
    TraitDecl M.DefId                                -- name of trait (for debugging only)
              [(M.DefId,M.FnSig)]                    -- declared types of the methods
-             (C.CtxRepr ctx)                       -- vtable type 
+             (C.CtxRepr ctx)                        -- vtable type 
              (Map MethName (Some (Ctx.Index ctx)))  -- indices into the vtable
+             (Map Int MethName)                     -- reverse index
 
 instance Show (TraitDecl ctx) where
-  show (TraitDecl nm _msig _vtable mm) = "TraitDecl(" ++ show nm ++ ":" ++ show (Map.keys mm) ++ ")"
+  show (TraitDecl nm _msig _vtable mm _rm) = "TraitDecl(" ++ show nm ++ ":" ++ show (Map.keys mm) ++ ")"
 instance ShowF TraitDecl
 
--- | Calculate the number of free variables in a Mir type
-numParams :: M.FnSig -> Integer
-numParams (M.FnSig argtys retty) = maximum (paramBound retty : map paramBound argtys) where
-  paramBound :: Ty -> Integer
-  paramBound (TyParam x) = x + 1
-  paramBound (TyTuple []) = 0
-  paramBound (TyTuple tys) = maximum (map paramBound tys)
-  paramBound (TySlice ty)  = paramBound ty
-  paramBound (TyArray ty _) = paramBound ty
-  paramBound (TyRef ty _)   = paramBound ty
-  paramBound (TyAdt _ substs) = paramBoundSubsts substs
-  paramBound (TyFnDef _ substs) = paramBoundSubsts substs
-  paramBound (TyClosure _ substs) = paramBoundSubsts substs
-  paramBound (TyFnPtr sig) = numParams sig   --- no top-level generalization???
-  paramBound (TyRawPtr ty _) = paramBound ty
-  paramBound (TyDowncast ty _) = paramBound ty
-  paramBound (TyProjection _ substs) = paramBoundSubsts substs
-  paramBound _ = 0
-
-  paramBoundSubsts :: Substs -> Integer
-  paramBoundSubsts (Substs []) = 0
-  paramBoundSubsts (Substs tys) = maximum (map paramBound tys)
 
 
 -- | Translate a trait declaration
@@ -2289,7 +2268,7 @@ mkTraitDecl tr = do
       go (Some tr) (mname, sig@(M.FnSig argtys retty))
         | Some ret  <- tyToRepr retty
         , Some args <- tyListToCtx argtys Some
-        , Just (Some k) <- somePeano (numParams sig)
+        , Just (Some k) <- somePeano (M.numParams sig)
         =  Some (tr `Ctx.extend` MethRepr mname (C.PolyFnRepr k args ret))
       go _ _ = error "mkTraitDecl bug: numParams should always return a natural number"
 
@@ -2305,7 +2284,12 @@ mkTraitDecl tr = do
                           (\mp idx -> Map.insert (getReprName (mctxr Ctx.! idx)) (Some idx) mp)
                           Map.empty
 
-        in Some (TraitDecl tname meths ctxr midx) 
+            -- reverse the method map, for convenience
+            rm      :: Map Int MethName
+            rm      = Map.foldrWithKey (\ mname (Some idx) m ->
+                                             Map.insert (Ctx.indexVal idx) mname m) Map.empty midx
+
+        in Some (TraitDecl tname meths ctxr midx rm) 
 
 substToSubstCont :: HasCallStack => Substs -> (forall subst. C.SubstRepr subst -> a) -> a
 substToSubstCont (Substs []) f        = f C.IdRepr
@@ -2316,48 +2300,60 @@ substToSubstCont (Substs (ty:rest)) f =
 
 
 -- | Build the mapping from traits and types that implement them to VTables
--- This will (eventually) involve defining new functions that "wrap" (and potentially unwrap) the specific implementations,
--- providing a uniform type for the trait methods. 
+-- For trait objects, this method will (eventually) involve defining new functions that
+-- "wrap" (and potentially unwrap) the specific implementations, providing a uniform type for the trait methods. 
 buildTraitMap :: Int -> M.Collection -> FH.HandleAllocator s -> HandleMap
               -> ST s (GenericTraitMap, StaticTraitMap, [(Text, Core.AnyCFG MIR)])
 buildTraitMap debug col _halloc hmap = do
+
+    when (debug > 6) $ do
+       traceM $ "handle map contents in buildTraitMap:" 
+       forM_ (Map.assocs hmap) $ \(methName, methHandle) -> do
+           traceM $ "\t" ++ show methName
 
     -- translate the trait declarations
     let decls :: Map TraitName (Some TraitDecl)
         decls = foldr (\ trait m -> Map.insert (trait^.M.traitName) (mkTraitDecl trait) m)
                  Map.empty (col^.M.traits)
 
-    when (debug > 6) $ do
-       traceM $ "handle map contents:" 
-       forM_ (Map.assocs hmap) $ \(methName, methHandle) -> do
-           traceM $ "\t" ++ show methName
+    -- find default methods for traits
+    let default_methods :: Map TraitName [(MethName, MirHandle)]
+        default_methods = foldr g Map.empty  (col^.M.traits) where
+           g :: Trait -> Map TraitName [(MethName, MirHandle)] -> Map TraitName [(MethName, MirHandle)]
+           g trait m = foldr g2 m (trait^.M.traitItems) where
+               g2 (TraitMethod methName sig) m
+                 | Just mh <- Map.lookup  methName hmap 
+                 = Map.insertWith (++) (trait^.M.traitName) [(methName,mh)] m
+               g2 _ m = m
 
-
-    -- find all methods that are the implementations of traits
+    -- find all methods that are the implementations of traits at specific types
     -- this uses the name of the method and its type 
     let impls :: [(MethName, TraitName, MirHandle, Substs)]
         impls = [ (methName, traitName, methHandle, substs) 
                 | (methName, methHandle) <- Map.assocs hmap
                 , (traitName, substs)    <- getTraitImplementation (col^.M.traits) (methName,methHandle) ]
 
-    when (debug > 2) $ do
+    when (debug > 3) $ do
       forM_ impls $ \(mn, tn, mh, sub) -> do
          traceM $ "Implementing method of trait " ++ show tn ++ show (pretty sub)
          traceM $ "\t with " ++ show (pretty mh) 
 
-    let impl_vtable :: TraitDecl ctx
-                    -> C.TypeRepr implTy 
-                    -> [(MethName, MirHandle, Substs)]    -- impls for that type, must be in correct order
+    let impl_vtable :: TraitDecl ctx                      
+                    -> C.TypeRepr implTy                  -- ^ implementation type for the trait
+                    -> [(MethName, MirHandle, Substs)]    -- ^ impls for that type, must be in correct order
                     -> Ctx.Assignment GenericMirValue ctx
-        impl_vtable (TraitDecl tname methDecls ctxr methodIndex) implTy meths  =
+        impl_vtable (TraitDecl tname methDecls ctxr methodIndex revIndex) implTy methImpls  =
            let go :: Ctx.Index ctx ty -> C.TypeRepr ty -> Identity (GenericMirValue ty)
                go idx (C.PolyFnRepr k args ret) = do
                   let i = Ctx.indexVal idx
-                  let (implName, implHandle, implSubst) = if i < length meths then meths !! i
-                      else error $  "impl_vtable BUG: trying to access " ++ show i ++ " from methods\n"
-                                 ++ show (map (\(x,y,z)->x) meths)
-                  traceM $ "Found method: " ++ show implName 
-                  let (declName, _declTy)     = if i < length methDecls then methDecls !! i else error "impl_vtable: BUG in methDecls"
+                  when (i >= length methImpls) $ do
+                      error $ "impl_vtable BUG: " ++ show i ++ " out of range for methImpls"
+                  when (i >= length methDecls) $ do
+                      error $ "impl_vtable BUG: " ++ show i ++ " out of range for methDecls"
+
+                  let (declName, _declTy)                = methDecls !! i 
+                  let (_implName, implHandle, implSubst) = methImpls !! i
+
                   substToSubstCont implSubst $ \subst -> 
                     case implHandle of 
                       (MirHandle mname sig _pred (fh :: FH.FnHandle fargs fret)) ->                      
@@ -2378,52 +2374,54 @@ buildTraitMap debug col _halloc hmap = do
                                         ++ "\n\targs after subst: "  ++ show (C.instantiate subst args)
                                         ++ "\n\tdeclared name is: " ++ show declName
                                         ++ "\n\tdeclared type is: "  ++ show (C.PolyFnRepr (succP k) args ret)
-               go idx _ = error "buildTraitMap: cannot only handle trait definitions with polmorphic functions (no constants allowed)"
+               go idx _ = error "buildTraitMap: can only handle trait definitions with polmorphic functions (no constants allowed)"
            in 
               runIdentity (Ctx.traverseWithIndex go ctxr)
 
 
     -- make the vtables for each implementation
-    perTraitInfos <- forM (Map.assocs decls) $ \(trait, Some decl@(TraitDecl _tname _msigs ctx methodIndex)) -> do
-                     let implHandles = [(methName,mirHandle, substs) | (methName, tn, mirHandle, substs) <- impls, trait == tn]
+    perTraitInfos <- forM (Map.assocs decls) $ \(traitName, Some decl@(TraitDecl _tname _msigs ctx methodIndex revMap)) -> do
+                     let implHandles = [(methName,mirHandle, substs) | (methName, tn, mirHandle, substs) <- impls, traitName == tn]
 
                      vtables' <- forM (groupByType implHandles) $ \(typeName, implHandlesByType) -> do
-                                    -- traceM $ "making vtable for " ++ show trait ++ "<" ++ show typeName ++ ">"
                                     case tyToRepr typeName of
                                       Some typeRepr -> do
-                                         --traceM $ "declared method table" 
-                                         --forM_ (Map.toList methodIndex) $ \(methName, idx) ->
-                                         --         traceM $ "\t" ++ show methName ++ " : " ++ show idx
+                                        
+                                         let implsWithDefaults = List.map getImpl (Map.assocs revMap) where
 
-                                         let sortedImpls = reorderImpls (Map.toList (Map.map (\(Some v) -> (Ctx.indexVal v)) methodIndex))
-                                                           implHandlesByType
+                                             isImpl methName implName
+                                               | Just methodEntry <- M.parseImplName implName
+                                               = M.sameTraitMethod methodEntry methName
+                                             isImpl _ _ = False
 
-                                         --traceM $ "implHandlesByType: "
-                                         --forM_ sortedImpls $ \(methName, _, _) -> do
-                                         --         traceM $ "\t" ++ show methName
-                                         let vtable = impl_vtable decl typeRepr sortedImpls
+                                             getImpl (_idx, methName)
+                                               -- there is a concrete implementation
+                                               | Just (implName, implHandle, implSubst) <-
+                                                     List.find (\(implName, _, _) -> isImpl methName implName) implHandlesByType 
+                                               = (implName, implHandle, implSubst)
+
+                                               -- there is a default implementation
+                                               | Just ms <- Map.lookup traitName default_methods
+                                               , Just (_, implHandle) <- List.find (\(mn,_) -> methName == mn) ms
+                                               = (methName, implHandle, Substs [])
+
+                                               -- can't find the implementation
+                                               | otherwise
+                                               = error $ "BUG: Cannot find implementation of " ++ show methName
+                                                       ++ " trait " ++ show traitName ++ " for type " ++ show typeName
+
+                                         let vtable = impl_vtable decl typeRepr implsWithDefaults
                                          return (Map.singleton typeName vtable)
 
                      let vtables   = mconcat vtables'
                      let traitImpl = Some (mkGenericTraitImpls ctx methodIndex vtables)
  
-                     return (trait, traitImpl)
+                     return (traitName, traitImpl)
 
     let tm   = mkGenericTraitMap perTraitInfos
     let stm  = mkStaticTraitMap perTraitInfos
 
     return (tm, stm, [])
-
-reorderImpls :: [(MethName, Int)] -> [(MethName,MirHandle, Substs)] -> [(MethName,MirHandle, Substs)]
-reorderImpls declIndices implHandlesByType = List.sortBy cmpMeths implHandlesByType where
-   cmpMeths meth1@(implName1,_,_) meth2@(implName2,_,_) =
-      let findIdx implName | Just methodEntry <- M.parseImplName implName = 
-                                 List.find (\ (m, i) -> M.sameTraitMethod methodEntry m) declIndices
-                           | otherwise = error $  "BUG: should be able to parseImplName " ++ show implName
-      in case (findIdx implName1, findIdx implName2) of
-            (Just (_, i1), Just (_, i2)) -> compare i1 i2
-            (Nothing     , _           ) -> error $ "BUG: cannot find idx for " ++ show implName1
-            ( _          , Nothing     ) -> error $ "BUG: cannot find idx for " ++ show implName2
 
 
 thisType :: Substs -> Ty
@@ -2464,7 +2462,7 @@ getReprTy (MethRepr _ ty) = ty
 lookupMethodType :: Map TraitName (Some TraitDecl) -> TraitName -> MethName ->
     (forall ctx args ret. C.CtxRepr ctx -> C.CtxRepr args -> C.TypeRepr ret -> a) -> a
 lookupMethodType traitDecls traitName implName k 
-   | Just (Some (TraitDecl _tname _msig vreprs meths)) <- Map.lookup traitName traitDecls,
+   | Just (Some (TraitDecl _tname _msig vreprs meths _revmap)) <- Map.lookup traitName traitDecls,
      Just (Some idx)                      <- Map.lookup implName  meths,
      C.FunctionHandleRepr (argsr Ctx.:> C.AnyRepr) retr <- (vreprs Ctx.! idx)
    = k vreprs argsr retr

@@ -727,7 +727,7 @@ isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
 isMutRefTy _ = False
 
 
--- Does this type contain any type parameters
+-- | Does this type contain any type parameters
 isPoly :: Ty -> Bool
 isPoly (TyParam _) = True
 isPoly (TyTuple ts) = any isPoly ts
@@ -746,6 +746,31 @@ isPoly _x = False
 isNever :: Ty -> Bool
 isNever (TyAdt defId _) = fst (did_name defId) == "Never"
 isNever _ = False
+
+
+-- | Calculate the number of free variables in a Mir type
+numParams :: FnSig -> Integer
+numParams (FnSig argtys retty) = maximum (paramBound retty : map paramBound argtys) where
+  paramBound :: Ty -> Integer
+  paramBound (TyParam x) = x + 1
+  paramBound (TyTuple []) = 0
+  paramBound (TyTuple tys) = maximum (map paramBound tys)
+  paramBound (TySlice ty)  = paramBound ty
+  paramBound (TyArray ty _) = paramBound ty
+  paramBound (TyRef ty _)   = paramBound ty
+  paramBound (TyAdt _ substs) = paramBoundSubsts substs
+  paramBound (TyFnDef _ substs) = paramBoundSubsts substs
+  paramBound (TyClosure _ substs) = paramBoundSubsts substs
+  paramBound (TyFnPtr sig) = numParams sig   --- no top-level generalization???
+  paramBound (TyRawPtr ty _) = paramBound ty
+  paramBound (TyDowncast ty _) = paramBound ty
+  paramBound (TyProjection _ substs) = paramBoundSubsts substs
+  paramBound _ = 0
+
+  paramBoundSubsts :: Substs -> Integer
+  paramBoundSubsts (Substs []) = 0
+  paramBoundSubsts (Substs tys) = maximum (map paramBound tys)
+
 
 --------------------------------------------------------------------------------------
 -- | arithType

@@ -379,9 +379,9 @@ matchTys _ _ = Nothing
 -- | Decide whether the given method definition is an implementation method for
 -- a declared trait. If so, return any such declared traits along with the type substitution
   
-getTraitImplementation :: [Trait] ->
-                          (MethName,MirHandle) ->
-                          [(TraitName, Substs)]
+getTraitImplementation :: [Trait]                      -- ^ all traits in the collection
+                       -> (MethName,MirHandle)         -- ^ a specific function in the collection
+                       -> [(TraitName, Substs)]        -- ^ traits that this function could implement
 getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh))
   -- find just the text of the method name
   | Just methodEntry <- parseImplName name = do
