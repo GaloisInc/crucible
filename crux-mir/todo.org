@@ -32,28 +32,14 @@ TODO
   operators. However, I'm not sure how to get crucible to tell me
   about any counter-examples that it produces.
 
-- cannot assign to function parameter (test/conc_eval/
-   array/arg.rs
-   prim/ffs.rs
-
+- Mutable reference-taken variable not backed by reference!
    stdlib/result-interior
-
-   Workaround:
-   replace declaration:
-
-   fn ffs_imp(mut i : u32) -> u32 {
-   
-   ... with ...
-
-   fn ffs_imp(mut j : u32) -> u32 {
-      let mut i = j;
 
 - need definitions of intrinsics:
 
    https://github.com/rust-lang/rust/blob/master/src/libcore/intrinsics.rs
 
    (Though look for the functions that wrap them, which are more stable.)
-
 
 
 - dynamic trait invocation (i.e. trait objects) (test/conc_eval/traits/dynamic*.rs)
@@ -87,3 +73,6 @@ FIXED
 - refactor doCustomCall 
 - no default methods in traits
 - translate associated types into extra type parameters
+- cannot assign to mutable function parameter 
+   array/arg.rs
+   prim/ffs.rs
