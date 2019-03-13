@@ -39,13 +39,15 @@ loadPrims :: Bool -> Int -> IO Collection
 loadPrims useStdLib debugLevel = do
 
   let lib = if useStdLib then
-              [ -- "convert"
-               "option"
+              [ "convert"
+              , "option"
               , "result"
               , "cmp"      
               , "ops/range"  
               , "default"
-              , "ops/function" 
+              , "ops/function"
+              , "ops/index"
+              , "ops/deref"
               , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
               ] else []
         

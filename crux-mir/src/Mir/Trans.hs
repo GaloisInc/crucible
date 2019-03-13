@@ -631,7 +631,7 @@ getAllFields e =
       MirExp (C.StructRepr ctx) _ -> do
         let s = Ctx.sizeInt (Ctx.size ctx)
         mapM (accessAggregate e) [0..(s-1)]
-      _ -> fail "getallfields of non-struct"
+      _ -> fail $ "getallfields of non-struct" ++ show e
 
 
 getAllFieldsMaybe :: MirExp s -> MirGenerator h s ret ([MirExp s])
@@ -642,7 +642,7 @@ getAllFieldsMaybe e =
       MirExp (C.StructRepr ctx) _ -> do
         let s = Ctx.sizeInt (Ctx.size ctx)
         mapM (accessAggregateMaybe e) [0..(s-1)]
-      _ -> fail "getallfields of non-struct"
+      _ -> fail $ "getallfieldsMaybe of non-struct" ++ show e
 
 
 accessAggregate :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
@@ -2161,25 +2161,25 @@ mkHandleMap adts halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
              let mh = MirHandle nm ty (fn^.fpredicates) h
              return (nm, mh)
 
+--------------------------------------------------------------------------------------
+
 -- Create the dictionary adt type for a trait
 -- The dictionary is a record (i.e. an ADT with a single variant) with
 -- a field for each method in the trait.
-traitToAdt :: M.Trait -> Maybe M.Adt
-traitToAdt tr = do
-  let itemToField :: M.TraitItem -> Maybe M.Field
-      itemToField (M.TraitMethod did fnsig) =
-        return $ M.Field did (TyFnPtr fnsig) (Substs [])
-      itemToField _ = Nothing
-  fields <- mapM itemToField (tr^.traitItems)
-  return $ M.Adt (tr^.traitName) [M.Variant (tr^.traitName) (Relative 0) fields M.FnKind]
+defineTraitAdts :: [M.Trait] -> [M.Adt]
+defineTraitAdts traits = Maybe.mapMaybe traitToAdt traits where
+   traitToAdt :: M.Trait -> Maybe M.Adt
+   traitToAdt tr = do
+     let itemToField :: M.TraitItem -> Maybe M.Field
+         itemToField (M.TraitMethod did fnsig) =
+           return $ M.Field did (TyFnPtr fnsig) (Substs [])
+         itemToField _ = Nothing
+     fields <- mapM itemToField (tr^.traitItems)
+     return $ M.Adt (tr^.traitName) [M.Variant (tr^.traitName) (Relative 0) fields M.FnKind]
 
+--------------------------------------------------------------------------------------
 
-addTraitAdts :: M.Collection -> M.Collection
-addTraitAdts col = col & adts %~ (++ new) where
-  new = Maybe.mapMaybe traitToAdt (col^.M.traits)
-
-
--- Explicitly inherit all supertrait methods
+-- Explicitly inherit all supertrait items
 -- NOTE: if we include a trait that derives from an unknown supertrait, we will do the
 -- "best effort" We won't inherit any of the declarations, that bit will just be
 -- ignored.
@@ -2209,13 +2209,79 @@ expandSuperTraits traits =  map nubTrait (Map.elems (go traits Map.empty)) where
          step :: Map M.TraitName M.Trait
          step = Map.union done (Map.fromList (List.map addSupers this))
 
+{----------------------------------------------------------------
+
+   Turn associated types into additional type arguments.
+
+   For example, consider this Rust trait:
+
+   pub trait Index<Idx> where
+    Idx: ?Sized, 
+   {
+    type Output: ?Sized;
+    fn index(&self, index: Idx) -> &Self::Output;
+   }
+
+   In MIR it will look like this, where Self is "TyParam 0"
+   and other parameters follow.
+
+   Trait "Index"
+         [TraitType "Output",
+          TraitMethod "index" (&0,&1) -> &Output<0,1>]
+
+   This operation converts the Output type so that it
+   is an additional type parameter to the trait method.
+
+   Trait "Index"
+         [TraitType "Output",
+          TraitMethod "index" (&0,&1) -> &2]
+
+   Implementations of this trait will then unify this
+   parameter just as the others.
+
+-}
+
 abstractAssociatedTypes :: [M.Trait] -> [M.Trait]
-abstractAssociatedTypes = map processTrait where
-   processTrait trait = trait & traitItems %~ processItems
-   processItems titems = map processItem titems where
+abstractAssociatedTypes = map doTrait where
+
+   doTrait trait = trait & traitItems %~ doItems
+   doItems titems = map doItem titems where
      atys   = [ did | (M.TraitType did) <- titems]
-     processItem (TraitMethod name sig) = TraitMethod name (abstractSig atys sig)
-     processItem item = item
+     doItem (TraitMethod name sig) = TraitMethod name (abstractSig atys sig)
+     doItem item = item
+
+   abstractSig :: [M.DefId] -> FnSig -> FnSig
+   abstractSig atys sig@(FnSig instArgs instRet) = FnSig (map abstractTy instArgs) (abstractTy instRet) where
+      nextParam = numParams sig
+
+      abstractTy (TyProjection d (Substs substs))
+        | Just k <- List.findIndex (==d) atys = TyParam nextParam 
+        | otherwise = error $ "Projection " ++ show d ++ " from trait that doesn't define it"
+      abstractTy (TyTuple tys) = TyTuple (map abstractTy tys)
+      abstractTy (TySlice ty)  = TySlice (abstractTy ty)
+      abstractTy (TyArray ty mut) = TyArray (abstractTy ty) mut
+      abstractTy (TyRef ty mut)   = TyRef   (abstractTy ty) mut
+      abstractTy (TyAdt did (Substs tys)) = TyAdt did (Substs (map abstractTy tys))
+      abstractTy (TyFnDef did (Substs tys)) = TyFnDef did (Substs (map abstractTy tys))
+      abstractTy (TyClosure did (Substs tys)) = TyClosure did (Substs (map abstractTy tys))
+      abstractTy (TyFnPtr (FnSig args ret)) = TyFnPtr (FnSig (map abstractTy args) (abstractTy ret))
+      abstractTy (TyRawPtr ty x) = TyRawPtr (abstractTy ty) x
+      abstractTy (TyDowncast ty x) = TyDowncast (abstractTy ty) x
+      abstractTy TyBool = TyBool
+      abstractTy TyChar = TyChar
+      abstractTy (TyInt sz) = TyInt sz
+      abstractTy (TyUint sz) = TyUint sz
+      abstractTy TyUnsupported = TyUnsupported
+      abstractTy (TyCustom c) = TyCustom c
+      abstractTy (TyParam i) = TyParam i
+      abstractTy (TyStr) = TyStr
+      abstractTy (TyDynamic did) = TyDynamic did
+      abstractTy (TyFloat sz) = TyFloat sz
+      abstractTy TyLifetime = TyLifetime
+
+
+
+--------------------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR module
 transCollection :: HasCallStack
@@ -2230,23 +2296,23 @@ transCollection col0 debug halloc = do
     -- replace associated types with additional type parameters
     let col2 = col1 & traits %~ abstractAssociatedTypes
 
-    -- add adts for declared traits
-    let col = addTraitAdts col2
+    -- add adts for declared traits, for dictionary passing translation
+    let col3 = col2 & adts %~ (++ defineTraitAdts (col2^.M.traits))
 
     -- figure out which ADTs are enums and mark them in the code base
-    let cstyleAdts = List.filter isCStyle (col^.M.adts)
-    let col1 = markCStyle (cstyleAdts, col) col
+    let cstyleAdts = List.filter isCStyle (col3^.M.adts)
+    let col4 = markCStyle (cstyleAdts, col3) col3
 
+    let col = col4
 
-    when (debug > 2) $ do
+    when (debug > 3) $ do
       traceM $ "MIR collection"
-      traceM $ show (pretty col2)
+      traceM $ show (pretty col)
 
+    let amap = Map.fromList [ (nm, vs) | M.Adt nm vs <- col^.M.adts ]
+    hmap <- mkHandleMap amap halloc (col^.M.functions)
 
-    let amap = Map.fromList [ (nm, vs) | M.Adt nm vs <- col1^.M.adts ]
-    hmap <- mkHandleMap amap halloc (col1^.M.functions)
-
-    (gtm@(GenericTraitMap gm), stm, morePairs) <- buildTraitMap debug col1 halloc hmap
+    (gtm@(GenericTraitMap gm), stm, morePairs) <- buildTraitMap debug col halloc hmap
 
     when (debug > 2) $ do
       traceM $ "Trait map"
@@ -2255,7 +2321,7 @@ transCollection col0 debug halloc = do
     let fnState :: (forall s. FnState s)
         fnState = case gtm of
                      GenericTraitMap tm -> FnState Map.empty Map.empty hmap amap (TraitMap tm) stm debug []
-    pairs <- mapM (transDefine amap fnState) (col1^.M.functions)
+    pairs <- mapM (transDefine amap fnState) (col^.M.functions)
     return $ Map.fromList (pairs ++ morePairs)
 
 ----------------------------------------------------------------------------------------------------------
@@ -2276,26 +2342,6 @@ instance Show (TraitDecl ctx) where
 instance ShowF TraitDecl
 
 
--- abstract associated types as additional arguments to the method
-abstractSig :: [M.DefId] -> FnSig -> FnSig
-abstractSig atys sig@(FnSig instArgs instRet) = FnSig (map abstractTy instArgs) (abstractTy instRet) where
-   nextParam = numParams sig
-
-   abstractTy (TyProjection d (Substs [TyParam 0]))
-     | Just k <- List.findIndex (==d) atys = TyParam nextParam 
-     | otherwise = error $ "Projection " ++ show d ++ " from trait that doesn't define it"
-   abstractTy (TyProjection d subst)
-     = error $ "Projection from non-first type param: " ++ show (pretty subst)
-   abstractTy (TyTuple tys) = TyTuple (map abstractTy tys)
-   abstractTy (TySlice ty)  = TySlice (abstractTy ty)
-   abstractTy (TyArray ty mut) = TyArray (abstractTy ty) mut
-   abstractTy (TyRef ty mut)   = TyRef   (abstractTy ty) mut
-   abstractTy (TyFnDef did (Substs tys)) = TyFnDef did (Substs (map abstractTy tys))
-   abstractTy (TyClosure did (Substs tys)) = TyClosure did (Substs (map abstractTy tys))
-   abstractTy (TyFnPtr (FnSig args ret)) = TyFnPtr (FnSig (map abstractTy args) (abstractTy ret))
-   abstractTy (TyRawPtr ty x) = TyRawPtr (abstractTy ty) x
-   abstractTy (TyDowncast ty x) = TyDowncast (abstractTy ty) x
-   abstractTy ty = ty
 
 -- | Translate a trait declaration
 mkTraitDecl :: M.Trait -> Some TraitDecl

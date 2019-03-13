@@ -364,7 +364,8 @@ matchTy (TyClosure d1 s1) (TyClosure d2 s2) | d1 == d2 =  matchSubsts s1 s2
 matchTy (TyFnPtr sig1) (TyFnPtr sig2) = matchSig sig1 sig2
 matchTy (TyRawPtr t1 m1)(TyRawPtr t2 m2) | m1 == m2 = matchTy t1 t2
 matchTy (TyDowncast t1 i1) (TyDowncast t2 i2) | i1 == i2 = matchTy t1 t2
-matchTy ty (TyProjection d2 s2) = error "BUG: found a type projection when trying to match a trait signature"
+matchTy ty1 ty2@(TyProjection d2 s2) = error $
+  "BUG: found " ++ show (pretty ty2) ++ " when trying to match " ++ show (pretty ty1)
   
 
 -- more
@@ -399,11 +400,11 @@ getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh))
     let namedTraits = [ (tr, tm, ts) | tr@(Trait _tn items _supers) <- trts,
                                        (tm,ts) <- Maybe.mapMaybe isTraitMethod items ]
 
-    traceM $ "named Traits for : " ++ show name
-    traceM $ "\t with sig: " ++ show (pretty sig)
-    forM_ namedTraits $ \(tr,tm,ts) -> do
-         traceM $ "\t traitName:" ++ show (tr^.traitName) ++ " has method " ++ show tm 
-         traceM $ "\t withSig:  " ++ show (pretty ts)         
+    --traceM $ "named Traits for : " ++ show name
+    --traceM $ "\t with sig: " ++ show (pretty sig)
+    --forM_ namedTraits $ \(tr,tm,ts) -> do
+    --     traceM $ "\t traitName:" ++ show (tr^.traitName) ++ " has method " ++ show tm 
+    --     traceM $ "\t withSig:  " ++ show (pretty ts)         
   
     let typedTraits = Maybe.mapMaybe (\(tr,tm,ts) -> (tr,tm,ts,) <$> matchSig sig ts) namedTraits
 

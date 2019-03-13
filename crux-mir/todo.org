@@ -1,0 +1,77 @@
+TODO
+
+- translation of Slice types isn't compositional (requires identifying outer ref)
+      
+  M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
+  M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
+
+  Should translate all slices to triple of vector + lb + ub, which can then be 
+  mutable or not.
+
+- minimal standard library: lacking slices, iteration, type conversions, etc.
+
+  array/wick1.rs  - "with_capacity"
+  array/wick3.rs 
+
+  slice/get.rs - "get_mut"
+
+  prim/lit.rs    (string len)
+
+
+- failing symbolic test cases
+
+- cannot assign to function parameter (test/conc_eval/
+   array/arg.rs
+   prim/ffs.rs
+   stdlib/result-interior
+
+   Workaround:
+   replace declaration:
+
+   fn ffs_imp(mut i : u32) -> u32 {
+   
+   ... with ...
+
+   fn ffs_imp(mut j : u32) -> u32 {
+      let mut i = j;
+
+- need definitions of intrinsics:
+
+   https://github.com/rust-lang/rust/blob/master/src/libcore/intrinsics.rs
+
+   (Though look for the functions that wrap them, which are more stable.)
+
+
+
+- dynamic trait invocation (i.e. trait objects) (test/conc_eval/traits/dynamic*.rs)
+   + a "trait object" is a value (coerced to Any) accompanied by its vtable. However, we need to make a coerced 
+     version of that vtable so that it can take arguments of type "Any" instead of the implementation type. 
+     This requires allocating a bunch of function handles for the wrapped vtable (one for each implementation type)
+
+
+- prim/shift_exceeding.rs
+
+
+WAITING ON MIR-JSON
+
+- parsing of constants
+   crypto/add.rs
+
+- static traits with members that do not mention Self (traits/static, traits/static_two.rs)
+   mir-json open issue #4
+
+- update matchTy so that it 
+     (a) works with Projections
+     (b) detects inconsistencies
+   
+
+MADE SOME PROGRESS
+
+- fix crucible-syntax. (Broke David's work in git rebase, ugh)
+   + now compiles, don't know how to test it though.
+
+FIXED
+
+- test/conc_eval/traits/subtrait.rs
+- refactor doCustomCall 
+- no default methods in traits

@@ -27,7 +27,7 @@ pub mod ops {
             fn call_once(self, args: Args) -> Self::Output;
         }
 
-        /*
+/*        
         mod impls {
 
             use ops::function::Fn;
@@ -78,6 +78,6 @@ pub mod ops {
                 }
             }
 
-        } */
-    }
+        } */ 
+    } 
 }

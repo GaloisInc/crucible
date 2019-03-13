@@ -15,7 +15,7 @@ impl G for u32 {
 
 impl <T:G> G for Data<T> {
     fn g(&self) -> u32 {
-       return 2 // self.0.g()
+       self.0.g()
     }
 }
 
