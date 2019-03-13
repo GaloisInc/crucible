@@ -2,12 +2,21 @@
 
 // parameter is mutable in Rust, so we should make a local variable on translation
 
-fn f(mut x: [u8; 4]) -> [u8; 4] {
+fn h(mut x: [u8; 4]) -> [u8; 4] {
     x[0] = 42;
     x
 }
 
-const ARG: [u8; 4] = [0; 4];
+
+fn f(x:u8) -> u8 {
+    let mut y = [0;4];
+    y[0] = x;
+    h(y);
+    y[0]
+}
+
+
+const ARG: u8 = 2;
 
 #[cfg(with_main)]
 fn main() {

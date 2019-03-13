@@ -2022,7 +2022,7 @@ buildIdentMapRegs (M.MirBody localvars blocks) extravars =
    addressTakenVars = mconcat (map addrTakenVars blocks)
    -- "allocate" space for return variable
    needsInitVars = Set.fromList ["_0"]
-   -- needsInitVars = Set.fromList (map _varname vars) -- (mconcat (map needsInit blocks)) `Set.difference` (Set.fromList (map _varname argvars))
+
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
 buildLabelMap (M.MirBody _ blocks) = Map.fromList <$> mapM buildLabel blocks

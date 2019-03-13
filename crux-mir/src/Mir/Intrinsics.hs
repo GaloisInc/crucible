@@ -75,6 +75,7 @@ import           Data.Parameterized.Classes
 import           Data.Parameterized.Context
 import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
+import qualified Data.Parameterized.Map as MapF
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
@@ -103,8 +104,14 @@ import           Debug.Trace
 import           Unsafe.Coerce
 
 
+mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
+mirIntrinsicTypes =
+   MapF.insert (knownSymbol :: SymbolRepr "MirReference") IntrinsicMuxFn $
+   MapF.empty
+
+
 --------------------------------------------------------------
--- * A MirReference is a Crucible RefCell paired with a path to a subcomponent
+-- * A MirReference is a Crucible RefCell paired with a path to a sub-component
 --
 -- We use this to represent mutable data
 

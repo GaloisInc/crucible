@@ -52,6 +52,7 @@ changeTyToImmut :: Ty -> Ty
 changeTyToImmut (TyRef c _) =  (TyRef c Immut)
 changeTyToImmut t = t
 
+
 -- Pass for rewriting mutref args to be returned outside; i.e., if I
 -- have a function f(x : T1, y : &mut T2, z : T3, w : &mut T4) -> T5,
 -- it will be transformed into a function which returns (T5, T2,
@@ -60,6 +61,14 @@ changeTyToImmut t = t
 
 -- The algorithm is imperative -- everything is basically modified in place.
 
+-- TODO: this is currently define as a pass that only operates on the
+-- [Fn] part of the collection. However, to be robust in the case of
+-- code that uses traits, then it needs to modify the types of
+-- functions declared in traits and also look up the types of trait
+-- functions during translation.
+
+
+
 data RewriteFnSt = RFS { --  state internal to function translation.
     _fn_name :: DefId,
     _ctr :: Int, -- counter for fresh variables
@@ -67,13 +76,17 @@ data RewriteFnSt = RFS { --  state internal to function translation.
     -- vvv arguments of the form &mut T (or variations thereof.) The translation creates a dummy variable for each one. The dummy variable is the second. fst will end up in internals, snd will end up in arguments
     _mut_argpairs :: Map.Map T.Text (Var, Var),
     _ret_ty :: Ty,
+    _generics :: [Param],
+    _predicates :: [Predicate],
     _internals :: Map.Map T.Text Var, -- local variables
     _blocks :: Map.Map T.Text BasicBlockData,
     _dummyret :: Maybe Var, -- this is where the original return value goes, which will later be aggregated with the mutref values
-    _fnargsmap :: Map.Map DefId [Ty], -- maps argument names to their types in the function signature
-       -- TODO: update comment, it maps function names to the types of their arguments
+    _fnargsmap :: Map.Map DefId [Ty], -- maps function names to their types 
     _fnsubstitutions :: Map.Map Lvalue Lvalue -- any substitutions which need to take place. all happen at the end
     }
+
+--------------------------------------------------------------------------
+-- TODO: replace this with mkLenses??
 
 fnSubstitutions :: Simple Lens RewriteFnSt (Map.Map Lvalue Lvalue)
 fnSubstitutions = lens _fnsubstitutions (\s v -> s { _fnsubstitutions = v })
@@ -99,11 +112,19 @@ fnDummyRet = lens _dummyret (\s v -> s { _dummyret = v})
 fnRet_ty :: Simple Lens (RewriteFnSt) Ty
 fnRet_ty = lens _ret_ty (\s v -> s { _ret_ty = v })
 
+fnGens :: Simple Lens (RewriteFnSt) [Param]
+fnGens = lens _generics (\s v -> s { _generics = v })
+
+fnPreds :: Simple Lens (RewriteFnSt) [Predicate]
+fnPreds = lens _predicates (\s v -> s { _predicates = v })
+
 fnInternals :: Simple Lens (RewriteFnSt) (Map.Map T.Text Var)
 fnInternals = lens _internals (\s v -> s { _internals = v })
 
 fnBlocks :: Simple Lens (RewriteFnSt) (Map.Map T.Text BasicBlockData)
 fnBlocks = lens _blocks (\s v -> s { _blocks = v })
+
+--------------------------------------------------------------------------
 
 newCtr :: State RewriteFnSt Int
 newCtr = do
@@ -138,12 +159,12 @@ newInternal ty = do
 -- build initial rewrite state
 
 buildRewriteSt :: Fn -> [Fn] -> RewriteFnSt
-buildRewriteSt (Fn fname fargs fretty (MirBody internals blocks) _gens _preds) fns =
+buildRewriteSt (Fn fname fargs fretty (MirBody internals blocks) gens preds) fns =
     let (mut_args, immut_args) = partition (isMutRefTy . typeOf) fargs
         immut_map = vars_to_map immut_args
         mutpairmap = Map.map (\v -> (v, mutref_to_immut v)) (vars_to_map mut_args)
         fnmap = Map.fromList $ map (\(Fn fn fa _ _ _ _) -> (fn, map typeOf fa)) fns in
-    RFS fname 0 immut_map mutpairmap fretty (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
+    RFS fname 0 immut_map mutpairmap fretty gens preds (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
 
 -- insertMutvarsIntoInternals
 -- put all x's into internals, where (x,y) are the mutarg pairs (x is old mut, y is new immut dummy)
@@ -299,12 +320,14 @@ extractFn = do
     blocks <- use fnBlocks
     fname <- use fnName
     fsubs <- use fnSubstitutions
+    gens  <- use fnGens
+    preds <- use fnPreds
 
     let blocks_ = replaceList (Map.toList fsubs) blocks
 
     let fnargs = (Map.elems immut_args) ++ (Map.elems $ Map.map snd mut_argpairs)
         fnblocks = map (\(k,v) -> BasicBlock k v) (Map.toList blocks_)
-    return $ Fn fname fnargs ret_ty (MirBody (Map.elems internals) fnblocks) (error "TODO: gens") (error "TODO:preds")
+    return $ Fn fname fnargs ret_ty (MirBody (Map.elems internals) fnblocks) gens preds
 
 
 -- if there are no mutref args, then the body of the function doesn't need to change

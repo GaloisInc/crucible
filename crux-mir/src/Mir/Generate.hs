@@ -107,7 +107,7 @@ generateMIR debug dir name  = do
 -- | Translate MIR to Crucible
 translateMIR :: Collection -> Int -> RustModule
 translateMIR col debug = RustModule cfgmap where
-  passes  = P.passRemoveBoxNullary . (P.passAllocateEnum col)
+  passes  = P.passNoMutParams . (P.passAllocateEnum col)
   cfgmap  = mirToCFG col debug (Just passes)
 
 mirToCFG :: Collection -> Int -> Maybe ([Fn] -> [Fn]) -> M.Map T.Text (C.AnyCFG MIR)

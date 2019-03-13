@@ -63,10 +63,9 @@ import Crux.Log
 import           Mir.Mir
 import           Mir.PP()
 import           Mir.Overrides
-import           Mir.Intrinsics(MIR,mirExtImpl)
+import           Mir.Intrinsics(MIR,mirExtImpl,mirIntrinsicTypes)
 import           Mir.DefId(cleanVariantName,parseFieldName)
-import           Mir.SAWInterface (translateMIR,RustModule(..))
-import           Mir.Generate(generateMIR)
+import           Mir.Generate(generateMIR, translateMIR, RustModule(..))
 import           Mir.Prims(loadPrims)
 
 main :: IO ()
@@ -126,7 +125,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
   col1 <- generateMIR debugLevel dir name
 
   when (onlyPP mirOpts) $ do
-    -- TODO: make this exit more gracefully
+    -- TODO: make this exit more gracefully somehow
     print $ pretty col1
     liftIO $ exitSuccess
 
@@ -179,7 +178,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
         return ()
 
   halloc <- C.newHandleAllocator
-  let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl p
+  let simctx = C.initSimContext sym mirIntrinsicTypes halloc stdout C.emptyHandleMap mirExtImpl p
       rosim  = C.runOverrideSim (W4.knownRepr :: C.TypeRepr C.UnitType) osim
       
   res <- C.executeCrucible (map C.genericToExecutionFeature execFeatures)
@@ -220,7 +219,7 @@ setSimulatorVerbosity verbosity sym = do
   _ <- W4.setOpt verbSetting (toInteger verbosity)
   return ()
 
-
+-------------------------------------------------------
 showRegEntry :: forall sym arg p rtp args ret
    . C.IsSymInterface sym
   => Collection

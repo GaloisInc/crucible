@@ -59,6 +59,7 @@ library
                    Mir.Pass.RewriteMutRef
                    Mir.Pass.RemoveStorage
                    Mir.Pass.RemoveBoxNullary
+                   Mir.Pass.NoMutParams
                    Mir.PP
                    Mir.Generate
                    Mir.DefId

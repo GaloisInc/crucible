@@ -12,8 +12,7 @@ fn ffs_ref(word : u32) -> u32 {
     return 0;
 }
 
-fn ffs_imp(j : u32) -> u32 {
-    let mut i = j;
+fn ffs_imp(mut i : u32) -> u32 {
     let mut n : u8 = 1;
     if (i & 0xffff) == 0 { n += 16; i >>= 16; }
     if (i & 0x00ff) == 0 { n +=  8; i >>=  8; }
@@ -28,7 +27,7 @@ fn f (arg : u32) -> bool {
    return ffs_ref(arg) == ffs_imp (arg);
 }
 
-const ARG: u32 = 27;
+const ARG: u32 = 28;
 
 #[cfg(with_main)]
 fn main() {

@@ -49,7 +49,7 @@ loadPrims useStdLib debugLevel = do
               , "ops/index"
               , "ops/deref"
               , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
-              ] else []
+              ] else [ ]
         
   
   -- Only print debugging info in the standard library at high debugging levels

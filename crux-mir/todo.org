@@ -5,24 +5,37 @@ TODO
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
 
-  Should translate all slices to triple of vector + lb + ub, which can then be 
-  mutable or not.
+  This could be problemmatic if we ever need to substitute a slice type into 
+  M.TyRef (M.TyParam 0).
 
-- minimal standard library: lacking slices, iteration, type conversions, etc.
+  Should explore other options.
 
-  array/wick1.rs  - "with_capacity"
-  array/wick3.rs 
+- minimal standard library: lacking slices, iteration, vectors, type conversions, etc.
 
-  slice/get.rs - "get_mut"
-
-  prim/lit.rs    (string len)
+  affected tests:
+    array/wick1.rs - "vec::with_capacity"
+    array/wick3.rs - "vec::with_capacity"
+    slice/get.rs   - "get_mut"
+    prim/lit.rs    (string len)
 
 
 - failing symbolic test cases
 
+  This one passes:
+    symb_eval/crypto/double.rs
+  
+  These do not:
+    symb_eval/crypto/ffs.rs
+    symb_eval/crypto/bytes.rs
+
+  It may be a matter of the translation of primitive
+  operators. However, I'm not sure how to get crucible to tell me
+  about any counter-examples that it produces.
+
 - cannot assign to function parameter (test/conc_eval/
    array/arg.rs
    prim/ffs.rs
+
    stdlib/result-interior
 
    Workaround:
@@ -48,6 +61,8 @@ TODO
      version of that vtable so that it can take arguments of type "Any" instead of the implementation type. 
      This requires allocating a bunch of function handles for the wrapped vtable (one for each implementation type)
 
+- better interface to symbolic evaluation.  need a rust interface module for examples to import
+  and need to load the definitions in mir-verifier.
 
 - prim/shift_exceeding.rs
 
@@ -60,10 +75,6 @@ WAITING ON MIR-JSON
 - static traits with members that do not mention Self (traits/static, traits/static_two.rs)
    mir-json open issue #4
 
-- update matchTy so that it 
-     (a) works with Projections
-     (b) detects inconsistencies
-   
 
 MADE SOME PROGRESS
 
@@ -75,3 +86,4 @@ FIXED
 - test/conc_eval/traits/subtrait.rs
 - refactor doCustomCall 
 - no default methods in traits
+- translate associated types into extra type parameters

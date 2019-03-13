@@ -679,6 +679,10 @@ makeLenses ''Var
 makeLenses ''Collection
 makeLenses ''Fn
 makeLenses ''Trait
+makeLenses ''MirBody
+makeLenses ''BasicBlock
+makeLenses ''BasicBlockData
+makeLenses ''AdtAg
 
 instance Semigroup Collection where
   (Collection f1 a1 t1)<> (Collection f2 a2 t2) =
