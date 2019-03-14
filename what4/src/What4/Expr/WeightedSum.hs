@@ -19,11 +19,13 @@ Declares a weighted sum type used for representing sums over variables and an of
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wwarn #-}
 module What4.Expr.WeightedSum
-  ( WrapF(..)
+  ( -- * Utilities
+    WrapF(..)
   , Tm
+    -- * Weighted sums
   , WeightedSum
   , sumRepr
   , sumOffset
@@ -45,6 +47,18 @@ module What4.Expr.WeightedSum
   , fromTerms
   , transformSum
   , reduceIntSumMod
+
+    -- * Ring products
+  , SemiRingProduct
+  , traverseProdVars
+  , nullProd
+  , asProdVar
+  , prodRepr
+  , prodVar
+  , prodMul
+  , prodEval
+  , prodEvalM
+  , prodContains
   ) where
 
 import           Control.Lens
@@ -80,10 +94,15 @@ traverseWrap f (WrapF x) = WrapF <$> f x
 data WeightedSum (f :: BaseType -> Type) (sr :: SR.SemiRing)
    = WeightedSum { _sumMap     :: !(Map (WrapF f sr) (SR.Coefficient sr))
                  , _sumOffset  :: !(SR.Coefficient sr)
-                 , _sumHash    :: !Int -- ^ precomputed hash of the map part of the weighted sum
-                 , sumRepr     :: SR.SemiRingRepr sr
+                 , _sumHash    :: Int -- ^ precomputed hash of the map part of the weighted sum
+                 , sumRepr     :: !(SR.SemiRingRepr sr)
                  }
 
+data SemiRingProduct (f :: BaseType -> Type) (sr :: SR.SemiRing)
+   = SemiRingProduct { _prodMap  :: !(Map (WrapF f sr) (SR.Occurence sr))
+                     , _prodHash :: Int
+                     , prodRepr  :: !(SR.SemiRingRepr sr)
+                     }
 
 listEqBy :: (a -> a -> Bool) -> [a] -> [a] -> Bool
 listEqBy _ [] [] = True
@@ -93,6 +112,14 @@ listEqBy _ _ _ = False
 
 mapEqBy :: Ord k => (a -> a -> Bool) -> Map k a -> Map k a -> Bool
 mapEqBy f x y = listEqBy (\(kx,ax) (ky,ay) -> kx == ky && f ax ay) (Map.toAscList x) (Map.toAscList y)
+
+instance OrdF f => TestEquality (SemiRingProduct f) where
+  testEquality x y
+    | _prodHash x /= _prodHash y = Nothing
+    | otherwise =
+        do Refl <- testEquality (prodRepr x) (prodRepr y)
+           unless (mapEqBy (SR.occ_eq (prodRepr x)) (_prodMap x) (_prodMap y)) Nothing
+           return Refl
 
 instance OrdF f => TestEquality (WeightedSum f) where
   testEquality x y
@@ -126,9 +153,16 @@ instance Hashable (WeightedSum f sr) where
   hashWithSalt s0 w =
     hashWithSalt (SR.sr_hashWithSalt (sumRepr w) s0 (_sumOffset w)) (_sumHash w)
 
+instance Hashable (SemiRingProduct f sr) where
+  hashWithSalt s0 w = hashWithSalt s0 (_prodHash w)
+
 computeHash :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Coefficient sr) -> Int
 computeHash sr m = Map.foldlWithKey' h 0 m
     where h s k v = s `xor` SR.sr_hashWithSalt sr (hash k) v
+
+computeProdHash :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Occurence sr) -> Int
+computeProdHash sr m = Map.foldlWithKey' h 0 m
+    where h s k v = s `xor` SR.occ_hashWithSalt sr (hash k) v
 
 -- | Attempt to parse weighted sum as a constant
 asConstant :: WeightedSum f sr -> Maybe (SR.Coefficient sr)
@@ -166,14 +200,23 @@ traverseVars :: forall k j m sr.
   WeightedSum j sr ->
   m (WeightedSum k sr)
 traverseVars f w =
-  (\m -> unfilteredSum (sumRepr w) m (_sumOffset w))
-    <$> traverseMapKey (traverseWrap f) (_sumMap w)
+  let sr = sumRepr w in
+    (\m -> unfilteredSum sr m (_sumOffset w)) .
+    Map.filter (not . SR.eq sr (SR.zero sr)) .
+    Map.fromListWith (SR.add sr) <$>
+      traverse (_1 (traverseWrap f)) (Map.toList (_sumMap w))
 
--- | Traverse the keys in a Map
-traverseMapKey :: (Applicative m, Ord k) =>
-  (j -> m k) -> Map j v -> m (Map k v)
-traverseMapKey f m =
-  Map.fromList <$> traverse (_1 f) (Map.toList m)
+-- | Traverse the expressions in a weighted sum.
+traverseProdVars :: forall k j m sr.
+  (Applicative m, Tm k) =>
+  (j (SR.SemiRingBase sr) -> m (k (SR.SemiRingBase sr))) ->
+  SemiRingProduct j sr ->
+  m (SemiRingProduct k sr)
+traverseProdVars f pd =
+  let sr = prodRepr pd in
+    mkProd (prodRepr pd) .
+    Map.fromListWith (SR.occ_add sr) <$>
+      traverse (_1 (traverseWrap f)) (Map.toList (_prodMap pd))
 
 -- | This returns a variable times a constant.
 scaledVar :: Tm f => SR.SemiRingRepr sr -> SR.Coefficient sr -> f (SR.SemiRingBase sr) -> WeightedSum f sr
@@ -364,3 +407,69 @@ extractCommon (WeightedSum xm xc _ sr) (WeightedSum ym yc _ _) = (z, x', y')
 
         x' = unfilteredSum sr (xm `Map.difference` zm) xc'
         y' = unfilteredSum sr (ym `Map.difference` zm) yc'
+
+
+nullProd :: SemiRingProduct f sr -> Bool
+nullProd pd = Map.null (_prodMap pd)
+
+asProdVar :: SemiRingProduct f sr -> Maybe (f (SR.SemiRingBase sr))
+asProdVar pd
+  | [(WrapF x, SR.occ_count sr -> 1)] <- Map.toList (_prodMap pd) = Just x
+  | otherwise = Nothing
+ where
+ sr = prodRepr pd
+
+prodContains :: OrdF f => SemiRingProduct f sr -> f (SR.SemiRingBase sr) -> Bool
+prodContains pd x = Map.member (WrapF x) (_prodMap pd)
+
+mkProd :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Occurence sr) -> SemiRingProduct f sr
+mkProd sr m = SemiRingProduct m (computeProdHash sr m) sr
+
+prodVar :: Tm f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> SemiRingProduct f sr
+prodVar sr x = mkProd sr (Map.singleton (WrapF x) (SR.occ_one sr))
+
+prodMul :: Tm f => SemiRingProduct f sr -> SemiRingProduct f sr -> SemiRingProduct f sr
+prodMul x y = mkProd sr m
+  where
+  sr = prodRepr x
+  mergeCommon _ a b = Just (SR.occ_add sr a b)
+  m = Map.mergeWithKey mergeCommon id id (_prodMap x) (_prodMap y)
+
+prodEval ::
+  (r -> r -> r) {-^ multiplication evalation -} ->
+  (f (SR.SemiRingBase sr) -> r) {-^ term evaluation -} ->
+  SemiRingProduct f sr ->
+  Maybe r
+prodEval mul tm om =
+  runIdentity (prodEvalM (\x y -> Identity (mul x y)) (Identity . tm) om)
+
+prodEvalM :: Monad m =>
+  (r -> r -> m r) {-^ multiplication evalation -} ->
+  (f (SR.SemiRingBase sr) -> m r) {-^ term evaluation -} ->
+  SemiRingProduct f sr ->
+  m (Maybe r)
+prodEvalM mul tm om = f (Map.toList (_prodMap om))
+  where
+  sr = prodRepr om
+
+  f [] = return Nothing
+  f ((WrapF x, SR.occ_count sr -> n):xs)
+    | n == 0    = f xs
+    | n == 1    = g xs =<< tm x
+    | otherwise =
+        do t <- tm x
+           t' <- go (n-1) t t
+           g xs t'
+
+  g [] z = return (Just z)
+  g ((WrapF x, SR.occ_count sr -> n):xs) z
+    | n == 0  = g xs z
+    | n == 1  = g xs =<< mul z =<< tm x
+    | otherwise =
+        do t <- tm x
+           t' <- go n t z
+           g xs t'
+
+  go n t z
+    | n > 0 = go (n-1) t =<< mul z t
+    | otherwise = return z

@@ -26,6 +26,7 @@ module What4.SemiRing
   , BVFlavorRepr(..)
   , SemiRingBase
   , Coefficient
+  , Occurence
   , semiRingBase
   , orderedSemiRing
   , zero
@@ -37,6 +38,12 @@ module What4.SemiRing
   , lt
   , sr_compare
   , sr_hashWithSalt
+  , occ_add
+  , occ_one
+  , occ_eq
+  , occ_hashWithSalt
+  , occ_compare
+  , occ_count
   ) where
 
 import GHC.TypeNats
@@ -104,6 +111,18 @@ type family Coefficient (sr :: SemiRing) :: Type where
   Coefficient SemiRingReal       = Rational
   Coefficient (SemiRingBV fv w)  = Integer
 
+-- | The Occurence family counts how many times a term occurs
+--   in a product.  For most semirings, this is just a natural
+--   number representing the an exponent.  For the boolean ring
+--   of bitvectors, however, it is unit beacause the lattice operations
+--   are idempotent.
+type family Occurence (sr :: SemiRing) :: Type where
+  Occurence SemiRingNat            = Natural
+  Occurence SemiRingInteger        = Natural
+  Occurence SemiRingReal           = Natural
+  Occurence (SemiRingBV BVArith w) = Natural
+  Occurence (SemiRingBV BVBits w)  = ()
+
 sr_compare :: SemiRingRepr sr -> Coefficient sr -> Coefficient sr -> Ordering
 sr_compare SemiRingNatRepr      = compare
 sr_compare SemiRingIntegerRepr  = compare
@@ -117,6 +136,47 @@ sr_hashWithSalt SemiRingIntegerRepr  = hashWithSalt
 sr_hashWithSalt SemiRingRealRepr     = hashWithSalt
 sr_hashWithSalt (SemiRingBVRepr _ _) = hashWithSalt
 
+occ_one :: SemiRingRepr sr -> Occurence sr
+occ_one SemiRingNatRepr     = 1
+occ_one SemiRingIntegerRepr = 1
+occ_one SemiRingRealRepr    = 1
+occ_one (SemiRingBVRepr BVArithRepr _) = 1
+occ_one (SemiRingBVRepr BVBitsRepr _)  = ()
+
+occ_add :: SemiRingRepr sr -> Occurence sr -> Occurence sr -> Occurence sr
+occ_add SemiRingNatRepr     = (+)
+occ_add SemiRingIntegerRepr = (+)
+occ_add SemiRingRealRepr    = (+)
+occ_add (SemiRingBVRepr BVArithRepr _) = (+)
+occ_add (SemiRingBVRepr BVBitsRepr _)  = \_ _ -> ()
+
+occ_count :: SemiRingRepr sr -> Occurence sr -> Natural
+occ_count SemiRingNatRepr     = id
+occ_count SemiRingIntegerRepr = id
+occ_count SemiRingRealRepr    = id
+occ_count (SemiRingBVRepr BVArithRepr _) = id
+occ_count (SemiRingBVRepr BVBitsRepr _)  = \_ -> 1
+
+occ_eq :: SemiRingRepr sr -> Occurence sr -> Occurence sr -> Bool
+occ_eq SemiRingNatRepr     = (==)
+occ_eq SemiRingIntegerRepr = (==)
+occ_eq SemiRingRealRepr    = (==)
+occ_eq (SemiRingBVRepr BVArithRepr _) = (==)
+occ_eq (SemiRingBVRepr BVBitsRepr _)  = \_ _ -> True
+
+occ_hashWithSalt :: SemiRingRepr sr -> Int -> Occurence sr -> Int
+occ_hashWithSalt SemiRingNatRepr      = hashWithSalt
+occ_hashWithSalt SemiRingIntegerRepr  = hashWithSalt
+occ_hashWithSalt SemiRingRealRepr     = hashWithSalt
+occ_hashWithSalt (SemiRingBVRepr BVArithRepr _) = hashWithSalt
+occ_hashWithSalt (SemiRingBVRepr BVBitsRepr _) = hashWithSalt
+
+occ_compare :: SemiRingRepr sr -> Occurence sr -> Occurence sr -> Ordering
+occ_compare SemiRingNatRepr      = compare
+occ_compare SemiRingIntegerRepr  = compare
+occ_compare SemiRingRealRepr     = compare
+occ_compare (SemiRingBVRepr BVArithRepr _) = compare
+occ_compare (SemiRingBVRepr BVBitsRepr _)  = compare
 
 zero :: SemiRingRepr sr -> Coefficient sr
 zero SemiRingNatRepr          = 0 :: Natural

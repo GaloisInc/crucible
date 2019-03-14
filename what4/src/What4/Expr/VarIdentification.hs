@@ -14,6 +14,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 module What4.Expr.VarIdentification
   ( -- * CollectedVarInfo
     CollectedVarInfo
@@ -241,7 +242,7 @@ recordAssertionVars :: Scope
                     -> Expr t BaseBoolType
                        -- ^ Predicate to assert
                     -> VarRecorder s t ()
-recordAssertionVars scope p (AppExpr ae) = do
+recordAssertionVars scope p e@(AppExpr ae) = do
   ht <- VR ask
   let idx = indexValue (appExprId ae)
   mp <- liftST $ H.lookup ht idx
@@ -251,11 +252,11 @@ recordAssertionVars scope p (AppExpr ae) = do
     -- We've already seen the element in the context @oldp@.
     Just (Just oldp) -> do
       when (oldp /= p) $ do
-        recurseAssertedAppExprVars scope p ae
+        recurseAssertedAppExprVars scope p e
         liftST $ H.insert ht idx Nothing
     -- We have not seen this element yet.
     Nothing -> do
-      recurseAssertedAppExprVars scope p ae
+      recurseAssertedAppExprVars scope p e
       liftST $ H.insert ht idx (Just p)
 recordAssertionVars scope p (NonceAppExpr ae) = do
   ht <- VR ask
@@ -300,16 +301,24 @@ recurseAssertedNonceAppExprVars scope p ea0 =
     _ -> recurseNonceAppVars scope ea0
 
 -- | This records asserted variables in an app expr.
-recurseAssertedAppExprVars :: Scope -> Polarity -> AppExpr t BaseBoolType -> VarRecorder s t ()
-recurseAssertedAppExprVars scope p ea0 =
-  case appExprApp ea0 of
-    NotBool x -> recordAssertionVars scope (negatePolarity p) x
-    AndBool x y -> mapM_ (recordAssertionVars scope p) [x, y]
-    BaseIte BaseBoolRepr _ c x y -> do
-      recordExprVars scope c
+recurseAssertedAppExprVars :: Scope -> Polarity -> Expr t BaseBoolType -> VarRecorder s t ()
+recurseAssertedAppExprVars scope p e = go e
+ where
+ go BoolExpr{} = return ()
+
+ go (asApp -> Just (NotPred x)) =
+        recordAssertionVars scope (negatePolarity p) x
+
+ go (asApp -> Just (AndPred x y)) = 
+     do recordAssertionVars scope p x
+        recordAssertionVars scope p y
+
+ go (asApp -> Just (BaseIte BaseBoolRepr _ c x y)) =
+   do recordExprVars scope c
       recordAssertionVars scope p x
       recordAssertionVars scope p y
-    _ -> recurseExprVars scope ea0
+
+ go _ = recordExprVars scope e
 
 
 memoExprVars :: Nonce t (tp::BaseType) -> VarRecorder s t () -> VarRecorder s t ()
@@ -330,6 +339,7 @@ recordExprVars _ (SemiRingLiteral sr _ _) =
     SR.SemiRingBVRepr _ _ -> addFeatures useBitvectors
     _                     -> addFeatures useLinearArithmetic
 recordExprVars _ StringExpr{} = addFeatures useStrings
+recordExprVars _ BoolExpr{} = return ()
 recordExprVars scope (NonceAppExpr e0) = do
   memoExprVars (nonceExprId e0) $ do
     recurseNonceAppVars scope e0

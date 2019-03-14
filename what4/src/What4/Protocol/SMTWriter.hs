@@ -1509,6 +1509,8 @@ defineSMTFunction conn var action =
 
 -- | Convert an expression into a SMT Expression.
 mkExpr :: SMTWriter h => Expr t tp -> SMTCollector t h (SMTExpr h tp)
+mkExpr (BoolExpr b _) =
+  return (SMTExpr BoolTypeMap (boolExpr b))
 mkExpr t@(SemiRingLiteral SR.SemiRingNatRepr n _) = do
   checkLinearSupport t
   return (SMTExpr NatTypeMap (fromIntegral n))
@@ -1719,22 +1721,6 @@ appSMTExpr ae = do
              yb <- mkBaseExpr y
              freshBoundTerm tym $ ite cb xb yb
 
-    TrueBool  ->
-      return $! SMTExpr BoolTypeMap (boolExpr True)
-    FalseBool ->
-      return $! SMTExpr BoolTypeMap (boolExpr False)
-    NotBool x   -> do
-      xb <- mkExpr x
-      freshBoundTerm BoolTypeMap $ notExpr (asBase xb)
-    AndBool x y -> do
-      xb <- mkExpr x
-      yb <- mkExpr y
-      freshBoundTerm BoolTypeMap $ asBase xb .&& asBase yb
-    XorBool x y -> do
-      xb <- mkBaseExpr x
-      yb <- mkBaseExpr y
-      freshBoundTerm BoolTypeMap $ xb ./= yb
-
     SemiRingLe _sr x y -> do
       xb <- mkBaseExpr x
       yb <- mkBaseExpr y
@@ -1810,25 +1796,32 @@ appSMTExpr ae = do
 
       freshBoundTerm NatTypeMap (intMod x y)
 
+    NotPred x -> freshBoundTerm BoolTypeMap . notExpr =<< mkBaseExpr x
+    AndPred x y ->
+      freshBoundTerm BoolTypeMap =<< ((.&&) <$> mkBaseExpr x <*> mkBaseExpr y)
+
     ------------------------------------------
     -- Real operations.
 
-    SemiRingMul (SR.SemiRingBVRepr SR.BVArithRepr w) x y ->
-      do xb <- mkBaseExpr x
-         yb <- mkBaseExpr y
-         freshBoundTerm (BVTypeMap w) $ bvMul xb yb
-    SemiRingMul (SR.SemiRingBVRepr SR.BVBitsRepr w) x y ->
-      do xb <- mkBaseExpr x
-         yb <- mkBaseExpr y
-         freshBoundTerm (BVTypeMap w) $ bvAnd xb yb
-    SemiRingMul sr x y -> do
-      case (x,y) of
-        (SemiRingLiteral{}, _) -> return ()
-        (_, SemiRingLiteral{}) -> return ()
-        _ -> checkNonlinearSupport i
-      xb <- mkBaseExpr x
-      yb <- mkBaseExpr y
-      freshBoundTerm (semiRingTypeMap sr) $ xb * yb
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingBVRepr SR.BVArithRepr w ->
+          do pd' <- WSum.prodEvalM (\a b -> pure (bvMul a b)) mkBaseExpr pd
+             maybe (return $ SMTExpr (BVTypeMap w) $ bvTerm w 1)
+                   (freshBoundTerm (BVTypeMap w))
+                   pd'
+
+        SR.SemiRingBVRepr SR.BVBitsRepr w ->
+          do pd' <- WSum.prodEvalM (\a b -> pure (bvAnd a b)) mkBaseExpr pd
+             maybe (return $ SMTExpr (BVTypeMap w) $ bvTerm w (maxUnsigned w))
+                   (freshBoundTerm (BVTypeMap w))
+                   pd'
+        sr ->
+          do checkNonlinearSupport i
+             pd' <- WSum.prodEvalM (\a b -> pure (a * b)) mkBaseExpr pd
+             maybe (return $ SMTExpr (semiRingTypeMap sr) $ integerTerm 1)
+                   (freshBoundTerm (semiRingTypeMap sr))
+                   pd'
 
     SemiRingSum s ->
       case WSum.sumRepr s of
@@ -1967,6 +1960,14 @@ appSMTExpr ae = do
         _ ->
           return ()
       return nm
+
+    BVOrBits pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingBVRepr _ w ->
+          do pd' <- WSum.prodEvalM (\a b -> pure (bvOr a b)) mkBaseExpr pd
+             maybe (return $ SMTExpr (BVTypeMap w) $ bvTerm w 0)
+                   (freshBoundTerm (BVTypeMap w))
+                   pd'
 
     BVConcat w xe ye -> do
       x <- mkBaseExpr xe

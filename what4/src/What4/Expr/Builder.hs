@@ -72,8 +72,8 @@ module What4.Expr.Builder
   , exprLoc
   , ppExpr
   , ppExprTop
-  , asConjunction
   , exprMaybeId
+  , asConjunction
     -- ** AppExpr
   , AppExpr
   , appExprId
@@ -203,7 +203,7 @@ import           What4.ProgramLoc
 import qualified What4.SemiRing as SR
 import           What4.Symbol
 import           What4.Expr.MATLAB
-import           What4.Expr.WeightedSum (WeightedSum)
+import           What4.Expr.WeightedSum (WeightedSum, SemiRingProduct)
 import qualified What4.Expr.WeightedSum as WSum
 import           What4.Expr.UnaryBV (UnaryBV)
 import qualified What4.Expr.UnaryBV as UnaryBV
@@ -355,11 +355,8 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   ------------------------------------------------------------------------
   -- Boolean operations
 
-  TrueBool  :: App e BaseBoolType
-  FalseBool :: App e BaseBoolType
-  NotBool :: !(e BaseBoolType) -> App e BaseBoolType
-  AndBool :: !(e BaseBoolType) -> !(e BaseBoolType) -> App e BaseBoolType
-  XorBool :: !(e BaseBoolType) -> !(e BaseBoolType) -> App e BaseBoolType
+  NotPred :: e BaseBoolType -> App e BaseBoolType
+  AndPred :: e BaseBoolType -> e BaseBoolType -> App e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Semiring operations
@@ -368,16 +365,14 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
     {-# UNPACK #-} !(WeightedSum e sr) ->
     App e (SR.SemiRingBase sr)
 
-  -- Multiplication of two semiring values
+  -- A product Multiplication of semiring values
   --
-  -- The ExprBuilder should maintain the invariant that neither value is
+  -- The ExprBuilder should maintain the invariant that none of the values value is
   -- a constant, and hence this denotes a non-linear expression.
   -- Multiplications by scalars should use the 'SemiRingSum' constructor.
-  SemiRingMul
-     :: !(SR.SemiRingRepr sr)
-     -> !(e (SR.SemiRingBase sr))
-     -> !(e (SR.SemiRingBase sr))
-     -> App e (SR.SemiRingBase sr)
+  SemiRingProd ::
+     {-# UNPACK #-} !(SemiRingProduct e sr) ->
+     App e (SR.SemiRingBase sr)
 
   SemiRingLe
      :: !(SR.OrderedSemiRingRepr sr)
@@ -435,6 +430,13 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
         => !(e (BaseBVType w))
         -> !(e (BaseBVType w))
         -> App e BaseBoolType
+
+  -- Note, we're abusing the semiring product data structure here.  OR
+  -- has exactly the same algebraic structure as AND, so we can get away
+  -- with this as long as we don't get them mixed up.
+  BVOrBits ::
+    {-# UNPACK #-} !(WSum.SemiRingProduct e (SR.SemiRingBV SR.BVBits w)) ->
+    App e (BaseBVType w)
 
   -- A unary representation of terms where an integer @i@ is mapped to a
   -- predicate that is true if the unsigned encoding of the value is greater
@@ -795,7 +797,7 @@ data AppExpr t (tp :: BaseType)
 -- ('ExprBuilder' t st)@.
 data Expr t (tp :: BaseType) where
   SemiRingLiteral :: !(SR.SemiRingRepr sr) -> !(SR.Coefficient sr) -> !ProgramLoc -> Expr t (SR.SemiRingBase sr)
-
+  BoolExpr :: !Bool -> !ProgramLoc -> Expr t BaseBoolType
   StringExpr :: !Text -> !ProgramLoc -> Expr t BaseStringType
   -- Application
   AppExpr :: {-# UNPACK #-} !(AppExpr t tp) -> Expr t tp
@@ -818,6 +820,7 @@ asNonceApp _ = Nothing
 
 exprLoc :: Expr t tp -> ProgramLoc
 exprLoc (SemiRingLiteral _ _ l) = l
+exprLoc (BoolExpr _ l) = l
 exprLoc (StringExpr _ l) = l
 exprLoc (NonceAppExpr a)  = nonceExprLoc a
 exprLoc (AppExpr a)   = appExprLoc a
@@ -848,15 +851,9 @@ iteSize e =
     Just (BaseIte _ sz _ _ _) -> sz
     _ -> 0
 
-{-# INLINE boolExprAsBool #-}
-boolExprAsBool :: BoolExpr t -> Maybe Bool
-boolExprAsBool e
-  | Just TrueBool  <- asApp e = Just True
-  | Just FalseBool <- asApp e = Just False
-  | otherwise = Nothing
-
 instance IsExpr (Expr t) where
-  asConstantPred = boolExprAsBool
+  asConstantPred (BoolExpr b _) = Just b
+  asConstantPred _ = Nothing
 
   asNat (SemiRingLiteral SR.SemiRingNatRepr n _) = Just n
   asNat _ = Nothing
@@ -878,6 +875,7 @@ instance IsExpr (Expr t) where
     | otherwise = Nothing
 
   exprType (SemiRingLiteral sr _ _) = SR.semiRingBase sr
+  exprType (BoolExpr _ _) = BaseBoolRepr
   exprType (StringExpr _ _) = BaseStringRepr
   exprType (NonceAppExpr e)  = nonceAppType (nonceExprApp e)
   exprType (AppExpr e) = appType (appExprApp e)
@@ -916,11 +914,16 @@ asSemiRingLit sr (SemiRingLiteral sr' x _loc)
 
 asSemiRingLit _ _ = Nothing
 
-asSemiRingSum :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> Maybe (WSum.WeightedSum (Expr t) sr)
+asSemiRingSum :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> Maybe (WeightedSum (Expr t) sr)
 asSemiRingSum sr (asSemiRingLit sr -> Just x) = Just (WSum.constant sr x)
 asSemiRingSum sr (asApp -> Just (SemiRingSum x))
    | Just Refl <- testEquality sr (WSum.sumRepr x) = Just x
 asSemiRingSum _ _ = Nothing
+
+asSemiRingProd :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> Maybe (SemiRingProduct (Expr t) sr)
+asSemiRingProd sr (asApp -> Just (SemiRingProd x))
+  | Just Refl <- testEquality sr (WSum.prodRepr x) = Just x
+asSemiRingProd _ _ = Nothing
 
 ------------------------------------------------------------------------
 -- ExprSymFn
@@ -1002,27 +1005,10 @@ instance IsSymFn (ExprSymFn t) where
   fnArgTypes = symFnArgTypes
   fnReturnType = symFnReturnType
 
-------------------------------------------------------------------------
--- asConjunction
-
--- | View a boolean 'Expr' as a conjunction.
-asConjunction :: BoolExpr t -> [BoolExpr t]
-asConjunction e = asConjunction' [e] Set.empty []
-
-asConjunction' :: [BoolExpr t]
-               -> Set (BoolExpr t) -- ^ Set of elements already visited.
-               -> [BoolExpr t] -- ^ List of elements.
-               -> [BoolExpr t]
-asConjunction' [] _ result = result
-asConjunction' (h:r) visited result
-  | Just TrueBool  <- asApp h = asConjunction' r visited result
-  | Just FalseBool <- asApp h = [h]
-  | Set.member h visited =
-    asConjunction' r visited result
-  | Just (AndBool x y) <- asApp h =
-    asConjunction' (x:y:r) (Set.insert h visited) result
-  | otherwise =
-    asConjunction' r (Set.insert h visited) (h:result)
+asConjunction :: Expr t BaseBoolType -> [Expr t BaseBoolType]
+asConjunction (BoolExpr True _) = []
+asConjunction (asApp -> Just (AndPred x y)) = asConjunction x ++ asConjunction y
+asConjunction x = [x]
 
 ------------------------------------------------------------------------
 -- Types
@@ -1043,11 +1029,8 @@ appType a =
     BaseIte tp _ _ _ _ -> tp
     BaseEq{} -> knownRepr
 
-    TrueBool  -> knownRepr
-    FalseBool -> knownRepr
-    NotBool{} -> knownRepr
-    AndBool{} -> knownRepr
-    XorBool{} -> knownRepr
+    NotPred{} -> knownRepr
+    AndPred{} -> knownRepr
 
     RealIsInteger{} -> knownRepr
     BVTestBit{} -> knownRepr
@@ -1063,7 +1046,7 @@ appType a =
     IntDivisible{} -> knownRepr
 
     SemiRingLe{} -> knownRepr
-    SemiRingMul sr _ _ -> SR.semiRingBase sr
+    SemiRingProd pd -> SR.semiRingBase (WSum.prodRepr pd)
     SemiRingSum s -> SR.semiRingBase (WSum.sumRepr s)
 
     RealDiv{} -> knownRepr
@@ -1084,6 +1067,7 @@ appType a =
     RealLog{} -> knownRepr
 
     BVUnaryTerm u  -> BaseBVRepr (UnaryBV.width u)
+    BVOrBits pd -> SR.semiRingBase (WSum.prodRepr pd)
     BVConcat w _ _ -> BaseBVRepr w
     BVSelect _ n _ -> BaseBVRepr n
     BVUdiv w _ _ -> BaseBVRepr w
@@ -1344,13 +1328,8 @@ abstractEval bvParams f a0 = do
 
     BaseEq tp x y -> withAbstractable tp $ avCheckEq tp (f x) (f y)
 
-    ------------------------------------------------------------------------
-    -- Boolean operations
-    TrueBool -> Just True
-    FalseBool -> Just False
-    NotBool x -> not <$> f x
-    AndBool x y -> absAnd (f x) (f y)
-    XorBool x y -> Bits.xor <$> f x <*> f y
+    NotPred x -> not <$> (f x)
+    AndPred x y -> absAnd (f x) (f y)
 
     SemiRingLe{} -> Nothing
     RealIsInteger{} -> Nothing
@@ -1383,11 +1362,18 @@ abstractEval bvParams f a0 = do
            where smul sm e = BVD.mul bvParams w (BVD.singleton w sm) (f e)
         SR.SemiRingBVRepr SR.BVBitsRepr w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
 
-    SemiRingMul SR.SemiRingIntegerRepr x y -> mulRange (f x) (f y)
-    SemiRingMul SR.SemiRingNatRepr x y -> natRangeMul (f x) (f y)
-    SemiRingMul SR.SemiRingRealRepr x y -> ravMul (f x) (f y)
-    SemiRingMul (SR.SemiRingBVRepr SR.BVArithRepr w) x y -> BVD.mul bvParams w (f x) (f y)
-    SemiRingMul (SR.SemiRingBVRepr SR.BVBitsRepr w) x y -> BVD.and w (f x) (f y)
+    SemiRingProd pd ->
+      let sr = WSum.prodRepr pd in
+      case sr of
+        SR.SemiRingIntegerRepr -> fromMaybe (SingleRange 1) $ WSum.prodEval mulRange f pd
+        SR.SemiRingNatRepr     -> fromMaybe (natSingleRange 1) $ WSum.prodEval natRangeMul f pd
+        SR.SemiRingRealRepr    -> fromMaybe (ravSingle 1) $ WSum.prodEval ravMul f pd
+        SR.SemiRingBVRepr SR.BVArithRepr w -> fromMaybe (BVD.singleton w 1) $ WSum.prodEval (BVD.mul bvParams w) f pd
+        SR.SemiRingBVRepr SR.BVBitsRepr w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
+
+    BVOrBits pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingBVRepr _ w -> BVD.any w -- FIXME? BVDomain doesn't really implement bitwise operations
 
     RealDiv _ _ -> ravUnbounded
     RealSqrt _  -> ravUnbounded
@@ -1402,6 +1388,7 @@ abstractEval bvParams f a0 = do
 
     BVUnaryTerm u -> UnaryBV.domain bvParams f u
     BVConcat _ x y -> BVD.concat bvParams (bvWidth x) (f x) (bvWidth y) (f y)
+
     BVSelect i n x -> BVD.select bvParams i n (f x)
     BVUdiv w x y -> BVD.udiv w (f x) (f y)
     BVUrem w x y -> BVD.urem w (f x) (f y)
@@ -1517,6 +1504,7 @@ exprAbsValue (SemiRingLiteral sr x _) =
     SR.SemiRingBVRepr _ w -> BVD.singleton w x
 
 exprAbsValue (StringExpr{})   = ()
+exprAbsValue (BoolExpr b _)   = Just b
 exprAbsValue (NonceAppExpr e) = nonceExprAbsValue e
 exprAbsValue (AppExpr e)      = appExprAbsValue e
 exprAbsValue (BoundVarExpr v) =
@@ -1612,11 +1600,8 @@ ppApp' a0 = do
     BaseIte _ _ c x y -> prettyApp "ite" [exprPrettyArg c, exprPrettyArg x, exprPrettyArg y]
     BaseEq _ x y -> ppSExpr "eq" [x, y]
 
-    TrueBool    -> prettyApp "true" []
-    FalseBool   -> prettyApp "false" []
-    NotBool x   -> ppSExpr "boolNot" [x]
-    AndBool x y -> ppSExpr "boolAnd" [x, y]
-    XorBool x y -> ppSExpr "boolXor" [x, y]
+    NotPred x -> ppSExpr "not" [x]
+    AndPred x y -> ppSExpr "and" [x, y]
 
     RealIsInteger x -> ppSExpr "isInteger" [x]
     BVTestBit i x   -> prettyApp "testBit"  [exprPrettyArg x, showPrettyArg i]
@@ -1673,13 +1658,19 @@ ppApp' a0 = do
                 ppEntry 1 e  = [ exprPrettyArg e ]
                 ppEntry sm e = [ PrettyFunc "bvAnd" [ stringPrettyArg (show sm), exprPrettyArg e ] ]
 
-    SemiRingMul sr x y ->
-      case sr of
-        SR.SemiRingRealRepr    -> ppSExpr "realMul" [x, y]
-        SR.SemiRingIntegerRepr -> ppSExpr "intMul" [x, y]
-        SR.SemiRingNatRepr     -> ppSExpr "natMul" [x, y]
-        SR.SemiRingBVRepr SR.BVArithRepr _w -> ppSExpr "bvMul" [x, y]
-        SR.SemiRingBVRepr SR.BVBitsRepr _w  -> ppSExpr "bvAnd" [x, y]
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingRealRepr ->
+          prettyApp "realProd" $ fromMaybe [] (WSum.prodEval (++) ((:[]) . exprPrettyArg) pd)
+        SR.SemiRingIntegerRepr ->
+          prettyApp "intProd" $ fromMaybe [] (WSum.prodEval (++) ((:[]) . exprPrettyArg) pd)
+        SR.SemiRingNatRepr ->
+          prettyApp "natProd" $ fromMaybe [] (WSum.prodEval (++) ((:[]) . exprPrettyArg) pd)
+        SR.SemiRingBVRepr SR.BVArithRepr _w ->
+          prettyApp "bvProd" $ fromMaybe [] (WSum.prodEval (++) ((:[]) . exprPrettyArg) pd)
+        SR.SemiRingBVRepr SR.BVBitsRepr _w ->
+          prettyApp "bvAnd" $ fromMaybe [] (WSum.prodEval (++) ((:[]) . exprPrettyArg) pd)
+
 
     RealDiv x y -> ppSExpr "divReal" [x, y]
     RealSqrt x  -> ppSExpr "sqrt" [x]
@@ -1700,6 +1691,7 @@ ppApp' a0 = do
     BVUnaryTerm u -> prettyApp "bvUnary" (concatMap go $ UnaryBV.unsignedEntries u)
       where go :: (Integer, e BaseBoolType) -> [PrettyArg e]
             go (k,v) = [ exprPrettyArg v, showPrettyArg k ]
+    BVOrBits pd -> prettyApp "bvOr" $ fromMaybe [] (WSum.prodEval (++) ((:[]) . exprPrettyArg) pd)
     BVConcat _ x y -> prettyApp "bvConcat" [exprPrettyArg x, exprPrettyArg y]
     BVSelect idx n x -> prettyApp "bvSelect" [showPrettyArg idx, showPrettyArg n, exprPrettyArg x]
     BVUdiv _ x y -> ppSExpr "bvUdiv" [x, y]
@@ -1906,6 +1898,9 @@ traverseApp =
     , ( ConType [t|WeightedSum|] `TypeApp` AnyType `TypeApp` AnyType
       , [| WSum.traverseVars |]
       )
+    , ( ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
+      , [| WSum.traverseProdVars |]
+      )
     ,  ( ConType [t|Hash.Map |] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
        , [| Hash.traverseHashedMap |]
        )
@@ -1922,9 +1917,11 @@ isNonLinearApp :: App e tp -> Bool
 isNonLinearApp app = case app of
   -- FIXME: These are just guesses; someone who knows what's actually
   -- slow in the solvers should correct them.
-  SemiRingMul (SR.SemiRingBVRepr SR.BVBitsRepr _) _ _ -> False
 
-  SemiRingMul{} -> True
+  SemiRingProd pd
+    | SR.SemiRingBVRepr SR.BVBitsRepr _ <- WSum.prodRepr pd -> False
+    | otherwise -> True
+
   NatDiv {} -> True
   NatMod {} -> True
   IntDiv {} -> True
@@ -1965,6 +1962,10 @@ compareExpr _ SemiRingLiteral{} = GTF
 compareExpr (StringExpr x _) (StringExpr y _) = fromOrdering (compare x y)
 compareExpr StringExpr{} _ = LTF
 compareExpr _ StringExpr{} = GTF
+
+compareExpr (BoolExpr x _) (BoolExpr y _) = fromOrdering (compare x y)
+compareExpr BoolExpr{} _ = LTF
+compareExpr _ BoolExpr{} = GTF
 
 compareExpr (NonceAppExpr x) (NonceAppExpr y) = compareF x y
 compareExpr NonceAppExpr{} _ = LTF
@@ -2007,17 +2008,18 @@ instance Ord (Expr t tp) where
   compare x y = toOrdering (compareF x y)
 
 instance Hashable (Expr t tp) where
+  hashWithSalt s (BoolExpr b _) = hashWithSalt (hashWithSalt s (0::Int)) b
   hashWithSalt s (SemiRingLiteral sr x _) =
     case sr of
-      SR.SemiRingNatRepr     -> hashWithSalt (hashWithSalt s (0::Int)) x
-      SR.SemiRingIntegerRepr -> hashWithSalt (hashWithSalt s (1::Int)) x
-      SR.SemiRingRealRepr    -> hashWithSalt (hashWithSalt s (2::Int)) x
-      SR.SemiRingBVRepr _ w  -> hashWithSalt (hashWithSaltF (hashWithSalt s (3::Int)) w) x
+      SR.SemiRingNatRepr     -> hashWithSalt (hashWithSalt s (1::Int)) x
+      SR.SemiRingIntegerRepr -> hashWithSalt (hashWithSalt s (2::Int)) x
+      SR.SemiRingRealRepr    -> hashWithSalt (hashWithSalt s (3::Int)) x
+      SR.SemiRingBVRepr _ w  -> hashWithSalt (hashWithSaltF (hashWithSalt s (4::Int)) w) x
 
-  hashWithSalt s (StringExpr x _) = hashWithSalt (hashWithSalt s (4::Int)) x
-  hashWithSalt s (AppExpr x)      = hashWithSalt (hashWithSalt s (5::Int)) (appExprId x)
-  hashWithSalt s (NonceAppExpr x) = hashWithSalt (hashWithSalt s (6::Int)) (nonceExprId x)
-  hashWithSalt s (BoundVarExpr x) = hashWithSalt (hashWithSalt s (7::Int)) x
+  hashWithSalt s (StringExpr x _) = hashWithSalt (hashWithSalt s (5::Int)) x
+  hashWithSalt s (AppExpr x)      = hashWithSalt (hashWithSalt s (6::Int)) (appExprId x)
+  hashWithSalt s (NonceAppExpr x) = hashWithSalt (hashWithSalt s (7::Int)) (nonceExprId x)
+  hashWithSalt s (BoundVarExpr x) = hashWithSalt (hashWithSalt s (8::Int)) x
 
 instance PH.HashableF (Expr t) where
   hashWithSaltF = hashWithSalt
@@ -2341,9 +2343,9 @@ ppExpr' e0 o = do
       getBindings :: Expr t u -> ST s PPExpr
       getBindings (SemiRingLiteral sr x l) =
         case sr of
-          SR.SemiRingNatRepr -> do
+          SR.SemiRingNatRepr ->
             return $ stringPPExpr (show x)
-          SR.SemiRingIntegerRepr -> do
+          SR.SemiRingIntegerRepr ->
             return $ stringPPExpr (show x)
           SR.SemiRingRealRepr -> cacheResult (RatPPIndex x) l app
              where n = numerator x
@@ -2354,16 +2356,18 @@ ppExpr' e0 o = do
           SR.SemiRingBVRepr _ w ->
             return $ stringPPExpr $ "0x" ++ (N.showHex x []) ++ ":[" ++ show w ++ "]"
 
-      getBindings (StringExpr x _) = do
+      getBindings (StringExpr x _) =
         return $ stringPPExpr $ (show x)
-      getBindings (NonceAppExpr e) = do
+      getBindings (BoolExpr b _) =
+        return $ stringPPExpr (if b then "true" else "false")
+      getBindings (NonceAppExpr e) =
         cacheResult (ExprPPIndex (indexValue (nonceExprId e))) (nonceExprLoc e)
           =<< ppNonceApp bindFn (nonceExprApp e)
-      getBindings (AppExpr e) = do
+      getBindings (AppExpr e) =
         cacheResult (ExprPPIndex (indexValue (appExprId e)))
                     (appExprLoc e)
                     (ppApp' (appExprApp e))
-      getBindings (BoundVarExpr i) = do
+      getBindings (BoundVarExpr i) =
         return $ stringPPExpr $ ppBoundVar i
 
   r <- getBindings e0
@@ -2484,6 +2488,8 @@ appEqF = $(structuralTypeEquality [t|App|]
              , [|testEquality|])
            , (ConType [t|WSum.WeightedSum|] `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
+           , (ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
+             , [|testEquality|])
            ]
           )
 
@@ -2520,6 +2526,7 @@ newIdxCache = stToIO $ IdxCache <$> PH.new
 lookupIdxValue :: MonadIO m => IdxCache t f -> Expr t tp -> m (Maybe (f tp))
 lookupIdxValue _ SemiRingLiteral{} = return Nothing
 lookupIdxValue _ StringExpr{} = return Nothing
+lookupIdxValue _ BoolExpr{} = return Nothing
 lookupIdxValue c (NonceAppExpr e) = liftIO $ lookupIdx c (nonceExprId e)
 lookupIdxValue c (AppExpr e)  = liftIO $ lookupIdx c (appExprId e)
 lookupIdxValue c (BoundVarExpr i) = liftIO $ lookupIdx c (bvarId i)
@@ -2544,6 +2551,7 @@ clearIdxCache c = stToIO $ PH.clear (cMap c)
 exprMaybeId :: Expr t tp -> Maybe (Nonce t tp)
 exprMaybeId SemiRingLiteral{} = Nothing
 exprMaybeId StringExpr{} = Nothing
+exprMaybeId BoolExpr{} = Nothing
 exprMaybeId (NonceAppExpr e) = Just $! nonceExprId e
 exprMaybeId (AppExpr  e) = Just $! appExprId e
 exprMaybeId (BoundVarExpr e) = Just $! bvarId e
@@ -2760,8 +2768,8 @@ newExprBuilder st gen = do
   st_ref <- newIORef st
   es <- newStorage gen
 
-  t <- appExpr es initializationLoc TrueBool  (Just True)
-  f <- appExpr es initializationLoc FalseBool (Just False)
+  let t = BoolExpr True initializationLoc
+  let f = BoolExpr False initializationLoc
   let z = SemiRingLiteral SR.SemiRingRealRepr 0 initializationLoc
 
   loc_ref       <- newIORef initializationLoc
@@ -2892,19 +2900,11 @@ reduceApp sym a0 = do
     BaseIte _ _ c x y -> baseTypeIte sym c x y
     BaseEq _ x y -> isEq sym x y
 
-    TrueBool  -> return $ truePred sym
-    FalseBool -> return $ falsePred sym
-    NotBool x     -> notPred sym x
-    AndBool x y   -> andPred sym x y
-    XorBool x y   -> xorPred sym x y
+    NotPred x -> notPred sym x
+    AndPred x y -> andPred sym x y
 
     SemiRingSum s -> semiRingSum sym s
-
-    SemiRingMul SR.SemiRingNatRepr x y -> natMul sym x y
-    SemiRingMul SR.SemiRingIntegerRepr x y -> intMul sym x y
-    SemiRingMul SR.SemiRingRealRepr x y -> realMul sym x y
-    SemiRingMul (SR.SemiRingBVRepr SR.BVArithRepr _w) x y -> bvMul sym x y
-    SemiRingMul (SR.SemiRingBVRepr SR.BVBitsRepr _w) x y -> bvAndBits sym x y
+    SemiRingProd pd -> semiRingProd sym pd
 
     SemiRingLe SR.OrderedSemiRingRealRepr x y -> realLe sym x y
     SemiRingLe SR.OrderedSemiRingIntegerRepr x y -> intLe sym x y
@@ -2931,6 +2931,12 @@ reduceApp sym a0 = do
     RealCosh x -> realCosh sym x
     RealExp x -> realExp sym x
     RealLog x -> realLog sym x
+
+    BVOrBits pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingBVRepr _ w ->
+          do pd' <- WSum.prodEvalM (bvOrBits sym) return pd
+             maybe (bvLit sym w 0) return pd'
 
     BVTestBit i e -> testBitBV sym i e
     BVSlt x y -> bvSlt sym x y
@@ -3105,6 +3111,7 @@ evalBoundVars' tbls sym e0 =
   case e0 of
     SemiRingLiteral{} -> return e0
     StringExpr{} -> return e0
+    BoolExpr{} -> return e0
     AppExpr ae -> cachedEval (exprTable tbls) e0 $ do
       let a = appExprApp ae
       a' <- traverseApp (evalBoundVars' tbls sym) a
@@ -3314,23 +3321,34 @@ sbTryUnaryTerm sym (Just mku) fallback =
      else
        fallback
 
--- | This privides a view of a real expr as a weighted sum of values.
-data SumView t sr
-   = ConstantSum !(SR.Coefficient sr)
-   | LinearSum !(WeightedSum (Expr t) sr)
-   | GeneralSum
+-- | This privides a view of a semiring expr as a weighted sum of values.
+data SemiRingView t sr
+   = SR_Constant !(SR.Coefficient sr)
+   | SR_Sum  !(WeightedSum (Expr t) sr)
+   | SR_Prod !(SemiRingProduct (Expr t) sr)
+   | SR_General
 
-viewSum :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> SumView t sr
-viewSum sr x
-  | Just r <- asSemiRingLit sr x = ConstantSum r
-  | Just s <- asSemiRingSum sr x = LinearSum s
-  | otherwise = GeneralSum
+viewSemiRing:: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> SemiRingView t sr
+viewSemiRing sr x
+  | Just r <- asSemiRingLit sr x  = SR_Constant r
+  | Just s <- asSemiRingSum sr x  = SR_Sum s
+  | Just p <- asSemiRingProd sr x = SR_Prod p
+  | otherwise = SR_General
 
 asWeightedSum :: HashableF (Expr t) => SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> WeightedSum (Expr t) sr
 asWeightedSum sr x
   | Just r <- asSemiRingLit sr x = WSum.constant sr r
   | Just s <- asSemiRingSum sr x = s
   | otherwise = WSum.var sr x
+
+semiRingProd ::
+  ExprBuilder t st fs ->
+  SemiRingProduct (Expr t) sr ->
+  IO (Expr t (SR.SemiRingBase sr))
+semiRingProd sym pd
+  | WSum.nullProd pd = semiRingLit sym (WSum.prodRepr pd) (SR.one (WSum.prodRepr pd))
+  | Just v <- WSum.asProdVar pd = return v
+  | otherwise = sbMakeExpr sym $ SemiRingProd pd
 
 semiRingSum ::
   ExprBuilder t st fs ->
@@ -3380,7 +3398,8 @@ semiRingIte sym sr c x y
   | x == y = return x
 
     -- reduce negations
-  | Just (NotBool cn) <- asApp c = semiRingIte sym sr cn y x
+  | Just (NotPred c') <- asApp c
+  = semiRingIte sym sr c' y x
 
     -- Try to extract common sum information.
   | (z, x',y') <- WSum.extractCommon (asWeightedSum sr x) (asWeightedSum sr y)
@@ -3410,16 +3429,16 @@ semiRingLe sym osr rec x y
       -- Strength reductions on a non-linear constraint to piecewise linear.
     | Just c <- asSemiRingLit sr x
     , SR.eq sr c (SR.zero sr)
-    , Just (SemiRingMul sr' u v) <- asApp y
-    , Just Refl <- testEquality sr sr'
-    = leNonneg rec x sym u v
+    , Just (SemiRingProd pd) <- asApp y
+    , Just Refl <- testEquality sr (WSum.prodRepr pd)
+    = prodNonneg sym osr pd
 
       -- Another strength reduction
     | Just c <- asSemiRingLit sr y
     , SR.eq sr c (SR.zero sr)
-    , Just (SemiRingMul sr' u v) <- asApp x
-    , Just Refl <- testEquality sr sr'
-    = leNonpos rec y sym u v
+    , Just (SemiRingProd pd) <- asApp x
+    , Just Refl <- testEquality sr (WSum.prodRepr pd)
+    = prodNonpos sym osr pd
 
       -- Push some comparisons under if/then/else
     | SemiRingLiteral _ _ _ <- x
@@ -3486,27 +3505,27 @@ semiRingAdd ::
   Expr t (SR.SemiRingBase sr) ->
   IO (Expr t (SR.SemiRingBase sr))
 semiRingAdd sym sr x y =
-    case (viewSum sr x, viewSum sr y) of
-      (ConstantSum c, _) | SR.eq sr c (SR.zero sr) -> return y
-      (_, ConstantSum c) | SR.eq sr c (SR.zero sr) -> return x
+    case (viewSemiRing sr x, viewSemiRing sr y) of
+      (SR_Constant c, _) | SR.eq sr c (SR.zero sr) -> return y
+      (_, SR_Constant c) | SR.eq sr c (SR.zero sr) -> return x
 
-      (ConstantSum xc, ConstantSum yc) ->
+      (SR_Constant xc, SR_Constant yc) ->
         semiRingLit sym sr (SR.add sr xc yc)
 
-      (ConstantSum xc, LinearSum ys) ->
+      (SR_Constant xc, SR_Sum ys) ->
         sum' sym (WSum.addConstant sr ys xc)
-      (LinearSum xs, ConstantSum yc) ->
+      (SR_Sum xs, SR_Constant yc) ->
         sum' sym (WSum.addConstant sr xs yc)
 
-      (ConstantSum xc, GeneralSum) -> do
+      (SR_Constant xc, _) -> do
         sum' sym (WSum.addConstant sr (WSum.var sr y) xc)
-      (GeneralSum, ConstantSum yc) -> do
+      (_, SR_Constant yc) -> do
         sum' sym (WSum.addConstant sr (WSum.var sr x) yc)
 
-      (LinearSum xs, LinearSum ys) -> semiRingSum sym (WSum.add sr xs ys)
-      (LinearSum xs, GeneralSum)   -> semiRingSum sym (WSum.addVar sr xs y)
-      (GeneralSum, LinearSum ys)   -> semiRingSum sym (WSum.addVar sr ys x)
-      (GeneralSum, GeneralSum)     -> semiRingSum sym (WSum.addVars sr x y)
+      (SR_Sum xs, SR_Sum ys) -> semiRingSum sym (WSum.add sr xs ys)
+      (SR_Sum xs, _)         -> semiRingSum sym (WSum.addVar sr xs y)
+      (_ , SR_Sum ys)        -> semiRingSum sym (WSum.addVar sr ys x)
+      _                      -> semiRingSum sym (WSum.addVars sr x y)
 
 semiRingMul ::
   ExprBuilder t st fs ->
@@ -3514,65 +3533,54 @@ semiRingMul ::
   Expr t (SR.SemiRingBase sr) ->
   Expr t (SR.SemiRingBase sr) ->
   IO (Expr t (SR.SemiRingBase sr))
-semiRingMul sym sr x y
-    | Just xd <- asSemiRingLit sr x =
-      scalarMul sym sr xd y
+semiRingMul sym sr x y =
+  case (viewSemiRing sr x, viewSemiRing sr y) of
+    (SR_Constant c, _) -> scalarMul sym sr c y
+    (_, SR_Constant c) -> scalarMul sym sr c x
 
-    | Just yd <- asSemiRingLit sr y =
-      scalarMul sym sr yd x
+    (SR_Prod px, SR_Prod py) -> semiRingProd sym (WSum.prodMul px py)
+    (SR_Prod px, _)          -> semiRingProd sym (WSum.prodMul px (WSum.prodVar sr y))
+    (_, SR_Prod py)          -> semiRingProd sym (WSum.prodMul (WSum.prodVar sr x) py)
+    _                        -> semiRingProd sym (WSum.prodMul (WSum.prodVar sr x) (WSum.prodVar sr y))
 
-    | otherwise =
-      sbMakeExpr sym $ SemiRingMul sr (min x y) (max x y)
 
+prodNonneg ::
+  ExprBuilder t st fs ->
+  SR.OrderedSemiRingRepr sr ->
+  WSum.SemiRingProduct (Expr t) sr ->
+  IO (Expr t BaseBoolType)
+prodNonneg sym osr pd =
+  do let sr = SR.orderedSemiRing osr
+     zero <- semiRingLit sym sr (SR.zero sr)
+     fst <$> computeNonnegNonpos sym osr zero pd
 
--- Add following rule to do a strength reduction on non-linear
--- constraint non-negative constraint
---
--- (0 <= u * v)
--- -> not (u * v < 0)
--- -> not (u > 0 & v < 0 | u < 0 & v > 0)
--- -> not (u > 0 & v < 0) & not (u < 0 & v > 0)
--- -> (u <= 0 | v >= 0) & (u >= 0 | v <= 0)
--- -> (u <= 0 | 0 <= v) & (0 <= u | v <= 0)
-leNonneg :: IsExprBuilder sym
-         => (a -> a -> IO (Pred sym)) -- ^ Less than or equal
-         -> a -- ^ zero
-         -> sym
-         -> a
-         -> a
-         -> IO (Pred sym)
-leNonneg le zero sym u v = do
-  ule <- le u zero
-  vle <- le v zero
-  vge <- le zero v
-  uge <- le zero u
-  a <- orPred sym ule vge
-  b <- orPred sym uge vle
-  andPred sym a b
+prodNonpos ::
+  ExprBuilder t st fs ->
+  SR.OrderedSemiRingRepr sr ->
+  WSum.SemiRingProduct (Expr t) sr ->
+  IO (Expr t BaseBoolType)
+prodNonpos sym osr pd =
+  do let sr = SR.orderedSemiRing osr
+     zero <- semiRingLit sym sr (SR.zero sr)
+     snd <$> computeNonnegNonpos sym osr zero pd
 
--- Add following rule to do a strength reduction on non-linear
--- constraint non-negative constraint
---
--- (u * v <= 0)
--- -> not (u * v > 0)
--- -> not (u > 0 & v > 0 | u < 0 & v < 0)
--- -> not (u > 0 & v > 0) & not (u < 0 & v < 0)
--- -> (u <= 0 | v <= 0) & (u >= 0 | v >= 0)
-leNonpos :: IsExprBuilder sym
-         => (a -> a -> IO (Pred sym)) -- ^ Less than or equal
-         -> a -- ^ zero
-         -> sym
-         -> a
-         -> a
-         -> IO (Pred sym)
-leNonpos le zero sym u v = do
-  ule <- le u zero
-  vle <- le v zero
-  vge <- le zero v
-  uge <- le zero u
-  a <- orPred sym ule vle
-  b <- orPred sym uge vge
-  andPred sym a b
+computeNonnegNonpos ::
+  ExprBuilder t st fs ->
+  SR.OrderedSemiRingRepr sr ->
+  Expr t (SR.SemiRingBase sr) {- zero element -} ->
+  WSum.SemiRingProduct (Expr t) sr ->
+  IO (Expr t BaseBoolType, Expr t BaseBoolType)
+computeNonnegNonpos sym osr zero pd =
+   fromMaybe (truePred sym, falsePred sym) <$> WSum.prodEvalM merge single pd
+ where
+
+ single x = (,) <$> reduceApp sym (SemiRingLe osr zero x) -- nonnegative
+                <*> reduceApp sym (SemiRingLe osr x zero) -- nonpositive
+
+ merge (nn1, np1) (nn2, np2) =
+   do nn <- join (orPred sym <$> andPred sym nn1 nn2 <*> andPred sym np1 np2)
+      np <- join (orPred sym <$> andPred sym nn1 np2 <*> andPred sym np1 nn2)
+      return (nn, np)
 
 
 
@@ -3689,76 +3697,78 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   falsePred = sbFalse
 
   notPred sym x
-    | Just TrueBool  <- asApp x = return $! falsePred sym
-    | Just FalseBool <- asApp x = return $! truePred sym
-    | Just (NotBool xn) <- asApp x = return xn
-    | otherwise = sbMakeExpr sym (NotBool x)
+    | Just b <- asConstantPred x
+    = return (backendPred sym $! not b)
 
-  andPred sym x y
-    | Just True  <- asConstantPred x = return y
-    | Just False <- asConstantPred x = return x
-    | Just True  <- asConstantPred y = return x
-    | Just False <- asConstantPred y = return y
-    | x == y = return x
+    | Just (NotPred x') <- asApp x
+    = return x'
 
-    | Just (NotBool xn) <- asApp x, xn == y =
-      return (falsePred sym)
-    | Just (NotBool yn) <- asApp y, yn == x =
-      return (falsePred sym)
-    | Just (AndBool x1 x2) <- asApp x, (x1 == y || x2 == y) = return x
-    | Just (AndBool y1 y2) <- asApp y, (y1 == x || y2 == x) = return y
+    | otherwise
+    = sbMakeExpr sym (NotPred x)
 
-    | otherwise = sbMakeExpr sym (AndBool (min x y) (max x y))
+  eqPred sym x y
+    | x == y = return (truePred sym)
+    | otherwise = sbMakeExpr sym $ BaseEq BaseBoolRepr (min x y) (max x y)
 
-  xorPred sym x y
-    | Just True  <- asConstantPred x = notPred sym y
-    | Just False <- asConstantPred x = return y
-    | Just True  <- asConstantPred y = notPred sym x
-    | Just False <- asConstantPred y = return x
-    | x == y = return $ falsePred sym
+  xorPred sym x y = notPred sym =<< eqPred sym x y
 
-    | Just (NotBool xn) <- asApp x
-    , Just (NotBool yn) <- asApp y = do
-      sbMakeExpr sym (XorBool xn yn)
+  andPred sym x y =
+    case (asConstantPred x, asConstantPred y) of
+      (Just True, _)  -> return y
+      (Just False, _) -> return x
+      (_, Just True)  -> return x
+      (_, Just False) -> return y
+      _
+        | x == y
+        -> return x -- or is idempotent
 
-    | Just (NotBool xn) <- asApp x = do
-      notPred sym =<< sbMakeExpr sym (XorBool xn y)
+        | Just (NotPred x') <- asApp x
+        , x' == y
+        -> return (falsePred sym)
 
-    | Just (NotBool yn) <- asApp y = do
-      notPred sym =<< sbMakeExpr sym (XorBool x yn)
+        | Just (NotPred y') <- asApp y
+        , x == y'
+        -> return (falsePred sym)
 
-    | otherwise = do
-      sbMakeExpr sym (XorBool x y)
+        | otherwise
+        -> sbMakeExpr sym (AndPred (min x y) (max x y))
+
+  orPred sym x y =
+    do x' <- notPred sym x
+       y' <- notPred sym y
+       notPred sym =<< andPred sym x' y'
 
   itePred sb c x y
       -- ite c c y = c || y
     | c == x = orPred sb c y
+
       -- ite c x c = c && x
     | c == y = andPred sb c x
+
       -- ite c x x = x
     | x == y = return x
+
       -- ite 1 x y = x
     | Just True  <- asConstantPred c = return x
+
       -- ite 0 x y = y
     | Just False <- asConstantPred c = return y
-      -- ite !c x y = c y x
-    | Just (NotBool cn) <- asApp c   = itePred sb cn y x
+
+      -- ite !c x y = ite c y x
+    | Just (NotPred c') <- asApp c = itePred sb c' y x
+
       -- ite c 1 y = c || y
     | Just True  <- asConstantPred x = orPred sb c y
+
       -- ite c 0 y = !c && y
-    | Just False <- asConstantPred x = do
-      andPred sb y =<< sbMakeExpr sb (NotBool c)
+    | Just False <- asConstantPred x = andPred sb y =<< notPred sb c
+
       -- ite c x 1 = !c || x
-      --             !(c && !x)
-    | Just True  <- asConstantPred y = do
-      notPred sb =<< andPred sb c =<< notPred sb x
+    | Just True  <- asConstantPred y = orPred sb x =<< notPred sb c
+
       -- ite c x 0 = c && x
-    | Just False <- asConstantPred y = do
-      andPred sb c x
-      -- ite c (!x) (!y) = !(ite c x y)
-    | Just (NotBool xn) <- asApp x
-    , Just (NotBool yn) <- asApp y = do
-      notPred sb =<< itePred sb c xn yn
+    | Just False <- asConstantPred y = andPred sb c x
+
       -- Default case
     | otherwise =
         let sz = 1 + iteSize x + iteSize y in
@@ -4126,6 +4136,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just LeqProof <- testLeq diffRepr idx = do
       Just LeqProof <- return $ testLeq (addNat (subNat idx diffRepr) n) w
       bvSelect sb (subNat idx diffRepr) n a
+
     | Just (BVShl _w _a b) <- asApp x
     , Just diff <- asUnsignedBV b
     , Just (Some diffRepr) <- someNat diff
@@ -4143,6 +4154,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just (Some diffRepr) <- someNat diff
     , Just LeqProof <- testLeq (addNat (addNat idx diffRepr) n) w =
       bvSelect sb (addNat idx diffRepr) n a
+
     | Just (BVLshr w _a b) <- asApp x
     , Just diff <- asUnsignedBV b
     , Just (Some diffRepr) <- someNat diff
@@ -4218,6 +4230,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
      Just Refl <- return $ testEquality (addNat n1 n2) n
      bvConcat sb a' b'
 
+    -- Select from a weighted XOR: push down through the sum
     | Just (SemiRingSum s) <- asApp x
     , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.sumRepr s
     = do let mask = maxUnsigned n
@@ -4228,11 +4241,24 @@ instance IsExprBuilder (ExprBuilder t st fs) where
                  s
          semiRingSum sb s'
 
-    | Just (SemiRingMul (SR.SemiRingBVRepr SR.BVBitsRepr _w) a b) <- asApp x =
-        do a' <- bvSelect sb idx n a
-           b' <- bvSelect sb idx n b
-           bvAndBits sb a' b'
+    -- Select from a AND: push down through the AND
+    | Just (SemiRingProd pd) <- asApp x
+    , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.prodRepr pd
+    = do pd' <- WSum.prodEvalM
+                   (bvAndBits sb)
+                   (bvSelect sb idx n)
+                   pd
+         maybe (bvLit sb n (maxUnsigned n)) return pd'
 
+    -- Select from an OR: push down through the OR
+    | Just (BVOrBits pd) <- asApp x
+    = do pd' <- WSum.prodEvalM
+                   (bvOrBits sb)
+                   (bvSelect sb idx n)
+                   pd
+         maybe (bvLit sb n 0) return pd'
+
+    -- Trucate from a unary bitvector
     | Just (BVUnaryTerm u) <- asApp x
     , Just Refl <- testEquality idx (knownNat @0) =
       bvUnary sb =<< UnaryBV.trunc sb u n
@@ -4469,6 +4495,14 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   bvAndBits sym x y
     | x == y = return x -- Special case: idempotency of and
 
+    | Just (BVOrBits xs) <- asApp x
+    , WSum.prodContains xs y
+    = return y -- absorption law
+
+    | Just (BVOrBits ys) <- asApp y
+    , WSum.prodContains ys x
+    = return x -- absorption law
+
     | otherwise
     = let sr = SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth x)
        in semiRingMul sym sr x y
@@ -4483,8 +4517,8 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = let sr = (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth x))
        in semiRingSum sym $ WSum.addConstant sr (asWeightedSum sr x) (maxUnsigned (bvWidth x))
 
-  bvOrBits _sym x y | x == y = return x -- or is idempotent
   bvOrBits sym x y =
+    let sr = (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth x)) in
     case (asUnsignedBV x, asUnsignedBV y) of
       (Just xi, Just yi) -> bvLit sym (bvWidth x) (xi Bits..|. yi)
       (Just xi , _)
@@ -4494,12 +4528,33 @@ instance IsExprBuilder (ExprBuilder t st fs) where
         | yi == 0 -> return x
         | yi == maxUnsigned (bvWidth x) -> return y
 
-      -- final case, reduce to boolean ring operations
-      --    a \/ b := a `xor` b `xor` (a /\ b)
-      _ -> do let sr = SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth x)
-              let tm t = (WSum.WrapF t, SR.one sr)
-              a <- semiRingMul sym sr x y
-              semiRingSum sym (WSum.fromTerms sr (map tm [a,x,y]) 0)
+      _
+        | x == y
+        -> return x -- or is idempotent
+
+        | Just (SemiRingProd xs) <- asApp x
+        , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.prodRepr xs
+        , WSum.prodContains xs y
+        -> return y   -- absorption law
+
+        | Just (SemiRingProd ys) <- asApp y
+        , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.prodRepr ys
+        , WSum.prodContains ys x
+        -> return x   -- absorption law
+
+        | Just (BVOrBits xs) <- asApp x
+        , Just (BVOrBits ys) <- asApp y
+        -> sbMakeExpr sym $ BVOrBits (WSum.prodMul xs ys)
+
+        | Just (BVOrBits xs) <- asApp x
+        -> sbMakeExpr sym $ BVOrBits (WSum.prodMul xs (WSum.prodVar sr y))
+
+        | Just (BVOrBits ys) <- asApp y
+        -> sbMakeExpr sym $ BVOrBits (WSum.prodMul (WSum.prodVar sr x) ys)
+
+        | otherwise
+        -> sbMakeExpr sym $ BVOrBits (WSum.prodMul (WSum.prodVar sr x) (WSum.prodVar sr y))
+
 
   bvAdd sym x y = semiRingAdd sym sr x y
      where sr = SR.SemiRingBVRepr SR.BVArithRepr (bvWidth x)
@@ -4574,10 +4629,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
           sbMakeExpr sym $ StructField s i (flds Ctx.! i)
 
   structIte sym p x y
-    | Just TrueBool     <- asApp p = return x
-    | Just FalseBool    <- asApp p = return y
-    | x == y                       = return x
-    | Just (NotBool pn) <- asApp p = structIte sym pn y x
+    | Just True  <- asConstantPred p = return x
+    | Just False <- asConstantPred p = return y
+    | x == y                         = return x
     | otherwise =
         let sz = 1 + iteSize x + iteSize y in
         sbMakeExpr sym $ BaseIte (exprType x) sz p x y
@@ -5054,10 +5108,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   floatGe sym x y = floatLe sym y x
   floatGt sym x y = floatLt sym y x
   floatIte sym c x y
-    | Just TrueBool  <- asApp c = return x
-    | Just FalseBool <- asApp c = return y
+    | Just True  <- asConstantPred c = return x
+    | Just False <- asConstantPred c = return y
     | x == y = return x
-    | Just (NotBool c') <- asApp c = floatIte sym c' y x
     | otherwise =
         let sz = 1 + iteSize x + iteSize y in
         sbMakeExpr sym $ BaseIte (exprType x) sz c x y
@@ -5582,13 +5635,15 @@ instance IsSymExprBuilder (ExprBuilder t st fs) where
   -- SymFn operations.
 
   -- | Create a function defined in terms of previous functions.
-  definedFn sym fn_name bound_vars result evalFn0 = do
+  definedFn sym fn_name bound_vars result evalFn = do
     l <- curProgramLoc sym
     n <- sbFreshSymFnNonce sym
+{-
     let evalFn
-          | Just TrueBool  <- asApp result = (\_ -> True)
-          | Just FalseBool <- asApp result = (\_ -> True)
+          | Just True  <- asConstantPred result = (\_ -> True)
+          | Just False <- asConstantPred result = (\_ -> True)
           | otherwise = evalFn0
+-}
     let fn = ExprSymFn { symFnId   = n
                          , symFnName = fn_name
                          , symFnInfo = DefinedFnInfo bound_vars result evalFn

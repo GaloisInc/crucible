@@ -158,6 +158,7 @@ tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingIntegerRepr c _) = return c
 tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingRealRepr c _) = return c
 tryEvalGroundExpr _ (SemiRingLiteral (SR.SemiRingBVRepr _ _ ) c _) = return c
 tryEvalGroundExpr _ (StringExpr x _) = return x
+tryEvalGroundExpr _ (BoolExpr b _) = return b
 tryEvalGroundExpr f (NonceAppExpr a0) = evalGroundNonceApp (lift . f) (nonceExprApp a0)
 tryEvalGroundExpr f (AppExpr a0)      = evalGroundApp f (appExprApp a0)
 tryEvalGroundExpr _ (BoundVarExpr v) =
@@ -239,13 +240,8 @@ evalGroundApp f0 a0 = do
       xv <- f x
       if xv then f y else f z
 
-    TrueBool -> return True
-    FalseBool -> return False
-    NotBool b -> not <$> f b
-    AndBool x y -> do
-      xv <- f x
-      if xv then f y else return False
-    XorBool x y -> (/=) <$> f x <*> f y
+    NotPred x -> not <$> f x
+    AndPred x y -> (&&) <$> f x <*> f y
 
     RealIsInteger x -> (\xv -> denominator xv == 1) <$> f x
     BVTestBit i x -> assert (i <= fromIntegral (maxBound :: Int)) $
@@ -301,13 +297,15 @@ evalGroundApp f0 a0 = do
            smul sm e = (sm .&.) <$> f e
            sadd x y  = pure (x `xor` y)
 
-    SemiRingMul SR.SemiRingNatRepr x y     -> (*) <$> f x <*> f y
-    SemiRingMul SR.SemiRingIntegerRepr x y -> (*) <$> f x <*> f y
-    SemiRingMul SR.SemiRingRealRepr x y    -> (*) <$> f x <*> f y
-    SemiRingMul (SR.SemiRingBVRepr SR.BVArithRepr w) x y ->
-      toUnsigned w <$> ((*) <$> f x <*> f y)
-    SemiRingMul (SR.SemiRingBVRepr SR.BVBitsRepr _) x y ->
-      (.&.) <$> f x <*> f y
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingNatRepr     -> fromMaybe 1 <$> WSum.prodEvalM (\x y -> pure (x*y)) f pd
+        SR.SemiRingIntegerRepr -> fromMaybe 1 <$> WSum.prodEvalM (\x y -> pure (x*y)) f pd
+        SR.SemiRingRealRepr    -> fromMaybe 1 <$> WSum.prodEvalM (\x y -> pure (x*y)) f pd
+        SR.SemiRingBVRepr SR.BVArithRepr w ->
+          fromMaybe 1 <$> WSum.prodEvalM (\x y -> pure (toUnsigned w (x*y))) f pd
+        SR.SemiRingBVRepr SR.BVBitsRepr w ->
+          fromMaybe (maxUnsigned w) <$> WSum.prodEvalM (\x y -> pure (x .&. y)) f pd
 
     RealDiv x y -> do
       xv <- f x
@@ -341,6 +339,8 @@ evalGroundApp f0 a0 = do
 
     PredToBV x -> (\p -> if p then 1 else 0) <$> f x
 
+    BVOrBits pd ->
+      fromMaybe 0 <$> WSum.prodEvalM (\x y -> pure (x .|. y)) f pd
     BVUnaryTerm u -> do
       UnaryBV.evaluate f u
     BVConcat w x y -> cat <$> f x <*> f y

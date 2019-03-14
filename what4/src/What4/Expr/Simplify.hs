@@ -143,6 +143,7 @@ recordExpr n = do
 count_subterms' :: Expr t tp -> Counter ()
 count_subterms' e0 =
   case e0 of
+    BoolExpr{} -> pure () 
     SemiRingLiteral{} -> pure ()
     StringExpr{} -> pure ()
     AppExpr ae -> do

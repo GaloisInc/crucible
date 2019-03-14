@@ -16,8 +16,10 @@ module What4.Expr.AppTheory
   , typeTheory
   ) where
 
-import What4.BaseTypes
-import What4.Expr.Builder
+import           What4.BaseTypes
+import           What4.Expr.Builder
+import qualified What4.SemiRing as SR
+import qualified What4.Expr.WeightedSum as WSum
 
 -- | The theory that a symbol belongs to.
 data AppTheory
@@ -65,25 +67,35 @@ appTheory a0 =
     ----------------------------
     -- Boolean operations
 
-    TrueBool  -> BoolTheory
-    FalseBool -> BoolTheory
-    NotBool{} -> BoolTheory
-    AndBool{} -> BoolTheory
-    XorBool{} -> BoolTheory
-
     BaseIte tp _ _ _ _ -> typeTheory tp
     BaseEq tp _ _ -> typeTheory tp
+
+    NotPred{} -> BoolTheory
+    AndPred{} -> BoolTheory
 
     RealIsInteger{} -> LinearArithTheory
 
     BVTestBit{} -> BitvectorTheory
     BVSlt{} -> BitvectorTheory
     BVUlt{} -> BitvectorTheory
+    BVOrBits{} -> BitvectorTheory
 
     ----------------------------
     -- Semiring operations
-    SemiRingMul{} -> NonlinearArithTheory
-    SemiRingSum{} -> LinearArithTheory
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingBVRepr _ _ -> BitvectorTheory
+        SR.SemiRingNatRepr -> NonlinearArithTheory
+        SR.SemiRingIntegerRepr -> NonlinearArithTheory
+        SR.SemiRingRealRepr -> NonlinearArithTheory
+
+    SemiRingSum sm ->
+      case WSum.sumRepr sm of
+        SR.SemiRingBVRepr _ _ -> BitvectorTheory
+        SR.SemiRingNatRepr -> LinearArithTheory
+        SR.SemiRingIntegerRepr -> LinearArithTheory
+        SR.SemiRingRealRepr -> LinearArithTheory
+
     SemiRingLe{} -> LinearArithTheory
 
     ----------------------------

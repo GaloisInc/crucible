@@ -767,6 +767,8 @@ evaluateExpr sym sc cache = f
 
     go :: B.Expr n tp' -> IO (SAWExpr tp')
 
+    go (B.BoolExpr b _) = SAWExpr <$> SC.scBool sc b
+
     go (B.SemiRingLiteral sr x _) =
       case sr of
         B.SemiRingNatRepr     -> scNatLit sc x
@@ -819,31 +821,37 @@ evaluateExpr sym sc cache = f
         B.BaseIte bt _ c xe ye -> join (scIte sym sc bt <$> eval c <*> eval xe <*> eval ye)
         B.BaseEq bt xe ye -> join (scEq sym sc bt <$> eval xe <*> eval ye)
 
-        B.TrueBool  -> SAWExpr <$> SC.scBool sc True
-        B.FalseBool -> SAWExpr <$> SC.scBool sc False
-        B.NotBool x -> SAWExpr <$> (SC.scNot sc =<< f x)
-        B.AndBool x y -> SAWExpr <$> join (SC.scAnd sc <$> f x <*> f y)
-        B.XorBool x y -> SAWExpr <$> join (SC.scXor sc <$> f x <*> f y)
-
         B.SemiRingLe sr xe ye ->
           case sr of
             B.OrderedSemiRingRealRepr    -> join (scRealLe sym sc <$> eval xe <*> eval ye)
             B.OrderedSemiRingIntegerRepr -> join (scIntLe sc <$> eval xe <*> eval ye)
             B.OrderedSemiRingNatRepr     -> join (scNatLe sc <$> eval xe <*> eval ye)
 
-        B.SemiRingMul sr xe ye ->
-           case sr of
-             B.SemiRingRealRepr    -> join (scMulReal sym sc <$> eval xe <*> eval ye)
-             B.SemiRingIntegerRepr -> join (scMulInt  sc <$> eval xe <*> eval ye)
-             B.SemiRingNatRepr     -> join (scMulNat  sc <$> eval xe <*> eval ye)
+        B.NotPred x ->
+          SAWExpr <$> (SC.scNot sc =<< f x)
+
+        B.AndPred x y ->
+          SAWExpr <$> join (SC.scAnd sc <$> f x <*> f y)
+
+        B.SemiRingProd pd ->
+           case WSum.prodRepr pd of
+             B.SemiRingRealRepr ->
+               do pd' <- WSum.prodEvalM (scMulReal sym sc) eval pd
+                  maybe (scRealLit sym sc 1) return pd'
+             B.SemiRingIntegerRepr ->
+               do pd' <- WSum.prodEvalM (scMulInt sc) eval pd
+                  maybe (scIntLit sc 1) return pd'
+             B.SemiRingNatRepr ->
+               do pd' <- WSum.prodEvalM (scMulNat sc) eval pd
+                  maybe (scNatLit sc 1) return pd'
              B.SemiRingBVRepr B.BVArithRepr w ->
-               fmap SAWExpr $ do
-                 n <- SC.scNat sc (natValue w)
-                 join (SC.scBvMul sc n <$> f xe <*> f ye)
+               do n <- SC.scNat sc (natValue w)
+                  pd' <- WSum.prodEvalM (SC.scBvMul sc n) f pd
+                  maybe (scBvLit sc w 1) (return . SAWExpr) pd'
              B.SemiRingBVRepr B.BVBitsRepr w ->
-               fmap SAWExpr $ do
-                 n <- SC.scNat sc (natValue w)
-                 join (SC.scBvAnd sc n <$> f xe <*> f ye)
+               do n <- SC.scNat sc (natValue w)
+                  pd' <- WSum.prodEvalM (SC.scBvAnd sc n) f pd
+                  maybe (scBvLit sc w (maxUnsigned w)) (return . SAWExpr) pd'
 
         B.SemiRingSum ss ->
           case WSum.sumRepr ss of
@@ -875,6 +883,13 @@ evaluateExpr sym sc cache = f
                        | otherwise = join (scBvAnd sc w <$> scBvLit sc w sm <*> eval e)
 
         B.RealIsInteger{} -> unsupported sym "SAW backend does not support real values"
+
+        B.BVOrBits pd ->
+          case WSum.prodRepr pd of
+            B.SemiRingBVRepr _ w ->
+              do n <- SC.scNat sc (natValue w)
+                 pd' <- WSum.prodEvalM (SC.scBvOr sc n) f pd
+                 maybe (scBvLit sc w 0) (return . SAWExpr) pd'
 
         B.PredToBV p ->
           do bit <- SC.scBoolType sc

@@ -513,10 +513,6 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 
   -- | Boolean disjunction
   orPred  :: sym -> Pred sym -> Pred sym -> IO (Pred sym)
-  orPred sym x y = do
-    xn <- notPred sym x
-    yn <- notPred sym y
-    notPred sym =<< andPred sym xn yn
 
   -- | Boolean implication
   impliesPred :: sym -> Pred sym -> Pred sym -> IO (Pred sym)

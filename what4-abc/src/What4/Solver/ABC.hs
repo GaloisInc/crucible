@@ -196,6 +196,8 @@ memoExprNonce ntk n ev = do
       return r
 
 eval :: Network t s -> Expr t tp -> IO (NameType s tp)
+eval _ (BoolExpr b _) =
+  return $! if b then B GIA.true else B GIA.false
 eval _ (SemiRingLiteral SemiRingNatRepr n _) = return (GroundNat n)
 eval _ (SemiRingLiteral SemiRingIntegerRepr n _) = return (GroundInt n)
 eval _ (SemiRingLiteral SemiRingRealRepr r _) = return (GroundRat r)
@@ -275,26 +277,6 @@ bitblastExpr h ae = do
 
   case appExprApp ae of
 
-    TrueBool ->
-      return $ B $ GIA.true
-    FalseBool ->
-      return $ B $ GIA.false
-    NotBool xe ->
-      B . GIA.not <$> eval' h xe
-    AndBool x y ->
-      B <$> (join $ GIA.and g <$> eval' h x <*> eval' h y)
-    XorBool x y ->
-      B <$> (join $ GIA.xor g <$> eval' h x <*> eval' h y)
-    BaseIte BaseBoolRepr _ c x y ->
-      B <$> (join $ GIA.mux g <$> eval' h c <*> eval' h x <*> eval' h y)
-
-    RealIsInteger{} -> realFail
-    PredToBV p -> BV . AIG.singleton <$> eval' h p
-    BVTestBit i xe -> assert (i <= fromIntegral (maxBound :: Int)) $
-       (\v -> B $ v AIG.! (fromIntegral i)) <$> eval' h xe
-    BVSlt x y -> B <$> join (AIG.slt  g <$> eval' h x <*> eval' h y)
-    BVUlt x y -> B <$> join (AIG.ult  g <$> eval' h x <*> eval' h y)
-
     ------------------------------------------------------------------------
     -- Nat operations
 
@@ -364,6 +346,12 @@ bitblastExpr h ae = do
         BaseStructRepr _ -> structFail
         BaseStringRepr -> stringFail
 
+    PredToBV p -> BV . AIG.singleton <$> eval' h p
+    BVTestBit i xe -> assert (i <= fromIntegral (maxBound :: Int)) $
+       (\v -> B $ v AIG.! (fromIntegral i)) <$> eval' h xe
+    BVSlt x y -> B <$> join (AIG.slt  g <$> eval' h x <*> eval' h y)
+    BVUlt x y -> B <$> join (AIG.ult  g <$> eval' h x <*> eval' h y)
+
     BVUnaryTerm u -> do
       let w = UnaryBV.width u
       let cns v = return $ AIG.bvFromInteger g (widthVal w) v
@@ -383,6 +371,13 @@ bitblastExpr h ae = do
       x <- eval' h xe
       return $ BV $ AIG.sliceRev x (fromIntegral (natValue idx)) (fromIntegral (natValue n))
 
+    NotPred xe -> B . AIG.not <$> eval' h xe
+
+    AndPred xe ye ->
+      do x <- eval' h xe
+         y <- eval' h ye
+         B <$> (AIG.and g x y)
+
     SemiRingSum s ->
       case WSum.sumRepr s of
         SemiRingBVRepr BVArithRepr w -> BV <$> WSum.evalM (AIG.add g) smul cnst s
@@ -401,15 +396,24 @@ bitblastExpr h ae = do
         SemiRingIntegerRepr -> intFail
         SemiRingRealRepr -> realFail
 
-    SemiRingMul sr x y ->
-      case sr of
-        SemiRingBVRepr BVArithRepr _w ->
-          BV <$> join (AIG.mul g <$> eval' h x <*> eval' h y)
-        SemiRingBVRepr BVBitsRepr _w ->
-          BV <$> join (AIG.zipWithM (AIG.lAnd' g) <$> eval' h x <*> eval' h y)
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SemiRingBVRepr BVArithRepr w ->
+          maybe (BV (AIG.bvFromInteger g (widthVal w) 1)) BV <$>
+            WSum.prodEvalM (AIG.mul g) (eval' h) pd
+        SemiRingBVRepr BVBitsRepr w ->
+          maybe (BV (AIG.bvFromInteger g (widthVal w) (maxUnsigned w))) BV <$>
+            WSum.prodEvalM (AIG.zipWithM (AIG.lAnd' g)) (eval' h) pd
+
         SemiRingNatRepr -> natFail
         SemiRingIntegerRepr -> intFail
         SemiRingRealRepr -> realFail
+
+    BVOrBits pd ->
+      case WSum.prodRepr pd of
+        SemiRingBVRepr _ w ->
+          maybe (BV (AIG.bvFromInteger g (widthVal w) 0)) BV <$>
+            WSum.prodEvalM (AIG.zipWithM (AIG.lOr' g)) (eval' h) pd
 
     BVUdiv _w x y -> do
      BV <$> join (AIG.uquot g <$> eval' h x <*> eval' h y)
@@ -492,6 +496,8 @@ bitblastExpr h ae = do
 
     ------------------------------------------------------------------------
     -- Conversions.
+
+    RealIsInteger{} -> realFail
 
     NatToInteger{}  -> intFail
     IntegerToReal{} -> realFail
