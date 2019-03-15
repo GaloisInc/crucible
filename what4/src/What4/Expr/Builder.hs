@@ -74,6 +74,8 @@ module What4.Expr.Builder
   , ppExprTop
   , exprMaybeId
   , asConjunction
+  , Polarity(..)
+  , BM.negatePolarity
     -- ** AppExpr
   , AppExpr
   , appExprId
@@ -168,6 +170,7 @@ import qualified Data.HashTable.ST.Cuckoo as H
 import           Data.Hashable
 import           Data.IORef
 import           Data.Kind
+import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
@@ -202,6 +205,8 @@ import           What4.InterpretedFloatingPoint
 import           What4.ProgramLoc
 import qualified What4.SemiRing as SR
 import           What4.Symbol
+import           What4.Expr.BoolMap (BoolMap, Polarity(..), BoolMapView(..))
+import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.MATLAB
 import           What4.Expr.WeightedSum (WeightedSum, SemiRingProduct)
 import qualified What4.Expr.WeightedSum as WSum
@@ -355,8 +360,8 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   ------------------------------------------------------------------------
   -- Boolean operations
 
-  NotPred :: e BaseBoolType -> App e BaseBoolType
-  AndPred :: e BaseBoolType -> e BaseBoolType -> App e BaseBoolType
+  NotPred :: !(e BaseBoolType) -> App e BaseBoolType
+  ConjPred :: !(BoolMap e) -> App e BaseBoolType
 
   ------------------------------------------------------------------------
   -- Semiring operations
@@ -1005,10 +1010,14 @@ instance IsSymFn (ExprSymFn t) where
   fnArgTypes = symFnArgTypes
   fnReturnType = symFnReturnType
 
-asConjunction :: Expr t BaseBoolType -> [Expr t BaseBoolType]
+asConjunction :: Expr t BaseBoolType -> [(Expr t BaseBoolType, Polarity)]
 asConjunction (BoolExpr True _) = []
-asConjunction (asApp -> Just (AndPred x y)) = asConjunction x ++ asConjunction y
-asConjunction x = [x]
+asConjunction (asApp -> Just (ConjPred xs)) =
+ case BM.viewBoolMap xs of
+   BoolMapConst True      -> []
+   BoolMapConst False     -> [(BoolExpr False initializationLoc, Positive)]
+   BoolMapTerms (tm:|tms) -> tm:tms
+asConjunction x = [(x,Positive)]
 
 ------------------------------------------------------------------------
 -- Types
@@ -1030,7 +1039,7 @@ appType a =
     BaseEq{} -> knownRepr
 
     NotPred{} -> knownRepr
-    AndPred{} -> knownRepr
+    ConjPred{} -> knownRepr
 
     RealIsInteger{} -> knownRepr
     BVTestBit{} -> knownRepr
@@ -1329,7 +1338,14 @@ abstractEval bvParams f a0 = do
     BaseEq tp x y -> withAbstractable tp $ avCheckEq tp (f x) (f y)
 
     NotPred x -> not <$> (f x)
-    AndPred x y -> absAnd (f x) (f y)
+    ConjPred xs ->
+      let pol (x,Positive) = f x
+          pol (x,Negative) = not <$> f x
+      in
+      case BM.viewBoolMap xs of
+        BoolMapConst b -> Just b
+        BoolMapTerms (tm:|tms) ->
+          foldr absAnd (pol tm) $ map pol tms
 
     SemiRingLe{} -> Nothing
     RealIsInteger{} -> Nothing
@@ -1601,7 +1617,14 @@ ppApp' a0 = do
     BaseEq _ x y -> ppSExpr "eq" [x, y]
 
     NotPred x -> ppSExpr "not" [x]
-    AndPred x y -> ppSExpr "and" [x, y]
+    ConjPred xs ->
+      let pol (x,Positive) = exprPrettyArg x
+          pol (x,Negative) = PrettyFunc "not" [ exprPrettyArg x ]
+       in
+       case BM.viewBoolMap xs of
+         BoolMapConst True  -> prettyApp "true" []
+         BoolMapConst False -> prettyApp "false" []
+         BoolMapTerms tms   -> prettyApp "and" (map pol (toList tms))
 
     RealIsInteger x -> ppSExpr "isInteger" [x]
     BVTestBit i x   -> prettyApp "testBit"  [exprPrettyArg x, showPrettyArg i]
@@ -1901,9 +1924,12 @@ traverseApp =
     , ( ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
       , [| WSum.traverseProdVars |]
       )
-    ,  ( ConType [t|Hash.Map |] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
-       , [| Hash.traverseHashedMap |]
-       )
+    , ( ConType [t|BoolMap|] `TypeApp` AnyType
+      , [| BM.traverseVars |]
+      )
+    , ( ConType [t|Hash.Map |] `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType `TypeApp` AnyType
+      , [| Hash.traverseHashedMap |]
+      )
     , ( ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType
       , [|traverseFC|]
       )
@@ -2901,7 +2927,7 @@ reduceApp sym a0 = do
     BaseEq _ x y -> isEq sym x y
 
     NotPred x -> notPred sym x
-    AndPred x y -> andPred sym x y
+    ConjPred xs -> conjPred sym xs
 
     SemiRingSum s -> semiRingSum sym s
     SemiRingProd pd -> semiRingProd sym pd
@@ -3289,6 +3315,16 @@ realSum sym s = semiRingSum sym s
 
 bvSum :: ExprBuilder t st fs -> WeightedSum (Expr t) (SR.SemiRingBV flv w) -> IO (BVExpr t w)
 bvSum sym s = semiRingSum sym s
+
+conjPred :: ExprBuilder t st fs -> BoolMap (Expr t) -> IO (BoolExpr t)
+conjPred sym bm =
+  case BM.viewBoolMap bm of
+    BoolMapConst b -> return $ backendPred sym b
+    BoolMapTerms ((x,p):|[]) ->
+      case p of
+        Positive -> return x
+        Negative -> notPred sym x
+    _ -> sbMakeExpr sym $ ConjPred bm
 
 bvUnary :: (1 <= w) => ExprBuilder t st fs -> UnaryBV (BoolExpr t) w -> IO (BVExpr t w)
 bvUnary sym u
@@ -3707,7 +3743,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = sbMakeExpr sym (NotPred x)
 
   eqPred sym x y
-    | x == y = return (truePred sym)
+    | x == y    = return (truePred sym)
     | otherwise = sbMakeExpr sym $ BaseEq BaseBoolRepr (min x y) (max x y)
 
   xorPred sym x y = notPred sym =<< eqPred sym x y
@@ -3718,20 +3754,33 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       (Just False, _) -> return x
       (_, Just True)  -> return x
       (_, Just False) -> return y
-      _
-        | x == y
-        -> return x -- or is idempotent
+      _ | x == y -> return x -- or is idempotent
+        | otherwise -> go x Positive y Positive
 
-        | Just (NotPred x') <- asApp x
-        , x' == y
-        -> return (falsePred sym)
+   where
+   go a pa b pb
+     | Just (NotPred a') <- asApp a
+     = go a' (BM.negatePolarity pa) b pb
 
-        | Just (NotPred y') <- asApp y
-        , x == y'
-        -> return (falsePred sym)
+     | Just (NotPred b') <- asApp b
+     = go a pa b' (BM.negatePolarity pb)
 
-        | otherwise
-        -> sbMakeExpr sym (AndPred (min x y) (max x y))
+     | Just (ConjPred as) <- asApp a
+     , Just (ConjPred bs) <- asApp b
+     , pa == Positive
+     , pb == Positive
+     = conjPred sym $ BM.combine as bs
+
+     | Just (ConjPred as) <- asApp a
+     , pa == Positive
+     = conjPred sym $ BM.addVar b pb as
+
+     | Just (ConjPred bs) <- asApp b
+     , pb == Positive
+     = conjPred sym $ BM.addVar a pa bs
+
+     | otherwise
+     = conjPred sym $ BM.fromVars [(a,pa),(b,pb)]
 
   orPred sym x y =
     do x' <- notPred sym x

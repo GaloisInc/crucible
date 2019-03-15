@@ -98,6 +98,7 @@ import           Control.Monad.Trans.Maybe
 import           Data.Bits (shiftL)
 import           Data.IORef
 import           Data.Kind
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Parameterized.Classes (ShowF(..))
@@ -123,6 +124,7 @@ import qualified System.IO.Streams as Streams
 import           What4.BaseTypes
 import           What4.Interface (ArrayResultWrapper(..), IndexLit(..), RoundingMode(..))
 import           What4.ProblemFeatures
+import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import qualified What4.Expr.WeightedSum as WSum
@@ -1797,8 +1799,18 @@ appSMTExpr ae = do
       freshBoundTerm NatTypeMap (intMod x y)
 
     NotPred x -> freshBoundTerm BoolTypeMap . notExpr =<< mkBaseExpr x
-    AndPred x y ->
-      freshBoundTerm BoolTypeMap =<< ((.&&) <$> mkBaseExpr x <*> mkBaseExpr y)
+    ConjPred xs ->
+      let pol (x,Positive) = mkBaseExpr x
+          pol (x,Negative) = notExpr <$> mkBaseExpr x
+      in
+      case BM.viewBoolMap xs of
+        BM.BoolMapConst b ->
+          return $ SMTExpr BoolTypeMap $ boolExpr b
+        BM.BoolMapTerms (t:|[]) ->
+          SMTExpr BoolTypeMap <$> pol t
+        BM.BoolMapTerms (t:|ts) ->
+          do cnj <- andAll <$> mapM pol (t:ts)
+             freshBoundTerm BoolTypeMap cnj
 
     ------------------------------------------
     -- Real operations.
@@ -2549,10 +2561,12 @@ mkAtomicFormula conn p = runOnLiveConnection conn $
 -- | Write assume formula predicates for asserting predicate holds.
 assume :: SMTWriter h => WriterConn t h -> BoolExpr t -> IO ()
 assume c p = do
-  forM_ (asConjunction p) $ \v -> do
+  forM_ (asConjunction p) $ \(v,pl) -> do
     f <- mkFormula c v
     updateProgramLoc c (exprLoc v)
-    assumeFormula c f
+    case pl of
+      BM.Positive -> assumeFormula c f
+      BM.Negative -> assumeFormula c (notExpr f)
 
 type SMTEvalBVArrayFn h w v =
     (1 <= w,

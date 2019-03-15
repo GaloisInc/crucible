@@ -71,7 +71,7 @@ appTheory a0 =
     BaseEq tp _ _ -> typeTheory tp
 
     NotPred{} -> BoolTheory
-    AndPred{} -> BoolTheory
+    ConjPred{} -> BoolTheory
 
     RealIsInteger{} -> LinearArithTheory
 

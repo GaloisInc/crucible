@@ -73,6 +73,7 @@ library
 
     What4.Expr
     What4.Expr.AppTheory
+    What4.Expr.BoolMap
     What4.Expr.Builder
     What4.Expr.GroundEval
     What4.Expr.MATLAB

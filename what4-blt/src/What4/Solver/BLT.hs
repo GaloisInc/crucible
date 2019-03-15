@@ -69,6 +69,7 @@ import           Control.Monad (foldM, forM_, when, liftM2)
 import           Control.Monad.ST
 import           Data.IORef
 import           Data.Int (Int64)
+import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe, isJust)
@@ -88,6 +89,7 @@ import           What4.Concrete
 import           What4.Interface
 import           What4.SatResult
 import           What4.Expr
+import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.GroundEval
 import           What4.Expr.Builder
 import qualified What4.Expr.WeightedSum as WSum
@@ -421,9 +423,16 @@ assume h (BoolExpr b l)
 assume h b@(AppExpr ba) =
   let a = appExprApp ba in
     case a of
-      AndPred x y ->
-        do assume h x
-           assume h y
+      ConjPred xs ->
+        case BM.viewBoolMap xs of
+          BM.BoolMapConst True -> return ()
+          BM.BoolMapConst False ->
+               do when (isVerb h) $ warnAt l "problem assumes False"
+                  setUNSAT h
+          BM.BoolMapTerms (t:|ts) -> mapM_ f (t:ts)
+            where f (x,BM.Positive) = assume h x
+                  f (_,BM.Negative) = unsupported
+
       SemiRingLe OrderedSemiRingIntegerRepr x y  -> do
         x' <- evalInteger h x
         y' <- evalInteger h y
@@ -432,10 +441,11 @@ assume h b@(AppExpr ba) =
         x' <- evalReal h x
         y' <- evalReal h y
         appLEq x' y'
-      _ -> fail $ show $
+      _ -> unsupported
+  where
+  unsupported = fail $ show $
         text "Unsupported term created at" <+> pretty (plSourceLoc l) <>
         text ":" <$$> indent 2 (pretty b)
-  where
   l = appExprLoc ba
   appLEq lhs rhs =
     let (lhs', rhs') = normalizeLEQ lhs rhs in

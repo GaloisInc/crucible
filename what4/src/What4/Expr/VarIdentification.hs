@@ -42,6 +42,7 @@ import           Control.Monad.ST
 import           Control.Monad.State
 import           Data.Bits
 import qualified Data.HashTable.ST.Cuckoo as H
+import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict as Map
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
@@ -56,6 +57,7 @@ import           Text.PrettyPrint.ANSI.Leijen
 import           What4.BaseTypes
 import           What4.Interface (ArrayResultWrapper(..))
 import           What4.Expr.AppTheory
+import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
 import           What4.ProblemFeatures
 import qualified What4.SemiRing as SR
@@ -188,17 +190,6 @@ addExistVar ExistsOnly p e q v x = do
 addExistVar ExistsForall _ _ _ _ _ = do
   fail $ "mss does not allow existental variables to appear inside forall quantifier."
 
--- \ Describes whether the polarity of a subformula.
---
--- A formula is positive if it appears under an even number of negations, and
--- positive otherwise.
-data Polarity = Positive | Negative
-  deriving (Eq)
-
-negatePolarity :: Polarity -> Polarity
-negatePolarity Positive = Negative
-negatePolarity Negative = Positive
-
 addForallVar :: Polarity -- ^ Polarity of formula
              -> NonceAppExpr t BaseBoolType -- ^ Top term
              -> BoundQuant            -- ^ Quantifier appearing in top term.
@@ -309,10 +300,13 @@ recurseAssertedAppExprVars scope p e = go e
  go (asApp -> Just (NotPred x)) =
         recordAssertionVars scope (negatePolarity p) x
 
- go (asApp -> Just (AndPred x y)) = 
-     do recordAssertionVars scope p x
-        recordAssertionVars scope p y
-
+ go (asApp -> Just (ConjPred xs)) =
+   let pol (x,Positive) = recordAssertionVars scope p x
+       pol (x,Negative) = recordAssertionVars scope (negatePolarity p) x
+   in
+   case BM.viewBoolMap xs of
+     BM.BoolMapConst _  -> return ()
+     BM.BoolMapTerms (t:|ts) -> mapM_ pol (t:ts)
  go (asApp -> Just (BaseIte BaseBoolRepr _ c x y)) =
    do recordExprVars scope c
       recordAssertionVars scope p x

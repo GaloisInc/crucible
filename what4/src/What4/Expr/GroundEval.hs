@@ -41,6 +41,8 @@ import           Control.Monad
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
 import           Data.Bits
+import           Data.List (foldl')
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe ( fromMaybe )
 import qualified Data.Parameterized.Context as Ctx
@@ -53,6 +55,7 @@ import           Numeric.Natural
 import           What4.BaseTypes
 import           What4.Interface
 import qualified What4.SemiRing as SR
+import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
 import qualified What4.Expr.WeightedSum as WSum
 import qualified What4.Expr.UnaryBV as UnaryBV
@@ -241,7 +244,14 @@ evalGroundApp f0 a0 = do
       if xv then f y else f z
 
     NotPred x -> not <$> f x
-    AndPred x y -> (&&) <$> f x <*> f y
+    ConjPred xs ->
+      let pol (x,Positive) = f x
+          pol (x,Negative) = not <$> f x
+      in
+      case BM.viewBoolMap xs of
+        BM.BoolMapConst b -> return b
+        BM.BoolMapTerms (t:|ts) ->
+          foldl' (&&) <$> pol t <*> mapM pol ts
 
     RealIsInteger x -> (\xv -> denominator xv == 1) <$> f x
     BVTestBit i x -> assert (i <= fromIntegral (maxBound :: Int)) $

@@ -52,6 +52,7 @@ import qualified Data.Foldable as Fold
 import qualified Data.HashSet as HSet
 import           Data.IORef
 import           Data.List (zipWith4)
+import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import           Data.Parameterized.HashTable (HashTable)
 import qualified Data.Parameterized.HashTable as H
@@ -75,6 +76,7 @@ import           What4.Interface
                    (getConfiguration, IsExprBuilder, logSolverEvent, SolverEvent(..), andAllOf)
 import           What4.Expr
 import           What4.Expr.Builder
+import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.GroundEval
 import qualified What4.Expr.UnaryBV as UnaryBV
 import           What4.Expr.VarIdentification
@@ -373,10 +375,15 @@ bitblastExpr h ae = do
 
     NotPred xe -> B . AIG.not <$> eval' h xe
 
-    AndPred xe ye ->
-      do x <- eval' h xe
-         y <- eval' h ye
-         B <$> (AIG.and g x y)
+    ConjPred xs ->
+      let pol (x,BM.Positive) = eval' h x
+          pol (x,BM.Negative) = AIG.not <$> eval' h x
+      in
+      case BM.viewBoolMap xs of
+        BM.BoolMapConst True  -> return (B GIA.true)
+        BM.BoolMapConst False -> return (B GIA.false)
+        BM.BoolMapTerms (t:|ts) ->
+          B <$> join (foldM (AIG.lAnd' g) <$> pol t <*> mapM pol ts)
 
     SemiRingSum s ->
       case WSum.sumRepr s of

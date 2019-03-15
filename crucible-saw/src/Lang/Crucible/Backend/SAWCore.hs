@@ -24,6 +24,7 @@ import           Control.Exception ( bracket )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
+import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map ( Map )
 import qualified Data.Map as Map
 import qualified Data.Parameterized.Context as Ctx
@@ -41,6 +42,7 @@ import           What4.BaseTypes
 import           What4.Config
 import           What4.Interface
 import qualified What4.Expr.Builder as B
+import qualified What4.Expr.BoolMap as BM
 import qualified What4.Expr.WeightedSum as WSum
 import           What4.ProgramLoc
 import           What4.Protocol.Online
@@ -830,8 +832,13 @@ evaluateExpr sym sc cache = f
         B.NotPred x ->
           SAWExpr <$> (SC.scNot sc =<< f x)
 
-        B.AndPred x y ->
-          SAWExpr <$> join (SC.scAnd sc <$> f x <*> f y)
+        B.ConjPred xs ->
+          case BM.viewBoolMap xs of
+            BM.BoolMapConst b -> SAWExpr <$> SC.scBool sc b
+            BM.BoolMapTerms (t:|ts) ->
+              let pol (x,BM.Positive) = f x
+                  pol (x,BM.Negative) = SC.scNot sc =<< f x
+              in SAWExpr <$> join (foldM (SC.scAnd sc) <$> pol t <*> mapM pol ts)
 
         B.SemiRingProd pd ->
            case WSum.prodRepr pd of
