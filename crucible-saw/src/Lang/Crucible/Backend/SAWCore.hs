@@ -834,11 +834,21 @@ evaluateExpr sym sc cache = f
 
         B.ConjPred xs ->
           case BM.viewBoolMap xs of
-            BM.BoolMapConst b -> SAWExpr <$> SC.scBool sc b
+            BM.BoolMapUnit -> SAWExpr <$> SC.scBool sc True
+            BM.BoolMapDualUnit -> SAWExpr <$> SC.scBool sc False
             BM.BoolMapTerms (t:|ts) ->
               let pol (x,BM.Positive) = f x
                   pol (x,BM.Negative) = SC.scNot sc =<< f x
               in SAWExpr <$> join (foldM (SC.scAnd sc) <$> pol t <*> mapM pol ts)
+
+        B.DisjPred xs ->
+          case BM.viewBoolMap xs of
+            BM.BoolMapUnit -> SAWExpr <$> SC.scBool sc False
+            BM.BoolMapDualUnit -> SAWExpr <$> SC.scBool sc True
+            BM.BoolMapTerms (t:|ts) ->
+              let pol (x,BM.Positive) = f x
+                  pol (x,BM.Negative) = SC.scNot sc =<< f x
+              in SAWExpr <$> join (foldM (SC.scOr sc) <$> pol t <*> mapM pol ts)
 
         B.SemiRingProd pd ->
            case WSum.prodRepr pd of

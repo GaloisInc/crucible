@@ -27,6 +27,7 @@ module What4.Expr.BoolMap
   , viewBoolMap
   , traverseVars
   , reversePolarities
+  , removeVar
   ) where
 
 import           Control.Lens (_1, over)
@@ -79,14 +80,15 @@ instance HashableF f => Hashable (BoolMap f) where
     foldr (\(x,p) y -> hashWithSalt (hash p) x `xor` y) (hashWithSalt s (1::Int)) (Map.toList m)
 
 data BoolMapView f
-  = BoolMapConst !Bool
+  = BoolMapUnit
+  | BoolMapDualUnit
   | BoolMapTerms (NonEmpty (f BaseBoolType, Polarity))
 
 viewBoolMap :: BoolMap f -> BoolMapView f
-viewBoolMap InconsistentMap = BoolMapConst False
+viewBoolMap InconsistentMap = BoolMapDualUnit
 viewBoolMap (BoolMap m) =
   case Map.toList m of
-    []  -> BoolMapConst True
+    []  -> BoolMapUnit
     (Wrap x,p):xs -> BoolMapTerms ((x,p):|(map (over _1 unWrap) xs))
 
 isInconsistent :: BoolMap f -> Bool
@@ -128,3 +130,7 @@ contains (BoolMap m) x = Map.lookup (Wrap x) m
 reversePolarities :: BoolMap f -> BoolMap f
 reversePolarities InconsistentMap = InconsistentMap
 reversePolarities (BoolMap m) = BoolMap $! fmap negatePolarity m
+
+removeVar :: OrdF f => BoolMap f -> f BaseBoolType -> BoolMap f
+removeVar InconsistentMap _ = InconsistentMap
+removeVar (BoolMap m) x = BoolMap (Map.delete (Wrap x) m)

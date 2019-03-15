@@ -72,6 +72,7 @@ appTheory a0 =
 
     NotPred{} -> BoolTheory
     ConjPred{} -> BoolTheory
+    DisjPred{} -> BoolTheory
 
     RealIsInteger{} -> LinearArithTheory
 

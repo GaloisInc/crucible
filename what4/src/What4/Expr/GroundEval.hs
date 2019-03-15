@@ -249,9 +249,20 @@ evalGroundApp f0 a0 = do
           pol (x,Negative) = not <$> f x
       in
       case BM.viewBoolMap xs of
-        BM.BoolMapConst b -> return b
+        BM.BoolMapUnit -> return True
+        BM.BoolMapDualUnit -> return False
         BM.BoolMapTerms (t:|ts) ->
           foldl' (&&) <$> pol t <*> mapM pol ts
+
+    DisjPred xs ->
+      let pol (x,Positive) = f x
+          pol (x,Negative) = not <$> f x
+      in
+      case BM.viewBoolMap xs of
+        BM.BoolMapUnit -> return False
+        BM.BoolMapDualUnit -> return True
+        BM.BoolMapTerms (t:|ts) ->
+          foldl' (||) <$> pol t <*> mapM pol ts
 
     RealIsInteger x -> (\xv -> denominator xv == 1) <$> f x
     BVTestBit i x -> assert (i <= fromIntegral (maxBound :: Int)) $
