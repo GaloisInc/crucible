@@ -4,7 +4,7 @@
 ==== Proof obligations ====
 Assuming:
 * in main test-data/simulator-tests/assume.cbl:4:5: x is true
-    cx@2:b
+    cx@0:b
 Prove:
   error statement
   in main at test-data/simulator-tests/assume.cbl:5:5
