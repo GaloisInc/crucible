@@ -64,6 +64,7 @@ import           What4.Interface
 import           What4.Expr.Builder (Flags, FloatReal)
 import           What4.FunctionName
 import           What4.Partial
+import qualified What4.Solver.Yices as Yices
 import           What4.WordMap
 
 import           Lang.Crucible.Backend
@@ -114,7 +115,7 @@ verifFnRepr rw w = FunctionHandleRepr (verifStateRepr rw w) (StructRepr (verifSt
 --   and register file width are fixed by the given NatReprs.
 verificationHarnessOverrideHandle ::
   (1 <= w, 1 <= rw) =>
-  Simulator p (SAW.SAWCoreBackend n (Flags FloatReal)) ->
+  Simulator p (SAWBack n) ->
   NatRepr rw ->
   NatRepr w ->
   CryptolEnv ->
@@ -127,7 +128,7 @@ verificationHarnessOverrideHandle sim rw w cryEnv harness =
            (mkOverride' nm (StructRepr (verifStateRepr rw w))
               (verificationHarnessOverride sim rw w sc cryEnv harness))
 
-type SAWBack n = SAW.SAWCoreBackend n (Flags FloatReal)
+type SAWBack n = SAW.SAWCoreBackend n (Yices.Connection n) (Flags FloatReal)
 type N p n r args ret a = OverrideSim p (SAWBack n) () r args ret a
 
 -- | Define the behavior of a verification override.  First, bind the values of all the
@@ -193,7 +194,7 @@ assumeConditions sc cryEnv phase =
            addAssumption sym (LabeledPred x (AssumptionReason loc "Verification postcondition"))
 
 createFreshHarnessVar ::
-  SAW.SAWCoreBackend n (Flags FloatReal) ->
+  SAWBack n ->
   HarnessVar CT.Name ->
   HarnessVarType ->
   IO (SubstTerm (SAWBack n), Term)

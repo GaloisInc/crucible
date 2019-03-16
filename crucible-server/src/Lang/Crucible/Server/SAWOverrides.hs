@@ -64,7 +64,7 @@ import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Recognizer as SAW
 
 sawServerOptions :: [ConfigDesc]
-sawServerOptions = SAW.sawOptions
+sawServerOptions = []
 
 sawServerOverrides :: [Simulator p (SAWBack n) -> IO SomeHandle]
 sawServerOverrides = []
