@@ -22,7 +22,6 @@ import           System.IO
 import           Data.HPB
 
 import           Data.Parameterized.Nonce
-import qualified Data.ABC.GIA as GIA
 
 import           Lang.Crucible.Backend.Simple
 import qualified Lang.Crucible.Backend.SAWCore as SAW
@@ -87,7 +86,7 @@ runSAWSimulator hin hout =
      withIONonceGenerator $ \gen -> do
        sc <- SAW.mkSharedContext
        SAW.scLoadPreludeModule sc
-       (sym :: SAWBack n) <- SAW.newSAWCoreBackend GIA.proxy sc gen
+       (sym :: SAWBack n) <- SAW.newSAWCoreBackend sc gen
        sawState <- initSAWServerPersonality sym
        s <- newSimulator sym sawServerOptions sawState sawServerOverrides hin hout
        putDelimited hout ok_resp
