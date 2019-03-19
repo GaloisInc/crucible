@@ -92,6 +92,7 @@ module Lang.Crucible.CFG.Core
 
 import Control.Applicative
 import Control.Lens
+import Data.Bimap (Bimap)
 import Data.Maybe (fromMaybe)
 import Data.Kind (Type)
 import Data.Parameterized.Classes
@@ -769,6 +770,7 @@ data CFG (ext :: Type)
    = CFG { cfgHandle :: FnHandle init ret
          , cfgBlockMap :: !(BlockMap ext blocks ret)
          , cfgEntryBlockID :: !(BlockID blocks init)
+         , cfgBreakpoints :: !(Bimap BreakpointName (Some (BlockID blocks)))
          }
 
 cfgArgTypes :: CFG ext blocks init ret -> CtxRepr init

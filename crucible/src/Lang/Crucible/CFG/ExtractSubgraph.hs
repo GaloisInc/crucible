@@ -43,7 +43,7 @@ extractSubgraph :: (KnownCtx TypeRepr init, KnownRepr TypeRepr ret)
                 -> BlockID blocks init
                 -> HandleAllocator s
                 -> ST s (Maybe (SomeCFG ext init ret))
-extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry}) cuts bi halloc =
+extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry }) cuts bi halloc =
   extractSubgraphFirst orig cuts MapF.empty zeroSize bi $
     \(SubgraphIntermediate finalMap finalInitMap _sz entryID cb) -> do
         hn <- mkHandle halloc startFunctionName
@@ -53,6 +53,7 @@ extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry}) cuts bi 
             { cfgBlockMap = bm
             , cfgEntryBlockID = entryID
             , cfgHandle = hn
+            , cfgBreakpoints = undefined
             }
 
 -- | Type for carrying intermediate results through subraph extraction

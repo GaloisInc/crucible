@@ -18,6 +18,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
@@ -33,6 +34,8 @@ module Lang.Crucible.CFG.SSAConversion
 import           Control.Exception (assert)
 import           Control.Lens ((&))
 import           Control.Monad.State.Strict
+import           Data.Bimap (Bimap)
+import qualified Data.Bimap as Bimap
 import qualified Data.Foldable as Fold
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -43,9 +46,11 @@ import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableF (TraversableF)
 import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Type.Equality
+import qualified Text.PrettyPrint.ANSI.Leijen as Pretty
 
 import           What4.FunctionName (FunctionName)
 import           What4.ProgramLoc
@@ -126,24 +131,24 @@ data BlockInput ext s blocks ret args
              -- | Arguments expected by block.
            , binputArgs       :: !(Assignment (Value s) args)
            , binputStmts      :: !(Seq (Posd (Stmt ext s)))
-           , binputTerm       :: !(Posd (TermStmt s ret))
+           , binputTerm       :: !(Posd (Either (JumpInfo s blocks) (TermStmt s ret)))
            }
 
 
 type BlockInputAssignment ext s blocks ret
    = Assignment (BlockInput ext s blocks ret)
 
+extBlockInputAssignment :: BlockInputAssignment ext s blocks ret a
+                        -> BlockInputAssignment ext s (blocks ::> tp) ret a
+extBlockInput :: BlockInput ext s blocks ret args
+              -> BlockInput ext s (blocks ::> tp) ret arg
 #ifdef UNSAFE_OPS
-extBlockInputAssignment :: BlockInputAssignment ext s blocks ret a
-                        -> BlockInputAssignment ext s (blocks ::> tp) ret a
 extBlockInputAssignment = unsafeCoerce
+
+extBlockInput = unsafeCoerce
 #else
-extBlockInputAssignment :: BlockInputAssignment ext s blocks ret a
-                        -> BlockInputAssignment ext s (blocks ::> tp) ret a
 extBlockInputAssignment = fmapFC extBlockInput
 
-extBlockInput :: BlockInput ext s blocks ret args
-              -> BlockInput ext s (blocks ::> tp) ret args
 extBlockInput bi = bi { binputID = C.extendBlockID (binputID bi) }
 #endif
 
@@ -273,6 +278,20 @@ extSwitchInfo :: SwitchInfo s blocks tp -> SwitchInfo s (blocks::>args) tp
 extSwitchInfo (SwitchInfo b typs a) = SwitchInfo (C.extendBlockID b) typs a
 #endif
 
+extBlockInfo
+  :: BlockInfo ext s ret blocks
+  -> BlockInput ext s (blocks ::> args) ret args
+  -> BlockInfo ext s ret (blocks ::> args)
+extBlockInfo bi binput = do
+  let blocks' = extBlockInputAssignment $ biBlocks bi
+  let jump_info' = extJumpInfoMap $ biJumpInfo bi
+  let switch_info' = extSwitchInfoMap $ biSwitchInfo bi
+  let breakpoints' = Bimap.mapR (mapSome C.extendBlockID) $ biBreakpoints bi
+  BI { biBlocks = extend blocks' binput
+     , biJumpInfo = jump_info'
+     , biSwitchInfo = switch_info'
+     , biBreakpoints = breakpoints'
+     }
 
 ------------------------------------------------------------------------
 -- PredMap
@@ -356,9 +375,10 @@ completeInputs blocks = do
 
 -- | Information that is statically inferred from the block structure.
 data BlockInfo ext s ret blocks
-   = BI { biBlocks     :: !(Assignment (BlockInput ext s blocks ret) blocks)
-        , biJumpInfo   :: !(JumpInfoMap s blocks)
-        , biSwitchInfo :: !(SwitchInfoMap s blocks)
+   = BI { biBlocks      :: !(Assignment (BlockInput ext s blocks ret) blocks)
+        , biJumpInfo    :: !(JumpInfoMap s blocks)
+        , biSwitchInfo  :: !(SwitchInfoMap s blocks)
+        , biBreakpoints :: !(Bimap BreakpointName (Some (C.BlockID blocks)))
         }
 
 -- | This infers the information given a set of blocks.
@@ -368,6 +388,7 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
         bi0 = BI { biBlocks = empty
                  , biJumpInfo = emptyJumpInfoMap
                  , biSwitchInfo = emptySwitchInfoMap
+                 , biBreakpoints = Bimap.empty
                  }
         go :: BlockInfo ext s ret blocks
            -> [Block ext s ret]
@@ -377,46 +398,74 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
           let sz = size (biBlocks bi)
           let untyped_id = blockID b
           let Just inputs = Map.lookup untyped_id input_map
-          case untyped_id of
-            LabelID l -> do
-              case inferRegAssignment inputs of
-                Some ra -> do
-                  let crepr = fmapFC typeOfValue ra
+          case inferRegAssignment inputs of
+            Some ra -> do
+              let crepr = fmapFC typeOfValue ra
+              case untyped_id of
+                LabelID l -> do
                   let block_id = C.BlockID (nextIndex sz)
+                  let block_term = (blockTerm b) { pos_val = Right $ pos_val $ blockTerm b }
                   let binput = BInput { binputID = block_id
                                       , binputArgs    = ra
                                       , binputStmts   = blockStmts b
-                                      , binputTerm    = blockTerm b
+                                      , binputTerm    = block_term
                                       }
-                  let blocks' = extBlockInputAssignment $ biBlocks bi
-                  let jump_info'   = extJumpInfoMap $ biJumpInfo bi
-                  let switch_info' = extSwitchInfoMap $ biSwitchInfo bi
+                  let bi' = extBlockInfo bi binput
                   let ji = JumpInfo block_id crepr ra
-                  let bi' = BI { biBlocks = extend blocks' binput
-                               , biJumpInfo = insertJumpInfo l ji jump_info'
-                               , biSwitchInfo = switch_info'
-                               }
-                  go bi' rest
-            LambdaID l -> do
-              case inferRegAssignment inputs of
-                Some ra -> do
-                  let crepr = fmapFC typeOfValue ra
+                  let bi'' = bi' { biJumpInfo = insertJumpInfo l ji (biJumpInfo bi') }
+                  gogo bi'' rest
+                LambdaID l -> do
                   let block_id = C.BlockID (nextIndex sz)
                   let lastArg = AtomValue (lambdaAtom l)
+                  let block_term = (blockTerm b) { pos_val = Right $ pos_val $ blockTerm b }
                   let binput = BInput { binputID = block_id
                                       , binputArgs = ra :> lastArg
                                       , binputStmts = blockStmts b
-                                      , binputTerm = blockTerm b
+                                      , binputTerm = block_term
                                       }
-                  let blocks' = extBlockInputAssignment $ biBlocks bi
-                  let jump_info'   = extJumpInfoMap $ biJumpInfo bi
-                  let switch_info' = extSwitchInfoMap $ biSwitchInfo bi
+                  let bi' = extBlockInfo bi binput
                   let si = SwitchInfo block_id crepr ra
-                  let bi' = BI { biBlocks = extend blocks' binput
-                               , biJumpInfo = jump_info'
-                               , biSwitchInfo = insertSwitchInfo l si switch_info'
-                               }
-                  go bi' rest
+                  let bi'' = bi' { biSwitchInfo = insertSwitchInfo l si (biSwitchInfo bi') }
+                  gogo bi'' rest
+        gogo :: BlockInfo ext s ret blocks
+             -> [Block ext s ret]
+             -> Some (BlockInfo ext s ret)
+        gogo bi rest
+          | first_binputs :> last_binput <- biBlocks bi
+          , (first_stmts, break_stmt Seq.:<| last_stmts) <-
+              Seq.breakl isBreakpoint (binputStmts last_binput)
+          , Breakpoint nm args <- pos_val break_stmt = do
+            let block_id = C.BlockID $ nextIndex $ size $ biBlocks bi
+
+            let first_binputs' = extBlockInputAssignment $ first_binputs
+
+            let jump_info = JumpInfo block_id (fmapFC typeOfValue args) args
+            let last_binput' = (extBlockInput last_binput)
+                  { binputStmts = first_stmts
+                  , binputTerm = break_stmt { pos_val = Left jump_info }
+                  }
+
+            let new_binput = (extBlockInput last_binput)
+                  { binputID = block_id
+                  , binputArgs = args
+                  , binputStmts = last_stmts
+                  }
+
+            let bi' = BI
+                  { biBlocks = first_binputs' :> last_binput' :> new_binput
+                  , biJumpInfo = extJumpInfoMap $ biJumpInfo bi
+                  , biSwitchInfo = extSwitchInfoMap $ biSwitchInfo bi
+                  , biBreakpoints = Bimap.insert nm (Some block_id) $
+                      Bimap.mapR (mapSome C.extendBlockID) $
+                      biBreakpoints bi
+                  }
+            gogo bi' rest
+        gogo bi rest = go bi rest
+        isBreakpoint :: Posd (Stmt ext s) -> Bool
+        isBreakpoint = \case
+          Posd _ Breakpoint{} -> True
+          _ -> False
+
 
 ------------------------------------------------------------------------
 -- Translates from RTL with inference information to SSA.
@@ -585,9 +634,9 @@ resolveTermStmt :: BlockInfo ext s ret blocks
                 -> TypedRegMap s ctx
                 -> RegExprs ext ctx
                    -- ^ Maps registers to associated expressions.
-                -> TermStmt s ret
+                -> Either (JumpInfo s blocks) (TermStmt s ret)
                 -> C.TermStmt blocks ret ctx
-resolveTermStmt bi reg_map bindings t0 =
+resolveTermStmt bi reg_map bindings (Right t0) =
   case t0 of
     Jump l -> C.Jump (resolveJumpTarget bi reg_map l)
 
@@ -622,6 +671,9 @@ resolveTermStmt bi reg_map bindings t0 =
     ErrorStmt e -> C.ErrorStmt (resolveAtom reg_map e)
 
     Output l e -> C.Jump (resolveLambdaAsJump bi reg_map l (resolveAtom reg_map e))
+resolveTermStmt _ reg_map _ (Left (JumpInfo next_id types inputs)) = do
+  let args = fmapFC (resolveReg reg_map) inputs
+  C.Jump $ C.JumpTarget next_id types args
 
 #ifdef UNSAFE_OPS
 type AppRegMap ext ctx = MapF (C.App ext (C.Reg ctx)) (C.Reg ctx)
@@ -693,7 +745,7 @@ resolveStmts :: C.IsSyntaxExtension ext
                 -- ^ Maps applications to register that stores their value.
                 -- Used to eliminate redundant operations.
              -> [Posd (Stmt ext s)]
-             -> Posd (TermStmt s ret)
+             -> Posd (Either (JumpInfo s blocks) (TermStmt s ret))
              -> C.StmtSeq ext blocks ret ctx
 resolveStmts nm bi _ reg_map bindings _ [] (Posd p t) = do
   C.TermStmt (mkProgramLoc nm p)
@@ -834,8 +886,15 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
                            (resolveAtom reg_map m))
                  (resolveStmts nm bi sz reg_map bindings appMap rest t)
 
+    Breakpoint{} -> error $
+      "Unexpected breakpoint at position " ++ show p ++ ": " ++ show (Pretty.pretty s0)
+
 data SomeBlockMap ext ret where
-  SomeBlockMap :: Ctx.Index blocks tp -> C.BlockMap ext blocks ret -> SomeBlockMap ext ret
+  SomeBlockMap
+    :: Ctx.Index blocks tp
+    -> Bimap BreakpointName (Some (C.BlockID blocks))
+    -> C.BlockMap ext blocks ret
+    -> SomeBlockMap ext ret
 
 resolveBlockMap :: forall ext s ret
                  . C.IsSyntaxExtension ext
@@ -863,7 +922,8 @@ resolveBlockMap nm entry blocks = do
       case lookupJumpInfo entry (biJumpInfo bi) of
         Nothing -> error "Missing initial block."
         Just (JumpInfo (C.BlockID idx) _ _) ->
-          SomeBlockMap idx $ fmapFC (resolveBlock bi) (biBlocks bi)
+          SomeBlockMap idx (biBreakpoints bi) $
+            fmapFC (resolveBlock bi) (biBlocks bi)
 
 ------------------------------------------------------------------------
 -- SomeCFG
@@ -880,7 +940,7 @@ toSSA g = do
   let entry = cfgEntryLabel g
   let blocks = cfgBlocks g
   case resolveBlockMap (handleName h) entry blocks of
-    SomeBlockMap idx block_map -> do
+    SomeBlockMap idx breakpoints block_map -> do
           let b = block_map ! idx
           case C.blockInputs b `testEquality` initTypes of
             Nothing -> error $
@@ -891,5 +951,6 @@ toSSA g = do
               let g' = C.CFG { C.cfgHandle = h
                              , C.cfgBlockMap = block_map
                              , C.cfgEntryBlockID = C.BlockID idx
+                             , C.cfgBreakpoints = breakpoints
                              }
               reachableCFG g'
