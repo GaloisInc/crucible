@@ -50,8 +50,8 @@ before_install:
   # Rust
   - curl https://sh.rustup.rs -sSf | sh -s -- -y
   - source $HOME/.cargo/env
-  - rustup toolchain install nightly-2017-08-16
-  - rustup default nightly-2017-08-16
+  - rustup toolchain install nightly-2018-10-31
+  - rustup default nightly-2018-10-31
   - pushd .
   - cd ..
   - git clone https://github.com/GaloisInc/mir-json.git
