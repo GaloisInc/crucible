@@ -56,6 +56,7 @@ before_install:
   - cd ..
   - git clone https://github.com/GaloisInc/mir-json.git
   - cd mir-json
+  - git checkout nightly-2018-11
   - cargo build
   - cargo install --force
   - popd
