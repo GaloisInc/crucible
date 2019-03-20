@@ -12,6 +12,7 @@ module Mir.JSON where
 import Data.Aeson
 import qualified Data.Aeson.Types  as Aeson
 import qualified Data.HashMap.Lazy as HML
+import qualified Data.Map.Strict   as Map
 
 import Data.Word(Word64)
 import Data.Bits
@@ -144,11 +145,17 @@ instance FromJSON Var where
         <*>  v .: "pos"
 
 instance FromJSON Collection where
-    parseJSON = withObject "Collection" $ \v -> Collection
-        <$>  v .: "fns"
-        <*> v .: "adts"
-        <*> v .: "traits"
-        <*> v .: "impls"
+    parseJSON = withObject "Collection" $ \v -> do
+      (fns    :: [Fn])        <- v .: "fns"
+      (adts   :: [Adt])       <- v .: "adts"
+      (traits :: [Trait])     <- v .: "traits"
+      (impls  :: [TraitImpl]) <- v .: "impls"
+      return $ Collection
+        (foldr (\ x m -> Map.insert (x^.fname) x m) Map.empty fns)
+        (foldr (\ x m -> Map.insert (x^.adtname) x m) Map.empty adts)
+        (foldr (\ x m -> Map.insert (x^.traitName) x m) Map.empty traits)
+        (foldr (\ x m -> Map.insert (x^.tiName) x m) Map.empty impls)        
+
 
 instance FromJSON Fn where
     parseJSON = withObject "Fn" $ \v -> do

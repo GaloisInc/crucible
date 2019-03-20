@@ -2,9 +2,6 @@
 //
 // We match the type of S::g against T::g.  But g's type
 // does not include 'Self' so there is no information to be gained.
-//
-// We need more info from mir-json to make progress: Issue #4
-//
 
 enum S {}
 

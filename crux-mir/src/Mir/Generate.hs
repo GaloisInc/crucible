@@ -105,12 +105,13 @@ generateMIR debug dir name  = do
         return col
 
 -- | Translate MIR to Crucible
+-- TODO: convert passes to work on collections, instead of [Fn]
 translateMIR :: Collection -> Int -> RustModule
 translateMIR col debug = RustModule cfgmap where
   passes  = P.passNoMutParams . (P.passAllocateEnum col)
   cfgmap  = mirToCFG col debug (Just passes)
 
 mirToCFG :: Collection -> Int -> Maybe ([Fn] -> [Fn]) -> M.Map T.Text (C.AnyCFG MIR)
-mirToCFG col debug Nothing = mirToCFG col debug (Just P.passId)
+mirToCFG col debug Nothing = mirToCFG col debug (Just id)
 mirToCFG col debug (Just pass) =
-    runST $ C.withHandleAllocator $ (transCollection (col &functions %~ pass) debug)
+    runST $ C.withHandleAllocator $ (transCollection ((P.toCollectionPass pass) col) debug)

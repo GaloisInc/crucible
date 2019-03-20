@@ -4,6 +4,7 @@
 
 module Mir.PP where
 
+import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
 import           Data.Text (Text, unpack)
 
@@ -105,7 +106,7 @@ instance Pretty CustomTy where
     pretty (BoxTy ty)  = text "box"  <> parens (pretty ty)
     pretty (VecTy ty)  = text "vec"  <> parens (pretty ty)
     pretty (IterTy ty) = text "iter" <> parens (pretty ty)
-    pretty (CEnum did _) = text "CE:" <> pr_id did
+    pretty (CEnum did _) = text "<C-enum>" <+> pr_id did
 
 instance Pretty Var where
     pretty (Var vn _vm _vty _vs _) = pretty vn 
@@ -341,12 +342,27 @@ instance Pretty Trait where
               indent 3 (vcat (map pretty items)),
               rbrace]
 
+instance Pretty TraitRef where
+  pretty (TraitRef did (Substs (s:_))) = pr_id did <+> text "for" <+> pretty s
+  pretty (TraitRef did s)              = pr_id did <+> text "for" <+> pretty s
+
+instance Pretty TraitImpl where
+  pretty ti =
+    vcat [text "impl" <+> pretty (ti^.tiTraitRef) <+> lbrace, 
+          indent 3 (vcat (map pretty (ti^.tiItems))),
+          rbrace]
+
+instance Pretty TraitImplItem where
+  pretty tii =
+    pretty (tii^.tiiName) <+> text "implements" <+> pretty (tii^.tiiImplements)
+
 instance Pretty Collection where
   pretty col =
     vcat ([text "FNs"] ++
-          map pretty (col^.functions) ++
+          map pretty (Map.elems (col^.functions)) ++
           [text "ADTs"] ++
-          map pretty (col^.adts) ++
+          map pretty (Map.elems (col^.adts)) ++
           [text "TRAITs"] ++
-          map pretty (col^.traits))
-
+          map pretty (Map.elems (col^.traits)) ++
+          [text "IMPLs"] ++
+          map pretty (Map.elems (col^.impls)))

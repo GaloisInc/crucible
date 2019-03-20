@@ -10,10 +10,11 @@ module Mir.Pass (
     passRemoveStorage,
     passMutRefArgs,
     passAllocateEnum,
-    passNoMutParams
+    passNoMutParams,
+    toCollectionPass
 ) where
 
-import Mir.Mir
+
 import Control.Monad.State.Lazy
 import Data.List
 import Control.Lens hiding (op)
@@ -21,6 +22,9 @@ import qualified Data.Text as T
 import qualified Data.Map.Strict as Map
 
 import GHC.Stack
+
+import Mir.Mir
+import Mir.DefId
 
 import Mir.Pass.CollapseRefs( passCollapseRefs )
 import Mir.Pass.MutRefReturnStatic( passMutRefReturnStatic )
@@ -30,14 +34,23 @@ import Mir.Pass.RewriteMutRef( passRewriteMutRefArg )
 import Mir.Pass.AllocateEnum ( passAllocateEnum )
 import Mir.Pass.NoMutParams ( passNoMutParams )
 
-type Pass = [Fn] -> [Fn]
+
+type Pass = Collection -> Collection
 
 passId :: Pass
-passId fns = fns
+passId = id
+
+fnPass :: [Fn] -> [Fn]
+fnPass = passRewriteMutRefArg . passCollapseRefs
+
+fromList :: [Fn] -> Map.Map DefId Fn
+fromList = foldr (\fn m -> Map.insert (fn^.fname) fn m) Map.empty
 
 passMutRefArgs :: HasCallStack => Pass
-passMutRefArgs = passRewriteMutRefArg . passCollapseRefs
+passMutRefArgs = toCollectionPass fnPass
 
+toCollectionPass :: ([Fn] -> [Fn]) -> Pass
+toCollectionPass f col = col { _functions = (fromList (f (Map.elems (col^.functions)))) }
 
 
 -- mir utitiles

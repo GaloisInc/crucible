@@ -861,17 +861,17 @@ evalRefLvalue lv =
 
 getVariant :: HasCallStack => M.Ty -> MirGenerator h s ret (M.Variant, Substs)
 getVariant (M.TyAdt nm args) = do
-    am <- use adtMap
-    case Map.lookup nm am of
+    am <- use collection
+    case Map.lookup nm (am^.adts) of
        Nothing -> fail ("Unknown ADT: " ++ show nm)
-       Just [struct_variant] -> return (struct_variant, args)
+       Just (M.Adt _ [struct_variant]) -> return (struct_variant, args)
        _      -> fail ("Expected ADT with exactly one variant: " ++ show nm)
 getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
     let i = fromInteger ii
-    am <- use adtMap
-    case Map.lookup nm am of
+    am <- use collection
+    case Map.lookup nm (am^.adts) of
        Nothing -> fail ("Unknown ADT: " ++ show nm)
-       Just vars | i < length vars -> return $ (vars !! i, args)
+       Just (M.Adt _ vars) | i < length vars -> return $ (vars !! i, args)
        _      -> fail ("Expected ADT with more than " ++ show i ++ " variants: " ++ show nm)
 getVariant ty = fail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
 
@@ -1052,7 +1052,6 @@ evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.Tagged l _) = evalLvalue l
 evalLvalue (M.Local var) = lookupVar var
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
-    am <- use adtMap
     db <- use debugLevel
     case M.typeOf lv of
 
@@ -1214,12 +1213,13 @@ assignLvExp lv re = do
         M.Local var   -> assignVarExp var re
         M.Static -> fail "static"
         M.LProjection (M.LvalueProjection lv (M.PField field _ty)) -> do
-            am <- use adtMap
+
+            am <- use collection
             case M.typeOf lv of
               M.TyAdt nm args ->
-                case Map.lookup nm am of
+                case Map.lookup nm (am^.adts) of
                   Nothing -> fail ("Unknown ADT: " ++ show nm)
-                  Just [struct_variant] ->
+                  Just (M.Adt _ [struct_variant]) ->
                     do etu <- evalLvalue lv
                        e   <- accessAggregate etu 1 -- get the ANY data payload
                        Some ctx <- return $ variantToRepr struct_variant args
@@ -1230,9 +1230,9 @@ assignLvExp lv re = do
                   Just _ -> fail ("Expected ADT with exactly one variant: " ++ show nm)
 
               M.TyDowncast (M.TyAdt nm args) i -> 
-                case Map.lookup nm am of
+                case Map.lookup nm (am^.adts) of
                   Nothing -> fail ("Unknown ADT: " ++ show nm)
-                  Just vars -> do
+                  Just (M.Adt _ vars) -> do
                      let struct_variant = vars List.!! (fromInteger i)
                      Some ctx <- return $ variantToRepr struct_variant args
 
@@ -1461,11 +1461,11 @@ lookupFunction :: forall h s ret. MethName -> Substs -> MirGenerator h s ret (Ma
 lookupFunction nm (Substs funsubst)
   | Some k <- peanoLength funsubst = do
   hmap <- use handleMap
-  tm <- use traitMap
+  tm   <- use traitMap
   stm  <- use staticTraitMap
-  db <- use debugLevel
-  vm <- use varMap
-  am <- use adtMap
+  db   <- use debugLevel
+  vm   <- use varMap
+  am   <- use collection
 
   let mkFunExp :: FH.FnHandle a r -> MirExp s
       mkFunExp fhandle = tyListToCtx (reverse funsubst) $ \tyargs ->
@@ -1494,7 +1494,7 @@ lookupFunction nm (Substs funsubst)
        -- call via a dictionary argument
        | Just traits <- Map.lookup nm stm
        , ((tn, idx, fields):_) <- [ (tn, idx, fields)
-                          | (tn, Just [Variant _ _ fields _]) <- map (\tn -> (tn,Map.lookup tn am)) traits 
+                          | (tn, Just (M.Adt _ [Variant _ _ fields _])) <- map (\tn -> (tn,Map.lookup tn (am^.adts))) traits 
                           , idx <- Maybe.maybeToList (List.findIndex (\(Field fn _ _) -> nm == fn) fields)
                           , Map.member (M.idText tn) vm ]
        -> do
@@ -1525,7 +1525,7 @@ lookupFunction nm (Substs funsubst)
                case Map.lookup nm stm of
                   Just traits -> do
                      traceM $ "Potential traits: " ++ show traits
-                     traceM $ "Potential variants:  " ++ show (map (\tn -> Map.lookup tn am) traits)
+                     traceM $ "Potential variants:  " ++ show (map (\tn -> Map.lookup tn (am^.adts)) traits)
                   Nothing -> return ()
             return Nothing
 
@@ -1547,9 +1547,9 @@ coerceAdt dir adt substs asubsts e0 = do
   let f :: Coercion
       f = if dir then coerceArg else coerceRet
 
-  am <- use adtMap
-  let variants = case am Map.!? adt of
-                    Just vs -> vs
+  am <- use collection
+  let variants = case (am^.adts) Map.!? adt of
+                    Just (M.Adt _ vs) -> vs
                     Nothing -> fail $ "Cannot find declaration for adt: " ++ show adt
 
   let idx :: R.Expr MIR s C.NatType
@@ -1665,7 +1665,7 @@ doCall :: forall h s ret a. (HasCallStack) => M.DefId -> Substs -> [M.Operand]
 doCall funid funsubst cargs cdest retRepr = do
     _hmap <- use handleMap
     _tmap <- use traitMap
-    am    <- use adtMap
+    am    <- use collection
     db    <- use debugLevel
     mhand <- lookupFunction funid funsubst
     case cdest of 
@@ -1707,7 +1707,7 @@ doCall funid funsubst cargs cdest retRepr = do
             let mkDict :: M.Var -> MirGenerator h s ret (MirExp s)
                 mkDict var = do
                   let (TyAdt did subst)      = var^.varty
-                  let [Variant _ _ fields _] = am Map.! did
+                  let (Adt _ [Variant _ _ fields _]) = (am^.adts) Map.! did
                   let go :: Field -> MirGenerator h s ret (MirExp s)
                       go (Field fn _ _) = do
                         mhand <- lookupFunction fn subst
@@ -1722,7 +1722,7 @@ doCall funid funsubst cargs cdest retRepr = do
 
             exps <- mapM evalOperand cargs
 
-            dexps <- mapM mkDict (Maybe.mapMaybe (predVar am) preds)
+            dexps <- mapM mkDict (Maybe.mapMaybe (predVar (am^.adts)) preds)
 
             exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
                 case (testEquality ctx ifargctx) of
@@ -1947,11 +1947,11 @@ initialValue (M.TyClosure defid (Substs (_i8:hty:closed_tys))) = do
 -- converted these adt initializations to aggregates already so this
 -- won't matter.
 initialValue (M.TyAdt nm args) = do
-    am <- use adtMap
-    case Map.lookup nm am of
+    am <- use collection
+    case Map.lookup nm (am^.adts) of
        Nothing -> return $ Nothing
-       Just [] -> fail ("don't know how to initialize void adt " ++ show nm)
-       Just (Variant _vn _disc fds _kind:_) -> do
+       Just (M.Adt _ []) -> fail ("don't know how to initialize void adt " ++ show nm)
+       Just (M.Adt _ (Variant _vn _disc fds _kind:_)) -> do
           let initField (Field _name ty _subst) = initialValue (tySubst args ty)
           fds <- mapM initField fds
           let union = buildTaggedUnion 0 (Maybe.catMaybes fds)
@@ -2074,7 +2074,7 @@ argPred traits (TraitProjection _ _ _) = Nothing
 argPred traits UnknownPredicate = Nothing
 
 -- Determine whether to add a new parameter for a given predicate of the function
-predVar :: AdtMap -> Predicate -> Maybe M.Var
+predVar :: Map M.DefId Adt -> Predicate -> Maybe M.Var
 predVar adts (TraitPredicate did substs) | did `Map.member` adts = 
    Just $ mkPredVar did substs
 predVar traits _ = Nothing
@@ -2094,7 +2094,6 @@ mkPredVar did substs = Var { _varname  = M.idText did
 genFn :: HasCallStack => M.Fn -> C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 genFn (M.Fn fname argvars _fretty body _gens preds) rettype = do
   TraitMap tm <- use traitMap
-  adts <- use adtMap
   lm <- buildLabelMap body
   labelMap .= lm
   vm' <- buildIdentMapRegs body []
@@ -2122,7 +2121,7 @@ genFn (M.Fn fname argvars _fretty body _gens preds) rettype = do
     _ -> fail "bad thing happened"
 
 transDefine :: forall h. HasCallStack =>
-  AdtMap ->
+  Map M.DefId Adt ->
   (forall s. FnState s) ->
   M.Fn ->
   ST h (Text, Core.AnyCFG MIR)
@@ -2143,15 +2142,15 @@ transDefine adts fnState fn@(M.Fn fname fargs _ _ _ preds) =
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
 
 -- Get the function type (augmented with dictionary arguments)
-getFunctionType :: AdtMap -> M.Fn -> M.FnSig
+getFunctionType :: Map M.DefId Adt -> M.Fn -> M.FnSig
 getFunctionType adts (M.Fn _fname fargs fretty _fbody _gens preds) =
     let argPredVars = Maybe.mapMaybe (predVar adts) preds
     in M.FnSig (map M.typeOf (fargs ++ argPredVars)) fretty
 
 
 -- | Allocate method handles for each of the functions in the Collection
-mkHandleMap :: HasCallStack => AdtMap -> FH.HandleAllocator s -> [M.Fn] -> ST s HandleMap
-mkHandleMap adts halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
+mkHandleMap :: HasCallStack => Map M.DefId Adt -> FH.HandleAllocator s -> Map.Map M.DefId M.Fn -> ST s HandleMap
+mkHandleMap adts halloc fns = Map.fromList <$> mapM (mkHandle halloc) (Map.elems fns) where
     mkHandle :: FH.HandleAllocator s -> M.Fn -> ST s (MethName, MirHandle)
     mkHandle halloc fn =
        let ty@(FnSig fargs fretty) = getFunctionType adts fn 
@@ -2168,8 +2167,8 @@ mkHandleMap adts halloc fns = Map.fromList <$> mapM (mkHandle halloc) fns where
 -- Create the dictionary adt type for a trait
 -- The dictionary is a record (i.e. an ADT with a single variant) with
 -- a field for each method in the trait.
-defineTraitAdts :: [M.Trait] -> [M.Adt]
-defineTraitAdts traits = Maybe.mapMaybe traitToAdt traits where
+defineTraitAdts :: Map.Map M.DefId M.Trait -> Map.Map M.DefId M.Adt
+defineTraitAdts traits = Map.mapMaybe traitToAdt traits where
    traitToAdt :: M.Trait -> Maybe M.Adt
    traitToAdt tr = do
      let itemToField :: M.TraitItem -> Maybe M.Field
@@ -2185,8 +2184,8 @@ defineTraitAdts traits = Maybe.mapMaybe traitToAdt traits where
 -- NOTE: if we include a trait that derives from an unknown supertrait, we will do the
 -- "best effort" We won't inherit any of the declarations, that bit will just be
 -- ignored.
-expandSuperTraits :: [M.Trait] -> [M.Trait]
-expandSuperTraits traits =  map nubTrait (Map.elems (go traits Map.empty)) where
+expandSuperTraits :: Map.Map M.DefId M.Trait -> Map.Map M.DefId M.Trait
+expandSuperTraits traits =  Map.map nubTrait (go (Map.elems traits) Map.empty) where
 
    -- remove duplicates
    nubTrait tr = tr & traitItems %~ List.nub
@@ -2243,8 +2242,8 @@ expandSuperTraits traits =  map nubTrait (Map.elems (go traits Map.empty)) where
 
 -}
 
-abstractAssociatedTypes :: [M.Trait] -> [M.Trait]
-abstractAssociatedTypes = map doTrait where
+abstractAssociatedTypes :: Map M.DefId M.Trait -> Map M.DefId M.Trait
+abstractAssociatedTypes = Map.map doTrait where
 
    doTrait trait = trait & traitItems %~ doItems
    doItems titems = map doItem titems where
@@ -2292,6 +2291,10 @@ transCollection :: HasCallStack
       -> FH.HandleAllocator s
       -> ST s (Map Text (Core.AnyCFG MIR))
 transCollection col0 debug halloc = do
+    -- The first part are some transformations on the collection itself.
+    -- maybe we should turn these into "Pass"es.
+
+
     -- add supertrait items
     let col1 = col0 & traits %~ expandSuperTraits
 
@@ -2299,10 +2302,10 @@ transCollection col0 debug halloc = do
     let col2 = col1 & traits %~ abstractAssociatedTypes
 
     -- add adts for declared traits, for dictionary passing translation
-    let col3 = col2 & adts %~ (++ defineTraitAdts (col2^.M.traits))
+    let col3 = col2 & adts %~ (Map.union (defineTraitAdts (col2^.M.traits)))
 
     -- figure out which ADTs are enums and mark them in the code base
-    let cstyleAdts = List.filter isCStyle (col3^.M.adts)
+    let cstyleAdts = Map.filter isCStyle (col3^.M.adts)
     let col4 = markCStyle (cstyleAdts, col3) col3
 
     let col = col4
@@ -2311,8 +2314,9 @@ transCollection col0 debug halloc = do
       traceM $ "MIR collection"
       traceM $ show (pretty col)
 
-    let amap = Map.fromList [ (nm, vs) | M.Adt nm vs <- col^.M.adts ]
-    hmap <- mkHandleMap amap halloc (col^.M.functions)
+    -- build up the state in the Generator
+
+    hmap <- mkHandleMap (col^.M.adts) halloc (col^.M.functions)
 
     (gtm@(GenericTraitMap gm), stm, morePairs) <- buildTraitMap debug col halloc hmap
 
@@ -2322,8 +2326,10 @@ transCollection col0 debug halloc = do
 
     let fnState :: (forall s. FnState s)
         fnState = case gtm of
-                     GenericTraitMap tm -> FnState Map.empty Map.empty hmap amap (TraitMap tm) stm debug []
-    pairs <- mapM (transDefine amap fnState) (col^.M.functions)
+                     GenericTraitMap tm -> FnState Map.empty [] Map.empty hmap (TraitMap tm) stm debug col
+
+    -- translate all of the functions
+    pairs <- mapM (transDefine (col^.M.adts) fnState) (Map.elems (col^.M.functions))
     return $ Map.fromList (pairs ++ morePairs)
 
 ----------------------------------------------------------------------------------------------------------

@@ -153,10 +153,10 @@ instance Ord Var where
 
 
 data Collection = Collection {
-    _functions :: [Fn],
-    _adts      :: [Adt],
-    _traits    :: [Trait],
-    _impls     :: [TraitImpl]
+    _functions :: Map.Map DefId Fn,
+    _adts      :: Map.Map DefId Adt,
+    _traits    :: Map.Map DefId Trait,
+    _impls     :: Map.Map DefId TraitImpl
 } deriving (Show, Eq, Ord, Generic, GenericOps)
 
 data Predicate =
@@ -437,7 +437,7 @@ data TraitImpl
                 , _tiTraitRef   :: TraitRef
                 , _tiGenerics   :: [Param]
                 , _tiPredicates :: [Predicate]
-                , _itItems      :: [TraitImplItem]
+                , _tiItems      :: [TraitImplItem]
                 }
     deriving (Show, Eq, Ord, Generic, GenericOps)
 data TraitImplItem
@@ -456,7 +456,7 @@ data TraitImplItem
                       , _tiiPredicates :: [Predicate]
                       , _tiiSignature  :: FnSig
                       }
-      | TraitImplType { _tiiName :: DefId
+      | TraitImplType { _tiiName       :: DefId
                       , _tiiImplements :: DefId
                       , _tiiGenerics   :: [Param]
                       , _ttPredicates  :: [Predicate]
@@ -477,8 +477,8 @@ type AssertMessage = Text
 type ClosureSubsts = Text
 type BasicBlockInfo = Text
 
-
 --------------------------------------------------------------------------------------
+
 --
 -- Generic operations
 --
@@ -496,8 +496,8 @@ class GenericOps a where
   relocate x = to (relocate' (from x))
 
   -- | Find all C-style Adts in the AST and convert them to Custom (CEnum _)
-  markCStyle :: ([Adt],Collection) -> a -> a 
-  default markCStyle :: (Generic a, GenericOps' (Rep a)) => ([Adt],Collection) -> a -> a
+  markCStyle :: (Map.Map DefId Adt,Collection) -> a -> a 
+  default markCStyle :: (Generic a, GenericOps' (Rep a)) => (Map.Map DefId Adt,Collection) -> a -> a
   markCStyle s x = to (markCStyle' s (from x))
 
   -- | Type variable substitution. Type variables are represented via indices.
@@ -516,24 +516,16 @@ class GenericOps a where
   replaceLvalue o n x = to (replaceLvalue' o n (from x))
 
   
-findAdt :: DefId -> [Adt] -> Maybe Adt
-findAdt n (a:as) = if n == _adtname a then Just a else findAdt n as
-findAdt _n []    = Nothing
-
-findFn :: DefId -> [Fn] -> Maybe Fn
-findFn n (f:fs) = if n == _fname f then Just f else findFn n fs
-findFn _n []    = Nothing
-
 fromIntegerLit :: IntLit -> Integer
-fromIntegerLit (U8 i) = i
-fromIntegerLit (U16 i) = i
-fromIntegerLit (U32 i) = i
-fromIntegerLit (U64 i) = i
+fromIntegerLit (U8 i)    = i
+fromIntegerLit (U16 i)   = i
+fromIntegerLit (U32 i)   = i
+fromIntegerLit (U64 i)   = i
 fromIntegerLit (Usize i) = i
-fromIntegerLit (I8 i) = i
-fromIntegerLit (I16 i) = i
-fromIntegerLit (I32 i) = i
-fromIntegerLit (I64 i) = i
+fromIntegerLit (I8 i)    = i
+fromIntegerLit (I16 i)   = i
+fromIntegerLit (I32 i)   = i
+fromIntegerLit (I64 i)   = i
 fromIntegerLit (Isize i) = i
 
 
@@ -542,7 +534,7 @@ fromIntegerLit (Isize i) = i
 adtIndices :: Adt -> Collection -> [Integer]
 adtIndices (Adt _aname vars) col = map go vars where
  go (Variant _vname (Explicit did) _fields _knd) =
-    case findFn did (_functions col) of
+    case Map.lookup did (_functions col) of
       Just (Fn _name _args _ret_ty (MirBody _vars blocks) _gens _preds) ->
         case blocks of
           [ BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (Value (ConstInt i))))) _loc] _term) ] ->
@@ -566,7 +558,7 @@ instance GenericOps DefId where
 instance GenericOps Ty where
 
   -- Translate C-style enums to CEnum types
-  markCStyle (ads,s) (TyAdt n ps)  | Just adt <- findAdt n ads =
+  markCStyle (ads,s) (TyAdt n ps)  | Just adt <- Map.lookup n ads =
    if ps == Substs [] then
       TyCustom (CEnum n (adtIndices adt s))
    else
@@ -602,7 +594,7 @@ instance GenericOps Lvalue where
 
 class GenericOps' f where
   relocate'   :: f p -> f p
-  markCStyle' :: ([Adt],Collection) -> f p -> f p
+  markCStyle' :: (Map.Map DefId Adt,Collection) -> f p -> f p
   tySubst'    :: Substs -> f p -> f p 
   replaceVar' :: Var -> Var -> f p -> f p
   replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
@@ -704,7 +696,7 @@ instance GenericOps B.ByteString where
 
 instance GenericOps b => GenericOps (Map.Map a b) where
    relocate       = Map.map relocate 
-   markCStyle s    = Map.map (markCStyle s)
+   markCStyle s   = Map.map (markCStyle s)
    tySubst s      = Map.map (tySubst s)
    replaceVar o n = Map.map (replaceVar o n)
    replaceLvalue o n = Map.map (replaceLvalue o n)   
@@ -712,27 +704,29 @@ instance GenericOps b => GenericOps (Map.Map a b) where
 replaceList :: GenericOps a => [(Lvalue, Lvalue)] -> a -> a
 replaceList [] a = a
 replaceList ((old,new) : vs) a = replaceList vs $ replaceLvalue old new a
-    
 
---------------------------------------------------------------------------------------
-
+--------------------------------------------------------------------------------------                                 
 
 makeLenses ''Variant
 makeLenses ''Var
 makeLenses ''Collection
 makeLenses ''Fn
-makeLenses ''Trait
 makeLenses ''MirBody
 makeLenses ''BasicBlock
 makeLenses ''BasicBlockData
+makeLenses ''Adt
 makeLenses ''AdtAg
+makeLenses ''Trait
+makeLenses ''TraitImpl
+makeLenses ''TraitImplItem
 
 instance Semigroup Collection where
   (Collection f1 a1 t1 i1) <> (Collection f2 a2 t2 i2) =
-    Collection (f1 ++ f2) (a1 ++ a2) (t1 ++ t2) (i1 ++ i2)
+    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2)
 instance Monoid Collection where
-  mempty  = Collection [] [] [] []
+  mempty  = Collection mempty mempty mempty mempty
   mappend = (<>)
+
   
 
 --------------------------------------------------------------------------------------

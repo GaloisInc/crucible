@@ -52,7 +52,6 @@ module Mir.Generator
 , HandleMap
 , varMap
 , labelMap
-, adtMap
 , handleMap
 , traitMap
 , MirValue(..)
@@ -122,13 +121,13 @@ type MirGenerator h s ret = Generator MIR h s FnState ret
 -- | Generator state for MIR translation
 data FnState (s :: Type)
   = FnState { _varMap    :: !(VarMap s),
-              _labelMap  :: !(LabelMap s),
+              _preds     :: [Predicate],
+              _labelMap  :: !(LabelMap s),              
               _handleMap :: !HandleMap,
-              _adtMap    :: !AdtMap,
               _traitMap  :: !(TraitMap s),
               _staticTraitMap :: !StaticTraitMap,
               _debugLevel :: !Int,
-              _preds     :: [Predicate]
+              _collection :: !Collection
             }
 
 
@@ -174,12 +173,6 @@ instance Pretty MirHandle where
 -- handle. Function handles include the original method name (for
 -- convenience) and original Mir type (for trait resolution).
 type HandleMap = Map.Map MethName MirHandle
-
----------------------------------------------------------------------------
--- *** AdtMap
-
--- | The AdtMap maps ADT names to their definitions
-type AdtMap = Map.Map AdtName [Variant]
 
 ---------------------------------------------------------------------------
 -- *** TraitMap and StaticTraitMap
@@ -388,7 +381,7 @@ matchTys _ _ = Nothing
 -- | Decide whether the given method definition is an implementation method for
 -- a declared trait. If so, return any such declared traits along with the type substitution
   
-getTraitImplementation :: [Trait]                      -- ^ all traits in the collection
+getTraitImplementation :: Map.Map DefId Trait          -- ^ all traits in the collection
                        -> (MethName,MirHandle)         -- ^ a specific function in the collection
                        -> [(TraitName, Substs)]        -- ^ traits that this function could implement
 getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh))
@@ -400,7 +393,7 @@ getTraitImplementation trts (name, handle@(MirHandle _mname sig _ _fh))
         isTraitMethod _ = Nothing
 
     -- traits, potential methods, plus their method signatures
-    let namedTraits = [ (tr, tm, ts) | tr@(Trait _tn items _supers) <- trts,
+    let namedTraits = [ (tr, tm, ts) | tr@(Trait _tn items _supers) <- Map.elems trts,
                                        (tm,ts) <- Maybe.mapMaybe isTraitMethod items ]
 
     --traceM $ "named Traits for : " ++ show name
