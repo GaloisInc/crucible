@@ -181,20 +181,20 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
         return ()
 
   halloc <- C.newHandleAllocator
-<<<<<<< HEAD
+{-
   let simctx = C.initSimContext sym mirIntrinsicTypes halloc stdout C.emptyHandleMap mirExtImpl p
       rosim  = C.runOverrideSim (W4.knownRepr :: C.TypeRepr C.UnitType) osim
       
   res <- C.executeCrucible (map C.genericToExecutionFeature execFeatures)
          (C.InitialState simctx C.emptyGlobals C.defaultAbortHandler rosim)
-=======
+-}
   let outH = view outputHandle ?outputConfig
-  let simctx = C.initSimContext sym MapF.empty halloc outH C.emptyHandleMap mirExtImpl p
+  let simctx = C.initSimContext sym mirIntrinsicTypes halloc outH C.emptyHandleMap mirExtImpl p
 
-  res <- C.executeCrucible (map C.genericToExecutionFeature fs) $
+  res <- C.executeCrucible (map C.genericToExecutionFeature execFeatures) $
          C.InitialState simctx C.emptyGlobals C.defaultAbortHandler $
          C.runOverrideSim (W4.knownRepr :: C.TypeRepr C.UnitType) osim
->>>>>>> fd724e2... Further coverage information and test suite improvements
+
   return $ Result res
 
 
