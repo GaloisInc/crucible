@@ -94,7 +94,7 @@ import           Debug.Trace
 
 
 ---------------------------------------------------------------------------------
--- Should be in Data.Parameterized.Classes
+-- TODO: Should be in Data.Parameterized.Classes
 -- 
 -- Safe usage requires that f be a singleton type
 newtype DI f a = Don'tInstantiate (KnownRepr f a => Dict (KnownRepr f a))
@@ -152,12 +152,13 @@ varInfoRepr (VarReference reg0) =
     _ -> error "impossible: varInfoRepr"
 varInfoRepr (VarAtom a) = typeOfAtom a
 
+---------------------------------------------------------------------------
 -- *** LabelMap
 
 -- | The LabelMap maps identifiers to labels of their corresponding basicblock
 type LabelMap s = Map.Map BasicBlockInfo (Label s)
 
-
+---------------------------------------------------------------------------
 -- *** HandleMap
 
 data MirHandle where
@@ -174,11 +175,13 @@ instance Pretty MirHandle where
 -- convenience) and original Mir type (for trait resolution).
 type HandleMap = Map.Map MethName MirHandle
 
+---------------------------------------------------------------------------
 -- *** AdtMap
 
 -- | The AdtMap maps ADT names to their definitions
 type AdtMap = Map.Map AdtName [Variant]
 
+---------------------------------------------------------------------------
 -- *** TraitMap and StaticTraitMap
 
 -- | A TraitMap maps trait names to their vtables and instances

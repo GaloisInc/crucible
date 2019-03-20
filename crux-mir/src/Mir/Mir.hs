@@ -155,7 +155,8 @@ instance Ord Var where
 data Collection = Collection {
     _functions :: [Fn],
     _adts      :: [Adt],
-    _traits    :: [Trait]
+    _traits    :: [Trait],
+    _impls     :: [TraitImpl]
 } deriving (Show, Eq, Ord, Generic, GenericOps)
 
 data Predicate =
@@ -423,7 +424,45 @@ data TraitItem
     | TraitConst DefId Ty
     deriving (Eq, Ord, Show, Generic, GenericOps)
 
+data TraitRef
+    = TraitRef DefId Substs
+      -- Indicates the trait this impl implements.
+      -- `substs` gives the type arguments for the trait,
+      -- which may refer to the type parameters of the
+    deriving (Show, Eq, Ord, Generic, GenericOps)
 
+data TraitImpl
+    = TraitImpl { _tiName       :: DefId
+                -- name of the impl group
+                , _tiTraitRef   :: TraitRef
+                , _tiGenerics   :: [Param]
+                , _tiPredicates :: [Predicate]
+                , _itItems      :: [TraitImplItem]
+                }
+    deriving (Show, Eq, Ord, Generic, GenericOps)
+data TraitImplItem
+    = TraitImplMethod { _tiiName :: DefId
+                        -- the def path of the item
+                        -- should match the name of the corresponding entry in 'fns'
+                      , _tiiImplements :: DefId
+                        -- The def path of the trait-item that this impl-item implements.
+                        -- If there is no impl-item that `implements` a particular
+                        -- trait-item, that means the impl uses the default from the trait.
+                      , _tiiGenerics :: [Param]
+                        -- Generics for the method itself.  
+                        -- should match the generics of the `fn`.  This consists of the generics
+                        -- inherited from the impl (if any), followed by any generics
+                        -- declared on the impl-item itself.
+                      , _tiiPredicates :: [Predicate]
+                      , _tiiSignature  :: FnSig
+                      }
+      | TraitImplType { _tiiName :: DefId
+                      , _tiiImplements :: DefId
+                      , _tiiGenerics   :: [Param]
+                      , _ttPredicates  :: [Predicate]
+                      , _tiiType       :: Ty
+                      }
+      deriving (Show, Eq, Ord, Generic, GenericOps)
 
 -- Documentation for particular use-cases of DefIds
 type TraitName = DefId
@@ -689,10 +728,10 @@ makeLenses ''BasicBlockData
 makeLenses ''AdtAg
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1) <> (Collection f2 a2 t2) =
-    Collection (f1 ++ f2) (a1 ++ a2) (t1 ++ t2)
+  (Collection f1 a1 t1 i1) <> (Collection f2 a2 t2 i2) =
+    Collection (f1 ++ f2) (a1 ++ a2) (t1 ++ t2) (i1 ++ i2)
 instance Monoid Collection where
-  mempty = Collection [] [] []
+  mempty  = Collection [] [] [] []
   mappend = (<>)
   
 

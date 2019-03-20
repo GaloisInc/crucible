@@ -46,7 +46,7 @@ loadPrims useStdLib debugLevel = do
               , "result"
               , "cmp"      
               , "ops/range"  
-              , "default"
+              -- , "default"   -- doesn't include "implements" in mir-json
               , "ops/function"
               , "ops/index"
               , "ops/deref"
@@ -67,7 +67,7 @@ loadPrims useStdLib debugLevel = do
   return total
 
 hardCoded :: Collection
-hardCoded = Collection [] [] []
+hardCoded = mempty
 
 
 -- FnOnce trait (no longer needed, defined in ops/function.rs

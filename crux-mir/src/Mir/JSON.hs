@@ -148,7 +148,7 @@ instance FromJSON Collection where
         <$>  v .: "fns"
         <*> v .: "adts"
         <*> v .: "traits"
-        
+        <*> v .: "impls"
 
 instance FromJSON Fn where
     parseJSON = withObject "Fn" $ \v -> do
@@ -386,7 +386,7 @@ parseArray ty = withArray "expecting array"
        return (v : vals)
 
 parseConsts :: [Ty] -> Value -> Aeson.Parser [ConstVal]
-parseConsts tys v = fail $ "TODO: parse consts " ++ show v
+parseConsts tys (String txt) = fail $ "TODO: parse consts " ++ show txt
 
 
 
@@ -464,3 +464,39 @@ instance FromJSON Predicate where
 instance FromJSON Param where
     parseJSON = withObject "Param" $ \v ->
       Param <$> v .: "param_def"
+
+instance FromJSON TraitRef where
+    parseJSON = withObject "TraitRef" $ \v ->
+      TraitRef <$> v .: "trait" <*> v .: "substs"
+
+
+instance FromJSON TraitImplItem where
+    parseJSON = withObject "TraitImplItem" $ \v -> do
+      pg <- v .: "generics"
+      pp <- v .: "predicates"
+      case HML.lookup "kind" v of
+        Just (String "Method") -> TraitImplMethod
+                                  <$> v .: "name"
+                                  <*> v .: "implements"
+                                  <*> (withObject "Param" (\u -> u .: "params") pg)
+                                  <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
+                                  <*> v .: "signature"
+        Just (String "Type") -> TraitImplType
+                                  <$> v .: "name"
+                                  <*> v .: "implements"
+                                  <*> (withObject "Param" (\u -> u .: "params") pg)
+                                  <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
+                                  <*> v .: "type"                                  
+        Just (String x) -> fail $ "Incorrect format of the kind field in TraitImplItem: " ++ show x
+        k -> fail $ "bad kind field in TraitImplItem " ++ show k
+
+instance FromJSON TraitImpl where
+  parseJSON = withObject "TraitImpl" $ \v -> do
+    pg <- v .: "generics"
+    pp <- v .: "predicates"
+    TraitImpl <$> v .: "name"
+              <*> v .: "trait_ref"
+              <*> (withObject "Param" (\u -> u .: "params") pg)
+              <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
+              <*> v .: "items"
+              

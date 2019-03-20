@@ -1,3 +1,5 @@
+// FAIL: default methods have predicates now, need to update
+
 // Test trait with default implementation
 //
 

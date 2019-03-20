@@ -1,5 +1,8 @@
 TODO
 
+- parse new components from mir-json
+   traits/default.rs
+
 - translation of Slice types isn't compositional (requires identifying outer ref)
       
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (CT.VectorRepr repr)
