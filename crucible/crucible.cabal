@@ -81,6 +81,7 @@ library
     Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.FunctionHandle
     Lang.Crucible.Simulator
+    Lang.Crucible.Simulator.Breakpoint
     Lang.Crucible.Simulator.BoundedExec
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
