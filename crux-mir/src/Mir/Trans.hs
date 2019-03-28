@@ -816,7 +816,7 @@ mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
     (Some timpls) <- traitImplsLookup traitName
 
     -- look up the specific vtable for that type
-    case Map.lookup (typeName baseType) (timpls^.vtables) of
+    case Map.lookup baseType (timpls^.vtables) of
       Nothing -> mkCustomTraitObject traitName baseType e
       Just vtbl -> do
         let baseTy    = (timpls^.vtableTyRepr)
@@ -839,11 +839,6 @@ traitImplsLookup traitName = do
     Nothing -> fail $ Text.unpack $ Text.unwords ["Trait does not exist ", M.idText traitName]
     Just timpls -> return timpls
     
--- | TODO: implement. Returns the name of the name, as seen MIR
--- NOTE: this is very wrong
-typeName :: M.Ty -> M.Ty
-typeName = id
-
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
@@ -1496,15 +1491,15 @@ lookupFunction nm (Substs funsubst)
         in
           MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst
 
-  let mkAtySubsts :: [AssocTy] -> MirGenerator h s ret [Ty]
-      mkAtySubsts atys = do
+  let mkATSubsts :: [AssocTy] -> MirGenerator h s ret [Ty]
+      mkATSubsts atys = do
          adict <- use assocTyMap
          let atys' = tySubst (Substs funsubst) atys
-         let atySubsts = map (\at -> case Map.lookup at adict of
+         let atSubsts = map (\at -> case Map.lookup at adict of
                                         Just ty -> ty
                                         Nothing -> error $ "BUG: cannot find def for " ++ show (pretty at)
                                                    ++ " at call of " ++ fmt nm) atys'
-         return atySubsts
+         return atSubsts
   case () of 
        -- a normal function, resolve associated types to additional type arguments
     () | Just (MirHandle nm _ preds fh gens atys) <- Map.lookup nm hmap
@@ -1512,7 +1507,7 @@ lookupFunction nm (Substs funsubst)
             when (db > 3) $ do
               traceM $ "***lookupFunction: In normal call of " ++ show (pretty nm)
               traceM $ "\tpreds are " ++ show (ppreds preds)
-            atySubsts <- mkAtySubsts atys
+            atySubsts <- mkATSubsts atys
             let hsubst = Substs $ funsubst ++ atySubsts
             return $ Just $ (mkFunExp hsubst fh, tySubst hsubst preds)
 
@@ -1578,13 +1573,8 @@ lookupFunction nm (Substs funsubst)
                     List.find (\tm -> tm^.itemName == nm) (trait^.traitItems)
              let atys = trait^.traitAssocTys
              let j    = length $ trait^.traitParams
-             atySubsts <- mkAtySubsts atys
-{-             let atys' = tySubst (Substs (take j funsubst)) atys
-             let atySubsts = map (\at -> case Map.lookup at adict of
-                                    Just ty -> ty
-                                    Nothing -> error $ "BUG: cannot find def for " ++ fmt at
-                                      ++ " at call of " ++ fmt nm) atys' -}
-             let funsubst' = Substs $ insertAt atySubsts j funsubst
+             atSubsts <- mkATSubsts atys
+             let funsubst' = Substs $ insertAt atSubsts j funsubst
              let var = mkPredVar (TyAdt tn funsubst')
              let fld@(Field _ ty _) = fields !! idx
              let exp = M.Use (M.Copy (M.LProjection (M.LvalueProjection (M.Local var) (M.PField idx ty))))
@@ -1595,8 +1585,6 @@ lookupFunction nm (Substs funsubst)
                traceM $ "traitPreds are" ++ fmt (trait^.traitPredicates)
                traceM $ "preds are " ++ fmt preds
                traceM $ "atys are " ++ fmt atys
---               traceM $ "atys' are " ++ fmt atys'
---               traceM $ "adict is " ++ fmt (Map.toList adict)
                traceM $ "funsubst' is " ++ fmt funsubst'
                traceM $ "field is " ++ fmt fld
                traceM $ "ty is " ++ fmt ty
@@ -2197,18 +2185,6 @@ mkPredVar ty@(TyAdt did _) = Var { _varname  = M.idText did
               , _varpos   = "dictionary argument"
               }
 mkPredVar ty = error $ "BUG in mkPredVar: must provide Adt type"
--------------------------------------------------------------------------------------------
-
-{-
-mkAssocTyMap :: [Param] -> [AssocTy] -> ATDict
-mkAssocTyMap params atys = 
-  if null atys then Map.empty
-  else 
-    let k  = length params
-        l  = length atys
-        vs = map (TyParam . toInteger) [k .. (k+l)]
-    in Map.fromList (zip atys vs)
--}
 
 -------------------------------------------------------------------------------------------
 

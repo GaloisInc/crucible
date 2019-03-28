@@ -1,9 +1,8 @@
-TODO
+* TODO
 
 - associated type translation
    - need to rationalize what happens when and document better
-   - make names more uniform?
-   - add test cases for current limitations 
+   - traits/tyfam3.rs, traits/tyfam4.rs
 
 - generic trait impls (traits/dict_med.rs, traits/dict_poly.rs)
   e.g. 
@@ -31,6 +30,7 @@ TODO
   Should explore other options.
 
 - minimal standard library: lacking slices, iteration, vectors, type conversions, etc.
+  waiting on: more features from traits
 
   affected tests:
     array/wick1.rs - "vec::with_capacity"
@@ -77,24 +77,6 @@ WAITING ON MIR-JSON
 
 - parsing of constant array references
    crypto/add.rs
-
-  
-
-
-MADE SOME PROGRESS
-
-- fix crucible-syntax. (Broke David's work in git rebase, ugh)
-   + now compiles, don't know how to test it though.
-
-FIXED
-
-- test/conc_eval/traits/subtrait.rs
-- refactor doCustomCall 
-- no default methods in traits
-- translate associated types into extra type parameters
-- cannot assign to mutable function parameter 
-   array/arg.rs
-   prim/ffs.rs
 
 
 * Dictionary Translation notes
