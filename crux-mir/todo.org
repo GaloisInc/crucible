@@ -1,10 +1,9 @@
 TODO
 
-- haven't finished associated type translation
-   (traits/tyfam2.rs)
-   - need to apply translation in fbodies 
-   - need to rationalize what happens when
-   - need to add extra type arguments in method calls
+- associated type translation
+   - need to rationalize what happens when and document better
+   - make names more uniform?
+   - add test cases for current limitations 
 
 - generic trait impls (traits/dict_med.rs, traits/dict_poly.rs)
   e.g. 
@@ -137,7 +136,8 @@ type/trait information while we do the pass.
          (traits must have correct types for methods at this point)
          (passAddTraitAdts)
 
-     -- allocate method handles (MUST eliminate any uses of associated types by this point)
+     -- allocate method handles (MUST eliminate any uses of 
+        associated types by this point)
 
 1a. Prepass constructs information for main translation 
      -- ADict -- mapping from types of the form "TyProjection ..." to 

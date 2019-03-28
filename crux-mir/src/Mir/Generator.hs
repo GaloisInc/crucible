@@ -69,7 +69,6 @@ import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import           Data.Functor.Identity
---import           Control.Monad
 
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -88,6 +87,7 @@ import           Mir.DefId
 import           Mir.Mir
 import           Mir.MirTy
 import           Mir.Intrinsics
+import           Mir.GenericOps(ATDict)
 
 
 import           Unsafe.Coerce(unsafeCoerce)
@@ -132,11 +132,8 @@ data FnState (s :: Type)
               _staticTraitMap :: !StaticTraitMap,
               _debugLevel :: !Int,
               _collection :: !Collection,
-              _assocTyMap :: ADict
+              _assocTyMap :: ATDict
             }
-
-
----------------------------------------------------------------------------
 
 ---------------------------------------------------------------------------
 -- *** VarMap
@@ -244,7 +241,7 @@ instance Show (MirExp s) where
 
 
 -- | Type-level instantiation function 
--- This seems a little weird. Why don't we shift the substitution inside the poltype?
+-- This seems a little weird. Why don't we shift the substitution inside the polytype?
 type family ImplementTrait (implSubst :: Substitution) (arg :: CrucibleType) :: CrucibleType where  
   ImplementTrait implSubst (PolyFnType k args ret) =
       PolyFnType k  (Instantiate implSubst args) (Instantiate implSubst ret)

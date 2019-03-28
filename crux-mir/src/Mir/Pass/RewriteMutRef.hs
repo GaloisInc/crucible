@@ -94,9 +94,6 @@ data RewriteFnSt = RFS { --  state internal to function translation.
 fnSubstitutions :: Simple Lens RewriteFnSt (Map.Map Lvalue Lvalue)
 fnSubstitutions = lens _fnsubstitutions (\s v -> s { _fnsubstitutions = v })
 
---fnName :: Simple Lens (RewriteFnSt) DefId
---fnName = lens _fn_name (\s v -> s { _fn_name = v })
-
 dummy_ctr :: Simple Lens (RewriteFnSt) Int
 dummy_ctr = lens _ctr (\s v -> s { _ctr = v })
 
@@ -114,12 +111,6 @@ fnDummyRet = lens _dummyret (\s v -> s { _dummyret = v})
 
 fnRet_ty :: Simple Lens (RewriteFnSt) Ty
 fnRet_ty = lens _ret_ty (\s v -> s { _ret_ty = v })
-
---fnGens :: Simple Lens (RewriteFnSt) [Param]
---fnGens = lens _generics (\s v -> s { _generics = v })
-
---fnPreds :: Simple Lens (RewriteFnSt) [Predicate]
---fnPreds = lens _predicates (\s v -> s { _predicates = v })
 
 fnOldFn :: Simple Lens RewriteFnSt Fn
 fnOldFn = lens _old_fn (\s v -> s { _old_fn = v})

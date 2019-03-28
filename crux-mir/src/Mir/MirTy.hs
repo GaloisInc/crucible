@@ -19,7 +19,7 @@ import Debug.Trace
 
 import Mir.Mir
 import Mir.DefId
-import Mir.PP()
+import Mir.PP(fmt)
 import Mir.GenericOps
 
 isMutRefTy :: Ty -> Bool
@@ -50,44 +50,6 @@ isPoly _x = False
 isNever :: Ty -> Bool
 isNever (TyAdt defId _) = fst (did_name defId) == "Never"
 isNever _ = False
-
-
--- | Calculate the number of free variables in a Mir type
-{-
-class NumParams a where
-  numParams :: a -> Integer
-
-instance NumParams a => NumParams [a] where
-  numParams [] = 0
-  numParams xs = maximum (map numParams xs)
-  
-instance NumParams FnSig where
-  numParams (FnSig argtys retty) = max (numParams retty) (numParams argtys) where
-
-instance NumParams Ty where
-  numParams (TyParam x) = x + 1
-  numParams (TyTuple []) = 0
-  numParams (TyTuple tys) = numParams tys
-  numParams (TySlice ty)  = numParams ty
-  numParams (TyArray ty _) = numParams ty
-  numParams (TyRef ty _)   = numParams ty
-  numParams (TyAdt _ substs) = numParams substs
-  numParams (TyFnDef _ substs) = numParams substs
-  numParams (TyClosure _ substs) = numParams substs
-  numParams (TyFnPtr sig) = numParams sig   --- no top-level generalization???
-  numParams (TyRawPtr ty _) = numParams ty
-  numParams (TyDowncast ty _) = numParams ty
-  numParams (TyProjection _ substs) = numParams substs
-  numParams _ = 0
-
-instance NumParams Substs where
-  numParams (Substs tys) = numParams tys
-  
-instance NumParams Predicate where
-  numParams (TraitPredicate _ s) = numParams s
-  numParams (TraitProjection _ s ty) = max (numParams s) (numParams ty)
-  numParams UnknownPredicate = 0
--}
 
 -- | Convert field to type. Perform the corresponding substitution if field is a type param.
 fieldToTy :: HasCallStack => Field -> Ty
@@ -139,7 +101,7 @@ matchTy (TyFnPtr sig1) (TyFnPtr sig2) = matchSig sig1 sig2
 matchTy (TyRawPtr t1 m1)(TyRawPtr t2 m2) | m1 == m2 = matchTy t1 t2
 matchTy (TyDowncast t1 i1) (TyDowncast t2 i2) | i1 == i2 = matchTy t1 t2
 matchTy ty1 ty2@(TyProjection d2 s2) = error $
-  "BUG: found " ++ show (pretty ty2) ++ " when trying to match " ++ show (pretty ty1)
+  "BUG: found " ++ fmt ty2 ++ " when trying to match " ++ fmt ty1
 matchTy _ _ = Nothing
 
 matchSubsts :: Substs -> Substs -> Maybe (Map Integer Ty)
@@ -152,87 +114,3 @@ matchTys (t1:instTys) (t2:genTys) = do
   m2 <- matchTys instTys genTys
   combineMaps m1 m2
 matchTys _ _ = Nothing  
-
-
-{----------------------------------------------------------------
-
-   Turn associated types into additional type arguments in *trait definitions*.
-   (We will also add additional type arguments to methods during translation)
-
-   For example, consider this Rust trait:
-
-   pub trait Index<Idx> where
-    Idx: ?Sized, 
-   {
-    type Output: ?Sized;
-    fn index(&self, index: Idx) -> &Self::Output;
-   }
-
-   In MIR it will look like this, where Self is "TyParam 0"
-   and other parameters follow.
-
-   Trait "Index"
-         [TraitType "Output",
-          TraitMethod "index" (&0,&1) -> &Output<0,1>]
-
-   This operation converts the Output type so that it
-   is an additional type parameter to the trait method.
-
-   Trait "Index"
-         [TraitType "Output",
-          TraitMethod "index" (&0,&1) -> &2]
-
-   Implementations of this trait will then unify this
-   parameter just as the others.
-
-   NOTE: associated types must go between the trait parameters and
-   the method parameters. So we need to rename any method parameters that appear in the trait.
-
--}
-
-type ADict = Map (DefId, Substs) Ty
-
-{-
-abstractTy :: Integer     -- ^ index to start shifting (== number of original trait params)
-           -> Integer     -- ^ amount to shift (== number of associated types)
-           -> ADict       -- ^ associated type mapping
-           -> Ty         
-           -> Ty
-abstractTy tk ta atys (TyParam i)
-  | i < tk    = TyParam i         -- trait param,  leave alone
-  | otherwise = TyParam (i + ta)  -- method param, shift over
-abstractTy tk ta atys ty@(TyProjection d substs)       -- associated type, replace with new param
-  | Just nty <- Map.lookup (d,substs) atys = nty
-  | otherwise = error $ show (pretty ty) ++ " with unknown translation"
-abstractTy tk ta atys (TyTuple tys) = TyTuple (map (abstractTy tk ta atys) tys)
-abstractTy tk ta atys (TySlice ty)  = TySlice (abstractTy tk ta atys ty)
-abstractTy tk ta atys (TyArray ty mut) = TyArray (abstractTy tk ta atys ty) mut
-abstractTy tk ta atys (TyRef ty mut)   = TyRef   (abstractTy tk ta atys ty) mut
-abstractTy tk ta atys (TyAdt did (Substs tys)) = TyAdt did (Substs (map (abstractTy tk ta atys) tys))
-abstractTy tk ta atys (TyFnDef did (Substs tys)) = TyFnDef did (Substs (map (abstractTy tk ta atys) tys))
-abstractTy tk ta atys (TyClosure did (Substs tys)) = TyClosure did (Substs (map (abstractTy tk ta atys) tys))
-abstractTy tk ta atys (TyFnPtr (FnSig args ret)) = TyFnPtr (FnSig (map (abstractTy tk ta atys) args) (abstractTy tk ta atys ret))
-abstractTy tk ta atys (TyRawPtr ty x) = TyRawPtr (abstractTy tk ta atys ty) x
-abstractTy tk ta atys (TyDowncast ty x) = TyDowncast (abstractTy tk ta atys ty) x
-abstractTy tk ta atys TyBool = TyBool
-abstractTy tk ta atys TyChar = TyChar
-abstractTy tk ta atys (TyInt sz) = TyInt sz
-abstractTy tk ta atys (TyUint sz) = TyUint sz
-abstractTy tk ta atys TyUnsupported = TyUnsupported
-abstractTy tk ta atys (TyCustom c) = TyCustom c
-abstractTy tk ta atys (TyStr) = TyStr
-abstractTy tk ta atys (TyDynamic did) = TyDynamic did
-abstractTy tk ta atys (TyFloat sz) = TyFloat sz
-abstractTy tk ta atys TyLifetime = TyLifetime
-
-
-abstractSig :: Integer      -- ^ index to start shifting (== number of original trait params)
-            -> Integer      -- ^ amount to shift (== number of associated types)
-            -> ADict        -- ^ associated type mapping
-            -> DefId        -- ^ name of the method (currently unused)    
-            -> FnSig        -- ^ method sig
-            -> FnSig
-abstractSig tk ta atys _name sig@(FnSig instArgs instRet)
-  = FnSig (map (abstractTy tk ta atys) instArgs) (abstractTy tk ta atys instRet) 
-
--}

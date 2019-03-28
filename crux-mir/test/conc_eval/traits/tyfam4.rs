@@ -1,0 +1,37 @@
+// FAIL: cannot find Associated Type  (need to add concrete impls)
+
+trait F : Sized {
+    
+    type Output : Sized;
+    fn ff(self) -> Self::Output; 
+    
+}
+
+impl F for [u8;5] {
+    type Output = u8;
+    fn ff(self) -> Self::Output {
+        self[0]
+    }
+}
+
+fn g<A:F,B:F>(a:A,b:B) -> u8 {
+    a.ff();
+    b.ff();
+    0
+}
+
+
+fn f (x:u8) -> u8 {
+    let xs = [x;5];
+    g(xs,xs)
+
+}
+
+
+const ARG: u8 = 23;
+
+
+#[cfg(with_main)]
+fn main() {
+    println!("{:?}", f(ARG))
+}

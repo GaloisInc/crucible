@@ -77,13 +77,9 @@ newtype Substs = Substs [Ty]
   deriving newtype (Semigroup, Monoid)
 
 -- | Associated types
---   The projection of an associated type
-type AssocTy = (DefId, Substs)
+--   The projection of an associated type from a Rust trait, at specific types
+type AssocTy = (TraitName, Substs)
 -- TODO: make this a newtype
---newtype AssocTy = AssocTy (DefId, Substs)
---  deriving (Eq, Ord, Show, Generic)
---  deriving anyclass (GenericOps)
-
 
 data Ty =
         TyBool               -- The primitive boolean type. Written as bool.

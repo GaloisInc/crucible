@@ -2200,7 +2200,7 @@ mkPredVar ty = error $ "BUG in mkPredVar: must provide Adt type"
 -------------------------------------------------------------------------------------------
 
 {-
-mkAssocTyMap :: [Param] -> [AssocTy] -> ADict
+mkAssocTyMap :: [Param] -> [AssocTy] -> ATDict
 mkAssocTyMap params atys = 
   if null atys then Map.empty
   else 
@@ -2500,13 +2500,13 @@ defaultMethods col = foldr g Map.empty (col^.traits) where
 --
 -- where the result is still the additional arguments
 
-type PDict = Map TraitName (ADict -> [AssocTy] -> Substs)
+type PDict = Map TraitName (ATDict -> [AssocTy] -> Substs)
 
 traceMap :: (Pretty k, Pretty v) => Map.Map k v -> a -> a
 traceMap ad x =
    Map.foldrWithKey (\k v a -> trace (fmt (pretty k PP.<+> pretty v)) a) x ad
 
-passAbstractAssociated :: Collection -> (Collection, ADict, PDict)
+passAbstractAssociated :: Collection -> (Collection, ATDict, PDict)
 passAbstractAssociated col =
    let col1  = col & traits %~ fmap addTraitAssocTys
 
@@ -2517,12 +2517,6 @@ passAbstractAssociated col =
        adict = foldr (\t m -> traitAssocTyMap t `Map.union` m)  Map.empty (col1^.traits)
        pdict = foldr (\t m -> traitPredDict t `Map.union` m)  Map.empty (col1^.traits)
    in
-{-   trace "----Global adict---"
-   $ traceMap adict
-   $ trace "-------------------"
-   $ trace "----Global pdict---"
-   $ traceMap pdict
-   $ trace "-------------------" -}
    (col1 & traits    %~ Map.map (abstractTraitAssociatedTypes col1 adict pdict) 
          & functions %~ Map.map (abstractMethodAssociatedTypes col1 adict pdict),
    adict,
@@ -2546,12 +2540,12 @@ updateTraitParams trait = trait & traitParams %~ (++ (map (Param . M.idText) aty
 
 -- | Create a mapping for associated types to type parameters, starting at index k
 -- For traits, k should be == length traitParams
-mkAssocTyMap :: Integer -> [AssocTy] -> ADict
+mkAssocTyMap :: Integer -> [AssocTy] -> ATDict
 mkAssocTyMap k assocs = Map.fromList (zip assocs tys) where
    tys = map TyParam [k ..]
 
 -- | Calculate the associated type map for a given trait
-traitAssocTyMap :: Trait -> ADict
+traitAssocTyMap :: Trait -> ATDict
 traitAssocTyMap t =
    mkAssocTyMap (toInteger (length (t^.traitParams))) (t^.traitAssocTys) 
 
@@ -2568,7 +2562,7 @@ traitPredDict t =
 
 -- | Update trait declarations with additional generic types instead of
 -- associated types
-abstractTraitAssociatedTypes :: Collection -> ADict -> PDict -> Trait -> Trait
+abstractTraitAssociatedTypes :: Collection -> ATDict -> PDict -> Trait -> Trait
 abstractTraitAssociatedTypes col adict pdict trait =
     trait & traitItems      %~ map updateMethod
           & traitPredicates %~ map updatePred
@@ -2577,11 +2571,11 @@ abstractTraitAssociatedTypes col adict pdict trait =
        j = toInteger $ length (trait^.traitParams)
        k = toInteger $ length (trait^.traitAssocTys)
 
-       info = AbstractAssocTysInfo j k adict
+       info = ATInfo j k adict
 
        -- Translate type to remove additional 
        updateMethod (TraitMethod name sig preds) =
-             TraitMethod name (abstractAssocTys info sig)
+             TraitMethod name (abstractATs info sig)
                               (map updatePred preds)
        updateMethod item = item
 
@@ -2591,19 +2585,19 @@ abstractTraitAssociatedTypes col adict pdict trait =
           = TraitPredicate tn (updateSubsts ss <> ss' adict (trait^.traitAssocTys))
        updatePred p = p
 
-       updateSubsts (Substs ss) = Substs (map (abstractAssocTys info) ss)
+       updateSubsts (Substs ss) = Substs (map (abstractATs info) ss)
 
 
 -- update preds if they mention traits with associated types
 -- update args and retty from the types to refer to trait params instead of assoc types
 -- add assocTys if we abstract a type bounded by a trait w/ an associated type
-abstractMethodAssociatedTypes :: Collection -> ADict -> PDict -> Fn -> Fn
+abstractMethodAssociatedTypes :: Collection -> ATDict -> PDict -> Fn -> Fn
 abstractMethodAssociatedTypes col adict pdict fn@(Fn name args retty body generics preds _atys) =
    fn & fpredicates %~ map updatePred
-      & fargs       %~ fmap (\v -> v & varty %~ abstractAssocTys info)
-      & freturn_ty  %~ abstractAssocTys info
+      & fargs       %~ fmap (\v -> v & varty %~ abstractATs info)
+      & freturn_ty  %~ abstractATs info
       & fassocTys   .~ atys
-      & fbody       %~ abstractAssocTys info 
+      & fbody       %~ abstractATs info 
       where
         replaceSubsts ss (nm, _) = (nm,ss)  -- length of new substs should be same as old subst, but we don't check
 
@@ -2620,18 +2614,11 @@ abstractMethodAssociatedTypes col adict pdict fn@(Fn name args retty body generi
 
         ladict = Map.union adict (mkAssocTyMap j atys)
 
-        info = {-  trace ("----adict for ---" ++ fmt name)
-                $ traceMap ladict
-                $ trace "---preds (before)--"
-                $ trace (fmt preds)
-                $ trace "---atys -----------"
-                $ trace (fmt atys)
-                $ trace "-------------------"
-                $ -} AbstractAssocTysInfo j k ladict
+        info = ATInfo j k ladict
 
         updatePred (TraitPredicate tn ss)
           | Just ss' <- Map.lookup tn pdict =
-                TraitPredicate tn (abstractAssocTys info ss <> ss' ladict atys)
+                TraitPredicate tn (abstractATs info ss <> ss' ladict atys)
         updatePred p = p
 
 
