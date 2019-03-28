@@ -27,6 +27,7 @@ import qualified Data.Map.Strict as Map
 import Data.List
 
 import Mir.Mir
+import Mir.GenericOps
 
 import GHC.Stack
 
@@ -37,7 +38,7 @@ mapTransClosure m = Map.map (\v -> mapIterate m v) m
                              Nothing -> v
 
 passCollapseRefs :: HasCallStack => [Fn] -> [Fn]
-passCollapseRefs fns = map (\(Fn a b c (MirBody d blocks) e  f) -> Fn a b c (MirBody d (pcr_ blocks)) e f) fns
+passCollapseRefs fns = map (& fbody %~ mblocks %~ pcr_) fns
 
 pcr_ :: HasCallStack => [BasicBlock] -> [BasicBlock]
 pcr_ bs = evalState (pcr bs) (Map.empty)

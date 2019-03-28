@@ -18,6 +18,11 @@ import           Mir.DefId
 
 -----------------------------------------------
 
+-- format the AST suitable for an error message
+-- unlike the default 'show' instance for 'Doc', this function
+-- uses the full ribbon width for an 80 column layout
+fmt :: Pretty a => a -> String
+fmt x = displayS (renderPretty 1.0 80 (pretty x)) ""
 
 pr_id :: DefId -> Doc
 pr_id = pretty
@@ -106,7 +111,7 @@ instance Pretty CustomTy where
     pretty (BoxTy ty)  = text "box"  <> parens (pretty ty)
     pretty (VecTy ty)  = text "vec"  <> parens (pretty ty)
     pretty (IterTy ty) = text "iter" <> parens (pretty ty)
-    pretty (CEnum did _) = text "<C-enum>" <+> pr_id did
+    pretty (CEnum did _) = pr_id did
 
 instance Pretty Var where
     pretty (Var vn _vm _vty _vs _) = pretty vn 
@@ -129,14 +134,12 @@ instance Pretty Predicate where
   pretty UnknownPredicate = text "UnknownPredicate"
   
 instance Pretty Fn where
-    pretty (Fn fname1 fargs1 fty fbody1 _generics preds) =
-      vcat [text "fn" <+> pretty fname1 <> tupled (map pretty_arg fargs1)
-                      <+> arrow <+> pretty fty <+> prettyPreds preds <+> lbrace,
+    pretty (Fn fname1 fargs1 fty fbody1 generics preds atys) =
+      vcat [text "fn" <+> pretty fname1 <> pparams generics <> patys atys <+> tupled (map pretty_arg fargs1)
+                      <+> arrow <+> pretty fty <+> ppreds preds <+> lbrace,
             indent 3 (pretty fbody1),
             rbrace] where
-      prettyPreds [] = mempty
-      prettyPreds ps = text "where" <+> list (map pretty ps) where
-      
+            
 instance Pretty MirBody where
     pretty (MirBody mvs mbs) =
       vcat (map pretty_temp mvs ++
@@ -299,7 +302,7 @@ instance Pretty FloatLit where
 
 
 instance Pretty Substs where
-  pretty (Substs b) = encloseSep langle rangle  comma (map pretty b)
+  pretty (Substs b) = langle <> hcat (punctuate comma (map pretty b)) <> rangle
   
 instance Pretty ConstVal where
     pretty (ConstFloat i)   = pretty i
@@ -327,18 +330,19 @@ instance Pretty FnSig where
   pretty (FnSig args ret) = tupled (map pretty args) <+> arrow <+> pretty ret
 
 instance Pretty TraitItem where
-  pretty (TraitMethod name sig) = text "fn"    <+> pr_id name <> pretty sig <> semi
+  pretty (TraitMethod name sig _) = text "fn"    <+> pr_id name <> pretty sig <> semi
   pretty (TraitType name)       = text "name"  <+> pr_id name <> semi
   pretty (TraitConst name ty)   = text "const" <+> pr_id name <> colon <> pretty ty <> semi
 
 instance Pretty Trait where
-  pretty (Trait name items supers) =
+  pretty tr@(Trait name items supers params preds _numParams) =
     let sd = case supers of
               [ _self ] -> mempty
               ( _self : rest ) -> pretty rest
               [] -> error "BUG: supertrait list should always start with self"
+        ps = pparams (traitParamsWithAssocTys tr)
     in                    
-        vcat [text "trait" <+> pretty name <+> sd <+> lbrace ,
+        vcat [text "trait" <+> pretty name <+> pparams params <+> sd <+> ppreds preds <+> lbrace ,
               indent 3 (vcat (map pretty items)),
               rbrace]
 
@@ -346,15 +350,36 @@ instance Pretty TraitRef where
   pretty (TraitRef did (Substs (s:_))) = pr_id did <+> text "for" <+> pretty s
   pretty (TraitRef did s)              = pr_id did <+> text "for" <+> pretty s
 
+instance Pretty Param where
+  pretty (Param name) = pretty name
+
+--instance Pretty AssocTy where
+--  pretty (AssocTy (name, substs)) = pretty name <+> pretty substs
+
+patys   :: [AssocTy] -> Doc
+patys atys = if null atys then empty
+  else encloseSep langle rangle  comma (map pretty atys)
+
+pparams :: [Param] -> Doc
+pparams params = if null params then mempty
+  else encloseSep langle rangle  comma (map pretty params)
+
+ppreds :: [Predicate] -> Doc
+ppreds preds = if null preds then empty
+  else text "where" <+> list (map pretty preds)
+
 instance Pretty TraitImpl where
   pretty ti =
-    vcat [text "impl" <+> pretty (ti^.tiTraitRef) <+> lbrace, 
+    vcat [text "impl" <> pparams (ti^.tiGenerics) <+> pretty (ti^.tiTraitRef)
+               <+> ppreds (ti^.tiPredicates) <+> lbrace, 
           indent 3 (vcat (map pretty (ti^.tiItems))),
           rbrace]
 
 instance Pretty TraitImplItem where
-  pretty tii =
-    pretty (tii^.tiiName) <+> text "implements" <+> pretty (tii^.tiiImplements)
+  pretty (TraitImplMethod nm impls params preds sig)  =
+    pretty nm <+> text "implements" <+> pretty impls <+> pparams params <+> ppreds preds
+  pretty (TraitImplType nm impls params preds ty) =
+    text "type" <+> pretty impls <+> pparams params <+> text "=" <+> pretty ty
 
 instance Pretty Collection where
   pretty col =
@@ -365,4 +390,4 @@ instance Pretty Collection where
           [text "TRAITs"] ++
           map pretty (Map.elems (col^.traits)) ++
           [text "IMPLs"] ++
-          map pretty (Map.elems (col^.impls)))
+          map pretty (col^.impls))

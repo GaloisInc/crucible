@@ -1,5 +1,23 @@
 TODO
 
+- haven't finished associated type translation
+   (traits/tyfam2.rs)
+   - need to apply translation in fbodies 
+   - need to rationalize what happens when
+   - need to add extra type arguments in method calls
+
+- generic trait impls (traits/dict_med.rs, traits/dict_poly.rs)
+  e.g. 
+  
+     impl<U> G for Data<U> where U:G { ... }
+
+  The impl is generic, and the parameter U itself has a constraint. 
+
+  These impls are really important in the std library. But supporting them will require 
+  serious re-thought about how we keep track of trait impls during translation.
+
+- static traits with members that do not mention Self (traits/static, traits/static_two.rs)
+  
 - parse new components from mir-json
    traits/default.rs
 
@@ -58,11 +76,10 @@ TODO
 
 WAITING ON MIR-JSON
 
-- parsing of constants
+- parsing of constant array references
    crypto/add.rs
 
-- static traits with members that do not mention Self (traits/static, traits/static_two.rs)
-   mir-json open issue #4
+  
 
 
 MADE SOME PROGRESS
@@ -79,3 +96,131 @@ FIXED
 - cannot assign to mutable function parameter 
    array/arg.rs
    prim/ffs.rs
+
+
+* Dictionary Translation notes
+
+The goal is to eliminate trait predicates from methods by passing in
+additional term arguments to the methods and to eliminate associated 
+types by passing in additional type arguments 
+
+NOTE: dictionary passing involves both a type translation and a term
+translation.  We must do the type translation prior to Crucible code
+generation because we need to allocate function handles with the
+correct types.
+It is convenient to do the term translation with code generation as
+the term translation is not purely syntax-directed. We need to lookup
+type/trait information while we do the pass.
+
+1. Pre-passes related to dictionary translation (before code generation)
+   MUST occur in this order (in transCollection)
+
+     -- update traits, functions headers & impls to remove predicates that 
+          we don't know anything about (like Sized) so that we don't 
+          generate dictionaries for them
+          (passRemoveUnknownPreds)
+     -- update traits with all supertrait items  
+          (passExpandSuperTraits)
+     -- update traits & function headers to include "self" predicates
+          (passAddDictionaryPreds)
+          TODO: also update impls?
+     -- update traits to include associated type info for the trait
+          TODO: use impls to determine mapping for concrete ATs
+     -- update traits & function headers to remove associated types
+        from appearing in types
+        translate associated types appearing throughout the AST
+          TODO: also update impls?
+          NOTE: we do *not* update method calls with additional args
+          those will be added during translation
+          (passAbstractAssociated)
+     -- update ADTs to include dictionary types 
+         (traits must have correct types for methods at this point)
+         (passAddTraitAdts)
+
+     -- allocate method handles (MUST eliminate any uses of associated types by this point)
+
+1a. Prepass constructs information for main translation 
+     -- ADict -- mapping from types of the form "TyProjection ..." to 
+                 their associated types
+
+2. The additional term arguments are "dictionaries", i.e. records of
+   methods for the trait at that type
+     ==> dictionary ADT decls added in prepass (see above)
+     ==> mkHandleMap adds additional term args for preds when 
+         handles are allocated (MirHandles remember preds)
+         Q: should we do this translation in passAbstractAssociated? 
+            why do we do it here?
+     ==> method arguments are added during code generation
+     ==> always need to know what dictionary variables are in scope
+         during code generation.
+         These are in the varMap, and named by trait
+         we look for them in lookupFunction
+         TODO: names are not unique! They should also include type
+	       args for unique resolution.
+
+3. If the method uses a trait with an associated type, then we need to
+   add additional type arguments to the method call sites for the
+   associated type.
+     ==> traits are generalized in a prepass (abstractAssociatedTypes)
+     ==> always need to what associated type variables are in scope
+         assocTyMap (ADict) component of Generator state 
+
+     ==> in a call (lookupFunction), determine what the 
+         extra associated type argument(s) should be
+	 (mkAtySubsts)
+
+     ==> NOTE: function handles don't say how many types they abstract
+         (the arg & result types just mention parameters)
+         so we don't need to calculate this info when we allocate
+         fn handles. revisit?
+
+4. When we create dictionaries, we need to satisfy *almost* all of the
+   predicates for the members of the dictionary. This will involve
+   creating additional dictionaries. And then partially applying the
+   methods to those additional dictionaries. So we need to construct a
+   crucible closure.
+     ==> dictionary creation is done in doCall, in "normal" case
+     ==> currently doesn't reuse dictionaries already in scope,
+         recreates them piece by piece. Maybe that's ok.
+     ==> TODO: partially apply result of lookupFunction
+     ==> TODO: make sure that "recursive" dictionary is always *last*
+         predicate in method impls
+
+5. The exception is the "recursive" predicate for the dictionary
+   itself. We should not partially apply those (to make the
+   translation easier, otherwise we have to tie the knot
+   somehow). Furthermore it is easy to provide that dictionary
+   whenever we extract the method from the dictionary and call it.
+     ==> this is already handled in doCall
+
+
+6. Do we need to worry about other sorts of recursive dictionaries? 
+   If so, how do we detect & break such loops in the translation?
+   From a simple test, it looks like Rust won't allow such things. 
+   i.e. we can define these impls
+
+   impl<U> G for U where U:H {
+    fn g(&self) -> Self {
+        self.h()
+    }
+   }
+
+   impl<U> H for U where U:G {
+    fn h(&self) -> Self {
+      self.g()
+    }
+   } 
+
+   but these impls can't be used to satisfy any bounds.  So let's PUNT
+   on this issue for now. If we get *really* paranoid we can try to
+   detect it during translation to avoid infinite loops.
+
+7. TODO: generic impl resolution. If we have an impl
+   that depends on another, i.e. 
+
+      impl<U>G for Option<U> where U:G {
+           ...
+      }
+
+   we don't have a way to add this impl to the vtable. The 'TraitImpls'
+   component can only store vtables for impls 

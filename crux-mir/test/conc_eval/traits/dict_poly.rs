@@ -1,4 +1,4 @@
-// FAIL: can't find dictionary
+// FAIL: cannot handle generic trait impls
 // a static trait invocation for a polymorphic type
 // calling the g method in h requires a dictionary argument 
 

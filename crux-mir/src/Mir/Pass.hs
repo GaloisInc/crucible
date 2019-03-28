@@ -25,6 +25,7 @@ import GHC.Stack
 
 import Mir.Mir
 import Mir.DefId
+import Mir.MirTy
 
 import Mir.Pass.CollapseRefs( passCollapseRefs )
 import Mir.Pass.MutRefReturnStatic( passMutRefReturnStatic )

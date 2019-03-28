@@ -30,6 +30,8 @@ import Data.List
 import Mir.Mir
 import Mir.DefId
 import Mir.Trans
+import Mir.MirTy
+import Mir.GenericOps
 
 import GHC.Stack
 
@@ -61,7 +63,7 @@ changeTyToImmut t = t
 
 -- The algorithm is imperative -- everything is basically modified in place.
 
--- TODO: this is currently define as a pass that only operates on the
+-- TODO: this is currently defined as a pass that only operates on the
 -- [Fn] part of the collection. However, to be robust in the case of
 -- code that uses traits, then it needs to modify the types of
 -- functions declared in traits and also look up the types of trait
@@ -70,14 +72,15 @@ changeTyToImmut t = t
 
 
 data RewriteFnSt = RFS { --  state internal to function translation.
-    _fn_name :: DefId,
+--    _fn_name :: DefId,
     _ctr :: Int, -- counter for fresh variables
     _immut_arguments :: Map.Map T.Text Var, -- arguments to the function which don't need to be tampered with
     -- vvv arguments of the form &mut T (or variations thereof.) The translation creates a dummy variable for each one. The dummy variable is the second. fst will end up in internals, snd will end up in arguments
     _mut_argpairs :: Map.Map T.Text (Var, Var),
+    _old_fn :: Fn, 
     _ret_ty :: Ty,
-    _generics :: [Param],
-    _predicates :: [Predicate],
+--    _generics :: [Param],
+--    _predicates :: [Predicate],
     _internals :: Map.Map T.Text Var, -- local variables
     _blocks :: Map.Map T.Text BasicBlockData,
     _dummyret :: Maybe Var, -- this is where the original return value goes, which will later be aggregated with the mutref values
@@ -91,8 +94,8 @@ data RewriteFnSt = RFS { --  state internal to function translation.
 fnSubstitutions :: Simple Lens RewriteFnSt (Map.Map Lvalue Lvalue)
 fnSubstitutions = lens _fnsubstitutions (\s v -> s { _fnsubstitutions = v })
 
-fnName :: Simple Lens (RewriteFnSt) DefId
-fnName = lens _fn_name (\s v -> s { _fn_name = v })
+--fnName :: Simple Lens (RewriteFnSt) DefId
+--fnName = lens _fn_name (\s v -> s { _fn_name = v })
 
 dummy_ctr :: Simple Lens (RewriteFnSt) Int
 dummy_ctr = lens _ctr (\s v -> s { _ctr = v })
@@ -112,11 +115,14 @@ fnDummyRet = lens _dummyret (\s v -> s { _dummyret = v})
 fnRet_ty :: Simple Lens (RewriteFnSt) Ty
 fnRet_ty = lens _ret_ty (\s v -> s { _ret_ty = v })
 
-fnGens :: Simple Lens (RewriteFnSt) [Param]
-fnGens = lens _generics (\s v -> s { _generics = v })
+--fnGens :: Simple Lens (RewriteFnSt) [Param]
+--fnGens = lens _generics (\s v -> s { _generics = v })
 
-fnPreds :: Simple Lens (RewriteFnSt) [Predicate]
-fnPreds = lens _predicates (\s v -> s { _predicates = v })
+--fnPreds :: Simple Lens (RewriteFnSt) [Predicate]
+--fnPreds = lens _predicates (\s v -> s { _predicates = v })
+
+fnOldFn :: Simple Lens RewriteFnSt Fn
+fnOldFn = lens _old_fn (\s v -> s { _old_fn = v})
 
 fnInternals :: Simple Lens (RewriteFnSt) (Map.Map T.Text Var)
 fnInternals = lens _internals (\s v -> s { _internals = v })
@@ -159,12 +165,14 @@ newInternal ty = do
 -- build initial rewrite state
 
 buildRewriteSt :: Fn -> [Fn] -> RewriteFnSt
-buildRewriteSt (Fn fname fargs fretty (MirBody internals blocks) gens preds) fns =
-    let (mut_args, immut_args) = partition (isMutRefTy . typeOf) fargs
+buildRewriteSt fn fns =
+    let (mut_args, immut_args) = partition (isMutRefTy . typeOf) (fn^.fargs)
         immut_map = vars_to_map immut_args
         mutpairmap = Map.map (\v -> (v, mutref_to_immut v)) (vars_to_map mut_args)
-        fnmap = Map.fromList $ map (\(Fn fn fa _ _ _ _) -> (fn, map typeOf fa)) fns in
-    RFS fname 0 immut_map mutpairmap fretty gens preds (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
+        fnmap = Map.fromList $ map (\fn -> (fn^.fname, map typeOf (fn^.fargs))) fns
+        MirBody internals blocks = fn^.fbody
+    in
+    RFS 0 immut_map mutpairmap fn (fn^.freturn_ty) (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
 
 -- insertMutvarsIntoInternals
 -- put all x's into internals, where (x,y) are the mutarg pairs (x is old mut, y is new immut dummy)
@@ -198,7 +206,7 @@ modifyAssignEntryBlock = do
 
 modifyRetData :: State RewriteFnSt ()
 modifyRetData = do
-    old_fretty <- use fnRet_ty
+    old_fretty <- use fnRet_ty 
     mutpairs <- use fnMutArgPairs
     internals <- use fnInternals
     let new_fretty = TyTuple $ [old_fretty] ++ (map (_varty . snd) (Map.elems mutpairs))
@@ -318,16 +326,18 @@ extractFn = do
     ret_ty <- use fnRet_ty
     internals <- use fnInternals
     blocks <- use fnBlocks
-    fname <- use fnName
-    fsubs <- use fnSubstitutions
-    gens  <- use fnGens
-    preds <- use fnPreds
+    fsubs  <- use fnSubstitutions
+    
+    oldFn <- use fnOldFn
 
     let blocks_ = replaceList (Map.toList fsubs) blocks
 
     let fnargs = (Map.elems immut_args) ++ (Map.elems $ Map.map snd mut_argpairs)
         fnblocks = map (\(k,v) -> BasicBlock k v) (Map.toList blocks_)
-    return $ Fn fname fnargs ret_ty (MirBody (Map.elems internals) fnblocks) gens preds
+    return $ oldFn & freturn_ty .~ ret_ty
+                   & fargs      .~ fnargs
+                   & fbody      .~ MirBody (Map.elems internals) fnblocks
+
 
 
 -- if there are no mutref args, then the body of the function doesn't need to change

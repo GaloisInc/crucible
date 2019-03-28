@@ -1,4 +1,4 @@
-// FAIL: can't find dictionary
+// FAIL: cannot handle generic trait impls  (i.e. second impl below)
 
 // a static trait invocation for a polymorphic type
 // calling the g method in h requires a dictionary argument 
@@ -16,11 +16,12 @@ impl G<u32> for u32 {
     }
 }
 
-impl<U> G<U> for Data<U> where U:G<U> {
-    fn g(&self) -> U {
+impl<U> G<u32> for Data<U> where U:G<u32> {
+    fn g(&self) -> u32 {
         (self.0).g()
     }
 }
+
 
 fn f(_: ()) -> u32 {
     let d = Data(32);

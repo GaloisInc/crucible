@@ -51,6 +51,7 @@ library
                    Mir.Generator
                    Mir.Language
                    Mir.Mir
+                   Mir.GenericOps
                    Mir.Prims
                    Mir.Pass
                    Mir.Pass.AllocateEnum                   
@@ -63,6 +64,7 @@ library
                    Mir.PP
                    Mir.Generate
                    Mir.DefId
+                   Mir.MirTy
   other-modules: 
                  Mir.Intrinsics
                  Mir.Overrides

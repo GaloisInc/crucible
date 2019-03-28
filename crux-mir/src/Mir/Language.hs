@@ -23,7 +23,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Vector     as Vector
 import qualified Text.Read       as Read
 
-import           System.IO (Handle, stdout)
+import           System.IO (Handle)
 import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
 import qualified System.Console.GetOpt as Console
 import           System.Exit(exitSuccess)
@@ -72,7 +72,8 @@ main :: IO ()
 main = Crux.main [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
 
 mainWithOutputTo :: Handle -> IO ()
-mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h) [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
+mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h)
+   [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
 
 data CruxMIR
 

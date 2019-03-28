@@ -154,7 +154,7 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x^.fname) x m) Map.empty fns)
         (foldr (\ x m -> Map.insert (x^.adtname) x m) Map.empty adts)
         (foldr (\ x m -> Map.insert (x^.traitName) x m) Map.empty traits)
-        (foldr (\ x m -> Map.insert (x^.tiName) x m) Map.empty impls)        
+        impls
 
 
 instance FromJSON Fn where
@@ -168,7 +168,7 @@ instance FromJSON Fn where
         <*> v .: "body"
         <*> (withObject "Param" (\u -> u .: "params") pg)
         <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
-
+        <*> return []
         
 instance FromJSON BasicBlock where
     parseJSON = withObject "BasicBlock" $ \v -> BasicBlock
@@ -433,12 +433,21 @@ instance FromJSON CustomAggregate where
                                                        x -> fail ("bad CustomAggregate: " ++ show x)
 
 instance FromJSON Trait where
-    parseJSON = withObject "Trait" $ \v -> Trait <$> v .: "name" <*> v .: "items" <*> v .: "supertraits"
+    parseJSON = withObject "Trait" $ \v -> do
+      pg <- v .: "generics"
+      pp <- v .: "predicates"
+      params <- (withObject "Param" (\u -> u .: "params") pg)
+      Trait <$> v .: "name"
+            <*> v .: "items"
+            <*> v .: "supertraits"
+            <*> pure params
+            <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
+            <*> pure []
 
 instance FromJSON TraitItem where
     parseJSON = withObject "TraitItem" $ \v ->
                 case HML.lookup "kind" v of
-                  Just (String "Method") -> TraitMethod <$> v .: "name" <*> v .: "signature"
+                  Just (String "Method") -> TraitMethod <$> v .: "name" <*> v .: "signature" <*> return []
                   Just (String "Type") -> TraitType <$> v .: "name"
                   Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk

@@ -1,5 +1,3 @@
-// FAIL: can't match up the impls for the traits with their types
-//
 // We match the type of S::g against T::g.  But g's type
 // does not include 'Self' so there is no information to be gained.
 

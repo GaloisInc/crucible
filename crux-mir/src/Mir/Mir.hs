@@ -31,13 +31,13 @@ module Mir.Mir where
 
 import qualified Data.ByteString as B
 import qualified Data.Map.Strict as Map
+import Data.Text (Text)
 
 import Data.Semigroup
-import Data.Text (Text,  unpack)
-import Data.List
-import Control.Lens(makeLenses,(^.))
 
-import Data.Maybe (fromMaybe)
+import Control.Lens(makeLenses,(^.), Simple, Lens, lens)
+
+
 
 
 import GHC.Generics 
@@ -63,18 +63,27 @@ data BaseSize =
       | B32
       | B64
       | B128
-      deriving (Eq, Ord, Show, Generic, GenericOps)
+      deriving (Eq, Ord, Show, Generic)
 
 data FloatKind
   = F32
   | F64
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 -- | Type parameters
 newtype Substs = Substs [Ty]
   deriving (Eq, Ord, Show, Generic)
-  deriving anyclass (GenericOps)
+--  deriving anyclass (GenericOps)
   deriving newtype (Semigroup, Monoid)
+
+-- | Associated types
+--   The projection of an associated type
+type AssocTy = (DefId, Substs)
+-- TODO: make this a newtype
+--newtype AssocTy = AssocTy (DefId, Substs)
+--  deriving (Eq, Ord, Show, Generic)
+--  deriving anyclass (GenericOps)
+
 
 data Ty =
         TyBool               -- The primitive boolean type. Written as bool.
@@ -102,30 +111,30 @@ data Ty =
       deriving (Eq, Ord, Show, Generic)
 
 data FnSig = FnSig [Ty] Ty 
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+    deriving (Eq, Ord, Show, Generic)
 
 data Adt = Adt {_adtname :: DefId, _adtvariants :: [Variant]}
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+    deriving (Eq, Ord, Show, Generic)
 
 data VariantDiscr
   = Explicit DefId
   | Relative Int
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 
 data CtorKind
   = FnKind
   | ConstKind
   | FictiveKind
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 
 data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
-    deriving (Eq, Ord,Show, Generic, GenericOps)
+    deriving (Eq, Ord,Show, Generic)
 
 
 data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: Substs}
-    deriving (Show, Eq, Ord, Generic, GenericOps)
+    deriving (Show, Eq, Ord, Generic)
 
 
 data CustomTy =
@@ -133,12 +142,12 @@ data CustomTy =
       | VecTy Ty                 -- ::vec::Vec<Ty>
       | IterTy Ty
       | CEnum DefId [Integer]    -- C-style Enumeration, all variants must be trivial
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+    deriving (Eq, Ord, Show, Generic)
 
 data Mutability
   = Mut
   | Immut
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 data Var = Var {
     _varname :: Text,
@@ -153,11 +162,11 @@ instance Ord Var where
 
 
 data Collection = Collection {
-    _functions :: Map.Map DefId Fn,
-    _adts      :: Map.Map DefId Adt,
-    _traits    :: Map.Map DefId Trait,
-    _impls     :: Map.Map DefId TraitImpl
-} deriving (Show, Eq, Ord, Generic, GenericOps)
+    _functions :: Map.Map MethName Fn,
+    _adts      :: Map.Map AdtName Adt,
+    _traits    :: Map.Map TraitName Trait,
+    _impls     :: [TraitImpl]
+} deriving (Show, Eq, Ord, Generic)
 
 data Predicate =
   TraitPredicate {
@@ -170,29 +179,30 @@ data Predicate =
     _ty      :: Ty
     }
   | UnknownPredicate
-    deriving (Show, Eq, Ord, Generic, GenericOps)
+    deriving (Show, Eq, Ord, Generic)
 
 data Param = Param {
     _pname :: Text
-} deriving (Show, Eq, Ord, Generic, GenericOps)
+} deriving (Show, Eq, Ord, Generic)
 
 newtype Params = Params [Param]
    deriving (Show, Eq, Ord, Generic)
-   deriving anyclass (GenericOps)
+
 
 newtype Predicates = Predicates [Predicate]
    deriving (Show, Eq, Ord, Generic)
-   deriving anyclass (GenericOps)
+
 
 data Fn = Fn {
-    _fname :: DefId,
-    _fargs :: [Var],
-    _freturn_ty :: Ty,
-    _fbody :: MirBody,
-    _fgenerics :: [Param],
-    _fpredicates :: [Predicate]
+    _fname       :: DefId,
+    _fargs       :: [Var],
+    _freturn_ty  :: Ty,
+    _fbody       :: MirBody,
+    _fgenerics   :: [Param],
+    _fpredicates :: [Predicate],
+    _fassocTys   :: [AssocTy]    -- new params added in a pre-pass
     }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 
 
@@ -200,14 +210,14 @@ data MirBody = MirBody {
     _mvars :: [Var],
     _mblocks :: [BasicBlock]
 }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 
 data BasicBlock = BasicBlock {
     _bbinfo :: BasicBlockInfo,
     _bbdata :: BasicBlockData
 }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 
 
@@ -215,7 +225,7 @@ data BasicBlockData = BasicBlockData {
     _bbstmts :: [Statement],
     _bbterminator :: Terminator
 }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 
 data Statement =
@@ -225,7 +235,7 @@ data Statement =
       | StorageLive { _slv :: Var }
       | StorageDead { _sdv :: Var }
       | Nop
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 -- This is called 'Place' now
 data Lvalue =
@@ -256,10 +266,10 @@ data Rvalue =
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
       | RCustom CustomAggregate
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
-    deriving (Show, Eq, Ord, Generic, GenericOps)
+    deriving (Show, Eq, Ord, Generic)
 
 
 data Terminator =
@@ -290,18 +300,18 @@ data Terminator =
                  _amsg      :: AssertMessage,
                  _atarget   :: BasicBlockInfo,
                  _acleanup  :: Maybe BasicBlockInfo}
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 data Operand =
         Copy Lvalue
       | Move Lvalue
       | OpConstant Constant
-      deriving (Show, Eq, Ord, Generic, GenericOps)
+      deriving (Show, Eq, Ord, Generic)
 
-data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Ord, Generic, GenericOps)
+data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Ord, Generic)
 
 data LvalueProjection = LvalueProjection { _lvpbase :: Lvalue, _lvpkind :: Lvpelem }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 data Lvpelem =
     Deref
@@ -310,14 +320,14 @@ data Lvpelem =
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
       | Subslice { _sfrom :: Int, _sto :: Int }
       | Downcast Integer
-      deriving (Show, Eq, Ord, Generic, GenericOps)
+      deriving (Show, Eq, Ord, Generic)
 
 
 
 data NullOp =
         SizeOf
       | Box
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 
 
@@ -325,13 +335,13 @@ data BorrowKind =
         Shared
       | Unique
       | Mutable
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 
 data UnOp =
     Not
   | Neg
-  deriving (Show,Eq, Ord, Generic, GenericOps)
+  deriving (Show,Eq, Ord, Generic)
 
 
 data BinOp =
@@ -352,7 +362,7 @@ data BinOp =
       | Ge
       | Gt
       | Offset
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 data CastKind =
     Misc
@@ -360,13 +370,13 @@ data CastKind =
       | ClosureFnPointer
       | UnsafeFnPointer
       | Unsize
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 data Literal =
     Item DefId Substs
   | Value ConstVal
   | LPromoted Promoted
-  deriving (Show,Eq, Ord, Generic, GenericOps)
+  deriving (Show,Eq, Ord, Generic)
 
 data IntLit
   = U8 Integer
@@ -379,11 +389,11 @@ data IntLit
   | I32 Integer
   | I64 Integer
   | Isize Integer
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 data FloatLit
   = FloatLit FloatKind String
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 
 data ConstVal =
@@ -399,47 +409,50 @@ data ConstVal =
   | ConstTuple [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
-  deriving (Show,Eq, Ord, Generic, GenericOps)
+  deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =
         AKArray Ty
       | AKTuple
       | AKClosure DefId Substs
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 data CustomAggregate =
     CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
-data Trait = Trait { _traitName   :: DefId,
-                     _traitItems  :: [TraitItem],
-                     _traitSupers :: [TraitName]
+data Trait = Trait { _traitName       :: DefId,
+                     _traitItems      :: [TraitItem],
+                     _traitSupers     :: [TraitName],
+                     _traitParams     :: [Param],
+                     _traitPredicates :: [Predicate],
+                     _traitAssocTys   :: [AssocTy]    -- new params added in a pre-pass
                    } 
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+    deriving (Eq, Ord, Show, Generic)
 
 
 data TraitItem
-    = TraitMethod DefId FnSig  
+    = TraitMethod DefId FnSig [Predicate]
     | TraitType DefId         -- associated type
     | TraitConst DefId Ty
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+    deriving (Eq, Ord, Show, Generic)
 
 data TraitRef
     = TraitRef DefId Substs
       -- Indicates the trait this impl implements.
       -- `substs` gives the type arguments for the trait,
-      -- which may refer to the type parameters of the
-    deriving (Show, Eq, Ord, Generic, GenericOps)
+    deriving (Show, Eq, Ord, Generic)
 
 data TraitImpl
     = TraitImpl { _tiName       :: DefId
-                -- name of the impl group
+                -- name of the impl group (Not very useful)
                 , _tiTraitRef   :: TraitRef
+                -- name of the trait and the type we are implementing it
                 , _tiGenerics   :: [Param]
                 , _tiPredicates :: [Predicate]
                 , _tiItems      :: [TraitImplItem]
                 }
-    deriving (Show, Eq, Ord, Generic, GenericOps)
+    deriving (Show, Eq, Ord, Generic)
 data TraitImplItem
     = TraitImplMethod { _tiiName :: DefId
                         -- the def path of the item
@@ -459,10 +472,10 @@ data TraitImplItem
       | TraitImplType { _tiiName       :: DefId
                       , _tiiImplements :: DefId
                       , _tiiGenerics   :: [Param]
-                      , _ttPredicates  :: [Predicate]
+                      , _tiiPredicates :: [Predicate]
                       , _tiiType       :: Ty
                       }
-      deriving (Show, Eq, Ord, Generic, GenericOps)
+      deriving (Show, Eq, Ord, Generic)
 
 -- Documentation for particular use-cases of DefIds
 type TraitName = DefId
@@ -477,235 +490,11 @@ type AssertMessage = Text
 type ClosureSubsts = Text
 type BasicBlockInfo = Text
 
+
+--------------------------------------------------------------------------------------
+-- Lenses
 --------------------------------------------------------------------------------------
 
---
--- Generic operations
---
-
--- These operations are defined via GHC.Generics so that they can automatically
--- adapt to changes in the Mir AST.  
-
-class GenericOps a where
-
-  -- | Crawl over the AST and rename the module that defIds live in.
-  -- We need this because we are loading our own variant of the standard
-  -- library, but all of the definitions there will have the wrong name.
-  relocate :: a -> a
-  default relocate :: (Generic a, GenericOps' (Rep a)) => a -> a
-  relocate x = to (relocate' (from x))
-
-  -- | Find all C-style Adts in the AST and convert them to Custom (CEnum _)
-  markCStyle :: (Map.Map DefId Adt,Collection) -> a -> a 
-  default markCStyle :: (Generic a, GenericOps' (Rep a)) => (Map.Map DefId Adt,Collection) -> a -> a
-  markCStyle s x = to (markCStyle' s (from x))
-
-  -- | Type variable substitution. Type variables are represented via indices.
-  tySubst :: Substs -> a -> a 
-  default tySubst :: (Generic a, GenericOps' (Rep a)) => Substs -> a -> a
-  tySubst s x = to (tySubst' s (from x))
-
-  -- | Renaming for term variables
-  replaceVar :: Var -> Var -> a -> a
-  default replaceVar :: (Generic a, GenericOps' (Rep a)) => Var -> Var -> a -> a
-  replaceVar o n x = to (replaceVar' o n (from x))
-
-  -- |
-  replaceLvalue :: Lvalue -> Lvalue -> a -> a
-  default replaceLvalue :: (Generic a, GenericOps' (Rep a)) => Lvalue -> Lvalue -> a -> a
-  replaceLvalue o n x = to (replaceLvalue' o n (from x))
-
-  
-fromIntegerLit :: IntLit -> Integer
-fromIntegerLit (U8 i)    = i
-fromIntegerLit (U16 i)   = i
-fromIntegerLit (U32 i)   = i
-fromIntegerLit (U64 i)   = i
-fromIntegerLit (Usize i) = i
-fromIntegerLit (I8 i)    = i
-fromIntegerLit (I16 i)   = i
-fromIntegerLit (I32 i)   = i
-fromIntegerLit (I64 i)   = i
-fromIntegerLit (Isize i) = i
-
-
--- | For ADTs that are represented as CEnums, we need to find the actual numbers that we
--- use to represent each of the constructors.
-adtIndices :: Adt -> Collection -> [Integer]
-adtIndices (Adt _aname vars) col = map go vars where
- go (Variant _vname (Explicit did) _fields _knd) =
-    case Map.lookup did (_functions col) of
-      Just (Fn _name _args _ret_ty (MirBody _vars blocks) _gens _preds) ->
-        case blocks of
-          [ BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (Value (ConstInt i))))) _loc] _term) ] ->
-            fromIntegerLit i
-            
-          _ -> error "CEnum should only have one basic block"
-          
-      Nothing -> error "cannot find CEnum value"
- go (Variant _vname (Relative i) _fields _kind) = toInteger i    --- TODO: check this
-
-    
--- special case for DefIds
-instance GenericOps DefId where
-  relocate     = relocateDefId 
-  markCStyle _   = id
-  tySubst    _   = id
-  replaceVar _ _ = id
-  replaceLvalue _ _ = id  
-
--- special case for Tys
-instance GenericOps Ty where
-
-  -- Translate C-style enums to CEnum types
-  markCStyle (ads,s) (TyAdt n ps)  | Just adt <- Map.lookup n ads =
-   if ps == Substs [] then
-      TyCustom (CEnum n (adtIndices adt s))
-   else
-      error "Cannot have params to C-style enum!"
-  markCStyle s ty = to (markCStyle' s (from ty))
-
-  -- Substitute for type variables
-  tySubst (Substs substs) (TyParam i)
-     | fromInteger i < length substs = substs !! fromInteger i 
-     | otherwise    = error $ "Indexing at " ++ show i ++ "  from subst " ++ show substs
-  tySubst substs ty = to (tySubst' substs (from ty))
-
--- special case for Vars
-instance GenericOps Var where
-  replaceVar old new v = if _varname v == _varname old then new else v
-
-  replaceLvalue (Local old) (Local new) v = replaceVar old new v
-  replaceLvalue _ _ v = v
-
--- special case for LValue
-instance GenericOps Lvalue where
-    replaceLvalue old new v = fromMaybe v (repl_lv v)
-      where
-        repl_lv :: Lvalue -> Maybe Lvalue -- some light unification
-        repl_lv v0 =
-          case v0 of
-            LProjection (LvalueProjection lb k)
-              | Just ans <- repl_lv lb -> Just $ LProjection (LvalueProjection ans k)
-            Tagged lb _ | Just ans <- repl_lv lb -> Just ans
-            _ | v == old -> Just new
-            _ -> Nothing
-
-
-class GenericOps' f where
-  relocate'   :: f p -> f p
-  markCStyle' :: (Map.Map DefId Adt,Collection) -> f p -> f p
-  tySubst'    :: Substs -> f p -> f p 
-  replaceVar' :: Var -> Var -> f p -> f p
-  replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
-  
-instance GenericOps' V1 where
-  relocate' _x      = error "impossible: this is a void type"
-  markCStyle' _ _x  = error "impossible: this is a void type"
-  tySubst' _ _      = error "impossible: this is a void type"
-  replaceVar' _ _ _ = error "impossible: this is a void type"
-  replaceLvalue' _ _ _ = error "impossible: this is a void type"
-
-instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
-  relocate'     (L1 x) = L1 (relocate' x)
-  relocate'     (R1 x) = R1 (relocate' x)
-  markCStyle' s (L1 x) = L1 (markCStyle' s x)
-  markCStyle' s (R1 x) = R1 (markCStyle' s x)
-  tySubst'    s (L1 x) = L1 (tySubst' s x)
-  tySubst'    s (R1 x) = R1 (tySubst' s x)
-  replaceVar' o n (L1 x) = L1 (replaceVar' o n x)
-  replaceVar' o n (R1 x) = R1 (replaceVar' o n x)
-  replaceLvalue' o n (L1 x) = L1 (replaceLvalue' o n x)
-  replaceLvalue' o n (R1 x) = R1 (replaceLvalue' o n x)
-
-
-instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
-  relocate'       (x :*: y) = relocate'   x     :*: relocate' y
-  markCStyle' s   (x :*: y) = markCStyle'   s x :*: markCStyle' s y
-  tySubst'    s   (x :*: y) = tySubst'      s x :*: tySubst'    s y
-  replaceVar' o n (x :*: y) = replaceVar' o n x :*: replaceVar' o n y
-  replaceLvalue' o n (x :*: y) = replaceLvalue' o n x :*: replaceLvalue' o n y
-  
-
-instance (GenericOps c) => GenericOps' (K1 i c) where
-  relocate'     (K1 x) = K1 (relocate x)
-  markCStyle' s (K1 x) = K1 (markCStyle s x)
-  tySubst'    s (K1 x) = K1 (tySubst s x)
-  replaceVar' o n (K1 x) = K1 (replaceVar o n x)
-  replaceLvalue' o n (K1 x) = K1 (replaceLvalue o n x)  
-  
-instance (GenericOps' f) => GenericOps' (M1 i t f) where
-  relocate'     (M1 x) = M1 (relocate' x)
-  markCStyle' s (M1 x) = M1 (markCStyle' s x)
-  tySubst'    s (M1 x) = M1 (tySubst' s x)
-  replaceVar' o n (M1 x) = M1 (replaceVar' o n x)
-  replaceLvalue' o n (M1 x) = M1 (replaceLvalue' o n x)
-
-instance (GenericOps' U1) where
-  relocate'      U1 = U1
-  markCStyle' _s U1 = U1
-  tySubst'    _s U1 = U1
-  replaceVar' _ _ U1 = U1
-  replaceLvalue' _ _ U1 = U1 
-
-                      
-instance GenericOps a => GenericOps [a]
-instance GenericOps a => GenericOps (Maybe a)
-instance (GenericOps a, GenericOps b) => GenericOps (a,b)
-instance GenericOps Int     where
-   relocate   = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps Integer where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps Char    where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps Bool    where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps Text    where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps B.ByteString where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id   
-
-instance GenericOps b => GenericOps (Map.Map a b) where
-   relocate       = Map.map relocate 
-   markCStyle s   = Map.map (markCStyle s)
-   tySubst s      = Map.map (tySubst s)
-   replaceVar o n = Map.map (replaceVar o n)
-   replaceLvalue o n = Map.map (replaceLvalue o n)   
-
-replaceList :: GenericOps a => [(Lvalue, Lvalue)] -> a -> a
-replaceList [] a = a
-replaceList ((old,new) : vs) a = replaceList vs $ replaceLvalue old new a
-
---------------------------------------------------------------------------------------                                 
 
 makeLenses ''Variant
 makeLenses ''Var
@@ -717,8 +506,23 @@ makeLenses ''BasicBlockData
 makeLenses ''Adt
 makeLenses ''AdtAg
 makeLenses ''Trait
+
 makeLenses ''TraitImpl
 makeLenses ''TraitImplItem
+
+itemName :: Simple Lens TraitItem DefId
+itemName = lens (\ti -> case ti of
+                          TraitMethod did _ _ -> did
+                          TraitType did -> did
+                          TraitConst did _ -> did)
+              (\ti nd -> case ti of
+                  TraitMethod _ s ps -> TraitMethod nd s ps
+                  TraitType _ -> TraitType nd
+                  TraitConst _ t -> TraitConst nd t)
+
+--------------------------------------------------------------------------------------
+-- Other instances for ADT types
+--------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
   (Collection f1 a1 t1 i1) <> (Collection f2 a2 t2 i2) =
@@ -732,6 +536,31 @@ instance Monoid Collection where
 --------------------------------------------------------------------------------------
 --- aux functions ---
 --------------------------------------------------------------------------------------
+
+-- | access the Integer in an IntLit
+fromIntegerLit :: IntLit -> Integer
+fromIntegerLit (U8 i)    = i
+fromIntegerLit (U16 i)   = i
+fromIntegerLit (U32 i)   = i
+fromIntegerLit (U64 i)   = i
+fromIntegerLit (Usize i) = i
+fromIntegerLit (I8 i)    = i
+fromIntegerLit (I16 i)   = i
+fromIntegerLit (I32 i)   = i
+fromIntegerLit (I64 i)   = i
+fromIntegerLit (Isize i) = i
+
+
+-- | Convert an associated type into a Mir type parameter
+toParam :: AssocTy -> Param
+toParam (did,_substs) = Param (idText did)  -- do we need to include substs?
+
+-- | Access *all* of the params of the trait
+traitParamsWithAssocTys :: Trait -> [Param]
+traitParamsWithAssocTys trait =
+   trait^.traitParams ++ map toParam (trait^.traitAssocTys)
+
+
 
 -- A CStyle ADT is one that is an enumeration of numeric valued options
 -- containing no data
@@ -760,67 +589,6 @@ funcSubstsofOp _ = error "bad extract func name"
 
 
 
-isMutRefTy :: Ty -> Bool
-isMutRefTy (TyRef t m) = (m == Mut) || isMutRefTy t
-isMutRefTy (TySlice t) = isMutRefTy t
-isMutRefTy (TyArray t _) = isMutRefTy t
-isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
-isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
-isMutRefTy _ = False
-
-
--- | Does this type contain any type parameters
-isPoly :: Ty -> Bool
-isPoly (TyParam _) = True
-isPoly (TyTuple ts) = any isPoly ts
-isPoly (TySlice ty) = isPoly ty
-isPoly (TyArray ty _i) = isPoly ty
-isPoly (TyRef ty _mut) = isPoly ty
-isPoly (TyRawPtr ty _mut) = isPoly ty
-isPoly (TyAdt _ (Substs params)) = any isPoly params
-isPoly (TyFnDef _ (Substs params)) = any isPoly params
-isPoly (TyClosure _ (Substs params)) = any isPoly params
-isPoly (TyCustom (BoxTy ty)) = isPoly ty
-isPoly (TyCustom (VecTy ty)) = isPoly ty
-isPoly (TyCustom (IterTy ty)) = isPoly ty
-isPoly _x = False           
-
-isNever :: Ty -> Bool
-isNever (TyAdt defId _) = fst (did_name defId) == "Never"
-isNever _ = False
-
-
--- | Calculate the number of free variables in a Mir type
-numParams :: FnSig -> Integer
-numParams (FnSig argtys retty) = maximum (paramBound retty : map paramBound argtys) where
-  paramBound :: Ty -> Integer
-  paramBound (TyParam x) = x + 1
-  paramBound (TyTuple []) = 0
-  paramBound (TyTuple tys) = maximum (map paramBound tys)
-  paramBound (TySlice ty)  = paramBound ty
-  paramBound (TyArray ty _) = paramBound ty
-  paramBound (TyRef ty _)   = paramBound ty
-  paramBound (TyAdt _ substs) = paramBoundSubsts substs
-  paramBound (TyFnDef _ substs) = paramBoundSubsts substs
-  paramBound (TyClosure _ substs) = paramBoundSubsts substs
-  paramBound (TyFnPtr sig) = numParams sig   --- no top-level generalization???
-  paramBound (TyRawPtr ty _) = paramBound ty
-  paramBound (TyDowncast ty _) = paramBound ty
-  paramBound (TyProjection _ substs) = paramBoundSubsts substs
-  paramBound _ = 0
-
-  paramBoundSubsts :: Substs -> Integer
-  paramBoundSubsts (Substs []) = 0
-  paramBoundSubsts (Substs tys) = maximum (map paramBound tys)
-
-
--- | Convert field to type. Perform the corresponding substitution if field is a type param.
-fieldToTy :: HasCallStack => Field -> Ty
-fieldToTy (Field _ t substs) = tySubst substs t
-
--- | Replace the subst on the Field 
-substField :: Substs -> Field -> Field
-substField subst (Field a t _subst)  = Field a t subst
 
 
 --------------------------------------------------------------------------------------

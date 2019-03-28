@@ -24,6 +24,7 @@ import Data.List
 
 import Mir.DefId
 import Mir.Mir
+import Mir.GenericOps
 
 import GHC.Stack
 
@@ -48,7 +49,7 @@ and replace them with a single aggregate assignment
 passAllocateEnum :: HasCallStack => Collection -> [Fn] -> [Fn]
 passAllocateEnum col fns =
   let ?col = col in
-  map (\(Fn a b c (MirBody d blocks) e  f) -> Fn a b c (MirBody d (map pcr blocks)) e f) fns
+  map (& fbody %~ mblocks %~ map pcr) fns
 
 
 data FieldUpdate = FieldUpdate { adtLvalue :: Lvalue,
