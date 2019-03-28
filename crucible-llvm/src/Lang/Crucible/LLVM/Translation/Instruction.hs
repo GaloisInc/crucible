@@ -1706,10 +1706,39 @@ callFunctionWithCont tailCall_ fnTy fn args assign_f k
      , nm `elem` [ "llvm.dbg.declare"
                  , "llvm.dbg.value"
                  , "llvm.lifetime.start"
+                 , "llvm.lifetime.start.p0i8"
                  , "llvm.lifetime.end"
+                 , "llvm.lifetime.end.p0i8"
+                 , "llvm.invariant.start"
+                 , "llvm.invariant.start.p0i8"
+                 , "llvm.invariant.end"
+                 , "llvm.invariant.end.p0i8"
                  ] = k
 
+     | L.ValSymbol (L.Symbol nm) <- fn
+     , Just bpNm <- testBreakpointFunction nm = do
+        some_val_args <- mapM typedValueAsCrucibleValue args
+        case Ctx.fromList some_val_args of
+          Some val_args -> do
+            addBreakpointStmt (Text.pack bpNm) val_args
+            k
+
      | otherwise = callFunction tailCall_ fnTy fn args assign_f >> k
+
+typedValueAsCrucibleValue
+  :: L.Typed L.Value -> LLVMGenerator h s arch ret (Some (Value s))
+typedValueAsCrucibleValue tv = case L.typedValue tv of
+  L.ValIdent i -> do
+    m <- use identMap
+    case Map.lookup i m of
+      Just (Left (Some r)) ->return $ Some $ RegValue r
+      Just (Right (Some a)) -> return $ Some $ AtomValue a
+      Nothing -> reportError $ fromString $
+        "Could not find identifier " ++ show i ++ "."
+  v@_ -> reportError $ fromString $
+    "Unsupported breakpoint parameter: " ++ show v ++ "."
+
+
 
 -- | Build a switch statement by decomposing it into a linear sequence of branches.
 --   FIXME? this could be more efficient if we sort the list and do binary search instead...

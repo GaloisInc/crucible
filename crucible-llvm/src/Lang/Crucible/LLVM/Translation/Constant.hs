@@ -51,6 +51,7 @@ module Lang.Crucible.LLVM.Translation.Constant
 
     -- * Utility functions
   , showInstr
+  , testBreakpointFunction
   ) where
 
 import           Control.Lens( to, (^.) )
@@ -58,7 +59,7 @@ import           Control.Monad
 import           Control.Monad.Except
 import           Data.Bits
 import           Data.Kind
-import           Data.List (intercalate)
+import           Data.List (intercalate, stripPrefix)
 import           Data.Traversable
 import           Data.Fixed (mod')
 import qualified Data.Vector as V
@@ -1090,3 +1091,6 @@ transConstantExpr expr = case expr of
  where
  badExp :: String -> m a
  badExp msg = throwError $ unlines [msg, show expr]
+
+testBreakpointFunction :: String -> Maybe String
+testBreakpointFunction = stripPrefix "__breakpoint__"
