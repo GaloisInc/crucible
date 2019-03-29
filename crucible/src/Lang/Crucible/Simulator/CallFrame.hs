@@ -27,6 +27,7 @@ module Lang.Crucible.Simulator.CallFrame
     -- * Call frame
   , CallFrame(..)
   , mkCallFrame
+  , mkBlockFrame
   , framePostdomMap
   , frameBlockMap
   , frameHandle
@@ -151,8 +152,18 @@ mkCallFrame :: CFG ext blocks init ret
             -> RegMap sym init
                -- ^ Initial arguments
             -> CallFrame sym ext blocks ret init
-mkCallFrame g pdInfo args = do
-  let bid@(BlockID block_id) = cfgEntryBlockID g
+mkCallFrame g = mkBlockFrame g (cfgEntryBlockID g)
+
+-- | Create a new call frame.
+mkBlockFrame :: CFG ext blocks init ret
+                -- ^ Control flow graph
+             -> BlockID blocks args
+             -> CFGPostdom blocks
+                -- ^ Post dominator information.
+             -> RegMap sym args
+                -- ^ Initial arguments
+             -> CallFrame sym ext blocks ret args
+mkBlockFrame g bid@(BlockID block_id) pdInfo args = do
   let b = cfgBlockMap g Ctx.! block_id
   let pds = getConst $ pdInfo Ctx.! block_id
   CallFrame { _frameCFG   = g

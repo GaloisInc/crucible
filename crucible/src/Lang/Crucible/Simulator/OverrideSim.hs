@@ -43,6 +43,7 @@ module Lang.Crucible.Simulator.OverrideSim
   , callFnVal
   , callFnVal'
   , callCFG
+  , callBlock
   , callOverride
     -- * Global variables
   , readGlobal
@@ -399,11 +400,18 @@ callCFG ::
   CFG ext blocks init ret {- ^ Function to run -} ->
   RegMap sym init {- ^ Arguments to the function -} ->
   OverrideSim p sym ext rtp a r (RegEntry sym ret)
-callCFG cfg args =
-  Sim $ StateContT $ \c -> runReaderT $
-    let f = mkCallFrame cfg (postdomInfo cfg) args in
-    ReaderT $ return . CallState (ReturnToOverride c) (CrucibleCall (cfgEntryBlockID cfg) f)
+callCFG cfg = callBlock cfg (cfgEntryBlockID cfg)
 
+callBlock ::
+  IsSyntaxExtension ext =>
+  CFG ext blocks init ret {- ^ Function to run -} ->
+  BlockID blocks args {- ^ Block to run -} ->
+  RegMap sym args {- ^ Arguments to the block -} ->
+  OverrideSim p sym ext rtp a r (RegEntry sym ret)
+callBlock cfg bid args =
+  Sim $ StateContT $ \c -> runReaderT $
+    let f = mkBlockFrame cfg bid (postdomInfo cfg) args in
+    ReaderT $ return . CallState (ReturnToOverride c) (CrucibleCall bid f)
 
 -- | Call an override in a new call frame.
 callOverride ::
