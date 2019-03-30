@@ -451,13 +451,18 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
                   , binputStmts = last_stmts
                   }
 
+            let new_breakpoints = do
+                  let try_new_breakpoints = Bimap.tryInsert nm (Some block_id) $
+                        Bimap.mapR (mapSome C.extendBlockID) $
+                        biBreakpoints bi
+                  if Bimap.pairMember (nm, (Some block_id)) try_new_breakpoints
+                    then try_new_breakpoints
+                    else error $ "Duplicate breakpoint: " ++ show nm
             let bi' = BI
                   { biBlocks = first_binputs' :> last_binput' :> new_binput
                   , biJumpInfo = extJumpInfoMap $ biJumpInfo bi
                   , biSwitchInfo = extSwitchInfoMap $ biSwitchInfo bi
-                  , biBreakpoints = Bimap.insert nm (Some block_id) $
-                      Bimap.mapR (mapSome C.extendBlockID) $
-                      biBreakpoints bi
+                  , biBreakpoints = new_breakpoints
                   }
             gogo bi' rest
         gogo bi rest = go bi rest
