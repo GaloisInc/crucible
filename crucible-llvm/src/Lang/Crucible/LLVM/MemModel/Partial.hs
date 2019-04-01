@@ -31,6 +31,7 @@ module Lang.Crucible.LLVM.MemModel.Partial
   ( PartLLVMVal
   , pattern PartLLVMVal
   , assertSafe
+  , ppAssertion
   , MemoryLoadError(..)
   , totalLLVMVal
   , bvConcat
@@ -70,7 +71,7 @@ import           Data.Parameterized.Some (Some(..))
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError
-import           Lang.Crucible.CFG.Extension.Safety hiding (assertSafe)
+import           Lang.Crucible.CFG.Extension.Safety hiding (assertSafe, classifier)
 import qualified Lang.Crucible.CFG.Extension.Safety as Safety
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.LLVM.Bytes (Bytes)
@@ -103,7 +104,8 @@ data MemoryLoadError sym =
   | PreviousErrors Text [MemoryLoadError sym]
   | ApplyViewFail ValueView
   | Invalid StorageType
-  | Other -- TODO: eliminate this constructor, replace with more specific messages
+  | Other (Maybe String)
+    -- ^ TODO: eliminate this constructor, replace with more specific messages
   deriving (Generic)
 
 instance IsSymInterface sym => Pretty (MemoryLoadError sym) where
@@ -134,7 +136,10 @@ ppMemoryLoadError =
       "Failure when applying value view" <+> text (show vw)
     Invalid ty ->
       "Load from invalid memory at type " <+> text (show ty)
-    Other -> "Generic memory load error"
+    Other msg -> vcat $ [ text "Generic memory load error." ] ++
+                   case msg of
+                     Just msg' -> [text "Details:", text msg']
+                     Nothing -> []
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal
@@ -193,6 +198,20 @@ assertSafe sym (Err e)   = do
                     , show (ppMemoryLoadError e)
                     ]
   addFailedAssertion sym $ AssertFailureSimError msg
+
+-- | Get a pretty version of the assertion attached to this value
+ppAssertion :: (IsSymInterface sym)
+            => PartLLVMVal arch sym
+            -> Doc
+ppAssertion (NoErr v) =
+  explainTree
+    (Proxy :: Proxy (LLVM arch))
+    (Proxy :: Proxy sym)
+    (v ^. partialPred)
+ppAssertion (Err e)   = text $
+  unlines [ "Error during memory load: "
+          , show (ppMemoryLoadError e)
+          ]
 
 ------------------------------------------------------------------------
 -- ** PartLLVMVal interface
