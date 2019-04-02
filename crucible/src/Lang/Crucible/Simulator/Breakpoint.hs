@@ -7,8 +7,8 @@
 -- Maintainer       : Andrei Stefanescu <andrei@galois.com>
 -- Stability        : provisional
 --
--- This module provides an execution feature for bounding the
--- number of iterations that a loop will exeucte in the simulator.
+-- This module provides execution features for changing the state on
+-- breakpoints.
 -----------------------------------------------------------------------
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -37,14 +37,14 @@ import qualified Lang.Crucible.Simulator.OverrideSim as C
 import qualified Lang.Crucible.Simulator.RegValue as C
 import qualified What4.FunctionName as W
 
-breakAndReturn
-  :: (C.IsSymInterface sym, C.IsSyntaxExtension ext)
-  => C.CFG ext blocks init ret
-  -> C.BreakpointName
-  -> Ctx.Assignment C.TypeRepr args
-  -> C.TypeRepr ret
-  -> C.OverrideSim p sym ext rtp args ret (C.RegValue sym ret)
-  -> IO (C.ExecutionFeature p sym ext rtp)
+breakAndReturn ::
+  (C.IsSymInterface sym, C.IsSyntaxExtension ext) =>
+  C.CFG ext blocks init ret ->
+  C.BreakpointName ->
+  Ctx.Assignment C.TypeRepr args ->
+  C.TypeRepr ret ->
+  C.OverrideSim p sym ext rtp args ret (C.RegValue sym ret) ->
+  IO (C.ExecutionFeature p sym ext rtp)
 breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override =
   case Bimap.lookup breakpoint_name cfgBreakpoints of
     Just (Some breakpoint_block_id)
@@ -59,7 +59,6 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override =
                 (fmapFC C.blockInputs $ C.frameBlockMap frame)
             , Just Refl <- testEquality breakpoint_block_id block_id
             , Just Refl <- testEquality ret_type (C.frameReturnType frame) -> do
-              putStrLn $ "breaking on: " ++ show breakpoint_block_id
               let override_frame = C.OF $ C.OverrideFrame
                     { _override = W.functionNameFromText $
                         C.breakpointNameText breakpoint_name

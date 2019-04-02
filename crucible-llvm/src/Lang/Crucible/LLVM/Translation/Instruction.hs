@@ -1725,8 +1725,9 @@ callFunctionWithCont tailCall_ fnTy fn args assign_f k
 
      | otherwise = callFunction tailCall_ fnTy fn args assign_f >> k
 
-typedValueAsCrucibleValue
-  :: L.Typed L.Value -> LLVMGenerator h s arch ret (Some (Value s))
+typedValueAsCrucibleValue ::
+  L.Typed L.Value ->
+  LLVMGenerator h s arch ret (Some (Value s))
 typedValueAsCrucibleValue tv = case L.typedValue tv of
   L.ValIdent i -> do
     m <- use identMap

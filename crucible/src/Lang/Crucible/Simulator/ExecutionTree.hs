@@ -534,6 +534,8 @@ data RunningStateInfo blocks args
     -- | This indicates that we are in a @RunningState@ because we
     --   returned from calling the named function.
   | RunReturnFrom !FunctionName
+    -- | This indicates that we are now in a @RunningState@ because
+    --   we finished branch merging prior to the start of a block.
   | RunPostBranchMerge !(BlockID blocks args)
 
 -- | A 'ResolvedJump' is a block label together with a collection of

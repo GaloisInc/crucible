@@ -131,25 +131,39 @@ data BlockInput ext s blocks ret args
              -- | Arguments expected by block.
            , binputArgs       :: !(Assignment (Value s) args)
            , binputStmts      :: !(Seq (Posd (Stmt ext s)))
-           , binputTerm       :: !(Posd (Either (JumpInfo s blocks) (TermStmt s ret)))
+           , binputTerm       :: !(Posd (ExtendedTermStmt s blocks ret))
            }
 
+-- The Breakpoint non-terminator statement becomes a jump during SSA conversion.
+-- This datatype temporarily adds breakpoint as a terminator statement.
+data ExtendedTermStmt s blocks ret where
+  BaseTermStmt :: TermStmt s ret -> ExtendedTermStmt s blocks ret
+  BreakStmt :: JumpInfo s blocks -> ExtendedTermStmt s blocks ret
 
 type BlockInputAssignment ext s blocks ret
    = Assignment (BlockInput ext s blocks ret)
 
-extBlockInputAssignment :: BlockInputAssignment ext s blocks ret a
-                        -> BlockInputAssignment ext s (blocks ::> tp) ret a
-extBlockInput :: BlockInput ext s blocks ret args
-              -> BlockInput ext s (blocks ::> tp) ret arg
+extBlockInputAssignment ::
+  BlockInputAssignment ext s blocks ret a ->
+  BlockInputAssignment ext s (blocks ::> tp) ret a
+extBlockInput ::
+  BlockInput ext s blocks ret args ->
+  BlockInput ext s (blocks ::> tp) ret arg
+extBreakpoints ::
+  Bimap BreakpointName (Some (C.BlockID blocks)) ->
+  Bimap BreakpointName (Some (C.BlockID (blocks ::> tp)))
 #ifdef UNSAFE_OPS
 extBlockInputAssignment = unsafeCoerce
 
 extBlockInput = unsafeCoerce
+
+extBreakpoints = unsafeCoerce
 #else
 extBlockInputAssignment = fmapFC extBlockInput
 
 extBlockInput bi = bi { binputID = C.extendBlockID (binputID bi) }
+
+extBreakpoints = Bimap.mapR (mapSome C.extendBlockID)
 #endif
 
 ------------------------------------------------------------------------
@@ -278,15 +292,15 @@ extSwitchInfo :: SwitchInfo s blocks tp -> SwitchInfo s (blocks::>args) tp
 extSwitchInfo (SwitchInfo b typs a) = SwitchInfo (C.extendBlockID b) typs a
 #endif
 
-extBlockInfo
-  :: BlockInfo ext s ret blocks
-  -> BlockInput ext s (blocks ::> args) ret args
-  -> BlockInfo ext s ret (blocks ::> args)
+extBlockInfo ::
+  BlockInfo ext s ret blocks ->
+  BlockInput ext s (blocks ::> args) ret args ->
+  BlockInfo ext s ret (blocks ::> args)
 extBlockInfo bi binput = do
   let blocks' = extBlockInputAssignment $ biBlocks bi
   let jump_info' = extJumpInfoMap $ biJumpInfo bi
   let switch_info' = extSwitchInfoMap $ biSwitchInfo bi
-  let breakpoints' = Bimap.mapR (mapSome C.extendBlockID) $ biBreakpoints bi
+  let breakpoints' = extBreakpoints $ biBreakpoints bi
   BI { biBlocks = extend blocks' binput
      , biJumpInfo = jump_info'
      , biSwitchInfo = switch_info'
@@ -383,18 +397,19 @@ data BlockInfo ext s ret blocks
 
 -- | This infers the information given a set of blocks.
 inferBlockInfo :: forall ext s ret . [Block ext s ret] -> Some (BlockInfo ext s ret)
-inferBlockInfo blocks = seq input_map $ go bi0 blocks
+inferBlockInfo blocks = seq input_map $ resolveBlocks bi0 blocks
   where input_map = completeInputs blocks
         bi0 = BI { biBlocks = empty
                  , biJumpInfo = emptyJumpInfoMap
                  , biSwitchInfo = emptySwitchInfoMap
                  , biBreakpoints = Bimap.empty
                  }
-        go :: BlockInfo ext s ret blocks
-           -> [Block ext s ret]
-           -> Some (BlockInfo ext s ret)
-        go bi [] = Some bi
-        go bi (b:rest) = do
+        resolveBlocks ::
+          BlockInfo ext s ret blocks ->
+          [Block ext s ret] ->
+          Some (BlockInfo ext s ret)
+        resolveBlocks bi [] = Some bi
+        resolveBlocks bi (b:rest) = do
           let sz = size (biBlocks bi)
           let untyped_id = blockID b
           let Just inputs = Map.lookup untyped_id input_map
@@ -404,7 +419,7 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
               case untyped_id of
                 LabelID l -> do
                   let block_id = C.BlockID (nextIndex sz)
-                  let block_term = (blockTerm b) { pos_val = Right $ pos_val $ blockTerm b }
+                  let block_term = (blockTerm b) { pos_val = BaseTermStmt $ pos_val $ blockTerm b }
                   let binput = BInput { binputID = block_id
                                       , binputArgs    = ra
                                       , binputStmts   = blockStmts b
@@ -413,11 +428,11 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
                   let bi' = extBlockInfo bi binput
                   let ji = JumpInfo block_id crepr ra
                   let bi'' = bi' { biJumpInfo = insertJumpInfo l ji (biJumpInfo bi') }
-                  gogo bi'' rest
+                  splitLastBlockInputOnBreakpoints bi'' rest
                 LambdaID l -> do
                   let block_id = C.BlockID (nextIndex sz)
                   let lastArg = AtomValue (lambdaAtom l)
-                  let block_term = (blockTerm b) { pos_val = Right $ pos_val $ blockTerm b }
+                  let block_term = (blockTerm b) { pos_val = BaseTermStmt $ pos_val $ blockTerm b }
                   let binput = BInput { binputID = block_id
                                       , binputArgs = ra :> lastArg
                                       , binputStmts = blockStmts b
@@ -426,11 +441,12 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
                   let bi' = extBlockInfo bi binput
                   let si = SwitchInfo block_id crepr ra
                   let bi'' = bi' { biSwitchInfo = insertSwitchInfo l si (biSwitchInfo bi') }
-                  gogo bi'' rest
-        gogo :: BlockInfo ext s ret blocks
-             -> [Block ext s ret]
-             -> Some (BlockInfo ext s ret)
-        gogo bi rest
+                  splitLastBlockInputOnBreakpoints bi'' rest
+        splitLastBlockInputOnBreakpoints ::
+          BlockInfo ext s ret blocks ->
+          [Block ext s ret] ->
+          Some (BlockInfo ext s ret)
+        splitLastBlockInputOnBreakpoints bi rest
           | first_binputs :> last_binput <- biBlocks bi
           , (first_stmts, break_stmt Seq.:<| last_stmts) <-
               Seq.breakl isBreakpoint (binputStmts last_binput)
@@ -442,7 +458,7 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
             let jump_info = JumpInfo block_id (fmapFC typeOfValue args) args
             let last_binput' = (extBlockInput last_binput)
                   { binputStmts = first_stmts
-                  , binputTerm = break_stmt { pos_val = Left jump_info }
+                  , binputTerm = break_stmt { pos_val = BreakStmt jump_info }
                   }
 
             let new_binput = (extBlockInput last_binput)
@@ -453,8 +469,7 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
 
             let new_breakpoints = do
                   let try_new_breakpoints = Bimap.tryInsert nm (Some block_id) $
-                        Bimap.mapR (mapSome C.extendBlockID) $
-                        biBreakpoints bi
+                        extBreakpoints $ biBreakpoints bi
                   if Bimap.pairMember (nm, (Some block_id)) try_new_breakpoints
                     then try_new_breakpoints
                     else error $ "Duplicate breakpoint: " ++ show nm
@@ -464,8 +479,8 @@ inferBlockInfo blocks = seq input_map $ go bi0 blocks
                   , biSwitchInfo = extSwitchInfoMap $ biSwitchInfo bi
                   , biBreakpoints = new_breakpoints
                   }
-            gogo bi' rest
-        gogo bi rest = go bi rest
+            splitLastBlockInputOnBreakpoints bi' rest
+        splitLastBlockInputOnBreakpoints bi rest = resolveBlocks bi rest
         isBreakpoint :: Posd (Stmt ext s) -> Bool
         isBreakpoint = \case
           Posd _ Breakpoint{} -> True
@@ -639,9 +654,9 @@ resolveTermStmt :: BlockInfo ext s ret blocks
                 -> TypedRegMap s ctx
                 -> RegExprs ext ctx
                    -- ^ Maps registers to associated expressions.
-                -> Either (JumpInfo s blocks) (TermStmt s ret)
+                -> ExtendedTermStmt s blocks ret
                 -> C.TermStmt blocks ret ctx
-resolveTermStmt bi reg_map bindings (Right t0) =
+resolveTermStmt bi reg_map bindings (BaseTermStmt t0) =
   case t0 of
     Jump l -> C.Jump (resolveJumpTarget bi reg_map l)
 
@@ -676,7 +691,7 @@ resolveTermStmt bi reg_map bindings (Right t0) =
     ErrorStmt e -> C.ErrorStmt (resolveAtom reg_map e)
 
     Output l e -> C.Jump (resolveLambdaAsJump bi reg_map l (resolveAtom reg_map e))
-resolveTermStmt _ reg_map _ (Left (JumpInfo next_id types inputs)) = do
+resolveTermStmt _ reg_map _ (BreakStmt (JumpInfo next_id types inputs)) = do
   let args = fmapFC (resolveReg reg_map) inputs
   C.Jump $ C.JumpTarget next_id types args
 
@@ -750,7 +765,7 @@ resolveStmts :: C.IsSyntaxExtension ext
                 -- ^ Maps applications to register that stores their value.
                 -- Used to eliminate redundant operations.
              -> [Posd (Stmt ext s)]
-             -> Posd (Either (JumpInfo s blocks) (TermStmt s ret))
+             -> Posd (ExtendedTermStmt s blocks ret)
              -> C.StmtSeq ext blocks ret ctx
 resolveStmts nm bi _ reg_map bindings _ [] (Posd p t) = do
   C.TermStmt (mkProgramLoc nm p)
@@ -891,15 +906,16 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
                            (resolveAtom reg_map m))
                  (resolveStmts nm bi sz reg_map bindings appMap rest t)
 
+    -- breakpoint statements are eliminated during the inferBlockInfo phase
     Breakpoint{} -> error $
       "Unexpected breakpoint at position " ++ show p ++ ": " ++ show (Pretty.pretty s0)
 
 data SomeBlockMap ext ret where
-  SomeBlockMap
-    :: Ctx.Index blocks tp
-    -> Bimap BreakpointName (Some (C.BlockID blocks))
-    -> C.BlockMap ext blocks ret
-    -> SomeBlockMap ext ret
+  SomeBlockMap ::
+    Ctx.Index blocks tp ->
+    Bimap BreakpointName (Some (C.BlockID blocks)) ->
+    C.BlockMap ext blocks ret ->
+    SomeBlockMap ext ret
 
 resolveBlockMap :: forall ext s ret
                  . C.IsSyntaxExtension ext

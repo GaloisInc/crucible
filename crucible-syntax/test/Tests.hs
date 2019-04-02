@@ -53,8 +53,7 @@ main = do wd <- getCurrentDirectory
           let allTests = testGroup "Tests" [syntaxParsing, parseTests, simTests]
           defaultMain allTests
 
-findTests
-  :: String -> FilePath -> (FilePath -> FilePath -> IO ()) -> IO TestTree
+findTests :: String -> FilePath -> (FilePath -> FilePath -> IO ()) -> IO TestTree
 findTests group_name test_dir test_action =
   do inputs <- findByExtension [".cbl"] test_dir
      return $ testGroup group_name

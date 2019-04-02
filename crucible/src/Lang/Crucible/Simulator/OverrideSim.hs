@@ -402,6 +402,10 @@ callCFG ::
   OverrideSim p sym ext rtp a r (RegEntry sym ret)
 callCFG cfg = callBlock cfg (cfgEntryBlockID cfg)
 
+-- | Call a block of a control flow graph from 'OverrideSim'.
+--
+-- Note that this computes the postdominator information, so there is some
+-- performance overhead in the call.
 callBlock ::
   IsSyntaxExtension ext =>
   CFG ext blocks init ret {- ^ Function to run -} ->

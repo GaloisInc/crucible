@@ -431,11 +431,11 @@ addPrintStmt e =
      addStmt (Print e_a)
 
 -- | Add a breakpoint.
-addBreakpointStmt
-  :: IsSyntaxExtension ext
-  => Text {- ^ breakpoint name -}
-  -> Assignment (Value s) args {- ^ breakpoint values -}
-  -> Generator ext h s t r ()
+addBreakpointStmt ::
+  IsSyntaxExtension ext =>
+  Text {- ^ breakpoint name -} ->
+  Assignment (Value s) args {- ^ breakpoint values -} ->
+  Generator ext h s t r ()
 addBreakpointStmt nm args = addStmt $ Breakpoint (BreakpointName nm) args
 
 -- | Add an assert statement.

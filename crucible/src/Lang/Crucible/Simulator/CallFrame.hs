@@ -155,14 +155,12 @@ mkCallFrame :: CFG ext blocks init ret
 mkCallFrame g = mkBlockFrame g (cfgEntryBlockID g)
 
 -- | Create a new call frame.
-mkBlockFrame :: CFG ext blocks init ret
-                -- ^ Control flow graph
-             -> BlockID blocks args
-             -> CFGPostdom blocks
-                -- ^ Post dominator information.
-             -> RegMap sym args
-                -- ^ Initial arguments
-             -> CallFrame sym ext blocks ret args
+mkBlockFrame ::
+  CFG ext blocks init ret {- ^  Control flow graph -} ->
+  BlockID blocks args {- ^ Entry point -} ->
+  CFGPostdom blocks {- ^ Post dominator information -} ->
+  RegMap sym args {- ^ Initial arguments -} ->
+  CallFrame sym ext blocks ret args
 mkBlockFrame g bid@(BlockID block_id) pdInfo args = do
   let b = cfgBlockMap g Ctx.! block_id
   let pds = getConst $ pdInfo Ctx.! block_id
