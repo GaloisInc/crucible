@@ -16,6 +16,7 @@ import           Text.PrettyPrint.ANSI.Leijen
 import           Mir.Mir
 import           Mir.DefId
 
+
 -----------------------------------------------
 
 -- format the AST suitable for an error message
@@ -340,9 +341,10 @@ instance Pretty FnSig where
                 <+> patys  (fs^.fsassoc_tys)
 
 instance Pretty TraitItem where
-  pretty (TraitMethod name sig _) = text "fn"    <+> pr_id name <> pretty sig <> semi
-  pretty (TraitType name)       = text "name"  <+> pr_id name <> semi
-  pretty (TraitConst name ty)   = text "const" <+> pr_id name <> colon <> pretty ty <> semi
+  pretty (TraitMethod name sig)
+    = text "fn"    <+> pr_id name <> pretty sig <> semi
+  pretty (TraitType name)         = text "name"  <+> pr_id name <> semi
+  pretty (TraitConst name ty)     = text "const" <+> pr_id name <> colon <> pretty ty <> semi
 
 instance Pretty Trait where
   pretty tr@(Trait name items supers params preds _numParams) =

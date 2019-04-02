@@ -22,7 +22,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Read  as T
 import Data.List
 import qualified Data.Vector as V
-import Control.Lens((^.))
+import Control.Lens((^.),(&),(.~))
 
 import Mir.DefId 
 import Mir.Mir
@@ -460,7 +460,15 @@ instance FromJSON Trait where
 instance FromJSON TraitItem where
     parseJSON = withObject "TraitItem" $ \v ->
                 case HML.lookup "kind" v of
-                  Just (String "Method") -> TraitMethod <$> v .: "name" <*> v .: "signature" <*> return []
+                  Just (String "Method") -> do
+                    sig <- v .: "signature"
+                    pg  <- v .: "generics"
+                    pp  <- v .: "predicates"
+                    params <- withObject "Param" (\u -> u .: "params") pg
+                    preds  <- withObject "Predicates" (\u -> u .: "predicates") pp
+                    let sig' = sig & fsgenerics   .~ params
+                                   & fspredicates .~ preds
+                    TraitMethod <$> v .: "name" <*> return sig'
                   Just (String "Type") -> TraitType <$> v .: "name"
                   Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk

@@ -29,7 +29,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 
-import Control.Lens((^.))
+import Control.Lens((^.),(&),(%~))
 
 import Mir.DefId
 import Mir.Mir
@@ -38,6 +38,7 @@ import Mir.PP(fmt)
 import GHC.Generics
 import GHC.Stack
 
+import Debug.Trace
 
 --------------------------------------------------------------------------------------
 --
@@ -48,7 +49,7 @@ import GHC.Stack
 -- These syntax-directed operations are defined via GHC.Generics so
 -- that they can automatically adapt to changes in the Mir AST.
 --
-
+-- 
 class GenericOps a where
 
   -- | Crawl over the AST and rename the module that defIds live in.
@@ -88,6 +89,10 @@ class GenericOps a where
   default abstractATs :: (Generic a, GenericOps' (Rep a)) => ATInfo -> a -> a
   abstractATs s x = to (abstractATs' s (from x))
 
+  -- | Update the list of predicates in an AST node
+  modifyPreds :: RUPInfo -> a -> a
+  default modifyPreds :: (Generic a, GenericOps' (Rep a)) => RUPInfo -> a -> a
+  modifyPreds s x = to (modifyPreds' s (from x))
 
 --------------------------------------------------------------------------------------
 -- ** abstractATs
@@ -136,6 +141,7 @@ data ATInfo = ATInfo
    ATDict    -- ^ mapping for AssocTys 
 
 
+-- | Special case for Ty
 abstractATsTy :: ATInfo -> Ty -> Ty
 abstractATsTy (ATInfo tk ta _atys) (TyParam i)
     | i < tk    = TyParam i         -- trait param,  leave alone
@@ -144,10 +150,22 @@ abstractATsTy (ATInfo _tk _ta atys) ty@(TyProjection d substs)
     -- associated type, replace with new param
     | Just nty <- Map.lookup (d,substs) atys = nty
     | otherwise = error $ fmt ty ++ " with unknown translation"
-abstractATsTy s ty = to (abstractATs' s (from ty))  
+abstractATsTy s ty = to (abstractATs' s (from ty))
+
+-- | Special case for FnSig (see abstractTraitAssociatedTypes) ???
+--abstractATsFnSig :: ATInfo -> Ty -> Ty
+--abstractATsFnSig (ATInfo tk ta _atys) fs
 --------------------------------------------------------------------------------------
 
 -- ** markCStyle
+
+-- A CStyle ADT is one that is an enumeration of numeric valued options
+-- containing no data
+isCStyle :: Adt -> Bool
+isCStyle (Adt _ variants) = all isConst variants where
+    isConst (Variant _ _ [] ConstKind) = True
+    isConst _ = False
+
 
 -- | For ADTs that are represented as CEnums, we need to find the actual numbers that we
 -- use to represent each of the constructors.
@@ -174,6 +192,37 @@ markCStyleTy (ads,s) (TyAdt n ps)  | Just adt <- Map.lookup n ads =
 markCStyleTy s ty = to (markCStyle' s (from ty))
 
 --------------------------------------------------------------------------------------
+-- ** modifyPreds 
+
+--- Annoyingly, we don't use the newtype for the list of predicates
+-- So we have to implement this operation in all of the containing types
+
+-- filter function for predicates
+type RUPInfo = [Predicate] -> [Predicate]
+
+modifyPreds_FnSig :: RUPInfo -> FnSig -> FnSig
+modifyPreds_FnSig f fs = fs & fspredicates %~ f
+                            & fsarg_tys    %~ modifyPreds f
+                            & fsreturn_ty  %~ modifyPreds f
+                            
+modifyPreds_Trait :: RUPInfo -> Trait -> Trait
+modifyPreds_Trait f fs = fs & traitPredicates %~ f
+                            & traitItems      %~ modifyPreds f
+
+modifyPreds_TraitImpl :: RUPInfo -> TraitImpl -> TraitImpl
+modifyPreds_TraitImpl f fs = fs & tiPredicates %~ f
+                                & tiItems      %~ modifyPreds f
+                                & tiTraitRef   %~ modifyPreds f 
+
+modifyPreds_TraitImplItem :: RUPInfo -> TraitImplItem -> TraitImplItem
+modifyPreds_TraitImplItem f fs@(TraitImplMethod {}) = fs & tiiPredicates %~ f
+                                                         & tiiSignature  %~ modifyPreds f
+modifyPreds_TraitImplItem f fs@(TraitImplType {}) = fs & tiiPredicates %~ f
+                                                       & tiiType       %~ modifyPreds f
+                                                       
+
+
+--------------------------------------------------------------------------------------
 
 -- ** Overridden instances for Mir AST types
                     
@@ -185,6 +234,8 @@ instance GenericOps DefId where
   replaceVar _ _    = id
   replaceLvalue _ _ = id
   numTyParams _     = 0
+  abstractATs _     = id
+  modifyPreds _     = id
 
 -- special case for Ty
 instance GenericOps Ty where
@@ -229,55 +280,59 @@ instance GenericOps Lvalue where
 -- ** derived instances for MIR AST types
 -- If new types are added to the AST, then new derived instances need to be added here
 
-deriving instance GenericOps BaseSize
-deriving instance GenericOps FloatKind
-deriving instance GenericOps FnSig
-deriving instance GenericOps Adt
-deriving instance GenericOps VariantDiscr
-deriving instance GenericOps CtorKind
-deriving instance GenericOps Variant
-deriving instance GenericOps Field
-deriving instance GenericOps CustomTy
-deriving instance GenericOps Mutability
-deriving instance GenericOps Collection
-deriving instance GenericOps Predicate
-deriving instance GenericOps Param
-deriving instance GenericOps Fn
-deriving instance GenericOps MirBody
-deriving instance GenericOps BasicBlock
-deriving instance GenericOps BasicBlockData
-deriving instance GenericOps Statement
-deriving instance GenericOps Rvalue
-deriving instance GenericOps AdtAg
-deriving instance GenericOps Terminator
-deriving instance GenericOps Operand
-deriving instance GenericOps Constant
-deriving instance GenericOps LvalueProjection
-deriving instance GenericOps Lvpelem
-deriving instance GenericOps NullOp
-deriving instance GenericOps BorrowKind
-deriving instance GenericOps UnOp
-deriving instance GenericOps BinOp
-deriving instance GenericOps CastKind
-deriving instance GenericOps Literal
-deriving instance GenericOps IntLit
-deriving instance GenericOps FloatLit
-deriving instance GenericOps ConstVal
-deriving instance GenericOps AggregateKind
-deriving instance GenericOps CustomAggregate
-deriving instance GenericOps Trait
-deriving instance GenericOps TraitItem
-deriving instance GenericOps TraitRef
-deriving instance GenericOps TraitImpl
-deriving instance GenericOps TraitImplItem
+instance GenericOps BaseSize
+instance GenericOps FloatKind
+instance GenericOps FnSig where
+  modifyPreds = modifyPreds_FnSig
+instance GenericOps Adt
+instance GenericOps VariantDiscr
+instance GenericOps CtorKind
+instance GenericOps Variant
+instance GenericOps Field
+instance GenericOps CustomTy
+instance GenericOps Mutability
+instance GenericOps Collection
+instance GenericOps Predicate
+instance GenericOps Param
+instance GenericOps Fn
+instance GenericOps MirBody
+instance GenericOps BasicBlock
+instance GenericOps BasicBlockData
+instance GenericOps Statement
+instance GenericOps Rvalue
+instance GenericOps AdtAg
+instance GenericOps Terminator
+instance GenericOps Operand
+instance GenericOps Constant
+instance GenericOps LvalueProjection
+instance GenericOps Lvpelem
+instance GenericOps NullOp
+instance GenericOps BorrowKind
+instance GenericOps UnOp
+instance GenericOps BinOp
+instance GenericOps CastKind
+instance GenericOps Literal
+instance GenericOps IntLit
+instance GenericOps FloatLit
+instance GenericOps ConstVal
+instance GenericOps AggregateKind
+instance GenericOps CustomAggregate
+instance GenericOps Trait where
+  modifyPreds = modifyPreds_Trait
+instance GenericOps TraitItem
+instance GenericOps TraitRef
+instance GenericOps TraitImpl where
+  modifyPreds = modifyPreds_TraitImpl
+instance GenericOps TraitImplItem where
+  modifyPreds = modifyPreds_TraitImplItem
 
 -- instances for newtypes
 -- we need the deriving strategy 'anyclass' to disambiguate 
 -- from generalized newtype deriving
 -- either version would work, but GHC doesn't know that and gives a warning
-deriving anyclass instance GenericOps Substs
-deriving anyclass instance GenericOps Params
-deriving anyclass instance GenericOps Predicates
+instance GenericOps Substs
+instance GenericOps Params
+instance GenericOps Predicates
 
 -- *** Instances for Prelude types                 
 
@@ -289,7 +344,7 @@ instance GenericOps Int     where
    replaceLvalue _ _ = id
    numTyParams _ = 0
    abstractATs = const id
-   
+   modifyPreds = const id
 instance GenericOps Integer where
    relocate = id
    markCStyle = const id
@@ -298,7 +353,7 @@ instance GenericOps Integer where
    replaceLvalue _ _ = id
    numTyParams _ = 0 
    abstractATs = const id  
-   
+   modifyPreds = const id   
 instance GenericOps Char    where
    relocate = id
    markCStyle = const id
@@ -307,7 +362,7 @@ instance GenericOps Char    where
    replaceLvalue _ _ = id
    numTyParams _ = 0
    abstractATs = const id
-   
+   modifyPreds = const id   
 instance GenericOps Bool    where
    relocate = id
    markCStyle = const id
@@ -316,6 +371,7 @@ instance GenericOps Bool    where
    replaceLvalue _ _ = id
    numTyParams _ = 0
    abstractATs = const id
+   modifyPreds = const id
    
 instance GenericOps Text    where
    relocate = id
@@ -325,6 +381,7 @@ instance GenericOps Text    where
    replaceLvalue _ _ = id
    numTyParams _ = 0
    abstractATs = const id
+   modifyPreds = const id
    
 instance GenericOps B.ByteString where
    relocate = id
@@ -334,6 +391,7 @@ instance GenericOps B.ByteString where
    replaceLvalue _ _ = id   
    numTyParams _ = 0
    abstractATs = const id
+   modifyPreds = const id
    
 instance GenericOps b => GenericOps (Map.Map a b) where
    relocate          = Map.map relocate 
@@ -342,8 +400,9 @@ instance GenericOps b => GenericOps (Map.Map a b) where
    replaceVar o n    = Map.map (replaceVar o n)
    replaceLvalue o n = Map.map (replaceLvalue o n)   
    numTyParams m     = Map.foldr (max . numTyParams) 0 m
-   abstractATs       = const id
-
+   abstractATs i     = Map.map (abstractATs i)
+   modifyPreds i     = Map.map (modifyPreds i)
+   
 instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)
 instance (GenericOps a, GenericOps b) => GenericOps (a,b)
@@ -367,6 +426,7 @@ class GenericOps' f where
   replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
   numTyParams'   :: f p -> Integer
   abstractATs'   :: ATInfo -> f p -> f p
+  modifyPreds'   :: RUPInfo -> f p -> f p
   
 instance GenericOps' V1 where
   relocate' _x      = error "impossible: this is a void type"
@@ -376,6 +436,7 @@ instance GenericOps' V1 where
   replaceLvalue' _ _ _ = error "impossible: this is a void type"
   numTyParams' _    = error "impossible: this is a void type"
   abstractATs' _  = error "impossible: this is a void type"
+  modifyPreds' _  = error "impossible: this is a void type"
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
   relocate'     (L1 x) = L1 (relocate' x)
@@ -392,6 +453,8 @@ instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
   numTyParams' (R1 x) = numTyParams' x
   abstractATs' s (L1 x) = L1 (abstractATs' s x)
   abstractATs' s (R1 x) = R1 (abstractATs' s x)
+  modifyPreds' s (L1 x) = L1 (modifyPreds' s x)
+  modifyPreds' s (R1 x) = R1 (modifyPreds' s x)
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
   relocate'       (x :*: y) = relocate'   x     :*: relocate' y
@@ -401,6 +464,7 @@ instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
   replaceLvalue' o n (x :*: y) = replaceLvalue' o n x :*: replaceLvalue' o n y
   numTyParams' (x :*: y)    = max (numTyParams' x) (numTyParams' y)
   abstractATs' s (x :*: y) = abstractATs' s x :*: abstractATs' s y
+  modifyPreds' s (x :*: y) = modifyPreds' s x :*: modifyPreds' s y  
 
 instance (GenericOps c) => GenericOps' (K1 i c) where
   relocate'     (K1 x) = K1 (relocate x)
@@ -410,6 +474,7 @@ instance (GenericOps c) => GenericOps' (K1 i c) where
   replaceLvalue' o n (K1 x) = K1 (replaceLvalue o n x)  
   numTyParams' (K1 x)  = numTyParams x
   abstractATs'    s (K1 x) = K1 (abstractATs s x)
+  modifyPreds'    s (K1 x) = K1 (modifyPreds s x)
   
 instance (GenericOps' f) => GenericOps' (M1 i t f) where
   relocate'     (M1 x) = M1 (relocate' x)
@@ -419,6 +484,7 @@ instance (GenericOps' f) => GenericOps' (M1 i t f) where
   replaceLvalue' o n (M1 x) = M1 (replaceLvalue' o n x)
   numTyParams' (M1 x)  = numTyParams' x
   abstractATs' s (M1 x) = M1 (abstractATs' s x)
+  modifyPreds' s (M1 x) = M1 (modifyPreds' s x)  
   
 instance (GenericOps' U1) where
   relocate'      U1 = U1
@@ -428,3 +494,4 @@ instance (GenericOps' U1) where
   replaceLvalue' _ _ U1 = U1
   numTyParams' U1 = 0
   abstractATs' _s U1 = U1
+  modifyPreds' _s U1 = U1  

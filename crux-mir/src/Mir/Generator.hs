@@ -77,6 +77,7 @@ import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context
 import           Data.Parameterized.TraversableFC
+import           Data.Parameterized.Peano
 
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
@@ -99,6 +100,7 @@ import           Debug.Trace
 -- TODO: Should be in Data.Parameterized.Classes
 -- 
 -- Safe usage requires that f be a singleton type
+{-
 newtype DI f a = Don'tInstantiate (KnownRepr f a => Dict (KnownRepr f a))
 
 knownInstance :: forall a f . f a -> Dict (KnownRepr f a)
@@ -111,6 +113,17 @@ knownInstance s = with_sing_i Dict
 withKnownRepr :: forall n r f. f n -> (KnownRepr f n => r) -> r
 withKnownRepr si r = case knownInstance si of
                         Dict -> r
+
+type family CtxSizeP (ctx :: Ctx k) :: Peano where
+  CtxSizeP 'EmptyCtx   = Z
+  CtxSizeP (xs '::> x) = S (CtxSizeP xs)
+
+ctxSizeP :: CtxRepr ctx -> PeanoRepr (CtxSizeP ctx)
+ctxSizeP r = case viewAssign r of
+  AssignEmpty -> zeroP
+  AssignExtend a _ -> succP (ctxSizeP a)
+-}
+
 ---------------------------------------------------------------------------------
 
 -- * The top-level generator type
@@ -223,10 +236,10 @@ data TraitImpls (s::Type) ctx = TraitImpls
 -- | The values stored in the vtables --- Crucible expressions 
 -- This type must be a *specialization* of the expected type of the vtable
 data MirValue s ty where
-  MirValue :: SubstRepr implSubst
+  MirValue :: CtxRepr implSubst
            -> TypeRepr   (ImplementTrait implSubst ty)
            -> Expr MIR s (ImplementTrait implSubst ty)
-           -> [Predicate]
+           -> FnSig
            -> MirValue s ty
 
 -- | The main data type for values, bundling the term-level
@@ -240,40 +253,44 @@ instance Show (MirExp s) where
 
 -- | Type-level instantiation function 
 -- This seems a little weird. Why don't we shift the substitution inside the polytype?
-type family ImplementTrait (implSubst :: Substitution) (arg :: CrucibleType) :: CrucibleType where  
-  ImplementTrait implSubst (PolyFnType k args ret) =
-      PolyFnType k  (Instantiate implSubst args) (Instantiate implSubst ret)
+type family ImplementTrait (timpls :: Ctx CrucibleType ) (arg :: CrucibleType) :: CrucibleType where  
+  ImplementTrait timpls (PolyFnType k args ret) =
+    PolyFnType (Minus k (CtxSizeP timpls))
+               (Instantiate (MkSubst timpls) args)
+               (Instantiate (MkSubst timpls) ret)
+         
   -- ImplementTrait implSubst (ty :: CrucibleType)  = Instantiate implSubst ty                                               
 
 -- | Map the instantiation function across the context
-type family ImplementCtxTrait (implSubst :: Substitution) (arg :: Ctx k) :: Ctx k where
+type family ImplementCtxTrait (implSubst :: Ctx CrucibleType) (arg :: Ctx k) :: Ctx k where
   ImplementCtxTrait implSubst EmptyCtx = EmptyCtx
   ImplementCtxTrait implSubst (ctx ::> ty) = ImplementCtxTrait implSubst ctx ::> ImplementTrait implSubst ty
 
 -- | "Repr" versions of the above
-implementRepr :: SubstRepr implSubst -> TypeRepr ty -> TypeRepr (ImplementTrait implSubst ty)
+implementRepr :: CtxRepr implSubst -> TypeRepr ty -> TypeRepr (ImplementTrait implSubst ty)
 implementRepr implSubst (PolyFnRepr k args ret) =
-  PolyFnRepr k (instantiate implSubst args) (instantiate implSubst ret)
+  PolyFnRepr (minusP k (ctxSizeP implSubst))
+             (instantiate (mkSubst implSubst) args) (instantiate (mkSubst implSubst) ret)
 implementRepr implSubst ty = error "ImplementRepr: should only be called with polymorphic function types"
 
-implementCtxRepr :: SubstRepr implSubst -> CtxRepr ctx -> CtxRepr (ImplementCtxTrait implSubst ctx)
+implementCtxRepr :: CtxRepr implSubst -> CtxRepr ctx -> CtxRepr (ImplementCtxTrait implSubst ctx)
 implementCtxRepr _implSubst Empty = Empty
 implementCtxRepr implSubst (ctx :> ty) = implementCtxRepr implSubst ctx :> implementRepr implSubst ty
 
-implementIdx :: SubstRepr implSubst -> Index ctx a -> Index (ImplementCtxTrait implSubst ctx) (ImplementTrait implSubst a)
+implementIdx :: CtxRepr implSubst -> Index ctx a -> Index (ImplementCtxTrait implSubst ctx) (ImplementTrait implSubst a)
 implementIdx _implSubst idx = unsafeCoerce idx
 
 
 -- | Extract the Crucible expression from the vtable. Must provide the correct instantiation
 -- for this particular value, or fails at runtime
-valueToExpr :: SubstRepr implSubst -> MirValue s ty -> Expr MIR s (ImplementTrait implSubst ty)
+valueToExpr :: CtxRepr implSubst -> MirValue s ty -> Expr MIR s (ImplementTrait implSubst ty)
 valueToExpr wantedImpl (MirValue implRepr _ e _)
   | Just Refl <- testEquality wantedImpl implRepr
   = e
   | otherwise 
   = error $ "BUG: Invalid implementation type. " 
 
-vtblToStruct :: SubstRepr implSubst -> Assignment (MirValue s) ctx
+vtblToStruct :: CtxRepr implSubst -> Assignment (MirValue s) ctx
              -> Assignment (Expr MIR s) (ImplementCtxTrait implSubst ctx)
 vtblToStruct _implSubst Empty = Empty
 vtblToStruct implSubst (ctx :> val) = vtblToStruct implSubst ctx :> valueToExpr implSubst val
@@ -375,7 +392,8 @@ first f (x:xs) = case f x of Just y   -> Just y
 -- TODO: remove errors and return Nothing instead
 -- | Given a (static)-trait method name and type substitution, figure out which
 -- trait implementation to use
-resolveStaticTrait :: StaticTraitMap -> Collection -> TraitMap s -> MethName -> Substs -> Maybe (MirExp s, [Predicate])
+resolveStaticTrait :: StaticTraitMap -> Collection -> TraitMap s -> MethName -> Substs
+  -> Maybe (MirExp s, FnSig)
 resolveStaticTrait stm col tm mn sub =
   case  Map.lookup mn stm of
     Just ts -> case sub of
@@ -383,7 +401,7 @@ resolveStaticTrait stm col tm mn sub =
       Substs []      -> error $ "Cannot resolve trait " ++ show mn ++ " without type arguments"
     Nothing -> Nothing
 
-resolveTraitMethod :: TraitMap s -> TraitName -> Substs -> MethName -> Maybe (MirExp s, [Predicate])
+resolveTraitMethod :: TraitMap s -> TraitName -> Substs -> MethName -> Maybe (MirExp s, FnSig)
 resolveTraitMethod (TraitMap tmap) tn (Substs subs@(ty:_)) mn
   | Just (Some timpls) <- Map.lookup tn tmap
   , Just (Some idx)    <- Map.lookup mn (timpls^.methodIndex)
@@ -391,14 +409,14 @@ resolveTraitMethod (TraitMap tmap) tn (Substs subs@(ty:_)) mn
      let vtab = timpls^.vtables
      case Map.lookup ty vtab of
        Just assn -> case assn ! idx of 
-         MirValue _ tye e preds -> return (MirExp tye e, preds)
+         MirValue _ tye e sig -> return (MirExp tye e, sig)
        Nothing   ->
          let -- go :: Ty -> Assignment (MirValue s) ctx -> Maybe (MirExp s) -> Maybe (MirExp s)
              go keyTy assn res =
                case matchTy ty keyTy of
                  Nothing -> res
                  Just _inst -> case (assn ! idx) of
-                   MirValue _ ty e preds -> Just (MirExp ty e, preds)
+                   MirValue _ ty e sig -> Just (MirExp ty e, sig)
          in                     
             Map.foldrWithKey go Nothing vtab
             

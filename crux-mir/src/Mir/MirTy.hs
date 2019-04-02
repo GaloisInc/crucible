@@ -1,4 +1,4 @@
-{-| Operations over Mir Ty AST -}
+{-| Operations over related to the Mir Ty AST -}
 
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall
@@ -130,3 +130,5 @@ matchList f (t1:instTys) (t2:genTys) = do
   m2 <- matchList f instTys genTys
   combineMaps m1 m2
 matchList f _ _ = Nothing  
+
+

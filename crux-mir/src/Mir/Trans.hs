@@ -64,6 +64,7 @@ import qualified Data.Parameterized.TraversableFC as Ctx
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 import Data.Parameterized.Peano
+import Data.Parameterized.WithRepr
 
 import Mir.Mir
 import Mir.MirTy
@@ -84,11 +85,15 @@ import GHC.Stack
 import Unsafe.Coerce
 import Debug.Trace
 
+{-
 peanoLength :: [a] -> Some PeanoRepr
 peanoLength [] = Some zeroP
 peanoLength (_:xs) = case peanoLength xs of
   Some n -> Some (succP n)
+-}
 
+-- Orphan instance: should move to Crucible
+instance IsRepr C.TypeRepr
 
 -----------------------------------------------------------------------
 -- ** Type translation: MIR types to Crucible types
@@ -215,12 +220,12 @@ tyListToCtxMaybe ts f =  go (map tyToRepr ts) Ctx.empty
 
 
 -- | Translate a Mir type substitution to a Crucible type substitution
-substToSubstCont :: HasCallStack => Substs -> (forall subst. C.SubstRepr subst -> a) -> a
-substToSubstCont (Substs []) f        = f C.IdRepr
+substToSubstCont :: HasCallStack => Substs -> (forall subst. C.CtxRepr subst -> a) -> a
+substToSubstCont (Substs []) f        = f Ctx.empty
 substToSubstCont (Substs (ty:rest)) f =
   tyToReprCont ty $ \tyr ->
     substToSubstCont (Substs rest) $ \rr ->
-       f (C.ExtendRepr tyr rr)
+       f (rr `Ctx.extend` tyr)
 
 
 -----------------------------------------------------------------------
@@ -822,7 +827,7 @@ mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
       Just vtbl -> do
         let baseTy    = (timpls^.vtableTyRepr)
         --traceM $ "pre-subst vtable type is  " ++ show baseTy
-        let substR    = C.ExtendRepr C.AnyRepr C.IdRepr
+        let substR    = Ctx.singleton C.AnyRepr 
         let vtableCtx = implementCtxRepr substR baseTy
         --traceM $ "post-subst vtable type is " ++ show vtableCtx
         let ctxr      = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.StructRepr vtableCtx
@@ -1506,7 +1511,7 @@ lookupFunction nm (Substs funsubst)
     () | Just (MirHandle nm fs fh) <- Map.lookup nm hmap
        -> do
             let preds = fs^.fspredicates
-            let _gens  = fs^.fsgenerics
+            let _gens = fs^.fsgenerics
             let atys  = fs^.fsassoc_tys
             when (db > 3) $ do
               traceM $ "***lookupFunction: In normal call of " ++ show (pretty nm)
@@ -1522,7 +1527,7 @@ lookupFunction nm (Substs funsubst)
        -- a static invocation of a trait, the type argument (from funsubst) is a concrete type
        -- so we can just look up the method in the static method table
        -- TODO: add associated type substs
-       | Just (MirExp fty polyfcn, preds) <- resolveStaticTrait stm am tm nm (Substs funsubst)
+       | Just (MirExp fty polyfcn, polysig) <- resolveStaticTrait stm am tm nm (Substs funsubst)
          -> tyListToCtx (reverse funsubst) $ \tyargs ->
            case (fty, tyargs) of
               (C.PolyFnRepr n fargctx fret, tyargs' Ctx.:> _tyr) -> do
@@ -1531,10 +1536,11 @@ lookupFunction nm (Substs funsubst)
                     ifret    = C.instantiate (C.mkSubst tyargs') fret
                     polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs'
                 when (db > 3) $ do
-                  traceM $ "***lookupFunction: In static trait call of " ++ show (pretty nm)
-                  traceM $ "\tpreds are " ++ show (ppreds preds)
+                  traceM $ "***lookupFunction: In static trait call of " ++ fmt nm ++ fmt (Substs funsubst)
+                  traceM $ "\tpolysig is " ++  fmt polysig
+                  traceM $ "\tfty is " ++ fmt fty
                 return $ Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst,
-                         tySubst (Substs funsubst) preds)
+                         tySubst (Substs funsubst) (polysig^.fspredicates))
               _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
                           ++ show (pretty funsubst) ++ " in the trait map: " ++ show fty
 
@@ -1568,8 +1574,9 @@ lookupFunction nm (Substs funsubst)
           , Map.member (M.idText tn) vm ]
        -> do 
              let Just trait = Map.lookup tn (am^.traits)
-             let Just (TraitMethod _ _ preds) =
+             let Just (TraitMethod _ sig) =
                     List.find (\tm -> tm^.itemName == nm) (trait^.traitItems)
+             let preds = sig^.fspredicates
              let atys = trait^.traitAssocTys
              let j    = length $ trait^.traitParams
              atSubsts <- mkATSubsts atys
@@ -1582,9 +1589,9 @@ lookupFunction nm (Substs funsubst)
                traceM $ "***lookupFunction: at dictionary projection for " ++ show (pretty nm)
                traceM $ "traitParams are" ++ fmt (trait^.traitParams)
                traceM $ "traitPreds are" ++ fmt (trait^.traitPredicates)
-               traceM $ "preds are " ++ fmt preds
                traceM $ "atys are " ++ fmt atys
                traceM $ "funsubst' is " ++ fmt funsubst'
+               traceM $ "method sig is " ++ fmt sig
                traceM $ "field is " ++ fmt fld
                traceM $ "ty is " ++ fmt ty
                traceM $ "rty is " ++ fmt rty
@@ -1780,6 +1787,7 @@ doCall funid funsubst cargs cdest retRepr = do
                    PP.text "predicates:", PP.list (map pretty preds),
                    PP.text "and type parameters:", pretty funsubst])
 
+            -- Make a dictionary for the function call
             let mkDict :: M.Var -> MirGenerator h s ret (MirExp s)
                 mkDict var = do
                   vm <- use varMap
@@ -1798,6 +1806,7 @@ doCall funid funsubst cargs cdest retRepr = do
                                                   ++ " couldn't find an entry for " ++ fmt fn
                                                   ++ " of type " ++ fmt (var^.varty)
                       when (db > 3) $ traceM $ "Building dictionary for " ++ fmt var
+                                    ++ " of type " ++ fmt (var^.varty)
                       entries <- mapM go fields
                       when (db > 3) $ traceM $ "Done building dictionary for " ++ fmt var
                       return $ buildTaggedUnion 0 entries
@@ -1872,7 +1881,7 @@ methodCall traitName methodName (Substs funsubst) traitObject args (Just (dest_l
                                                     M.idText methodName, " in trait ", M.idText traitName]
     Just (Some midx) -> do
       -- type of the vtable for this trait object, instantiated with "Any"
-      let substR     = C.ExtendRepr C.AnyRepr C.IdRepr
+      let substR     = Ctx.singleton C.AnyRepr 
       let vtableRepr = implementCtxRepr substR (tis^.vtableTyRepr)
       -- polymorphic type of the method <<specialized to object>>
       let midx'      = implementIdx substR midx
@@ -2342,12 +2351,12 @@ defineTraitAdts traits = fmap traitToAdt traits where
    traitToAdt :: M.Trait -> M.Adt
    traitToAdt tr = do
      let itemToField :: M.TraitItem -> Maybe M.Field
-         itemToField (M.TraitMethod did fnsig preds) =
-           return $ M.Field did (TyFnPtr (addPreds fnsig preds)) (Substs [])
+         itemToField (M.TraitMethod did fnsig) =
+           return $ M.Field did (TyFnPtr (addPreds fnsig)) (Substs [])
          itemToField _ = Nothing
 
-         addPreds :: FnSig -> [Predicate] -> FnSig
-         addPreds fs preds = fs & fsarg_tys %~ (++ Maybe.mapMaybe dictTy preds)
+         addPreds :: FnSig -> FnSig
+         addPreds fs = fs & fsarg_tys %~ (++ Maybe.mapMaybe dictTy (fs^.fspredicates))
 
      let fields = Maybe.mapMaybe itemToField (tr^.traitItems)
      M.Adt (tr^.traitName) [M.Variant (tr^.traitName) (Relative 0) fields M.FnKind]
@@ -2385,26 +2394,12 @@ expandSuperTraits traits =  Map.map nubTrait (go (Map.elems traits) Map.empty) w
          step = Map.union done (Map.fromList (List.map addSupers this))
 
 ----------------------------------------------------------------
+-- Most of the implementation of this pass is in GenericOps
 
 passRemoveUnknownPreds :: Collection -> Collection
-passRemoveUnknownPreds col = col & functions %~ fmap filterFn
-                                 & impls     %~ fmap filterTI
-                                 & traits    %~ fmap filterTrait
+passRemoveUnknownPreds col = modifyPreds ff col 
   where
      ff = filter (dictPred (col^.traits))
-
-     filterTrait :: Trait -> Trait
-     filterTrait tr = tr & traitPredicates %~ ff
-
-     filterFn :: Fn -> Fn
-     filterFn fn = fn & fsig %~ fspredicates %~ ff
-
-     filterTII :: TraitImplItem -> TraitImplItem
-     filterTII tii = tii & tiiPredicates %~ ff
-
-     filterTI :: TraitImpl -> TraitImpl
-     filterTI ti = ti & tiPredicates %~ ff
-                      & tiItems      %~ (map filterTII)
 
 --------------------------------------------------------------------------------------
 -- Some functions need additional predicates because they are trait implementations
@@ -2422,7 +2417,7 @@ passAddDictionaryPreds col = col & traits    %~ fmap addThisPred
 
   -- add predicates to trait methods
   addThis :: Predicate -> TraitItem -> TraitItem
-  addThis pred (TraitMethod did sig preds) = (TraitMethod did sig (addPred pred preds))
+  addThis pred (TraitMethod did sig) = TraitMethod did (sig & fspredicates %~ (addPred pred))
   addThis pred ti = ti
 
   -- add predicates to fn's that are implementation methods
@@ -2452,7 +2447,7 @@ implMethods col = foldr g Map.empty (col^.functions) where
 defaultMethods :: Collection -> Map MethName TraitName
 defaultMethods col = foldr g Map.empty (col^.traits) where
   g trait m = foldr g2 m (trait^.traitItems) where
-    g2 (TraitMethod methName _sig _preds) m
+    g2 (TraitMethod methName _sig) m
        | Just _fn <- Map.lookup methName (col^.functions)
        = Map.insert (methName) (trait^.traitName) m
     g2 _ m = m
@@ -2542,9 +2537,10 @@ abstractTraitAssociatedTypes col adict pdict trait =
        info = ATInfo j k adict
 
        -- Translate type to remove additional 
-       updateMethod (TraitMethod name sig preds) =
-             TraitMethod name (abstractATs info sig)
-                              (map updatePred preds)
+       updateMethod (TraitMethod name sig) =
+             let sig' = abstractATs info sig & fspredicates %~ fmap updatePred
+             in 
+             TraitMethod name sig'
        updateMethod item = item
 
        -- Add additional type arguments to a predicate for associated types
@@ -2691,7 +2687,8 @@ mkTraitDecl tr = do
   let tname  = tr^.traitName
   let titems = tr^.traitItems
 
-  let meths  = [ (mname, tsig, preds) |(M.TraitMethod mname tsig preds) <- titems]
+  let meths  = [ (mname, tsig, tsig^.fspredicates) |(M.TraitMethod mname tsig) <- titems]
+
 
   let go :: Some (Ctx.Assignment MethRepr)
          -> (MethName, M.FnSig, [Predicate])
@@ -2746,7 +2743,7 @@ buildTraitMap debug col _halloc hmap = do
         default_methods = foldr g Map.empty  (col^.M.traits) where
            g :: Trait -> Map TraitName [(MethName, MirHandle)] -> Map TraitName [(MethName, MirHandle)]
            g trait m = foldr g2 m (trait^.M.traitItems) where
-               g2 (TraitMethod methName sig _preds) m
+               g2 (TraitMethod methName sig) m
                  | Just mh <- Map.lookup  methName hmap 
                  = Map.insertWith (++) (trait^.M.traitName) [(methName,mh)] m
                g2 _ m = m
@@ -2814,28 +2811,31 @@ buildTraitMap debug col _halloc hmap = do
 
                   substToSubstCont implSubst $ \subst -> 
                     case implHandle of 
-                      (MirHandle mname sig (fh :: FH.FnHandle fargs fret)) ->
-                        let preds = sig^.fspredicates in
-                        case (testEquality (FH.handleArgTypes   fh) (C.instantiate subst args),
-                              testEquality (FH.handleReturnType fh) (C.instantiate subst ret)) of
+                      (MirHandle mname sig (fh :: FH.FnHandle fargs fret)) -> do
+                        let subst' = C.mkSubst subst
+                        let k' = minusP k (ctxSizeP subst)
+                        case (testEquality (FH.handleArgTypes   fh) (C.instantiate subst' args),
+                              testEquality (FH.handleReturnType fh) (C.instantiate subst' ret)) of
                             (Just Refl, Just Refl) ->
                               return (GenericMirValue $ 
-                                let expr   = R.App $ E.PolyHandleLit k fh in
-                                let exprTy = C.PolyFnRepr k (FH.handleArgTypes fh) (FH.handleReturnType fh) in
-                                (MirValue subst exprTy expr preds))
+                                let expr   = R.App $ E.PolyHandleLit k' fh in
+                                let exprTy = C.PolyFnRepr k'
+                                     (FH.handleArgTypes fh) (FH.handleReturnType fh) in
+                                (MirValue subst exprTy expr sig))
                             (_,_)   -> error $ "Type mismatch in method table for " ++ show tname
                                         ++ "\n\tadding implementation: " ++ show mname
                                         ++ "\n\tat implTy:"                  ++ show implTy
                                         ++ "\n\timplHandle type is: "        ++ show (FH.handleType fh)
-                                        ++ "\n\tbut expected type is: "      ++ show (C.FunctionHandleRepr (C.instantiate subst args)
-                                                                                                            (C.instantiate subst ret))
+                                        ++ "\n\tbut expected type is: "
+                                           ++ show (C.FunctionHandleRepr (C.instantiate subst' args)
+                                                                         (C.instantiate subst' ret))
                                         ++ "\n\targs before subst: " ++ show args
-                                        ++ "\n\targs after subst: "  ++ show (C.instantiate subst args)
+                                        ++ "\n\targs after subst: "  ++ show (C.instantiate subst' args)
                                         ++ "\n\tret before subst: " ++ show ret
-                                        ++ "\n\tret after subst: "  ++ show (C.instantiate subst ret)
+                                        ++ "\n\tret after subst: "  ++ show (C.instantiate subst' ret)
 
                                         ++ "\n\tdeclared name is: " ++ show declName
-                                        ++ "\n\tdeclared type is: "  ++ show (C.PolyFnRepr (succP k) args ret)
+                                        ++ "\n\tdeclared type is: "  ++ fmt (C.PolyFnRepr k args ret)
                go idx _ = error "buildTraitMap: can only handle trait definitions with polmorphic functions (no constants allowed)"
            in 
               runIdentity (Ctx.traverseWithIndex go ctxr)
@@ -3382,7 +3382,7 @@ iter_next_op_array itemTy _opTys retTy ops =
           good_ret   = mk_ret good_ret_1 iter_vec (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))
           bad_ret    = mk_ret mkNone'    iter_vec iter_pos
 
-      ret <- withKnownRepr ty $ G.ifte is_good
+      ret <- withRepr ty $ G.ifte is_good
               (return good_ret)
               (return bad_ret)
       return $ MirExp ty ret

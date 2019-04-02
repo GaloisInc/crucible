@@ -431,7 +431,7 @@ data Trait = Trait { _traitName       :: DefId,
 
 
 data TraitItem
-    = TraitMethod DefId FnSig [Predicate]
+    = TraitMethod DefId FnSig 
     | TraitType DefId         -- associated type
     | TraitConst DefId Ty
     deriving (Eq, Ord, Show, Generic)
@@ -512,11 +512,11 @@ makeLenses ''TraitImplItem
 
 itemName :: Simple Lens TraitItem DefId
 itemName = lens (\ti -> case ti of
-                          TraitMethod did _ _ -> did
+                          TraitMethod did _  -> did
                           TraitType did -> did
                           TraitConst did _ -> did)
               (\ti nd -> case ti of
-                  TraitMethod _ s ps -> TraitMethod nd s ps
+                  TraitMethod _ s  -> TraitMethod nd s 
                   TraitType _ -> TraitType nd
                   TraitConst _ t -> TraitConst nd t)
 
@@ -561,13 +561,6 @@ traitParamsWithAssocTys trait =
    trait^.traitParams ++ map toParam (trait^.traitAssocTys)
 
 
-
--- A CStyle ADT is one that is an enumeration of numeric valued options
--- containing no data
-isCStyle :: Adt -> Bool
-isCStyle (Adt _ variants) = all isConst variants where
-    isConst (Variant _ _ [] ConstKind) = True
-    isConst _ = False
 
 varOfLvalue :: HasCallStack => Lvalue -> Var
 varOfLvalue (Local v) = v
