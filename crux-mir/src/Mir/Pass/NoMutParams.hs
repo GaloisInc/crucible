@@ -11,7 +11,8 @@
 -- Stability        : provisional
 --
 -- This module implements a MIR rewriting pass that creates new local 
--- variables that correspond to "mutable" function arguments.
+-- variables that correspond to "mutable" function arguments. It does not
+-- change the type of the function.
 --
 --   For example,
 --       fn (mut x : u8) -> u8 {
@@ -27,7 +28,7 @@
 --
 --
 -- TODO: we aren't really systematic about picking a fresh variable name
--- for now we just append "_mut" to the end of the name.
+-- for now we just append "_mut" to the end of the original var name.
 -----------------------------------------------------------------------
 module Mir.Pass.NoMutParams
 ( passNoMutParams
@@ -48,7 +49,8 @@ passNoMutParams :: [Fn] -> [Fn]
 passNoMutParams fns = map go fns
 
 go :: Fn -> Fn
-go fn = (fn & fbody %~ addLocals) & fargs %~ renameArgs where
+go fn = fn & fbody %~ addLocals
+           & fargs %~ renameArgs  where
   
   renameArgs :: [Var] -> [Var]
   renameArgs = map (\x -> maybe x id (List.lookup x renames))
@@ -63,7 +65,8 @@ go fn = (fn & fbody %~ addLocals) & fargs %~ renameArgs where
 
   newStmts :: [Statement]
   newStmts =
-    zipWith (\v1 v2 -> Assign (Local v1) (Use (Copy (Local v2))) "Internal variable") mutVars newImmuts
+    zipWith (\v1 v2 -> Assign (Local v1) (Use (Copy (Local v2)))
+          "Internal variable") mutVars newImmuts
     
   addLocals :: MirBody -> MirBody
   addLocals (MirBody oldLocals (bb:oldBlocks)) =

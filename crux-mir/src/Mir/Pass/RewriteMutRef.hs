@@ -163,7 +163,7 @@ buildRewriteSt fn fns =
         fnmap = Map.fromList $ map (\fn -> (fn^.fname, map typeOf (fn^.fargs))) fns
         MirBody internals blocks = fn^.fbody
     in
-    RFS 0 immut_map mutpairmap fn (fn^.freturn_ty) (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
+    RFS 0 immut_map mutpairmap fn (fn^.fsig.fsreturn_ty) (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
 
 -- insertMutvarsIntoInternals
 -- put all x's into internals, where (x,y) are the mutarg pairs (x is old mut, y is new immut dummy)
@@ -325,7 +325,7 @@ extractFn = do
 
     let fnargs = (Map.elems immut_args) ++ (Map.elems $ Map.map snd mut_argpairs)
         fnblocks = map (\(k,v) -> BasicBlock k v) (Map.toList blocks_)
-    return $ oldFn & freturn_ty .~ ret_ty
+    return $ oldFn & fsig       %~ fsreturn_ty .~ ret_ty
                    & fargs      .~ fnargs
                    & fbody      .~ MirBody (Map.elems internals) fnblocks
 

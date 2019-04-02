@@ -97,8 +97,17 @@ instance FromJSON Ty where
                                           r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON FnSig where
-    parseJSON = withObject "FnSig" $ \v -> FnSig <$> v .: "inputs" <*> v .: "output"
-
+    parseJSON =
+      withObject "FnSig" $ \v -> do
+         let gens  = return []
+         let preds = return []
+         let atys  = return []
+         FnSig <$> v .: "inputs"
+               <*> v .: "output"
+               <*> gens
+               <*> preds
+               <*> atys
+               
 instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
 
@@ -161,14 +170,18 @@ instance FromJSON Fn where
     parseJSON = withObject "Fn" $ \v -> do
       pg <- v .: "generics"
       pp <- v .: "predicates"
+      args <- v .: "args"
+      let sig = FnSig <$> return (map typeOf args)
+                      <*> v .: "return_ty"
+                      <*> (withObject "Param" (\u -> u .: "params") pg)
+                      <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
+                      <*> return []
+
       Fn
         <$> v .: "name"
-        <*> v .: "args"
-        <*> v .: "return_ty"
+        <*> return args
+        <*> sig        
         <*> v .: "body"
-        <*> (withObject "Param" (\u -> u .: "params") pg)
-        <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
-        <*> return []
         
 instance FromJSON BasicBlock where
     parseJSON = withObject "BasicBlock" $ \v -> BasicBlock
@@ -178,7 +191,7 @@ instance FromJSON BasicBlock where
 instance FromJSON BasicBlockData where
     parseJSON = withObject "BasicBlockData" $ \v -> BasicBlockData
         <$> v .: "data"
-        <*>  v .: "terminator"
+        <*> v .: "terminator"
 
 instance FromJSON Statement where
     parseJSON = withObject "Statement" $ \v -> case HML.lookup "kind" v of

@@ -73,12 +73,25 @@ combineMaps m1 m2 = Map.foldrWithKey go (Just m2) m1 where
       Nothing ->  Just (Map.insert k ty res)
 
 -- | Try to match an implementation type against a trait type
+-- | TODO: do we also need to match the params/ats?
+-- TODO: allow re-ordering of preds??
 matchSig :: FnSig -> FnSig -> Maybe (Map Integer Ty)
-matchSig (FnSig instArgs instRet) (FnSig genArgs genRet) = do
+matchSig (FnSig instArgs instRet _instParams _instPreds _instATs)
+         (FnSig genArgs  genRet  _genParams  _genPreds  _genATs) = do
   m1 <- matchTys instArgs genArgs
   m2 <- matchTy  instRet  genRet
   combineMaps m1 m2
 
+matchPred (TraitPredicate d1 ss1) (TraitPredicate d2 ss2)
+  | d1 == d2
+  = matchSubsts ss1 ss2
+matchPred (TraitProjection d1 ss1 ty1) (TraitProjection d2 ss2 ty2)
+  | d1 == d2
+  = do m1 <- matchSubsts ss1 ss2
+       m2 <- matchTy ty1 ty2
+       combineMaps m1 m2
+matchPred _ _ = Nothing
+       
 -- | Try to match an implementation type (first argument) against a trait type (second argument)
 -- If they succeed, produce a substitution -- a mapping from type params to types
 -- Neither type should include TyProjections. They should have already been abstracted out
@@ -108,9 +121,12 @@ matchSubsts :: Substs -> Substs -> Maybe (Map Integer Ty)
 matchSubsts (Substs tys1) (Substs tys2) = matchTys tys1 tys2
 
 matchTys :: [Ty] -> [Ty] -> Maybe (Map Integer Ty)
-matchTys [] [] = return Map.empty
-matchTys (t1:instTys) (t2:genTys) = do
-  m1 <- matchTy t1 t2
-  m2 <- matchTys instTys genTys
+matchTys = matchList matchTy
+
+matchList :: (a -> a -> Maybe (Map Integer Ty)) -> [a] -> [a] -> Maybe (Map Integer Ty)
+matchList f [] [] = return Map.empty
+matchList f (t1:instTys) (t2:genTys) = do
+  m1 <- f t1 t2
+  m2 <- matchList f instTys genTys
   combineMaps m1 m2
-matchTys _ _ = Nothing  
+matchList f _ _ = Nothing  

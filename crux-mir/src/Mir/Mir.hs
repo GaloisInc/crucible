@@ -106,8 +106,14 @@ data Ty =
       | TyLifetime
       deriving (Eq, Ord, Show, Generic)
 
-data FnSig = FnSig [Ty] Ty 
-    deriving (Eq, Ord, Show, Generic)
+data FnSig = FnSig {
+    _fsarg_tys    :: [Ty]
+  , _fsreturn_ty  :: Ty
+  , _fsgenerics   :: [Param]
+  , _fspredicates :: [Predicate]
+  , _fsassoc_tys  :: [AssocTy]    -- new params added in a pre-pass
+  }
+  deriving (Eq, Ord, Show, Generic)
 
 data Adt = Adt {_adtname :: DefId, _adtvariants :: [Variant]}
     deriving (Eq, Ord, Show, Generic)
@@ -190,13 +196,10 @@ newtype Predicates = Predicates [Predicate]
 
 
 data Fn = Fn {
-    _fname       :: DefId,
-    _fargs       :: [Var],
-    _freturn_ty  :: Ty,
-    _fbody       :: MirBody,
-    _fgenerics   :: [Param],
-    _fpredicates :: [Predicate],
-    _fassocTys   :: [AssocTy]    -- new params added in a pre-pass
+     _fname       :: DefId
+    ,_fargs       :: [Var]
+    ,_fsig        :: FnSig
+    ,_fbody       :: MirBody
     }
     deriving (Show,Eq, Ord, Generic)
 
@@ -496,6 +499,7 @@ makeLenses ''Variant
 makeLenses ''Var
 makeLenses ''Collection
 makeLenses ''Fn
+makeLenses ''FnSig
 makeLenses ''MirBody
 makeLenses ''BasicBlock
 makeLenses ''BasicBlockData

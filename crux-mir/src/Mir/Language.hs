@@ -137,7 +137,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
   let col = prims <> col1
 
   res_ty <- case List.find (\fn -> fn^.fname == "::f[0]") (col^.functions) of
-                   Just fn -> return (fn^.freturn_ty)
+                   Just fn -> return (fn^.fsig.fsreturn_ty)
                    Nothing  -> fail "cannot find f"
 
   let mir = translateMIR col debugLevel

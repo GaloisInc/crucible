@@ -71,7 +71,7 @@ is_static_mut_return fns fn =
          is_bad_call term = case term of 
                               Call fnm _ _ _ ->
                                   case find (\fn -> fn^.fname == (funcNameofOp fnm)) fns of
-                                    Just call_fn | isMutRefTy (_freturn_ty call_fn) -> (not . (is_static_mut_return fns)) call_fn
+                                    Just call_fn | isMutRefTy (call_fn^.fsig.fsreturn_ty) -> (not . (is_static_mut_return fns)) call_fn
                                     _ -> False
                               _ -> False
 

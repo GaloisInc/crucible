@@ -167,20 +167,18 @@ type LabelMap s = Map.Map BasicBlockInfo (Label s)
 data MirHandle = forall init ret. 
     MirHandle { _mhName       :: MethName
               , _mhSig        :: FnSig
-              , _mhPredicates :: [Predicate]
+              -- The type of the function handle includes "free variables"
               , _mhHandle     :: FnHandle init ret
-              , _mhGenerics   :: [Param]
-              , _mhAssocTys   :: [AssocTy]
               }
 
 
 instance Show MirHandle where
-    show (MirHandle _nm sig preds c _gens _atys) =
-      show c ++ ":" ++ show sig ++ " where " ++ show preds
+    show (MirHandle _nm sig c) =
+      show c ++ ":" ++ show sig
 
 instance Pretty MirHandle where
-    pretty (MirHandle nm sig preds _c _gens _atys) =
-      text (show nm) <> colon <> pretty sig <+> text "where" <+> pretty preds
+    pretty (MirHandle nm sig _c) =
+      text (show nm) <> colon <> pretty sig 
 
 -- | The HandleMap maps mir functions to their corresponding function
 -- handle. Function handles include the original method name (for

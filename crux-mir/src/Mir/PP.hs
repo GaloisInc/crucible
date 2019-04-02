@@ -134,11 +134,17 @@ instance Pretty Predicate where
   pretty UnknownPredicate = text "UnknownPredicate"
   
 instance Pretty Fn where
-    pretty (Fn fname1 fargs1 fty fbody1 generics preds atys) =
-      vcat [text "fn" <+> pretty fname1 <> pparams generics <> patys atys <+> tupled (map pretty_arg fargs1)
+    pretty (Fn fname1 fargs1 fs fbody1) =
+      vcat [text "fn" <+> pretty fname1 <> pparams gens
+            <> patys atys <+> tupled (map pretty_arg fargs1)
                       <+> arrow <+> pretty fty <+> ppreds preds <+> lbrace,
             indent 3 (pretty fbody1),
-            rbrace] where
+            rbrace]
+      where
+        gens   = fs^.fsgenerics
+        atys   = fs^.fsassoc_tys
+        fty    = fs^.fsreturn_ty
+        preds  = fs^.fspredicates
             
 instance Pretty MirBody where
     pretty (MirBody mvs mbs) =
@@ -327,7 +333,11 @@ instance Pretty CustomAggregate where
     pretty = (text . show)
 
 instance Pretty FnSig where
-  pretty (FnSig args ret) = tupled (map pretty args) <+> arrow <+> pretty ret
+  pretty fs =
+    pparams (fs^.fsgenerics) <>
+    tupled (map pretty (fs^.fsarg_tys)) <+> arrow <+> pretty (fs^.fsreturn_ty)
+                <+> ppreds (fs^.fspredicates)
+                <+> patys  (fs^.fsassoc_tys)
 
 instance Pretty TraitItem where
   pretty (TraitMethod name sig _) = text "fn"    <+> pr_id name <> pretty sig <> semi
@@ -342,7 +352,7 @@ instance Pretty Trait where
               [] -> error "BUG: supertrait list should always start with self"
         ps = pparams (traitParamsWithAssocTys tr)
     in                    
-        vcat [text "trait" <+> pretty name <+> pparams params <+> sd <+> ppreds preds <+> lbrace ,
+        vcat [text "trait" <+> pretty name <+> ps <+> sd <+> ppreds preds <+> lbrace ,
               indent 3 (vcat (map pretty items)),
               rbrace]
 
@@ -360,9 +370,10 @@ patys   :: [AssocTy] -> Doc
 patys atys = if null atys then empty
   else encloseSep langle rangle  comma (map pretty atys)
 
+-- don't allow line breaks in the middle of params
 pparams :: [Param] -> Doc
 pparams params = if null params then mempty
-  else encloseSep langle rangle  comma (map pretty params)
+  else hcat $ [langle] ++ punctuate comma (map pretty params) ++ [rangle]
 
 ppreds :: [Predicate] -> Doc
 ppreds preds = if null preds then empty

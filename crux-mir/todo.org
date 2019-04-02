@@ -1,8 +1,26 @@
 * TODO
 
+- pull-request for withRepr in parameterized-utils
+
+- first-class polymorphism
+   we have it in crucible, should use it more thoroughly in Mir
+   dictionaries are tuples of *polymorphic* methods
+   remove unsafe coerce in "call"
+
+- structured error handling
+   don't use "error", use "fail" instead
+   pretty print error messages instead of constructing strings
+   distinguish "BUG" errors from limitations of the system (user facing)
+
 - associated type translation
    - need to rationalize what happens when and document better
    - traits/tyfam3.rs, traits/tyfam4.rs
+   - add known associated types from impl
+   - add equality constraints
+   - localize code to a single (type-directed) pass
+
+- just-in time function translation using overrides
+   - see crucible-jvm
 
 - generic trait impls (traits/dict_med.rs, traits/dict_poly.rs)
   e.g. 
