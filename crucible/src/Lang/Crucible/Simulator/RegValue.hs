@@ -40,6 +40,7 @@ module Lang.Crucible.Simulator.RegValue
   , polyFunctionName
   , polyFnValType
   , instantiatePolyFnVal
+  , specializePolyFnVal
 
     -- * Value mux functions
   , ValMuxFn
@@ -119,7 +120,8 @@ data FnVal (sym :: Type) args ret where
                -> !(RegValue sym tp)
                -> FnVal sym args ret
 
-  HandleFnVal :: !(FnHandle args ret) -> FnVal sym args ret
+  HandleFnVal :: !(FnHandle args ret)
+    -> FnVal sym args ret
 
   InstantiatedFnVal ::
        FnHandle args ret
@@ -152,13 +154,30 @@ type ValMuxFn sym tp = MuxFn (Pred sym) (RegValue sym tp)
 -- PolyFnVal (polymorphic)
 
 data PolyFnVal sym n a r where
-   HandlePolyFnVal :: !(PeanoRepr n) -> !(FnHandle a r) -> PolyFnVal sym n a r
+   HandlePolyFnVal ::
+     !(PeanoRepr n)
+     -> !(FnHandle a r)
+     -> PolyFnVal sym n a r
+
+   SpecializedPolyFnVal :: (Lt (CtxSizeP targs) n ~ 'True)  =>
+         !(PeanoRepr n)
+      -> !(FnHandle a r)
+      -> CtxRepr targs
+      -> PolyFnVal sym (Minus n (CtxSizeP targs))
+                       (Instantiate (MkSubst targs) a)
+                       (Instantiate (MkSubst targs) r)
 
 polyFunctionName :: PolyFnVal sym n a r -> FunctionName
 polyFunctionName (HandlePolyFnVal _ h) = handleName h
+polyFunctionName (SpecializedPolyFnVal _ h _) = handleName h
 
 polyFnValType :: PolyFnVal sym n a r -> TypeRepr (PolyFnType n a r)
-polyFnValType (HandlePolyFnVal n h) = PolyFnRepr n (handleArgTypes h) (handleReturnType h)
+polyFnValType (HandlePolyFnVal n h)
+  = PolyFnRepr n (handleArgTypes h) (handleReturnType h)
+polyFnValType (SpecializedPolyFnVal n h targs)
+  = PolyFnRepr (minusP n (ctxSizeP targs))
+               (instantiate (mkSubst targs) (handleArgTypes h))
+               (instantiate (mkSubst targs) (handleReturnType h))
 
 -- Instantiate a polymorphic function
 -- TODO: add constraint: n ~ CtxSize subst ??? Not needed, substitutions are always infinite
@@ -167,7 +186,30 @@ instantiatePolyFnVal :: forall subst sym n args res.
   -> FnVal sym (Instantiate subst args) (Instantiate subst res)
 instantiatePolyFnVal (HandlePolyFnVal _ h) subst
   = InstantiatedFnVal h subst
-
+instantiatePolyFnVal (SpecializedPolyFnVal
+                      (_k :: PeanoRepr k)
+                      (h :: FnHandle hargs hret)
+                      (targs :: CtxRepr targs)) subst
+  | Refl <- composeInstantiateAxiom @(MkSubst targs) @subst @hargs
+  , Refl <- composeInstantiateAxiom @(MkSubst targs) @subst @hret
+  = InstantiatedFnVal h (compose subst (mkSubst targs))
+  
+specializePolyFnVal :: forall targs sym k args res.
+     (Lt (CtxSizeP targs) k ~ 'True) 
+  => PolyFnVal sym k args res
+  -> CtxRepr targs
+  -> PolyFnVal sym (Minus k (CtxSizeP targs))
+         (Instantiate (MkSubst targs) args)
+         (Instantiate (MkSubst targs) res)
+specializePolyFnVal (HandlePolyFnVal k h) targs =
+  SpecializedPolyFnVal k h targs
+specializePolyFnVal (SpecializedPolyFnVal (n :: PeanoRepr n) (h :: FnHandle hargs hret) (targs' :: CtxRepr targs')) targs
+  | Refl <- plusCtxSizeAxiom @targs @targs'
+  , Refl <- minusPlusAxiom @n @(CtxSizeP targs') @(CtxSizeP targs)
+  , Refl <- ltMinusPlusAxiom @n @(CtxSizeP targs') @(CtxSizeP targs)
+  , Refl <- instantiateTwiceAxiom @targs @targs' @hargs
+  , Refl <- instantiateTwiceAxiom @targs @targs' @hret
+  = SpecializedPolyFnVal n h (targs Ctx.<++> targs')
 
 ------------------------------------------------------------------------
 -- CanMux

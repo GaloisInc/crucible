@@ -95,6 +95,9 @@ module Lang.Crucible.Types
   , InstantiateType(..)
   , composeInstantiateAxiom
   , swapMkSubstAxiom
+  , swapMkSubstSpecializeAxiom 
+  , ctxSizeInstantiateAxiom
+  , instantiateTwiceAxiom
   , closedInstantiate
   , closedInstantiateF
   , closedInstantiateFC
@@ -106,12 +109,6 @@ module Lang.Crucible.Types
   , compose
   , MkSubst
   , mkSubst
-
-  -- ** Peano numbers
-  , Peano
-  , PeanoView(..)
-  , peanoView
-  , PeanoRepr(..)
 
   -- ** Evidence for closedness
   , Dict(..)
@@ -140,6 +137,11 @@ module Lang.Crucible.Types
   , module Data.Parameterized.Ctx
   , module Data.Parameterized.NatRepr
   , module Data.Parameterized.SymbolRepr
+  , module Data.Parameterized.Peano
+  , plusCtxSizeAxiom
+  , minusPlusAxiom
+  , ltMinusPlusAxiom
+  , module Data.Parameterized.WithRepr
   , module What4.BaseTypes
   , FloatInfo
   , HalfFloat
@@ -166,6 +168,7 @@ import           Data.Parameterized.Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Peano
 import           Data.Parameterized.SymbolRepr
+import           Data.Parameterized.WithRepr
 import qualified Data.Parameterized.TH.GADT as U
 import           Text.PrettyPrint.ANSI.Leijen
 
@@ -176,6 +179,22 @@ import           What4.InterpretedFloatingPoint
 
 
 import           Unsafe.Coerce (unsafeCoerce)
+
+------------------------------------------------------------------------
+
+plusCtxSizeAxiom :: forall t1 t2.
+  CtxSizeP (t1 Ctx.<+> t2) :~: Plus (CtxSizeP t1) (CtxSizeP t2)
+plusCtxSizeAxiom = unsafeCoerce Refl
+
+minusPlusAxiom :: forall k t1 t2.
+  (Lt t1 k ~ 'True, Lt t2 (Minus k t1) ~ 'True) =>
+  Minus (Minus k t1) t2 :~: Minus k (Plus t2 t1)
+minusPlusAxiom = unsafeCoerce Refl
+
+ltMinusPlusAxiom :: forall k t1 t2.
+  (Lt t1 k ~ 'True, Lt t2 (Minus k t1) ~ 'True) =>
+  Lt (Plus t2 t1) k :~: 'True
+ltMinusPlusAxiom = unsafeCoerce Refl
 
 ------------------------------------------------------------------------
 -- Crucible types
@@ -523,6 +542,8 @@ pattern KnownBV :: forall n. (1 <= n, KnownNat n) => TypeRepr (BVType n)
 pattern KnownBV <- BVRepr (testEquality (knownRepr :: NatRepr n) -> Just Refl)
   where KnownBV = knownRepr
 
+-- make withRepr available
+instance IsRepr TypeRepr
 
 ------------------------------------------------------------------------
 ------------------------------------------------------------------------
@@ -575,6 +596,7 @@ instance OrdF TypeRepr where
                      , [|compareF|])
                    ]
                   )
+
 
 
 ----------------------------------------------------------------
@@ -719,11 +741,31 @@ composeInstantiateAxiom = unsafeCoerce Refl
 -- of type instantiation type checks. It allows us to commute the
 -- instantiation of the polymorphic function with the substitution. 
 swapMkSubstAxiom :: forall sub k targs x.
-  -- (CtxSize targs ~ k) =>   -- TODO: add this constraint
+  (CtxSizeP targs ~ k) => 
   Instantiate sub (Instantiate (MkSubst targs) x) :~: 
   Instantiate (MkSubst (Instantiate sub targs)) (Instantiate (Liftn k sub) x) 
 swapMkSubstAxiom = unsafeCoerce Refl
 
+
+swapMkSubstSpecializeAxiom :: forall subst k targs x.
+  (Lt (CtxSizeP targs) k ~ 'True) =>
+  Instantiate
+  (MkSubst (Instantiate subst targs))
+  (Instantiate (Liftn k subst) x)
+  :~:
+  Instantiate
+  (Liftn (Minus k (CtxSizeP targs)) subst)
+  (Instantiate (MkSubst targs) x)
+swapMkSubstSpecializeAxiom = unsafeCoerce Refl
+
+instantiateTwiceAxiom :: forall targs targs' t.
+  Instantiate (MkSubst targs) (Instantiate (MkSubst targs') t) :~:
+  Instantiate (MkSubst (targs Ctx.<+> targs')) t
+instantiateTwiceAxiom = unsafeCoerce Refl
+
+ctxSizeInstantiateAxiom :: forall subst targs.
+  CtxSizeP (Instantiate subst targs) :~: CtxSizeP targs
+ctxSizeInstantiateAxiom = unsafeCoerce Refl
 
 -- BaseTypeRepr
 type instance Instantiate subst BaseTypeRepr = BaseTypeRepr 

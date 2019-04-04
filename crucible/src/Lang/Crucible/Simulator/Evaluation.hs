@@ -512,6 +512,12 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       let hv = instantiatePolyFnVal h (mkSubst subst)
       return hv
 
+    PolySpecialize _ty h_expr subst -> do
+      h <- evalSub h_expr
+      let hv = specializePolyFnVal h subst
+      return hv
+
+
     ----------------------------------------------------------------------
     -- RealVal
 

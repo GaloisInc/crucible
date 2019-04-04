@@ -568,16 +568,12 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Polymorphism
 
   -- FnHandles that generalize over all free type variables
-  -- TODO check that k is greater than the largest occurrence
-  -- of any VarType in args and ret
+  -- TODO: check that k is greater than the largest occurrence
+  -- of any VarType in args and ret? We don't have another opportunity
+  -- to generalize these
   PolyHandleLit :: !(PeanoRepr k) -> !(FnHandle args ret)
     -> App ext f (PolyFnType k args ret)
-      
-
-  -- subsumes HandleLit above and adds polymorphic handles
-  -- (but keeping above for backwards compatibility)
-  -- HandleExprLit :: HandleExpr ty -> App ext f ty
-  
+        
   -- Instantiate the type of polymorphic function handle
   -- When we instantiate a polymorphic function, filling the types
   -- 0 .. k, we need to also decrement any free variables appearing in the
@@ -586,13 +582,22 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   --   * if we did it before, then free vars would be replaced by targs
   --   * if we did it after, then we'd lower free vars in targs too.
   
-  -- TODO: add a constraint that we must instantiate *all* generalized type variables
-  -- (Ctx.CtxSize targs ~ k) => 
   PolyInstantiate ::
+        (CtxSizeP targs ~ k) => 
        !(TypeRepr (PolyFnType k args ret))
     -> !(f (PolyFnType k args ret))
     -> !(CtxRepr targs)
     -> App ext f (Instantiate (MkSubst targs) (FunctionHandleType args ret))
+
+  -- Partially apply a polymorphic function to some, but not all type arguments
+  PolySpecialize :: (Lt (CtxSizeP targs) k ~ 'True) =>
+       !(TypeRepr (PolyFnType k args ret))
+    -> !(f (PolyFnType k args ret))
+    -> !(CtxRepr targs)
+    -> App ext f (PolyFnType (Minus k (CtxSizeP targs))
+                    (Instantiate (MkSubst targs) args)
+                    (Instantiate (MkSubst targs) ret))
+
 
   ----------------------------------------------------------------------
   -- Conversions
@@ -1180,7 +1185,10 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     PolyInstantiate (PolyFnRepr _k args ret) _ targs ->
       FunctionHandleRepr (instantiate (mkSubst targs) args)
                          (instantiate (mkSubst targs) ret)
-
+    PolySpecialize (PolyFnRepr k args ret) _ targs ->
+      PolyFnRepr (minusP k (ctxSizeP targs))
+                 (instantiate (mkSubst targs) args)
+                 (instantiate (mkSubst targs) ret)
     ----------------------------------------------------------------------
     -- Conversions
     NatToInteger{} -> knownRepr
@@ -1684,13 +1692,27 @@ instance (IsSyntaxExtension ext) => InstantiateFC CrucibleType (App ext) where
                                (_args :: CtxRepr args) (_ret :: TypeRepr ret))
             r1 (targs :: CtxRepr targs)            
             | Refl <- swapMkSubstAxiom @subst @k @targs @ret,
-              Refl <- swapMkSubstAxiom @subst @k @targs @args
+              Refl <- swapMkSubstAxiom @subst @k @targs @args,
+              Refl <- ctxSizeInstantiateAxiom @subst @targs
             ->              
               PolyInstantiate
                    (instantiate subst ty)
                    (instantiate subst r1)
                    (instantiate subst targs)
-                     
+
+          PolySpecialize ty@(PolyFnRepr (_k :: PeanoRepr k)
+                               (_args :: CtxRepr args) (_ret :: TypeRepr ret))
+            r1 (targs :: CtxRepr targs)            
+            | Refl <- swapMkSubstSpecializeAxiom @subst @k @targs @ret,
+              Refl <- swapMkSubstSpecializeAxiom @subst @k @targs @args,
+              Refl <- ctxSizeInstantiateAxiom @subst @targs              
+            ->              
+              PolySpecialize
+                   (instantiate subst ty)
+                   (instantiate subst r1)
+                   (instantiate subst targs)
+
+                   
 
           NatToInteger r1 -> NatToInteger (instantiate subst r1)
           IntegerToReal r1 -> IntegerToReal (instantiate subst r1)
