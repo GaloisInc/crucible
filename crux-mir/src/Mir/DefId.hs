@@ -133,10 +133,15 @@ data DefId = DefId { did_file     :: Text    -- ^ e.g. core/ae3efe0
                                          --        ::T[0]          -- Trait name
                                          --        ::Option[0]     -- ADT type
                                          --        ::f[0]          -- function name, must be last
-                   , did_extra    :: [Entry] -- ^ e.g. ::Some[0]       -- variant name
+                   , did_extra    :: [Entry] -- ^ e.g. ::Some[0]   -- variant name
                                          --        ::Some[0]::0    -- field
                    }
   deriving (Eq, Ord, Generic)
+
+-- If a DefId is the name of a *static* method, we can find a trait name inside of it
+-- by removing the "extra" part
+getTraitName :: DefId -> DefId
+getTraitName (DefId f p n _e) = (DefId f p n [])
 
 
 isImpl :: DefId -> Bool

@@ -352,7 +352,7 @@ instance Pretty Trait where
               [ _self ] -> mempty
               ( _self : rest ) -> pretty rest
               [] -> error "BUG: supertrait list should always start with self"
-        ps = pparams (traitParamsWithAssocTys tr)
+        ps = pparams (tr^.traitParams)
     in                    
         vcat [text "trait" <+> pretty name <+> ps <+> sd <+> ppreds preds <+> lbrace ,
               indent 3 (vcat (map pretty items)),

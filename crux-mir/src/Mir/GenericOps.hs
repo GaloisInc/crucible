@@ -8,6 +8,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -29,7 +30,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 
-import Control.Lens((^.),(&),(%~))
+import Control.Lens((^.),(&),(%~), makeLenses)
 
 import Mir.DefId
 import Mir.Mir
@@ -38,7 +39,22 @@ import Mir.PP(fmt)
 import GHC.Generics
 import GHC.Stack
 
+import Data.Coerce
+
 import Debug.Trace
+
+
+type ATDict = Map AssocTy Ty
+data ATInfo = ATInfo {
+     _atStart :: Integer    -- ^ index to start renaming
+   , _atNum   :: Integer    -- ^ number of ATs to insert
+   , _atDict  :: ATDict     -- ^ mapping for AssocTys
+   , _atCol   :: Collection -- ^ collection
+   , _atMeths :: Map MethName (FnSig,Trait)
+       -- ^ declared types of trait methods, plus params and AssocTys from the trait
+   }
+
+makeLenses ''ATInfo
 
 --------------------------------------------------------------------------------------
 --
@@ -85,6 +101,7 @@ class GenericOps a where
   numTyParams x = numTyParams' (from x)
 
   -- | replace "TyProjection"s with their associated types
+  -- and add additional arguments to type substitutions
   abstractATs :: ATInfo -> a -> a 
   default abstractATs :: (Generic a, GenericOps' (Rep a)) => ATInfo -> a -> a
   abstractATs s x = to (abstractATs' s (from x))
@@ -134,27 +151,96 @@ class GenericOps a where
 
 -}
 
-type ATDict = Map AssocTy Ty
-data ATInfo = ATInfo 
-   Integer   -- ^ index to start renaming
-   Integer   -- ^ number of ATs to insert
-   ATDict    -- ^ mapping for AssocTys 
-
 
 -- | Special case for Ty
 abstractATsTy :: ATInfo -> Ty -> Ty
-abstractATsTy (ATInfo tk ta _atys) (TyParam i)
-    | i < tk    = TyParam i         -- trait param,  leave alone
-    | otherwise = TyParam (i + ta)  -- method param, shift over
-abstractATsTy (ATInfo _tk _ta atys) ty@(TyProjection d substs)
+abstractATsTy ati (TyParam i)
+    | i < (ati^.atStart) = TyParam i          -- trait param,  leave alone
+    | otherwise = TyParam (i + (ati^.atNum))  -- method param, shift over
+abstractATsTy ati ty@(TyProjection d substs)
     -- associated type, replace with new param
-    | Just nty <- Map.lookup (d,substs) atys = nty
+    | Just nty <- Map.lookup (d,substs) (ati^.atDict) = nty
     | otherwise = error $ fmt ty ++ " with unknown translation"
 abstractATsTy s ty = to (abstractATs' s (from ty))
 
 -- | Special case for FnSig (see abstractTraitAssociatedTypes) ???
 --abstractATsFnSig :: ATInfo -> Ty -> Ty
 --abstractATsFnSig (ATInfo tk ta _atys) fs
+
+
+-- What if the function itself has associated types?
+-- or, what if the function we are calling is 
+abstractATsConstVal ati (ConstFunction defid funsubst)
+  | Just (fs,mt) <- fnType ati defid
+  = let
+       
+      
+       -- remove any ats from the current substs
+       funsubst1 = abstractATs ati funsubst
+
+       -- add ATs from trait (if any) to the appropriate place
+       -- in the middle of the funsubst
+       funsubst2 :: Substs
+       funsubst2 = case mt of
+                     Nothing -> funsubst1
+                     Just tr ->
+                       let tats  = tySubst funsubst1 (tr^.traitAssocTys)
+                           j     = length $ tr^.traitParams
+                           tats' = lookupATs ati tats
+                       in
+                         substInsertAt tats' j funsubst1
+                         
+       -- find any ats for the method instantiate them 
+       ats       = tySubst funsubst1 (fs^.fsassoc_tys)
+       
+       -- replace ats with their definition
+       ats'      = lookupATs ati ats
+
+       -- add method ats to the end of the function subst
+       hsubst    = funsubst2 <> ats'
+    in
+       ConstFunction defid hsubst
+         
+abstractATsConstVal ati val = to (abstractATs' ati (from val))
+
+
+lookupATs :: ATInfo -> [AssocTy] -> Substs
+lookupATs ati ats =
+  Substs $ abstractATs ati (map (\(a,b) -> TyProjection a b) ats)
+
+-- | Find the type of a function 
+fnType :: ATInfo -> MethName -> Maybe (FnSig, Maybe Trait)
+fnType ati mn 
+
+  -- normal function 
+  | Just fn <- (ati^.atCol.functions) Map.!? mn
+  = Just (fn^.fsig, Nothing)
+
+  -- trait method
+  | Just (s, tr) <- (ati^.atMeths) Map.!? mn
+  = Just (s, Just tr)
+  
+  | otherwise
+  = Nothing
+
+-- | Pre-allocate the trait info so that we can find it more easily
+buildMethodContext :: Collection -> Map MethName (FnSig, Trait)
+buildMethodContext col = foldMap go (col^.traits) where
+   go tr = foldMap go2 (tr^.traitItems) where
+     go2 (TraitMethod nm sig) = Map.singleton nm (sig, tr)
+     go2 _ = Map.empty
+
+-- |  insertAt xs k ys
+-- is equivalent to take k ++ xs ++ drop k
+
+insertAt :: [a] -> Int -> [a] -> [a]
+insertAt xs 0 ys = xs ++ ys
+insertAt xs n [] = xs
+insertAt xs n (y:ys) = y : insertAt xs (n - 1)ys
+
+substInsertAt :: Substs -> Int -> Substs -> Substs
+substInsertAt = coerce (insertAt @Ty)
+
 --------------------------------------------------------------------------------------
 
 -- ** markCStyle
@@ -225,7 +311,10 @@ modifyPreds_TraitImplItem f fs@(TraitImplType {}) = fs & tiiPredicates %~ f
 --------------------------------------------------------------------------------------
 
 -- ** Overridden instances for Mir AST types
-                    
+
+instance GenericOps ConstVal where
+  abstractATs = abstractATsConstVal
+                                                       
 -- special case for DefIds
 instance GenericOps DefId where
   relocate          = relocateDefId 
@@ -314,7 +403,6 @@ instance GenericOps CastKind
 instance GenericOps Literal
 instance GenericOps IntLit
 instance GenericOps FloatLit
-instance GenericOps ConstVal
 instance GenericOps AggregateKind
 instance GenericOps CustomAggregate
 instance GenericOps Trait where

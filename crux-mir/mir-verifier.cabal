@@ -54,8 +54,10 @@ library
                    Mir.GenericOps
                    Mir.Prims
                    Mir.Pass
-                   Mir.Pass.AllocateEnum                   
+                   Mir.Pass.AllocateEnum
+                   Mir.Pass.AssociatedTypes
                    Mir.Pass.CollapseRefs
+                   Mir.Pass.ExpandSuperTraits
                    Mir.Pass.MutRefReturnStatic
                    Mir.Pass.RewriteMutRef
                    Mir.Pass.RemoveStorage

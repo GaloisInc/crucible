@@ -33,7 +33,7 @@
                 -fno-warn-unticked-promoted-constructors #-}
 
 -- The data structures used during translation, especially those concerned with
--- the dictionary-passing interpretation of Traits.
+-- the dictionary-passing interpretation of traits.
 module Mir.Generator
 {-
 , MirGenerator
@@ -71,6 +71,8 @@ import qualified Data.Text as Text
 import           Data.Functor.Identity
 
 import           Control.Lens hiding (Empty, (:>), Index, view)
+import           Control.Monad
+
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Some
@@ -89,40 +91,21 @@ import           Mir.Mir
 import           Mir.MirTy
 import           Mir.Intrinsics
 import           Mir.GenericOps(ATDict)
-
+import           Mir.PP
 
 import           Unsafe.Coerce(unsafeCoerce)
-import           Control.Monad
 import           Debug.Trace
+import           GHC.Stack
 
 
 ---------------------------------------------------------------------------------
--- TODO: Should be in Data.Parameterized.Classes
--- 
--- Safe usage requires that f be a singleton type
-{-
-newtype DI f a = Don'tInstantiate (KnownRepr f a => Dict (KnownRepr f a))
 
-knownInstance :: forall a f . f a -> Dict (KnownRepr f a)
-knownInstance s = with_sing_i Dict
-  where
-    with_sing_i :: (KnownRepr f a => Dict (KnownRepr f a)) -> Dict (KnownRepr f a)
-    with_sing_i si = unsafeCoerce (Don'tInstantiate si) s
-
--- | convert an explicit repr to an implicit repr
-withKnownRepr :: forall n r f. f n -> (KnownRepr f n => r) -> r
-withKnownRepr si r = case knownInstance si of
-                        Dict -> r
-
-type family CtxSizeP (ctx :: Ctx k) :: Peano where
-  CtxSizeP 'EmptyCtx   = Z
-  CtxSizeP (xs '::> x) = S (CtxSizeP xs)
-
-ctxSizeP :: CtxRepr ctx -> PeanoRepr (CtxSizeP ctx)
-ctxSizeP r = case viewAssign r of
-  AssignEmpty -> zeroP
-  AssignExtend a _ -> succP (ctxSizeP a)
--}
+-- | The main data type for values, bundling the term-level
+-- type ty along with a crucible expression of type ty
+data MirExp s where
+    MirExp :: TypeRepr ty -> Expr MIR s ty -> MirExp s
+instance Show (MirExp s) where
+    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
 ---------------------------------------------------------------------------------
 
@@ -172,7 +155,7 @@ varInfoRepr (VarAtom a) = typeOfAtom a
 -- *** LabelMap
 
 -- | The LabelMap maps identifiers to labels of their corresponding basicblock
-type LabelMap s = Map.Map BasicBlockInfo (Label s)
+type LabelMap s = Map BasicBlockInfo (Label s)
 
 ---------------------------------------------------------------------------
 -- *** HandleMap
@@ -196,7 +179,7 @@ instance Pretty MirHandle where
 -- | The HandleMap maps mir functions to their corresponding function
 -- handle. Function handles include the original method name (for
 -- convenience) and original Mir type (for trait resolution).
-type HandleMap = Map.Map MethName MirHandle
+type HandleMap = Map MethName MirHandle
 
 ---------------------------------------------------------------------------
 -- *** TraitMap and StaticTraitMap
@@ -206,7 +189,7 @@ data TraitMap (s::Type) = TraitMap (Map TraitName (Some (TraitImpls s)))
 
 -- | A StaticTraitMap maps trait method names to all traits that contain them
 -- (There could be multiple, and will need to use type info to resolve further)
-type StaticTraitMap = Map.Map MethName [TraitName]
+type StaticTraitMap = Map MethName [TraitName]
 
 
 -- | The implementation of a Trait.
@@ -224,9 +207,12 @@ data TraitImpls (s::Type) ctx = TraitImpls
   ,_methodIndex :: Map MethName (Some (Index ctx))
    -- ^ Tells which fields (indices) of the struct correspond to
    -- method names of the given trait
-  ,_vtables :: Map Ty (Assignment (MirValue s) ctx)
-   -- ^ Gives the vtable for each type implementing a given trait
-   -- the type Ty may have free type variables, in which case the lookup
+  ,_vtables :: Map [Ty] (Assignment (MirValue s) ctx)
+   -- ^ Gives the vtable for each type substitution implementing a given trait
+   -- the length of [Ty] depends on the number of type params to the trait
+   -- (usually one, called Self, but could be more)
+   -- 
+   -- NOTE: the index types [Ty] may have free type variables, in which case the lookup
    -- function will match against the type to resolve the instance
    -- TODO: if the impl methods need additional preds, we won't be able to
    -- add them. Need a work-around for this.
@@ -242,26 +228,18 @@ data MirValue s ty where
            -> FnSig
            -> MirValue s ty
 
--- | The main data type for values, bundling the term-level
--- type ty along with a crucible expression of type ty
-data MirExp s where
-    MirExp :: TypeRepr ty -> Expr MIR s ty -> MirExp s
-instance Show (MirExp s) where
-    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
 
 
--- | Type-level instantiation function 
--- This seems a little weird. Why don't we shift the substitution inside the polytype?
+-- | Type-level instantiation function
+-- All values stored in the vtables must be polymorphic functions
 type family ImplementTrait (timpls :: Ctx CrucibleType ) (arg :: CrucibleType) :: CrucibleType where  
   ImplementTrait timpls (PolyFnType k args ret) =
     PolyFnType (Minus k (CtxSizeP timpls))
                (Instantiate (MkSubst timpls) args)
                (Instantiate (MkSubst timpls) ret)
          
-  -- ImplementTrait implSubst (ty :: CrucibleType)  = Instantiate implSubst ty                                               
-
--- | Map the instantiation function across the context
+-- | Map the instantiation function across a context
 type family ImplementCtxTrait (implSubst :: Ctx CrucibleType) (arg :: Ctx k) :: Ctx k where
   ImplementCtxTrait implSubst EmptyCtx = EmptyCtx
   ImplementCtxTrait implSubst (ctx ::> ty) = ImplementCtxTrait implSubst ctx ::> ImplementTrait implSubst ty
@@ -283,15 +261,18 @@ implementIdx _implSubst idx = unsafeCoerce idx
 
 -- | Extract the Crucible expression from the vtable. Must provide the correct instantiation
 -- for this particular value, or fails at runtime
-valueToExpr :: CtxRepr implSubst -> MirValue s ty -> Expr MIR s (ImplementTrait implSubst ty)
+valueToExpr :: HasCallStack => CtxRepr implSubst -> MirValue s ty -> Expr MIR s (ImplementTrait implSubst ty)
 valueToExpr wantedImpl (MirValue implRepr _ e _)
   | Just Refl <- testEquality wantedImpl implRepr
   = e
   | otherwise 
   = error $ "BUG: Invalid implementation type. " 
 
-vtblToStruct :: CtxRepr implSubst -> Assignment (MirValue s) ctx
-             -> Assignment (Expr MIR s) (ImplementCtxTrait implSubst ctx)
+-- | Create a Crucible struct from the vtable --- this is a dictionary for the trait
+vtblToStruct ::
+     CtxRepr implSubst
+  -> Assignment (MirValue s) ctx
+  -> Assignment (Expr MIR s) (ImplementCtxTrait implSubst ctx)
 vtblToStruct _implSubst Empty = Empty
 vtblToStruct implSubst (ctx :> val) = vtblToStruct implSubst ctx :> valueToExpr implSubst val
 
@@ -310,9 +291,9 @@ mkGenericTraitMap ((tn,Some (GenericTraitImpls impls)):rest) =
     GenericTraitMap m ->
       GenericTraitMap (Map.insert tn (Some impls) m)
 
-mkGenericTraitImpls ::  CtxRepr ctx
-           -> Map.Map MethName (Some (Index ctx))
-           -> Map.Map Ty (Assignment GenericMirValue ctx)
+mkGenericTraitImpls :: CtxRepr ctx
+           -> Map MethName (Some (Index ctx))
+           -> Map [Ty] (Assignment GenericMirValue ctx)
            -> GenericTraitImpls ctx
 mkGenericTraitImpls str midx vtbls' =
   GenericTraitImpls $
@@ -361,7 +342,7 @@ addVTable tname ty preds implSubst meths (TraitMap tm) =
 -- | Smart constructor
 traitImpls :: CtxRepr ctx
            -> Map.Map MethName (Some (Index ctx))
-           -> Map.Map Ty (Assignment (MirValue s) ctx)
+           -> Map.Map [Ty] (Assignment (MirValue s) ctx)
            -> TraitImpls s ctx
 traitImpls str midx vtbls =
   TraitImpls {_vtableTyRepr = str
@@ -381,50 +362,70 @@ makeLenses ''MirHandle
 $(return [])
 
 ------------------------------------------------------------------------------------
+-- extra: Control.Monad.Extra
 
-first :: (a -> Maybe b) -> [a] -> Maybe b
-first f [] = Nothing
-first f (x:xs) = case f x of Just y   -> Just y
-                             Nothing  -> first f xs
+firstJustM :: Monad m => (a -> m (Maybe b)) -> [a] -> m (Maybe b)
+firstJustM f [] = return Nothing
+firstJustM f (x:xs) = do
+  mx <- f x
+  case mx of
+    Just y  -> return $ Just y
+    Nothing -> firstJustM f xs
 
 ------------------------------------------------------------------------------------
 
--- TODO: remove errors and return Nothing instead
--- | Given a (static)-trait method name and type substitution, figure out which
--- trait implementation to use
-resolveStaticTrait :: StaticTraitMap -> Collection -> TraitMap s -> MethName -> Substs
-  -> Maybe (MirExp s, FnSig)
-resolveStaticTrait stm col tm mn sub =
-  case  Map.lookup mn stm of
-    Just ts -> case sub of
-      (Substs (_:_)) -> first (\tn -> resolveTraitMethod tm tn sub mn) ts
-      Substs []      -> error $ "Cannot resolve trait " ++ show mn ++ " without type arguments"
-    Nothing -> Nothing
 
-resolveTraitMethod :: TraitMap s -> TraitName -> Substs -> MethName -> Maybe (MirExp s, FnSig)
-resolveTraitMethod (TraitMap tmap) tn (Substs subs@(ty:_)) mn
-  | Just (Some timpls) <- Map.lookup tn tmap
-  , Just (Some idx)    <- Map.lookup mn (timpls^.methodIndex)
-  = do
-     let vtab = timpls^.vtables
-     case Map.lookup ty vtab of
-       Just assn -> case assn ! idx of 
-         MirValue _ tye e sig -> return (MirExp tye e, sig)
-       Nothing   ->
-         let -- go :: Ty -> Assignment (MirValue s) ctx -> Maybe (MirExp s) -> Maybe (MirExp s)
-             go keyTy assn res =
-               case matchTy ty keyTy of
-                 Nothing -> res
-                 Just _inst -> case (assn ! idx) of
-                   MirValue _ ty e sig -> Just (MirExp ty e, sig)
-         in                     
-            Map.foldrWithKey go Nothing vtab
-            
-resolveTraitMethod _ tn (Substs (_:_)) mn = 
-  error $ "Cannot find trait " ++ show tn ++ " or its method " ++ show mn
-resolveTraitMethod (TraitMap tmap) tn (Substs []) mn =
-  error $ "Cannot resolve trait without type arguments"
+-- | Given a (static)-trait method name and type substitution, find the 
+-- implementation to use
+--
+-- Returns the function, its type and any remaining substitution types not used for
+-- method resolution.
+-- If no method can be found, return Nothing
+--
+-- This returns a Maybe instead of failing so that we can try something else if 
+-- resolution of the method name fails
+--
+-- NOTE: tries the 
+resolveStaticTrait :: MethName -> Substs -> MirGenerator h s ret (Maybe (MirExp s, FnSig, Substs))
+resolveStaticTrait mn sub = do
+  stm <- use staticTraitMap
+  case (stm Map.!? mn) of
+    Just tns -> firstJustM (resolveStaticMethod mn sub) (getTraitName mn : tns)
+    Nothing -> resolveStaticMethod mn sub (getTraitName mn)
 
+resolveStaticMethod mn (Substs tys) tn = do
+  col <- use collection
+  (TraitMap tmap) <- use traitMap
+  case (col^.traits) Map.!? tn of
+    Nothing -> return $ Nothing -- fail $ "Cannot find trait in collection" ++ show tn
+    Just trait -> do
+      case tmap Map.!? tn of
+        Nothing -> return $ Nothing -- fail $ "Cannot find trait in traitMap " ++ fmt tn
+        Just (Some timpls) ->
+          case (timpls^.methodIndex) Map.!? mn of
+            Nothing -> return $ Nothing -- fail $ "Cannot find method " ++ fmt mn ++ " in trait " ++ fmt tn
+            Just (Some idx) -> do
+              let numParams       = length (trait^.traitParams)
+              let (trTys,methTys) = splitAt numParams tys
+--              traceM $ "resolveStaticTrait: looking for " ++ fmt mn ++ " in trait " ++ fmt tn
+--              traceM $ "    with trTys   " ++ fmt trTys
+--              traceM $ "    and methTys  " ++ fmt methTys
+              let vtab            = timpls^.vtables
+              case vtab Map.!? trTys of
+                Just assn -> case assn ! idx of
+                  MirValue _ tye e sig -> do
+                    -- find it directly
+                    return (Just (MirExp tye e, sig, Substs methTys))
+                Nothing ->
+                  -- find it via unification
+                  let --go :: [Ty] -> Assignment (MirValue s) ctx -> Maybe (MirExp s) -> Maybe (MirExp s)
+                      go keyTy assn res =
+                        case matchTys trTys keyTy of
+                          Nothing -> res
+                          Just _inst -> case (assn ! idx) of
+                            MirValue _ ty e sig -> Just (MirExp ty e, sig, Substs methTys)
+                  in                     
+                     return $ Map.foldrWithKey go Nothing vtab
 
 -------------------------------------------------------------------------------------------------------
 

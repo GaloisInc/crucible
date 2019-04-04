@@ -30,15 +30,13 @@ License          : BSD3
 module Mir.Mir where
 
 import qualified Data.ByteString as B
+import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 
 import Data.Semigroup
 
 import Control.Lens(makeLenses,(^.), Simple, Lens, lens)
-
-
-
 
 import GHC.Generics 
 import GHC.Stack
@@ -164,9 +162,9 @@ instance Ord Var where
 
 
 data Collection = Collection {
-    _functions :: Map.Map MethName Fn,
-    _adts      :: Map.Map AdtName Adt,
-    _traits    :: Map.Map TraitName Trait,
+    _functions :: Map MethName Fn,
+    _adts      :: Map AdtName Adt,
+    _traits    :: Map TraitName Trait,
     _impls     :: [TraitImpl]
 } deriving (Show, Eq, Ord, Generic)
 
@@ -551,14 +549,11 @@ fromIntegerLit (I64 i)   = i
 fromIntegerLit (Isize i) = i
 
 
--- | Convert an associated type into a Mir type parameter
-toParam :: AssocTy -> Param
-toParam (did,_substs) = Param (idText did)  -- do we need to include substs?
 
 -- | Access *all* of the params of the trait
-traitParamsWithAssocTys :: Trait -> [Param]
-traitParamsWithAssocTys trait =
-   trait^.traitParams ++ map toParam (trait^.traitAssocTys)
+--traitParamsWithAssocTys :: Trait -> [Param]
+--traitParamsWithAssocTys trait =
+--   trait^.traitParams ++ map toParam (trait^.traitAssocTys)
 
 
 
@@ -659,5 +654,6 @@ instance TypeOf LvalueProjection where
    peelIdx (TyRef t m)   = TyRef (peelIdx t) m
    peelIdx t             = t
 
-  
 --------------------------------------------------------------------------------------------
+
+  

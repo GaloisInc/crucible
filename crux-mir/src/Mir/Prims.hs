@@ -19,9 +19,6 @@
 
 module Mir.Prims where
 
-import Data.Semigroup
-
-import Mir.DefId
 import Mir.Mir
 import Mir.Generate
 import Mir.PP()

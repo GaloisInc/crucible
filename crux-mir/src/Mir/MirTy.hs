@@ -82,6 +82,7 @@ matchSig (FnSig instArgs instRet _instParams _instPreds _instATs)
   m2 <- matchTy  instRet  genRet
   combineMaps m1 m2
 
+matchPred :: Predicate -> Predicate -> Maybe (Map Integer Ty)
 matchPred (TraitPredicate d1 ss1) (TraitPredicate d2 ss2)
   | d1 == d2
   = matchSubsts ss1 ss2
