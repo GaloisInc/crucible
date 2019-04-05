@@ -1716,11 +1716,11 @@ callFunctionWithCont tailCall_ fnTy fn args assign_f k
                  ] = k
 
      | L.ValSymbol (L.Symbol nm) <- fn
-     , Just bpNm <- testBreakpointFunction nm = do
+     , testBreakpointFunction nm = do
         some_val_args <- mapM typedValueAsCrucibleValue args
         case Ctx.fromList some_val_args of
           Some val_args -> do
-            addBreakpointStmt (Text.pack bpNm) val_args
+            addBreakpointStmt (Text.pack nm) val_args
             k
 
      | otherwise = callFunction tailCall_ fnTy fn args assign_f >> k

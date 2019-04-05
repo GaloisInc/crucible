@@ -59,7 +59,7 @@ import           Control.Monad
 import           Control.Monad.Except
 import           Data.Bits
 import           Data.Kind
-import           Data.List (intercalate, stripPrefix)
+import           Data.List (intercalate, isPrefixOf)
 import           Data.Traversable
 import           Data.Fixed (mod')
 import qualified Data.Vector as V
@@ -1092,5 +1092,5 @@ transConstantExpr expr = case expr of
  badExp :: String -> m a
  badExp msg = throwError $ unlines [msg, show expr]
 
-testBreakpointFunction :: String -> Maybe String
-testBreakpointFunction = stripPrefix "__breakpoint__"
+testBreakpointFunction :: String -> Bool
+testBreakpointFunction = isPrefixOf "__breakpoint__"
