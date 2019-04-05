@@ -1331,15 +1331,20 @@ normStmt' :: forall h s m
            . (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState h s) m, MonadST h m) =>
              m ()
 normStmt' =
-  call (printStmt <|> letStmt <|> (void funcall) <|>
+  call (printStmt <|> printLnStmt <|> letStmt <|> (void funcall) <|>
         setGlobal <|> setReg <|> setRef <|> dropRef <|>
         assertion <|> assumption)
 
   where
-    printStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion :: m ()
+    printStmt, printLnStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion :: m ()
     printStmt =
       do Posd loc e <- unary Print_ (located $ reading $ check StringRepr)
          strAtom <- eval loc e
+         tell [Posd loc (Print strAtom)]
+
+    printLnStmt =
+      do Posd loc e <- unary PrintLn_ (located $ reading $ check StringRepr)
+         strAtom <- eval loc (EApp (AppendString e (EApp (TextLit "\n"))))
          tell [Posd loc (Print strAtom)]
 
     letStmt =
