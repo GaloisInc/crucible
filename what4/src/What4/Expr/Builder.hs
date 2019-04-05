@@ -74,6 +74,7 @@ module What4.Expr.Builder
   , ppExprTop
   , exprMaybeId
   , asConjunction
+  , asDisjunction
   , Polarity(..)
   , BM.negatePolarity
     -- ** AppExpr
@@ -1025,6 +1026,23 @@ asConjunction (asApp -> Just (NotPred (asApp -> Just (DisjPred xs)))) =
    BoolMapTerms (tm:|tms) -> map (over _2 BM.negatePolarity) (tm:tms)
 asConjunction x = [(x,Positive)]
 
+
+asDisjunction :: Expr t BaseBoolType -> [(Expr t BaseBoolType, Polarity)]
+asDisjunction (BoolExpr False _) = []
+asDisjunction (asApp -> Just (DisjPred xs)) =
+ case BM.viewBoolMap xs of
+   BoolMapUnit     -> []
+   BoolMapDualUnit -> [(BoolExpr True initializationLoc, Positive)]
+   BoolMapTerms (tm:|tms) -> tm:tms
+
+asDisjunction (asApp -> Just (NotPred (asApp -> Just (ConjPred xs)))) =
+ case BM.viewBoolMap xs of
+   BoolMapUnit     -> []
+   BoolMapDualUnit -> [(BoolExpr True initializationLoc, Positive)]
+   BoolMapTerms (tm:|tms) -> map (over _2 BM.negatePolarity) (tm:tms)
+asDisjunction x = [(x,Positive)]
+
+
 ------------------------------------------------------------------------
 -- Types
 
@@ -1697,17 +1715,20 @@ ppApp' a0 = do
                 ppEntry 1 e  = [ exprPrettyArg e ]
                 ppEntry sm e = [ PrettyFunc "natMul" [stringPrettyArg (show sm), exprPrettyArg e ] ]
 
-        SR.SemiRingBVRepr SR.BVArithRepr _w -> prettyApp "bvSum" (WSum.eval (++) ppEntry ppConstant s)
+        SR.SemiRingBVRepr SR.BVArithRepr w -> prettyApp "bvSum" (WSum.eval (++) ppEntry ppConstant s)
           where ppConstant 0 = []
-                ppConstant c = [ stringPrettyArg (show c) ]
+                ppConstant c = [ stringPrettyArg (ppBV c) ]
                 ppEntry 1 e  = [ exprPrettyArg e ]
-                ppEntry sm e = [ PrettyFunc "bvMul" [ stringPrettyArg (show sm), exprPrettyArg e ] ]
+                ppEntry sm e = [ PrettyFunc "bvMul" [ stringPrettyArg (ppBV sm), exprPrettyArg e ] ]
+                ppBV x       = "0x" ++ (N.showHex x []) ++ ":[" ++ show w ++ "]"
 
-        SR.SemiRingBVRepr SR.BVBitsRepr _w -> prettyApp "bvXor" (WSum.eval (++) ppEntry ppConstant s)
+        SR.SemiRingBVRepr SR.BVBitsRepr w -> prettyApp "bvXor" (WSum.eval (++) ppEntry ppConstant s)
           where ppConstant 0 = []
-                ppConstant c = [ stringPrettyArg (show c) ]
-                ppEntry 1 e  = [ exprPrettyArg e ]
-                ppEntry sm e = [ PrettyFunc "bvAnd" [ stringPrettyArg (show sm), exprPrettyArg e ] ]
+                ppConstant c = [ stringPrettyArg (ppBV c) ]
+                ppEntry sm e
+                  | sm == maxUnsigned w = [ exprPrettyArg e ]
+                  | otherwise = [ PrettyFunc "bvAnd" [ stringPrettyArg (ppBV sm), exprPrettyArg e ] ]
+                ppBV x       = "0x" ++ (N.showHex x []) ++ ":[" ++ show w ++ "]"
 
     SemiRingProd pd ->
       case WSum.prodRepr pd of
@@ -2005,6 +2026,13 @@ isNonLinearApp app = case app of
 
 {-# INLINE compareExpr #-}
 compareExpr :: Expr t x -> Expr t y -> OrderingF x y
+
+-- Special case, ignore the BV semiring flavor for this purpose
+compareExpr (SemiRingLiteral (SR.SemiRingBVRepr _ wx) x _) (SemiRingLiteral (SR.SemiRingBVRepr _ wy) y _) =
+  case compareF wx wy of
+    LTF -> LTF
+    EQF -> fromOrdering (compare x y)
+    GTF -> GTF
 compareExpr (SemiRingLiteral srx x _) (SemiRingLiteral sry y _) =
   case compareF srx sry of
     LTF -> LTF
@@ -3483,7 +3511,8 @@ semiRingIte sym sr c x y
   , not (WSum.isZero sr z) = do
     xr <- semiRingSum sym x'
     yr <- semiRingSum sym y'
-    r <- sbMakeExpr sym (BaseIte (SR.semiRingBase sr) 1 c xr yr)
+    let sz = 1 + iteSize xr + iteSize yr
+    r <- sbMakeExpr sym (BaseIte (SR.semiRingBase sr) sz c xr yr)
     semiRingSum sym $! WSum.addVar sr z r
 
     -- final fallback, create the ite term
@@ -3615,6 +3644,16 @@ semiRingMul sym sr x y =
     (SR_Constant c, _) -> scalarMul sym sr c y
     (_, SR_Constant c) -> scalarMul sym sr c x
 
+    (SR_Sum (WSum.asAffineVar -> Just (c,x',o)), _) ->
+      do cxy <- scalarMul sym sr c =<< semiRingMul sym sr x' y
+         oy  <- scalarMul sym sr o y
+         semiRingAdd sym sr cxy oy
+
+    (_, SR_Sum (WSum.asAffineVar -> Just (c,y',o))) ->
+      do cxy <- scalarMul sym sr c =<< semiRingMul sym sr x y'
+         ox  <- scalarMul sym sr o x
+         semiRingAdd sym sr cxy ox
+
     (SR_Prod px, SR_Prod py) -> semiRingProd sym (WSum.prodMul px py)
     (SR_Prod px, _)          -> semiRingProd sym (WSum.prodMul px (WSum.prodVar sr y))
     (_, SR_Prod py)          -> semiRingProd sym (WSum.prodMul (WSum.prodVar sr x) py)
@@ -3744,6 +3783,52 @@ foldIndicesInRangeBounds sym f0 a0 bnds0 = do
 #endif
 
 
+-- | Examine the list of terms, and determine if any one of them
+--   appears in the given @BoolMap@ with the same polarity.
+checkAbsorption ::
+  BoolMap (Expr t) ->
+  [(BoolExpr t, Polarity)] ->
+  Bool
+checkAbsorption _bm [] = False
+checkAbsorption bm ((x,p):_)
+  | Just p' <- BM.contains bm x, p == p' = True
+checkAbsorption bm (_:xs) = checkAbsorption bm xs
+
+tryAndAbsorption ::
+  BoolExpr t ->
+  Polarity ->
+  BoolExpr t ->
+  Polarity ->
+  Bool
+tryAndAbsorption (asApp -> Just (DisjPred as)) Positive (asConjunction -> bs) Positive
+  = checkAbsorption as bs
+tryAndAbsorption (asApp -> Just (DisjPred as)) Positive (asDisjunction -> bs) Negative
+  = checkAbsorption as (map (over _2 BM.negatePolarity) bs)
+tryAndAbsorption (asApp -> Just (ConjPred as)) Negative (asConjunction -> bs) Positive
+  = checkAbsorption (BM.reversePolarities as) bs
+tryAndAbsorption (asApp -> Just (ConjPred as)) Negative (asDisjunction -> bs) Negative
+  = checkAbsorption (BM.reversePolarities as) (map (over _2 BM.negatePolarity) bs)
+tryAndAbsorption _ _ _ _ = False
+
+
+tryOrAbsorption ::
+  BoolExpr t ->
+  Polarity ->
+  BoolExpr t ->
+  Polarity ->
+  Bool
+tryOrAbsorption (asApp -> Just (ConjPred as)) Positive (asDisjunction -> bs) Positive
+  = checkAbsorption as bs
+tryOrAbsorption (asApp -> Just (ConjPred as)) Positive (asConjunction -> bs) Negative
+  = checkAbsorption as (map (over _2 BM.negatePolarity) bs)
+tryOrAbsorption (asApp -> Just (DisjPred as)) Negative (asDisjunction -> bs) Positive
+  = checkAbsorption (BM.reversePolarities as) bs
+tryOrAbsorption (asApp -> Just (DisjPred as)) Negative (asConjunction -> bs) Negative
+  = checkAbsorption (BM.reversePolarities as) (map (over _2 BM.negatePolarity) bs)
+tryOrAbsorption _ _ _ _ = False
+
+
+
 instance IsExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
 
@@ -3784,8 +3869,22 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = sbMakeExpr sym (NotPred x)
 
   eqPred sym x y
-    | x == y    = return (truePred sym)
-    | otherwise = sbMakeExpr sym $ BaseEq BaseBoolRepr (min x y) (max x y)
+    | x == y
+    = return (truePred sym)
+
+    | Just (NotPred x') <- asApp x
+    = xorPred sym x' y
+
+    | Just (NotPred y') <- asApp y
+    = xorPred sym x y'
+
+    | otherwise
+    = case (asConstantPred x, asConstantPred y) of
+        (Just False, _)    -> notPred sym y
+        (Just True, _)     -> return y
+        (_, Just False)    -> notPred sym x
+        (_, Just True)     -> return x
+        _ -> sbMakeExpr sym $ BaseEq BaseBoolRepr (min x y) (max x y)
 
   xorPred sym x y = notPred sym =<< eqPred sym x y
 
@@ -3830,27 +3929,15 @@ instance IsExprBuilder (ExprBuilder t st fs) where
      , pb == Negative
      = notPred sym =<< disjPred sym (BM.combine as bs)
 
-     | Just (DisjPred as) <- asApp a
-     , pa == Positive
-     , Just p <- BM.contains as b
-     = if p == pb then
-         -- (B \/ C) /\ B == B
-         return b
-       else
-         -- (~B \/ C) /\ B == C /\ B
-         do a' <- disjPred sym (BM.removeVar as b)
-            andPred sym a' b
+     | tryAndAbsorption a pa b pb
+     = case pb of
+         Positive -> return b
+         Negative -> notPred sym b
 
-     | Just (DisjPred bs) <- asApp b
-     , pb == Positive
-     , Just p <- BM.contains bs a
-     = if p == pa then
-         -- A /\ (A \/ C) == A
-         return a
-       else
-         -- A /\ (~A \/ C) == A /\ C
-         do b' <- disjPred sym (BM.removeVar bs a)
-            andPred sym a b'
+     | tryAndAbsorption b pb a pa
+     = case pa of
+         Positive -> return a
+         Negative -> notPred sym a
 
      | Just (ConjPred as) <- asApp a
      , pa == Positive
@@ -3912,27 +3999,15 @@ instance IsExprBuilder (ExprBuilder t st fs) where
      , pb == Negative
      = notPred sym =<< conjPred sym (BM.combine as bs)
 
-     | Just (ConjPred as) <- asApp a
-     , pa == Positive
-     , Just p <- BM.contains as b
-     = if p == pb then
-         -- (B /\ C) \/ B == B
-         return b
-       else
-         -- (~B /\ C) \/ B == C \/ B
-         do a' <- conjPred sym (BM.removeVar as b)
-            orPred sym a' b
+     | tryOrAbsorption a pa b pb
+     = case pb of
+         Positive -> return b
+         Negative -> notPred sym b
 
-     | Just (ConjPred bs) <- asApp b
-     , pb == Positive
-     , Just p <- BM.contains bs a
-     = if p == pa then
-         -- A \/ (A /\ C) == A
-         return a
-       else
-         -- A \/ (~A /\ C) == A \/ C
-         do b' <- conjPred sym (BM.removeVar bs a)
-            orPred sym a b'
+     | tryOrAbsorption b pb a pa
+     = case pa of
+         Positive -> return a
+         Negative -> notPred sym a
 
      | Just (DisjPred as) <- asApp a
      , pa == Positive
@@ -4487,35 +4562,47 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
       -- Constant evaluation
     | Just yc <- asUnsignedBV y
-    , i <= fromIntegral (maxBound :: Int) =
-      return $! backendPred sym (yc `Bits.testBit` fromIntegral i)
+    , i <= fromIntegral (maxBound :: Int)
+    = return $! backendPred sym (yc `Bits.testBit` fromIntegral i)
 
-    | Just (BVZext _w y') <- asApp y =
-      if i >= natValue (bvWidth y') then
+    | Just (BVZext _w y') <- asApp y
+    = if i >= natValue (bvWidth y') then
         return $ falsePred sym
       else
         testBitBV sym i y'
 
-    | Just (BVSext _w y') <- asApp y =
-      if i >= natValue (bvWidth y') then
+    | Just (BVSext _w y') <- asApp y
+    = if i >= natValue (bvWidth y') then
         testBitBV sym (natValue (bvWidth y') - 1) y'
       else
         testBitBV sym i y'
 
-    | Just (BaseIte _ _ c a b) <- asApp y =
-      do a' <- testBitBV sym i a
+    | Just (BaseIte _ _ c a b) <- asApp y
+    = do a' <- testBitBV sym i a
          b' <- testBitBV sym i b
          itePred sym c a' b'
 
       -- i must equal 0 because width is 1
-    | Just (PredToBV py) <- asApp y =
-      return py
+    | Just (PredToBV py) <- asApp y
+    = return py
 
-    | Just b <- BVD.testBit (bvWidth y) (exprAbsValue y) i = do
-      return $! backendPred sym b
+    | Just b <- BVD.testBit (bvWidth y) (exprAbsValue y) i
+    = return $! backendPred sym b
 
-    | otherwise = do
-      sbMakeExpr sym $ BVTestBit i y
+    | Just ws <- asSemiRingSum (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth y)) y
+    = let smul c x
+           | Bits.testBit c (fromIntegral i) = testBitBV sym i x
+           | otherwise                       = return (falsePred sym)
+          cnst c = return $! backendPred sym (Bits.testBit c (fromIntegral i))
+       in WSum.evalM (xorPred sym) smul cnst ws
+
+    | Just pd <- asSemiRingProd (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth y)) y
+    = fromMaybe (truePred sym) <$> WSum.prodEvalM (andPred sym) (testBitBV sym i) pd
+
+    | Just (BVOrBits pd) <- asApp y
+    = fromMaybe (falsePred sym) <$> WSum.prodEvalM (orPred sym) (testBitBV sym i) pd
+
+    | otherwise = sbMakeExpr sym $ BVTestBit i y
 
   bvIte sym c x y
     | Just (PredToBV px) <- asApp x
@@ -4733,7 +4820,12 @@ instance IsExprBuilder (ExprBuilder t st fs) where
        in semiRingSum sym $ WSum.addConstant sr (asWeightedSum sr x) (maxUnsigned (bvWidth x))
 
   bvOrBits sym x y =
-    let sr = (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth x)) in
+    let sr = (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth x))
+        mkOr pd
+          | WSum.nullProd pd = bvLit sym (bvWidth x) 0
+          | Just z <- WSum.asProdVar pd = return z
+          | otherwise = sbMakeExpr sym $ BVOrBits pd
+    in
     case (asUnsignedBV x, asUnsignedBV y) of
       (Just xi, Just yi) -> bvLit sym (bvWidth x) (xi Bits..|. yi)
       (Just xi , _)
@@ -4759,17 +4851,16 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
         | Just (BVOrBits xs) <- asApp x
         , Just (BVOrBits ys) <- asApp y
-        -> sbMakeExpr sym $ BVOrBits (WSum.prodMul xs ys)
+        -> mkOr (WSum.prodMul xs ys)
 
         | Just (BVOrBits xs) <- asApp x
-        -> sbMakeExpr sym $ BVOrBits (WSum.prodMul xs (WSum.prodVar sr y))
+        -> mkOr (WSum.prodMul xs (WSum.prodVar sr y))
 
         | Just (BVOrBits ys) <- asApp y
-        -> sbMakeExpr sym $ BVOrBits (WSum.prodMul (WSum.prodVar sr x) ys)
+        -> mkOr (WSum.prodMul (WSum.prodVar sr x) ys)
 
         | otherwise
-        -> sbMakeExpr sym $ BVOrBits (WSum.prodMul (WSum.prodVar sr x) (WSum.prodVar sr y))
-
+        -> mkOr (WSum.prodMul (WSum.prodVar sr x) (WSum.prodVar sr y))
 
   bvAdd sym x y = semiRingAdd sym sr x y
      where sr = SR.SemiRingBVRepr SR.BVArithRepr (bvWidth x)
@@ -4786,7 +4877,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
              (do ux <- asUnaryBV sym x
                  Just (UnaryBV.neg sym ux))
              (do let sr = SR.SemiRingBVRepr SR.BVArithRepr (bvWidth x)
-                 scalarMul sym sr (-1) x)
+                 scalarMul sym sr (toUnsigned (bvWidth x) (-1)) x)
 
   bvIsNonzero sym x
     | Just (BaseIte _ _ p t f) <- asApp x = do

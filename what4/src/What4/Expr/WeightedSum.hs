@@ -36,6 +36,8 @@ module What4.Expr.WeightedSum
   , scaledVar
   , asConstant
   , asVar
+  , asWeightedVar
+  , asAffineVar
   , isZero
   , traverseVars
   , add
@@ -183,7 +185,30 @@ isZero sr s =
      Just c  -> SR.sr_compare sr (SR.zero sr) c == EQ
      Nothing -> False
 
+-- | Attempt to parse a weighted sum as a single expression with a coefficent and offset.
+--   @asAffineVar w = Just (c,r,o)@ when @denotation(w) = c*r + o@.
+asAffineVar :: WeightedSum f sr -> Maybe (SR.Coefficient sr, f (SR.SemiRingBase sr), SR.Coefficient sr)
+asAffineVar w
+  | [(WrapF r,c)] <- Map.toList (_sumMap w)
+  = Just (c,r,_sumOffset w)
+
+  | otherwise
+  = Nothing
+
+-- | Attempt to parse weighted sum as a single expression with a coefficent.
+--   @asWeightedVar w = Just (c,r)@ when @denotation(w) = c*r@.
+asWeightedVar :: WeightedSum f sr -> Maybe (SR.Coefficient sr, f (SR.SemiRingBase sr))
+asWeightedVar w
+  | [(WrapF r,c)] <- Map.toList (_sumMap w)
+  , let sr = sumRepr w
+  , SR.eq sr (SR.zero sr) (_sumOffset w)
+  = Just (c,r)
+
+  | otherwise
+  = Nothing
+
 -- | Attempt to parse weighted sum as a single expression.
+--   @asVar w = Just r@ when @denotation(w) = r@
 asVar :: WeightedSum f sr -> Maybe (f (SR.SemiRingBase sr))
 asVar w
   | [(WrapF r,c)] <- Map.toList (_sumMap w)

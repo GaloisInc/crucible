@@ -500,9 +500,8 @@ any w = BVDomain { domainRanges = Map.singleton 0 (maxUnsigned w)
 
 -- | Create a bitvector domain representing the integer.
 singleton :: (HasCallStack, 1 <= w) => NatRepr w -> Integer -> BVDomain w
-singleton w v
-  | 0 <= v && v <= maxUnsigned w = BVDomain { domainRanges = Map.singleton v v }
-  | otherwise = error "singleton given invalid input."
+singleton w v = BVDomain { domainRanges = Map.singleton v' v' }
+  where v' = toUnsigned w v
 
 -- | From an ascending list of elements.
 -- The elements are assumed to be distinct.
