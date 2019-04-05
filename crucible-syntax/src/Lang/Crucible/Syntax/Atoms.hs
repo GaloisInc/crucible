@@ -66,7 +66,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
              | Deref | Ref | EmptyRef
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
-             | Print_
+             | Print_ | PrintLn_
              | Let | Fresh
              | Assert_ | Assume_
              | SetRegister
@@ -151,6 +151,7 @@ keywords =
   , ("error", Error_)
   , ("output", Output_)
   , ("print" , Print_)
+  , ("println" , PrintLn_)
   , ("string-append", StringAppend)
   , ("Ref", RefT)
   , ("deref", Deref)
