@@ -204,7 +204,7 @@ traitAssocTyMap t =
 translateTrait :: Collection -> ATDict -> PDict -> Trait -> Trait
 translateTrait col adict pdict trait =
     trait & traitItems      %~ map updateMethod
-          & traitPredicates %~ map updatePred
+          & traitPredicates %~ abstractATs info
           & traitParams     %~ addATParams (trait^.traitAssocTys)
 
      where

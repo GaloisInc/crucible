@@ -163,8 +163,18 @@ abstractATsTy ati ty@(TyProjection d substs)
     | otherwise = error $ fmt ty ++ " with unknown translation"
 abstractATsTy s ty = to (abstractATs' s (from ty))
 
---abstractATsPredicate ati (TraitPredicate did ss) =
---abstractATsPredicate ati p = p
+-- | Special case for Predicates
+-- Add additional args to the substs for traits with atys
+abstractATsPredicate ati (TraitPredicate tn ss) 
+    | Just tr <- (ati^.atCol.traits) Map.!? tn
+    = let 
+        j = length (tr^.traitParams)
+        k = length (tr^.traitAssocTys)
+        atVars = take k (map (TyParam . toInteger) [j .. ])
+        ss' = Substs (map (abstractATs ati) atVars)
+      in
+        TraitPredicate tn (ss <> ss')
+abstractATsPredicate _ati p = p
 
 
 -- What if the function itself has associated types?
@@ -244,7 +254,7 @@ buildMethodContext col = foldMap go (col^.traits) where
 
 insertAt :: [a] -> Int -> [a] -> [a]
 insertAt xs 0 ys = xs ++ ys
-insertAt xs n [] = xs
+insertAt xs _n [] = xs
 insertAt xs n (y:ys) = y : insertAt xs (n - 1)ys
 
 substInsertAt :: Substs -> Int -> Substs -> Substs
@@ -323,6 +333,8 @@ modifyPreds_TraitImplItem f fs@(TraitImplType {}) = fs & tiiPredicates %~ f
 
 instance GenericOps ConstVal where
   abstractATs = abstractATsConstVal
+instance GenericOps Predicate where
+  abstractATs = abstractATsPredicate
                                                        
 -- special case for DefIds
 instance GenericOps DefId where
@@ -390,7 +402,6 @@ instance GenericOps Field
 instance GenericOps CustomTy
 instance GenericOps Mutability
 instance GenericOps Collection
-instance GenericOps Predicate
 instance GenericOps Param
 instance GenericOps Fn
 instance GenericOps MirBody
