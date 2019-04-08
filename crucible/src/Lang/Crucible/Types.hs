@@ -138,9 +138,7 @@ module Lang.Crucible.Types
   , module Data.Parameterized.NatRepr
   , module Data.Parameterized.SymbolRepr
   , module Data.Parameterized.Peano
-  , plusCtxSizeAxiom
-  , minusPlusAxiom
-  , ltMinusPlusAxiom
+
   , module Data.Parameterized.WithRepr
   , module What4.BaseTypes
   , FloatInfo
@@ -182,19 +180,6 @@ import           Unsafe.Coerce (unsafeCoerce)
 
 ------------------------------------------------------------------------
 
-plusCtxSizeAxiom :: forall t1 t2.
-  CtxSizeP (t1 Ctx.<+> t2) :~: Plus (CtxSizeP t1) (CtxSizeP t2)
-plusCtxSizeAxiom = unsafeCoerce Refl
-
-minusPlusAxiom :: forall k t1 t2.
-  (Lt t1 k ~ 'True, Lt t2 (Minus k t1) ~ 'True) =>
-  Minus (Minus k t1) t2 :~: Minus k (Plus t2 t1)
-minusPlusAxiom = unsafeCoerce Refl
-
-ltMinusPlusAxiom :: forall k t1 t2.
-  (Lt t1 k ~ 'True, Lt t2 (Minus k t1) ~ 'True) =>
-  Lt (Plus t2 t1) k :~: 'True
-ltMinusPlusAxiom = unsafeCoerce Refl
 
 ------------------------------------------------------------------------
 -- Crucible types

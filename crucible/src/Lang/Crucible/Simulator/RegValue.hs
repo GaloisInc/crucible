@@ -67,6 +67,7 @@ import           Data.Word
 import           GHC.TypeNats (KnownNat)
 
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Peano
 
 import           What4.FunctionName
 import           What4.Interface
@@ -193,7 +194,8 @@ instantiatePolyFnVal (SpecializedPolyFnVal
   | Refl <- composeInstantiateAxiom @(MkSubst targs) @subst @hargs
   , Refl <- composeInstantiateAxiom @(MkSubst targs) @subst @hret
   = InstantiatedFnVal h (compose subst (mkSubst targs))
-  
+
+-- Specialize a polymorphic function with some, but not all, type arguments
 specializePolyFnVal :: forall targs sym k args res.
      (Lt (CtxSizeP targs) k ~ 'True) 
   => PolyFnVal sym k args res
@@ -204,12 +206,20 @@ specializePolyFnVal :: forall targs sym k args res.
 specializePolyFnVal (HandlePolyFnVal k h) targs =
   SpecializedPolyFnVal k h targs
 specializePolyFnVal (SpecializedPolyFnVal (n :: PeanoRepr n) (h :: FnHandle hargs hret) (targs' :: CtxRepr targs')) targs
-  | Refl <- plusCtxSizeAxiom @targs @targs'
-  , Refl <- minusPlusAxiom @n @(CtxSizeP targs') @(CtxSizeP targs)
-  , Refl <- ltMinusPlusAxiom @n @(CtxSizeP targs') @(CtxSizeP targs)
+  -- let t = CtxSizeP targs
+  --     t = CtxSizeP targs'
+  -- 
+  -- have (from above): k == n - t',  t' < n, t < k
+
+  | Refl <- plusCtxSizeAxiom (undefined :: CtxRepr targs) (undefined :: CtxRepr targs')
+  , Refl <- minusPlusAxiom (undefined :: PeanoRepr n) (undefined :: PeanoRepr (CtxSizeP targs))
+                           (undefined :: PeanoRepr (CtxSizeP targs'))
+  , Refl <- ltMinusPlusAxiom (undefined :: PeanoRepr n) (undefined :: PeanoRepr (CtxSizeP targs))
+                      (undefined :: PeanoRepr (CtxSizeP targs'))
   , Refl <- instantiateTwiceAxiom @targs @targs' @hargs
   , Refl <- instantiateTwiceAxiom @targs @targs' @hret
-  = SpecializedPolyFnVal n h (targs Ctx.<++> targs')
+  =
+    SpecializedPolyFnVal n h (targs Ctx.<++> targs')
 
 ------------------------------------------------------------------------
 -- CanMux
