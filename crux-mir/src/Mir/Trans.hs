@@ -1518,7 +1518,7 @@ lookupFunction nm (Substs funsubst)
              traceM $ "\tpolysig is   " ++ fmt polysig
              traceM $ "\tmethsubst is " ++ fmt methsubst
              traceM $ "\tfty is       " ++ fmt fty
-
+       
            case fty of
               (C.PolyFnRepr n fargctx fret) -> do
                 case testEquality (ctxSizeP tyargs) n of
@@ -1530,8 +1530,19 @@ lookupFunction nm (Substs funsubst)
 
                      return $ Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst,
                               tySubst (Substs methsubst) (polysig^.fspredicates))
-                   Nothing -> error $ "TODO: " ++ show (ctxSizeP tyargs) ++ "/= " ++ show n
+                   Nothing ->
+                     case ltP (ctxSizeP tyargs) n of
+                       TrueRepr -> do
+                         let
+                             ifargctx = C.instantiate (C.mkSubst tyargs) fargctx
+                             ifret    = C.instantiate (C.mkSubst tyargs) fret
+                             polyinst = R.App $ E.PolySpecialize fty polyfcn tyargs
 
+                         return $ Just (MirExp (C.PolyFnRepr (n `minusP` (ctxSizeP tyargs)) ifargctx ifret) polyinst,
+                                  tySubst (Substs methsubst) (polysig^.fspredicates))
+                         
+                       FalseRepr -> 
+                         error $ "TODO: " ++ show (ctxSizeP tyargs) ++ " > " ++ show n
               _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
                           ++ show (pretty funsubst) ++ " in the trait map: " ++ show fty
 
@@ -2527,12 +2538,12 @@ mkTraitDecl tr = do
   let go :: Some (Ctx.Assignment MethRepr)
          -> (MethName, M.FnSig)
          -> Some (Ctx.Assignment MethRepr)
-      go (Some tr) (mname, sig)
+      go (Some ctxr) (mname, sig)
         | Some ret  <- tyToRepr (sig^.fsreturn_ty)
         , Some args <- tyListToCtx ((sig^.fsarg_tys) ++ Maybe.mapMaybe dictTy (sig^.fspredicates)) Some
-        , Just (Some k) <- somePeano (numTyParams sig)
-        =  Some (tr `Ctx.extend` MethRepr mname (C.PolyFnRepr k args ret))
-      go _ _ = error "mkTraitDecl bug: numParams should always return a natural number"
+        , Some k    <- peanoLength (sig^.fsgenerics)
+
+        =  Some (ctxr `Ctx.extend` MethRepr mname (C.PolyFnRepr k  args ret))
 
   case foldl go (Some Ctx.empty) meths of
     Some (mctxr :: Ctx.Assignment MethRepr ctx) ->
@@ -2551,7 +2562,9 @@ mkTraitDecl tr = do
             rm      = Map.foldrWithKey (\ mname (Some idx) m ->
                                              Map.insert (Ctx.indexVal idx) mname m) Map.empty midx
 
-        in Some (TraitDecl tname numparams meths ctxr midx rm) 
+        in
+
+           Some (TraitDecl tname numparams meths ctxr midx rm) 
 
 
 

@@ -1,9 +1,8 @@
 * TODO
 
 - first-class polymorphism
-   we have it in crucible, should use it more thoroughly in Mir
-   dictionaries are tuples of methods that can be *polymorphic*
-   creating dictionaries requires partially instantiating methods
+   DONE: dictionaries with polymorphic methods (i.e. static traits)
+   method calls must still be with all of their arguments, but perhaps that is ok.
 
 - remove unsafe coerce in "call"
 

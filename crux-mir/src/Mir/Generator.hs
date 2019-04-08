@@ -396,13 +396,13 @@ resolveStaticMethod mn (Substs tys) tn = do
   col <- use collection
   (TraitMap tmap) <- use traitMap
   case (col^.traits) Map.!? tn of
-    Nothing -> return $ Nothing -- fail $ "Cannot find trait in collection" ++ show tn
+    Nothing -> return $ Nothing -- BUG: Cannot find trait in collection
     Just trait -> do
       case tmap Map.!? tn of
-        Nothing -> return $ Nothing -- fail $ "Cannot find trait in traitMap " ++ fmt tn
+        Nothing -> return $ Nothing -- BUG: Cannot find trait in traitMap
         Just (Some timpls) ->
           case (timpls^.methodIndex) Map.!? mn of
-            Nothing -> return $ Nothing -- fail $ "Cannot find method " ++ fmt mn ++ " in trait " ++ fmt tn
+            Nothing -> return $ Nothing -- OK: Cannot find method " ++ fmt mn ++ " in trait " ++ fmt tn
             Just (Some idx) -> do
               let numParams       = length (trait^.traitParams)
               let (trTys,methTys) = splitAt numParams tys

@@ -61,19 +61,21 @@ mkDictWith f = foldr (\t m -> f t `Map.union` m) Map.empty
 --
 -- 5. translate the entire collection to eliminate uses of `TyProjection`
 --    and add extra type arguments 
-
+--
+-- (NOTE: some of the implementation of this pass is "abstractATs" in Mir.GenericOps)
+--
 passAbstractAssociated :: Collection -> Collection
 passAbstractAssociated col =
-   let col1  = col  & traits    %~ fmap addTraitAssocTys
+   let
+       col1  = col  & traits    %~ fmap addTraitAssocTys
 
-       adict = (mkImplADict col1) `Map.union` (mkClosureADict col1)
+       adict = mkImplADict col1 `Map.union` mkClosureADict col1
 
        col2  = col1 & functions %~ fmap (addFnAssocTys col1 adict)
        
        mc    = buildMethodContext col2
 
    in
-
      
    col2 & traits    %~ Map.map (translateTrait col2 adict mc) 
         & functions %~ Map.map (translateFn    col2 adict mc)

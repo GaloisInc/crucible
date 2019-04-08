@@ -1,4 +1,3 @@
-// FAIL: needs a polymorphic member in a trait dictionary
 trait FIndex<A> {
     
     type Output : ?Sized;
