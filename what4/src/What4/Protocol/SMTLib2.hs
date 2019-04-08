@@ -388,9 +388,9 @@ instance SupportTermOps Term where
   realToFloat fpp r = un_app $ mkRoundingOp (mkFloatSymbol "to_fp" (asSMTFloatPrecision fpp)) r
 
   floatToBV w r =
-    un_app $ mkRoundingOp ("(fp.to_ubv " <> fromString (show w) <> ")") r
+    un_app $ mkRoundingOp ("(_ fp.to_ubv " <> fromString (show w) <> ")") r
   floatToSBV w r =
-    un_app $ mkRoundingOp ("(fp.to_sbv " <> fromString (show w) <> ")") r
+    un_app $ mkRoundingOp ("(_ fp.to_sbv " <> fromString (show w) <> ")") r
 
   floatToReal = un_app "fp.to_real"
 
