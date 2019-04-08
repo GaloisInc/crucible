@@ -1515,7 +1515,7 @@ lookupFunction nm (Substs funsubst)
 
            when (db > 3) $ do
              traceM $ "***lookupFunction: In static trait call of " ++ fmt nm ++ fmt (Substs funsubst)
-             traceM $ "\tpolysig is   " ++  fmt polysig
+             traceM $ "\tpolysig is   " ++ fmt polysig
              traceM $ "\tmethsubst is " ++ fmt methsubst
              traceM $ "\tfty is       " ++ fmt fty
 
@@ -1529,7 +1529,7 @@ lookupFunction nm (Substs funsubst)
                          polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs
 
                      return $ Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst,
-                              tySubst (Substs funsubst) (polysig^.fspredicates))
+                              tySubst (Substs methsubst) (polysig^.fspredicates))
                    Nothing -> error $ "TODO: " ++ show (ctxSizeP tyargs) ++ "/= " ++ show n
 
               _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
@@ -2462,15 +2462,13 @@ transCollection col0 debug halloc = do
             col)
           else col
 
-    let col1 = col0
+    let col  = col0
               |> passRemoveUnknownPreds  -- remove predicates that we don't know anything about
               |> passTrace "initial"
               |> passAddDictionaryPreds  -- add predicates to trait member functions
               |> passTrace "after dict preds"
               |> passExpandSuperTraits   -- add supertrait items
               |> passAbstractAssociated  -- replace associated types with additional type parameters
-
-    let col = col1
               |> passTrace "after associated types translated"
               |> passMarkCStyle          -- figure out which ADTs are enums and mark them
               |> passAddTraitAdts        -- add adts for declared traits

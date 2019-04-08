@@ -50,30 +50,27 @@ mkDictWith f = foldr (\t m -> f t `Map.union` m) Map.empty
 --
 -- This translation happens in stages
 --
--- 1. We need to *identify* the associated types in all traits
---    and fn definitions and mark them in the appropriate component of
---    the FnSig. (addTraitAssocTys, addFnAssocTys)
+-- 1. *identify* the associated types in all traits
+--     (addTraitAssocTys, addFnAssocTys)
 --
--- 2. We need to construct adict from the impls
--- 
--- 3. We translate the entire collection to eliminate uses of
---    `TyProjection` and add extra type arguments 
+-- 2. construct adict from the impls
+--
+-- 3. identify associated types in Fns
+--
+-- 4. create a datastructure for easily finding the trait that a method belongs to
+--
+-- 5. translate the entire collection to eliminate uses of `TyProjection`
+--    and add extra type arguments 
 
 passAbstractAssociated :: Collection -> Collection
 passAbstractAssociated col =
    let col1  = col  & traits    %~ fmap addTraitAssocTys
-       col2  = col1 & functions %~ fmap (addFnAssocTys col1)
 
-       implADict = (mkImplADict col2) `Map.union` (mkClosureADict col2)
+       adict = (mkImplADict col1) `Map.union` (mkClosureADict col1)
 
-       -- TODO: look at impls to find associated types for concrete implementations
-       --   currently not supported
-       -- "global" maps for associated types and predicates
-       -- probably only pdict makes sense globally
-       adict =  -- traceMap implADict $
-             implADict
-
-       mc = buildMethodContext col2
+       col2  = col1 & functions %~ fmap (addFnAssocTys col1 adict)
+       
+       mc    = buildMethodContext col2
 
    in
 
@@ -85,6 +82,7 @@ passAbstractAssociated col =
 
 -- | Update the trait with information about the associated types of the trait
 -- | For traits, the arguments to associated types are always the generic types of the trait
+
 addTraitAssocTys :: Trait -> Trait
 addTraitAssocTys trait = trait & traitAssocTys .~ map (,subst) anames
    where
@@ -92,9 +90,11 @@ addTraitAssocTys trait = trait & traitAssocTys .~ map (,subst) anames
      subst       = Substs [ TyParam (toInteger i)
                           | i <- [0 .. (length (trait^.traitParams) - 1)] ]
 
--- | Update the function with information about associated types for this Fn 
-addFnAssocTys :: Collection -> Fn -> Fn
-addFnAssocTys col fn = fn & fsig %~ (& fsassoc_tys .~ atys) where
+-- | Update the function with information about associated types
+-- NOTE: don't add associated types (i.e. new params) for ATs that we
+-- already have definitions for in adict.
+addFnAssocTys :: Collection -> ATDict -> Fn -> Fn
+addFnAssocTys col adict fn = fn & fsig %~ (& fsassoc_tys .~ atys) where
   
     replaceSubsts ss (nm, _) = (nm,ss)  -- length of new substs should be same as old subst, but we don't check
     
@@ -104,7 +104,8 @@ addFnAssocTys col fn = fn & fsig %~ (& fsassoc_tys .~ atys) where
           = (map (replaceSubsts ss) (trait^.traitAssocTys))
     predToAT p = []
 
-    atys = concat (map predToAT (fn^.fsig.fspredicates))
+    atys = filter (\x -> not (Map.member x adict))
+              (concat (map predToAT (fn^.fsig.fspredicates)))
 
                           
 ----------------------------------------------------------------------------------------
@@ -181,7 +182,8 @@ translateTrait col adict mc trait =
           & traitParams     %~ (++ (map toParam) atys)
 
      where
-       atys = trait^.traitAssocTys 
+       atys = trait^.traitAssocTys
+       
        j = toInteger $ length (trait^.traitParams)
        k = toInteger $ length (trait^.traitAssocTys)
 
@@ -219,7 +221,7 @@ translateFn col adict mc fn =
                                   )
       & fbody       %~ abstractATs info 
       where
-        atys = (fn^.fsig.fsassoc_tys)
+        atys = fn^.fsig.fsassoc_tys
 
         j = toInteger $ length (fn^.fsig.fsgenerics)
         k = toInteger $ length atys
