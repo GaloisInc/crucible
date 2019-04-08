@@ -1,3 +1,4 @@
+// FAIL: needs a polymorphic member in the dictionary for T
 enum Vec<A> { X(A) }
 
 trait T {

@@ -1,11 +1,11 @@
 * TODO
 
-- pull-request for withRepr in parameterized-utils
-
 - first-class polymorphism
    we have it in crucible, should use it more thoroughly in Mir
-   dictionaries are tuples of *polymorphic* methods
-   remove unsafe coerce in "call"
+   dictionaries are tuples of methods that can be *polymorphic*
+   creating dictionaries requires partially instantiating methods
+
+- remove unsafe coerce in "call"
 
 - structured error handling
    don't use "error", use "fail" instead
@@ -13,11 +13,8 @@
    distinguish "BUG" errors from limitations of the system (user facing)
 
 - associated type translation
-   - need to rationalize what happens when and document better
-   - traits/tyfam3.rs, traits/tyfam4.rs
-   - add known associated types from impl
-   - add equality constraints
-   - localize code to a single (type-directed) pass
+   - need to take advantage of equality constraints (FnOnce::Output)
+   - need to be able to handle polymorphic impls (slice/get.rs)
 
 - just-in time function translation using overrides
    - see crucible-jvm
@@ -109,7 +106,7 @@ generation because we need to allocate function handles with the
 correct types.
 It is convenient to do the term translation with code generation as
 the term translation is not purely syntax-directed. We need to lookup
-type/trait information while we do the pass.
+trait information while we do the pass.
 
 1. Pre-passes related to dictionary translation (before code generation)
    MUST occur in this order (in transCollection)
@@ -118,19 +115,13 @@ type/trait information while we do the pass.
           we don't know anything about (like Sized) so that we don't 
           generate dictionaries for them
           (passRemoveUnknownPreds)
-     -- update traits with all supertrait items  
-          (passExpandSuperTraits)
      -- update traits & function headers to include "self" predicates
           (passAddDictionaryPreds)
           TODO: also update impls?
-     -- update traits to include associated type info for the trait
-          TODO: use impls to determine mapping for concrete ATs
-     -- update traits & function headers to remove associated types
-        from appearing in types
-        translate associated types appearing throughout the AST
-          TODO: also update impls?
-          NOTE: we do *not* update method calls with additional args
-          those will be added during translation
+     -- update traits with all supertrait items  
+          (passExpandSuperTraits)
+     -- add associated types to Fns & traits, update all substs
+        to include extra arguments when they include ATs
           (passAbstractAssociated)
      -- update ADTs to include dictionary types 
          (traits must have correct types for methods at this point)
@@ -138,10 +129,6 @@ type/trait information while we do the pass.
 
      -- allocate method handles (MUST eliminate any uses of 
         associated types by this point)
-
-1a. Prepass constructs information for main translation 
-     -- ADict -- mapping from types of the form "TyProjection ..." to 
-                 their associated types
 
 2. The additional term arguments are "dictionaries", i.e. records of
    methods for the trait at that type
@@ -158,23 +145,7 @@ type/trait information while we do the pass.
          TODO: names are not unique! They should also include type
 	       args for unique resolution.
 
-3. If the method uses a trait with an associated type, then we need to
-   add additional type arguments to the method call sites for the
-   associated type.
-     ==> traits are generalized in a prepass (abstractAssociatedTypes)
-     ==> always need to what associated type variables are in scope
-         assocTyMap (ADict) component of Generator state 
-
-     ==> in a call (lookupFunction), determine what the 
-         extra associated type argument(s) should be
-	 (mkAtySubsts)
-
-     ==> NOTE: function handles don't say how many types they abstract
-         (the arg & result types just mention parameters)
-         so we don't need to calculate this info when we allocate
-         fn handles. revisit?
-
-4. When we create dictionaries, we need to satisfy *almost* all of the
+3. When we create dictionaries, we need to satisfy *almost* all of the
    predicates for the members of the dictionary. This will involve
    creating additional dictionaries. And then partially applying the
    methods to those additional dictionaries. So we need to construct a
@@ -186,15 +157,14 @@ type/trait information while we do the pass.
      ==> TODO: make sure that "recursive" dictionary is always *last*
          predicate in method impls
 
-5. The exception is the "recursive" predicate for the dictionary
+4. The exception is the "recursive" predicate for the dictionary
    itself. We should not partially apply those (to make the
    translation easier, otherwise we have to tie the knot
    somehow). Furthermore it is easy to provide that dictionary
    whenever we extract the method from the dictionary and call it.
      ==> this is already handled in doCall
 
-
-6. Do we need to worry about other sorts of recursive dictionaries? 
+5. Do we need to worry about other sorts of recursive dictionaries? 
    If so, how do we detect & break such loops in the translation?
    From a simple test, it looks like Rust won't allow such things. 
    i.e. we can define these impls
@@ -215,7 +185,7 @@ type/trait information while we do the pass.
    on this issue for now. If we get *really* paranoid we can try to
    detect it during translation to avoid infinite loops.
 
-7. TODO: generic impl resolution. If we have an impl
+6. TODO: generic impl resolution. If we have an impl
    that depends on another, i.e. 
 
       impl<U>G for Option<U> where U:G {

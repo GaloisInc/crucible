@@ -1,3 +1,5 @@
+// FAIL: needs a polymorphic member in the dictionary for T
+
 // a static trait invocation for a polymorphic type
 // calling the g method in h requires a dictionary argument 
 

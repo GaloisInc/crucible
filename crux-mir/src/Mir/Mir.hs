@@ -31,12 +31,11 @@ module Mir.Mir where
 
 import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 
 import Data.Semigroup
 
-import Control.Lens(makeLenses,(^.), Simple, Lens, lens)
+import Control.Lens(makeLenses, Simple, Lens, lens)
 
 import GHC.Generics 
 import GHC.Stack
@@ -76,7 +75,7 @@ newtype Substs = Substs [Ty]
 
 -- | Associated types
 --   The projection of an associated type from a Rust trait, at specific types
-type AssocTy = (TraitName, Substs)
+type AssocTy = (DefId, Substs)
 -- TODO: make this a newtype
 
 data Ty =

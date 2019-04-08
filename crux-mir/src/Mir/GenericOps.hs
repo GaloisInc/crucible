@@ -163,9 +163,8 @@ abstractATsTy ati ty@(TyProjection d substs)
     | otherwise = error $ fmt ty ++ " with unknown translation"
 abstractATsTy s ty = to (abstractATs' s (from ty))
 
--- | Special case for FnSig (see abstractTraitAssociatedTypes) ???
---abstractATsFnSig :: ATInfo -> Ty -> Ty
---abstractATsFnSig (ATInfo tk ta _atys) fs
+--abstractATsPredicate ati (TraitPredicate did ss) =
+--abstractATsPredicate ati p = p
 
 
 -- What if the function itself has associated types?
@@ -198,7 +197,17 @@ abstractATsConstVal ati (ConstFunction defid funsubst)
 
        -- add method ats to the end of the function subst
        hsubst    = funsubst2 <> ats'
-    in
+    in {-
+       trace ("AT trans for call to " ++ fmt defid
+             ++ "\n\t fs        " ++ fmt fs
+             ++ "\n\t fs ATs    " ++ fmt (fs^.fsassoc_tys)             
+             ++ "\n\t mt        " ++ fmt mt
+             ++ "\n\t funsubst1 " ++ fmt funsubst1
+             ++ "\n\t funsubst2 " ++ fmt funsubst2
+             ++ "\n\t ats       " ++ fmt ats
+             ++ "\n\t ats'      " ++ fmt ats'
+             ++ "\n\t hsubst    " ++ fmt hsubst)
+       $ -}
        ConstFunction defid hsubst
          
 abstractATsConstVal ati val = to (abstractATs' ati (from val))

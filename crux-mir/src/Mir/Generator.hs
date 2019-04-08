@@ -127,8 +127,7 @@ data FnState (s :: Type)
               _traitMap  :: !(TraitMap s),
               _staticTraitMap :: !StaticTraitMap,
               _debugLevel :: !Int,
-              _collection :: !Collection,
-              _assocTyMap :: ATDict
+              _collection :: !Collection
             }
 
 ---------------------------------------------------------------------------

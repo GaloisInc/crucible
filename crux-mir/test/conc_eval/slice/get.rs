@@ -1,3 +1,9 @@
+// FAIL: uses polymorphic impl for slice::SliceIndex
+//
+// currently cannot create mapping in ATDict for SliceIndex::Output<usize,T> = T
+// we are using a dictionary to store ATs, but maybe a HOF would allow this sort
+// of thing.
+
 #![feature(never_type)]
 
 use std::process::exit;

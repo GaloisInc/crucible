@@ -1,6 +1,6 @@
-// FAIL: missing entry in ATDict
+// FAIL: needs a polymorphic member in trait dictionary
 
-// cant find Output<1> when doing dictionary translation
+// 0 /= 1, i.e. not all types are instantiated during dictionary creation
 
 trait F : Sized {
     
