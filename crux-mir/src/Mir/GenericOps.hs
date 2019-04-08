@@ -163,22 +163,25 @@ abstractATsTy ati ty@(TyProjection d substs)
     | otherwise = error $ fmt ty ++ " with unknown translation"
 abstractATsTy s ty = to (abstractATs' s (from ty))
 
--- | Special case for Predicates
 -- Add additional args to the substs for traits with atys
+abstractATsPredicate :: ATInfo -> Predicate -> Predicate
 abstractATsPredicate ati (TraitPredicate tn ss) 
     | Just tr <- (ati^.atCol.traits) Map.!? tn
     = let 
-        j = length (tr^.traitParams)
-        k = length (tr^.traitAssocTys)
-        atVars = take k (map (TyParam . toInteger) [j .. ])
-        ss' = Substs (map (abstractATs ati) atVars)
-      in
-        TraitPredicate tn (ss <> ss')
-abstractATsPredicate _ati p = p
-
+        ats  = map (\(n,ss') -> TyProjection n ss') (tr^.traitAssocTys)
+        ss1  = abstractATs ati ss
+        ats' = tySubst ss1 ats
+      in 
+        TraitPredicate tn (ss1 <> Substs (map (abstractATs ati) ats'))
+    | otherwise
+    = (TraitPredicate tn ss)  -- error $ "BUG: Found trait " ++ fmt tn ++ " with no info in collection."
+abstractATsPredicate ati (TraitProjection did ss ty)
+    = TraitProjection did (abstractATs ati ss) (abstractATs ati ty)
+abstractATsPredicate _ati UnknownPredicate = error "BUG: found UnknownPredicate"
 
 -- What if the function itself has associated types?
--- or, what if the function we are calling is 
+-- or, what if the function we are calling is
+abstractATsConstVal :: ATInfo -> ConstVal -> ConstVal
 abstractATsConstVal ati (ConstFunction defid funsubst)
   | Just (fs,mt) <- fnType ati defid
   = let
@@ -207,17 +210,7 @@ abstractATsConstVal ati (ConstFunction defid funsubst)
 
        -- add method ats to the end of the function subst
        hsubst    = funsubst2 <> ats'
-    in {-
-       trace ("AT trans for call to " ++ fmt defid
-             ++ "\n\t fs        " ++ fmt fs
-             ++ "\n\t fs ATs    " ++ fmt (fs^.fsassoc_tys)             
-             ++ "\n\t mt        " ++ fmt mt
-             ++ "\n\t funsubst1 " ++ fmt funsubst1
-             ++ "\n\t funsubst2 " ++ fmt funsubst2
-             ++ "\n\t ats       " ++ fmt ats
-             ++ "\n\t ats'      " ++ fmt ats'
-             ++ "\n\t hsubst    " ++ fmt hsubst)
-       $ -}
+    in 
        ConstFunction defid hsubst
          
 abstractATsConstVal ati val = to (abstractATs' ati (from val))
@@ -242,12 +235,6 @@ fnType ati mn
   | otherwise
   = Nothing
 
--- | Pre-allocate the trait info so that we can find it more easily
-buildMethodContext :: Collection -> Map MethName (FnSig, Trait)
-buildMethodContext col = foldMap go (col^.traits) where
-   go tr = foldMap go2 (tr^.traitItems) where
-     go2 (TraitMethod nm sig) = Map.singleton nm (sig, tr)
-     go2 _ = Map.empty
 
 -- |  insertAt xs k ys
 -- is equivalent to take k ++ xs ++ drop k

@@ -73,11 +73,13 @@ passAbstractAssociated col =
        adict =  -- traceMap implADict $
              implADict
 
-       pdict :: PDict
-       pdict = mkDictWith traitPredDict (col2^.traits)
+       mc = buildMethodContext col2
+
    in
-   col2 & traits    %~ Map.map (translateTrait col2 adict pdict) 
-        & functions %~ Map.map (translateFn    col2 adict pdict)
+
+     
+   col2 & traits    %~ Map.map (translateTrait col2 adict mc) 
+        & functions %~ Map.map (translateFn    col2 adict mc)
 
 ----------------------------------------------------------------------------------------
 
@@ -104,22 +106,6 @@ addFnAssocTys col fn = fn & fsig %~ (& fsassoc_tys .~ atys) where
 
     atys = concat (map predToAT (fn^.fsig.fspredicates))
 
-
-----------------------------------------------------------------------------------------
--- The PDict is used to add additional (associated) type arguments to predicates 
-
-type PDict = Map TraitName (ATDict -> [AssocTy] -> Substs)
-
--- | Make a dictionary for predicates that mention *this* trait
--- If T has an associated type, maps the predicate  T <0,1> to T<0,1,2>
-traitPredDict :: HasCallStack => Trait -> PDict
-traitPredDict t =
-  if (null (t^.traitAssocTys)) then Map.empty
-  else Map.fromList [((t^.traitName), substs)] where
-       substs ad atys = Substs (map (lookupAT ad) atys)
-       lookupAT ad at = case ad Map.!? at of
-                        Just ty -> ty
-                        Nothing -> error $ "BUG: Cannot find at " ++ fmt at
                           
 ----------------------------------------------------------------------------------------
 
@@ -162,28 +148,22 @@ mkClosureADict col = foldr go Map.empty (col^.functions) where
                  Substs [TyFnDef (fn^.fname) (Substs []),TyTuple (fn^.fsig.fsarg_tys)])
                  (fn^.fsig.fsreturn_ty)
                  m
-                        
+
+----------------------------------------------------------------------------------------
+
+-- | Pre-allocate the trait info so that we can find it more easily
+buildMethodContext :: Collection -> Map MethName (FnSig, Trait)
+buildMethodContext col = foldMap go (col^.traits) where
+   go tr = foldMap go2 (tr^.traitItems) where
+     go2 (TraitMethod nm sig) = Map.singleton nm (sig, tr)
+     go2 _ = Map.empty
+     
 -----------------------------------------------------------------------------------
-
-
+-- Translation for traits and Functions
 
 -- | Convert an associated type into a Mir type parameter
 toParam :: AssocTy -> Param
 toParam (did,_substs) = Param (idText did)  -- do we need to include substs?
-
-
--- | Update the params component of the trait to include any associated types as additional parameters
-updateTraitParams :: Trait -> Trait
-updateTraitParams trait = trait & traitParams %~ (++ atys)
-   where atys      = map toParam (trait^.traitAssocTys)
-
--- | Update the params component of the sig to include associated types as additional params
-updateFnSigParams :: FnSig -> FnSig
-updateFnSigParams fs = fs & fsgenerics %~ (++ atys)
-   where atys      = map toParam (fs^.fsassoc_tys)
-
-addATParams :: [AssocTy] -> [Param] -> [Param]
-addATParams atys = (++ map (Param . idText . fst) atys)
 
 -- | Create a mapping for associated types to type parameters, starting at index k
 -- For traits, k should be == length traitParams
@@ -191,45 +171,32 @@ mkAssocTyMap :: Integer -> [AssocTy] -> ATDict
 mkAssocTyMap k assocs = Map.fromList (zip assocs tys) where
    tys = map TyParam [k ..]
 
--- | Calculate the associated type map for a given trait
-traitAssocTyMap :: Trait -> ATDict
-traitAssocTyMap t =
-   mkAssocTyMap (toInteger (length (t^.traitParams))) (t^.traitAssocTys) 
-
-
-
 
 -- | Update trait declarations with additional generic types instead of
 -- associated types
-translateTrait :: Collection -> ATDict -> PDict -> Trait -> Trait
-translateTrait col adict pdict trait =
+translateTrait :: Collection -> ATDict -> Map MethName (FnSig, Trait) -> Trait -> Trait
+translateTrait col adict mc trait =
     trait & traitItems      %~ map updateMethod
           & traitPredicates %~ abstractATs info
-          & traitParams     %~ addATParams (trait^.traitAssocTys)
+          & traitParams     %~ (++ (map toParam) atys)
 
      where
+       atys = trait^.traitAssocTys 
        j = toInteger $ length (trait^.traitParams)
        k = toInteger $ length (trait^.traitAssocTys)
 
-       ladict = traitAssocTyMap trait `Map.union` adict
+       ladict =  mkAssocTyMap j atys  `Map.union` adict
        
-       info = ATInfo j k ladict col (buildMethodContext col)
+       info = ATInfo j k ladict col mc
   
        -- Translate types of methods.
        updateMethod (TraitMethod name sig) =
-             let sig' = (abstractATs info sig) & fspredicates %~ fmap updatePred
-                                               & fsgenerics   %~ addATParams (trait^.traitAssocTys)
+             let sig' = abstractATs info sig
+                      & fsgenerics %~ insertAt (map toParam atys) (fromInteger j)
              in 
              TraitMethod name sig'
        updateMethod item = item
 
-       -- Add additional type arguments to a predicate for associated types
-       updatePred (TraitPredicate tn ss)
-          | Just ss' <- Map.lookup tn pdict
-          = TraitPredicate tn (updateSubsts ss <> ss' ladict (trait^.traitAssocTys))
-       updatePred p = p
-
-       updateSubsts (Substs ss) = Substs (map (abstractATs info) ss)
 
 
 -- Fn translation for associated types
@@ -237,19 +204,18 @@ translateTrait col adict pdict trait =
 -- 1. find <atys>, this fn's ATs by looking at preds (predToAT)
 -- 2. these atys will be new params at the end of the fn params (addATParams)
 -- 3. create <info> by extending ATdict with new ATs
--- 4. translate Predicates (updatePred)
--- 5. translate all other components of the Fn 
+-- 4. translate all other components of the Fn 
 
 -- update preds if they mention traits with associated types
 -- update args and retty from the types to refer to trait params instead of assoc types
 -- add assocTys if we abstract a type bounded by a trait w/ an associated type
-translateFn :: Collection -> ATDict -> PDict -> Fn -> Fn
-translateFn col adict pdict fn =
+translateFn :: Collection -> ATDict -> Map MethName (FnSig, Trait) -> Fn -> Fn
+translateFn col adict mc fn =
    fn & fargs       %~ fmap (\v -> v & varty %~ abstractATs info)
       & fsig        %~ (\fs -> fs & fsarg_tys    %~ abstractATs info
                                   & fsreturn_ty  %~ abstractATs info
-                                  & fspredicates %~ map updatePred
-                                  & fsgenerics   %~ addATParams atys
+                                  & fspredicates %~ abstractATs info
+                                  & fsgenerics   %~ (++ (map toParam atys))
                                   )
       & fbody       %~ abstractATs info 
       where
@@ -258,14 +224,10 @@ translateFn col adict pdict fn =
         j = toInteger $ length (fn^.fsig.fsgenerics)
         k = toInteger $ length atys
 
-        ladict = Map.union adict (mkAssocTyMap j atys)
+        ladict = mkAssocTyMap j atys `Map.union` adict 
 
-        info = ATInfo j k ladict col (buildMethodContext col)
+        info = ATInfo j k ladict col mc 
 
-        updatePred (TraitPredicate tn ss)
-          | Just ss' <- Map.lookup tn pdict =
-                TraitPredicate tn (abstractATs info ss <> ss' ladict atys)
-        updatePred p = p
 
 
 
