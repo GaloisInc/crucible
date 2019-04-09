@@ -45,6 +45,7 @@ import Debug.Trace
 
 
 type ATDict = Map AssocTy Ty
+
 data ATInfo = ATInfo {
      _atStart :: Integer    -- ^ index to start renaming
    , _atNum   :: Integer    -- ^ number of ATs to insert
@@ -102,8 +103,8 @@ class GenericOps a where
 
   -- | replace "TyProjection"s with their associated types
   -- and add additional arguments to type substitutions
-  abstractATs :: ATInfo -> a -> a 
-  default abstractATs :: (Generic a, GenericOps' (Rep a)) => ATInfo -> a -> a
+  abstractATs :: HasCallStack =>  ATInfo -> a -> a 
+  default abstractATs :: (Generic a, GenericOps' (Rep a), HasCallStack) => ATInfo -> a -> a
   abstractATs s x = to (abstractATs' s (from x))
 
   -- | Update the list of predicates in an AST node
@@ -153,7 +154,7 @@ class GenericOps a where
 
 
 -- | Special case for Ty
-abstractATsTy :: ATInfo -> Ty -> Ty
+abstractATsTy :: HasCallStack => ATInfo -> Ty -> Ty
 abstractATsTy ati (TyParam i)
     | i < (ati^.atStart) = TyParam i          -- trait param,  leave alone
     | otherwise = TyParam (i + (ati^.atNum))  -- method param, shift over
@@ -164,7 +165,7 @@ abstractATsTy ati ty@(TyProjection d substs)
 abstractATsTy s ty = to (abstractATs' s (from ty))
 
 -- Add additional args to the substs for traits with atys
-abstractATsPredicate :: ATInfo -> Predicate -> Predicate
+abstractATsPredicate :: HasCallStack => ATInfo -> Predicate -> Predicate
 abstractATsPredicate ati (TraitPredicate tn ss) 
     | Just tr <- (ati^.atCol.traits) Map.!? tn
     = let 
@@ -181,7 +182,7 @@ abstractATsPredicate _ati UnknownPredicate = error "BUG: found UnknownPredicate"
 
 -- What if the function itself has associated types?
 -- or, what if the function we are calling is
-abstractATsConstVal :: ATInfo -> ConstVal -> ConstVal
+abstractATsConstVal :: HasCallStack => ATInfo -> ConstVal -> ConstVal
 abstractATsConstVal ati (ConstFunction defid funsubst)
   | Just (fs,mt) <- fnType ati defid
   = let
@@ -290,29 +291,38 @@ markCStyleTy s ty = to (markCStyle' s (from ty))
 -- So we have to implement this operation in all of the containing types
 
 -- filter function for predicates
-type RUPInfo = [Predicate] -> [Predicate]
+type RUPInfo = TraitName -> Bool
+
+filterPreds :: RUPInfo -> [Predicate] -> [Predicate]
+filterPreds f =
+  filter knownPred where
+     knownPred :: Predicate -> Bool
+     knownPred (TraitPredicate did _) = f did
+     knownPred (TraitProjection {})   = True
+     knownPred UnknownPredicate       = False
+
 
 modifyPreds_FnSig :: RUPInfo -> FnSig -> FnSig
-modifyPreds_FnSig f fs = fs & fspredicates %~ f
+modifyPreds_FnSig f fs = fs & fspredicates %~ filterPreds f
                             & fsarg_tys    %~ modifyPreds f
                             & fsreturn_ty  %~ modifyPreds f
                             
 modifyPreds_Trait :: RUPInfo -> Trait -> Trait
-modifyPreds_Trait f fs = fs & traitPredicates %~ f
+modifyPreds_Trait f fs = fs & traitPredicates %~ filterPreds f
                             & traitItems      %~ modifyPreds f
+                            & traitSupers     %~ filter f
 
 modifyPreds_TraitImpl :: RUPInfo -> TraitImpl -> TraitImpl
-modifyPreds_TraitImpl f fs = fs & tiPredicates %~ f
+modifyPreds_TraitImpl f fs = fs & tiPredicates %~ filterPreds f
                                 & tiItems      %~ modifyPreds f
                                 & tiTraitRef   %~ modifyPreds f 
 
 modifyPreds_TraitImplItem :: RUPInfo -> TraitImplItem -> TraitImplItem
-modifyPreds_TraitImplItem f fs@(TraitImplMethod {}) = fs & tiiPredicates %~ f
+modifyPreds_TraitImplItem f fs@(TraitImplMethod {}) = fs & tiiPredicates %~ filterPreds f
                                                          & tiiSignature  %~ modifyPreds f
-modifyPreds_TraitImplItem f fs@(TraitImplType {}) = fs & tiiPredicates %~ f
+modifyPreds_TraitImplItem f fs@(TraitImplType {}) = fs & tiiPredicates %~ filterPreds f
                                                        & tiiType       %~ modifyPreds f
                                                        
-
 
 --------------------------------------------------------------------------------------
 
@@ -334,6 +344,27 @@ instance GenericOps DefId where
   abstractATs _     = id
   modifyPreds _     = id
 
+
+safeNth :: Int -> [a] -> Maybe a
+safeNth n (x:xs)
+  | n > 0     = safeNth (n-1) xs
+  | n == 0    = Just x
+  | otherwise = Nothing
+safeNth _n []  = Nothing
+
+-- | increment all free variables in the range of the substitution by n
+lift :: Int -> Substs -> Substs
+lift 0 ss = ss
+lift n ss = takeSubst n (incN 0) <> tySubst (incN n) ss  where
+
+-- | Truncate a substitution by the first n 
+takeSubst :: Int -> Substs -> Substs
+takeSubst n (Substs ss) = Substs (take n ss)
+
+-- | An infinite substitution that increments all type vars by n
+incN :: Int -> Substs
+incN n = Substs (TyParam . toInteger <$> [n ..])
+
 -- special case for Ty
 instance GenericOps Ty where
 
@@ -343,9 +374,12 @@ instance GenericOps Ty where
   
   -- Substitute for type variables
   tySubst (Substs substs) (TyParam i)
-     | fromInteger i < length substs = substs !! fromInteger i 
+     | Just x <- safeNth (fromInteger i) substs  = x
      | otherwise    = error $
            "BUG in substitution: Indexing at " ++ show i ++ "  from subst " ++ fmt substs
+  tySubst substs (TyFnPtr (FnSig args ret params preds atys)) =
+      TyFnPtr (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys)) where
+         ss = lift (length params) substs
   tySubst substs ty = to (tySubst' substs (from ty))
 
   -- Count ty params

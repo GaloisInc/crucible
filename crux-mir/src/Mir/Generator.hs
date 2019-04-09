@@ -233,10 +233,14 @@ data MirValue s ty where
 -- | Type-level instantiation function
 -- All values stored in the vtables must be polymorphic functions
 type family ImplementTrait (timpls :: Ctx CrucibleType ) (arg :: CrucibleType) :: CrucibleType where  
-  ImplementTrait timpls (PolyFnType k args ret) =
-    PolyFnType (Minus k (CtxSizeP timpls))
-               (Instantiate (MkSubst timpls) args)
-               (Instantiate (MkSubst timpls) ret)
+  ImplementTrait timpls (PolyFnType k args ret) = 
+    MkTraitType (Minus k (CtxSizeP timpls))
+                (Instantiate (MkSubst timpls) args)
+                (Instantiate (MkSubst timpls) ret)
+
+type family MkTraitType (k :: Peano) (args :: Ctx CrucibleType) (ret :: CrucibleType) where
+  MkTraitType Z args ret = FunctionHandleType args ret
+  MkTraitType k args ret = PolyFnType k args ret
          
 -- | Map the instantiation function across a context
 type family ImplementCtxTrait (implSubst :: Ctx CrucibleType) (arg :: Ctx k) :: Ctx k where
@@ -246,8 +250,10 @@ type family ImplementCtxTrait (implSubst :: Ctx CrucibleType) (arg :: Ctx k) :: 
 -- | "Repr" versions of the above
 implementRepr :: CtxRepr implSubst -> TypeRepr ty -> TypeRepr (ImplementTrait implSubst ty)
 implementRepr implSubst (PolyFnRepr k args ret) =
-  PolyFnRepr (minusP k (ctxSizeP implSubst))
-             (instantiate (mkSubst implSubst) args) (instantiate (mkSubst implSubst) ret)
+  case peanoView (minusP k (ctxSizeP implSubst)) of
+    ZRepr -> FunctionHandleRepr (instantiate (mkSubst implSubst) args) (instantiate (mkSubst implSubst) ret)
+    SRepr n -> PolyFnRepr (minusP k (ctxSizeP implSubst))
+                      (instantiate (mkSubst implSubst) args) (instantiate (mkSubst implSubst) ret)
 implementRepr implSubst ty = error "ImplementRepr: should only be called with polymorphic function types"
 
 implementCtxRepr :: CtxRepr implSubst -> CtxRepr ctx -> CtxRepr (ImplementCtxTrait implSubst ctx)

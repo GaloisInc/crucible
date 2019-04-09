@@ -69,6 +69,8 @@ inheritSuperImpls col tis = Map.elems (go tis Map.empty) where
      -- we get these from the predicates associated with the trait that correspond to the
      -- names in the superclass
      supers :: TraitRef -> [TraitRef]
+     supers tr@(TraitRef tn tys)
+       | Nothing <- (col^.traits) Map.!? tn = error $ "BUG: supers: cannot find " ++ fmt tn
      supers tr@(TraitRef tn tys) = supRefs where
 
         trait     = (col^.traits) Map.! tn

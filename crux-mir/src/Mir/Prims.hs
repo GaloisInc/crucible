@@ -49,7 +49,7 @@ loadPrims useStdLib debugLevel = do
               , "ops/deref"
               , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
               ] else [
-                "ops/function"  -- needed for any treatment of hofs
+--                "ops/function"  -- needed for any treatment of hofs
               ]
         
   

@@ -24,7 +24,8 @@ import GHC.Stack
 --
 traceMap :: (Pretty k, Pretty v) => Map.Map k v -> a -> a
 traceMap ad x =
-   Map.foldrWithKey (\k v a -> trace (fmt (pretty k PP.<+> pretty v)) a) x ad
+   let doc = Map.foldrWithKey (\k v a -> (pretty k PP.<+> pretty v) PP.<$> a) PP.empty ad
+   in trace (fmt doc) $ x
 
 
 mkDictWith :: (Foldable t, Ord k) => (a -> Map k v) -> t a -> Map k v
@@ -64,19 +65,21 @@ mkDictWith f = foldr (\t m -> f t `Map.union` m) Map.empty
 --
 -- (NOTE: some of the implementation of this pass is "abstractATs" in Mir.GenericOps)
 --
-passAbstractAssociated :: Collection -> Collection
+passAbstractAssociated :: HasCallStack => Collection -> Collection
 passAbstractAssociated col =
    let
-       col1  = col  & traits    %~ fmap addTraitAssocTys
+       col1  = (col  & traits    %~ fmap addTraitAssocTys)
 
        adict = mkImplADict col1 `Map.union` mkClosureADict col1
 
-       col2  = col1 & functions %~ fmap (addFnAssocTys col1 adict)
+       col2  =
+         col1 & functions %~ fmap (addFnAssocTys col1 adict)
+              & traits    %~ fmap (& traitItems %~ fmap (addTraitFnAssocTys col1 adict))
        
        mc    = buildMethodContext col2
 
    in
-     
+   
    col2 & traits    %~ Map.map (translateTrait col2 adict mc) 
         & functions %~ Map.map (translateFn    col2 adict mc)
 
@@ -85,18 +88,17 @@ passAbstractAssociated col =
 -- | Update the trait with information about the associated types of the trait
 -- | For traits, the arguments to associated types are always the generic types of the trait
 
-addTraitAssocTys :: Trait -> Trait
-addTraitAssocTys trait = trait & traitAssocTys .~ map (,subst) anames
+addTraitAssocTys :: HasCallStack => Trait -> Trait
+addTraitAssocTys trait =
+
+  trait & traitAssocTys .~ map (,subst) anames
    where
      anames      = [ did | (TraitType did) <- trait^.traitItems ]
      subst       = Substs [ TyParam (toInteger i)
                           | i <- [0 .. (length (trait^.traitParams) - 1)] ]
 
--- | Update the function with information about associated types
--- NOTE: don't add associated types (i.e. new params) for ATs that we
--- already have definitions for in adict.
-addFnAssocTys :: Collection -> ATDict -> Fn -> Fn
-addFnAssocTys col adict fn = fn & fsig %~ (& fsassoc_tys .~ atys) where
+addFnSigAssocTys :: HasCallStack => Collection -> ATDict -> FnSig -> FnSig
+addFnSigAssocTys col adict sig = sig & fsassoc_tys .~ atys where
   
     replaceSubsts ss (nm, _) = (nm,ss)  -- length of new substs should be same as old subst, but we don't check
     
@@ -106,13 +108,26 @@ addFnAssocTys col adict fn = fn & fsig %~ (& fsassoc_tys .~ atys) where
           = (map (replaceSubsts ss) (trait^.traitAssocTys))
     predToAT p = []
 
-    atys = filter (\x -> not (Map.member x adict))
-              (concat (map predToAT (fn^.fsig.fspredicates)))
+    raw_atys = (concat (map predToAT (sig^.fspredicates))) 
 
-                          
+    atys = filter (\x -> not (Map.member x adict)) raw_atys
+  
+
+-- | Update the function with information about associated types
+-- NOTE: don't add associated types (i.e. new params) for ATs that we
+-- already have definitions for in adict.
+addFnAssocTys :: HasCallStack => Collection -> ATDict -> Fn -> Fn
+addFnAssocTys col adict fn =
+  fn & fsig %~ (addFnSigAssocTys col adict) 
+  
+addTraitFnAssocTys :: HasCallStack => Collection -> ATDict -> TraitItem -> TraitItem
+addTraitFnAssocTys col adict (TraitMethod did sig) = TraitMethod did (addFnSigAssocTys col adict sig)
+addTraitFnAssocTys col adict it = it                          
+
+  
 ----------------------------------------------------------------------------------------
 
-mkImplADict :: Collection -> ATDict
+mkImplADict :: HasCallStack => Collection -> ATDict
 mkImplADict col = foldr go Map.empty (col^.impls) where
   go :: TraitImpl -> ATDict -> ATDict
   go ti m = foldr go2 m (ti^.tiItems) where
@@ -129,7 +144,7 @@ mkImplADict col = foldr go Map.empty (col^.impls) where
 -- NOTE: this is a hack. We need a more general treatment of
 -- associated types with constraints on them. Maybe by updating
 -- ATDict to be a HOF instead of a Map?
-mkClosureADict :: Collection -> ATDict
+mkClosureADict :: HasCallStack => Collection -> ATDict
 mkClosureADict col = foldr go Map.empty (col^.functions) where
   go :: Fn -> ATDict -> ATDict
   go fn m 
@@ -155,7 +170,7 @@ mkClosureADict col = foldr go Map.empty (col^.functions) where
 ----------------------------------------------------------------------------------------
 
 -- | Pre-allocate the trait info so that we can find it more easily
-buildMethodContext :: Collection -> Map MethName (FnSig, Trait)
+buildMethodContext :: HasCallStack => Collection -> Map MethName (FnSig, Trait)
 buildMethodContext col = foldMap go (col^.traits) where
    go tr = foldMap go2 (tr^.traitItems) where
      go2 (TraitMethod nm sig) = Map.singleton nm (sig, tr)
@@ -177,7 +192,7 @@ mkAssocTyMap k assocs = Map.fromList (zip assocs tys) where
 
 -- | Update trait declarations with additional generic types instead of
 -- associated types
-translateTrait :: Collection -> ATDict -> Map MethName (FnSig, Trait) -> Trait -> Trait
+translateTrait :: HasCallStack => Collection -> ATDict -> Map MethName (FnSig, Trait) -> Trait -> Trait
 translateTrait col adict mc trait =
     trait & traitItems      %~ map updateMethod
           & traitPredicates %~ abstractATs info
@@ -213,8 +228,9 @@ translateTrait col adict mc trait =
 -- update preds if they mention traits with associated types
 -- update args and retty from the types to refer to trait params instead of assoc types
 -- add assocTys if we abstract a type bounded by a trait w/ an associated type
-translateFn :: Collection -> ATDict -> Map MethName (FnSig, Trait) -> Fn -> Fn
+translateFn :: HasCallStack => Collection -> ATDict -> Map MethName (FnSig, Trait) -> Fn -> Fn
 translateFn col adict mc fn =
+   -- trace ("translateFn:" ++ fmt (fn^.fname) ++ " of type " ++ fmt (fn^.fsig)) $
    fn & fargs       %~ fmap (\v -> v & varty %~ abstractATs info)
       & fsig        %~ (\fs -> fs & fsarg_tys    %~ abstractATs info
                                   & fsreturn_ty  %~ abstractATs info

@@ -60,6 +60,25 @@ substField :: Substs -> Field -> Field
 substField subst (Field a t _subst)  = Field a t subst
 
 ---------------------------------------------------------------------------------------------
+
+-- Specialize a polymorphic type signature by the provided type arguments
+-- Note: Ty may have free type variables & FnSig may have free type variables
+-- We increment these inside 
+specialize :: FnSig -> [Ty] -> FnSig
+specialize sig@(FnSig args ret ps preds _atys) ts
+  | k <= length ps
+  = FnSig (tySubst ss args) (tySubst ss ret) ps' (tySubst ss preds) []
+  | otherwise
+  = error $ "BUG: specialize -- too many type arguments" ++ "\n\r sig = " ++ fmt sig ++ "\n\r ts = " ++ fmt ts
+     where
+       k   = length ts
+       ps' = drop k ps
+       l   = length ps'
+       ts' = tySubst (incN l) ts
+       ss  = Substs ts' <> incN 0
+
+
+---------------------------------------------------------------------------------------------
 -- "Unification"
 -- Actually this is just "matching" as we only produce a substitution in one direction
 

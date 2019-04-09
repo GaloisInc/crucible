@@ -81,34 +81,34 @@ type AssocTy = (DefId, Substs)
 data Ty =
         TyBool               -- The primitive boolean type. Written as bool.
       | TyChar
-      | TyInt BaseSize
-      | TyUint BaseSize
-      | TyTuple [Ty]         -- A tuple type. For example, (i32, bool)
-      | TySlice Ty
-      | TyArray Ty Int
-      | TyRef Ty Mutability  -- Written &'a mut T or &'a T
-      | TyAdt DefId Substs 
+      | TyInt !BaseSize
+      | TyUint !BaseSize
+      | TyTuple ![Ty]         -- A tuple type. For example, (i32, bool)
+      | TySlice !Ty
+      | TyArray !Ty !Int
+      | TyRef !Ty !Mutability  -- Written &'a mut T or &'a T
+      | TyAdt !DefId !Substs 
       | TyUnsupported
-      | TyCustom CustomTy
-      | TyParam Integer
-      | TyFnDef DefId Substs
-      | TyClosure DefId Substs
+      | TyCustom !CustomTy
+      | TyParam !Integer
+      | TyFnDef !DefId !Substs
+      | TyClosure !DefId !Substs
       | TyStr
-      | TyFnPtr FnSig             -- written as fn() -> i32
-      | TyDynamic DefId
-      | TyRawPtr Ty Mutability    -- Written as *mut T or *const T
-      | TyFloat FloatKind
-      | TyDowncast Ty Integer     -- result type of downcasting an ADT. Ty must be an ADT type
-      | TyProjection DefId Substs -- The projection of an associated type. For example, <T as Trait<..>>::N.
+      | TyFnPtr !FnSig             -- written as fn() -> i32
+      | TyDynamic !DefId
+      | TyRawPtr !Ty !Mutability    -- Written as *mut T or *const T
+      | TyFloat !FloatKind
+      | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
+      | TyProjection !DefId !Substs -- The projection of an associated type. For example, <T as Trait<..>>::N.
       | TyLifetime
       deriving (Eq, Ord, Show, Generic)
 
 data FnSig = FnSig {
-    _fsarg_tys    :: [Ty]
-  , _fsreturn_ty  :: Ty
-  , _fsgenerics   :: [Param]
-  , _fspredicates :: [Predicate]
-  , _fsassoc_tys  :: [AssocTy]    -- new params added in a pre-pass
+    _fsarg_tys    :: ![Ty]
+  , _fsreturn_ty  :: !Ty
+  , _fsgenerics   :: ![Param]
+  , _fspredicates :: ![Predicate]
+  , _fsassoc_tys  :: ![AssocTy]    -- new params added in a pre-pass
   }
   deriving (Eq, Ord, Show, Generic)
 
@@ -161,21 +161,21 @@ instance Ord Var where
 
 
 data Collection = Collection {
-    _functions :: Map MethName Fn,
-    _adts      :: Map AdtName Adt,
-    _traits    :: Map TraitName Trait,
-    _impls     :: [TraitImpl]
+    _functions :: !(Map MethName Fn),
+    _adts      :: !(Map AdtName Adt),
+    _traits    :: !(Map TraitName Trait),
+    _impls     :: !([TraitImpl])
 } deriving (Show, Eq, Ord, Generic)
 
 data Predicate =
   TraitPredicate {
-    _ptrait :: DefId,
-    _psubst :: Substs
+    _ptrait :: !DefId,
+    _psubst :: !Substs
     }
   | TraitProjection {
-    _pitemid :: DefId,
-    _psubst  :: Substs,
-    _ty      :: Ty
+    _pitemid :: !DefId,
+    _psubst  :: !Substs,
+    _ty      :: !Ty
     }
   | UnknownPredicate
     deriving (Show, Eq, Ord, Generic)
@@ -417,12 +417,12 @@ data CustomAggregate =
     CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
     deriving (Show,Eq, Ord, Generic)
 
-data Trait = Trait { _traitName       :: DefId,
-                     _traitItems      :: [TraitItem],
-                     _traitSupers     :: [TraitName],
-                     _traitParams     :: [Param],
-                     _traitPredicates :: [Predicate],
-                     _traitAssocTys   :: [AssocTy]    -- new params added in a pre-pass
+data Trait = Trait { _traitName       :: !DefId,
+                     _traitItems      :: ![TraitItem],
+                     _traitSupers     :: ![TraitName],
+                     _traitParams     :: ![Param],
+                     _traitPredicates :: ![Predicate],
+                     _traitAssocTys   :: ![AssocTy]    -- new params added in a pre-pass
                    } 
     deriving (Eq, Ord, Show, Generic)
 

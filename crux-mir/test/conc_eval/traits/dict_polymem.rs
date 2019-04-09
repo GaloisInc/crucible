@@ -1,4 +1,3 @@
-// FAIL: Bad any unpack due to polymorphism in dictionary
 // a static trait invocation for a polymorphic member 
 // calling the g method in h requires a dictionary argument 
 

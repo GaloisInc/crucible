@@ -156,11 +156,21 @@ tyToRepr t0 = case t0 of
   M.TyParam i -> case somePeano i of
     Just (Some nr) -> Some (C.VarRepr nr) 
     Nothing        -> error "type params must be nonnegative"
-  M.TyFnPtr (M.FnSig args ret _params _preds _atys) ->
-    -- TODO: make a polymorphic function handle???
-     tyListToCtx args $ \argsr ->
+
+  -- non polymorphic function types go to FunctionHandleRepr
+  M.TyFnPtr sig@(M.FnSig args ret [] preds _atys) ->
+     tyListToCtx (args ++ Maybe.mapMaybe dictTy preds) $ \argsr  ->
      tyToReprCont ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)
+  -- polymorphic function types go to PolyFnRepr
+  -- invariant: never have 0 for PolyFnRepr
+  M.TyFnPtr sig@(M.FnSig args ret params preds _atys) ->
+     case peanoLength params of
+       Some k ->
+         tyListToCtx (args ++ Maybe.mapMaybe dictTy preds) $ \argsr ->
+         tyToReprCont ret $ \retr ->
+            Some (C.PolyFnRepr k argsr retr)
+        
   M.TyDynamic _def -> Some C.AnyRepr
 --  M.TyProjection _def _tyargs -> Some taggedUnionRepr
   M.TyProjection _def _tyargs -> error $ "BUG: all uses of TyProjection should have been eliminated, found "
@@ -221,8 +231,10 @@ substToSubstCont (Substs (ty:rest)) f =
     substToSubstCont (Substs rest) $ \rr ->
        f (rr `Ctx.extend` tyr)
 
-
 -----------------------------------------------------------------------
+
+
+
 
 
 
@@ -1056,7 +1068,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
       mty@(M.TyAdt did _) -> do
          (struct_variant, args) <- getVariant mty
          etu <- evalLvalue lv
-         e   <- accessAggregate etu 1 
+         e   <- accessAggregate etu 1
          Some ctx <- return $ variantToRepr struct_variant args
          struct <- unpackAny (Some (C.StructRepr ctx)) e
          accessAggregate struct field
@@ -1475,6 +1487,13 @@ lookupFunction nm (Substs funsubst)
   -- Given a (polymorphic) function handle, turn it into an expression by
   -- instantiating the type arguments
   let mkFunExp :: Substs -> FH.FnHandle a r -> MirExp s
+      mkFunExp (Substs [])     fhandle =
+        case (C.checkClosedCtx (FH.handleArgTypes fhandle),
+              C.checkClosed (FH.handleReturnType fhandle)) of
+          (Just C.Dict, Just C.Dict) -> 
+            MirExp (FH.handleType fhandle) (R.App $ E.HandleLit fhandle)
+          (_,_) ->
+            error $ "Handle not closed" 
       mkFunExp (Substs hsubst) fhandle = tyListToCtx (reverse hsubst) $ \tyargs ->
         case testEquality k (ctxSizeP tyargs) of
           Nothing   -> error "Wrong number of type arguments"
@@ -1488,6 +1507,31 @@ lookupFunction nm (Substs funsubst)
               polyinst = R.App $ E.PolyInstantiate (C.PolyFnRepr k fargctx fret) polyfcn tyargs
             in
               MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst
+
+  -- Given a (polymorphic) trait method, instantiate it with the method's type arguments
+  let instantiateTraitMethod :: MirExp s -> Substs -> MirExp s
+      instantiateTraitMethod exp@(MirExp (C.FunctionHandleRepr _ _) _) (Substs []) = exp
+      instantiateTraitMethod (MirExp fty@(C.PolyFnRepr n fargctx fret) polyfcn) (Substs methsubst) = do
+        tyListToCtx (reverse methsubst) $ \tyargs -> do
+           let ifargctx = C.instantiate (C.mkSubst tyargs) fargctx
+           let ifret    = C.instantiate (C.mkSubst tyargs) fret
+           case testEquality (ctxSizeP tyargs) n of
+                   Just Refl -> 
+                     let polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs
+                         cty      = C.FunctionHandleRepr ifargctx ifret
+                     in (MirExp cty polyinst)
+                   Nothing ->
+                     case ltP (ctxSizeP tyargs) n of
+                       TrueRepr -> 
+                         let polyinst = R.App $ E.PolySpecialize fty polyfcn tyargs
+                             cty      = C.PolyFnRepr (n `minusP` (ctxSizeP tyargs)) ifargctx ifret 
+                         in (MirExp cty polyinst)
+                         
+                       FalseRepr -> 
+                         error $ "TODO: " ++ show (ctxSizeP tyargs) ++ " > " ++ show n
+      instantiateTraitMethod (MirExp ty _) ss =
+         error $ "instantiateTraitMethod: found exp of type " ++ show ty
+                         ++ "\n and substs " ++ fmt ss
 
   case () of 
        -- a normal function, resolve associated types to additional type arguments
@@ -1520,6 +1564,14 @@ lookupFunction nm (Substs funsubst)
              traceM $ "\tfty is       " ++ fmt fty
        
            case fty of
+              (C.FunctionHandleRepr fargctx fret) ->
+                case testEquality (ctxSizeP tyargs) zeroP of
+                   Just Refl -> do
+
+                     return $ Just (MirExp (C.FunctionHandleRepr fargctx fret) polyfcn,
+                              tySubst (Substs methsubst) (polysig^.fspredicates))
+                   Nothing ->
+                     error $ "BUG: too many type arguments for non-polymorphic function"
               (C.PolyFnRepr n fargctx fret) -> do
                 case testEquality (ctxSizeP tyargs) n of
                    Just Refl -> do
@@ -1543,7 +1595,7 @@ lookupFunction nm (Substs funsubst)
                          
                        FalseRepr -> 
                          error $ "TODO: " ++ show (ctxSizeP tyargs) ++ " > " ++ show n
-              _ -> fail $ "Found non-polymorphic function " ++ show nm ++ " for type "
+              _ -> fail $ "Found non-function " ++ show nm ++ " for type "
                           ++ show (pretty funsubst) ++ " in the trait map: " ++ show fty
 
 
@@ -1572,25 +1624,32 @@ lookupFunction nm (Substs funsubst)
           , Map.member (M.idText tn) vm ]
        -> do 
              let Just trait = Map.lookup tn (am^.traits)
+             let (tsubst,msubst) = splitAt (length (trait^.traitParams)) funsubst
              let Just (TraitMethod _ sig) =
                     List.find (\tm -> tm^.itemName == nm) (trait^.traitItems)
              let preds = sig^.fspredicates
-             let var = mkPredVar (TyAdt tn (Substs funsubst))
+             let var = mkPredVar (TyAdt tn (Substs tsubst))
              let fld@(Field _ ty _) = fields !! idx
-             let exp = M.Use (M.Copy (M.LProjection (M.LvalueProjection (M.Local var) (M.PField idx ty))))
+             let ty'  = tySubst (Substs tsubst) ty
+             let exp = M.Use (M.Copy (M.LProjection (M.LvalueProjection (M.Local var) (M.PField idx ty'))))
              let rty = typeOf exp
              when (db > 5) $ do
                traceM $ "***lookupFunction: at dictionary projection for " ++ show (pretty nm)
                traceM $ "   traitParams are" ++ fmt (trait^.traitParams)
                traceM $ "   traitPreds are " ++ fmt (trait^.traitPredicates)
-               traceM $ "   funsubst i s   " ++ fmt funsubst
+               traceM $ "   var is         " ++ show var
+               traceM $ "   tsubst is      " ++ fmt tsubst
+               traceM $ "   msubst is      " ++ fmt msubst
                traceM $ "   method sig is  " ++ fmt sig
                traceM $ "   field is       " ++ fmt fld
                traceM $ "   ty is          " ++ fmt ty
+               traceM $ "   ty' is          " ++ fmt ty'
                traceM $ "   rty is         " ++ fmt rty
                traceM $ "   exp is         " ++ fmt exp
+          
              fun <- evalRval exp
-             return $ (Just (fun, preds))
+             let fun' = instantiateTraitMethod fun (Substs msubst)
+             return $ (Just (fun', tySubst (Substs funsubst) preds))
 
 
 
@@ -1820,7 +1879,7 @@ doCall funid funsubst cargs cdest retRepr = do
                   _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
                                  ++ show ifargctx ++ "\n while calling " ++ show (pretty funid)
              
-         | otherwise -> fail $ "Don't know how to call " ++ fmt funid
+         | otherwise -> fail $ "Don't know how to call " ++ fmt funid ++ "\n mhand is " ++ show mhand
 
       Nothing
          -- special case for exit function that does not return
@@ -2342,16 +2401,20 @@ defineTraitAdts traits = fmap traitToAdt traits where
    traitToAdt :: M.Trait -> M.Adt
    traitToAdt tr = do
      let itemToField :: M.TraitItem -> Maybe M.Field
-         itemToField (M.TraitMethod did fnsig) =
-           return $ M.Field did (TyFnPtr (addPreds fnsig)) (Substs [])
+         itemToField (M.TraitMethod did fnsig) = do
+           let fnsig' = specialize fnsig ntys 
+           return $ M.Field did (TyFnPtr fnsig') (Substs [])
          itemToField _ = Nothing
+
+         n    = length (tr^.traitParams)
+         ntys = take n (TyParam <$> [0 .. ])
 
          -- make sure the field name matches *this* trait
          -- setTraitName did = 
          --     did { M.did_name = (M.did_name (tr^.traitName)) }
 
-         addPreds :: FnSig -> FnSig
-         addPreds fs = fs & fsarg_tys %~ (++ Maybe.mapMaybe dictTy (fs^.fspredicates))
+         --addPreds :: FnSig -> FnSig
+         --addPreds fs = fs & fsarg_tys %~ (++ Maybe.mapMaybe dictTy (fs^.fspredicates))
 
      let fields = Maybe.mapMaybe itemToField (tr^.traitItems)
      M.Adt (tr^.traitName) [M.Variant (tr^.traitName) (Relative 0) fields M.FnKind]
@@ -2363,21 +2426,16 @@ defineTraitAdts traits = fmap traitToAdt traits where
 passRemoveUnknownPreds :: Collection -> Collection
 passRemoveUnknownPreds col = modifyPreds ff col 
   where
-     ff = filter knownPred
-
+     ff did = Map.member did trs
      trs = col^.traits
 
-     knownPred :: Predicate -> Bool
-     knownPred (TraitPredicate did _) = Map.member did trs 
-     knownPred (TraitProjection {})   = True
-     knownPred UnknownPredicate       = False
 
 --------------------------------------------------------------------------------------
 -- Some functions need additional predicates because they are trait implementations
-
+-- This pass adds those predicates to trait declarations and then uses those to add them
+-- to function implementations
 passAddDictionaryPreds :: Collection -> Collection
-passAddDictionaryPreds col = col & traits    %~ fmap addThisPred
-                                 & functions %~ fmap addTraitPreds  where
+passAddDictionaryPreds col = col1 & functions %~ fmap addTraitPreds  where
 
   col1 = col & traits  %~ fmap addThisPred
 
@@ -2402,6 +2460,7 @@ passAddDictionaryPreds col = col & traits    %~ fmap addThisPred
   addPred pred preds = List.nub (pred++preds)
 
   -- determine the methods that are implementation methods
+  -- and the new predicates they should satisfy (== preds for the traits that they impl)
   impls :: Map MethName [Predicate]
   impls = implMethods' col1
 
@@ -2416,16 +2475,20 @@ findMethodItem mn (_:rest) = findMethodItem mn rest
 findMethodItem mn [] = error $ "BUG: cannot find method " ++ fmt mn
 
 implMethods' :: HasCallStack => Collection -> Map MethName [Predicate]
-implMethods' col = foldr g Map.empty (col^.impls) where
-  g impl m = foldr g2 m (impl^.tiItems) where
+implMethods' col = foldMap g (col^.impls) where
+  g :: TraitImpl -> Map MethName [Predicate]
+  g impl = foldMap g2 (impl^.tiItems) where
      TraitRef tn ss = impl^.tiTraitRef
      items = case (col^.traits) Map.!? tn of
                  Just tr -> tr^.traitItems
                  Nothing -> error $ "BUG: Cannot find trait " ++ fmt tn ++ " in collection"
-     g2 (TraitImplMethod mn ii _ preds _) m =
-        let (TraitMethod _ sig) = findMethodItem ii items in
-          Map.insertWith (++) mn (tySubst ss (sig^.fspredicates)) m
-     g2 _ m = m
+
+     g2 :: TraitImplItem -> Map MethName [Predicate]
+     g2 (TraitImplMethod mn ii _ preds _) =
+        --let (TraitMethod _ sig) = findMethodItem ii items in
+        --  Map.singleton mn (tySubst ss (sig^.fspredicates))
+        Map.singleton mn [TraitPredicate tn ss]
+     g2 _ = Map.empty
 
 implMethods :: Collection -> Map MethName [(TraitName,Substs)]
 implMethods col = foldr g Map.empty (col^.functions) where
@@ -2479,6 +2542,7 @@ transCollection col0 debug halloc = do
               |> passAddDictionaryPreds  -- add predicates to trait member functions
               |> passTrace "after dict preds"
               |> passExpandSuperTraits   -- add supertrait items
+              |> passTrace "after super traits"
               |> passAbstractAssociated  -- replace associated types with additional type parameters
               |> passTrace "after associated types translated"
               |> passMarkCStyle          -- figure out which ADTs are enums and mark them
@@ -2543,7 +2607,9 @@ mkTraitDecl tr = do
         , Some args <- tyListToCtx ((sig^.fsarg_tys) ++ Maybe.mapMaybe dictTy (sig^.fspredicates)) Some
         , Some k    <- peanoLength (sig^.fsgenerics)
 
-        =  Some (ctxr `Ctx.extend` MethRepr mname (C.PolyFnRepr k  args ret))
+        = case testEquality k zeroP of
+            Just Refl -> Some (ctxr `Ctx.extend` MethRepr mname (C.FunctionHandleRepr args ret))
+            Nothing   -> Some (ctxr `Ctx.extend` MethRepr mname (C.PolyFnRepr k  args ret))
 
   case foldl go (Some Ctx.empty) meths of
     Some (mctxr :: Ctx.Assignment MethRepr ctx) ->
@@ -2643,6 +2709,16 @@ buildTraitMap debug col _halloc hmap = do
                     -> Ctx.Assignment GenericMirValue ctx
         impl_vtable (TraitDecl tname numParams methDecls ctxr methodIndex revIndex) implTy methImpls =
            let go :: Ctx.Index ctx ty -> C.TypeRepr ty -> Identity (GenericMirValue ty)
+               go idx (C.FunctionHandleRepr args ret) = do
+                  let i = Ctx.indexVal idx
+                  when (i >= length methImpls) $ do
+                      error $ "impl_vtable BUG: " ++ show i ++ " out of range for methImpls"
+                  when (i >= length methDecls) $ do
+                      error $ "impl_vtable BUG: " ++ show i ++ " out of range for methDecls"
+                  let (declName, _declTy)                = methDecls !! i 
+                  let (_implName, implHandle, implSubst) = methImpls !! i
+                  error $ "TODO: finish this case"
+
                go idx (C.PolyFnRepr k args ret) = do
                   let i = Ctx.indexVal idx
                   when (i >= length methImpls) $ do
@@ -2657,15 +2733,24 @@ buildTraitMap debug col _halloc hmap = do
                     case implHandle of 
                       (MirHandle mname sig (fh :: FH.FnHandle fargs fret)) -> do
                         let subst' = C.mkSubst subst
-                        let k' = minusP k (ctxSizeP subst)
+                        let k'     = minusP k (ctxSizeP subst)
                         case (testEquality (FH.handleArgTypes   fh) (C.instantiate subst' args),
                               testEquality (FH.handleReturnType fh) (C.instantiate subst' ret)) of
                             (Just Refl, Just Refl) ->
-                              return (GenericMirValue $ 
-                                let expr   = R.App $ E.PolyHandleLit k' fh in
-                                let exprTy = C.PolyFnRepr k'
-                                     (FH.handleArgTypes fh) (FH.handleReturnType fh) in
-                                (MirValue subst exprTy expr sig))
+                              case peanoView k' of
+                                 SRepr _ ->
+                                   return (GenericMirValue $ 
+                                      let expr   = R.App $ E.PolyHandleLit k' fh in
+                                      let exprTy = C.PolyFnRepr k' (FH.handleArgTypes fh) (FH.handleReturnType fh) in
+                                      (MirValue subst exprTy expr sig))
+                                 ZRepr -> case (C.checkClosedCtx (FH.handleArgTypes fh),
+                                                C.checkClosed (FH.handleReturnType fh)) of
+                                   (Just C.Dict, Just C.Dict) ->
+                                      return (GenericMirValue $
+                                         let expr   = R.App $ E.HandleLit fh in
+                                         let exprTy = C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh) in
+                                         (MirValue subst exprTy expr sig))
+                                   (_,_) -> error $ "Function handle type not closed " ++ show fh
                             (_,_)   -> error $ "Type mismatch in method table for " ++ show tname
                                         ++ "\n\tadding implementation: " ++ show mname
                                         ++ "\n\tat implTy:"                  ++ show implTy
