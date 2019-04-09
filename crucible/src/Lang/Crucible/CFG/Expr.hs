@@ -568,20 +568,15 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Polymorphism
 
   -- FnHandles that generalize over all free type variables
+  -- TODO: check that k is greater than 0 -- don't want to duplicate HandleLit  
   -- TODO: check that k is greater than the largest occurrence
   -- of any VarType in args and ret? We don't have another opportunity
   -- to generalize these
   PolyHandleLit :: !(PeanoRepr k) -> !(FnHandle args ret)
     -> App ext f (PolyFnType k args ret)
         
-  -- Instantiate the type of polymorphic function handle
-  -- When we instantiate a polymorphic function, filling the types
-  -- 0 .. k, we need to also decrement any free variables appearing in the
-  -- type (i.e. those (>= k)) by k steps.
-  -- We have to do this lowering *simultaneously* with the instantiation of targs
-  --   * if we did it before, then free vars would be replaced by targs
-  --   * if we did it after, then we'd lower free vars in targs too.
-  
+  -- Instantiate the type of a polymorphic function handle with all of
+  -- its type arguments
   PolyInstantiate ::
         (CtxSizeP targs ~ k) => 
        !(TypeRepr (PolyFnType k args ret))
