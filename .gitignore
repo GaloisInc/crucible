@@ -13,3 +13,4 @@ stack.yaml
 cabal.project.local
 *.tix
 .ghc.environment.*
+doc/
