@@ -1,5 +1,3 @@
-// FAIL: cannot find Associated Type  (need to add concrete impls)
-
 trait F : Sized {
     
     type Output : Sized;

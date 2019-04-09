@@ -6,11 +6,13 @@ module Mir.Pass.AssociatedTypes(passAbstractAssociated,mkAssocTyMap) where
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.List as List
+import qualified Data.Maybe as Maybe
 
 import Control.Lens((^.),(%~),(&),(.~))
 
 import Mir.DefId
 import Mir.Mir
+import Mir.MirTy
 import Mir.GenericOps
 import Mir.PP
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
@@ -74,7 +76,7 @@ passAbstractAssociated col =
 
        col2  =
          col1 & functions %~ fmap (addFnAssocTys col1 adict)
-              & traits    %~ fmap (& traitItems %~ fmap (addTraitFnAssocTys col1 adict))
+              & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys col1 adict tr))
        
        mc    = buildMethodContext col2
 
@@ -105,12 +107,12 @@ addFnSigAssocTys col adict sig = sig & fsassoc_tys .~ atys where
     predToAT :: Predicate -> [AssocTy]
     predToAT (TraitPredicate tn ss)
           | Just trait <- Map.lookup tn (col^.traits)
-          = (map (replaceSubsts ss) (trait^.traitAssocTys))
+          = map (replaceSubsts ss) (trait^.traitAssocTys)
     predToAT p = []
 
     raw_atys = (concat (map predToAT (sig^.fspredicates))) 
 
-    atys = filter (\x -> not (Map.member x adict)) raw_atys
+    atys = filter (\x -> Maybe.isNothing (lookupATDict adict x)) raw_atys
   
 
 -- | Update the function with information about associated types
@@ -120,12 +122,16 @@ addFnAssocTys :: HasCallStack => Collection -> ATDict -> Fn -> Fn
 addFnAssocTys col adict fn =
   fn & fsig %~ (addFnSigAssocTys col adict) 
   
-addTraitFnAssocTys :: HasCallStack => Collection -> ATDict -> TraitItem -> TraitItem
-addTraitFnAssocTys col adict (TraitMethod did sig) = TraitMethod did (addFnSigAssocTys col adict sig)
-addTraitFnAssocTys col adict it = it                          
+addTraitFnAssocTys :: HasCallStack => Collection -> ATDict -> Trait -> TraitItem -> TraitItem
+addTraitFnAssocTys col adict tr (TraitMethod did sig) = TraitMethod did (addFnSigAssocTys col adict' sig)
+  where
+    adict' :: ATDict
+    adict' = mkAssocTyMap (toInteger (length (tr^.traitParams))) (tr^.traitAssocTys)
+addTraitFnAssocTys col adict tr it = it
 
-  
 ----------------------------------------------------------------------------------------
+
+-- type ATDict = Map DefId (Substs -> Maybe Ty)
 
 mkImplADict :: HasCallStack => Collection -> ATDict
 mkImplADict col = foldr go Map.empty (col^.impls) where
@@ -134,7 +140,10 @@ mkImplADict col = foldr go Map.empty (col^.impls) where
     TraitRef tn ss = ti^.tiTraitRef
     go2 :: TraitImplItem -> ATDict -> ATDict
     go2 (TraitImplType _ ii _ _ ty) m =
-      Map.insert (ii,ss) ty m
+      extendATDict ii
+        (\ss' -> case matchSubsts ss' ss of
+                   Just m  -> Just $ tySubst (mkSubsts m) ty
+                   Nothing -> Nothing) m
     go2 _ m = m
 
 
@@ -149,20 +158,20 @@ mkClosureADict col = foldr go Map.empty (col^.functions) where
   go :: Fn -> ATDict -> ATDict
   go fn m 
    | (TyRef ty@(TyClosure did (Substs [_,TyFnPtr fs,_])) _ : _) <- (fn^.fsig.fsarg_tys)
-   = Map.insert (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
+   = insertATDict (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
                  Substs [ty, List.head (fs^.fsarg_tys)])
                  (fs^.fsreturn_ty)
                  m
      
   go fn m 
    | (ty@(TyClosure did (Substs [_,TyFnPtr fs])) : _) <- (fn^.fsig.fsarg_tys)
-   = Map.insert (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
+   = insertATDict (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
                  Substs [ty, List.head (fs^.fsarg_tys)])
                  (fs^.fsreturn_ty)
                  m
      
   go fn m
-   = Map.insert (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
+   = insertATDict (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
                  Substs [TyFnDef (fn^.fname) (Substs []),TyTuple (fn^.fsig.fsarg_tys)])
                  (fn^.fsig.fsreturn_ty)
                  m
@@ -179,15 +188,6 @@ buildMethodContext col = foldMap go (col^.traits) where
 -----------------------------------------------------------------------------------
 -- Translation for traits and Functions
 
--- | Convert an associated type into a Mir type parameter
-toParam :: AssocTy -> Param
-toParam (did,_substs) = Param (idText did)  -- do we need to include substs?
-
--- | Create a mapping for associated types to type parameters, starting at index k
--- For traits, k should be == length traitParams
-mkAssocTyMap :: Integer -> [AssocTy] -> ATDict
-mkAssocTyMap k assocs = Map.fromList (zip assocs tys) where
-   tys = map TyParam [k ..]
 
 
 -- | Update trait declarations with additional generic types instead of
@@ -218,6 +218,7 @@ translateTrait col adict mc trait =
 
 
 
+
 -- Fn translation for associated types
 --
 -- 1. find <atys>, this fn's ATs by looking at preds (predToAT)
@@ -230,7 +231,6 @@ translateTrait col adict mc trait =
 -- add assocTys if we abstract a type bounded by a trait w/ an associated type
 translateFn :: HasCallStack => Collection -> ATDict -> Map MethName (FnSig, Trait) -> Fn -> Fn
 translateFn col adict mc fn =
-   -- trace ("translateFn:" ++ fmt (fn^.fname) ++ " of type " ++ fmt (fn^.fsig)) $
    fn & fargs       %~ fmap (\v -> v & varty %~ abstractATs info)
       & fsig        %~ (\fs -> fs & fsarg_tys    %~ abstractATs info
                                   & fsreturn_ty  %~ abstractATs info

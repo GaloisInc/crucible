@@ -1,6 +1,3 @@
-// FAIL: needs a polymorphic member in trait dictionary
-
-// 0 /= 1, i.e. not all types are instantiated during dictionary creation
 
 trait F : Sized {
     

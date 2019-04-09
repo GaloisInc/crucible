@@ -13,7 +13,6 @@
 
 - associated type translation
    - need to take advantage of equality constraints (FnOnce::Output)
-   - need to be able to handle polymorphic impls (slice/get.rs)
 
 - just-in time function translation using overrides
    - see crucible-jvm

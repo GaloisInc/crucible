@@ -44,7 +44,7 @@ import Data.Coerce
 import Debug.Trace
 
 
-type ATDict = Map AssocTy Ty
+type ATDict = Map DefId (Substs -> Maybe Ty)
 
 data ATInfo = ATInfo {
      _atStart :: Integer    -- ^ index to start renaming
@@ -152,21 +152,43 @@ class GenericOps a where
 
 -}
 
+lookupATDict :: ATDict -> AssocTy -> Maybe Ty
+lookupATDict dict (d, ss) 
+    | Just f   <- dict Map.!? d
+    = f ss
+    | otherwise
+    = Nothing
+
+insertATDict :: AssocTy -> Ty -> ATDict -> ATDict
+insertATDict (d, ss) ty = extendATDict d (\ss' -> if ss == ss' then Just ty else Nothing) 
+
+extendATDict :: DefId -> (Substs -> Maybe Ty) -> ATDict -> ATDict
+extendATDict d f dict
+  | Just g <- dict Map.!? d
+  =
+  let h ss = case f ss of
+                Just ty -> Just ty
+                Nothing -> g ss
+  in Map.insert d h dict
+  | otherwise
+  = Map.insert d f dict
+    
+
 
 -- | Special case for Ty
-abstractATsTy :: HasCallStack => ATInfo -> Ty -> Ty
-abstractATsTy ati (TyParam i)
+abstractATs_Ty :: HasCallStack => ATInfo -> Ty -> Ty
+abstractATs_Ty ati (TyParam i)
     | i < (ati^.atStart) = TyParam i          -- trait param,  leave alone
     | otherwise = TyParam (i + (ati^.atNum))  -- method param, shift over
-abstractATsTy ati ty@(TyProjection d substs)
+abstractATs_Ty ati ty@(TyProjection d substs)
     -- associated type, replace with new param
-    | Just nty <- Map.lookup (d,substs) (ati^.atDict) = nty
+    | Just nty <- lookupATDict (ati^.atDict) (d,substs)  = nty
     | otherwise = error $ fmt ty ++ " with unknown translation"
-abstractATsTy s ty = to (abstractATs' s (from ty))
+abstractATs_Ty s ty = to (abstractATs' s (from ty))
 
 -- Add additional args to the substs for traits with atys
-abstractATsPredicate :: HasCallStack => ATInfo -> Predicate -> Predicate
-abstractATsPredicate ati (TraitPredicate tn ss) 
+abstractATs_Predicate :: HasCallStack => ATInfo -> Predicate -> Predicate
+abstractATs_Predicate ati (TraitPredicate tn ss) 
     | Just tr <- (ati^.atCol.traits) Map.!? tn
     = let 
         ats  = map (\(n,ss') -> TyProjection n ss') (tr^.traitAssocTys)
@@ -176,14 +198,14 @@ abstractATsPredicate ati (TraitPredicate tn ss)
         TraitPredicate tn (ss1 <> Substs (map (abstractATs ati) ats'))
     | otherwise
     = (TraitPredicate tn ss)  -- error $ "BUG: Found trait " ++ fmt tn ++ " with no info in collection."
-abstractATsPredicate ati (TraitProjection did ss ty)
+abstractATs_Predicate ati (TraitProjection did ss ty)
     = TraitProjection did (abstractATs ati ss) (abstractATs ati ty)
-abstractATsPredicate _ati UnknownPredicate = error "BUG: found UnknownPredicate"
+abstractATs_Predicate _ati UnknownPredicate = error "BUG: found UnknownPredicate"
 
 -- What if the function itself has associated types?
 -- or, what if the function we are calling is
-abstractATsConstVal :: HasCallStack => ATInfo -> ConstVal -> ConstVal
-abstractATsConstVal ati (ConstFunction defid funsubst)
+abstractATs_ConstVal :: HasCallStack => ATInfo -> ConstVal -> ConstVal
+abstractATs_ConstVal ati (ConstFunction defid funsubst)
   | Just (fs,mt) <- fnType ati defid
   = let
        
@@ -214,7 +236,30 @@ abstractATsConstVal ati (ConstFunction defid funsubst)
     in 
        ConstFunction defid hsubst
          
-abstractATsConstVal ati val = to (abstractATs' ati (from val))
+abstractATs_ConstVal ati val = to (abstractATs' ati (from val))
+
+abstractATs_FnSig :: HasCallStack => ATInfo -> FnSig -> FnSig
+abstractATs_FnSig ati (FnSig args ret gens preds atys) =
+  FnSig (abstractATs ati' args)
+        (abstractATs ati' ret)
+        (gens ++ map toParam atys)
+        (abstractATs ati' preds)
+        atys
+    where
+      ati' = ati & atDict %~ Map.union (mkAssocTyMap (toInteger (length gens)) atys)
+
+
+-- | Convert an associated type into a Mir type parameter
+toParam :: AssocTy -> Param
+toParam (did,_substs) = Param (idText did)  -- do we need to include substs?
+
+-- | Create a mapping for associated types to type parameters, starting at index k
+-- For traits, k should be == length traitParams
+mkAssocTyMap :: Integer -> [AssocTy] -> ATDict
+mkAssocTyMap k assocs =
+  foldr (\((a,ss),ty) m -> insertATDict (a,ss) ty m) Map.empty zips where
+   tys  = map TyParam [k ..]
+   zips = zip assocs tys
 
 
 lookupATs :: ATInfo -> [AssocTy] -> Substs
@@ -329,9 +374,9 @@ modifyPreds_TraitImplItem f fs@(TraitImplType {}) = fs & tiiPredicates %~ filter
 -- ** Overridden instances for Mir AST types
 
 instance GenericOps ConstVal where
-  abstractATs = abstractATsConstVal
+  abstractATs = abstractATs_ConstVal
 instance GenericOps Predicate where
-  abstractATs = abstractATsPredicate
+  abstractATs = abstractATs_Predicate
                                                        
 -- special case for DefIds
 instance GenericOps DefId where
@@ -370,7 +415,7 @@ instance GenericOps Ty where
 
   -- see above
   markCStyle = markCStyleTy
-  abstractATs = abstractATsTy
+  abstractATs = abstractATs_Ty
   
   -- Substitute for type variables
   tySubst (Substs substs) (TyParam i)
@@ -415,6 +460,7 @@ instance GenericOps BaseSize
 instance GenericOps FloatKind
 instance GenericOps FnSig where
   modifyPreds = modifyPreds_FnSig
+  abstractATs = abstractATs_FnSig
 instance GenericOps Adt
 instance GenericOps VariantDiscr
 instance GenericOps CtorKind

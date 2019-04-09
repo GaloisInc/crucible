@@ -2434,6 +2434,7 @@ passRemoveUnknownPreds col = modifyPreds ff col
 -- Some functions need additional predicates because they are trait implementations
 -- This pass adds those predicates to trait declarations and then uses those to add them
 -- to function implementations
+-- 
 passAddDictionaryPreds :: Collection -> Collection
 passAddDictionaryPreds col = col1 & functions %~ fmap addTraitPreds  where
 
@@ -2485,9 +2486,8 @@ implMethods' col = foldMap g (col^.impls) where
 
      g2 :: TraitImplItem -> Map MethName [Predicate]
      g2 (TraitImplMethod mn ii _ preds _) =
-        --let (TraitMethod _ sig) = findMethodItem ii items in
-        --  Map.singleton mn (tySubst ss (sig^.fspredicates))
-        Map.singleton mn [TraitPredicate tn ss]
+        let (TraitMethod _ sig) = findMethodItem ii items in
+          Map.singleton mn (tySubst (ss <> (Substs $ TyParam <$> [0 .. ])) (sig^.fspredicates))
      g2 _ = Map.empty
 
 implMethods :: Collection -> Map MethName [(TraitName,Substs)]

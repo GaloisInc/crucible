@@ -152,3 +152,9 @@ matchList f (t1:instTys) (t2:genTys) = do
 matchList f _ _ = Nothing  
 
 
+mkSubsts :: Map Integer Ty -> Substs
+mkSubsts m = Substs (map g [0 ..]) where
+  g i = case Map.lookup i m of
+          Just ty -> ty
+          Nothing -> TyParam i
+  
