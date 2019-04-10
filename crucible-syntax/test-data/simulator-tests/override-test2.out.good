@@ -13,6 +13,7 @@ Prove:
   fall-through branch
   in symbolicBranchesTest at default branch
   false
+COUNTEREXAMPLE
 Assuming:
 * The branch in symbolicBranchesTest from after branch 1 to third branch
     let -- default branch
@@ -24,3 +25,4 @@ Prove:
   let -- default branch
       v23 = intSum 2* cx@2:i (intIte (intEq 2 cx@2:i) 0 cy@3:i)
    in intEq (intIte (intEq 1 cx@2:i) cy@3:i v23) cx@2:i
+COUNTEREXAMPLE

@@ -11,3 +11,4 @@ Prove:
   assert
   in main at test-data/simulator-tests/double-branch.cbl:9:5
   intEq 5 ca@2:i
+PROVED
