@@ -562,12 +562,14 @@ synthExpr typeHint =
       do (e1, e2) <- describe "equality test" $ binary Equalp synth' synth'
          matchingExprs Nothing e1 e2 $ \tp e1' e2' ->
           case tp of
+            FloatRepr _fi ->
+              return $ SomeE BoolRepr $ EApp $ FloatEq e1' e2'
             ReferenceRepr rtp ->
               return $ SomeE BoolRepr $ EApp $ ReferenceEq rtp e1' e2'
             (asBaseType -> AsBaseType bt) ->
               return $ SomeE BoolRepr $ EApp $ BaseIsEq bt e1' e2'
             _ ->
-              later $ describe ("a base type or reference type (got " <> T.pack (show tp) <> ")") empty
+              later $ describe ("a base type or floating point type or reference type (got " <> T.pack (show tp) <> ")") empty
 
     compareBV ::
       Keyword ->
@@ -682,7 +684,7 @@ synthExpr typeHint =
                Just (Some idx) ->
                  do let ty = MaybeRepr (ts^.ixF' idx)
                     return $ SomeE ty $ EApp $ ProjectVariant ts idx e
-           _ -> describe ("expecting variant type (got " <> T.pack (show t) <> ")") empty
+           _ -> describe ("variant type (got " <> T.pack (show t) <> ")") empty
 
     injection :: m (SomeExpr s)
     injection =
@@ -700,18 +702,18 @@ synthExpr typeHint =
            Just (Some t) ->
              describe ("context expecting variant type (got " <> T.pack (show t) <> ")") empty
            Nothing ->
-             describe ("expected unambiguous variant") empty
+             describe ("unambiguous variant") empty
 
     fpToBinary :: m (SomeExpr s)
     fpToBinary =
        kw FPToBinary_ `followedBy`
-       (depCons synth $ \(Pair tp x) ->
+       (depConsCond synth $ \(Pair tp x) ->
          case tp of
            FloatRepr fpi
              | BaseBVRepr w <- floatInfoToBVTypeRepr fpi
              , Just LeqProof <- isPosNat w ->
-                 emptyList $> (SomeE (BVRepr w) $ EApp $ FloatToBinary fpi x)
-           _ -> empty)
+                 emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToBinary fpi x)
+           _ -> pure $ Left $ "floating-point value")
 
     binaryToFp :: m (SomeExpr s)
     binaryToFp =
@@ -723,10 +725,10 @@ synthExpr typeHint =
     fpToReal :: m (SomeExpr s)
     fpToReal =
        kw FPToReal_ `followedBy`
-       (depCons synth $ \(Pair tp x) ->
+       (depConsCond synth $ \(Pair tp x) ->
          case tp of
-           FloatRepr _fpi -> emptyList $> (SomeE RealValRepr $ EApp $ FloatToReal x)
-           _ -> empty)
+           FloatRepr _fpi -> emptyList $> (Right $ SomeE RealValRepr $ EApp $ FloatToReal x)
+           _ -> pure $ Left "floating-point value")
 
     realToFp :: m (SomeExpr s)
     realToFp =
@@ -741,11 +743,11 @@ synthExpr typeHint =
        kw UBVToFP_ `followedBy`
        (depCons fpinfo $ \(Some fpi) ->
         depCons roundingMode $ \rm ->
-        depCons synth $ \(Pair tp x) ->
+        depConsCond synth $ \(Pair tp x) ->
           case tp of
             BVRepr _w ->
-              emptyList $> (SomeE (FloatRepr fpi) $ EApp $ FloatFromBV fpi rm x)
-            _ -> empty
+              emptyList $> (Right $ SomeE (FloatRepr fpi) $ EApp $ FloatFromBV fpi rm x)
+            _ -> pure $ Left $ "bitvector value"
         )
 
     sbvToFloat :: m (SomeExpr s)
@@ -753,11 +755,11 @@ synthExpr typeHint =
        kw SBVToFP_ `followedBy`
        (depCons fpinfo $ \(Some fpi) ->
         depCons roundingMode $ \rm ->
-        depCons synth $ \(Pair tp x) ->
+        depConsCond synth $ \(Pair tp x) ->
           case tp of
             BVRepr _w ->
-              emptyList $> (SomeE (FloatRepr fpi) $ EApp $ FloatFromSBV fpi rm x)
-            _ -> empty
+              emptyList $> (Right $ SomeE (FloatRepr fpi) $ EApp $ FloatFromSBV fpi rm x)
+            _ -> pure $ Left $ "bitvector value"
        )
 
     floatToUBV :: m (SomeExpr s)
@@ -765,22 +767,22 @@ synthExpr typeHint =
        kw FPToUBV_ `followedBy`
        (depCons posNat $ \(BoundedNat w) ->
         depCons roundingMode $ \rm ->
-        depCons synth $ \(Pair tp x) ->
+        depConsCond synth $ \(Pair tp x) ->
           case tp of
             FloatRepr _fpi ->
-              emptyList $> (SomeE (BVRepr w) $ EApp $ FloatToBV w rm x)
-            _ -> empty)
+              emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToBV w rm x)
+            _ -> pure $ Left $ "floating-point value")
 
     floatToSBV :: m (SomeExpr s)
     floatToSBV =
        kw FPToSBV_ `followedBy`
        (depCons posNat $ \(BoundedNat w) ->
         depCons roundingMode $ \rm ->
-        depCons synth $ \(Pair tp x) ->
+        depConsCond synth $ \(Pair tp x) ->
           case tp of
             FloatRepr _fpi ->
-              emptyList $> (SomeE (BVRepr w) $ EApp $ FloatToSBV w rm x)
-            _ -> empty)
+              emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToSBV w rm x)
+            _ -> pure $ Left $ "floating-point value")
 
     ite :: m (SomeExpr s)
     ite =
@@ -791,14 +793,16 @@ synthExpr typeHint =
            cons (synthExpr typeHint) $
            emptyList
          matchingExprs typeHint et ef $ \tp t f ->
-           case asBaseType tp of
-             NotBaseType ->
-               let msg = T.concat [ "conditional where branches have base type (got "
+          case tp of
+            FloatRepr fi ->
+               return $ SomeE tp $ EApp $ FloatIte fi c t f
+            (asBaseType -> AsBaseType bty) ->
+               return $ SomeE tp $ EApp $ BaseIte bty c t f
+            _ ->
+               let msg = T.concat [ "conditional where branches have base or floating point type (got "
                                   , T.pack (show tp)
                                   ]
                in later $ describe msg empty
-             AsBaseType bty ->
-               return $ SomeE tp $ EApp $ BaseIte bty c t f
 
     toAny =
       do Pair tp e <- unary ToAny synth
@@ -887,10 +891,12 @@ synthExpr typeHint =
     showExpr :: m (SomeExpr s)
     showExpr =
       do Pair t1 e <- unary Show synth
-         case asBaseType t1 of
-           NotBaseType -> describe ("base type, but got " <> T.pack (show t1)) empty
-           AsBaseType bt ->
+         case t1 of
+           FloatRepr fi ->
+             return $ SomeE StringRepr $ EApp $ ShowFloat fi e
+           _ | AsBaseType bt <- asBaseType t1 ->
              return $ SomeE StringRepr $ EApp $ ShowValue bt e
+           _ -> describe ("base or floating point type, but got " <> T.pack (show t1)) empty
 
 data NatHint
   = NoHint

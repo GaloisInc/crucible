@@ -923,6 +923,10 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
             -> !(f (BaseToType bt))
             -> App ext f StringType
 
+  ShowFloat :: !(FloatInfoRepr fi)
+            -> !(f (FloatType fi))
+            -> App ext f StringType
+
   AppendString :: !(f StringType)
                -> !(f StringType)
                -> App ext f StringType
@@ -1203,6 +1207,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
 
     TextLit{} -> knownRepr
     ShowValue{} -> knownRepr
+    ShowFloat{} -> knownRepr
     AppendString{} -> knownRepr
 
     ------------------------------------------------------------------------

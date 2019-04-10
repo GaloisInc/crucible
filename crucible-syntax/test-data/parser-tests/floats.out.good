@@ -57,6 +57,8 @@
       (let q3 (real-to-fp Half rtp r3))
       (let q4 (real-to-fp DoubleDouble rtn r1))
       (let q5 (real-to-fp X86_80 rtz r2))
+      (let b (fresh Bool))
+      (let ite (if b u3 q2))
       (return ())))
 
 test-float
@@ -175,8 +177,12 @@ test-float
   $55 = floatFromReal(DoubleDoubleFloatRepr, RTN, $6)
   % 71:13
   $56 = floatFromReal(X86_80FloatRepr, RTZ, $7)
-  % 73:13
-  $57 = emptyApp()
-  % 73:5
-  return $57
+  % 73:12
+  $57 = fresh BaseBoolRepr b
+  % 74:14
+  $58 = floatIte(DoubleFloatRepr, $57, $28, $53)
+  % 76:13
+  $59 = emptyApp()
+  % 76:5
+  return $59
   % no postdom

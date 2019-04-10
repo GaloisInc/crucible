@@ -70,5 +70,8 @@
     (let q4 (real-to-fp DoubleDouble rtn r1))
     (let q5 (real-to-fp X86_80 rtz r2))
 
+    (let b (fresh Bool))
+    (let ite (if b u3 q2))
+
     (return ()))
 )
