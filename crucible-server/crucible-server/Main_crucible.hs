@@ -37,6 +37,7 @@ import           Lang.Crucible.Server.SimpleOverrides
 
 import qualified Verifier.SAW.SharedTerm as SAW
 import qualified Verifier.SAW.Prelude as SAW
+import qualified Verifier.SAW.Cryptol.Prelude as CryptolSAW
 
 main :: IO ()
 main = do
@@ -86,6 +87,7 @@ runSAWSimulator hin hout =
      withIONonceGenerator $ \gen -> do
        sc <- SAW.mkSharedContext
        SAW.scLoadPreludeModule sc
+       CryptolSAW.scLoadCryptolModule sc
        (sym :: SAWBack n) <- SAW.newSAWCoreBackend sc gen
        sawState <- initSAWServerPersonality sym
        s <- newSimulator sym sawServerOptions sawState sawServerOverrides hin hout
