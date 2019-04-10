@@ -417,11 +417,13 @@ parseInt ty val =
     (TyUint B16)   -> U16   <$> parseIntegerText val
     (TyUint B32)   -> U32   <$> parseIntegerText val
     (TyUint B64)   -> U64   <$> parseIntegerText val
+    (TyUint B128)  -> U128  <$> parseIntegerText val
     (TyUint USize) -> Usize <$> parseIntegerText val
     (TyInt B8)     -> I8    <$> parseIntegerText val
     (TyInt B16)    -> I16   <$> parseIntegerText val
     (TyInt B32)    -> I32   <$> parseIntegerText val
     (TyInt B64)    -> I64   <$> parseIntegerText val
+    (TyInt B128)   -> I128  <$> parseIntegerText val
     (TyInt USize)  -> Isize <$> parseIntegerText val
     _ -> fail "invalid int literal"
 

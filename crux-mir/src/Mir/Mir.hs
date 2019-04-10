@@ -15,6 +15,7 @@ License          : BSD3
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -41,6 +42,8 @@ import GHC.Generics
 import GHC.Stack
 
 import Mir.DefId
+
+import Data.Coerce(coerce)
 
 -- NOTE: below, all unwinding calls can be ignored
 --
@@ -70,7 +73,6 @@ data FloatKind
 -- | Type parameters
 newtype Substs = Substs [Ty]
   deriving (Eq, Ord, Show, Generic)
---  deriving anyclass (GenericOps)
   deriving newtype (Semigroup, Monoid)
 
 -- | Associated types
@@ -379,11 +381,13 @@ data IntLit
   | U16 Integer
   | U32 Integer
   | U64 Integer
+  | U128 Integer
   | Usize Integer
   | I8 Integer
   | I16 Integer
   | I32 Integer
   | I64 Integer
+  | I128 Integer
   | Isize Integer
   deriving (Eq, Ord, Show, Generic)
 
@@ -540,11 +544,13 @@ fromIntegerLit (U8 i)    = i
 fromIntegerLit (U16 i)   = i
 fromIntegerLit (U32 i)   = i
 fromIntegerLit (U64 i)   = i
+fromIntegerLit (U128 i)  = i
 fromIntegerLit (Usize i) = i
 fromIntegerLit (I8 i)    = i
 fromIntegerLit (I16 i)   = i
 fromIntegerLit (I32 i)   = i
 fromIntegerLit (I64 i)   = i
+fromIntegerLit (I128 i)  = i
 fromIntegerLit (Isize i) = i
 
 
@@ -654,5 +660,52 @@ instance TypeOf LvalueProjection where
    peelIdx t             = t
 
 --------------------------------------------------------------------------------------------
+-- coercing list operations to Substs
+-------------------------------------------------------------------------------
 
-  
+-- | insertAt xs k ys  is equivalent to take k ++ xs ++ drop k
+insertAt :: [a] -> Int -> [a] -> [a]
+insertAt xs 0 ys = xs ++ ys
+insertAt xs _n [] = xs
+insertAt xs n (y:ys) = y : insertAt xs (n - 1)ys
+
+-- | access nth component (if possible)
+safeNth :: Int -> [a] -> Maybe a
+safeNth n (x:xs)
+  | n > 0     = safeNth (n-1) xs
+  | n == 0    = Just x
+  | otherwise = Nothing
+safeNth _n []  = Nothing
+
+-----------------
+
+-- | is the substs empty?
+nullSubsts :: Substs -> Bool
+nullSubsts = coerce (null @[] @Ty)
+
+-- | If the substs is infinite, this may not terminate
+lengthSubsts :: Substs -> Int
+lengthSubsts = coerce (length @[] @Ty)
+
+-- | insertAt xs k ys  is equivalent to take k ++ xs ++ drop k
+insertAtSubsts :: Substs -> Int -> Substs -> Substs
+insertAtSubsts = coerce (insertAt @Ty)
+
+-- | access nth component (if possible)
+safeNthSubsts :: Int -> Substs -> Maybe Ty
+safeNthSubsts = coerce (safeNth @Ty)
+
+-- | Truncate a substitution by the first n 
+takeSubsts :: Int -> Substs -> Substs
+takeSubsts = coerce (take @Ty)
+
+-- | drop n xs returns the suffix of xs after the first n elements, or [] if n > length xs:
+dropSubsts :: Int -> Substs -> Substs
+dropSubsts = coerce (drop @Ty)
+
+-- | splitAt n xs returns a tuple where first element is xs prefix of
+-- length n and second element is the remainder of the list
+splitAtSubsts :: Int -> Substs -> (Substs,Substs)
+splitAtSubsts = coerce (splitAt @Ty)
+
+

@@ -297,11 +297,13 @@ instance Pretty IntLit where
     U16 i0 -> show i0
     U32 i0 -> show i0
     U64 i0 -> show i0
+    U128 ui0 -> show i0
     Usize i0 -> show i0
     I8 i0 -> show i0
     I16 i0 -> show i0
     I32 i0 -> show i0
     I64 i0 -> show i0
+    I128 i0 -> show i0
     Isize i0 -> show i0
 
 instance Pretty FloatLit where

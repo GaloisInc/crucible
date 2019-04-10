@@ -223,7 +223,7 @@ abstractATs_ConstVal ati (ConstFunction defid funsubst)
                            j     = length $ tr^.traitParams
                            tats' = lookupATs ati tats
                        in
-                         substInsertAt tats' j funsubst1
+                         insertAtSubsts tats' j funsubst1
                          
        -- find any ats for the method instantiate them 
        ats       = tySubst funsubst1 (fs^.fsassoc_tys)
@@ -282,16 +282,7 @@ fnType ati mn
   = Nothing
 
 
--- |  insertAt xs k ys
--- is equivalent to take k ++ xs ++ drop k
 
-insertAt :: [a] -> Int -> [a] -> [a]
-insertAt xs 0 ys = xs ++ ys
-insertAt xs _n [] = xs
-insertAt xs n (y:ys) = y : insertAt xs (n - 1)ys
-
-substInsertAt :: Substs -> Int -> Substs -> Substs
-substInsertAt = coerce (insertAt @Ty)
 
 --------------------------------------------------------------------------------------
 
@@ -390,21 +381,12 @@ instance GenericOps DefId where
   modifyPreds _     = id
 
 
-safeNth :: Int -> [a] -> Maybe a
-safeNth n (x:xs)
-  | n > 0     = safeNth (n-1) xs
-  | n == 0    = Just x
-  | otherwise = Nothing
-safeNth _n []  = Nothing
 
 -- | increment all free variables in the range of the substitution by n
 lift :: Int -> Substs -> Substs
 lift 0 ss = ss
-lift n ss = takeSubst n (incN 0) <> tySubst (incN n) ss  where
+lift n ss = takeSubsts n (incN 0) <> tySubst (incN n) ss  where
 
--- | Truncate a substitution by the first n 
-takeSubst :: Int -> Substs -> Substs
-takeSubst n (Substs ss) = Substs (take n ss)
 
 -- | An infinite substitution that increments all type vars by n
 incN :: Int -> Substs
@@ -422,9 +404,12 @@ instance GenericOps Ty where
      | Just x <- safeNth (fromInteger i) substs  = x
      | otherwise    = error $
            "BUG in substitution: Indexing at " ++ show i ++ "  from subst " ++ fmt substs
+{-           
   tySubst substs (TyFnPtr (FnSig args ret params preds atys)) =
+      trace ("lifted sub is " ++ fmt (takeSubsts 100 ss)) $
       TyFnPtr (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys)) where
          ss = lift (length params) substs
+-}
   tySubst substs ty = to (tySubst' substs (from ty))
 
   -- Count ty params
@@ -461,6 +446,12 @@ instance GenericOps FloatKind
 instance GenericOps FnSig where
   modifyPreds = modifyPreds_FnSig
   abstractATs = abstractATs_FnSig
+  
+  tySubst substs (FnSig args ret params preds atys) =
+      (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys)) where
+         ss = lift (length params) substs
+
+  
 instance GenericOps Adt
 instance GenericOps VariantDiscr
 instance GenericOps CtorKind

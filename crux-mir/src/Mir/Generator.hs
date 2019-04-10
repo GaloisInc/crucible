@@ -64,6 +64,7 @@ where
 
 import           Data.Kind(Type)
 
+import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
@@ -165,6 +166,8 @@ data MirHandle = forall init ret.
               -- The type of the function handle includes "free variables"
               , _mhHandle     :: FnHandle init ret
               }
+
+
 
 
 instance Show MirHandle where
@@ -377,6 +380,9 @@ firstJustM f (x:xs) = do
     Just y  -> return $ Just y
     Nothing -> firstJustM f xs
 
+firstJust :: (a -> Maybe b) -> [a] -> Maybe b
+firstJust f = Maybe.listToMaybe . Maybe.mapMaybe f
+
 ------------------------------------------------------------------------------------
 
 
@@ -398,6 +404,7 @@ resolveStaticTrait mn sub = do
     Just tns -> firstJustM (resolveStaticMethod mn sub) (getTraitName mn : tns)
     Nothing -> resolveStaticMethod mn sub (getTraitName mn)
 
+resolveStaticMethod :: MethName -> Substs -> TraitName -> MirGenerator h s ret (Maybe (MirExp s , FnSig, Substs))
 resolveStaticMethod mn (Substs tys) tn = do
   col <- use collection
   (TraitMap tmap) <- use traitMap
@@ -431,6 +438,59 @@ resolveStaticMethod mn (Substs tys) tn = do
                             MirValue _ ty e sig -> Just (MirExp ty e, sig, Substs methTys)
                   in                     
                      return $ Map.foldrWithKey go Nothing vtab
+
+
+findItem :: MethName -> Substs -> Trait -> MirGenerator h s ret (Maybe (TraitImpl, Map Integer Ty, TraitImplItem))
+findItem methName traitSub trait = do
+  col <- use collection
+  let isImpl :: TraitImpl -> Maybe (TraitImpl, Map Integer Ty)
+      isImpl ti
+       | (TraitRef tn ss) <- ti^.tiTraitRef
+       , tn == trait^.traitName
+       = 
+       case matchSubsts traitSub ss of
+              Just m  -> Just (ti, m)
+              Nothing -> Nothing           
+       | otherwise = Nothing
+       
+  case firstJust isImpl (col^.impls) of
+    Nothing -> return Nothing
+    Just (ti, unifier) -> do
+      return $ (ti,unifier,) <$> List.find (\x -> x^.tiiImplements == methName) (ti^.tiItems)
+
+-- During method resolution, additional method arguments discovered via unification
+-- are added to the beginning of the returned substs
+resolveStaticTrait' :: MethName -> Substs -> MirGenerator h s ret (Maybe (MirHandle, Substs))
+resolveStaticTrait' mn sub = do
+  stm <- use staticTraitMap
+  case (stm Map.!? mn) of
+    Just tns -> firstJustM (resolveStaticMethod' mn sub) (getTraitName mn : tns)
+    Nothing -> resolveStaticMethod' mn sub (getTraitName mn)
+                          
+resolveStaticMethod' :: MethName -> Substs -> TraitName -> MirGenerator h s ret (Maybe (MirHandle, Substs))
+resolveStaticMethod' methName substs traitName = do
+   db <- use debugLevel
+   col <- use collection
+   case (col^.traits) Map.!? traitName of
+     Nothing -> return $ Nothing -- BUG: Cannot find trait in collection
+     Just trait -> do
+       let (traitSub, methSub) = splitAtSubsts (length (trait^.traitParams)) substs
+       when (db > 5) $ do
+         traceM $ "Looking for " ++ fmt methName ++ " in " ++ fmt traitName
+         traceM $ "\t traitSub is " ++ fmt traitSub
+         traceM $ "\t methSub  is " ++ fmt methSub
+       mimpl <- findItem methName traitSub trait
+       case mimpl of
+          Nothing -> return $ Nothing  -- OK: there is no impl for this method name & traitsub in this trait
+          Just (traitImpl, unifier, traitImplItem) -> do
+            hmap <- use handleMap
+            case hmap Map.!? (traitImplItem^.tiiName) of
+              Nothing -> return Nothing -- BUG: impls should all be in the handle map
+              Just mh -> do
+                let ulen = Map.size unifier                      
+                let ss'  = takeSubsts ulen (mkSubsts unifier)
+                return (Just (mh, ss' <> methSub))
+       
 
 -------------------------------------------------------------------------------------------------------
 

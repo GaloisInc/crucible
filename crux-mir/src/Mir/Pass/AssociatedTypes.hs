@@ -84,6 +84,7 @@ passAbstractAssociated col =
    
    col2 & traits    %~ Map.map (translateTrait col2 adict mc) 
         & functions %~ Map.map (translateFn    col2 adict mc)
+        & impls     %~ fmap    (translateImpl  col2 adict mc)
 
 ----------------------------------------------------------------------------------------
 
@@ -216,6 +217,23 @@ translateTrait col adict mc trait =
              TraitMethod name sig'
        updateMethod item = item
 
+-- Update the TraitRef component 
+translateImpl :: HasCallStack => Collection -> ATDict -> Map MethName (FnSig, Trait) -> TraitImpl -> TraitImpl
+translateImpl col adict mc impl =
+   impl & tiTraitRef .~ newTraitRef
+
+     where
+       TraitRef tn ss = impl^.tiTraitRef
+       trait = case (col^.traits) Map.!? tn of
+                       Just trait -> trait
+                       Nothing    -> error $ "BUG: cannot find trait info for impl " ++ fmt tn
+       trATs = tySubst ss (trait^.traitAssocTys)
+       ss'   = lookupATs info trATs
+       newTraitRef = TraitRef tn (ss <> ss')
+       info  = ATInfo j k adict col mc
+       j = toInteger $ length (trait^.traitParams)
+       k = toInteger $ length (trait^.traitAssocTys)
+       
 
 
 
