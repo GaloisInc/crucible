@@ -142,9 +142,13 @@ tyToRepr t0 = case t0 of
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
 
   M.TySlice t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
-  
+
   M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
   M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+
+  M.TyRawPtr t M.Immut -> tyToRepr t -- immutable pointers are erased
+  M.TyRawPtr t M.Mut -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
   M.TyCustom custom_t -> customtyToRepr custom_t
   -- FIXME: should this be a tuple? 
@@ -2508,11 +2512,11 @@ passAddDictionaryPreds col = col1 & functions %~ fmap addTraitPreds  where
   newPreds fn = Map.findWithDefault [] (fn^.fname) impls 
 
 
-findMethodItem :: HasCallStack => MethName -> [TraitItem] -> TraitItem
+findMethodItem :: HasCallStack => MethName -> [TraitItem] -> Maybe TraitItem
 findMethodItem mn (item@(TraitMethod did fsig):rest) =
-  if (mn == did) then item else findMethodItem mn rest
+  if (mn == did) then Just item else findMethodItem mn rest
 findMethodItem mn (_:rest) = findMethodItem mn rest
-findMethodItem mn [] = error $ "BUG: cannot find method " ++ fmt mn
+findMethodItem mn [] = Nothing -- error $ "BUG: cannot find method " ++ fmt mn
 
 implMethods' :: HasCallStack => Collection -> Map MethName [Predicate]
 implMethods' col = foldMap g (col^.impls) where
@@ -2521,12 +2525,15 @@ implMethods' col = foldMap g (col^.impls) where
      TraitRef tn ss = impl^.tiTraitRef
      items = case (col^.traits) Map.!? tn of
                  Just tr -> tr^.traitItems
-                 Nothing -> error $ "BUG: Cannot find trait " ++ fmt tn ++ " in collection"
+                 -- Ignore impls that we know nothing about
+                 Nothing -> []
 
      g2 :: TraitImplItem -> Map MethName [Predicate]
      g2 (TraitImplMethod mn ii _ preds _) =
-        let (TraitMethod _ sig) = findMethodItem ii items in
-          Map.singleton mn (tySubst (ss <> (Substs $ TyParam <$> [0 .. ])) (sig^.fspredicates))
+        case findMethodItem ii items of
+          Just (TraitMethod _ sig) ->
+             Map.singleton mn (tySubst (ss <> (Substs $ TyParam <$> [0 .. ])) (sig^.fspredicates))
+          Nothing -> error $ "BUG: addDictionaryPreds: Cannot find method " ++ fmt ii ++ " in trait " ++ fmt tn
      g2 _ = Map.empty
 
 implMethods :: Collection -> Map MethName [(TraitName,Substs)]

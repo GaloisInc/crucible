@@ -297,7 +297,7 @@ instance Pretty IntLit where
     U16 i0 -> show i0
     U32 i0 -> show i0
     U64 i0 -> show i0
-    U128 ui0 -> show i0
+    U128 i0 -> show i0
     Usize i0 -> show i0
     I8 i0 -> show i0
     I16 i0 -> show i0

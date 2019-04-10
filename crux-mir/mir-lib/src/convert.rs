@@ -4,6 +4,9 @@
 #![feature(never_type)]
 #![feature(lang_items)]
 
+#![stable(feature = "rust1", since = "1.0.0")]
+pub mod convert {
+
 //! Traits for conversions between types.
 //!
 //! The traits in this module provide a general way to talk about conversions
@@ -524,3 +527,5 @@ impl AsRef<str> for str {
     }
 }
 
+
+}

@@ -64,13 +64,15 @@ inheritSuperImpls col tis = Map.elems (go tis Map.empty) where
      process :: TraitImpl -> Bool
      process ti = all (\n -> Map.member n done) (supers (ti^.tiTraitRef)) where
 
-     -- find all of the trs for supertraits
+     -- find all of the traitrefs for supertraits
      -- this is tricky because we need to get the correct set of type arguments to the trait.
      -- we get these from the predicates associated with the trait that correspond to the
      -- names in the superclass
      supers :: TraitRef -> [TraitRef]
      supers tr@(TraitRef tn tys)
-       | Nothing <- (col^.traits) Map.!? tn = error $ "BUG: supers: cannot find " ++ fmt tn
+       | Nothing <- (col^.traits) Map.!? tn = []
+            -- ignore supers we can't process error
+            -- "BUG: supers: cannot find " ++ fmt tn
      supers tr@(TraitRef tn tys) = supRefs where
 
         trait     = (col^.traits) Map.! tn

@@ -78,7 +78,6 @@ newtype Substs = Substs [Ty]
 -- | Associated types
 --   The projection of an associated type from a Rust trait, at specific types
 type AssocTy = (DefId, Substs)
--- TODO: make this a newtype
 
 data Ty =
         TyBool               -- The primitive boolean type. Written as bool.

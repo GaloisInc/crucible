@@ -8,6 +8,10 @@
 #![feature(on_unimplemented)]
 #![feature(doc_alias)]
 
+mod ops {
+
+    mod index {
+        
 use std::marker::Sized;
 
 /// Used for indexing operations (`container[index]`) in immutable contexts.
@@ -179,4 +183,7 @@ pub trait IndexMut<Idx: ?Sized>: Index<Idx> {
     /// Performs the mutable indexing (`container[index]`) operation.
 
     fn index_mut(&mut self, index: Idx) -> &mut Self::Output;
+}
+
+    }
 }

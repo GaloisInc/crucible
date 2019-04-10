@@ -39,10 +39,10 @@ import Mir.PP(fmt)
 import GHC.Generics
 import GHC.Stack
 
-import Data.Coerce
-
 import Debug.Trace
 
+--------------------------------------------------------------------------------------
+-- For associated types pass
 
 type ATDict = Map DefId (Substs -> Maybe Ty)
 
