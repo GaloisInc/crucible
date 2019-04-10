@@ -91,7 +91,7 @@ import           Mir.DefId
 import           Mir.Mir
 import           Mir.MirTy
 import           Mir.Intrinsics
-import           Mir.GenericOps(ATDict)
+import           Mir.GenericOps(ATDict,tySubst)
 import           Mir.PP
 
 import           Unsafe.Coerce(unsafeCoerce)
@@ -385,7 +385,7 @@ firstJust f = Maybe.listToMaybe . Maybe.mapMaybe f
 
 ------------------------------------------------------------------------------------
 
-
+{-
 -- | Given a (static)-trait method name and type substitution, find the 
 -- implementation to use
 --
@@ -438,28 +438,20 @@ resolveStaticMethod mn (Substs tys) tn = do
                             MirValue _ ty e sig -> Just (MirExp ty e, sig, Substs methTys)
                   in                     
                      return $ Map.foldrWithKey go Nothing vtab
-
-
-findItem :: MethName -> Substs -> Trait -> MirGenerator h s ret (Maybe (TraitImpl, Map Integer Ty, TraitImplItem))
-findItem methName traitSub trait = do
-  col <- use collection
-  let isImpl :: TraitImpl -> Maybe (TraitImpl, Map Integer Ty)
-      isImpl ti
-       | (TraitRef tn ss) <- ti^.tiTraitRef
-       , tn == trait^.traitName
-       = 
-       case matchSubsts traitSub ss of
-              Just m  -> Just (ti, m)
-              Nothing -> Nothing           
-       | otherwise = Nothing
-       
-  case firstJust isImpl (col^.impls) of
-    Nothing -> return Nothing
-    Just (ti, unifier) -> do
-      return $ (ti,unifier,) <$> List.find (\x -> x^.tiiImplements == methName) (ti^.tiItems)
-
+-}
+------------------------------------------------------------------------------------
+-- | Given a (static)-trait method name and type substitution, find the 
+-- implementation to use. Returns the handle for the method as well as the type arguments
+-- to supply in the method call.
+--
+-- If no method can be found, return Nothing
+--
+-- This returns a Maybe instead of failing so that we can try something else if 
+-- resolution fails
+--
 -- During method resolution, additional method arguments discovered via unification
 -- are added to the beginning of the returned substs
+--
 resolveStaticTrait' :: MethName -> Substs -> MirGenerator h s ret (Maybe (MirHandle, Substs))
 resolveStaticTrait' mn sub = do
   stm <- use staticTraitMap
@@ -492,6 +484,102 @@ resolveStaticMethod' methName substs traitName = do
                 return (Just (mh, ss' <> methSub))
        
 
+findItem :: MethName -> Substs -> Trait -> MirGenerator h s ret (Maybe (TraitImpl, Map Integer Ty, TraitImplItem))
+findItem methName traitSub trait = do
+  col <- use collection
+  let isImpl :: TraitImpl -> Maybe (TraitImpl, Map Integer Ty)
+      isImpl ti
+       | (TraitRef tn ss) <- ti^.tiTraitRef
+       , tn == trait^.traitName
+       = 
+       case matchSubsts traitSub ss of
+              Just m  -> Just (ti, m)
+              Nothing -> Nothing           
+       | otherwise = Nothing
+       
+  case firstJust isImpl (col^.impls) of
+    Nothing -> return Nothing
+    Just (ti, unifier) -> do
+      return $ (ti,unifier,) <$> List.find (\x -> x^.tiiImplements == methName) (ti^.tiItems)
+
 -------------------------------------------------------------------------------------------------------
+--
+-- Determine whether a function call can be resolved via dictionary projection
+--
+-- If so, return the dictionary variable, the rvalue that is the dictionary projection
+-- and the method substitutions
+--
+--
+-- 1. find the <potential_traits> that could potentially contain this method 
+-- 2. find the trait name <tn> and <fields> of a dictionary type for all potential_traits
+-- 3. find the index <idx> of the method in the dictionary
+-- 4. find the <trait> in the collection and method type <sig> from the trait implementations
+
+-- In findVar:
+-- 5. separate substs into those for trait, and those for method 
+-- 6. create the <var> for the dictionary make sure that it in scope
+-- 7. create the <exp> that projects the appropriate field at <idx>
+-- 8. return everything
+
+
+resolveDictionaryProjection :: MethName -> Substs -> MirGenerator h s ret (Maybe (Var, Rvalue, FnSig, Substs))
+resolveDictionaryProjection nm subst = do
+  stm <- use staticTraitMap
+  col  <- use collection
+  db <- use debugLevel
+  vm <- use varMap
+  case stm Map.!? nm of
+    Nothing -> return Nothing
+    Just potential_traits -> do
+      let prjs :: [(TraitName, [Field], Int, Trait, FnSig)]  
+          prjs = [ (tn, fields, idx, trait, sig)
+                 | (tn, Just (Adt _ [Variant _ _ fields _])) <-
+                     map (\tn -> (tn,Map.lookup tn (col^.adts))) potential_traits 
+                 , idx   <- Maybe.maybeToList (List.findIndex (\(Field fn _ _) -> nm == fn) fields)
+                 , trait <- Maybe.maybeToList ((col^.traits) Map.!? tn)
+                 , TraitMethod _ sig <-
+                     Maybe.maybeToList $ List.find (\tm -> tm^.itemName == nm) (trait^.traitItems)
+                 ]
+
+          findVar (tn, fields, idx, trait, sig) = do
+             let (tsubst,msubst) = splitAtSubsts (length (trait^.traitParams)) subst
+             let var = mkPredVar (TyAdt tn tsubst)
+             if (not (Map.member (var^.varname) vm)) then return Nothing
+             else do
+
+               let (Field _ ty _) = fields !! idx
+               let ty'  = tySubst tsubst ty
+               let exp = Use (Copy (LProjection (LvalueProjection (Local var) (PField idx ty'))))
+
+               when (db > 5) $ do
+                 traceM $ "***lookupFunction: at dictionary projection for " ++ show (pretty nm)
+                 traceM $ "   traitParams are" ++ fmt (trait^.traitParams)
+                 traceM $ "   traitPreds are " ++ fmt (trait^.traitPredicates)
+                 traceM $ "   var is         " ++ show var
+                 traceM $ "   tsubst is      " ++ fmt tsubst
+                 traceM $ "   msubst is      " ++ fmt msubst
+                 traceM $ "   method sig is  " ++ fmt sig
+                 traceM $ "   ty is          " ++ fmt ty
+                 traceM $ "   ty' is         " ++ fmt ty'
+                 traceM $ "   exp is         " ++ fmt exp
+
+               return $ Just (var, exp, sig, msubst)
+               
+      firstJustM findVar prjs
+
+
+
+-- | make a variable corresponding to a dictionary type
+-- NOTE: this could make a trait for Fn/FnMut/FnOnce
+mkPredVar :: Ty -> Var
+mkPredVar ty@(TyAdt did ss) = Var {
+                _varname  = idText did <> Text.pack (fmt ss)
+              , _varmut   = Immut
+              , _varty    = ty
+              , _varscope = "dictionary"
+              , _varpos   = "dictionary argument"
+              }
+mkPredVar ty = error $ "BUG in mkPredVar: must provide Adt type"
+
 
 --  LocalWords:  ty ImplementTrait ctx vtable

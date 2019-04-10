@@ -1,3 +1,4 @@
+// FAIL: projection [::ops::index::Index::Output<[u8],::ops::range::RangeFrom<usize>>] with unknown translation
 fn g(xs: &mut [u8]) {
     xs[0] = xs[0] + 1;
 }

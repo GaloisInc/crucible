@@ -1,6 +1,7 @@
-// FAIL: cannot handle generic trait impls
 // a static trait invocation for a polymorphic type
-// calling the g method in h requires a dictionary argument 
+// calling the g method in h requires a dictionary argument
+// Furthermore the impl for this dictionary argument is generic
+// so the dictionary needs to satisfy constraints itself
 
 struct Data<T>(T);
 
@@ -16,7 +17,8 @@ impl G for u32 {
 
 impl <T:G> G for Data<T> {
     fn g(&self) -> u32 {
-       self.0.g()
+        let x = &self.0;
+        self.0.g()
     }
 }
 
@@ -26,8 +28,9 @@ fn h<T>(x:T) -> u32 where T:G {
 }
 
 fn f(_: ()) -> u32 {
-    let d = Data(Data(32));
-    d.g()
+    let d = Data(32);
+    let e = Data(d.0);
+    e.g()
 }
 
 const ARG: () = ();

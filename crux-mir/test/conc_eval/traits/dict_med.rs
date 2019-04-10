@@ -1,5 +1,3 @@
-// FAIL: cannot handle generic trait impls  (i.e. second impl below)
-
 // a static trait invocation for a polymorphic type
 // calling the g method in h requires a dictionary argument 
 

@@ -149,33 +149,24 @@ mkImplADict col = foldr go Map.empty (col^.impls) where
 
 
 -- Add entries to ATDict for the "FnOnce::Output" associated type
--- for closures and other functions in the collection
---
--- NOTE: this is a hack. We need a more general treatment of
--- associated types with constraints on them. Maybe by updating
--- ATDict to be a HOF instead of a Map?
+-- For various concrete function types
 mkClosureADict :: HasCallStack => Collection -> ATDict
-mkClosureADict col = foldr go Map.empty (col^.functions) where
-  go :: Fn -> ATDict -> ATDict
-  go fn m 
-   | (TyRef ty@(TyClosure did (Substs [_,TyFnPtr fs,_])) _ : _) <- (fn^.fsig.fsarg_tys)
-   = insertATDict (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
-                 Substs [ty, List.head (fs^.fsarg_tys)])
-                 (fs^.fsreturn_ty)
-                 m
-     
-  go fn m 
-   | (ty@(TyClosure did (Substs [_,TyFnPtr fs])) : _) <- (fn^.fsig.fsarg_tys)
-   = insertATDict (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
-                 Substs [ty, List.head (fs^.fsarg_tys)])
-                 (fs^.fsreturn_ty)
-                 m
-     
-  go fn m
-   = insertATDict (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]",
-                 Substs [TyFnDef (fn^.fname) (Substs []),TyTuple (fn^.fsig.fsarg_tys)])
-                 (fn^.fsig.fsreturn_ty)
-                 m
+mkClosureADict col =
+  Map.singleton (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]")
+     (\ substs -> case substs of
+         Substs [TyClosure fname _ss, cty] ->
+           case (col^.functions) Map.!? fname of
+             Nothing -> Nothing
+             Just fn -> Just (fn^.fsig^.fsreturn_ty)
+         Substs [TyFnPtr sig] ->
+             Just (sig^.fsreturn_ty)
+         Substs [TyFnDef fname args,_] ->
+           case (col^.functions) Map.!? fname of
+             Nothing -> Nothing
+             Just fn -> Just (fn^.fsig^.fsreturn_ty)
+         Substs [TyDynamic _, TyTuple [ret]] ->
+           Just ret
+         _ -> Nothing)
 
 ----------------------------------------------------------------------------------------
 

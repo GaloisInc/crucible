@@ -80,7 +80,7 @@ import Mir.GenericOps
 import Mir.Pass.ExpandSuperTraits
 import Mir.Pass.AssociatedTypes
 
-import Mir.PP(ppreds,fmt)
+import Mir.PP(fmt)
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -1488,18 +1488,13 @@ lookupFunction nm (Substs funsubst)
   vm   <- use varMap
   am   <- use collection
 
-  isStatic <- resolveStaticTrait' nm (Substs funsubst)
+  -- these two are defined at the bottom of Mir.Generator
+  isStatic  <- resolveStaticTrait' nm (Substs funsubst)
+  isDictPrj <- resolveDictionaryProjection nm (Substs funsubst)
 
   -- Given a (polymorphic) function handle, turn it into an expression by
   -- instantiating the type arguments
   let mkFunExp :: Substs -> [Param] -> FH.FnHandle a r -> MirExp s
-{-      mkFunExp (Substs [])     fhandle =
-        case (C.checkClosedCtx (FH.handleArgTypes fhandle),
-              C.checkClosed (FH.handleReturnType fhandle)) of
-          (Just C.Dict, Just C.Dict) -> 
-            MirExp (FH.handleType fhandle) (R.App $ E.HandleLit fhandle)
-          (_,_) ->
-            error $ "Handle not closed"  -}
       mkFunExp (Substs hsubst) params fhandle
         | Some fk <- peanoLength params = tyListToCtx (reverse hsubst) $ \tyargs ->
        
@@ -1520,11 +1515,7 @@ lookupFunction nm (Substs funsubst)
                   MirExp cty polyspec
              FalseRepr -> error "BUG: invalid number of type args"
           Just Refl ->
-            let --fargctx  = FH.handleArgTypes fhandle
-                --fret     = FH.handleReturnType fhandle
-                --ifargctx = C.instantiate (C.mkSubst tyargs) fargctx
-                --ifret    = C.instantiate (C.mkSubst tyargs) fret
-                polyfcn  = R.App $ E.PolyHandleLit fk fhandle
+            let polyfcn  = R.App $ E.PolyHandleLit fk fhandle
                 polyinst = R.App $ E.PolyInstantiate (C.PolyFnRepr fk fargctx fret) polyfcn tyargs
             in
               MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst
@@ -1592,106 +1583,12 @@ lookupFunction nm (Substs funsubst)
 
              return $ Just (exp, ssig^.fspredicates)
                
-
-{-
-       | Just (MirExp fty polyfcn, polysig, Substs methsubst) <- isStatic
-         -> tyListToCtx (reverse methsubst) $ \tyargs -> do
-
-           when (db > 3) $ do
-             traceM $ "***lookupFunction: In static trait call of " ++ fmt nm ++ fmt (Substs funsubst)
-             traceM $ "\tpolysig is   " ++ fmt polysig
-             traceM $ "\tmethsubst is " ++ fmt methsubst
-             traceM $ "\tfty is       " ++ fmt fty
-       
-           case fty of
-              (C.FunctionHandleRepr fargctx fret) ->
-                case testEquality (ctxSizeP tyargs) zeroP of
-                   Just Refl -> do
-
-                     return $ Just (MirExp (C.FunctionHandleRepr fargctx fret) polyfcn,
-                              tySubst (Substs methsubst) (polysig^.fspredicates))
-                   Nothing ->
-                     error $ "BUG: too many type arguments for non-polymorphic function"
-              (C.PolyFnRepr n fargctx fret) -> do
-                case testEquality (ctxSizeP tyargs) n of
-                   Just Refl -> do
-                     let 
-                         ifargctx = C.instantiate (C.mkSubst tyargs) fargctx
-                         ifret    = C.instantiate (C.mkSubst tyargs) fret
-                         polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs
-
-                     return $ Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst,
-                              tySubst (Substs methsubst) (polysig^.fspredicates))
-                   Nothing ->
-                     case ltP (ctxSizeP tyargs) n of
-                       TrueRepr -> do
-                         let
-                             ifargctx = C.instantiate (C.mkSubst tyargs) fargctx
-                             ifret    = C.instantiate (C.mkSubst tyargs) fret
-                             polyinst = R.App $ E.PolySpecialize fty polyfcn tyargs
-
-                         return $ Just (MirExp (C.PolyFnRepr (n `minusP` (ctxSizeP tyargs)) ifargctx ifret) polyinst,
-                                  tySubst (Substs methsubst) (polysig^.fspredicates))
-                         
-                       FalseRepr -> 
-                         error $ "TODO: " ++ show (ctxSizeP tyargs) ++ " > " ++ show n
-              _ -> fail $ "Found non-function " ++ show nm ++ " for type "
-                          ++ show (pretty funsubst) ++ " in the trait map: " ++ show fty
-
--}
-       -- a dictionary projection for a trait call
-       -- TODO: we don't use type args for resolution, we just access the first dictionary
-       -- that we find. This is wrong.
-
-       -- In the guard for this branch:
-       -- 1. find the <potential_traits> that could potentially contain this method 
-       -- 2. find the trait name <tn> and <fields> of a dictionary type for all potential_traits
-       -- 3. find the index <idx> of the method in the dictionary
-       -- 4. make sure that we have a dictionary variable in scope
-       -- 5. pick the first one (wrong!)
-
-       -- In the branch:
-       -- 6.  look up the <trait> in the collection
-       -- 7.  pull out its <preds>
-       -- 10. create the <var> for the dictionary and the <exp> that projects the appropriate field <fld>
-       -- 11. evaluate the var and return the result
-       | Just potential_traits <- Map.lookup nm stm
-
-       , ((tn, idx, fields):_) <- [ (tn, idx, fields)
-          | (tn, Just (M.Adt _ [Variant _ _ fields _])) <-
-                   map (\tn -> (tn,Map.lookup tn (am^.adts))) potential_traits 
-          , idx <- Maybe.maybeToList (List.findIndex (\(Field fn _ _) -> nm == fn) fields)
-          , Map.member (M.idText tn) vm ]
-       -> do 
-             let Just trait = Map.lookup tn (am^.traits)
-             let (tsubst,msubst) = splitAt (length (trait^.traitParams)) funsubst
-             let Just (TraitMethod _ sig) =
-                    List.find (\tm -> tm^.itemName == nm) (trait^.traitItems)
+       | Just (var, exp, sig, msubst) <- isDictPrj
+       -> do
              let preds = sig^.fspredicates
-             let var = mkPredVar (TyAdt tn (Substs tsubst))
-             let fld@(Field _ ty _) = fields !! idx
-             let ty'  = tySubst (Substs tsubst) ty
-             let exp = M.Use (M.Copy (M.LProjection (M.LvalueProjection (M.Local var) (M.PField idx ty'))))
-             let rty = typeOf exp
-             when (db > 5) $ do
-               traceM $ "***lookupFunction: at dictionary projection for " ++ show (pretty nm)
-               traceM $ "   traitParams are" ++ fmt (trait^.traitParams)
-               traceM $ "   traitPreds are " ++ fmt (trait^.traitPredicates)
-               traceM $ "   var is         " ++ show var
-               traceM $ "   tsubst is      " ++ fmt tsubst
-               traceM $ "   msubst is      " ++ fmt msubst
-               traceM $ "   method sig is  " ++ fmt sig
-               traceM $ "   field is       " ++ fmt fld
-               traceM $ "   ty is          " ++ fmt ty
-               traceM $ "   ty' is          " ++ fmt ty'
-               traceM $ "   rty is         " ++ fmt rty
-               traceM $ "   exp is         " ++ fmt exp
-          
              fun <- evalRval exp
-             let fun' = instantiateTraitMethod fun (Substs msubst)
+             let fun' = instantiateTraitMethod fun msubst
              return $ (Just (fun', tySubst (Substs funsubst) preds))
-
-
 
        | otherwise -> do
             when (db > 1) $ do
@@ -1704,6 +1601,7 @@ lookupFunction nm (Substs funsubst)
                      traceM $ "Cannot find " ++ fmt nm ++ " in static trait map"
             return Nothing
 
+{-
 -- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
 -- The ADT is a tagged union, so to do the coercion, we need to switch through the potential
 -- variants, and when we find that one, coerce the fields of that variant.
@@ -1832,7 +1730,7 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
                  " unsupported in fcn return for " ++ show tr
 -- leave all others alone
                    | otherwise = return e
-
+-}
 
 -- regular function calls: closure calls & dynamic trait method calls handled later
 doCall :: forall h s ret a. (HasCallStack) => M.DefId -> Substs -> [M.Operand] 
@@ -1897,23 +1795,46 @@ doCall funid funsubst cargs cdest retRepr = do
                             case mhand of
                               Just (e,[])    -> return e
                               Just (e,preds) -> do
+                                 db <- use debugLevel
                                  let sig' = tySubst (Substs ss) sig
-                                 if (preds /= sig' ^. fspredicates) then do
-                                    traceM $ "WARNING: For dictionary for " ++ fmt pred
-                                    traceM $ "and member item " ++ fmt fn ++ " of type " ++ fmt sig
-                                    traceM $ "Found preds " ++ fmt preds
-                                    traceM $ "Need preds " ++ fmt (sig' ^.fspredicates)
-                                    return e
+                                     spreds = sig' ^.fspredicates
+                                 if (length preds > length spreds) then do
+                                    let extras = drop (length spreds) preds
+                                    when (db > 3) $ do
+                                       traceM $ fmt fn ++ " for " ++ fmt pred
+                                       traceM $ "preds:  " ++ fmt preds
+                                       traceM $ "spreds: " ++ fmt spreds
+                                       traceM $ "extras: " ++ fmt extras
+                                    dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> dictVar x) extras)
+                                    case (e, dexps) of
+                                      -- TODO: this currently only handles ONE extra predicate on the method
+                                      -- need to generalize closure creation to *multiple* predicates
+                                      (MirExp (C.FunctionHandleRepr args ret) fn, [MirExp ty dict]) -> do
+                                         case Ctx.viewAssign args of
+                                            Ctx.AssignEmpty -> error $ "BUG: No arguments!"
+                                            Ctx.AssignExtend (rargs :: C.CtxRepr rargs)
+                                                             (v :: C.TypeRepr arg) -> do
+                                              case testEquality v ty of
+                                                Nothing -> error $ "BUG: dictionary type doesn't match"
+                                                Just Refl ->
+                                                  C.assumeClosed @arg $
+                                                  return (MirExp
+                                                            (C.FunctionHandleRepr rargs ret)
+                                                            (R.App $ E.Closure rargs ret fn v dict))
+                                      (_,_) -> return e
                                  else
                                     return e -- error $ "found predicates when building a dictionary for " ++ show var
                               Nothing     -> error $ "when building a dictionary for " ++  fmt var
                                                   ++ " couldn't find an entry for " ++ fmt fn
                                                   ++ " of type " ++ fmt (var^.varty)
+                          go (Field fn ty _) = error $ "BUG: mkDict, fields must be functions, found"
+                                                        ++ fmt ty ++ " for " ++ fmt fn ++ " instead."
                       when (db > 3) $ traceM $ "Building dictionary for " ++ fmt pred
                                     ++ " of type " ++ fmt (var^.varty)
                       entries <- mapM go fields
                       when (db > 3) $ traceM $ "Done building dictionary for " ++ fmt var
                       return $ buildTaggedUnion 0 entries
+                mkDict (var, _) = error $ "BUG: mkDict, only make dictionaries for TraitPredicates"
 
             exps <- mapM evalOperand cargs
 
@@ -2289,17 +2210,6 @@ dictTy (TraitPredicate did substs) | not (elem did noDictionary) = Just $ (TyAdt
 dictTy (TraitProjection _ _ _)     = Nothing
 dictTy UnknownPredicate            = Nothing
 
--- | make a variable corresponding to a dictionary type
--- NOTE: this could make a trait for Fn/FnMut/FnOnce
-mkPredVar :: Ty -> M.Var
-mkPredVar ty@(TyAdt did _) = Var {
-                _varname  = M.idText did
-              , _varmut   = M.Immut
-              , _varty    = ty
-              , _varscope = "dictionary"
-              , _varpos   = "dictionary argument"
-              }
-mkPredVar ty = error $ "BUG in mkPredVar: must provide Adt type"
 
 -------------------------------------------------------------------------------------------
 
@@ -2429,11 +2339,9 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
        let
            -- add dictionary args to type
            targs = map typeOf (fargs ++ Maybe.mapMaybe dictVar (ty^.fspredicates))
-
            handleName = FN.functionNameFromText (M.idText fname)
        in
-
-          tyListToCtx targs $ \argctx ->
+          tyListToCtx targs $ \argctx -> do
           tyToReprCont (ty^.fsreturn_ty) $ \retrepr -> do
              h <- FH.mkHandle' halloc handleName argctx retrepr
              return $ MirHandle fname ty h 
@@ -2533,7 +2441,7 @@ implMethods' col = foldMap g (col^.impls) where
         case findMethodItem ii items of
           Just (TraitMethod _ sig) ->
              Map.singleton mn (tySubst (ss <> (Substs $ TyParam <$> [0 .. ])) (sig^.fspredicates))
-          Nothing -> error $ "BUG: addDictionaryPreds: Cannot find method " ++ fmt ii ++ " in trait " ++ fmt tn
+          _ -> error $ "BUG: addDictionaryPreds: Cannot find method " ++ fmt ii ++ " in trait " ++ fmt tn
      g2 _ = Map.empty
 
 implMethods :: Collection -> Map MethName [(TraitName,Substs)]
@@ -2678,53 +2586,6 @@ mkTraitDecl tr = do
 
            Some (TraitDecl tname numparams meths ctxr midx rm) 
 
--- Find an implementation of the given method 
-resolveMethod :: Collection
-              -> TraitName                       -- ^ trait that contains method
-              -> (MethName, M.FnSig)             -- ^ name of method and declared type in trait
-              -> (MirHandle, Substs)             -- ^ implementation handle and substs
-              -> C.TypeRepr ty                   -- ^ expected type 
-              -> Identity (GenericMirValue ty)
-resolveMethod col tname (declName, declSig) (implHandle,implSubst) ty =
-  case ty of
-    C.PolyFnRepr k args ret -> 
-       substToSubstCont implSubst $ \subst -> 
-         case implHandle of 
-           (MirHandle mname sig (fh :: FH.FnHandle fargs fret)) -> do
-             let subst' = C.mkSubst subst
-             let k'     = minusP k (ctxSizeP subst)
-             case (testEquality (FH.handleArgTypes   fh) (C.instantiate subst' args),
-                   testEquality (FH.handleReturnType fh) (C.instantiate subst' ret)) of
-                 (Just Refl, Just Refl) ->
-                   case peanoView k' of
-                      SRepr _ ->
-                        return (GenericMirValue $ 
-                           let expr   = R.App $ E.PolyHandleLit k' fh in
-                           let exprTy = C.PolyFnRepr k' (FH.handleArgTypes fh) (FH.handleReturnType fh) in
-                           (MirValue subst exprTy expr sig))
-                      ZRepr -> case (C.checkClosedCtx (FH.handleArgTypes fh),
-                                     C.checkClosed (FH.handleReturnType fh)) of
-                        (Just C.Dict, Just C.Dict) ->
-                           return (GenericMirValue $
-                              let expr   = R.App $ E.HandleLit fh in
-                              let exprTy = C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh) in
-                              (MirValue subst exprTy expr sig))
-                        (_,_) -> error $ "Function handle type not closed " ++ show fh
-                 (_,_)   -> error $ "Type mismatch in method table for " ++ show tname
-                             ++ "\n\tadding implementation: " ++ show mname
-                             ++ "\n\timplHandle type is: "        ++ show (FH.handleType fh)
-                             ++ "\n\tbut expected type is: "
-                                ++ show (C.FunctionHandleRepr (C.instantiate subst' args)
-                                                              (C.instantiate subst' ret))
-                             ++ "\n\targs before subst: " ++ show args
-                             ++ "\n\targs after subst: "  ++ show (C.instantiate subst' args)
-                             ++ "\n\tret before subst: " ++ show ret
-                             ++ "\n\tret after subst: "  ++ show (C.instantiate subst' ret)
-
-                             ++ "\n\tdeclared name is: " ++ show declName
-                             ++ "\n\tdeclared type is: "  ++ fmt (C.PolyFnRepr k args ret)
-
-
 
 
 -- | Build the mapping from traits and types that implement them to VTables
@@ -2809,9 +2670,9 @@ buildTraitMap debug col _halloc hmap = do
                       error $ "impl_vtable BUG: " ++ show i ++ " out of range for methImpls"
                   when (i >= length methDecls) $ do
                       error $ "impl_vtable BUG: " ++ show i ++ " out of range for methDecls"
-                  let (declName, _declTy)                = methDecls !! i 
-                  let (_implName, implHandle, implSubst) = methImpls !! i
-                  error $ "TODO: finish this case"
+                  let (_declName, _declTy)                = methDecls !! i 
+                  let (_implName, _implHandle, _implSubst) = methImpls !! i
+                  error $ "TODO: finish this case, if it turns out that we need it"
 
                go idx (C.PolyFnRepr k args ret) = do
                   let i = Ctx.indexVal idx
@@ -3180,6 +3041,7 @@ data CustomOp      =
   | CustomOpExit            
 
 type CustomRHS = Substs -> Maybe CustomOp
+
 
 customOps :: Map ExplodedDefId CustomRHS
 customOps = Map.fromList [
