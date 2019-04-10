@@ -896,7 +896,7 @@ synthExpr typeHint =
              return $ SomeE StringRepr $ EApp $ ShowFloat fi e
            _ | AsBaseType bt <- asBaseType t1 ->
              return $ SomeE StringRepr $ EApp $ ShowValue bt e
-           _ -> describe ("base or floating point type, but got " <> T.pack (show t1)) empty
+           _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
 
 data NatHint
   = NoHint
