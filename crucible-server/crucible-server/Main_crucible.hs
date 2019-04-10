@@ -25,6 +25,7 @@ import           Data.Parameterized.Nonce
 
 import           Lang.Crucible.Backend.Simple
 import qualified Lang.Crucible.Backend.SAWCore as SAW
+import           Lang.Crucible.Simulator.PathSatisfiability
 
 import           What4.Expr.Builder(Flags,FloatReal)
 
@@ -90,7 +91,8 @@ runSAWSimulator hin hout =
        CryptolSAW.scLoadCryptolModule sc
        (sym :: SAWBack n) <- SAW.newSAWCoreBackend sc gen
        sawState <- initSAWServerPersonality sym
-       s <- newSimulator sym sawServerOptions sawState sawServerOverrides hin hout
+       pathSatFeat <- pathSatisfiabilityFeature sym (SAW.considerSatisfiability sym)
+       s <- newSimulator sym sawServerOptions sawState [pathSatFeat] sawServerOverrides hin hout
        putDelimited hout ok_resp
        -- Enter loop to start reading commands.
        fulfillRequests s sawBackendRequests
@@ -101,7 +103,7 @@ runSimpleSimulator hin hout = do
     let ok_resp = mempty
                   & P.handShakeResponse_code .~ P.HandShakeOK
     (sym :: SimpleBackend t (Flags FloatReal)) <- newSimpleBackend gen
-    s <- newSimulator sym simpleServerOptions CrucibleServerPersonality simpleServerOverrides hin hout
+    s <- newSimulator sym simpleServerOptions CrucibleServerPersonality [] simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     putDelimited hout ok_resp
     fulfillRequests s simpleBackendRequests
