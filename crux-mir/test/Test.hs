@@ -169,10 +169,12 @@ proxy = AIG.basicProxy
 -- | Compile using 'rustc' and run executable
 compileAndRun :: FilePath -> String -> IO (Maybe String)
 compileAndRun dir name = do
-  (ec, _, _) <- Proc.readProcessWithExitCode "rustc" [dir </> name <.> "rs", "--cfg", "with_main"] ""
+  (ec, _, err) <- Proc.readProcessWithExitCode "rustc" [dir </> name <.> "rs", "--cfg", "with_main"] ""
   case ec of
     ExitFailure _ -> do
       putStrLn $ "rustc compilation failed for " ++ name
+      putStrLn $ "error output:"
+      putStrLn err
       return Nothing
     ExitSuccess -> do
       let execFile = "." </> name
