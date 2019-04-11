@@ -2,6 +2,8 @@
   (start start:
     (let x (fresh Integer))
     (let y (funcall @f x))
+    (println (show x))
+    (println (show y))
     (assert! (equal? x y) "bogus")
     (return ())))
 

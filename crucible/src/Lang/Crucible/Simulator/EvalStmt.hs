@@ -61,6 +61,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           What4.Config
 import           What4.Interface
+import           What4.InterpretedFloatingPoint (freshFloatConstant)
 import           What4.Partial
 import           What4.ProgramLoc
 import           What4.Symbol (emptySymbol)
@@ -273,6 +274,11 @@ stepStmt verb stmt rest =
          do let nm = fromMaybe emptySymbol mnm
             v <- liftIO $ freshConstant sym nm bt
             continueWith $ stateCrucibleFrame %~ extendFrame (baseToType bt) v rest
+
+       FreshFloat fi mnm ->
+         do let nm = fromMaybe emptySymbol mnm
+            v <- liftIO $ freshFloatConstant sym nm fi
+            continueWith $ stateCrucibleFrame %~ extendFrame (FloatRepr fi) v rest
 
        SetReg tp e ->
          do v <- evalExpr verb e

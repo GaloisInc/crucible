@@ -11,6 +11,7 @@ Prove:
   oopsie!
   in main at test-data/simulator-tests/assume-merge.cbl:12:5
   false
+COUNTEREXAMPLE
 Assuming:
 * The branch in main from test-data/simulator-tests/assume-merge.cbl:4:5 to test-data/simulator-tests/assume-merge.cbl:9:14
     not (intLe 0 cx@0:i)
@@ -20,3 +21,4 @@ Prove:
   oopsie!
   in main at test-data/simulator-tests/assume-merge.cbl:12:5
   false
+COUNTEREXAMPLE

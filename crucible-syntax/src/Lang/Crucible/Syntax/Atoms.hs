@@ -46,16 +46,15 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Start
              | SetGlobal
              | SetRef | DropRef_
-             | Unpack
              | Plus | Minus | Times | Div | Negate | Abs
              | Just_ | Nothing_ | FromJust
              | Inj | Proj
              | AnyT | UnitT | BoolT | NatT | IntegerT | RealT | ComplexRealT | CharT | StringT
-             | BitvectorT | VectorT | FunT | MaybeT | VariantT | RefT
+             | BitvectorT | VectorT | FPT | FunT | MaybeT | VariantT | RefT
+             | Half_ | Float_ | Double_ | Quad_ | X86_80_ | DoubleDouble_
              | The
              | Equalp | Integerp
              | If
-             | Pack
              | Not_ | And_ | Or_ | Xor_
              | Mod
              | Lt | Le
@@ -76,20 +75,86 @@ data Keyword = Defun | DefBlock | DefGlobal
              | BVCarry_ | BVSCarry_ | BVSBorrow_
              | BVNot_ | BVAnd_ | BVOr_ | BVXor_ | BVShl_ | BVLshr_ | BVAshr_
              | Sle | Slt | Sdiv | Smod | ZeroExt | SignExt
+             | RNE_ | RNA_ | RTP_ | RTN_ | RTZ_
+             | FPToUBV_ | FPToSBV_ | UBVToFP_ | SBVToFP_ | BinaryToFP_ | FPToBinary_
+             | FPToReal_ | RealToFP_
   deriving (Eq, Ord)
 
 keywords :: [(Text, Keyword)]
 keywords =
+    -- function/block defintion
   [ ("defun" , Defun)
+  , ("start" , Start)
   , ("defblock", DefBlock)
   , ("defglobal", DefGlobal)
   , ("registers", Registers)
+
+    -- statements
   , ("let", Let)
   , ("set-global!", SetGlobal)
   , ("set-ref!", SetRef)
   , ("drop-ref!", DropRef_)
-  , ("start" , Start)
-  , ("unpack" , Unpack)
+  , ("fresh", Fresh)
+  , ("jump" , Jump_)
+  , ("case", Case)
+  , ("return" , Return_)
+  , ("branch" , Branch_)
+  , ("maybe-branch" , MaybeBranch_)
+  , ("tail-call" , TailCall_)
+  , ("error", Error_)
+  , ("output", Output_)
+  , ("print" , Print_)
+  , ("println" , PrintLn_)
+  , ("Ref", RefT)
+  , ("deref", Deref)
+  , ("ref", Ref)
+  , ("empty-ref", EmptyRef)
+  , ("set-register!", SetRegister)
+  , ("assert!", Assert_)
+  , ("assume!", Assume_)
+  , ("funcall", Funcall)
+
+    -- types
+  , ("Any" , AnyT)
+  , ("Unit" , UnitT)
+  , ("Bool" , BoolT)
+  , ("Nat" , NatT)
+  , ("Integer" , IntegerT)
+  , ("FP", FPT)
+  , ("Real" , RealT)
+  , ("ComplexReal" , ComplexRealT)
+  , ("Char" , CharT)
+  , ("String" , StringT)
+  , ("Bitvector" , BitvectorT)
+  , ("Vector", VectorT)
+  , ("->", FunT)
+  , ("Maybe", MaybeT)
+  , ("Variant", VariantT)
+
+    -- floating-point variants
+  , ("Half", Half_)
+  , ("Float", Float_)
+  , ("Double", Double_)
+  , ("Quad", Quad_)
+  , ("X86_80", X86_80_)
+  , ("DoubleDouble", DoubleDouble_)
+
+    -- misc
+  , ("the" , The)
+  , ("equal?" , Equalp)
+  , ("if" , If)
+
+    -- ANY types
+  , ("to-any", ToAny)
+  , ("from-any", FromAny)
+
+    -- booleans
+  , ("not" , Not_)
+  , ("and" , And_)
+  , ("or" , Or_)
+  , ("xor" , Xor_)
+
+    -- arithmetic
   , ("+" , Plus)
   , ("-" , Minus)
   , ("*" , Times)
@@ -102,31 +167,19 @@ keywords =
   , ("smod", Smod)
   , ("negate", Negate)
   , ("abs", Abs)
-  , ("show", Show)
+  , ("mod" , Mod)
+  , ("integer?" , Integerp)
+
+    -- Variants
   , ("inj", Inj)
   , ("proj", Proj)
+
+    -- Maybe
   , ("just" , Just_)
   , ("nothing" , Nothing_)
   , ("from-just" , FromJust)
-  , ("to-any", ToAny)
-  , ("from-any", FromAny)
-  , ("the" , The)
-  , ("equal?" , Equalp)
-  , ("integer?" , Integerp)
-  , ("Any" , AnyT)
-  , ("Unit" , UnitT)
-  , ("Bool" , BoolT)
-  , ("Nat" , NatT)
-  , ("Integer" , IntegerT)
-  , ("Real" , RealT)
-  , ("ComplexReal" , ComplexRealT)
-  , ("Char" , CharT)
-  , ("String" , StringT)
-  , ("Bitvector" , BitvectorT)
-  , ("Vector", VectorT)
-  , ("->", FunT)
-  , ("Maybe", MaybeT)
-  , ("Variant", VariantT)
+
+    -- Vectors
   , ("vector", VectorLit_)
   , ("vector-replicate", VectorReplicate_)
   , ("vector-empty?", VectorIsEmpty_)
@@ -134,33 +187,12 @@ keywords =
   , ("vector-get", VectorGetEntry_)
   , ("vector-set", VectorSetEntry_)
   , ("vector-cons", VectorCons_)
-  , ("if" , If)
-  , ("pack" , Pack)
-  , ("not" , Not_)
-  , ("and" , And_)
-  , ("or" , Or_)
-  , ("xor" , Xor_)
-  , ("mod" , Mod)
-  , ("fresh", Fresh)
-  , ("jump" , Jump_)
-  , ("case", Case)
-  , ("return" , Return_)
-  , ("branch" , Branch_)
-  , ("maybe-branch" , MaybeBranch_)
-  , ("tail-call" , TailCall_)
-  , ("error", Error_)
-  , ("output", Output_)
-  , ("print" , Print_)
-  , ("println" , PrintLn_)
+
+    -- strings
+  , ("show", Show)
   , ("string-append", StringAppend)
-  , ("Ref", RefT)
-  , ("deref", Deref)
-  , ("ref", Ref)
-  , ("empty-ref", EmptyRef)
-  , ("set-register!", SetRegister)
-  , ("assert!", Assert_)
-  , ("assume!", Assume_)
-  , ("funcall", Funcall)
+
+    -- bitvector
   , ("bv", BV)
   , ("bv-concat", BVConcat_)
   , ("bv-select", BVSelect_)
@@ -179,8 +211,22 @@ keywords =
   , ("shl", BVShl_)
   , ("lshr", BVLshr_)
   , ("ashr", BVAshr_)
-  ]
 
+    -- floating-point
+  , ("fp-to-ubv", FPToUBV_)
+  , ("fp-to-sbv", FPToSBV_)
+  , ("ubv-to-fp", UBVToFP_)
+  , ("sbv-to-fp", SBVToFP_)
+  , ("fp-to-binary", FPToBinary_)
+  , ("binary-to-fp", BinaryToFP_)
+  , ("real-to-fp", RealToFP_)
+  , ("fp-to-real", FPToReal_)
+  , ("rne" , RNE_)
+  , ("rna" , RNA_)
+  , ("rtp" , RTP_)
+  , ("rtn" , RTN_)
+  , ("rtz" , RTZ_)
+  ]
 
 instance Show Keyword where
   show k = case [str | (str, k') <- keywords, k == k'] of

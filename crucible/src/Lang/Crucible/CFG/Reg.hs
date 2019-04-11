@@ -451,6 +451,8 @@ data AtomValue ext s (tp :: CrucibleType) where
   NewEmptyRef :: !(TypeRepr tp) -> AtomValue ext s (ReferenceType tp)
   -- Create a fresh uninterpreted constant of base type
   FreshConstant :: !(BaseTypeRepr bt) -> !(Maybe SolverSymbol) -> AtomValue ext s (BaseToType bt)
+  -- Create a fresh uninterpreted constant of floating point type
+  FreshFloat :: !(FloatInfoRepr fi) -> !(Maybe SolverSymbol) -> AtomValue ext s (FloatType fi)
 
   Call :: !(Atom s (FunctionHandleType args ret))
        -> !(Assignment (Atom s) args)
@@ -468,6 +470,7 @@ instance PrettyExt ext => Pretty (AtomValue ext s tp) where
       NewRef a -> text "newref" <+> pretty a
       NewEmptyRef tp -> text "emptyref" <+> pretty tp
       FreshConstant bt nm -> text "fresh" <+> pretty bt <+> maybe mempty (text . show) nm
+      FreshFloat fi nm -> text "fresh" <+> pretty fi <+> maybe mempty (text . show) nm
       Call f args _ -> pretty f <> parens (commas (toListFC pretty args))
 
 typeOfAtomValue :: (TypeApp (StmtExtension ext) , TypeApp (ExprExtension ext))
@@ -483,6 +486,7 @@ typeOfAtomValue v =
     NewRef a -> ReferenceRepr (typeOfAtom a)
     NewEmptyRef tp -> ReferenceRepr tp
     FreshConstant bt _ -> baseToType bt
+    FreshFloat fi _ -> FloatRepr fi
     Call _ _ r -> r
 
 -- | Fold over all values in an 'AtomValue'.
@@ -497,6 +501,7 @@ foldAtomValueInputs _ (NewEmptyRef _)     b = b
 foldAtomValueInputs f (NewRef a)          b = f (AtomValue a) b
 foldAtomValueInputs f (EvalApp app0)      b = foldApp (f . AtomValue) b app0
 foldAtomValueInputs _ (FreshConstant _ _) b = b
+foldAtomValueInputs _ (FreshFloat _ _)    b = b
 foldAtomValueInputs f (Call g a _)        b = f (AtomValue g) (foldrFC' (f . AtomValue) b a)
 
 substAtomValue :: ( Applicative m, TraverseExt ext )
@@ -511,6 +516,7 @@ substAtomValue _ (NewEmptyRef tp) = pure $ NewEmptyRef tp
 substAtomValue f (NewRef a) = NewRef <$> substAtom f a
 substAtomValue f (EvalApp ap) = EvalApp <$> traverseFC (substAtom f) ap
 substAtomValue _ (FreshConstant tp sym) = pure $ FreshConstant tp sym
+substAtomValue _ (FreshFloat fi sym)    = pure $ FreshFloat fi sym
 substAtomValue f (Call g as ret) = Call <$> substAtom f g
                                         <*> traverseFC (substAtom f) as
                                         <*> pure ret

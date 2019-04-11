@@ -13,6 +13,7 @@ Prove:
   fall-through branch
   in symbolicBranchesTest at default branch
   false
+COUNTEREXAMPLE
 Assuming:
 * The branch in symbolicBranchesTest from after branch 1 to third branch
     or (eq 1 cx@0:i) (eq 2 cx@0:i) (eq 3 cx@0:i)
@@ -22,3 +23,4 @@ Prove:
   let -- default branch
       v18 = intSum (intMul 2 cx@0:i) (ite (eq 2 cx@0:i) 0 cy@1:i)
    in eq (ite (eq 1 cx@0:i) cy@1:i v18) cx@0:i
+COUNTEREXAMPLE

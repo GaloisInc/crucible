@@ -9,3 +9,4 @@ Prove:
   error statement
   in main at test-data/simulator-tests/assume.cbl:5:5
   false
+COUNTEREXAMPLE

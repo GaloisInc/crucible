@@ -11,6 +11,7 @@ Prove:
   oopsie!
   in main at test-data/simulator-tests/loop-err.cbl:27:5
   false
+COUNTEREXAMPLE
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
     not (eq 0 cx@0:n)
@@ -22,6 +23,7 @@ Prove:
   oopsie!
   in main at test-data/simulator-tests/loop-err.cbl:27:5
   false
+PROVED
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
     not (eq 0 cx@0:n)
@@ -35,6 +37,7 @@ Prove:
   oopsie!
   in main at test-data/simulator-tests/loop-err.cbl:27:5
   false
+PROVED
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
     not (eq 0 cx@0:n)
@@ -48,3 +51,4 @@ Prove:
   nonzero
   in main at test-data/simulator-tests/loop-err.cbl:23:5
   not (natLe (natSum (natMul 8 cx@0:n)) 0)
+PROVED

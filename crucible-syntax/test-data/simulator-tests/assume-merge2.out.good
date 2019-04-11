@@ -11,3 +11,4 @@ Prove:
   oopsie!
   in main at test-data/simulator-tests/assume-merge2.cbl:12:5
   false
+COUNTEREXAMPLE
