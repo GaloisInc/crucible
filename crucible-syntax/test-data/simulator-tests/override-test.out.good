@@ -7,3 +7,4 @@ Prove:
   should be true!
   in main at test-data/simulator-tests/override-test.cbl:7:5
   intEq (intIte cp@2:b cx@3:i cy@4:i) (intIte cp@2:b cx@3:i cy@4:i)
+PROVED

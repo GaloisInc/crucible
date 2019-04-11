@@ -193,6 +193,23 @@ atomName = sideCondition "Crucible atom literal" isCAtom atomic
   where isCAtom (At a) = Just a
         isCAtom _ = Nothing
 
+roundingMode :: MonadSyntax Atomic m => m RoundingMode
+roundingMode = describe "rounding mode" $
+        asum [ kw RNE_ $> RNE
+             , kw RNA_ $> RNA
+             , kw RTP_ $> RTP
+             , kw RTN_ $> RTN
+             , kw RTZ_ $> RTZ
+             ]
+
+fpinfo :: MonadSyntax Atomic m => m (Some FloatInfoRepr)
+fpinfo = asum [ kw Half_         $> Some HalfFloatRepr
+              , kw Float_        $> Some SingleFloatRepr
+              , kw Double_       $> Some DoubleFloatRepr
+              , kw Quad_         $> Some QuadFloatRepr
+              , kw X86_80_       $> Some X86_80FloatRepr
+              , kw DoubleDouble_ $> Some DoubleDoubleFloatRepr
+              ]
 
 bool :: MonadSyntax Atomic m => m  Bool
 bool = sideCondition "Boolean literal" isBool atomic
@@ -235,15 +252,25 @@ isBaseType =
        NotBaseType -> empty
        AsBaseType bt -> return (Some bt)
 
-data PosNat =
-  forall w. (1 <= w) => PosNat (NatRepr w)
+isFloatingType :: MonadSyntax Atomic m => m (Some FloatInfoRepr)
+isFloatingType =
+  describe "floating-point type" $
+  do Some tp <- isType
+     case tp of
+       FloatRepr fi -> return (Some fi)
+       _ -> empty
+
+data BoundedNat bnd =
+  forall w. (bnd <= w) => BoundedNat (NatRepr w)
+
+type PosNat = BoundedNat 1
 
 posNat :: MonadSyntax Atomic m => m PosNat
 posNat =
    do i <- sideCondition "positive nat literal" checkPosNat nat
       maybe empty return $ do Some x <- return $ mkNatRepr i
                               LeqProof <- isPosNat x
-                              return $ PosNat x
+                              return $ BoundedNat x
   where checkPosNat i | i > 0 = Just i
         checkPosNat _ = Nothing
 
@@ -253,7 +280,7 @@ natRepr = mkNatRepr <$> nat
 isType :: MonadSyntax Atomic m => m (Some TypeRepr)
 isType =
   describe "type" $ call
-    (atomicType <|> vector <|> ref <|> bv <|> fun <|> maybeT <|> var)
+    (atomicType <|> vector <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var)
 
   where
     atomicType =
@@ -271,16 +298,18 @@ isType =
     vector = unary VectorT isType <&> \(Some t) -> Some (VectorRepr t)
     ref    = unary RefT isType <&> \(Some t) -> Some (ReferenceRepr t)
     bv :: MonadSyntax Atomic m => m  (Some TypeRepr)
-    bv     = do Some len <- unary BitvectorT (mkNatRepr <$> nat)
-                describe "positive number" $
-                  case testLeq (knownNat :: NatRepr 1) len of
-                    Nothing -> empty
-                    Just LeqProof -> return $ Some $ BVRepr len
+    bv     = do BoundedNat len <- unary BitvectorT posNat
+                return $ Some $ BVRepr len
+
+    fp :: MonadSyntax Atomic m => m (Some TypeRepr)
+    fp = do Some fpi <- unary FPT fpinfo
+            return $ Some $ FloatRepr fpi
 
     fun :: MonadSyntax Atomic m => m (Some TypeRepr)
     fun = cons (kw FunT) (repUntilLast isType) <&> \((), (args, ret)) -> mkFunRepr args ret
 
     maybeT = unary MaybeT isType <&> \(Some t) -> Some (MaybeRepr t)
+
     var :: MonadSyntax Atomic m => m (Some TypeRepr)
     var = cons (kw VariantT) (rep isType) <&> \((), toCtx -> Some tys) -> Some (VariantRepr tys)
 
@@ -401,6 +430,8 @@ synthExpr typeHint =
      just <|> nothing <|> fromJust_ <|> injection <|> projection <|>
      vecLit <|> vecCons <|> vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
      ite <|>  intLit <|> rationalLit <|> intp <|>
+     binaryToFp <|> fpToBinary <|> realToFp <|> fpToReal <|>
+     ubvToFloat <|> floatToUBV <|> sbvToFloat <|> floatToSBV <|>
      unaryBV BVNonzero_ BVNonzero <|> compareBV BVCarry_ BVCarry <|>
      compareBV BVSCarry_ BVSCarry <|> compareBV BVSBorrow_ BVSBorrow <|>
      compareBV Slt BVSlt <|> compareBV Sle BVSle)
@@ -531,12 +562,14 @@ synthExpr typeHint =
       do (e1, e2) <- describe "equality test" $ binary Equalp synth' synth'
          matchingExprs Nothing e1 e2 $ \tp e1' e2' ->
           case tp of
+            FloatRepr _fi ->
+              return $ SomeE BoolRepr $ EApp $ FloatEq e1' e2'
             ReferenceRepr rtp ->
               return $ SomeE BoolRepr $ EApp $ ReferenceEq rtp e1' e2'
             (asBaseType -> AsBaseType bt) ->
               return $ SomeE BoolRepr $ EApp $ BaseIsEq bt e1' e2'
             _ ->
-              later $ describe ("a base type or reference type (got " <> T.pack (show tp) <> ")") empty
+              later $ describe ("a base type or floating point type or reference type (got " <> T.pack (show tp) <> ")") empty
 
     compareBV ::
       Keyword ->
@@ -651,7 +684,7 @@ synthExpr typeHint =
                Just (Some idx) ->
                  do let ty = MaybeRepr (ts^.ixF' idx)
                     return $ SomeE ty $ EApp $ ProjectVariant ts idx e
-           _ -> describe ("expecting variant type (got " <> T.pack (show t) <> ")") empty
+           _ -> describe ("variant type (got " <> T.pack (show t) <> ")") empty
 
     injection :: m (SomeExpr s)
     injection =
@@ -669,7 +702,87 @@ synthExpr typeHint =
            Just (Some t) ->
              describe ("context expecting variant type (got " <> T.pack (show t) <> ")") empty
            Nothing ->
-             describe ("expected unambiguous variant") empty
+             describe ("unambiguous variant") empty
+
+    fpToBinary :: m (SomeExpr s)
+    fpToBinary =
+       kw FPToBinary_ `followedBy`
+       (depConsCond synth $ \(Pair tp x) ->
+         case tp of
+           FloatRepr fpi
+             | BaseBVRepr w <- floatInfoToBVTypeRepr fpi
+             , Just LeqProof <- isPosNat w ->
+                 emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToBinary fpi x)
+           _ -> pure $ Left $ "floating-point value")
+
+    binaryToFp :: m (SomeExpr s)
+    binaryToFp =
+       kw BinaryToFP_ `followedBy`
+       (depCons fpinfo $ \(Some fpi) ->
+        depCons (check (baseToType (floatInfoToBVTypeRepr fpi))) $ \x ->
+        emptyList $> (SomeE (FloatRepr fpi) $ EApp $ FloatFromBinary fpi x))
+
+    fpToReal :: m (SomeExpr s)
+    fpToReal =
+       kw FPToReal_ `followedBy`
+       (depConsCond synth $ \(Pair tp x) ->
+         case tp of
+           FloatRepr _fpi -> emptyList $> (Right $ SomeE RealValRepr $ EApp $ FloatToReal x)
+           _ -> pure $ Left "floating-point value")
+
+    realToFp :: m (SomeExpr s)
+    realToFp =
+       kw RealToFP_ `followedBy`
+       (depCons fpinfo $ \(Some fpi) ->
+        depCons roundingMode $ \rm ->
+        depCons (check RealValRepr) $ \x ->
+        emptyList $> (SomeE (FloatRepr fpi) $ EApp $ FloatFromReal fpi rm x))
+
+    ubvToFloat :: m (SomeExpr s)
+    ubvToFloat =
+       kw UBVToFP_ `followedBy`
+       (depCons fpinfo $ \(Some fpi) ->
+        depCons roundingMode $ \rm ->
+        depConsCond synth $ \(Pair tp x) ->
+          case tp of
+            BVRepr _w ->
+              emptyList $> (Right $ SomeE (FloatRepr fpi) $ EApp $ FloatFromBV fpi rm x)
+            _ -> pure $ Left $ "bitvector value"
+        )
+
+    sbvToFloat :: m (SomeExpr s)
+    sbvToFloat =
+       kw SBVToFP_ `followedBy`
+       (depCons fpinfo $ \(Some fpi) ->
+        depCons roundingMode $ \rm ->
+        depConsCond synth $ \(Pair tp x) ->
+          case tp of
+            BVRepr _w ->
+              emptyList $> (Right $ SomeE (FloatRepr fpi) $ EApp $ FloatFromSBV fpi rm x)
+            _ -> pure $ Left $ "bitvector value"
+       )
+
+    floatToUBV :: m (SomeExpr s)
+    floatToUBV =
+       kw FPToUBV_ `followedBy`
+       (depCons posNat $ \(BoundedNat w) ->
+        depCons roundingMode $ \rm ->
+        depConsCond synth $ \(Pair tp x) ->
+          case tp of
+            FloatRepr _fpi ->
+              emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToBV w rm x)
+            _ -> pure $ Left $ "floating-point value")
+
+    floatToSBV :: m (SomeExpr s)
+    floatToSBV =
+       kw FPToSBV_ `followedBy`
+       (depCons posNat $ \(BoundedNat w) ->
+        depCons roundingMode $ \rm ->
+        depConsCond synth $ \(Pair tp x) ->
+          case tp of
+            FloatRepr _fpi ->
+              emptyList $> (Right $ SomeE (BVRepr w) $ EApp $ FloatToSBV w rm x)
+            _ -> pure $ Left $ "floating-point value")
 
     ite :: m (SomeExpr s)
     ite =
@@ -680,14 +793,16 @@ synthExpr typeHint =
            cons (synthExpr typeHint) $
            emptyList
          matchingExprs typeHint et ef $ \tp t f ->
-           case asBaseType tp of
-             NotBaseType ->
-               let msg = T.concat [ "conditional where branches have base type (got "
+          case tp of
+            FloatRepr fi ->
+               return $ SomeE tp $ EApp $ FloatIte fi c t f
+            (asBaseType -> AsBaseType bty) ->
+               return $ SomeE tp $ EApp $ BaseIte bty c t f
+            _ ->
+               let msg = T.concat [ "conditional where branches have base or floating point type, but got "
                                   , T.pack (show tp)
                                   ]
                in later $ describe msg empty
-             AsBaseType bty ->
-               return $ SomeE tp $ EApp $ BaseIte bty c t f
 
     toAny =
       do Pair tp e <- unary ToAny synth
@@ -776,10 +891,12 @@ synthExpr typeHint =
     showExpr :: m (SomeExpr s)
     showExpr =
       do Pair t1 e <- unary Show synth
-         case asBaseType t1 of
-           NotBaseType -> describe ("base type, but got " <> T.pack (show t1)) empty
-           AsBaseType bt ->
+         case t1 of
+           FloatRepr fi ->
+             return $ SomeE StringRepr $ EApp $ ShowFloat fi e
+           (asBaseType -> AsBaseType bt) ->
              return $ SomeE StringRepr $ EApp $ ShowValue bt e
+           _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
 
 data NatHint
   = NoHint
@@ -811,7 +928,7 @@ synthBV widthHint =
     bvLit :: m (SomeBVExpr s)
     bvLit =
       describe "bitvector literal" $
-      do (PosNat w, i) <- binary BV posNat int
+      do (BoundedNat w, i) <- binary BV posNat int
          return $ SomeBVExpr w $ EApp $ BVLit w i
 
     unaryBV :: Keyword
@@ -858,12 +975,12 @@ synthBV widthHint =
 
     boolToBV :: m (SomeBVExpr s)
     boolToBV =
-      do (PosNat w, x) <- binary BoolToBV_ posNat (check BoolRepr)
+      do (BoundedNat w, x) <- binary BoolToBV_ posNat (check BoolRepr)
          return $ SomeBVExpr w $ EApp $ BoolToBV w x
 
     bvSelect :: m (SomeBVExpr s)
     bvSelect =
-      do (Some idx, (PosNat len, (SomeBVExpr w x, ()))) <-
+      do (Some idx, (BoundedNat len, (SomeBVExpr w x, ()))) <-
              followedBy (kw BVSelect_) (commit *> cons natRepr (cons posNat (cons (bvSubterm NoHint) emptyList)))
          case testLeq (addNat idx len) w of
            Just LeqProof -> return $ SomeBVExpr len $ EApp $ BVSelect idx len w x
@@ -877,21 +994,21 @@ synthBV widthHint =
 
     bvTrunc :: m (SomeBVExpr s)
     bvTrunc =
-      do (PosNat r, SomeBVExpr w x) <- binary BVTrunc_ posNat (bvSubterm NoHint)
+      do (BoundedNat r, SomeBVExpr w x) <- binary BVTrunc_ posNat (bvSubterm NoHint)
          case testLeq (incNat r) w of
            Just LeqProof -> return $ SomeBVExpr r (EApp $ BVTrunc r w x)
            _ -> later $ describe "valid bitvector truncation" $ empty
 
     bvZext :: m (SomeBVExpr s)
     bvZext =
-      do (PosNat r, SomeBVExpr w x) <- binary BVZext_ posNat (bvSubterm NoHint)
+      do (BoundedNat r, SomeBVExpr w x) <- binary BVZext_ posNat (bvSubterm NoHint)
          case testLeq (incNat w) r of
            Just LeqProof -> return $ SomeBVExpr r (EApp $ BVZext r w x)
            _ -> later $ describe "valid zero extension" $ empty
 
     bvSext :: m (SomeBVExpr s)
     bvSext =
-      do (PosNat r, SomeBVExpr w x) <- binary BVSext_ posNat (bvSubterm NoHint)
+      do (BoundedNat r, SomeBVExpr w x) <- binary BVSext_ posNat (bvSubterm NoHint)
          case testLeq (incNat w) r of
            Just LeqProof -> return $ SomeBVExpr r (EApp $ BVSext r w x)
            _ -> later $ describe "valid zero extension" $ empty
@@ -1160,14 +1277,19 @@ atomSetter (AtomName anText) =
          return $ Pair (ReferenceRepr t') anAtom
 
     fresh =
-      do Some t <- reading (unary Fresh isBaseType)
+      do t <- reading (unary Fresh ((Left <$> isBaseType) <|> (Right <$> isFloatingType)))
          describe "user symbol" $
            case userSymbol (T.unpack anText) of
              Left err -> describe (T.pack (show err)) empty
              Right nm ->
                do loc <- position
-                  Pair (baseToType t) <$>
-                    freshAtom loc (FreshConstant t (Just nm))
+                  case t of
+                    Left (Some bt) ->
+                      Pair (baseToType bt) <$>
+                        freshAtom loc (FreshConstant bt (Just nm))
+                    Right (Some fi) ->
+                      Pair (FloatRepr fi) <$>
+                        freshAtom loc (FreshFloat fi (Just nm))
 
     evaluated =
        do Pair tp e' <- reading synth
@@ -1215,15 +1337,20 @@ normStmt' :: forall h s m
            . (MonadWriter [Posd (Stmt () s)] m, MonadSyntax Atomic m, MonadState (SyntaxState h s) m, MonadST h m) =>
              m ()
 normStmt' =
-  call (printStmt <|> letStmt <|> (void funcall) <|>
+  call (printStmt <|> printLnStmt <|> letStmt <|> (void funcall) <|>
         setGlobal <|> setReg <|> setRef <|> dropRef <|>
         assertion <|> assumption)
 
   where
-    printStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion :: m ()
+    printStmt, printLnStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion :: m ()
     printStmt =
       do Posd loc e <- unary Print_ (located $ reading $ check StringRepr)
          strAtom <- eval loc e
+         tell [Posd loc (Print strAtom)]
+
+    printLnStmt =
+      do Posd loc e <- unary PrintLn_ (located $ reading $ check StringRepr)
+         strAtom <- eval loc (EApp (AppendString e (EApp (TextLit "\n"))))
          tell [Posd loc (Print strAtom)]
 
     letStmt =

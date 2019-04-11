@@ -1,0 +1,25 @@
+==== Begin Simulation ====
+floatToBinary ca@2:f
+ca@2:f
+floatFromBinary cx@4:bv
+floatToBinary (floatFromBinary cx@4:bv)
+floatToBV RNE ca@2:f
+floatToSBV RNE ca@2:f
+
+==== Finish Simulation ====
+==== Proof obligations ====
+
+Prove:
+  bad unsigned round trip
+  in main at test-data/simulator-tests/float-cast.cbl:20:5
+  floatEq ca@2:f (bvToFloat RNE (floatToBV RNE ca@2:f))
+COUNTEREXAMPLE
+Assuming:
+* bad unsigned round trip
+    in main at test-data/simulator-tests/float-cast.cbl:20:5
+    floatEq ca@2:f (bvToFloat RNE (floatToBV RNE ca@2:f))
+Prove:
+  bad signed round trip
+  in main at test-data/simulator-tests/float-cast.cbl:24:5
+  floatEq ca@2:f (sbvToFloat RNE (floatToSBV RNE ca@2:f))
+COUNTEREXAMPLE

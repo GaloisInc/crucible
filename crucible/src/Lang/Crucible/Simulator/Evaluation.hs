@@ -923,6 +923,9 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
       stringLit sym (Text.pack (show (printSymExpr x)))
+    ShowFloat _fi x_expr -> do
+      x <- evalSub x_expr
+      stringLit sym (Text.pack (show (printSymExpr x)))
     AppendString x y -> do
       x' <- evalSub x
       y' <- evalSub y

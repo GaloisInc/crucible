@@ -311,6 +311,11 @@ data Stmt ext (ctx :: Ctx CrucibleType) (ctx' :: Ctx CrucibleType) where
                 -> !(Maybe SolverSymbol)
                 -> Stmt ext ctx (ctx ::> BaseToType bt)
 
+  -- Create a fresh floating-point constant
+  FreshFloat :: !(FloatInfoRepr fi)
+             -> !(Maybe SolverSymbol)
+             -> Stmt ext ctx (ctx ::> FloatType fi)
+
   -- Allocate a new reference cell
   NewRefCell :: !(TypeRepr tp)
              -> !(Reg ctx tp)
@@ -467,6 +472,9 @@ applyEmbeddingStmt ctxe stmt =
     FreshConstant bt nm -> Pair (FreshConstant bt nm)
                                 (Ctx.extendEmbeddingBoth ctxe)
 
+    FreshFloat fi nm -> Pair (FreshFloat fi nm)
+                             (Ctx.extendEmbeddingBoth ctxe)
+
     NewRefCell tp r -> Pair (NewRefCell tp (reg r))
                             (Ctx.extendEmbeddingBoth ctxe)
     NewEmptyRefCell tp -> Pair (NewEmptyRefCell tp)
@@ -569,6 +577,7 @@ nextStmtHeight h s =
     ReadGlobal{} -> incSize h
     WriteGlobal{} -> h
     FreshConstant{} -> Ctx.incSize h
+    FreshFloat{} -> Ctx.incSize h
     NewRefCell{} -> Ctx.incSize h
     NewEmptyRefCell{} ->Ctx.incSize h
     ReadRefCell{} -> Ctx.incSize h
@@ -590,6 +599,7 @@ ppStmt r s =
     ReadGlobal v -> text "read" <+> ppReg r <+> pretty v
     WriteGlobal v e -> text "write" <+> pretty v <+> pretty e
     FreshConstant bt nm -> ppReg r <+> text "=" <+> text "fresh" <+> pretty bt <+> maybe mempty (text . show) nm
+    FreshFloat fi nm -> ppReg r <+> text "=" <+> text "fresh-float" <+> pretty fi <+> maybe mempty (text . show) nm
     NewRefCell _ e -> ppReg r <+> text "=" <+> ppFn "newref" [ pretty e ]
     NewEmptyRefCell tp -> ppReg r <+> text "=" <+> ppFn "emptyref" [ pretty tp ]
     ReadRefCell e -> ppReg r <+> text "= !" <> pretty e

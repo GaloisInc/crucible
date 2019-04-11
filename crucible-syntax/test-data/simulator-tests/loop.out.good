@@ -9,3 +9,4 @@ Prove:
   nonzero
   in main at test-data/simulator-tests/loop.cbl:19:5
   boolNot (natLe (natSum 8* cx@2:n) 0)
+PROVED
