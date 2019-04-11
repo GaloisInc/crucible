@@ -799,7 +799,7 @@ synthExpr typeHint =
             (asBaseType -> AsBaseType bty) ->
                return $ SomeE tp $ EApp $ BaseIte bty c t f
             _ ->
-               let msg = T.concat [ "conditional where branches have base or floating point type (got "
+               let msg = T.concat [ "conditional where branches have base or floating point type, but got "
                                   , T.pack (show tp)
                                   ]
                in later $ describe msg empty
@@ -894,7 +894,7 @@ synthExpr typeHint =
          case t1 of
            FloatRepr fi ->
              return $ SomeE StringRepr $ EApp $ ShowFloat fi e
-           _ | AsBaseType bt <- asBaseType t1 ->
+           (asBaseType -> AsBaseType bt) ->
              return $ SomeE StringRepr $ EApp $ ShowValue bt e
            _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
 
