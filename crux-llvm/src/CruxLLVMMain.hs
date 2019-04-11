@@ -46,6 +46,7 @@ import Lang.Crucible.Simulator
   , initSimContext, profilingMetrics
   , ExecState( InitialState ), SimState, defaultAbortHandler
   , executeCrucible, genericToExecutionFeature, printHandle
+  , SimErrorReason(..)
   )
 import Lang.Crucible.Simulator.ExecutionTree ( stateGlobals )
 import Lang.Crucible.Simulator.GlobalState ( lookupGlobal )
@@ -108,9 +109,12 @@ makeCounterExamplesLLVM opts = maybe (return ()) go
                    SourcePos _ l _ -> show l
                    _               -> "unknown"
           msg = show c
+          skipGoal = case simErrorReason c of
+                       ResourceExhausted _ -> True
+                       _ -> False
 
-      in case res of
-           NotProved (Just m) ->
+      in case (res, skipGoal) of
+           (NotProved (Just m), False) ->
              do sayFail "Crux" ("Counter example for " ++ msg)
                 (_prt,dbg) <- buildModelExes opts suff (modelInC m)
                 say "Crux" ("*** debug executable: " ++ dbg)
