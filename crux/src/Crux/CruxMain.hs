@@ -24,7 +24,7 @@ import System.FilePath ((</>))
 import System.Directory (createDirectoryIfMissing)
 
 
-import Data.Parameterized.Nonce(withIONonceGenerator)
+import Data.Parameterized.Nonce(withIONonceGenerator, NonceGenerator)
 
 -- crucible/crucible
 import Lang.Crucible.Backend
@@ -36,8 +36,10 @@ import Lang.Crucible.Simulator.PathSatisfiability
 
 -- crucible/what4
 import What4.Config (setOpt, getOptionSetting, verbosity)
+import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import What4.Interface (getConfiguration)
 import What4.FunctionName (FunctionName)
+import What4.Protocol.Online (OnlineSolver)
 import What4.Solver.Z3 (z3Timeout)
 
 -- crux
@@ -84,6 +86,25 @@ parseNominalDiffTime xs =
     (v,""):_ -> Just (fromRational (toRational (v::Double)))
     _ -> Nothing
 
+-- Run a computation in the context of a given online solver. For the
+-- moment, each solver is associated with a fixed floating-point
+-- interpretation. Ultimately, this should be an option, too.
+withBackend ::
+  String ->
+  NonceGenerator IO scope ->
+  (forall solver fs.
+    (OnlineSolver scope solver
+    , IsInterpretedFloatExprBuilder (OnlineBackend scope solver fs)) =>
+      OnlineBackend scope solver fs -> IO a) ->
+  IO a
+withBackend "cvc4" nonceGen f =
+  withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
+withBackend "yices" nonceGen f =
+  withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
+withBackend "z3" nonceGen f =
+  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores f
+withBackend s _ _ = fail $ "unknown solver: " ++ s
+
 -- Returns only non-trivial goals
 simulate :: (Language a, ?outputConfig :: OutputConfig) => Options a ->
   IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
@@ -92,12 +113,7 @@ simulate opts  =
   in
   liftIO $
   withIONonceGenerator $ \nonceGen ->
-
-  --withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
-  --withZ3OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
-  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym -> do
-  --withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores $ \sym -> do
-
+  withBackend (solver cruxOpts) nonceGen $ \sym -> do
      -- The simulator verbosity is one less than our verbosity.
      -- In this way, we can say things, without the simulator also being verbose
      let simulatorVerb = toInteger
@@ -108,9 +124,10 @@ simulate opts  =
 
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
-
-     void $ join (setOpt <$> getOptionSetting z3Timeout (getConfiguration sym)
-                         <*> pure (goalTimeout cruxOpts * 1000))
+     
+     when (solver cruxOpts == "z3") $
+       void $ join (setOpt <$> getOptionSetting z3Timeout (getConfiguration sym)
+                           <*> pure (goalTimeout cruxOpts * 1000))
 
      frm <- pushAssumptionFrame sym
 

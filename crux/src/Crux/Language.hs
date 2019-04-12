@@ -51,6 +51,8 @@ data CruxOptions = CruxOptions
     -- ^ Should we artifically bound the number of loop iterations
   , makeCexes :: Bool
     -- ^ Should we construct counter-example executables
+  , solver :: String
+    -- ^ Solver to user for the online backend
   }
 
 type Options a = (CruxOptions, LangOptions a)
