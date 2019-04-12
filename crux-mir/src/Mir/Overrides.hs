@@ -9,9 +9,11 @@
 {-# Language ViewPatterns #-}
 {-# Language TypeApplications #-}
 {-# Language PartialTypeSignatures #-}
+{-# Language FlexibleContexts #-}
 
 module Mir.Overrides (bindFn) where
 
+import Control.Lens ((%=))
 import Control.Monad.IO.Class
 
 import Data.Map (Map, fromList)
@@ -41,6 +43,9 @@ import Lang.Crucible.Types
 import What4.FunctionName (FunctionName, functionNameFromText)
 import What4.Interface
 
+import Crux.Model (addVar)
+import Crux.Types (Model)
+
 import Mir.Intrinsics (MIR)
 
 
@@ -49,10 +54,10 @@ data SomeOverride p sym where
 
 
 bindFn ::
-  forall args ret blocks p sym rtp a r .
+  forall args ret blocks sym rtp a r .
   (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
   Text -> CFG MIR blocks args ret ->
-  OverrideSim p sym MIR rtp a r ()
+  OverrideSim (Model sym) sym MIR rtp a r ()
 bindFn fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
@@ -70,8 +75,8 @@ bindFn fn cfg =
     override ::
       forall args ret .
       Text -> CtxRepr args -> TypeRepr ret ->
-      (forall rtp . OverrideSim p sym MIR rtp args ret (RegValue sym ret)) ->
-      (Text, FunctionName -> SomeOverride p sym)
+      (forall rtp . OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym ret)) ->
+      (Text, FunctionName -> SomeOverride (Model sym) sym)
     override n args ret act = (n, \funName -> SomeOverride args ret (mkOverride' funName ret act))
 
     u8repr :: TypeRepr (BaseToType (BaseBVType 8))
@@ -80,23 +85,24 @@ bindFn fn cfg =
     u32repr :: TypeRepr (BaseToType (BaseBVType 32))
     u32repr = knownRepr
 
-    symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride p sym)
+    symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride (Model sym) sym)
     symb_bv name n =
       override name (Empty :> StringRepr) (BVRepr n) $
       do RegMap (Empty :> str) <- getOverrideArgs
          x <- maybe (fail "not a constant string") pure (asString (regValue str))
-         let y = filter ((/=) '\"') (Text.unpack x)
+         let xStr = Text.unpack x
+         let y = filter ((/=) '\"') xStr
          nname <-
            case userSymbol y of
              Left err -> fail (show err ++ " " ++ y)
              Right a -> return a
          s <- getSymInterface
          v <- liftIO (freshConstant s nname (BaseBVRepr n))
-         -- TODO crucible-c has references to stateContext.cruciblePersonality with a variable added
-         -- This is to know which variables to ask for when getting a model out of the solver
+         loc   <- liftIO $ getCurrentProgramLoc s
+         stateContext.cruciblePersonality %= addVar loc xStr (BaseBVRepr n) v
          return v
 
-    overrides :: sym -> Map Text (FunctionName -> SomeOverride p sym)
+    overrides :: sym -> Map Text (FunctionName -> SomeOverride (Model sym) sym)
     overrides s =
       fromList [ override "::one[0]" Empty (BVRepr (knownNat @ 8)) $
                  do h <- printHandle <$> getContext

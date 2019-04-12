@@ -145,7 +145,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
   let cfgmap = rmCFGs mir
 
   -- overrides
-  let link :: C.OverrideSim p sym MIR rtp a r ()
+  let link :: C.OverrideSim (Model sym) sym MIR rtp a r ()
       link   = forM_ (Map.toList cfgmap) $
                  \(fn, C.AnyCFG cfg) -> bindFn fn cfg
 
@@ -213,8 +213,10 @@ makeCounterExamplesMIR _opts = maybe (return ()) go
                   _                  -> "unknown"
               msg = show (C.simErrorReason c)
           in case res of
-               NotProved (Just _m) ->
+               NotProved (Just m) ->
                  do sayFail "Crux" ("Failure for " ++ msg)
+                    putStrLn "Model:"
+                    putStrLn (modelInJS m)
                _ -> return ()
 
 -------------------------------------------------------
