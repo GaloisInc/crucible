@@ -37,6 +37,9 @@ import qualified What4.Expr as C
 
 import qualified Lang.Crucible.Backend.SAWCore as C
 
+import Crux.Model (emptyModel)
+import Crux.Types (Model)
+
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Vector as V
 import           Data.Sequence (Seq)
@@ -52,7 +55,7 @@ import qualified Data.AIG.Interface as AIG
 
 
 type Sym = C.SAWCoreBackend GlobalNonceGenerator (C.Flags C.FloatReal)
-type SymOverride arg_ctx ret = C.OverrideSim (C.SAWCruciblePersonality Sym) Sym MIR (C.RegEntry Sym ret) arg_ctx ret ()
+type SymOverride arg_ctx ret = C.OverrideSim (Model Sym) Sym MIR (C.RegEntry Sym ret) arg_ctx ret ()
 
 unfoldAssign ::
      C.CtxRepr ctx
@@ -118,7 +121,7 @@ extractFromCFGPure setup proxy sc cfg = do
     (ecs, args) <- setupArgs sc sym h
     print $ "Type of h " ++ show (C.handleArgTypes h) ++ " -> " ++ show (C.handleReturnType h)
     print $ "Length of ecs is " ++ show (length ecs)
-    let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl C.SAWCruciblePersonality
+    let simctx = C.initSimContext sym MapF.empty halloc stdout C.emptyHandleMap mirExtImpl emptyModel
         --simst  = C.initSimState simctx C.emptyGlobals C.defaultAbortHandler
         osim   = do setup
                     C.regValue <$> C.callCFG cfg args
