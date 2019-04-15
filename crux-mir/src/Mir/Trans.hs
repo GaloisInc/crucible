@@ -693,7 +693,7 @@ modifyAggregateIdx (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
       let tpr = agctx Ctx.! idx
       case (testEquality tpr instr) of
           Just Refl -> return $ MirExp (C.StructRepr agctx) (S.setStruct agctx ag idx ins)
-          _ -> fail "bad modify"
+          _ -> fail $ "bad modify, found: " ++ show instr ++ " expected " ++ show tpr
   | otherwise = fail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdx (MirExp ty _) _ _ =
   do fail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
@@ -861,7 +861,7 @@ traitImplsLookup traitName = do
 evalRefLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalRefLvalue lv =
       case lv of
-        M.Local (M.Var nm _ _ _ pos) ->
+        M.Local (M.Var nm mut ty _ pos) ->
           do vm <- use varMap
              case Map.lookup nm vm of
                Just (Some (VarReference reg)) ->
@@ -889,9 +889,10 @@ getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
 getVariant ty = fail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
 
 evalRefProj :: HasCallStack => M.LvalueProjection -> MirGenerator h s ret (MirExp s)
-evalRefProj (M.LvalueProjection base projElem) =
-  do MirExp tp ref <- evalRefLvalue base 
-     -- traceM $ "evalRefProj:" ++ show (pretty base) ++ " of type " ++ show tp 
+evalRefProj prj@(M.LvalueProjection base projElem) =
+  do --traceM $ "evalRefProj:" ++ fmt prj ++ " of type " ++ fmt (typeOf prj) 
+     MirExp tp ref <- evalRefLvalue base
+     --traceM $ "produced evaluated base of type:" ++ show tp
      case tp of
        MirReferenceRepr elty ->
          case projElem of
@@ -933,7 +934,10 @@ evalRefProj (M.LvalueProjection base projElem) =
 
                     _ -> fail ("Expected index value to be an integer value in reference projection " ++
                                 show base ++ " " ++ show projElem ++ " " ++ show idxTy)
-          _ -> fail ("Unexpected interior reference " ++ show base ++ " " ++ show projElem)
+          M.Downcast idx ->
+            return (MirExp tp ref)
+          _ -> fail ("Unexpected interior reference " ++ fmt base ++ " PROJECTED  " ++ show projElem
+                    ++ "\n for type " ++ show elty)
        _ -> fail ("Expected reference value in lvalue projection: " ++ show tp ++ " " ++ show base)
 
 
@@ -1199,7 +1203,7 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _pos)
             assignVarExp v (MirExp (C.VectorRepr e_ty) r2)
 
 
-assignVarExp (M.Var vname _ vty _ pos) (MirExp e_ty e) = do
+assignVarExp (M.Var vname _ vty _ pos) me@(MirExp e_ty e) = do
     vm <- use varMap
     case (Map.lookup vname vm) of
       Just (Some varinfo)
@@ -1475,7 +1479,7 @@ doReturn tr = do
 -- Some of these predicates will turn into additional (term) arguments, but only the call
 -- site knows which
 lookupFunction :: forall h s ret. HasCallStack => MethName -> Substs
-   -> MirGenerator h s ret (Maybe (MirExp s, [Predicate]))
+   -> MirGenerator h s ret (Maybe (MirExp s, FnSig))
 lookupFunction nm (Substs funsubst)
   | Some k <- peanoLength funsubst = do
   db   <- use debugLevel
@@ -1483,10 +1487,7 @@ lookupFunction nm (Substs funsubst)
     traceM $ "**lookupFunction: trying to resolve " ++ fmt nm ++ fmt (Substs funsubst)
 
   hmap <- use handleMap
-  _tm   <- use traitMap
-  stm  <- use staticTraitMap
   vm   <- use varMap
-  am   <- use collection
 
   -- these two are defined at the bottom of Mir.Generator
   isStatic  <- resolveStaticTrait nm (Substs funsubst)
@@ -1558,7 +1559,7 @@ lookupFunction nm (Substs funsubst)
               traceM $ "\tpreds are " ++ fmt preds
               traceM $ "\tgens are " ++ fmt gens
               traceM $ "\thsubst is " ++ fmt hsubst
-            return $ Just $ (mkFunExp hsubst gens fh, tySubst hsubst preds)
+            return $ Just $ (mkFunExp hsubst gens fh, specialize fs funsubst)
 
        -- dictionary projection, prefer this to a static trait invocation (next case)
        | Just (var, exp, sig, Substs methsubst) <- isDictPrj
@@ -1575,7 +1576,7 @@ lookupFunction nm (Substs funsubst)
                traceM $ "\tfunsubst is     " ++ fmt funsubst
                traceM $ "\tmethsubst is    " ++ fmt (Substs methsubst)
 
-             return $ (Just (fun', ssig ^.fspredicates))
+             return $ (Just (fun', ssig))
 
        -- a static invocation of a trait, the type argument (from funsubst) is a concrete type
        -- so we can just look up the method in the static method table
@@ -1593,7 +1594,7 @@ lookupFunction nm (Substs funsubst)
                traceM $ "\tmethsubst is    " ++ fmt (Substs methsubst)
                traceM $ "\tspec ty is      " ++ fmt ssig
 
-             return $ Just (exp, ssig^.fspredicates)
+             return $ Just (exp, ssig)
 
        -- a custom function (we will find it elsewhere)
        | True <- memberCustomFunc nm (Substs funsubst)
@@ -1602,12 +1603,6 @@ lookupFunction nm (Substs funsubst)
        | otherwise -> do
             when (db > 1) $ do
                traceM $ "***lookupFunction: Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
-               case Map.lookup nm stm of
-                  Just traits -> do
-                     traceM $ "Potential traits: " ++ show traits
-                     traceM $ "Potential variants:  " ++ show (pretty (map (\tn -> Map.lookup tn (am^.adts)) traits))
-                  Nothing ->
-                     traceM $ "Cannot find " ++ fmt nm ++ " in static trait map"
             return Nothing
 
 {-
@@ -1780,12 +1775,13 @@ doCall funid funsubst cargs cdest retRepr = do
 
         -- normal function call (could be through a dictionary argument or a static trait)
         -- need to construct any dictionary arguments for predicates (if present)
-        | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, preds) <- mhand -> do
+        | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand -> do
             when (db > 3) $
                traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
                    pretty funid, PP.text "with arguments", pretty cargs,
-                   PP.text "predicates:", PP.list (map pretty preds),
+                   PP.text "sig:",pretty sig,
                    PP.text "and type parameters:", pretty funsubst])
+
 
             -- Make a dictionary for the function call
             let mkDict :: (Var, Predicate) -> MirGenerator h s ret (MirExp s)
@@ -1799,19 +1795,21 @@ doCall funid funsubst cargs cdest retRepr = do
                                                              Just adt -> adt
                                                              Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
                       let go :: HasCallStack => Field -> MirGenerator h s ret (MirExp s)
-                          go (Field fn (TyFnPtr sig) _) = do
+                          go (Field fn (TyFnPtr field_sig) _) = do
                             mhand <- lookupFunction fn subst
                             case mhand of
-                              Just (e,[])    -> return e
-                              Just (e,preds) -> do
+                              Just (e,sig)   -> do
                                  db <- use debugLevel
-                                 let sig' = tySubst (Substs ss) sig
+                                 let sig'   = tySubst (Substs ss) field_sig
                                      spreds = sig' ^.fspredicates
+                                     preds  = sig  ^.fspredicates
                                  if (length preds > length spreds) then do
                                     let extras = drop (length spreds) preds
                                     when (db > 3) $ do
                                        traceM $ fmt fn ++ " for " ++ fmt pred
+                                       traceM $ "sig:    " ++ fmt sig
                                        traceM $ "preds:  " ++ fmt preds
+                                       traceM $ "fsig    " ++ fmt field_sig
                                        traceM $ "spreds: " ++ fmt spreds
                                        traceM $ "extras: " ++ fmt extras
                                     dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> dictVar x) extras)
@@ -1847,6 +1845,7 @@ doCall funid funsubst cargs cdest retRepr = do
 
             exps <- mapM evalOperand cargs
 
+            let preds = sig^.fspredicates
             dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
 
             exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
@@ -2118,7 +2117,8 @@ buildIdentMapRegs_ addressTakenVars needsInitVars pairs = foldM f Map.empty pair
   f map_ (varname, varty)
     | varname `Set.member` addressTakenVars =
         tyToReprCont varty $ \tp ->
-           do reg <- G.newUnassignedReg (MirReferenceRepr tp)
+           do 
+              reg <- G.newUnassignedReg (MirReferenceRepr tp)
               return $ Map.insert varname (Some (VarReference reg)) map_
 
     | varname `Set.member` needsInitVars = 
@@ -2493,7 +2493,7 @@ transCollection col0 debug halloc = do
 
     let passTrace :: String -> Collection -> Collection
         passTrace str col =
-          if (debug > 3) then 
+          if (debug > 2) then 
             ((trace $ "*********MIR collection " ++ str ++ "*******\n"
                     ++ fmt col ++ "\n****************************")
             col)
@@ -3151,6 +3151,7 @@ ops_index_mut = ((["ops", "index"], "IndexMut", ["index_mut"]), index_op )
 
 index_op :: Substs -> Maybe CustomOp
 index_op substs = Just $ CustomMirOp $ \ ops ->
+             trace ("Index::index called with substs " ++ fmt substs) $ 
              case ops of
                [op1, op2] -> do
                   let v2 = M.varOfLvalue (M.lValueofOp op2)

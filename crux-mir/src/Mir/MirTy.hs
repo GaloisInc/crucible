@@ -22,11 +22,13 @@ import Mir.DefId
 import Mir.PP(fmt)
 import Mir.GenericOps
 
+-- | Is this type mutable?
 isMutRefTy :: Ty -> Bool
 isMutRefTy (TyRef t m) = (m == Mut) || isMutRefTy t
 isMutRefTy (TySlice t) = isMutRefTy t
 isMutRefTy (TyArray t _) = isMutRefTy t
-isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
+isMutRefTy (TyTuple ts) = any isMutRefTy ts
+isMutRefTy (TyAdt _ (Substs ts)) = any isMutRefTy ts
 isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
 isMutRefTy _ = False
 

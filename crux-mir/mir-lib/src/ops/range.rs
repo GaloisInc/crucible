@@ -13,6 +13,7 @@ pub mod ops {
 use std::marker::Sized;
 use std::option::Option;
 use std::option::Option::*;
+use std::cmp::*;        
 
 
 // Copyright 2012 The Rust Project Developers. See the COPYRIGHT
@@ -75,7 +76,7 @@ impl<Idx: fmt::Debug> fmt::Debug for Range<Idx> {
     }
 }
 
-#[cfg(cmp)]
+
 impl<Idx: PartialOrd<Idx>> Range<Idx> {
     /// Returns `true` if `item` is contained in the range.
     ///
@@ -173,7 +174,7 @@ impl<Idx: fmt::Debug> fmt::Debug for RangeFrom<Idx> {
     }
 }
 
-#[cfg(cmp)]
+
 impl<Idx: PartialOrd<Idx>> RangeFrom<Idx> {
     /// Returns `true` if `item` is contained in the range.
     ///
@@ -254,7 +255,7 @@ impl<Idx: fmt::Debug> fmt::Debug for RangeTo<Idx> {
     }
 }
 
-#[cfg(cmp)]
+
 impl<Idx: PartialOrd<Idx>> RangeTo<Idx> {
     /// Returns `true` if `item` is contained in the range.
     ///
@@ -282,6 +283,8 @@ impl<Idx: PartialOrd<Idx>> RangeTo<Idx> {
     }
 }
 
+/*
+        
 /// A range bounded inclusively below and above (`start..=end`).
 ///
 /// The `RangeInclusive` `start..=end` contains all values with `x >= start`
@@ -318,11 +321,12 @@ pub struct RangeInclusive<Idx> {
     // accept non-PartialOrd types, also we want the constructor to be const.
 }
 
+       
 trait RangeInclusiveEquality: Sized {
     fn canonicalized_is_empty(range: &RangeInclusive<Self>) -> bool;
 }
 
-#[cfg(BUG)]
+
 impl<T> RangeInclusiveEquality for T {
     #[inline]
     default fn canonicalized_is_empty(range: &RangeInclusive<Self>) -> bool {
@@ -330,7 +334,7 @@ impl<T> RangeInclusiveEquality for T {
     }
 }
 
-#[cfg(cmp)]
+
 impl<T: PartialOrd> RangeInclusiveEquality for T {
     #[inline]
     fn canonicalized_is_empty(range: &RangeInclusive<Self>) -> bool {
@@ -338,7 +342,7 @@ impl<T: PartialOrd> RangeInclusiveEquality for T {
     }
 }
 
-#[cfg(cmp)]
+
 impl<Idx: PartialEq> PartialEq for RangeInclusive<Idx> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -349,10 +353,11 @@ impl<Idx: PartialEq> PartialEq for RangeInclusive<Idx> {
 }
 
 
-#[cfg(cmp)]
+
 impl<Idx: Eq> Eq for RangeInclusive<Idx> {}
 
-#[cfg(cmp)]
+        
+#[cfg(hash)]
 impl<Idx: Hash> Hash for RangeInclusive<Idx> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.start.hash(state);
@@ -445,7 +450,7 @@ impl<Idx: fmt::Debug> fmt::Debug for RangeInclusive<Idx> {
     }
 }
 
-#[cfg(cmp)]
+
 impl<Idx: PartialOrd<Idx>> RangeInclusive<Idx> {
     /// Returns `true` if `item` is contained in the range.
     ///
@@ -524,7 +529,8 @@ impl<Idx: PartialOrd<Idx>> RangeInclusive<Idx> {
         }
     }
 }
-
+         */
+        
 /// A range only bounded inclusively above (`..=end`).
 ///
 /// The `RangeToInclusive` `..=end` contains all values with `x <= end`.
@@ -575,7 +581,7 @@ impl<Idx: fmt::Debug> fmt::Debug for RangeToInclusive<Idx> {
     }
 }
 
-#[cfg(cmp)]
+
 impl<Idx: PartialOrd<Idx>> RangeToInclusive<Idx> {
     pub fn contains<U>(&self, item: &U) -> bool
     where
@@ -660,7 +666,7 @@ pub trait RangeBounds<T: ?Sized> {
     /// assert!(!(0.0..1.0).contains(&f32::NAN));
     /// assert!(!(0.0..f32::NAN).contains(&0.5));
     /// assert!(!(f32::NAN..1.0).contains(&0.5));
-    #[cfg(cmp)]
+
     fn contains<U>(&self, item: &U) -> bool
     where
         T: PartialOrd<U>,
@@ -722,7 +728,7 @@ impl<T> RangeBounds<T> for Range<T> {
     }
 }
 
-
+/*
 impl<T> RangeBounds<T> for RangeInclusive<T> {
     fn start_bound(&self) -> Bound<&T> {
         Included(&self.start)
@@ -730,7 +736,7 @@ impl<T> RangeBounds<T> for RangeInclusive<T> {
     fn end_bound(&self) -> Bound<&T> {
         Included(&self.end)
     }
-}
+}*/
 
 
 impl<T> RangeBounds<T> for RangeToInclusive<T> {
@@ -773,7 +779,7 @@ impl<'a, T: ?Sized + 'a> RangeBounds<T> for (Bound<&'a T>, Bound<&'a T>) {
 }
 
 
-#[cfg(lifetime)]
+
 impl<T> RangeBounds<T> for RangeFrom<&T> {
     fn start_bound(&self) -> Bound<&T> {
         Included(self.start)
@@ -783,7 +789,7 @@ impl<T> RangeBounds<T> for RangeFrom<&T> {
     }
 }
 
-#[cfg(lifetime)]
+
 impl<T> RangeBounds<T> for RangeTo<&T> {
     fn start_bound(&self) -> Bound<&T> {
         Unbounded
@@ -793,7 +799,7 @@ impl<T> RangeBounds<T> for RangeTo<&T> {
     }
 }
 
-#[cfg(lifetime)]
+
 impl<T> RangeBounds<T> for Range<&T> {
     fn start_bound(&self) -> Bound<&T> {
         Included(self.start)
@@ -803,7 +809,7 @@ impl<T> RangeBounds<T> for Range<&T> {
     }
 }
 
-#[cfg(lifetime)]
+/*
 impl<T> RangeBounds<T> for RangeInclusive<&T> {
     fn start_bound(&self) -> Bound<&T> {
         Included(self.start)
@@ -811,9 +817,9 @@ impl<T> RangeBounds<T> for RangeInclusive<&T> {
     fn end_bound(&self) -> Bound<&T> {
         Included(self.end)
     }
-}
+}*/
 
-#[cfg(lifetime)]
+
 impl<T> RangeBounds<T> for RangeToInclusive<&T> {
     fn start_bound(&self) -> Bound<&T> {
         Unbounded

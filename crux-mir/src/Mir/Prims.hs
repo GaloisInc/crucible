@@ -37,18 +37,21 @@ libLoc = "mir-lib/src/"
 loadPrims :: Bool -> Int -> IO Collection
 loadPrims useStdLib debugLevel = do
 
+  
+  -- Same order as in https://github.com/rust-lang/rust/blob/master/src/libcore/prelude/v1.rs  
   let lib = if useStdLib then
-              [ "convert"
+              [ "ops/function"
+              , "ops/try"
+              , "clone"
+              , "cmp"                    
+              , "convert"
+              , "default"   -- NOTE: macro impls not available b/c mir-json doesn't include "implements"
               , "option"
               , "result"
-              , "cmp"      
               , "ops/range"  
-              , "ops/function"
               , "ops/index"
               , "ops/deref"
               , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
-              , "clone"
-              , "default"   -- doesn't include "implements" in mir-json              
 --              , "ops/arith" -- doesn't include "implements" in mir-json for macros
               ] else [
                 "ops/function"  -- needed for any treatment of hofs

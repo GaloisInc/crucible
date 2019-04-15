@@ -1,60 +1,15 @@
 #![feature(i128_type)]
 #![crate_type = "lib"]
-#![no_implicit_prelude]
-#![feature(slice_get_slice)]
+#![no_std]
+#![feature(never_type)]
+#![feature(lang_items)]
+#![feature(on_unimplemented)]
+#![feature(doc_alias)]
 
-pub mod ops {
-
-    /*
-    pub mod index {
-        
-        use std::marker::Sized;
-
-        pub trait Index<Idx: ?Sized> {
-            /// The returned type after indexing.
-            type Output: ?Sized;
-
-            /// Performs the indexing (`container[index]`) operation.
-            fn index(&self, index: Idx) -> &Self::Output;
-        }
-        
-        pub trait IndexMut<Idx: ?Sized>: Index<Idx> {
-            /// Performs the mutable indexing (`container[index]`) operation.
-            fn index_mut(&mut self, index: Idx) -> &mut Self::Output;
-        }
-
-    }
-
-    use ops::index::Index;
-    use ops::index::IndexMut;
-    use std::slice::SliceIndex;
-
-    impl<T, I> Index<I> for [T]
-    where I: SliceIndex<[T]>
-    {
-        type Output = I::Output;
-        
-        #[inline]
-        fn index(&self, index: I) -> &I::Output {
-            index.index(self)
-        }
-    }
-
-    impl<T, I> IndexMut<I> for [T]
-    where I: SliceIndex<[T]>
-    {
-        #[inline]
-        fn index_mut(&mut self, index: I) -> &mut I::Output {
-            index.index_mut(self)
-        }
-    }
-    */
-
-}
-
-
+extern crate std;
 
 pub mod slice {
+    
     pub trait SliceIndex<T: ?Sized> {
         /// The output type returned by methods.
         type Output: ?Sized;
@@ -67,8 +22,12 @@ pub mod slice {
         /// bounds.
         fn get_mut(self, slice: &mut T) -> Option<&mut Self::Output>;
 
+        /// Returns a shared reference to the output at this location, without
+        /// performing any bounds checking.
         unsafe fn get_unchecked(self, slice: &T) -> &Self::Output;
 
+        /// Returns a mutable reference to the output at this location, without
+        /// performing any bounds checking.
         unsafe fn get_unchecked_mut(self, slice: &mut T) -> &mut Self::Output;
         
         /// Returns a shared reference to the output at this location, panicking
@@ -80,20 +39,40 @@ pub mod slice {
         fn index_mut(self, slice: &mut T) -> &mut Self::Output;
     }
 
-    use std::marker::Sized;
-    use std::option::Option;
-    use std::option::Option::*;
-    use std::ops::Range;
+    use core::marker::Sized;
+    use core::option::Option;
+    use core::option::Option::*;
+    use core::ops::Range;
     use std::process::exit;
 
     /*
+    #[lang = "slice"]
     impl<T>[T] {
+        // must override
+        pub const fn len(&self) -> usize {
+            exit(0);
+        }
+
+        pub const fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        pub fn first(&self) -> Option<&T> {
+            self.get(0)
+        }
+
         pub fn get<I>(&self, index: I) -> Option<&I::Output>
         where I: SliceIndex<Self>
         {
             index.get(self)
         }
-    }*/
+        
+        pub fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output>
+        where I: SliceIndex<Self>
+        {
+            index.get_mut(self)
+        }
+    } */
 
 
     

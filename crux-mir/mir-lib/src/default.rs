@@ -9,6 +9,12 @@ pub mod default {
     pub trait Default: Sized {
       fn default() -> Self;
     }
+
+    // by hand, because we needed them elsewhere in the library
+    impl Default for bool {
+        fn default() -> bool { false }
+    }
+    
 /*
     macro_rules! default_impl {
         ($t:ty, $v:expr, $doc:tt) => {

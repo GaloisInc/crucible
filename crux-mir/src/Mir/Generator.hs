@@ -384,62 +384,6 @@ firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f = Maybe.listToMaybe . Maybe.mapMaybe f
 
 ------------------------------------------------------------------------------------
-
-{-
--- | Given a (static)-trait method name and type substitution, find the 
--- implementation to use
---
--- Returns the function, its type and any remaining substitution types not used for
--- method resolution.
--- If no method can be found, return Nothing
---
--- This returns a Maybe instead of failing so that we can try something else if 
--- resolution of the method name fails
---
--- NOTE: tries the 
-resolveStaticTrait :: MethName -> Substs -> MirGenerator h s ret (Maybe (MirExp s, FnSig, Substs))
-resolveStaticTrait mn sub = do
-  stm <- use staticTraitMap
-  case (stm Map.!? mn) of
-    Just tns -> firstJustM (resolveStaticMethod mn sub) (getTraitName mn : tns)
-    Nothing -> resolveStaticMethod mn sub (getTraitName mn)
-
-resolveStaticMethod :: MethName -> Substs -> TraitName -> MirGenerator h s ret (Maybe (MirExp s , FnSig, Substs))
-resolveStaticMethod mn (Substs tys) tn = do
-  col <- use collection
-  (TraitMap tmap) <- use traitMap
-  case (col^.traits) Map.!? tn of
-    Nothing -> return $ Nothing -- BUG: Cannot find trait in collection
-    Just trait -> do
-      case tmap Map.!? tn of
-        Nothing -> return $ Nothing -- BUG: Cannot find trait in traitMap
-        Just (Some timpls) ->
-          case (timpls^.methodIndex) Map.!? mn of
-            Nothing -> return $ Nothing -- OK: Cannot find method " ++ fmt mn ++ " in trait " ++ fmt tn
-            Just (Some idx) -> do
-              let numParams       = length (trait^.traitParams)
-              let (trTys,methTys) = splitAt numParams tys
---              traceM $ "resolveStaticTrait: looking for " ++ fmt mn ++ " in trait " ++ fmt tn
---              traceM $ "    with trTys   " ++ fmt trTys
---              traceM $ "    and methTys  " ++ fmt methTys
-              let vtab            = timpls^.vtables
-              case vtab Map.!? trTys of
-                Just assn -> case assn ! idx of
-                  MirValue _ tye e sig -> do
-                    -- find it directly
-                    return (Just (MirExp tye e, sig, Substs methTys))
-                Nothing ->
-                  -- find it via unification
-                  let --go :: [Ty] -> Assignment (MirValue s) ctx -> Maybe (MirExp s) -> Maybe (MirExp s)
-                      go keyTy assn res =
-                        case matchTys trTys keyTy of
-                          Nothing -> res
-                          Just _inst -> case (assn ! idx) of
-                            MirValue _ ty e sig -> Just (MirExp ty e, sig, Substs methTys)
-                  in                     
-                     return $ Map.foldrWithKey go Nothing vtab
--}
-------------------------------------------------------------------------------------
 -- | Given a (static)-trait method name and type substitution, find the 
 -- implementation to use.
 -- Returns the handle for the method as well as all type arguments to supply
@@ -468,10 +412,6 @@ resolveStaticMethod methName substs traitName = do
      Nothing -> return $ Nothing -- BUG: Cannot find trait in collection
      Just trait -> do
        let (traitSub, methSub) = splitAtSubsts (length (trait^.traitParams)) substs
-       when (db > 6) $ do
-         traceM $ "***Looking for " ++ fmt methName ++ " in " ++ fmt traitName
-         traceM $ "\t traitSub is " ++ fmt traitSub
-         traceM $ "\t methSub  is " ++ fmt methSub
        mimpl <- findItem methName traitSub trait
        case mimpl of
           Nothing -> return $ Nothing  -- OK: there is no impl for this method name & traitsub in this trait
@@ -480,9 +420,14 @@ resolveStaticMethod methName substs traitName = do
             case hmap Map.!? (traitImplItem^.tiiName) of
               Nothing -> return Nothing -- BUG: impls should all be in the handle map
               Just mh -> do                
-                let ulen = Map.size unifier                      
-                let ss'  = takeSubsts ulen (mkSubsts unifier)
+                let ulen = case Map.lookupMax unifier of
+                                  Just (k,_) -> k + 1
+                                  Nothing    -> 0
+                let ss'  = takeSubsts (fromInteger ulen) (mkSubsts unifier)
                 when (db > 6) $ do
+                    traceM $ "***Found " ++ fmt methName ++ " in " ++ fmt traitName
+                    traceM $ "\t traitSub is " ++ fmt traitSub
+                    traceM $ "\t methSub  is " ++ fmt methSub                  
                     traceM $ "\t unifier is " ++ fmt (Map.toList unifier)
                     traceM $ "\t of size " ++ fmt (Map.size unifier)                
                 return (Just (mh, ss' <> methSub))

@@ -311,7 +311,7 @@ data LvalueProjection = LvalueProjection { _lvpbase :: Lvalue, _lvpkind :: Lvpel
     deriving (Show,Eq, Ord, Generic)
 
 data Lvpelem =
-    Deref
+        Deref
       | PField Int Ty
       | Index Var
       | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
