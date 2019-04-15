@@ -798,6 +798,12 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Set an option/parameter.
   setOptCommand :: f h -> Text -> Text -> Command h
 
+  -- | Get the solver's version
+  getVersionCommand :: f h -> Command h
+
+  -- | Get the solver's name
+  getNameCommand :: f h -> Command h
+
   -- | Declare a new symbol with the given name, arguments types, and result type.
   declareCommand :: f h
                  -> Text

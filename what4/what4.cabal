@@ -47,6 +47,7 @@ library
     unordered-containers,
     utf8-string,
     vector,
+    versions,
     ghc-prim
 
   default-language: Haskell2010
@@ -113,7 +114,6 @@ library
     What4.Utils.OnlyNatRepr
     What4.Utils.Process
     What4.Utils.Streams
-
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
