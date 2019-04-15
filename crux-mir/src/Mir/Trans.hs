@@ -1748,31 +1748,6 @@ doCall funid funsubst cargs cdest retRepr = do
     case cdest of 
       (Just (dest_lv, jdest))
 
-
-         -- custom call where we first evaluate the arguments to MirExps
-         | Just (CustomOp op) <- lookupCustomFunc funid funsubst -> do
-            when (db > 3) $
-              traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-                   pretty funid, PP.text "with arguments", pretty cargs, 
-                   PP.text "and type parameters:", pretty funsubst])
-
-            ops <- mapM evalOperand cargs
-            let opTys = map M.typeOf cargs
-            res <- op opTys (M.typeOf dest_lv) ops
-            assignLvExp dest_lv res
-            jumpToBlock jdest
-
-         -- custom call where we pass the arguments in directly (as Mir operands)
-         | Just (CustomMirOp op) <- lookupCustomFunc funid funsubst -> do
-            when (db > 3) $
-              traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-                   pretty funid, PP.text "with arguments", pretty cargs, 
-                   PP.text "and type parameters:", pretty funsubst])
-
-            res <- op cargs
-            assignLvExp dest_lv res
-            jumpToBlock jdest
-
         -- normal function call (could be through a dictionary argument or a static trait)
         -- need to construct any dictionary arguments for predicates (if present)
         | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand -> do
@@ -1856,6 +1831,31 @@ doCall funid funsubst cargs cdest retRepr = do
                     jumpToBlock jdest
                   _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
                                  ++ show ifargctx ++ "\n while calling " ++ show (pretty funid)
+
+
+         -- custom call where we first evaluate the arguments to MirExps
+         | Just (CustomOp op) <- lookupCustomFunc funid funsubst -> do
+            when (db > 3) $
+              traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
+                   pretty funid, PP.text "with arguments", pretty cargs, 
+                   PP.text "and type parameters:", pretty funsubst])
+
+            ops <- mapM evalOperand cargs
+            let opTys = map M.typeOf cargs
+            res <- op opTys (M.typeOf dest_lv) ops
+            assignLvExp dest_lv res
+            jumpToBlock jdest
+
+         -- custom call where we pass the arguments in directly (as Mir operands)
+         | Just (CustomMirOp op) <- lookupCustomFunc funid funsubst -> do
+            when (db > 3) $
+              traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
+                   pretty funid, PP.text "with arguments", pretty cargs, 
+                   PP.text "and type parameters:", pretty funsubst])
+
+            res <- op cargs
+            assignLvExp dest_lv res
+            jumpToBlock jdest
              
          | otherwise -> fail $ "Don't know how to call " ++ fmt funid ++ "\n mhand is " ++ show mhand
 
