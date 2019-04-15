@@ -441,8 +441,9 @@ resolveStaticMethod mn (Substs tys) tn = do
 -}
 ------------------------------------------------------------------------------------
 -- | Given a (static)-trait method name and type substitution, find the 
--- implementation to use. Returns the handle for the method as well as the type arguments
--- to supply in the method call.
+-- implementation to use.
+-- Returns the handle for the method as well as all type arguments to supply
+-- in the method call.
 --
 -- If no method can be found, return Nothing
 --
@@ -452,23 +453,23 @@ resolveStaticMethod mn (Substs tys) tn = do
 -- During method resolution, additional method arguments discovered via unification
 -- are added to the beginning of the returned substs
 --
-resolveStaticTrait' :: MethName -> Substs -> MirGenerator h s ret (Maybe (MirHandle, Substs))
-resolveStaticTrait' mn sub = do
+resolveStaticTrait :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe (MirHandle, Substs))
+resolveStaticTrait mn sub = do
   stm <- use staticTraitMap
   case (stm Map.!? mn) of
-    Just tns -> firstJustM (resolveStaticMethod' mn sub) (getTraitName mn : tns)
-    Nothing -> resolveStaticMethod' mn sub (getTraitName mn)
+    Just tns -> firstJustM (resolveStaticMethod mn sub) (getTraitName mn : tns)
+    Nothing -> resolveStaticMethod mn sub (getTraitName mn)
                           
-resolveStaticMethod' :: MethName -> Substs -> TraitName -> MirGenerator h s ret (Maybe (MirHandle, Substs))
-resolveStaticMethod' methName substs traitName = do
+resolveStaticMethod :: HasCallStack => MethName -> Substs -> TraitName -> MirGenerator h s ret (Maybe (MirHandle, Substs))
+resolveStaticMethod methName substs traitName = do
    db <- use debugLevel
    col <- use collection
    case (col^.traits) Map.!? traitName of
      Nothing -> return $ Nothing -- BUG: Cannot find trait in collection
      Just trait -> do
        let (traitSub, methSub) = splitAtSubsts (length (trait^.traitParams)) substs
-       when (db > 5) $ do
-         traceM $ "Looking for " ++ fmt methName ++ " in " ++ fmt traitName
+       when (db > 6) $ do
+         traceM $ "***Looking for " ++ fmt methName ++ " in " ++ fmt traitName
          traceM $ "\t traitSub is " ++ fmt traitSub
          traceM $ "\t methSub  is " ++ fmt methSub
        mimpl <- findItem methName traitSub trait
@@ -478,13 +479,16 @@ resolveStaticMethod' methName substs traitName = do
             hmap <- use handleMap
             case hmap Map.!? (traitImplItem^.tiiName) of
               Nothing -> return Nothing -- BUG: impls should all be in the handle map
-              Just mh -> do
+              Just mh -> do                
                 let ulen = Map.size unifier                      
                 let ss'  = takeSubsts ulen (mkSubsts unifier)
+                when (db > 6) $ do
+                    traceM $ "\t unifier is " ++ fmt (Map.toList unifier)
+                    traceM $ "\t of size " ++ fmt (Map.size unifier)                
                 return (Just (mh, ss' <> methSub))
        
-
-findItem :: MethName -> Substs -> Trait -> MirGenerator h s ret (Maybe (TraitImpl, Map Integer Ty, TraitImplItem))
+-- | Look for a static trait implementation in a particular Trait
+findItem :: HasCallStack => MethName -> Substs -> Trait -> MirGenerator h s ret (Maybe (TraitImpl, Map Integer Ty, TraitImplItem))
 findItem methName traitSub trait = do
   col <- use collection
   let isImpl :: TraitImpl -> Maybe (TraitImpl, Map Integer Ty)
@@ -493,7 +497,8 @@ findItem methName traitSub trait = do
        , tn == trait^.traitName
        = 
        case matchSubsts traitSub ss of
-              Just m  -> Just (ti, m)
+              Just m  -> 
+                Just (ti, m)
               Nothing -> Nothing           
        | otherwise = Nothing
        
@@ -504,7 +509,7 @@ findItem methName traitSub trait = do
 
 -------------------------------------------------------------------------------------------------------
 --
--- Determine whether a function call can be resolved via dictionary projection
+-- | Determine whether a function call can be resolved via dictionary projection
 --
 -- If so, return the dictionary variable, the rvalue that is the dictionary projection
 -- and the method substitutions
@@ -514,7 +519,7 @@ findItem methName traitSub trait = do
 -- 2. find the trait name <tn> and <fields> of a dictionary type for all potential_traits
 -- 3. find the index <idx> of the method in the dictionary
 -- 4. find the <trait> in the collection and method type <sig> from the trait implementations
-
+--
 -- In findVar:
 -- 5. separate substs into those for trait, and those for method 
 -- 6. create the <var> for the dictionary make sure that it in scope
@@ -522,7 +527,7 @@ findItem methName traitSub trait = do
 -- 8. return everything
 
 
-resolveDictionaryProjection :: MethName -> Substs -> MirGenerator h s ret (Maybe (Var, Rvalue, FnSig, Substs))
+resolveDictionaryProjection :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe (Var, Rvalue, FnSig, Substs))
 resolveDictionaryProjection nm subst = do
   stm <- use staticTraitMap
   col  <- use collection
@@ -542,28 +547,29 @@ resolveDictionaryProjection nm subst = do
                  ]
 
           findVar (tn, fields, idx, trait, sig) = do
-             let (tsubst,msubst) = splitAtSubsts (length (trait^.traitParams)) subst
-             let var = mkPredVar (TyAdt tn tsubst)
+             let (Substs tsubst,msubst) = splitAtSubsts (length (trait^.traitParams)) subst
+             let var = mkPredVar (TyAdt tn (Substs tsubst))
              if (not (Map.member (var^.varname) vm)) then return Nothing
              else do
 
-               let (Field _ ty _) = fields !! idx
-               let ty'  = tySubst tsubst ty
-               let exp = Use (Copy (LProjection (LvalueProjection (Local var) (PField idx ty'))))
+               let (Field _ (TyFnPtr ty) fsubst) = fields !! idx
+               let ty'  = tySubst (Substs tsubst) ty
+               let sig' = specialize sig tsubst
+               let exp = Use (Copy (LProjection (LvalueProjection (Local var) (PField idx (TyFnPtr ty')))))
 
-               when (db > 5) $ do
+               when (db > 6) $ do
                  traceM $ "***lookupFunction: at dictionary projection for " ++ show (pretty nm)
                  traceM $ "   traitParams are" ++ fmt (trait^.traitParams)
                  traceM $ "   traitPreds are " ++ fmt (trait^.traitPredicates)
-                 traceM $ "   var is         " ++ show var
                  traceM $ "   tsubst is      " ++ fmt tsubst
                  traceM $ "   msubst is      " ++ fmt msubst
-                 traceM $ "   method sig is  " ++ fmt sig
+                 traceM $ "   fsubst is      " ++ fmt fsubst
                  traceM $ "   ty is          " ++ fmt ty
                  traceM $ "   ty' is         " ++ fmt ty'
+                 traceM $ "   sig' is         " ++ fmt sig'
                  traceM $ "   exp is         " ++ fmt exp
 
-               return $ Just (var, exp, sig, msubst)
+               return $ Just (var, exp, sig', msubst)
                
       firstJustM findVar prjs
 

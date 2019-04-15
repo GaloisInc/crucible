@@ -9,7 +9,7 @@ pub mod default {
     pub trait Default: Sized {
       fn default() -> Self;
     }
-
+/*
     macro_rules! default_impl {
         ($t:ty, $v:expr, $doc:tt) => {
             impl Default for $t {
@@ -46,4 +46,6 @@ pub mod default {
     //
     //default_impl! { f32, 0.0f32, "Returns the default value of `0.0`" }
     //default_impl! { f64, 0.0f64, "Returns the default value of `0.0`" }
+     */
+    
 }

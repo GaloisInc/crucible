@@ -414,15 +414,15 @@ pub trait TryFrom<T>: Sized {
 
 // As lifts over &
 /*  --- SCW: these are static method invocations */
-/*#[stable(feature = "rust1", since = "1.0.0")]
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized, U: ?Sized> AsRef<U> for &T where T: AsRef<U>
 {
     fn as_ref(&self) -> &U {
         <T as AsRef<U>>::as_ref(*self)
     }
-}*/
+}
 
-/*
+
 // As lifts over &mut
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized, U: ?Sized> AsRef<U> for &mut T where T: AsRef<U>
@@ -431,7 +431,7 @@ impl<T: ?Sized, U: ?Sized> AsRef<U> for &mut T where T: AsRef<U>
         <T as AsRef<U>>::as_ref(*self)
     }
 }
-*/
+
 
 // FIXME (#45742): replace the above impls for &/&mut with the following more general one:
 // // As lifts over Deref
@@ -442,14 +442,14 @@ impl<T: ?Sized, U: ?Sized> AsRef<U> for &mut T where T: AsRef<U>
 // }
 
 // AsMut lifts over &mut
-/* --- SCW -- urk! is this an example of lack of compositionality
+/* --- SCW -- urk! is this an example of lack of compositionality */
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized, U: ?Sized> AsMut<U> for &mut T where T: AsMut<U>
 {
     fn as_mut(&mut self) -> &mut U {
         (*self).as_mut()
     }
-}*/
+}
 
 // FIXME (#45742): replace the above impl for &mut with the following more general one:
 // // AsMut lifts over DerefMut
@@ -460,14 +460,13 @@ impl<T: ?Sized, U: ?Sized> AsMut<U> for &mut T where T: AsMut<U>
 // }
 
 // From implies Into
-/* --- SCW: also cannot handle this 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T, U> Into<U> for T where U: From<T>
 {
     fn into(self) -> U {
         U::from(self)
     }
-} */
+} 
 
 // From (and thus Into) is reflexive
 #[stable(feature = "rust1", since = "1.0.0")]
@@ -475,7 +474,7 @@ impl<T> From<T> for T {
     fn from(t: T) -> T { t }
 }
 
-/*
+
 
 // TryFrom implies TryInto
 #[unstable(feature = "try_from", issue = "33417")]
@@ -499,7 +498,7 @@ impl<T, U> TryFrom<U> for T where U: Into<T> {
     }
 }
 
-*/
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // CONCRETE IMPLS

@@ -403,13 +403,7 @@ instance GenericOps Ty where
   tySubst (Substs substs) (TyParam i)
      | Just x <- safeNth (fromInteger i) substs  = x
      | otherwise    = error $
-           "BUG in substitution: Indexing at " ++ show i ++ "  from subst " ++ fmt substs
-{-           
-  tySubst substs (TyFnPtr (FnSig args ret params preds atys)) =
-      trace ("lifted sub is " ++ fmt (takeSubsts 100 ss)) $
-      TyFnPtr (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys)) where
-         ss = lift (length params) substs
--}
+           "BUG in substitution: Indexing at " ++ show i ++ "  from subst " ++ fmt (Substs substs)
   tySubst substs ty = to (tySubst' substs (from ty))
 
   -- Count ty params
@@ -587,7 +581,7 @@ replaceList ((old,new) : vs) a = replaceList vs $ replaceLvalue old new a
 class GenericOps' f where
   relocate'      :: f p -> f p
   markCStyle'    :: (Map.Map DefId Adt,Collection) -> f p -> f p
-  tySubst'       :: HasCallStack => Substs -> f p -> f p 
+  tySubst'       :: Substs -> f p -> f p 
   replaceVar'    :: Var -> Var -> f p -> f p
   replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
   numTyParams'   :: f p -> Integer

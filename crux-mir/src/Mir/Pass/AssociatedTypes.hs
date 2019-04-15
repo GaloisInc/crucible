@@ -70,21 +70,28 @@ mkDictWith f = foldr (\t m -> f t `Map.union` m) Map.empty
 passAbstractAssociated :: HasCallStack => Collection -> Collection
 passAbstractAssociated col =
    let
+       -- all traits have their associated types
        col1  = (col  & traits    %~ fmap addTraitAssocTys)
 
        adict = mkImplADict col1 `Map.union` mkClosureADict col1
 
+       -- translate the RHS of the adict to expand ATs in AT definitions
+       -- TODO: we should do this until we reach a fixpoint?
+       adict1 = fmap (\f ss -> abstractATs info <$> (f ss)) adict where
+           info  = ATInfo 0 0 adict col1 (error "passAbstractAssociated: No term translation yet")
+
        col2  =
-         col1 & functions %~ fmap (addFnAssocTys col1 adict)
-              & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys col1 adict tr))
+         col1 & functions %~ fmap (addFnAssocTys col1 adict1)
+              & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys col1 adict1 tr))
        
        mc    = buildMethodContext col2
 
+       
    in
    
-   col2 & traits    %~ Map.map (translateTrait col2 adict mc) 
-        & functions %~ Map.map (translateFn    col2 adict mc)
-        & impls     %~ fmap    (translateImpl  col2 adict mc)
+   col2 & traits    %~ Map.map (translateTrait col2 adict1 mc) 
+        & functions %~ Map.map (translateFn    col2 adict1 mc)
+        & impls     %~ fmap    (translateImpl  col2 adict1 mc)
 
 ----------------------------------------------------------------------------------------
 
@@ -132,10 +139,17 @@ addTraitFnAssocTys col adict tr it = it
 
 ----------------------------------------------------------------------------------------
 
+    
 -- type ATDict = Map DefId (Substs -> Maybe Ty)
 
+-- | Create a mapping from associated types (DefId,Substs) to their definitions
+--   based on impls.
+-- NOTE: because ATs can be defined in terms of other ATs, this map is *not*
+-- idempotent---we still need to translate the range of the map
 mkImplADict :: HasCallStack => Collection -> ATDict
-mkImplADict col = foldr go Map.empty (col^.impls) where
+mkImplADict col = adict where
+  adict = foldr go Map.empty (col^.impls)
+  
   go :: TraitImpl -> ATDict -> ATDict
   go ti m = foldr go2 m (ti^.tiItems) where
     TraitRef tn ss = ti^.tiTraitRef
@@ -185,12 +199,14 @@ buildMethodContext col = foldMap go (col^.traits) where
 -- | Update trait declarations with additional generic types instead of
 -- associated types
 translateTrait :: HasCallStack => Collection -> ATDict -> Map MethName (FnSig, Trait) -> Trait -> Trait
-translateTrait col adict mc trait =
-    trait & traitItems      %~ map updateMethod
-          & traitPredicates %~ abstractATs info
-          & traitParams     %~ (++ (map toParam) atys)
+translateTrait col adict mc trait = trait1
 
      where
+       trait1 = trait & traitItems      %~ map updateMethod
+                      & traitPredicates %~ abstractATs info
+                      & traitParams     %~ (++ (map toParam) atys)
+
+       
        atys = trait^.traitAssocTys
        
        j = toInteger $ length (trait^.traitParams)

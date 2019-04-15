@@ -1,3 +1,4 @@
+// FAIL: need to construct dictionary with polymorphic member from generic instance
 // Invoke a dictionary method
 
 struct Data<T>(T);

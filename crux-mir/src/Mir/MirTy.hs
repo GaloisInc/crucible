@@ -64,7 +64,7 @@ substField subst (Field a t _subst)  = Field a t subst
 -- Specialize a polymorphic type signature by the provided type arguments
 -- Note: Ty may have free type variables & FnSig may have free type variables
 -- We increment these inside 
-specialize :: FnSig -> [Ty] -> FnSig
+specialize :: HasCallStack => FnSig -> [Ty] -> FnSig
 specialize sig@(FnSig args ret ps preds _atys) ts
   | k <= length ps
   = FnSig (tySubst ss args) (tySubst ss ret) ps' (tySubst ss preds) []
@@ -92,14 +92,20 @@ combineMaps m1 m2 = Map.foldrWithKey go (Just m2) m1 where
       Nothing ->  Just (Map.insert k ty res)
 
 -- | Try to match an implementation type against a trait type
--- | TODO: do we also need to match the params/ats?
+-- TODO: do we also need to match the params/ats?
 -- TODO: allow re-ordering of preds??
+-- TODO: prune vars bound by the sig from the returned unifier
 matchSig :: FnSig -> FnSig -> Maybe (Map Integer Ty)
-matchSig (FnSig instArgs instRet _instParams _instPreds _instATs)
-         (FnSig genArgs  genRet  _genParams  _genPreds  _genATs) = do
+matchSig (FnSig instArgs instRet [] [] _instATs)
+         (FnSig genArgs  genRet  [] []  _genATs) = do
   m1 <- matchTys instArgs genArgs
   m2 <- matchTy  instRet  genRet
   combineMaps m1 m2
+matchSig s1@(FnSig instArgs instRet _instParams _instPreds _instATs)
+         s2@(FnSig genArgs  genRet  _genParams  _genPreds  _genATs) =
+  error $ "TODO: extend matchSig to include params and/or preds"
+        ++ "\n\t" ++ fmt s1
+        ++ "\n\t" ++ fmt s2
 
 matchPred :: Predicate -> Predicate -> Maybe (Map Integer Ty)
 matchPred (TraitPredicate d1 ss1) (TraitPredicate d2 ss2)
@@ -117,9 +123,6 @@ matchPred _ _ = Nothing
 -- Neither type should include TyProjections. They should have already been abstracted out
 -- using [abstractAssociatedTypes]
 matchTy :: Ty -> Ty -> Maybe (Map Integer Ty)
-matchTy inst arg
-  | inst == arg
-  = return Map.empty
 matchTy ty (TyParam i) 
   = return (Map.insert i ty Map.empty)
 matchTy (TyTuple instTys) (TyTuple genTys) =
@@ -133,6 +136,9 @@ matchTy (TyClosure d1 s1) (TyClosure d2 s2) | d1 == d2 =  matchSubsts s1 s2
 matchTy (TyFnPtr sig1) (TyFnPtr sig2) = matchSig sig1 sig2
 matchTy (TyRawPtr t1 m1)(TyRawPtr t2 m2) | m1 == m2 = matchTy t1 t2
 matchTy (TyDowncast t1 i1) (TyDowncast t2 i2) | i1 == i2 = matchTy t1 t2
+matchTy inst arg
+  | inst == arg
+  = return Map.empty
 matchTy ty1 ty2@(TyProjection d2 s2) = error $
   "BUG: found " ++ fmt ty2 ++ " when trying to match " ++ fmt ty1
 matchTy _ _ = Nothing

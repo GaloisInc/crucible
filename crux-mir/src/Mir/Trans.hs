@@ -1489,7 +1489,7 @@ lookupFunction nm (Substs funsubst)
   am   <- use collection
 
   -- these two are defined at the bottom of Mir.Generator
-  isStatic  <- resolveStaticTrait' nm (Substs funsubst)
+  isStatic  <- resolveStaticTrait nm (Substs funsubst)
   isDictPrj <- resolveDictionaryProjection nm (Substs funsubst)
 
   -- Given a (polymorphic) function handle, turn it into an expression by
@@ -1554,19 +1554,31 @@ lookupFunction nm (Substs funsubst)
             let hsubst = Substs $ funsubst
 
             when (db > 3) $ do
-              traceM $ "***lookupFunction: In normal call of " ++ show (pretty nm)
+              traceM $ "**lookupFunction: " ++ fmt nm ++ fmt (Substs funsubst) ++ " resolved as normal call"
               traceM $ "\tpreds are " ++ fmt preds
               traceM $ "\tgens are " ++ fmt gens
               traceM $ "\thsubst is " ++ fmt hsubst
             return $ Just $ (mkFunExp hsubst gens fh, tySubst hsubst preds)
 
-       -- a custom function (we will find it elsewhere)
-       | True <- memberCustomFunc nm (Substs funsubst)
-       -> return Nothing
+       -- dictionary projection, prefer this to a static trait invocation (next case)
+       | Just (var, exp, sig, Substs methsubst) <- isDictPrj
+       -> do
+             
+             fun <- evalRval exp
+             let fun' = instantiateTraitMethod fun (Substs methsubst)
+             let ssig = specialize sig methsubst 
+             when (db > 3) $ do
+               traceM $ "**lookupFunction: " ++ fmt nm ++ fmt (Substs funsubst) ++ " resolved as dictionary projection" 
+               traceM $ "\tfound var       " ++ fmt var
+               traceM $ "\texp type     is " ++ fmt sig
+               traceM $ "\tsubst type   is " ++ fmt ssig
+               traceM $ "\tfunsubst is     " ++ fmt funsubst
+               traceM $ "\tmethsubst is    " ++ fmt (Substs methsubst)
+
+             return $ (Just (fun', ssig ^.fspredicates))
 
        -- a static invocation of a trait, the type argument (from funsubst) is a concrete type
        -- so we can just look up the method in the static method table
-
        | Just (MirHandle name sig handle, Substs methsubst) <- isStatic
        -> do
 
@@ -1574,21 +1586,18 @@ lookupFunction nm (Substs funsubst)
              let ssig = specialize sig methsubst
 
              when (db > 3) $ do
-               traceM $ "***lookupFunction: In static trait call of " ++ fmt nm ++ fmt (Substs funsubst)
+               traceM $ "**lookupFunction: " ++ fmt nm ++ fmt (Substs funsubst) ++ " resolved as static trait call" 
                traceM $ "\tfound handle    " ++ fmt name
                traceM $ "\tmirHandle ty is " ++ fmt sig
-               traceM $ "\tfunsubst is     " ++ fmt funsubst
-               traceM $ "\tmethsubst is    " ++ fmt methsubst
+               traceM $ "\tfunsubst is     " ++ fmt (Substs funsubst)
+               traceM $ "\tmethsubst is    " ++ fmt (Substs methsubst)
                traceM $ "\tspec ty is      " ++ fmt ssig
 
              return $ Just (exp, ssig^.fspredicates)
-               
-       | Just (var, exp, sig, msubst) <- isDictPrj
-       -> do
-             let preds = sig^.fspredicates
-             fun <- evalRval exp
-             let fun' = instantiateTraitMethod fun msubst
-             return $ (Just (fun', tySubst (Substs funsubst) preds))
+
+       -- a custom function (we will find it elsewhere)
+       | True <- memberCustomFunc nm (Substs funsubst)
+       -> return Nothing
 
        | otherwise -> do
             when (db > 1) $ do
@@ -1789,7 +1798,7 @@ doCall funid funsubst cargs cdest retRepr = do
                       let (Adt _ [Variant _ _ fields _]) = case (am^.adts) Map.!? did of
                                                              Just adt -> adt
                                                              Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
-                      let go :: Field -> MirGenerator h s ret (MirExp s)
+                      let go :: HasCallStack => Field -> MirGenerator h s ret (MirExp s)
                           go (Field fn (TyFnPtr sig) _) = do
                             mhand <- lookupFunction fn subst
                             case mhand of
@@ -2494,9 +2503,7 @@ transCollection col0 debug halloc = do
               |> passRemoveUnknownPreds  -- remove predicates that we don't know anything about
               |> passTrace "initial"
               |> passAddDictionaryPreds  -- add predicates to trait member functions
-              |> passTrace "after dict preds"
               |> passExpandSuperTraits   -- add supertrait items
-              |> passTrace "after super traits"
               |> passAbstractAssociated  -- replace associated types with additional type parameters
               |> passTrace "after associated types translated"
               |> passMarkCStyle          -- figure out which ADTs are enums and mark them

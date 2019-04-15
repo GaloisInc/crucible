@@ -48,7 +48,7 @@ loadPrims useStdLib debugLevel = do
               , "ops/deref"
               , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
               , "clone"
---              , "default"   -- doesn't include "implements" in mir-json              
+              , "default"   -- doesn't include "implements" in mir-json              
 --              , "ops/arith" -- doesn't include "implements" in mir-json for macros
               ] else [
                 "ops/function"  -- needed for any treatment of hofs
