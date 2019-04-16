@@ -17,9 +17,10 @@
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -498,6 +499,19 @@ instance SMTReadWriter (Connection s) where
                  unlines [ "Could not parse unsat core result."
                          , "*** Exception: " ++ displayException e
                          ]
+
+  smtVersionResult p s =
+    let cmd = getVersionCommand p
+    in
+      try (Streams.parseFromStream parseSExp s) >>=
+        \case
+          Right (SApp [SAtom "version", SString ver]) -> pure ver
+          Right (SApp [SAtom "error", SString msg]) ->
+            throw (YicesError cmd msg)
+          Left (SomeException e) -> throw $ YicesParseError cmd $ Text.pack $
+                  unlines [ "Could not parse version query result."
+                          , "*** Exception: " ++ displayException e
+                          ]
 
 -- | Exceptions that can occur when reading responses from Yices
 data YicesException
