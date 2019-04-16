@@ -1489,9 +1489,10 @@ lookupFunction nm (Substs funsubst)
   hmap <- use handleMap
   vm   <- use varMap
 
-  -- these two are defined at the bottom of Mir.Generator
+  -- these  are defined at the bottom of Mir.Generator
   isStatic  <- resolveStaticTrait nm (Substs funsubst)
   isDictPrj <- resolveDictionaryProjection nm (Substs funsubst)
+  isImpl    <- resolveImpl nm (Substs funsubst)
 
   -- Given a (polymorphic) function handle, turn it into an expression by
   -- instantiating the type arguments
@@ -1514,7 +1515,9 @@ lookupFunction nm (Substs funsubst)
                   cty      = C.PolyFnRepr (fk `minusP` (ctxSizeP tyargs)) ifargctx ifret
                in
                   MirExp cty polyspec
-             FalseRepr -> error "BUG: invalid number of type args"
+             FalseRepr ->
+                error $ "BUG: invalid number of type args to : " ++ show fhandle
+                      ++ "\n" ++ show (ctxSizeP tyargs) ++ " not <= " ++ show fk
           Just Refl ->
             let polyfcn  = R.App $ E.PolyHandleLit fk fhandle
                 polyinst = R.App $ E.PolyInstantiate (C.PolyFnRepr fk fargctx fret) polyfcn tyargs
@@ -1546,12 +1549,13 @@ lookupFunction nm (Substs funsubst)
          error $ "instantiateTraitMethod: found exp of type " ++ show ty
                          ++ "\n and substs " ++ fmt ss
 
+
   case () of 
        -- a normal function, resolve associated types to additional type arguments
-    () | Just (MirHandle nm fs fh) <- Map.lookup nm hmap
+    () | Just (MirHandle nm fs fh) <- isImpl 
        -> do
-            let preds = fs^.fspredicates
-            let gens = fs^.fsgenerics
+            let preds  = fs^.fspredicates
+            let gens   = fs^.fsgenerics
             let hsubst = Substs $ funsubst
 
             when (db > 3) $ do
@@ -1559,6 +1563,7 @@ lookupFunction nm (Substs funsubst)
               traceM $ "\tpreds are " ++ fmt preds
               traceM $ "\tgens are " ++ fmt gens
               traceM $ "\thsubst is " ++ fmt hsubst
+
             return $ Just $ (mkFunExp hsubst gens fh, specialize fs funsubst)
 
        -- dictionary projection, prefer this to a static trait invocation (next case)
@@ -1736,6 +1741,72 @@ coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
                    | otherwise = return e
 -}
 
+
+-- | Make a dictionary for a function call for the specified predicates
+mkDict :: (Var, Predicate) -> MirGenerator h s ret (MirExp s)
+mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
+  db <- use debugLevel
+  vm <- use varMap
+  col  <- use collection
+  case Map.lookup (var^.varname) vm of
+    Just _ -> lookupVar var
+    Nothing -> do
+      let (TyAdt did subst)              = var^.varty
+      let (Adt _ [Variant _ _ fields _]) = case (col^.adts) Map.!? did of
+                                             Just adt -> adt
+                                             Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
+      let go :: HasCallStack => Field -> MirGenerator h s ret (MirExp s)
+          go (Field fn (TyFnPtr field_sig) _) = do
+            mhand <- lookupFunction fn subst
+            case mhand of
+              Just (e,sig)   -> do
+                 db <- use debugLevel
+                 let sig'   = tySubst (Substs ss) field_sig
+                     spreds = sig' ^.fspredicates
+                     preds  = sig  ^.fspredicates
+                 if (length preds > length spreds) then do
+                    let extras = drop (length spreds) preds
+                    when (db > 3) $ do
+                       traceM $ fmt fn ++ " for " ++ fmt pred
+                       traceM $ "sig:    " ++ fmt sig
+                       traceM $ "preds:  " ++ fmt preds
+                       traceM $ "fsig    " ++ fmt field_sig
+                       traceM $ "spreds: " ++ fmt spreds
+                       traceM $ "extras: " ++ fmt extras
+                    dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> dictVar x) extras)
+                    case (e, dexps) of
+                      -- TODO: this currently only handles ONE extra predicate on the method
+                      -- need to generalize closure creation to *multiple* predicates
+                      (MirExp (C.FunctionHandleRepr args ret) fn, [MirExp ty dict]) -> do
+                         case Ctx.viewAssign args of
+                            Ctx.AssignEmpty -> error $ "BUG: No arguments!"
+                            Ctx.AssignExtend (rargs :: C.CtxRepr rargs)
+                                             (v :: C.TypeRepr arg) -> do
+                              case testEquality v ty of
+                                Nothing -> error $ "BUG: dictionary type doesn't match"
+                                Just Refl ->
+                                  C.assumeClosed @arg $
+                                  return (MirExp
+                                            (C.FunctionHandleRepr rargs ret)
+                                            (R.App $ E.Closure rargs ret fn v dict))
+                      (_,_) -> return e
+                 else
+                    return e -- error $ "found predicates when building a dictionary for " ++ show var
+              Nothing     -> error $ "when building a dictionary for " ++  fmt var
+                                  ++ " couldn't find an entry for " ++ fmt fn
+                                  ++ " of type " ++ fmt (var^.varty)
+          go (Field fn ty _) = error $ "BUG: mkDict, fields must be functions, found"
+                                        ++ fmt ty ++ " for " ++ fmt fn ++ " instead."
+      when (db > 3) $ traceM $ "Building dictionary for " ++ fmt pred
+                    ++ " of type " ++ fmt (var^.varty)
+      entries <- mapM go fields
+      when (db > 3) $ traceM $ "Done building dictionary for " ++ fmt var
+      return $ buildTaggedUnion 0 entries
+mkDict (var, _) = error $ "BUG: mkDict, only make dictionaries for TraitPredicates"
+
+
+
+
 -- regular function calls: closure calls & dynamic trait method calls handled later
 doCall :: forall h s ret a. (HasCallStack) => M.DefId -> Substs -> [M.Operand] 
    -> Maybe (M.Lvalue, M.BasicBlockInfo) -> C.TypeRepr ret -> MirGenerator h s ret a
@@ -1757,72 +1828,9 @@ doCall funid funsubst cargs cdest retRepr = do
                    PP.text "sig:",pretty sig,
                    PP.text "and type parameters:", pretty funsubst])
 
-
-            -- Make a dictionary for the function call
-            let mkDict :: (Var, Predicate) -> MirGenerator h s ret (MirExp s)
-                mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
-                  vm <- use varMap
-                  case Map.lookup (var^.varname) vm of
-                    Just _ -> lookupVar var
-                    Nothing -> do
-                      let (TyAdt did subst)              = var^.varty
-                      let (Adt _ [Variant _ _ fields _]) = case (am^.adts) Map.!? did of
-                                                             Just adt -> adt
-                                                             Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
-                      let go :: HasCallStack => Field -> MirGenerator h s ret (MirExp s)
-                          go (Field fn (TyFnPtr field_sig) _) = do
-                            mhand <- lookupFunction fn subst
-                            case mhand of
-                              Just (e,sig)   -> do
-                                 db <- use debugLevel
-                                 let sig'   = tySubst (Substs ss) field_sig
-                                     spreds = sig' ^.fspredicates
-                                     preds  = sig  ^.fspredicates
-                                 if (length preds > length spreds) then do
-                                    let extras = drop (length spreds) preds
-                                    when (db > 3) $ do
-                                       traceM $ fmt fn ++ " for " ++ fmt pred
-                                       traceM $ "sig:    " ++ fmt sig
-                                       traceM $ "preds:  " ++ fmt preds
-                                       traceM $ "fsig    " ++ fmt field_sig
-                                       traceM $ "spreds: " ++ fmt spreds
-                                       traceM $ "extras: " ++ fmt extras
-                                    dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> dictVar x) extras)
-                                    case (e, dexps) of
-                                      -- TODO: this currently only handles ONE extra predicate on the method
-                                      -- need to generalize closure creation to *multiple* predicates
-                                      (MirExp (C.FunctionHandleRepr args ret) fn, [MirExp ty dict]) -> do
-                                         case Ctx.viewAssign args of
-                                            Ctx.AssignEmpty -> error $ "BUG: No arguments!"
-                                            Ctx.AssignExtend (rargs :: C.CtxRepr rargs)
-                                                             (v :: C.TypeRepr arg) -> do
-                                              case testEquality v ty of
-                                                Nothing -> error $ "BUG: dictionary type doesn't match"
-                                                Just Refl ->
-                                                  C.assumeClosed @arg $
-                                                  return (MirExp
-                                                            (C.FunctionHandleRepr rargs ret)
-                                                            (R.App $ E.Closure rargs ret fn v dict))
-                                      (_,_) -> return e
-                                 else
-                                    return e -- error $ "found predicates when building a dictionary for " ++ show var
-                              Nothing     -> error $ "when building a dictionary for " ++  fmt var
-                                                  ++ " couldn't find an entry for " ++ fmt fn
-                                                  ++ " of type " ++ fmt (var^.varty)
-                          go (Field fn ty _) = error $ "BUG: mkDict, fields must be functions, found"
-                                                        ++ fmt ty ++ " for " ++ fmt fn ++ " instead."
-                      when (db > 3) $ traceM $ "Building dictionary for " ++ fmt pred
-                                    ++ " of type " ++ fmt (var^.varty)
-                      entries <- mapM go fields
-                      when (db > 3) $ traceM $ "Done building dictionary for " ++ fmt var
-                      return $ buildTaggedUnion 0 entries
-                mkDict (var, _) = error $ "BUG: mkDict, only make dictionaries for TraitPredicates"
-
             exps <- mapM evalOperand cargs
-
             let preds = sig^.fspredicates
             dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
-
             exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
                 case (testEquality ctx ifargctx) of
                   Just Refl -> do
@@ -1860,42 +1868,35 @@ doCall funid funsubst cargs cdest retRepr = do
          | otherwise -> fail $ "Don't know how to call " ++ fmt funid ++ "\n mhand is " ++ show mhand
 
       Nothing
+
+        -- functions that don't return
+        | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand
+        , isNever (sig^.fsreturn_ty) -> do
+            when (db > 3) $ do
+               traceM $ fmt (PP.fillSep [PP.text "At a tail call of ", pretty funid,
+                        PP.text " with arguments ", pretty cargs,
+                        PP.text "with type parameters: ", pretty funsubst])
+
+            exps <- mapM evalOperand cargs
+            let preds = sig^.fspredicates
+            dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
+            exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
+                case (testEquality ctx ifargctx) of
+                  Just Refl -> do
+                    _ <- G.call polyinst asgn
+                    G.reportError (S.app $ E.TextLit "Program terminated with exit:")
+
+                  _ -> fail $ "type error in tail call: args " ++ (show ctx)
+                           ++ " vs function params " ++ show ifargctx 
+                           ++ "\n while calling " ++ show funid
+
          -- special case for exit function that does not return
          | Just CustomOpExit <- lookupCustomFunc funid funsubst,
                [o] <- cargs -> do
                _exp <- evalOperand o
                G.reportError (S.app $ E.TextLit "Program terminated with exit:")
 
-        -- other functions that don't return.
-{-
-        | Just (MirHandle _ sig fhandle) <- mhand,
-          isNever ret -> do
 
-            -- traceM $ show (vcat [text "At a tail call of ", pretty funid, text " with arguments ", pretty cargs,
-            --       text "with type parameters: ", pretty funsubst])
-
-            exps <- mapM evalOperand cargs
-            tyListToCtx (Maybe.catMaybes funsubst) $ \tyargs -> do
-
-              let fargctx = FH.handleArgTypes fhandle
-              let fret    = FH.handleReturnType fhandle
-              let ifargctx = C.instantiate tyargs fargctx
-
---            cexps <- zipWithM coerceArg args (zip (map M.typeOf cargs) exps)
-              exp_to_assgn exps $ \ctx asgn -> do
-                case (testEquality ctx ifargctx) of
-                  (Just Refl) -> do
-                       let polyfcn  = R.App $ E.PolyHandleLit fhandle
-                       let polyinst = R.App $ E.PolyInstantiate (C.PolyFnRepr fargctx fret) polyfcn tyargs
-
-                       _ <- G.call polyinst asgn
-                       G.reportError (S.app $ E.TextLit "Program terminated with exit:")
-
-                  _ -> fail $ "type error in call: args " ++ (show ctx)   ++ " vs function params " ++ show fargctx 
-                                 ++ "\n expected ret " ++ show retRepr  ++ " vs function ret " ++ show fret
-                                 ++ "\n while calling " ++ show funid
-
--}
          | otherwise -> fail $ "no dest in doCall of " ++ show (pretty funid)
 
 -- Method/trait calls

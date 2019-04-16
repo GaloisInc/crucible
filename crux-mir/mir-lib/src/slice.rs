@@ -1,4 +1,3 @@
-#![feature(i128_type)]
 #![crate_type = "lib"]
 #![no_std]
 #![feature(never_type)]
@@ -43,7 +42,10 @@ pub mod slice {
     use core::option::Option;
     use core::option::Option::*;
     use core::ops::Range;
+    use core::ops::Index;
+    use core::ops::IndexMut;
     use std::process::exit;
+    
 
     /*
     #[lang = "slice"]
@@ -105,27 +107,24 @@ pub mod slice {
         
         #[inline]
         fn get(self, slice: &[T]) -> Option<&T> {
-            exit (0);
-/*            if self < slice.len() {
+            if self < slice.len() {
                 unsafe {
                     Some(self.get_unchecked(slice))
                 }
             } else {
                 None
-            } */
+            } 
         }
 
         #[inline]
         fn get_mut(self, slice: &mut [T]) -> Option<&mut T> {
-            exit(0);
-/*            
             if self < slice.len() {
                 unsafe {
                     Some(self.get_unchecked_mut(slice))
                 }
             } else {
                 None
-            } */
+            }
         }
 
         #[inline]
@@ -141,8 +140,8 @@ pub mod slice {
         #[inline]
         fn index(self, slice: &[T]) -> &T {
             // NB: use intrinsic indexing
-            //&(*slice)[self]
-            exit(0);
+            &(*slice)[self]
+            //exit(0);
         }
 
         #[inline]
@@ -152,7 +151,7 @@ pub mod slice {
             exit(0);
         }
     }
-    /*
+    
     impl<T> SliceIndex<[T]> for  Range<usize> {
         type Output = [T];
 
@@ -211,8 +210,31 @@ pub mod slice {
                 self.get_unchecked_mut(slice)
             }
         }
-    }*/
+    } 
 
+/*  CANNOT do this one --- need to hardwire this implementation
+    
+    impl<T, I> Index<I> for [T]
+    where I: SliceIndex<[T]>
+    {
+        type Output = I::Output;
+        
+        #[inline]
+        fn index(&self, index: I) -> &I::Output {
+            index.index(self)
+        }
+    }
 
+    impl<T, I> IndexMut<I> for [T]
+    where I: SliceIndex<[T]>
+    {
+        #[inline]
+        fn index_mut(&mut self, index: I) -> &mut I::Output {
+            index.index_mut(self)
+        }
+    }
+
+     */
+    
 }
 

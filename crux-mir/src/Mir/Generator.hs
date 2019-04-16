@@ -533,4 +533,24 @@ mkPredVar ty@(TyAdt did ss) = Var {
 mkPredVar ty = error $ "BUG in mkPredVar: must provide Adt type"
 
 
+-------------------------------------------------------------------------------------------------------
+--
+-- | Determine whether a function call can be resolved via explicit name bound in the handleMap
+--
+
+resolveImpl :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe MirHandle)
+resolveImpl nm tys = do
+  hmap <- use handleMap
+  case Map.lookup nm hmap of
+    Just h@(MirHandle _nm fs fh) -> do
+      -- make sure the number of type arguments is consistent with the impl
+      -- we don't have to instantiate all of them, but we can't have too many
+      if lengthSubsts tys <= length (fs^.fsgenerics) then
+        return (Just h)
+      else
+        return Nothing
+    Nothing -> return Nothing
+
+
+
 --  LocalWords:  ty ImplementTrait ctx vtable

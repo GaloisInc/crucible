@@ -391,10 +391,10 @@ instance Pretty TraitImpl where
           rbrace]
 
 instance Pretty TraitImplItem where
-  pretty (TraitImplMethod nm impls params preds sig)  =
-    pretty nm <+> text "implements" <+> pretty impls <+> pparams params <+> ppreds preds
-  pretty (TraitImplType nm impls params preds ty) =
-    text "type" <+> pretty impls <+> pparams params <+> text "=" <+> pretty ty
+  pretty (TraitImplMethod nm timpls params preds _sig)  =
+    pretty nm <+> text "implements" <+> pretty timpls <+> pparams params <+> ppreds preds
+  pretty (TraitImplType nm timpls params preds ty) =
+    text "type" <+> pretty nm <+> pretty timpls <+> pparams params <+> text "=" <+> pretty ty <+> ppreds preds
 
 instance Pretty Collection where
   pretty col =

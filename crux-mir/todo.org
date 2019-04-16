@@ -1,36 +1,149 @@
 * TODO
 
-- first-class polymorphism
-   DONE: dictionaries with polymorphic methods (i.e. static traits)
-   method calls must still be with all of their arguments, but perhaps that is ok.
+** Failing concrete test cases
 
-- remove unsafe coerce in "call"
+-- arrays and slices
+test/conc_eval/array/iter.rs:// FAIL: invalid slice access
+test/conc_eval/array/mut_index.rs:// FAIL: not mutating array
+test/conc_eval/slice/mut_range.rs:// FAIL: projection [::ops::index::Index::Output<[u8],::ops::range::RangeFrom<usize>>] with unknown translation
 
-- structured error handling
+-- treatment of references
+test/conc_eval/stdlib/result-interior.rs:// FAIL: Mutable reference-taken variable not backed by reference! "_1"
+
+-- waitin on mir-json
+test/conc_eval/array/const.rs:// FAIL: mir-json encoding of constant array
+test/conc_eval/crypto/add.rs:// FAIL: mir-json constant array
+test/conc_eval/stdlib/default.rs:// FAIL: Default trait (temporarily) not included in mir-lib
+test/conc_eval/stdlib/default_impl.rs:// FAIL: mir-json doesn't include "implements" for () instance
+
+-- vec and string
+test/conc_eval/array/wick1.rs:// FAIL: needs Vec data structure from stdlib
+test/conc_eval/array/wick3.rs:// FAIL: needs Vec data structure from stdlib
+test/conc_eval/prim/lit.rs:// FAIL:  Don't know how to call ::str::{{impl}}[35]::len
+
+-- shift
+test/conc_eval/prim/shift_exceeding.rs:// FAIL: Should panic, but doesn't
+
+-- dynamic traits, or other
+test/conc_eval/traits/dynamic_branch.rs:// FAIL: dynamic trait. Also use of "::convert::From::from"
+test/conc_eval/traits/dynamic_med.rs:// FAIL: dynamic trait object
+test/conc_eval/traits/dynamic_poly.rs:// FAIL: needs dynamic trait object
+test/conc_eval/traits/dynamic_simple.rs:// FAIL: dynamic trait object
+test/conc_eval/traits/dynamic_two.rs:// FAIL: dynamic trait object
+test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary with polymorphic member from generic instance
+
+** Failing symbolic test cases
+
+  This one passes:
+    symb_eval/crypto/double.rs
+  
+  These do not:
+    symb_eval/crypto/ffs.rs
+    symb_eval/crypto/bytes.rs
+
+** test/crypto/scalar.rs status
+
+   Failure encountered while generating a Crucible CFG: at
+   <::std::macros::panic macros>:4:9: 4:72: unknown lvalue access:
+   Promoted "promoted[0]" (TyTuple [TyRef TyStr Immut,TyUint B32,TyUint B32])
+
+Derives from trying to translate this block:
+
+   let mut _35 : &(&string,u32,u32);
+   let mut _36 : &(&string,u32,u32);
+
+   StorageLive(_35);
+   StorageLive(_36);
+   _36 = &Promoted(promoted[0]);
+   _35 = use(_36);
+   call(::panicking::begin_panic<&string>("assertion failed: res[i] == zero[i]"
+                                         ,_35))
+
+** Standard library current status
+   Library code found in mir-lib/src/*
+
+*** libcore prelude
+   Based on implementation here, but adapted
+   https://github.com/rust-lang/rust/tree/master/src/libcore
+
+   -- pub use marker::{Copy, Send, Sized, Sync, Unpin};
+   markers ignored as there isn't anything to do
+
+   -- pub use ops::{Drop, Fn, FnMut, FnOnce};
+   Drop: ignored
+   Fn/FnMut/FnOnce hardwired
+
+   -- pub use mem::drop;
+   TODO  (size_of etc)
+
+   -- pub use clone::Clone;
+   DONE 
+
+   -- pub use cmp::{PartialEq, PartialOrd, Eq, Ord};
+   DONE
+
+   -- pub use convert::{AsRef, AsMut, Into, From};
+   DONE
+
+   -- pub use default::Default;
+   DONE (caveat --- macro impls)
+
+   -- pub use iter::{Iterator, Extend, IntoIterator};
+   TODO
+
+   -- pub use iter::{DoubleEndedIterator, ExactSizeIterator};
+   TODO 
+
+   -- pub use option::Option::{self, Some, None};
+   DONE (caveat -- iterators)
+
+   -- pub use result::Result::{self, Ok, Err};
+   DONE
+
+*** ops
+       DONE
+    mod deref;
+    mod function;
+    mod index;
+    mod range;
+    mod try;
+       TODO
+    mod arith;
+    mod bit;
+    mod drop;
+    mod generator;
+    mod unsize;
+
+*** other todos
+--strings, fmt
+--vec
+--num
+--more intrinsics:
+   https://github.com/rust-lang/rust/blob/master/src/libcore/intrinsics.rs
+   (Though look for the functions that wrap them, which are more stable.)
+--...
+
+** Implementation todos
+
+- Implementation of closures is very hacky
+   -- unsafe coerce in "call"
+   -- doesn't take advantage of equality constraints (FnOnce::Output)
+
+- need more structured error handling
    don't use "error", use "fail" instead
    pretty print error messages instead of constructing strings
    distinguish "BUG" errors from limitations of the system (user facing)
 
-- associated type translation
-   - need to take advantage of equality constraints (FnOnce::Output)
-
-- just-in time function translation using overrides
+- just-in time function translation using overrides?
+  or some caching of the standard library?
    - see crucible-jvm
 
-- generic trait impls (traits/dict_med.rs, traits/dict_poly.rs)
-  e.g. 
-  
+- generic trait impls has only a partial solution
+  e.g.   
      impl<U> G for Data<U> where U:G { ... }
 
-  The impl is generic, and the parameter U itself has a constraint. 
-
-  These impls are really important in the std library. But supporting them will require 
-  serious re-thought about how we keep track of trait impls during translation.
-
-- static traits with members that do not mention Self (traits/static, traits/static_two.rs)
-  
-- parse new components from mir-json
-   traits/default.rs
+  Works in most common case, but fails when there is more than one
+  constraint on U (or multiple constrained types)
 
 - translation of Slice types isn't compositional (requires identifying outer ref)
       
@@ -40,51 +153,20 @@
   This could be problemmatic if we ever need to substitute a slice type into 
   M.TyRef (M.TyParam 0).
 
-  Should explore other options.
-
-- minimal standard library: lacking slices, iteration, vectors, type conversions, etc.
-  waiting on: more features from traits
-
-  affected tests:
-    array/wick1.rs - "vec::with_capacity"
-    array/wick3.rs - "vec::with_capacity"
-    slice/get.rs   - "get_mut"
-    prim/lit.rs    (string len)
-
-
-- failing symbolic test cases
-
-  This one passes:
-    symb_eval/crypto/double.rs
-  
-  These do not:
-    symb_eval/crypto/ffs.rs
-    symb_eval/crypto/bytes.rs
-
-  It may be a matter of the translation of primitive
-  operators. However, I'm not sure how to get crucible to tell me
-  about any counter-examples that it produces.
-
-- Mutable reference-taken variable not backed by reference!
-   stdlib/result-interior
-
-- need definitions of intrinsics:
-
-   https://github.com/rust-lang/rust/blob/master/src/libcore/intrinsics.rs
-
-   (Though look for the functions that wrap them, which are more stable.)
-
+  Should explore other designs
 
 - dynamic trait invocation (i.e. trait objects) (test/conc_eval/traits/dynamic*.rs)
-   + a "trait object" is a value (coerced to Any) accompanied by its vtable. However, we need to make a coerced 
-     version of that vtable so that it can take arguments of type "Any" instead of the implementation type. 
-     This requires allocating a bunch of function handles for the wrapped vtable (one for each implementation type)
+   + a "trait object" is a value (coerced to Any) accompanied by its
+     vtable. However, we need to make a coerced version of that vtable
+     so that it can take arguments of type "Any" instead of the
+     implementation type.  This requires allocating a bunch of
+     function handles for the wrapped vtable (one for each
+     implementation type)
 
-- better interface to symbolic evaluation.  need a rust interface module for examples to import
-  and need to load the definitions in mir-verifier.
-
-- prim/shift_exceeding.rs
-
+- better interface to symbolic evaluation.  need a rust interface
+  module for examples to import and need to load the definitions in
+  mir-verifier.
+  In particular, should make assertions from calls to "panic" etc.
 
 WAITING ON MIR-JSON
 

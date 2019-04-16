@@ -70,16 +70,18 @@ mkDictWith f = foldr (\t m -> f t `Map.union` m) Map.empty
 passAbstractAssociated :: HasCallStack => Collection -> Collection
 passAbstractAssociated col =
    let
-       -- all traits have their associated types
+       -- add associated types to traits
        col1  = (col  & traits    %~ fmap addTraitAssocTys)
 
-       adict = mkImplADict col1 `Map.union` mkClosureADict col1
+       -- make mapping from ATs to their definitions, based on impls
+       adict = mkImplADict col1 `Map.union` mkClosureADict col1 `Map.union` mkIndexADict
 
        -- translate the RHS of the adict to expand ATs in AT definitions
        -- TODO: we should do this until we reach a fixpoint?
        adict1 = fmap (\f ss -> abstractATs info <$> (f ss)) adict where
            info  = ATInfo 0 0 adict col1 (error "passAbstractAssociated: No term translation yet")
 
+       -- add ATs to functions & traitItems based on trait ATs
        col2  =
          col1 & functions %~ fmap (addFnAssocTys col1 adict1)
               & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys col1 adict1 tr))
@@ -181,6 +183,16 @@ mkClosureADict col =
          Substs [TyDynamic _, TyTuple [ret]] ->
            Just ret
          _ -> Nothing)
+
+mkIndexADict :: HasCallStack => ATDict
+mkIndexADict =
+  Map.singleton (textId "::ops[0]::index[0]::Index[0]::Output[0]")
+    (\ substs -> case substs of
+        Substs [TySlice elt, TyAdt did (Substs [relt])]
+          | did == (textId "::ops[0]::range[0]::RangeFrom[0]")
+          -> Just (TyProjection (textId "::slice[0]::SliceIndex[0]::Output[0]") (Substs [elt, relt]))
+        Substs _ ->
+          Nothing)
 
 ----------------------------------------------------------------------------------------
 
