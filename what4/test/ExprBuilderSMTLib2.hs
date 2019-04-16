@@ -19,8 +19,6 @@ import           Data.Foldable
 import qualified Data.Map as Map (empty, singleton)
 import           Data.Versions (Version(Version))
 import qualified Data.Versions as Versions
-import qualified System.IO.Streams as Streams
-import qualified System.IO.Streams.Attoparsec.Text as Streams
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
@@ -32,9 +30,6 @@ import What4.Interface
 import What4.InterpretedFloatingPoint
 import What4.Protocol.Online
 import What4.Protocol.SMTLib2
-import What4.Protocol.SMTWriter (addCommand, writeCommand)
-import What4.Protocol.SExp (parseSExp)
-import qualified What4.Protocol.SMTLib2.Syntax as Syntax
 import What4.SatResult
 import What4.Solver.Adapter
 import What4.Solver.Z3

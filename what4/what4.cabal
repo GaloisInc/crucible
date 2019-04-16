@@ -129,11 +129,9 @@ test-suite expr-builder-smtlib2
 
   build-depends:
     base,
-    attoparsec,
     containers,
     data-binary-ieee754,
     parameterized-utils,
-    io-streams,
     tasty >= 0.10,
     tasty-hunit >= 0.9,
     text,
