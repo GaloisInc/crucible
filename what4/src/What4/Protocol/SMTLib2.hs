@@ -1044,7 +1044,8 @@ checkSolverVersion' mins maxes proc =
           Left e -> pure (Left (UnparseableVersion e))
           Right actualVer ->
             case (p, q) of
-              (Nothing, Nothing) -> error "What4/Online: Impossible"
+              -- This case is handled in the above case block
+              (Nothing, Nothing) -> error "What4/SMTLIB2: Impossible"
               (Nothing, Just maxVer) ->
                 if actualVer < maxVer then done else verr actualVer
               (Just minVer, Nothing) ->
