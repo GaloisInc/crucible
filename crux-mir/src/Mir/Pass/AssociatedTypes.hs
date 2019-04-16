@@ -184,13 +184,13 @@ mkClosureADict col =
            Just ret
          _ -> Nothing)
 
+-- Index::Output<[T],I> == SliceIndex<I,[T]>
 mkIndexADict :: HasCallStack => ATDict
 mkIndexADict =
   Map.singleton (textId "::ops[0]::index[0]::Index[0]::Output[0]")
     (\ substs -> case substs of
-        Substs [TySlice elt, TyAdt did (Substs [relt])]
-          | did == (textId "::ops[0]::range[0]::RangeFrom[0]")
-          -> Just (TyProjection (textId "::slice[0]::SliceIndex[0]::Output[0]") (Substs [elt, relt]))
+        Substs [TySlice elt, ii]
+          -> Just (TyProjection (textId "::slice[0]::SliceIndex[0]::Output[0]") (Substs [ii, TySlice elt]))
         Substs _ ->
           Nothing)
 

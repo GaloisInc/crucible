@@ -146,4 +146,5 @@ bindFn fn cfg =
                        let reason = AssumptionReason loc $ "Assumption \n\t" <> src <> "\nfrom " <> locStr
                        liftIO $ addAssumption s (LabeledPred (regValue c) reason)
                        return ()
+                  
                ]

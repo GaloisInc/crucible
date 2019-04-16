@@ -1,6 +1,4 @@
-// Fail: Cannot assign to atom: "_1" of type [u8; 4]
-
-// parameter is mutable in Rust, so we should make a local variable on translation
+// parameter is mutable in Rust, so we must make a local variable on translation
 
 fn h(x: &mut[u8; 4]) -> [u8; 4] {
     x[0] = 42;

@@ -43,7 +43,7 @@ import qualified Data.Text as Text
 import qualified Data.Vector as V
 import Data.String (fromString)
 import Numeric
-import Numeric.Natural
+import Numeric.Natural()
 
 import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.FunctionHandle as FH
@@ -55,7 +55,7 @@ import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Core as Core
 import qualified Lang.Crucible.Syntax as S
 import qualified Lang.Crucible.Types as C
-import qualified Lang.Crucible.Substitution as C
+import qualified Lang.Crucible.Substitution()
 
 
 import qualified Data.Parameterized.Context as Ctx
@@ -867,6 +867,19 @@ evalRefLvalue lv =
                Just (Some (VarReference reg)) ->
                  do r <- G.readReg reg
                     return $ MirExp (R.typeOfReg reg) r
+               Just (Some (VarRegister reg)) ->
+                 case R.typeOfReg reg of
+                    MirReferenceRepr tp -> do
+                      r <- G.readReg reg
+                      return $ MirExp (R.typeOfReg reg) r
+                    _ -> fail $ ("Cannot take address of non-reference" <> show  nm)
+               Just (Some (VarAtom a)) ->
+                 case R.typeOfAtom a of
+                    MirReferenceRepr tp -> do
+                      return $ MirExp (R.typeOfAtom a) (R.AtomExpr a)
+                    _ -> fail $ ("Cannot take address of non-reference" <> show  nm)
+
+
                _ -> fail ("Mutable reference-taken variable not backed by reference! " <> show nm <> " at " <> Text.unpack pos)
         M.LProjection proj -> evalRefProj proj
 
@@ -1551,8 +1564,14 @@ lookupFunction nm (Substs funsubst)
 
 
   case () of 
+    ()
+
+       -- a custom function (we will find it elsewhere)
+       | True <- memberCustomFunc nm (Substs funsubst)
+       -> return Nothing
+
        -- a normal function, resolve associated types to additional type arguments
-    () | Just (MirHandle nm fs fh) <- isImpl 
+       | Just (MirHandle nm fs fh) <- isImpl 
        -> do
             let preds  = fs^.fspredicates
             let gens   = fs^.fsgenerics
@@ -1601,9 +1620,6 @@ lookupFunction nm (Substs funsubst)
 
              return $ Just (exp, ssig)
 
-       -- a custom function (we will find it elsewhere)
-       | True <- memberCustomFunc nm (Substs funsubst)
-       -> return Nothing
 
        | otherwise -> do
             when (db > 1) $ do
@@ -1815,31 +1831,10 @@ doCall funid funsubst cargs cdest retRepr = do
     _tmap <- use traitMap
     am    <- use collection
     db    <- use debugLevel
+
     mhand <- lookupFunction funid funsubst
     case cdest of 
       (Just (dest_lv, jdest))
-
-        -- normal function call (could be through a dictionary argument or a static trait)
-        -- need to construct any dictionary arguments for predicates (if present)
-        | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand -> do
-            when (db > 3) $
-               traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
-                   pretty funid, PP.text "with arguments", pretty cargs,
-                   PP.text "sig:",pretty sig,
-                   PP.text "and type parameters:", pretty funsubst])
-
-            exps <- mapM evalOperand cargs
-            let preds = sig^.fspredicates
-            dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
-            exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
-                case (testEquality ctx ifargctx) of
-                  Just Refl -> do
-                    ret_e <- G.call polyinst asgn
-                    assignLvExp dest_lv (MirExp ifret ret_e)
-                    jumpToBlock jdest
-                  _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
-                                 ++ show ifargctx ++ "\n while calling " ++ show (pretty funid)
-
 
          -- custom call where we first evaluate the arguments to MirExps
          | Just (CustomOp op) <- lookupCustomFunc funid funsubst -> do
@@ -1864,10 +1859,37 @@ doCall funid funsubst cargs cdest retRepr = do
             res <- op cargs
             assignLvExp dest_lv res
             jumpToBlock jdest
-             
+
+        -- normal function call (could be through a dictionary argument or a static trait)
+        -- need to construct any dictionary arguments for predicates (if present)
+        | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand -> do
+            when (db > 3) $
+               traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
+                   pretty funid, PP.text "with arguments", pretty cargs,
+                   PP.text "sig:",pretty sig,
+                   PP.text "and type parameters:", pretty funsubst])
+
+            exps <- mapM evalOperand cargs
+            let preds = sig^.fspredicates
+            dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
+            exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
+                case (testEquality ctx ifargctx) of
+                  Just Refl -> do
+                    ret_e <- G.call polyinst asgn
+                    assignLvExp dest_lv (MirExp ifret ret_e)
+                    jumpToBlock jdest
+                  _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
+                                 ++ show ifargctx ++ "\n while calling " ++ show (pretty funid)
+
+
          | otherwise -> fail $ "Don't know how to call " ++ fmt funid ++ "\n mhand is " ++ show mhand
 
       Nothing
+         -- special case for exit function that does not return
+         | Just CustomOpExit <- lookupCustomFunc funid funsubst,
+               [o] <- cargs -> do
+               _exp <- evalOperand o
+               G.reportError (S.app $ E.TextLit "Program terminated with exit:")
 
         -- functions that don't return
         | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand
@@ -1890,11 +1912,6 @@ doCall funid funsubst cargs cdest retRepr = do
                            ++ " vs function params " ++ show ifargctx 
                            ++ "\n while calling " ++ show funid
 
-         -- special case for exit function that does not return
-         | Just CustomOpExit <- lookupCustomFunc funid funsubst,
-               [o] <- cargs -> do
-               _exp <- evalOperand o
-               G.reportError (S.app $ E.TextLit "Program terminated with exit:")
 
 
          | otherwise -> fail $ "no dest in doCall of " ++ show (pretty funid)
@@ -3056,8 +3073,10 @@ customOps = Map.fromList [
                            fn_call
                          , fn_call_once
 
-                         , slice_get_unchecked_mut
+                         --, slice_get_unchecked_mut
                          , slice_len
+                         , slice_is_empty
+                         , slice_first
                          , slice_get_mut
               
                          , ops_index
@@ -3150,15 +3169,43 @@ ops_index_mut :: (ExplodedDefId, CustomRHS)
 ops_index_mut = ((["ops", "index"], "IndexMut", ["index_mut"]), index_op )
 
 
+{-
+libcore/slice.rs includes the following impl
+
+    impl<T, I> Index<I> for [T]
+    where I: SliceIndex<[T]>
+    {
+        type Output = I::Output;
+        
+        #[inline]
+        fn index(&self, index: I) -> &I::Output {
+            index.index(self)
+        }
+    }
+
+    impl<T, I> IndexMut<I> for [T]
+    where I: SliceIndex<[T]>
+    {
+        #[inline]
+        fn index_mut(&mut self, index: I) -> &mut I::Output {
+            index.index_mut(self)
+        }
+    }
+-}
+
+-- Index::index<[u8],::ops::range::RangeFrom<usize>,[u8]> (self:[u8], index:Range) =
+--           index<Range<usize>,[u8],[u8]>
+-- <[u8],::ops::range::Range<usize>,[u8]>
+
 index_op :: Substs -> Maybe CustomOp
-index_op substs = Just $ CustomMirOp $ \ ops ->
-             trace ("Index::index called with substs " ++ fmt substs) $ 
+index_op (Substs [TySlice _el1, TyAdt _did _ss, TySlice _el2]) =
+    Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
                   let v2 = M.varOfLvalue (M.lValueofOp op2)
                   evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
                _ -> fail $ "BUG: invalid arguments to index"
-
+index_op _ = Nothing
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_sub
 
@@ -3299,7 +3346,47 @@ iter_collect_op _subst _opTys _retTy ops =
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: slice
 
+{-
+    impl<T>[T] {
+        // must override
+        pub const fn len(&self) -> usize {
+            ....
+        }
 
+        pub const fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        pub fn first(&self) -> Option<&T> {
+            self.get(0)
+        }
+
+        pub fn get<I>(&self, index: I) -> Option<&I::Output>
+        where I: SliceIndex<Self>
+        {
+            index.get(self)
+        }
+        
+        pub fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output>
+        where I: SliceIndex<Self>
+        {
+            index.get_mut(self)
+        }
+
+        // after AT/dict translation 
+        pub fn get<I,SliceIndex<I,Self,I::Ouput>>(&self, index: I, dict) -> Option<&I::Output>
+        where sliceIndex<I,Self>
+        {
+            dict # get (index, self)
+        }
+        
+        pub fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output>
+        where I: SliceIndex<Self>
+        {
+            index.get_mut(self)
+        }
+    }
+-}
 
 
 slice_len :: (ExplodedDefId, CustomRHS)
@@ -3312,6 +3399,60 @@ slice_len =
             return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
        _ -> fail $ "BUG: invalid arguments to " ++ "slice_len")
 
+slice_is_empty :: (ExplodedDefId, CustomRHS)
+slice_is_empty =
+  ((["slice","{{impl}}"], "is_empty", [])
+  , \(Substs [_]) -> Just $ CustomOp $ \ _optys _retTy ops -> 
+     case ops of 
+     -- type of the structure is &mut[ elTy ]
+       [MirExp (C.VectorRepr _) vec_e] -> do
+            let sz = (G.App $ E.VectorSize vec_e)
+            return (MirExp C.BoolRepr (G.App $ E.NatEq sz (G.App $ E.NatLit 0)))
+       _ -> fail $ "BUG: invalid arguments to " ++ "slice_is_empty")
+
+slice_first :: (ExplodedDefId, CustomRHS)
+slice_first =
+  ((["slice","{{impl}}"], "first", [])
+  , \(Substs [_]) -> Just $ CustomOp $ \ _optys _retTy ops -> 
+     case ops of 
+     -- type of the structure is &mut[ elTy ]
+       [MirExp (C.VectorRepr elTy) vec_e] -> do
+            return (MirExp elTy (G.App $ E.VectorGetEntry elTy vec_e (G.App $ E.NatLit 0)))
+       _ -> fail $ "BUG: invalid arguments to " ++ "slice_first")
+
+{-
+slice_get_mut :: (ExplodedDefId, CustomRHS)
+slice_get_mut =
+  ((["slice","{{impl}}"], "get_mut", [])
+  , \sub -> case sub of
+       (Substs [ii, tt]) ->  Just $ CustomOp $ \ _optys _retTy ops -> do
+          case ops of 
+           -- type of the structure is &mut[ elTy ]
+           -- index is any SliceIndex
+            [self@(MirExp (MirSliceRepr elTy) vec_e),  index@(MirExp iTy idx) ] -> do
+               let funid = M.textId "slice[0]::SliceIndex[0]::get_mut[0]"
+        
+               -- AT translation is overspecialized to Range<usize>/RangeTo<usize>/RangeFrom<usize>
+               -- How do we know what the third type argument is?
+               let funsubsts = Substs [ tt, TySlice ii , TySlice ii ]
+               mhand <- lookupFunction funid funsubsts
+               case mhand of
+                  Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) -> do
+                    let preds = sig^.fspredicates
+                    dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
+                    exp_to_assgn (reverse ops ++ dexps) $ \ctx asgn -> do
+                        case (testEquality ctx ifargctx) of
+                          Just Refl -> do
+                            ret_e <- G.call polyinst asgn
+                            return (MirExp ifret ret_e)
+                          _ -> fail $ "type error in slice_get_mut: args " ++ (show ctx)
+                                 ++ "\n vs function params "
+                                 ++ show ifargctx ++ "\n while calling " ++ show (pretty funid)
+                  _ ->
+                     error $ "Cannot find handle"
+            _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops
+       (Substs _) -> Nothing)
+-}
 
 -- Only works when the sequence is accessed by a range
 slice_get_mut :: (ExplodedDefId, CustomRHS)
@@ -3341,6 +3482,7 @@ slice_get_mut =
                       _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops
                (Substs _) -> Nothing)
 
+{-
 slice_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
 slice_get_unchecked_mut =
   ((["slice"],"SliceIndex", ["get_unchecked_mut"])
@@ -3353,7 +3495,7 @@ slice_get_unchecked_mut =
            v <- subindexRef ty ref (S.app (E.NatAdd idx base))
            return (MirExp (MirReferenceRepr ty) v)
         _ -> fail $ "BUG: invalid arguments to " ++ "slice_get_unchecked_mut")
-
+-}
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: vec
 

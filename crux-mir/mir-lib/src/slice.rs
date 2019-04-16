@@ -42,6 +42,8 @@ pub mod slice {
     use core::option::Option;
     use core::option::Option::*;
     use core::ops::Range;
+    use core::ops::RangeTo;
+    use core::ops::RangeFrom;    
     use core::ops::Index;
     use core::ops::IndexMut;
     use std::process::exit;
@@ -74,7 +76,7 @@ pub mod slice {
         {
             index.get_mut(self)
         }
-    } */
+    }*/ 
 
 
     
@@ -101,9 +103,6 @@ pub mod slice {
 
     impl<T> SliceIndex<[T]> for usize {
         type Output = T;
-
-        // SCW: we don't (yet) get the predicates when translating this op
-        // so we'll make it primitive
         
         #[inline]
         fn get(self, slice: &[T]) -> Option<&T> {
@@ -130,23 +129,25 @@ pub mod slice {
         #[inline]
         unsafe fn get_unchecked(self, slice: &[T]) -> &T {
             exit(0);
+            //&*slice.as_ptr().add(self)
         }
 
         #[inline]
         unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut T {
             exit(0);
+            //&mut *slice.as_mut_ptr().add(self)
         }
 
         #[inline]
         fn index(self, slice: &[T]) -> &T {
             // NB: use intrinsic indexing
             &(*slice)[self]
-            //exit(0);
         }
 
         #[inline]
         fn index_mut(self, slice: &mut [T]) -> &mut T {
             // NB: use intrinsic indexing
+            // TODO: cannot translate this def yet
             //&mut (*slice)[self]
             exit(0);
         }
@@ -210,10 +211,82 @@ pub mod slice {
                 self.get_unchecked_mut(slice)
             }
         }
-    } 
+    }
 
-/*  CANNOT do this one --- need to hardwire this implementation
+
+   
+impl<T> SliceIndex<[T]> for RangeTo<usize> {
+    type Output = [T];
+
+    #[inline]
+    fn get(self, slice: &[T]) -> Option<&[T]> {
+        (0..self.end).get(slice)
+    }
+
+    #[inline]
+    fn get_mut(self, slice: &mut [T]) -> Option<&mut [T]> {
+        (0..self.end).get_mut(slice)
+    }
+
+    #[inline]
+    unsafe fn get_unchecked(self, slice: &[T]) -> &[T] {
+        (0..self.end).get_unchecked(slice)
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut [T] {
+        (0..self.end).get_unchecked_mut(slice)
+    }
+
+    #[inline]
+    fn index(self, slice: &[T]) -> &[T] {
+        (0..self.end).index(slice)
+    }
+
+    #[inline]
+    fn index_mut(self, slice: &mut [T]) -> &mut [T] {
+        (0..self.end).index_mut(slice)
+    }
+}
+
+impl<T> SliceIndex<[T]> for RangeFrom<usize> {
+    type Output = [T];
+
+    #[inline]
+    fn get(self, slice: &[T]) -> Option<&[T]> {
+        (self.start..slice.len()).get(slice)
+    }
+
+    #[inline]
+    fn get_mut(self, slice: &mut [T]) -> Option<&mut [T]> {
+        (self.start..slice.len()).get_mut(slice)
+    }
+
+    #[inline]
+    unsafe fn get_unchecked(self, slice: &[T]) -> &[T] {
+        (self.start..slice.len()).get_unchecked(slice)
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut [T] {
+        (self.start..slice.len()).get_unchecked_mut(slice)
+    }
+
+    #[inline]
+    fn index(self, slice: &[T]) -> &[T] {
+        (self.start..slice.len()).index(slice)
+    }
+
+    #[inline]
+    fn index_mut(self, slice: &mut [T]) -> &mut [T] {
+        (self.start..slice.len()).index_mut(slice)
+    }
+}
+
     
+
+/*  CANNOT do this one --- need to hardwire this implementation ??? */
+/*    
     impl<T, I> Index<I> for [T]
     where I: SliceIndex<[T]>
     {
@@ -233,8 +306,7 @@ pub mod slice {
             index.index_mut(self)
         }
     }
-
-     */
+*/
     
 }
 

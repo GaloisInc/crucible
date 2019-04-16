@@ -2,13 +2,9 @@
 
 ** Failing concrete test cases
 
--- arrays and slices
+-- arrays, iteration and slices
 test/conc_eval/array/iter.rs:// FAIL: invalid slice access
-test/conc_eval/array/mut_index.rs:// FAIL: not mutating array
-test/conc_eval/slice/mut_range.rs:// FAIL: projection [::ops::index::Index::Output<[u8],::ops::range::RangeFrom<usize>>] with unknown translation
-
--- treatment of references
-test/conc_eval/stdlib/result-interior.rs:// FAIL: Mutable reference-taken variable not backed by reference! "_1"
+test/conc_eval/slice/get.rs:// FAIL: not overriding slice_get_mut
 
 -- waitin on mir-json
 test/conc_eval/array/const.rs:// FAIL: mir-json encoding of constant array
@@ -30,6 +26,7 @@ test/conc_eval/traits/dynamic_med.rs:// FAIL: dynamic trait object
 test/conc_eval/traits/dynamic_poly.rs:// FAIL: needs dynamic trait object
 test/conc_eval/traits/dynamic_simple.rs:// FAIL: dynamic trait object
 test/conc_eval/traits/dynamic_two.rs:// FAIL: dynamic trait object
+
 test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary with polymorphic member from generic instance
 
 ** Failing symbolic test cases
