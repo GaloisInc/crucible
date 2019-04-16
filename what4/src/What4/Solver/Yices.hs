@@ -500,18 +500,6 @@ instance SMTReadWriter (Connection s) where
                          , "*** Exception: " ++ displayException e
                          ]
 
-  smtVersionResult p s =
-    let cmd = getVersionCommand p
-    in
-      try (Streams.parseFromStream parseSExp s) >>=
-        \case
-          Right (SApp [SAtom "version", SString ver]) -> pure ver
-          Right (SApp [SAtom "error", SString msg]) ->
-            throw (YicesError cmd msg)
-          Left (SomeException e) -> throw $ YicesParseError cmd $ Text.pack $
-                  unlines [ "Could not parse version query result."
-                          , "*** Exception: " ++ displayException e
-                          ]
 
 -- | Exceptions that can occur when reading responses from Yices
 data YicesException

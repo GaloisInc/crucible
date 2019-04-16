@@ -19,6 +19,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -64,6 +65,11 @@ module What4.Protocol.SMTLib2
   , shutdownSolver
   , smtAckResult
   , SMTLib2Exception(..)
+    -- * Solver version
+  , ppSolverVersionCheckError
+  , ppSolverVersionError
+  , checkSolverVersion
+  , checkSolverVersion'
     -- * Re-exports
   , SMTWriter.WriterConn
   , SMTWriter.assume
@@ -77,6 +83,7 @@ import           Data.Char (digitToInt)
 import           Data.IORef
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as Lazy
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Monoid
 import qualified Data.Parameterized.Context as Ctx
@@ -98,6 +105,9 @@ import qualified System.IO as IO
 import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec.Text as Streams
 import qualified System.Process as Process
+import           Data.Versions (Version(..))
+import qualified Data.Versions as Versions
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           Prelude hiding (writeFile)
 
@@ -520,6 +530,9 @@ setLogic w l = addCommand w $ SMT2.setLogic l
 setOption :: SMTLib2Tweaks a => WriterConn t (Writer a) -> Text -> Text -> IO ()
 setOption w nm val = addCommand w $ SMT2.setOption nm val
 
+getVersion :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
+getVersion w = addCommand w $ SMT2.getVersion
+
 -- | Set the produce models option (We typically want this)
 setProduceModels :: SMTLib2Tweaks a => WriterConn t (Writer a) -> Bool -> IO ()
 setProduceModels w b = addCommand w $ SMT2.setProduceModels b
@@ -578,7 +591,7 @@ parseFloatSolverValue s =
   fail $ "Could not parse float solver value: " ++ show s
 
 ones :: Int -> Integer
-ones n = foldl setBit 0 [0..(n - 1)]
+ones n = foldl setBit 0 ([0..(n - 1)] :: [Int])
 
 parseBvArraySolverValue :: (Monad m,
                             1 <= w,
@@ -642,6 +655,14 @@ runCheckSat s doEval =
          do evalFn <- smtExprGroundEvalFn w (smtEvalFuns w r)
             doEval (Sat (evalFn, Nothing))
 
+-- | Called when methods in the following instance encounter an exception
+throwSMTLib2ParseError :: (Exception e) => Text -> SMT2.Command -> e -> m a
+throwSMTLib2ParseError what cmd e =
+  throw $ SMTLib2ParseError cmd $ Text.unlines
+    [ Text.unwords ["Could not parse result from", what, "."]
+    , "*** Exception: " <> Text.pack (displayException e)
+    ]
+
 instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
   smtEvalFuns w s = smtLibEvalFuns Session { sessionWriter = w
                                            , sessionResponse = s }
@@ -665,10 +686,8 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
          Right (asNegAtomList -> Just as) -> return as
          Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
          Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
-         Left (SomeException e) -> throw $ SMTLib2ParseError cmd $ Text.pack $
-                 unlines [ "Could not parse unsat assumptions result."
-                         , "*** Exception: " ++ displayException e
-                         ]
+         Left (SomeException e) ->
+           throwSMTLib2ParseError "unsat assumptions" cmd e
 
   smtUnsatCoreResult p s =
     do mb <- try (Streams.parseFromStream parseSExp s)
@@ -677,10 +696,9 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
          Right (asAtomList -> Just nms) -> return nms
          Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
          Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
-         Left (SomeException e) -> throw $ SMTLib2ParseError cmd $ Text.pack $
-                 unlines [ "Could not parse unsat core result."
-                         , "*** Exception: " ++ displayException e
-                         ]
+         Left (SomeException e) ->
+           throwSMTLib2ParseError "unsat core" cmd e
+
 
 data SMTLib2Exception
   = SMTLib2Unsupported SMT2.Command
@@ -912,3 +930,114 @@ shutdownSolver _solver p = do
   ec <- Process.waitForProcess (solverHandle p)
   stopHandleReader (solverStderr p)
   return (ec,txt)
+
+
+-----------------------------------------------------------------
+-- Checking solver version bounds
+
+mkChunks :: [Word] -> [Versions.VChunk]
+mkChunks = map ((:[]) . Versions.Digits)
+
+-- | The minimum (inclusive) version bound for a given solver.
+--
+-- The keys come from @'smtWriterName'@ in @'WriterConn'@.
+-- See also https://github.com/GaloisInc/crucible/issues/194
+solverMinVersions :: Map String Version
+solverMinVersions =
+  [ -- TODO: Why is this verion required?
+    ( "yices"
+    , Version { _vEpoch = Nothing, _vChunks = mkChunks [2, 6, 1], _vRel = []}
+    )
+  ]
+
+-- | The maximum (non-inclusive) version bound for a given solver.
+--
+-- The keys come from @'smtWriterName'@ in @'WriterConn'@.
+solverMaxVersions :: Map String Version
+solverMaxVersions = []
+
+-- | Things that can go wrong while checking which solver version we've got
+data SolverVersionCheckError =
+  UnparseableVersion Versions.ParsingError
+
+ppSolverVersionCheckError :: SolverVersionCheckError -> PP.Doc
+ppSolverVersionCheckError =
+  (PP.text "Unexpected error while checking solver version: " PP.<$$>) .
+  \case
+    UnparseableVersion parseErr -> PP.cat $ map PP.text
+      [ "Couldn't parse solver version number: "
+      , show parseErr
+      ]
+
+data SolverVersionError =
+  SolverVersionError
+  { vMin :: Maybe Version
+  , vMax :: Maybe Version
+  , vActual :: Version
+  }
+  deriving (Eq, Ord)
+
+ppSolverVersionError :: SolverVersionError -> PP.Doc
+ppSolverVersionError err = PP.vcat $ map PP.text
+  [ "Solver did not meet version bound restrictions: "
+  , "Lower bound (inclusive): " ++ na (show <$> vMin err)
+  , "Upper bound (non-inclusive): " ++ na (show <$> vMax err)
+  , "Actual version: " ++ show (vActual err)
+  ]
+  where na (Just s) = s
+        na Nothing  = "n/a"
+
+
+-- | Get the result of a version query
+versionResult :: SMTReadWriter h => f h -> Streams.InputStream Text -> IO Text
+versionResult _ s =
+  let cmd = SMT2.getVersion
+  in
+    try (Streams.parseFromStream parseSExp s) >>=
+      \case
+        Right (SApp [SAtom ":version", SString ver]) -> pure ver
+        Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
+        Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
+        Left (SomeException e) ->
+          throwSMTLib2ParseError "version query" cmd e
+
+-- | Ensure the solver's version falls within a known-good range.
+checkSolverVersion' :: SMTLib2Tweaks solver =>
+  Map String Version {- ^ min version bounds (inclusive) -} ->
+  Map String Version {- ^ max version bounds (non-inclusive) -} ->
+  SolverProcess scope (Writer solver) ->
+  IO (Either SolverVersionCheckError (Maybe SolverVersionError))
+checkSolverVersion' mins maxes proc =
+  let conn = solverConn proc
+      name = smtWriterName conn
+      min0 = Map.lookup name mins
+      max0 = Map.lookup name maxes
+      verr = pure . Right . Just . SolverVersionError min0 max0
+      done = pure (Right Nothing)
+  in
+    case (min0, max0) of
+      (Nothing, Nothing) -> done
+      (p, q) -> do
+        getVersion conn
+        res <- versionResult conn (solverResponse proc)
+        case Versions.version res of
+          Left e -> pure (Left (UnparseableVersion e))
+          Right actualVer ->
+            case (p, q) of
+              (Nothing, Nothing) -> error "What4/Online: Impossible"
+              (Nothing, Just maxVer) ->
+                if actualVer < maxVer then done else verr actualVer
+              (Just minVer, Nothing) ->
+                if minVer <= actualVer then done else verr actualVer
+              (Just minVer, Just maxVer) ->
+                if minVer <= actualVer && actualVer < maxVer
+                then done
+                else verr actualVer
+
+
+-- | Ensure the solver's version falls within a known-good range.
+checkSolverVersion :: SMTLib2Tweaks solver =>
+  SolverProcess scope (Writer solver) ->
+  IO (Either SolverVersionCheckError (Maybe SolverVersionError))
+checkSolverVersion =
+  checkSolverVersion' solverMinVersions solverMaxVersions

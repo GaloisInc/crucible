@@ -798,9 +798,6 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Set an option/parameter.
   setOptCommand :: f h -> Text -> Text -> Command h
 
-  -- | Get the solver's version
-  getVersionCommand :: f h -> Command h
-
   -- | Declare a new symbol with the given name, arguments types, and result type.
   declareCommand :: f h
                  -> Text
@@ -2629,9 +2626,6 @@ class SMTWriter h => SMTReadWriter h where
   --   The boolean indicates the polarity of the atom: true for an ordinary
   --   atom, false for a negated atom.
   smtUnsatAssumptionsResult :: f h -> Streams.InputStream Text -> IO [(Bool,Text)]
-
-  -- | Get the result of a version query
-  smtVersionResult :: f h -> Streams.InputStream Text -> IO Text
 
 
 -- | Return the terms associated with the given ground index variables.

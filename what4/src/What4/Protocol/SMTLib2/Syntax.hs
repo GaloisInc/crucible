@@ -8,6 +8,9 @@ so that clients can generate new values that are not exposed through
 this interface.
 -}
 
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Protocol.SMTLib2.Syntax
   ( -- * Commands
@@ -15,6 +18,9 @@ module What4.Protocol.SMTLib2.Syntax
   , setLogic
   , setOption
   , setProduceModels
+  , SMTInfoFlag(..)
+  , getInfo
+  , getVersion
   , exit
      -- * Declarations
   , declareSort
@@ -131,11 +137,15 @@ import           Data.Bits hiding (xor)
 import           Data.Char (intToDigit)
 import           Data.Monoid ((<>))
 import           Data.String
-import           Data.Text (Text)
+import           Data.Text (Text, cons)
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder
 import           Numeric.Natural
+
+import           GHC.Generics (Generic)
+import           Data.Data (Data)
+import           Data.Typeable (Typeable)
 
 import qualified Prelude
 import           Prelude hiding (and, or, concat, negate, div, mod, abs, not)
@@ -811,3 +821,24 @@ push n =  Cmd $ "(push " <> Builder.decimal n <> ")"
 -- | Pop the given number of scope frames to the SMT solver.
 pop :: Integer -> Command
 pop n =  Cmd $ "(pop " <> Builder.decimal n <> ")"
+
+-- | This is a subtype of the type of the same name in Data.SBV.Control.
+data SMTInfoFlag =
+    Name
+  | Version
+  | InfoKeyword Text
+  deriving (Data, Eq, Ord, Generic, Show, Typeable)
+
+flagToSExp :: SMTInfoFlag -> Text
+flagToSExp = (cons ':') .
+  \case
+    Name -> "name"
+    Version -> "version"
+    InfoKeyword s -> s
+
+-- | A @get-info@ command
+getInfo :: SMTInfoFlag -> Command
+getInfo flag = Cmd $ app "get-info" [Builder.fromText (flagToSExp flag)]
+
+getVersion :: Command
+getVersion = getInfo Version
