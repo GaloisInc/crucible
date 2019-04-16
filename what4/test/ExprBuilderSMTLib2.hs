@@ -3,6 +3,7 @@
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -15,6 +16,11 @@ import Test.Tasty.HUnit
 import           Control.Monad (void)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
+import qualified Data.Map as Map (empty, singleton)
+import           Data.Versions (Version(Version))
+import qualified Data.Versions as Versions
+import qualified System.IO.Streams as Streams
+import qualified System.IO.Streams.Attoparsec.Text as Streams
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
@@ -26,6 +32,9 @@ import What4.Interface
 import What4.InterpretedFloatingPoint
 import What4.Protocol.Online
 import What4.Protocol.SMTLib2
+import What4.Protocol.SMTWriter (addCommand, writeCommand)
+import What4.Protocol.SExp (parseSExp)
+import qualified What4.Protocol.SMTLib2.Syntax as Syntax
 import What4.SatResult
 import What4.Solver.Adapter
 import What4.Solver.Z3
@@ -69,8 +78,8 @@ withModel s p action = do
   assume (sessionWriter s) p
   runCheckSat s $ \case
     Sat (GroundEvalFn {..}, _) -> action groundEval
-    Unsat _                    -> "unsat" @?= "sat"
-    Unknown                    -> "unknown" @?= "sat"
+    Unsat _                    -> "unsat" @?= ("sat" :: String)
+    Unknown                    -> "unknown" @?= ("sat" :: String)
 
 -- exists y . (x + 2.0) + (x + 2.0) < y
 iFloatTestPred
@@ -318,6 +327,29 @@ testUninterpretedFunctionScope = testCase "uninterpreted function scope" $
     res2 <- checkSatisfiable s "test" p2
     isUnsat res2 @? "unsat"
 
+-- | These tests simply ensure that no exceptions are raised.
+testSolverInfo :: TestTree
+testSolverInfo = testGroup "solver info queries" $
+  [ testCase "test get solver version" $ withOnlineZ3' $ \_ proc -> do
+      let conn = solverConn proc
+      getVersion conn
+      _ <- versionResult conn (solverResponse proc)
+      pure ()
+  , testCase "test get solver name" $ withOnlineZ3' $ \_ proc -> do
+      let conn = solverConn proc
+      getName conn
+      nm <- nameResult conn (solverResponse proc)
+      nm @?= "Z3"
+  ]
+
+testSolverVersion :: TestTree
+testSolverVersion = testCase "test solver version bounds" $
+  withOnlineZ3' $ \_ proc -> do
+    let v = Version { _vEpoch = Nothing
+                    , _vChunks = [[Versions.Digits 0]]
+                    , _vRel = [] }
+    checkSolverVersion' (Map.singleton "Z3" v) Map.empty proc >> return ()
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -337,4 +369,6 @@ main = defaultMain $ testGroup "Tests"
   , testBVSelectShl
   , testBVSelectLshr
   , testUninterpretedFunctionScope
+  , testSolverInfo
+  , testSolverVersion
   ]

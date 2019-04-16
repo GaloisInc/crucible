@@ -21,6 +21,7 @@ module What4.Protocol.SMTLib2.Syntax
   , SMTInfoFlag(..)
   , getInfo
   , getVersion
+  , getName
   , exit
      -- * Declarations
   , declareSort
@@ -842,3 +843,6 @@ getInfo flag = Cmd $ app "get-info" [Builder.fromText (flagToSExp flag)]
 
 getVersion :: Command
 getVersion = getInfo Version
+
+getName :: Command
+getName = getInfo Name

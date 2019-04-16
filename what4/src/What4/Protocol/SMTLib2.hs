@@ -41,6 +41,10 @@ module What4.Protocol.SMTLib2
   , runCheckSat
   , asSMT2Type
   , setOption
+  , getVersion
+  , versionResult
+  , getName
+  , nameResult
   , setProduceModels
     -- * Logic
   , SMT2.Logic(..)
@@ -531,7 +535,10 @@ setOption :: SMTLib2Tweaks a => WriterConn t (Writer a) -> Text -> Text -> IO ()
 setOption w nm val = addCommand w $ SMT2.setOption nm val
 
 getVersion :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
-getVersion w = addCommand w $ SMT2.getVersion
+getVersion w = writeCommand w $ SMT2.getVersion
+
+getName :: SMTLib2Tweaks a => WriterConn t (Writer a) -> IO ()
+getName w = writeCommand w $ SMT2.getName
 
 -- | Set the produce models option (We typically want this)
 setProduceModels :: SMTLib2Tweaks a => WriterConn t (Writer a) -> Bool -> IO ()
@@ -945,7 +952,7 @@ mkChunks = map ((:[]) . Versions.Digits)
 solverMinVersions :: Map String Version
 solverMinVersions =
   [ -- TODO: Why is this verion required?
-    ( "yices"
+    ( "Yices"
     , Version { _vEpoch = Nothing, _vChunks = mkChunks [2, 6, 1], _vRel = []}
     )
   ]
@@ -986,6 +993,19 @@ ppSolverVersionError err = PP.vcat $ map PP.text
   ]
   where na (Just s) = s
         na Nothing  = "n/a"
+
+-- | Get the result of a version query
+nameResult :: SMTReadWriter h => f h -> Streams.InputStream Text -> IO Text
+nameResult _ s =
+  let cmd = SMT2.getName
+  in
+    try (Streams.parseFromStream parseSExp s) >>=
+      \case
+        Right (SApp [SAtom ":name", SString nm]) -> pure nm
+        Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
+        Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
+        Left (SomeException e) ->
+          throwSMTLib2ParseError "name query" cmd e
 
 
 -- | Get the result of a version query
