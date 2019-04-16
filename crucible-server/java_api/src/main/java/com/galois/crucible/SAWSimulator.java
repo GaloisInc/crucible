@@ -57,7 +57,7 @@ public final class SAWSimulator extends Simulator {
 
         issueRequest( Protos.Request.newBuilder()
                       .setCode( Protos.RequestCode.SetConfigValue )
-                      .setConfigSettingName( "saw.check_path_sat" )
+                      .setConfigSettingName( "checkPathSat" )
                       .addArg( pathSatVal.getValueRep() ) );
 
         getNextAckResponse();
@@ -73,7 +73,7 @@ public final class SAWSimulator extends Simulator {
     public synchronized boolean getPathSatChecking() throws IOException {
         issueRequest( Protos.Request.newBuilder()
                       .setCode(Protos.RequestCode.GetConfigValue)
-                      .setConfigSettingName( "saw.check_path_sat" ) );
+                      .setConfigSettingName( "checkPathSat" ) );
 
         Protos.SimulatorValueResponse r = getNextSimulatorValueResponse();
 

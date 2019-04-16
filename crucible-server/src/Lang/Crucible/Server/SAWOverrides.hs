@@ -53,7 +53,7 @@ import           Lang.Crucible.Server.Verification.Harness
 import           Lang.Crucible.Server.Verification.Override
 import           Lang.Crucible.Simulator.CallFrame (SomeHandle(..))
 import           Lang.Crucible.Simulator.ExecutionTree
-import           Lang.Crucible.Simulator.EvalStmt (executeCrucible)
+import           Lang.Crucible.Simulator.EvalStmt (executeCrucible,genericToExecutionFeature)
 import           Lang.Crucible.Simulator.GlobalState
 import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
@@ -166,7 +166,7 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
                                 $ runOverrideSim UnitRepr
                                     (simulateHarness sim rw w sc cryEnv' harness' pc sp ret fn)
 
-                  exec_res <- executeCrucible [] simSt
+                  exec_res <- executeCrucible (map genericToExecutionFeature (simExecFeatures sim)) simSt
                   case exec_res of
                     FinishedResult ctx' (TotalRes (GlobalPair _r _globals)) -> do
                       sendTextResponse sim "Finished!"
