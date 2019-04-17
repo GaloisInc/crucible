@@ -13,6 +13,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -31,11 +32,14 @@ module Lang.Crucible.LLVM.MemModel.Value
   , zeroInt
 
   , llvmValStorableType
+  , isZero
   , testEqual
   ) where
 
 import           Control.Lens (view)
-import           Control.Monad (foldM)
+import           Control.Monad (foldM, join)
+import           Data.Foldable (toList)
+import           Data.Maybe (mapMaybe)
 import           Data.List (intersperse)
 
 import           Data.Parameterized.Classes
@@ -138,6 +142,35 @@ instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
            ++ intersperse ", " (map show $ V.toList xs)
            ++ [ "]" ]
 
+-- | An efficient n-way @and@: it quits early if it finds any concretely false
+-- values, rather than chaining a bunch of 'andPred's.
+allOf :: (IsExprBuilder sym)
+      => sym
+      -> [Pred sym]
+      -> IO (Pred sym)
+allOf sym xs =
+  if and (mapMaybe asConstantPred xs)
+  then foldM (andPred sym) (truePred sym) xs
+  else pure (falsePred sym)
+
+{-
+-- | An efficient n-way @or@: it quits early if it finds any concretely false
+-- values, rather than chaining a bunch of 'orPred's.
+oneOf :: (IsExprBuilder sym)
+      => sym
+      -> [Pred sym]
+      -> IO (Pred sym)
+oneOf sym xs =
+  if or (mapMaybe asConstantPred xs)
+  then pure (truePred sym)
+  else foldM (orPred sym) (falsePred sym) xs
+-}
+
+-- | Commute an applicative with Maybe
+commuteMaybe :: Applicative n => Maybe (n a) -> n (Maybe a)
+commuteMaybe (Just val) = Just <$> val
+commuteMaybe Nothing    = pure Nothing
+
 -- | This should be used with caution: it is very inefficient to expand zeroes,
 -- especially to large data structures (e.g. long arrays).
 zeroExpandLLVMVal :: (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym)
@@ -153,15 +186,41 @@ zeroExpandLLVMVal sym (StorageType tpf _sz) =
             NatCaseEQ -> panic "zeroExpandLLVMVal" ["Zero value inside Bytes"]
             NatCaseGT (LeqProof :: LeqProof (w + 1) 0) ->
               panic "zeroExpandLLVMVal" ["Impossible: (w + 1) </= 0"]
-    Float    -> LLVMValFloat SingleSize <$> iFloatLit sym SingleFloatRepr 0
-    Double   -> LLVMValFloat DoubleSize <$> iFloatLit sym DoubleFloatRepr 0
-    X86_FP80 -> LLVMValFloat X86_FP80Size <$> iFloatLit sym X86_80FloatRepr 0
+    Float    -> LLVMValFloat SingleSize <$> iFloatPZero sym SingleFloatRepr
+    Double   -> LLVMValFloat DoubleSize <$> iFloatPZero sym DoubleFloatRepr
+    X86_FP80 -> LLVMValFloat X86_FP80Size <$> iFloatPZero sym X86_80FloatRepr
     Array n ty ->
       LLVMValArray ty . V.replicate (fromIntegral (bytesToInteger n)) <$>
         zeroExpandLLVMVal sym ty
     Struct vec ->
       LLVMValStruct <$>
         V.zipWithM (\f t -> (f,) <$> zeroExpandLLVMVal sym t) vec (fmap (view fieldVal) vec)
+
+-- | A special case for comparing values to the distinguished zero value.
+--
+-- Should be faster than using 'testEqual' with 'zeroExpandLLVMVal' for compound
+-- values, because we 'traverse' subcomponents of vectors and structs, quitting
+-- early on a constantly false answer or 'LLVMValUndef'.
+--
+-- Returns 'Nothing' for 'LLVMValUndef'.
+isZero :: forall sym. (IsExprBuilder sym, IsInterpretedFloatExprBuilder sym)
+       => sym -> LLVMVal sym -> IO (Maybe (Pred sym))
+isZero sym v =
+  case v of
+    LLVMValStruct fs  -> areZero' (fmap snd fs)
+    LLVMValArray _ vs -> areZero' vs
+    LLVMValZero _     -> pure (Just $ truePred sym)
+    LLVMValUndef _    -> pure Nothing
+    _                 ->
+      -- For atomic types, we simply expand and compare.
+      testEqual sym v =<< zeroExpandLLVMVal sym (llvmValStorableType v)
+  where
+    areZero :: Traversable t => t (LLVMVal sym) -> IO (Maybe (t (Pred sym)))
+    areZero = fmap sequence . traverse (isZero sym)
+    areZero' :: Traversable t => t (LLVMVal sym) -> IO (Maybe (Pred sym))
+    areZero' vs =
+      -- This could probably be simplified with a well-placed =<<...
+      join $ fmap commuteMaybe $ fmap (fmap (allOf sym . toList)) $ areZero vs
 
 -- | A predicate denoting the equality of two LLVMVals.
 --
@@ -194,6 +253,8 @@ testEqual sym v1 v2 =
     (_, LLVMValUndef _) -> pure Nothing
     (_, _) -> false -- type mismatch
   where andAlso b x = if b then pure (Just $ falsePred sym) else x
+        true = pure (Just $ truePred sym)
+        false = pure (Just $ falsePred sym)
 
         allEqual vs1 vs2 =
           foldM (\x y -> commuteMaybe (andPred sym <$> x <*> y)) (Just $ truePred sym) =<<
@@ -201,11 +262,4 @@ testEqual sym v1 v2 =
 
         -- This is probably inefficient:
         compareZero tp other =
-          testEqual sym other =<< zeroExpandLLVMVal sym tp
-
-        -- | Commute an applicative with Maybe
-        commuteMaybe (Just val) = Just <$> val
-        commuteMaybe Nothing    = pure Nothing
-
-        true = pure (Just $ truePred sym)
-        false = pure (Just $ falsePred sym)
+          andAlso (llvmValStorableType other == tp) $ isZero sym other
