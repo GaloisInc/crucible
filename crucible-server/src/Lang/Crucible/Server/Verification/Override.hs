@@ -647,7 +647,7 @@ basic_ss sc = do
   where
     eqs = map (mkIdent preludeName)
       [ "not_not", "bvAddZeroL", "bvAddZeroR", "ite_eq"
-      , "and_True1", "and_True2", "and_False1", "and_False2", "and_idem"
+      , "not_not", "and_True", "and_False", "and_idem", "ite_eq"
       , "or_triv1", "and_triv1", "or_triv2", "and_triv2"
       ]
     defs = map (mkIdent preludeName)
