@@ -754,7 +754,7 @@ generateInstruction (pc, instr) =
     J.Lsub  -> binary lPop lPop lPush (\a b -> App (BVSub w64 a b))
     J.Lmul  -> binary lPop lPop lPush (\a b -> App (BVMul w64 a b))
     J.Lneg  -> unaryGen lPop lPush lNeg
-    J.Ldiv  -> binary lPop lPop lPush -- TODO: why was this lPush an error?
+    J.Ldiv  -> binary lPop lPop lPush
                -- there is also a special case when when dividend is maxlong
                -- and divisor is -1
                (\a b -> nonzero w64 b (App (BVSdiv w64 a b)))
