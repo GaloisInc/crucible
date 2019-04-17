@@ -712,7 +712,7 @@ merge _ _ cond (PartLLVMVal p v) (Err _) = pure $
   let ub = UB.Other "muxing of partial values (then)" -- TODO: better message
   in PartLLVMVal (W4AT.addCondition p (undefinedBehavior ub (RV cond))) v
 merge sym _ cond (Err _) (PartLLVMVal p v) = do
-  let ub = UB.Other "muxing of parial values (else)" -- TODO: better message
+  let ub = UB.Other "muxing of partial values (else)" -- TODO: better message
   cond' <- liftIO $ W4I.notPred sym cond
   pure $ PartLLVMVal (W4AT.addCondition p (undefinedBehavior ub (RV cond'))) v
 merge _ f cond (PartLLVMVal px x) (PartLLVMVal py y) = do
