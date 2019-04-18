@@ -762,7 +762,7 @@ addMatchingWrite w v = ReadMem (modify (coerce ((w,v):)))
 -- "branch frames", at any point one can insert a fresh branch frame
 -- (see `branchMem`), and then at some later point merge two memories
 -- back into a single memory (see `mergeMem`).  Our `mergeMem`
--- implementation is abl to efficiently merge memories, but requires
+-- implementation is able to efficiently merge memories, but requires
 -- that one only merge memories that were identical prior to the last
 -- branch.
 data Mem sym = Mem { memEndianForm :: EndianForm, _memState :: MemState sym }
