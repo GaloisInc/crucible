@@ -29,7 +29,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
-
 module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
   , emptyMem
@@ -650,7 +649,7 @@ readMem' sym w end l0 tp0 alignment ws =
       StorageType ->
       LLVMPtr sym w ->
       ReadMem arch sym (PartLLVMVal arch sym)
-    fallback0 _ _ = 
+    fallback0 _ _ =
       W4P.Err . Partial.Other . Just . show . ppReadMemDebugState @sym <$> get
     go :: (StorageType -> LLVMPtr sym w -> ReadMem arch sym (PartLLVMVal arch sym)) ->
           LLVMPtr sym w ->
@@ -748,7 +747,24 @@ addMatchingWrite w v = ReadMem (modify (coerce ((w,v):)))
 
 --------------------------------------------------------------------------------
 
--- | The state of memory represented as a stack of pushes, branches, and merges.
+-- | A symbolic representation of the LLVM heap.
+--
+-- This representation is designed to support a variety of operations
+-- including reads and writes of symbolic data to symbolic addresses,
+-- symbolic memcpy and memset, and merging two memories in a single
+-- memory using an if-then-else operation.
+--
+-- A common use case is that the symbolic simulator will branch into
+-- two execution states based on a symbolic branch, make different
+-- memory modifications on each branch, and then need to merge the two
+-- memories to resume execution along a single path using the branch
+-- condition.  To support this, our memory representation supports
+-- "branch frames", at any point one can insert a fresh branch frame
+-- (see `branchMem`), and then at some later point merge two memories
+-- back into a single memory (see `mergeMem`).  Our `mergeMem`
+-- implementation is abl to efficiently merge memories, but requires
+-- that one only merge memories that were identical prior to the last
+-- branch.
 data Mem sym = Mem { memEndianForm :: EndianForm, _memState :: MemState sym }
 
 memState :: Simple Lens (Mem sym) (MemState sym)
