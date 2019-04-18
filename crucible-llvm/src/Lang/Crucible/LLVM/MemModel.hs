@@ -960,16 +960,23 @@ condStoreRaw :: (IsSymInterface sym, HasPtrWidth wptr)
   -> LLVMVal sym      {- ^ value to store -}
   -> IO (MemImpl sym)
 condStoreRaw sym mem cond ptr valType alignment val = do
+  -- Get current heap
   let preBranchHeap = memImplHeap mem
+  -- Push a branch to the heap
   let postBranchHeap = G.branchMem preBranchHeap
+  -- Write to the heap
   (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
+  -- Assert is allocated if write executes
+  do condIsAllocated <- impliesPred sym cond isAllocated
+     let errMsg1 = "Invalid memory store: the region wasn't allocated, or wasn't mutable"
+     assert sym condIsAllocated (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
+  -- Assert is aligned if write executes
+  do condIsAligned <- impliesPred sym cond isAligned
+     let errMsg2 = "Invalid memory store: the region's alignment wasn't correct"
+     assert sym condIsAligned (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
+  -- Merge the write heap and non-write heap
   let mergedHeap = G.mergeMem cond postWriteHeap postBranchHeap
-  condIsAllocated <- impliesPred sym cond isAllocated
-  let errMsg1 = "Invalid memory store: the region wasn't allocated, or wasn't mutable"
-  assert sym condIsAllocated (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
-  condIsAligned <- impliesPred sym cond isAligned
-  let errMsg2 = "Invalid memory store: the region's alignment wasn't correct"
-  assert sym condIsAligned (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
+  -- Return new memory
   return $! mem{ memImplHeap = mergedHeap }
 
 -- | Store an LLVM value in memory. The pointed-to memory region may
