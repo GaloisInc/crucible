@@ -94,6 +94,9 @@ module Lang.Crucible.LLVM.MemModel
   , Partial.PartLLVMVal
   , pattern Partial.PartLLVMVal
   , Partial.assertSafe
+    -- Re-exports from MemModel.Value
+  , isZero
+  , testEqual
 
     -- * Storage types
   , StorageType
