@@ -326,7 +326,8 @@ lib_print32 ::
   (ArchOk arch, IsSymInterface sym) =>
   Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
 lib_print32 =
-  do RegMap (Empty :> x) <- getOverrideArgs
+  getOverrideArgs >>= \case
+    RegMap (Empty :> x) -> do
      sym <- getSymInterface
      h <- printHandle <$> getContext
      liftIO $
