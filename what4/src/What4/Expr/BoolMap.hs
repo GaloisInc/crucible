@@ -77,7 +77,7 @@ instance HashableF f => Hashable (Wrap f x) where
 --   collapses via a resolution step to an \"inconsistent\" map.  For
 --   conjunctions this corresponds to a contradiction and
 --   represents false; for disjunction, this corresponds to the law of
---   the exlcuded middle and represents true.
+--   the excluded middle and represents true.
 data BoolMap (f :: BaseType -> Type)
   = InconsistentMap
   | BoolMap !(Map (Wrap f BaseBoolType) Polarity)
