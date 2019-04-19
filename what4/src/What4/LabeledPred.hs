@@ -22,6 +22,7 @@ module What4.LabeledPred
   , labeledPred
   , labeledPredMsg
   , partitionByPreds
+  , partitionByPredsM
   , partitionLabeledPreds
   ) where
 
