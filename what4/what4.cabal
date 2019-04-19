@@ -62,6 +62,7 @@ library
     What4.FunctionName
     What4.Interface
     What4.InterpretedFloatingPoint
+    What4.LabeledPred
     What4.Partial
     What4.Partial.AssertionTree
     What4.ProblemFeatures

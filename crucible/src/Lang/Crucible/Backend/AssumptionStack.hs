@@ -76,26 +76,11 @@ import           Data.Sequence (Seq)
 import           Lang.Crucible.Backend.ProofGoals
 import           Lang.Crucible.Panic (panic)
 
+import           What4.LabeledPred
+
 #if !MIN_VERSION_base(4,11,0)
 import           Data.Semigroup
 #endif
-
--- | Information about an assertion that was previously made.
-data LabeledPred pred msg
-   = LabeledPred
-     { -- | Predicate that was asserted.
-       _labeledPred    :: !pred
-       -- | Message added when assumption/assertion was made.
-     , _labeledPredMsg :: !msg
-     }
-
--- | Predicate that was asserted.
-labeledPred :: Lens (LabeledPred pred msg) (LabeledPred pred' msg) pred pred'
-labeledPred = lens _labeledPred (\s v -> s { _labeledPred = v })
-
--- | Message added when assumption/assertion was made.
-labeledPredMsg :: Lens (LabeledPred pred msg) (LabeledPred pred msg') msg msg'
-labeledPredMsg = lens _labeledPredMsg (\s v -> s { _labeledPredMsg = v })
 
 -- | A single @AssumptionFrame@ represents a collection
 --   of assumtptions.  They will later be recinded when
