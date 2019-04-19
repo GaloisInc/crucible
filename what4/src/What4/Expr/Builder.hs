@@ -3623,10 +3623,23 @@ semiRingAdd sym sr x y =
       (SR_Sum xs, SR_Constant yc) ->
         sum' sym (WSum.addConstant sr xs yc)
 
-      (SR_Constant xc, _) -> do
-        sum' sym (WSum.addConstant sr (WSum.var sr y) xc)
-      (_, SR_Constant yc) -> do
-        sum' sym (WSum.addConstant sr (WSum.var sr x) yc)
+      (SR_Constant xc, _)
+        | Just (BaseIte _ _ cond a b) <- asApp y
+        -> do xa <- semiRingAdd sym sr x a
+              xb <- semiRingAdd sym sr x b
+              semiRingIte sym sr cond xa xb
+
+        | otherwise
+        -> sum' sym (WSum.addConstant sr (WSum.var sr y) xc)
+
+      (_, SR_Constant yc)
+        | Just (BaseIte _ _ cond a b) <- asApp x
+        -> do ay <- semiRingAdd sym sr a y
+              by <- semiRingAdd sym sr b y
+              semiRingIte sym sr cond ay by
+
+        | otherwise
+        -> sum' sym (WSum.addConstant sr (WSum.var sr x) yc)
 
       (SR_Sum xs, SR_Sum ys) -> semiRingSum sym (WSum.add sr xs ys)
       (SR_Sum xs, _)         -> semiRingSum sym (WSum.addVar sr xs y)
