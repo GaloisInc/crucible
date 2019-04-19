@@ -1786,9 +1786,6 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> IO (Pred sym)
 
   -- | Check logical non-equality of two floating point numbers.
-  --
-  --   NOTE! This does NOT accurately represent the non-equality test on floating point
-  --   values typically found in programming languages.  See 'floatFpEq' instead.
   floatNe
     :: sym
     -> SymFloat sym fpp
@@ -1799,9 +1796,12 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   --
   --   NOTE! This test returns false if either value is @NaN@; in particular
   --   @NaN@ is not equal to itself!  Moreover, positive and negative 0 will
-  --   compare equal, despite having different bit patterns. This test is most
-  --   appropriate for interpreting the equalty tests of typical languages using
-  --   floating point.
+  --   compare equal, despite having different bit patterns.
+  --
+  --   This test is most appropriate for interpreting the equalty tests of
+  --   typical languages using floating point.  Moreover, not-equal tests
+  --   are usually the negation of this test, rather than the `floatFpNe`
+  --   test below.
   floatFpEq
     :: sym
     -> SymFloat sym fpp
@@ -1813,8 +1813,11 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   --   NOTE! This test returns false if either value is @NaN@; in particular
   --   @NaN@ is not distinct from any other value!  Moreover, positive and
   --   negative 0 will not compare distinct, despite having different
-  --   bit patterns.  This test is most appropriate for interpreting
-  --   the non-equalty tests of typical languages using floating point.
+  --   bit patterns.
+  --
+  --   This test usually does not correspond to the not-equal tests found
+  --   in programming languages.  Instead, one generally takes the logical
+  --   negation of the `floatFpEq` test.
   floatFpNe
     :: sym
     -> SymFloat sym fpp
