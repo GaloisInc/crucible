@@ -14,6 +14,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module What4.LabeledPred
@@ -27,9 +28,10 @@ module What4.LabeledPred
 import Control.Lens
 import Data.Bifunctor.TH (deriveBifunctor, deriveBifoldable, deriveBitraversable)
 import Data.Data (Data)
+import Data.Coerce (coerce)
 import Data.Data (Typeable)
 import Data.Eq.Deriving (deriveEq1, deriveEq2)
-import Data.Foldable (Foldable(foldr))
+import Data.Foldable (Foldable, foldrM)
 import Data.Ord.Deriving (deriveOrd1, deriveOrd2)
 import GHC.Generics (Generic, Generic1)
 import Text.Show.Deriving (deriveShow1, deriveShow2)
@@ -68,19 +70,32 @@ labeledPredMsg = lens _labeledPredMsg (\s v -> s { _labeledPredMsg = v })
 --   values.
 --
 --   The output format is (constantly true, constantly false, unknown/symbolic).
+partitionByPredsM ::
+  (Monad m, Foldable t, IsExprBuilder sym) =>
+  proxy sym {- ^ avoid \"ambiguous type variable\" errors -}->
+  (a -> m (Pred sym)) ->
+  t a ->
+  m ([a], [a], [a])
+partitionByPredsM _proxy getPred xs =
+  let step x (true, false, unknown) = getPred x <&> \p ->
+        case asConstantPred p of
+          Just True  -> (x:true, false, unknown)
+          Just False -> (true, x:false, unknown)
+          Nothing    -> (true, false, x:unknown)
+  in foldrM step ([], [], []) xs
+
+-- | Partition datastructures containing predicates by their possibly concrete
+--   values.
+--
+--   The output format is (constantly true, constantly false, unknown/symbolic).
 partitionByPreds ::
   (Foldable t, IsExprBuilder sym) =>
   proxy sym {- ^ avoid \"ambiguous type variable\" errors -}->
   (a -> Pred sym) ->
   t a ->
   ([a], [a], [a])
-partitionByPreds _proxy getPred xs =
-  let step p (true, false, unknown) =
-        case asConstantPred (getPred p) of
-          Just True  -> (p:true, false, unknown)
-          Just False -> (true, p:false, unknown)
-          Nothing    -> (true, false, p:unknown)
-  in foldr step ([], [], []) xs
+partitionByPreds proxy getPred xs =
+  runIdentity (partitionByPredsM proxy (coerce getPred) xs)
 
 -- | Partition labeled predicates by their possibly concrete values.
 --
