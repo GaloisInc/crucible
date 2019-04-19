@@ -20,6 +20,7 @@ module What4.LabeledPred
   ( LabeledPred(..)
   , labeledPred
   , labeledPredMsg
+  , partitionByPreds
   , partitionLabeledPreds
   ) where
 
@@ -63,18 +64,30 @@ labeledPred = lens _labeledPred (\s v -> s { _labeledPred = v })
 labeledPredMsg :: Lens (LabeledPred pred msg) (LabeledPred pred msg') msg msg'
 labeledPredMsg = lens _labeledPredMsg (\s v -> s { _labeledPredMsg = v })
 
+-- | Partition datastructures containing predicates by their possibly concrete
+--   values.
+--
+--   The output format is (constantly true, constantly false, unknown/symbolic).
+partitionByPreds ::
+  (Foldable t, IsExprBuilder sym) =>
+  proxy sym {- ^ avoid \"ambiguous type variable\" errors -}->
+  (a -> Pred sym) ->
+  t a ->
+  ([a], [a], [a])
+partitionByPreds _proxy getPred xs =
+  let step p (true, false, unknown) =
+        case asConstantPred (getPred p) of
+          Just True  -> (p:true, false, unknown)
+          Just False -> (true, p:false, unknown)
+          Nothing    -> (true, false, p:unknown)
+  in foldr step ([], [], []) xs
+
 -- | Partition labeled predicates by their possibly concrete values.
 --
--- The output format is (constantly true, constantly false, unknown/symbolic).
+--   The output format is (constantly true, constantly false, unknown/symbolic).
 partitionLabeledPreds ::
   (Foldable t, IsExprBuilder sym) =>
   proxy sym {- ^ avoid \"ambiguous type variable\" errors -}->
   t (LabeledPred (Pred sym) msg) ->
   ([LabeledPred (Pred sym) msg], [LabeledPred (Pred sym) msg], [LabeledPred (Pred sym) msg])
-partitionLabeledPreds _proxy xs =
-  let step p (true, false, unknown) =
-        case asConstantPred (p ^. labeledPred) of
-          Just True  -> (p:true, false, unknown)
-          Just False -> (true, p:false, unknown)
-          Nothing    -> (true, false, p:unknown)
-  in foldr step ([], [], []) xs
+partitionLabeledPreds proxy = partitionByPreds proxy (view labeledPred)
