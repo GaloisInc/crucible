@@ -15,6 +15,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BS8
 import Control.Lens((^.),(%=))
 import Control.Monad.IO.Class(liftIO)
+import System.IO (hPutStrLn)
 
 import Data.Parameterized.Classes(showF)
 import Data.Parameterized.Context.Unsafe (Assignment)
@@ -25,7 +26,7 @@ import What4.FunctionName(functionNameFromText)
 import What4.Symbol(userSymbol, emptySymbol)
 import What4.Interface
           (freshConstant, bvLit, bvEq, asUnsignedBV,notPred
-          , getCurrentProgramLoc)
+          , getCurrentProgramLoc, printSymExpr)
 import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 
 import Lang.Crucible.Types
@@ -36,10 +37,12 @@ import Lang.Crucible.Simulator.ExecutionTree
         ( FnState(..)
         , cruciblePersonality
         , stateContext
+        , printHandle
         )
 import Lang.Crucible.Simulator.OverrideSim
         ( mkOverride'
         , getSymInterface
+        , getContext
         , FnBinding(..)
         , registerFnBinding
         , getOverrideArgs
@@ -104,6 +107,9 @@ setupOverrides ctxt =
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr lib_assume
      regOver ctxt "crucible_assert"
         (Empty :> knownRepr :> tPtr :> knownRepr) knownRepr (lib_assert mvar)
+
+     regOver ctxt "crucible_print_uint32"
+        (Empty :> knownRepr) knownRepr lib_print32
 
      regOver ctxt "crucible_havoc_memory"
         (Empty :> tPtr :> tPtr) knownRepr (lib_havoc_memory mvar)
@@ -316,7 +322,16 @@ lib_assert mvar =
                  check <- notPred sym =<< bvEq sym cond zero
                  assert sym check rsn
 
-
+lib_print32 ::
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym (LLVM arch) (EmptyCtx ::> TBits 32) UnitType
+lib_print32 =
+  do RegMap (Empty :> x) <- getOverrideArgs
+     sym <- getSymInterface
+     h <- printHandle <$> getContext
+     liftIO $
+       do x' <- projectLLVM_bv sym (regValue x)
+          hPutStrLn h (show (printSymExpr x'))
 
 --------------------------------------------------------------------------------
 

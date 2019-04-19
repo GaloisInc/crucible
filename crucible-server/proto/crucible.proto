@@ -64,7 +64,7 @@ enum RequestCode {
   // Request code for running a function with a given list of arguments
   // (in Request.argument), and getting the result.  The first argument is
   // the function to call, and the remaining arguments are the arguments to pass
-  // to the function.  Since executing a function may take an arbitrary ammount of
+  // to the function.  Since executing a function may take an arbitrary amount of
   // time, this will transition the server into an Execution state, and the next message
   // returned will be a CallResponse message.
   RunCall = 6;

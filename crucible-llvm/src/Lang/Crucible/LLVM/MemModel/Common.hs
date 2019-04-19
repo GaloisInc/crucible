@@ -468,9 +468,9 @@ loadBitvector lo lw so v = do
       | otherwise -> assert (lo == so && lw < sw) $
         -- Load ends before store ends.
         valueLoad lo ltp so (SelectPrefixBV lw (sw - lw) v)
-    Float -> valueLoad lo ltp lo (FloatToBV v)
-    Double -> valueLoad lo ltp lo (DoubleToBV v)
-    X86_FP80 -> valueLoad lo ltp lo (X86_FP80ToBV v)
+    Float -> valueLoad lo ltp so (FloatToBV v)
+    Double -> valueLoad lo ltp so (DoubleToBV v)
+    X86_FP80 -> valueLoad lo ltp so (X86_FP80ToBV v)
     Array n tp -> snd $ foldl1 cv (val <$> r)
       where cv (wx,x) (wy,y) = (wx + wy, concatBV wx x wy y)
             esz = storageTypeSize tp

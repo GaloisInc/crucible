@@ -85,6 +85,7 @@ module Lang.Crucible.LLVM.MemModel
   , packMemValue
   , loadRaw
   , storeRaw
+  , condStoreRaw
   , storeConstRaw
   , mallocRaw
   , mallocConstRaw
@@ -94,6 +95,9 @@ module Lang.Crucible.LLVM.MemModel
   , Partial.PartLLVMVal
   , pattern Partial.PartLLVMVal
   , Partial.assertSafe
+    -- Re-exports from MemModel.Value
+  , isZero
+  , testEqual
 
     -- * Storage types
   , StorageType
@@ -943,6 +947,40 @@ storeRaw sym mem ptr valType alignment val = do
     assert sym p1 (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
     assert sym p2 (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
     return mem{ memImplHeap = heap' }
+
+-- | Store an LLVM value in memory if the condition is true, and
+-- otherwise leaves memory unchanged.
+--
+-- Asserts that the pointer is valid and points to a mutable memory
+-- region when cond is true.
+condStoreRaw :: (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> MemImpl sym
+  -> Pred sym {- ^ Predicate that determines if we actually write. -}
+  -> LLVMPtr sym wptr {- ^ pointer to store into -}
+  -> StorageType      {- ^ type of value to store -}
+  -> Alignment
+  -> LLVMVal sym      {- ^ value to store -}
+  -> IO (MemImpl sym)
+condStoreRaw sym mem cond ptr valType alignment val = do
+  -- Get current heap
+  let preBranchHeap = memImplHeap mem
+  -- Push a branch to the heap
+  let postBranchHeap = G.branchMem preBranchHeap
+  -- Write to the heap
+  (postWriteHeap, isAllocated, isAligned) <- G.writeMem sym PtrWidth ptr valType alignment val (memImplHeap mem)
+  -- Assert is allocated if write executes
+  do condIsAllocated <- impliesPred sym cond isAllocated
+     let errMsg1 = "Invalid memory store: the region wasn't allocated, or wasn't mutable"
+     assert sym condIsAllocated (AssertFailureSimError $ ptrMessage errMsg1 ptr valType)
+  -- Assert is aligned if write executes
+  do condIsAligned <- impliesPred sym cond isAligned
+     let errMsg2 = "Invalid memory store: the region's alignment wasn't correct"
+     assert sym condIsAligned (AssertFailureSimError $ ptrMessage errMsg2 ptr valType)
+  -- Merge the write heap and non-write heap
+  let mergedHeap = G.mergeMem cond postWriteHeap postBranchHeap
+  -- Return new memory
+  return $! mem{ memImplHeap = mergedHeap }
 
 -- | Store an LLVM value in memory. The pointed-to memory region may
 -- be either mutable or immutable; thus 'storeConstRaw' can be used to

@@ -93,6 +93,7 @@ data Simulator p sym
                    !(HIO.BasicHashTable PredefinedHandle SomeHandle)
                , simValueCache :: !(HIO.BasicHashTable Word64 (Some (RegEntry sym)))
                , simValueCounter :: !(IORef Word64)
+               , simExecFeatures :: [GenericExecutionFeature sym]
                }
 
 getSimContext :: Simulator p sym -> IO (SimContext p sym ())
@@ -109,13 +110,15 @@ newSimulator :: IsSymInterface sym
              => sym
              -> [ConfigDesc]
              -> p
+             -> [GenericExecutionFeature sym]
+                  -- ^ Execution features to install in the simulator
              -> [Simulator p sym -> IO SomeHandle] -- ^ Predefined function handles to install
              -> Handle
                 -- ^ Handle for reading requests.
              -> Handle
                 -- ^ Handle for writing responses.
              -> IO (Simulator p sym)
-newSimulator sym opts p hdls request_handle response_handle = do
+newSimulator sym opts p execFeats hdls request_handle response_handle = do
   let cb = OutputCallbacks { devCallback = \s -> do
                                sendPrintValue response_handle (decodeUtf8 s)
                            , devClose = return ()
@@ -139,6 +142,7 @@ newSimulator sym opts p hdls request_handle response_handle = do
   ph <- HIO.new
   svc <- HIO.new
   svCounter <- newIORef 0
+
   let sim =
          Simulator { simContext = ctxRef
                    , requestHandle = request_handle
@@ -147,6 +151,7 @@ newSimulator sym opts p hdls request_handle response_handle = do
                    , predefinedHandles = ph
                    , simValueCache = svc
                    , simValueCounter = svCounter
+                   , simExecFeatures = execFeats
                    }
   populatePredefHandles sim hdls ph
   return sim
