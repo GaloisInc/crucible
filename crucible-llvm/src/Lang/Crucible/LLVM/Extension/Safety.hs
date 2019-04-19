@@ -117,6 +117,7 @@ instance TraversableF BadBehavior where
 -- -----------------------------------------------------------------------
 -- ** LLVMSafetyAssertion
 
+-- TODO: Consider making this an instance of What4's 'LabeledPred'
 data LLVMSafetyAssertion (e :: CrucibleType -> Type) =
   LLVMSafetyAssertion
     { _classifier :: BadBehavior e -- ^ What could have gone wrong?
