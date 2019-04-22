@@ -1795,66 +1795,103 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     -> SymFloat sym fpp
     -> IO (Pred sym)
 
-  -- | Check IEEE equality of two floating point numbers.
+  -- | Check IEEE-754 equality of two floating point numbers.
   --
   --   NOTE! This test returns false if either value is @NaN@; in particular
   --   @NaN@ is not equal to itself!  Moreover, positive and negative 0 will
-  --   compare equal, despite having different bit patterns. This test is most
-  --   appropriate for interpreting the equalty tests of typical languages using
-  --   floating point.
+  --   compare equal, despite having different bit patterns.
+  --
+  --   This test is most appropriate for interpreting the equality tests of
+  --   typical languages using floating point.  Moreover, not-equal tests
+  --   are usually the negation of this test, rather than the `floatFpNe`
+  --   test below.
   floatFpEq
     :: sym
     -> SymFloat sym fpp
     -> SymFloat sym fpp
     -> IO (Pred sym)
 
-  -- | Check IEEE non-equality of two floating point numbers.
+  -- | Check IEEE-754 non-equality of two floating point numbers.
   --
   --   NOTE! This test returns false if either value is @NaN@; in particular
   --   @NaN@ is not distinct from any other value!  Moreover, positive and
   --   negative 0 will not compare distinct, despite having different
-  --   bit patterns.  This test is most appropriate for interpreting
-  --   the non-equalty tests of typical languages using floating point.
+  --   bit patterns.
+  --
+  --   This test usually does NOT correspond to the not-equal tests found
+  --   in programming languages.  Instead, one generally takes the logical
+  --   negation of the `floatFpEq` test.
   floatFpNe
     :: sym
     -> SymFloat sym fpp
     -> SymFloat sym fpp
     -> IO (Pred sym)
 
-  -- | Check @<=@ on two floating point numbers.
+  -- | Check IEEE-754 @<=@ on two floating point numbers.
+  --
+  --   NOTE! This test returns false if either value is @NaN@; in particular
+  --   @NaN@ is not less-than-or-equal-to any other value!  Moreover, positive
+  --   and negative 0 are considered equal, despite having different bit patterns.
   floatLe
     :: sym
     -> SymFloat sym fpp
     -> SymFloat sym fpp
     -> IO (Pred sym)
 
-  -- | Check @<@ on two floating point numbers.
+  -- | Check IEEE-754 @<@ on two floating point numbers.
+  --
+  --   NOTE! This test returns false if either value is @NaN@; in particular
+  --   @NaN@ is not less-than any other value! Moreover, positive
+  --   and negative 0 are considered equal, despite having different bit patterns.
   floatLt
     :: sym
     -> SymFloat sym fpp
     -> SymFloat sym fpp
     -> IO (Pred sym)
 
-  -- | Check @>=@ on two floating point numbers.
+  -- | Check IEEE-754 @>=@ on two floating point numbers.
+  --
+  --   NOTE! This test returns false if either value is @NaN@; in particular
+  --   @NaN@ is not greater-than-or-equal-to any other value!  Moreover, positive
+  --   and negative 0 are considered equal, despite having different bit patterns.
   floatGe
     :: sym
     -> SymFloat sym fpp
     -> SymFloat sym fpp
     -> IO (Pred sym)
 
-  -- | Check @>@ on two floating point numbers.
+  -- | Check IEEE-754 @>@ on two floating point numbers.
+  --
+  --   NOTE! This test returns false if either value is @NaN@; in particular
+  --   @NaN@ is not greater-than any other value! Moreover, positive
+  --   and negative 0 are considered equal, despite having different bit patterns.
   floatGt
     :: sym
     -> SymFloat sym fpp
     -> SymFloat sym fpp
     -> IO (Pred sym)
 
+  -- | Test if a floating-point value is NaN.
   floatIsNaN :: sym -> SymFloat sym fpp -> IO (Pred sym)
+
+  -- | Test if a floating-point value is (positive or negative) infinity.
   floatIsInf :: sym -> SymFloat sym fpp -> IO (Pred sym)
+
+  -- | Test if a floaint-point value is (positive or negative) zero.
   floatIsZero :: sym -> SymFloat sym fpp -> IO (Pred sym)
+
+  -- | Test if a floaint-point value is positive.  NOTE!
+  --   NaN is considered neither positive nor negative.
   floatIsPos :: sym -> SymFloat sym fpp -> IO (Pred sym)
+
+  -- | Test if a floaint-point value is negative.  NOTE!
+  --   NaN is considered neither positive nor negative.
   floatIsNeg :: sym -> SymFloat sym fpp -> IO (Pred sym)
+
+  -- | Test if a floaint-point value is subnormal.
   floatIsSubnorm :: sym -> SymFloat sym fpp -> IO (Pred sym)
+
+  -- | Test if a floaint-point value is normal.
   floatIsNorm :: sym -> SymFloat sym fpp -> IO (Pred sym)
 
   -- | If-then-else on floating point numbers.
