@@ -3833,8 +3833,8 @@ foldIndicesInRangeBounds sym f0 a0 bnds0 = do
 #endif
 
 
--- | A slightly more aggressive syntaxtic equality check than testEquality,
---   `sameTerm` will recurse through a small collection syntax formers.
+-- | A slightly more aggressive syntactic equality check than testEquality,
+--   `sameTerm` will recurse through a small collection of known syntax formers.
 sameTerm :: Expr t a -> Expr t b -> Maybe (a :~: b)
 
 sameTerm (asApp -> Just (FloatToBinary fppx x)) (asApp -> Just (FloatToBinary fppy y)) =
@@ -5263,7 +5263,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     let BaseFloatRepr fpp = exprType x in sbMakeExpr sym $ FloatFMA fpp r x y z
   floatEq sym x y
     | x == y = return $! truePred sym
-    | otherwise = (floatIEEELogicBinOp FloatEq) sym x y
+    | otherwise = floatIEEELogicBinOp FloatEq sym x y
   floatNe sym x y = notPred sym =<< floatEq sym x y
   floatFpEq sym x y
     | x == y = notPred sym =<< floatIsNaN sym x
