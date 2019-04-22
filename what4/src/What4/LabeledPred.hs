@@ -14,21 +14,25 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module What4.LabeledPred
   ( LabeledPred(..)
   , labeledPred
   , labeledPredMsg
+  , partitionByPreds
+  , partitionByPredsM
   , partitionLabeledPreds
   ) where
 
 import Control.Lens
 import Data.Bifunctor.TH (deriveBifunctor, deriveBifoldable, deriveBitraversable)
 import Data.Data (Data)
+import Data.Coerce (coerce)
 import Data.Data (Typeable)
 import Data.Eq.Deriving (deriveEq1, deriveEq2)
-import Data.Foldable (Foldable(foldr))
+import Data.Foldable (Foldable, foldrM)
 import Data.Ord.Deriving (deriveOrd1, deriveOrd2)
 import GHC.Generics (Generic, Generic1)
 import Text.Show.Deriving (deriveShow1, deriveShow2)
@@ -63,18 +67,43 @@ labeledPred = lens _labeledPred (\s v -> s { _labeledPred = v })
 labeledPredMsg :: Lens (LabeledPred pred msg) (LabeledPred pred msg') msg msg'
 labeledPredMsg = lens _labeledPredMsg (\s v -> s { _labeledPredMsg = v })
 
+-- | Partition datastructures containing predicates by their possibly concrete
+--   values.
+--
+--   The output format is (constantly true, constantly false, unknown/symbolic).
+partitionByPredsM ::
+  (Monad m, Foldable t, IsExprBuilder sym) =>
+  proxy sym {- ^ avoid \"ambiguous type variable\" errors -}->
+  (a -> m (Pred sym)) ->
+  t a ->
+  m ([a], [a], [a])
+partitionByPredsM _proxy getPred xs =
+  let step x (true, false, unknown) = getPred x <&> \p ->
+        case asConstantPred p of
+          Just True  -> (x:true, false, unknown)
+          Just False -> (true, x:false, unknown)
+          Nothing    -> (true, false, x:unknown)
+  in foldrM step ([], [], []) xs
+
+-- | Partition datastructures containing predicates by their possibly concrete
+--   values.
+--
+--   The output format is (constantly true, constantly false, unknown/symbolic).
+partitionByPreds ::
+  (Foldable t, IsExprBuilder sym) =>
+  proxy sym {- ^ avoid \"ambiguous type variable\" errors -}->
+  (a -> Pred sym) ->
+  t a ->
+  ([a], [a], [a])
+partitionByPreds proxy getPred xs =
+  runIdentity (partitionByPredsM proxy (coerce getPred) xs)
+
 -- | Partition labeled predicates by their possibly concrete values.
 --
--- The output format is (constantly true, constantly false, unknown/symbolic).
+--   The output format is (constantly true, constantly false, unknown/symbolic).
 partitionLabeledPreds ::
   (Foldable t, IsExprBuilder sym) =>
   proxy sym {- ^ avoid \"ambiguous type variable\" errors -}->
   t (LabeledPred (Pred sym) msg) ->
   ([LabeledPred (Pred sym) msg], [LabeledPred (Pred sym) msg], [LabeledPred (Pred sym) msg])
-partitionLabeledPreds _proxy xs =
-  let step p (true, false, unknown) =
-        case asConstantPred (p ^. labeledPred) of
-          Just True  -> (p:true, false, unknown)
-          Just False -> (true, p:false, unknown)
-          Nothing    -> (true, false, p:unknown)
-  in foldr step ([], [], []) xs
+partitionLabeledPreds proxy = partitionByPreds proxy (view labeledPred)
