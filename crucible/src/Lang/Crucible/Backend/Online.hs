@@ -19,6 +19,8 @@
 -- small solver queries in a tight interaction loop.
 ------------------------------------------------------------------------
 
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -70,11 +72,14 @@ import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.IO.Class
 import           Data.Bits
+import           Data.Data (Data)
 import           Data.Foldable
 import           Data.IORef
 import           Data.Parameterized.Nonce
-import qualified Data.Text as Text
+import           Data.Typeable (Typeable)
+import           GHC.Generics (Generic)
 import           System.IO
+import qualified Data.Text as Text
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Config
@@ -333,6 +338,7 @@ data BranchResult
      -- | The context before considering the given predicate was already
      --   unsatisfiable.
    | UnsatisfiableContext
+   deriving (Data, Eq, Generic, Ord, Typeable)
 
 
 
