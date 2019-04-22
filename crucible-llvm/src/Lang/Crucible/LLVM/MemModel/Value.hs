@@ -135,21 +135,17 @@ instance IsExpr (SymExpr sym) => PP.Pretty (LLVMVal sym) where
         (LLVMValInt blk w) ->
           case asNat blk of
             Just 0 ->
-              case (asUnsignedBV w, asSignedBV w) of
-                (Just unsigned, Just signed) -> PP.text $ unwords $
+              case (asUnsignedBV w) of
+                (Just unsigned) -> PP.text $ unwords $
                   [ "literal integer:"
                   , "unsigned value = " ++ show unsigned ++ ","
-                  , "signed value = " ++ show signed
+                  , "signed value = " ++ show (toSigned (bvWidth w) unsigned)
                   , "width = " ++ show (bvWidth w)
                   ]
-                (Nothing, Nothing) -> PP.text $ unwords $
+                (Nothing) -> PP.text $ unwords $
                   [ "symbolic integer: "
                   , "width = " ++ show (bvWidth w)
                   ]
-                (_, _) -> panic "pretty llvmval" $ (:[]) $ unwords $
-                            [ "Only one of the functions asUnsignedBV, "
-                            , "asSignedBV returned a value."
-                            ]
             Just n ->
               case asUnsignedBV w of
                 Just offset -> PP.text $ unwords $
