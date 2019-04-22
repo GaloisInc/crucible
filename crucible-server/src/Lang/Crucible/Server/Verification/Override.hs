@@ -809,9 +809,6 @@ readMap sim x addr size endianness wordmap
    (bytes,r) = divMod size 8
    opstr = "readMap " <> show size <> "@" <> show addr
 
-  where
-   (bytes,r) = divMod size 8
-
 
 data SomeBV sym where
   SomeBV :: forall sym w. (1 <= w) => SymExpr sym (BaseBVType w) -> SomeBV sym
