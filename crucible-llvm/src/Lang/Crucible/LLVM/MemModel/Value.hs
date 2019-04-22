@@ -139,7 +139,7 @@ instance IsExpr (SymExpr sym) => PP.Pretty (LLVMVal sym) where
                 (Just unsigned) -> PP.text $ unwords $
                   [ "literal integer:"
                   , "unsigned value = " ++ show unsigned ++ ","
-                  , "signed value = " ++ show (toSigned (bvWidth w) unsigned)
+                  , "signed value = " ++ show (toSigned (bvWidth w) unsigned) ++ ","
                   , "width = " ++ show (bvWidth w)
                   ]
                 (Nothing) -> PP.text $ unwords $
@@ -150,7 +150,7 @@ instance IsExpr (SymExpr sym) => PP.Pretty (LLVMVal sym) where
               case asUnsignedBV w of
                 Just offset -> PP.text $ unwords $
                   [ "concrete pointer:"
-                  , "allocation = " ++ show n
+                  , "allocation = " ++ show n ++ ","
                   , "offset = " ++ show offset
                   ]
                 Nothing -> PP.text $ unwords $
