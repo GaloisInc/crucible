@@ -250,14 +250,10 @@ class HasStructuredAssertions (ext :: Type) where
               -> Doc
   explainTree proxyExt proxySym =
     cataAT (detail proxyExt proxySym) -- may want to use 'explain'
-      (\factors ->
-         "All of "
-         <$$> indent 2 (vcat (toList factors)))
-      (\summands ->
-         "Any of "
-         <$$> indent 2 (vcat (toList summands)))
+      (\factors  -> "All of " <$$> indent 2 (vcat (toList factors)))
+      (\summands -> "Any of " <$$> indent 2 (vcat (toList summands)))
       (\cond doc1 doc2 ->
-         "If " <+> printSymExpr (unRV cond) <$$>
+        "If " <+> printSymExpr (unRV cond) <$$>
           vcat [ "then " <$$> indent 2 doc1
                , "else " <$$> indent 2 doc2
                ])
