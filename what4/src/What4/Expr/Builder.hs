@@ -3841,6 +3841,17 @@ tryOrAbsorption (asApp -> Just (DisjPred as)) Negative (asConjunction -> bs) Neg
 tryOrAbsorption _ _ _ _ = False
 
 
+-- | A slightly more aggressive syntactic equality check than testEquality,
+--   `sameTerm` will recurse through a small collection of known syntax formers.
+sameTerm :: Expr t a -> Expr t b -> Maybe (a :~: b)
+
+sameTerm (asApp -> Just (FloatToBinary fppx x)) (asApp -> Just (FloatToBinary fppy y)) =
+  do Refl <- testEquality fppx fppy
+     Refl <- sameTerm x y
+     return Refl
+
+sameTerm x y = testEquality x y
+
 
 instance IsExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
@@ -4392,7 +4403,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       -- concat two adjacent sub-selects just makes a single select
       _ | Just (BVSelect idx1 n1 a) <- asApp x
         , Just (BVSelect idx2 n2 b) <- asApp y
-        , Just Refl <- testEquality a b
+        , Just Refl <- sameTerm a b
         , Just Refl <- testEquality idx1 (addNat idx2 n2)
         , Just LeqProof <- isPosNat (addNat n1 n2)
         , Just LeqProof <- testLeq (addNat idx2 (addNat n1 n2)) (bvWidth a) ->
@@ -5420,10 +5431,18 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | x == y = return $! truePred sym
     | otherwise = floatIEEELogicBinOp (BaseEq (exprType x)) sym x y
   floatNe sym x y = notPred sym =<< floatEq sym x y
-  floatFpEq = floatIEEELogicBinOp FloatFpEq
-  floatFpNe = floatIEEELogicBinOp FloatFpNe
-  floatLe = floatIEEELogicBinOp FloatLe
-  floatLt = floatIEEELogicBinOp FloatLt
+  floatFpEq sym x y
+    | x == y = notPred sym =<< floatIsNaN sym x
+    | otherwise = floatIEEELogicBinOp FloatFpEq sym x y
+  floatFpNe sym x y
+    | x == y = return $ falsePred sym
+    | otherwise = floatIEEELogicBinOp FloatFpNe sym x y
+  floatLe sym x y
+    | x == y = notPred sym =<< floatIsNaN sym x
+    | otherwise = floatIEEELogicBinOp FloatLe sym x y
+  floatLt sym x y
+    | x == y = return $ falsePred sym
+    | otherwise = floatIEEELogicBinOp FloatLt sym x y
   floatGe sym x y = floatLe sym y x
   floatGt sym x y = floatLt sym y x
   floatIte sym c x y

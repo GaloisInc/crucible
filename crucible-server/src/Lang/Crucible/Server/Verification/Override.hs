@@ -1,8 +1,10 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -45,12 +47,13 @@ module Lang.Crucible.Server.Verification.Override
 
 import           Control.Lens (folded)
 import           Control.Monad
+import qualified Control.Monad.Catch as X
 import           Control.Monad.IO.Class
 import           Data.Foldable
-import           Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import           Data.Word
 
@@ -130,6 +133,20 @@ verificationHarnessOverrideHandle sim rw w cryEnv harness =
 
 type SAWBack n = SAW.SAWCoreBackend n (Yices.Connection n) (Flags FloatReal)
 type N p n r args ret a = OverrideSim p (SAWBack n) () r args ret a
+
+----------------------------------------------------------------------
+
+data OverrideFailure where
+  InvalidReturnType :: String -> TypeRepr want -> TypeRepr got -> OverrideFailure
+  InvalidArgumentTypes :: String -> CtxRepr args1 -> CtxRepr args2 -> OverrideFailure
+  BadWidth :: String -> Word64 -> OverrideFailure
+  NegativeWidth :: String -> Word64 -> OverrideFailure
+  WidthNotModulo8 :: String -> Word64 -> OverrideFailure
+
+deriving instance Show OverrideFailure
+instance X.Exception OverrideFailure
+
+----------------------------------------------------------------------
 
 -- | Define the behavior of a verification override.  First, bind the values of all the
 --   verification harness variables from the prestate.
@@ -223,6 +240,18 @@ createFreshHarnessVar sym var (HarnessVarArray elems n) =
      bvs <- mapM (SAW.bindSAWTerm sym (BaseBVRepr valSize)) tms
      return (SubstArray valSize (Seq.fromList bvs), tm)
 
+withValidSize :: X.MonadThrow m =>
+                 String -> Word64
+              -> (forall x. 1 <= x => NatRepr x -> m a) -> m a
+withValidSize nm sz f =
+  case someNat (toInteger sz) of
+    Nothing -> X.throwM $ BadWidth nm sz
+    Just (Some w) ->
+      case isPosNat w of
+        Nothing -> X.throwM $ NegativeWidth nm sz
+        Just LeqProof ->
+          f w
+
 phaseUpdate :: forall p n r args ret w rw.
    (1 <= w, 1 <= rw) =>
    Simulator p (SAWBack n) ->
@@ -287,8 +316,7 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
     RegisterVal offset var ->
       case Map.lookup var varTypes of
         Just (HarnessVarWord n) ->
-          do Just (Some valSize) <- return (someNat (toInteger n))
-             Just LeqProof <- return (isPosNat valSize)
+          withValidSize (show $ PP.pp var) n $ \valSize -> do
              case Map.lookup var sub of
                Just substTm ->
                  do bv <- substTermAsBV sym valSize substTm
@@ -313,9 +341,8 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
               do baseAddr <- substTermAsBV sym w basetm
                  off <- liftIO $ bvLit sym w (toInteger offset)
                  addr <- liftIO (bvAdd sym baseAddr off)
-                 Just (Some x) <- return (someNat (toInteger n))
-                 Just LeqProof <- return (isPosNat x)
-                 case Map.lookup val sub of
+                 withValidSize ("MemPointsTo word " <> (show $ PP.pp val)) n $ \x ->
+                  case Map.lookup val sub of
                    Just valtm ->
                      do bv <- substTermAsBV sym x valtm
                         mem' <- writeMap sim w addr n endianness (SomeBV bv) mem
@@ -330,9 +357,8 @@ phaseUpdate sim sym rw w sc varTypes endianness phase = \x -> foldM go x (toList
               do baseAddr <- substTermAsBV sym w basetm
                  off <- liftIO $ bvLit sym w (toInteger offset)
                  addr <- liftIO (bvAdd sym baseAddr off)
-                 Just (Some x) <- return (someNat (toInteger n))
-                 Just LeqProof <- return (isPosNat x)
-                 case Map.lookup val sub of
+                 withValidSize ("MemPointsTo array " <> (show $ PP.pp val)) n $ \x ->
+                  case Map.lookup val sub of
                    Just valtm ->
                      do mem' <- writeArray sim sym w addr endianness elems n x valtm mem
                         return (sub,cryEnv,regs,mem')
@@ -555,16 +581,15 @@ computeVariableSubstitution sim sym rw w sc endianness cryEnv0 varTypes phase re
                     do baseAddr <- substTermAsBV sym w basetm
                        off <- liftIO $ bvLit sym w (toInteger offset)
                        addr <- liftIO (bvAdd sym baseAddr off)
-                       Just (Some valSize) <- return (someNat (toInteger n))
-                       Just LeqProof <- return (isPosNat valSize)
-                       vals <- readArray sim sym w addr endianness elems n valSize mem
-                       tm   <- liftIO $ arrayAsTerm sym n vals
-                       case Map.lookup var sub of
-                         Nothing ->
-                           do updateSub var tm (SubstArray valSize vals) sub cryEnv
-                         Just tm' ->
-                           do assertEquiv sym (HarnessVarArray elems n) tm tm'
-                              return (sub,cryEnv)
+                       withValidSize ("MemPointsTo array.2 " <> (show $ PP.pp base)) n $ \valSize -> do
+                         vals <- readArray sim sym w addr endianness elems n valSize mem
+                         tm   <- liftIO $ arrayAsTerm sym n vals
+                         case Map.lookup var sub of
+                           Nothing ->
+                             updateSub var tm (SubstArray valSize vals) sub cryEnv
+                           Just tm' ->
+                             do assertEquiv sym (HarnessVarArray elems n) tm tm'
+                                return (sub,cryEnv)
 
                Nothing ->
                  fail (show (PP.text "Base pointer not defined"
@@ -592,8 +617,7 @@ termToSubstTerm ::
 termToSubstTerm sym sc (HarnessVarWord n) tm =
   do x <- liftIO $ termAsConcrete sc tm
      case x of
-       Just i  -> do Just (Some w) <- return (someNat (toInteger n))
-                     Just LeqProof <- return (isPosNat w)
+       Just i  -> withValidSize "substTerm" n $ \w -> do
                      bv <- liftIO $ bvLit sym w i
                      return (SubstWord bv)
        Nothing -> return (SubstTerm tm)
@@ -700,35 +724,39 @@ writeMap ::
    SomeBV (SAWBack n) ->
    WordMap (SAWBack n) x (BaseBVType 8) ->
    N p n r args ret (WordMap (SAWBack n) x (BaseBVType 8))
-
 writeMap sim x addr size endianness (SomeBV val) wordmap
    | r == 0
    , Just (Some valWidth) <- (someNat (toInteger size))
-   , Just Refl <- testEquality valWidth (bvWidth val)
+   , cond1 <- testEquality valWidth (bvWidth val)
+   , Just Refl <- cond1
    , Just LeqProof <- (isPosNat valWidth)
    =   do sym <- getSymInterface
           SomeHandle h <- liftIO $
              getPredefinedHandle sim (MultiPartStoreHandle (fromIntegral (natValue x)) 8 (fromIntegral bytes)) $
                 SomeHandle <$> multipartStoreFn sim x (knownRepr :: NatRepr 8) valWidth (fromIntegral bytes)
-          Just Refl <- return (testEquality
-                          (handleArgTypes h)
-                          (Ctx.Empty Ctx.:>
-                           BoolRepr Ctx.:>
-                           BVRepr x Ctx.:>
-                           BVRepr valWidth Ctx.:>
-                           WordMapRepr x (BaseBVRepr (knownRepr :: NatRepr 8))))
-          Just Refl <- return (testEquality (handleReturnType h)
-                           (WordMapRepr x (BaseBVRepr (knownRepr :: NatRepr 8))))
-          let endianBool = case endianness of BigEndian -> truePred sym; LittleEndian -> falsePred sym
-          let args = Ctx.Empty Ctx.:> RegEntry knownRepr endianBool
-                               Ctx.:> RegEntry (BVRepr x) addr
-                               Ctx.:> RegEntry (BVRepr valWidth) val
-                               Ctx.:> RegEntry (WordMapRepr x (BaseBVRepr knownRepr)) wordmap
-          regValue <$> callFnVal (HandleFnVal h) (RegMap args)
-
+          let argsTy = (Ctx.Empty Ctx.:>
+                        BoolRepr Ctx.:>
+                        BVRepr x Ctx.:>
+                        BVRepr valWidth Ctx.:> retTy)
+              retTy = WordMapRepr x (BaseBVRepr (knownRepr :: NatRepr 8))
+          case testEquality (handleArgTypes h) argsTy of
+            Just Refl ->
+              case testEquality (handleReturnType h) retTy of
+                Just Refl -> do
+                  let endianBool = case endianness of
+                                     BigEndian -> truePred sym
+                                     LittleEndian -> falsePred sym
+                  let args = Ctx.Empty Ctx.:> RegEntry knownRepr endianBool
+                             Ctx.:> RegEntry (BVRepr x) addr
+                             Ctx.:> RegEntry (BVRepr valWidth) val
+                             Ctx.:> RegEntry (WordMapRepr x (BaseBVRepr knownRepr)) wordmap
+                  regValue <$> callFnVal (HandleFnVal h) (RegMap args)
+                Nothing -> X.throwM $ InvalidReturnType opstr retTy (handleReturnType h)
+            Nothing -> X.throwM $ InvalidArgumentTypes opstr argsTy (handleArgTypes h)
    | otherwise = fail ("Invalid arguments to writeMap")
   where
    (bytes,r) = divMod size 8
+   opstr = "writeMap " <> show size <> "@" <> show addr
 
 
 readMap ::
@@ -742,30 +770,44 @@ readMap ::
    N p n r args ret (SomeBV (SAWBack n))
 readMap sim x addr size endianness wordmap
    | r == 0 =
-       do sym <- getSymInterface
-          Just (Some valWidth) <- return (someNat (toInteger size))
-          Just LeqProof <- return (isPosNat valWidth)
-          SomeHandle h <- liftIO $
-             getPredefinedHandle sim (MultiPartLoadHandle (fromIntegral (natValue x)) 8 (fromIntegral bytes)) $
-                SomeHandle <$> multipartLoadFn sim x (knownRepr :: NatRepr 8) valWidth (fromIntegral bytes)
-          Just Refl <- return (testEquality
-                          (handleArgTypes h)
-                          (Ctx.Empty Ctx.:>
-                           BoolRepr Ctx.:>
-                           BVRepr x Ctx.:>
-                           WordMapRepr x (BaseBVRepr (knownRepr :: NatRepr 8)) Ctx.:>
-                           MaybeRepr (BVRepr (knownRepr :: NatRepr 8))))
-          Just Refl <- return (testEquality (handleReturnType h) (BVRepr valWidth))
-          let endianBool = case endianness of BigEndian -> truePred sym; LittleEndian -> falsePred sym
-          let args = Ctx.Empty Ctx.:> RegEntry knownRepr endianBool
-                               Ctx.:> RegEntry (BVRepr x) addr
-                               Ctx.:> RegEntry (WordMapRepr x (BaseBVRepr knownRepr)) wordmap
-                               Ctx.:> RegEntry (MaybeRepr (BVRepr knownRepr)) Unassigned
-          SomeBV . regValue <$> callFnVal (HandleFnVal h) (RegMap args)
-
-   | otherwise = fail ("Word size not a multiple of 8: " ++ show size)
+     case someNat (toInteger size) of
+       Nothing -> X.throwM $ BadWidth opstr size
+       Just (Some valWidth) -> do
+         case isPosNat valWidth of
+           Nothing -> X.throwM $ NegativeWidth opstr size
+           Just LeqProof -> do
+             SomeHandle h <-
+               liftIO $ getPredefinedHandle sim
+                        (MultiPartLoadHandle (fromIntegral (natValue x))
+                         8 (fromIntegral bytes)) $
+                        SomeHandle <$> (multipartLoadFn sim x
+                                        (knownRepr :: NatRepr 8)
+                                        valWidth (fromIntegral bytes))
+             let argsTy = Ctx.Empty Ctx.:>
+                          BoolRepr Ctx.:>
+                          BVRepr x Ctx.:>
+                          WordMapRepr x (BaseBVRepr (knownRepr :: NatRepr 8)) Ctx.:>
+                          MaybeRepr (BVRepr (knownRepr :: NatRepr 8))
+                 retTy = BVRepr valWidth
+             case testEquality (handleArgTypes h) argsTy of
+               Nothing -> X.throwM $ InvalidArgumentTypes opstr argsTy (handleArgTypes h)
+               Just Refl ->
+                 case testEquality (handleReturnType h) retTy of
+                   Nothing -> X.throwM $ InvalidReturnType opstr retTy (handleReturnType h)
+                   Just Refl -> do
+                     sym <- getSymInterface
+                     let endianBool = case endianness of
+                                        BigEndian -> truePred sym
+                                        LittleEndian -> falsePred sym
+                     let args = Ctx.Empty Ctx.:> RegEntry knownRepr endianBool
+                                Ctx.:> RegEntry (BVRepr x) addr
+                                Ctx.:> RegEntry (WordMapRepr x (BaseBVRepr knownRepr)) wordmap
+                                Ctx.:> RegEntry (MaybeRepr (BVRepr knownRepr)) Unassigned
+                     SomeBV . regValue <$> callFnVal (HandleFnVal h) (RegMap args)
+   | otherwise = X.throwM $ WidthNotModulo8 opstr size
   where
    (bytes,r) = divMod size 8
+   opstr = "readMap " <> show size <> "@" <> show addr
 
 
 data SomeBV sym where

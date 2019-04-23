@@ -24,16 +24,17 @@ module Lang.Crucible.Server.Translation
   ) where
 
 #if !MIN_VERSION_base(4,8,0)
-import Control.Applicative
+import           Control.Applicative
 #endif
-import Control.Lens
-import Control.Monad
+import           Control.Lens
+import           Control.Monad
 import qualified Data.Foldable as Fold
-import Control.Monad.Reader
-import Control.Monad.State
+import qualified Control.Monad.Catch as X
+import           Control.Monad.Reader
+import           Control.Monad.State
 import qualified Data.Map as Map
-import Data.IORef
-import Data.Maybe
+import           Data.IORef
+import           Data.Maybe
 import Data.Parameterized.Nonce ( Nonce, NonceGenerator
                                 , freshNonce, newIONonceGenerator )
 import qualified Data.Sequence as Seq
@@ -42,9 +43,9 @@ import qualified Data.Vector as V
 import qualified Data.Parameterized.Context as Ctx
 
 
-import Data.HPB
-import Data.Parameterized.Some
-import Data.Parameterized.TraversableFC
+import           Data.HPB
+import           Data.Parameterized.Some
+import           Data.Parameterized.TraversableFC
 
 import           What4.ProgramLoc
 
@@ -156,6 +157,7 @@ newtype Trans s (ret :: CrucibleType) a = Trans { unTrans :: StateT (TransState 
            , Applicative
            , Monad
            , MonadState (TransState s)
+           , X.MonadThrow
            , MonadIO
            )
 

@@ -40,6 +40,7 @@ import           Control.Monad (foldM, join)
 import           Data.Foldable (toList)
 import           Data.Maybe (mapMaybe)
 import           Data.List (intersperse)
+import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           Data.Parameterized.Classes
 import           Data.Parameterized.NatRepr
@@ -122,6 +123,52 @@ zeroInt sym bytes k
           bv  <- bvLit sym w 0
           k (Just (blk, bv))
 zeroInt _ _ k = k @1 Nothing
+
+-- | This instance tries to make things as concrete as possible.
+instance IsExpr (SymExpr sym) => PP.Pretty (LLVMVal sym) where
+  pretty =
+    let typed doc tp = PP.text doc PP.<+> PP.text ":" PP.<+> PP.text (show tp)
+    in
+      \case
+        (LLVMValZero tp) -> PP.angles (typed "zero" tp)
+        (LLVMValUndef tp) -> PP.angles (typed "undef" tp)
+        (LLVMValInt blk w) ->
+          case asNat blk of
+            Just 0 ->
+              case (asUnsignedBV w) of
+                (Just unsigned) -> PP.text $ unwords $
+                  [ "literal integer:"
+                  , "unsigned value = " ++ show unsigned ++ ","
+                  , "signed value = " ++ show (toSigned (bvWidth w) unsigned) ++ ","
+                  , "width = " ++ show (bvWidth w)
+                  ]
+                (Nothing) -> PP.text $ unwords $
+                  [ "symbolic integer: "
+                  , "width = " ++ show (bvWidth w)
+                  ]
+            Just n ->
+              case asUnsignedBV w of
+                Just offset -> PP.text $ unwords $
+                  [ "concrete pointer:"
+                  , "allocation = " ++ show n ++ ","
+                  , "offset = " ++ show offset
+                  ]
+                Nothing -> PP.text $ unwords $
+                  [ "pointer with concrete allocation and symbolic offset:"
+                  , "allocation = " ++ show n
+                  ]
+
+            Nothing ->
+              case asUnsignedBV w of
+                Just offset -> PP.text $
+                  "pointer with concrete offset " ++ show offset
+                Nothing -> PP.text "pointer with symbolic offset"
+
+        (LLVMValFloat SingleSize _) -> PP.text "symbolic float"
+        (LLVMValFloat DoubleSize _) -> PP.text "symbolic double"
+        (LLVMValFloat X86_FP80Size _) -> PP.text "symbolic long double"
+        (LLVMValStruct xs) -> PP.semiBraces (map (PP.pretty . snd) $ V.toList xs)
+        (LLVMValArray _ xs) -> PP.list (map PP.pretty $ V.toList xs)
 
 instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValZero _tp) = "0"
