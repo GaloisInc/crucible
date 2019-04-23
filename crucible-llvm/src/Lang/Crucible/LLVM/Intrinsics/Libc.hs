@@ -87,10 +87,9 @@ llvmMemcpyOverride =
   (Empty :> PtrRepr :> PtrRepr :> SizeT)
   PtrRepr
   (\memOps sym args ->
-     do align    <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
-        volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
+     do volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
         Ctx.uncurryAssignment (callMemcpy sym memOps)
-                              (args :> align :> volatile)
+                              (args :> volatile)
         return $ regValue $ args^._1 -- return first argument
   )
 
@@ -123,10 +122,9 @@ llvmMemcpyChkOverride =
   PtrRepr
   (\memOps sym args ->
     do let args' = Ctx.empty :> (args^._1) :> (args^._2) :> (args^._3)
-       align    <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
        volatile <- liftIO $ RegEntry knownRepr <$> bvLit sym knownNat 0
        Ctx.uncurryAssignment (callMemcpy sym memOps)
-                             (args' :> align :> volatile)
+                             (args' :> volatile)
        return $ regValue $ args^._1 -- return first argument
   )
 
@@ -155,10 +153,9 @@ llvmMemmoveOverride =
   (Empty :> PtrRepr :> PtrRepr :> SizeT)
   PtrRepr
   (\memOps sym args ->
-    do align <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat 0)
+    do volatile <- liftIO (RegEntry knownRepr <$> bvLit sym knownNat 0)
        Ctx.uncurryAssignment (callMemmove sym memOps)
-                             (args :> align :> volatile)
+                             (args :> volatile)
        return $ regValue $ args^._1 -- return first argument
   )
 
@@ -191,11 +188,9 @@ llvmMemsetOverride =
        let dest = args^._1
        val <- liftIO (RegEntry knownRepr <$> bvTrunc sym (knownNat @8) (regValue (args^._2)))
        let len = args^._3
-       align <- liftIO
-          (RegEntry knownRepr <$> bvLit sym knownNat 0)
        volatile <- liftIO
           (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       callMemset sym memOps dest val len align volatile
+       callMemset sym memOps dest val len volatile
        return (regValue dest)
   )
 
@@ -230,11 +225,9 @@ llvmMemsetChkOverride =
        val <- liftIO
             (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args^._2)))
        let len = args^._3
-       align <- liftIO
-          (RegEntry knownRepr <$> bvLit sym knownNat 0)
        volatile <- liftIO
           (RegEntry knownRepr <$> bvLit sym knownNat 0)
-       callMemset sym memOps dest val len align volatile
+       callMemset sym memOps dest val len volatile
        return (regValue dest)
   )
 
@@ -558,14 +551,13 @@ callMemcpy
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret ()
 callMemcpy sym mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
-           _align _volatile = do
+           _volatile = do
   -- FIXME? add assertions about alignment
   --liftIO $ putStrLn "MEM COPY"
   mem <- readGlobal mvar
@@ -584,32 +576,18 @@ callMemmove
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret ()
 callMemmove sym mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
-           _align _volatile = do
+           _volatile = do
   -- FIXME? add assertions about alignment
   --liftIO $ putStrLn "MEM MOVE"
   mem <- readGlobal mvar
   mem' <- liftIO $ doMemcpy sym w mem dest src len
   writeGlobal mvar mem'
-
-
-callMemsetNoalign
-  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
-  => sym
-  -> GlobalVar Mem
-  -> RegEntry sym (LLVMPointerType wptr)
-  -> RegEntry sym (BVType 8)
-  -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 1)
-  -> OverrideSim p sym (LLVM arch) r args ret ()
-callMemsetNoalign sym mvar dest val len volatile =
-  callMemset sym mvar dest val len undefined volatile -- TODO
 
 callMemset
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -618,14 +596,13 @@ callMemset
   -> RegEntry sym (LLVMPointerType wptr)
   -> RegEntry sym (BVType 8)
   -> RegEntry sym (BVType w)
-  -> RegEntry sym (BVType 32)
   -> RegEntry sym (BVType 1)
   -> OverrideSim p sym (LLVM arch) r args ret ()
 callMemset sym mvar
            (regValue -> dest)
            (regValue -> val)
            (RegEntry (BVRepr w) len)
-           _align _volatile = do
+           _volatile = do
   -- FIXME? add assertions about alignment
   --liftIO $ putStrLn "MEM SET"
   mem <- readGlobal mvar
