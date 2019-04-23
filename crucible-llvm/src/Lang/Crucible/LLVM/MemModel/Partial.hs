@@ -336,13 +336,13 @@ bvToDouble sym (PartLLVMVal p (LLVMValInt blk off))
         LLVMValFloat Value.DoubleSize <$>
         W4IFP.iFloatFromBinary sym W4IFP.DoubleFloatRepr off
 
-bvToDouble _ (PartLLVMVal _ v) =
-  let msg = "While converting from a bitvector to a double"
-  in return $ Err $ UnexpectedArgumentType msg [v]
-
 bvToDouble _ (Err e) =
   let msg = "While converting from a bitvector to a double"
   in return $ Err $ PreviousErrors msg [e]
+
+bvToDouble _ (PartLLVMVal _ v) =
+  let msg = "While converting from a bitvector to a double"
+  in return $ Err $ UnexpectedArgumentType msg [v]
 
 
 -- | Convert a bitvector to an FP80 float, asserting that it is not a pointer
@@ -364,13 +364,13 @@ bvToX86_FP80 sym (PartLLVMVal p (LLVMValInt blk off))
         LLVMValFloat Value.X86_FP80Size <$>
         W4IFP.iFloatFromBinary sym W4IFP.X86_80FloatRepr off
 
-bvToX86_FP80 _ (PartLLVMVal _ v) =
-  let msg = "While converting from a bitvector to a X86_FP80"
-  in return $ Err $ UnexpectedArgumentType msg [v]
-
 bvToX86_FP80 _ (Err e) =
   let msg = "While converting from a bitvector to a X86_FP80"
   in return $ Err $ PreviousErrors msg [e]
+
+bvToX86_FP80 _ (PartLLVMVal _ v) =
+  let msg = "While converting from a bitvector to a X86_FP80"
+  in return $ Err $ UnexpectedArgumentType msg [v]
 
 -- | Concatenate partial LLVM bitvector values. The least-significant
 -- (low) bytes are given first. The allocation block number of each
@@ -431,10 +431,6 @@ bvConcat sym (PartLLVMVal p1 v1) (PartLLVMVal p2 v2) =
     where low_w' = W4I.bvWidth low
           high_w' = W4I.bvWidth high
 
-bvConcat _ _ (PartLLVMVal _ v) =
-  let msg = "While concatenating bitvectors"
-  in return $ Err $ UnexpectedArgumentType msg [v]
-
 bvConcat _ (Err e1) (Err e2) =
   let msg = "While concatenating bitvectors"
   in return $ Err $ PreviousErrors msg [e1, e2]
@@ -442,6 +438,14 @@ bvConcat _ (Err e1) (Err e2) =
 bvConcat _ _ (Err e) =
   let msg = "While concatenating bitvectors"
   in return $ Err $ PreviousErrors msg [e]
+
+bvConcat _ (Err e) _ =
+  let msg = "While concatenating bitvectors"
+  in return $ Err $ PreviousErrors msg [e]
+
+bvConcat _ _ (PartLLVMVal _ v) =
+  let msg = "While concatenating bitvectors"
+  in return $ Err $ UnexpectedArgumentType msg [v]
 
 -- | Cons an element onto a partial LLVM array value.
 consArray ::
@@ -461,14 +465,17 @@ consArray (PartLLVMVal p1 hd) (PartLLVMVal p2 (LLVMValArray tp vec))
   | Value.llvmValStorableType hd == tp =
       PartLLVMVal (W4AT.binaryAnd p1 p2) $ LLVMValArray tp (V.cons hd vec)
 
-consArray _ (PartLLVMVal _ v) =
-  Err $ UnexpectedArgumentType "Non-array value" [v]
-
 consArray (Err e1) (Err e2) =
   Err $ PreviousErrors "While consing onto an array" [e1, e2]
 
+consArray (Err e) _ =
+  Err $ PreviousErrors "While consing onto an array" [e]
+
 consArray _ (Err e) =
   Err $ PreviousErrors "While consing onto an array" [e]
+
+consArray _ (PartLLVMVal _ v) =
+  Err $ UnexpectedArgumentType "Non-array value" [v]
 
 -- | Append two partial LLVM array values.
 appendArray ::
@@ -508,14 +515,20 @@ appendArray
 appendArray (PartLLVMVal _ v1) (PartLLVMVal _ v2) =
   Err $ UnexpectedArgumentType "Non-array value" [v1, v2]
 
+appendArray (Err e1) (Err e2) =
+  Err $ PreviousErrors "While appending arrays" [e1, e2]
+
+appendArray (Err e) _ =
+  Err $ PreviousErrors "While appending arrays" [e]
+
+appendArray _ (Err e) =
+  Err $ PreviousErrors "While appending arrays" [e]
+
 appendArray _ (PartLLVMVal _ v2) =
   Err $ UnexpectedArgumentType "Non-array value" [v2]
 
 appendArray (PartLLVMVal _ v1) _ =
   Err $ UnexpectedArgumentType "Non-array value" [v1]
-
-appendArray (Err e1) (Err e2) =
-  Err $ PreviousErrors "While consing onto an array" [e1, e2]
 
 
 -- | Make a partial LLVM array value.
@@ -631,12 +644,12 @@ selectHighBv sym low hi (PartLLVMVal p (LLVMValInt blk bv))
        let ub = UB.PointerCast (RV blk, RV bv) (Bitvector 0)
        return $ PartLLVMVal (addUndefinedBehaviorCondition sym ub pz p) $ LLVMValInt blk bv'
   where w = W4I.bvWidth bv
-selectHighBv _ _ _ (PartLLVMVal _ v) =
-  let msg = "While selecting the high bits of a bitvector"
-  in return $ Err $ UnexpectedArgumentType msg [v]
 selectHighBv _ _ _ (Err e) =
   let msg = "While selecting the high bits of a bitvector"
   in return $ Err $ PreviousErrors msg [e]
+selectHighBv _ _ _ (PartLLVMVal _ v) =
+  let msg = "While selecting the high bits of a bitvector"
+  in return $ Err $ UnexpectedArgumentType msg [v]
 
 
 -- | Look up an element in a partial LLVM array value.
@@ -658,13 +671,13 @@ arrayElt sz tp idx (PartLLVMVal p (LLVMValArray tp' vec))
   , tp == tp' =
     return $ PartLLVMVal p (vec V.! fromIntegral idx)
 
-arrayElt _ _ _ (PartLLVMVal _ v) =
-  let msg = "While selecting the high bits of a bitvector"
-  in return $ Err $ UnexpectedArgumentType msg [v]
-
 arrayElt _ _ _ (Err e) =
   let msg = "While selecting the high bits of a bitvector"
   in return $ Err $ PreviousErrors msg [e]
+
+arrayElt _ _ _ (PartLLVMVal _ v) =
+  let msg = "While selecting the high bits of a bitvector"
+  in return $ Err $ UnexpectedArgumentType msg [v]
 
 -- | Look up a field in a partial LLVM struct value.
 fieldVal ::
@@ -683,13 +696,13 @@ fieldVal flds idx (PartLLVMVal p (LLVMValStruct vec))
   , idx < V.length vec =
     return $ PartLLVMVal p $ snd $ (vec V.! idx)
 
-fieldVal _ _ (PartLLVMVal _ v) =
-  let msg = "While getting a struct field"
-  in return $ Err $ UnexpectedArgumentType msg [v]
-
 fieldVal _ _ (Err e) =
   let msg = "While getting a struct field"
   in return $ Err $ PreviousErrors msg [e]
+
+fieldVal _ _ (PartLLVMVal _ v) =
+  let msg = "While getting a struct field"
+  in return $ Err $ UnexpectedArgumentType msg [v]
 
 ------------------------------------------------------------------------
 -- ** Merging and muxing
