@@ -3499,12 +3499,12 @@ semiRingIte sym sr c x y
   | Just True  <- asConstantPred c = return x
   | Just False <- asConstantPred c = return y
 
-    -- remove the ite if the then and else cases are the same
-  | x == y = return x
-
     -- reduce negations
   | Just (NotPred c') <- asApp c
   = semiRingIte sym sr c' y x
+
+    -- remove the ite if the then and else cases are the same
+  | x == y = return x
 
     -- Try to extract common sum information.
   | (z, x',y') <- WSum.extractCommon (asWeightedSum sr x) (asWeightedSum sr y)
@@ -3519,6 +3519,29 @@ semiRingIte sym sr c x y
   | otherwise =
       let sz = 1 + iteSize x + iteSize y in
       sbMakeExpr sym (BaseIte (SR.semiRingBase sr) sz c x y)
+
+
+mkIte ::
+  ExprBuilder t st fs ->
+  Expr t BaseBoolType ->
+  Expr t bt ->
+  Expr t bt ->
+  IO (Expr t bt)
+mkIte sym c x y
+    -- evaluate as constants
+  | Just True  <- asConstantPred c = return x
+  | Just False <- asConstantPred c = return y
+
+    -- reduce negations
+  | Just (NotPred c') <- asApp c
+  = mkIte sym c' y x
+
+    -- remove the ite if the then and else cases are the same
+  | x == y = return x
+
+  | otherwise =
+      let sz = 1 + iteSize x + iteSize y in
+      sbMakeExpr sym (BaseIte (exprType x) sz c x y)
 
 semiRingLe ::
   ExprBuilder t st fs ->
@@ -4664,8 +4687,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
                 Just (Some flv) ->
                   semiRingIte sym (SR.SemiRingBVRepr flv (bvWidth x)) c x y
                 Nothing ->
-                  let sz = 1 + iteSize x + iteSize y in
-                  sbMakeExpr sym $ BaseIte (BaseBVRepr (bvWidth x)) sz c x y)
+                  mkIte sym c x y)
 
   bvEq sym x y
     | x == y = return $! truePred sym
@@ -4962,9 +4984,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | Just True  <- asConstantPred p = return x
     | Just False <- asConstantPred p = return y
     | x == y                         = return x
-    | otherwise =
-        let sz = 1 + iteSize x + iteSize y in
-        sbMakeExpr sym $ BaseIte (exprType x) sz p x y
+    | otherwise                      = mkIte sym p x y
 
   --------------------------------------------------------------------
   -- String operations
@@ -5101,8 +5121,6 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       sbMakeExpr sym $ ArrayMap idx_tps baseRepr new_map def_map
 
   arrayIte sym p x y
-     | Just b <- asConstantPred p = return $! if b then x else y
-     | x == y = return x
        -- Extract all concrete updates out.
      | ArrayMapView mx x' <- viewArrayMap x
      , ArrayMapView my y' <- viewArrayMap y
@@ -5121,18 +5139,13 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
            sbMakeExpr sym $ ArrayMap idxRepr bRepr mz z'
 
-     | otherwise =
-       case exprType x of
-         BaseArrayRepr idxRepr bRepr ->
-            let sz = 1 + iteSize x + iteSize y in
-            sbMakeExpr sym (BaseIte (BaseArrayRepr idxRepr bRepr) sz p x y)
+     | otherwise = mkIte sym p x y
 
   arrayEq sym x y
     | x == y =
       return $! truePred sym
     | otherwise =
       sbMakeExpr sym $! BaseEq (exprType x) x y
-
 
   arrayTrueOnEntries sym f a
     | Just True <- exprAbsValue a =
@@ -5445,13 +5458,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | otherwise = floatIEEELogicBinOp FloatLt sym x y
   floatGe sym x y = floatLe sym y x
   floatGt sym x y = floatLt sym y x
-  floatIte sym c x y
-    | Just True  <- asConstantPred c = return x
-    | Just False <- asConstantPred c = return y
-    | x == y = return x
-    | otherwise =
-        let sz = 1 + iteSize x + iteSize y in
-        sbMakeExpr sym $ BaseIte (exprType x) sz c x y
+  floatIte sym c x y = mkIte sym c x y
   floatIsNaN = floatIEEELogicUnOp FloatIsNaN
   floatIsInf = floatIEEELogicUnOp FloatIsInf
   floatIsZero = floatIEEELogicUnOp FloatIsZero
