@@ -31,6 +31,7 @@ module What4.Partial.AssertionTree
  , cataMAT
  , asConstAT_
  , asConstAT
+ , simplifyAT
  , collapseAT
  , absurdAT
  ) where
@@ -188,6 +189,13 @@ asConstAT :: (IsExprBuilder sym)
           -> AssertionTree c a
           -> Maybe Bool
 asConstAT sym f = snd . asConstAT_ sym f
+
+-- | Simplify an assertion tree by removing singleton 'And' and 'Or' applications.
+simplifyAT :: AssertionTree c a
+           -> AssertionTree c a
+simplifyAT = cataAT Leaf (simplifyNonEmpty And) (simplifyNonEmpty Or) Ite
+  where simplifyNonEmpty _ (x :| []) = x
+        simplifyNonEmpty f xs = f xs
 
 -- | A monadic catamorphism, collapsing everything to one predicate.
 collapseAT :: (IsExprBuilder sym)
