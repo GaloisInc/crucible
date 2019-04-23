@@ -9,6 +9,11 @@ What assertion(s) does the predicate represent? The 'AssertionTree' datatype
 allows for an uninterpreted tree of predicates, each with an attached
 explanation.
 
+One of the primary operations one might want to do on such a datastructure is
+constant folding, i.e. the simplification of complex assertions with known
+parts. This module presents both a monadic and pure interface to this kind of
+operation.
+
 -}
 
 {-# LANGUAGE DataKinds #-}
@@ -20,15 +25,18 @@ explanation.
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 
 module What4.Partial.AssertionTree
  ( AssertionTree(..)
  , addCondition
  , binaryAnd
  , binaryOr
+ , cataAAT
  , cataAT
  , tagAT
  , cataMAT
+ , canonicalizeMAT
  , canonicalizeAT
  , asConstAT_
  , asConstAT
@@ -39,6 +47,8 @@ module What4.Partial.AssertionTree
 import           GHC.Generics (Generic, Generic1)
 import           Data.Data (Data)
 
+import           Data.Coerce (coerce)
+import           Data.Functor.Identity (Identity(..))
 import           Data.Maybe (catMaybes)
 import           Data.Bifunctor (bimap)
 import           Data.Bifunctor.TH (deriveBifunctor, deriveBifoldable, deriveBitraversable)
@@ -48,7 +58,7 @@ import           Text.Show.Deriving (deriveShow1, deriveShow2)
 import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NonEmpty
 import           Data.Void (Void, absurd)
-import           Control.Monad (foldM, (<=<))
+import           Control.Monad (foldM)
 import           Control.Arrow ((&&&))
 
 import           What4.Interface
@@ -96,6 +106,25 @@ addCondition :: AssertionTree c a
              -> AssertionTree c a
 addCondition tree cond = binaryAnd (Leaf cond) tree
 
+-- | Applicative catamorphisms for the 'AssertionTree' type
+--
+--   These are more restrictive than the monadic catamorphisms ('cataMAT'),
+--   note that the 'And', 'Or', and 'Ite' cases must be pure.
+cataAAT :: Applicative f
+        => (a -> f b)         -- ^ 'Leaf' case
+        -> (NonEmpty b -> b)  -- ^ 'And' case
+        -> (NonEmpty b -> b)  -- ^ 'Or' case
+        -> (c -> b -> b -> b) -- ^ 'Ite' case
+        -> AssertionTree c a
+        -> f b
+cataAAT leaf and_ or_ ite =
+  \case
+    Leaf a      -> leaf a
+    And  l      -> and_ <$> traverse r l
+    Or   l      -> or_  <$> traverse r l
+    Ite c t1 t2 -> ite c <$> r t1 <*> r t2
+  where r = cataAAT leaf and_ or_ ite
+
 -- | Catamorphisms for the 'AssertionTree' type
 cataAT :: (a -> b)           -- ^ 'Leaf' case
        -> (NonEmpty b -> b)  -- ^ 'And' case
@@ -103,57 +132,7 @@ cataAT :: (a -> b)           -- ^ 'Leaf' case
        -> (c -> b -> b -> b) -- ^ 'Ite' case
        -> AssertionTree c a
        -> b
-cataAT leaf and_ or_ ite val =
-  case val of
-    Leaf a      -> leaf a
-    And  l      -> and_ (NonEmpty.map r l)
-    Or   l      -> or_  (NonEmpty.map r l)
-    Ite c t1 t2 -> ite c (r t1) (r t2)
-  where r = cataAT leaf and_ or_ ite
-
--- | Add an additional piece of information to an 'AndOrIte' tree, possibly
---   modifying the structure of the tree based on subtrees and computed tags
---   along the way.
-tagAndReplace :: (a -> b)           -- ^ 'Leaf' case
-              -> (c -> d)           -- ^ 'Leaf' case
-              -> (NonEmpty (AssertionTree (c, d) (a, b), b) ->
-                  (AssertionTree (c, d) (a, b), b))
-                 -- ^ 'And' case
-              -> (NonEmpty (AssertionTree (c, d) (a, b), b) ->
-                  (AssertionTree (c, d) (a, b), b))
-                 -- ^ 'Or' case
-              -> ((c, d) ->
-                   (AssertionTree (c, d) (a, b), b) ->
-                   (AssertionTree (c, d) (a, b), b) ->
-                   (AssertionTree (c, d) (a, b), b))
-                 -- ^ 'Ite' case
-              -> AssertionTree c a
-              -> (AssertionTree (c, d) (a, b), b)
-tagAndReplace leaf cond summarizeAnd summarizeOr summarizeITE =
-  cataAT
-    (\lf       -> let tag = leaf lf in (Leaf (lf, tag), tag))
-    (\factors  -> summarizeAnd factors)
-    (\summands -> summarizeOr summands)
-    (\c t1 t2  -> summarizeITE (c, cond c) t1 t2)
-
--- | Add an additional piece of information to an 'AndOrIte' tree
-tagAT :: (a -> b)           -- ^ 'Leaf' case
-      -> (c -> d)           -- ^ 'Cond' case
-      -> (NonEmpty b -> b)  -- ^ Summarize child tags ('And' case)
-      -> (NonEmpty b -> b)  -- ^ Summarize child tags ('Or' case)
-      -> (c -> d -> b -> b -> b) -- ^ Summarize child tags ('Ite' case)
-      -> AssertionTree c a
-      -> (AssertionTree (c, d) (a, b), b)
-tagAT leaf cond summarizeAnd summarizeOr summarizeITE =
-  tagAndReplace
-    leaf
-    cond
-    (And &&&& summarizeAnd)
-    (Or  &&&& summarizeOr)
-    (\c@(c1, c2) (thenTree, thenTag) (elseTree, elseTag) ->
-      (Ite c thenTree elseTree, summarizeITE c1 c2 thenTag elseTag))
-  where (&&&&) :: Functor f => (f a -> c) -> (f b -> d) -> f (a, b) -> (c, d)
-        f &&&& g = (f . fmap fst) &&& (g . fmap snd)
+cataAT leaf and_ or_ ite = coerce (cataAAT (Identity . leaf) and_ or_ ite)
 
 -- | Monadic catamorphisms for the 'AssertionTree' type
 --
@@ -174,6 +153,77 @@ cataMAT leaf and_ or_ ite = cataAT
     t2' <- t2
     ite a t1' t2') -- Ite
 
+-- | Add an additional piece of information to an 'AndOrIte' tree, possibly
+--   modifying the structure of the tree based on subtrees and computed tags
+--   along the way.
+tagAndReplaceM :: Monad m
+               => (a -> m b)           -- ^ 'Leaf' case
+               -> (c -> m d)           -- ^ 'Ite' case
+               -> (NonEmpty (AssertionTree (c, d) (a, b), b) ->
+                   m (AssertionTree (c, d) (a, b), b))
+                  -- ^ 'And' case
+               -> (NonEmpty (AssertionTree (c, d) (a, b), b) ->
+                   m (AssertionTree (c, d) (a, b), b))
+                  -- ^ 'Or' case
+               -> ((c, d) ->
+                    (AssertionTree (c, d) (a, b), b) ->
+                    (AssertionTree (c, d) (a, b), b) ->
+                    m (AssertionTree (c, d) (a, b), b))
+                  -- ^ 'Ite' case
+               -> AssertionTree c a
+               -> m (AssertionTree (c, d) (a, b), b)
+tagAndReplaceM leaf cond summarizeAnd summarizeOr summarizeITE =
+  cataMAT
+    (\lf      -> (\tag -> (Leaf (lf, tag), tag)) <$> leaf lf)
+    (\factors -> summarizeAnd factors)
+    (\summands -> summarizeOr summands)
+    (\c t1 t2  -> (\tag -> summarizeITE (c, tag) t1 t2) =<< cond c)
+
+-- | Add an additional piece of information to an 'AndOrIte' tree, possibly
+--   modifying the structure of the tree based on subtrees and computed tags
+--   along the way.
+tagAndReplace :: (a -> b)           -- ^ 'Leaf' case
+              -> (c -> d)           -- ^ 'Ite' case
+              -> (NonEmpty (AssertionTree (c, d) (a, b), b) ->
+                  (AssertionTree (c, d) (a, b), b))
+                 -- ^ 'And' case
+              -> (NonEmpty (AssertionTree (c, d) (a, b), b) ->
+                  (AssertionTree (c, d) (a, b), b))
+                 -- ^ 'Or' case
+              -> ((c, d) ->
+                   (AssertionTree (c, d) (a, b), b) ->
+                   (AssertionTree (c, d) (a, b), b) ->
+                   (AssertionTree (c, d) (a, b), b))
+                 -- ^ 'Ite' case
+              -> AssertionTree c a
+              -> (AssertionTree (c, d) (a, b), b)
+tagAndReplace leaf cond summarizeAnd summarizeOr summarizeITE = coerce $
+  tagAndReplaceM
+    (Identity . leaf)
+    (Identity . cond)
+    (coerce summarizeAnd)
+    (coerce summarizeOr)
+    (coerce summarizeITE)
+
+-- | Add an additional piece of information to an 'AndOrIte' tree
+tagAT :: (a -> b)           -- ^ 'Leaf' case
+      -> (c -> d)           -- ^ 'Cond' case
+      -> (NonEmpty b -> b)  -- ^ Summarize child tags ('And' case)
+      -> (NonEmpty b -> b)  -- ^ Summarize child tags ('Or' case)
+      -> (c -> d -> b -> b -> b) -- ^ Summarize child tags ('Ite' case)
+      -> AssertionTree c a
+      -> (AssertionTree (c, d) (a, b), b)
+tagAT leaf cond summarizeAnd summarizeOr summarizeITE =
+  tagAndReplace
+    leaf
+    cond
+    (And &&&& summarizeAnd)
+    (Or  &&&& summarizeOr)
+    (\c@(c1, c2) (thenTree, thenTag) (elseTree, elseTag) ->
+      (Ite c thenTree elseTree, summarizeITE c1 c2 thenTag elseTag))
+  where (&&&&) :: Functor f => (f a -> c) -> (f b -> d) -> f (a, b) -> (c, d)
+        f &&&& g = (f . fmap fst) &&& (g . fmap snd)
+
 -- | Simplify an assertion tree by removing singleton 'And' and 'Or' applications.
 simplifyAT :: AssertionTree c a
            -> AssertionTree c a
@@ -185,24 +235,24 @@ simplifyAT = cataAT Leaf (simplifyNonEmpty And) (simplifyNonEmpty Or) Ite
 --   constantly false, and apply some transformation to them if so.
 --   Generally, the transformation will be just replacing them with a constant
 --   value.
-constantFoldAT_ :: (IsExprBuilder sym)
-                => proxy sym
-                -> (a -> Maybe (Pred sym))
-                -> (c -> Maybe (Pred sym))
-                -> (Maybe Bool ->
-                      AssertionTree (c, Maybe Bool) (a, Maybe Bool) ->
-                      AssertionTree (c, Maybe Bool) (a, Maybe Bool))
-                   -- ^ Apply to subtrees
-                -> AssertionTree c a
-                -> (AssertionTree (c, Maybe Bool) (a, Maybe Bool), Maybe Bool)
-constantFoldAT_ _proxy f g transform at =
-  tagAndReplace
-    (asConstantPred <=< f)
-    (asConstantPred <=< g)
+constantFoldMAT_ :: (IsExprBuilder sym, Monad m)
+                 => proxy sym
+                 -> (a -> m (Maybe (Pred sym)))
+                 -> (c -> m (Maybe (Pred sym)))
+                 -> (Maybe Bool ->
+                       AssertionTree (c, Maybe Bool) (a, Maybe Bool) ->
+                       m (AssertionTree (c, Maybe Bool) (a, Maybe Bool)))
+                    -- ^ Apply to subtrees
+                 -> AssertionTree c a
+                 -> m (AssertionTree (c, Maybe Bool) (a, Maybe Bool), Maybe Bool)
+constantFoldMAT_ _proxy f g transform =
+  tagAndReplaceM
+    (fmap (>>= asConstantPred) . f)
+    (fmap (>>= asConstantPred) . g)
     (\factors ->
       let factors' = catMaybes (NonEmpty.toList (fmap snd factors))
           t = And (fmap fst factors)
-          transform' b = (transform b t, b)
+          transform' b = (,b) <$> transform b t
       in if any not factors'
          then transform' (Just False)
          else if length factors' == length factors
@@ -211,7 +261,7 @@ constantFoldAT_ _proxy f g transform at =
     (\summands ->
       let summands' = catMaybes (NonEmpty.toList (fmap snd summands))
           t = Or (fmap fst summands)
-          transform' b = (transform b t, b)
+          transform' b = (,b) <$> transform b t
       in if or summands'
          then transform' (Just True)
          else if length summands' == length summands
@@ -219,36 +269,65 @@ constantFoldAT_ _proxy f g transform at =
               else transform' Nothing)
     (\(c, c') t1@(tree1, tag1) t2@(tree2, tag2) ->
        let t = Ite (c, c') tree1 tree2
-           transform' b = (transform b t, b)
+           transform' b = (,b) <$> transform b t
        in
         case c' of
-          Just True  -> t1
-          Just False -> t2
+          Just True  -> pure t1
+          Just False -> pure t2
           Nothing ->
             case (tag1, tag2) of
               (Just True, Just True)   -> transform' (Just True)
               (Just False, Just False) -> transform' (Just False)
               _                        -> transform' Nothing)
-    at
+
+-- | Apply some constant folding: figure out of trees are constantly true or
+--   constantly false, and apply some transformation to them if so.
+--   Generally, the transformation will be just replacing them with a constant
+--   value.
+constantFoldAT_ :: (IsExprBuilder sym)
+                 => proxy sym
+                 -> (a -> (Maybe (Pred sym)))
+                 -> (c -> (Maybe (Pred sym)))
+                 -> (Maybe Bool ->
+                       AssertionTree (c, Maybe Bool) (a, Maybe Bool) ->
+                       (AssertionTree (c, Maybe Bool) (a, Maybe Bool)))
+                    -- ^ Apply to subtrees
+                 -> AssertionTree c a
+                 -> (AssertionTree (c, Maybe Bool) (a, Maybe Bool), Maybe Bool)
+constantFoldAT_ proxy f g transform =
+  runIdentity .
+    constantFoldMAT_ proxy (Identity . f) (Identity . g) (coerce transform)
 
 -- | Do all possible constant folding, replacing trivially true or false subtrees
-constantFoldAT :: (IsExprBuilder sym)
-               => proxy sym
-               -> (a -> Maybe (Pred sym))
-               -> (c -> Maybe (Pred sym))
-               -> AssertionTree c a -- ^ \"Trivially true\" tree
-               -> AssertionTree c a -- ^ \"Trivially false\" tree
-               -> AssertionTree c a
-               -> AssertionTree c a
-constantFoldAT proxy f g true false =
+constantFoldMAT :: (IsExprBuilder sym, Monad m)
+                => proxy sym
+                -> (a -> m (Maybe (Pred sym)))
+                -> (c -> m (Maybe (Pred sym)))
+                -> AssertionTree c a -- ^ \"Trivially true\" tree
+                -> AssertionTree c a -- ^ \"Trivially false\" tree
+                -> AssertionTree c a
+                -> m (AssertionTree c a)
+constantFoldMAT proxy f g true false =
   let addb b z = (z, Just b)
       true'  = bimap (addb True) (addb True) true
       false' = bimap (addb False) (addb False) false
-  in bimap fst fst . fst . constantFoldAT_ proxy f g
+  in fmap (bimap fst fst . fst) . constantFoldMAT_ proxy f g
        (\case
-          Just True  -> const true'
-          Just False -> const false'
-          Nothing    -> id)
+          Just True  -> const (pure true')
+          Just False -> const (pure false')
+          Nothing    -> pure)
+
+-- | Put an assertion tree in \"canonical form\": simplify and constant fold it.
+canonicalizeMAT :: (IsExprBuilder sym, Monad m)
+                => proxy sym
+                -> (a -> m (Maybe (Pred sym)))
+                -> (c -> m (Maybe (Pred sym)))
+                -> AssertionTree c a -- ^ \"Trivially true\" tree
+                -> AssertionTree c a -- ^ \"Trivially false\" tree
+                -> AssertionTree c a
+                -> m (AssertionTree c a)
+canonicalizeMAT proxy f g true false v =
+  simplifyAT <$> constantFoldMAT proxy f g true false v
 
 -- | Put an assertion tree in \"canonical form\": simplify and constant fold it.
 canonicalizeAT :: (IsExprBuilder sym)
@@ -260,7 +339,7 @@ canonicalizeAT :: (IsExprBuilder sym)
                -> AssertionTree c a
                -> AssertionTree c a
 canonicalizeAT proxy f g true false =
-  simplifyAT . constantFoldAT proxy f g true false
+  runIdentity . canonicalizeMAT proxy (Identity . f) (Identity . g) true false
 
 -- | Simplify an tree with 'Pred' in it with 'asConstantPred'
 --
