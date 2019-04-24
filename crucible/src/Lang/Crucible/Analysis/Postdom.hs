@@ -15,6 +15,7 @@
 {-# LANGUAGE TupleSections #-}
 module Lang.Crucible.Analysis.Postdom
   ( postdomInfo
+  , breakpointPostdomInfo
   , validatePostdom
   ) where
 
@@ -102,9 +103,11 @@ postdomAssignment m breakpointIds = fmapFC go m
 
 -- | Compute posstdom information for CFG.
 postdomInfo :: CFG ext b i r -> CFGPostdom b
-postdomInfo g =
-  postdomAssignment (cfgBlockMap g) (Bimap.keysR $ cfgBreakpoints g)
+postdomInfo g = postdomAssignment (cfgBlockMap g) []
 
+breakpointPostdomInfo :: CFG ext b i r -> [BreakpointName] -> CFGPostdom b
+breakpointPostdomInfo g breakpointNames = postdomAssignment (cfgBlockMap g) $
+  mapMaybe (\nm -> Bimap.lookup nm (cfgBreakpoints g)) breakpointNames
 
 blockEndsWithError :: Block ext blocks ret args -> Bool
 blockEndsWithError b =

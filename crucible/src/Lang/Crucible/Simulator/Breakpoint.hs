@@ -20,6 +20,8 @@ module Lang.Crucible.Simulator.Breakpoint
 import           Control.Lens
 import           Control.Monad.Reader
 import qualified Data.Bimap as Bimap
+import           Data.HashMap.Strict (HashMap)
+import qualified Data.HashMap.Strict as HashMap
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -44,8 +46,9 @@ breakAndReturn ::
   Ctx.Assignment C.TypeRepr args ->
   C.TypeRepr ret ->
   C.OverrideSim p sym ext rtp args ret (C.RegValue sym ret) ->
+  HashMap C.SomeHandle [C.BreakpointName] ->
   IO (C.ExecutionFeature p sym ext rtp)
-breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override =
+breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpoints =
   case Bimap.lookup breakpoint_name cfgBreakpoints of
     Just (Some breakpoint_block_id)
       | breakpoint_block <- C.getBlock breakpoint_block_id cfgBlockMap
@@ -68,6 +71,32 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override =
               result_state <- runReaderT (C.runOverrideSim ret_type override) $
                 state & C.stateTree %~
                   C.pushCallFrame C.TailReturnToCrucible override_frame
+              return $ Just result_state
+          C.CallState return_handler (C.CrucibleCall block_id frame) state
+            | Just breakpoints <- HashMap.lookup
+                (C.frameHandle frame)
+                all_breakpoints -> do
+              let result_frame = C.setFrameBreakpointPostdomInfo
+                    breakpoints
+                    frame
+              result_state <- runReaderT
+                (C.performFunctionCall
+                  return_handler
+                  (C.CrucibleCall block_id result_frame))
+                state
+              return $ Just result_state
+          C.TailCallState value_from_value (C.CrucibleCall block_id frame) state
+            | Just breakpoints <- HashMap.lookup
+                (C.frameHandle frame)
+                all_breakpoints -> do
+              let result_frame = C.setFrameBreakpointPostdomInfo
+                    breakpoints
+                    frame
+              result_state <- runReaderT
+                (C.performTailCall
+                  value_from_value
+                  (C.CrucibleCall block_id result_frame))
+                state
               return $ Just result_state
           _ -> return Nothing
     _ -> fail $ "unexpected breakpoint: " ++ show breakpoint_name

@@ -38,6 +38,7 @@ module Lang.Crucible.Simulator.CallFrame
   , framePostdom
   , frameProgramLoc
   , setFrameBlock
+  , setFrameBreakpointPostdomInfo
   , extendFrame
   , updateFrame
   , mergeCallFrame
@@ -66,6 +67,7 @@ import           What4.FunctionName
 import           What4.Interface ( Pred )
 import           What4.ProgramLoc ( ProgramLoc )
 
+import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
@@ -193,6 +195,17 @@ setFrameBlock bid@(BlockID block_id) args f = f'
                  , _frameStmts = b^.blockStmts
                  , _framePostdom = mkFramePostdom pds
                  }
+
+setFrameBreakpointPostdomInfo ::
+  [BreakpointName] ->
+  CallFrame sym ext blocks ret ctx ->
+  CallFrame sym ext blocks ret ctx
+setFrameBreakpointPostdomInfo breakpoints f = case f of
+  CallFrame{ _frameCFG = g, _frameBlockID = Some (BlockID block_id) } -> do
+    let pdInfo = breakpointPostdomInfo g breakpoints
+    f { _framePostdomMap = pdInfo
+      , _framePostdom  = mkFramePostdom (getConst $ pdInfo Ctx.! block_id)
+      }
 
 updateFrame :: RegMap sym ctx'
             -> BlockID blocks ctx

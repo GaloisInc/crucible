@@ -49,6 +49,7 @@ library
     time >= 1.8 && < 2.0,
     th-abstraction >=0.1 && <0.3,
     transformers,
+    unordered-containers,
     vector,
     what4 >= 0.4
 
