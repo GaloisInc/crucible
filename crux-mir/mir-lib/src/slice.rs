@@ -16,7 +16,9 @@
 #![feature(trusted_len)]
 
 /*
-cfg options
+cfg options: these options control what is actually compiled. 
+There are several parts of core that we don't translate yet.
+These options cut out a significant part of the file.
 
 memchr
 rotate
@@ -25,11 +27,14 @@ fmt
 
 is_sorted
 nth_back
-tra -- TrustedRandomAccess
+tra        -- TrustedRandomAccess
 as_slice
 
 orphan
+  -- can't include because it is an orphan instance for a trait
 dup_lang
+  -- can't include because even though we have no_std above
+  -- rustc still has this implementation
 
 */
     
@@ -2524,7 +2529,7 @@ impl<T> [T] {
     }
 }
 
-#[cfg(dup_blang)]
+#[cfg(dup_lang)]
 #[lang = "slice_u8"]
 #[cfg(not(test))]
 impl [u8] {
