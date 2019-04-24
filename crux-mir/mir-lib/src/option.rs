@@ -182,7 +182,8 @@ use pin::Pin;
 // which basically means it must be `Option`.
 
 /// The `Option` type. See [the module level documentation](index.html) for more.
-#[derive(Clone, Copy)]
+    #[derive(Clone)]
+    // SCW: REMOVE PartialOrd, Ord as requires "Promoted"
 #[stable(feature = "rust1", since = "1.0.0")]
 pub enum Option<T> {
     /// No value
@@ -1165,6 +1166,7 @@ impl<'a, T> IntoIterator for &'a mut Option<T> {
     }
 }
 
+#[cfg(convert)]    
 #[stable(since = "1.12.0", feature = "option_from")]
 impl<T> From<T> for Option<T> {
     fn from(val: T) -> Option<T> {
@@ -1172,6 +1174,7 @@ impl<T> From<T> for Option<T> {
     }
 }
 
+#[cfg(convert)]        
 #[stable(feature = "option_ref_from_ref_option", since = "1.30.0")]
 impl<'a, T> From<&'a Option<T>> for Option<&'a T> {
     fn from(o: &'a Option<T>) -> Option<&'a T> {
@@ -1179,6 +1182,7 @@ impl<'a, T> From<&'a Option<T>> for Option<&'a T> {
     }
 }
 /*
+#[cfg(convert)]    
 #[stable(feature = "option_ref_from_ref_option", since = "1.30.0")]
 impl<'a, T> From<&'a mut Option<T>> for Option<&'a mut T> {
     fn from(o: &'a mut Option<T>) -> Option<&'a mut T> {
@@ -1467,13 +1471,13 @@ impl<A, V: FromIterator<A>> FromIterator<Option<A>> for Option<V> {
 /// implement `impl From<NoneError>` for `YourErrorType`. In that case, `x?` within a function that
 /// returns `Result<_, YourErrorType>` will translate a `None` value into an `Err` result.
 #[unstable(feature = "try_trait", issue = "42327")]
-#[derive(Clone, Copy, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, PartialOrd, Ord)]
 pub struct NoneError;
 
 #[stable(feature = "rust1", since = "1.0.0")]    
 impl Eq for NoneError {}
     
-
+#[cfg(try)]
 #[unstable(feature = "try_trait", issue = "42327")]
 impl<T> ops::Try for Option<T> {
     type Ok = T;

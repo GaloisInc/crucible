@@ -130,8 +130,8 @@ pretty_temp (Var vn vm vty _vs _) =
 instance Pretty Predicate where
   pretty (TraitPredicate trait args) =
       pretty trait <> pretty args
-  pretty (TraitProjection trait args ty) =
-      pretty trait <> pretty args <> text "=" <> pretty ty
+  pretty (TraitProjection lhs ty) =
+      pretty lhs <> text "=" <> pretty ty
   pretty UnknownPredicate = text "UnknownPredicate"
   
 instance Pretty Fn where
@@ -349,12 +349,12 @@ instance Pretty TraitItem where
   pretty (TraitConst name ty)     = text "const" <+> pr_id name <> colon <> pretty ty <> semi
 
 instance Pretty Trait where
-  pretty tr@(Trait name items supers params preds _numParams) =
+  pretty (Trait name items supers params preds _numParams) =
     let sd = case supers of
               [ _self ] -> mempty
               ( _self : rest ) -> pretty rest
               [] -> error "BUG: supertrait list should always start with self"
-        ps = pparams (tr^.traitParams)
+        ps = pparams params
     in                    
         vcat [text "trait" <+> pretty name <+> ps <+> sd <+> ppreds preds <+> lbrace ,
               indent 3 (vcat (map pretty items)),
@@ -391,8 +391,9 @@ instance Pretty TraitImpl where
           rbrace]
 
 instance Pretty TraitImplItem where
-  pretty (TraitImplMethod nm timpls params preds _sig)  =
-    pretty nm <+> text "implements" <+> pretty timpls <+> pparams params <+> ppreds preds
+  pretty (TraitImplMethod nm timpls params preds sig)  =
+    pretty nm <+> text "of type" <+> pretty sig <+>
+       text "implements" <+> pretty timpls <+> pparams params <+> ppreds preds
   pretty (TraitImplType nm timpls params preds ty) =
     text "type" <+> pretty nm <+> pretty timpls <+> pparams params <+> text "=" <+> pretty ty <+> ppreds preds
 

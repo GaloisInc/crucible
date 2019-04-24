@@ -80,89 +80,20 @@ specialize sig@(FnSig args ret ps preds _atys) ts
        ss  = Substs ts' <> incN 0
 
 
----------------------------------------------------------------------------------------------
--- "Unification"
--- Actually this is just "matching" as we only produce a substitution in one direction
-
-combineMaps :: Map Integer Ty -> Map Integer Ty -> Maybe (Map Integer Ty)
-combineMaps m1 m2 = Map.foldrWithKey go (Just m2) m1 where
-  go :: Integer -> Ty -> Maybe (Map Integer Ty) -> Maybe (Map Integer Ty)
-  go _k _ty Nothing = Nothing
-  go k ty (Just res) =
-    case Map.lookup k res of
-      Just ty' -> if ty == ty' then Just res else Nothing
-      Nothing ->  Just (Map.insert k ty res)
-
--- | Try to match an implementation type against a trait type
--- TODO: do we also need to match the params/ats?
--- TODO: allow re-ordering of preds??
--- TODO: prune vars bound by the sig from the returned unifier
-matchSig :: FnSig -> FnSig -> Maybe (Map Integer Ty)
-matchSig (FnSig instArgs instRet [] [] _instATs)
-         (FnSig genArgs  genRet  [] []  _genATs) = do
-  m1 <- matchTys instArgs genArgs
-  m2 <- matchTy  instRet  genRet
-  combineMaps m1 m2
-matchSig s1@(FnSig instArgs instRet _instParams _instPreds _instATs)
-         s2@(FnSig genArgs  genRet  _genParams  _genPreds  _genATs) =
-  error $ "TODO: extend matchSig to include params and/or preds"
-        ++ "\n\t" ++ fmt s1
-        ++ "\n\t" ++ fmt s2
-
-matchPred :: Predicate -> Predicate -> Maybe (Map Integer Ty)
-matchPred (TraitPredicate d1 ss1) (TraitPredicate d2 ss2)
-  | d1 == d2
-  = matchSubsts ss1 ss2
-matchPred (TraitProjection d1 ss1 ty1) (TraitProjection d2 ss2 ty2)
-  | d1 == d2
-  = do m1 <- matchSubsts ss1 ss2
-       m2 <- matchTy ty1 ty2
-       combineMaps m1 m2
-matchPred _ _ = Nothing
-       
--- | Try to match an implementation type (first argument) against a trait type (second argument)
--- If they succeed, produce a substitution -- a mapping from type params to types
--- Neither type should include TyProjections. They should have already been abstracted out
--- using [abstractAssociatedTypes]
-matchTy :: Ty -> Ty -> Maybe (Map Integer Ty)
-matchTy ty (TyParam i) 
-  = return (Map.insert i ty Map.empty)
-matchTy (TyTuple instTys) (TyTuple genTys) =
-  matchTys instTys genTys
-matchTy (TySlice t1) (TySlice t2) = matchTy t1 t2
-matchTy (TyArray t1 i1) (TyArray t2 i2) | i1 == i2 = matchTy t1 t2
-matchTy (TyRef t1 m1) (TyRef t2 m2) | m1 == m2 = matchTy t1 t2
-matchTy (TyAdt d1 s1) (TyAdt d2 s2) | d1 == d2 = matchSubsts s1 s2
-matchTy (TyFnDef d1 s1) (TyFnDef d2 s2) | d1 == d2 = matchSubsts s1 s2
-matchTy (TyClosure d1 s1) (TyClosure d2 s2) | d1 == d2 =  matchSubsts s1 s2
-matchTy (TyFnPtr sig1) (TyFnPtr sig2) = matchSig sig1 sig2
-matchTy (TyRawPtr t1 m1)(TyRawPtr t2 m2) | m1 == m2 = matchTy t1 t2
-matchTy (TyDowncast t1 i1) (TyDowncast t2 i2) | i1 == i2 = matchTy t1 t2
-matchTy inst arg
-  | inst == arg
-  = return Map.empty
-matchTy ty1 ty2@(TyProjection d2 s2) = error $
-  "BUG: found " ++ fmt ty2 ++ " when trying to match " ++ fmt ty1
-matchTy _ _ = Nothing
-
-matchSubsts :: Substs -> Substs -> Maybe (Map Integer Ty)
-matchSubsts (Substs tys1) (Substs tys2) = matchTys tys1 tys2
-
-matchTys :: [Ty] -> [Ty] -> Maybe (Map Integer Ty)
-matchTys = matchList matchTy
-
-matchList :: (a -> a -> Maybe (Map Integer Ty)) -> [a] -> [a] -> Maybe (Map Integer Ty)
-matchList f [] [] = return Map.empty
-matchList f (t1:instTys) (t2:genTys) = do
-  m1 <- f t1 t2
-  m2 <- matchList f instTys genTys
-  combineMaps m1 m2
-matchList f _ _ = Nothing  
-
-
-mkSubsts :: Map Integer Ty -> Substs
-mkSubsts m = Substs (map g [0 ..]) where
-  g i = case Map.lookup i m of
-          Just ty -> ty
-          Nothing -> TyParam i
   
+-- | GetProjections
+
+tyProjections :: Ty -> [(DefId, Substs)]
+tyProjections (TyProjection did ss) = [(did,ss)]
+tyProjections (TyTuple ts) = foldMap tyProjections ts
+tyProjections (TySlice ty) = tyProjections ty
+tyProjections (TyArray ty _i) = tyProjections ty
+tyProjections (TyRef ty _mut) = tyProjections ty
+tyProjections (TyRawPtr ty _mut) = tyProjections ty
+tyProjections (TyAdt _ (Substs params)) = foldMap tyProjections params
+tyProjections (TyFnDef _ (Substs params)) = foldMap tyProjections params
+tyProjections (TyClosure _ (Substs params)) = foldMap tyProjections params
+tyProjections (TyCustom (BoxTy ty)) = tyProjections ty
+tyProjections (TyCustom (VecTy ty)) = tyProjections ty
+tyProjections (TyCustom (IterTy ty)) = tyProjections ty
+tyProjections _ = []

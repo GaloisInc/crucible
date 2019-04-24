@@ -44,14 +44,16 @@ loadPrims useStdLib debugLevel = do
               , "ops/try"
               , "clone"
               , "cmp"                    
-              , "convert"
+--              , "convert"
               , "default"   -- NOTE: macro impls not available b/c mir-json doesn't include "implements"
               , "option"
               , "result"
               , "ops/range"  
               , "ops/index"
               , "ops/deref"
-              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
+--              , "iter/traits/collect"  -- Cannot handle IntoIterator or FromIterator
+--              , "iter/iterator"
+--              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
 --              , "ops/arith" -- doesn't include "implements" in mir-json for macros
               ] else [
                 "ops/function"  -- needed for any treatment of hofs

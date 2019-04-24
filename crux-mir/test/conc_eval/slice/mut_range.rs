@@ -1,3 +1,4 @@
+// FAIL: Don't know how to call ::ops::index::IndexMut::index_mut
 fn g(xs: &mut [u8]) {
     xs[0] = xs[0] + 1;
 }

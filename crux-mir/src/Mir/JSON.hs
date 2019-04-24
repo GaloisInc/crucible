@@ -495,7 +495,8 @@ instance FromJSON Predicate where
             case mpobj of
               Just ppobj -> do
                 pobj <- ppobj .: "projection_ty"
-                TraitProjection <$> pobj .: "item_def_id" <*> pobj .: "substs" <*> ppobj .: "ty"
+                TraitProjection <$> (TyProjection <$> pobj .: "item_def_id" <*> pobj .: "substs")
+                                <*> ppobj .: "ty"
               Nothing -> return UnknownPredicate
       String t | t == "unknown_pred" -> return UnknownPredicate
       wat -> Aeson.typeMismatch "Predicate" wat           
@@ -516,13 +517,13 @@ instance FromJSON TraitImplItem where
       case HML.lookup "kind" v of
         Just (String "Method") -> TraitImplMethod
                                   <$> v .: "name"
-                                  <*> v .: "implements"
+                                  <*> v .:? "implements" .!= "unknown[0]::UNKNOWN[0]"
                                   <*> (withObject "Param" (\u -> u .: "params") pg)
                                   <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
                                   <*> v .: "signature"
         Just (String "Type") -> TraitImplType
-                                  <$> v .: "name"
-                                  <*> v .: "implements"
+                                  <$> v .: "name"  
+                                  <*> v .:? "implements" .!= "unknown[0]::UNKNOWN[0]"
                                   <*> (withObject "Param" (\u -> u .: "params") pg)
                                   <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
                                   <*> v .: "type"                                  

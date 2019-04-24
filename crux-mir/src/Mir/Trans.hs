@@ -176,7 +176,9 @@ tyToRepr t0 = case t0 of
             Some (C.PolyFnRepr k argsr retr)
         
   M.TyDynamic _def -> Some C.AnyRepr
---  M.TyProjection _def _tyargs -> Some taggedUnionRepr
+  M.TyProjection def _tyargs
+   | def == (M.textId "::ops[0]::function[0]::FnOnce[0]::Output[0]")
+     -> Some taggedUnionRepr
   M.TyProjection _def _tyargs -> error $ "BUG: all uses of TyProjection should have been eliminated, found "
     ++ show (pretty t0) 
   M.TyFnDef _def substs -> Some C.AnyRepr
@@ -499,6 +501,20 @@ evalBinOp bop mat me1 me2 =
                 return $ MirExp (C.BVRepr na) (S.app $ E.BVAshr na e1a e2bv)
 
             _ -> fail $ "bad binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
+      (MirExp C.IntegerRepr e1, MirExp C.IntegerRepr e2) ->
+            case bop of
+              M.Add -> return $ MirExp C.IntegerRepr (S.app $ E.IntAdd e1 e2)
+              M.Sub -> return $ MirExp C.IntegerRepr (S.app $ E.IntSub e1 e2)
+              M.Mul -> return $ MirExp C.IntegerRepr (S.app $ E.IntMul e1 e2)
+              M.Div -> return $ MirExp C.IntegerRepr (S.app $ E.IntDiv e1 e2)
+              M.Rem -> return $ MirExp C.IntegerRepr (S.app $ E.IntMod e1 e2)
+              M.Lt  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLt e1 e2)
+              M.Le  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLe e1 e2)
+              M.Gt  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLt e2 e1)
+              M.Ge  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLe e2 e1)
+              M.Ne  -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.IntEq e1 e2)
+              M.Beq -> return $ MirExp (C.BoolRepr) (S.app $ E.IntEq e1 e2)
+              _ -> fail $ "bad integer binop: " ++ show bop 
       (MirExp ty1@(C.BVRepr na) e1a, MirExp ty2@(C.BVRepr ma) e2a) ->
           -- if the BVs are not the same width extend the shorter one
           extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
@@ -745,13 +761,22 @@ extendSignedBV (MirExp tp e) w =
       _ -> fail $ "unimplemented signed bvext" ++ show tp ++ " " ++ show w
 
 
-evalCast' :: M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
+evalCast' :: HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast' ck ty1 e ty2  =
     case (ck, ty1, ty2) of
       (M.Misc,a,b) | a == b -> return e
 
+      -- TODO: sketchy casts to unsized types: for now, they are implement as infinite precision,
+      -- but eventually will need to allow some configurable precision for these conversions.
+      (M.Misc, M.TyUint _, M.TyInt  M.USize)
+       | MirExp (C.BVRepr sz) e0 <- e
+       -> return $ MirExp C.IntegerRepr (R.App $ E.BvToInteger sz e0)
+      (M.Misc, M.TyInt _, M.TyInt  M.USize)
+       | MirExp (C.BVRepr sz) e0 <- e
+       -> return $ MirExp C.IntegerRepr (R.App $ E.SbvToInteger sz e0)
+
       (M.Misc, M.TyUint _, M.TyUint M.USize) -> fail "Cannot cast to unsized type"
-      (M.Misc, M.TyInt _,  M.TyInt  M.USize) -> fail "Cannot cast to unsized type"
+
       (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e 
       (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e 
       (M.Misc, M.TyCustom (M.BoxTy tb1), M.TyCustom (M.BoxTy tb2)) -> evalCast' ck tb1 e tb2
@@ -796,7 +821,7 @@ evalCast' ck ty1 e ty2  =
 
       _ -> fail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
  
-evalCast :: M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s ret (MirExp s)
+evalCast :: HasCallStack => M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast ck op ty = do
     e <- evalOperand op
     evalCast' ck (M.typeOf op) e ty
@@ -2227,14 +2252,14 @@ noDictionary = [M.textId "::ops[0]::function[0]::Fn[0]",
 dictVar :: Predicate -> Maybe Var
 dictVar (TraitPredicate did substs) | not (elem did noDictionary) = Just $ mkPredVar (TyAdt did substs)
                                     | otherwise = Nothing
-dictVar (TraitProjection _ _ _)     = Nothing
+dictVar (TraitProjection _ _)     = Nothing
 dictVar UnknownPredicate            = Nothing
 
 -- | define the type of a dictionary Var
 dictTy  :: Predicate -> Maybe Ty
 dictTy (TraitPredicate did substs) | not (elem did noDictionary) = Just $ (TyAdt did substs)
                                    | otherwise = Nothing
-dictTy (TraitProjection _ _ _)     = Nothing
+dictTy (TraitProjection _ _)     = Nothing
 dictTy UnknownPredicate            = Nothing
 
 
@@ -2468,7 +2493,10 @@ implMethods' col = foldMap g (col^.impls) where
         case findMethodItem ii items of
           Just (TraitMethod _ sig) ->
              Map.singleton mn (tySubst (ss <> (Substs $ TyParam <$> [0 .. ])) (sig^.fspredicates))
-          _ -> error $ "BUG: addDictionaryPreds: Cannot find method " ++ fmt ii ++ " in trait " ++ fmt tn
+          _ ->
+             Map.empty
+             -- ignore unknown methods
+             -- error $ "BUG: addDictionaryPreds: Cannot find method " ++ fmt ii ++ " in trait " ++ fmt tn
      g2 _ = Map.empty
 
 implMethods :: Collection -> Map MethName [(TraitName,Substs)]
@@ -2621,7 +2649,7 @@ buildTraitMap :: Int -> M.Collection -> FH.HandleAllocator s -> HandleMap
 buildTraitMap debug col _halloc hmap = do
 
     when (debug > 6) $ do
-       traceM $ "handle map contents in buildTraitMap:" 
+       --traceM $ "handle map contents in buildTraitMap:" 
        forM_ (Map.assocs hmap) $ \(methName, methHandle) -> do
            traceM $ "\t" ++ show methName
 
@@ -2674,7 +2702,7 @@ buildTraitMap debug col _halloc hmap = do
                     ++ " in trait " ++ show (pretty traitName) ++ " for type " ++ show (pretty typeName)
 
 
-    when (debug > 3) $ do
+    when (debug > 7) $ do
       if null impls
         then traceM "buildTraitMap: No trait implementations found"
         else forM_ impls $ \(mn, tn, mh, sub) -> do
@@ -3073,10 +3101,10 @@ customOps = Map.fromList [
                            fn_call
                          , fn_call_once
 
-                         --, slice_get_unchecked_mut
                          , slice_len
                          , slice_is_empty
                          , slice_first
+                         , slice_get
                          , slice_get_mut
               
                          , ops_index
@@ -3088,6 +3116,7 @@ customOps = Map.fromList [
                          , iter_collect
 
                          , wrapping_sub
+                         , discriminant_value
 
                          , exit
                          ]
@@ -3153,13 +3182,13 @@ isCustomFunc defid = case (map fst (M.did_path defid), fst (M.did_name defid), m
    _ -> Nothing
 -}
 
---------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
 -- ** Custom: Exit
 
 exit :: (ExplodedDefId, CustomRHS)
 exit = ((["process"], "exit", []), \s -> Just CustomOpExit)
 
---------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------
 -- ** Custom: Index
 
 ops_index :: (ExplodedDefId, CustomRHS)
@@ -3193,10 +3222,6 @@ libcore/slice.rs includes the following impl
     }
 -}
 
--- Index::index<[u8],::ops::range::RangeFrom<usize>,[u8]> (self:[u8], index:Range) =
---           index<Range<usize>,[u8],[u8]>
--- <[u8],::ops::range::Range<usize>,[u8]>
-
 index_op :: Substs -> Maybe CustomOp
 index_op (Substs [TySlice _el1, TyAdt _did _ss, TySlice _el2]) =
     Just $ CustomMirOp $ \ ops -> do
@@ -3223,34 +3248,41 @@ wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
 
        _ -> fail $ "BUG: invalid arguments for wrapping_sub")
 
---------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------
+-- ** Custom ::intrinsics::discriminant_value
+
+discriminant_value ::  (ExplodedDefId, CustomRHS)
+discriminant_value = ((["intrinsics"],"discriminant_value", []),
+  \ _substs -> Just $ CustomOp $ \ opTys _retTy ops ->
+      case (opTys,ops) of
+        ([TyCustom (CEnum _adt _i)], [e]) -> return e
+        ([_],[e]) -> do (MirExp C.NatRepr idx) <- accessAggregate e 0
+                        return $ (MirExp knownRepr $ R.App (E.IntegerToBV (knownRepr :: NatRepr 64)
+                                                                  (R.App (E.NatToInteger idx))))
+        _ -> fail $ "BUG: invalid arguments for discriminant_value")
+
+---------------------------------------------------------------------------------------
 -- ** Custom: Iterator
 
 
 into_iter :: (ExplodedDefId, CustomRHS)
 into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
-    \ (Substs subs) -> Just $ CustomOp $ \ _opTys _retTy ops ->
-     case (subs, ops) of 
-       ([ty], [arg]) -> do
-         case ty of
-           TyAdt defid (Substs [itemTy]) | defid == M.textId "::ops[0]::range[0]::Range[0]" -> 
-             -- an identity function
-             -- the range type just uses the default implementation of this trait
-             return arg
-{-           TyAdt defid (Substs [_,itemTy]) | defid == M.textId "::slice[0]::Iter[0]" -> do
-             traceM $ "Found slice Iter"
-             let x = buildTuple [arg, MirExp (C.NatRepr) (S.app $ E.NatLit 0)]
-             let y = buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 0), packAny x]
-             return y -}
-           _ -> do
-             -- vector iterator: a pair of the vector and the index
-             --traceM $ "Found " ++ show ty
+    \(Substs subs) -> case subs of
+       [ TyAdt defid (Substs [itemTy]) ]
+         | defid == M.textId "::ops[0]::range[0]::Range[0]"
+         ->  Just $ CustomOp $ \_opTys _retTy [arg] -> return arg
+
+       [ TyRef (TyArray itemTy size) Immut ]
+         ->  Just $ CustomOp $ \_opTys _retTy [arg] -> do
+             -- array iterator: a pair of the vector and the index
+             -- this is not the implementation of "slice::Iter"
+             -- but should be
              let x = buildTuple [arg, MirExp (C.NatRepr) (S.app $ E.NatLit 0)]
              let y = buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 0), packAny x]
              return y
-             
-       _ -> fail $ "BUG: invalid arguments for into_iter")
-
+       _ -> Nothing)
+               
+      
 iter_next :: (ExplodedDefId, CustomRHS)
 iter_next = ((["iter","iterator"],"Iterator", ["next"]), iter_next_op) where
   iter_next_op (Substs [TyAdt defid (Substs [itemTy])])
@@ -3343,9 +3375,11 @@ iter_collect_op _subst _opTys _retTy ops =
      _ -> fail $ "BUG: invalid arguments to iter_collect"
 
 
---------------------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------
 -- ** Custom: slice
-
+--
+-- MOST of the operations below implement the following impl
+-- the execption is get/get_mut, which is specialized to Range
 {-
     impl<T>[T] {
         // must override
@@ -3373,18 +3407,6 @@ iter_collect_op _subst _opTys _retTy ops =
             index.get_mut(self)
         }
 
-        // after AT/dict translation 
-        pub fn get<I,SliceIndex<I,Self,I::Ouput>>(&self, index: I, dict) -> Option<&I::Output>
-        where sliceIndex<I,Self>
-        {
-            dict # get (index, self)
-        }
-        
-        pub fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output>
-        where I: SliceIndex<Self>
-        {
-            index.get_mut(self)
-        }
     }
 -}
 
@@ -3420,45 +3442,10 @@ slice_first =
             return (MirExp elTy (G.App $ E.VectorGetEntry elTy vec_e (G.App $ E.NatLit 0)))
        _ -> fail $ "BUG: invalid arguments to " ++ "slice_first")
 
-{-
-slice_get_mut :: (ExplodedDefId, CustomRHS)
-slice_get_mut =
-  ((["slice","{{impl}}"], "get_mut", [])
-  , \sub -> case sub of
-       (Substs [ii, tt]) ->  Just $ CustomOp $ \ _optys _retTy ops -> do
-          case ops of 
-           -- type of the structure is &mut[ elTy ]
-           -- index is any SliceIndex
-            [self@(MirExp (MirSliceRepr elTy) vec_e),  index@(MirExp iTy idx) ] -> do
-               let funid = M.textId "slice[0]::SliceIndex[0]::get_mut[0]"
-        
-               -- AT translation is overspecialized to Range<usize>/RangeTo<usize>/RangeFrom<usize>
-               -- How do we know what the third type argument is?
-               let funsubsts = Substs [ tt, TySlice ii , TySlice ii ]
-               mhand <- lookupFunction funid funsubsts
-               case mhand of
-                  Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) -> do
-                    let preds = sig^.fspredicates
-                    dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
-                    exp_to_assgn (reverse ops ++ dexps) $ \ctx asgn -> do
-                        case (testEquality ctx ifargctx) of
-                          Just Refl -> do
-                            ret_e <- G.call polyinst asgn
-                            return (MirExp ifret ret_e)
-                          _ -> fail $ "type error in slice_get_mut: args " ++ (show ctx)
-                                 ++ "\n vs function params "
-                                 ++ show ifargctx ++ "\n while calling " ++ show (pretty funid)
-                  _ ->
-                     error $ "Cannot find handle"
-            _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops
-       (Substs _) -> Nothing)
--}
-
--- Only works when the sequence is accessed by a range
-slice_get_mut :: (ExplodedDefId, CustomRHS)
-slice_get_mut =
-  ((["slice", "{{impl}}"],"get_mut", [])
-  , \subs -> case subs of
+-- Only works when the array/slice is accessed by a range
+-- Should make it more general
+slice_get_op :: CustomRHS
+slice_get_op subs = case subs of
                (Substs [elTy, TyAdt defid (Substs [M.TyUint M.USize])])
                  | defid == M.textId "::ops[0]::range[0]::Range[0]"
                  -> Just $ CustomOp $ \ optys retTy ops -> do
@@ -3480,22 +3467,14 @@ slice_get_mut =
                          return $ mkSome (MirExp (MirSliceRepr ty) s2)
 
                       _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops
-               (Substs _) -> Nothing)
+               (Substs _) -> Nothing
 
-{-
-slice_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_get_unchecked_mut =
-  ((["slice"],"SliceIndex", ["get_unchecked_mut"])
-  , \(Substs _subs) -> Just $ CustomOp $ \ optys _retTy ops -> do
-      case ops of
-        [self, MirExp (MirSliceRepr ty) slice] -> do
-           idx <- generateIndex self
-           let ref  = S.getStruct Ctx.i1of3 slice
-           let base = getSliceLB slice
-           v <- subindexRef ty ref (S.app (E.NatAdd idx base))
-           return (MirExp (MirReferenceRepr ty) v)
-        _ -> fail $ "BUG: invalid arguments to " ++ "slice_get_unchecked_mut")
--}
+slice_get :: (ExplodedDefId, CustomRHS)
+slice_get = ((["slice", "{{impl}}"],"get", []), slice_get_op)
+
+slice_get_mut :: (ExplodedDefId, CustomRHS)
+slice_get_mut = ((["slice", "{{impl}}"],"get_mut", []), slice_get_op)
+
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: vec
 
@@ -3564,13 +3543,19 @@ fn_call_op (Substs [_ty1, aty, _rp]) [argTy1,_] retTy [fn,argtuple] = do
 --                  ++ "\n\t param " ++ fmt i
 --                  ++ "\n\t rty   " ++ fmt rty
 --                  ++ "\n\t preds " ++ fmt ps
-           let findFnType (TraitProjection defid (Substs ([M.TyParam j, M.TyTuple argTys])) retTy : rest)
+           let findFnType (TraitProjection (TyProjection defid (Substs ([M.TyParam j, M.TyTuple argTys]))) retTy : rest)
                  | i == j     = 
                   tyListToCtx argTys $ \argsctx -> 
                   tyToReprCont retTy $ \ret     ->
                      (Some argsctx, Some ret)
 
-                 | otherwise  =  findFnType rest
+               -- TODO: this is a TOTAL hack
+               --findFnType (TraitProjection (TyTuple argTys) retTy : rest)
+               --  = 
+               --   tyListToCtx argTys $ \argsctx -> 
+               --   tyToReprCont retTy $ \ret     ->
+               --      (Some argsctx, Some ret)
+
                findFnType (_ : rest) = findFnType rest
                findFnType [] = error $ "no appropriate predicate in scope for call: " ++ show (pretty ps)
 

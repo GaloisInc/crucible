@@ -4,7 +4,6 @@
 
 -- arrays, iteration and slices
 test/conc_eval/array/iter.rs:// FAIL: invalid slice access
-test/conc_eval/slice/get.rs:// FAIL: not overriding slice_get_mut
 
 -- waitin on mir-json
 test/conc_eval/array/const.rs:// FAIL: mir-json encoding of constant array

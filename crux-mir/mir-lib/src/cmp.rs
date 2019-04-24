@@ -310,7 +310,7 @@ pub struct AssertParamIsEq<T: Eq + ?Sized> { _field: ::marker::PhantomData<T> }
 /// let result = 2.cmp(&1);
 /// assert_eq!(Ordering::Greater, result);
 /// ```
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub enum Ordering {
     /// An ordering where a compared value is less [than another].
@@ -451,7 +451,7 @@ impl Ordering {
 /// v.sort_by_key(|&num| (num > 3, Reverse(num)));
 /// assert_eq!(v, vec![3, 2, 1, 6, 5, 4]);
 /// ```
-#[derive(Copy, Clone, Default)]
+#[derive(Clone, Default)]
 #[stable(feature = "reverse_cmp_key", since = "1.19.0")]
 pub struct Reverse<T>(#[stable(feature = "reverse_cmp_key", since = "1.19.0")] pub T);
 
@@ -984,8 +984,22 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
     }
 
     
-   //partial_eq_impl! { bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
-   
+    //partial_eq_impl! { bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
+    //SCW: by hand, until mir-json works with the macros
+   #[stable(feature = "rust1", since = "1.0.0")]    
+   impl PartialEq for usize {
+                #[inline]
+                fn eq(&self, other: &usize) -> bool { (*self) == (*other) }
+                #[inline]
+                fn ne(&self, other: &usize) -> bool { (*self) != (*other) }
+   }
+   #[stable(feature = "rust1", since = "1.0.0")]        
+   impl PartialEq for isize {
+                #[inline]
+                fn eq(&self, other: &isize) -> bool { (*self) == (*other) }
+                #[inline]
+                fn ne(&self, other: &isize) -> bool { (*self) != (*other) }
+   }
      
     
     macro_rules! eq_impl {
@@ -996,6 +1010,10 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
     }
 
     //eq_impl! { () bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+    #[stable(feature = "rust1", since = "1.0.0")]
+    impl Eq for usize {}
+    #[stable(feature = "rust1", since = "1.0.0")]
+    impl Eq for isize {}
 
     macro_rules! partial_ord_impl {
         ($($t:ty)*) => ($(
@@ -1100,7 +1118,59 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
     }
 
     //ord_impl! { char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+            #[stable(feature = "rust1", since = "1.0.0")]
+            impl PartialOrd for usize {
+                #[inline]
+                fn partial_cmp(&self, other: &usize) -> Option<Ordering> {
+                    Some(self::Ord::cmp(self,other))
+                }
+                #[inline]
+                fn lt(&self, other: &usize) -> bool { (*self) < (*other) }
+                #[inline]
+                fn le(&self, other: &usize) -> bool { (*self) <= (*other) }
+                #[inline]
+                fn ge(&self, other: &usize) -> bool { (*self) >= (*other) }
+                #[inline]
+                fn gt(&self, other: &usize) -> bool { (*self) > (*other) }
+            }
 
+            #[stable(feature = "rust1", since = "1.0.0")]
+            impl Ord for usize {
+                #[inline]
+                fn cmp(&self, other: &usize) -> Ordering {
+                    if *self == *other { Equal }
+                    else if *self < *other { Less }
+                    else { Greater }
+                }
+            }
+            #[stable(feature = "rust1", since = "1.0.0")]
+            impl PartialOrd for isize {
+                #[inline]
+                fn partial_cmp(&self, other: &isize) -> Option<Ordering> {
+                    Some(self::Ord::cmp(self,other))
+                }
+                #[inline]
+                fn lt(&self, other: &isize) -> bool { (*self) < (*other) }
+                #[inline]
+                fn le(&self, other: &isize) -> bool { (*self) <= (*other) }
+                #[inline]
+                fn ge(&self, other: &isize) -> bool { (*self) >= (*other) }
+                #[inline]
+                fn gt(&self, other: &isize) -> bool { (*self) > (*other) }
+            }
+
+            #[stable(feature = "rust1", since = "1.0.0")]
+            impl Ord for isize {
+                #[inline]
+                fn cmp(&self, other: &isize) -> Ordering {
+                    if *self == *other { Equal }
+                    else if *self < *other { Less }
+                    else { Greater }
+                }
+            }
+
+
+    
     #[unstable(feature = "never_type", issue = "35121")]
     impl PartialEq for ! {
         fn eq(&self, _: &!) -> bool {

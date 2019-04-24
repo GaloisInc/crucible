@@ -91,7 +91,7 @@ import           Mir.DefId
 import           Mir.Mir
 import           Mir.MirTy
 import           Mir.Intrinsics
-import           Mir.GenericOps(ATDict,tySubst)
+import           Mir.GenericOps(ATDict,tySubst,mkSubsts,matchSubsts)
 import           Mir.PP
 
 import           Unsafe.Coerce(unsafeCoerce)
@@ -442,9 +442,9 @@ findItem methName traitSub trait = do
        , tn == trait^.traitName
        = 
        case matchSubsts traitSub ss of
-              Just m  -> 
+              Right m  -> 
                 Just (ti, m)
-              Nothing -> Nothing           
+              Left _e -> Nothing           
        | otherwise = Nothing
        
   case firstJust isImpl (col^.impls) of

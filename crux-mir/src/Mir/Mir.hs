@@ -174,9 +174,8 @@ data Predicate =
     _psubst :: !Substs
     }
   | TraitProjection {
-    _pitemid :: !DefId,
-    _psubst  :: !Substs,
-    _ty      :: !Ty
+      _plhs    :: !Ty
+    , _prhs    :: !Ty
     }
   | UnknownPredicate
     deriving (Show, Eq, Ord, Generic)
@@ -444,7 +443,7 @@ data TraitRef
 
 data TraitImpl
     = TraitImpl { _tiName       :: DefId
-                -- name of the impl group (Not very useful)
+                -- name of the impl group (Not very useful???)
                 , _tiTraitRef   :: TraitRef
                 -- name of the trait and the type we are implementing it
                 , _tiGenerics   :: [Param]
