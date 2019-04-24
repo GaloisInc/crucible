@@ -1,0 +1,48 @@
+script:
+- cabal update
+- cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt}
+  -j --disable-optimization --allow-newer
+before_cache:
+- rm -fv $HOME/.cabal/packages/hackage.haskell.org/build-reports.log
+- rm -fv $HOME/.cabal/packages/hackage.haskell.org/00-index.tar
+matrix:
+  include:
+  - env: CABALVER=2.4 GHCVER=8.6.3
+    addons:
+      apt:
+        sources:
+        - hvr-ghc
+        packages:
+        - cabal-install-2.4
+        - ghc-8.6.3
+        - libglpk-dev
+        - libntl-dev
+        - libboost-all-dev
+  - env: CABALVER=2.4 GHCVER=8.4.3
+    addons:
+      apt:
+        sources:
+        - hvr-ghc
+        packages:
+        - cabal-install-2.4
+        - ghc-8.4.3
+        - libglpk-dev
+        - libntl-dev
+        - libboost-all-dev
+  - env: CABALVER=2.4 GHCVER=8.6.3
+    os: osx
+cache:
+  directories:
+  - $HOME/.cabsnap
+  - $HOME/.cabal/packages
+  - $HOME/.ghc
+before_install:
+- unset CC
+- export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
+- if [ $TRAVIS_OS_NAME = osx ]; then brew update; brew install ghc; brew install ntl
+  glpk cabal-install; fi
+dist: xenial
+git:
+  submodules: true
+language: c
+sudo: false
