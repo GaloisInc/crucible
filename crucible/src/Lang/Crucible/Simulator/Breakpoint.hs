@@ -39,6 +39,12 @@ import qualified Lang.Crucible.Simulator.OverrideSim as C
 import qualified Lang.Crucible.Simulator.RegValue as C
 import qualified What4.FunctionName as W
 
+-- | This execution feature registers an override for a breakpoint.
+--   The override summarizes the execution from the breakpoint
+--   to the return from the function (similar to a tail call).
+--   This feature requires a map from each function handle
+--   to the list of breakpoints in the respective function with this
+--   execution feature.
 breakAndReturn ::
   (C.IsSymInterface sym, C.IsSyntaxExtension ext) =>
   C.CFG ext blocks init ret ->
