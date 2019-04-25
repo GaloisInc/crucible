@@ -15,10 +15,12 @@
 {-# LANGUAGE TupleSections #-}
 module Lang.Crucible.Analysis.Postdom
   ( postdomInfo
+  , breakpointPostdomInfo
   , validatePostdom
   ) where
 
 import           Control.Monad.State
+import qualified Data.Bimap as Bimap
 import           Data.Functor.Const
 import qualified Data.Graph.Inductive as G
 import           Data.Map (Map)
@@ -46,10 +48,13 @@ inEdges b =
     Nothing -> [reverseEdge 0 b]
     Just l -> (\(Some n) -> toNode n `reverseEdge` b) <$> l
 
-inEdgeGraph :: BlockMap ext blocks ret -> G.UGr
-inEdgeGraph m = G.mkGraph ((,()) <$> nodes) edges
+inEdgeGraph :: BlockMap ext blocks ret -> [Some (BlockID blocks)] -> G.UGr
+inEdgeGraph m breakpointIds = G.mkGraph ((,()) <$> nodes) edges
   where nodes = 0 : toListFC (toNode . blockID) m
-        edges = foldrFC (\b -> (inEdges b ++)) [] m
+        cfgEdges = foldMapFC inEdges m
+        breakpointEdges = map (\(Some bid) -> reverseEdge 0 (getBlock bid m))
+                              breakpointIds
+        edges = cfgEdges ++ breakpointEdges
 
 -- | Return subgraph of nodes reachable from given node.
 reachableSubgraph :: G.Node -> G.UGr -> G.UGr
@@ -69,9 +74,10 @@ nodeToBlockIDMap =
 
 postdomMap :: forall ext blocks ret
             . BlockMap ext blocks ret
+           -> [Some (BlockID blocks)]
            -> Map (Some (BlockID blocks)) [Some (BlockID blocks)]
-postdomMap m = r
-  where g0 = inEdgeGraph m
+postdomMap m breakpointIds = r
+  where g0 = inEdgeGraph m breakpointIds
         g = reachableSubgraph 0 g0
 
         idMap = nodeToBlockIDMap m
@@ -86,16 +92,22 @@ postdomMap m = r
           , let Just pd_id = Map.lookup pd idMap
           ]
 
-postdomAssignment :: forall ext blocks ret . BlockMap ext blocks ret -> CFGPostdom blocks
-postdomAssignment m = fmapFC go m
-  where pd = postdomMap m
+postdomAssignment :: forall ext blocks ret
+                   . BlockMap ext blocks ret
+                  -> [Some (BlockID blocks)]
+                  -> CFGPostdom blocks
+postdomAssignment m breakpointIds = fmapFC go m
+  where pd = postdomMap m breakpointIds
         go :: Block ext blocks ret c -> Const [Some (BlockID blocks)] c
         go b = Const $ fromMaybe [] (Map.lookup (Some (blockID b)) pd)
 
 -- | Compute posstdom information for CFG.
 postdomInfo :: CFG ext b i r -> CFGPostdom b
-postdomInfo g = postdomAssignment (cfgBlockMap g)
+postdomInfo g = postdomAssignment (cfgBlockMap g) []
 
+breakpointPostdomInfo :: CFG ext b i r -> [BreakpointName] -> CFGPostdom b
+breakpointPostdomInfo g breakpointNames = postdomAssignment (cfgBlockMap g) $
+  mapMaybe (\nm -> Bimap.lookup nm (cfgBreakpoints g)) breakpointNames
 
 blockEndsWithError :: Block ext blocks ret args -> Bool
 blockEndsWithError b =

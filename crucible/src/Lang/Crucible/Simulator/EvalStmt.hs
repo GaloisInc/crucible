@@ -450,6 +450,14 @@ ppStmtAndLoc h sh pl stmt = do
     indent 2 (stmt <+> text "%" <+> ppNoFileName (plSourceLoc pl))
   hFlush h
 
+performStateRun ::
+  (IsSymInterface sym, IsSyntaxExtension ext) =>
+  RunningStateInfo blocks ctx ->
+  Int {- ^ Current verbosity -} ->
+  ExecCont p sym ext rtp (CrucibleLang blocks r) ('Just ctx)
+performStateRun info verb = case info of
+  RunPostBranchMerge bid -> continue (RunBlockStart bid)
+  _ -> stepBasicBlock verb
 
 
 ----------------------------------------------------------------------
@@ -504,9 +512,9 @@ dispatchExecState getVerb exst kresult k =
     ReturnState fnm vfv ret st ->
       k (performReturn fnm vfv ret) st
 
-    RunningState _runTgt st ->
+    RunningState info st ->
       do v <- getVerb
-         k (stepBasicBlock v) st
+         k (performStateRun info v) st
 {-# INLINE dispatchExecState #-}
 
 

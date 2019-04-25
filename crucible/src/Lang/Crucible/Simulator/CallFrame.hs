@@ -27,6 +27,7 @@ module Lang.Crucible.Simulator.CallFrame
     -- * Call frame
   , CallFrame(..)
   , mkCallFrame
+  , mkBlockFrame
   , framePostdomMap
   , frameBlockMap
   , frameHandle
@@ -37,6 +38,7 @@ module Lang.Crucible.Simulator.CallFrame
   , framePostdom
   , frameProgramLoc
   , setFrameBlock
+  , setFrameBreakpointPostdomInfo
   , extendFrame
   , updateFrame
   , mergeCallFrame
@@ -65,6 +67,7 @@ import           What4.FunctionName
 import           What4.Interface ( Pred )
 import           What4.ProgramLoc ( ProgramLoc )
 
+import           Lang.Crucible.Analysis.Postdom
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Simulator.Intrinsics
@@ -151,8 +154,16 @@ mkCallFrame :: CFG ext blocks init ret
             -> RegMap sym init
                -- ^ Initial arguments
             -> CallFrame sym ext blocks ret init
-mkCallFrame g pdInfo args = do
-  let bid@(BlockID block_id) = cfgEntryBlockID g
+mkCallFrame g = mkBlockFrame g (cfgEntryBlockID g)
+
+-- | Create a new call frame.
+mkBlockFrame ::
+  CFG ext blocks init ret {- ^  Control flow graph -} ->
+  BlockID blocks args {- ^ Entry point -} ->
+  CFGPostdom blocks {- ^ Post dominator information -} ->
+  RegMap sym args {- ^ Initial arguments -} ->
+  CallFrame sym ext blocks ret args
+mkBlockFrame g bid@(BlockID block_id) pdInfo args = do
   let b = cfgBlockMap g Ctx.! block_id
   let pds = getConst $ pdInfo Ctx.! block_id
   CallFrame { _frameCFG   = g
@@ -184,6 +195,17 @@ setFrameBlock bid@(BlockID block_id) args f = f'
                  , _frameStmts = b^.blockStmts
                  , _framePostdom = mkFramePostdom pds
                  }
+
+setFrameBreakpointPostdomInfo ::
+  [BreakpointName] ->
+  CallFrame sym ext blocks ret ctx ->
+  CallFrame sym ext blocks ret ctx
+setFrameBreakpointPostdomInfo breakpoints f = case f of
+  CallFrame{ _frameCFG = g, _frameBlockID = Some (BlockID block_id) } -> do
+    let pdInfo = breakpointPostdomInfo g breakpoints
+    f { _framePostdomMap = pdInfo
+      , _framePostdom  = mkFramePostdom (getConst $ pdInfo Ctx.! block_id)
+      }
 
 updateFrame :: RegMap sym ctx'
             -> BlockID blocks ctx

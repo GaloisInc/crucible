@@ -20,6 +20,7 @@ module Lang.Crucible.Analysis.Reachable
 import           Control.Monad.Identity
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import qualified Data.Bimap as Bimap
 import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
 import           Data.Parameterized.TraversableFC
@@ -118,9 +119,11 @@ reachableCFG g =
                  SomeCFG g'
         where oldToNew = mkOldMap newToOld
               new_map = remapBlockMap oldToNew newToOld
+              new_breakpoints = Bimap.mapR (mapSome $ remapBlockID oldToNew) (cfgBreakpoints g)
               g' = CFG { cfgHandle = cfgHandle g
                        , cfgBlockMap = new_map
                        , cfgEntryBlockID = remapBlockID oldToNew entry_id
+                       , cfgBreakpoints = new_breakpoints
                        }
   where old_map = cfgBlockMap g
         entry_id = cfgEntryBlockID g

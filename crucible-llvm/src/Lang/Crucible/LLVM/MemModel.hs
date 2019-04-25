@@ -145,6 +145,8 @@ module Lang.Crucible.LLVM.MemModel
 
     -- * Misc
   , llvmStatementExec
+  , G.pushStackFrameMem
+  , G.popStackFrameMem
   , SomeFnHandle(..)
 
     -- * PtrWidth (re-exports)

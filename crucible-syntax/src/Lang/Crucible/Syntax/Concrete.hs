@@ -1339,10 +1339,10 @@ normStmt' :: forall h s m
 normStmt' =
   call (printStmt <|> printLnStmt <|> letStmt <|> (void funcall) <|>
         setGlobal <|> setReg <|> setRef <|> dropRef <|>
-        assertion <|> assumption)
+        assertion <|> assumption <|> breakpoint)
 
   where
-    printStmt, printLnStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion :: m ()
+    printStmt, printLnStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion, breakpoint :: m ()
     printStmt =
       do Posd loc e <- unary Print_ (located $ reading $ check StringRepr)
          strAtom <- eval loc e
@@ -1431,6 +1431,20 @@ normStmt' =
          cond' <- eval cLoc cond
          msg' <- eval mLoc msg
          tell [Posd loc $ Assume cond' msg']
+
+    breakpoint =
+      do (Posd loc (nm, arg_list)) <-
+           located $ binary Breakpoint_
+             (string <&> BreakpointName)
+             (rep ra_value)
+         case toCtx arg_list of
+           Some args -> tell [Posd loc $ Breakpoint nm args]
+      where
+        ra_value :: m (Some (Value s))
+        ra_value = (reading synth) >>= \case
+          Pair _ (EReg _ reg) -> pure $ Some $ RegValue reg
+          Pair _ (EAtom atm) -> pure $ Some $ AtomValue atm
+          _ -> empty
 
 
 blockBody' :: forall s h ret m

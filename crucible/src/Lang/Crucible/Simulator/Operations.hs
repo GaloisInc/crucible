@@ -583,7 +583,7 @@ performIntraFrameMerge tgt = do
     -- running state, or by returning a value to the calling context.
     _ -> case tgt of
            BlockTarget bid ->
-             continue (RunBlockStart bid)
+             continue (RunPostBranchMerge bid)
            ReturnTarget ->
              handleSimReturn
                (er^.partialValue.gpValue.frameFunctionName)

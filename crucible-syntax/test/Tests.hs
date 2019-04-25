@@ -42,30 +42,36 @@ for = flip map
 main :: IO ()
 main = do wd <- getCurrentDirectory
           putStrLn $ "Looking for tests in " ++ wd
-          parseTests <- findParseTests wd
-          simTests <- findSimTests wd
+          parseTests <- findTests
+            "Crucible parsing round-trips"
+            "test-data/parser-tests"
+            testParser
+          simTests <- findTests
+            "Crucible simulation"
+            "test-data/simulator-tests"
+            testSimulator
           let allTests = testGroup "Tests" [syntaxParsing, parseTests, simTests]
           defaultMain allTests
 
-testParser :: FilePath -> FilePath -> IO ()
-testParser inFile outFile =
-  do contents <- T.readFile inFile
-     withFile outFile WriteMode $ doParseCheck inFile contents True
-
-findParseTests :: FilePath -> IO TestTree
-findParseTests wd =
-  do inputs <- findByExtension [".cbl"] "test-data/parser-tests"
-     return $ testGroup "Crucible parsing round-trips"
+findTests :: String -> FilePath -> (FilePath -> FilePath -> IO ()) -> IO TestTree
+findTests group_name test_dir test_action =
+  do inputs <- findByExtension [".cbl"] test_dir
+     return $ testGroup group_name
        [ goldenVsFileDiff
           (takeBaseName input) -- test name
           (\x y -> ["diff", "-u", x, y])
           goodFile -- golden file path
           outFile
-          (testParser input outFile) -- action whose result is tested
+          (test_action input outFile) -- action whose result is tested
        | input <- sort inputs
        , let outFile = replaceExtension input ".out"
        , let goodFile = replaceExtension input ".out.good"
        ]
+
+testParser :: FilePath -> FilePath -> IO ()
+testParser inFile outFile =
+  do contents <- T.readFile inFile
+     withFile outFile WriteMode $ doParseCheck inFile contents True
 
 testOptions :: [ConfigDesc]
 testOptions = z3Options
@@ -79,21 +85,6 @@ testSimulator inFile outFile =
            do os1 <- SyntaxOvrs.setupOverrides sym ha
               os2 <- TestOvrs.setupOverrides sym ha
               return $ concat [os1,os2])
-
-findSimTests :: FilePath -> IO TestTree
-findSimTests wd =
-  do inputs <- findByExtension [".cbl"] "test-data/simulator-tests"
-     return $ testGroup "Crucible simulation"
-       [ goldenVsFileDiff
-           (takeBaseName input) -- test name
-           (\x y -> ["diff", "-u", x, y])
-           goodFile
-           outFile
-           (testSimulator input outFile)
-       | input <- sort inputs
-       , let outFile = replaceExtension input ".out"
-       , let goodFile = replaceExtension input ".out.good"
-       ]
 
 
 data Lam = Lam [Text] (Datum TrivialAtom) deriving (Eq, Show)

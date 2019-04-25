@@ -29,6 +29,7 @@ library
   build-depends:
     base >= 4.8 && < 4.13,
     ansi-wl-pprint,
+    bimap,
     bytestring,
     containers >= 0.5.9.0,
     exceptions,
@@ -48,6 +49,7 @@ library
     time >= 1.8 && < 2.0,
     th-abstraction >=0.1 && <0.3,
     transformers,
+    unordered-containers,
     vector,
     what4 >= 0.4
 
@@ -80,6 +82,7 @@ library
     Lang.Crucible.CFG.SSAConversion
     Lang.Crucible.FunctionHandle
     Lang.Crucible.Simulator
+    Lang.Crucible.Simulator.Breakpoint
     Lang.Crucible.Simulator.BoundedExec
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
