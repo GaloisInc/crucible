@@ -58,6 +58,10 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , branchAbortMem
   , mergeMem
 
+  , SomeAlloc(..)
+  , possibleAllocs
+  , ppSomeAlloc
+
     -- * Pretty printing
   , ppType
   , ppPtr
@@ -81,6 +85,7 @@ import           GHC.Generics (Generic, Generic1)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           Lang.Crucible.Panic (panic)
+
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -1292,6 +1297,39 @@ mergeMem c x y =
       in x & memState .~ s'
     _ -> error "mergeMem given unexpected memories"
 
+--------------------------------------------------------------------------------
+-- Finding allocations
+
+-- When we have a concrete allocation number, we can ask more specific questions
+-- to the solver and get (overapproximate) concrete answers.
+
+data SomeAlloc sym =
+  forall w. SomeAlloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
+
+ppSomeAlloc :: forall sym. IsExprBuilder sym => SomeAlloc sym -> Doc
+ppSomeAlloc (SomeAlloc atp base sz mut alignment loc) =
+  ppAlloc (Alloc atp base sz mut alignment loc :: MemAlloc sym)
+
+-- | Find an overapproximation of the set of allocations with this number.
+--
+--   Ultimately, only one of these could have happened.
+possibleAllocs ::
+  forall sym .
+  (IsSymInterface sym) =>
+  Natural              ->
+  [MemAlloc sym]       ->
+  [SomeAlloc sym]
+possibleAllocs n =
+  foldMap $
+    \case
+      MemFree _ -> []
+      Alloc atp base sz mut alignment loc ->
+        [SomeAlloc atp base sz mut alignment loc]
+      AllocMerge p as1 as2 ->
+        case asConstantPred p of
+          Just True -> possibleAllocs n as1
+          Just False -> possibleAllocs n as2
+          Nothing -> possibleAllocs n as1 ++ possibleAllocs n as2
 
 --------------------------------------------------------------------------------
 -- Pretty printing
