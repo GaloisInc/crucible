@@ -1313,6 +1313,12 @@ ppSomeAlloc (SomeAlloc atp base sz mut alignment loc) =
 -- | Find an overapproximation of the set of allocations with this number.
 --
 --   Ultimately, only one of these could have happened.
+--
+--   It may be possible to be more precise than this function currently is.
+--   In particular, if we find an 'Alloc' with a matching block number before a
+--   'AllocMerge', then we can (maybe?) just return that 'Alloc'. And if one
+--   call of @helper@ on a 'MemAlloc' returns anything nonempty, that can just
+--   be returned (?).
 possibleAllocs ::
   forall sym .
   (IsSymInterface sym) =>
@@ -1328,11 +1334,9 @@ possibleAllocs n =
               if base == m
               then [SomeAlloc atp base sz mut alignment loc]
               else []
-            AllocMerge p as1 as2 ->
-              case asConstantPred p of
-                Just True -> helper m as1
-                Just False -> helper m as2
-                Nothing -> helper m as1 ++ helper m as2
+            AllocMerge (asConstantPred -> Just True) as1 as2 -> helper m as1
+            AllocMerge (asConstantPred -> Just False) as1 as2 -> helper m as2
+            AllocMerge _ as1 as2 -> helper m as1 ++ helper m as2
   in helper n . memAllocs
 
 --------------------------------------------------------------------------------
