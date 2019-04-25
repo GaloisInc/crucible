@@ -1317,19 +1317,23 @@ possibleAllocs ::
   forall sym .
   (IsSymInterface sym) =>
   Natural              ->
-  [MemAlloc sym]       ->
+  Mem sym              ->
   [SomeAlloc sym]
 possibleAllocs n =
-  foldMap $
-    \case
-      MemFree _ -> []
-      Alloc atp base sz mut alignment loc ->
-        [SomeAlloc atp base sz mut alignment loc]
-      AllocMerge p as1 as2 ->
-        case asConstantPred p of
-          Just True -> possibleAllocs n as1
-          Just False -> possibleAllocs n as2
-          Nothing -> possibleAllocs n as1 ++ possibleAllocs n as2
+  let helper m =
+        foldMap $
+          \case
+            MemFree _ -> []
+            Alloc atp base sz mut alignment loc ->
+              if base == m
+              then [SomeAlloc atp base sz mut alignment loc]
+              else []
+            AllocMerge p as1 as2 ->
+              case asConstantPred p of
+                Just True -> helper m as1
+                Just False -> helper m as2
+                Nothing -> helper m as1 ++ helper m as2
+  in helper n . memAllocs
 
 --------------------------------------------------------------------------------
 -- Pretty printing
