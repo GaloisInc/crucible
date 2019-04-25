@@ -20,9 +20,11 @@ module Lang.Crucible.CFG.ExtractSubgraph
 
 import           Control.Lens
 import           Control.Monad.ST
+import qualified Data.Bimap as Bimap
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map as MapF
 import           Data.Set as S
+import qualified Data.Map as Map
 import           Debug.Trace
 
 import           What4.FunctionName
@@ -43,7 +45,7 @@ extractSubgraph :: (KnownCtx TypeRepr init, KnownRepr TypeRepr ret)
                 -> BlockID blocks init
                 -> HandleAllocator s
                 -> ST s (Maybe (SomeCFG ext init ret))
-extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry }) cuts bi halloc =
+extractSubgraph (CFG{cfgBlockMap = orig, cfgBreakpoints = breakpoints}) cuts bi halloc =
   extractSubgraphFirst orig cuts MapF.empty zeroSize bi $
     \(SubgraphIntermediate finalMap finalInitMap _sz entryID cb) -> do
         hn <- mkHandle halloc startFunctionName
@@ -53,7 +55,9 @@ extractSubgraph (CFG{cfgBlockMap = orig, cfgEntryBlockID = _origEntry }) cuts bi
             { cfgBlockMap = bm
             , cfgEntryBlockID = entryID
             , cfgHandle = hn
-            , cfgBreakpoints = undefined
+            , cfgBreakpoints = Bimap.fromList $ Map.toList $
+                Map.mapMaybe (viewSome $ \bid -> Some <$> MapF.lookup bid finalMap) $
+                Bimap.toMap breakpoints
             }
 
 -- | Type for carrying intermediate results through subraph extraction
