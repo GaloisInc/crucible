@@ -50,7 +50,6 @@
 - ignore: {name: Use fmap}
 - ignore: {name: Use forM_}
 - ignore: {name: Use fromMaybe}
-- ignore: {name: Use gets}
 - ignore: {name: Use guards}
 - ignore: {name: Use hPrint}
 - ignore: {name: Use if}
