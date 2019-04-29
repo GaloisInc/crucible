@@ -93,7 +93,7 @@ module Lang.Crucible.CFG.Reg
 
 import qualified Data.Foldable as Fold
 import           Data.Kind (Type)
-import           Data.Maybe (isJust, maybe)
+import           Data.Maybe (isJust, maybe, fromMaybe)
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
@@ -859,9 +859,9 @@ data CFG ext s (init :: Ctx CrucibleType) (ret :: CrucibleType)
 
 cfgEntryBlock :: CFG ext s init ret -> Block ext s ret
 cfgEntryBlock g =
-  case Fold.find (\b -> blockID b == LabelID (cfgEntryLabel g)) (cfgBlocks g) of
-    Just b -> b
-    Nothing -> error "Missing entry block"
+  fromMaybe
+    (error "Missing entry block")
+    (Fold.find (\b -> blockID b == LabelID (cfgEntryLabel g)) (cfgBlocks g))
 
 cfgInputTypes :: CFG ext s init ret -> CtxRepr init
 cfgInputTypes g = handleArgTypes (cfgHandle g)

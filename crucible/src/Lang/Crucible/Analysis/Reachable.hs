@@ -20,6 +20,7 @@ module Lang.Crucible.Analysis.Reachable
 import           Control.Monad.Identity
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Maybe (fromMaybe)
 import qualified Data.Bimap as Bimap
 import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
@@ -29,9 +30,8 @@ import           Lang.Crucible.CFG.Core
 
 remapBlockID :: MapF (BlockID b) (BlockID b') -> BlockID b a -> BlockID b' a
 remapBlockID m b =
-  case MapF.lookup b m of
-    Nothing -> error $ "Could not remap block " ++ show b
-    Just r -> r
+  fromMaybe (error $ "Could not remap block " ++ show b)
+            (MapF.lookup b m)
 
 remapJumpTarget :: MapF (BlockID b) (BlockID b')
                 -> JumpTarget b c -> JumpTarget b' c

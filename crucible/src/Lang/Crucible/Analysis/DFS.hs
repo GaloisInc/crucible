@@ -40,6 +40,7 @@ module Lang.Crucible.Analysis.DFS
 ) where
 
 import Prelude hiding (foldr)
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Sequence (Seq)
@@ -208,7 +209,7 @@ run_dfs visit edge bm = visit_id
            -- composting together their effects on the partial computation and black set.
            withBlockTermStmt block $ \_loc t ->
               foldr (\m f -> f . visit_edge an (Some (blockID block)) m) id
-                 $ maybe [] id $ termStmtNextBlocks t
+                 $ fromMaybe [] $ termStmtNextBlocks t
 
        -- Given source and target block ids, examine the ancestor and black sets
        -- to discover if the node we are about to visit is a white, grey or black node

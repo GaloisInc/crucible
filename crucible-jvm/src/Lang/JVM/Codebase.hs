@@ -295,7 +295,7 @@ supers cb cl = do
 subs :: Codebase -> Class -> IO [Class]
 subs (Codebase ref) cl = do
   cb <- readIORef ref
-  return $ starClosure (maybe [] id . (`M.lookup` subclassMap cb) . className) cl
+  return $ starClosure (fromMaybe [] . (`M.lookup` subclassMap cb) . className) cl
 
 
 --------------------------------------------------------------------------------
