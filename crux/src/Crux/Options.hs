@@ -135,7 +135,7 @@ promoteLang g = \ (c,opts) -> (c, go opts)
 
 cmdLineOptions :: [LangConf] -> [OptDescr (AllPossibleOptions -> AllPossibleOptions)]
 cmdLineOptions langs = map (fmap promoteCruxOptions) cmdLineCruxOptions
-                       ++ concat (map langCLOpts langs)
+                       ++ concatMap langCLOpts langs
   where
     promoteCruxOptions f =  \(c,others) -> (f c, others)
     langCLOpts (LangConf (_ :: LangOptions a)) = fmap (fmap promoteLang) (CL.cmdLineOptions @a)
