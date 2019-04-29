@@ -52,7 +52,6 @@
 - ignore: {name: Use guards}
 - ignore: {name: Use hPrint}
 - ignore: {name: Use if}
-- ignore: {name: Use intercalate}
 - ignore: {name: Use isNothing}
 - ignore: {name: Use lambda-case}
 - ignore: {name: Use list comprehension}

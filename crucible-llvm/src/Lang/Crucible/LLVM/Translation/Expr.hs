@@ -110,8 +110,8 @@ instance Show (LLVMExpr s arch) where
   show (BaseExpr ty x)  = C.showF x ++ " : " ++ show ty
   show (ZeroExpr mt)    = "<zero :" ++ show mt ++ ">"
   show (UndefExpr mt)   = "<undef :" ++ show mt ++ ">"
-  show (VecExpr _mt xs) = "[" ++ concat (List.intersperse ", " (map show (toList xs))) ++ "]"
-  show (StructExpr xs)  = "{" ++ concat (List.intersperse ", " (map f (toList xs))) ++ "}"
+  show (VecExpr _mt xs) = "[" ++ List.intercalate ", " (map show (toList xs)) ++ "]"
+  show (StructExpr xs)  = "{" ++ List.intercalate ", " (map f (toList xs)) ++ "}"
     where f (_mt,x) = show x
 
 
