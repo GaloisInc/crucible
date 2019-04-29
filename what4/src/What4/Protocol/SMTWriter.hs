@@ -36,7 +36,7 @@ error rather than sending invalid output to a file.
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
+
 module What4.Protocol.SMTWriter
   ( -- * Type classes
     SupportTermOps(..)

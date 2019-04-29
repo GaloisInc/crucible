@@ -3,8 +3,8 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE TypeApplications #-}
+
+
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.Syntax.Overrides

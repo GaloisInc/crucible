@@ -1,5 +1,5 @@
 {-# LANGUAGE QuasiQuotes #-}
-{-# Language OverloadedStrings #-}
+
 
 module Crux.UI.Jquery where
 

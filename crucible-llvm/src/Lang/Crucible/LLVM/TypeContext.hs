@@ -14,9 +14,9 @@
 {-# LANGUAGE ImplicitParams             #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE TupleSections              #-}
+
 {-# LANGUAGE TypeSynonymInstances       #-}
-{-# LANGUAGE ViewPatterns               #-}
+
 module Lang.Crucible.LLVM.TypeContext
   ( -- * LLVMContext
     TypeContext

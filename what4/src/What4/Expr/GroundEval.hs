@@ -18,7 +18,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE ViewPatterns #-}
+
 module What4.Expr.GroundEval
   ( -- * Ground evaluation
     GroundValue

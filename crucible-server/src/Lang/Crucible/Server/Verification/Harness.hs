@@ -7,7 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
+
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Server.Verification.Harness

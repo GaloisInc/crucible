@@ -6,7 +6,7 @@
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE RankNTypes #-}
 {-# Language ScopedTypeVariables #-}
-{-# Language TypeApplications #-}
+
 {-# Language TypeFamilies #-}
 {-# Language UndecidableInstances #-}
 

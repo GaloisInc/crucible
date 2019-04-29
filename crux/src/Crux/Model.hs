@@ -1,7 +1,7 @@
 -- | This file is almost exactly the same as crucible-c/src/Model.hs
 
 {-# Language DataKinds #-}
-{-# Language TemplateHaskell #-}
+
 {-# Language Rank2Types #-}
 {-# Language TypeFamilies #-}
 {-# Language TypeApplications #-}

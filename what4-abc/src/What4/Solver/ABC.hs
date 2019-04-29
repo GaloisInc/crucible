@@ -16,7 +16,7 @@ representation.
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
+
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -Werror #-}
 module What4.Solver.ABC

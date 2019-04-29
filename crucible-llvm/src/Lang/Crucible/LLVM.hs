@@ -1,5 +1,5 @@
-{-# LANGUAGE EmptyCase #-}
-{-# LANGUAGE LambdaCase #-}
+
+
 {-# LANGUAGE TypeFamilies #-}
 -----------------------------------------------------------------------
 -- |

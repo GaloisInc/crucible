@@ -9,11 +9,11 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
+
 module Lang.Crucible.LLVM.DataLayout
   ( -- * Alignments
     Alignment
