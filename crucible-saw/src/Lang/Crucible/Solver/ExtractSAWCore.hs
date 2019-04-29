@@ -481,7 +481,7 @@ printSAWValues
    -> IO ()
 printSAWValues sc = V.ifoldl' (\m i x -> m >> printPart i x) (return ())
  where printPart i Unassigned = putStrLn $ unlines [ "Result "++show i, "  UNASSIGNED",""]
-       printPart i (PE _ v)   = printVal i v >>= putStrLn . show
+       printPart i (PE _ v)   = printVal i v >>= print
 
        printVal :: Int -> Value (SAW.SAWCoreBackend s) -> IO Doc
        printVal i (UIntArray (SomeBVArray _ a)) = do
