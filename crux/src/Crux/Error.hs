@@ -26,7 +26,7 @@ data Error a =
   | MissingFun String
   | Bug String
   | EnvError String
-  | Lang (LangError a) 
+  | Lang (LangError a)
 
 instance Language a => Show (Error a) where
   show = ppError

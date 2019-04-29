@@ -976,17 +976,17 @@ typeMapFirstClass :: WriterConn t h -> BaseTypeRepr tp -> Either BaseTypeError (
 typeMapFirstClass conn tp0 = do
   let feat = supportedFeatures conn
   case tp0 of
-    BaseBoolRepr -> Right $! BoolTypeMap
+    BaseBoolRepr -> Right BoolTypeMap
     BaseBVRepr w -> Right $! BVTypeMap w
     BaseFloatRepr fpp -> Right $! FloatTypeMap fpp
-    BaseRealRepr -> Right $! RealTypeMap
-    BaseNatRepr  -> Right $! NatTypeMap
-    BaseIntegerRepr -> Right $! IntegerTypeMap
-    BaseStringRepr -> Left $! StringTypeUnsupported
+    BaseRealRepr -> Right RealTypeMap
+    BaseNatRepr  -> Right NatTypeMap
+    BaseIntegerRepr -> Right IntegerTypeMap
+    BaseStringRepr -> Left StringTypeUnsupported
     BaseComplexRepr
-      | feat `hasProblemFeature` useStructs        -> Right $! ComplexToStructTypeMap
-      | feat `hasProblemFeature` useSymbolicArrays -> Right $! ComplexToArrayTypeMap
-      | otherwise -> Left $! ComplexTypeUnsupported
+      | feat `hasProblemFeature` useStructs        -> Right ComplexToStructTypeMap
+      | feat `hasProblemFeature` useSymbolicArrays -> Right ComplexToArrayTypeMap
+      | otherwise -> Left ComplexTypeUnsupported
     BaseArrayRepr idxTp eltTp -> do
       -- This is a proxy for the property we want, because we assume that EITHER
       -- the solver uses symbolic arrays, OR functions are first-class objects
@@ -2549,7 +2549,7 @@ getSMTSymFn conn fn arg_types = do
       nm <- getSymbolName conn (FnSymbolBinding fn)
       ret_type <- mkSMTSymFn conn nm fn arg_types
       cacheValueFn conn n DeleteOnPop $! SMTSymFn nm arg_types ret_type
-      return $! (nm, ret_type)
+      return (nm, ret_type)
 
 ------------------------------------------------------------------------
 -- Writer high-level interface.

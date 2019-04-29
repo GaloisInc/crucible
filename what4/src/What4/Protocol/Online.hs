@@ -253,7 +253,7 @@ checkAndGetModel yp rsn = do
   sat_result <- check yp rsn
   case sat_result of
     Unsat x -> return $! Unsat x
-    Unknown -> return $! Unknown
+    Unknown -> return Unknown
     Sat () -> Sat <$> getModel yp
 
 -- | Following a successful check-sat command, build a ground evaulation function

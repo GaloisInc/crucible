@@ -22,7 +22,6 @@
 - ignore: {name: Move brackets to avoid $}
 - ignore: {name: Parse error}
 - ignore: {name: Reduce duplication}
-- ignore: {name: Redundant $!}
 - ignore: {name: Redundant $}
 - ignore: {name: Redundant ==}
 - ignore: {name: Redundant as}

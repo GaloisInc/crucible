@@ -64,7 +64,7 @@ import Lang.Crucible.LLVM.MemModel
   (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth,
    llvmPointer_bv, projectLLVM_bv, doArrayStore)
 
-import Lang.Crucible.LLVM.Extension(LLVM)  
+import Lang.Crucible.LLVM.Extension(LLVM)
 import Lang.Crucible.LLVM.Extension(ArchWidth)
 
 import Crux.Error

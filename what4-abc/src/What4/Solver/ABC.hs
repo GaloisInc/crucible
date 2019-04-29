@@ -858,7 +858,7 @@ writeDimacsFile ntk cnf_path condition = do
   -- Generate predicate for top level term.
   B c <- eval ntk condition
   -- Assert any necessary sideconditions
-  c' <- AIG.lAnd' (gia ntk) sideconds c 
+  c' <- AIG.lAnd' (gia ntk) sideconds c
   GIA.writeCNF (gia ntk) c' cnf_path
 
 -- | Run an external solver using competition dimacs format.

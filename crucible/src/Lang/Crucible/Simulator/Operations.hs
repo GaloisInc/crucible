@@ -790,12 +790,12 @@ cruciblePausedFrame jmp@(ResolvedJump x_id _) top_frame pd =
 overrideSymbolicBranch ::
   IsSymInterface sym =>
   Pred sym ->
-  
-  RegMap sym then_args -> 
+
+  RegMap sym then_args ->
   ExecCont p sym ext rtp (OverrideLang r) ('Just then_args) {- ^ if branch -} ->
   Maybe Position {- ^ optional if branch location -} ->
 
-  RegMap sym else_args -> 
+  RegMap sym else_args ->
   ExecCont p sym ext rtp (OverrideLang r) ('Just else_args) {- ^ else branch -} ->
   Maybe Position {- ^ optional else branch location -} ->
 
