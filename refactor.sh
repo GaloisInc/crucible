@@ -4,3 +4,4 @@ for file in $(find crucible{-llvm,-saw,-server,-syntax}/src crux{,-llvm}/src wha
   hlint "$file" --refactor --refactor-options="-i"
   git add "$file"
 done
+hlint crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt}
