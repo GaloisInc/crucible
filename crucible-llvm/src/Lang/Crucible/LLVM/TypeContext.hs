@@ -97,7 +97,7 @@ recordUnsupported tp = modify fn
 -- | Returns the type bound to an identifier.
 tcIdent :: Ident -> TC SymType
 tcIdent i = do
-  im <- tcsMap <$> get
+  im <- gets tcsMap
   let retUnsupported = tp <$ modify fn
         where tp = UnsupportedType (L.Alias i)
               fn tcs = tcs { tcsUnresolvable = Set.insert i (tcsUnresolvable tcs) }
@@ -163,7 +163,7 @@ tcType tp0 = do
 -- StructLayout object constructor in TargetData.cpp.
 tcStruct :: Bool -> [L.Type] -> TC (Maybe StructInfo)
 tcStruct packed fldTys = do
-  pdl <- tcsDataLayout <$> get
+  pdl <- gets tcsDataLayout
   fieldMemTys <- traverse tcMemType fldTys
   return (mkStructInfo pdl packed <$> sequence fieldMemTys)
 
