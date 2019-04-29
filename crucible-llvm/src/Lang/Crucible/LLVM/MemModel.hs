@@ -25,7 +25,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE PatternSynonyms #-}
+
 {-# LANGUAGE EmptyDataDecls #-}
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
