@@ -710,11 +710,11 @@ processEdges definedNames edges = go Nothing mempty edges
  -- selecting a value from memory or registers is to be preferred to declaring
  -- a fresh symbolic value
  betterCandidate (RegisterVal _ _) (Just (DeclareFreshVariable _,_,_)) = True
- betterCandidate (MemPointsTo _ _ _) (Just (DeclareFreshVariable _,_,_)) = True
+ betterCandidate (MemPointsTo{}) (Just (DeclareFreshVariable _,_,_)) = True
 
  -- selecting from a register is generally a better way to define a value than
  -- selecting from memory
- betterCandidate (RegisterVal _ _) (Just (MemPointsTo _ _ _,_,_)) = True
+ betterCandidate (RegisterVal _ _) (Just (MemPointsTo{},_,_)) = True
 
  betterCandidate _ _ = False
 

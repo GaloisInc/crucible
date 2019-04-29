@@ -58,7 +58,6 @@
 - ignore: {name: Use maybe}
 - ignore: {name: Use newtype instead of data}
 - ignore: {name: Use otherwise}
-- ignore: {name: Use record patterns}
 - ignore: {name: Use section}
 - ignore: {name: Use sortOn}
 - ignore: {name: Use tuple-section}

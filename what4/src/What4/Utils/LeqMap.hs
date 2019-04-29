@@ -74,7 +74,7 @@ balanceR k x l r = case l of
   Tip -> case r of
            Tip -> Bin 1 k x Tip Tip
            (Bin _ _ _ Tip Tip) -> Bin 2 k x Tip r
-           (Bin _ rk rx Tip rr@(Bin _ _ _ _ _)) -> Bin 3 rk rx (Bin 1 k x Tip Tip) rr
+           (Bin _ rk rx Tip rr@(Bin{})) -> Bin 3 rk rx (Bin 1 k x Tip Tip) rr
            (Bin _ rk rx (Bin _ rlk rlx _ _) Tip) -> Bin 3 rlk rlx (Bin 1 k x Tip Tip) (Bin 1 rk rx Tip Tip)
            (Bin rs rk rx rl@(Bin rls rlk rlx rll rlr) rr@(Bin rrs _ _ _ _))
              | rls < ratio*rrs -> Bin (1+rs) rk rx (Bin (1+rls) k x Tip rl) rr

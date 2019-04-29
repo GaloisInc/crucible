@@ -1256,7 +1256,7 @@ freeMem sym w (LLVMPointer blk off) m =
                Just True  -> return (truePred sym)
                Just False -> isHeapAllocated fallback r
                Nothing    -> orPred sym sameBlock =<< isHeapAllocated fallback r
-        Alloc _ _ _ _ _ _ ->
+        Alloc{} ->
           isHeapAllocated fallback r
         MemFree a ->
           do sameBlock <- natEq sym blk a
