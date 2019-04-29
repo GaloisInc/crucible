@@ -29,7 +29,6 @@
 - ignore: {name: Redundant case}
 - ignore: {name: Redundant do}
 - ignore: {name: Redundant flip}
-- ignore: {name: Redundant fromInteger}
 - ignore: {name: Redundant guard}
 - ignore: {name: Redundant lambda}
 - ignore: {name: Redundant return}

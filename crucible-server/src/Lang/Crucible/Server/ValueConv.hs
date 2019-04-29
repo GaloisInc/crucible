@@ -83,21 +83,21 @@ withOneArg :: (Show w, X.MonadThrow m, Fold.Foldable t) =>
               w -> t a -> (a -> m b) -> m b
 withOneArg what args op1 =
   if Fold.length args == 1
-  then let a1:[] = take 1 $ Fold.toList args in op1 a1
+  then let [a1] = take 1 $ Fold.toList args in op1 a1
   else X.throwM $ InvalidUnaryOpArgCount (show what) (Fold.length args)
 
 with2Args :: (Show w, X.MonadThrow m, Fold.Foldable t) =>
              w -> t a -> (a -> a -> m b) -> m b
 with2Args what args op2 =
   if Fold.length args == 2
-  then let a1:a2:[] = take 2 $ Fold.toList args in op2 a1 a2
+  then let [a1, a2] = take 2 $ Fold.toList args in op2 a1 a2
   else X.throwM $ InvalidBinaryOpArgCount (show what) (Fold.length args)
 
 with3Args :: (Show w, X.MonadThrow m, Fold.Foldable t) =>
              w -> t a -> (a -> a -> a -> m b) -> m b
 with3Args what args op3 =
   if Fold.length args == 3
-  then let a1:a2:a3:[] = take 3 $ Fold.toList args in op3 a1 a2 a3
+  then let [a1, a2, a3] = take 3 $ Fold.toList args in op3 a1 a2 a3
   else X.throwM $ InvalidBinaryOpArgCount (show what) (Fold.length args)
 
 
@@ -620,7 +620,7 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
     P.VectorLit -> do
       case result_type of
         VectorRepr tp -> do
-            xs <- sequence $ map (evalTypedValue tp) $ Fold.toList args
+            xs <- mapM (evalTypedValue tp) Fold.toList args
             let v = V.fromList xs
             return $ Some $ VectorLit tp v
         _ -> X.throwM $ InvalidResultType "VectorLit" result_type

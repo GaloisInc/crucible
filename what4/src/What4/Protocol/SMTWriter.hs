@@ -1286,7 +1286,7 @@ bvIntTerm w x = sumExpr ((\i -> digit (i-1)) <$> [1..natValue w])
  where digit :: Natural -> v
        digit d = ite (bvTestBit w d x)
                      (fromInteger (2^d))
-                     (fromInteger 0)
+                     (0)
 
 sbvIntTerm :: SupportTermOps v
            => NatRepr w
@@ -1295,7 +1295,7 @@ sbvIntTerm :: SupportTermOps v
 sbvIntTerm w0 x0 = sumExpr (signed_offset : go w0 x0 (natValue w0 - 2))
  where signed_offset = ite (bvTestBit w0 (natValue w0 - 1) x0)
                            (fromInteger (negate (2^(widthVal w0 - 1))))
-                           (fromInteger 0)
+                           (0)
        go :: SupportTermOps v => NatRepr w -> v -> Natural -> [v]
        go w x n
         | n > 0     = digit w x n : go w x (n-1)
@@ -1306,7 +1306,7 @@ sbvIntTerm w0 x0 = sumExpr (signed_offset : go w0 x0 (natValue w0 - 2))
        digit :: SupportTermOps v => NatRepr w -> v -> Natural -> v
        digit w x d = ite (bvTestBit w d x)
                          (fromInteger (2^d))
-                         (fromInteger 0)
+                         (0)
 
 unsupportedTerm  :: Monad m => Expr t tp -> m a
 unsupportedTerm e =
