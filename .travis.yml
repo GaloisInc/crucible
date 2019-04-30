@@ -6,6 +6,7 @@ before_cache:
 - rm -fv $HOME/.cabal/packages/hackage.haskell.org/build-reports.log
 - rm -fv $HOME/.cabal/packages/hackage.haskell.org/00-index.tar
 matrix:
+  fast_finish: true
   include:
   - env: CABALVER=2.4 GHCVER=8.6.3
     addons:

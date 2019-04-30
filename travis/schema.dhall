@@ -15,12 +15,16 @@ in  let Include =
               Optional Text
           }
 
+in  let Matrix = { include : List Include, fast_finish : Optional Bool }
+
 in    { OperatingSystem =
           OperatingSystem
       , Addon =
           Addon
       , Include =
           Include
+      , Matrix =
+          Matrix
       , Travis =
           { language :
               Text
@@ -35,11 +39,21 @@ in    { OperatingSystem =
           , before_cache :
               Optional (List Text)
           , matrix :
-              Optional { include : List Include }
+              Optional Matrix
           , before_install :
               Optional (List Text)
           , script :
               Optional (List Text)
           }
       }
-    : { OperatingSystem : Type, Addon : Type, Include : Type, Travis : Type }
+    : { OperatingSystem :
+          Type
+      , Addon :
+          Type
+      , Include :
+          Type
+      , Matrix :
+          Type
+      , Travis :
+          Type
+      }

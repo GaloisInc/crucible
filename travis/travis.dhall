@@ -7,21 +7,21 @@ in  let OperatingSystem = < Linux : {} | OSX : {} >
 
 in  let operatingSystem = constructors OperatingSystem
 
-in  let Addon = { apt : { packages : List Text, sources : List Text } }
-
 in  let Include =
           { env :
               Text
           , compiler :
               Optional Text
           , addons :
-              Optional Addon
+              Optional schema.Addon
           , os :
               Optional Text
           }
 
+in  let MakeIncludeArgs = { ghc : Text, cabal : Text, os : OperatingSystem }
+
 in  let makeInclude =
-            λ(args : { ghc : Text, cabal : Text, os : OperatingSystem })
+            λ(args : MakeIncludeArgs)
           →   { env =
                   "CABALVER=${args.cabal} GHCVER=${args.ghc}"
               , compiler =
@@ -42,9 +42,9 @@ in  let makeInclude =
                                   [ "hvr-ghc" ]
                               }
                           }
-                        ] : Optional Addon
+                        ] : Optional schema.Addon
                   , OSX =
-                      λ(_ : {}) → [] : Optional Addon
+                      λ(_ : {}) → [] : Optional schema.Addon
                   }
                   args.os
               , os =
@@ -78,27 +78,37 @@ in    { language =
           ] : Optional (List Text)
       , matrix =
           [ { include =
-                [ makeInclude
-                  { ghc =
-                      "8.6.3"
-                  , cabal =
-                      "2.4"
-                  , os =
-                      operatingSystem.Linux {=}
-                  }
-                , makeInclude
-                  { ghc =
-                      "8.4.3"
-                  , cabal =
-                      "2.4"
-                  , os =
-                      operatingSystem.Linux {=}
-                  }
-                , makeInclude
-                  { ghc = "8.6.3", cabal = "2.4", os = operatingSystem.OSX {=} }
-                ]
+                  map
+                  MakeIncludeArgs
+                  Include
+                  makeInclude
+                  [ { ghc =
+                        "8.6.3"
+                    , cabal =
+                        "2.4"
+                    , os =
+                        operatingSystem.Linux {=}
+                    }
+                  , { ghc =
+                        "8.4.3"
+                    , cabal =
+                        "2.4"
+                    , os =
+                        operatingSystem.Linux {=}
+                    }
+                  , { ghc =
+                        "8.6.3"
+                    , cabal =
+                        "2.4"
+                    , os =
+                        operatingSystem.OSX {=}
+                    }
+                  ]
+                : List Include
+            , fast_finish =
+                [ True ] : Optional Bool
             }
-          ] : Optional { include : List Include }
+          ] : Optional schema.Matrix
       , before_install =
           [ [ "unset CC"
             , "export PATH=/opt/ghc/\$GHCVER/bin:/opt/cabal/\$CABALVER/bin:\$PATH"
