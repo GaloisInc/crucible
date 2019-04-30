@@ -119,7 +119,7 @@ addTraitAssocTys col trait =
   trait & traitAssocTys .~ map (,subst) anames
                         
    where
-     anames      = [ did | (TraitType did) <- trait^.traitItems ]
+     anames      = [ did | (TraitType did) <- trait^.traitItems, did /= textId "::ops[0]::function[0]::FnOnce[0]::Output[0]" ]
      subst       = Substs [ TyParam (toInteger i)
                           | i <- [0 .. (length (trait^.traitParams) - 1)] ]
 

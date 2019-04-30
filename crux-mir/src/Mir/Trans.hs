@@ -182,6 +182,7 @@ tyToRepr t0 = case t0 of
   M.TyProjection _def _tyargs -> error $ "BUG: all uses of TyProjection should have been eliminated, found "
     ++ show (pretty t0) 
   M.TyFnDef _def substs -> Some C.AnyRepr
+  M.TyLifetime -> Some C.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
 
 
@@ -817,6 +818,15 @@ evalCast' ck ty1 e ty2  =
       (M.Misc, M.TyInt USize, M.TyCustom (CEnum _n _i)) -> return e
       (M.Misc, M.TyInt _sz,   M.TyCustom (CEnum _n _i)) | (MirExp (C.BVRepr nat) e0) <- e ->
            return $ MirExp knownRepr (R.App $ E.SbvToInteger nat e0)
+
+      -- References have the same representation as Raw pointers
+      (M.Misc, M.TyRef ty1 mut1, M.TyRawPtr ty2 mut2)
+         | ty1 == ty2 && mut1 == mut2 -> return e
+
+      (M.Misc, M.TyRawPtr ty1 M.Mut, M.TyRawPtr ty2 M.Immut)
+         | MirExp (MirReferenceRepr tp) ref <- e, ty1 == ty2
+         -> do r <- readMirRef tp ref
+               return (MirExp tp r)
 
 
       _ -> fail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
@@ -1845,6 +1855,35 @@ mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
       return $ buildTaggedUnion 0 entries
 mkDict (var, _) = error $ "BUG: mkDict, only make dictionaries for TraitPredicates"
 
+-- need to construct any dictionary arguments for predicates (if present)
+callExp :: HasCallStack =>
+           M.DefId
+        -> Substs
+        -> [M.Operand]
+        -> MirGenerator h s ret (MirExp s)
+callExp funid funsubst cargs = do
+   db    <- use debugLevel
+   mhand <- lookupFunction funid funsubst
+   case mhand of
+     Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) -> do
+       when (db > 3) $
+          traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
+              pretty funid, PP.text "with arguments", pretty cargs,
+              PP.text "sig:",pretty sig,
+              PP.text "and type parameters:", pretty funsubst])
+
+       exps <- mapM evalOperand cargs
+       let preds = sig^.fspredicates
+       dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
+       exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
+         case (testEquality ctx ifargctx) of
+           Just Refl -> do
+             ret_e <- G.call polyinst asgn
+             return (MirExp ifret ret_e)
+           _ -> fail $ "type error in call of " ++ fmt funid ++ fmt funsubst
+                         ++ "\n    args      " ++ show ctx
+                         ++ "\n vs fn params " ++ show ifargctx
+     _ -> fail $ "callExp: Don't know how to call " ++ fmt funid ++ fmt funsubst
 
 
 
@@ -1886,60 +1925,25 @@ doCall funid funsubst cargs cdest retRepr = do
             jumpToBlock jdest
 
         -- normal function call (could be through a dictionary argument or a static trait)
-        -- need to construct any dictionary arguments for predicates (if present)
-        | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand -> do
-            when (db > 3) $
-               traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
-                   pretty funid, PP.text "with arguments", pretty cargs,
-                   PP.text "sig:",pretty sig,
-                   PP.text "and type parameters:", pretty funsubst])
-
-            exps <- mapM evalOperand cargs
-            let preds = sig^.fspredicates
-            dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
-            exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
-                case (testEquality ctx ifargctx) of
-                  Just Refl -> do
-                    ret_e <- G.call polyinst asgn
-                    assignLvExp dest_lv (MirExp ifret ret_e)
-                    jumpToBlock jdest
-                  _ -> fail $ "type error in call: args " ++ (show ctx) ++ "\n vs function params "
-                                 ++ show ifargctx ++ "\n while calling " ++ show (pretty funid)
-
-
-         | otherwise -> fail $ "Don't know how to call " ++ fmt funid ++ "\n mhand is " ++ show mhand
-
+            
+         | otherwise -> do
+            ret <- callExp funid funsubst cargs
+            assignLvExp dest_lv ret
+            jumpToBlock jdest
+      
       Nothing
          -- special case for exit function that does not return
          | Just CustomOpExit <- lookupCustomFunc funid funsubst,
                [o] <- cargs -> do
                _exp <- evalOperand o
-               G.reportError (S.app $ E.TextLit "Program terminated with exit:")
+               G.reportError (S.app $ E.TextLit "Program terminated with std::process::exit")
 
-        -- functions that don't return
-        | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand
-        , isNever (sig^.fsreturn_ty) -> do
-            when (db > 3) $ do
-               traceM $ fmt (PP.fillSep [PP.text "At a tail call of ", pretty funid,
-                        PP.text " with arguments ", pretty cargs,
-                        PP.text "with type parameters: ", pretty funsubst])
+        -- other functions that don't return
+        | otherwise -> do
+            _ <- callExp funid funsubst cargs
+            -- TODO: is this the correct behavior?
+            G.reportError (S.app $ E.TextLit "Program terminated.")
 
-            exps <- mapM evalOperand cargs
-            let preds = sig^.fspredicates
-            dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
-            exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
-                case (testEquality ctx ifargctx) of
-                  Just Refl -> do
-                    _ <- G.call polyinst asgn
-                    G.reportError (S.app $ E.TextLit "Program terminated with exit:")
-
-                  _ -> fail $ "type error in tail call: args " ++ (show ctx)
-                           ++ " vs function params " ++ show ifargctx 
-                           ++ "\n while calling " ++ show funid
-
-
-
-         | otherwise -> fail $ "no dest in doCall of " ++ show (pretty funid)
 
 -- Method/trait calls
       -- 1. translate `traitObject` -- should be a Ref to a tuple
@@ -3106,7 +3110,10 @@ customOps = Map.fromList [
                          , slice_first
                          , slice_get
                          , slice_get_mut
-              
+
+                         , slice_get_unchecked
+                         , slice_get_mut_unchecked
+
                          , ops_index
                          , ops_index_mut
 
@@ -3195,11 +3202,12 @@ ops_index :: (ExplodedDefId, CustomRHS)
 ops_index = ((["ops", "index"], "Index", ["index"]), index_op )
 
 ops_index_mut :: (ExplodedDefId, CustomRHS)
-ops_index_mut = ((["ops", "index"], "IndexMut", ["index_mut"]), index_op )
+ops_index_mut = ((["ops", "index"], "IndexMut", ["index_mut"]), index_op_mut )
 
 
 {-
-libcore/slice.rs includes the following impl
+libcore/slice.rs includes the following impl that I don't know how to get through
+rustc. So we implement by hand here.
 
     impl<T, I> Index<I> for [T]
     where I: SliceIndex<[T]>
@@ -3220,17 +3228,35 @@ libcore/slice.rs includes the following impl
             index.index_mut(self)
         }
     }
+
+
 -}
 
 index_op :: Substs -> Maybe CustomOp
-index_op (Substs [TySlice _el1, TyAdt _did _ss, TySlice _el2]) =
+index_op (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
     Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
-                  let v2 = M.varOfLvalue (M.lValueofOp op2)
-                  evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
+                  let funid = (M.textId "slice[0]::SliceIndex[0]::index[0]")
+                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
+                  let substs = Substs [ii, TySlice elTy, TySlice elTy]
+                  callExp funid substs [op2, op1]
                _ -> fail $ "BUG: invalid arguments to index"
 index_op _ = Nothing
+
+
+
+index_op_mut :: Substs -> Maybe CustomOp
+index_op_mut (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
+    Just $ CustomMirOp $ \ ops -> do
+             case ops of
+               [op1, op2] -> do
+                  let funid = (M.textId "slice[0]::SliceIndex[0]::index_mut[0]")
+                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
+                  let substs = Substs [ii, TySlice elTy, TySlice elTy]
+                  callExp funid substs [op2, op1]
+               _ -> fail $ "BUG: invalid arguments to index_mut"
+index_op_mut _ = Nothing
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_sub
 
@@ -3395,17 +3421,6 @@ iter_collect_op _subst _opTys _retTy ops =
             self.get(0)
         }
 
-        pub fn get<I>(&self, index: I) -> Option<&I::Output>
-        where I: SliceIndex<Self>
-        {
-            index.get(self)
-        }
-        
-        pub fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output>
-        where I: SliceIndex<Self>
-        {
-            index.get_mut(self)
-        }
 
     }
 -}
@@ -3442,10 +3457,54 @@ slice_first =
             return (MirExp elTy (G.App $ E.VectorGetEntry elTy vec_e (G.App $ E.NatLit 0)))
        _ -> fail $ "BUG: invalid arguments to " ++ "slice_first")
 
+{-  impl<T>[T] {
+
+        pub fn get<I>(&self, index: I) -> Option<&I::Output>
+        where I: SliceIndex<Self>
+        {
+            index.get(self)
+        }
+        
+        pub fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output>
+        where I: SliceIndex<Self>
+        {
+            index.get_mut(self)
+        }
+    }
+-}
+
+-- TODO: since this is a completely custom function, it is not in the collection at all
+-- So the AT translation does not know to pass the third type argument for I::Output
+
+slice_get_op :: Substs -> Maybe CustomOp
+slice_get_op (Substs [tt, ii]) =
+    Just $ CustomMirOp $ \ ops -> do
+             case ops of
+               [op1, op2] -> do
+                  let funid = (M.textId "slice[0]::SliceIndex[0]::get[0]")
+                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
+                  let substs = Substs [ii, TySlice tt, TySlice tt]
+                  callExp funid substs [op2, op1]
+               _ -> fail $ "BUG: invalid arguments to index"
+slice_get_op _ = Nothing
+
+slice_get_mut_op :: Substs -> Maybe CustomOp
+slice_get_mut_op (Substs [tt, ii]) =
+    Just $ CustomMirOp $ \ ops -> do
+             case ops of
+               [op1, op2] -> do
+                  let funid = (M.textId "slice[0]::SliceIndex[0]::get_mut[0]")
+                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
+                  let substs = Substs [ii, TySlice tt, TySlice tt]
+                  callExp funid substs [op2, op1]
+               _ -> fail $ "BUG: invalid arguments to index"
+slice_get_mut_op _ = Nothing
+
+{-
 -- Only works when the array/slice is accessed by a range
 -- Should make it more general
-slice_get_op :: CustomRHS
-slice_get_op subs = case subs of
+slice_get_op' :: CustomRHS
+slice_get_op' subs = case subs of
                (Substs [elTy, TyAdt defid (Substs [M.TyUint M.USize])])
                  | defid == M.textId "::ops[0]::range[0]::Range[0]"
                  -> Just $ CustomOp $ \ optys retTy ops -> do
@@ -3468,12 +3527,63 @@ slice_get_op subs = case subs of
 
                       _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops
                (Substs _) -> Nothing
+-}
 
 slice_get :: (ExplodedDefId, CustomRHS)
 slice_get = ((["slice", "{{impl}}"],"get", []), slice_get_op)
 
 slice_get_mut :: (ExplodedDefId, CustomRHS)
-slice_get_mut = ((["slice", "{{impl}}"],"get_mut", []), slice_get_op)
+slice_get_mut = ((["slice", "{{impl}}"],"get_mut", []), slice_get_mut_op)
+
+
+{--- 
+impl<T> SliceIndex<[T]> for usize {
+    type Output = T;
+    unsafe fn get_unchecked(self, slice: &[T]) -> &T {
+        &*slice.as_ptr().add(self)
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut T {
+        &mut *slice.as_mut_ptr().add(self)
+    }
+--}
+
+slice_get_unchecked :: (ExplodedDefId, CustomRHS)
+slice_get_unchecked = ((["slice", "{{impl}}"],"get_unchecked", []), slice_get_unchecked_op)
+
+slice_get_mut_unchecked :: (ExplodedDefId, CustomRHS)
+slice_get_mut_unchecked = ((["slice", "{{impl}}"],"get_mut_unchecked", []), slice_get_mut_unchecked_op)
+
+slice_get_unchecked_op :: CustomRHS
+slice_get_unchecked_op subs = case subs of
+   (Substs [M.TySlice elTy, M.TyUint M.USize])
+     -> Just $ CustomOp $ \ optys retTy ops -> do
+          case ops of
+            [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
+                let ref   = S.getStruct (Ctx.natIndex @0) slice
+                let start = S.getStruct (Ctx.natIndex @1) slice
+                let ind'  = start S..+ ind
+                arr <- readMirRef (C.VectorRepr el_tp) ref
+                return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind'))
+
+            _ -> fail $ "BUG: invalid arguments to slice_get_unchecked: " ++ show ops
+   _ -> Nothing
+
+slice_get_mut_unchecked_op :: CustomRHS
+slice_get_mut_unchecked_op subs = case subs of
+   (Substs [M.TySlice elTy, M.TyUint M.USize])
+     -> Just $ CustomOp $ \ optys retTy ops -> do
+          case ops of
+            [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
+                let ref   = S.getStruct (Ctx.natIndex @0) slice
+                let start = S.getStruct (Ctx.natIndex @1) slice
+                let ind'  = start S..+ ind
+                arr <- readMirRef (C.VectorRepr el_tp) ref
+                return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind'))
+
+            _ -> fail $ "BUG: invalid arguments to slice_get_mut_unchecked: " ++ show ops
+   _ -> Nothing
 
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: vec
@@ -3502,7 +3612,7 @@ fn_call_once :: (ExplodedDefId, CustomRHS)
 fn_call_once = ((["ops","function"], "FnOnce", ["call_once"]), \subst -> Just $ CustomOp $ fn_call_op subst)
 
 fn_call_op ::  forall h s ret. HasCallStack => Substs -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-fn_call_op (Substs [_ty1, aty, _rp]) [argTy1,_] retTy [fn,argtuple] = do
+fn_call_op (Substs [_ty1, aty]) [argTy1,_] retTy [fn,argtuple] = do
      extra_args   <- getAllFieldsMaybe argtuple
 
      -- returns the function (perhaps with a coerced type, in the case of polymorphism)
@@ -4037,4 +4147,4 @@ performMap iterty iter closurety closure =
 ------------------------------------------------------------------------------------------------
 
 --  LocalWords:  params IndexMut FnOnce Fn IntoIterator iter impl
---  LocalWords:  tovec fromelem tmethsubst
+--  LocalWords:  tovec fromelem tmethsubst MirExp

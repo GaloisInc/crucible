@@ -435,14 +435,14 @@ resolveStaticMethod methName substs traitName = do
 -- | Look for a static trait implementation in a particular Trait
 findItem :: HasCallStack => MethName -> Substs -> Trait -> MirGenerator h s ret (Maybe (TraitImpl, Map Integer Ty, TraitImplItem))
 findItem methName traitSub trait = do
+  db <- use debugLevel
   col <- use collection
   let isImpl :: TraitImpl -> Maybe (TraitImpl, Map Integer Ty)
       isImpl ti
        | (TraitRef tn ss) <- ti^.tiTraitRef
        , tn == trait^.traitName
-       = 
-       case matchSubsts traitSub ss of
-              Right m  -> 
+       = case matchSubsts traitSub ss of
+              Right m  ->
                 Just (ti, m)
               Left _e -> Nothing           
        | otherwise = Nothing

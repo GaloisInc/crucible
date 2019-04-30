@@ -53,7 +53,7 @@ loadPrims useStdLib debugLevel = do
               , "ops/deref"
 --              , "iter/traits/collect"  -- Cannot handle IntoIterator or FromIterator
 --              , "iter/iterator"
---              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
+              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
 --              , "ops/arith" -- doesn't include "implements" in mir-json for macros
               ] else [
                 "ops/function"  -- needed for any treatment of hofs
