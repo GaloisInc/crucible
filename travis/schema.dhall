@@ -2,7 +2,11 @@
 
 in  let operatingSystem = constructors OperatingSystem
 
-in  let Addon = { apt : { packages : List Text, sources : List Text } }
+in  let AddonApt = { packages : List Text, sources : List Text }
+
+in  let AddonBrew = { packages : List Text, update : Bool }
+
+in  let Addon = { apt : Optional AddonApt, homebrew : Optional AddonBrew }
 
 in  let Include =
           { env :
@@ -26,6 +30,10 @@ in  let Matrix =
 
 in    { OperatingSystem =
           OperatingSystem
+      , AddonApt =
+          AddonApt
+      , AddonBrew =
+          AddonBrew
       , Addon =
           Addon
       , Include =
@@ -54,6 +62,10 @@ in    { OperatingSystem =
           }
       }
     : { OperatingSystem :
+          Type
+      , AddonApt :
+          Type
+      , AddonBrew :
           Type
       , Addon :
           Type
