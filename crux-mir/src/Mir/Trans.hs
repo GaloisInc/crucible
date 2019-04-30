@@ -141,6 +141,7 @@ tyToRepr t0 = case t0 of
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
 
+  -- NOTE: we cannot mutate this vector. Hmmmm....
   M.TySlice t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
 
   M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
@@ -1860,29 +1861,47 @@ callExp :: HasCallStack =>
            M.DefId
         -> Substs
         -> [M.Operand]
+        -> M.Ty   -- ^ return type, only needed for Fn::call
         -> MirGenerator h s ret (MirExp s)
-callExp funid funsubst cargs = do
+callExp funid funsubst cargs destTy = do
    db    <- use debugLevel
    mhand <- lookupFunction funid funsubst
-   case mhand of
-     Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) -> do
-       when (db > 3) $
-          traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
-              pretty funid, PP.text "with arguments", pretty cargs,
-              PP.text "sig:",pretty sig,
-              PP.text "and type parameters:", pretty funsubst])
+   case () of
+     () | Just (CustomOp op) <- lookupCustomFunc funid funsubst -> do
+          when (db > 3) $
+            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
+                 pretty funid, PP.text "with arguments", pretty cargs, 
+                 PP.text "and type parameters:", pretty funsubst])
 
-       exps <- mapM evalOperand cargs
-       let preds = sig^.fspredicates
-       dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
-       exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
-         case (testEquality ctx ifargctx) of
-           Just Refl -> do
-             ret_e <- G.call polyinst asgn
-             return (MirExp ifret ret_e)
-           _ -> fail $ "type error in call of " ++ fmt funid ++ fmt funsubst
-                         ++ "\n    args      " ++ show ctx
-                         ++ "\n vs fn params " ++ show ifargctx
+          ops <- mapM evalOperand cargs
+          let opTys = map M.typeOf cargs
+          op opTys destTy ops
+
+       | Just (CustomMirOp op) <- lookupCustomFunc funid funsubst -> do
+          when (db > 3) $
+            traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
+               pretty funid, PP.text "with arguments", pretty cargs, 
+               PP.text "and type parameters:", pretty funsubst])
+          op cargs
+
+       | Just (MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst, sig) <- mhand -> do
+          when (db > 3) $
+             traceM $ fmt (PP.fillSep [PP.text "At normal function call of",
+                 pretty funid, PP.text "with arguments", pretty cargs,
+                 PP.text "sig:",pretty sig,
+                 PP.text "and type parameters:", pretty funsubst])
+
+          exps <- mapM evalOperand cargs
+          let preds = sig^.fspredicates
+          dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
+          exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
+            case (testEquality ctx ifargctx) of
+              Just Refl -> do
+                ret_e <- G.call polyinst asgn
+                return (MirExp ifret ret_e)
+              _ -> fail $ "type error in call of " ++ fmt funid ++ fmt funsubst
+                            ++ "\n    args      " ++ show ctx
+                            ++ "\n vs fn params " ++ show ifargctx
      _ -> fail $ "callExp: Don't know how to call " ++ fmt funid ++ fmt funsubst
 
 
@@ -1896,38 +1915,9 @@ doCall funid funsubst cargs cdest retRepr = do
     am    <- use collection
     db    <- use debugLevel
 
-    mhand <- lookupFunction funid funsubst
     case cdest of 
-      (Just (dest_lv, jdest))
-
-         -- custom call where we first evaluate the arguments to MirExps
-         | Just (CustomOp op) <- lookupCustomFunc funid funsubst -> do
-            when (db > 3) $
-              traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-                   pretty funid, PP.text "with arguments", pretty cargs, 
-                   PP.text "and type parameters:", pretty funsubst])
-
-            ops <- mapM evalOperand cargs
-            let opTys = map M.typeOf cargs
-            res <- op opTys (M.typeOf dest_lv) ops
-            assignLvExp dest_lv res
-            jumpToBlock jdest
-
-         -- custom call where we pass the arguments in directly (as Mir operands)
-         | Just (CustomMirOp op) <- lookupCustomFunc funid funsubst -> do
-            when (db > 3) $
-              traceM $ fmt (PP.fillSep [PP.text "At custom function call of",
-                   pretty funid, PP.text "with arguments", pretty cargs, 
-                   PP.text "and type parameters:", pretty funsubst])
-
-            res <- op cargs
-            assignLvExp dest_lv res
-            jumpToBlock jdest
-
-        -- normal function call (could be through a dictionary argument or a static trait)
-            
-         | otherwise -> do
-            ret <- callExp funid funsubst cargs
+      (Just (dest_lv, jdest)) -> do
+            ret <- callExp funid funsubst cargs (M.typeOf dest_lv)
             assignLvExp dest_lv ret
             jumpToBlock jdest
       
@@ -1940,7 +1930,7 @@ doCall funid funsubst cargs cdest retRepr = do
 
         -- other functions that don't return
         | otherwise -> do
-            _ <- callExp funid funsubst cargs
+            _ <- callExp funid funsubst cargs (error "doCall: No return type")
             -- TODO: is this the correct behavior?
             G.reportError (S.app $ E.TextLit "Program terminated.")
 
@@ -2543,7 +2533,7 @@ transCollection col0 debug halloc = do
 
     let passTrace :: String -> Collection -> Collection
         passTrace str col =
-          if (debug > 2) then 
+          if (debug > 5) then 
             ((trace $ "*********MIR collection " ++ str ++ "*******\n"
                     ++ fmt col ++ "\n****************************")
             col)
@@ -3114,6 +3104,9 @@ customOps = Map.fromList [
                          , slice_get_unchecked
                          , slice_get_mut_unchecked
 
+                         , slice_SliceIndex_get_unchecked 
+                         , slice_SliceIndex_get_mut_unchecked
+
                          , ops_index
                          , ops_index_mut
 
@@ -3155,39 +3148,6 @@ customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USiz
 customtyToRepr (CEnum _adt _i) = Some C.IntegerRepr
 customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ show (pretty ty))
 
--- Function names that are handled  by doCustomCall below
-{-
-isCustomFunc :: M.DefId -> Maybe Text
-isCustomFunc defid = case (map fst (M.did_path defid), fst (M.did_name defid), map fst (M.did_extra defid)) of
-     
---   (["ops", "index"], "Index",    ["index"])     -> Just "index"
---   (["ops", "index"], "IndexMut", ["index_mut"]) -> Just "index_mut"
-
---   (["ops","function"], "Fn",     ["call"])      -> Just "call"
---   (["ops","function"], "FnOnce", ["call_once"]) -> Just "call"
-
---   (["process"], "exit", []) -> Just "exit"
-
---   (["vec", "{{impl}}"], "with_capacity",[])     -> Just "vec_with_capacity"
---   (["vec", "{{impl}}"], "vec_asmutslice",[])    -> Just "vec_asmutslice"
---   (["vec"],             "from_elem",     [])    -> Just "vec_fromelem"
-
---   (["boxed","{{impl}}"], "new", [])             -> Just "new"
-
---   (["slice","{{impl}}"], "slice_tovec", [])      -> Just "slice_tovec"
-   (["slice","{{impl}}"], "len", [])              -> Just "slice_len"
-   (["slice"],"SliceIndex", ["get_unchecked"])    -> Just "slice_get_unchecked"
-   (["slice"],"SliceIndex", ["get_unchecked_mut"]) -> Just "slice_get_unchecked_mut"
-
---   (["iter","traits"], "IntoIterator", ["into_iter"]) -> Just "into_iter"
---   (["iter","iterator"],"Iterator", ["next"])         -> Just "iter_next"
---   (["iter","iterator"],"Iterator", ["map"])          -> Just "iter_map"
---   (["iter","iterator"],"Iterator", ["collect"])      -> Just "iter_collect"
-
---   (["num","{{impl}}"], "wrapping_sub", [])       -> Just "wrapping_sub"
-
-   _ -> Nothing
--}
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Exit
@@ -3240,7 +3200,7 @@ index_op (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
                   let funid = (M.textId "slice[0]::SliceIndex[0]::index[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice elTy, TySlice elTy]
-                  callExp funid substs [op2, op1]
+                  callExp funid substs [op2, op1] iiOutput
                _ -> fail $ "BUG: invalid arguments to index"
 index_op _ = Nothing
 
@@ -3254,7 +3214,7 @@ index_op_mut (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
                   let funid = (M.textId "slice[0]::SliceIndex[0]::index_mut[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice elTy, TySlice elTy]
-                  callExp funid substs [op2, op1]
+                  callExp funid substs [op2, op1] iiOutput
                _ -> fail $ "BUG: invalid arguments to index_mut"
 index_op_mut _ = Nothing
 --------------------------------------------------------------------------------------------------------------------------
@@ -3350,7 +3310,7 @@ iter_next_op_range itemTy _opTys _retTy ops =
 
 
 iter_next_op_array :: forall h s ret. HasCallStack => M.Ty -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_next_op_array itemTy _opTys retTy ops = 
+iter_next_op_array itemTy _opTys _retTy ops = 
     -- iterator is a struct containing (vec, pos of nat)
     -- if pos < size of vec, return (Some(vec[pos]), (vec, pos+1)).
     -- otherwise return (None, (vec, pos))
@@ -3402,7 +3362,7 @@ iter_collect_op _subst _opTys _retTy ops =
 
 
 -------------------------------------------------------------------------------------------------------
--- ** Custom: slice
+-- ** Custom: slice impl functions
 --
 -- MOST of the operations below implement the following impl
 -- the execption is get/get_mut, which is specialized to Range
@@ -3420,7 +3380,6 @@ iter_collect_op _subst _opTys _retTy ops =
         pub fn first(&self) -> Option<&T> {
             self.get(0)
         }
-
 
     }
 -}
@@ -3484,8 +3443,8 @@ slice_get_op (Substs [tt, ii]) =
                   let funid = (M.textId "slice[0]::SliceIndex[0]::get[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice tt, TySlice tt]
-                  callExp funid substs [op2, op1]
-               _ -> fail $ "BUG: invalid arguments to index"
+                  callExp funid substs [op2, op1] (TySlice tt)
+               _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get"
 slice_get_op _ = Nothing
 
 slice_get_mut_op :: Substs -> Maybe CustomOp
@@ -3496,8 +3455,8 @@ slice_get_mut_op (Substs [tt, ii]) =
                   let funid = (M.textId "slice[0]::SliceIndex[0]::get_mut[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice tt, TySlice tt]
-                  callExp funid substs [op2, op1]
-               _ -> fail $ "BUG: invalid arguments to index"
+                  callExp funid substs [op2, op1] (TySlice tt)
+               _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_mut"
 slice_get_mut_op _ = Nothing
 
 {-
@@ -3536,7 +3495,74 @@ slice_get_mut :: (ExplodedDefId, CustomRHS)
 slice_get_mut = ((["slice", "{{impl}}"],"get_mut", []), slice_get_mut_op)
 
 
-{--- 
+{---
+
+impl<T> [T] {
+   pub unsafe fn get_unchecked<I>(&self, index: I) -> &I::Output
+        where I: SliceIndex<Self>
+    {
+        index.get_unchecked(self)
+    }
+
+   pub unsafe fn get_unchecked_mut<I>(&mut self, index: I) -> &mut I::Output
+        where I: SliceIndex<Self>
+    {
+        index.get_unchecked_mut(self)
+    }
+
+   // TODO!!!
+   fn index_mut(self, slice: &mut [T]) -> &mut T {
+        // N.B., use intrinsic indexing
+	std::process::exit(0)
+        //&mut (*slice)[self]
+    }
+
+
+
+}
+
+--}
+
+
+slice_get_unchecked :: (ExplodedDefId, CustomRHS)
+slice_get_unchecked = ((["slice", "{{impl}}"],"get_unchecked", []), slice_get_unchecked_op)
+
+slice_get_mut_unchecked :: (ExplodedDefId, CustomRHS)
+slice_get_mut_unchecked = ((["slice", "{{impl}}"],"get_mut_unchecked", []), slice_get_mut_unchecked_op)
+
+slice_get_unchecked_op :: CustomRHS
+slice_get_unchecked_op subs = case subs of
+   (Substs [tt, ii])
+     -> Just $ CustomMirOp $ \ ops -> do
+             case ops of
+               [op1, op2] -> do
+                  let funid = (M.textId "slice[0]::SliceIndex[0]::get_unchecked[0]")
+                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
+                  let substs = Substs [ii, TySlice tt, TySlice tt]
+                  callExp funid substs [op2, op1] (TySlice tt)
+               _ -> fail $ "BUG: invalid arguments to slice_get_unchecked"
+   _ -> Nothing
+
+slice_get_mut_unchecked_op :: CustomRHS
+slice_get_mut_unchecked_op subs = case subs of
+   (Substs [tt, ii])
+     -> Just $ CustomMirOp $ \ ops -> do
+             case ops of
+               [op1, op2] -> do
+                  let funid = (M.textId "slice[0]::SliceIndex[0]::get_mut_unchecked[0]")
+                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
+                  let substs = Substs [ii, TySlice tt, TySlice tt]
+                  callExp funid substs [op2, op1] (TySlice tt)
+               _ -> fail $ "BUG: invalid arguments to slice_get_mut_unchecked"
+   _ -> Nothing
+
+
+{--
+--
+-- Some trait impls are difficult to define from 'slice.rs'. Instead, we "implement" them with std::process::exit
+-- and then override those implementations with custom code here.
+-- 
+
 impl<T> SliceIndex<[T]> for usize {
     type Output = T;
     unsafe fn get_unchecked(self, slice: &[T]) -> &T {
@@ -3547,43 +3573,87 @@ impl<T> SliceIndex<[T]> for usize {
     unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut T {
         &mut *slice.as_mut_ptr().add(self)
     }
+
+--
+--
+impl<T> SliceIndex<[T]> for  core::ops::Range<usize> {
+
+    unsafe fn get_unchecked(self, slice: &[T]) -> &[T] {
+        std::process::exit(0)
+        //from_raw_parts(slice.as_ptr().add(self.start), self.end - self.start)
+    }
+
+    //TODO
+
+    unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut [T] {
+        std::process::exit(0)
+        //from_raw_parts_mut(slice.as_mut_ptr().add(self.start), self.end - self.start)
+    }
+
+
 --}
 
-slice_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_get_unchecked = ((["slice", "{{impl}}"],"get_unchecked", []), slice_get_unchecked_op)
+slice_SliceIndex_get_unchecked :: (ExplodedDefId, CustomRHS)
+slice_SliceIndex_get_unchecked = ((["slice"],"SliceIndex", ["get_unchecked"]), slice_SliceIndex_get_unchecked_op)
 
-slice_get_mut_unchecked :: (ExplodedDefId, CustomRHS)
-slice_get_mut_unchecked = ((["slice", "{{impl}}"],"get_mut_unchecked", []), slice_get_mut_unchecked_op)
-
-slice_get_unchecked_op :: CustomRHS
-slice_get_unchecked_op subs = case subs of
-   (Substs [M.TySlice elTy, M.TyUint M.USize])
-     -> Just $ CustomOp $ \ optys retTy ops -> do
+slice_SliceIndex_get_unchecked_op :: CustomRHS
+slice_SliceIndex_get_unchecked_op subs =
+   case subs of
+   (Substs [ M.TyUint M.USize, M.TySlice _elTy, _out])
+     -> Just $ CustomOp $ \ optys _retTy ops -> do
           case ops of
+            [MirExp C.NatRepr ind, MirExp (C.VectorRepr el_tp) arr] -> do
+                return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind))
             [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
                 let ref   = S.getStruct (Ctx.natIndex @0) slice
                 let start = S.getStruct (Ctx.natIndex @1) slice
                 let ind'  = start S..+ ind
                 arr <- readMirRef (C.VectorRepr el_tp) ref
                 return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind'))
+            _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked"
+   (Substs [ M.TyAdt defid (Substs [M.TyUint M.USize]), M.TySlice _elTy ])
+     | defid == M.textId "::ops[0]::range[0]::Range[0]"
+     -> Just $ CustomOp $ \ optys _retTy ops -> do
+          case ops of
+             [MirExp tr range_e, MirExp (C.VectorRepr ety) vec_e  ]
+               | Just Refl <- testEquality tr taggedUnionRepr -> do
+                start <- rangeStart C.NatRepr range_e
+                stop  <- rangeEnd   C.NatRepr range_e 
+                v <- vectorCopy ety start stop vec_e
+                return $ mkSome (MirExp (C.VectorRepr ety) v)
 
-            _ -> fail $ "BUG: invalid arguments to slice_get_unchecked: " ++ show ops
+             [ MirExp tr range_e, MirExp (MirSliceRepr ty) vec_e] 
+               | Just Refl <- testEquality tr taggedUnionRepr -> do
+                start <- rangeStart C.NatRepr range_e
+                stop  <- rangeEnd   C.NatRepr range_e 
+                let newLen = (S.app $ E.NatSub stop start)
+                let s1 = updateSliceLB  ty vec_e start
+                let s2 = updateSliceLen ty s1    newLen
+                return $ mkSome (MirExp (MirSliceRepr ty) s2)
+
+             _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked:" ++ show ops
    _ -> Nothing
 
-slice_get_mut_unchecked_op :: CustomRHS
-slice_get_mut_unchecked_op subs = case subs of
-   (Substs [M.TySlice elTy, M.TyUint M.USize])
-     -> Just $ CustomOp $ \ optys retTy ops -> do
+
+slice_SliceIndex_get_mut_unchecked :: (ExplodedDefId, CustomRHS)
+slice_SliceIndex_get_mut_unchecked = ((["slice"],"SliceIndex", ["get_mut_unchecked"]), slice_SliceIndex_get_mut_unchecked_op)
+
+slice_SliceIndex_get_mut_unchecked_op :: CustomRHS
+slice_SliceIndex_get_mut_unchecked_op subs =
+   case subs of
+   (Substs [ M.TyUint M.USize, (M.TyRef (M.TySlice _elTy) M.Mut), _out])
+     -> Just $ CustomOp $ \ optys _retTy ops -> do
           case ops of
             [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
                 let ref   = S.getStruct (Ctx.natIndex @0) slice
                 let start = S.getStruct (Ctx.natIndex @1) slice
                 let ind'  = start S..+ ind
-                arr <- readMirRef (C.VectorRepr el_tp) ref
-                return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind'))
+                ref <- subindexRef el_tp ref ind'
+                return $ (MirExp (MirReferenceRepr el_tp) ref)
 
             _ -> fail $ "BUG: invalid arguments to slice_get_mut_unchecked: " ++ show ops
    _ -> Nothing
+
 
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: vec
@@ -3613,6 +3683,7 @@ fn_call_once = ((["ops","function"], "FnOnce", ["call_once"]), \subst -> Just $ 
 
 fn_call_op ::  forall h s ret. HasCallStack => Substs -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 fn_call_op (Substs [_ty1, aty]) [argTy1,_] retTy [fn,argtuple] = do
+
      extra_args   <- getAllFieldsMaybe argtuple
 
      -- returns the function (perhaps with a coerced type, in the case of polymorphism)
