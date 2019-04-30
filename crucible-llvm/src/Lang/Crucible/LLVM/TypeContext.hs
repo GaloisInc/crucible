@@ -42,7 +42,7 @@ module Lang.Crucible.LLVM.TypeContext
 import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Except (MonadError(..))
-import           Control.Monad.State (State, runState, MonadState(..), modify)
+import           Control.Monad.State (State, runState, MonadState(..), modify, gets)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
