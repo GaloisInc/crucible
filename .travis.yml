@@ -31,6 +31,14 @@ matrix:
         - libntl-dev
         - libboost-all-dev
   - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=
+    addons:
+      homebrew:
+        packages:
+        - ghc
+        - ntl
+        - glpk
+        - cabal-install
+        update: true
     os: osx
   - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer
     addons:
@@ -53,8 +61,6 @@ cache:
 before_install:
 - unset CC
 - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$PATH
-- if [ $TRAVIS_OS_NAME = osx ]; then brew update; brew install ghc; brew install ntl
-  glpk cabal-install; fi
 dist: xenial
 git:
   submodules: true

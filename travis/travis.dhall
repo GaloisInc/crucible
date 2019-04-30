@@ -45,20 +45,34 @@ in  let makeInclude =
                   { Linux =
                         λ(_ : {})
                       → [ { apt =
-                              { packages =
-                                  [ "cabal-install-${args.cabal}"
-                                  , "ghc-${args.ghc}"
-                                  , "libglpk-dev"
-                                  , "libntl-dev"
-                                  , "libboost-all-dev"
-                                  ]
-                              , sources =
-                                  [ "hvr-ghc" ]
-                              }
+                              [ { packages =
+                                    [ "cabal-install-${args.cabal}"
+                                    , "ghc-${args.ghc}"
+                                    , "libglpk-dev"
+                                    , "libntl-dev"
+                                    , "libboost-all-dev"
+                                    ]
+                                , sources =
+                                    [ "hvr-ghc" ]
+                                }
+                              ] : Optional schema.AddonApt
+                          , homebrew =
+                              [] : Optional schema.AddonBrew
                           }
                         ] : Optional schema.Addon
                   , OSX =
-                      λ(_ : {}) → [] : Optional schema.Addon
+                        λ(_ : {})
+                      → [ { apt =
+                              [] : Optional schema.AddonApt
+                          , homebrew =
+                              [ { packages =
+                                    [ "ghc", "ntl", "glpk", "cabal-install" ]
+                                , update =
+                                    True
+                                }
+                              ] : Optional schema.AddonBrew
+                          }
+                        ] : Optional schema.Addon
                   }
                   args.os
               , os =
@@ -157,7 +171,6 @@ in    { language =
       , before_install =
           [ [ "unset CC"
             , "export PATH=/opt/ghc/\$GHCVER/bin:/opt/cabal/\$CABALVER/bin:\$PATH"
-            , "if [ \$TRAVIS_OS_NAME = osx ]; then brew update; brew install ghc; brew install ntl glpk cabal-install; fi"
             ]
           ] : Optional (List Text)
       , script =
