@@ -175,7 +175,9 @@ in    { language =
           ] : Optional (List Text)
       , script =
           [ [ "cabal update"
-            , "cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
+            , "cabal install hlint"
+            , "hlint crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}"
+            , "cabal new-build crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
             ]
           ] : Optional (List Text)
       }
