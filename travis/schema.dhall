@@ -15,7 +15,14 @@ in  let Include =
               Optional Text
           }
 
-in  let Matrix = { include : List Include, fast_finish : Optional Bool }
+in  let Matrix =
+          { include :
+              List Include
+          , fast_finish :
+              Optional Bool
+          , allow_failures :
+              Optional (List Include)
+          }
 
 in    { OperatingSystem =
           OperatingSystem

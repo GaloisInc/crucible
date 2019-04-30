@@ -1,7 +1,10 @@
     let schema = ./schema.dhall
 
 in  let map =
-          https://raw.githubusercontent.com/dhall-lang/dhall-lang/64e1ff6b6e27eb5633e2e803fe8f9d2c6e7c624b/Prelude/List/map
+          https://raw.githubusercontent.com/dhall-lang/dhall-lang/v5.0.0/Prelude/List/map
+
+in  let concatSep =
+          https://raw.githubusercontent.com/dhall-lang/dhall-lang/v5.0.0/Prelude/Text/concatSep
 
 in  let OperatingSystem = < Linux : {} | OSX : {} >
 
@@ -18,12 +21,23 @@ in  let Include =
               Optional Text
           }
 
-in  let MakeIncludeArgs = { ghc : Text, cabal : Text, os : OperatingSystem }
+in  let MakeIncludeArgs =
+          { ghc : Text, cabal : Text, os : OperatingSystem, buildArg : Text }
+
+in  let makeEnv =
+            λ(args : MakeIncludeArgs)
+          →   concatSep
+              " "
+              [ "CABALVER=${args.cabal}"
+              , "GHCVER=${args.ghc}"
+              , "BUILD_ARG=${args.buildArg}"
+              ]
+            : Text
 
 in  let makeInclude =
             λ(args : MakeIncludeArgs)
           →   { env =
-                  "CABALVER=${args.cabal} GHCVER=${args.ghc}"
+                  makeEnv args
               , compiler =
                   [] : Optional Text
               , addons =
@@ -58,6 +72,18 @@ in  let makeInclude =
               }
             : Include
 
+in  let allowNewer =
+            { ghc =
+                "8.6.3"
+            , cabal =
+                "2.4"
+            , os =
+                operatingSystem.Linux {=}
+            , buildArg =
+                "--allow-newer"
+            }
+          : MakeIncludeArgs
+
 in    { language =
           "c"
       , dist =
@@ -88,6 +114,8 @@ in    { language =
                         "2.4"
                     , os =
                         operatingSystem.Linux {=}
+                    , buildArg =
+                        ""
                     }
                   , { ghc =
                         "8.4.3"
@@ -95,6 +123,8 @@ in    { language =
                         "2.4"
                     , os =
                         operatingSystem.Linux {=}
+                    , buildArg =
+                        ""
                     }
                   , { ghc =
                         "8.6.3"
@@ -102,9 +132,24 @@ in    { language =
                         "2.4"
                     , os =
                         operatingSystem.OSX {=}
+                    , buildArg =
+                        ""
                     }
+                  , allowNewer
                   ]
                 : List Include
+            , allow_failures =
+                [ [ { env =
+                        makeEnv allowNewer : Text
+                    , compiler =
+                        [] : Optional Text
+                    , addons =
+                        [] : Optional schema.Addon
+                    , os =
+                        [] : Optional Text
+                    }
+                  ]
+                ] : Optional (List Include)
             , fast_finish =
                 [ True ] : Optional Bool
             }
@@ -117,7 +162,7 @@ in    { language =
           ] : Optional (List Text)
       , script =
           [ [ "cabal update"
-            , "cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization --allow-newer"
+            , "cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
             ]
           ] : Optional (List Text)
       }
