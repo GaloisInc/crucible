@@ -4,10 +4,10 @@ fn ffs_ref(word : u32) -> u32 {
     if word == 0 {
         return 0;
     }
-    for cnt in 0 .. 32 {
-        i = i+1;
+    for _cnt in 0 .. 32 {
         if ((1 << i) & word) != 0
-        { return i; }
+        { return i+1; }
+        i = i+1;
     }
     return 0;
 }
@@ -31,5 +31,10 @@ const ARG: u32 = 28;
 
 #[cfg(with_main)]
 fn main() {
-    println!("{:?}", f(ARG))
+    for x in 0 .. 1000 {
+        if ffs_ref(x) != ffs_imp(x) {
+            println!("{:?}: {:?} and {:?} ", x, ffs_ref(x), ffs_imp(x));
+        }
+    }
+
 }

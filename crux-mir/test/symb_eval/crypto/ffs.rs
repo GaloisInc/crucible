@@ -31,9 +31,9 @@ fn ffs_ref(word : u32) -> u32 {
         return 0;
     }
     for _cnt in 0 .. 32 {
-        i = i+1;
         if ((1 << i) & word) != 0
-        { return i; }
+        { return i+1; }
+        i = i+1;
     }
     return 0;
 }

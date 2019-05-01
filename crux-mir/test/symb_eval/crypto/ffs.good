@@ -1,4 +1,2 @@
 true
-[Crux] Failed to prove 1 out of 1 goals.
-[Crux] Failure for MIR assertion at "test/symb_eval/crypto/ffs.rs":55:5:
-	"ffs_ref(a0) == ffs_imp(a0)"
+[Crux] Proved all 1 goals.
