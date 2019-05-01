@@ -1,11 +1,11 @@
 // FAIL: string literal
 
-fn f(x: (bool,bool)) -> bool {
+fn f(x: usize) -> bool {
     let s = "hello";
-    s.len() > 3
+    s.len() > x
 }
 
-const ARG: (bool,bool) = (true, true);
+const ARG: usize = 2;
 
 #[cfg(with_main)]
 fn main() {

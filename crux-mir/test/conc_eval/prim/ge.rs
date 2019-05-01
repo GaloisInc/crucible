@@ -1,5 +1,3 @@
-// FAIL: 
-
 fn f(x: u32) -> bool {
     x >= 2
 }

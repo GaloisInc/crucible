@@ -338,10 +338,77 @@ instance FromJSON Literal where
       case HML.lookup "kind" v of
         Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
         Just (String "Const") -> do
-          lit <- parseConst <$> (v .: "ty") <*> (v .: "val") 
-          Value <$> lit
+          ty  <- v.: "ty"
+          lit <- parseConst ty v
+          pure $ Value lit
         Just (String "Promoted") -> LPromoted <$> v .: "index"
         x -> fail ("bad Literal: " ++ show x)
+
+
+-- | Need to look at both the val and the ty objects to figure out
+-- how to parse the constant
+parseConst :: Ty -> HML.HashMap Text Value -> Aeson.Parser ConstVal
+parseConst ty v = do
+  case ty of
+    TyInt _bs  -> (v .: "int_val") >>= \t -> ConstInt <$> (convertInt ty t)
+    TyUint _bs -> (v .: "int_val") >>= \t -> ConstInt <$> (convertInt ty t)
+    TyFloat fk -> fail $ "TODO: need constant float value in\n" ++ show v
+    TyBool     -> (v .: "int_val") >>= \t -> ConstBool <$> convertBool t
+    TyChar     -> (v .: "int_val") >>= \t -> ConstChar <$> convertChar t
+    TyRef t Immut -> parseConst t v
+    TyStr        -> fail $ "TODO: need String value in\n" ++ show v
+    TyFnDef d ps -> pure $ ConstFunction d ps
+    TyTuple ts   -> fail $ "TODO: need Tuple value in\n" ++ show v
+    TyArray t n  -> (v .: "initializer") >>= parseInitializer 
+    r            -> fail $ "TODO: Don't know how to parse literals of type " ++ show ty
+                             ++ "\nin JSON value " ++ show v
+
+-- | Constant value from initializer code
+parseInitializer :: Value -> Aeson.Parser ConstVal
+parseInitializer = withObject "Initializer" $ \v ->
+  ConstInitializer <$> v .: "def_id" <*> v.: "substs"
+
+-- mir-json integers are expressed as strings of 128-bit unsigned values
+-- for example, -1 is displayed as "18446744073709551615"
+-- we need to parse this as a 128 unsigned bit Int value and then
+-- cast it to a signed value
+convertIntegerText :: Text -> Aeson.Parser Integer
+convertIntegerText t = do
+  case (T.signed T.decimal) t of
+    Right ((i :: Word64), _) ->
+      if testBit i 63 then do
+        let ans = -1 * (toInteger (complement i + 1)) 
+        return $ ans
+      else do
+        return $ toInteger i
+    Left _       -> fail $ "Cannot parse Integer value: " ++ T.unpack t
+    
+convertInt :: Ty -> Text -> Aeson.Parser IntLit
+convertInt ty val = 
+  case ty of
+    (TyUint B8)    -> U8    <$> convertIntegerText val
+    (TyUint B16)   -> U16   <$> convertIntegerText val
+    (TyUint B32)   -> U32   <$> convertIntegerText val
+    (TyUint B64)   -> U64   <$> convertIntegerText val
+    (TyUint B128)  -> U128  <$> convertIntegerText val
+    (TyUint USize) -> Usize <$> convertIntegerText val
+    (TyInt B8)     -> I8    <$> convertIntegerText val
+    (TyInt B16)    -> I16   <$> convertIntegerText val
+    (TyInt B32)    -> I32   <$> convertIntegerText val
+    (TyInt B64)    -> I64   <$> convertIntegerText val
+    (TyInt B128)   -> I128  <$> convertIntegerText val
+    (TyInt USize)  -> Isize <$> convertIntegerText val
+    _ -> fail "invalid int literal"
+
+convertBool :: Text -> Aeson.Parser Bool
+convertBool txt = if txt == "1" then pure True else if txt == "0" then pure False else fail $ "Cannot parse boolean value " ++ (T.unpack txt)
+
+convertChar :: Text -> Aeson.Parser Char
+convertChar txt = do
+  i <- convertIntegerText txt
+  return $ Char.chr (fromInteger i)
+
+{-
 
 -- | Need to look at both the val and the ty objects to figure out
 -- how to parse the constant
@@ -369,24 +436,8 @@ parseBoolText = withText "Bool" $ \t -> case t of
         "false" -> pure False
         _       -> fail $ "Cannot parse key into Bool: " ++ T.unpack t
 
--- mir-json integers are expressed as strings of 128-bit unsigned values
--- for example, -1 is displayed as "18446744073709551615"
--- we need to parse this as a 128 unsigned bit Int value and then
--- cast it to a signed value
-convertIntegerText :: Text -> Aeson.Parser Integer
-convertIntegerText t = do
-  case (T.signed T.decimal) t of
-    Right ((i :: Word64), _) ->
-      if testBit i 63 then do
-        let ans = -1 * (toInteger (complement i + 1)) 
-        return $ ans
-      else do
-        return $ toInteger i
-    Left _       -> fail $ "Cannot parse Integer value: " ++ T.unpack t
-
 parseIntegerText :: Value -> Aeson.Parser Integer
 parseIntegerText = withText "Integer" convertIntegerText
-
 
 parseChar :: Value -> Aeson.Parser Char
 parseChar = withText "Char" $ \t ->
@@ -408,8 +459,6 @@ parseArray ty = withArray "expecting array"
 parseConsts :: [Ty] -> Value -> Aeson.Parser [ConstVal]
 parseConsts tys (String txt) = fail $ "TODO: parse consts " ++ show txt
 
-
-
 parseInt :: Ty -> Value -> Aeson.Parser IntLit
 parseInt ty val = 
   case ty of
@@ -430,6 +479,8 @@ parseInt ty val =
 parseFloat :: FloatKind -> Value -> Aeson.Parser FloatLit
 parseFloat fk val = 
     FloatLit <$> pure fk <*> parseJSON val
+
+-}
 
 instance FromJSON FloatLit where
     parseJSON = withObject "FloatLit" $ \v -> FloatLit <$> v .: "ty" <*> v.: "bits"
@@ -540,3 +591,5 @@ instance FromJSON TraitImpl where
               <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
               <*> v .: "items"
               
+
+--  LocalWords:  initializer

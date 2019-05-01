@@ -1,4 +1,3 @@
-// FAIL: mir-json encoding of constant array
 mod constants {
     pub(crate) const L: [u64;1] = [ 1 ];
 }

@@ -407,6 +407,7 @@ data ConstVal =
   | ConstTuple [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
+  | ConstInitializer DefId Substs
   deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =

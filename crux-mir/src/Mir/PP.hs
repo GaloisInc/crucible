@@ -279,8 +279,8 @@ instance Pretty BinOp where
       Lt -> text "<"
       Le -> text "<="
       Ne -> text "!="
-      Ge -> text ">"
-      Gt -> text ">="
+      Ge -> text ">="
+      Gt -> text ">"
       Offset -> text "Offset"
 
 instance Pretty CastKind where
@@ -326,6 +326,7 @@ instance Pretty ConstVal where
     pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> int i)
     pretty (ConstFunction a b) = pr_id a <> pretty b
     pretty ConstStruct = text "ConstStruct"
+    pretty (ConstInitializer a b) = pr_id a <> pretty b
 
 instance Pretty AggregateKind where
     pretty (AKArray t) = brackets (pretty t)

@@ -392,6 +392,10 @@ transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
       (d , _):_ -> let rat = toRational (d :: Double) in
                    return (MirExp C.RealValRepr (S.app $ E.RationalLit rat))
       []        -> fail $ "cannot parse float constant: " ++ show str
+
+transConstVal (Some _ty) (ConstInitializer funid ss) =
+    callExp funid ss [] (error "BUG: initializers shouldn't need MIR return type to be called")
+
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
@@ -549,10 +553,10 @@ evalBinOp bop mat me1 me2 =
               (M.Le, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUle n e1 e2)
               (M.Le, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e1 e2)
 
-              (M.Gt, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUle n e2 e1)
-              (M.Gt, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e2 e1)
-              (M.Ge, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUlt n e2 e1)
-              (M.Ge, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSlt n e2 e1)
+              (M.Gt, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUlt n e2 e1)
+              (M.Gt, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSlt n e2 e1)
+              (M.Ge, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUle n e2 e1)
+              (M.Ge, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e2 e1)
 
               (M.Ne, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
               (M.Beq, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVEq n e1 e2)
@@ -569,8 +573,8 @@ evalBinOp bop mat me1 me2 =
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.NatEq e1 e2)
             M.Lt -> return $ MirExp C.BoolRepr (S.app $ E.NatLt e1 e2)
             M.Le -> return $ MirExp C.BoolRepr (S.app $ E.NatLe e1 e2)
-            M.Gt -> return $ MirExp C.BoolRepr (S.app $ E.NatLe e2 e1)
-            M.Ge -> return $ MirExp C.BoolRepr (S.app $ E.NatLt e2 e1)
+            M.Gt -> return $ MirExp C.BoolRepr (S.app $ E.NatLt e2 e1)
+            M.Ge -> return $ MirExp C.BoolRepr (S.app $ E.NatLe e2 e1)
 
             M.Add -> return $ MirExp C.NatRepr (S.app $ E.NatAdd e1 e2)
             M.Sub -> return $ MirExp C.NatRepr (S.app $ E.NatSub e1 e2)
@@ -582,8 +586,8 @@ evalBinOp bop mat me1 me2 =
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.RealEq e1 e2)
             M.Lt -> return $ MirExp C.BoolRepr (S.app $ E.RealLt e1 e2)
             M.Le -> return $ MirExp C.BoolRepr (S.app $ E.RealLe e1 e2)
-            M.Gt -> return $ MirExp C.BoolRepr (S.app $ E.RealLe e2 e1)
-            M.Ge -> return $ MirExp C.BoolRepr (S.app $ E.RealLt e2 e1)
+            M.Gt -> return $ MirExp C.BoolRepr (S.app $ E.RealLt e2 e1)
+            M.Ge -> return $ MirExp C.BoolRepr (S.app $ E.RealLe e2 e1)
 
             M.Add -> return $ MirExp C.RealValRepr (S.app $ E.RealAdd e1 e2)
             M.Sub -> return $ MirExp C.RealValRepr (S.app $ E.RealSub e1 e2)
