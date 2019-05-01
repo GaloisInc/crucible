@@ -14,9 +14,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-
-{-# LANGUAGE TypeSynonymInstances #-}
-
 module Lang.Crucible.LLVM.MemModel.Type
   ( -- * Storable types
     StorageType(..)

@@ -14,9 +14,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-
-{-# LANGUAGE TypeSynonymInstances #-}
-
 module Lang.Crucible.LLVM.MemModel.Common
   ( -- * Range declarations.
     Range(..)
