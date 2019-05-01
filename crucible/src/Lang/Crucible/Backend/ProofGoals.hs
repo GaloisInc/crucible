@@ -1,8 +1,3 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TupleSections #-}
-
 {-|
 Module      : Lang.Crucible.Backend.ProofGoals
 Copyright   : (c) Galois, Inc 2014-2018
@@ -11,6 +6,11 @@ License     : BSD3
 This module defines a data strucutre for storing a collection of
 proof obligations, and the current state of assumptions.
 -}
+
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TupleSections #-}
+
 module Lang.Crucible.Backend.ProofGoals
   ( -- * Goals
     ProofGoal(..), Goals(..), goalsToList, proveAll, goalsConj, assuming

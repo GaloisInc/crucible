@@ -18,8 +18,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
 module Lang.Crucible.Utils.RegRewrite
   ( -- * Main interface
     annotateCFGStmts

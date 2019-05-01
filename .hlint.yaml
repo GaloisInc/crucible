@@ -31,7 +31,6 @@
 - ignore: {name: Redundant guard}
 - ignore: {name: Redundant lambda}
 - ignore: {name: Redundant return}
-- ignore: {name: Unused LANGUAGE pragma}
 - ignore: {name: Use $>}
 - ignore: {name: Use &&}
 - ignore: {name: Use ++}
