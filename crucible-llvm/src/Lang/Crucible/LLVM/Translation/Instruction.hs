@@ -1736,7 +1736,7 @@ typedValueAsCrucibleValue tv = case L.typedValue tv of
       Just (Right (Some a)) -> return $ Some $ AtomValue a
       Nothing -> reportError $ fromString $
         "Could not find identifier " ++ show i ++ "."
-  v@_ -> reportError $ fromString $
+  v -> reportError $ fromString $
     "Unsupported breakpoint parameter: " ++ show v ++ "."
 
 
