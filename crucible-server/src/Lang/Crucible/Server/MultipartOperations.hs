@@ -10,13 +10,8 @@
 -- memory strucutures.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-
 {-# LANGUAGE GADTs #-}
-
-
-
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}

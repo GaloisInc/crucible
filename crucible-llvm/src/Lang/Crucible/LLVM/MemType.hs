@@ -9,7 +9,6 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE CPP #-}
-
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}

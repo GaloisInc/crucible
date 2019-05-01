@@ -12,21 +12,16 @@
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
-
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-
-
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
-
-
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.LLVM.MemModel

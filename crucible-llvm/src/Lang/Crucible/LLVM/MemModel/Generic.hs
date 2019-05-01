@@ -9,26 +9,22 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+
 module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
   , emptyMem

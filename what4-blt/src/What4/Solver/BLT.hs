@@ -17,7 +17,6 @@
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE Rank2Types #-}
@@ -26,6 +25,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+
 {-# OPTIONS_GHC -Werror #-}
 module What4.Solver.BLT
   ( -- * BLT Adapter API

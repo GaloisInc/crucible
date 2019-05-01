@@ -14,8 +14,8 @@
 
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE UndecidableInstances #-}
+
 module What4.Utils.MonadST
   ( MonadST(..)
   , Control.Monad.ST.ST

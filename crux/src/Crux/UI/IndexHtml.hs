@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-
 module Crux.UI.IndexHtml where
 
 import           Data.Text (Text)

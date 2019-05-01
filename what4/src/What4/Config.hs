@@ -66,21 +66,17 @@
 --       (i.e., to undo extendConfig)
 ------------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 module What4.Config
   ( -- * Names of properties
     ConfigOption

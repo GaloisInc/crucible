@@ -18,7 +18,6 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
-
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE ViewPatterns          #-}
 

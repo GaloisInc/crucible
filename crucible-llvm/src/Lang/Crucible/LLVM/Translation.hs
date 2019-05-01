@@ -64,20 +64,14 @@
 --  * Multithreading primitives
 --  * Alternate calling conventions
 ------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE ImplicitParams        #-}
-
-
 {-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE PatternGuards         #-}
-{-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE PolyKinds             #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
-
 {-# LANGUAGE TypeOperators         #-}
 
 module Lang.Crucible.LLVM.Translation

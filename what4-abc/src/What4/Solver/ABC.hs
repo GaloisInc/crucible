@@ -16,9 +16,10 @@ representation.
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-
 {-# LANGUAGE TypeOperators #-}
+
 {-# OPTIONS_GHC -Werror #-}
+
 module What4.Solver.ABC
   ( Network
   , newNetwork

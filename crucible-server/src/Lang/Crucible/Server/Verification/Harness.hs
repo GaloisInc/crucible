@@ -1,13 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.Server.Verification.Harness
@@ -18,6 +8,16 @@
 --
 -- Support for manipulating compositional verification harnesses.
 ------------------------------------------------------------------------
+
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.Server.Verification.Harness
   ( -- * Verification Harness data types

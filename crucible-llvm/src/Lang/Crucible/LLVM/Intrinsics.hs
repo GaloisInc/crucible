@@ -9,24 +9,14 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE ImpredicativeTypes #-}
-
-
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
-
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
-
 
 module Lang.Crucible.LLVM.Intrinsics
 ( LLVM

@@ -10,11 +10,7 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
-
-
-
 {-# LANGUAGE DeriveGeneric #-}
-
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}

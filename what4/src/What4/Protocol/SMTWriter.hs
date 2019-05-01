@@ -19,13 +19,13 @@ if structs are supported or nested arrays if they are not.
 The solver should detect when something is not supported and give an
 error rather than sending invalid output to a file.
 -}
+
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}

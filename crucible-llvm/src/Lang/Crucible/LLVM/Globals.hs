@@ -15,22 +15,16 @@
 -- @populateAllGlobals@; or it can be done in a more selective manner,
 -- using one of the other \"populate\" operations.
 ------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE ImplicitParams        #-}
-
-
 {-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-
-{-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE PolyKinds             #-}
 {-# LANGUAGE RankNTypes            #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
-
 {-# LANGUAGE TypeOperators         #-}
-
 
 module Lang.Crucible.LLVM.Globals
   ( initializeMemory

@@ -9,12 +9,8 @@
 -- Function implementations that are specific to the SAW backend.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-
 {-# LANGUAGE GADTs #-}
-
-
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}

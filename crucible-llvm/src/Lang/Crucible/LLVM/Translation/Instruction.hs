@@ -11,14 +11,13 @@
 -- is responsable for interpreting the LLVM instruction set into
 -- corresponding crucible statements.
 -----------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE ImplicitParams        #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE PatternGuards         #-}
 {-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE PolyKinds             #-}
 {-# LANGUAGE RankNTypes            #-}

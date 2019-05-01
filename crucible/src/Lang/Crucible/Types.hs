@@ -40,7 +40,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Types

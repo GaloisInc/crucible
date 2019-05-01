@@ -15,12 +15,12 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeOperators #-}
+
 module Lang.Crucible.Server.ValueConv where
 
 #if !MIN_VERSION_base(4,8,0)
