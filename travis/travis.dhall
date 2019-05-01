@@ -175,9 +175,13 @@ in    { language =
           ] : Optional (List Text)
       , script =
           [ [ "cabal new-update"
-            , "mkdir -p \$PWD/hlint-bin"
-            , "cabal new-install hlint --symlink-bindir=\$PWD/hlint-bin"
-            , "\$PWD/hlint-bin/hlint crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}"
+            ,     let hlintURL =
+                        "https://raw.github.com/ndmitchell/neil/master/misc/travis.sh"
+              
+              in  let pkgs =
+                        "crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}"
+              
+              in  "curl -sSL ${hlintURL} | sh -s -- hlint ${pkgs}"
             , "cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
             ]
           ] : Optional (List Text)
