@@ -1,3 +1,27 @@
+
+// ----------------------------------------------------------------------
+#[allow(unused_variables)]
+fn crucible_u8(x: &'static str) -> u8 {
+    // The internal test override returns 1 from this instead of 2
+    2
+}
+
+#[allow(unused_variables)]
+fn crucible_assert_impl(
+    cond: bool,
+    cond_str: &'static str,
+    file: &'static str,
+    line: u32,
+    col: u32,
+) -> () {
+    ()
+}
+macro_rules! crucible_assert {
+    ($e:expr) => {
+        crucible_assert_impl($e, stringify!($e), file!(), line!(), column!())
+    };
+}
+// ----------------------------------------------------------------------
 pub fn zero() -> [u64;5] {
     [0,0,0,0,0]
 }
@@ -64,31 +88,46 @@ pub fn to_bytes(x :&[u64;5]) -> [u8; 32] {
     s
 }
 
-
-
-
 const ARG: u64 = 20;
 
 fn f(_w : u64 ) -> bool {
+    let mut s = [0u8; 32];
+
+    let a0 = crucible_u8("a0");
+    let a1 = crucible_u8("a1");
+    let a2 = crucible_u8("a2");
+    let a3 = crucible_u8("a3");
+    let a4 = crucible_u8("a4");
+    let a5 = crucible_u8("a5");
+    let a6 = crucible_u8("a6");
+    let a7 = crucible_u8("a7");
+    let a8 = crucible_u8("a8");
+    let a9 = crucible_u8("a9");
+    let a10 = crucible_u8("a10");                        
+
+    s[0] = a0;
+    s[1] = a1;
+    s[2] = a2;
+    s[3] = a3;
+    s[4] = a4;
+    s[5] = a5;
+    s[6] = a6;
+    s[7] = a7;
+    s[8] = a8;
+    s[9] = a9;
+    s[10] = a10;        
     
-    // a = 2351415481556538453565687241199399922945659411799870114962672658845158063753
-    let a =
-        [0x0005236c07b3be89, 0x0001bc3d2a67c0c4, 0x000a4aa782aae3ee, 0x0006b3f6e4fec4c4,
-         0x00000532da9fab8c];
+    let b = to_bytes(&from_bytes(&s));
 
-    let a = [3, 1, 2, 2, 2];
+    for i in 0..11 {
+      crucible_assert!(s[i] == b[i]);
+    } 
 
-    let b = from_bytes(&to_bytes(&a));
-
-    a[0] == b[0] &&
-      a[1] == b[1] &&
-      a[2] == b[2] &&
-      a[3] == b[3] &&
-      a[4] == b[4]
+    true
 }
 
 
 #[cfg(with_main)]
 fn main() {
-   println!("{:?}", f(ARG));
+    println!("{}", f(ARG))
 }

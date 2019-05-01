@@ -31,10 +31,5 @@ const ARG: u32 = 28;
 
 #[cfg(with_main)]
 fn main() {
-    for x in 0 .. 1000 {
-        if ffs_ref(x) != ffs_imp(x) {
-            println!("{:?}: {:?} and {:?} ", x, ffs_ref(x), ffs_imp(x));
-        }
-    }
-
+    println!("{:?}", f(ARG));
 }
