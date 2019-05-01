@@ -1,5 +1,3 @@
-// FAIL: get returns None
-
 #![feature(never_type)]
 
 use std::process::exit;

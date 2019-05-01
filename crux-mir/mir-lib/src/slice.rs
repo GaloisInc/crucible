@@ -2723,6 +2723,19 @@ pub trait SliceIndex<T: ?Sized>: private_slice_index::Sealed {
     fn index_mut(self, slice: &mut T) -> &mut Self::Output;
 }
 
+
+
+fn slice_index_usize_get_unchecked<T>(sel: usize,  slice: &[T]) -> &T {
+   std::process::exit(0)
+}
+fn slice_index_usize_get_unchecked_mut<T>(sel: usize,  slice: &mut[T]) -> &mut T {
+   std::process::exit(0)
+}
+fn slice_index_usize_index_mut<T>(sel: usize,  slice: &mut[T]) -> &mut T {
+   std::process::exit(0)
+}
+
+
 #[stable(feature = "slice_get_slice_impls", since = "1.15.0")]
 impl<T> SliceIndex<[T]> for usize {
     type Output = T;
@@ -2752,13 +2765,13 @@ impl<T> SliceIndex<[T]> for usize {
     #[inline]
     unsafe fn get_unchecked(self, slice: &[T]) -> &T {
         //&*slice.as_ptr().add(self)
-	std::process::exit(0)
+	slice_index_usize_get_unchecked(self,slice)
     }
 
     #[inline]
     unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut T {
         //&mut *slice.as_mut_ptr().add(self)
-	std::process::exit(0)
+	slice_index_usize_get_unchecked_mut(self,slice)
     }
 
     #[inline]
@@ -2770,10 +2783,18 @@ impl<T> SliceIndex<[T]> for usize {
     #[inline]
     fn index_mut(self, slice: &mut [T]) -> &mut T {
         // N.B., use intrinsic indexing
-	std::process::exit(0)
         //&mut (*slice)[self]
+	slice_index_usize_index_mut(self,slice)
     }
 }
+
+fn slice_index_range_get_unchecked<T>(sel: core::ops::Range<usize>,  slice: &[T]) -> &[T] {
+   std::process::exit(0)
+}
+fn slice_index_range_get_unchecked_mut<T>(sel: core::ops::Range<usize>,  slice: &mut[T]) -> &mut [T] {
+   std::process::exit(0)
+}
+
 
 #[stable(feature = "slice_get_slice_impls", since = "1.15.0")]
 impl<T> SliceIndex<[T]> for  core::ops::Range<usize> {
@@ -2803,13 +2824,13 @@ impl<T> SliceIndex<[T]> for  core::ops::Range<usize> {
 
     #[inline]
     unsafe fn get_unchecked(self, slice: &[T]) -> &[T] {
-        std::process::exit(0)
+        slice_index_range_get_unchecked(self, slice)
         //from_raw_parts(slice.as_ptr().add(self.start), self.end - self.start)
     }
 
     #[inline]
     unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut [T] {
-        std::process::exit(0)
+        slice_index_range_get_unchecked_mut(self, slice)
         //from_raw_parts_mut(slice.as_mut_ptr().add(self.start), self.end - self.start)
     }
 

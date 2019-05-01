@@ -441,11 +441,12 @@ findItem methName traitSub trait = do
       isImpl ti
        | (TraitRef tn ss) <- ti^.tiTraitRef
        , tn == trait^.traitName
-       = case matchSubsts traitSub ss of
-              Right m  ->
-                Just (ti, m)
-              Left _e -> Nothing           
-       | otherwise = Nothing
+       = (if db > 6 then trace $ "Comparing " ++ fmt traitSub ++ " with " ++ fmt ss else id) $
+         case matchSubsts traitSub ss of
+                Right m  ->
+                  Just (ti, m)
+                Left _e -> Nothing           
+         | otherwise = Nothing
        
   case firstJust isImpl (col^.impls) of
     Nothing -> return Nothing

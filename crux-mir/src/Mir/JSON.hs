@@ -357,6 +357,8 @@ parseConst ty v = do
     TyChar     -> (v .: "int_val") >>= \t -> ConstChar <$> convertChar t
     TyRef t Immut -> parseConst t v
     TyStr        -> fail $ "TODO: need String value in\n" ++ show v
+                    -- a dummy string here so that we can make progress
+                    -- pure $ ConstStr "TODO: STRING constants"
     TyFnDef d ps -> pure $ ConstFunction d ps
     TyTuple ts   -> fail $ "TODO: need Tuple value in\n" ++ show v
     TyArray t n  -> (v .: "initializer") >>= parseInitializer 

@@ -167,6 +167,7 @@ tyToRepr t0 = case t0 of
      tyListToCtx (args ++ Maybe.mapMaybe dictTy preds) $ \argsr  ->
      tyToReprCont ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)
+        
   -- polymorphic function types go to PolyFnRepr
   -- invariant: never have 0 for PolyFnRepr
   M.TyFnPtr sig@(M.FnSig args ret params preds _atys) ->
@@ -182,7 +183,10 @@ tyToRepr t0 = case t0 of
      -> Some taggedUnionRepr
   M.TyProjection _def _tyargs -> error $ "BUG: all uses of TyProjection should have been eliminated, found "
     ++ show (pretty t0) 
-  M.TyFnDef _def substs -> Some C.AnyRepr
+  M.TyFnDef _def substs ->
+    -- TODO: lookup the type of the function and translate that type
+    -- but we need to convert toToRepr to be monadic in that case
+    Some C.AnyRepr
   M.TyLifetime -> Some C.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
 
@@ -1216,6 +1220,10 @@ evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
 -- We don't really do anything here --- all the action is when we project from the downcasted adt
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast _i))) = do
     evalLvalue lv
+-- a static reference to a function pointer should be treated like a constant??
+-- NO: just lookup the function value. But we are currently mistranslating the type so we can't do this yet.
+--evalLvalue (M.Promoted _ (M.TyFnDef did ss)) = do
+--    transConstVal (Some (C.AnyRepr)) (M.ConstFunction did ss)
 evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 
 
@@ -1539,8 +1547,8 @@ lookupFunction nm (Substs funsubst)
   when (db > 3) $
     traceM $ "**lookupFunction: trying to resolve " ++ fmt nm ++ fmt (Substs funsubst)
 
-  hmap <- use handleMap
-  vm   <- use varMap
+  _hmap <- use handleMap
+  _vm   <- use varMap
 
   -- these  are defined at the bottom of Mir.Generator
   isStatic  <- resolveStaticTrait nm (Substs funsubst)
@@ -1914,9 +1922,7 @@ callExp funid funsubst cargs destTy = do
 doCall :: forall h s ret a. (HasCallStack) => M.DefId -> Substs -> [M.Operand] 
    -> Maybe (M.Lvalue, M.BasicBlockInfo) -> C.TypeRepr ret -> MirGenerator h s ret a
 doCall funid funsubst cargs cdest retRepr = do
-    _hmap <- use handleMap
-    _tmap <- use traitMap
-    am    <- use collection
+    _am    <- use collection
     db    <- use debugLevel
 
     case cdest of 
@@ -3056,7 +3062,7 @@ rangeStart itemRepr r = do
    let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
    let strTy = C.StructRepr ctx
    let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
-                                     (fromString ("Bad Any unpack iter_next:" ++ show strTy))
+                                     (fromString ("Bad Any unpack rangeStart:" ++ show strTy))
    let start = S.getStruct Ctx.i1of2 unp
    return start
 
@@ -3066,7 +3072,7 @@ rangeEnd itemRepr r = do
    let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
    let strTy = C.StructRepr ctx
    let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
-                                     (fromString ("Bad Any unpack iter_next:" ++ show strTy))
+                                     (fromString ("Bad Any unpack rangeEnd:" ++ show strTy))
    let end   = S.getStruct Ctx.i2of2 unp
    return end
 
@@ -3106,10 +3112,14 @@ customOps = Map.fromList [
                          , slice_get_mut
 
                          , slice_get_unchecked
-                         , slice_get_mut_unchecked
+                         , slice_get_unchecked_mut
 
-                         , slice_SliceIndex_get_unchecked 
-                         , slice_SliceIndex_get_mut_unchecked
+                         , slice_index_usize_get_unchecked
+                         , slice_index_range_get_unchecked
+                         , slice_index_usize_get_unchecked_mut
+                         , slice_index_range_get_unchecked_mut
+                         -- , slice_SliceIndex_get_unchecked 
+                         -- , slice_SliceIndex_get_unchecked_mut
 
                          , ops_index
                          , ops_index_mut
@@ -3161,6 +3171,9 @@ exit = ((["process"], "exit", []), \s -> Just CustomOpExit)
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Index
+
+-- TODO: these are trait implementations, so we should do what we did with the SliceIndex versions below
+-- so that we can make dictionaries.
 
 ops_index :: (ExplodedDefId, CustomRHS)
 ops_index = ((["ops", "index"], "Index", ["index"]), index_op )
@@ -3463,34 +3476,6 @@ slice_get_mut_op (Substs [tt, ii]) =
                _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_mut"
 slice_get_mut_op _ = Nothing
 
-{-
--- Only works when the array/slice is accessed by a range
--- Should make it more general
-slice_get_op' :: CustomRHS
-slice_get_op' subs = case subs of
-               (Substs [elTy, TyAdt defid (Substs [M.TyUint M.USize])])
-                 | defid == M.textId "::ops[0]::range[0]::Range[0]"
-                 -> Just $ CustomOp $ \ optys retTy ops -> do
-                    case ops of
-                      [MirExp (C.VectorRepr ety) vec_e, MirExp tr range_e ]
-                        | Just Refl <- testEquality tr taggedUnionRepr -> do
-                         start <- rangeStart C.NatRepr range_e
-                         stop  <- rangeEnd   C.NatRepr range_e 
-                         v <- vectorCopy ety start stop vec_e
-                         return $ mkSome (MirExp (C.VectorRepr ety) v)
-
-                      [MirExp (MirSliceRepr ty) vec_e, MirExp tr range_e] 
-                        | Just Refl <- testEquality tr taggedUnionRepr -> do
-                         start <- rangeStart C.NatRepr range_e
-                         stop  <- rangeEnd   C.NatRepr range_e 
-                         let newLen = (S.app $ E.NatSub stop start)
-                         let s1 = updateSliceLB  ty vec_e start
-                         let s2 = updateSliceLen ty s1    newLen
-                         return $ mkSome (MirExp (MirSliceRepr ty) s2)
-
-                      _ -> fail $ "BUG: invalid arguments to slice_get_mut:" ++ show ops
-               (Substs _) -> Nothing
--}
 
 slice_get :: (ExplodedDefId, CustomRHS)
 slice_get = ((["slice", "{{impl}}"],"get", []), slice_get_op)
@@ -3531,8 +3516,8 @@ impl<T> [T] {
 slice_get_unchecked :: (ExplodedDefId, CustomRHS)
 slice_get_unchecked = ((["slice", "{{impl}}"],"get_unchecked", []), slice_get_unchecked_op)
 
-slice_get_mut_unchecked :: (ExplodedDefId, CustomRHS)
-slice_get_mut_unchecked = ((["slice", "{{impl}}"],"get_mut_unchecked", []), slice_get_mut_unchecked_op)
+slice_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
+slice_get_unchecked_mut = ((["slice", "{{impl}}"],"get_unchecked_mut", []), slice_get_unchecked_mut_op)
 
 slice_get_unchecked_op :: CustomRHS
 slice_get_unchecked_op subs = case subs of
@@ -3541,31 +3526,37 @@ slice_get_unchecked_op subs = case subs of
              case ops of
                [op1, op2] -> do
                   let funid = (M.textId "slice[0]::SliceIndex[0]::get_unchecked[0]")
-                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
-                  let substs = Substs [ii, TySlice tt, TySlice tt]
-                  callExp funid substs [op2, op1] (TySlice tt)
+                  -- TODO: this is a real hack. We should find the ATs and look up the output type there
+                  let out   = case ii of
+                                M.TyUint M.USize -> tt
+                                _ -> TySlice tt
+                  let substs = Substs [ii, TySlice tt, out]
+                  callExp funid substs [op2, op1] out
                _ -> fail $ "BUG: invalid arguments to slice_get_unchecked"
    _ -> Nothing
 
-slice_get_mut_unchecked_op :: CustomRHS
-slice_get_mut_unchecked_op subs = case subs of
+slice_get_unchecked_mut_op :: CustomRHS
+slice_get_unchecked_mut_op subs = case subs of
    (Substs [tt, ii])
      -> Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
-                  let funid = (M.textId "slice[0]::SliceIndex[0]::get_mut_unchecked[0]")
-                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
-                  let substs = Substs [ii, TySlice tt, TySlice tt]
-                  callExp funid substs [op2, op1] (TySlice tt)
-               _ -> fail $ "BUG: invalid arguments to slice_get_mut_unchecked"
+                  let funid = (M.textId "slice[0]::SliceIndex[0]::get_unchecked_mut[0]")
+                  -- TODO: this is a real hack. We should find the ATs and look up the output type there
+                  let out   = case ii of
+                                M.TyUint M.USize -> tt
+                                _ -> TySlice tt
+                  let substs = Substs [ii, TySlice tt, out]
+                  callExp funid substs [op2, op1] out
+               _ -> fail $ "BUG: invalid arguments to slice_get_unchecked_mut"
    _ -> Nothing
 
-
+-------------------------------------------------------------------------------------------------------------------
 {--
 --
 -- Some trait impls are difficult to define from 'slice.rs'. Instead, we "implement" them with std::process::exit
 -- and then override those implementations with custom code here.
--- 
+-- However, we 
 
 impl<T> SliceIndex<[T]> for usize {
     type Output = T;
@@ -3578,6 +3569,12 @@ impl<T> SliceIndex<[T]> for usize {
         &mut *slice.as_mut_ptr().add(self)
     }
 
+    fn index_mut(self, slice: &mut [T]) -> &mut T {
+        // N.B., use intrinsic indexing
+        //&mut (*slice)[self]
+	slice_index_usize_index_mut(self,slice)
+    }
+}
 --
 --
 impl<T> SliceIndex<[T]> for  core::ops::Range<usize> {
@@ -3594,17 +3591,35 @@ impl<T> SliceIndex<[T]> for  core::ops::Range<usize> {
         //from_raw_parts_mut(slice.as_mut_ptr().add(self.start), self.end - self.start)
     }
 
+fn slice_index_usize_get_unchecked<T>(sel: usize,  slice: &[T]) -> &T {
+   std::process::exit(0)
+}
+fn slice_index_usize_get_unchecked_mut<T>(sel: usize,  slice: &mut[T]) -> &mut T {
+   std::process::exit(0)
+
+fn slice_index_usize_index_mut<T>(sel: usize,  slice: &mut[T]) -> &mut T {
+   std::process::exit(0)
+}
+
+fn slice_index_range_get_unchecked<T>(sel: core::ops::Range<usize>,  slice: &[T]) -> &[T] {
+   std::process::exit(0)
+}
+fn slice_index_range_get_unchecked_mut<T>(sel: core::ops::Range<usize>,  slice: &mut[T]) -> &mut [T] {
+   std::process::exit(0)
+}
+
+
 
 --}
 
-slice_SliceIndex_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_SliceIndex_get_unchecked = ((["slice"],"SliceIndex", ["get_unchecked"]), slice_SliceIndex_get_unchecked_op)
+--slice_SliceIndex_get_unchecked :: (ExplodedDefId, CustomRHS)
+--slice_SliceIndex_get_unchecked = ((["slice"],"SliceIndex", ["get_unchecked"]), slice_SliceIndex_get_unchecked_op)
 
-slice_SliceIndex_get_unchecked_op :: CustomRHS
-slice_SliceIndex_get_unchecked_op subs =
+slice_index_usize_get_unchecked :: (ExplodedDefId, CustomRHS)
+slice_index_usize_get_unchecked = ((["slice"], "slice_index_usize_get_unchecked", []), \subs ->
    case subs of
-   (Substs [ M.TyUint M.USize, M.TySlice _elTy, _out])
-     -> Just $ CustomOp $ \ optys _retTy ops -> do
+     (Substs [ elTy ])
+       -> Just $ CustomOp $ \ optys _retTy ops -> do
           case ops of
             [MirExp C.NatRepr ind, MirExp (C.VectorRepr el_tp) arr] -> do
                 return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind))
@@ -3615,16 +3630,20 @@ slice_SliceIndex_get_unchecked_op subs =
                 arr <- readMirRef (C.VectorRepr el_tp) ref
                 return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind'))
             _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked"
-   (Substs [ M.TyAdt defid (Substs [M.TyUint M.USize]), M.TySlice _elTy ])
-     | defid == M.textId "::ops[0]::range[0]::Range[0]"
-     -> Just $ CustomOp $ \ optys _retTy ops -> do
+     _ -> Nothing)
+
+slice_index_range_get_unchecked :: (ExplodedDefId, CustomRHS)
+slice_index_range_get_unchecked = ((["slice"], "slice_index_range_get_unchecked", []), \subs ->
+   case subs of
+     (Substs [ elTy ])
+       -> Just $ CustomOp $ \ optys _retTy ops -> do
           case ops of
              [MirExp tr range_e, MirExp (C.VectorRepr ety) vec_e  ]
                | Just Refl <- testEquality tr taggedUnionRepr -> do
                 start <- rangeStart C.NatRepr range_e
-                stop  <- rangeEnd   C.NatRepr range_e 
+                stop  <- rangeEnd   C.NatRepr range_e
                 v <- vectorCopy ety start stop vec_e
-                return $ mkSome (MirExp (C.VectorRepr ety) v)
+                return $ (MirExp (C.VectorRepr ety) v)
 
              [ MirExp tr range_e, MirExp (MirSliceRepr ty) vec_e] 
                | Just Refl <- testEquality tr taggedUnionRepr -> do
@@ -3633,30 +3652,47 @@ slice_SliceIndex_get_unchecked_op subs =
                 let newLen = (S.app $ E.NatSub stop start)
                 let s1 = updateSliceLB  ty vec_e start
                 let s2 = updateSliceLen ty s1    newLen
-                return $ mkSome (MirExp (MirSliceRepr ty) s2)
+                return $ (MirExp (MirSliceRepr ty) s2)
 
              _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked:" ++ show ops
-   _ -> Nothing
+     _ -> Nothing)
 
 
-slice_SliceIndex_get_mut_unchecked :: (ExplodedDefId, CustomRHS)
-slice_SliceIndex_get_mut_unchecked = ((["slice"],"SliceIndex", ["get_mut_unchecked"]), slice_SliceIndex_get_mut_unchecked_op)
 
-slice_SliceIndex_get_mut_unchecked_op :: CustomRHS
-slice_SliceIndex_get_mut_unchecked_op subs =
+slice_index_usize_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
+slice_index_usize_get_unchecked_mut = ((["slice"], "slice_index_usize_get_unchecked_mut", []), \subs ->
    case subs of
-   (Substs [ M.TyUint M.USize, (M.TyRef (M.TySlice _elTy) M.Mut), _out])
-     -> Just $ CustomOp $ \ optys _retTy ops -> do
-          case ops of
-            [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
-                let ref   = S.getStruct (Ctx.natIndex @0) slice
-                let start = S.getStruct (Ctx.natIndex @1) slice
-                let ind'  = start S..+ ind
-                ref <- subindexRef el_tp ref ind'
-                return $ (MirExp (MirReferenceRepr el_tp) ref)
+     (Substs [ _elTy ])
+       -> Just $ CustomOp $ \ optys _retTy ops -> do
+            case ops of
 
-            _ -> fail $ "BUG: invalid arguments to slice_get_mut_unchecked: " ++ show ops
-   _ -> Nothing
+              [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
+                  let ref   = S.getStruct (Ctx.natIndex @0) slice
+                  let start = S.getStruct (Ctx.natIndex @1) slice
+                  let ind'  = start S..+ ind
+                  ref <- subindexRef el_tp ref ind'
+                  return $ (MirExp (MirReferenceRepr el_tp) ref)
+              _ -> fail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
+     _ -> Nothing)
+
+slice_index_range_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
+slice_index_range_get_unchecked_mut = ((["slice"], "slice_index_range_get_unchecked_mut", []), \subs ->
+   case subs of
+     (Substs [ _elTy ])
+       -> Just $ CustomOp $ \ optys _retTy ops -> do
+            case ops of
+
+              [ MirExp tr range_e, MirExp (MirSliceRepr ty) vec_e] 
+                 | Just Refl <- testEquality tr taggedUnionRepr -> do
+                  start <- rangeStart C.NatRepr range_e
+                  stop  <- rangeEnd   C.NatRepr range_e 
+                  let newLen = (S.app $ E.NatSub stop start)
+                  let s1 = updateSliceLB  ty vec_e start
+                  let s2 = updateSliceLen ty s1    newLen
+                  return $ (MirExp (MirSliceRepr ty) s2)
+
+              _ -> fail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
+     _ -> Nothing)
 
 
 --------------------------------------------------------------------------------------------------------------------------
@@ -3784,7 +3820,8 @@ fn_call_op ss args ret _exps = fail $ "\n\tBUG: invalid arguments to call/call_o
 
 
 --
--- Generate a loop that copies a vector 
+-- Generate a loop that copies a vector  
+-- 
 vectorCopy :: C.TypeRepr elt ->
              G.Expr MIR s C.NatType ->
              G.Expr MIR s C.NatType ->
@@ -3802,7 +3839,8 @@ vectorCopy ety start stop inp = do
           (pos, do i <- G.readRef ir
                    let elt = S.app $ E.VectorGetEntry ety inp i
                    o   <- G.readRef or
-                   let o' = S.app $ E.VectorSetEntry ety o i elt
+                   let j = (G.App (E.NatSub i start))
+                   let o' = S.app $ E.VectorSetEntry ety o j elt
                    G.writeRef or o'
                    G.writeRef ir (G.App (E.NatAdd i (G.App $ E.NatLit 1))))
   o <- G.readRef or
