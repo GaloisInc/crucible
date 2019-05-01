@@ -29,6 +29,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 module What4.BaseTypes
   ( -- * BaseType data kind
     type BaseType

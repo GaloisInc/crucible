@@ -24,6 +24,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
