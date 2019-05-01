@@ -13,6 +13,7 @@ import Data.Aeson
 import qualified Data.Aeson.Types  as Aeson
 import qualified Data.HashMap.Lazy as HML
 import qualified Data.Map.Strict   as Map
+import qualified Data.Scientific   as Scientific
 
 import Data.Word(Word64)
 import Data.Bits
@@ -352,11 +353,11 @@ parseConst ty v = do
   case ty of
     TyInt _bs  -> (v .: "int_val") >>= \t -> ConstInt <$> (convertInt ty t)
     TyUint _bs -> (v .: "int_val") >>= \t -> ConstInt <$> (convertInt ty t)
-    TyFloat fk -> fail $ "TODO: need constant float value in\n" ++ show v
+    TyFloat fk -> (v .: "float_val") >>= \t -> ConstFloat <$> (convertFloat fk t)
     TyBool     -> (v .: "int_val") >>= \t -> ConstBool <$> convertBool t
     TyChar     -> (v .: "int_val") >>= \t -> ConstChar <$> convertChar t
     TyRef t Immut -> parseConst t v
-    TyStr        -> fail $ "TODO: need String value in\n" ++ show v
+    TyStr        -> (v .: "str_val") >>= \t -> ConstStr <$> convertString t
                     -- a dummy string here so that we can make progress
                     -- pure $ ConstStr "TODO: STRING constants"
     TyFnDef d ps -> pure $ ConstFunction d ps
@@ -409,6 +410,18 @@ convertChar :: Text -> Aeson.Parser Char
 convertChar txt = do
   i <- convertIntegerText txt
   return $ Char.chr (fromInteger i)
+
+convertFloat :: FloatKind -> Text -> Aeson.Parser FloatLit
+convertFloat fk val = 
+    FloatLit <$> pure fk <*> pure (T.unpack val)
+  
+convertString :: Array -> Aeson.Parser String
+convertString arr = do
+    let f sci = case Scientific.toBoundedInteger sci of
+                   Just b -> pure (Char.chr b)
+                   Nothing -> fail $ "cannot read " ++ show sci
+    bytes <- mapM (withScientific "byte" f) arr
+    return $ V.toList bytes
 
 {-
 

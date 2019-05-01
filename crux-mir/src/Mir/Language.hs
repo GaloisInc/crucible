@@ -88,12 +88,14 @@ instance Crux.Language CruxMIR where
      {
        useStdLib :: Bool
      , onlyPP    :: Bool
+     , showModel :: Bool
      }
  
   defaultOptions = MIROptions
     {
       useStdLib = True
     , onlyPP    = False
+    , showModel = False
     }
 
   envOptions = []
@@ -110,6 +112,11 @@ instance Crux.Language CruxMIR where
     , Console.Option []    ["print-mir"]
       (Console.NoArg (\opts -> opts { onlyPP = True }))
       "pretty-print mir and exit"
+
+    , Console.Option ['m']  ["show-model"]
+      (Console.NoArg (\opts -> opts { showModel = True }))
+      "show model on counter-example"
+
     ]
 
 simulateMIR :: forall sym. (?outputConfig :: OutputConfig) => Crux.Simulate sym CruxMIR
@@ -200,7 +207,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
 
 
 makeCounterExamplesMIR :: (?outputConfig :: OutputConfig) => Crux.Options CruxMIR -> Maybe (ProvedGoals a) -> IO ()
-makeCounterExamplesMIR _opts = maybe (return ()) go
+makeCounterExamplesMIR (_cruxOpts, mirOpts) = maybe (return ()) go
   where
     go gs =
       case gs of
@@ -215,8 +222,9 @@ makeCounterExamplesMIR _opts = maybe (return ()) go
           in case res of
                NotProved (Just m) ->
                  do sayFail "Crux" ("Failure for " ++ msg)
-                    putStrLn "Model:"
-                    putStrLn (modelInJS m)
+                    when (showModel mirOpts) $ do
+                       putStrLn "Model:"
+                       putStrLn (modelInJS m)
                _ -> return ()
 
 -------------------------------------------------------

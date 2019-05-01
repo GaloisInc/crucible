@@ -42,7 +42,8 @@ library
                  tasty-golden     >= 2.3,
                  parsec,
                  aig,
-                 crux
+                 crux,
+                 scientific       >= 0.3
 
 
   hs-source-dirs: src

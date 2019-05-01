@@ -1,4 +1,4 @@
-// FAIL: Floating point.  Don't know how to call ::str::{{impl}}[35]::len
+// FAIL: Don't know how to call ::str::{{impl}}[35]::len
 
 fn f(x: (bool,bool)) -> bool {
     let y = 0.0;
