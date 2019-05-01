@@ -1,5 +1,3 @@
-// FAIL: not mutating array
-
 use std::ops::IndexMut;
 
 fn g(ys: &mut [u8]) -> &mut [u8] {

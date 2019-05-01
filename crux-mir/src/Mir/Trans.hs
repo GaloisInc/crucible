@@ -1207,11 +1207,14 @@ evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
                  do r <- readMirRef tp ref
                     return $ MirExp tp r
               MirSliceRepr tp ->
-                 do let vr = S.getStruct Ctx.i1of3 ref
+                 -- copy the vector according to the slice information
+                 do let vr    = S.getStruct Ctx.i1of3 ref
+                    let start = S.getStruct Ctx.i2of3 ref
+                    let len   = S.getStruct Ctx.i3of3 ref
                     v <- readMirRef (C.VectorRepr tp) vr
-                    -- TODO: trim this vector relative to the slice....
-                    return $ MirExp (C.VectorRepr tp) v
---                    error $ unwords ["Found slice for " , show $ pretty tp]
+                    nv <- vectorCopy tp start (start S..+ len) v
+                    return $ MirExp (C.VectorRepr tp) nv
+
               _ -> error $ unwords ["Expected reference value in mutable dereference", show $ pretty lv]
      tp ->
        fail $ unwords ["Expected reference type in dereference", show tp, show lv]
@@ -1221,7 +1224,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast _i))) = do
     evalLvalue lv
 -- a static reference to a function pointer should be treated like a constant??
--- NO: just lookup the function value. But we are currently mistranslating the type so we can't do this yet.
+-- NO: just lookup the function value. But we are currently mis-translating the type so we can't do this yet.
 --evalLvalue (M.Promoted _ (M.TyFnDef did ss)) = do
 --    transConstVal (Some (C.AnyRepr)) (M.ConstFunction did ss)
 evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
