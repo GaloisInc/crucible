@@ -3270,6 +3270,8 @@ discriminant_value = ((["intrinsics"],"discriminant_value", []),
 ---------------------------------------------------------------------------------------
 -- ** Custom: Iterator
 
+-- TODO: should replace these with mir-lib implementations
+
 
 into_iter :: (ExplodedDefId, CustomRHS)
 into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
@@ -3331,33 +3333,41 @@ iter_next_op_range itemTy _opTys _retTy ops =
 
 iter_next_op_array :: forall h s ret. HasCallStack => M.Ty -> [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 iter_next_op_array itemTy _opTys _retTy ops = 
-    -- iterator is a struct containing (vec, pos of nat)
-    -- if pos < size of vec, return (Some(vec[pos]), (vec, pos+1)).
-    -- otherwise return (None, (vec, pos))
+    -- iterator is a reference to a struct containing (vec, pos of nat)
+    -- if pos < size of vec, return (Some(vec[pos]) and update ref to (vec, pos+1)).
+    -- otherwise return None  (and leave ref alone)
   case ops of
-    [iter] -> do
-      (MirExp (C.VectorRepr elemTy) iter_vec) <- accessAggregate iter 0
-      (MirExp C.NatRepr iter_pos) <- accessAggregate iter 1
-      let is_good    = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
-          ret_1_ty   = taggedUnionRepr
-          ret_2_ctx  = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
-          ret_2_ty   = C.StructRepr ret_2_ctx
-          ty_ctx     = (Ctx.empty Ctx.:> ret_1_ty Ctx.:> ret_2_ty)
-          ty         = C.StructRepr ty_ctx
+    [MirExp (MirReferenceRepr tp) iter_ref]
+     | Just Refl <- testEquality tp taggedUnionRepr -> do
+      tyToReprCont itemTy $ \ elemTy -> do
+        adt <- readMirRef tp iter_ref
+        let iter = S.getStruct Ctx.i2of2 adt   -- get the data value (we know that the tag is
+        let ctx = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
+        let tr = (C.StructRepr ctx)
+        let iter' = (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr iter) (fromString ("Bad Any unpack: " ++ show tr)))
+        let iter_vec = S.getStruct Ctx.i1of2 iter'
+        let iter_pos = S.getStruct Ctx.i2of2 iter' 
+        let is_good    = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
+            ret_1_ty   = taggedUnionRepr
+            ret_2_ctx  = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
+            ret_2_ty   = C.StructRepr ret_2_ctx
+            ty_ctx     = (Ctx.empty Ctx.:> ret_1_ty Ctx.:> ret_2_ty)
+            ty         = C.StructRepr ty_ctx
 
-          mk_ret opt vec pos = G.App (E.MkStruct ty_ctx (Ctx.empty Ctx.:> opt Ctx.:> ret_2)) where
-             ret_2 = G.App (E.MkStruct ret_2_ctx (Ctx.empty Ctx.:> vec Ctx.:> pos))
+ 
+            good_ret_1 = mkSome' elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)
+            next_iter  = S.app $ E.MkStruct taggedUnionCtx
+                            (Ctx.empty Ctx.:> (S.app $ E.NatLit 0) Ctx.:> (S.app $ E.PackAny (C.StructRepr ctx) tup))
+            tup = G.App (E.MkStruct ctx (Ctx.empty Ctx.:> iter_vec Ctx.:> next_pos)) 
+            next_pos = (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))
 
-          good_ret_1 = mkSome' elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)
 
-          good_ret   = mk_ret good_ret_1 iter_vec (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))
-          bad_ret    = mk_ret mkNone'    iter_vec iter_pos
-
-      ret <- withRepr ty $ G.ifte is_good
-              (return good_ret)
-              (return bad_ret)
-      return $ MirExp ty ret
-    _ -> fail $ "BUG: invalid args to iter_next_op_array"
+        ret <- withRepr taggedUnionRepr $ G.ifte is_good
+                (do writeMirRef iter_ref next_iter
+                    return good_ret_1)
+                (return mkNone')
+        return $ MirExp taggedUnionRepr ret
+    _ -> fail $ "BUG: invalid args to iter_next_op_array " ++ show ops
 
 
 -- SCW: not sure if this one is up-to-date
