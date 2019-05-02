@@ -35,7 +35,7 @@ import qualified Data.List as List
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
-import Data.Semigroup
+import Data.Semigroup(Semigroup(..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -454,7 +454,7 @@ evalOperand (M.OpConstant (M.Constant conty conlit)) =
     case conlit of
        M.Value constval   -> transConstVal (tyToRepr conty) constval
        M.Item defId _args -> fail $ "cannot translate item " ++ show defId
-       M.LPromoted prom   -> fail $ "cannot translate promoted " ++ show prom
+       M.LitPromoted prom -> fail $ "cannot translate promoted " ++ show prom
 
 
 -- Given two bitvectors, extend the length of the shorter one so that they
@@ -1292,7 +1292,7 @@ assignLvExp lv re = do
     case lv of
         M.Tagged lv _ -> assignLvExp  lv re
         M.Local var   -> assignVarExp var re
-        M.Static -> fail "static"
+        M.LStatic _ _ -> fail "TODO: static Lvalue"
         M.LProjection (M.LvalueProjection lv (M.PField field _ty)) -> do
 
             am <- use collection
@@ -2213,11 +2213,13 @@ buildLabel (M.BasicBlock bi _) = do
 -- | Build the initial state for translation
 initFnState :: FnState s
             -> [(Text.Text, M.Ty)]                 -- ^ names and MIR types of args
-            -> C.CtxRepr args                     -- ^ crucible types of args
+            -> C.CtxRepr args                      -- ^ crucible types of args
             -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args
             -> [Predicate]                         -- ^ predicates on type args
+            -> Fn
             -> FnState s
-initFnState fnState vars argsrepr args preds = fnState { _varMap = (go (reverse vars) argsrepr args Map.empty), _preds = preds }
+initFnState fnState vars argsrepr args preds fn =
+  fnState { _varMap = (go (reverse vars) argsrepr args Map.empty), _preds = preds, _currentFn = fn }
     where go :: [(Text.Text, M.Ty)] -> C.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
           go [] ctx _ m
             | Ctx.null ctx = m
@@ -2278,7 +2280,7 @@ dictTy UnknownPredicate            = Nothing
 -- argvars are registers
 -- The first block in the list is the entrance block
 genFn :: HasCallStack => M.Fn -> C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
-genFn (M.Fn fname argvars sig body@(MirBody localvars blocks)) rettype = do
+genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype = do
   TraitMap _tm <- use traitMap
   let gens  = sig^.fsgenerics
   let preds = sig^.fspredicates
@@ -2319,7 +2321,7 @@ transDefine :: forall h. HasCallStack =>
   (forall s. FnState s) ->
   M.Fn ->
   ST h (Text, Core.AnyCFG MIR)
-transDefine adts fnState fn@(M.Fn fname fargs fsig _) =
+transDefine adts fnState fn@(M.Fn fname fargs fsig _ _) =
   case (Map.lookup fname (fnState^.handleMap)) of
     Nothing -> fail "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
@@ -2329,7 +2331,7 @@ transDefine adts fnState fn@(M.Fn fname fargs fsig _) =
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR handle FnState args ret
           def inputs = (s,f) where
-            s = initFnState fnState argtups argtypes inputs (fsig^.fspredicates)
+            s = initFnState fnState argtups argtypes inputs (fsig^.fspredicates) fn
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
       case SSA.toSSA g of
@@ -2394,7 +2396,7 @@ mkHandleMap :: forall s. HasCallStack => Collection -> FH.HandleAllocator s -> S
 mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 
     mkHandle :: M.Fn -> ST s MirHandle
-    mkHandle (M.Fn fname fargs ty _fbody)  =
+    mkHandle (M.Fn fname fargs ty _fbody _statics)  =
        let
            -- add dictionary args to type
            targs = map typeOf (fargs ++ Maybe.mapMaybe dictVar (ty^.fspredicates))
@@ -2578,7 +2580,7 @@ transCollection col0 debug halloc = do
 
     let fnState :: (forall s. FnState s)
         fnState = case gtm of
-                     GenericTraitMap tm -> FnState Map.empty [] Map.empty hmap (TraitMap tm) stm debug col
+                     GenericTraitMap tm -> FnState Map.empty [] Map.empty hmap (TraitMap tm) stm debug col (error "No current fn")
 
     -- translate all of the functions
     pairs <- mapM (transDefine (col^.M.adts) fnState) (Map.elems (col^.M.functions))
@@ -3348,11 +3350,11 @@ iter_next_op_array itemTy _opTys _retTy ops =
         let iter_vec = S.getStruct Ctx.i1of2 iter'
         let iter_pos = S.getStruct Ctx.i2of2 iter' 
         let is_good    = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
-            ret_1_ty   = taggedUnionRepr
-            ret_2_ctx  = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
-            ret_2_ty   = C.StructRepr ret_2_ctx
-            ty_ctx     = (Ctx.empty Ctx.:> ret_1_ty Ctx.:> ret_2_ty)
-            ty         = C.StructRepr ty_ctx
+--            ret_1_ty   = taggedUnionRepr
+--            ret_2_ctx  = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
+--            ret_2_ty   = C.StructRepr ret_2_ctx
+--            ty_ctx     = (Ctx.empty Ctx.:> ret_1_ty Ctx.:> ret_2_ty)
+--            ty         = C.StructRepr ty_ctx
 
  
             good_ret_1 = mkSome' elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)

@@ -7,7 +7,7 @@ module Mir.PP where
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
 import           Data.Text (Text, unpack)
-
+import qualified Data.Vector as V
 
 
 import           Control.Lens((^.))
@@ -135,12 +135,13 @@ instance Pretty Predicate where
   pretty UnknownPredicate = text "UnknownPredicate"
   
 instance Pretty Fn where
-    pretty (Fn fname1 fargs1 fs fbody1) =
-      vcat [text "fn" <+> pretty fname1 <> pparams gens
+    pretty (Fn fname1 fargs1 fs fbody1 fstatics) =
+      vcat $ [text "fn" <+> pretty fname1 <> pparams gens
             <> patys atys <+> tupled (map pretty_arg fargs1)
-                      <+> arrow <+> pretty fty <+> ppreds preds <+> lbrace,
-            indent 3 (pretty fbody1),
-            rbrace]
+                      <+> arrow <+> pretty fty <+> ppreds preds <+> lbrace] 
+            ++ (map pretty (V.toList fstatics)) 
+            ++ [indent 3 (pretty fbody1),
+                rbrace]
       where
         gens   = fs^.fsgenerics
         atys   = fs^.fsassoc_tys
@@ -179,11 +180,11 @@ instance Pretty Statement where
     pretty Nop = text "nop" <> semi
 
 instance Pretty Lvalue where
-    pretty (Local v) = pretty v
-    pretty Static = text "STATIC"
-    pretty (LProjection p) = pretty p
-    pretty (Tagged lv t) = pretty t <+> parens (pretty lv)
-    pretty (Promoted p _t) = pretty_fn1 "Promoted" p
+    pretty (Local v)        = pretty v
+    pretty (LStatic did _t) = pretty_fn1 "Static" did
+    pretty (LProjection p)  = pretty p
+    pretty (Tagged lv t)    = pretty t <+> parens (pretty lv)
+    pretty (LPromoted p _t) = pretty p
     
 instance Pretty Rvalue where
     pretty (Use a) = pretty_fn1 "use" a
@@ -289,7 +290,7 @@ instance Pretty CastKind where
 instance Pretty Literal where
     pretty (Item a b)    = pretty_fn2 "Item" a b
     pretty (Value a)     = pretty a
-    pretty (LPromoted a) = pretty a
+    pretty (LitPromoted a) = pretty a
 
 instance Pretty IntLit where
   pretty i = text $ case i of
@@ -398,6 +399,13 @@ instance Pretty TraitImplItem where
   pretty (TraitImplType nm timpls params preds ty) =
     text "type" <+> pretty nm <+> pretty timpls <+> pparams params <+> text "=" <+> pretty ty <+> ppreds preds
 
+instance Pretty Static where
+  pretty (Static nm ty mut pf p) =
+    pretty mut <+> pretty nm <+> text ":" <+> pretty ty <+> text "promoted from" <+> pretty pf <+> pretty p
+
+instance Pretty Promoted where
+  pretty (Promoted i) = text "{{promoted}}" <> brackets (pretty i)
+
 instance Pretty Collection where
   pretty col =
     vcat ([text "FNs"] ++
@@ -407,4 +415,6 @@ instance Pretty Collection where
           [text "TRAITs"] ++
           map pretty (Map.elems (col^.traits)) ++
           [text "IMPLs"] ++
-          map pretty (col^.impls))
+          map pretty (col^.impls) ++
+          [text "STATICS"] ++
+          map pretty (Map.elems (col^.statics)))

@@ -29,6 +29,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
+import Data.Vector(Vector)
+import qualified Data.Vector as V
 
 import Control.Monad.Except(MonadError(..))
 import Control.Lens((^.),(&),(%~), makeLenses)
@@ -41,7 +43,7 @@ import Text.PrettyPrint.ANSI.Leijen(Doc,(<+>),text,pretty,vcat)
 import GHC.Generics
 import GHC.Stack
 
-import Debug.Trace
+-- import Debug.Trace
 
 --------------------------------------------------------------------------------------
 -- For associated types pass
@@ -614,6 +616,8 @@ instance GenericOps TraitImpl where
   modifyPreds = modifyPreds_TraitImpl
 instance GenericOps TraitImplItem where
   modifyPreds = modifyPreds_TraitImplItem
+instance GenericOps Promoted
+instance GenericOps Static
 
 -- instances for newtypes
 -- we need the deriving strategy 'anyclass' to disambiguate 
@@ -695,7 +699,16 @@ instance GenericOps b => GenericOps (Map.Map a b) where
 instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)
 instance (GenericOps a, GenericOps b) => GenericOps (a,b)
-
+instance GenericOps a => GenericOps (Vector a) where
+   relocate          = V.map relocate 
+   markCStyle s      = V.map (markCStyle s)
+   tySubst s         = V.map (tySubst s)
+   replaceVar o n    = V.map (replaceVar o n)
+   replaceLvalue o n = V.map (replaceLvalue o n)   
+   numTyParams m     = V.foldr (max . numTyParams) 0 m
+   abstractATs i     = mapM (abstractATs i)
+   modifyPreds i     = V.map (modifyPreds i)
+  
    
 replaceList :: GenericOps a => [(Lvalue, Lvalue)] -> a -> a
 replaceList [] a = a

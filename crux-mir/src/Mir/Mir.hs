@@ -33,8 +33,10 @@ module Mir.Mir where
 import qualified Data.ByteString as B
 import Data.Map.Strict (Map)
 import Data.Text (Text)
+import Data.Vector (Vector)
 
-import Data.Semigroup
+import Data.Semigroup(Semigroup(..))
+
 
 import Control.Lens(makeLenses, Simple, Lens, lens)
 
@@ -160,12 +162,12 @@ data Var = Var {
 instance Ord Var where
     compare (Var n _ _ _ _) (Var m _ _ _ _) = compare n m
 
-
 data Collection = Collection {
     _functions :: !(Map MethName Fn),
     _adts      :: !(Map AdtName Adt),
     _traits    :: !(Map TraitName Trait),
-    _impls     :: !([TraitImpl])
+    _impls     :: !([TraitImpl]),
+    _statics   :: !(Map DefId Static)
 } deriving (Show, Eq, Ord, Generic)
 
 data Predicate =
@@ -197,6 +199,7 @@ data Fn = Fn {
     ,_fargs       :: [Var]
     ,_fsig        :: FnSig
     ,_fbody       :: MirBody
+    ,_fpromoted   :: Vector DefId
     }
     deriving (Show,Eq, Ord, Generic)
 
@@ -236,9 +239,9 @@ data Statement =
 -- This is called 'Place' now
 data Lvalue =
       Local { _lvar :: Var}         -- ^ local variable
-    | Static                        -- ^ static or static mut variable
+    | LStatic DefId Ty              -- ^ static or static mut variable
     | LProjection LvalueProjection  -- ^ projection out of a place (access a field, deref a pointer, etc)
-    | Promoted Promoted Ty          -- ^ Constant code promoted to an injected static
+    | LPromoted Int Ty              -- ^ Constant code promoted to an injected static
     | Tagged Lvalue Text -- for internal use during the translation
     deriving (Show, Eq, Generic)
 
@@ -371,7 +374,7 @@ data CastKind =
 data Literal =
     Item DefId Substs
   | Value ConstVal
-  | LPromoted Promoted
+  | LitPromoted Promoted
   deriving (Show,Eq, Ord, Generic)
 
 data IntLit
@@ -476,13 +479,27 @@ data TraitImplItem
                       }
       deriving (Show, Eq, Ord, Generic)
 
+newtype Promoted = Promoted Int
+  deriving (Show, Eq, Ord, Generic)
+
+data Static   = Static {
+    _sName          :: DefId            -- ^ name of fn that initializes this static
+  , _sTy            :: Ty
+  , _sMutable       :: Bool             -- ^ true for "static mut"          
+  , _sPromotedFrom  :: Maybe DefId      -- ^ name of fn that static was promoted from
+  , _sPromoted      :: Maybe Promoted
+  }
+  deriving (Show, Eq, Ord, Generic)
+
 -- Documentation for particular use-cases of DefIds
 type TraitName = DefId
 type MethName  = DefId
 type AdtName   = DefId
 
+
+
+
 --- Other texts
-type Promoted = Text
 type ConstUsize = Integer
 type VisibilityScope = Text
 type AssertMessage = Text
@@ -506,6 +523,7 @@ makeLenses ''BasicBlockData
 makeLenses ''Adt
 makeLenses ''AdtAg
 makeLenses ''Trait
+makeLenses ''Static
 
 makeLenses ''TraitImpl
 makeLenses ''TraitImplItem
@@ -525,10 +543,10 @@ itemName = lens (\ti -> case ti of
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1 i1) <> (Collection f2 a2 t2 i2) =
-    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2)
+  (Collection f1 a1 t1 i1 s1) <> (Collection f2 a2 t2 i2 s2) =
+    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty
   mappend = (<>)
 
   
@@ -611,11 +629,11 @@ instance TypeOf Var where
 
 instance TypeOf Lvalue where
   typeOf lv = case lv of
-    Static                -> error "typeOf: static"
+    LStatic _ t           -> t
     Tagged lv' _          -> typeOf lv'
     Local (Var _ _ t _ _) -> t
     LProjection proj      -> typeOf proj
-    Promoted _ t          -> t
+    LPromoted _ t         -> t
 
 instance TypeOf Rvalue where
   typeOf (Use a) = typeOf a

@@ -2,14 +2,16 @@
 
 ** Failing concrete test cases
 
--- arrays, iteration and slices
-test/conc_eval/array/iter.rs:// FAIL: invalid slice access
+
+-- arith
+test/conc_eval/crypto/add.rs:// FAIL: needs arith trait
 
 -- waitin on mir-json
-test/conc_eval/array/const.rs:// FAIL: mir-json encoding of constant array
-test/conc_eval/crypto/add.rs:// FAIL: mir-json constant array
 test/conc_eval/stdlib/default.rs:// FAIL: Default trait (temporarily) not included in mir-lib
 test/conc_eval/stdlib/default_impl.rs:// FAIL: mir-json doesn't include "implements" for () instance
+
+-- iterators
+test/conc_eval/array/iter.rs:// FAIL: invalid slice access
 
 -- vec and string
 test/conc_eval/array/wick1.rs:// FAIL: needs Vec data structure from stdlib
@@ -30,12 +32,13 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 ** Failing symbolic test cases
 
-  This one passes:
+  Passes:
     symb_eval/crypto/double.rs
-  
-  These do not:
     symb_eval/crypto/ffs.rs
-    symb_eval/crypto/bytes.rs
+    symb_eval/crypto/bytes2.rs 
+
+  Fails:
+    symb_eval/crypto/bytes.rs   -- spec is wrong though. 
 
 ** test/crypto/scalar.rs status
 
@@ -57,6 +60,7 @@ Derives from trying to translate this block:
 
 ** Standard library current status
    Library code found in mir-lib/src/*
+
 
 *** libcore prelude
    Based on implementation here, but adapted
@@ -110,6 +114,10 @@ Derives from trying to translate this block:
     mod generator;
     mod unsize;
 
+*** slice
+    key indexing traits from library available
+    major portions missing due to lack of iterator support
+
 *** other todos
 --strings, fmt
 --vec
@@ -120,6 +128,24 @@ Derives from trying to translate this block:
 --...
 
 ** Implementation todos
+
+- have a mode where if crucible translation fails, output "assert false". Then 
+  even if we can't translate a function we can still override it.
+
+- combine mir-lib into a single crate so can resolve circular references
+
+- make test runner check timestamp of mir-json
+
+- separate processing of mir-lib from that of each test file so don't have to
+  reprocess the stdlib on every call
+
+- divide Trans.hs into multiple files so that typechecking/compilation is snappier
+  current 4k file overwhelms dante-mode
+
+- better interface to symbolic evaluation.  need a rust interface
+  module for examples to import and need to load the definitions in
+  mir-verifier.
+  In particular, should make assertions from calls to "panic" etc.
 
 - Implementation of closures is very hacky
    -- unsafe coerce in "call"
@@ -149,6 +175,7 @@ Derives from trying to translate this block:
   This could be problemmatic if we ever need to substitute a slice type into 
   M.TyRef (M.TyParam 0).
 
+  Maybe this isn't an issue
   Should explore other designs
 
 - dynamic trait invocation (i.e. trait objects) (test/conc_eval/traits/dynamic*.rs)
@@ -159,15 +186,6 @@ Derives from trying to translate this block:
      function handles for the wrapped vtable (one for each
      implementation type)
 
-- better interface to symbolic evaluation.  need a rust interface
-  module for examples to import and need to load the definitions in
-  mir-verifier.
-  In particular, should make assertions from calls to "panic" etc.
-
-WAITING ON MIR-JSON
-
-- parsing of constant array references
-   crypto/add.rs
 
 
 * Dictionary Translation notes

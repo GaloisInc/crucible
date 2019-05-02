@@ -122,13 +122,14 @@ type MirGenerator h s ret = Generator MIR h s FnState ret
 -- | Generator state for MIR translation
 data FnState (s :: Type)
   = FnState { _varMap    :: !(VarMap s),
-              _preds     :: [Predicate],
+              _preds     :: [Predicate],   -- TODO: get this from currentFn
               _labelMap  :: !(LabelMap s),              
               _handleMap :: !HandleMap,
               _traitMap  :: !(TraitMap s),
               _staticTraitMap :: !StaticTraitMap,
               _debugLevel :: !Int,
-              _collection :: !Collection
+              _collection :: !Collection,
+              _currentFn  :: Fn
             }
 
 ---------------------------------------------------------------------------

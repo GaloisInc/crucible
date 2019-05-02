@@ -160,11 +160,13 @@ instance FromJSON Collection where
       (adts   :: [Adt])       <- v .: "adts"
       (traits :: [Trait])     <- v .: "traits"
       (impls  :: [TraitImpl]) <- v .: "impls"
+      (statics :: [Static]  ) <- v .: "statics"
       return $ Collection
-        (foldr (\ x m -> Map.insert (x^.fname) x m) Map.empty fns)
-        (foldr (\ x m -> Map.insert (x^.adtname) x m) Map.empty adts)
+        (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
+        (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
         (foldr (\ x m -> Map.insert (x^.traitName) x m) Map.empty traits)
         impls
+        (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
 
 
 instance FromJSON Fn where
@@ -183,6 +185,7 @@ instance FromJSON Fn where
         <*> return args
         <*> sig        
         <*> v .: "body"
+        <*> v .: "promoted"
         
 instance FromJSON BasicBlock where
     parseJSON = withObject "BasicBlock" $ \v -> BasicBlock
@@ -208,16 +211,22 @@ instance FromJSON Lvalue where
     parseJSON = withObject "Lvalue" $ \v ->
       case HML.lookup "kind" v of
         Just (String "Local") ->  Local <$> v .: "localvar"
-        Just (String "Static") -> pure Static
+        Just (String "Static") -> LStatic <$> v .: "def_id" <*> v .: "ty"
         Just (String "Projection") ->  LProjection <$> v .: "data"
-        Just (String "Promoted") -> do
-          ls <- v.: "data"
+        Just (String "Promoted") -> LPromoted <$> v .: "index" <*> v .: "ty"
+{-          ls <- v.: "data"
           (string, ty) <- withArray "Promoted" (\arr -> do
              string <- withText "String" pure (arr V.! 0)
              ty     <- parseJSON (arr V.! 1)
              return (string, ty)) ls
-          pure $ Promoted string ty
+          pure $ Promoted string ty -}
         k -> fail $ "kind not found for Lvalue " ++ show k
+
+instance FromJSON Promoted where
+    parseJSON = withScientific "Promoted" $ \sci ->
+                  case Scientific.toBoundedInteger sci of
+                    Just b  -> pure (Promoted b)
+                    Nothing -> fail $ "cannot read " ++ show sci
 
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case HML.lookup "kind" v of
@@ -232,7 +241,6 @@ instance FromJSON Rvalue where
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
---                                              Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
                                               Just (String "Custom") -> RCustom <$> v .: "data"
                                               k -> fail $ "unsupported RValue " ++ show k
 
@@ -342,7 +350,7 @@ instance FromJSON Literal where
           ty  <- v.: "ty"
           lit <- parseConst ty v
           pure $ Value lit
-        Just (String "Promoted") -> LPromoted <$> v .: "index"
+        Just (String "Promoted") -> LitPromoted <$> v .: "index"
         x -> fail ("bad Literal: " ++ show x)
 
 
@@ -607,4 +615,11 @@ instance FromJSON TraitImpl where
               <*> v .: "items"
               
 
+instance FromJSON Static where
+  parseJSON = withObject "Static" $ \v -> do
+    Static <$> v .: "name"
+           <*> v .: "ty"
+           <*> v .: "mutable"
+           <*> v .:? "promoted_from"
+           <*> v .:? "promoted_index"
 --  LocalWords:  initializer
