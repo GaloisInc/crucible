@@ -1982,10 +1982,10 @@ doCall funid funsubst cargs cdest retRepr = do
       
       Nothing
          -- special case for exit function that does not return
-         | Just CustomOpExit <- lookupCustomFunc funid funsubst,
-               [o] <- cargs -> do
-               _exp <- evalOperand o
-               G.reportError (S.app $ E.TextLit "Program terminated with std::process::exit")
+         | Just (CustomOpExit op) <- lookupCustomFunc funid funsubst -> do
+               exps <- mapM evalOperand cargs
+               msg  <- op exps
+               G.reportError (S.app $ E.TextLit msg)
 
         -- other functions that don't return
         | otherwise -> do
@@ -2247,7 +2247,11 @@ buildIdentMapRegs (M.MirBody localvars blocks) extravars =
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
    -- "allocate" space for return variable
-   needsInitVars = Set.fromList ["_0"]
+
+   isTuple (M.Var _ _ (M.TyTuple (_:_)) _ _) = True
+   isTuple _ = False
+
+   needsInitVars = Set.fromList $ ["_0"] ++ (map (^.varname) (filter isTuple localvars))
 
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
@@ -3202,10 +3206,13 @@ mkRange itemRepr start end =
 type ExplodedDefId = ([Text], Text, [Text])
 data CustomOp      =
     CustomOp (forall h s ret. HasCallStack =>
-      [M.Ty] -> M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s))
+       [M.Ty]      -- ^ argument types
+     -> M.Ty       -- ^ return type
+     -> [MirExp s] -- ^ operand values
+     -> MirGenerator h s ret (MirExp s))
   | CustomMirOp (forall h s ret. HasCallStack =>
       [M.Operand] -> MirGenerator h s ret (MirExp s))
-  | CustomOpExit            
+  | CustomOpExit (forall h s ret. [MirExp s] -> MirGenerator h s ret Text)
 
 type CustomRHS = Substs -> Maybe CustomOp
 
@@ -3242,10 +3249,12 @@ customOps = Map.fromList [
                          , iter_map
                          , iter_collect
 
+                         , wrapping_mul
                          , wrapping_sub
                          , discriminant_value
 
                          , exit
+                         , panicking_begin_panic
                          ]
 
 -- Can use the (static) type arguments to decide whether to override
@@ -3280,7 +3289,17 @@ customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ show (pretty 
 -- ** Custom: Exit
 
 exit :: (ExplodedDefId, CustomRHS)
-exit = ((["process"], "exit", []), \s -> Just CustomOpExit)
+exit = ((["process"], "exit", []), \s -> Just (CustomOpExit $ \ops -> return "process::exit"))
+
+
+panicking_begin_panic :: (ExplodedDefId, CustomRHS)
+panicking_begin_panic = ((["panicking"], "begin_panic", []),
+   \s -> Just (CustomOpExit $
+            \[MirExp (C.VectorRepr w) vec, _] -> do
+                return "panicking::begin_panic"))
+
+
+
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Index
@@ -3348,6 +3367,26 @@ index_op_mut (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
                _ -> fail $ "BUG: invalid arguments to index_mut"
 index_op_mut _ = Nothing
 --------------------------------------------------------------------------------------------------------------------------
+
+-- ** Custom: wrapping_mul
+
+-- TODO: this should return (a * b) mod 2N
+-- however it does whatever Crucible does for BVMul
+wrapping_mul :: (ExplodedDefId, CustomRHS)
+wrapping_mul = ( (["num","{{impl}}"], "wrapping_mul", []),
+   \ _substs -> Just $ CustomOp $ \ _opTys _retTy ops ->
+     case ops of 
+       [MirExp aty a, MirExp bty b] ->
+         
+         case (aty, bty) of
+           (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
+               let sub = R.App $ E.BVMul wa a b 
+               return (MirExp aty sub)
+           (_,_) -> fail $ "wrapping_mul: cannot call with types " ++ show aty ++ " and " ++ show bty
+
+       _ -> fail $ "BUG: invalid arguments for wrapping_mul")
+
+
 -- ** Custom: wrapping_sub
 
 wrapping_sub :: (ExplodedDefId, CustomRHS)
@@ -3516,6 +3555,7 @@ str_len =
                    _ -> fail $ "BUG: invalid arguments to " ++ "string len"
 
                _ -> Nothing)
+
 
 -------------------------------------------------------------------------------------------------------
 -- ** Custom: slice impl functions

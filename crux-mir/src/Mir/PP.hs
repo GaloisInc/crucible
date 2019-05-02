@@ -78,7 +78,7 @@ instance Pretty Ty where
     pretty (TyParam i)           = text ("_" ++ show i)
     pretty (TyFnDef defId tys)  = text "fnDef" <+> pr_id defId <> pretty tys
     pretty (TyClosure defId tys) = text "closure" <+> pr_id defId <> pretty tys
-    pretty TyStr                 = text "string"
+    pretty TyStr                 = text "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
     pretty (TyDynamic defId)     = text "dynamic" <+> pr_id defId 
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
@@ -317,7 +317,7 @@ instance Pretty Substs where
 instance Pretty ConstVal where
     pretty (ConstFloat i)   = pretty i
     pretty (ConstInt i)     = pretty i
-    pretty (ConstStr i)     = pretty i
+    pretty (ConstStr i)     = char '\"' <> pretty i <> char '\"'
     pretty (ConstByteStr i) = text (show i)
     pretty (ConstBool i)    = pretty i
     pretty (ConstChar i)    = pretty i
