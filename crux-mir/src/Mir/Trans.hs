@@ -153,10 +153,15 @@ tyToRepr t0 = case t0 of
   M.TyRawPtr t M.Mut -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
   
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
+  
   M.TyCustom custom_t -> customtyToRepr custom_t
   -- FIXME: should this be a tuple? 
   M.TyClosure _def_id _substs -> Some C.AnyRepr
-  M.TyStr -> Some C.StringRepr
+  
+  -- Strings are vectors of chars
+  -- This is not the actual representation (which is packed into u8s)
+  M.TyStr -> Some (C.VectorRepr (C.BVRepr (knownNat :: NatRepr 32)))
+  
   M.TyAdt _defid _tyargs -> Some taggedUnionRepr
   M.TyDowncast _adt _i   -> Some taggedUnionRepr
   M.TyFloat _ -> Some C.RealValRepr
@@ -370,6 +375,8 @@ setPosition = G.setPosition . parsePosition
 --------------------------------------------------------------------------------------
 -- ** Expressions
 
+charToBV32 :: Char -> R.Expr MIR s (C.BVType 32)
+charToBV32 c = R.App (E.BVLit knownRepr (toInteger (Char.ord c)))
 
 -- Expressions: variables and constants
 --
@@ -383,9 +390,13 @@ transConstVal (Some (C.NatRepr)) (M.ConstInt i) =
        return $ MirExp C.NatRepr (S.app $ E.NatLit n)
 transConstVal (Some (C.IntegerRepr)) (ConstInt i) =
       return $ MirExp C.IntegerRepr (S.app $ E.IntLit (fromIntegerLit i))
-transConstVal (Some (C.StringRepr)) (M.ConstStr str) =
-    do let t = Text.pack str
-       return $ MirExp C.StringRepr (S.litExpr t)
+transConstVal (Some (C.VectorRepr _w)) (M.ConstStr str)
+      = do let u32    = C.BVRepr (knownRepr :: NatRepr 32)
+           let bytes  = V.fromList (map charToBV32 str)
+           return $ MirExp (C.VectorRepr u32) (R.App $ E.VectorLit u32 bytes)
+--transConstVal (Some (C.StringRepr)) (M.ConstStr str) =
+--    do let t = Text.pack str
+--       return $ MirExp C.StringRepr (S.litExpr t)
 transConstVal (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w i)
@@ -2143,8 +2154,9 @@ initialValue (M.TyRef t M.Mut) = do
 initialValue M.TyChar = do
     let w = (knownNat :: NatRepr 32)
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
-initialValue M.TyStr =
-   return $ Just $ (MirExp C.StringRepr (S.litExpr ""))
+initialValue M.TyStr = do
+    let w = C.BVRepr (knownNat :: NatRepr 32)
+    return $ Just $ (MirExp (C.VectorRepr w) (S.app (E.VectorLit w V.empty)))
 initialValue (M.TyClosure defid (Substs (_i8:hty:closed_tys))) = do
    -- TODO: figure out what the first i8 type argument is for   
    mclosed_args <- mapM initialValue closed_tys
@@ -3219,6 +3231,9 @@ customOps = Map.fromList [
                          -- , slice_SliceIndex_get_unchecked 
                          -- , slice_SliceIndex_get_unchecked_mut
 
+
+                         , str_len
+
                          , ops_index
                          , ops_index_mut
 
@@ -3485,6 +3500,22 @@ iter_collect_op _subst _opTys _retTy ops =
      [ iter ] -> accessAggregate iter 0
      _ -> fail $ "BUG: invalid arguments to iter_collect"
 
+
+-------------------------------------------------------------------------------------------------------
+-- ** Custom: string operations
+--
+str_len :: (ExplodedDefId, CustomRHS)
+str_len =
+  ((["str","{{impl}}"], "len", [])
+  , \subs -> case subs of
+               (Substs []) -> Just $ CustomOp $ \ _optys _retTy ops -> 
+                 case ops of 
+                    -- type of the structure is &str == TyStr ==> C.VectorRepr BV32
+                   [MirExp (C.VectorRepr _) vec_e] -> do
+                        return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
+                   _ -> fail $ "BUG: invalid arguments to " ++ "string len"
+
+               _ -> Nothing)
 
 -------------------------------------------------------------------------------------------------------
 -- ** Custom: slice impl functions

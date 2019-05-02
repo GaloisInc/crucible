@@ -262,6 +262,10 @@ showRegEntry col mty (C.RegEntry tp rv) =
     (TyStr, C.StringRepr) -> return $ case W4.asString rv of
                      Just s -> show s
                      Nothing -> "Symbolic string"
+
+    (TyChar, C.BVRepr _w) -> return $ case W4.asUnsignedBV rv of
+                     Just i  -> show (Char.chr (fromInteger i))
+                     Nothing -> "Symbolic char"
     (TyInt USize, C.NatRepr) -> return $ case W4.asNat rv of
                      Just n -> show n
                      Nothing -> "Symbolic nat"
@@ -341,6 +345,11 @@ showRegEntry col mty (C.RegEntry tp rv) =
       let strs = Vector.toList values
       return $ "[" ++ List.intercalate ", " strs ++ "]"
 
+    (TyStr, C.VectorRepr tyr) -> do
+      let entries = Vector.map (C.RegEntry tyr) rv
+      values <- Vector.mapM (showRegEntry col TyChar) entries
+      let strs = Vector.toList values
+      return $ concat strs
 
     _ -> return $ "I don't know how to print result of type " ++ show (pretty mty)
 

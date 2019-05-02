@@ -16,8 +16,11 @@ module Mir.Overrides (bindFn) where
 import Control.Lens ((%=))
 import Control.Monad.IO.Class
 
+import qualified Data.Char as Char
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
+import Data.Vector(Vector)
+import qualified Data.Vector as V
 
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import Data.Parameterized.NatRepr
@@ -48,6 +51,15 @@ import Crux.Types (Model)
 
 import Mir.Intrinsics (MIR)
 
+
+getString :: forall sym. (IsSymExprBuilder sym) => sym -> Vector (RegValue sym (BVType 32)) -> Maybe Text
+getString _ rv = do
+   let f :: RegValue sym (BVType 32) -> Maybe Char
+       f rv = case asUnsignedBV rv of
+                     Just i  -> Just (Char.chr (fromInteger i))
+                     Nothing -> Nothing
+   (vv :: (Vector Char)) <- V.mapM f rv
+   return $ Text.pack (V.toList vv)
 
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
@@ -85,11 +97,15 @@ bindFn fn cfg =
     u32repr :: TypeRepr (BaseToType (BaseBVType 32))
     u32repr = knownRepr
 
+    strrepr :: TypeRepr (VectorType (BVType 32))
+    strrepr = knownRepr
+
     symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride (Model sym) sym)
     symb_bv name n =
-      override name (Empty :> StringRepr) (BVRepr n) $
+      override name (Empty :> strrepr) (BVRepr n) $
       do RegMap (Empty :> str) <- getOverrideArgs
-         x <- maybe (fail "not a constant string") pure (asString (regValue str))
+         let sym = (undefined :: sym)
+         x <- maybe (fail "not a constant string") pure (getString sym (regValue str))
          let xStr = Text.unpack x
          let y = filter ((/=) '\"') xStr
          nname <-
@@ -117,29 +133,29 @@ bindFn fn cfg =
                , symb_bv "::crucible_u16[0]" (knownNat @ 16)
                , symb_bv "::crucible_u32[0]" (knownNat @ 32)
                , symb_bv "::crucible_u64[0]" (knownNat @ 64)
-               , let argTys = (Empty :> BoolRepr :> StringRepr :> StringRepr :> u32repr :> u32repr)
+               , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override "::crucible_assert_impl[0]" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        s <- getSymInterface
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
-                                (asString (regValue srcArg))
-                       file <- maybe (fail "not a constant filename string") pure (asString (regValue fileArg))
+                                (getString s (regValue srcArg))
+                       file <- maybe (fail "not a constant filename string") pure (getString s (regValue fileArg))
                        line <- maybe (fail "not a constant line number") pure (asUnsignedBV (regValue lineArg))
                        col <- maybe (fail "not a constant column number") pure (asUnsignedBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src)
                        liftIO $ assert s (regValue c) reason
                        return ()
-               , let argTys = (Empty :> BoolRepr :> StringRepr :> StringRepr :> u32repr :> u32repr)
+               , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override "::crucible_assume_impl[0]" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        s <- getSymInterface
                        loc <- liftIO $ getCurrentProgramLoc s
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
-                                (asString (regValue srcArg))
-                       file <- maybe (fail "not a constant filename string") pure (asString (regValue fileArg))
+                                (getString s (regValue srcArg))
+                       file <- maybe (fail "not a constant filename string") pure (getString s (regValue fileArg))
                        line <- maybe (fail "not a constant line number") pure (asUnsignedBV (regValue lineArg))
                        col <- maybe (fail "not a constant column number") pure (asUnsignedBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col

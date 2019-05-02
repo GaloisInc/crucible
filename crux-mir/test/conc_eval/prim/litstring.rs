@@ -1,5 +1,3 @@
-// FAIL: string literal
-
 fn f(x: usize) -> bool {
     let s = "hello";
     s.len() > x
