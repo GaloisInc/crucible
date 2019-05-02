@@ -1,5 +1,3 @@
-// FAIL: unknown lvalue access: Static
-
 #[no_mangle]
 static mut X: i32 = 0;
 

@@ -8,7 +8,6 @@ test/conc_eval/crypto/add.rs:// FAIL: needs arith trait
 
 -- waitin on mir-json
 test/conc_eval/stdlib/default.rs:// FAIL: Default trait (temporarily) not included in mir-lib
-test/conc_eval/stdlib/default_impl.rs:// FAIL: mir-json doesn't include "implements" for () instance
 
 -- iterators
 test/conc_eval/array/iter.rs:// FAIL: invalid slice access
@@ -42,9 +41,8 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 ** test/crypto/scalar.rs status
 
-   Failure encountered while generating a Crucible CFG: at
-   <::std::macros::panic macros>:4:9: 4:72: unknown lvalue access:
-   Promoted "promoted[0]" (TyTuple [TyRef TyStr Immut,TyUint B32,TyUint B32])
+   Failure encountered while generating a Crucible CFG: at <::std::macros::panic macros>:4:9: 
+   4:72: callExp: Don't know how to call ::panicking::begin_panic<&string>
 
 Derives from trying to translate this block:
 

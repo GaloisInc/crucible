@@ -210,16 +210,10 @@ instance FromJSON Statement where
 instance FromJSON Lvalue where
     parseJSON = withObject "Lvalue" $ \v ->
       case HML.lookup "kind" v of
-        Just (String "Local") ->  Local <$> v .: "localvar"
-        Just (String "Static") -> LStatic <$> v .: "def_id" <*> v .: "ty"
-        Just (String "Projection") ->  LProjection <$> v .: "data"
-        Just (String "Promoted") -> LPromoted <$> v .: "index" <*> v .: "ty"
-{-          ls <- v.: "data"
-          (string, ty) <- withArray "Promoted" (\arr -> do
-             string <- withText "String" pure (arr V.! 0)
-             ty     <- parseJSON (arr V.! 1)
-             return (string, ty)) ls
-          pure $ Promoted string ty -}
+        Just (String "Local")      -> Local       <$> v .: "localvar"
+        Just (String "Static")     -> LStatic     <$> v .: "def_id" <*> v .: "ty"
+        Just (String "Projection") -> LProjection <$> v .: "data"
+        Just (String "Promoted")   -> LPromoted   <$> v .: "index" <*> v .: "ty"
         k -> fail $ "kind not found for Lvalue " ++ show k
 
 instance FromJSON Promoted where
@@ -244,9 +238,6 @@ instance FromJSON Rvalue where
                                               Just (String "Custom") -> RCustom <$> v .: "data"
                                               k -> fail $ "unsupported RValue " ++ show k
 
---instance FromJSON AdtAg where
---    parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
-
 instance FromJSON Terminator where
     parseJSON = withObject "Terminator" $ \v -> case HML.lookup "kind" v of
                                                   Just (String "Goto") -> Goto <$> v .: "target"
@@ -268,7 +259,6 @@ instance FromJSON Terminator where
 
 instance FromJSON Operand where
     parseJSON = withObject "Operand" $ \v -> case HML.lookup "kind" v of
---                                               Just (String "Consume") -> Consume <$> v .: "data"
                                                Just (String "Move") -> Move <$> v .: "data"
                                                Just (String "Copy") -> Copy <$> v .: "data"  
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
@@ -366,11 +356,10 @@ parseConst ty v = do
     TyChar     -> (v .: "int_val") >>= \t -> ConstChar <$> convertChar t
     TyRef t Immut -> parseConst t v
     TyStr        -> (v .: "str_val") >>= \t -> ConstStr <$> convertString t
-                    -- a dummy string here so that we can make progress
-                    -- pure $ ConstStr "TODO: STRING constants"
     TyFnDef d ps -> pure $ ConstFunction d ps
     TyTuple ts   -> fail $ "TODO: need Tuple value in\n" ++ show v
-    TyArray t n  -> (v .: "initializer") >>= parseInitializer 
+    TyArray t n  -> (v .: "initializer") >>= parseInitializer
+    TyAdt d ss   -> (v .: "initializer") >>= parseInitializer
     r            -> fail $ "TODO: Don't know how to parse literals of type " ++ show ty
                              ++ "\nin JSON value " ++ show v
 
@@ -622,4 +611,6 @@ instance FromJSON Static where
            <*> v .: "mutable"
            <*> v .:? "promoted_from"
            <*> v .:? "promoted_index"
---  LocalWords:  initializer
+
+           
+--  LocalWords:  initializer supertraits deserialization impls
