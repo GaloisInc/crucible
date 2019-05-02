@@ -59,6 +59,7 @@ module Lang.Crucible.CFG.Generator
   , call
   , assertExpr
   , addPrintStmt
+  , addBreakpointStmt
   , extensionStmt
   , mkAtom
   , forceEvaluation
@@ -115,6 +116,7 @@ import           Data.Parameterized.TraversableFC
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import           Data.Text (Text)
 import           Data.Void
 
 import           What4.ProgramLoc
@@ -427,6 +429,14 @@ addPrintStmt :: IsSyntaxExtension ext => Expr ext s StringType -> Generator ext 
 addPrintStmt e =
   do e_a <- mkAtom e
      addStmt (Print e_a)
+
+-- | Add a breakpoint.
+addBreakpointStmt ::
+  IsSyntaxExtension ext =>
+  Text {- ^ breakpoint name -} ->
+  Assignment (Value s) args {- ^ breakpoint values -} ->
+  Generator ext h s t r ()
+addBreakpointStmt nm args = addStmt $ Breakpoint (BreakpointName nm) args
 
 -- | Add an assert statement.
 assertExpr ::

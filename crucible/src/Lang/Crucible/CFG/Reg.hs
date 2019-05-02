@@ -350,6 +350,9 @@ instance OrdF (Value s) where
   compareF _ RegValue{} = GTF
   compareF (AtomValue x) (AtomValue y) = compareF x y
 
+instance Pretty (Value s tp) where
+  pretty = text . show
+
 instance Show (Value s tp) where
   show (RegValue  r) = show r
   show (AtomValue a) = show a
@@ -459,6 +462,9 @@ data AtomValue ext s (tp :: CrucibleType) where
        -> !(TypeRepr ret)
        -> AtomValue ext s ret
 
+instance PrettyExt ext => Show (AtomValue ext s tp) where
+  show = show . pretty
+
 instance PrettyExt ext => Pretty (AtomValue ext s tp) where
   pretty v =
     case v of
@@ -539,6 +545,10 @@ data Stmt ext s
    | Assert !(Atom s BoolType) !(Atom s StringType)
      -- | Assume the given expression.
    | Assume !(Atom s BoolType) !(Atom s StringType)
+   | forall args . Breakpoint BreakpointName !(Assignment (Value s) args)
+
+instance PrettyExt ext => Show (Stmt ext s) where
+  show = show . pretty
 
 instance PrettyExt ext => Pretty (Stmt ext s) where
   pretty s =
@@ -551,6 +561,7 @@ instance PrettyExt ext => Pretty (Stmt ext s) where
       Print  v   -> text "print"  <+> pretty v
       Assert c m -> text "assert" <+> pretty c <+> pretty m
       Assume c m -> text "assume" <+> pretty c <+> pretty m
+      Breakpoint nm args -> text "breakpoint" <+> pretty nm <+> parens (commas (toListFC pretty args))
 
 -- | Return local value assigned by this statement or @Nothing@ if this
 -- does not modify a register.
@@ -565,6 +576,7 @@ stmtAssignedValue s =
     Print{} -> Nothing
     Assert{} -> Nothing
     Assume{} -> Nothing
+    Breakpoint{} -> Nothing
 
 -- | Fold all registers that are inputs tostmt.
 foldStmtInputs :: TraverseExt ext => (forall x . Value s x -> b -> b) -> Stmt ext s -> b -> b
@@ -578,6 +590,7 @@ foldStmtInputs f s b =
     Print  e     -> f (AtomValue e) b
     Assert c m   -> f (AtomValue c) (f (AtomValue m) b)
     Assume c m   -> f (AtomValue c) (f (AtomValue m) b)
+    Breakpoint _ args -> foldrFC' f b args
 
 substStmt :: ( Applicative m, TraverseExt ext )
           => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -593,6 +606,7 @@ substStmt f s =
     Print e -> Print <$> substAtom f e
     Assert c m -> Assert <$> substAtom f c <*> substAtom f m
     Assume c m -> Assume <$> substAtom f c <*> substAtom f m
+    Breakpoint nm args -> Breakpoint nm <$> traverseFC (substValue f) args
 
 substPosdStmt :: ( Applicative m, TraverseExt ext )
               => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -645,6 +659,9 @@ data TermStmt s (ret :: CrucibleType) where
   Output :: !(LambdaLabel s tp)
          -> !(Atom s tp)
          -> TermStmt s ret
+
+instance Show (TermStmt s ret) where
+  show = show . pretty
 
 instance Pretty (TermStmt s ret) where
   pretty t0 =
@@ -762,6 +779,9 @@ instance Eq (Block ext s ret) where
 
 instance Ord (Block ext s ret) where
   compare x y = compare (blockID x) (blockID y)
+
+instance PrettyExt ext => Show (Block ext s ret) where
+  show = show . pretty
 
 instance PrettyExt ext => Pretty (Block ext s ret) where
   pretty b = text (show (blockID b)) <$$> indent 2 stmts

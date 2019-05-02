@@ -70,6 +70,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Assert_ | Assume_
              | SetRegister
              | Funcall
+             | Breakpoint_
              | BV | BVConcat_ | BVSelect_ | BVTrunc_
              | BVZext_ | BVSext_ | BVNonzero_ | BoolToBV_
              | BVCarry_ | BVSCarry_ | BVSBorrow_
@@ -113,6 +114,7 @@ keywords =
   , ("assert!", Assert_)
   , ("assume!", Assume_)
   , ("funcall", Funcall)
+  , ("breakpoint", Breakpoint_)
 
     -- types
   , ("Any" , AnyT)

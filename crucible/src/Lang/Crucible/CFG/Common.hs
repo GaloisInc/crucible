@@ -16,6 +16,7 @@ module Lang.Crucible.CFG.Common
   ( -- * Global variables
     GlobalVar(..)
   , freshGlobalVar
+  , BreakpointName(..)
   ) where
 
 import           Control.Monad.ST
@@ -65,3 +66,9 @@ freshGlobalVar halloc nm tp = do
          , globalName  = nm
          , globalType  = tp
          }
+
+newtype BreakpointName = BreakpointName { breakpointNameText :: Text }
+  deriving (Eq, Ord, Show)
+
+instance Pretty BreakpointName where
+  pretty = text . show
