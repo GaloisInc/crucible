@@ -1,2 +1,2 @@
 [Crux] Simulating function "main"
-bvZext 32 (bvIte (floatIsNaN cX@3:f) 0x0:[1] 0x1:[1])
+bvZext 32 (ite (floatIsNaN cX@1:f) 0x0:[1] 0x1:[1])

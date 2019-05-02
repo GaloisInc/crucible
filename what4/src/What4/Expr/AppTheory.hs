@@ -13,9 +13,13 @@ module What4.Expr.AppTheory
   ( AppTheory(..)
   , quantTheory
   , appTheory
+  , typeTheory
   ) where
 
-import What4.Expr.Builder
+import           What4.BaseTypes
+import           What4.Expr.Builder
+import qualified What4.SemiRing as SR
+import qualified What4.Expr.WeightedSum as WSum
 
 -- | The theory that a symbol belongs to.
 data AppTheory
@@ -44,33 +48,55 @@ quantTheory a0 =
     ArrayTrueOnEntries{} -> ArrayTheory
     FnApp{} -> FnTheory
 
+typeTheory :: BaseTypeRepr tp -> AppTheory
+typeTheory tp = case tp of
+  BaseBoolRepr      -> BoolTheory
+  BaseBVRepr _      -> BitvectorTheory
+  BaseNatRepr       -> LinearArithTheory
+  BaseIntegerRepr   -> LinearArithTheory
+  BaseRealRepr      -> LinearArithTheory
+  BaseFloatRepr _   -> FloatingPointTheory
+  BaseStringRepr    -> StringTheory
+  BaseComplexRepr   -> LinearArithTheory
+  BaseStructRepr _  -> StructTheory
+  BaseArrayRepr _ _ -> ArrayTheory
+
 appTheory :: App (Expr t) tp -> AppTheory
 appTheory a0 =
   case a0 of
-
     ----------------------------
     -- Boolean operations
 
-    TrueBool  -> BoolTheory
-    FalseBool -> BoolTheory
-    NotBool{} -> BoolTheory
-    AndBool{} -> BoolTheory
-    XorBool{} -> BoolTheory
-    IteBool{} -> BoolTheory
+    BaseIte tp _ _ _ _ -> typeTheory tp
+    BaseEq tp _ _ -> typeTheory tp
+
+    NotPred{} -> BoolTheory
+    ConjPred{} -> BoolTheory
+    DisjPred{} -> BoolTheory
 
     RealIsInteger{} -> LinearArithTheory
+
     BVTestBit{} -> BitvectorTheory
-    BVEq{} -> BitvectorTheory
     BVSlt{} -> BitvectorTheory
     BVUlt{} -> BitvectorTheory
-    ArrayEq{} -> ArrayTheory
+    BVOrBits{} -> BitvectorTheory
 
     ----------------------------
     -- Semiring operations
-    SemiRingMul{} -> NonlinearArithTheory
-    SemiRingSum{} -> LinearArithTheory
-    SemiRingIte{} -> LinearArithTheory
-    SemiRingEq{} -> LinearArithTheory
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SR.SemiRingBVRepr _ _ -> BitvectorTheory
+        SR.SemiRingNatRepr -> NonlinearArithTheory
+        SR.SemiRingIntegerRepr -> NonlinearArithTheory
+        SR.SemiRingRealRepr -> NonlinearArithTheory
+
+    SemiRingSum sm ->
+      case WSum.sumRepr sm of
+        SR.SemiRingBVRepr _ _ -> BitvectorTheory
+        SR.SemiRingNatRepr -> LinearArithTheory
+        SR.SemiRingIntegerRepr -> LinearArithTheory
+        SR.SemiRingRealRepr -> LinearArithTheory
+
     SemiRingLe{} -> LinearArithTheory
 
     ----------------------------
@@ -117,23 +143,15 @@ appTheory a0 =
     BVUnaryTerm{} -> BoolTheory
     BVConcat{} -> BitvectorTheory
     BVSelect{} -> BitvectorTheory
-    BVNeg{}    -> BitvectorTheory
-    BVAdd{}  -> BitvectorTheory
-    BVMul{}  -> BitvectorTheory
     BVUdiv{} -> BitvectorTheory
     BVUrem{} -> BitvectorTheory
     BVSdiv{} -> BitvectorTheory
     BVSrem{} -> BitvectorTheory
-    BVIte{}  -> BitvectorTheory
     BVShl{}   -> BitvectorTheory
     BVLshr{}  -> BitvectorTheory
     BVAshr{}  -> BitvectorTheory
     BVZext{}  -> BitvectorTheory
     BVSext{}  -> BitvectorTheory
-    BVBitNot{} -> BitvectorTheory
-    BVBitAnd{} -> BitvectorTheory
-    BVBitOr{}  -> BitvectorTheory
-    BVBitXor{} -> BitvectorTheory
     BVPopcount{} -> BitvectorTheory
     BVCountLeadingZeros{} -> BitvectorTheory
     BVCountTrailingZeros{} -> BitvectorTheory
@@ -156,7 +174,6 @@ appTheory a0 =
     FloatMin{}        -> FloatingPointTheory
     FloatMax{}        -> FloatingPointTheory
     FloatFMA{}        -> FloatingPointTheory
-    FloatEq{}         -> FloatingPointTheory
     FloatFpEq{}       -> FloatingPointTheory
     FloatFpNe{}       -> FloatingPointTheory
     FloatLe{}         -> FloatingPointTheory
@@ -168,7 +185,6 @@ appTheory a0 =
     FloatIsNeg{}      -> FloatingPointTheory
     FloatIsSubnorm{}  -> FloatingPointTheory
     FloatIsNorm{}     -> FloatingPointTheory
-    FloatIte{}        -> FloatingPointTheory
     FloatCast{}       -> FloatingPointTheory
     FloatRound{}      -> FloatingPointTheory
     FloatFromBinary{} -> FloatingPointTheory
@@ -204,7 +220,6 @@ appTheory a0 =
     ConstantArray{} -> ArrayTheory
     SelectArray{} -> ArrayTheory
     UpdateArray{} -> ArrayTheory
-    MuxArray{} -> ArrayTheory
 
     ---------------------
     -- Complex operations
@@ -219,4 +234,3 @@ appTheory a0 =
     -- A struct with its fields.
     StructCtor{}  -> StructTheory
     StructField{} -> StructTheory
-    StructIte{}   -> StructTheory

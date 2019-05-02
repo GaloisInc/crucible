@@ -4,9 +4,9 @@
 ==== Proof obligations ====
 Assuming:
 * in main test-data/simulator-tests/loop.cbl:10:5: nonzero start
-    boolNot (natEq 0 cx@2:n)
+    not (eq 0 cx@0:n)
 Prove:
   nonzero
   in main at test-data/simulator-tests/loop.cbl:19:5
-  boolNot (natLe (natSum 8* cx@2:n) 0)
+  not (natLe (natSum (natMul 8 cx@0:n)) 0)
 PROVED

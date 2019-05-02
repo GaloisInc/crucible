@@ -14,6 +14,7 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 module What4.Expr.VarIdentification
   ( -- * CollectedVarInfo
     CollectedVarInfo
@@ -41,6 +42,7 @@ import           Control.Monad.ST
 import           Control.Monad.State
 import           Data.Bits
 import qualified Data.HashTable.ST.Cuckoo as H
+import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict as Map
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
@@ -55,8 +57,10 @@ import           Text.PrettyPrint.ANSI.Leijen
 import           What4.BaseTypes
 import           What4.Interface (ArrayResultWrapper(..))
 import           What4.Expr.AppTheory
+import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
 import           What4.ProblemFeatures
+import qualified What4.SemiRing as SR
 import           What4.Utils.MonadST
 
 data BoundQuant = ForallBound | ExistBound
@@ -186,17 +190,6 @@ addExistVar ExistsOnly p e q v x = do
 addExistVar ExistsForall _ _ _ _ _ = do
   fail $ "mss does not allow existental variables to appear inside forall quantifier."
 
--- \ Describes whether the polarity of a subformula.
---
--- A formula is positive if it appears under an even number of negations, and
--- positive otherwise.
-data Polarity = Positive | Negative
-  deriving (Eq)
-
-negatePolarity :: Polarity -> Polarity
-negatePolarity Positive = Negative
-negatePolarity Negative = Positive
-
 addForallVar :: Polarity -- ^ Polarity of formula
              -> NonceAppExpr t BaseBoolType -- ^ Top term
              -> BoundQuant            -- ^ Quantifier appearing in top term.
@@ -240,7 +233,7 @@ recordAssertionVars :: Scope
                     -> Expr t BaseBoolType
                        -- ^ Predicate to assert
                     -> VarRecorder s t ()
-recordAssertionVars scope p (AppExpr ae) = do
+recordAssertionVars scope p e@(AppExpr ae) = do
   ht <- VR ask
   let idx = indexValue (appExprId ae)
   mp <- liftST $ H.lookup ht idx
@@ -250,11 +243,11 @@ recordAssertionVars scope p (AppExpr ae) = do
     -- We've already seen the element in the context @oldp@.
     Just (Just oldp) -> do
       when (oldp /= p) $ do
-        recurseAssertedAppExprVars scope p ae
+        recurseAssertedAppExprVars scope p e
         liftST $ H.insert ht idx Nothing
     -- We have not seen this element yet.
     Nothing -> do
-      recurseAssertedAppExprVars scope p ae
+      recurseAssertedAppExprVars scope p e
       liftST $ H.insert ht idx (Just p)
 recordAssertionVars scope p (NonceAppExpr ae) = do
   ht <- VR ask
@@ -299,16 +292,38 @@ recurseAssertedNonceAppExprVars scope p ea0 =
     _ -> recurseNonceAppVars scope ea0
 
 -- | This records asserted variables in an app expr.
-recurseAssertedAppExprVars :: Scope -> Polarity -> AppExpr t BaseBoolType -> VarRecorder s t ()
-recurseAssertedAppExprVars scope p ea0 =
-  case appExprApp ea0 of
-    NotBool x -> recordAssertionVars scope (negatePolarity p) x
-    AndBool x y -> mapM_ (recordAssertionVars scope p) [x, y]
-    IteBool c x y -> do
-      recordExprVars scope c
+recurseAssertedAppExprVars :: Scope -> Polarity -> Expr t BaseBoolType -> VarRecorder s t ()
+recurseAssertedAppExprVars scope p e = go e
+ where
+ go BoolExpr{} = return ()
+
+ go (asApp -> Just (NotPred x)) =
+        recordAssertionVars scope (negatePolarity p) x
+
+ go (asApp -> Just (ConjPred xs)) =
+   let pol (x,Positive) = recordAssertionVars scope p x
+       pol (x,Negative) = recordAssertionVars scope (negatePolarity p) x
+   in
+   case BM.viewBoolMap xs of
+     BM.BoolMapUnit -> return ()
+     BM.BoolMapDualUnit -> return ()
+     BM.BoolMapTerms (t:|ts) -> mapM_ pol (t:ts)
+
+ go (asApp -> Just (DisjPred xs)) =
+   let pol (x,Positive) = recordAssertionVars scope p x
+       pol (x,Negative) = recordAssertionVars scope (negatePolarity p) x
+   in
+   case BM.viewBoolMap xs of
+     BM.BoolMapUnit -> return ()
+     BM.BoolMapDualUnit -> return ()
+     BM.BoolMapTerms (t:|ts) -> mapM_ pol (t:ts)
+
+ go (asApp -> Just (BaseIte BaseBoolRepr _ c x y)) =
+   do recordExprVars scope c
       recordAssertionVars scope p x
       recordAssertionVars scope p y
-    _ -> recurseExprVars scope ea0
+
+ go _ = recordExprVars scope e
 
 
 memoExprVars :: Nonce t (tp::BaseType) -> VarRecorder s t () -> VarRecorder s t ()
@@ -324,9 +339,12 @@ memoExprVars n recurse = do
 
 -- | Record the variables in an element.
 recordExprVars :: Scope -> Expr t tp -> VarRecorder s t ()
-recordExprVars _ SemiRingLiteral{} = addFeatures useLinearArithmetic
-recordExprVars _ BVExpr{}  = addFeatures useBitvectors
+recordExprVars _ (SemiRingLiteral sr _ _) =
+  case sr of
+    SR.SemiRingBVRepr _ _ -> addFeatures useBitvectors
+    _                     -> addFeatures useLinearArithmetic
 recordExprVars _ StringExpr{} = addFeatures useStrings
+recordExprVars _ BoolExpr{} = return ()
 recordExprVars scope (NonceAppExpr e0) = do
   memoExprVars (nonceExprId e0) $ do
     recurseNonceAppVars scope e0

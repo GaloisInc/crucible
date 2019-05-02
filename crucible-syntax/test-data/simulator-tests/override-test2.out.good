@@ -4,11 +4,11 @@
 ==== Proof obligations ====
 Assuming:
 * The branch in main from test-data/simulator-tests/override-test2.cbl:5:12 to after branch 0
-    boolNot (intEq 1 cx@2:i)
+    not (eq 1 cx@0:i)
 * The branch in symbolicBranchesTest from after branch 0 to after branch 1
-    boolNot (intEq 2 cx@2:i)
+    not (eq 2 cx@0:i)
 * The branch in symbolicBranchesTest from after branch 1 to after branch 2
-    boolNot (intEq 3 cx@2:i)
+    not (eq 3 cx@0:i)
 Prove:
   fall-through branch
   in symbolicBranchesTest at default branch
@@ -16,13 +16,11 @@ Prove:
 COUNTEREXAMPLE
 Assuming:
 * The branch in symbolicBranchesTest from after branch 1 to third branch
-    let -- default branch
-        v27 = boolAnd (boolNot (intEq 3 cx@2:i)) (boolNot (intEq 2 cx@2:i))
-     in boolNot (boolAnd v27 (boolNot (intEq 1 cx@2:i)))
+    or (eq 1 cx@0:i) (eq 2 cx@0:i) (eq 3 cx@0:i)
 Prove:
   bogus!
   in main at test-data/simulator-tests/override-test2.cbl:6:5
   let -- default branch
-      v23 = intSum 2* cx@2:i (intIte (intEq 2 cx@2:i) 0 cy@3:i)
-   in intEq (intIte (intEq 1 cx@2:i) cy@3:i v23) cx@2:i
+      v18 = intSum (intMul 2 cx@0:i) (ite (eq 2 cx@0:i) 0 cy@1:i)
+   in eq (ite (eq 1 cx@0:i) cy@1:i v18) cx@0:i
 COUNTEREXAMPLE

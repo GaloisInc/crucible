@@ -69,6 +69,7 @@ import           Control.Monad (foldM, forM_, when, liftM2)
 import           Control.Monad.ST
 import           Data.IORef
 import           Data.Int (Int64)
+import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe, isJust)
@@ -87,6 +88,8 @@ import           What4.ProgramLoc
 import           What4.Concrete
 import           What4.Interface
 import           What4.SatResult
+import           What4.Expr
+import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.GroundEval
 import           What4.Expr.Builder
 import qualified What4.Expr.WeightedSum as WSum
@@ -405,33 +408,53 @@ setUNSAT h = do
 assume :: Handle t -> BoolExpr t -> IO ()
 assume _ (BoundVarExpr v) =
   failAt' (bvarLoc v) "Boolean variables are not supported by BLT."
+assume _ (SemiRingLiteral sr _ _) = case sr of {}
 assume _ (NonceAppExpr e) =
   fail . show $
     text "Unsupported term created at" <+> pretty (plSourceLoc l) <>
     text ":" <$$> indent 2 (pretty (NonceAppExpr e))
   where
   l = nonceExprLoc e
-assume _ (SemiRingLiteral sr _ _) = case sr of {}
-assume h b@(AppExpr ba) = do
+assume h (BoolExpr b l)
+  | b = return ()
+  | otherwise =
+      do when (isVerb h) $ warnAt l "problem assumes False"
+         setUNSAT h
+assume h b@(AppExpr ba) =
   let a = appExprApp ba in
     case a of
-      TrueBool    -> return ()
-      FalseBool   -> do
-        when (isVerb h) $ warnAt l "problem assumes False"
-        setUNSAT h
-      AndBool x y -> assume h x >> assume h y
-      SemiRingLe SemiRingInt x y  -> do
+      NotPred (asApp -> Just (DisjPred xs)) ->
+        case BM.viewBoolMap xs of
+          BM.BoolMapUnit -> return ()
+          BM.BoolMapDualUnit ->
+               do when (isVerb h) $ warnAt l "problem assumes False"
+                  setUNSAT h
+          BM.BoolMapTerms (t:|ts) -> mapM_ f (t:ts)
+            where f (x,BM.Negative) = assume h x
+                  f (_,BM.Positive) = unsupported
+      ConjPred xs ->
+        case BM.viewBoolMap xs of
+          BM.BoolMapUnit -> return ()
+          BM.BoolMapDualUnit ->
+               do when (isVerb h) $ warnAt l "problem assumes False"
+                  setUNSAT h
+          BM.BoolMapTerms (t:|ts) -> mapM_ f (t:ts)
+            where f (x,BM.Positive) = assume h x
+                  f (_,BM.Negative) = unsupported
+
+      SemiRingLe OrderedSemiRingIntegerRepr x y  -> do
         x' <- evalInteger h x
         y' <- evalInteger h y
         appLEq x' y'
-      SemiRingLe SemiRingReal x y  -> do
+      SemiRingLe OrderedSemiRingRealRepr x y  -> do
         x' <- evalReal h x
         y' <- evalReal h y
         appLEq x' y'
-      _ -> fail $ show $
+      _ -> unsupported
+  where
+  unsupported = fail $ show $
         text "Unsupported term created at" <+> pretty (plSourceLoc l) <>
         text ":" <$$> indent 2 (pretty b)
-  where
   l = appExprLoc ba
   appLEq lhs rhs =
     let (lhs', rhs') = normalizeLEQ lhs rhs in
@@ -522,7 +545,7 @@ evalReal' :: Handle t -> RealExpr t -> IO BLTExpr
 -- Integer variables are supported, but not Real
 evalReal' _ (BoundVarExpr v) =
   failAt (bvarLoc v) "Real variables are not supported by BLT."
-evalReal' h (SemiRingLiteral SemiRingReal r _) = do
+evalReal' h (SemiRingLiteral SemiRingRealRepr r _) = do
   when (isVerb h) $ putStrLn ("BLT@evalReal: rational const " ++ show r)
   return (mkBLT r)
 evalReal' _ (NonceAppExpr ea) =
@@ -539,15 +562,18 @@ evalReal' h epr@(AppExpr epa) = do
       return i
 
     -- support only linear expressions
-    SemiRingMul SemiRingReal x y -> do
-      x' <- evalReal h x
-      y' <- evalReal h y
-      when (isVerb h) $ putStrLn ("real mult " ++ show x' ++ " " ++ show y')
-      return $ multBLTE x' y'
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SemiRingRealRepr ->
+          fromMaybe (mkBLT (1::Rational)) <$>
+            WSum.prodEvalM (\a b -> pure (multBLTE a b)) (evalReal h) pd
 
-    SemiRingSum SemiRingReal s -> WSum.eval (liftM2 addBLTE) smul con s
-      where smul sm e = multBLTE (mkBLT sm) <$> evalReal h e
-            con = return . mkBLT
+    SemiRingSum s ->
+      case WSum.sumRepr s of
+        SemiRingRealRepr ->
+          WSum.eval (liftM2 addBLTE) smul con s
+         where smul sm e = multBLTE (mkBLT sm) <$> evalReal h e
+               con = return . mkBLT
 
     IntegerToReal x ->
       evalInteger h x
@@ -594,7 +620,7 @@ evalInteger' h (BoundVarExpr info) =
       return e
 
 -- Match integer constant
-evalInteger' h (SemiRingLiteral SemiRingInt i _) = do
+evalInteger' h (SemiRingLiteral SemiRingIntegerRepr i _) = do
   when (isVerb h) $ putStrLn ("BLT@evalInteger: integer const " ++ show i)
   return $ mkBLT (toRational i)
 -- Match expression
@@ -604,15 +630,17 @@ evalInteger' h (AppExpr epa) = do
   let l = appExprLoc epa
   case appExprApp epa of
     -- support only linear expressions
-    SemiRingMul SemiRingInt x y -> do
-      x' <- evalInteger h x
-      y' <- evalInteger h y
-      when (isVerb h) $ putStrLn ("integer mult " ++ show x' ++ " " ++ show y')
-      return $ multBLTE x' y'
+    SemiRingProd pd ->
+      case WSum.prodRepr pd of
+        SemiRingIntegerRepr ->
+          fromMaybe (mkBLT (1::Integer)) <$>
+            WSum.prodEvalM (\a b -> pure (multBLTE a b)) (evalInteger h) pd
 
-    SemiRingSum SemiRingInt s -> WSum.eval (liftM2 addBLTE) smul con s
-      where smul sm e = multBLTE (mkBLT sm) <$> evalInteger h e
-            con = return . mkBLT
+    SemiRingSum s ->
+      case WSum.sumRepr s of
+        SemiRingIntegerRepr -> WSum.eval (liftM2 addBLTE) smul con s
+          where smul sm e = multBLTE (mkBLT sm) <$> evalInteger h e
+                con = return . mkBLT
 
     RealToInteger x -> evalReal h x
 
@@ -630,9 +658,9 @@ evalCplx h (AppExpr ea) =
       r' <- evalReal h r
       i' <- evalReal h i
       return (r' :+ i')
-    SemiRingSum sr _ -> case sr of {}
-    SemiRingMul sr _ _ -> case sr of {}
-    SemiRingIte sr _ _ _ -> case sr of {}
+    SemiRingSum s -> case WSum.sumRepr s of {}
+    SemiRingProd pd -> case WSum.prodRepr pd of {}
+    BaseIte{} -> failAt (appExprLoc ea) "complex if/then/else"
     SelectArray{} -> failAt (appExprLoc ea) "symbolic arrays"
     StructField{} -> failAt (appExprLoc ea) "symbolic arrays"
 

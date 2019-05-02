@@ -7,15 +7,18 @@ Maintainer  : Joe Hendrix <jhendrix@galois.com>
 This module provides a minimalistic interface for manipulating Boolean formulas
 and execution contexts in the symbolic simulator.
 -}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 module What4.Expr.Simplify
   ( simplify
   , count_subterms
   ) where
 
+import           Control.Lens ((^.))
 import           Control.Monad.ST
 import           Control.Monad.State
 import           Data.Map.Strict (Map)
@@ -27,7 +30,9 @@ import           Data.Parameterized.TraversableFC
 import           Data.Word
 
 import           What4.Interface
+import qualified What4.SemiRing as SR
 import           What4.Expr.Builder
+import qualified What4.Expr.WeightedSum as WSum
 
 ------------------------------------------------------------------------
 -- simplify
@@ -51,38 +56,50 @@ bvIteDist :: (BoolExpr t -> r -> r -> IO r)
           -> Expr t i
           -> (Expr t i -> IO r)
           -> IO r
-bvIteDist muxFn (asApp -> Just (BVIte _ _ c t f)) atomFn = do
+bvIteDist muxFn (asApp -> Just (BaseIte _ _ c t f)) atomFn = do
   t' <- bvIteDist muxFn t atomFn
   f' <- bvIteDist muxFn f atomFn
   muxFn c t' f'
 bvIteDist _ u atomFn = atomFn u
 
-norm' :: forall t st fs tp . NormCache t st fs -> Expr t tp -> IO (Expr t tp)
+newtype Or x = Or {unOr :: Bool}
+
+instance Functor Or where
+  fmap _f (Or b) = (Or b)
+instance Applicative Or where
+  pure _ = Or False
+  (Or a) <*> (Or b) = Or (a || b)
+
+norm' :: forall t st fs tp . PH.HashableF (Expr t) => NormCache t st fs -> Expr t tp -> IO (Expr t tp)
 norm' nc (AppExpr a0) = do
   let sb = ncBuilder nc
   case appExprApp a0 of
-    BVAdd _ x y | (iteSize x >= 1) || (iteSize y >= 1) -> do
+    SemiRingSum s
+      | let sr = WSum.sumRepr s
+      , SR.SemiRingBVRepr SR.BVArithRepr w <- sr
+      , unOr (WSum.traverseVars @(Expr t) (\x -> Or (iteSize x >= 1)) s)
+      -> do let tms = WSum.eval (++) (\c x -> [(c,x)]) (const []) s
+            let f [] k = bvLit sb w (s^.WSum.sumOffset) >>= k
+                f ((c,x):xs) k =
+                   bvIteDist (bvIte sb) x $ \x' ->
+                   scalarMul sb sr c x' >>= \cx' ->
+                   f xs $ \xs' ->
+                   bvAdd sb cx' xs' >>= k
+            f tms (norm nc)
 
-      bvIteDist (bvIte sb) x $ \u -> do
-      bvIteDist (bvIte sb) y $ \v -> do
-      norm nc =<< bvAdd sb u v
-
-    BVNeg _ x | iteSize x > 0 -> do
-      bvIteDist (bvIte sb) x $ \u -> do
-      norm nc =<< bvNeg sb u
-    BVEq (asApp -> Just (BVIte _ _ x_c x_t x_f)) y -> do
+    BaseEq (BaseBVRepr _w) (asApp -> Just (BaseIte _ _ x_c x_t x_f)) y -> do
       z_t <- bvEq sb x_t y
       z_f <- bvEq sb x_f y
       norm nc =<< itePred sb x_c z_t z_f
-    BVEq x (asApp -> Just (BVIte _ _ y_c y_t y_f)) -> do
+    BaseEq (BaseBVRepr _w) x (asApp -> Just (BaseIte _ _ y_c y_t y_f)) -> do
       z_t <- bvEq sb x y_t
       z_f <- bvEq sb x y_f
       norm nc =<< itePred sb y_c z_t z_f
-    BVSlt (asApp -> Just (BVIte _ _ x_c x_t x_f)) y -> do
+    BVSlt (asApp -> Just (BaseIte _ _ x_c x_t x_f)) y -> do
       z_t <- bvSlt sb x_t y
       z_f <- bvSlt sb x_f y
       norm nc =<< itePred sb x_c z_t z_f
-    BVSlt x (asApp -> Just (BVIte _ _ y_c y_t y_f)) -> do
+    BVSlt x (asApp -> Just (BaseIte _ _ y_c y_t y_f)) -> do
       z_t <- bvSlt sb x y_t
       z_f <- bvSlt sb x y_f
       norm nc =<< itePred sb y_c z_t z_f
@@ -126,8 +143,8 @@ recordExpr n = do
 count_subterms' :: Expr t tp -> Counter ()
 count_subterms' e0 =
   case e0 of
+    BoolExpr{} -> pure () 
     SemiRingLiteral{} -> pure ()
-    BVExpr{}  -> pure ()
     StringExpr{} -> pure ()
     AppExpr ae -> do
       is_new <- recordExpr (appExprId ae)
