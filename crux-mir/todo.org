@@ -2,11 +2,10 @@
 
 ** Failing concrete test cases
 
-
 -- arith
 test/conc_eval/crypto/add.rs:// FAIL: needs arith trait
 
--- waitin on mir-json
+-- waiting on mir-json
 test/conc_eval/stdlib/default.rs:// FAIL: Default trait (temporarily) not included in mir-lib
 
 -- iterators
@@ -15,7 +14,6 @@ test/conc_eval/array/iter.rs:// FAIL: invalid slice access
 -- vec and string
 test/conc_eval/array/wick1.rs:// FAIL: needs Vec data structure from stdlib
 test/conc_eval/array/wick3.rs:// FAIL: needs Vec data structure from stdlib
-test/conc_eval/prim/lit.rs:// FAIL:  Don't know how to call ::str::{{impl}}[35]::len
 
 -- shift
 test/conc_eval/prim/shift_exceeding.rs:// FAIL: Should panic, but doesn't
@@ -41,20 +39,7 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 ** test/crypto/scalar.rs status
 
-   Failure encountered while generating a Crucible CFG: at <::std::macros::panic macros>:4:9: 
-   4:72: callExp: Don't know how to call ::panicking::begin_panic<&string>
-
-Derives from trying to translate this block:
-
-   let mut _35 : &(&string,u32,u32);
-   let mut _36 : &(&string,u32,u32);
-
-   StorageLive(_35);
-   StorageLive(_36);
-   _36 = &Promoted(promoted[0]);
-   _35 = use(_36);
-   call(::panicking::begin_panic<&string>("assertion failed: res[i] == zero[i]"
-                                         ,_35))
+   Works!
 
 ** Standard library current status
    Library code found in mir-lib/src/*
@@ -117,7 +102,7 @@ Derives from trying to translate this block:
     major portions missing due to lack of iterator support
 
 *** other todos
---strings, fmt
+--fmt & Debug
 --vec
 --num
 --more intrinsics:
@@ -130,7 +115,7 @@ Derives from trying to translate this block:
 - have a mode where if crucible translation fails, output "assert false". Then 
   even if we can't translate a function we can still override it.
 
-- combine mir-lib into a single crate so can resolve circular references
+- combine mir-lib into a single crate so can resolve circular references, especially with Try
 
 - make test runner check timestamp of mir-json
 
