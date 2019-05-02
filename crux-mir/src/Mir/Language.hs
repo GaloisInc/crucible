@@ -16,7 +16,7 @@ import           Data.Functor.Const (Const(..))
 import           Control.Monad (forM_, when)
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
-import           Data.Semigroup
+import           Data.Semigroup(Semigroup(..))
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
@@ -156,7 +156,8 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
       link   = forM_ (Map.toList cfgmap) $
                  \(fn, C.AnyCFG cfg) -> bindFn fn cfg
 
-
+  (C.AnyCFG init_cfg)  <- return (initCFG mir)
+   
   (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "::f[0]") cfgmap) of
                         Just c -> return c
                         _      -> fail $ "Could not find cfg: " ++ "f"
@@ -172,16 +173,20 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
 
   let hf = C.cfgHandle f_cfg
   let ha = C.cfgHandle a_cfg
-
+  let hi = C.cfgHandle init_cfg
+  
   Refl <- failIfNotEqual (C.handleArgTypes ha)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
          $ "Checking input to ARG"
   Refl <- failIfNotEqual (C.handleArgTypes hf) (Ctx.empty `Ctx.extend` C.handleReturnType ha)
          $ "Checking agreement between f and ARG"
+  Refl <- failIfNotEqual (C.handleArgTypes hi)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
+         $ "Checking input to initializer"
 
   let
      osim :: Fun sym MIR Ctx.EmptyCtx C.UnitType
      osim   = do
         link
+        _   <- C.callCFG init_cfg C.emptyRegMap
         arg <- C.callCFG a_cfg C.emptyRegMap
         res <- C.callCFG f_cfg (C.RegMap (Ctx.empty `Ctx.extend` arg))
         str <- showRegEntry @sym col res_ty res

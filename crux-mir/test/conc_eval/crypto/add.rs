@@ -1,5 +1,3 @@
-// FAIL: mir-json static (for constant array)
-
 // Remove the Scalar64 ADT
 
 

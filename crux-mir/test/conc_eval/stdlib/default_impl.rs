@@ -1,4 +1,3 @@
-// FAIL: mir-json doesn't include "implements" for () instance
 pub mod def {
     use std::marker::Sized;
 

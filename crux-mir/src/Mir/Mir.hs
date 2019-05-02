@@ -241,7 +241,7 @@ data Lvalue =
       Local { _lvar :: Var}         -- ^ local variable
     | LStatic DefId Ty              -- ^ static or static mut variable
     | LProjection LvalueProjection  -- ^ projection out of a place (access a field, deref a pointer, etc)
-    | LPromoted Int Ty              -- ^ Constant code promoted to an injected static
+    | LPromoted Int Ty              -- ^ constant code promoted to an injected static
     | Tagged Lvalue Text -- for internal use during the translation
     deriving (Show, Eq, Generic)
 

@@ -43,15 +43,10 @@ import Mir.JSON
 import Mir.Intrinsics(MIR)
 import Mir.PP()
 import Mir.Pass as P
-import Mir.Trans(transCollection)
+import Mir.Trans(transCollection, RustModule(..))
 
 
 import Debug.Trace
-
--- Representation of a rust module as a Crucible CFG
-data RustModule = RustModule {
-    rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
-}
 
 
 -- | Run mir-json on the input, generating lib file on disk 
@@ -107,11 +102,11 @@ generateMIR debug dir name  = do
 -- | Translate MIR to Crucible
 -- TODO: convert passes to work on collections, instead of [Fn]
 translateMIR :: Collection -> Int -> RustModule
-translateMIR col debug = RustModule cfgmap where
+translateMIR col debug = rm where
   passes  = P.passNoMutParams . (P.passAllocateEnum col)
-  cfgmap  = mirToCFG col debug (Just passes)
+  rm      = mirToCFG col debug (Just passes)
 
-mirToCFG :: Collection -> Int -> Maybe ([Fn] -> [Fn]) -> M.Map T.Text (C.AnyCFG MIR)
+mirToCFG :: Collection -> Int -> Maybe ([Fn] -> [Fn]) -> RustModule
 mirToCFG col debug Nothing = mirToCFG col debug (Just id)
 mirToCFG col debug (Just pass) =
     runST $ C.withHandleAllocator $ (transCollection ((P.toCollectionPass pass) col) debug)

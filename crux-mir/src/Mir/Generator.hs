@@ -68,6 +68,7 @@ import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
 import qualified Data.Map.Strict as Map
+import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.Functor.Identity
 
@@ -81,11 +82,17 @@ import           Data.Parameterized.Classes
 import           Data.Parameterized.Context
 import           Data.Parameterized.TraversableFC
 import           Data.Parameterized.Peano
+import           Data.Parameterized.BoolRepr
 
-import           Lang.Crucible.FunctionHandle
-import           Lang.Crucible.Types
+import qualified Lang.Crucible.FunctionHandle as FH
+import qualified Lang.Crucible.Types as C
+import qualified Lang.Crucible.CFG.Generator as G
+import qualified Lang.Crucible.CFG.Reg as R
+import qualified Lang.Crucible.CFG.Expr as E
+import qualified Lang.Crucible.CFG.Core as Core
+import qualified Lang.Crucible.Syntax as S
 
-import           Lang.Crucible.CFG.Generator hiding (dropRef)
+
 
 import           Mir.DefId
 import           Mir.Mir
@@ -104,7 +111,7 @@ import           GHC.Stack
 -- | The main data type for values, bundling the term-level
 -- type ty along with a crucible expression of type ty
 data MirExp s where
-    MirExp :: TypeRepr ty -> Expr MIR s ty -> MirExp s
+    MirExp :: C.TypeRepr ty -> R.Expr MIR s ty -> MirExp s
 instance Show (MirExp s) where
     show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
 
@@ -114,23 +121,38 @@ instance Show (MirExp s) where
 
 -- h for state monad
 -- s phantom parameter for CFGs
-type MirGenerator h s ret = Generator MIR h s FnState ret
+type MirGenerator h s ret = G.Generator MIR h s FnState ret
 
 --------------------------------------------------------------------------------
 -- ** Generator state for MIR translation to Crucible
 --
 -- | Generator state for MIR translation
 data FnState (s :: Type)
-  = FnState { _varMap    :: !(VarMap s),
-              _preds     :: [Predicate],   -- TODO: get this from currentFn
-              _labelMap  :: !(LabelMap s),              
-              _handleMap :: !HandleMap,
-              _traitMap  :: !(TraitMap s),
-              _staticTraitMap :: !StaticTraitMap,
+  = FnState { _varMap     :: !(VarMap s),
+              _labelMap   :: !(LabelMap s),                            
               _debugLevel :: !Int,
-              _collection :: !Collection,
-              _currentFn  :: Fn
+              _currentFn  :: !Fn,
+              _cs         :: !CollectionState
             }
+
+data StaticVar where
+  StaticVar :: C.Closed ty => G.GlobalVar ty -> StaticVar
+
+-- | State about the entire collection used for the translation
+data CollectionState 
+  = CollectionState {
+      _handleMap      :: !HandleMap,
+      _staticTraitMap :: !StaticTraitMap,
+      _staticMap      :: !(Map DefId StaticVar),
+      _collection     :: !Collection
+      }
+
+instance Semigroup CollectionState  where
+  (CollectionState hm1 stm1 sm1 col1) <> (CollectionState hm2 stm2 sm2 col2) =
+      (CollectionState (hm1 <> hm2) (stm1 <> stm2) (sm1 <> sm2) (col1 <> col2))
+instance Monoid CollectionState where
+  mappend = ((<>))
+  mempty  = CollectionState mempty mempty mempty mempty
 
 ---------------------------------------------------------------------------
 -- *** VarMap
@@ -140,23 +162,23 @@ data FnState (s :: Type)
 --   corresponds to a function argument)
 type VarMap s = Map Text.Text (Some (VarInfo s))
 data VarInfo s tp where
-  VarRegister  :: Reg s tp -> VarInfo s tp
-  VarReference :: Reg s (MirReferenceType tp) -> VarInfo s tp
-  VarAtom      :: Atom s tp -> VarInfo s tp
+  VarRegister  :: R.Reg s tp -> VarInfo s tp
+  VarReference :: R.Reg s (MirReferenceType tp) -> VarInfo s tp
+  VarAtom      :: R.Atom s tp -> VarInfo s tp
 
-varInfoRepr :: VarInfo s tp -> TypeRepr tp
-varInfoRepr (VarRegister reg0)  = typeOfReg reg0
+varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
+varInfoRepr (VarRegister reg0)  = R.typeOfReg reg0
 varInfoRepr (VarReference reg0) =
-  case typeOfReg reg0 of
+  case R.typeOfReg reg0 of
     MirReferenceRepr tp -> tp
     _ -> error "impossible: varInfoRepr"
-varInfoRepr (VarAtom a) = typeOfAtom a
+varInfoRepr (VarAtom a) = R.typeOfAtom a
 
 ---------------------------------------------------------------------------
 -- *** LabelMap
 
 -- | The LabelMap maps identifiers to labels of their corresponding basicblock
-type LabelMap s = Map BasicBlockInfo (Label s)
+type LabelMap s = Map BasicBlockInfo (R.Label s)
 
 ---------------------------------------------------------------------------
 -- *** HandleMap
@@ -165,7 +187,7 @@ data MirHandle = forall init ret.
     MirHandle { _mhName       :: MethName
               , _mhSig        :: FnSig
               -- The type of the function handle includes "free variables"
-              , _mhHandle     :: FnHandle init ret
+              , _mhHandle     :: FH.FnHandle init ret
               }
 
 
@@ -187,20 +209,21 @@ type HandleMap = Map MethName MirHandle
 ---------------------------------------------------------------------------
 -- *** TraitMap and StaticTraitMap
 
--- | A TraitMap maps trait names to their vtables and instances
-data TraitMap (s::Type) = TraitMap (Map TraitName (Some (TraitImpls s)))
 
 -- | A StaticTraitMap maps trait method names to all traits that contain them
 -- (There could be multiple, and will need to use type info to resolve further)
 type StaticTraitMap = Map MethName [TraitName]
 
 
+-- | A TraitMap maps trait names to their vtables and instances
+data TraitMap (s::Type) = TraitMap (Map TraitName (Some (TraitImpls s)))
+
 -- | The implementation of a Trait.
 -- The 'ctx' parameter lists the required members of the trait
 -- NOTE: the vtables are an instance of the more general type
 -- listed in the vtableTyRepr
 data TraitImpls (s::Type) ctx = TraitImpls
-  {_vtableTyRepr :: CtxRepr ctx
+  {_vtableTyRepr :: Core.CtxRepr ctx
    -- ^ Describes the types of Crucible structs that store the VTable
    -- of implementations
    -- TyParam 0 is the "Self" type that will be replaced in all
@@ -225,9 +248,9 @@ data TraitImpls (s::Type) ctx = TraitImpls
 -- | The values stored in the vtables --- Crucible expressions 
 -- This type must be a *specialization* of the expected type of the vtable
 data MirValue s ty where
-  MirValue :: CtxRepr implSubst
-           -> TypeRepr   (ImplementTrait implSubst ty)
-           -> Expr MIR s (ImplementTrait implSubst ty)
+  MirValue :: C.CtxRepr implSubst
+           -> C.TypeRepr   (ImplementTrait implSubst ty)
+           -> R.Expr MIR s (ImplementTrait implSubst ty)
            -> FnSig
            -> MirValue s ty
 
@@ -236,41 +259,41 @@ data MirValue s ty where
 
 -- | Type-level instantiation function
 -- All values stored in the vtables must be polymorphic functions
-type family ImplementTrait (timpls :: Ctx CrucibleType ) (arg :: CrucibleType) :: CrucibleType where  
-  ImplementTrait timpls (PolyFnType k args ret) = 
+type family ImplementTrait (timpls :: Ctx C.CrucibleType ) (arg :: C.CrucibleType) :: C.CrucibleType where  
+  ImplementTrait timpls (C.PolyFnType k args ret) = 
     MkTraitType (Minus k (CtxSizeP timpls))
-                (Instantiate (MkSubst timpls) args)
-                (Instantiate (MkSubst timpls) ret)
+                (C.Instantiate (C.MkSubst timpls) args)
+                (C.Instantiate (C.MkSubst timpls) ret)
 
-type family MkTraitType (k :: Peano) (args :: Ctx CrucibleType) (ret :: CrucibleType) where
-  MkTraitType Z args ret = FunctionHandleType args ret
-  MkTraitType k args ret = PolyFnType k args ret
+type family MkTraitType (k :: Peano) (args :: Ctx C.CrucibleType) (ret :: C.CrucibleType) where
+  MkTraitType Z args ret = C.FunctionHandleType args ret
+  MkTraitType k args ret = C.PolyFnType k args ret
          
 -- | Map the instantiation function across a context
-type family ImplementCtxTrait (implSubst :: Ctx CrucibleType) (arg :: Ctx k) :: Ctx k where
+type family ImplementCtxTrait (implSubst :: Ctx C.CrucibleType) (arg :: Ctx k) :: Ctx k where
   ImplementCtxTrait implSubst EmptyCtx = EmptyCtx
   ImplementCtxTrait implSubst (ctx ::> ty) = ImplementCtxTrait implSubst ctx ::> ImplementTrait implSubst ty
 
 -- | "Repr" versions of the above
-implementRepr :: CtxRepr implSubst -> TypeRepr ty -> TypeRepr (ImplementTrait implSubst ty)
-implementRepr implSubst (PolyFnRepr k args ret) =
+implementRepr :: C.CtxRepr implSubst -> C.TypeRepr ty -> C.TypeRepr (ImplementTrait implSubst ty)
+implementRepr implSubst (C.PolyFnRepr k args ret) =
   case peanoView (minusP k (ctxSizeP implSubst)) of
-    ZRepr -> FunctionHandleRepr (instantiate (mkSubst implSubst) args) (instantiate (mkSubst implSubst) ret)
-    SRepr n -> PolyFnRepr (minusP k (ctxSizeP implSubst))
-                      (instantiate (mkSubst implSubst) args) (instantiate (mkSubst implSubst) ret)
+    ZRepr -> C.FunctionHandleRepr (C.instantiate (C.mkSubst implSubst) args) (C.instantiate (C.mkSubst implSubst) ret)
+    SRepr n -> C.PolyFnRepr (minusP k (ctxSizeP implSubst))
+                      (C.instantiate (C.mkSubst implSubst) args) (C.instantiate (C.mkSubst implSubst) ret)
 implementRepr implSubst ty = error "ImplementRepr: should only be called with polymorphic function types"
 
-implementCtxRepr :: CtxRepr implSubst -> CtxRepr ctx -> CtxRepr (ImplementCtxTrait implSubst ctx)
+implementCtxRepr :: C.CtxRepr implSubst -> C.CtxRepr ctx -> C.CtxRepr (ImplementCtxTrait implSubst ctx)
 implementCtxRepr _implSubst Empty = Empty
 implementCtxRepr implSubst (ctx :> ty) = implementCtxRepr implSubst ctx :> implementRepr implSubst ty
 
-implementIdx :: CtxRepr implSubst -> Index ctx a -> Index (ImplementCtxTrait implSubst ctx) (ImplementTrait implSubst a)
+implementIdx :: C.CtxRepr implSubst -> Index ctx a -> Index (ImplementCtxTrait implSubst ctx) (ImplementTrait implSubst a)
 implementIdx _implSubst idx = unsafeCoerce idx
 
 
 -- | Extract the Crucible expression from the vtable. Must provide the correct instantiation
 -- for this particular value, or fails at runtime
-valueToExpr :: HasCallStack => CtxRepr implSubst -> MirValue s ty -> Expr MIR s (ImplementTrait implSubst ty)
+valueToExpr :: HasCallStack => C.CtxRepr implSubst -> MirValue s ty -> G.Expr MIR s (ImplementTrait implSubst ty)
 valueToExpr wantedImpl (MirValue implRepr _ e _)
   | Just Refl <- testEquality wantedImpl implRepr
   = e
@@ -279,9 +302,9 @@ valueToExpr wantedImpl (MirValue implRepr _ e _)
 
 -- | Create a Crucible struct from the vtable --- this is a dictionary for the trait
 vtblToStruct ::
-     CtxRepr implSubst
+     C.CtxRepr implSubst
   -> Assignment (MirValue s) ctx
-  -> Assignment (Expr MIR s) (ImplementCtxTrait implSubst ctx)
+  -> Assignment (G.Expr MIR s) (ImplementCtxTrait implSubst ctx)
 vtblToStruct _implSubst Empty = Empty
 vtblToStruct implSubst (ctx :> val) = vtblToStruct implSubst ctx :> valueToExpr implSubst val
 
@@ -300,7 +323,7 @@ mkGenericTraitMap ((tn,Some (GenericTraitImpls impls)):rest) =
     GenericTraitMap m ->
       GenericTraitMap (Map.insert tn (Some impls) m)
 
-mkGenericTraitImpls :: CtxRepr ctx
+mkGenericTraitImpls :: C.CtxRepr ctx
            -> Map MethName (Some (Index ctx))
            -> Map [Ty] (Assignment GenericMirValue ctx)
            -> GenericTraitImpls ctx
@@ -329,7 +352,7 @@ addVTable tname ty preds implSubst meths (TraitMap tm) =
   case Map.lookup tname tm of
     Nothing -> error "Trait not found"
     Just (Some (timpl@(TraitImpls ctxr _mi vtab))) ->
-      let go :: Index ctx ty -> TypeRepr ty -> Identity (MirValue s ty)
+      let go :: Index ctx ty -> C.TypeRepr ty -> Identity (MirValue s ty)
           go idx tyr2 = do
             let i = indexVal idx
             let (_implName, smv) = if i < length meths then meths !! i else error "impl_vtable: BUG"
@@ -349,7 +372,7 @@ addVTable tname ty preds implSubst meths (TraitMap tm) =
 
 
 -- | Smart constructor
-traitImpls :: CtxRepr ctx
+traitImpls :: C.CtxRepr ctx
            -> Map.Map MethName (Some (Index ctx))
            -> Map.Map [Ty] (Assignment (MirValue s) ctx)
            -> TraitImpls s ctx
@@ -367,6 +390,7 @@ traitImpls str midx vtbls =
 makeLenses ''TraitImpls
 makeLenses ''FnState
 makeLenses ''MirHandle
+makeLenses ''CollectionState
 
 $(return [])
 
@@ -400,7 +424,7 @@ firstJust f = Maybe.listToMaybe . Maybe.mapMaybe f
 --
 resolveStaticTrait :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe (MirHandle, Substs))
 resolveStaticTrait mn sub = do
-  stm <- use staticTraitMap
+  stm <- use (cs . staticTraitMap)
   case (stm Map.!? mn) of
     Just tns -> firstJustM (resolveStaticMethod mn sub) (getTraitName mn : tns)
     Nothing -> resolveStaticMethod mn sub (getTraitName mn)
@@ -408,7 +432,7 @@ resolveStaticTrait mn sub = do
 resolveStaticMethod :: HasCallStack => MethName -> Substs -> TraitName -> MirGenerator h s ret (Maybe (MirHandle, Substs))
 resolveStaticMethod methName substs traitName = do
    db <- use debugLevel
-   col <- use collection
+   col <- use (cs . collection)
    case (col^.traits) Map.!? traitName of
      Nothing -> return $ Nothing -- BUG: Cannot find trait in collection
      Just trait -> do
@@ -417,7 +441,7 @@ resolveStaticMethod methName substs traitName = do
        case mimpl of
           Nothing -> return $ Nothing  -- OK: there is no impl for this method name & traitsub in this trait
           Just (traitImpl, unifier, traitImplItem) -> do
-            hmap <- use handleMap
+            hmap <- use (cs.handleMap)
             case hmap Map.!? (traitImplItem^.tiiName) of
               Nothing -> return Nothing -- BUG: impls should all be in the handle map
               Just mh -> do                
@@ -437,7 +461,7 @@ resolveStaticMethod methName substs traitName = do
 findItem :: HasCallStack => MethName -> Substs -> Trait -> MirGenerator h s ret (Maybe (TraitImpl, Map Integer Ty, TraitImplItem))
 findItem methName traitSub trait = do
   db <- use debugLevel
-  col <- use collection
+  col <- use (cs.collection)
   let isImpl :: TraitImpl -> Maybe (TraitImpl, Map Integer Ty)
       isImpl ti
        | (TraitRef tn ss) <- ti^.tiTraitRef
@@ -476,8 +500,8 @@ findItem methName traitSub trait = do
 
 resolveDictionaryProjection :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe (Var, Rvalue, FnSig, Substs))
 resolveDictionaryProjection nm subst = do
-  stm <- use staticTraitMap
-  col  <- use collection
+  stm <- use (cs.staticTraitMap)
+  col  <- use (cs.collection)
   db <- use debugLevel
   vm <- use varMap
   case stm Map.!? nm of
@@ -540,9 +564,9 @@ mkPredVar ty = error $ "BUG in mkPredVar: must provide Adt type"
 -- | Determine whether a function call can be resolved via explicit name bound in the handleMap
 --
 
-resolveImpl :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe MirHandle)
-resolveImpl nm tys = do
-  hmap <- use handleMap
+resolveFn :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe MirHandle)
+resolveFn nm tys = do
+  hmap <- use (cs.handleMap)
   case Map.lookup nm hmap of
     Just h@(MirHandle _nm fs fh) -> do
       -- make sure the number of type arguments is consistent with the impl
@@ -553,6 +577,10 @@ resolveImpl nm tys = do
         return Nothing
     Nothing -> return Nothing
 
+---------------------------------------------------------------------------------------------------
 
 
---  LocalWords:  ty ImplementTrait ctx vtable
+
+
+--  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct
+--  LocalWords:  vtblToStruct

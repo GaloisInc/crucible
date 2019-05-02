@@ -30,6 +30,8 @@ module Mir.Trans where
 import Control.Monad
 import Control.Monad.ST
 import Control.Lens hiding (op,(|>))
+import Data.Foldable
+
 import qualified Data.Char as Char
 import qualified Data.List as List
 import Data.Map.Strict (Map)
@@ -454,7 +456,13 @@ evalOperand (M.OpConstant (M.Constant conty conlit)) =
     case conlit of
        M.Value constval   -> transConstVal (tyToRepr conty) constval
        M.Item defId _args -> fail $ "cannot translate item " ++ show defId
-       M.LitPromoted prom -> fail $ "cannot translate promoted " ++ show prom
+       M.LitPromoted (M.Promoted idx) ->  do
+          fn <- use currentFn
+          let st = fn^.fpromoted
+          case st V.!? idx of
+            Just did -> lookupStatic did
+            Nothing  -> fail $ "Promoted index " ++ show idx ++ " out of range "
+
 
 
 -- Given two bitvectors, extend the length of the shorter one so that they
@@ -812,9 +820,9 @@ evalCast' ck ty1 e ty2  =
       (M.Unsize, M.TyRef (M.TyArray _ _) M.Immut, M.TyRef (M.TySlice _) M.Mut) ->
          fail "Cannot cast an immutable array to a mutable slice"
 
-      -- Trait object creation.
+      -- Trait object creation. Need this cast for closures
       (M.Unsize, M.TyRef baseType _, M.TyRef (M.TyDynamic traitName) _) ->
-        mkTraitObject traitName baseType e
+          mkTraitObject traitName baseType e
 
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt USize) -> return e
@@ -847,6 +855,7 @@ evalCast ck op ty = do
 
 -- Some dynamic traits have special implementation as objects
 
+
 mkCustomTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
 mkCustomTraitObject traitName (TyClosure fname args) e@(MirExp baseTyr baseValue)
    | M.did_name traitName == ("Fn", 0) = do
@@ -872,6 +881,8 @@ mkCustomTraitObject traitName baseType _ =
 -- This pair is then packed to type AnyType.
 mkTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
 mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
+    mkCustomTraitObject traitName baseType e
+    {-
     -- look up the information about the trait
     (Some timpls) <- traitImplsLookup traitName
 
@@ -889,16 +900,16 @@ mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
         let cbv       = R.App $ E.PackAny implRepr baseValue
         let obj       = R.App $ E.PackAny (C.StructRepr ctxr)
                            (S.mkStruct ctxr (Ctx.empty Ctx.:> cbv Ctx.:> assn))
-        return $ MirExp C.AnyRepr obj
+        return $ MirExp C.AnyRepr obj -}
 
-      
+{-      
 traitImplsLookup :: HasCallStack => M.DefId -> MirGenerator h s ret (Some (TraitImpls s))
-traitImplsLookup traitName = do
+traitImplsLookup traitName = 
   (TraitMap mp) <- use traitMap
   case Map.lookup traitName mp of
     Nothing -> fail $ Text.unpack $ Text.unwords ["Trait does not exist ", M.idText traitName]
     Just timpls -> return timpls
-    
+-}
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
@@ -931,14 +942,14 @@ evalRefLvalue lv =
 
 getVariant :: HasCallStack => M.Ty -> MirGenerator h s ret (M.Variant, Substs)
 getVariant (M.TyAdt nm args) = do
-    am <- use collection
+    am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
        Nothing -> fail ("Unknown ADT: " ++ show nm)
        Just (M.Adt _ [struct_variant]) -> return (struct_variant, args)
        _      -> fail ("Expected ADT with exactly one variant: " ++ show nm)
 getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
     let i = fromInteger ii
-    am <- use collection
+    am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
        Nothing -> fail ("Unknown ADT: " ++ show nm)
        Just (M.Adt _ vars) | i < length vars -> return $ (vars !! i, args)
@@ -1070,7 +1081,7 @@ buildClosureHandle :: M.DefId      -- ^ name of the function
                     -> MirGenerator h s ret (MirExp s)
 buildClosureHandle funid (Substs tys) args
   = tyListToCtx tys $ \ subst -> do
-      hmap <- use handleMap
+      hmap <- use $ cs.handleMap
       case (Map.lookup funid hmap) of
         Just (MirHandle _ _sig fhandle)
           | Just C.Dict <- C.checkClosedCtx (FH.handleArgTypes fhandle)
@@ -1088,7 +1099,7 @@ buildClosureHandle funid (Substs tys) args
 
 buildClosureType :: M.DefId -> Substs -> MirGenerator h s ret (Some C.TypeRepr, Some C.TypeRepr) -- get type of closure, in order to unpack the any
 buildClosureType defid (Substs args') = do
-    hmap <- use handleMap
+    hmap <- use $ cs.handleMap
     case (Map.lookup defid hmap) of
       Just (MirHandle _ _sig fhandle) -> do
           let args = tail (tail args')
@@ -1227,10 +1238,36 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast _i))) = do
 -- NO: just lookup the function value. But we are currently mis-translating the type so we can't do this yet.
 --evalLvalue (M.Promoted _ (M.TyFnDef did ss)) = do
 --    transConstVal (Some (C.AnyRepr)) (M.ConstFunction did ss)
+--evalLvalue (M.LStatic did t) = do
+
+evalLvalue (M.LStatic did _t) = lookupStatic did
+evalLvalue (M.LPromoted idx _t) = do
+   fn <- use currentFn
+   let st = fn^.fpromoted
+   case st V.!? idx of
+     Just did -> lookupStatic did
+     Nothing  -> fail $ "Promoted index " ++ show idx ++ " out of range "
 evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
 
 
+-- | access a static value
+lookupStatic :: M.DefId -> MirGenerator h s ret (MirExp s)
+lookupStatic did = do
+   sm <- use (cs.staticMap)
+   case Map.lookup did sm of
+     Just (StaticVar gv) -> do v <- G.readGlobal gv
+                               return (MirExp (G.globalType gv) v)
+     Nothing -> fail $ "BUG: cannot find static variable: " ++ fmt did
 
+assignStaticExp :: M.DefId -> MirExp s -> MirGenerator h s ret ()
+assignStaticExp did (MirExp rhsTy rhs) = do
+   sm <- use (cs.staticMap)
+   case Map.lookup did sm of
+     Just (StaticVar gv) ->
+       case testEquality rhsTy (G.globalType gv) of
+          Just Refl -> G.writeGlobal gv rhs
+          Nothing -> fail $ "BUG: invalid type for assignment to stat mut " ++ fmt did
+     Nothing -> fail $ "BUG: cannot find static variable: " ++ fmt did
 
 --------------------------------------------------------------------------------------
 -- ** Statements
@@ -1292,10 +1329,11 @@ assignLvExp lv re = do
     case lv of
         M.Tagged lv _ -> assignLvExp  lv re
         M.Local var   -> assignVarExp var re
-        M.LStatic _ _ -> fail "TODO: static Lvalue"
+        M.LStatic did _ -> assignStaticExp did re
+                 
         M.LProjection (M.LvalueProjection lv (M.PField field _ty)) -> do
 
-            am <- use collection
+            am <- use $ cs.collection
             case M.typeOf lv of
               M.TyAdt nm args ->
                 case Map.lookup nm (am^.adts) of
@@ -1550,13 +1588,10 @@ lookupFunction nm (Substs funsubst)
   when (db > 3) $
     traceM $ "**lookupFunction: trying to resolve " ++ fmt nm ++ fmt (Substs funsubst)
 
-  _hmap <- use handleMap
-  _vm   <- use varMap
-
   -- these  are defined at the bottom of Mir.Generator
   isStatic  <- resolveStaticTrait nm (Substs funsubst)
   isDictPrj <- resolveDictionaryProjection nm (Substs funsubst)
-  isImpl    <- resolveImpl nm (Substs funsubst)
+  isImpl    <- resolveFn nm (Substs funsubst)
 
   -- Given a (polymorphic) function handle, turn it into an expression by
   -- instantiating the type arguments
@@ -1814,7 +1849,7 @@ mkDict :: (Var, Predicate) -> MirGenerator h s ret (MirExp s)
 mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
   db <- use debugLevel
   vm <- use varMap
-  col  <- use collection
+  col  <- use $ cs.collection
   case Map.lookup (var^.varname) vm of
     Just _ -> lookupVar var
     Nothing -> do
@@ -1925,7 +1960,7 @@ callExp funid funsubst cargs destTy = do
 doCall :: forall h s ret a. (HasCallStack) => M.DefId -> Substs -> [M.Operand] 
    -> Maybe (M.Lvalue, M.BasicBlockInfo) -> C.TypeRepr ret -> MirGenerator h s ret a
 doCall funid funsubst cargs cdest retRepr = do
-    _am    <- use collection
+    _am    <- use $ cs.collection
     db    <- use debugLevel
 
     case cdest of 
@@ -1947,7 +1982,7 @@ doCall funid funsubst cargs cdest retRepr = do
             -- TODO: is this the correct behavior?
             G.reportError (S.app $ E.TextLit "Program terminated.")
 
-
+{-
 -- Method/trait calls
       -- 1. translate `traitObject` -- should be a Ref to a tuple
       -- 2. the first element should be Ref Any. This is the base value. Unpack the Any behind the Ref and stick it back into a Ref.
@@ -2011,7 +2046,7 @@ methodCall traitName methodName (Substs funsubst) traitObject args (Just (dest_l
                         
         Nothing -> fail $ unwords $ ["Type error when calling ", show methodName, " type is ", show tp]
 methodCall _ _ _ _ _ _ = fail "No destination for method call"
-
+-}
 
 transTerminator :: HasCallStack => M.Terminator -> C.TypeRepr ret -> MirGenerator h s ret a
 transTerminator (M.Goto bbi) _ =
@@ -2035,8 +2070,8 @@ transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction fu
         when (db > 2) $
            traceM $ show (PP.sep [PP.text "At TRAIT function call of ", pretty funid, PP.text " with arguments ", pretty cargs, 
                    PP.text "with type parameters: ", pretty funsubsts])
-
-        methodCall traitName funid funsubsts tobj cargs cretdest
+        fail $ "trait method calls unsupported "
+        -- methodCall traitName funid funsubsts tobj cargs cretdest
 
       _ -> do -- this is a normal function call
         doCall funid funsubsts cargs cretdest tr -- cleanup ignored
@@ -2123,7 +2158,7 @@ initialValue (M.TyClosure defid (Substs (_i8:hty:closed_tys))) = do
 -- converted these adt initializations to aggregates already so this
 -- won't matter.
 initialValue (M.TyAdt nm args) = do
-    am <- use collection
+    am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
        Nothing -> return $ Nothing
        Just (M.Adt _ []) -> fail ("don't know how to initialize void adt " ++ show nm)
@@ -2210,23 +2245,36 @@ buildLabel :: forall h s ret. M.BasicBlock -> MirGenerator h s ret (M.BasicBlock
 buildLabel (M.BasicBlock bi _) = do
     lab <- G.newLabel
     return (bi, lab)
--- | Build the initial state for translation
-initFnState :: FnState s
-            -> [(Text.Text, M.Ty)]                 -- ^ names and MIR types of args
-            -> C.CtxRepr args                      -- ^ crucible types of args
-            -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args
-            -> [Predicate]                         -- ^ predicates on type args
+
+-- | Build the initial state for translation of functions
+initFnState :: CollectionState
+            -> Int                                 -- ^ debug level
             -> Fn
+            -> FH.FnHandle args ret 
+            -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args 
             -> FnState s
-initFnState fnState vars argsrepr args preds fn =
-  fnState { _varMap = (go (reverse vars) argsrepr args Map.empty), _preds = preds, _currentFn = fn }
-    where go :: [(Text.Text, M.Ty)] -> C.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
-          go [] ctx _ m
+initFnState colState db fn handle inputs =
+  FnState { _varMap     = mkVarMap (reverse argtups) argtypes inputs Map.empty,
+            _currentFn  = fn,
+            _debugLevel = db,
+            _cs         = colState,
+            _labelMap   = Map.empty
+         }
+    where
+      sig = fn^.fsig
+      args = fn^.fargs
+
+      argPredVars = Maybe.mapMaybe dictVar (sig^.fspredicates)
+      argtups  = map (\(M.Var n _ t _ _) -> (n,t)) (args ++ argPredVars)
+      argtypes = FH.handleArgTypes handle
+
+      mkVarMap :: [(Text.Text, M.Ty)] -> C.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
+      mkVarMap [] ctx _ m
             | Ctx.null ctx = m
             | otherwise = error "wrong number of args"
-          go ((name,ti):ts) ctx asgn m =
+      mkVarMap ((name,ti):ts) ctx asgn m =
             unfold_ctx_assgn ti ctx asgn $ \(Some atom) ctx' asgn' ->
-                 go ts ctx' asgn' (Map.insert name (Some (VarAtom atom)) m)
+                 mkVarMap ts ctx' asgn' (Map.insert name (Some (VarAtom atom)) m)
 
 
 -- do the statements and then the terminator
@@ -2281,7 +2329,7 @@ dictTy UnknownPredicate            = Nothing
 -- The first block in the list is the entrance block
 genFn :: HasCallStack => M.Fn -> C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
 genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype = do
-  TraitMap _tm <- use traitMap
+
   let gens  = sig^.fsgenerics
   let preds = sig^.fspredicates
   let atys  = sig^.fsassoc_tys
@@ -2316,22 +2364,19 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
        G.jump lbl
     _ -> fail "bad thing happened"
 
-transDefine :: forall h. HasCallStack =>
-  Map M.DefId Adt ->
-  (forall s. FnState s) ->
-  M.Fn ->
-  ST h (Text, Core.AnyCFG MIR)
-transDefine adts fnState fn@(M.Fn fname fargs fsig _ _) =
-  case (Map.lookup fname (fnState^.handleMap)) of
+transDefine :: forall h. HasCallStack
+  => CollectionState 
+  -> Int
+  -> M.Fn 
+  -> ST h (Text, Core.AnyCFG MIR)
+transDefine colState db fn@(M.Fn fname fargs fsig _ _) =
+  case (Map.lookup fname (colState^.handleMap)) of
     Nothing -> fail "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
-      let argPredVars = Maybe.mapMaybe dictVar (fsig^.fspredicates)
-      let argtups  = map (\(M.Var n _ t _ _) -> (n,t)) (fargs ++ argPredVars)
-      let argtypes = FH.handleArgTypes handle
       let rettype  = FH.handleReturnType handle
-      let def :: G.FunctionDef MIR handle FnState args ret
+      let def :: G.FunctionDef MIR s2 FnState args ret
           def inputs = (s,f) where
-            s = initFnState fnState argtups argtypes inputs (fsig^.fspredicates) fn
+            s = initFnState colState db fn handle inputs 
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
       case SSA.toSSA g of
@@ -2531,13 +2576,22 @@ infixl 0 |>
 (|>) :: a -> (a -> b) -> b
 x |> f = f x
 --------------------------------------------------------------------------------------
+-- *** Result of translating a collection
+--
+-- 
+data RustModule = RustModule {
+         rmCS    :: CollectionState
+       , rmCFGs  :: Map Text (Core.AnyCFG MIR)
+       , initCFG :: Core.AnyCFG MIR
+     }
+---------------------------------------------------------------------------
 
--- | transCollection: translate a MIR module
-transCollection :: HasCallStack
+-- | transCollection: translate a MIR collection
+transCollection :: forall s. HasCallStack
       => M.Collection
       -> Int  
       -> FH.HandleAllocator s
-      -> ST s (Map Text (Core.AnyCFG MIR))
+      -> ST s RustModule
 transCollection col0 debug halloc = do
 
     -- The first part are some transformations on the collection itself.
@@ -2572,20 +2626,59 @@ transCollection col0 debug halloc = do
 
     hmap <- mkHandleMap col halloc 
 
-    (gtm@(GenericTraitMap gm), stm, morePairs) <- buildTraitMap debug col halloc hmap
+    (_, stm, morePairs) <- buildTraitMap debug col halloc hmap
 
-    when (debug > 2) $ do
-      traceM $ "Trait map"
-      traceM $ show (Map.keys gm)
+    -- translate the statics and create the initialization code
+    -- allocate references for statics
+    let allocateStatic :: Static -> Map M.DefId StaticVar -> ST s (Map M.DefId StaticVar)
+        allocateStatic static staticMap = 
+          tyToReprCont (static^.sTy) $ \staticRepr -> do
+            let gname =  (M.idText (static^.sName) <> "_global")
+            g <- G.freshGlobalVar halloc gname staticRepr
+            case C.checkClosed staticRepr of
+               Just C.Dict -> return $ Map.insert (static^.sName) (StaticVar g) staticMap
+               Nothing -> error $ "BUG: Invalid type for static var: " ++ show staticRepr
 
-    let fnState :: (forall s. FnState s)
-        fnState = case gtm of
-                     GenericTraitMap tm -> FnState Map.empty [] Map.empty hmap (TraitMap tm) stm debug col (error "No current fn")
+    sm <- foldrM allocateStatic Map.empty (col^.statics)
+
+    let colState :: CollectionState
+        colState = CollectionState hmap stm sm col 
+
+    let initializeStatic :: forall h s r . Static -> G.Generator MIR h s (Const ()) r ()
+        initializeStatic static = do
+          case Map.lookup (static^.sName) sm of
+            Just (StaticVar g) -> do
+              let repr = G.globalType g
+              case Map.lookup (static^.sName) hmap of
+                 Just (MirHandle _ _ (handle :: FH.FnHandle init ret))
+                  | Just Refl <- testEquality repr        (FH.handleReturnType handle)
+                  , Just Refl <- testEquality (Ctx.empty) (FH.handleArgTypes handle)
+                  -> do  val <- G.call (G.App $ E.HandleLit handle) Ctx.empty
+                         G.writeGlobal g val
+                 Just (MirHandle _ _ handle) ->
+                    fail $ "BUG: invalid type for initializer " ++ fmt (static^.sName)
+                 Nothing -> fail $ "BUG: cannot find handle for static " ++ fmt (static^.sName)
+            Nothing -> fail $ "BUG: cannot find global for " ++ fmt (static^.sName)
+
+    -- TODO: make the name of the static initialization function configurable
+    let initName = FN.functionNameFromText "static_initializer"
+    initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
+    let def :: G.FunctionDef MIR w (Const ()) Ctx.EmptyCtx C.UnitType
+        def inputs = (s, f) where
+            s = Const ()
+            f = do mapM_ initializeStatic (colState^.collection.statics)
+                   return (R.App $ E.EmptyApp)
+    init_cfg <- do (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos initHandle def
+                   case SSA.toSSA g of
+                      Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
 
     -- translate all of the functions
-    pairs <- mapM (transDefine (col^.M.adts) fnState) (Map.elems (col^.M.functions))
-    return $ Map.fromList (pairs ++ morePairs)
-
+    pairs <- mapM (transDefine colState debug) (Map.elems (col^.M.functions))
+    return $ RustModule
+                { rmCS    = colState
+                , rmCFGs  = Map.fromList (pairs ++ morePairs)
+                , initCFG = init_cfg
+                } 
 ----------------------------------------------------------------------------------------------------------
 -- * Traits
 
@@ -3774,7 +3867,7 @@ fn_call_op (Substs [_ty1, aty]) [argTy1,_] retTy [fn,argtuple] = do
            -- If we are wrong, we'll get a segmentation fault(!!!)
            -- (This means we have some unsafe instantiation code around, e.g. for Nonces,
            -- so we should get rid of that too!)
-           ps <- use preds
+           ps <- use $ currentFn.fsig.fspredicates
 --           traceM $ "unpackClosure: called with "
 --                  ++ "\n\t param " ++ fmt i
 --                  ++ "\n\t rty   " ++ fmt rty
@@ -4275,4 +4368,4 @@ performMap iterty iter closurety closure =
 ------------------------------------------------------------------------------------------------
 
 --  LocalWords:  params IndexMut FnOnce Fn IntoIterator iter impl
---  LocalWords:  tovec fromelem tmethsubst MirExp
+--  LocalWords:  tovec fromelem tmethsubst MirExp initializer

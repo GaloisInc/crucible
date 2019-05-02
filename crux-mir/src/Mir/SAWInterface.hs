@@ -51,7 +51,8 @@ import           Mir.Generate
 
 
 -----------------------------------------------------------------------
-
+-- NOTE: need to call the static initializer for the RustModule at some point
+-- this allocates and initializes global variables
 
 decorateFnName :: String -> String
 decorateFnName t = "::" ++ t ++ "[0]"
