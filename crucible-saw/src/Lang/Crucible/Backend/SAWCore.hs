@@ -452,6 +452,13 @@ scNatEq :: SC.SharedContext
         -> IO (SAWExpr BaseBoolType)
 scNatEq sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scEqualNat sc x y
 
+scBoolEq ::
+  SC.SharedContext ->
+  SAWExpr BaseBoolType ->
+  SAWExpr BaseBoolType ->
+  IO (SAWExpr BaseBoolType)
+scBoolEq sc (SAWExpr x) (SAWExpr y) = SAWExpr <$> SC.scBoolEq sc x y
+
 scEq ::
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
@@ -461,6 +468,7 @@ scEq ::
   IO (SAWExpr BaseBoolType)
 scEq sym sc tp x y =
   case tp of
+    BaseBoolRepr    -> scBoolEq sc x y
     BaseRealRepr    -> scRealEq sym sc x y
     BaseNatRepr     -> scNatEq sc x y
     BaseIntegerRepr -> scIntEq sc x y
@@ -469,7 +477,8 @@ scEq sym sc tp x y =
          let SAWExpr y' = y
          w' <- SC.scNat sc $ fromIntegral (natValue w)
          SAWExpr <$> SC.scBvEq sc w' x' y'
-    _ -> unsupported sym "SAW backend: equality comparison on unsupported type"
+    _ -> unsupported sym ("SAW backend: equality comparison on unsupported type:" ++ show tp)
+
 
 scAllEq ::
   SAWCoreBackend n solver fs ->
