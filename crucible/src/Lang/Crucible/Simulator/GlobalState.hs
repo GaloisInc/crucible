@@ -39,12 +39,20 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Panic(panic)
 
+-- | As a map element, type @GlobalEntry sym tp@ models the contents
+-- of a 'GlobalVar', which is always defined.
 newtype GlobalEntry (sym :: Type) (tp :: CrucibleType) =
   GlobalEntry { globalEntryValue :: RegValue sym tp }
 
+-- | Type @RefCellContents sym tp@ models the contents of a @RefCell@,
+-- which holds a partial value. A @RefCell@ not found in the map is
+-- considered to represent the 'Unassigned' value.
 data RefCellContents (sym :: Type) (tp :: CrucibleType)
   = RefCellContents !(Pred sym) !(RegValue sym tp)
 
+-- | Type @RefCellUpdate sym tp@ models an update to the contents of a
+-- @RefCell@. The value @RefCellUpdate Unassigned@ represents the
+-- deletion of a @RefCell@.
 newtype RefCellUpdate (sym :: Type) (tp :: CrucibleType) =
   RefCellUpdate (PartExpr (Pred sym) (RegValue sym tp))
 
@@ -84,13 +92,11 @@ type GlobalContents sym = GlobalTable (GlobalEntry sym) (RefCellContents sym)
 -- references that have happened since a branch push.
 type GlobalUpdates sym = GlobalTable (GlobalEntry sym) (RefCellUpdate sym)
 
---data GlobalUpdates (sym :: Type) =
---  GlobalUpdates
---  { globalVars :: !(MapF.MapF GlobalVar (GlobalEntry sym))
---  , globalRefs :: !(MapF.MapF RefCell (RefCellContents sym))
---  }
-
 -- | Apply a set of updates to the contents of global memory.
+-- @GlobalVar@s cannot be deleted, so we just merge the @GlobalVar@
+-- maps, preferring entries from the first argument. When merging the
+-- @RefCell@ maps, a @RefCellUpdate Unassigned@ entry causes the
+-- corresponding entry in the old map to be deleted.
 applyGlobalUpdates :: forall sym . GlobalUpdates sym -> GlobalContents sym -> GlobalContents sym
 applyGlobalUpdates (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
   GlobalTable (MapF.union vs1 vs2) (runIdentity (MapF.mergeWithKeyM both left Identity rs1 rs2))
@@ -113,7 +119,7 @@ applyGlobalUpdates (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
 -- the combined view of memory as of the previous branch push.
 data GlobalFrames (sym :: Type) =
     InitialFrame !(GlobalContents sym)
-  | BranchFrame !(GlobalUpdates sym) !(GlobalContents sym) !(GlobalFrames sym)
+  | BranchFrame !(GlobalUpdates sym) (GlobalContents sym) !(GlobalFrames sym)
 
 -- | The depth of this value represents the number of symbolic
 -- branches currently pending. We use this primarily as a sanity check
@@ -126,12 +132,6 @@ globalPendingBranches (BranchFrame _ _ gf) = 1 + globalPendingBranches gf
 -- | The empty set of global variable bindings.
 emptyGlobalFrames :: GlobalFrames sym
 emptyGlobalFrames = InitialFrame emptyGlobalTable
-
---updateFrame ::
---  (GlobalUpdates sym -> GlobalUpdates sym) ->
---  GlobalFrames sym -> GlobalFrames sym
---updateFrame f (InitialFrame c) = InitialFrame (f c)
---updateFrame f (BranchFrame c gf) = BranchFrame (f c) gf
 
 ------------------------------------------------------------------------
 -- GlobalTable
@@ -171,10 +171,13 @@ lookupGlobal g gst
   | otherwise =
       globalEntryValue <$> go (globalFrames gst)
   where
+    -- We never have to search more than one level deep, because the
+    -- 'BranchFrame' constructor caches the combined contents of the
+    -- rest of the 'GlobalFrames'.
     go (InitialFrame c) = MapF.lookup g (globalVars c)
     go (BranchFrame u c _) = MapF.lookup g (globalVars u) <|> MapF.lookup g (globalVars c)
 
--- | Set the value of a global in the state.
+-- | Set the value of a global in the state, or create a new global variable.
 insertGlobal ::
   GlobalVar tp ->
   RegValue sym tp ->
@@ -189,7 +192,11 @@ insertGlobal g v gst
     x = GlobalEntry v
     upd (InitialFrame c) = InitialFrame (updateGlobalVars (MapF.insert g x) c)
     upd (BranchFrame u c gf) = BranchFrame (updateGlobalVars (MapF.insert g x) u) c gf
-    -- TODO: maybe the BranchFrame case should be an error?
+    -- NOTE: While global variables can be updated within branches, it
+    -- should probably be forbidden to create a new global variable in
+    -- a branch. However, we don't check for this currently. (An error
+    -- will happen later when merging the branches if the set of
+    -- global variables does not match.)
 
 -- | Look up the value of a reference cell in the state.
 lookupRef :: RefCell tp -> SymGlobalState sym -> PartExpr (Pred sym) (RegValue sym tp)
@@ -197,6 +204,9 @@ lookupRef r gst
   | needsNotification (refType r) = post $ MapF.lookup r (globalRefs (globalIntrinsics gst))
   | otherwise = go (globalFrames gst)
   where
+    -- We never have to search more than one level deep, because the
+    -- 'BranchFrame' constructor caches the combined contents of the
+    -- rest of the 'GlobalFrames'.
     post = maybe Unassigned (\(RefCellContents p e) -> PE p e)
     go (InitialFrame c) = post $ MapF.lookup r (globalRefs c)
     go (BranchFrame u c _) =
@@ -270,6 +280,11 @@ globalPushBranch sym iTypes (GlobalState gf (GlobalTable vs rs)) =
         InitialFrame c -> c
         BranchFrame u c _ -> applyGlobalUpdates u c
 
+-- | Merge a set of updates into the outermost frame of a stack of global frames.
+abortBranchFrame :: GlobalUpdates sym -> GlobalFrames sym -> GlobalFrames sym
+abortBranchFrame u (InitialFrame c) = InitialFrame (applyGlobalUpdates u c)
+abortBranchFrame u (BranchFrame u' c gf) = BranchFrame (mergeGlobalTable u u') c gf
+
 -- | Remove the most recent branch point marker, and thus cancel the
 -- effect of the most recent 'globalPushBranch'.
 globalAbortBranch ::
@@ -281,7 +296,8 @@ globalAbortBranch ::
   IO (SymGlobalState sym)
 
 globalAbortBranch sym iTypes (GlobalState (BranchFrame u _ gf) (GlobalTable vs rs)) =
-  do vs' <- MapF.traverseWithKey
+  do -- Notify intrinsic-typed vars and refs of the branch abort.
+     vs' <- MapF.traverseWithKey
             (\v (GlobalEntry e) ->
               GlobalEntry <$> abortBranchForType sym iTypes (globalType v) e)
             vs
@@ -291,10 +307,7 @@ globalAbortBranch sym iTypes (GlobalState (BranchFrame u _ gf) (GlobalTable vs r
             rs
      --loc <- getCurrentProgramLoc sym
      --putStrLn $ unwords ["ABORT BRANCH:", show (d-1), show $ plSourceLoc loc]
-     let gf' =
-           case gf of
-             InitialFrame c -> InitialFrame (applyGlobalUpdates u c)
-             BranchFrame u2 c2 gf2 -> BranchFrame (mergeGlobalTable u u2) c2 gf2
+     let gf' = abortBranchFrame u gf
      return (GlobalState gf' (GlobalTable vs' rs'))
 
 globalAbortBranch sym _ (GlobalState (InitialFrame _) _) =
@@ -313,6 +326,7 @@ muxPartialRegForType ::
 muxPartialRegForType sym iteFns tp =
   mergePartial sym (\c u v -> lift $ muxRegForType sym iteFns tp c u v)
 
+-- | A symbolic mux function for @GlobalContents@.
 muxGlobalContents ::
   forall sym .
   IsSymInterface sym =>
@@ -340,6 +354,7 @@ muxGlobalContents sym iteFns c (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
          p <- itePred sym c pu pv
          return . Just $ RefCellContents p uv
 
+    -- Make a partial value undefined unless the given predicate holds.
     restrictRefCellContents :: Pred sym -> RefCellContents sym tp -> IO (RefCellContents sym tp)
     restrictRefCellContents p1 (RefCellContents p2 x) =
       do p' <- andPred sym p1 p2
@@ -353,6 +368,7 @@ muxGlobalContents sym iteFns c (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
       do cnot <- notPred sym c
          traverseF (restrictRefCellContents cnot) m
 
+    -- Sets of global variables are required to be the same in both branches.
     checkNullMap :: MapF.MapF GlobalVar (GlobalEntry sym)
                  -> IO (MapF.MapF GlobalVar (GlobalEntry sym))
     checkNullMap m
@@ -364,33 +380,10 @@ muxGlobalContents sym iteFns c (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
 data EitherOrBoth f g (tp :: k) =
   JustLeft (f tp) | Both (f tp) (g tp) | JustRight (g tp)
 
-{-
-muxMapFWithPrevious ::
-  forall k a b p .
-  OrdF k =>
-  (forall tp. a tp -> b tp) ->
-  (forall tp. b tp) ->
-  (forall tp. MuxFn p (b tp)) ->
-  MapF.MapF k a ->
-  MuxFn p (MapF.MapF k b)
-muxMapFWithPrevious def undef mux m0 c m1 m2 =
-  do m' <- MapF.mergeWithKeyM
-           (\_ x y -> return (Just (Both x y)))
-           (traverseF (return . JustLeft))
-           (traverseF (return . JustRight))
-           m1 m2
-     MapF.mergeWithKeyM
-       (\_ x0 e -> Just <$> muxUpdate (def x0) e)
-       (\_ -> return MapF.empty)
-       (traverseF (muxUpdate undef))
-       m0 m'
-  where
-    muxUpdate :: forall tp. b tp -> EitherOrBoth b b tp -> IO (b tp)
-    muxUpdate x0 (JustLeft x1) = mux c x1 x0
-    muxUpdate x0 (JustRight x2) = mux c x0 x2
-    muxUpdate _ (Both x1 x2) = mux c x1 x2
--}
-
+-- | A symbolic mux function for @GlobalUpdates@. For cases where a
+-- pre-existing value is updated only on one side, we require a
+-- @GlobalContents@ to look up the previous value to use in place of
+-- the missing update.
 muxGlobalUpdates ::
   forall sym .
   IsSymInterface sym =>
@@ -399,7 +392,8 @@ muxGlobalUpdates ::
   GlobalContents sym ->
   MuxFn (Pred sym) (GlobalUpdates sym)
 muxGlobalUpdates sym iteFns (GlobalTable vs0 rs0) c (GlobalTable vs1 rs1) (GlobalTable vs2 rs2) =
-  do vs3 <- MapF.mergeWithKeyM
+  do -- Zip together the two maps of globals.
+     vs3 <- MapF.mergeWithKeyM
             (\_ x y -> return (Just (Both x y)))
             (traverseF (return . JustLeft))
             (traverseF (return . JustRight))
@@ -408,18 +402,19 @@ muxGlobalUpdates sym iteFns (GlobalTable vs0 rs0) c (GlobalTable vs1 rs1) (Globa
             (\k x0 e ->
               Just <$>
               case e of
-                JustLeft x1 -> muxEntry k x1 x0
-                JustRight x2 -> muxEntry k x0 x2
+                JustLeft x1 -> muxEntry k x1 x0 -- use old value x0 for right side
+                JustRight x2 -> muxEntry k x0 x2 -- use old value x0 for left side
                 Both x1 x2 -> muxEntry k x1 x2)
-            (\_ -> return MapF.empty)
+            (\_ -> return MapF.empty) -- old values updated on neither side are excluded from merged updates
             (MapF.traverseWithKey $ \k e ->
               case e of
-                JustLeft _ -> panicNull
-                JustRight _ -> panicNull
+                JustLeft _ -> panicNull -- panic if there is no old value
+                JustRight _ -> panicNull -- panic if there is no old value
                 Both x1 x2 -> muxEntry k x1 x2)
             vs0
             vs3
 
+     -- Zip together the two maps of references.
      rs3 <- MapF.mergeWithKeyM
             (\_ x y -> return (Just (Both x y)))
             (traverseF (return . JustLeft))
@@ -430,14 +425,14 @@ muxGlobalUpdates sym iteFns (GlobalTable vs0 rs0) c (GlobalTable vs1 rs1) (Globa
               let x0 = RefCellUpdate (PE p e) in
               Just <$>
               case eb of
-                JustLeft x1 -> muxRef k x1 x0
-                JustRight x2 -> muxRef k x0 x2
+                JustLeft x1 -> muxRef k x1 x0 -- use old value x0 for right side
+                JustRight x2 -> muxRef k x0 x2 -- use old value x0 for left side
                 Both x1 x2 -> muxRef k x1 x2)
-            (\_ -> return MapF.empty)
+            (\_ -> return MapF.empty) -- old values updated on neither side are excluded from merged updates
             (MapF.traverseWithKey $ \k e ->
               case e of
-                JustLeft x1 -> muxRef k x1 undef
-                JustRight x2 -> muxRef k undef x2
+                JustLeft x1 -> muxRef k x1 undef -- x1 was newly-created on left side, undefined on right
+                JustRight x2 -> muxRef k undef x2 -- x2 was newly-created on right side, undefined on left
                 Both x1 x2 -> muxRef k x1 x2)
             rs0
             rs3
