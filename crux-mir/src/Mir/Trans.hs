@@ -79,9 +79,6 @@ import Mir.Intrinsics
 import Mir.Generator
 import Mir.GenericOps
 
-import Mir.Pass.ExpandSuperTraits
-import Mir.Pass.AssociatedTypes
-
 import Mir.PP(fmt)
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -2399,52 +2396,6 @@ transDefine colState db fn@(M.Fn fname fargs fsig _ _) =
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
 
 
--- | Decide whether the given method definition is a specific implementation method for
--- a declared trait. If so, return all such declared traits along with the type substitution
--- SCW NOTE: we are returning a list because the same method may implement several different
--- traits depending due to subtraits
--- ?: Do subtraits need to have the same params???
-getTraitImplementation ::
-      Collection                  -- ^ the collection
-   -> MethName                    -- ^ specific function in the collection
-   -> [(TraitRef,TraitImplItem)]  -- ^ traits that this function could implement
-getTraitImplementation col name = do
-    let timpls      = col^.impls
-
-    -- If the implementation includes associated types, add them
-    -- to the substitution (as we have generalized them from all of the
-    -- methods in a prior pass)
-    let addAssocTypes :: [TraitImplItem] -> TraitRef -> TraitRef
-        addAssocTypes tiis (TraitRef tn (Substs subs)) =
-          TraitRef tn (Substs (subs ++ assocs))
-            where
-              assocs = Maybe.mapMaybe getTy tiis
-              getTy (TraitImplType _ _ _ _ ty) = Just ty
-              getTy _ = Nothing
-
-    -- find all traitImplItems with the same name 
-    let implItems = [ (addAssocTypes (ti^.tiItems) (ti^.tiTraitRef),tii) |
-                      ti <- timpls,
-                      tii <- ti^.tiItems,
-                      tii^.tiiName == name ]
-
-    -- make references for subtraits too
-    -- find all traits that extend this one
-    let getSubImpl (TraitRef tn subst, tii) 
-          = [ (TraitRef (t^.traitName) subst, tii) 
-            | t <- Map.elems (col^.traits)
-            , tn `elem` t^.traitSupers ] 
-
-
-    let isImpl (TraitRef tn _,_) (TraitRef sn _, _) = tn == sn
-
-    let go curr =
-         let subs = concatMap getSubImpl curr
-         in if all (\sn -> any (isImpl sn) curr) subs
-            then curr
-            else go (List.nub (curr ++ subs))
-                            
-    go implItems
 
 
 
@@ -2470,128 +2421,6 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 
 
 --------------------------------------------------------------------------------------
-
--- Create the dictionary adt type for a trait
--- The dictionary is a record (i.e. an ADT with a single variant) with
--- a field for each method in the trait.
--- Ignore non-method components of the trait
-defineTraitAdts :: Map TraitName M.Trait -> Map TraitName M.Adt
-defineTraitAdts traits = fmap traitToAdt traits where
-   traitToAdt :: M.Trait -> M.Adt
-   traitToAdt tr = do
-
-     let itemToField :: M.TraitItem -> Maybe M.Field
-         itemToField (M.TraitMethod did fnsig) = do
-           let fnsig' = specialize fnsig ntys 
-           return $ M.Field did (TyFnPtr fnsig') (Substs [])
-         itemToField _ = Nothing
-
-         n    = length (tr^.traitParams)
-         ntys = take n (TyParam <$> [0 .. ])
-
-     let fields = Maybe.mapMaybe itemToField (tr^.traitItems)
-     M.Adt (tr^.traitName) [M.Variant (tr^.traitName) (Relative 0) fields M.FnKind]
-
---------------------------------------------------------------------------------------
---
--- Most of the implementation of this pass is in GenericOps
-
-passRemoveUnknownPreds :: Collection -> Collection
-passRemoveUnknownPreds col = modifyPreds ff col 
-  where
-     ff did = Map.member did trs
-     trs = col^.traits
-
-
---------------------------------------------------------------------------------------
--- Some functions need additional predicates because they are trait implementations
--- This pass adds those predicates to trait declarations and then uses those to add them
--- to function implementations
--- 
-passAddDictionaryPreds :: Collection -> Collection
-passAddDictionaryPreds col = col1 & functions %~ fmap addTraitPreds  where
-
-  col1 = col & traits  %~ fmap addThisPred
-
-  mkPred :: Trait -> Predicate
-  mkPred tn = TraitPredicate (tn^.traitName)
-                (Substs [TyParam (toInteger i) | i <- [0 .. ((length (tn^.traitParams)) - 1)] ])
-
-  addThisPred :: Trait -> Trait
-  addThisPred trait = trait & traitItems %~ map (addThis (mkPred trait))
-
-  -- add predicates to trait methods
-  addThis :: Predicate -> TraitItem -> TraitItem
-  addThis pred (TraitMethod did sig) = TraitMethod did (sig & fspredicates %~ (addPred [pred]))
-  addThis pred ti = ti
-
-  -- add predicates to fn's that are implementation methods
-  addTraitPreds :: Fn -> Fn
-  addTraitPreds fn = fn & fsig %~ fspredicates %~ (addPred (newPreds fn))
-
-  -- don't add redundant predicates
-  addPred :: [Predicate] -> [Predicate] -> [Predicate]
-  addPred pred preds = List.nub (pred++preds)
-
-  -- determine the methods that are implementation methods
-  -- and the new predicates they should satisfy (== preds for the traits that they impl)
-  impls :: Map MethName [Predicate]
-  impls = implMethods' col1
-
-  newPreds :: Fn -> [Predicate]
-  newPreds fn = Map.findWithDefault [] (fn^.fname) impls 
-
-
-findMethodItem :: HasCallStack => MethName -> [TraitItem] -> Maybe TraitItem
-findMethodItem mn (item@(TraitMethod did fsig):rest) =
-  if (mn == did) then Just item else findMethodItem mn rest
-findMethodItem mn (_:rest) = findMethodItem mn rest
-findMethodItem mn [] = Nothing -- error $ "BUG: cannot find method " ++ fmt mn
-
-implMethods' :: HasCallStack => Collection -> Map MethName [Predicate]
-implMethods' col = foldMap g (col^.impls) where
-  g :: TraitImpl -> Map MethName [Predicate]
-  g impl = foldMap g2 (impl^.tiItems) where
-     TraitRef tn ss = impl^.tiTraitRef
-     items = case (col^.traits) Map.!? tn of
-                 Just tr -> tr^.traitItems
-                 -- Ignore impls that we know nothing about
-                 Nothing -> []
-
-     g2 :: TraitImplItem -> Map MethName [Predicate]
-     g2 (TraitImplMethod mn ii _ preds _) =
-        case findMethodItem ii items of
-          Just (TraitMethod _ sig) ->
-             Map.singleton mn (tySubst (ss <> (Substs $ TyParam <$> [0 .. ])) (sig^.fspredicates))
-          _ ->
-             Map.empty
-             -- ignore unknown methods
-             -- error $ "BUG: addDictionaryPreds: Cannot find method " ++ fmt ii ++ " in trait " ++ fmt tn
-     g2 _ = Map.empty
-
-implMethods :: Collection -> Map MethName [(TraitName,Substs)]
-implMethods col = foldr g Map.empty (col^.functions) where
-  g fn m = foldr g2 m (getTraitImplementation col (fn^.fname)) where
-     g2 (TraitRef traitName substs, _tii) m 
-         = Map.insertWith (++) (fn^.fname) [(traitName, substs)] m
-
-
-defaultMethods :: Collection -> Map MethName TraitName
-defaultMethods col = foldr g Map.empty (col^.traits) where
-  g trait m = foldr g2 m (trait^.traitItems) where
-    g2 (TraitMethod methName _sig) m
-       | Just _fn <- Map.lookup methName (col^.functions)
-       = Map.insert (methName) (trait^.traitName) m
-    g2 _ m = m
-
-
-
-
---------------------------------------------------------------------------------------
-infixl 0 |>
-(|>) :: a -> (a -> b) -> b
-x |> f = f x
---------------------------------------------------------------------------------------
 -- *** Result of translating a collection
 --
 -- 
@@ -2608,31 +2437,11 @@ transCollection :: forall s. HasCallStack
       -> Int  
       -> FH.HandleAllocator s
       -> ST s RustModule
-transCollection col0 debug halloc = do
+transCollection col debug halloc = do
 
     -- The first part are some transformations on the collection itself.
 
-    let passAddTraitAdts col       = col & adts   %~ (Map.union (defineTraitAdts (col^.M.traits)))
-    let passMarkCStyle col         = markCStyle (cstyleAdts, col) col where
-          cstyleAdts = Map.filter isCStyle (col^.M.adts)
 
-    let passTrace :: String -> Collection -> Collection
-        passTrace str col =
-          if (debug > 5) then 
-            ((trace $ "*********MIR collection " ++ str ++ "*******\n"
-                    ++ fmt col ++ "\n****************************")
-            col)
-          else col
-
-    let col  = col0
-              |> passRemoveUnknownPreds  -- remove predicates that we don't know anything about
-              |> passTrace "initial"
-              |> passAddDictionaryPreds  -- add predicates to trait member functions
-              |> passExpandSuperTraits   -- add supertrait items
-              |> passAbstractAssociated  -- replace associated types with additional type parameters
-              |> passTrace "after associated types translated"
-              |> passMarkCStyle          -- figure out which ADTs are enums and mark them
-              |> passAddTraitAdts        -- add adts for declared traits
 
     when (debug > 3) $ do
       traceM $ "MIR collection"

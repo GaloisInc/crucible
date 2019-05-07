@@ -502,7 +502,7 @@ instance GenericOps Predicate where
                                                        
 -- special case for DefIds
 instance GenericOps DefId where
-  relocate          = relocateDefId 
+  relocate          = id
   markCStyle _      = id
   tySubst    _      = id
   replaceVar _ _    = id

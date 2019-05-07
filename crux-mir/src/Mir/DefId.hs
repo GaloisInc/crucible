@@ -8,7 +8,6 @@
 
 module Mir.DefId where
 
---import qualified Data.List as List
 import Data.Aeson
 
 import Data.Text (Text, pack, unpack, intercalate)
@@ -28,11 +27,11 @@ import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
  A DefId, when produced by mir-json, looks something like
 
-     core/ae3efe0::option[0]::Option[0]::None[0]
+     ::option[0]::Option[0]::None[0]
 
      ::option[0]::{{impl}}[0]::unwrap_or_else[0]
 
-     core/ae3efe0::ops[0]::function[0]::FnOnce[0]::call_once[0]
+     ::ops[0]::function[0]::FnOnce[0]::call_once[0]
 
      ::Lmcp[0]::ser[0]
 
@@ -43,15 +42,14 @@ This module parses these names to help with identifying and extracting
 the underlying structure.
 
 For example, the 'None' data constructor is defined in the std library
-file, as part of the 'option' module, and the 'Option' ADT.
+file, as part of the 'option' crate, and the 'Option' ADT.
 
-     core/ae3efe0::option[0]::Option[0]::None[0]
+     ::option[0]::Option[0]::None[0]
 
-     ^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^
-        file         path       name      extra
+     ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^
+       path       name      extra
 
-The filename can be omitted for local declarations. After the
-filename, each part includes a numeric annotation (the '[0]') for
+Each part includes a numeric annotation (the '[0]') for
 disambiguation. Most of the time, the names are unique within a file
 so the number is [0]. However, Rust definitions may be overloaded, and
 this number resolves that overloading at the Mir level.
@@ -77,9 +75,9 @@ The name could be:
 
   - an ADT name
 
-      core/ae3efe0::option[0]::Option[0]::None[0]
+      ::option[0]::Option[0]::None[0]
 
-      ret/8cd878b::E[0]::A[0]::0[0]
+      ::E[0]::A[0]::0[0]
 
       (extra, if non-nil indicates a variant, and then a field within that variant)
 
@@ -109,10 +107,6 @@ The name could be:
 hideModuleName :: Bool
 hideModuleName = False
 
--- | if True, suppress the source file when pretty-printing MIR identifiers.
-hideSourceFile :: Bool
-hideSourceFile = False
-
 -- | if True, suppress the [0] annotations when pretty-printing MIR identifiers.
 hideEntrySyms :: Bool
 hideEntrySyms = False
@@ -120,15 +114,10 @@ hideEntrySyms = False
 -----------------------------------------------
 
 
--- | The module name for the rust core library used by mir-json.
--- If mir-json changes, we will need to update this name.
-stdlib :: Text
-stdlib = pack "core/ae3efe0"
-
 type Entry = (Text,Int)
 -- | Identifiers that can be qualified by paths
-data DefId = DefId { did_file     :: Text    -- ^ e.g. core/ae3efe0    
-                   , did_path     :: [Entry] -- ^ e.g. ::ops[0]::function[0] 
+data DefId = DefId { 
+                     did_path     :: [Entry] -- ^ e.g. ::ops[0]::function[0] 
                    , did_name     ::  Entry  -- ^ e.g. 
                                          --        ::T[0]          -- Trait name
                                          --        ::Option[0]     -- ADT type
@@ -141,7 +130,7 @@ data DefId = DefId { did_file     :: Text    -- ^ e.g. core/ae3efe0
 -- If a DefId is the name of a *static* method, we can find a trait name inside of it
 -- by removing the "extra" part
 getTraitName :: DefId -> DefId
-getTraitName (DefId f p n _e) = (DefId f p n [])
+getTraitName (DefId p n _e) = (DefId p n [])
 
 
 isImpl :: DefId -> Bool
@@ -152,15 +141,15 @@ isImpl defid =
 -- | If we have a static call for a trait, we need to mangle the format so that it looks
 -- like a normal function call (and we can find the function handle)
 mangleTraitId :: DefId -> DefId
-mangleTraitId d@(DefId file path _name extra)
-  | not (null extra) = DefId file (path ++ [("{{impl}}", 0)]) (head extra) (tail extra)
+mangleTraitId d@(DefId path _name extra)
+  | not (null extra) = DefId (path ++ [("{{impl}}", 0)]) (head extra) (tail extra)
   | otherwise        = d
 
 -- | If we have a static call for a trait, we need to mangle the format so that it looks
 -- like a normal function call (and we can find the function handle)
 makeImpl0 :: DefId -> DefId
-makeImpl0 (DefId file path name extra) =
-  DefId file (changeImpl path) name extra where
+makeImpl0 (DefId path name extra) =
+  DefId (changeImpl path) name extra where
      changeImpl p | not (null p) && fst (last p) == ("{{impl}}"::Text) = init p ++ [("{{impl}}",0)]
                   | otherwise = p
 
@@ -184,7 +173,7 @@ parseFieldName defid = case (did_extra defid) of
 -- | Detect a defid is in an {{impl}} and pull out the method name.
 -- 
 parseImplName :: DefId -> Maybe Entry
-parseImplName (DefId _ path@(_:_) name _)
+parseImplName (DefId path@(_:_) name _)
   | fst (last path) == "{{impl}}" = Just name
 parseImplName _ = Nothing
 
@@ -193,19 +182,8 @@ parseImplName _ = Nothing
 -- NOTE: trait methods have the Trait as the name, and the specific
 -- method afterwards
 sameTraitMethod :: Entry -> DefId -> Bool
-sameTraitMethod meth1 (DefId _ _ _ (meth2:_)) = meth1 == meth2
-sameTraitMethod _     (DefId _ _ _ []) = False
-
-
-
-{-
-isImplMethod :: DefId -> DefId -> Bool
-
-isImplMethod (DefId _ path1@(_:_) name1 _) (DefId _ path2 traitName (name2:_))
-   | fst (last path) == "{{impl}}", 
-     name1 == name2 
-  =
-  -}
+sameTraitMethod meth1 (DefId _ _ (meth2:_)) = meth1 == meth2
+sameTraitMethod _     (DefId _ _ []) = False
 
 
 --  divide the input into components separated by double colons
@@ -235,32 +213,31 @@ isPath str = isJust (Regex.matchRegex (Regex.mkRegex ( "^[{a-z]+[{}A-Za-z0-9_]*"
 -- | Parse text from mir-json to produce a DefId       
 textId :: Text -> DefId
 textId txt = case splitInput (unpack txt) of
-  (hd : rest ) -> let (fl, entries) = case parseEntry hd of
+  (hd : rest ) -> let (_fl, entries) = case parseEntry hd of
                         Nothing -> (hd, catMaybes $ map parseEntry rest)
                         Just entry -> ("", entry: (catMaybes $ map parseEntry rest))
                       pack2 (x,y) = (pack x, y)
                   in case span (isPath . fst) entries of
                        ([], [])     -> error $ "cannot parse id " ++ unpack txt
-                       ([], y:ys)   -> DefId (pack fl) [] (pack2 y) (map pack2 ys)
-                       (xs, [])     -> DefId (pack fl) (map pack2 (init xs)) (pack2 (last xs)) []
-                       (xs, y : ys) -> DefId (pack fl) (map pack2 xs)        (pack2 y)  (map pack2 ys)
+                       ([], y:ys)   -> DefId [] (pack2 y) (map pack2 ys)
+                       (xs, [])     -> DefId (map pack2 (init xs)) (pack2 (last xs)) []
+                       (xs, y : ys) -> DefId (map pack2 xs)        (pack2 y)  (map pack2 ys)
                     
   [] -> error "empty text for DefId"
                   
        
-
+-- | Extract the text from a DefId
 idText :: DefId -> Text
-idText (DefId fl mods nm ex) =
-  intercalate "::" (fl : map showEntry (mods++nm:ex))
+idText (DefId mods nm ex) =
+  intercalate "::" ("" : map showEntry (mods++nm:ex))
 
 -- ignores filename and entry #s
 instance Pretty DefId where
-  pretty (DefId fl mods nm ex) =
+  pretty (DefId mods nm ex) =
     let ppEntry (txt, n) = if hideEntrySyms  then txt else if n == 0 then txt else showEntry (txt,n)
         addmods = if hideModuleName then id else (mods++)
-        addfl   = if hideSourceFile then id else (fl:)
     in
-    text $ unpack $ intercalate "::" (addfl (map ppEntry  (addmods (nm:ex))))
+    text $ unpack $ intercalate "::" (map ppEntry  (addmods (nm:ex)))
 
   
 
@@ -272,8 +249,6 @@ instance IsString DefId where
 instance FromJSON DefId where
     parseJSON x = textId <$> parseJSON x
 
-relocateDefId :: DefId -> DefId
-relocateDefId (DefId _did_file pth nm ex) = DefId stdlib pth nm ex
 
 
 

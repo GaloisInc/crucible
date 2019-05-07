@@ -1,31 +1,30 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE RankNTypes #-}
+
 module Mir.Pass (
     Pass,
-    passId,
-    passCollapseRefs,
-    passMutRefReturnStatic,
-    passRemoveBoxNullary,
-    passRemoveStorage,
-    passMutRefArgs,
-    passAllocateEnum,
-    passNoMutParams,
-    toCollectionPass
+    rewriteCollection
 ) where
 
 
 import Control.Monad.State.Lazy
 import Data.List
-import Control.Lens hiding (op)
+import Control.Lens hiding (op,(|>))
 import qualified Data.Text as T
+import Data.Map(Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Maybe as Maybe
 
 import GHC.Stack
 
 import Mir.Mir
 import Mir.DefId
 import Mir.MirTy
+import Mir.PP(fmt)
+import Mir.GenericOps
 
 import Mir.Pass.CollapseRefs( passCollapseRefs )
 import Mir.Pass.MutRefReturnStatic( passMutRefReturnStatic )
@@ -34,58 +33,104 @@ import Mir.Pass.RemoveStorage( passRemoveStorage )
 import Mir.Pass.RewriteMutRef( passRewriteMutRefArg )
 import Mir.Pass.AllocateEnum ( passAllocateEnum )
 import Mir.Pass.NoMutParams ( passNoMutParams )
+import Mir.Pass.AddDictionaryPreds ( passAddDictionaryPreds )
+import Mir.Pass.ExpandSuperTraits ( passExpandSuperTraits )
+import Mir.Pass.AssociatedTypes ( passAbstractAssociated )
 
+import Debug.Trace
+import GHC.Stack
 
-type Pass = Collection -> Collection
+type Pass = (?debug::Int, HasCallStack) => Collection -> Collection
+
+--------------------------------------------------------------------------------------
+infixl 0 |>
+(|>) :: a -> (a -> b) -> b
+x |> f = f x
+--------------------------------------------------------------------------------------
+
+rewriteCollection :: Pass
+rewriteCollection col =
+  col
+    |> toCollectionPass passNoMutParams
+    |> passAllocateEnum 
+    |> passRemoveUnknownPreds  -- remove predicates that we don't know anything about
+    |> passTrace "initial"
+    |> passAddDictionaryPreds  -- add predicates to trait member functions
+    |> passExpandSuperTraits   -- add supertrait items
+    |> passAbstractAssociated  -- replace associated types with additional type parameters
+    |> passTrace "after associated types translated"
+    |> passMarkCStyle          -- figure out which ADTs are enums and mark them
+    |> passAddTraitAdts        -- add adts for declared traits
+
+--------------------------------------------------------------------------------------
 
 passId :: Pass
 passId = id
 
-fnPass :: [Fn] -> [Fn]
-fnPass = passRewriteMutRefArg . passCollapseRefs
+--------------------------------------------------------------------------------------
 
-fromList :: [Fn] -> Map.Map DefId Fn
-fromList = foldr (\fn m -> Map.insert (fn^.fname) fn m) Map.empty
+passTrace :: String -> Pass
+passTrace str col =
+  if (?debug > 5) then 
+      ((trace $ "*********MIR collection " ++ str ++ "*******\n"
+                ++ fmt col ++ "\n****************************")
+       col)
+  else col
 
-passMutRefArgs :: HasCallStack => Pass
-passMutRefArgs = toCollectionPass fnPass
+--------------------------------------------------------------------------------------
+
+passMarkCStyle :: Pass
+passMarkCStyle col   = markCStyle (cstyleAdts, col) col where
+          cstyleAdts = Map.filter isCStyle (col^.adts)
+
+--------------------------------------------------------------------------------------
+
+passAddTraitAdts :: Pass
+passAddTraitAdts col = col & adts %~ Map.union (defineTraitAdts (col^.traits))
+
+-- Create the dictionary adt type for a trait
+-- The dictionary is a record (i.e. an ADT with a single variant) with
+-- a field for each method in the trait.
+-- Ignore non-method components of the trait
+defineTraitAdts :: Map TraitName Trait -> Map TraitName Adt
+defineTraitAdts traits = fmap traitToAdt traits where
+   traitToAdt :: Trait -> Adt
+   traitToAdt tr = do
+
+     let itemToField :: TraitItem -> Maybe Field
+         itemToField (TraitMethod did fnsig) = do
+           let fnsig' = specialize fnsig ntys 
+           return $ Field did (TyFnPtr fnsig') (Substs [])
+         itemToField _ = Nothing
+
+         n    = length (tr^.traitParams)
+         ntys = take n (TyParam <$> [0 .. ])
+
+     let fields = Maybe.mapMaybe itemToField (tr^.traitItems)
+     Adt (tr^.traitName) [Variant (tr^.traitName) (Relative 0) fields FnKind]
+
+
+--------------------------------------------------------------------------------------
+
+passMutRefArgs :: Pass
+passMutRefArgs = toCollectionPass (passRewriteMutRefArg . passCollapseRefs)
 
 toCollectionPass :: ([Fn] -> [Fn]) -> Pass
-toCollectionPass f col = col { _functions = (fromList (f (Map.elems (col^.functions)))) }
+toCollectionPass f col = col { _functions = (fromList (f (Map.elems (col^.functions)))) } where
+    fromList :: [Fn] -> Map.Map DefId Fn
+    fromList = foldr (\fn m -> Map.insert (fn^.fname) fn m) Map.empty
 
-
--- mir utitiles
+  
+--------------------------------------------------------------------------------------
 --
---
---
+-- Most of the implementation of this pass is in GenericOps
 
---isMutRefVar :: Var -> Bool
---isMutRefVar (Var _ _ t _) = isMutRefTy t
+passRemoveUnknownPreds :: Pass
+passRemoveUnknownPreds col = modifyPreds ff col 
+  where
+     ff did = Map.member did trs
+     trs = col^.traits
 
--- class IsMutTagged a where
---     isMutTagged :: a -> Bool
+--------------------------------------------------------------------------------------
 
--- instance IsMutTagged Operand where
---     isMutTagged (Consume (Tagged _ "mutchange")) = True
---     isMutTagged _ = False
 
--- instance IsMutTagged Lvalue where
---     isMutTagged (Tagged _ "mutchange") = True
---     isMutTagged _ = False
-
--- removeTags :: [Operand] -> [Operand]
--- removeTags = map (\(Consume ( Tagged lv _)) -> Consume lv)
--- --
--- --
-
--- removeReturnVar :: [Var] -> [Var]
--- removeReturnVar [] = []
--- removeReturnVar (v:vs) = case v of
---                            (Var "_0" _ _ _) -> vs
---                            _ -> v : (removeReturnVar vs)
-
--- findReturnVar :: [Var] -> Var
--- findReturnVar [] = error "return var not found!"
--- findReturnVar (v:vs) = case v of
---                          (Var "_0" _ _ _) -> v
---                          _ -> findReturnVar vs

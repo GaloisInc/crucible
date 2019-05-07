@@ -4,15 +4,14 @@
 
 -----------------------------------------------------------------------
 -- |
--- Module           : Mir.Pass.RemoveStorage
--- Description      : Rewriting pass for removing Storage annotations
--- Copyright        : (c) Galois, Inc 2017
+-- Module           : Mir.Pass.NoMutParams
+-- Description      : Rewriting pass for removing mut params
+-- Copyright        : (c) Galois, Inc 2019
 -- License          : BSD3
 -- Stability        : provisional
 --
 -- This module implements a MIR rewriting pass that creates new local 
--- variables that correspond to "mutable" function arguments. It does not
--- change the type of the function.
+-- variables that correspond to "mutable" function arguments. 
 --
 --   For example,
 --       fn (mut x : u8) -> u8 {

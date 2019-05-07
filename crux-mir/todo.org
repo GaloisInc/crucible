@@ -37,10 +37,6 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
   Fails:
     symb_eval/crypto/bytes.rs   -- spec is wrong though. 
 
-** test/crypto/scalar.rs status
-
-   Works!
-
 ** Standard library current status
    Library code found in mir-lib/src/*
 
@@ -117,17 +113,16 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 - combine mir-lib into a single crate so can resolve circular references, especially with Try
 
-- make test runner check timestamp of mir-json
+- make test runner check timestamp of mir-json binary
 
 - separate processing of mir-lib from that of each test file so don't have to
   reprocess the stdlib on every call
 
-- divide Trans.hs into multiple files so that typechecking/compilation is snappier
-  current 4k file overwhelms dante-mode
+- Divide Trans.hs into multiple files so that typechecking/compilation is snappier
+  The current 4k file overwhelms dante-mode
 
-- better interface to symbolic evaluation.  need a rust interface
-  module for examples to import and need to load the definitions in
-  mir-verifier.
+- Better interface to symbolic evaluation.  Need a rust crate
+  for examples to import and need to load the definitions in mir-verifier.
   In particular, should make assertions from calls to "panic" etc.
 
 - Implementation of closures is very hacky
@@ -137,7 +132,7 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 - need more structured error handling
    don't use "error", use "fail" instead
    pretty print error messages instead of constructing strings
-   distinguish "BUG" errors from limitations of the system (user facing)
+   distinguish "BUG" errors from user-facing limitations of the system
 
 - just-in time function translation using overrides?
   or some caching of the standard library?
@@ -169,7 +164,8 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
      function handles for the wrapped vtable (one for each
      implementation type)
 
-
+- type translation needs access to the collection so can lookup the type of 
+  function pointers
 
 * Dictionary Translation notes
 

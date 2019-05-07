@@ -46,10 +46,10 @@ and replace them with a single aggregate assignment
 
 
 
-passAllocateEnum :: HasCallStack => Collection -> [Fn] -> [Fn]
-passAllocateEnum col fns =
+passAllocateEnum :: (HasCallStack, ?debug::Int) => Collection -> Collection
+passAllocateEnum col =
   let ?col = col in
-  map (& fbody %~ mblocks %~ map pcr) fns
+  col & functions %~ fmap (& fbody %~ mblocks %~ map pcr)
 
 
 data FieldUpdate = FieldUpdate { adtLvalue :: Lvalue,

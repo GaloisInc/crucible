@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImplicitParams #-}
 -----------------------------------------------------------------------
 -- |
 -- Module           : Mir.Generate
@@ -14,7 +15,7 @@
 -----------------------------------------------------------------------
 
 
-module Mir.Generate(generateMIR, RustModule(..), translateMIR, mirToCFG) where
+module Mir.Generate(generateMIR, RustModule(..), translateMIR) where
 
 import Control.Lens hiding((<.>))
 import Control.Monad (when)
@@ -42,7 +43,7 @@ import Mir.Mir
 import Mir.JSON
 import Mir.Intrinsics(MIR)
 import Mir.PP()
-import Mir.Pass as P
+import Mir.Pass(rewriteCollection)
 import Mir.Trans(transCollection, RustModule(..))
 
 
@@ -100,13 +101,10 @@ generateMIR debug dir name  = do
         return col
 
 -- | Translate MIR to Crucible
--- TODO: convert passes to work on collections, instead of [Fn]
 translateMIR :: Collection -> Int -> RustModule
-translateMIR col debug = rm where
-  passes  = P.passNoMutParams . (P.passAllocateEnum col)
-  rm      = mirToCFG col debug (Just passes)
+translateMIR col debug =
+  let ?debug = debug in
+  runST $ C.withHandleAllocator $ (transCollection (rewriteCollection col) debug)
 
-mirToCFG :: Collection -> Int -> Maybe ([Fn] -> [Fn]) -> RustModule
-mirToCFG col debug Nothing = mirToCFG col debug (Just id)
-mirToCFG col debug (Just pass) =
-    runST $ C.withHandleAllocator $ (transCollection ((P.toCollectionPass pass) col) debug)
+    
+

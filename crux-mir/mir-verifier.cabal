@@ -55,6 +55,7 @@ library
                    Mir.GenericOps
                    Mir.Prims
                    Mir.Pass
+                   Mir.Pass.AddDictionaryPreds
                    Mir.Pass.AllocateEnum
                    Mir.Pass.AssociatedTypes
                    Mir.Pass.CollapseRefs
