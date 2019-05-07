@@ -58,6 +58,10 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , branchAbortMem
   , mergeMem
 
+  , SomeAlloc(..)
+  , possibleAllocs
+  , ppSomeAlloc
+
     -- * Pretty printing
   , ppType
   , ppPtr
@@ -81,6 +85,7 @@ import           GHC.Generics (Generic, Generic1)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import           Lang.Crucible.Panic (panic)
+
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -1292,6 +1297,46 @@ mergeMem c x y =
       in x & memState .~ s'
     _ -> error "mergeMem given unexpected memories"
 
+--------------------------------------------------------------------------------
+-- Finding allocations
+
+-- When we have a concrete allocation number, we can ask more specific questions
+-- to the solver and get (overapproximate) concrete answers.
+
+data SomeAlloc sym =
+  forall w. SomeAlloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
+
+ppSomeAlloc :: forall sym. IsExprBuilder sym => SomeAlloc sym -> Doc
+ppSomeAlloc (SomeAlloc atp base sz mut alignment loc) =
+  ppAlloc (Alloc atp base sz mut alignment loc :: MemAlloc sym)
+
+-- | Find an overapproximation of the set of allocations with this number.
+--
+--   Ultimately, only one of these could have happened.
+--
+--   It may be possible to be more precise than this function currently is.
+--   In particular, if we find an 'Alloc' with a matching block number before a
+--   'AllocMerge', then we can (maybe?) just return that 'Alloc'. And if one
+--   call of @helper@ on a 'MemAlloc' returns anything nonempty, that can just
+--   be returned (?).
+possibleAllocs ::
+  forall sym .
+  (IsSymInterface sym) =>
+  Natural              ->
+  Mem sym              ->
+  [SomeAlloc sym]
+possibleAllocs n = helper . memAllocs
+  where helper =
+          foldMap $
+            \case
+              MemFree _ -> []
+              Alloc atp base sz mut alignment loc ->
+                if base == n
+                then [SomeAlloc atp base sz mut alignment loc]
+                else []
+              AllocMerge (asConstantPred -> Just True) as1 as2 -> helper as1
+              AllocMerge (asConstantPred -> Just False) as1 as2 -> helper as2
+              AllocMerge _ as1 as2 -> helper as1 ++ helper as2
 
 --------------------------------------------------------------------------------
 -- Pretty printing
