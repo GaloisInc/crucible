@@ -153,6 +153,7 @@ instance Monoid CollectionState where
 
 
 ---------------------------------------------------------------------------
+-- ** Static variables
 
 data StaticVar where
   StaticVar :: C.Closed ty => G.GlobalVar ty -> StaticVar
@@ -187,15 +188,17 @@ type LabelMap s = Map BasicBlockInfo (R.Label s)
 ---------------------------------------------------------------------------
 -- *** HandleMap
 
+-- | The HandleMap maps mir functions to their corresponding function
+-- handle. Function handles include the original method name (for
+-- convenience) and original Mir type (for trait resolution).
+type HandleMap = Map MethName MirHandle
+
 data MirHandle = forall init ret. 
     MirHandle { _mhName       :: MethName
               , _mhSig        :: FnSig
-              -- The type of the function handle includes "free variables"
+              -- The type of the function handle can include "free variables"
               , _mhHandle     :: FH.FnHandle init ret
               }
-
-
-
 
 instance Show MirHandle where
     show (MirHandle _nm sig c) =
@@ -205,10 +208,6 @@ instance Pretty MirHandle where
     pretty (MirHandle nm sig _c) =
       text (show nm) <> colon <> pretty sig 
 
--- | The HandleMap maps mir functions to their corresponding function
--- handle. Function handles include the original method name (for
--- convenience) and original Mir type (for trait resolution).
-type HandleMap = Map MethName MirHandle
 
 ---------------------------------------------------------------------------
 -- *** StaticTraitMap
@@ -232,7 +231,6 @@ mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
 
 -------------------------------------------------------------------------------------------------------
 
---makeLenses ''TraitImpls
 makeLenses ''FnState
 makeLenses ''MirHandle
 makeLenses ''CollectionState
