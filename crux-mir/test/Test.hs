@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
 import           Control.Exception (bracket)
@@ -7,7 +8,7 @@ import           Data.Char (isSpace)
 import           Data.List (dropWhileEnd, isPrefixOf,intersperse)
 import qualified Data.Map as Map
 import           Data.Maybe (catMaybes)
-import           GHC.IO.Handle (hDuplicate, hDuplicateTo, hGetBuffering, hSetBuffering, Handle)
+import           GHC.IO.Handle (hDuplicate, hDuplicateTo, hGetBuffering, hSetBuffering)
 import           System.Directory (listDirectory, doesDirectoryExist, doesFileExist, removeFile)
 import           System.Environment (withArgs)
 import           System.Exit (ExitCode(..))
@@ -35,7 +36,7 @@ import           Test.Tasty.ExpectedFailure (expectFailBecause)
 import qualified Data.AIG.Interface as AIG
 
 
-import qualified Mir.Language as Mir (main, mainWithOutputTo)
+import qualified Mir.Language as Mir (mainWithOutputTo)
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
@@ -99,10 +100,11 @@ sawOracleTest dir name step = do
 
   step "Generating MIR JSON"
 
-  collection <- generateMIR debugLevel dir name 
+  let ?debug = debugLevel
+  collection <- generateMIR dir name 
 
   step "Translating MIR to Crucible"
-  let mir = translateMIR collection debugLevel
+  let mir = translateMIR collection
   
   step "Extracting function f"
   f <- extractMIR proxy sc mir "f"

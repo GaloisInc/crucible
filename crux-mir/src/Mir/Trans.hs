@@ -62,7 +62,6 @@ import qualified Lang.Crucible.Substitution()
 
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
-import qualified Data.Parameterized.TraversableFC as Ctx
 import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 import Data.Parameterized.Peano
@@ -250,14 +249,6 @@ tyListToCtxMaybe ts f =  go (map tyToRepr ts) Ctx.empty
        go []       ctx      = f ctx
        go (Some tp:tps) ctx = go tps (ctx Ctx.:> C.MaybeRepr tp)
 
-
--- | Translate a Mir type substitution to a Crucible type substitution
-substToSubstCont :: HasCallStack => Substs -> (forall subst. C.CtxRepr subst -> a) -> a
-substToSubstCont (Substs []) f        = f Ctx.empty
-substToSubstCont (Substs (ty:rest)) f =
-  tyToReprCont ty $ \tyr ->
-    substToSubstCont (Substs rest) $ \rr ->
-       f (rr `Ctx.extend` tyr)
 
 -----------------------------------------------------------------------
 
@@ -658,11 +649,6 @@ buildRepeat op size = do
     let n = fromInteger size
     return $ MirExp (C.VectorRepr tp) (S.app $ E.VectorReplicate tp (S.app $ E.NatLit n) e)
 
-buildRepeat_ :: M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
-buildRepeat_ op size = do
-    let (M.OpConstant (M.Constant _ (M.Value (M.ConstInt i)))) = size
-    buildRepeat op (M.fromIntegerLit i)
-
 
 -- array in haskell -> crucible array
 buildArrayLit :: forall h s tp ret.  C.TypeRepr tp -> [MirExp s] -> MirGenerator h s ret (MirExp s)
@@ -691,20 +677,6 @@ buildTaggedUnion :: Integer -> [MirExp s] -> MirExp s
 buildTaggedUnion i es =
     let v = buildTuple es in
         buildTuple [MirExp knownRepr (S.app $ E.NatLit (fromInteger i)), packAny v ]
-
-buildTaggedUnion' :: Integer -> MirExp s -> MirExp s -- second argument is already a struct
-buildTaggedUnion' i v =
-    buildTuple [MirExp knownRepr (S.app $ E.NatLit (fromInteger i)), packAny v ]
-
-getAllFields :: MirExp s -> MirGenerator h s ret ([MirExp s])
-getAllFields e =
-    case e of
-      MirExp C.UnitRepr _ -> do
-        return []
-      MirExp (C.StructRepr ctx) _ -> do
-        let s = Ctx.sizeInt (Ctx.size ctx)
-        mapM (accessAggregate e) [0..(s-1)]
-      _ -> fail $ "getallfields of non-struct" ++ show e
 
 
 getAllFieldsMaybe :: MirExp s -> MirGenerator h s ret ([MirExp s])
@@ -902,34 +874,6 @@ mkCustomTraitObject traitName baseType _ =
 mkTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
 mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
     mkCustomTraitObject traitName baseType e
-    {-
-    -- look up the information about the trait
-    (Some timpls) <- traitImplsLookup traitName
-
-    -- look up the specific vtable for that type
-    case Map.lookup [baseType] (timpls^.vtables) of
-      Nothing -> mkCustomTraitObject traitName baseType e
-      Just vtbl -> do
-        let baseTy    = (timpls^.vtableTyRepr)
-        --traceM $ "pre-subst vtable type is  " ++ show baseTy
-        let substR    = Ctx.singleton C.AnyRepr 
-        let vtableCtx = implementCtxRepr substR baseTy
-        --traceM $ "post-subst vtable type is " ++ show vtableCtx
-        let ctxr      = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.StructRepr vtableCtx
-        let assn      = S.mkStruct vtableCtx (vtblToStruct substR vtbl)
-        let cbv       = R.App $ E.PackAny implRepr baseValue
-        let obj       = R.App $ E.PackAny (C.StructRepr ctxr)
-                           (S.mkStruct ctxr (Ctx.empty Ctx.:> cbv Ctx.:> assn))
-        return $ MirExp C.AnyRepr obj -}
-
-{-      
-traitImplsLookup :: HasCallStack => M.DefId -> MirGenerator h s ret (Some (TraitImpls s))
-traitImplsLookup traitName = 
-  (TraitMap mp) <- use traitMap
-  case Map.lookup traitName mp of
-    Nothing -> fail $ Text.unpack $ Text.unwords ["Trait does not exist ", M.idText traitName]
-    Just timpls -> return timpls
--}
 
 -- Expressions: evaluation of Rvalues and Lvalues
 
@@ -1293,11 +1237,6 @@ assignStaticExp did (MirExp rhsTy rhs) = do
 -- ** Statements
 --
 
--- v := rvalue
---
-assignVarRvalue :: M.Var -> M.Rvalue -> MirGenerator h s ret ()
-assignVarRvalue var rv = assignVarExp var =<< evalRval rv
-
 -- v := mirexp
 assignVarExp :: HasCallStack => M.Var -> MirExp s -> MirGenerator h s ret ()
 
@@ -1576,15 +1515,6 @@ jumpToBlock bbi = do
       Just lab -> G.jump lab
       _ -> fail "bad jump"
 
-{-
-jumpToBlock' :: M.BasicBlockInfo -> MirGenerator h s ret a
-jumpToBlock' bbi = do
-    lm <- use labelMap
-    case (Map.lookup bbi lm) of
-      Just lab -> G.jump lab
-      _ -> fail "bad jump"
--}
-
 doReturn :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret a
 doReturn tr = do
     e <- lookupRetVar tr
@@ -1732,136 +1662,6 @@ lookupFunction nm (Substs funsubst)
                traceM $ "***lookupFunction: Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
             return Nothing
 
-{-
--- Coerce an Adt value with parameters in 'subst' to an adt value with parameters in 'asubsts'
--- The ADT is a tagged union, so to do the coercion, we need to switch through the potential
--- variants, and when we find that one, coerce the fields of that variant.
-
--- For simplicity, this function only works for Adts with variants that have <= 2 fields.
--- TODO: make it work with n fields
-type Coercion = forall h s ret. HasCallStack => M.Ty -> (M.Ty, MirExp s) -> MirGenerator h s ret (MirExp s)
-
-coerceAdt :: forall h s ret. HasCallStack => Bool ->
-      M.DefId
-   -> Substs
-   -> Substs
-   -> R.Expr MIR s TaggedUnion
-   -> MirGenerator h s ret (R.Expr MIR s TaggedUnion)
-coerceAdt dir adt substs asubsts e0 = do
-  let f :: Coercion
-      f = if dir then coerceArg else coerceRet
-
-  am <- use collection
-  let variants = case (am^.adts) Map.!? adt of
-                    Just (M.Adt _ vs) -> vs
-                    Nothing -> fail $ "Cannot find declaration for adt: " ++ show adt
-
-  let idx :: R.Expr MIR s C.NatType
-      idx = (S.getStruct Ctx.i1of2 e0)
-  let dat :: R.Expr MIR s C.AnyType
-      dat = (S.getStruct Ctx.i2of2 e0)
-
-  let loop :: Natural -> [M.Variant] -> R.Expr MIR s C.AnyType
-           -> MirGenerator h s ret (R.Expr MIR s C.AnyType)
-      loop _n [] e = return e 
-      loop n (variant@(M.Variant _name _ fields _) : variants) e = do 
-         G.ifte (R.App (E.BaseIsEq knownRepr (R.App (E.NatLit n)) idx))
-            (do let ec_type = if dir then variantToRepr variant asubsts
-                                     else variantToRepr variant substs
-
-                case ec_type of
-                   -- i.e. None
-                   Some Ctx.Empty -> return e
-                   -- i.e. Some
-                   Some cr@(Ctx.Empty Ctx.:> tr) -> do
-                     let atyp = fieldToTy (substField asubsts (List.head fields))
-                     let typ  = fieldToTy (substField substs  (List.head fields))
-                     let sr = C.StructRepr cr
-                     let unp = (S.app $ E.FromJustValue sr (S.app $ E.UnpackAny sr e)
-                                       ("not the expected type"))
-                     (MirExp tr' e') <- f typ (atyp, MirExp tr (S.getStruct Ctx.baseIndex unp))
-                     let updated = S.mkStruct (Ctx.Empty Ctx.:> tr') (Ctx.empty `Ctx.extend` e')
-                     let packed  = R.App (E.PackAny (C.StructRepr (Ctx.Empty Ctx.:> tr'))
-                                         updated)
-                     return $ packed
-                   -- i.e. cons
-                   Some cr@(Ctx.Empty Ctx.:> tr1 Ctx.:> tr2) -> do
-                     let aty1:aty2:[] = map (fieldToTy . substField asubsts) fields
-                     let typ1:typ2:[] = map (fieldToTy . substField substs) fields
-                     let sr = C.StructRepr cr
-                     let unpacked = (S.app $ E.FromJustValue sr (S.app $ E.UnpackAny sr e)
-                                       ("not the expected type"))
-                     (MirExp tr1' e1') <- f typ1 (aty1, MirExp tr1 (S.getStruct Ctx.i1of2 unpacked))
-                     (MirExp tr2' e2') <- f typ2 (aty2, MirExp tr2 (S.getStruct Ctx.i2of2 unpacked))
-                     let cr' = (Ctx.Empty Ctx.:> tr1' Ctx.:> tr2')
-                     let updated = S.mkStruct cr' (Ctx.empty Ctx.:> e1' Ctx.:> e2' )
-                     let packed  = R.App (E.PackAny (C.StructRepr cr') updated)
-                     return $ packed
-
-                   _ -> fail "unhandled coerceArg, variant with more than 1 field")
-            (loop (n+1) variants e)
-  res <- loop 0 variants dat
-  return $ S.mkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr)
-                      (Ctx.empty Ctx.:> idx Ctx.:> res)
-
-
-
--- If we are calling a polymorphic function, we may need to coerce the type of the argument
--- so that it has the right type.
-coerceArg :: forall h s ret. HasCallStack => M.Ty -> (M.Ty, MirExp s) -> MirGenerator h s ret (MirExp s)
-coerceArg ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
-  case (ty,aty,tr) of
-     (M.TyRef ty1 M.Immut, M.TyRef aty1 M.Immut, _) -> coerceArg ty1 (aty1, e)
-     (M.TyAdt adt substs,   -- polymorphic type of the parameter
-      M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
-      C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr)) -> do
-        tagged <- coerceAdt True adt substs asubsts e0
-        return (MirExp taggedUnionRepr tagged)
-
-     -- Some types already have 'any' in the right place, so no need to coerce
-     (M.TyParam _, M.TyClosure _ _, _) -> return e     
-     (M.TySlice (M.TyParam _),   _, C.VectorRepr C.AnyRepr) -> return e
-     (M.TyArray (M.TyParam _) _, _, C.VectorRepr C.AnyRepr) -> return e
-
-     -- however, if the type is mutable, this is a bit suspicious. I'm not sure that
-     -- we'll ever be able to call these polymorphic functions with mutable values
-     (M.TyRef (M.TySlice (M.TyParam _)) M.Mut, _, MirSliceRepr C.AnyRepr) -> return e
-     (M.TyRef (M.TyParam _) M.Mut,  _, MirReferenceRepr  C.AnyRepr) -> return e
-
-     (M.TyParam _,_, _) -> return $ packAny e
-
-     _ -> fail $ "poly type " ++ show ty ++ " unsupported in fcn call for " ++ show tr
-               ++ " with aty " ++ show aty
-
-     -- leave all others alone
-               | otherwise = return e
-
--- Coerce the return type of a polymorphic function 
-coerceRet :: forall h s ret. HasCallStack =>
-            M.Ty             -- ^ declared return type of the fcn
-         -> (M.Ty, MirExp s) -- ^ expected return type by the context, expression to coerce
-         -> MirGenerator h s ret (MirExp s)
-coerceRet ty (aty, e@(MirExp tr e0)) | M.isPoly ty = do
-   case (ty,aty,tr) of
-     (M.TyRef ty1 M.Immut, M.TyRef aty2 M.Immut,_) -> coerceRet ty1 (aty2,e)
-     (M.TyParam _, M.TyClosure _ _, _) -> return e
-
-     (M.TyArray (M.TyParam _) _, _, C.VectorRepr C.AnyRepr) -> return e
-     (M.TySlice (M.TyParam _), _, C.VectorRepr C.AnyRepr) -> return e
-     (M.TyRef (M.TySlice (M.TyParam _)) M.Mut, _, MirSliceRepr C.AnyRepr) -> return e
-     (M.TyRef (M.TyParam _) M.Mut,  _, MirReferenceRepr  C.AnyRepr) -> return e
-
-     (M.TyParam _,_,C.AnyRepr) -> unpackAny (tyToRepr aty) e
-     (M.TyAdt adt substs,   -- polymorphic type of the parameter
-      M.TyAdt _   asubsts,  -- actual Mir type of the argument, including actual substitution
-      C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr)) -> do
-        tagged <- coerceAdt False adt substs asubsts e0
-        return (MirExp taggedUnionRepr tagged)
-     _ -> fail $ "poly type " ++ show (pretty ty) ++
-                 " unsupported in fcn return for " ++ show tr
--- leave all others alone
-                   | otherwise = return e
--}
 
 
 -- | Make a dictionary for a function call for the specified predicates
@@ -2002,71 +1802,6 @@ doCall funid funsubst cargs cdest retRepr = do
             -- TODO: is this the correct behavior?
             G.reportError (S.app $ E.TextLit "Program terminated.")
 
-{-
--- Method/trait calls
-      -- 1. translate `traitObject` -- should be a Ref to a tuple
-      -- 2. the first element should be Ref Any. This is the base value. Unpack the Any behind the Ref and stick it back into a Ref.
-      -- 3. the second element should be a Struct that matches the context repr in `tis^.vtableTyRepr`.
-      -- 4. index into that struct with `midx` and retrieve a FunctionHandle value
-      -- 5. Call the FunctionHandle passing the reference to the base value (step 2), and the rest of the arguments (translated)
-
-methodCall :: HasCallStack =>
-     TraitName -> MethName -> Substs -> M.Operand -> [M.Operand] -> Maybe (M.Lvalue, M.BasicBlockInfo) -> MirGenerator h s ret a
-methodCall traitName methodName (Substs funsubst) traitObject args (Just (dest_lv,jdest)) = do
-  (Some tis) <- traitImplsLookup traitName
-  case Map.lookup methodName $ tis^.methodIndex of
-    Nothing -> fail $ Text.unpack $ Text.unwords $ ["Error while translating a method call: no such method ",
-                                                    M.idText methodName, " in trait ", M.idText traitName]
-    Just (Some midx) -> do
-      -- type of the vtable for this trait object, instantiated with "Any"
-      let substR     = Ctx.singleton C.AnyRepr 
-      let vtableRepr = implementCtxRepr substR (tis^.vtableTyRepr)
-      -- polymorphic type of the method <<specialized to object>>
-      let midx'      = implementIdx substR midx
-      let fnRepr     = vtableRepr Ctx.! midx'
-
-      -- the object itself and its type (which should be C.AnyRepr)
-      (MirExp tp e) <- evalOperand traitObject
-      exps          <- mapM evalOperand args
-      case testEquality tp C.AnyRepr of 
-        Just Refl -> do
-          
-          let objTy     = C.StructRepr (Ctx.Empty Ctx.:> C.AnyRepr Ctx.:> C.StructRepr vtableRepr)
-          let e1        = R.App $ E.UnpackAny objTy e
-          let e2        = R.App $ E.FromJustValue objTy e1 (R.App (E.TextLit (fromString "unpack to struct")))
-          let _baseValue = R.App $ E.GetStruct e2 Ctx.i1of2 C.AnyRepr 
-          let vtable    = R.App $ E.GetStruct e2 Ctx.i2of2 (C.StructRepr vtableRepr)
-          let fn        = R.App $ E.GetStruct vtable midx' fnRepr
-          case fnRepr of
-             C.FunctionHandleRepr fargctx fret ->
-                exp_to_assgn exps $ \ctx asgn -> do
-                  case (testEquality ctx fargctx ) of
-                     Just Refl -> do
-                       ret_e <- G.call fn asgn
-                       assignLvExp dest_lv (MirExp fret ret_e)
-                       jumpToBlock jdest
-                     Nothing -> fail $ "type error in TRAIT call: args " ++ (show ctx) ++ " vs function params "
-                                 ++ show fargctx ++ " while calling " ++ show fn
-             C.PolyFnRepr k fargctx fret ->
-               tyListToCtx (reverse funsubst) $ \subst -> do
-                 case testEquality (ctxSizeP subst) k of
-                   Just Refl -> do
-                     let fargctx' = C.instantiate (C.mkSubst subst) fargctx
-                     let fret'    = C.instantiate (C.mkSubst subst) fret
-                     exp_to_assgn exps $ \ctx asgn -> do
-                        case (testEquality ctx fargctx') of
-                          Just Refl -> do
-                            ret_e <- G.call (R.App $ E.PolyInstantiate fnRepr fn subst) asgn
-                            assignLvExp dest_lv (MirExp fret' ret_e)
-                            jumpToBlock jdest
-                          Nothing -> fail $ "type error in TRAIT call: args " ++ (show ctx) ++ " vs function params "
-                                     ++ show fargctx'
-                   Nothing -> error $ "TODO: " ++ show k ++ " /=  " ++ show (ctxSizeP subst)
-             _ -> fail $ "type error in TRAIT call: " ++ show fnRepr 
-                        
-        Nothing -> fail $ unwords $ ["Type error when calling ", show methodName, " type is ", show tp]
-methodCall _ _ _ _ _ _ = fail "No destination for method call"
--}
 
 transTerminator :: HasCallStack => M.Terminator -> C.TypeRepr ret -> MirGenerator h s ret a
 transTerminator (M.Goto bbi) _ =
@@ -2272,16 +2007,16 @@ buildLabel (M.BasicBlock bi _) = do
     return (bi, lab)
 
 -- | Build the initial state for translation of functions
-initFnState :: CollectionState
-            -> Int                                 -- ^ debug level
+initFnState :: (?debug::Int)
+            => CollectionState
             -> Fn
             -> FH.FnHandle args ret 
             -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args 
             -> FnState s
-initFnState colState db fn handle inputs =
+initFnState colState fn handle inputs =
   FnState { _varMap     = mkVarMap (reverse argtups) argtypes inputs Map.empty,
             _currentFn  = fn,
-            _debugLevel = db,
+            _debugLevel = ?debug,
             _cs         = colState,
             _labelMap   = Map.empty
          }
@@ -2389,27 +2124,22 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
        G.jump lbl
     _ -> fail "bad thing happened"
 
-transDefine :: forall h. HasCallStack
+transDefine :: forall h. (HasCallStack, ?debug::Int) 
   => CollectionState 
-  -> Int
   -> M.Fn 
   -> ST h (Text, Core.AnyCFG MIR)
-transDefine colState db fn@(M.Fn fname fargs fsig _ _) =
+transDefine colState fn@(M.Fn fname fargs fsig _ _) =
   case (Map.lookup fname (colState^.handleMap)) of
     Nothing -> fail "bad handle!!"
     Just (MirHandle _hname _hsig (handle :: FH.FnHandle args ret)) -> do
       let rettype  = FH.handleReturnType handle
       let def :: G.FunctionDef MIR s2 FnState args ret
           def inputs = (s,f) where
-            s = initFnState colState db fn handle inputs 
+            s = initFnState colState fn handle inputs 
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
       case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
-
-
-
-
 
 
 -- | Allocate method handles for each of the functions in the Collection
@@ -2449,7 +2179,8 @@ transCollection col halloc = do
 
     hmap <- mkHandleMap col halloc 
 
-    (_, stm, morePairs) <- buildTraitMap ?debug col halloc hmap
+    let stm = mkStaticTraitMap col
+
 
     -- translate the statics and create the initialization code
     -- allocate references for statics
@@ -2496,452 +2227,14 @@ transCollection col halloc = do
                       Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
 
     -- translate all of the functions
-    pairs <- mapM (transDefine colState ?debug) (Map.elems (col^.M.functions))
+    pairs <- mapM (transDefine colState) (Map.elems (col^.M.functions))
     return $ RustModule
                 { rmCS    = colState
-                , rmCFGs  = Map.fromList (pairs ++ morePairs)
+                , rmCFGs  = Map.fromList pairs 
                 , initCFG = init_cfg
                 } 
 ----------------------------------------------------------------------------------------------------------
 -- * Traits
-
-
--- | The translation of the methods in a trait declaration: includes the types of all components
---   and an indexing map for the vtables
-data TraitDecl ctx =
-   TraitDecl M.DefId                                -- name of trait (for debugging/error messages)
-             Int                                    -- number of trait parameters
-             [(M.DefId,M.FnSig)]                    -- declared types of the methods
-             (C.CtxRepr ctx)                        -- vtable type 
-             (Map MethName (Some (Ctx.Index ctx)))  -- indices into the vtable
-             (Map Int MethName)                     -- reverse vtable index (for convenience)
-
-instance Show (TraitDecl ctx) where
-  show (TraitDecl nm _n _msig _vtable mm _rm) = "TraitDecl(" ++ show nm ++ ":" ++ show (Map.keys mm) ++ ")"
-instance ShowF TraitDecl
-
-
-
--- | Translate a trait declaration
-mkTraitDecl :: Trait -> Some TraitDecl
-mkTraitDecl tr = do
-  let tname     = tr^.traitName
-  let numparams = length (tr^.traitParams)
-  let titems    = tr^.traitItems
-  let meths     = [ (mname, tsig) |(M.TraitMethod mname tsig) <- titems]
-
-
-  let go :: Some (Ctx.Assignment MethRepr)
-         -> (MethName, M.FnSig)
-         -> Some (Ctx.Assignment MethRepr)
-      go (Some ctxr) (mname, sig)
-        | Some ret  <- tyToRepr (sig^.fsreturn_ty)
-        , Some args <- tyListToCtx ((sig^.fsarg_tys) ++ Maybe.mapMaybe dictTy (sig^.fspredicates)) Some
-        , Some k    <- peanoLength (sig^.fsgenerics)
-
-        = case testEquality k zeroP of
-            Just Refl -> Some (ctxr `Ctx.extend` MethRepr mname (C.FunctionHandleRepr args ret))
-            Nothing   -> Some (ctxr `Ctx.extend` MethRepr mname (C.PolyFnRepr k  args ret))
-
-  case foldl go (Some Ctx.empty) meths of
-    Some (mctxr :: Ctx.Assignment MethRepr ctx) ->
-        let
-            ctxr    :: Ctx.Assignment C.TypeRepr ctx
-            ctxr    = Ctx.fmapFC getReprTy mctxr
-            --
-            midx    :: Map MethName (Some (Ctx.Index ctx))
-            midx    = Ctx.forIndex
-                          (Ctx.size mctxr)
-                          (\mp idx -> Map.insert (getReprName (mctxr Ctx.! idx)) (Some idx) mp)
-                          Map.empty
-
-            -- reverse the method map, for convenience
-            rm      :: Map Int MethName
-            rm      = Map.foldrWithKey (\ mname (Some idx) m ->
-                                             Map.insert (Ctx.indexVal idx) mname m) Map.empty midx
-
-        in
-
-           Some (TraitDecl tname numparams meths ctxr midx rm) 
-
-
-
--- | Build the mapping from traits and types that implement them to VTables
--- For trait objects, this method will (eventually) involve defining new functions that
--- "wrap" (and potentially unwrap) the specific implementations, providing a uniform type for the trait methods. 
-buildTraitMap :: Int -> M.Collection -> FH.HandleAllocator s -> HandleMap
-              -> ST s (GenericTraitMap, StaticTraitMap, [(Text, Core.AnyCFG MIR)])
-buildTraitMap debug col _halloc hmap = do
-
-    when (debug > 6) $ do
-       --traceM $ "handle map contents in buildTraitMap:" 
-       forM_ (Map.assocs hmap) $ \(methName, methHandle) -> do
-           traceM $ "\t" ++ show methName
-
-    -- translate the trait declarations
-    let decls :: Map TraitName (Some TraitDecl)
-        decls = foldr (\ trait m -> Map.insert (trait^.M.traitName) (mkTraitDecl trait) m)
-                 Map.empty (col^.M.traits)
-
-    -- find default methods for traits
-    let default_methods :: Map TraitName [(MethName, MirHandle)]
-        default_methods = foldr g Map.empty  (col^.M.traits) where
-           g :: Trait -> Map TraitName [(MethName, MirHandle)] -> Map TraitName [(MethName, MirHandle)]
-           g trait m = foldr g2 m (trait^.M.traitItems) where
-               g2 (TraitMethod methName sig) m
-                 | Just mh <- Map.lookup  methName hmap 
-                 = Map.insertWith (++) (trait^.M.traitName) [(methName,mh)] m
-               g2 _ m = m
-
-    -- find all methods that are the implementations of traits at specific types
-    -- this uses the name of the method and its type 
-    let impls :: [(MethName, TraitName, MirHandle, Substs)]
-        impls = [ (methName, traitName, methHandle, substs) 
-                | (methName, methHandle) <- Map.assocs hmap
-                , (TraitRef traitName substs, _tii)  <- getTraitImplementation col methName ]
-
-    -- find the implementing methods for each type index (or default, if none is present)
-    -- as well as the necessary substitutions
-    let
-        implsWithDefaults :: TraitName -> Map Int MethName -> ([Ty], [(MethName, MirHandle, Substs)]) -> [(MethName, MirHandle, Substs)]
-        implsWithDefaults traitName revMap (typeName, implHandlesByType) = List.map getImpl (Map.elems revMap) where
-          isImpl methName implName
-            | Just methodEntry <- M.parseImplName implName
-            = M.sameTraitMethod methodEntry methName
-          isImpl _ _ = False
-
-          getImpl methName
-            -- there is a concrete implementation
-            | Just (implName, implHandle, implSubst) <-
-                  List.find (\(implName, _, _) -> isImpl methName implName) implHandlesByType 
-            = (implName, implHandle, implSubst)
-
-            -- there is a default implementation
-            | Just ms <- Map.lookup traitName default_methods
-            , Just (_, implHandle) <- List.find (\(mn,_) -> methName == mn) ms
-            = (methName, implHandle, Substs [])
-
-            -- can't find the implementation
-            | otherwise
-            = error $ "BUG: Cannot find implementation of method " ++ show (pretty methName)
-                    ++ " in trait " ++ show (pretty traitName) ++ " for type " ++ show (pretty typeName)
-
-
-    when (debug > 7) $ do
-      if null impls
-        then traceM "buildTraitMap: No trait implementations found"
-        else forM_ impls $ \(mn, tn, mh, sub) -> do
-          traceM $ "buildTraitMap: Implementing method of trait " ++ show tn ++ show (pretty sub)
-          traceM $ "\t with " ++ show (pretty mh)
-            
-
-    -- TODO: use ctxr instead of subst for instantiation???
-    let impl_vtable :: TraitDecl ctx                      
-                    -> (C.CtxRepr implTys)                -- ^ implementation type for the trait
-                    -> [(MethName, MirHandle, Substs)]    -- ^ impls for that type, must be in correct order
-                    -> Ctx.Assignment GenericMirValue ctx
-        impl_vtable (TraitDecl tname numParams methDecls ctxr methodIndex revIndex) implTy methImpls =
-           let go :: Ctx.Index ctx ty -> C.TypeRepr ty -> Identity (GenericMirValue ty)
-               go idx (C.FunctionHandleRepr args ret) = do
-                  let i = Ctx.indexVal idx
-                  when (i >= length methImpls) $ do
-                      error $ "impl_vtable BUG: " ++ show i ++ " out of range for methImpls"
-                  when (i >= length methDecls) $ do
-                      error $ "impl_vtable BUG: " ++ show i ++ " out of range for methDecls"
-                  let (_declName, _declTy)                = methDecls !! i 
-                  let (_implName, _implHandle, _implSubst) = methImpls !! i
-                  error $ "TODO: finish this case, if it turns out that we need it"
-
-               go idx (C.PolyFnRepr k args ret) = do
-                  let i = Ctx.indexVal idx
-                  when (i >= length methImpls) $ do
-                      error $ "impl_vtable BUG: " ++ show i ++ " out of range for methImpls"
-                  when (i >= length methDecls) $ do
-                      error $ "impl_vtable BUG: " ++ show i ++ " out of range for methDecls"
-
-                  let (declName, _declTy)                = methDecls !! i 
-                  let (_implName, implHandle, implSubst) = methImpls !! i
-
-                  substToSubstCont implSubst $ \subst -> 
-                    case implHandle of 
-                      (MirHandle mname sig (fh :: FH.FnHandle fargs fret)) -> do
-                        let subst' = C.mkSubst subst
-                        let k'     = minusP k (ctxSizeP subst)
-                        case (testEquality (FH.handleArgTypes   fh) (C.instantiate subst' args),
-                              testEquality (FH.handleReturnType fh) (C.instantiate subst' ret)) of
-                            (Just Refl, Just Refl) ->
-                              case peanoView k' of
-                                 SRepr _ ->
-                                   return (GenericMirValue $ 
-                                      let expr   = R.App $ E.PolyHandleLit k' fh in
-                                      let exprTy = C.PolyFnRepr k' (FH.handleArgTypes fh) (FH.handleReturnType fh) in
-                                      (MirValue subst exprTy expr sig))
-                                 ZRepr -> case (C.checkClosedCtx (FH.handleArgTypes fh),
-                                                C.checkClosed (FH.handleReturnType fh)) of
-                                   (Just C.Dict, Just C.Dict) ->
-                                      return (GenericMirValue $
-                                         let expr   = R.App $ E.HandleLit fh in
-                                         let exprTy = C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh) in
-                                         (MirValue subst exprTy expr sig))
-                                   (_,_) -> error $ "Function handle type not closed " ++ show fh
-                            (_,_)   -> error $ "Type mismatch in method table for " ++ show tname
-                                        ++ "\n\tadding implementation: " ++ show mname
-                                        ++ "\n\tat implTy:"                  ++ show implTy
-                                        ++ "\n\timplHandle type is: "        ++ show (FH.handleType fh)
-                                        ++ "\n\tbut expected type is: "
-                                           ++ show (C.FunctionHandleRepr (C.instantiate subst' args)
-                                                                         (C.instantiate subst' ret))
-                                        ++ "\n\targs before subst: " ++ show args
-                                        ++ "\n\targs after subst: "  ++ show (C.instantiate subst' args)
-                                        ++ "\n\tret before subst: " ++ show ret
-                                        ++ "\n\tret after subst: "  ++ show (C.instantiate subst' ret)
-
-                                        ++ "\n\tdeclared name is: " ++ show declName
-                                        ++ "\n\tdeclared type is: "  ++ fmt (C.PolyFnRepr k args ret)
-               go idx _ = error "buildTraitMap: can only handle trait definitions with polmorphic functions (no constants allowed)"
-           in 
-              runIdentity (Ctx.traverseWithIndex go ctxr)
-
-
-
-    -- make the vtables for each implementation
-    perTraitInfos <- forM (Map.assocs decls) $ \(traitName, Some decl@(TraitDecl _tname numParams _msigs ctx methodIndex revMap)) -> do
-
-                     let implHandles = [ (methName, mirHandle, substs)
-                                       | (methName, tn, mirHandle, substs) <- impls, traitName == tn]
-
-                     vtables' <- forM (groupByType numParams implHandles) $ \pr@(tys, _) ->
-                                   tyListToCtx (reverse tys) $ \ctxRepr -> do
-                                        let vtable = impl_vtable decl ctxRepr (implsWithDefaults traitName revMap pr)
-                                        return (Map.singleton tys vtable)
-
-                     let vtables   = mconcat vtables'
-                     let traitImpl = Some (mkGenericTraitImpls ctx methodIndex vtables)
- 
-                     return (traitName, traitImpl)
-
-    let tm   = mkGenericTraitMap perTraitInfos
-    let stm  = mkStaticTraitMap perTraitInfos
-
-    return (tm, stm, [])
-
-
-thisType :: HasCallStack => Int -> Substs -> [Ty]
-thisType k (Substs tys)
-  | length tys >= k   = take k tys
-  | otherwise         = error $ "BUG: not enough types for implementation"
-
-groupByType :: Int -> [(MethName, MirHandle, Substs)] -> [([Ty], [(MethName,MirHandle, Substs)])]
-groupByType num meths =
-  -- remove method implementations with no type instantiations
-  let impls = filter (\(_,_,Substs s) -> not (null s)) meths in
-  let impls' = map (\(methName, mh, substs) -> (thisType num substs, (methName,mh,substs))) impls
-  in   
-      -- convert double association list to double map
-   Map.assocs $ foldr (\(ty,(mn,h,s)) -> Map.insertWith (++) ty [(mn,h,s)]) Map.empty impls'
-
-
-
--- Aux data structure for `mkTraitDecl`
-data MethRepr ty where
-  MethRepr :: MethName -> C.TypeRepr ty -> MethRepr ty
-getReprName :: MethRepr ty -> MethName
-getReprName (MethRepr name _) = name
-getReprTy :: MethRepr ty -> C.TypeRepr ty
-getReprTy (MethRepr _ ty) = ty
-
-
-
-
-
-lookupMethodType :: Map TraitName (Some TraitDecl) -> TraitName -> MethName ->
-    (forall ctx args ret. C.CtxRepr ctx -> C.CtxRepr args -> C.TypeRepr ret -> a) -> a
-lookupMethodType traitDecls traitName implName k 
-   | Just (Some (TraitDecl _tname _n _msig vreprs meths _revmap)) <- Map.lookup traitName traitDecls,
-     Just (Some idx)                      <- Map.lookup implName  meths,
-     C.FunctionHandleRepr (argsr Ctx.:> C.AnyRepr) retr <- (vreprs Ctx.! idx)
-   = k vreprs argsr retr
-   | otherwise = error "Internal error"
-  
-
-{-  Example of WRAPPING METHODS
-
-    trait Foo {
-       f (&self) -> u32     <-  wrapperName == "wrapped_f"
-       g (&self) -> u32
-    } 
-
-    impl A {
-       fn f (&self) { 3 }    <- implName == "f"
-       fn g (&self) { 4 }
-    }
-
-    ==>
-
-    f (x : A) { 3 }
-
-    wrapped_f (Any x) -> u32 = 
-       unPack x as (  y :: A ,  { f :: A -> u32,  g :: A -> u 32 } )
-       f y
-
-    wrapped_g (Any x) -> u32 = 
-       unPack x as (  y :: A ,  { wrapped_f :: Dyn -> u32,  wrapped_g :: A -> u 32 } )
-       g y
-
--}
-
-{-
-data WrappedMethod ty = 
-    WrappedMethod { wmImplName      :: MethName
-                  , wmImplHandle    :: MirHandle
-                  , wmWrappedName   :: Text
-                  , wmWrappedHandle :: MirValue ty
-                  }
-buildWrappedTraitMethods :: forall s ctx. HasCallStack => FH.HandleAllocator s
-                        -> TraitName
-                        -> TraitDecl ctx                 
-                        -> [(MethName, MirHandle)]       -- impls for that type, must be in correct order
-                        -> ST s (Ctx.Assignment MirValue ctx, [(Text,Core.AnyCFG MIR)])
-buildWrappedTraitMethods halloc traitName (TraitDecl ctxr _idxs) meths = undefined
--}
- {-
-   -- allocate new function handles for the trait with the generic type
-   let go :: forall ty. Ctx.Index ctx ty -> C.TypeRepr ty -> ST s (WrappedMethod ty)
-       go idx (C.PolyFnRepr (argsr :: C.CtxRepr args) (retr :: C.TypeRepr ret)) = do
-          let argsr' :: C.CtxRepr (C.Instantiate (Ctx.EmptyCtx Ctx.::> C.AnyType) args)
-              argsr' = C.instantiate (Empty :> C.AnyRepr) argsr
-          let retr'  = C.instantiate (Empty :> C.AnyRepr) retr
-          let i = Ctx.indexVal idx
-          let (implName, implHandle) = if i < length meths then meths !! i else error "buildWrappedTraitMethods"
-          let wrappedName = Text.pack "wrapped" <> (M.idText traitName) <> "::" <> M.idText implName
-                                 
-          nhandle <- FH.mkHandle' @s @(C.Instantiate (Ctx.EmptyCtx Ctx.::> C.AnyType) args)
-                                     @(C.Instantiate (Ctx.EmptyCtx Ctx.::> C.AnyType) ret) 
-                        halloc (FN.functionNameFromText wrappedName) argsr' retr'
-          let fnValue :: MirValue (C.PolyFnType args ret)
-              fnValue = FnValue @C.AnyType @args @ret C.AnyRepr nhandle
-          return $ WrappedMethod implName implHandle wrappedName fnValue
-       go _ _ = error "No MirValue for non-(polymorphic)-functions"
-
-   full_vtable <- Ctx.traverseWithIndex go ctxr
-
-   -- bind functions to go with those handles
-   let defineCFG :: forall ty. WrappedMethod ty -> ST s (Text,Core.AnyCFG MIR)
-       defineCFG (WrappedMethod implName   (MirHandle _ _sig (implHandle :: FH.FnHandle implArgs implRet))
-                                wrappedName (FnValue (handle :: FH.FnHandle args ret))) = do
-
-         -- traceM ("\n wrapping " ++ Text.unpack implName ++ show (FH.handleArgTypes implHandle))
-         let argsr = FH.handleArgTypes   handle
-         let retr  = FH.handleReturnType handle
-         -- make sure that there is at least one argument to the function
-         -- and that the wrapped function is almost the same type as the impl function
-         case (FH.handleArgTypes implHandle :: C.CtxRepr implArgs) of
-           Ctx.Empty -> error "methods must take self"
-           (rest Ctx.:> argr) -> case testEquality (C.FunctionHandleRepr (rest Ctx.:> C.AnyRepr) (FH.handleReturnType implHandle))
-                                                   (C.FunctionHandleRepr argsr retr) of
-              Nothing   -> error $ "types don't match for:" ++ show implName
-                                 ++ "\ncomparing:  " ++ show (C.FunctionHandleRepr (rest Ctx.:> C.AnyRepr) (FH.handleReturnType implHandle))
-                                 ++ " with "  ++ show (C.FunctionHandleRepr argsr retr)
-              Just Refl -> do
-
-                 -- type of trait implementation
-                   let objTyRepr = C.StructRepr (Ctx.Empty Ctx.:> C.AnyRepr Ctx.:> C.StructRepr ctxr)
-
-                   let fnDef :: G.FunctionDef MIR h FnState args ret
-                       fnDef (xs Ctx.:> x) = (res, body) where
-                          res  = FnState Map.empty Map.empty Map.empty Map.empty (TraitMap Map.empty) Map.empty   -- CHECK THIS
-                          body =
-                            let yo = R.App $ E.FromJustValue objTyRepr (R.App (E.UnpackAny objTyRepr (R.AtomExpr x)))
-                                            (R.App (E.TextLit (Text.pack ("bad wrapper :" <> (show objTyRepr)))))
-                                y1  = R.App $ E.GetStruct yo Ctx.i1of2 C.AnyRepr
-                                y2 = R.App $ E.FromJustValue argr (R.App (E.UnpackAny argr y1))
-                                            (R.App (E.TextLit (Text.pack ("bad wrapper2 :" <> show argr))))
-                                ys = Ctx.fmapFC R.AtomExpr xs
-                            in G.call (R.App $ E.HandleLit implHandle) (ys Ctx.:> y2)
-                       fnDef _ = error "impossible"
-
-                   (R.SomeCFG cfg, _ignore) <- G.defineFunction PL.InternalPos handle fnDef
-                   case SSA.toSSA cfg of
-                     (Core.SomeCFG cfg') -> return (wrappedName, Core.AnyCFG cfg')
-
-   let mkCFGs = Ctx.toListFC defineCFG full_vtable
-   cfgs <- sequence mkCFGs
-
-   return (Ctx.fmapFC wmWrappedHandle full_vtable, cfgs)
--}
-   
-
-{-
--- | Construct 'TraitImpls' for each trait. Involves finding data
--- types that implement a given trait and functions that implement
--- each method for a data type and building VTables for each
--- data-type/trait pair.
-mkTraitImplementations ::
-         M.Collection
-      -> [(MethName, TraitName, Ty, MirHandle)]
-      -> M.Trait
-      -> Some TraitImpls
-mkTraitImplementations _col trs trait@(M.Trait tname titems) =
-  let impls :: Map Ty (Map MethName MirHandle)
-      impls = thisTraitImpls trait trs
-
-      meths = [(tname, tsig) |(M.TraitMethod tname tsig) <- titems]
-  in
-{-  trace ("Storing traits for " ++ show tname
-           ++ "\nimpls is: " ++ show impls
-           ++ "\ntrs is: " ++ show trs 
-           ++ "\nTrait meths are: " ++ show meths) $ -}
-  case foldl go (Some Ctx.empty) meths of
-
-    Some (mctxr :: Ctx.Assignment MethRepr ctx) ->
-        let
-            ctxr    :: Ctx.Assignment C.TypeRepr ctx
-            ctxr    = Ctx.fmapFC getReprTy mctxr
-            --
-            midx    :: Map MethName (Some (Ctx.Index ctx))
-            midx    = Ctx.forIndex
-                          (Ctx.size mctxr)
-                          (\mp idx -> Map.insert (getReprName (mctxr Ctx.! idx)) (Some idx) mp)
-                          Map.empty
-
-            -- replace the (Map MethName MirHandle) with a
-            -- an assignment from the method name to the appropriate function value
-            vtables :: Map Ty (Ctx.Assignment MirValue ctx)
-            vtables = Map.mapWithKey 
-                        (\ ty (mmap :: Map MethName MirHandle) ->
-                           Ctx.generate (Ctx.size mctxr)
-                                        (\idx ->
-                                            let (MethRepr name cty) = mctxr Ctx.! idx in
-                                            case Map.lookup name mmap of
-                                                    Just (MirHandle _ _ fh) -> case testEquality cty (FH.handleType fh) of
-                                                        Just Refl -> FnValue fh 
-                                                        Nothing   -> error $ "type mismatch between trait declr " ++ show (pretty cty)
-                                                                   ++  " and instance type " ++ show (pretty (FH.handleType fh))
-                                                    Nothing -> error $ "Cannot find method " ++ show name ++ " for type " ++ show ty
-                                                                       ++ " in trait " ++ show tname)) impls
-        in Some (TraitImpls ctxr midx vtables) 
-
-  where 
-        go :: Some (Ctx.Assignment MethRepr) -> (MethName, M.FnSig) -> Some (Ctx.Assignment MethRepr)
-        go (Some tr) (mname, M.FnSig argtys retty) =
-          case (tyToRepr retty, tyListToCtx argtys Some) of
-                (Some retrepr, Some argsrepr) ->
-                   Some (tr `Ctx.extend` MethRepr mname (C.FunctionHandleRepr argsrepr retrepr))
-
-
--}
-
-
-
- 
--- | Find the mapping from types to method handles for *this* trait
-thisTraitImpls :: M.Trait -> [(MethName,TraitName,Ty,MirHandle)] -> Map Ty (Map MethName MirHandle)
-thisTraitImpls trait trs = do
-  -- pull out method handles just for this trait
-  let impls = [ (typeName, (methName, handle)) |
-         (methName, traitName, typeName, handle) <- trs, traitName == trait^.M.traitName ]
-  -- convert double association list to double map
-  foldr (\(ty,(mn,h)) -> Map.insertWith Map.union ty (Map.singleton mn h)) Map.empty impls
 
 
 
@@ -2965,15 +2258,6 @@ mkNone'=
   let val = S.app $ E.MkStruct Ctx.empty Ctx.empty in
   G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
                      (Ctx.empty Ctx.:> (S.app $ E.NatLit 0) Ctx.:> (S.app $ E.PackAny ty val))
-
--- dynamically-typed option
-
-mkNone :: MirExp s
-mkNone =
-    buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 0), packAny $ buildTuple []]
-
-mkSome :: MirExp s -> MirExp s
-mkSome a = buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 1), packAny $ buildTuple [a]]
 
 -- ** range
 
@@ -3850,333 +3134,6 @@ incrExp ty e = do res <- evalBinOp M.Add Nothing (MirExp ty e) (oneExp ty)
 
 
 
-extractVecTy :: forall a t. C.TypeRepr t -> (forall t2. C.TypeRepr t2 -> a) -> a
-extractVecTy (C.VectorRepr a) f = f a
-extractVecTy _ _ = error "Expected vector type in extraction"
-
-
--- Coerce an expression to be appropriate as an array index
-generateIndex :: MirExp s -> MirGenerator h s ret (R.Expr MIR s C.NatType)
-generateIndex (MirExp C.NatRepr e) = return e
-generateIndex (MirExp ty _) = error $ "Don't know how to create an index from an " ++ show ty
-
-
-
-
-
-
-
-{-
-doCustomCall :: forall h s ret a. HasCallStack => M.DefId -> Substs -> [M.Operand] -> M.Lvalue -> M.BasicBlockInfo -> MirGenerator h s ret a
-doCustomCall fname funsubst ops lv dest
-{-  | Just "slice_get_unchecked" <- isCustomFunc fname
-  ,  [op1, op2] <- ops
-  ,  Substs subs <- funsubst = do
-       self  <- evalOperand op1
-       sl <- evalOperand op2
-
-       error $ "slice get_unchecked unimplemented " ++ show (pretty subs) -}
-{-
-  | Just "slice_get_unchecked_mut" <- isCustomFunc fname
-  ,  [op1, op2] <- ops
-  ,  Substs subs <- funsubst = do
-       self  <- evalOperand op1
-       sl <- evalOperand op2
-       case sl of
-         (MirExp (MirSliceRepr ty) slice) -> do
-           idx <- generateIndex self
-           let ref  = S.getStruct Ctx.i1of3 slice
-           let base = getSliceLB slice
-           v <- subindexRef ty ref (S.app (E.NatAdd idx base))
-
-           -- vec <- readMirRef (C.VectorRepr ty) ref
-           -- let v = S.app $ E.VectorGetEntry ty vec 
-           assignLvExp lv (MirExp (MirReferenceRepr ty) v)
-           jumpToBlock dest
-
-         _ -> error $ "slice get_unchecked_mut unimplemented " ++ show (pretty (typeOf op1)) ++ " and " ++ show (pretty (typeOf op2))
--}
-
-{- | Just "slice_get" <-  isCustomFunc fname,
-   [vec,range] <- ops,
-   Substs [ty1, ty2] <- funsubst = do
-     vec_e <- evalOperand vec
-     range_e <- evalOperand range
-     let v = error "slice_get: unimplemented"
-     assignLvExp lv v
-     jumpToBlock dest -}
-{-
- | Just "slice_get_mut" <-  isCustomFunc fname,
-   [vec, range] <- ops,
-   Substs [elTy, idxTy] <- funsubst = do
-
-     -- type of the structure is &mut[ elTy ]
-     (MirExp vty vec_e) <- evalOperand vec
-     case vty of
-       C.VectorRepr ety -> do
-         range_e <- evalOperand range
-         (MirExp C.NatRepr start) <- accessAggregate range_e 0
-         (MirExp C.NatRepr stop ) <- accessAggregate range_e 1
-         v <- vectorCopy ety start stop vec_e
-         assignLvExp lv (MirExp (C.VectorRepr ety) v)
-         jumpToBlock dest
-       _ -> fail $ " slice_get_mut type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
--}
-
-
-  | Just "boxnew" <- isCustomFunc fname,
-  [op] <- ops =  do
-        e <- evalOperand op
-        assignLvExp lv e
-        jumpToBlock dest
-
-  | Just "slice_tovec" <- isCustomFunc fname,
-  [op] <- ops = do
-        e <- evalOperand op
-        assignLvExp lv e
-        jumpToBlock dest
-
-  | Just "vec_asmutslice" <- isCustomFunc fname,
-  [op] <- ops = do
-        ans <- evalOperand op
-        assignLvExp lv ans
-        jumpToBlock dest
-
- | Just "index" <- isCustomFunc fname,
-    [op1, op2] <- ops = do
-        let v2 = M.varOfLvalue (M.lValueofOp op2)
-        ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
-        assignLvExp lv ans
-        jumpToBlock dest
-
- | Just "index_mut" <- isCustomFunc fname,
-    [op1, op2] <- ops = do
-        let v2 = M.varOfLvalue (M.lValueofOp op2)
-        ans <- evalLvalue (M.LProjection (M.LvalueProjection (M.lValueofOp op1) (M.Index v2)))
-        assignLvExp lv ans
-        jumpToBlock dest
-
- | Just "vec_fromelem" <- isCustomFunc fname,
-    [elem, u] <- ops = do
-        ans <- buildRepeat_ elem u
-        assignLvExp lv ans
-        jumpToBlock dest
-{-
- | Just "vec_with_capacity" <- isCustomFunc fname,
-    [op1] <- ops = do
-    error "no implementation for with capacity"
---    jumpToBlock dest
--}
-
-{-
- | Just "into_iter" <- isCustomFunc fname, 
-    [v] <- ops,
-    Substs [ty] <- funsubst = do
-    arg <- evalOperand v
-    case ty of
-     TyAdt defid (Substs [itemTy]) | defid == M.textId "::ops[0]::range[0]::Range[0]" -> do
-        -- an identity function
-        -- the range type just uses the default implementation of this trait
-        assignLvExp lv arg
-        jumpToBlock dest
-     _ -> do
-     -- default case: create a vec iterator
-     -- vec -> (vec, 0)    
-        let t = buildTuple [arg, MirExp (C.NatRepr) (S.app $ E.NatLit 0)]
-        assignLvExp lv t
-        jumpToBlock dest
-
- | Just "iter_next" <- isCustomFunc fname,
-     [o] <- ops,
-     Substs [ty] <- funsubst = do
-     iter <- evalOperand o 
-     case (ty, iter) of
-       (TyAdt defid (Substs [itemTy]),
-        MirExp (MirReferenceRepr tr) ii) 
-         | defid == M.textId "::ops[0]::range[0]::Range[0]"
-         , Just Refl <- testEquality tr taggedUnionRepr
-         -> do -- iterator is a struct of a "start" and "end" value of type 'itemTy'
-               -- to increment the iterator, make sure the start < end and then
-               tyToReprCont itemTy $ \itemRepr -> do
-
-                  r <- readMirRef tr ii
-                  (MirExp C.AnyRepr tup) <- accessAggregate (MirExp tr r) 1
-
-                  -- a "Range" is a pair of a start and end value
-                  let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
-                  let strTy = C.StructRepr ctx
-                  let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
-                                       (fromString ("Bad Any unpack: " ++ show strTy))
-                  let start = S.getStruct Ctx.i1of2 unp
-                  let end   = S.getStruct Ctx.i2of2 unp
-
-                  plus_one <- incrExp itemRepr start
-                  let good_ret = mkSome (MirExp itemRepr start)
-                  let bad_ret  = mkNone
-                  let  updateRange :: MirGenerator h s ret ()
-                       updateRange = let y  = S.app $ E.PackAny strTy (S.app $ E.SetStruct ctx unp Ctx.i1of2 plus_one)
-                                         jj = S.app $ E.MkStruct taggedUnionCtx (Ctx.empty `Ctx.extend` (S.litExpr 0) `Ctx.extend` y)
-                                    in
-                                        writeMirRef ii jj
-
-                  (MirExp C.BoolRepr boundsCheck)
-                       <- evalBinOp M.Lt (arithType itemTy) (MirExp itemRepr start)
-                                                            (MirExp itemRepr end)
-                  ifteAny boundsCheck
-                      (updateRange >> assignLvExp lv good_ret >> jumpToBlock dest)
-                      (assignLvExp lv bad_ret >> jumpToBlock dest)
-
-       _ -> do
-         -- iter = struct (vec, pos of nat).
-         -- if pos < size of vec, return (Some(vec[pos]), (vec, pos+1)).
-         -- otherwise return (None, (vec, pos))
-         (MirExp (C.VectorRepr elemty) iter_vec) <- accessAggregate iter 0
-         (MirExp C.NatRepr iter_pos) <- accessAggregate iter 1
-         let is_good = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
-             good_ret_1 = mkSome $ MirExp elemty $ S.app $ E.VectorGetEntry elemty iter_vec iter_pos
-             good_ret_2 = buildTuple [MirExp (C.VectorRepr elemty) iter_vec, MirExp C.NatRepr (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))]
-             good_ret = buildTuple [good_ret_1, good_ret_2]
-
-             bad_ret_1 = mkNone
-             bad_ret_2 = buildTuple [MirExp (C.VectorRepr elemty) iter_vec, MirExp C.NatRepr iter_pos]
-             bad_ret = buildTuple [bad_ret_1, bad_ret_2]
-
-         ifteAny is_good
-                 (assignLvExp lv good_ret >> jumpToBlock dest)
-                 (assignLvExp lv bad_ret >> jumpToBlock dest)
-
- | Just "iter_map" <- isCustomFunc fname, [iter, closure] <- ops = do
-     iter_e <- evalOperand iter
-     closure_e <- evalOperand closure
-     iter2 <- performMap (M.typeOf iter) iter_e (M.typeOf closure) closure_e
-     assignLvExp lv iter2
-     jumpToBlock dest
-
- | Just "iter_collect" <- isCustomFunc fname, [o] <- ops = do
-     iter <- evalOperand o
-     v <- accessAggregate iter 0
-     assignLvExp lv v
-     jumpToBlock dest
--}
-
-{-
- | Just "slice_len" <-  isCustomFunc fname, [vec] <- ops, Substs [_] <- funsubst = do
-     -- type of the structure is &mut[ elTy ]
-     (MirExp vty vec_e) <- evalOperand vec
-     case vty of
-       (C.VectorRepr _) -> do
-           let ans = (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
-           assignLvExp lv ans
-           jumpToBlock dest
-       _ -> fail $ " slice_len type is " ++ show vty ++ " from " ++ show (M.typeOf vec)
--}
-{-
- | Just "wrapping_sub" <- isCustomFunc fname,
-    [o1, o2] <- ops = do
-       (MirExp aty a) <- evalOperand o1
-       (MirExp bty b) <- evalOperand o2
-       -- return (a - b) mod 2N  (this is the default behavior for BVSub)
-       case (aty, bty) of
-         (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
-             traceM "WARNING: wrapping_sub does not actually wrap"
-             let sub = R.App $ E.BVSub wa a b 
-             let v = MirExp aty sub
-             assignLvExp lv v
-             jumpToBlock dest
-         (_,_) -> error $ "wrapping_sub: cannot call with types " ++ show aty ++ " and " ++ show bty
--}
-{-
- | Just "call" <- isCustomFunc fname, -- perform function call with a closure
-   [o1, o2] <- ops,
-   Substs [_ty1, aty] <- funsubst = do
-
-
-     fn           <- evalOperand o1
-     argtuple     <- evalOperand o2
-     extra_args   <- getAllFieldsMaybe argtuple
-
-     -- returns the function (perhaps with a coerced type, in the case of polymorphism)
-     -- paired with it unpacked as a closure
-     let unpackClosure :: M.Ty -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s, MirExp s)
-
-         unpackClosure (M.TyRef ty M.Immut) rty  arg   = unpackClosure ty rty arg
-
-         unpackClosure (M.TyClosure defid clargs) _rty arg = do
-             (clty, _rty2) <- buildClosureType defid clargs
-             (arg,) <$> unpackAny clty arg
-
-         unpackClosure (M.TyDynamic _id)    rty  arg   = do
-             -- a Fn object looks like a pair of
-             -- a function that takes any "Any" arguments (the closure) and a struct
-             --      of the actual arguments (from the funsubst) and returns type rty
-             -- and an environment of type "Any
-
-             tyToReprCont rty $ \rr ->
-               case aty of
-                  (TyTuple aas) -> tyListToCtx aas $ \r2 -> do
-                     let args = (Ctx.empty Ctx.:> C.AnyRepr)  Ctx.<++> r2
-                     let t = Ctx.empty Ctx.:> C.FunctionHandleRepr args rr Ctx.:> C.AnyRepr
-                     (arg,) <$> unpackAny (Some (C.StructRepr t)) arg
-                  _ -> fail $ "aty must be tuple type in dynamic call, found " ++ show (pretty aty)
-
-         unpackClosure (M.TyParam i) rty arg = do
-           -- TODO: this is a really hacky implementation of higher-order function calls
-           -- we should replace it with additional arguments being passed in for the constraints
-           -- Here, instead we assume that the type that is instantiating the type variable i is
-           -- some closure type. We then look at the constraint to see what type of closure type it
-           -- could be and then instantiate that type variable with "Any" 
-           -- If we are wrong, we'll get a segmentation fault(!!!)
-           -- (This means we have some unsafe instantiation code around, e.g. for Nonces,
-           -- so we should get rid of that too!)
-           ps <- use preds
-           let findFnType (TraitProjection defid (Substs ([M.TyParam j, M.TyTuple argTys])) retTy : rest)
-                 | i == j     = 
-                  tyListToCtx argTys $ \argsctx -> 
-                  tyToReprCont retTy $ \ret     ->
-                     (Some argsctx, Some ret)
-
-                 | otherwise  =  findFnType rest
-               findFnType (_ : rest) = findFnType rest
-               findFnType [] = error $ "no appropriate predicate in scope for call: " ++ show (pretty ps)
-
-           case (arg, findFnType ps) of 
-             (MirExp _ty cp,
-              (Some (argsctx :: C.CtxRepr args), Some (rr :: C.TypeRepr r))) -> do
-                let cp'  :: R.Expr MIR s C.AnyType
-                    cp'  = unsafeCoerce cp
-                let args = (Ctx.empty Ctx.:> C.AnyRepr)  Ctx.<++> argsctx
-                let t = Ctx.empty Ctx.:> C.FunctionHandleRepr args rr Ctx.:> C.AnyRepr
-                let arg' = MirExp C.AnyRepr cp'
-                (arg',) <$> unpackAny (Some (C.StructRepr t)) arg'
-
-
-         unpackClosure ty _ _arg      =
-           fail $ "Don't know how to unpack Fn::call arg of type " ++ show (pretty ty)
-
-     (fn', unpack_closure) <- unpackClosure (M.typeOf o1) (M.typeOf lv) fn
-     handle <- accessAggregate unpack_closure 0
-     extra_args <- getAllFieldsMaybe argtuple
-     case handle of
-       MirExp hand_ty handl ->
-           case hand_ty of
-             C.FunctionHandleRepr fargctx fretrepr -> do
-                exp_to_assgn (fn' : extra_args) $ \ctx asgn ->
-                   case (testEquality ctx fargctx) of
-                     Just Refl -> do
-                       ret_e <- G.call handl asgn
-                       assignLvExp lv (MirExp fretrepr ret_e)
-                       jumpToBlock dest
-                     Nothing ->
-                       fail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
-             _ -> fail $ "bad handle type"
--}
-
- | Just cf <- isCustomFunc fname = fail $ "custom function not handled: " ++ (show cf)
-
- | otherwise =  fail $ "doCustomCall unhandled: " ++ (show $ fname)
--}
-
-
 transCustomAgg :: M.CustomAggregate -> MirGenerator h s ret (MirExp s) -- deprecated
 transCustomAgg (M.CARange _ty f1 f2) = evalRval (M.Aggregate M.AKTuple [f1,f2])
 
@@ -4247,3 +3204,4 @@ performMap iterty iter closurety closure =
 
 --  LocalWords:  params IndexMut FnOnce Fn IntoIterator iter impl
 --  LocalWords:  tovec fromelem tmethsubst MirExp initializer
+--  LocalWords:  mkTraitObject mkCustomTraitObject TyClosure

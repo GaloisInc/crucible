@@ -135,9 +135,6 @@ data FnState (s :: Type)
               _cs         :: !CollectionState
             }
 
-data StaticVar where
-  StaticVar :: C.Closed ty => G.GlobalVar ty -> StaticVar
-
 -- | State about the entire collection used for the translation
 data CollectionState 
   = CollectionState {
@@ -153,6 +150,13 @@ instance Semigroup CollectionState  where
 instance Monoid CollectionState where
   mappend = ((<>))
   mempty  = CollectionState mempty mempty mempty mempty
+
+
+---------------------------------------------------------------------------
+
+data StaticVar where
+  StaticVar :: C.Closed ty => G.GlobalVar ty -> StaticVar
+
 
 ---------------------------------------------------------------------------
 -- *** VarMap
@@ -207,187 +211,28 @@ instance Pretty MirHandle where
 type HandleMap = Map MethName MirHandle
 
 ---------------------------------------------------------------------------
--- *** TraitMap and StaticTraitMap
+-- *** StaticTraitMap
 
 
 -- | A StaticTraitMap maps trait method names to all traits that contain them
 -- (There could be multiple, and will need to use type info to resolve further)
 type StaticTraitMap = Map MethName [TraitName]
 
-
--- | A TraitMap maps trait names to their vtables and instances
-data TraitMap (s::Type) = TraitMap (Map TraitName (Some (TraitImpls s)))
-
--- | The implementation of a Trait.
--- The 'ctx' parameter lists the required members of the trait
--- NOTE: the vtables are an instance of the more general type
--- listed in the vtableTyRepr
-data TraitImpls (s::Type) ctx = TraitImpls
-  {_vtableTyRepr :: Core.CtxRepr ctx
-   -- ^ Describes the types of Crucible structs that store the VTable
-   -- of implementations
-   -- TyParam 0 is the "Self" type that will be replaced in all
-   -- instances
-   -- There may be other associated types for the trait (i.e.
-   -- TyParam 1, ...
-  ,_methodIndex :: Map MethName (Some (Index ctx))
-   -- ^ Tells which fields (indices) of the struct correspond to
-   -- method names of the given trait
-  ,_vtables :: Map [Ty] (Assignment (MirValue s) ctx)
-   -- ^ Gives the vtable for each type substitution implementing a given trait
-   -- the length of [Ty] depends on the number of type params to the trait
-   -- (usually one, called Self, but could be more)
-   -- 
-   -- NOTE: the index types [Ty] may have free type variables, in which case the lookup
-   -- function will match against the type to resolve the instance
-   -- TODO: if the impl methods need additional preds, we won't be able to
-   -- add them. Need a work-around for this.
-  }
-
-
--- | The values stored in the vtables --- Crucible expressions 
--- This type must be a *specialization* of the expected type of the vtable
-data MirValue s ty where
-  MirValue :: C.CtxRepr implSubst
-           -> C.TypeRepr   (ImplementTrait implSubst ty)
-           -> R.Expr MIR s (ImplementTrait implSubst ty)
-           -> FnSig
-           -> MirValue s ty
-
-
-
-
--- | Type-level instantiation function
--- All values stored in the vtables must be polymorphic functions
-type family ImplementTrait (timpls :: Ctx C.CrucibleType ) (arg :: C.CrucibleType) :: C.CrucibleType where  
-  ImplementTrait timpls (C.PolyFnType k args ret) = 
-    MkTraitType (Minus k (CtxSizeP timpls))
-                (C.Instantiate (C.MkSubst timpls) args)
-                (C.Instantiate (C.MkSubst timpls) ret)
-
-type family MkTraitType (k :: Peano) (args :: Ctx C.CrucibleType) (ret :: C.CrucibleType) where
-  MkTraitType Z args ret = C.FunctionHandleType args ret
-  MkTraitType k args ret = C.PolyFnType k args ret
-         
--- | Map the instantiation function across a context
-type family ImplementCtxTrait (implSubst :: Ctx C.CrucibleType) (arg :: Ctx k) :: Ctx k where
-  ImplementCtxTrait implSubst EmptyCtx = EmptyCtx
-  ImplementCtxTrait implSubst (ctx ::> ty) = ImplementCtxTrait implSubst ctx ::> ImplementTrait implSubst ty
-
--- | "Repr" versions of the above
-implementRepr :: C.CtxRepr implSubst -> C.TypeRepr ty -> C.TypeRepr (ImplementTrait implSubst ty)
-implementRepr implSubst (C.PolyFnRepr k args ret) =
-  case peanoView (minusP k (ctxSizeP implSubst)) of
-    ZRepr -> C.FunctionHandleRepr (C.instantiate (C.mkSubst implSubst) args) (C.instantiate (C.mkSubst implSubst) ret)
-    SRepr n -> C.PolyFnRepr (minusP k (ctxSizeP implSubst))
-                      (C.instantiate (C.mkSubst implSubst) args) (C.instantiate (C.mkSubst implSubst) ret)
-implementRepr implSubst ty = error "ImplementRepr: should only be called with polymorphic function types"
-
-implementCtxRepr :: C.CtxRepr implSubst -> C.CtxRepr ctx -> C.CtxRepr (ImplementCtxTrait implSubst ctx)
-implementCtxRepr _implSubst Empty = Empty
-implementCtxRepr implSubst (ctx :> ty) = implementCtxRepr implSubst ctx :> implementRepr implSubst ty
-
-implementIdx :: C.CtxRepr implSubst -> Index ctx a -> Index (ImplementCtxTrait implSubst ctx) (ImplementTrait implSubst a)
-implementIdx _implSubst idx = unsafeCoerce idx
-
-
--- | Extract the Crucible expression from the vtable. Must provide the correct instantiation
--- for this particular value, or fails at runtime
-valueToExpr :: HasCallStack => C.CtxRepr implSubst -> MirValue s ty -> G.Expr MIR s (ImplementTrait implSubst ty)
-valueToExpr wantedImpl (MirValue implRepr _ e _)
-  | Just Refl <- testEquality wantedImpl implRepr
-  = e
-  | otherwise 
-  = error $ "BUG: Invalid implementation type. " 
-
--- | Create a Crucible struct from the vtable --- this is a dictionary for the trait
-vtblToStruct ::
-     C.CtxRepr implSubst
-  -> Assignment (MirValue s) ctx
-  -> Assignment (G.Expr MIR s) (ImplementCtxTrait implSubst ctx)
-vtblToStruct _implSubst Empty = Empty
-vtblToStruct implSubst (ctx :> val) = vtblToStruct implSubst ctx :> valueToExpr implSubst val
-
-------------------------------------------------------------------------------------
--- ** Working with generic traits (i.e. not specialized to any particular translation 's')
--- In practice, this means that the values can only be FunctionHandles
-
-data GenericMirValue ty    = GenericMirValue   (forall (s::Type). MirValue s ty)
-data GenericTraitImpls ctx = GenericTraitImpls (forall (s::Type). TraitImpls s ctx)
-data GenericTraitMap       = GenericTraitMap   (forall (s::Type). Map TraitName (Some (TraitImpls s)))
-
-mkGenericTraitMap :: [(TraitName,Some GenericTraitImpls)] -> GenericTraitMap
-mkGenericTraitMap [] = GenericTraitMap Map.empty
-mkGenericTraitMap ((tn,Some (GenericTraitImpls impls)):rest) =
-  case mkGenericTraitMap rest of
-    GenericTraitMap m ->
-      GenericTraitMap (Map.insert tn (Some impls) m)
-
-mkGenericTraitImpls :: C.CtxRepr ctx
-           -> Map MethName (Some (Index ctx))
-           -> Map [Ty] (Assignment GenericMirValue ctx)
-           -> GenericTraitImpls ctx
-mkGenericTraitImpls str midx vtbls' =
-  GenericTraitImpls $
-  let g (GenericMirValue mv) = mv
-      vtbls = fmap (fmapFC g) vtbls'
-  in
-    TraitImpls {_vtableTyRepr = str
-               ,_methodIndex  = midx
-               ,_vtables      = vtbls
-               }
-
-
-mkStaticTraitMap :: [(TraitName,Some GenericTraitImpls)] -> Map.Map MethName [TraitName]
-mkStaticTraitMap impls = foldr g Map.empty impls where
-  g :: (TraitName, Some GenericTraitImpls) -> StaticTraitMap -> StaticTraitMap
-  g (tn, Some (GenericTraitImpls (TraitImpls _ mi _))) stm =
-    let meths = Map.keys mi in
-      foldr (\n m -> Map.insertWith (++) n [tn] m) stm meths
-
-   
-{-
-addVTable :: forall s implSubst. TraitName -> Ty -> [Predicate] -> SubstRepr implSubst -> [ (MethName, MirExp s) ] -> TraitMap s -> TraitMap s
-addVTable tname ty preds implSubst meths (TraitMap tm) =
-  case Map.lookup tname tm of
-    Nothing -> error "Trait not found"
-    Just (Some (timpl@(TraitImpls ctxr _mi vtab))) ->
-      let go :: Index ctx ty -> C.TypeRepr ty -> Identity (MirValue s ty)
-          go idx tyr2 = do
-            let i = indexVal idx
-            let (_implName, smv) = if i < length meths then meths !! i else error "impl_vtable: BUG"
-            case smv of
-              (MirExp tyr e) ->                
-                case testEquality tyr (implementRepr implSubst tyr2)  of
-                  Just Refl -> return (MirValue implSubst tyr e preds)
-                  Nothing   -> error "Invalid type for addVTable"
-                   
-          asgn'  = runIdentity (traverseWithIndex go ctxr)
-          timpl' = timpl { _vtables = Map.insert ty asgn' vtab } in
-      TraitMap (Map.insert tname (Some timpl') tm)
--}       
-
-------------------------------------------------------------------------------------
--- ** helper function for traits
-
-
--- | Smart constructor
-traitImpls :: C.CtxRepr ctx
-           -> Map.Map MethName (Some (Index ctx))
-           -> Map.Map [Ty] (Assignment (MirValue s) ctx)
-           -> TraitImpls s ctx
-traitImpls str midx vtbls =
-  TraitImpls {_vtableTyRepr = str
-             ,_methodIndex  = midx
-             ,_vtables      = vtbls
-             }
-
-
+mkStaticTraitMap :: Collection -> StaticTraitMap
+mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
+  addTrait :: Trait -> StaticTraitMap -> StaticTraitMap
+  addTrait tr tm = foldr addItem tm (tr^.traitItems) where
+    tn = tr^.traitName
+    addItem :: TraitItem -> StaticTraitMap -> StaticTraitMap
+    addItem tii@(TraitMethod methName _sig) tm =
+      Map.insertWith (++) methName [tn] tm
+    addItem _ tm = tm
+  
 
 
 -------------------------------------------------------------------------------------------------------
 
-makeLenses ''TraitImpls
+--makeLenses ''TraitImpls
 makeLenses ''FnState
 makeLenses ''MirHandle
 makeLenses ''CollectionState
