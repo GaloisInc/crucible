@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts, TypeOperators #-}
+{-# LANGUAGE ImplicitParams #-}
 
 {-# OPTIONS_GHC -Wall -fwarn-incomplete-patterns #-}
 
@@ -34,8 +35,8 @@ libLoc :: String
 libLoc = "mir-lib/src/"
 
 -- | load the rs file containing the standard library
-loadPrims :: Bool -> Int -> IO Collection
-loadPrims useStdLib debugLevel = do
+loadPrims :: (?debug::Int) => Bool -> IO Collection
+loadPrims useStdLib = do
 
   
   -- Same order as in https://github.com/rust-lang/rust/blob/master/src/libcore/prelude/v1.rs  
@@ -61,10 +62,12 @@ loadPrims useStdLib debugLevel = do
         
   
   -- Only print debugging info in the standard library at high debugging levels
-  cols <- mapM (generateMIR (debugLevel-3) libLoc) lib
+  
+  cols <- let ?debug = ?debug - 3 in
+          mapM (generateMIR libLoc) lib
     
   let total = (fold (hardCoded : cols))
-  when (debugLevel > 6) $ do
+  when (?debug > 6) $ do
     Debug.traceM "--------------------------------------------------------------"
     Debug.traceM $ "Complete Collection: "
     Debug.traceM $ show (pretty total)

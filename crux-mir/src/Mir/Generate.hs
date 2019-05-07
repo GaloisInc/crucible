@@ -52,12 +52,11 @@ import Debug.Trace
 
 -- | Run mir-json on the input, generating lib file on disk 
 -- This function uses 'failIO' if any error occurs
-generateMIR :: HasCallStack =>
-               Int               -- ^ debug level
-            -> FilePath          -- ^ location of input file
+generateMIR :: (HasCallStack, ?debug::Int) =>
+               FilePath          -- ^ location of input file
             -> String            -- ^ file to processes, without extension
             -> IO Collection
-generateMIR debug dir name  = do
+generateMIR dir name  = do
   
   let rustFile = dir </> name <.> "rs"
   let mirFile  = dir </> name <.> "mir"
@@ -93,7 +92,7 @@ generateMIR debug dir name  = do
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> do
-        when (debug > 5) $ do
+        when (?debug > 5) $ do
           traceM "--------------------------------------------------------------"
           traceM $ "Generated module: " ++ name
           traceM $ show (pretty col)
@@ -101,10 +100,9 @@ generateMIR debug dir name  = do
         return col
 
 -- | Translate MIR to Crucible
-translateMIR :: Collection -> Int -> RustModule
-translateMIR col debug =
-  let ?debug = debug in
-  runST $ C.withHandleAllocator $ (transCollection (rewriteCollection col) debug)
+translateMIR :: (HasCallStack, ?debug::Int) => Collection -> RustModule
+translateMIR col =
+  runST $ C.withHandleAllocator $ (transCollection (rewriteCollection col))
 
     
 

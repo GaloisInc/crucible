@@ -30,7 +30,6 @@ import Mir.Pass.CollapseRefs( passCollapseRefs )
 import Mir.Pass.MutRefReturnStatic( passMutRefReturnStatic )
 import Mir.Pass.RemoveBoxNullary( passRemoveBoxNullary )
 import Mir.Pass.RemoveStorage( passRemoveStorage )
-import Mir.Pass.RewriteMutRef( passRewriteMutRefArg )
 import Mir.Pass.AllocateEnum ( passAllocateEnum )
 import Mir.Pass.NoMutParams ( passNoMutParams )
 import Mir.Pass.AddDictionaryPreds ( passAddDictionaryPreds )
@@ -111,26 +110,21 @@ defineTraitAdts traits = fmap traitToAdt traits where
 
 
 --------------------------------------------------------------------------------------
-
-passMutRefArgs :: Pass
-passMutRefArgs = toCollectionPass (passRewriteMutRefArg . passCollapseRefs)
-
-toCollectionPass :: ([Fn] -> [Fn]) -> Pass
-toCollectionPass f col = col { _functions = (fromList (f (Map.elems (col^.functions)))) } where
-    fromList :: [Fn] -> Map.Map DefId Fn
-    fromList = foldr (\fn m -> Map.insert (fn^.fname) fn m) Map.empty
-
-  
---------------------------------------------------------------------------------------
 --
 -- Most of the implementation of this pass is in GenericOps
 
 passRemoveUnknownPreds :: Pass
 passRemoveUnknownPreds col = modifyPreds ff col 
   where
-     ff did = Map.member did trs
-     trs = col^.traits
+     ff did = Map.member did (col^.traits)
 
 --------------------------------------------------------------------------------------
+
+toCollectionPass :: ([Fn] -> [Fn]) -> Pass
+toCollectionPass f col = col { _functions = (fromList (f (Map.elems (col^.functions)))) } where
+    fromList :: [Fn] -> Map.Map DefId Fn
+    fromList = foldr (\fn m -> Map.insert (fn^.fname) fn m) Map.empty
+
+--------------------------------------------------------------------------------------  
 
 

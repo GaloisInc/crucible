@@ -25,7 +25,7 @@
                 -fno-warn-unused-matches
                 -fno-warn-unticked-promoted-constructors #-}
 
-module Mir.Trans where
+module Mir.Trans(transCollection,RustModule(..),memberCustomFunc) where
 
 import Control.Monad
 import Control.Monad.ST
@@ -87,6 +87,18 @@ import GHC.Stack
 
 import Unsafe.Coerce
 import Debug.Trace
+
+
+--------------------------------------------------------------------------------------
+-- *** Result of translating a collection
+--
+-- 
+data RustModule = RustModule {
+         rmCS    :: CollectionState
+       , rmCFGs  :: Map Text (Core.AnyCFG MIR)
+       , initCFG :: Core.AnyCFG MIR
+     }
+
 
 -----------------------------------------------------------------------
 -- ** Type translation: MIR types to Crucible types
@@ -2420,30 +2432,16 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
              return $ MirHandle fname ty h 
 
 
---------------------------------------------------------------------------------------
--- *** Result of translating a collection
---
--- 
-data RustModule = RustModule {
-         rmCS    :: CollectionState
-       , rmCFGs  :: Map Text (Core.AnyCFG MIR)
-       , initCFG :: Core.AnyCFG MIR
-     }
 ---------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR collection
-transCollection :: forall s. HasCallStack
+transCollection :: forall s. (HasCallStack, ?debug::Int) 
       => M.Collection
-      -> Int  
       -> FH.HandleAllocator s
       -> ST s RustModule
-transCollection col debug halloc = do
+transCollection col halloc = do
 
-    -- The first part are some transformations on the collection itself.
-
-
-
-    when (debug > 3) $ do
+    when (?debug > 3) $ do
       traceM $ "MIR collection"
       traceM $ show (pretty col)
 
@@ -2451,7 +2449,7 @@ transCollection col debug halloc = do
 
     hmap <- mkHandleMap col halloc 
 
-    (_, stm, morePairs) <- buildTraitMap debug col halloc hmap
+    (_, stm, morePairs) <- buildTraitMap ?debug col halloc hmap
 
     -- translate the statics and create the initialization code
     -- allocate references for statics
@@ -2498,7 +2496,7 @@ transCollection col debug halloc = do
                       Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
 
     -- translate all of the functions
-    pairs <- mapM (transDefine colState debug) (Map.elems (col^.M.functions))
+    pairs <- mapM (transDefine colState ?debug) (Map.elems (col^.M.functions))
     return $ RustModule
                 { rmCS    = colState
                 , rmCFGs  = Map.fromList (pairs ++ morePairs)
