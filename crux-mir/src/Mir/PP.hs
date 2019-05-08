@@ -393,11 +393,11 @@ instance Pretty TraitImpl where
           rbrace]
 
 instance Pretty TraitImplItem where
-  pretty (TraitImplMethod nm timpls params preds sig)  =
+  pretty (TraitImplMethod nm timpls _params _preds sig)  =
     pretty nm <+> text "of type" <+> pretty sig <+>
-       text "implements" <+> pretty timpls <+> pparams params <+> ppreds preds
-  pretty (TraitImplType nm timpls params preds ty) =
-    text "type" <+> pretty nm <+> pretty timpls <+> pparams params <+> text "=" <+> pretty ty <+> ppreds preds
+       text "implements" <+> pretty timpls
+  pretty (TraitImplType nm timpls _params _preds ty) =
+    text "type" <+> pretty nm <+> pretty timpls <+> text "=" <+> pretty ty
 
 instance Pretty Static where
   pretty (Static nm ty mut pf p) =

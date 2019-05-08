@@ -1498,6 +1498,7 @@ callExp funid funsubst cargs = do
               _ -> fail $ "type error in call of " ++ fmt funid ++ fmt funsubst
                             ++ "\n    args      " ++ show ctx
                             ++ "\n vs fn params " ++ show ifargctx
+
      _ -> fail $ "callExp: Don't know how to call " ++ fmt funid ++ fmt funsubst
 
 

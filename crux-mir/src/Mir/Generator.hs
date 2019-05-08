@@ -338,12 +338,16 @@ resolveStaticMethod methName substs traitName = do
                                   Just (k,_) -> k + 1
                                   Nothing    -> 0
                 let ss'  = takeSubsts (fromInteger ulen) (mkSubsts unifier)
-                when (db > 6) $ do
+                let mhgens = mh^.mhSig^.fsgenerics
+                 
+                when (db > 5) $ do
                     traceM $ "***Found " ++ fmt methName ++ " in " ++ fmt traitName
                     traceM $ "\t traitSub is " ++ fmt traitSub
+                    traceM $ "\t ss' is      " ++ fmt ss'
                     traceM $ "\t methSub  is " ++ fmt methSub                  
-                    traceM $ "\t unifier is " ++ fmt (Map.toList unifier)
-                    traceM $ "\t of size " ++ fmt (Map.size unifier)                
+                    traceM $ "\t unifier is  " ++ fmt (Map.toList unifier)
+                    traceM $ "\t of size     " ++ fmt (Map.size unifier)
+                    traceM $ "\t handle is   " ++ fmt mh
                 return (Just (mh, ss' <> methSub))
        
 -- | Look for a static trait implementation in a particular Trait

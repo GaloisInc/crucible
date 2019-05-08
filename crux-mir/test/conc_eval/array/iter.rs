@@ -1,4 +1,4 @@
-// FAIL: invalid slice access
+// FAIL: missing lifetime parameter in addAssign
 
 fn f(_x: u8) -> i32 {
     let mut xs : [i32; 3] = [0; 3];

@@ -196,7 +196,7 @@ implATDict col = go (col^.impls) mempty where
            Nothing -> error $ "Cannot find " ++ fmt tn ++ " in collection."
     
     addImplItem :: TraitImplItem -> Maybe ATDict -> Maybe ATDict
-    addImplItem (TraitImplType _ ii _ _ ty) (Just m) = do
+    addImplItem (TraitImplType _ ii _  _ ty) (Just m) = do
       ty' <- case abstractATs atinfo ty of
                    Left s -> Nothing
                    Right v -> Just v

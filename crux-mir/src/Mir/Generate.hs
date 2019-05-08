@@ -139,7 +139,7 @@ loadPrims useStdLib = do
               , "ops/try"
               , "clone"
               , "cmp"                    
---              , "convert"
+              , "convert"
               , "default"   
               , "option"
               , "result"

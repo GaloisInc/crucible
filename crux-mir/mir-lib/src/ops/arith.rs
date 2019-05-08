@@ -17,7 +17,6 @@ pub mod ops {
 
     pub mod arith {
     #![stable(feature = "rust1", since = "1.0.0")]
-// SCW: remove associated types default
 
 // implements the unary operator "op &T"
 // based on "op T" where T is expected to be `Copy`able
