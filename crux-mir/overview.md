@@ -68,7 +68,7 @@ Rest of these are not currently used:
     used for translation
     
 ** src/Mir/TransTy.hs      (type translations)
-   src/Mir/Trans.hs        (transCollection)
+   src/Mir/Trans.hs        (main MIR translation --- see transCollection)
    src/Mir/TransCustom.hs  (implementation of custom operations)
 
     main translation from Mir AST to Crucible CFG

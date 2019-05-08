@@ -220,8 +220,6 @@ transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
       | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
       = do let bytes = V.fromList (map u8ToBV8 arr)
            return $ MirExp (C.VectorRepr w) (R.App $ E.VectorLit w bytes)
-
-
 transConstVal (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w i)
@@ -236,7 +234,7 @@ transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
       []        -> fail $ "cannot parse float constant: " ++ show str
 
 transConstVal (Some _ty) (ConstInitializer funid ss) =
-    callExp funid ss [] (error "BUG: initializers shouldn't need MIR return type to be called")
+    callExp funid ss [] 
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
@@ -771,7 +769,7 @@ transCustomAgg :: CustomAggregate -> MirGenerator h s ret (MirExp s) -- deprecat
 transCustomAgg (CARange _ty f1 f2) = evalRval (Aggregate AKTuple [f1,f2])
 
 
--- A closure is (packed into an any) of the form [handle, arguments]
+-- A closure is  of the form [handle, tuple of arguments] (packed into an any)
 -- (arguments being those variables packed into the closure, not the function arguments)
 -- NOTE: what if the closure has a polymorphic types?? How can we tell?
 buildClosureHandle :: M.DefId      -- ^ name of the function
@@ -796,22 +794,21 @@ buildClosureHandle funid (Substs tys) args
           do fail ("buildClosureHandle: unknown function: "
               ++ show funid ++ " or non-closed type ")
 
-buildClosureType :: M.DefId -> Substs -> MirGenerator h s ret (Some C.TypeRepr, Some C.TypeRepr) -- get type of closure, in order to unpack the any
-buildClosureType defid (Substs args') = do
+-- | returns type of the closure paired with type of the arguments.
+buildClosureType ::
+      M.DefId
+   -> Substs
+   -> MirGenerator h s ret (Some C.TypeRepr, Some C.TypeRepr) 
+buildClosureType defid (Substs (_:_:args)) = do
     hmap <- use $ cs.handleMap
     case (Map.lookup defid hmap) of
       Just (MirHandle _ _sig fhandle) -> do
-          let args = tail (tail args')
-          -- traceM $ "buildClosureType for " ++ show defid ++ " with ty args " ++ show (pretty args)
-          -- build type StructRepr [HandleRepr, StructRepr [args types]]
           tyListToCtx args $ \argsctx -> do
-              let argstruct = C.StructRepr argsctx
-                  handlerepr = FH.handleType fhandle
-              reprsToCtx [Some handlerepr, Some C.AnyRepr] $ \t ->
-                  return $ (Some (C.StructRepr t), Some argstruct)
+              reprsToCtx [Some (FH.handleType fhandle), Some C.AnyRepr] $ \t ->
+                  return $ (Some (C.StructRepr t), Some (C.StructRepr argsctx))
       _ ->
        do fail ("buildClosureType: unknown function: " ++ show defid)
-
+buildClosureType defid ss = fail $ "BUG: incorrect substitution in buildClosureType: " ++ fmt ss
 
 
 filterMaybes :: [Maybe a] -> [a]
@@ -1454,9 +1451,8 @@ callExp :: HasCallStack =>
            M.DefId
         -> Substs
         -> [M.Operand]
-        -> M.Ty   -- ^ return type, only needed for Fn::call
         -> MirGenerator h s ret (MirExp s)
-callExp funid funsubst cargs destTy = do
+callExp funid funsubst cargs = do
    db    <- use debugLevel
    mhand <- lookupFunction funid funsubst
    isCustom <- resolveCustom funid funsubst
@@ -1469,7 +1465,7 @@ callExp funid funsubst cargs destTy = do
 
           ops <- mapM evalOperand cargs
           let opTys = map M.typeOf cargs
-          op opTys destTy ops
+          op opTys ops
 
        | Just (CustomMirOp op) <- isCustom -> do
           when (db > 3) $
@@ -1509,7 +1505,7 @@ doCall funid funsubst cargs cdest retRepr = do
     isCustom <- resolveCustom funid funsubst
     case cdest of 
       (Just (dest_lv, jdest)) -> do
-            ret <- callExp funid funsubst cargs (M.typeOf dest_lv)
+            ret <- callExp funid funsubst cargs 
             assignLvExp dest_lv ret
             jumpToBlock jdest
       
@@ -1522,7 +1518,7 @@ doCall funid funsubst cargs cdest retRepr = do
 
         -- other functions that don't return
         | otherwise -> do
-            _ <- callExp funid funsubst cargs (error "doCall: No return type")
+            _ <- callExp funid funsubst cargs 
             -- TODO: is this the correct behavior?
             G.reportError (S.app $ E.TextLit "Program terminated.")
 
@@ -1547,15 +1543,18 @@ transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction fu
         -- this is a method call on a trait object, and is not a custom function
         db <- use debugLevel
         when (db > 2) $
-           traceM $ show (PP.sep [PP.text "At TRAIT function call of ", pretty funid, PP.text " with arguments ", pretty cargs, 
+           traceM $ show (PP.sep [PP.text "At TRAIT function call of ",
+                   pretty funid, PP.text " with arguments ", pretty cargs, 
                    PP.text "with type parameters: ", pretty funsubsts])
         fail $ "trait method calls unsupported "
-        -- methodCall traitName funid funsubsts tobj cargs cretdest
 
       _ -> do -- this is a normal function call
         doCall funid funsubsts cargs cretdest tr -- cleanup ignored
         
-transTerminator (M.Assert _cond _expected _msg target _cleanup) _ =
+transTerminator (M.Assert cond _expected _msg target _cleanup) _ = do
+    db <- use $ debugLevel
+    when (db > 5) $ do
+       traceM $ "Skipping assert " ++ fmt cond
     jumpToBlock target -- FIXME! asserts are ignored; is this the right thing to do? NO!
 transTerminator (M.Resume) tr =
     doReturn tr -- resume happens when unwinding
@@ -1971,6 +1970,6 @@ vectorCopy ety start stop inp = do
 
 
 --  LocalWords:  params IndexMut FnOnce Fn IntoIterator iter impl
---  LocalWords:  tovec fromelem tmethsubst MirExp initializer
+--  LocalWords:  tovec fromelem tmethsubst MirExp initializer callExp
 --  LocalWords:  mkTraitObject mkCustomTraitObject TyClosure
---  LocalWords:  transTerminator
+--  LocalWords:  transTerminator transStatement

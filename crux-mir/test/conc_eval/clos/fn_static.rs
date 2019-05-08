@@ -1,6 +1,4 @@
-
-
-fn call_with_one(some_closure: &Fn(i32) -> i32) -> i32 {
+fn call_with_one<F:Fn(i32)->i32>(some_closure: &F) -> i32 {
 
     some_closure(1)
 

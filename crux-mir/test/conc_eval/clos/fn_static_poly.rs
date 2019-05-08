@@ -1,4 +1,4 @@
-fn call_with_one<T>(some_closure: &Fn(T) -> T, arg:T) -> T {
+fn call_with_one<T,F:Fn(T)->T>(some_closure: &F, arg:T) -> T {
 
     some_closure(arg)
 

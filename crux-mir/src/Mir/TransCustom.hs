@@ -31,6 +31,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 
+import Control.Monad
 import Control.Lens
 
 import GHC.Stack
@@ -67,26 +68,27 @@ import           Mir.TransTy
 import           Mir.Trans
 
 
--- !!!
+-- !!!  for "Fn::call"
 import Unsafe.Coerce
- 
+
+import Debug.Trace
 
 --------------------------------------------------------------------------------------------------------------------------
 -- * Data structure manipulation for implementing primitives
 
 -- ** options
 
--- statically-typed option creation
-
-mkSome' :: C.TypeRepr tp -> G.Expr MIR s tp -> G.Expr MIR s TaggedUnion
-mkSome' ty val =
+-- | Construct an option::Some value
+mkSome :: C.TypeRepr tp -> G.Expr MIR s tp -> G.Expr MIR s TaggedUnion
+mkSome ty val =
    let tty  = C.StructRepr (Ctx.empty Ctx.:> ty) in
    let tval = G.App $ E.MkStruct (Ctx.empty Ctx.:> ty) (Ctx.empty Ctx.:> val) in
    G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
                       (Ctx.empty Ctx.:> (S.app $ E.NatLit 1) Ctx.:> (S.app $ E.PackAny tty tval))
 
-mkNone' :: G.Expr MIR s TaggedUnion
-mkNone'=
+-- | Construct an option::None value
+mkNone :: G.Expr MIR s TaggedUnion
+mkNone =
   let ty  = C.StructRepr Ctx.empty in
   let val = S.app $ E.MkStruct Ctx.empty Ctx.empty in
   G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
@@ -94,6 +96,7 @@ mkNone'=
 
 -- ** range
 
+-- | Project the "start" component of a range::Range value
 rangeStart :: C.TypeRepr ty -> R.Expr MIR s TaggedUnion -> MirGenerator h s ret (R.Expr MIR s ty)
 rangeStart itemRepr r = do
    (MirExp C.AnyRepr tup) <- accessAggregate (MirExp taggedUnionRepr r) 1
@@ -104,6 +107,7 @@ rangeStart itemRepr r = do
    let start = S.getStruct Ctx.i1of2 unp
    return start
 
+-- | Project the "end" component of a range::Range value
 rangeEnd :: C.TypeRepr ty -> R.Expr MIR s TaggedUnion -> MirGenerator h s ret (R.Expr MIR s ty)
 rangeEnd itemRepr r = do
    (MirExp C.AnyRepr tup) <- accessAggregate (MirExp taggedUnionRepr r) 1
@@ -114,6 +118,7 @@ rangeEnd itemRepr r = do
    let end   = S.getStruct Ctx.i2of2 unp
    return end
 
+-- | Construct a range::Range value given start & end 
 mkRange :: C.TypeRepr ty -> R.Expr MIR s ty -> R.Expr MIR s ty -> R.Expr MIR s TaggedUnion
 mkRange itemRepr start end = 
    let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
@@ -231,7 +236,7 @@ index_op (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
                   let funid = (M.textId "slice[0]::SliceIndex[0]::index[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice elTy, TySlice elTy]
-                  callExp funid substs [op2, op1] iiOutput
+                  callExp funid substs [op2, op1] 
                _ -> fail $ "BUG: invalid arguments to index"
 index_op _ = Nothing
 
@@ -245,7 +250,7 @@ index_op_mut (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
                   let funid = (M.textId "slice[0]::SliceIndex[0]::index_mut[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice elTy, TySlice elTy]
-                  callExp funid substs [op2, op1] iiOutput
+                  callExp funid substs [op2, op1] 
                _ -> fail $ "BUG: invalid arguments to index_mut"
 index_op_mut _ = Nothing
 --------------------------------------------------------------------------------------------------------------------------
@@ -256,7 +261,7 @@ index_op_mut _ = Nothing
 -- however it does whatever Crucible does for BVMul
 wrapping_mul :: (ExplodedDefId, CustomRHS)
 wrapping_mul = ( (["num","{{impl}}"], "wrapping_mul", []),
-   \ _substs -> Just $ CustomOp $ \ _opTys _retTy ops ->
+   \ _substs -> Just $ CustomOp $ \ _opTys  ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
          
@@ -273,7 +278,7 @@ wrapping_mul = ( (["num","{{impl}}"], "wrapping_mul", []),
 
 wrapping_sub :: (ExplodedDefId, CustomRHS)
 wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
-   \ _substs -> Just $ CustomOp $ \ _opTys _retTy ops ->
+   \ _substs -> Just $ CustomOp $ \ _opTys ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
          -- return (a - b) mod 2N  (this is the default behavior for BVSub)
@@ -290,7 +295,7 @@ wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
 
 discriminant_value ::  (ExplodedDefId, CustomRHS)
 discriminant_value = ((["intrinsics"],"discriminant_value", []),
-  \ _substs -> Just $ CustomOp $ \ opTys _retTy ops ->
+  \ _substs -> Just $ CustomOp $ \ opTys ops ->
       case (opTys,ops) of
         ([TyCustom (CEnum _adt _i)], [e]) -> return e
         ([_],[e]) -> do (MirExp C.NatRepr idx) <- accessAggregate e 0
@@ -309,10 +314,10 @@ into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
     \(Substs subs) -> case subs of
        [ TyAdt defid (Substs [itemTy]) ]
          | defid == M.textId "::ops[0]::range[0]::Range[0]"
-         ->  Just $ CustomOp $ \_opTys _retTy [arg] -> return arg
+         ->  Just $ CustomOp $ \_opTys [arg] -> return arg
 
        [ TyRef (TyArray itemTy size) Immut ]
-         ->  Just $ CustomOp $ \_opTys _retTy [arg] -> do
+         ->  Just $ CustomOp $ \_opTys [arg] -> do
              -- array iterator: a pair of the vector and the index
              -- this is not the implementation of "slice::Iter"
              -- but should be
@@ -332,8 +337,8 @@ iter_next = ((["iter","iterator"],"Iterator", ["next"]), iter_next_op) where
   iter_next_op _ = Nothing
 
 
-iter_next_op_range :: forall h s ret. HasCallStack => Ty -> [Ty] -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_next_op_range itemTy _opTys _retTy ops =
+iter_next_op_range :: forall h s ret. HasCallStack => Ty -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+iter_next_op_range itemTy _opTys ops =
     case ops of 
        [ MirExp (MirReferenceRepr tr) ii ]
          | Just Refl <- testEquality tr taggedUnionRepr
@@ -347,8 +352,8 @@ iter_next_op_range itemTy _opTys _retTy ops =
                 end   <- rangeEnd   itemRepr r
 
                 plus_one <- incrExp itemRepr start
-                let good_ret = mkSome' itemRepr start
-                let bad_ret  = mkNone'
+                let good_ret = mkSome itemRepr start
+                let bad_ret  = mkNone
                 let  updateRange :: MirGenerator h s ret ()
                      updateRange = writeMirRef ii (mkRange itemRepr plus_one end)
 
@@ -362,8 +367,8 @@ iter_next_op_range itemTy _opTys _retTy ops =
        _ -> fail $ "BUG: invalid arguments for iter_next"
 
 
-iter_next_op_array :: forall h s ret. HasCallStack => Ty -> [Ty] -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_next_op_array itemTy _opTys _retTy ops = 
+iter_next_op_array :: forall h s ret. HasCallStack => Ty -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+iter_next_op_array itemTy _opTys ops = 
     -- iterator is a reference to a struct containing (vec, pos of nat)
     -- if pos < size of vec, return (Some(vec[pos]) and update ref to (vec, pos+1)).
     -- otherwise return None  (and leave ref alone)
@@ -386,7 +391,7 @@ iter_next_op_array itemTy _opTys _retTy ops =
 --            ty         = C.StructRepr ty_ctx
 
  
-            good_ret_1 = mkSome' elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)
+            good_ret_1 = mkSome elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)
             next_iter  = S.app $ E.MkStruct taggedUnionCtx
                             (Ctx.empty Ctx.:> (S.app $ E.NatLit 0) Ctx.:> (S.app $ E.PackAny (C.StructRepr ctx) tup))
             tup = G.App (E.MkStruct ctx (Ctx.empty Ctx.:> iter_vec Ctx.:> next_pos)) 
@@ -396,7 +401,7 @@ iter_next_op_array itemTy _opTys _retTy ops =
         ret <- withRepr taggedUnionRepr $ G.ifte is_good
                 (do writeMirRef iter_ref next_iter
                     return good_ret_1)
-                (return mkNone')
+                (return mkNone)
         return $ MirExp taggedUnionRepr ret
     _ -> fail $ "BUG: invalid args to iter_next_op_array " ++ show ops
 
@@ -405,8 +410,8 @@ iter_next_op_array itemTy _opTys _retTy ops =
 iter_map :: (ExplodedDefId, CustomRHS)
 iter_map = ((["iter","iterator"],"Iterator", ["map"]), \subst -> Just $ CustomOp $ iter_map_op subst)
 
-iter_map_op :: forall h s ret. HasCallStack => Substs -> [Ty] -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_map_op _subst opTys _retTy ops =
+iter_map_op :: forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+iter_map_op _subst opTys ops =
   case (opTys, ops) of
    ([ iter_ty , closure_ty ], [ iter_e  , closure_e ]) ->
       performMap iter_ty iter_e closure_ty closure_e
@@ -415,8 +420,8 @@ iter_map_op _subst opTys _retTy ops =
 iter_collect :: (ExplodedDefId, CustomRHS)
 iter_collect = ((["iter","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
 
-iter_collect_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_collect_op _subst _opTys _retTy ops =
+iter_collect_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+iter_collect_op _subst _opTys ops =
    case ops of
      [ iter ] -> accessAggregate iter 0
      _ -> fail $ "BUG: invalid arguments to iter_collect"
@@ -429,7 +434,7 @@ str_len :: (ExplodedDefId, CustomRHS)
 str_len =
   ((["str","{{impl}}"], "len", [])
   , \subs -> case subs of
-               (Substs []) -> Just $ CustomOp $ \ _optys _retTy ops -> 
+               (Substs []) -> Just $ CustomOp $ \ _optys  ops -> 
                  case ops of 
                     -- type of the structure is &str == TyStr ==> C.VectorRepr BV32
                    [MirExp (C.VectorRepr _) vec_e] -> do
@@ -466,7 +471,7 @@ str_len =
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
   ((["slice","{{impl}}"], "len", [])
-  , \(Substs [_]) -> Just $ CustomOp $ \ _optys _retTy ops -> 
+  , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
      -- type of the structure is &mut[ elTy ]
        [MirExp (C.VectorRepr _) vec_e] -> do
@@ -476,7 +481,7 @@ slice_len =
 slice_is_empty :: (ExplodedDefId, CustomRHS)
 slice_is_empty =
   ((["slice","{{impl}}"], "is_empty", [])
-  , \(Substs [_]) -> Just $ CustomOp $ \ _optys _retTy ops -> 
+  , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
      -- type of the structure is &mut[ elTy ]
        [MirExp (C.VectorRepr _) vec_e] -> do
@@ -487,7 +492,7 @@ slice_is_empty =
 slice_first :: (ExplodedDefId, CustomRHS)
 slice_first =
   ((["slice","{{impl}}"], "first", [])
-  , \(Substs [_]) -> Just $ CustomOp $ \ _optys _retTy ops -> 
+  , \(Substs [_]) -> Just $ CustomOp $ \ _optys  ops -> 
      case ops of 
      -- type of the structure is &mut[ elTy ]
        [MirExp (C.VectorRepr elTy) vec_e] -> do
@@ -521,7 +526,7 @@ slice_get_op (Substs [tt, ii]) =
                   let funid = (M.textId "slice[0]::SliceIndex[0]::get[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice tt, TySlice tt]
-                  callExp funid substs [op2, op1] (TySlice tt)
+                  callExp funid substs [op2, op1] 
                _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get"
 slice_get_op _ = Nothing
 
@@ -533,7 +538,7 @@ slice_get_mut_op (Substs [tt, ii]) =
                   let funid = (M.textId "slice[0]::SliceIndex[0]::get_mut[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice tt, TySlice tt]
-                  callExp funid substs [op2, op1] (TySlice tt)
+                  callExp funid substs [op2, op1] 
                _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_mut"
 slice_get_mut_op _ = Nothing
 
@@ -592,7 +597,7 @@ slice_get_unchecked_op subs = case subs of
                                 TyUint USize -> tt
                                 _ -> TySlice tt
                   let substs = Substs [ii, TySlice tt, out]
-                  callExp funid substs [op2, op1] out
+                  callExp funid substs [op2, op1] 
                _ -> fail $ "BUG: invalid arguments to slice_get_unchecked"
    _ -> Nothing
 
@@ -608,7 +613,7 @@ slice_get_unchecked_mut_op subs = case subs of
                                 TyUint USize -> tt
                                 _ -> TySlice tt
                   let substs = Substs [ii, TySlice tt, out]
-                  callExp funid substs [op2, op1] out
+                  callExp funid substs [op2, op1] 
                _ -> fail $ "BUG: invalid arguments to slice_get_unchecked_mut"
    _ -> Nothing
 
@@ -680,7 +685,7 @@ slice_index_usize_get_unchecked :: (ExplodedDefId, CustomRHS)
 slice_index_usize_get_unchecked = ((["slice"], "slice_index_usize_get_unchecked", []), \subs ->
    case subs of
      (Substs [ elTy ])
-       -> Just $ CustomOp $ \ optys _retTy ops -> do
+       -> Just $ CustomOp $ \ optys ops -> do
           case ops of
             [MirExp C.NatRepr ind, MirExp (C.VectorRepr el_tp) arr] -> do
                 return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind))
@@ -697,7 +702,7 @@ slice_index_range_get_unchecked :: (ExplodedDefId, CustomRHS)
 slice_index_range_get_unchecked = ((["slice"], "slice_index_range_get_unchecked", []), \subs ->
    case subs of
      (Substs [ elTy ])
-       -> Just $ CustomOp $ \ optys _retTy ops -> do
+       -> Just $ CustomOp $ \ optys ops -> do
           case ops of
              [MirExp tr range_e, MirExp (C.VectorRepr ety) vec_e  ]
                | Just Refl <- testEquality tr taggedUnionRepr -> do
@@ -724,7 +729,7 @@ slice_index_usize_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
 slice_index_usize_get_unchecked_mut = ((["slice"], "slice_index_usize_get_unchecked_mut", []), \subs ->
    case subs of
      (Substs [ _elTy ])
-       -> Just $ CustomOp $ \ optys _retTy ops -> do
+       -> Just $ CustomOp $ \ optys ops -> do
             case ops of
 
               [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
@@ -740,7 +745,7 @@ slice_index_range_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
 slice_index_range_get_unchecked_mut = ((["slice"], "slice_index_range_get_unchecked_mut", []), \subs ->
    case subs of
      (Substs [ _elTy ])
-       -> Just $ CustomOp $ \ optys _retTy ops -> do
+       -> Just $ CustomOp $ \ optys ops -> do
             case ops of
 
               [ MirExp tr range_e, MirExp (MirSliceRepr ty) vec_e] 
@@ -776,28 +781,48 @@ vec_with_capacity =
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: call
 
+-- A closure call looks like this:
+--
+--   _ty1   -- type of closure argument (2nd argument)
+--   aty    -- type of the "function", usually a type parameter (1st argument)
+--   argTy1 -- same as aty
+--   argTy2 -- same as _ty1
+
 fn_call :: (ExplodedDefId, CustomRHS)
 fn_call = ((["ops","function"], "Fn", ["call"]), \subst -> Just $ CustomOp $ fn_call_op subst)
 
 fn_call_once :: (ExplodedDefId, CustomRHS)
 fn_call_once = ((["ops","function"], "FnOnce", ["call_once"]), \subst -> Just $ CustomOp $ fn_call_op subst)
 
-fn_call_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-fn_call_op (Substs [_ty1, aty]) [argTy1,_] retTy [fn,argtuple] = do
+fn_call_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do
+     ps <- use $ currentFn.fsig.fspredicates
+
+     db <- use debugLevel
+     when (db > 6) $ do
+       traceM $ "fn_call called with " 
+       traceM $ "\t aty:    " ++ fmt aty
+       traceM $ "\t ty1:    " ++ fmt argTy1     
+       traceM $ "\t argTy1: " ++ fmt argTy1
+       traceM $ "\t argTy2: " ++ fmt argTy2     
+       traceM $ "\t ps:     " ++ fmt ps
 
      extra_args   <- getAllFieldsMaybe argtuple
 
      -- returns the function (perhaps with a coerced type, in the case of polymorphism)
      -- paired with it unpacked as a closure
-     let unpackClosure :: Ty -> Ty -> MirExp s -> MirGenerator h s ret (MirExp s, MirExp s)
+     let unpackClosure :: Ty -> MirExp s -> MirGenerator h s ret (MirExp s, MirExp s)
 
-         unpackClosure (TyRef ty Immut) rty  arg   = unpackClosure ty rty arg
+         unpackClosure (TyRef ty Immut)  arg =
+             unpackClosure ty arg
 
-         unpackClosure (TyClosure defid clargs) _rty arg = do
+         unpackClosure (TyClosure defid clargs) arg = do
              (clty, _rty2) <- buildClosureType defid clargs
              (arg,) <$> unpackAny clty arg
 
-         unpackClosure (TyDynamic _id)    rty  arg   = do
+         unpackClosure (TyDynamic _id) arg = do
+           fail $ "Dynamic Fn::call unsupported"
+{-           
              -- a Fn object looks like a pair of
              -- a function that takes any "Any" arguments (the closure) and a struct
              --      of the actual arguments (from the funsubst) and returns type rty
@@ -809,34 +834,21 @@ fn_call_op (Substs [_ty1, aty]) [argTy1,_] retTy [fn,argtuple] = do
                      let args = (Ctx.empty Ctx.:> C.AnyRepr)  Ctx.<++> r2
                      let t = Ctx.empty Ctx.:> C.FunctionHandleRepr args rr Ctx.:> C.AnyRepr
                      (arg,) <$> unpackAny (Some (C.StructRepr t)) arg
-                  _ -> fail $ "aty must be tuple type in dynamic call, found " ++ fmt aty
+                  _ -> fail $ "aty must be tuple type in dynamic call, found " ++ fmt aty -}
 
-         unpackClosure (TyParam i) rty arg = do
+         unpackClosure (TyParam i) arg = do
            -- TODO: this is a really hacky implementation of higher-order function calls
            -- we should replace it with additional arguments being passed in for the constraints
            -- Here, instead we assume that the type that is instantiating the type variable i is
            -- some closure type. We then look at the constraint to see what type of closure type it
            -- could be and then instantiate that type variable with "Any" 
            -- If we are wrong, we'll get a segmentation fault(!!!)
-           -- (This means we have some unsafe instantiation code around, e.g. for Nonces,
-           -- so we should get rid of that too!)
            ps <- use $ currentFn.fsig.fspredicates
---           traceM $ "unpackClosure: called with "
---                  ++ "\n\t param " ++ fmt i
---                  ++ "\n\t rty   " ++ fmt rty
---                  ++ "\n\t preds " ++ fmt ps
            let findFnType (TraitProjection (TyProjection defid (Substs ([TyParam j, TyTuple argTys]))) retTy : rest)
                  | i == j     = 
                   tyListToCtx argTys $ \argsctx -> 
                   tyToReprCont retTy $ \ret     ->
                      (Some argsctx, Some ret)
-
-               -- TODO: this is a TOTAL hack
-               --findFnType (TraitProjection (TyTuple argTys) retTy : rest)
-               --  = 
-               --   tyListToCtx argTys $ \argsctx -> 
-               --   tyToReprCont retTy $ \ret     ->
-               --      (Some argsctx, Some ret)
 
                findFnType (_ : rest) = findFnType rest
                findFnType [] = error $ "no appropriate predicate in scope for call: " ++  fmt ps
@@ -852,10 +864,10 @@ fn_call_op (Substs [_ty1, aty]) [argTy1,_] retTy [fn,argtuple] = do
                 (arg',) <$> unpackAny (Some (C.StructRepr t)) arg'
 
 
-         unpackClosure ty _ _arg      =
+         unpackClosure ty _arg      =
            fail $ "Don't know how to unpack Fn::call arg of type " ++  fmt ty
 
-     (fn', unpack_closure) <- unpackClosure argTy1 retTy fn
+     (fn', unpack_closure) <- unpackClosure argTy1 fn
      handle <- accessAggregate unpack_closure 0
      extra_args <- getAllFieldsMaybe argtuple
      case handle of
@@ -871,10 +883,9 @@ fn_call_op (Substs [_ty1, aty]) [argTy1,_] retTy [fn,argtuple] = do
                        fail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
              _ -> fail $ "bad handle type"
 
-fn_call_op ss args ret _exps = fail $ "\n\tBUG: invalid arguments to call/call_once:"
+fn_call_op ss args _exps = fail $ "\n\tBUG: invalid arguments to call/call_once:"
                                     ++ "\n\t ss   = " ++ fmt ss
                                     ++ "\n\t args = " ++ fmt args
-                                    ++ "\n\t ret  = " ++ fmt ret
 
 --------------------------------------------------------------------------------------------------------------------------
 

@@ -119,6 +119,7 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 - Divide Trans.hs into multiple files so that typechecking/compilation is snappier
   The current 4k file overwhelms dante-mode
+  (We're better now at 2k, but still pretty sluggish)
 
 - Better interface to symbolic evaluation.  Need a rust crate
   for examples to import and need to load the definitions in mir-verifier.
@@ -127,6 +128,8 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 - Implementation of closures is very hacky
    -- unsafe coerce in "call"
    -- doesn't take advantage of equality constraints (FnOnce::Output)
+   -- Can't do trait objects because TyDynamic doesn't include substs
+      (so we can't determine the return type of the trait object)
 
 - need more structured error handling
    don't use "error", use "fail" instead

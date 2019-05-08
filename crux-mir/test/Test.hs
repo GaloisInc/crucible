@@ -171,7 +171,7 @@ suite = do
   let cachedLib = Mir.CachedStdLib pmir halloc
   trees <- sequence 
            [ --testGroup "saw"  <$> sequence [testDir sawOracleTest "test/conc_eval"  ]
-             testGroup "crux concrete" <$> sequence [ testDir (cruxOracleTest cachedLib) "test/conc_eval/clos/" ]
+             testGroup "crux concrete" <$> sequence [ testDir (cruxOracleTest cachedLib) "test/conc_eval/" ]
            , testGroup "crux symbolic" <$> sequence [ symbTest cachedLib "test/symb_eval" ]
            ]
   return $ testGroup "mir-verifier" trees

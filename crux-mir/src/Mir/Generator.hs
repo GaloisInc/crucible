@@ -32,8 +32,7 @@
                 -fno-warn-unused-matches
                 -fno-warn-unticked-promoted-constructors #-}
 
--- The data structures used during translation, especially those concerned with
--- the dictionary-passing interpretation of traits.
+-- The data structures used during translation
 module Mir.Generator
 {-
 , MirGenerator
@@ -107,7 +106,7 @@ import           GHC.Stack
 
 
 --------------------------------------------------------------------------------------
--- *** Result of translating a collection
+-- * Result of translating a collection
 --
 -- 
 data RustModule = RustModule {
@@ -115,11 +114,6 @@ data RustModule = RustModule {
        , _rmCFGs  :: Map Text (Core.AnyCFG MIR)
      }
 
-instance Semigroup RustModule where
-  (RustModule cs1 cm1) <> (RustModule cs2 cm2) = RustModule (cs1 <> cs2) (cm1 <> cm2)
-instance Monoid RustModule where
-  mempty  = RustModule mempty mempty
-  mappend = (<>)
 
 ---------------------------------------------------------------------------------
 
@@ -127,19 +121,17 @@ instance Monoid RustModule where
 -- type ty along with a crucible expression of type ty
 data MirExp s where
     MirExp :: C.TypeRepr ty -> R.Expr MIR s ty -> MirExp s
-instance Show (MirExp s) where
-    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
+    
 
 ---------------------------------------------------------------------------------
 
 -- * The top-level generator type
-
--- h for state monad
+-- h state monad token
 -- s phantom parameter for CFGs
 type MirGenerator h s ret = G.Generator MIR h s FnState ret
 
 --------------------------------------------------------------------------------
--- ** Generator state for MIR translation to Crucible
+-- * Generator state for MIR translation to Crucible
 --
 -- | Generator state for MIR translation
 data FnState (s :: Type)
@@ -160,31 +152,27 @@ data CollectionState
       _collection     :: !Collection
       }
 
-instance Semigroup CollectionState  where
-  (CollectionState hm1 stm1 sm1 col1) <> (CollectionState hm2 stm2 sm2 col2) =
-      (CollectionState (hm1 <> hm2) (stm1 <> stm2) (sm1 <> sm2) (col1 <> col2))
-instance Monoid CollectionState where
-  mappend = ((<>))
-  mempty  = CollectionState mempty mempty mempty mempty
-
 
 ---------------------------------------------------------------------------
 -- ** Custom operations
 
 type CustomOpMap = Map ExplodedDefId CustomRHS              
 
--- Operation for a custom operation (that returns normally)
 type ExplodedDefId = ([Text], Text, [Text])
 data CustomOp      =
-    CustomOp (forall h s ret. HasCallStack =>
-       [Ty]      -- ^ argument types
-     -> Ty       -- ^ return type
-     -> [MirExp s] -- ^ operand values
-     -> MirGenerator h s ret (MirExp s))
-  | CustomMirOp (forall h s ret. HasCallStack =>
-      [Operand] -> MirGenerator h s ret (MirExp s))
-  | CustomOpExit (forall h s ret. [MirExp s] -> MirGenerator h s ret Text)
-
+    CustomOp (forall h s ret. HasCallStack 
+                 => [Ty]       -- ^ argument types
+                 -> [MirExp s] -- ^ operand values
+                 -> MirGenerator h s ret (MirExp s))
+  | CustomMirOp (forall h s ret. HasCallStack
+      => [Operand] -> MirGenerator h s ret (MirExp s))
+    -- ^ custom operations that dispatch to other functions
+    -- i.e. they are essentially the translation of
+    -- a function call expression
+  | CustomOpExit (forall h s ret.
+         [MirExp s]
+      -> MirGenerator h s ret Text)
+    -- ^ custom operations that don't return
 type CustomRHS = Substs -> Maybe CustomOp
 
 
@@ -207,14 +195,6 @@ data VarInfo s tp where
   VarReference :: R.Reg s (MirReferenceType tp) -> VarInfo s tp
   VarAtom      :: R.Atom s tp -> VarInfo s tp
 
-varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
-varInfoRepr (VarRegister reg0)  = R.typeOfReg reg0
-varInfoRepr (VarReference reg0) =
-  case R.typeOfReg reg0 of
-    MirReferenceRepr tp -> tp
-    _ -> error "impossible: varInfoRepr"
-varInfoRepr (VarAtom a) = R.typeOfAtom a
-
 ---------------------------------------------------------------------------
 -- *** LabelMap
 
@@ -236,6 +216,46 @@ data MirHandle = forall init ret.
               , _mhHandle     :: FH.FnHandle init ret
               }
 
+---------------------------------------------------------------------------
+-- *** StaticTraitMap
+
+
+-- | A StaticTraitMap maps trait method names to all traits that contain them
+-- (There could be multiple, and will need to use type info to resolve further)
+type StaticTraitMap = Map MethName [TraitName]
+
+ 
+
+-------------------------------------------------------------------------------------------------------
+
+makeLenses ''FnState
+makeLenses ''MirHandle
+makeLenses ''CollectionState
+makeLenses ''RustModule
+
+$(return [])
+
+-------------------------------------------------------------------------------------------------------
+
+-- ** Operations and instances
+
+instance Semigroup RustModule where
+  (RustModule cs1 cm1) <> (RustModule cs2 cm2) = RustModule (cs1 <> cs2) (cm1 <> cm2)
+instance Monoid RustModule where
+  mempty  = RustModule mempty mempty
+  mappend = (<>)
+
+instance Semigroup CollectionState  where
+  (CollectionState hm1 stm1 sm1 col1) <> (CollectionState hm2 stm2 sm2 col2) =
+      (CollectionState (hm1 <> hm2) (stm1 <> stm2) (sm1 <> sm2) (col1 <> col2))
+instance Monoid CollectionState where
+  mappend = ((<>))
+  mempty  = CollectionState mempty mempty mempty mempty
+
+
+instance Show (MirExp s) where
+    show (MirExp tr e) = (show e) ++ ": " ++ (show tr)
+
 instance Show MirHandle where
     show (MirHandle _nm sig c) =
       show c ++ ":" ++ show sig
@@ -245,13 +265,13 @@ instance Pretty MirHandle where
       text (show nm) <> colon <> pretty sig 
 
 
----------------------------------------------------------------------------
--- *** StaticTraitMap
-
-
--- | A StaticTraitMap maps trait method names to all traits that contain them
--- (There could be multiple, and will need to use type info to resolve further)
-type StaticTraitMap = Map MethName [TraitName]
+varInfoRepr :: VarInfo s tp -> C.TypeRepr tp
+varInfoRepr (VarRegister reg0)  = R.typeOfReg reg0
+varInfoRepr (VarReference reg0) =
+  case R.typeOfReg reg0 of
+    MirReferenceRepr tp -> tp
+    _ -> error "impossible: varInfoRepr"
+varInfoRepr (VarAtom a) = R.typeOfAtom a
 
 mkStaticTraitMap :: Collection -> StaticTraitMap
 mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
@@ -262,18 +282,6 @@ mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
     addItem tii@(TraitMethod methName _sig) tm =
       Map.insertWith (++) methName [tn] tm
     addItem _ tm = tm
-  
-
-
--------------------------------------------------------------------------------------------------------
-
-makeLenses ''FnState
-makeLenses ''MirHandle
-makeLenses ''CollectionState
-makeLenses ''RustModule
-
-
-$(return [])
 
 ------------------------------------------------------------------------------------
 -- extra: Control.Monad.Extra

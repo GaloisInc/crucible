@@ -1,10 +1,11 @@
+// FAIL: Dynamic Fn::call unsupported
 
 fn call_with_one(some_closure: &Fn(i32) -> i32) -> i32 {
     some_closure(1)
 }
 
 fn f (y:i32) -> i32 {
-    
+
     call_with_one(&|x| x + y)
 
 }
