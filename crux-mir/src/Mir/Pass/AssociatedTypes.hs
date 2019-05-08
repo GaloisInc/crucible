@@ -1,7 +1,8 @@
 -- Pass to remove associated types from the collection
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
-module Mir.Pass.AssociatedTypes(passAbstractAssociated,mkAssocTyMap) where
+{-# LANGUAGE ImplicitParams #-}
+module Mir.Pass.AssociatedTypes(passAssociatedTypes,mkAssocTyMap) where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -74,24 +75,28 @@ mkDictWith f = foldr (\t m -> f t `Map.union` m) Map.empty
 --
 -- (NOTE: some of the implementation of this pass is "abstractATs" in Mir.GenericOps)
 --
-passAbstractAssociated :: HasCallStack => Collection -> Collection
-passAbstractAssociated col =
+passAssociatedTypes :: (?debug::Int, ?mirLib::Collection, HasCallStack) => Collection -> Collection
+passAssociatedTypes col =
    let
        -- add associated types to traits
-       col1  = col  & traits    %~ fmap (addTraitAssocTys col)
+       col1  = col  & traits    %~ fmap (addTraitAssocTys (?mirLib <> col))
+
+       full1 = ?mirLib <> col1
 
        -- make mapping from ATs to their definitions, based on impls
        -- as well as some custom ATs 
-       adict1 = implATDict col1 <> closureATDict col1 <> indexATDict
+       adict1 = implATDict full1 <> closureATDict full1 <> indexATDict
 
        -- add ATs to functions & traitItems based on trait ATs
        col2  =
-         col1 & functions %~ fmap (addFnAssocTys col1 adict1)
-              & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys col1 adict1 tr))
+         col1 & functions %~ fmap (addFnAssocTys full1 adict1)
+              & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys full1 adict1 tr))
+         
+       full2 = ?mirLib <> col2
        
-       mc    = buildMethodContext col2
+       mc    = buildMethodContext full2
 
-       info  = ATInfo 0 0 adict1 col2 mc
+       info  = ATInfo 0 0 adict1 full2 mc
        
    in
    

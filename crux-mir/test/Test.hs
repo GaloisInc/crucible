@@ -1,26 +1,24 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# OPTIONS_GHC -Wall -fno-warn-unused-top-binds #-}
 
-import           Control.Exception (bracket)
+import           Control.Monad.ST
+import           Control.Monad.IO.Class
 import           Data.Char (isSpace)
-import           Data.List (dropWhileEnd, isPrefixOf,intersperse)
+import           Data.Functor(($>))
+import           Data.List (dropWhileEnd, isPrefixOf)
 import qualified Data.Map as Map
 import           Data.Maybe (catMaybes)
-import           GHC.IO.Handle (hDuplicate, hDuplicateTo, hGetBuffering, hSetBuffering)
 import           System.Directory (listDirectory, doesDirectoryExist, doesFileExist, removeFile)
-import           System.Environment (withArgs)
 import           System.Exit (ExitCode(..))
 import           System.FilePath ((<.>), (</>), takeBaseName, takeExtension, replaceExtension)
-import           System.IO (IOMode(..), withFile, stdout, stderr, hClose, hGetContents, hGetLine, openFile)
+import           System.IO (IOMode(..), Handle, withFile, hClose, hGetContents, hGetLine, openFile)
 import           System.IO.Temp (withSystemTempFile)
+
 import qualified System.Process as Proc
 import           Text.Parsec (parse, (<|>), (<?>), string, many1, digit)
 import           Text.Parsec.String (Parser)
 
-import           Mir.Generate(generateMIR)
-import           Mir.SAWInterface (translateMIR, extractMIR)
 import qualified Verifier.SAW.FiniteValue as FV
 import qualified Verifier.SAW.Prelude as SC
 import qualified Verifier.SAW.SCTypeCheck as SC
@@ -33,10 +31,17 @@ import           Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertF
 import           Test.Tasty.Golden (goldenVsFile, findByExtension)
 import           Test.Tasty.ExpectedFailure (expectFailBecause)
 
+import           Mir.Generate(loadPrims)
+import           Mir.SAWInterface (translateMIR, extractMIR, loadMIR)
+import qualified Mir.Language as Mir
+
+import qualified Lang.Crucible.FunctionHandle as C
+
+import qualified Crux.Options as CruxOpts
+import qualified Crux.CruxMain as Crux
+import qualified Crux.Log as Crux
+
 import qualified Data.AIG.Interface as AIG
-
-
-import qualified Mir.Language as Mir (mainWithOutputTo)
 
 type OracleTest = FilePath -> String -> (String -> IO ()) -> Assertion
 
@@ -58,8 +63,17 @@ expectedFail fn =
   where failMarker = "// FAIL: "
 
 
-cruxOracleTest :: FilePath -> String -> (String -> IO ()) -> Assertion
-cruxOracleTest dir name step = do
+runCrux :: Mir.CachedStdLib -> FilePath -> Handle -> IO ()
+runCrux cachedLib rustFile outHandle = do
+    let options = (CruxOpts.defaultCruxOptions { CruxOpts.inputFile = rustFile,
+                                                 CruxOpts.simVerbose = 0 } ,
+                   Mir.defaultMirOptions { Mir.cachedStdLib = Just cachedLib
+                                         , Mir.useStdLib = True } )
+    let ?outputConfig = Crux.OutputConfig False outHandle outHandle
+    Crux.check options
+
+cruxOracleTest :: Mir.CachedStdLib -> FilePath -> String -> (String -> IO ()) -> Assertion
+cruxOracleTest cachedLib dir name step = do
 
   step "Compiling and running oracle program"
   oracleOut <- compileAndRun dir name >>= \case
@@ -69,16 +83,15 @@ cruxOracleTest dir name step = do
   let orOut = dropWhileEnd isSpace oracleOut
   step ("Oracle output: " ++ orOut)
 
-  let fn = dir </> name <.> "rs"
-
+  let rustFile = dir </> name <.> "rs"
+  
   cruxOutFull <- withSystemTempFile name $ \tempName h -> do
-    withArgs [fn] $ Mir.mainWithOutputTo h
+    runCrux cachedLib rustFile h
     hClose h
     h' <- openFile tempName ReadMode
     out <- hGetContents h'
     length out `seq` hClose h'
     return out
-  --(_cruxEC, cruxOutFull, _err) <- Proc.readProcessWithExitCode "cabal" ["new-exec", "crux-mir", dir </> name <.> "rs"] ""
 
   let cruxOut = dropWhileEnd isSpace cruxOutFull
   step ("Crux output: " ++ cruxOut ++ "\n")
@@ -96,15 +109,13 @@ sawOracleTest dir name step = do
     Nothing -> assertFailure "failed to compile and run"
     Just out -> return out
 
-  step ("Oracle output: " ++ (dropWhileEnd isSpace oracleOut))
+  step $ "Oracle output: " ++ dropWhileEnd isSpace oracleOut
 
   step "Generating MIR JSON"
 
-  let ?debug = debugLevel
-  collection <- generateMIR dir name 
 
   step "Translating MIR to Crucible"
-  let mir = translateMIR collection
+  mir <- loadMIR sc name
   
   step "Extracting function f"
   f <- extractMIR proxy sc mir "f"
@@ -113,7 +124,7 @@ sawOracleTest dir name step = do
   step "Typechecking f(ARG)"
   app <- SC.scApply sc f arg
   rty <- SC.scTypeCheck sc Nothing app >>= \case
-    Left e -> assertFailure $ "ill-typed result: " ++ concat (intersperse " " (SC.prettyTCError e))
+    Left e -> assertFailure $ "ill-typed result: " ++ unwords (SC.prettyTCError e)
     Right rty -> return rty
   ty <- FV.asFiniteType sc rty
 
@@ -130,15 +141,14 @@ sawOracleTest dir name step = do
     (Conc.toBool (Conc.evalSharedTerm mm Map.empty eq))
 
 
-symbTest :: FilePath -> IO TestTree
-symbTest dir =
+symbTest :: Mir.CachedStdLib -> FilePath -> IO TestTree
+symbTest cachedLib dir =
   do rustFiles <- findByExtension [".rs"] dir
      return $
        testGroup "Output testing"
          [ goldenVsFile (takeBaseName rustFile) goodFile outFile $
-           withArgs [rustFile] $
-           withFile outFile WriteMode $
-           Mir.mainWithOutputTo
+           withFile outFile WriteMode $ \h ->
+           runCrux cachedLib rustFile h
          | rustFile <- rustFiles
          , notHidden rustFile
          , let goodFile = replaceExtension rustFile ".good"
@@ -153,12 +163,18 @@ main :: IO ()
 main = defaultMain =<< suite
 
 suite :: IO TestTree
-suite = do trees <- sequence $
-             [ --testGroup "saw"  <$> sequence [testDir sawOracleTest "test/conc_eval"  ]
-               testGroup "crux concrete" <$> sequence [ testDir cruxOracleTest "test/conc_eval" ]
-             , testGroup "crux symbolic" <$> sequence [ symbTest "test/symb_eval" ]
-             ]
-           return $ testGroup "mir-verifier" trees
+suite = do
+  let ?debug = 0 
+  halloc <- C.newHandleAllocator
+  prims  <- liftIO $ loadPrims True
+  pmir   <- stToIO $ translateMIR mempty prims halloc
+  let cachedLib = Mir.CachedStdLib pmir halloc
+  trees <- sequence 
+           [ --testGroup "saw"  <$> sequence [testDir sawOracleTest "test/conc_eval"  ]
+             testGroup "crux concrete" <$> sequence [ testDir (cruxOracleTest cachedLib) "test/conc_eval/" ]
+           , testGroup "crux symbolic" <$> sequence [ symbTest cachedLib "test/symb_eval" ]
+           ]
+  return $ testGroup "mir-verifier" trees
 
 
 
@@ -175,7 +191,7 @@ compileAndRun dir name = do
   case ec of
     ExitFailure _ -> do
       putStrLn $ "rustc compilation failed for " ++ name
-      putStrLn $ "error output:"
+      putStrLn "error output:"
       putStrLn err
       return Nothing
     ExitSuccess -> do
@@ -211,11 +227,11 @@ testDir oracleTest dir = do
 parseRustFV :: FV.FiniteType -> Parser (Maybe FV.FiniteValue)
 parseRustFV ft = panic <|> (Just <$> p)
   where
-    panic = string "<<PANIC>>" *> pure Nothing
+    panic = string "<<PANIC>>" $> Nothing
     p = case ft of
           FV.FTBit ->
-            string "true" *> pure (FV.FVBit True)
-            <|> string "false" *> pure (FV.FVBit False)
+                string "true"  $> FV.FVBit True
+            <|> string "false" $> FV.FVBit False
             <?> "boolean"
           FV.FTVec w FV.FTBit -> do
             i <- read <$> many1 digit

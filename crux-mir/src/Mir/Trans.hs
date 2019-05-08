@@ -25,10 +25,11 @@
                 -fno-warn-unused-matches
                 -fno-warn-unticked-promoted-constructors #-}
 
-module Mir.Trans(transCollection,RustModule(..),memberCustomFunc) where
+module Mir.Trans(transCollection,transStatics,RustModule(..),memberCustomFunc) where
 
 import Control.Monad
 import Control.Monad.ST
+
 import Control.Lens hiding (op,(|>))
 import Data.Foldable
 
@@ -81,22 +82,11 @@ import Mir.GenericOps
 import Mir.PP(fmt)
 import Text.PrettyPrint.ANSI.Leijen(Pretty(..))
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
-
 import GHC.Stack
 
 import Unsafe.Coerce
 import Debug.Trace
 
-
---------------------------------------------------------------------------------------
--- *** Result of translating a collection
---
--- 
-data RustModule = RustModule {
-         rmCS    :: CollectionState
-       , rmCFGs  :: Map Text (Core.AnyCFG MIR)
-       , initCFG :: Core.AnyCFG MIR
-     }
 
 
 -----------------------------------------------------------------------
@@ -1838,7 +1828,7 @@ transTerminator (M.Resume) tr =
 transTerminator (M.Drop _dl dt _dunwind) _ =
     jumpToBlock dt -- FIXME! drop: just keep going
 transTerminator M.Unreachable tr =
-    G.reportError (S.litExpr "Unreachable")
+    G.reportError (S.litExpr "Unreachable!!!!!")
 transTerminator t _tr =
     fail $ "unknown terminator: " ++ (show t)
 
@@ -2146,7 +2136,7 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
 -- Fn preds must include *all* predicates necessary for translating
 -- the fbody at this point (i.e. "recursive" predicates for impls)
 -- and these preds must already have their associated types abstracted???
-mkHandleMap :: forall s. HasCallStack => Collection -> FH.HandleAllocator s -> ST s HandleMap
+mkHandleMap :: forall s . (HasCallStack) => Collection -> FH.HandleAllocator s -> ST s HandleMap
 mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 
     mkHandle :: M.Fn -> ST s MirHandle
@@ -2165,7 +2155,7 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 ---------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR collection
-transCollection :: forall s. (HasCallStack, ?debug::Int) 
+transCollection :: forall s. (HasCallStack, ?debug::Int, ?libCS::CollectionState) 
       => M.Collection
       -> FH.HandleAllocator s
       -> ST s RustModule
@@ -2180,7 +2170,6 @@ transCollection col halloc = do
     hmap <- mkHandleMap col halloc 
 
     let stm = mkStaticTraitMap col
-
 
     -- translate the statics and create the initialization code
     -- allocate references for statics
@@ -2198,41 +2187,49 @@ transCollection col halloc = do
     let colState :: CollectionState
         colState = CollectionState hmap stm sm col 
 
-    let initializeStatic :: forall h s r . Static -> G.Generator MIR h s (Const ()) r ()
-        initializeStatic static = do
-          case Map.lookup (static^.sName) sm of
-            Just (StaticVar g) -> do
-              let repr = G.globalType g
-              case Map.lookup (static^.sName) hmap of
-                 Just (MirHandle _ _ (handle :: FH.FnHandle init ret))
-                  | Just Refl <- testEquality repr        (FH.handleReturnType handle)
-                  , Just Refl <- testEquality (Ctx.empty) (FH.handleArgTypes handle)
-                  -> do  val <- G.call (G.App $ E.HandleLit handle) Ctx.empty
-                         G.writeGlobal g val
-                 Just (MirHandle _ _ handle) ->
-                    fail $ "BUG: invalid type for initializer " ++ fmt (static^.sName)
-                 Nothing -> fail $ "BUG: cannot find handle for static " ++ fmt (static^.sName)
-            Nothing -> fail $ "BUG: cannot find global for " ++ fmt (static^.sName)
-
-    -- TODO: make the name of the static initialization function configurable
-    let initName = FN.functionNameFromText "static_initializer"
-    initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
-    let def :: G.FunctionDef MIR w (Const ()) Ctx.EmptyCtx C.UnitType
-        def inputs = (s, f) where
-            s = Const ()
-            f = do mapM_ initializeStatic (colState^.collection.statics)
-                   return (R.App $ E.EmptyApp)
-    init_cfg <- do (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos initHandle def
-                   case SSA.toSSA g of
-                      Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
-
     -- translate all of the functions
-    pairs <- mapM (transDefine colState) (Map.elems (col^.M.functions))
+    pairs <- mapM (transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
     return $ RustModule
-                { rmCS    = colState
-                , rmCFGs  = Map.fromList pairs 
-                , initCFG = init_cfg
-                } 
+                { _rmCS    = colState
+                , _rmCFGs  = Map.fromList pairs 
+                }
+
+-- | Produce a crucible CFG that initializes the global variables for the static
+-- part of the crate
+transStatics :: CollectionState -> FH.HandleAllocator s -> ST s (Core.AnyCFG MIR)
+transStatics colState halloc = do
+  let sm = colState^.staticMap
+  let hmap = colState^.handleMap
+  let initializeStatic :: forall h s r . Static -> G.Generator MIR h s (Const ()) r ()
+      initializeStatic static = do
+        case Map.lookup (static^.sName) sm of
+          Just (StaticVar g) -> do
+            let repr = G.globalType g
+            case Map.lookup (static^.sName) hmap of
+               Just (MirHandle _ _ (handle :: FH.FnHandle init ret))
+                | Just Refl <- testEquality repr        (FH.handleReturnType handle)
+                , Just Refl <- testEquality (Ctx.empty) (FH.handleArgTypes handle)
+                -> do  val <- G.call (G.App $ E.HandleLit handle) Ctx.empty
+                       G.writeGlobal g val
+               Just (MirHandle _ _ handle) ->
+                  fail $ "BUG: invalid type for initializer " ++ fmt (static^.sName)
+               Nothing -> fail $ "BUG: cannot find handle for static " ++ fmt (static^.sName)
+          Nothing -> fail $ "BUG: cannot find global for " ++ fmt (static^.sName)
+
+  -- TODO: make the name of the static initialization function configurable
+  let initName = FN.functionNameFromText "static_initializer"
+  initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
+  let def :: G.FunctionDef MIR w (Const ()) Ctx.EmptyCtx C.UnitType
+      def inputs = (s, f) where
+          s = Const ()
+          f = do mapM_ initializeStatic (colState^.collection.statics)
+                 return (R.App $ E.EmptyApp)
+  init_cfg <- do (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos initHandle def
+                 case SSA.toSSA g of
+                    Core.SomeCFG g_ssa -> return (Core.AnyCFG g_ssa)
+
+  return init_cfg
+
 ----------------------------------------------------------------------------------------------------------
 -- * Traits
 

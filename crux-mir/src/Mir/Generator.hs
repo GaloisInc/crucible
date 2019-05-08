@@ -106,6 +106,21 @@ import           Debug.Trace
 import           GHC.Stack
 
 
+--------------------------------------------------------------------------------------
+-- *** Result of translating a collection
+--
+-- 
+data RustModule = RustModule {
+         _rmCS    :: CollectionState
+       , _rmCFGs  :: Map Text (Core.AnyCFG MIR)
+     }
+
+instance Semigroup RustModule where
+  (RustModule cs1 cm1) <> (RustModule cs2 cm2) = RustModule (cs1 <> cs2) (cm1 <> cm2)
+instance Monoid RustModule where
+  mempty  = RustModule mempty mempty
+  mappend = (<>)
+
 ---------------------------------------------------------------------------------
 
 -- | The main data type for values, bundling the term-level
@@ -234,6 +249,8 @@ mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
 makeLenses ''FnState
 makeLenses ''MirHandle
 makeLenses ''CollectionState
+makeLenses ''RustModule
+
 
 $(return [])
 

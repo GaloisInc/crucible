@@ -10,16 +10,18 @@
 --
 -- This module sets up the process to compile the rust input file,
 -- extract the json representation, and parse as the MIR AST.
--- It also includes the top-level translation function to produce the
--- Crucible CFG from this AST.
 -----------------------------------------------------------------------
 
 
-module Mir.Generate(generateMIR, RustModule(..), translateMIR) where
+module Mir.Generate(generateMIR, translateMIR, translateAll, loadPrims) where
+
+import Data.Foldable(fold)
 
 import Control.Lens hiding((<.>))
 import Control.Monad (when)
 import Control.Monad.ST
+
+import Control.Monad.IO.Class
 
 import qualified Data.Aeson as J
 import qualified Data.ByteString.Lazy as B
@@ -44,10 +46,14 @@ import Mir.JSON
 import Mir.Intrinsics(MIR)
 import Mir.PP()
 import Mir.Pass(rewriteCollection)
-import Mir.Trans(transCollection, RustModule(..))
+import Mir.Generator(RustModule(..),CollectionState(..), rmCS, rmCFGs, collection)
+import Mir.Trans(transCollection, transStatics)
+
+import Debug.Trace 
 
 
-import Debug.Trace
+ 
+
 
 
 -- | Run mir-json on the input, generating lib file on disk 
@@ -99,10 +105,69 @@ generateMIR dir name  = do
           traceM "--------------------------------------------------------------"  
         return col
 
--- | Translate MIR to Crucible
-translateMIR :: (HasCallStack, ?debug::Int) => Collection -> RustModule
-translateMIR col =
-  runST $ C.withHandleAllocator $ (transCollection (rewriteCollection col))
 
+-- | Translate a single MIR crate to Crucible
+translateMIR :: (HasCallStack, ?debug::Int) => CollectionState -> Collection -> C.HandleAllocator s -> ST s RustModule
+translateMIR lib col halloc = 
+  let col0 = let ?mirLib  = lib^.collection in rewriteCollection col
+  in let ?libCS = lib in transCollection col0 halloc
+
+-- | Translate a MIR crate *and* the standard library all at once
+translateAll :: (?debug::Int) => Bool -> Collection -> IO (RustModule, C.AnyCFG MIR)
+translateAll usePrims col = do
+  prims <- liftIO $ loadPrims usePrims
+  let (a,b) = runST $ C.withHandleAllocator $ \halloc -> do
+               pmir     <- translateMIR mempty prims halloc
+               mir      <- translateMIR (pmir^.rmCS) col halloc
+               init_cfg <- transStatics (mir^.rmCS) halloc
+               return $ (pmir <> mir, init_cfg)
+  return $ (a,b)
+
+
+-- | Location of the rust file with the standard library
+libLoc :: String
+libLoc = "mir-lib/src/"
+
+-- | load the rs file containing the standard library
+loadPrims :: (?debug::Int) => Bool -> IO Collection
+loadPrims useStdLib = do
+
+  
+  -- Same order as in https://github.com/rust-lang/rust/blob/master/src/libcore/prelude/v1.rs  
+  let lib = if useStdLib then
+              [ "ops/function"
+              , "ops/try"
+              , "clone"
+              , "cmp"                    
+--              , "convert"
+              , "default"   -- NOTE: macro impls not available b/c mir-json doesn't include "implements"
+              , "option"
+              , "result"
+              , "ops/range"  
+              , "ops/index"
+              , "ops/deref"
+--              , "iter/traits/collect"  -- Cannot handle IntoIterator or FromIterator
+--              , "iter/iterator"
+              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
+--              , "ops/arith" -- doesn't include "implements" in mir-json for macros
+              ] else [
+                "ops/function"  -- needed for any treatment of hofs
+              ]
+        
+  
+  -- Only print debugging info in the standard library at high debugging levels
+  
+  cols <- let ?debug = ?debug - 3 in
+          mapM (generateMIR libLoc) lib
     
+  let total = (fold (hardCoded : cols))
+  when (?debug > 6) $ do
+    traceM "--------------------------------------------------------------"
+    traceM $ "Complete Collection: "
+    traceM $ show (pretty total)
+    traceM "--------------------------------------------------------------"  
 
+  return total
+
+hardCoded :: Collection
+hardCoded = mempty

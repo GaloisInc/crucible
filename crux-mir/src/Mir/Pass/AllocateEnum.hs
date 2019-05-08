@@ -46,9 +46,9 @@ and replace them with a single aggregate assignment
 
 
 
-passAllocateEnum :: (HasCallStack, ?debug::Int) => Collection -> Collection
+passAllocateEnum :: (HasCallStack, ?debug::Int, ?mirLib::Collection) => Collection -> Collection
 passAllocateEnum col =
-  let ?col = col in
+  let ?col = ?mirLib <> col in
   col & functions %~ fmap (& fbody %~ mblocks %~ map pcr)
 
 

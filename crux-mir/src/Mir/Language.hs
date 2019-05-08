@@ -9,11 +9,17 @@
 
 {-# OPTIONS_GHC -Wall #-}
 
-module Mir.Language (main, mainWithOutputTo) where
+module Mir.Language (main,  mainWithOutputTo,
+                     mirConf,
+                     Crux.defaultOptions,
+                     Crux.LangOptions(..),
+                     defaultMirOptions,
+                     CachedStdLib(..)) where
 
 import qualified Data.Char       as Char
 import           Data.Functor.Const (Const(..))
 import           Control.Monad (forM_, when)
+import           Control.Monad.ST
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
 import           Data.Semigroup(Semigroup(..))
@@ -52,12 +58,10 @@ import qualified What4.ProgramLoc                      as W4
 -- crux
 import qualified Crux.Language as Crux
 import qualified Crux.CruxMain as Crux
---import qualified Crux.Error    as Crux
---import qualified Crux.Options  as Crux
 
 import Crux.Types
---import Crux.Model
 import Crux.Log
+
 
 -- mir-verifier
 import           Mir.Mir
@@ -65,15 +69,21 @@ import           Mir.PP()
 import           Mir.Overrides
 import           Mir.Intrinsics(MIR,mirExtImpl,mirIntrinsicTypes)
 import           Mir.DefId(cleanVariantName,parseFieldName)
-import           Mir.Generate(generateMIR, translateMIR, RustModule(..))
-import           Mir.Prims(loadPrims)
+import           Mir.Generator
+import           Mir.Generate(generateMIR, translateMIR, loadPrims)
+import           Mir.Trans(transStatics, RustModule(..))
 
 main :: IO ()
-main = Crux.main [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
+main = Crux.main mirConf
 
+mirConf :: [Crux.LangConf]
+mirConf = [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
+
+defaultMirOptions :: Crux.LangOptions CruxMIR
+defaultMirOptions = Crux.defaultOptions
+  
 mainWithOutputTo :: Handle -> IO ()
-mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h)
-   [Crux.LangConf (Crux.defaultOptions @CruxMIR)]
+mainWithOutputTo h = Crux.mainWithOutputConfig (OutputConfig False h h) mirConf
 
 data CruxMIR
 
@@ -86,16 +96,18 @@ instance Crux.Language CruxMIR where
 
   data LangOptions CruxMIR = MIROptions
      {
-       useStdLib :: Bool
-     , onlyPP    :: Bool
-     , showModel :: Bool
+       useStdLib    :: Bool
+     , onlyPP       :: Bool
+     , showModel    :: Bool
+     , cachedStdLib :: Maybe CachedStdLib
      }
  
   defaultOptions = MIROptions
     {
-      useStdLib = True
-    , onlyPP    = False
-    , showModel = False
+      useStdLib    = True
+    , onlyPP       = False
+    , showModel    = False
+    , cachedStdLib = Nothing
     }
 
   envOptions = []
@@ -119,44 +131,62 @@ instance Crux.Language CruxMIR where
 
     ]
 
+-- | Allow the simulator to use a pre-translated version of the rust library
+-- instead of translating on every invocation of simulateMIR. 
+data CachedStdLib = CachedStdLib
+  {
+    libModule :: RustModule
+  , ioHalloc  :: C.HandleAllocator RealWorld
+  }
+
+
+-- | Main function for running the simulator,
+-- This should only be called by crux's 'check' function. 
 simulateMIR :: forall sym. (?outputConfig :: OutputConfig) => Crux.Simulate sym CruxMIR
 simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
-
-  setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
-
+  let ?debug        = Crux.simVerbose cruxOpts
   let filename      = Crux.inputFile cruxOpts
   let (dir,nameExt) = splitFileName filename
   let (name,_ext)   = splitExtension nameExt
-  let ?debug        = Crux.simVerbose cruxOpts
-
   when (?debug > 2) $
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
 
-  col1 <- generateMIR dir name
-
+  col <- generateMIR dir name
+  
   when (onlyPP mirOpts) $ do
     -- TODO: make this exit more gracefully somehow
-    print $ pretty col1
+    print $ pretty col
     liftIO $ exitSuccess
 
-
-  prims <- liftIO $ (loadPrims (useStdLib mirOpts))
-  let col = prims <> col1
-
+  (primModule, halloc) <-
+    if (useStdLib mirOpts) then
+      case cachedStdLib mirOpts of
+        Just (CachedStdLib pm halloc) -> return (pm, halloc)
+        Nothing     -> do
+          halloc  <- C.newHandleAllocator
+          prims   <- liftIO $ loadPrims True
+          pm      <- stToIO $ translateMIR mempty prims halloc
+          return (pm, halloc)
+    else do
+      halloc <- C.newHandleAllocator
+      return (mempty, halloc)
+                    
+  mir0 <- stToIO $ translateMIR (primModule^.rmCS) col halloc
+  let mir = primModule <> mir0
+  
+  C.AnyCFG init_cfg <- stToIO $ transStatics (mir^.rmCS) halloc
+  let cfgmap = mir^.rmCFGs
+  
+  setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
+  
   res_ty <- case List.find (\fn -> fn^.fname == "::f[0]") (col^.functions) of
                    Just fn -> return (fn^.fsig.fsreturn_ty)
                    Nothing  -> fail "cannot find f"
-
-  let mir = translateMIR col 
-
-  let cfgmap = rmCFGs mir
 
   -- overrides
   let link :: C.OverrideSim (Model sym) sym MIR rtp a r ()
       link   = forM_ (Map.toList cfgmap) $
                  \(fn, C.AnyCFG cfg) -> bindFn fn cfg
-
-  (C.AnyCFG init_cfg)  <- return (initCFG mir)
    
   (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "::f[0]") cfgmap) of
                         Just c -> return c
@@ -193,14 +223,6 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
         liftIO $ outputLn str
         return ()
 
-  halloc <- C.newHandleAllocator
-{-
-  let simctx = C.initSimContext sym mirIntrinsicTypes halloc stdout C.emptyHandleMap mirExtImpl p
-      rosim  = C.runOverrideSim (W4.knownRepr :: C.TypeRepr C.UnitType) osim
-      
-  res <- C.executeCrucible (map C.genericToExecutionFeature execFeatures)
-         (C.InitialState simctx C.emptyGlobals C.defaultAbortHandler rosim)
--}
   let outH = view outputHandle ?outputConfig
   let simctx = C.initSimContext sym mirIntrinsicTypes halloc outH C.emptyHandleMap mirExtImpl p
 

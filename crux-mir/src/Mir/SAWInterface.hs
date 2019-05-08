@@ -39,14 +39,17 @@ import qualified Data.AIG.Interface as AIG
 
 
 import Control.Monad
+import Control.Lens
 
 import GHC.Stack
+
 
 import           Mir.PP()
 import           Text.PrettyPrint.ANSI.Leijen (putDoc,Pretty(..))
 import qualified System.Process as Proc
 import           System.Exit (ExitCode(..),exitWith)
 import           System.Directory (listDirectory, doesFileExist, removeFile)
+import           Mir.Generator(RustModule(..),CollectionState(..), rmCS, rmCFGs, collection)
 import           Mir.Generate
 
 
@@ -61,7 +64,7 @@ decorateFnName t = "::" ++ t ++ "[0]"
 extractMIR :: AIG.IsAIG l g =>
      AIG.Proxy l g -> SC.SharedContext -> RustModule -> String -> IO SC.Term
 extractMIR proxy sc rm n = do
-    let cfgmap = rmCFGs rm
+    let cfgmap = rm^.rmCFGs
         link = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
     (C.AnyCFG cfg) <- case (M.lookup (T.pack (decorateFnName n)) cfgmap) of
              Just c -> return c
@@ -78,12 +81,13 @@ extractMIR proxy sc rm n = do
     return term
 
 
-loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
+loadMIR :: (HasCallStack) => SC.SharedContext -> FilePath -> IO RustModule
 loadMIR _sc fp = do
     let ?debug = 0
     f <- B.readFile fp
     let c = (J.eitherDecode f) :: Either String Collection
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
-      Right col -> return $ translateMIR col 
+      Right col -> do (rm, _init) <- translateAll True col
+                      return rm
       

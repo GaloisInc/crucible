@@ -1,3 +1,4 @@
+{-# LANGUAGE ImplicitParams #-}
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall
                 -fno-warn-name-shadowing
                 -fno-warn-unused-matches
@@ -27,18 +28,10 @@ import Control.Lens((&),(%~),(^.))
 
 import Mir.Mir
 import Mir.GenericOps
-import Mir.PP
 
 import GHC.Stack
 import Debug.Trace
-
-{-
-spanMaybe :: (a -> Maybe b) -> [a] -> ([b],[a])
-spanMaybe _ xs@[] =  ([], xs)
-spanMaybe p xs@(x:xs') = case p x of
-    Just y  -> let (ys, zs) = spanMaybe p xs' in (y : ys, zs)
-    Nothing -> ([], xs)
--}
+import Mir.PP
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f (x:xs)
@@ -46,9 +39,9 @@ firstJust f (x:xs)
   | otherwise     = firstJust f xs
 firstJust f []    = Nothing
 
-passExpandSuperTraits :: Collection -> Collection
+passExpandSuperTraits :: (?debug::Int, ?mirLib::Collection, HasCallStack) => Collection -> Collection
 passExpandSuperTraits col = col & traits %~ inheritSuperItems
-                                & impls  %~ inheritSuperImpls col
+                                & impls  %~ inheritSuperImpls (?mirLib <> col)
 
 inheritSuperImpls :: Collection -> [TraitImpl] -> [TraitImpl]
 inheritSuperImpls col tis = Map.elems (go tis Map.empty) where

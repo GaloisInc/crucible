@@ -1,3 +1,4 @@
+{-# LANGUAGE ImplicitParams #-}
 module Mir.Pass.AddDictionaryPreds where
 
 import qualified Data.List as List
@@ -19,7 +20,7 @@ import Mir.GenericOps
 -- This pass adds those predicates to trait declarations and then uses those to add them
 -- to function implementations
 -- 
-passAddDictionaryPreds :: Collection -> Collection
+passAddDictionaryPreds :: (?debug::Int, ?mirLib::Collection, HasCallStack) => Collection -> Collection
 passAddDictionaryPreds col = col1 & functions %~ fmap addTraitPreds  where
 
   col1 = col & traits  %~ fmap addThisPred
@@ -47,7 +48,7 @@ passAddDictionaryPreds col = col1 & functions %~ fmap addTraitPreds  where
   -- determine the methods that are implementation methods
   -- and the new predicates they should satisfy (== preds for the traits that they impl)
   impls :: Map MethName [Predicate]
-  impls = implMethods' col1
+  impls = implMethods' (?mirLib <> col1)
 
   newPreds :: Fn -> [Predicate]
   newPreds fn = Map.findWithDefault [] (fn^.fname) impls 

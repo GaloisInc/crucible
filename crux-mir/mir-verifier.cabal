@@ -53,7 +53,6 @@ library
                    Mir.Language
                    Mir.Mir
                    Mir.GenericOps
-                   Mir.Prims
                    Mir.Pass
                    Mir.Pass.AddDictionaryPreds
                    Mir.Pass.AllocateEnum
@@ -142,6 +141,8 @@ test-suite test
                 tasty-golden     >= 2.3,
                 tasty-expected-failure >= 0.11,
                 temporary        >= 1.3,
-                aig
-
+                aig,
+                crux,
+                crucible
+                
   default-language: Haskell2010

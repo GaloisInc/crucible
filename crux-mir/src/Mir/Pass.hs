@@ -34,12 +34,12 @@ import Mir.Pass.AllocateEnum ( passAllocateEnum )
 import Mir.Pass.NoMutParams ( passNoMutParams )
 import Mir.Pass.AddDictionaryPreds ( passAddDictionaryPreds )
 import Mir.Pass.ExpandSuperTraits ( passExpandSuperTraits )
-import Mir.Pass.AssociatedTypes ( passAbstractAssociated )
+import Mir.Pass.AssociatedTypes ( passAssociatedTypes )
 
 import Debug.Trace
 import GHC.Stack
 
-type Pass = (?debug::Int, HasCallStack) => Collection -> Collection
+type Pass = (?debug::Int, ?mirLib::Collection, HasCallStack) => Collection -> Collection
 
 --------------------------------------------------------------------------------------
 infixl 0 |>
@@ -56,7 +56,7 @@ rewriteCollection col =
     |> passTrace "initial"
     |> passAddDictionaryPreds  -- add predicates to trait member functions
     |> passExpandSuperTraits   -- add supertrait items
-    |> passAbstractAssociated  -- replace associated types with additional type parameters
+    |> passAssociatedTypes     -- replace associated types with additional type parameters
     |> passTrace "after associated types translated"
     |> passMarkCStyle          -- figure out which ADTs are enums and mark them
     |> passAddTraitAdts        -- add adts for declared traits
@@ -79,13 +79,13 @@ passTrace str col =
 --------------------------------------------------------------------------------------
 
 passMarkCStyle :: Pass
-passMarkCStyle col   = markCStyle (cstyleAdts, col) col where
-          cstyleAdts = Map.filter isCStyle (col^.adts)
+passMarkCStyle col   = markCStyle (cstyleAdts, ?mirLib <> col) col where
+          cstyleAdts = Map.filter isCStyle (?mirLib^.adts <> col^.adts)
 
 --------------------------------------------------------------------------------------
 
 passAddTraitAdts :: Pass
-passAddTraitAdts col = col & adts %~ Map.union (defineTraitAdts (col^.traits))
+passAddTraitAdts col = col & adts %~ Map.union (defineTraitAdts (?mirLib^.traits <> col^.traits))
 
 -- Create the dictionary adt type for a trait
 -- The dictionary is a record (i.e. an ADT with a single variant) with
@@ -116,7 +116,8 @@ defineTraitAdts traits = fmap traitToAdt traits where
 passRemoveUnknownPreds :: Pass
 passRemoveUnknownPreds col = modifyPreds ff col 
   where
-     ff did = Map.member did (col^.traits)
+     allTraits = ?mirLib^.traits <> col^.traits
+     ff did = Map.member did allTraits
 
 --------------------------------------------------------------------------------------
 

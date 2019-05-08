@@ -111,7 +111,8 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 - have a mode where if crucible translation fails, output "assert false". Then 
   even if we can't translate a function we can still override it.
 
-- combine mir-lib into a single crate so can resolve circular references, especially with Try
+- combine mir-lib into a single crate so can resolve circular references
+    (this is particularly needed for Try)
 
 - make test runner check timestamp of mir-json binary
 
