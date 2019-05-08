@@ -11,7 +11,7 @@ Stability   : provisional
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE RankNTypes          #-}
 
-module Crux.Options(CruxOptions(..),processOptionsThen,pathDesc,pathDelim) where
+module Crux.Options(CruxOptions(..),defaultCruxOptions,processOptionsThen,pathDesc,pathDelim) where
 
 import Data.List (foldl',lookup)
 import Data.Maybe( fromMaybe )
@@ -141,7 +141,7 @@ cmdLineOptions langs = map (fmap promoteCruxOptions) cmdLineCruxOptions
     langCLOpts (LangConf (_ :: LangOptions a)) = fmap (fmap promoteLang) (CL.cmdLineOptions @a)  
 
 
--- Look for environment variable sto set options
+-- Look for environment variables to set options
 processEnv :: forall a. Language a => Options a -> IO (Options a)
 processEnv opts = do
   curEnv <- getEnvironment
