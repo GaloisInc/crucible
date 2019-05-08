@@ -6,12 +6,12 @@
 Prove:
   OK to project z
   in main at test-data/simulator-tests/from-maybe.cbl:11:12
-  cp@2:b
+  cp@0:b
 COUNTEREXAMPLE
 Assuming:
 * OK to project z
     in main at test-data/simulator-tests/from-maybe.cbl:11:12
-    cp@2:b
+    cp@0:b
 Prove:
   from-just eq (bogus)
   in main at test-data/simulator-tests/from-maybe.cbl:12:5

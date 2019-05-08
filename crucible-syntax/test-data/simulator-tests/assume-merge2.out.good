@@ -4,13 +4,9 @@
 ==== Proof obligations ====
 Assuming:
 * in main test-data/simulator-tests/assume-merge2.cbl:9:5: odd
-    let -- test-data/simulator-tests/assume-merge2.cbl:10:5
-        v12 = boolNot (intEq 1 (intMod cx@2:i 2))
-     in boolNot (boolAnd v12 (boolNot (intLe 0 cx@2:i)))
+    or (intLe 0 cx@0:i) (eq 1 (intMod cx@0:i 2))
 * in main test-data/simulator-tests/assume-merge2.cbl:6:5: even
-    let -- test-data/simulator-tests/assume-merge2.cbl:10:5
-        v20 = boolAnd (intLe 0 cx@2:i) (boolNot (intEq 0 (intMod cx@2:i 2)))
-     in boolNot v20
+    or (not (intLe 0 cx@0:i)) (eq 0 (intMod cx@0:i 2))
 Prove:
   oopsie!
   in main at test-data/simulator-tests/assume-merge2.cbl:12:5

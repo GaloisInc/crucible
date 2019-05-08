@@ -664,6 +664,10 @@ class Abstractable (tp::BaseType) where
   avOverlap  :: BaseTypeRepr tp -> AbstractValue tp -> AbstractValue tp -> Bool
 
 
+  -- | Check equality on two abstract values.  Return true or false if we can definitively
+  --   determine the equality of the two elements, and nothing otherwise.
+  avCheckEq :: BaseTypeRepr tp -> AbstractValue tp -> AbstractValue tp -> Maybe Bool
+
 avJoin' :: BaseTypeRepr tp
         -> AbstractValueWrapper tp
         -> AbstractValueWrapper tp
@@ -682,49 +686,76 @@ instance Abstractable BaseBoolType where
           f _ Nothing = True
           f (Just x) (Just y) = x == y
 
+  avCheckEq _ (Just x) (Just y) = Just $! x == y
+  avCheckEq _ _ _ = Nothing
+
 instance Abstractable BaseStringType where
   avJoin _ _ _ = ()
   avOverlap _ _ _ = True
+  avCheckEq _ _ _ = Nothing
 
 -- Natural numbers have a lower and upper bound associated with them.
 instance Abstractable BaseNatType where
   avJoin _ = natJoinRange
   avOverlap _ x y = rangeOverlap (natRangeToRange x) (natRangeToRange y)
+  avCheckEq _ = natCheckEq
 
 -- Integers have a lower and upper bound associated with them.
 instance Abstractable BaseIntegerType where
   avJoin _ = joinRange
   avOverlap _ = rangeOverlap
+  avCheckEq _ = rangeCheckEq
 
 -- Real numbers  have a lower and upper bound associated with them.
 instance Abstractable BaseRealType where
   avJoin _ = ravJoin
   avOverlap _ x y = rangeOverlap (ravRange x) (ravRange y)
+  avCheckEq _ = ravCheckEq
 
 -- Bitvectors always have a lower and upper bound (represented as unsigned numbers)
 instance (1 <= w) => Abstractable (BaseBVType w) where
   avJoin (BaseBVRepr w) = BVD.union BVD.defaultBVDomainParams w
   avOverlap _ = BVD.domainsOverlap
+  avCheckEq _ = BVD.eq
 
 instance Abstractable (BaseFloatType fpp) where
   avJoin _ _ _ = ()
   avOverlap _ _ _ = True
+  avCheckEq _ _ _ = Nothing
 
 instance Abstractable BaseComplexType where
   avJoin _ (r1 :+ i1) (r2 :+ i2) = (ravJoin r1 r2) :+ (ravJoin i1 i2)
   avOverlap _ (r1 :+ i1) (r2 :+ i2) = rangeOverlap (ravRange r1) (ravRange r2)
                                    && rangeOverlap (ravRange i1) (ravRange i2)
+  avCheckEq _ (r1 :+ i1) (r2 :+ i2)
+    = combineEqCheck
+        (rangeCheckEq (ravRange r1) (ravRange r2))
+        (rangeCheckEq (ravRange i1) (ravRange i2))
 
 instance Abstractable (BaseArrayType idx b) where
   avJoin (BaseArrayRepr _ b) x y = withAbstractable b $ avJoin b x y
   avOverlap (BaseArrayRepr _ b) x y = withAbstractable b $ avOverlap b x y
+  avCheckEq (BaseArrayRepr _ b) x y = withAbstractable b $ avCheckEq b x y
+
+combineEqCheck :: Maybe Bool -> Maybe Bool -> Maybe Bool
+combineEqCheck (Just False) _ = Just False
+combineEqCheck (Just True)  y = y
+combineEqCheck _ (Just False) = Just False
+combineEqCheck x (Just True)  = x
+combineEqCheck _ _            = Nothing
 
 instance Abstractable (BaseStructType ctx) where
-
   avJoin (BaseStructRepr flds) x y = ctxZipWith3 avJoin' flds x y
   avOverlap (BaseStructRepr flds) x y = Ctx.forIndex (Ctx.size flds) f True
     where f :: Bool -> Ctx.Index ctx tp -> Bool
           f b i = withAbstractable tp (avOverlap tp (unwrapAV u) (unwrapAV v)) && b
+            where tp = flds Ctx.! i
+                  u  = x Ctx.! i
+                  v  = y Ctx.! i
+
+  avCheckEq (BaseStructRepr flds) x y = Ctx.forIndex (Ctx.size flds) f (Just True)
+    where f :: Maybe Bool -> Ctx.Index ctx tp -> Maybe Bool
+          f b i = combineEqCheck b (withAbstractable tp (avCheckEq tp (unwrapAV u) (unwrapAV v)))
             where tp = flds Ctx.! i
                   u  = x Ctx.! i
                   v  = y Ctx.! i

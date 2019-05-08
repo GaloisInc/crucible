@@ -494,6 +494,7 @@ bit1 = T "#b1"
 bvbinary :: Integer -> Natural -> Term
 bvbinary u w0
     | w0 > fromIntegral (maxBound :: Int) = error $ "Integer width is too large."
+    | w0 == 0 = error $ "bvbinary width must be positive."
     | otherwise = T $ "#b" <> go (fromIntegral w0)
   where go :: Int -> Builder
         go 0 = mempty
@@ -510,6 +511,7 @@ bvbinary u w0
 -- The literal uses a decimal notation.
 bvdecimal :: Integer -> Natural -> Term
 bvdecimal u w
+    | w == 0 = error "bvdecimal expects positive width"
     | otherwise = T $ mconcat [ "(_ bv", Builder.decimal d, " ", Builder.decimal w, ")"]
   where d = u .&. (2^w - 1)
 
@@ -518,10 +520,10 @@ bvdecimal u w
 -- The width @w@ must be a positive multiple of 4.
 --
 -- The literal uses hex notation.
-bvhexadecimal :: Integer -> Integer -> Term
+bvhexadecimal :: Integer -> Natural -> Term
 bvhexadecimal u w0
-    | w0 <= 0 = error $ "bvhexadecimal width must be positive."
-    | w0 > toInteger (maxBound :: Int) = error $ "Integer width is too large."
+    | w0 == 0 = error $ "bvhexadecimal width must be positive."
+    | w0 > fromIntegral (maxBound :: Int) = error $ "Integer width is too large."
     | otherwise = T $ "#x" <> go (fromIntegral w0)
   where go :: Int -> Builder
         go 0 = mempty

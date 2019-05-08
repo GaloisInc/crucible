@@ -6,5 +6,5 @@
 Prove:
   bogus condition
   in main at test-data/simulator-tests/branch.cbl:11:5
-  boolAnd (intEq 42 cx@3:i) cp@2:b
+  and (eq 42 cx@1:i) cp@0:b
 COUNTEREXAMPLE

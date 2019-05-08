@@ -1,10 +1,10 @@
 ==== Begin Simulation ====
-floatToBinary ca@2:f
-ca@2:f
-floatFromBinary cx@4:bv
-floatToBinary (floatFromBinary cx@4:bv)
-floatToBV RNE ca@2:f
-floatToSBV RNE ca@2:f
+floatToBinary ca@0:f
+ca@0:f
+floatFromBinary cx@2:bv
+floatToBinary (floatFromBinary cx@2:bv)
+floatToBV RNE ca@0:f
+floatToSBV RNE ca@0:f
 
 ==== Finish Simulation ====
 ==== Proof obligations ====
@@ -12,14 +12,14 @@ floatToSBV RNE ca@2:f
 Prove:
   bad unsigned round trip
   in main at test-data/simulator-tests/float-cast.cbl:20:5
-  floatEq ca@2:f (bvToFloat RNE (floatToBV RNE ca@2:f))
+  eq ca@0:f (bvToFloat RNE (floatToBV RNE ca@0:f))
 COUNTEREXAMPLE
 Assuming:
 * bad unsigned round trip
     in main at test-data/simulator-tests/float-cast.cbl:20:5
-    floatEq ca@2:f (bvToFloat RNE (floatToBV RNE ca@2:f))
+    eq ca@0:f (bvToFloat RNE (floatToBV RNE ca@0:f))
 Prove:
   bad signed round trip
   in main at test-data/simulator-tests/float-cast.cbl:24:5
-  floatEq ca@2:f (sbvToFloat RNE (floatToSBV RNE ca@2:f))
+  eq ca@0:f (sbvToFloat RNE (floatToSBV RNE ca@0:f))
 COUNTEREXAMPLE

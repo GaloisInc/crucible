@@ -4,11 +4,11 @@
 ==== Proof obligations ====
 Assuming:
 * The branch in main from test-data/simulator-tests/double-branch.cbl:5:5 to test-data/simulator-tests/double-branch.cbl:7:13
-    intEq 5 ca@2:i
+    eq 5 ca@0:i
 * The branch in main from test-data/simulator-tests/double-branch.cbl:7:5 to test-data/simulator-tests/double-branch.cbl:9:14
-    intLe 0 cb@3:i
+    intLe 0 cb@1:i
 Prove:
   assert
   in main at test-data/simulator-tests/double-branch.cbl:9:5
-  intEq 5 ca@2:i
+  eq 5 ca@0:i
 PROVED

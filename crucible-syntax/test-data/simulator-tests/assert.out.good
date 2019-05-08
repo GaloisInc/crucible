@@ -6,5 +6,5 @@
 Prove:
   x is true
   in main at test-data/simulator-tests/assert.cbl:4:5
-  cx@2:b
+  cx@0:b
 COUNTEREXAMPLE

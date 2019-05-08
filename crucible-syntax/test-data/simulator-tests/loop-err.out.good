@@ -4,9 +4,9 @@
 ==== Proof obligations ====
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
-    boolNot (natEq 0 cx@2:n)
+    not (eq 0 cx@0:n)
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
-    natEq 0 (natMod (natSum 2* cx@2:n) 6)
+    eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6)
 Prove:
   oopsie!
   in main at test-data/simulator-tests/loop-err.cbl:27:5
@@ -14,11 +14,11 @@ Prove:
 COUNTEREXAMPLE
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
-    boolNot (natEq 0 cx@2:n)
+    not (eq 0 cx@0:n)
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    boolNot (natEq 0 (natMod (natSum 2* cx@2:n) 6))
+    not (eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
-    natEq 0 (natMod (natSum 4* cx@2:n) 6)
+    eq 0 (natMod (natSum (natMul 4 cx@0:n)) 6)
 Prove:
   oopsie!
   in main at test-data/simulator-tests/loop-err.cbl:27:5
@@ -26,13 +26,13 @@ Prove:
 PROVED
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
-    boolNot (natEq 0 cx@2:n)
+    not (eq 0 cx@0:n)
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    boolNot (natEq 0 (natMod (natSum 2* cx@2:n) 6))
+    not (eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    boolNot (natEq 0 (natMod (natSum 4* cx@2:n) 6))
+    not (eq 0 (natMod (natSum (natMul 4 cx@0:n)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:27:12
-    natEq 0 (natMod (natSum 8* cx@2:n) 6)
+    eq 0 (natMod (natSum (natMul 8 cx@0:n)) 6)
 Prove:
   oopsie!
   in main at test-data/simulator-tests/loop-err.cbl:27:5
@@ -40,15 +40,15 @@ Prove:
 PROVED
 Assuming:
 * in main test-data/simulator-tests/loop-err.cbl:10:5: nonzero start
-    boolNot (natEq 0 cx@2:n)
+    not (eq 0 cx@0:n)
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    boolNot (natEq 0 (natMod (natSum 2* cx@2:n) 6))
+    not (eq 0 (natMod (natSum (natMul 2 cx@0:n)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    boolNot (natEq 0 (natMod (natSum 4* cx@2:n) 6))
+    not (eq 0 (natMod (natSum (natMul 4 cx@0:n)) 6))
 * The branch in main from test-data/simulator-tests/loop-err.cbl:17:5 to test-data/simulator-tests/loop-err.cbl:20:13
-    boolNot (natEq 0 (natMod (natSum 8* cx@2:n) 6))
+    not (eq 0 (natMod (natSum (natMul 8 cx@0:n)) 6))
 Prove:
   nonzero
   in main at test-data/simulator-tests/loop-err.cbl:23:5
-  boolNot (natLe (natSum 8* cx@2:n) 0)
+  not (natLe (natSum (natMul 8 cx@0:n)) 0)
 PROVED

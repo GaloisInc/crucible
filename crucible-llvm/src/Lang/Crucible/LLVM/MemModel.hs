@@ -143,6 +143,9 @@ module Lang.Crucible.LLVM.MemModel
   , G.pushStackFrameMem
   , G.popStackFrameMem
   , SomeFnHandle(..)
+  , G.SomeAlloc(..)
+  , G.possibleAllocs
+  , G.ppSomeAlloc
 
     -- * PtrWidth (re-exports)
   , HasPtrWidth

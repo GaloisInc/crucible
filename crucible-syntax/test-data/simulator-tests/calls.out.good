@@ -1,6 +1,6 @@
 ==== Begin Simulation ====
-cx@2:i
-intSum cx@2:i 42
+cx@0:i
+intSum cx@0:i 42
 
 ==== Finish Simulation ====
 ==== Proof obligations ====
