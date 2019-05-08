@@ -140,7 +140,7 @@ loadPrims useStdLib = do
               , "clone"
               , "cmp"                    
 --              , "convert"
-              , "default"   -- NOTE: macro impls not available b/c mir-json doesn't include "implements"
+              , "default"   
               , "option"
               , "result"
               , "ops/range"  
@@ -148,8 +148,8 @@ loadPrims useStdLib = do
               , "ops/deref"
 --              , "iter/traits/collect"  -- Cannot handle IntoIterator or FromIterator
 --              , "iter/iterator"
-              , "slice"    -- need custom primitives (get_unchecked, compositional treatment of slices)
---              , "ops/arith" -- doesn't include "implements" in mir-json for macros
+              , "slice"    
+              , "ops/arith"
               ] else [
                 "ops/function"  -- needed for any treatment of hofs
               ]

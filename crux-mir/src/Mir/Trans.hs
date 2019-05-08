@@ -352,7 +352,7 @@ evalBinOp bop mat me1 me2 =
                 let e2bv = S.app (E.IntegerToBV na (S.app (E.NatToInteger e2a)))
                 return $ MirExp (C.BVRepr na) (S.app $ E.BVAshr na e1a e2bv)
 
-            _ -> fail $ "bad binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
+            _ -> fail $ "No translation for binop: " ++ show bop ++ " with " ++ show ty1 ++ " and " ++ show ty2
       (MirExp C.IntegerRepr e1, MirExp C.IntegerRepr e2) ->
             case bop of
               M.Add -> return $ MirExp C.IntegerRepr (S.app $ E.IntAdd e1 e2)
@@ -366,7 +366,7 @@ evalBinOp bop mat me1 me2 =
               M.Ge  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLe e2 e1)
               M.Ne  -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.IntEq e1 e2)
               M.Beq -> return $ MirExp (C.BoolRepr) (S.app $ E.IntEq e1 e2)
-              _ -> fail $ "bad integer binop: " ++ show bop 
+              _ -> fail $ "No translation for integer binop: " ++ show bop 
       (MirExp ty1@(C.BVRepr na) e1a, MirExp ty2@(C.BVRepr ma) e2a) ->
           -- if the BVs are not the same width extend the shorter one
           extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
@@ -406,14 +406,14 @@ evalBinOp bop mat me1 me2 =
 
               (M.Ne, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
               (M.Beq, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVEq n e1 e2)
-              _ -> fail $ "bad binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
+              _ -> fail $ "No translation for binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
       (MirExp C.BoolRepr e1, MirExp C.BoolRepr e2) ->
           case bop of
             M.BitAnd -> return $ MirExp C.BoolRepr (S.app $ E.And e1 e2)
             M.BitXor -> return $ MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2)
             M.BitOr -> return $ MirExp C.BoolRepr (S.app $ E.Or e1 e2)
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.BoolXor e1 e2)
-            _ -> fail "bad binop"
+            _ -> fail $ "No translation for bool binop: " ++ fmt bop
       (MirExp C.NatRepr e1, MirExp C.NatRepr e2) ->
           case bop of
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.NatEq e1 e2)
@@ -425,8 +425,10 @@ evalBinOp bop mat me1 me2 =
             M.Add -> return $ MirExp C.NatRepr (S.app $ E.NatAdd e1 e2)
             M.Sub -> return $ MirExp C.NatRepr (S.app $ E.NatSub e1 e2)
             M.Mul -> return $ MirExp C.NatRepr (S.app $ E.NatMul e1 e2)
+            M.Div -> return $ MirExp C.NatRepr (S.app $ E.NatDiv e1 e2)
+            M.Rem -> return $ MirExp C.NatRepr (S.app $ E.NatMod e1 e2)
             M.Ne -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.NatEq e1 e2)
-            _ -> fail "bad natural number binop"
+            _ -> fail $ "No translation for natural number binop: " ++ fmt bop
       (MirExp C.RealValRepr e1, MirExp C.RealValRepr e2) ->
           case bop of
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.RealEq e1 e2)
@@ -438,10 +440,12 @@ evalBinOp bop mat me1 me2 =
             M.Add -> return $ MirExp C.RealValRepr (S.app $ E.RealAdd e1 e2)
             M.Sub -> return $ MirExp C.RealValRepr (S.app $ E.RealSub e1 e2)
             M.Mul -> return $ MirExp C.RealValRepr (S.app $ E.RealMul e1 e2)
+            M.Div -> return $ MirExp C.RealValRepr (S.app $ E.RealDiv e1 e2)
+            M.Rem -> return $ MirExp C.RealValRepr (S.app $ E.RealMod e1 e2)
             M.Ne -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.RealEq e1 e2)
-            _ -> fail "bad natural number binop"
+            _ -> fail $ "No translation for real number binop: " ++ fmt bop
 
-      (_, _) -> fail $ "bad or unimplemented type: " ++ (show bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
+      (_, _) -> fail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
 
 
@@ -462,7 +466,9 @@ transUnaryOp uop op = do
     case (uop, mop) of
       (M.Not, MirExp C.BoolRepr e) -> return $ MirExp C.BoolRepr $ S.app $ E.Not e
       (M.Neg, MirExp (C.BVRepr n) e) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVSub n (S.app $ E.BVLit n 0) e)
-      _ -> fail "bad op or type for unary"
+      (M.Neg, MirExp C.IntegerRepr e) -> return $ MirExp C.IntegerRepr $ S.app $ E.IntNeg e
+      (M.Neg, MirExp C.RealValRepr e) -> return $ MirExp C.RealValRepr $ S.app $ E.RealNeg e
+      (_ , MirExp ty e) -> fail $ "Unimplemented unary op `" ++ fmt uop ++ "' for " ++ show ty
 
 
 -- a -> u -> [a;u]
