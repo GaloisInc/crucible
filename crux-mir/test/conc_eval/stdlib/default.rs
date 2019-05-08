@@ -1,5 +1,3 @@
-// FAIL: Default trait (temporarily) not included in mir-lib
-
 // Tests deriving for stdlib trait
 
 #[derive(Default)]
