@@ -358,10 +358,27 @@ parseConst ty v = do
     TyStr        -> (v .: "str_val") >>= \t -> ConstStr <$> convertString t
     TyFnDef d ps -> pure $ ConstFunction d ps
     TyTuple ts   -> fail $ "TODO: need Tuple value in\n" ++ show v
-    TyArray t n  -> (v .: "initializer") >>= parseInitializer
+    TyArray t n  -> parseArray t n v
     TyAdt d ss   -> (v .: "initializer") >>= parseInitializer
     r            -> fail $ "TODO: Don't know how to parse literals of type " ++ show ty
                              ++ "\nin JSON value " ++ show v
+
+parseArray :: Ty -> Int -> HML.HashMap Text Value -> Aeson.Parser ConstVal
+parseArray t n v =
+  do mvec  <- v .:? "bstr_val"
+     minit <- v .:? "initializer"
+     case mvec of
+       Just (arr :: Array) -> do
+         let f sci = case Scientific.toBoundedInteger sci of
+                       Just b -> pure (ConstInt $ U8 $ toInteger (b :: Int))
+                       Nothing -> fail $ "cannot read " ++ show sci
+         bytes <- mapM (withScientific "byte" f) arr
+         return $ ConstArray $ V.toList bytes
+
+       Nothing -> case minit of
+         Just init -> parseInitializer init
+         Nothing -> fail "either need bstr_val or initializer for array literals"
+   
 
 -- | Constant value from initializer code
 parseInitializer :: Value -> Aeson.Parser ConstVal

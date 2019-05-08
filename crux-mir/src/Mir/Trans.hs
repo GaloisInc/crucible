@@ -197,6 +197,9 @@ setPosition = G.setPosition . parsePosition
 charToBV32 :: Char -> R.Expr MIR s (C.BVType 32)
 charToBV32 c = R.App (E.BVLit knownRepr (toInteger (Char.ord c)))
 
+u8ToBV8 :: ConstVal -> R.Expr MIR s (C.BVType 8)
+u8ToBV8 (ConstInt (U8 c)) = R.App (E.BVLit knownRepr c)
+u8ToBV8 _ = error $ "BUG: array literals should only contain bytes (u8)"
 -- Expressions: variables and constants
 --
 
@@ -213,6 +216,12 @@ transConstVal (Some (C.VectorRepr _w)) (M.ConstStr str)
       = do let u32    = C.BVRepr (knownRepr :: NatRepr 32)
            let bytes  = V.fromList (map charToBV32 str)
            return $ MirExp (C.VectorRepr u32) (R.App $ E.VectorLit u32 bytes)
+transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
+      | Just Refl <- testEquality w (C.BVRepr (knownRepr :: NatRepr 8))
+      = do let bytes = V.fromList (map u8ToBV8 arr)
+           return $ MirExp (C.VectorRepr w) (R.App $ E.VectorLit w bytes)
+
+
 transConstVal (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w i)
@@ -228,7 +237,6 @@ transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
 
 transConstVal (Some _ty) (ConstInitializer funid ss) =
     callExp funid ss [] (error "BUG: initializers shouldn't need MIR return type to be called")
-
 transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
