@@ -174,7 +174,14 @@ in    { language =
             ]
           ] : Optional (List Text)
       , script =
-          [ [ "cabal update"
+          [ [ "cabal new-update"
+            ,     let hlintURL =
+                        "https://raw.github.com/ndmitchell/neil/master/misc/travis.sh"
+              
+              in  let pkgs =
+                        "crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}"
+              
+              in  "curl -sSL ${hlintURL} | sh -s -- hlint ${pkgs}"
             , "cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
             ]
           ] : Optional (List Text)

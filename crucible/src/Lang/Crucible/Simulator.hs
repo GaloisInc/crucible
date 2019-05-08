@@ -13,15 +13,10 @@
 ------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}

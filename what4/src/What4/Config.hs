@@ -66,21 +66,17 @@
 --       (i.e., to undo extendConfig)
 ------------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 module What4.Config
   ( -- * Names of properties
     ConfigOption
@@ -469,12 +465,12 @@ listOptSty values =  stringOptSty & set_opt_onset vf
   where help = group (text "one of: " <+> align (sep $ map (dquotes . text . Text.unpack . fst) $ Map.toList values))
         vf :: Maybe (ConcreteVal BaseStringType) -> ConcreteVal BaseStringType -> IO OptionSetResult
         vf _ (ConcreteString x) =
-         case Map.lookup x values of
-           Just check -> check
-           Nothing -> return $ optErr $
-                            text "invalid setting" <+> text (show x) <+>
-                            text ", expected one of:" <+>
-                            align (sep (map (text . Text.unpack . fst) $ Map.toList values))
+         fromMaybe
+          (return $ optErr $
+            text "invalid setting" <+> text (show x) <+>
+            text ", expected one of:" <+>
+            align (sep (map (text . Text.unpack . fst) $ Map.toList values)))
+          (Map.lookup x values)
 
 
 -- | A configuration style for options that are expected to be paths to an executable

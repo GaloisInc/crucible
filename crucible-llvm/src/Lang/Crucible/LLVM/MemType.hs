@@ -9,11 +9,10 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns #-}
+
 module Lang.Crucible.LLVM.MemType
   ( -- * Type information.
     SymType(..)

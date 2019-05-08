@@ -9,7 +9,6 @@ Define the main simulation monad 'OverrideSim' and basic operations on it.
 -}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}

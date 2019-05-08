@@ -8,6 +8,7 @@ import Control.Lens ((^.), view)
 import Control.Monad (forM_, unless)
 import Data.Either (partitionEithers)
 import Data.IORef
+import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 
@@ -167,6 +168,5 @@ proveGoals ctxt (Just gs0) =
     conn = solverConn sp
 
     lookupnm namemap x =
-      case Map.lookup x namemap of
-        Just v  -> v
-        Nothing -> error $ "Named predicate " ++ show x ++ " not found!"
+      fromMaybe (error $ "Named predicate " ++ show x ++ " not found!")
+                (Map.lookup x namemap)

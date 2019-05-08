@@ -21,7 +21,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Simulator.RegValue
   ( RegValue
   , CanMux(..)

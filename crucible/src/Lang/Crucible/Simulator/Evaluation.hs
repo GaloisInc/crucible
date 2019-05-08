@@ -10,7 +10,6 @@
 -- This module provides operations evaluating Crucible expressions.
 ------------------------------------------------------------------------
 {-# LANGUAGE DoAndIfThenElse #-}
-{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -18,7 +17,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -309,7 +307,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
           | Just Refl <- testEquality tp tpv ->
                return $! PE (truePred sym) v
           | otherwise ->
-               return $! Unassigned
+               return Unassigned
 
     ----------------------------------------------------------------------
     -- Bool
@@ -410,7 +408,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       r <- evalSub e
       return $! PE (truePred sym) r
     NothingValue _ -> do
-      return $! Unassigned
+      return Unassigned
     FromJustValue _ maybe_expr msg_expr -> do
       maybe_val <- evalSub maybe_expr
       case maybe_val of

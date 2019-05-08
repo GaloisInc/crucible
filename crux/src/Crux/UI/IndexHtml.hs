@@ -1,5 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# Language OverloadedStrings #-}
 
 module Crux.UI.IndexHtml where
 

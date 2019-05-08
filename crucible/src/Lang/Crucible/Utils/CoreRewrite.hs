@@ -16,9 +16,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.Utils.CoreRewrite
 ( annotateCFGStmts

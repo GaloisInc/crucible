@@ -51,7 +51,7 @@ renderSideConds :: Maybe (ProvedGoals b) -> [ JS ]
 renderSideConds = maybe [] (go [])
   where
   flatBranch (Branch x y : more) = flatBranch (x : y : more)
-  flatBranch (x : more)          = x : flatBranch more 
+  flatBranch (x : more)          = x : flatBranch more
   flatBranch []                  = []
 
   isGoal x = case x of

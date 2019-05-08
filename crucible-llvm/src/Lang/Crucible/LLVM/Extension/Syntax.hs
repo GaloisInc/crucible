@@ -13,7 +13,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}

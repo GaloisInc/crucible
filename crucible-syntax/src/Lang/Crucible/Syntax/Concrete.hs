@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -24,6 +23,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+
 module Lang.Crucible.Syntax.Concrete
   ( -- * Errors
     ExprErr(..)
@@ -38,7 +38,6 @@ where
 
 import Prelude hiding (fail)
 
---import Data.Ratio
 import Data.Semigroup (Semigroup(..))
 
 import Control.Lens hiding (cons, backwards)

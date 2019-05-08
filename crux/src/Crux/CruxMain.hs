@@ -2,7 +2,6 @@
 --
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE EmptyCase #-}
 {-# Language FlexibleContexts #-}
 {-# Language ImplicitParams #-}
 {-# Language PatternSynonyms #-}

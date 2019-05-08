@@ -41,9 +41,9 @@ The canonical implementation of these interface classes is found in "What4.Expr.
 -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveTraversable #-}
-{-# LANGUAGE DeriveFoldable #-}
-{-# LANGUAGE DeriveFunctor #-}
+
+
+
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}

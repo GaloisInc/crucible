@@ -11,10 +11,7 @@ for interacting with the symbolic simulator.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}

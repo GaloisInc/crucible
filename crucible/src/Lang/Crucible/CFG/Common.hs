@@ -11,7 +11,6 @@ registerized and the SSA form CFG representations.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 module Lang.Crucible.CFG.Common
   ( -- * Global variables
     GlobalVar(..)

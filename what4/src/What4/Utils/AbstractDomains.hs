@@ -5,11 +5,11 @@ Maintainer  : jhendrix@galois.com
 
 This module declares a set of abstract domains used by the solver.
 -}
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
@@ -17,6 +17,7 @@ This module declares a set of abstract domains used by the solver.
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+
 module What4.Utils.AbstractDomains
   ( ValueBound(..)
   , minValueBound

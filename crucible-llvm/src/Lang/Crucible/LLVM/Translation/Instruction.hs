@@ -11,15 +11,13 @@
 -- is responsable for interpreting the LLVM instruction set into
 -- corresponding crucible statements.
 -----------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE GADTs                 #-}
 {-# LANGUAGE ImplicitParams        #-}
-{-# LANGUAGE KindSignatures        #-}
 {-# LANGUAGE LambdaCase            #-}
 {-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE PatternGuards         #-}
 {-# LANGUAGE PatternSynonyms       #-}
 {-# LANGUAGE PolyKinds             #-}
 {-# LANGUAGE RankNTypes            #-}
@@ -156,8 +154,8 @@ instrResultType instr =
     L.Load x _ _ -> case L.typedType x of
                    L.PtrTo ty -> liftMemType ty
                    _ -> fail $ unwords ["load through non-pointer type", show (L.typedType x)]
-    L.ICmp _ _ _ -> liftMemType (L.PrimType (L.Integer 1))
-    L.FCmp _ _ _ -> liftMemType (L.PrimType (L.Integer 1))
+    L.ICmp{} -> liftMemType (L.PrimType (L.Integer 1))
+    L.FCmp{} -> liftMemType (L.PrimType (L.Integer 1))
     L.Phi tp _   -> liftMemType tp
 
     L.GEP inbounds base elts ->
@@ -1736,7 +1734,7 @@ typedValueAsCrucibleValue tv = case L.typedValue tv of
       Just (Right (Some a)) -> return $ Some $ AtomValue a
       Nothing -> reportError $ fromString $
         "Could not find identifier " ++ show i ++ "."
-  v@_ -> reportError $ fromString $
+  v -> reportError $ fromString $
     "Unsupported breakpoint parameter: " ++ show v ++ "."
 
 

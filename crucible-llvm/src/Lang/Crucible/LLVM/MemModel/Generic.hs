@@ -9,26 +9,23 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE UndecidableInstances #-}
+
 module Lang.Crucible.LLVM.MemModel.Generic
   ( Mem
   , emptyMem
@@ -1261,7 +1258,7 @@ freeMem sym w (LLVMPointer blk off) m =
                Just True  -> return (truePred sym)
                Just False -> isHeapAllocated fallback r
                Nothing    -> orPred sym sameBlock =<< isHeapAllocated fallback r
-        Alloc _ _ _ _ _ _ ->
+        Alloc{} ->
           isHeapAllocated fallback r
         MemFree a ->
           do sameBlock <- natEq sym blk a

@@ -1,5 +1,5 @@
-{-# Language GADTs, DataKinds, TypeOperators, BangPatterns #-}
-{-# Language TypeApplications, ScopedTypeVariables #-}
+{-# Language GADTs, DataKinds, TypeOperators #-}
+{-# Language ScopedTypeVariables #-}
 {-# Language Rank2Types #-}
 module Lang.Crucible.Vector
   ( module Data.Parameterized.Vector

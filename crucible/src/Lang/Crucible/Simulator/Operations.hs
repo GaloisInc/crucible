@@ -13,9 +13,6 @@
 
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -75,6 +72,7 @@ module Lang.Crucible.Simulator.Operations
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
+import           Data.Maybe (fromMaybe)
 import           Data.Monoid ((<>))
 import           Data.List (isPrefixOf)
 import qualified Data.Parameterized.Context as Ctx
@@ -790,12 +788,12 @@ cruciblePausedFrame jmp@(ResolvedJump x_id _) top_frame pd =
 overrideSymbolicBranch ::
   IsSymInterface sym =>
   Pred sym ->
-  
-  RegMap sym then_args -> 
+
+  RegMap sym then_args ->
   ExecCont p sym ext rtp (OverrideLang r) ('Just then_args) {- ^ if branch -} ->
   Maybe Position {- ^ optional if branch location -} ->
 
-  RegMap sym else_args -> 
+  RegMap sym else_args ->
   ExecCont p sym ext rtp (OverrideLang r) ('Just else_args) {- ^ else branch -} ->
   Maybe Position {- ^ optional else branch location -} ->
 
@@ -979,14 +977,13 @@ returnContext ::
   ValueFromFrame ctx sym ext root f ->
   ValueFromValue ctx sym ext root (FrameRetType f)
 returnContext c0 =
-    case unwindContext c0 of
-      Just vfv -> vfv
-      Nothing ->
-        panic "ExecutionTree.returnContext"
-          [ "Unexpected attempt to exit function before all intra-procedural merges are complete."
-          , "The call stack was:"
-          , show (PP.pretty c0)
-          ]
+  fromMaybe
+    (panic "ExecutionTree.returnContext"
+      [ "Unexpected attempt to exit function before all intra-procedural merges are complete."
+      , "The call stack was:"
+      , show (PP.pretty c0)
+      ])
+    (unwindContext c0)
 
 -- | Replace the given frame with a new frame.  Succeeds
 --   only if there are no pending symbolic merge points.

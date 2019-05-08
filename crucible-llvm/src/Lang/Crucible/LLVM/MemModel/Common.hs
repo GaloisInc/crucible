@@ -13,9 +13,6 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 
 module Lang.Crucible.LLVM.MemModel.Common
   ( -- * Range declarations.

@@ -16,7 +16,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DeriveGeneric #-}
+
 {-# LANGUAGE DeriveTraversable #-}
 module What4.ProgramLoc
   ( Position(..)

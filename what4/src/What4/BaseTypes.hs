@@ -18,12 +18,9 @@
 ------------------------------------------------------------------------
 {-# LANGUAGE ConstraintKinds#-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE ExplicitForAll #-}
-{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -32,7 +29,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 module What4.BaseTypes
   ( -- * BaseType data kind

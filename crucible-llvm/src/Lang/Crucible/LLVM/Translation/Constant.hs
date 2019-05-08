@@ -15,12 +15,11 @@
 --
 -- See @liftConstant@ for how to turn these into expressions.
 -----------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ParallelListComp #-}
 {-# LANGUAGE PatternGuards #-}
@@ -30,7 +29,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Lang.Crucible.LLVM.Translation.Constant
   ( -- * Representation of LLVM constant values

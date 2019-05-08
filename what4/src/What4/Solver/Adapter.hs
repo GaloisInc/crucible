@@ -9,7 +9,7 @@
 -- Stability        : provisional
 --
 ------------------------------------------------------------------------
-{-# LANGUAGE DeriveDataTypeable #-}
+
 {-# LANGUAGE RankNTypes #-}
 module What4.Solver.Adapter
   ( SolverAdapter(..)

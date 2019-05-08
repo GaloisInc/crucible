@@ -21,7 +21,6 @@ Evaluation of expressions is defined in module "Lang.Crucible.Simulator.Evaluati
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -1227,7 +1226,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
 testFnHandle :: FnHandle a1 r1 -> FnHandle a2 r2 -> Maybe (FnHandle a1 r1 :~: FnHandle a2 r2)
 testFnHandle x y = do
   Refl <- testEquality (handleID x) (handleID y)
-  return $! Refl
+  return Refl
 
 compareFnHandle :: FnHandle a1 r1
                 -> FnHandle a2 r2

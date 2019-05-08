@@ -125,8 +125,8 @@ cmdLineCruxOptions =
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)
                                 -> (AllPossibleOptions -> AllPossibleOptions)
-promoteLang g = \ (c,opts) -> (c, go opts)  
-   where 
+promoteLang g = \ (c,opts) -> (c, go opts)
+   where
           go [] = []
           go ( l@(LangConf lopts): rest) =
             case cast lopts of
@@ -135,10 +135,10 @@ promoteLang g = \ (c,opts) -> (c, go opts)
 
 cmdLineOptions :: [LangConf] -> [OptDescr (AllPossibleOptions -> AllPossibleOptions)]
 cmdLineOptions langs = map (fmap promoteCruxOptions) cmdLineCruxOptions
-                       ++ concat (map langCLOpts langs)
+                       ++ concatMap langCLOpts langs
   where
-    promoteCruxOptions f =  \(c,others) -> (f c, others)  
-    langCLOpts (LangConf (_ :: LangOptions a)) = fmap (fmap promoteLang) (CL.cmdLineOptions @a)  
+    promoteCruxOptions f =  \(c,others) -> (f c, others)
+    langCLOpts (LangConf (_ :: LangOptions a)) = fmap (fmap promoteLang) (CL.cmdLineOptions @a)
 
 
 -- Look for environment variable sto set options
@@ -158,7 +158,7 @@ processEnv opts = do
 findLang :: AllPossibleOptions -> FilePath -> Maybe LangConf
 findLang (_,langs) file = go langs where
   go [] = Nothing
-  go (lang@(LangConf (_:: LangOptions a)):rest) 
+  go (lang@(LangConf (_:: LangOptions a)):rest)
     | takeExtension file `elem` CL.validExtensions @a = Just lang
     | otherwise = go rest
 

@@ -1,6 +1,3 @@
-{-# LANGUAGE EmptyCase #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeFamilies #-}
 -----------------------------------------------------------------------
 -- |
 -- Module           : Lang.Crucible.LLVM
@@ -10,14 +7,16 @@
 -- Maintainer       : rdockins@galois.com
 -- Stability        : provisional
 ------------------------------------------------------------------------
+
+{-# LANGUAGE TypeFamilies #-}
+
 module Lang.Crucible.LLVM
-( LLVM
-, registerModuleFn
-, llvmGlobals
-, register_llvm_overrides
-, llvmExtensionImpl
-)
-where
+  ( LLVM
+  , registerModuleFn
+  , llvmGlobals
+  , register_llvm_overrides
+  , llvmExtensionImpl
+  ) where
 
 import           Control.Lens
 import           Control.Monad (when)

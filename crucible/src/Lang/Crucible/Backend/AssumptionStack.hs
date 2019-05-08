@@ -21,10 +21,7 @@ solvers.
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilies #-}
 module Lang.Crucible.Backend.AssumptionStack
   ( -- * Assertions and proof goals

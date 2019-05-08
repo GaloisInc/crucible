@@ -19,13 +19,13 @@ if structs are supported or nested arrays if they are not.
 The solver should detect when something is not supported and give an
 error rather than sending invalid output to a file.
 -}
+
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DoAndIfThenElse #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -36,7 +36,7 @@ error rather than sending invalid output to a file.
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
+
 module What4.Protocol.SMTWriter
   ( -- * Type classes
     SupportTermOps(..)
@@ -980,17 +980,17 @@ typeMapFirstClass :: WriterConn t h -> BaseTypeRepr tp -> Either BaseTypeError (
 typeMapFirstClass conn tp0 = do
   let feat = supportedFeatures conn
   case tp0 of
-    BaseBoolRepr -> Right $! BoolTypeMap
+    BaseBoolRepr -> Right BoolTypeMap
     BaseBVRepr w -> Right $! BVTypeMap w
     BaseFloatRepr fpp -> Right $! FloatTypeMap fpp
-    BaseRealRepr -> Right $! RealTypeMap
-    BaseNatRepr  -> Right $! NatTypeMap
-    BaseIntegerRepr -> Right $! IntegerTypeMap
-    BaseStringRepr -> Left $! StringTypeUnsupported
+    BaseRealRepr -> Right RealTypeMap
+    BaseNatRepr  -> Right NatTypeMap
+    BaseIntegerRepr -> Right IntegerTypeMap
+    BaseStringRepr -> Left StringTypeUnsupported
     BaseComplexRepr
-      | feat `hasProblemFeature` useStructs        -> Right $! ComplexToStructTypeMap
-      | feat `hasProblemFeature` useSymbolicArrays -> Right $! ComplexToArrayTypeMap
-      | otherwise -> Left $! ComplexTypeUnsupported
+      | feat `hasProblemFeature` useStructs        -> Right ComplexToStructTypeMap
+      | feat `hasProblemFeature` useSymbolicArrays -> Right ComplexToArrayTypeMap
+      | otherwise -> Left ComplexTypeUnsupported
     BaseArrayRepr idxTp eltTp -> do
       -- This is a proxy for the property we want, because we assume that EITHER
       -- the solver uses symbolic arrays, OR functions are first-class objects
@@ -1290,7 +1290,7 @@ bvIntTerm w x = sumExpr ((\i -> digit (i-1)) <$> [1..natValue w])
  where digit :: Natural -> v
        digit d = ite (bvTestBit w d x)
                      (fromInteger (2^d))
-                     (fromInteger 0)
+                     0
 
 sbvIntTerm :: SupportTermOps v
            => NatRepr w
@@ -1299,7 +1299,7 @@ sbvIntTerm :: SupportTermOps v
 sbvIntTerm w0 x0 = sumExpr (signed_offset : go w0 x0 (natValue w0 - 2))
  where signed_offset = ite (bvTestBit w0 (natValue w0 - 1) x0)
                            (fromInteger (negate (2^(widthVal w0 - 1))))
-                           (fromInteger 0)
+                           0
        go :: SupportTermOps v => NatRepr w -> v -> Natural -> [v]
        go w x n
         | n > 0     = digit w x n : go w x (n-1)
@@ -1310,7 +1310,7 @@ sbvIntTerm w0 x0 = sumExpr (signed_offset : go w0 x0 (natValue w0 - 2))
        digit :: SupportTermOps v => NatRepr w -> v -> Natural -> v
        digit w x d = ite (bvTestBit w d x)
                          (fromInteger (2^d))
-                         (fromInteger 0)
+                         0
 
 unsupportedTerm  :: Monad m => Expr t tp -> m a
 unsupportedTerm e =
@@ -2557,7 +2557,7 @@ getSMTSymFn conn fn arg_types = do
       nm <- getSymbolName conn (FnSymbolBinding fn)
       ret_type <- mkSMTSymFn conn nm fn arg_types
       cacheValueFn conn n DeleteOnPop $! SMTSymFn nm arg_types ret_type
-      return $! (nm, ret_type)
+      return (nm, ret_type)
 
 ------------------------------------------------------------------------
 -- Writer high-level interface.

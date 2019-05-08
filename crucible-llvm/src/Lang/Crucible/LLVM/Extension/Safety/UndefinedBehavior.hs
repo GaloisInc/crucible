@@ -28,7 +28,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE InstanceSigs #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
@@ -214,14 +213,14 @@ standard =
 
     FreeBadOffset _           -> CStd C99
     FreeUnallocated _         -> CStd C99
-    MemsetInvalidRegion _ _ _ -> CXXStd CXX17
+    MemsetInvalidRegion{} -> CXXStd CXX17
     ReadBadAlignment _ _      -> CStd C99
     ReadUnallocated _         -> CStd C99
 
     -- -------------------------------- Pointer arithmetic
 
     PtrAddOffsetOutOfBounds _ _ -> CStd C99
-    CompareInvalidPointer _ _ _ -> CStd C99
+    CompareInvalidPointer{} -> CStd C99
     CompareDifferentAllocs _ _  -> CStd C99
     PtrSubDifferentAllocs _ _   -> CStd C99
     ComparePointerToBV _ _      -> CStd C99
@@ -256,14 +255,14 @@ cite = text .
 
     FreeBadOffset _           -> "§7.22.3.3 The free function, ¶2"
     FreeUnallocated _         -> "§7.22.3.3 The free function, ¶2"
-    MemsetInvalidRegion _ _ _ -> "https://en.cppreference.com/w/cpp/string/byte/memset"
+    MemsetInvalidRegion{} -> "https://en.cppreference.com/w/cpp/string/byte/memset"
     ReadBadAlignment _ _      -> "§6.2.8 Alignment of objects, ¶?"
     ReadUnallocated _         -> "§6.2.4 Storage durations of objects, ¶2"
 
     -- -------------------------------- Pointer arithmetic
 
     PtrAddOffsetOutOfBounds _ _ -> "§6.5.6 Additive operators, ¶8"
-    CompareInvalidPointer _ _ _ -> "§6.5.8 Relational operators, ¶5"
+    CompareInvalidPointer{} -> "§6.5.8 Relational operators, ¶5"
     CompareDifferentAllocs _ _  -> "§6.5.8 Relational operators, ¶5"
     PtrSubDifferentAllocs _ _   -> "§6.5.6 Additive operators, ¶9"
     ComparePointerToBV _ _      -> "§6.5.9 Equality operators, ¶2"
@@ -305,7 +304,7 @@ explain =
       ]
     FreeUnallocated _ ->
       "`free` called on pointer that didn't point to a live region of the heap."
-    MemsetInvalidRegion _ _ _ -> cat $
+    MemsetInvalidRegion{} -> cat $
       [ "Pointer passed to `memset` didn't point to a mutable allocation with"
       , "enough space."
       ]
@@ -320,7 +319,7 @@ explain =
       [ "Addition of an offset to a pointer resulted in a pointer to an"
       , "address outside of the allocation."
       ]
-    CompareInvalidPointer _ _ _ -> cat $
+    CompareInvalidPointer{} -> cat $
       [ "Comparison of a pointer which wasn't null or a pointer to a live heap"
       , "object."
       ]

@@ -1,4 +1,4 @@
-{-# LANGUAGE LambdaCase #-}
+
 module What4.Utils.HandleReader where
 
 import           Control.Monad (unless)

@@ -13,7 +13,7 @@ comparing the performance of different implementations.
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE PatternGuards #-}
+
 {-# LANGUAGE TypeOperators #-}
 #if MIN_VERSION_base(4,9,0)
 {-# OPTIONS_GHC -fno-warn-redundant-constraints #-}

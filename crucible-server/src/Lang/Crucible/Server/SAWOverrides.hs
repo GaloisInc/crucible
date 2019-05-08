@@ -9,12 +9,8 @@
 -- Function implementations that are specific to the SAW backend.
 ------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}

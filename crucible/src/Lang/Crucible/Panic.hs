@@ -3,7 +3,7 @@ module Lang.Crucible.Panic
   (HasCallStack, Crucible, Panic, panic) where
 
 import Panic hiding (panic)
-import qualified Panic as Panic
+import qualified Panic
 
 data Crucible = Crucible
 

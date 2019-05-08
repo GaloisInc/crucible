@@ -328,6 +328,6 @@ wip = do
 
   result <- runTest 2 $ top ++ testCase ++ "/mainClass"
 
-  putStrLn (show result)
+  print result
 
 
