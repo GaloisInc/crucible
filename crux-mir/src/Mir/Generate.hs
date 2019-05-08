@@ -52,11 +52,9 @@ import Mir.Trans(transCollection, transStatics)
 import Debug.Trace 
 
 
- 
-
-
-
--- | Run mir-json on the input, generating lib file on disk 
+-- | Run mir-json on the input, generating lib file on disk
+-- NOTE: If the rust file has not been modified since the
+-- last .mir file was created, this function does nothing
 -- This function uses 'failIO' if any error occurs
 generateMIR :: (HasCallStack, ?debug::Int) =>
                FilePath          -- ^ location of input file

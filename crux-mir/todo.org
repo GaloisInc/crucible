@@ -114,10 +114,8 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 - combine mir-lib into a single crate so can resolve circular references
     (this is particularly needed for Try)
 
-- make test runner check timestamp of mir-json binary
-
-- separate processing of mir-lib from that of each test file so don't have to
-  reprocess the stdlib on every call
+- make generateMIR in Mir.Generate check timestamp of mir-json binary as well
+  as timestamp of .mir files to determine whether to call mir-json
 
 - Divide Trans.hs into multiple files so that typechecking/compilation is snappier
   The current 4k file overwhelms dante-mode
@@ -132,8 +130,8 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 - need more structured error handling
    don't use "error", use "fail" instead
-   pretty print error messages instead of constructing strings
    distinguish "BUG" errors from user-facing limitations of the system
+   pretty print error messages instead of constructing strings?
 
 - just-in time function translation using overrides?
   or some caching of the standard library?
@@ -158,12 +156,16 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
   Should explore other designs
 
 - dynamic trait invocation (i.e. trait objects) (test/conc_eval/traits/dynamic*.rs)
-   + a "trait object" is a value (coerced to Any) accompanied by its
-     vtable. However, we need to make a coerced version of that vtable
-     so that it can take arguments of type "Any" instead of the
-     implementation type.  This requires allocating a bunch of
-     function handles for the wrapped vtable (one for each
-     implementation type)
+  + trait objects are packages of a value and a trait dictionary(i.e. vtable)
+    for that value
+       "exists T. T * dict<T>"
+  + if the trait objects appear in argument position only, we can uncurry 
+    the function in a pre-pass
+    
+      fn (x : S) -> ...
+
+      fn<T:S> (x : T) -> ...
+ 
 
 - type translation needs access to the collection so can lookup the type of 
   function pointers

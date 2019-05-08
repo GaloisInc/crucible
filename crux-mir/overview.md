@@ -24,7 +24,6 @@
 
     operations related to Mir type system
 
-
 ** src/Mir/Pass/Pass.hs
   toplevel module for mir-to-mir AST transformations
   these transformations provide additional information to the AST and elaborate
@@ -72,13 +71,10 @@ Rest of these are not currently used:
 
     main translation from Mir AST to Crucible CFG
 
-** src/Mir/Generate.hs (generateMIR, translateMIR)
+** src/Mir/Generate.hs (generateMIR, translateMIR, translateAll, loadPrims)
     -- run mir-json on a rust crate
     -- rewrite & translate Mir to Crucible CFG
- 
-** src/Mir/Prims.hs
-  
-   load & translate the MIR library
+    -- load & translate the MIR library 
 
 ** src/Mir/Language.hs
 
@@ -95,4 +91,4 @@ Rest of these are not currently used:
    somewhat defunct, hasn't been tested recently
 
 
-* testing is in test/
+* testing is in test/Test.hs 
