@@ -147,7 +147,8 @@ data FnState (s :: Type)
               _labelMap   :: !(LabelMap s),                            
               _debugLevel :: !Int,
               _currentFn  :: !Fn,
-              _cs         :: !CollectionState
+              _cs         :: !CollectionState,
+              _customOps  :: !CustomOpMap
             }
 
 -- | State about the entire collection used for the translation
@@ -165,6 +166,26 @@ instance Semigroup CollectionState  where
 instance Monoid CollectionState where
   mappend = ((<>))
   mempty  = CollectionState mempty mempty mempty mempty
+
+
+---------------------------------------------------------------------------
+-- ** Custom operations
+
+type CustomOpMap = Map ExplodedDefId CustomRHS              
+
+-- Operation for a custom operation (that returns normally)
+type ExplodedDefId = ([Text], Text, [Text])
+data CustomOp      =
+    CustomOp (forall h s ret. HasCallStack =>
+       [Ty]      -- ^ argument types
+     -> Ty       -- ^ return type
+     -> [MirExp s] -- ^ operand values
+     -> MirGenerator h s ret (MirExp s))
+  | CustomMirOp (forall h s ret. HasCallStack =>
+      [Operand] -> MirGenerator h s ret (MirExp s))
+  | CustomOpExit (forall h s ret. [MirExp s] -> MirGenerator h s ret Text)
+
+type CustomRHS = Substs -> Maybe CustomOp
 
 
 ---------------------------------------------------------------------------
@@ -435,6 +456,27 @@ resolveFn nm tys = do
         return (Just h)
       else
         return Nothing
+    Nothing -> return Nothing
+
+---------------------------------------------------------------------------------------------------
+
+{-
+-- Can use the (static) type arguments to decide whether to override
+memberCustomFunc :: DefId -> Substs -> MirGenerator h s ret Bool
+memberCustomFunc defid substs = do
+  co <- use customOp
+  let edid = (map fst (did_path defid), fst (did_name defid), map fst (did_extra defid)) 
+  case Map.lookup edid co of
+    Just f  -> return $ Maybe.isJust (f substs)
+    Nothing -> return False
+-}
+
+resolveCustom :: DefId -> Substs -> MirGenerator h s ret (Maybe CustomOp)
+resolveCustom defid substs = do
+  let edid = (map fst (did_path defid), fst (did_name defid), map fst (did_extra defid))
+  co <- use customOps
+  case Map.lookup edid co of
+    Just f -> return $ f substs
     Nothing -> return Nothing
 
 ---------------------------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 -----------------------------------------------------------------------
 -- |
 -- Module           : Mir.Pass.AllocateEnum
--- Description      : Rewriting pass for collapsing redundant reference moves
+-- Description      : Rewriting pass for allocating Adts
 -- Copyright        : (c) Galois, Inc 2017
 -- License          : BSD3
 -- Stability        : provisional

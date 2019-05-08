@@ -258,9 +258,10 @@ mkFnCallVars orig_dest mut_tys = do
     --          jump to dest
 processFnCall_ :: HasCallStack => BasicBlockInfo -> BasicBlockData -> State RewriteFnSt ()
 processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
-    | memberCustomFunc (funcNameofOp cfunc) (funcSubstsofOp cfunc) =
-        processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
-    | otherwise = do
+--    | memberCustomFunc (funcNameofOp cfunc) (funcSubstsofOp cfunc) =
+--        processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
+--    | otherwise
+  = do
         fnargsmap <- use fnArgsMap
         let (mut_cargs, _immut_cargs) = sort_mutrefs cargs fnargsmap (funcNameofOp cfunc)
         if (null mut_cargs) then do

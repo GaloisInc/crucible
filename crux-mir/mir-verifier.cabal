@@ -72,7 +72,9 @@ library
                  Mir.Intrinsics
                  Mir.Overrides
                  Mir.Run
+                 Mir.TransTy
                  Mir.Trans
+                 Mir.TransCustom
 
 
 executable crux-mir

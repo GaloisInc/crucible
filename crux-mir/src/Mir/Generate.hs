@@ -48,6 +48,7 @@ import Mir.PP()
 import Mir.Pass(rewriteCollection)
 import Mir.Generator(RustModule(..),CollectionState(..), rmCS, rmCFGs, collection)
 import Mir.Trans(transCollection, transStatics)
+import qualified Mir.TransCustom as Mir
 
 import Debug.Trace 
 
@@ -106,7 +107,8 @@ generateMIR dir name  = do
 
 -- | Translate a single MIR crate to Crucible
 translateMIR :: (HasCallStack, ?debug::Int) => CollectionState -> Collection -> C.HandleAllocator s -> ST s RustModule
-translateMIR lib col halloc = 
+translateMIR lib col halloc =
+  let ?customOps = Mir.customOps in
   let col0 = let ?mirLib  = lib^.collection in rewriteCollection col
   in let ?libCS = lib in transCollection col0 halloc
 

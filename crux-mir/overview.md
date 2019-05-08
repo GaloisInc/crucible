@@ -67,7 +67,9 @@ Rest of these are not currently used:
     definition of generator state (FnState, CollectionState) and type (MirGenerator)
     used for translation
     
-** src/Mir/Trans.hs (transCollection)
+** src/Mir/TransTy.hs      (type translations)
+   src/Mir/Trans.hs        (transCollection)
+   src/Mir/TransCustom.hs  (implementation of custom operations)
 
     main translation from Mir AST to Crucible CFG
 
