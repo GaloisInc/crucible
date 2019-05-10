@@ -86,6 +86,9 @@ register_cpp_override someCPPOverride =
 -- type CPPOverride p sym arch args ret =
 --   L.Declare -> LLVMContext arch -> Maybe (LLVMOverride p sym arch args ret)
 
+-- | We can only tell whether we should install a C++ override after demangling
+--  the function name, which is expensive. As a first approximation, we ask whether
+--  the function's name contains a few substrings, in order. 
 data SomeCPPOverride p sym arch =
   SomeCPPOverride
   { cppOverrideSubstrings :: [String]
