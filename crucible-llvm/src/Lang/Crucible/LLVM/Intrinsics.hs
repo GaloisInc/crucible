@@ -49,8 +49,10 @@ import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (asum)
+import           Data.List (stripPrefix, tails, isPrefixOf)
 import qualified Text.LLVM.AST as L
 
+import qualified ABI.Itanium as ABI
 import qualified Data.Parameterized.Map as MapF
 
 import           What4.Interface
@@ -86,17 +88,50 @@ register_llvm_overrides llvmModule llvmctx =
   register_llvm_define_overrides llvmModule llvmctx >>=
     register_llvm_declare_overrides llvmModule
 
+
+-- | Filter the initial list of templates to only those that could
+-- possibly match the given declaration based on straightforward,
+-- relatively cheap string tests on the name of the declaration.
+--
+-- Any remaining templates will then examine the declaration in
+-- more detail, including examining function arguments
+-- and the structure of C++ demangled names to extract more information.
+filterTemplates ::
+  [OverrideTemplate p sym arch rtp l a] ->
+  L.Declare ->
+  [OverrideTemplate p sym arch rtp l a]
+filterTemplates ts decl = filter (f . overrideTemplateMatcher) ts
+ where
+ L.Symbol nm = L.decName decl
+
+ f (ExactMatch x)       = x == nm
+ f (PrefixMatch pfx)    = pfx `isPrefixOf` nm
+ f (SubstringsMatch as) = filterSubstrings as nm
+
+ filterSubstrings [] _ = True
+ filterSubstrings (a:as) xs =
+   case restAfterSubstring a xs of
+     Nothing   -> False
+     Just rest -> filterSubstrings as rest
+
+ restAfterSubstring :: String -> String -> Maybe String
+ restAfterSubstring sub xs = asum [ stripPrefix sub tl | tl <- tails xs ]
+
+
 -- | Helper function for registering overrides
 register_llvm_overrides_ ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   LLVMContext arch ->
-  [RegOverrideM p sym arch rtp l a ()] ->
+  [OverrideTemplate p sym arch rtp l a] ->
   [L.Declare] ->
   OverrideSim p sym (LLVM arch) rtp l a (LLVMContext arch)
 register_llvm_overrides_ llvmctx acts decls =
   flip execStateT llvmctx $
     forM_ decls $ \decl ->
-      runMaybeT (flip runReaderT decl $ asum acts) >> return ()
+      do let acts' = filterTemplates acts decl
+         let L.Symbol nm = L.decName decl
+         let declnm = either (const Nothing) Just $ ABI.demangleName nm
+         runMaybeT (flip runReaderT (decl,declnm) $ asum (map overrideTemplateAction acts')) >> return ()
 
 register_llvm_define_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
@@ -131,95 +166,95 @@ register_llvm_declare_overrides llvmModule llvmctx =
 -- | Register overrides for declared-but-not-defined functions
 declare_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
-  [RegOverrideM p sym arch rtp l a ()]
+  [OverrideTemplate p sym arch rtp l a]
 declare_overrides =
-  [ register_llvm_override LLVM.llvmLifetimeStartOverride
-  , register_llvm_override LLVM.llvmLifetimeEndOverride
-  , register_llvm_override (LLVM.llvmLifetimeOverrideOverload "start" (knownNat @8))
-  , register_llvm_override (LLVM.llvmLifetimeOverrideOverload "end" (knownNat @8))
-  , register_llvm_override (LLVM.llvmInvariantStartOverride (knownNat @8))
-  , register_llvm_override (LLVM.llvmInvariantEndOverride (knownNat @8))
-  , register_llvm_override (LLVM.llvmExpectOverride (knownNat @64))
-  , register_llvm_override LLVM.llvmAssumeOverride
+  [ basic_llvm_override LLVM.llvmLifetimeStartOverride
+  , basic_llvm_override LLVM.llvmLifetimeEndOverride
+  , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload "start" (knownNat @8))
+  , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload "end" (knownNat @8))
+  , basic_llvm_override (LLVM.llvmInvariantStartOverride (knownNat @8))
+  , basic_llvm_override (LLVM.llvmInvariantEndOverride (knownNat @8))
+  , basic_llvm_override (LLVM.llvmExpectOverride (knownNat @64))
+  , basic_llvm_override LLVM.llvmAssumeOverride
 
-  , register_llvm_override LLVM.llvmMemcpyOverride_8_8_32
-  , register_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign
-  , register_llvm_override LLVM.llvmMemcpyOverride_8_8_64
-  , register_llvm_override LLVM.llvmMemcpyOverride_8_8_64_noalign
+  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32
+  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32_noalign
+  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_64
+  , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_64_noalign
 
-  , register_llvm_override LLVM.llvmMemmoveOverride_8_8_32
-  , register_llvm_override LLVM.llvmMemmoveOverride_8_8_32_noalign
-  , register_llvm_override LLVM.llvmMemmoveOverride_8_8_64
-  , register_llvm_override LLVM.llvmMemmoveOverride_8_8_64_noalign
+  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_32
+  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_32_noalign
+  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_64
+  , basic_llvm_override LLVM.llvmMemmoveOverride_8_8_64_noalign
 
-  , register_llvm_override LLVM.llvmMemsetOverride_8_32
-  , register_llvm_override LLVM.llvmMemsetOverride_8_32_noalign
-  , register_llvm_override LLVM.llvmMemsetOverride_8_64
-  , register_llvm_override LLVM.llvmMemsetOverride_8_64_noalign
+  , basic_llvm_override LLVM.llvmMemsetOverride_8_32
+  , basic_llvm_override LLVM.llvmMemsetOverride_8_32_noalign
+  , basic_llvm_override LLVM.llvmMemsetOverride_8_64
+  , basic_llvm_override LLVM.llvmMemsetOverride_8_64_noalign
 
-  , register_llvm_override LLVM.llvmObjectsizeOverride_32
-  , register_llvm_override LLVM.llvmObjectsizeOverride_64
+  , basic_llvm_override LLVM.llvmObjectsizeOverride_32
+  , basic_llvm_override LLVM.llvmObjectsizeOverride_64
 
-  , register_llvm_override LLVM.llvmObjectsizeOverride_32'
-  , register_llvm_override LLVM.llvmObjectsizeOverride_64'
+  , basic_llvm_override LLVM.llvmObjectsizeOverride_32'
+  , basic_llvm_override LLVM.llvmObjectsizeOverride_64'
 
-  , register_llvm_override LLVM.llvmStacksave
-  , register_llvm_override LLVM.llvmStackrestore
+  , basic_llvm_override LLVM.llvmStacksave
+  , basic_llvm_override LLVM.llvmStackrestore
 
-  , register_1arg_polymorphic_override "llvm.ctlz"
+  , polymorphic1_llvm_override "llvm.ctlz"
       (\w -> SomeLLVMOverride (LLVM.llvmCtlz w))
-  , register_1arg_polymorphic_override "llvm.cttz"
+  , polymorphic1_llvm_override "llvm.cttz"
       (\w -> SomeLLVMOverride (LLVM.llvmCttz w))
-  , register_1arg_polymorphic_override "llvm.ctpop"
+  , polymorphic1_llvm_override "llvm.ctpop"
       (\w -> SomeLLVMOverride (LLVM.llvmCtpop w))
-  , register_1arg_polymorphic_override "llvm.bitreverse"
+  , polymorphic1_llvm_override "llvm.bitreverse"
       (\w -> SomeLLVMOverride (LLVM.llvmBitreverse w))
 
-  , register_llvm_override (LLVM.llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
-  , register_llvm_override (LLVM.llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
-  , register_llvm_override (LLVM.llvmBSwapOverride (knownNat @6))  -- 48 = 6 * 8
-  , register_llvm_override (LLVM.llvmBSwapOverride (knownNat @8))  -- 64 = 8 * 8
-  , register_llvm_override (LLVM.llvmBSwapOverride (knownNat @10)) -- 80 = 10 * 8
-  , register_llvm_override (LLVM.llvmBSwapOverride (knownNat @12)) -- 96 = 12 * 8
-  , register_llvm_override (LLVM.llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
-  , register_llvm_override (LLVM.llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
+  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @2))  -- 16 = 2 * 8
+  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @4))  -- 32 = 4 * 8
+  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @6))  -- 48 = 6 * 8
+  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @8))  -- 64 = 8 * 8
+  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @10)) -- 80 = 10 * 8
+  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @12)) -- 96 = 12 * 8
+  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
+  , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
 
-  , register_1arg_polymorphic_override "llvm.sadd.with.overflow"
+  , polymorphic1_llvm_override "llvm.sadd.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmSaddWithOverflow w))
-  , register_1arg_polymorphic_override "llvm.uadd.with.overflow"
+  , polymorphic1_llvm_override "llvm.uadd.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmUaddWithOverflow w))
-  , register_1arg_polymorphic_override "llvm.ssub.with.overflow"
+  , polymorphic1_llvm_override "llvm.ssub.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmSsubWithOverflow w))
-  , register_1arg_polymorphic_override "llvm.usub.with.overflow"
+  , polymorphic1_llvm_override "llvm.usub.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmUsubWithOverflow w))
-  , register_1arg_polymorphic_override "llvm.smul.with.overflow"
+  , polymorphic1_llvm_override "llvm.smul.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmSmulWithOverflow w))
-  , register_1arg_polymorphic_override "llvm.umul.with.overflow"
+  , polymorphic1_llvm_override "llvm.umul.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmUmulWithOverflow w))
 
   -- C standard library functions
-  , register_llvm_override Libc.llvmAssertRtnOverride
-  , register_llvm_override Libc.llvmMemcpyOverride
-  , register_llvm_override Libc.llvmMemcpyChkOverride
-  , register_llvm_override Libc.llvmMemmoveOverride
-  , register_llvm_override Libc.llvmMemsetOverride
-  , register_llvm_override Libc.llvmMemsetChkOverride
-  , register_llvm_override Libc.llvmMallocOverride
-  , register_llvm_override Libc.llvmCallocOverride
-  , register_llvm_override Libc.llvmFreeOverride
-  , register_llvm_override Libc.llvmReallocOverride
-  , register_llvm_override Libc.llvmStrlenOverride
-  , register_llvm_override Libc.llvmPrintfOverride
-  , register_llvm_override Libc.llvmPrintfChkOverride
-  , register_llvm_override Libc.llvmPutsOverride
-  , register_llvm_override Libc.llvmPutCharOverride
+  , basic_llvm_override Libc.llvmAssertRtnOverride
+  , basic_llvm_override Libc.llvmMemcpyOverride
+  , basic_llvm_override Libc.llvmMemcpyChkOverride
+  , basic_llvm_override Libc.llvmMemmoveOverride
+  , basic_llvm_override Libc.llvmMemsetOverride
+  , basic_llvm_override Libc.llvmMemsetChkOverride
+  , basic_llvm_override Libc.llvmMallocOverride
+  , basic_llvm_override Libc.llvmCallocOverride
+  , basic_llvm_override Libc.llvmFreeOverride
+  , basic_llvm_override Libc.llvmReallocOverride
+  , basic_llvm_override Libc.llvmStrlenOverride
+  , basic_llvm_override Libc.llvmPrintfOverride
+  , basic_llvm_override Libc.llvmPrintfChkOverride
+  , basic_llvm_override Libc.llvmPutsOverride
+  , basic_llvm_override Libc.llvmPutCharOverride
 
   -- C++ standard library functions
   , Libcxx.register_cpp_override Libcxx.endlOverride
 
   -- Some architecture-dependent intrinsics
-  , register_llvm_override LLVM.llvmX86_SSE2_storeu_dq
-  , register_llvm_override LLVM.llvmX86_pclmulqdq
+  , basic_llvm_override LLVM.llvmX86_SSE2_storeu_dq
+  , basic_llvm_override LLVM.llvmX86_pclmulqdq
   ]
 
 
@@ -227,7 +262,7 @@ declare_overrides =
 -- function has a definition
 define_overrides ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
-  [RegOverrideM p sym arch rtp l a ()]
+  [OverrideTemplate p sym arch rtp l a]
 define_overrides =
   [ Libcxx.register_cpp_override Libcxx.putToOverride12
   , Libcxx.register_cpp_override Libcxx.putToOverride9
