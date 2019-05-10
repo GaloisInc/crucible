@@ -89,7 +89,8 @@ instance FromJSON Ty where
                                           Just (String "Closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                           Just (String "Str") -> pure TyStr
                                           Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
-                                          Just (String "Dynamic") -> TyDynamic <$> v .: "data"
+                                          Just (String "Dynamic") -> TyDynamic <$>
+                                                (v .: "predicates" >>= \xs -> head xs .: "trait")
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
                                           Just (String "Never") -> pure (TyAdt "::Never[0]" (Substs []))
