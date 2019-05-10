@@ -21,6 +21,8 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , SomeLLVMOverride(..)
   , RegOverrideM
   , llvmSizeT
+  , OverrideTemplate(..)
+  , TemplateMatcher(..)
     -- ** LLVMContext
   , LLVMHandleInfo(..)
   , LLVMContext(..)
@@ -29,6 +31,9 @@ module Lang.Crucible.LLVM.Intrinsics.Common
   , symbolMap
   , mkLLVMContext
     -- ** register_llvm_override
+  , basic_llvm_override
+  , polymorphic1_llvm_override
+
   , build_llvm_override
   , register_llvm_override
   , register_1arg_polymorphic_override
@@ -50,6 +55,7 @@ import qualified Data.List as List
 import qualified Data.Text as Text
 import           Numeric (readDec)
 
+import qualified ABI.Itanium as ABI
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some (Some(..))
 import           Data.Parameterized.TraversableFC (fmapFC)
@@ -99,8 +105,22 @@ data SomeLLVMOverride p sym arch =
 llvmSizeT :: HasPtrWidth wptr => L.Type
 llvmSizeT = L.PrimType $ L.Integer $ fromIntegral $ natValue $ PtrWidth
 
+data OverrideTemplate p sym arch rtp l a =
+  OverrideTemplate
+  { overrideTemplateMatcher :: TemplateMatcher
+  , overrideTemplateAction :: RegOverrideM p sym arch rtp l a ()
+  }
+
+-- | This type controls whether an override is installed for a given name found in a module.
+--  See 'filterTemplates'.
+data TemplateMatcher
+  = ExactMatch String
+  | PrefixMatch String
+  | SubstringsMatch [String]
+
 type RegOverrideM p sym arch rtp l a =
-  ReaderT L.Declare (MaybeT (StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a)))
+  ReaderT (L.Declare, Maybe ABI.DecodedName)
+    (MaybeT (StateT (LLVMContext arch) (OverrideSim p sym (LLVM arch) rtp l a)))
 
 ------------------------------------------------------------------------
 -- ** LLVMHandleInfo
@@ -250,6 +270,13 @@ build_llvm_override sym fnm args ret args' ret' llvmOverride =
             do RegMap xs <- getOverrideArgs
                applyValTransformer fret =<< llvmOverride =<< applyArgTransformer fargs xs
 
+polymorphic1_llvm_override :: forall p sym arch wptr l a rtp.
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  String ->
+  (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
+  OverrideTemplate p sym arch rtp l a
+polymorphic1_llvm_override prefix fn =
+  OverrideTemplate (PrefixMatch prefix) (register_1arg_polymorphic_override prefix fn)
 
 register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
@@ -257,7 +284,7 @@ register_1arg_polymorphic_override :: forall p sym arch wptr l a rtp.
   (forall w. (1 <= w) => NatRepr w -> SomeLLVMOverride p sym arch) ->
   RegOverrideM p sym arch rtp l a ()
 register_1arg_polymorphic_override prefix overrideFn =
-  do L.Symbol nm <- L.decName <$> ask
+  do L.Symbol nm <- L.decName . fst <$> ask
      case List.stripPrefix prefix nm of
        Just ('.':'i': (readDec -> (sz,[]):_))
          | Some w <- mkNatRepr sz
@@ -265,12 +292,19 @@ register_1arg_polymorphic_override prefix overrideFn =
          -> case overrideFn w of SomeLLVMOverride ovr -> register_llvm_override ovr
        _ -> empty
 
+basic_llvm_override :: forall p args ret sym arch wptr l a rtp.
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+  LLVMOverride p sym arch args ret ->
+  OverrideTemplate p sym arch rtp l a
+basic_llvm_override ovr = OverrideTemplate (ExactMatch nm) (register_llvm_override ovr)
+ where L.Symbol nm = L.decName (llvmOverride_declare ovr)
+
 register_llvm_override :: forall p args ret sym arch wptr l a rtp.
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
   LLVMOverride p sym arch args ret ->
   RegOverrideM p sym arch rtp l a ()
 register_llvm_override llvmOverride = do
-  requestedDecl <- ask
+  requestedDecl <- fst <$> ask
   llvmctx <- get
   let decl = llvmOverride_declare llvmOverride
 
