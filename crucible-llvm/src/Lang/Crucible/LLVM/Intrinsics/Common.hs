@@ -111,6 +111,8 @@ data OverrideTemplate p sym arch rtp l a =
   , overrideTemplateAction :: RegOverrideM p sym arch rtp l a ()
   }
 
+-- | This type controls whether an override is installed for a given name found in a module.
+--  See 'filterTemplates'.
 data TemplateMatcher
   = ExactMatch String
   | PrefixMatch String
