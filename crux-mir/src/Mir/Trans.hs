@@ -521,6 +521,11 @@ evalCast' ck ty1 e ty2  =
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp C.IntegerRepr (R.App $ E.SbvToInteger sz e0)
 
+      (M.Misc, M.TyUint M.USize, M.TyUint bsz)
+       | MirExp C.NatRepr e0 <- e
+       -> baseSizeToNatCont bsz $ \w -> return $
+         MirExp (C.BVRepr w) (R.App $ E.IntegerToBV w $ R.App $ E.NatToInteger e0)
+
       (M.Misc, M.TyUint _, M.TyUint M.USize) -> fail "Cannot cast to unsized type"
 
       (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e 
