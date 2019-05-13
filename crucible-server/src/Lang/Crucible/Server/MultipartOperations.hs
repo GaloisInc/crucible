@@ -10,6 +10,7 @@
 -- memory strucutures.
 ------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}

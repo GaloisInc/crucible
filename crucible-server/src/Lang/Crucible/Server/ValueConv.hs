@@ -620,7 +620,7 @@ convertToCrucibleApp' evalVal evalNatRepr prim_op args result_type = do
     P.VectorLit -> do
       case result_type of
         VectorRepr tp -> do
-            xs <- mapM (evalTypedValue tp) Fold.toList args
+            xs <- mapM (evalTypedValue tp) (Fold.toList args)
             let v = V.fromList xs
             return $ Some $ VectorLit tp v
         _ -> X.throwM $ InvalidResultType "VectorLit" result_type
