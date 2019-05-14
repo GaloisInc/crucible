@@ -169,6 +169,20 @@ customOps = Map.fromList [
                          , exit
                          , abort
                          , panicking_begin_panic
+
+
+                         , integer_from_i32
+                         , integer_from_u64
+                         , integer_as_u64
+                         , integer_shl
+                         , integer_shr
+                         , integer_bitand
+                         , integer_bitor
+                         , integer_add
+                         , integer_sub
+                         , integer_rem
+                         , integer_eq
+                         , integer_lt
                          ]
 
 
@@ -889,6 +903,128 @@ fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do
 fn_call_op ss args _exps = fail $ "\n\tBUG: invalid arguments to call/call_once:"
                                     ++ "\n\t ss   = " ++ fmt ss
                                     ++ "\n\t args = " ++ fmt args
+
+--------------------------------------------------------------------------------------------------------------------------
+-- ** Custom: Integer
+
+integerWidth = knownNat :: NatRepr 512
+
+integer_from_i32 :: (ExplodedDefId, CustomRHS)
+integer_from_i32 = ((["integer", "i32"], "from_prim", []), integerFromSigned)
+
+integer_from_u64 :: (ExplodedDefId, CustomRHS)
+integer_from_u64 = ((["integer", "u64"], "from_prim", []), integerFromUnsigned)
+
+integerFromSigned :: CustomRHS
+integerFromSigned (Substs []) =
+    let w' = integerWidth in
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w) int_e] | Just LeqProof <- testLeq (incNat w) w' ->
+            return $ MirExp (C.BVRepr w') (S.app $ E.BVSext w' w int_e)
+        _ -> error $ "BUG: invalid arguments to integerFromSigned: " ++ show ops
+
+integerFromUnsigned :: CustomRHS
+integerFromUnsigned (Substs []) =
+    let w' = integerWidth in
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w) int_e] | Just LeqProof <- testLeq (incNat w) w' ->
+            return $ MirExp (C.BVRepr w') (S.app $ E.BVZext w' w int_e)
+        _ -> error $ "BUG: invalid arguments to integerFromUnsigned: " ++ show ops
+
+integer_as_u64 :: (ExplodedDefId, CustomRHS)
+integer_as_u64 = ((["integer", "u64"], "as_prim", []),
+    integerAsUnsigned (knownNat :: NatRepr 64))
+
+integerAsUnsigned :: 1 <= w => NatRepr w -> CustomRHS
+integerAsUnsigned w (Substs []) =
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w') int_e] | Just LeqProof <- testLeq (incNat w) w' ->
+            return $ MirExp (C.BVRepr w) (S.app $ E.BVTrunc w w' int_e)
+        _ -> error $ "BUG: invalid arguments to integerAsUnsigned: " ++ show ops
+
+integer_shl :: (ExplodedDefId, CustomRHS)
+integer_shl = ((["integer"], "shl", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w') val_e, MirExp (C.BVRepr w) amt_e]
+          | Just LeqProof <- testLeq (incNat w) w' ->
+            let amt_e' = S.app $ E.BVZext w' w amt_e in
+            return $ MirExp (C.BVRepr w') (S.app $ E.BVShl w' val_e amt_e')
+        _ -> error $ "BUG: invalid arguments to integer_shl: " ++ show ops
+    )
+
+integer_shr :: (ExplodedDefId, CustomRHS)
+integer_shr = ((["integer"], "shr", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w') val_e, MirExp (C.BVRepr w) amt_e]
+          | Just LeqProof <- testLeq (incNat w) w' ->
+            let amt_e' = S.app $ E.BVZext w' w amt_e in
+            return $ MirExp (C.BVRepr w') (S.app $ E.BVLshr w' val_e amt_e')
+        _ -> error $ "BUG: invalid arguments to integer_shr: " ++ show ops
+    )
+
+integer_bitand :: (ExplodedDefId, CustomRHS)
+integer_bitand = ((["integer"], "bitand", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp (C.BVRepr w1) (S.app $ E.BVAnd w1 val1_e val2_e)
+        _ -> error $ "BUG: invalid arguments to integer_bitand: " ++ show ops
+    )
+
+integer_bitor :: (ExplodedDefId, CustomRHS)
+integer_bitor = ((["integer"], "bitor", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp (C.BVRepr w1) (S.app $ E.BVOr w1 val1_e val2_e)
+        _ -> error $ "BUG: invalid arguments to integer_bitor: " ++ show ops
+    )
+
+integer_eq :: (ExplodedDefId, CustomRHS)
+integer_eq = ((["integer"], "eq", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp C.BoolRepr (S.app $ E.BVEq w1 val1_e val2_e)
+        _ -> error $ "BUG: invalid arguments to integer_eq: " ++ show ops
+    )
+
+integer_lt :: (ExplodedDefId, CustomRHS)
+integer_lt = ((["integer"], "lt", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp C.BoolRepr (S.app $ E.BVSlt w1 val1_e val2_e)
+        _ -> error $ "BUG: invalid arguments to integer_lt: " ++ show ops
+    )
+
+integer_add :: (ExplodedDefId, CustomRHS)
+integer_add = ((["integer"], "add", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp (C.BVRepr w1) (S.app $ E.BVAdd w1 val1_e val2_e)
+        _ -> error $ "BUG: invalid arguments to integer_add: " ++ show ops
+    )
+
+integer_sub :: (ExplodedDefId, CustomRHS)
+integer_sub = ((["integer"], "sub", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp (C.BVRepr w1) (S.app $ E.BVSub w1 val1_e val2_e)
+        _ -> error $ "BUG: invalid arguments to integer_sub: " ++ show ops
+    )
+
+integer_rem :: (ExplodedDefId, CustomRHS)
+integer_rem = ((["integer"], "rem", []), \(Substs []) ->
+    Just $ CustomOp $ \_optys ops -> case ops of
+        [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
+          | Just Refl <- testEquality w1 w2 ->
+            return $ MirExp (C.BVRepr w1) (S.app $ E.BVSrem w1 val1_e val2_e)
+        _ -> error $ "BUG: invalid arguments to integer_rem: " ++ show ops
+    )
+
 
 --------------------------------------------------------------------------------------------------------------------------
 

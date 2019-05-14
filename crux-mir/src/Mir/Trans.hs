@@ -1595,6 +1595,9 @@ transTerminator t _tr =
 -- uninitialized values.  So we should revisit this.
 --
 initialValue :: HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
+initialValue (M.TyAdt "::integer[0]::Integer[0]" (M.Substs [])) =
+    let w = knownNat :: NatRepr 512 in
+    return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = do
