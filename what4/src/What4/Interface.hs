@@ -297,6 +297,8 @@ class IsExpr e where
   -- | If we have bounds information about the term, return signed upper and lower bounds
   signedBVBounds :: (1 <= w) => e (BaseBVType w) -> Maybe (Integer, Integer)
 
+  asAffineVar :: e tp -> Maybe (ConcreteVal tp, e tp, ConcreteVal tp)
+
   -- | Return the string value if this is a constant string
   asString :: e BaseStringType -> Maybe Text
   asString _ = Nothing

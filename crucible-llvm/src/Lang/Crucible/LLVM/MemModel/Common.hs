@@ -543,14 +543,13 @@ symbolicValueLoad ::
   StorageType           {- ^ load type            -} ->
   Maybe (Integer, Integer) {- ^ optional bounds on the offset between load and store -} ->
   ValueView      {- ^ view of stored value -} ->
-  Alignment      {- ^ alignment of store and load -} ->
+  (Bytes, Bytes) {- ^ stride -} ->
   Mux (ValueCtor (ValueLoad OffsetExpr))
-symbolicValueLoad pref tp bnd v alignment =
+symbolicValueLoad pref tp bnd v (stride, delta) =
   Mux (Or (loadOffset lsz .<= Store) (storeOffset (storageTypeSize stp) .<= Load)) loadFail $
   MuxTable Load Store prefixTable $
   MuxTable Store Load suffixTable loadFail
   where
-    stride = fromAlignment alignment
     lsz = typeEnd 0 tp
     Just stp = viewType v
 
@@ -569,8 +568,8 @@ symbolicValueLoad pref tp bnd v alignment =
     suffixLoBound =
       case bnd of
         Just (lo, _hi)
-          | lo > 0 -> toBytes lo
-        _ -> 0
+          | lo > 0 -> adjustLoBound delta (toBytes lo)
+        _ -> delta
 
     -- One past the largest offset value that can occur in the suffix table.
     -- This is either the length of the written value, or is given by the
@@ -589,8 +588,8 @@ symbolicValueLoad pref tp bnd v alignment =
     prefixLoBound =
       case bnd of
         Just (_lo, hi)
-          | hi < 0 -> max stride (toBytes (-hi))
-        _ -> stride
+          | hi < 0 -> adjustLoBound (stride - delta) (toBytes (-hi))
+        _ -> stride - delta
 
     -- The largest magnitude of offset, plus one, that the load may occur
     -- behind the write pointer.  This is at most the length of the read,
@@ -626,6 +625,11 @@ symbolicValueLoad pref tp bnd v alignment =
       where adjustFn = fixLoadAfterStoreOffset pref i
 
     loadFail = MuxVar (ValueCtorVar (OldMemory Load tp))
+
+    adjustLoBound :: Bytes -> Bytes -> Bytes
+    adjustLoBound i bound = if i >= bound
+      then i
+      else adjustLoBound (i + stride) bound
 
 -- | Create a value of the given type made up of copies of the given byte.
 memsetValue :: a -> StorageType -> ValueCtor a

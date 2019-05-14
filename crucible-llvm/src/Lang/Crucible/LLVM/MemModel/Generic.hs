@@ -90,6 +90,7 @@ import           Data.Parameterized.Ctx (SingleCtx)
 import           Data.Parameterized.Some
 
 import           What4.Interface
+import qualified What4.Concrete as W4
 import qualified What4.Partial as W4P
 import qualified What4.Partial.AssertionTree as W4AT
 
@@ -515,11 +516,41 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
 
-            let align' = min loadAlign storeAlign
+            let alignStride = fromAlignment $ min loadAlign storeAlign
+
+            let (diffStride, diffDelta)
+                  | Just (load_a, _x, load_b) <- asAffineVar off
+                  , Just (store_a, _y, store_b) <- asAffineVar d = do
+                    let stride' = gcd
+                          (W4.fromConcreteUnsignedBV load_a)
+                          (W4.fromConcreteUnsignedBV store_a)
+                    -- mod returns a non-negative integer
+                    let delta' = mod
+                          (W4.fromConcreteUnsignedBV load_b - W4.fromConcreteUnsignedBV store_b)
+                          stride'
+                    (fromInteger stride', fromInteger delta')
+                  | Just (load_a, _x, load_b) <- asAffineVar off
+                  , Just store_b <- asUnsignedBV d = do
+                    let stride' = W4.fromConcreteUnsignedBV load_a
+                    let delta' = mod (W4.fromConcreteUnsignedBV load_b - store_b) stride'
+                    (fromInteger stride', fromInteger delta')
+                  | Just load_b <- asUnsignedBV off
+                  , Just (store_a, _y, store_b) <- asAffineVar d = do
+                    let stride' = W4.fromConcreteUnsignedBV store_a
+                    let delta' = mod (load_b - W4.fromConcreteUnsignedBV store_b) stride'
+                    (fromInteger stride', fromInteger delta')
+                  | otherwise = (1, 0)
+
+            let (stride, delta) = if diffStride >= alignStride
+                  then (diffStride, diffDelta)
+                  else (alignStride, 0)
+
             diff <- liftIO $ bvSub sym off d
 
-            evalMuxValueCtor sym w end varFn subFn $
-              symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) align'
+            if storageTypeSize stp <= delta && (typeEnd 0 ltp) <= (stride - delta)
+              then readPrev ltp $ LLVMPointer blk off
+              else evalMuxValueCtor sym w end varFn subFn $
+                symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) (stride, delta)
 
 -- | Read from a memory with an array store to the same block we are reading.
 readMemArrayStore
