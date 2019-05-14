@@ -321,11 +321,12 @@ abstractATs_Ty ati ty@(TyProjection d substs)
        substs' <- abstractATs ati substs
        case lookupATDict (ati^.atDict) (d,substs') of
          Just nty -> return nty
-         Nothing -> return ty
+         Nothing ->
+           -- return ty
            -- throw error for unknown Projections alone
---           throwError $ fmt ty ++ " with unknown translation.\n"
---                     ++ "Dict is\n" ++ show (ppATDict (ati^.atDict))
-abstractATs_Ty s ty = to <$> (abstractATs' s (from ty))
+           throwError $ fmt ty ++ " with unknown translation.\n"
+                     ++ "Dict is\n" ++ show (ppATDict (ati^.atDict))
+abstractATs_Ty s ty = (to <$> (abstractATs' s (from ty)))
 
 -- Add additional args to the substs for traits with atys
 abstractATs_Predicate :: (HasCallStack, MonadError String m) => ATInfo -> Predicate -> m Predicate
@@ -343,13 +344,13 @@ abstractATs_Predicate ati (TraitProjection ty1 ty2)
 --    = pure $ TraitProjection ty1 ty2
 abstractATs_Predicate _ati UnknownPredicate = throwError "BUG: found UnknownPredicate"
 
--- What if the function itself has associated types?
--- or, what if the function we are calling is
+-- Add extra arguments for associated types to a const function call
+-- NOTE: is this complete?
 abstractATs_ConstVal :: (HasCallStack, MonadError String m) => ATInfo -> ConstVal -> m ConstVal
 abstractATs_ConstVal ati (ConstFunction defid funsubst)
   | Just (fs,mt) <- fnType ati defid
-  = do 
-           -- remove any ats from the current substs
+  = do
+       -- remove any ats from the current substs
        funsubst1 <- abstractATs ati funsubst
 
        -- add ATs from trait (if any) to the appropriate place
@@ -363,7 +364,7 @@ abstractATs_ConstVal ati (ConstFunction defid funsubst)
                        return $
                          insertAtSubsts tats' j funsubst1
                          
-       -- find any ats for the method instantiate them 
+       -- find any ats for the method and instantiate them 
        let ats       = tySubst funsubst1 (fs^.fsassoc_tys)
        
        -- replace ats with their definition
@@ -371,7 +372,7 @@ abstractATs_ConstVal ati (ConstFunction defid funsubst)
 
        -- add method ats to the end of the function subst
        let hsubst    = funsubst2 <> ats'
-
+       
        return $ ConstFunction defid hsubst
          
 abstractATs_ConstVal ati val = to <$> (abstractATs' ati (from val))
@@ -379,10 +380,9 @@ abstractATs_ConstVal ati val = to <$> (abstractATs' ati (from val))
 abstractATs_FnSig :: (HasCallStack, MonadError String m) => ATInfo -> FnSig -> m FnSig
 abstractATs_FnSig ati (FnSig args ret gens preds atys) = do
   let ati' = ati & atDict %~ mappend (mkAssocTyMap (toInteger (length gens)) atys)
-  preds' <- (abstractATs ati' preds)
-  traceM $ "preds' are: " ++ fmt preds'
-  args'  <- (abstractATs ati' args)
-  ret'   <- (abstractATs ati' ret)
+  preds' <- abstractATs ati' preds
+  args'  <- abstractATs ati' args
+  ret'   <- abstractATs ati' ret
   return $ FnSig args'
         ret' 
         (gens ++ map toParam atys)
@@ -399,9 +399,14 @@ toParam (did,_substs) = Param (idText did)  -- do we need to include substs?
 -- For traits, k should be == length traitParams
 mkAssocTyMap :: Integer -> [AssocTy] -> ATDict
 mkAssocTyMap k assocs =
-  foldr (\((a,ss),ty) m -> insertATDict (a,ss) ty m) mempty zips where
-   tys  = map TyParam [k ..]
-   zips = zip assocs tys
+  foldl (\m ((a,ss),ty) ->
+           let ati = ATInfo 0 0 m (error "no col") (error "only types")
+               ss' = case abstractATs ati ss of
+                       Left err -> trace ("WARNING " ++ err) ss
+                       Right ss2 -> ss2
+           in
+             insertATDict (a,ss') ty m) mempty zips where
+    zips = zip assocs (map TyParam [k ..])
 
 lookupATs :: (MonadError String m) => ATInfo -> [AssocTy] -> m Substs
 lookupATs ati ats =

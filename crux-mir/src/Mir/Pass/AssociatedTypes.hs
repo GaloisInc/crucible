@@ -79,7 +79,7 @@ passAssociatedTypes :: (?debug::Int, ?mirLib::Collection, HasCallStack) => Colle
 passAssociatedTypes col =
    let
        -- add associated types to traits
-       col1  = col  & traits    %~ fmap (addTraitAssocTys (?mirLib <> col))
+       col1  = col  & traits    %~ calcTraitAssocTys 
 
        full1 = ?mirLib <> col1
 
@@ -87,22 +87,78 @@ passAssociatedTypes col =
        -- as well as some custom ATs 
        adict1 = implATDict full1 <> closureATDict full1 <> indexATDict
 
+       -- ati
+       info1 = ATInfo 0 0 adict1 full1 (error "ONLY types here")
+
        -- add ATs to functions & traitItems based on trait ATs
        col2  =
-         col1 & functions %~ fmap (addFnAssocTys full1 adict1)
-              & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys full1 adict1 tr))
+         col1 & functions %~ fmap (addFnAssocTys info1)
+              & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys info1 tr))
          
        full2 = ?mirLib <> col2
        
        mc    = buildMethodContext full2
 
        info  = ATInfo 0 0 adict1 full2 mc
-       
+
+       col3  = col2 & traits    %~ Map.map (translateTrait info) 
+                    & functions %~ Map.map (translateFn    info)
+                    & impls     %~ fmap    (translateImpl  info)
    in
-   
-   col2 & traits    %~ Map.map (translateTrait info) 
-        & functions %~ Map.map (translateFn    info)
-        & impls     %~ fmap    (translateImpl  info)
+     col3
+
+
+
+----------------------------------------------------------------------------------------
+
+-- All traits that are referred to in a predicate
+predRef :: Predicate -> [TraitName]
+predRef (TraitPredicate did _ss)  = [did]
+predRef (TraitProjection lhs rhs) = (map projectionTrait (tyProjections lhs) ++ map projectionTrait (tyProjections rhs))
+  where projectionTrait :: (DefId, Substs) -> TraitName
+        projectionTrait (did, _ss) =
+          getTraitName did
+predRef UnknownPredicate = []          
+
+replaceSubsts :: Substs -> AssocTy -> AssocTy
+replaceSubsts ss (nm, _) = (nm,ss)  -- length of new substs should be same as old subst, but we don't check
+
+
+-- | Calculate associated types from predicates
+--
+-- NOTE: don't add associated types (i.e. new params) for ATs that we
+-- already have definitions for in adict and make sure to remove duplicates
+-- 
+atsFromPreds :: ATInfo -> [Predicate] -> [AssocTy]
+atsFromPreds ati preds = atys where    
+    raw_atys = concat (map (predATs (ati^.atCol.traits)) preds)
+    tr_atys  = case abstractATs ati (map (\(s,dd)-> TyProjection s dd) raw_atys) of
+                   Right ats -> (map (\x -> case x of
+                                          TyProjection dd ss -> Just (dd,ss)
+                                          _ -> Nothing) ats)
+                   Left _ -> map Just raw_atys
+    adict = ati^.atDict
+    atys = List.nub (Maybe.catMaybes tr_atys)
+
+-- Traits that we should never add associated types for
+noAssoc :: [DefId]
+noAssoc = [textId "::ops[0]::function[0]::FnOnce[0]",
+           textId "::ops[0]::function[0]::Fn[0]",
+           textId "::ops[0]::function[0]::FnMut[0]" ]
+
+
+-- | Extract Raw ATs from the predicates
+predATs :: Map TraitName Trait -> Predicate -> [AssocTy]
+predATs d (TraitPredicate did ss)
+  | did `elem` noAssoc
+  = []
+  | Just tr <- Map.lookup did d
+  = tySubst ss (tr^.traitAssocTys)
+  | otherwise
+  = []
+predATs _d (TraitProjection lhs rhs) =
+  filter (\(did,ss) -> not (getTraitName did `elem` noAssoc)) (tyProjections lhs ++ tyProjections rhs)
+predATs _d UnknownPredicate = []          
 
 
 ----------------------------------------------------------------------------------------
@@ -113,60 +169,59 @@ passAssociatedTypes col =
 -- it locally and remove it from the Mir datatypes.
 
 
-
--- | Update the trait with the associated types of the trait
 -- Trait ATs come from two sources:
 --   1. The type items (where the arguments to the ATs are the original params of the trait)
 --   2. Predicates for this trait that mention other traits with ATs
--- For now we only handle the first source of ATs. 
-addTraitAssocTys :: HasCallStack => Collection -> Trait -> Trait
-addTraitAssocTys col trait =
-  trait & traitAssocTys .~ map (,subst) anames
-                        
-   where
-     anames      = [ did | (TraitType did) <- trait^.traitItems, did /= textId "::ops[0]::function[0]::FnOnce[0]::Output[0]" ]
-     subst       = Substs [ TyParam (toInteger i)
-                          | i <- [0 .. (length (trait^.traitParams) - 1)] ]
+--
+-- NOTE: because of (2) we have to process traits in dependency order, calculating their ATs
+-- only after all of the traits that they mention in their predicates have been processed.
+calcTraitAssocTys :: HasCallStack => Map TraitName Trait -> Map TraitName Trait
+calcTraitAssocTys trs = go (Map.elems trs) Map.empty where
+  go :: [Trait] -> Map TraitName Trait -> Map TraitName Trait
+  addTraitATs :: Trait -> Map TraitName Trait -> Maybe (Map TraitName Trait)
+  addTraitATs tr done = if all (`Map.member` done) refs then
+                          Just (Map.insert (tr^.traitName) trait' done)
+                        else
+                          Nothing
+      where
+        -- trait names mentioned in this trait's predicates
+        refs    = filter (not . (== tr^.traitName)) (concat (map predRef (tr^.traitPredicates)))
+        -- 1. ATs from type items
+        atItems = map (,subst) [ did | (TraitType did) <- tr^.traitItems, did /= textId "::ops[0]::function[0]::FnOnce[0]::Output[0]" ]
+        subst   = Substs [ TyParam (toInteger i)
+                          | i <- [0 .. (length (tr^.traitParams) - 1)] ]
+        -- 2. ATs from predicate mentions
+        atRefs  = concat (map (predATs done) (tr^.traitPredicates))
+        trait'  = tr & traitAssocTys .~  List.nub (atItems ++ atRefs)
+
+  go trs done =
+    if null next
+       then step
+       else if length next == length trs then
+              error $ "BUG in calcTraitAssocTys: not making progress on " ++ fmt trs
+              else go next step where
+      
+      (step, next) = foldMaybe addTraitATs trs done
+
 
 -- | Update a fnSig with ATs for the function
-addFnSigAssocTys :: HasCallStack => Collection -> ATDict -> FnSig -> FnSig
-addFnSigAssocTys col adict sig = sig & fsassoc_tys .~ (atsFromPreds col adict (sig^.fspredicates)) where
+addFnSigAssocTys :: HasCallStack => ATInfo -> FnSig -> FnSig
+addFnSigAssocTys ati sig =
+  sig & fsassoc_tys .~ (atsFromPreds ati (sig^.fspredicates)) where
   
 -- | Update the function with information about associated types
-addFnAssocTys :: HasCallStack => Collection -> ATDict -> Fn -> Fn
-addFnAssocTys col adict fn =
-  fn & fsig %~ (addFnSigAssocTys col adict) 
+addFnAssocTys :: HasCallStack => ATInfo -> Fn -> Fn
+addFnAssocTys ati fn =
+  fn & fsig %~ addFnSigAssocTys ati 
   
-addTraitFnAssocTys :: HasCallStack => Collection -> ATDict -> Trait -> TraitItem -> TraitItem
-addTraitFnAssocTys col adict tr (TraitMethod did sig) = TraitMethod did (addFnSigAssocTys col adict' sig)
+addTraitFnAssocTys :: HasCallStack => ATInfo -> Trait -> TraitItem -> TraitItem
+addTraitFnAssocTys ati tr (TraitMethod did sig) = TraitMethod did (addFnSigAssocTys ati' sig)
   where
-    adict' :: ATDict
-    adict' = mkAssocTyMap (toInteger (length (tr^.traitParams))) (tr^.traitAssocTys)
-addTraitFnAssocTys col adict tr it = it
+    adict' = (<> mkAssocTyMap (toInteger (length (tr^.traitParams))) (tr^.traitAssocTys))
+    ati'   = ati & atDict %~ adict'
+addTraitFnAssocTys ati tr it = it
 
 
--- | Calculate associated types from predicates
---
--- NOTE: don't add associated types (i.e. new params) for ATs that we
--- already have definitions for in adict
---
--- TODO: currently TraitProjection (i.e. equality constraints) are ignored.
--- But they could be a source of additional ATs.
-atsFromPreds :: Collection -> ATDict -> [Predicate] -> [AssocTy]
-atsFromPreds col adict preds = atys where
-  
-    replaceSubsts ss (nm, _) = (nm,ss)  -- length of new substs should be same as old subst, but we don't check
-    
-    predToAT :: Predicate -> [AssocTy]
-    predToAT (TraitPredicate tn ss)
-          | Just trait <- Map.lookup tn (col^.traits)
-          = map (replaceSubsts ss) (trait^.traitAssocTys)
---    predToAT (TraitProjection tn ss' ty) =  (tn,ss'):tyProjections ty 
-    predToAT p = []
-
-    raw_atys = concat (map predToAT preds)
-
-    atys = filter (\x -> Maybe.isNothing (lookupATDict adict x)) raw_atys
   
 
 
@@ -177,7 +232,7 @@ foldMaybe f (x:xs) b =
   let (b',as) = foldMaybe f xs b in
   case f x b' of
     Just b'' -> (b'',as)
-    Nothing -> (b',as)
+    Nothing -> (b',x:as)
   
       
 -- | Create a mapping from associated types (DefId,Substs) to their definitions
@@ -189,7 +244,8 @@ foldMaybe f (x:xs) b =
 implATDict :: HasCallStack => Collection -> ATDict
 implATDict col = go (col^.impls) mempty where
   addImpl :: TraitImpl -> ATDict -> Maybe ATDict
-  addImpl ti done = foldr addImplItem (Just done) (ti^.tiItems) where
+  addImpl ti done =
+       foldr addImplItem (Just done) (ti^.tiItems) where
     TraitRef tn ss = ti^.tiTraitRef
     tr = case (col^.traits) Map.!? tn of
            Just tr -> tr
@@ -203,7 +259,7 @@ implATDict col = go (col^.impls) mempty where
       Just $ insertATDict (ii,ss) ty' m where
         atinfo = ATInfo start num m col (error "Only type components")
         start  = toInteger (length (ti^.tiGenerics))
-        num    = toInteger (length (atsFromPreds col m (ti^.tiPredicates)))
+        num    = toInteger (length (atsFromPreds atinfo (ti^.tiPredicates)))
     addImplItem _ Nothing = Nothing
     addImplItem _ m = m
   
@@ -256,7 +312,7 @@ indexATDict =
           Nothing)
     
   , singletonATDict (textId "::iter[0]::iterator[0]::Iterator[0]::Item[0]")
-    (\ substs -> --trace ("found Iterator for " ++ fmt substs) $
+    (\ substs ->
        case substs of 
         Substs [TyAdt did (Substs [lifetime,param])]
           | did == textId "::slice[0]::::IterMut[0]"
@@ -290,17 +346,18 @@ abstractATsE ati x = case abstractATs ati x of
 -- | trait declarations 
 -- add associated types to the end of the current params, translate items and predicates
 translateTrait :: HasCallStack => ATInfo -> Trait -> Trait
-translateTrait ati trait = --trace ("Translating " ++ fmt (trait^.traitName)
-                                    --      ++ " with atys " ++ fmt (trait^.traitAssocTys))
+translateTrait ati trait =                                
   trait1
      where
        trait1 = trait & traitItems      %~ map updateMethod
                       & traitPredicates %~ map (abstractATsE info)
                       & traitParams     %~ (++ (map toParam) atys)
+                      
+       ladict = mkAssocTyMap j atys
 
        info   = ati & atStart .~ j
                     & atNum   .~ toInteger (length atys)
-                    & atDict  %~ (<> mkAssocTyMap j atys)
+                    & atDict  %~ (<> ladict)
                     
        atys = trait^.traitAssocTys
        j = toInteger $ length (trait^.traitParams)
@@ -322,20 +379,21 @@ translateTrait ati trait = --trace ("Translating " ++ fmt (trait^.traitName)
 --    adding those ATs to the generics
 --    updating the local adict with new ATs, as well as any ATs defined in this impl
 translateImpl :: HasCallStack => ATInfo -> TraitImpl -> TraitImpl
-translateImpl ati impl =
-   --trace ("Translating " ++ fmt (impl^.tiName)) $                                       
-   impl & tiTraitRef   .~ newTraitRef
-        & tiGenerics   %~ insertAt (map toParam atys) (fromInteger j)
-        & tiPredicates %~ abstractATsE info         
-        & tiItems      %~ map translateImplItem
+translateImpl ati impl = newImpl
      where
+       newImpl = impl & tiTraitRef   .~ newTraitRef
+                      & tiGenerics   %~ insertAt (map toParam atys) (fromInteger j)
+                      & tiPredicates %~ abstractATsE info         
+                      & tiItems      %~ map translateImplItem
 
+       ladict = mkAssocTyMap j atys
+       
        info   = ati & atStart .~ j
                     & atNum   .~ toInteger (length atys)
-                    & atDict  %~ (<> mkAssocTyMap j atys)
+                    & atDict  %~ (<> ladict)
 
        col    = ati^.atCol
-       atys   = atsFromPreds col (ati^.atDict) (impl^.tiPredicates)       
+       atys   = atsFromPreds ati (impl^.tiPredicates)       
        j      = toInteger $ length (impl^.tiGenerics)       
 
        -- Update the TraitRef to include ATs
@@ -377,23 +435,23 @@ translateImpl ati impl =
 -- update args and retty from the types to refer to trait params instead of assoc types
 -- add assocTys if we abstract a type bounded by a trait w/ an associated type
 translateFn :: HasCallStack => ATInfo -> Fn -> Fn
-translateFn ati fn =
-   --trace ("Translating " ++ fmt (fn^.fname) ++ " with predicates " ++ fmt (fn^.fsig.fspredicates)) $  
-   fn & fargs       %~ fmap (\v -> v & varty %~ abstractATsE info)
-      & fsig        %~ (\fs -> fs & fsarg_tys    %~ map (abstractATsE info)
+translateFn ati fn = newFn
+  where 
+     newFn = fn & fargs       %~ fmap (\v -> v & varty %~ abstractATsE info)
+                & fsig        %~ (\fs -> fs & fsarg_tys    %~ map (abstractATsE info)
                                   & fsreturn_ty  %~ abstractATsE info
                                   & fspredicates %~ map (abstractATsE info)
                                   & fsgenerics   %~ (++ (map toParam atys))
                                   )
-      & fbody       %~ abstractATsE info 
-      where
-        atys = fn^.fsig.fsassoc_tys
+                & fbody       %~ abstractATsE info 
+     ladict = mkAssocTyMap j atys
+     atys = fn^.fsig.fsassoc_tys
 
-        info   = ati & atStart .~ j
-                     & atNum   .~ toInteger (length atys)
-                     & atDict  %~ (<> mkAssocTyMap j atys)
+     info   = ati & atStart .~ j
+                  & atNum   .~ toInteger (length atys)
+                  & atDict  %~ (<> ladict)
 
-        j = toInteger $ length (fn^.fsig.fsgenerics)
+     j = toInteger $ length (fn^.fsig.fsgenerics)
 
 
 

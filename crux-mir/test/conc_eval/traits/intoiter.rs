@@ -1,4 +1,6 @@
 
+// Test Associated Type translation when type parameters have predicates mentioning other parameters.
+// 
 pub enum Opt<T> {
     /// No value
     N,
@@ -8,36 +10,36 @@ pub enum Opt<T> {
 
 use Opt::*;
 
-pub trait Iter {
-    type Item;
-    fn n(&mut self) -> Opt<Self::Item>;
+pub trait A {
+    type I;
+    fn n(&mut self) -> Opt<Self::I>;
 }
 
-pub trait IntoI {
-    type Item;
-    type IntoIter: Iter<Item=Self::Item>;
-    fn into_i(self) -> Self::IntoIter;
+pub trait B {
+    type K : A <I=Self::J>;
+    type J ;    
+    fn into_i(self) -> Self::K;
 }
 
-impl Iter for isize {
-    type Item = u8 ;
+impl A for i32 {
+    type I = u8 ;
     fn n(&mut self) -> Opt<u8> {
         N
     }
 }
 
-impl IntoI for &[u8] {
-    type Item = u8;
-    type IntoIter = isize;
-    fn into_i(self) -> isize {
+impl B for [u8; 3] {
+    type J = u8;
+    type K = i32;
+    fn into_i(self) -> i32 {
         0
     }
 }
 
 
 
-fn f (_y : u32) -> isize { 
-    let x : &[u8] = &[1,2,3];
+fn f (_y : u32) -> i32 { 
+    let x : [u8;3] = [1,2,3];
     let mut i = x.into_i();
     i.n();
     i

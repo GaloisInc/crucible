@@ -474,7 +474,7 @@ impl<T> From<T> for T {
     fn from(t: T) -> T { t }
 }
 
-
+/*
 
 // TryFrom implies TryInto
 #[unstable(feature = "try_from", issue = "33417")]
@@ -486,6 +486,7 @@ impl<T, U> TryInto<U> for T where U: TryFrom<T>
         U::try_from(self)
     }
 }
+
 
 // Infallible conversions are semantically equivalent to fallible conversions
 // with an uninhabited error type.
@@ -526,5 +527,5 @@ impl AsRef<str> for str {
     }
 }
 
-
+*/
 }
