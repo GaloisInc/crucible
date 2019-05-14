@@ -50,6 +50,7 @@ module Lang.Crucible.LLVM.MemModel
   , llvmPointerView
   , ptrWidth
   , G.ppPtr
+  , G.ppTermExpr
   , llvmPointer_bv
   , projectLLVM_bv
 
@@ -103,6 +104,7 @@ module Lang.Crucible.LLVM.MemModel
   , storageTypeSize
   , fieldVal
   , fieldPad
+  , fieldOffset
   , bitvectorType
   , arrayType
   , mkStructType

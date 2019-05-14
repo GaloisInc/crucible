@@ -3370,11 +3370,6 @@ sbConcreteLookup sym arr0 mcidx idx
                 p <- allEq sym updated_idx idx
                 iteM baseTypeIte sym p (pure c) m
 
-    -- Reduce array updates
-  | Just (UpdateArray _ _ arr idx' v) <- asApp arr0 = do
-    p <- allEq sym idx idx'
-    iteM baseTypeIte sym p (pure v) (sbConcreteLookup sym arr mcidx idx)
-
     -- Evaluate function arrays on ground values.
   | Just (ArrayFromFn f) <- asNonceApp arr0 = do
       betaReduce sym f idx

@@ -41,6 +41,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , ValueLoad(..)
   , valueLoad
   , symbolicValueLoad
+  , loadBitvector
 
   , memsetValue
   , loadTypedValueFromBytes
