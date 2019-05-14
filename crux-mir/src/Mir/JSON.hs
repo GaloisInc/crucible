@@ -90,7 +90,7 @@ instance FromJSON Ty where
                                           Just (String "Str") -> pure TyStr
                                           Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
                                           Just (String "Dynamic") -> TyDynamic <$>
-                                                (v .: "predicates" >>= \xs -> head xs .: "trait")
+                                                (v .: "predicates" >>= \xs -> mapM parsePred xs)
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
                                           Just (String "Never") -> pure (TyAdt "::Never[0]" (Substs []))
@@ -563,6 +563,17 @@ instance FromJSON MirBody where
     parseJSON = withObject "MirBody" $ \v -> MirBody
         <$> v .: "vars"
         <*> v .: "blocks"
+
+parsePred :: HML.HashMap Text Value -> Aeson.Parser Predicate
+parsePred v = 
+  case HML.lookup "kind" v of
+    Just (String "Trait") -> do
+      TraitPredicate <$> v .: "trait" <*> v .: "substs"
+    Just (String "Projection") -> do
+      TraitProjection <$> (TyProjection <$> v .: "proj" <*> v .: "substs") <*> v .: "rhs_ty" 
+    Just (String "AutoTrait") ->
+      return UnknownPredicate
+    k -> fail $ "cannot parse predicate " ++ show k
 
 instance FromJSON Predicate where
     parseJSON obj = case obj of

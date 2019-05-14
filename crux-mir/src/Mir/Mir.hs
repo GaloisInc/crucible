@@ -98,7 +98,7 @@ data Ty =
       | TyClosure !DefId !Substs
       | TyStr
       | TyFnPtr !FnSig              -- written as fn() -> i32
-      | TyDynamic !DefId            -- trait object (defid is trait name)
+      | TyDynamic [Predicate]       -- trait object (defid is trait name)
       | TyRawPtr !Ty !Mutability    -- Written as *mut T or *const T
       | TyFloat !FloatKind
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type

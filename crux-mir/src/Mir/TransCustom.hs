@@ -820,9 +820,9 @@ fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do
              (clty, _rty2) <- buildClosureType defid clargs
              (arg,) <$> unpackAny clty arg
 
-         unpackClosure (TyDynamic _id) arg = do
-           fail $ "Dynamic Fn::call unsupported"
-{-           
+         unpackClosure (TyDynamic [TraitPredicate _fntr _ss,
+                                   TraitProjection _out rty]) arg = do
+           
              -- a Fn object looks like a pair of
              -- a function that takes any "Any" arguments (the closure) and a struct
              --      of the actual arguments (from the funsubst) and returns type rty
@@ -834,7 +834,7 @@ fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do
                      let args = (Ctx.empty Ctx.:> C.AnyRepr)  Ctx.<++> r2
                      let t = Ctx.empty Ctx.:> C.FunctionHandleRepr args rr Ctx.:> C.AnyRepr
                      (arg,) <$> unpackAny (Some (C.StructRepr t)) arg
-                  _ -> fail $ "aty must be tuple type in dynamic call, found " ++ fmt aty -}
+                  _ -> fail $ "aty must be tuple type in dynamic call, found " ++ fmt aty 
 
          unpackClosure (TyParam i) arg = do
            -- TODO: this is a really hacky implementation of higher-order function calls

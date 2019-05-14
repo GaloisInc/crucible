@@ -1,5 +1,3 @@
-// FAIL: Dynamic Fn::call unsupported
-
 fn call_with_one(some_closure: &Fn(i32) -> i32) -> i32 {
     some_closure(1)
 }

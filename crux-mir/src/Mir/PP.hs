@@ -80,7 +80,7 @@ instance Pretty Ty where
     pretty (TyClosure defId tys) = text "closure" <+> pr_id defId <> pretty tys
     pretty TyStr                 = text "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
-    pretty (TyDynamic defId)     = text "dynamic" <+> pr_id defId 
+    pretty (TyDynamic preds)     = text "dynamic" <+> pretty preds
     pretty (TyRawPtr ty mutability) = text "*" <> pretty mutability <+> pretty ty
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)

@@ -549,7 +549,7 @@ evalCast' ck ty1 e ty2  =
          fail "Cannot cast an immutable array to a mutable slice"
 
       -- Trait object creation. Need this cast for closures
-      (M.Unsize, M.TyRef baseType _, M.TyRef (M.TyDynamic traitName) _) ->
+      (M.Unsize, M.TyRef baseType _, M.TyRef (M.TyDynamic (M.TraitPredicate traitName _:_)) _) ->
           mkTraitObject traitName baseType e
 
       -- C-style adts, casting an enum value to a TyInt
@@ -1545,7 +1545,7 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) tr = do
     isCustom <- resolveCustom funid funsubsts
     case (funsubsts, cargs) of
-      (Substs (M.TyDynamic traitName : _), tobj:_args) |
+      (Substs (M.TyDynamic (TraitPredicate traitName _ : _):_), tobj:_args) |
        Nothing  <- isCustom -> do
         -- this is a method call on a trait object, and is not a custom function
         db <- use debugLevel
