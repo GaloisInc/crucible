@@ -43,7 +43,7 @@ import Text.PrettyPrint.ANSI.Leijen(Doc,(<+>),text,pretty,vcat)
 import GHC.Generics
 import GHC.Stack
 
--- import Debug.Trace
+import Debug.Trace
 
 --------------------------------------------------------------------------------------
 -- For associated types pass
@@ -306,16 +306,25 @@ abstractATs_Ty :: (HasCallStack, MonadError String m) => ATInfo -> Ty -> m Ty
 abstractATs_Ty ati (TyParam i)
     | i < (ati^.atStart) = return $ TyParam i          -- trait param,  leave alone
     | otherwise = return $ TyParam (i + (ati^.atNum))  -- method param, shift over
+    
 abstractATs_Ty ati ty@(TyProjection d substs)
     -- hacky case for FnOnce::Output
     | d == (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]")    
     = TyProjection d <$> abstractATs ati substs
+    
     -- associated type, replace with new param    
-    | Just nty <- lookupATDict (ati^.atDict) (d,substs)  = return nty
-    | otherwise = 
-       -- leave unknown Projections alone
-       throwError $ fmt ty ++ " with unknown translation.\n"
-                 ++ "Dict is\n" ++ show (ppATDict (ati^.atDict))
+    | Just nty <- lookupATDict (ati^.atDict) (d,substs)
+    = return nty
+    
+    -- try translating the substs
+    | otherwise = do
+       substs' <- abstractATs ati substs
+       case lookupATDict (ati^.atDict) (d,substs') of
+         Just nty -> return nty
+         Nothing -> return ty
+           -- throw error for unknown Projections alone
+--           throwError $ fmt ty ++ " with unknown translation.\n"
+--                     ++ "Dict is\n" ++ show (ppATDict (ati^.atDict))
 abstractATs_Ty s ty = to <$> (abstractATs' s (from ty))
 
 -- Add additional args to the substs for traits with atys
@@ -330,7 +339,8 @@ abstractATs_Predicate ati (TraitPredicate tn ss)
     | otherwise
     = throwError $ "BUG: Found trait " ++ fmt tn ++ " with no info in collection."
 abstractATs_Predicate ati (TraitProjection ty1 ty2)
-  = TraitProjection <$> (abstractATs ati ty1) <*> (abstractATs ati ty2)
+    = TraitProjection <$> (abstractATs ati ty1) <*> (abstractATs ati ty2)
+--    = pure $ TraitProjection ty1 ty2
 abstractATs_Predicate _ati UnknownPredicate = throwError "BUG: found UnknownPredicate"
 
 -- What if the function itself has associated types?
@@ -369,9 +379,10 @@ abstractATs_ConstVal ati val = to <$> (abstractATs' ati (from val))
 abstractATs_FnSig :: (HasCallStack, MonadError String m) => ATInfo -> FnSig -> m FnSig
 abstractATs_FnSig ati (FnSig args ret gens preds atys) = do
   let ati' = ati & atDict %~ mappend (mkAssocTyMap (toInteger (length gens)) atys)
-  args' <- (abstractATs ati' args)
-  ret'  <- (abstractATs ati' ret)
   preds' <- (abstractATs ati' preds)
+  traceM $ "preds' are: " ++ fmt preds'
+  args'  <- (abstractATs ati' args)
+  ret'   <- (abstractATs ati' ret)
   return $ FnSig args'
         ret' 
         (gens ++ map toParam atys)
