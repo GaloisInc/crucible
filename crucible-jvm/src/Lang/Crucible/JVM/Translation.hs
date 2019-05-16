@@ -384,37 +384,40 @@ writeJVMReg (LReg r) (LValue v) = assignReg r v
 writeJVMReg (RReg r) (RValue v) = assignReg r v
 writeJVMReg _ _ = jvmFail "writeJVMReg"
 
+newStack :: [JVMValue s] -> JVMGenerator h s ret [JVMReg s]
+newStack = traverse newJVMReg
+
+readStack :: [JVMReg s] -> JVMGenerator h s ret [JVMValue s]
+readStack = traverse readJVMReg
+
 saveStack :: [JVMReg s] -> [JVMValue s] -> JVMGenerator h s ret ()
 saveStack [] [] = return ()
 saveStack (r : rs) (v : vs) = writeJVMReg r v >> saveStack rs vs
 saveStack _ _ = jvmFail "saveStack"
 
+-- | Look up the register for a local variable of a particular type.
+-- Create the register on-the-fly if it does not exist yet.
+lookupLocalReg ::
+  KnownRepr TypeRepr tp =>
+  Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s tp)) ->
+  J.LocalVariableIndex -> JVMGenerator h s ret (Reg s tp)
+lookupLocalReg l idx =
+  do m <- use l
+     case Map.lookup idx m of
+       Just r -> return r
+       Nothing ->
+         do r <- newUnassignedReg knownRepr
+            l %= Map.insert idx r
+            return r
 
--- TODO: what if we have more values? is it ok to not save them all?
--- See Java/lang/String/compareTo
-saveLocals ::
-  HasCallStack =>
-  Map J.LocalVariableIndex (JVMReg s) ->
-  Map J.LocalVariableIndex (JVMValue s) ->
-  JVMGenerator h s ret ()
-saveLocals rs vs
-  | Set.fromAscList (Map.keys rs) `Set.isSubsetOf` Set.fromAscList (Map.keys vs)
-  = sequence_ (Map.intersectionWith writeJVMReg rs vs)
-  | otherwise
-  -- what is in the registers but doesn't have a value?
-  = -- sequence_ (Map.intersectionWith writeJVMReg rs vs)
-    jvmFail $ "saveLocals:\n\t" ++ show (Map.keys rs) ++ "\n\t" ++ show (Map.keys vs)
-
-newRegisters :: JVMExprFrame s -> JVMGenerator h s ret (JVMRegisters s)
-newRegisters = traverse newJVMReg
-
-readRegisters :: JVMRegisters s -> JVMGenerator h s ret (JVMExprFrame s)
-readRegisters = traverse readJVMReg
-
-writeRegisters :: HasCallStack => JVMRegisters s -> JVMExprFrame s -> JVMGenerator h s ret ()
-writeRegisters rs vs =
-  do saveStack (rs^.operandStack) (vs^.operandStack)
-     saveLocals (rs^.localVariables) (vs^.localVariables)
+writeLocal :: J.LocalVariableIndex -> JVMValue s -> JVMGenerator h s ret ()
+writeLocal idx val =
+  case val of
+    DValue v -> lookupLocalReg jsLocalsD idx >>= flip assignReg v
+    FValue v -> lookupLocalReg jsLocalsF idx >>= flip assignReg v
+    IValue v -> lookupLocalReg jsLocalsI idx >>= flip assignReg v
+    LValue v -> lookupLocalReg jsLocalsL idx >>= flip assignReg v
+    RValue v -> lookupLocalReg jsLocalsR idx >>= flip assignReg v
 
 forceJVMValue :: JVMValue s -> JVMGenerator h s ret (JVMValue s)
 forceJVMValue val =
@@ -430,45 +433,44 @@ forceJVMValue val =
 
 generateBasicBlock ::
   J.BasicBlock ->
-  JVMRegisters s ->
+  [JVMReg s] ->
   JVMGenerator h s ret a
 generateBasicBlock bb rs =
-  do -- Record the registers for this block.
+  do -- Record the stack registers for this block.
      -- This also signals that generation of this block has started.
-     jsFrameMap %= Map.insert (J.bbId bb) rs
+     jsStackMap %= Map.insert (J.bbId bb) rs
      -- Read initial values
-     vs <- readRegisters rs
+     vs <- readStack rs
      -- Translate all instructions
-     (_, eframe) <- runStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
+     vs' <- execStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
      -- If we didn't already handle a block-terminating instruction,
      -- jump to the successor block, if there's only one.
      cfg <- use jsCFG
      case J.succs cfg (J.bbId bb) of
        [J.BBId succPC] ->
-         do lbl <- processBlockAtPC succPC eframe
-            _ <- jump lbl
-            jvmFail "generateBasicBlock: ran off end of block"
+         do lbl <- processBlockAtPC succPC vs'
+            jump lbl
        [] -> jvmFail "generateBasicBlock: no terminal instruction and no successor"
        _  -> jvmFail "generateBasicBlock: no terminal instruction and multiple successors"
 
 -- | Prepare for a branch or jump to the given address, by generating
--- a transition block to copy the values into the appropriate
+-- a transition block to copy the stack values into the appropriate
 -- registers. If the target has already been translated (or is
 -- currently being translated) then the registers already exist, so we
 -- simply write into them. If the target has not been started yet, we
 -- copy the values into fresh registers, and also recursively call
 -- 'generateBasicBlock' on the target block to start translating it.
-processBlockAtPC :: HasCallStack => J.PC -> JVMExprFrame s -> JVMGenerator h s ret (Label s)
+processBlockAtPC :: HasCallStack => J.PC -> [JVMValue s] -> JVMGenerator h s ret (Label s)
 processBlockAtPC pc vs =
   defineBlockLabel $
   do bb <- getBasicBlockAtPC pc
      lbl <- getLabelAtPC pc
-     fm <- use jsFrameMap
-     case Map.lookup (J.bbId bb) fm of
+     sm <- use jsStackMap
+     case Map.lookup (J.bbId bb) sm of
        Just rs ->
-         do writeRegisters rs vs
+         do saveStack rs vs
        Nothing ->
-         do rs <- newRegisters vs
+         do rs <- newStack vs
             defineBlock lbl (generateBasicBlock bb rs)
      jump lbl
 
@@ -494,9 +496,9 @@ getLabelAtPC pc =
 
 
 -- | This has extra state that is only relevant in the context of a
--- single basic block: It tracks the values of the operand stack and
--- local variable array at each instruction.
-type JVMStmtGen h s ret = StateT (JVMExprFrame s) (JVMGenerator h s ret)
+-- single basic block: It tracks the values of the operand stack at
+-- each instruction.
+type JVMStmtGen h s ret = StateT [JVMValue s] (JVMGenerator h s ret)
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
 sgFail :: HasCallStack => String -> JVMStmtGen h s ret a
@@ -506,10 +508,10 @@ sgUnimplemented :: HasCallStack => String -> JVMStmtGen h s ret a
 sgUnimplemented msg = sgFail $ "unimplemented: " ++ msg
 
 getStack :: JVMStmtGen h s ret [JVMValue s]
-getStack = use operandStack
+getStack = get --use operandStack
 
 putStack :: [JVMValue s] -> JVMStmtGen h s ret ()
-putStack vs = operandStack .= vs
+putStack = put -- operandStack .= vs
 
 popValue :: HasCallStack => JVMStmtGen h s ret (JVMValue s)
 popValue =
@@ -593,16 +595,23 @@ uPush _u = return ()
 
 
 setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
-setLocal idx v =
-  do v' <- lift $ forceJVMValue v
-     localVariables %= Map.insert idx v'
+setLocal idx v = lift (writeLocal idx v)
 
-getLocal :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMValue s)
-getLocal idx =
-  do vs <- use localVariables
-     case Map.lookup idx vs of
-       Just v -> return v
-       Nothing -> sgFail "getLocal"
+iLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMInt s)
+iLoad idx = lift (lookupLocalReg jsLocalsI idx >>= readReg)
+
+lLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMLong s)
+lLoad idx = lift (lookupLocalReg jsLocalsL idx >>= readReg)
+
+fLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMFloat s)
+fLoad idx = lift (lookupLocalReg jsLocalsF idx >>= readReg)
+
+dLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMDouble s)
+dLoad idx = lift (lookupLocalReg jsLocalsD idx >>= readReg)
+
+rLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMRef s)
+rLoad idx = lift (lookupLocalReg jsLocalsR idx >>= readReg)
+
 
 throwIfRefNull ::
   JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
@@ -768,11 +777,12 @@ generateInstruction (pc, instr) =
     J.Lushr -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVLshr w64 a (lShiftMask b)))
 
     -- Load and store instructions
-    J.Iload idx -> getLocal idx >>= pushValue
-    J.Lload idx -> getLocal idx >>= pushValue
-    J.Fload idx -> getLocal idx >>= pushValue
-    J.Dload idx -> getLocal idx >>= pushValue
-    J.Aload idx -> getLocal idx >>= pushValue
+    J.Iload idx -> iLoad idx >>= iPush
+    J.Lload idx -> lLoad idx >>= lPush
+    J.Fload idx -> fLoad idx >>= fPush
+    J.Dload idx -> dLoad idx >>= dPush
+    J.Aload idx -> rLoad idx >>= rPush
+
     J.Istore idx -> popValue >>= setLocal idx
     J.Lstore idx -> popValue >>= setLocal idx
     J.Fstore idx -> popValue >>= setLocal idx
@@ -1057,7 +1067,7 @@ generateInstruction (pc, instr) =
          rPush objectRef
 
     J.Iinc idx constant ->
-      do value <- getLocal idx >>= lift . fromIValue
+      do value <- iLoad idx
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
 
@@ -1434,14 +1444,14 @@ packTypes (t : ts) ctx asgn =
         J.LongType    -> k LValue (knownRepr :: TypeRepr JVMLongType)
         J.ShortType   -> k IValue (knownRepr :: TypeRepr JVMIntType)
 
--- | Create the initial frame for a method translation.
-initialJVMExprFrame :: HasCallStack =>
+-- | Create the initial set of local variables for a method translation.
+initialJVMLocalVars :: HasCallStack =>
   J.ClassName ->
   J.Method ->
   CtxRepr ctx ->
   Ctx.Assignment (Atom s) ctx ->
-  JVMExprFrame s
-initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
+  Map J.LocalVariableIndex (JVMValue s)
+initialJVMLocalVars cn method ctx asgn = locals
   where
     args = J.methodParameterTypes method
     static = J.methodIsStatic method
@@ -1465,9 +1475,9 @@ generateMethod cn method ctx asgn =
      lbls <- traverse bbLabel (J.allBBs cfg)
      jsLabelMap .= Map.fromList lbls
      bb0 <- maybe (jvmFail "no entry block") return (J.bbById cfg J.BBIdEntry)
-     let vs0 = initialJVMExprFrame cn method ctx asgn
-     rs0 <- newRegisters vs0
-     generateBasicBlock bb0 rs0
+     -- initialize local variables with method arguments
+     _ <- Map.traverseWithKey writeLocal (initialJVMLocalVars cn method ctx asgn)
+     generateBasicBlock bb0 []
 
 
 -- | Define a block with a fresh lambda label, returning the label.
