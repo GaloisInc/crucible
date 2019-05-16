@@ -472,7 +472,7 @@ globalMuxFn ::
 
 globalMuxFn sym iteFns cond
   (GlobalState (BranchFrame u1 cache1 gf1) s1)
-  (GlobalState (BranchFrame u2 cache2 gf2) s2)
+  (GlobalState (BranchFrame u2 _cache2 gf2) s2)
   | globalPendingBranches gf1 == globalPendingBranches gf2 =
     -- We assume gf1 is in fact equal to gf2, which should be the case
     -- if we've followed the appropriate branching discipline.
