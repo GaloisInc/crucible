@@ -47,7 +47,7 @@ library
     template-haskell,
     text,
     time >= 1.8 && < 2.0,
-    th-abstraction >=0.1 && <0.3,
+    th-abstraction >=0.1 && <0.4,
     transformers,
     unordered-containers,
     vector,
