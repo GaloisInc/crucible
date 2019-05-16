@@ -171,8 +171,10 @@ customOps = Map.fromList [
                          , panicking_begin_panic
 
 
+                         , integer_from_u8
                          , integer_from_i32
                          , integer_from_u64
+                         , integer_as_u8
                          , integer_as_u64
                          , integer_shl
                          , integer_shr
@@ -909,11 +911,14 @@ fn_call_op ss args _exps = fail $ "\n\tBUG: invalid arguments to call/call_once:
 
 integerWidth = knownNat :: NatRepr 512
 
+integer_from_u8 :: (ExplodedDefId, CustomRHS)
+integer_from_u8 = ((["int512", "u8"], "from_prim", []), integerFromUnsigned)
+
 integer_from_i32 :: (ExplodedDefId, CustomRHS)
-integer_from_i32 = ((["integer", "i32"], "from_prim", []), integerFromSigned)
+integer_from_i32 = ((["int512", "i32"], "from_prim", []), integerFromSigned)
 
 integer_from_u64 :: (ExplodedDefId, CustomRHS)
-integer_from_u64 = ((["integer", "u64"], "from_prim", []), integerFromUnsigned)
+integer_from_u64 = ((["int512", "u64"], "from_prim", []), integerFromUnsigned)
 
 integerFromSigned :: CustomRHS
 integerFromSigned (Substs []) =
@@ -931,8 +936,13 @@ integerFromUnsigned (Substs []) =
             return $ MirExp (C.BVRepr w') (S.app $ E.BVZext w' w int_e)
         _ -> error $ "BUG: invalid arguments to integerFromUnsigned: " ++ show ops
 
+
+integer_as_u8 :: (ExplodedDefId, CustomRHS)
+integer_as_u8 = ((["int512", "u8"], "as_prim", []),
+    integerAsUnsigned (knownNat :: NatRepr 8))
+
 integer_as_u64 :: (ExplodedDefId, CustomRHS)
-integer_as_u64 = ((["integer", "u64"], "as_prim", []),
+integer_as_u64 = ((["int512", "u64"], "as_prim", []),
     integerAsUnsigned (knownNat :: NatRepr 64))
 
 integerAsUnsigned :: 1 <= w => NatRepr w -> CustomRHS
@@ -942,8 +952,9 @@ integerAsUnsigned w (Substs []) =
             return $ MirExp (C.BVRepr w) (S.app $ E.BVTrunc w w' int_e)
         _ -> error $ "BUG: invalid arguments to integerAsUnsigned: " ++ show ops
 
+
 integer_shl :: (ExplodedDefId, CustomRHS)
-integer_shl = ((["integer"], "shl", []), \(Substs []) ->
+integer_shl = ((["int512"], "shl", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w') val_e, MirExp (C.BVRepr w) amt_e]
           | Just LeqProof <- testLeq (incNat w) w' ->
@@ -953,7 +964,7 @@ integer_shl = ((["integer"], "shl", []), \(Substs []) ->
     )
 
 integer_shr :: (ExplodedDefId, CustomRHS)
-integer_shr = ((["integer"], "shr", []), \(Substs []) ->
+integer_shr = ((["int512"], "shr", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w') val_e, MirExp (C.BVRepr w) amt_e]
           | Just LeqProof <- testLeq (incNat w) w' ->
@@ -963,7 +974,7 @@ integer_shr = ((["integer"], "shr", []), \(Substs []) ->
     )
 
 integer_bitand :: (ExplodedDefId, CustomRHS)
-integer_bitand = ((["integer"], "bitand", []), \(Substs []) ->
+integer_bitand = ((["int512"], "bitand", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -972,7 +983,7 @@ integer_bitand = ((["integer"], "bitand", []), \(Substs []) ->
     )
 
 integer_bitor :: (ExplodedDefId, CustomRHS)
-integer_bitor = ((["integer"], "bitor", []), \(Substs []) ->
+integer_bitor = ((["int512"], "bitor", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -981,7 +992,7 @@ integer_bitor = ((["integer"], "bitor", []), \(Substs []) ->
     )
 
 integer_eq :: (ExplodedDefId, CustomRHS)
-integer_eq = ((["integer"], "eq", []), \(Substs []) ->
+integer_eq = ((["int512"], "eq", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -990,7 +1001,7 @@ integer_eq = ((["integer"], "eq", []), \(Substs []) ->
     )
 
 integer_lt :: (ExplodedDefId, CustomRHS)
-integer_lt = ((["integer"], "lt", []), \(Substs []) ->
+integer_lt = ((["int512"], "lt", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -999,7 +1010,7 @@ integer_lt = ((["integer"], "lt", []), \(Substs []) ->
     )
 
 integer_add :: (ExplodedDefId, CustomRHS)
-integer_add = ((["integer"], "add", []), \(Substs []) ->
+integer_add = ((["int512"], "add", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -1008,7 +1019,7 @@ integer_add = ((["integer"], "add", []), \(Substs []) ->
     )
 
 integer_sub :: (ExplodedDefId, CustomRHS)
-integer_sub = ((["integer"], "sub", []), \(Substs []) ->
+integer_sub = ((["int512"], "sub", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
@@ -1017,7 +1028,7 @@ integer_sub = ((["integer"], "sub", []), \(Substs []) ->
     )
 
 integer_rem :: (ExplodedDefId, CustomRHS)
-integer_rem = ((["integer"], "rem", []), \(Substs []) ->
+integer_rem = ((["int512"], "rem", []), \(Substs []) ->
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->

@@ -122,7 +122,7 @@ baseSizeToNatCont M.USize _k = error "BUG: Nat is undetermined for usize"
 
 tyToRepr :: TransTyConstraint => M.Ty -> Some C.TypeRepr
 tyToRepr t0 = case t0 of
-  M.TyAdt "::integer[0]::Integer[0]" (M.Substs []) ->
+  M.TyAdt "::int512[0]::Int512[0]" (M.Substs []) ->
     Some $ C.BVRepr (knownNat :: NatRepr 512)
 
   M.TyBool -> Some C.BoolRepr

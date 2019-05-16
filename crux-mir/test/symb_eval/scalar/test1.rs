@@ -11,166 +11,65 @@
 //! (0xfffffffffffff^2) * 5 = 0x4ffffffffffff60000000000005 (107 bits).
 //! ```
 
+extern crate core;
 //use core::fmt::Debug;
 use std::ops::{Index, IndexMut};
 
+use self::int512::Int512;
 
 
-use self::integer::Integer;
-
-mod integer {
-    use std::ops::{Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
-    use std::cmp::{Ord, PartialOrd, Ordering};
-    #[derive(Copy)]
-    pub struct Integer {}
-
-    pub fn clone(_i: &Integer) -> Integer { unimplemented!() }
-    impl Clone for Integer {
-        fn clone(&self) -> Integer { clone(self) }
-    }
-
-    pub fn symbolic(_x: &'static str) -> Integer { ::std::process::exit(0) }
-    impl Integer {
-        pub fn symbolic(x: &'static str) -> Integer { symbolic(x) }
-
-        pub fn L() -> Integer {
-            add(shl(self::i32::from_prim(1), 252),
-                // This 128-bit constant has to be split into two parts, since u128 literals don't
-                // work properly yet (they get truncated to 64 bits).
-                bitor(
-                    self::u64::from_prim(0x5812631a5cf5d3ed),
-                    shl(self::u64::from_prim(0x14def9dea2f79cd6), 64)))
-        }
-    }
-
-    macro_rules! binop {
-        ($Op:ident, $op:ident) => {
-            pub fn $op(_x: Integer, _y: Integer) -> Integer { unimplemented!() }
-
-            impl $Op<Integer> for Integer {
-                type Output = Integer;
-                fn $op(self, other: Integer) -> Integer { $op(self, other) }
-            }
-        };
-    }
-    binop!(Add, add);
-    binop!(Sub, sub);
-    binop!(Mul, mul);
-    binop!(Div, div);
-    binop!(Rem, rem);
-    binop!(BitAnd, bitand);
-    binop!(BitOr, bitor);
-    binop!(BitXor, bitxor);
-
-    macro_rules! shift_op {
-        ($Op:ident, $op:ident) => {
-            pub fn $op(_x: Integer, _bits: u32) -> Integer { unimplemented!() }
-
-            /*
-            impl $Op<u32> for Integer {
-                type Output = Integer;
-                fn $op(self, bits: u32) -> Integer { $op(self, bits) }
-            }
-            */
-        };
-    }
-    shift_op!(Shl, shl);
-    shift_op!(Shr, shr);
-
-    pub fn eq(_x: Integer, _y: Integer) -> bool { unimplemented!() }
-    /*
-    impl PartialEq for Integer {
-        fn eq(&self, other: &Integer) -> bool { eq(*self, *other) }
-        fn ne(&self, other: &Integer) -> bool { !eq(*self, *other) }
-    }
-    impl Eq for Integer {}
-    */
-
-    pub fn lt(_x: Integer, _y: Integer) -> bool { unimplemented!() }
-    /*
-    impl PartialOrd for Integer {
-        fn partial_cmp(&self, other: &Integer) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-    impl Ord for Integer {
-        fn cmp(&self, other: &Integer) -> Ordering {
-            if eq(*self, *other) { Ordering::Equal }
-            else if lt(*self, *other) { Ordering::Less }
-            else { Ordering::Greater }
-        }
-    }
-    */
-
-    macro_rules! prim_cast {
-        ($Prim:ident) => {
-            pub mod $Prim {
-                use super::Integer;
-                pub fn from_prim(_x: $Prim) -> Integer { unimplemented!() }
-                pub fn as_prim(_x: Integer) -> $Prim { unimplemented!() }
-            }
-
-            /*
-            impl From<$Prim> for Integer {
-                fn from(x: $Prim) -> Integer { self::$Prim::from_prim(x) }
-            }
-
-            impl From<Integer> for $Prim {
-                fn from(x: Integer) -> $Prim { self::$Prim::as_prim(x) }
-            }
-            */
-        };
-    }
-    prim_cast!(u8);
-    prim_cast!(u16);
-    prim_cast!(u32);
-    prim_cast!(u64);
-    prim_cast!(u128);
-    prim_cast!(usize);
-    prim_cast!(i8);
-    prim_cast!(i16);
-    prim_cast!(i32);
-    prim_cast!(i64);
-    prim_cast!(i128);
-    prim_cast!(isize);
-
-    pub fn from_scalar(x: super::Scalar64) -> Integer {
-        let mut acc = self::i32::from_prim(0);
+impl From<Scalar64> for Int512 {
+    fn from(x: Scalar64) -> Int512 {
+        let mut acc = Int512::from(0_i32);
         for i in 0..5 {
-            acc = bitor(acc, shl(self::u64::from_prim(x.0[i]), 52 * i as u32));
+            acc = acc.bitor(Int512::from(x.0[i]).shl(52 * i as u32));
         }
         acc
     }
+}
 
-    pub fn as_scalar(x: Integer) -> super::Scalar64 {
-        let mut acc = super::Scalar64([0; 5]);
-        let mask: Integer = self::u64::from_prim((1_u64 << 52) - 1);
+impl From<Int512> for Scalar64 {
+    fn from(x: Int512) -> Scalar64 {
+        let mut acc = Scalar64([0; 5]);
+        let mask: Int512 = Int512::from((1_u64 << 52) - 1);
         for i in 0..5 {
-            acc.0[i] = self::u64::as_prim(bitand(shr(x, 52 * i as u32), mask));
+            acc.0[i] = u64::from(x.shr(52 * i as u32).bitand(mask));
         }
         acc
     }
+}
 
-    /// Check if an integer is in the range `0 .. L`.
-    pub fn is_valid(x: Integer) -> bool {
-        (lt(self::i32::from_prim(0), x) || eq(self::i32::from_prim(0), x)) &&
-            lt(x, Integer::L())
+impl From<[u8; 32]> for Int512 {
+    fn from(x: [u8; 32]) -> Int512 {
+        let mut acc = Int512::from(0_i32);
+        for i in 0..5 {
+            acc = acc.bitor(Int512::from(x[i]).shl(8 * i as u32));
+        }
+        acc
     }
 }
 
-/*
-impl From<Scalar64> for Integer {
-    fn from(x: Scalar64) -> Integer {
-        integer::from_scalar(x)
+impl From<Int512> for [u8; 32] {
+    fn from(x: Int512) -> [u8; 32] {
+        let mut acc = [0; 32];
+        let mask: Int512 = Int512::from((1_u64 << 8) - 1);
+        for i in 0..32 {
+            acc[i] = u8::from(x.shr(8 * i as u32).bitand(mask));
+        }
+        acc
     }
 }
 
-impl From<Integer> for Scalar64 {
-    fn from(x: Integer) -> Scalar64 {
-        integer::as_scalar(x)
-    }
+pub fn L() -> Int512 {
+    Int512::from(1_i32).shl(252).add(
+        Int512::from(0x5812631a5cf5d3ed_u64)
+            .bitor(Int512::from(0x14def9dea2f79cd6_u64).shl(64)))
 }
-*/
+
+/// Check if an integer is in the range `0 .. L`.
+pub fn is_valid(x: Int512) -> bool {
+    Int512::from(0_i32) <= x && x < L()
+}
 
 fn crucible_u64(_x: &'static str) -> u64 { unimplemented!() }
 
@@ -235,51 +134,86 @@ fn main() {
 }
 
 fn f(_w : u64 ) -> bool {
-    let zero = integer::i32::from_prim(0);
-
-    // `integer::as/from_scalar` is a bijection on the integers `0 .. L`.
+    // Int512 -> Scalar64 -> Int512 conversion is the identity function.
     {
-        let i = integer::symbolic("isi");
-        crucible_assume!(integer::is_valid(i));
-        let s = integer::as_scalar(i);
-        let i2 = integer::from_scalar(s);
-        crucible_assert!(integer::eq(i2, i));
+        let i = Int512::symbolic("isi");
+        crucible_assume!(is_valid(i));
+        let s = Scalar64::from(i);
+        let i2 = Int512::from(s);
+        crucible_assert!(i2 == i);
     }
 
+    // Scalar64 -> Int512 -> Scalar64 conversion is the identity function.
     {
         let s = crucible_scalar64!("sis");
         for i in 0..5 {
             crucible_assume!(s.0[i] < 1 << 52);
         }
-        let i = integer::from_scalar(s);
-        let s2 = integer::as_scalar(i);
+        let i = Int512::from(s);
+        let s2 = Scalar64::from(i);
         for i in 0..5 {
             crucible_assert!(s2.0[i] == s.0[i]);
         }
     }
 
-    // `Scalar64::add` correctly implements addition modulo `L`.
+    // Serialization is correct: Scalar64 -> [u8] -> Scalar64 is the identity.
     {
-        let a = integer::symbolic("add_a");
-        let b = integer::symbolic("add_b");
-        crucible_assume!(integer::is_valid(a));
-        crucible_assume!(integer::is_valid(b));
+        let i = Int512::symbolic("isbs");
+        crucible_assume!(is_valid(i));
+        let s = Scalar64::from(i);
+        let b = s.to_bytes();
+        let s2 = Scalar64::from_bytes(&b);
+        for i in 0..5 {
+            crucible_assert!(s2.0[i] == s.0[i]);
+        }
+    }
 
-        let s_a = integer::as_scalar(a);
-        let s_b = integer::as_scalar(b);
+    // [u8] ->  Scalar64 -> [u8] is the identity.
+    {
+        let i = Int512::symbolic("ibsb");
+        crucible_assume!(is_valid(i));
+        let b = <[u8; 32]>::from(i);
+        let s = Scalar64::from_bytes(&b);
+        let b2 = s.to_bytes();
+        for i in 0..32 {
+            crucible_assert!(b2[i] == b[i]);
+        }
+    }
+
+    // Serialization uses the little-endian format defined in Int512 -> [u8]: the two conversions
+    // Int512 -> Scalar64 -> [u8] and Int512 -> [u8] produce identical results.
+    {
+        let i = Int512::symbolic("isb");
+        crucible_assume!(is_valid(i));
+        let s = Scalar64::from(i);
+        let b = s.to_bytes();
+        let b2 = <[u8; 32]>::from(i);
+        for i in 0..32 {
+            crucible_assert!(b2[i] == b[i]);
+        }
+    }
+
+    // Scalar64::add is a correct implemnetation of addition modulo L: Int512 -> Scalar64 +
+    // Scalar64::add + Scalar64 -> Int512 produces the same result as using Int512::add +
+    // Int512::rem directly.
+    {
+        let a = Int512::symbolic("add_a");
+        let b = Int512::symbolic("add_b");
+        crucible_assume!(is_valid(a));
+        crucible_assume!(is_valid(b));
+
+        let s_a = Scalar64::from(a);
+        let s_b = Scalar64::from(b);
         let s_y = Scalar64::add(&s_a, &s_b);
 
-        let y = integer::from_scalar(s_y);
+        let y = Int512::from(s_y);
         // We'd like to say `y == (a + b) % L`, but the solver can't handle it (times out).
-        // Instead, we assert a slightly stronger claim, which does not mention `%`:
+        // Instead, we assert a slightly stronger claim, which does not use division:
         //      1. 0 <= y < L
         //      2. y == a + b  OR  y == a + b - L
         // This implies the original claim because we already know 0 <= a + b < 2 * L.
-        crucible_assert!(integer::is_valid(y));
-        crucible_assert!(
-            integer::eq(y, integer::add(a, b)) ||
-            integer::eq(y, integer::sub(integer::add(a, b), Integer::L()))
-        );
+        crucible_assert!(is_valid(y));
+        crucible_assert!(y == a.add(b) || y == a.add(b).sub(L()));
     }
 
     return true;
@@ -322,6 +256,21 @@ impl Debug for Scalar64 {
     }
 }*/
 
+/*
+impl Deref for Scalar64 {
+    type Target = [u64; 5];
+    fn deref(&self) -> &[u64; 5] {
+        &self.0
+    }
+}
+
+impl DerefMut for Scalar64 {
+    fn deref_mut(&mut self) -> &mut [u64; 5] {
+        &mut self.0
+    }
+}
+*/
+
 impl Index<usize> for Scalar64 {
     type Output = u64;
     fn index(&self, _index: usize) -> &u64 {
@@ -347,7 +296,6 @@ impl Scalar64 {
         Scalar64([0,0,0,0,0])
     }
 
-    /*
     /// Unpack a 32 byte / 256 bit scalar into 5 52-bit limbs.
     pub fn from_bytes(bytes: &[u8; 32]) -> Scalar64 {
         let mut words = [0u64; 4];
@@ -361,15 +309,16 @@ impl Scalar64 {
         let top_mask = (1u64 << 48) - 1;
         let mut s = Scalar64::zero();
 
-        s[ 0] =   words[0]                            & mask;
-        s[ 1] = ((words[0] >> 52) | (words[1] << 12)) & mask;
-        s[ 2] = ((words[1] >> 40) | (words[2] << 24)) & mask;
-        s[ 3] = ((words[2] >> 28) | (words[3] << 36)) & mask;
-        s[ 4] =  (words[3] >> 16)                     & top_mask;
+        s.0[ 0] =   words[0]                            & mask;
+        s.0[ 1] = ((words[0] >> 52) | (words[1] << 12)) & mask;
+        s.0[ 2] = ((words[1] >> 40) | (words[2] << 24)) & mask;
+        s.0[ 3] = ((words[2] >> 28) | (words[3] << 36)) & mask;
+        s.0[ 4] =  (words[3] >> 16)                     & top_mask;
 
         s
     }
 
+    /*
     /// Reduce a 64 byte / 512 bit scalar mod l
     pub fn from_bytes_wide(bytes: &[u8; 64]) -> Scalar64 {
         let mut words = [0u64; 8];
@@ -399,6 +348,7 @@ impl Scalar64 {
 
         Scalar64::add(&hi, &lo)
     }
+    */
 
     /// Pack the limbs of this `Scalar64` into 32 bytes
     pub fn to_bytes(&self) -> [u8; 32] {
@@ -439,7 +389,6 @@ impl Scalar64 {
 
         s
     }
-    */
 
     /// Compute `a + b` (mod l)
     pub fn add(a: &Scalar64, b: &Scalar64) -> Scalar64 {
@@ -607,3 +556,115 @@ impl Scalar64 {
 
 
 
+mod int512 {
+    use core::ops::{Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
+    use core::cmp::{Ord, PartialOrd, Ordering};
+
+    #[derive(Copy)]
+    pub struct Int512 {}
+
+    pub fn clone(_i: &Int512) -> Int512 { unimplemented!() }
+    impl Clone for Int512 {
+        fn clone(&self) -> Int512 { clone(self) }
+    }
+
+    pub fn symbolic(_x: &'static str) -> Int512 { unimplemented!() }
+    impl Int512 {
+        pub fn symbolic(x: &'static str) -> Int512 { symbolic(x) }
+    }
+
+    macro_rules! binop {
+        ($Op:ident, $op:ident) => {
+            pub fn $op(_x: Int512, _y: Int512) -> Int512 { unimplemented!() }
+
+            impl Int512 {
+                pub fn $op(self, other: Int512) -> Int512 { $op(self, other) }
+            }
+
+            /*
+            impl $Op<Int512> for Int512 {
+                type Output = Int512;
+                fn $op(self, other: Int512) -> Int512 { $op(self, other) }
+            }
+            */
+        };
+    }
+    binop!(Add, add);
+    binop!(Sub, sub);
+    binop!(Mul, mul);
+    binop!(Div, div);
+    binop!(Rem, rem);
+    binop!(BitAnd, bitand);
+    binop!(BitOr, bitor);
+    binop!(BitXor, bitxor);
+
+    macro_rules! shift_op {
+        ($Op:ident, $op:ident) => {
+            pub fn $op(_x: Int512, _bits: u32) -> Int512 { unimplemented!() }
+
+            impl Int512 {
+                pub fn $op(self, bits: u32) -> Int512 { $op(self, bits) }
+            }
+
+            /*
+            impl $Op<u32> for Int512 {
+                type Output = Int512;
+                fn $op(self, bits: u32) -> Int512 { $op(self, bits) }
+            }
+            */
+        };
+    }
+    shift_op!(Shl, shl);
+    shift_op!(Shr, shr);
+
+    pub fn eq(_x: Int512, _y: Int512) -> bool { unimplemented!() }
+    impl PartialEq for Int512 {
+        fn eq(&self, other: &Int512) -> bool { eq(*self, *other) }
+        fn ne(&self, other: &Int512) -> bool { !eq(*self, *other) }
+    }
+    impl Eq for Int512 {}
+
+    pub fn lt(_x: Int512, _y: Int512) -> bool { unimplemented!() }
+    impl PartialOrd for Int512 {
+        fn partial_cmp(&self, other: &Int512) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for Int512 {
+        fn cmp(&self, other: &Int512) -> Ordering {
+            if eq(*self, *other) { Ordering::Equal }
+            else if lt(*self, *other) { Ordering::Less }
+            else { Ordering::Greater }
+        }
+    }
+
+    macro_rules! prim_cast {
+        ($Prim:ident) => {
+            pub mod $Prim {
+                use super::Int512;
+                pub fn from_prim(_x: $Prim) -> Int512 { unimplemented!() }
+                pub fn as_prim(_x: Int512) -> $Prim { unimplemented!() }
+            }
+
+            impl From<$Prim> for Int512 {
+                fn from(x: $Prim) -> Int512 { self::$Prim::from_prim(x) }
+            }
+
+            impl From<Int512> for $Prim {
+                fn from(x: Int512) -> $Prim { self::$Prim::as_prim(x) }
+            }
+        };
+    }
+    prim_cast!(u8);
+    prim_cast!(u16);
+    prim_cast!(u32);
+    prim_cast!(u64);
+    prim_cast!(u128);
+    prim_cast!(usize);
+    prim_cast!(i8);
+    prim_cast!(i16);
+    prim_cast!(i32);
+    prim_cast!(i64);
+    prim_cast!(i128);
+    prim_cast!(isize);
+}
