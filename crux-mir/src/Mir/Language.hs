@@ -158,19 +158,19 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
     print $ pretty col
     liftIO $ exitSuccess
 
-  (primModule, halloc) <-
+  (mir, halloc) <-
       case cachedStdLib mirOpts of
-        Just (CachedStdLib pm halloc)
-          | useStdLib mirOpts -> return (pm, halloc)
+        Just (CachedStdLib primModule halloc)
+          | useStdLib mirOpts -> do
+            mir0 <- stToIO $ translateMIR (primModule^.rmCS) col halloc
+            let mir = primModule <> mir0
+            return (mir, halloc)
         _ -> do
           halloc  <- C.newHandleAllocator
           prims   <- liftIO $ loadPrims (useStdLib mirOpts)
-          pm      <- stToIO $ translateMIR mempty prims halloc
-          return (pm, halloc)
+          mir     <- stToIO $ translateMIR mempty (prims <> col) halloc
+          return (mir, halloc)
                     
-  mir0 <- stToIO $ translateMIR (primModule^.rmCS) col halloc
-  let mir = primModule <> mir0
-  
   C.AnyCFG init_cfg <- stToIO $ transStatics (mir^.rmCS) halloc
   let cfgmap = mir^.rmCFGs
   

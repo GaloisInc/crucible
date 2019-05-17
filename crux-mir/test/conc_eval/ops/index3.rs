@@ -1,4 +1,3 @@
-// FAIL: "don't know how to call" overloaded IndexMut
 // Method call via `IndexMut::index_mut`
 use std::ops::{Index, IndexMut};
 

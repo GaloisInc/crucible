@@ -20,7 +20,8 @@ import Mir.GenericOps
 -- This pass adds those predicates to trait declarations and then uses those to add them
 -- to function implementations
 -- 
-passAddDictionaryPreds :: (?debug::Int, ?mirLib::Collection, HasCallStack) => Collection -> Collection
+passAddDictionaryPreds :: (?debug::Int, ?mirLib::Collection, HasCallStack) =>
+  Collection -> Collection
 passAddDictionaryPreds col = col1 & functions %~ fmap addTraitPreds  where
 
   col1 = col & traits  %~ fmap addThisPred
@@ -74,7 +75,8 @@ implMethods' col = foldMap g (col^.impls) where
      g2 (TraitImplMethod mn ii _ preds _) =
         case findMethodItem ii items of
           Just (TraitMethod _ sig) ->
-             Map.singleton mn (tySubst (ss <> (Substs $ TyParam <$> [0 .. ])) (sig^.fspredicates))
+             Map.singleton mn (tySubst (ss <> (Substs $ TyParam <$> [0 .. ]))
+                               (sig^.fspredicates))
           _ ->
              Map.empty
              -- ignore unknown methods

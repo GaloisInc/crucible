@@ -1,4 +1,3 @@
-// FAIL: "don't know how to call" overloaded Add
 use std::ops::Add;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

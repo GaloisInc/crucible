@@ -1,4 +1,3 @@
-// FAIL: "don't know how to call" overloaded Index
 // Method call via `Index::index`
 use std::ops::Index;
 

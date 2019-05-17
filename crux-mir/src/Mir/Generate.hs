@@ -106,7 +106,8 @@ generateMIR dir name  = do
 
 
 -- | Translate a single MIR crate to Crucible
-translateMIR :: (HasCallStack, ?debug::Int) => CollectionState -> Collection -> C.HandleAllocator s -> ST s RustModule
+translateMIR :: (HasCallStack, ?debug::Int) 
+   => CollectionState -> Collection -> C.HandleAllocator s -> ST s RustModule
 translateMIR lib col halloc =
   let ?customOps = Mir.customOps in
   let col0 = let ?mirLib  = lib^.collection in rewriteCollection col

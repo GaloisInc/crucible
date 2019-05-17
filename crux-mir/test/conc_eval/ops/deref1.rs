@@ -1,4 +1,3 @@
-// FAIL: error translating Deref impls
 use std::ops::Deref;
 
 struct S;

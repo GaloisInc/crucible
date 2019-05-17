@@ -67,7 +67,7 @@ runCrux :: Mir.CachedStdLib -> FilePath -> Handle -> IO ()
 runCrux cachedLib rustFile outHandle = do
     let options = (CruxOpts.defaultCruxOptions { CruxOpts.inputFile = rustFile,
                                                  CruxOpts.simVerbose = 0 } ,
-                   Mir.defaultMirOptions { Mir.cachedStdLib = Just cachedLib
+                   Mir.defaultMirOptions { Mir.cachedStdLib = Nothing -- Just cachedLib
                                          , Mir.useStdLib = True } )
     let ?outputConfig = Crux.OutputConfig False outHandle outHandle
     Crux.check options

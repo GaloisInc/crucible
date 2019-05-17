@@ -1,4 +1,3 @@
-// FAIL: unnormalized nested projections
 // Associated type with trait + projection bounds
 
 #[derive(Clone, Copy)]

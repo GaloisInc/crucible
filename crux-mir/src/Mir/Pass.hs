@@ -55,7 +55,8 @@ rewriteCollection col =
     |> passRemoveUnknownPreds  -- remove predicates that we don't know anything about
     |> passTrace "initial"
     |> passAddDictionaryPreds  -- add predicates to trait member functions
-    |> passExpandSuperTraits   -- add supertrait items
+    |> passExpandSuperTraits   -- add supertrait items    
+    |> passTrace "after dict preds/expand super"    
     |> passAssociatedTypes     -- replace associated types with additional type parameters
     |> passTrace "after associated types translated"
     |> passMarkCStyle          -- figure out which ADTs are enums and mark them
