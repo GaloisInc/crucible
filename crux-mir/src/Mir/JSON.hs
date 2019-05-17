@@ -626,12 +626,14 @@ instance FromJSON TraitImpl where
   parseJSON = withObject "TraitImpl" $ \v -> do
     pg <- v .: "generics"
     pp <- v .: "predicates"
+    tr <- v .: "trait_ref"
     TraitImpl <$> v .: "name"
-              <*> v .: "trait_ref"
-              <*> (withObject "Param" (\u -> u .: "params") pg)
-              <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
+              <*> pure tr
+              <*> pure tr
+              <*> withObject "Param" (\u -> u .: "params") pg
+              <*> withObject "Predicates" (\u -> u .: "predicates") pp
               <*> v .: "items"
-              
+              <*> pure []
 
 instance FromJSON Static where
   parseJSON = withObject "Static" $ \v -> do

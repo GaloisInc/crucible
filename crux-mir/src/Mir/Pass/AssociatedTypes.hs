@@ -80,11 +80,11 @@ passAssociatedTypes col =
    let
        -- add associated types to traits
        col1  = col  & traits    %~ calcTraitAssocTys 
-
+         
        full1 = ?mirLib <> col1
 
        -- make mapping from ATs to their definitions, based on impls
-       -- as well as some custom ATs 
+       -- as well as some custom ATs (closureATDict, indexATDict)
        adict1 = implATDict full1 <> closureATDict full1 <> indexATDict
 
        -- ati
@@ -94,6 +94,7 @@ passAssociatedTypes col =
        col2  =
          col1 & functions %~ fmap (addFnAssocTys info1)
               & traits    %~ fmap (\tr -> tr & traitItems %~ fmap (addTraitFnAssocTys info1 tr))
+              & impls     %~ fmap (addImplAssocTys info1)
          
        full2 = ?mirLib <> col2
        
@@ -105,6 +106,7 @@ passAssociatedTypes col =
                     & functions %~ Map.map (translateFn    info)
                     & impls     %~ fmap    (translateImpl  info)
    in
+     --trace ("adict1 is " ++ show (ppATDict adict1)) $
      col3
 
 
@@ -217,12 +219,16 @@ addFnAssocTys ati fn =
 addTraitFnAssocTys :: HasCallStack => ATInfo -> Trait -> TraitItem -> TraitItem
 addTraitFnAssocTys ati tr (TraitMethod did sig) = TraitMethod did (addFnSigAssocTys ati' sig)
   where
+    -- extend the dictionary with associated type definitions from the trait
     adict' = (<> mkAssocTyMap (toInteger (length (tr^.traitParams))) (tr^.traitAssocTys))
     ati'   = ati & atDict %~ adict'
 addTraitFnAssocTys ati tr it = it
 
 
-  
+addImplAssocTys :: HasCallStack => ATInfo -> TraitImpl -> TraitImpl
+addImplAssocTys ati ti =
+  let atys = (atsFromPreds ati (ti^.tiPredicates)) in
+  ti & tiAssocTys .~ atys
 
 
 ----------------------------------------------------------------------------------------
@@ -241,25 +247,41 @@ foldMaybe f (x:xs) b =
 -- NOTE: because ATs can be defined in terms of other TyProjections, we need to
 -- create this dictionary incrementally, only adding the ATs from an impl if
 -- we can already translate its RHS
+--
+-- NOTE: we stash away the old TraitRef for this implementation so that we
+-- can do the AT translation incrementally. We need the old version to create
+-- the global adict.
 implATDict :: HasCallStack => Collection -> ATDict
 implATDict col = go (col^.impls) mempty where
   addImpl :: TraitImpl -> ATDict -> Maybe ATDict
-  addImpl ti done =
-       foldr addImplItem (Just done) (ti^.tiItems) where
-    TraitRef tn ss = ti^.tiTraitRef
-    tr = case (col^.traits) Map.!? tn of
-           Just tr -> tr
-           Nothing -> error $ "Cannot find " ++ fmt tn ++ " in collection."
+  addImpl ti done = case result of
+       Just m -> do
+         --traceM $ "implATDict for " ++ fmt (TraitRef tn ss)
+         --traceM $ fmt (ti^.tiItems)
+         --traceM $ "where trait is " ++ fmt tr
+         Just m
+       Nothing -> Nothing
+    where 
+    result = foldr addImplItem (Just done) (ti^.tiItems)
+    TraitRef tn ss = ti^.tiPreTraitRef
     
     addImplItem :: TraitImplItem -> Maybe ATDict -> Maybe ATDict
-    addImplItem (TraitImplType _ ii _  _ ty) (Just m) = do
+    addImplItem tii@(TraitImplType _ ii _  _ ty) (Just m) = do
       ty' <- case abstractATs atinfo ty of
-                   Left s -> Nothing
-                   Right v -> Just v
+                   Left s -> do 
+                     Nothing
+                   Right v -> do
+                     Just v
       Just $ insertATDict (ii,ss) ty' m where
-        atinfo = ATInfo start num m col (error "Only type components")
+        -- locally extend the dictionary with associated type definitions from the impl
+        -- when we translate the RHS of the AT
+        m'     = mkAssocTyMap (toInteger (length (ti^.tiGenerics))) atys
+        adict' = m <> m'
+        atinfo = ATInfo start num adict' col (error "Only type components")
         start  = toInteger (length (ti^.tiGenerics))
-        num    = toInteger (length (atsFromPreds atinfo (ti^.tiPredicates)))
+        num    = toInteger (length (ti^.tiAssocTys))
+        atys   = atsFromPreds (ATInfo 0 0 m col (error "Only type components"))
+                              (ti^.tiPredicates)
     addImplItem _ Nothing = Nothing
     addImplItem _ m = m
   
@@ -381,11 +403,12 @@ translateTrait ati trait =
 translateImpl :: HasCallStack => ATInfo -> TraitImpl -> TraitImpl
 translateImpl ati impl = newImpl
      where
-       newImpl = impl & tiTraitRef   .~ newTraitRef
-                      & tiGenerics   %~ insertAt (map toParam atys) (fromInteger j)
-                      & tiPredicates %~ abstractATsE info         
-                      & tiItems      %~ map translateImplItem
-
+       newImpl = impl & tiTraitRef    .~ newTraitRef
+                      & tiPreTraitRef .~ (TraitRef tn ss)
+                      & tiGenerics    %~ (++ (map toParam atys))
+                      & tiPredicates  %~ map (abstractATsE info)
+                      & tiItems       %~ map translateImplItem
+                      
        ladict = mkAssocTyMap j atys
        
        info   = ati & atStart .~ j
@@ -393,7 +416,7 @@ translateImpl ati impl = newImpl
                     & atDict  %~ (<> ladict)
 
        col    = ati^.atCol
-       atys   = atsFromPreds ati (impl^.tiPredicates)       
+       atys   = impl^.tiAssocTys
        j      = toInteger $ length (impl^.tiGenerics)       
 
        -- Update the TraitRef to include ATs

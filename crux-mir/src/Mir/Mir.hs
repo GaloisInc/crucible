@@ -440,19 +440,24 @@ data TraitItem
     deriving (Eq, Ord, Show, Generic)
 
 data TraitRef
-    = TraitRef DefId Substs
+    = TraitRef DefId Substs 
       -- Indicates the trait this impl implements.
-      -- `substs` gives the type arguments for the trait,
+      -- The two `substs` gives the type arguments for the trait
+      -- both the initial arguments, plus any extra after the
+      -- associated types translation
     deriving (Show, Eq, Ord, Generic)
 
 data TraitImpl
     = TraitImpl { _tiName       :: DefId
-                -- name of the impl group (Not very useful???)
+                -- name of the impl group 
                 , _tiTraitRef   :: TraitRef
                 -- name of the trait and the type we are implementing it
+                , _tiPreTraitRef :: TraitRef
+                -- pre-AT translation trait ref
                 , _tiGenerics   :: [Param]
                 , _tiPredicates :: [Predicate]
                 , _tiItems      :: [TraitImplItem]
+                , _tiAssocTys   :: [AssocTy]
                 }
     deriving (Show, Eq, Ord, Generic)
 data TraitImplItem

@@ -1332,7 +1332,7 @@ lookupFunction nm (Substs funsubst)
        | Just _ <- isCustom
        -> return Nothing
 
-       -- a normal function, resolve associated types to additional type arguments
+       -- a normal function
        | Just (MirHandle nm fs fh) <- isImpl 
        -> do
             let preds  = fs^.fspredicates

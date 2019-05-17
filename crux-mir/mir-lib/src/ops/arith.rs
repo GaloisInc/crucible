@@ -204,8 +204,10 @@ macro_rules! add_impl {
     )*)
 }
 
-add_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
+        add_impl! { usize }
+// add_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
 
+/*        
 /// The subtraction operator `-`.
 ///
 /// Note that `Rhs` is `Self` by default, but this is not mandatory. For
@@ -1002,6 +1004,6 @@ macro_rules! rem_assign_impl {
 }
 
 rem_assign_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
-
+*/
     }
 }
