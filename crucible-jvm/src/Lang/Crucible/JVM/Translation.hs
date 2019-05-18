@@ -699,6 +699,9 @@ popArguments args =
 iZero :: JVMInt s
 iZero = App (BVLit w32 0)
 
+lZero :: JVMLong s
+lZero = App (BVLit w64 0)
+
 bTrue :: JVMBool s
 bTrue = App (BoolLit True)
 
@@ -752,7 +755,7 @@ generateInstruction (pc, instr) =
     J.Imul  -> binary iPop iPop iPush (\a b -> App (BVMul w32 a b))
     J.Idiv  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSdiv w32 a b)))
     J.Irem  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSrem w32 a b)))
-    J.Ineg  -> unaryGen iPop iPush iNeg
+    J.Ineg  -> unary iPop iPush iNeg
     J.Iand  -> binary iPop iPop iPush (\a b -> App (BVAnd w32 a b))
     J.Ior   -> binary iPop iPop iPush (\a b -> App (BVOr  w32 a b))
     J.Ixor  -> binary iPop iPop iPush (\a b -> App (BVXor w32 a b))
@@ -762,7 +765,7 @@ generateInstruction (pc, instr) =
     J.Ladd  -> binary lPop lPop lPush (\a b -> App (BVAdd w64 a b))
     J.Lsub  -> binary lPop lPop lPush (\a b -> App (BVSub w64 a b))
     J.Lmul  -> binary lPop lPop lPush (\a b -> App (BVMul w64 a b))
-    J.Lneg  -> unaryGen lPop lPush lNeg
+    J.Lneg  -> unary lPop lPush lNeg
     J.Ldiv  -> binary lPop lPop lPush
                -- there is also a special case when when dividend is maxlong
                -- and divisor is -1
@@ -1296,14 +1299,6 @@ iShiftMask i = App (BVAnd w32 i (iConst 31))
 lShiftMask :: JVMLong s -> JVMLong s
 lShiftMask i = App (BVAnd w64 i (lConst 63))
 
--- TODO: is there a better way to specify -2^32?
-minInt :: JVMInt s
-minInt = App $ BVLit w32 (- (2 :: Integer) ^ (32 :: Int))
-
-minLong :: JVMLong s
-minLong = App $ BVLit w64 (- (2 :: Integer) ^ (64 :: Int))
-
-
 -- Both positive and negative zeros
 posZerof :: JVMFloat s
 posZerof = App $ FloatLit 0.0
@@ -1317,24 +1312,11 @@ posZerod = App $ DoubleLit 0.0
 negZerod :: JVMDouble s
 negZerod = App $ DoubleLit (-0.0)
 
+iNeg :: JVMInt s -> JVMInt s
+iNeg e = App (BVSub w32 iZero e)
 
---TODO : doublecheck what Crucible does for BVSub
--- For int values, negation is the same as subtraction from
--- zero. Because the Java Virtual Machine uses two's-complement
--- representation for integers and the range of two's-complement
--- values is not symmetric, the negation of the maximum negative int
--- results in that same maximum negative number. Despite the fact that
--- overflow has occurred, no exception is thrown.
-iNeg :: JVMInt s -> JVMGenerator h s ret (JVMInt s)
-iNeg e = ifte (App $ BVEq w32 e minInt)
-              (return minInt)
-              (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
-
-
-lNeg :: JVMLong s -> JVMGenerator h s ret (JVMLong s)
-lNeg e = ifte (App $ BVEq knownRepr e minLong)
-              (return minLong)
-              (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
+lNeg :: JVMLong s -> JVMLong s
+lNeg e = App (BVSub w64 lZero e)
 
 -- TODO: doublecheck
 -- For float values, negation is not the same as subtraction from zero. If x is +0.0,
