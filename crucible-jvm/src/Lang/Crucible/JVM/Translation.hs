@@ -769,7 +769,7 @@ generateInstruction (pc, instr) =
     J.Land  -> binary lPop lPop lPush (\a b -> App (BVAnd w64 a b))
     J.Lor   -> binary lPop lPop lPush (\a b -> App (BVOr  w64 a b))
     J.Lxor  -> binary lPop lPop lPush (\a b -> App (BVXor w64 a b))
-    J.Lcmp  -> binaryGen lPop lPop iPush lCmp
+    J.Lcmp  -> binary lPop lPop iPush lCmp
     J.Lshl  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVShl w64 a (lShiftMask b)))
     J.Lshr  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVAshr w64 a (lShiftMask b)))
     J.Lushr -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVLshr w64 a (lShiftMask b)))

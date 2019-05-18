@@ -88,15 +88,16 @@ lShiftMask i = App (BVAnd w64 i (lConst 63))
 lNeg :: JVMLong s -> JVMLong s
 lNeg e = App (BVSub w64 lZero e)
 
--- TODO: are these signed or unsigned integers?
--- | Takes two two-word long integers off the stack and compares them. If
--- the two integers are the same, the int 0 is pushed onto the stack. If
--- value2 is greater than value1, the int 1 is pushed onto the stack. If
--- value1 is greater than value2, the int -1 is pushed onto the stack.
-lCmp :: JVMLong s -> JVMLong s -> JVMGenerator h s ret (JVMInt s)
-lCmp e1 e2 = ifte (App (BVEq knownRepr e1 e2)) (return $ App $ BVLit w32 0)
-                  (ifte (App (BVSlt knownRepr e1 e2)) (return $ App $ BVLit w32 (-1))
-                        (return $ App $ BVLit w32 (1)))
+-- | Both value1 and value2 must be of type long. They are both popped
+-- from the operand stack, and a signed integer comparison is
+-- performed. If value1 is greater than value2, the int value 1 is
+-- pushed onto the operand stack. If value1 is equal to value2, the
+-- int value 0 is pushed onto the operand stack. If value1 is less
+-- than value2, the int value -1 is pushed onto the operand stack.
+lCmp :: JVMLong s -> JVMLong s -> JVMInt s
+lCmp e1 e2 =
+  App (BVIte (App (BVEq w64 e1 e2)) w32 (iConst 0)
+       (App (BVIte (App (BVSlt w64 e1 e2)) w32 (iConst (-1)) (iConst 1))))
 
 ----------------------------------------------------------------------
 -- * Float operations
