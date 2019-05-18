@@ -57,52 +57,60 @@ intFromLong :: JVMLong s -> JVMInt s
 intFromLong l = App (BVTrunc w32 w64 l)
 
 ----------------------------------------------------------------------
--- * Basic Value Operations
+-- * Int operations
 
 iConst :: Integer -> JVMInt s
 iConst i = App (BVLit w32 i)
 
-lConst :: Integer -> JVMLong s
-lConst i = App (BVLit w64 i)
-
-dConst :: Double -> JVMDouble s
-dConst d = App (DoubleLit d)
-
-fConst :: Float -> JVMFloat s
-fConst f = App (FloatLit f)
-
 iZero :: JVMInt s
 iZero = iConst 0
-
-lZero :: JVMLong s
-lZero = lConst 0
 
 -- | Mask the low 5 bits of a shift amount of type int.
 iShiftMask :: JVMInt s -> JVMInt s
 iShiftMask i = App (BVAnd w32 i (iConst 31))
 
+iNeg :: JVMInt s -> JVMInt s
+iNeg e = App (BVSub w32 iZero e)
+
+----------------------------------------------------------------------
+-- * Long operations
+
+lConst :: Integer -> JVMLong s
+lConst i = App (BVLit w64 i)
+
+lZero :: JVMLong s
+lZero = lConst 0
+
 -- | Mask the low 6 bits of a shift amount of type long.
 lShiftMask :: JVMLong s -> JVMLong s
 lShiftMask i = App (BVAnd w64 i (lConst 63))
 
--- Both positive and negative zeros
-posZerof :: JVMFloat s
-posZerof = App $ FloatLit 0.0
-
-negZerof :: JVMFloat s
-negZerof = App $ FloatLit (-0.0)
-
-posZerod :: JVMDouble s
-posZerod = App $ DoubleLit 0.0
-
-negZerod :: JVMDouble s
-negZerod = App $ DoubleLit (-0.0)
-
-iNeg :: JVMInt s -> JVMInt s
-iNeg e = App (BVSub w32 iZero e)
-
 lNeg :: JVMLong s -> JVMLong s
 lNeg e = App (BVSub w64 lZero e)
+
+-- TODO: are these signed or unsigned integers?
+-- | Takes two two-word long integers off the stack and compares them. If
+-- the two integers are the same, the int 0 is pushed onto the stack. If
+-- value2 is greater than value1, the int 1 is pushed onto the stack. If
+-- value1 is greater than value2, the int -1 is pushed onto the stack.
+lCmp :: JVMLong s -> JVMLong s -> JVMGenerator h s ret (JVMInt s)
+lCmp e1 e2 = ifte (App (BVEq knownRepr e1 e2)) (return $ App $ BVLit w32 0)
+                  (ifte (App (BVSlt knownRepr e1 e2)) (return $ App $ BVLit w32 (-1))
+                        (return $ App $ BVLit w32 (1)))
+
+----------------------------------------------------------------------
+-- * Float operations
+
+fConst :: Float -> JVMFloat s
+fConst f = App (FloatLit f)
+
+-- | Positive zero.
+fPosZero :: JVMFloat s
+fPosZero = fConst 0.0
+
+-- | Negative zero.
+fNegZero :: JVMFloat s
+fNegZero = fConst (-0.0)
 
 -- TODO: doublecheck
 -- For float values, negation is not the same as subtraction from zero. If x is +0.0,
@@ -112,10 +120,30 @@ lNeg e = App (BVSub w64 lZero e)
 --    If the operand is an infinity, the result is the infinity of opposite sign.
 --    If the operand is a zero, the result is the zero of opposite sign.
 fNeg :: JVMFloat s -> JVMGenerator h s ret (JVMFloat s)
-fNeg e = ifte (App $ FloatEq e posZerof)
-              (return negZerof)
-              (return $ App (FloatSub SingleFloatRepr RNE posZerof e))
+fNeg e = ifte (App $ FloatEq e fPosZero)
+              (return fNegZero)
+              (return $ App (FloatSub SingleFloatRepr RNE fPosZero e))
 
+fAdd, fSub, fMul, fDiv, fRem :: JVMFloat s -> JVMFloat s -> JVMFloat s
+fAdd e1 e2 = App (FloatAdd SingleFloatRepr RNE e1 e2)
+fSub e1 e2 = App (FloatSub SingleFloatRepr RNE e1 e2)
+fMul e1 e2 = App (FloatMul SingleFloatRepr RNE e1 e2)
+fDiv e1 e2 = App (FloatDiv SingleFloatRepr RNE e1 e2)
+fRem e1 e2 = App (FloatRem SingleFloatRepr e1 e2)
+
+----------------------------------------------------------------------
+-- * Double operations
+
+dConst :: Double -> JVMDouble s
+dConst d = App (DoubleLit d)
+
+-- | Positive zero.
+dPosZero :: JVMDouble s
+dPosZero = dConst 0.0
+
+-- | Negative zero.
+dNegZero :: JVMDouble s
+dNegZero = dConst (-0.0)
 
 dAdd, dSub, dMul, dDiv, dRem :: JVMDouble s -> JVMDouble s -> JVMDouble s
 dAdd e1 e2 = App (FloatAdd DoubleFloatRepr RNE e1 e2)
@@ -140,26 +168,6 @@ dCmpg e1 e2 = ifte (App (FloatEq e1 e2)) (return $ App $ BVLit w32 0)
 dCmpl = dCmpg
 
 dNeg :: JVMDouble s ->  JVMGenerator h s ret (JVMDouble s)
-dNeg e = ifte (App $ FloatEq e posZerod)
-              (return negZerod)
-              (return $ App (FloatSub DoubleFloatRepr RNE posZerod e))
-
-
-fAdd, fSub, fMul, fDiv, fRem :: JVMFloat s -> JVMFloat s -> JVMFloat s
-fAdd e1 e2 = App (FloatAdd SingleFloatRepr RNE e1 e2)
-fSub e1 e2 = App (FloatSub SingleFloatRepr RNE e1 e2)
-fMul e1 e2 = App (FloatMul SingleFloatRepr RNE e1 e2)
-fDiv e1 e2 = App (FloatDiv SingleFloatRepr RNE e1 e2)
-fRem e1 e2 = App (FloatRem SingleFloatRepr e1 e2)
-
-
--- TODO: are these signed or unsigned integers?
--- | Takes two two-word long integers off the stack and compares them. If
--- the two integers are the same, the int 0 is pushed onto the stack. If
--- value2 is greater than value1, the int 1 is pushed onto the stack. If
--- value1 is greater than value2, the int -1 is pushed onto the stack.
-lCmp :: JVMLong s -> JVMLong s -> JVMGenerator h s ret (JVMInt s)
-lCmp e1 e2 = ifte (App (BVEq knownRepr e1 e2)) (return $ App $ BVLit w32 0)
-                  (ifte (App (BVSlt knownRepr e1 e2)) (return $ App $ BVLit w32 (-1))
-                        (return $ App $ BVLit w32 (1)))
-
+dNeg e = ifte (App $ FloatEq e dPosZero)
+              (return dNegZero)
+              (return $ App (FloatSub DoubleFloatRepr RNE dPosZero e))
