@@ -40,14 +40,15 @@ import Control.Monad.State
 import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Numeric.Natural
 
 import Lang.Crucible.LLVM.Bytes
 
 data Field v =
   Field
-  { fieldOffset :: !Offset
+  { fieldOffset :: !Offset -- ^ Field offset from the beginning of the struct
   , _fieldVal   :: !v
-  , fieldPad    :: !Bytes
+  , fieldPad    :: !Bytes  -- ^ Number of padding bytes that follow this field
   }
   deriving (Eq, Ord, Show, Functor, Foldable, Traversable, Typeable)
 
@@ -62,7 +63,7 @@ data StorageTypeF v
   | Float
   | Double
   | X86_FP80
-  | Array !Bytes !v
+  | Array !Natural !v -- ^ Number of elements and element type
   | Struct !(Vector (Field v))
   deriving (Eq, Ord, Show, Typeable)
 
@@ -93,7 +94,7 @@ mkStorageType tf = StorageType tf $
     Float -> 4
     Double -> 8
     X86_FP80 -> 10
-    Array n e -> n * storageTypeSize e
+    Array n e -> toBytes n * storageTypeSize e
     Struct flds -> assert (V.length flds > 0) (fieldEnd (V.last flds))
 
 bitvectorType :: Bytes -> StorageType
@@ -108,8 +109,8 @@ doubleType = mkStorageType Double
 x86_fp80Type :: StorageType
 x86_fp80Type = mkStorageType X86_FP80
 
-arrayType :: Bytes -> StorageType -> StorageType
-arrayType n e = StorageType (Array n e) (n * storageTypeSize e)
+arrayType :: Natural -> StorageType -> StorageType
+arrayType n e = StorageType (Array n e) (toBytes n * storageTypeSize e)
 
 structType :: V.Vector (Field StorageType) -> StorageType
 structType flds = assert (V.length flds > 0) $
@@ -134,7 +135,7 @@ typeEnd a tp = seq a $
     Float -> a + 4
     Double -> a + 8
     X86_FP80 -> a + 10
-    Array n etp -> typeEnd (a + (n-1) * (storageTypeSize etp)) etp
+    Array n etp -> typeEnd (a + toBytes (n-1) * (storageTypeSize etp)) etp
     Struct flds -> typeEnd (a + fieldOffset f) (f^.fieldVal)
       where f = V.last flds
 

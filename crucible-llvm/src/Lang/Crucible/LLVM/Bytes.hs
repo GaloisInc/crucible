@@ -20,6 +20,9 @@ module Lang.Crucible.LLVM.Bytes
   , bytesToInteger
   , toBytes
   , bitsToBytes
+  , multBytes
+  , divModBytes
+  , divBytes
   )  where
 
 import Numeric.Natural
@@ -47,6 +50,16 @@ toBytes = Bytes . fromIntegral
 
 bitsToBytes :: Integral a => a -> Bytes
 bitsToBytes n = Bytes ( (fromIntegral n + 7) `div` 8 )
+
+multBytes :: Natural -> Bytes -> Bytes
+multBytes x (Bytes y) = Bytes (toInteger x*y)
+
+divModBytes :: Bytes -> Bytes -> (Integer, Bytes)
+divModBytes (Bytes x) (Bytes y) = (d, Bytes m)
+  where (d,m) = divMod x y
+
+divBytes :: Bytes -> Bytes -> Integer
+divBytes (Bytes x) (Bytes y) = x `div` y
 
 type Addr = Bytes
 type Offset = Bytes

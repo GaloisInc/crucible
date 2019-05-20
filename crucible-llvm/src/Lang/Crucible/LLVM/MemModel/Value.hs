@@ -271,7 +271,7 @@ zeroExpandLLVMVal sym (StorageType tpf _sz) =
     Double   -> LLVMValFloat DoubleSize <$> iFloatPZero sym DoubleFloatRepr
     X86_FP80 -> LLVMValFloat X86_FP80Size <$> iFloatPZero sym X86_80FloatRepr
     Array n ty ->
-      LLVMValArray ty . V.replicate (fromIntegral (bytesToInteger n)) <$>
+      LLVMValArray ty . V.replicate (fromIntegral n) <$>
         zeroExpandLLVMVal sym ty
     Struct vec ->
       LLVMValStruct <$>

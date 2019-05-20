@@ -61,6 +61,7 @@ import           Data.Vector (Vector)
 import           Data.Text (Text, unpack)
 import qualified Data.Vector as V
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import           Numeric.Natural
 
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(..))
@@ -650,9 +651,9 @@ selectHighBv _ _ _ (PartLLVMVal _ v) =
 
 -- | Look up an element in a partial LLVM array value.
 arrayElt ::
-  Bytes ->
+  Natural ->
   StorageType ->
-  Bytes ->
+  Natural ->
   PartLLVMVal arch sym ->
   IO (PartLLVMVal arch sym)
 arrayElt sz tp idx (PartLLVMVal p (LLVMValZero _)) -- TODO(langston) typecheck
