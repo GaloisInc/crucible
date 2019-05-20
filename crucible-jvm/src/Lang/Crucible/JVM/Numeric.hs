@@ -113,17 +113,18 @@ fPosZero = fConst 0.0
 fNegZero :: JVMFloat s
 fNegZero = fConst (-0.0)
 
--- TODO: doublecheck
--- For float values, negation is not the same as subtraction from zero. If x is +0.0,
--- then 0.0-x equals +0.0, but -x equals -0.0. Unary minus merely inverts the sign of a float.
--- Special cases of interest:
---    If the operand is NaN, the result is NaN (recall that NaN has no sign).
---    If the operand is an infinity, the result is the infinity of opposite sign.
---    If the operand is a zero, the result is the zero of opposite sign.
-fNeg :: JVMFloat s -> JVMGenerator h s ret (JVMFloat s)
-fNeg e = ifte (App $ FloatEq e fPosZero)
-              (return fNegZero)
-              (return $ App (FloatSub SingleFloatRepr RNE fPosZero e))
+-- | For float values, negation is not the same as subtraction from
+-- zero. If @x@ is @+0.0,@ then @0.0-x@ equals @+0.0@, but @-x@ equals
+-- @-0.0@. Unary minus merely inverts the sign of a float. Special
+-- cases of interest:
+--
+--    * If the operand is NaN, the result is NaN (recall that NaN has no sign).
+--
+--    * If the operand is an infinity, the result is the infinity of opposite sign.
+--
+--    * If the operand is a zero, the result is the zero of opposite sign.
+fNeg :: JVMFloat s -> JVMFloat s
+fNeg e = App (FloatNeg SingleFloatRepr e)
 
 fAdd, fSub, fMul, fDiv, fRem :: JVMFloat s -> JVMFloat s -> JVMFloat s
 fAdd e1 e2 = App (FloatAdd SingleFloatRepr RNE e1 e2)
@@ -168,7 +169,5 @@ dCmpg e1 e2 = ifte (App (FloatEq e1 e2)) (return $ App $ BVLit w32 0)
                          (return $ App $ BVLit w32 1))
 dCmpl = dCmpg
 
-dNeg :: JVMDouble s ->  JVMGenerator h s ret (JVMDouble s)
-dNeg e = ifte (App $ FloatEq e dPosZero)
-              (return dNegZero)
-              (return $ App (FloatSub DoubleFloatRepr RNE dPosZero e))
+dNeg :: JVMDouble s -> JVMDouble s
+dNeg e = App (FloatNeg DoubleFloatRepr e)

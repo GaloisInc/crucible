@@ -731,7 +731,7 @@ generateInstruction (pc, instr) =
     -- Arithmetic instructions
     J.Dadd  -> binary dPop dPop dPush dAdd
     J.Dsub  -> binary dPop dPop dPush dSub
-    J.Dneg  -> unaryGen dPop dPush dNeg
+    J.Dneg  -> unary dPop dPush dNeg
     J.Dmul  -> binary dPop dPop dPush dMul
     J.Ddiv  -> binary dPop dPop dPush dDiv
     J.Drem  -> binary dPop dPop dPush dRem
@@ -739,7 +739,7 @@ generateInstruction (pc, instr) =
     J.Dcmpl -> binaryGen dPop dPop iPush dCmpl
     J.Fadd  -> binary fPop fPop fPush fAdd
     J.Fsub  -> binary fPop fPop fPush fSub
-    J.Fneg  -> unaryGen fPop fPush fNeg
+    J.Fneg  -> unary fPop fPush fNeg
     J.Fmul  -> binary fPop fPop fPush fMul
     J.Fdiv  -> binary fPop fPop fPush fDiv
     J.Frem  -> binary fPop fPop fPush fRem
@@ -1109,17 +1109,6 @@ unary ::
 unary pop push op =
   do value <- pop
      push (op value)
-
-
-unaryGen ::
-  JVMStmtGen h s ret a ->
-  (b -> JVMStmtGen h s ret ()) ->
-  (a -> JVMGenerator h s ret b) ->
-  JVMStmtGen h s ret ()
-unaryGen pop push op =
-  do value <- pop
-     ret <- lift $ op value
-     push ret
 
 binary ::
   JVMStmtGen h s ret a ->
