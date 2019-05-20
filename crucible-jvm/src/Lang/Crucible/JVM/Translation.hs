@@ -735,16 +735,16 @@ generateInstruction (pc, instr) =
     J.Dmul  -> binary dPop dPop dPush dMul
     J.Ddiv  -> binary dPop dPop dPush dDiv
     J.Drem  -> binary dPop dPop dPush dRem
-    J.Dcmpg -> binaryGen dPop dPop iPush dCmpg
-    J.Dcmpl -> binaryGen dPop dPop iPush dCmpl
+    J.Dcmpg -> binary dPop dPop iPush dCmpg
+    J.Dcmpl -> binary dPop dPop iPush dCmpl
     J.Fadd  -> binary fPop fPop fPush fAdd
     J.Fsub  -> binary fPop fPop fPush fSub
     J.Fneg  -> unary fPop fPush fNeg
     J.Fmul  -> binary fPop fPop fPush fMul
     J.Fdiv  -> binary fPop fPop fPush fDiv
     J.Frem  -> binary fPop fPop fPush fRem
-    J.Fcmpg -> binaryGen fPop fPop iPush dCmpg
-    J.Fcmpl -> binaryGen fPop fPop iPush dCmpl
+    J.Fcmpg -> binary fPop fPop iPush fCmpg
+    J.Fcmpl -> binary fPop fPop iPush fCmpl
     J.Iadd  -> binary iPop iPop iPush (\a b -> App (BVAdd w32 a b))
     J.Isub  -> binary iPop iPop iPush (\a b -> App (BVSub w32 a b))
     J.Imul  -> binary iPop iPop iPush (\a b -> App (BVMul w32 a b))
@@ -1120,18 +1120,6 @@ binary pop1 pop2 push op =
   do value2 <- pop2
      value1 <- pop1
      push (value1 `op` value2)
-
-binaryGen ::
-  JVMStmtGen h s ret a ->
-  JVMStmtGen h s ret b ->
-  (c -> JVMStmtGen h s ret ()) ->
-  (a -> b -> JVMGenerator h s ret c) ->
-  JVMStmtGen h s ret ()
-binaryGen pop1 pop2 push op =
-  do value2 <- pop2
-     value1 <- pop1
-     ret <- lift $ value1 `op` value2
-     push ret
 
 
 aloadInstr ::

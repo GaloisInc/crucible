@@ -15,7 +15,6 @@ import Lang.Crucible.CFG.Generator
 import Lang.Crucible.Types
 
 import Lang.Crucible.JVM.Types
-import Lang.Crucible.JVM.Generator
 
 ----------------------------------------------------------------------
 -- * Type conversions
@@ -72,6 +71,9 @@ iShiftMask i = App (BVAnd w32 i (iConst 31))
 iNeg :: JVMInt s -> JVMInt s
 iNeg e = App (BVSub w32 iZero e)
 
+iIte :: JVMBool s -> JVMInt s -> JVMInt s -> JVMInt s
+iIte cond e1 e2 = App (BVIte cond w32 e1 e2)
+
 ----------------------------------------------------------------------
 -- * Long operations
 
@@ -88,16 +90,17 @@ lShiftMask i = App (BVAnd w64 i (lConst 63))
 lNeg :: JVMLong s -> JVMLong s
 lNeg e = App (BVSub w64 lZero e)
 
--- | Both value1 and value2 must be of type long. They are both popped
--- from the operand stack, and a signed integer comparison is
--- performed. If value1 is greater than value2, the int value 1 is
--- pushed onto the operand stack. If value1 is equal to value2, the
--- int value 0 is pushed onto the operand stack. If value1 is less
--- than value2, the int value -1 is pushed onto the operand stack.
+-- | Both @value1@ and @value2@ must be of type long. They are both
+-- popped from the operand stack, and a signed integer comparison is
+-- performed. If @value1@ is greater than @value2@, the @int@ value 1
+-- is pushed onto the operand stack. If @value1@ is equal to @value2@,
+-- the @int@ value 0 is pushed onto the operand stack. If @value1@ is
+-- less than @value2@, the @int@ value -1 is pushed onto the operand
+-- stack.
 lCmp :: JVMLong s -> JVMLong s -> JVMInt s
 lCmp e1 e2 =
-  App (BVIte (App (BVEq w64 e1 e2)) w32 (iConst 0)
-       (App (BVIte (App (BVSlt w64 e1 e2)) w32 (iConst (-1)) (iConst 1))))
+  iIte (App (BVEq w64 e1 e2)) (iConst 0) $
+  iIte (App (BVSlt w64 e1 e2)) (iConst (-1)) (iConst 1)
 
 ----------------------------------------------------------------------
 -- * Float operations
@@ -133,6 +136,26 @@ fMul e1 e2 = App (FloatMul SingleFloatRepr RNE e1 e2)
 fDiv e1 e2 = App (FloatDiv SingleFloatRepr RNE e1 e2)
 fRem e1 e2 = App (FloatRem SingleFloatRepr e1 e2)
 
+-- | A floating-point comparison is performed: If @value1@ is greater
+-- than @value2@, the @int@ value 1 is pushed onto the operand stack.
+-- Otherwise, if @value1@ is equal to @value2@, the @int@ value 0 is
+-- pushed onto the operand stack. Otherwise, if @value1@ is less than
+-- @value2@, the @int@ value -1 is pushed onto the operand stack.
+-- Otherwise, at least one of @value1@ or @value2@ is NaN. The @fcmpg@
+-- instruction pushes the @int@ value 1 onto the operand stack and the
+-- @fcmpl@ instruction pushes the @int@ value -1 onto the operand stack.
+fCmpg :: JVMFloat s -> JVMFloat s -> JVMInt s
+fCmpg e1 e2 =
+  iIte (App (FloatLt e1 e2)) (iConst (-1)) $
+  iIte (App (FloatFpEq e1 e2)) (iConst 0) $
+  iConst 1
+
+fCmpl :: JVMFloat s -> JVMFloat s -> JVMInt s
+fCmpl e1 e2 =
+  iIte (App (FloatGt e1 e2)) (iConst 1) $
+  iIte (App (FloatFpEq e1 e2)) (iConst 0) $
+  iConst (-1)
+
 ----------------------------------------------------------------------
 -- * Double operations
 
@@ -154,20 +177,25 @@ dMul e1 e2 = App (FloatMul DoubleFloatRepr RNE e1 e2)
 dDiv e1 e2 = App (FloatDiv DoubleFloatRepr RNE e1 e2)
 dRem e1 e2 = App (FloatRem DoubleFloatRepr e1 e2)
 
-
---TODO: treatment of NaN
---TODO: difference between dCmpg/dCmpl
--- | If the two numbers are the same, the int 0 is pushed onto the
--- stack. If value2 is greater than value1, the int 1 is pushed onto the
--- stack. If value1 is greater than value2, -1 is pushed onto the
--- stack. If either numbers is NaN, the int 1 is pushed onto the
--- stack. +0.0 and -0.0 are treated as equal.
-dCmpg, dCmpl :: forall fi s h ret.
-                Expr JVM s (FloatType fi) -> Expr JVM s (FloatType fi) -> JVMGenerator h s ret (JVMInt s)
-dCmpg e1 e2 = ifte (App (FloatEq e1 e2)) (return $ App $ BVLit w32 0)
-                   (ifte (App (FloatGe e2 e1)) (return $ App $ BVLit w32 (-1))
-                         (return $ App $ BVLit w32 1))
-dCmpl = dCmpg
-
 dNeg :: JVMDouble s -> JVMDouble s
 dNeg e = App (FloatNeg DoubleFloatRepr e)
+
+-- | A floating-point comparison is performed: If @value1@ is greater
+-- than @value2@, the @int@ value 1 is pushed onto the operand stack.
+-- Otherwise, if @value1@ is equal to @value2@, the @int@ value 0 is
+-- pushed onto the operand stack. Otherwise, if @value1@ is less than
+-- @value2@, the @int@ value -1 is pushed onto the operand stack.
+-- Otherwise, at least one of @value1@ or @value2@ is NaN. The @dcmpg@
+-- instruction pushes the @int@ value 1 onto the operand stack and the
+-- @dcmpl@ instruction pushes the @int@ value -1 onto the operand stack.
+dCmpg :: JVMDouble s -> JVMDouble s -> JVMInt s
+dCmpg e1 e2 =
+  iIte (App (FloatLt e1 e2)) (iConst (-1)) $
+  iIte (App (FloatFpEq e1 e2)) (iConst 0) $
+  iConst 1
+
+dCmpl :: JVMDouble s -> JVMDouble s -> JVMInt s
+dCmpl e1 e2 =
+  iIte (App (FloatGt e1 e2)) (iConst 1) $
+  iIte (App (FloatFpEq e1 e2)) (iConst 0) $
+  iConst (-1)
