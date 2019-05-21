@@ -282,11 +282,11 @@ fromDValue _ = jvmFail "fromDValue"
 
 fromFValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMFloat s)
 fromFValue (FValue v) = return v
-fromFValue _ = error "fromFValue"
+fromFValue _ = jvmFail "fromFValue"
 
 fromRValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMRef s)
 fromRValue (RValue v) = return v
-fromRValue v = error $ "fromRValue:" ++ show v
+fromRValue v = jvmFail $ "fromRValue:" ++ show v
 
 
 ------------------------------------------------------------------
