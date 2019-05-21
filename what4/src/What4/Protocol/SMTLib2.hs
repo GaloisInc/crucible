@@ -290,8 +290,7 @@ instance SupportTermOps Term where
   -- NB: SMT2.letBinder defines a "parallel" let, and
   -- we want the semantics of a "sequential" let, so expand
   -- to a series of nested lets.
-  letExpr [] t = t
-  letExpr (v:vs) t = SMT2.letBinder [v] (letExpr vs t)
+  letExpr vs t = foldr (\v -> SMT2.letBinder [v]) t vs
 
   ite = SMT2.ite
 
