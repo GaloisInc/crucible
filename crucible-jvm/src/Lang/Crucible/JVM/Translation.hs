@@ -207,7 +207,7 @@ staticOverrides className methodKey
               -- i = srcPos;
               iReg <- lift $ newReg srcPos
 
-              let end = srcPos + len
+              let end = iAdd srcPos len
 
               lift $ while (InternalPos, do
                         j <- readReg iReg
@@ -221,11 +221,11 @@ staticOverrides className methodKey
 
                         -- dest[i+destPos] = val
                         destObj  <- readRef rawDestRef
-                        newDestObj <- arrayUpdate destObj (destPos + j) val
+                        newDestObj <- arrayUpdate destObj (iAdd destPos j) val
                         writeRef rawDestRef newDestObj
 
                         -- i++;
-                        modifyReg iReg (1 +)
+                        modifyReg iReg (iAdd (iConst 1))
                         )
 
   | className == "java/lang/System" && J.methodKeyName methodKey == "exit"
@@ -748,7 +748,7 @@ generateInstruction (pc, instr) =
     J.Frem  -> binary fPop fPop fPush fRem
     J.Fcmpg -> binary fPop fPop iPush fCmpg
     J.Fcmpl -> binary fPop fPop iPush fCmpl
-    J.Iadd  -> binary iPop iPop iPush (\a b -> App (BVAdd w32 a b))
+    J.Iadd  -> binary iPop iPop iPush iAdd
     J.Isub  -> binary iPop iPop iPush (\a b -> App (BVSub w32 a b))
     J.Imul  -> binary iPop iPop iPush (\a b -> App (BVMul w32 a b))
     J.Idiv  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSdiv w32 a b)))

@@ -68,6 +68,9 @@ iZero = iConst 0
 iShiftMask :: JVMInt s -> JVMInt s
 iShiftMask i = App (BVAnd w32 i (iConst 31))
 
+iAdd :: JVMInt s -> JVMInt s -> JVMInt s
+iAdd e1 e2 = App (BVAdd w32 e1 e2)
+
 iNeg :: JVMInt s -> JVMInt s
 iNeg e = App (BVSub w32 iZero e)
 

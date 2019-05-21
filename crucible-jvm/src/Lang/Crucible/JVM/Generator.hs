@@ -351,6 +351,6 @@ iterate_ count body = do
         (InternalPos, do
            j <- readReg i
            body j
-           modifyReg i (\j0 -> j0 + 1)
+           modifyReg i (\j0 -> App (BVAdd w32 j0 (App (BVLit w32 1))))
         )
 
