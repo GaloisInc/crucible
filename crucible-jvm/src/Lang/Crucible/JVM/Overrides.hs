@@ -96,8 +96,9 @@ import           What4.Utils.MonadST (liftST)
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
+import           Lang.Crucible.JVM.Context
 import           Lang.Crucible.JVM.ClassRefs
-import           Lang.Crucible.JVM.Generator
+import           Lang.Crucible.JVM.Translation.Monad
 import           Lang.Crucible.JVM.Class
 
 import Debug.Trace

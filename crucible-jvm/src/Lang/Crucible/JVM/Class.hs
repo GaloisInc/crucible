@@ -130,7 +130,8 @@ import           Lang.Crucible.Types
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
-import           Lang.Crucible.JVM.Generator
+import           Lang.Crucible.JVM.Context
+import           Lang.Crucible.JVM.Translation.Monad
 
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))

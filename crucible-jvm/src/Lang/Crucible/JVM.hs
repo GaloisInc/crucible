@@ -9,7 +9,7 @@ Stability        : provisional
 
 module Lang.Crucible.JVM
   ( module Lang.Crucible.JVM.Types
-  , module Lang.Crucible.JVM.Generator
+  , module Lang.Crucible.JVM.Context
   , module Lang.Crucible.JVM.Class
   , module Lang.Crucible.JVM.Overrides
   , module Lang.Crucible.JVM.Translation
@@ -18,7 +18,7 @@ module Lang.Crucible.JVM
   ) where
 
 import Lang.Crucible.JVM.Types
-import Lang.Crucible.JVM.Generator
+import Lang.Crucible.JVM.Context
 import Lang.Crucible.JVM.Class
 import Lang.Crucible.JVM.Overrides
 import Lang.Crucible.JVM.Translation

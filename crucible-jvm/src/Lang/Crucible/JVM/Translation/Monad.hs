@@ -1,38 +1,19 @@
 {- |
-Module           : Lang.Crucible.JVM.Generator
+Module           : Lang.Crucible.JVM.Translation.Monad
 Description      : The JVMGenerator monad
 Copyright        : (c) Galois, Inc 2018
 License          : BSD3
-Maintainer       : sweirich@galois.com
+Maintainer       : huffman@galois.com, sweirich@galois.com
 Stability        : provisional
 -}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE ImplicitParams #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternGuards #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
 
 {-# OPTIONS_GHC -haddock #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans -fno-warn-unused-imports #-}
-
-
-module Lang.Crucible.JVM.Generator where
+module Lang.Crucible.JVM.Translation.Monad where
 
 -- base
-import           Data.Semigroup
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Control.Monad.State.Strict
@@ -45,20 +26,41 @@ import qualified Language.JVM.CFG as J
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
 
-
 -- crucible
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
-import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Panic
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
+import           Lang.Crucible.JVM.Context
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
 
 import Debug.Trace
+
+------------------------------------------------------------------------
+-- * Generator Monad
+
+
+-- | Generator to construct a CFG from sequence of monadic actions:
+-- See "Lang.Crucible.CFG.Generator".
+--
+-- * 'h' is parameter from underlying ST monad
+-- * 's' is phantom to prevent mixing constructs from different CFGs
+-- * 'ret' is return type of CFG
+type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
+
+-- | Indicate that CFG generation failed due to ill-formed JVM code.
+jvmFail :: HasCallStack => String -> JVMGenerator h s ret a
+jvmFail msg = error msg
+
+-- | Output a message depending on the current verbosity level.
+debug :: Int -> String -> JVMGenerator h s ret ()
+debug level mesg = do
+  v <- use jsVerbosity
+  when (level <= v) $ traceM mesg
 
 ----------------------------------------------------------------------
 -- * Registers
@@ -70,46 +72,6 @@ data JVMReg s
   | LReg (Reg s JVMLongType)
   | RReg (Reg s JVMRefType)
    deriving (Show)
-
-----------------------------------------------------------------------
--- * JVMContext
-
-
-type StaticFieldTable = Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
-type MethodHandleTable = Map (J.ClassName, J.MethodKey) JVMHandleInfo
-
-data JVMHandleInfo where
-  JVMHandleInfo :: J.MethodKey -> FnHandle init ret -> JVMHandleInfo
-
--- | Contains information about crucible function handles and global variables
--- that is statically known during the class translation.
-data JVMContext = JVMContext
-  { methodHandles :: Map (J.ClassName, J.MethodKey) JVMHandleInfo
-      -- ^ Map from static and dynamic methods to Crucible function handles.
-  , staticFields :: Map (J.ClassName, J.FieldId) (GlobalVar JVMValueType)
-      -- ^ Map from static field names to Crucible global variables.
-      -- We know about these fields at translation time so we can allocate
-      -- global variables to store them.
-  , classTable :: Map J.ClassName J.Class
-      -- ^ Map from class names to their declarations.
-      -- This contains all of the information about class declarations at
-      -- translation time.
-  , dynamicClassTable :: GlobalVar JVMClassTableType
-      -- ^ A global variable storing information about the class that can be
-      -- used at runtime: includes initialization status, superclass (if any),
-      -- and a map from method names to their handles for dynamic dispatch.
-  }
-
--- | Left-biased merge of two contexts.
--- NOTE: There should only ever be one dynamic class table global variable.
-instance Semigroup JVMContext where
-  c1 <> c2 =
-    JVMContext
-    { methodHandles     = Map.union (methodHandles   c1) (methodHandles   c2)
-    , staticFields      = Map.union (staticFields c1) (staticFields c2)
-    , classTable        = Map.union (classTable  c1) (classTable  c2)
-    , dynamicClassTable = dynamicClassTable c1
-    }
 
 ------------------------------------------------------------------------
 -- * JVMState used during the translation
@@ -180,28 +142,6 @@ methodCFG method =
   case J.methodBody method of
     J.Code _ _ cfg _ _ _ _ -> cfg
     _                      -> error ("Method " ++ show method ++ " has no body")
-
-------------------------------------------------------------------------
--- * Generator Monad
-
-
--- | Generator to construct a CFG from sequence of monadic actions:
--- See "Lang.Crucible.CFG.Generator".
---
--- * 'h' is parameter from underlying ST monad
--- * 's' is phantom to prevent mixing constructs from different CFGs
--- * 'ret' is return type of CFG
-type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
-
--- | Indicate that CFG generation failed due to ill-formed JVM code.
-jvmFail :: HasCallStack => String -> JVMGenerator h s ret a
-jvmFail msg = error msg
-
--- | Output a message depending on the current verbosity level.
-debug :: Int -> String -> JVMGenerator h s ret ()
-debug level mesg = do
-  v <- use jsVerbosity
-  when (level <= v) $ traceM mesg
 
 ------------------------------------------------------------------
 -- * JVMValue
@@ -353,4 +293,3 @@ iterate_ count body = do
            body j
            modifyReg i (\j0 -> App (BVAdd w32 j0 (App (BVLit w32 1))))
         )
-
