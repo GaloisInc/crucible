@@ -137,35 +137,6 @@ instance Safety.HasStructuredAssertions JVM where
     text ("Exception of class " ++ intercalate "." cls)
   toPredicate _proxyExt _sym = pure . unRV . pred
 
----------------------------------------------------------------------------------
--- * Type abbreviations for expressions
-
--- | Symbolic booleans.
-type JVMBool       s = Expr JVM s BoolType
--- | Symbolic double precision float.
-type JVMDouble     s = Expr JVM s JVMDoubleType
--- | Symbolic single precision  float.
-type JVMFloat      s = Expr JVM s JVMFloatType
--- | Symbolic 32-bit signed integers.
-type JVMInt        s = Expr JVM s JVMIntType
--- | Symbolic 64-bit signed integers.
-type JVMLong       s = Expr JVM s JVMLongType
--- | Symbolic references.
-type JVMRef        s = Expr JVM s JVMRefType
--- | Symbolic strings.
-type JVMString     s = Expr JVM s StringType
--- | Symbolic class table.
-type JVMClassTable s = Expr JVM s JVMClassTableType
--- | Symbolic data structure for class information.
-type JVMClass      s = Expr JVM s JVMClassType
--- | Symbolic class initialization.
-type JVMInitStatus s = Expr JVM s JVMInitStatusType
--- | Symbolic Java-encdoed array, includes type.
-type JVMArray      s = Expr JVM s JVMArrayType
--- | Symbolic array or class instance.
-type JVMObject     s = Expr JVM s JVMObjectType
--- | Symbolic representation of Java type.
-type JVMTypeRep    s = Expr JVM s JVMTypeRepType
 ----------------------------------------------------------------------
 -- * JVM type definitions
 --
@@ -378,3 +349,33 @@ tagL = Ctx.i4of5
 
 tagR :: Ctx.Index JVMValueCtx JVMRefType
 tagR = Ctx.i5of5
+
+---------------------------------------------------------------------------------
+-- * Type abbreviations for expressions
+
+-- | Symbolic booleans.
+type JVMBool       s = Expr JVM s BoolType
+-- | Symbolic double precision float.
+type JVMDouble     s = Expr JVM s JVMDoubleType
+-- | Symbolic single precision  float.
+type JVMFloat      s = Expr JVM s JVMFloatType
+-- | Symbolic 32-bit signed integers.
+type JVMInt        s = Expr JVM s JVMIntType
+-- | Symbolic 64-bit signed integers.
+type JVMLong       s = Expr JVM s JVMLongType
+-- | Symbolic references.
+type JVMRef        s = Expr JVM s JVMRefType
+-- | Symbolic strings.
+type JVMString     s = Expr JVM s StringType
+-- | Symbolic class table.
+type JVMClassTable s = Expr JVM s JVMClassTableType
+-- | Symbolic data structure for class information.
+type JVMClass      s = Expr JVM s JVMClassType
+-- | Symbolic class initialization.
+type JVMInitStatus s = Expr JVM s JVMInitStatusType
+-- | Symbolic Java-encdoed array, includes type.
+type JVMArray      s = Expr JVM s JVMArrayType
+-- | Symbolic array or class instance.
+type JVMObject     s = Expr JVM s JVMObjectType
+-- | Symbolic representation of Java type.
+type JVMTypeRep    s = Expr JVM s JVMTypeRepType
