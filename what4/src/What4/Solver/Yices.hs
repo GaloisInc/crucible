@@ -376,6 +376,9 @@ efSolveCommand = Cmd "(ef-solve)"
 evalCommand :: Term (Connection s)-> Command (Connection s)
 evalCommand v = Cmd $ app "eval" [renderTerm v]
 
+exitCommand :: Command (Connection s)
+exitCommand = Cmd "(exit)"
+
 -- | Tell yices to show a model
 showModelCommand :: Command (Connection s)
 showModelCommand = Cmd "(show-model)"
@@ -537,7 +540,8 @@ instance OnlineSolver s (Connection s) where
 
 yicesShutdownSolver :: SolverProcess s (Connection s) -> IO (ExitCode, Lazy.Text)
 yicesShutdownSolver p =
-   do Streams.write Nothing (solverStdin p)
+   do addCommandNoAck (solverConn p) exitCommand
+      Streams.write Nothing (solverStdin p)
 
       --logLn 2 "Waiting for yices to terminate"
       txt <- readAllLines (solverStderr p)

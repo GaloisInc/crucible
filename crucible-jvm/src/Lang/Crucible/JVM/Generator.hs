@@ -159,7 +159,7 @@ jsVerbosity = lens _jsVerbosity (\s v -> s { _jsVerbosity = v })
 
 -- | Build the initial JVM generator state upon entry to the entry
 -- point of a method.
-initialState :: JVMContext -> Int -> J.Method -> TypeRepr ret -> JVMState ret s
+initialState :: JVMContext -> Verbosity -> J.Method -> TypeRepr ret -> JVMState ret s
 initialState ctx verbosity method ret =
   JVMState {
     _jsLabelMap = Map.empty,
@@ -282,11 +282,11 @@ fromDValue _ = jvmFail "fromDValue"
 
 fromFValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMFloat s)
 fromFValue (FValue v) = return v
-fromFValue _ = error "fromFValue"
+fromFValue _ = jvmFail "fromFValue"
 
 fromRValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMRef s)
 fromRValue (RValue v) = return v
-fromRValue v = error $ "fromRValue:" ++ show v
+fromRValue v = jvmFail $ "fromRValue:" ++ show v
 
 
 ------------------------------------------------------------------
@@ -351,6 +351,6 @@ iterate_ count body = do
         (InternalPos, do
            j <- readReg i
            body j
-           modifyReg i (\j0 -> j0 + 1)
+           modifyReg i (\j0 -> App (BVAdd w32 j0 (App (BVLit w32 1))))
         )
 
