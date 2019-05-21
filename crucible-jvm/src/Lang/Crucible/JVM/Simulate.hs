@@ -75,7 +75,7 @@ import           Lang.Crucible.JVM.Context
 import           Lang.Crucible.JVM.Translation (translateMethod, jvmIntrinsicTypes, jvmExtensionImpl)
 import           Lang.Crucible.JVM.ClassRefs
 import           Lang.Crucible.JVM.Translation.Monad
-import           Lang.Crucible.JVM.Class
+import           Lang.Crucible.JVM.Translation.Class
 import           Lang.Crucible.JVM.Overrides
 
 import qualified Lang.JVM.Codebase as JCB

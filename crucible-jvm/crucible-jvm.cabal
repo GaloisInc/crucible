@@ -79,10 +79,10 @@ library
     Lang.Crucible.JVM.Context
     Lang.Crucible.JVM.Simulate
     Lang.Crucible.JVM.Translation
+    Lang.Crucible.JVM.Translation.Class
     Lang.Crucible.JVM.Translation.Monad
     Lang.Crucible.JVM.Translation.Numeric
     Lang.Crucible.JVM.ClassRefs
-    Lang.Crucible.JVM.Class
     Lang.Crucible.JVM.Overrides
     Lang.JVM.Codebase
   other-modules:

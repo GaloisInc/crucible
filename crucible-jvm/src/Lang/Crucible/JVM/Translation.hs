@@ -64,7 +64,7 @@ import           Lang.Crucible.JVM.Types
 import           Lang.Crucible.JVM.Context
 import           Lang.Crucible.JVM.Translation.Numeric
 import           Lang.Crucible.JVM.Translation.Monad
-import           Lang.Crucible.JVM.Class
+import           Lang.Crucible.JVM.Translation.Class
 
 import           Debug.Trace
 
