@@ -1039,7 +1039,7 @@ generateInstruction (pc, instr) =
     J.Lreturn -> returnInstr lPop
     J.Freturn -> returnInstr fPop
     J.Dreturn -> returnInstr dPop
-    J.Areturn -> returnInstr rPop --
+    J.Areturn -> returnInstr rPop
     J.Return  -> returnInstr (return (App EmptyApp))
 
     -- Other XXXXX
@@ -1077,13 +1077,13 @@ generateInstruction (pc, instr) =
       do objectRef <- rPop
          b <- lift $ caseMaybe objectRef knownRepr
            MatchMaybe
-           { onNothing = return (App $ BoolLit False)
+           { onNothing = return bFalse
            , onJust    = \rawRef -> do
                obj <- readRef rawRef
                sTy <- getObjectType obj
                isSubType sTy tTy
            }
-         iPush $ App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
+         iPush $ iIte b (iConst 1) (iConst 0)
 
     J.Monitorenter ->
       do void rPop
