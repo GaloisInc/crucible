@@ -621,16 +621,7 @@ throwIfRefNull ::
   JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
 throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 
-throw :: JVMRef s -> JVMStmtGen h s ret ()
-throw _ = sgUnimplemented "throw"
-
-
 ----------------------------------------------------------------------
-
-processBlockAtPC' :: J.PC -> JVMStmtGen h s ret (Label s)
-processBlockAtPC' pc =
-  do vs <- get
-     lift $ processBlockAtPC pc vs
 
 nextPC :: J.PC -> JVMStmtGen h s ret J.PC
 nextPC pc =
@@ -638,8 +629,6 @@ nextPC pc =
      case J.nextPC cfg pc of
        Nothing -> sgFail "nextPC"
        Just pc' -> return pc'
-
-
 
 ----------------------------------------------------------------------
 
