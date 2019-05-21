@@ -90,7 +90,7 @@ data JVMAssertionClassifier (e :: CrucibleType -> *) =
 type instance Safety.AssertionClassifier JVM = JVMAssertionClassifier
 
 -- -----------------------------------------------------------------------
--- *** Instances
+-- Instances
 
 $(return [])
 
