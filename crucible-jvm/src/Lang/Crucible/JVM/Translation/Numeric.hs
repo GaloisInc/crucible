@@ -1,5 +1,5 @@
 {- |
-Module           : Lang.Crucible.JVM.Numeric
+Module           : Lang.Crucible.JVM.Translation.Numeric
 Description      : Primitive JVM operations on numeric types
 Copyright        : (c) Galois, Inc 2018-2019
 License          : BSD3
@@ -8,7 +8,7 @@ Stability        : provisional
 -}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Lang.Crucible.JVM.Numeric where
+module Lang.Crucible.JVM.Translation.Numeric where
 
 import Lang.Crucible.CFG.Expr
 import Lang.Crucible.CFG.Generator
