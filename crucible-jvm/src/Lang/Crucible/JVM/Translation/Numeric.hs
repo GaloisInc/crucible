@@ -11,7 +11,7 @@ Stability        : provisional
 module Lang.Crucible.JVM.Translation.Numeric where
 
 import Lang.Crucible.CFG.Expr
-import Lang.Crucible.CFG.Generator
+import Lang.Crucible.CFG.Reg (Expr(..))
 import Lang.Crucible.Types
 
 import Lang.Crucible.JVM.Types
