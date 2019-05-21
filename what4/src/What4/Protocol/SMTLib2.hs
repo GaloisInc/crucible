@@ -287,7 +287,11 @@ instance SupportTermOps Term where
   x .== y = SMT2.eq [x,y]
   x ./= y = SMT2.distinct [x,y]
 
-  letExpr = SMT2.letBinder
+  -- NB: SMT2.letBinder defines a "parallel" let, and
+  -- we want the semantics of a "sequential" let, so expand
+  -- to a series of nested lets.
+  letExpr [] t = t
+  letExpr (v:vs) = SMT2.letBinder [v] (letExpr vs t)
 
   ite = SMT2.ite
 

@@ -265,7 +265,10 @@ class Num v => SupportTermOps v where
   impliesExpr :: v -> v -> v
   impliesExpr x y = notExpr x .|| y
 
-  -- | Create a let expression.
+  -- | Create a let expression.  This is a "sequential" let,
+  --   which is syntactic sugar for a nested series of single
+  --   let bindings.  As a consequence, bound variables are in
+  --   scope for the right-hand-sides of subsequent bindings.
   letExpr :: [(Text, v)] -> v -> v
 
   -- | Create an if-then-else expression.

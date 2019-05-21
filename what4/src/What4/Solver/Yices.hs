@@ -187,7 +187,9 @@ instance SupportTermOps (YicesTerm s) where
   (./=) = bin_app "/="
   ite c x y = term_app "if" [c, x, y]
 
-  letExpr    vars t = binder_app "let"    (uncurry letBinding <$> vars) t
+  -- NB: Yices "let" has the semantics of a sequential let, so no
+  -- transformations need to be done
+  letExpr vars t = binder_app "let" (uncurry letBinding <$> vars) t
 
   sumExpr [] = 0
   sumExpr [e] = e
