@@ -99,7 +99,7 @@ import           What4.Utils.MonadST (liftST)
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
-import           Lang.Crucible.JVM.Numeric
+import           Lang.Crucible.JVM.Translation.Numeric
 import           Lang.Crucible.JVM.ClassRefs
 import           Lang.Crucible.JVM.Generator
 import           Lang.Crucible.JVM.Class
@@ -207,7 +207,7 @@ staticOverrides className methodKey
               -- i = srcPos;
               iReg <- lift $ newReg srcPos
 
-              let end = srcPos + len
+              let end = iAdd srcPos len
 
               lift $ while (InternalPos, do
                         j <- readReg iReg
@@ -221,11 +221,11 @@ staticOverrides className methodKey
 
                         -- dest[i+destPos] = val
                         destObj  <- readRef rawDestRef
-                        newDestObj <- arrayUpdate destObj (destPos + j) val
+                        newDestObj <- arrayUpdate destObj (iAdd destPos j) val
                         writeRef rawDestRef newDestObj
 
                         -- i++;
-                        modifyReg iReg (1 +)
+                        modifyReg iReg (iAdd (iConst 1))
                         )
 
   | className == "java/lang/System" && J.methodKeyName methodKey == "exit"
@@ -512,10 +512,10 @@ sgUnimplemented :: HasCallStack => String -> JVMStmtGen h s ret a
 sgUnimplemented msg = sgFail $ "unimplemented: " ++ msg
 
 getStack :: JVMStmtGen h s ret [JVMValue s]
-getStack = get --use operandStack
+getStack = get
 
 putStack :: [JVMValue s] -> JVMStmtGen h s ret ()
-putStack = put -- operandStack .= vs
+putStack = put
 
 popValue :: HasCallStack => JVMStmtGen h s ret (JVMValue s)
 popValue =
@@ -621,16 +621,7 @@ throwIfRefNull ::
   JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
 throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 
-throw :: JVMRef s -> JVMStmtGen h s ret ()
-throw _ = sgUnimplemented "throw"
-
-
 ----------------------------------------------------------------------
-
-processBlockAtPC' :: J.PC -> JVMStmtGen h s ret (Label s)
-processBlockAtPC' pc =
-  do vs <- get
-     lift $ processBlockAtPC pc vs
 
 nextPC :: J.PC -> JVMStmtGen h s ret J.PC
 nextPC pc =
@@ -638,8 +629,6 @@ nextPC pc =
      case J.nextPC cfg pc of
        Nothing -> sgFail "nextPC"
        Just pc' -> return pc'
-
-
 
 ----------------------------------------------------------------------
 
@@ -748,7 +737,7 @@ generateInstruction (pc, instr) =
     J.Frem  -> binary fPop fPop fPush fRem
     J.Fcmpg -> binary fPop fPop iPush fCmpg
     J.Fcmpl -> binary fPop fPop iPush fCmpl
-    J.Iadd  -> binary iPop iPop iPush (\a b -> App (BVAdd w32 a b))
+    J.Iadd  -> binary iPop iPop iPush iAdd
     J.Isub  -> binary iPop iPop iPush (\a b -> App (BVSub w32 a b))
     J.Imul  -> binary iPop iPop iPush (\a b -> App (BVMul w32 a b))
     J.Idiv  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSdiv w32 a b)))
@@ -1039,7 +1028,7 @@ generateInstruction (pc, instr) =
     J.Lreturn -> returnInstr lPop
     J.Freturn -> returnInstr fPop
     J.Dreturn -> returnInstr dPop
-    J.Areturn -> returnInstr rPop --
+    J.Areturn -> returnInstr rPop
     J.Return  -> returnInstr (return (App EmptyApp))
 
     -- Other XXXXX
@@ -1077,13 +1066,13 @@ generateInstruction (pc, instr) =
       do objectRef <- rPop
          b <- lift $ caseMaybe objectRef knownRepr
            MatchMaybe
-           { onNothing = return (App $ BoolLit False)
+           { onNothing = return bFalse
            , onJust    = \rawRef -> do
                obj <- readRef rawRef
                sTy <- getObjectType obj
                isSubType sTy tTy
            }
-         iPush $ App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
+         iPush $ iIte b (iConst 1) (iConst 0)
 
     J.Monitorenter ->
       do void rPop
@@ -1294,18 +1283,6 @@ generateMethod cn method ctx asgn =
      -- initialize local variables with method arguments
      _ <- Map.traverseWithKey writeLocal (initialJVMLocalVars cn method ctx asgn)
      generateBasicBlock bb0 []
-
-
--- | Define a block with a fresh lambda label, returning the label.
--- (currently unused)
-defineLambdaBlockLabel ::
-  (IsSyntaxExtension ext, KnownRepr TypeRepr tp) =>
-  (forall a. Expr ext s tp -> Generator ext h s t ret a) ->
-  Generator ext h s t ret (LambdaLabel s tp)
-defineLambdaBlockLabel action =
-  do l <- newLambdaLabel
-     defineLambdaBlock l action
-     return l
 
 -- | Top-level function for method translation.
 translateMethod :: JVMContext

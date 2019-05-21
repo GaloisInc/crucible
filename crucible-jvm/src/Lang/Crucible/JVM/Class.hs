@@ -596,6 +596,7 @@ makeClassTypeRepByName cn = do
 -- | Convert a primitive type to an enum value.
 primIndex :: J.Type -> Maybe (JVMInt s)
 primIndex ty =
+  (App . BVLit w32) <$>
   case ty of
     J.BooleanType -> return 0
     J.ByteType    -> return 1

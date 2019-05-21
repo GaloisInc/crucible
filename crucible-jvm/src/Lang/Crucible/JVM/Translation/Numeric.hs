@@ -1,5 +1,5 @@
 {- |
-Module           : Lang.Crucible.JVM.Numeric
+Module           : Lang.Crucible.JVM.Translation.Numeric
 Description      : Primitive JVM operations on numeric types
 Copyright        : (c) Galois, Inc 2018-2019
 License          : BSD3
@@ -8,7 +8,7 @@ Stability        : provisional
 -}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Lang.Crucible.JVM.Numeric where
+module Lang.Crucible.JVM.Translation.Numeric where
 
 import Lang.Crucible.CFG.Expr
 import Lang.Crucible.CFG.Generator
@@ -67,6 +67,9 @@ iZero = iConst 0
 -- | Mask the low 5 bits of a shift amount of type int.
 iShiftMask :: JVMInt s -> JVMInt s
 iShiftMask i = App (BVAnd w32 i (iConst 31))
+
+iAdd :: JVMInt s -> JVMInt s -> JVMInt s
+iAdd e1 e2 = App (BVAdd w32 e1 e2)
 
 iNeg :: JVMInt s -> JVMInt s
 iNeg e = App (BVSub w32 iZero e)

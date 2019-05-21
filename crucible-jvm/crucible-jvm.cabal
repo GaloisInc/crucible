@@ -77,9 +77,9 @@ library
     Lang.Crucible.JVM.Types
     Lang.Crucible.JVM.Generator
     Lang.Crucible.JVM.Translation
+    Lang.Crucible.JVM.Translation.Numeric
     Lang.Crucible.JVM.ClassRefs
     Lang.Crucible.JVM.Class
-    Lang.Crucible.JVM.Numeric
     Lang.Crucible.JVM.Overrides
     Lang.JVM.Codebase
   other-modules:
