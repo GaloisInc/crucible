@@ -4450,7 +4450,12 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   -- bitvector being selected from.  This can significantly reduce the size
   -- of expressions that result from the very verbose packing and unpacking
   -- operations that arise from byte-oriented memory models.
-  bvSelect sb idx n x
+  bvSelect sb idx n x0 = newIdxCache >>= \ch -> go ch x0
+
+   where
+   go ch x = getConst <$> idxCacheEval ch x (Const <$> examine ch x)
+
+   examine ch x
     | Just xv <- asUnsignedBV x = do
       let mask = maxUnsigned n
       let shft = fromIntegral (natValue idx)
@@ -4529,127 +4534,133 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       bvSelect sb idx n x'
 
       -- select is entirely within the less-significant bits of a concat
-   | Just (BVConcat _w _a b) <- asApp x
-   , Just LeqProof <- testLeq (addNat idx n) (bvWidth b) = do
-     bvSelect sb idx n b
+    | Just (BVConcat _w _a b) <- asApp x
+    , Just LeqProof <- testLeq (addNat idx n) (bvWidth b) = do
+      bvSelect sb idx n b
 
-      -- select is entirely within the more-significant bits of a concat
-   | Just (BVConcat _w a b) <- asApp x
-   , Just LeqProof <- testLeq (bvWidth b) idx
-   , Just LeqProof <- isPosNat idx
-   , let diff = subNat idx (bvWidth b)
-   , Just LeqProof <- testLeq (addNat diff n) (bvWidth a) = do
-     bvSelect sb (subNat idx (bvWidth b)) n a
+       -- select is entirely within the more-significant bits of a concat
+    | Just (BVConcat _w a b) <- asApp x
+    , Just LeqProof <- testLeq (bvWidth b) idx
+    , Just LeqProof <- isPosNat idx
+    , let diff = subNat idx (bvWidth b)
+    , Just LeqProof <- testLeq (addNat diff n) (bvWidth a) = do
+      bvSelect sb (subNat idx (bvWidth b)) n a
 
-   -- when the selected region overlaps a concat boundary we have:
-   --  select idx n (concat a b) =
-   --      concat (select 0 n1 a) (select idx n2 b)
-   --   where n1 + n2 = n and idx + n2 = width b
-   --
-   -- NB: this case must appear after the two above that check for selects
-   --     entirely within the first or second arguments of a concat, otherwise
-   --     some of the arithmetic checks below may fail
-   | Just (BVConcat _w a b) <- asApp x = do
-     Just LeqProof <- return $ testLeq idx (bvWidth b)
-     let n2 = subNat (bvWidth b) idx
-     Just LeqProof <- return $ testLeq n2 n
-     let n1 = subNat n n2
-     let z  = knownNat :: NatRepr 0
+    -- when the selected region overlaps a concat boundary we have:
+    --  select idx n (concat a b) =
+    --      concat (select 0 n1 a) (select idx n2 b)
+    --   where n1 + n2 = n and idx + n2 = width b
+    --
+    -- NB: this case must appear after the two above that check for selects
+    --     entirely within the first or second arguments of a concat, otherwise
+    --     some of the arithmetic checks below may fail
+    | Just (BVConcat _w a b) <- asApp x = do
+      Just LeqProof <- return $ testLeq idx (bvWidth b)
+      let n2 = subNat (bvWidth b) idx
+      Just LeqProof <- return $ testLeq n2 n
+      let n1 = subNat n n2
+      let z  = knownNat :: NatRepr 0
 
-     Just LeqProof <- return $ isPosNat n1
-     Just LeqProof <- return $ testLeq (addNat z n1) (bvWidth a)
-     a' <- bvSelect sb z   n1 a
+      Just LeqProof <- return $ isPosNat n1
+      Just LeqProof <- return $ testLeq (addNat z n1) (bvWidth a)
+      a' <- bvSelect sb z   n1 a
 
-     Just LeqProof <- return $ isPosNat n2
-     Just LeqProof <- return $ testLeq (addNat idx n2) (bvWidth b)
-     b' <- bvSelect sb idx n2 b
+      Just LeqProof <- return $ isPosNat n2
+      Just LeqProof <- return $ testLeq (addNat idx n2) (bvWidth b)
+      b' <- bvSelect sb idx n2 b
 
-     Just Refl <- return $ testEquality (addNat n1 n2) n
-     bvConcat sb a' b'
+      Just Refl <- return $ testEquality (addNat n1 n2) n
+      bvConcat sb a' b'
 
-    -- Select from a weighted XOR: push down through the sum
-    | Just (SemiRingSum s) <- asApp x
-    , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.sumRepr s
-    = do let mask = maxUnsigned n
-         let shft = fromIntegral (natValue idx)
-         s' <- WSum.transformSum (SR.SemiRingBVRepr SR.BVBitsRepr n)
-                 (\c -> return ((c `Bits.shiftR` shft)  Bits..&. mask))
-                 (bvSelect sb idx n)
-                 s
-         semiRingSum sb s'
+     -- Select from a weighted XOR: push down through the sum
+     | Just (SemiRingSum s) <- asApp x
+     , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.sumRepr s
+     = do let mask = maxUnsigned n
+          let shft = fromIntegral (natValue idx)
+          s' <- WSum.transformSum (SR.SemiRingBVRepr SR.BVBitsRepr n)
+                  (\c -> return ((c `Bits.shiftR` shft)  Bits..&. mask))
+                  (go ch)
+                  --(bvSelect sb idx n)
+                  s
+          semiRingSum sb s'
 
-    -- Select from a AND: push down through the AND
-    | Just (SemiRingProd pd) <- asApp x
-    , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.prodRepr pd
-    = do pd' <- WSum.prodEvalM
-                   (bvAndBits sb)
-                   (bvSelect sb idx n)
-                   pd
-         maybe (bvLit sb n (maxUnsigned n)) return pd'
+     -- Select from a AND: push down through the AND
+     | Just (SemiRingProd pd) <- asApp x
+     , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.prodRepr pd
+     = do pd' <- WSum.prodEvalM
+                    (bvAndBits sb)
+                    (go ch)
+                    pd
+          maybe (bvLit sb n (maxUnsigned n)) return pd'
 
-    -- Select from an OR: push down through the OR
-    | Just (BVOrBits pd) <- asApp x
-    = do pd' <- WSum.prodEvalM
-                   (bvOrBits sb)
-                   (bvSelect sb idx n)
-                   pd
-         maybe (bvLit sb n 0) return pd'
+     -- Select from an OR: push down through the OR
+     | Just (BVOrBits pd) <- asApp x
+     = do pd' <- WSum.prodEvalM
+                    (bvOrBits sb)
+                    (go ch)
+                    pd
+          maybe (bvLit sb n 0) return pd'
 
-    -- Trucate from a unary bitvector
-    | Just (BVUnaryTerm u) <- asApp x
-    , Just Refl <- testEquality idx (knownNat @0) =
-      bvUnary sb =<< UnaryBV.trunc sb u n
+     -- Trucate from a unary bitvector
+     | Just (BVUnaryTerm u) <- asApp x
+     , Just Refl <- testEquality idx (knownNat @0) =
+       bvUnary sb =<< UnaryBV.trunc sb u n
 
-      -- if none of the above apply, produce a basic select term
-    | otherwise = sbMakeExpr sb $ BVSelect idx n x
+       -- if none of the above apply, produce a basic select term
+     | otherwise = sbMakeExpr sb $ BVSelect idx n x
 
-  testBitBV sym i y
-    | i < 0 || i >= natValue (bvWidth y) =
+  testBitBV sym i bv
+    | i < 0 || i >= natValue (bvWidth bv) =
       fail $ "Illegal bit index."
 
-      -- Constant evaluation
-    | Just yc <- asUnsignedBV y
-    , i <= fromIntegral (maxBound :: Int)
-    = return $! backendPred sym (yc `Bits.testBit` fromIntegral i)
+    | otherwise = newIdxCache >>= \ch -> go ch bv
+        where
+        go ch y = getConst <$> idxCacheEval ch y (Const <$> examine ch y)
 
-    | Just (BVZext _w y') <- asApp y
-    = if i >= natValue (bvWidth y') then
-        return $ falsePred sym
-      else
-        testBitBV sym i y'
+        examine ch y
+             -- Constant evaluation
+           | Just yc <- asUnsignedBV y
+           , i <= fromIntegral (maxBound :: Int)
+           = return $! backendPred sym (yc `Bits.testBit` fromIntegral i)
 
-    | Just (BVSext _w y') <- asApp y
-    = if i >= natValue (bvWidth y') then
-        testBitBV sym (natValue (bvWidth y') - 1) y'
-      else
-        testBitBV sym i y'
+           | Just (BVZext _w y') <- asApp y
+           = if i >= natValue (bvWidth y') then
+               return $ falsePred sym
+             else
+               testBitBV sym i y'
 
-    | Just (BaseIte _ _ c a b) <- asApp y
-    = do a' <- testBitBV sym i a
-         b' <- testBitBV sym i b
-         itePred sym c a' b'
+           | Just (BVSext _w y') <- asApp y
+           = if i >= natValue (bvWidth y') then
+               testBitBV sym (natValue (bvWidth y') - 1) y'
+             else
+               testBitBV sym i y'
 
-      -- i must equal 0 because width is 1
-    | Just (PredToBV py) <- asApp y
-    = return py
+             -- i must equal 0 because width is 1
+           | Just (PredToBV py) <- asApp y
+           = return py
 
-    | Just b <- BVD.testBit (bvWidth y) (exprAbsValue y) i
-    = return $! backendPred sym b
+           | Just b <- BVD.testBit (bvWidth y) (exprAbsValue y) i
+           = return $! backendPred sym b
 
-    | Just ws <- asSemiRingSum (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth y)) y
-    = let smul c x
-           | Bits.testBit c (fromIntegral i) = testBitBV sym i x
-           | otherwise                       = return (falsePred sym)
-          cnst c = return $! backendPred sym (Bits.testBit c (fromIntegral i))
-       in WSum.evalM (xorPred sym) smul cnst ws
+           | Just ws <- asSemiRingSum (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth y)) y
+           = let smul c x
+                  | Bits.testBit c (fromIntegral i) = go ch x
+                  | otherwise                       = return (falsePred sym)
+                 cnst c = return $! backendPred sym (Bits.testBit c (fromIntegral i))
+              in WSum.evalM (xorPred sym) smul cnst ws
 
-    | Just pd <- asSemiRingProd (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth y)) y
-    = fromMaybe (truePred sym) <$> WSum.prodEvalM (andPred sym) (testBitBV sym i) pd
+           | Just pd <- asSemiRingProd (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth y)) y
+           = fromMaybe (truePred sym) <$> WSum.prodEvalM (andPred sym) (go ch) pd
 
-    | Just (BVOrBits pd) <- asApp y
-    = fromMaybe (falsePred sym) <$> WSum.prodEvalM (orPred sym) (testBitBV sym i) pd
+           | Just (BVOrBits pd) <- asApp y
+           = fromMaybe (falsePred sym) <$> WSum.prodEvalM (orPred sym) (go ch) pd
 
-    | otherwise = sbMakeExpr sym $ BVTestBit i y
+           | Just (BaseIte _ _ c a b) <- asApp y
+           = do a' <- go ch a
+                b' <- go ch b
+                itePred sym c a' b'
+
+           | otherwise = sbMakeExpr sym $ BVTestBit i y
 
   bvIte sym c x y
     | Just (PredToBV px) <- asApp x
@@ -4925,30 +4936,33 @@ instance IsExprBuilder (ExprBuilder t st fs) where
              (do let sr = SR.SemiRingBVRepr SR.BVArithRepr (bvWidth x)
                  scalarMul sym sr (toUnsigned (bvWidth x) (-1)) x)
 
-  bvIsNonzero sym x
-    | Just (BaseIte _ _ p t f) <- asApp x = do
-          t' <- bvIsNonzero sym t
-          f' <- bvIsNonzero sym f
-          itePred sym p t' f'
-    | Just (BVConcat _ a b) <- asApp x =
-       do pa <- bvIsNonzero sym a
-          pb <- bvIsNonzero sym b
-          orPred sym pa pb
-    | Just (BVZext _ y) <- asApp x =
-          bvIsNonzero sym y
-    | Just (BVSext _ y) <- asApp x =
-          bvIsNonzero sym y
-    | Just (PredToBV p) <- asApp x =
-          return p
-    | Just (BVUnaryTerm ubv) <- asApp x =
-          UnaryBV.sym_evaluate
-            (\i -> return $! backendPred sym (i/=0))
-            (itePred sym)
-            ubv
-    | otherwise = do
-          let w = bvWidth x
-          zro <- bvLit sym w 0
-          notPred sym =<< bvEq sym x zro
+  bvIsNonzero sym x0 = newIdxCache >>= \ch -> go ch x0
+    where
+    go ch x = getConst <$> idxCacheEval ch x (Const <$> examine ch x)
+    examine ch x
+      | Just (BaseIte _ _ p t f) <- asApp x = do
+            t' <- go ch t
+            f' <- go ch f
+            itePred sym p t' f'
+      | Just (BVConcat _ a b) <- asApp x =
+         do pa <- bvIsNonzero sym a
+            pb <- bvIsNonzero sym b
+            orPred sym pa pb
+      | Just (BVZext _ y) <- asApp x =
+            bvIsNonzero sym y
+      | Just (BVSext _ y) <- asApp x =
+            bvIsNonzero sym y
+      | Just (PredToBV p) <- asApp x =
+            return p
+      | Just (BVUnaryTerm ubv) <- asApp x =
+            UnaryBV.sym_evaluate
+              (\i -> return $! backendPred sym (i/=0))
+              (itePred sym)
+              ubv
+      | otherwise = do
+            let w = bvWidth x
+            zro <- bvLit sym w 0
+            notPred sym =<< bvEq sym x zro
 
   bvUdiv = bvBinDivOp quot BVUdiv
   bvUrem = bvBinDivOp rem BVUrem
