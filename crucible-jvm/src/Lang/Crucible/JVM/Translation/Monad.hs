@@ -146,6 +146,43 @@ methodCFG method =
 ------------------------------------------------------------------
 -- * JVMValue
 
+-- | Tagged JVM value.
+--
+-- NOTE: we could switch the below to @type JVMValue s = Expr JVM s
+-- JVMValueType@. However, that would give the translator less
+-- information. With the type below, the translator can branch on the
+-- variant. This is important for translating stack manipulations such
+-- as 'popType1' and 'popType2'.
+data JVMValue s
+  = DValue (JVMDouble s)
+  | FValue (JVMFloat s)
+  | IValue (JVMInt s)
+  | LValue (JVMLong s)
+  | RValue (JVMRef s)
+  deriving Show
+
+-- | Returns a default value for given type, suitable for initializing
+-- fields and arrays.
+defaultValue :: J.Type -> JVMValue s
+defaultValue (J.ArrayType _tp) = RValue $ App $ NothingValue knownRepr
+defaultValue J.BooleanType     = IValue $ App $ BVLit knownRepr 0
+defaultValue J.ByteType        = IValue $ App $ BVLit knownRepr 0
+defaultValue J.CharType        = IValue $ App $ BVLit knownRepr 0
+defaultValue (J.ClassType _st) = RValue $ App $ NothingValue knownRepr
+defaultValue J.DoubleType      = DValue $ App $ DoubleLit 0.0
+defaultValue J.FloatType       = FValue $ App $ FloatLit 0.0
+defaultValue J.IntType         = IValue $ App $ BVLit knownRepr 0
+defaultValue J.LongType        = LValue $ App $ BVLit knownRepr 0
+defaultValue J.ShortType       = IValue $ App $ BVLit knownRepr 0
+
+-- | Convert a statically tagged value to a dynamically tagged value.
+valueToExpr :: JVMValue s -> Expr JVM s JVMValueType
+valueToExpr (DValue x) = App $ InjectVariant knownRepr tagD x
+valueToExpr (FValue x) = App $ InjectVariant knownRepr tagF x
+valueToExpr (IValue x) = App $ InjectVariant knownRepr tagI x
+valueToExpr (LValue x) = App $ InjectVariant knownRepr tagL x
+valueToExpr (RValue x) = App $ InjectVariant knownRepr tagR x
+
 projectVariant ::
   KnownRepr (Ctx.Assignment TypeRepr) ctx =>
   Ctx.Index ctx tp ->
