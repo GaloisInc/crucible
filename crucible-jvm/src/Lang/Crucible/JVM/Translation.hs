@@ -81,6 +81,7 @@ import           Lang.Crucible.Utils.MonadVerbosity
 
 import qualified Lang.Crucible.Simulator as C
 import qualified Lang.Crucible.Simulator.GlobalState as C
+import qualified Lang.Crucible.Simulator.RegValue as C (injectVariant)
 import qualified Lang.Crucible.Analysis.Postdom as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
 
@@ -89,7 +90,9 @@ import qualified Lang.Crucible.Simulator.CallFrame as C
 import           What4.ProgramLoc (Position(InternalPos))
 import           What4.FunctionName
 import qualified What4.Interface as W4
+import qualified What4.InterpretedFloatingPoint as W4
 import qualified What4.Config as W4
+import qualified What4.Partial as W4
 import qualified What4.Partial.AssertionTree as W4AT
 
 import           What4.Utils.MonadST (liftST)
@@ -1602,24 +1605,50 @@ mkDelayedBindings ctx verbosity =
 
 -- | Make the initial state for the simulator, binding the function handles so that
 -- they translate method bodies when they are accessed.
-mkSimSt :: (IsSymInterface sym) =>
-           sym
-        -> p
-        -> HandleAllocator RealWorld
-        -> JVMContext
-        -> Verbosity
-        -> C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx)
-        -> C.ExecState p sym JVM (C.RegEntry sym ret)
-mkSimSt sym p halloc ctx verbosity = C.InitialState simctx globals C.defaultAbortHandler
+mkSimSt ::
+  -- forall sym .
+  (IsSymInterface sym) =>
+  sym ->
+  p ->
+  HandleAllocator RealWorld ->
+  JVMContext ->
+  Verbosity ->
+  C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx) ->
+  IO (C.ExecState p sym JVM (C.RegEntry sym ret))
+mkSimSt sym p halloc ctx verbosity k =
+  do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
+     return $ C.InitialState simctx globals C.defaultAbortHandler k
   where
-      simctx = C.initSimContext sym
-                 jvmIntrinsicTypes
-                 halloc
-                 stdout
-                 (mkDelayedBindings ctx verbosity)
-                 jvmExtensionImpl
-                 p
-      globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
+    -- initField :: (J.ClassName, J.FieldId) -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
+    initField (_, fi) var m =
+      do gs <- m
+         z <- zeroValue sym (J.fieldIdType fi)
+         return (C.insertGlobal var z gs)
+
+    simctx = C.initSimContext sym
+               jvmIntrinsicTypes
+               halloc
+               stdout
+               (mkDelayedBindings ctx verbosity)
+               jvmExtensionImpl
+               p
+    globals0 = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
+
+-- | Construct a zero value of the appropriate type. This is used for
+-- initializing static fields of classes.
+zeroValue :: IsSymInterface sym => sym -> J.Type -> IO (C.RegValue sym JVMValueType)
+zeroValue sym ty =
+  case ty of
+    J.ArrayType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
+    J.BooleanType -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.ByteType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.CharType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.ClassType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
+    J.DoubleType  -> C.injectVariant sym knownRepr tagD <$> W4.iFloatPZero sym DoubleFloatRepr
+    J.FloatType   -> C.injectVariant sym knownRepr tagF <$> W4.iFloatPZero sym SingleFloatRepr
+    J.IntType     -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.LongType    -> C.injectVariant sym knownRepr tagL <$> W4.bvLit sym w64 0
+    J.ShortType   -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
 
 jvmIntrinsicTypes :: C.IntrinsicTypes sym
 jvmIntrinsicTypes = C.emptyIntrinsicTypes
@@ -1661,13 +1690,12 @@ runMethodHandleCrux
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 runMethodHandleCrux feats sym p halloc ctx verbosity _classname h args = do
-  let simSt  = mkSimSt sym p halloc ctx verbosity
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
                        -- _ <- runClassInit halloc ctx classname
                        fnCall
-  C.executeCrucible (map C.genericToExecutionFeature feats)
-     (simSt (C.runOverrideSim (handleReturnType h) overrideSim))
+  simSt <- mkSimSt sym p halloc ctx verbosity (C.runOverrideSim (handleReturnType h) overrideSim)
+  C.executeCrucible (map C.genericToExecutionFeature feats) simSt
 
 
 runMethodHandle
