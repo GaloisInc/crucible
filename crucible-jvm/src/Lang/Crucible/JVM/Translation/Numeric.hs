@@ -6,14 +6,20 @@ License          : BSD3
 Maintainer       : huffman@galois.com, sweirich@galois.com
 Stability        : provisional
 -}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.JVM.Translation.Numeric where
 
 import Lang.Crucible.CFG.Expr
+import Lang.Crucible.CFG.Extension.Safety (pattern PartialExp)
 import Lang.Crucible.CFG.Reg (Expr(..))
 import Lang.Crucible.Types
 
+import qualified What4.Partial.AssertionTree as W4AT
 import Lang.Crucible.JVM.Types
 
 ----------------------------------------------------------------------
@@ -64,12 +70,28 @@ iConst i = App (BVLit w32 i)
 iZero :: JVMInt s
 iZero = iConst 0
 
--- | Mask the low 5 bits of a shift amount of type int.
+-- | Mask the low 5 bits of a shift amount for type int.
 iShiftMask :: JVMInt s -> JVMInt s
 iShiftMask i = App (BVAnd w32 i (iConst 31))
 
-iAdd :: JVMInt s -> JVMInt s -> JVMInt s
+iShl, iShr, iUshr :: JVMInt s -> JVMInt s -> JVMInt s
+iShl e1 e2 = App (BVShl w32 e1 (iShiftMask e2))
+iShr e1 e2 = App (BVAshr w32 e1 (iShiftMask e2))
+iUshr e1 e2 = App (BVLshr w32 e1 (iShiftMask e2))
+
+iAdd, iSub, iMul :: JVMInt s -> JVMInt s -> JVMInt s
 iAdd e1 e2 = App (BVAdd w32 e1 e2)
+iSub e1 e2 = App (BVSub w32 e1 e2)
+iMul e1 e2 = App (BVMul w32 e1 e2)
+
+iDiv, iRem :: JVMInt s -> JVMInt s -> JVMInt s
+iDiv e1 e2 = assertNonzero w32 e2 (App (BVSdiv w32 e1 e2))
+iRem e1 e2 = assertNonzero w32 e2 (App (BVSrem w32 e1 e2))
+
+iAnd, iOr, iXor :: JVMInt s -> JVMInt s -> JVMInt s
+iAnd e1 e2 = App (BVAnd w32 e1 e2)
+iOr  e1 e2 = App (BVOr  w32 e1 e2)
+iXor e1 e2 = App (BVXor w32 e1 e2)
 
 iNeg :: JVMInt s -> JVMInt s
 iNeg e = App (BVSub w32 iZero e)
@@ -86,9 +108,28 @@ lConst i = App (BVLit w64 i)
 lZero :: JVMLong s
 lZero = lConst 0
 
--- | Mask the low 6 bits of a shift amount of type long.
-lShiftMask :: JVMLong s -> JVMLong s
-lShiftMask i = App (BVAnd w64 i (lConst 63))
+-- | Mask the low 6 bits of a shift amount for type long.
+lShiftMask :: JVMInt s -> JVMLong s
+lShiftMask i = longFromInt (App (BVAnd w32 i (iConst 63)))
+
+lShl, lShr, lUshr :: JVMLong s -> JVMInt s -> JVMLong s
+lShl e1 e2 = App (BVShl w64 e1 (lShiftMask e2))
+lShr e1 e2 = App (BVAshr w64 e1 (lShiftMask e2))
+lUshr e1 e2 = App (BVLshr w64 e1 (lShiftMask e2))
+
+lAdd, lSub, lMul :: JVMLong s -> JVMLong s -> JVMLong s
+lAdd e1 e2 = App (BVAdd w64 e1 e2)
+lSub e1 e2 = App (BVSub w64 e1 e2)
+lMul e1 e2 = App (BVMul w64 e1 e2)
+
+lDiv, lRem :: JVMLong s -> JVMLong s -> JVMLong s
+lDiv e1 e2 = assertNonzero w64 e2 (App (BVSdiv w64 e1 e2))
+lRem e1 e2 = assertNonzero w64 e2 (App (BVSrem w64 e1 e2))
+
+lAnd, lOr, lXor :: JVMLong s -> JVMLong s -> JVMLong s
+lAnd e1 e2 = App (BVAnd w64 e1 e2)
+lOr  e1 e2 = App (BVOr  w64 e1 e2)
+lXor e1 e2 = App (BVXor w64 e1 e2)
 
 lNeg :: JVMLong s -> JVMLong s
 lNeg e = App (BVSub w64 lZero e)
@@ -202,3 +243,22 @@ dCmpl e1 e2 =
   iIte (App (FloatGt e1 e2)) (iConst 1) $
   iIte (App (FloatFpEq e1 e2)) (iConst 0) $
   iConst (-1)
+
+----------------------------------------------------------------------
+-- * Miscellaneous
+
+-- | Assert that the first argument is nonzero.
+assertNonzero ::
+  (1 <= n) =>
+  NatRepr n ->
+  Expr JVM s (BVType n) ->
+  Expr JVM s (BVType n) ->
+  Expr JVM s (BVType n)
+assertNonzero w b expr = App (WithAssertion (BVRepr w) partExpr)
+  where
+    assertion =
+      JVMAssertionClassifier
+      ["java", "lang", "ArithmeticException"]
+      (App (BVNonzero w b))
+    partExpr =
+      PartialExp (W4AT.Leaf assertion) expr

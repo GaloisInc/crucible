@@ -48,7 +48,6 @@ import           Data.Parameterized.NatRepr as NR
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
-import           Lang.Crucible.CFG.Extension.Safety (pattern PartialExp)
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
@@ -57,7 +56,6 @@ import qualified Lang.Crucible.Simulator as C
 
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
-import qualified What4.Partial.AssertionTree as W4AT
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
@@ -643,33 +641,30 @@ generateInstruction (pc, instr) =
     J.Fcmpg -> binary fPop fPop iPush fCmpg
     J.Fcmpl -> binary fPop fPop iPush fCmpl
     J.Iadd  -> binary iPop iPop iPush iAdd
-    J.Isub  -> binary iPop iPop iPush (\a b -> App (BVSub w32 a b))
-    J.Imul  -> binary iPop iPop iPush (\a b -> App (BVMul w32 a b))
-    J.Idiv  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSdiv w32 a b)))
-    J.Irem  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSrem w32 a b)))
+    J.Isub  -> binary iPop iPop iPush iSub
+    J.Imul  -> binary iPop iPop iPush iMul
+    J.Idiv  -> binary iPop iPop iPush iDiv
+    J.Irem  -> binary iPop iPop iPush iRem
     J.Ineg  -> unary iPop iPush iNeg
-    J.Iand  -> binary iPop iPop iPush (\a b -> App (BVAnd w32 a b))
-    J.Ior   -> binary iPop iPop iPush (\a b -> App (BVOr  w32 a b))
-    J.Ixor  -> binary iPop iPop iPush (\a b -> App (BVXor w32 a b))
-    J.Ishl  -> binary iPop iPop iPush (\a b -> App (BVShl w32 a (iShiftMask b)))
-    J.Ishr  -> binary iPop iPop iPush (\a b -> App (BVAshr w32 a (iShiftMask b)))
-    J.Iushr -> binary iPop iPop iPush (\a b -> App (BVLshr w32 a (iShiftMask b)))
-    J.Ladd  -> binary lPop lPop lPush (\a b -> App (BVAdd w64 a b))
-    J.Lsub  -> binary lPop lPop lPush (\a b -> App (BVSub w64 a b))
-    J.Lmul  -> binary lPop lPop lPush (\a b -> App (BVMul w64 a b))
+    J.Iand  -> binary iPop iPop iPush iAnd
+    J.Ior   -> binary iPop iPop iPush iOr
+    J.Ixor  -> binary iPop iPop iPush iXor
+    J.Ishl  -> binary iPop iPop iPush iShl
+    J.Ishr  -> binary iPop iPop iPush iShr
+    J.Iushr -> binary iPop iPop iPush iUshr
+    J.Ladd  -> binary lPop lPop lPush lAdd
+    J.Lsub  -> binary lPop lPop lPush lSub
+    J.Lmul  -> binary lPop lPop lPush lMul
     J.Lneg  -> unary lPop lPush lNeg
-    J.Ldiv  -> binary lPop lPop lPush
-               -- there is also a special case when when dividend is maxlong
-               -- and divisor is -1
-               (\a b -> nonzero w64 b (App (BVSdiv w64 a b)))
-    J.Lrem  -> binary lPop lPop lPush (\a b -> nonzero w64 b (App (BVSrem w64 a b)))
-    J.Land  -> binary lPop lPop lPush (\a b -> App (BVAnd w64 a b))
-    J.Lor   -> binary lPop lPop lPush (\a b -> App (BVOr  w64 a b))
-    J.Lxor  -> binary lPop lPop lPush (\a b -> App (BVXor w64 a b))
+    J.Ldiv  -> binary lPop lPop lPush lDiv
+    J.Lrem  -> binary lPop lPop lPush lRem
+    J.Land  -> binary lPop lPop lPush lAnd
+    J.Lor   -> binary lPop lPop lPush lOr
+    J.Lxor  -> binary lPop lPop lPush lXor
     J.Lcmp  -> binary lPop lPop iPush lCmp
-    J.Lshl  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVShl w64 a (lShiftMask b)))
-    J.Lshr  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVAshr w64 a (lShiftMask b)))
-    J.Lushr -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVLshr w64 a (lShiftMask b)))
+    J.Lshl  -> binary lPop iPop lPush lShl
+    J.Lshr  -> binary lPop iPop lPush lShr
+    J.Lushr -> binary lPop iPop lPush lUshr
 
     -- Load and store instructions
     J.Iload idx -> iLoad idx >>= iPush
@@ -964,7 +959,7 @@ generateInstruction (pc, instr) =
     J.Iinc idx constant ->
       do value <- iLoad idx
          let constValue = iConst (fromIntegral constant)
-         setLocal idx (IValue (App (BVAdd w32 value constValue)))
+         setLocal idx (IValue (iAdd value constValue))
 
     J.Instanceof tTy ->
       -- instanceof returns False when argument is null
@@ -985,18 +980,6 @@ generateInstruction (pc, instr) =
       do void rPop
     J.Nop ->
       do return ()
-  where nonzero :: (1 <= n)
-                => NatRepr n
-                -> Expr JVM s (BVType n)
-                -> Expr JVM s (BVType n)
-                -> Expr JVM s (BVType n)
-
-        nonzero w b expr =
-          let assertion =
-                JVMAssertionClassifier ["java", "lang", "ArithmeticException"]
-                                       (App (BVNonzero w b))
-              partExpr = PartialExp (W4AT.Leaf assertion) expr
-          in App (WithAssertion (BVRepr w) partExpr)
 
 unary ::
   JVMStmtGen h s ret a ->
