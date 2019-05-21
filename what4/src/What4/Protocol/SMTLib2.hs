@@ -291,7 +291,7 @@ instance SupportTermOps Term where
   -- we want the semantics of a "sequential" let, so expand
   -- to a series of nested lets.
   letExpr [] t = t
-  letExpr (v:vs) = SMT2.letBinder [v] (letExpr vs t)
+  letExpr (v:vs) t = SMT2.letBinder [v] (letExpr vs t)
 
   ite = SMT2.ite
 
