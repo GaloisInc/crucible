@@ -1295,18 +1295,6 @@ generateMethod cn method ctx asgn =
      _ <- Map.traverseWithKey writeLocal (initialJVMLocalVars cn method ctx asgn)
      generateBasicBlock bb0 []
 
-
--- | Define a block with a fresh lambda label, returning the label.
--- (currently unused)
-defineLambdaBlockLabel ::
-  (IsSyntaxExtension ext, KnownRepr TypeRepr tp) =>
-  (forall a. Expr ext s tp -> Generator ext h s t ret a) ->
-  Generator ext h s t ret (LambdaLabel s tp)
-defineLambdaBlockLabel action =
-  do l <- newLambdaLabel
-     defineLambdaBlock l action
-     return l
-
 -- | Top-level function for method translation.
 translateMethod :: JVMContext
                  -> Verbosity
