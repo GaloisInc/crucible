@@ -320,8 +320,8 @@ letBinding (nm, t) = app_list (Builder.fromText nm) [renderTerm t]
 -- | Create a let binding
 letBinder :: [(Text, Term)] -> Term -> Term
 letBinder [] r = r
-letBinder (var:vars) r =
-  T (app "let" [builder_list [letBinding var], renderTerm (letBinder vars r)])
+letBinder vars r =
+  T (app "let" [builder_list (letBinding <$> vars), renderTerm r])
 
 ------------------------------------------------------------------------
 -- Reals/Int/Real_Ints theories
