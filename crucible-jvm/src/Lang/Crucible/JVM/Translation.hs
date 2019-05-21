@@ -81,6 +81,7 @@ import           Lang.Crucible.Utils.MonadVerbosity
 
 import qualified Lang.Crucible.Simulator as C
 import qualified Lang.Crucible.Simulator.GlobalState as C
+import qualified Lang.Crucible.Simulator.RegValue as C (injectVariant)
 import qualified Lang.Crucible.Analysis.Postdom as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
 
@@ -89,13 +90,16 @@ import qualified Lang.Crucible.Simulator.CallFrame as C
 import           What4.ProgramLoc (Position(InternalPos))
 import           What4.FunctionName
 import qualified What4.Interface as W4
+import qualified What4.InterpretedFloatingPoint as W4
 import qualified What4.Config as W4
+import qualified What4.Partial as W4
 import qualified What4.Partial.AssertionTree as W4AT
 
 import           What4.Utils.MonadST (liftST)
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
+import           Lang.Crucible.JVM.Translation.Numeric
 import           Lang.Crucible.JVM.ClassRefs
 import           Lang.Crucible.JVM.Generator
 import           Lang.Crucible.JVM.Class
@@ -203,7 +207,7 @@ staticOverrides className methodKey
               -- i = srcPos;
               iReg <- lift $ newReg srcPos
 
-              let end = srcPos + len
+              let end = iAdd srcPos len
 
               lift $ while (InternalPos, do
                         j <- readReg iReg
@@ -217,11 +221,11 @@ staticOverrides className methodKey
 
                         -- dest[i+destPos] = val
                         destObj  <- readRef rawDestRef
-                        newDestObj <- arrayUpdate destObj (destPos + j) val
+                        newDestObj <- arrayUpdate destObj (iAdd destPos j) val
                         writeRef rawDestRef newDestObj
 
                         -- i++;
-                        modifyReg iReg (1 +)
+                        modifyReg iReg (iAdd (iConst 1))
                         )
 
   | className == "java/lang/System" && J.methodKeyName methodKey == "exit"
@@ -384,37 +388,40 @@ writeJVMReg (LReg r) (LValue v) = assignReg r v
 writeJVMReg (RReg r) (RValue v) = assignReg r v
 writeJVMReg _ _ = jvmFail "writeJVMReg"
 
+newStack :: [JVMValue s] -> JVMGenerator h s ret [JVMReg s]
+newStack = traverse newJVMReg
+
+readStack :: [JVMReg s] -> JVMGenerator h s ret [JVMValue s]
+readStack = traverse readJVMReg
+
 saveStack :: [JVMReg s] -> [JVMValue s] -> JVMGenerator h s ret ()
 saveStack [] [] = return ()
 saveStack (r : rs) (v : vs) = writeJVMReg r v >> saveStack rs vs
 saveStack _ _ = jvmFail "saveStack"
 
+-- | Look up the register for a local variable of a particular type.
+-- Create the register on-the-fly if it does not exist yet.
+lookupLocalReg ::
+  KnownRepr TypeRepr tp =>
+  Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s tp)) ->
+  J.LocalVariableIndex -> JVMGenerator h s ret (Reg s tp)
+lookupLocalReg l idx =
+  do m <- use l
+     case Map.lookup idx m of
+       Just r -> return r
+       Nothing ->
+         do r <- newUnassignedReg knownRepr
+            l %= Map.insert idx r
+            return r
 
--- TODO: what if we have more values? is it ok to not save them all?
--- See Java/lang/String/compareTo
-saveLocals ::
-  HasCallStack =>
-  Map J.LocalVariableIndex (JVMReg s) ->
-  Map J.LocalVariableIndex (JVMValue s) ->
-  JVMGenerator h s ret ()
-saveLocals rs vs
-  | Set.fromAscList (Map.keys rs) `Set.isSubsetOf` Set.fromAscList (Map.keys vs)
-  = sequence_ (Map.intersectionWith writeJVMReg rs vs)
-  | otherwise
-  -- what is in the registers but doesn't have a value?
-  = -- sequence_ (Map.intersectionWith writeJVMReg rs vs)
-    jvmFail $ "saveLocals:\n\t" ++ show (Map.keys rs) ++ "\n\t" ++ show (Map.keys vs)
-
-newRegisters :: JVMExprFrame s -> JVMGenerator h s ret (JVMRegisters s)
-newRegisters = traverse newJVMReg
-
-readRegisters :: JVMRegisters s -> JVMGenerator h s ret (JVMExprFrame s)
-readRegisters = traverse readJVMReg
-
-writeRegisters :: HasCallStack => JVMRegisters s -> JVMExprFrame s -> JVMGenerator h s ret ()
-writeRegisters rs vs =
-  do saveStack (rs^.operandStack) (vs^.operandStack)
-     saveLocals (rs^.localVariables) (vs^.localVariables)
+writeLocal :: J.LocalVariableIndex -> JVMValue s -> JVMGenerator h s ret ()
+writeLocal idx val =
+  case val of
+    DValue v -> lookupLocalReg jsLocalsD idx >>= flip assignReg v
+    FValue v -> lookupLocalReg jsLocalsF idx >>= flip assignReg v
+    IValue v -> lookupLocalReg jsLocalsI idx >>= flip assignReg v
+    LValue v -> lookupLocalReg jsLocalsL idx >>= flip assignReg v
+    RValue v -> lookupLocalReg jsLocalsR idx >>= flip assignReg v
 
 forceJVMValue :: JVMValue s -> JVMGenerator h s ret (JVMValue s)
 forceJVMValue val =
@@ -430,45 +437,44 @@ forceJVMValue val =
 
 generateBasicBlock ::
   J.BasicBlock ->
-  JVMRegisters s ->
+  [JVMReg s] ->
   JVMGenerator h s ret a
 generateBasicBlock bb rs =
-  do -- Record the registers for this block.
+  do -- Record the stack registers for this block.
      -- This also signals that generation of this block has started.
-     jsFrameMap %= Map.insert (J.bbId bb) rs
+     jsStackMap %= Map.insert (J.bbId bb) rs
      -- Read initial values
-     vs <- readRegisters rs
+     vs <- readStack rs
      -- Translate all instructions
-     (_, eframe) <- runStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
+     vs' <- execStateT (mapM_ generateInstruction (J.bbInsts bb)) vs
      -- If we didn't already handle a block-terminating instruction,
      -- jump to the successor block, if there's only one.
      cfg <- use jsCFG
      case J.succs cfg (J.bbId bb) of
        [J.BBId succPC] ->
-         do lbl <- processBlockAtPC succPC eframe
-            _ <- jump lbl
-            jvmFail "generateBasicBlock: ran off end of block"
+         do lbl <- processBlockAtPC succPC vs'
+            jump lbl
        [] -> jvmFail "generateBasicBlock: no terminal instruction and no successor"
        _  -> jvmFail "generateBasicBlock: no terminal instruction and multiple successors"
 
 -- | Prepare for a branch or jump to the given address, by generating
--- a transition block to copy the values into the appropriate
+-- a transition block to copy the stack values into the appropriate
 -- registers. If the target has already been translated (or is
 -- currently being translated) then the registers already exist, so we
 -- simply write into them. If the target has not been started yet, we
 -- copy the values into fresh registers, and also recursively call
 -- 'generateBasicBlock' on the target block to start translating it.
-processBlockAtPC :: HasCallStack => J.PC -> JVMExprFrame s -> JVMGenerator h s ret (Label s)
+processBlockAtPC :: HasCallStack => J.PC -> [JVMValue s] -> JVMGenerator h s ret (Label s)
 processBlockAtPC pc vs =
   defineBlockLabel $
   do bb <- getBasicBlockAtPC pc
      lbl <- getLabelAtPC pc
-     fm <- use jsFrameMap
-     case Map.lookup (J.bbId bb) fm of
+     sm <- use jsStackMap
+     case Map.lookup (J.bbId bb) sm of
        Just rs ->
-         do writeRegisters rs vs
+         do saveStack rs vs
        Nothing ->
-         do rs <- newRegisters vs
+         do rs <- newStack vs
             defineBlock lbl (generateBasicBlock bb rs)
      jump lbl
 
@@ -494,9 +500,9 @@ getLabelAtPC pc =
 
 
 -- | This has extra state that is only relevant in the context of a
--- single basic block: It tracks the values of the operand stack and
--- local variable array at each instruction.
-type JVMStmtGen h s ret = StateT (JVMExprFrame s) (JVMGenerator h s ret)
+-- single basic block: It tracks the values of the operand stack at
+-- each instruction.
+type JVMStmtGen h s ret = StateT [JVMValue s] (JVMGenerator h s ret)
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
 sgFail :: HasCallStack => String -> JVMStmtGen h s ret a
@@ -506,10 +512,10 @@ sgUnimplemented :: HasCallStack => String -> JVMStmtGen h s ret a
 sgUnimplemented msg = sgFail $ "unimplemented: " ++ msg
 
 getStack :: JVMStmtGen h s ret [JVMValue s]
-getStack = use operandStack
+getStack = get
 
 putStack :: [JVMValue s] -> JVMStmtGen h s ret ()
-putStack vs = operandStack .= vs
+putStack = put
 
 popValue :: HasCallStack => JVMStmtGen h s ret (JVMValue s)
 popValue =
@@ -593,31 +599,29 @@ uPush _u = return ()
 
 
 setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
-setLocal idx v =
-  do v' <- lift $ forceJVMValue v
-     localVariables %= Map.insert idx v'
+setLocal idx v = lift (writeLocal idx v)
 
-getLocal :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMValue s)
-getLocal idx =
-  do vs <- use localVariables
-     case Map.lookup idx vs of
-       Just v -> return v
-       Nothing -> sgFail "getLocal"
+iLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMInt s)
+iLoad idx = lift (lookupLocalReg jsLocalsI idx >>= readReg)
+
+lLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMLong s)
+lLoad idx = lift (lookupLocalReg jsLocalsL idx >>= readReg)
+
+fLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMFloat s)
+fLoad idx = lift (lookupLocalReg jsLocalsF idx >>= readReg)
+
+dLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMDouble s)
+dLoad idx = lift (lookupLocalReg jsLocalsD idx >>= readReg)
+
+rLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMRef s)
+rLoad idx = lift (lookupLocalReg jsLocalsR idx >>= readReg)
+
 
 throwIfRefNull ::
   JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
 throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 
-throw :: JVMRef s -> JVMStmtGen h s ret ()
-throw _ = sgUnimplemented "throw"
-
-
 ----------------------------------------------------------------------
-
-processBlockAtPC' :: J.PC -> JVMStmtGen h s ret (Label s)
-processBlockAtPC' pc =
-  do vs <- get
-     lift $ processBlockAtPC pc vs
 
 nextPC :: J.PC -> JVMStmtGen h s ret J.PC
 nextPC pc =
@@ -625,8 +629,6 @@ nextPC pc =
      case J.nextPC cfg pc of
        Nothing -> sgFail "nextPC"
        Just pc' -> return pc'
-
-
 
 ----------------------------------------------------------------------
 
@@ -687,9 +689,6 @@ popArguments args =
 
 -- * Instruction generation
 
-iZero :: JVMInt s
-iZero = App (BVLit w32 0)
-
 bTrue :: JVMBool s
 bTrue = App (BoolLit True)
 
@@ -724,26 +723,26 @@ generateInstruction (pc, instr) =
     -- Arithmetic instructions
     J.Dadd  -> binary dPop dPop dPush dAdd
     J.Dsub  -> binary dPop dPop dPush dSub
-    J.Dneg  -> unaryGen dPop dPush dNeg
+    J.Dneg  -> unary dPop dPush dNeg
     J.Dmul  -> binary dPop dPop dPush dMul
     J.Ddiv  -> binary dPop dPop dPush dDiv
     J.Drem  -> binary dPop dPop dPush dRem
-    J.Dcmpg -> binaryGen dPop dPop iPush dCmpg
-    J.Dcmpl -> binaryGen dPop dPop iPush dCmpl
+    J.Dcmpg -> binary dPop dPop iPush dCmpg
+    J.Dcmpl -> binary dPop dPop iPush dCmpl
     J.Fadd  -> binary fPop fPop fPush fAdd
     J.Fsub  -> binary fPop fPop fPush fSub
-    J.Fneg  -> unaryGen fPop fPush fNeg
+    J.Fneg  -> unary fPop fPush fNeg
     J.Fmul  -> binary fPop fPop fPush fMul
     J.Fdiv  -> binary fPop fPop fPush fDiv
     J.Frem  -> binary fPop fPop fPush fRem
-    J.Fcmpg -> binaryGen fPop fPop iPush dCmpg
-    J.Fcmpl -> binaryGen fPop fPop iPush dCmpl
-    J.Iadd  -> binary iPop iPop iPush (\a b -> App (BVAdd w32 a b))
+    J.Fcmpg -> binary fPop fPop iPush fCmpg
+    J.Fcmpl -> binary fPop fPop iPush fCmpl
+    J.Iadd  -> binary iPop iPop iPush iAdd
     J.Isub  -> binary iPop iPop iPush (\a b -> App (BVSub w32 a b))
     J.Imul  -> binary iPop iPop iPush (\a b -> App (BVMul w32 a b))
     J.Idiv  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSdiv w32 a b)))
     J.Irem  -> binary iPop iPop iPush (\a b -> nonzero w32 b (App (BVSrem w32 a b)))
-    J.Ineg  -> unaryGen iPop iPush iNeg
+    J.Ineg  -> unary iPop iPush iNeg
     J.Iand  -> binary iPop iPop iPush (\a b -> App (BVAnd w32 a b))
     J.Ior   -> binary iPop iPop iPush (\a b -> App (BVOr  w32 a b))
     J.Ixor  -> binary iPop iPop iPush (\a b -> App (BVXor w32 a b))
@@ -753,7 +752,7 @@ generateInstruction (pc, instr) =
     J.Ladd  -> binary lPop lPop lPush (\a b -> App (BVAdd w64 a b))
     J.Lsub  -> binary lPop lPop lPush (\a b -> App (BVSub w64 a b))
     J.Lmul  -> binary lPop lPop lPush (\a b -> App (BVMul w64 a b))
-    J.Lneg  -> unaryGen lPop lPush lNeg
+    J.Lneg  -> unary lPop lPush lNeg
     J.Ldiv  -> binary lPop lPop lPush
                -- there is also a special case when when dividend is maxlong
                -- and divisor is -1
@@ -762,17 +761,18 @@ generateInstruction (pc, instr) =
     J.Land  -> binary lPop lPop lPush (\a b -> App (BVAnd w64 a b))
     J.Lor   -> binary lPop lPop lPush (\a b -> App (BVOr  w64 a b))
     J.Lxor  -> binary lPop lPop lPush (\a b -> App (BVXor w64 a b))
-    J.Lcmp  -> binaryGen lPop lPop iPush lCmp
+    J.Lcmp  -> binary lPop lPop iPush lCmp
     J.Lshl  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVShl w64 a (lShiftMask b)))
     J.Lshr  -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVAshr w64 a (lShiftMask b)))
     J.Lushr -> binary lPop (longFromInt <$> iPop) lPush (\a b -> App (BVLshr w64 a (lShiftMask b)))
 
     -- Load and store instructions
-    J.Iload idx -> getLocal idx >>= pushValue
-    J.Lload idx -> getLocal idx >>= pushValue
-    J.Fload idx -> getLocal idx >>= pushValue
-    J.Dload idx -> getLocal idx >>= pushValue
-    J.Aload idx -> getLocal idx >>= pushValue
+    J.Iload idx -> iLoad idx >>= iPush
+    J.Lload idx -> lLoad idx >>= lPush
+    J.Fload idx -> fLoad idx >>= fPush
+    J.Dload idx -> dLoad idx >>= dPush
+    J.Aload idx -> rLoad idx >>= rPush
+
     J.Istore idx -> popValue >>= setLocal idx
     J.Lstore idx -> popValue >>= setLocal idx
     J.Fstore idx -> popValue >>= setLocal idx
@@ -1028,7 +1028,7 @@ generateInstruction (pc, instr) =
     J.Lreturn -> returnInstr lPop
     J.Freturn -> returnInstr fPop
     J.Dreturn -> returnInstr dPop
-    J.Areturn -> returnInstr rPop --
+    J.Areturn -> returnInstr rPop
     J.Return  -> returnInstr (return (App EmptyApp))
 
     -- Other XXXXX
@@ -1057,7 +1057,7 @@ generateInstruction (pc, instr) =
          rPush objectRef
 
     J.Iinc idx constant ->
-      do value <- getLocal idx >>= lift . fromIValue
+      do value <- iLoad idx
          let constValue = iConst (fromIntegral constant)
          setLocal idx (IValue (App (BVAdd w32 value constValue)))
 
@@ -1066,13 +1066,13 @@ generateInstruction (pc, instr) =
       do objectRef <- rPop
          b <- lift $ caseMaybe objectRef knownRepr
            MatchMaybe
-           { onNothing = return (App $ BoolLit False)
+           { onNothing = return bFalse
            , onJust    = \rawRef -> do
                obj <- readRef rawRef
                sTy <- getObjectType obj
                isSubType sTy tTy
            }
-         iPush $ App (BaseIte knownRepr b (App $ BVLit w32 1) (App $ BVLit w32 0))
+         iPush $ iIte b (iConst 1) (iConst 0)
 
     J.Monitorenter ->
       do void rPop
@@ -1102,17 +1102,6 @@ unary pop push op =
   do value <- pop
      push (op value)
 
-
-unaryGen ::
-  JVMStmtGen h s ret a ->
-  (b -> JVMStmtGen h s ret ()) ->
-  (a -> JVMGenerator h s ret b) ->
-  JVMStmtGen h s ret ()
-unaryGen pop push op =
-  do value <- pop
-     ret <- lift $ op value
-     push ret
-
 binary ::
   JVMStmtGen h s ret a ->
   JVMStmtGen h s ret b ->
@@ -1123,18 +1112,6 @@ binary pop1 pop2 push op =
   do value2 <- pop2
      value1 <- pop1
      push (value1 `op` value2)
-
-binaryGen ::
-  JVMStmtGen h s ret a ->
-  JVMStmtGen h s ret b ->
-  (c -> JVMStmtGen h s ret ()) ->
-  (a -> b -> JVMGenerator h s ret c) ->
-  JVMStmtGen h s ret ()
-binaryGen pop1 pop2 push op =
-  do value2 <- pop2
-     value1 <- pop1
-     ret <- lift $ value1 `op` value2
-     push ret
 
 
 aloadInstr ::
@@ -1226,168 +1203,6 @@ returnInstr pop =
        Nothing -> sgFail "ireturn: type mismatch"
 
 ----------------------------------------------------------------------
--- * Basic Value Operations
-
-floatFromDouble :: JVMDouble s -> JVMFloat s
-floatFromDouble d = App (FloatCast SingleFloatRepr RNE d)
-
-intFromDouble :: JVMDouble s -> JVMInt s
-intFromDouble d = App (FloatToSBV w32 RTZ d)
-
-longFromDouble :: JVMDouble s -> JVMLong s
-longFromDouble d = App (FloatToSBV w64 RTZ d)
-
-doubleFromFloat :: JVMFloat s -> JVMDouble s
-doubleFromFloat f = App (FloatCast DoubleFloatRepr RNE f)
-
-intFromFloat :: JVMFloat s -> JVMInt s
-intFromFloat f = App (FloatToSBV w32 RTZ f)
-
-longFromFloat :: JVMFloat s -> JVMLong s
-longFromFloat f = App (FloatToSBV w64 RTZ f)
-
-doubleFromInt :: JVMInt s -> JVMDouble s
-doubleFromInt i = App (FloatFromSBV DoubleFloatRepr RNE i)
-
-floatFromInt :: JVMInt s -> JVMFloat s
-floatFromInt i = App (FloatFromSBV SingleFloatRepr RNE i)
-
--- | TODO: double check this
-longFromInt :: JVMInt s -> JVMLong s
-longFromInt x = App (BVSext w64 w32 x)
-
-
-doubleFromLong :: JVMLong s -> JVMDouble s
-doubleFromLong l = App (FloatFromSBV DoubleFloatRepr RNE l)
-
-floatFromLong :: JVMLong s -> JVMFloat s
-floatFromLong l = App (FloatFromSBV SingleFloatRepr RNE l)
-
-intFromLong :: JVMLong s -> JVMInt s
-intFromLong l = App (BVTrunc w32 w64 l)
-
-iConst :: Integer -> JVMInt s
-iConst i = App (BVLit w32 i)
-
-lConst :: Integer -> JVMLong s
-lConst i = App (BVLit w64 i)
-
-dConst :: Double -> JVMDouble s
-dConst d = App (DoubleLit d)
-
-fConst :: Float -> JVMFloat s
-fConst f = App (FloatLit f)
-
--- | Mask the low 5 bits of a shift amount of type int.
-iShiftMask :: JVMInt s -> JVMInt s
-iShiftMask i = App (BVAnd w32 i (iConst 31))
-
--- | Mask the low 6 bits of a shift amount of type long.
-lShiftMask :: JVMLong s -> JVMLong s
-lShiftMask i = App (BVAnd w64 i (lConst 63))
-
--- TODO: is there a better way to specify -2^32?
-minInt :: JVMInt s
-minInt = App $ BVLit w32 (- (2 :: Integer) ^ (32 :: Int))
-
-minLong :: JVMLong s
-minLong = App $ BVLit w64 (- (2 :: Integer) ^ (64 :: Int))
-
-
--- Both positive and negative zeros
-posZerof :: JVMFloat s
-posZerof = App $ FloatLit 0.0
-
-negZerof :: JVMFloat s
-negZerof = App $ FloatLit (-0.0)
-
-posZerod :: JVMDouble s
-posZerod = App $ DoubleLit 0.0
-
-negZerod :: JVMDouble s
-negZerod = App $ DoubleLit (-0.0)
-
-
---TODO : doublecheck what Crucible does for BVSub
--- For int values, negation is the same as subtraction from
--- zero. Because the Java Virtual Machine uses two's-complement
--- representation for integers and the range of two's-complement
--- values is not symmetric, the negation of the maximum negative int
--- results in that same maximum negative number. Despite the fact that
--- overflow has occurred, no exception is thrown.
-iNeg :: JVMInt s -> JVMGenerator h s ret (JVMInt s)
-iNeg e = ifte (App $ BVEq w32 e minInt)
-              (return minInt)
-              (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
-
-
-lNeg :: JVMLong s -> JVMGenerator h s ret (JVMLong s)
-lNeg e = ifte (App $ BVEq knownRepr e minLong)
-              (return minLong)
-              (return $ App (BVSub knownRepr (App (BVLit knownRepr 0)) e))
-
--- TODO: doublecheck
--- For float values, negation is not the same as subtraction from zero. If x is +0.0,
--- then 0.0-x equals +0.0, but -x equals -0.0. Unary minus merely inverts the sign of a float.
--- Special cases of interest:
---    If the operand is NaN, the result is NaN (recall that NaN has no sign).
---    If the operand is an infinity, the result is the infinity of opposite sign.
---    If the operand is a zero, the result is the zero of opposite sign.
-fNeg :: JVMFloat s -> JVMGenerator h s ret (JVMFloat s)
-fNeg e = ifte (App $ FloatEq e posZerof)
-              (return negZerof)
-              (return $ App (FloatSub SingleFloatRepr RNE posZerof e))
-
-
-dAdd, dSub, dMul, dDiv, dRem :: JVMDouble s -> JVMDouble s -> JVMDouble s
-dAdd e1 e2 = App (FloatAdd DoubleFloatRepr RNE e1 e2)
-dSub e1 e2 = App (FloatSub DoubleFloatRepr RNE e1 e2)
-dMul e1 e2 = App (FloatMul DoubleFloatRepr RNE e1 e2)
-dDiv e1 e2 = App (FloatDiv DoubleFloatRepr RNE e1 e2)
-dRem e1 e2 = App (FloatRem DoubleFloatRepr e1 e2)
-
-
---TODO: treatment of NaN
---TODO: difference between dCmpg/dCmpl
--- | If the two numbers are the same, the int 0 is pushed onto the
--- stack. If value2 is greater than value1, the int 1 is pushed onto the
--- stack. If value1 is greater than value2, -1 is pushed onto the
--- stack. If either numbers is NaN, the int 1 is pushed onto the
--- stack. +0.0 and -0.0 are treated as equal.
-dCmpg, dCmpl :: forall fi s h ret.
-                Expr JVM s (FloatType fi) -> Expr JVM s (FloatType fi) -> JVMGenerator h s ret (JVMInt s)
-dCmpg e1 e2 = ifte (App (FloatEq e1 e2)) (return $ App $ BVLit w32 0)
-                   (ifte (App (FloatGe e2 e1)) (return $ App $ BVLit w32 (-1))
-                         (return $ App $ BVLit w32 1))
-dCmpl = dCmpg
-
-dNeg :: JVMDouble s ->  JVMGenerator h s ret (JVMDouble s)
-dNeg e = ifte (App $ FloatEq e posZerod)
-              (return negZerod)
-              (return $ App (FloatSub DoubleFloatRepr RNE posZerod e))
-
-
-fAdd, fSub, fMul, fDiv, fRem :: JVMFloat s -> JVMFloat s -> JVMFloat s
-fAdd e1 e2 = App (FloatAdd SingleFloatRepr RNE e1 e2)
-fSub e1 e2 = App (FloatSub SingleFloatRepr RNE e1 e2)
-fMul e1 e2 = App (FloatMul SingleFloatRepr RNE e1 e2)
-fDiv e1 e2 = App (FloatDiv SingleFloatRepr RNE e1 e2)
-fRem e1 e2 = App (FloatRem SingleFloatRepr e1 e2)
-
-
--- TODO: are these signed or unsigned integers?
--- | Takes two two-word long integers off the stack and compares them. If
--- the two integers are the same, the int 0 is pushed onto the stack. If
--- value2 is greater than value1, the int 1 is pushed onto the stack. If
--- value1 is greater than value2, the int -1 is pushed onto the stack.
-lCmp :: JVMLong s -> JVMLong s -> JVMGenerator h s ret (JVMInt s)
-lCmp e1 e2 =  ifte (App (BVEq knownRepr e1 e2)) (return $ App $ BVLit w32 0)
-                   (ifte (App (BVSlt knownRepr e1 e2)) (return $ App $ BVLit w32 (-1))
-                         (return $ App $ BVLit w32 (1)))
-
-
-
-----------------------------------------------------------------------
 
 -- * Method translation (`generateMethod`)
 
@@ -1434,14 +1249,14 @@ packTypes (t : ts) ctx asgn =
         J.LongType    -> k LValue (knownRepr :: TypeRepr JVMLongType)
         J.ShortType   -> k IValue (knownRepr :: TypeRepr JVMIntType)
 
--- | Create the initial frame for a method translation.
-initialJVMExprFrame :: HasCallStack =>
+-- | Create the initial set of local variables for a method translation.
+initialJVMLocalVars :: HasCallStack =>
   J.ClassName ->
   J.Method ->
   CtxRepr ctx ->
   Ctx.Assignment (Atom s) ctx ->
-  JVMExprFrame s
-initialJVMExprFrame cn method ctx asgn = JVMFrame [] locals
+  Map J.LocalVariableIndex (JVMValue s)
+initialJVMLocalVars cn method ctx asgn = locals
   where
     args = J.methodParameterTypes method
     static = J.methodIsStatic method
@@ -1465,21 +1280,9 @@ generateMethod cn method ctx asgn =
      lbls <- traverse bbLabel (J.allBBs cfg)
      jsLabelMap .= Map.fromList lbls
      bb0 <- maybe (jvmFail "no entry block") return (J.bbById cfg J.BBIdEntry)
-     let vs0 = initialJVMExprFrame cn method ctx asgn
-     rs0 <- newRegisters vs0
-     generateBasicBlock bb0 rs0
-
-
--- | Define a block with a fresh lambda label, returning the label.
--- (currently unused)
-defineLambdaBlockLabel ::
-  (IsSyntaxExtension ext, KnownRepr TypeRepr tp) =>
-  (forall a. Expr ext s tp -> Generator ext h s t ret a) ->
-  Generator ext h s t ret (LambdaLabel s tp)
-defineLambdaBlockLabel action =
-  do l <- newLambdaLabel
-     defineLambdaBlock l action
-     return l
+     -- initialize local variables with method arguments
+     _ <- Map.traverseWithKey writeLocal (initialJVMLocalVars cn method ctx asgn)
+     generateBasicBlock bb0 []
 
 -- | Top-level function for method translation.
 translateMethod :: JVMContext
@@ -1779,24 +1582,50 @@ mkDelayedBindings ctx verbosity =
 
 -- | Make the initial state for the simulator, binding the function handles so that
 -- they translate method bodies when they are accessed.
-mkSimSt :: (IsSymInterface sym) =>
-           sym
-        -> p
-        -> HandleAllocator RealWorld
-        -> JVMContext
-        -> Verbosity
-        -> C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx)
-        -> C.ExecState p sym JVM (C.RegEntry sym ret)
-mkSimSt sym p halloc ctx verbosity = C.InitialState simctx globals C.defaultAbortHandler
+mkSimSt ::
+  -- forall sym .
+  (IsSymInterface sym) =>
+  sym ->
+  p ->
+  HandleAllocator RealWorld ->
+  JVMContext ->
+  Verbosity ->
+  C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx) ->
+  IO (C.ExecState p sym JVM (C.RegEntry sym ret))
+mkSimSt sym p halloc ctx verbosity k =
+  do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
+     return $ C.InitialState simctx globals C.defaultAbortHandler k
   where
-      simctx = C.initSimContext sym
-                 jvmIntrinsicTypes
-                 halloc
-                 stdout
-                 (mkDelayedBindings ctx verbosity)
-                 jvmExtensionImpl
-                 p
-      globals = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
+    -- initField :: (J.ClassName, J.FieldId) -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
+    initField (_, fi) var m =
+      do gs <- m
+         z <- zeroValue sym (J.fieldIdType fi)
+         return (C.insertGlobal var z gs)
+
+    simctx = C.initSimContext sym
+               jvmIntrinsicTypes
+               halloc
+               stdout
+               (mkDelayedBindings ctx verbosity)
+               jvmExtensionImpl
+               p
+    globals0 = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
+
+-- | Construct a zero value of the appropriate type. This is used for
+-- initializing static fields of classes.
+zeroValue :: IsSymInterface sym => sym -> J.Type -> IO (C.RegValue sym JVMValueType)
+zeroValue sym ty =
+  case ty of
+    J.ArrayType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
+    J.BooleanType -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.ByteType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.CharType    -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.ClassType _ -> C.injectVariant sym knownRepr tagR <$> return W4.Unassigned
+    J.DoubleType  -> C.injectVariant sym knownRepr tagD <$> W4.iFloatPZero sym DoubleFloatRepr
+    J.FloatType   -> C.injectVariant sym knownRepr tagF <$> W4.iFloatPZero sym SingleFloatRepr
+    J.IntType     -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
+    J.LongType    -> C.injectVariant sym knownRepr tagL <$> W4.bvLit sym w64 0
+    J.ShortType   -> C.injectVariant sym knownRepr tagI <$> W4.bvLit sym w32 0
 
 jvmIntrinsicTypes :: C.IntrinsicTypes sym
 jvmIntrinsicTypes = C.emptyIntrinsicTypes
@@ -1838,13 +1667,12 @@ runMethodHandleCrux
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
 runMethodHandleCrux feats sym p halloc ctx verbosity _classname h args = do
-  let simSt  = mkSimSt sym p halloc ctx verbosity
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
                        -- _ <- runClassInit halloc ctx classname
                        fnCall
-  C.executeCrucible (map C.genericToExecutionFeature feats)
-     (simSt (C.runOverrideSim (handleReturnType h) overrideSim))
+  simSt <- mkSimSt sym p halloc ctx verbosity (C.runOverrideSim (handleReturnType h) overrideSim)
+  C.executeCrucible (map C.genericToExecutionFeature feats) simSt
 
 
 runMethodHandle

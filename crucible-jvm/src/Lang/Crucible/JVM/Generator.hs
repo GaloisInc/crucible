@@ -61,7 +61,7 @@ import           What4.ProgramLoc (Position(InternalPos))
 import Debug.Trace
 
 ----------------------------------------------------------------------
--- * Registers and Frame
+-- * Registers
 
 data JVMReg s
   = DReg (Reg s JVMDoubleType)
@@ -70,30 +70,6 @@ data JVMReg s
   | LReg (Reg s JVMLongType)
   | RReg (Reg s JVMRefType)
    deriving (Show)
-
-data JVMFrame v
-  = JVMFrame
-    { _operandStack   :: ![v]
-    , _localVariables :: !(Map J.LocalVariableIndex v)
-    }
-
-instance Functor JVMFrame where
-  fmap f (JVMFrame os lv) = JVMFrame (fmap f os) (fmap f lv)
-
-instance Foldable JVMFrame where
-  foldr f z (JVMFrame os lv) = foldr f (foldr f z lv) os
-
-instance Traversable JVMFrame where
-  traverse f (JVMFrame os lv) = JVMFrame <$> traverse f os <*> traverse f lv
-
-operandStack :: Simple Lens (JVMFrame v) [v]
-operandStack = lens _operandStack (\s v -> s{ _operandStack = v})
-
-localVariables :: Simple Lens (JVMFrame v) (Map J.LocalVariableIndex v)
-localVariables = lens _localVariables (\s v -> s{ _localVariables = v})
-
-type JVMExprFrame s = JVMFrame (JVMValue s)
-type JVMRegisters s = JVMFrame (JVMReg s)
 
 ----------------------------------------------------------------------
 -- * JVMContext
@@ -140,19 +116,39 @@ instance Semigroup JVMContext where
 
 data JVMState ret s
   = JVMState
-  { _jsLabelMap :: !(Map J.BBId (Label s))
-  , _jsFrameMap :: !(Map J.BBId (JVMFrame (JVMReg s)))
-  , _jsCFG      :: J.CFG
-  , jsRetType   :: TypeRepr ret
-  , jsContext   :: JVMContext
+  { _jsLabelMap  :: !(Map J.BBId (Label s))
+  , _jsStackMap  :: !(Map J.BBId [JVMReg s])
+  , _jsLocalsD   :: !(Map J.LocalVariableIndex (Reg s JVMDoubleType))
+  , _jsLocalsF   :: !(Map J.LocalVariableIndex (Reg s JVMFloatType))
+  , _jsLocalsI   :: !(Map J.LocalVariableIndex (Reg s JVMIntType))
+  , _jsLocalsL   :: !(Map J.LocalVariableIndex (Reg s JVMLongType))
+  , _jsLocalsR   :: !(Map J.LocalVariableIndex (Reg s JVMRefType))
+  , _jsCFG       :: J.CFG
+  , jsRetType    :: TypeRepr ret
+  , jsContext    :: JVMContext
   , _jsVerbosity :: Int
   }
 
 jsLabelMap :: Simple Lens (JVMState ret s) (Map J.BBId (Label s))
 jsLabelMap = lens _jsLabelMap (\s v -> s { _jsLabelMap = v })
 
-jsFrameMap :: Simple Lens (JVMState ret s) (Map J.BBId (JVMFrame (JVMReg s)))
-jsFrameMap = lens _jsFrameMap (\s v -> s { _jsFrameMap = v })
+jsStackMap :: Simple Lens (JVMState ret s) (Map J.BBId [JVMReg s])
+jsStackMap = lens _jsStackMap (\s v -> s { _jsStackMap = v })
+
+jsLocalsD :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMDoubleType))
+jsLocalsD = lens _jsLocalsD (\s v -> s { _jsLocalsD = v })
+
+jsLocalsF :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMFloatType))
+jsLocalsF = lens _jsLocalsF (\s v -> s { _jsLocalsF = v })
+
+jsLocalsI :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMIntType))
+jsLocalsI = lens _jsLocalsI (\s v -> s { _jsLocalsI = v })
+
+jsLocalsL :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMLongType))
+jsLocalsL = lens _jsLocalsL (\s v -> s { _jsLocalsL = v })
+
+jsLocalsR :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMRefType))
+jsLocalsR = lens _jsLocalsR (\s v -> s { _jsLocalsR = v })
 
 jsCFG :: Simple Lens (JVMState ret s) J.CFG
 jsCFG = lens _jsCFG (\s v -> s { _jsCFG = v })
@@ -163,11 +159,16 @@ jsVerbosity = lens _jsVerbosity (\s v -> s { _jsVerbosity = v })
 
 -- | Build the initial JVM generator state upon entry to the entry
 -- point of a method.
-initialState :: JVMContext -> Int -> J.Method -> TypeRepr ret -> JVMState ret s
+initialState :: JVMContext -> Verbosity -> J.Method -> TypeRepr ret -> JVMState ret s
 initialState ctx verbosity method ret =
   JVMState {
     _jsLabelMap = Map.empty,
-    _jsFrameMap = Map.empty,
+    _jsStackMap = Map.empty,
+    _jsLocalsD = Map.empty,
+    _jsLocalsF = Map.empty,
+    _jsLocalsI = Map.empty,
+    _jsLocalsL = Map.empty,
+    _jsLocalsR = Map.empty,
     _jsCFG = methodCFG method,
     jsRetType = ret,
     jsContext = ctx,
@@ -281,11 +282,11 @@ fromDValue _ = jvmFail "fromDValue"
 
 fromFValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMFloat s)
 fromFValue (FValue v) = return v
-fromFValue _ = error "fromFValue"
+fromFValue _ = jvmFail "fromFValue"
 
 fromRValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMRef s)
 fromRValue (RValue v) = return v
-fromRValue v = error $ "fromRValue:" ++ show v
+fromRValue v = jvmFail $ "fromRValue:" ++ show v
 
 
 ------------------------------------------------------------------
@@ -350,6 +351,6 @@ iterate_ count body = do
         (InternalPos, do
            j <- readReg i
            body j
-           modifyReg i (\j0 -> j0 + 1)
+           modifyReg i (\j0 -> App (BVAdd w32 j0 (App (BVLit w32 1))))
         )
 
