@@ -512,10 +512,10 @@ sgUnimplemented :: HasCallStack => String -> JVMStmtGen h s ret a
 sgUnimplemented msg = sgFail $ "unimplemented: " ++ msg
 
 getStack :: JVMStmtGen h s ret [JVMValue s]
-getStack = get --use operandStack
+getStack = get
 
 putStack :: [JVMValue s] -> JVMStmtGen h s ret ()
-putStack = put -- operandStack .= vs
+putStack = put
 
 popValue :: HasCallStack => JVMStmtGen h s ret (JVMValue s)
 popValue =
