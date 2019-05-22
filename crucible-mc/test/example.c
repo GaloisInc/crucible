@@ -1,3 +1,2 @@
 
-int f () { return 2; }
-int g () { return 2; }
+void f () { return; }

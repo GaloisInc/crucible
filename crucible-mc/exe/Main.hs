@@ -1,12 +1,12 @@
-
 {-# Language RankNTypes, TypeApplications, TypeFamilies #-}
-{-# Language FlexibleContexts #-}
+{-# Language PatternSynonyms #-}
 module Main(main) where
 
 import System.IO(stdout)
 import Control.Exception(throwIO,Exception(..))
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
+import Data.Parameterized.Context (pattern Empty)
 
 import qualified Data.LLVM.BitCode as BC
 
@@ -17,27 +17,43 @@ import Lang.Crucible.Backend.Online
           )
 import Lang.Crucible.LLVM.Run
 import Lang.Crucible.Backend(IsSymInterface)
+import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
 import Lang.Crucible.Simulator.ExecutionTree
+import Lang.Crucible.Simulator.RegMap(emptyRegMap)
 import Lang.Crucible.Simulator.EvalStmt(singleStepCrucible)
+import Lang.Crucible.Simulator.OverrideSim(callCFG)
 
 import Print
 
+test_file :: FilePath
+test_file = "crucible-mc/test/example.bc"
+
+test_fun :: String
+test_fun = "f"
 
 main :: IO ()
 main =
-  parseLLVM "crucible-mc/test/example.bc" >>= \llvm_mod ->
+  parseLLVM test_file                       >>= \llvm_mod ->
   withZ3                                    $ \sym ->
   runCruxLLVM llvm_mod                      $
   CruxLLVM                                  $ \mt ->
   withPtrWidthOf mt                         $
-  Setup
-    { cruxOutput = stdout
-    , cruxBackend = sym
-    , cruxInitCodeReturns = UnitRepr
-    , cruxInitCode = return ()
-    , cruxUserState = ()
-    , cruxGo  = runFrom
-    }
+  case findCFG mt test_fun of
+    Nothing -> throwIO (UnknownFunction test_fun)
+    Just (AnyCFG cfg) ->
+      case (cfgArgTypes cfg, cfgReturnType cfg) of
+        (Empty, UnitRepr) ->
+          pure Setup
+            { cruxOutput = stdout
+            , cruxBackend = sym
+            , cruxInitCodeReturns = UnitRepr
+            , cruxInitCode = do _ <- callCFG cfg emptyRegMap
+                                pure ()
+            , cruxUserState = ()
+            , cruxGo  = runFrom
+            }
+
+        _ -> throwIO (UnsupportedFunType test_fun)
 
 runFrom :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch)) =>
             ExecState p sym (LLVM arch) rtp ->  IO ()
@@ -57,6 +73,8 @@ withZ3 k =
 
 -- | This exception is thrown when we fail to parse a bit-code file.
 data Err = BitcodeError BC.Error
+         | UnknownFunction String
+         | UnsupportedFunType String
             deriving Show
 
 instance Exception Err

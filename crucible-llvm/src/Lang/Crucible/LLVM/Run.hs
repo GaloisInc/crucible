@@ -15,17 +15,21 @@ module Lang.Crucible.LLVM.Run
   , HasPtrWidth
   , ArchWidth
   , withPtrWidthOf
+  , findCFG
   ) where
 
 import Control.Lens((^.))
 import Control.Monad.ST(stToIO)
 import System.IO(Handle)
+import Data.String(fromString)
+import qualified Data.Map as Map
 
 
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Context(EmptyCtx)
 
 import Lang.Crucible.Types(TypeRepr)
+import Lang.Crucible.CFG.Core(AnyCFG)
 import Lang.Crucible.Simulator
   ( RegEntry, RegValue
   , fnBindingsFromList, runOverrideSim
@@ -41,7 +45,7 @@ import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, llvmPtrWidth, llvmTypeCtx , LLVM)
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals)
 import Lang.Crucible.LLVM.Translation
-        (globalInitMap,transContext,translateModule,ModuleTranslation)
+        (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap)
 import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeMemory)
 
 import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth)
@@ -53,7 +57,7 @@ import Lang.Crucible.Backend(IsSymInterface)
 
 -- | LLVM specific crucible initialization.
 newtype CruxLLVM res =
-  CruxLLVM (forall arch. ModuleTranslation arch -> Setup (LLVM arch) res)
+  CruxLLVM (forall arch. ModuleTranslation arch -> IO (Setup (LLVM arch) res))
 
 
 -- | Generic Crucible initialization.
@@ -86,7 +90,8 @@ runCruxLLVM :: Module -> CruxLLVM res -> IO res
 runCruxLLVM llvm_mod (CruxLLVM setup) =
   do halloc     <- newHandleAllocator
      Some trans <- stToIO (translateModule halloc llvm_mod)
-     case setup trans of
+     res <- setup trans
+     case res of
        Setup { .. } ->
          withPtrWidthOf trans (
            do let llvmCtxt = trans ^. transContext
@@ -119,4 +124,6 @@ withPtrWidthOf trans k =
   llvmPtrWidth (trans^.transContext) (\ptrW -> withPtrWidth ptrW k)
 
 
+findCFG :: ModuleTranslation arch -> String -> Maybe (AnyCFG (LLVM arch))
+findCFG trans fun = Map.lookup (fromString fun) (cfgMap trans)
 
