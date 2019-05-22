@@ -3,12 +3,7 @@
 //added preamble and removed stability & lang annotations
 //added mod container
 //removed macro call (currently unsupported)
-
-#![crate_type = "lib"]
-#![no_implicit_prelude]
-
-
-#![feature(never_type)]
+#![stable(feature = "rust1", since = "1.0.0")]
 
 
 //! The `Clone` trait for types that cannot be 'implicitly copied'.
@@ -120,11 +115,7 @@
 /// [impls]: #implementors
 
 
-
-pub mod clone {
-
-    use std::marker::Sized;
-    
+#[stable(feature = "rust1", since = "1.0.0")]
 pub trait Clone : Sized {
     /// Returns a copy of the value.
     ///
@@ -135,7 +126,7 @@ pub trait Clone : Sized {
     ///
     /// assert_eq!("Hello", hello.clone());
     /// ```
-
+    #[stable(feature = "rust1", since = "1.0.0")]
     #[must_use = "cloning is often expensive and is not expected to have side effects"]
     fn clone(&self) -> Self;
 
@@ -145,7 +136,7 @@ pub trait Clone : Sized {
     /// but can be overridden to reuse the resources of `a` to avoid unnecessary
     /// allocations.
     #[inline]
-
+    #[stable(feature = "rust1", since = "1.0.0")]
     fn clone_from(&mut self, source: &Self) {
         *self = source.clone()
     }
@@ -158,14 +149,12 @@ pub trait Clone : Sized {
 /// are implemented in `SelectionContext::copy_clone_conditions()` in librustc.
 mod impls {
 
-    use std::marker::Sized;
-    
     use super::Clone;
 
     macro_rules! impl_clone {
         ($($t:ty)*) => {
             $(
-
+                #[stable(feature = "rust1", since = "1.0.0")]
                 impl Clone for $t {
                     #[inline]
                     fn clone(&self) -> Self {
@@ -184,6 +173,7 @@ mod impls {
     } */
 
 
+    #[stable(feature = "rust1", since = "1.0.0")]
     impl Clone for ! {
         #[inline]
         fn clone(&self) -> Self {
@@ -192,6 +182,7 @@ mod impls {
     }
 
 
+    #[stable(feature = "rust1", since = "1.0.0")]
     impl<T: ?Sized> Clone for *const T {
         #[inline]
         fn clone(&self) -> Self {
@@ -200,6 +191,7 @@ mod impls {
     }
 
 
+    #[stable(feature = "rust1", since = "1.0.0")]
     impl<T: ?Sized> Clone for *mut T {
         #[inline]
         fn clone(&self) -> Self {
@@ -209,13 +201,12 @@ mod impls {
 
     // Shared references can be cloned, but mutable references *cannot*!
 
+    #[stable(feature = "rust1", since = "1.0.0")]
     impl<T: ?Sized> Clone for &T {
         #[inline]
         fn clone(&self) -> Self {
             *self
         }
     }
-
-}
 
 }

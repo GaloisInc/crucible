@@ -8,22 +8,23 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![crate_type = "lib"]
-#![no_implicit_prelude]
-
-pub mod ops {
-    mod function {
-        
+        #[stable(feature = "rust1", since = "1.0.0")]
         pub trait Fn<Args> : FnMut<Args> {
+            #[stable(feature = "rust1", since = "1.0.0")]
             fn call(&self, args: Args) -> Self::Output;
         } 
 
+        #[stable(feature = "rust1", since = "1.0.0")]
         pub trait FnMut<Args> : FnOnce<Args> {
+            #[stable(feature = "rust1", since = "1.0.0")]
             fn call_mut(&mut self, args: Args) -> Self::Output;
         } 
+        #[stable(feature = "rust1", since = "1.0.0")]
         pub trait FnOnce<Args> {
+            #[stable(feature = "rust1", since = "1.0.0")]
             type Output;
-            
+
+            #[stable(feature = "rust1", since = "1.0.0")]
             fn call_once(self, args: Args) -> Self::Output;
         }
 
@@ -79,5 +80,3 @@ pub mod ops {
             }
 
         } */ 
-    } 
-}

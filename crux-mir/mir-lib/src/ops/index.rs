@@ -2,17 +2,7 @@
 // 3/13/19
 //added preamble and removed stability & lang annotations
 
-#![crate_type = "lib"]
-#![no_implicit_prelude]
-#![feature(lang_items)]
-#![feature(on_unimplemented)]
-#![feature(doc_alias)]
-
-mod ops {
-
-    mod index {
-        
-use std::marker::Sized;
+#![stable(feature = "rust1", since = "1.0.0")]
 
 /// Used for indexing operations (`container[index]`) in immutable contexts.
 ///
@@ -74,13 +64,14 @@ use std::marker::Sized;
 #[doc(alias = "]")]
 #[doc(alias = "[")]
 #[doc(alias = "[]")]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub trait Index<Idx: ?Sized> {
     /// The returned type after indexing.
-
+    #[stable(feature = "rust1", since = "1.0.0")]
     type Output: ?Sized;
 
     /// Performs the indexing (`container[index]`) operation.
-
+    #[stable(feature = "rust1", since = "1.0.0")]
     fn index(&self, index: Idx) -> &Self::Output;
 }
 
@@ -175,15 +166,13 @@ see chapter in The Book <https://doc.rust-lang.org/book/ch08-02-strings.html#ind
     message="the type `{Self}` cannot be mutably indexed by `{Idx}`",
     label="`{Self}` cannot be mutably indexed by `{Idx}`",
 )]
-
+#[stable(feature = "rust1", since = "1.0.0")]
 #[doc(alias = "[")]
 #[doc(alias = "]")]
 #[doc(alias = "[]")]
 pub trait IndexMut<Idx: ?Sized>: Index<Idx> {
     /// Performs the mutable indexing (`container[index]`) operation.
 
+    #[stable(feature = "rust1", since = "1.0.0")]
     fn index_mut(&mut self, index: Idx) -> &mut Self::Output;
-}
-
-    }
 }

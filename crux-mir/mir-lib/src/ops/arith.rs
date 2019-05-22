@@ -1,22 +1,4 @@
-#![crate_type = "lib"]
-#![no_std]
-#![feature(staged_api)]
-#![feature(never_type)]
-
-
-#![feature(doc_alias)]
-#![feature(on_unimplemented)]
-#![feature(rustc_attrs)]
-
-
-
-
 #![stable(feature = "rust1", since = "1.0.0")]
-pub mod ops {
-#![stable(feature = "rust1", since = "1.0.0")]
-
-    pub mod arith {
-    #![stable(feature = "rust1", since = "1.0.0")]
 
 // implements the unary operator "op &T"
 // based on "op T" where T is expected to be `Copy`able
@@ -1004,6 +986,3 @@ macro_rules! rem_assign_impl {
 }
 
 rem_assign_impl! { usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
-
-    }
-}

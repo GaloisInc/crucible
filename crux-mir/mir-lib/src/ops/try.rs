@@ -1,19 +1,7 @@
 // SCW: from https://github.com/rust-lang/rust/blob/master/src/libcore/ops/try.rs
 // 4/15/19
 
-#![crate_type = "lib"]
-#![no_std]
-#![feature(staged_api)]
-#![feature(never_type)]
-#![feature(lang_items)]
-#![feature(on_unimplemented)]
-#![feature(doc_alias)]
-
 #![unstable(feature = "try_trait", issue = "42327")]
-pub mod ops {
-
-    #[unstable(feature = "try_trait", issue = "42327")]
-    pub mod try {
 
 /// A trait for customizing the behavior of the `?` operator.
 ///
@@ -65,7 +53,4 @@ pub trait Try {
     /// `Result::Ok(x)` and `Result::from_ok(x)` are equivalent.
     #[unstable(feature = "try_trait", issue = "42327")]
     fn from_ok(v: Self::Ok) -> Self;
-}
-
-    }
 }

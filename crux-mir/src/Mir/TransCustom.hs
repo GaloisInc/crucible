@@ -167,6 +167,7 @@ customOps = Map.fromList [
                          , discriminant_value
 
                          , exit
+                         , abort
                          , panicking_begin_panic
                          ]
 
@@ -178,6 +179,8 @@ customOps = Map.fromList [
 exit :: (ExplodedDefId, CustomRHS)
 exit = ((["process"], "exit", []), \s -> Just (CustomOpExit $ \ops -> return "process::exit"))
 
+abort :: (ExplodedDefId, CustomRHS)
+abort = ((["intrinsics"], "abort", []), \s -> Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
 panicking_begin_panic = ((["panicking"], "begin_panic", []),

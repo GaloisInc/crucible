@@ -1,20 +1,3 @@
-#![crate_type = "lib"]
-#![no_std]
-#![feature(staged_api)]
-#![feature(never_type)]
-#![feature(lang_items)]
-#![feature(on_unimplemented)]
-#![feature(doc_alias)]
-
-#![feature(specialization)]
-#![feature(rustc_attrs)]
-#![feature(rustc_const_unstable)]
-#![feature(exact_size_is_empty)]
-#![feature(untagged_unions)]
-#![feature(core_intrinsics)]
-#![feature(try_trait)]
-#![feature(trusted_len)]
-
 /*
 cfg options: these options control what is actually compiled. 
 There are several parts of core that we don't translate yet.
@@ -52,7 +35,6 @@ eq_contraint
 //! [`std::slice`]: ../../std/slice/index.html
 
 #![stable(feature = "rust1", since = "1.0.0")]
-mod slice {
     
 // How this module is organized.
 //
@@ -72,7 +54,7 @@ use core::cmp::Ordering::{self, Less, Equal, Greater};
 use core::cmp;
 #[cfg(fmt)]
 use core::fmt;
-use core::intrinsics::assume;
+use core::intrinsics::{self, assume};
 use core::isize;
 use core::iter::*;
 use core::ops::{FnMut, Try, self};
@@ -83,8 +65,6 @@ use core::result::Result::{Ok, Err};
 use core::ptr;
 use core::mem;
 use core::marker::{Copy, Send, Sync, Sized, self};
-
-extern crate std;
 
 #[unstable(feature = "slice_internals", issue = "0",
            reason = "exposed from core to be reused in std; use the memchr crate")]
@@ -2632,7 +2612,7 @@ impl<T, I> core::ops::IndexMut<I> for [T]
 #[inline(never)]
 #[cold]
 fn slice_index_len_fail(index: usize, len: usize) -> ! {
-    std::process::exit(0)
+    unsafe { intrinsics::abort() }
 // SCW TODO: assert??
 //    panic!("index {} out of range for slice of length {}", index, len);
 }
@@ -2640,14 +2620,14 @@ fn slice_index_len_fail(index: usize, len: usize) -> ! {
 #[inline(never)]
 #[cold]
 fn slice_index_order_fail(index: usize, end: usize) -> ! {
-    std::process::exit(0)
+    unsafe { intrinsics::abort() }
 //    panic!("slice index starts at {} but ends at {}", index, end);
 }
 
 #[inline(never)]
 #[cold]
 fn slice_index_overflow_fail() -> ! {
-    std::process::exit(0)
+    unsafe { intrinsics::abort() }
 //    panic!("attempted to index slice up to maximum usize");
 }
 
@@ -2726,13 +2706,13 @@ pub trait SliceIndex<T: ?Sized>: private_slice_index::Sealed {
 
 
 fn slice_index_usize_get_unchecked<T>(sel: usize,  slice: &[T]) -> &T {
-   std::process::exit(0)
+    unsafe { intrinsics::abort() }
 }
 fn slice_index_usize_get_unchecked_mut<T>(sel: usize,  slice: &mut[T]) -> &mut T {
-   std::process::exit(0)
+    unsafe { intrinsics::abort() }
 }
 fn slice_index_usize_index_mut<T>(sel: usize,  slice: &mut[T]) -> &mut T {
-   std::process::exit(0)
+    unsafe { intrinsics::abort() }
 }
 
 
@@ -2789,10 +2769,10 @@ impl<T> SliceIndex<[T]> for usize {
 }
 
 fn slice_index_range_get_unchecked<T>(sel: core::ops::Range<usize>,  slice: &[T]) -> &[T] {
-   std::process::exit(0)
+    unsafe { intrinsics::abort() }
 }
 fn slice_index_range_get_unchecked_mut<T>(sel: core::ops::Range<usize>,  slice: &mut[T]) -> &mut [T] {
-   std::process::exit(0)
+    unsafe { intrinsics::abort() }
 }
 
 
@@ -5585,6 +5565,4 @@ impl SliceContains for i8 {
         let bytes: &[u8] = unsafe { from_raw_parts(x.as_ptr() as *const u8, x.len()) };
         memchr::memchr(byte, bytes).is_some()
     }
-}
-
 }

@@ -1,22 +1,20 @@
-#![feature(i128_type)]
-#![crate_type = "lib"]
-#![no_implicit_prelude]
+#![stable(feature = "dummy", since = "0.0.0")]
 
+use self::Result::*;
 
-pub mod result {
-    
-    use std::option::Option;
-    use std::option::Option::*;
-    use result::Result::*;
-    
-    use std::ops::FnOnce;
-
+    #[stable(feature = "dummy", since = "0.0.0")]
     pub enum Result<T, E> {
         /// Contains the success value
-        Ok(T),
+        #[stable(feature = "dummy", since = "0.0.0")]
+        Ok(
+            #[stable(feature = "dummy", since = "0.0.0")]
+            T),
 
         /// Contains the error value
-        Err(E),
+        #[stable(feature = "dummy", since = "0.0.0")]
+        Err(
+            #[stable(feature = "dummy", since = "0.0.0")]
+            E),
     }
 
     
@@ -41,6 +39,7 @@ pub mod result {
         /// assert_eq!(x.is_ok(), false);
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn is_ok(&self) -> bool {
             match *self {
                 Ok(_) => true,
@@ -64,6 +63,7 @@ pub mod result {
         /// assert_eq!(x.is_err(), true);
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn is_err(&self) -> bool {
             !self.is_ok()
         }
@@ -92,6 +92,7 @@ pub mod result {
         /// assert_eq!(x.ok(), None);
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn ok(self) -> Option<T> {
             match self {
                 Ok(x)  => Some(x),
@@ -118,6 +119,7 @@ pub mod result {
         /// assert_eq!(x.err(), Some("Nothing here"));
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn err(self) -> Option<E> {
             match self {
                 Ok(_)  => None,
@@ -146,6 +148,7 @@ pub mod result {
         /// assert_eq!(x.as_ref(), Err(&"Error"));
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn as_ref(&self) -> Result<&T, &E> {
             match *self {
                 Ok(ref x) => Ok(x),
@@ -211,6 +214,7 @@ pub mod result {
         /// }
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn map<U, F: FnOnce(T) -> U>(self, op: F) -> Result<U,E> {
             match self {
                 Ok(t) => Ok(op(t)),
@@ -243,6 +247,7 @@ pub mod result {
         /// assert_eq!(x.map_or_else(|e| k * 2, |v| v.len()), 42);
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn map_or_else<U, M: FnOnce(T) -> U, F: FnOnce(E) -> U>(self, fallback: F, map: M) -> U {
             self.map(map).unwrap_or_else(fallback)
         }
@@ -270,6 +275,7 @@ pub mod result {
         /// assert_eq!(x.map_err(stringify), Err("error code: 13".to_string()));
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn map_err<F, O: FnOnce(E) -> F>(self, op: O) -> Result<T,F> {
             match self {
                 Ok(t) => Ok(t),
@@ -309,6 +315,7 @@ pub mod result {
         /// ```
         #[inline]
         
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn and<U>(self, res: Result<U, E>) -> Result<U, E> {
             match self {
                 Ok(_) => res,
@@ -337,6 +344,7 @@ pub mod result {
         /// assert_eq!(Err(3).and_then(sq).and_then(sq), Err(3));
         /// ```
         #[inline]       
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn and_then<U, F: FnOnce(T) -> Result<U, E>>(self, op: F) -> Result<U, E> {
             match self {
                 Ok(t) => op(t),
@@ -377,6 +385,7 @@ pub mod result {
         /// ```
         #[inline]
         
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn or<F>(self, res: Result<T, F>) -> Result<T, F> {
             match self {
                 Ok(v) => Ok(v),
@@ -405,6 +414,7 @@ pub mod result {
         /// assert_eq!(Err(3).or_else(err).or_else(err), Err(3));
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn or_else<F, O: FnOnce(E) -> Result<T, F>>(self, op: O) -> Result<T, F> {
             match self {
                 Ok(t) => Ok(t),
@@ -437,6 +447,7 @@ pub mod result {
         /// ```
         #[inline]
         
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn unwrap_or(self, optb: T) -> T {
             match self {
                 Ok(t) => t,
@@ -461,6 +472,7 @@ pub mod result {
         /// assert_eq!(Err("foo").unwrap_or_else(count), 3);
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn unwrap_or_else<F: FnOnce(E) -> T>(self, op: F) -> T {
             match self {
                 Ok(t) => t,
@@ -469,6 +481,3 @@ pub mod result {
         } 
         
     } 
-
-
-}

@@ -9,16 +9,6 @@
 
 */
 
-#![crate_type = "lib"]
-#![no_std]
-#![feature(staged_api)]
-#![feature(never_type)]
-#![feature(lang_items)]
-#![feature(on_unimplemented)]
-#![feature(doc_alias)]
-
-#![feature(try_trait)]
-
 #![stable(feature = "rust1", since = "1.0.0")]
     
 //! Optional values.
@@ -155,9 +145,6 @@
 //! [`None`]: enum.Option.html#variant.None
 //! [`Box<T>`]: ../../std/boxed/struct.Box.html
 //! [`i32`]: ../../std/primitive.i32.html
-
-#[stable(feature = "rust1", since = "1.0.0")]
-pub mod option {
 
 #[cfg(iter)]
 use iter::{FromIterator, FusedIterator, TrustedLen};
@@ -1497,6 +1484,4 @@ impl<T> ops::Try for Option<T> {
     fn from_error(_: NoneError) -> Self {
         None
     }
-}
-
 }

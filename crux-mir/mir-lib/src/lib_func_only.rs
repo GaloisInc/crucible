@@ -17,13 +17,10 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
+pub mod ops {
+    #![stable(feature = "rust1", since = "1.0.0")]
 
-pub mod clone;
-pub mod cmp;
-pub mod convert;
-pub mod default;
-pub mod ops;
-pub mod option;
-pub mod result;
-pub mod slice;
-
+    mod function;
+    #[stable(feature = "rust1", since = "1.0.0")]
+    pub use self::function::*;
+}

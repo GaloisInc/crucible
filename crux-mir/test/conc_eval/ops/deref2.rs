@@ -1,4 +1,3 @@
-// FAIL: error translating Deref impls
 // Method call via `Deref::deref`
 use std::ops::Deref;
 

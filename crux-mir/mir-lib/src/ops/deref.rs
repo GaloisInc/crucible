@@ -1,13 +1,6 @@
 //SCW: created from https://github.com/rust-lang/rust/blob/master/src/libcore/ops/deref.rs
 // 3/13/19
 //added preamble and removed stability & lang annotations
-#![crate_type = "lib"]
-#![no_implicit_prelude]
-#![feature(lang_items)]
-#![feature(on_unimplemented)]
-#![feature(doc_alias)]
-
-use std::marker::Sized;
 
 ///
 /// impl<T> Deref for DerefExample<T> {
@@ -25,18 +18,20 @@ use std::marker::Sized;
 #[doc(alias = "*")]
 #[doc(alias = "&*")]
 
+#[stable(feature = "rust1", since = "1.0.0")]
 pub trait Deref {
     /// The resulting type after dereferencing.
-
+    #[stable(feature = "rust1", since = "1.0.0")]
     type Target: ?Sized;
 
     /// Dereferences the value.
     #[must_use]
-
+    #[stable(feature = "rust1", since = "1.0.0")]
     fn deref(&self) -> &Self::Target;
 }
 
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized> Deref for &T {
     type Target = T;
 
@@ -44,6 +39,7 @@ impl<T: ?Sized> Deref for &T {
 }
 
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized> Deref for &mut T {
     type Target = T;
 
@@ -121,13 +117,15 @@ impl<T: ?Sized> Deref for &mut T {
 
 #[doc(alias = "*")]
 
+#[stable(feature = "rust1", since = "1.0.0")]
 pub trait DerefMut: Deref {
     /// Mutably dereferences the value.
-
+    #[stable(feature = "rust1", since = "1.0.0")]
     fn deref_mut(&mut self) -> &mut Self::Target;
 }
 
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized> DerefMut for &mut T {
     fn deref_mut(&mut self) -> &mut T { *self }
 }
@@ -138,12 +136,15 @@ impl<T: ?Sized> DerefMut for &mut T {
 
 
 #[doc(hidden)]
+#[stable(feature = "rust1", since = "1.0.0")]
 pub trait Receiver {
     // Empty.
 }
 
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized> Receiver for &T {}
 
 
+#[stable(feature = "rust1", since = "1.0.0")]
 impl<T: ?Sized> Receiver for &mut T {}

@@ -9,15 +9,6 @@
 // remove #[lang = "partial_ord"] etc
 
 
-#![crate_type = "lib"]
-#![no_std]
-#![feature(staged_api)]
-#![feature(never_type)]
-#![feature(lang_items)]
-#![feature(on_unimplemented)]
-#![feature(doc_alias)]
-
-
 //! Functionality for ordering and comparison.
 //!
 //! This module contains various tools for ordering and comparing values. In
@@ -37,9 +28,6 @@
 //!   [`Ord`] and allow you to find the maximum or minimum of two values.
 //!
 //! For more details, see the respective documentation of each item in the list.
-
-#![stable(feature = "rust1", since = "1.0.0")]
-pub mod cmp {
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
@@ -1274,6 +1262,3 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
         #[inline]
         fn ne(&self, other: &&B) -> bool { PartialEq::ne(*self, *other) }
     }
-
-
-}

@@ -135,33 +135,14 @@ loadPrims useStdLib = do
 
   
   -- Same order as in https://github.com/rust-lang/rust/blob/master/src/libcore/prelude/v1.rs  
-  let lib = if useStdLib then
-              [ "ops/function"
-              , "ops/try"
-              , "clone"
-              , "option"
-              , "result"             
-              , "cmp"
-              , "default"                 
-              , "convert"
-              , "ops/range"  
-              , "ops/index"
-              , "ops/deref" 
---              , "iter/traits/collect"  -- Cannot handle IntoIterator or FromIterator
---              , "iter/iterator"
-              , "slice"    
-              , "ops/arith"
-              ] else [
-                "ops/function"  -- needed for any treatment of hofs
-              ]
-        
+  let lib = if useStdLib then "lib" else "lib_func_only"
   
   -- Only print debugging info in the standard library at high debugging levels
   
-  cols <- let ?debug = ?debug - 3 in
-          mapM (generateMIR libLoc) lib
+  col <- let ?debug = ?debug - 3 in
+         generateMIR libLoc lib
     
-  let total = (fold (hardCoded : cols))
+  let total = hardCoded <> col
   when (?debug > 6) $ do
     traceM "--------------------------------------------------------------"
     traceM $ "Complete Collection: "

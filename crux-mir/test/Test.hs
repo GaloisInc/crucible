@@ -65,8 +65,11 @@ expectedFail fn =
 
 runCrux :: Mir.CachedStdLib -> FilePath -> Handle -> IO ()
 runCrux cachedLib rustFile outHandle = do
+    -- goalTimeout is bumped from 60 to 120 because scalar.rs symbolic
+    -- verification runs close to the timeout, causing flaky results.
     let options = (CruxOpts.defaultCruxOptions { CruxOpts.inputFile = rustFile,
-                                                 CruxOpts.simVerbose = 0 } ,
+                                                 CruxOpts.simVerbose = 0,
+                                                 CruxOpts.goalTimeout = 120 } ,
                    Mir.defaultMirOptions { Mir.cachedStdLib = Nothing -- Just cachedLib
                                          , Mir.useStdLib = True } )
     let ?outputConfig = Crux.OutputConfig False outHandle outHandle

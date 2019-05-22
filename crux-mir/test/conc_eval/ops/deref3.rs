@@ -1,4 +1,3 @@
-// FAIL: error translating Deref impls
 // Method call via `DerefMut::deref_mut`
 use std::ops::{Deref, DerefMut};
 
