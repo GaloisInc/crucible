@@ -139,6 +139,7 @@ ppLLVMVal ::
   f PP.Doc
 ppLLVMVal ppInt =
   let typed doc tp = PP.text doc PP.<+> PP.text ":" PP.<+> PP.text (show tp)
+      pp = ppLLVMVal ppInt
   in
     \case
       (LLVMValZero tp) -> pure $ PP.angles (typed "zero" tp)
@@ -182,8 +183,8 @@ ppLLVMVal ppInt =
       (LLVMValFloat SingleSize _) -> pure $ PP.text "symbolic float"
       (LLVMValFloat DoubleSize _) -> pure $ PP.text "symbolic double"
       (LLVMValFloat X86_FP80Size _) -> pure $ PP.text "symbolic long double"
-      (LLVMValStruct xs) -> pure $ PP.semiBraces (map (PP.pretty . snd) $ V.toList xs)
-      (LLVMValArray _ xs) -> pure $ PP.list (map PP.pretty $ V.toList xs)
+      (LLVMValStruct xs) -> PP.semiBraces <$> traverse (pp . snd) (V.toList xs)
+      (LLVMValArray _ xs) -> PP.list <$> traverse pp (V.toList xs)
 
 -- | This instance tries to make things as concrete as possible.
 instance IsExpr (SymExpr sym) => PP.Pretty (LLVMVal sym) where
