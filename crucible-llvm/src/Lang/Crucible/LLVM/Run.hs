@@ -7,15 +7,18 @@
 
 {- | Utilities for running Crucible on a bit-code file. -}
 module Lang.Crucible.LLVM.Run
-  ( Crux(..), Setup(..)
-  , runCrux
+  ( CruxLLVM(..), Setup(..)
+  , runCruxLLVM
   , Module
   , LLVM
-  , IsSyntaxExtension
+  , ModuleTranslation
+  , HasPtrWidth
+  , ArchWidth
+  , withPtrWidthOf
   ) where
 
 import Control.Lens((^.))
-import Control.Monad.ST(stToIO,RealWorld)
+import Control.Monad.ST(stToIO)
 import System.IO(Handle)
 
 
@@ -30,10 +33,9 @@ import Lang.Crucible.Simulator
   , ExecState( InitialState ), defaultAbortHandler
   , OverrideSim
   )
-import Lang.Crucible.FunctionHandle(HandleAllocator,newHandleAllocator)
+import Lang.Crucible.FunctionHandle(newHandleAllocator)
 
 import Text.LLVM.AST (Module)
-import Lang.Crucible.CFG.Extension(IsSyntaxExtension)
 
 import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, llvmPtrWidth, llvmTypeCtx , LLVM)
@@ -42,17 +44,17 @@ import Lang.Crucible.LLVM.Translation
         (globalInitMap,transContext,translateModule,ModuleTranslation)
 import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeMemory)
 
-import Lang.Crucible.LLVM.MemModel(withPtrWidth)
+import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth)
 
+import Lang.Crucible.LLVM.Extension(ArchWidth)
 
 import Lang.Crucible.Backend(IsSymInterface)
 
 
+-- | LLVM specific crucible initialization.
+newtype CruxLLVM res =
+  CruxLLVM (forall arch. ModuleTranslation arch -> Setup (LLVM arch) res)
 
-{-| Curcible initialization.  This is just a wrapper that ensure that
-the initialization code does not make assumptions about the extension
-being used.  -}
-newtype Crux res = Crux (forall ext. Setup ext res)
 
 -- | Generic Crucible initialization.
 data Setup ext res =
@@ -64,7 +66,7 @@ data Setup ext res =
   , cruxBackend :: sym
     -- ^ Use this backend.
 
-  , cruxInitState :: p
+  , cruxUserState :: p
     -- ^ Initial value for the user state.
 
   , cruxInitCode ::
@@ -74,51 +76,47 @@ data Setup ext res =
   , cruxInitCodeReturns :: TypeRepr t
     -- ^ Type of value returned by initialization code.
 
-  , cruxGo :: IsSyntaxExtension ext =>
-              ExecState p sym ext (RegEntry sym t) ->
-              IO res
+  , cruxGo :: ExecState p sym ext (RegEntry sym t) -> IO res
     -- ^ Do something with the simulator's initial state.
 
   }
 
 -- | Run Crucible with the given initialization, on the given LLVM module.
-runCrux :: Crux res -> Module -> IO res
-runCrux (Crux setup) llvm_mod =
+runCruxLLVM :: Module -> CruxLLVM res -> IO res
+runCruxLLVM llvm_mod (CruxLLVM setup) =
   do halloc     <- newHandleAllocator
      Some trans <- stToIO (translateModule halloc llvm_mod)
-     withTranslated halloc llvm_mod trans setup
+     case setup trans of
+       Setup { .. } ->
+         withPtrWidthOf trans (
+           do let llvmCtxt = trans ^. transContext
+              mem <-
+                do mem0 <- initializeMemory cruxBackend llvmCtxt llvm_mod
+                   let ?lc = llvmCtxt ^. llvmTypeCtx
+                   populateAllGlobals cruxBackend (globalInitMap trans) mem0
 
--- | This is split off from 'runCrux' for the type signutre, and also
--- we only use the initialization bits in here.
-withTranslated ::
-  HandleAllocator RealWorld ->
-  Module ->
-  ModuleTranslation arch ->
-  Setup (LLVM arch) res ->
-  IO res
-withTranslated halloc llvm_mod trans Setup { .. } =
-  do let llvmCtxt = trans    ^. transContext
-     let ?lc      = llvmCtxt ^. llvmTypeCtx  -- used by 'populateAllGlobals'
+              let globSt = llvmGlobals llvmCtxt mem
+              let simctx = initSimContext
+                              cruxBackend
+                              llvmIntrinsicTypes
+                              halloc
+                              cruxOutput
+                              (fnBindingsFromList [])
+                              llvmExtensionImpl
+                              cruxUserState
 
-     llvmPtrWidth llvmCtxt $ \ptrW -> withPtrWidth ptrW $
-
-       do mem <- do mem0 <- initializeMemory cruxBackend llvmCtxt llvm_mod
-                    populateAllGlobals cruxBackend (globalInitMap trans) mem0
-
-          let globSt = llvmGlobals llvmCtxt mem
-          let simctx = initSimContext
-                          cruxBackend
-                          llvmIntrinsicTypes
-                          halloc
-                          cruxOutput
-                          (fnBindingsFromList [])
-                          llvmExtensionImpl
-                          cruxInitState
-
-          cruxGo $ InitialState simctx globSt defaultAbortHandler
-                 $ runOverrideSim cruxInitCodeReturns cruxInitCode
+              cruxGo $ InitialState simctx globSt defaultAbortHandler
+                     $ runOverrideSim cruxInitCodeReturns cruxInitCode
+           )
 
 
+
+
+
+withPtrWidthOf :: ModuleTranslation arch ->
+                  (HasPtrWidth (ArchWidth arch) => b) -> b
+withPtrWidthOf trans k =
+  llvmPtrWidth (trans^.transContext) (\ptrW -> withPtrWidth ptrW k)
 
 
 

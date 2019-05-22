@@ -1,2 +1,3 @@
 
-int main() { return 2; }
+int f () { return 2; }
+int g () { return 2; }

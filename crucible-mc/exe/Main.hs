@@ -10,7 +10,6 @@ import Data.Parameterized.Nonce(withIONonceGenerator)
 
 import qualified Data.LLVM.BitCode as BC
 
-import Lang.Crucible.CFG.Extension(IsSyntaxExtension)
 import Lang.Crucible.Types(TypeRepr(..))
 import Lang.Crucible.Backend.Online
           ( Z3OnlineBackend, withZ3OnlineBackend, UnsatFeatures(..)
@@ -26,20 +25,22 @@ import Print
 
 main :: IO ()
 main =
-  do llvm_mod <- parseLLVM "test/example.bc"
-     withZ3 $ \sym ->
-       let setup = Crux Setup
-                      { cruxOutput = stdout
-                      , cruxBackend = sym
-                      , cruxInitCodeReturns = UnitRepr
-                      , cruxInitCode = return ()
-                      , cruxInitState = ()
-                      , cruxGo  = runFrom
-                      }
-       in runCrux setup llvm_mod
+  parseLLVM "crucible-mc/test/example.bc" >>= \llvm_mod ->
+  withZ3                                    $ \sym ->
+  runCruxLLVM llvm_mod                      $
+  CruxLLVM                                  $ \mt ->
+  withPtrWidthOf mt                         $
+  Setup
+    { cruxOutput = stdout
+    , cruxBackend = sym
+    , cruxInitCodeReturns = UnitRepr
+    , cruxInitCode = return ()
+    , cruxUserState = ()
+    , cruxGo  = runFrom
+    }
 
-runFrom :: (IsSymInterface sym, IsSyntaxExtension ext) =>
-            ExecState p sym ext rtp ->  IO ()
+runFrom :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch)) =>
+            ExecState p sym (LLVM arch) rtp ->  IO ()
 runFrom st =
   do print (ppExecState st)
      _ <- getLine

@@ -18,7 +18,7 @@ ppExecState st =
     SymbolicBranchState {} -> "SymbolicBranchState"
     ControlTransferState {} -> "ControlTransferState"
     OverrideState {} -> "OverrideState"
-    BranchMergeState {} -> "BranchMergeState"
+    BranchMergeState t _st -> "BranchMergeState" <+> text (ppBranchTarget t)
     InitialState {} -> "InitialState"
 
 
