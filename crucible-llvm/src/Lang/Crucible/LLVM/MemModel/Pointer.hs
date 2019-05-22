@@ -117,6 +117,9 @@ llvmPointerView (LLVMPointer blk off) = (blk, off)
 ptrWidth :: IsExprBuilder sym => LLVMPtr sym w -> NatRepr w
 ptrWidth (LLVMPointer _blk bv) = bvWidth bv
 
+instance IsExprBuilder sym => TestEquality (LLVMPointer sym) where
+  testEquality ptr1 ptr2 = testEquality (ptrWidth ptr1) (ptrWidth ptr2)
+
 -- | Assert that the given LLVM pointer value is actually a raw bitvector and extract its value.
 projectLLVM_bv ::
   IsSymInterface sym => sym -> LLVMPtr sym w -> IO (SymBV sym w)

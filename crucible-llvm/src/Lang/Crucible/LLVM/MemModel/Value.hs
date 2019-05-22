@@ -25,6 +25,7 @@
 module Lang.Crucible.LLVM.MemModel.Value
   ( -- * LLVM Value representation
     LLVMVal(..)
+  , ppLLVMVal
   , FloatSize(..)
   , Field
   , ptrToPtrVal
@@ -37,8 +38,10 @@ module Lang.Crucible.LLVM.MemModel.Value
 
 import           Control.Lens (view)
 import           Control.Monad (foldM, join)
+import           Data.Coerce (coerce)
 import           Data.Foldable (toList)
-import           Data.Maybe (mapMaybe)
+import           Data.Functor.Identity (Identity(..))
+import           Data.Maybe (fromMaybe, mapMaybe)
 import           Data.List (intersperse)
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -124,51 +127,67 @@ zeroInt sym bytes k
           k (Just (blk, bv))
 zeroInt _ _ k = k @1 Nothing
 
+-- | Pretty-print an 'LLVMVal'.
+--
+-- This is parameterized over how to display pointers, see
+-- 'ppLLVMValWithGlobals'.
+ppLLVMVal ::
+  (Applicative f, IsExpr (SymExpr sym)) =>
+  (forall w. SymNat sym -> SymBV sym w -> f (Maybe PP.Doc))
+    {- ^ Printing of pointers -} ->
+  LLVMVal sym ->
+  f PP.Doc
+ppLLVMVal ppInt =
+  let typed doc tp = PP.text doc PP.<+> PP.text ":" PP.<+> PP.text (show tp)
+  in
+    \case
+      (LLVMValZero tp) -> pure $ PP.angles (typed "zero" tp)
+      (LLVMValUndef tp) -> pure $ PP.angles (typed "undef" tp)
+      (LLVMValInt blk w) -> fromMaybe otherDoc <$> ppInt blk w
+        where
+          otherDoc = 
+            case asNat blk of
+              Just 0 ->
+                case (asUnsignedBV w) of
+                  (Just unsigned) -> PP.text $ unwords $
+                    [ "literal integer:"
+                    , "unsigned value = " ++ show unsigned ++ ","
+                    , unwords [ "signed value = "
+                              , show (toSigned (bvWidth w) unsigned) ++ ","
+                              ] 
+                    , "width = " ++ show (bvWidth w)
+                    ]
+                  (Nothing) -> PP.text $ unwords $
+                    [ "symbolic integer: "
+                    , "width = " ++ show (bvWidth w)
+                    ]
+              Just n ->
+                case asUnsignedBV w of
+                  Just offset -> PP.text $ unwords $
+                    [ "concrete pointer:"
+                    , "allocation = " ++ show n ++ ","
+                    , "offset = " ++ show offset
+                    ]
+                  Nothing -> PP.text $ unwords $
+                    [ "pointer with concrete allocation and symbolic offset:"
+                    , "allocation = " ++ show n
+                    ]
+
+              Nothing ->
+                case asUnsignedBV w of
+                  Just offset -> PP.text $
+                    "pointer with concrete offset " ++ show offset
+                  Nothing -> PP.text "pointer with symbolic offset"
+
+      (LLVMValFloat SingleSize _) -> pure $ PP.text "symbolic float"
+      (LLVMValFloat DoubleSize _) -> pure $ PP.text "symbolic double"
+      (LLVMValFloat X86_FP80Size _) -> pure $ PP.text "symbolic long double"
+      (LLVMValStruct xs) -> pure $ PP.semiBraces (map (PP.pretty . snd) $ V.toList xs)
+      (LLVMValArray _ xs) -> pure $ PP.list (map PP.pretty $ V.toList xs)
+
 -- | This instance tries to make things as concrete as possible.
 instance IsExpr (SymExpr sym) => PP.Pretty (LLVMVal sym) where
-  pretty =
-    let typed doc tp = PP.text doc PP.<+> PP.text ":" PP.<+> PP.text (show tp)
-    in
-      \case
-        (LLVMValZero tp) -> PP.angles (typed "zero" tp)
-        (LLVMValUndef tp) -> PP.angles (typed "undef" tp)
-        (LLVMValInt blk w) ->
-          case asNat blk of
-            Just 0 ->
-              case (asUnsignedBV w) of
-                (Just unsigned) -> PP.text $ unwords $
-                  [ "literal integer:"
-                  , "unsigned value = " ++ show unsigned ++ ","
-                  , "signed value = " ++ show (toSigned (bvWidth w) unsigned) ++ ","
-                  , "width = " ++ show (bvWidth w)
-                  ]
-                (Nothing) -> PP.text $ unwords $
-                  [ "symbolic integer: "
-                  , "width = " ++ show (bvWidth w)
-                  ]
-            Just n ->
-              case asUnsignedBV w of
-                Just offset -> PP.text $ unwords $
-                  [ "concrete pointer:"
-                  , "allocation = " ++ show n ++ ","
-                  , "offset = " ++ show offset
-                  ]
-                Nothing -> PP.text $ unwords $
-                  [ "pointer with concrete allocation and symbolic offset:"
-                  , "allocation = " ++ show n
-                  ]
-
-            Nothing ->
-              case asUnsignedBV w of
-                Just offset -> PP.text $
-                  "pointer with concrete offset " ++ show offset
-                Nothing -> PP.text "pointer with symbolic offset"
-
-        (LLVMValFloat SingleSize _) -> PP.text "symbolic float"
-        (LLVMValFloat DoubleSize _) -> PP.text "symbolic double"
-        (LLVMValFloat X86_FP80Size _) -> PP.text "symbolic long double"
-        (LLVMValStruct xs) -> PP.semiBraces (map (PP.pretty . snd) $ V.toList xs)
-        (LLVMValArray _ xs) -> PP.list (map PP.pretty $ V.toList xs)
+  pretty = coerce $ ppLLVMVal (\_ _ -> Identity Nothing)
 
 instance IsExpr (SymExpr sym) => Show (LLVMVal sym) where
   show (LLVMValZero _tp) = "0"
