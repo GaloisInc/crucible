@@ -10,9 +10,8 @@ module Lang.Crucible.LLVM.Run
   ( Crux(..), Setup(..)
   , runCrux
   , Module
-  , HasPtrWidth
   , LLVM
-  , ArchWidth
+  , IsSyntaxExtension
   ) where
 
 import Control.Lens((^.))
@@ -34,9 +33,8 @@ import Lang.Crucible.Simulator
 import Lang.Crucible.FunctionHandle(HandleAllocator,newHandleAllocator)
 
 import Text.LLVM.AST (Module)
+import Lang.Crucible.CFG.Extension(IsSyntaxExtension)
 
-import Lang.Crucible.LLVM.Types(HasPtrWidth)
-import Lang.Crucible.LLVM.Extension.Arch(ArchWidth)
 import Lang.Crucible.LLVM.Intrinsics
         (llvmIntrinsicTypes, llvmPtrWidth, llvmTypeCtx , LLVM)
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals)
@@ -52,12 +50,12 @@ import Lang.Crucible.Backend(IsSymInterface)
 
 
 {-| Curcible initialization.  This is just a wrapper that ensure that
-the initialization code does not make assumptions about the LLVM architecture.
--}
-newtype Crux res = Crux (forall arch. Setup arch res)
+the initialization code does not make assumptions about the extension
+being used.  -}
+newtype Crux res = Crux (forall ext. Setup ext res)
 
 -- | Generic Crucible initialization.
-data Setup arch res =
+data Setup ext res =
   forall p t sym. IsSymInterface sym =>
   Setup
   { cruxOutput :: Handle
@@ -70,14 +68,14 @@ data Setup arch res =
     -- ^ Initial value for the user state.
 
   , cruxInitCode ::
-      OverrideSim p sym (LLVM arch) (RegEntry sym t) EmptyCtx t (RegValue sym t)
+      OverrideSim p sym ext (RegEntry sym t) EmptyCtx t (RegValue sym t)
     -- ^ Initialization code to run at the start of simulation.
 
   , cruxInitCodeReturns :: TypeRepr t
     -- ^ Type of value returned by initialization code.
 
-  , cruxGo :: HasPtrWidth (ArchWidth arch) =>
-              ExecState p sym (LLVM arch) (RegEntry sym t) ->
+  , cruxGo :: IsSyntaxExtension ext =>
+              ExecState p sym ext (RegEntry sym t) ->
               IO res
     -- ^ Do something with the simulator's initial state.
 
@@ -96,7 +94,7 @@ withTranslated ::
   HandleAllocator RealWorld ->
   Module ->
   ModuleTranslation arch ->
-  Setup arch res ->
+  Setup (LLVM arch) res ->
   IO res
 withTranslated halloc llvm_mod trans Setup { .. } =
   do let llvmCtxt = trans    ^. transContext

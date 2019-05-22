@@ -1,4 +1,6 @@
+
 {-# Language RankNTypes, TypeApplications, TypeFamilies #-}
+{-# Language FlexibleContexts #-}
 module Main(main) where
 
 import System.IO(stdout)
@@ -8,6 +10,7 @@ import Data.Parameterized.Nonce(withIONonceGenerator)
 
 import qualified Data.LLVM.BitCode as BC
 
+import Lang.Crucible.CFG.Extension(IsSyntaxExtension)
 import Lang.Crucible.Types(TypeRepr(..))
 import Lang.Crucible.Backend.Online
           ( Z3OnlineBackend, withZ3OnlineBackend, UnsatFeatures(..)
@@ -29,14 +32,14 @@ main =
                       { cruxOutput = stdout
                       , cruxBackend = sym
                       , cruxInitCodeReturns = UnitRepr
-                      , cruxInitState = ()
                       , cruxInitCode = return ()
+                      , cruxInitState = ()
                       , cruxGo  = runFrom
                       }
        in runCrux setup llvm_mod
 
-runFrom :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch)) =>
-            ExecState p sym (LLVM arch) rtp ->  IO ()
+runFrom :: (IsSymInterface sym, IsSyntaxExtension ext) =>
+            ExecState p sym ext rtp ->  IO ()
 runFrom st =
   do print (ppExecState st)
      _ <- getLine
