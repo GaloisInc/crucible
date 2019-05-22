@@ -17,6 +17,7 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
+#[macro_use] mod internal_macros;
 
 pub mod clone;
 pub mod cmp;
