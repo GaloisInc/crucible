@@ -1,5 +1,5 @@
 CLANG=clang
-CFLAGS=-O1
+CFLAGS=-O1 -Wall
 
 .PHONY: all clean
 

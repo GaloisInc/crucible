@@ -80,7 +80,7 @@ import Crux.Model
 import Crux.Log
 
 -- local
-import Overrides
+import Crux.LLVM.Overrides
 
 -- | Index for the crux-c "Language"
 data LangLLVM

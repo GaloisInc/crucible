@@ -23,6 +23,8 @@ executable crucible-mc
     llvm-pretty,
     llvm-pretty-bc-parser,
     crucible-llvm,
+    crux,
+    crux-llvm,
     pretty
   hs-source-dirs:      exe
   default-language:    Haskell2010
