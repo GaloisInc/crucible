@@ -160,7 +160,7 @@ ppLLVMVal ppInt =
                               ]
                     , "width = " ++ show (bvWidth w)
                     ]
-                  (Nothing) -> PP.text $ unwords $
+                  Nothing -> PP.text $ unwords $
                     [ "symbolic integer: "
                     , "width = " ++ show (bvWidth w)
                     ]
