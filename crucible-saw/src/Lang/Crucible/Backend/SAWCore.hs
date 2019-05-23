@@ -917,9 +917,12 @@ evaluateExpr sym sc cache = f
                  pd' <- WSum.prodEvalM (SC.scBvOr sc n) f pd
                  maybe (scBvLit sc w 0) (return . SAWExpr) pd'
 
-        B.PredToBV p ->
+        B.BVFill w p ->
           do bit <- SC.scBoolType sc
-             SAWExpr <$> (SC.scSingle sc bit =<< f p)
+             n <- SC.scNat sc (natValue w)
+             x <- f p
+             SAWExpr <$> SC.scGlobalApply sc (SC.mkIdent SC.preludeName "replicate") [n, bit, x]
+
         B.BVTestBit i bv -> fmap SAWExpr $ do
              w <- SC.scNat sc (natValue (bvWidth bv))
              bit <- SC.scBoolType sc

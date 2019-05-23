@@ -139,7 +139,6 @@ appTheory a0 =
 
     ----------------------------
     -- Bitvector operations
-    PredToBV{} -> BitvectorTheory
     BVUnaryTerm{} -> BoolTheory
     BVConcat{} -> BitvectorTheory
     BVSelect{} -> BitvectorTheory
@@ -155,6 +154,7 @@ appTheory a0 =
     BVPopcount{} -> BitvectorTheory
     BVCountLeadingZeros{} -> BitvectorTheory
     BVCountTrailingZeros{} -> BitvectorTheory
+    BVFill{} -> BitvectorTheory
 
     ----------------------------
     -- Bitvector operations

@@ -1735,10 +1735,6 @@ appSMTExpr ae = do
       rb <- mkBaseExpr r
       freshBoundTerm BoolTypeMap $! realIsInteger rb
 
-    PredToBV p -> do
-      pb <- mkBaseExpr p
-      freshBoundTerm (BVTypeMap (knownNat @1)) $
-        ite pb (bvTerm (knownNat @1) 1) (bvTerm (knownNat @1) 0)
     BVTestBit n xe -> do
       x <- mkBaseExpr xe
       let this_bit = bvExtract (bvWidth xe) n 1 x
@@ -2063,10 +2059,16 @@ appSMTExpr ae = do
       case someNat n of
         Just (Some w2) | Just LeqProof <- isPosNat w' -> do
           let zeros = bvTerm w2 0
-          let ones  = bvTerm w2 (2^n - 1)
+          let ones  = bvTerm w2 (maxUnsigned w2)
           let sgn = bvTestBit w (natValue w - 1) x
           freshBoundTerm (BVTypeMap w') $ bvConcat (ite sgn ones zeros) x
         _ -> fail "invalid sign extension"
+
+    BVFill w xe ->
+      do x <- mkBaseExpr xe
+         let zeros = bvTerm w 0
+         let ones  = bvTerm w (maxUnsigned w)
+         freshBoundTerm (BVTypeMap w) $ ite x ones zeros
 
     BVPopcount w xe ->
       do x <- mkBaseExpr xe

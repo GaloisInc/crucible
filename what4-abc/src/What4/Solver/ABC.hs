@@ -349,7 +349,6 @@ bitblastExpr h ae = do
         BaseStructRepr _ -> structFail
         BaseStringRepr -> stringFail
 
-    PredToBV p -> BV . AIG.singleton <$> eval' h p
     BVTestBit i xe -> assert (i <= fromIntegral (maxBound :: Int)) $
        (\v -> B $ v AIG.! (fromIntegral i)) <$> eval' h xe
     BVSlt x y -> B <$> join (AIG.slt  g <$> eval' h x <*> eval' h y)
@@ -445,6 +444,8 @@ bitblastExpr h ae = do
     BVShl _w x y -> BV <$> join (AIG.shl g <$> eval' h x <*> eval' h y)
     BVLshr _w x y -> BV <$> join (AIG.ushr g <$> eval' h x <*> eval' h y)
     BVAshr _w x y -> BV <$> join (AIG.sshr g <$> eval' h x <*> eval' h y)
+
+    BVFill w xe -> BV . AIG.bvFromList . replicate (widthVal w) <$> eval' h xe
 
     BVPopcount _w xe -> do
       x <- eval' h xe

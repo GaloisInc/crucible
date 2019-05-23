@@ -913,7 +913,6 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
     NatRepr w {-^ output bitvector width -} ->
     Pred sym  {-^ predicate to fill the bitvector with -} ->
     IO (SymBV sym w)
-  bvFill sym w p = iteM bvIte sym p (bvLit sym w (maxUnsigned w)) (bvLit sym w 0)
 
   -- | Return the bitvector of the desired width with all 0 bits;
   --   this is the minimum unsigned integer.
