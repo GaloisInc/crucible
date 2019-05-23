@@ -12,6 +12,11 @@
 # Will suggest replacing "wibbleMany [myvar]" with "wibbleOne myvar"
 # - error: {lhs: "wibbleMany [x]", rhs: wibbleOne x}
 
+# We should use "panic", not "error".
+# - error:
+#     lhs: "error x"
+#     rhs: 'panic "nameOfFunction" [x, "more lines of details"]'
+
 # TODO: specialize these to the modules they are needed
 - ignore: {name: 'Use :'}
 - ignore: {name: Avoid lambda using `infix`}
@@ -48,7 +53,7 @@
 - ignore: {name: Use fewer imports}
 - ignore: {name: Use fmap}
 - ignore: {name: Use forM_}
-- ignore: {name: Use fromMaybe, within: [Lang.Crucible.Analysis.Shape, Lang.Crucible.JVM.Class]}
+- ignore: {name: Use fromMaybe, within: [Lang.Crucible.Analysis.Shape, Lang.Crucible.JVM.Class, Lang.Crucible.JVM.Translation.Class]}
 - ignore: {name: Use record patterns, within: [Lang.Crucible.Simulator.EvalStmt, Lang.Crucible.Simulator.Profiling, Lang.Crucible.CFG.Core]}
 - ignore: {name: Use guards}
 - ignore: {name: Use hPrint}
