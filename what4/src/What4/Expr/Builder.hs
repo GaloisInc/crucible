@@ -4571,6 +4571,8 @@ instance IsExprBuilder (ExprBuilder t st fs) where
      Just Refl <- return $ testEquality (addNat n1 n2) n
      bvConcat sb a' b'
 
+{-  Avoid doing work that may lose sharing...
+
     -- Select from a weighted XOR: push down through the sum
     | Just (SemiRingSum s) <- asApp x
     , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.sumRepr s
@@ -4598,6 +4600,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
                    (bvSelect sb idx n)
                    pd
          maybe (bvLit sb n 0) return pd'
+-}
 
     -- Trucate from a unary bitvector
     | Just (BVUnaryTerm u) <- asApp x
@@ -4635,10 +4638,13 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     = return $! backendPred sym b
 
     | Just (BaseIte _ _ c a b) <- asApp y
+    , isJust (asUnsignedBV a) || isJust (asUnsignedBV b) -- NB avoid losing sharing
     = do a' <- testBitBV sym i a
          b' <- testBitBV sym i b
          itePred sym c a' b'
 
+{- These rewrites can sometimes yield significant simplifications, but
+   also may lead to loss of sharing, so they are disabled...
 
     | Just ws <- asSemiRingSum (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth y)) y
     = let smul c x
@@ -4652,6 +4658,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
     | Just (BVOrBits pd) <- asApp y
     = fromMaybe (falsePred sym) <$> WSum.prodEvalM (orPred sym) (testBitBV sym i) pd
+-}
 
     | otherwise = sbMakeExpr sym $ BVTestBit i y
 
@@ -4935,12 +4942,14 @@ instance IsExprBuilder (ExprBuilder t st fs) where
                  scalarMul sym sr (toUnsigned (bvWidth x) (-1)) x)
 
   bvIsNonzero sym x
-    | Just (BaseIte _ _ p t f) <- asApp x = do
-          t' <- bvIsNonzero sym t
+    | Just (BaseIte _ _ p t f) <- asApp x
+    , isJust (asUnsignedBV t) || isJust (asUnsignedBV f) -- NB, avoid losing possible sharing
+    = do  t' <- bvIsNonzero sym t
           f' <- bvIsNonzero sym f
           itePred sym p t' f'
-    | Just (BVConcat _ a b) <- asApp x =
-       do pa <- bvIsNonzero sym a
+    | Just (BVConcat _ a b) <- asApp x
+    , isJust (asUnsignedBV a) || isJust (asUnsignedBV b) -- NB, avoid losing possible sharing
+    =  do pa <- bvIsNonzero sym a
           pb <- bvIsNonzero sym b
           orPred sym pa pb
     | Just (BVZext _ y) <- asApp x =
