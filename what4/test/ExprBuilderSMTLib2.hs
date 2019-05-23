@@ -2,6 +2,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -318,6 +319,26 @@ testUninterpretedFunctionScope = testCase "uninterpreted function scope" $
     res2 <- checkSatisfiable s "test" p2
     isUnsat res2 @? "unsat"
 
+testBVIteNesting :: TestTree
+testBVIteNesting = testCase "nested bitvector ites" $ withZ3' $ \sym s -> do
+  bv0 <- bvLit sym (knownNat @32) 0
+  let setSymBit bv idx = do
+        c1 <- freshConstant sym (userSymbol' ("c1_" ++ show idx)) knownRepr
+        c2 <- freshConstant sym (userSymbol' ("c2_" ++ show idx)) knownRepr
+        c3 <- freshConstant sym (userSymbol' ("c3_" ++ show idx)) knownRepr
+        tt1 <- freshConstant sym (userSymbol' ("tt1_" ++ show idx)) knownRepr
+        tt2 <- freshConstant sym (userSymbol' ("tt2_" ++ show idx)) knownRepr
+        tt3 <- freshConstant sym (userSymbol' ("tt3_" ++ show idx)) knownRepr
+        tt4 <- freshConstant sym (userSymbol' ("tt4_" ++ show idx)) knownRepr
+        ite1 <- itePred sym c1 tt1 tt2
+        ite2 <- itePred sym c2 tt3 tt4
+        ite3 <- itePred sym c3 ite1 ite2
+        bvSet sym bv idx ite3
+  bv1 <- foldlM setSymBit bv0 [0..31]
+  p <- testBitBV sym 0 bv1
+  assume (sessionWriter s) p
+  runCheckSat s $ \res -> isSat res @? "sat"
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -337,4 +358,5 @@ main = defaultMain $ testGroup "Tests"
   , testBVSelectShl
   , testBVSelectLshr
   , testUninterpretedFunctionScope
+  , testBVIteNesting
   ]
