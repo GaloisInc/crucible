@@ -4,6 +4,7 @@ module Main(main) where
 
 import System.IO(stdout)
 import Control.Exception(throwIO,Exception(..))
+import Control.Lens((^.))
 
 import Data.Parameterized.Nonce(withIONonceGenerator)
 import Data.Parameterized.Context (pattern Empty)
@@ -15,13 +16,15 @@ import Lang.Crucible.Backend.Online
           ( Z3OnlineBackend, withZ3OnlineBackend, UnsatFeatures(..)
           , Flags, FloatIEEE
           )
-import Lang.Crucible.LLVM.Run
 import Lang.Crucible.Backend(IsSymInterface)
 import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
-import Lang.Crucible.Simulator.ExecutionTree
-import Lang.Crucible.Simulator.RegMap(emptyRegMap)
-import Lang.Crucible.Simulator.EvalStmt(singleStepCrucible)
-import Lang.Crucible.Simulator.OverrideSim(callCFG)
+import Lang.Crucible.Simulator
+
+import Lang.Crucible.LLVM.Translation
+import Lang.Crucible.LLVM.Run
+
+import Crux.LLVM.Overrides
+import Crux.Model
 
 import Print
 
@@ -47,9 +50,10 @@ main =
             { cruxOutput = stdout
             , cruxBackend = sym
             , cruxInitCodeReturns = UnitRepr
-            , cruxInitCode = do _ <- callCFG cfg emptyRegMap
+            , cruxInitCode = do setupOverrides (mt ^. transContext)
+                                _ <- callCFG cfg emptyRegMap
                                 pure ()
-            , cruxUserState = ()
+            , cruxUserState = emptyModel
             , cruxGo  = runFrom
             }
 
@@ -60,7 +64,7 @@ runFrom :: (IsSymInterface sym, HasPtrWidth (ArchWidth arch)) =>
 runFrom st =
   do print (ppExecState st)
      _ <- getLine
-     st1 <- singleStepCrucible 0 st
+     st1 <- singleStepCrucible 5 st
      runFrom st1
 
 

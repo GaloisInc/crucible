@@ -17,10 +17,9 @@ library
 
   hs-source-dirs: src
 
-  exposed-modules: CruxLLVMMain
-
-  other-modules:
-    Overrides
+  exposed-modules:
+    CruxLLVMMain
+    Crux.LLVM.Overrides
 
   build-depends:
     base >= 4.8 && < 4.13,
@@ -53,11 +52,8 @@ library
 
 executable crux-llvm
 
-  hs-source-dirs: src
+  hs-source-dirs: exe
   main-is: Main.hs
-  other-modules:
-    Overrides,
-    CruxLLVMMain
 
   build-depends:
     base >= 4.8 && < 4.13,

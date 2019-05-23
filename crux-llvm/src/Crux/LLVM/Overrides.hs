@@ -7,7 +7,7 @@
 {-# Language PatternSynonyms #-}
 {-# Language ConstraintKinds #-}
 {-# Language LambdaCase #-}
-module Overrides where
+module Crux.LLVM.Overrides where
 
 import Data.String(fromString)
 import qualified Data.Map as Map
