@@ -17,6 +17,7 @@ packages:
   crucible-syntax/
   crux/
   crux-llvm/
+  crucible-mc/
   
 optional-packages:
   dependencies/abcBridge/

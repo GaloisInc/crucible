@@ -55,6 +55,7 @@ library
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
+    Lang.Crucible.LLVM.Run
     Lang.Crucible.LLVM.Translation
     Lang.Crucible.LLVM.TypeContext
 

@@ -317,7 +317,10 @@ exists vars r =
 letBinding :: (Text, Term) -> Builder
 letBinding (nm, t) = app_list (Builder.fromText nm) [renderTerm t]
 
--- | Create a let binding
+-- | Create a let binding.  NOTE: SMTLib2 defines this to be
+--   a \"parallel\" let, which means that the bound variables
+--   are NOT in scope in the right-hand sides of other
+--   bindings, even syntactically-later ones.
 letBinder :: [(Text, Term)] -> Term -> Term
 letBinder [] r = r
 letBinder vars r =
