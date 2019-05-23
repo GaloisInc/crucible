@@ -298,9 +298,10 @@ testEqual sym v1 v2 =
     (LLVMValUndef _, _) -> pure Nothing
     (_, LLVMValUndef _) -> pure Nothing
     (_, _) -> false -- type mismatch
-  where andAlso b x = if b then pure (Just $ falsePred sym) else x
-        true = pure (Just $ truePred sym)
+  where true = pure (Just $ truePred sym)
         false = pure (Just $ falsePred sym)
+
+        andAlso b x = if b then x else false
 
         allEqual vs1 vs2 =
           foldM (\x y -> commuteMaybe (andPred sym <$> x <*> y)) (Just $ truePred sym) =<<
