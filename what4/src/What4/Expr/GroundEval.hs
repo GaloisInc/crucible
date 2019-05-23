@@ -358,8 +358,6 @@ evalGroundApp f0 a0 = do
     ------------------------------------------------------------------------
     -- Bitvector Operations
 
-    PredToBV x -> (\p -> if p then 1 else 0) <$> f x
-
     BVOrBits pd ->
       fromMaybe 0 <$> WSum.prodEvalM (\x y -> pure (x .|. y)) f pd
     BVUnaryTerm u -> do
@@ -392,6 +390,10 @@ evalGroundApp f0 a0 = do
       case isPosNat w of
         Just LeqProof -> (toUnsigned w . toSigned (bvWidth x)) <$> f0 x
         Nothing -> error "BVSext given bad width"
+
+    BVFill w p ->
+      do b <- f p
+         return $! if b then maxUnsigned w else 0
 
     BVPopcount _w x ->
       toInteger . popCount <$> f x

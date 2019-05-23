@@ -472,6 +472,11 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
            -> !(e (BaseBVType w))
            -> App e (BaseBVType n)
 
+  BVFill :: (1 <= w)
+         => !(NatRepr w)
+         -> !(e BaseBoolType)
+         -> App e (BaseBVType w)
+
   BVUdiv :: (1 <= w)
          => !(NatRepr w)
          -> !(e (BaseBVType w))
@@ -729,7 +734,6 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   BVToNat       :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseNatType
   BVToInteger   :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
   SBVToInteger  :: (1 <= w) => !(e (BaseBVType w)) -> App e BaseIntegerType
-  PredToBV      :: !(e BaseBoolType) -> App e (BaseBVType 1)
 
   -- Converts integer to a bitvector.  The number is interpreted modulo 2^n.
   IntegerToBV  :: (1 <= w) => !(e BaseIntegerType) -> NatRepr w -> App e (BaseBVType w)
@@ -1116,6 +1120,7 @@ appType a =
     BVCountTrailingZeros w _ -> BaseBVRepr w
     BVZext  w _ -> BaseBVRepr w
     BVSext  w _ -> BaseBVRepr w
+    BVFill w _ -> BaseBVRepr w
 
     FloatPZero fpp -> BaseFloatRepr fpp
     FloatNZero fpp -> BaseFloatRepr fpp
@@ -1165,7 +1170,6 @@ appType a =
     BVToNat{} -> knownRepr
     BVToInteger{} -> knownRepr
     SBVToInteger{} -> knownRepr
-    PredToBV _ -> knownRepr
 
     IntegerToNat{} -> knownRepr
     IntegerToBV _ w -> BaseBVRepr w
@@ -1452,6 +1456,11 @@ abstractEval bvParams f a0 = do
     BVAshr w x y -> BVD.ashr w (f x) (f y)
     BVZext w x   -> BVD.zext (f x) w
     BVSext w x   -> BVD.sext bvParams (bvWidth x) (f x) w
+    BVFill w p   ->
+      case f p of
+        Just True  -> BVD.singleton w (maxUnsigned w)
+        Just False -> BVD.singleton w 0
+        Nothing    -> BVD.any w
 
     BVPopcount w _ -> BVD.range w 0 (intValue w)
     BVCountLeadingZeros w _ -> BVD.range w 0 (intValue w)
@@ -1512,11 +1521,6 @@ abstractEval bvParams f a0 = do
       where Just (lx, ux) = BVD.ubounds (bvWidth x) (f x)
     SBVToInteger x -> valueRange (Inclusive lx) (Inclusive ux)
       where Just (lx, ux) = BVD.sbounds (bvWidth x) (f x)
-    PredToBV p ->
-      case f p of
-        Nothing    -> BVD.range (knownNat @1) 0 1
-        Just True  -> BVD.singleton (knownNat @1) 1
-        Just False -> BVD.singleton (knownNat @1) 0
     RoundReal x -> mapRange roundAway (ravRange (f x))
     FloorReal x -> mapRange floor (ravRange (f x))
     CeilReal x  -> mapRange ceiling (ravRange (f x))
@@ -1777,6 +1781,7 @@ ppApp' a0 = do
 
     BVZext w x -> prettyApp "bvZext"   [showPrettyArg w, exprPrettyArg x]
     BVSext w x -> prettyApp "bvSext"   [showPrettyArg w, exprPrettyArg x]
+    BVFill w p -> prettyApp "bvFill"   [showPrettyArg w, exprPrettyArg p]
 
     BVPopcount w x -> prettyApp "bvPopcount" [showPrettyArg w, exprPrettyArg x]
     BVCountLeadingZeros w x -> prettyApp "bvCountLeadingZeros" [showPrettyArg w, exprPrettyArg x]
@@ -1843,7 +1848,6 @@ ppApp' a0 = do
     BVToNat x       -> ppSExpr "bvToNat" [x]
     BVToInteger  x  -> ppSExpr "bvToInteger" [x]
     SBVToInteger x  -> ppSExpr "sbvToInteger" [x]
-    PredToBV x      -> prettyApp "predToBV" [exprPrettyArg x]
 
     RoundReal x -> ppSExpr "round" [x]
     FloorReal x -> ppSExpr "floor" [x]
@@ -3037,6 +3041,7 @@ reduceApp sym a0 = do
     BVZext  w x  -> bvZext sym w x
     BVSext  w x  -> bvSext sym w x
     BVPopcount _ x -> bvPopcount sym x
+    BVFill w p -> bvFill sym w p
     BVCountLeadingZeros _ x -> bvCountLeadingZeros sym x
     BVCountTrailingZeros _ x -> bvCountTrailingZeros sym x
 
@@ -3092,7 +3097,6 @@ reduceApp sym a0 = do
     BVToNat x       -> bvToNat sym x
     BVToInteger x   -> bvToInteger sym x
     SBVToInteger x  -> sbvToInteger sym x
-    PredToBV x      -> predToBV sym x (knownNat @1)
     IntegerToBV x w -> integerToBV sym x w
 
     RoundReal x -> realRound sym x
@@ -4567,6 +4571,8 @@ instance IsExprBuilder (ExprBuilder t st fs) where
      Just Refl <- return $ testEquality (addNat n1 n2) n
      bvConcat sb a' b'
 
+{-  Avoid doing work that may lose sharing...
+
     -- Select from a weighted XOR: push down through the sum
     | Just (SemiRingSum s) <- asApp x
     , SR.SemiRingBVRepr SR.BVBitsRepr _w <- WSum.sumRepr s
@@ -4594,6 +4600,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
                    (bvSelect sb idx n)
                    pd
          maybe (bvLit sb n 0) return pd'
+-}
 
     -- Trucate from a unary bitvector
     | Just (BVUnaryTerm u) <- asApp x
@@ -4624,17 +4631,20 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       else
         testBitBV sym i y'
 
+    | Just (BVFill _ p) <- asApp y
+    = return p
+
+    | Just b <- BVD.testBit (bvWidth y) (exprAbsValue y) i
+    = return $! backendPred sym b
+
     | Just (BaseIte _ _ c a b) <- asApp y
+    , isJust (asUnsignedBV a) || isJust (asUnsignedBV b) -- NB avoid losing sharing
     = do a' <- testBitBV sym i a
          b' <- testBitBV sym i b
          itePred sym c a' b'
 
-      -- i must equal 0 because width is 1
-    | Just (PredToBV py) <- asApp y
-    = return py
-
-    | Just b <- BVD.testBit (bvWidth y) (exprAbsValue y) i
-    = return $! backendPred sym b
+{- These rewrites can sometimes yield significant simplifications, but
+   also may lead to loss of sharing, so they are disabled...
 
     | Just ws <- asSemiRingSum (SR.SemiRingBVRepr SR.BVBitsRepr (bvWidth y)) y
     = let smul c x
@@ -4648,14 +4658,20 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
     | Just (BVOrBits pd) <- asApp y
     = fromMaybe (falsePred sym) <$> WSum.prodEvalM (orPred sym) (testBitBV sym i) pd
+-}
 
     | otherwise = sbMakeExpr sym $ BVTestBit i y
 
+  bvFill sym w p
+    | Just True  <- asConstantPred p = bvLit sym w (maxUnsigned w)
+    | Just False <- asConstantPred p = bvLit sym w 0
+    | otherwise = sbMakeExpr sym $ BVFill w p
+
   bvIte sym c x y
-    | Just (PredToBV px) <- asApp x
-    , Just (PredToBV py) <- asApp y =
+    | Just (BVFill w px) <- asApp x
+    , Just (BVFill _w py) <- asApp y =
       do z <- itePred sym c px py
-         predToBV sym z (knownNat @1)
+         bvFill sym w z
 
     | Just (BVZext w  x') <- asApp x
     , Just (BVZext w' y') <- asApp y
@@ -4692,8 +4708,8 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   bvEq sym x y
     | x == y = return $! truePred sym
 
-    | Just (PredToBV px) <- asApp x
-    , Just (PredToBV py) <- asApp y =
+    | Just (BVFill _ px) <- asApp x
+    , Just (BVFill _ py) <- asApp y =
       eqPred sym px py
 
     | Just b <- BVD.eq (exprAbsValue x) (exprAbsValue y) = do
@@ -4926,19 +4942,21 @@ instance IsExprBuilder (ExprBuilder t st fs) where
                  scalarMul sym sr (toUnsigned (bvWidth x) (-1)) x)
 
   bvIsNonzero sym x
-    | Just (BaseIte _ _ p t f) <- asApp x = do
-          t' <- bvIsNonzero sym t
+    | Just (BaseIte _ _ p t f) <- asApp x
+    , isJust (asUnsignedBV t) || isJust (asUnsignedBV f) -- NB, avoid losing possible sharing
+    = do  t' <- bvIsNonzero sym t
           f' <- bvIsNonzero sym f
           itePred sym p t' f'
-    | Just (BVConcat _ a b) <- asApp x =
-       do pa <- bvIsNonzero sym a
+    | Just (BVConcat _ a b) <- asApp x
+    , isJust (asUnsignedBV a) || isJust (asUnsignedBV b) -- NB, avoid losing possible sharing
+    =  do pa <- bvIsNonzero sym a
           pb <- bvIsNonzero sym b
           orPred sym pa pb
     | Just (BVZext _ y) <- asApp x =
           bvIsNonzero sym y
     | Just (BVSext _ y) <- asApp x =
           bvIsNonzero sym y
-    | Just (PredToBV p) <- asApp x =
+    | Just (BVFill _ p) <- asApp x =
           return p
     | Just (BVUnaryTerm ubv) <- asApp x =
           UnaryBV.sym_evaluate
@@ -5224,8 +5242,8 @@ instance IsExprBuilder (ExprBuilder t st fs) where
         if b then bvLit sym w 1 else bvLit sym w 0
     | otherwise =
        case compareNat w (knownNat @1) of
-         NatEQ   -> sbMakeExpr sym (PredToBV p)
-         NatGT _ -> bvZext sym w =<< sbMakeExpr sym (PredToBV p)
+         NatEQ   -> sbMakeExpr sym (BVFill (knownNat @1) p)
+         NatGT _ -> bvZext sym w =<< sbMakeExpr sym (BVFill (knownNat @1) p)
          NatLT _ -> fail "impossible case in predToBV"
 
   integerToBV sym xr w
