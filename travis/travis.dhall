@@ -218,7 +218,8 @@ in    { language =
           [     let cond =
                         λ(cond : Text)
                       → λ(step : Text)
-                      → concatSep "; " [ "if ${cond}", step, "fi" ] : Text
+                      →   concatSep " " [ "if ${cond}; then", step, ";", "fi" ]
+                        : Text
             
             in  let doLint = cond "[[ \$DO_LINT == True ]]"
             
