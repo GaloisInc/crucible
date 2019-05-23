@@ -215,16 +215,27 @@ in    { language =
             ]
           ] : Optional (List Text)
       , script =
-          [ [ "[[ \$DO_LINT != True ]] && cabal new-update"
-            ,     let hlintURL =
-                        "https://raw.github.com/ndmitchell/neil/master/misc/travis.sh"
-              
-              in  let pkgs =
-                        "crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}"
-              
-              in  "[[ \$DO_LINT == True ]] && curl -sSL ${hlintURL} | sh -s -- hlint ${pkgs}"
-            , "[[ \$DO_LINT != True ]] && cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
-            ]
+          [     let cond =
+                        λ(cond : Text)
+                      → λ(step : Text)
+                      → concatSep "; " [ "if ${cond}", step, "fi" ] : Text
+            
+            in  let doLint = cond "[[ \$DO_LINT == True ]]"
+            
+            in  let noLint = cond "[[ \$DO_LINT != True ]]"
+            
+            in  [ noLint
+                  "cabal new-update"
+                ,     let hlintURL =
+                            "https://raw.github.com/ndmitchell/neil/master/misc/travis.sh"
+                  
+                  in  let pkgs =
+                            "crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}"
+                  
+                  in  doLint "curl -sSL ${hlintURL} | sh -s -- hlint ${pkgs}"
+                , noLint
+                  "cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
+                ]
           ] : Optional (List Text)
       }
     : schema.Travis
