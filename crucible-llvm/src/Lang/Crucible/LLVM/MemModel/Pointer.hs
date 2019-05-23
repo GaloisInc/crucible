@@ -10,12 +10,14 @@
 
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
@@ -41,6 +43,7 @@ module Lang.Crucible.LLVM.MemModel.Pointer
     -- * Crucible pointer representation
   , LLVMPointerType
   , LLVMPtr
+  , SomePointer(..)
   , pattern LLVMPointerRepr
   , pattern PtrRepr
   , pattern SizeT
@@ -62,11 +65,17 @@ module Lang.Crucible.LLVM.MemModel.Pointer
   , ptrDiff
   , ptrSub
   , ptrIsNull
+  , isGlobalPointer
+  , isGlobalPointer'
 
     -- * Pretty printing
   , ppPtr
   ) where
 
+import           Control.Lens ((<&>))
+import           Data.Maybe (listToMaybe)
+import           Data.Map (Map)
+import qualified Data.Map as Map (toList, traverseMaybeWithKey)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           GHC.TypeLits (TypeError, ErrorMessage(..))
@@ -75,6 +84,7 @@ import           GHC.TypeNats
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
+import qualified Text.LLVM.AST as L
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
@@ -101,6 +111,9 @@ type family LLVMPointerImpl sym ctx where
   LLVMPointerImpl sym (EmptyCtx ::> BVType w) = LLVMPointer sym w
   LLVMPointerImpl sym ctx = TypeError ('Text "LLVM_pointer expects a single argument of BVType, but was given" ':<>:
                                        'ShowType ctx)
+
+-- | A pointer with an existentially-quantified width
+data SomePointer sym = forall w. SomePointer !(LLVMPtr sym w)
 
 instance (IsSymInterface sym) => IntrinsicClass sym "LLVM_pointer" where
   type Intrinsic sym "LLVM_pointer" ctx = LLVMPointerImpl sym ctx
@@ -259,3 +272,37 @@ ppPtr (llvmPointerView -> (blk, bv))
      let blk_doc = printSymExpr blk
          off_doc = printSymExpr bv
       in text "(" <> blk_doc <> text "," <+> off_doc <> text ")"
+
+-- | Look up a pointer in the 'memImplGlobalMap' to see if it's a global.
+--
+-- This is best-effort and will only work if the pointer is fully concrete
+-- and matches the address of the global on the nose. It is used in SAWscript
+-- for friendly error messages.
+isGlobalPointer :: forall sym w. (IsSymInterface sym, 1 <= w)
+                => sym
+                -> Map L.Symbol (SomePointer sym) {-^ c.f. 'memImplGlobalMap' -}
+                -> LLVMPtr sym w
+                -> IO (Maybe L.Symbol)
+isGlobalPointer sym globalMap needle =
+  let fun :: L.Symbol -> SomePointer sym -> IO (Maybe L.Symbol)
+      fun symb (SomePointer ptr)
+        | Just Refl <- testEquality ptr needle -- do they have the same width?
+        = ptrEq sym (ptrWidth ptr) ptr needle <&> \equalityPredicate ->
+            case asConstantPred equalityPredicate of
+              Just True  -> Just symb
+              Just False -> Nothing
+              Nothing    -> Nothing
+      fun _ _ = pure Nothing
+  in listToMaybe . fmap fst . Map.toList <$>
+       Map.traverseMaybeWithKey fun globalMap
+
+-- | For when you don't know @1 <= w@
+isGlobalPointer' :: forall sym w. (IsSymInterface sym)
+                 => sym
+                 -> Map L.Symbol (SomePointer sym) {-^ c.f. 'memImplGlobalMap' -}
+                 -> LLVMPtr sym w
+                 -> IO (Maybe L.Symbol)
+isGlobalPointer' sym globalMap needle =
+  case testLeq (knownNat :: NatRepr 1) (ptrWidth needle) of
+    Nothing       -> pure Nothing
+    Just LeqProof -> isGlobalPointer sym globalMap needle

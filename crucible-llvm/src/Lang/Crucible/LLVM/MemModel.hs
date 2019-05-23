@@ -168,7 +168,7 @@ import           Data.IORef
 import qualified Data.List as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
-import           Data.Maybe (mapMaybe, listToMaybe)
+import           Data.Maybe (mapMaybe)
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Set (Set)
@@ -177,7 +177,6 @@ import           Data.Word
 import           GHC.TypeNats
 import           System.IO (Handle, hPutStrLn)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
-import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -220,9 +219,6 @@ import           GHC.Stack
 ----------------------------------------------------------------------
 -- The MemImpl type
 --
-
--- | A pointer with an existentially-quantified width
-data SomePointer sym = forall w. SomePointer !(LLVMPtr sym w)
 
 newtype BlockSource = BlockSource (IORef Integer)
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
@@ -1504,55 +1500,3 @@ allocGlobal sym mem (g, aliases, sz, alignment) = do
   -- TODO: Aliases are not propagated to doMalloc for error messages
   (ptr, mem') <- doMalloc sym G.GlobalAlloc mut sym_str mem sz' alignment
   return (registerGlobal mem' (symbol:aliases) ptr)
-
--- | Look up a pointer in the 'memImplGlobalMap' to see if it's a global.
---
--- This is best-effort and will only work if the pointer is fully concrete
--- and matches the address of the global on the nose. It is used in SAWscript
--- for friendly error messages.
-isGlobalPointer :: forall sym w. (IsSymInterface sym, 1 <= w)
-                => sym
-                -> GlobalMap sym
-                -> LLVMPtr sym w
-                -> IO (Maybe L.Symbol)
-isGlobalPointer sym globalMap needle =
-  let fun :: L.Symbol -> SomePointer sym -> IO (Maybe L.Symbol)
-      fun symb (SomePointer ptr)
-        | Just Refl <- testEquality ptr needle -- do they have the same width?
-        = ptrEq sym (ptrWidth ptr) ptr needle <&> \equalityPredicate ->
-            case asConstantPred equalityPredicate of
-              Just True  -> Just symb
-              Just False -> Nothing
-              Nothing    -> Nothing
-      fun _ _ = pure Nothing
-  in listToMaybe . fmap fst . Map.toList <$>
-       Map.traverseMaybeWithKey fun globalMap
-
--- | For when you don't know @1 <= w@
-isGlobalPointer' :: forall sym w. (IsSymInterface sym)
-                 => sym
-                 -> GlobalMap sym
-                 -> LLVMPtr sym w
-                 -> IO (Maybe L.Symbol)
-isGlobalPointer' sym globalMap needle =
-  case testLeq (knownNat :: NatRepr 1) (ptrWidth needle) of
-    Nothing       -> pure Nothing
-    Just LeqProof -> isGlobalPointer sym globalMap needle
-
--- | Pretty-print an 'LLVMVal', but replace pointers to globals with the name of
---   the global when possible. Probably pretty slow on big structures.
---
--- TODO(lb): This is in this module instead of "MemModel.Value" because
--- 'SomePointer' is here, and I can't move 'SomePointer' to "MemModel.Pointer"
--- because I get type errors? What's going on?
-ppLLVMValWithGlobals :: forall sym.
-  (IsSymInterface sym) =>
-  sym ->
-  GlobalMap sym {-^ c.f. 'memImplGlobalMap' -} ->
-  LLVMVal sym ->
-  IO PP.Doc
-ppLLVMValWithGlobals sym globalMap = ppLLVMVal $ \allocNum offset ->
-  isGlobalPointer' sym globalMap (LLVMPointer allocNum offset) <&&>
-    \(L.Symbol symb) -> PP.text ('@':symb)
-  where x <&&> f = (fmap . fmap) f x -- map under IO and Maybe
-

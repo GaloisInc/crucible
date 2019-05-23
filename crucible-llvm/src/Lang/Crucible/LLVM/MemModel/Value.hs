@@ -25,7 +25,7 @@
 module Lang.Crucible.LLVM.MemModel.Value
   ( -- * LLVM Value representation
     LLVMVal(..)
-  , ppLLVMVal
+  , ppLLVMValWithGlobals
   , FloatSize(..)
   , Field
   , ptrToPtrVal
@@ -38,6 +38,7 @@ module Lang.Crucible.LLVM.MemModel.Value
 
 import           Control.Lens (view)
 import           Control.Monad (foldM, join)
+import           Data.Map (Map)
 import           Data.Coerce (coerce)
 import           Data.Foldable (toList)
 import           Data.Functor.Identity (Identity(..))
@@ -50,6 +51,7 @@ import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
+import qualified Text.LLVM.AST as L
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint
@@ -146,7 +148,7 @@ ppLLVMVal ppInt =
       (LLVMValUndef tp) -> pure $ PP.angles (typed "undef" tp)
       (LLVMValInt blk w) -> fromMaybe otherDoc <$> ppInt blk w
         where
-          otherDoc = 
+          otherDoc =
             case asNat blk of
               Just 0 ->
                 case (asUnsignedBV w) of
@@ -155,7 +157,7 @@ ppLLVMVal ppInt =
                     , "unsigned value = " ++ show unsigned ++ ","
                     , unwords [ "signed value = "
                               , show (toSigned (bvWidth w) unsigned) ++ ","
-                              ] 
+                              ]
                     , "width = " ++ show (bvWidth w)
                     ]
                   (Nothing) -> PP.text $ unwords $
@@ -185,6 +187,19 @@ ppLLVMVal ppInt =
       (LLVMValFloat X86_FP80Size _) -> pure $ PP.text "symbolic long double"
       (LLVMValStruct xs) -> PP.semiBraces <$> traverse (pp . snd) (V.toList xs)
       (LLVMValArray _ xs) -> PP.list <$> traverse pp (V.toList xs)
+
+-- | Pretty-print an 'LLVMVal', but replace pointers to globals with the name of
+--   the global when possible. Probably pretty slow on big structures.
+ppLLVMValWithGlobals :: forall sym.
+  (IsSymInterface sym) =>
+  sym ->
+  Map L.Symbol (SomePointer sym) {-^ c.f. 'memImplGlobalMap' -} ->
+  LLVMVal sym ->
+  IO PP.Doc
+ppLLVMValWithGlobals sym globalMap = ppLLVMVal $ \allocNum offset ->
+  isGlobalPointer' sym globalMap (LLVMPointer allocNum offset) <&&>
+    \(L.Symbol symb) -> PP.text ('@':symb)
+  where x <&&> f = (fmap . fmap) f x -- map under IO and Maybe
 
 -- | This instance tries to make things as concrete as possible.
 instance IsExpr (SymExpr sym) => PP.Pretty (LLVMVal sym) where
