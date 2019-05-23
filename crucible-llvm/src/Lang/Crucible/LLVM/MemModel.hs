@@ -75,6 +75,7 @@ module Lang.Crucible.LLVM.MemModel
 
     -- * \"Raw\" operations with LLVMVal
   , LLVMVal(..)
+  , ppLLVMValWithGlobals
   , FloatSize(..)
   , unpackMemValue
   , packMemValue
@@ -137,6 +138,7 @@ module Lang.Crucible.LLVM.MemModel
   , allocGlobal
   , functionAliases
   , reverseAliases
+  , isGlobalPointer
 
     -- * Misc
   , llvmStatementExec
@@ -217,9 +219,6 @@ import           GHC.Stack
 ----------------------------------------------------------------------
 -- The MemImpl type
 --
-
--- | A pointer with an existentially-quantified width
-data SomePointer sym = forall w. SomePointer !(LLVMPtr sym w)
 
 newtype BlockSource = BlockSource (IORef Integer)
 type GlobalMap sym = Map L.Symbol (SomePointer sym)
