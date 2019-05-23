@@ -1,6 +1,6 @@
 {- |
 
-Module           : Lang.Crucible.JVM.Class
+Module           : Lang.Crucible.JVM.Translation.Class
 Description      : Implements OO features of the JVM
 Copyright        : (c) Galois, Inc 2018
 License          : BSD3
@@ -46,7 +46,7 @@ working with objects, dynamic class information and arrays.
 
 {-# OPTIONS_GHC -haddock #-}
 
-module Lang.Crucible.JVM.Class
+module Lang.Crucible.JVM.Translation.Class
    (
      lookupClassGen
    , getAllFields
@@ -130,7 +130,8 @@ import           Lang.Crucible.Types
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
-import           Lang.Crucible.JVM.Generator
+import           Lang.Crucible.JVM.Context
+import           Lang.Crucible.JVM.Translation.Monad
 
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
