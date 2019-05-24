@@ -72,7 +72,7 @@ import qualified Lang.Crucible.Simulator.EvalStmt as EvalStmt (readRef, alterRef
 
 
 -- what4
-import qualified What4.ProgramLoc as W4 (ProgramLoc, Position(InternalPos))
+import qualified What4.ProgramLoc as W4 (Position(InternalPos))
 import           What4.FunctionName
 import qualified What4.Interface as W4
 import qualified What4.InterpretedFloatingPoint as W4
