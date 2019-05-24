@@ -7,7 +7,6 @@ Maintainer       : huffman@galois.com, sweirich@galois.com
 Stability        : provisional
 -}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -20,8 +19,6 @@ Stability        : provisional
 
 module Lang.Crucible.JVM.Translation
   ( translateMethod
-  , jvmIntrinsicTypes
-  , jvmExtensionImpl
   ) where
 
 -- base
@@ -52,7 +49,6 @@ import           Lang.Crucible.CFG.SSAConversion (toSSA)
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 import           Lang.Crucible.Panic
-import qualified Lang.Crucible.Simulator as C
 
 -- what4
 import           What4.ProgramLoc (Position(InternalPos))
@@ -1189,9 +1185,3 @@ translateMethod ctx verbosity cName m h =
                    f = generateMethod cName m argTypes inputs
       (SomeCFG g, []) <- defineFunction InternalPos h def
       return $ toSSA g
-
-jvmIntrinsicTypes :: C.IntrinsicTypes sym
-jvmIntrinsicTypes = C.emptyIntrinsicTypes
-
-jvmExtensionImpl :: C.ExtensionImpl p sym JVM
-jvmExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)

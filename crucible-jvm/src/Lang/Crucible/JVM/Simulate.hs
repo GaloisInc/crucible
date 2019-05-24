@@ -7,6 +7,7 @@ Maintainer       : sweirich@galois.com
 Stability        : provisional
 -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
@@ -72,7 +73,7 @@ import           What4.Utils.MonadST (liftST)
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
 import           Lang.Crucible.JVM.Context
-import           Lang.Crucible.JVM.Translation (translateMethod, jvmIntrinsicTypes, jvmExtensionImpl)
+import           Lang.Crucible.JVM.Translation (translateMethod)
 import           Lang.Crucible.JVM.ClassRefs
 import           Lang.Crucible.JVM.Translation.Monad
 import           Lang.Crucible.JVM.Translation.Class
@@ -411,6 +412,12 @@ mkDelayedBindings ctx verbosity =
                                               ]
   in
     C.fnBindingsFromList bindings
+
+jvmIntrinsicTypes :: C.IntrinsicTypes sym
+jvmIntrinsicTypes = C.emptyIntrinsicTypes
+
+jvmExtensionImpl :: C.ExtensionImpl p sym JVM
+jvmExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
 
 
 -- | Make the initial state for the simulator, binding the function handles so that
