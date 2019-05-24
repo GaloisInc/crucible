@@ -144,18 +144,20 @@ import qualified Lang.JVM.Codebase as JCB
 -- (We could calculate automatically, but that would add an ambiguous
 -- sym constraint to this definition, so we do not.)
 
-initClasses :: [String]
-initClasses =  [ "java/lang/Class"
-               , "java/lang/String"
-               , "java/io/BufferedOutputStream"
-               , "java/io/FilterOutputStream"
-               , "java/io/OutputStream"
-               , "java/io/PrintStream"
-               , "java/lang/Object"
-               , "java/lang/System"
-               , "java/lang/StringIndexOutOfBoundsException"
-               , "java/lang/Exception"
-               ]
+initClasses :: [J.ClassName]
+initClasses =
+  map J.mkClassName
+  [ "java/lang/Class"
+  , "java/lang/String"
+  , "java/io/BufferedOutputStream"
+  , "java/io/FilterOutputStream"
+  , "java/io/OutputStream"
+  , "java/io/PrintStream"
+  , "java/lang/Object"
+  , "java/lang/System"
+  , "java/lang/StringIndexOutOfBoundsException"
+  , "java/lang/Exception"
+  ]
 
 -- These classes rely on native code that cannot be parsed by
 -- jvm-parser. So instead of traversing these classes to find their
@@ -278,7 +280,7 @@ findNextRefs cls
 -- to the current class.
 findAllRefs :: IsCodebase cb => cb -> J.ClassName -> IO [ J.Class ]
 findAllRefs cb cls = do
-  names <- go Set.empty (Set.insert cls (Set.fromList (map J.mkClassName initClasses)))
+  names <- go Set.empty (Set.insert cls (Set.fromList initClasses))
   mapM (lookupClass cb) names
   where
     go :: Set.Set J.ClassName -> Set.Set J.ClassName -> IO [J.ClassName]
