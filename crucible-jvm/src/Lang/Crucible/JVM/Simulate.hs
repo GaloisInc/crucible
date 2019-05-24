@@ -844,11 +844,10 @@ doArrayStore sym globals ref idx val =
 doFieldLoad ::
   IsSymInterface sym =>
   sym ->
-  W4.ProgramLoc ->
   C.SymGlobalState sym ->
-  J.Type -> C.RegValue sym JVMRefType -> String {- ^ field name -} ->
+  C.RegValue sym JVMRefType -> String {- ^ field name -} ->
   IO (C.RegValue sym JVMValueType)
-doFieldLoad sym loc globals ty ref fname =
+doFieldLoad sym globals ref fname =
   do let msg1 = C.GenericSimError "Field load: null reference"
      ref' <- C.readPartExpr sym ref msg1
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
@@ -863,11 +862,10 @@ doFieldLoad sym loc globals ty ref fname =
 doArrayLoad ::
   IsSymInterface sym =>
   sym ->
-  W4.ProgramLoc ->
   C.SymGlobalState sym ->
-  J.Type -> C.RegValue sym JVMRefType -> Int {- ^ array index -} ->
+  C.RegValue sym JVMRefType -> Int {- ^ array index -} ->
   IO (C.RegValue sym JVMValueType)
-doArrayLoad sym loc globals ty ref idx =
+doArrayLoad sym globals ref idx =
   do let msg1 = C.GenericSimError "Array load: null reference"
      ref' <- C.readPartExpr sym ref msg1
      obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
