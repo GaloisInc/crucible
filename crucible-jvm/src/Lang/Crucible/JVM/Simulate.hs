@@ -401,8 +401,9 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
     in
       C.FnBinding handle (C.UseOverride (C.mkOverride' fn retRepr overrideSim))
 
--- | Make bindings for all methods in the 'JVMContext' classTable that have
--- associated method handles.
+-- | Make bindings for all methods in the 'JVMContext' classTable that
+-- have associated method handles. The result is suitable for passing
+-- to 'C.initSimContext'.
 mkDelayedBindings :: forall p sym . JVMContext -> Verbosity -> C.FunctionBindings p sym JVM
 mkDelayedBindings ctx verbosity =
   let bindings = [ mkDelayedBinding ctx verbosity c m h | (cn,c) <- Map.assocs (classTable ctx)
@@ -419,6 +420,19 @@ jvmIntrinsicTypes = C.emptyIntrinsicTypes
 jvmExtensionImpl :: C.ExtensionImpl p sym JVM
 jvmExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x -> case x of)
 
+-- | Create a new 'C.SimContext' containing the bindings from the given 'JVMContext'.
+jvmSimContext ::
+  IsSymInterface sym =>
+  sym {- ^ Symbolic backend -} ->
+  HandleAllocator RealWorld {- ^ Handle allocator for creating new function handles -} ->
+  Handle {- ^ Handle to write output to -} ->
+  JVMContext ->
+  Verbosity ->
+  personality {- ^ Initial value for custom user state -} ->
+  C.SimContext personality sym JVM
+jvmSimContext sym halloc handle ctx verbosity p =
+  C.initSimContext sym jvmIntrinsicTypes halloc handle bindings jvmExtensionImpl p
+  where bindings = mkDelayedBindings ctx verbosity
 
 -- | Make the initial state for the simulator, binding the function handles so that
 -- they translate method bodies when they are accessed.
@@ -442,13 +456,7 @@ mkSimSt sym p halloc ctx verbosity k =
          z <- zeroValue sym (J.fieldIdType fi)
          return (C.insertGlobal var z gs)
 
-    simctx = C.initSimContext sym
-               jvmIntrinsicTypes
-               halloc
-               stdout
-               (mkDelayedBindings ctx verbosity)
-               jvmExtensionImpl
-               p
+    simctx = jvmSimContext sym halloc stdout ctx verbosity p
     globals0 = C.insertGlobal (dynamicClassTable ctx) Map.empty C.emptyGlobals
 
 -- | Construct a zero value of the appropriate type. This is used for
