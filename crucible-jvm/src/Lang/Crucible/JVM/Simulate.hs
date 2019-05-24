@@ -878,13 +878,14 @@ doArrayLoad sym globals ref idx =
        Just val -> return val
        Nothing -> C.addFailedAssertion sym msg3
 
--- | Allocate an instance of the given class in the global state.
+-- | Allocate an instance of the given class in the global state. All
+-- of the fields are initialized to 'unassignedJVMValue'.
 doAllocateObject ::
   IsSymInterface sym =>
   sym ->
   C.HandleAllocator RealWorld ->
   JVMContext ->
-  J.ClassName ->
+  J.ClassName {- ^ class of object to allocate -} ->
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
 doAllocateObject sym halloc jc cname globals =
@@ -899,7 +900,8 @@ doAllocateObject sym halloc jc cname globals =
      let globals' = C.updateRef ref (W4.justPartExpr sym obj) globals
      return (W4.justPartExpr sym (C.toMuxTree sym ref), globals')
 
--- | Allocate an array in the global state.
+-- | Allocate an array in the global state. All of the elements are
+-- initialized to 'unassignedJVMValue'.
 doAllocateArray ::
   IsSymInterface sym =>
   sym ->
