@@ -798,6 +798,7 @@ doAppJVM sym =
   where
     out _verbosity _msg = return () --putStrLn
 
+-- | Write a value to a field of an object reference.
 doFieldStore ::
   IsSymInterface sym =>
   sym ->
@@ -818,6 +819,7 @@ doFieldStore sym globals ref fname val =
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i1of2 inst')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
+-- | Write a value at an index of an array reference.
 doArrayStore ::
   IsSymInterface sym =>
   sym ->
@@ -838,6 +840,7 @@ doArrayStore sym globals ref idx val =
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i2of2 arr')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
+-- | Read a value from a field of an object reference.
 doFieldLoad ::
   IsSymInterface sym =>
   sym ->
@@ -856,6 +859,7 @@ doFieldLoad sym loc globals ty ref fname =
      let key = Text.pack fname
      C.readPartExpr sym (fromMaybe W4.Unassigned (Map.lookup key tab)) msg3
 
+-- | Read a value at an index of an array reference.
 doArrayLoad ::
   IsSymInterface sym =>
   sym ->
@@ -876,6 +880,7 @@ doArrayLoad sym loc globals ty ref idx =
        Just val -> return val
        Nothing -> C.addFailedAssertion sym msg3
 
+-- | Allocate an instance of the given class in the global state.
 doAllocateObject ::
   IsSymInterface sym =>
   sym ->
@@ -896,6 +901,7 @@ doAllocateObject sym halloc jc cname globals =
      let globals' = C.updateRef ref (W4.justPartExpr sym obj) globals
      return (W4.justPartExpr sym (C.toMuxTree sym ref), globals')
 
+-- | Allocate an array in the global state.
 doAllocateArray ::
   IsSymInterface sym =>
   sym ->
