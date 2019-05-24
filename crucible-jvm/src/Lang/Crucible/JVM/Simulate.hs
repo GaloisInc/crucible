@@ -27,11 +27,16 @@ import           Control.Monad.State.Strict
 import           Control.Monad.ST
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import           Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import           Data.String (fromString)
 import           Data.List (isPrefixOf)
+import qualified Data.Text as Text
+import qualified Data.Vector as V
 
 import           System.IO
+
+import qualified Control.Lens
 
 -- jvm-parser
 import qualified Language.JVM.Common as J
@@ -39,29 +44,35 @@ import qualified Language.JVM.Parser as J
 
 -- parameterized-utils
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Classes as Ctx (ixF)
+import qualified Data.Parameterized.TraversableFC as Ctx
 import           Data.Parameterized.NatRepr as NR
 
 
 -- crucible
+import qualified Lang.Crucible.Backend as C (readPartExpr, addFailedAssertion)
 import qualified Lang.Crucible.CFG.Core as C
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
 import           Lang.Crucible.CFG.SSAConversion (toSSA)
-import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.FunctionHandle as C
 import           Lang.Crucible.Types
 import           Lang.Crucible.Backend
 
 import           Lang.Crucible.Utils.MonadVerbosity
+import qualified Lang.Crucible.Utils.MuxTree as C (toMuxTree)
 
 import qualified Lang.Crucible.Simulator as C
+import qualified Lang.Crucible.Simulator.Evaluation as C (evalApp)
 import qualified Lang.Crucible.Simulator.GlobalState as C
 import qualified Lang.Crucible.Simulator.RegValue as C (injectVariant)
 import qualified Lang.Crucible.Analysis.Postdom as C
 import qualified Lang.Crucible.Simulator.CallFrame as C
+import qualified Lang.Crucible.Simulator.EvalStmt as EvalStmt (readRef, alterRef)
 
 
 -- what4
-import           What4.ProgramLoc (Position(InternalPos))
+import qualified What4.ProgramLoc as W4 (ProgramLoc, Position(InternalPos))
 import           What4.FunctionName
 import qualified What4.Interface as W4
 import qualified What4.InterpretedFloatingPoint as W4
@@ -302,7 +313,7 @@ findAllRefs cb cls = do
 --    + add the class to Class table
 
 -- | Allocate a new method handle and add it to the table of method handles.
-declareMethod :: HandleAllocator s
+declareMethod :: C.HandleAllocator s
               -> J.Class
               -> MethodHandleTable
               -> J.Method
@@ -320,7 +331,7 @@ declareMethod halloc mcls ctx meth =
 
 -- | Allocate the static field (a global variable)
 -- and add it to the static field table.
-declareStaticField :: HandleAllocator s
+declareStaticField :: C.HandleAllocator s
     -> J.Class
     -> StaticFieldTable
     -> J.Field
@@ -335,7 +346,7 @@ declareStaticField halloc c m f = do
 
 
 -- | Create the initial 'JVMContext'.
-mkInitialJVMContext :: HandleAllocator RealWorld -> IO JVMContext
+mkInitialJVMContext :: C.HandleAllocator RealWorld -> IO JVMContext
 mkInitialJVMContext halloc = do
 
   gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
@@ -352,7 +363,7 @@ mkInitialJVMContext halloc = do
 -- by declaring handles for all methods,
 --    declaring global variables for all static fields, and
 --    adding the class information to the class table.
-extendJVMContext :: HandleAllocator s -> J.Class -> StateT JVMContext (ST s) ()
+extendJVMContext :: C.HandleAllocator s -> J.Class -> StateT JVMContext (ST s) ()
 extendJVMContext halloc c = do
   sm <- lift $ foldM (declareMethod halloc c) Map.empty (J.classMethods c)
   st <- lift $ foldM (declareStaticField halloc c) Map.empty (J.classFields c)
@@ -424,7 +435,7 @@ jvmExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x 
 jvmSimContext ::
   IsSymInterface sym =>
   sym {- ^ Symbolic backend -} ->
-  HandleAllocator RealWorld {- ^ Handle allocator for creating new function handles -} ->
+  C.HandleAllocator RealWorld {- ^ Handle allocator for creating new function handles -} ->
   Handle {- ^ Handle to write output to -} ->
   JVMContext ->
   Verbosity ->
@@ -441,7 +452,7 @@ mkSimSt ::
   (IsSymInterface sym) =>
   sym ->
   p ->
-  HandleAllocator RealWorld ->
+  C.HandleAllocator RealWorld ->
   JVMContext ->
   Verbosity ->
   C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx) ->
@@ -478,7 +489,7 @@ zeroValue sym ty =
 -- (currently unused)
 -- Way to run initialization code before simulation starts
 -- Currently this code initializes the current class
-runClassInit :: HandleAllocator RealWorld -> JVMContext -> Verbosity -> J.ClassName
+runClassInit :: C.HandleAllocator RealWorld -> JVMContext -> Verbosity -> J.ClassName
              -> C.OverrideSim p sym JVM rtp a r (C.RegEntry sym C.UnitType)
 runClassInit halloc ctx verbosity name = do
   (C.SomeCFG g') <- liftIO $ stToIO $ do
@@ -489,7 +500,7 @@ runClassInit halloc ctx verbosity name = do
               where s = initialState ctx verbosity meth knownRepr
                     f = do () <- initializeClass name
                            return (App EmptyApp)
-      (SomeCFG g, []) <- defineFunction InternalPos h def
+      (SomeCFG g, []) <- defineFunction W4.InternalPos h def
       return (toSSA g)
   C.callCFG g' (C.RegMap Ctx.Empty)
 
@@ -501,7 +512,7 @@ runMethodHandleCrux
   => [C.GenericExecutionFeature sym]
   -> sym
   -> p
-  -> HandleAllocator RealWorld
+  -> C.HandleAllocator RealWorld
   -> JVMContext
   -> Verbosity
   -> J.ClassName
@@ -521,7 +532,7 @@ runMethodHandle
   :: IsSymInterface sym
   => sym
   -> p
-  -> HandleAllocator RealWorld
+  -> C.HandleAllocator RealWorld
   -> JVMContext
   -> Verbosity
   -> J.ClassName
@@ -741,3 +752,235 @@ findField  _ _ _ =
 
 throwE :: String -> IO a
 throwE = fail
+
+--------------------------------------------------------------------------------
+-- * Operations on run-time values
+
+--type JVMRefVal = C.RegValue Sym JVMRefType
+
+-- | Test whether a JVM reference is null.
+refIsNull ::
+  IsSymInterface sym =>
+  sym -> C.RegValue sym JVMRefType -> IO (W4.Pred sym)
+refIsNull sym ref =
+  case ref of
+    W4.PE p _ -> W4.notPred sym p
+    W4.Unassigned -> return (W4.truePred sym)
+
+-- | Test whether two JVM references are equal.
+refIsEqual ::
+  IsSymInterface sym =>
+  sym -> C.RegValue sym JVMRefType -> C.RegValue sym JVMRefType -> IO (W4.Pred sym)
+refIsEqual sym ref1 ref2 =
+  case ref1 of
+    W4.Unassigned ->
+      case ref2 of
+        W4.Unassigned -> return (W4.truePred sym)
+        W4.PE p2 _r2 -> W4.notPred sym p2
+    W4.PE p1 r1 ->
+      case ref2 of
+        W4.Unassigned -> W4.notPred sym p1
+        W4.PE p2 r2 ->
+          do n1 <- W4.notPred sym p1
+             n2 <- W4.notPred sym p2
+             n <- W4.andPred sym n1 n2
+             p <- W4.andPred sym p1 p2
+             e <- doAppJVM sym (ReferenceEq W4.knownRepr (C.RV r1) (C.RV r2))
+             W4.orPred sym n =<< W4.andPred sym p e
+
+-- | Evaluate a Crucible 'App' node in the @IO@ monad, using run-time values.
+doAppJVM ::
+  IsSymInterface sym =>
+  sym -> App JVM (C.RegValue' sym) tp -> IO (C.RegValue sym tp)
+doAppJVM sym =
+  C.evalApp sym jvmIntrinsicTypes out
+    (C.extensionEval jvmExtensionImpl sym jvmIntrinsicTypes out) (return . C.unRV)
+  where
+    out _verbosity _msg = return () --putStrLn
+
+doFieldStore ::
+  IsSymInterface sym =>
+  sym ->
+  C.SymGlobalState sym ->
+  C.RegValue sym JVMRefType ->
+  String {- ^ field name -} ->
+  C.RegValue sym JVMValueType ->
+  IO (C.SymGlobalState sym)
+doFieldStore sym globals ref fname val =
+  do let msg1 = C.GenericSimError "Field store: null reference"
+     ref' <- C.readPartExpr sym ref msg1
+     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     let msg2 = C.GenericSimError "Field store: object is not a class instance"
+     inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
+     let tab = C.unRV (inst Ctx.! Ctx.i1of2)
+     let tab' = Map.insert (Text.pack fname) (W4.justPartExpr sym val) tab
+     let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of2) (C.RV tab') inst
+     let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i1of2 inst')
+     EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
+
+doArrayStore ::
+  IsSymInterface sym =>
+  sym ->
+  C.SymGlobalState sym ->
+  C.RegValue sym JVMRefType ->
+  Int {- ^ array index -} ->
+  C.RegValue sym JVMValueType ->
+  IO (C.SymGlobalState sym)
+doArrayStore sym globals ref idx val =
+  do let msg1 = C.GenericSimError "Array store: null reference"
+     ref' <- C.readPartExpr sym ref msg1
+     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     let msg2 = C.GenericSimError "Object is not an array"
+     arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
+     let vec = C.unRV (arr Ctx.! Ctx.i2of3)
+     let vec' = vec V.// [(idx, val)]
+     let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of3) (C.RV vec') arr
+     let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i2of2 arr')
+     EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
+
+doFieldLoad ::
+  IsSymInterface sym =>
+  sym ->
+  W4.ProgramLoc ->
+  C.SymGlobalState sym ->
+  J.Type -> C.RegValue sym JVMRefType -> String {- ^ field name -} ->
+  IO (C.RegValue sym JVMValueType)
+doFieldLoad sym loc globals ty ref fname =
+  do let msg1 = C.GenericSimError "Field load: null reference"
+     ref' <- C.readPartExpr sym ref msg1
+     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     let msg2 = C.GenericSimError "Field load: object is not a class instance"
+     inst <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
+     let tab = C.unRV (inst Ctx.! Ctx.i1of2)
+     let msg3 = C.GenericSimError $ "Field load: field not found: " ++ fname
+     let key = Text.pack fname
+     C.readPartExpr sym (fromMaybe W4.Unassigned (Map.lookup key tab)) msg3
+
+doArrayLoad ::
+  IsSymInterface sym =>
+  sym ->
+  W4.ProgramLoc ->
+  C.SymGlobalState sym ->
+  J.Type -> C.RegValue sym JVMRefType -> Int {- ^ array index -} ->
+  IO (C.RegValue sym JVMValueType)
+doArrayLoad sym loc globals ty ref idx =
+  do let msg1 = C.GenericSimError "Array load: null reference"
+     ref' <- C.readPartExpr sym ref msg1
+     obj <- EvalStmt.readRef sym jvmIntrinsicTypes objectRepr ref' globals
+     -- TODO: define a 'projectVariant' function in the OverrideSim monad
+     let msg2 = C.GenericSimError "Array load: object is not an array"
+     arr <- C.readPartExpr sym (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
+     let vec = C.unRV (arr Ctx.! Ctx.i2of3)
+     let msg3 = C.GenericSimError $ "Array load: index out of bounds: " ++ show idx
+     case vec V.!? idx of
+       Just val -> return val
+       Nothing -> C.addFailedAssertion sym msg3
+
+doAllocateObject ::
+  IsSymInterface sym =>
+  sym ->
+  C.HandleAllocator RealWorld ->
+  JVMContext ->
+  J.ClassName ->
+  C.SymGlobalState sym ->
+  IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
+doAllocateObject sym halloc jc cname globals =
+  do cls <- lookupJVMClassByName sym globals jc cname
+     let fieldIds = fieldsOfClassName jc cname
+     let pval = W4.justPartExpr sym unassignedJVMValue
+     let fields = Map.fromList [ (fieldIdText f, pval) | f <- fieldIds ]
+     let inst = Ctx.Empty Ctx.:> C.RV fields Ctx.:> C.RV cls
+     let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
+     let obj = C.RolledType (C.injectVariant sym repr Ctx.i1of2 inst)
+     ref <- stToIO (C.freshRefCell halloc objectRepr)
+     let globals' = C.updateRef ref (W4.justPartExpr sym obj) globals
+     return (W4.justPartExpr sym (C.toMuxTree sym ref), globals')
+
+doAllocateArray ::
+  IsSymInterface sym =>
+  sym ->
+  C.HandleAllocator RealWorld ->
+  JVMContext -> Int {- ^ array length -} -> J.Type {- ^ element type -} ->
+  C.SymGlobalState sym ->
+  IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
+doAllocateArray sym halloc jc len elemTy globals =
+  do len' <- liftIO $ W4.bvLit sym w32 (toInteger len)
+     let vec = V.replicate len unassignedJVMValue
+     rep <- makeJVMTypeRep sym globals jc elemTy
+     let arr = Ctx.Empty Ctx.:> C.RV len' Ctx.:> C.RV vec Ctx.:> C.RV rep
+     let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
+     let obj = C.RolledType (C.injectVariant sym repr Ctx.i2of2 arr)
+     ref <- stToIO (C.freshRefCell halloc objectRepr)
+     let globals' = C.updateRef ref (W4.justPartExpr sym obj) globals
+     return (W4.justPartExpr sym (C.toMuxTree sym ref), globals')
+
+-- | Lookup the data structure associated with a class.
+lookupJVMClassByName ::
+  IsSymInterface sym =>
+  sym ->
+  C.SymGlobalState sym ->
+  JVMContext ->
+  J.ClassName ->
+  IO (C.RegValue sym JVMClassType)
+lookupJVMClassByName sym globals jc cname =
+  do let key = classNameText cname
+     let msg1 = C.GenericSimError "Class table not found"
+     let msg2 = C.GenericSimError $ "Class was not found in class table: " ++ J.unClassName cname
+     classtab <-
+       case C.lookupGlobal (dynamicClassTable jc) globals of
+         Just x -> return x
+         Nothing -> C.addFailedAssertion sym msg1
+     let pcls = fromMaybe W4.Unassigned (Map.lookup key classtab)
+     C.readPartExpr sym pcls msg2
+
+-- | A degenerate value of the variant type, where every branch is
+-- unassigned. This is used to model uninitialized array elements.
+unassignedJVMValue :: C.RegValue sym JVMValueType
+unassignedJVMValue =
+  Ctx.fmapFC (\_ -> C.VB W4.Unassigned) (knownRepr :: C.CtxRepr JVMValueCtx)
+
+mkFieldId :: J.Class -> J.Field -> J.FieldId
+mkFieldId c f = J.FieldId (J.className c) (J.fieldName f) (J.fieldType f)
+
+-- | Find the fields not just in this class, but also in the super classes.
+fieldsOfClass :: JVMContext -> J.Class -> [J.FieldId]
+fieldsOfClass jc cls =
+  case J.superClass cls of
+    Nothing -> fields
+    Just super -> fields ++ fieldsOfClassName jc super
+  where
+    fields = map (mkFieldId cls) (J.classFields cls)
+
+fieldsOfClassName :: JVMContext -> J.ClassName -> [J.FieldId]
+fieldsOfClassName jc cname =
+  case Map.lookup cname (classTable jc) of
+    Just cls -> fieldsOfClass jc cls
+    Nothing -> []
+
+-- | Given a JVM type, generate a runtime value for its representation.
+makeJVMTypeRep ::
+  IsSymInterface sym =>
+  sym ->
+  C.SymGlobalState sym ->
+  JVMContext ->
+  J.Type ->
+  IO (C.RegValue sym JVMTypeRepType)
+makeJVMTypeRep sym globals jc ty =
+  case ty of
+    J.ArrayType ety ->
+      do ety' <- makeJVMTypeRep sym globals jc ety
+         return $ C.RolledType (C.injectVariant sym knownRepr Ctx.i1of3 ety')
+    J.ClassType _cn ->
+      primTypeRep 8 -- FIXME: temporary hack
+    J.BooleanType -> primTypeRep 0
+    J.ByteType    -> primTypeRep 1
+    J.CharType    -> primTypeRep 2
+    J.DoubleType  -> primTypeRep 3
+    J.FloatType   -> primTypeRep 4
+    J.IntType     -> primTypeRep 5
+    J.LongType    -> primTypeRep 6
+    J.ShortType   -> primTypeRep 7
+  where
+    primTypeRep n =
+      do n' <- W4.bvLit sym w32 n
+         return $ C.RolledType (C.injectVariant sym knownRepr Ctx.i3of3 n')
