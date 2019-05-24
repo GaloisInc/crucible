@@ -274,6 +274,15 @@ doubleRepr = knownRepr
 floatRepr  :: TypeRepr JVMFloatType
 floatRepr  = knownRepr
 
+objectRepr :: TypeRepr JVMObjectType
+objectRepr = knownRepr
+
+arrayRepr :: TypeRepr JVMArrayType
+arrayRepr = knownRepr
+
+instanceRepr :: TypeRepr JVMInstanceType
+instanceRepr = knownRepr
+
 showJVMType :: TypeRepr a -> String
 showJVMType x
   | Just Refl <- testEquality x refRepr    = "JVMRef"
