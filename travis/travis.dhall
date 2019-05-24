@@ -6,6 +6,9 @@ in  let map =
 in  let concatSep =
           https://raw.githubusercontent.com/dhall-lang/dhall-lang/v5.0.0/Prelude/Text/concatSep
 
+in  let bShow =
+          https://raw.githubusercontent.com/dhall-lang/dhall-lang/v5.0.0/Prelude/Bool/show
+
 in  let OperatingSystem = < Linux : {} | OSX : {} >
 
 in  let operatingSystem = constructors OperatingSystem
@@ -22,7 +25,17 @@ in  let Include =
           }
 
 in  let MakeIncludeArgs =
-          { ghc : Text, cabal : Text, os : OperatingSystem, buildArg : Text }
+          { ghc :
+              Text
+          , cabal :
+              Text
+          , os :
+              OperatingSystem
+          , buildArg :
+              Text
+          , doLint :
+              Bool
+          }
 
 in  let makeEnv =
             λ(args : MakeIncludeArgs)
@@ -31,6 +44,7 @@ in  let makeEnv =
               [ "CABALVER=${args.cabal}"
               , "GHCVER=${args.ghc}"
               , "BUILD_ARG=${args.buildArg}"
+              , "DO_LINT=${bShow args.doLint}"
               ]
             : Text
 
@@ -41,40 +55,48 @@ in  let makeInclude =
               , compiler =
                   [] : Optional Text
               , addons =
-                  merge
-                  { Linux =
-                        λ(_ : {})
-                      → [ { apt =
-                              [ { packages =
-                                    [ "cabal-install-${args.cabal}"
-                                    , "ghc-${args.ghc}"
-                                    , "libglpk-dev"
-                                    , "libntl-dev"
-                                    , "libboost-all-dev"
-                                    ]
-                                , sources =
-                                    [ "hvr-ghc" ]
+                        if args.doLint
+                  
+                  then  [] : Optional schema.Addon
+                  
+                  else  merge
+                        { Linux =
+                              λ(_ : {})
+                            → [ { apt =
+                                    [ { packages =
+                                          [ "cabal-install-${args.cabal}"
+                                          , "ghc-${args.ghc}"
+                                          , "libglpk-dev"
+                                          , "libntl-dev"
+                                          , "libboost-all-dev"
+                                          ]
+                                      , sources =
+                                          [ "hvr-ghc" ]
+                                      }
+                                    ] : Optional schema.AddonApt
+                                , homebrew =
+                                    [] : Optional schema.AddonBrew
                                 }
-                              ] : Optional schema.AddonApt
-                          , homebrew =
-                              [] : Optional schema.AddonBrew
-                          }
-                        ] : Optional schema.Addon
-                  , OSX =
-                        λ(_ : {})
-                      → [ { apt =
-                              [] : Optional schema.AddonApt
-                          , homebrew =
-                              [ { packages =
-                                    [ "ghc", "ntl", "glpk", "cabal-install" ]
-                                , update =
-                                    True
+                              ] : Optional schema.Addon
+                        , OSX =
+                              λ(_ : {})
+                            → [ { apt =
+                                    [] : Optional schema.AddonApt
+                                , homebrew =
+                                    [ { packages =
+                                          [ "ghc"
+                                          , "ntl"
+                                          , "glpk"
+                                          , "cabal-install"
+                                          ]
+                                      , update =
+                                          True
+                                      }
+                                    ] : Optional schema.AddonBrew
                                 }
-                              ] : Optional schema.AddonBrew
-                          }
-                        ] : Optional schema.Addon
-                  }
-                  args.os
+                              ] : Optional schema.Addon
+                        }
+                        args.os
               , os =
                   merge
                   { Linux =
@@ -95,6 +117,8 @@ in  let allowNewer =
                 operatingSystem.Linux {=}
             , buildArg =
                 "--allow-newer"
+            , doLint =
+                False
             }
           : MakeIncludeArgs
 
@@ -130,6 +154,8 @@ in    { language =
                         operatingSystem.Linux {=}
                     , buildArg =
                         ""
+                    , doLint =
+                        False
                     }
                   , { ghc =
                         "8.4.3"
@@ -139,6 +165,8 @@ in    { language =
                         operatingSystem.Linux {=}
                     , buildArg =
                         ""
+                    , doLint =
+                        False
                     }
                   , { ghc =
                         "8.6.3"
@@ -148,6 +176,19 @@ in    { language =
                         operatingSystem.OSX {=}
                     , buildArg =
                         ""
+                    , doLint =
+                        False
+                    }
+                  , { ghc =
+                        "8.6.3"
+                    , cabal =
+                        "2.4"
+                    , os =
+                        operatingSystem.Linux {=}
+                    , buildArg =
+                        ""
+                    , doLint =
+                        True
                     }
                   , allowNewer
                   ]
@@ -174,16 +215,28 @@ in    { language =
             ]
           ] : Optional (List Text)
       , script =
-          [ [ "cabal new-update"
-            ,     let hlintURL =
-                        "https://raw.github.com/ndmitchell/neil/master/misc/travis.sh"
-              
-              in  let pkgs =
-                        "crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}"
-              
-              in  "curl -sSL ${hlintURL} | sh -s -- hlint ${pkgs}"
-            , "cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
-            ]
+          [     let cond =
+                        λ(cond : Text)
+                      → λ(step : Text)
+                      →   concatSep " " [ "if ${cond}; then", step, ";", "fi" ]
+                        : Text
+            
+            in  let doLint = cond "[[ \$DO_LINT == True ]]"
+            
+            in  let noLint = cond "[[ \$DO_LINT != True ]]"
+            
+            in  [ noLint
+                  "cabal new-update"
+                ,     let hlintURL =
+                            "https://raw.github.com/ndmitchell/neil/master/misc/travis.sh"
+                  
+                  in  let pkgs =
+                            "crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}"
+                  
+                  in  doLint "curl -sSL ${hlintURL} | sh -s -- hlint ${pkgs}"
+                , noLint
+                  "cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization \$BUILD_ARG"
+                ]
           ] : Optional (List Text)
       }
     : schema.Travis

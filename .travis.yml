@@ -1,16 +1,17 @@
 script:
-- cabal new-update
-- curl -sSL https://raw.github.com/ndmitchell/neil/master/misc/travis.sh | sh -s --
-  hlint crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}
-- cabal new-build crucible{,-jvm,-llvm,-saw,-syntax} crux{,-llvm} what4{,-abc,-blt}
-  -j --disable-optimization $BUILD_ARG
+- if [[ $DO_LINT != True ]]; then cabal new-update ; fi
+- if [[ $DO_LINT == True ]]; then curl -sSL https://raw.github.com/ndmitchell/neil/master/misc/travis.sh
+  | sh -s -- hlint crucible{,-jvm,-llvm,-saw,-server,-syntax} crux{,-llvm} what4{,-abc,-blt}
+  ; fi
+- if [[ $DO_LINT != True ]]; then cabal new-build crucible{,-jvm,-llvm,-saw,-syntax}
+  crux{,-llvm} what4{,-abc,-blt} -j --disable-optimization $BUILD_ARG ; fi
 before_cache:
 - rm -fv $HOME/.cabal/packages/hackage.haskell.org/build-reports.log
 - rm -fv $HOME/.cabal/packages/hackage.haskell.org/00-index.tar
 matrix:
   fast_finish: true
   include:
-  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=
+  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG= DO_LINT=False
     addons:
       apt:
         sources:
@@ -21,7 +22,7 @@ matrix:
         - libglpk-dev
         - libntl-dev
         - libboost-all-dev
-  - env: CABALVER=2.4 GHCVER=8.4.3 BUILD_ARG=
+  - env: CABALVER=2.4 GHCVER=8.4.3 BUILD_ARG= DO_LINT=False
     addons:
       apt:
         sources:
@@ -32,7 +33,7 @@ matrix:
         - libglpk-dev
         - libntl-dev
         - libboost-all-dev
-  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=
+  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG= DO_LINT=False
     addons:
       homebrew:
         packages:
@@ -42,7 +43,8 @@ matrix:
         - cabal-install
         update: true
     os: osx
-  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer
+  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG= DO_LINT=True
+  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer DO_LINT=False
     addons:
       apt:
         sources:
@@ -54,7 +56,7 @@ matrix:
         - libntl-dev
         - libboost-all-dev
   allow_failures:
-  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer
+  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer DO_LINT=False
 cache:
   directories:
   - $HOME/.cabsnap
