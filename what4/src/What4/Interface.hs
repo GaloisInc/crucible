@@ -844,6 +844,20 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
                         SymBV sym w {- ^ Amount to shift by -} ->
                         IO (SymBV sym w)
 
+  -- | Rotate left.
+  bvRol :: (1 <= w) =>
+    sym ->
+    SymBV sym w {- ^ bitvector to rotate -} ->
+    SymBV sym w {- ^ amount to rotate by -} ->
+    IO (SymBV sym w)
+
+  -- | Rotate right.
+  bvRor :: (1 <= w) =>
+    sym ->
+    SymBV sym w {- ^ bitvector to rotate -} ->
+    SymBV sym w {- ^ amount to rotate by -} ->
+    IO (SymBV sym w)
+
   -- | Zero-extend a bitvector.
   bvZext :: (1 <= u, u+1 <= r) => sym -> NatRepr r -> SymBV sym u -> IO (SymBV sym r)
 

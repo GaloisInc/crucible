@@ -339,6 +339,40 @@ testBVIteNesting = testCase "nested bitvector ites" $ withZ3' $ \sym s -> do
   assume (sessionWriter s) p
   runCheckSat s $ \res -> isSat res @? "sat"
 
+testRotate1 :: TestTree
+testRotate1 = testCase "rotate test1" $ withOnlineZ3' $ \sym s -> do
+  bv <- freshConstant sym (userSymbol' "bv") (BaseBVRepr (knownNat @32))
+
+  bv1 <- bvRol sym bv =<< bvLit sym knownNat 8
+  bv2 <- bvRol sym bv1 =<< bvLit sym knownNat 16
+  bv3 <- bvRol sym bv2 =<< bvLit sym knownNat 8
+  bv4 <- bvRor sym bv2 =<< bvLit sym knownNat 24
+  bv5 <- bvRor sym bv2 =<< bvLit sym knownNat 28
+
+  res <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv3
+  isUnsat res @? "unsat1"
+
+  res1 <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv4
+  isUnsat res1 @? "unsat2"
+
+  res2 <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv5
+  isSat res2 @? "sat"
+
+testRotate2 :: TestTree
+testRotate2 = testCase "rotate test2" $ withOnlineZ3' $ \sym s -> do
+  bv  <- freshConstant sym (userSymbol' "bv") (BaseBVRepr (knownNat @32))
+  amt <- freshConstant sym (userSymbol' "amt") (BaseBVRepr (knownNat @32))
+
+  bv1 <- bvRol sym bv amt
+  bv2 <- bvRor sym bv1 amt
+  bv3 <- bvRol sym bv =<< bvLit sym knownNat 20
+
+  res1 <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv2
+  isUnsat res1 @? "unsat"
+
+  res2 <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv3
+  isSat res2 @? "sat"
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -359,4 +393,6 @@ main = defaultMain $ testGroup "Tests"
   , testBVSelectLshr
   , testUninterpretedFunctionScope
   , testBVIteNesting
+  , testRotate1
+  , testRotate2
   ]
