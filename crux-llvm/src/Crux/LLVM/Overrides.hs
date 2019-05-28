@@ -20,14 +20,14 @@ import System.IO (hPutStrLn)
 
 import Data.Parameterized.Classes(showF)
 import Data.Parameterized.Context.Unsafe (Assignment)
-import Data.Parameterized.Context(pattern Empty, pattern (:>))
+import Data.Parameterized.Context(pattern Empty, pattern (:>), singleton)
 
 
 import What4.FunctionName(functionNameFromText)
 import What4.Symbol(userSymbol, emptySymbol)
 import What4.Interface
           (freshConstant, bvLit, bvEq, bvAdd, asUnsignedBV,notPred
-          , getCurrentProgramLoc, printSymExpr, natLit)
+          , getCurrentProgramLoc, printSymExpr, arrayUpdate)
 import What4.InterpretedFloatingPoint (freshFloatConstant, iFloatBaseTypeRepr)
 
 import Lang.Crucible.Types
@@ -62,8 +62,8 @@ import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
 import Lang.Crucible.LLVM.MemModel
-  (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth,LLVMVal(..), ptrAdd, doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
-   llvmPointer_bv, projectLLVM_bv, doArrayStore, bitvectorType, storeConstRaw, doArrayConstStore)
+  (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth, doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
+   llvmPointer_bv, projectLLVM_bv, doArrayStore, doArrayConstStore)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
 import Lang.Crucible.LLVM.Extension(ArchWidth)
@@ -306,14 +306,12 @@ lib_fresh_str mvar = do
         Right nm -> return nm
       let arrayRep = BaseArrayRepr (Empty :> BaseBVRepr ?ptrWidth) (BaseBVRepr (knownNat @8))
       initContents <- liftIO $ freshConstant sym contentsName arrayRep
-      mem2 <- liftIO $ doArrayConstStore sym mem1 ptr noAlignment initContents maxLenBV
-
-      -- Write the NUL terminator to the last byte
       zeroByte <- liftIO $ bvLit sym (knownNat @8) 0
-      n0 <- liftIO $ natLit sym 0
-      termPtr <- liftIO $ ptrAdd sym ?ptrWidth ptr maxLenBV
-      mem3 <- liftIO $ storeConstRaw sym mem2 termPtr (bitvectorType 1) noAlignment (LLVMValInt n0 zeroByte)
-      writeGlobal mvar mem3
+      -- Put the NUL terminator in place
+      initContentsZ <- liftIO $ arrayUpdate sym initContents (singleton maxLenBV) zeroByte
+      mem2 <- liftIO $ doArrayConstStore sym mem1 ptr noAlignment initContentsZ len
+
+      writeGlobal mvar mem2
       return ptr
 
 lib_assume ::
