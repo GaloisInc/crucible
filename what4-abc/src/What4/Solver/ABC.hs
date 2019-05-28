@@ -444,6 +444,8 @@ bitblastExpr h ae = do
     BVShl _w x y -> BV <$> join (AIG.shl g <$> eval' h x <*> eval' h y)
     BVLshr _w x y -> BV <$> join (AIG.ushr g <$> eval' h x <*> eval' h y)
     BVAshr _w x y -> BV <$> join (AIG.sshr g <$> eval' h x <*> eval' h y)
+    BVRol _w x y -> BV <$> join (AIG.rol g <$> eval' h x <*> eval' h y)
+    BVRor _w x y -> BV <$> join (AIG.ror g <$> eval' h x <*> eval' h y)
 
     BVFill w xe -> BV . AIG.bvFromList . replicate (widthVal w) <$> eval' h xe
 
