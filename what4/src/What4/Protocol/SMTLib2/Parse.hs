@@ -45,14 +45,26 @@ import           Data.String
 import           Data.Word
 import           System.IO
 
-b2c :: Char -> Word8
-b2c = fromIntegral . fromEnum
+c2b :: Char -> Word8
+c2b = fromIntegral . fromEnum
 
 ------------------------------------------------------------------------
 -- Parser definitions
 
-newtype Parser a = Parser (ReaderT Handle IO a)
-  deriving (Functor, Applicative, Monad)
+-- | A parser monad that just reads from a handle.
+--
+-- We use our own parser rather than Attoparsec or some other library
+-- so that we can incrementally request characters.
+--
+-- We likely could replace this with Attoparsec by assuming that
+-- SMTLIB solvers always end their output responses with newlines, or
+-- feeding output one character at a time.
+newtype Parser a = Parser { unParser :: ReaderT Handle IO a }
+  deriving (Functor, Applicative)
+
+instance Monad Parser where
+  Parser m >>= h = Parser $ m >>= unParser . h
+  fail = error
 
 runParser :: Handle -> Parser a -> IO a
 runParser h (Parser f) = runReaderT f h
@@ -60,12 +72,24 @@ runParser h (Parser f) = runReaderT f h
 parseChar :: Parser Char
 parseChar = Parser $ ReaderT $ hGetChar
 
+-- | Peek ahead to get the next character.
 peekChar :: Parser Char
 peekChar = Parser $ ReaderT $ hLookAhead
 
 dropChar :: Parser ()
 dropChar = Parser $ ReaderT $ \h -> hGetChar h *> pure ()
 
+-- | Drop characters until we get a non-whitespace character.
+dropWhitespace :: Parser ()
+dropWhitespace = do
+  c <- peekChar
+  if isSpace c then do
+    dropChar >> dropWhitespace
+   else
+    pure ()
+
+-- | Drop whitespace, and if next character matches expected return,
+-- otherwise fail.
 matchChar :: Char -> Parser ()
 matchChar expected = do
   c <- parseChar
@@ -75,14 +99,6 @@ matchChar expected = do
     matchChar expected
    else
     fail $ "Unexpected input char " ++ show c ++ "(expected " ++ show expected ++ ")"
-
-dropWhitespace :: Parser ()
-dropWhitespace = do
-  c <- peekChar
-  if isSpace c then do
-    parseChar >> dropWhitespace
-   else
-    pure ()
 
 -- | Drop whitespace until we reach the given string.
 matchString :: BS.ByteString -> Parser ()
@@ -96,15 +112,16 @@ parseUntilCloseParen' :: [a] -> Parser a -> Parser [a]
 parseUntilCloseParen' prev p = do
   c <- peekChar
   if isSpace c then
-    parseChar >> parseUntilCloseParen' prev p
+    dropChar >> parseUntilCloseParen' prev p
    else if c == ')' then
-    pure $ reverse prev
+    dropChar *> pure (reverse prev)
    else do
     p >>= \n -> parseUntilCloseParen' (n:prev) p
 
+-- | @parseUntilCloseParen p@ will drop whitespace characters, and
+-- run @p@
 parseUntilCloseParen :: Parser a -> Parser [a]
 parseUntilCloseParen = parseUntilCloseParen' []
-
 
 -- | @takeChars' p prev h@ prepends characters read from @h@ to @prev@
 -- until @p@ is false, and returns the resulting string.
@@ -113,7 +130,7 @@ takeChars' p prev = do
   c <- peekChar
   if p c then do
     _ <- parseChar
-    takeChars' p (b2c c:prev)
+    takeChars' p (c2b c:prev)
    else do
     pure $! prev
 
@@ -128,12 +145,20 @@ takeChars p = do
 instance IsString (Parser ()) where
   fromString = matchString . fromString
 
-$(pure [])
+-- | Parse a quoted string.
+parseQuotedString :: Parser String
+parseQuotedString = do
+  matchChar '"'
+  l <- takeChars (/= '"')
+  matchChar '"'
+  pure $ UTF8.toString l
 
+-- | Defines common operations for parsing SMTLIB results.
 class CanParse a where
+  -- | Parser for values of this type.
   parse :: Parser a
 
-  -- | Read the given
+  -- | Read from a handle.
   readFromHandle :: Handle -> IO a
   readFromHandle h = runParser h parse
 
@@ -149,19 +174,12 @@ data CheckSatResponse
    | CheckSatUnsupported
    | CheckSatError !String
 
-parseQuotedString :: Parser String
-parseQuotedString = do
-  dropWhitespace
-  matchChar '"'
-  l <- takeChars (/= '"')
-  matchChar '"'
-  pure $ UTF8.toString l
-
 instance CanParse CheckSatResponse where
   parse = do
     isParen <- checkParen
     if isParen then do
       matchString "error"
+      dropWhitespace
       msg <- parseQuotedString
       closeParen
       pure (CheckSatError msg)
@@ -172,12 +190,14 @@ instance CanParse CheckSatResponse where
                , ("unsupported", pure CheckSatUnsupported)
                ]
 
+-- | Read the results of a @(check-sat)@ request.
 readCheckSatResponse :: Handle -> IO CheckSatResponse
 readCheckSatResponse = readFromHandle
 
 ------------------------------------------------------------------------
 -- Parse get-model definitions
 
+-- | An SMT symbol
 newtype Symbol = Symbol BS.ByteString
   deriving (Eq)
 
@@ -255,23 +275,26 @@ instance CanParse Symbol where
     dropWhitespace
     c0 <- peekChar
     if c0 == '|' then do
-      r <- takeChars' (`notElem` ['|', '/']) [b2c c0]
+      r <- takeChars' (`notElem` ['|', '/']) [c2b c0]
       ce <- peekChar
       when (ce /= '|') $ do
         fail $ "Unexpected character " ++ show ce ++ " inside symbol."
-      pure $! Symbol (BS.pack $ reverse (b2c ce:r))
+      pure $! Symbol (BS.pack $ reverse (c2b ce:r))
      else if HSet.member c0 initialSymbolCharSet then do
-      r <- BS.pack . reverse <$> takeChars' (`HSet.member` symbolCharSet) [b2c c0]
+      r <- BS.pack . reverse <$> takeChars' (`HSet.member` symbolCharSet) [c2b c0]
       when (HSet.member r reservedWords) $ do
         fail $ "Symbol cannot be reserved word " ++ show r
       pure $! Symbol r
      else do
       fail $ "Unexpected character " ++ show c0 ++ " starting symbol."
 
+-- | This skips whitespace than reads in the next alphabetic or dash
+-- characters.
 matchApp :: [(BS.ByteString, Parser a)] -> Parser a
 matchApp actions = do
   dropWhitespace
-  w <- takeChars (\c -> 'a' <= c && c <= 'z' || c == '-')
+  let allowedChar c = 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || c == '-'
+  w <- takeChars allowedChar
   case filter (\(m,_p) -> m == w) actions of
     [] -> do
       w' <- takeChars (\c -> c `notElem` ['\r', '\n'])
@@ -279,13 +302,13 @@ matchApp actions = do
     [(_,p)] -> p
     _:_:_ -> fail $ "internal error: Duplicate keywords " ++ show w
 
-
 openParen :: Parser ()
 openParen = matchChar '('
 
 closeParen :: Parser ()
 closeParen = matchChar ')'
 
+-- | Read in whitespace, and then if next character is a paren
 checkParen :: Parser Bool
 checkParen = do
   c <- peekChar
@@ -296,9 +319,12 @@ checkParen = do
    else
     pure False
 
+-- | An SMT sort.
 data Sort
   = Sort Symbol [Sort]
+    -- ^ A named sort with the given arguments.
   | BitVec !Integer
+    -- ^ A bitvector with the given width.
   | FloatingPoint !Integer !Integer
     -- ^ floating point with exponent bits followed by significand bit.
 
@@ -352,6 +378,7 @@ instance CanParse Sort where
       sym <- parse
       pure $! Sort sym []
 
+-- | This denotes an SMTLIB term over a fixed vocabulary.
 data Term
    = SymbolTerm !Symbol
    | AsConst !Sort !Term
@@ -435,11 +462,12 @@ instance CanParse Term where
      else
       fail $ "Could not parse term"
 
+
 data DefineFun = DefineFun { funSymbol :: !Symbol
-                     , funArgs :: ![(Symbol, Sort)]
-                     , funResultType :: !Sort
-                     , funDef :: !Term
-                     }
+                           , funArgs :: ![(Symbol, Sort)]
+                           , funResultSort :: !Sort
+                           , funDef :: !Term
+                           }
 
 -- | A line in the model response
 data ModelResponse
@@ -458,7 +486,7 @@ parseDefineFun = do
   def <- parse
   pure $! DefineFun { funSymbol = sym
                     , funArgs = args
-                    , funResultType = res
+                    , funResultSort = res
                     , funDef = def
                     }
 
@@ -473,9 +501,10 @@ instance CanParse ModelResponse where
     closeParen
     pure $! r
 
+-- | The parsed declarations and definitions returned by "(get-model)"
 type GetModelResponse = [ModelResponse]
 
-
+-- | This reads the model response from a "(get-model)" request.
 readGetModelResponse :: Handle -> IO GetModelResponse
 readGetModelResponse h =
   runParser h $
