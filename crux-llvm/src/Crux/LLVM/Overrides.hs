@@ -62,7 +62,7 @@ import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.DataLayout
   (noAlignment)
 import Lang.Crucible.LLVM.MemModel
-  (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth,LLVMVal(..), ptrAdd, doMalloc, AllocType(HeapAlloc), Mutability(Immutable),
+  (Mem, LLVMPointerType, pattern LLVMPointerRepr,loadString,HasPtrWidth,LLVMVal(..), ptrAdd, doMalloc, AllocType(HeapAlloc), Mutability(Mutable),
    llvmPointer_bv, projectLLVM_bv, doArrayStore, bitvectorType, storeConstRaw, doArrayConstStore)
 
 import Lang.Crucible.LLVM.Extension(LLVM)
@@ -295,7 +295,7 @@ lib_fresh_str mvar = do
       mem0 <- readGlobal mvar
 
       -- Allocate memory to hold the string
-      (ptr, mem1) <- liftIO $ doMalloc sym HeapAlloc Immutable name mem0 len noAlignment
+      (ptr, mem1) <- liftIO $ doMalloc sym HeapAlloc Mutable name mem0 len noAlignment
 
       -- Allocate contents for the string - we want to make each byte symbolic,
       -- so we allocate a fresh array (which has unbounded length) with symbolic
