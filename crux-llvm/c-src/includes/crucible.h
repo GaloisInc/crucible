@@ -1,9 +1,9 @@
 #ifndef CRUCIBLE_H
 #define CRUCIBLE_H
 
-#ifdef __cplusplus__
+#ifdef __cplusplus
 extern "C" {
-#endif //__cplusplus__
+#endif //__cplusplus
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,8 +29,8 @@ size_t   crucible_size_t   (const char *name);
 #define assuming(e) crucible_assume(e, __FILE__, __LINE__)
 #define check(e) crucible_assert(e, __FILE__, __LINE__)
 
-#ifdef __cplusplus__
+#ifdef __cplusplus
 }
-#endif //__cplusplus__
+#endif //__cplusplus
 
 #endif
