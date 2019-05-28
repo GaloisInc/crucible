@@ -339,6 +339,15 @@ testBVIteNesting = testCase "nested bitvector ites" $ withZ3' $ \sym s -> do
   assume (sessionWriter s) p
   runCheckSat s $ \res -> isSat res @? "sat"
 
+testSymbolPrimeCharZ3 :: TestTree
+testSymbolPrimeCharZ3 = testCase "z3 symbol prime (') char" $
+  withZ3' $ \sym s -> do
+    x <- freshConstant sym (userSymbol' "x'") knownRepr
+    y <- freshConstant sym (userSymbol' "y'") knownRepr
+    p <- natLt sym x y
+    assume (sessionWriter s) p
+    runCheckSat s $ \res -> isSat res @? "sat"
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -359,4 +368,5 @@ main = defaultMain $ testGroup "Tests"
   , testBVSelectLshr
   , testUninterpretedFunctionScope
   , testBVIteNesting
+  , testSymbolPrimeCharZ3
   ]

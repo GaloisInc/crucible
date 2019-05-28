@@ -32,15 +32,12 @@ isAsciiLetter c
   =  'A' <= c && c <= 'Z'
   || 'a' <= c && c <= 'z'
 
-isUserSymbolChar :: Char -> Bool
-isUserSymbolChar c
+isSymbolChar :: Char -> Bool
+isSymbolChar c
   = isAsciiLetter c
   || isDigit c
   || c == '_'
-
-isSystemSymbolChar :: Char -> Bool
-isSystemSymbolChar c
-  = isUserSymbolChar c
+  || c == '\''
   || c == '!'
 
 -- | This describes why a given text value was not a valid solver symbol.
@@ -93,7 +90,7 @@ emptySymbol = SolverSymbol Text.empty
 -- | This returns either a user symbol or the empty symbol if the string is empty.
 userSymbol :: String -> Either SolverSymbolError SolverSymbol
 userSymbol s
-  | all isUserSymbolChar s == False = Left SymbolIllegalChar
+  | elem '!' s = Left SymbolIllegalChar
   | otherwise = parseAnySymbol s
 
 systemSymbol :: String -> SolverSymbol
@@ -116,11 +113,13 @@ parseAnySymbol :: String -> Either SolverSymbolError SolverSymbol
 parseAnySymbol [] = Right emptySymbol
 parseAnySymbol (h:r)
   | isAsciiLetter h == False          = Left SymbolNoStartWithChar
-  | all isSystemSymbolChar r == False = Left SymbolIllegalChar
+  | all isSymbolChar r == False       = Left SymbolIllegalChar
   | t `Set.member` smtlibKeywordSet   = Left SymbolSMTLIBReserved
   | t `Set.member` yicesKeywordSet    = Left SymbolYicesReserved
   | otherwise = Right (SolverSymbol t)
-  where t = fromString (h:r)
+  where t = if elem '\'' r
+            then fromString ("|" ++ (h:r) ++ "|")
+            else fromString (h:r)
 
 smtlibKeywordSet :: Set Text
 smtlibKeywordSet = Set.fromList (fromString <$> smtlibKeywords)
