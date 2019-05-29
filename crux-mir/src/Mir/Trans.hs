@@ -135,7 +135,17 @@ subindexRef ::
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
 
+-----------------------------------------------------------------------
 
+-- | What to do when the translation fails.
+mirFail :: String -> MirGenerator h s ret a
+mirFail str = do
+  b  <- use assertFalseOnError
+  db <- use debugLevel
+  if b then do
+         when (db > 0) $ traceM ("Translation failure: " ++ str)
+         G.reportError (S.litExpr (Text.pack str))
+       else fail str
 
 
 -----------
@@ -231,11 +241,11 @@ transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
       (d , _):_ -> let rat = toRational (d :: Double) in
                    return (MirExp C.RealValRepr (S.app $ E.RationalLit rat))
-      []        -> fail $ "cannot parse float constant: " ++ show str
+      []        -> mirFail $ "cannot parse float constant: " ++ show str
 
 transConstVal (Some _ty) (ConstInitializer funid ss) =
     callExp funid ss [] 
-transConstVal tp cv = fail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
+transConstVal tp cv = mirFail $ "fail or unimp constant: " ++ (show tp) ++ " " ++ (show cv)
 
 
 lookupVar :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
@@ -254,9 +264,9 @@ lookupVar (M.Var vname _ vty _ pos) = do
               VarAtom a ->
                 do return $ MirExp vtr (R.AtomExpr a)
 
-        | otherwise -> fail ("bad type in lookupVar: " <> show vname <> " at " <> Text.unpack pos <>
+        | otherwise -> mirFail ("bad type in lookupVar: " <> show vname <> " at " <> Text.unpack pos <>
                              "\n\t expected " <> show vtr <> " found " <> show (varInfoRepr varinfo))
-      _ -> error ("register not found: " <> show vname <> " at " <> Text.unpack pos)
+      _ -> mirFail ("register not found: " <> show vname <> " at " <> Text.unpack pos)
 
 -- NOTE: The return var in the MIR output is always "_0"
 lookupRetVar :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
@@ -273,10 +283,10 @@ lookupRetVar tr = do
                 do readMirRef tr =<< G.readReg reg
               VarAtom a ->
                 do return (R.AtomExpr a)
-          Nothing -> fail $ "return register has wrong type. Expected: "
+          Nothing -> mirFail $ "return register has wrong type. Expected: "
                        ++ show tr ++ "\n Found " ++ show (varInfoRepr varinfo)
 
-      _ -> fail $ "reg not found in retvar " ++ show (Map.keys vm)
+      _ -> mirFail $ "reg not found in retvar " ++ show (Map.keys vm)
 
 
 -- ** Expressions: Operations and Aggregates
@@ -289,13 +299,13 @@ evalOperand (M.Move lv) = evalLvalue lv
 evalOperand (M.OpConstant (M.Constant conty conlit)) =
     case conlit of
        M.Value constval   -> transConstVal (tyToRepr conty) constval
-       M.Item defId _args -> fail $ "cannot translate item " ++ show defId
+       M.Item defId _args -> mirFail $ "cannot translate item " ++ show defId
        M.LitPromoted (M.Promoted idx) ->  do
           fn <- use currentFn
           let st = fn^.fpromoted
           case st V.!? idx of
             Just did -> lookupStatic did
-            Nothing  -> fail $ "Promoted index " ++ show idx ++ " out of range "
+            Nothing  -> mirFail $ "Promoted index " ++ show idx ++ " out of range "
 
 
 
@@ -352,7 +362,7 @@ evalBinOp bop mat me1 me2 =
                 let e2bv = S.app (E.IntegerToBV na (S.app (E.NatToInteger e2a)))
                 return $ MirExp (C.BVRepr na) (S.app $ E.BVAshr na e1a e2bv)
 
-            _ -> fail $ "No translation for binop: " ++ show bop ++ " with " ++ show ty1 ++ " and " ++ show ty2
+            _ -> mirFail $ "No translation for binop: " ++ show bop ++ " with " ++ show ty1 ++ " and " ++ show ty2
       (MirExp C.IntegerRepr e1, MirExp C.IntegerRepr e2) ->
             case bop of
               M.Add -> return $ MirExp C.IntegerRepr (S.app $ E.IntAdd e1 e2)
@@ -366,7 +376,7 @@ evalBinOp bop mat me1 me2 =
               M.Ge  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLe e2 e1)
               M.Ne  -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.IntEq e1 e2)
               M.Beq -> return $ MirExp (C.BoolRepr) (S.app $ E.IntEq e1 e2)
-              _ -> fail $ "No translation for integer binop: " ++ show bop 
+              _ -> mirFail $ "No translation for integer binop: " ++ show bop 
       (MirExp ty1@(C.BVRepr na) e1a, MirExp ty2@(C.BVRepr ma) e2a) ->
           -- if the BVs are not the same width extend the shorter one
           extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
@@ -406,14 +416,14 @@ evalBinOp bop mat me1 me2 =
 
               (M.Ne, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
               (M.Beq, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVEq n e1 e2)
-              _ -> fail $ "No translation for binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
+              _ -> mirFail $ "No translation for binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
       (MirExp C.BoolRepr e1, MirExp C.BoolRepr e2) ->
           case bop of
             M.BitAnd -> return $ MirExp C.BoolRepr (S.app $ E.And e1 e2)
             M.BitXor -> return $ MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2)
             M.BitOr -> return $ MirExp C.BoolRepr (S.app $ E.Or e1 e2)
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.BoolXor e1 e2)
-            _ -> fail $ "No translation for bool binop: " ++ fmt bop
+            _ -> mirFail $ "No translation for bool binop: " ++ fmt bop
       (MirExp C.NatRepr e1, MirExp C.NatRepr e2) ->
           case bop of
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.NatEq e1 e2)
@@ -428,7 +438,7 @@ evalBinOp bop mat me1 me2 =
             M.Div -> return $ MirExp C.NatRepr (S.app $ E.NatDiv e1 e2)
             M.Rem -> return $ MirExp C.NatRepr (S.app $ E.NatMod e1 e2)
             M.Ne -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.NatEq e1 e2)
-            _ -> fail $ "No translation for natural number binop: " ++ fmt bop
+            _ -> mirFail $ "No translation for natural number binop: " ++ fmt bop
       (MirExp C.RealValRepr e1, MirExp C.RealValRepr e2) ->
           case bop of
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.RealEq e1 e2)
@@ -443,9 +453,9 @@ evalBinOp bop mat me1 me2 =
             M.Div -> return $ MirExp C.RealValRepr (S.app $ E.RealDiv e1 e2)
             M.Rem -> return $ MirExp C.RealValRepr (S.app $ E.RealMod e1 e2)
             M.Ne -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.RealEq e1 e2)
-            _ -> fail $ "No translation for real number binop: " ++ fmt bop
+            _ -> mirFail $ "No translation for real number binop: " ++ fmt bop
 
-      (_, _) -> fail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
+      (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
 
 
 
@@ -458,7 +468,7 @@ transCheckedBinOp  a b c = do
 
 -- Nullary ops in rust are used for resource allocation, so are not interpreted
 transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
-transNullaryOp _ _ = fail "nullop"
+transNullaryOp _ _ = mirFail "nullop"
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
@@ -469,7 +479,7 @@ transUnaryOp uop op = do
       (M.Neg, MirExp (C.BVRepr n) e) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVSub n (S.app $ E.BVLit n 0) e)
       (M.Neg, MirExp C.IntegerRepr e) -> return $ MirExp C.IntegerRepr $ S.app $ E.IntNeg e
       (M.Neg, MirExp C.RealValRepr e) -> return $ MirExp C.RealValRepr $ S.app $ E.RealNeg e
-      (_ , MirExp ty e) -> fail $ "Unimplemented unary op `" ++ fmt uop ++ "' for " ++ show ty
+      (_ , MirExp ty e) -> mirFail $ "Unimplemented unary op `" ++ fmt uop ++ "' for " ++ show ty
 
 
 -- a -> u -> [a;u]
@@ -494,7 +504,7 @@ extendUnsignedBV (MirExp tp e) w =
                 return $ MirExp (C.BVRepr w) (S.app $ E.BVTrunc w n e)
       (C.BVRepr n) | Just LeqProof <- testLeq (incNat n) w ->
                 return $ MirExp (C.BVRepr w) (S.app $ E.BVZext w n e)
-      _ -> fail ("unimplemented unsigned bvext: " ++ show tp ++ "  " ++ show w)
+      _ -> mirFail ("unimplemented unsigned bvext: " ++ show tp ++ "  " ++ show w)
 
 extendSignedBV :: (1 <= w) => MirExp s -> NatRepr w -> MirGenerator h s ret (MirExp s)
 extendSignedBV (MirExp tp e) w = 
@@ -505,7 +515,7 @@ extendSignedBV (MirExp tp e) w =
                 return $ MirExp (C.BVRepr w) (S.app $ E.BVTrunc w n e)
       (C.BVRepr n) | Just LeqProof <- testLeq (incNat n) w ->
                 return $ MirExp (C.BVRepr w) (S.app $ E.BVSext w n e)
-      _ -> fail $ "unimplemented signed bvext" ++ show tp ++ " " ++ show w
+      _ -> mirFail $ "unimplemented signed bvext" ++ show tp ++ " " ++ show w
 
 
 evalCast' :: HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
@@ -527,7 +537,7 @@ evalCast' ck ty1 e ty2  =
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (R.App $ E.IntegerToBV w $ R.App $ E.NatToInteger e0)
 
-      (M.Misc, M.TyUint _, M.TyUint M.USize) -> fail "Cannot cast to unsized type"
+      (M.Misc, M.TyUint _, M.TyUint M.USize) -> mirFail "Cannot cast to unsized type"
 
       (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e 
       (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e 
@@ -535,11 +545,11 @@ evalCast' ck ty1 e ty2  =
 
       (M.Unsize, M.TyRef (M.TyArray tp _sz) M.Immut, M.TyRef (M.TySlice tp') M.Immut)
         | tp == tp' -> return e -- arrays and immutable slices have the same denotation
-        | otherwise -> fail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
+        | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
 
       (M.Unsize, M.TyRef (M.TyArray tp _sz) M.Mut, M.TyRef (M.TySlice tp') M.Immut)
-        | tp == tp' -> fail "FIXME! implement mut->immut unsize cast!"
-        | otherwise -> fail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
+        | tp == tp' -> mirFail "FIXME! implement mut->immut unsize cast!"
+        | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
 
       (M.Unsize, M.TyRef (M.TyArray tp sz) M.Mut, M.TyRef (M.TySlice tp') M.Mut)
         | tp == tp', MirExp (MirReferenceRepr (C.VectorRepr elem_tp)) ref <- e
@@ -549,10 +559,10 @@ evalCast' ck ty1 e ty2  =
                               (Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr elem_tp) Ctx.:> C.NatRepr Ctx.:> C.NatRepr)
                               (Ctx.Empty Ctx.:> ref Ctx.:> start Ctx.:> end)
               return $ MirExp (MirSliceRepr elem_tp) tup
-        | otherwise -> fail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
+        | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
 
       (M.Unsize, M.TyRef (M.TyArray _ _) M.Immut, M.TyRef (M.TySlice _) M.Mut) ->
-         fail "Cannot cast an immutable array to a mutable slice"
+         mirFail "Cannot cast an immutable array to a mutable slice"
 
       -- Trait object creation. Need this cast for closures
       (M.Unsize, M.TyRef baseType _, M.TyRef (M.TyDynamic (M.TraitPredicate traitName _:_)) _) ->
@@ -580,7 +590,7 @@ evalCast' ck ty1 e ty2  =
                return (MirExp tp r)
 
 
-      _ -> fail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
+      _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
  
 evalCast :: HasCallStack => M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast ck op ty = do
@@ -603,7 +613,7 @@ mkCustomTraitObject traitName (TyClosure fname args) e@(MirExp baseTyr baseValue
                        (R.App $ E.MkStruct ctxr (Ctx.empty Ctx.:> (R.App $ E.PackAny baseTyr baseValue) Ctx.:> assn))
       return e
 mkCustomTraitObject traitName baseType _ =
-  fail $ Text.unpack $ Text.unwords ["Error while creating a trait object: type ",
+  mirFail $ Text.unpack $ Text.unwords ["Error while creating a trait object: type ",
                                      Text.pack (show baseType)," does not implement trait ", M.idText traitName]
     
 
@@ -633,34 +643,34 @@ evalRefLvalue lv =
                     MirReferenceRepr tp -> do
                       r <- G.readReg reg
                       return $ MirExp (R.typeOfReg reg) r
-                    _ -> fail $ ("Cannot take address of non-reference" <> show  nm)
+                    _ -> mirFail $ ("Cannot take address of non-reference" <> show  nm)
                Just (Some (VarAtom a)) ->
                  case R.typeOfAtom a of
                     MirReferenceRepr tp -> do
                       return $ MirExp (R.typeOfAtom a) (R.AtomExpr a)
-                    _ -> fail $ ("Cannot take address of non-reference" <> show  nm)
+                    _ -> mirFail $ ("Cannot take address of non-reference" <> show  nm)
 
 
-               _ -> fail ("Mutable reference-taken variable not backed by reference! " <> show nm <> " at " <> Text.unpack pos)
+               _ -> mirFail ("Mutable reference-taken variable not backed by reference! " <> show nm <> " at " <> Text.unpack pos)
         M.LProjection proj -> evalRefProj proj
 
-        _ -> fail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
+        _ -> mirFail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
 
 getVariant :: HasCallStack => M.Ty -> MirGenerator h s ret (M.Variant, Substs)
 getVariant (M.TyAdt nm args) = do
     am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
-       Nothing -> fail ("Unknown ADT: " ++ show nm)
+       Nothing -> mirFail ("Unknown ADT: " ++ show nm)
        Just (M.Adt _ [struct_variant]) -> return (struct_variant, args)
-       _      -> fail ("Expected ADT with exactly one variant: " ++ show nm)
+       _      -> mirFail ("Expected ADT with exactly one variant: " ++ show nm)
 getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
     let i = fromInteger ii
     am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
-       Nothing -> fail ("Unknown ADT: " ++ show nm)
+       Nothing -> mirFail ("Unknown ADT: " ++ show nm)
        Just (M.Adt _ vars) | i < length vars -> return $ (vars !! i, args)
-       _      -> fail ("Expected ADT with more than " ++ show i ++ " variants: " ++ show nm)
-getVariant ty = fail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
+       _      -> mirFail ("Expected ADT with more than " ++ show i ++ " variants: " ++ show nm)
+getVariant ty = mirFail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
 
 evalRefProj :: HasCallStack => M.LvalueProjection -> MirGenerator h s ret (MirExp s)
 evalRefProj prj@(M.LvalueProjection base projElem) =
@@ -678,7 +688,7 @@ evalRefProj prj@(M.LvalueProjection base projElem) =
              (struct_variant, args) <- getVariant (M.typeOf base)
              Some ctx <- return $ variantToRepr struct_variant args
              case Ctx.intIndex idx (Ctx.size ctx) of
-                     Nothing -> fail ("Invalid index: " ++ show idx)
+                     Nothing -> mirFail ("Invalid index: " ++ show idx)
                      Just (Some idx') -> 
                         do r' <- subfieldRef ctx ref idx'
                            return (MirExp (MirReferenceRepr (ctx Ctx.! idx')) r')
@@ -692,7 +702,7 @@ evalRefProj prj@(M.LvalueProjection base projElem) =
 
             | C.VectorRepr _tp' <- elty
             , fromend == True ->
-                fail ("FIXME: implement constant fromend indexing in reference projection")
+                mirFail ("FIXME: implement constant fromend indexing in reference projection")
 
           M.Index var
             | C.VectorRepr tp' <- elty
@@ -706,13 +716,13 @@ evalRefProj prj@(M.LvalueProjection base projElem) =
                          r' <- subindexRef tp' ref idxNat
                          return (MirExp (MirReferenceRepr tp') r')
 
-                    _ -> fail ("Expected index value to be an integer value in reference projection " ++
+                    _ -> mirFail ("Expected index value to be an integer value in reference projection " ++
                                 show base ++ " " ++ show projElem ++ " " ++ show idxTy)
           M.Downcast idx ->
             return (MirExp tp ref)
-          _ -> fail ("Unexpected interior reference " ++ fmt base ++ " PROJECTED  " ++ show projElem
+          _ -> mirFail ("Unexpected interior reference " ++ fmt base ++ " PROJECTED  " ++ show projElem
                     ++ "\n for type " ++ show elty)
-       _ -> fail ("Expected reference value in lvalue projection: " ++ show tp ++ " " ++ show base)
+       _ -> mirFail ("Expected reference value in lvalue projection: " ++ show tp ++ " " ++ show base)
 
 
 evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
@@ -722,7 +732,7 @@ evalRval (M.Ref bk lv _) =
   case bk of
     M.Shared  -> evalLvalue lv
     M.Mutable -> evalRefLvalue lv
-    M.Unique  -> fail "FIXME! Unique reference not implemented"
+    M.Unique  -> mirFail "FIXME! Unique reference not implemented"
 
 evalRval (M.Len lv) =
   case lv of
@@ -733,12 +743,12 @@ evalRval (M.Len lv) =
               MirSliceRepr _tp' ->
                 do let end = S.getStruct (Ctx.natIndex @2) e
                    return $ MirExp C.NatRepr end
-              _ -> fail "Expected mutable slice value"
+              _ -> mirFail "Expected mutable slice value"
     _ ->
       do MirExp t e <- evalLvalue lv
          case t of
            C.VectorRepr _ -> return $ MirExp C.NatRepr $ S.vectorSize e -- might need to convert nat to bv later
-           _ -> fail "len expects vector input"
+           _ -> mirFail "len expects vector input"
 
 evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
@@ -803,7 +813,7 @@ buildClosureHandle funid (Substs tys) args
               let closure_unpack = buildTuple [handl, (packAny closure_arg)]
               return $ packAny closure_unpack
         _ ->
-          do fail ("buildClosureHandle: unknown function: "
+          do mirFail ("buildClosureHandle: unknown function: "
               ++ show funid ++ " or non-closed type ")
 
 -- | returns type of the closure paired with type of the arguments.
@@ -819,8 +829,8 @@ buildClosureType defid (Substs (_:_:args)) = do
               reprsToCtx [Some (FH.handleType fhandle), Some C.AnyRepr] $ \t ->
                   return $ (Some (C.StructRepr t), Some (C.StructRepr argsctx))
       _ ->
-       do fail ("buildClosureType: unknown function: " ++ show defid)
-buildClosureType defid ss = fail $ "BUG: incorrect substitution in buildClosureType: " ++ fmt ss
+       do mirFail ("buildClosureType: unknown function: " ++ show defid)
+buildClosureType defid ss = mirFail $ "BUG: incorrect substitution in buildClosureType: " ++ fmt ss
 
 
 filterMaybes :: [Maybe a] -> [a]
@@ -899,8 +909,8 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
    
 
              _ -> 
-               fail $ "Unknown slice projection type:" ++ show mir_ty
-      _ -> fail $ "Bad index, arr_typ is:" ++ show arr_tp ++ "\nind_type is: " ++ show ind_tp
+               mirFail $ "Unknown slice projection type:" ++ show mir_ty
+      _ -> mirFail $ "Bad index, arr_typ is:" ++ show arr_tp ++ "\nind_type is: " ++ show ind_tp
 
 evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
    case M.typeOf lv of
@@ -921,9 +931,9 @@ evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
                     nv <- vectorCopy tp start (start S..+ len) v
                     return $ MirExp (C.VectorRepr tp) nv
 
-              _ -> error $ unwords ["Expected reference value in mutable dereference", show $ pretty lv]
+              _ -> mirFail $ unwords ["Expected reference value in mutable dereference", show $ pretty lv]
      tp ->
-       fail $ unwords ["Expected reference type in dereference", show tp, show lv]
+       mirFail $ unwords ["Expected reference type in dereference", show tp, show lv]
 
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
 -- We don't really do anything here --- all the action is when we project from the downcasted adt
@@ -941,8 +951,8 @@ evalLvalue (M.LPromoted idx _t) = do
    let st = fn^.fpromoted
    case st V.!? idx of
      Just did -> lookupStatic did
-     Nothing  -> fail $ "Promoted index " ++ show idx ++ " out of range "
-evalLvalue lv = fail $ "unknown lvalue access: " ++ (show lv)
+     Nothing  -> mirFail $ "Promoted index " ++ show idx ++ " out of range "
+evalLvalue lv = mirFail $ "unknown lvalue access: " ++ (show lv)
 
 
 -- | access a static value
@@ -952,7 +962,7 @@ lookupStatic did = do
    case Map.lookup did sm of
      Just (StaticVar gv) -> do v <- G.readGlobal gv
                                return (MirExp (G.globalType gv) v)
-     Nothing -> fail $ "BUG: cannot find static variable: " ++ fmt did
+     Nothing -> mirFail $ "BUG: cannot find static variable: " ++ fmt did
 
 assignStaticExp :: M.DefId -> MirExp s -> MirGenerator h s ret ()
 assignStaticExp did (MirExp rhsTy rhs) = do
@@ -961,8 +971,8 @@ assignStaticExp did (MirExp rhsTy rhs) = do
      Just (StaticVar gv) ->
        case testEquality rhsTy (G.globalType gv) of
           Just Refl -> G.writeGlobal gv rhs
-          Nothing -> fail $ "BUG: invalid type for assignment to stat mut " ++ fmt did
-     Nothing -> fail $ "BUG: cannot find static variable: " ++ fmt did
+          Nothing -> mirFail $ "BUG: invalid type for assignment to stat mut " ++ fmt did
+     Nothing -> mirFail $ "BUG: cannot find static variable: " ++ fmt did
 
 --------------------------------------------------------------------------------------
 -- ** Statements
@@ -1006,12 +1016,12 @@ assignVarExp (M.Var vname _ vty _ pos) me@(MirExp e_ty e) = do
                 do r <- G.readReg reg
                    writeMirRef r e
               VarAtom _ ->
-                do fail ("Cannot assign to atom: " <> show vname <> " of type " <> show (pretty vty) <> " at " <> Text.unpack pos)
+                do mirFail ("Cannot assign to atom: " <> show vname <> " of type " <> show (pretty vty) <> " at " <> Text.unpack pos)
         | otherwise ->
-            fail $ "type error in assignment: got " ++ (show (pretty e_ty)) ++ " but expected "
+            mirFail $ "type error in assignment: got " ++ (show (pretty e_ty)) ++ " but expected "
                      ++ (show (varInfoRepr varinfo)) ++ " in assignment of " ++ (show vname) ++ " which has type "
                      ++ (show vty) ++ " at " ++ (Text.unpack pos)
-      Nothing -> fail ("register not found: " ++ show vname ++ " at " ++ Text.unpack pos)
+      Nothing -> mirFail ("register not found: " ++ show vname ++ " at " ++ Text.unpack pos)
 
 -- lv := mirexp
 assignLvExp :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
@@ -1027,7 +1037,7 @@ assignLvExp lv re = do
             case M.typeOf lv of
               M.TyAdt nm args ->
                 case Map.lookup nm (am^.adts) of
-                  Nothing -> fail ("Unknown ADT: " ++ show nm)
+                  Nothing -> mirFail ("Unknown ADT: " ++ show nm)
                   Just (M.Adt _ [struct_variant]) ->
                     do etu <- evalLvalue lv
                        e   <- accessAggregate etu 1 -- get the ANY data payload
@@ -1036,11 +1046,11 @@ assignLvExp lv re = do
                        struct' <- modifyAggregateIdx struct re field
                        etu' <- modifyAggregateIdx etu (packAny struct') 1
                        assignLvExp lv etu'
-                  Just _ -> fail ("Expected ADT with exactly one variant: " ++ show nm)
+                  Just _ -> mirFail ("Expected ADT with exactly one variant: " ++ show nm)
 
               M.TyDowncast (M.TyAdt nm args) i -> 
                 case Map.lookup nm (am^.adts) of
-                  Nothing -> fail ("Unknown ADT: " ++ show nm)
+                  Nothing -> mirFail ("Unknown ADT: " ++ show nm)
                   Just (M.Adt _ vars) -> do
                      let struct_variant = vars List.!! (fromInteger i)
                      Some ctx <- return $ variantToRepr struct_variant args
@@ -1092,7 +1102,7 @@ assignLvExp lv re = do
                          let arr' = S.app $ E.VectorSetEntry el_tp arr ind' r
                          writeMirRef ref arr'
 
-                 _ -> fail $ "bad type in slice assignment"
+                 _ -> mirFail $ "bad type in slice assignment"
 
         M.LProjection (M.LvalueProjection lv (M.Index v)) -> do
             (MirExp arr_tp arr) <- evalLvalue lv
@@ -1107,15 +1117,15 @@ assignLvExp lv re = do
                                        (S.litExpr "Index out of range")
                           let arr' = MirExp arr_tp (S.app $ E.VectorSetEntry r_tp arr ind r)
                           assignLvExp lv arr'
-                        Nothing -> fail "bad type in assign"
-                  _ -> fail $ "bad type in assign"
+                        Nothing -> mirFail "bad type in assign"
+                  _ -> mirFail $ "bad type in assign"
         M.LProjection (M.LvalueProjection lv M.Deref) ->
             do MirExp ref_tp ref <- evalLvalue lv
                case (ref_tp, re) of
                  (MirReferenceRepr tp, MirExp tp' e)
                    | Just C.Refl <- testEquality tp tp' -> writeMirRef ref e
-                 _ -> fail $ unwords ["Type mismatch when assigning through a reference", show lv, ":=", show re]            
-        _ -> fail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
+                 _ -> mirFail $ unwords ["Type mismatch when assigning through a reference", show lv, ":=", show re]            
+        _ -> mirFail $ "rest assign unimp: " ++ (show lv) ++ ", " ++ (show re)
 
 -- "Allocate" space for the variable by constructing an initial value for it (if possible)
 -- This code will 
@@ -1135,7 +1145,7 @@ storageLive (M.Var nm _ ty _ _) =
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
                    G.assignReg reg e
-                 Nothing -> fail $ "Types don't match in storageLive. Created value of type: " ++ show rty ++ " for var of type: " ++ show (varInfoRepr varinfo)
+                 Nothing -> mirFail $ "Types don't match in storageLive. Created value of type: " ++ show rty ++ " for var of type: " ++ show (varInfoRepr varinfo)
              
        Just (Some varinfo@(VarReference reg)) -> do
          r  <- newMirRef (varInfoRepr varinfo)
@@ -1150,7 +1160,7 @@ storageLive (M.Var nm _ ty _ _) =
                  Just Refl -> do
                    writeMirRef r e
                    G.assignReg reg r
-                 Nothing -> error "types don't match in storageLive. This is probably a bug"
+                 Nothing -> mirFail "types don't match in storageLive. This is probably a bug"
        _ -> return ()
 
 
@@ -1179,9 +1189,9 @@ transStatement (M.SetDiscriminant lv i) = do
        e' <- modifyAggregateIdx ev (MirExp C.NatRepr (S.litExpr (fromInteger (toInteger i)))) 0
        assignLvExp lv e'
     C.AnyRepr ->
-       fail "set discriminant: found any"
+       mirFail "set discriminant: found any"
     C.IntegerRepr ->
-       fail "set discriminant: this case should have been translated away by Pass/AllocEnum"
+       mirFail "set discriminant: this case should have been translated away by Pass/AllocEnum"
 {-      case (M.typeOf lv) of
        M.TyCustom (M.CEnum adt vs) -> do
           -- TODO: this is dead code, remove
@@ -1192,7 +1202,7 @@ transStatement (M.SetDiscriminant lv i) = do
           let idx = (Value (ConstInt (Isize (toInteger j))))
           transStatement (M.Assign lv (Use (OpConstant (Constant ty idx))) "internal: set-discr")
        _ -> fail "set discriminant: should find CEnum here" -}
-    _ -> fail $ "set discriminant: cannot handle type " ++ show ty
+    _ -> mirFail $ "set discriminant: cannot handle type " ++ show ty
 transStatement M.Nop = return ()
 
 ifteAny :: R.Expr MIR s C.BoolType
@@ -1217,14 +1227,14 @@ transSwitch (MirExp (C.BoolRepr) e) [v] [t1,t2] =
 transSwitch (MirExp (C.IntegerRepr) e) vs ts =
     doIntBranch e vs ts
 
-transSwitch (MirExp f _e) _ _  = error $ "bad switch: " ++ show f
+transSwitch (MirExp f _e) _ _  = mirFail $ "bad switch: " ++ show f
 
 doBoolBranch :: R.Expr MIR s C.BoolType -> M.BasicBlockInfo -> M.BasicBlockInfo -> MirGenerator h s ret a
 doBoolBranch e t f = do
     lm <- use labelMap
     case (Map.lookup t lm, Map.lookup f lm) of
       (Just tb, Just fb) -> G.branch e tb fb
-      _ -> error "bad lookup on boolbranch"
+      _ -> mirFail "bad lookup on boolbranch"
 
 -- nat branch: branch by iterating through list
 doIntBranch :: R.Expr MIR s C.IntegerType -> [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
@@ -1232,19 +1242,19 @@ doIntBranch _ _ [i] = do
     lm <- use labelMap
     case (Map.lookup i lm) of
       Just lab -> G.jump lab
-      _ -> fail "bad jump"
+      _ -> mirFail "bad jump"
 doIntBranch e (v:vs) (i:is) = do
     let test = S.app $ E.IntEq e $ S.app $ E.IntLit v
     ifteAny test (jumpToBlock i) (doIntBranch e vs is)
 doIntBranch _ _ _ =
-    fail "doIntBranch: improper switch!"
+    mirFail "doIntBranch: improper switch!"
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
     lm <- use labelMap
     case (Map.lookup bbi lm) of
       Just lab -> G.jump lab
-      _ -> fail "bad jump"
+      _ -> mirFail "bad jump"
 
 doReturn :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret a
 doReturn tr = do
@@ -1433,11 +1443,11 @@ mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
                       -- need to generalize closure creation to *multiple* predicates
                       (MirExp (C.FunctionHandleRepr args ret) fn, [MirExp ty dict]) -> do
                          case Ctx.viewAssign args of
-                            Ctx.AssignEmpty -> error $ "BUG: No arguments!"
+                            Ctx.AssignEmpty -> mirFail $ "BUG: No arguments!"
                             Ctx.AssignExtend (rargs :: C.CtxRepr rargs)
                                              (v :: C.TypeRepr arg) -> do
                               case testEquality v ty of
-                                Nothing -> error $ "BUG: dictionary type doesn't match"
+                                Nothing -> mirFail $ "BUG: dictionary type doesn't match"
                                 Just Refl ->
                                   C.assumeClosed @arg $
                                   return (MirExp
@@ -1446,17 +1456,17 @@ mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
                       (_,_) -> return e
                  else
                     return e -- error $ "found predicates when building a dictionary for " ++ show var
-              Nothing     -> error $ "when building a dictionary for " ++  fmt var
+              Nothing     -> mirFail $ "when building a dictionary for " ++  fmt var
                                   ++ " couldn't find an entry for " ++ fmt fn
                                   ++ " of type " ++ fmt (var^.varty)
-          go (Field fn ty _) = error $ "BUG: mkDict, fields must be functions, found"
+          go (Field fn ty _) = mirFail $ "BUG: mkDict, fields must be functions, found"
                                         ++ fmt ty ++ " for " ++ fmt fn ++ " instead."
       when (db > 3) $ traceM $ "Building dictionary for " ++ fmt pred
                     ++ " of type " ++ fmt (var^.varty)
       entries <- mapM go fields
       when (db > 3) $ traceM $ "Done building dictionary for " ++ fmt var
       return $ buildTaggedUnion 0 entries
-mkDict (var, _) = error $ "BUG: mkDict, only make dictionaries for TraitPredicates"
+mkDict (var, _) = mirFail $ "BUG: mkDict, only make dictionaries for TraitPredicates"
 
 -- need to construct any dictionary arguments for predicates (if present)
 callExp :: HasCallStack =>
@@ -1501,11 +1511,11 @@ callExp funid funsubst cargs = do
               Just Refl -> do
                 ret_e <- G.call polyinst asgn
                 return (MirExp ifret ret_e)
-              _ -> fail $ "type error in call of " ++ fmt funid ++ fmt funsubst
+              _ -> mirFail $ "type error in call of " ++ fmt funid ++ fmt funsubst
                             ++ "\n    args      " ++ show ctx
                             ++ "\n vs fn params " ++ show ifargctx
 
-     _ -> fail $ "callExp: Don't know how to call " ++ fmt funid ++ fmt funsubst
+     _ -> mirFail $ "callExp: Don't know how to call " ++ fmt funid ++ fmt funsubst
 
 
 
@@ -1559,7 +1569,7 @@ transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction fu
            traceM $ show (PP.sep [PP.text "At TRAIT function call of ",
                    pretty funid, PP.text " with arguments ", pretty cargs, 
                    PP.text "with type parameters: ", pretty funsubsts])
-        fail $ "trait method calls unsupported "
+        mirFail $ "trait method calls unsupported "
 
       _ -> do -- this is a normal function call
         doCall funid funsubsts cargs cretdest tr -- cleanup ignored
@@ -1576,7 +1586,7 @@ transTerminator (M.Drop _dl dt _dunwind) _ =
 transTerminator M.Unreachable tr =
     G.reportError (S.litExpr "Unreachable!!!!!")
 transTerminator t _tr =
-    fail $ "unknown terminator: " ++ (show t)
+    mirFail $ "unknown terminator: " ++ (show t)
 
 
 --- translation of toplevel glue ---
@@ -1656,7 +1666,7 @@ initialValue (M.TyAdt nm args) = do
     am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
        Nothing -> return $ Nothing
-       Just (M.Adt _ []) -> fail ("don't know how to initialize void adt " ++ show nm)
+       Just (M.Adt _ []) -> mirFail ("don't know how to initialize void adt " ++ show nm)
        Just (M.Adt _ (Variant _vn _disc fds _kind:_)) -> do
           let initField (Field _name ty _subst) = initialValue (tySubst args ty)
           fds <- mapM initField fds
@@ -1746,7 +1756,7 @@ buildLabel (M.BasicBlock bi _) = do
     return (bi, lab)
 
 -- | Build the initial state for translation of functions
-initFnState :: (?debug::Int,?customOps::CustomOpMap)
+initFnState :: (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool)
             => CollectionState
             -> Fn
             -> FH.FnHandle args ret 
@@ -1758,7 +1768,8 @@ initFnState colState fn handle inputs =
             _debugLevel = ?debug,
             _cs         = colState,
             _labelMap   = Map.empty,
-            _customOps  = ?customOps
+            _customOps  = ?customOps,
+            _assertFalseOnError = ?assertFalseOnError
          }
     where
       sig = fn^.fsig
@@ -1789,7 +1800,7 @@ registerBlock tr (M.BasicBlock bbinfo bbdata)  = do
     case (Map.lookup bbinfo lm) of
       Just lab -> do
         G.defineBlock lab (translateBlockBody tr bbdata)
-      _ -> fail "bad label"
+      _ -> mirFail "bad label"
 
 
 
@@ -1835,9 +1846,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
   case (Map.lookup bbi lm) of
     Just lbl -> do
        G.jump lbl
-    _ -> fail "bad thing happened"
+    _ -> mirFail "bad thing happened"
 
-transDefine :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap) 
+transDefine :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool) 
   => CollectionState 
   -> M.Fn 
   -> ST h (Text, Core.AnyCFG MIR)
@@ -1878,7 +1889,8 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
 ---------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR collection
-transCollection :: forall s. (HasCallStack, ?debug::Int, ?libCS::CollectionState, ?customOps::CustomOpMap) 
+transCollection :: forall s. (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool,
+                             ?libCS::CollectionState, ?customOps::CustomOpMap) 
       => M.Collection
       -> FH.HandleAllocator s
       -> ST s RustModule

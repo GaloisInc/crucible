@@ -140,7 +140,8 @@ data FnState (s :: Type)
               _debugLevel :: !Int,
               _currentFn  :: !Fn,
               _cs         :: !CollectionState,
-              _customOps  :: !CustomOpMap
+              _customOps  :: !CustomOpMap,
+              _assertFalseOnError :: !Bool              
             }
 
 -- | State about the entire collection used for the translation
@@ -282,6 +283,7 @@ mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
     addItem tii@(TraitMethod methName _sig) tm =
       Map.insertWith (++) methName [tn] tm
     addItem _ tm = tm
+
 
 ------------------------------------------------------------------------------------
 -- extra: Control.Monad.Extra

@@ -99,6 +99,7 @@ instance Crux.Language CruxMIR where
        useStdLib    :: Bool
      , onlyPP       :: Bool
      , showModel    :: Bool
+     , assertFalse  :: Bool
      , cachedStdLib :: Maybe CachedStdLib
      }
  
@@ -107,6 +108,7 @@ instance Crux.Language CruxMIR where
       useStdLib    = True
     , onlyPP       = False
     , showModel    = False
+    , assertFalse  = False
     , cachedStdLib = Nothing
     }
 
@@ -129,10 +131,17 @@ instance Crux.Language CruxMIR where
       (Console.NoArg (\opts -> opts { showModel = True }))
       "show model on counter-example"
 
+    , Console.Option ['f'] ["assert-false-on-error"]
+      (Console.NoArg (\opts -> opts { assertFalse = True }))
+      "when translation fails, assert false in output and keep going"
+
+    
     ]
 
 -- | Allow the simulator to use a pre-translated version of the rust library
--- instead of translating on every invocation of simulateMIR. 
+-- instead of translating on every invocation of simulateMIR.
+-- Currently, incremental translation doesn't work so the 'cachedStdLib' mir option
+-- should always be 'Nothing'
 data CachedStdLib = CachedStdLib
   {
     libModule :: RustModule
@@ -144,7 +153,8 @@ data CachedStdLib = CachedStdLib
 -- This should only be called by crux's 'check' function. 
 simulateMIR :: forall sym. (?outputConfig :: OutputConfig) => Crux.Simulate sym CruxMIR
 simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
-  let ?debug        = Crux.simVerbose cruxOpts
+  let ?debug              = Crux.simVerbose cruxOpts
+  let ?assertFalseOnError = assertFalse mirOpts
   let filename      = Crux.inputFile cruxOpts
   let (dir,nameExt) = splitFileName filename
   let (name,_ext)   = splitExtension nameExt

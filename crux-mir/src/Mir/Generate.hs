@@ -10,6 +10,7 @@
 --
 -- This module sets up the process to compile the rust input file,
 -- extract the json representation, and parse as the MIR AST.
+-- Also, entry point for translating MIR AST into crucible.
 -----------------------------------------------------------------------
 
 
@@ -105,8 +106,33 @@ generateMIR dir name  = do
         return col
 
 
--- | Translate a single MIR crate to Crucible
-translateMIR :: (HasCallStack, ?debug::Int) 
+-- | Location of the rust file with the standard library
+libLoc :: String
+libLoc = "mir-lib/src/"
+
+-- | load the rs file containing the standard library
+loadPrims :: (?debug::Int) => Bool -> IO Collection
+loadPrims useStdLib = do
+
+  -- Same order as in https://github.com/rust-lang/rust/blob/master/src/libcore/prelude/v1.rs  
+  let lib = if useStdLib then "lib" else "lib_func_only"
+  
+  -- Only print debugging info in the standard library at high debugging levels
+  col <- let ?debug = ?debug - 3 in
+         generateMIR libLoc lib
+    
+  when (?debug > 6) $ do
+    traceM "--------------------------------------------------------------"
+    traceM $ "Complete Collection: "
+    traceM $ show (pretty col)
+    traceM "--------------------------------------------------------------"  
+
+  return col
+
+
+
+-- | Translate a MIR collection to Crucible
+translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool) 
    => CollectionState -> Collection -> C.HandleAllocator s -> ST s RustModule
 translateMIR lib col halloc =
   let ?customOps = Mir.customOps in
@@ -114,7 +140,8 @@ translateMIR lib col halloc =
   in let ?libCS = lib in transCollection col0 halloc
 
 -- | Translate a MIR crate *and* the standard library all at once
-translateAll :: (?debug::Int) => Bool -> Collection -> IO (RustModule, C.AnyCFG MIR)
+translateAll :: (?debug::Int, ?assertFalseOnError::Bool)
+             => Bool -> Collection -> IO (RustModule, C.AnyCFG MIR)
 translateAll usePrims col = do
   prims <- liftIO $ loadPrims usePrims
   let (a,b) = runST $ C.withHandleAllocator $ \halloc -> do
@@ -124,32 +151,3 @@ translateAll usePrims col = do
                return $ (pmir <> mir, init_cfg)
   return $ (a,b)
 
-
--- | Location of the rust file with the standard library
-libLoc :: String
-libLoc = "mir-lib/src/"
-
--- | load the rs file containing the standard library
-loadPrims :: (?debug::Int) => Bool -> IO Collection
-loadPrims useStdLib = do
-
-  
-  -- Same order as in https://github.com/rust-lang/rust/blob/master/src/libcore/prelude/v1.rs  
-  let lib = if useStdLib then "lib" else "lib_func_only"
-  
-  -- Only print debugging info in the standard library at high debugging levels
-  
-  col <- let ?debug = ?debug - 3 in
-         generateMIR libLoc lib
-    
-  let total = hardCoded <> col
-  when (?debug > 6) $ do
-    traceM "--------------------------------------------------------------"
-    traceM $ "Complete Collection: "
-    traceM $ show (pretty total)
-    traceM "--------------------------------------------------------------"  
-
-  return total
-
-hardCoded :: Collection
-hardCoded = mempty
