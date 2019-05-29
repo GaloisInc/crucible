@@ -373,6 +373,15 @@ testRotate2 = testCase "rotate test2" $ withOnlineZ3' $ \sym s -> do
   res2 <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv3
   isSat res2 @? "sat"
 
+testSymbolPrimeCharZ3 :: TestTree
+testSymbolPrimeCharZ3 = testCase "z3 symbol prime (') char" $
+  withZ3' $ \sym s -> do
+    x <- freshConstant sym (userSymbol' "x'") knownRepr
+    y <- freshConstant sym (userSymbol' "y'") knownRepr
+    p <- natLt sym x y
+    assume (sessionWriter s) p
+    runCheckSat s $ \res -> isSat res @? "sat"
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -395,4 +404,5 @@ main = defaultMain $ testGroup "Tests"
   , testBVIteNesting
   , testRotate1
   , testRotate2
+  , testSymbolPrimeCharZ3
   ]
