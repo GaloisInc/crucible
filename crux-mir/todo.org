@@ -88,10 +88,11 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
     mod index;
     mod range;
     mod try;
-       TODO
     mod drop;
-    mod generator;
     mod unsize;
+       TODO
+    mod generator;
+
 
 *** slice
     key indexing traits from library available

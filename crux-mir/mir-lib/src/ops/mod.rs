@@ -8,6 +8,7 @@ mod index;
 mod range;
 mod try;
 mod drop;
+mod unsize;
 
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use self::arith::*;
@@ -25,3 +26,5 @@ pub use self::range::*;
 pub use self::try::*;
 #[stable(feature = "rust1", since = "1.0.0")]
 pub use self::drop::*;
+#[stable(feature = "rust1", since = "1.0.0")]
+pub use self::unsize::*;

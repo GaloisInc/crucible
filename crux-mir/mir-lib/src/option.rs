@@ -3,7 +3,7 @@
 
 /*
 
-#[cfg(pin)] 
+
 #[cfg(iter)]
 #[cfg(mem_replace)]
 
@@ -160,7 +160,6 @@ use core::ops::Deref;
     
 use core::ops::{self};
 
-#[cfg(pin)]
 use pin::Pin;
 
 use core::intrinsics::{self};

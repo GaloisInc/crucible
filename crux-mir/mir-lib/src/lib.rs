@@ -14,6 +14,10 @@
 #![feature(trusted_len)]
 #![feature(try_trait)]
 #![feature(untagged_unions)]
+#![feature(fundamental)]
+#![feature(pin)]
+#![feature(coerce_unsized)]
+#![feature(unsize)]
 
 
 #![stable(feature = "rust1", since = "1.0.0")]
@@ -28,4 +32,4 @@ pub mod ops;
 pub mod option;
 pub mod result;
 pub mod slice;
-
+pub mod pin;
