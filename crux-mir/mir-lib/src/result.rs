@@ -157,7 +157,7 @@ use self::Result::*;
         }
 
   // Mutable reference-taken variable not backed by reference! "_1"
-/*
+
         /// Converts from `Result<T, E>` to `Result<&mut T, &mut E>`.
         ///
         /// # Examples
@@ -181,12 +181,13 @@ use self::Result::*;
         /// assert_eq!(x.unwrap_err(), 0);
         /// ```
         #[inline]
+        #[stable(feature = "dummy", since = "0.0.0")]
         pub fn as_mut(&mut self) -> Result<&mut T, &mut E> {
             match *self {
                 Ok(ref mut x) => Ok(x),
                 Err(ref mut x) => Err(x),
             }
-        } */
+        } 
 
         /////////////////////////////////////////////////////////////////////////
         // Transforming contained values
