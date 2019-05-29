@@ -38,7 +38,7 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-/// Need to add this
+/// SCW:Need to add this
 #[lang = "eh_personality"] extern fn eh_personality() {}
 
 use core::panic::PanicInfo;
@@ -465,7 +465,7 @@ impl<T> From<T> for T {
     fn from(t: T) -> T { t }
 }
 
-/*
+
 
 // TryFrom implies TryInto
 #[unstable(feature = "try_from", issue = "33417")]
@@ -518,4 +518,4 @@ impl AsRef<str> for str {
     }
 }
 
-*/
+

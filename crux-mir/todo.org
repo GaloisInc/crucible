@@ -38,7 +38,7 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
     symb_eval/crypto/bytes.rs   -- spec is wrong though. 
 
 ** Standard library current status
-   Library code found in mir-lib/src/*
+   Library code found in mir-lib/src/lib.rs
 
 
 *** libcore prelude
@@ -111,14 +111,12 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 - have a mode where if crucible translation fails, output "assert false". Then 
   even if we can't translate a function we can still override it.
 
-- combine mir-lib into a single crate so can resolve circular references
-    (this is particularly needed for Try)
+- check whether Try is included in mir-lib
 
 - make generateMIR in Mir.Generate check timestamp of mir-json binary as well
   as timestamp of .mir files to determine whether to call mir-json
 
 - Divide Trans.hs into multiple files so that typechecking/compilation is snappier
-  The current 4k file overwhelms dante-mode
   (We're better now at 2k, but still pretty sluggish)
 
 - Better interface to symbolic evaluation.  Need a rust crate
@@ -172,6 +170,7 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 - type translation needs access to the collection so can lookup the type of 
   function pointers
+
 
 * Dictionary Translation notes
 

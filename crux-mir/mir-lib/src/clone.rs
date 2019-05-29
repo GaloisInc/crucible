@@ -1,8 +1,3 @@
-//SCW: created from https://github.com/rust-lang/rust/blob/master/src/libcore/ops/index.rs
-// 4/10/19
-//added preamble and removed stability & lang annotations
-//added mod container
-//removed macro call (currently unsupported)
 #![stable(feature = "rust1", since = "1.0.0")]
 
 
@@ -164,13 +159,13 @@ mod impls {
             )*
         }
     }
-/*
+
     impl_clone! {
         usize u8 u16 u32 u64 u128
         isize i8 i16 i32 i64 i128
         f32 f64
         bool char
-    } */
+    } 
 
 
     #[stable(feature = "rust1", since = "1.0.0")]
