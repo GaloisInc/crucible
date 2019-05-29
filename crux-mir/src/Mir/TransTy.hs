@@ -45,15 +45,12 @@ import qualified Lang.Crucible.CFG.Expr as E
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.Syntax as S
 
-
-
-
 import qualified Mir.DefId as M
 import qualified Mir.Mir as M
 import qualified Mir.MirTy as M
 
 import           Mir.PP (fmt)
-import           Mir.Generator (MirExp(..), MirGenerator, mkPredVar)
+import           Mir.Generator (MirExp(..), MirGenerator, mkPredVar, mirFail)
 import           Mir.Intrinsics (MIR, pattern MirSliceRepr, pattern MirReferenceRepr, TaggedUnion)
 
 
@@ -286,7 +283,7 @@ packAny (MirExp e_ty e) = MirExp C.AnyRepr (S.app $ E.PackAny e_ty e)
 
 unpackAny :: HasCallStack => Some C.TypeRepr -> MirExp s -> MirGenerator h s ret (MirExp s)
 unpackAny (Some tr) e@(MirExp C.AnyRepr _) = return $ unpackAnyE tr e
-unpackAny _ (MirExp tr _) = fail $ "bad anytype, found " ++ fmt tr
+unpackAny _ (MirExp tr _) = mirFail $ "bad anytype, found " ++ fmt tr
 
 
 unpackAnyE :: HasCallStack => C.TypeRepr t -> MirExp s -> MirExp s
@@ -307,7 +304,7 @@ buildArrayLit trep exps = do
                   Just Refl -> do
                       v' <- go es v
                       return $ V.cons e v'
-                  Nothing -> fail "bad type in build array"
+                  Nothing -> mirFail "bad type in build array"
 
 buildTuple :: [MirExp s] -> MirExp s
 buildTuple xs = exp_to_assgn (xs) $ \ctx asgn ->
@@ -332,7 +329,7 @@ getAllFieldsMaybe e =
       MirExp (C.StructRepr ctx) _ -> do
         let s = Ctx.sizeInt (Ctx.size ctx)
         mapM (accessAggregateMaybe e) [0..(s-1)]
-      _ -> fail $ "getallfieldsMaybe of non-struct" ++ show e
+      _ -> mirFail $ "getallfieldsMaybe of non-struct" ++ show e
 
 
 accessAggregate :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
@@ -340,7 +337,7 @@ accessAggregate (MirExp (C.StructRepr ctx) ag) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
       let tpr = ctx Ctx.! idx
       return $ MirExp tpr (S.getStruct idx ag)
-accessAggregate (MirExp ty a) b = fail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
+accessAggregate (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
 
 accessAggregateMaybe :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
@@ -349,9 +346,9 @@ accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
       case tpr of
         C.MaybeRepr tpr' -> let mv = R.App $ E.FromJustValue tpr' (S.getStruct idx ag) (R.App $ E.TextLit "Unitialized aggregate value")
                              in return $ MirExp tpr' mv
-        _ -> fail "accessAggregateMaybe: non-maybe struct"
+        _ -> mirFail "accessAggregateMaybe: non-maybe struct"
       
-accessAggregateMaybe (MirExp ty a) b = fail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
+accessAggregateMaybe (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
 
 
 
@@ -364,10 +361,10 @@ modifyAggregateIdx (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
       let tpr = agctx Ctx.! idx
       case (testEquality tpr instr) of
           Just Refl -> return $ MirExp (C.StructRepr agctx) (S.setStruct agctx ag idx ins)
-          _ -> fail $ "bad modify, found: " ++ show instr ++ " expected " ++ show tpr
-  | otherwise = fail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
+          _ -> mirFail $ "bad modify, found: " ++ show instr ++ " expected " ++ show tpr
+  | otherwise = mirFail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdx (MirExp ty _) _ _ =
-  do fail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
+  do mirFail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
 
 
 modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
@@ -383,8 +380,8 @@ modifyAggregateIdxMaybe (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
                 Just Refl -> do
                     let ins' = R.App (E.JustValue tpr' ins)
                     return $ MirExp (C.StructRepr agctx) (S.setStruct agctx ag idx ins')
-                _ -> fail "bad modify"
-         _ -> fail "modifyAggregateIdxMaybe: expecting maybe type for struct component"
-  | otherwise = fail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
+                _ -> mirFail "bad modify"
+         _ -> mirFail "modifyAggregateIdxMaybe: expecting maybe type for struct component"
+  | otherwise = mirFail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdxMaybe (MirExp ty _) _ _ =
-  do fail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
+  do mirFail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)

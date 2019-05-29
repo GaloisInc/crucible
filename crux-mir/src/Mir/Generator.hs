@@ -285,6 +285,18 @@ mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
     addItem _ tm = tm
 
 
+
+-- | What to do when the translation fails.
+mirFail :: String -> MirGenerator h s ret a
+mirFail str = do
+  b  <- use assertFalseOnError
+  db <- use debugLevel
+  if b then do
+         when (db > 0) $ traceM ("Translation failure: " ++ str)
+         G.reportError (S.litExpr (Text.pack str))
+       else fail str
+
+
 ------------------------------------------------------------------------------------
 -- extra: Control.Monad.Extra
 
@@ -340,7 +352,6 @@ resolveStaticMethod methName substs traitName = do
                                   Just (k,_) -> k + 1
                                   Nothing    -> 0
                 let ss'  = takeSubsts (fromInteger ulen) (mkSubsts unifier)
-                let mhgens = mh^.mhSig^.fsgenerics
                  
                 when (db > 5) $ do
                     traceM $ "***Found " ++ fmt methName ++ " in " ++ fmt traitName

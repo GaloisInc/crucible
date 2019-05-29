@@ -193,19 +193,16 @@ customOps = Map.fromList [
 -- ** Custom: Exit
 
 exit :: (ExplodedDefId, CustomRHS)
-exit = ((["process"], "exit", []), \s -> Just (CustomOpExit $ \ops -> return "process::exit"))
+exit = ((["process"], "exit", []), \s ->
+           Just (CustomOpExit $ \ops -> return "process::exit"))
 
 abort :: (ExplodedDefId, CustomRHS)
-abort = ((["intrinsics"], "abort", []), \s -> Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
+abort = ((["intrinsics"], "abort", []), \s ->
+            Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
-panicking_begin_panic = ((["panicking"], "begin_panic", []),
-   \s -> Just (CustomOpExit $
-            \[MirExp (C.VectorRepr w) vec, _] -> do
-                return "panicking::begin_panic"))
-
-
-
+panicking_begin_panic = ((["panicking"], "begin_panic", []), \s ->
+            Just (CustomOpExit $  \ops -> return "panicking::begin_panic"))
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Index
@@ -256,7 +253,7 @@ index_op (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice elTy, TySlice elTy]
                   callExp funid substs [op2, op1] 
-               _ -> fail $ "BUG: invalid arguments to index"
+               _ -> mirFail $ "BUG: invalid arguments to index"
 index_op _ = Nothing
 
 
@@ -270,7 +267,7 @@ index_op_mut (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice elTy, TySlice elTy]
                   callExp funid substs [op2, op1] 
-               _ -> fail $ "BUG: invalid arguments to index_mut"
+               _ -> mirFail $ "BUG: invalid arguments to index_mut"
 index_op_mut _ = Nothing
 --------------------------------------------------------------------------------------------------------------------------
 
@@ -288,9 +285,9 @@ wrapping_mul = ( (["num","{{impl}}"], "wrapping_mul", []),
            (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
                let sub = R.App $ E.BVMul wa a b 
                return (MirExp aty sub)
-           (_,_) -> fail $ "wrapping_mul: cannot call with types " ++ show aty ++ " and " ++ show bty
+           (_,_) -> mirFail $ "wrapping_mul: cannot call with types " ++ show aty ++ " and " ++ show bty
 
-       _ -> fail $ "BUG: invalid arguments for wrapping_mul")
+       _ -> mirFail $ "BUG: invalid arguments for wrapping_mul")
 
 
 -- ** Custom: wrapping_sub
@@ -305,9 +302,9 @@ wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
            (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
                let sub = R.App $ E.BVSub wa a b 
                return (MirExp aty sub)
-           (_,_) -> fail $ "wrapping_sub: cannot call with types " ++ show aty ++ " and " ++ show bty
+           (_,_) -> mirFail $ "wrapping_sub: cannot call with types " ++ show aty ++ " and " ++ show bty
 
-       _ -> fail $ "BUG: invalid arguments for wrapping_sub")
+       _ -> mirFail $ "BUG: invalid arguments for wrapping_sub")
 
 ---------------------------------------------------------------------------------------
 -- ** Custom ::intrinsics::discriminant_value
@@ -320,7 +317,7 @@ discriminant_value = ((["intrinsics"],"discriminant_value", []),
         ([_],[e]) -> do (MirExp C.NatRepr idx) <- accessAggregate e 0
                         return $ (MirExp knownRepr $ R.App (E.IntegerToBV (knownRepr :: NatRepr 64)
                                                                   (R.App (E.NatToInteger idx))))
-        _ -> fail $ "BUG: invalid arguments for discriminant_value")
+        _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
 
 ---------------------------------------------------------------------------------------
 -- ** Custom: Iterator
@@ -383,7 +380,7 @@ iter_next_op_range itemTy _opTys ops =
                            (updateRange >> return good_ret)
                            (return bad_ret)
                 return (MirExp taggedUnionRepr ret)
-       _ -> fail $ "BUG: invalid arguments for iter_next"
+       _ -> mirFail $ "BUG: invalid arguments for iter_next"
 
 
 iter_next_op_array :: forall h s ret. HasCallStack => Ty -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
@@ -403,13 +400,7 @@ iter_next_op_array itemTy _opTys ops =
         let iter_vec = S.getStruct Ctx.i1of2 iter'
         let iter_pos = S.getStruct Ctx.i2of2 iter' 
         let is_good    = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
---            ret_1_ty   = taggedUnionRepr
---            ret_2_ctx  = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
---            ret_2_ty   = C.StructRepr ret_2_ctx
---            ty_ctx     = (Ctx.empty Ctx.:> ret_1_ty Ctx.:> ret_2_ty)
---            ty         = C.StructRepr ty_ctx
 
- 
             good_ret_1 = mkSome elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)
             next_iter  = S.app $ E.MkStruct taggedUnionCtx
                             (Ctx.empty Ctx.:> (S.app $ E.NatLit 0) Ctx.:> (S.app $ E.PackAny (C.StructRepr ctx) tup))
@@ -422,7 +413,7 @@ iter_next_op_array itemTy _opTys ops =
                     return good_ret_1)
                 (return mkNone)
         return $ MirExp taggedUnionRepr ret
-    _ -> fail $ "BUG: invalid args to iter_next_op_array " ++ show ops
+    _ -> mirFail $ "BUG: invalid args to iter_next_op_array " ++ show ops
 
 
 -- SCW: not sure if this one is up-to-date
@@ -434,7 +425,7 @@ iter_map_op _subst opTys ops =
   case (opTys, ops) of
    ([ iter_ty , closure_ty ], [ iter_e  , closure_e ]) ->
       performMap iter_ty iter_e closure_ty closure_e
-   _ -> fail $ "BUG: invalid arguments to iter_map"
+   _ -> mirFail $ "BUG: invalid arguments to iter_map"
 
 iter_collect :: (ExplodedDefId, CustomRHS)
 iter_collect = ((["iter","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
@@ -443,7 +434,7 @@ iter_collect_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s]
 iter_collect_op _subst _opTys ops =
    case ops of
      [ iter ] -> accessAggregate iter 0
-     _ -> fail $ "BUG: invalid arguments to iter_collect"
+     _ -> mirFail $ "BUG: invalid arguments to iter_collect"
 
 
 -------------------------------------------------------------------------------------------------------
@@ -458,7 +449,7 @@ str_len =
                     -- type of the structure is &str == TyStr ==> C.VectorRepr BV32
                    [MirExp (C.VectorRepr _) vec_e] -> do
                         return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
-                   _ -> fail $ "BUG: invalid arguments to " ++ "string len"
+                   _ -> mirFail $ "BUG: invalid arguments to " ++ "string len"
 
                _ -> Nothing)
 
@@ -495,7 +486,7 @@ slice_len =
      -- type of the structure is &mut[ elTy ]
        [MirExp (C.VectorRepr _) vec_e] -> do
             return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
-       _ -> fail $ "BUG: invalid arguments to " ++ "slice_len")
+       _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len")
 
 slice_is_empty :: (ExplodedDefId, CustomRHS)
 slice_is_empty =
@@ -506,7 +497,7 @@ slice_is_empty =
        [MirExp (C.VectorRepr _) vec_e] -> do
             let sz = (G.App $ E.VectorSize vec_e)
             return (MirExp C.BoolRepr (G.App $ E.NatEq sz (G.App $ E.NatLit 0)))
-       _ -> fail $ "BUG: invalid arguments to " ++ "slice_is_empty")
+       _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_is_empty")
 
 slice_first :: (ExplodedDefId, CustomRHS)
 slice_first =
@@ -516,7 +507,7 @@ slice_first =
      -- type of the structure is &mut[ elTy ]
        [MirExp (C.VectorRepr elTy) vec_e] -> do
             return (MirExp elTy (G.App $ E.VectorGetEntry elTy vec_e (G.App $ E.NatLit 0)))
-       _ -> fail $ "BUG: invalid arguments to " ++ "slice_first")
+       _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_first")
 
 {-  impl<T>[T] {
 
@@ -546,7 +537,7 @@ slice_get_op (Substs [tt, ii]) =
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice tt, TySlice tt]
                   callExp funid substs [op2, op1] 
-               _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get"
+               _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get"
 slice_get_op _ = Nothing
 
 slice_get_mut_op :: Substs -> Maybe CustomOp
@@ -558,7 +549,7 @@ slice_get_mut_op (Substs [tt, ii]) =
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice tt, TySlice tt]
                   callExp funid substs [op2, op1] 
-               _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_mut"
+               _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_mut"
 slice_get_mut_op _ = Nothing
 
 
@@ -617,7 +608,7 @@ slice_get_unchecked_op subs = case subs of
                                 _ -> TySlice tt
                   let substs = Substs [ii, TySlice tt, out]
                   callExp funid substs [op2, op1] 
-               _ -> fail $ "BUG: invalid arguments to slice_get_unchecked"
+               _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked"
    _ -> Nothing
 
 slice_get_unchecked_mut_op :: CustomRHS
@@ -633,7 +624,7 @@ slice_get_unchecked_mut_op subs = case subs of
                                 _ -> TySlice tt
                   let substs = Substs [ii, TySlice tt, out]
                   callExp funid substs [op2, op1] 
-               _ -> fail $ "BUG: invalid arguments to slice_get_unchecked_mut"
+               _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut"
    _ -> Nothing
 
 -------------------------------------------------------------------------------------------------------------------
@@ -714,7 +705,7 @@ slice_index_usize_get_unchecked = ((["slice"], "slice_index_usize_get_unchecked"
                 let ind'  = start S..+ ind
                 arr <- readMirRef (C.VectorRepr el_tp) ref
                 return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind'))
-            _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked"
+            _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked"
      _ -> Nothing)
 
 slice_index_range_get_unchecked :: (ExplodedDefId, CustomRHS)
@@ -739,7 +730,7 @@ slice_index_range_get_unchecked = ((["slice"], "slice_index_range_get_unchecked"
                 let s2 = updateSliceLen ty s1    newLen
                 return $ (MirExp (MirSliceRepr ty) s2)
 
-             _ -> fail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked:" ++ show ops
+             _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked:" ++ show ops
      _ -> Nothing)
 
 
@@ -757,7 +748,7 @@ slice_index_usize_get_unchecked_mut = ((["slice"], "slice_index_usize_get_unchec
                   let ind'  = start S..+ ind
                   ref <- subindexRef el_tp ref ind'
                   return $ (MirExp (MirReferenceRepr el_tp) ref)
-              _ -> fail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
+              _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
      _ -> Nothing)
 
 slice_index_range_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
@@ -776,7 +767,7 @@ slice_index_range_get_unchecked_mut = ((["slice"], "slice_index_range_get_unchec
                   let s2 = updateSliceLen ty s1    newLen
                   return $ (MirExp (MirSliceRepr ty) s2)
 
-              _ -> fail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
+              _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
      _ -> Nothing)
 
 
@@ -853,7 +844,7 @@ fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do
                      let args = (Ctx.empty Ctx.:> C.AnyRepr)  Ctx.<++> r2
                      let t = Ctx.empty Ctx.:> C.FunctionHandleRepr args rr Ctx.:> C.AnyRepr
                      (arg,) <$> unpackAny (Some (C.StructRepr t)) arg
-                  _ -> fail $ "aty must be tuple type in dynamic call, found " ++ fmt aty 
+                  _ -> mirFail $ "aty must be tuple type in dynamic call, found " ++ fmt aty 
 
          unpackClosure (TyParam i) arg = do
            -- TODO: this is a really hacky implementation of higher-order function calls
@@ -884,7 +875,7 @@ fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do
 
 
          unpackClosure ty _arg      =
-           fail $ "Don't know how to unpack Fn::call arg of type " ++  fmt ty
+           mirFail $ "Don't know how to unpack Fn::call arg of type " ++  fmt ty
 
      (fn', unpack_closure) <- unpackClosure argTy1 fn
      handle <- accessAggregate unpack_closure 0
@@ -899,10 +890,10 @@ fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do
                        ret_e <- G.call handl asgn
                        return (MirExp fretrepr ret_e)
                      Nothing ->
-                       fail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
-             _ -> fail $ "bad handle type"
+                       mirFail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
+             _ -> mirFail $ "bad handle type"
 
-fn_call_op ss args _exps = fail $ "\n\tBUG: invalid arguments to call/call_once:"
+fn_call_op ss args _exps = mirFail $ "\n\tBUG: invalid arguments to call/call_once:"
                                     ++ "\n\t ss   = " ++ fmt ss
                                     ++ "\n\t args = " ++ fmt args
 
@@ -926,7 +917,7 @@ integerFromSigned (Substs []) =
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w) int_e] | Just LeqProof <- testLeq (incNat w) w' ->
             return $ MirExp (C.BVRepr w') (S.app $ E.BVSext w' w int_e)
-        _ -> error $ "BUG: invalid arguments to integerFromSigned: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integerFromSigned: " ++ show ops
 
 integerFromUnsigned :: CustomRHS
 integerFromUnsigned (Substs []) =
@@ -934,7 +925,7 @@ integerFromUnsigned (Substs []) =
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w) int_e] | Just LeqProof <- testLeq (incNat w) w' ->
             return $ MirExp (C.BVRepr w') (S.app $ E.BVZext w' w int_e)
-        _ -> error $ "BUG: invalid arguments to integerFromUnsigned: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integerFromUnsigned: " ++ show ops
 
 
 integer_as_u8 :: (ExplodedDefId, CustomRHS)
@@ -950,7 +941,7 @@ integerAsUnsigned w (Substs []) =
     Just $ CustomOp $ \_optys ops -> case ops of
         [MirExp (C.BVRepr w') int_e] | Just LeqProof <- testLeq (incNat w) w' ->
             return $ MirExp (C.BVRepr w) (S.app $ E.BVTrunc w w' int_e)
-        _ -> error $ "BUG: invalid arguments to integerAsUnsigned: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integerAsUnsigned: " ++ show ops
 
 
 integer_shl :: (ExplodedDefId, CustomRHS)
@@ -960,7 +951,7 @@ integer_shl = ((["int512"], "shl", []), \(Substs []) ->
           | Just LeqProof <- testLeq (incNat w) w' ->
             let amt_e' = S.app $ E.BVZext w' w amt_e in
             return $ MirExp (C.BVRepr w') (S.app $ E.BVShl w' val_e amt_e')
-        _ -> error $ "BUG: invalid arguments to integer_shl: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_shl: " ++ show ops
     )
 
 integer_shr :: (ExplodedDefId, CustomRHS)
@@ -970,7 +961,7 @@ integer_shr = ((["int512"], "shr", []), \(Substs []) ->
           | Just LeqProof <- testLeq (incNat w) w' ->
             let amt_e' = S.app $ E.BVZext w' w amt_e in
             return $ MirExp (C.BVRepr w') (S.app $ E.BVLshr w' val_e amt_e')
-        _ -> error $ "BUG: invalid arguments to integer_shr: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_shr: " ++ show ops
     )
 
 integer_bitand :: (ExplodedDefId, CustomRHS)
@@ -979,7 +970,7 @@ integer_bitand = ((["int512"], "bitand", []), \(Substs []) ->
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVAnd w1 val1_e val2_e)
-        _ -> error $ "BUG: invalid arguments to integer_bitand: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_bitand: " ++ show ops
     )
 
 integer_bitor :: (ExplodedDefId, CustomRHS)
@@ -988,7 +979,7 @@ integer_bitor = ((["int512"], "bitor", []), \(Substs []) ->
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVOr w1 val1_e val2_e)
-        _ -> error $ "BUG: invalid arguments to integer_bitor: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_bitor: " ++ show ops
     )
 
 integer_eq :: (ExplodedDefId, CustomRHS)
@@ -997,7 +988,7 @@ integer_eq = ((["int512"], "eq", []), \(Substs []) ->
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp C.BoolRepr (S.app $ E.BVEq w1 val1_e val2_e)
-        _ -> error $ "BUG: invalid arguments to integer_eq: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_eq: " ++ show ops
     )
 
 integer_lt :: (ExplodedDefId, CustomRHS)
@@ -1006,7 +997,7 @@ integer_lt = ((["int512"], "lt", []), \(Substs []) ->
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp C.BoolRepr (S.app $ E.BVSlt w1 val1_e val2_e)
-        _ -> error $ "BUG: invalid arguments to integer_lt: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_lt: " ++ show ops
     )
 
 integer_add :: (ExplodedDefId, CustomRHS)
@@ -1015,7 +1006,7 @@ integer_add = ((["int512"], "add", []), \(Substs []) ->
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVAdd w1 val1_e val2_e)
-        _ -> error $ "BUG: invalid arguments to integer_add: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_add: " ++ show ops
     )
 
 integer_sub :: (ExplodedDefId, CustomRHS)
@@ -1024,7 +1015,7 @@ integer_sub = ((["int512"], "sub", []), \(Substs []) ->
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVSub w1 val1_e val2_e)
-        _ -> error $ "BUG: invalid arguments to integer_sub: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_sub: " ++ show ops
     )
 
 integer_rem :: (ExplodedDefId, CustomRHS)
@@ -1033,7 +1024,7 @@ integer_rem = ((["int512"], "rem", []), \(Substs []) ->
         [MirExp (C.BVRepr w1) val1_e, MirExp (C.BVRepr w2) val2_e]
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVSrem w1 val1_e val2_e)
-        _ -> error $ "BUG: invalid arguments to integer_rem: " ++ show ops
+        _ -> mirFail $ "BUG: invalid arguments to integer_rem: " ++ show ops
     )
 
 
@@ -1054,7 +1045,7 @@ incrExp ty e = do res <- evalBinOp Add Nothing (MirExp ty e) (oneExp ty)
                   case res of 
                     (MirExp ty' e') | Just Refl <- testEquality ty ty'
                                     -> return e'
-                    _ -> error "BUG: incrExp should return same type"
+                    _ -> mirFail "BUG: incrExp should return same type"
 
 
 
@@ -1087,8 +1078,8 @@ performClosureCall closure_pack handle args =
                       Just Refl -> do
                           ret_e <- G.call handl asgn
                           return $ MirExp fretrepr ret_e
-                      _ -> fail $ "type error in closurecall testequality: got " ++ (show ctx) ++ ", " ++ (show fargctx)
-            _ -> fail $ "type error in closurecall handlety: was actually " ++ (show hand_ty)
+                      _ -> mirFail $ "type mismatch in closurecall testequality: got " ++ (show ctx) ++ ", " ++ (show fargctx)
+            _ -> mirFail $ "type mismatch in closurecall handlety: was actually " ++ (show hand_ty)
 
 performMap :: Ty -> MirExp s -> Ty -> MirExp s -> MirGenerator h s ret (MirExp s) -- return result iterator
 performMap iterty iter closurety closure =
@@ -1116,10 +1107,10 @@ performMap iterty iter closurety closure =
                       let vec' = S.app $ E.VectorSetEntry elemty vec i ith_vec'
                       G.assignReg closure_reg clo'
                       G.assignReg vec_work vec'
-                    _ -> fail $ "type error in performap: " ++ (show elemty) ++ ", " ++ (show elemty2)
+                    _ -> mirFail $ "type mismatch in performap: " ++ (show elemty) ++ ", " ++ (show elemty2)
               new_vec <- G.readReg vec_work
               return $ buildTuple [MirExp (C.VectorRepr elemty) new_vec, iter_pos]
                 -- we keep iter_pos the same as before. so if I called next() on an iterator and then map(),
                 -- I'm where I left off. I assume this is right
 
-      _ -> fail "bad type"
+      _ -> mirFail "bad type"

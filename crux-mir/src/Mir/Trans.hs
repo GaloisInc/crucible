@@ -93,10 +93,7 @@ import GHC.Stack
 import Debug.Trace
 
 
-
 -----------------------------------------------------------------------
-
-
 -- ** MIR intrinsics Generator interaction
 
 newMirRef ::
@@ -136,16 +133,6 @@ subindexRef ::
 subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
 
 -----------------------------------------------------------------------
-
--- | What to do when the translation fails.
-mirFail :: String -> MirGenerator h s ret a
-mirFail str = do
-  b  <- use assertFalseOnError
-  db <- use debugLevel
-  if b then do
-         when (db > 0) $ traceM ("Translation failure: " ++ str)
-         G.reportError (S.litExpr (Text.pack str))
-       else fail str
 
 
 -----------
@@ -1201,7 +1188,7 @@ transStatement (M.SetDiscriminant lv i) = do
           traceM $ "j is " ++ show j
           let idx = (Value (ConstInt (Isize (toInteger j))))
           transStatement (M.Assign lv (Use (OpConstant (Constant ty idx))) "internal: set-discr")
-       _ -> fail "set discriminant: should find CEnum here" -}
+       _ -> mirFail "set discriminant: should find CEnum here" -}
     _ -> mirFail $ "set discriminant: cannot handle type " ++ show ty
 transStatement M.Nop = return ()
 
