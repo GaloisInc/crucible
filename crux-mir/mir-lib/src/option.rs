@@ -163,6 +163,8 @@ use core::ops::{self};
 #[cfg(pin)]
 use pin::Pin;
 
+use core::intrinsics::{self};
+
 // Note that this is not a lang item per se, but it has a hidden dependency on
 // `Iterator`, which is one. The compiler assumes that the `next` method of
 // `Iterator` is an enumeration with one type parameter and two variants,
@@ -269,7 +271,7 @@ impl<T> Option<T> {
             None => None,
         }
     }
-/*
+
     /// Converts from `&mut Option<T>` to `Option<&mut T>`.
     ///
     /// # Examples
@@ -290,7 +292,7 @@ impl<T> Option<T> {
             None => None,
         }
     }
-*/
+
     #[cfg(pin)]
     /// Converts from `Pin<&Option<T>>` to `Option<Pin<&T>>`
     #[inline]
@@ -300,7 +302,7 @@ impl<T> Option<T> {
             Pin::get_ref(self).as_ref().map(|x| Pin::new_unchecked(x))
         }
     }
-/*
+
     #[cfg(pin)]
     /// Converts from `Pin<&mut Option<T>>` to `Option<Pin<&mut T>>`
     #[inline]
@@ -310,11 +312,11 @@ impl<T> Option<T> {
             Pin::get_unchecked_mut(self).as_mut().map(|x| Pin::new_unchecked(x))
         }
     }
-*/
+
     /////////////////////////////////////////////////////////////////////////
     // Getting to contained values
     /////////////////////////////////////////////////////////////////////////
-/*
+
     /// Unwraps an option, yielding the content of a [`Some`].
     ///
     /// # Panics
@@ -344,8 +346,8 @@ impl<T> Option<T> {
             None => expect_failed(msg),
         }
     }
-     */
-    /*
+
+    
     /// Moves the value `v` out of the `Option<T>` if it is [`Some(v)`].
     ///
     /// In general, because this function may panic, its use is discouraged.
@@ -375,10 +377,11 @@ impl<T> Option<T> {
     pub fn unwrap(self) -> T {
         match self {
             Some(val) => val,
-            None => panic!("called `Option::unwrap()` on a `None` value"),
+            None => unsafe { intrinsics::abort() }
+//            None => panic!("called `Option::unwrap()` on a `None` value"),
         }
     }
-   */
+   
     /// Returns the contained value or a default.
     ///
     /// Arguments passed to `unwrap_or` are eagerly evaluated; if you are passing
@@ -573,7 +576,7 @@ impl<T> Option<T> {
     pub fn iter(&self) -> Iter<T> {
         Iter { inner: Item { opt: self.as_ref() } }
     }
-/*
+
     /// Returns a mutable iterator over the possibly contained value.
     ///
     /// # Examples
@@ -595,7 +598,7 @@ impl<T> Option<T> {
     pub fn iter_mut(&mut self) -> IterMut<T> {
         IterMut { inner: Item { opt: self.as_mut() } }
     }
-*/
+
     /////////////////////////////////////////////////////////////////////////
     // Boolean operations on the values, eager and lazy
     /////////////////////////////////////////////////////////////////////////
@@ -1069,11 +1072,12 @@ impl<T, E> Option<Result<T, E>> {
 }
 
 // This is a separate function to reduce the code size of .expect() itself.
-//#[inline(never)]
-//#[cold]
-//fn expect_failed(msg: &str) -> ! {
+#[inline(never)]
+#[cold]
+fn expect_failed(msg: &str) -> ! {
+    unsafe { intrinsics::abort() }
 //    panic!("{}", msg)
-//}
+}
 
 /////////////////////////////////////////////////////////////////////////////
 // Trait implementations
@@ -1153,7 +1157,7 @@ impl<'a, T> IntoIterator for &'a mut Option<T> {
     }
 }
 
-#[cfg(convert)]    
+
 #[stable(since = "1.12.0", feature = "option_from")]
 impl<T> From<T> for Option<T> {
     fn from(val: T) -> Option<T> {
@@ -1161,21 +1165,20 @@ impl<T> From<T> for Option<T> {
     }
 }
 
-#[cfg(convert)]        
+
 #[stable(feature = "option_ref_from_ref_option", since = "1.30.0")]
 impl<'a, T> From<&'a Option<T>> for Option<&'a T> {
     fn from(o: &'a Option<T>) -> Option<&'a T> {
         o.as_ref()
     }
 }
-/*
-#[cfg(convert)]    
+
 #[stable(feature = "option_ref_from_ref_option", since = "1.30.0")]
 impl<'a, T> From<&'a mut Option<T>> for Option<&'a mut T> {
     fn from(o: &'a mut Option<T>) -> Option<&'a mut T> {
         o.as_mut()
     }
-}*/
+}
 
 /////////////////////////////////////////////////////////////////////////////
 // The Option Iterators
@@ -1464,7 +1467,6 @@ pub struct NoneError;
 #[stable(feature = "rust1", since = "1.0.0")]    
 impl Eq for NoneError {}
     
-#[cfg(try)]
 #[unstable(feature = "try_trait", issue = "42327")]
 impl<T> ops::Try for Option<T> {
     type Ok = T;

@@ -326,13 +326,13 @@ extendToMax n e1 m e2 Nothing k =
       Nothing   -> error "don't know the sign"
 
 
--- Rust implements left and right shift operations via the trait
 
 transBinOp :: M.BinOp -> M.Operand -> M.Operand -> MirGenerator h s ret (MirExp s)
 transBinOp bop op1 op2 = do
     me1 <- evalOperand  op1
     me2 <- evalOperand  op2
-    evalBinOp bop (M.arithType op1) me1 me2
+    let mat = M.arithType op1 `mplus` M.arithType op2 
+    evalBinOp bop mat me1 me2
 
 evalBinOp :: M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
 evalBinOp bop mat me1 me2 = 
@@ -392,24 +392,26 @@ evalBinOp bop mat me1 me2 =
                  let res = MirExp (C.BVRepr n) (S.app $ E.BVAshr n e1 e2) 
                  in extendSignedBV res na
               (M.Lt, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUlt n e1 e2)
-              (M.Lt, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSlt n e1 e2)
+              (M.Lt, Just M.Signed)   -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSlt n e1 e2)
               (M.Le, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUle n e1 e2)
-              (M.Le, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e1 e2)
+              (M.Le, Just M.Signed)   -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e1 e2)
 
               (M.Gt, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUlt n e2 e1)
-              (M.Gt, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSlt n e2 e1)
+              (M.Gt, Just M.Signed)   -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSlt n e2 e1)
               (M.Ge, Just M.Unsigned) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVUle n e2 e1)
-              (M.Ge, Just M.Signed) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e2 e1)
+              (M.Ge, Just M.Signed)   -> return $ MirExp (C.BoolRepr) (S.app $ E.BVSle n e2 e1)
 
               (M.Ne, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2)
               (M.Beq, _) -> return $ MirExp (C.BoolRepr) (S.app $ E.BVEq n e1 e2)
-              _ -> mirFail $ "No translation for binop: " ++ show bop ++ " for " ++ show ty1 ++ " and " ++ show ty2
+              _ -> mirFail $ "No translation for binop: " ++ show bop ++ " " ++ show mat
+                           ++ " for " ++ show ty1 ++ " and " ++ show ty2
       (MirExp C.BoolRepr e1, MirExp C.BoolRepr e2) ->
           case bop of
             M.BitAnd -> return $ MirExp C.BoolRepr (S.app $ E.And e1 e2)
             M.BitXor -> return $ MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2)
             M.BitOr -> return $ MirExp C.BoolRepr (S.app $ E.Or e1 e2)
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.BoolXor e1 e2)
+            M.Ne  -> return $ MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2)
             _ -> mirFail $ "No translation for bool binop: " ++ fmt bop
       (MirExp C.NatRepr e1, MirExp C.NatRepr e2) ->
           case bop of

@@ -291,8 +291,12 @@ mirFail :: String -> MirGenerator h s ret a
 mirFail str = do
   b  <- use assertFalseOnError
   db <- use debugLevel
+  f  <- use currentFn
   if b then do
-         when (db > 0) $ traceM ("Translation failure: " ++ str)
+         when (db > 0) $ do
+           traceM ("Translation failure: " ++ str)
+         when (db > 1) $ do
+           traceM (fmt f)
          G.reportError (S.litExpr (Text.pack str))
        else fail str
 

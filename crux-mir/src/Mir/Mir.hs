@@ -609,7 +609,7 @@ funcSubstsofOp _ = error "bad extract func name"
 --------------------------------------------------------------------------------------
 -- | arithType
 
-data ArithType = Signed | Unsigned
+data ArithType = Signed | Unsigned deriving (Eq,Ord,Show)
 
 class ArithTyped a where
     arithType :: a -> Maybe ArithType
@@ -618,6 +618,7 @@ instance TypeOf a => ArithTyped a where
       case typeOf a of
         (TyInt _) -> Just Signed
         (TyUint _ ) -> Just Unsigned
+        TyChar -> Just Unsigned
         _  -> Nothing
 
 --------------------------------------------------------------------------------------

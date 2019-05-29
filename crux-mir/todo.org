@@ -65,7 +65,7 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
    DONE
 
    -- pub use default::Default;
-   DONE (caveat --- macro impls)
+   DONE 
 
    -- pub use iter::{Iterator, Extend, IntoIterator};
    TODO
@@ -81,14 +81,14 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 *** ops
        DONE
+    mod arith;
+    mod bit;
     mod deref;
     mod function;
     mod index;
     mod range;
     mod try;
        TODO
-    mod arith;
-    mod bit;
     mod drop;
     mod generator;
     mod unsize;
@@ -108,11 +108,6 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 ** Implementation todos
 
-- have a mode where if crucible translation fails, output "assert false". Then 
-  even if we can't translate a function we can still override it.
-
-- check whether Try is included in mir-lib
-
 - make generateMIR in Mir.Generate check timestamp of mir-json binary as well
   as timestamp of .mir files to determine whether to call mir-json
 
@@ -130,7 +125,7 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
       (so we can't determine the return type of the trait object)
 
 - need more structured error handling
-   don't use "error", use "fail" instead
+   don't use "error", use "mirFail" in MirGenerator
    distinguish "BUG" errors from user-facing limitations of the system
    pretty print error messages instead of constructing strings?
 

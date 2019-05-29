@@ -1,9 +1,6 @@
 //SCW: from https://github.com/rust-lang/rust/blob/master/src/libcore/cmp.rs
 // 4/11/19
 
-// mir-json limitation: remove macro instances (no implements)
-
-// put in mod cmp, remove mod impls (fixes orphan errors)
 // remove PartialOrd method
 // add module resolutions, remove infix notation
 // remove #[lang = "partial_ord"] etc
@@ -972,8 +969,8 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
     }
 
     
-    //partial_eq_impl! { bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
-    //SCW: by hand, until mir-json works with the macros
+   partial_eq_impl! { bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f32 f64 }
+/*
    #[stable(feature = "rust1", since = "1.0.0")]    
    impl PartialEq for usize {
                 #[inline]
@@ -988,7 +985,7 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
                 #[inline]
                 fn ne(&self, other: &isize) -> bool { (*self) != (*other) }
    }
-     
+  */   
     
     macro_rules! eq_impl {
         ($($t:ty)*) => ($(
@@ -997,11 +994,11 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
         )*)
     }
 
-    //eq_impl! { () bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
-    #[stable(feature = "rust1", since = "1.0.0")]
+    eq_impl! { () bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+/*    #[stable(feature = "rust1", since = "1.0.0")]
     impl Eq for usize {}
     #[stable(feature = "rust1", since = "1.0.0")]
-    impl Eq for isize {}
+    impl Eq for isize {} */
 
     macro_rules! partial_ord_impl {
         ($($t:ty)*) => ($(
@@ -1027,7 +1024,7 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
             }
         )*)
     }
-
+/*
     #[stable(feature = "rust1", since = "1.0.0")]
     impl Eq for () {}
 
@@ -1056,9 +1053,9 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
         fn partial_cmp(&self, other: &bool) -> Option<Ordering> {
             Some(self::Ord::cmp(self,other))
         }
-    }
+    } */
 
-    //partial_ord_impl! { f32 f64 }
+    partial_ord_impl! { f32 f64 }
 
     macro_rules! ord_impl {
         ($($t:ty)*) => ($(
@@ -1090,7 +1087,7 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
         )*)
     }
 
-    #[stable(feature = "rust1", since = "1.0.0")]
+/*    #[stable(feature = "rust1", since = "1.0.0")]
     impl Ord for () {
         #[inline]
         fn cmp(&self, _other: &()) -> Ordering { Equal }
@@ -1103,9 +1100,10 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
             if *self { if *other { Equal } else { Greater } }
             else if *other { Less } else { Equal }
         }
-    }
+    } */
 
-    //ord_impl! { char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+ord_impl! { char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+/*
             #[stable(feature = "rust1", since = "1.0.0")]
             impl PartialOrd for usize {
                 #[inline]
@@ -1156,7 +1154,7 @@ pub fn max<T: Ord>(v1: T, v2: T) -> T {
                     else { Greater }
                 }
             }
-
+    */
 
     
     #[unstable(feature = "never_type", issue = "35121")]
