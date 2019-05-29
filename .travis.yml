@@ -43,7 +43,6 @@ matrix:
         - cabal-install
         update: true
     os: osx
-  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG= DO_LINT=True
   - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer DO_LINT=False
     addons:
       apt:
@@ -57,6 +56,8 @@ matrix:
         - libboost-all-dev
   allow_failures:
   - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer DO_LINT=False
+  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG= DO_LINT=True
+
 cache:
   directories:
   - $HOME/.cabsnap
