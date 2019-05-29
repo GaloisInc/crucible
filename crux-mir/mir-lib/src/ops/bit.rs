@@ -150,8 +150,8 @@ macro_rules! bitand_impl {
     )*)
 }
 
-bitand_impl! { bool u8 u16 u32 u64 u128 i8 i16 i32 i64 i128 }
-//bitand_impl! { bool usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+//bitand_impl! { bool u8 u16 u32 u64 u128 i8 i16 i32 i64 i128 }
+bitand_impl! { bool usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
 
 /// The bitwise OR operator `|`.
 ///
@@ -235,8 +235,8 @@ macro_rules! bitor_impl {
     )*)
 }
 
-bitor_impl! { bool u8 u16 u32 u64 u128 i8 i16 i32 i64 i128 }
-//bitor_impl! { bool usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+//bitor_impl! { bool u8 u16 u32 u64 u128 i8 i16 i32 i64 i128 }
+bitor_impl! { bool usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
 
 /// The bitwise XOR operator `^`.
 ///
@@ -323,8 +323,8 @@ macro_rules! bitxor_impl {
     )*)
 }
 
-bitxor_impl! { bool u8 u16 u32 u64 u128 i8 i16 i32 i64 i128 }
-//bitxor_impl! { bool usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
+//bitxor_impl! { bool u8 u16 u32 u64 u128 i8 i16 i32 i64 i128 }
+bitxor_impl! { bool usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 }
 
 /// The left shift operator `<<`. Note that because this trait is implemented
 /// for all integer types with multiple right-hand-side types, Rust's type

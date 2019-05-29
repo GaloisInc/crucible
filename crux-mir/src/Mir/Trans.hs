@@ -363,7 +363,27 @@ evalBinOp bop mat me1 me2 =
               M.Ge  -> return $ MirExp (C.BoolRepr) (S.app $ E.IntLe e2 e1)
               M.Ne  -> return $ MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.IntEq e1 e2)
               M.Beq -> return $ MirExp (C.BoolRepr) (S.app $ E.IntEq e1 e2)
-              _ -> mirFail $ "No translation for integer binop: " ++ show bop 
+
+              -- TODO: these three are rather fishy
+              M.BitXor -> do
+                let w  = (knownRepr :: NatRepr 128)
+                let b1 = S.app $ E.IntegerToBV w e1 
+                let b2 = S.app $ E.IntegerToBV w e2
+                return $ MirExp C.IntegerRepr (S.app $ E.SbvToInteger w $ S.app $ E.BVXor w b1 b2)
+              M.BitAnd -> do
+                let w  = (knownRepr :: NatRepr 128)
+                let b1 = S.app $ E.IntegerToBV w e1
+                let b2 = S.app $ E.IntegerToBV w e2
+                return $ MirExp C.IntegerRepr (S.app $ E.SbvToInteger w $ S.app $ E.BVAnd w b1 b2)
+
+              M.BitOr  -> do
+                let w  = (knownRepr :: NatRepr 128)
+                let b1 = S.app $ E.IntegerToBV w e1
+                let b2 = S.app $ E.IntegerToBV w e2
+                return $ MirExp C.IntegerRepr (S.app $ E.SbvToInteger w $ S.app $ E.BVOr w b1 b2)
+
+
+              _ -> mirFail $ "No translation for integer binop: " ++ fmt bop 
       (MirExp ty1@(C.BVRepr na) e1a, MirExp ty2@(C.BVRepr ma) e2a) ->
           -- if the BVs are not the same width extend the shorter one
           extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
@@ -427,6 +447,26 @@ evalBinOp bop mat me1 me2 =
             M.Div -> return $ MirExp C.NatRepr (S.app $ E.NatDiv e1 e2)
             M.Rem -> return $ MirExp C.NatRepr (S.app $ E.NatMod e1 e2)
             M.Ne -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.NatEq e1 e2)
+
+            -- these three are rather fishy
+            M.BitXor -> do
+              let w  = (knownRepr :: NatRepr 128)
+              let b1 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
+              let b2 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
+              return $ MirExp C.NatRepr (S.app $ E.BvToNat w $ S.app $ E.BVXor w b1 b2)
+            M.BitAnd -> do
+              let w  = (knownRepr :: NatRepr 128)
+              let b1 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
+              let b2 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
+              return $ MirExp C.NatRepr (S.app $ E.BvToNat w $ S.app $ E.BVAnd w b1 b2)
+
+            M.BitOr  -> do
+              let w  = (knownRepr :: NatRepr 128)
+              let b1 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
+              let b2 = S.app $ E.IntegerToBV w (S.app $ E.NatToInteger e1)
+              return $ MirExp C.NatRepr (S.app $ E.BvToNat w $ S.app $ E.BVOr w b1 b2)
+
+
             _ -> mirFail $ "No translation for natural number binop: " ++ fmt bop
       (MirExp C.RealValRepr e1, MirExp C.RealValRepr e2) ->
           case bop of
@@ -442,6 +482,7 @@ evalBinOp bop mat me1 me2 =
             M.Div -> return $ MirExp C.RealValRepr (S.app $ E.RealDiv e1 e2)
             M.Rem -> return $ MirExp C.RealValRepr (S.app $ E.RealMod e1 e2)
             M.Ne -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.RealEq e1 e2)
+
             _ -> mirFail $ "No translation for real number binop: " ++ fmt bop
 
       (_, _) -> mirFail $ "bad or unimplemented type: " ++ (fmt bop) ++ ", " ++ (show me1) ++ ", " ++ (show me2)
@@ -504,7 +545,7 @@ extendSignedBV (MirExp tp e) w =
                 return $ MirExp (C.BVRepr w) (S.app $ E.BVTrunc w n e)
       (C.BVRepr n) | Just LeqProof <- testLeq (incNat n) w ->
                 return $ MirExp (C.BVRepr w) (S.app $ E.BVSext w n e)
-      _ -> mirFail $ "unimplemented signed bvext" ++ show tp ++ " " ++ show w
+      _ -> mirFail $ "unimplemented signed bvext " ++ show tp ++ " " ++ show w
 
 
 evalCast' :: HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M.Ty -> MirGenerator h s ret (MirExp s)
@@ -512,24 +553,88 @@ evalCast' ck ty1 e ty2  =
     case (ck, ty1, ty2) of
       (M.Misc,a,b) | a == b -> return e
 
-      -- TODO: sketchy casts to unsized types: for now, they are implemented as infinite precision,
+      (M.Misc, M.TyUint M.USize, M.TyInt M.USize)
+       | MirExp C.NatRepr e0 <- e
+       -> return $ MirExp C.IntegerRepr (R.App $ E.NatToInteger e0)
+      (M.Misc, M.TyInt M.USize, M.TyUint M.USize)
+       | MirExp C.IntegerRepr e0 <- e
+       -> mirFail "Cannot convert isize to usize"
+
+      -- TODO: sketchy casts *to* unsized types: for now, they are implemented as infinite precision,
       -- but eventually will need to allow some configurable precision for these conversions.
       (M.Misc, M.TyUint _, M.TyInt  M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp C.IntegerRepr (R.App $ E.BvToInteger sz e0)
+
+      (M.Misc, M.TyUint _, M.TyUint  M.USize)
+       | MirExp (C.BVRepr sz) e0 <- e
+       -> return $ MirExp C.NatRepr (R.App $ E.BvToNat sz e0)
+
       (M.Misc, M.TyInt _, M.TyInt  M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp C.IntegerRepr (R.App $ E.SbvToInteger sz e0)
 
+      (M.Misc, M.TyInt _, M.TyUint  M.USize)
+       | MirExp (C.BVRepr sz) e0 <- e
+       -> mirFail "Cannot convert signed integer to usize"
+
+      -- sketchy cast *from* unsized type
       (M.Misc, M.TyUint M.USize, M.TyUint bsz)
        | MirExp C.NatRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (R.App $ E.IntegerToBV w $ R.App $ E.NatToInteger e0)
 
-      (M.Misc, M.TyUint _, M.TyUint M.USize) -> mirFail "Cannot cast to unsized type"
+      (M.Misc, M.TyInt M.USize, M.TyUint bsz)
+       | MirExp C.IntegerRepr e0 <- e
+       -> baseSizeToNatCont bsz $ \w -> return $
+         MirExp (C.BVRepr w) (R.App $ E.IntegerToBV w $ e0)
+
+      (M.Misc, M.TyUint M.USize, M.TyInt bsz)
+       | MirExp C.NatRepr e0 <- e
+       -> mirFail "Cannot convert usize to signed integer: need E.IntegerToSBV"
+
+      (M.Misc, M.TyInt M.USize, M.TyInt bsz)
+       | MirExp C.IntegerRepr e0 <- e
+       -> mirFail "Cannot convert isize to signed integer: need E.IntegerToSBV"
 
       (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e 
-      (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e 
+      (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
+
+      -- unsigned to signed (nothing to do except fix sizes)
+      (M.Misc, M.TyUint _, M.TyInt s) -> baseSizeToNatCont s $ extendUnsignedBV e
+
+      -- signed to unsigned (TODO: check for negative numbers)
+      (M.Misc, M.TyInt _,  M.TyUint s) ->
+         mirFail "Cannot convert signed integer to unsigned integer"
+
+       -- boolean to nat
+      (M.Misc, TyBool, TyUint M.USize)
+       | MirExp C.BoolRepr e0 <- e
+       -> return $ MirExp C.NatRepr (R.App $ E.NatIte e0 (R.App $ E.NatLit 1) (R.App $ E.NatLit 0))
+      (M.Misc, TyBool, TyInt M.USize)
+
+       -- boolean to integer
+       | MirExp C.BoolRepr e0 <- e
+       -> return $ MirExp C.IntegerRepr (R.App $ E.IntIte e0 (R.App $ E.IntLit 1) (R.App $ E.IntLit 0))
+
+      -- booleans to BVs
+      (M.Misc, TyBool, TyUint bsz)
+       | MirExp C.BoolRepr e0 <- e
+       -> baseSizeToNatCont bsz $ \w -> 
+           return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ E.BVLit w 1) (R.App $ E.BVLit w 0))
+      (M.Misc, TyBool, TyInt bsz)
+       | MirExp C.BoolRepr e0 <- e
+       -> baseSizeToNatCont bsz $ \w -> 
+           return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ E.BVLit w 1) (R.App $ E.BVLit w 0))
+
+
+
+
+{-      -- BV to Float
+      (M.Misc, M.TyInt bsz, TyFloat fsz) 
+       | MirExp (C.BVRepr sz) e0 <- e
+       -> return $ MirExp C.FloatRepr -}
+
       (M.Misc, M.TyCustom (M.BoxTy tb1), M.TyCustom (M.BoxTy tb2)) -> evalCast' ck tb1 e tb2
 
       (M.Unsize, M.TyRef (M.TyArray tp _sz) M.Immut, M.TyRef (M.TySlice tp') M.Immut)

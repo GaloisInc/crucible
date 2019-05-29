@@ -285,6 +285,9 @@ wrapping_mul = ( (["num","{{impl}}"], "wrapping_mul", []),
            (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
                let sub = R.App $ E.BVMul wa a b 
                return (MirExp aty sub)
+           (C.NatRepr, C.NatRepr) -> do
+               let sub = R.App $ E.NatMul a b
+               return (MirExp aty sub)               
            (_,_) -> mirFail $ "wrapping_mul: cannot call with types " ++ show aty ++ " and " ++ show bty
 
        _ -> mirFail $ "BUG: invalid arguments for wrapping_mul")
@@ -301,6 +304,9 @@ wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
          case (aty, bty) of
            (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
                let sub = R.App $ E.BVSub wa a b 
+               return (MirExp aty sub)
+           (C.NatRepr, C.NatRepr) -> do
+               let sub = R.App $ E.NatSub a b
                return (MirExp aty sub)
            (_,_) -> mirFail $ "wrapping_sub: cannot call with types " ++ show aty ++ " and " ++ show bty
 

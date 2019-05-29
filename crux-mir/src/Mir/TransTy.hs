@@ -107,7 +107,7 @@ type TransTyConstraint = (HasCallStack)   -- (HasCallStack, ?col::M.Collection)
 
 
 -- | convert a baseSize to a nat repr
--- The BaseSize must *not* be USize.
+-- Precondition: The BaseSize must *not* be USize.
 baseSizeToNatCont :: HasCallStack => M.BaseSize -> (forall w. (1 <= w) => C.NatRepr w -> a) -> a
 baseSizeToNatCont M.B8   k = k (knownNat :: NatRepr 8)
 baseSizeToNatCont M.B16  k = k (knownNat :: NatRepr 16)

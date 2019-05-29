@@ -109,8 +109,15 @@ test/conc_eval/traits/gen_trait_poly.rs:// FAIL: need to construct dictionary wi
 
 ** Implementation todos
 
+- interpreting usize and isize as natural and integer (respectively)
+  is quite suspect. These are bounded types in the standard library (with a max/min
+  operation). Instead, the translation of these types should be configurable, WRT 
+  any finite size.
+
 - make generateMIR in Mir.Generate check timestamp of mir-json binary as well
   as timestamp of .mir files to determine whether to call mir-json
+  (also, this timestamp checking doesn't work at all, now that everything is 
+  in a single crate.)
 
 - Divide Trans.hs into multiple files so that typechecking/compilation is snappier
   (We're better now at 2k, but still pretty sluggish)
