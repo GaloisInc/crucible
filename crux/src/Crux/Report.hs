@@ -5,7 +5,7 @@ module Crux.Report where
 
 import System.FilePath
 import System.Directory (createDirectoryIfMissing)
-import Data.List (intercalate, partition)
+import Data.List (intercalate, partition, isInfixOf)
 import Data.Maybe (fromMaybe)
 import Control.Exception (catch, SomeException(..))
 import Control.Monad (when)
@@ -90,7 +90,7 @@ jsSideCond path asmps (conc,_) triv status =
   jsObj
   [ "status"          ~> proved
   , "counter-example" ~> example
-  , "goal"            ~> jsStr (takeFileName (head (lines (simErrorReasonMsg (simErrorReason conc)))))
+  , "goal"            ~> jsStr goalReason
   , "location"        ~> jsLoc (simErrorLoc conc)
   , "assumptions"     ~> jsList (map mkAsmp asmps)
   , "trivial"         ~> jsBool triv
@@ -110,6 +110,13 @@ jsSideCond path asmps (conc,_) triv status =
   mkAsmp (asmp,_) =
     jsObj [ "line" ~> jsLoc (assumptionLoc asmp)
           ]
+
+  goalReason = renderReason (simErrorReasonMsg (simErrorReason conc))
+  renderReason rsn =
+    case lines rsn of
+      l1 : l2 : _ | "Undefined behavior" `isInfixOf` l1 -> l2
+      l1 : _ -> takeFileName l1
+      _ -> "no reason?"
 
 
 
