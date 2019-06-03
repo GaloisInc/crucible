@@ -579,7 +579,9 @@ yicesStartSolver ::
 yicesStartSolver features auxOutput sym = do -- FIXME
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
-  let args = ["--mode=push-pop", "--print-success"]
+  enableMCSat <- getOpt =<< getOptionSetting yicesEnableMCSat cfg
+  let args = ["--mode=push-pop", "--print-success"] ++
+             if enableMCSat then ["--mcsat"] else []
 
   let create_proc
         = (proc yices_path args)
@@ -791,9 +793,13 @@ yicesAdapter =
 yicesPath :: ConfigOption BaseStringType
 yicesPath = configOption knownRepr "yices_path"
 
--- | Path to yices
+-- | Enable the exists-forall solver
 yicesEfSolver :: ConfigOption BaseBoolType
 yicesEfSolver = configOption knownRepr "yices_ef-solver"
+
+-- | Enable the MC-SAT solver
+yicesEnableMCSat :: ConfigOption BaseBoolType
+yicesEnableMCSat = configOption knownRepr "yices_enable-mcsat"
 
 yicesOptions :: [ConfigDesc]
 yicesOptions =
@@ -803,6 +809,7 @@ yicesOptions =
       (Just (PP.text "Yices executable path"))
       (Just (ConcreteString "yices"))
   , booleanOpt' yicesEfSolver
+  , booleanOpt' yicesEnableMCSat
   ]
   ++ yicesInternalOptions
 
@@ -973,11 +980,13 @@ runYicesInOverride sym logData conditions resultFn = do
     , satQueryReason = logReason logData
     }
   features <- checkSupportedByYices condition
+  enableMCSat <- getOpt =<< getOptionSetting yicesEnableMCSat cfg
   let efSolver = features `hasProblemFeature` useExistForall
   let nlSolver = features `hasProblemFeature` useNonlinearArithmetic
-  let args | efSolver  = ["--mode=ef"] -- ,"--print-success"]
-           | nlSolver  = ["--logic=QF_NRA"] -- ,"--print-success"]
-           | otherwise = ["--mode=one-shot"] -- ,"--print-success"]
+  let args0 | efSolver  = ["--mode=ef"] -- ,"--print-success"]
+            | nlSolver  = ["--logic=QF_NRA"] -- ,"--print-success"]
+            | otherwise = ["--mode=one-shot"] -- ,"--print-success"]
+  let args = args0 ++ if enableMCSat then ["--mcsat"] else []
 
   withProcessHandles yices_path args Nothing $ \(in_h, out_h, err_h, ph) -> do
 
