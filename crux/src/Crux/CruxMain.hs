@@ -39,6 +39,7 @@ import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import What4.Interface (getConfiguration)
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
+import What4.Solver.Yices (yicesEnableMCSat)
 import What4.Solver.Z3 (z3Timeout)
 
 -- crux
@@ -123,7 +124,14 @@ simulate opts  =
 
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
-     
+
+     case solver cruxOpts of
+       "yices" -> void $ join $
+         setOpt <$> getOptionSetting yicesEnableMCSat (getConfiguration sym)
+                <*> pure (yicesMCSat cruxOpts)
+       _ -> when (yicesMCSat cruxOpts) $
+            fail "The `--mcsat` option is only valid with `--solver=yices`."
+
      when (solver cruxOpts == "z3") $
        void $ join (setOpt <$> getOptionSetting z3Timeout (getConfiguration sym)
                            <*> pure (goalTimeout cruxOpts * 1000))

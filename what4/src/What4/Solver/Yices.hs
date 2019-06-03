@@ -57,6 +57,7 @@ module What4.Solver.Yices
   , yicesPath
   , yicesOptions
   , yicesDefaultFeatures
+  , yicesEnableMCSat
   ) where
 
 import           Control.Exception
