@@ -501,11 +501,11 @@ callMalloc
   -> Alignment
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callMalloc sym mvar alignment
-           (regValue -> sz) = do
+callMalloc sym mvar alignment (regValue -> sz) = do
   --liftIO $ putStrLn "MEM MALLOC"
   mem <- readGlobal mvar
-  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<malloc>" mem sz alignment
+  loc <- liftIO $ getCurrentProgramLoc sym
+  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz alignment
   writeGlobal mvar mem'
   return p
 
