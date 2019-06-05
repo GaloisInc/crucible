@@ -399,7 +399,7 @@ isMergeState tgt st =
           case other_branch of
             VFFActivePath{} -> False
             VFFCompletePath{} -> True
-    VFFPartial _ctx _p _ar NeedsToBeAborted -> True
+    VFFPartial _ctx _loc _p _ar NeedsToBeAborted -> True
     _ -> False
 
 
