@@ -38,6 +38,7 @@ import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.Interface
+import           What4.ProgramLoc (plSourceLoc)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common
@@ -504,7 +505,7 @@ callMalloc
 callMalloc sym mvar alignment (regValue -> sz) = do
   --liftIO $ putStrLn "MEM MALLOC"
   mem <- readGlobal mvar
-  loc <- liftIO $ getCurrentProgramLoc sym
+  loc <- liftIO $ plSourceLoc <$> getCurrentProgramLoc sym
   (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz alignment
   writeGlobal mvar mem'
   return p
