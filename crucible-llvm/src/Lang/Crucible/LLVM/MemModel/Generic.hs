@@ -1379,18 +1379,18 @@ ppMerge vpp c x y =
   indent 2 $
     text "Condition:" <$$>
     indent 2 (printSymExpr c) <$$>
-    text "True Branch:"  <$$>
-    indent 2 (vcat $ map vpp x) <$$>
-    text "False Branch:" <$$>
-    indent 2 (vcat $ map vpp y)
+    ppAllocList x (text "True Branch:") <$$>
+    ppAllocList y (text "False Branch:")
+  where ppAllocList [] = (<+> text "<none>")
+        ppAllocList xs = (<$$> indent 2 (vcat $ map vpp xs))
 
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
 ppAlloc (Alloc atp base sz mut _alignment loc) =
   text (show atp) <+> text (show base) <+> (pretty $ printSymExpr <$> sz) <+> text (show mut) <+> text loc
 ppAlloc (MemFree base) =
-  text "free" <+> printSymExpr base
+  text "Free" <+> printSymExpr base
 ppAlloc (AllocMerge c x y) = do
-  text "merge" <$$> ppMerge ppAlloc c x y
+  text "Merge" <$$> ppMerge ppAlloc c x y
 
 ppAllocs :: IsExprBuilder sym => [MemAlloc sym] -> Doc
 ppAllocs xs = vcat $ map ppAlloc xs
