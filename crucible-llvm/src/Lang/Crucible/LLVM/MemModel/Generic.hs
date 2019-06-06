@@ -518,6 +518,7 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
 
             let alignStride = fromAlignment $ min loadAlign storeAlign
 
+            -- compute the linear form of (load offset - store offset)
             let (diffStride, diffDelta)
                   | Just (load_a, _x, load_b) <- asAffineVar off
                   , Just (store_a, _y, store_b) <- asAffineVar d = do
@@ -547,10 +548,16 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
 
             diff <- liftIO $ bvSub sym off d
 
+            -- skip computing the mux tree if it would be empty
             if storageTypeSize stp <= delta && (typeEnd 0 ltp) <= (stride - delta)
               then readPrev ltp $ LLVMPointer blk off
               else evalMuxValueCtor sym w end varFn subFn $
-                symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) (stride, delta)
+                symbolicValueLoad
+                  pref
+                  ltp
+                  (signedBVBounds diff)
+                  (ValueViewVar stp)
+                  (LinearLoadStoreOffsetDiff stride delta)
 
 -- | Read from a memory with an array store to the same block we are reading.
 readMemArrayStore
