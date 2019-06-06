@@ -367,6 +367,27 @@ testRotate2 = testCase "rotate test2" $ withOnlineZ3' $ \sym s -> do
   bv2 <- bvRor sym bv1 amt
   bv3 <- bvRol sym bv =<< bvLit sym knownNat 20
 
+  bv == bv2 @? "syntactic equality"
+
+  res1 <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv2
+  isUnsat res1 @? "unsat"
+
+  res2 <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv3
+  isSat res2 @? "sat"
+
+testRotate3 :: TestTree
+testRotate3 = testCase "rotate test3" $ withOnlineZ3' $ \sym s -> do
+  bv  <- freshConstant sym (userSymbol' "bv") (BaseBVRepr (knownNat @7))
+  amt <- freshConstant sym (userSymbol' "amt") (BaseBVRepr (knownNat @7))
+
+  bv1 <- bvRol sym bv amt
+  bv2 <- bvRor sym bv1 amt
+  bv3 <- bvRol sym bv =<< bvLit sym knownNat 3
+
+  -- Note, because 7 is not a power of two, this simplification doesn't quite
+  -- work out... it would probably be significant work to make it do so.
+  -- bv == bv2 @? "syntactic equality"
+
   res1 <- checkSatisfiable s "test" =<< notPred sym =<< bvEq sym bv bv2
   isUnsat res1 @? "unsat"
 
@@ -404,5 +425,6 @@ main = defaultMain $ testGroup "Tests"
   , testBVIteNesting
   , testRotate1
   , testRotate2
+  , testRotate3
   , testSymbolPrimeCharZ3
   ]
