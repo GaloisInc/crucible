@@ -2046,9 +2046,11 @@ appSMTExpr ae = do
       x  <- mkBaseExpr xe
       y  <- mkBaseExpr ye
 
-      -- NB, rely on the BVRol invariant that 0 <= y < w
-      let lo = bvLshr x (bvSub (bvTerm w (intValue w)) y)
-      let hi = bvShl x y
+      let w' = bvTerm w (intValue w)
+      y' <- asBase <$> (freshBoundTerm (BVTypeMap w) $ bvURem y w')
+
+      let lo = bvLshr x (bvSub w' y')
+      let hi = bvShl x y'
 
       freshBoundTerm (BVTypeMap w) $ bvXor hi lo
 
@@ -2056,9 +2058,11 @@ appSMTExpr ae = do
       x  <- mkBaseExpr xe
       y  <- mkBaseExpr ye
 
-      -- NB, rely on the BVRor invariant that 0 <= y < w
-      let lo = bvLshr x y
-      let hi = bvShl x (bvSub (bvTerm w (intValue w)) y)
+      let w' = bvTerm w (intValue w)
+      y' <- asBase <$> (freshBoundTerm (BVTypeMap w) $ bvURem y w')
+
+      let lo = bvLshr x y'
+      let hi = bvShl x (bvSub w' y')
 
       freshBoundTerm (BVTypeMap w) $ bvXor hi lo
 

@@ -519,13 +519,13 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   BVRol :: (1 <= w)
         => !(NatRepr w)
         -> !(e (BaseBVType w)) -- bitvector to rotate
-        -> !(e (BaseBVType w)) -- rotate amount INVARIANT: 0 <= r < w
+        -> !(e (BaseBVType w)) -- rotate amount
         -> App e (BaseBVType w)
 
   BVRor :: (1 <= w)
         => !(NatRepr w)
         -> !(e (BaseBVType w))   -- bitvector to rotate
-        -> !(e (BaseBVType w))   -- rotate amount INVARIANT: 0 <= r < w
+        -> !(e (BaseBVType w))   -- rotate amount
         -> App e (BaseBVType w)
 
   BVZext :: (1 <= w, w+1 <= r, 1 <= r)
@@ -4832,24 +4832,32 @@ instance IsExprBuilder (ExprBuilder t st fs) where
    = return x
 
    | Just (BVRol w x' n) <- asApp x
-     -- NB 0 <= n < w
+   , isPow2 (natValue w)
+   = do z <- bvAdd sym n y
+        bvRol sym x' z
+
+   | Just (BVRol w x' n) <- asApp x
    = do wbv <- bvLit sym w (intValue w)
+        n' <- bvUrem sym n wbv
         y' <- bvUrem sym y wbv
-        z <- bvAdd sym n y'
+        z <- bvAdd sym n' y'
         bvRol sym x' z
 
    | Just (BVRor w x' n) <- asApp x
-   = -- NB 0 <= n < w
-     do wbv <- bvLit sym w (intValue w)
+   , isPow2 (natValue w)
+   = do z <- bvSub sym n y
+        bvRor sym x' z
+
+   | Just (BVRor w x' n) <- asApp x
+   = do wbv <- bvLit sym w (intValue w)
         y' <- bvUrem sym y wbv
-        z <- bvAdd sym n =<< bvSub sym wbv y'
+        n' <- bvUrem sym n wbv
+        z <- bvAdd sym n' =<< bvSub sym wbv y'
         bvRor sym x' z
 
    | otherwise
-   = do let w = bvWidth x
-        wbv <- bvLit sym w (intValue w)
-        y' <- bvUrem sym y wbv
-        sbMakeExpr sym $ BVRol (bvWidth x) x y'
+   = let w = bvWidth x in
+     sbMakeExpr sym $ BVRol w x y
 
   bvRor sym x y
    | Just i <- asUnsignedBV x, Just n <- asUnsignedBV y
@@ -4860,24 +4868,32 @@ instance IsExprBuilder (ExprBuilder t st fs) where
    = return x
 
    | Just (BVRor w x' n) <- asApp x
-   = -- NB 0 <= n < w
-     do wbv <- bvLit sym w (intValue w)
+   , isPow2 (natValue w)
+   = do z <- bvAdd sym n y
+        bvRor sym x' z
+
+   | Just (BVRor w x' n) <- asApp x
+   = do wbv <- bvLit sym w (intValue w)
+        n' <- bvUrem sym n wbv
         y' <- bvUrem sym y wbv
-        z <- bvAdd sym n y'
+        z <- bvAdd sym n' y'
         bvRor sym x' z
 
    | Just (BVRol w x' n) <- asApp x
-   = -- NB 0 <= n < w
-     do wbv <- bvLit sym w (intValue w)
+   , isPow2 (natValue w)
+   = do z <- bvSub sym n y
+        bvRol sym x' z
+
+   | Just (BVRol w x' n) <- asApp x
+   = do wbv <- bvLit sym w (intValue w)
+        n' <- bvUrem sym n wbv
         y' <- bvUrem sym y wbv
-        z <- bvAdd sym n =<< bvSub sym wbv y'
+        z <- bvAdd sym n' =<< bvSub sym wbv y'
         bvRol sym x' z
 
    | otherwise
-   = do let w = bvWidth x
-        wbv <- bvLit sym w (intValue w)
-        y' <- bvUrem sym y wbv
-        sbMakeExpr sym $ BVRor (bvWidth x) x y'
+   = let w = bvWidth x in
+     sbMakeExpr sym $ BVRor w x y
 
   bvZext sym w x
     | Just i <- asUnsignedBV x = do
