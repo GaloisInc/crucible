@@ -177,6 +177,7 @@ import           Data.Word
 import           GHC.TypeNats
 import           System.IO (Handle, hPutStrLn)
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
+import qualified Text.PrettyPrint.ANSI.Leijen as PP hiding ((<$>))
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
@@ -774,10 +775,23 @@ doMemcpy sym w mem dest src len = do
 
   (heap', p1, p2) <- G.copyMem sym PtrWidth dest src len' (memImplHeap mem)
 
-  let errMsg1 = "Source region was not allocated:" ++ show (G.ppPtr src)
-  let errMsg2 = "Dest region was not allocated, or not mutable:" ++ show (G.ppPtr dest)
-  assert sym p1 (AssertFailureSimError errMsg1)
-  assert sym p2 (AssertFailureSimError errMsg2)
+  let mkMsg = show . vcat .
+        ([ PP.text "Encountered error in call to memcpy:"
+         , PP.indent 2 $ PP.text "Source pointer:" PP.<+> G.ppPtr src
+         , PP.indent 2 $ PP.text "Dest pointer:  " PP.<+> G.ppPtr dest
+         , PP.indent 2 $ PP.text "Size of copy:  " PP.<+> printSymExpr len
+         , PP.text "The error was:"
+        ] ++)
+  let reasons = map PP.text [ "- Not allocated"
+                            , "- Not allocated with enough size"
+                            ]
+  let errMsg1 = PP.text "Source region was one of the following:"
+              : reasons
+  let errMsg2 = PP.text "Dest region was one of the following:"
+              : PP.text "- Not mutable"
+              : reasons
+  assert sym p1 (AssertFailureSimError (mkMsg errMsg1))
+  assert sym p2 (AssertFailureSimError (mkMsg errMsg2))
 
   return mem{ memImplHeap = heap' }
 
