@@ -1,0 +1,31 @@
+Name:          what4-limp
+Version:       0.1
+Author:        Galois Inc.
+Maintainer:    atomb@galois.com
+Copyright:     (c) Galois, Inc 2019
+License:       BSD3
+License-file:  LICENSE
+Build-type:    Simple
+Cabal-version: >= 1.9.2
+Category:      Language
+Synopsis:      What4 bindings to the LIMP integer programming library
+Description:
+  LIMP contains a Haskell solver for linear programs as well as a
+  pretty-printer into the LP file format supported by external (M)ILP
+  solvers. This package translates What4 expressions into LIMP programs.
+
+
+library
+  build-depends:
+    ansi-wl-pprint,
+    base >= 4.7 && < 4.13,
+    exceptions,
+    limp,
+    what4
+
+  hs-source-dirs: src
+
+  exposed-modules:
+    What4.Solver.LIMP
+
+  ghc-options: -Wall
