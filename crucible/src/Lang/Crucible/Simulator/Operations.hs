@@ -704,7 +704,6 @@ resumeValueFromValueAbort ctx0 ar0 =
            (stateTree .~ ActiveTree ctx (er & partialValue.gpValue .~ frm))
            (resumeValueFromFrameAbort ctx ar0)
     VFVPartial ctx loc pred ay -> do
-      -- resumeValueFromValueAbort ctx (AbortedBranch (Posd (plSourceLoc loc) pred) ar0 ay)
       resumeValueFromValueAbort ctx (AbortedBranch loc pred ar0 ay)
     VFVEnd ->
       do res <- view stateContext
