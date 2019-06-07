@@ -4,6 +4,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -16,6 +17,9 @@ import Test.Tasty.HUnit
 import           Control.Monad (void)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
+import qualified Data.Map as Map (empty, singleton)
+import           Data.Versions (Version(Version))
+import qualified Data.Versions as Versions
 
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Nonce
@@ -70,8 +74,8 @@ withModel s p action = do
   assume (sessionWriter s) p
   runCheckSat s $ \case
     Sat (GroundEvalFn {..}, _) -> action groundEval
-    Unsat _                    -> "unsat" @?= "sat"
-    Unknown                    -> "unknown" @?= "sat"
+    Unsat _                    -> "unsat" @?= ("sat" :: String)
+    Unknown                    -> "unknown" @?= ("sat" :: String)
 
 -- exists y . (x + 2.0) + (x + 2.0) < y
 iFloatTestPred
@@ -348,6 +352,29 @@ testSymbolPrimeCharZ3 = testCase "z3 symbol prime (') char" $
     assume (sessionWriter s) p
     runCheckSat s $ \res -> isSat res @? "sat"
 
+-- | These tests simply ensure that no exceptions are raised.
+testSolverInfo :: TestTree
+testSolverInfo = testGroup "solver info queries" $
+  [ testCase "test get solver version" $ withOnlineZ3' $ \_ proc -> do
+      let conn = solverConn proc
+      getVersion conn
+      _ <- versionResult conn (solverResponse proc)
+      pure ()
+  , testCase "test get solver name" $ withOnlineZ3' $ \_ proc -> do
+      let conn = solverConn proc
+      getName conn
+      nm <- nameResult conn (solverResponse proc)
+      nm @?= "Z3"
+  ]
+
+testSolverVersion :: TestTree
+testSolverVersion = testCase "test solver version bounds" $
+  withOnlineZ3' $ \_ proc -> do
+    let v = Version { _vEpoch = Nothing
+                    , _vChunks = [[Versions.Digits 0]]
+                    , _vRel = [] }
+    checkSolverVersion' (Map.singleton "Z3" v) Map.empty proc >> return ()
+
 main :: IO ()
 main = defaultMain $ testGroup "Tests"
   [ testInterpretedFloatReal
@@ -369,4 +396,7 @@ main = defaultMain $ testGroup "Tests"
   , testUninterpretedFunctionScope
   , testBVIteNesting
   , testSymbolPrimeCharZ3
+  , testSolverInfo
+  , testSolverVersion
+
   ]

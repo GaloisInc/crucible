@@ -2642,6 +2642,7 @@ class SMTWriter h => SMTReadWriter h where
   --   atom, false for a negated atom.
   smtUnsatAssumptionsResult :: f h -> Streams.InputStream Text -> IO [(Bool,Text)]
 
+
 -- | Return the terms associated with the given ground index variables.
 smtIndicesTerms :: forall v idx
                 .  SupportTermOps v

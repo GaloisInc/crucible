@@ -16,10 +16,11 @@
 {-# LANGUAGE DoAndIfThenElse #-}
 
 {-# LANGUAGE FlexibleInstances #-}
-
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -503,6 +504,7 @@ instance SMTReadWriter (Connection s) where
                  unlines [ "Could not parse unsat core result."
                          , "*** Exception: " ++ displayException e
                          ]
+
 
 -- | Exceptions that can occur when reading responses from Yices
 data YicesException
