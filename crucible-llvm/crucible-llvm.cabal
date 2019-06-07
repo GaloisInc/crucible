@@ -110,4 +110,5 @@ test-suite crucible-llvm-tests
     tasty,
     tasty-golden,
     tasty-quickcheck,
-    tasty-hunit
+    tasty-hunit,
+    vector

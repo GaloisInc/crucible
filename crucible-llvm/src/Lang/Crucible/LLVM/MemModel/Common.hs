@@ -40,6 +40,7 @@ module Lang.Crucible.LLVM.MemModel.Common
 
   , ValueLoad(..)
   , valueLoad
+  , LinearLoadStoreOffsetDiff(..)
   , symbolicValueLoad
 
   , memsetValue
@@ -528,6 +529,14 @@ valueLoad lo ltp so v
        le = typeEnd lo ltp
        se = so + storageTypeSize stp
 
+-- | @LinearLoadStoreOffsetDiff stride delta@ represents the fact that
+--   the difference between the load offset and the store offset is
+--   of the form @stride * n + delta@ for some integer @n@, where
+--   @stride@ and @delta@ are non-negative integers, and @n@ can be
+--   positive, negative, or zero.  If no form if known, then @stride@ is @1@
+--   and @delta@ is @0@.
+data LinearLoadStoreOffsetDiff = LinearLoadStoreOffsetDiff Bytes Bytes
+
 -- | This function computes a mux tree value for loading a chunk from inside
 --   a previously-written value.  The @StorageType@ of the load indicates
 --   the size of the loaded value and how we intend to view it.  The bounds,
@@ -536,21 +545,21 @@ valueLoad lo ltp so v
 --   store offset.  These bounds, if provided, are used to shrink the size of
 --   the computed mux tree, and can lead to significantly smaller results.
 --   The @ValueView@ is the syntactic representation of the value being
---   loaded from.  The @Alignment@ value is the largest common alignment of
---   the load and the store.
+--   loaded from.  The @LinearLoadStoreOffsetDiff@ form further reduces the size
+--   of the mux tree by only considering (load offset - store offset) values of
+--   the given form.
 symbolicValueLoad ::
   BasePreference {- ^ whether addresses are based on store or load -} ->
   StorageType           {- ^ load type            -} ->
   Maybe (Integer, Integer) {- ^ optional bounds on the offset between load and store -} ->
   ValueView      {- ^ view of stored value -} ->
-  Alignment      {- ^ alignment of store and load -} ->
+  LinearLoadStoreOffsetDiff {- ^ linear (load offset - store offset) form -} ->
   Mux (ValueCtor (ValueLoad OffsetExpr))
-symbolicValueLoad pref tp bnd v alignment =
+symbolicValueLoad pref tp bnd v (LinearLoadStoreOffsetDiff stride delta) =
   Mux (Or (loadOffset lsz .<= Store) (storeOffset (storageTypeSize stp) .<= Load)) loadFail $
   MuxTable Load Store prefixTable $
   MuxTable Store Load suffixTable loadFail
   where
-    stride = fromAlignment alignment
     lsz = typeEnd 0 tp
     Just stp = viewType v
 
@@ -569,8 +578,8 @@ symbolicValueLoad pref tp bnd v alignment =
     suffixLoBound =
       case bnd of
         Just (lo, _hi)
-          | lo > 0 -> toBytes lo
-        _ -> 0
+          | lo > 0 -> adjustLoBound delta (toBytes lo)
+        _ -> delta
 
     -- One past the largest offset value that can occur in the suffix table.
     -- This is either the length of the written value, or is given by the
@@ -589,8 +598,8 @@ symbolicValueLoad pref tp bnd v alignment =
     prefixLoBound =
       case bnd of
         Just (_lo, hi)
-          | hi < 0 -> max stride (toBytes (-hi))
-        _ -> stride
+          | hi < 0 -> adjustLoBound (stride - delta) (toBytes (-hi))
+        _ -> stride - delta
 
     -- The largest magnitude of offset, plus one, that the load may occur
     -- behind the write pointer.  This is at most the length of the read,
@@ -626,6 +635,11 @@ symbolicValueLoad pref tp bnd v alignment =
       where adjustFn = fixLoadAfterStoreOffset pref i
 
     loadFail = MuxVar (ValueCtorVar (OldMemory Load tp))
+
+    adjustLoBound :: Bytes -> Bytes -> Bytes
+    adjustLoBound i bound = if i >= bound
+      then i
+      else adjustLoBound (i + stride) bound
 
 -- | Create a value of the given type made up of copies of the given byte.
 memsetValue :: a -> StorageType -> ValueCtor a

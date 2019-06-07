@@ -900,6 +900,25 @@ instance IsExpr (Expr t) where
   unsignedBVBounds x = BVD.ubounds (bvWidth x) $ exprAbsValue x
   signedBVBounds x = BVD.sbounds (bvWidth x) $ exprAbsValue x
 
+  asAffineVar e = case exprType e of
+    BaseNatRepr
+      | Just (a, x, b) <- WSum.asAffineVar $
+          asWeightedSum SR.SemiRingNatRepr e ->
+        Just (ConcreteNat a, x, ConcreteNat b)
+    BaseIntegerRepr
+      | Just (a, x, b) <- WSum.asAffineVar $
+          asWeightedSum SR.SemiRingIntegerRepr e ->
+        Just (ConcreteInteger a, x, ConcreteInteger b)
+    BaseRealRepr
+      | Just (a, x, b) <- WSum.asAffineVar $
+          asWeightedSum SR.SemiRingRealRepr e ->
+        Just (ConcreteReal a, x, ConcreteReal b)
+    BaseBVRepr w
+      | Just (a, x, b) <- WSum.asAffineVar $
+          asWeightedSum (SR.SemiRingBVRepr SR.BVArithRepr (bvWidth e)) e ->
+        Just (ConcreteBV w a, x, ConcreteBV w b)
+    _ -> Nothing
+
   asString (StringExpr x _) = Just x
   asString _ = Nothing
 
@@ -935,6 +954,26 @@ asSemiRingProd :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> Maybe (Se
 asSemiRingProd sr (asApp -> Just (SemiRingProd x))
   | Just Refl <- testEquality sr (WSum.prodRepr x) = Just x
 asSemiRingProd _ _ = Nothing
+
+-- | This privides a view of a semiring expr as a weighted sum of values.
+data SemiRingView t sr
+   = SR_Constant !(SR.Coefficient sr)
+   | SR_Sum  !(WeightedSum (Expr t) sr)
+   | SR_Prod !(SemiRingProduct (Expr t) sr)
+   | SR_General
+
+viewSemiRing:: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> SemiRingView t sr
+viewSemiRing sr x
+  | Just r <- asSemiRingLit sr x  = SR_Constant r
+  | Just s <- asSemiRingSum sr x  = SR_Sum s
+  | Just p <- asSemiRingProd sr x = SR_Prod p
+  | otherwise = SR_General
+
+asWeightedSum :: HashableF (Expr t) => SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> WeightedSum (Expr t) sr
+asWeightedSum sr x
+  | Just r <- asSemiRingLit sr x = WSum.constant sr r
+  | Just s <- asSemiRingSum sr x = s
+  | otherwise = WSum.var sr x
 
 ------------------------------------------------------------------------
 -- ExprSymFn
@@ -3429,26 +3468,6 @@ sbTryUnaryTerm sym (Just mku) fallback =
        bvUnary sym u
      else
        fallback
-
--- | This privides a view of a semiring expr as a weighted sum of values.
-data SemiRingView t sr
-   = SR_Constant !(SR.Coefficient sr)
-   | SR_Sum  !(WeightedSum (Expr t) sr)
-   | SR_Prod !(SemiRingProduct (Expr t) sr)
-   | SR_General
-
-viewSemiRing:: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> SemiRingView t sr
-viewSemiRing sr x
-  | Just r <- asSemiRingLit sr x  = SR_Constant r
-  | Just s <- asSemiRingSum sr x  = SR_Sum s
-  | Just p <- asSemiRingProd sr x = SR_Prod p
-  | otherwise = SR_General
-
-asWeightedSum :: HashableF (Expr t) => SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> WeightedSum (Expr t) sr
-asWeightedSum sr x
-  | Just r <- asSemiRingLit sr x = WSum.constant sr r
-  | Just s <- asSemiRingSum sr x = s
-  | otherwise = WSum.var sr x
 
 semiRingProd ::
   ExprBuilder t st fs ->

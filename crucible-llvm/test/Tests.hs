@@ -12,50 +12,50 @@
 module Main where
 
 -- Crucible
-import           Lang.Crucible.Backend.Simple (newSimpleBackend, SimpleBackend)
+import qualified Lang.Crucible.Backend as Crucible
+import qualified Lang.Crucible.Backend.Simple as Crucible
 import           Lang.Crucible.FunctionHandle (newHandleAllocator, withHandleAllocator, HandleAllocator)
-import           Lang.Crucible.LLVM.Globals (initializeMemory)
-import           Lang.Crucible.LLVM.MemType (i32)
-import           Lang.Crucible.LLVM.MemModel
-import           Lang.Crucible.LLVM.Intrinsics (mkLLVMContext)
-import           Lang.Crucible.LLVM.Extension (ArchRepr(..), ArchWidth, X86(..))
+import qualified Lang.Crucible.Types as Crucible
 
-import           Data.Parameterized.Some (Some(..))
-import           Data.Parameterized.NatRepr (knownNat, LeqProof(..), NatRepr, testLeq)
-import           Data.Parameterized.Nonce (withIONonceGenerator, NonceGenerator)
-import           What4.Expr.Builder (ExprBuilder, Flags, FloatReal, newExprBuilder)
-import           Lang.Crucible.Backend (IsSymInterface)
+import           Data.Parameterized.Some
+import           Data.Parameterized.NatRepr
+import           Data.Parameterized.Nonce
+import qualified What4.Interface as What4
+import qualified What4.Partial as What4
 
 -- LLVM
 import qualified Text.LLVM.AST as L
 import           Text.LLVM.AST (Module)
-import           Data.LLVM.BitCode (parseBitCodeFromFile)
-import           Lang.Crucible.LLVM.TypeContext (TypeContext)
-
+import           Data.LLVM.BitCode
 
 -- Tasty
-import           Test.Tasty (defaultMain, TestTree, testGroup)
-import           Test.Tasty.HUnit (testCase, (@=?))
-import           Test.Tasty.QuickCheck (testProperty)
+import           Test.Tasty
+import           Test.Tasty.HUnit
+import           Test.Tasty.QuickCheck
 
 -- General
 import           Control.Monad.ST
-import           Data.Foldable (toList)
+import           Data.Foldable
 import           Data.Sequence (Seq)
-import           Control.Monad (when, forM_)
+import           Control.Monad
 import           Control.Monad.Except
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import qualified Data.Vector as V
 import qualified System.Directory as Dir
 import           System.Exit (exitFailure, ExitCode(..))
 import qualified System.Process as Proc
 
 -- Modules being tested
+import           Lang.Crucible.LLVM.DataLayout
+import           Lang.Crucible.LLVM.Extension
+import           Lang.Crucible.LLVM.Globals
+import           Lang.Crucible.LLVM.Intrinsics
+import           Lang.Crucible.LLVM.MemModel
+import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.Translation
-import           Lang.Crucible.LLVM.MemModel (reverseAliases)
-
-import           Debug.Trace
+import           Lang.Crucible.LLVM.TypeContext
 
 doProc :: String -> [String] -> IO (Int, String, String)
 doProc !exe !args = do
@@ -292,6 +292,9 @@ tests int struct uninitialized _ lifetime = do
                 (L.Symbol "aliasName")
                 (memImplGlobalMap memImpl)
         ]
+
+    , [ testArrayStride
+      ]
     ]
 
 
@@ -299,7 +302,7 @@ tests int struct uninitialized _ lifetime = do
 withLLVMCtx :: forall a. L.Module
             -> (forall arch sym. ( ?lc :: TypeContext
                                  , HasPtrWidth (ArchWidth arch)
-                                 , IsSymInterface sym
+                                 , Crucible.IsSymInterface sym
                                  )
                 => LLVMContext arch
                 -> sym
@@ -310,7 +313,7 @@ withLLVMCtx mod action =
       -- @s@ in the binding of @sym@, which is difficult to do inline.
       with :: forall s. NonceGenerator IO s -> HandleAllocator RealWorld -> IO a
       with nonceGen halloc = do
-        sym <- newSimpleBackend nonceGen :: IO (SimpleBackend s (Flags FloatReal))
+        sym <- Crucible.newSimpleBackend @_ @(Crucible.Flags Crucible.FloatReal) nonceGen
         Some (ModuleTranslation _ ctx _) <- stToIO $ translateModule halloc mod
         case llvmArch ctx                   of { X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
@@ -326,7 +329,7 @@ withLLVMCtx mod action =
 withInitializedMemory :: forall a. L.Module
                       -> (forall wptr sym. ( ?lc :: TypeContext
                                            , HasPtrWidth wptr
-                                           , IsSymInterface sym
+                                           , Crucible.IsSymInterface sym
                                            )
                           => MemImpl sym
                           -> IO a)
@@ -335,11 +338,73 @@ withInitializedMemory mod action =
   withLLVMCtx mod $ \(ctx :: LLVMContext arch) sym ->
     action @(ArchWidth arch) =<< initializeMemory sym ctx mod
 
--- Copied from what4/test/ExprBuilderSMTLib2
-data State t = State
-
 assertLeq :: forall m n . NatRepr m -> NatRepr n -> LeqProof m n
 assertLeq m n =
   case testLeq m n of
     Just LeqProof -> LeqProof
     Nothing       -> error $ "No LeqProof for " ++ show m ++ " and " ++ show n
+
+userSymbol' :: String -> What4.SolverSymbol
+userSymbol' s = case What4.userSymbol s of
+  Left e -> error $ show e
+  Right symbol -> symbol
+
+withMem ::
+  EndianForm ->
+  (forall sym wptr . (Crucible.IsSymInterface sym, HasPtrWidth wptr) => sym -> MemImpl sym -> IO a) ->
+  IO a
+withMem endianess action = withIONonceGenerator $ \nonce_gen -> do
+  let ?ptrWidth = knownNat @64
+  sym <- Crucible.newSimpleBackend @_ @(Crucible.Flags Crucible.FloatIEEE) nonce_gen
+  mem <- emptyMem endianess
+  action sym mem
+
+testArrayStride :: TestTree
+testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
+  sz <- What4.bvLit sym ?ptrWidth $ 1024 * 1024
+  (base_ptr, mem1) <- mallocRaw sym mem0 sz noAlignment
+
+  let byte_type_repr = Crucible.baseToType $ What4.BaseBVRepr $ knownNat @8
+  let byte_storage_type = bitvectorType 1
+  let ptr_byte_repr = LLVMPointerRepr $ knownNat @8
+
+  init_array_val <- LLVMValArray byte_storage_type <$>
+    V.generateM (1024 * 1024)
+      (\i -> packMemValue sym byte_storage_type byte_type_repr
+        =<< What4.bvLit sym (knownNat @8) (fromIntegral $ mod i (512 * 1024)))
+  mem2 <- storeRaw
+    sym
+    mem1
+    base_ptr
+    (arrayType (1024 * 1024) byte_storage_type)
+    noAlignment
+    init_array_val
+
+  stride <- What4.bvLit sym ?ptrWidth $ 512 * 1024
+
+  i <- What4.freshConstant sym (userSymbol' "i") $ What4.BaseBVRepr ?ptrWidth
+  ptr_i <- ptrAdd sym ?ptrWidth base_ptr =<< What4.bvMul sym stride i
+  ptr_i' <- ptrAdd sym ?ptrWidth ptr_i =<< What4.bvLit sym ?ptrWidth 1
+
+  zero_bv <- What4.bvLit sym (knownNat @8) 0
+  mem3 <-
+    doStore sym mem2 ptr_i byte_type_repr byte_storage_type noAlignment zero_bv
+  one_bv <- What4.bvLit sym (knownNat @8) 1
+  mem4 <-
+    doStore sym mem3 ptr_i' byte_type_repr byte_storage_type noAlignment one_bv
+
+  at_0_val <- projectLLVM_bv sym
+    =<< doLoad sym mem4 base_ptr byte_storage_type ptr_byte_repr noAlignment
+  (Just 0) @=? What4.asUnsignedBV at_0_val
+
+  j <- What4.freshConstant sym (userSymbol' "j") $ What4.BaseBVRepr ?ptrWidth
+  ptr_j <- ptrAdd sym ?ptrWidth base_ptr =<< What4.bvMul sym stride j
+  ptr_j' <- ptrAdd sym ?ptrWidth ptr_j =<< What4.bvLit sym ?ptrWidth 1
+
+  at_j_val <- projectLLVM_bv sym
+    =<< doLoad sym mem4 ptr_j byte_storage_type ptr_byte_repr noAlignment
+  (Just 0) @=? What4.asUnsignedBV at_j_val
+
+  at_j'_val <- projectLLVM_bv  sym
+    =<< doLoad sym mem4 ptr_j' byte_storage_type ptr_byte_repr noAlignment
+  (Just 1) @=? What4.asUnsignedBV at_j'_val
