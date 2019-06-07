@@ -21,6 +21,8 @@ module What4.Utils.Arithmetic
   , roundAway
   , ctz
   , clz
+  , rotateLeft
+  , rotateRight
   ) where
 
 import Control.Exception (assert)
@@ -61,6 +63,26 @@ clz w x = go 0
  go !i
    | i < toInteger (natValue w) && testBit x (widthVal w - fromInteger i - 1) == False = go (i+1)
    | otherwise = i
+
+rotateRight ::
+  NatRepr w {- ^ width -} ->
+  Integer {- ^ value to rotate -} ->
+  Integer {- ^ amount to rotate -} ->
+  Integer
+rotateRight w x n = xor (shiftR x' n') (toUnsigned w (shiftL x' (widthVal w - n')))
+ where
+ x' = toUnsigned w x
+ n' = fromInteger (n `rem` intValue w)
+
+rotateLeft ::
+  NatRepr w {- ^ width -} ->
+  Integer {- ^ value to rotate -} ->
+  Integer {- ^ amount to rotate -} ->
+  Integer
+rotateLeft w x n = xor (shiftR x' (widthVal w - n')) (toUnsigned w (shiftL x' n'))
+ where
+ x' = toUnsigned w x
+ n' = fromInteger (n `rem` intValue w)
 
 
 -- | @nextMultiple x y@ computes the next multiple m of x s.t. m >= y.  E.g.,

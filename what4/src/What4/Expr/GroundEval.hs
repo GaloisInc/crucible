@@ -59,7 +59,7 @@ import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
 import qualified What4.Expr.WeightedSum as WSum
 import qualified What4.Expr.UnaryBV as UnaryBV
-import           What4.Utils.Arithmetic ( roundAway, clz, ctz )
+import           What4.Utils.Arithmetic ( roundAway, clz, ctz, rotateLeft, rotateRight )
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
 
@@ -385,6 +385,10 @@ evalGroundApp f0 a0 = do
       toUnsigned w <$> (shiftR <$> f0 x <*> (fromInteger <$> f0 y))
     BVAshr w x y -> lift $
       toUnsigned w <$> (shiftR <$> (toSigned w <$> f0 x) <*> (fromInteger <$> f0 y))
+
+    BVRol w x y -> lift $ (rotateLeft w <$> f0 x <*> f0 y)
+    BVRor w x y -> lift $ (rotateRight w <$> f0 x <*> f0 y)
+
     BVZext _ x -> lift $ f0 x
     BVSext w x -> lift $ do
       case isPosNat w of

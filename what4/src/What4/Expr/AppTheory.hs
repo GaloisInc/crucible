@@ -148,6 +148,8 @@ appTheory a0 =
     BVSrem{} -> BitvectorTheory
     BVShl{}   -> BitvectorTheory
     BVLshr{}  -> BitvectorTheory
+    BVRol{}   -> BitvectorTheory
+    BVRor{}   -> BitvectorTheory
     BVAshr{}  -> BitvectorTheory
     BVZext{}  -> BitvectorTheory
     BVSext{}  -> BitvectorTheory
