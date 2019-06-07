@@ -69,6 +69,8 @@ module Lang.Crucible.Simulator.Operations
   , asContFrame
   ) where
 
+import Prelude hiding (pred)
+
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
@@ -113,27 +115,29 @@ mergeGlobalPair merge_fn global_fn c x y =
              <*> global_fn c (x^.gpGlobals) (y^.gpGlobals)
 
 mergeAbortedResult ::
-  Pred sym ->
+  ProgramLoc {- ^ Program location of control-flow branching -} ->
+  Pred sym {- ^ Branch predicate -} ->
   AbortedResult sym ext ->
   AbortedResult sym ext ->
   AbortedResult sym ext
-mergeAbortedResult _ (AbortedExit ec) _ = AbortedExit ec
-mergeAbortedResult _ _ (AbortedExit ec) = AbortedExit ec
-mergeAbortedResult c q r = AbortedBranch c q r
+mergeAbortedResult _ _ (AbortedExit ec) _ = AbortedExit ec
+mergeAbortedResult _ _ _ (AbortedExit ec) = AbortedExit ec
+mergeAbortedResult loc pred q r = AbortedBranch loc pred q r
 
 mergePartialAndAbortedResult ::
   IsExprBuilder sym =>
   sym ->
+  ProgramLoc {- ^ Program location of control-flow branching -} ->
   Pred sym {- ^ This needs to hold to avoid the aborted result -} ->
   PartialResult sym ext v ->
   AbortedResult sym ext ->
   IO (PartialResult sym ext v)
-mergePartialAndAbortedResult sym c ar r =
+mergePartialAndAbortedResult sym loc pred ar r = do
   case ar of
-    TotalRes gp -> return $! PartialRes c gp r
-    PartialRes d gp q ->
-      do e <- andPred sym c d
-         return $! PartialRes e gp (mergeAbortedResult c q r)
+    TotalRes gp -> return $! PartialRes loc pred gp r
+    PartialRes loc' d gp q ->
+      do e <- andPred sym pred d
+         return $! PartialRes loc' e gp (mergeAbortedResult loc pred q r)
 
 
 mergeCrucibleFrame ::
@@ -161,7 +165,7 @@ mergePartialResult ::
   CrucibleBranchTarget f args ->
   MuxFn (Pred sym)
      (PartialResult sym ext (SimFrame sym ext f args))
-mergePartialResult s tgt pp x y =
+mergePartialResult s tgt pred x y =
   let sym       = s^.stateSymInterface
       iteFns    = s^.stateIntrinsicTypes
       merge_val = mergeCrucibleFrame sym iteFns tgt
@@ -171,25 +175,25 @@ mergePartialResult s tgt pp x y =
     TotalRes cx ->
       case y of
         TotalRes cy ->
-          TotalRes <$> merge_fn pp cx cy
+          TotalRes <$> merge_fn pred cx cy
 
-        PartialRes py cy fy ->
-          PartialRes <$> orPred sym pp py
-                     <*> merge_fn pp cx cy
-                     <*> pure fy
+        PartialRes loc py cy fy ->
+          PartialRes loc <$> orPred sym pred py
+                         <*> merge_fn pred cx cy
+                         <*> pure fy
 
-    PartialRes px cx fx ->
+    PartialRes loc px cx fx ->
       case y of
         TotalRes cy ->
-          do pc <- notPred sym pp
-             PartialRes <$> orPred sym pc px
-                        <*> merge_fn pp cx cy
-                        <*> pure fx
+          do pc <- notPred sym pred
+             PartialRes loc <$> orPred sym pc px
+                            <*> merge_fn pred cx cy
+                            <*> pure fx
 
-        PartialRes py cy fy ->
-          PartialRes <$> itePred sym pp px py
-                     <*> merge_fn pp cx cy
-                     <*> pure (AbortedBranch pp fx fy)
+        PartialRes loc' py cy fy ->
+          PartialRes loc' <$> itePred sym pred px py
+                          <*> merge_fn pred cx cy
+                          <*> pure (AbortedBranch loc' pred fx fy)
 
 {- | Merge the assumptions collected from the branches of a conditional.
 The result is a bunch of qualified assumptions: if the branch condition
@@ -531,18 +535,17 @@ performIntraFrameMerge tgt = do
   ActiveTree ctx0 er <- view stateTree
   sym <- view stateSymInterface
   case ctx0 of
-    VFFBranch ctx assume_frame loc p other_branch tgt'
+    VFFBranch ctx assume_frame loc pred other_branch tgt'
 
       -- Did we get to our merge point (i.e., we are finished with this branch)
       | Just Refl <- testEquality tgt tgt' ->
-
         case other_branch of
 
           -- We still have some more work to do, reactivate the other, postponed branch
           VFFActivePath next ->
             do pathAssumes      <- liftIO $ popAssumptionFrame sym assume_frame
                new_assume_frame <- liftIO $ pushAssumptionFrame sym
-               pnot             <- liftIO $ notPred sym p
+               pnot             <- liftIO $ notPred sym pred
                liftIO $ addAssumption sym (LabeledPred pnot (ExploringAPath loc (pausedLoc next)))
 
                -- The current branch is done
@@ -551,14 +554,15 @@ performIntraFrameMerge tgt = do
 
           -- We are done with both branches, pop-off back to the outer context.
           VFFCompletePath otherAssumes other ->
-            do ar <- ReaderT $ \s -> mergePartialResult s tgt p er other
+            do ar <- ReaderT $ \s ->
+                 mergePartialResult s tgt pred er other
 
                -- Merge the assumptions from each branch and add to the
                -- current assumption frame
                pathAssumes <- liftIO $ popAssumptionFrame sym assume_frame
 
-               mergedAssumes <- liftIO $ mergeAssumptions sym p pathAssumes otherAssumes
-               liftIO $ addAssumptions sym mergedAssumes
+               liftIO $ addAssumptions sym
+                 =<< mergeAssumptions sym pred pathAssumes otherAssumes
 
                -- Check for more potential merge targets.
                withReaderT
@@ -567,11 +571,12 @@ performIntraFrameMerge tgt = do
 
     -- Since the other branch aborted before it got to the merge point,
     -- we merge-in the partiality on our current path and keep going.
-    VFFPartial ctx p ar needsAborting ->
+    VFFPartial ctx loc pred ar needsAborting ->
       do er'  <- case needsAborting of
                    NoNeedToAbort    -> return er
                    NeedsToBeAborted -> ReaderT $ \s -> abortPartialResult s tgt er
-         er'' <- liftIO $ mergePartialAndAbortedResult sym p er' ar
+         er'' <- liftIO $
+           mergePartialAndAbortedResult sym loc pred er' ar
          withReaderT
            (stateTree .~ ActiveTree ctx er'')
            (checkForIntraFrameMerge tgt)
@@ -628,11 +633,12 @@ abortExec ::
   ExecCont p sym ext rtp f args
 abortExec rsn = do
   ActiveTree ctx ar0 <- view stateTree
-  -- Get aborted result from active result.
-  let ar = case ar0 of
-             TotalRes e -> AbortedExec rsn e
-             PartialRes c ex ar1 -> AbortedBranch c (AbortedExec rsn ex) ar1
-  resumeValueFromFrameAbort ctx ar
+  resumeValueFromFrameAbort ctx $
+    -- Get aborted result from active result.
+    case ar0 of
+      TotalRes e -> AbortedExec rsn e
+      PartialRes loc pred ex ar1 ->
+        AbortedBranch loc pred (AbortedExec rsn ex) ar1
 
 
 ------------------------------------------------------------------------
@@ -649,9 +655,9 @@ resumeValueFromFrameAbort ctx0 ar0 = do
   case ctx0 of
 
     -- This is the first abort.
-    VFFBranch ctx assume_frame loc p other_branch tgt ->
-      do pnot <- liftIO $ notPred sym p
-         let nextCtx = VFFPartial ctx pnot ar0 NeedsToBeAborted
+    VFFBranch ctx assume_frame loc pred other_branch tgt ->
+      do pnot <- liftIO $ notPred sym pred
+         let nextCtx = VFFPartial ctx loc pnot ar0 NeedsToBeAborted
 
          -- Reset the backend path state
          _assumes <- liftIO $ popAssumptionFrame sym assume_frame
@@ -677,8 +683,8 @@ resumeValueFromFrameAbort ctx0 ar0 = do
                   (checkForIntraFrameMerge tgt)
 
     -- Both branches aborted
-    VFFPartial ctx p ay _ ->
-      resumeValueFromFrameAbort ctx (AbortedBranch p ar0 ay)
+    VFFPartial ctx loc pred ay _ ->
+      resumeValueFromFrameAbort ctx $ AbortedBranch loc pred ar0 ay
 
     VFFEnd ctx ->
       ReaderT $ return . UnwindCallState ctx ar0
@@ -697,8 +703,8 @@ resumeValueFromValueAbort ctx0 ar0 =
          withReaderT
            (stateTree .~ ActiveTree ctx (er & partialValue.gpValue .~ frm))
            (resumeValueFromFrameAbort ctx ar0)
-    VFVPartial ctx p ay -> do
-      resumeValueFromValueAbort ctx (AbortedBranch p ar0 ay)
+    VFVPartial ctx loc pred ay -> do
+      resumeValueFromValueAbort ctx (AbortedBranch loc pred ar0 ay)
     VFVEnd ->
       do res <- view stateContext
          return $! ResultState $ AbortedResult res ar0
@@ -762,10 +768,11 @@ performReturn fnName ctx0 return_value = do
            (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ OF f))
            (ReaderT (k v))
 
-    VFVPartial ctx p r ->
+    VFVPartial ctx loc pred r ->
       do sym <- view stateSymInterface
-         new_ret_val <- liftIO (mergePartialAndAbortedResult sym p return_value r)
-         performReturn fnName ctx new_ret_val
+         newRetVal <- liftIO $
+           mergePartialAndAbortedResult sym loc pred return_value r
+         performReturn fnName ctx newRetVal
 
     VFVEnd ->
       do res <- view stateContext
@@ -821,7 +828,7 @@ asContFrame ::
 asContFrame (ActiveTree ctx active_res) =
   case active_res of
     TotalRes{} -> ctx
-    PartialRes p _ex ar -> VFFPartial ctx p ar NoNeedToAbort
+    PartialRes loc pred _ex ar -> VFFPartial ctx loc pred ar NoNeedToAbort
 
 
 -- | Return assertion where predicate equals a constant
@@ -947,14 +954,14 @@ isSingleCont :: ValueFromFrame p sym ext root a -> Bool
 isSingleCont c0 =
   case c0 of
     VFFBranch{} -> False
-    VFFPartial c _ _ _ -> isSingleCont c
+    VFFPartial c _ _ _ _ -> isSingleCont c
     VFFEnd vfv -> isSingleVFV vfv
 
 isSingleVFV :: ValueFromValue p sym ext r a -> Bool
 isSingleVFV c0 = do
   case c0 of
     VFVCall c _ _ -> isSingleCont c
-    VFVPartial c _ _ -> isSingleVFV c
+    VFVPartial c _ _ _ -> isSingleVFV c
     VFVEnd -> True
 
 -- | Attempt to unwind a frame context into a value context.
@@ -966,9 +973,9 @@ unwindContext ::
 unwindContext c0 =
     case c0 of
       VFFBranch{} -> Nothing
-      VFFPartial _ _ _ NeedsToBeAborted -> Nothing
-      VFFPartial d p ar NoNeedToAbort ->
-        (\d' -> VFVPartial d' p ar) <$> unwindContext d
+      VFFPartial _ _ _ _ NeedsToBeAborted -> Nothing
+      VFFPartial d loc pred ar NoNeedToAbort ->
+        (\d' -> VFVPartial d' loc pred ar) <$> unwindContext d
       VFFEnd vfv -> return vfv
 
 -- | Get the context for when returning (assumes no
@@ -1037,7 +1044,7 @@ vffSingleContext ::
 vffSingleContext ctx0 =
   case ctx0 of
     VFFBranch ctx _ _ _ _ _ -> vffSingleContext ctx
-    VFFPartial ctx _ _ _    -> vffSingleContext ctx
+    VFFPartial ctx _ _ _ _  -> vffSingleContext ctx
     VFFEnd ctx              -> VFFEnd (vfvSingleContext ctx)
 
 vfvSingleContext ::
@@ -1046,7 +1053,7 @@ vfvSingleContext ::
 vfvSingleContext ctx0 =
   case ctx0 of
     VFVCall ctx f h         -> VFVCall (vffSingleContext ctx) f h
-    VFVPartial ctx _ _      -> vfvSingleContext ctx
+    VFVPartial ctx _ _ _    -> vfvSingleContext ctx
     VFVEnd                  -> VFVEnd
 
 

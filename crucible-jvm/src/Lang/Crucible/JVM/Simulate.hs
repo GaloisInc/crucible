@@ -652,7 +652,7 @@ getGlobalPair ::
 getGlobalPair pr =
   case pr of
     C.TotalRes gp -> return gp
-    C.PartialRes _ gp _ -> do
+    C.PartialRes _ _ gp _ -> do
       putStrLn "Symbolic simulation completed with side conditions."
       return gp
 

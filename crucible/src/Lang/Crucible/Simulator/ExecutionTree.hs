@@ -233,7 +233,8 @@ data AbortedResult sym ext where
   -- | Two separate threads of execution aborted after a symbolic branch,
   --   possibly for different reasons.
   AbortedBranch ::
-    !(Pred sym)              {- The symbolic condition -} ->
+    !ProgramLoc       {- The source location of the branching control flow -} ->
+    !(Pred sym)       {- The symbolic condition -} ->
     !(AbortedResult sym ext) {- The abort that occurred along the 'true' branch -} ->
     !(AbortedResult sym ext) {- The abort that occurred along the 'false' branch -} ->
     AbortedResult sym ext
@@ -256,9 +257,9 @@ arFrames h (AbortedExec e p) =
   (\(SomeFrame f') -> AbortedExec e (p & gpValue .~ f'))
      <$> h (SomeFrame (p^.gpValue))
 arFrames _ (AbortedExit ec) = pure (AbortedExit ec)
-arFrames h (AbortedBranch p r s) =
-  AbortedBranch p <$> arFrames h r
-                  <*> arFrames h s
+arFrames h (AbortedBranch predicate loc r s) =
+  AbortedBranch predicate loc <$> arFrames h r
+                              <*> arFrames h s
 
 -- | Print an exception context
 ppExceptionContext :: [SomeFrame (SimFrame sym ext)] -> PP.Doc
@@ -295,7 +296,8 @@ data PartialResult sym ext (v :: Type)
         The 'AbortedResult' describes the circumstances under which
         the result would be partial.
      -}
-   | PartialRes !(Pred sym)               -- if true, global pair is defined
+   | PartialRes !ProgramLoc               -- location of symbolic branch point
+                !(Pred sym)               -- if true, global pair is defined
                 !(GlobalPair sym v)       -- the value
                 !(AbortedResult sym ext)  -- failure cases (when pred. is false)
 
@@ -308,7 +310,7 @@ partialValue ::
        (GlobalPair sym u)
        (GlobalPair sym v)
 partialValue f (TotalRes x) = TotalRes <$> f x
-partialValue f (PartialRes p x r) = (\y -> PartialRes p y r) <$> f x
+partialValue f (PartialRes p loc x r) = (\y -> PartialRes p loc y r) <$> f x
 {-# INLINE partialValue #-}
 
 -- | The result of resolving a function call.
@@ -679,8 +681,11 @@ data ValueFromFrame p sym ext (ret :: Type) (f :: Type)
       !(ValueFromFrame p sym ext ret f)
       {- The other context--what to do once we are done with this bracnh -}
 
+      !ProgramLoc
+      {- Program location of the branch point -}
+
       !(Pred sym)
-      {- Assertion of current branch -}
+      {- Assertion of currently-active branch -}
 
       !(AbortedResult sym ext)
       {- What happened on the other branch -}
@@ -756,6 +761,7 @@ data ValueFromValue p sym ext (ret :: Type) (top_return :: CrucibleType)
     does not hold. -}
   | VFVPartial
       !(ValueFromValue p sym ext ret top_return)
+      !ProgramLoc
       !(Pred sym)
       !(AbortedResult sym ext)
 
@@ -782,7 +788,7 @@ ppValueFromFrame vff =
       PP.indent 2 (PP.pretty other) PP.<$$>
       PP.indent 2 (PP.text (ppBranchTarget mp)) PP.<$$>
       PP.pretty ctx
-    VFFPartial ctx _ _ _ ->
+    VFFPartial ctx _ _ _ _ ->
       PP.text "intra_partial" PP.<$$>
       PP.pretty ctx
     VFFEnd ctx ->
@@ -794,7 +800,7 @@ ppValueFromValue vfv =
     VFVCall ctx _ _ ->
       PP.text "call" PP.<$$>
       PP.pretty ctx
-    VFVPartial ctx _ _ ->
+    VFVPartial ctx _ _ _ ->
       PP.text "inter_partial" PP.<$$>
       PP.pretty ctx
     VFVEnd -> PP.text "root"
@@ -808,7 +814,7 @@ parentFrames :: ValueFromFrame p sym ext r a -> [SomeFrame (SimFrame sym ext)]
 parentFrames c0 =
   case c0 of
     VFFBranch c _ _ _ _ _ -> parentFrames c
-    VFFPartial c _ _ _ -> parentFrames c
+    VFFPartial c _ _ _ _ -> parentFrames c
     VFFEnd vfv -> vfvParents vfv
 
 -- | Return parents frames in reverse order.
@@ -816,7 +822,7 @@ vfvParents :: ValueFromValue p sym ext r a -> [SomeFrame (SimFrame sym ext)]
 vfvParents c0 =
   case c0 of
     VFVCall c f _ -> SomeFrame f : parentFrames c
-    VFVPartial c _ _ -> vfvParents c
+    VFVPartial c _ _ _ -> vfvParents c
     VFVEnd -> []
 
 ------------------------------------------------------------------------
