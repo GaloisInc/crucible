@@ -29,7 +29,7 @@ goldenTests dir =
      return $
        testGroup "Golden testing of crux-llvm"
          [ goldenVsFile (takeBaseName cFile) goodFile outFile $
-           withArgs [cFile] $
+           withArgs ["--solver=z3",cFile] $
            withFile outFile WriteMode $
            C.mainWithOutputTo
          | cFile <- cFiles
