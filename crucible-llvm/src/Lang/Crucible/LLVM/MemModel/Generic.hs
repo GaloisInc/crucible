@@ -520,6 +520,7 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
 
             let alignStride = fromAlignment $ min loadAlign storeAlign
 
+            -- compute the linear form of (load offset - store offset)
             let (diffStride, diffDelta)
                   | Just (load_a, _x, load_b) <- asAffineVar off
                   , Just (store_a, _y, store_b) <- asAffineVar d = do
@@ -549,10 +550,16 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
 
             diff <- liftIO $ bvSub sym off d
 
+            -- skip computing the mux tree if it would be empty
             if storageTypeSize stp <= delta && (typeEnd 0 ltp) <= (stride - delta)
               then readPrev ltp $ LLVMPointer blk off
               else evalMuxValueCtor sym w end varFn subFn $
-                symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) (stride, delta)
+                symbolicValueLoad
+                  pref
+                  ltp
+                  (signedBVBounds diff)
+                  (ValueViewVar stp)
+                  (LinearLoadStoreOffsetDiff stride delta)
 
 -- | Read from a memory with an array store to the same block we are reading.
 readMemArrayStore
@@ -1520,18 +1527,18 @@ ppMerge vpp c x y =
   indent 2 $
     text "Condition:" <$$>
     indent 2 (printSymExpr c) <$$>
-    text "True Branch:"  <$$>
-    indent 2 (vcat $ map vpp x) <$$>
-    text "False Branch:" <$$>
-    indent 2 (vcat $ map vpp y)
+    ppAllocList x (text "True Branch:") <$$>
+    ppAllocList y (text "False Branch:")
+  where ppAllocList [] = (<+> text "<none>")
+        ppAllocList xs = (<$$> indent 2 (vcat $ map vpp xs))
 
 ppAlloc :: IsExprBuilder sym => MemAlloc sym -> Doc
 ppAlloc (Alloc atp base sz mut _alignment loc) =
   text (show atp) <+> text (show base) <+> (pretty $ printSymExpr <$> sz) <+> text (show mut) <+> text loc
 ppAlloc (MemFree base) =
-  text "free" <+> printSymExpr base
+  text "Free" <+> printSymExpr base
 ppAlloc (AllocMerge c x y) = do
-  text "merge" <$$> ppMerge ppAlloc c x y
+  text "Merge" <$$> ppMerge ppAlloc c x y
 
 ppAllocs :: IsExprBuilder sym => [MemAlloc sym] -> Doc
 ppAllocs xs = vcat $ map ppAlloc xs

@@ -13,6 +13,7 @@ Stability   : provisional
 
 module Crux.Options(CruxOptions(..),processOptionsThen,pathDesc,pathDelim) where
 
+import Data.Char (toLower)
 import Data.List (foldl',lookup)
 import Data.Maybe( fromMaybe )
 
@@ -44,6 +45,7 @@ defaultCruxOptions = CruxOptions {
   , profileOutputInterval = Nothing
   , loopBound = Nothing
   , makeCexes = True
+  , solver = "yices"
   }
 
 -- | All possible options that could be set from the command line.
@@ -121,6 +123,12 @@ cmdLineCruxOptions =
     (NoArg
      (\opts -> opts { makeCexes = False }))
     "Disable generating counter-example executables"
+
+  , Option "s" ["solver"]
+    (ReqArg
+     (\v opts -> opts { solver = map toLower v })
+       "solver")
+    "Select solver to use"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)

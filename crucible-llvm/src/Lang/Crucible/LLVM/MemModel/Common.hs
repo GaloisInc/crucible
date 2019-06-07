@@ -40,6 +40,7 @@ module Lang.Crucible.LLVM.MemModel.Common
 
   , ValueLoad(..)
   , valueLoad
+  , LinearLoadStoreOffsetDiff(..)
   , symbolicValueLoad
   , loadBitvector
 
@@ -529,6 +530,14 @@ valueLoad lo ltp so v
        le = typeEnd lo ltp
        se = so + storageTypeSize stp
 
+-- | @LinearLoadStoreOffsetDiff stride delta@ represents the fact that
+--   the difference between the load offset and the store offset is
+--   of the form @stride * n + delta@ for some integer @n@, where
+--   @stride@ and @delta@ are non-negative integers, and @n@ can be
+--   positive, negative, or zero.  If no form if known, then @stride@ is @1@
+--   and @delta@ is @0@.
+data LinearLoadStoreOffsetDiff = LinearLoadStoreOffsetDiff Bytes Bytes
+
 -- | This function computes a mux tree value for loading a chunk from inside
 --   a previously-written value.  The @StorageType@ of the load indicates
 --   the size of the loaded value and how we intend to view it.  The bounds,
@@ -537,16 +546,17 @@ valueLoad lo ltp so v
 --   store offset.  These bounds, if provided, are used to shrink the size of
 --   the computed mux tree, and can lead to significantly smaller results.
 --   The @ValueView@ is the syntactic representation of the value being
---   loaded from.  The @Alignment@ value is the largest common alignment of
---   the load and the store.
+--   loaded from.  The @LinearLoadStoreOffsetDiff@ form further reduces the size
+--   of the mux tree by only considering (load offset - store offset) values of
+--   the given form.
 symbolicValueLoad ::
   BasePreference {- ^ whether addresses are based on store or load -} ->
   StorageType           {- ^ load type            -} ->
   Maybe (Integer, Integer) {- ^ optional bounds on the offset between load and store -} ->
   ValueView      {- ^ view of stored value -} ->
-  (Bytes, Bytes) {- ^ stride -} ->
+  LinearLoadStoreOffsetDiff {- ^ linear (load offset - store offset) form -} ->
   Mux (ValueCtor (ValueLoad OffsetExpr))
-symbolicValueLoad pref tp bnd v (stride, delta) =
+symbolicValueLoad pref tp bnd v (LinearLoadStoreOffsetDiff stride delta) =
   Mux (Or (loadOffset lsz .<= Store) (storeOffset (storageTypeSize stp) .<= Load)) loadFail $
   MuxTable Load Store prefixTable $
   MuxTable Store Load suffixTable loadFail
