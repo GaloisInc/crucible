@@ -66,6 +66,13 @@ countGoals gs =
     Prove _         -> 1
     ProveConj g1 g2 -> countGoals g1 + countGoals g2
 
+countFailedGoals :: ProvedGoals a -> Int
+countFailedGoals gs =
+  case gs of
+    AtLoc _ _ gs1 -> countFailedGoals gs1
+    Branch gs1 gs2 -> countFailedGoals gs1 + countFailedGoals gs2
+    Goal _ _ _ (NotProved _) -> 1
+    Goal _ _ _ (Proved _) -> 0
 
 proveToGoal ::
   sym ~ ExprBuilder s (OnlineBackendState solver) fs =>

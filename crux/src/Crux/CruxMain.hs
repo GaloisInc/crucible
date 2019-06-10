@@ -19,6 +19,7 @@ import Control.Monad.IO.Class
 import Control.Exception (SomeException(..), displayException)
 import Data.Time.Clock (NominalDiffTime)
 import Numeric (readFloat)
+import System.Exit (exitWith, ExitCode(..))
 import System.FilePath ((</>))
 import System.Directory (createDirectoryIfMissing)
 
@@ -56,15 +57,19 @@ import Crux.Report
 main :: [CL.LangConf] -> IO ()
 main langs =
   let ?outputConfig = defaultOutputConfig
-  in processOptionsThen langs check
+  in processOptionsThen langs check >>= exitWithInt
 
 mainWithOutputConfig :: OutputConfig -> [CL.LangConf] -> IO ()
 mainWithOutputConfig cfg langs =
   let ?outputConfig = cfg
-  in processOptionsThen langs check
+  in processOptionsThen langs check >>= exitWithInt
+
+exitWithInt :: Int -> IO a
+exitWithInt 0 = exitWith ExitSuccess
+exitWithInt n = exitWith (ExitFailure n)
 
 -- | simulate the "main" method in the given class
-check :: forall a. (Language a, ?outputConfig :: OutputConfig) => Options a -> IO ()
+check :: forall a. (Language a, ?outputConfig :: OutputConfig) => Options a -> IO Int
 check opts@(cruxOpts,_langOpts) =
   do let file = inputFile cruxOpts
      when (simVerbose cruxOpts > 1) $
@@ -74,9 +79,11 @@ check opts@(cruxOpts,_langOpts) =
        generateReport cruxOpts res
      when (makeCexes cruxOpts) $
        CL.makeCounterExamples opts res
+     return (maybe 0 countFailedGoals res)
   `catch` \(SomeException e) ->
       do outputLn "TOP LEVEL EXCEPTION"
          outputLn (displayException e)
+         return 1
 
 
 parseNominalDiffTime :: String -> Maybe NominalDiffTime

@@ -183,7 +183,7 @@ shortVersionText langs = exeName langs ++ "-0.1"
 -- | Process all options, starting with the default options,
 --   and then setting them via commandline, environment variables,
 --   and general IO-setting functions
-processOptionsThen :: [LangConf] -> (forall a. Language a => Options a -> IO ()) -> IO ()
+processOptionsThen :: [LangConf] -> (forall a. Language a => Options a -> IO Int) -> IO Int
 processOptionsThen langs check = do
   hSetBuffering stdout LineBuffering
   argv <- getArgs
@@ -191,20 +191,22 @@ processOptionsThen langs check = do
     (opts1, files, []) -> do
       let allOpts = foldl' (flip id) (defaultOptions langs) opts1
       case files of
-        _ | showVersion (fst allOpts) -> hPutStrLn stderr (shortVersionText langs)
-        _ | showHelp    (fst allOpts) -> hPutStrLn stderr usageMsg
+        _ | showVersion (fst allOpts) -> showErr (shortVersionText langs)
+        _ | showHelp    (fst allOpts) -> showErr usageMsg
         [file] -> do
           case findLang allOpts file of
             Just (LangConf (langOpts :: LangOptions a)) -> do
               opts  <- processEnv ((fst allOpts) { inputFile = file }, langOpts)
               opts' <- CL.ioOptions opts
               check opts'
-            Nothing -> hPutStrLn stderr $ "Unknown file extension " ++ takeExtension file
-        _ -> hPutStrLn stderr usageMsg
-    (_, _, errs) -> hPutStrLn stderr (concat errs ++ usageMsg)
+            Nothing -> do
+              showErr $ "Unknown file extension " ++ takeExtension file
+        _ -> showErr usageMsg
+    (_, _, errs) -> showErr (concat errs ++ usageMsg)
   where options  = cmdLineOptions langs
         header   = "Usage: " ++ (exeName langs) ++ " [OPTION...] file"
         usageMsg = usageInfo header options
+        showErr msg = hPutStrLn stderr msg >> return 1
 
 
 
