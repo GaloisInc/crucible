@@ -218,6 +218,7 @@ instance Crux.Language LangLLVM where
   data LangOptions LangLLVM = LLVMOptions
      {
        clangBin   :: FilePath
+     , linkBin    :: FilePath
      , clangOpts  :: [String]
      , libDir     :: FilePath
      , optsBCFile :: FilePath
@@ -227,6 +228,7 @@ instance Crux.Language LangLLVM where
   defaultOptions = LLVMOptions
     {
       clangBin   = "clang"
+    , linkBin    = "llvm-link"
     , clangOpts  = []
     , libDir     = "c-src"
     , optsBCFile = ""
@@ -234,6 +236,7 @@ instance Crux.Language LangLLVM where
 
   envOptions = [ ("CLANG",   \v opts -> opts { clangBin = v })
                , ("CLANG_OPTS", \v opts -> opts { clangOpts = words v })
+               , ("LLVM_LINK", \v opts -> opts { linkBin = v })
                ]
 
   -- this is the replacement for "Clang.testOptions"
@@ -380,13 +383,26 @@ runClang opts params =
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)
 
-llvmLink :: [FilePath] -> FilePath -> IO ()
-llvmLink ins out =
+llvmLink :: Options -> [FilePath] -> FilePath -> IO ()
+llvmLink opts ins out =
   do let params = ins ++ [ "-o", out ]
-     -- TODO: make this work better for a range of clang versions
-     (res, sout, serr) <- readProcessWithExitCode "llvm-link-3.6" params ""
+     (res, sout, serr) <- readProcessWithExitCode (linkBin (snd opts)) params ""
      case res of
        ExitSuccess   -> return ()
+       ExitFailure n -> throwCError (ClangError n sout serr)
+
+parseLLVMLinkVersion :: String -> String
+parseLLVMLinkVersion = go . map words . lines
+  where
+    go (("LLVM" : "version" : version : _) : _) = version
+    go (_ : rest) = go rest
+    go [] = ""
+
+llvmLinkVersion :: Options -> IO String
+llvmLinkVersion opts =
+  do (res, sout, serr) <- readProcessWithExitCode (linkBin (snd opts)) ["--version"] ""
+     case res of
+       ExitSuccess   -> return (parseLLVMLinkVersion sout)
        ExitFailure n -> throwCError (ClangError n sout serr)
 
 genBitCode :: Options -> IO ()
@@ -404,10 +420,11 @@ genBitCode opts =
                   , "-o", curBCFile
                   ]
      runClang opts params
+     ver <- llvmLinkVersion opts
+     let libcxxBitcode = "libcxx-" ++ ver ++ ".bc"
      case lang of
-       -- TODO: make this work better for a range of clang versions
        Just CPPSource ->
-         llvmLink [ curBCFile, libDir (snd opts) </> "libcxx-36.bc" ] finalBCFile
+         llvmLink opts [ curBCFile, libDir (snd opts) </> libcxxBitcode ] finalBCFile
        _ -> return ()
 
 
