@@ -218,6 +218,7 @@ instance Crux.Language LangLLVM where
   data LangOptions LangLLVM = LLVMOptions
      {
        clangBin   :: FilePath
+     , clangOpts  :: [String]
      , libDir     :: FilePath
      , optsBCFile :: FilePath
      -- other options are tracked by Crux
@@ -226,11 +227,14 @@ instance Crux.Language LangLLVM where
   defaultOptions = LLVMOptions
     {
       clangBin   = "clang"
+    , clangOpts  = []
     , libDir     = "c-src"
     , optsBCFile = ""
     }
 
-  envOptions = [ ("CLANG",   \v opts -> opts { clangBin = v }) ]
+  envOptions = [ ("CLANG",   \v opts -> opts { clangBin = v })
+               , ("CLANG_OPTS", \v opts -> opts { clangOpts = words v })
+               ]
 
   -- this is the replacement for "Clang.testOptions"
   ioOptions (cruxOpts,llvmOpts) = do
@@ -369,8 +373,9 @@ getClang = attempt (map inPath clangs)
 runClang :: Options -> [String] -> IO ()
 runClang opts params =
   do let clang = clangBin (snd opts)
+         allParams = clangOpts (snd opts) ++ params
      -- say "Clang" (show params)
-     (res,sout,serr) <- readProcessWithExitCode clang params ""
+     (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)
