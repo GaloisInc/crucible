@@ -8,8 +8,6 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Lang.Crucible.LLVM.Bytes
@@ -24,15 +22,13 @@ module Lang.Crucible.LLVM.Bytes
   , bitsToBytes
   )  where
 
-import Data.Data (Data)
-import GHC.Generics (Generic)
 import Numeric.Natural
 
 -- | A newtype for expressing numbers of bytes.
 --   This newtype is explicitly introduced to avoid confusion
 --   between widths expressed as numbers of bits vs numbers of bytes.
 newtype Bytes = Bytes { unBytes :: Integer }
-  deriving (Data, Eq, Generic, Ord, Num, Enum, Real, Integral)
+  deriving (Eq, Ord, Num, Enum, Real, Integral)
 
 instance Show Bytes where
   show (Bytes n) = show n

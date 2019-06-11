@@ -8,8 +8,6 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -42,12 +40,10 @@ module Lang.Crucible.LLVM.DataLayout
 
 import Control.Lens
 import Control.Monad.State.Strict
-import Data.Data (Data)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Word (Word32)
-import GHC.Generics (Generic)
 import qualified Text.LLVM as L
 import Numeric.Natural
 
@@ -60,7 +56,7 @@ import Lang.Crucible.LLVM.Bytes
 
 -- | An @Alignment@ represents a number of bytes that must be a power of two.
 newtype Alignment = Alignment Word32
-  deriving (Data, Eq, Generic, Ord, Show)
+  deriving (Eq, Ord, Show)
 -- The representation just stores the exponent. E.g., @Alignment 3@
 -- indicates alignment to a 2^3-byte boundary.
 
@@ -91,7 +87,7 @@ alignmentToExponent :: Alignment -> Natural
 alignmentToExponent (Alignment n) = fromIntegral n
 
 newtype AlignInfo = AT (Map Natural Alignment)
-  deriving (Data, Eq, Generic, Ord, Show)
+  deriving (Eq)
 
 -- | Make alignment info containing no alignments.
 emptyAlignInfo :: AlignInfo
@@ -162,7 +158,7 @@ instance At AlignInfo where
 
 -- | Flags byte orientation of target machine.
 data EndianForm = BigEndian | LittleEndian
-  deriving (Data, Eq, Enum, Generic, Ord, Show)
+  deriving (Eq,Show)
 
 -- | Parsed data layout
 data DataLayout
@@ -177,7 +173,6 @@ data DataLayout
         , _stackInfo   :: !AlignInfo
         , _layoutWarnings :: [L.LayoutSpec]
         }
-   deriving (Data, Eq, Generic, Ord)
 
 instance Show DataLayout where
    show _ = "<<DataLayout>>"
