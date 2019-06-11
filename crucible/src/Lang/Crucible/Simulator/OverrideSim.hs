@@ -72,13 +72,16 @@ module Lang.Crucible.Simulator.OverrideSim
   , Lang.Crucible.Simulator.ExecutionTree.Override
   ) where
 
+import Prelude hiding (fail)
+
 import           Control.Exception
 import           Control.Lens
-import           Control.Monad
+import           Control.Monad hiding (fail)
+import           Control.Monad.Fail (MonadFail(..))
 import qualified Control.Monad.Catch as X
-import           Control.Monad.Reader
+import           Control.Monad.Reader hiding (fail)
 import           Control.Monad.ST
-import           Control.Monad.State.Strict
+import           Control.Monad.State.Strict hiding (fail)
 import           Data.List (foldl')
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy
@@ -159,10 +162,13 @@ bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 instance Monad (OverrideSim p sym ext rtp args r) where
   return = returnOverrideSim
   (>>=) = bindOverrideSim
-  fail msg = Sim $ StateContT $ \_c -> runGenericErrorHandler msg
 
 deriving instance MonadState (SimState p sym ext rtp (OverrideLang ret) ('Just args))
                              (OverrideSim p sym ext rtp args ret)
+
+instance MonadFail (OverrideSim p sym ext rtp args ret) where
+  fail msg = Sim $ StateContT $ \_c -> runGenericErrorHandler msg
+
 
 instance MonadIO (OverrideSim p sym ext rtp args ret) where
   liftIO m = do
