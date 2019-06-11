@@ -27,6 +27,7 @@ import System.FilePath
   , takeDirectory)
 import System.Directory (createDirectoryIfMissing, copyFile)
 
+import Data.Parameterized.Nonce (newSTNonceGenerator)
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty)
 
@@ -151,7 +152,7 @@ registerFunctions ::
   (ArchOk arch, IsSymInterface sym) =>
   LLVMContext arch ->
   LLVM.Module ->
-  ModuleTranslation arch ->
+  ModuleTranslation s arch ->
   OverM sym (LLVM arch) ()
 registerFunctions ctx llvm_module mtrans =
   do -- register the callable override functions
@@ -167,7 +168,8 @@ simulateLLVM :: (?outputConfig :: OutputConfig) => Crux.Simulate sym LangLLVM
 simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
     llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
     halloc     <- newHandleAllocator
-    Some trans <- stToIO (translateModule halloc llvm_mod)
+    Some nonceGen <- stToIO $ newSTNonceGenerator
+    Some trans <- stToIO (translateModule halloc nonceGen llvm_mod)
     let llvmCtxt = trans ^. transContext
 
     llvmPtrWidth llvmCtxt $ \ptrW ->
