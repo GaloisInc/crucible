@@ -5,10 +5,12 @@ module Crux.Report where
 
 import System.FilePath
 import System.Directory (createDirectoryIfMissing)
+import System.IO
 import Data.List (intercalate, partition, isInfixOf)
 import Data.Maybe (fromMaybe)
+import Data.Text (unpack)
 import Control.Exception (catch, SomeException(..))
-import Control.Monad (when)
+import Control.Monad (when, forM_)
 
 import qualified Data.Text.IO as T
 
@@ -30,20 +32,27 @@ import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 generateReport :: CruxOptions -> Maybe (ProvedGoals b) -> IO ()
 generateReport opts xs =
   do createDirectoryIfMissing True (outDir opts)
-     let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".ii"]
-     when (takeExtension (inputFile opts) `elem` exts) (generateSource opts)
+     maybeGenerateSource opts (inputFiles opts)
      writeFile (outDir opts </> "report.js")
         $ "var goals = " ++ renderJS (jsList (renderSideConds xs))
      T.writeFile (outDir opts </> "index.html") indexHtml
      T.writeFile (outDir opts </> "jquery.min.js") jquery
 
 
-
-generateSource :: CruxOptions -> IO ()
-generateSource opts =
-  do src <- readFile (inputFile opts)
-     writeFile (outDir opts </> "source.js") $
-       "var lines = " ++ show (lines src)
+-- TODO: get the extensions from the Language configuration
+maybeGenerateSource :: CruxOptions -> [FilePath] -> IO ()
+maybeGenerateSource opts files =
+  do let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".C", ".ii"]
+         renderFiles = filter ((`elem` exts) . takeExtension) files
+     h <- openFile (outDir opts </> "source.js") WriteMode
+     hPutStrLn h "var sources = ["
+     forM_ renderFiles $ \file -> do
+       txt <- readFile file
+       hPutStr h $ "{\"name\":" ++ show file ++ ","
+       hPutStr h $ "\"lines\":" ++ show (lines txt)
+       hPutStrLn h "},"
+     hPutStrLn h "]"
+     hClose h
   `catch` \(SomeException {}) -> return ()
 
 
@@ -75,7 +84,10 @@ renderSideConds = maybe [] (go [])
 
 jsLoc :: ProgramLoc -> JS
 jsLoc x = case plSourceLoc x of
-            SourcePos _ l _ -> jsStr (show l)
+            SourcePos f l c -> jsObj [ "file" ~> jsStr (unpack f)
+                                     , "line" ~> jsStr (show l)
+                                     , "col" ~> jsStr (show c)
+                                     ]
             _               -> jsNull
 
 
@@ -108,7 +120,7 @@ jsSideCond path asmps (conc,_) triv status =
              _                  -> jsNull
 
   mkAsmp (asmp,_) =
-    jsObj [ "line" ~> jsLoc (assumptionLoc asmp)
+    jsObj [ "loc" ~> jsLoc (assumptionLoc asmp)
           ]
 
   goalReason = renderReason (simErrorReasonMsg (simErrorReason conc))

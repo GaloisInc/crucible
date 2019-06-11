@@ -17,6 +17,7 @@ module Crux.CruxMain where
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Exception (SomeException(..), displayException)
+import Data.List (intercalate)
 import Data.Time.Clock (NominalDiffTime)
 import Numeric (readFloat)
 import System.Exit (exitWith, ExitCode(..))
@@ -71,9 +72,9 @@ exitWithInt n = exitWith (ExitFailure n)
 -- | simulate the "main" method in the given class
 check :: forall a. (Language a, ?outputConfig :: OutputConfig) => Options a -> IO Int
 check opts@(cruxOpts,_langOpts) =
-  do let file = inputFile cruxOpts
+  do let fileText = intercalate ", " (inputFiles cruxOpts)
      when (simVerbose cruxOpts > 1) $
-       say "Crux" ("Checking " ++ show file)
+       say "Crux" ("Checking " ++ show fileText)
      res <- simulate opts
      when (outDir cruxOpts /= "") $
        generateReport cruxOpts res
@@ -130,7 +131,7 @@ simulate opts  =
 
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
-     
+
      when (solver cruxOpts == "z3") $
        void $ join (setOpt <$> getOptionSetting z3Timeout (getConfiguration sym)
                            <*> pure (goalTimeout cruxOpts * 1000))
@@ -163,12 +164,15 @@ simulate opts  =
                    Just t  -> return t)
           (globalTimeout cruxOpts)
 
+     let profSource = case inputFiles cruxOpts of
+                        [f] -> f
+                        _ -> "multiple files"
      profOpts <-
           traverse
           (\v -> case parseNominalDiffTime v of
                     Nothing -> fail $ "Invalid profiling output interval: " ++ v
                     Just t  -> return $
-                      ProfilingOptions t (writeProfileReport profOutFile (inputFile cruxOpts) (inputFile cruxOpts)))
+                      ProfilingOptions t (writeProfileReport profOutFile "crux-llvm profile" profSource))
           (profileOutputInterval cruxOpts)
 
      pfs <- if (profileCrucibleFunctions cruxOpts) then
@@ -222,6 +226,6 @@ simulate opts  =
         say "Crux" "Simulation complete."
 
      when profiling $ do
-       writeProfileReport profOutFile (inputFile cruxOpts) (inputFile cruxOpts) tbl
+       writeProfileReport profOutFile "crux-llvm profile" profSource tbl
 
      return gls
