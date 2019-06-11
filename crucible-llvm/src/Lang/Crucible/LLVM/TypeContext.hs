@@ -175,7 +175,7 @@ data TypeContext = TypeContext
   { llvmDataLayout :: DataLayout
   , llvmMetadataMap :: MetadataMap
   , llvmAliasMap  :: AliasMap
-  }
+  } deriving Eq
 
 instance Show TypeContext where
   show = show . ppTypeContext

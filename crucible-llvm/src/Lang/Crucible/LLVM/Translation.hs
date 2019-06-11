@@ -100,6 +100,7 @@ import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
+import           Data.Parameterized.Nonce
 
 import           What4.FunctionName
 import           What4.ProgramLoc
@@ -130,7 +131,7 @@ import           Lang.Crucible.Types
 type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
 
 -- | The result of translating an LLVM module into Crucible CFGs.
-data ModuleTranslation arch
+data ModuleTranslation s arch
    = ModuleTranslation
       { cfgMap        :: ModuleCFGMap arch
       , _transContext :: LLVMContext arch
@@ -138,9 +139,15 @@ data ModuleTranslation arch
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
         -- presence of compositional verification.
+      , modTransNonce :: Nonce s arch
+        -- ^ For a reasonably quick 'testEquality' instance
       }
 
-transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
+instance TestEquality (ModuleTranslation s) where
+  testEquality mt1 mt2 =
+    testEquality (modTransNonce mt1) (modTransNonce mt2)
+
+transContext :: Simple Lens (ModuleTranslation s arch) (LLVMContext arch)
 transContext = lens _transContext (\s v -> s{ _transContext = v})
 
 
@@ -369,9 +376,10 @@ insDeclareHandle halloc ctx decl = do
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
 translateModule :: HandleAllocator s -- ^ Generator for nonces.
+                -> (NonceGenerator (ST s) t)
                 -> L.Module          -- ^ Module to translate
-                -> ST s (Some ModuleTranslation)
-translateModule halloc m = do
+                -> ST s (Some (ModuleTranslation t))
+translateModule halloc nonceGen m = do
   Some ctx0 <- mkLLVMContext halloc m
   llvmPtrWidth ctx0 $ \wptr -> withPtrWidth wptr $
     do -- Add handles for all functions declared in module.
@@ -380,7 +388,9 @@ translateModule halloc m = do
        pairs <- mapM (transDefine ctx) (L.modDefines m)
        -- Return result.
        let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
+       nonce <- freshNonce nonceGen
        return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
                                        , globalInitMap = makeGlobalMap ctx m
                                        , _transContext = ctx
+                                       , modTransNonce = nonce
                                        }))

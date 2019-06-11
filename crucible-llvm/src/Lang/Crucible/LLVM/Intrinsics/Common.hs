@@ -8,6 +8,8 @@
 ------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE RankNTypes #-}
@@ -49,10 +51,12 @@ import           Control.Monad.Reader (ReaderT, ask, lift)
 import           Control.Monad.ST
 import           Control.Monad.State (StateT, get, put)
 import           Control.Monad.Trans.Maybe (MaybeT)
+import           Data.Data (Data)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.List as List
 import qualified Data.Text as Text
+import           GHC.Generics (Generic)
 import           Numeric (readDec)
 
 import qualified ABI.Itanium as ABI
@@ -63,7 +67,7 @@ import           Data.Parameterized.TraversableFC (fmapFC)
 import           Lang.Crucible.Backend (IsSymInterface)
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.Simulator.ExecutionTree (FnState(UseOverride))
-import           Lang.Crucible.FunctionHandle (FnHandle(..), mkHandle')
+import           Lang.Crucible.FunctionHandle (FnHandle(..), SomeHandle(..), mkHandle')
 import           Lang.Crucible.FunctionHandle (HandleAllocator)
 import           Lang.Crucible.Panic (panic)
 import           Lang.Crucible.Simulator (stateContext, simHandleAllocator)
@@ -117,6 +121,7 @@ data TemplateMatcher
   = ExactMatch String
   | PrefixMatch String
   | SubstringsMatch [String]
+  deriving (Data, Generic)
 
 type RegOverrideM p sym arch rtp l a =
   ReaderT (L.Declare, Maybe ABI.DecodedName)
@@ -132,6 +137,11 @@ data LLVMHandleInfo where
   LLVMHandleInfo :: L.Declare
                  -> FnHandle init ret
                  -> LLVMHandleInfo
+
+-- | NB: This instance tests the equality of the functions by their ID.
+instance Eq LLVMHandleInfo where
+  LLVMHandleInfo decl1 fnh1 == LLVMHandleInfo decl2 fnh2 =
+    decl1 == decl2 && SomeHandle fnh1 == SomeHandle fnh2
 
 ------------------------------------------------------------------------
 -- ** LLVMContext
