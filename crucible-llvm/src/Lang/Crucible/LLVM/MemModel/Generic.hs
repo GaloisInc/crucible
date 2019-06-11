@@ -647,6 +647,10 @@ readMem sym w l tp alignment m = do
   p2         <- isAligned sym w l alignment
   maybe_allocation_array <- asMemAllocationArrayStore sym w l m
   part_val <- case maybe_allocation_array of
+    -- if this read is inside an allocation backed by a SMT array store,
+    -- then decompose this read into reading the individual bytes and
+    -- assembling them to obtain the value, without introducing any
+    -- ite operations
     Just (arr, _arr_sz) -> do
       let loadArrayByteFn :: Offset -> IO (PartLLVMVal arch sym)
           loadArrayByteFn off = do
@@ -1144,6 +1148,12 @@ writeConstMem ::
   IO (Mem sym, Pred sym, Pred sym)
 writeConstMem = writeMemWithAllocationCheck isAllocated
 
+-- | Write a value to memory.
+--
+-- The returned predicates assert (in this order):
+--  * the pointer satisfies the checks specified by
+--    the @is_allocated@ function
+--  * the pointer's alignment is correct
 writeMemWithAllocationCheck ::
   forall sym w .
   (IsSymInterface sym, 1 <= w) =>
@@ -1163,6 +1173,10 @@ writeMemWithAllocationCheck is_allocated sym w ptr tp alignment val mem = do
   p2 <- isAligned sym w ptr alignment
   maybe_allocation_array <- asMemAllocationArrayStore sym w ptr mem
   mem_write <- case maybe_allocation_array of
+    -- if this write is inside an allocation backed by a SMT array store,
+    -- then decompose this write into disassembling the value to individual
+    -- bytes, writing them in the SMT array, and writing the updated SMT array
+    -- in the memory
     Just (arr, arr_sz) -> do
       let subFn :: ValueLoad Addr -> IO (PartLLVMVal arch sym)
           subFn = \case
@@ -1398,15 +1412,15 @@ mergeMem c x y =
 -- to the solver and get (overapproximate) concrete answers.
 
 data SomeAlloc sym =
-  forall w. IsSymInterface sym => SomeAlloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
+  forall w. SomeAlloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
 
-instance Eq (SomeAlloc sym) where
+instance IsSymInterface sym => Eq (SomeAlloc sym) where
   SomeAlloc x_atp x_base x_sz x_mut x_alignment x_loc == SomeAlloc y_atp y_base y_sz y_mut y_alignment y_loc = do
-    let foo = case (x_sz, y_sz) of
+    let sz_eq = case (x_sz, y_sz) of
           (Just x_bv, Just y_bv) -> isJust $ testEquality x_bv y_bv
           (Nothing, Nothing) -> True
           _ -> False
-    x_atp == y_atp && x_base == y_base && foo && x_mut == y_mut && x_alignment == y_alignment && x_loc == y_loc
+    x_atp == y_atp && x_base == y_base && sz_eq && x_mut == y_mut && x_alignment == y_alignment && x_loc == y_loc
 
 ppSomeAlloc :: forall sym. IsExprBuilder sym => SomeAlloc sym -> Doc
 ppSomeAlloc (SomeAlloc atp base sz mut alignment loc) =
@@ -1440,6 +1454,15 @@ possibleAllocs n = helper . memAllocs
               AllocMerge (asConstantPred -> Just False) as1 as2 -> helper as2
               AllocMerge _ as1 as2 -> helper as1 ++ helper as2
 
+-- | Check if @LLVMPtr sym w@ points inside an allocation that is backed
+--   by an SMT array store. If true, return the SMT array and the size of
+--   the allocation.
+--
+--   NOTE: this operation is linear in the size of the list of previous
+--   memory writes. This means that memory writes as well as memory reads
+--   require a traversal of the list of previous writes. The performance
+--   of this operation can be improved by using a map to index the writes
+--   by allocation index.
 asMemAllocationArrayStore ::
   forall sym w .
   (IsSymInterface sym, 1 <= w) =>
