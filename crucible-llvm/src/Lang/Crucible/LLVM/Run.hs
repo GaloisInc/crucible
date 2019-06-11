@@ -27,7 +27,6 @@ import qualified Data.Map as Map
 
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Context(EmptyCtx)
-import Data.Parameterized.Nonce
 
 import Lang.Crucible.Types(TypeRepr)
 import Lang.Crucible.CFG.Core(AnyCFG)
@@ -58,7 +57,7 @@ import Lang.Crucible.Backend(IsSymInterface)
 
 -- | LLVM specific crucible initialization.
 newtype CruxLLVM res =
-  CruxLLVM (forall s arch. ModuleTranslation s arch -> IO (Setup (LLVM arch) res))
+  CruxLLVM (forall arch. ModuleTranslation arch -> IO (Setup (LLVM arch) res))
 
 
 -- | Generic Crucible initialization.
@@ -90,9 +89,7 @@ data Setup ext res =
 runCruxLLVM :: Module -> CruxLLVM res -> IO res
 runCruxLLVM llvm_mod (CruxLLVM setup) =
   do halloc <- newHandleAllocator
-     Some nonceGen <- stToIO $ newSTNonceGenerator
-     Some trans <- stToIO $ do
-       translateModule halloc nonceGen llvm_mod
+     Some trans <- stToIO $ translateModule halloc llvm_mod
      res <- setup trans
      case res of
        Setup { .. } ->
@@ -121,12 +118,12 @@ runCruxLLVM llvm_mod (CruxLLVM setup) =
 
 
 
-withPtrWidthOf :: ModuleTranslation s arch ->
+withPtrWidthOf :: ModuleTranslation arch ->
                   (HasPtrWidth (ArchWidth arch) => b) -> b
 withPtrWidthOf trans k =
   llvmPtrWidth (trans^.transContext) (\ptrW -> withPtrWidth ptrW k)
 
 
-findCFG :: ModuleTranslation s arch -> String -> Maybe (AnyCFG (LLVM arch))
+findCFG :: ModuleTranslation arch -> String -> Maybe (AnyCFG (LLVM arch))
 findCFG trans fun = Map.lookup (fromString fun) (cfgMap trans)
 

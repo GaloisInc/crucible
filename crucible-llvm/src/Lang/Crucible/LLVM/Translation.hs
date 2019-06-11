@@ -100,7 +100,7 @@ import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
-import           Data.Parameterized.Nonce
+import           Data.Parameterized.Nonce.Unsafe
 
 import           What4.FunctionName
 import           What4.ProgramLoc
@@ -131,7 +131,7 @@ import           Lang.Crucible.Types
 type ModuleCFGMap arch = Map L.Symbol (C.AnyCFG (LLVM arch))
 
 -- | The result of translating an LLVM module into Crucible CFGs.
-data ModuleTranslation s arch
+data ModuleTranslation arch
    = ModuleTranslation
       { cfgMap        :: ModuleCFGMap arch
       , _transContext :: LLVMContext arch
@@ -139,15 +139,15 @@ data ModuleTranslation s arch
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
         -- presence of compositional verification.
-      , modTransNonce :: Nonce s arch
+      , modTransNonce :: !(Nonce arch)
         -- ^ For a reasonably quick 'testEquality' instance
       }
 
-instance TestEquality (ModuleTranslation s) where
+instance TestEquality ModuleTranslation where
   testEquality mt1 mt2 =
     testEquality (modTransNonce mt1) (modTransNonce mt2)
 
-transContext :: Simple Lens (ModuleTranslation s arch) (LLVMContext arch)
+transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
 transContext = lens _transContext (\s v -> s{ _transContext = v})
 
 
@@ -376,11 +376,11 @@ insDeclareHandle halloc ctx decl = do
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
 translateModule :: HandleAllocator s -- ^ Generator for nonces.
-                -> (NonceGenerator (ST s) t)
                 -> L.Module          -- ^ Module to translate
-                -> ST s (Some (ModuleTranslation t))
-translateModule halloc nonceGen m = do
+                -> ST s (Some ModuleTranslation)
+translateModule halloc m = do
   Some ctx0 <- mkLLVMContext halloc m
+  let nonceGen = haCounter halloc
   llvmPtrWidth ctx0 $ \wptr -> withPtrWidth wptr $
     do -- Add handles for all functions declared in module.
        ctx <- foldM (insDeclareHandle halloc) ctx0 (allModuleDeclares m)
