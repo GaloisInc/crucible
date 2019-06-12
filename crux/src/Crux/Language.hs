@@ -52,6 +52,8 @@ data CruxOptions = CruxOptions
     -- ^ Should we construct counter-example executables
   , solver :: String
     -- ^ Solver to user for the online backend
+  , yicesMCSat :: Bool
+    -- ^ Whether to use the MC-SAT engine with Yices.
   }
 
 type Options a = (CruxOptions, LangOptions a)

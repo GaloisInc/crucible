@@ -39,6 +39,7 @@ import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import What4.Interface (getConfiguration)
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
+import What4.Solver.Yices (yicesEnableMCSat)
 import What4.Solver.Z3 (z3Timeout)
 
 -- crux
@@ -89,20 +90,25 @@ parseNominalDiffTime xs =
 -- moment, each solver is associated with a fixed floating-point
 -- interpretation. Ultimately, this should be an option, too.
 withBackend ::
-  String ->
+  (Language l) =>
+  Options l ->
   NonceGenerator IO scope ->
   (forall solver fs.
     (OnlineSolver scope solver
     , IsInterpretedFloatExprBuilder (OnlineBackend scope solver fs)) =>
       OnlineBackend scope solver fs -> IO a) ->
   IO a
-withBackend "cvc4" nonceGen f =
-  withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
-withBackend "yices" nonceGen f =
-  withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
-withBackend "z3" nonceGen f =
-  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores f
-withBackend s _ _ = fail $ "unknown solver: " ++ s
+withBackend (cruxOpts, _) nonceGen f = do
+  let unsatCores | yicesMCSat cruxOpts = NoUnsatFeatures
+                 | otherwise = ProduceUnsatCores
+  case solver cruxOpts of
+    "cvc4" ->
+      withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
+    "yices" ->
+      withYicesOnlineBackend @(Flags FloatReal) nonceGen unsatCores f
+    "z3" ->
+      withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores f
+    s -> fail $ "unknown solver: " ++ s
 
 -- Returns only non-trivial goals
 simulate :: (Language a, ?outputConfig :: OutputConfig) => Options a ->
@@ -112,7 +118,7 @@ simulate opts  =
   in
   liftIO $
   withIONonceGenerator $ \nonceGen ->
-  withBackend (solver cruxOpts) nonceGen $ \sym -> do
+  withBackend opts nonceGen $ \sym -> do
      -- The simulator verbosity is one less than our verbosity.
      -- In this way, we can say things, without the simulator also being verbose
      let simulatorVerb = toInteger
@@ -123,7 +129,14 @@ simulate opts  =
 
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
-     
+
+     case solver cruxOpts of
+       "yices" -> void $ join $
+         setOpt <$> getOptionSetting yicesEnableMCSat (getConfiguration sym)
+                <*> pure (yicesMCSat cruxOpts)
+       _ -> when (yicesMCSat cruxOpts) $
+            fail "The `--mcsat` option is only valid with `--solver=yices`."
+
      when (solver cruxOpts == "z3") $
        void $ join (setOpt <$> getOptionSetting z3Timeout (getConfiguration sym)
                            <*> pure (goalTimeout cruxOpts * 1000))
@@ -208,7 +221,7 @@ simulate opts  =
           let ctx' = execResultContext res
 
           inFrame "<Prove Goals>" $
-            do pg <- proveGoals ctx' =<< (getProofObligations sym)
+            do pg <- proveGoals cruxOpts ctx' =<< (getProofObligations sym)
                provedGoalsTree ctx' pg
 
      when (simVerbose cruxOpts > 1) $
