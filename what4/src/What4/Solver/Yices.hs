@@ -583,6 +583,10 @@ yicesStartSolver features auxOutput sym = do -- FIXME
   enableMCSat <- getOpt =<< getOptionSetting yicesEnableMCSat cfg
   let args = ["--mode=push-pop", "--print-success"] ++
              if enableMCSat then ["--mcsat"] else []
+      hasNamedAssumptions = features `hasProblemFeature` useUnsatCores ||
+                            features `hasProblemFeature` useUnsatAssumptions
+  when (enableMCSat && hasNamedAssumptions) $
+     fail "Unsat cores and named assumptions are incompatible with MC-SAT in Yices."
 
   let create_proc
         = (proc yices_path args)
@@ -988,6 +992,10 @@ runYicesInOverride sym logData conditions resultFn = do
             | nlSolver  = ["--logic=QF_NRA"] -- ,"--print-success"]
             | otherwise = ["--mode=one-shot"] -- ,"--print-success"]
   let args = args0 ++ if enableMCSat then ["--mcsat"] else []
+      hasNamedAssumptions = features `hasProblemFeature` useUnsatCores ||
+                            features `hasProblemFeature` useUnsatAssumptions
+  when (enableMCSat && hasNamedAssumptions) $
+     fail "Unsat cores and named assumptions are incompatible with MC-SAT in Yices."
 
   withProcessHandles yices_path args Nothing $ \(in_h, out_h, err_h, ph) -> do
 
