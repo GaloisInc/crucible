@@ -482,10 +482,12 @@ instance SMTWriter (Connection s) where
   declareStructDatatype _ _ = return ()
 
   writeCommand conn (YicesCommand earlyUnsatSafe cmd) =
-    do let cmdout = Lazy.toStrict (Builder.toLazyText cmd) <> "\n"
-       Streams.write (Just cmdout) (connHandle conn)
-       -- force a flush
-       Streams.write (Just "") (connHandle conn)
+    do isEarlyUnsat <- readIORef (yicesEarlyUnsat (connState conn))
+       unless (isJust isEarlyUnsat && not earlyUnsatSafe) $ do
+         let cmdout = Lazy.toStrict (Builder.toLazyText cmd) <> "\n"
+         Streams.write (Just cmdout) (connHandle conn)
+         -- force a flush
+         Streams.write (Just "") (connHandle conn)
 
 instance SMTReadWriter (Connection s) where
   smtEvalFuns conn resp =
@@ -1022,8 +1024,6 @@ runYicesInOverride sym logData conditions resultFn = do
         addCommandNoAck c efSolveCommand
       else
         sendCheck c
-
-      earlyUnsatRef <- newIORef Nothing
 
       let yp = SolverProcess { solverConn = c
                              , solverHandle = ph
