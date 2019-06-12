@@ -134,7 +134,7 @@ cmdLineCruxOptions =
   , Option [] ["mcsat"]
     (NoArg
      (\opts -> opts { yicesMCSat = True }))
-    "Enable the MC-SAT solver in Yices"
+    "Enable the MC-SAT solver in Yices (disables unsat cores)"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)
