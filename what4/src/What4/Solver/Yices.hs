@@ -58,6 +58,7 @@ module What4.Solver.Yices
   , yicesPath
   , yicesOptions
   , yicesDefaultFeatures
+  , yicesEnableMCSat
   ) where
 
 import           Control.Exception
@@ -70,6 +71,7 @@ import           Data.Bits
 
 import           Data.IORef
 import           Data.Foldable (toList)
+import           Data.Maybe
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
@@ -114,7 +116,9 @@ import Prelude
 
 -- | This is a tag used to indicate that a 'WriterConn' is a connection
 -- to a specific Yices process.
-newtype Connection s = Connection ()
+newtype Connection s = Connection
+  { yicesEarlyUnsat :: IORef (Maybe Int)
+  }
 
 -- | Attempt to interpret a Config value as a Yices value.
 asYicesConfigValue :: ConcreteVal tp -> Maybe Builder
@@ -366,36 +370,36 @@ yicesType (StructTypeMap f)      = tupleType (toListFC yicesType f)
 -- Command
 
 assertForallCommand :: [(Text,YicesType)] -> Expr s -> Command (Connection s)
-assertForallCommand vars e = Cmd $ app "assert" [renderTerm res]
+assertForallCommand vars e = unsafeCmd $ app "assert" [renderTerm res]
  where res = binder_app "forall" (uncurry mkBinding <$> vars) e
        mkBinding nm tp = Builder.fromText nm <> "::" <> unType tp
 
 
 efSolveCommand :: Command (Connection s)
-efSolveCommand = Cmd "(ef-solve)"
+efSolveCommand = safeCmd "(ef-solve)"
 
 evalCommand :: Term (Connection s)-> Command (Connection s)
-evalCommand v = Cmd $ app "eval" [renderTerm v]
+evalCommand v = safeCmd $ app "eval" [renderTerm v]
 
 exitCommand :: Command (Connection s)
-exitCommand = Cmd "(exit)"
+exitCommand = safeCmd "(exit)"
 
 -- | Tell yices to show a model
 showModelCommand :: Command (Connection s)
-showModelCommand = Cmd "(show-model)"
+showModelCommand = safeCmd "(show-model)"
 
 checkExistsForallCommand :: Command (Connection s)
-checkExistsForallCommand = Cmd "(ef-solve)"
+checkExistsForallCommand = safeCmd "(ef-solve)"
 
 -- | Create yices set command value.
 setParamCommand :: Text -> Builder -> Command (Connection s)
-setParamCommand nm v = Cmd $ app "set-param" [ Builder.fromText nm, v ]
+setParamCommand nm v = safeCmd $ app "set-param" [ Builder.fromText nm, v ]
 
 ------------------------------------------------------------------------
 -- Connection
 
 newConnection :: Streams.OutputStream Text
-              -> AcknowledgementAction t (Connection s)
+              -> (IORef (Maybe Int) -> AcknowledgementAction t (Connection s))
               -> ProblemFeatures -- ^ Indicates the problem features to support.
               -> B.SymbolVarBimap t
               -> IO (WriterConn t (Connection s))
@@ -415,13 +419,28 @@ newConnection stream ack reqFeatures bindings = do
                   .|. useStructs
                   .|. (reqFeatures .&. (useUnsatCores .|. useUnsatAssumptions))
 
-  conn <- newWriterConn stream ack nm features' bindings (Connection ())
+
+  earlyUnsatRef <- newIORef Nothing
+  conn <- newWriterConn stream (ack earlyUnsatRef) nm features' bindings (Connection earlyUnsatRef)
   return $! conn { supportFunctionDefs = True
                  , supportFunctionArguments = True
                  , supportQuantifiers = efSolver
                  }
 
-newtype YicesCommand = Cmd Builder
+-- | This data type bundles a Yices command (as a Text Builder) with an
+-- indication as to whether it is safe to issue in an inconsistent
+-- context. Unsafe commands are the ones that Yices will complain about
+-- to stderr if issued, causing interaction to hang.
+data YicesCommand = YicesCommand
+  { cmdEarlyUnsatSafe :: Bool
+  , cmdCmd :: Builder
+  }
+
+safeCmd :: Builder -> YicesCommand
+safeCmd txt = YicesCommand { cmdEarlyUnsatSafe = True, cmdCmd = txt }
+
+unsafeCmd :: Builder -> YicesCommand
+unsafeCmd txt = YicesCommand { cmdEarlyUnsatSafe = False, cmdCmd = txt }
 
 type instance Term (Connection s) = YicesTerm s
 type instance Command (Connection s) = YicesCommand
@@ -434,40 +453,42 @@ instance SMTWriter (Connection s) where
   arrayUpdate a i v =
     T $ app "update" [ renderTerm a, builder_list (renderTerm <$> i), renderTerm v ]
 
-  commentCommand _ b = Cmd (";; " <> b)
+  commentCommand _ b = safeCmd (";; " <> b)
 
-  pushCommand _   = Cmd "(push)"
-  popCommand _    = Cmd "(pop)"
-  resetCommand _  = Cmd "(reset)"
-  checkCommand _  = Cmd "(check)"
+  pushCommand _   = safeCmd "(push)"
+  popCommand _    = safeCmd "(pop)"
+  resetCommand _  = safeCmd "(reset)"
+  checkCommand _  = safeCmd "(check)"
   checkWithAssumptionsCommand _ nms =
-    Cmd $ app_list "check-assuming" (map Builder.fromText nms)
+    safeCmd $ app_list "check-assuming" (map Builder.fromText nms)
 
-  getUnsatAssumptionsCommand _ = Cmd "(show-unsat-assumptions)"
-  getUnsatCoreCommand _ = Cmd "(show-unsat-core)"
+  getUnsatAssumptionsCommand _ = safeCmd "(show-unsat-assumptions)"
+  getUnsatCoreCommand _ = safeCmd "(show-unsat-core)"
   setOptCommand _ x o = setParamCommand x (Builder.fromText o)
 
-  assertCommand _ (T nm) = Cmd $ app "assert" [nm]
-  assertNamedCommand _ (T tm) nm = Cmd $ app "assert" [tm, Builder.fromText nm]
+  assertCommand _ (T nm) = unsafeCmd $ app "assert" [nm]
+  assertNamedCommand _ (T tm) nm = unsafeCmd $ app "assert" [tm, Builder.fromText nm]
 
   declareCommand _ v args rtp =
-    Cmd $ app "define" [Builder.fromText v <> "::"
-                        <> unType (fnType (toListFC yicesType args) (yicesType rtp))
-                       ]
+    safeCmd $ app "define" [Builder.fromText v <> "::"
+                            <> unType (fnType (toListFC yicesType args) (yicesType rtp))
+                           ]
 
   defineCommand _ v args rtp t =
-    Cmd $ app "define" [Builder.fromText v <> "::"
-                         <> unType (fnType ((\(_,tp) -> viewSome yicesType tp) <$> args) (yicesType rtp))
-                       , renderTerm (yicesLambda args t)
-                       ]
+    safeCmd $ app "define" [Builder.fromText v <> "::"
+                             <> unType (fnType ((\(_,tp) -> viewSome yicesType tp) <$> args) (yicesType rtp))
+                           , renderTerm (yicesLambda args t)
+                           ]
 
   declareStructDatatype _ _ = return ()
 
-  writeCommand conn (Cmd cmd) =
-    do let cmdout = Lazy.toStrict (Builder.toLazyText cmd) <> "\n"
-       Streams.write (Just cmdout) (connHandle conn)
-       -- force a flush
-       Streams.write (Just "") (connHandle conn)
+  writeCommand conn (YicesCommand earlyUnsatSafe cmd) =
+    do isEarlyUnsat <- readIORef (yicesEarlyUnsat (connState conn))
+       unless (isJust isEarlyUnsat && not earlyUnsatSafe) $ do
+         let cmdout = Lazy.toStrict (Builder.toLazyText cmd) <> "\n"
+         Streams.write (Just cmdout) (connHandle conn)
+         -- force a flush
+         Streams.write (Just "") (connHandle conn)
 
 instance SMTReadWriter (Connection s) where
   smtEvalFuns conn resp =
@@ -513,19 +534,19 @@ data YicesException
   | YicesParseError YicesCommand Text
 
 instance Show YicesException where
-  show (YicesUnsupported (Cmd cmd)) =
+  show (YicesUnsupported (YicesCommand _ cmd)) =
      unlines
        [ "unsupported command:"
        , "  " ++ Lazy.unpack (Builder.toLazyText cmd)
        ]
-  show (YicesError (Cmd cmd) msg) =
+  show (YicesError (YicesCommand _ cmd) msg) =
      unlines
        [ "Solver reported an error:"
        , "  " ++ Text.unpack msg
        , "in response to command:"
        , "  " ++ Lazy.unpack (Builder.toLazyText cmd)
        ]
-  show (YicesParseError (Cmd cmd) msg) =
+  show (YicesParseError (YicesCommand _ cmd) msg) =
      unlines
        [ "Could not parse solver response:"
        , "  " ++ Text.unpack msg
@@ -557,21 +578,25 @@ yicesAck ::
   Streams.InputStream Text ->
   IORef (Maybe Int) ->
   AcknowledgementAction s (Connection s)
-yicesAck resp earlyUnsatRef = AckAction $ \conn (Cmd cmd) ->
-  do x <- getAckResponse resp
-     case x of
-       Nothing ->
-         return ()
-       Just "unsat" ->
-         do i <- entryStackHeight conn
-            writeIORef earlyUnsatRef $! (Just $! if i > 0 then 1 else 0)
-       Just txt ->
-         fail $ unlines
-                 [ "Unexpected response from solver while awaiting acknowledgement"
-                 , "*** result:" ++ show txt
-                 , "in response to command"
-                 , "***: " ++ Lazy.unpack (Builder.toLazyText cmd)
-                 ]
+yicesAck resp earlyUnsatRef = AckAction $ \conn (YicesCommand earlyUnsatSafe cmd) ->
+  do isEarlyUnsat <- readIORef earlyUnsatRef
+     if isJust isEarlyUnsat && not earlyUnsatSafe
+     then return ()
+     else do
+       x <- getAckResponse resp
+       case x of
+         Nothing ->
+           return ()
+         Just "unsat" ->
+           do i <- entryStackHeight conn
+              writeIORef earlyUnsatRef $! (Just $! if i > 0 then 1 else 0)
+         Just txt ->
+           fail $ unlines
+                   [ "Unexpected response from solver while awaiting acknowledgement"
+                   , "*** result:" ++ show txt
+                   , "in response to command"
+                   , "***: " ++ Lazy.unpack (Builder.toLazyText cmd)
+                   ]
 
 yicesStartSolver ::
   ProblemFeatures ->
@@ -581,7 +606,13 @@ yicesStartSolver ::
 yicesStartSolver features auxOutput sym = do -- FIXME
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
-  let args = ["--mode=push-pop", "--print-success"]
+  enableMCSat <- getOpt =<< getOptionSetting yicesEnableMCSat cfg
+  let args = ["--mode=push-pop", "--print-success"] ++
+             if enableMCSat then ["--mcsat"] else []
+      hasNamedAssumptions = features `hasProblemFeature` useUnsatCores ||
+                            features `hasProblemFeature` useUnsatAssumptions
+  when (enableMCSat && hasNamedAssumptions) $
+     fail "Unsat cores and named assumptions are incompatible with MC-SAT in Yices."
 
   let create_proc
         = (proc yices_path args)
@@ -604,11 +635,10 @@ yicesStartSolver features auxOutput sym = do -- FIXME
     demuxProcessHandles in_h out_h err_h
       (fmap (\x -> ("; ", x)) auxOutput)
 
-  earlyUnsatRef <- newIORef Nothing
-
   in_stream' <- Streams.atEndOfOutput (hClose in_h) in_stream
 
-  conn <- newConnection in_stream' (yicesAck out_stream earlyUnsatRef) features B.emptySymbolVarBimap
+  conn <- newConnection in_stream' (yicesAck out_stream) features B.emptySymbolVarBimap
+
   setYicesParams conn cfg
 
   return $! SolverProcess { solverConn   = conn
@@ -619,7 +649,7 @@ yicesStartSolver features auxOutput sym = do -- FIXME
                           , solverEvalFuns = smtEvalFuns conn out_stream
                           , solverLogFn = logSolverEvent sym
                           , solverName = "Yices"
-                          , solverEarlyUnsat = earlyUnsatRef
+                          , solverEarlyUnsat = yicesEarlyUnsat (connState conn)
                           }
 
 ------------------------------------------------------------------------
@@ -793,9 +823,13 @@ yicesAdapter =
 yicesPath :: ConfigOption BaseStringType
 yicesPath = configOption knownRepr "yices_path"
 
--- | Path to yices
+-- | Enable the exists-forall solver
 yicesEfSolver :: ConfigOption BaseBoolType
 yicesEfSolver = configOption knownRepr "yices_ef-solver"
+
+-- | Enable the MC-SAT solver
+yicesEnableMCSat :: ConfigOption BaseBoolType
+yicesEnableMCSat = configOption knownRepr "yices_enable-mcsat"
 
 yicesOptions :: [ConfigDesc]
 yicesOptions =
@@ -805,6 +839,7 @@ yicesOptions =
       (Just (PP.text "Yices executable path"))
       (Just (ConcreteString "yices"))
   , booleanOpt' yicesEfSolver
+  , booleanOpt' yicesEnableMCSat
   ]
   ++ yicesInternalOptions
 
@@ -947,7 +982,7 @@ writeYicesFile sym path p = do
     bindings <- B.getSymbolVarBimap sym
 
     str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
-    c <- newConnection str nullAcknowledgementAction features bindings
+    c <- newConnection str (const nullAcknowledgementAction) features bindings
     setYicesParams c cfg
     assume c p
     if efSolver then
@@ -975,11 +1010,17 @@ runYicesInOverride sym logData conditions resultFn = do
     , satQueryReason = logReason logData
     }
   features <- checkSupportedByYices condition
+  enableMCSat <- getOpt =<< getOptionSetting yicesEnableMCSat cfg
   let efSolver = features `hasProblemFeature` useExistForall
   let nlSolver = features `hasProblemFeature` useNonlinearArithmetic
-  let args | efSolver  = ["--mode=ef"] -- ,"--print-success"]
-           | nlSolver  = ["--logic=QF_NRA"] -- ,"--print-success"]
-           | otherwise = ["--mode=one-shot"] -- ,"--print-success"]
+  let args0 | efSolver  = ["--mode=ef"] -- ,"--print-success"]
+            | nlSolver  = ["--logic=QF_NRA"] -- ,"--print-success"]
+            | otherwise = ["--mode=one-shot"] -- ,"--print-success"]
+  let args = args0 ++ if enableMCSat then ["--mcsat"] else []
+      hasNamedAssumptions = features `hasProblemFeature` useUnsatCores ||
+                            features `hasProblemFeature` useUnsatAssumptions
+  when (enableMCSat && hasNamedAssumptions) $
+     fail "Unsat cores and named assumptions are incompatible with MC-SAT in Yices."
 
   withProcessHandles yices_path args Nothing $ \(in_h, out_h, err_h, ph) -> do
 
@@ -990,7 +1031,7 @@ runYicesInOverride sym logData conditions resultFn = do
       -- Create new connection for sending commands to yices.
       bindings <- B.getSymbolVarBimap sym
 
-      c <- newConnection in_stream nullAcknowledgementAction features bindings
+      c <- newConnection in_stream (const nullAcknowledgementAction) features bindings
       -- Write yices parameters.
       setYicesParams c cfg
       -- Assert condition
@@ -1002,8 +1043,6 @@ runYicesInOverride sym logData conditions resultFn = do
       else
         sendCheck c
 
-      earlyUnsatRef <- newIORef Nothing
-
       let yp = SolverProcess { solverConn = c
                              , solverHandle = ph
                              , solverStdin  = in_stream
@@ -1012,7 +1051,7 @@ runYicesInOverride sym logData conditions resultFn = do
                              , solverEvalFuns = smtEvalFuns c out_stream
                              , solverName = "Yices"
                              , solverLogFn = logSolverEvent sym
-                             , solverEarlyUnsat = earlyUnsatRef
+                             , solverEarlyUnsat = yicesEarlyUnsat (connState c)
                              }
       sat_result <- getSatResult yp
       logSolverEvent sym

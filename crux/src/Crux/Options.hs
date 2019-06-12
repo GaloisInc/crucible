@@ -46,6 +46,7 @@ defaultCruxOptions = CruxOptions {
   , loopBound = Nothing
   , makeCexes = True
   , solver = "yices"
+  , yicesMCSat = False
   }
 
 -- | All possible options that could be set from the command line.
@@ -129,6 +130,11 @@ cmdLineCruxOptions =
      (\v opts -> opts { solver = map toLower v })
        "solver")
     "Select solver to use"
+
+  , Option [] ["mcsat"]
+    (NoArg
+     (\opts -> opts { yicesMCSat = True }))
+    "Enable the MC-SAT solver in Yices (disables unsat cores)"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)
