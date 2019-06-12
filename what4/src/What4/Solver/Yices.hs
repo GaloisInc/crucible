@@ -426,6 +426,10 @@ newConnection stream ack reqFeatures bindings = do
                  , supportQuantifiers = efSolver
                  }
 
+-- | This data type bundles a Yices command (as a Text Builder) with an
+-- indication as to whether it is safe to issue in an inconsistent
+-- context. Unsafe commands are the ones that Yices will complain about
+-- to stderr if issued, causing interaction to hang.
 data YicesCommand = YicesCommand
   { cmdEarlyUnsatSafe :: Bool
   , cmdCmd :: Builder
