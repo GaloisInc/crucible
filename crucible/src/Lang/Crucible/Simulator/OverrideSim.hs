@@ -7,6 +7,7 @@ Maintainer  : Joe Hendrix <jhendrix@galois.com>
 
 Define the main simulation monad 'OverrideSim' and basic operations on it.
 -}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -74,11 +75,13 @@ module Lang.Crucible.Simulator.OverrideSim
 
 import           Control.Exception
 import           Control.Lens
-import           Control.Monad
+import           Control.Monad hiding (fail)
+import qualified Control.Monad.Fail as Fail (fail)
+import           Control.Monad.Fail (MonadFail)
 import qualified Control.Monad.Catch as X
-import           Control.Monad.Reader
+import           Control.Monad.Reader hiding (fail)
 import           Control.Monad.ST
-import           Control.Monad.State.Strict
+import           Control.Monad.State.Strict hiding (fail)
 import           Data.List (foldl')
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Proxy
@@ -159,10 +162,16 @@ bindOverrideSim (Sim m) h = Sim $ unSim . h =<< m
 instance Monad (OverrideSim p sym ext rtp args r) where
   return = returnOverrideSim
   (>>=) = bindOverrideSim
-  fail msg = Sim $ StateContT $ \_c -> runGenericErrorHandler msg
+#if !(MIN_VERSION_base(4,13,0))
+  fail = Fail.fail
+#endif
 
 deriving instance MonadState (SimState p sym ext rtp (OverrideLang ret) ('Just args))
                              (OverrideSim p sym ext rtp args ret)
+
+instance MonadFail (OverrideSim p sym ext rtp args ret) where
+  fail msg = Sim $ StateContT $ \_c -> runGenericErrorHandler msg
+
 
 instance MonadIO (OverrideSim p sym ext rtp args ret) where
   liftIO m = do
