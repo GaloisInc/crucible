@@ -34,11 +34,8 @@ library
     vector >= 0.7,
     what4 >= 0.4.1,
     ansi-terminal,
-    data-binary-ieee754,
-    raw-strings-qq,
-    config-value,
-    config-schema,
-    simple-get-opt
+                data-binary-ieee754,
+                raw-strings-qq
 
   hs-source-dirs: src
 
@@ -53,9 +50,7 @@ library
     Crux.Report,
     Crux.Model,
     Crux.Loops,
-    Crux.CruxMain,
-    Crux.Config,
-    Crux.Config.Common
+    Crux.CruxMain
   
   other-modules:
                 Crux.UI.Jquery,
