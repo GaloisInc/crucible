@@ -1,11 +1,18 @@
 {-# Language RankNTypes, ImplicitParams, TypeApplications #-}
 {-# Language OverloadedStrings, FlexibleContexts #-}
-module Crux where
+module Crux
+  ( main
+  , mainWithOutputConfig
+  , CruxOptions(..)
+  , module Crux.Extension
+  , module Crux.Config
+  , module Crux.Log
+  ) where
 
 import qualified Data.Text as Text
 import Control.Exception
 import Control.Monad(when)
-import System.Exit(exitSuccess,exitFailure)
+import System.Exit(exitSuccess)
 import System.Directory(createDirectoryIfMissing)
 import System.FilePath((</>))
 
@@ -36,9 +43,13 @@ import Crux.Config.Common
 import Crux.Extension
 import qualified Crux.Version as Crux
 
+-- | Throws 'ConfigError' (in addition to whatever the crucible and the
+-- callbacks may throw)
 main :: Language opts -> IO ()
 main = mainWithOutputConfig defaultOutputConfig
 
+-- | Throws 'ConfigError' (in addition to whatever the crucible and the
+-- callbacks may throw)
 mainWithOutputConfig :: OutputConfig -> Language opts -> IO ()
 mainWithOutputConfig cfg lang =
   do let ?outputConfig = cfg
@@ -57,14 +68,6 @@ mainWithOutputConfig cfg lang =
      -- Generate counter examples
      when (makeCexes cruxOpts) $
        mapM_ (makeCounterExamples lang opts) res
-
-  `catches`
-     [ Handler $ \(SomeException e) ->
-         do let ?outputConfig = cfg
-            outputLn "TOP LEVEL EXCEPTION"
-            outputLn (displayException e)
-            exitFailure
-    ]
 
 
 -- | Load the options for the given language.

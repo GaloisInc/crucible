@@ -16,7 +16,7 @@ module Crux.CruxMain where
 
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Exception (SomeException(..), displayException)
+import Control.Exception (SomeException(..), displayException,catch)
 import Data.Time.Clock (NominalDiffTime)
 import Numeric (readFloat)
 import System.Exit (exitWith, ExitCode(..))
@@ -46,7 +46,6 @@ import What4.Solver.Z3 (z3Timeout)
 import Crux.Language(Language,Options)
 import qualified Crux.Language as CL    --- language-specific functions start with CL.
 import Crux.Types
-import Crux.Error
 import Crux.Goal
 import Crux.Model
 import Crux.Log

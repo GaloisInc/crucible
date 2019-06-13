@@ -68,7 +68,6 @@ import Lang.Crucible.LLVM.MemModel
 import Lang.Crucible.LLVM.Extension(LLVM)
 import Lang.Crucible.LLVM.Extension(ArchWidth)
 
-import Crux.Error
 import Crux.Types
 import Crux.Model
 
@@ -195,7 +194,7 @@ regOver ctxt n argT retT x =
               do let over = mkOverride' nm retT x
                  registerFnBinding (FnBinding h (UseOverride over))
            _ ->
-             throwBug $ unlines
+             error $ unlines
                 [ "[bug] Invalid type for implementation of " ++ show n
                 , "*** Expected: " ++ showF (handleArgTypes h) ++
                             " -> " ++ showF (handleReturnType h)

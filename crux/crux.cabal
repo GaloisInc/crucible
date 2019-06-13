@@ -46,7 +46,6 @@ library
     Crux,
     Crux.Language,
     Crux.Types,
-    Crux.Error,
     Crux.Goal,
     Crux.Options,
     Crux.Log,

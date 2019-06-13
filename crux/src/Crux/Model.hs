@@ -28,7 +28,7 @@ import What4.Expr (GroundEvalFn(..),ExprBuilder)
 import What4.ProgramLoc
 
 import Crux.Types
-import Crux.Error
+-- import Crux.Error
 
 import Prelude
 
@@ -89,7 +89,7 @@ ppValsC ty (Vals xs) =
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 11, natValue sb == 53
           -> ("double", show . IEEE754.wordToDouble . fromInteger)
-        _ -> throwBug ("Type not implemented: " ++ show ty)
+        _ -> error ("Type not implemented: " ++ show ty)
   in unlines
       [ "size_t const crucible_values_number_" ++ cty ++
                 " = " ++ show (length xs) ++ ";"
@@ -123,7 +123,7 @@ ppValsJS ty (Vals xs) =
           | natValue eb == 11, natValue sb == 53 -> showEnt'
             (IEEE754.wordToDouble . fromInteger)
             (knownNat @64)
-        _ -> throwBug ("Type not implemented: " ++ show ty)
+        _ -> error ("Type not implemented: " ++ show ty)
   in map showEnt xs
   where
   showL l = case plSourceLoc l of

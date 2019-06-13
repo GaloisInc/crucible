@@ -41,11 +41,11 @@ data Config opts = Config
   }
 
 -- | How the value of an environment variable contributes to the options.
-data EnvDescr opts = EnvDescr { evName  :: String   -- ^ Name of variable
-                              , evDoc   :: String   -- ^ Documentation
-                              , evValue :: String -> OptSetter opts
-                                -- ^ How it affects the options
-                              }
+data EnvDescr opts =
+  EnvVar { evName  :: String                   -- ^ Name of variable
+         , evDoc   :: String                   -- ^ Documentation
+         , evValue :: String -> OptSetter opts -- ^ How it affects the options
+         }
 
 
 cfgJoin :: Config a -> Config b -> Config (a,b)
