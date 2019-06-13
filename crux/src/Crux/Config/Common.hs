@@ -2,7 +2,6 @@
 module Crux.Config.Common (CruxOptions(..), cruxOptions) where
 
 import Text.Read(readMaybe)
-import SimpleGetOpt
 import Data.Time(NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
@@ -10,9 +9,10 @@ import Data.Char(toLower)
 import Crux.Config
 
 
+-- | Common options for Crux-based binaries.
 data CruxOptions = CruxOptions
   { inputFile               :: FilePath
-    -- ^ the file to analyze
+    -- ^ the files to analyze
 
   , outDir                  :: FilePath
     -- ^ Write results in this location.
@@ -34,7 +34,7 @@ data CruxOptions = CruxOptions
 
   , simVerbose               :: Int
 
-  , solver                    :: String
+  , solver                   :: String
     -- ^ Solver to user for the online backend
   }
 
@@ -44,8 +44,9 @@ cruxOptions :: Config CruxOptions
 cruxOptions = Config
   { cfgFile =
        do inputFile <-
-            section "file" fileSpec ""
-            "Input file to process."
+            -- section "files" (oneOrList fileSpec) []
+            section "file" fileSpec []
+            "Input files to process."
 
           outDir <-
             section "output-directory" dirSpec ""

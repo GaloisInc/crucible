@@ -75,8 +75,8 @@ check opts@(cruxOpts,_langOpts) =
      when (simVerbose cruxOpts > 1) $
        say "Crux" ("Checking " ++ show file)
      res <- simulate opts
-     when (outDir cruxOpts /= "") $
-       generateReport cruxOpts res
+     {-when (outDir cruxOpts /= "") $
+       generateReport cruxOpts res -}
      when (makeCexes cruxOpts) $
        CL.makeCounterExamples opts res
      return (maybe 0 countFailedGoals res)

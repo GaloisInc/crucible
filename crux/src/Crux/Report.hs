@@ -17,7 +17,7 @@ import Lang.Crucible.Backend
 import What4.ProgramLoc
 
 import Crux.Types
-import Crux.Options
+import Crux.Config.Common
 import Crux.Loops
 
 -- Note these should be data files. However, cabal-new build doesn't make it easy for the installation
