@@ -4,7 +4,7 @@
 module Crux.Report where
 
 import System.FilePath
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, getCurrentDirectory, makeAbsolute)
 import System.IO
 import Data.List (intercalate, partition, isInfixOf)
 import Data.Maybe (fromMaybe)
@@ -33,8 +33,9 @@ generateReport :: CruxOptions -> Maybe (ProvedGoals b) -> IO ()
 generateReport opts xs =
   do createDirectoryIfMissing True (outDir opts)
      maybeGenerateSource opts (inputFiles opts)
+     cwd <- getCurrentDirectory
      writeFile (outDir opts </> "report.js")
-        $ "var goals = " ++ renderJS (jsList (renderSideConds xs))
+        $ "var goals = " ++ renderJS (jsList (renderSideConds cwd xs))
      T.writeFile (outDir opts </> "index.html") indexHtml
      T.writeFile (outDir opts </> "jquery.min.js") jquery
 
@@ -47,8 +48,9 @@ maybeGenerateSource opts files =
      h <- openFile (outDir opts </> "source.js") WriteMode
      hPutStrLn h "var sources = ["
      forM_ renderFiles $ \file -> do
-       txt <- readFile file
-       hPutStr h $ "{\"name\":" ++ show file ++ ","
+       absFile <- makeAbsolute file
+       txt <- readFile absFile
+       hPutStr h $ "{\"name\":" ++ show absFile ++ ","
        hPutStr h $ "\"lines\":" ++ show (lines txt)
        hPutStrLn h "},"
      hPutStrLn h "]"
@@ -56,8 +58,8 @@ maybeGenerateSource opts files =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: Maybe (ProvedGoals b) -> [ JS ]
-renderSideConds = maybe [] (go [])
+renderSideConds :: FilePath -> Maybe (ProvedGoals b) -> [ JS ]
+renderSideConds cwd = maybe [] (go [])
   where
   flatBranch (Branch x y : more) = flatBranch (x : y : more)
   flatBranch (x : more)          = x : flatBranch more
@@ -69,7 +71,7 @@ renderSideConds = maybe [] (go [])
 
   go path gs =
     case gs of
-      AtLoc pl _ gs1  -> go ((jsLoc pl, pl) : path) gs1
+      AtLoc pl _ gs1  -> go ((jsLoc cwd pl, pl) : path) gs1
       Branch g1 g2 ->
         let (now,rest) = partition isGoal (flatBranch [g1,g2])
         in concatMap (go path) now ++ concatMap (go path) rest
@@ -80,30 +82,36 @@ renderSideConds = maybe [] (go [])
             mkStep a l = jsObj [ "loop" ~> jsList (map jsNum a)
                                , "loc"  ~> l ]
             apath   = zipWith mkStep ap ls
-        in [ jsSideCond apath asmps conc triv proved ]
+        in [ jsSideCond cwd apath asmps conc triv proved ]
 
-jsLoc :: ProgramLoc -> JS
-jsLoc x = case plSourceLoc x of
-            SourcePos f l c -> jsObj [ "file" ~> jsStr (unpack f)
-                                     , "line" ~> jsStr (show l)
-                                     , "col" ~> jsStr (show c)
-                                     ]
-            _               -> jsNull
+jsLoc :: FilePath -> ProgramLoc -> JS
+jsLoc cwd x =
+  case plSourceLoc x of
+    SourcePos f l c -> jsObj [ "file" ~> jsStr fabsolute
+                             , "line" ~> jsStr (show l)
+                             , "col" ~> jsStr (show c)
+                             ]
+                       where fstr = unpack f
+                             fabsolute | null fstr = ""
+                                       | isRelative fstr = cwd </> fstr
+                                       | otherwise = fstr
+    _               -> jsNull
 
 
 jsSideCond ::
+  FilePath ->
   [ JS ] ->
   [(AssumptionReason,String)] ->
   (SimError,String) ->
   Bool ->
   ProofResult b ->
   JS
-jsSideCond path asmps (conc,_) triv status =
+jsSideCond cwd path asmps (conc,_) triv status =
   jsObj
   [ "status"          ~> proved
   , "counter-example" ~> example
   , "goal"            ~> jsStr goalReason
-  , "location"        ~> jsLoc (simErrorLoc conc)
+  , "location"        ~> jsLoc cwd (simErrorLoc conc)
   , "assumptions"     ~> jsList (map mkAsmp asmps)
   , "trivial"         ~> jsBool triv
   , "path"            ~> jsList path
@@ -120,7 +128,7 @@ jsSideCond path asmps (conc,_) triv status =
              _                  -> jsNull
 
   mkAsmp (asmp,_) =
-    jsObj [ "loc" ~> jsLoc (assumptionLoc asmp)
+    jsObj [ "loc" ~> jsLoc cwd (assumptionLoc asmp)
           ]
 
   goalReason = renderReason (simErrorReasonMsg (simErrorReason conc))

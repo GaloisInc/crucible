@@ -17,13 +17,13 @@ indexHtml = [r|<!DOCTYPE html>
 <script src="source.js"></script>
 <script src="report.js"></script>
 <script>
-function drawLines() {
+function drawLines(n) {
   var i
   var dom = $('<ol/>')
-  for (i = 0; i < lines.length; ++i) {
+  for (i = 0; i < sources[n].lines.length; ++i) {
     var li = $('<li/>').attr('id','line-' + (i+1))
                        .addClass('line')
-                       .text(lines[i])
+                       .text(sources[n].lines[i])
     dom.append(li)
   }
   return dom
@@ -41,7 +41,7 @@ function drawStatus(status) {
 function drawCounterExample(e) {
   if (e === null) return
   jQuery.each(e, function(ix,v) {
-    getLine(v.line).append($('<span/>')
+    getLine(v.loc.line).append($('<span/>')
                    .addClass('ctr-example').text(v.val))
   })
 }
@@ -51,7 +51,7 @@ function drawCounterExample(e) {
 function drawPath(path) {
   $('.path').remove()
   jQuery.each(path,function(ix,step) {
-    var branch = step.loc
+    var branch = step.loc.line
     var ln = getLine(branch)
 
     var pre = ""
@@ -106,13 +106,14 @@ function drawGoals() {
                 .removeClass('highlight-assumed')
                 .removeClass('highlight-unknown')
      jQuery.each(g.assumptions, function(ix,a) {
-        var lnName = a.line
+        var lnName = a.loc.line
         if (lnName !== g.location) {
             getLine(lnName).addClass('highlight-assumed')
         }
       })
       if (g.location !== null)
-        var it = getLine(g.location)
+        // TODO: switch to g.location.file
+        var it = getLine(g.location.line)
         it.addClass('highlight-' + g.status)
         it[0].scrollIntoView({behavior:'smooth', block:'center'})
       drawCounterExample(g['counter-example'])
@@ -125,7 +126,10 @@ function drawGoals() {
 }
 
 $(document).ready(function() {
-  $('#source-code').append(drawLines())
+  var i
+  //for(i = 0; i < sources.length; i++) {
+    $('#source-code').append(drawLines(0))
+  //}
   $('#nav-bar').append(drawGoals())
 })
 </script>
