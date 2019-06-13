@@ -20,6 +20,7 @@ import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
 import Data.Text (Text)
 
+import System.Console.GetOpt
 import System.Process
 import System.Exit
 import System.IO (Handle, stdout)
@@ -222,6 +223,7 @@ instance Crux.Language LangLLVM where
      , linkBin    :: FilePath
      , clangOpts  :: [String]
      , libDir     :: FilePath
+     , incDirs    :: [FilePath]
      -- other options are tracked by Crux
      }
 
@@ -231,7 +233,14 @@ instance Crux.Language LangLLVM where
     , linkBin    = "llvm-link"
     , clangOpts  = []
     , libDir     = "c-src"
+    , incDirs    = []
     }
+
+  cmdLineOptions =
+    [ Option "I" []
+      (ReqArg (\v opts -> opts { incDirs = v : incDirs opts }) "DIR")
+      "Add include directory to pass to `clang` with `-I`"
+    ]
 
   envOptions = [ ("CLANG",   \v opts -> opts { clangBin = v })
                , ("CLANG_OPTS", \v opts -> opts { clangOpts = words v })
@@ -400,13 +409,13 @@ genBitCode opts =
   do let files = (Crux.inputFiles (fst opts))
          finalBCFile = Crux.outDir (fst opts) </> "combined.bc"
          srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
+         incs src = takeDirectory src :
+                    (libDir (snd opts) </> "includes") :
+                    incDirs (snd opts)
          params (src, srcBC) =
-           [ "-c", "-g", "-emit-llvm", "-O0"
-           , "-I", libDir (snd opts) </> "includes"
-           , "-I", takeDirectory src
-           , "-o", srcBC
-           , src
-           ]
+           [ "-c", "-g", "-emit-llvm", "-O0" ] ++
+           concat [ [ "-I", dir ] | dir <- incs src ] ++
+           [ "-o", srcBC, src ]
      forM_ srcBCNames $ \f -> runClang opts (params f)
      ver <- llvmLinkVersion opts
      let libcxxBitcode | anyCPPFiles files = [libDir (snd opts) </> "libcxx-" ++ ver ++ ".bc"]
@@ -425,7 +434,8 @@ buildModelExes opts suff counter_src =
      writeFile counterFile counter_src
 
      let libs = libDir (snd opts)
-         incDirs = concat [ ["-I", idir] | idir <- map takeDirectory files ]
+         incs = (libs </> "includes") :
+                (map takeDirectory files ++ incDirs (snd opts))
          files = (Crux.inputFiles (fst opts))
          libcxx | anyCPPFiles files = ["-lstdc++"]
                 | otherwise = []
@@ -436,11 +446,11 @@ buildModelExes opts suff counter_src =
                    , "-o", printExe
                    ]
 
-     runClang opts $ [ "-I", libs </> "includes"
-                     , counterFile
+     runClang opts $ concat [ [ "-I", dir ] | dir <- incs ] ++
+                     [ counterFile
                      , libs </> "concrete-backend.c"
                      , "-O0", "-g"
                      , "-o", debugExe
-                     ] ++ incDirs ++ files ++ libcxx
+                     ] ++ files ++ libcxx
 
      return (printExe, debugExe)
