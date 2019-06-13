@@ -314,7 +314,7 @@ withLLVMCtx mod action =
       with :: forall s. NonceGenerator IO s -> HandleAllocator RealWorld -> IO a
       with nonceGen halloc = do
         sym <- Crucible.newSimpleBackend @_ @(Crucible.Flags Crucible.FloatReal) nonceGen
-        Some (ModuleTranslation _ ctx _) <- stToIO $ translateModule halloc mod
+        Some (ModuleTranslation _ ctx _ _) <- stToIO $ translateModule halloc mod
         case llvmArch ctx                   of { X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
         case assertLeq (knownNat @16) width of { LeqProof      -> do
