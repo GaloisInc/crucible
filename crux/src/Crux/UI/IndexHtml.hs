@@ -9,7 +9,8 @@ import Text.RawString.QQ
 
 
 indexHtml :: Text
-indexHtml = [r|<!DOCTYPE html>
+indexHtml = [r|
+<!DOCTYPE html>
 <html>
 <head>
 
@@ -21,7 +22,10 @@ indexHtml = [r|<!DOCTYPE html>
 var fileObjs = {}
 var nextId = 0
 
-function getFile(loc) { return $(fileObjs[loc.file].dom) }
+function getFile(loc) {
+  var obj = fileObjs[loc.file]
+  return obj ? $(obj.dom) : $([])
+}
 
 function getLine(loc) { return getFile(loc).find('#line-' + loc.line) }
 
@@ -151,9 +155,10 @@ function drawGoals() {
         var lnName = a.loc
         if (!lnName.file) return true
 
-        fileObjs[lnName.file].btn.addClass('highlight-assumed')
+         var obj = fileObjs[lnName.file]
+         if(obj) obj.btn.addClass('highlight-assumed')
 
-        if (lnName !== g.location) {
+        if (lnName.file !== g.location.file || lnName.line !== g.location.line) {
           var ln = getLine(lnName)
           ln.addClass('highlight-assumed')
 
@@ -163,11 +168,12 @@ function drawGoals() {
           // ln.append(note)
         }
       })
-      if (g.location !== null)
+      if (g.location !== null) {
         showFile(g.location.file)
         var it = getLine(g.location)
         it.addClass('highlight-' + g.status)
         it[0].scrollIntoView({behavior:'smooth', block:'center'})
+      }
       drawCounterExample(g['counter-example'])
       if(g.path) drawPath(g.path)
     })
@@ -179,7 +185,7 @@ function drawGoals() {
 
 $(document).ready(function() {
   var i
-  var srcPane = $('#source-code')
+  var srcPane = $('#source-pane')
   var filePane = $('#file-pane')
   jQuery.each(sources, function(ix,file) {
     ui = drawSourceFile(file)
@@ -320,7 +326,7 @@ ol.source-file>li:before {
 <body><div id="nav-bar"></div
 ><div id="right-pane"
   ><div id="file-pane"></div
-  ><div id="source-code"></div
+  ><div id="source-pane"></div
 ></div
 ></body>
 </html>
