@@ -9,6 +9,7 @@ module Crux
   , module Crux.Log
   ) where
 
+import Data.Text (Text)
 import qualified Data.Text as Text
 import Control.Exception
 import Control.Monad(when)
@@ -40,6 +41,7 @@ import Crux.Model
 import Crux.Report
 import qualified Crux.Config.Load as Cfg
 import Crux.Config.Common
+import Crux.Config.Doc
 import Crux.Extension
 import qualified Crux.Version as Crux
 
@@ -75,18 +77,19 @@ mainWithOutputConfig cfg lang =
 -- just print something and exit, so this function may never return!
 loadOptions :: Logs => Language opts -> IO (Options opts)
 loadOptions lang =
-  do opts <- Cfg.loadConfig (Text.pack (name lang))
-           $ cfgJoin cruxOptions (configuration lang)
+  do let nm      = Text.pack (name lang)
+         optSpec = cfgJoin cruxOptions (configuration lang)
+     opts <- Cfg.loadConfig nm optSpec
      case opts of
-       Cfg.ShowHelp -> showHelp lang >> exitSuccess
+       Cfg.ShowHelp -> showHelp nm optSpec >> exitSuccess
        Cfg.ShowVersion -> showVersion lang >> exitSuccess
        Cfg.Options (crux,os) files ->
          case inputFile crux : files of
            [file] -> pure (crux { inputFile = file }, os)
            _ -> throwIO (Cfg.InvalidCommandLine ["Only one file supported."])
 
-showHelp :: Logs => Language opts -> IO ()
-showHelp _ = outputLn "XXX: show help"
+showHelp :: Logs => Text -> Config opts -> IO ()
+showHelp nm cfg = outputLn (show (configDocs nm cfg))
 
 showVersion :: Logs => Language opts -> IO ()
 showVersion l = outputLn ("crux version: " ++ Crux.version ++ ", " ++
