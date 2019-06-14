@@ -14,18 +14,20 @@ module CruxLLVMMain (main, mainWithOutputTo) where
 import Data.String (fromString)
 import qualified Data.Map as Map
 import Control.Lens ((&), (%~), (^.), view)
+import Control.Monad(when, forM_)
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
 import Data.Text (Text)
 
+import System.Console.GetOpt
 import System.Process
 import System.Exit
 import System.IO (Handle, stdout)
 import System.FilePath
   ( takeExtension, dropExtension, takeFileName, (</>), (<.>)
-  , takeDirectory)
-import System.Directory (createDirectoryIfMissing, copyFile)
+  , takeDirectory, replaceExtension)
+import System.Directory (createDirectoryIfMissing, removeFile)
 
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty)
@@ -164,8 +166,8 @@ registerFunctions ctx llvm_module mtrans =
 
 -- Returns only non-trivial goals
 simulateLLVM :: (?outputConfig :: OutputConfig) => Crux.Simulate sym LangLLVM
-simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
-    llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
+simulateLLVM fs (cruxOpts,llvmOpts) sym _p = do
+    llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
     Some trans <- stToIO (translateModule halloc llvm_mod)
     let llvmCtxt = trans ^. transContext
@@ -221,7 +223,7 @@ instance Crux.Language LangLLVM where
      , linkBin    :: FilePath
      , clangOpts  :: [String]
      , libDir     :: FilePath
-     , optsBCFile :: FilePath
+     , incDirs    :: [FilePath]
      -- other options are tracked by Crux
      }
 
@@ -231,8 +233,14 @@ instance Crux.Language LangLLVM where
     , linkBin    = "llvm-link"
     , clangOpts  = []
     , libDir     = "c-src"
-    , optsBCFile = ""
+    , incDirs    = []
     }
+
+  cmdLineOptions =
+    [ Option "I" []
+      (ReqArg (\v opts -> opts { incDirs = v : incDirs opts }) "DIR")
+      "Add include directory to pass to `clang` with `-I`"
+    ]
 
   envOptions = [ ("CLANG",   \v opts -> opts { clangBin = v })
                , ("CLANG_OPTS", \v opts -> opts { clangOpts = words v })
@@ -249,7 +257,7 @@ instance Crux.Language LangLLVM where
     let opts2 = llvmOpts { clangBin = clangFilePath }
 
     -- update outDir if unset
-    let inp   = Crux.inputFile cruxOpts
+    let inp   = head (Crux.inputFiles cruxOpts)
         name  = dropExtension (takeFileName inp)
         cruxOpts2 = if (Crux.outDir cruxOpts == "") then
                       cruxOpts { Crux.outDir = "results" </> name } else cruxOpts
@@ -257,16 +265,9 @@ instance Crux.Language LangLLVM where
 
     createDirectoryIfMissing True odir
 
-    -- update optsBCFile if unset
-    let opts3 = if (optsBCFile opts2 == "")
-                then opts2 { optsBCFile = odir </> name <.> "bc" }
-                else opts2
+    genBitCode (cruxOpts2, opts2)
 
-    if takeExtension inp == ".bc"
-      then copyFile inp (optsBCFile opts3)
-      else (genBitCode (cruxOpts2, opts3))
-
-    return (cruxOpts2, opts3)
+    return (cruxOpts2, opts2)
 
   simulate = simulateLLVM
 
@@ -336,20 +337,18 @@ llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
 
 type Options = Crux.Options LangLLVM
 
-data InputLanguage
-  = CSource
-  | CPPSource
-  | Bitcode
 
-optInputLanguage :: Options -> Maybe InputLanguage
-optInputLanguage opts =
-  case takeExtension (takeFileName (Crux.inputFile (fst opts))) of
-    ".c" -> Just CSource
-    ".cpp" -> Just CPPSource
-    ".cxx" -> Just CPPSource
-    ".C" -> Just CPPSource
-    ".bc" -> Just Bitcode
-    _ -> Nothing
+isCPlusPlus :: FilePath -> Bool
+isCPlusPlus file =
+  case takeExtension file of
+    ".cpp" -> True
+    ".cxx" -> True
+    ".C" -> True
+    ".bc" -> False
+    _ -> False
+
+anyCPPFiles :: [FilePath] -> Bool
+anyCPPFiles = any isCPlusPlus
 
 -- | attempt to find Clang executable by searching the file system
 -- throw an error if it cannot be found this way.
@@ -407,26 +406,22 @@ llvmLinkVersion opts =
 
 genBitCode :: Options -> IO ()
 genBitCode opts =
-  do let lang = optInputLanguage opts
-         srcDir = takeDirectory (Crux.inputFile (fst opts))
-         finalBCFile = optsBCFile (snd opts)
-         curBCFile = case lang of
-                       Just CPPSource -> finalBCFile ++ "-tmp"
-                       _ -> finalBCFile
-         params = [ "-c", "-g", "-emit-llvm", "-O0"
-                  , "-I", libDir (snd opts) </> "includes"
-                  , "-I", srcDir
-                  , Crux.inputFile (fst opts)
-                  , "-o", curBCFile
-                  ]
-     runClang opts params
+  do let files = (Crux.inputFiles (fst opts))
+         finalBCFile = Crux.outDir (fst opts) </> "combined.bc"
+         srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
+         incs src = takeDirectory src :
+                    (libDir (snd opts) </> "includes") :
+                    incDirs (snd opts)
+         params (src, srcBC) =
+           [ "-c", "-g", "-emit-llvm", "-O0" ] ++
+           concat [ [ "-I", dir ] | dir <- incs src ] ++
+           [ "-o", srcBC, src ]
+     forM_ srcBCNames $ \f -> runClang opts (params f)
      ver <- llvmLinkVersion opts
-     let libcxxBitcode = "libcxx-" ++ ver ++ ".bc"
-     case lang of
-       Just CPPSource ->
-         llvmLink opts [ curBCFile, libDir (snd opts) </> libcxxBitcode ] finalBCFile
-       _ -> return ()
-
+     let libcxxBitcode | anyCPPFiles files = [libDir (snd opts) </> "libcxx-" ++ ver ++ ".bc"]
+                       | otherwise = []
+     llvmLink opts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
+     mapM_ (removeFile . snd) srcBCNames
 
 buildModelExes :: Options -> String -> String -> IO (FilePath,FilePath)
 buildModelExes opts suff counter_src =
@@ -439,9 +434,11 @@ buildModelExes opts suff counter_src =
      writeFile counterFile counter_src
 
      let libs = libDir (snd opts)
-         libcxx = case optInputLanguage opts of
-                    Just CPPSource -> ["-lstdc++"]
-                    _ -> []
+         incs = (libs </> "includes") :
+                (map takeDirectory files ++ incDirs (snd opts))
+         files = (Crux.inputFiles (fst opts))
+         libcxx | anyCPPFiles files = ["-lstdc++"]
+                | otherwise = []
 
      runClang opts [ "-I", libs </> "includes"
                    , counterFile
@@ -449,12 +446,11 @@ buildModelExes opts suff counter_src =
                    , "-o", printExe
                    ]
 
-     runClang opts $ [ "-I", libs </> "includes"
-                     , counterFile
+     runClang opts $ concat [ [ "-I", dir ] | dir <- incs ] ++
+                     [ counterFile
                      , libs </> "concrete-backend.c"
-                     , Crux.inputFile (fst opts)
                      , "-O0", "-g"
                      , "-o", debugExe
-                     ] ++ libcxx
+                     ] ++ files ++ libcxx
 
      return (printExe, debugExe)

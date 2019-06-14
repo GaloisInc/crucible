@@ -28,14 +28,14 @@ import Crux.Language (LangConf(..),LangOptions,Language,Options,CruxOptions(..))
 import qualified Crux.Language as CL
 
 -- Unfortunately, we need to construct these arguments *before* we
--- know what the inputFile name is. So we cannot provide a default
+-- know what the inputFiles are. So we cannot provide a default
 -- value of outDir here.
 defaultCruxOptions :: CruxOptions
 defaultCruxOptions = CruxOptions {
     showHelp = False
   , simVerbose = 1
   , outDir = ""
-  , inputFile = ""
+  , inputFiles = []
   , showVersion = False
   , checkPathSat = False
   , profileCrucibleFunctions = True
@@ -46,6 +46,7 @@ defaultCruxOptions = CruxOptions {
   , loopBound = Nothing
   , makeCexes = True
   , solver = "yices"
+  , yicesMCSat = False
   }
 
 -- | All possible options that could be set from the command line.
@@ -129,6 +130,11 @@ cmdLineCruxOptions =
      (\v opts -> opts { solver = map toLower v })
        "solver")
     "Select solver to use"
+
+  , Option [] ["mcsat"]
+    (NoArg
+     (\opts -> opts { yicesMCSat = True }))
+    "Enable the MC-SAT solver in Yices (disables unsat cores)"
   ]
 
 promoteLang :: forall a. Language a => (CL.LangOptions a -> CL.LangOptions a)
@@ -163,11 +169,11 @@ processEnv opts = do
 
 -- Figure out which language we should use for simulation
 -- based on the file extension
-findLang :: AllPossibleOptions -> FilePath -> Maybe LangConf
-findLang (_,langs) file = go langs where
+findLang :: AllPossibleOptions -> [FilePath] -> Maybe LangConf
+findLang (_,langs) files = go langs where
   go [] = Nothing
   go (lang@(LangConf (_:: LangOptions a)):rest)
-    | takeExtension file `elem` CL.validExtensions @a = Just lang
+    | all ((`elem` CL.validExtensions @a) . takeExtension) files = Just lang
     | otherwise = go rest
 
 -- If there is only one possible language, then add that to the name
@@ -193,18 +199,18 @@ processOptionsThen langs check = do
       case files of
         _ | showVersion (fst allOpts) -> showErr (shortVersionText langs)
         _ | showHelp    (fst allOpts) -> showErr usageMsg
-        [file] -> do
-          case findLang allOpts file of
+        [] -> showErr usageMsg
+        files -> do
+          case findLang allOpts files of
             Just (LangConf (langOpts :: LangOptions a)) -> do
-              opts  <- processEnv ((fst allOpts) { inputFile = file }, langOpts)
+              opts  <- processEnv ((fst allOpts) { inputFiles = files }, langOpts)
               opts' <- CL.ioOptions opts
               check opts'
             Nothing -> do
-              showErr $ "Unknown file extension " ++ takeExtension file
-        _ -> showErr usageMsg
+              showErr $ "Unknown file extension."
     (_, _, errs) -> showErr (concat errs ++ usageMsg)
   where options  = cmdLineOptions langs
-        header   = "Usage: " ++ (exeName langs) ++ " [OPTION...] file"
+        header   = "Usage: " ++ (exeName langs) ++ " [OPTION...] files"
         usageMsg = usageInfo header options
         showErr msg = hPutStrLn stderr msg >> return 1
 

@@ -34,8 +34,8 @@ data CruxOptions = CruxOptions
     -- ^ show tool version & quit
   , simVerbose       :: Verbosity
     -- ^ chattiness of the output
-  , inputFile        :: FilePath
-    -- ^ the file to analyze
+  , inputFiles       :: [FilePath]
+    -- ^ the files to analyze
   , outDir           :: FilePath
     -- ^ write results in this location
     -- if unset, do not produce any analysis results
@@ -52,6 +52,8 @@ data CruxOptions = CruxOptions
     -- ^ Should we construct counter-example executables
   , solver :: String
     -- ^ Solver to user for the online backend
+  , yicesMCSat :: Bool
+    -- ^ Whether to use the MC-SAT engine with Yices.
   }
 
 type Options a = (CruxOptions, LangOptions a)

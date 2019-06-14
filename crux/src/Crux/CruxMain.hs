@@ -17,6 +17,7 @@ module Crux.CruxMain where
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Exception (SomeException(..), displayException)
+import Data.List (intercalate)
 import Data.Time.Clock (NominalDiffTime)
 import Numeric (readFloat)
 import System.Exit (exitWith, ExitCode(..))
@@ -40,6 +41,7 @@ import What4.InterpretedFloatingPoint (IsInterpretedFloatExprBuilder)
 import What4.Interface (getConfiguration)
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
+import What4.Solver.Yices (yicesEnableMCSat)
 import What4.Solver.Z3 (z3Timeout)
 
 -- crux
@@ -71,9 +73,9 @@ exitWithInt n = exitWith (ExitFailure n)
 -- | simulate the "main" method in the given class
 check :: forall a. (Language a, ?outputConfig :: OutputConfig) => Options a -> IO Int
 check opts@(cruxOpts,_langOpts) =
-  do let file = inputFile cruxOpts
+  do let fileText = intercalate ", " (inputFiles cruxOpts)
      when (simVerbose cruxOpts > 1) $
-       say "Crux" ("Checking " ++ show file)
+       say "Crux" ("Checking " ++ show fileText)
      res <- simulate opts
      when (outDir cruxOpts /= "") $
        generateReport cruxOpts res
@@ -96,20 +98,25 @@ parseNominalDiffTime xs =
 -- moment, each solver is associated with a fixed floating-point
 -- interpretation. Ultimately, this should be an option, too.
 withBackend ::
-  String ->
+  (Language l) =>
+  Options l ->
   NonceGenerator IO scope ->
   (forall solver fs.
     (OnlineSolver scope solver
     , IsInterpretedFloatExprBuilder (OnlineBackend scope solver fs)) =>
       OnlineBackend scope solver fs -> IO a) ->
   IO a
-withBackend "cvc4" nonceGen f =
-  withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
-withBackend "yices" nonceGen f =
-  withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
-withBackend "z3" nonceGen f =
-  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores f
-withBackend s _ _ = fail $ "unknown solver: " ++ s
+withBackend (cruxOpts, _) nonceGen f = do
+  let unsatCores | yicesMCSat cruxOpts = NoUnsatFeatures
+                 | otherwise = ProduceUnsatCores
+  case solver cruxOpts of
+    "cvc4" ->
+      withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
+    "yices" ->
+      withYicesOnlineBackend @(Flags FloatReal) nonceGen unsatCores f
+    "z3" ->
+      withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores f
+    s -> fail $ "unknown solver: " ++ s
 
 -- Returns only non-trivial goals
 simulate :: (Language a, ?outputConfig :: OutputConfig) => Options a ->
@@ -119,7 +126,7 @@ simulate opts  =
   in
   liftIO $
   withIONonceGenerator $ \nonceGen ->
-  withBackend (solver cruxOpts) nonceGen $ \sym -> do
+  withBackend opts nonceGen $ \sym -> do
      -- The simulator verbosity is one less than our verbosity.
      -- In this way, we can say things, without the simulator also being verbose
      let simulatorVerb = toInteger
@@ -130,7 +137,14 @@ simulate opts  =
 
      void $ join (setOpt <$> getOptionSetting solverInteractionFile (getConfiguration sym)
                          <*> pure ("crux-solver.out"))
-     
+
+     case solver cruxOpts of
+       "yices" -> void $ join $
+         setOpt <$> getOptionSetting yicesEnableMCSat (getConfiguration sym)
+                <*> pure (yicesMCSat cruxOpts)
+       _ -> when (yicesMCSat cruxOpts) $
+            fail "The `--mcsat` option is only valid with `--solver=yices`."
+
      when (solver cruxOpts == "z3") $
        void $ join (setOpt <$> getOptionSetting z3Timeout (getConfiguration sym)
                            <*> pure (goalTimeout cruxOpts * 1000))
@@ -163,12 +177,15 @@ simulate opts  =
                    Just t  -> return t)
           (globalTimeout cruxOpts)
 
+     let profSource = case inputFiles cruxOpts of
+                        [f] -> f
+                        _ -> "multiple files"
      profOpts <-
           traverse
           (\v -> case parseNominalDiffTime v of
                     Nothing -> fail $ "Invalid profiling output interval: " ++ v
                     Just t  -> return $
-                      ProfilingOptions t (writeProfileReport profOutFile (inputFile cruxOpts) (inputFile cruxOpts)))
+                      ProfilingOptions t (writeProfileReport profOutFile "crux-llvm profile" profSource))
           (profileOutputInterval cruxOpts)
 
      pfs <- if (profileCrucibleFunctions cruxOpts) then
@@ -215,13 +232,13 @@ simulate opts  =
           let ctx' = execResultContext res
 
           inFrame "<Prove Goals>" $
-            do pg <- proveGoals ctx' =<< (getProofObligations sym)
+            do pg <- proveGoals cruxOpts ctx' =<< (getProofObligations sym)
                provedGoalsTree ctx' pg
 
      when (simVerbose cruxOpts > 1) $
         say "Crux" "Simulation complete."
 
      when profiling $ do
-       writeProfileReport profOutFile (inputFile cruxOpts) (inputFile cruxOpts) tbl
+       writeProfileReport profOutFile "crux-llvm profile" profSource tbl
 
      return gls
