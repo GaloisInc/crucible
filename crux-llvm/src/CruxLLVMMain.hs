@@ -5,6 +5,7 @@
 {-# Language TypeFamilies #-}
 {-# Language ApplicativeDo #-}
 {-# Language RecordWildCards #-}
+{-# Language ScopedTypeVariables #-}
 
 module CruxLLVMMain (main, mainWithOutputTo) where
 
@@ -87,10 +88,10 @@ mainWithOutputTo :: Handle -> IO ()
 mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h)
 
 mainWithOutputConfig :: OutputConfig -> IO ()
-mainWithOutputConfig oh =
-  Crux.mainWithOutputConfig oh cruxLLVM
-    -- XXX: catch errors and render them better?
-
+mainWithOutputConfig cfg =
+  Crux.mainWithOutputConfig cfg cruxLLVM
+  `catch` \(e :: CError) -> sayFail "Crux" (displayException e)
+    where ?outputConfig = cfg
 
 makeCounterExamplesLLVM ::
   Logs => Options -> ProvedGoals (Either AssumptionReason SimError) -> IO ()

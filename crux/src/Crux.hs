@@ -1,5 +1,5 @@
 {-# Language RankNTypes, ImplicitParams, TypeApplications #-}
-{-# Language OverloadedStrings, FlexibleContexts #-}
+{-# Language OverloadedStrings, FlexibleContexts, ScopedTypeVariables #-}
 module Crux
   ( main
   , mainWithOutputConfig
@@ -12,6 +12,7 @@ module Crux
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.List(intercalate)
+import Control.Exception(catch, displayException)
 import Control.Monad(when)
 import System.Exit(exitSuccess)
 import System.Directory(createDirectoryIfMissing)
@@ -55,8 +56,7 @@ main = mainWithOutputConfig defaultOutputConfig
 -- callbacks may throw)
 mainWithOutputConfig :: OutputConfig -> Language opts -> IO ()
 mainWithOutputConfig cfg lang =
-  do let ?outputConfig = cfg
-     opts  <- loadOptions lang
+  do opts  <- loadOptions lang
      opts1@(cruxOpts,_) <- initialize lang opts
 
      -- Run the simulator
@@ -72,7 +72,8 @@ mainWithOutputConfig cfg lang =
      -- Generate counter examples
      when (makeCexes cruxOpts) $
        mapM_ (makeCounterExamples lang opts) res
-
+  `catch` \(e :: Cfg.ConfigError) -> sayFail "Crux" (displayException e)
+    where ?outputConfig = cfg
 
 -- | Load the options for the given language.
 -- IMPORTANT:  This processes options like @help@ and @version@, which
