@@ -131,12 +131,16 @@ ppValsJS ty (Vals xs) =
         _ -> error ("Type not implemented: " ++ show ty)
   in map showEnt xs
   where
-  showL l = case plSourceLoc l of
-              SourcePos _ x _ -> show x
-              _               -> "null"
+  showLine l = case plSourceLoc l of
+                 SourcePos _ x _ -> show x
+                 _               -> "null"
+  showFile l = case plSourceLoc l of
+                 SourcePos f _ _ -> show f
+                 _               -> "null"
   showEnt' repr n e =
     unlines [ "{ \"name\": " ++ show (entryName e)
-            , ", \"line\": " ++ showL (entryLoc e)
+            , ", \"line\": " ++ showLine (entryLoc e)
+            , ", \"file\": " ++ showFile (entryLoc e)
             , ", \"val\": " ++ (show . repr . entryValue) e
             , ", \"bits\": " ++ show n
             , "}" ]
