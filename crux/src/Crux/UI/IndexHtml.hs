@@ -41,7 +41,7 @@ function drawStatus(status) {
 function drawCounterExample(e) {
   if (e === null) return
   jQuery.each(e, function(ix,v) {
-    getLine(v.loc.line).append($('<span/>')
+    getLine(v.line).append($('<span/>')
                    .addClass('ctr-example').text(v.val))
   })
 }
