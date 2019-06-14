@@ -6,9 +6,7 @@ module Crux.Report where
 import System.FilePath
 import System.Directory (createDirectoryIfMissing, getCurrentDirectory, makeAbsolute)
 import System.IO
-import Data.List (intercalate, partition, isInfixOf)
-import Data.Maybe (fromMaybe)
-import Data.Text (unpack)
+import Data.List (partition, isInfixOf)
 import Control.Exception (catch, SomeException(..))
 import Control.Monad (forM_)
 
@@ -16,7 +14,6 @@ import qualified Data.Text.IO as T
 
 import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Backend
-import What4.ProgramLoc
 
 import Crux.Types
 import Crux.Config.Common
@@ -25,6 +22,7 @@ import Crux.Loops
 -- Note these should be data files. However, cabal-new build doesn't make it easy for the installation
 -- to find data files, so they are embedded as Text constants instead.
 
+import Crux.UI.JS
 import Crux.UI.Jquery (jquery)       -- ui/jquery.min.js
 import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 
@@ -41,6 +39,10 @@ generateReport opts xs =
 
 
 -- TODO: get the extensions from the Language configuration
+-- XXX: currently we just use the file name as a label for the file,
+-- but if files come from different directores this may lead to clashes,
+-- so we should do something smarter (e.g., drop only the prefix that
+-- is common to all files).
 maybeGenerateSource :: CruxOptions -> [FilePath] -> IO ()
 maybeGenerateSource opts files =
   do let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".C", ".ii"]
@@ -50,7 +52,8 @@ maybeGenerateSource opts files =
      forM_ renderFiles $ \file -> do
        absFile <- makeAbsolute file
        txt <- readFile absFile
-       hPutStr h $ "{\"name\":" ++ show absFile ++ ","
+       hPutStr h $ "{\"label\":" ++ show (takeFileName absFile) ++ ","
+       hPutStr h $ "\"name\":" ++ show absFile ++ ","
        hPutStr h $ "\"lines\":" ++ show (lines txt)
        hPutStrLn h "},"
      hPutStrLn h "]"
@@ -84,19 +87,6 @@ renderSideConds cwd = maybe [] (go [])
             apath   = zipWith mkStep ap ls
         in [ jsSideCond cwd apath asmps conc triv proved ]
 
-jsLoc :: FilePath -> ProgramLoc -> JS
-jsLoc cwd x =
-  case plSourceLoc x of
-    SourcePos f l c -> jsObj [ "file" ~> jsStr fabsolute
-                             , "line" ~> jsStr (show l)
-                             , "col" ~> jsStr (show c)
-                             ]
-                       where fstr = unpack f
-                             fabsolute | null fstr = ""
-                                       | isRelative fstr = cwd </> fstr
-                                       | otherwise = fstr
-    _               -> jsNull
-
 
 jsSideCond ::
   FilePath ->
@@ -129,6 +119,7 @@ jsSideCond cwd path asmps (conc,_) triv status =
 
   mkAsmp (asmp,_) =
     jsObj [ "loc" ~> jsLoc cwd (assumptionLoc asmp)
+          -- , "text" ~> jsStr (show (ppAssumptionReason asmp))
           ]
 
   goalReason = renderReason (simErrorReasonMsg (simErrorReason conc))
@@ -139,37 +130,4 @@ jsSideCond cwd path asmps (conc,_) triv status =
       _ -> "no reason?"
 
 
-
---------------------------------------------------------------------------------
-newtype JS = JS { renderJS :: String }
-
-jsList :: [JS] -> JS
-jsList xs = JS $ "[" ++ intercalate "," [ x | JS x <- xs ] ++ "]"
-
-infix 1 ~>
-
-(~>) :: a -> b -> (a,b)
-(~>) = (,)
-
-jsObj :: [(String,JS)] -> JS
-jsObj xs =
-  JS $ "{" ++ intercalate "," [ show x ++ ": " ++ v | (x,JS v) <- xs ] ++ "}"
-
-jsBool :: Bool -> JS
-jsBool b = JS (if b then "true" else "false")
-
-jsStr :: String -> JS
-jsStr = JS . show
-
-jsNull :: JS
-jsNull = JS "null"
-
-jsMaybe :: Maybe JS -> JS
-jsMaybe = fromMaybe jsNull
-
-jsNum :: Show a => a -> JS
-jsNum = JS . show
-
----------------------------------------------------
----------------------------------------------------
 

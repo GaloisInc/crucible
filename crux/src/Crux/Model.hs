@@ -20,16 +20,15 @@ import Data.Parameterized.Map (MapF)
 import Data.Parameterized.Pair(Pair(..))
 import qualified Data.Parameterized.Map as MapF
 import Data.Semigroup
---import Control.Exception(throw)
+import System.Directory(getCurrentDirectory)
 
 import Lang.Crucible.Types(BaseTypeRepr(..),BaseToType,FloatPrecisionRepr(..))
 import Lang.Crucible.Simulator.RegMap(RegValue)
 import What4.Expr (GroundEvalFn(..),ExprBuilder)
 import What4.ProgramLoc
 
+import Crux.UI.JS
 import Crux.Types
-
-import Prelude
 
 
 emptyModel :: Model sym
@@ -115,42 +114,39 @@ ppModelC ev m =
             : ""
             : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
 
-ppValsJS :: BaseTypeRepr ty -> Vals ty -> [String]
-ppValsJS ty (Vals xs) =
+ppValsJS :: FilePath -> BaseTypeRepr ty -> Vals ty -> [String]
+ppValsJS cwd ty (Vals xs) =
   let showEnt = case ty of
         BaseBVRepr n -> showEnt' show n
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 8, natValue sb == 24 -> showEnt'
-            (IEEE754.wordToFloat . fromInteger)
+            (show . IEEE754.wordToFloat . fromInteger)
             (knownNat @32)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 11, natValue sb == 53 -> showEnt'
-            (IEEE754.wordToDouble . fromInteger)
+            (show . IEEE754.wordToDouble . fromInteger)
             (knownNat @64)
         BaseRealRepr -> showEnt' (show . toDouble) (knownNat @64)
         _ -> error ("Type not implemented: " ++ show ty)
   in map showEnt xs
+
   where
-  showLine l = case plSourceLoc l of
-                 SourcePos _ x _ -> show x
-                 _               -> "null"
-  showFile l = case plSourceLoc l of
-                 SourcePos f _ _ -> show f
-                 _               -> "null"
+  showEnt' :: Show b => (a -> String) -> b -> Entry a -> String
   showEnt' repr n e =
-    unlines [ "{ \"name\": " ++ show (entryName e)
-            , ", \"line\": " ++ showLine (entryLoc e)
-            , ", \"file\": " ++ showFile (entryLoc e)
-            , ", \"val\": " ++ (show . repr . entryValue) e
-            , ", \"bits\": " ++ show n
-            , "}" ]
+    renderJS $ jsObj
+      [ "name" ~> jsStr (entryName e)
+      , "loc"  ~> jsLoc cwd (entryLoc e)
+      , "val"  ~> jsStr (repr (entryValue e))
+      , "bits" ~> jsStr (show n)
+      ]
 
 
 ppModelJS ::
   GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO String
 ppModelJS ev m =
   do vals <- evalModel ev m
-     let ents = MapF.foldrWithKey (\k v rest -> ppValsJS k v ++ rest) [] vals
+     cwd <- getCurrentDirectory
+     let ents = MapF.foldrWithKey (\k v rest -> ppValsJS cwd k v ++ rest) [] vals
          pre  = "[ " : repeat ", "
      return $ case ents of
                 [] -> "[]"

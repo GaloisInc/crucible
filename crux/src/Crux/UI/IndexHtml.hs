@@ -17,19 +17,60 @@ indexHtml = [r|<!DOCTYPE html>
 <script src="source.js"></script>
 <script src="report.js"></script>
 <script>
-function drawLines(n) {
+
+var fileObjs = {}
+var nextId = 0
+
+function getFile(loc) { return $(fileObjs[loc.file].dom) }
+
+function getLine(loc) { return getFile(loc).find('#line-' + loc.line) }
+
+function showFile(name) {
+  var obj = fileObjs[name]
+  if (!obj) return
+
+  $('.source-file').hide()
+  $('.file-btn').removeClass('selected')
+  obj.dom.show()
+  obj.btn.addClass('selected')
+}
+
+function drawSourceFile(file) {
+  var obj = fileObjs[file.name]
+  if (!obj) {
+    obj = { id: 'file_' + nextId }
+    ++nextId
+    fileObjs[file.name] = obj
+  }
+
+  var dom = drawLines(file.lines)
+            .attr('id',obj.id)
+            .addClass('source-file')
+  dom.hide()
+
+  var btn = $('<div/>')
+            .text(file.label)
+            .addClass('clickable file-btn')
+  obj.dom = dom
+  obj.btn = btn
+
+  btn.click(function() { showFile(file.name) })
+
+  return { btn: btn, dom: dom }
+}
+
+function drawLines(lines) {
   var i
   var dom = $('<ol/>')
-  for (i = 0; i < sources[n].lines.length; ++i) {
+  for (i = 0; i < lines.length; ++i) {
     var li = $('<li/>').attr('id','line-' + (i+1))
                        .addClass('line')
-                       .text(sources[n].lines[i])
+                       .text(lines[i])
     dom.append(li)
   }
   return dom
 }
 
-function getLine(n) { return $('#line-' + n) }
 
 function drawStatus(status) {
   return $('<div/>')
@@ -41,8 +82,8 @@ function drawStatus(status) {
 function drawCounterExample(e) {
   if (e === null) return
   jQuery.each(e, function(ix,v) {
-    getLine(v.line).append($('<span/>')
-                   .addClass('ctr-example').text(v.val))
+    getLine(v.loc).append($('<span/>')
+                  .addClass('ctr-example').text(v.val))
   })
 }
 
@@ -51,7 +92,7 @@ function drawCounterExample(e) {
 function drawPath(path) {
   $('.path').remove()
   jQuery.each(path,function(ix,step) {
-    var branch = step.loc.line
+    var branch = step.loc
     var ln = getLine(branch)
 
     var pre = ""
@@ -92,11 +133,12 @@ function drawGoals() {
 
   jQuery.each(goals, function(gNum,g) {
     var li = $('<div/>')
-            .css('cursor','pointer')
+            .addClass('clickable')
             .append( drawStatus(g.status)
                    , $('<span/>').text(g.goal)
                    )
     li.click(function() {
+      $('.highlight-assumed').removeClass('highlight-assumed')
       $('.selected').removeClass('selected')
       li.addClass('selected')
       $('.ctr-example').remove()
@@ -106,14 +148,24 @@ function drawGoals() {
                 .removeClass('highlight-assumed')
                 .removeClass('highlight-unknown')
      jQuery.each(g.assumptions, function(ix,a) {
-        var lnName = a.loc.line
+        var lnName = a.loc
+        if (!lnName.file) return true
+
+        fileObjs[lnName.file].btn.addClass('highlight-assumed')
+
         if (lnName !== g.location) {
-            getLine(lnName).addClass('highlight-assumed')
+          var ln = getLine(lnName)
+          ln.addClass('highlight-assumed')
+
+          // var note = $('<div/>')
+          //            .addClass('asmp-lab')
+          //            .text(a.text)
+          // ln.append(note)
         }
       })
       if (g.location !== null)
-        // TODO: switch to g.location.file
-        var it = getLine(g.location.line)
+        showFile(g.location.file)
+        var it = getLine(g.location)
         it.addClass('highlight-' + g.status)
         it[0].scrollIntoView({behavior:'smooth', block:'center'})
       drawCounterExample(g['counter-example'])
@@ -127,15 +179,24 @@ function drawGoals() {
 
 $(document).ready(function() {
   var i
-  //for(i = 0; i < sources.length; i++) {
-    $('#source-code').append(drawLines(0))
-  //}
+  var srcPane = $('#source-code')
+  var filePane = $('#file-pane')
+  jQuery.each(sources, function(ix,file) {
+    ui = drawSourceFile(file)
+    srcPane.append(ui.dom)
+    filePane.append(ui.btn)
+  })
+
   $('#nav-bar').append(drawGoals())
 })
 </script>
 <style>
 html { height: 100%; padding: 0; margin: 0; }
 body { height: 100%; padding: 0; margin: 0; }
+
+.clickable {
+  cursor: pointer;
+}
 
 #nav-bar {
   width: 25%;
@@ -144,9 +205,12 @@ body { height: 100%; padding: 0; margin: 0; }
   overflow: auto;
 }
 
-#source-code {
+#right-pane {
   float: right;
   width: 74%;
+}
+
+#source-pane {
   font-family: monospace;
   white-space: pre;
   height: 90%;
@@ -154,20 +218,30 @@ body { height: 100%; padding: 0; margin: 0; }
   font-size: 16px;
 }
 
-#source-code>ol {
-  counter-reset: item;
+.file-btn {
+  border: 1px solid black;
+  border-radius: 5px;
+  display: inline-block;
+  margin: 2px;
+  padding: 2px;
 }
 
-#source-code>ol>li {
+
+ol.source-file {
+  counter-reset: item;
+  padding: 0;
+}
+
+ol.source-file>li {
   list-style-type: none;
   counter-increment: item;
 }
 
-#source-code>ol>li:hover {
+ol.source-file>li:hover {
   background-color: #ccf;
 }
 
-#source-code>ol>li:before {
+ol.source-file>li:before {
   display: inline-block;
   width: 4em;
   text-align: right;
@@ -180,9 +254,9 @@ body { height: 100%; padding: 0; margin: 0; }
 
 .goals { margin: 5px; }
 
-.highlight-ok      { background-color: green; color: white; }
-.highlight-fail    { background-color: red;  color: white; }
-.highlight-unknown { background-color: yellow; color: black; }
+.highlight-ok      { background-color: green !important; color: white; }
+.highlight-fail    { background-color: red !important;  color: white; }
+.highlight-unknown { background-color: yellow !important; color: black; }
 .highlight-assumed { background-color: cyan; color: black; }
 .ctr-example {
   margin: 5px;
@@ -244,7 +318,10 @@ body { height: 100%; padding: 0; margin: 0; }
 </style>
 </head>
 <body><div id="nav-bar"></div
-><div id="source-code"></div
+><div id="right-pane"
+  ><div id="file-pane"></div
+  ><div id="source-code"></div
+></div
 ></body>
 </html>
 |]
