@@ -108,7 +108,7 @@ proveGoals ::
   IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
 proveGoals _opts _ctxt Nothing =
-  do -- sayOK "Crux" $ unwords [ "No goals to prove." ]
+  do sayOK "Crux" $ unwords [ "No goals to prove." ]
      return Nothing
 
 proveGoals opts ctxt (Just gs0) =
