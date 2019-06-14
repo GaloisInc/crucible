@@ -205,7 +205,8 @@ runSimulator lang opts@(cruxOpts,_) =
                                           then simVerbose cruxOpts - 1
                                           else 0
 
-     symCfg sym solverInteractionFile "crux-solver.out"   -- XXX: ?
+     -- XXX: add an option for this
+     symCfg sym solverInteractionFile "crux-solver.out"
 
      frm <- pushAssumptionFrame sym
 
