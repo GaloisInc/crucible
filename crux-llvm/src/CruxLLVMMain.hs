@@ -90,7 +90,7 @@ mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h)
 mainWithOutputConfig :: OutputConfig -> IO ()
 mainWithOutputConfig cfg =
   Crux.mainWithOutputConfig cfg cruxLLVM
-  `catch` \(e :: CError) -> sayFail "Crux" (displayException e)
+  `catch` \(e :: SomeException) -> sayFail "Crux" (displayException e)
     where ?outputConfig = cfg
 
 makeCounterExamplesLLVM ::
