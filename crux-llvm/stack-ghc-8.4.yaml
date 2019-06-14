@@ -22,4 +22,14 @@ extra-deps:
   - crackNum-2.3
   - itanium-abi-0.1.1.1
   - boomerang-1.4.5.6
+  - config-schema-1.0.0.0
+  - config-value-0.6.3.1
+  - simple-get-opt-0.3
+  - th-abstraction-0.3.1.0
+  - bifunctors-5.5.4
+  - lens-4.17.1
+  - deriving-compat-0.5.6
+  - generic-deriving-1.12.4
+  - invariant-0.5.3
+  - microlens-th-0.4.2.3
 resolver: lts-12.26

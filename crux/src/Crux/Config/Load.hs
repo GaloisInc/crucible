@@ -4,7 +4,7 @@ module Crux.Config.Load where
 
 
 import Control.Monad(foldM, (<=<))
-import Control.Exception(Exception,catch,catches,throwIO, Handler(..))
+import Control.Exception(Exception(..),catch,catches,throwIO, Handler(..))
 import Data.Text (Text)
 
 import System.Environment
@@ -88,10 +88,20 @@ data ConfigError =
   | InvalidCommandLine [String]
     deriving Show
 
-instance Exception ConfigError
+instance Exception ConfigError where
+  displayException = ppConfigError
 
-
-
+ppConfigError :: ConfigError -> String
+ppConfigError (FailedToReadFile ioe) =
+  "Failed to read config file: " ++ displayException ioe
+ppConfigError (FailedToParseFile pe) =
+  "Failed to parse config file: " ++ displayException pe
+ppConfigError (FailedToProcessFile vsm) =
+  "Failed to check config file: " ++ displayException vsm
+ppConfigError (InvalidEnvVar var val msg) =
+  unwords ["Environment variable", var, "has invalid value", val ++ ":",  msg]
+ppConfigError (InvalidCommandLine msg) =
+  unlines ("Invalid command line option:" : msg)
 
 -- | Throws 'ConfigError'
 loadConfig :: Text -> Config opts -> IO (Options opts)
