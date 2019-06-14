@@ -4,11 +4,13 @@
 module Crux.Report where
 
 import System.FilePath
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, getCurrentDirectory, makeAbsolute)
+import System.IO
 import Data.List (intercalate, partition, isInfixOf)
 import Data.Maybe (fromMaybe)
+import Data.Text (unpack)
 import Control.Exception (catch, SomeException(..))
-import Control.Monad (when)
+import Control.Monad (forM_)
 
 import qualified Data.Text.IO as T
 
@@ -30,25 +32,34 @@ import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 generateReport :: CruxOptions -> Maybe (ProvedGoals b) -> IO ()
 generateReport opts xs =
   do createDirectoryIfMissing True (outDir opts)
-     let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".ii"]
-     when (takeExtension (inputFile opts) `elem` exts) (generateSource opts)
+     maybeGenerateSource opts (inputFiles opts)
+     cwd <- getCurrentDirectory
      writeFile (outDir opts </> "report.js")
-        $ "var goals = " ++ renderJS (jsList (renderSideConds xs))
+        $ "var goals = " ++ renderJS (jsList (renderSideConds cwd xs))
      T.writeFile (outDir opts </> "index.html") indexHtml
      T.writeFile (outDir opts </> "jquery.min.js") jquery
 
 
-
-generateSource :: CruxOptions -> IO ()
-generateSource opts =
-  do src <- readFile (inputFile opts)
-     writeFile (outDir opts </> "source.js") $
-       "var lines = " ++ show (lines src)
+-- TODO: get the extensions from the Language configuration
+maybeGenerateSource :: CruxOptions -> [FilePath] -> IO ()
+maybeGenerateSource opts files =
+  do let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".C", ".ii"]
+         renderFiles = filter ((`elem` exts) . takeExtension) files
+     h <- openFile (outDir opts </> "source.js") WriteMode
+     hPutStrLn h "var sources = ["
+     forM_ renderFiles $ \file -> do
+       absFile <- makeAbsolute file
+       txt <- readFile absFile
+       hPutStr h $ "{\"name\":" ++ show absFile ++ ","
+       hPutStr h $ "\"lines\":" ++ show (lines txt)
+       hPutStrLn h "},"
+     hPutStrLn h "]"
+     hClose h
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: Maybe (ProvedGoals b) -> [ JS ]
-renderSideConds = maybe [] (go [])
+renderSideConds :: FilePath -> Maybe (ProvedGoals b) -> [ JS ]
+renderSideConds cwd = maybe [] (go [])
   where
   flatBranch (Branch x y : more) = flatBranch (x : y : more)
   flatBranch (x : more)          = x : flatBranch more
@@ -60,7 +71,7 @@ renderSideConds = maybe [] (go [])
 
   go path gs =
     case gs of
-      AtLoc pl _ gs1  -> go ((jsLoc pl, pl) : path) gs1
+      AtLoc pl _ gs1  -> go ((jsLoc cwd pl, pl) : path) gs1
       Branch g1 g2 ->
         let (now,rest) = partition isGoal (flatBranch [g1,g2])
         in concatMap (go path) now ++ concatMap (go path) rest
@@ -71,27 +82,36 @@ renderSideConds = maybe [] (go [])
             mkStep a l = jsObj [ "loop" ~> jsList (map jsNum a)
                                , "loc"  ~> l ]
             apath   = zipWith mkStep ap ls
-        in [ jsSideCond apath asmps conc triv proved ]
+        in [ jsSideCond cwd apath asmps conc triv proved ]
 
-jsLoc :: ProgramLoc -> JS
-jsLoc x = case plSourceLoc x of
-            SourcePos _ l _ -> jsStr (show l)
-            _               -> jsNull
+jsLoc :: FilePath -> ProgramLoc -> JS
+jsLoc cwd x =
+  case plSourceLoc x of
+    SourcePos f l c -> jsObj [ "file" ~> jsStr fabsolute
+                             , "line" ~> jsStr (show l)
+                             , "col" ~> jsStr (show c)
+                             ]
+                       where fstr = unpack f
+                             fabsolute | null fstr = ""
+                                       | isRelative fstr = cwd </> fstr
+                                       | otherwise = fstr
+    _               -> jsNull
 
 
 jsSideCond ::
+  FilePath ->
   [ JS ] ->
   [(AssumptionReason,String)] ->
   (SimError,String) ->
   Bool ->
   ProofResult b ->
   JS
-jsSideCond path asmps (conc,_) triv status =
+jsSideCond cwd path asmps (conc,_) triv status =
   jsObj
   [ "status"          ~> proved
   , "counter-example" ~> example
   , "goal"            ~> jsStr goalReason
-  , "location"        ~> jsLoc (simErrorLoc conc)
+  , "location"        ~> jsLoc cwd (simErrorLoc conc)
   , "assumptions"     ~> jsList (map mkAsmp asmps)
   , "trivial"         ~> jsBool triv
   , "path"            ~> jsList path
@@ -108,7 +128,7 @@ jsSideCond path asmps (conc,_) triv status =
              _                  -> jsNull
 
   mkAsmp (asmp,_) =
-    jsObj [ "line" ~> jsLoc (assumptionLoc asmp)
+    jsObj [ "loc" ~> jsLoc cwd (assumptionLoc asmp)
           ]
 
   goalReason = renderReason (simErrorReasonMsg (simErrorReason conc))

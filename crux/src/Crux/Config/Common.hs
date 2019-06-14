@@ -11,7 +11,7 @@ import Crux.Config
 
 -- | Common options for Crux-based binaries.
 data CruxOptions = CruxOptions
-  { inputFile               :: FilePath
+  { inputFiles              :: [FilePath]
     -- ^ the files to analyze
 
   , outDir                  :: FilePath
@@ -36,16 +36,17 @@ data CruxOptions = CruxOptions
 
   , solver                   :: String
     -- ^ Solver to user for the online backend
-  }
 
+  , yicesMCSat               :: Bool
+    -- ^ Should Yices
+  }
 
 
 cruxOptions :: Config CruxOptions
 cruxOptions = Config
   { cfgFile =
-       do inputFile <-
-            -- section "files" (oneOrList fileSpec) []
-            section "file" fileSpec []
+       do inputFiles <-
+            section "files" (oneOrList fileSpec) []
             "Input files to process."
 
           outDir <-
@@ -95,6 +96,10 @@ cruxOptions = Config
           simVerbose <-
             section "sim-verbose" numSpec 1
             "Verbosity of simulators. (default: 1)"
+
+          yicesMCSat <-
+            section "mcsat" yesOrNoSpec False
+            "Enable the MC-SAT solver in Yices (disables unsat cores) (default: no)"
 
           pure CruxOptions { .. }
 
@@ -157,6 +162,10 @@ cruxOptions = Config
       , Option "s" ["solver"]
         "Select solver to use"
         $ ReqArg "solver" $ \v opts -> Right opts { solver = map toLower v }
+
+      , Option [] ["mcsat"]
+        "Enable the MC-SAT solver in Yices (disables unsat cores)"
+        $ NoArg $ \opts -> Right opts { yicesMCSat = True }
       ]
   }
 

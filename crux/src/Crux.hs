@@ -11,7 +11,7 @@ module Crux
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Control.Exception
+import Data.List(intercalate)
 import Control.Monad(when)
 import System.Exit(exitSuccess)
 import System.Directory(createDirectoryIfMissing)
@@ -32,6 +32,7 @@ import What4.Interface (IsExprBuilder, getConfiguration)
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
 import What4.Solver.Z3 (z3Timeout)
+import What4.Solver.Yices (yicesEnableMCSat)
 
 import Crux.Log
 import Crux.Types
@@ -59,8 +60,9 @@ mainWithOutputConfig cfg lang =
      opts1@(cruxOpts,_) <- initialize lang opts
 
      -- Run the simulator
+     let fileText = intercalate ", " (map show (inputFiles cruxOpts))
      when (simVerbose cruxOpts > 1) $
-       say "Crux" ("Checking " ++ show (inputFile cruxOpts))
+       say "Crux" ("Checking " ++ fileText)
      res <- runSimulator lang opts1
 
      -- Generate report
@@ -84,9 +86,7 @@ loadOptions lang =
        Cfg.ShowHelp -> showHelp nm optSpec >> exitSuccess
        Cfg.ShowVersion -> showVersion lang >> exitSuccess
        Cfg.Options (crux,os) files ->
-         case inputFile crux : files of
-           [file] -> pure (crux { inputFile = file }, os)
-           _ -> throwIO (Cfg.InvalidCommandLine ["Only one file supported."])
+          pure (crux { inputFiles = files ++ inputFiles crux }, os)
 
 showHelp :: Logs => Text -> Config opts -> IO ()
 showHelp nm cfg = outputLn (show (configDocs nm cfg))
@@ -103,7 +103,6 @@ showVersion l = outputLn ("crux version: " ++ Crux.version ++ ", " ++
 -- moment, each solver is associated with a fixed floating-point
 -- interpretation. Ultimately, this should be an option, too.
 withBackend ::
-  String ->
   CruxOptions ->
   NonceGenerator IO scope ->
   (forall solver fs.
@@ -111,19 +110,28 @@ withBackend ::
     , IsInterpretedFloatExprBuilder (OnlineBackend scope solver fs)
     ) =>
     OnlineBackend scope solver fs -> IO a) -> IO a
+withBackend cruxOpts nonceGen f =
+  case solver cruxOpts of
 
-withBackend "cvc4" _ nonceGen f =
-  withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
+    "cvc4" ->
+      withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
 
-withBackend "yices" _ nonceGen f =
-  withYicesOnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
+    "yices" ->
+      withYicesOnlineBackend @(Flags FloatReal) nonceGen unsatCores $ \sym ->
+        do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
+           f sym
 
-withBackend "z3" opts nonceGen f =
-  withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym ->
-      do symCfg sym z3Timeout (goalTimeout opts * 1000)
-         f sym
+    "z3" ->
+      withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym->
+        do symCfg sym z3Timeout (goalTimeout cruxOpts * 1000)
+           f sym
 
-withBackend s _ _ _ = fail $ "unknown solver: " ++ s
+
+    s -> fail $ "unknown solver: " ++ s
+
+  where
+  unsatCores | yicesMCSat cruxOpts = NoUnsatFeatures
+             | otherwise           = ProduceUnsatCores
 
 
 symCfg :: (IsExprBuilder sym, Opt t a) => sym -> ConfigOption t -> a -> IO ()
@@ -153,10 +161,12 @@ setupProfiling sym cruxOpts =
      when (profileSolver cruxOpts) $
        startRecordingSolverEvents sym tbl
 
-     let profOutFile = outDir cruxOpts </> "report_data.js"
-         saveProf = writeProfileReport profOutFile
-                                       (inputFile cruxOpts)
-                                       (inputFile cruxOpts)
+     let profSource = case inputFiles cruxOpts of
+                        [f] -> f
+                        _ -> "multiple files"
+
+         profOutFile = outDir cruxOpts </> "report_data.js"
+         saveProf = writeProfileReport profOutFile "crux profile" profSource
          profOpts = ProfilingOptions
                       { periodicProfileInterval = profileOutputInterval cruxOpts
                       , periodicProfileAction = saveProf
@@ -196,7 +206,7 @@ runSimulator ::
   IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
 runSimulator lang opts@(cruxOpts,_) =
   withIONonceGenerator $ \nonceGen ->
-  withBackend (solver cruxOpts) cruxOpts nonceGen $ \sym ->
+  withBackend cruxOpts nonceGen $ \sym ->
 
   do -- The simulator verbosity is one less than our verbosity.
      -- In this way, we can say things, without the simulator also
@@ -245,7 +255,9 @@ runSimulator lang opts@(cruxOpts,_) =
           let ctx' = execResultContext res
 
           inFrame profInfo "<Prove Goals>" $
-            provedGoalsTree ctx' =<< proveGoals ctx' =<< getProofObligations sym
+            do todo <- getProofObligations sym
+               proved <- proveGoals cruxOpts ctx' todo
+               provedGoalsTree ctx' proved
 
      when (simVerbose cruxOpts > 1) $
       say "Crux" "Simulation complete."

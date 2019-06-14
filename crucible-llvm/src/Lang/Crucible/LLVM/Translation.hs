@@ -100,6 +100,7 @@ import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
+import           Data.Parameterized.Nonce.Unsafe
 
 import           What4.FunctionName
 import           What4.ProgramLoc
@@ -138,7 +139,13 @@ data ModuleTranslation arch
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
         -- presence of compositional verification.
+      , modTransNonce :: !(Nonce arch)
+        -- ^ For a reasonably quick 'testEquality' instance
       }
+
+instance TestEquality ModuleTranslation where
+  testEquality mt1 mt2 =
+    testEquality (modTransNonce mt1) (modTransNonce mt2)
 
 transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
 transContext = lens _transContext (\s v -> s{ _transContext = v})
@@ -373,6 +380,7 @@ translateModule :: HandleAllocator s -- ^ Generator for nonces.
                 -> ST s (Some ModuleTranslation)
 translateModule halloc m = do
   Some ctx0 <- mkLLVMContext halloc m
+  let nonceGen = haCounter halloc
   llvmPtrWidth ctx0 $ \wptr -> withPtrWidth wptr $
     do -- Add handles for all functions declared in module.
        ctx <- foldM (insDeclareHandle halloc) ctx0 (allModuleDeclares m)
@@ -380,7 +388,9 @@ translateModule halloc m = do
        pairs <- mapM (transDefine ctx) (L.modDefines m)
        -- Return result.
        let ?lc  = ctx^.llvmTypeCtx -- implicitly passed to makeGlobalMap
+       nonce <- freshNonce nonceGen
        return (Some (ModuleTranslation { cfgMap = Map.fromList pairs
                                        , globalInitMap = makeGlobalMap ctx m
                                        , _transContext = ctx
+                                       , modTransNonce = nonce
                                        }))

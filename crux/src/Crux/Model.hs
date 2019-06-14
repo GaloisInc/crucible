@@ -28,7 +28,6 @@ import What4.Expr (GroundEvalFn(..),ExprBuilder)
 import What4.ProgramLoc
 
 import Crux.Types
--- import Crux.Error
 
 import Prelude
 
@@ -79,25 +78,30 @@ ppModel ev m =
                        , modelInJS = js_code
                        }
 
+toDouble :: Rational -> Double
+toDouble = fromRational
+
 ppValsC :: BaseTypeRepr ty -> Vals ty -> String
 ppValsC ty (Vals xs) =
-  let (cty, ppRawVal) = case ty of
-        BaseBVRepr n -> ("int" ++ show n ++ "_t", show)
+  let (cty, cnm, ppRawVal) = case ty of
+        BaseBVRepr n ->
+          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", show)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 8, natValue sb == 24
-          -> ("float", show . IEEE754.wordToFloat . fromInteger)
+          -> ("float", "float", show . IEEE754.wordToFloat . fromInteger)
         BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
           | natValue eb == 11, natValue sb == 53
-          -> ("double", show . IEEE754.wordToDouble . fromInteger)
+          -> ("double", "double", show . IEEE754.wordToDouble . fromInteger)
+        BaseRealRepr -> ("double", "real", (show . toDouble))
         _ -> error ("Type not implemented: " ++ show ty)
   in unlines
-      [ "size_t const crucible_values_number_" ++ cty ++
+      [ "size_t const crucible_values_number_" ++ cnm ++
                 " = " ++ show (length xs) ++ ";"
 
-      , "const char* crucible_names_" ++ cty ++ "[] = { " ++
+      , "const char* crucible_names_" ++ cnm ++ "[] = { " ++
             intercalate "," (map (show . entryName) xs) ++ " };"
 
-      , cty ++ " const crucible_values_" ++ cty ++ "[] = { " ++
+      , cty ++ " const crucible_values_" ++ cnm ++ "[] = { " ++
             intercalate "," (map (ppRawVal . entryValue) xs) ++ " };"
       ]
 
@@ -123,6 +127,7 @@ ppValsJS ty (Vals xs) =
           | natValue eb == 11, natValue sb == 53 -> showEnt'
             (IEEE754.wordToDouble . fromInteger)
             (knownNat @64)
+        BaseRealRepr -> showEnt' (show . toDouble) (knownNat @64)
         _ -> error ("Type not implemented: " ++ show ty)
   in map showEnt xs
   where

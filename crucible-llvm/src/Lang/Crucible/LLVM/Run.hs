@@ -88,8 +88,8 @@ data Setup ext res =
 -- | Run Crucible with the given initialization, on the given LLVM module.
 runCruxLLVM :: Module -> CruxLLVM res -> IO res
 runCruxLLVM llvm_mod (CruxLLVM setup) =
-  do halloc     <- newHandleAllocator
-     Some trans <- stToIO (translateModule halloc llvm_mod)
+  do halloc <- newHandleAllocator
+     Some trans <- stToIO $ translateModule halloc llvm_mod
      res <- setup trans
      case res of
        Setup { .. } ->
