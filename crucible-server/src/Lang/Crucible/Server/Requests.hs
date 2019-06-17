@@ -180,7 +180,7 @@ fulfillRunCallRequest sim f_val encoded_args = do
         FinishedResult ctx' (TotalRes (GlobalPair r _globals)) -> do
           writeIORef (simContext sim) $! ctx'
           sendCallReturnValue sim =<< toProtoValue sim r
-        FinishedResult ctx' (PartialRes _ (GlobalPair r _globals) _) -> do
+        FinishedResult ctx' (PartialRes _ _ (GlobalPair r _globals) _) -> do
           writeIORef (simContext sim) $! ctx'
           sendCallReturnValue sim =<< toProtoValue sim r
         AbortedResult ctx' _ -> do
