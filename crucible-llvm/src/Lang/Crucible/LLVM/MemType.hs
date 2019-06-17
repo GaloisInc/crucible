@@ -104,6 +104,9 @@ data SymType
 instance Show SymType where
   show = show . ppSymType
 
+instance Pretty SymType where
+  pretty = ppSymType
+
 -- | Pretty-print a 'SymType'.
 ppSymType :: SymType -> Doc
 ppSymType (MemType tp) = ppMemType tp
@@ -128,6 +131,9 @@ data MemType
 
 instance Show MemType where
   show = show . ppMemType
+
+instance Pretty MemType where
+  pretty = ppMemType
 
 -- | Pretty-print a 'MemType'.
 ppMemType :: MemType -> Doc
