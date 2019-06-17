@@ -838,8 +838,16 @@ yicesOptions =
       executablePathOptSty
       (Just (PP.text "Yices executable path"))
       (Just (ConcreteString "yices"))
-  , booleanOpt' yicesEfSolver
-  , booleanOpt' yicesEnableMCSat
+  , mkOpt
+      yicesEfSolver
+      boolOptSty
+      (Just (PP.text "Enable the Yices exists-forall solver"))
+      (Just (ConcreteBool False))
+  , mkOpt
+      yicesEnableMCSat
+      boolOptSty
+      (Just (PP.text "Enable the Yices MCSAT solving engine"))
+      (Just (ConcreteBool False))
   ]
   ++ yicesInternalOptions
 
