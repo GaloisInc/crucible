@@ -823,10 +823,6 @@ yicesAdapter =
 yicesPath :: ConfigOption BaseStringType
 yicesPath = configOption knownRepr "yices_path"
 
--- | Enable the exists-forall solver
-yicesEfSolver :: ConfigOption BaseBoolType
-yicesEfSolver = configOption knownRepr "yices_ef-solver"
-
 -- | Enable the MC-SAT solver
 yicesEnableMCSat :: ConfigOption BaseBoolType
 yicesEnableMCSat = configOption knownRepr "yices_enable-mcsat"
@@ -838,8 +834,11 @@ yicesOptions =
       executablePathOptSty
       (Just (PP.text "Yices executable path"))
       (Just (ConcreteString "yices"))
-  , booleanOpt' yicesEfSolver
-  , booleanOpt' yicesEnableMCSat
+  , mkOpt
+      yicesEnableMCSat
+      boolOptSty
+      (Just (PP.text "Enable the Yices MCSAT solving engine"))
+      (Just (ConcreteBool False))
   ]
   ++ yicesInternalOptions
 
