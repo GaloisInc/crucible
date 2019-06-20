@@ -156,7 +156,6 @@ proveGoals opts ctxt (Just gs0) =
                       Unsat () ->
                         do modifyIORef' gn (\(x,f) -> (x,f+1))
                            namemap <- readIORef nameMap
-                           --say "Crux" "About to compute unsat cores"
                            core <- if hasUnsatCores
                                    then map (lookupnm namemap) <$> getUnsatCore sp
                                    else return (Map.elems namemap)

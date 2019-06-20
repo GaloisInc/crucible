@@ -42,6 +42,7 @@ module Lang.Crucible.LLVM.MemModel.Common
   , valueLoad
   , LinearLoadStoreOffsetDiff(..)
   , symbolicValueLoad
+  , loadBitvector
 
   , memsetValue
   , loadTypedValueFromBytes

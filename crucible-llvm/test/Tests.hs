@@ -14,14 +14,20 @@ module Main where
 -- Crucible
 import qualified Lang.Crucible.Backend as Crucible
 import qualified Lang.Crucible.Backend.Simple as Crucible
+import qualified Lang.Crucible.Backend.Online as Crucible
 import           Lang.Crucible.FunctionHandle (newHandleAllocator, withHandleAllocator, HandleAllocator)
 import qualified Lang.Crucible.Types as Crucible
 
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Nonce
+import qualified Data.Parameterized.Context as Ctx
+import qualified What4.Expr.Builder as What4
 import qualified What4.Interface as What4
 import qualified What4.Partial as What4
+import qualified What4.Partial as What4
+import qualified What4.Protocol.Online as What4
+import qualified What4.SatResult as What4
 
 -- LLVM
 import qualified Text.LLVM.AST as L
@@ -294,6 +300,7 @@ tests int struct uninitialized _ lifetime = do
         ]
 
     , [ testArrayStride
+      , testMemArray
       ]
     ]
 
@@ -314,7 +321,7 @@ withLLVMCtx mod action =
       with :: forall s. NonceGenerator IO s -> HandleAllocator RealWorld -> IO a
       with nonceGen halloc = do
         sym <- Crucible.newSimpleBackend @_ @(Crucible.Flags Crucible.FloatReal) nonceGen
-        Some (ModuleTranslation _ ctx _) <- stToIO $ translateModule halloc mod
+        Some (ModuleTranslation _ ctx _ _) <- stToIO $ translateModule halloc mod
         case llvmArch ctx                   of { X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
         case assertLeq (knownNat @16) width of { LeqProof      -> do
@@ -351,13 +358,28 @@ userSymbol' s = case What4.userSymbol s of
 
 withMem ::
   EndianForm ->
-  (forall sym wptr . (Crucible.IsSymInterface sym, HasPtrWidth wptr) => sym -> MemImpl sym -> IO a) ->
+  (forall sym scope solver fs wptr . (sym ~ Crucible.OnlineBackend scope solver fs, Crucible.IsSymInterface sym, What4.OnlineSolver scope solver, HasPtrWidth wptr) => sym -> MemImpl sym -> IO a) ->
   IO a
-withMem endianess action = withIONonceGenerator $ \nonce_gen -> do
-  let ?ptrWidth = knownNat @64
-  sym <- Crucible.newSimpleBackend @_ @(Crucible.Flags Crucible.FloatIEEE) nonce_gen
-  mem <- emptyMem endianess
-  action sym mem
+withMem endianess action = withIONonceGenerator $ \nonce_gen ->
+  Crucible.withZ3OnlineBackend @(Crucible.Flags Crucible.FloatIEEE) nonce_gen Crucible.NoUnsatFeatures $ \sym -> do
+    let ?ptrWidth = knownNat @64
+    mem <- emptyMem endianess
+    action sym mem
+
+assume :: Crucible.IsSymInterface sym => sym -> What4.Pred sym -> IO ()
+assume sym p = do
+  loc <- What4.getCurrentProgramLoc sym
+  Crucible.addAssumption sym $
+    Crucible.LabeledPred p $ Crucible.AssumptionReason loc ""
+
+checkSat ::
+  What4.OnlineSolver scope solver =>
+  Crucible.OnlineBackend scope solver fs ->
+  What4.BoolExpr scope ->
+  IO (What4.SatResult () ())
+checkSat sym p = do
+  proc <- Crucible.getSolverProcess sym
+  What4.checkSatisfiable proc "" p
 
 testArrayStride :: TestTree
 testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
@@ -408,3 +430,39 @@ testArrayStride = testCase "array stride" $ withMem BigEndian $ \sym mem0 -> do
   at_j'_val <- projectLLVM_bv  sym
     =<< doLoad sym mem4 ptr_j' byte_storage_type ptr_byte_repr noAlignment
   (Just 1) @=? What4.asUnsignedBV at_j'_val
+
+testMemArray :: TestTree
+testMemArray = testCase "smt array memory model" $ withMem BigEndian $ \sym mem0 -> do
+  sz <- What4.bvLit sym ?ptrWidth $ 1024 * 1024
+  (base_ptr, mem1) <- mallocRaw sym mem0 sz noAlignment
+
+  arr <- What4.freshConstant
+    sym
+    (userSymbol' "a")
+    (What4.BaseArrayRepr
+      (Ctx.singleton $ What4.BaseBVRepr ?ptrWidth)
+      (What4.BaseBVRepr (knownNat @8)))
+  mem2 <- doArrayStore sym mem1 base_ptr noAlignment arr sz
+
+  let long_type_repr = Crucible.baseToType $ What4.BaseBVRepr $ knownNat @64
+  let long_storage_type = bitvectorType 8
+  let ptr_long_repr = LLVMPointerRepr $ knownNat @64
+
+  i <- What4.freshConstant sym (userSymbol' "i") $ What4.BaseBVRepr ?ptrWidth
+  ptr_i <- ptrAdd sym ?ptrWidth base_ptr i
+  assume sym =<< What4.bvUlt sym i =<< What4.bvLit sym ?ptrWidth 1024
+  some_val <- What4.bvLit sym (knownNat @64) 0x88888888f0f0f0f0
+  mem3 <-
+    doStore sym mem2 ptr_i long_type_repr long_storage_type noAlignment some_val
+  at_i_val <- projectLLVM_bv sym
+    =<< doLoad sym mem3 ptr_i long_storage_type ptr_long_repr noAlignment
+  res_i <- checkSat sym =<< What4.bvNe sym some_val at_i_val
+  -- True @=? What4.isUnsat res_i
+
+  j <- What4.freshConstant sym (userSymbol' "j") $ What4.BaseBVRepr ?ptrWidth
+  ptr_j <- ptrAdd sym ?ptrWidth base_ptr j
+  assume sym =<< What4.bvEq sym i j
+  at_j_val <- projectLLVM_bv sym
+    =<< doLoad sym mem3 ptr_j long_storage_type ptr_long_repr noAlignment
+  res_j <- checkSat sym =<< What4.bvNe sym some_val at_j_val
+  True @=? What4.isUnsat res_j

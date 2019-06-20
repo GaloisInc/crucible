@@ -167,7 +167,7 @@ sawFulfillSimulateVerificationHarnessRequest sim harness opts =
                     FinishedResult ctx' (TotalRes (GlobalPair _r _globals)) -> do
                       sendTextResponse sim "Finished!"
                       writeIORef (simContext sim) $! ctx'
-                    FinishedResult ctx' (PartialRes _ (GlobalPair _r _globals) _) -> do
+                    FinishedResult ctx' (PartialRes _ _ (GlobalPair _r _globals) _) -> do
                       sendTextResponse sim "Finished, some paths aborted!"
                       writeIORef (simContext sim) $! ctx'
                     AbortedResult ctx' _ -> do

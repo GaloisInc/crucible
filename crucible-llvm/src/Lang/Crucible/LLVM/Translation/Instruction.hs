@@ -1057,10 +1057,24 @@ atomicRWOp op x y =
 
 integerCompare ::
   L.ICmpOp ->
+  MemType ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (LLVMExpr s arch)
+integerCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
+  VecExpr (IntType 1) <$> sequence (Seq.zipWith (integerCompare op tp) xs ys)
+
+integerCompare op _ x y = do
+  b <- scalarIntegerCompare op x y
+  return (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+                   (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
+
+scalarIntegerCompare ::
+  L.ICmpOp ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
   LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
-integerCompare op x y =
+scalarIntegerCompare op x y =
   case (asScalar x, asScalar y) of
     (Scalar (LLVMPointerRepr w) x'', Scalar (LLVMPointerRepr w') y'')
        | Just Refl <- testEquality w w'
@@ -1465,11 +1479,10 @@ generateInstr retType lab instr assign_f k =
              _ -> fail $ unwords ["Floating point comparison on incompatible values", show x, show y]
 
     L.ICmp op x y -> do
+           tp <- liftMemType' (L.typedType x)
            x' <- transTypedValue x
            y' <- transTypedValue (L.Typed (L.typedType x) y)
-           b <- integerCompare op x' y'
-           assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
-                              (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
+           assign_f =<< integerCompare op tp x' y'
            k
 
     L.Select c x y -> do
@@ -1535,7 +1548,7 @@ generateInstr retType lab instr assign_f k =
 
                   let a0 = memTypeAlign (llvmDataLayout ?lc) resTy
                   oldVal <- callLoad resTy expectTy ptr' a0
-                  cmp <- integerCompare L.Ieq oldVal cmpVal
+                  cmp <- scalarIntegerCompare L.Ieq oldVal cmpVal
                   let flag = BaseExpr (LLVMPointerRepr (knownNat @1))
                                       (BitvectorAsPointerExpr knownNat
                                          (App (BoolToBV knownNat cmp)))
