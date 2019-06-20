@@ -116,6 +116,8 @@ proveGoals opts ctxt (Just gs0) =
      sp <- getSolverProcess sym
      goalNum <- newIORef (0,0) -- total, proved
      nameMap <- newIORef Map.empty
+     unless hasUnsatCores $
+      say "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      res <- inNewFrame sp (go sp goalNum gs0 nameMap)
      (tot,proved) <- readIORef goalNum
      if proved /= tot
@@ -154,14 +156,10 @@ proveGoals opts ctxt (Just gs0) =
                       Unsat () ->
                         do modifyIORef' gn (\(x,f) -> (x,f+1))
                            namemap <- readIORef nameMap
-                           say "Crux" "About to compute unsat cores"
+                           --say "Crux" "About to compute unsat cores"
                            core <- if hasUnsatCores
-                                   then do
-                                     core <- getUnsatCore sp
-                                     return (map (lookupnm namemap) core)
-                                   else do
-                                     say "Crux" "Warning: can't use UNSAT cores in MC-SAT mode."
-                                     return (Map.elems namemap)
+                                   then map (lookupnm namemap) <$> getUnsatCore sp
+                                   else return (Map.elems namemap)
                            return (Prove (p, (Proved core)))
 
                       Sat ()  ->
