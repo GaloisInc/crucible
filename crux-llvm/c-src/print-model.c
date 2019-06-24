@@ -22,9 +22,6 @@ int main () {
   for (i = 0; i < crux_value_num(double); ++i)
     printf("%s = %f\n", crux_names(double)[i], crux_values(double)[i]);
 
-  for (i = 0; i < crux_value_num(real); ++i)
-    printf("%s = %f\n", crux_names(real)[i], crux_values(real)[i]);
-
   return 0;
 }
 

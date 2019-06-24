@@ -24,10 +24,6 @@ mk_model_ty(int64_t)
 mk_model_ty(float)
 mk_model_ty(double)
 
-extern const size_t  crux_value_num(real);
-extern const char*   crux_names(real)[];
-extern const double  crux_values(real) [];
-
 #ifdef __cplusplus__
 }
 #endif //__cplusplus__
