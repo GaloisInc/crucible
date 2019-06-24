@@ -457,7 +457,7 @@ testMemArray = testCase "smt array memory model" $ withMem BigEndian $ \sym mem0
   at_i_val <- projectLLVM_bv sym
     =<< doLoad sym mem3 ptr_i long_storage_type ptr_long_repr noAlignment
   res_i <- checkSat sym =<< What4.bvNe sym some_val at_i_val
-  -- True @=? What4.isUnsat res_i
+  True @=? What4.isUnsat res_i
 
   j <- What4.freshConstant sym (userSymbol' "j") $ What4.BaseBVRepr ?ptrWidth
   ptr_j <- ptrAdd sym ?ptrWidth base_ptr j
@@ -466,3 +466,41 @@ testMemArray = testCase "smt array memory model" $ withMem BigEndian $ \sym mem0
     =<< doLoad sym mem3 ptr_j long_storage_type ptr_long_repr noAlignment
   res_j <- checkSat sym =<< What4.bvNe sym some_val at_j_val
   True @=? What4.isUnsat res_j
+
+testMemWritesIndexed :: TestTree
+testMemWritesIndexed = testCase "indexed memory writes" $ withMem BigEndian $ \sym mem0 -> do
+  let count = 100 * 1000
+
+  sz <- What4.bvLit sym ?ptrWidth 8
+  (base_ptr1, mem1) <- mallocRaw sym mem0 sz noAlignment
+  (base_ptr2, mem2) <- mallocRaw sym mem1 sz noAlignment
+
+  let long_type_repr = Crucible.baseToType $ What4.BaseBVRepr $ knownNat @64
+  let long_storage_type = bitvectorType 8
+  let ptr_long_repr = LLVMPointerRepr $ knownNat @64
+
+  zero_val <- What4.bvLit sym (knownNat @64) 0
+  mem3 <- doStore
+    sym
+    mem2
+    base_ptr1
+    long_type_repr
+    long_storage_type
+    noAlignment
+    zero_val
+
+  mem4 <- foldlM
+    (\mem' i ->
+      doStore sym mem' base_ptr2 long_type_repr long_storage_type noAlignment
+        =<< What4.bvLit sym (knownNat @64) i)
+    mem3
+    [0 .. count]
+
+  forM_ [0 .. count] $ \_ -> do
+    val1 <- projectLLVM_bv sym
+      =<< doLoad sym mem4 base_ptr1 long_storage_type ptr_long_repr noAlignment
+    (Just 0) @=? What4.asUnsignedBV val1
+
+  val2 <- projectLLVM_bv sym
+    =<< doLoad sym mem4 base_ptr2 long_storage_type ptr_long_repr noAlignment
+  (Just count) @=? What4.asUnsignedBV val2
