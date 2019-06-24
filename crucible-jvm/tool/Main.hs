@@ -15,6 +15,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# Language ImplicitParams #-}
 
 {-# OPTIONS_GHC -fno-warn-missing-signatures #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -31,7 +32,7 @@ import Control.Monad.ST
 import Control.Monad
 import Control.Monad.State.Strict
 
-import Control.Exception(SomeException(..),displayException)
+import Control.Exception(SomeException(..),displayException,catch)
 import Data.List
 
 import System.Console.GetOpt
@@ -69,10 +70,10 @@ import qualified Language.JVM.Common as J
 import qualified Language.JVM.Parser as J
 
 -- crux
-import qualified Crux.Types    as Crux
-import qualified Crux.Language as Crux
-import qualified Crux.CruxMain as Crux
-import qualified Crux.Options  as Crux
+import qualified Crux
+import qualified Crux.Log     as Crux
+import qualified Crux.Model   as Crux
+import qualified Crux.Types   as Crux
 
 
 import qualified Lang.JVM.Codebase as JCB
@@ -87,78 +88,81 @@ import System.Console.GetOpt
 -- | A simulator context
 type SimCtxt sym = SimContext (Crux.Model sym) sym JVM
 
+data JVMOptions = JVMOptions
+  { classPath        :: [FilePath]
+    -- ^ where to look for the class path
+  , jarList          :: [FilePath]
+    -- ^ additional jars to use when evaluating jvm code
+    -- this must include rt.jar from the JDK
+    -- (The JDK_JAR environment variable can also be used to
+    -- to specify this JAR).
+  , mainMethod       :: String
+  }
 
-instance Crux.Language JVM where
-  type LangError JVM = ()
-  formatError _ = ""
+defaultOptions :: JVMOptions
+defaultOptions =
+  JVMOptions
+  { classPath  = ["."]
+  , jarList    = []
+  , mainMethod = "main"
+  }
 
-  -- command line options specific to crux-jvm
-  data LangOptions JVM =  JVMOptions
-    { classPath        :: [FilePath]
-      -- ^ where to look for the class path
-    , jarList          :: [FilePath]
-      -- ^ additional jars to use when evaluating jvm code
-      -- this must include rt.jar from the JDK
-      -- (The JDK_JAR environment variable can also be used to
-      -- to specify this JAR).
-    , mainMethod       :: String
-    }
+cruxJVM :: Crux.Language JVMOptions
+cruxJVM = Crux.Language
+  { Crux.name = "crux-jvm"
+  , Crux.version = "0.1"
+  , Crux.configuration = Crux.Config
+      { Crux.cfgFile = pure defaultOptions
+      , Crux.cfgEnv =
+          [ Crux.EnvVar "JDK_JAR"
+            "Path to .jar file containing the JDK"
+            $ \p opts -> Right $ opts { jarList = p : jarList opts }
+          ]
+      , Crux.cfgCmdLineFlag =
+          [ Crux.Option ['c'] ["classpath"]
+            "TODO"
+            $ Crux.ReqArg "TODO"
+            $ \p opts ->
+                Right $ opts { classPath = classPath opts ++ splitSearchPath p }
+          , Crux.Option ['j'] ["jars"]
+            "TODO"
+            $ Crux.ReqArg "TODO"
+            $ \p opts ->
+                Right $ opts { jarList = jarList opts ++ splitSearchPath p }
+          , Crux.Option ['m'] ["method"]
+            "Method to simulate"
+            $ Crux.ReqArg "method name"
+            $ \p opts -> Right $ opts { mainMethod = p }
+          ]
+      }
+  , Crux.initialize = return
+  , Crux.simulate = simulateJVM
+  , Crux.makeCounterExamples = \_ _ -> return ()
+  }
 
-  defaultOptions =
-    JVMOptions
-    { classPath  = ["."]
-    , jarList    = []
-    , mainMethod = "main"
-    }
+simulateJVM feats (copts,opts) sym ext = do
+   let files = Crux.inputFiles copts
+   let verbosity = Crux.simVerbose copts
+   file <- case files of
+             [file] -> return file
+             _ -> fail "crux-jvm requires a single file name as an argument"
 
-  cmdLineOptions = [
-    Option "c" ["classpath"]
-    (ReqArg
-     (\p opts -> opts { classPath = classPath opts ++ splitSearchPath p })
-     "path"
-    )
-    Crux.pathDesc
-    , Option "j" ["jars"]
-    (ReqArg
-     (\p opts -> opts { jarList = jarList opts ++ splitSearchPath p })
-     "path"
-    )
-    Crux.pathDesc
-    ,  Option "m" ["method"]
-    (ReqArg
-     (\p opts -> opts { mainMethod = p })
-     "method name"
-    )
-    "Method to simulate"
-    ]
+   cb <- JCB.loadCodebase (jarList opts) (classPath opts)
 
-  envOptions   = [("JDK_JAR", \ p os -> os { jarList = p : jarList os })]
+   let cname = takeBaseName file
+   let mname = mainMethod opts
 
+   -- create a null array of strings for `args`
+   -- TODO: figure out how to allocate an empty array
+   let nullstr = RegEntry refRepr W4.Unassigned
+   let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-  name = "jvm"
-  validExtensions = [".java"]
-
-  simulate feats (copts,opts) sym ext = do
-     let file = Crux.inputFile copts
-     let verbosity = Crux.simVerbose copts
-
-     cb <- JCB.loadCodebase (jarList opts) (classPath opts)
-
-     let cname = takeBaseName file
-     let mname = mainMethod opts
-
-     -- create a null array of strings for `args`
-     -- TODO: figure out how to allocate an empty array
-     let nullstr = RegEntry refRepr W4.Unassigned
-     let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
-
-     Crux.Result <$> executeCrucibleJVMCrux @UnitType feats cb verbosity sym
-       ext cname mname regmap
-
-
-
-
+   Crux.Result <$> executeCrucibleJVMCrux @UnitType feats cb verbosity sym
+     ext cname mname regmap
 
 -- | Entry point, parse command line opions
 main :: IO ()
-main = Crux.main [Crux.LangConf (Crux.defaultOptions @JVM)]
+main =
+  Crux.mainWithOutputConfig Crux.defaultOutputConfig cruxJVM
+  `catch` \(e :: SomeException) -> Crux.sayFail "Crux" (displayException e)
+    where ?outputConfig = Crux.defaultOutputConfig
