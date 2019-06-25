@@ -854,8 +854,16 @@ data MemState sym =
 
 type MemChanges sym = ([MemAlloc sym], MemWrites sym)
 
+-- | Memory writes are represented as a list of chunks of writes.
+--   Chunks alternate between being indexed and being flat.
 newtype MemWrites sym = MemWrites [MemWritesChunk sym]
 
+-- | A chunk of memory writes is either indexed or flat (unindexed).
+--   An indexed chunk consists of writes to addresses with concrete
+--   base pointers and is represented as a map. A flat chunk consists of
+--   writes to addresses with symbolic base pointers. A merge of two
+--   indexed chunks is a indexed chunk, while any other merge is part of
+--   a flat chunk.
 data MemWritesChunk sym =
     MemWritesChunkFlat [MemWrite sym]
   | MemWritesChunkIndexed (IntMap [MemWrite sym])
