@@ -335,8 +335,16 @@ data TypeRepr (tp::CrucibleType) where
                  => SymbolRepr nm
                  -> CtxRepr ctx
                  -> TypeRepr (RecursiveType nm ctx)
+
+   -- | This is a representation of floats that works at known fixed
+   -- mantissa and exponent widths, but the symbolic backend may pick
+   -- the representation.
    FloatRepr :: !(FloatInfoRepr flt) -> TypeRepr (FloatType flt)
+
+   -- | This is a float with user-definable mantissa and exponent that
+   -- maps directly to the what4 base type.
    IEEEFloatRepr :: !(FloatPrecisionRepr ps) -> TypeRepr (IEEEFloatType ps)
+
    CharRepr :: TypeRepr CharType
    StringRepr :: TypeRepr StringType
    FunctionHandleRepr :: !(CtxRepr ctx)
@@ -363,7 +371,6 @@ data TypeRepr (tp::CrucibleType) where
    -- A reference to a symbolic struct.
    SymbolicStructRepr :: Ctx.Assignment BaseTypeRepr ctx
                       -> TypeRepr (SymbolicStructType ctx)
-
 
 ------------------------------------------------------------------------------
 -- Representable class instances
