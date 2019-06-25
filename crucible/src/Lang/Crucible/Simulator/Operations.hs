@@ -290,7 +290,7 @@ abortPartialResult s tgt pr =
 --   but might also be used to allow on-demand function loading.
 data UnresolvableFunction where
   UnresolvableFunction ::
-    !ProgramLoc {-^ call site -} ->
+    !(ProgramLoc) {-^ call site -} ->
     !(FnHandle args ret) ->
     UnresolvableFunction
 
