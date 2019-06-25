@@ -386,7 +386,8 @@ extendJVMContext halloc c = do
 -- | Make a binding for a Java method that, when invoked, immediately
 -- translates the Java source code and then runs it.
 mkDelayedBinding :: forall p sym .
-                    JVMContext
+                    W4.IsExprBuilder sym
+                 => JVMContext
                  -> Verbosity
                  -> J.Class
                  -> J.Method
@@ -415,7 +416,12 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
 -- | Make bindings for all methods in the 'JVMContext' classTable that
 -- have associated method handles. The result is suitable for passing
 -- to 'C.initSimContext'.
-mkDelayedBindings :: forall p sym . JVMContext -> Verbosity -> C.FunctionBindings p sym JVM
+mkDelayedBindings ::
+  forall p sym .
+  W4.IsExprBuilder sym =>
+  JVMContext ->
+  Verbosity ->
+  C.FunctionBindings p sym JVM
 mkDelayedBindings ctx verbosity =
   let bindings = [ mkDelayedBinding ctx verbosity c m h | (cn,c) <- Map.assocs (classTable ctx)
                                               , m <- J.classMethods c
