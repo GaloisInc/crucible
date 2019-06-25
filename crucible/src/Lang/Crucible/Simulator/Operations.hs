@@ -305,7 +305,7 @@ instance Show UnresolvableFunction where
               , "https://github.com/GaloisInc/crucible/issues/73"
               ]
          else [ "Could not resolve function: " ++ name
-              , "Called at:" ++ show loc
+              , "Called at: " ++ show (PP.pretty (plSourceLoc loc))
               ]
 
 -- | Given a set of function bindings, a function-
