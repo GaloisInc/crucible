@@ -290,19 +290,23 @@ abortPartialResult s tgt pr =
 --   but might also be used to allow on-demand function loading.
 data UnresolvableFunction where
   UnresolvableFunction ::
+    !ProgramLoc {-^ call site -} ->
     !(FnHandle args ret) ->
     UnresolvableFunction
 
 instance Ex.Exception UnresolvableFunction
 instance Show UnresolvableFunction where
-  show (UnresolvableFunction h) =
+  show (UnresolvableFunction loc h) =
     let name = show $ handleName h
-    in if "llvm" `isPrefixOf` name
-       then unlines [ "Encountered unresolved LLVM intrinsic '" ++ name ++ "'"
-                    , "Please report this on the following issue:"
-                    , "https://github.com/GaloisInc/crucible/issues/73"
-                    ]
-       else "Could not resolve function: " ++ name
+    in unlines $
+         if "llvm" `isPrefixOf` name
+         then [ "Encountered unresolved LLVM intrinsic '" ++ name ++ "'"
+              , "Please report this on the following issue:"
+              , "https://github.com/GaloisInc/crucible/issues/73"
+              ]
+         else [ "Could not resolve function: " ++ name
+              , "Called at:" ++ show loc
+              ]
 
 -- | Given a set of function bindings, a function-
 --   value (which is possibly a closure) and a
@@ -316,15 +320,16 @@ resolveCall ::
   FunctionBindings p sym ext {- ^ Map from function handles to semantics -} ->
   FnVal sym args ret {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
+  ProgramLoc {- ^ Location of the call -} ->
   ResolvedCall p sym ext ret
-resolveCall bindings c0 args =
+resolveCall bindings c0 args loc =
   case c0 of
     ClosureFnVal c tp v -> do
-      resolveCall bindings c (assignReg tp v args)
+      resolveCall bindings c (assignReg tp v args) loc
 
     HandleFnVal h -> do
       case lookupHandleMap h bindings of
-        Nothing -> Ex.throw (UnresolvableFunction h)
+        Nothing -> Ex.throw (UnresolvableFunction loc h)
         Just (UseOverride o) -> do
           let f = OverrideFrame { _override = overrideName o
                                 , _overrideRegMap = args
@@ -484,13 +489,15 @@ returnValue arg =
 
 
 callFunction ::
+  IsExprBuilder sym =>
   FnVal sym args ret {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   ReturnHandler ret p sym ext rtp f a {- ^ How to modify the caller's scope with the return value -} ->
+  ProgramLoc {-^ location of call -} ->
   ExecCont p sym ext rtp f a
-callFunction fn args retHandler =
+callFunction fn args retHandler loc =
   do bindings <- view (stateContext.functionBindings)
-     let rcall = resolveCall bindings fn args
+     let rcall = resolveCall bindings fn args loc
      ReaderT $ return . CallState retHandler rcall
 
 tailCallFunction ::
@@ -498,10 +505,11 @@ tailCallFunction ::
   FnVal sym args ret {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   ValueFromValue p sym ext rtp ret ->
+  ProgramLoc {-^ location of call -} ->
   ExecCont p sym ext rtp f a
-tailCallFunction fn args vfv =
+tailCallFunction fn args vfv loc =
   do bindings <- view (stateContext.functionBindings)
-     let rcall = resolveCall bindings fn args
+     let rcall = resolveCall bindings fn args loc
      ReaderT $ return . TailCallState vfv rcall
 
 

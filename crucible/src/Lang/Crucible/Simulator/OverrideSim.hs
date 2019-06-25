@@ -379,18 +379,20 @@ withSimContext m =
 
 -- | Call a function with the given arguments.
 callFnVal ::
-  IsSyntaxExtension ext =>
+  (IsExprBuilder sym, IsSyntaxExtension ext) =>
   FnVal sym args ret {- ^ Function to call -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   OverrideSim p sym ext rtp a r (RegEntry sym ret)
 callFnVal cl args =
-  Sim $ StateContT $ \c -> runReaderT $
-    callFunction cl args (ReturnToOverride c)
+  Sim $ StateContT $ \c -> runReaderT $ do
+    sym <- view stateSymInterface
+    loc <- liftIO $ getCurrentProgramLoc sym
+    callFunction cl args (ReturnToOverride c) loc
 
 -- | Call a function with the given arguments.  Provide the arguments as an
 --   @Assignment@ instead of as a @RegMap@.
 callFnVal' ::
-  IsSyntaxExtension ext =>
+  (IsExprBuilder sym, IsSyntaxExtension ext) =>
   FnVal sym args ret {- ^ Function to call -} ->
   Ctx.Assignment (RegValue' sym) args {- ^ Arguments to the function -} ->
   OverrideSim p sym ext rtp a r (RegValue sym ret)
