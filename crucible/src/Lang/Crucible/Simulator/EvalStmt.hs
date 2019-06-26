@@ -24,6 +24,7 @@ module Lang.Crucible.Simulator.EvalStmt
   , executeCrucible
   , ExecutionFeature(..)
   , GenericExecutionFeature(..)
+  , ExecutionFeatureResult(..)
   , genericToExecutionFeature
   , timeoutFeature
 
@@ -548,6 +549,40 @@ singleStepCrucible verb exst =
     advanceCrucibleState
 
 
+-- | This datatype indicates the possible results that an execution feature
+--   can have.
+data ExecutionFeatureResult p sym ext rtp where
+  -- | This exectuion feature result indicates that no state changes were
+  --   made.
+  ExecutionFeatureNoChange       :: ExecutionFeatureResult p sym ext rtp
+
+  -- | This execution featuere indicates that the state was modified but
+  --   not changed in an "essential" way.  For example, internal bookeeping
+  --   datastructures for the exeuction feature might be modified, but the
+  --   state is not transitioned to a fundamentally different state.
+  --
+  --   When this result is returned, later execution features in the
+  --   installed stack will be executed, until the main simulator loop
+  --   is encountered.  Contrast with the \"new state\" result.
+  ExecutionFeatureModifiedState ::
+     ExecState p sym ext rtp -> ExecutionFeatureResult p sym ext rtp
+
+  -- | This exeuction feature result indicates that the state was modified
+  --   in an essential way that transforms it into new state altogether.
+  --   When this result is returned, it preempts any later execution
+  --   features and the main simulator loop and instead returns to the head
+  --   of the execution feature stack.
+  --
+  --   NOTE: In particular, the exeuction feature will encounter the
+  --   state again before the simulator loop.  It is therfore very
+  --   important that the exeuction feature be prepared to immediately
+  --   encounter the same state again and make significant execution
+  --   progress on it, or ignore it so it makes it to the main simulator
+  --   loop.  Otherwise, the execution feature will loop back to itself
+  --   infinetely, starving out useful work.
+  ExecutionFeatureNewState ::
+     ExecState p sym ext rtp -> ExecutionFeatureResult p sym ext rtp
+
 
 -- | An execution feature represents a computation that is allowed to intercept
 --   the processing of execution states to perform additional processing at
@@ -567,18 +602,19 @@ singleStepCrucible verb exst =
 --   returns @Nothing@.  It is important, therefore, that execution
 --   features make only a bounded number of modification in a row, or
 --   the main simulator loop will be starved out.
-newtype ExecutionFeature p sym ext rtp =
+data ExecutionFeature p sym ext rtp =
   ExecutionFeature
-  { runExecutionFeature :: ExecState p sym ext rtp -> IO (Maybe (ExecState p sym ext rtp)) }
+  { runExecutionFeature :: ExecState p sym ext rtp -> IO (ExecutionFeatureResult p sym ext rtp)
+  }
 
 -- | A generic execution feature is an execution feature that is
 --   agnostic to the exeuction environmemnt, and is therefore
 --   polymorphic over the @p@, @ext@ and @rtp@ variables.
-newtype GenericExecutionFeature sym =
+data GenericExecutionFeature sym =
   GenericExecutionFeature
   { runGenericExecutionFeature :: forall p ext rtp.
       (IsSymInterface sym, IsSyntaxExtension ext) =>
-        ExecState p sym ext rtp -> IO (Maybe (ExecState p sym ext rtp))
+        ExecState p sym ext rtp -> IO (ExecutionFeatureResult p sym ext rtp)
   }
 
 genericToExecutionFeature ::
@@ -613,10 +649,11 @@ executeCrucible execFeatures exst0 =
              return
              (\m st -> knext =<< advanceCrucibleState m st)
 
-         applyExecutionFeature feat m =
-           \exst -> runExecutionFeature feat exst >>= \case
-                      Just exst' -> knext exst'
-                      Nothing    -> m exst
+         applyExecutionFeature feat m = \exst ->
+             runExecutionFeature feat exst >>= \case
+                  ExecutionFeatureNoChange            -> m exst
+                  ExecutionFeatureModifiedState exst' -> m exst'
+                  ExecutionFeatureNewState exst'      -> knext exst'
 
          knext = foldr applyExecutionFeature loop execFeatures
 
@@ -634,10 +671,10 @@ timeoutFeature timeout =
      let deadline = addUTCTime timeout startTime
      return $ GenericExecutionFeature $ \exst ->
        case exst of
-         ResultState _ -> return Nothing
+         ResultState _ -> return ExecutionFeatureNoChange
          _ ->
             do now <- getCurrentTime
                if deadline >= now then
-                 return Nothing
+                 return ExecutionFeatureNoChange
                else
-                 return (Just (ResultState (TimeoutResult exst)))
+                 return (ExecutionFeatureNewState (ResultState (TimeoutResult exst)))

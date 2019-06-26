@@ -77,7 +77,7 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
               result_state <- runReaderT (C.runOverrideSim ret_type override) $
                 state & C.stateTree %~
                   C.pushCallFrame C.TailReturnToCrucible override_frame
-              return $ Just result_state
+              return $ C.ExecutionFeatureNewState result_state
           C.CallState return_handler (C.CrucibleCall block_id frame) state
             | Just breakpoints <- HashMap.lookup
                 (C.frameHandle frame)
@@ -90,7 +90,7 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
                   return_handler
                   (C.CrucibleCall block_id result_frame))
                 state
-              return $ Just result_state
+              return $ C.ExecutionFeatureNewState result_state
           C.TailCallState value_from_value (C.CrucibleCall block_id frame) state
             | Just breakpoints <- HashMap.lookup
                 (C.frameHandle frame)
@@ -103,6 +103,6 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
                   value_from_value
                   (C.CrucibleCall block_id result_frame))
                 state
-              return $ Just result_state
-          _ -> return Nothing
+              return $ C.ExecutionFeatureNewState result_state
+          _ -> return C.ExecutionFeatureNoChange
     _ -> fail $ "unexpected breakpoint: " ++ show breakpoint_name

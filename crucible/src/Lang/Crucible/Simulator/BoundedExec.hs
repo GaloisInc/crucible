@@ -161,26 +161,31 @@ boundedExecFeature getLoopBounds generateSideConditions =
  onStep ::
    IORef [Maybe FrameBoundData] ->
    ExecState p sym ext rtp ->
-   IO (Maybe (ExecState p sym ext rtp))
+   IO (ExecutionFeatureResult p sym ext rtp)
 
  onStep stackRef exst = case exst of
    UnwindCallState _vfv _ar _st ->
      do modifyIORef stackRef (drop 1)
-        return Nothing
+        return ExecutionFeatureNoChange
+
    InitialState{} ->
      do writeIORef stackRef [Nothing]
-        return Nothing
+        return ExecutionFeatureNoChange
+
    CallState _rh call _st ->
      do boundData <- buildFrameData call
         modifyIORef stackRef (boundData:)
-        return Nothing
+        return ExecutionFeatureNoChange
+
    TailCallState _vfv call _st ->
      do boundData <- buildFrameData call
         modifyIORef stackRef ((boundData:) . drop 1)
-        return Nothing
+        return ExecutionFeatureNoChange
+
    ReturnState _nm _vfv _pr _st ->
      do modifyIORef stackRef (drop 1)
-        return Nothing
+        return ExecutionFeatureNoChange
+
    ControlTransferState res st -> stateSolverProof st $
      let sym = st^.stateSymInterface
          msg n = "reached maximum number of loop iterations (" ++ show n ++ ")"
@@ -194,8 +199,8 @@ boundedExecFeature getLoopBounds generateSideConditions =
               Just n ->
                 do when generateSideConditions
                         (addProofObligation sym (LabeledPred (falsePred sym) (err loc n)))
-                   return (Just (AbortState (AssumedFalse (AssumingNoError (err loc n))) st))
-              Nothing -> return Nothing
+                   return (ExecutionFeatureNewState (AbortState (AssumedFalse (AssumingNoError (err loc n))) st))
+              Nothing -> return ExecutionFeatureNoChange
 
        CheckMergeResumption (ResolvedJump tgt_id _) ->
          do let loc = st^.stateCrucibleFrame.to frameProgramLoc
@@ -204,9 +209,9 @@ boundedExecFeature getLoopBounds generateSideConditions =
               Just n ->
                 do when generateSideConditions
                         (addProofObligation sym (LabeledPred (falsePred sym) (err loc n)))
-                   return (Just (AbortState (AssumedFalse (AssumingNoError (err loc n))) st))
+                   return (ExecutionFeatureNewState (AbortState (AssumedFalse (AssumingNoError (err loc n))) st))
               Nothing ->
-                do return Nothing
+                do return ExecutionFeatureNoChange
 
-       _ -> return Nothing
-   _ -> return Nothing
+       _ -> return ExecutionFeatureNoChange
+   _ -> return ExecutionFeatureNoChange

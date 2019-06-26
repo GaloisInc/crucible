@@ -72,26 +72,26 @@ pathSatisfiabilityFeature sym considerSatisfiability =
  onStep ::
    OptionSetting BaseBoolType ->
    ExecState p sym ext rtp ->
-   IO (Maybe (ExecState p sym ext rtp))
+   IO (ExecutionFeatureResult p sym ext rtp)
 
  onStep pathSatOpt (SymbolicBranchState p tp fp _tgt st) =
    getOpt pathSatOpt >>= \case
-     False -> return Nothing
+     False -> return ExecutionFeatureNoChange
      True -> considerSatisfiability ploc p >>= \case
                IndeterminateBranchResult ->
-                 return Nothing
+                 return ExecutionFeatureNoChange
                NoBranch chosen_branch ->
                  do p' <- if chosen_branch then return p else notPred sym p
                     let frm = if chosen_branch then tp else fp
                     loc <- getCurrentProgramLoc sym
                     addAssumption sym (LabeledPred p' (ExploringAPath loc (pausedLoc frm)))
-                    Just <$> runReaderT (resumeFrame frm (asContFrame (st^.stateTree))) st
+                    ExecutionFeatureNewState <$> runReaderT (resumeFrame frm (asContFrame (st^.stateTree))) st
                UnsatisfiableContext ->
-                 return (Just (AbortState InfeasibleBranch st))
+                 return (ExecutionFeatureNewState (AbortState InfeasibleBranch st))
    where
      ploc = st ^. stateLocation
 
- onStep _ _ = return Nothing
+ onStep _ _ = return ExecutionFeatureNoChange
 
 
 checkSatToConsiderBranch ::

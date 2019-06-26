@@ -67,6 +67,7 @@ module Lang.Crucible.Simulator.Operations
   , unwindContext
   , extractCurrentPath
   , asContFrame
+  , forgetPostdomFrame
   ) where
 
 import Prelude hiding (pred)
@@ -214,6 +215,15 @@ mergeAssumptions sym p thens elses =
      let xs = th' <> el'
      -- Filter out all the trivally true assumptions
      return (Seq.filter ((/= Just True) . asConstantPred . view labeledPred) xs)
+
+forgetPostdomFrame ::
+  PausedFrame p sym ext rtp g ->
+  PausedFrame p sym ext rtp g
+forgetPostdomFrame (PausedFrame frm cont loc) = PausedFrame frm (f cont) loc
+  where
+  f (CheckMergeResumption jmp) = ContinueResumption jmp
+  f x = x
+
 
 pushPausedFrame ::
   IsSymInterface sym =>

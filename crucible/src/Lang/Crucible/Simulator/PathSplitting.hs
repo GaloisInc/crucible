@@ -36,6 +36,7 @@ import           Control.Monad.Reader
 import           Data.IORef
 import           Data.Sequence( Seq )
 import qualified Data.Sequence as Seq
+import           Data.Word
 
 import           What4.Interface
 import           What4.ProgramLoc
@@ -123,20 +124,20 @@ pathSplittingFeature wl = ExecutionFeature $ \case
        loc <- getCurrentProgramLoc sym
 
        let wi = WorkItem
-                { workItemPred  = p
+                { workItemPred  = pnot
                 , workItemLoc   = loc
-                , workItemFrame = trueFrame
+                , workItemFrame = forgetPostdomFrame falseFrame
                 , workItemState = st
                 , workItemAssumes = assumes
                 }
        queueWorkItem wi wl
 
-       addAssumption sym (LabeledPred pnot (ExploringAPath loc (pausedLoc falseFrame)))
+       addAssumption sym (LabeledPred p (ExploringAPath loc (pausedLoc trueFrame)))
 
        let ctx = st ^. stateTree . actContext
-       Just <$> runReaderT (resumeFrame falseFrame ctx) st
+       ExecutionFeatureNewState <$> runReaderT (resumeFrame (forgetPostdomFrame trueFrame) ctx) st
 
-  _ -> return Nothing
+  _ -> return ExecutionFeatureNoChange
 
 
 executeCrucibleDFSPaths :: forall p sym ext rtp.
@@ -145,15 +146,29 @@ executeCrucibleDFSPaths :: forall p sym ext rtp.
   ) =>
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
-  IO ()
-executeCrucibleDFSPaths execFeatures exst0 =
+  (ExecResult p sym ext rtp -> IO ()) ->
+  IO (Word64, Seq (WorkItem p sym ext rtp))
+executeCrucibleDFSPaths execFeatures exst0 cont =
   do wl <- newIORef Seq.empty
+     cnt <- newIORef (1::Word64)
      let feats = execFeatures ++ [pathSplittingFeature wl]
-     go wl feats exst0
+     go wl cnt feats exst0
 
  where
- go wl feats exst =
-   do _ <- executeCrucible feats exst
-      dequeueWorkItem wl >>= \case
-        Nothing -> return ()
-        Just wi -> restoreWorkItem wi >>= go wl feats
+ go wl cnt feats exst =
+   do res <- executeCrucible feats exst
+      cont res
+      case res of
+        TimeoutResult _ ->
+           do xs <- readIORef wl
+              i  <- readIORef cnt
+              return (i,xs)
+
+        _ -> dequeueWorkItem wl >>= \case
+               Nothing ->
+                 do i <- readIORef cnt
+                    return (i, mempty)
+
+               Just wi ->
+                 do modifyIORef' cnt succ
+                    restoreWorkItem wi >>= go wl cnt feats
