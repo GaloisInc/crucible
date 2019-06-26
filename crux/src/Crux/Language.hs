@@ -11,6 +11,7 @@
 
 module Crux.Language where
 
+import Data.Sequence( Seq )
 import Data.Typeable(Typeable)
 import System.Console.GetOpt
 
@@ -73,8 +74,8 @@ type Simulate sym a = IsSymInterface sym =>
     -> Options a           -- ^ crux & lang-specific options
     -> sym
     -> Model sym
-    -> IO (Result sym)
-
+    -> (Result sym -> IO ())
+    -> IO ()
 
 class (Typeable a) => Language a where
 
@@ -114,7 +115,7 @@ class (Typeable a) => Language a where
   simulate :: (?outputConfig :: OutputConfig) => Simulate sym a
 
   -- use the result of the simulation function
-  makeCounterExamples :: (?outputConfig :: OutputConfig) => Options a -> Maybe (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
+  makeCounterExamples :: (?outputConfig :: OutputConfig) => Options a -> Seq (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
   makeCounterExamples _opts _proved = return ()
 
 -- Trivial instance of the class

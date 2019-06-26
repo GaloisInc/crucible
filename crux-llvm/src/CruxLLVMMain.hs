@@ -14,10 +14,14 @@ module CruxLLVMMain (main, mainWithOutputTo) where
 import Data.String (fromString)
 import qualified Data.Map as Map
 import Control.Lens ((&), (%~), (^.), view)
+import Control.Monad (unless)
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
+import qualified Data.Foldable as Fold
+import Data.Sequence (Seq)
 import Data.Text (Text)
+
 
 import System.Process
 import System.Exit
@@ -97,8 +101,8 @@ mainWithOutputTo h =
 -- main/checkBC implemented by Crux
 
 
-makeCounterExamplesLLVM :: (?outputConfig :: OutputConfig) => Options -> Maybe (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
-makeCounterExamplesLLVM opts = maybe (return ()) go
+makeCounterExamplesLLVM :: (?outputConfig :: OutputConfig) => Options -> Seq (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
+makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
  where
  go gs =
   case gs of
@@ -164,8 +168,8 @@ registerFunctions ctx llvm_module mtrans =
 
 -- Returns only non-trivial goals
 simulateLLVM :: (?outputConfig :: OutputConfig) => Crux.Simulate sym LangLLVM
-simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
-    llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
+simulateLLVM fs (_cruxOpts,llvmOpts) sym _p cont =
+ do llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
     halloc     <- newHandleAllocator
     Some trans <- stToIO (translateModule halloc llvm_mod)
     let llvmCtxt = trans ^. transContext
@@ -178,13 +182,13 @@ simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
                     =<< initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
 
-          res <- executeCrucible (map genericToExecutionFeature fs) $
-                   InitialState simctx globSt defaultAbortHandler $
+          let initSt = InitialState simctx globSt defaultAbortHandler $
                    runOverrideSim UnitRepr $
                      do registerFunctions llvmCtxt llvm_mod trans
                         setupOverrides llvmCtxt
                         checkFun "main" (cfgMap trans)
-          return $ Result res
+          res <- executeCrucible (map genericToExecutionFeature fs) initSt
+          cont (Result res)
 
 checkFun :: (ArchOk arch, ?outputConfig :: OutputConfig) => String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
 checkFun nm mp =

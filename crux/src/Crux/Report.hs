@@ -5,8 +5,10 @@ module Crux.Report where
 
 import System.FilePath
 import System.Directory (createDirectoryIfMissing)
+import qualified Data.Foldable as Fold
 import Data.List (intercalate, partition, isInfixOf)
 import Data.Maybe (fromMaybe)
+import Data.Sequence (Seq)
 import Control.Exception (catch, SomeException(..))
 import Control.Monad (when)
 
@@ -27,7 +29,7 @@ import Crux.UI.Jquery (jquery)       -- ui/jquery.min.js
 import Crux.UI.IndexHtml (indexHtml) -- ui/index.html
 
 
-generateReport :: CruxOptions -> Maybe (ProvedGoals b) -> IO ()
+generateReport :: CruxOptions -> Seq (ProvedGoals b) -> IO ()
 generateReport opts xs =
   do createDirectoryIfMissing True (outDir opts)
      let exts = [".c", ".i", ".cc", ".cpp", ".cxx", ".ii"]
@@ -47,8 +49,8 @@ generateSource opts =
   `catch` \(SomeException {}) -> return ()
 
 
-renderSideConds :: Maybe (ProvedGoals b) -> [ JS ]
-renderSideConds = maybe [] (go [])
+renderSideConds :: Seq (ProvedGoals b) -> [ JS ]
+renderSideConds = concatMap (go []) . Fold.toList
   where
   flatBranch (Branch x y : more) = flatBranch (x : y : more)
   flatBranch (x : more)          = x : flatBranch more

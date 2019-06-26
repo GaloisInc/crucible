@@ -17,7 +17,10 @@ module Crux.CruxMain where
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Exception (SomeException(..), displayException)
+import Data.IORef
 import Data.Time.Clock (NominalDiffTime)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Numeric (readFloat)
 import System.FilePath ((</>))
 import System.Directory (createDirectoryIfMissing)
@@ -112,7 +115,7 @@ withBackend (cruxOpts, _) nonceGen f = do
 
 -- Returns only non-trivial goals
 simulate :: (Language a, ?outputConfig :: OutputConfig) => Options a ->
-  IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
+  IO (Seq (ProvedGoals (Either AssumptionReason SimError)))
 simulate opts  =
   let (cruxOpts,_langOpts) = opts
   in
@@ -208,21 +211,24 @@ simulate opts  =
 
      let execFeatures = tfs ++ pfs ++ bfs ++ psat_fs
 
-     gls <- inFrame "<Crux>" $
-       do Result res <- CL.simulate execFeatures opts sym personality
-
-          case res of
-            TimeoutResult _ ->
-              do putStrLn "Simulation timed out! Program might not be fully verified!"
-            _ -> return ()
-
-          popUntilAssumptionFrame sym frm
-
-          let ctx' = execResultContext res
-
-          inFrame "<Prove Goals>" $
-            do pg <- proveGoals cruxOpts ctx' =<< (getProofObligations sym)
-               provedGoalsTree ctx' pg
+     gls <- newIORef Seq.empty
+     inFrame "<Crux>" $
+       CL.simulate execFeatures opts sym personality $ \(Result res) ->
+        do case res of
+             TimeoutResult _ ->
+               do putStrLn "Simulation timed out! Program might not be fully verified!"
+             _ -> return ()
+ 
+           popUntilAssumptionFrame sym frm
+ 
+           let ctx' = execResultContext res
+ 
+           inFrame "<Prove Goals>" $
+             do pg <- proveGoals cruxOpts ctx' =<< (getProofObligations sym)
+                mgt <- provedGoalsTree ctx' pg
+                case mgt of
+                  Nothing -> return ()
+                  Just gt -> modifyIORef gls (Seq.|> gt)
 
      when (simVerbose cruxOpts > 1) $
         say "Crux" "Simulation complete."
@@ -230,4 +236,4 @@ simulate opts  =
      when profiling $ do
        writeProfileReport profOutFile (inputFile cruxOpts) (inputFile cruxOpts) tbl
 
-     return gls
+     readIORef gls
