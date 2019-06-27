@@ -288,9 +288,12 @@ abortPartialResult s tgt pr =
 -- | This exception is thrown if a 'FnHandle' cannot be resolved to
 --   a callable function.  This usually indicates a programming error,
 --   but might also be used to allow on-demand function loading.
+--
+--   The ProgramLoc argument references the call site for the unresolved
+--   function call.
 data UnresolvableFunction where
   UnresolvableFunction ::
-    !(ProgramLoc) {-^ call site -} ->
+    !(ProgramLoc) ->
     !(FnHandle args ret) ->
     UnresolvableFunction
 
