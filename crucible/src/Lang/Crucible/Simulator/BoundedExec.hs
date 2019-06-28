@@ -19,33 +19,47 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Lang.Crucible.Simulator.BoundedExec
   ( boundedExecFeature
   ) where
 
-import           Control.Lens ( (^.), to )
+import           Control.Lens ( (^.), to, (&), (%~), (.~) )
 import           Control.Monad ( when )
+import           Control.Monad.ST ( stToIO )
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
+import           Data.Maybe (fromMaybe)
 import           Data.Semigroup( (<>) )
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import qualified Data.Text as Text
+
 
 import qualified Data.Parameterized.Context as Ctx
+import qualified Data.Parameterized.Map as MapF
 
 import           Lang.Crucible.Analysis.Fixpoint (cfgWeakTopologicalOrdering)
 import           Lang.Crucible.Analysis.Fixpoint.Components
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Panic
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.ExecutionTree
+import           Lang.Crucible.Simulator.GlobalState
+import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.SimError
 
+import           What4.FunctionName
 import           What4.Interface
 
 data FrameBoundData =
@@ -54,7 +68,7 @@ data FrameBoundData =
     { frameBoundHandle :: !(FnHandle args ret)
     , frameBoundLimit :: !Int
     , frameWtoMap :: !(Map Int (Int,Int))
-    , frameBoundCounts :: IORef (Seq Int)
+    , frameBoundCounts :: Seq Int
     }
 
 -- | This function takes weak topological order data and computes
@@ -84,19 +98,71 @@ buildWTOMap = snd . go 0 0 Map.empty
 --   Any loop bounds deeper than this are discarded.  If the given
 --   sequence is too short to accomidate the given depth, the sequence
 --   is extended with 0 counters to the correct depth.
-incrementBoundCount :: IORef (Seq Int) -> Int -> IO Int
-incrementBoundCount ref depth =
-  do cs <- readIORef ref
-     case Seq.lookup depth cs of
-       Just n ->
-         do let n' = n+1
-            let cs' = Seq.update depth n' $ Seq.take (depth+1) cs
-            writeIORef ref cs'
-            return $! n'
-       Nothing ->
-         do let cs' = cs <> Seq.replicate (depth - Seq.length cs) 0 <> Seq.singleton 1
-            writeIORef ref cs'
-            return 1
+incrementBoundCount :: Seq Int -> Int -> (Seq Int, Int)
+incrementBoundCount cs depth =
+  case Seq.lookup depth cs of
+     Just n ->
+       do let n' = n+1
+          let cs' = Seq.update depth n' $ Seq.take (depth+1) cs
+          n' `seq` cs' `seq` (cs', n')
+     Nothing ->
+       do let cs' = cs <> Seq.replicate (depth - Seq.length cs) 0 <> Seq.singleton 1
+          cs' `seq` (cs', 1)
+
+instance IntrinsicClass sym "BoundedExecFrameData" where
+  type Intrinsic sym "BoundedExecFrameData" ctx = [Either FunctionName FrameBoundData]
+
+  muxIntrinsic _sym _iTypes _nm _ _p fd1 fd2 = combineFrameBoundData fd1 fd2
+
+mergeCounts :: Seq Int -> Seq Int -> Seq Int
+mergeCounts cx cy =
+  Seq.fromFunction
+    (max (Seq.length cx) (Seq.length cy))
+    (\i -> max (fromMaybe 0 $ Seq.lookup i cx)
+               (fromMaybe 0 $ Seq.lookup i cy))
+
+mergeFBD ::
+  FrameBoundData ->
+  FrameBoundData ->
+  IO FrameBoundData
+mergeFBD x@FrameBoundData{ frameBoundHandle = hx } y@FrameBoundData{ frameBoundHandle = hy }
+  | Just _ <- testEquality (handleID hx) (handleID hy) =
+       return x{ frameBoundCounts = mergeCounts (frameBoundCounts x) (frameBoundCounts y) }
+
+  | otherwise =
+       fail $ unlines
+       [ "Attempted to merge frame bound data from different function activations: "
+       , " ** " ++ show hx
+       , " ** " ++ show hy
+       ]
+
+
+combineFrameBoundData ::
+  [Either FunctionName FrameBoundData] ->
+  [Either FunctionName FrameBoundData] ->
+  IO [Either FunctionName FrameBoundData]
+combineFrameBoundData [] [] = return []
+
+combineFrameBoundData (Left nmx:xs) (Left nmy : _) | nmx == nmy
+  = return (Left nmx : xs)
+
+combineFrameBoundData (Right x:xs) (Right y:_)
+  = (\x' -> Right x' : xs) <$> mergeFBD x y
+
+combineFrameBoundData xs ys
+  = panic "BoundedExec.combineFrameBoundData"
+      [ "Attempt to combine incompatible frame bound data: stack shape mismatch:"
+      , " *** " ++ show (printStack xs)
+      , " *** " ++ show (printStack ys)
+      ]
+
+printStack :: [Either FunctionName FrameBoundData] -> [String]
+printStack [] = []
+printStack (Left nm :xs) = show nm : printStack xs
+printStack (Right FrameBoundData{ frameBoundHandle = h } : xs) = show h : printStack xs
+
+
+type BoundedExecGlobal = GlobalVar (IntrinsicType "BoundedExecFrameData" EmptyCtx)
 
 
 -- | This execution feature allows users to place a bound on the number
@@ -119,99 +185,116 @@ boundedExecFeature ::
   Bool {- ^ Produce a proof obligation when resources are exhausted? -} ->
   IO (GenericExecutionFeature sym)
 boundedExecFeature getLoopBounds generateSideConditions =
-  do stackRef <- newIORef []
-     return $ GenericExecutionFeature $ onStep stackRef
+  do gvRef <- newIORef (error "Global varible for BoundedExecFrameData not initilized")
+     return $ GenericExecutionFeature $ onStep gvRef
 
  where
- buildFrameData :: ResolvedCall p sym ext ret -> IO (Maybe FrameBoundData)
- buildFrameData OverrideCall{} = return Nothing
+ buildFrameData :: ResolvedCall p sym ext ret -> IO (Either FunctionName FrameBoundData)
+ buildFrameData (OverrideCall ov _) = return (Left (overrideName ov))
  buildFrameData (CrucibleCall _entry CallFrame{ _frameCFG = g }) =
    do let wtoMap = buildWTOMap (cfgWeakTopologicalOrdering g)
       mn <- getLoopBounds (SomeHandle (cfgHandle g))
       case mn of
-        Nothing -> return Nothing
-        Just n ->
-          do cntRef <- newIORef mempty
-             let fbd = FrameBoundData
+        Nothing -> return $ Left  $ handleName (cfgHandle g)
+        Just n  -> return $ Right $ FrameBoundData
                        { frameBoundHandle = cfgHandle g
                        , frameBoundLimit  = n
                        , frameWtoMap      = wtoMap
-                       , frameBoundCounts = cntRef
+                       , frameBoundCounts = mempty
                        }
-             return (Just fbd)
 
- checkBackedge :: IORef [Maybe FrameBoundData] -> Some (BlockID blocks) -> BlockID blocks tgt_args -> IO (Maybe Int)
- checkBackedge stackRef (Some bid_curr) bid_tgt =
-   do readIORef stackRef >>= \case
-        ( Just fbd : _ ) ->
+ checkBackedge ::
+   IORef BoundedExecGlobal ->
+   Some (BlockID blocks) ->
+   BlockID blocks tgt_args ->
+   SymGlobalState sym ->
+   IO (SymGlobalState sym, Maybe Int)
+ checkBackedge gvRef (Some bid_curr) bid_tgt globals =
+   do gv <- readIORef gvRef
+      case fromMaybe [] (lookupGlobal gv globals) of
+        ( Right fbd : rest ) ->
           do let id_curr = Ctx.indexVal (blockIDIndex bid_curr)
              let id_tgt  = Ctx.indexVal (blockIDIndex bid_tgt)
              let m = frameWtoMap fbd
              case (Map.lookup id_curr m, Map.lookup id_tgt m) of
                (Just (cx, _cd), Just (tx, td)) | tx <= cx ->
-                  do q <- incrementBoundCount (frameBoundCounts fbd) td
+                  do let cs       = frameBoundCounts fbd
+                     let (cs', q) = incrementBoundCount cs td
+                     let fbd'     = fbd{ frameBoundCounts = cs' }
+                     let globals' = insertGlobal gv (Right fbd' : rest) globals
                      if q > frameBoundLimit fbd then
-                       return (Just (frameBoundLimit fbd))
+                       return (globals', Just (frameBoundLimit fbd))
                      else
-                       return Nothing
-               _ -> return Nothing
+                       return (globals', Nothing)
 
-        _ -> return Nothing
+               _ -> return (globals, Nothing)
+        _ -> return (globals, Nothing)
+
+ modifyStackState ::
+   IORef BoundedExecGlobal ->
+   (SimState p sym ext rtp f args -> ExecState p sym ext rtp) ->
+   SimState p sym ext rtp f args ->
+   ([Either FunctionName FrameBoundData] -> [Either FunctionName FrameBoundData]) ->
+   IO (ExecutionFeatureResult p sym ext rtp)
+ modifyStackState gvRef mkSt st f =
+   do gv <- readIORef gvRef
+      let xs = case lookupGlobal gv (st ^. stateGlobals) of
+                 Nothing -> error "bounded execution global not defined!"
+                 Just v  -> v
+      let st' = st & stateGlobals %~ insertGlobal gv (f xs)
+      return (ExecutionFeatureModifiedState (mkSt st'))
+
+ onTransition ::
+   IORef BoundedExecGlobal ->
+   BlockID blocks tgt_args ->
+   ControlResumption p sym ext rtp (CrucibleLang blocks ret) ->
+   SimState p sym ext rtp (CrucibleLang blocks ret) ('Just a) ->
+   IO (ExecutionFeatureResult p sym ext rtp)
+ onTransition gvRef tgt_id res st = stateSolverProof st $
+  do let sym = st^.stateSymInterface
+     (globals', overLimit) <- checkBackedge gvRef (st^.stateCrucibleFrame.frameBlockID) tgt_id (st^.stateGlobals)
+     let st' = st & stateGlobals .~ globals'
+     case overLimit of
+       Just n ->
+         do let msg = "reached maximum number of loop iterations (" ++ show n ++ ")"
+            let loc = st^.stateCrucibleFrame.to frameProgramLoc
+            let err = SimError loc (ResourceExhausted msg)
+            when generateSideConditions (addProofObligation sym (LabeledPred (falsePred sym) err))
+            return (ExecutionFeatureNewState (AbortState (AssumedFalse (AssumingNoError err)) st'))
+       Nothing -> return (ExecutionFeatureModifiedState (ControlTransferState res st'))
 
  onStep ::
-   IORef [Maybe FrameBoundData] ->
+   IORef BoundedExecGlobal ->
    ExecState p sym ext rtp ->
    IO (ExecutionFeatureResult p sym ext rtp)
 
- onStep stackRef exst = case exst of
-   UnwindCallState _vfv _ar _st ->
-     do modifyIORef stackRef (drop 1)
-        return ExecutionFeatureNoChange
+ onStep gvRef = \case
+   InitialState simctx globals ah cont ->
+     do let halloc = simHandleAllocator simctx
+        gv <- stToIO (freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr)
+        writeIORef gvRef gv
+        let globals' = insertGlobal gv [Left "_init"] globals
+        let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"BoundedExecFrameData") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }
+        return (ExecutionFeatureModifiedState (InitialState simctx' globals' ah cont))
 
-   InitialState{} ->
-     do writeIORef stackRef [Nothing]
-        return ExecutionFeatureNoChange
-
-   CallState _rh call _st ->
+   CallState rh call st ->
      do boundData <- buildFrameData call
-        modifyIORef stackRef (boundData:)
-        return ExecutionFeatureNoChange
+        modifyStackState gvRef (CallState rh call) st (boundData:)
 
-   TailCallState _vfv call _st ->
+   TailCallState vfv call st ->
      do boundData <- buildFrameData call
-        modifyIORef stackRef ((boundData:) . drop 1)
-        return ExecutionFeatureNoChange
+        modifyStackState gvRef (TailCallState vfv call) st ((boundData:) . drop 1)
 
-   ReturnState _nm _vfv _pr _st ->
-     do modifyIORef stackRef (drop 1)
-        return ExecutionFeatureNoChange
+   ReturnState nm vfv pr st ->
+        modifyStackState gvRef (ReturnState nm vfv pr) st (drop 1)
 
-   ControlTransferState res st -> stateSolverProof st $
-     let sym = st^.stateSymInterface
-         msg n = "reached maximum number of loop iterations (" ++ show n ++ ")"
-         err loc n = SimError loc (ResourceExhausted (msg n))
-     in
+   UnwindCallState vfv ar st ->
+        modifyStackState gvRef (UnwindCallState vfv ar) st (drop 1)
+
+   ControlTransferState res st ->
      case res of
-       ContinueResumption (ResolvedJump tgt_id _) ->
-         do let loc = st^.stateCrucibleFrame.to frameProgramLoc
-            overLimit <- checkBackedge stackRef (st^.stateCrucibleFrame.frameBlockID) tgt_id
-            case overLimit of
-              Just n ->
-                do when generateSideConditions
-                        (addProofObligation sym (LabeledPred (falsePred sym) (err loc n)))
-                   return (ExecutionFeatureNewState (AbortState (AssumedFalse (AssumingNoError (err loc n))) st))
-              Nothing -> return ExecutionFeatureNoChange
-
-       CheckMergeResumption (ResolvedJump tgt_id _) ->
-         do let loc = st^.stateCrucibleFrame.to frameProgramLoc
-            overLimit <- checkBackedge stackRef (st^.stateCrucibleFrame.frameBlockID) tgt_id
-            case overLimit of
-              Just n ->
-                do when generateSideConditions
-                        (addProofObligation sym (LabeledPred (falsePred sym) (err loc n)))
-                   return (ExecutionFeatureNewState (AbortState (AssumedFalse (AssumingNoError (err loc n))) st))
-              Nothing ->
-                do return ExecutionFeatureNoChange
-
+       ContinueResumption (ResolvedJump tgt_id _)  ->  onTransition gvRef tgt_id res st
+       CheckMergeResumption (ResolvedJump tgt_id _) -> onTransition gvRef tgt_id res st
        _ -> return ExecutionFeatureNoChange
+
    _ -> return ExecutionFeatureNoChange
