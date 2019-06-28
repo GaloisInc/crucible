@@ -923,23 +923,27 @@ muxChanges c (left_allocs, lhs_writes) (rhs_allocs, rhs_writes) =
   )
 
 muxWrites :: Pred sym -> MemWrites sym -> MemWrites sym -> MemWrites sym
-muxWrites c lhs_writes rhs_writes
-  | MemWrites [MemWritesChunkIndexed lhs_indexed_writes] <- lhs_writes
-  , MemWrites [MemWritesChunkIndexed rhs_indexed_writes] <- rhs_writes =
-    MemWrites
-      [ MemWritesChunkIndexed $
-          mergeMemWritesChunkIndexed
-            (\lhs rhs ->
-              [ WriteMerge
-                  c
-                  (MemWrites [MemWritesChunkFlat lhs])
-                  (MemWrites [MemWritesChunkFlat rhs])
-              ])
-            lhs_indexed_writes
-            rhs_indexed_writes
-      ]
+muxWrites _ (MemWrites []) (MemWrites []) = MemWrites []
+muxWrites c l@(MemWrites lhs_writes) r@(MemWrites rhs_writes)
+  | Just lhs_indexed_writes <- indexed_chunk_map lhs_writes
+  , Just rhs_indexed_writes <- indexed_chunk_map rhs_writes =
+      MemWrites
+        [ MemWritesChunkIndexed $
+            mergeMemWritesChunkIndexed
+              (\lhs rhs ->
+                 [ WriteMerge
+                     c
+                     (MemWrites [MemWritesChunkFlat lhs])
+                     (MemWrites [MemWritesChunkFlat rhs])
+                 ])
+              lhs_indexed_writes
+              rhs_indexed_writes
+        ]
   | otherwise =
-    MemWrites [MemWritesChunkFlat [WriteMerge c lhs_writes rhs_writes]]
+    MemWrites [MemWritesChunkFlat [WriteMerge c l r]]
+  where indexed_chunk_map [MemWritesChunkIndexed m] = Just m
+        indexed_chunk_map [] = Just IntMap.empty
+        indexed_chunk_map _ = Nothing
 
 mergeMemWritesChunkIndexed ::
   ([MemWrite sym] -> [MemWrite sym] -> [MemWrite sym]) ->
