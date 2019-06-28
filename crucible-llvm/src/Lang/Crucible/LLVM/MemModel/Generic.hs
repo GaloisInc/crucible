@@ -924,9 +924,9 @@ muxChanges c (left_allocs, lhs_writes) (rhs_allocs, rhs_writes) =
 
 muxWrites :: Pred sym -> MemWrites sym -> MemWrites sym -> MemWrites sym
 muxWrites _ (MemWrites []) (MemWrites []) = MemWrites []
-muxWrites c l@(MemWrites lhs_writes) r@(MemWrites rhs_writes)
-  | Just lhs_indexed_writes <- indexed_chunk_map lhs_writes
-  , Just rhs_indexed_writes <- indexed_chunk_map rhs_writes =
+muxWrites c lhs_writes rhs_writes
+  | Just lhs_indexed_writes <- asIndexedChunkMap lhs_writes
+  , Just rhs_indexed_writes <- asIndexedChunkMap rhs_writes =
       MemWrites
         [ MemWritesChunkIndexed $
             mergeMemWritesChunkIndexed
@@ -940,10 +940,11 @@ muxWrites c l@(MemWrites lhs_writes) r@(MemWrites rhs_writes)
               rhs_indexed_writes
         ]
   | otherwise =
-    MemWrites [MemWritesChunkFlat [WriteMerge c l r]]
-  where indexed_chunk_map [MemWritesChunkIndexed m] = Just m
-        indexed_chunk_map [] = Just IntMap.empty
-        indexed_chunk_map _ = Nothing
+    MemWrites [MemWritesChunkFlat [WriteMerge c lhs_writes rhs_writes]]
+  where asIndexedChunkMap :: MemWrites sym -> Maybe (IntMap [MemWrite sym])
+        asIndexedChunkMap (MemWrites [MemWritesChunkIndexed m]) = Just m
+        asIndexedChunkMap (MemWrites []) = Just IntMap.empty
+        asIndexedChunkMap _ = Nothing
 
 mergeMemWritesChunkIndexed ::
   ([MemWrite sym] -> [MemWrite sym] -> [MemWrite sym]) ->
