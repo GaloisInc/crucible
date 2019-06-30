@@ -1,7 +1,7 @@
 {-# Language MultiWayIf, OverloadedStrings #-}
 -- | This module deals with loading configurations.
 module Crux.Config
-  ( -- * Writing confugrations
+  ( -- * Writing configurations
     Config(..), cfgJoin
 
     -- ** Configuration files
@@ -9,7 +9,7 @@ module Crux.Config
   , yesOrNoSpec, stringSpec, numSpec, fractionalSpec
   , oneOrList, fileSpec, dirSpec
 
-    -- ** Environment vairables
+    -- ** Environment variables
   , EnvDescr(..), mapEnvDescr
 
     -- ** Command line options
@@ -23,15 +23,16 @@ import Data.Maybe (fromMaybe)
 import SimpleGetOpt
 import Config.Schema
 
-{- | Loading optoins from multiple sources.  First we load configuration
-from a file, then we consider environment variable, and finally we
+
+{- | Loading options from multiple sources.  First we load configuration
+from a file, then we consider environment variables, and finally we
 update using the command line flags. If there is no configuration file
-provided, then this is equvalent to having an empty configuration file,
+provided, then this is equivalent to having an empty configuration file,
 so the config file schema should be able to cope with missing settings. -}
 
 data Config opts = Config
   { cfgFile     :: SectionsSpec opts
-    -- ^ Configuration file settings (and, implcitly, defaults).
+    -- ^ Configuration file settings (and, implicitly, defaults).
 
   , cfgEnv      :: [ EnvDescr opts ]
     -- ^ Settings from environment variables
@@ -68,7 +69,7 @@ inSnd f = \(a,b) -> do b' <- f b
 --------------------------------------------------------------------------------
 
 
--- | An option that can be confugred in the file.
+-- | An option that can be configured in the file.
 section :: Text        {- ^ Option name -} ->
            ValueSpec a {- ^ What type of value we expect -} ->
            a           {- ^ Default value to use if option not specified -} ->
