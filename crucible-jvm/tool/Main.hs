@@ -140,7 +140,7 @@ cruxJVM = Crux.Language
   , Crux.makeCounterExamples = \_ _ -> return ()
   }
 
-simulateJVM feats (copts,opts) sym ext = do
+simulateJVM feats (copts,opts) sym ext cont = do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
    file <- case files of
@@ -157,8 +157,12 @@ simulateJVM feats (copts,opts) sym ext = do
    let nullstr = RegEntry refRepr W4.Unassigned
    let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-   Crux.Result <$> executeCrucibleJVMCrux @UnitType feats cb verbosity sym
+   res <- executeCrucibleJVMCrux @UnitType feats cb verbosity sym
      ext cname mname regmap
+
+   cont (Crux.Result res)
+
+
 
 -- | Entry point, parse command line opions
 main :: IO ()
