@@ -265,6 +265,9 @@ findFile (L.ValMdRef x) =
         L.DebugInfoLexicalBlock dilex
           | Just (L.ValMdDebugInfo (L.DebugInfoFile dif)) <- L.dilbFile dilex -> Just dif
           | Just md <- L.dilbScope dilex -> findFile md
+        L.DebugInfoLexicalBlockFile dilexFile
+          | Just (L.ValMdDebugInfo (L.DebugInfoFile dif)) <- L.dilbfFile dilexFile -> Just dif
+          | otherwise -> findFile (L.dilbfScope dilexFile)
         L.DebugInfoSubprogram disub
           | Just (L.ValMdDebugInfo (L.DebugInfoFile dif)) <- L.dispFile disub -> Just dif
           | Just md <- L.dispScope disub -> findFile md

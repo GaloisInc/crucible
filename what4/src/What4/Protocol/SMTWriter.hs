@@ -1377,7 +1377,7 @@ checkQuantifierSupport nm t = do
 -- | Check that the types can be passed to functions.
 checkArgumentTypes :: WriterConn t h -> Ctx.Assignment TypeMap args -> IO ()
 checkArgumentTypes conn types = do
-  forMFC_ types $ \tp -> do
+  forFC_ types $ \tp -> do
     case tp of
       FnArrayTypeMap{} | supportFunctionArguments conn == False -> do
           fail $ show $ text (smtWriterName conn)

@@ -32,7 +32,7 @@ import Lang.Crucible.Simulator.ExecutionTree
 import Crux.Types
 import Crux.Model
 import Crux.Log
-import Crux.Options
+import Crux.Config.Common
 import Crux.ProgressBar
 
 
@@ -68,6 +68,13 @@ countGoals gs =
     Prove _         -> 1
     ProveConj g1 g2 -> countGoals g1 + countGoals g2
 
+countFailedGoals :: ProvedGoals a -> Int
+countFailedGoals gs =
+  case gs of
+    AtLoc _ _ gs1 -> countFailedGoals gs1
+    Branch gs1 gs2 -> countFailedGoals gs1 + countFailedGoals gs2
+    Goal _ _ _ (NotProved _) -> 1
+    Goal _ _ _ (Proved _) -> 0
 
 proveToGoal ::
   sym ~ ExprBuilder s (OnlineBackendState solver) fs =>
@@ -101,7 +108,7 @@ proveGoals ::
   IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
 proveGoals _opts _ctxt Nothing =
-  do -- sayOK "Crux" $ unwords [ "No goals to prove." ]
+  do sayOK "Crux" $ unwords [ "No goals to prove." ]
      return Nothing
 
 proveGoals opts ctxt (Just gs0) =
@@ -110,7 +117,7 @@ proveGoals opts ctxt (Just gs0) =
      goalNum <- newIORef (0,0) -- total, proved
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
-       say "Crux" "Warning: can't use UNSAT cores in MC-SAT mode."
+      say "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      res <- inNewFrame sp (go sp goalNum gs0 nameMap)
      (tot,proved) <- readIORef goalNum
      if proved /= tot
@@ -150,11 +157,8 @@ proveGoals opts ctxt (Just gs0) =
                         do modifyIORef' gn (\(x,f) -> (x,f+1))
                            namemap <- readIORef nameMap
                            core <- if hasUnsatCores
-                                   then do
-                                     core <- getUnsatCore sp
-                                     return (map (lookupnm namemap) core)
-                                   else do
-                                     return (Map.elems namemap)
+                                   then map (lookupnm namemap) <$> getUnsatCore sp
+                                   else return (Map.elems namemap)
                            return (Prove (p, (Proved core)))
 
                       Sat ()  ->

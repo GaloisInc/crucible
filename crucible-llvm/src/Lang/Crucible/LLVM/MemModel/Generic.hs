@@ -854,8 +854,16 @@ data MemState sym =
 
 type MemChanges sym = ([MemAlloc sym], MemWrites sym)
 
+-- | Memory writes are represented as a list of chunks of writes.
+--   Chunks alternate between being indexed and being flat.
 newtype MemWrites sym = MemWrites [MemWritesChunk sym]
 
+-- | A chunk of memory writes is either indexed or flat (unindexed).
+--   An indexed chunk consists of writes to addresses with concrete
+--   base pointers and is represented as a map. A flat chunk consists of
+--   writes to addresses with symbolic base pointers. A merge of two
+--   indexed chunks is a indexed chunk, while any other merge is part of
+--   a flat chunk.
 data MemWritesChunk sym =
     MemWritesChunkFlat [MemWrite sym]
   | MemWritesChunkIndexed (IntMap [MemWrite sym])
@@ -915,23 +923,28 @@ muxChanges c (left_allocs, lhs_writes) (rhs_allocs, rhs_writes) =
   )
 
 muxWrites :: Pred sym -> MemWrites sym -> MemWrites sym -> MemWrites sym
+muxWrites _ (MemWrites []) (MemWrites []) = MemWrites []
 muxWrites c lhs_writes rhs_writes
-  | MemWrites [MemWritesChunkIndexed lhs_indexed_writes] <- lhs_writes
-  , MemWrites [MemWritesChunkIndexed rhs_indexed_writes] <- rhs_writes =
-    MemWrites
-      [ MemWritesChunkIndexed $
-          mergeMemWritesChunkIndexed
-            (\lhs rhs ->
-              [ WriteMerge
-                  c
-                  (MemWrites [MemWritesChunkFlat lhs])
-                  (MemWrites [MemWritesChunkFlat rhs])
-              ])
-            lhs_indexed_writes
-            rhs_indexed_writes
-      ]
+  | Just lhs_indexed_writes <- asIndexedChunkMap lhs_writes
+  , Just rhs_indexed_writes <- asIndexedChunkMap rhs_writes =
+      MemWrites
+        [ MemWritesChunkIndexed $
+            mergeMemWritesChunkIndexed
+              (\lhs rhs ->
+                 [ WriteMerge
+                     c
+                     (MemWrites [MemWritesChunkFlat lhs])
+                     (MemWrites [MemWritesChunkFlat rhs])
+                 ])
+              lhs_indexed_writes
+              rhs_indexed_writes
+        ]
   | otherwise =
     MemWrites [MemWritesChunkFlat [WriteMerge c lhs_writes rhs_writes]]
+  where asIndexedChunkMap :: MemWrites sym -> Maybe (IntMap [MemWrite sym])
+        asIndexedChunkMap (MemWrites [MemWritesChunkIndexed m]) = Just m
+        asIndexedChunkMap (MemWrites []) = Just IntMap.empty
+        asIndexedChunkMap _ = Nothing
 
 mergeMemWritesChunkIndexed ::
   ([MemWrite sym] -> [MemWrite sym] -> [MemWrite sym]) ->
