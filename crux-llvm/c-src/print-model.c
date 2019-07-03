@@ -16,6 +16,12 @@ int main () {
   for (i = 0; i < crux_value_num(int64_t); ++i)
     printf("%s = %"PRId64"\n", crux_names(int64_t)[i], crux_values(int64_t)[i]);
 
+  for (i = 0; i < crux_value_num(float); ++i)
+    printf("%s = %f\n", crux_names(float)[i], crux_values(float)[i]);
+
+  for (i = 0; i < crux_value_num(double); ++i)
+    printf("%s = %f\n", crux_names(double)[i], crux_values(double)[i]);
+
   return 0;
 }
 

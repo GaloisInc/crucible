@@ -68,7 +68,6 @@ import Lang.Crucible.LLVM.MemModel
 import Lang.Crucible.LLVM.Extension(LLVM)
 import Lang.Crucible.LLVM.Extension(ArchWidth)
 
-import Crux.Error
 import Crux.Types
 import Crux.Model
 
@@ -106,6 +105,11 @@ setupOverrides ctxt =
         (Empty :> tPtr) knownRepr (lib_fresh_i32 mvar)
      regOver ctxt "crucible_uint64_t"
         (Empty :> tPtr) knownRepr (lib_fresh_i64 mvar)
+
+     regOver ctxt "crucible_float"
+        (Empty :> tPtr) knownRepr (lib_fresh_cfloat mvar)
+     regOver ctxt "crucible_double"
+        (Empty :> tPtr) knownRepr (lib_fresh_cdouble mvar)
 
      regOver ctxt "crucible_string"
         (Empty :> tPtr :> tBVPtrWidth) tPtr (lib_fresh_str mvar)
@@ -195,7 +199,7 @@ regOver ctxt n argT retT x =
               do let over = mkOverride' nm retT x
                  registerFnBinding (FnBinding h (UseOverride over))
            _ ->
-             throwBug $ unlines
+             error $ unlines
                 [ "[bug] Invalid type for implementation of " ++ show n
                 , "*** Expected: " ++ showF (handleArgTypes h) ++
                             " -> " ++ showF (handleReturnType h)
@@ -276,6 +280,25 @@ lib_fresh_i64 ::
   (ArchOk arch, IsSymInterface sym) =>
   GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (TBits 64)
 lib_fresh_i64 mem = lib_fresh_bits mem knownNat
+
+lib_fresh_float ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem -> FloatInfoRepr fi -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (FloatType fi)
+lib_fresh_float mvar fi =
+  do RegMap args <- getOverrideArgs
+     pName <- case args of Empty :> pName -> pure pName
+     name <- lookupString mvar pName
+     mkFreshFloat name fi
+
+lib_fresh_cfloat ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (FloatType SingleFloat)
+lib_fresh_cfloat mvar = lib_fresh_float mvar SingleFloatRepr
+
+lib_fresh_cdouble ::
+  (ArchOk arch, IsSymInterface sym) =>
+  GlobalVar Mem -> Fun sym (LLVM arch) (EmptyCtx ::> TPtr arch) (FloatType DoubleFloat)
+lib_fresh_cdouble mvar = lib_fresh_float mvar DoubleFloatRepr
 
 lib_fresh_str ::
   (ArchOk arch, IsSymInterface sym) =>

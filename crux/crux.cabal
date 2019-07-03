@@ -34,28 +34,35 @@ library
     vector >= 0.7,
     what4 >= 0.4.1,
     ansi-terminal,
-                data-binary-ieee754,
-                raw-strings-qq
+    data-binary-ieee754,
+    raw-strings-qq,
+    simple-get-opt,
+    config-value,
+    config-schema
 
   hs-source-dirs: src
 
   exposed-modules:
-    Crux.Language,
+    Crux,
     Crux.Types,
-    Crux.Error,
     Crux.Goal,
-    Crux.Options,
     Crux.Log,
     Crux.ProgressBar,
     Crux.Report,
     Crux.Model,
     Crux.Loops,
-    Crux.CruxMain
-  
+    Crux.Config,
+    Crux.Config.Load,
+    Crux.Config.Doc,
+    Crux.Config.Common
+    Crux.Extension,
+    Crux.Version
+
   other-modules:
-                Crux.UI.Jquery,
-                Crux.UI.IndexHtml
-                
+   Crux.UI.JS,
+   Crux.UI.Jquery,
+   Crux.UI.IndexHtml
+
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010

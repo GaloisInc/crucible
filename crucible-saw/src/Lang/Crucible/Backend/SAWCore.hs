@@ -962,6 +962,18 @@ evaluateExpr sym sc cache = f
            --     1 here to make things match up.
            n <- SC.scNat sc (w - 1)
            join (SC.scBvSShr sc n <$> f x <*> (SC.scBvToNat sc w =<< f y))
+        B.BVRol w x y -> fmap SAWExpr $ do
+           n <- SC.scNat sc (natValue w)
+           bit <- SC.scBoolType sc
+           x' <- f x
+           y' <- SC.scBvToNat sc (natValue w) =<< f y
+           SC.scGlobalApply sc (SC.mkIdent SC.preludeName "rotateL") [n,bit,x',y']
+        B.BVRor w x y -> fmap SAWExpr $ do
+           n <- SC.scNat sc (natValue w)
+           bit <- SC.scBoolType sc
+           x' <- f x
+           y' <- SC.scBvToNat sc (natValue w) =<< f y
+           SC.scGlobalApply sc (SC.mkIdent SC.preludeName "rotateR") [n,bit,x',y']
         B.BVConcat _ x y -> fmap SAWExpr $ do
            n <- SC.scNat sc (natValue (bvWidth x))
            m <- SC.scNat sc (natValue (bvWidth y))

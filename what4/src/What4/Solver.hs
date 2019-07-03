@@ -8,6 +8,9 @@ The module reexports the most commonly used types
 and operations for interacting with solvers.
 -}
 
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedLists #-}
+
 module What4.Solver
   ( -- * Solver Adapters
     SolverAdapter(..)
@@ -56,10 +59,10 @@ module What4.Solver
   , withZ3
   ) where
 
-import What4.Solver.Adapter
-import What4.Solver.Boolector
-import What4.Solver.CVC4
-import What4.Solver.DReal
-import What4.Solver.STP
-import What4.Solver.Yices
-import What4.Solver.Z3
+import           What4.Solver.Adapter
+import           What4.Solver.Boolector
+import           What4.Solver.CVC4
+import           What4.Solver.DReal
+import           What4.Solver.STP
+import           What4.Solver.Yices
+import           What4.Solver.Z3

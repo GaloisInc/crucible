@@ -292,7 +292,8 @@ stepStmt verb stmt rest =
        CallHandle ret_type fnExpr _types arg_exprs ->
          do hndl <- evalReg fnExpr
             args <- evalArgs arg_exprs
-            callFunction hndl args (ReturnToCrucible ret_type rest)
+            loc <- liftIO $ getCurrentProgramLoc sym
+            callFunction hndl args (ReturnToCrucible ret_type rest) loc
 
        Print e ->
          do msg <- evalReg e
@@ -384,9 +385,11 @@ stepTerm _ (TailCall fnExpr _types arg_exprs) =
   do cl   <- evalReg fnExpr
      args <- evalArgs arg_exprs
      ctx <- view (stateTree.actContext)
+     sym <- view stateSymInterface
+     loc <- liftIO $ getCurrentProgramLoc sym
      case unwindContext ctx of
-       Just vfv -> tailCallFunction cl args vfv
-       Nothing  -> callFunction cl args TailReturnToCrucible
+       Just vfv -> tailCallFunction cl args vfv loc
+       Nothing  -> callFunction cl args TailReturnToCrucible loc
 
 stepTerm _ (ErrorStmt msg) =
   do msg' <- evalReg msg

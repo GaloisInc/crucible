@@ -2042,6 +2042,30 @@ appSMTExpr ae = do
       y <- mkBaseExpr ye
       freshBoundTerm (BVTypeMap w) $ bvAshr x y
 
+    BVRol w xe ye -> do
+      x  <- mkBaseExpr xe
+      y  <- mkBaseExpr ye
+
+      let w' = bvTerm w (intValue w)
+      y' <- asBase <$> (freshBoundTerm (BVTypeMap w) $ bvURem y w')
+
+      let lo = bvLshr x (bvSub w' y')
+      let hi = bvShl x y'
+
+      freshBoundTerm (BVTypeMap w) $ bvXor hi lo
+
+    BVRor w xe ye -> do
+      x  <- mkBaseExpr xe
+      y  <- mkBaseExpr ye
+
+      let w' = bvTerm w (intValue w)
+      y' <- asBase <$> (freshBoundTerm (BVTypeMap w) $ bvURem y w')
+
+      let lo = bvLshr x y'
+      let hi = bvShl x (bvSub w' y')
+
+      freshBoundTerm (BVTypeMap w) $ bvXor hi lo
+
     BVZext w' xe -> do
       let w = bvWidth xe
       x <- mkBaseExpr xe
@@ -2641,6 +2665,7 @@ class SMTWriter h => SMTReadWriter h where
   --   The boolean indicates the polarity of the atom: true for an ordinary
   --   atom, false for a negated atom.
   smtUnsatAssumptionsResult :: f h -> Streams.InputStream Text -> IO [(Bool,Text)]
+
 
 -- | Return the terms associated with the given ground index variables.
 smtIndicesTerms :: forall v idx

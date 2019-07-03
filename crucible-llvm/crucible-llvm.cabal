@@ -22,6 +22,7 @@ library
     deepseq,
     directory,
     ghc-prim,
+    extra,
     hashable,
     hashtables,
     lens,
@@ -110,4 +111,5 @@ test-suite crucible-llvm-tests
     tasty,
     tasty-golden,
     tasty-quickcheck,
-    tasty-hunit
+    tasty-hunit,
+    vector

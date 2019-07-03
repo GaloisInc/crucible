@@ -65,6 +65,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , ppAlloc
   , ppAllocs
   , ppMem
+  , ppTermExpr
   ) where
 
 import           Prelude hiding (pred)
@@ -75,8 +76,13 @@ import           Control.Monad.State.Strict
 import           Data.Coerce (coerce)
 import           Data.IORef
 import           Data.Maybe
+import qualified Data.List as List
+import qualified Data.List.Extra as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map as Map
+import           Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+import           Data.Monoid
 import qualified Data.Vector as V
 import           GHC.Generics (Generic, Generic1)
 import           Numeric.Natural
@@ -90,6 +96,7 @@ import           Data.Parameterized.Ctx (SingleCtx)
 import           Data.Parameterized.Some
 
 import           What4.Interface
+import qualified What4.Concrete as W4
 import qualified What4.Partial as W4P
 import qualified What4.Partial.AssertionTree as W4AT
 
@@ -108,10 +115,10 @@ import qualified Lang.Crucible.LLVM.Extension.Safety as Safety
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 
 data AllocType = StackAlloc | HeapAlloc | GlobalAlloc
-  deriving (Show)
+  deriving (Eq, Ord, Show)
 
 data Mutability = Mutable | Immutable
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 -- | Stores writeable memory allocations.
 data MemAlloc sym
@@ -142,7 +149,7 @@ data MemWrite sym
     -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
   = forall w. MemWrite (LLVMPtr sym w) (WriteSource sym w)
     -- | The merger of two memories.
-  | WriteMerge (Pred sym) [MemWrite sym] [MemWrite sym]
+  | WriteMerge (Pred sym) (MemWrites sym) (MemWrites sym)
 
 --------------------------------------------------------------------------------
 -- Assertions
@@ -515,11 +522,48 @@ readMemStore sym w end (LLVMPointer blk off) ltp d t stp loadAlign storeAlign re
                      | Just{} <- ld = FixedLoad
                      | otherwise = NeitherFixed
 
-            let align' = min loadAlign storeAlign
+            let alignStride = fromAlignment $ min loadAlign storeAlign
+
+            -- compute the linear form of (load offset - store offset)
+            let (diffStride, diffDelta)
+                  | Just (load_a, _x, load_b) <- asAffineVar off
+                  , Just (store_a, _y, store_b) <- asAffineVar d = do
+                    let stride' = gcd
+                          (W4.fromConcreteUnsignedBV load_a)
+                          (W4.fromConcreteUnsignedBV store_a)
+                    -- mod returns a non-negative integer
+                    let delta' = mod
+                          (W4.fromConcreteUnsignedBV load_b - W4.fromConcreteUnsignedBV store_b)
+                          stride'
+                    (fromInteger stride', fromInteger delta')
+                  | Just (load_a, _x, load_b) <- asAffineVar off
+                  , Just store_b <- asUnsignedBV d = do
+                    let stride' = W4.fromConcreteUnsignedBV load_a
+                    let delta' = mod (W4.fromConcreteUnsignedBV load_b - store_b) stride'
+                    (fromInteger stride', fromInteger delta')
+                  | Just load_b <- asUnsignedBV off
+                  , Just (store_a, _y, store_b) <- asAffineVar d = do
+                    let stride' = W4.fromConcreteUnsignedBV store_a
+                    let delta' = mod (load_b - W4.fromConcreteUnsignedBV store_b) stride'
+                    (fromInteger stride', fromInteger delta')
+                  | otherwise = (1, 0)
+
+            let (stride, delta) = if diffStride >= alignStride
+                  then (diffStride, diffDelta)
+                  else (alignStride, 0)
+
             diff <- liftIO $ bvSub sym off d
 
-            evalMuxValueCtor sym w end varFn subFn $
-              symbolicValueLoad pref ltp (signedBVBounds diff) (ValueViewVar stp) align'
+            -- skip computing the mux tree if it would be empty
+            if storageTypeSize stp <= delta && (typeEnd 0 ltp) <= (stride - delta)
+              then readPrev ltp $ LLVMPointer blk off
+              else evalMuxValueCtor sym w end varFn subFn $
+                symbolicValueLoad
+                  pref
+                  ltp
+                  (signedBVBounds diff)
+                  (ValueViewVar stp)
+                  (LinearLoadStoreOffsetDiff stride delta)
 
 -- | Read from a memory with an array store to the same block we are reading.
 readMemArrayStore
@@ -605,16 +649,32 @@ readMem sym w l tp alignment m = do
   sz         <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
   p1         <- isAllocated sym w alignment l (Just sz) m
   p2         <- isAligned sym w l alignment
-  readMem' sym w (memEndianForm m) l tp alignment (memWrites m) >>=
-    \case
-      e@(W4P.Err _) -> return e
-      PartLLVMVal p v ->
-        let ub1 = UB.ReadUnallocated  (UB.pointerView l)
-            ub2 = UB.ReadBadAlignment (UB.pointerView l) alignment
-            p'  = W4AT.And (p :| [ W4AT.Leaf (undefinedBehavior ub1 p1)
-                                 , W4AT.Leaf (undefinedBehavior ub2 p2)
-                                 ])
-        in return $ PartLLVMVal p' v
+  maybe_allocation_array <- asMemAllocationArrayStore sym w l m
+  part_val <- case maybe_allocation_array of
+    -- if this read is inside an allocation backed by a SMT array store,
+    -- then decompose this read into reading the individual bytes and
+    -- assembling them to obtain the value, without introducing any
+    -- ite operations
+    Just (arr, _arr_sz) -> do
+      let loadArrayByteFn :: Offset -> IO (PartLLVMVal arch sym)
+          loadArrayByteFn off = do
+            blk0 <- natLit sym 0
+            idx <- bvAdd sym (llvmPointerOffset l)
+              =<< bvLit sym w (bytesToInteger off)
+            byte <- arrayLookup sym arr $ Ctx.singleton idx
+            return $ Partial.totalLLVMVal sym $ LLVMValInt blk0 byte
+      genValueCtor sym (memEndianForm m)
+        =<< loadTypedValueFromBytes 0 tp loadArrayByteFn
+    Nothing -> readMem' sym w (memEndianForm m) l tp alignment (memWrites m)
+  case part_val of
+    e@(W4P.Err _) -> return e
+    PartLLVMVal p v ->
+      let ub1 = UB.ReadUnallocated  (UB.pointerView l)
+          ub2 = UB.ReadBadAlignment (UB.pointerView l) alignment
+          p'  = W4AT.And (p :| [ W4AT.Leaf (undefinedBehavior ub1 p1)
+                              , W4AT.Leaf (undefinedBehavior ub2 p2)
+                              ])
+      in return $ PartLLVMVal p' v
 
 data CacheEntry sym w =
   CacheEntry !(StorageType) !(SymNat sym) !(SymBV sym w)
@@ -642,10 +702,10 @@ readMem' ::
   LLVMPtr sym w  {- ^ Address we are reading            -} ->
   StorageType    {- ^ The type to read from memory      -} ->
   Alignment      {- ^ Alignment of pointer to read from -} ->
-  [MemWrite sym] {- ^ List of writes                    -} ->
+  MemWrites sym  {- ^ List of writes                    -} ->
   IO (PartLLVMVal arch sym)
-readMem' sym w end l0 tp0 alignment ws =
-  runReadMem initReadMemDebugState (go fallback0 l0 tp0 ws)
+readMem' sym w end l0 tp0 alignment (MemWrites ws) =
+  runReadMem initReadMemDebugState (go fallback0 l0 tp0 [] ws)
   where
     fallback0 ::
       StorageType ->
@@ -657,9 +717,12 @@ readMem' sym w end l0 tp0 alignment ws =
           LLVMPtr sym w ->
           StorageType ->
           [MemWrite sym] ->
+          [MemWritesChunk sym] ->
           ReadMem arch sym (PartLLVMVal arch sym)
-    go fallback l tp [] = fallback tp l
-    go fallback l tp (h : r) =
+    go fallback l tp [] [] = fallback tp l
+    go fallback l tp [] (head_chunk : tail_chunks) =
+      go fallback l tp (memWritesChunkAt l head_chunk) tail_chunks
+    go fallback l tp (h : r) rest_chunks =
       do cache <- liftIO $ newIORef Map.empty
          let readPrev ::
                StorageType ->
@@ -670,15 +733,15 @@ readMem' sym w end l0 tp0 alignment ws =
                case Map.lookup (toCacheEntry tp' l') m of
                  Just x -> return x
                  Nothing -> do
-                   x <- go fallback l' tp' r
+                   x <- go fallback l' tp' r rest_chunks
                    liftIO $ writeIORef cache $ Map.insert (toCacheEntry tp' l') x m
                    return x
          case h of
-           WriteMerge _ [] [] ->
-             go fallback l tp r
-           WriteMerge c xr yr ->
-             do x <- go readPrev l tp xr
-                y <- go readPrev l tp yr
+           WriteMerge _ (MemWrites []) (MemWrites []) ->
+             go fallback l tp r rest_chunks
+           WriteMerge c (MemWrites xr) (MemWrites yr) ->
+             do x <- go readPrev l tp [] xr
+                y <- go readPrev l tp [] yr
                 liftIO $ Partial.muxLLVMVal sym c x y
            MemWrite dst wsrc ->
              case testEquality (ptrWidth dst) w of
@@ -789,22 +852,142 @@ data MemState sym =
     -- of the list.
   | BranchFrame !Int !Int (MemChanges sym) (MemState sym)
 
-type MemChanges sym = ([MemAlloc sym], [MemWrite sym])
+type MemChanges sym = ([MemAlloc sym], MemWrites sym)
+
+-- | Memory writes are represented as a list of chunks of writes.
+--   Chunks alternate between being indexed and being flat.
+newtype MemWrites sym = MemWrites [MemWritesChunk sym]
+
+-- | A chunk of memory writes is either indexed or flat (unindexed).
+--   An indexed chunk consists of writes to addresses with concrete
+--   base pointers and is represented as a map. A flat chunk consists of
+--   writes to addresses with symbolic base pointers. A merge of two
+--   indexed chunks is a indexed chunk, while any other merge is part of
+--   a flat chunk.
+data MemWritesChunk sym =
+    MemWritesChunkFlat [MemWrite sym]
+  | MemWritesChunkIndexed (IntMap [MemWrite sym])
+
+instance Semigroup (MemWrites sym) where
+  (MemWrites lhs_writes) <> (MemWrites rhs_writes)
+    | Just (lhs_head_writes, lhs_tail_write) <- List.unsnoc lhs_writes
+    , MemWritesChunkIndexed lhs_tail_indexed_writes <- lhs_tail_write
+    , rhs_head_write : rhs_tail_writes <- rhs_writes
+    , (MemWritesChunkIndexed rhs_head_indexed_writes) <- rhs_head_write = do
+      let merged_chunk = MemWritesChunkIndexed $ IntMap.mergeWithKey
+            (\_ lhs_alloc_writes rhs_alloc_writes ->
+              Just $ lhs_alloc_writes ++ rhs_alloc_writes)
+            id
+            id
+            lhs_tail_indexed_writes
+            rhs_head_indexed_writes
+      MemWrites $ lhs_head_writes ++ [merged_chunk] ++ rhs_tail_writes
+    | otherwise = MemWrites $ lhs_writes ++ rhs_writes
+
+instance Monoid (MemWrites sym) where
+  mempty = MemWrites []
+
+memWritesSingleton ::
+  IsExprBuilder sym =>
+  LLVMPtr sym w ->
+  WriteSource sym w ->
+  MemWrites sym
+memWritesSingleton ptr src
+  | Just blk <- asNat (llvmPointerBlock ptr)
+  , isIndexableSource src =
+    MemWrites
+      [ MemWritesChunkIndexed $
+          IntMap.singleton (fromIntegral blk) [MemWrite ptr src]
+      ]
+  | otherwise = MemWrites [MemWritesChunkFlat [MemWrite ptr src]]
+  where
+    isIndexableSource ::  WriteSource sym w -> Bool
+    isIndexableSource = \case
+      MemStore{} -> True
+      MemArrayStore{} -> True
+      MemSet{} -> True
+      MemCopy{} -> False
+
+memWritesSize :: MemWrites sym -> Int
+memWritesSize (MemWrites writes) = getSum $ foldMap
+  (\case
+    MemWritesChunkIndexed indexed_writes ->
+      foldMap (Sum . length) indexed_writes
+    MemWritesChunkFlat flat_writes -> Sum $ length flat_writes)
+  writes
 
 muxChanges :: Pred sym -> MemChanges sym -> MemChanges sym -> MemChanges sym
-muxChanges c (xa,xw) (ya,yw) = ([AllocMerge c xa ya], [WriteMerge c xw yw])
+muxChanges c (left_allocs, lhs_writes) (rhs_allocs, rhs_writes) =
+  ( [AllocMerge c left_allocs rhs_allocs]
+  , muxWrites c lhs_writes rhs_writes
+  )
 
-memChanges :: (MemChanges sym -> [d]) -> Mem sym -> [d]
+muxWrites :: Pred sym -> MemWrites sym -> MemWrites sym -> MemWrites sym
+muxWrites _ (MemWrites []) (MemWrites []) = MemWrites []
+muxWrites c lhs_writes rhs_writes
+  | Just lhs_indexed_writes <- asIndexedChunkMap lhs_writes
+  , Just rhs_indexed_writes <- asIndexedChunkMap rhs_writes =
+      MemWrites
+        [ MemWritesChunkIndexed $
+            mergeMemWritesChunkIndexed
+              (\lhs rhs ->
+                 [ WriteMerge
+                     c
+                     (MemWrites [MemWritesChunkFlat lhs])
+                     (MemWrites [MemWritesChunkFlat rhs])
+                 ])
+              lhs_indexed_writes
+              rhs_indexed_writes
+        ]
+  | otherwise =
+    MemWrites [MemWritesChunkFlat [WriteMerge c lhs_writes rhs_writes]]
+  where asIndexedChunkMap :: MemWrites sym -> Maybe (IntMap [MemWrite sym])
+        asIndexedChunkMap (MemWrites [MemWritesChunkIndexed m]) = Just m
+        asIndexedChunkMap (MemWrites []) = Just IntMap.empty
+        asIndexedChunkMap _ = Nothing
+
+mergeMemWritesChunkIndexed ::
+  ([MemWrite sym] -> [MemWrite sym] -> [MemWrite sym]) ->
+  IntMap [MemWrite sym] ->
+  IntMap [MemWrite sym] ->
+  IntMap [MemWrite sym]
+mergeMemWritesChunkIndexed merge_func = IntMap.mergeWithKey
+  (\_ lhs_alloc_writes rhs_alloc_writes -> Just $
+    merge_func lhs_alloc_writes rhs_alloc_writes)
+  (IntMap.map $ \lhs_alloc_writes -> merge_func lhs_alloc_writes [])
+  (IntMap.map $ \rhs_alloc_writes -> merge_func [] rhs_alloc_writes)
+
+memChanges :: Monoid m => (MemChanges sym -> m) -> Mem sym -> m
 memChanges f m = go (m^.memState)
   where go (EmptyMem _ _ l)      = f l
-        go (StackFrame _ _ l s)  = f l ++ go s
-        go (BranchFrame _ _ l s) = f l ++ go s
+        go (StackFrame _ _ l s)  = f l <> go s
+        go (BranchFrame _ _ l s) = f l <> go s
 
 memAllocs :: Mem sym -> [MemAlloc sym]
 memAllocs = memChanges fst
 
-memWrites :: Mem sym -> [MemWrite sym]
+memWrites :: Mem sym -> MemWrites sym
 memWrites = memChanges snd
+
+memWritesChunkAt ::
+  IsExprBuilder sym =>
+  LLVMPtr sym w ->
+  MemWritesChunk sym ->
+  [MemWrite sym]
+memWritesChunkAt ptr = \case
+  MemWritesChunkIndexed indexed_writes
+    | Just blk <- asNat (llvmPointerBlock ptr) ->
+      IntMap.findWithDefault [] (fromIntegral blk) indexed_writes
+    | otherwise -> IntMap.foldr (++) [] indexed_writes
+  MemWritesChunkFlat flat_writes -> flat_writes
+
+memWritesAtConstant :: Natural -> MemWrites sym -> [MemWrite sym]
+memWritesAtConstant blk (MemWrites writes) = foldMap
+  (\case
+    MemWritesChunkIndexed indexed_writes ->
+      IntMap.findWithDefault [] (fromIntegral blk) indexed_writes
+    MemWritesChunkFlat flat_writes -> flat_writes)
+  writes
 
 memStateAllocCount :: MemState sym -> Int
 memStateAllocCount s = case s of
@@ -830,23 +1013,33 @@ memAddAlloc x = memState %~ \case
   StackFrame ac wc (a, w) s -> StackFrame (ac+1) wc (x:a, w) s
   BranchFrame ac wc (a, w) s -> BranchFrame (ac+1) wc (x:a, w) s
 
-memAddWrite :: MemWrite sym -> Mem sym -> Mem sym
-memAddWrite x = memState %~ \case
-  EmptyMem ac wc (a, w) -> EmptyMem ac (wc+1) (a, x:w)
-  StackFrame ac wc (a, w) s -> StackFrame ac (wc+1) (a, x:w) s
-  BranchFrame ac wc (a, w) s -> BranchFrame ac (wc+1) (a, x:w) s
+memAddWrite ::
+  IsExprBuilder sym =>
+  LLVMPtr sym w ->
+  WriteSource sym w ->
+  Mem sym ->
+  Mem sym
+memAddWrite ptr src = do
+  let single_write = memWritesSingleton ptr src
+  memState %~ \case
+    EmptyMem ac wc (a, w) ->
+      EmptyMem ac (wc+1) (a, single_write <> w)
+    StackFrame ac wc (a, w) s ->
+      StackFrame ac (wc+1) (a, single_write <> w) s
+    BranchFrame ac wc (a, w) s ->
+      BranchFrame ac (wc+1) (a, single_write <> w) s
 
 memStateAddChanges :: MemChanges sym -> MemState sym -> MemState sym
-memStateAddChanges (a, w) s = case s of
+memStateAddChanges (a, w) = \case
   EmptyMem ac wc (a0, w0) ->
-    EmptyMem (length a + ac) (length w + wc) (a ++ a0, w ++ w0)
-  StackFrame ac wc (a0, w0) s' ->
-    StackFrame (length a + ac) (length w + wc) (a ++ a0, w ++ w0) s'
-  BranchFrame ac wc (a0, w0) s' ->
-    BranchFrame (length a + ac) (length w + wc) (a ++ a0, w ++ w0) s'
+    EmptyMem (length a + ac) (memWritesSize w + wc) (a ++ a0, w <> w0)
+  StackFrame ac wc (a0, w0) s ->
+    StackFrame (length a + ac) (memWritesSize w + wc) (a ++ a0, w <> w0) s
+  BranchFrame ac wc (a0, w0) s ->
+    BranchFrame (length a + ac) (memWritesSize w + wc) (a ++ a0, w <> w0) s
 
 emptyChanges :: MemChanges sym
-emptyChanges = ([],[])
+emptyChanges = ([], mempty)
 
 emptyMem :: EndianForm -> Mem sym
 emptyMem e = Mem { memEndianForm = e, _memState = EmptyMem 0 0 emptyChanges }
@@ -1073,11 +1266,7 @@ writeMem :: (1 <= w, IsSymInterface sym)
          -> LLVMVal sym
          -> Mem sym
          -> IO (Mem sym, Pred sym, Pred sym)
-writeMem sym w ptr tp alignment v m =
-  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocatedMutable sym w alignment ptr (Just sz) m
-     p2 <- isAligned sym w ptr alignment
-     return (memAddWrite (MemWrite ptr (MemStore v tp alignment)) m, p1, p2)
+writeMem = writeMemWithAllocationCheck isAllocatedMutable
 
 -- | Write a value to any memory region, mutable or immutable.
 --
@@ -1094,11 +1283,70 @@ writeConstMem ::
   LLVMVal sym   ->
   Mem sym       ->
   IO (Mem sym, Pred sym, Pred sym)
-writeConstMem sym w ptr tp alignment v m =
-  do sz <- bvLit sym w (bytesToInteger (typeEnd 0 tp))
-     p1 <- isAllocated sym w alignment ptr (Just sz) m
-     p2 <- isAligned sym w ptr alignment
-     return (memAddWrite (MemWrite ptr (MemStore v tp alignment)) m, p1, p2)
+writeConstMem = writeMemWithAllocationCheck isAllocated
+
+-- | Write a value to memory.
+--
+-- The returned predicates assert (in this order):
+--  * the pointer satisfies the checks specified by
+--    the @is_allocated@ function
+--  * the pointer's alignment is correct
+writeMemWithAllocationCheck ::
+  forall sym w .
+  (IsSymInterface sym, 1 <= w) =>
+  (sym -> NatRepr w -> Alignment -> LLVMPtr sym w -> Maybe (SymBV sym w) -> Mem sym -> IO (Pred sym)) ->
+  sym ->
+  NatRepr w ->
+  LLVMPtr sym w ->
+  StorageType ->
+  Alignment ->
+  LLVMVal sym ->
+  Mem sym ->
+  IO (Mem sym, Pred sym, Pred sym)
+writeMemWithAllocationCheck is_allocated sym w ptr tp alignment val mem = do
+  let sz = typeEnd 0 tp
+  sz_bv <- constOffset sym w sz
+  p1 <- is_allocated sym w alignment ptr (Just sz_bv) mem
+  p2 <- isAligned sym w ptr alignment
+  maybe_allocation_array <- asMemAllocationArrayStore sym w ptr mem
+  mem' <- case maybe_allocation_array of
+    -- if this write is inside an allocation backed by a SMT array store,
+    -- then decompose this write into disassembling the value to individual
+    -- bytes, writing them in the SMT array, and writing the updated SMT array
+    -- in the memory
+    Just (arr, arr_sz) -> do
+      let subFn :: ValueLoad Addr -> IO (PartLLVMVal arch sym)
+          subFn = \case
+            LastStore val_view -> applyView
+              sym
+              (memEndianForm mem)
+              (Partial.totalLLVMVal sym val)
+              val_view
+            InvalidMemory tp'-> return $ W4P.Err $ Partial.Invalid tp'
+            OldMemory off _ -> panic "Generic.writeMemWithAllocationCheck"
+              [ "Unexpected offset in storage type"
+              , "*** Offset:  " ++ show off
+              , "*** StorageType:  " ++ show tp
+              ]
+          storeArrayByteFn ::
+            SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8) ->
+            Offset ->
+            IO (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8))
+          storeArrayByteFn acc_arr off = do
+            partial_byte <- genValueCtor sym (memEndianForm mem)
+              =<< traverse subFn (loadBitvector off 1 0 (ValueViewVar tp))
+            case partial_byte of
+              PartLLVMVal _ (LLVMValInt _ byte)
+                | Just Refl <- testEquality (knownNat @8) (bvWidth byte) -> do
+                  idx <- bvAdd sym (llvmPointerOffset ptr)
+                    =<< bvLit sym w (bytesToInteger off)
+                  arrayUpdate sym acc_arr (Ctx.singleton idx) byte
+              _ -> return acc_arr
+      res_arr <- foldM storeArrayByteFn arr [0 .. (sz - 1)]
+      arr_sz_bv <- constOffset sym w arr_sz
+      return $ memAddWrite ptr (MemArrayStore res_arr (Just arr_sz_bv)) mem
+    Nothing -> return $ memAddWrite ptr (MemStore val tp alignment) mem
+  return (mem', p1, p2)
 
 -- | Perform a mem copy (a la @memcpy@ in C).
 --
@@ -1115,7 +1363,7 @@ copyMem ::
 copyMem sym w dst src sz m =
   do p1 <- isAllocated sym w noAlignment src (Just sz) m
      p2 <- isAllocatedMutable sym w noAlignment dst (Just sz) m
-     return (memAddWrite (MemWrite dst (MemCopy src sz)) m, p1, p2)
+     return (memAddWrite dst (MemCopy src sz) m, p1, p2)
 
 -- | Perform a mem set, filling a number of bytes with a given 8-bit
 -- value. The returned 'Pred' asserts that the pointer falls within an
@@ -1130,7 +1378,7 @@ setMem ::
 
 setMem sym w ptr val sz m =
   do p <- isAllocatedMutable sym w noAlignment ptr (Just sz) m
-     return (memAddWrite (MemWrite ptr (MemSet val sz)) m, p)
+     return (memAddWrite ptr (MemSet val sz) m, p)
 
 -- | Write an array to memory.
 --
@@ -1148,7 +1396,7 @@ writeArrayMem ::
 writeArrayMem sym w ptr alignment arr sz m =
   do p1 <- isAllocatedMutable sym w alignment ptr sz m
      p2 <- isAligned sym w ptr alignment
-     return (memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m, p1, p2)
+     return (memAddWrite ptr (MemArrayStore arr sz) m, p1, p2)
 
 -- | Write an array to memory.
 --
@@ -1166,7 +1414,7 @@ writeArrayConstMem ::
 writeArrayConstMem sym w ptr alignment arr sz m =
   do p1 <- isAllocated sym w alignment ptr sz m
      p2 <- isAligned sym w ptr alignment
-     return (memAddWrite (MemWrite ptr (MemArrayStore arr sz)) m, p1, p2)
+     return (memAddWrite ptr (MemArrayStore arr sz) m, p1, p2)
 
 -- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
@@ -1197,7 +1445,7 @@ allocAndWriteMem sym w a b tp alignment mut loc v m =
      off <- bvLit sym w 0
      let p = LLVMPointer base off
      return (m & memAddAlloc (Alloc a b (Just sz) mut alignment loc)
-               & memAddWrite (MemWrite p (MemStore v tp alignment)))
+               & memAddWrite p (MemStore v tp alignment))
 
 pushStackFrameMem :: Mem sym -> Mem sym
 pushStackFrameMem = memState %~ \s ->
@@ -1303,6 +1551,14 @@ mergeMem c x y =
 data SomeAlloc sym =
   forall w. SomeAlloc AllocType Natural (Maybe (SymBV sym w)) Mutability Alignment String
 
+instance IsSymInterface sym => Eq (SomeAlloc sym) where
+  SomeAlloc x_atp x_base x_sz x_mut x_alignment x_loc == SomeAlloc y_atp y_base y_sz y_mut y_alignment y_loc = do
+    let sz_eq = case (x_sz, y_sz) of
+          (Just x_bv, Just y_bv) -> isJust $ testEquality x_bv y_bv
+          (Nothing, Nothing) -> True
+          _ -> False
+    x_atp == y_atp && x_base == y_base && sz_eq && x_mut == y_mut && x_alignment == y_alignment && x_loc == y_loc
+
 ppSomeAlloc :: forall sym. IsExprBuilder sym => SomeAlloc sym -> Doc
 ppSomeAlloc (SomeAlloc atp base sz mut alignment loc) =
   ppAlloc (Alloc atp base sz mut alignment loc :: MemAlloc sym)
@@ -1334,6 +1590,60 @@ possibleAllocs n = helper . memAllocs
               AllocMerge (asConstantPred -> Just True) as1 as2 -> helper as1
               AllocMerge (asConstantPred -> Just False) as1 as2 -> helper as2
               AllocMerge _ as1 as2 -> helper as1 ++ helper as2
+
+-- | Check if @LLVMPtr sym w@ points inside an allocation that is backed
+--   by an SMT array store. If true, return the SMT array and the size of
+--   the allocation.
+--
+--   NOTE: this operation is linear in the size of the list of previous
+--   memory writes. This means that memory writes as well as memory reads
+--   require a traversal of the list of previous writes. The performance
+--   of this operation can be improved by using a map to index the writes
+--   by allocation index.
+asMemAllocationArrayStore ::
+  forall sym w .
+  (IsSymInterface sym, 1 <= w) =>
+  sym ->
+  NatRepr w ->
+  LLVMPtr sym w {- ^ Pointer -} ->
+  Mem sym ->
+  IO (Maybe (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8), Bytes))
+asMemAllocationArrayStore sym w ptr mem
+  | Just blk_no <- asNat (llvmPointerBlock ptr)
+  , [SomeAlloc _ _ (Just sz_bv) _ _ _] <- List.nub (possibleAllocs blk_no mem)
+  , Just sz <- asUnsignedBV sz_bv = do
+    let findArrayStore ::
+          [MemWrite sym] ->
+          IO (Maybe (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)))
+        findArrayStore = \case
+          head_mem_write : tail_mem_writes -> case head_mem_write of
+            MemWrite write_ptr write_source
+              | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
+              , blk_no == write_blk_no
+              , MemArrayStore arr (Just arr_store_sz_bv) <- write_source
+              , Just arr_store_sz <- asUnsignedBV arr_store_sz_bv
+              , sz == arr_store_sz
+              , Just Refl <- testEquality w (ptrWidth write_ptr) ->
+                return $ Just arr
+              | Just write_blk_no <- asNat (llvmPointerBlock write_ptr)
+              , blk_no /= write_blk_no ->
+                findArrayStore tail_mem_writes
+              | otherwise -> return Nothing
+            WriteMerge cond lhs_mem_writes rhs_mem_writes -> do
+              lhs_result <- findArrayStore $
+                (memWritesAtConstant blk_no lhs_mem_writes) ++ tail_mem_writes
+              rhs_result <- findArrayStore $
+                (memWritesAtConstant blk_no rhs_mem_writes) ++ tail_mem_writes
+              case (lhs_result, rhs_result) of
+                (Just lhs_arr, Just rhs_arr) ->
+                  Just <$> arrayIte sym cond lhs_arr rhs_arr
+                _ -> return Nothing
+          [] -> return Nothing
+    result <- findArrayStore $ memWritesAtConstant blk_no $ memWrites mem
+    return $ case result of
+      Just arr -> Just (arr, fromInteger sz)
+      Nothing -> Nothing
+  | otherwise = return Nothing
 
 --------------------------------------------------------------------------------
 -- Pretty printing
@@ -1404,15 +1714,31 @@ ppWrite (MemWrite d (MemStore v _ _)) = do
   char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (MemWrite d (MemArrayStore arr _)) = do
   char '*' <> ppPtr d <+> text ":=" <+> printSymExpr arr
-ppWrite (WriteMerge c x y) = do
-  text "merge" <$$> ppMerge ppWrite c x y
+ppWrite (WriteMerge c (MemWrites x) (MemWrites y)) = do
+  text "merge" <$$> ppMerge ppMemWritesChunk c x y
+
+ppMemWritesChunk :: IsExprBuilder sym => MemWritesChunk sym -> Doc
+ppMemWritesChunk = \case
+  MemWritesChunkIndexed indexed_writes ->
+    text "Indexed chunk:" <$$>
+    indent 2 (vcat $ map
+      (\(blk, blk_writes) ->
+        text (show blk) <+> "|->" <$$>
+        indent 2 (vcat $ map ppWrite blk_writes))
+      (IntMap.toList indexed_writes))
+  MemWritesChunkFlat flat_writes ->
+    text "Flat chunk:" <$$>
+    indent 2 (vcat $ map ppWrite flat_writes)
+
+ppMemWrites :: IsExprBuilder sym => MemWrites sym -> Doc
+ppMemWrites (MemWrites ws) = vcat $ map ppMemWritesChunk ws
 
 ppMemChanges :: IsExprBuilder sym => MemChanges sym -> Doc
 ppMemChanges (al,wl) =
   text "Allocations:" <$$>
-  indent 2 (vcat (map ppAlloc al)) <$$>
+  indent 2 (ppAllocs al) <$$>
   text "Writes:" <$$>
-  indent 2 (vcat (map ppWrite wl))
+  indent 2 (ppMemWrites wl)
 
 ppMemState :: (MemChanges sym -> Doc) -> MemState sym -> Doc
 ppMemState f (EmptyMem _ _ d) = do

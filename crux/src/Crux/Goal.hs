@@ -11,6 +11,7 @@ import Data.IORef
 import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
+import qualified Data.Text as Text
 
 
 import What4.Interface (notPred, printSymExpr,asConstantPred)
@@ -18,7 +19,7 @@ import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
-import What4.Protocol.SMTWriter(mkFormula,assumeFormulaWithFreshName,smtExprGroundEvalFn)
+import What4.Protocol.SMTWriter(mkFormula,assumeFormulaWithFreshName,assumeFormula,smtExprGroundEvalFn)
 
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
@@ -31,6 +32,7 @@ import Lang.Crucible.Simulator.ExecutionTree
 import Crux.Types
 import Crux.Model
 import Crux.Log
+import Crux.Config.Common
 import Crux.ProgressBar
 
 
@@ -66,6 +68,13 @@ countGoals gs =
     Prove _         -> 1
     ProveConj g1 g2 -> countGoals g1 + countGoals g2
 
+countFailedGoals :: ProvedGoals a -> Int
+countFailedGoals gs =
+  case gs of
+    AtLoc _ _ gs1 -> countFailedGoals gs1
+    Branch gs1 gs2 -> countFailedGoals gs1 + countFailedGoals gs2
+    Goal _ _ _ (NotProved _) -> 1
+    Goal _ _ _ (Proved _) -> 0
 
 proveToGoal ::
   sym ~ ExprBuilder s (OnlineBackendState solver) fs =>
@@ -93,19 +102,22 @@ proveGoals ::
   , OnlineSolver s solver
   , ?outputConfig :: OutputConfig
   ) =>
+  CruxOptions ->
   SimCtxt sym p ->
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
-proveGoals _ctxt Nothing =
-  do -- sayOK "Crux" $ unwords [ "No goals to prove." ]
+proveGoals _opts _ctxt Nothing =
+  do sayOK "Crux" $ unwords [ "No goals to prove." ]
      return Nothing
 
-proveGoals ctxt (Just gs0) =
+proveGoals opts ctxt (Just gs0) =
   do let sym = ctxt ^. ctxSymInterface
      sp <- getSolverProcess sym
      goalNum <- newIORef (0,0) -- total, proved
      nameMap <- newIORef Map.empty
+     unless hasUnsatCores $
+      say "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      res <- inNewFrame sp (go sp goalNum gs0 nameMap)
      (tot,proved) <- readIORef goalNum
      if proved /= tot
@@ -119,13 +131,15 @@ proveGoals ctxt (Just gs0) =
 
   bindName nm p nameMap = modifyIORef nameMap (Map.insert nm p)
 
-  go sp gn gs nameMap =
+  hasUnsatCores = not (yicesMCSat opts)
+
+  go sp gn gs nameMap = do
     case gs of
 
       Assuming ps gs1 ->
         do forM_ ps $ \p ->
              unless (asConstantPred (p^.labeledPred) == Just True) $
-              do nm <- assumeFormulaWithFreshName conn =<< mkFormula conn (p ^. labeledPred)
+              do nm <- doAssume =<< mkFormula conn (p ^. labeledPred)
                  bindName nm (Left p) nameMap
            res <- go sp gn gs1 nameMap
            return (Assuming ps res)
@@ -134,18 +148,18 @@ proveGoals ctxt (Just gs0) =
         do num <- atomicModifyIORef' gn (\(val,y) -> ((val + 1,y), val))
            start num
            let sym  = ctxt ^. ctxSymInterface
-           nm <- assumeFormulaWithFreshName conn
-                    =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
+           nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
            bindName nm (Right p) nameMap
 
            res <- check sp "proof"
            ret <- case res of
                       Unsat () ->
                         do modifyIORef' gn (\(x,f) -> (x,f+1))
-                           core <- getUnsatCore sp
                            namemap <- readIORef nameMap
-                           let core' = map (lookupnm namemap) core
-                           return (Prove (p, (Proved core')))
+                           core <- if hasUnsatCores
+                                   then map (lookupnm namemap) <$> getUnsatCore sp
+                                   else return (Map.elems namemap)
+                           return (Prove (p, (Proved core)))
 
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
@@ -170,3 +184,10 @@ proveGoals ctxt (Just gs0) =
     lookupnm namemap x =
       fromMaybe (error $ "Named predicate " ++ show x ++ " not found!")
                 (Map.lookup x namemap)
+
+    doAssume formula = do
+      namemap <- readIORef nameMap
+      if hasUnsatCores
+      then assumeFormulaWithFreshName conn formula
+      else assumeFormula conn formula >> return (Text.pack ("x" ++ show (Map.size namemap)))
+

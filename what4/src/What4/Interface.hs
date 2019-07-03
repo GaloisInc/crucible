@@ -297,6 +297,8 @@ class IsExpr e where
   -- | If we have bounds information about the term, return signed upper and lower bounds
   signedBVBounds :: (1 <= w) => e (BaseBVType w) -> Maybe (Integer, Integer)
 
+  asAffineVar :: e tp -> Maybe (ConcreteVal tp, e tp, ConcreteVal tp)
+
   -- | Return the string value if this is a constant string
   asString :: e BaseStringType -> Maybe Text
   asString _ = Nothing
@@ -843,6 +845,20 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
                         SymBV sym w {- ^ Shift this -} ->
                         SymBV sym w {- ^ Amount to shift by -} ->
                         IO (SymBV sym w)
+
+  -- | Rotate left.
+  bvRol :: (1 <= w) =>
+    sym ->
+    SymBV sym w {- ^ bitvector to rotate -} ->
+    SymBV sym w {- ^ amount to rotate by -} ->
+    IO (SymBV sym w)
+
+  -- | Rotate right.
+  bvRor :: (1 <= w) =>
+    sym ->
+    SymBV sym w {- ^ bitvector to rotate -} ->
+    SymBV sym w {- ^ amount to rotate by -} ->
+    IO (SymBV sym w)
 
   -- | Zero-extend a bitvector.
   bvZext :: (1 <= u, u+1 <= r) => sym -> NatRepr r -> SymBV sym u -> IO (SymBV sym r)

@@ -1,19 +1,18 @@
-{-# Language DataKinds #-}
-{-# Language FlexibleContexts #-}
 {-# Language ImplicitParams #-}
 {-# Language OverloadedStrings #-}
 {-# Language PatternSynonyms #-}
 {-# Language RankNTypes #-}
-{-# Language TypeApplications #-}
 {-# Language TypeFamilies #-}
-
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# Language ApplicativeDo #-}
+{-# Language RecordWildCards #-}
+{-# Language ScopedTypeVariables #-}
 
 module CruxLLVMMain (main, mainWithOutputTo) where
 
 import Data.String (fromString)
 import qualified Data.Map as Map
 import Control.Lens ((&), (%~), (^.), view)
+import Control.Monad(forM_)
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
@@ -23,9 +22,9 @@ import System.Process
 import System.Exit
 import System.IO (Handle, stdout)
 import System.FilePath
-  ( takeExtension, dropExtension, takeFileName, (</>), (<.>)
-  , takeDirectory)
-import System.Directory (createDirectoryIfMissing, copyFile)
+  ( takeExtension, dropExtension, takeFileName, (</>)
+  , takeDirectory, replaceExtension)
+import System.Directory (createDirectoryIfMissing, removeFile)
 
 import Data.Parameterized.Some (Some(..))
 import Data.Parameterized.Context (pattern Empty)
@@ -72,9 +71,7 @@ import Lang.Crucible.LLVM.Extension(LLVM)
 import What4.ProgramLoc
 
 -- crux
-import qualified Crux.Language as Crux
-import qualified Crux.CruxMain as Crux
-import qualified Crux.Error    as Crux
+import qualified Crux
 
 import Crux.Types
 import Crux.Model
@@ -83,22 +80,22 @@ import Crux.Log
 -- local
 import Crux.LLVM.Overrides
 
--- | Index for the crux-c "Language"
-data LangLLVM
-
 
 main :: IO ()
-main = Crux.main [Crux.LangConf (Crux.defaultOptions @LangLLVM)]
+main = mainWithOutputConfig defaultOutputConfig
 
 mainWithOutputTo :: Handle -> IO ()
-mainWithOutputTo h =
-  Crux.mainWithOutputConfig (OutputConfig False h h) [Crux.LangConf (Crux.defaultOptions @LangLLVM)]
+mainWithOutputTo h = mainWithOutputConfig (OutputConfig False h h)
 
--- main/checkBC implemented by Crux
+mainWithOutputConfig :: OutputConfig -> IO ()
+mainWithOutputConfig cfg =
+  Crux.mainWithOutputConfig cfg cruxLLVM
+  `catch` \(e :: SomeException) -> sayFail "Crux" (displayException e)
+    where ?outputConfig = cfg
 
-
-makeCounterExamplesLLVM :: (?outputConfig :: OutputConfig) => Options -> Maybe (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
-makeCounterExamplesLLVM opts = maybe (return ()) go
+makeCounterExamplesLLVM ::
+  Logs => Options -> ProvedGoals (Either AssumptionReason SimError) -> IO ()
+makeCounterExamplesLLVM opts = go
  where
  go gs =
   case gs of
@@ -163,9 +160,9 @@ registerFunctions ctx llvm_module mtrans =
 
 
 -- Returns only non-trivial goals
-simulateLLVM :: (?outputConfig :: OutputConfig) => Crux.Simulate sym LangLLVM
-simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
-    llvm_mod   <- parseLLVM (optsBCFile llvmOpts)
+simulateLLVM :: Crux.SimulateCallback LLVMOptions
+simulateLLVM fs (cruxOpts,_) sym _p = do
+    llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
     Some trans <- stToIO (translateModule halloc llvm_mod)
     let llvmCtxt = trans ^. transContext
@@ -186,7 +183,8 @@ simulateLLVM fs (_cruxOpts,llvmOpts) sym _p = do
                         checkFun "main" (cfgMap trans)
           return $ Result res
 
-checkFun :: (ArchOk arch, ?outputConfig :: OutputConfig) => String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
+checkFun :: (ArchOk arch, Logs) =>
+            String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()
 checkFun nm mp =
   case Map.lookup (fromString nm) mp of
     Just (AnyCFG anyCfg) ->
@@ -194,8 +192,8 @@ checkFun nm mp =
         Empty ->
           do liftIO $ say "Crux" ("Simulating function " ++ show nm)
              (regValue <$> callCFG anyCfg emptyRegMap) >> return ()
-        _     -> Crux.throwBadFun
-    Nothing -> Crux.throwMissingFun nm
+        _     -> throwCError BadFun
+    Nothing -> throwCError (MissingFun nm)
 
 
 
@@ -208,75 +206,113 @@ checkFun nm mp =
 -- the "Types" module so that we can refer to the instance
 -- before it has been created here.
 
-instance Crux.Language LangLLVM where
-  name = "llvm"
-  validExtensions = [".c", ".cpp", ".cxx", ".C", ".bc" ]
+data LLVMOptions = LLVMOptions
+  { clangBin   :: FilePath
+  , linkBin    :: FilePath
+  , clangOpts  :: [String]
+  , libDir     :: FilePath
+  , incDirs    :: [FilePath]
+  }
 
-  type LangError LangLLVM = CError
-  formatError = ppCError
+cruxLLVM :: Crux.Language LLVMOptions
+cruxLLVM = Crux.Language
+  { Crux.name = "crux-llvm"
+  , Crux.version = "0.1"
+  , Crux.configuration = Crux.Config
+      { Crux.cfgFile =
+          do clangBin <- Crux.section "clang" Crux.fileSpec "clang"
+                         "Binary to use for `clang`."
 
-  data LangOptions LangLLVM = LLVMOptions
-     {
-       clangBin   :: FilePath
-     , libDir     :: FilePath
-     , optsBCFile :: FilePath
-     -- other options are tracked by Crux
-     }
+             linkBin  <- Crux.section "llvm-link" Crux.fileSpec "llvm-link"
+                         "Binary to use for `clang`."
 
-  defaultOptions = LLVMOptions
-    {
-      clangBin   = "clang"
-    , libDir     = "c-src"
-    , optsBCFile = ""
-    }
+             clangOpts <- Crux.section "clang-opts"
+                                        (Crux.oneOrList Crux.stringSpec) []
+                          "Additional options for `clang`."
 
-  envOptions = [ ("CLANG",   \v opts -> opts { clangBin = v }) ]
+             libDir <- Crux.section "lib-dir" Crux.dirSpec "c-src"
+                       "Locations of `crux-llvm` support library."
 
-  -- this is the replacement for "Clang.testOptions"
-  ioOptions (cruxOpts,llvmOpts) = do
+             incDirs <- Crux.section "include-dirs"
+                            (Crux.oneOrList Crux.dirSpec) []
+                        "Additional include directories."
 
-    -- keep looking for clangBin if it is unset
-    clangFilePath <- if (clangBin llvmOpts == "")
-             then getClang
-             else return $ clangBin llvmOpts
+             return LLVMOptions { .. }
+
+      , Crux.cfgEnv  =
+          [ Crux.EnvVar "CLANG"      "Binary to use for `clang`."
+            $ \v opts -> Right opts { clangBin = v }
+
+          , Crux.EnvVar "CLANG_OPTS" "Options to pass to `clang`."
+            $ \v opts -> Right opts { clangOpts = words v }
+
+          , Crux.EnvVar "LLVM_LINK" "Use this binary to link LLVM bitcode."
+            $ \v opts -> Right opts { linkBin = v }
+          ]
+
+      , Crux.cfgCmdLineFlag =
+          [ Crux.Option ['I'] ["include-dirs"]
+            "Additional include directories."
+            $ Crux.ReqArg "DIR"
+            $ \d opts -> Right opts { incDirs = d : incDirs opts }
+          ]
+      }
+
+  , Crux.initialize = initCruxLLVM
+  , Crux.simulate   = simulateLLVM
+  , Crux.makeCounterExamples = makeCounterExamplesLLVM
+  }
+
+initCruxLLVM :: Options -> IO Options
+initCruxLLVM (cruxOpts,llvmOpts) =
+  do -- keep looking for clangBin if it is unset
+    clangFilePath <- if clangBin llvmOpts == ""
+                        then getClang
+                        else return (clangBin llvmOpts)
+
     let opts2 = llvmOpts { clangBin = clangFilePath }
 
     -- update outDir if unset
-    let inp   = Crux.inputFile cruxOpts
-        name  = dropExtension (takeFileName inp)
-        cruxOpts2 = if (Crux.outDir cruxOpts == "") then
-                      cruxOpts { Crux.outDir = "results" </> name } else cruxOpts
+    name <- case Crux.inputFiles cruxOpts of
+              x : _ -> pure (dropExtension (takeFileName x))
+                          -- use the first file as output directory
+              [] -> throwCError NoFiles
+
+    let cruxOpts2 = if Crux.outDir cruxOpts == ""
+                      then cruxOpts { Crux.outDir = "results" </> name }
+                      else cruxOpts
+
         odir      = Crux.outDir cruxOpts2
 
     createDirectoryIfMissing True odir
 
-    -- update optsBCFile if unset
-    let opts3 = if (optsBCFile opts2 == "")
-                then opts2 { optsBCFile = odir </> name <.> "bc" }
-                else opts2
+    genBitCode (cruxOpts2, opts2)
 
-    if takeExtension inp == ".bc"
-      then copyFile inp (optsBCFile opts3)
-      else (genBitCode (cruxOpts2, opts3))
+    return (cruxOpts2, opts2)
 
-    return (cruxOpts2, opts3)
-
-  simulate = simulateLLVM
-
-  makeCounterExamples opts = makeCounterExamplesLLVM opts
-
----------------------------------------------------------------------
 ---------------------------------------------------------------------
 
 --
--- C-specific errors
+-- LLVM specific errors
 --
 data CError =
     ClangError Int String String
   | LLVMParseError LLVM.Error
+  | MissingFun String
+  | BadFun
+  | EnvError String
+  | NoFiles
+    deriving Show
+
+instance Exception CError where
+  displayException = ppCError
 
 ppCError :: CError -> String
 ppCError err = case err of
+    NoFiles                -> "crux-llvm requires at least one input file."
+    EnvError msg           -> msg
+    BadFun                 -> "Function should have no arguments"
+    MissingFun x           -> "Cannot find code for " ++ show x
     LLVMParseError e       -> LLVM.formatError e
     ClangError n sout serr ->
       unlines $ [ "`clang` compilation failed."
@@ -287,18 +323,9 @@ ppCError err = case err of
                 [ "*** Standard error:" ] ++
                 [ "   " ++ l | l <- lines serr ]
 
--- Currently unused
-{-
-ppErr :: AbortedResult sym ext -> String
-ppErr aberr =
-  case aberr of
-    AbortedExec abt _gp -> show (ppAbortExecReason abt)
-    AbortedExit e       -> "The program exited with result " ++ show e
-    AbortedBranch {}    -> "(Aborted branch?)"
--}
 
-throwCError :: (MonadIO m) => CError -> m b
-throwCError e = Crux.throwError @LangLLVM (Crux.Lang  e)
+throwCError :: MonadIO m => CError -> m b
+throwCError e = liftIO (throwIO e)
 
 ---------------------------------------------------------------------
 ---------------------------------------------------------------------
@@ -327,22 +354,20 @@ llvmMetrics llvmCtxt = Map.fromList [ ("LLVM.allocs", allocs)
 ---------------------------------------------------------------------
 -- From Clang.hs
 
-type Options = Crux.Options LangLLVM
+type Options = Crux.Options LLVMOptions
 
-data InputLanguage
-  = CSource
-  | CPPSource
-  | Bitcode
 
-optInputLanguage :: Options -> Maybe InputLanguage
-optInputLanguage opts =
-  case takeExtension (takeFileName (Crux.inputFile (fst opts))) of
-    ".c" -> Just CSource
-    ".cpp" -> Just CPPSource
-    ".cxx" -> Just CPPSource
-    ".C" -> Just CPPSource
-    ".bc" -> Just Bitcode
-    _ -> Nothing
+isCPlusPlus :: FilePath -> Bool
+isCPlusPlus file =
+  case takeExtension file of
+    ".cpp" -> True
+    ".cxx" -> True
+    ".C" -> True
+    ".bc" -> False
+    _ -> False
+
+anyCPPFiles :: [FilePath] -> Bool
+anyCPPFiles = any isCPlusPlus
 
 -- | attempt to find Clang executable by searching the file system
 -- throw an error if it cannot be found this way.
@@ -357,7 +382,7 @@ getClang = attempt (map inPath clangs)
   attempt :: [IO FilePath] -> IO FilePath
   attempt ms =
     case ms of
-      [] -> Crux.throwEnvError $
+      [] -> throwCError $ EnvError $
               unlines [ "Failed to find `clang`."
                       , "You may use CLANG to provide path to executable."
                       ]
@@ -369,42 +394,53 @@ getClang = attempt (map inPath clangs)
 runClang :: Options -> [String] -> IO ()
 runClang opts params =
   do let clang = clangBin (snd opts)
+         allParams = clangOpts (snd opts) ++ params
      -- say "Clang" (show params)
-     (res,sout,serr) <- readProcessWithExitCode clang params ""
+     (res,sout,serr) <- readProcessWithExitCode clang allParams ""
      case res of
        ExitSuccess   -> return ()
        ExitFailure n -> throwCError (ClangError n sout serr)
 
-llvmLink :: [FilePath] -> FilePath -> IO ()
-llvmLink ins out =
+llvmLink :: Options -> [FilePath] -> FilePath -> IO ()
+llvmLink opts ins out =
   do let params = ins ++ [ "-o", out ]
-     -- TODO: make this work better for a range of clang versions
-     (res, sout, serr) <- readProcessWithExitCode "llvm-link-3.6" params ""
+     (res, sout, serr) <- readProcessWithExitCode (linkBin (snd opts)) params ""
      case res of
        ExitSuccess   -> return ()
+       ExitFailure n -> throwCError (ClangError n sout serr)
+
+parseLLVMLinkVersion :: String -> String
+parseLLVMLinkVersion = go . map words . lines
+  where
+    go (("LLVM" : "version" : version : _) : _) = version
+    go (_ : rest) = go rest
+    go [] = ""
+
+llvmLinkVersion :: Options -> IO String
+llvmLinkVersion opts =
+  do (res, sout, serr) <- readProcessWithExitCode (linkBin (snd opts)) ["--version"] ""
+     case res of
+       ExitSuccess   -> return (parseLLVMLinkVersion sout)
        ExitFailure n -> throwCError (ClangError n sout serr)
 
 genBitCode :: Options -> IO ()
 genBitCode opts =
-  do let lang = optInputLanguage opts
-         srcDir = takeDirectory (Crux.inputFile (fst opts))
-         finalBCFile = optsBCFile (snd opts)
-         curBCFile = case lang of
-                       Just CPPSource -> finalBCFile ++ "-tmp"
-                       _ -> finalBCFile
-         params = [ "-c", "-g", "-emit-llvm", "-O0"
-                  , "-I", libDir (snd opts) </> "includes"
-                  , "-I", srcDir
-                  , Crux.inputFile (fst opts)
-                  , "-o", curBCFile
-                  ]
-     runClang opts params
-     case lang of
-       -- TODO: make this work better for a range of clang versions
-       Just CPPSource ->
-         llvmLink [ curBCFile, libDir (snd opts) </> "libcxx-36.bc" ] finalBCFile
-       _ -> return ()
-
+  do let files = (Crux.inputFiles (fst opts))
+         finalBCFile = Crux.outDir (fst opts) </> "combined.bc"
+         srcBCNames = [ (src, replaceExtension src ".bc") | src <- files ]
+         incs src = takeDirectory src :
+                    (libDir (snd opts) </> "includes") :
+                    incDirs (snd opts)
+         params (src, srcBC) =
+           [ "-c", "-g", "-emit-llvm", "-O0" ] ++
+           concat [ [ "-I", dir ] | dir <- incs src ] ++
+           [ "-o", srcBC, src ]
+     forM_ srcBCNames $ \f -> runClang opts (params f)
+     ver <- llvmLinkVersion opts
+     let libcxxBitcode | anyCPPFiles files = [libDir (snd opts) </> "libcxx-" ++ ver ++ ".bc"]
+                       | otherwise = []
+     llvmLink opts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
+     mapM_ (removeFile . snd) srcBCNames
 
 buildModelExes :: Options -> String -> String -> IO (FilePath,FilePath)
 buildModelExes opts suff counter_src =
@@ -417,9 +453,11 @@ buildModelExes opts suff counter_src =
      writeFile counterFile counter_src
 
      let libs = libDir (snd opts)
-         libcxx = case optInputLanguage opts of
-                    Just CPPSource -> ["-lstdc++"]
-                    _ -> []
+         incs = (libs </> "includes") :
+                (map takeDirectory files ++ incDirs (snd opts))
+         files = (Crux.inputFiles (fst opts))
+         libcxx | anyCPPFiles files = ["-lstdc++"]
+                | otherwise = []
 
      runClang opts [ "-I", libs </> "includes"
                    , counterFile
@@ -427,12 +465,11 @@ buildModelExes opts suff counter_src =
                    , "-o", printExe
                    ]
 
-     runClang opts $ [ "-I", libs </> "includes"
-                     , counterFile
+     runClang opts $ concat [ [ "-I", idir ] | idir <- incs ] ++
+                     [ counterFile
                      , libs </> "concrete-backend.c"
-                     , Crux.inputFile (fst opts)
                      , "-O0", "-g"
                      , "-o", debugExe
-                     ] ++ libcxx
+                     ] ++ files ++ libcxx
 
      return (printExe, debugExe)

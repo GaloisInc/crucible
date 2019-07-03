@@ -516,6 +516,18 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
          -> !(e (BaseBVType w))
          -> App e (BaseBVType w)
 
+  BVRol :: (1 <= w)
+        => !(NatRepr w)
+        -> !(e (BaseBVType w)) -- bitvector to rotate
+        -> !(e (BaseBVType w)) -- rotate amount
+        -> App e (BaseBVType w)
+
+  BVRor :: (1 <= w)
+        => !(NatRepr w)
+        -> !(e (BaseBVType w))   -- bitvector to rotate
+        -> !(e (BaseBVType w))   -- rotate amount
+        -> App e (BaseBVType w)
+
   BVZext :: (1 <= w, w+1 <= r, 1 <= r)
          => !(NatRepr r)
          -> !(e (BaseBVType w))
@@ -900,6 +912,25 @@ instance IsExpr (Expr t) where
   unsignedBVBounds x = BVD.ubounds (bvWidth x) $ exprAbsValue x
   signedBVBounds x = BVD.sbounds (bvWidth x) $ exprAbsValue x
 
+  asAffineVar e = case exprType e of
+    BaseNatRepr
+      | Just (a, x, b) <- WSum.asAffineVar $
+          asWeightedSum SR.SemiRingNatRepr e ->
+        Just (ConcreteNat a, x, ConcreteNat b)
+    BaseIntegerRepr
+      | Just (a, x, b) <- WSum.asAffineVar $
+          asWeightedSum SR.SemiRingIntegerRepr e ->
+        Just (ConcreteInteger a, x, ConcreteInteger b)
+    BaseRealRepr
+      | Just (a, x, b) <- WSum.asAffineVar $
+          asWeightedSum SR.SemiRingRealRepr e ->
+        Just (ConcreteReal a, x, ConcreteReal b)
+    BaseBVRepr w
+      | Just (a, x, b) <- WSum.asAffineVar $
+          asWeightedSum (SR.SemiRingBVRepr SR.BVArithRepr (bvWidth e)) e ->
+        Just (ConcreteBV w a, x, ConcreteBV w b)
+    _ -> Nothing
+
   asString (StringExpr x _) = Just x
   asString _ = Nothing
 
@@ -935,6 +966,26 @@ asSemiRingProd :: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> Maybe (Se
 asSemiRingProd sr (asApp -> Just (SemiRingProd x))
   | Just Refl <- testEquality sr (WSum.prodRepr x) = Just x
 asSemiRingProd _ _ = Nothing
+
+-- | This privides a view of a semiring expr as a weighted sum of values.
+data SemiRingView t sr
+   = SR_Constant !(SR.Coefficient sr)
+   | SR_Sum  !(WeightedSum (Expr t) sr)
+   | SR_Prod !(SemiRingProduct (Expr t) sr)
+   | SR_General
+
+viewSemiRing:: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> SemiRingView t sr
+viewSemiRing sr x
+  | Just r <- asSemiRingLit sr x  = SR_Constant r
+  | Just s <- asSemiRingSum sr x  = SR_Sum s
+  | Just p <- asSemiRingProd sr x = SR_Prod p
+  | otherwise = SR_General
+
+asWeightedSum :: HashableF (Expr t) => SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> WeightedSum (Expr t) sr
+asWeightedSum sr x
+  | Just r <- asSemiRingLit sr x = WSum.constant sr r
+  | Just s <- asSemiRingSum sr x = s
+  | otherwise = WSum.var sr x
 
 ------------------------------------------------------------------------
 -- ExprSymFn
@@ -1115,6 +1166,8 @@ appType a =
     BVShl  w _ _  -> BaseBVRepr w
     BVLshr w _ _ -> BaseBVRepr w
     BVAshr w _ _ -> BaseBVRepr w
+    BVRol w _ _ -> BaseBVRepr w
+    BVRor w _ _ -> BaseBVRepr w
     BVPopcount w _ -> BaseBVRepr w
     BVCountLeadingZeros w _ -> BaseBVRepr w
     BVCountTrailingZeros w _ -> BaseBVRepr w
@@ -1454,6 +1507,8 @@ abstractEval bvParams f a0 = do
     BVShl  w x y -> BVD.shl w (f x) (f y)
     BVLshr w x y -> BVD.lshr w (f x) (f y)
     BVAshr w x y -> BVD.ashr w (f x) (f y)
+    BVRol  w _ _ -> BVD.any w -- TODO?
+    BVRor  w _ _ -> BVD.any w -- TODO?
     BVZext w x   -> BVD.zext (f x) w
     BVSext w x   -> BVD.sext bvParams (bvWidth x) (f x) w
     BVFill w p   ->
@@ -1778,6 +1833,8 @@ ppApp' a0 = do
     BVShl  _ x y -> ppSExpr "bvShl" [x, y]
     BVLshr _ x y -> ppSExpr "bvLshr" [x, y]
     BVAshr _ x y -> ppSExpr "bvAshr" [x, y]
+    BVRol  _ x y -> ppSExpr "bvRol" [x, y]
+    BVRor  _ x y -> ppSExpr "bvRor" [x, y]
 
     BVZext w x -> prettyApp "bvZext"   [showPrettyArg w, exprPrettyArg x]
     BVSext w x -> prettyApp "bvSext"   [showPrettyArg w, exprPrettyArg x]
@@ -3038,6 +3095,8 @@ reduceApp sym a0 = do
     BVShl _ x y  -> bvShl  sym x y
     BVLshr _ x y -> bvLshr sym x y
     BVAshr _ x y -> bvAshr sym x y
+    BVRol  _ x y -> bvRol sym x y
+    BVRor  _ x y -> bvRor sym x y
     BVZext  w x  -> bvZext sym w x
     BVSext  w x  -> bvSext sym w x
     BVPopcount _ x -> bvPopcount sym x
@@ -3331,11 +3390,6 @@ sbConcreteLookup sym arr0 mcidx idx
                 p <- allEq sym updated_idx idx
                 iteM baseTypeIte sym p (pure c) m
 
-    -- Reduce array updates
-  | Just (UpdateArray _ _ arr idx' v) <- asApp arr0 = do
-    p <- allEq sym idx idx'
-    iteM baseTypeIte sym p (pure v) (sbConcreteLookup sym arr mcidx idx)
-
     -- Evaluate function arrays on ground values.
   | Just (ArrayFromFn f) <- asNonceApp arr0 = do
       betaReduce sym f idx
@@ -3429,26 +3483,6 @@ sbTryUnaryTerm sym (Just mku) fallback =
        bvUnary sym u
      else
        fallback
-
--- | This privides a view of a semiring expr as a weighted sum of values.
-data SemiRingView t sr
-   = SR_Constant !(SR.Coefficient sr)
-   | SR_Sum  !(WeightedSum (Expr t) sr)
-   | SR_Prod !(SemiRingProduct (Expr t) sr)
-   | SR_General
-
-viewSemiRing:: SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> SemiRingView t sr
-viewSemiRing sr x
-  | Just r <- asSemiRingLit sr x  = SR_Constant r
-  | Just s <- asSemiRingSum sr x  = SR_Sum s
-  | Just p <- asSemiRingProd sr x = SR_Prod p
-  | otherwise = SR_General
-
-asWeightedSum :: HashableF (Expr t) => SR.SemiRingRepr sr -> Expr t (SR.SemiRingBase sr) -> WeightedSum (Expr t) sr
-asWeightedSum sr x
-  | Just r <- asSemiRingLit sr x = WSum.constant sr r
-  | Just s <- asSemiRingSum sr x = s
-  | otherwise = WSum.var sr x
 
 semiRingProd ::
   ExprBuilder t st fs ->
@@ -3878,7 +3912,6 @@ sameTerm (asApp -> Just (FloatToBinary fppx x)) (asApp -> Just (FloatToBinary fp
      return Refl
 
 sameTerm x y = testEquality x y
-
 
 instance IsExprBuilder (ExprBuilder t st fs) where
   getConfiguration = sbConfiguration
@@ -4804,6 +4837,78 @@ instance IsExprBuilder (ExprBuilder t st fs) where
    | otherwise = do
      sbMakeExpr sym $ BVAshr (bvWidth x) x y
 
+  bvRol sym x y
+   | Just i <- asUnsignedBV x, Just n <- asUnsignedBV y
+   = bvLit sym (bvWidth x) $ rotateLeft (bvWidth x) i n
+
+   | Just n <- asUnsignedBV y
+   , n `rem` intValue (bvWidth x) == 0
+   = return x
+
+   | Just (BVRol w x' n) <- asApp x
+   , isPow2 (natValue w)
+   = do z <- bvAdd sym n y
+        bvRol sym x' z
+
+   | Just (BVRol w x' n) <- asApp x
+   = do wbv <- bvLit sym w (intValue w)
+        n' <- bvUrem sym n wbv
+        y' <- bvUrem sym y wbv
+        z <- bvAdd sym n' y'
+        bvRol sym x' z
+
+   | Just (BVRor w x' n) <- asApp x
+   , isPow2 (natValue w)
+   = do z <- bvSub sym n y
+        bvRor sym x' z
+
+   | Just (BVRor w x' n) <- asApp x
+   = do wbv <- bvLit sym w (intValue w)
+        y' <- bvUrem sym y wbv
+        n' <- bvUrem sym n wbv
+        z <- bvAdd sym n' =<< bvSub sym wbv y'
+        bvRor sym x' z
+
+   | otherwise
+   = let w = bvWidth x in
+     sbMakeExpr sym $ BVRol w x y
+
+  bvRor sym x y
+   | Just i <- asUnsignedBV x, Just n <- asUnsignedBV y
+   = bvLit sym (bvWidth x) $ rotateRight (bvWidth x) i n
+
+   | Just n <- asUnsignedBV y
+   , n `rem` intValue (bvWidth x) == 0
+   = return x
+
+   | Just (BVRor w x' n) <- asApp x
+   , isPow2 (natValue w)
+   = do z <- bvAdd sym n y
+        bvRor sym x' z
+
+   | Just (BVRor w x' n) <- asApp x
+   = do wbv <- bvLit sym w (intValue w)
+        n' <- bvUrem sym n wbv
+        y' <- bvUrem sym y wbv
+        z <- bvAdd sym n' y'
+        bvRor sym x' z
+
+   | Just (BVRol w x' n) <- asApp x
+   , isPow2 (natValue w)
+   = do z <- bvSub sym n y
+        bvRol sym x' z
+
+   | Just (BVRol w x' n) <- asApp x
+   = do wbv <- bvLit sym w (intValue w)
+        n' <- bvUrem sym n wbv
+        y' <- bvUrem sym y wbv
+        z <- bvAdd sym n' =<< bvSub sym wbv y'
+        bvRol sym x' z
+
+   | otherwise
+   = let w = bvWidth x in
+     sbMakeExpr sym $ BVRor w x y
+
   bvZext sym w x
     | Just i <- asUnsignedBV x = do
       -- Add dynamic check for GHC typechecker.
@@ -4969,7 +5074,9 @@ instance IsExprBuilder (ExprBuilder t st fs) where
           notPred sym =<< bvEq sym x zro
 
   bvUdiv = bvBinDivOp quot BVUdiv
-  bvUrem = bvBinDivOp rem BVUrem
+  bvUrem sym x y
+    | Just True <- BVD.ult (bvWidth x) (exprAbsValue x) (exprAbsValue y) = return x
+    | otherwise = bvBinDivOp rem BVUrem sym x y
   bvSdiv = bvSignedBinDivOp quot BVSdiv
   bvSrem = bvSignedBinDivOp rem BVSrem
 

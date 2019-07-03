@@ -1,7 +1,8 @@
-{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE ImplicitParams, ConstraintKinds #-}
 -- from crucible-c/src/Log.hs
 module Crux.Log (
   -- * Configuring output
+  Logs,
   OutputConfig(..), showColors, outputHandle, errorHandle, defaultOutputConfig,
   -- * Performing output
   say, sayOK, sayFail, output, outputLn
@@ -12,6 +13,8 @@ import Control.Lens
 
 import System.Console.ANSI
 import System.IO
+
+type Logs = (?outputConfig :: OutputConfig)
 
 -- | Global options for Crux's main. These are not CruxOptions because
 -- they are expected to be set directly by main, rather than by a
@@ -36,13 +39,13 @@ defaultOutputConfig :: OutputConfig
 defaultOutputConfig = OutputConfig True stdout stderr
 
 
-output :: (?outputConfig :: OutputConfig) => String -> IO ()
+output :: Logs => String -> IO ()
 output str = hPutStr (view outputHandle ?outputConfig) str
 
-outputLn :: (?outputConfig :: OutputConfig) => String -> IO ()
+outputLn :: Logs => String -> IO ()
 outputLn str = hPutStrLn (view outputHandle ?outputConfig) str
 
-outputColored :: (?outputConfig :: OutputConfig) => Color -> String -> IO ()
+outputColored :: Logs => Color -> String -> IO ()
 outputColored c msg =
   let outH = view outputHandle ?outputConfig
       inColor = view showColors ?outputConfig
@@ -53,16 +56,16 @@ outputColored c msg =
               (hPutStr outH msg)
        else output msg
 
-sayOK :: (?outputConfig :: OutputConfig) => String -> String -> IO ()
+sayOK :: Logs => String -> String -> IO ()
 sayOK = sayCol Green
 
-sayFail :: (?outputConfig :: OutputConfig) => String -> String -> IO ()
+sayFail :: Logs => String -> String -> IO ()
 sayFail = sayCol Red
 
-say :: (?outputConfig :: OutputConfig) => String -> String -> IO ()
+say :: Logs => String -> String -> IO ()
 say x y = outputLn ("[" ++ x ++ "] " ++ y)
 
-sayCol ::  (?outputConfig :: OutputConfig) => Color -> String -> String -> IO ()
+sayCol :: Logs => Color -> String -> String -> IO ()
 sayCol col x y =
   do output "["
      outputColored col x
