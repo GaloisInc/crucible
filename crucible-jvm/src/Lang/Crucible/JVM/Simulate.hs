@@ -513,10 +513,9 @@ runClassInit halloc ctx verbosity name = do
 
 
 -- | Install the standard overrides and run a Java method in the simulator.
-runMethodHandleCrux
+setupMethodHandleCrux
   :: IsSymInterface sym
-  => [C.GenericExecutionFeature sym]
-  -> sym
+  => sym
   -> p
   -> C.HandleAllocator RealWorld
   -> JVMContext
@@ -524,14 +523,13 @@ runMethodHandleCrux
   -> J.ClassName
   -> FnHandle args ret
   -> C.RegMap sym args
-  -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-runMethodHandleCrux feats sym p halloc ctx verbosity _classname h args = do
+  -> IO (C.ExecState p sym JVM (C.RegEntry sym ret))
+setupMethodHandleCrux sym p halloc ctx verbosity _classname h args = do
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
                        -- _ <- runClassInit halloc ctx classname
                        fnCall
-  simSt <- mkSimSt sym p halloc ctx verbosity (C.runOverrideSim (handleReturnType h) overrideSim)
-  C.executeCrucible (map C.genericToExecutionFeature feats) simSt
+  mkSimSt sym p halloc ctx verbosity (C.runOverrideSim (handleReturnType h) overrideSim)
 
 
 runMethodHandle
@@ -545,8 +543,9 @@ runMethodHandle
   -> FnHandle args ret
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-
-runMethodHandle = runMethodHandleCrux []
+runMethodHandle sym p halloc ctx verbosity classname h args =
+  do exst <- setupMethodHandleCrux sym p halloc ctx verbosity classname h args
+     C.executeCrucible [] exst
 
 --------------------------------------------------------------------------------
 
@@ -585,19 +584,18 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
       IO (C.ExecResult p sym ext rtp))
 
 
-executeCrucibleJVMCrux
+setupCrucibleJVMCrux
   :: forall ret args sym p cb
    . (IsSymInterface sym, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
-  => [C.GenericExecutionFeature sym]
-  -> cb
+  => cb
   -> Int               -- ^ Verbosity level
   -> sym               -- ^ Simulator state
   -> p                 -- ^ Personality
   -> String            -- ^ Dot-separated class name
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
-  -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVMCrux feats cb verbosity sym p cname mname args = do
+  -> IO (C.ExecState p sym JVM (C.RegEntry sym ret))
+setupCrucibleJVMCrux cb verbosity sym p cname mname args = do
 
      when (verbosity > 2) $
        putStrLn "starting executeCrucibleJVM"
@@ -635,7 +633,7 @@ executeCrucibleJVMCrux feats cb verbosity sym p cname mname args = do
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
        $ "Checking return type for method " ++ mname
 
-     runMethodHandleCrux feats sym p halloc ctx verbosity (J.className mcls) h args
+     setupMethodHandleCrux sym p halloc ctx verbosity (J.className mcls) h args
 
 
 executeCrucibleJVM
@@ -649,8 +647,9 @@ executeCrucibleJVM
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVM = executeCrucibleJVMCrux []
-
+executeCrucibleJVM cp v sym p classname methname args =
+  do exst <- setupCrucibleJVMCrux cp v sym p classname methname args
+     C.executeCrucible [] exst
 
 getGlobalPair ::
   C.PartialResult sym ext v ->
