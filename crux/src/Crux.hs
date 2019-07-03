@@ -89,7 +89,8 @@ loadOptions lang =
        Cfg.ShowHelp -> showHelp nm optSpec >> exitSuccess
        Cfg.ShowVersion -> showVersion lang >> exitSuccess
        Cfg.Options (crux,os) files ->
-          pure (crux { inputFiles = files ++ inputFiles crux }, os)
+          do crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
+             pure (crux', os)
 
 showHelp :: Logs => Text -> Config opts -> IO ()
 showHelp nm cfg = outputLn (show (configDocs nm cfg))
@@ -235,7 +236,7 @@ runSimulator lang opts@(cruxOpts,_) =
 
      -- Loop bound
      bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
-             boundedExecFeature (\_ -> return (Just i)) True {- side cond: yes-}
+             boundedExecFeature (\_ -> return (Just i)) False {- side cond: no -}
 
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
@@ -266,7 +267,7 @@ runSimulator lang opts@(cruxOpts,_) =
                   Just gt -> modifyIORef gls (Seq.|> gt)
 
      when (simVerbose cruxOpts > 1) $
-      say "Crux" "Simulation complete."
+       say "Crux" "Simulation complete."
 
      when profiling $
        writeProf profInfo

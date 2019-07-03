@@ -38,7 +38,8 @@ library
     raw-strings-qq,
     simple-get-opt,
     config-value,
-    config-schema
+    config-schema,
+    semigroupoids
 
   hs-source-dirs: src
 
