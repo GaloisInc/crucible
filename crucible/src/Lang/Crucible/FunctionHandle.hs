@@ -99,6 +99,9 @@ data SomeHandle where
 instance Eq SomeHandle where
   SomeHandle x == SomeHandle y = isJust (testEquality (handleID x) (handleID y))
 
+instance Ord SomeHandle where
+  compare (SomeHandle x) (SomeHandle y) = toOrdering (compareF (handleID x) (handleID y))
+
 instance Hashable SomeHandle where
   hashWithSalt s (SomeHandle x) = hashWithSalt s (handleID x)
 
