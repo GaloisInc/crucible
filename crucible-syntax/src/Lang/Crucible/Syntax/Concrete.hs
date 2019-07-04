@@ -1639,7 +1639,7 @@ saveArgs ctx1 ctx2 =
                    (\(Arg x p t) argAtom ->
                       (Const (Pair t (Functor.Pair (Const x) (Functor.Pair (Const p) argAtom)))))
                    ctx1 ctx2
-  in forMFC_ combined $
+  in forFC_ combined $
        \(Const (Pair t (Functor.Pair (Const x) (Functor.Pair (Const argPos) y)))) ->
          with (stxAtoms . at x) $
            \case

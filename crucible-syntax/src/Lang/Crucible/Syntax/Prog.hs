@@ -114,7 +114,7 @@ simulateProgram fn theInput outh profh opts setup =
                              | ACFG _ _ g <- cs
                              ]
                        let simCtx = initSimContext sym emptyIntrinsicTypes ha outh fnBindings emptyExtensionImpl ()
-                       let simSt  = InitialState simCtx emptyGlobals defaultAbortHandler $
+                       let simSt  = InitialState simCtx emptyGlobals defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do mapM_ (registerFnBinding . fst) ovrs
                                            regValue <$> callFnVal (HandleFnVal mainHdl) emptyRegMap

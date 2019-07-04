@@ -181,7 +181,7 @@ simulateLLVM fs (cruxOpts,_) sym _p cont = do
                     =<< initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
 
-          let initSt = InitialState simctx globSt defaultAbortHandler $
+          let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
                    runOverrideSim UnitRepr $
                      do registerFunctions llvmCtxt llvm_mod trans
                         setupOverrides llvmCtxt

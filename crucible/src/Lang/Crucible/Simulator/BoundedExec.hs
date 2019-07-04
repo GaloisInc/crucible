@@ -269,13 +269,13 @@ boundedExecFeature getLoopBounds generateSideConditions =
    IO (ExecutionFeatureResult p sym ext rtp)
 
  onStep gvRef = \case
-   InitialState simctx globals ah cont ->
+   InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
         gv <- stToIO (freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr)
         writeIORef gvRef gv
         let globals' = insertGlobal gv [Left "_init"] globals
         let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"BoundedExecFrameData") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }
-        return (ExecutionFeatureModifiedState (InitialState simctx' globals' ah cont))
+        return (ExecutionFeatureModifiedState (InitialState simctx' globals' ah ret cont))
 
    CallState rh call st ->
      do boundData <- buildFrameData call

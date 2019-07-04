@@ -172,7 +172,7 @@ fulfillRunCallRequest sim f_val encoded_args = do
       -- TODO: Redirect standard IO so that we can print messages.
       ctx <- readIORef (simContext sim)
 
-      let simSt = InitialState ctx emptyGlobals (serverErrorHandler sim)
+      let simSt = InitialState ctx emptyGlobals (serverErrorHandler sim) res_tp
                     $ runOverrideSim res_tp (regValue <$> callFnVal f (RegMap args))
       -- Send messages to server with bytestring.
       exec_res <- executeCrucible (map genericToExecutionFeature (simExecFeatures sim)) simSt

@@ -4,7 +4,7 @@ module Main where
 --import Control.Monad.Except
 --import Control.Monad.ST
 import System.IO
-import Data.Monoid
+--import Data.Monoid
 --import Data.Text (Text)
 --import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -25,7 +25,7 @@ import           Options.Applicative ( (<**>) )
 
 --import System.Exit
 
-import Text.Megaparsec as MP
+--import Text.Megaparsec as MP
 
 data Check = Check { chkInFile :: TheFile
                    , chkOutFile :: Maybe TheFile

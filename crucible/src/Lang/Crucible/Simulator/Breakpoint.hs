@@ -71,6 +71,7 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
               let override_frame = C.OF $ C.OverrideFrame
                     { _override = W.functionNameFromText $
                         C.breakpointNameText breakpoint_name
+                    , _overrideHandle = C.frameHandle frame
                     , _overrideRegMap = state ^.
                         C.stateCrucibleFrame . C.frameRegs
                     }
