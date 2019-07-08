@@ -130,7 +130,7 @@ mergeFBD x@FrameBoundData{ frameBoundHandle = hx } y@FrameBoundData{ frameBoundH
        return x{ frameBoundCounts = mergeCounts (frameBoundCounts x) (frameBoundCounts y) }
 
   | otherwise =
-       fail $ unlines
+       panic "BoundedExec.mergeFBD"
        [ "Attempted to merge frame bound data from different function activations: "
        , " ** " ++ show hx
        , " ** " ++ show hy
