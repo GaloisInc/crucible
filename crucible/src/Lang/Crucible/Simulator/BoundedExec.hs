@@ -8,7 +8,7 @@
 -- Stability        : provisional
 --
 -- This module provides an execution feature for bounding the
--- number of iterations that a loop will exeucte in the simulator.
+-- number of iterations that a loop will execute in the simulator.
 ------------------------------------------------------------------------
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
@@ -96,7 +96,7 @@ buildWTOMap = snd . go 0 0 Map.empty
 
 -- | This function updates the loop bound count at the given depth.
 --   Any loop bounds deeper than this are discarded.  If the given
---   sequence is too short to accomidate the given depth, the sequence
+--   sequence is too short to accommodate the given depth, the sequence
 --   is extended with 0 counters to the correct depth.
 incrementBoundCount :: Seq Int -> Int -> (Seq Int, Int)
 incrementBoundCount cs depth =
@@ -172,7 +172,7 @@ type BoundedExecGlobal = GlobalVar (IntrinsicType "BoundedExecFrameData" EmptyCt
 --
 --   The boolean argument indicates if we should generate proof obligations when
 --   we cut off loop execution.  If true, loop cutoffs will generate proof obligations
---   which will be provable only if the loop actualy could not have executed that number
+--   which will be provable only if the loop actually could not have executed that number
 --   of iterations.  If false, the execution of loops will be aborted without generating
 --   side conditions.
 --
@@ -185,7 +185,7 @@ boundedExecFeature ::
   Bool {- ^ Produce a proof obligation when resources are exhausted? -} ->
   IO (GenericExecutionFeature sym)
 boundedExecFeature getLoopBounds generateSideConditions =
-  do gvRef <- newIORef (error "Global varible for BoundedExecFrameData not initilized")
+  do gvRef <- newIORef (error "Global variable for BoundedExecFrameData not initialized")
      return $ GenericExecutionFeature $ onStep gvRef
 
  where
