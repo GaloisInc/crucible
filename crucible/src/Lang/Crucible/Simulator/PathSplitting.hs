@@ -7,6 +7,10 @@
 -- Maintainer       : Rob Dockins <rdockins@galois.com>
 -- Stability        : provisional
 --
+-- This module provides an execution feature that converts symbolic
+-- branches into path splitting by pushing unexplored paths onto a
+-- worklist instead of performing eager path merging (the default
+-- behavior).
 ------------------------------------------------------------------------
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
@@ -48,21 +52,36 @@ import           Lang.Crucible.Simulator.EvalStmt
 import           Lang.Crucible.Simulator.Operations
 
 
+-- | A `WorkItem` represents a suspended symbolic execution path that
+--   can later be resumed.  It captures all the relevant context that
+--   is required to recreate the simulator state at the point when
+--   the path was suspended.
 data WorkItem p sym ext rtp =
   forall f args.
   WorkItem
-  { workItemPred  :: Pred sym
+  { -- | The predicate we branched on to generate this work item
+    workItemPred  :: Pred sym
+    -- | The location of the symbolic branch
   , workItemLoc   :: ProgramLoc
+    -- | The paused execution frame
   , workItemFrame :: PausedFrame p sym ext rtp f
+    -- | The overall execution state of this path
   , workItemState :: SimState p sym ext rtp f ('Just args)
+    -- | The assumption state of the symbolic backend when we suspended this work item
   , workItemAssumes :: AssumptionState sym
   }
 
+-- | A `WorkList` represents a sequence of `WorkItems` that still
+--   need to be explored.
 type WorkList p sym ext rtp = IORef (Seq (WorkItem p sym ext rtp))
 
+-- | Put a work item onto the front of the work list.
 queueWorkItem :: WorkItem p sym ext rtp -> WorkList p sym ext rtp -> IO ()
 queueWorkItem i wl = atomicModifyIORef' wl (\xs -> (i Seq.<| xs, ()))
 
+-- | Pull a work item off the front of the work list, if there are any left.
+--   When used with `queueWorkItem`, this function uses the work list as a stack
+--   and will explore paths in a depth-first manner.
 dequeueWorkItem :: WorkList p sym ext rtp -> IO (Maybe (WorkItem p sym ext rtp))
 dequeueWorkItem wl =
   atomicModifyIORef' wl $ \xs ->
@@ -70,6 +89,8 @@ dequeueWorkItem wl =
        Seq.EmptyL   -> (xs,  Nothing)
        i Seq.:< xs' -> (xs', Just i)
 
+-- | Given a work item, restore the simulator state so that it is ready to resume
+--   exploring the path that it represents.
 restoreWorkItem ::
   IsSymInterface sym =>
   WorkItem p sym ext rtp ->
@@ -82,35 +103,12 @@ restoreWorkItem (WorkItem branchPred loc frm st assumes) =
      let ctx = st ^. stateTree . actContext
      runReaderT (resumeFrame frm ctx) st
 
-{-
-pathSplittingFeature ::
-  IsSymInterface sym =>
-  WorkList p sym ext rtp ->
-  ExecutionFeature p sym ext rtp
-pathSplittingFeature wl = ExecutionFeature $ \case
-  SymbolicBranchState p trueFrame falseFrame _bt st ->
-
-    do let sym = st ^. stateSymInterface
-       pnot <- notPred sym p
-       assumes <- saveAssumptionState sym
-       loc <- getCurrentProgramLoc sym
-
-       let wi = WorkItem
-                { workItemPred  = pnot
-                , workItemLoc   = loc
-                , workItemFrame = falseFrame
-                , workItemState = st
-                , workItemAssumes = assumes
-                }
-       queueWorkItem wi wl
-
-       addAssumption sym (LabeledPred p (ExploringAPath loc (pausedLoc trueFrame)))
-
-       let ctx = st ^. stateTree . actContext
-       Just <$> runReaderT (resumeFrame trueFrame ctx) st
-
-  _ -> return Nothing
--}
+-- | The path splitting execution feature always selects the \"true\" branch
+--   of a symbolic branch to explore first, and pushes the \"false\" branch
+--   onto the front of the given work list.  With this feature enabled,
+--   a single path will be explored with no symbolic branching until it is finished,
+--   and all remaining unexplored paths will be suspended in the work list, where
+--   they can be later resumed.
 pathSplittingFeature ::
   IsSymInterface sym =>
   WorkList p sym ext rtp ->
@@ -140,13 +138,22 @@ pathSplittingFeature wl = ExecutionFeature $ \case
   _ -> return ExecutionFeatureNoChange
 
 
+-- | This function executes a state using the path splitting execution
+--   feature.  Each time a path is completed, the given result
+--   continuation is executed on it.  Then, the next work item is
+--   popped of the front of the work list and will be executed in turn
+--   until all paths are exhausted. If a timeout result is
+--   encountered, we instead stop executing paths early.  The return
+--   value of this function is the number of paths that were
+--   completed, and a list of remaining paths (if any) that were not
+--   explored due to timeout.
 executeCrucibleDFSPaths :: forall p sym ext rtp.
   ( IsSymInterface sym
   , IsSyntaxExtension ext
   ) =>
   [ ExecutionFeature p sym ext rtp ] {- ^ Execution features to install -} ->
   ExecState p sym ext rtp   {- ^ Execution state to begin executing -} ->
-  (ExecResult p sym ext rtp -> IO ()) ->
+  (ExecResult p sym ext rtp -> IO ()) {- ^ Path result continuation -} ->
   IO (Word64, Seq (WorkItem p sym ext rtp))
 executeCrucibleDFSPaths execFeatures exst0 cont =
   do wl <- newIORef Seq.empty

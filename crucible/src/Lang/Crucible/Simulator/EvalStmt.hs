@@ -333,7 +333,7 @@ stepStmt verb stmt rest =
 -- | Evaluation operation for evaluating a single block-terminator
 --   statement of the Crucible evaluator.
 --
---   This is allowed to throw user execeptions or 'SimError'.
+--   This is allowed to throw user exceptions or 'SimError'.
 stepTerm :: forall p sym ext rtp blocks r ctx.
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Verbosity -} ->
@@ -381,7 +381,7 @@ stepTerm _ (VariantElim ctx e cases) =
 -- call-then-return sequence, pushing a new call frame on the top of our
 -- current context (rather than replacing it).  The TailReturnToCrucible
 -- return handler tells the simulator to immediately invoke another return
--- in the caller, which is still present on the stack in this scenerio.
+-- in the caller, which is still present on the stack in this scenario.
 stepTerm _ (TailCall fnExpr _types arg_exprs) =
   do cl   <- evalReg fnExpr
      args <- evalArgs arg_exprs
@@ -418,7 +418,7 @@ checkConsTerm verb =
 -- | Main evaluation operation for running a single step of
 --   basic block evaluation.
 --
---   This is allowed to throw user execeptions or 'SimError'.
+--   This is allowed to throw user exceptions or 'SimError'.
 stepBasicBlock ::
   (IsSymInterface sym, IsSyntaxExtension ext) =>
   Int {- ^ Current verbosity -} ->
@@ -555,13 +555,13 @@ singleStepCrucible verb exst =
 -- | This datatype indicates the possible results that an execution feature
 --   can have.
 data ExecutionFeatureResult p sym ext rtp where
-  -- | This exectuion feature result indicates that no state changes were
+  -- | This execution feature result indicates that no state changes were
   --   made.
   ExecutionFeatureNoChange       :: ExecutionFeatureResult p sym ext rtp
 
-  -- | This execution featuere indicates that the state was modified but
-  --   not changed in an "essential" way.  For example, internal bookeeping
-  --   datastructures for the exeuction feature might be modified, but the
+  -- | This execution feature indicates that the state was modified but
+  --   not changed in an "essential" way.  For example, internal bookkeeping
+  --   datastructures for the execution feature might be modified, but the
   --   state is not transitioned to a fundamentally different state.
   --
   --   When this result is returned, later execution features in the
@@ -570,19 +570,19 @@ data ExecutionFeatureResult p sym ext rtp where
   ExecutionFeatureModifiedState ::
      ExecState p sym ext rtp -> ExecutionFeatureResult p sym ext rtp
 
-  -- | This exeuction feature result indicates that the state was modified
+  -- | This execution feature result indicates that the state was modified
   --   in an essential way that transforms it into new state altogether.
   --   When this result is returned, it preempts any later execution
   --   features and the main simulator loop and instead returns to the head
   --   of the execution feature stack.
   --
-  --   NOTE: In particular, the exeuction feature will encounter the
-  --   state again before the simulator loop.  It is therfore very
-  --   important that the exeuction feature be prepared to immediately
+  --   NOTE: In particular, the execution feature will encounter the
+  --   state again before the simulator loop.  It is therefore very
+  --   important that the execution feature be prepared to immediately
   --   encounter the same state again and make significant execution
   --   progress on it, or ignore it so it makes it to the main simulator
   --   loop.  Otherwise, the execution feature will loop back to itself
-  --   infinetely, starving out useful work.
+  --   infinitely, starving out useful work.
   ExecutionFeatureNewState ::
      ExecState p sym ext rtp -> ExecutionFeatureResult p sym ext rtp
 
@@ -598,22 +598,22 @@ data ExecutionFeatureResult p sym ext rtp where
 --   state before further execution happens, the return value can be
 --   used to return a modified state.  If this happens, the current
 --   stack of execution features is abandoned and a fresh step starts
---   over immediately from the top of the exeuction features.  In
+--   over immediately from the top of the execution features.  In
 --   essence, each execution feature can preempt all following
 --   execution features and the main simulator loop. In other words,
 --   the main simulator only gets reached if every execution feature
 --   returns @Nothing@.  It is important, therefore, that execution
 --   features make only a bounded number of modification in a row, or
 --   the main simulator loop will be starved out.
-data ExecutionFeature p sym ext rtp =
+newtype ExecutionFeature p sym ext rtp =
   ExecutionFeature
   { runExecutionFeature :: ExecState p sym ext rtp -> IO (ExecutionFeatureResult p sym ext rtp)
   }
 
 -- | A generic execution feature is an execution feature that is
---   agnostic to the exeuction environmemnt, and is therefore
+--   agnostic to the execution environment, and is therefore
 --   polymorphic over the @p@, @ext@ and @rtp@ variables.
-data GenericExecutionFeature sym =
+newtype GenericExecutionFeature sym =
   GenericExecutionFeature
   { runGenericExecutionFeature :: forall p ext rtp.
       (IsSymInterface sym, IsSyntaxExtension ext) =>
