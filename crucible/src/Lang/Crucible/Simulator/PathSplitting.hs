@@ -82,35 +82,6 @@ restoreWorkItem (WorkItem branchPred loc frm st assumes) =
      let ctx = st ^. stateTree . actContext
      runReaderT (resumeFrame frm ctx) st
 
-{-
-pathSplittingFeature ::
-  IsSymInterface sym =>
-  WorkList p sym ext rtp ->
-  ExecutionFeature p sym ext rtp
-pathSplittingFeature wl = ExecutionFeature $ \case
-  SymbolicBranchState p trueFrame falseFrame _bt st ->
-
-    do let sym = st ^. stateSymInterface
-       pnot <- notPred sym p
-       assumes <- saveAssumptionState sym
-       loc <- getCurrentProgramLoc sym
-
-       let wi = WorkItem
-                { workItemPred  = pnot
-                , workItemLoc   = loc
-                , workItemFrame = falseFrame
-                , workItemState = st
-                , workItemAssumes = assumes
-                }
-       queueWorkItem wi wl
-
-       addAssumption sym (LabeledPred p (ExploringAPath loc (pausedLoc trueFrame)))
-
-       let ctx = st ^. stateTree . actContext
-       Just <$> runReaderT (resumeFrame trueFrame ctx) st
-
-  _ -> return Nothing
--}
 pathSplittingFeature ::
   IsSymInterface sym =>
   WorkList p sym ext rtp ->
