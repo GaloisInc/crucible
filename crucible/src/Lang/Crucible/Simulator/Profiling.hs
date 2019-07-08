@@ -430,7 +430,7 @@ profilingFeature ::
   IO (GenericExecutionFeature sym)
 
 profilingFeature tbl Nothing =
-  return $ GenericExecutionFeature $ \exst -> updateProfilingTable tbl exst >> return Nothing
+  return $ GenericExecutionFeature $ \exst -> updateProfilingTable tbl exst >> return ExecutionFeatureNoChange
 
 profilingFeature tbl (Just profOpts) =
   do startTime <- getCurrentTime
@@ -443,11 +443,11 @@ profilingFeature tbl (Just profOpts) =
            deadline <- readIORef stateRef
            now <- getCurrentTime
            if deadline >= now then
-             return Nothing
+             return ExecutionFeatureNoChange
            else
              do periodicProfileAction profOpts tbl
                 writeIORef stateRef (computeNextState now)
-                return Nothing
+                return ExecutionFeatureNoChange
 
  computeNextState :: UTCTime -> UTCTime
  computeNextState lastOutputTime = addUTCTime (periodicProfileInterval profOpts) lastOutputTime

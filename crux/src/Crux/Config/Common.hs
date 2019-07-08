@@ -1,12 +1,39 @@
 {-# Language RecordWildCards, OverloadedStrings, ApplicativeDo #-}
-module Crux.Config.Common (CruxOptions(..), cruxOptions) where
+module Crux.Config.Common (CruxOptions(..), PathStrategy(..), cruxOptions, postprocessOptions) where
 
-import Text.Read(readMaybe)
+import Data.Functor.Alt
 import Data.Time(NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
+import Text.Read(readMaybe)
 
 import Crux.Config
+import Crux.Log
+import Config.Schema
+
+data PathStrategy
+  = AlwaysMergePaths
+  | SplitAndExploreDepthFirst
+
+pathStrategySpec :: ValueSpec PathStrategy
+pathStrategySpec =
+  (AlwaysMergePaths <$ atomSpec "always-merge") <!>
+  (SplitAndExploreDepthFirst <$ atomSpec "split-dfs")
+
+
+postprocessOptions :: Logs => CruxOptions -> IO CruxOptions
+postprocessOptions =
+  checkPathStrategyInteractions
+
+checkPathStrategyInteractions :: Logs => CruxOptions -> IO CruxOptions
+checkPathStrategyInteractions crux =
+  case pathStrategy crux of
+    AlwaysMergePaths -> return crux
+    SplitAndExploreDepthFirst
+     | profileCrucibleFunctions crux ->
+         do sayWarn "Crux" "Path splitting strategies are incompatible with Crucible profiling. Profiling is disabled!"
+            return crux{ profileCrucibleFunctions = False }
+     | otherwise -> return crux
 
 
 -- | Common options for Crux-based binaries.
@@ -23,6 +50,9 @@ data CruxOptions = CruxOptions
 
   , profileCrucibleFunctions :: Bool
   , profileSolver            :: Bool
+
+  , pathStrategy             :: PathStrategy
+
   , globalTimeout            :: Maybe NominalDiffTime
   , goalTimeout              :: Integer
   , profileOutputInterval    :: NominalDiffTime
@@ -83,6 +113,9 @@ cruxOptions = Config
             sectionMaybe "iteration-bound" numSpec
             "Bound all loops to at most this many iterations."
 
+          pathStrategy <-
+            section "path-strategy" pathStrategySpec AlwaysMergePaths
+            "Simulator strategy for path exploration."
 
           makeCexes <-
             section "make-executables" yesOrNoSpec True
@@ -121,13 +154,13 @@ cruxOptions = Config
         "Location for reports. If unset, no reports will be generated."
         $ ReqArg "DIR" $ \v opts -> Right opts { outDir = v }
 
-      , Option [] ["no-profile-crucible"]
-        "Disable profiling of crucible function entry/exit"
-        $ NoArg $ \opts -> Right opts { profileCrucibleFunctions = False }
+      , Option [] ["profile-crucible"]
+        "Enable profiling of crucible function entry/exit"
+        $ NoArg $ \opts -> Right opts { profileCrucibleFunctions = True }
 
-      , Option [] ["no-profile-solver"]
-        "Disable profiling of solver events"
-        $ NoArg $ \opts -> Right opts { profileSolver = False }
+      , Option [] ["profile-solver"]
+        "Enable profiling of solver events"
+        $ NoArg $ \opts -> Right opts { profileSolver = True }
 
       , Option "t" ["timeout"]
         "Stop executing the simulator after this many seconds (default: 60)"
@@ -141,6 +174,12 @@ cruxOptions = Config
         $ ReqArg "seconds"
         $ parsePosNum "seconds"
         $ \v opts -> opts { goalTimeout = v }
+
+      , Option "" ["path-strategy"]
+        "Strategy to use for exploring paths ('always-merge' or 'split-dfs')"
+        $ ReqArg "strategy"
+        $ parsePathStrategy
+        $ \strat opts -> opts{ pathStrategy = strat }
 
       , Option "p" ["profiling-period"]
         "Time between intermediate profile data reports (default: 5 seconds)"
@@ -188,3 +227,8 @@ parseNominalDiffTime thing mk =
   where cvt :: Double -> NominalDiffTime
         cvt = fromRational . toRational
 
+parsePathStrategy ::
+  (PathStrategy -> opts -> opts) -> String -> OptSetter opts
+parsePathStrategy mk "always-merge" opts = Right $ mk AlwaysMergePaths opts
+parsePathStrategy mk "split-dfs"    opts = Right $ mk SplitAndExploreDepthFirst opts
+parsePathStrategy _mk nm _opts = Left ("Unknown path strategy: " ++ show nm)

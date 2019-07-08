@@ -12,11 +12,15 @@ module CruxLLVMMain (main, mainWithOutputTo) where
 import Data.String (fromString)
 import qualified Data.Map as Map
 import Control.Lens ((&), (%~), (^.), view)
-import Control.Monad(forM_)
+import Control.Monad(forM_,unless)
 import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
+import qualified Data.Foldable as Fold
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
+
 
 import System.Process
 import System.Exit
@@ -49,7 +53,9 @@ import Lang.Crucible.Simulator
   )
 import Lang.Crucible.Simulator.ExecutionTree ( stateGlobals )
 import Lang.Crucible.Simulator.GlobalState ( lookupGlobal )
+import Lang.Crucible.Simulator.PathSplitting( executeCrucibleDFSPaths )
 import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
+
 
 -- crucible-llvm
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
@@ -76,6 +82,7 @@ import qualified Crux
 import Crux.Types
 import Crux.Model
 import Crux.Log
+import Crux.Config.Common
 
 -- local
 import Crux.LLVM.Overrides
@@ -94,8 +101,8 @@ mainWithOutputConfig cfg =
     where ?outputConfig = cfg
 
 makeCounterExamplesLLVM ::
-  Logs => Options -> ProvedGoals (Either AssumptionReason SimError) -> IO ()
-makeCounterExamplesLLVM opts = go
+  Logs => Options -> Seq (ProvedGoals (Either AssumptionReason SimError)) -> IO ()
+makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
  where
  go gs =
   case gs of
@@ -158,10 +165,9 @@ registerFunctions ctx llvm_module mtrans =
      mapM_ registerModuleFn $ Map.toList $ cfgMap mtrans
 
 
-
 -- Returns only non-trivial goals
 simulateLLVM :: Crux.SimulateCallback LLVMOptions
-simulateLLVM fs (cruxOpts,_) sym _p = do
+simulateLLVM fs (cruxOpts,_) sym _p cont = do
     llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
     Some trans <- stToIO (translateModule halloc llvm_mod)
@@ -175,13 +181,21 @@ simulateLLVM fs (cruxOpts,_) sym _p = do
                     =<< initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
 
-          res <- executeCrucible (map genericToExecutionFeature fs) $
-                   InitialState simctx globSt defaultAbortHandler $
+          let initSt = InitialState simctx globSt defaultAbortHandler $
                    runOverrideSim UnitRepr $
                      do registerFunctions llvmCtxt llvm_mod trans
                         setupOverrides llvmCtxt
                         checkFun "main" (cfgMap trans)
-          return $ Result res
+
+          case pathStrategy cruxOpts of
+            AlwaysMergePaths ->
+              do res <- executeCrucible (map genericToExecutionFeature fs) initSt
+                 cont (Result res)
+            SplitAndExploreDepthFirst ->
+              do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature fs) initSt (cont . Result)
+                 say "Crux" ("Total paths explored: " ++ show i)
+                 unless (null ws) $
+                   sayWarn "Crux" (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified"])
 
 checkFun :: (ArchOk arch, Logs) =>
             String -> ModuleCFGMap arch -> OverM sym (LLVM arch) ()

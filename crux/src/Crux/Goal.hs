@@ -107,8 +107,10 @@ proveGoals ::
   Maybe (Goals (LPred sym asmp) (LPred sym ast)) ->
   IO (Maybe (Goals (LPred sym asmp) (LPred sym ast, ProofResult (Either (LPred sym asmp) (LPred sym ast)))))
 
-proveGoals _opts _ctxt Nothing =
-  do sayOK "Crux" $ unwords [ "No goals to prove." ]
+proveGoals opts _ctxt Nothing =
+  do case pathStrategy opts of
+       AlwaysMergePaths -> sayOK "Crux" $ unwords [ "No goals to prove." ]
+       _ -> return ()
      return Nothing
 
 proveGoals opts ctxt (Just gs0) =
@@ -117,7 +119,7 @@ proveGoals opts ctxt (Just gs0) =
      goalNum <- newIORef (0,0) -- total, proved
      nameMap <- newIORef Map.empty
      unless hasUnsatCores $
-      say "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
+      sayWarn "Crux" "Warning: skipping unsat cores because MC-SAT is enabled."
      res <- inNewFrame sp (go sp goalNum gs0 nameMap)
      (tot,proved) <- readIORef goalNum
      if proved /= tot

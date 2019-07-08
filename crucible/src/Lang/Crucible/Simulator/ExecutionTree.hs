@@ -443,7 +443,7 @@ data ExecState p sym ext (rtp :: Type)
        ReturnState
          !FunctionName {- Name of the function we are returning from -}
          !(ValueFromValue p sym ext rtp ret) {- Caller's context -}
-         !(PartialResult sym ext (RegEntry sym ret)) {- Return value -}
+         !(RegEntry sym ret) {- Return value -}
          !(SimState p sym ext rtp f a)
 
    {- | A running state indicates the included 'SimState' is ready to enter
