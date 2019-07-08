@@ -605,7 +605,7 @@ data ExecutionFeatureResult p sym ext rtp where
 --   returns @Nothing@.  It is important, therefore, that execution
 --   features make only a bounded number of modification in a row, or
 --   the main simulator loop will be starved out.
-data ExecutionFeature p sym ext rtp =
+newtype ExecutionFeature p sym ext rtp =
   ExecutionFeature
   { runExecutionFeature :: ExecState p sym ext rtp -> IO (ExecutionFeatureResult p sym ext rtp)
   }
@@ -613,7 +613,7 @@ data ExecutionFeature p sym ext rtp =
 -- | A generic execution feature is an execution feature that is
 --   agnostic to the execution environment, and is therefore
 --   polymorphic over the @p@, @ext@ and @rtp@ variables.
-data GenericExecutionFeature sym =
+newtype GenericExecutionFeature sym =
   GenericExecutionFeature
   { runGenericExecutionFeature :: forall p ext rtp.
       (IsSymInterface sym, IsSyntaxExtension ext) =>
