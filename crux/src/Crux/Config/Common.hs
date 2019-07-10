@@ -68,7 +68,7 @@ data CruxOptions = CruxOptions
     -- ^ Solver to user for the online backend
 
   , yicesMCSat               :: Bool
-    -- ^ Should Yices
+    -- ^ Should the MC-SAT Yices solver be enabled (disables unsat cores; default: no)
   }
 
 
