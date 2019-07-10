@@ -216,9 +216,6 @@ checkFun nm mp =
 
 
 -- Definitions for Crux front-end
--- This is an orphan instance because LangLLVM is declared in
--- the "Types" module so that we can refer to the instance
--- before it has been created here.
 
 data LLVMOptions = LLVMOptions
   { clangBin   :: FilePath
