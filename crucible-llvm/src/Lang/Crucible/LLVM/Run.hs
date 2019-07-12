@@ -19,7 +19,6 @@ module Lang.Crucible.LLVM.Run
   ) where
 
 import Control.Lens((^.))
-import Control.Monad.ST(stToIO)
 import System.IO(Handle)
 import Data.String(fromString)
 import qualified Data.Map as Map
@@ -89,7 +88,7 @@ data Setup ext res =
 runCruxLLVM :: Module -> CruxLLVM res -> IO res
 runCruxLLVM llvm_mod (CruxLLVM setup) =
   do halloc <- newHandleAllocator
-     Some trans <- stToIO $ translateModule halloc llvm_mod
+     Some trans <- translateModule halloc llvm_mod
      res <- setup trans
      case res of
        Setup { .. } ->

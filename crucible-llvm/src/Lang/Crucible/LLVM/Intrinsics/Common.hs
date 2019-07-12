@@ -46,7 +46,6 @@ import           Control.Monad (when, unless)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Lens
 import           Control.Monad.Reader (ReaderT, ask, lift)
-import           Control.Monad.ST
 import           Control.Monad.State (StateT, get, put)
 import           Control.Monad.Trans.Maybe (MaybeT)
 import           Data.Map.Strict (Map)
@@ -73,7 +72,6 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Types
 
 import           What4.FunctionName
-import           What4.Utils.MonadST
 
 import           Lang.Crucible.LLVM.DataLayout (ptrBitwidth, ptrSize)
 import           Lang.Crucible.LLVM.Extension
@@ -156,9 +154,9 @@ symbolMap = lens _symbolMap (\s v -> s { _symbolMap = v })
 llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
 llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
 
-mkLLVMContext :: HandleAllocator s
+mkLLVMContext :: HandleAllocator
               -> L.Module
-              -> ST s (Some LLVMContext)
+              -> IO (Some LLVMContext)
 mkLLVMContext halloc m = do
   let (errs, typeCtx) = typeContextFromModule m
   unless (null errs) $
@@ -355,6 +353,6 @@ register_llvm_override llvmOverride = do
           Nothing ->
             do ctx <- lift $ lift $ lift $ use stateContext
                let ha = simHandleAllocator ctx
-               h <- lift $ lift $ liftST $ mkHandle' ha fnm derivedArgs derivedRet
+               h <- lift $ lift $ liftIO $ mkHandle' ha fnm derivedArgs derivedRet
                lift $ lift $ lift $ bindFnHandle h (UseOverride o)
                put (llvmctx & symbolMap %~ Map.insert nm (LLVMHandleInfo decl h))

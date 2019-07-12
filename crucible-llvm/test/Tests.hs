@@ -130,7 +130,7 @@ main = do
   putStrLn "Translating LLVM modules"
   halloc     <- newHandleAllocator
   -- translated :: [ModuleTranslation]
-  translated <- stToIO $ traverse (translateModule halloc) parsed
+  translated <- traverse (translateModule halloc) parsed
 
   -- Run tests on the results
   case translated of
@@ -318,10 +318,10 @@ withLLVMCtx :: forall a. L.Module
 withLLVMCtx mod action =
   let -- This is a separate function because we need to use the scoped type variable
       -- @s@ in the binding of @sym@, which is difficult to do inline.
-      with :: forall s. NonceGenerator IO s -> HandleAllocator RealWorld -> IO a
+      with :: forall s. NonceGenerator IO s -> HandleAllocator -> IO a
       with nonceGen halloc = do
         sym <- Crucible.newSimpleBackend @_ @(Crucible.Flags Crucible.FloatReal) nonceGen
-        Some (ModuleTranslation _ ctx _ _) <- stToIO $ translateModule halloc mod
+        Some (ModuleTranslation _ ctx _ _) <- translateModule halloc mod
         case llvmArch ctx                   of { X86Repr width ->
         case assertLeq (knownNat @1)  width of { LeqProof      ->
         case assertLeq (knownNat @16) width of { LeqProof      -> do
