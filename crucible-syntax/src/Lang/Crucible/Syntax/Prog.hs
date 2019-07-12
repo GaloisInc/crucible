@@ -6,7 +6,6 @@
 module Lang.Crucible.Syntax.Prog where
 
 import Control.Lens (view)
-import Control.Monad.ST
 import Control.Monad
 
 import Data.Foldable (toList)
@@ -56,7 +55,7 @@ doParseCheck
    -> Handle   -- ^ A handle that will receive the output
    -> IO ()
 doParseCheck fn theInput pprint outh =
-  do Some ng <- stToIO $ newSTNonceGenerator
+  do Some ng <- newIONonceGenerator
      ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
@@ -66,7 +65,7 @@ doParseCheck fn theInput pprint outh =
          do when pprint $
               forM_ v $
                 \e -> T.hPutStrLn outh (printExpr e) >> hPutStrLn outh ""
-            cs <- stToIO $ top ng ha [] $ cfgs v
+            cs <- top ng ha [] $ cfgs v
             case cs of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err
@@ -84,10 +83,10 @@ simulateProgram
    -> Maybe Handle -- ^ A handle to receive profiling data output
    -> [ConfigDesc] -- ^ Options to install
    -> (forall p sym ext t st fs. (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-         sym -> HandleAllocator RealWorld -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
+         sym -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]) -- ^ action to set up overrides
    -> IO ()
 simulateProgram fn theInput outh profh opts setup =
-  do Some ng <- stToIO $ newSTNonceGenerator
+  do Some ng <- newIONonceGenerator
      ha <- newHandleAllocator
      case MP.parse (skipWhitespace *> many (sexp atom) <* eof) fn theInput of
        Left err ->
@@ -99,7 +98,7 @@ simulateProgram fn theInput outh profh opts setup =
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]
-            parseResult <- stToIO $ top ng ha hdls $ cfgs v
+            parseResult <- top ng ha hdls $ cfgs v
             case parseResult of
               Left (SyntaxParseError e) -> T.hPutStrLn outh $ printSyntaxError e
               Left err -> hPutStrLn outh $ show err

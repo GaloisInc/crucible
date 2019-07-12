@@ -12,7 +12,6 @@ module Lang.Crucible.Syntax.Overrides
 import Control.Lens hiding ((:>), Empty)
 import Control.Monad (forM_)
 import Control.Monad.IO.Class
-import Control.Monad.ST
 import Data.Foldable(toList)
 import System.IO
 
@@ -34,9 +33,9 @@ import Lang.Crucible.Simulator.SimError (ppSimError)
 
 setupOverrides ::
   (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-  sym -> HandleAllocator RealWorld -> IO [(FnBinding p sym ext, Position)]
+  sym -> HandleAllocator -> IO [(FnBinding p sym ext, Position)]
 setupOverrides _ ha =
-  do f1 <- FnBinding <$> stToIO (mkHandle ha "proveObligations")
+  do f1 <- FnBinding <$> mkHandle ha "proveObligations"
                      <*> pure (UseOverride (mkOverride "proveObligations" proveObligations))
 
      return [(f1, InternalPos)]
