@@ -287,7 +287,7 @@ newEmptyRef ::
   OverrideSim p sym ext rtp args ret (RefCell tp)
 newEmptyRef tpr =
   do halloc <- use (stateContext . to simHandleAllocator)
-     liftST (freshRefCell halloc tpr)
+     liftIO $ freshRefCell halloc tpr
 
 -- | Read the current value of a reference cell.
 readRef ::

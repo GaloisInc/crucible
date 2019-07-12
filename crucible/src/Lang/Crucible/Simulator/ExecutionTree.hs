@@ -139,7 +139,6 @@ module Lang.Crucible.Simulator.ExecutionTree
 
 import           Control.Lens
 import           Control.Monad.Reader
-import           Control.Monad.ST (RealWorld)
 import           Data.Kind
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -1002,7 +1001,7 @@ data SimContext (personality :: Type) (sym :: Type) (ext :: Type)
                 , ctxSolverProof         :: !(forall a . IsSymInterfaceProof sym a)
                 , ctxIntrinsicTypes      :: !(IntrinsicTypes sym)
                   -- | Allocator for function handles
-                , simHandleAllocator     :: !(HandleAllocator RealWorld)
+                , simHandleAllocator     :: !(HandleAllocator)
                   -- | Handle to write messages to.
                 , printHandle            :: !Handle
                 , extensionImpl          :: ExtensionImpl personality sym ext
@@ -1016,7 +1015,7 @@ initSimContext ::
   IsSymInterface sym =>
   sym {- ^ Symbolic backend -} ->
   IntrinsicTypes sym {- ^ Implementations of intrinsic types -} ->
-  HandleAllocator RealWorld {- ^ Handle allocator for creating new function handles -} ->
+  HandleAllocator {- ^ Handle allocator for creating new function handles -} ->
   Handle {- ^ Handle to write output to -} ->
   FunctionBindings personality sym ext {- ^ Initial bindings for function handles -} ->
   ExtensionImpl personality sym ext {- ^ Semantics for extension syntax -} ->
