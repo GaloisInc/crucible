@@ -13,7 +13,6 @@ import Data.String (fromString)
 import qualified Data.Map as Map
 import Control.Lens ((&), (%~), (^.), view)
 import Control.Monad(forM_,unless)
-import Control.Monad.ST(RealWorld, stToIO)
 import Control.Monad.State(liftIO, MonadIO)
 import Control.Exception
 import qualified Data.Foldable as Fold
@@ -128,7 +127,7 @@ makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
 -- | Create a simulator context for the given architecture.
 setupSimCtxt ::
   (ArchOk arch, IsSymInterface sym) =>
-  HandleAllocator RealWorld ->
+  HandleAllocator ->
   sym ->
   LLVMContext arch ->
   SimCtxt sym (LLVM arch)
@@ -170,7 +169,7 @@ simulateLLVM :: Crux.SimulateCallback LLVMOptions
 simulateLLVM fs (cruxOpts,_) sym _p cont = do
     llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
-    Some trans <- stToIO (translateModule halloc llvm_mod)
+    Some trans <- translateModule halloc llvm_mod
     let llvmCtxt = trans ^. transContext
 
     llvmPtrWidth llvmCtxt $ \ptrW ->
