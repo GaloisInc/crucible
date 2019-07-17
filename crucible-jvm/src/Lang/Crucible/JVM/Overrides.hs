@@ -260,7 +260,7 @@ register_jvm_override (JVMOverride { jvmOverride_className=cn
         do
            ctx <- lift $ use C.stateContext
            let ha = C.simHandleAllocator ctx
-           h <- lift $ liftST $ mkHandle' ha fnm derivedArgs derivedRet
+           h <- lift $ liftIO $ mkHandle' ha fnm derivedArgs derivedRet
            lift $ C.bindFnHandle h (C.UseOverride o)
            put (jvmctx { methodHandles = Map.insert (cn,mk) (JVMHandleInfo mk h) (methodHandles jvmctx) })
 

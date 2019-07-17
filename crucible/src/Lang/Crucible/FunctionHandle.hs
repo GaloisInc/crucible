@@ -40,7 +40,6 @@ module Lang.Crucible.FunctionHandle
   , refType
   ) where
 
-import           Control.Monad.ST
 import           Data.Hashable
 import           Data.Kind
 import           Data.Ord (comparing)
@@ -49,10 +48,9 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Map (MapF)
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.Nonce.Unsafe
+import           Data.Parameterized.Nonce
 
 import           What4.FunctionName
-import           What4.Utils.MonadST
 
 import           Lang.Crucible.Types
 
@@ -62,7 +60,7 @@ import           Lang.Crucible.Types
 -- | A handle uniquely identifies a function.  The signature indicates the
 --   expected argument types and the return type of the function.
 data FnHandle (args :: Ctx CrucibleType) (ret :: CrucibleType)
-   = H { handleID         :: !(Nonce (args ::> ret))
+   = H { handleID         :: !(Nonce GlobalNonceGenerator (args ::> ret))
          -- ^ A unique identifier for the function.
        , handleName       :: !FunctionName
          -- ^ The name of the function (not necessarily unique)
@@ -110,34 +108,35 @@ instance Show SomeHandle where
 -- HandleAllocator
 
 -- | Used to allocate function handles.
-newtype HandleAllocator s
-   = HA { haCounter :: NonceGenerator s
-        }
+newtype HandleAllocator
+   = HA ()
+
+haCounter :: HandleAllocator -> NonceGenerator IO GlobalNonceGenerator
+haCounter _ha = globalNonceGenerator
 
 -- | Create a new handle allocator.
-newHandleAllocator :: MonadST s m => m (HandleAllocator s)
-newHandleAllocator = do
-  HA <$> liftST newNonceGenerator
+newHandleAllocator :: IO (HandleAllocator)
+newHandleAllocator = return (HA ())
 
 -- | Create a new handle allocator and run the given computation.
-withHandleAllocator :: MonadST s m => (HandleAllocator s -> m a) -> m a
+withHandleAllocator :: (HandleAllocator -> IO a) -> IO a
 withHandleAllocator k = newHandleAllocator >>= k
 
 -- | Allocate a new function handle with requested 'args' and 'ret' types
 mkHandle :: (KnownCtx TypeRepr args, KnownRepr TypeRepr ret)
-         => HandleAllocator s
+         => HandleAllocator
          -> FunctionName
-         -> ST s (FnHandle args ret)
+         -> IO (FnHandle args ret)
 mkHandle a nm = mkHandle' a nm knownRepr knownRepr
 
 -- | Allocate a new function handle.
-mkHandle' :: HandleAllocator s
+mkHandle' :: HandleAllocator
           -> FunctionName
           -> Ctx.Assignment TypeRepr args
           -> TypeRepr ret
-          -> ST s (FnHandle args ret)
-mkHandle' a nm args ret = do
-  i <- freshNonce (haCounter a)
+          -> IO (FnHandle args ret)
+mkHandle' _ha nm args ret = do
+  i <- freshNonce globalNonceGenerator
   return $! H { handleID   = i
               , handleName = nm
               , handleArgTypes   = args
@@ -148,16 +147,16 @@ mkHandle' a nm args ret = do
 -- Reference cells
 
 data RefCell (tp :: CrucibleType)
-   = RefCell (TypeRepr tp) (Nonce tp)
+   = RefCell (TypeRepr tp) (Nonce GlobalNonceGenerator tp)
 
 refType :: RefCell tp -> TypeRepr tp
 refType (RefCell tpr _) = tpr
 
-freshRefCell :: HandleAllocator s
+freshRefCell :: HandleAllocator
              -> TypeRepr tp
-             -> ST s (RefCell tp)
-freshRefCell ha tpr =
-  RefCell tpr <$> freshNonce (haCounter ha)
+             -> IO (RefCell tp)
+freshRefCell _ha tpr =
+  RefCell tpr <$> freshNonce globalNonceGenerator
 
 instance Show (RefCell tp) where
   show (RefCell _ n) = show n
@@ -189,7 +188,7 @@ instance Ord (RefCell tp) where
 data HandleElt (f :: Ctx CrucibleType -> CrucibleType -> Type) ctx where
   HandleElt :: f args ret -> HandleElt f (args::>ret)
 
-newtype FnHandleMap f = FnHandleMap (MapF Nonce (HandleElt f))
+newtype FnHandleMap f = FnHandleMap (MapF (Nonce GlobalNonceGenerator) (HandleElt f))
 
 emptyHandleMap :: FnHandleMap f
 emptyHandleMap = FnHandleMap MapF.empty
