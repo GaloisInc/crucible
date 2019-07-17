@@ -671,7 +671,8 @@ printSyntaxError (SyntaxError rs) =
       , ", expected ", T.intercalate " or " (nub $ sort [ wanted | Reason _ wanted <- r:more ])
       , " but got ", toText mempty found]
 
-
+-- | Attempt to parse the given piece of syntax, returning the first success found,
+--   or the error(s) with the greatest progress otherwise.
 syntaxParseIO :: IsAtom atom => SyntaxParse atom a -> Syntax atom -> IO (Either (SyntaxError atom) a)
 syntaxParseIO p stx = do
   (P yes no) <-
