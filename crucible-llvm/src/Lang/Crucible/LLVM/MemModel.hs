@@ -1220,6 +1220,9 @@ packMemValue _ (StorageType Float _) (FloatRepr SingleFloatRepr) x =
 packMemValue _ (StorageType Double _) (FloatRepr DoubleFloatRepr) x =
        return $ LLVMValFloat DoubleSize x
 
+packMemValue _ (StorageType X86_FP80 _) (FloatRepr X86_80FloatRepr) x =
+       return $ LLVMValFloat X86_FP80Size x
+
 packMemValue sym (StorageType (Bitvector bytes) _) (BVRepr w) bv
   | bitsToBytes (natValue w) == bytes =
       do blk0 <- natLit sym 0
@@ -1349,6 +1352,9 @@ constToLLVMValP sym _ (FloatConst f) = liftIO $
 
 constToLLVMValP sym _ (DoubleConst d) = liftIO $
   LLVMValFloat DoubleSize <$> iFloatLitDouble sym d
+
+constToLLVMValP sym _ (LongDoubleConst (L.FP80_LongDouble e s)) = liftIO $
+  LLVMValFloat X86_FP80Size <$> iFloatLitLongDouble sym (X86_80Val e s)
 
 constToLLVMValP sym look (ArrayConst memty xs) =
   LLVMValArray <$> liftIO (toStorableType memty)
