@@ -13,9 +13,12 @@ expressions (focusing on @WeightedSum@ values).
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module What4.Solver.LIMP
   ( TranslationError(..)
+  , RVar
+  , ZVar
   , exprToConstraint
   , exprToLinear
   , makeLinearProgram
@@ -24,8 +27,9 @@ module What4.Solver.LIMP
 
 import Control.Monad
 import Data.Foldable (fold)
+import qualified Data.Parameterized.Context as Ctx
 import Numeric.Limp.Program hiding (eval)
-import Numeric.Limp.Rep (Rep)
+import Numeric.Limp.Rep (Rep, IntDouble, Z, R)
 import Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 import What4.BaseTypes
 import What4.Expr.BoolMap (viewBoolMap, BoolMapView(..))
@@ -60,7 +64,7 @@ data TranslationError where
   BitVectorsNotSupported :: TranslationError
   InvalidVariableType :: BaseTypeRepr tp -> TranslationError
   FalseInConstraint :: TranslationError
-  NegativeConstraint :: TranslationError
+  NegativeConstraint :: (Show (Z c), Show (R c)) => Constraint ZVar RVar c -> TranslationError
   LinearAppNotSupported :: App (Expr t) tp -> TranslationError
   LinearExprNotSupported :: Expr t tp -> TranslationError
   ConstraintAppNotSupported :: App (Expr t) tp -> TranslationError
@@ -74,8 +78,9 @@ ppTranslationError (InvalidVariableType tp) =
     text (show tp)
 ppTranslationError FalseInConstraint =
   text "Constraint included conjunct equivalent to False."
-ppTranslationError NegativeConstraint =
-  text "Constraint included negative conjunct."
+ppTranslationError (NegativeConstraint c) =
+  text "Constraint included negative conjunct:" <+>
+    text (show c)
 ppTranslationError (LinearAppNotSupported a) =
   text "Unsupported application type in linear function:" <+>
     text (show a)
@@ -94,32 +99,21 @@ type TransM = Either TranslationError
 tFail :: TranslationError -> TransM a
 tFail = Left
 
-wsToLinear ::
-  (Rep c) =>
-  WeightedSum (Expr t) sr ->
-  TransM (Linear ZVar RVar c (LIMPSemiRingKind sr))
-wsToLinear ws =
-  case sumRepr ws of
-    SemiRingIntegerRepr -> convert fromIntegral conZ ws
-    SemiRingNatRepr -> convert fromIntegral conZ ws
-    SemiRingRealRepr -> convert fromRational conR ws
-    SemiRingBVRepr _ _ -> tFail BitVectorsNotSupported
-  where
-    convert kConst kLin =
-      evalM (\a b -> return (a .+. b))
-            (\k -> exprToLinear >=> return . (kConst k *.))
-            (return . kLin . kConst)
-
 appToLinear ::
   (Rep c) =>
   App (Expr t) tp ->
   TransM (Linear ZVar RVar c (LIMPBaseTypeKind tp))
 appToLinear (SemiRingSum ws) =
   case sumRepr ws of
-    SemiRingIntegerRepr -> wsToLinear ws
-    SemiRingNatRepr -> wsToLinear ws
-    SemiRingRealRepr -> wsToLinear ws
+    SemiRingIntegerRepr -> wsToLinear fromIntegral conZ ws
+    SemiRingNatRepr -> wsToLinear fromIntegral conZ ws
+    SemiRingRealRepr -> wsToLinear fromRational conR ws
     SemiRingBVRepr _ _ -> tFail BitVectorsNotSupported
+  where
+    wsToLinear kConst kLin =
+      evalM (\a b -> return (a .+. b))
+            (\k -> exprToLinear >=> return . (kConst k *.))
+            (return . kLin . kConst)
 appToLinear (NatToInteger e) = exprToLinear e
 appToLinear (IntegerToNat e) = exprToLinear e
 appToLinear a = tFail (LinearAppNotSupported a)
@@ -140,17 +134,37 @@ exprToLinear (BoundVarExpr x) =
     BaseIntegerRepr -> return (z1 (bvarName x))
     BaseRealRepr -> return (r1 (bvarName x))
     tr -> tFail (InvalidVariableType tr)
+exprToLinear nae@(NonceAppExpr ne) =
+  case nonceExprApp ne of
+    Exists _ e -> exprToLinear e
+    FnApp f as | Ctx.null as ->
+      case symFnReturnType f of
+        BaseNatRepr -> return (z1 (symFnName f))
+        BaseIntegerRepr -> return (z1 (symFnName f))
+        BaseRealRepr -> return (r1 (symFnName f))
+        tr -> tFail (InvalidVariableType tr)
+    _ -> tFail (LinearExprNotSupported nae)
 exprToLinear (AppExpr ae) = appToLinear (appExprApp ae)
 exprToLinear e = tFail (LinearExprNotSupported e)
 
+
+negateConstraint :: (Show (Z c), Show (R c)) => Constraint ZVar RVar c -> TransM (Constraint ZVar RVar c)
+negateConstraint (e1@(LZ _ _) :<= e2@(LZ _ _)) = return (e1 :> e2)
+negateConstraint (e1@(LZ _ _) :>= e2@(LZ _ _)) = return (e1 :< e2)
+negateConstraint (e1 :< e2)  = return (e1 :>= e2)
+negateConstraint (e1 :> e2)  = return (e1 :<= e2)
+negateConstraint c = tFail (NegativeConstraint c)
+
 appToConstraint ::
-  (Rep c) =>
+  (Rep c, Show (Z c), Show (R c)) =>
   App (Expr t) BaseBoolType ->
   TransM (Constraint ZVar RVar c)
 appToConstraint (BaseEq _ e1 e2) =
   (:==) <$> exprToLinear e1 <*> exprToLinear e2
 appToConstraint (SemiRingLe _ e1 e2) =
   (:<=) <$> exprToLinear e1 <*> exprToLinear e2
+appToConstraint (NotPred e) =
+  negateConstraint =<< exprToConstraint e
 appToConstraint (ConjPred m) =
   case viewBoolMap m of
     BoolMapUnit -> tFail FalseInConstraint
@@ -158,11 +172,12 @@ appToConstraint (ConjPred m) =
     BoolMapTerms es -> fold <$> traverse termToConstraint es
       where
         termToConstraint (e, Positive) = exprToConstraint e
-        termToConstraint (_, Negative) = tFail NegativeConstraint
+        termToConstraint (e, Negative) =
+          negateConstraint =<< exprToConstraint e
 appToConstraint a = tFail (ConstraintAppNotSupported a)
 
 exprToConstraint ::
-  (Rep c) =>
+  (Rep c, Show (Z c), Show (R c)) =>
   Expr t BaseBoolType ->
   TransM (Constraint ZVar RVar c)
 exprToConstraint nae@(NonceAppExpr ne) =
@@ -183,13 +198,13 @@ rangeToBounds (Range SemiRingRealRepr ml x mh) =
 rangeToBounds (Range (SemiRingBVRepr _ _) _ _ _) =
   tFail BitVectorsNotSupported
 
+-- TODO: support reals, too
 makeLinearProgram ::
-  (Rep c) =>
   Direction ->
-  Expr t tp ->
-  Expr t (BaseBoolType) ->
+  Expr t BaseIntegerType ->
+  Expr t BaseBoolType ->
   [Range] ->
-  TransM (Program ZVar RVar c)
+  TransM (Program ZVar RVar IntDouble)
 makeLinearProgram d obj cs bs = do
   lobj <- exprToLinear obj
   lcs <- exprToConstraint cs

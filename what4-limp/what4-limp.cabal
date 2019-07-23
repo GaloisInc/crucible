@@ -21,6 +21,7 @@ library
     base >= 4.7 && < 4.13,
     exceptions,
     limp,
+    parameterized-utils,
     what4
 
   hs-source-dirs: src
