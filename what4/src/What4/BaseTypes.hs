@@ -52,6 +52,7 @@ module What4.BaseTypes
   , Prec16
   , Prec32
   , Prec64
+  , Prec80
   , Prec128
     -- * Representations of base types
   , BaseTypeRepr(..)
@@ -130,13 +131,16 @@ type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseTy
 -- | This data kind describes the types of floating-point formats.
 -- This consist of the standard IEEE 754-2008 binary floating point formats.
 data FloatPrecision where
-  FloatingPointPrecision :: TypeNats.Nat -> TypeNats.Nat -> FloatPrecision
+  FloatingPointPrecision :: TypeNats.Nat   -- ^ # of bits for the exponent field
+                         -> TypeNats.Nat   -- ^ # of bits for the significand field
+                         -> FloatPrecision
 type FloatingPointPrecision = 'FloatingPointPrecision -- ^ @:: 'GHC.TypeNats.Nat' -> 'GHC.TypeNats.Nat' -> 'FloatPrecision'@.
 
 -- | Floating-point precision aliases
 type Prec16  = FloatingPointPrecision  5  11
 type Prec32  = FloatingPointPrecision  8  24
 type Prec64  = FloatingPointPrecision 11  53
+type Prec80  = FloatingPointPrecision 15  65
 type Prec128 = FloatingPointPrecision 15 113
 
 ------------------------------------------------------------------------
