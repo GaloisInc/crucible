@@ -3,3 +3,4 @@ bvZext 32 (bvSelect 0 8 cX@1:bv)
 bvZext 32 (bvSelect 8 8 cX@1:bv)
 bvZext 32 (bvSelect 16 8 cX@1:bv)
 bvZext 32 (bvSelect 24 8 cX@1:bv)
+[Crux] No goals to prove.

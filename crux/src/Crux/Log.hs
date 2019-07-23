@@ -5,7 +5,7 @@ module Crux.Log (
   Logs,
   OutputConfig(..), showColors, outputHandle, errorHandle, defaultOutputConfig,
   -- * Performing output
-  say, sayOK, sayFail, output, outputLn
+  say, sayOK, sayWarn, sayFail, output, outputLn
   ) where
 
 import Control.Exception (bracket_)
@@ -58,6 +58,9 @@ outputColored c msg =
 
 sayOK :: Logs => String -> String -> IO ()
 sayOK = sayCol Green
+
+sayWarn :: Logs => String -> String -> IO ()
+sayWarn = sayCol Yellow
 
 sayFail :: Logs => String -> String -> IO ()
 sayFail = sayCol Red

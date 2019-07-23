@@ -67,6 +67,7 @@ module Lang.Crucible.Simulator.Operations
   , unwindContext
   , extractCurrentPath
   , asContFrame
+  , forgetPostdomFrame
   ) where
 
 import Prelude hiding (pred)
@@ -214,6 +215,15 @@ mergeAssumptions sym p thens elses =
      let xs = th' <> el'
      -- Filter out all the trivally true assumptions
      return (Seq.filter ((/= Just True) . asConstantPred . view labeledPred) xs)
+
+forgetPostdomFrame ::
+  PausedFrame p sym ext rtp g ->
+  PausedFrame p sym ext rtp g
+forgetPostdomFrame (PausedFrame frm cont loc) = PausedFrame frm (f cont) loc
+  where
+  f (CheckMergeResumption jmp) = ContinueResumption jmp
+  f x = x
+
 
 pushPausedFrame ::
   IsSymInterface sym =>
@@ -602,7 +612,7 @@ performIntraFrameMerge tgt = do
              handleSimReturn
                (er^.partialValue.gpValue.frameFunctionName)
                (returnContext ctx0)
-               (er & over (partialValue.gpValue) fromReturnFrame)
+               (er^.partialValue.gpValue.to fromReturnFrame)
 
 ---------------------------------------------------------------------
 -- Abort handling
@@ -745,7 +755,7 @@ handleSimReturn ::
   IsSymInterface sym =>
   FunctionName {- ^ Name of the function we are returning from -} ->
   ValueFromValue p sym ext r ret {- ^ Context to return to. -} ->
-  PartialResult sym ext (RegEntry sym ret) {- ^ Value that is being returned. -} ->
+  RegEntry sym ret {- ^ Value that is being returned. -} ->
   ExecCont p sym ext r f a
 handleSimReturn fnName vfv return_value =
   ReaderT $ return . ReturnState fnName vfv return_value
@@ -756,39 +766,42 @@ performReturn ::
   IsSymInterface sym =>
   FunctionName {- ^ Name of the function we are returning from -} ->
   ValueFromValue p sym ext r ret {- ^ Context to return to. -} ->
-  PartialResult sym ext (RegEntry sym ret) {- ^ Value that is being returned. -} ->
+  RegEntry sym ret {- ^ Value that is being returned. -} ->
   ExecCont p sym ext r f a
-performReturn fnName ctx0 return_value = do
+performReturn fnName ctx0 v = do
   case ctx0 of
     VFVCall ctx (MF f) (ReturnToCrucible tpr rest) ->
-      do let v  = return_value^.partialValue.gpValue
-             f' = extendFrame tpr (regValue v) rest f
+      do ActiveTree _oldctx pres <- view stateTree
+         let f' = extendFrame tpr (regValue v) rest f
          withReaderT
-           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ MF f'))
+           (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ MF f'))
            (continue (RunReturnFrom fnName))
 
     VFVCall ctx _ TailReturnToCrucible ->
-      do let v = return_value^.partialValue.gpValue
+      do ActiveTree _oldctx pres <- view stateTree
          withReaderT
-           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ RF fnName v))
+           (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ RF fnName v))
            (returnValue v)
 
     VFVCall ctx (OF f) (ReturnToOverride k) ->
-      do let v = return_value^.partialValue.gpValue
+      do ActiveTree _oldctx pres <- view stateTree
          withReaderT
-           (stateTree .~ ActiveTree ctx (return_value & partialValue . gpValue .~ OF f))
+           (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ OF f))
            (ReaderT (k v))
 
     VFVPartial ctx loc pred r ->
       do sym <- view stateSymInterface
-         newRetVal <- liftIO $
-           mergePartialAndAbortedResult sym loc pred return_value r
-         performReturn fnName ctx newRetVal
+         ActiveTree oldctx pres <- view stateTree
+         newPres <- liftIO $
+           mergePartialAndAbortedResult sym loc pred pres r
+         withReaderT
+            (stateTree .~ ActiveTree oldctx newPres)
+            (performReturn fnName ctx v)
 
     VFVEnd ->
-      do res <- view stateContext
-         return $! ResultState $ FinishedResult res return_value
-
+      do simctx <- view stateContext
+         ActiveTree _oldctx pres <- view stateTree
+         return $! ResultState $ FinishedResult simctx (pres & partialValue . gpValue .~ v)
 
 cruciblePausedFrame ::
   ResolvedJump sym b ->

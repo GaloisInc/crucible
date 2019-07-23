@@ -18,7 +18,6 @@ module Lang.Crucible.CFG.ExtractSubgraph
   ) where
 
 import           Control.Lens
-import           Control.Monad.ST
 import qualified Data.Bimap as Bimap
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map as MapF
@@ -42,8 +41,8 @@ extractSubgraph :: (KnownCtx TypeRepr init, KnownRepr TypeRepr ret)
                 => CFG ext blocks init ret
                 -> Set (BlockID blocks (EmptyCtx ::> ret))
                 -> BlockID blocks init
-                -> HandleAllocator s
-                -> ST s (Maybe (SomeCFG ext init ret))
+                -> HandleAllocator
+                -> IO (Maybe (SomeCFG ext init ret))
 extractSubgraph (CFG{cfgBlockMap = orig, cfgBreakpoints = breakpoints}) cuts bi halloc =
   extractSubgraphFirst orig cuts MapF.empty zeroSize bi $
     \(SubgraphIntermediate finalMap finalInitMap _sz entryID cb) -> do

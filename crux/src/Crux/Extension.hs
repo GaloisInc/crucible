@@ -1,6 +1,8 @@
 {-# Language RankNTypes, ImplicitParams #-}
 module Crux.Extension where
 
+import Data.Sequence (Seq)
+
 import Lang.Crucible.Simulator(GenericExecutionFeature,SimError)
 import Lang.Crucible.Backend(IsSymInterface,AssumptionReason)
 
@@ -39,15 +41,15 @@ type SimulateCallback opts =
     Options opts {- ^ Configuration -} ->
     sym          {- ^ The backend -} ->
     Model sym    {- ^ Initial model -} ->
-    IO (Result sym)
+    (Result sym -> IO ()) {- ^ Callback for finished paths -} ->
+    IO ()
 
 -- | The type of the `makeCounterExamples` method.
 type CounterExampleCallback opts =
   Logs =>
-  Options opts {- ^ Configuration optsions -} ->
-  ProvedGoals (Either AssumptionReason SimError)
+  Options opts {- ^ Configuration options -} ->
+  Seq (ProvedGoals (Either AssumptionReason SimError))
   {- ^ The goals we looked at, and if they were proved. -} ->
   IO ()
-
 
 

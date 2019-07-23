@@ -2,14 +2,13 @@ module Main where
 
 import Control.Exception (bracket)
 
-import GHC.IO.Handle (hDuplicate, hDuplicateTo, hGetBuffering, hSetBuffering, Handle, BufferMode(..))
+import GHC.IO.Handle (hDuplicate, hDuplicateTo, hSetBuffering, Handle, BufferMode(..))
 
 import System.Environment (withArgs)
-import System.FilePath (takeBaseName, takeExtension, replaceExtension)
+import System.FilePath (takeBaseName, replaceExtension)
 import System.IO --(IOMode(..), hFlush, withFile, stdout, stderr)
 
 import Test.Tasty (defaultMain, testGroup, TestTree)
-import Test.Tasty.HUnit (Assertion, testCaseSteps, assertBool, assertFailure)
 import Test.Tasty.Golden (goldenVsFile, findByExtension)
 
 

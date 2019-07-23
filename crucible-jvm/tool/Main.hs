@@ -26,6 +26,7 @@
 module Main where
 
 import Data.String(fromString)
+import qualified Data.Sequence as Seq
 import qualified Data.Map as Map
 import Control.Lens((^.))
 import Control.Monad.ST
@@ -53,11 +54,11 @@ import Lang.Crucible.Types
 import Lang.Crucible.CFG.Core(SomeCFG(..), AnyCFG(..), cfgArgTypes)
 import Lang.Crucible.FunctionHandle
 
-import Lang.Crucible.Simulator hiding (executeCrucible)
+import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.GlobalState
+import Lang.Crucible.Simulator.PathSplitting
 import Lang.Crucible.Simulator.RegValue
 import Lang.Crucible.Simulator.RegMap
-
 
 -- crucible/what4
 import What4.ProgramLoc
@@ -74,11 +75,12 @@ import qualified Crux
 import qualified Crux.Log     as Crux
 import qualified Crux.Model   as Crux
 import qualified Crux.Types   as Crux
+import qualified Crux.Config.Common as Crux
 
 
 import qualified Lang.JVM.Codebase as JCB
 
-import           Lang.Crucible.JVM.Simulate (executeCrucibleJVMCrux)
+import           Lang.Crucible.JVM.Simulate (setupCrucibleJVMCrux)
 import           Lang.Crucible.JVM.Types
 
 -- executable
@@ -140,7 +142,7 @@ cruxJVM = Crux.Language
   , Crux.makeCounterExamples = \_ _ -> return ()
   }
 
-simulateJVM feats (copts,opts) sym ext = do
+simulateJVM feats (copts,opts) sym ext cont = do
    let files = Crux.inputFiles copts
    let verbosity = Crux.simVerbose copts
    file <- case files of
@@ -157,8 +159,19 @@ simulateJVM feats (copts,opts) sym ext = do
    let nullstr = RegEntry refRepr W4.Unassigned
    let regmap = RegMap (Ctx.Empty `Ctx.extend` nullstr)
 
-   Crux.Result <$> executeCrucibleJVMCrux @UnitType feats cb verbosity sym
+   initSt <- setupCrucibleJVMCrux @UnitType cb verbosity sym
      ext cname mname regmap
+
+   case Crux.pathStrategy copts of
+     Crux.AlwaysMergePaths ->
+       do res <- executeCrucible (map genericToExecutionFeature feats) initSt
+          cont (Crux.Result res)
+     Crux.SplitAndExploreDepthFirst ->
+       do (i,ws) <- executeCrucibleDFSPaths (map genericToExecutionFeature feats) initSt (cont . Crux.Result)
+          Crux.say "Crux" ("Total paths explored: " ++ show i)
+          unless (null ws) $
+            Crux.sayWarn "Crux"
+              (unwords [show (Seq.length ws), "paths remaining not explored: program might not be fully verified" ])
 
 -- | Entry point, parse command line opions
 main :: IO ()

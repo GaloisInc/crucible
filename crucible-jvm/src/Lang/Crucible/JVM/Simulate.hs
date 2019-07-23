@@ -313,11 +313,11 @@ findAllRefs cb cls = do
 --    + add the class to Class table
 
 -- | Allocate a new method handle and add it to the table of method handles.
-declareMethod :: C.HandleAllocator s
+declareMethod :: C.HandleAllocator
               -> J.Class
               -> MethodHandleTable
               -> J.Method
-              -> ST s MethodHandleTable
+              -> IO MethodHandleTable
 declareMethod halloc mcls ctx meth =
   let cname    = J.className mcls
       mkey     = J.methodKey meth
@@ -331,11 +331,11 @@ declareMethod halloc mcls ctx meth =
 
 -- | Allocate the static field (a global variable)
 -- and add it to the static field table.
-declareStaticField :: C.HandleAllocator s
+declareStaticField :: C.HandleAllocator
     -> J.Class
     -> StaticFieldTable
     -> J.Field
-    -> ST s StaticFieldTable
+    -> IO StaticFieldTable
 declareStaticField halloc c m f = do
   let cn = J.className c
   let fn = J.fieldName f
@@ -346,10 +346,10 @@ declareStaticField halloc c m f = do
 
 
 -- | Create the initial 'JVMContext'.
-mkInitialJVMContext :: C.HandleAllocator RealWorld -> IO JVMContext
+mkInitialJVMContext :: C.HandleAllocator -> IO JVMContext
 mkInitialJVMContext halloc = do
 
-  gv <- stToIO $ C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
+  gv <- C.freshGlobalVar halloc (fromString "JVM_CLASS_TABLE")
                                 (knownRepr :: TypeRepr JVMClassTableType)
 
   return (JVMContext
@@ -363,7 +363,7 @@ mkInitialJVMContext halloc = do
 -- by declaring handles for all methods,
 --    declaring global variables for all static fields, and
 --    adding the class information to the class table.
-extendJVMContext :: C.HandleAllocator s -> J.Class -> StateT JVMContext (ST s) ()
+extendJVMContext :: C.HandleAllocator -> J.Class -> StateT JVMContext IO ()
 extendJVMContext halloc c = do
   sm <- lift $ foldM (declareMethod halloc c) Map.empty (J.classMethods c)
   st <- lift $ foldM (declareStaticField halloc c) Map.empty (J.classFields c)
@@ -441,7 +441,7 @@ jvmExtensionImpl = C.ExtensionImpl (\_sym _iTypes _logFn _f x -> case x of) (\x 
 jvmSimContext ::
   IsSymInterface sym =>
   sym {- ^ Symbolic backend -} ->
-  C.HandleAllocator RealWorld {- ^ Handle allocator for creating new function handles -} ->
+  C.HandleAllocator {- ^ Handle allocator for creating new function handles -} ->
   Handle {- ^ Handle to write output to -} ->
   JVMContext ->
   Verbosity ->
@@ -458,7 +458,7 @@ mkSimSt ::
   (IsSymInterface sym) =>
   sym ->
   p ->
-  C.HandleAllocator RealWorld ->
+  C.HandleAllocator ->
   JVMContext ->
   Verbosity ->
   C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx) ->
@@ -495,58 +495,57 @@ zeroValue sym ty =
 -- (currently unused)
 -- Way to run initialization code before simulation starts
 -- Currently this code initializes the current class
-runClassInit :: C.HandleAllocator RealWorld -> JVMContext -> Verbosity -> J.ClassName
+runClassInit :: C.HandleAllocator -> JVMContext -> Verbosity -> J.ClassName
              -> C.OverrideSim p sym JVM rtp a r (C.RegEntry sym C.UnitType)
 runClassInit halloc ctx verbosity name = do
-  (C.SomeCFG g') <- liftIO $ stToIO $ do
+  (C.SomeCFG g') <- liftIO $ do
       h <- mkHandle halloc (fromString ("class_init:" ++ J.unClassName name))
       let (meth :: J.Method) = undefined
-          def :: FunctionDef JVM s (JVMState UnitType) EmptyCtx UnitType
+          def :: FunctionDef JVM RealWorld (JVMState UnitType) EmptyCtx UnitType
           def _inputs = (s, f)
               where s = initialState ctx verbosity meth knownRepr
                     f = do () <- initializeClass name
                            return (App EmptyApp)
-      (SomeCFG g, []) <- defineFunction W4.InternalPos h def
+      (SomeCFG g, []) <- stToIO $ defineFunction W4.InternalPos h def
       return (toSSA g)
   C.callCFG g' (C.RegMap Ctx.Empty)
 
 
 
 -- | Install the standard overrides and run a Java method in the simulator.
-runMethodHandleCrux
+setupMethodHandleCrux
   :: IsSymInterface sym
-  => [C.GenericExecutionFeature sym]
-  -> sym
+  => sym
   -> p
-  -> C.HandleAllocator RealWorld
+  -> C.HandleAllocator
   -> JVMContext
   -> Verbosity
   -> J.ClassName
   -> FnHandle args ret
   -> C.RegMap sym args
-  -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-runMethodHandleCrux feats sym p halloc ctx verbosity _classname h args = do
+  -> IO (C.ExecState p sym JVM (C.RegEntry sym ret))
+setupMethodHandleCrux sym p halloc ctx verbosity _classname h args = do
   let fnCall = C.regValue <$> C.callFnVal (C.HandleFnVal h) args
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
                        -- _ <- runClassInit halloc ctx classname
                        fnCall
-  simSt <- mkSimSt sym p halloc ctx verbosity (C.runOverrideSim (handleReturnType h) overrideSim)
-  C.executeCrucible (map C.genericToExecutionFeature feats) simSt
+  mkSimSt sym p halloc ctx verbosity (C.runOverrideSim (handleReturnType h) overrideSim)
 
 
 runMethodHandle
   :: IsSymInterface sym
   => sym
   -> p
-  -> C.HandleAllocator RealWorld
+  -> C.HandleAllocator
   -> JVMContext
   -> Verbosity
   -> J.ClassName
   -> FnHandle args ret
   -> C.RegMap sym args
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-
-runMethodHandle = runMethodHandleCrux []
+runMethodHandle sym p halloc ctx verbosity classname h args =
+  do exst <- setupMethodHandleCrux sym p halloc ctx verbosity classname h args
+     C.executeCrucible [] exst
 
 --------------------------------------------------------------------------------
 
@@ -585,19 +584,18 @@ type ExecuteCrucible sym = (forall p ext rtp f a0.
       IO (C.ExecResult p sym ext rtp))
 
 
-executeCrucibleJVMCrux
+setupCrucibleJVMCrux
   :: forall ret args sym p cb
    . (IsSymInterface sym, KnownRepr CtxRepr args, KnownRepr TypeRepr ret, IsCodebase cb)
-  => [C.GenericExecutionFeature sym]
-  -> cb
+  => cb
   -> Int               -- ^ Verbosity level
   -> sym               -- ^ Simulator state
   -> p                 -- ^ Personality
   -> String            -- ^ Dot-separated class name
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
-  -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVMCrux feats cb verbosity sym p cname mname args = do
+  -> IO (C.ExecState p sym JVM (C.RegEntry sym ret))
+setupCrucibleJVMCrux cb verbosity sym p cname mname args = do
 
      when (verbosity > 2) $
        putStrLn "starting executeCrucibleJVM"
@@ -617,9 +615,8 @@ executeCrucibleJVMCrux feats cb verbosity sym p cname mname args = do
      allClasses <- findAllRefs cb (J.className mcls)
      when (verbosity > 3) $
        putStrLn $ "all classes are: " ++ show (map J.className allClasses)
-     ctx <- stToIO $ execStateT (extendJVMContext halloc mcls >>
-                                 mapM (extendJVMContext halloc) allClasses) ctx0
-
+     ctx <- execStateT (extendJVMContext halloc mcls >>
+                          mapM (extendJVMContext halloc) allClasses) ctx0
 
      (JVMHandleInfo _ h) <- findMethodHandle ctx mcls meth
 
@@ -635,7 +632,7 @@ executeCrucibleJVMCrux feats cb verbosity sym p cname mname args = do
      Refl <- failIfNotEqual (handleReturnType h) (knownRepr :: TypeRepr ret)
        $ "Checking return type for method " ++ mname
 
-     runMethodHandleCrux feats sym p halloc ctx verbosity (J.className mcls) h args
+     setupMethodHandleCrux sym p halloc ctx verbosity (J.className mcls) h args
 
 
 executeCrucibleJVM
@@ -649,8 +646,9 @@ executeCrucibleJVM
   -> String            -- ^ Method name
   -> C.RegMap sym args -- ^ Arguments
   -> IO (C.ExecResult p sym JVM (C.RegEntry sym ret))
-executeCrucibleJVM = executeCrucibleJVMCrux []
-
+executeCrucibleJVM cp v sym p classname methname args =
+  do exst <- setupCrucibleJVMCrux cp v sym p classname methname args
+     C.executeCrucible [] exst
 
 getGlobalPair ::
   C.PartialResult sym ext v ->
@@ -889,7 +887,7 @@ doArrayLoad sym globals ref idx =
 doAllocateObject ::
   IsSymInterface sym =>
   sym ->
-  C.HandleAllocator RealWorld ->
+  C.HandleAllocator ->
   JVMContext ->
   J.ClassName {- ^ class of object to allocate -} ->
   C.SymGlobalState sym ->
@@ -902,7 +900,7 @@ doAllocateObject sym halloc jc cname globals =
      let inst = Ctx.Empty Ctx.:> C.RV fields Ctx.:> C.RV cls
      let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
      let obj = C.RolledType (C.injectVariant sym repr Ctx.i1of2 inst)
-     ref <- stToIO (C.freshRefCell halloc objectRepr)
+     ref <- C.freshRefCell halloc objectRepr
      let globals' = C.updateRef ref (W4.justPartExpr sym obj) globals
      return (W4.justPartExpr sym (C.toMuxTree sym ref), globals')
 
@@ -911,7 +909,7 @@ doAllocateObject sym halloc jc cname globals =
 doAllocateArray ::
   IsSymInterface sym =>
   sym ->
-  C.HandleAllocator RealWorld ->
+  C.HandleAllocator ->
   JVMContext -> Int {- ^ array length -} -> J.Type {- ^ element type -} ->
   C.SymGlobalState sym ->
   IO (C.RegValue sym JVMRefType, C.SymGlobalState sym)
@@ -922,7 +920,7 @@ doAllocateArray sym halloc jc len elemTy globals =
      let arr = Ctx.Empty Ctx.:> C.RV len' Ctx.:> C.RV vec Ctx.:> C.RV rep
      let repr = Ctx.Empty Ctx.:> instanceRepr Ctx.:> arrayRepr
      let obj = C.RolledType (C.injectVariant sym repr Ctx.i2of2 arr)
-     ref <- stToIO (C.freshRefCell halloc objectRepr)
+     ref <- C.freshRefCell halloc objectRepr
      let globals' = C.updateRef ref (W4.justPartExpr sym obj) globals
      return (W4.justPartExpr sym (C.toMuxTree sym ref), globals')
 

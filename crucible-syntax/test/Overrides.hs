@@ -33,11 +33,11 @@ import Lang.Crucible.Simulator.SimError (ppSimError)
 -- Some overrides for testing purposes.
 setupOverrides ::
   (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
-  sym -> HandleAllocator RealWorld -> IO [(FnBinding p sym ext, Position)]
+  sym -> HandleAllocator -> IO [(FnBinding p sym ext, Position)]
 setupOverrides _ ha =
-  do f1 <- FnBinding <$> stToIO (mkHandle ha "symbolicBranchTest")
+  do f1 <- FnBinding <$> mkHandle ha "symbolicBranchTest"
                      <*> pure (UseOverride (mkOverride "symbolicBranchTest" symbolicBranchTest))
-     f2 <- FnBinding <$> stToIO (mkHandle ha "symbolicBranchesTest")
+     f2 <- FnBinding <$> mkHandle ha "symbolicBranchesTest"
                      <*> pure (UseOverride (mkOverride "symbolicBranchesTest" symbolicBranchesTest))
      return [(f1, InternalPos),(f2,InternalPos)]
 

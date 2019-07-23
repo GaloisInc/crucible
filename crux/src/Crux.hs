@@ -3,6 +3,7 @@
 module Crux
   ( main
   , mainWithOutputConfig
+  , runSimulator
   , CruxOptions(..)
   , module Crux.Extension
   , module Crux.Config
@@ -11,7 +12,9 @@ module Crux
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Data.IORef
 import Data.List(intercalate)
+import qualified Data.Sequence as Seq
 import Control.Exception(catch, displayException)
 import Control.Monad(when)
 import System.Exit(exitSuccess)
@@ -71,7 +74,7 @@ mainWithOutputConfig cfg lang =
 
      -- Generate counter examples
      when (makeCexes cruxOpts) $
-       mapM_ (makeCounterExamples lang opts) res
+       makeCounterExamples lang opts res
   `catch` \(e :: Cfg.ConfigError) -> sayFail "Crux" (displayException e)
     where ?outputConfig = cfg
 
@@ -87,7 +90,8 @@ loadOptions lang =
        Cfg.ShowHelp -> showHelp nm optSpec >> exitSuccess
        Cfg.ShowVersion -> showVersion lang >> exitSuccess
        Cfg.Options (crux,os) files ->
-          pure (crux { inputFiles = files ++ inputFiles crux }, os)
+          do crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
+             pure (crux', os)
 
 showHelp :: Logs => Text -> Config opts -> IO ()
 showHelp nm cfg = outputLn (show (configDocs nm cfg))
@@ -204,7 +208,7 @@ runSimulator ::
   Logs =>
   Language opts ->
   Options opts  ->
-  IO (Maybe (ProvedGoals (Either AssumptionReason SimError)))
+  IO (Seq.Seq (ProvedGoals (Either AssumptionReason SimError)))
 runSimulator lang opts@(cruxOpts,_) =
   withIONonceGenerator $ \nonceGen ->
   withBackend cruxOpts nonceGen $ \sym ->
@@ -233,7 +237,7 @@ runSimulator lang opts@(cruxOpts,_) =
 
      -- Loop bound
      bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
-             boundedExecFeature (\_ -> return (Just i)) True {- side cond: yes-}
+             boundedExecFeature (\_ -> return (Just i)) False {- side cond: no -}
 
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
@@ -242,30 +246,31 @@ runSimulator lang opts@(cruxOpts,_) =
      let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ psat_fs
 
      -- Ready to go!
-     gls <- inFrame profInfo "<Crux>" $
-       do Result res <- simulate lang execFeatures opts sym emptyModel
+     gls <- newIORef Seq.empty
+     inFrame profInfo "<Crux>" $
+       simulate lang execFeatures opts sym emptyModel $ \(Result res) ->
+        do case res of
+             TimeoutResult _ ->
+               do outputLn
+                    "Simulation timed out! Program might not be fully verified!"
+             _ -> return ()
 
-          case res of
-            TimeoutResult _ ->
-              do outputLn
-                   "Simulation timed out! Program might not be fully verified!"
-            _ -> return ()
+           popUntilAssumptionFrame sym frm
 
-          popUntilAssumptionFrame sym frm
+           let ctx' = execResultContext res
 
-          let ctx' = execResultContext res
-
-          inFrame profInfo "<Prove Goals>" $
-            do todo <- getProofObligations sym
-               proved <- proveGoals cruxOpts ctx' todo
-               provedGoalsTree ctx' proved
+           inFrame profInfo "<Prove Goals>" $
+             do todo <- getProofObligations sym
+                proved <- proveGoals cruxOpts ctx' todo
+                mgt <- provedGoalsTree ctx' proved
+                case mgt of
+                  Nothing -> return ()
+                  Just gt -> modifyIORef gls (Seq.|> gt)
 
      when (simVerbose cruxOpts > 1) $
-      say "Crux" "Simulation complete."
+       say "Crux" "Simulation complete."
 
      when profiling $
        writeProf profInfo
 
-     pure gls
-
-
+     readIORef gls

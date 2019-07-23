@@ -100,7 +100,7 @@ import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
-import           Data.Parameterized.Nonce.Unsafe
+import           Data.Parameterized.Nonce
 
 import           What4.FunctionName
 import           What4.ProgramLoc
@@ -139,7 +139,7 @@ data ModuleTranslation arch
         -- ^ A map from global names to their (constant) values
         -- Note: Willy-nilly global initialization may be unsound in the
         -- presence of compositional verification.
-      , modTransNonce :: !(Nonce arch)
+      , modTransNonce :: !(Nonce GlobalNonceGenerator arch)
         -- ^ For a reasonably quick 'testEquality' instance
       }
 
@@ -323,11 +323,11 @@ genDefn defn retType =
 -- transDefine
 --
 -- | Translate a single LLVM function definition into a crucible CFG.
-transDefine :: forall h arch wptr.
+transDefine :: forall arch wptr.
                (HasPtrWidth wptr, wptr ~ ArchWidth arch)
             => LLVMContext arch
             -> L.Define
-            -> ST h (L.Symbol, C.AnyCFG (LLVM arch))
+            -> IO (L.Symbol, C.AnyCFG (LLVM arch))
 transDefine ctx d = do
   let sym = L.defName d
   let ?lc = ctx^.llvmTypeCtx
@@ -336,11 +336,11 @@ transDefine ctx d = do
     Just (LLVMHandleInfo _ (h :: FnHandle args ret)) -> do
       let argTypes = handleArgTypes h
       let retType  = handleReturnType h
-      let def :: FunctionDef (LLVM arch) h (LLVMState arch) args ret
+      let def :: FunctionDef (LLVM arch) RealWorld (LLVMState arch) args ret
           def inputs = (s, f)
             where s = initialState d ctx argTypes inputs
                   f = genDefn d retType
-      (SomeCFG g,[]) <- defineFunction InternalPos h def
+      (SomeCFG g,[]) <- stToIO $ defineFunction InternalPos h def
       case toSSA g of
         C.SomeCFG g_ssa -> return (sym, C.AnyCFG g_ssa)
 
@@ -350,10 +350,10 @@ transDefine ctx d = do
 -- | Insert a declaration into the symbol handleMap if a handle for that
 --   symbol does not already exist.
 insDeclareHandle :: (HasPtrWidth wptr, wptr ~ ArchWidth arch)
-                 => HandleAllocator s
+                 => HandleAllocator
                  -> LLVMContext arch
                  -> L.Declare
-                 -> ST s (LLVMContext arch)
+                 -> IO (LLVMContext arch)
 insDeclareHandle halloc ctx decl = do
    let s@(L.Symbol sbl) = L.decName decl
    case Map.lookup s (ctx^.symbolMap) of
@@ -378,9 +378,9 @@ insDeclareHandle halloc ctx decl = do
 -- | Translate a module into Crucible control-flow graphs.
 -- Note: We may want to add a map from symbols to existing function handles
 -- if we want to support dynamic loading.
-translateModule :: HandleAllocator s -- ^ Generator for nonces.
-                -> L.Module          -- ^ Module to translate
-                -> ST s (Some ModuleTranslation)
+translateModule :: HandleAllocator -- ^ Generator for nonces.
+                -> L.Module        -- ^ Module to translate
+                -> IO (Some ModuleTranslation)
 translateModule halloc m = do
   Some ctx0 <- mkLLVMContext halloc m
   let nonceGen = haCounter halloc
