@@ -271,6 +271,8 @@ data LLVMConst where
   FloatConst    :: !Float -> LLVMConst
   -- | A constant double value.
   DoubleConst   :: !Double -> LLVMConst
+  -- | A constant long double value (X86_FP80)
+  LongDoubleConst :: !L.FP80Value -> LLVMConst
   -- | A constant array value.
   ArrayConst    :: !MemType -> [LLVMConst] -> LLVMConst
   -- | A constant vector value.
@@ -292,6 +294,7 @@ instance Show LLVMConst where
       (IntConst w x)      -> ["IntConst", show w, show x]
       (FloatConst f)      -> ["FloatConst", show f]
       (DoubleConst d)     -> ["DoubleConst", show d]
+      ld@(LongDoubleConst _)-> ["LongDoubleConst", show $ L.ppLLVM ld]
       (ArrayConst mem a)  -> ["ArrayConst", show mem, show a]
       (VectorConst mem v) -> ["VectorConst", show mem, show v]
       (StructConst si a)  -> ["StructConst", show si, show a]
@@ -311,6 +314,7 @@ instance Eq LLVMConst where
       Right _   -> False
   (FloatConst f1)       == (FloatConst f2)       = f1 == f2
   (DoubleConst d1)      == (DoubleConst d2)      = d1 == d2
+  (LongDoubleConst ld1) == (LongDoubleConst ld2) = ld1 == ld2
   (ArrayConst mem1 a1)  == (ArrayConst mem2 a2)  = mem1 == mem2 && a1 == a2
   (VectorConst mem1 v1) == (VectorConst mem2 v2) = mem1 == mem2 && v1 == v2
   (StructConst si1 a1)  == (StructConst si2 a2)  = si1 == si2   && a1 == a2
@@ -373,6 +377,8 @@ transConstant' FloatType (L.ValFloat f) =
   return (FloatConst f)
 transConstant' DoubleType (L.ValDouble d) =
   return (DoubleConst d)
+transConstant' X86_FP80Type (L.ValFP80 ld) =
+  return (LongDoubleConst ld)
 transConstant' (PtrType _) (L.ValSymbol s) =
   return (SymbolConst s 0)
 transConstant' tp L.ValZeroInit =
