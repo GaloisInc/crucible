@@ -395,7 +395,8 @@ evalStmt sym = eval
              | Just Refl <- testEquality handleTp expectedTp -> return (HandleFnVal h)
              | otherwise -> failedAssert
                  $ unwords ["Expected function handle of type " <> show expectedTp
-                           ,"but found handle of type " ++ show handleTp]
+                           ," for call to function " <> show (handleName h)
+                           ," but found calling handle of type " ++ show handleTp]
             where handleTp   = FunctionHandleRepr (handleArgTypes h) (handleReturnType h)
                   expectedTp = FunctionHandleRepr args ret
 
