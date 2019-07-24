@@ -168,6 +168,7 @@ floatInfoToBVTypeRepr = \case
 data X86_80Val = X86_80Val
                  Word16 -- ^ exponent
                  Word64 -- ^ significand
+               deriving (Show, Eq, Ord)
 
 -- Note that the long-double package also provides a representation
 -- for 80-bit floating point values but that package includes
