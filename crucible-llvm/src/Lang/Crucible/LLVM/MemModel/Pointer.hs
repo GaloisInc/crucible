@@ -212,13 +212,14 @@ ptrLe :: (1 <= w, IsSymInterface sym)
       -> LLVMPtr sym w
       -> IO (Pred sym, Pred sym)
 ptrLe sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  do --plt <- natLt sym base1 base2
+  do plt <- natLt sym base1 base2
      peq <- natEq sym base1 base2
      bvle <- bvUle sym off1 off2
 
-     --p <- orPred sym plt =<< andPred sym peq bvle
+     p <- orPred sym plt =<< andPred sym peq bvle
+     return (p, truePred sym)
 
-     return (bvle, peq)
+--     return (bvle, peq)
 
 
 -- | Add an offset to a pointer.
