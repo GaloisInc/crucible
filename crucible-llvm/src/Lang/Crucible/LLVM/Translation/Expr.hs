@@ -363,6 +363,9 @@ transValue ty L.ValZeroInit =
 transValue ty@(PtrType _) L.ValNull =
   return $ ZeroExpr ty
 
+transValue ty@(PtrType _) (L.ValInteger 0) =
+  return $ ZeroExpr ty
+
 transValue ty@(IntType _) L.ValNull =
   return $ ZeroExpr ty
 
