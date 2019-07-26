@@ -42,9 +42,12 @@ registerModuleFn (_,AnyCFG cfg) = do
   let h = cfgHandle cfg
       s = UseCFG cfg (postdomInfo cfg)
   binds <- use (stateContext . functionBindings)
-  when (isJust $ lookupHandleMap h binds) $
-    showWarning ("LLVM function handle registered twice: " ++ show (handleName h))
-  bindFnHandle h s
+  case lookupHandleMap h binds of
+    Nothing -> bindFnHandle h s
+    Just _ -> return ()
+  -- when (isJust $ lookupHandleMap h binds) $
+  --   showWarning ("LLVM function handle registered twice: " ++ show (handleName h))
+  -- bindFnHandle h s
 
 llvmGlobals
    :: LLVMContext arch
