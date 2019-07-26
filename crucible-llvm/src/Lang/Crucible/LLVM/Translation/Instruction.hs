@@ -154,8 +154,16 @@ instrResultType instr =
     L.Load x _ _ -> case L.typedType x of
                    L.PtrTo ty -> liftMemType ty
                    _ -> fail $ unwords ["load through non-pointer type", show (L.typedType x)]
-    L.ICmp{} -> liftMemType (L.PrimType (L.Integer 1))
-    L.FCmp{} -> liftMemType (L.PrimType (L.Integer 1))
+    L.ICmp _op tv _ -> do
+      inpType <- liftMemType (L.typedType tv)
+      case inpType of
+        VecType len _ -> return (VecType len (IntType 1))
+        _ -> return (IntType 1)
+    L.FCmp _op tv _ -> do
+      inpType <- liftMemType (L.typedType tv)
+      case inpType of
+        VecType len _ -> return (VecType len (IntType 1))
+        _ -> return (IntType 1)
     L.Phi tp _   -> liftMemType tp
 
     L.GEP inbounds base elts ->
