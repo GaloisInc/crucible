@@ -4,6 +4,8 @@ module Lang.Crucible.LLVM.Arch
   ( llvmExtensionEval
   ) where
 
+import           What4.Interface
+
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.Intrinsics
 import           Lang.Crucible.Simulator.Evaluation
@@ -33,3 +35,11 @@ llvmExtensionEval sym _iTypes _logFn eval e =
 
     LLVM_PointerOffset _w ptr ->
       llvmPointerOffset <$> eval ptr
+
+    LLVM_PointerIte _w c x y ->
+      do cond <- eval c
+         LLVMPointer xblk xoff <- eval x
+         LLVMPointer yblk yoff <- eval y
+         blk <- natIte sym cond xblk yblk
+         off <- bvIte sym cond xoff yoff
+         return (LLVMPointer blk off)
