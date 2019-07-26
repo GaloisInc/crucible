@@ -8,6 +8,7 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -19,6 +20,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -72,6 +74,7 @@ module Lang.Crucible.LLVM.MemModel
   , doArrayConstStore
   , loadString
   , loadMaybeString
+  , strLen
   , uncheckedMemcpy
 
     -- * \"Raw\" operations with LLVMVal
@@ -854,6 +857,27 @@ isValidPointer sym p mem =
         Just True  -> return np
         Just False -> G.isValidPointer sym PtrWidth p (memImplHeap mem)
         _ -> orPred sym np =<< G.isValidPointer sym PtrWidth p (memImplHeap mem)
+
+-- | Compute the length of a null-terminated string.
+--
+--   The pointer to read from must be concrete and nonnull.  The contents
+--   of the string may be symbolic; HOWEVER, this function will not terminate
+--   unless there it eventually reaches a concete null-terminator.
+strLen :: forall sym wptr.
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym      {- ^ memory to read from        -} ->
+  LLVMPtr sym wptr {- ^ pointer to string value    -} ->
+  IO (SymBV sym wptr)
+strLen sym mem = go 0
+  where
+  go !n p =
+    do v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat @8)) noAlignment
+       test <- bvIsNonzero sym =<< projectLLVM_bv sym v
+       iteM bvIte sym
+            test
+            (go (n+1) =<< doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1)
+            (bvLit sym PtrWidth n)
 
 -- | Load a null-terminated string from the memory.
 --
