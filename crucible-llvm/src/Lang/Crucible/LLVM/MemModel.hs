@@ -421,11 +421,11 @@ evalStmt sym = eval
           UB.CompareInvalidPointer UB.Eq (UB.pointerView x) (UB.pointerView y)
 
         -- TODO: Is this undefined behavior? If so, add to the UB module
-        assert sym v3
-           (AssertFailureSimError $ unlines [ "Const pointers compared for equality:"
-                                            , show x_doc
-                                            , show y_doc
-                                            , show allocs_doc])
+        -- assert sym v3
+        --    (AssertFailureSimError $ unlines [ "Const pointers compared for equality:"
+        --                                     , show x_doc
+        --                                     , show y_doc
+        --                                     , show allocs_doc])
         ptrEq sym PtrWidth x y
 
   eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
