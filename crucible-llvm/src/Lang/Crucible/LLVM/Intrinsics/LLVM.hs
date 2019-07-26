@@ -30,6 +30,7 @@ import           GHC.TypeNats (KnownNat)
 import           Control.Lens hiding (op, (:>), Empty)
 import           Control.Monad.Reader
 import           Data.Bits ((.&.))
+import qualified Data.Foldable as F
 import qualified Data.Vector as V
 import qualified Text.LLVM.AST as L
 
@@ -1073,8 +1074,48 @@ llvmX86_SSE2_storeu_dq =
   UnitRepr
   (\memOps sym args -> Ctx.uncurryAssignment (callStoreudq sym memOps) args)
 
+llvmX86_SSE2_pmovmskb_128
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch (EmptyCtx ::> VectorType (BVType 8)) (BVType 32)
+llvmX86_SSE2_pmovmskb_128 =
+  let nm = "llvm.x86.sse2.pmovmskb.128" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType (L.Integer 32)
+    , L.decName = L.Symbol nm
+    , L.decArgs = [L.Vector 16 (L.PrimType (L.Integer 8))]
+    , L.decVarArgs = False
+    , L.decAttrs = []
+    , L.decComdat = mempty
+    }
+  )
+  (Empty :> VectorRepr (KnownBV @8))
+  (BVRepr (knownNat @32))
+  (\memOps sym args -> Ctx.uncurryAssignment (callPmovmskb128 sym memOps) args)
+
 ------------------------------------------------------------------------
 -- ** Implementations
+
+callPmovmskb128 :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+                => sym
+                -> GlobalVar Mem
+                -> RegEntry sym (VectorType (BVType 8))
+                -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
+callPmovmskb128 sym _mvar (regValue -> vec) = do
+  zero <- liftIO (bvLit sym (knownNat @32) 0)
+  when (V.length vec /= 16) $ do
+    let msg = unlines [ "Vector length mismatch in llvm.x86.sse2.pmovmskb.128:"
+                      , "Expected <16 x i8>, but got vector of length "
+                      , show (V.length vec)
+                      ]
+    liftIO $ addFailedAssertion sym $ AssertFailureSimError msg
+  liftIO $ F.foldrM copyMSB zero [0..15]
+  where
+    copyMSB byteIdx res = do
+      let byte = vec V.! fromIntegral byteIdx
+      msb <- testBitBV sym 7 byte
+      bvSet sym res byteIdx msb
+
 
 callX86_pclmulqdq :: forall p sym arch wptr r args ret.
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>

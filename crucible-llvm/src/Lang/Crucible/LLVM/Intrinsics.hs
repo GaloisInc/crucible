@@ -249,6 +249,7 @@ declare_overrides =
   -- Some architecture-dependent intrinsics
   , basic_llvm_override LLVM.llvmX86_SSE2_storeu_dq
   , basic_llvm_override LLVM.llvmX86_pclmulqdq
+  , basic_llvm_override LLVM.llvmX86_SSE2_pmovmskb_128
   ]
 
 
