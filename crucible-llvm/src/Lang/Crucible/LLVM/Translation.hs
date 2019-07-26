@@ -252,27 +252,28 @@ setLocation (x:xs) =
 
 
 findFile :: (?lc :: TypeContext) => L.ValMd -> Maybe L.DIFile
-findFile (L.ValMdRef x) =
-  case lookupMetadata x of
-    Just (L.ValMdNode (_:Just (L.ValMdRef y):_)) ->
-      case lookupMetadata y of
-        Just (L.ValMdNode [Just (L.ValMdString fname), Just (L.ValMdString fpath)]) ->
-            Just (L.DIFile fname fpath)
-        _ -> Nothing
-    Just (L.ValMdDebugInfo di) ->
-      case di of
-        L.DebugInfoFile dif -> Just dif
-        L.DebugInfoLexicalBlock dilex
-          | Just (L.ValMdDebugInfo (L.DebugInfoFile dif)) <- L.dilbFile dilex -> Just dif
-          | Just md <- L.dilbScope dilex -> findFile md
-        L.DebugInfoLexicalBlockFile dilexFile
-          | Just (L.ValMdDebugInfo (L.DebugInfoFile dif)) <- L.dilbfFile dilexFile -> Just dif
-          | otherwise -> findFile (L.dilbfScope dilexFile)
-        L.DebugInfoSubprogram disub
-          | Just (L.ValMdDebugInfo (L.DebugInfoFile dif)) <- L.dispFile disub -> Just dif
-          | Just md <- L.dispScope disub -> findFile md
-        _ -> Nothing
+findFile (L.ValMdRef x) = findFile =<< lookupMetadata x
+
+findFile (L.ValMdNode (_:Just (L.ValMdRef y):_)) =
+  case lookupMetadata y of
+    Just (L.ValMdNode [Just (L.ValMdString fname), Just (L.ValMdString fpath)]) ->
+        Just (L.DIFile fname fpath)
     _ -> Nothing
+
+findFile (L.ValMdDebugInfo di) =
+  case di of
+    L.DebugInfoFile dif -> Just dif
+    L.DebugInfoLexicalBlock dilex
+      | Just md <- L.dilbFile dilex -> findFile md
+      | Just md <- L.dilbScope dilex -> findFile md
+    L.DebugInfoLexicalBlockFile dilexFile
+      | Just md <- L.dilbfFile dilexFile -> findFile md
+      | otherwise -> findFile (L.dilbfScope dilexFile)
+    L.DebugInfoSubprogram disub
+      | Just md <- L.dispFile disub -> findFile md
+      | Just md <- L.dispScope disub -> findFile md
+    _ -> Nothing
+
 findFile _ = Nothing
 
 -- | Lookup the block info for the given LLVM block and then define a new crucible block
