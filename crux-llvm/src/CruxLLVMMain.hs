@@ -450,7 +450,7 @@ genBitCode opts =
      let libcxxBitcode | anyCPPFiles files = [libDir (snd opts) </> "libcxx-" ++ ver ++ ".bc"]
                        | otherwise = []
      llvmLink opts (map snd srcBCNames ++ libcxxBitcode) finalBCFile
-     mapM_ (removeFile . snd) srcBCNames
+     mapM_ (\(src,bc) -> unless (src == bc) (removeFile bc)) srcBCNames
 
 buildModelExes :: Options -> String -> String -> IO (FilePath,FilePath)
 buildModelExes opts suff counter_src =
