@@ -234,6 +234,7 @@ declare_overrides =
   , basic_llvm_override Libc.llvmFreeOverride
   , basic_llvm_override Libc.llvmReallocOverride
   , basic_llvm_override Libc.llvmStrlenOverride
+  , basic_llvm_override Libc.llvmSnprintfOverride
   , basic_llvm_override Libc.llvmPrintfOverride
   , basic_llvm_override Libc.llvmPrintfChkOverride
   , basic_llvm_override Libc.llvmPutsOverride

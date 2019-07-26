@@ -30,6 +30,8 @@ import           Control.Lens ((^.), _1, _2, _3)
 import qualified Codec.Binary.UTF8.Generic as UTF8
 import           Control.Monad.Reader
 import           Control.Monad.State
+import qualified Data.Char as DC
+import qualified Data.Foldable as F
 import qualified Data.Vector as V
 import           System.IO
 import qualified Text.LLVM.AST as L
@@ -359,6 +361,33 @@ llvmFreeOverride =
 
 ------------------------------------------------------------------------
 -- *** Strings and I/O
+
+llvmSnprintfOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+         (EmptyCtx ::> LLVMPointerType wptr
+                   ::> BVType wptr
+                   ::> LLVMPointerType wptr
+                   ::> VectorType AnyType)
+         (BVType 32)
+llvmSnprintfOverride =
+  let nm = "snprintf" in
+  LLVMOverride
+  ( L.Declare
+   { L.decRetType = L.PrimType (L.Integer 32)
+   , L.decName = L.Symbol nm
+   , L.decArgs = [ L.PtrTo (L.PrimType (L.Integer 8))
+                 , llvmSizeT
+                 , L.PtrTo (L.PrimType (L.Integer 8))
+                 ]
+   , L.decVarArgs = True
+   , L.decAttrs = []
+   , L.decComdat = mempty
+   }
+  )
+  (Empty :> PtrRepr :> SizeT :> PtrRepr :> VectorRepr AnyRepr)
+  (KnownBV @32)
+  (\memOps sym args -> Ctx.uncurryAssignment (callSnprintf sym memOps) args)
 
 llvmPrintfOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -701,6 +730,53 @@ callStrlen
 callStrlen sym mvar (regValue -> strPtr) = do
   mem <- readGlobal mvar
   liftIO $ strLen sym mem strPtr
+
+callSnprintf
+  :: forall sym wptr p arch r args ret
+    . (IsSymInterface sym, HasPtrWidth wptr)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (VectorType AnyType)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
+callSnprintf sym mvar (regValue -> dstPtr) (regValue -> dstLen) (regValue -> strPtr) (regValue -> valist) = do
+  mem <- readGlobal mvar
+  formatStr <- liftIO $ loadString sym mem strPtr Nothing
+  case parseDirectives formatStr of
+    Left err -> overrideError (AssertFailureSimError err)
+    Right ds -> do
+      ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
+      zero <- liftIO $ bvLit sym (knownNat @8) 0
+      arr0 <- liftIO $ constantArray sym (Empty :> BaseBVRepr ?ptrWidth) zero
+      symArr <- liftIO $ F.foldrM copyCharToArray arr0 (zip [0..] str)
+      mem'' <- liftIO $ doArrayStore sym mem' dstPtr noAlignment symArr dstLen
+      writeGlobal mvar mem''
+
+      -- snprintf returns the number of characters written to the buffer, which is
+      --
+      -- min (dstLen - 1) n
+      --
+      -- since the return value doesn't count the NUL terminator
+      nStringChars <- liftIO $ bvLit sym ?ptrWidth (fromIntegral n)
+      one <- liftIO $ bvLit sym ?ptrWidth 1
+      nDestMaxChars <- liftIO $ bvSub sym dstLen one
+      szTst <- liftIO $ bvUlt sym nDestMaxChars nStringChars
+      res <- liftIO $ bvIte sym szTst nDestMaxChars nStringChars
+      case compareNat ?ptrWidth (knownNat @32) of
+        NatLT _ -> overrideError (AssertFailureSimError "snprintf called on an architecture with sizeof(size_t) < 32")
+        NatEQ -> return res
+        NatGT _ -> liftIO $ bvTrunc sym (knownNat @32) res
+  where
+    copyCharToArray :: (Int, Char)
+                    -> SymArray sym (SingleCtx (BaseBVType wptr)) (BaseBVType 8)
+                    -> IO (SymArray sym (SingleCtx (BaseBVType wptr)) (BaseBVType 8))
+    copyCharToArray (charIdx, chr) arr = do
+      bv8 <- bvLit sym (knownNat @8) (fromIntegral (DC.ord chr))
+      idx <- bvLit sym ?ptrWidth (fromIntegral charIdx)
+      arrayUpdate sym arr (Empty :> idx) bv8
+
 
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr)
