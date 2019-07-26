@@ -48,6 +48,7 @@ import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
+import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
@@ -307,6 +308,33 @@ llvmMallocOverride =
   PtrRepr
   (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
 
+posixMemalign ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  LLVMOverride p sym arch
+      (EmptyCtx ::> LLVMPointerType wptr
+                ::> BVType wptr
+                ::> BVType wptr)
+      (BVType 32)
+posixMemalign =
+  let nm = "posix_memalign" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer 32
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PtrTo $  L.PrimType $ L.Integer 8
+                     , llvmSizeT
+                     , llvmSizeT
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> SizeT :> SizeT)
+  (KnownBV @32)
+  (\memOps sym args -> Ctx.uncurryAssignment (callPosixMemalign sym memOps) args)
+
+
 llvmFreeOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
@@ -495,6 +523,29 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
        ]
 
 
+callPosixMemalign
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
+callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz) =
+  case asUnsignedBV align >>= toAlignment . toBytes of
+    Nothing -> fail $ unwords ["posix_memalign: invalid alignment value:", show (printSymExpr align)]
+    Just a ->
+      do let dl = llvmDataLayout ?lc
+
+         mem <- readGlobal mvar
+         mem'' <- liftIO $
+           do loc <- plSourceLoc <$> getCurrentProgramLoc sym
+              (p, mem') <- doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz a
+              storeRaw sym mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
+         writeGlobal mvar mem''
+
+         liftIO $ bvLit sym knownNat 0
+
 callMalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => sym
@@ -649,8 +700,7 @@ callStrlen
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType wptr))
 callStrlen sym mvar (regValue -> strPtr) = do
   mem <- readGlobal mvar
-  len <- liftIO $ length <$> loadString sym mem strPtr Nothing
-  liftIO $ bvLit sym ?ptrWidth (fromIntegral len)
+  liftIO $ strLen sym mem strPtr
 
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr)
@@ -823,3 +873,52 @@ llvmAssertRtnOverride =
        do let err = AssertFailureSimError "Call to __assert_rtn"
           liftIO $ assert sym (falsePred sym) err
   )
+
+llvmGetenv
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+        (EmptyCtx ::> LLVMPointerType wptr)
+        (LLVMPointerType wptr)
+llvmGetenv =
+  let nm = "getenv" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr)
+  PtrRepr
+  (\_ sym _args -> liftIO $ mkNullPointer sym PtrWidth)
+
+----------------------------------------------------------------------------
+-- atexit stuff
+
+cxa_atexit
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+        (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr ::> LLVMPointerType wptr)
+        (BVType 32)
+cxa_atexit =
+  let nm = "__cxa_atexit" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer 32
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.FunTy (L.PrimType L.Void) [L.PtrTo $ L.PrimType $ L.Integer 8] False
+                     , L.PtrTo $ L.PrimType $ L.Integer 8
+                     , L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> PtrRepr :> PtrRepr)
+  (KnownBV @32)
+  (\_ sym _args -> liftIO $ bvLit sym knownNat 0)
