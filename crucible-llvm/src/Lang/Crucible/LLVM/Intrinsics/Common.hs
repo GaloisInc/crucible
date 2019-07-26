@@ -350,14 +350,11 @@ register_llvm_override llvmOverride = do
                        [ "return type mismatch when registering LLVM mss override"
                        , "*** Override name: " ++ show nm
                        ]
-                   Just Refl -> do
-                       lift $ lift $ liftIO $ putStrLn ("Registering override(1) for " ++ show fnm)
-                       lift $ lift $ liftIO $ print _decl'
+                   Just Refl ->
                        lift $ lift $ lift $ bindFnHandle h (UseOverride o)
           Nothing ->
             do ctx <- lift $ lift $ lift $ use stateContext
                let ha = simHandleAllocator ctx
                h <- lift $ lift $ liftIO $ mkHandle' ha fnm derivedArgs derivedRet
-               lift $ lift $ liftIO $ putStrLn ("Registering override(2) for " ++ show fnm)
                lift $ lift $ lift $ bindFnHandle h (UseOverride o)
                put (llvmctx & symbolMap %~ Map.insert nm (LLVMHandleInfo decl h))
