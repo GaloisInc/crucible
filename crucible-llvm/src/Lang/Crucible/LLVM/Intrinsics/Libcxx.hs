@@ -31,6 +31,8 @@ module Lang.Crucible.LLVM.Intrinsics.Libcxx
   , endlOverride
   , sentryOverride
   , sentryBoolOverride
+  -- ** Exceptions
+  , llvmCxaThrow
   ) where
 
 import qualified ABI.Itanium as ABI
@@ -51,9 +53,11 @@ import           What4.Interface (bvLit, natLit)
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Common (GlobalVar)
 import           Lang.Crucible.FunctionHandle (handleArgTypes, handleReturnType)
-import           Lang.Crucible.Simulator.RegMap (RegValue, regValue)
+import           Lang.Crucible.Simulator.OverrideSim ( OverrideSim, overrideError )
+import           Lang.Crucible.Simulator.RegMap (RegValue, regValue, RegEntry)
+import           Lang.Crucible.Simulator.SimError ( SimErrorReason(GenericSimError) )
 import           Lang.Crucible.Panic (panic)
-import           Lang.Crucible.Types (TypeRepr(UnitRepr))
+import           Lang.Crucible.Types (TypeRepr(UnitRepr), UnitType)
 
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
@@ -308,3 +312,36 @@ sentryBoolOverride =
           (ABI.OperatorName (ABI.OpCast ABI.BoolType)))
           [ABI.VoidType] -> True
       _ -> False
+
+-- * C-style overrides for the C++ standard library
+
+llvmCxaThrow :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+             => LLVMOverride p sym arch (Ctx.EmptyCtx Ctx.::> LLVMPointerType wptr Ctx.::> LLVMPointerType wptr Ctx.::> LLVMPointerType wptr) UnitType
+llvmCxaThrow =
+  let nm = "__cxa_throw" in
+    LLVMOverride
+    ( L.Declare
+      { L.decRetType = L.PrimType L.Void
+      , L.decName = L.Symbol nm
+      , L.decArgs = [ L.PtrTo (L.PrimType (L.Integer 8))
+                    , L.PtrTo (L.Alias "class.std::type_info")
+                    , L.PtrTo (L.FunTy (L.PrimType L.Void) [L.PtrTo (L.PrimType (L.Integer 8))] False)
+                    ]
+      , L.decVarArgs = False
+      , L.decAttrs = []
+      , L.decComdat = mempty
+      }
+    )
+    (Ctx.Empty Ctx.:> PtrRepr Ctx.:> PtrRepr Ctx.:> PtrRepr)
+    UnitRepr
+    (\memOps sym args -> Ctx.uncurryAssignment (callCxaThrow sym memOps) args)
+
+callCxaThrow :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+             => sym
+             -> GlobalVar mem
+             -> RegEntry sym (LLVMPointerType wptr)
+             -> RegEntry sym (LLVMPointerType wptr)
+             -> RegEntry sym (LLVMPointerType wptr)
+             -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym UnitType)
+callCxaThrow _sym _gv _ _ _ = do
+  overrideError (GenericSimError "Threw exception")

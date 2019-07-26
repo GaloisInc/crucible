@@ -120,6 +120,8 @@ register_llvm_overrides_ llvmctx acts decls =
     forM_ decls $ \decl ->
       do let acts' = filterTemplates acts decl
          let L.Symbol nm = L.decName decl
+         lift $ liftIO $ putStrLn ("# Overrides for " ++ show nm ++ " = " ++ show (length (acts')))
+         -- lift $ liftIO $ putStrLn ("Registering override for " ++ show nm)
          let declnm = either (const Nothing) Just $ ABI.demangleName nm
          runMaybeT (flip runReaderT (decl,declnm) $ asum (map overrideTemplateAction acts')) >> return ()
 
@@ -259,4 +261,5 @@ define_overrides =
   , Libcxx.register_cpp_override Libcxx.endlOverride
   , Libcxx.register_cpp_override Libcxx.sentryOverride
   , Libcxx.register_cpp_override Libcxx.sentryBoolOverride
+  , basic_llvm_override Libcxx.llvmCxaThrow
   ]

@@ -307,9 +307,10 @@ register_llvm_override llvmOverride = do
   let decl = llvmOverride_declare llvmOverride
 
   if (requestedDecl /= decl) then
-    do when (L.decName requestedDecl == L.decName decl) $
+    do liftIO $ putStrLn ("Decl mismatch during override for: " ++ show (requestedDecl, decl))
+       when (L.decName requestedDecl == L.decName decl) $
          do logFn <- lift $ lift $ lift $ getLogFunction
-            liftIO $ logFn 3 $ unlines
+            liftIO $ putStrLn $ unlines
               [ "Mismatched declaration signatures"
               , " *** requested: " ++ show requestedDecl
               , " *** found: "     ++ show decl
@@ -349,10 +350,14 @@ register_llvm_override llvmOverride = do
                        [ "return type mismatch when registering LLVM mss override"
                        , "*** Override name: " ++ show nm
                        ]
-                   Just Refl -> lift $ lift $ lift $ bindFnHandle h (UseOverride o)
+                   Just Refl -> do
+                       lift $ lift $ liftIO $ putStrLn ("Registering override(1) for " ++ show fnm)
+                       lift $ lift $ liftIO $ print _decl'
+                       lift $ lift $ lift $ bindFnHandle h (UseOverride o)
           Nothing ->
             do ctx <- lift $ lift $ lift $ use stateContext
                let ha = simHandleAllocator ctx
                h <- lift $ lift $ liftIO $ mkHandle' ha fnm derivedArgs derivedRet
+               lift $ lift $ liftIO $ putStrLn ("Registering override(2) for " ++ show fnm)
                lift $ lift $ lift $ bindFnHandle h (UseOverride o)
                put (llvmctx & symbolMap %~ Map.insert nm (LLVMHandleInfo decl h))
