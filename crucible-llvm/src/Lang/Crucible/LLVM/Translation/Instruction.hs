@@ -1232,6 +1232,76 @@ pointerOp op x y =
           ]
 
 
+baseSelect ::
+   (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+   LLVMExpr s arch {- ^ Selection expression -} ->
+   LLVMExpr s arch {- ^ true expression -} ->
+   LLVMExpr s arch {- ^ false expression -} ->
+   LLVMGenerator h s arch ret (Maybe (LLVMExpr s arch))
+baseSelect (asScalar -> Scalar (LLVMPointerRepr wc) c) (asScalar -> Scalar xtp x) (asScalar -> Scalar ytp y)
+  | Just Refl <- testEquality xtp ytp
+  , LLVMPointerRepr w <- xtp
+  = do c' <- callIntToBool wc c
+       z <- forceEvaluation (App (ExtensionApp (LLVM_PointerIte w c' x y)))
+       return (Just (BaseExpr (LLVMPointerRepr w) z))
+
+baseSelect (asScalar -> Scalar (LLVMPointerRepr wc) c) (asScalar -> Scalar xtp x) (asScalar -> Scalar ytp y)
+  | Just Refl <- testEquality xtp ytp
+  , AsBaseType btp <- asBaseType xtp
+  = do c' <- callIntToBool wc c
+       z <- forceEvaluation (app (BaseIte btp c' x y))
+       return (Just (BaseExpr xtp z))
+
+baseSelect _ _ _ = return Nothing
+
+
+translateSelect ::
+   (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+   L.Instr        {- ^ The instruction to translate -} ->
+   (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
+     {- ^ A continuation to assign the produced value of this instruction to a register -} ->
+   MemType {- ^ Type of the selector variable -} ->
+   LLVMExpr s arch {- ^ Selection expression -} ->
+   MemType {- ^ Type of the select branches -} ->
+   LLVMExpr s arch {- ^ true expression -} ->
+   LLVMExpr s arch {- ^ false expression -} ->
+   LLVMGenerator h s arch ret ()
+translateSelect instr assign_f
+                  (VecType n _) (explodeVector n -> Just cs)
+                  (VecType m eltp) (explodeVector n -> Just xs) (explodeVector n -> Just ys)
+  | n == m
+  = do zs <- forM [0..n-1] $ \i ->
+               do Just c <- return $ Seq.lookup (fromIntegral i) cs
+                  Just x <- return $ Seq.lookup (fromIntegral i) xs
+                  Just y <- return $ Seq.lookup (fromIntegral i) ys
+                  mz <- baseSelect c x y
+                  maybe (fail $ unlines ["invalid select operation", showInstr instr]) return mz
+
+       assign_f (VecExpr eltp (Seq.fromList zs))
+
+translateSelect instr assign_f
+                  _ctp c
+                  (VecType n eltp) (explodeVector n -> Just xs) (explodeVector n -> Just ys)
+  = do zs <- forM [0..n-1] $ \i ->
+               do Just x <- return $ Seq.lookup (fromIntegral i) xs
+                  Just y <- return $ Seq.lookup (fromIntegral i) ys
+                  mz <- baseSelect c x y
+                  maybe (fail $ unlines ["invalid select operation", showInstr instr]) return mz
+
+       assign_f (VecExpr eltp (Seq.fromList zs))
+
+translateSelect _ assign_f _ctp c@(asScalar -> Scalar (LLVMPointerRepr wc) c') _tp x y
+  = do mz <- baseSelect c x y
+       case mz of
+         Just z -> assign_f z
+         Nothing ->
+           do c'' <- callIntToBool wc c'
+              ifte_ c'' (assign_f x) (assign_f y)
+
+translateSelect instr _ _ _ _ _ _ =
+   fail $ unlines ["invalid select operation", showInstr instr]
+
+
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
 generateInstr :: forall h s arch ret a.
    TypeRepr ret   {- ^ Type of the function return value -} ->
@@ -1494,14 +1564,14 @@ generateInstr retType lab instr assign_f k =
            k
 
     L.Select c x y -> do
-         c' <- transTypedValue c
-         x' <- transTypedValue x
-         y' <- transTypedValue (L.Typed (L.typedType x) y)
-         e' <- case asScalar c' of
-                 Scalar (LLVMPointerRepr w) e -> callIntToBool w e
-                 _ -> fail "expected boolean condition on select"
+         ctp <- liftMemType' (L.typedType c)
+         c'  <- transValue ctp (L.typedValue c)
 
-         ifte_ e' (assign_f x') (assign_f y')
+         tp  <- liftMemType' (L.typedType x)
+         x'  <- transValue tp (L.typedValue x)
+         y'  <- transValue tp y
+
+         translateSelect instr assign_f ctp c' tp x' y'
          k
 
     L.Jump l' -> definePhiBlock lab l'
