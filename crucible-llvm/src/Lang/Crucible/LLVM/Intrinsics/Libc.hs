@@ -753,21 +753,7 @@ callSnprintf sym mvar (regValue -> dstPtr) (regValue -> dstLen) (regValue -> str
       symArr <- liftIO $ F.foldrM copyCharToArray arr0 (zip [0..] str)
       mem'' <- liftIO $ doArrayStore sym mem' dstPtr noAlignment symArr dstLen
       writeGlobal mvar mem''
-
-      -- snprintf returns the number of characters written to the buffer, which is
-      --
-      -- min (dstLen - 1) n
-      --
-      -- since the return value doesn't count the NUL terminator
-      nStringChars <- liftIO $ bvLit sym ?ptrWidth (fromIntegral n)
-      one <- liftIO $ bvLit sym ?ptrWidth 1
-      nDestMaxChars <- liftIO $ bvSub sym dstLen one
-      szTst <- liftIO $ bvUlt sym nDestMaxChars nStringChars
-      res <- liftIO $ bvIte sym szTst nDestMaxChars nStringChars
-      case compareNat ?ptrWidth (knownNat @32) of
-        NatLT _ -> overrideError (AssertFailureSimError "snprintf called on an architecture with sizeof(size_t) < 32")
-        NatEQ -> return res
-        NatGT _ -> liftIO $ bvTrunc sym (knownNat @32) res
+      liftIO $ bvLit sym (knownNat @32) (fromIntegral n)
   where
     copyCharToArray :: (Int, Char)
                     -> SymArray sym (SingleCtx (BaseBVType wptr)) (BaseBVType 8)
