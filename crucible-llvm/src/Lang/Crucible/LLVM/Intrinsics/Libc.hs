@@ -748,13 +748,20 @@ callSnprintf sym mvar (regValue -> dstPtr) (regValue -> dstLen) (regValue -> str
     Left err -> overrideError (AssertFailureSimError err)
     Right ds -> do
       ((str, n), mem') <- liftIO $ runStateT (executeDirectives (printfOps sym valist) ds) mem
+      writeGlobal mvar mem'
+      dstIsNull <- liftIO (ptrIsNull sym PtrWidth dstPtr)
+      symbolicBranch dstIsNull emptyRegMap onNullDest Nothing emptyRegMap (onHasDest str) Nothing
+      liftIO $ bvLit sym (knownNat @32) (fromIntegral n)
+
+  where
+    onNullDest = return ()
+    onHasDest str = do
+      mem <- readGlobal mvar
       zero <- liftIO $ bvLit sym (knownNat @8) 0
       arr0 <- liftIO $ constantArray sym (Empty :> BaseBVRepr ?ptrWidth) zero
       symArr <- liftIO $ F.foldrM copyCharToArray arr0 (zip [0..] str)
-      mem'' <- liftIO $ doArrayStore sym mem' dstPtr noAlignment symArr dstLen
-      writeGlobal mvar mem''
-      liftIO $ bvLit sym (knownNat @32) (fromIntegral n)
-  where
+      mem' <- liftIO $ doArrayStore sym mem dstPtr noAlignment symArr dstLen
+      writeGlobal mvar mem'
     copyCharToArray :: (Int, Char)
                     -> SymArray sym (SingleCtx (BaseBVType wptr)) (BaseBVType 8)
                     -> IO (SymArray sym (SingleCtx (BaseBVType wptr)) (BaseBVType 8))
