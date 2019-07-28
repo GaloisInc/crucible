@@ -44,9 +44,15 @@ data SimErrorReason
       --   was exceeded.
  deriving (Typeable)
 
+-- | This is the main data object describing an error that has
+-- occurred during Simulation or in the solver-based discharge of
+-- assertions gathered during simulation.  The location where the
+-- error occurred, a call-stack (most recent call to oldest call), and
+-- the reason for the error is provided.
 data SimError
    = SimError
    { simErrorLoc :: !ProgramLoc
+   , simErrorCallStack :: [ProgramLoc] -- [current frame, caller, ... ]
    , simErrorReason :: !SimErrorReason
    }
  deriving (Typeable)
@@ -69,9 +75,13 @@ instance Show SimError where
 
 ppSimError :: SimError -> Doc
 ppSimError er =
-  vcat [ vcat (text <$> lines (show (simErrorReason er)))
-       , text "in" <+> text (show (plFunction loc)) <+> text "at" <+> text (show (plSourceLoc loc))
-       ]
- where loc = simErrorLoc er
+  let why = vcat (text <$> lines (show (simErrorReason er)))
+      at = srcPos True $ simErrorLoc er
+      bt = fmap (srcPos False) $ simErrorCallStack er
+  in vcat $ why : at : bt
+ where srcPos isFirst l = let h = if isFirst then "in" else "  "
+                              f = show $ plFunction l
+                              p = show $ plSourceLoc l
+                          in text h <+> text f <+> text "at" <+> text p
 
 instance Exception SimError

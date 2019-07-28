@@ -394,7 +394,11 @@ runErrorHandler msg st =
       sym = ctx^.ctxSymInterface
    in ctxSolverProof ctx $
       do loc <- getCurrentProgramLoc sym
-         let err = SimError loc msg
+         stk <- getCallStack sym
+         let err = SimError { simErrorLoc = loc
+                            , simErrorCallStack = stk
+                            , simErrorReason = msg
+                            }
          let obl = LabeledPred (falsePred sym) err
          let rsn = AssumedFalse (AssumingNoError err)
          addProofObligation sym obl
@@ -772,6 +776,7 @@ performReturn fnName ctx0 v = do
   case ctx0 of
     VFVCall ctx (MF f) (ReturnToCrucible tpr rest) ->
       do ActiveTree _oldctx pres <- view stateTree
+         liftIO . popCallStack =<< view stateSymInterface
          let f' = extendFrame tpr (regValue v) rest f
          withReaderT
            (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ MF f'))
@@ -779,6 +784,7 @@ performReturn fnName ctx0 v = do
 
     VFVCall ctx _ TailReturnToCrucible ->
       do ActiveTree _oldctx pres <- view stateTree
+         liftIO . popCallStack =<< view stateSymInterface
          withReaderT
            (stateTree .~ ActiveTree ctx (pres & partialValue . gpValue .~ RF fnName v))
            (returnValue v)
@@ -935,6 +941,7 @@ performFunctionCall ::
   ExecCont p sym ext rtp outer_frame outer_args
 performFunctionCall retHandler frm =
   do sym <- view stateSymInterface
+     liftIO $ pushCallStack sym =<< getCurrentProgramLoc sym
      case frm of
        OverrideCall o f ->
          -- Eventually, locations should be nested. However, for now,
@@ -959,7 +966,8 @@ performTailCall ::
 performTailCall vfv frm =
   do sym <- view stateSymInterface
      let loc = mkProgramLoc (resolvedCallName frm) (OtherPos "<function entry>")
-     liftIO $ setCurrentProgramLoc sym loc
+     liftIO $ do setCurrentProgramLoc sym loc
+                 pushCallStack sym loc
      case frm of
        OverrideCall o f ->
          withReaderT

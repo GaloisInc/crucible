@@ -84,6 +84,9 @@ data AssumptionReason =
     deriving Show
 
 
+-- | This returns the location where the assumption failed.  (Note
+-- that the call stack is also available from the associated
+-- SimError.)
 assumptionLoc :: AssumptionReason -> ProgramLoc
 assumptionLoc r =
   case r of
@@ -99,7 +102,9 @@ type Assertion sym  = AS.LabeledPred (Pred sym) SimError
 type Assumption sym = AS.LabeledPred (Pred sym) AssumptionReason
 type ProofObligation sym = AS.ProofGoal (Assumption sym) (Assertion sym)
 type ProofObligations sym = Maybe (AS.ProofGoals (Pred sym) AssumptionReason SimError)
-type AssumptionState sym = AS.LabeledGoalCollector (Pred sym) AssumptionReason SimError
+type AssumptionState sym = ( AS.LabeledGoalCollector (Pred sym) AssumptionReason SimError
+                           , [ProgramLoc] -- call stack
+                           )
 
 -- | This is used to signal that current execution path is infeasible.
 data AbortExecReason =
@@ -185,6 +190,22 @@ class IsBoolSolver sym where
     sym -> AS.FrameIdentifier -> IO (Seq (Assumption sym), ProofObligations sym)
 
   ----------------------------------------------------------------------
+  -- Call tracking for reporting location of assertion failures as a
+  -- full call stack instead of just the location where the assertion
+  -- was thrown.
+
+  -- | When a call to a function is made, the caller's ProgramLoc is
+  -- pushed to the CallStack.
+  pushCallStack :: sym -> ProgramLoc -> IO ()
+
+  -- | When a function returns, the corresponding call location is
+  -- popped off of the CallStack.
+  popCallStack :: sym -> IO ()
+
+  -- | Returns the current CallStack, most recent call first, oldest call last.
+  getCallStack :: sym -> IO [ProgramLoc]
+
+  ----------------------------------------------------------------------
   -- Assertions
 
   -- | Add an assumption to the current state.  Like assertions, assumptions
@@ -239,6 +260,17 @@ addAssertion sym a@(AS.LabeledPred p msg) =
 abortExecBecause :: AbortExecReason -> IO a
 abortExecBecause err = throwIO err
 
+-- | Helper to generate a SimError for the current location
+errorHere :: (IsExprBuilder sym, IsBoolSolver sym) =>
+             sym -> SimErrorReason -> IO SimError
+errorHere sym msg =
+  do loc <- getCurrentProgramLoc sym
+     calls <- getCallStack sym
+     return SimError { simErrorLoc = loc
+                     , simErrorCallStack = calls
+                     , simErrorReason = msg }
+
+
 -- | Add a proof obligation using the current program location.
 --   Afterwards, assume the given fact.
 assert ::
@@ -248,8 +280,9 @@ assert ::
   SimErrorReason ->
   IO ()
 assert sym p msg =
-  do loc <- getCurrentProgramLoc sym
-     addAssertion sym (AS.LabeledPred p (SimError loc msg))
+  do simErr <- errorHere sym msg
+     addAssertion sym (AS.LabeledPred p simErr)
+
 
 -- | Add a proof obligation for False. This always aborts execution
 -- of the current path, because after asserting false, we get to assume it,
@@ -257,12 +290,9 @@ assert sym p msg =
 -- IO computation can have the fully polymorphic type.
 addFailedAssertion :: (IsExprBuilder sym, IsBoolSolver sym) => sym -> SimErrorReason -> IO a
 addFailedAssertion sym msg =
-  do loc <- getCurrentProgramLoc sym
-     let err = AS.LabeledPred (falsePred sym) (SimError loc msg)
-     addProofObligation sym err
-     abortExecBecause $ AssumedFalse
-                      $ AssumingNoError
-                        SimError { simErrorLoc = loc, simErrorReason = msg }
+  do simErr <- errorHere sym msg
+     addProofObligation sym $ AS.LabeledPred (falsePred sym) simErr
+     abortExecBecause $ AssumedFalse $ AssumingNoError simErr
 
 
 -- | Run the given action to compute a predicate, and assert it.
@@ -297,8 +327,8 @@ readPartExpr ::
 readPartExpr sym Unassigned msg = do
   addFailedAssertion sym msg
 readPartExpr sym (PE p v) msg = do
-  loc <- getCurrentProgramLoc sym
-  addAssertion sym (AS.LabeledPred p (SimError loc msg))
+  simErr <- errorHere sym msg
+  addAssertion sym (AS.LabeledPred p simErr)
   return v
 
 ppProofObligation :: IsSymInterface sym => sym -> ProofObligation sym -> PP.Doc

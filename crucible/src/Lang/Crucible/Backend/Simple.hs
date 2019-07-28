@@ -34,8 +34,9 @@ import           Control.Monad (void)
 import           Data.IORef
 import           Data.Parameterized.Nonce
 
-import           What4.Interface
 import qualified What4.Expr.Builder as B
+import           What4.Interface
+import           What4.ProgramLoc
 
 import qualified Lang.Crucible.Backend.AssumptionStack as AS
 import           Lang.Crucible.Backend
@@ -49,12 +50,14 @@ type SimpleBackend t fs = B.ExprBuilder t SimpleBackendState fs
 -- | This represents the state of the backend along a given execution.
 -- It contains the current assertion stack.
 
-newtype SimpleBackendState t
-      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t) AssumptionReason SimError }
+data SimpleBackendState t
+      = SimpleBackendState { sbAssumptionStack :: AssumptionStack (B.BoolExpr t) AssumptionReason SimError
+                           , sbCallStack :: [ProgramLoc] -- [oldest calls to->, next call to->, latest call]
+                           }
 
 -- | Returns an initial execution state.
 initialSimpleBackendState :: NonceGenerator IO t -> IO (SimpleBackendState t)
-initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen
+initialSimpleBackendState gen = SimpleBackendState <$> AS.initAssumptionStack gen <*> return []
 
 
 newSimpleBackend :: NonceGenerator IO t
@@ -116,8 +119,25 @@ instance IsBoolSolver (SimpleBackend t fs) where
 
   saveAssumptionState sym = do
     stk <- getAssumptionStack sym
-    AS.saveAssumptionStack stk
+    astk <- AS.saveAssumptionStack stk
+    calls <- getCallStack sym
+    return (astk,calls)
 
-  restoreAssumptionState sym newstk = do
+  restoreAssumptionState sym (newstk,calls) = do
     stk <- getAssumptionStack sym
     AS.restoreAssumptionStack newstk stk
+    modifyIORef' (B.sbStateManager sym) $ \s -> s { sbCallStack = calls }
+
+  pushCallStack sym loc =
+    modifyIORef' (B.sbStateManager sym) $ \s -> s { sbCallStack = sbCallStack s <> [ loc ] }
+
+  popCallStack sym =
+    modifyIORef' (B.sbStateManager sym) $ \s ->
+    let cs  = sbCallStack s
+        cs' = if null cs
+              then error "Internal error: more pops than pushes to CallStack!"
+              else init cs
+    in s { sbCallStack = cs' }
+
+  getCallStack sym =
+    reverse . sbCallStack <$> readIORef (B.sbStateManager sym)
