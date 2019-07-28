@@ -234,6 +234,7 @@ declare_overrides =
   , basic_llvm_override Libc.llvmFreeOverride
   , basic_llvm_override Libc.llvmReallocOverride
   , basic_llvm_override Libc.llvmStrlenOverride
+  , basic_llvm_override Libc.llvmSnprintfOverride
   , basic_llvm_override Libc.llvmPrintfOverride
   , basic_llvm_override Libc.llvmPrintfChkOverride
   , basic_llvm_override Libc.llvmPutsOverride
@@ -249,6 +250,7 @@ declare_overrides =
   -- Some architecture-dependent intrinsics
   , basic_llvm_override LLVM.llvmX86_SSE2_storeu_dq
   , basic_llvm_override LLVM.llvmX86_pclmulqdq
+  , basic_llvm_override LLVM.llvmX86_SSE2_pmovmskb_128
   ]
 
 
