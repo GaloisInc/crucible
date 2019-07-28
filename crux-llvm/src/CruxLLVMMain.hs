@@ -1,11 +1,12 @@
+{-# LANGUAGE LambdaCase #-}
+{-# Language ApplicativeDo #-}
 {-# Language ImplicitParams #-}
 {-# Language OverloadedStrings #-}
 {-# Language PatternSynonyms #-}
 {-# Language RankNTypes #-}
-{-# Language TypeFamilies #-}
-{-# Language ApplicativeDo #-}
 {-# Language RecordWildCards #-}
 {-# Language ScopedTypeVariables #-}
+{-# Language TypeFamilies #-}
 
 module CruxLLVMMain (main, mainWithOutputTo) where
 
@@ -108,7 +109,9 @@ makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
     AtLoc _ _ gs1 -> go gs1
     Branch g1 g2  -> go g1 >> go g2
     Goal _ (c,_) _ res ->
-      let suff = case plSourceLoc (simErrorLoc c) of
+      let suff = showLoc $ plSourceLoc $ simErrorLoc c
+          callstk = map (showLoc . plSourceLoc) $ simErrorCallStack c
+          showLoc = \case
                    SourcePos _ l _ -> show l
                    _               -> "unknown"
           msg = show c
@@ -122,6 +125,7 @@ makeCounterExamplesLLVM opts = mapM_ go . Fold.toList
                 (_prt,dbg) <- buildModelExes opts suff (modelInC m)
                 say "Crux" ("*** debug executable: " ++ dbg)
                 say "Crux" ("*** break on line: " ++ suff)
+                say "Crux" ("*** call stack: " ++ unlines callstk)
            _ -> return ()
 
 -- | Create a simulator context for the given architecture.

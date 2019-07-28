@@ -250,6 +250,7 @@ data OnlineBackendState solver scope = OnlineBackendState
   , solverProc :: !(IORef (SolverState scope solver))
     -- ^ The solver process, if any.
   , currentFeatures :: !(IORef ProblemFeatures)
+  , obCallStack :: [ProgramLoc] -- [oldest calls to->, next call to->, latest call]
   }
 
 -- | Returns an initial execution state.
@@ -265,6 +266,7 @@ initialOnlineBackendState gen feats =
                  { assumptionStack = stk
                  , solverProc = procref
                  , currentFeatures = featref
+                 , obCallStack = mempty
                  }
 
 getAssumptionStack ::
@@ -464,10 +466,16 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
 
   saveAssumptionState sym =
     do stk <- getAssumptionStack sym
-       AS.saveAssumptionStack stk
+       astk <- AS.saveAssumptionStack stk
+       calls <- getCallStack sym
+       return (astk, calls)
 
-  restoreAssumptionState sym gc =
+  restoreAssumptionState sym (gc,calls) =
     do proc <- getSolverProcess sym
+
+       -- Reset the call stack in the state
+       modifyIORef' (B.sbStateManager sym) $ \s -> s { obCallStack = calls }
+
        stk  <- getAssumptionStack sym
 
        -- restore the previous assumption stack
@@ -484,3 +492,17 @@ instance OnlineSolver scope solver => IsBoolSolver (OnlineBackend scope solver f
        forM_ (map snd $ toList frms) $ \frm ->
          do push proc
             mapM_ (SMT.assume (solverConn proc) . view labeledPred) (toList frm)
+
+  pushCallStack sym loc =
+    modifyIORef' (B.sbStateManager sym) $ \s -> s { obCallStack = obCallStack s <> [ loc ] }
+
+  popCallStack sym =
+    modifyIORef' (B.sbStateManager sym) $ \s ->
+    let cs  = obCallStack s
+        cs' = if null cs
+              then error "Internal error: more pops than pushes to CallStack!"
+              else init cs
+    in s { obCallStack = cs' }
+
+  getCallStack sym =
+    reverse . obCallStack <$> readIORef (B.sbStateManager sym)
