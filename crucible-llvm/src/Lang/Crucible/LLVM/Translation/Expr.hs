@@ -366,6 +366,9 @@ transValue ty@(PtrType _) L.ValNull =
 transValue ty@(PtrType _) (L.ValInteger 0) =
   return $ ZeroExpr ty
 
+transValue ty@(PtrType _) v@(L.ValInteger _) =
+  reportError $ fromString $ unwords ["Attempted to use integer ", show v, " as pointer: ", show ty]
+
 transValue ty@(IntType _) L.ValNull =
   return $ ZeroExpr ty
 
