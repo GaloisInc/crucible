@@ -52,6 +52,7 @@ library
     Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics
+    Lang.Crucible.LLVM.LTLSafety
     Lang.Crucible.LLVM.MemModel
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
