@@ -299,27 +299,31 @@ abortPartialResult s tgt pr =
 --   a callable function.  This usually indicates a programming error,
 --   but might also be used to allow on-demand function loading.
 --
---   The ProgramLoc argument references the call site for the unresolved
+--   The 'ProgramLoc' argument references the call site for the unresolved
 --   function call.
+--
+--   The @['SomeFrame']@ argument is the active call stack at the time of
+--   the exception.
 data UnresolvableFunction where
   UnresolvableFunction ::
     !(ProgramLoc) ->
+    [SomeFrame (SimFrame sym ext)] ->
     !(FnHandle args ret) ->
     UnresolvableFunction
 
 instance Ex.Exception UnresolvableFunction
 instance Show UnresolvableFunction where
-  show (UnresolvableFunction loc h) =
+  show (UnresolvableFunction loc callStack h) =
     let name = show $ handleName h
     in unlines $
          if "llvm" `isPrefixOf` name
          then [ "Encountered unresolved LLVM intrinsic '" ++ name ++ "'"
               , "Please report this on the following issue:"
               , "https://github.com/GaloisInc/crucible/issues/73"
-              ]
+              ] ++ [ show (ppExceptionContext callStack) ]
          else [ "Could not resolve function: " ++ name
               , "Called at: " ++ show (PP.pretty (plSourceLoc loc))
-              ]
+              ] ++ [ show (ppExceptionContext callStack) ]
 
 -- | Given a set of function bindings, a function-
 --   value (which is possibly a closure) and a
@@ -334,15 +338,16 @@ resolveCall ::
   FnVal sym args ret {- ^ Function handle and any closure variables -} ->
   RegMap sym args {- ^ Arguments to the function -} ->
   ProgramLoc {- ^ Location of the call -} ->
+  [SomeFrame (SimFrame sym ext)] {-^ current call stack (for exceptions) -} ->
   ResolvedCall p sym ext ret
-resolveCall bindings c0 args loc =
+resolveCall bindings c0 args loc callStack =
   case c0 of
     ClosureFnVal c tp v -> do
-      resolveCall bindings c (assignReg tp v args) loc
+      resolveCall bindings c (assignReg tp v args) loc callStack
 
     HandleFnVal h -> do
       case lookupHandleMap h bindings of
-        Nothing -> Ex.throw (UnresolvableFunction loc h)
+        Nothing -> Ex.throw (UnresolvableFunction loc callStack h)
         Just (UseOverride o) -> do
           let f = OverrideFrame { _override = overrideName o
                                 , _overrideRegMap = args
@@ -510,7 +515,8 @@ callFunction ::
   ExecCont p sym ext rtp f a
 callFunction fn args retHandler loc =
   do bindings <- view (stateContext.functionBindings)
-     let rcall = resolveCall bindings fn args loc
+     callStack <- view (stateTree . to activeFrames)
+     let rcall = resolveCall bindings fn args loc callStack
      ReaderT $ return . CallState retHandler rcall
 
 tailCallFunction ::
@@ -522,7 +528,8 @@ tailCallFunction ::
   ExecCont p sym ext rtp f a
 tailCallFunction fn args vfv loc =
   do bindings <- view (stateContext.functionBindings)
-     let rcall = resolveCall bindings fn args loc
+     callStack <- view (stateTree . to activeFrames)
+     let rcall = resolveCall bindings fn args loc callStack
      ReaderT $ return . TailCallState vfv rcall
 
 
