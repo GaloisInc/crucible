@@ -2,7 +2,7 @@
 
 --{-# LANGUAGE GADTs #-}
 --{-# LANGUAGE TypeFamilies #-}
---{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 
 
@@ -39,6 +39,7 @@ import Lang.Crucible.Simulator.SimError
 import Lang.Crucible.Backend
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.LLVM.MemModel
+import Lang.Crucible.LLVM.Types
 import Lang.Crucible.CFG.Core
 
 import Lang.Crucible.Types
@@ -63,38 +64,46 @@ import Data.Vector as Vec
 import Data.Set as Set
 import Data.List as L
 -- define helper types
-data NFASym = Call String | Return String deriving (Show, Eq, Ord)
+data NFASym = Call String | Ret String deriving (Show, Eq, Ord)
 -- | CallWithArg String RegEntry
 -- | Return String RegEntry
-data NFAState =
+
+-- TODO St Int Maybe 
+data NFAState sym   =
   Error
   | Accept
   | St Int 
- -- | forall sym tp. StWithData Int (Maybe (RegEntry sym tp))
-  deriving (Show, Eq, Ord) -- initial is ST 0
-{-instance Show NFAState where
-  show _ = "no"
+  | forall tp. StWithData Int (Maybe (RegEntry sym tp ))
+ -- deriving (Show, Eq, Ord) -- initial is ST 0
+instance Show (NFAState sym ) where
+  show Error = "Error"
+  show Accept = "Accept"
+  show (St n) = "State " Prelude.++ show n
+  show (StWithData n _) = "State with Data " Prelude.++ show n
 
-instance Ord NFAState where
+instance Ord (NFAState sym ) where
   Error <= _ = True
   Accept <= Error = False
   Accept <= _ = True
   St x <= St y = x <= y
-  _ <= St _ = True
+  Error <= St _ = True
+  Accept <= St _ = True
+  StWithData x _  <= StWithData y _ = x <= y
+  _ <= StWithData _ _ = True
 
-instance Eq NFAState where
+instance Eq (NFAState sym ) where
   Error == Error = True
   Accept == Accept = True
   St x == St y = x == y
-  StWithData x1 x2 == StWithData y1 y2 = (x1 == y1) && (x2 == y2)
+  StWithData x _ == StWithData y _ = x == y
   _ == _ = False
-  -}
+  
 
-
-data NFA = NFA { stateSet :: Vector NFAState,
-                 nfaState :: Set NFAState,
+  
+data NFA sym = NFA { stateSet :: Vector (NFAState sym),
+                 nfaState :: Set (NFAState sym ),
                  nfaAlphabet :: Set NFASym,
-                 transitionFunction :: Vector [(NFASym,NFAState)]} deriving Show
+                 transitionFunction :: Vector [(NFASym,(NFAState sym))]} --deriving Show
 
 stateTransition (St stid) tf symbol =
   Set.fromList $ Prelude.map snd (Prelude.filter (\edge -> symbol == (fst edge)) (tf ! stid))
@@ -106,8 +115,14 @@ nfaTransition nfa symbol =
     _ -> nfa
     
 
+edges0 = [(Call "A", St 1)]
+edges1 = [(Ret "A", StWithData 2 Nothing)]
+alphabed = Set.fromList [Call "A", Ret "A"]
+tf = Vec.fromList [edges0, edges1]
+states = Vec.fromList [St 0, St 1, StWithData 2 Nothing]
+initNFA = NFA states (Set.insert (St 0) Set.empty) alphabed tf
 
-edges0 = [(Call "A", St 1 ), (Call "B", St 2 ), (Call "C", Error)]
+{-edges0 = [(Call "A", St 1 ), (Call "B", St 2 ), (Call "C", Error)]
 edges1 = [(Call "B", St 3 ), (Call "C", Error)]
 edges2 = [(Call "A", St 3 ), (Call "C", Error)]
 edges3 = [(Call "C", Accept)]
@@ -115,7 +130,8 @@ alphabet = Set.fromList [Call "A", Call "B", Call "C" ]
 tf = Vec.fromList[edges0, edges1, edges2, edges3]
 states = Vec.fromList[St 0, St 1, St 2, St 3]
 initNFA = NFA states (Set.insert (St 0) Set.empty) alphabet tf
-                              
+-}
+
 {-
 edges0 = [(Call "A()", St 1), (Call "B()", Error)]
 --edges1 = [(Call "B()", St 0)]
@@ -128,10 +144,10 @@ initNFA = NFA states (insert (St 0) Set.empty) alphabet tf
 
 
 -- define intrinsic type
-data LTLData = LDat NFA 
+data LTLData sym  = LDat (NFA sym) 
 
 instance IntrinsicClass sym "LTL" where
-  type Intrinsic sym "LTL" ctx = LTLData
+  type Intrinsic sym "LTL" ctx = LTLData sym 
 
   muxIntrinsic _sym _iTypes _nm _ _p d1 d2 = combineData d1 d2
 
@@ -219,10 +235,17 @@ onStep gvRef (ReturnState fname vfv regEntry ss) =
   do
     let fn = dN $ unpack $ functionName fname
     let retVal = show (regType regEntry)
+    let sym = ss ^. stateSymInterface
+    let test = (StWithData 3 (Just regEntry))
+    --let test = llvmPointerView $ regValue regEntry 
     putStrLn (fn Prelude.++ " returning " Prelude.++ retVal)
     case (regType regEntry) of
-      IntrinsicRepr _ _ -> putStrLn "intrinsic"
-      _ -> putStrLn "not instrinsic"
+      (LLVMPointerRepr _ ) -> putStrLn "32 bit pointer"
+      _ -> putStrLn "not 32bit"
+    --putStrLn $ show $ ppPtr $ regValue regEntry
+    --case (regType regEntry) of
+    --  IntrinsicRepr s  _ -> putStrLn $ show $ ppPtr $ regValue regEntry
+    --  _ -> putStrLn "not instrinsic"
     return ExecutionFeatureNoChange
         
 onStep _ _ =
@@ -230,7 +253,3 @@ onStep _ _ =
     --putStrLn "test exec"
     return ExecutionFeatureNoChange
 
-
-printReturn (TotalRes gp) =
-   show $ gp ^. gpValue
-printReturn _ = "no"
