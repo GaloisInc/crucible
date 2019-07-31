@@ -64,23 +64,20 @@ import Data.Vector as Vec
 import Data.Set as Set
 import Data.List as L
 -- define helper types
-data NFASym = Call String | Ret String deriving (Show, Eq, Ord)
+data NFASym = Call String | CallWithArg String | Ret String deriving (Show, Eq, Ord)
 -- | CallWithArg String RegEntry
 -- | Return String RegEntry
 
--- TODO St Int Maybe 
 data NFAState sym   =
   Error
   | Accept
---  | St Int 
   | forall tp. St Int (Maybe (RegEntry sym tp ))
- -- deriving (Show, Eq, Ord) -- initial is ST 0
+
 instance Show (NFAState sym ) where
   show Error = "Error"
   show Accept = "Accept"
   show (St n Nothing ) = "State " Prelude.++ show n Prelude.++ " Nothing"
   show (St n _ ) = "State " Prelude.++ show n Prelude.++ " Some data"
-  
 
 instance Ord (NFAState sym ) where
   Error <= _ = True
@@ -88,25 +85,26 @@ instance Ord (NFAState sym ) where
   Accept <= _ = True
   St x _ <= St y _ = x <= y
   _ <= St _ _ = True
-  --Error <= St _ = True
-  --Accept <= St _ = True
-  --StWithData x _  <= StWithData y _ = x <= y
-  --_ <= StWithData _ _ = True
 
+{-
+TODO
+St 2 x
+St 2 y
+
+currently these are equal, but what about unioning states in mux?
+-}
 instance Eq (NFAState sym ) where
   Error == Error = True
   Accept == Accept = True
-  St x _ == St y _ = x == y
-  --StWithData x _ == StWithData y _ = x == y
-  _ == _ = False
-  
-
+  (St x _) == (St y _) = (x == y)
+  _ == _  = False
   
 data NFA sym = NFA { stateSet :: Vector (NFAState sym),
                  nfaState :: Set (NFAState sym ),
                  nfaAlphabet :: Set NFASym,
                  transitionFunction :: Vector [(NFASym,(NFAState sym))]} --deriving Show
 
+--TODO keep data in state on transition?
 stateTransition (St stid val) tf symbol =
   Set.fromList $ Prelude.map snd (Prelude.filter (\edge -> symbol == (fst edge)) (tf ! stid))
 stateTransition _ _ _ = Set.empty
@@ -115,14 +113,15 @@ nfaTransition nfa symbol =
   case (member symbol (nfaAlphabet nfa)) of
     True -> nfa {nfaState = unions $ Set.map (\state -> stateTransition state (transitionFunction nfa) symbol) (nfaState nfa)}
     _ -> nfa
-    
+
 
 edges0 = [(Call "A", St 1 Nothing)]
 edges1 = [(Ret "A", St 2 Nothing)]
-alphabed = Set.fromList [Call "A", Ret "A"]
-tf = Vec.fromList [edges0, edges1]
+edges2 = [(CallWithArg "B", Accept)]
+alphabet = Set.fromList [Call "A", Ret "A", CallWithArg "B" ]
+tf = Vec.fromList [edges0, edges1, edges2]
 states = Vec.fromList [St 0 Nothing, St 1 Nothing, St 2 Nothing]
-initNFA = NFA states (Set.insert (St 0 Nothing) Set.empty) alphabed tf
+initNFA = NFA states (Set.insert (St 0 Nothing) Set.empty) alphabet tf
 
 {-edges0 = [(Call "A", St 1 ), (Call "B", St 2 ), (Call "C", Error)]
 edges1 = [(Call "B", St 3 ), (Call "C", Error)]
@@ -160,8 +159,15 @@ combineData (LDat(NFA {stateSet=ss, nfaState=state1, nfaAlphabet=alpha, transiti
 
 type LTLGlobal = GlobalVar (IntrinsicType "LTL" EmptyCtx)
 
+
+addDataToState (St stid _ ) regEntry = (St stid regEntry)
+addDataToState x _ = x 
 -- helpers
-nfaupdate gvRef ss symbol =
+updateStateData nfa (Just regEntry) =
+  nfa { nfaState = Set.map (\state -> addDataToState state regEntry) (nfaState nfa)}
+updateStateData nfa Nothing = nfa
+
+nfaupdate gvRef ss symbol regEntry =
   do
     gv <- readIORef gvRef
     case (lookupGlobal gv (ss ^. stateGlobals)) of
@@ -177,7 +183,7 @@ nfaupdate gvRef ss symbol =
               putStrLn $ show $ nfaState nfa
               putStrLn $ show $ nfaState resultNFA
               return Nothing
-        where resultNFA = (nfaTransition nfa symbol)
+        where resultNFA = updateStateData (nfaTransition nfa symbol) regEntry
       _ -> return Nothing
 
 withoutType funName =
@@ -225,7 +231,7 @@ onStep gvRef (CallState rh rc ss) =
   do
     let symbol = Call $ pCallName rc
     putStrLn $ show symbol
-    result <- (nfaupdate gvRef ss symbol)
+    result <- (nfaupdate gvRef ss symbol Nothing)
     case result of
       Just ss' -> return $ ExecutionFeatureModifiedState (CallState rh rc ss')
       Nothing ->
@@ -235,20 +241,32 @@ onStep gvRef (CallState rh rc ss) =
       
 onStep gvRef (ReturnState fname vfv regEntry ss) =
   do
-    let fn = dN $ unpack $ functionName fname
+    let fn = withoutType $ dN $ unpack $ functionName fname
     let retVal = show (regType regEntry)
     let sym = ss ^. stateSymInterface
     let test = (St 3 (Just regEntry))
     --let test = llvmPointerView $ regValue regEntry 
     putStrLn (fn Prelude.++ " returning " Prelude.++ retVal)
-    case (regType regEntry) of
-      (LLVMPointerRepr _ ) -> putStrLn "32 bit pointer"
-      _ -> putStrLn "not 32bit"
+    let symbol = Ret fn
+    putStrLn $ show symbol
+    result <- (nfaupdate gvRef ss symbol (Just (Just regEntry)))
+    --TODO only store data on LLVM pointer return?
+    case result of
+      Just ss' -> return $ ExecutionFeatureModifiedState (ReturnState fname vfv regEntry ss')
+      Nothing -> return ExecutionFeatureNoChange -- TODO return abort state
+        {-TODO return abort state
+        do
+          abortState <- errorMsg rc ss
+          return $ ExecutionFeatureNewState abortState
+        -}
+    --case (regType regEntry) of
+    --  (LLVMPointerRepr _ ) -> putStrLn "32 bit pointer"
+    --  _ -> putStrLn "not 32bit"
     --putStrLn $ show $ ppPtr $ regValue regEntry
     --case (regType regEntry) of
     --  IntrinsicRepr s  _ -> putStrLn $ show $ ppPtr $ regValue regEntry
     --  _ -> putStrLn "not instrinsic"
-    return ExecutionFeatureNoChange
+    --return ExecutionFeatureNoChange
         
 onStep _ _ =
   do

@@ -25,9 +25,8 @@ void B() {}
 
 void C() {}
 int main() {
-  A();
-
-  /*crucible_ltl('x', __FILE__, __LINE__);
+  
+  //crucible_ltl('x', __FILE__, __LINE__);
   int x = crucible_int32_t("x");
   if (x){
     B();
@@ -35,16 +34,11 @@ int main() {
     //C();
   }
   else{
-    int r = A();
+    A();
     B();
     //C();
     //C();
   }
 
-  C();
-  C();
-  B();
-  C();
-  C();*/
 }
 
