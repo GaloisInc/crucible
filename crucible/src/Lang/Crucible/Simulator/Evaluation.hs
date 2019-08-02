@@ -546,6 +546,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
 
     FloatLit f -> iFloatLitSingle sym f
     DoubleLit d -> iFloatLitDouble sym d
+    X86_80Lit ld -> iFloatLitLongDouble sym ld
     FloatNaN fi -> iFloatNaN sym fi
     FloatPInf fi -> iFloatPInf sym fi
     FloatNInf fi -> iFloatNInf sym fi
