@@ -76,6 +76,7 @@ import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 
 import           What4.Interface (RoundingMode(..))
+import           What4.InterpretedFloatingPoint (X86_80Val(..))
 
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Extension.Safety
@@ -311,6 +312,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Floating point constants
   FloatLit :: !Float -> App ext f (FloatType SingleFloat)
   DoubleLit :: !Double -> App ext f (FloatType DoubleFloat)
+  X86_80Lit :: !X86_80Val -> App ext f (FloatType X86_80Float)
   FloatNaN :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
   FloatPInf :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
   FloatNInf :: !(FloatInfoRepr fi) -> App ext f (FloatType fi)
@@ -1033,6 +1035,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     -- Float
     FloatLit{} -> knownRepr
     DoubleLit{} -> knownRepr
+    X86_80Lit{} -> knownRepr
     FloatNaN fi -> FloatRepr fi
     FloatPInf fi -> FloatRepr fi
     FloatNInf fi -> FloatRepr fi

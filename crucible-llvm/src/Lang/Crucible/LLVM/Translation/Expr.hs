@@ -319,6 +319,8 @@ liftConstant c = case c of
     return $ BaseExpr (FloatRepr SingleFloatRepr) (App (FloatLit f))
   DoubleConst d ->
     return $ BaseExpr (FloatRepr DoubleFloatRepr) (App (DoubleLit d))
+  LongDoubleConst ld ->
+    return $ BaseExpr (FloatRepr X86_80FloatRepr) (App (X86_80Lit ld))
   ArrayConst mt vs ->
     do vs' <- mapM liftConstant vs
        return (VecExpr mt $ Seq.fromList vs')
