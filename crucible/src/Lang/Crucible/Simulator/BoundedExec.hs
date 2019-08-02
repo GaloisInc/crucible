@@ -32,7 +32,6 @@ module Lang.Crucible.Simulator.BoundedExec
 
 import           Control.Lens ( (^.), to, (&), (%~), (.~) )
 import           Control.Monad ( when )
-import           Control.Monad.ST ( stToIO )
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -271,7 +270,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
  onStep gvRef = \case
    InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
-        gv <- stToIO (freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr)
+        gv <- freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr
         writeIORef gvRef gv
         let globals' = insertGlobal gv [Left "_init"] globals
         let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"BoundedExecFrameData") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }

@@ -1570,7 +1570,7 @@ generateInstr retType lab instr assign_f k =
          case tp' of
            PtrType (MemType valTy@(IntType _)) ->
              llvmTypeAsRepr valTy $ \expectTy ->
-               do val' <- transValue tp' (L.typedValue val)
+               do val' <- transValue valTy $ L.typedValue val
                   let a0 = memTypeAlign (llvmDataLayout ?lc) valTy
                   oldVal <- callLoad valTy expectTy ptr' a0
                   newVal <- atomicRWOp op oldVal val'

@@ -103,7 +103,10 @@ ppConfigError (InvalidEnvVar var val msg) =
 ppConfigError (InvalidCommandLine msg) =
   unlines ("Invalid command line option:" : msg)
 
--- | Throws 'ConfigError'
+-- | Merges command-line options, environment variable options, and
+-- configuration file options (in that order) to get the overall
+-- Options configuration for running Crux. Throws 'ConfigError' on
+-- failure.
 loadConfig :: Text -> Config opts -> IO (Options opts)
 loadConfig nm cfg =
   do earlyOpts <- getOptsX (commandLineOptions cfg) `catch`

@@ -162,7 +162,6 @@ import           Prelude hiding (seq)
 import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad
 import           Control.Monad.IO.Class
-import           Control.Monad.ST
 import           Control.Monad.Trans (lift)
 import           Control.Monad.Trans.State
 import           Data.Dynamic
@@ -455,8 +454,8 @@ evalStmt sym = eval
     do mem <- getMem mvar
        liftIO $ doPtrSubtract sym mem x y
 
-mkMemVar :: HandleAllocator s
-         -> ST s (GlobalVar Mem)
+mkMemVar :: HandleAllocator
+         -> IO (GlobalVar Mem)
 mkMemVar halloc = freshGlobalVar halloc "llvm_memory" knownRepr
 
 

@@ -47,7 +47,7 @@ type SimulateCallback opts =
 -- | The type of the `makeCounterExamples` method.
 type CounterExampleCallback opts =
   Logs =>
-  Options opts {- ^ Configuration optsions -} ->
+  Options opts {- ^ Configuration options -} ->
   Seq (ProvedGoals (Either AssumptionReason SimError))
   {- ^ The goals we looked at, and if they were proved. -} ->
   IO ()

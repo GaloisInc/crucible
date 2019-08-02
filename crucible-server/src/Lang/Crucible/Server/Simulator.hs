@@ -27,7 +27,6 @@ import           Control.Applicative
 import           Control.Exception
 import           Control.Lens
 import           Control.Monad.IO.Class
-import           Control.Monad.ST (RealWorld, stToIO)
 import           Data.Hashable
 import qualified Data.HashTable.IO as HIO
 import           Data.IORef
@@ -44,7 +43,7 @@ import           GHC.IO.Handle
 
 import           Data.HPB
 import qualified Data.Parameterized.Map as MapF
-import           Data.Parameterized.Nonce.Unsafe (indexValue)
+import           Data.Parameterized.Nonce (indexValue)
 import           Data.Parameterized.Some
 
 import           What4.Config
@@ -99,7 +98,7 @@ data Simulator p sym
 getSimContext :: Simulator p sym -> IO (SimContext p sym ())
 getSimContext sim = readIORef (simContext sim)
 
-getHandleAllocator :: Simulator p sym -> IO (HandleAllocator RealWorld)
+getHandleAllocator :: Simulator p sym -> IO HandleAllocator
 getHandleAllocator sim = simHandleAllocator <$> getSimContext sim
 
 getInterface :: Simulator p sym -> IO sym
@@ -185,7 +184,7 @@ simMkHandle :: Simulator p sim
             -> IO (FnHandle args tp)
 simMkHandle sim nm args tp = do
   halloc <- getHandleAllocator sim
-  h <- stToIO $ mkHandle' halloc nm args tp
+  h <- mkHandle' halloc nm args tp
   modifyIORef' (handleCache sim) $ Map.insert (handleRef h) (SomeHandle h)
   return h
 

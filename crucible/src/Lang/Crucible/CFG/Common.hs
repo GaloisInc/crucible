@@ -18,13 +18,12 @@ module Lang.Crucible.CFG.Common
   , BreakpointName(..)
   ) where
 
-import           Control.Monad.ST
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
 import           Data.Parameterized.Classes
-import           Data.Parameterized.Nonce.Unsafe
+import           Data.Parameterized.Nonce
 
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
@@ -34,7 +33,7 @@ import           Lang.Crucible.Types
 
 -- | A global variable.
 data GlobalVar (tp :: CrucibleType)
-   = GlobalVar { globalNonce :: {-# UNPACK #-} !(Nonce tp)
+   = GlobalVar { globalNonce :: {-# UNPACK #-} !(Nonce GlobalNonceGenerator tp)
                , globalName  :: !Text
                , globalType  :: !(TypeRepr tp)
                }
@@ -54,10 +53,10 @@ instance Pretty (GlobalVar tp) where
   pretty  = text . show
 
 
-freshGlobalVar :: HandleAllocator s
+freshGlobalVar :: HandleAllocator
                -> Text
                -> TypeRepr tp
-               -> ST s (GlobalVar tp)
+               -> IO (GlobalVar tp)
 freshGlobalVar halloc nm tp = do
   nonce <- freshNonce (haCounter halloc)
   return GlobalVar

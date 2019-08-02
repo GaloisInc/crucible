@@ -1,31 +1,18 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
---import Control.Monad.Except
---import Control.Monad.ST
 import System.IO
---import Data.Monoid
---import Data.Text (Text)
---import qualified Data.Text as T
+import Data.Monoid
 import qualified Data.Text.IO as T
 
-
---import Lang.Crucible.Syntax.Concrete
---import Lang.Crucible.Syntax.SExpr
---import Lang.Crucible.Syntax.Atoms
 import Lang.Crucible.Syntax.Prog
 import Lang.Crucible.Syntax.Overrides (setupOverrides)
---import Lang.Crucible.CFG.SSAConversion
 
 import What4.Config
 import What4.Solver.Z3 ( z3Options )
 
 import qualified Options.Applicative as Opt
 import           Options.Applicative ( (<**>) )
-
---import System.Exit
-
---import Text.Megaparsec as MP
 
 data Check = Check { chkInFile :: TheFile
                    , chkOutFile :: Maybe TheFile

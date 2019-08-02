@@ -62,7 +62,6 @@ import           What4.InterpretedFloatingPoint (freshFloatConstant)
 import           What4.Partial
 import           What4.ProgramLoc
 import           What4.Symbol (emptySymbol)
-import           What4.Utils.MonadST
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Core
@@ -220,14 +219,14 @@ stepStmt verb stmt rest =
        NewRefCell tpr x ->
          do let halloc = simHandleAllocator ctx
             v <- evalReg x
-            r <- liftST (freshRefCell halloc tpr)
+            r <- liftIO $ freshRefCell halloc tpr
             continueWith $
                (stateTree . actFrame . gpGlobals %~ insertRef sym r v) .
                (stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest)
 
        NewEmptyRefCell tpr ->
          do let halloc = simHandleAllocator ctx
-            r <- liftST (freshRefCell halloc tpr)
+            r <- liftIO $ freshRefCell halloc tpr
             continueWith $
               stateCrucibleFrame %~ extendFrame (ReferenceRepr tpr) (toMuxTree sym r) rest
 

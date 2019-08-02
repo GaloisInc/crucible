@@ -9,8 +9,8 @@ module AI (
   aiTests
   ) where
 
-import Control.Monad ( guard )
-import Control.Monad.ST ( ST, runST )
+import Control.Monad ( guard, join )
+import Control.Monad.ST ( RealWorld, stToIO )
 import Prelude
 
 import qualified Test.Tasty as T
@@ -35,18 +35,18 @@ import Max
 
 aiTests :: T.TestTree
 aiTests = T.testGroup "Abstract Interpretation" [
-  runTest "eo_p1" (const eo_p1),
-  runTest "eo_p2" (const eo_p2),
-  runTest "eo_p3" (const eo_p3),
-  runTest "eo_p4" (const eo_p4),
-  runTest "max_p1" (const max_p1),
-  runTest "max_p2" (const max_p2)
+  runTest "eo_p1" eo_p1,
+  runTest "eo_p2" eo_p2,
+  runTest "eo_p3" eo_p3,
+  runTest "eo_p4" eo_p4,
+  runTest "max_p1" max_p1,
+  runTest "max_p2" max_p2
   ]
 
-runTest :: (C.IsSyntaxExtension ext, C.ShowF dom) => String -> (forall h . () -> TestCase h ext dom) -> T.TestTree
-runTest name tc = T.testCase name $ runST $ testAI (tc ())
+runTest :: (C.IsSyntaxExtension ext, C.ShowF dom) => String -> TestCase ext dom -> T.TestTree
+runTest name tc = T.testCase name $ join (testAI tc)
 
-testAI :: (C.IsSyntaxExtension ext, C.ShowF dom) => TestCase h ext dom -> ST h T.Assertion
+testAI :: (C.IsSyntaxExtension ext, C.ShowF dom) => TestCase ext dom -> IO T.Assertion
 testAI TC { tcHandle = hdl
           , tcDef = def
           , tcGlobals = g
@@ -56,7 +56,7 @@ testAI TC { tcHandle = hdl
           , tcInterp = interp
           } = do
   fh <- hdl
-  (G.SomeCFG cfg, _) <- G.defineFunction P.InternalPos fh def
+  (G.SomeCFG cfg, _) <- stToIO $ G.defineFunction P.InternalPos fh def
   case SSA.toSSA cfg of
     C.SomeCFG cfg' -> do
       let (assignment', rabs) = forwardFixpoint dom interp cfg' g a0
@@ -69,10 +69,10 @@ testAI TC { tcHandle = hdl
             return $ forwardFixpoint dom' interp cfg' g a0
       return (check cfg' assignment' rabs mWorklist)
 
-data TestCase h ext dom =
+data TestCase ext dom =
   forall init ret t .
-  TC { tcDef :: G.FunctionDef ext h t init ret
-     , tcHandle :: ST h (C.FnHandle init ret)
+  TC { tcDef :: G.FunctionDef ext RealWorld t init ret
+     , tcHandle :: IO (C.FnHandle init ret)
      , tcDom :: Domain dom
      , tcInterp :: Interpretation ext dom
      , tcAssignment :: PU.Assignment dom init
@@ -85,13 +85,13 @@ data TestCase h ext dom =
                -> T.Assertion
      }
 
-genHandle :: ST s (C.FnHandle (C.EmptyCtx C.::> C.IntegerType) C.IntegerType)
+genHandle :: IO (C.FnHandle (C.EmptyCtx C.::> C.IntegerType) C.IntegerType)
 genHandle = C.withHandleAllocator $ \ha -> C.mkHandle ha C.startFunctionName
 
 type EvenOdd' = Pointed EvenOdd
 type Max' = Pointed Max
 
-eo_p1 :: TestCase h EOExt EvenOdd'
+eo_p1 :: TestCase EOExt EvenOdd'
 eo_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
            , tcAssignment = PU.empty PU.:> Pointed Even
@@ -121,7 +121,7 @@ eo_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
     else_ r0 = do
       G.assignReg r0 (litExpr 10)
 
-eo_p2 :: TestCase h EOExt EvenOdd'
+eo_p2 :: TestCase EOExt EvenOdd'
 eo_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
            , tcAssignment = PU.empty PU.:> Pointed Even
@@ -152,7 +152,7 @@ eo_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
     else_ r0 = do
       G.assignReg r0 (litExpr 10)
 
-eo_p3 :: TestCase h EOExt EvenOdd'
+eo_p3 :: TestCase EOExt EvenOdd'
 eo_p3 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
            , tcAssignment = PU.empty PU.:> Pointed Even
@@ -185,7 +185,7 @@ eo_p3 = TC { tcDef = \ia -> (Ignore, gen ia)
       v <- G.readReg r0
       G.assignReg r1 (app (v `C.IntAdd` litExpr 10))
 
-eo_p4 :: TestCase h EOExt EvenOdd'
+eo_p4 :: TestCase EOExt EvenOdd'
 eo_p4 = TC { tcDef = \ia -> (Ignore, gen ia)
            , tcHandle = genHandle
            , tcAssignment = PU.empty PU.:> Pointed Even
@@ -218,7 +218,7 @@ eo_p4 = TC { tcDef = \ia -> (Ignore, gen ia)
       v <- G.readReg r0
       G.assignReg r1 (app (v `C.IntAdd` litExpr 11))
 
-max_p1 :: TestCase h SyntaxExt Max'
+max_p1 :: TestCase SyntaxExt Max'
 max_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
             , tcHandle = genHandle
             , tcAssignment = PU.empty PU.:> Pointed (Max 5)
@@ -247,7 +247,7 @@ max_p1 = TC { tcDef = \ia -> (Ignore, gen ia)
       v <- G.readReg r0
       G.assignReg r0 (app (v `C.IntAdd` litExpr 6))
 
-max_p2 :: TestCase h SyntaxExt Max'
+max_p2 :: TestCase SyntaxExt Max'
 max_p2 = TC { tcDef = \ia -> (Ignore, gen ia)
             , tcHandle = genHandle
             , tcAssignment = PU.empty PU.:> Pointed (Max 5)

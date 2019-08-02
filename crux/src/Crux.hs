@@ -3,6 +3,7 @@
 module Crux
   ( main
   , mainWithOutputConfig
+  , runSimulator
   , CruxOptions(..)
   , module Crux.Extension
   , module Crux.Config
