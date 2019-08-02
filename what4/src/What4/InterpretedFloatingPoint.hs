@@ -22,6 +22,8 @@ module What4.InterpretedFloatingPoint
   , FloatInfoRepr(..)
     -- ** extended 80 bit float values ("long double")
   , X86_80Val(..)
+  , fp80ToBits
+  , fp80ToRational
     -- ** FloatInfo to/from FloatPrecision
   , FloatInfoToPrecision
   , FloatPrecisionToInfo
@@ -40,10 +42,12 @@ module What4.InterpretedFloatingPoint
   , IsInterpretedFloatSymExprBuilder(..)
   ) where
 
+import Data.Bits
 import Data.Hashable
 import Data.Kind
 import Data.Parameterized.Classes
 import Data.Parameterized.TH.GADT
+import Data.Ratio
 import Data.Word ( Word16, Word64 )
 import GHC.TypeNats
 import Text.PrettyPrint.ANSI.Leijen
@@ -166,9 +170,27 @@ floatInfoToBVTypeRepr = \case
 -- | Representation of 80-bit floating values, since there's no native
 -- Haskell type for these.
 data X86_80Val = X86_80Val
-                 Word16 -- ^ exponent
-                 Word64 -- ^ significand
+                 Word16 -- exponent
+                 Word64 -- significand
                deriving (Show, Eq, Ord)
+
+fp80ToBits :: X86_80Val -> Integer
+fp80ToBits (X86_80Val ex mantissa) =
+  shiftL (toInteger ex) 64 .|. toInteger mantissa
+
+fp80ToRational :: X86_80Val -> Maybe Rational
+fp80ToRational (X86_80Val ex mantissa)
+    -- infinities/NaN/etc
+  | ex' == 0x7FFF = Nothing
+
+    -- denormal/pseudo-denormal/normal/unnormal numbers
+  | otherwise = Just $! (if s then negate else id) (m * (1 % 2^e))
+
+  where
+  s   = testBit ex 15
+  ex' = ex .&. 0x7FFF
+  m   = (toInteger mantissa) % ((2::Integer)^(63::Integer))
+  e   = 16382 - toInteger ex'
 
 -- Note that the long-double package also provides a representation
 -- for 80-bit floating point values but that package includes

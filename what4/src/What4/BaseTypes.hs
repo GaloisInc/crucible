@@ -131,8 +131,8 @@ type BaseArrayType   = 'BaseArrayType   -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseTy
 -- | This data kind describes the types of floating-point formats.
 -- This consist of the standard IEEE 754-2008 binary floating point formats.
 data FloatPrecision where
-  FloatingPointPrecision :: TypeNats.Nat   -- ^ number of bits for the exponent field
-                         -> TypeNats.Nat   -- ^ number of bits for the significand field
+  FloatingPointPrecision :: TypeNats.Nat   -- number of bits for the exponent field
+                         -> TypeNats.Nat   -- number of bits for the significand field
                          -> FloatPrecision
 type FloatingPointPrecision = 'FloatingPointPrecision -- ^ @:: 'GHC.TypeNats.Nat' -> 'GHC.TypeNats.Nat' -> 'FloatPrecision'@.
 
