@@ -34,7 +34,6 @@ module Lang.Crucible.Simulator.BoundedRecursion
 
 import           Control.Lens ( (^.), (&), (%~) )
 import           Control.Monad (when)
-import           Control.Monad.ST (stToIO)
 import           Data.IORef
 import           Data.Maybe
 import qualified Data.Text as Text
@@ -72,7 +71,7 @@ type BoundedRecursionGlobal = GlobalVar (IntrinsicType "BoundedRecursionData" Em
 --
 --   The boolean argument indicates if we should generate proof obligations when
 --   we cut off recursion.  If true, recursion cutoffs will generate proof obligations
---   which will be provable only if the function actualy could not have executed that number
+--   which will be provable only if the function actually could not have executed that number
 --   of times.  If false, the execution of recursive functions will be aborted without
 --   generating side conditions.
 boundedRecursionFeature ::
@@ -82,7 +81,7 @@ boundedRecursionFeature ::
   IO (GenericExecutionFeature sym)
 
 boundedRecursionFeature getRecursionBound generateSideConditions =
-  do gvRef <- newIORef (error "Global variable for BoundedRecusionData no initilized")
+  do gvRef <- newIORef (error "Global variable for BoundedRecusionData not initilized")
      return $ GenericExecutionFeature $ onStep gvRef
 
  where
@@ -137,7 +136,7 @@ boundedRecursionFeature getRecursionBound generateSideConditions =
 
    InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
-        gv <- stToIO (freshGlobalVar halloc (Text.pack "BoundedRecursionData") knownRepr)
+        gv <- freshGlobalVar halloc (Text.pack "BoundedRecursionData") knownRepr
         writeIORef gvRef gv
         let simctx'  = simctx{ ctxIntrinsicTypes = MapF.insert
                                    (knownSymbol @"BoundedRecursionData")
