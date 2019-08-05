@@ -1063,6 +1063,63 @@ atomicRWOp op x y =
                         , "Value 2: " ++ show y
                         ]
 
+floatingCompare ::
+  L.FCmpOp ->
+  MemType ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (LLVMExpr s arch)
+floatingCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
+  VecExpr (IntType 1) <$> sequence (Seq.zipWith (floatingCompare op tp) xs ys)
+
+floatingCompare op _ x y =
+  do b <- scalarFloatingCompare op x y
+     return (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+                      (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
+
+scalarFloatingCompare ::
+  L.FCmpOp ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+scalarFloatingCompare op x y =
+  case (asScalar x, asScalar y) of
+     (Scalar (FloatRepr fi) x',
+      Scalar (FloatRepr fi') y')
+      | Just Refl <- testEquality fi fi' ->
+          return (floatcmp op x' y')
+
+     _ -> fail $ unwords ["Floating point comparison on incompatible values", show x, show y]
+
+floatcmp ::
+  L.FCmpOp ->
+  Expr (LLVM arch) s (FloatType fi) ->
+  Expr (LLVM arch) s (FloatType fi) ->
+  Expr (LLVM arch) s BoolType
+floatcmp op a b =
+   let isNaNCond = App . FloatIsNaN
+       -- True if a is NAN or b is NAN
+       unoCond = App $ Or (isNaNCond a) (isNaNCond b)
+       mkUno c = App $ Or c unoCond
+    in case op of
+          L.Ftrue  -> App $ BoolLit True
+          L.Ffalse -> App $ BoolLit False
+          L.Foeq   -> App $ FloatFpEq a b
+          L.Folt   -> App $ FloatLt a b
+          L.Fole   -> App $ FloatLe a b
+          L.Fogt   -> App $ FloatGt a b
+          L.Foge   -> App $ FloatGe a b
+          L.Fone   -> App $ FloatFpNe a b
+          L.Fueq   -> mkUno $ App $ FloatFpEq a b
+          L.Fult   -> mkUno $ App $ FloatLt a b
+          L.Fule   -> mkUno $ App $ FloatLe a b
+          L.Fugt   -> mkUno $ App $ FloatGt a b
+          L.Fuge   -> mkUno $ App $ FloatGe a b
+          L.Fune   -> mkUno $ App $ FloatFpNe a b
+          L.Ford   -> App $ And (App $ Not $ isNaNCond a) (App $ Not $ isNaNCond b)
+          L.Funo   -> unoCond
+
+
 integerCompare ::
   L.ICmpOp ->
   MemType ->
@@ -1518,43 +1575,11 @@ generateInstr retType lab instr assign_f k =
          k
 
     L.FCmp op x y -> do
-           let isNaNCond = App . FloatIsNaN
-           let cmpf :: Expr (LLVM arch) s (FloatType fi)
-                    -> Expr (LLVM arch) s (FloatType fi)
-                    -> Expr (LLVM arch) s BoolType
-               cmpf a b =
-                  -- True if a is NAN or b is NAN
-                  let unoCond = App $ Or (isNaNCond a) (isNaNCond b) in
-                  let mkUno c = App $ Or c unoCond in
-                  case op of
-                    L.Ftrue  -> App $ BoolLit True
-                    L.Ffalse -> App $ BoolLit False
-                    L.Foeq   -> App $ FloatFpEq a b
-                    L.Folt   -> App $ FloatLt a b
-                    L.Fole   -> App $ FloatLe a b
-                    L.Fogt   -> App $ FloatGt a b
-                    L.Foge   -> App $ FloatGe a b
-                    L.Fone   -> App $ FloatFpNe a b
-                    L.Fueq   -> mkUno $ App $ FloatFpEq a b
-                    L.Fult   -> mkUno $ App $ FloatLt a b
-                    L.Fule   -> mkUno $ App $ FloatLe a b
-                    L.Fugt   -> mkUno $ App $ FloatGt a b
-                    L.Fuge   -> mkUno $ App $ FloatGe a b
-                    L.Fune   -> mkUno $ App $ FloatFpNe a b
-                    L.Ford   -> App $ And (App $ Not $ isNaNCond a) (App $ Not $ isNaNCond b)
-                    L.Funo   -> unoCond
-
-           x' <- transTypedValue x
-           y' <- transTypedValue (L.Typed (L.typedType x) y)
-           case (asScalar x', asScalar y') of
-             (Scalar (FloatRepr fi) x'',
-              Scalar (FloatRepr fi') y'')
-              | Just Refl <- testEquality fi fi' ->
-                do assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
-                                   (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat (cmpf  x'' y'')))))
-                   k
-
-             _ -> fail $ unwords ["Floating point comparison on incompatible values", show x, show y]
+           tp <- liftMemType' (L.typedType x)
+           x' <- transValue tp (L.typedValue x)
+           y' <- transValue tp y
+           assign_f =<< floatingCompare op tp x' y'
+           k
 
     L.ICmp op x y -> do
            tp <- liftMemType' (L.typedType x)
