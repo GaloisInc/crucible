@@ -27,6 +27,7 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.BoundedExec
+import Lang.Crucible.Simulator.BoundedRecursion
 import Lang.Crucible.Simulator.Profiling
 import Lang.Crucible.Simulator.PathSatisfiability
 
@@ -239,11 +240,15 @@ runSimulator lang opts@(cruxOpts,_) =
      bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
              boundedExecFeature (\_ -> return (Just i)) False {- side cond: no -}
 
+     -- Recursion bound
+     rfs <- execFeatureMaybe (recursionBound cruxOpts) $ \i ->
+             boundedRecursionFeature (\_ -> return (Just i)) False {- side cond: no -}
+
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
               $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
 
-     let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ psat_fs
+     let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ rfs ++ psat_fs
 
      -- Ready to go!
      gls <- newIORef Seq.empty
