@@ -21,6 +21,7 @@ dummy A() {
   return d;
   }*/
 		
+void B(int x) {}
 void B() {}
 
 void C() {}
@@ -29,16 +30,16 @@ int main() {
   //crucible_ltl('x', __FILE__, __LINE__);
   int x = crucible_int32_t("x");
   if (x){
-    B();
+    B(4);
     A();
     //C();
   }
   else{
     A();
-    B();
-    //C();
+    //B();
     //C();
   }
+  C();
 
 }
 
