@@ -52,7 +52,7 @@ import What4.ProgramLoc
 import ABI.Itanium as ABI
 
 import Control.Lens
-import Control.Monad ( when )
+import Control.Monad ( when, filterM)
 import Control.Monad.ST
 import Control.Monad.IO.Class(liftIO)
 
@@ -68,7 +68,7 @@ import Data.List as L
 
 data NFASym = Call String | Ret String  deriving (Show, Eq, Ord) -- Ret String Val TODO pass
 
-data Val sym = forall w. LLVMPtr (SymNat sym) (SymBV sym w)
+data Val sym = forall w. (1 <= w) => LLVMPtr (SymNat sym) (SymBV sym w)
 
 instance IsSymInterface sym => Eq (Val sym) where
   (LLVMPtr blk1 off1) == (LLVMPtr blk2 off2) =
@@ -100,19 +100,10 @@ data NFAUpdateStatus sym  = ErrorDetected | Updated (NFA sym) | UnrecognizedSymb
 
 nullEffect retVal edge = snd edge
 
-{-checkEffect sym (LLVMPtr base1 off1) (LLVMPtr base2 off2) edge =
-  do
-    p1 <- natEq sym base1 base2
-    p2 <- bvEq sym off1 off2
-    pand <- andPred sym p1 p1
-    case asConstantPred pand of
-      Just True -> return $ snd edge
-      Just False -> return Error
--}
+--checkEffect sym (LLVMPtr base1 off1) (LLVMPtr base2 off2) edge =
   
 storeEffect retVal _ (sym,(St stid _)) = (St stid retVal)
 storeEffect _ _  _ = Error --TODO properly handle
-
 
 --TODO keep data in state on transition?
 -- pass in transition computation function
@@ -174,7 +165,7 @@ onStep gvRef (InitialState simctx globals ah cont) = do
   let sym =simctx ^. ctxSymInterface
   gv <- stToIO (freshGlobalVar halloc (T.pack "LTL") knownRepr)
   writeIORef gvRef gv
-  initNFA <- initializeNfa2 sym
+  initNFA <- initializeNfa sym
   putStrLn "initialize"
   let globals' = insertGlobal gv (LDat initNFA) globals
   let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"LTL") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }
@@ -185,10 +176,14 @@ onStep gvRef (CallState rh rc ss) =
       (CrucibleCall _ cf) ->
         do
           let sym = ss ^. stateSymInterface
-          putStrLn $ show $ pCallName cf
+          putStrLn $ show $ "Call " ++ pCallName cf 
           nfa <- getNFA gvRef ss
-          case handleCallEvent sym nfa cf of
+          res <- handleCallEvent sym nfa cf
+
+          putStrLn $ show $ nfaState nfa
+          case res of
             Updated nfa' -> do
+              putStrLn $ show $ nfaState nfa'
               ss' <- saveNFA gvRef ss nfa'
               return $ ExecutionFeatureModifiedState (CallState rh rc ss') 
             ErrorDetected -> do
@@ -201,9 +196,12 @@ onStep gvRef (ReturnState fname vfv regEntry ss) =
    do
      let fn = withoutType $ dN $ T.unpack $ functionName fname  
      nfa <- getNFA gvRef ss
+     putStrLn $ "Ret " ++ fn
+     putStrLn $ show $ nfaState nfa
      case nfaTransition nfa (Ret fn) (storeEffect $ argToVal regEntry) of 
        Updated nfa' -> do
          ss' <- saveNFA gvRef ss nfa'
+         putStrLn $ show $ nfaState nfa'
          return $ ExecutionFeatureModifiedState (ReturnState fname vfv regEntry ss')
        ErrorDetected -> do
          --TODO throw error
@@ -214,7 +212,6 @@ onStep _ _ =
   do
     return ExecutionFeatureNoChange
 
-
 --helpers
 
 extractArg :: CallFrame sym ext blocks ret ctx' -> Maybe (Val sym)
@@ -224,42 +221,56 @@ extractArg cf =
       _ -> Nothing
     where RegMap args = cf^.frameRegs
 
-stateHasSymbolEdge (St stid _ ) tf symbol =
-  foldr (\edge b -> b || (symbol == (fst edge))) False (tf V.! stid)
-stateHasSymbolEdge _ _ _ = False
-
-candidateTransitionStates NFA{transitionFunction = tf, nfaState = states} symbol =
-  S.filter (\state -> stateHasSymbolEdge state tf symbol) states
-{-
-
-eqLLVMPtr :: (1 <= w, IsSymInterface sym)
+eqLLVMPtr :: (IsSymInterface sym)
       => sym
-      -> NatRepr w
       -> Val sym 
       -> Val sym 
-      -> IO (Pred sym)
+      -> IO (Bool)
 eqLLVMPtr sym (LLVMPtr base1 off1)  (LLVMPtr base2 off2) =
+  case testEquality off1 off2 of
+    Just Refl -> do
+      p1 <- natEq sym base1 base2
+      p2 <- bvEq sym off1 off2
+      pand <- andPred sym p1 p2
+      case asConstantPred pand of
+        truePred -> return True
+        falsePred -> return False
+    Nothing -> return False --TODO semantics for symbolic pred
+eqLLVMPtr _ _ _ = undefined
+
+checkState sym calledVal ( _ ,(St stid (Just val))) =
   do
-    p1 <- natEq sym base1 base2
-    p2 <- bvEq sym off1 off2
-    andPred sym p1 p1-}
-    {-case asConstantPred pand of
-      Just True -> return (St 0 Nothing)
-      Just False -> return Error  
-      Nothing -> return Error-}
-  
-{-
-checkCall sym nfa symbol callval =
-  Updated nfa { nfaState = S.map (eqLLVMPtr callval) (candidateTransitionStates nfa symbol)}
--}
+    eqRes <- eqLLVMPtr sym calledVal val
+    case eqRes of
+      True -> return (St stid Nothing)
+      False -> return Error
+checkState _ _ _ = return Error
 
-checkEffect sym callVal retVal edge = Error
+checkEdges sym nfa symbol calledVal (St stid _ ) =
+  do
+    states' <- mapM (checkState sym calledVal) validEdges
+    return $ S.fromList states'
+  where
+    validEdges = filter (\edge -> symbol == (fst edge)) ((transitionFunction nfa) V.! stid)
 
+checkTransition sym nfa symbol calledVal =
+  do
+    xs <- S.fromList <$> mapM (checkEdges sym nfa symbol calledVal) (S.toList (nfaState nfa))
+    let states' = S.unions xs
+    case (S.member Error states') of
+      True -> return ErrorDetected
+      False -> return $ Updated nfa { nfaState = states'}
+
+checkCall sym nfa symbol calledVal =
+  do
+    case (S.member symbol (nfaAlphabet nfa)) of
+      True -> checkTransition sym nfa symbol calledVal
+      _ -> return UnrecognizedSymbol
+    
 handleCallEvent sym nfa cf =
   case (extractArg cf) of
-    --Just callVal -> checkCall sym nfa (Call (pCallName cf)) callVal
-    Just callVal -> nfaTransition nfa (Call $ pCallName cf) nullEffect --(checkEffect sym callVal)
-    Nothing -> nfaTransition nfa (Call $ pCallName cf) nullEffect
+    Just callVal -> checkCall sym nfa (Call (pCallName cf)) callVal
+    Nothing -> return $ nfaTransition nfa (Call $ pCallName cf) nullEffect
 
 getNFA gvRef ss =
   do
