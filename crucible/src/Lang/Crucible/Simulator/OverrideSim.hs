@@ -429,12 +429,13 @@ callBlock cfg bid args =
 
 -- | Call an override in a new call frame.
 callOverride ::
+  FnHandle args ret ->
   Override p sym ext args ret ->
   RegMap sym args ->
   OverrideSim p sym ext rtp a r (RegEntry sym ret)
-callOverride ovr args =
+callOverride h ovr args =
   Sim $ StateContT $ \c -> runReaderT $
-    let f = OverrideFrame (overrideName ovr) args in
+    let f = OverrideFrame (overrideName ovr) (SomeHandle h) args in
     ReaderT $ return . CallState (ReturnToOverride c) (OverrideCall ovr f)
 
 

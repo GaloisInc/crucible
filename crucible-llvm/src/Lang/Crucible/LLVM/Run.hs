@@ -27,7 +27,7 @@ import qualified Data.Map as Map
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Context(EmptyCtx)
 
-import Lang.Crucible.Types(TypeRepr)
+import Lang.Crucible.Types(TypeRepr(..))
 import Lang.Crucible.CFG.Core(AnyCFG)
 import Lang.Crucible.Simulator
   ( RegEntry, RegValue
@@ -109,7 +109,7 @@ runCruxLLVM llvm_mod (CruxLLVM setup) =
                               llvmExtensionImpl
                               cruxUserState
 
-              cruxGo $ InitialState simctx globSt defaultAbortHandler
+              cruxGo $ InitialState simctx globSt defaultAbortHandler cruxInitCodeReturns
                      $ runOverrideSim cruxInitCodeReturns cruxInitCode
            )
 

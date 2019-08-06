@@ -368,7 +368,7 @@ updateProfilingTable tbl exst = do
       return ()
 
   case exst of
-    InitialState _ _ _ _ ->
+    InitialState _ _ _ _ _ ->
       enterEvent tbl startFunctionName Nothing
     CallState _rh call st ->
       enterEvent tbl (resolvedCallName call) (st^.stateLocation)

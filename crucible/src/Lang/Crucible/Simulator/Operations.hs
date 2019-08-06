@@ -345,6 +345,7 @@ resolveCall bindings c0 args loc =
         Nothing -> Ex.throw (UnresolvableFunction loc h)
         Just (UseOverride o) -> do
           let f = OverrideFrame { _override = overrideName o
+                                , _overrideHandle = SomeHandle h
                                 , _overrideRegMap = args
                                 }
            in OverrideCall o f

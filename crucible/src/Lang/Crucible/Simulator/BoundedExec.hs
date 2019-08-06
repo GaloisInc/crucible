@@ -40,6 +40,7 @@ import           Data.Semigroup( (<>) )
 import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
+import           Data.Word
 
 
 import qualified Data.Parameterized.Context as Ctx
@@ -65,9 +66,9 @@ data FrameBoundData =
   forall args ret.
     FrameBoundData
     { frameBoundHandle :: !(FnHandle args ret)
-    , frameBoundLimit :: !Int
+    , frameBoundLimit :: !Word64
     , frameWtoMap :: !(Map Int (Int,Int))
-    , frameBoundCounts :: Seq Int
+    , frameBoundCounts :: Seq Word64
     }
 
 -- | This function takes weak topological order data and computes
@@ -97,7 +98,7 @@ buildWTOMap = snd . go 0 0 Map.empty
 --   Any loop bounds deeper than this are discarded.  If the given
 --   sequence is too short to accommodate the given depth, the sequence
 --   is extended with 0 counters to the correct depth.
-incrementBoundCount :: Seq Int -> Int -> (Seq Int, Int)
+incrementBoundCount :: Seq Word64 -> Int -> (Seq Word64, Word64)
 incrementBoundCount cs depth =
   case Seq.lookup depth cs of
      Just n ->
@@ -113,7 +114,7 @@ instance IntrinsicClass sym "BoundedExecFrameData" where
 
   muxIntrinsic _sym _iTypes _nm _ _p fd1 fd2 = combineFrameBoundData fd1 fd2
 
-mergeCounts :: Seq Int -> Seq Int -> Seq Int
+mergeCounts :: Seq Word64 -> Seq Word64 -> Seq Word64
 mergeCounts cx cy =
   Seq.fromFunction
     (max (Seq.length cx) (Seq.length cy))
@@ -179,7 +180,7 @@ type BoundedExecGlobal = GlobalVar (IntrinsicType "BoundedExecFrameData" EmptyCt
 --   to determine loop heads and loop nesting structure.  Loop bounds for inner
 --   loops are reset on every iteration through an outer loop.
 boundedExecFeature ::
-  (SomeHandle -> IO (Maybe Int))
+  (SomeHandle -> IO (Maybe Word64))
     {- ^ Action for computing loop bounds for functions when they are called -} ->
   Bool {- ^ Produce a proof obligation when resources are exhausted? -} ->
   IO (GenericExecutionFeature sym)
@@ -207,7 +208,7 @@ boundedExecFeature getLoopBounds generateSideConditions =
    Some (BlockID blocks) ->
    BlockID blocks tgt_args ->
    SymGlobalState sym ->
-   IO (SymGlobalState sym, Maybe Int)
+   IO (SymGlobalState sym, Maybe Word64)
  checkBackedge gvRef (Some bid_curr) bid_tgt globals =
    do gv <- readIORef gvRef
       case fromMaybe [] (lookupGlobal gv globals) of
@@ -268,13 +269,13 @@ boundedExecFeature getLoopBounds generateSideConditions =
    IO (ExecutionFeatureResult p sym ext rtp)
 
  onStep gvRef = \case
-   InitialState simctx globals ah cont ->
+   InitialState simctx globals ah ret cont ->
      do let halloc = simHandleAllocator simctx
         gv <- freshGlobalVar halloc (Text.pack "BoundedExecFrameData") knownRepr
         writeIORef gvRef gv
         let globals' = insertGlobal gv [Left "_init"] globals
         let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"BoundedExecFrameData") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }
-        return (ExecutionFeatureModifiedState (InitialState simctx' globals' ah cont))
+        return (ExecutionFeatureModifiedState (InitialState simctx' globals' ah ret cont))
 
    CallState rh call st ->
      do boundData <- buildFrameData call
