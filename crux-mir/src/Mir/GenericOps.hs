@@ -575,7 +575,6 @@ instance GenericOps Lvalue where
           case v0 of
             LProjection (LvalueProjection lb k)
               | Just ans <- repl_lv lb -> Just $ LProjection (LvalueProjection ans k)
-            Tagged lb _ | Just ans <- repl_lv lb -> Just ans
             _ | v == old -> Just new
             _ -> Nothing
 

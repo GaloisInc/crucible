@@ -242,7 +242,6 @@ data Lvalue =
     | LStatic DefId Ty              -- ^ static or static mut variable
     | LProjection LvalueProjection  -- ^ projection out of a place (access a field, deref a pointer, etc)
     | LPromoted Int Ty              -- ^ constant code promoted to an injected static
-    | Tagged Lvalue Text -- for internal use during the translation
     deriving (Show, Eq, Generic)
 
 instance Ord Lvalue where
@@ -636,7 +635,6 @@ instance TypeOf Var where
 instance TypeOf Lvalue where
   typeOf lv = case lv of
     LStatic _ t           -> t
-    Tagged lv' _          -> typeOf lv'
     Local (Var _ _ t _ _) -> t
     LProjection proj      -> typeOf proj
     LPromoted _ t         -> t

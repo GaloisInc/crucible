@@ -183,7 +183,6 @@ instance Pretty Lvalue where
     pretty (Local v)        = pretty v
     pretty (LStatic did _t) = pretty_fn1 "Static" did
     pretty (LProjection p)  = pretty p
-    pretty (Tagged lv t)    = pretty t <+> parens (pretty lv)
     pretty (LPromoted p _t) = pretty p
     
 instance Pretty Rvalue where

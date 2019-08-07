@@ -933,7 +933,6 @@ filterMaybes ((Just a):as) = a : (filterMaybes as)
 filterMaybes ((Nothing):as) = filterMaybes as
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
-evalLvalue (M.Tagged l _) = evalLvalue l
 evalLvalue (M.Local var) = lookupVar var
 evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
     db <- use debugLevel
@@ -1121,7 +1120,6 @@ assignVarExp (M.Var vname _ vty _ pos) me@(MirExp e_ty e) = do
 assignLvExp :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
 assignLvExp lv re = do
     case lv of
-        M.Tagged lv _ -> assignLvExp  lv re
         M.Local var   -> assignVarExp var re
         M.LStatic did _ -> assignStaticExp did re
                  
@@ -1823,7 +1821,6 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
 
  g (M.Local (M.Var nm _ _ _ _)) = Set.singleton nm
  g (M.LProjection (M.LvalueProjection lv _)) = g lv
- g (M.Tagged lv _) = g lv
 
  g _ = mempty
 
