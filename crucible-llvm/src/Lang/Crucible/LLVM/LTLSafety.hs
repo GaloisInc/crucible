@@ -1,17 +1,10 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE MultiParamTypeClasses #-}  
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies #-} 
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.LTLSafety
@@ -25,7 +18,6 @@ import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.CallFrame
 import Lang.Crucible.Simulator.RegMap
 import Lang.Crucible.Simulator.GlobalState
-import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Simulator.Intrinsics
 import Lang.Crucible.Simulator.SimError
 
@@ -33,10 +25,7 @@ import Lang.Crucible.Backend
 import Lang.Crucible.FunctionHandle
 import Lang.Crucible.LLVM.MemModel
 import Lang.Crucible.LLVM.MemModel.Pointer (llvmPointerBlock,llvmPointerOffset)
-import Lang.Crucible.LLVM.Types
 import Lang.Crucible.CFG.Core
-
-import Lang.Crucible.Types
 
 import What4.FunctionName
 import What4.Interface
@@ -45,15 +34,11 @@ import What4.ProgramLoc
 import ABI.Itanium as ABI
 
 import Control.Lens
-import Control.Monad ( when, filterM)
 import Control.Monad.ST
-import Control.Monad.IO.Class(liftIO)
 
 import Data.IORef
 import qualified Data.Parameterized.Context as Ctx
-import Data.Parameterized.Nonce.Unsafe
 import qualified Data.Parameterized.Map as MapF
-import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Set as S
@@ -204,7 +189,6 @@ extractArg cf =
       Ctx.Empty Ctx.:> regEntry -> argToVal regEntry
       _ -> Nothing
     where RegMap args = cf^.frameRegs
-
 
 eqLLVMPtr :: (IsSymInterface sym)
       => sym
