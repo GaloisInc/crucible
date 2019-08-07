@@ -436,7 +436,7 @@ resolveDictionaryProjection nm subst = do
                let (Field _ (TyFnPtr ty) fsubst) = fields !! idx
                let ty'  = tySubst (Substs tsubst) ty
                let sig' = specialize sig tsubst
-               let exp = Use (Copy (LProjection (LvalueProjection (Local var) (PField idx (TyFnPtr ty')))))
+               let exp = Use (Copy (LProj (LBase (Local var)) (PField idx (TyFnPtr ty'))))
 
                when (db > 6) $ do
                  traceM $ "***lookupFunction: at dictionary projection for " ++ show (pretty nm)

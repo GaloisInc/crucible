@@ -726,7 +726,7 @@ mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
 evalRefLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalRefLvalue lv =
       case lv of
-        M.Local (M.Var nm mut ty _ pos) ->
+        M.LBase (M.Local (M.Var nm mut ty _ pos)) ->
           do vm <- use varMap
              case Map.lookup nm vm of
                Just (Some (VarReference reg)) ->
@@ -746,7 +746,7 @@ evalRefLvalue lv =
 
 
                _ -> mirFail ("Mutable reference-taken variable not backed by reference! " <> show nm <> " at " <> Text.unpack pos)
-        M.LProjection proj -> evalRefProj proj
+        M.LProj lv elm -> evalRefProj lv elm
 
         _ -> mirFail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
 
@@ -766,8 +766,8 @@ getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
        _      -> mirFail ("Expected ADT with more than " ++ show i ++ " variants: " ++ show nm)
 getVariant ty = mirFail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
 
-evalRefProj :: HasCallStack => M.LvalueProjection -> MirGenerator h s ret (MirExp s)
-evalRefProj prj@(M.LvalueProjection base projElem) =
+evalRefProj :: HasCallStack => M.Lvalue -> M.PlaceElem -> MirGenerator h s ret (MirExp s)
+evalRefProj base projElem =
   do --traceM $ "evalRefProj:" ++ fmt prj ++ " of type " ++ fmt (typeOf prj) 
      MirExp tp ref <- evalRefLvalue base
      --traceM $ "produced evaluated base of type:" ++ show tp
@@ -830,7 +830,7 @@ evalRval (M.Ref bk lv _) =
 
 evalRval (M.Len lv) =
   case lv of
-    M.LProjection (M.LvalueProjection lv' M.Deref)
+    M.LProj lv' M.Deref
       | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv'
       -> do MirExp t e <- evalLvalue lv'
             case t of
@@ -933,8 +933,8 @@ filterMaybes ((Just a):as) = a : (filterMaybes as)
 filterMaybes ((Nothing):as) = filterMaybes as
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
-evalLvalue (M.Local var) = lookupVar var
-evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
+evalLvalue (M.LBase (M.Local var)) = lookupVar var
+evalLvalue (M.LProj lv (M.PField field _ty)) = do
     db <- use debugLevel
     case M.typeOf lv of
 
@@ -969,7 +969,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.PField field _ty))) = do
       _ -> do -- otherwise, lv is a tuple
         ag <- evalLvalue lv
         accessAggregateMaybe ag field
-evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
+evalLvalue (M.LProj lv (M.Index i)) = do
     (MirExp arr_tp arr) <- evalLvalue lv
     (MirExp ind_tp ind) <- lookupVar i
     case (arr_tp, ind_tp) of
@@ -1005,7 +1005,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Index i))) = do
                mirFail $ "Unknown slice projection type:" ++ show mir_ty
       _ -> mirFail $ "Bad index, arr_typ is:" ++ show arr_tp ++ "\nind_type is: " ++ show ind_tp
 
-evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
+evalLvalue (M.LProj lv M.Deref) =
    case M.typeOf lv of
      M.TyRef _ M.Immut ->
          do evalLvalue lv
@@ -1030,7 +1030,7 @@ evalLvalue (M.LProjection (M.LvalueProjection lv M.Deref)) =
 
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
 -- We don't really do anything here --- all the action is when we project from the downcasted adt
-evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast _i))) = do
+evalLvalue (M.LProj lv (M.Downcast _i)) = do
     evalLvalue lv
 -- a static reference to a function pointer should be treated like a constant??
 -- NO: just lookup the function value. But we are currently mis-translating the type so we can't do this yet.
@@ -1038,8 +1038,8 @@ evalLvalue (M.LProjection (M.LvalueProjection lv (M.Downcast _i))) = do
 --    transConstVal (Some (C.AnyRepr)) (M.ConstFunction did ss)
 --evalLvalue (M.LStatic did t) = do
 
-evalLvalue (M.LStatic did _t) = lookupStatic did
-evalLvalue (M.LPromoted idx _t) = do
+evalLvalue (M.LBase (M.PStatic did _t)) = lookupStatic did
+evalLvalue (M.LBase (M.PPromoted idx _t)) = do
    fn <- use currentFn
    let st = fn^.fpromoted
    case st V.!? idx of
@@ -1120,10 +1120,10 @@ assignVarExp (M.Var vname _ vty _ pos) me@(MirExp e_ty e) = do
 assignLvExp :: HasCallStack => M.Lvalue -> MirExp s -> MirGenerator h s ret ()
 assignLvExp lv re = do
     case lv of
-        M.Local var   -> assignVarExp var re
-        M.LStatic did _ -> assignStaticExp did re
+        M.LBase (M.Local var) -> assignVarExp var re
+        M.LBase (M.PStatic did _) -> assignStaticExp did re
                  
-        M.LProjection (M.LvalueProjection lv (M.PField field _ty)) -> do
+        M.LProj lv (M.PField field _ty) -> do
 
             am <- use $ cs.collection
             case M.typeOf lv of
@@ -1172,10 +1172,10 @@ assignLvExp lv re = do
                 ag <- evalLvalue lv
                 new_ag <- modifyAggregateIdxMaybe ag re field
                 assignLvExp lv new_ag
-        M.LProjection (M.LvalueProjection lv (M.Downcast i)) -> do
+        M.LProj lv (M.Downcast i) -> do
           assignLvExp lv re
 
-        M.LProjection (M.LvalueProjection (M.LProjection (M.LvalueProjection lv' M.Deref)) (M.Index v))
+        M.LProj (M.LProj lv' M.Deref) (M.Index v)
           | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv' ->
             do MirExp slice_tp slice <- evalLvalue lv'
 
@@ -1196,7 +1196,7 @@ assignLvExp lv re = do
 
                  _ -> mirFail $ "bad type in slice assignment"
 
-        M.LProjection (M.LvalueProjection lv (M.Index v)) -> do
+        M.LProj lv (M.Index v) -> do
             (MirExp arr_tp arr) <- evalLvalue lv
             (MirExp ind_tp ind) <- lookupVar v
             case re of
@@ -1211,7 +1211,7 @@ assignLvExp lv re = do
                           assignLvExp lv arr'
                         Nothing -> mirFail "bad type in assign"
                   _ -> mirFail $ "bad type in assign"
-        M.LProjection (M.LvalueProjection lv M.Deref) ->
+        M.LProj lv M.Deref ->
             do MirExp ref_tp ref <- evalLvalue lv
                case (ref_tp, re) of
                  (MirReferenceRepr tp, MirExp tp' e)
@@ -1819,8 +1819,8 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  f (M.Assign _ (M.Ref M.Mutable lv _) _) = g lv
  f _ = mempty
 
- g (M.Local (M.Var nm _ _ _ _)) = Set.singleton nm
- g (M.LProjection (M.LvalueProjection lv _)) = g lv
+ g (M.LBase (M.Local (M.Var nm _ _ _ _))) = Set.singleton nm
+ g (M.LProj lv _) = g lv
 
  g _ = mempty
 

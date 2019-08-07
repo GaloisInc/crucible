@@ -66,7 +66,7 @@ lookupAdt defid = find (\adt -> _adtname adt == defid) (?col^.adts)
   
 
 isAdtFieldUpdate :: Statement -> Maybe FieldUpdate
-isAdtFieldUpdate (Assign (LProjection (LvalueProjection (LProjection (LvalueProjection lv (Downcast j))) (PField i ty))) (Use rhs) pos) =
+isAdtFieldUpdate (Assign (LProj (LProj lv (Downcast j)) (PField i ty)) (Use rhs) pos) =
   Just (FieldUpdate lv j i ty rhs pos)
 isAdtFieldUpdate _ = Nothing
 

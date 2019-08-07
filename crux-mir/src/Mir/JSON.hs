@@ -208,14 +208,45 @@ instance FromJSON Statement where
                              k -> fail $ "kind not found for statement: " ++ show k
 
 
-instance FromJSON Lvalue where
-    parseJSON = withObject "Lvalue" $ \v ->
+data RustcPlace = RustcPlace PlaceBase (Maybe RustcProjection)
+data RustcProjection = RustcProjection (Maybe RustcProjection) PlaceElem
+
+instance FromJSON RustcPlace where
+    parseJSON = withObject "Place" $ \v ->
+        RustcPlace <$> v .: "base" <*> v .: "data"
+
+instance FromJSON RustcProjection where
+    parseJSON = withObject "Projection" $ \v ->
+        RustcProjection <$> v .: "base" <*> v .: "data"
+
+instance FromJSON PlaceBase where
+    parseJSON = withObject "PlaceBase" $ \v ->
       case HML.lookup "kind" v of
         Just (String "Local")      -> Local       <$> v .: "localvar"
-        Just (String "Static")     -> LStatic     <$> v .: "def_id" <*> v .: "ty"
-        Just (String "Projection") -> LProjection <$> v .: "data"
-        Just (String "Promoted")   -> LPromoted   <$> v .: "index" <*> v .: "ty"
-        k -> fail $ "kind not found for Lvalue " ++ show k
+        Just (String "Static")     -> PStatic     <$> v .: "def_id" <*> v .: "ty"
+        Just (String "Promoted")   -> PPromoted   <$> v .: "index" <*> v .: "ty"
+        k -> fail $ "kind not found for PlaceBase " ++ show k
+
+instance FromJSON PlaceElem where
+    parseJSON = withObject "Lvpelem" $ \v ->
+      case HML.lookup "kind" v of
+        Just (String "Deref") -> pure Deref
+        Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
+        Just (String "Index") -> Index <$> v .: "op"
+        Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
+        Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to"
+        Just (String "Downcast") -> Downcast <$> v .: "variant"
+        x -> fail ("bad lvpelem: " ++ show x)
+
+instance FromJSON Lvalue where
+    parseJSON j = convert <$> parseJSON j
+      where
+        convert (RustcPlace base Nothing) = LBase base
+        convert (RustcPlace base (Just proj)) = convertProj (LBase base) proj
+
+        convertProj base (RustcProjection Nothing elem) = LProj base elem
+        convertProj base (RustcProjection (Just proj') elem) =
+            LProj (convertProj base proj') elem
 
 instance FromJSON Promoted where
     parseJSON = withScientific "Promoted" $ \sci ->
@@ -264,19 +295,6 @@ instance FromJSON Operand where
                                                Just (String "Copy") -> Copy <$> v .: "data"  
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
-
-instance FromJSON LvalueProjection where
-    parseJSON = withObject "LvalueProjection" $ \v -> LvalueProjection <$> v .: "base" <*> v .: "data"
-
-instance FromJSON Lvpelem where
-    parseJSON = withObject "Lvpelem" $ \v -> case HML.lookup "kind" v of
-                                               Just (String "Deref") -> pure Deref
-                                               Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
-                                               Just (String "Index") -> Index <$> v .: "op"
-                                               Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
-                                               Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to"
-                                               Just (String "Downcast") -> Downcast <$> v .: "variant"
-                                               x -> fail ("bad lvpelem: " ++ show x)
 
 instance FromJSON Constant where
     parseJSON = withObject "Constant" $ \v -> Constant <$> v .: "ty" <*> v .: "literal"

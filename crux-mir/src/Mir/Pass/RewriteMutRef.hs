@@ -185,7 +185,7 @@ modifyAssignEntryBlock = do
                         Just b -> b
                         Nothing -> error "entry block not found"
 
-        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Copy (Local vimmut)) "internal") mutpairs
+        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (LBase (Local vmut)) (Use $ Copy (LBase (Local vimmut))) "internal") mutpairs
         new_bbd = BasicBlockData (new_asgns ++ entry_stmts) ei
     fnBlocks .= Map.insert (T.pack "bb0") new_bbd blocks
 
@@ -220,7 +220,7 @@ mkPreReturnAssgn = do
     let muts = Map.elems $ Map.map fst mutpairs
     Just dummyret <- use fnDummyRet
     let (Just retvar) = Map.lookup "_0" internals
-    return $ Assign (Local retvar) (Aggregate AKTuple $  [Copy (Local dummyret)] ++ (map (Copy . Local) muts)) "internal"
+    return $ Assign (LBase (Local retvar)) (Aggregate AKTuple $  [Copy (LBase (Local dummyret))] ++ (map (Copy . LBase . Local) muts)) "internal"
 
 processReturnBlock_ :: BasicBlockData -> State RewriteFnSt BasicBlockData
 processReturnBlock_ (BasicBlockData stmts Return) = do
@@ -244,7 +244,7 @@ mkFnCallVars orig_dest mut_tys = do
     let type_list = [typeOf orig_dest] ++ mut_tys
         type_of_new = TyTuple type_list 
     v <- newInternal type_of_new
-    let destructures = zipWith (\ind ty -> LProjection (LvalueProjection (Local v) (PField ind ty))) (ints_list ((length type_list) - 1)) type_list
+    let destructures = zipWith (\ind ty -> LProj (LBase (Local v)) (PField ind ty)) (ints_list ((length type_list) - 1)) type_list
     return (v, (head destructures, tail destructures))
 
     --  for each function call:
@@ -301,7 +301,7 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
                 (Goto dest_block)
 
             blocks <- use fnBlocks
-            fnBlocks .= Map.insert bbi (BasicBlockData stmts (Call cfunc cargs (Just (Local v, _bbinfo newb)) cclean)) blocks
+            fnBlocks .= Map.insert bbi (BasicBlockData stmts (Call cfunc cargs (Just (LBase (Local v), _bbinfo newb)) cclean)) blocks
 processFnCall_ _ _ = return ()
 
 processFnCalls :: HasCallStack => State RewriteFnSt ()

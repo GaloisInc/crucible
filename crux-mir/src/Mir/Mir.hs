@@ -236,13 +236,26 @@ data Statement =
       | Nop
     deriving (Show,Eq, Ord, Generic)
 
--- This is called 'Place' now
+data PlaceBase =
+        Local { _lvar :: Var }
+      | PStatic DefId Ty
+      | PPromoted Int Ty
+      deriving (Show, Eq, Generic)
+
+data PlaceElem =
+        Deref
+      | PField Int Ty
+      | Index Var
+      | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
+      | Subslice { _sfrom :: Int, _sto :: Int }
+      | Downcast Integer
+      deriving (Show, Eq, Ord, Generic)
+
+-- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
 data Lvalue =
-      Local { _lvar :: Var}         -- ^ local variable
-    | LStatic DefId Ty              -- ^ static or static mut variable
-    | LProjection LvalueProjection  -- ^ projection out of a place (access a field, deref a pointer, etc)
-    | LPromoted Int Ty              -- ^ constant code promoted to an injected static
-    deriving (Show, Eq, Generic)
+        LBase PlaceBase
+      | LProj Lvalue PlaceElem
+      deriving (Show, Eq, Generic)
 
 instance Ord Lvalue where
     compare l1 l2 = compare (show l1) (show l2)
@@ -307,18 +320,6 @@ data Operand =
       deriving (Show, Eq, Ord, Generic)
 
 data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Ord, Generic)
-
-data LvalueProjection = LvalueProjection { _lvpbase :: Lvalue, _lvpkind :: Lvpelem }
-    deriving (Show,Eq, Ord, Generic)
-
-data Lvpelem =
-        Deref
-      | PField Int Ty
-      | Index Var
-      | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
-      | Subslice { _sfrom :: Int, _sto :: Int }
-      | Downcast Integer
-      deriving (Show, Eq, Ord, Generic)
 
 
 
@@ -584,7 +585,7 @@ fromIntegerLit (Isize i) = i
 
 
 varOfLvalue :: HasCallStack => Lvalue -> Var
-varOfLvalue (Local v) = v
+varOfLvalue (LBase (Local v)) = v
 varOfLvalue l = error $ "bad var of lvalue: " ++ show l
 
 
@@ -633,11 +634,33 @@ instance TypeOf Var where
     typeOf (Var _ _ t _ _) = t
 
 instance TypeOf Lvalue where
-  typeOf lv = case lv of
-    LStatic _ t           -> t
-    Local (Var _ _ t _ _) -> t
-    LProjection proj      -> typeOf proj
-    LPromoted _ t         -> t
+    typeOf (LBase base) = typeOf base
+    typeOf (LProj l elm) = typeOfProj elm $ typeOf l
+
+instance TypeOf PlaceBase where
+    typeOf pb = case pb of
+        Local (Var _ _ t _ _) -> t
+        PStatic _ t -> t
+        PPromoted _ t -> t
+
+typeOfProj :: PlaceElem -> Ty -> Ty
+typeOfProj elm baseTy = case elm of
+    PField _ t      -> t
+    Deref           -> peelRef baseTy
+    Index{}         -> peelIdx baseTy
+    ConstantIndex{} -> peelIdx baseTy
+    Downcast i      -> TyDowncast baseTy i   --- TODO: check this
+    Subslice{}      -> TySlice (peelIdx baseTy)
+  where
+    peelRef :: Ty -> Ty
+    peelRef (TyRef t _) = t
+    peelRef t = t
+
+    peelIdx :: Ty -> Ty
+    peelIdx (TyArray t _) = t
+    peelIdx (TySlice t)   = t
+    peelIdx (TyRef t m)   = TyRef (peelIdx t) m
+    peelIdx t             = t
 
 instance TypeOf Rvalue where
   typeOf (Use a) = typeOf a
@@ -659,26 +682,6 @@ instance TypeOf Operand where
 instance TypeOf Constant where
     typeOf (Constant a _b) = a
 
-instance TypeOf LvalueProjection where
-  typeOf (LvalueProjection base kind) =
-    case kind of
-      PField _ t      -> t
-      Deref           -> peelRef (typeOf base)
-      Index{}         -> peelIdx (typeOf base)
-      ConstantIndex{} -> peelIdx (typeOf base)
-      Downcast i      -> TyDowncast (typeOf base) i   --- TODO: check this
-      Subslice{}      -> TySlice (peelIdx (typeOf base))
-
-   where
-   peelRef :: Ty -> Ty
-   peelRef (TyRef t _) = t
-   peelRef t = t
-
-   peelIdx :: Ty -> Ty
-   peelIdx (TyArray t _) = t
-   peelIdx (TySlice t)   = t
-   peelIdx (TyRef t m)   = TyRef (peelIdx t) m
-   peelIdx t             = t
 
 --------------------------------------------------------------------------------------------
 -- coercing list operations to Substs

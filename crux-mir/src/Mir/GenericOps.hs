@@ -563,7 +563,7 @@ instance GenericOps Ty where
 instance GenericOps Var where
   replaceVar old new v = if _varname v == _varname old then new else v
 
-  replaceLvalue (Local old) (Local new) v = replaceVar old new v
+  replaceLvalue (LBase (Local old)) (LBase (Local new)) v = replaceVar old new v
   replaceLvalue _ _ v = v
 
 -- special case for LValue
@@ -573,8 +573,8 @@ instance GenericOps Lvalue where
         repl_lv :: Lvalue -> Maybe Lvalue -- some light unification
         repl_lv v0 =
           case v0 of
-            LProjection (LvalueProjection lb k)
-              | Just ans <- repl_lv lb -> Just $ LProjection (LvalueProjection ans k)
+            LProj lv elm
+              | Just ans <- repl_lv lv -> Just $ LProj ans elm
             _ | v == old -> Just new
             _ -> Nothing
 
@@ -611,8 +611,8 @@ instance GenericOps AdtAg
 instance GenericOps Terminator
 instance GenericOps Operand
 instance GenericOps Constant
-instance GenericOps LvalueProjection
-instance GenericOps Lvpelem
+instance GenericOps PlaceBase
+instance GenericOps PlaceElem
 instance GenericOps NullOp
 instance GenericOps BorrowKind
 instance GenericOps UnOp
