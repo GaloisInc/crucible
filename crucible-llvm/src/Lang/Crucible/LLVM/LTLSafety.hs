@@ -8,28 +8,10 @@
 {-# LANGUAGE TypeOperators #-}
 
 module Lang.Crucible.LLVM.LTLSafety
---(
-  --testExecFeat
---)
+{-(
+  testExecFeat
+)-}
 where
-
-import Lang.Crucible.Simulator.EvalStmt
-import Lang.Crucible.Simulator.ExecutionTree
-import Lang.Crucible.Simulator.CallFrame
-import Lang.Crucible.Simulator.RegMap
-import Lang.Crucible.Simulator.GlobalState
-import Lang.Crucible.Simulator.Intrinsics
-import Lang.Crucible.Simulator.SimError
-
-import Lang.Crucible.Backend
-import Lang.Crucible.FunctionHandle
-import Lang.Crucible.LLVM.MemModel
-import Lang.Crucible.LLVM.MemModel.Pointer (llvmPointerBlock,llvmPointerOffset)
-import Lang.Crucible.CFG.Core
-
-import What4.FunctionName
-import What4.Interface
-import What4.ProgramLoc
 
 import ABI.Itanium as ABI
 
@@ -43,6 +25,24 @@ import qualified Data.Text as T
 import qualified Data.Vector as V
 import qualified Data.Set as S
 import Data.List as L
+
+import Lang.Crucible.Simulator.EvalStmt
+import Lang.Crucible.Simulator.ExecutionTree
+import Lang.Crucible.Simulator.CallFrame
+import Lang.Crucible.Simulator.RegMap
+import Lang.Crucible.Simulator.GlobalState
+import Lang.Crucible.Simulator.Intrinsics
+import Lang.Crucible.Simulator.SimError
+
+import Lang.Crucible.Backend
+import Lang.Crucible.CFG.Core
+import Lang.Crucible.FunctionHandle
+import Lang.Crucible.LLVM.MemModel
+import Lang.Crucible.LLVM.MemModel.Pointer (llvmPointerBlock,llvmPointerOffset)
+
+import What4.FunctionName
+import What4.Interface
+import What4.ProgramLoc
 
 data NFASym = Call String | Ret String  deriving (Show, Eq, Ord) -- Ret String Val TODO pass
 
@@ -66,7 +66,7 @@ data NFAState sym  =
 instance Show (NFAState sym ) where
   show Error = "Error"
   show Accept = "Accept"
-  show (St n Nothing ) = "State " ++ show n ++ " Nothing" -- TODO qualified
+  show (St n Nothing ) = "State " ++ show n ++ " Nothing" 
   show (St n _ ) = "State " ++ show n ++ " Some data"
 
 data NFA sym =  NFA { stateSet :: V.Vector (NFAState sym),
@@ -76,11 +76,11 @@ data NFA sym =  NFA { stateSet :: V.Vector (NFAState sym),
 
 data NFAUpdateStatus sym  = ErrorDetected | Updated (NFA sym) | UnrecognizedSymbol
 
-nullEffect retVal edge = snd edge
+nullEffect _ edge = snd edge
 
 --checkEffect sym (LLVMPtr base1 off1) (LLVMPtr base2 off2) edge =
   
-storeEffect retVal _ (sym,(St stid _)) = (St stid retVal)
+storeEffect retVal _ (_,(St stid _)) = (St stid retVal)
 storeEffect _ _  _ = Error --TODO properly handle
 
 --TODO keep data in state on transition?
@@ -127,6 +127,7 @@ instance IntrinsicClass sym "LTL" where
   type  Intrinsic sym "LTL" ctx = LTLData sym 
   muxIntrinsic _sym _iTypes _nm _ _p d1 d2 = combineData d1 d2
 
+combineData :: LTLData sym -> LTLData sym -> IO (LTLData sym)
 combineData (LDat(NFA {stateSet=ss, nfaState=state1, nfaAlphabet=alpha, transitionFunction=tf})) (LDat (NFA {nfaState=state2})) =
   do
     return $ LDat (NFA ss (S.union state1 state2) alpha tf)
@@ -139,7 +140,7 @@ testExecFeat gvRef = GenericExecutionFeature $ (onStep gvRef)
 onStep :: (IsSymInterface sym, IsExprBuilder sym , IsBoolSolver sym ) => IORef LTLGlobal -> ExecState p sym ext rtp -> IO (ExecutionFeatureResult p sym ext rtp)
 onStep gvRef (InitialState simctx globals ah cont) = do
   let halloc = simHandleAllocator simctx
-  let sym =simctx ^. ctxSymInterface
+  let sym = simctx ^. ctxSymInterface
   gv <- stToIO (freshGlobalVar halloc (T.pack "LTL") knownRepr)
   writeIORef gvRef gv
   initNFA <- initializeNfa sym
@@ -148,48 +149,60 @@ onStep gvRef (InitialState simctx globals ah cont) = do
   return ( ExecutionFeatureModifiedState (InitialState simctx' globals' ah cont))
 
 onStep gvRef (CallState rh rc ss) = 
-    case rc of
-      (CrucibleCall _ cf) ->
-        do
-          let sym = ss ^. stateSymInterface
-          nfa <- getNFA gvRef ss
-          res <- handleCallEvent sym nfa cf
-          case res of
-            Updated nfa' -> do
-              ss' <- saveNFA gvRef ss nfa'
-              return $ ExecutionFeatureModifiedState (CallState rh rc ss') 
-            ErrorDetected -> do
-              abortState <- errorMsg cf ss
-              return $ ExecutionFeatureNewState abortState
-            UnrecognizedSymbol -> return ExecutionFeatureNoChange
-      _ -> return ExecutionFeatureNoChange
+  case rc of
+    (CrucibleCall _ cf) ->
+      do
+        let sym = ss ^. stateSymInterface
+        nfa <- getNFA gvRef ss
+        res <- handleCallEvent sym nfa cf
+        case res of
+          Updated nfa' -> do
+            ss' <- saveNFA gvRef ss nfa'
+            return $ ExecutionFeatureModifiedState (CallState rh rc ss') 
+          ErrorDetected -> do
+            abortState <- errorMsg cf ss
+            return $ ExecutionFeatureNewState abortState
+          UnrecognizedSymbol -> return ExecutionFeatureNoChange
+    _ -> return ExecutionFeatureNoChange
 
 onStep gvRef (ReturnState fname vfv regEntry ss) =
-   do
-     let fn = withoutType $ dN $ T.unpack $ functionName fname  
-     nfa <- getNFA gvRef ss
-     case nfaTransition nfa (Ret fn) (storeEffect $ argToVal regEntry) of 
-       Updated nfa' -> do
-         ss' <- saveNFA gvRef ss nfa'
-         return $ ExecutionFeatureModifiedState (ReturnState fname vfv regEntry ss')
-       ErrorDetected -> do
-         --TODO throw error
-         return ExecutionFeatureNoChange
-       UnrecognizedSymbol -> do
-         return ExecutionFeatureNoChange
+  do
+    let fn = withoutType $ dN $ T.unpack $ functionName fname  
+    nfa <- getNFA gvRef ss
+    case nfaTransition nfa (Ret fn) (storeEffect $ argToVal regEntry) of 
+      Updated nfa' -> do
+        ss' <- saveNFA gvRef ss nfa'
+        return $ ExecutionFeatureModifiedState (ReturnState fname vfv regEntry ss')
+      ErrorDetected -> do
+        --TODO throw error
+        return ExecutionFeatureNoChange
+      UnrecognizedSymbol -> do
+        return ExecutionFeatureNoChange
 
 onStep _ _ =
   do
     return ExecutionFeatureNoChange
 
---helpers
+--helpers --
+
+--TODO generalize, argument place, type ..
 extractArg :: CallFrame sym ext blocks ret ctx' -> Maybe (Val sym)
 extractArg cf =
-    case args of
-      Ctx.Empty Ctx.:> regEntry -> argToVal regEntry
-      _ -> Nothing
-    where RegMap args = cf^.frameRegs
+  case args of
+    Ctx.Empty Ctx.:> regEntry -> argToVal regEntry
+    _ -> Nothing
+  where RegMap args = cf^.frameRegs
 
+-- TODO other types
+argToVal :: RegEntry sym ty -> Maybe (Val sym)
+argToVal regEntry =
+  case regType regEntry of
+    (LLVMPointerRepr _ ) -> Just $ LLVMPtr (llvmPointerBlock ptr) (llvmPointerOffset ptr)
+    _ -> Nothing
+  where ptr = regValue regEntry  
+
+
+-- TODO semantics for symbolic pred
 eqLLVMPtr :: (IsSymInterface sym)
       => sym
       -> Val sym 
@@ -205,11 +218,9 @@ eqLLVMPtr sym (LLVMPtr base1 off1)  (LLVMPtr base2 off2) =
         case asConstantPred pand of
           Just True -> return True
           _ -> return False
-          
     Nothing ->
       do
-        return False --TODO semantics for symbolic pred
-eqLLVMPtr _ _ _ = undefined
+        return False 
 
 checkState sym calledVal (Just ptr) ( _ ,nextstate) =
   do
@@ -240,7 +251,6 @@ checkCall sym nfa symbol calledVal =
       True -> checkTransition sym nfa symbol calledVal
       _ -> return UnrecognizedSymbol
 
-
 handleCallEvent :: (IsSymInterface sym)
   => sym
   -> NFA sym
@@ -251,6 +261,7 @@ handleCallEvent sym nfa cf =
     Just callVal -> checkCall sym nfa (Call (pCallName cf)) callVal
     Nothing -> return $ nfaTransition nfa (Call $ pCallName cf) nullEffect
 
+-- TODO define what happens when NFA is not in global state
 getNFA :: (RegValue sym1 tp ~ LTLData sym2)
   => IORef (GlobalVar tp)
   -> SimState p sym1 ext q f args
@@ -278,10 +289,10 @@ withoutType funName =
     Just n -> L.take n funName
     _ -> "err"
 
+-- TODO generalize, don't assume c++ and mangled names
 pCallName :: CallFrame sym ext blocks ret args -> String
 pCallName (CallFrame { _frameCFG = cfg}) =
   withoutType $ dN $ T.unpack $ functionName $ handleName $ cfgHandle cfg
-
 
 dN :: String -> String
 dN name =
@@ -297,11 +308,3 @@ errorMsg cf ss =
     let err = SimError loc (GenericSimError msg)
     addProofObligation sym (LabeledPred (falsePred sym) err)
     return (AbortState (AssumedFalse (AssumingNoError err)) ss)
-
-argToVal :: RegEntry sym ty -> Maybe (Val sym)
-argToVal regEntry =
-  case regType regEntry of
-    (LLVMPointerRepr _ ) -> Just $ LLVMPtr (llvmPointerBlock ptr) (llvmPointerOffset ptr)
-    _ -> Nothing
-  where ptr = regValue regEntry
-  -- TODO other types  
