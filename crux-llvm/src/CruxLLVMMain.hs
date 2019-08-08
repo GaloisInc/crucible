@@ -61,7 +61,7 @@ import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.Globals
         ( initializeMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
-        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount )
+        ( MemImpl, withPtrWidth, memAllocCount, memWriteCount, MemOptions(..), laxPointerMemOptions )
 import Lang.Crucible.LLVM.Translation
         ( translateModule, ModuleTranslation, globalInitMap
         , transContext, cfgMap
@@ -129,15 +129,16 @@ setupSimCtxt ::
   (ArchOk arch, IsSymInterface sym) =>
   HandleAllocator ->
   sym ->
+  MemOptions ->
   LLVMContext arch ->
   SimCtxt sym (LLVM arch)
-setupSimCtxt halloc sym llvmCtxt =
+setupSimCtxt halloc sym memOpts llvmCtxt =
   initSimContext sym
                  llvmIntrinsicTypes
                  halloc
                  stdout
                  (fnBindingsFromList [])
-                 llvmExtensionImpl
+                 (llvmExtensionImpl memOpts)
                  emptyModel
     & profilingMetrics %~ Map.union (llvmMetrics llvmCtxt)
 
@@ -166,7 +167,7 @@ registerFunctions ctx llvm_module mtrans =
 
 -- Returns only non-trivial goals
 simulateLLVM :: Crux.SimulateCallback LLVMOptions
-simulateLLVM fs (cruxOpts,_) sym _p cont = do
+simulateLLVM fs (cruxOpts,llvmOpts) sym _p cont = do
     llvm_mod   <- parseLLVM (Crux.outDir cruxOpts </> "combined.bc")
     halloc     <- newHandleAllocator
     Some trans <- translateModule halloc llvm_mod
@@ -175,7 +176,7 @@ simulateLLVM fs (cruxOpts,_) sym _p cont = do
     llvmPtrWidth llvmCtxt $ \ptrW ->
       withPtrWidth ptrW $ do
           let ?lc = llvmCtxt^.llvmTypeCtx
-          let simctx = (setupSimCtxt halloc sym llvmCtxt) { printHandle = view outputHandle ?outputConfig }
+          let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt) { printHandle = view outputHandle ?outputConfig }
           mem <- populateAllGlobals sym (globalInitMap trans)
                     =<< initializeMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
@@ -222,6 +223,7 @@ data LLVMOptions = LLVMOptions
   , clangOpts  :: [String]
   , libDir     :: FilePath
   , incDirs    :: [FilePath]
+  , memOpts    :: MemOptions
   }
 
 cruxLLVM :: Crux.Language LLVMOptions
@@ -247,6 +249,14 @@ cruxLLVM = Crux.Language
                             (Crux.oneOrList Crux.dirSpec) []
                         "Additional include directories."
 
+             memOpts <- do laxPointerOrdering <-
+                             Crux.section "lax-pointer-ordering" Crux.yesOrNoSpec False
+                               "Allow order comparisons between pointers from different allocation blocks"
+                           laxConstantEquality <-
+                             Crux.section "lax-constant-equality" Crux.yesOrNoSpec False
+                               "Allow equality comparisons between pointers to constant data"
+                           return MemOptions{..}
+
              return LLVMOptions { .. }
 
       , Crux.cfgEnv  =
@@ -265,6 +275,11 @@ cruxLLVM = Crux.Language
             "Additional include directories."
             $ Crux.ReqArg "DIR"
             $ \d opts -> Right opts { incDirs = d : incDirs opts }
+
+          , Crux.Option [] ["lax-pointers"]
+            "Turn on lax rules for pointer comparisons"
+            $ Crux.NoArg
+            $ \opts -> Right opts{ memOpts = laxPointerMemOptions }
           ]
       }
 
