@@ -62,9 +62,9 @@ type Profile = (Text, [[Maybe Int]])
 ptrStartsAlloc ::
   W4.IsExpr (W4.SymExpr sym) =>
   C.LLVMPtr sym w ->
-  Maybe ()
-ptrStartsAlloc (C.llvmPointerView -> (_, W4.asUnsignedBV -> Just 0)) = Just ()
-ptrStartsAlloc _ = Nothing
+  Bool
+ptrStartsAlloc (C.llvmPointerView -> (_, W4.asUnsignedBV -> Just 0)) = True
+ptrStartsAlloc _ = False
 
 ptrAllocSize ::
   forall sym w. W4.IsExpr (W4.SymExpr sym) =>
@@ -81,40 +81,42 @@ ptrAllocSize mem (C.llvmPointerView -> (blk, _)) = msum $ inAlloc <$> mem
             else Nothing
         inAlloc _ = Nothing
 
-ptrIsArray ::
+ptrArraySize ::
   W4.IsExpr (W4.SymExpr sym) =>
   [G.MemAlloc sym] ->
   C.LLVMPtr sym w ->
   Maybe Int
-ptrIsArray mem ptr = ptrStartsAlloc ptr *> ptrAllocSize mem ptr
+ptrArraySize mem ptr
+  | ptrStartsAlloc ptr = ptrAllocSize mem ptr
+  | otherwise = Nothing
 
-intrinsicIsArray ::
+intrinsicArraySize ::
   W4.IsExprBuilder sym =>
   [G.MemAlloc sym] ->
   SymbolRepr nm ->
   C.CtxRepr ctx ->
   C.Intrinsic sym nm ctx ->
   Maybe Int
-intrinsicIsArray mem
+intrinsicArraySize mem
   (testEquality (knownSymbol :: SymbolRepr "LLVM_pointer") -> Just Refl)
-  (Empty :> C.BVRepr _w) i = ptrIsArray mem i
-intrinsicIsArray _ _ _ _ = Nothing
+  (Empty :> C.BVRepr _w) i = ptrArraySize mem i
+intrinsicArraySize _ _ _ _ = Nothing
 
-regValueIsArray ::
+regValueArraySize ::
   W4.IsExprBuilder sym =>
   [G.MemAlloc sym] ->
   C.TypeRepr tp ->
   C.RegValue sym tp ->
   Maybe Int
-regValueIsArray mem (C.IntrinsicRepr nm ctx) i = intrinsicIsArray mem nm ctx i
-regValueIsArray _ _ _ = Nothing
+regValueArraySize mem (C.IntrinsicRepr nm ctx) i = intrinsicArraySize mem nm ctx i
+regValueArraySize _ _ _ = Nothing
 
-regEntryIsArray ::
+regEntryArraySize ::
   W4.IsExprBuilder sym =>
   [G.MemAlloc sym] ->
   C.RegEntry sym tp ->
   Maybe Int
-regEntryIsArray mem (C.RegEntry t v) = regValueIsArray mem t v
+regEntryArraySize mem (C.RegEntry t v) = regValueArraySize mem t v
 
 newtype Wrap a (b :: C.CrucibleType) = Wrap { unwrap :: a }
 argArraySizes ::
@@ -122,7 +124,7 @@ argArraySizes ::
   [G.MemAlloc sym] ->
   Assignment (C.RegEntry sym) ctx ->
   [Maybe Int]
-argArraySizes mem as = Vector.toList $ toVector (fmapFC (Wrap . regEntryIsArray mem) as) unwrap
+argArraySizes mem as = Vector.toList $ toVector (fmapFC (Wrap . regEntryArraySize mem) as) unwrap
 
 arraySizeProfile ::
   (C.IsSymInterface sym, C.HasPtrWidth (C.ArchWidth arch)) =>
