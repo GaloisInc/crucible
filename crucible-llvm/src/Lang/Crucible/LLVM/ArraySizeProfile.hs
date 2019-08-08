@@ -23,17 +23,18 @@ module Lang.Crucible.LLVM.ArraySizeProfile
   , arraySizeProfile
   ) where
 
-import Control.Lens (view)
+import qualified Control.Lens as Lens
 
-import Data.Type.Equality ((:~:)(..))
-import Data.Foldable (msum)
-import Data.Text (Text, pack)
+import Data.Type.Equality
+import Data.Foldable
+import Data.IORef
+import Data.Text (Text)
+import qualified Data.Text as Text
 import qualified Data.Vector as Vector
-import Data.Parameterized.SymbolRepr (SymbolRepr, knownSymbol)
-import Data.Parameterized.Classes (testEquality)
-import Data.Parameterized.Context (Assignment, toVector, pattern Empty, pattern (:>))
-import Data.Parameterized.TraversableFC (fmapFC)
-import Data.IORef (IORef, modifyIORef')
+
+import Data.Parameterized.SymbolRepr
+import Data.Parameterized.Context
+import Data.Parameterized.TraversableFC
 
 import qualified Lang.Crucible.Backend as C
 import qualified Lang.Crucible.Types as C
@@ -52,40 +53,41 @@ import qualified Lang.Crucible.LLVM.MemModel as C
 
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 
-import What4.Interface (IsExpr, IsExprBuilder, SymExpr, asNat, asUnsignedBV)
+import qualified What4.Interface as W4
 
 type Profile = (Text, [[Maybe Int]])
 
 ptrStartsAlloc ::
-  IsExpr (SymExpr sym) =>
+  W4.IsExpr (W4.SymExpr sym) =>
   C.LLVMPtr sym w ->
   Maybe ()
-ptrStartsAlloc (C.llvmPointerView -> (_, asUnsignedBV -> Just 0)) = Just ()
+ptrStartsAlloc (C.llvmPointerView -> (_, W4.asUnsignedBV -> Just 0)) = Just ()
 ptrStartsAlloc _ = Nothing
 
 ptrAllocSize ::
-  forall sym w. IsExpr (SymExpr sym) =>
+  forall sym w. W4.IsExpr (W4.SymExpr sym) =>
   [G.MemAlloc sym] ->
   C.LLVMPtr sym w ->
   Maybe Int
 ptrAllocSize mem (C.llvmPointerView -> (blk, _)) = msum $ inAlloc <$> mem
   where inAlloc :: G.MemAlloc sym -> Maybe Int
         inAlloc (G.Alloc _ _ Nothing _ _ _) = Nothing
-        inAlloc (G.Alloc _ a (Just size) _ _ _) = do
-          blk' <- asNat blk
+        inAlloc (G.Alloc _ a (Just sz) _ _ _) = do
+          blk' <- W4.asNat blk
           if a == blk'
-            then fromIntegral <$> asUnsignedBV size
+            then fromIntegral <$> W4.asUnsignedBV sz
             else Nothing
         inAlloc _ = Nothing
 
-ptrIsArray :: IsExpr (SymExpr sym) =>
-              [G.MemAlloc sym] ->
-              C.LLVMPtr sym w ->
-              Maybe Int
+ptrIsArray ::
+  W4.IsExpr (W4.SymExpr sym) =>
+  [G.MemAlloc sym] ->
+  C.LLVMPtr sym w ->
+  Maybe Int
 ptrIsArray mem ptr = ptrStartsAlloc ptr *> ptrAllocSize mem ptr
 
 intrinsicIsArray ::
-  IsExprBuilder sym =>
+  W4.IsExprBuilder sym =>
   [G.MemAlloc sym] ->
   SymbolRepr nm ->
   C.CtxRepr ctx ->
@@ -97,7 +99,7 @@ intrinsicIsArray mem
 intrinsicIsArray _ _ _ _ = Nothing
 
 regValueIsArray ::
-  IsExprBuilder sym =>
+  W4.IsExprBuilder sym =>
   [G.MemAlloc sym] ->
   C.TypeRepr tp ->
   C.RegValue sym tp ->
@@ -106,7 +108,7 @@ regValueIsArray mem (C.IntrinsicRepr nm ctx) i = intrinsicIsArray mem nm ctx i
 regValueIsArray _ _ _ = Nothing
 
 regEntryIsArray ::
-  IsExprBuilder sym =>
+  W4.IsExprBuilder sym =>
   [G.MemAlloc sym] ->
   C.RegEntry sym tp ->
   Maybe Int
@@ -114,7 +116,7 @@ regEntryIsArray mem (C.RegEntry t v) = regValueIsArray mem t v
 
 newtype Wrap a (b :: C.CrucibleType) = Wrap { unwrap :: a }
 argArraySizes ::
-  IsExprBuilder sym =>
+  W4.IsExprBuilder sym =>
   [G.MemAlloc sym] ->
   Assignment (C.RegEntry sym) ctx ->
   [Maybe Int]
@@ -135,12 +137,12 @@ arraySizeProfile llvm cell = do
           C.CallFrame { C._frameCFG = g
                       , C._frameRegs = regs
                       }) sim ->
-        let globals = view (C.stateTree . C.actFrame . C.gpGlobals) sim
+        let globals = Lens.view (C.stateTree . C.actFrame . C.gpGlobals) sim
         in case C.memImplHeap <$> C.lookupGlobal (C.llvmMemVar llvm) globals of
           Nothing -> pure ()
           Just mem -> do
             modifyIORef' cell $ \profs ->
-              let name = pack . show $ C.cfgHandle g
+              let name = Text.pack . show $ C.cfgHandle g
                   sizes = argArraySizes (G.memAllocs mem) $ C.regMap regs
               in case lookup name profs of
                 Nothing -> (name, [sizes]):profs
