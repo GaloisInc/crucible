@@ -43,6 +43,7 @@ library
     Lang.Crucible.LLVM.Arch
     Lang.Crucible.LLVM.Arch.Util
     Lang.Crucible.LLVM.Arch.X86
+    Lang.Crucible.LLVM.ArraySizeProfile
     Lang.Crucible.LLVM.Bytes
     Lang.Crucible.LLVM.Ctors
     Lang.Crucible.LLVM.DataLayout
