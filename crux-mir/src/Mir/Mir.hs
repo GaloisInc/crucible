@@ -364,11 +364,12 @@ data BinOp =
       deriving (Show,Eq, Ord, Generic)
 
 data CastKind =
-    Misc
+        Misc
       | ReifyFnPointer
       | ClosureFnPointer
       | UnsafeFnPointer
       | Unsize
+      | MutToConstPointer
       deriving (Show,Eq, Ord, Generic)
 
 data Literal =

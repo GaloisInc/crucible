@@ -6,7 +6,7 @@ fn f(_x : u16) -> bool {
     
     res = res && y.wrapping_sub(22) == 65534;
     res = res && y.wrapping_sub(18) == 2;
-    res = res && z.wrapping_sub(22) == 65534;
+    res = res && z.wrapping_sub(22) == 65534_u16 as i16;
     res = res && z.wrapping_sub(18) == 2;
 
     res

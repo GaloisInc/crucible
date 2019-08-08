@@ -678,7 +678,7 @@ evalCast' ck ty1 e ty2  =
       (M.Misc, M.TyRef ty1 mut1, M.TyRawPtr ty2 mut2)
          | ty1 == ty2 && mut1 == mut2 -> return e
 
-      (M.Misc, M.TyRawPtr ty1 M.Mut, M.TyRawPtr ty2 M.Immut)
+      (M.MutToConstPointer, M.TyRawPtr ty1 M.Mut, M.TyRawPtr ty2 M.Immut)
          | MirExp (MirReferenceRepr tp) ref <- e, ty1 == ty2
          -> do r <- readMirRef tp ref
                return (MirExp tp r)
