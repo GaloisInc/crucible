@@ -134,6 +134,7 @@ typeEnd a tp = seq a $
     Float -> a + 4
     Double -> a + 8
     X86_FP80 -> a + 10
+    Array 0 _   -> a
     Array n etp -> typeEnd (a + (n-1) * (storageTypeSize etp)) etp
     Struct flds -> typeEnd (a + fieldOffset f) (f^.fieldVal)
       where f = V.last flds
