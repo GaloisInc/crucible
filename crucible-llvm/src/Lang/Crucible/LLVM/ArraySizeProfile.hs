@@ -31,6 +31,8 @@ import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Vector as Vector
+import Data.Map (Map)
+import qualified Data.Map as Map
 
 import Data.Parameterized.SymbolRepr
 import Data.Parameterized.Context
@@ -125,7 +127,7 @@ argArraySizes mem as = Vector.toList $ toVector (fmapFC (Wrap . regEntryIsArray 
 arraySizeProfile ::
   (C.IsSymInterface sym, C.HasPtrWidth (C.ArchWidth arch)) =>
   C.LLVMContext arch ->
-  IORef [Profile] ->
+  IORef (Map Text [[Maybe Int]]) ->
   IO (C.ExecutionFeature p sym (C.LLVM arch) rtp)
 arraySizeProfile llvm cell = do
   be <- C.runExecutionFeature . C.genericToExecutionFeature
@@ -144,10 +146,10 @@ arraySizeProfile llvm cell = do
             modifyIORef' cell $ \profs ->
               let name = Text.pack . show $ C.cfgHandle g
                   sizes = argArraySizes (G.memAllocs mem) $ C.regMap regs
-              in case lookup name profs of
-                Nothing -> (name, [sizes]):profs
+              in case Map.lookup name profs of
+                Nothing -> Map.insert name [sizes] profs
                 Just variants
                   | sizes `elem` variants -> profs
-                  | otherwise -> (name, sizes:variants):filter ((/= name) . fst) profs
+                  | otherwise -> Map.insert name (sizes:variants) profs
       _ -> pure ()
     be s
