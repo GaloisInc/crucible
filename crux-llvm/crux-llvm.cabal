@@ -22,27 +22,27 @@ library
     Crux.LLVM.Overrides
 
   build-depends:
-    base >= 4.8 && < 4.13,
+    ansi-terminal,
     ansi-wl-pprint,
-    containers,
-    data-binary-ieee754,
-    lens,
-    mtl,
     bytestring,
+    base >= 4.8 && < 4.13,
+    config-schema,
+    containers,
     crucible,
     crucible-llvm,
-    what4,
+    crux,
+    data-binary-ieee754,
+    directory,
+    filepath,
+    lens,
     llvm-pretty,
     llvm-pretty-bc-parser,
+    mtl,
     parameterized-utils,
-    filepath,
     process,
-    directory,
     template-haskell,
     text,
-    ansi-terminal,
-    crux
-
+    what4
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top
 
@@ -56,27 +56,27 @@ executable crux-llvm
   main-is: Main.hs
 
   build-depends:
-    base >= 4.8 && < 4.13,
+    ansi-terminal,
     ansi-wl-pprint,
-    containers,
-    crux-llvm,
-    data-binary-ieee754,
-    lens,
-    mtl,
+    base >= 4.8 && < 4.13,
     bytestring,
+    containers,
     crucible,
     crucible-llvm,
-    what4,
+    crux,
+    crux-llvm,
+    data-binary-ieee754,
+    directory,
+    filepath,
+    lens,
     llvm-pretty,
     llvm-pretty-bc-parser,
+    mtl,
     parameterized-utils,
-    filepath,
     process,
-    directory,
     template-haskell,
     text,
-    ansi-terminal,
-    crux
+    what4
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

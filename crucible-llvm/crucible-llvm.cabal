@@ -72,6 +72,7 @@ library
     Lang.Crucible.LLVM.MemModel.Generic
     Lang.Crucible.LLVM.MemModel.Partial
     Lang.Crucible.LLVM.MemModel.Pointer
+    Lang.Crucible.LLVM.MemModel.Options
     Lang.Crucible.LLVM.MemModel.Type
     Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.Translation.Constant
