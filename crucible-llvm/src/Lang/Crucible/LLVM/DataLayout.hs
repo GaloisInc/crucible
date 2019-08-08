@@ -236,7 +236,7 @@ setAt f sz a = f . at sz ?= a
 defaultDataLayout :: DataLayout
 defaultDataLayout = execState defaults dl
   where dl = DL { _intLayout = BigEndian
-                , _stackAlignment = Alignment 1
+                , _stackAlignment = noAlignment
                 , _ptrSize  = 8 -- 64 bit pointers = 8 bytes
                 , _ptrAlign = Alignment 3 -- 64 bit alignment: 2^3=8 byte boundaries
                 , _integerInfo = emptyAlignInfo
