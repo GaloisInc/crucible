@@ -179,13 +179,23 @@ instance Pretty Statement where
     pretty (StorageDead l) = pretty_fn1 "StorageDead" l <> semi
     pretty Nop = text "nop" <> semi
 
-instance Pretty Lvalue where
+instance Pretty PlaceBase where
     pretty (Local v)        = pretty v
-    pretty (LStatic did _t) = pretty_fn1 "Static" did
-    pretty (LProjection p)  = pretty p
-    pretty (Tagged lv t)    = pretty t <+> parens (pretty lv)
-    pretty (LPromoted p _t) = pretty p
-    
+    pretty (PStatic did _t) = pretty_fn1 "Static" did
+    pretty (PPromoted p _t) = pretty p
+
+instance Pretty Lvalue where
+    pretty (LBase base) = pretty base
+    pretty (LProj lv Deref) = text "*" <> pretty lv
+    pretty (LProj lv (PField i _ty)) = pretty lv <> dot <> pretty i
+    pretty (LProj lv (Index op))    = pretty lv <> brackets (pretty op)
+    pretty (LProj lv (ConstantIndex co _cl ce)) =
+      pretty lv <> brackets (if ce then empty else text "-" <> pretty co)
+    pretty (LProj lv (Subslice f t)) =
+      pretty lv <> brackets (pretty f <> dot <> dot <> pretty t)
+    pretty (LProj lv (Downcast i)) =
+      parens (pretty lv <+> text "as" <+> pretty i)
+
 instance Pretty Rvalue where
     pretty (Use a) = pretty_fn1 "use" a
     pretty (Repeat a b) = brackets (pretty a <> semi <> pretty b) 
@@ -239,17 +249,6 @@ instance Pretty Operand where
 
 instance Pretty Constant where
     pretty (Constant _a b) = pretty b
-
-instance Pretty LvalueProjection where
-    pretty (LvalueProjection lv Deref) = text "*" <> pretty lv
-    pretty (LvalueProjection lv (PField i _ty)) = pretty lv <> dot <> pretty i
-    pretty (LvalueProjection lv (Index op))    = pretty lv <> brackets (pretty op)
-    pretty (LvalueProjection lv (ConstantIndex co _cl ce)) =
-      pretty lv <> brackets (if ce then empty else text "-" <> pretty co)
-    pretty (LvalueProjection lv (Subslice f t)) =
-      pretty lv <> brackets (pretty f <> dot <> dot <> pretty t)
-    pretty (LvalueProjection lv (Downcast i)) =
-      parens (pretty lv <+> text "as" <+> pretty i)     
 
 instance Pretty NullOp where
     pretty SizeOf = text "sizeof"

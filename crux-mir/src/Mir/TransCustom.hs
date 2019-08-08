@@ -332,7 +332,7 @@ discriminant_value = ((["intrinsics"],"discriminant_value", []),
 
 
 into_iter :: (ExplodedDefId, CustomRHS)
-into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
+into_iter = ((["iter","traits","collect"], "IntoIterator", ["into_iter"]),
     \(Substs subs) -> case subs of
        [ TyAdt defid (Substs [itemTy]) ]
          | defid == M.textId "::ops[0]::range[0]::Range[0]"
@@ -350,7 +350,7 @@ into_iter = ((["iter","traits"], "IntoIterator", ["into_iter"]),
                
       
 iter_next :: (ExplodedDefId, CustomRHS)
-iter_next = ((["iter","iterator"],"Iterator", ["next"]), iter_next_op) where
+iter_next = ((["iter","traits","iterator"],"Iterator", ["next"]), iter_next_op) where
   iter_next_op (Substs [TyAdt defid (Substs [itemTy])])
     | defid == M.textId "::ops[0]::range[0]::Range[0]"  = Just (CustomOp (iter_next_op_range itemTy))
   iter_next_op (Substs [TyAdt defid (Substs [_,itemTy])])
@@ -424,7 +424,7 @@ iter_next_op_array itemTy _opTys ops =
 
 -- SCW: not sure if this one is up-to-date
 iter_map :: (ExplodedDefId, CustomRHS)
-iter_map = ((["iter","iterator"],"Iterator", ["map"]), \subst -> Just $ CustomOp $ iter_map_op subst)
+iter_map = ((["iter","traits","iterator"],"Iterator", ["map"]), \subst -> Just $ CustomOp $ iter_map_op subst)
 
 iter_map_op :: forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 iter_map_op _subst opTys ops =
@@ -434,7 +434,7 @@ iter_map_op _subst opTys ops =
    _ -> mirFail $ "BUG: invalid arguments to iter_map"
 
 iter_collect :: (ExplodedDefId, CustomRHS)
-iter_collect = ((["iter","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
+iter_collect = ((["iter","traits","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
 
 iter_collect_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 iter_collect_op _subst _opTys ops =

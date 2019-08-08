@@ -24,10 +24,8 @@
 #![feature(no_panic_pow)]
 #![feature(reverse_bits)]
 #![feature(wrapping_next_power_of_two)]
-#![feature(const_int_ops)]
 #![feature(const_int_sign)]
 #![feature(const_int_conversion)]
-#![feature(const_int_rotate)]
 
 
 #![stable(feature = "rust1", since = "1.0.0")]
