@@ -68,7 +68,7 @@ import           Mir.Mir
 import           Mir.PP()
 import           Mir.Overrides
 import           Mir.Intrinsics(MIR,mirExtImpl,mirIntrinsicTypes)
-import           Mir.DefId(cleanVariantName,parseFieldName)
+import           Mir.DefId(DefId(..), cleanVariantName, parseFieldName)
 import           Mir.Generator
 import           Mir.Generate(generateMIR, translateMIR, loadPrims)
 import           Mir.Trans(transStatics, RustModule(..))
@@ -186,7 +186,8 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
   
   setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
   
-  res_ty <- case List.find (\fn -> fn^.fname == "::f[0]") (col^.functions) of
+  let fDefId = DefId [(Text.pack name, 0)] ("f", 0) []
+  res_ty <- case List.find (\fn -> fn^.fname == fDefId) (col^.functions) of
                    Just fn -> return (fn^.fsig.fsreturn_ty)
                    Nothing  -> fail "cannot find f"
 
@@ -195,10 +196,10 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
       link   = forM_ (Map.toList cfgmap) $
                  \(fn, C.AnyCFG cfg) -> bindFn fn cfg
    
-  (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack "::f[0]") cfgmap) of
+  (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack $ "::" ++ name ++ "[0]::f[0]") cfgmap) of
                         Just c -> return c
                         _      -> fail $ "Could not find cfg: " ++ "f"
-  (C.AnyCFG a_cfg) <- case (Map.lookup (Text.pack "::ARG[0]") cfgmap) of
+  (C.AnyCFG a_cfg) <- case (Map.lookup (Text.pack $ "::" ++ name ++ "[0]::ARG[0]") cfgmap) of
                         Just c -> return c
                         _      -> fail $ "Could not find cfg: " ++ "g"
 

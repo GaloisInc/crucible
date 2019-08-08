@@ -193,15 +193,15 @@ customOps = Map.fromList [
 -- ** Custom: Exit
 
 exit :: (ExplodedDefId, CustomRHS)
-exit = ((["process"], "exit", []), \s ->
+exit = ((["std", "process"], "exit", []), \s ->
            Just (CustomOpExit $ \ops -> return "process::exit"))
 
 abort :: (ExplodedDefId, CustomRHS)
-abort = ((["intrinsics"], "abort", []), \s ->
+abort = ((["core", "intrinsics"], "abort", []), \s ->
             Just (CustomOpExit $ \ops -> return "intrinsics::abort"))
 
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
-panicking_begin_panic = ((["panicking"], "begin_panic", []), \s ->
+panicking_begin_panic = ((["std", "panicking"], "begin_panic", []), \s ->
             Just (CustomOpExit $  \ops -> return "panicking::begin_panic"))
 
 -----------------------------------------------------------------------------------------------------
@@ -211,10 +211,10 @@ panicking_begin_panic = ((["panicking"], "begin_panic", []), \s ->
 -- so that we can make dictionaries.
 
 ops_index :: (ExplodedDefId, CustomRHS)
-ops_index = ((["ops", "index"], "Index", ["index"]), index_op )
+ops_index = ((["core", "ops", "index"], "Index", ["index"]), index_op )
 
 ops_index_mut :: (ExplodedDefId, CustomRHS)
-ops_index_mut = ((["ops", "index"], "IndexMut", ["index_mut"]), index_op_mut )
+ops_index_mut = ((["core", "ops", "index"], "IndexMut", ["index_mut"]), index_op_mut )
 
 
 {-
@@ -249,7 +249,7 @@ index_op (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
     Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
-                  let funid = (M.textId "slice[0]::SliceIndex[0]::index[0]")
+                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::index[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice elTy, TySlice elTy]
                   callExp funid substs [op2, op1] 
@@ -263,7 +263,7 @@ index_op_mut (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
     Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
-                  let funid = (M.textId "slice[0]::SliceIndex[0]::index_mut[0]")
+                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::index_mut[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice elTy, TySlice elTy]
                   callExp funid substs [op2, op1] 
@@ -276,7 +276,7 @@ index_op_mut _ = Nothing
 -- TODO: this should return (a * b) mod 2N
 -- however it does whatever Crucible does for BVMul
 wrapping_mul :: (ExplodedDefId, CustomRHS)
-wrapping_mul = ( (["num","{{impl}}"], "wrapping_mul", []),
+wrapping_mul = ( (["core","num","{{impl}}"], "wrapping_mul", []),
    \ _substs -> Just $ CustomOp $ \ _opTys  ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
@@ -296,7 +296,7 @@ wrapping_mul = ( (["num","{{impl}}"], "wrapping_mul", []),
 -- ** Custom: wrapping_sub
 
 wrapping_sub :: (ExplodedDefId, CustomRHS)
-wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
+wrapping_sub = ( (["core","num","{{impl}}"], "wrapping_sub", []),
    \ _substs -> Just $ CustomOp $ \ _opTys ops ->
      case ops of 
        [MirExp aty a, MirExp bty b] ->
@@ -316,7 +316,7 @@ wrapping_sub = ( (["num","{{impl}}"], "wrapping_sub", []),
 -- ** Custom ::intrinsics::discriminant_value
 
 discriminant_value ::  (ExplodedDefId, CustomRHS)
-discriminant_value = ((["intrinsics"],"discriminant_value", []),
+discriminant_value = ((["core","intrinsics"],"discriminant_value", []),
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
       case (opTys,ops) of
         ([TyCustom (CEnum _adt _i)], [e]) -> return e
@@ -332,10 +332,10 @@ discriminant_value = ((["intrinsics"],"discriminant_value", []),
 
 
 into_iter :: (ExplodedDefId, CustomRHS)
-into_iter = ((["iter","traits","collect"], "IntoIterator", ["into_iter"]),
+into_iter = ((["core","iter","traits","collect"], "IntoIterator", ["into_iter"]),
     \(Substs subs) -> case subs of
        [ TyAdt defid (Substs [itemTy]) ]
-         | defid == M.textId "::ops[0]::range[0]::Range[0]"
+         | defid == M.textId "::core[0]::ops[0]::range[0]::Range[0]"
          ->  Just $ CustomOp $ \_opTys [arg] -> return arg
 
        [ TyRef (TyArray itemTy size) Immut ]
@@ -350,11 +350,11 @@ into_iter = ((["iter","traits","collect"], "IntoIterator", ["into_iter"]),
                
       
 iter_next :: (ExplodedDefId, CustomRHS)
-iter_next = ((["iter","traits","iterator"],"Iterator", ["next"]), iter_next_op) where
+iter_next = ((["core","iter","traits","iterator"],"Iterator", ["next"]), iter_next_op) where
   iter_next_op (Substs [TyAdt defid (Substs [itemTy])])
-    | defid == M.textId "::ops[0]::range[0]::Range[0]"  = Just (CustomOp (iter_next_op_range itemTy))
+    | defid == M.textId "::core[0]::ops[0]::range[0]::Range[0]"  = Just (CustomOp (iter_next_op_range itemTy))
   iter_next_op (Substs [TyAdt defid (Substs [_,itemTy])])
-    | defid == M.textId "::slice[0]::Iter[0]" = Just (CustomOp (iter_next_op_array itemTy))
+    | defid == M.textId "::core[0]::slice[0]::Iter[0]" = Just (CustomOp (iter_next_op_array itemTy))
   iter_next_op (Substs [TyArray itemTy _len]) = Just (CustomOp (iter_next_op_array itemTy))
   iter_next_op _ = Nothing
 
@@ -424,7 +424,7 @@ iter_next_op_array itemTy _opTys ops =
 
 -- SCW: not sure if this one is up-to-date
 iter_map :: (ExplodedDefId, CustomRHS)
-iter_map = ((["iter","traits","iterator"],"Iterator", ["map"]), \subst -> Just $ CustomOp $ iter_map_op subst)
+iter_map = ((["core","iter","traits","iterator"],"Iterator", ["map"]), \subst -> Just $ CustomOp $ iter_map_op subst)
 
 iter_map_op :: forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 iter_map_op _subst opTys ops =
@@ -434,7 +434,7 @@ iter_map_op _subst opTys ops =
    _ -> mirFail $ "BUG: invalid arguments to iter_map"
 
 iter_collect :: (ExplodedDefId, CustomRHS)
-iter_collect = ((["iter","traits","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
+iter_collect = ((["core","iter","traits","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
 
 iter_collect_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 iter_collect_op _subst _opTys ops =
@@ -448,7 +448,7 @@ iter_collect_op _subst _opTys ops =
 --
 str_len :: (ExplodedDefId, CustomRHS)
 str_len =
-  ((["str","{{impl}}"], "len", [])
+  ((["core","str","{{impl}}"], "len", [])
   , \subs -> case subs of
                (Substs []) -> Just $ CustomOp $ \ _optys  ops -> 
                  case ops of 
@@ -486,7 +486,7 @@ str_len =
 
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
-  ((["slice","{{impl}}"], "len", [])
+  ((["core","slice","{{impl}}"], "len", [])
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
      -- type of the structure is &mut[ elTy ]
@@ -496,7 +496,7 @@ slice_len =
 
 slice_is_empty :: (ExplodedDefId, CustomRHS)
 slice_is_empty =
-  ((["slice","{{impl}}"], "is_empty", [])
+  ((["core","slice","{{impl}}"], "is_empty", [])
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
      -- type of the structure is &mut[ elTy ]
@@ -507,7 +507,7 @@ slice_is_empty =
 
 slice_first :: (ExplodedDefId, CustomRHS)
 slice_first =
-  ((["slice","{{impl}}"], "first", [])
+  ((["core","slice","{{impl}}"], "first", [])
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys  ops -> 
      case ops of 
      -- type of the structure is &mut[ elTy ]
@@ -539,7 +539,7 @@ slice_get_op (Substs [tt, ii]) =
     Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
-                  let funid = (M.textId "slice[0]::SliceIndex[0]::get[0]")
+                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::get[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice tt, TySlice tt]
                   callExp funid substs [op2, op1] 
@@ -551,7 +551,7 @@ slice_get_mut_op (Substs [tt, ii]) =
     Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
-                  let funid = (M.textId "slice[0]::SliceIndex[0]::get_mut[0]")
+                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::get_mut[0]")
                       -- TODO: third arg in substs should be iiOutput, but TyProj not removed
                   let substs = Substs [ii, TySlice tt, TySlice tt]
                   callExp funid substs [op2, op1] 
@@ -560,10 +560,10 @@ slice_get_mut_op _ = Nothing
 
 
 slice_get :: (ExplodedDefId, CustomRHS)
-slice_get = ((["slice", "{{impl}}"],"get", []), slice_get_op)
+slice_get = ((["core","slice", "{{impl}}"],"get", []), slice_get_op)
 
 slice_get_mut :: (ExplodedDefId, CustomRHS)
-slice_get_mut = ((["slice", "{{impl}}"],"get_mut", []), slice_get_mut_op)
+slice_get_mut = ((["core","slice", "{{impl}}"],"get_mut", []), slice_get_mut_op)
 
 
 {---
@@ -596,10 +596,10 @@ impl<T> [T] {
 
 
 slice_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_get_unchecked = ((["slice", "{{impl}}"],"get_unchecked", []), slice_get_unchecked_op)
+slice_get_unchecked = ((["core","slice", "{{impl}}"],"get_unchecked", []), slice_get_unchecked_op)
 
 slice_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_get_unchecked_mut = ((["slice", "{{impl}}"],"get_unchecked_mut", []), slice_get_unchecked_mut_op)
+slice_get_unchecked_mut = ((["core","slice", "{{impl}}"],"get_unchecked_mut", []), slice_get_unchecked_mut_op)
 
 slice_get_unchecked_op :: CustomRHS
 slice_get_unchecked_op subs = case subs of
@@ -607,7 +607,7 @@ slice_get_unchecked_op subs = case subs of
      -> Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
-                  let funid = (M.textId "slice[0]::SliceIndex[0]::get_unchecked[0]")
+                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::get_unchecked[0]")
                   -- TODO: this is a real hack. We should find the ATs and look up the output type there
                   let out   = case ii of
                                 TyUint USize -> tt
@@ -623,7 +623,7 @@ slice_get_unchecked_mut_op subs = case subs of
      -> Just $ CustomMirOp $ \ ops -> do
              case ops of
                [op1, op2] -> do
-                  let funid = (M.textId "slice[0]::SliceIndex[0]::get_unchecked_mut[0]")
+                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::get_unchecked_mut[0]")
                   -- TODO: this is a real hack. We should find the ATs and look up the output type there
                   let out   = case ii of
                                 TyUint USize -> tt
@@ -695,10 +695,10 @@ fn slice_index_range_get_unchecked_mut<T>(sel: core::ops::Range<usize>,  slice: 
 --}
 
 --slice_SliceIndex_get_unchecked :: (ExplodedDefId, CustomRHS)
---slice_SliceIndex_get_unchecked = ((["slice"],"SliceIndex", ["get_unchecked"]), slice_SliceIndex_get_unchecked_op)
+--slice_SliceIndex_get_unchecked = ((["core","slice"],"SliceIndex", ["get_unchecked"]), slice_SliceIndex_get_unchecked_op)
 
 slice_index_usize_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_index_usize_get_unchecked = ((["slice"], "slice_index_usize_get_unchecked", []), \subs ->
+slice_index_usize_get_unchecked = ((["core","slice"], "slice_index_usize_get_unchecked", []), \subs ->
    case subs of
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -715,7 +715,7 @@ slice_index_usize_get_unchecked = ((["slice"], "slice_index_usize_get_unchecked"
      _ -> Nothing)
 
 slice_index_range_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_index_range_get_unchecked = ((["slice"], "slice_index_range_get_unchecked", []), \subs ->
+slice_index_range_get_unchecked = ((["core","slice"], "slice_index_range_get_unchecked", []), \subs ->
    case subs of
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -742,7 +742,7 @@ slice_index_range_get_unchecked = ((["slice"], "slice_index_range_get_unchecked"
 
 
 slice_index_usize_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_index_usize_get_unchecked_mut = ((["slice"], "slice_index_usize_get_unchecked_mut", []), \subs ->
+slice_index_usize_get_unchecked_mut = ((["core","slice"], "slice_index_usize_get_unchecked_mut", []), \subs ->
    case subs of
      (Substs [ _elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -758,7 +758,7 @@ slice_index_usize_get_unchecked_mut = ((["slice"], "slice_index_usize_get_unchec
      _ -> Nothing)
 
 slice_index_range_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_index_range_get_unchecked_mut = ((["slice"], "slice_index_range_get_unchecked_mut", []), \subs ->
+slice_index_range_get_unchecked_mut = ((["core","slice"], "slice_index_range_get_unchecked_mut", []), \subs ->
    case subs of
      (Substs [ _elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -786,7 +786,7 @@ slice_index_range_get_unchecked_mut = ((["slice"], "slice_index_range_get_unchec
 {-
 vec_with_capacity :: (ExplodedDefId, CustomRHS)
 vec_with_capacity =
-  ((["vec"],"Vec", "with_capacity"),
+  ((["alloc","vec"],"Vec", "with_capacity"),
   \subst -> Just $ CustomOp $ \optys _retTy ops -> do
      case ops of
        [ MirExp C.NatRepr capacity ] -> 
@@ -805,10 +805,10 @@ vec_with_capacity =
 --   argTy2 -- same as _ty1
 
 fn_call :: (ExplodedDefId, CustomRHS)
-fn_call = ((["ops","function"], "Fn", ["call"]), \subst -> Just $ CustomOp $ fn_call_op subst)
+fn_call = ((["core", "ops","function"], "Fn", ["call"]), \subst -> Just $ CustomOp $ fn_call_op subst)
 
 fn_call_once :: (ExplodedDefId, CustomRHS)
-fn_call_once = ((["ops","function"], "FnOnce", ["call_once"]), \subst -> Just $ CustomOp $ fn_call_op subst)
+fn_call_once = ((["core", "ops","function"], "FnOnce", ["call_once"]), \subst -> Just $ CustomOp $ fn_call_op subst)
 
 fn_call_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
 fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do

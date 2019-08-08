@@ -63,9 +63,9 @@ import           Mir.Intrinsics (MIR, pattern MirSliceRepr, pattern MirReference
 -- no need to pass dictionary arguments for them
 -- REVISIT this!
 noDictionary :: [M.TraitName]
-noDictionary = [M.textId "::ops[0]::function[0]::Fn[0]",
-                M.textId "::ops[0]::function[0]::FnMut[0]",
-                M.textId "::ops[0]::function[0]::FnOnce[0]"]
+noDictionary = [M.textId "::core[0]::ops[0]::function[0]::Fn[0]",
+                M.textId "::core[0]::ops[0]::function[0]::FnMut[0]",
+                M.textId "::core[0]::ops[0]::function[0]::FnOnce[0]"]
 
 -- | create a Var corresponding to a trait predicate
 dictVar :: M.Predicate -> Maybe M.Var
@@ -187,7 +187,7 @@ tyToRepr t0 = case t0 of
   M.TyDynamic _def -> Some C.AnyRepr
   
   M.TyProjection def _tyargs
-   | def == (M.textId "::ops[0]::function[0]::FnOnce[0]::Output[0]")
+   | def == (M.textId "::core[0]::ops[0]::function[0]::FnOnce[0]::Output[0]")
      -> Some taggedUnionRepr
   M.TyProjection _def _tyargs -> error $ "BUG: all uses of TyProjection should have been eliminated, found "
     ++ fmt t0
