@@ -8,6 +8,7 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Lang.Crucible.LLVM
@@ -53,8 +54,9 @@ llvmGlobals
 llvmGlobals ctx mem = emptyGlobals & insertGlobal var mem
   where var = llvmMemVar $ ctx
 
-llvmExtensionImpl :: HasPtrWidth (ArchWidth arch) => ExtensionImpl p sym (LLVM arch)
-llvmExtensionImpl =
+llvmExtensionImpl :: (HasPtrWidth (ArchWidth arch)) => MemOptions -> ExtensionImpl p sym (LLVM arch)
+llvmExtensionImpl mo =
+  let ?memOpts = mo in
   ExtensionImpl
   { extensionEval = llvmExtensionEval
   , extensionExec = llvmStatementExec
