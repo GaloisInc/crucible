@@ -73,13 +73,11 @@ ptrAllocSize ::
   Maybe Int
 ptrAllocSize mem (C.llvmPointerView -> (blk, _)) = msum $ inAlloc <$> mem
   where inAlloc :: G.MemAlloc sym -> Maybe Int
-        inAlloc (G.Alloc _ _ Nothing _ _ _) = Nothing
-        inAlloc (G.Alloc _ a (Just sz) _ _ _) = do
-          blk' <- W4.asNat blk
-          if a == blk'
-            then fromIntegral <$> W4.asUnsignedBV sz
-            else Nothing
-        inAlloc _ = Nothing
+        inAlloc memAlloc
+          | G.Alloc _ a (Just sz) _ _ _ <- memAlloc
+          , Just a == W4.asNat blk =
+            fromIntegral <$> W4.asUnsignedBV sz
+          | otherwise = Nothing
 
 ptrArraySize ::
   W4.IsExpr (W4.SymExpr sym) =>
