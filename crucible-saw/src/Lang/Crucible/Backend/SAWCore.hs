@@ -24,6 +24,7 @@ import           Control.Exception ( bracket )
 import           Control.Lens
 import           Control.Monad
 import           Data.IORef
+import           Data.List (elemIndex)
 import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map ( Map )
 import qualified Data.Map as Map
@@ -421,7 +422,7 @@ scIte sym sc tp (SAWExpr p) x y =
     BaseNatRepr     -> scIteNat sc p x y
     BaseIntegerRepr -> scIteInt sc p x y
     BaseArrayRepr indexTypes range ->
-        makeArray sym sc indexTypes $ \vars ->
+        makeArray sym sc indexTypes [] $ \_ vars ->
         do x' <- applyArray sym sc x vars
            y' <- applyArray sym sc y vars
            scIte sym sc range (SAWExpr p) x' y'
@@ -583,11 +584,13 @@ makeArray ::
   SAWCoreBackend n solver fs ->
   SC.SharedContext ->
   Ctx.Assignment BaseTypeRepr idx ->
-  (Ctx.Assignment SAWExpr idx -> IO (SAWExpr tp)) ->
+  [Maybe SolverSymbol] ->
+  ([Maybe SolverSymbol] -> Ctx.Assignment SAWExpr idx -> IO (SAWExpr tp)) ->
   IO (SAWExpr (BaseArrayType idx tp))
-makeArray sym sc idx k =
+makeArray sym sc idx env k =
   do vars <- mkVars 0 idx
-     body <- k vars >>= termOfSAWExpr sym sc
+     body <- k (replicate (Ctx.sizeInt $ Ctx.size vars) Nothing ++ env) vars
+             >>= termOfSAWExpr sym sc
      SAWExpr <$> mkLambdas idx body
   where
     mkVars :: Int -> Ctx.Assignment BaseTypeRepr idx' -> IO (Ctx.Assignment SAWExpr idx')
@@ -758,14 +761,14 @@ evaluateExpr :: forall n solver tp fs.
   B.IdxCache n SAWExpr ->
   B.Expr n tp ->
   IO SC.Term
-evaluateExpr sym sc cache = f
+evaluateExpr sym sc cache = f []
   where
     -- Evaluate the element, and expect the result to have the same type.
-    f :: B.Expr n tp' -> IO SC.Term
-    f elt = termOfSAWExpr sym sc =<< eval elt
+    f :: [Maybe SolverSymbol] -> B.Expr n tp' -> IO SC.Term
+    f env elt = termOfSAWExpr sym sc =<< eval env elt
 
-    eval :: B.Expr n tp' -> IO (SAWExpr tp')
-    eval elt = B.idxCacheEval cache elt (go elt)
+    eval :: [Maybe SolverSymbol] -> B.Expr n tp' -> IO (SAWExpr tp')
+    eval env elt = B.idxCacheEval cache elt (go env elt)
 
     realFail :: IO a
     realFail = unsupported sym "SAW backend does not support real values"
@@ -776,78 +779,88 @@ evaluateExpr sym sc cache = f
     floatFail :: IO a
     floatFail = unsupported sym "SAW backend does not support floating-point values"
 
-    go :: B.Expr n tp' -> IO (SAWExpr tp')
+    go :: [Maybe SolverSymbol] -> B.Expr n tp' -> IO (SAWExpr tp')
 
-    go (B.BoolExpr b _) = SAWExpr <$> SC.scBool sc b
+    go _ (B.BoolExpr b _) = SAWExpr <$> SC.scBool sc b
 
-    go (B.SemiRingLiteral sr x _) =
+    go _ (B.SemiRingLiteral sr x _) =
       case sr of
         B.SemiRingNatRepr     -> scNatLit sc x
         B.SemiRingBVRepr _ w  -> scBvLit sc w x
         B.SemiRingIntegerRepr -> scIntLit sc x
         B.SemiRingRealRepr    -> scRealLit sym sc x
 
-    go (B.StringExpr{}) =
+    go _ (B.StringExpr{}) =
       unsupported sym "SAW backend does not support string values"
 
-    go (B.BoundVarExpr bv) =
+    go env (B.BoundVarExpr bv) =
       case B.bvarKind bv of
         B.UninterpVarKind -> do
-           tp <- baseSCType sym sc (B.bvarType bv)
-           -- SAWExpr <$> sawCreateVar sym "x" tp
-           SAWExpr <$> sawCreateVar sym nm tp
-             where nm = Text.unpack $ solverSymbolAsText $ B.bvarName bv
+          tp <- baseSCType sym sc (B.bvarType bv)
+          SAWExpr <$> sawCreateVar sym nm tp
+            where nm = Text.unpack $ solverSymbolAsText $ B.bvarName bv
         B.LatchVarKind ->
           unsupported sym "SAW backend does not support latch variables"
-        B.QuantifierVarKind ->
-          unsupported sym "SAW backend does not support quantifier variables"
+        B.QuantifierVarKind -> do
+          case elemIndex (Just $ B.bvarName bv) env of
+            Nothing -> unsupported sym $ "unbound quantifier variable " <> nm
+            Just idx -> SAWExpr <$> SC.scLocalVar sc idx
+            where nm = Text.unpack $ solverSymbolAsText $ B.bvarName bv
 
-    go (B.NonceAppExpr p) =
+    go env (B.NonceAppExpr p) =
       case B.nonceExprApp p of
-        B.Forall{} ->
-          unsupported sym "SAW backend does not support quantifiers"
+        B.Forall bvar body ->
+          case B.bvarType bvar of
+            BaseBVRepr wrepr -> do
+              w <- SC.scNat sc $ natValue wrepr
+              ty <- SC.scVecType sc w =<< SC.scBoolType sc
+              SAWExpr <$>
+                (SC.scBvForall sc w
+                 =<< SC.scLambda sc nm ty =<< f (Just (B.bvarName bvar):env) body)
+              where nm = Text.unpack $ solverSymbolAsText $ B.bvarName bvar
+            _ -> unsupported sym "SAW backend only supports universal quantifiers over bitvectors"
         B.Exists{} ->
-          unsupported sym "SAW backend does not support quantifiers"
+          unsupported sym "SAW backend does not support existential quantifiers"
         B.ArrayFromFn fn ->
-          makeArray sym sc (B.symFnArgTypes fn) $ \vars ->
+          makeArray sym sc (B.symFnArgTypes fn) env $ \_ vars ->
           applyExprSymFn sym sc fn vars
         B.MapOverArrays fn idxs arrs ->
-          makeArray sym sc idxs $ \vars ->
+          makeArray sym sc idxs env $ \env' vars ->
           do args <- traverseFC
-                     (\arr -> do t <- eval (unwrapArrayResult arr); applyArray sym sc t vars)
+                     (\arr -> do t <- eval env' (unwrapArrayResult arr); applyArray sym sc t vars)
                      arrs
              applyExprSymFn sym sc fn args
         B.ArrayTrueOnEntries{} ->
           unsupported sym "SAW backend: not yet implemented: ArrayTrueOnEntries"
         B.FnApp fn asgn ->
-          do args <- traverseFC eval asgn
+          do args <- traverseFC (eval env) asgn
              applyExprSymFn sym sc fn args
 
-    go a0@(B.AppExpr a) =
+    go env a0@(B.AppExpr a) =
       let nyi = unsupported sym $
                   "Expression form not yet implemented in SAWCore backend:\n"
                         ++ show a0
       in
       case B.appExprApp a of
-        B.BaseIte bt _ c xe ye -> join (scIte sym sc bt <$> eval c <*> eval xe <*> eval ye)
-        B.BaseEq bt xe ye -> join (scEq sym sc bt <$> eval xe <*> eval ye)
+        B.BaseIte bt _ c xe ye -> join (scIte sym sc bt <$> eval env c <*> eval env xe <*> eval env ye)
+        B.BaseEq bt xe ye -> join (scEq sym sc bt <$> eval env xe <*> eval env ye)
 
         B.SemiRingLe sr xe ye ->
           case sr of
-            B.OrderedSemiRingRealRepr    -> join (scRealLe sym sc <$> eval xe <*> eval ye)
-            B.OrderedSemiRingIntegerRepr -> join (scIntLe sc <$> eval xe <*> eval ye)
-            B.OrderedSemiRingNatRepr     -> join (scNatLe sc <$> eval xe <*> eval ye)
+            B.OrderedSemiRingRealRepr    -> join (scRealLe sym sc <$> eval env xe <*> eval env ye)
+            B.OrderedSemiRingIntegerRepr -> join (scIntLe sc <$> eval env xe <*> eval env ye)
+            B.OrderedSemiRingNatRepr     -> join (scNatLe sc <$> eval env xe <*> eval env ye)
 
         B.NotPred x ->
-          SAWExpr <$> (SC.scNot sc =<< f x)
+          SAWExpr <$> (SC.scNot sc =<< f env x)
 
         B.ConjPred xs ->
           case BM.viewBoolMap xs of
             BM.BoolMapUnit -> SAWExpr <$> SC.scBool sc True
             BM.BoolMapDualUnit -> SAWExpr <$> SC.scBool sc False
             BM.BoolMapTerms (t:|ts) ->
-              let pol (x,BM.Positive) = f x
-                  pol (x,BM.Negative) = SC.scNot sc =<< f x
+              let pol (x,BM.Positive) = f env x
+                  pol (x,BM.Negative) = SC.scNot sc =<< f env x
               in SAWExpr <$> join (foldM (SC.scAnd sc) <$> pol t <*> mapM pol ts)
 
         B.DisjPred xs ->
@@ -855,48 +868,48 @@ evaluateExpr sym sc cache = f
             BM.BoolMapUnit -> SAWExpr <$> SC.scBool sc False
             BM.BoolMapDualUnit -> SAWExpr <$> SC.scBool sc True
             BM.BoolMapTerms (t:|ts) ->
-              let pol (x,BM.Positive) = f x
-                  pol (x,BM.Negative) = SC.scNot sc =<< f x
+              let pol (x,BM.Positive) = f env x
+                  pol (x,BM.Negative) = SC.scNot sc =<< f env x
               in SAWExpr <$> join (foldM (SC.scOr sc) <$> pol t <*> mapM pol ts)
 
         B.SemiRingProd pd ->
            case WSum.prodRepr pd of
              B.SemiRingRealRepr ->
-               do pd' <- WSum.prodEvalM (scMulReal sym sc) eval pd
+               do pd' <- WSum.prodEvalM (scMulReal sym sc) (eval env) pd
                   maybe (scRealLit sym sc 1) return pd'
              B.SemiRingIntegerRepr ->
-               do pd' <- WSum.prodEvalM (scMulInt sc) eval pd
+               do pd' <- WSum.prodEvalM (scMulInt sc) (eval env) pd
                   maybe (scIntLit sc 1) return pd'
              B.SemiRingNatRepr ->
-               do pd' <- WSum.prodEvalM (scMulNat sc) eval pd
+               do pd' <- WSum.prodEvalM (scMulNat sc) (eval env) pd
                   maybe (scNatLit sc 1) return pd'
              B.SemiRingBVRepr B.BVArithRepr w ->
                do n <- SC.scNat sc (natValue w)
-                  pd' <- WSum.prodEvalM (SC.scBvMul sc n) f pd
+                  pd' <- WSum.prodEvalM (SC.scBvMul sc n) (f env) pd
                   maybe (scBvLit sc w 1) (return . SAWExpr) pd'
              B.SemiRingBVRepr B.BVBitsRepr w ->
                do n <- SC.scNat sc (natValue w)
-                  pd' <- WSum.prodEvalM (SC.scBvAnd sc n) f pd
+                  pd' <- WSum.prodEvalM (SC.scBvAnd sc n) (f env) pd
                   maybe (scBvLit sc w (maxUnsigned w)) (return . SAWExpr) pd'
 
         B.SemiRingSum ss ->
           case WSum.sumRepr ss of
             B.SemiRingRealRepr -> WSum.evalM add smul (scRealLit sym sc) ss
                where add x y = scAddReal sym sc x y
-                     smul 1  e = eval e
-                     smul sm e = join $ scMulReal sym sc <$> scRealLit sym sc sm <*> eval e
+                     smul 1  e = eval env e
+                     smul sm e = join $ scMulReal sym sc <$> scRealLit sym sc sm <*> eval env e
             B.SemiRingIntegerRepr -> WSum.evalM add smul (scIntLit sc) ss
                where add x y = scAddInt sc x y
-                     smul 1  e = eval e
-                     smul sm e = join $ scMulInt sc <$> scIntLit sc sm <*> eval e
+                     smul 1  e = eval env e
+                     smul sm e = join $ scMulInt sc <$> scIntLit sc sm <*> eval env e
             B.SemiRingNatRepr -> WSum.evalM add smul (scNatLit sc) ss
                where add x y = scAddNat sc x y
-                     smul 1  e = eval e
-                     smul sm e = join $ scMulNat sc <$> scNatLit sc sm <*> eval e
+                     smul 1  e = eval env e
+                     smul sm e = join $ scMulNat sc <$> scNatLit sc sm <*> eval env e
             B.SemiRingBVRepr B.BVArithRepr w -> WSum.evalM add smul (scBvLit sc w) ss
                where add x y   = scBvAdd sc w x y
-                     smul 1  e = eval e
-                     smul sm e = join (scBvMul sc w <$> scBvLit sc w sm <*> eval e)
+                     smul 1  e = eval env e
+                     smul sm e = join (scBvMul sc w <$> scBvLit sc w sm <*> eval env e)
             B.SemiRingBVRepr B.BVBitsRepr w
                | ss^.WSum.sumOffset == one -> scBvNot sc w =<< gf2_eval (ss & WSum.sumOffset .~ 0)
                | otherwise -> gf2_eval ss
@@ -905,8 +918,8 @@ evaluateExpr sym sc cache = f
                     gf2_eval = WSum.evalM add smul (scBvLit sc w)
                     add x y = scBvXor sc w x y
                     smul sm e
-                       | sm == one = eval e
-                       | otherwise = join (scBvAnd sc w <$> scBvLit sc w sm <*> eval e)
+                       | sm == one = eval env e
+                       | otherwise = join (scBvAnd sc w <$> scBvLit sc w sm <*> eval env e)
 
         B.RealIsInteger{} -> unsupported sym "SAW backend does not support real values"
 
@@ -914,102 +927,102 @@ evaluateExpr sym sc cache = f
           case WSum.prodRepr pd of
             B.SemiRingBVRepr _ w ->
               do n <- SC.scNat sc (natValue w)
-                 pd' <- WSum.prodEvalM (SC.scBvOr sc n) f pd
+                 pd' <- WSum.prodEvalM (SC.scBvOr sc n) (f env) pd
                  maybe (scBvLit sc w 0) (return . SAWExpr) pd'
 
         B.BVFill w p ->
           do bit <- SC.scBoolType sc
              n <- SC.scNat sc (natValue w)
-             x <- f p
+             x <- f env p
              SAWExpr <$> SC.scGlobalApply sc (SC.mkIdent SC.preludeName "replicate") [n, bit, x]
 
         B.BVTestBit i bv -> fmap SAWExpr $ do
              w <- SC.scNat sc (natValue (bvWidth bv))
              bit <- SC.scBoolType sc
-             join (SC.scAt sc w bit <$> f bv <*> SC.scNat sc (fromIntegral i))
+             join (SC.scAt sc w bit <$> f env bv <*> SC.scNat sc (fromIntegral i))
         B.BVSlt x y -> fmap SAWExpr $ do
              w <- SC.scNat sc (natValue (bvWidth x))
-             join (SC.scBvSLt sc w <$> f x <*> f y)
+             join (SC.scBvSLt sc w <$> f env x <*> f env y)
         B.BVUlt x y -> fmap SAWExpr $ do
              w <- SC.scNat sc (natValue (bvWidth x))
-             join (SC.scBvULt sc w <$> f x <*> f y)
+             join (SC.scBvULt sc w <$> f env x <*> f env y)
 
         B.BVUnaryTerm{} -> unsupported sym "SAW backend does not support the unary bitvector representation"
 
         B.BVUdiv _ x y -> fmap SAWExpr $ do
            n <- SC.scNat sc (natValue (bvWidth x))
-           join (SC.scBvUDiv sc n <$> f x <*> f y)
+           join (SC.scBvUDiv sc n <$> f env x <*> f env y)
         B.BVUrem _ x y -> fmap SAWExpr $ do
            n <- SC.scNat sc (natValue (bvWidth x))
-           join (SC.scBvURem sc n <$> f x <*> f y)
+           join (SC.scBvURem sc n <$> f env x <*> f env y)
         B.BVSdiv _ x y -> fmap SAWExpr $ do
            n <- SC.scNat sc (natValue (bvWidth x))
-           join (SC.scBvSDiv sc n <$> f x <*> f y)
+           join (SC.scBvSDiv sc n <$> f env x <*> f env y)
         B.BVSrem _ x y -> fmap SAWExpr $ do
            n <- SC.scNat sc (natValue (bvWidth x))
-           join (SC.scBvSRem sc n <$> f x <*> f y)
+           join (SC.scBvSRem sc n <$> f env x <*> f env y)
         B.BVShl _ x y -> fmap SAWExpr $ do
            let w = natValue (bvWidth x)
            n <- SC.scNat sc w
-           join (SC.scBvShl sc n <$> f x <*> (SC.scBvToNat sc w =<< f y))
+           join (SC.scBvShl sc n <$> f env x <*> (SC.scBvToNat sc w =<< f env y))
         B.BVLshr _ x y -> fmap SAWExpr $ do
            let w = natValue (bvWidth x)
            n <- SC.scNat sc w
-           join (SC.scBvShr sc n <$> f x <*> (SC.scBvToNat sc w =<< f y))
+           join (SC.scBvShr sc n <$> f env x <*> (SC.scBvToNat sc w =<< f env y))
         B.BVAshr _ x y -> fmap SAWExpr $ do
            let w = natValue (bvWidth x)
            -- NB: bvSShr applies a `Succ` to its width argument, so we subtract
            --     1 here to make things match up.
            n <- SC.scNat sc (w - 1)
-           join (SC.scBvSShr sc n <$> f x <*> (SC.scBvToNat sc w =<< f y))
+           join (SC.scBvSShr sc n <$> f env x <*> (SC.scBvToNat sc w =<< f env y))
         B.BVRol w x y -> fmap SAWExpr $ do
            n <- SC.scNat sc (natValue w)
            bit <- SC.scBoolType sc
-           x' <- f x
-           y' <- SC.scBvToNat sc (natValue w) =<< f y
+           x' <- f env x
+           y' <- SC.scBvToNat sc (natValue w) =<< f env y
            SC.scGlobalApply sc (SC.mkIdent SC.preludeName "rotateL") [n,bit,x',y']
         B.BVRor w x y -> fmap SAWExpr $ do
            n <- SC.scNat sc (natValue w)
            bit <- SC.scBoolType sc
-           x' <- f x
-           y' <- SC.scBvToNat sc (natValue w) =<< f y
+           x' <- f env x
+           y' <- SC.scBvToNat sc (natValue w) =<< f env y
            SC.scGlobalApply sc (SC.mkIdent SC.preludeName "rotateR") [n,bit,x',y']
         B.BVConcat _ x y -> fmap SAWExpr $ do
            n <- SC.scNat sc (natValue (bvWidth x))
            m <- SC.scNat sc (natValue (bvWidth y))
            t <- SC.scBoolType sc
-           join (SC.scAppend sc t n m <$> f x <*> f y)
+           join (SC.scAppend sc t n m <$> f env x <*> f env y)
         B.BVSelect start num x -> fmap SAWExpr $ do
            i <- SC.scNat sc (natValue (bvWidth x) - natValue num - natValue start)
            n <- SC.scNat sc (natValue num)
            o <- SC.scNat sc (natValue start)
            t <- SC.scBoolType sc
-           x' <- f x
+           x' <- f env x
            SC.scSlice sc t i n o x'
         B.BVZext w' x -> fmap SAWExpr $ do
           let w = bvWidth x
           n <- SC.scNat sc (natValue w)
           m <- SC.scNat sc (natValue w' - natValue w)
-          x' <- f x
+          x' <- f env x
           SC.scBvUExt sc m n x'
         B.BVSext w' x -> fmap SAWExpr $ do
           let w = bvWidth x
           -- NB: width - 1 to make SAWCore types work out
           n <- SC.scNat sc (natValue w - 1)
           m <- SC.scNat sc (natValue w' - natValue w)
-          x' <- f x
+          x' <- f env x
           SC.scBvSExt sc m n x'
         B.BVPopcount w x ->
           do n  <- SC.scNat sc (natValue w)
-             x' <- f x
+             x' <- f env x
              SAWExpr <$> SC.scBvPopcount sc n x'
         B.BVCountLeadingZeros w x ->
           do n  <- SC.scNat sc (natValue w)
-             x' <- f x
+             x' <- f env x
              SAWExpr <$> SC.scBvCountLeadingZeros sc n x'
         B.BVCountTrailingZeros w x ->
           do n  <- SC.scNat sc (natValue w)
-             x' <- f x
+             x' <- f env x
              SAWExpr <$> SC.scBvCountTrailingZeros sc n x'
 
         B.ArrayMap indexTypes range updates arr ->
@@ -1020,107 +1033,107 @@ evaluateExpr sym sc cache = f
                -- Make vector table if it would be sufficiently (1/2) full.
                True ->
                  do elemTy <- baseSCType sym sc range
-                    arr' <- eval arr
+                    arr' <- eval env arr
                     let mkElem idxs =
                           termOfSAWExpr sym sc =<<
                           case Map.lookup idxs m of
-                            Just x -> eval x
+                            Just x -> eval env x
                             Nothing ->
                               do idxs' <- traverseFC (evalIndexLit sc) idxs
                                  applyArray sym sc arr' idxs'
                     table <- makeTable sc maxidx mkElem elemTy
-                    makeArray sym sc indexTypes $ \vars ->
+                    makeArray sym sc indexTypes env $ \_ vars ->
                       do fallback <- applyArray sym sc arr' vars
                          applyTable sym sc table maxidx vars elemTy fallback
                -- If table would be too sparse, treat as repeated updates.
                False ->
-                 makeArray sym sc indexTypes $ \vars ->
-                 do arr' <- eval arr
+                 makeArray sym sc indexTypes env $ \env' vars ->
+                 do arr' <- eval env arr
                     fallback <- applyArray sym sc arr' vars
                     let upd fb (idxs, x) =
                           do idxs' <- traverseFC (evalIndexLit sc) idxs
-                             x' <- eval x
+                             x' <- eval env' x
                              p <- scAllEq sym sc indexTypes vars idxs'
                              scIte sym sc range p x' fb
                     foldM upd fallback (Map.assocs m)
 
         B.ConstantArray indexTypes _range v ->
-          makeArray sym sc indexTypes $ \_ -> eval v
+          makeArray sym sc indexTypes env $ \env' _ -> eval env' v
 
         B.SelectArray _ arr indexTerms ->
-          do arr' <- eval arr
-             xs <- traverseFC eval indexTerms
+          do arr' <- eval env arr
+             xs <- traverseFC (eval env) indexTerms
              applyArray sym sc arr' xs
 
 
         B.UpdateArray range indexTypes arr indexTerms v ->
-          makeArray sym sc indexTypes $ \vars ->
-          do idxs <- traverseFC eval indexTerms
+          makeArray sym sc indexTypes env $ \env' vars ->
+          do idxs <- traverseFC (eval env) indexTerms
              p <- scAllEq sym sc indexTypes vars idxs
-             v' <- eval v
-             arr' <- eval arr
+             v' <- eval env' v
+             arr' <- eval env' arr
              x <- applyArray sym sc arr' vars
              scIte sym sc range p v' x
 
-        B.NatToInteger x -> NatToIntSAWExpr <$> eval x
+        B.NatToInteger x -> NatToIntSAWExpr <$> eval env x
         B.IntegerToNat x ->
-           eval x >>= \case
+           eval env x >>= \case
              NatToIntSAWExpr z -> return z
              SAWExpr z -> SAWExpr <$> (SC.scIntToNat sc z)
 
         B.NatDiv x y ->
-          do x' <- f x
-             y' <- f y
+          do x' <- f env x
+             y' <- f env y
              SAWExpr <$> SC.scDivNat sc x' y'
 
         B.NatMod x y ->
-          do x' <- f x
-             y' <- f y
+          do x' <- f env x
+             y' <- f env y
              SAWExpr <$> SC.scModNat sc x' y'
 
         B.IntDiv x y ->
-          do x' <- f x
-             y' <- f y
+          do x' <- f env x
+             y' <- f env y
              SAWExpr <$> SC.scIntDiv sc x' y'
         B.IntMod x y ->
-          do x' <- f x
-             y' <- f y
+          do x' <- f env x
+             y' <- f env y
              SAWExpr <$> SC.scIntMod sc x' y'
         B.IntAbs x ->
-          eval x >>= \case
+          eval env x >>= \case
             NatToIntSAWExpr z -> return (NatToIntSAWExpr z)
             SAWExpr z -> SAWExpr <$> (SC.scIntAbs sc z)
 
         B.IntDivisible x 0 ->
-          do x' <- f x
+          do x' <- f env x
              SAWExpr <$> (SC.scIntEq sc x' =<< SC.scIntegerConst sc 0)
         B.IntDivisible x k ->
-          do x' <- f x
+          do x' <- f env x
              k' <- SC.scIntegerConst sc (toInteger k)
              z  <- SC.scIntMod sc x' k'
              SAWExpr <$> (SC.scIntEq sc z =<< SC.scIntegerConst sc 0)
 
         B.BVToNat x ->
           let n = natValue (bvWidth x) in
-          SAWExpr <$> (SC.scBvToNat sc n =<< f x)
+          SAWExpr <$> (SC.scBvToNat sc n =<< f env x)
 
         B.IntegerToBV x w ->
           do n <- SC.scNat sc (natValue w)
-             SAWExpr <$> (SC.scIntToBv sc n =<< f x)
+             SAWExpr <$> (SC.scIntToBv sc n =<< f env x)
 
         B.BVToInteger x ->
           do n <- SC.scNat sc (natValue (bvWidth x))
-             SAWExpr <$> (SC.scBvToInt sc n =<< f x)
+             SAWExpr <$> (SC.scBvToInt sc n =<< f env x)
 
         B.SBVToInteger x ->
           do n <- SC.scNat sc (natValue (bvWidth x))
-             SAWExpr <$> (SC.scSbvToInt sc n =<< f x)
+             SAWExpr <$> (SC.scSbvToInt sc n =<< f env x)
 
         -- Proper support for real and complex numbers will require additional
         -- work on the SAWCore side
-        B.IntegerToReal x -> IntToRealSAWExpr . SAWExpr <$> f x
+        B.IntegerToReal x -> IntToRealSAWExpr . SAWExpr <$> f env x
         B.RealToInteger x ->
-          eval x >>= \case
+          eval env x >>= \case
             IntToRealSAWExpr x' -> return x'
             _ -> realFail
 
