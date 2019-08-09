@@ -238,10 +238,10 @@ declare_overrides =
   , basic_llvm_override Libc.llvmPrintfChkOverride
   , basic_llvm_override Libc.llvmPutsOverride
   , basic_llvm_override Libc.llvmPutCharOverride
-  , basic_llvm_override Libc.llvmGetenv
+  , basic_llvm_override Libc.llvmGetenvOverride
 
-  , basic_llvm_override Libc.cxa_atexit
-  , basic_llvm_override Libc.posixMemalign
+  , basic_llvm_override Libc.cxa_atexitOverride
+  , basic_llvm_override Libc.posixMemalignOverride
 
   -- C++ standard library functions
   , Libcxx.register_cpp_override Libcxx.endlOverride

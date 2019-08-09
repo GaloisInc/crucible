@@ -308,14 +308,14 @@ llvmMallocOverride =
   PtrRepr
   (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
 
-posixMemalign ::
+posixMemalignOverride ::
   (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
   LLVMOverride p sym arch
       (EmptyCtx ::> LLVMPointerType wptr
                 ::> BVType wptr
                 ::> BVType wptr)
       (BVType 32)
-posixMemalign =
+posixMemalignOverride =
   let nm = "posix_memalign" in
   LLVMOverride
   ( L.Declare
@@ -490,7 +490,7 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
      symbolicBranches emptyRegMap
        -- If the pointer is null, behave like malloc
        [ ( ptrNull
-         , modifyGlobal mvar $ \mem -> liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment 
+         , modifyGlobal mvar $ \mem -> liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
          , Nothing
          )
 
@@ -524,7 +524,7 @@ callPosixMemalign
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
 callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz) =
   case asUnsignedBV align of
-    Nothing -> fail $ unwords ["posix_memalign: alignment valuem must be concrete:", show (printSymExpr align)]
+    Nothing -> fail $ unwords ["posix_memalign: alignment value must be concrete:", show (printSymExpr align)]
     Just concrete_align ->
       case toAlignment (toBytes concrete_align) of
         Nothing -> fail $ unwords ["posix_memalign: invalid alignment value:", show concrete_align]
@@ -851,12 +851,12 @@ llvmAssertRtnOverride =
           liftIO $ assert sym (falsePred sym) err
   )
 
-llvmGetenv
+llvmGetenvOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
         (EmptyCtx ::> LLVMPointerType wptr)
         (LLVMPointerType wptr)
-llvmGetenv =
+llvmGetenvOverride =
   let nm = "getenv" in
   LLVMOverride
   ( L.Declare
@@ -876,12 +876,12 @@ llvmGetenv =
 ----------------------------------------------------------------------------
 -- atexit stuff
 
-cxa_atexit
+cxa_atexitOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
         (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr ::> LLVMPointerType wptr)
         (BVType 32)
-cxa_atexit =
+cxa_atexitOverride =
   let nm = "__cxa_atexit" in
   LLVMOverride
   ( L.Declare
