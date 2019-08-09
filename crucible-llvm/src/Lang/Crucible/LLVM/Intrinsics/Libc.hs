@@ -489,36 +489,27 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
      ptrNull <- liftIO (ptrIsNull sym PtrWidth ptr)
      symbolicBranches emptyRegMap
        -- If the pointer is null, behave like malloc
-       [ (ptrNull
-         , do mem <- readGlobal mvar
-              (newp, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-              writeGlobal mvar mem'
-              return newp
-         ,
-         Nothing)
+       [ ( ptrNull
+         , modifyGlobal mvar $ \mem -> liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment 
+         , Nothing
+         )
 
        -- If the size is zero, behave like malloc (of zero bytes) then free
        , (szZero
-         , do mem <- readGlobal mvar
-              (newp, mem') <- liftIO $
-                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-                   mem2 <- doFree sym mem1 ptr
-                   return (newp, mem2)
-              writeGlobal mvar mem'
-              return newp
+         , modifyGlobal mvar $ \mem -> liftIO $
+              do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
+                 mem2 <- doFree sym mem1 ptr
+                 return (newp, mem2)
          , Nothing
          )
 
        -- Otherwise, allocate a new region, memcopy `sz` bytes and free the old pointer
        , (truePred sym
-         , do mem  <- readGlobal mvar
-              (newp, mem') <- liftIO $
-                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-                   mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
-                   mem3 <- doFree sym mem2 ptr
-                   return (newp, mem3)
-              writeGlobal mvar mem'
-              return newp
+         , modifyGlobal mvar $ \mem -> liftIO $
+              do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
+                 mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
+                 mem3 <- doFree sym mem2 ptr
+                 return (newp, mem3)
          , Nothing)
        ]
 
@@ -532,19 +523,19 @@ callPosixMemalign
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
 callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz) =
-  case asUnsignedBV align >>= toAlignment . toBytes of
-    Nothing -> fail $ unwords ["posix_memalign: invalid alignment value:", show (printSymExpr align)]
-    Just a ->
-      do let dl = llvmDataLayout ?lc
-
-         mem <- readGlobal mvar
-         mem'' <- liftIO $
-           do loc <- plSourceLoc <$> getCurrentProgramLoc sym
-              (p, mem') <- doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz a
-              storeRaw sym mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
-         writeGlobal mvar mem''
-
-         liftIO $ bvLit sym knownNat 0
+  case asUnsignedBV align of
+    Nothing -> fail $ unwords ["posix_memalign: alignment valuem must be concrete:", show (printSymExpr align)]
+    Just concrete_align ->
+      case toAlignment (toBytes concrete_align) of
+        Nothing -> fail $ unwords ["posix_memalign: invalid alignment value:", show concrete_align]
+        Just a ->
+          let dl = llvmDataLayout ?lc in
+          modifyGlobal mvar $ \mem -> liftIO $
+             do loc <- plSourceLoc <$> getCurrentProgramLoc sym
+                (p, mem') <- doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz a
+                mem'' <- storeRaw sym mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
+                z <- bvLit sym knownNat 0
+                return (z, mem'')
 
 callMalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -553,14 +544,10 @@ callMalloc
   -> Alignment
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callMalloc sym mvar alignment (regValue -> sz) = do
-  --liftIO $ putStrLn "MEM MALLOC"
-  mem <- readGlobal mvar
-  loc <- liftIO $ plSourceLoc <$> getCurrentProgramLoc sym
-  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz alignment
-  writeGlobal mvar mem'
-  return p
-
+callMalloc sym mvar alignment (regValue -> sz) =
+  modifyGlobal mvar $ \mem -> liftIO $
+    do loc <- plSourceLoc <$> getCurrentProgramLoc sym
+       doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz alignment
 
 callCalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -572,13 +559,9 @@ callCalloc
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
 callCalloc sym mvar alignment
            (regValue -> sz)
-           (regValue -> num) = do
-  --liftIO $ putStrLn "MEM CALLOC"
-  mem <- readGlobal mvar
-  (p, mem') <- liftIO $ doCalloc sym mem sz num alignment
-  writeGlobal mvar mem'
-  return p
-
+           (regValue -> num) =
+  modifyGlobal mvar $ \mem -> liftIO $
+    doCalloc sym mem sz num alignment
 
 callFree
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -587,11 +570,10 @@ callFree
   -> RegEntry sym (LLVMPointerType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret ()
 callFree sym mvar
-           (regValue -> ptr) = do
-  --liftIO $ putStrLn "MEM FREE"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doFree sym mem ptr
-  writeGlobal mvar mem'
+           (regValue -> ptr) =
+  modifyGlobal mvar $ \mem -> liftIO $
+    do mem' <- doFree sym mem ptr
+       return ((), mem')
 
 ------------------------------------------------------------------------
 -- *** Memory manipulation
@@ -609,13 +591,11 @@ callMemcpy sym mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
-           _volatile = do
-  -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM COPY"
-  mem <- readGlobal mvar
-  liftIO $ assertDisjointRegions sym w dest src len
-  mem' <- liftIO $ doMemcpy sym w mem dest src len
-  writeGlobal mvar mem'
+           _volatile =
+  modifyGlobal mvar $ \mem -> liftIO $
+    do assertDisjointRegions sym w dest src len
+       mem' <- doMemcpy sym w mem dest src len
+       return ((), mem')
 
 -- NB the only difference between memcpy and memove
 -- is that memmove does not assert that the memory
@@ -634,12 +614,11 @@ callMemmove sym mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
-           _volatile = do
+           _volatile =
   -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM MOVE"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doMemcpy sym w mem dest src len
-  writeGlobal mvar mem'
+  modifyGlobal mvar $ \mem -> liftIO $
+    do mem' <- doMemcpy sym w mem dest src len
+       return ((), mem')
 
 callMemset
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -654,12 +633,10 @@ callMemset sym mvar
            (regValue -> dest)
            (regValue -> val)
            (RegEntry (BVRepr w) len)
-           _volatile = do
-  -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM SET"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doMemset sym w mem dest val len
-  writeGlobal mvar mem'
+           _volatile =
+  modifyGlobal mvar $ \mem -> liftIO $
+    do mem' <- doMemset sym w mem dest val len
+       return ((), mem')
 
 ------------------------------------------------------------------------
 -- *** Strings and I/O
