@@ -1,25 +1,6 @@
+extern crate crucible;
+use crucible::*;
 
-// ----------------------------------------------------------------------
-#[allow(unused_variables)]
-fn crucible_u64(x: &'static str) -> u64 {
-    // The internal test override returns 1 from this instead of 2
-    2
-}
-#[allow(unused_variables)]
-fn crucible_assert_impl(
-    cond: bool,
-    cond_str: &'static str,
-    file: &'static str,
-    line: u32,
-    col: u32,
-) -> () {
-    ()
-}
-macro_rules! crucible_assert {
-    ($e:expr) => {
-        crucible_assert_impl($e, stringify!($e), file!(), line!(), column!())
-    };
-}
 // ----------------------------------------------------------------------
 pub fn zero() -> [u64;5] {
     [0,0,0,0,0]
