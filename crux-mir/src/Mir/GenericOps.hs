@@ -74,13 +74,6 @@ makeLenses ''ATInfo
 -- 
 class GenericOps a where
 
-  -- | Crawl over the AST and rename the module that defIds live in.
-  -- We need this because we are loading our own variant of the standard
-  -- library, but all of the definitions there will have the wrong name.
-  relocate :: a -> a
-  default relocate :: (Generic a, GenericOps' (Rep a)) => a -> a
-  relocate x = to (relocate' (from x))
-
   -- | Find all C-style Adts in the AST and convert them to Custom (CEnum _)
   markCStyle :: (Map DefId Adt,Collection) -> a -> a 
   default markCStyle :: (Generic a, GenericOps' (Rep a)) => (Map DefId Adt,Collection) -> a -> a
@@ -309,7 +302,7 @@ abstractATs_Ty ati (TyParam i)
     
 abstractATs_Ty ati ty@(TyProjection d substs)
     -- hacky case for FnOnce::Output
-    | d == (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]")    
+    | d == (textId "::core[0]::ops[0]::function[0]::FnOnce[0]::Output[0]")    
     = TyProjection d <$> abstractATs ati substs
     
     -- associated type, replace with new param    
@@ -518,7 +511,6 @@ instance GenericOps Predicate where
                                                        
 -- special case for DefIds
 instance GenericOps DefId where
-  relocate          = id
   markCStyle _      = id
   tySubst    _      = id
   replaceVar _ _    = id
@@ -645,7 +637,6 @@ instance GenericOps Predicates
 -- *** Instances for Prelude types                 
 
 instance GenericOps Int     where
-   relocate   = id
    markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
@@ -654,7 +645,6 @@ instance GenericOps Int     where
    abstractATs = const pure
    modifyPreds = const id
 instance GenericOps Integer where
-   relocate = id
    markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
@@ -663,7 +653,6 @@ instance GenericOps Integer where
    abstractATs = const pure  
    modifyPreds = const id   
 instance GenericOps Char    where
-   relocate = id
    markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
@@ -672,7 +661,6 @@ instance GenericOps Char    where
    abstractATs = const pure
    modifyPreds = const id   
 instance GenericOps Bool    where
-   relocate = id
    markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
@@ -682,7 +670,6 @@ instance GenericOps Bool    where
    modifyPreds = const id
    
 instance GenericOps Text    where
-   relocate = id
    markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
@@ -692,7 +679,6 @@ instance GenericOps Text    where
    modifyPreds = const id
    
 instance GenericOps B.ByteString where
-   relocate = id
    markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
@@ -702,7 +688,6 @@ instance GenericOps B.ByteString where
    modifyPreds = const id
    
 instance GenericOps b => GenericOps (Map.Map a b) where
-   relocate          = Map.map relocate 
    markCStyle s      = Map.map (markCStyle s)
    tySubst s         = Map.map (tySubst s)
    replaceVar o n    = Map.map (replaceVar o n)
@@ -715,7 +700,6 @@ instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)
 instance (GenericOps a, GenericOps b) => GenericOps (a,b)
 instance GenericOps a => GenericOps (Vector a) where
-   relocate          = V.map relocate 
    markCStyle s      = V.map (markCStyle s)
    tySubst s         = V.map (tySubst s)
    replaceVar o n    = V.map (replaceVar o n)
@@ -736,7 +720,6 @@ replaceList ((old,new) : vs) a = replaceList vs $ replaceLvalue old new a
 -- ** Generic programming plumbing
 
 class GenericOps' f where
-  relocate'      :: f p -> f p
   markCStyle'    :: (Map.Map DefId Adt,Collection) -> f p -> f p
   tySubst'       :: Substs -> f p -> f p 
   replaceVar'    :: Var -> Var -> f p -> f p
@@ -746,7 +729,6 @@ class GenericOps' f where
   modifyPreds'   :: RUPInfo -> f p -> f p
   
 instance GenericOps' V1 where
-  relocate' _x      = error "impossible: this is a void type"
   markCStyle' _ _x  = error "impossible: this is a void type"
   tySubst' _ _      = error "impossible: this is a void type"
   replaceVar' _ _ _ = error "impossible: this is a void type"
@@ -756,8 +738,6 @@ instance GenericOps' V1 where
   modifyPreds' _  = error "impossible: this is a void type"
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
-  relocate'     (L1 x) = L1 (relocate' x)
-  relocate'     (R1 x) = R1 (relocate' x)
   markCStyle' s (L1 x) = L1 (markCStyle' s x)
   markCStyle' s (R1 x) = R1 (markCStyle' s x)
   tySubst'    s (L1 x) = L1 (tySubst' s x)
@@ -774,7 +754,6 @@ instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
   modifyPreds' s (R1 x) = R1 (modifyPreds' s x)
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
-  relocate'       (x :*: y) = relocate'   x     :*: relocate' y
   markCStyle' s   (x :*: y) = markCStyle'   s x :*: markCStyle' s y
   tySubst'    s   (x :*: y) = tySubst'      s x :*: tySubst'    s y
   replaceVar' o n (x :*: y) = replaceVar' o n x :*: replaceVar' o n y
@@ -784,7 +763,6 @@ instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
   modifyPreds' s (x :*: y) = modifyPreds' s x :*: modifyPreds' s y  
 
 instance (GenericOps c) => GenericOps' (K1 i c) where
-  relocate'     (K1 x) = K1 (relocate x)
   markCStyle' s (K1 x) = K1 (markCStyle s x)
   tySubst'    s (K1 x) = K1 (tySubst s x)
   replaceVar' o n (K1 x) = K1 (replaceVar o n x)
@@ -794,7 +772,6 @@ instance (GenericOps c) => GenericOps' (K1 i c) where
   modifyPreds'    s (K1 x) = K1 (modifyPreds s x)
   
 instance (GenericOps' f) => GenericOps' (M1 i t f) where
-  relocate'     (M1 x) = M1 (relocate' x)
   markCStyle' s (M1 x) = M1 (markCStyle' s x)
   tySubst'    s (M1 x) = M1 (tySubst' s x)
   replaceVar' o n (M1 x) = M1 (replaceVar' o n x)
@@ -804,7 +781,6 @@ instance (GenericOps' f) => GenericOps' (M1 i t f) where
   modifyPreds' s (M1 x) = M1 (modifyPreds' s x)  
   
 instance (GenericOps' U1) where
-  relocate'      U1 = U1
   markCStyle' _s U1 = U1
   tySubst'    _s U1 = U1
   replaceVar' _ _ U1 = U1

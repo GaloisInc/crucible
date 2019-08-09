@@ -15,7 +15,11 @@ extern crate core;
 //use core::fmt::Debug;
 use std::ops::{Index, IndexMut};
 
-use self::int512::Int512;
+extern crate crucible;
+use crucible::*;
+
+extern crate int512;
+use int512::Int512;
 
 
 impl From<Scalar64> for Int512 {
@@ -39,27 +43,6 @@ impl From<Int512> for Scalar64 {
     }
 }
 
-impl From<[u8; 32]> for Int512 {
-    fn from(x: [u8; 32]) -> Int512 {
-        let mut acc = Int512::from(0_i32);
-        for i in 0..5 {
-            acc = acc.bitor(Int512::from(x[i]).shl(8 * i as u32));
-        }
-        acc
-    }
-}
-
-impl From<Int512> for [u8; 32] {
-    fn from(x: Int512) -> [u8; 32] {
-        let mut acc = [0; 32];
-        let mask: Int512 = Int512::from((1_u64 << 8) - 1);
-        for i in 0..32 {
-            acc[i] = u8::from(x.shr(8 * i as u32).bitand(mask));
-        }
-        acc
-    }
-}
-
 pub fn L() -> Int512 {
     Int512::from(1_i32).shl(252).add(
         Int512::from(0x5812631a5cf5d3ed_u64)
@@ -71,51 +54,15 @@ pub fn is_valid(x: Int512) -> bool {
     Int512::from(0_i32) <= x && x < L()
 }
 
-fn crucible_u64(_x: &'static str) -> u64 { unimplemented!() }
-
 macro_rules! crucible_scalar64 {
     ($desc:expr) => {
         Scalar64([
-            $crate::crucible_u64(concat!($desc, "_0")),
-            $crate::crucible_u64(concat!($desc, "_1")),
-            $crate::crucible_u64(concat!($desc, "_2")),
-            $crate::crucible_u64(concat!($desc, "_3")),
-            $crate::crucible_u64(concat!($desc, "_4")),
+            ::crucible::crucible_u64(concat!($desc, "_0")),
+            ::crucible::crucible_u64(concat!($desc, "_1")),
+            ::crucible::crucible_u64(concat!($desc, "_2")),
+            ::crucible::crucible_u64(concat!($desc, "_3")),
+            ::crucible::crucible_u64(concat!($desc, "_4")),
         ])
-    };
-}
-
-#[allow(unused_variables)]
-fn crucible_assert_impl(
-    cond: bool,
-    cond_str: &'static str,
-    file: &'static str,
-    line: u32,
-    col: u32,
-) -> () {
-    ()
-}
-
-#[allow(unused_variables)]
-fn crucible_assume_impl(
-    cond: bool,
-    cond_str: &'static str,
-    file: &'static str,
-    line: u32,
-    col: u32,
-) -> () {
-    ()
-}
-
-macro_rules! crucible_assert {
-    ($e:expr) => {
-        crucible_assert_impl($e, stringify!($e), file!(), line!(), column!())
-    };
-}
-
-macro_rules! crucible_assume {
-    ($e:expr) => {
-        crucible_assume_impl($e, stringify!($e), file!(), line!(), column!())
     };
 }
 
@@ -551,120 +498,4 @@ impl Scalar64 {
         Scalar64::montgomery_reduce(&limbs)
     }
     */
-}
-
-
-
-
-mod int512 {
-    use core::ops::{Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr};
-    use core::cmp::{Ord, PartialOrd, Ordering};
-
-    #[derive(Copy)]
-    pub struct Int512 {}
-
-    pub fn clone(_i: &Int512) -> Int512 { unimplemented!() }
-    impl Clone for Int512 {
-        fn clone(&self) -> Int512 { clone(self) }
-    }
-
-    pub fn symbolic(_x: &'static str) -> Int512 { unimplemented!() }
-    impl Int512 {
-        pub fn symbolic(x: &'static str) -> Int512 { symbolic(x) }
-    }
-
-    macro_rules! binop {
-        ($Op:ident, $op:ident) => {
-            pub fn $op(_x: Int512, _y: Int512) -> Int512 { unimplemented!() }
-
-            impl Int512 {
-                pub fn $op(self, other: Int512) -> Int512 { $op(self, other) }
-            }
-
-            /*
-            impl $Op<Int512> for Int512 {
-                type Output = Int512;
-                fn $op(self, other: Int512) -> Int512 { $op(self, other) }
-            }
-            */
-        };
-    }
-    binop!(Add, add);
-    binop!(Sub, sub);
-    binop!(Mul, mul);
-    binop!(Div, div);
-    binop!(Rem, rem);
-    binop!(BitAnd, bitand);
-    binop!(BitOr, bitor);
-    binop!(BitXor, bitxor);
-
-    macro_rules! shift_op {
-        ($Op:ident, $op:ident) => {
-            pub fn $op(_x: Int512, _bits: u32) -> Int512 { unimplemented!() }
-
-            impl Int512 {
-                pub fn $op(self, bits: u32) -> Int512 { $op(self, bits) }
-            }
-
-            /*
-            impl $Op<u32> for Int512 {
-                type Output = Int512;
-                fn $op(self, bits: u32) -> Int512 { $op(self, bits) }
-            }
-            */
-        };
-    }
-    shift_op!(Shl, shl);
-    shift_op!(Shr, shr);
-
-    pub fn eq(_x: Int512, _y: Int512) -> bool { unimplemented!() }
-    impl PartialEq for Int512 {
-        fn eq(&self, other: &Int512) -> bool { eq(*self, *other) }
-        fn ne(&self, other: &Int512) -> bool { !eq(*self, *other) }
-    }
-    impl Eq for Int512 {}
-
-    pub fn lt(_x: Int512, _y: Int512) -> bool { unimplemented!() }
-    impl PartialOrd for Int512 {
-        fn partial_cmp(&self, other: &Int512) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-    impl Ord for Int512 {
-        fn cmp(&self, other: &Int512) -> Ordering {
-            if eq(*self, *other) { Ordering::Equal }
-            else if lt(*self, *other) { Ordering::Less }
-            else { Ordering::Greater }
-        }
-    }
-
-    macro_rules! prim_cast {
-        ($Prim:ident) => {
-            pub mod $Prim {
-                use super::Int512;
-                pub fn from_prim(_x: $Prim) -> Int512 { unimplemented!() }
-                pub fn as_prim(_x: Int512) -> $Prim { unimplemented!() }
-            }
-
-            impl From<$Prim> for Int512 {
-                fn from(x: $Prim) -> Int512 { self::$Prim::from_prim(x) }
-            }
-
-            impl From<Int512> for $Prim {
-                fn from(x: Int512) -> $Prim { self::$Prim::as_prim(x) }
-            }
-        };
-    }
-    prim_cast!(u8);
-    prim_cast!(u16);
-    prim_cast!(u32);
-    prim_cast!(u64);
-    prim_cast!(u128);
-    prim_cast!(usize);
-    prim_cast!(i8);
-    prim_cast!(i16);
-    prim_cast!(i32);
-    prim_cast!(i64);
-    prim_cast!(i128);
-    prim_cast!(isize);
 }

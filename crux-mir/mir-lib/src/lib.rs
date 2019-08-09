@@ -1,4 +1,5 @@
 #![crate_type = "lib"]
+#![crate_name = "core"]
 #![no_std]
 #![feature(core_intrinsics)]
 #![feature(doc_alias)]

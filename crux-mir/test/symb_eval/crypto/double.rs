@@ -1,29 +1,6 @@
-// ----------------------------------------------------------------------
-#[allow(unused_variables)]
-fn crucible_u32(x: &'static str) -> u32 {
-    2
-}
+extern crate crucible;
+use crucible::*;
 
-#[allow(unused_variables)]
-fn crucible_i32(x: &'static str) -> i32 {
-    2
-}
-
-#[allow(unused_variables)]
-fn crucible_assert_impl(
-    cond: bool,
-    cond_str: &'static str,
-    file: &'static str,
-    line: u32,
-    col: u32,
-) -> () {
-    ()
-}
-macro_rules! crucible_assert {
-    ($e:expr) => {
-        crucible_assert_impl($e, stringify!($e), file!(), line!(), column!())
-    };
-}
 // ----------------------------------------------------------------------
 
 

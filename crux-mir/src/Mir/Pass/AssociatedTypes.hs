@@ -144,9 +144,9 @@ atsFromPreds ati preds = atys where
 
 -- Traits that we should never add associated types for
 noAssoc :: [DefId]
-noAssoc = [textId "::ops[0]::function[0]::FnOnce[0]",
-           textId "::ops[0]::function[0]::Fn[0]",
-           textId "::ops[0]::function[0]::FnMut[0]" ]
+noAssoc = [textId "::core[0]::ops[0]::function[0]::FnOnce[0]",
+           textId "::core[0]::ops[0]::function[0]::Fn[0]",
+           textId "::core[0]::ops[0]::function[0]::FnMut[0]" ]
 
 
 -- | Extract Raw ATs from the predicates
@@ -189,7 +189,7 @@ calcTraitAssocTys trs = go (Map.elems trs) Map.empty where
         -- trait names mentioned in this trait's predicates
         refs    = filter (not . (== tr^.traitName)) (concat (map predRef (tr^.traitPredicates)))
         -- 1. ATs from type items
-        atItems = map (,subst) [ did | (TraitType did) <- tr^.traitItems, did /= textId "::ops[0]::function[0]::FnOnce[0]::Output[0]" ]
+        atItems = map (,subst) [ did | (TraitType did) <- tr^.traitItems, did /= textId "::core[0]::ops[0]::function[0]::FnOnce[0]::Output[0]" ]
         subst   = Substs [ TyParam (toInteger i)
                           | i <- [0 .. (length (tr^.traitParams) - 1)] ]
         -- 2. ATs from predicate mentions
@@ -302,7 +302,7 @@ implATDict col = go (col^.impls) mempty where
 -- For various *concrete* function types
 closureATDict :: HasCallStack => Collection -> ATDict
 closureATDict col =
-  singletonATDict (textId "::ops[0]::function[0]::FnOnce[0]::Output[0]")
+  singletonATDict (textId "::core[0]::ops[0]::function[0]::FnOnce[0]::Output[0]")
      (\ substs -> case substs of
          Substs [TyClosure fname _ss, cty] ->
            case (col^.functions) Map.!? fname of
@@ -326,18 +326,18 @@ closureATDict col =
 indexATDict :: HasCallStack => ATDict
 indexATDict =
   (mconcat
-   [singletonATDict (textId "::ops[0]::index[0]::Index[0]::Output[0]")
+   [singletonATDict (textId "::core[0]::ops[0]::index[0]::Index[0]::Output[0]")
     (\ substs -> case substs of
         Substs [TySlice elt, ii]
-          -> Just (TyProjection (textId "::slice[0]::SliceIndex[0]::Output[0]") (Substs [ii, TySlice elt]))
+          -> Just (TyProjection (textId "::core[0]::slice[0]::SliceIndex[0]::Output[0]") (Substs [ii, TySlice elt]))
         Substs _ ->
           Nothing)
     
-  , singletonATDict (textId "::iter[0]::iterator[0]::Iterator[0]::Item[0]")
+  , singletonATDict (textId "::core[0]::iter[0]::iterator[0]::Iterator[0]::Item[0]")
     (\ substs ->
        case substs of 
         Substs [TyAdt did (Substs [lifetime,param])]
-          | did == textId "::slice[0]::::IterMut[0]"
+          | did == textId "::core[0]::slice[0]::::IterMut[0]"
           -> Just (TyRef param Mut)
           
         Substs _ ->

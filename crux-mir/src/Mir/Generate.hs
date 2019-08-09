@@ -61,20 +61,22 @@ import Debug.Trace
 generateMIR :: (HasCallStack, ?debug::Int) =>
                FilePath          -- ^ location of input file
             -> String            -- ^ file to processes, without extension
+            -> Bool              -- ^ `True` to keep the generated .rlib
             -> IO Collection
-generateMIR dir name  = do
-  
+generateMIR dir name keepRlib = do
+
   let rustFile = dir </> name <.> "rs"
   let mirFile  = dir </> name <.> "mir"
-  
+
   doesFileExist rustFile >>= \case
     True -> return ()
     False -> fail $ "Cannot read " ++ rustFile 
 
   rustModTime <- getModificationTime rustFile
 
+  -- TODO: don't hardcode -L library path
   let runMirJSON = do (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-                                    [rustFile, "--crate-type", "lib"] ""
+                                    [rustFile, "--crate-type", "lib", "-L", "."] ""
                       return ec
 
   ec <- doesFileExist mirFile >>= \case 
@@ -88,10 +90,11 @@ generateMIR dir name  = do
     ExitFailure cd -> fail $ "Error " ++ show cd ++ " while running mir-json on " ++ dir ++ name
     ExitSuccess    -> return ()
 
-  let rlibFile = ("lib" ++ name) <.> "rlib"
-  doesFileExist rlibFile >>= \case
-    True  -> removeFile rlibFile
-    False -> return ()
+  when (not keepRlib) $ do
+    let rlibFile = ("lib" ++ name) <.> "rlib"
+    doesFileExist rlibFile >>= \case
+      True  -> removeFile rlibFile
+      False -> return ()
 
   f <- B.readFile (dir </> name <.> "mir")
   let c = (J.eitherDecode f) :: Either String Collection
@@ -107,20 +110,29 @@ generateMIR dir name  = do
 
 
 -- | Location of the rust file with the standard library
-libLoc :: String
-libLoc = "mir-lib/src/"
+stdlibLoc :: String
+stdlibLoc = "mir-lib/src/"
+
+customLibLoc :: String
+customLibLoc = "lib/"
 
 -- | load the rs file containing the standard library
 loadPrims :: (?debug::Int) => Bool -> IO Collection
 loadPrims useStdLib = do
 
   -- Same order as in https://github.com/rust-lang/rust/blob/master/src/libcore/prelude/v1.rs  
-  let lib = if useStdLib then "lib" else "lib_func_only"
-  
+  let stdlib = if useStdLib then "lib" else "lib_func_only"
   -- Only print debugging info in the standard library at high debugging levels
-  col <- let ?debug = ?debug - 3 in
-         generateMIR libLoc lib
-    
+  colStdlib <- let ?debug = ?debug - 3 in
+         generateMIR stdlibLoc stdlib False
+
+  -- TODO: need to compile these libs *before* running mir-json on the main file
+  let customLibs = ["crucible", "int512"]
+  colCustoms <- let ?debug = ?debug - 3 in
+         mapM (\libName -> generateMIR customLibLoc libName True) customLibs
+
+  let col = mconcat $ colStdlib : colCustoms
+
   when (?debug > 6) $ do
     traceM "--------------------------------------------------------------"
     traceM $ "Complete Collection: "

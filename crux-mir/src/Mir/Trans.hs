@@ -981,7 +981,7 @@ evalLvalue (M.LProj lv (M.Index i)) = do
            let mir_ty = M.typeOf i in
            case mir_ty of
              M.TyAdt did (Substs [TyUint USize]) 
-               | did == M.textId "::ops[0]::range[0]::RangeFrom[0]" -> do
+               | did == M.textId "::core[0]::ops[0]::range[0]::RangeFrom[0]" -> do
                   -- get the start of the range
                   let astart = (S.getStruct Ctx.i2of2 ind)
                   let indty  = C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr)
@@ -990,7 +990,7 @@ evalLvalue (M.LProj lv (M.Index i)) = do
                   -- create a new slice by modifying the indices of the current one
                   let newSlice = updateSliceLB elt_tp arr start
                   return (MirExp arr_tp newSlice)
-               | did == M.textId "::ops[0]::range[0]::Range[0]" -> do
+               | did == M.textId "::core[0]::ops[0]::range[0]::Range[0]" -> do
                   -- get the start of the range
                   let astart = (S.getStruct Ctx.i2of2 ind)
                   let indty  = C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.NatRepr)
