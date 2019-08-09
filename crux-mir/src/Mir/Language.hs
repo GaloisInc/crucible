@@ -161,7 +161,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
   when (?debug > 2) $
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
 
-  col <- generateMIR dir name
+  col <- generateMIR dir name False
   
   when (onlyPP mirOpts) $ do
     -- TODO: make this exit more gracefully somehow

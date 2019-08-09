@@ -61,20 +61,22 @@ import Debug.Trace
 generateMIR :: (HasCallStack, ?debug::Int) =>
                FilePath          -- ^ location of input file
             -> String            -- ^ file to processes, without extension
+            -> Bool              -- ^ `True` to keep the generated .rlib
             -> IO Collection
-generateMIR dir name  = do
-  
+generateMIR dir name keepRlib = do
+
   let rustFile = dir </> name <.> "rs"
   let mirFile  = dir </> name <.> "mir"
-  
+
   doesFileExist rustFile >>= \case
     True -> return ()
     False -> fail $ "Cannot read " ++ rustFile 
 
   rustModTime <- getModificationTime rustFile
 
+  -- TODO: don't hardcode -L library path
   let runMirJSON = do (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-                                    [rustFile, "--crate-type", "lib"] ""
+                                    [rustFile, "--crate-type", "lib", "-L", "."] ""
                       return ec
 
   ec <- doesFileExist mirFile >>= \case 
@@ -88,10 +90,11 @@ generateMIR dir name  = do
     ExitFailure cd -> fail $ "Error " ++ show cd ++ " while running mir-json on " ++ dir ++ name
     ExitSuccess    -> return ()
 
-  let rlibFile = ("lib" ++ name) <.> "rlib"
-  doesFileExist rlibFile >>= \case
-    True  -> removeFile rlibFile
-    False -> return ()
+  when (not keepRlib) $ do
+    let rlibFile = ("lib" ++ name) <.> "rlib"
+    doesFileExist rlibFile >>= \case
+      True  -> removeFile rlibFile
+      False -> return ()
 
   f <- B.readFile (dir </> name <.> "mir")
   let c = (J.eitherDecode f) :: Either String Collection
@@ -118,9 +121,14 @@ loadPrims useStdLib = do
   let lib = if useStdLib then "lib" else "lib_func_only"
   
   -- Only print debugging info in the standard library at high debugging levels
-  col <- let ?debug = ?debug - 3 in
-         generateMIR libLoc lib
-    
+  colStdlib <- let ?debug = ?debug - 3 in
+         generateMIR libLoc lib True
+  -- TODO: build libcrucible.rlib if it's not present
+  colCrucible <- let ?debug = ?debug - 3 in
+         generateMIR "lib" "crucible" True
+
+  let col = mconcat [colStdlib, colCrucible]
+
   when (?debug > 6) $ do
     traceM "--------------------------------------------------------------"
     traceM $ "Complete Collection: "
