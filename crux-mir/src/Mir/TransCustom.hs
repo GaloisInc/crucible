@@ -169,6 +169,7 @@ customOps = Map.fromList [
                          , exit
                          , abort
                          , panicking_begin_panic
+                         , panicking_panic
 
 
                          , integer_from_u8
@@ -203,6 +204,10 @@ abort = ((["core", "intrinsics"], "abort", []), \s ->
 panicking_begin_panic :: (ExplodedDefId, CustomRHS)
 panicking_begin_panic = ((["std", "panicking"], "begin_panic", []), \s ->
             Just (CustomOpExit $  \ops -> return "panicking::begin_panic"))
+
+panicking_panic :: (ExplodedDefId, CustomRHS)
+panicking_panic = ((["core", "panicking"], "panic", []), \s ->
+            Just (CustomOpExit $  \ops -> return "panicking::panic"))
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Index

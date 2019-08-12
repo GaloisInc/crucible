@@ -109,10 +109,6 @@ generateMIR dir name keepRlib = do
         return col
 
 
--- | Location of the rust file with the standard library
-stdlibLoc :: String
-stdlibLoc = "mir-lib/src/"
-
 customLibLoc :: String
 customLibLoc = "lib/"
 
@@ -120,18 +116,20 @@ customLibLoc = "lib/"
 loadPrims :: (?debug::Int) => Bool -> IO Collection
 loadPrims useStdLib = do
 
-  -- Same order as in https://github.com/rust-lang/rust/blob/master/src/libcore/prelude/v1.rs  
-  let stdlib = if useStdLib then "lib" else "lib_func_only"
+  let coreLib = if useStdLib then "lib" else "lib_func_only"
   -- Only print debugging info in the standard library at high debugging levels
-  colStdlib <- let ?debug = ?debug - 3 in
-         generateMIR stdlibLoc stdlib False
+  colCoreLib <- let ?debug = ?debug - 3 in
+         generateMIR "mir-lib/src/" coreLib False
+
+  colStdLib <- let ?debug = ?debug - 3 in
+         generateMIR "lib/std/" "lib" False
 
   -- TODO: need to compile these libs *before* running mir-json on the main file
   let customLibs = ["crucible", "int512"]
   colCustoms <- let ?debug = ?debug - 3 in
          mapM (\libName -> generateMIR customLibLoc libName True) customLibs
 
-  let col = mconcat $ colStdlib : colCustoms
+  let col = mconcat $ colCoreLib : colStdLib : colCustoms
 
   when (?debug > 6) $ do
     traceM "--------------------------------------------------------------"
