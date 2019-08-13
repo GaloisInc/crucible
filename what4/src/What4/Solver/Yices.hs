@@ -608,7 +608,7 @@ yicesStartSolver features auxOutput sym = do -- FIXME
   yices_path <- findSolverPath yicesPath cfg
   enableMCSat <- getOpt =<< getOptionSetting yicesEnableMCSat cfg
   let args = ["--mode=push-pop", "--print-success"] ++
-             if enableMCSat then ["--mcsat"] else []
+             if enableMCSat then ["--logic=QF_NRA"] else []
       hasNamedAssumptions = features `hasProblemFeature` useUnsatCores ||
                             features `hasProblemFeature` useUnsatAssumptions
   when (enableMCSat && hasNamedAssumptions) $
