@@ -21,7 +21,7 @@ module What4.Utils.Process
 
 import           Control.Exception
 import qualified Data.Map as Map
-import qualified Data.Text as T
+import qualified Data.ByteString.Char8 as BSChar
 import           System.IO
 import           System.Process
 
@@ -40,7 +40,7 @@ resolveSolverPath path = do
 findSolverPath :: ConfigOption BaseStringType -> Config -> IO FilePath
 findSolverPath o cfg =
   do v <- getOpt =<< getOptionSetting o cfg
-     resolveSolverPath (T.unpack v)
+     resolveSolverPath (BSChar.unpack v)
 
 -- | This runs a given external binary, providing the process handle and handles to
 -- input and output to the action.  It takes care to terminate the process if any

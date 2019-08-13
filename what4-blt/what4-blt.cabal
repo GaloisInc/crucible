@@ -19,6 +19,7 @@ library
     base >= 4.7 && < 4.13,
     ansi-wl-pprint,
     blt >= 0.12.1,
+    bytestring,
     containers,
     what4 >= 0.4,
     lens >= 1.2,

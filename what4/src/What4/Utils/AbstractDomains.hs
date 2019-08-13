@@ -87,12 +87,13 @@ module What4.Utils.AbstractDomains
   ) where
 
 import           Control.Exception (assert)
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import           Data.Kind
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio (denominator)
-import           Data.Text (Text)
 import           Numeric.Natural
 
 import           What4.BaseTypes
@@ -592,7 +593,7 @@ type family AbstractValue (tp::BaseType) :: Type where
   AbstractValue BaseNatType = NatValueRange
   AbstractValue BaseIntegerType = ValueRange Integer
   AbstractValue BaseRealType = RealAbstractValue
-  AbstractValue BaseStringType = ()
+  AbstractValue BaseStringType = NatValueRange
   AbstractValue (BaseBVType w) = BVDomain w
   AbstractValue (BaseFloatType _) = ()
   AbstractValue BaseComplexType = Complex RealAbstractValue
@@ -607,7 +608,7 @@ type family ConcreteValue (tp::BaseType) :: Type where
   ConcreteValue BaseNatType = Natural
   ConcreteValue BaseIntegerType = Integer
   ConcreteValue BaseRealType = Rational
-  ConcreteValue BaseStringType = Text
+  ConcreteValue BaseStringType = ByteString
   ConcreteValue (BaseBVType w) = Integer
   ConcreteValue (BaseFloatType _) = ()
   ConcreteValue BaseComplexType = Complex Rational
@@ -626,7 +627,7 @@ avTop tp =
     BaseIntegerRepr -> unboundedRange
     BaseRealRepr    -> ravUnbounded
     BaseComplexRepr -> ravUnbounded :+ ravUnbounded
-    BaseStringRepr  -> ()
+    BaseStringRepr  -> unboundedNatRange
     BaseBVRepr w    -> BVD.any w
     BaseFloatRepr{} -> ()
     BaseArrayRepr _a b -> avTop b
@@ -640,7 +641,7 @@ avSingle tp =
     BaseNatRepr -> natSingleRange
     BaseIntegerRepr -> singleRange
     BaseRealRepr -> ravSingle
-    BaseStringRepr -> \_ -> ()
+    BaseStringRepr -> natSingleRange . fromIntegral . BS.length
     BaseComplexRepr -> fmap ravSingle
     BaseBVRepr w -> BVD.singleton w
     BaseFloatRepr _ -> \_ -> ()
@@ -689,10 +690,13 @@ instance Abstractable BaseBoolType where
   avCheckEq _ (Just x) (Just y) = Just $! x == y
   avCheckEq _ _ _ = Nothing
 
+-- The abstract domain for strings tracks their length
 instance Abstractable BaseStringType where
-  avJoin _ _ _ = ()
-  avOverlap _ _ _ = True
-  avCheckEq _ _ _ = Nothing
+  avJoin _        = natJoinRange
+  avOverlap _ x y = rangeOverlap (natRangeToRange x) (natRangeToRange y)
+  avCheckEq _ x y
+    | rangeOverlap (natRangeToRange x) (natRangeToRange y) == False = Just False
+    | otherwise = Nothing
 
 -- Natural numbers have a lower and upper bound associated with them.
 instance Abstractable BaseNatType where

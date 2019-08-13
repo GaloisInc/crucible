@@ -72,6 +72,8 @@ import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.IO.Class
 import           Data.Bits
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSChar
 import           Data.Data (Data)
 import           Data.Foldable
 import           Data.IORef
@@ -79,7 +81,6 @@ import           Data.Parameterized.Nonce
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
 import           System.IO
-import qualified Data.Text as Text
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
 import           What4.Config
@@ -310,8 +311,8 @@ getSolverProcess' getSolver sym = do
            getMaybeOpt auxOutSetting >>= \case
              Nothing -> return Nothing
              Just fn
-               | Text.null fn -> return Nothing
-               | otherwise    -> Just <$> openFile (Text.unpack fn) WriteMode
+               | BS.null fn -> return Nothing
+               | otherwise  -> Just <$> openFile (BSChar.unpack fn) WriteMode
          p <- startSolverProcess feats auxh sym
          push p
          writeIORef (solverProc st) (SolverStarted p auxh)

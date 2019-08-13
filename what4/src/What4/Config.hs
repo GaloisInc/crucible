@@ -152,6 +152,8 @@ import           Control.Lens ((&))
 import           Control.Monad.Identity
 import           Control.Monad.IO.Class
 import           Control.Monad.Writer.Strict hiding ((<>))
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BSChar
 import           Data.Kind
 import           Data.Maybe
 import           Data.Typeable
@@ -442,34 +444,34 @@ integerWithMaxOptSty :: Bound Integer -> OptionStyle BaseIntegerType
 integerWithMaxOptSty hi = integerWithRangeOptSty Unbounded hi
 
 -- | A configuration style for options that must be one of a fixed set of text values
-enumOptSty :: Set Text -> OptionStyle BaseStringType
+enumOptSty :: Set ByteString -> OptionStyle BaseStringType
 enumOptSty elts = stringOptSty & set_opt_onset vf
                                & set_opt_help help
-  where help = group (text "one of: " <+> align (sep $ map (dquotes . text . Text.unpack) $ Set.toList elts))
+  where help = group (text "one of: " <+> align (sep $ map (dquotes . text . BSChar.unpack) $ Set.toList elts))
         vf :: Maybe (ConcreteVal BaseStringType) -> ConcreteVal BaseStringType -> IO OptionSetResult
         vf _ (ConcreteString x)
          | x `Set.member` elts = return optOK
          | otherwise = return $ optErr $
                             text "invalid setting" <+> text (show x) <+>
                             text ", expected one of:" <+>
-                            align (sep (map (text . Text.unpack) $ Set.toList elts))
+                            align (sep (map (text . BSChar.unpack) $ Set.toList elts))
 
 -- | A configuration syle for options that must be one of a fixed set of text values.
 --   Associated with each string is a validation/callback action that will be run
 --   whenever the named string option is selected.
 listOptSty
-  :: Map Text (IO OptionSetResult)
+  :: Map ByteString (IO OptionSetResult)
   -> OptionStyle BaseStringType
 listOptSty values =  stringOptSty & set_opt_onset vf
                                   & set_opt_help help
-  where help = group (text "one of: " <+> align (sep $ map (dquotes . text . Text.unpack . fst) $ Map.toList values))
+  where help = group (text "one of: " <+> align (sep $ map (dquotes . text . BSChar.unpack . fst) $ Map.toList values))
         vf :: Maybe (ConcreteVal BaseStringType) -> ConcreteVal BaseStringType -> IO OptionSetResult
         vf _ (ConcreteString x) =
          fromMaybe
           (return $ optErr $
             text "invalid setting" <+> text (show x) <+>
             text ", expected one of:" <+>
-            align (sep (map (text . Text.unpack . fst) $ Map.toList values)))
+            align (sep (map (text . BSChar.unpack . fst) $ Map.toList values)))
           (Map.lookup x values)
 
 
@@ -483,7 +485,7 @@ executablePathOptSty = stringOptSty & set_opt_onset vf
   where help = text "<path>"
         vf :: Maybe (ConcreteVal BaseStringType) -> ConcreteVal BaseStringType -> IO OptionSetResult
         vf _ (ConcreteString x) =
-                 do me <- try (Env.findExecutable (Text.unpack x))
+                 do me <- try (Env.findExecutable (BSChar.unpack x))
                     case me of
                        Right{} -> return $ optOK
                        Left e  -> return $ optWarn $ text $ ioeGetErrorString e
@@ -721,7 +723,7 @@ checkOptSetResult res =
     Just msg -> fail (show msg)
     Nothing -> return (toList (optionSetWarnings res))
 
-instance Opt BaseStringType Text where
+instance Opt BaseStringType ByteString where
   getMaybeOpt x = fmap fromConcreteString <$> getOption x
   trySetOpt x v = setOption x (ConcreteString v)
 

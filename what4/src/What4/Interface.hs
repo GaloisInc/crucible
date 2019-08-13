@@ -151,8 +151,9 @@ module What4.Interface
 import           Control.Exception (assert)
 import           Control.Lens
 import           Control.Monad
-import           Data.Bits
 import           Control.Monad.IO.Class
+import           Data.Bits
+import           Data.ByteString
 import           Data.Coerce (coerce)
 import           Data.Foldable
 import           Data.Hashable
@@ -167,7 +168,6 @@ import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.Vector as Vector
 import           Data.Ratio
 import           Data.Scientific (Scientific)
-import           Data.Text (Text)
 import           GHC.Generics (Generic)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
@@ -300,7 +300,7 @@ class IsExpr e where
   asAffineVar :: e tp -> Maybe (ConcreteVal tp, e tp, ConcreteVal tp)
 
   -- | Return the string value if this is a constant string
-  asString :: e BaseStringType -> Maybe Text
+  asString :: e BaseStringType -> Maybe ByteString
   asString _ = Nothing
 
   -- | Return the unique element value if this is a constant array,
@@ -1534,7 +1534,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   -- String operations
 
   -- | Create a concrete string literal
-  stringLit :: sym -> Text -> IO (SymString sym)
+  stringLit :: sym -> ByteString -> IO (SymString sym)
 
   -- | Check the equality of two strings
   stringEq :: sym -> SymString sym -> SymString sym -> IO (Pred sym)

@@ -421,7 +421,7 @@ instance TypeApp (ExprExtension ext) => IsExpr (Expr ext s) where
   exprType (AtomExpr a)     = typeOfAtom a
 
 instance IsString (Expr ext s StringType) where
-  fromString s = App (TextLit (fromString s))
+  fromString s = App (StringLit (fromString s))
 
 substExpr :: ( Applicative m, TraverseExt ext )
           => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))

@@ -47,10 +47,10 @@ module Lang.Crucible.Simulator.EvalStmt
 import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad.Reader
+import qualified Data.ByteString.Char8 as BSChar
 import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
-import qualified Data.Text as Text
 import           Data.Time.Clock
 import           System.IO
 import           System.IO.Error as Ex
@@ -298,7 +298,7 @@ stepStmt verb stmt rest =
        Print e ->
          do msg <- evalReg e
             let msg' = case asString msg of
-                         Just txt -> Text.unpack txt
+                         Just txt -> BSChar.unpack txt
                          _ -> show (printSymExpr msg)
             liftIO $ do
               let h = printHandle ctx
@@ -310,7 +310,7 @@ stepStmt verb stmt rest =
          do c <- evalReg c_expr
             msg <- evalReg msg_expr
             let msg' = case asString msg of
-                         Just txt -> Text.unpack txt
+                         Just txt -> BSChar.unpack txt
                          _ -> show (printSymExpr msg)
             liftIO $ assert sym c (AssertFailureSimError msg')
             continueWith (stateCrucibleFrame  . frameStmts .~ rest)
@@ -319,7 +319,7 @@ stepStmt verb stmt rest =
          do c <- evalReg c_expr
             msg <- evalReg msg_expr
             let msg' = case asString msg of
-                         Just txt -> Text.unpack txt
+                         Just txt -> BSChar.unpack txt
                          _ -> show (printSymExpr msg)
             liftIO $
               do loc <- getCurrentProgramLoc sym
@@ -396,7 +396,7 @@ stepTerm _ (ErrorStmt msg) =
      sym <- view stateSymInterface
      liftIO $ case asString msg' of
        Just txt -> addFailedAssertion sym
-                      $ GenericSimError $ Text.unpack txt
+                      $ GenericSimError $ BSChar.unpack txt
        Nothing  -> addFailedAssertion sym
                       $ GenericSimError $ show (printSymExpr msg')
 

@@ -41,6 +41,9 @@ import           Control.Monad
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
 import           Data.Bits
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import           Data.Foldable (toList)
 import           Data.List (foldl')
 import           Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
@@ -49,7 +52,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
-import           Data.Text (Text)
 import           Numeric.Natural
 
 import           What4.BaseTypes
@@ -72,7 +74,7 @@ type family GroundValue (tp :: BaseType) where
   GroundValue (BaseBVType w)        = Integer
   GroundValue (BaseFloatType fpp)   = Integer
   GroundValue BaseComplexType       = Complex Rational
-  GroundValue BaseStringType        = Text
+  GroundValue BaseStringType        = ByteString
   GroundValue (BaseArrayType idx b) = GroundArray idx b
   GroundValue (BaseStructType ctx)  = Ctx.Assignment GroundValueWrapper ctx
 
@@ -514,6 +516,9 @@ evalGroundApp f0 a0 = do
 
     IntegerToNat x -> fromInteger . max 0 <$> f x
     IntegerToBV x w -> toUnsigned w <$> f x
+
+    StringLength x -> fromIntegral . BS.length <$> f x
+    StringAppend ss -> BS.concat <$> mapM f (toList (stringSeq ss))
 
     ------------------------------------------------------------------------
     -- Complex operations.

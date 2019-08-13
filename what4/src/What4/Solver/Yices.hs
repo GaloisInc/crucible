@@ -68,6 +68,8 @@ import           Control.Monad
 import           Control.Monad.Identity
 import qualified Data.Attoparsec.Text as Atto
 import           Data.Bits
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as BSL
 
 import           Data.IORef
 import           Data.Foldable (toList)
@@ -86,6 +88,7 @@ import qualified Data.Text.Lazy as Lazy
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
+import           Data.Text.Lazy.Encoding (decodeLatin1)
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -130,7 +133,7 @@ asYicesConfigValue v = case v of
   ConcreteInteger x ->
       return $ decimal x
   ConcreteString x ->
-      return $ Builder.fromText x
+      return $ Builder.fromLazyText $ decodeLatin1 $ BSL.fromStrict x
   _ ->
       Nothing
 
@@ -842,7 +845,7 @@ yicesOptions =
   ]
   ++ yicesInternalOptions
 
-yicesBranchingChoices :: Set Text
+yicesBranchingChoices :: Set ByteString
 yicesBranchingChoices = Set.fromList
   [ "default"
   , "negative"
@@ -852,7 +855,7 @@ yicesBranchingChoices = Set.fromList
   , "th-neg"
   ]
 
-yicesEFGenModes :: Set Text
+yicesEFGenModes :: Set ByteString
 yicesEFGenModes = Set.fromList
   [ "auto"
   , "none"
@@ -891,7 +894,7 @@ intWithRangeOpt nm lo hi =
         Nothing
         Nothing
 
-enumOpt :: String -> Set Text -> ConfigDesc
+enumOpt :: String -> Set ByteString -> ConfigDesc
 enumOpt nm xs =
   mkOpt (configOption BaseStringRepr $ "yices."++nm)
         (enumOptSty xs)

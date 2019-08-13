@@ -223,6 +223,12 @@ appTheory a0 =
     SelectArray{} -> ArrayTheory
     UpdateArray{} -> ArrayTheory
 
+    ---------------------------
+    -- String operations
+
+    StringLength{} -> StringTheory
+    StringAppend{} -> StringTheory
+
     ---------------------
     -- Complex operations
 

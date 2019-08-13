@@ -21,6 +21,7 @@ library
     aig,
     abcBridge >= 0.11,
     ansi-wl-pprint,
+    bytestring,
     containers,
     what4 >= 0.4,
     directory,

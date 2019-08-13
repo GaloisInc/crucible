@@ -40,6 +40,7 @@ import           Control.Lens hiding (op, (:>) )
 import           Control.Monad.Except
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
+import qualified Data.ByteString.Char8 as BSChar
 import           Data.Functor.Identity (runIdentity)
 import           Data.Foldable (toList)
 import           Data.Int
@@ -1141,7 +1142,7 @@ pointerCmp op x y =
     case op of
       L.Ieq  -> callIsNull PtrWidth ptr
       L.Ine  -> App . Not <$> callIsNull PtrWidth ptr
-      _ -> reportError $ litExpr $ Text.pack $ unlines $
+      _ -> reportError $ litExpr $ BSChar.pack $ unlines $
             [ "Arithmetic comparison on incompatible values"
             , "Comparison operation: " ++ show op
             , "Value 1: " ++ show x
@@ -1169,7 +1170,7 @@ pointerCmp op x y =
          L.Iugt -> do
            isLe <- extensionStmt (LLVM_PtrLe memVar x y)
            return $ App (Not isLe)
-         _ -> reportError $ litExpr $ Text.pack $ unlines $
+         _ -> reportError $ litExpr $ BSChar.pack $ unlines $
                 [ "Signed comparison on pointer values"
                 , "Comparison operation: " ++ show op
                 , "Value 1:" ++ show x
@@ -1216,7 +1217,7 @@ pointerOp op x y =
       L.Sub _ _ -> BitvectorAsPointerExpr PtrWidth <$> callPtrSubtract x y
       _ -> err
 
-  err = reportError $ litExpr $ Text.pack $ unlines $
+  err = reportError $ litExpr $ BSChar.pack $ unlines $
           [ "Invalid pointer operation"
           , "Operation: " ++ show op
           , "Value 1: " ++ show x
@@ -1594,7 +1595,7 @@ generateInstr retType lab instr assign_f k =
     L.VaArg{} -> unsupported
 
  where
- unsupported = reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", showInstr instr]
+ unsupported = reportError $ App $ StringLit $ BSChar.pack $ unwords ["unsupported instruction", showInstr instr]
 
 
 arithOp ::
@@ -1693,7 +1694,7 @@ callFunction _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f = 
         _ -> fail $ unwords ["unsupported function value", show fn]
 
 callFunction _tailCall fnTy _fn _args _assign_f =
-  reportError $ App $ TextLit $ Text.pack $ unwords $
+  reportError $ App $ StringLit $ BSChar.pack $ unwords $
     [ "[callFunction] Unsupported function type"
     , show fnTy
     ]

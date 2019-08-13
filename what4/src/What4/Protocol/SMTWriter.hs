@@ -2483,6 +2483,12 @@ appSMTExpr ae = do
           freshBoundTerm RealTypeMap $ arrayComplexImagPart @h (asBase c)
 
     --------------------------------------------------------------------
+    -- Strings
+
+    StringLength _ -> error "FIXME!!"
+    StringAppend _ -> error "FIXME!!"
+
+    --------------------------------------------------------------------
     -- Structures
 
     StructCtor _ vals -> do

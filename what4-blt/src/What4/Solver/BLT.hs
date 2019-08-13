@@ -67,13 +67,13 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad (foldM, forM_, when, liftM2)
 import           Control.Monad.ST
+import qualified Data.ByteString.Char8 as BSChar
 import           Data.IORef
 import           Data.Int (Int64)
 import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe, isJust)
-import qualified Data.Text as T
 import           Data.Traversable
 import           Data.Typeable
 import           System.IO (hPutStrLn, stderr)
@@ -129,7 +129,7 @@ runBLTInOverride :: IsExprBuilder sym
                  -> IO a
 runBLTInOverride sym logData ps contFn = do
   let cfg = getConfiguration sym
-  epar <- parseBLTParams . T.unpack <$> (getOpt =<< getOptionSetting bltParams cfg)
+  epar <- parseBLTParams . BSChar.unpack <$> (getOpt =<< getOptionSetting bltParams cfg)
   par  <- either fail return epar
   logSolverEvent sym
     SolverStartSATQuery

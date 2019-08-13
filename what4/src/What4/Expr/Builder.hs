@@ -58,6 +58,9 @@ module What4.Expr.Builder
   , realSum
   , bvSum
   , scalarMul
+  , StringSequence
+  , stringSeq
+  , stringSeqLength
 
     -- ** configuration options
   , unaryThresholdOption
@@ -100,6 +103,7 @@ module What4.Expr.Builder
   , App(..)
   , traverseApp
   , appType
+
     -- * NonceApp
   , NonceApp(..)
   , nonceAppType
@@ -165,6 +169,8 @@ import           Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
 import qualified Data.Binary.IEEE754 as IEEE754
 import qualified Data.Bits as Bits
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
 import           Data.Foldable
 import qualified Data.HashTable.Class as H (toList)
 import qualified Data.HashTable.ST.Cuckoo as H
@@ -188,6 +194,7 @@ import           Data.STRef
 import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
+import           Data.Sequence (Seq)
 import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as Text
@@ -762,6 +769,14 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   ImagPart :: !(e BaseComplexType) -> App e BaseRealType
 
   ------------------------------------------------------------------------
+  -- Strings
+
+  StringLength :: !(e BaseStringType) -> App e BaseNatType
+
+  StringAppend :: !(StringSequence e)
+               -> App e BaseStringType
+
+  ------------------------------------------------------------------------
   -- Structs
 
   -- A struct with its fields.
@@ -803,6 +818,36 @@ data AppExpr t (tp :: BaseType)
                 , appExprAbsValue :: !(AbstractValue tp)
                 }
 
+data StringSequence (e :: BaseType -> Type) =
+  StringSequence
+  { stringSeq       :: !(Seq (e BaseStringType))
+  , stringSeqLength :: !(e BaseNatType)
+  }
+
+instance TestEquality e => Eq (StringSequence e) where
+  x == y =
+    foldl' (&&)
+      (Seq.length (stringSeq x) == Seq.length (stringSeq y))
+      (Prelude.zipWith (\a b -> isJust (testEquality a b)) (toList (stringSeq x)) (toList (stringSeq y)))
+
+instance OrdF e => Ord (StringSequence e) where
+  compare x y =
+    foldl' (<>)
+      (compare (Seq.length (stringSeq x)) (Seq.length (stringSeq y)))
+      (Prelude.zipWith (\a b -> toOrdering (compareF a b)) (toList (stringSeq x)) (toList (stringSeq y)))
+
+instance HashableF e => Hashable (StringSequence e) where
+  hashWithSalt s x = foldl' hashWithSaltF s (toList (stringSeq x))
+
+traverseStringSeq :: (Applicative m, OrdF f, Eq (f (BaseBoolType)), HashableF f) =>
+   (forall tp. e tp -> m (f tp)) ->
+   StringSequence e -> m (StringSequence f)
+traverseStringSeq f ss =
+  StringSequence
+    <$> traverse f (stringSeq ss)
+    <*> f (stringSeqLength ss)
+
+
 ------------------------------------------------------------------------
 -- Expr
 
@@ -821,7 +866,7 @@ data AppExpr t (tp :: BaseType)
 data Expr t (tp :: BaseType) where
   SemiRingLiteral :: !(SR.SemiRingRepr sr) -> !(SR.Coefficient sr) -> !ProgramLoc -> Expr t (SR.SemiRingBase sr)
   BoolExpr :: !Bool -> !ProgramLoc -> Expr t BaseBoolType
-  StringExpr :: !Text -> !ProgramLoc -> Expr t BaseStringType
+  StringExpr :: !ByteString -> !ProgramLoc -> Expr t BaseStringType
   -- Application
   AppExpr :: {-# UNPACK #-} !(AppExpr t tp) -> Expr t tp
   -- An atomic predicate
@@ -1233,6 +1278,9 @@ appType a =
     RealPart{} -> knownRepr
     ImagPart{} -> knownRepr
 
+    StringLength{} -> knownRepr
+    StringAppend{} -> knownRepr
+
     StructCtor flds _     -> BaseStructRepr flds
     StructField _ _ tp    -> tp
 
@@ -1597,6 +1645,9 @@ abstractEval bvParams f a0 = do
             ux = rangeHiBound rng
             rng = ravRange (f x)
 
+    StringLength x  -> f x
+    StringAppend ss -> f (stringSeqLength ss)
+
     Cplx c -> f <$> c
     RealPart x -> realPart (f x)
     ImagPart x -> imagPart (f x)
@@ -1614,11 +1665,11 @@ exprAbsValue (SemiRingLiteral sr x _) =
     SR.SemiRingRealRepr -> ravSingle x
     SR.SemiRingBVRepr _ w -> BVD.singleton w x
 
-exprAbsValue (StringExpr{})   = ()
-exprAbsValue (BoolExpr b _)   = Just b
-exprAbsValue (NonceAppExpr e) = nonceExprAbsValue e
-exprAbsValue (AppExpr e)      = appExprAbsValue e
-exprAbsValue (BoundVarExpr v) =
+exprAbsValue (StringExpr bs _) = natSingleRange (fromIntegral (BS.length bs))
+exprAbsValue (BoolExpr b _)    = Just b
+exprAbsValue (NonceAppExpr e)  = nonceExprAbsValue e
+exprAbsValue (AppExpr e)       = appExprAbsValue e
+exprAbsValue (BoundVarExpr v)  =
   fromMaybe (unconstrainedAbsValue (bvarType v)) (bvarAbstractValue v)
 
 -- | Return an unconstrained abstract value.
@@ -1923,6 +1974,12 @@ ppApp' a0 = do
     ImagPart x -> ppSExpr "imagPart" [x]
 
     ------------------------------------------------------------------------
+    -- String operations
+
+    StringLength x -> ppSExpr "stringLength" [x]
+    StringAppend xs -> ppSExpr "stringAppend" (toList (stringSeq xs))
+
+    ------------------------------------------------------------------------
     -- SymStruct
 
     StructCtor _ flds -> prettyApp "struct" (toListFC exprPrettyArg flds)
@@ -2042,6 +2099,9 @@ traverseApp =
       )
     , ( ConType [t|Ctx.Assignment|] `TypeApp` AnyType `TypeApp` AnyType
       , [|traverseFC|]
+      )
+    , ( ConType [t|StringSequence|] `TypeApp` AnyType
+      , [|traverseStringSeq|]
       )
     ]
    )
@@ -3165,6 +3225,12 @@ reduceApp sym a0 = do
     Cplx c     -> mkComplex sym c
     RealPart x -> getRealPart sym x
     ImagPart x -> getImagPart sym x
+
+    StringLength x -> stringLength sym x 
+    StringAppend ss ->
+      case toList (stringSeq ss) of
+        [] -> stringLit sym mempty
+        (x:xs) -> foldM (stringConcat sym) x xs
 
     StructCtor _ args -> mkStruct sym args
     StructField s i _ -> structField sym s i
@@ -5148,7 +5214,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
   stringLength sym x
     | Just x' <- asString x
-    = do natLit sym (fromIntegral (Text.length x'))
+    = natLit sym (fromIntegral (BS.length x'))
   stringLength _ _
     = fail "Expected concrete strings in stringLength"
 

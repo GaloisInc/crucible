@@ -48,6 +48,8 @@ import qualified Data.ABC.GIA as GIA
 import qualified Data.AIG.Operations as AIG
 import qualified Data.AIG.Interface as AIG
 
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BSChar
 import qualified Data.ByteString.UTF8 as UTF8
 import qualified Data.Foldable as Fold
 import qualified Data.HashSet as HSet
@@ -61,7 +63,6 @@ import           Data.Parameterized.Nonce (Nonce)
 import           Data.Parameterized.Some
 import           Data.Set (Set)
 import qualified Data.Set as Set
-import qualified Data.Text as T
 import           Foreign.C.Types
 import           Numeric.Natural
 import           System.Directory
@@ -132,7 +133,7 @@ genericSatAdapter =
    , solver_adapter_config_options = genericSatOptions
    , solver_adapter_check_sat = \sym logData ps cont -> do
        let cfg = getConfiguration sym
-       cmd <- T.unpack <$> (getOpt =<< getOptionSetting satCommand cfg)
+       cmd <- BSChar.unpack <$> (getOpt =<< getOptionSetting satCommand cfg)
        let mkCommand path = do
              let var_map = Map.fromList [("1",path)]
              Env.expandEnvironmentPath var_map cmd
@@ -152,7 +153,7 @@ type family LitValue s (tp :: BaseType) where
   LitValue s BaseNatType      = Natural
   LitValue s BaseIntegerType  = Integer
   LitValue s BaseRealType     = Rational
-  LitValue s BaseStringType   = T.Text
+  LitValue s BaseStringType   = ByteString
   LitValue s BaseComplexType  = Complex Rational
 
 -- | Newtype wrapper around names.
@@ -162,7 +163,7 @@ data NameType s (tp :: BaseType) where
   GroundNat :: Natural -> NameType s BaseNatType
   GroundInt :: Integer -> NameType s BaseIntegerType
   GroundRat :: Rational -> NameType s BaseRealType
-  GroundString :: T.Text -> NameType s BaseStringType
+  GroundString :: ByteString -> NameType s BaseStringType
   GroundComplex :: Complex Rational -> NameType s BaseComplexType
 
 -- | A variable binding in ABC.
@@ -533,6 +534,12 @@ bitblastExpr h ae = do
 
     IntegerToNat{} -> natFail
     IntegerToBV{}  -> intFail
+
+    ------------------------------------------------------------------------
+    -- String operations
+
+    StringLength{} -> stringFail
+    StringAppend{} -> stringFail
 
     ------------------------------------------------------------------------
     -- Complex operations

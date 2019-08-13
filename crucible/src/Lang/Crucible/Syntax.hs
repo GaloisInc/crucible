@@ -86,11 +86,11 @@ module Lang.Crucible.Syntax
   ) where
 
 import           Control.Lens
+import           Data.ByteString (ByteString)
 import           Data.Kind
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
-import           Data.Text (Text)
 import qualified Data.Vector as V
 import           Numeric.Natural
 
@@ -278,8 +278,8 @@ instance ConvertableToNat e ComplexRealType where
 ------------------------------------------------------------------------
 -- String
 
-instance LitExpr e StringType Text where
-  litExpr t = app (TextLit t)
+instance LitExpr e StringType ByteString where
+  litExpr t = app (StringLit t)
 
 ------------------------------------------------------------------------
 -- Maybe
@@ -343,7 +343,7 @@ emptyIdentValueMap = app (EmptyStringMap knownRepr)
 -- Update the value of the ident value map with the given value.
 setIdentValue :: (IsExpr e, KnownRepr TypeRepr tp)
               => e (StringMapType tp)
-              -> Text
+              -> ByteString
               -> e (MaybeType tp)
               -> e (StringMapType tp)
 setIdentValue m i v = app (InsertStringMapEntry knownRepr m (litExpr i) v)

@@ -23,8 +23,8 @@ module What4.Solver.Adapter
 
 import           Data.Bits
 import           Data.IORef
+import qualified Data.ByteString.Char8 as BSChar
 import qualified Data.Map as Map
-import qualified Data.Text as T
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -113,9 +113,9 @@ solverAdapterOptions xs@(def:_) =
      return (opts, readIORef ref)
 
  where
- f ref x = (T.pack (solver_adapter_name x), writeIORef ref x >> return optOK)
+ f ref x = (BSChar.pack (solver_adapter_name x), writeIORef ref x >> return optOK)
  vals ref = Map.fromList (map (f ref) xs)
  sty ref = mkOpt defaultSolverAdapter
                  (listOptSty (vals ref))
                  (Just (PP.text "Indicates which solver to use for check-sat queries"))
-                 (Just (ConcreteString (T.pack (solver_adapter_name def))))
+                 (Just (ConcreteString (BSChar.pack (solver_adapter_name def))))

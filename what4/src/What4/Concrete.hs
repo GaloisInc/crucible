@@ -46,10 +46,10 @@ module What4.Concrete
   , fromConcreteComplex
   ) where
 
+import           Data.ByteString (ByteString)
 import           Data.List
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import           Data.Text (Text)
 import qualified Numeric as N
 import           Numeric.Natural
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -69,7 +69,7 @@ data ConcreteVal tp where
   ConcreteNat     :: Natural -> ConcreteVal BaseNatType
   ConcreteInteger :: Integer -> ConcreteVal BaseIntegerType
   ConcreteReal    :: Rational -> ConcreteVal BaseRealType
-  ConcreteString  :: Text -> ConcreteVal BaseStringType
+  ConcreteString  :: ByteString -> ConcreteVal BaseStringType
   ConcreteComplex :: Complex Rational -> ConcreteVal BaseComplexType
   ConcreteBV      ::
     (1 <= w) =>
@@ -98,7 +98,7 @@ fromConcreteReal (ConcreteReal x) = x
 fromConcreteComplex :: ConcreteVal BaseComplexType -> Complex Rational
 fromConcreteComplex (ConcreteComplex x) = x
 
-fromConcreteString :: ConcreteVal BaseStringType -> Text
+fromConcreteString :: ConcreteVal BaseStringType -> ByteString
 fromConcreteString (ConcreteString x) = x
 
 fromConcreteUnsignedBV :: ConcreteVal (BaseBVType w) -> Integer

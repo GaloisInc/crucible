@@ -38,10 +38,10 @@ import qualified Control.Exception as Ex
 import           Control.Lens
 import           Control.Monad
 import           Data.Bitraversable (bitraverse)
+import qualified Data.ByteString.Char8 as BSChar
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import           Data.Proxy (Proxy(..))
-import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word
 import           Numeric ( showHex )
@@ -417,7 +417,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
         _ -> do
           msg <- evalSub msg_expr
           case asString msg of
-            Just msg' -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
+            Just msg' -> readPartExpr sym maybe_val (GenericSimError (BSChar.unpack msg'))
             Nothing ->
               addFailedAssertion sym $
                 Unsupported "Symbolic string in fromJustValue"
@@ -917,13 +917,16 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     --------------------------------------------------------------------
     -- Text
 
-    TextLit txt -> stringLit sym txt
+    StringLit txt -> stringLit sym txt
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
-      stringLit sym (Text.pack (show (printSymExpr x)))
+      stringLit sym (BSChar.pack (show (printSymExpr x)))
     ShowFloat _fi x_expr -> do
       x <- evalSub x_expr
-      stringLit sym (Text.pack (show (printSymExpr x)))
+      stringLit sym (BSChar.pack (show (printSymExpr x)))
+    StringLength x -> do
+      x' <- evalSub x
+      stringLength sym x'
     AppendString x y -> do
       x' <- evalSub x
       y' <- evalSub y

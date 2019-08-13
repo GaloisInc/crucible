@@ -60,8 +60,8 @@ module Lang.Crucible.CFG.Expr
 
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
+import           Data.ByteString (ByteString)
 import           Data.Kind (Type)
-import           Data.Text (Text)
 import           Data.Vector (Vector)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -915,7 +915,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   ----------------------------------------------------------------------
   -- String
 
-  TextLit :: !Text
+  StringLit :: !ByteString
           -> App ext f StringType
 
   ShowValue :: !(BaseTypeRepr bt)
@@ -930,6 +930,8 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
                -> !(f StringType)
                -> App ext f StringType
 
+  StringLength :: !(f StringType)
+               -> App ext f NatType
 
   ----------------------------------------------------------------------
   -- Arrays (supporting symbolic operations)
@@ -1204,9 +1206,10 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- String
 
-    TextLit{} -> knownRepr
+    StringLit{} -> knownRepr
     ShowValue{} -> knownRepr
     ShowFloat{} -> knownRepr
+    StringLength{} -> knownRepr
     AppendString{} -> knownRepr
 
     ------------------------------------------------------------------------

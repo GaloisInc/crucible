@@ -49,12 +49,12 @@ module Lang.Crucible.Simulator.RegValue
 
 import           Control.Monad
 import           Control.Monad.Trans.Class
+import           Data.ByteString (ByteString)
 import           Data.Kind
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Proxy
 import qualified Data.Set as Set
-import           Data.Text (Text)
 import qualified Data.Vector as V
 import           Data.Word
 import           GHC.TypeNats (KnownNat)
@@ -92,7 +92,7 @@ type family RegValue (sym :: Type) (tp :: CrucibleType) :: Type where
   RegValue sym (WordMapType w tp) = WordMap sym w tp
   RegValue sym (RecursiveType nm ctx) = RolledType sym nm ctx
   RegValue sym (IntrinsicType nm ctx) = Intrinsic sym nm ctx
-  RegValue sym (StringMapType tp) = Map Text (PartExpr (Pred sym) (RegValue sym tp))
+  RegValue sym (StringMapType tp) = Map ByteString (PartExpr (Pred sym) (RegValue sym tp))
 
 -- | A newtype wrapper around RegValue.  This is wrapper necessary because
 --   RegValue is a type family and, as such, cannot be partially applied.
@@ -273,7 +273,7 @@ instance IsExprBuilder sym => CanMux sym (FunctionHandleType a r) where
 muxStringMap :: IsExprBuilder sym
              => sym
              -> MuxFn (Pred sym) e
-             -> MuxFn (Pred sym) (Map Text (PartExpr (Pred sym) e))
+             -> MuxFn (Pred sym) (Map ByteString (PartExpr (Pred sym) e))
 muxStringMap sym = \f c x y -> do
   let keys = Set.toList $ Set.union (Map.keysSet x) (Map.keysSet y)
   fmap Map.fromList $ forM keys $ \k -> do
