@@ -214,7 +214,8 @@ pub mod ffi;
 pub mod slice;
 pub mod str;
 pub mod hash;
-pub mod fmt;
+#[cfg(fmt)] pub mod fmt;
+#[cfg(not(fmt))] #[path = "fmt_min/mod.rs"] pub mod fmt;
 #[cfg(time)] pub mod time;
 
 pub mod unicode;
