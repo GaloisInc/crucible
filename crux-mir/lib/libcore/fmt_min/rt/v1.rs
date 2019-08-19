@@ -20,16 +20,11 @@ pub struct FormatSpec {
     pub width: Count,
 }
 
-/// Possible alignments that can be requested as part of a formatting directive.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Alignment {
-    /// Indication that contents should be left-aligned.
     Left,
-    /// Indication that contents should be right-aligned.
     Right,
-    /// Indication that contents should be center-aligned.
     Center,
-    /// No alignment was requested.
     Unknown,
 }
 
