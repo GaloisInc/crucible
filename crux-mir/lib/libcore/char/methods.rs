@@ -1,7 +1,7 @@
 //! impl char {}
 
 use crate::slice;
-use crate::str::from_utf8_unchecked_mut;
+#[cfg(str)] use crate::str::from_utf8_unchecked_mut;
 use crate::unicode::printable::is_printable;
 use crate::unicode::tables::{conversions, derived_property, general_category, property};
 
@@ -432,6 +432,7 @@ impl char {
     /// assert!(result.is_err());
     /// ```
     #[stable(feature = "unicode_encode_char", since = "1.15.0")]
+    #[cfg(str)]
     #[inline]
     pub fn encode_utf8(self, dst: &mut [u8]) -> &mut str {
         let code = self as u32;

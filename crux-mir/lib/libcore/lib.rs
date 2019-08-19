@@ -212,10 +212,9 @@ pub mod result;
 pub mod ffi;
 
 pub mod slice;
-pub mod str;
+#[cfg_attr(not(str), path = "str_min.rs")] pub mod str;
 pub mod hash;
-#[cfg(fmt)] pub mod fmt;
-#[cfg(not(fmt))] #[path = "fmt_min/mod.rs"] pub mod fmt;
+#[cfg_attr(not(fmt), path = "fmt_min/mod.rs")] pub mod fmt;
 #[cfg(time)] pub mod time;
 
 pub mod unicode;
