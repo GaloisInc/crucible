@@ -198,10 +198,10 @@ pub mod borrow;
 
 pub mod any;
 pub mod array;
-pub mod ascii;
+#[cfg(ascii)] pub mod ascii;
 #[cfg(sync)] pub mod sync;
 pub mod cell;
-pub mod char;
+#[cfg(char)] pub mod char;
 pub mod panic;
 pub mod panicking;
 pub mod pin;
@@ -217,7 +217,7 @@ pub mod hash;
 #[cfg_attr(not(fmt), path = "fmt_min/mod.rs")] pub mod fmt;
 #[cfg(time)] pub mod time;
 
-pub mod unicode;
+#[cfg(unicode)] pub mod unicode;
 
 /* Async */
 pub mod future;

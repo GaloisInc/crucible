@@ -2487,6 +2487,7 @@ impl<T> [T] {
 
 #[lang = "slice_u8"]
 #[cfg(not(test))]
+#[cfg(slice_u8)]
 impl [u8] {
     /// Checks if all bytes in this slice are within the ASCII range.
     #[stable(feature = "ascii_methods_on_intrinsics", since = "1.23.0")]
