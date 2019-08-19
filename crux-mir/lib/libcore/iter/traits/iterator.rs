@@ -236,6 +236,7 @@ pub trait Iterator {
     #[inline]
     #[rustc_inherit_overflow_checks]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(iter_count)]
     fn count(self) -> usize where Self: Sized {
         // Might overflow.
         self.fold(0, |cnt, _| cnt + 1)
@@ -262,6 +263,7 @@ pub trait Iterator {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(iter_last)]
     fn last(self) -> Option<Self::Item> where Self: Sized {
         self.fold(None, |_, x| Some(x))
     }
@@ -2105,6 +2107,7 @@ pub trait Iterator {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(iter_min_max)]
     fn max(self) -> Option<Self::Item> where Self: Sized, Self::Item: Ord
     {
         self.max_by(Ord::cmp)
@@ -2130,6 +2133,7 @@ pub trait Iterator {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(iter_min_max)]
     fn min(self) -> Option<Self::Item> where Self: Sized, Self::Item: Ord
     {
         self.min_by(Ord::cmp)
@@ -2151,6 +2155,7 @@ pub trait Iterator {
     /// ```
     #[inline]
     #[stable(feature = "iter_cmp_by_key", since = "1.6.0")]
+    #[cfg(iter_min_max)]
     fn max_by_key<B: Ord, F>(self, mut f: F) -> Option<Self::Item>
         where Self: Sized, F: FnMut(&Self::Item) -> B,
     {
@@ -2174,6 +2179,7 @@ pub trait Iterator {
     /// ```
     #[inline]
     #[stable(feature = "iter_max_by", since = "1.15.0")]
+    #[cfg(iter_min_max)]
     fn max_by<F>(self, mut compare: F) -> Option<Self::Item>
         where Self: Sized, F: FnMut(&Self::Item, &Self::Item) -> Ordering,
     {
@@ -2196,6 +2202,7 @@ pub trait Iterator {
     /// assert_eq!(*a.iter().min_by_key(|x| x.abs()).unwrap(), 0);
     /// ```
     #[stable(feature = "iter_cmp_by_key", since = "1.6.0")]
+    #[cfg(iter_min_max)]
     fn min_by_key<B: Ord, F>(self, mut f: F) -> Option<Self::Item>
         where Self: Sized, F: FnMut(&Self::Item) -> B,
     {
@@ -2219,6 +2226,7 @@ pub trait Iterator {
     /// ```
     #[inline]
     #[stable(feature = "iter_min_by", since = "1.15.0")]
+    #[cfg(iter_min_max)]
     fn min_by<F>(self, mut compare: F) -> Option<Self::Item>
         where Self: Sized, F: FnMut(&Self::Item, &Self::Item) -> Ordering,
     {

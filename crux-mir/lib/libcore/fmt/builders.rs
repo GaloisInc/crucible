@@ -32,6 +32,7 @@ impl<'buf, 'state> PadAdapter<'buf, 'state> {
 }
 
 impl fmt::Write for PadAdapter<'_, '_> {
+    #[cfg(str_pattern)]
     fn write_str(&mut self, mut s: &str) -> fmt::Result {
         while !s.is_empty() {
             if self.state.on_newline {
@@ -53,6 +54,11 @@ impl fmt::Write for PadAdapter<'_, '_> {
         }
 
         Ok(())
+    }
+
+    #[cfg(not(str_pattern))]
+    fn write_str(&mut self, mut s: &str) -> fmt::Result {
+        self.buf.write_str(s)
     }
 }
 

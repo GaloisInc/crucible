@@ -40,10 +40,11 @@ use crate::marker::{Copy, Send, Sync, Sized, self};
 #[unstable(feature = "slice_internals", issue = "0",
            reason = "exposed from core to be reused in std; use the memchr crate")]
 /// Pure rust memchr implementation, taken from rust-memchr
+#[cfg(memchr)]
 pub mod memchr;
 
 mod rotate;
-mod sort;
+#[cfg(slice_sort)] mod sort;
 
 //
 // Extension traits
@@ -1498,6 +1499,7 @@ impl<T> [T] {
     /// [pdqsort]: https://github.com/orlp/pdqsort
     #[stable(feature = "sort_unstable", since = "1.20.0")]
     #[inline]
+    #[cfg(slice_sort)]
     pub fn sort_unstable(&mut self)
         where T: Ord
     {
@@ -1552,6 +1554,7 @@ impl<T> [T] {
     /// [pdqsort]: https://github.com/orlp/pdqsort
     #[stable(feature = "sort_unstable", since = "1.20.0")]
     #[inline]
+    #[cfg(slice_sort)]
     pub fn sort_unstable_by<F>(&mut self, mut compare: F)
         where F: FnMut(&T, &T) -> Ordering
     {
@@ -1589,6 +1592,7 @@ impl<T> [T] {
     /// [pdqsort]: https://github.com/orlp/pdqsort
     #[stable(feature = "sort_unstable", since = "1.20.0")]
     #[inline]
+    #[cfg(slice_sort)]
     pub fn sort_unstable_by_key<K, F>(&mut self, mut f: F)
         where F: FnMut(&T) -> K, K: Ord
     {
@@ -1635,6 +1639,7 @@ impl<T> [T] {
     /// ```
     #[unstable(feature = "slice_partition_at_index", issue = "55300")]
     #[inline]
+    #[cfg(slice_sort)]
     pub fn partition_at_index(&mut self, index: usize) -> (&mut [T], &mut T, &mut [T])
         where T: Ord
     {
@@ -1684,6 +1689,7 @@ impl<T> [T] {
     /// ```
     #[unstable(feature = "slice_partition_at_index", issue = "55300")]
     #[inline]
+    #[cfg(slice_sort)]
     pub fn partition_at_index_by<F>(&mut self, index: usize, mut compare: F)
                                     -> (&mut [T], &mut T, &mut [T])
         where F: FnMut(&T, &T) -> Ordering
@@ -1734,6 +1740,7 @@ impl<T> [T] {
     /// ```
     #[unstable(feature = "slice_partition_at_index", issue = "55300")]
     #[inline]
+    #[cfg(slice_sort)]
     pub fn partition_at_index_by_key<K, F>(&mut self, index: usize, mut f: F)
                                            -> (&mut [T], &mut T, &mut [T])
         where F: FnMut(&T) -> K, K: Ord
@@ -2122,12 +2129,7 @@ impl<T> [T] {
     /// [`split_at_mut`]: #method.split_at_mut
     #[stable(feature = "copy_from_slice", since = "1.9.0")]
     pub fn copy_from_slice(&mut self, src: &[T]) where T: Copy {
-        assert_eq!(self.len(), src.len(),
-                   "destination and source slices have different lengths");
-        unsafe {
-            ptr::copy_nonoverlapping(
-                src.as_ptr(), self.as_mut_ptr(), self.len());
-        }
+        self.clone_from_slice(src);
     }
 
     /// Copies elements from one part of the slice to another part of itself,
@@ -3139,6 +3141,7 @@ macro_rules! iterator {
             }
 
             #[inline]
+            #[cfg(iter_count)]
             fn count(self) -> usize {
                 len!(self)
             }
@@ -3164,6 +3167,7 @@ macro_rules! iterator {
             }
 
             #[inline]
+            #[cfg(iter_last)]
             fn last(mut self) -> Option<$elem> {
                 self.next_back()
             }
@@ -4037,6 +4041,7 @@ impl<'a, T> Iterator for Windows<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -4055,6 +4060,7 @@ impl<'a, T> Iterator for Windows<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(self) -> Option<Self::Item> {
         if self.size > self.v.len() {
             None
@@ -4166,6 +4172,7 @@ impl<'a, T> Iterator for Chunks<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -4188,6 +4195,7 @@ impl<'a, T> Iterator for Chunks<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(self) -> Option<Self::Item> {
         if self.v.is_empty() {
             None
@@ -4301,6 +4309,7 @@ impl<'a, T> Iterator for ChunksMut<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -4325,6 +4334,7 @@ impl<'a, T> Iterator for ChunksMut<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(self) -> Option<Self::Item> {
         if self.v.is_empty() {
             None
@@ -4458,6 +4468,7 @@ impl<'a, T> Iterator for ChunksExact<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -4476,6 +4487,7 @@ impl<'a, T> Iterator for ChunksExact<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<Self::Item> {
         self.next_back()
     }
@@ -4586,6 +4598,7 @@ impl<'a, T> Iterator for ChunksExactMut<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -4605,6 +4618,7 @@ impl<'a, T> Iterator for ChunksExactMut<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<Self::Item> {
         self.next_back()
     }
@@ -4706,6 +4720,7 @@ impl<'a, T> Iterator for RChunks<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -4730,6 +4745,7 @@ impl<'a, T> Iterator for RChunks<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(self) -> Option<Self::Item> {
         if self.v.is_empty() {
             None
@@ -4845,6 +4861,7 @@ impl<'a, T> Iterator for RChunksMut<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -4871,6 +4888,7 @@ impl<'a, T> Iterator for RChunksMut<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(self) -> Option<Self::Item> {
         if self.v.is_empty() {
             None
@@ -5004,6 +5022,7 @@ impl<'a, T> Iterator for RChunksExact<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -5022,6 +5041,7 @@ impl<'a, T> Iterator for RChunksExact<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<Self::Item> {
         self.next_back()
     }
@@ -5137,6 +5157,7 @@ impl<'a, T> Iterator for RChunksExactMut<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -5157,6 +5178,7 @@ impl<'a, T> Iterator for RChunksExactMut<'a, T> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<Self::Item> {
         self.next_back()
     }
@@ -5314,6 +5336,7 @@ pub fn from_mut<T>(s: &mut T) -> &mut [T] {
 // This function is public only because there is no other way to unit test heapsort.
 #[unstable(feature = "sort_internals", reason = "internal to sort module", issue = "0")]
 #[doc(hidden)]
+#[cfg(slice_sort)]
 pub fn heapsort<T, F>(v: &mut [T], mut is_less: F)
     where F: FnMut(&T, &T) -> bool
 {
@@ -5547,12 +5570,14 @@ impl<T> SliceContains for T where T: PartialEq {
     }
 }
 
+#[cfg(memchr)]
 impl SliceContains for u8 {
     fn slice_contains(&self, x: &[Self]) -> bool {
         memchr::memchr(*self, x).is_some()
     }
 }
 
+#[cfg(memchr)]
 impl SliceContains for i8 {
     fn slice_contains(&self, x: &[Self]) -> bool {
         let byte = *self as u8;

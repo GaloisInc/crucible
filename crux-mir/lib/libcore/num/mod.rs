@@ -9,7 +9,7 @@ use crate::fmt;
 use crate::intrinsics;
 use crate::mem;
 use crate::ops;
-use crate::str::FromStr;
+#[cfg(from_str)] use crate::str::FromStr;
 
 macro_rules! impl_nonzero_fmt {
     ( #[$stability: meta] ( $( $Trait: ident ),+ ) for $Ty: ident ) => {
@@ -118,6 +118,7 @@ nonzero_integers! {
 macro_rules! from_str_radix_nzint_impl {
     ($($t:ty)*) => {$(
         #[stable(feature = "nonzero_parse", since = "1.35.0")]
+        #[cfg(from_str)]
         impl FromStr for $t {
             type Err = ParseIntError;
             fn from_str(src: &str) -> Result<Self, Self::Err> {
@@ -208,10 +209,11 @@ impl<T: fmt::UpperHex> fmt::UpperHex for Wrapping<T> {
 }
 
 // All these modules are technically private and only exposed for coretests:
-pub mod flt2dec;
-pub mod dec2flt;
-pub mod bignum;
-pub mod diy_float;
+// CRUX: flt2dec depends on dec2flt; both depend on bignum and diy_float
+#[cfg(flt2dec)] pub mod flt2dec;
+#[cfg(dec2flt)] pub mod dec2flt;
+#[cfg(dec2flt)] pub mod bignum;
+#[cfg(dec2flt)] pub mod diy_float;
 
 mod wrapping;
 
@@ -302,6 +304,7 @@ Basic usage:
 $EndFeature, "
 ```"),
             #[stable(feature = "rust1", since = "1.0.0")]
+            #[cfg(from_str)]
             pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, ParseIntError> {
                 from_str_radix(src, radix)
             }
@@ -2340,6 +2343,7 @@ Basic usage:
 $EndFeature, "
 ```"),
             #[stable(feature = "rust1", since = "1.0.0")]
+            #[cfg(from_str)]
             pub fn from_str_radix(src: &str, radix: u32) -> Result<Self, ParseIntError> {
                 from_str_radix(src, radix)
             }
@@ -4641,6 +4645,7 @@ pub enum FpCategory {
 macro_rules! from_str_radix_int_impl {
     ($($t:ty)*) => {$(
         #[stable(feature = "rust1", since = "1.0.0")]
+        #[cfg(from_str)]
         impl FromStr for $t {
             type Err = ParseIntError;
             fn from_str(src: &str) -> Result<Self, ParseIntError> {
@@ -4892,6 +4897,7 @@ mod ptr_try_from_impls {
 }
 
 #[doc(hidden)]
+#[cfg(from_str)]
 trait FromStrRadixHelper: PartialOrd + Copy {
     fn min_value() -> Self;
     fn max_value() -> Self;
@@ -4902,7 +4908,7 @@ trait FromStrRadixHelper: PartialOrd + Copy {
 }
 
 macro_rules! doit {
-    ($($t:ty)*) => ($(impl FromStrRadixHelper for $t {
+    ($($t:ty)*) => ($(#[cfg(from_str)] impl FromStrRadixHelper for $t {
         #[inline]
         fn min_value() -> Self { Self::min_value() }
         #[inline]
@@ -4925,6 +4931,7 @@ macro_rules! doit {
 }
 doit! { i8 i16 i32 i64 i128 isize u8 u16 u32 u64 u128 usize }
 
+#[cfg(from_str)]
 fn from_str_radix<T: FromStrRadixHelper>(src: &str, radix: u32) -> Result<T, ParseIntError> {
     use self::IntErrorKind::*;
     use self::ParseIntError as PIE;
@@ -5007,6 +5014,7 @@ fn from_str_radix<T: FromStrRadixHelper>(src: &str, radix: u32) -> Result<T, Par
 /// [`i8::from_str_radix`]: ../../std/primitive.i8.html#method.from_str_radix
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(from_str)]
 pub struct ParseIntError {
     kind: IntErrorKind,
 }
@@ -5018,6 +5026,7 @@ pub struct ParseIntError {
            issue = "22639")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[cfg(from_str)]
 pub enum IntErrorKind {
     /// Value being parsed is empty.
     ///
@@ -5039,6 +5048,7 @@ pub enum IntErrorKind {
     Zero,
 }
 
+#[cfg(from_str)]
 impl ParseIntError {
     /// Outputs the detailed cause of parsing an integer failing.
     #[unstable(feature = "int_error_matching",
@@ -5065,6 +5075,7 @@ impl ParseIntError {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(from_str)]
 impl fmt::Display for ParseIntError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.__description().fmt(f)
@@ -5072,7 +5083,7 @@ impl fmt::Display for ParseIntError {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-pub use crate::num::dec2flt::ParseFloatError;
+#[cfg(dec2flt)] pub use crate::num::dec2flt::ParseFloatError;
 
 // Conversion traits for primitive integer and float types
 // Conversions T -> T are covered by a blanket impl and therefore excluded

@@ -50,6 +50,8 @@
 // This cfg won't affect doc tests.
 #![cfg(not(test))]
 
+#![crate_name = "core"]
+
 #![stable(feature = "core", since = "1.6.0")]
 #![doc(html_root_url = "https://doc.rust-lang.org/nightly/",
        html_playground_url = "https://play.rust-lang.org/",
@@ -197,7 +199,7 @@ pub mod borrow;
 pub mod any;
 pub mod array;
 pub mod ascii;
-pub mod sync;
+#[cfg(sync)] pub mod sync;
 pub mod cell;
 pub mod char;
 pub mod panic;
@@ -213,7 +215,7 @@ pub mod slice;
 pub mod str;
 pub mod hash;
 pub mod fmt;
-pub mod time;
+#[cfg(time)] pub mod time;
 
 pub mod unicode;
 
@@ -238,7 +240,9 @@ mod unit;
 #[path = "../stdarch/crates/core_arch/src/mod.rs"]
 #[allow(missing_docs, missing_debug_implementations, dead_code, unused_imports)]
 #[unstable(feature = "stdsimd", issue = "48556")]
+#[cfg(simd)]
 mod core_arch;
 
 #[stable(feature = "simd_arch", since = "1.27.0")]
+#[cfg(simd)]
 pub use core_arch::arch;

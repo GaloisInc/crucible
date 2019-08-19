@@ -1,10 +1,10 @@
 use crate::fmt::{Formatter, Result, LowerExp, UpperExp, Display, Debug};
 use crate::mem::MaybeUninit;
-use crate::num::flt2dec;
+#[cfg(flt2dec)] use crate::num::flt2dec;
 
 // Don't inline this so callers don't use the stack space this function
 // requires unless they have to.
-#[inline(never)]
+#[cfg(flt2dec)] #[inline(never)]
 fn float_to_decimal_common_exact<T>(fmt: &mut Formatter<'_>, num: &T,
                                     sign: flt2dec::Sign, precision: usize) -> Result
     where T: flt2dec::DecodableFloat
@@ -26,7 +26,7 @@ fn float_to_decimal_common_exact<T>(fmt: &mut Formatter<'_>, num: &T,
 
 // Don't inline this so callers that call both this and the above won't wind
 // up using the combined stack space of both functions in some cases.
-#[inline(never)]
+#[cfg(flt2dec)] #[inline(never)]
 fn float_to_decimal_common_shortest<T>(fmt: &mut Formatter<'_>, num: &T,
                                        sign: flt2dec::Sign, precision: usize) -> Result
     where T: flt2dec::DecodableFloat
@@ -44,6 +44,7 @@ fn float_to_decimal_common_shortest<T>(fmt: &mut Formatter<'_>, num: &T,
 }
 
 // Common code of floating point Debug and Display.
+#[cfg(flt2dec)]
 fn float_to_decimal_common<T>(fmt: &mut Formatter<'_>, num: &T,
                               negative_zero: bool, min_precision: usize) -> Result
     where T: flt2dec::DecodableFloat
@@ -63,9 +64,16 @@ fn float_to_decimal_common<T>(fmt: &mut Formatter<'_>, num: &T,
     }
 }
 
+#[cfg(not(flt2dec))]
+fn float_to_decimal_common<T>(fmt: &mut Formatter<'_>, num: &T,
+                              negative_zero: bool, min_precision: usize) -> Result
+{
+    write!(fmt, "<float>")
+}
+
 // Don't inline this so callers don't use the stack space this function
 // requires unless they have to.
-#[inline(never)]
+#[cfg(flt2dec)] #[inline(never)]
 fn float_to_exponential_common_exact<T>(fmt: &mut Formatter<'_>, num: &T,
                                         sign: flt2dec::Sign, precision: usize,
                                         upper: bool) -> Result
@@ -84,7 +92,7 @@ fn float_to_exponential_common_exact<T>(fmt: &mut Formatter<'_>, num: &T,
 
 // Don't inline this so callers that call both this and the above won't wind
 // up using the combined stack space of both functions in some cases.
-#[inline(never)]
+#[cfg(flt2dec)] #[inline(never)]
 fn float_to_exponential_common_shortest<T>(fmt: &mut Formatter<'_>,
                                            num: &T, sign: flt2dec::Sign,
                                            upper: bool) -> Result
@@ -103,6 +111,7 @@ fn float_to_exponential_common_shortest<T>(fmt: &mut Formatter<'_>,
 }
 
 // Common code of floating point LowerExp and UpperExp.
+#[cfg(flt2dec)]
 fn float_to_exponential_common<T>(fmt: &mut Formatter<'_>, num: &T, upper: bool) -> Result
     where T: flt2dec::DecodableFloat
 {
@@ -118,6 +127,12 @@ fn float_to_exponential_common<T>(fmt: &mut Formatter<'_>, num: &T, upper: bool)
     } else {
         float_to_exponential_common_shortest(fmt, num, sign, upper)
     }
+}
+
+#[cfg(not(flt2dec))]
+fn float_to_exponential_common<T>(fmt: &mut Formatter<'_>, num: &T, upper: bool) -> Result
+{
+    write!(fmt, "<float>")
 }
 
 macro_rules! floating {

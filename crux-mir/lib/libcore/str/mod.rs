@@ -6,8 +6,8 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-use self::pattern::Pattern;
-use self::pattern::{Searcher, ReverseSearcher, DoubleEndedSearcher};
+#[cfg(str_pattern)] use self::pattern::Pattern;
+#[cfg(str_pattern)] use self::pattern::{Searcher, ReverseSearcher, DoubleEndedSearcher};
 
 use crate::char;
 use crate::fmt::{self, Write};
@@ -18,11 +18,11 @@ use crate::mem;
 use crate::ops::Try;
 use crate::option;
 
-pub mod pattern;
+#[cfg(str_pattern)] pub mod pattern;
 
 #[unstable(feature = "str_internals", issue = "0")]
 #[allow(missing_docs)]
-pub mod lossy;
+#[cfg(str_lossy)] pub mod lossy;
 
 /// Parse a value from a string
 ///
@@ -71,6 +71,7 @@ pub mod lossy;
 /// assert_eq!(p.unwrap(), Point{ x: 1, y: 2} )
 /// ```
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(from_str)]
 pub trait FromStr: Sized {
     /// The associated error which can be returned from parsing.
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -104,6 +105,7 @@ pub trait FromStr: Sized {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(from_str)]
 impl FromStr for bool {
     type Err = ParseBoolError;
 
@@ -144,9 +146,11 @@ impl FromStr for bool {
 /// [`from_str`]: ../../std/primitive.bool.html#method.from_str
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(from_str)]
 pub struct ParseBoolError { _priv: () }
 
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(from_str)]
 impl fmt::Display for ParseBoolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         "provided string was not `true` or `false`".fmt(f)
@@ -574,6 +578,7 @@ impl<'a> Iterator for Chars<'a> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         // length in `char` is equal to the number of non-continuation bytes
         let bytes_len = self.iter.len();
@@ -594,9 +599,26 @@ impl<'a> Iterator for Chars<'a> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<char> {
         // No need to go through the entire string.
         self.next_back()
+    }
+}
+
+impl Chars<'_> {
+    // `fn count` is used by `core::fmt`, so we provide it even when `Iterator::count` is disabled.
+    #[stable(feature = "rust1", since = "1.0.0")]
+    #[inline]
+    #[cfg(not(iter_count))]
+    pub fn count(self) -> usize {
+        // length in `char` is equal to the number of non-continuation bytes
+        let bytes_len = self.iter.len();
+        let mut cont_bytes = 0;
+        for &byte in self.iter {
+            cont_bytes += utf8_is_cont_byte(byte) as usize;
+        }
+        bytes_len - cont_bytes
     }
 }
 
@@ -686,6 +708,7 @@ impl<'a> Iterator for CharIndices<'a> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.iter.count()
     }
@@ -696,6 +719,7 @@ impl<'a> Iterator for CharIndices<'a> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<(usize, char)> {
         // No need to go through the entire string.
         self.next_back()
@@ -754,11 +778,13 @@ impl Iterator for Bytes<'_> {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.0.count()
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(self) -> Option<Self::Item> {
         self.0.last()
     }
@@ -1036,11 +1062,13 @@ macro_rules! generate_pattern_iterators {
     } => {}
 }
 
+#[cfg(str_pattern)]
 derive_pattern_clone!{
     clone SplitInternal
     with |s| SplitInternal { matcher: s.matcher.clone(), ..*s }
 }
 
+#[cfg(str_pattern)]
 struct SplitInternal<'a, P: Pattern<'a>> {
     start: usize,
     end: usize,
@@ -1049,6 +1077,7 @@ struct SplitInternal<'a, P: Pattern<'a>> {
     finished: bool,
 }
 
+#[cfg(str_pattern)]
 impl<'a, P: Pattern<'a>> fmt::Debug for SplitInternal<'a, P> where P::Searcher: fmt::Debug {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SplitInternal")
@@ -1061,6 +1090,7 @@ impl<'a, P: Pattern<'a>> fmt::Debug for SplitInternal<'a, P> where P::Searcher: 
     }
 }
 
+#[cfg(str_pattern)]
 impl<'a, P: Pattern<'a>> SplitInternal<'a, P> {
     #[inline]
     fn get_end(&mut self) -> Option<&'a str> {
@@ -1119,6 +1149,7 @@ impl<'a, P: Pattern<'a>> SplitInternal<'a, P> {
     }
 }
 
+#[cfg(str_pattern)]
 generate_pattern_iterators! {
     forward:
         /// Created with the method [`split`].
@@ -1137,6 +1168,7 @@ generate_pattern_iterators! {
     delegate double ended;
 }
 
+#[cfg(str_pattern)]
 generate_pattern_iterators! {
     forward:
         /// Created with the method [`split_terminator`].
@@ -1155,17 +1187,20 @@ generate_pattern_iterators! {
     delegate double ended;
 }
 
+#[cfg(str_pattern)]
 derive_pattern_clone!{
     clone SplitNInternal
     with |s| SplitNInternal { iter: s.iter.clone(), ..*s }
 }
 
+#[cfg(str_pattern)]
 struct SplitNInternal<'a, P: Pattern<'a>> {
     iter: SplitInternal<'a, P>,
     /// The number of splits remaining
     count: usize,
 }
 
+#[cfg(str_pattern)]
 impl<'a, P: Pattern<'a>> fmt::Debug for SplitNInternal<'a, P> where P::Searcher: fmt::Debug {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SplitNInternal")
@@ -1175,6 +1210,7 @@ impl<'a, P: Pattern<'a>> fmt::Debug for SplitNInternal<'a, P> where P::Searcher:
     }
 }
 
+#[cfg(str_pattern)]
 impl<'a, P: Pattern<'a>> SplitNInternal<'a, P> {
     #[inline]
     fn next(&mut self) -> Option<&'a str> {
@@ -1197,6 +1233,7 @@ impl<'a, P: Pattern<'a>> SplitNInternal<'a, P> {
     }
 }
 
+#[cfg(str_pattern)]
 generate_pattern_iterators! {
     forward:
         /// Created with the method [`splitn`].
@@ -1215,13 +1252,16 @@ generate_pattern_iterators! {
     delegate single ended;
 }
 
+#[cfg(str_pattern)]
 derive_pattern_clone!{
     clone MatchIndicesInternal
     with |s| MatchIndicesInternal(s.0.clone())
 }
 
+#[cfg(str_pattern)]
 struct MatchIndicesInternal<'a, P: Pattern<'a>>(P::Searcher);
 
+#[cfg(str_pattern)]
 impl<'a, P: Pattern<'a>> fmt::Debug for MatchIndicesInternal<'a, P> where P::Searcher: fmt::Debug {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("MatchIndicesInternal")
@@ -1230,6 +1270,7 @@ impl<'a, P: Pattern<'a>> fmt::Debug for MatchIndicesInternal<'a, P> where P::Sea
     }
 }
 
+#[cfg(str_pattern)]
 impl<'a, P: Pattern<'a>> MatchIndicesInternal<'a, P> {
     #[inline]
     fn next(&mut self) -> Option<(usize, &'a str)> {
@@ -1248,6 +1289,7 @@ impl<'a, P: Pattern<'a>> MatchIndicesInternal<'a, P> {
     }
 }
 
+#[cfg(str_pattern)]
 generate_pattern_iterators! {
     forward:
         /// Created with the method [`match_indices`].
@@ -1266,13 +1308,16 @@ generate_pattern_iterators! {
     delegate double ended;
 }
 
+#[cfg(str_pattern)]
 derive_pattern_clone!{
     clone MatchesInternal
     with |s| MatchesInternal(s.0.clone())
 }
 
+#[cfg(str_pattern)]
 struct MatchesInternal<'a, P: Pattern<'a>>(P::Searcher);
 
+#[cfg(str_pattern)]
 impl<'a, P: Pattern<'a>> fmt::Debug for MatchesInternal<'a, P> where P::Searcher: fmt::Debug {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("MatchesInternal")
@@ -1281,6 +1326,7 @@ impl<'a, P: Pattern<'a>> fmt::Debug for MatchesInternal<'a, P> where P::Searcher
     }
 }
 
+#[cfg(str_pattern)]
 impl<'a, P: Pattern<'a>> MatchesInternal<'a, P> {
     #[inline]
     fn next(&mut self) -> Option<&'a str> {
@@ -1301,6 +1347,7 @@ impl<'a, P: Pattern<'a>> MatchesInternal<'a, P> {
     }
 }
 
+#[cfg(str_pattern)]
 generate_pattern_iterators! {
     forward:
         /// Created with the method [`matches`].
@@ -1328,9 +1375,11 @@ generate_pattern_iterators! {
 /// [`str`]: ../../std/primitive.str.html
 #[stable(feature = "rust1", since = "1.0.0")]
 #[derive(Clone, Debug)]
+#[cfg(str_pattern)]
 pub struct Lines<'a>(Map<SplitTerminator<'a, char>, LinesAnyMap>);
 
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(str_pattern)]
 impl<'a> Iterator for Lines<'a> {
     type Item = &'a str;
 
@@ -1345,12 +1394,14 @@ impl<'a> Iterator for Lines<'a> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<&'a str> {
         self.next_back()
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
+#[cfg(str_pattern)]
 impl<'a> DoubleEndedIterator for Lines<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a str> {
@@ -1359,6 +1410,7 @@ impl<'a> DoubleEndedIterator for Lines<'a> {
 }
 
 #[stable(feature = "fused", since = "1.26.0")]
+#[cfg(str_pattern)]
 impl FusedIterator for Lines<'_> {}
 
 /// Created with the method [`lines_any`].
@@ -1368,6 +1420,7 @@ impl FusedIterator for Lines<'_> {}
 #[rustc_deprecated(since = "1.4.0", reason = "use lines()/Lines instead now")]
 #[derive(Clone, Debug)]
 #[allow(deprecated)]
+#[cfg(str_pattern)]
 pub struct LinesAny<'a>(Lines<'a>);
 
 impl_fn_for_zst! {
@@ -1382,6 +1435,7 @@ impl_fn_for_zst! {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 #[allow(deprecated)]
+#[cfg(str_pattern)]
 impl<'a> Iterator for LinesAny<'a> {
     type Item = &'a str;
 
@@ -1398,6 +1452,7 @@ impl<'a> Iterator for LinesAny<'a> {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 #[allow(deprecated)]
+#[cfg(str_pattern)]
 impl<'a> DoubleEndedIterator for LinesAny<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a str> {
@@ -1407,6 +1462,7 @@ impl<'a> DoubleEndedIterator for LinesAny<'a> {
 
 #[stable(feature = "fused", since = "1.26.0")]
 #[allow(deprecated)]
+#[cfg(str_pattern)]
 impl FusedIterator for LinesAny<'_> {}
 
 /*
@@ -2705,6 +2761,7 @@ impl str {
     /// ```
     #[stable(feature = "split_whitespace", since = "1.1.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn split_whitespace(&self) -> SplitWhitespace<'_> {
         SplitWhitespace { inner: self.split(IsWhitespace).filter(IsNotEmpty) }
     }
@@ -2746,6 +2803,7 @@ impl str {
     /// ```
     #[stable(feature = "split_ascii_whitespace", since = "1.34.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn split_ascii_whitespace(&self) -> SplitAsciiWhitespace<'_> {
         let inner = self
             .as_bytes()
@@ -2793,6 +2851,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn lines(&self) -> Lines<'_> {
         Lines(self.split_terminator('\n').map(LinesAnyMap))
     }
@@ -2802,6 +2861,7 @@ impl str {
     #[rustc_deprecated(since = "1.4.0", reason = "use lines() instead now")]
     #[inline]
     #[allow(deprecated)]
+    #[cfg(str_pattern)]
     pub fn lines_any(&self) -> LinesAny<'_> {
         LinesAny(self.lines())
     }
@@ -2842,6 +2902,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn contains<'a, P: Pattern<'a>>(&'a self, pat: P) -> bool {
         pat.is_contained_in(self)
     }
@@ -2862,6 +2923,7 @@ impl str {
     /// assert!(!bananas.starts_with("nana"));
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(str_pattern)]
     pub fn starts_with<'a, P: Pattern<'a>>(&'a self, pat: P) -> bool {
         pat.is_prefix_of(self)
     }
@@ -2882,6 +2944,7 @@ impl str {
     /// assert!(!bananas.ends_with("nana"));
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(str_pattern)]
     pub fn ends_with<'a, P: Pattern<'a>>(&'a self, pat: P) -> bool
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -2931,6 +2994,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn find<'a, P: Pattern<'a>>(&'a self, pat: P) -> Option<usize> {
         pat.into_searcher(self).next_match().map(|(i, _)| i)
     }
@@ -2975,6 +3039,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn rfind<'a, P: Pattern<'a>>(&'a self, pat: P) -> Option<usize>
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -3088,6 +3153,7 @@ impl str {
     /// [`split_whitespace`]: #method.split_whitespace
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn split<'a, P: Pattern<'a>>(&'a self, pat: P) -> Split<'a, P> {
         Split(SplitInternal {
             start: 0,
@@ -3142,6 +3208,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn rsplit<'a, P: Pattern<'a>>(&'a self, pat: P) -> RSplit<'a, P>
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -3188,6 +3255,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn split_terminator<'a, P: Pattern<'a>>(&'a self, pat: P) -> SplitTerminator<'a, P> {
         SplitTerminator(SplitInternal {
             allow_trailing_empty: false,
@@ -3233,6 +3301,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn rsplit_terminator<'a, P: Pattern<'a>>(&'a self, pat: P) -> RSplitTerminator<'a, P>
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -3284,6 +3353,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn splitn<'a, P: Pattern<'a>>(&'a self, n: usize, pat: P) -> SplitN<'a, P> {
         SplitN(SplitNInternal {
             iter: self.split(pat).0,
@@ -3333,6 +3403,7 @@ impl str {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn rsplitn<'a, P: Pattern<'a>>(&'a self, n: usize, pat: P) -> RSplitN<'a, P>
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -3371,6 +3442,7 @@ impl str {
     /// ```
     #[stable(feature = "str_matches", since = "1.2.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn matches<'a, P: Pattern<'a>>(&'a self, pat: P) -> Matches<'a, P> {
         Matches(MatchesInternal(pat.into_searcher(self)))
     }
@@ -3406,6 +3478,7 @@ impl str {
     /// ```
     #[stable(feature = "str_matches", since = "1.2.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn rmatches<'a, P: Pattern<'a>>(&'a self, pat: P) -> RMatches<'a, P>
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -3450,6 +3523,7 @@ impl str {
     /// ```
     #[stable(feature = "str_match_indices", since = "1.5.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn match_indices<'a, P: Pattern<'a>>(&'a self, pat: P) -> MatchIndices<'a, P> {
         MatchIndices(MatchIndicesInternal(pat.into_searcher(self)))
     }
@@ -3491,6 +3565,7 @@ impl str {
     /// ```
     #[stable(feature = "str_match_indices", since = "1.5.0")]
     #[inline]
+    #[cfg(str_pattern)]
     pub fn rmatch_indices<'a, P: Pattern<'a>>(&'a self, pat: P) -> RMatchIndices<'a, P>
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -3514,6 +3589,7 @@ impl str {
     #[must_use = "this returns the trimmed string as a slice, \
                   without modifying the original"]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(str_pattern)]
     pub fn trim(&self) -> &str {
         self.trim_matches(|c: char| c.is_whitespace())
     }
@@ -3551,6 +3627,7 @@ impl str {
     #[must_use = "this returns the trimmed string as a new slice, \
                   without modifying the original"]
     #[stable(feature = "trim_direction", since = "1.30.0")]
+    #[cfg(str_pattern)]
     pub fn trim_start(&self) -> &str {
         self.trim_start_matches(|c: char| c.is_whitespace())
     }
@@ -3588,6 +3665,7 @@ impl str {
     #[must_use = "this returns the trimmed string as a new slice, \
                   without modifying the original"]
     #[stable(feature = "trim_direction", since = "1.30.0")]
+    #[cfg(str_pattern)]
     pub fn trim_end(&self) -> &str {
         self.trim_end_matches(|c: char| c.is_whitespace())
     }
@@ -3629,6 +3707,7 @@ impl str {
         reason = "superseded by `trim_start`",
         suggestion = "trim_start",
     )]
+    #[cfg(str_pattern)]
     pub fn trim_left(&self) -> &str {
         self.trim_start()
     }
@@ -3670,6 +3749,7 @@ impl str {
         reason = "superseded by `trim_end`",
         suggestion = "trim_end",
     )]
+    #[cfg(str_pattern)]
     pub fn trim_right(&self) -> &str {
         self.trim_end()
     }
@@ -3700,6 +3780,7 @@ impl str {
     #[must_use = "this returns the trimmed string as a new slice, \
                   without modifying the original"]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(str_pattern)]
     pub fn trim_matches<'a, P: Pattern<'a>>(&'a self, pat: P) -> &'a str
         where P::Searcher: DoubleEndedSearcher<'a>
     {
@@ -3747,6 +3828,7 @@ impl str {
     #[must_use = "this returns the trimmed string as a new slice, \
                   without modifying the original"]
     #[stable(feature = "trim_direction", since = "1.30.0")]
+    #[cfg(str_pattern)]
     pub fn trim_start_matches<'a, P: Pattern<'a>>(&'a self, pat: P) -> &'a str {
         let mut i = self.len();
         let mut matcher = pat.into_searcher(self);
@@ -3792,6 +3874,7 @@ impl str {
     #[must_use = "this returns the trimmed string as a new slice, \
                   without modifying the original"]
     #[stable(feature = "trim_direction", since = "1.30.0")]
+    #[cfg(str_pattern)]
     pub fn trim_end_matches<'a, P: Pattern<'a>>(&'a self, pat: P) -> &'a str
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -3838,6 +3921,7 @@ impl str {
         reason = "superseded by `trim_start_matches`",
         suggestion = "trim_start_matches",
     )]
+    #[cfg(str_pattern)]
     pub fn trim_left_matches<'a, P: Pattern<'a>>(&'a self, pat: P) -> &'a str {
         self.trim_start_matches(pat)
     }
@@ -3880,6 +3964,7 @@ impl str {
         reason = "superseded by `trim_end_matches`",
         suggestion = "trim_end_matches",
     )]
+    #[cfg(str_pattern)]
     pub fn trim_right_matches<'a, P: Pattern<'a>>(&'a self, pat: P) -> &'a str
         where P::Searcher: ReverseSearcher<'a>
     {
@@ -3932,6 +4017,7 @@ impl str {
     /// ```
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
+    #[cfg(from_str)]
     pub fn parse<F: FromStr>(&self) -> Result<F, F::Err> {
         FromStr::from_str(self)
     }
@@ -4195,6 +4281,7 @@ impl Default for &mut str {
 /// [`str`]: ../../std/primitive.str.html
 #[stable(feature = "split_whitespace", since = "1.1.0")]
 #[derive(Clone, Debug)]
+#[cfg(str_pattern)]
 pub struct SplitWhitespace<'a> {
     inner: Filter<Split<'a, IsWhitespace>, IsNotEmpty>,
 }
@@ -4209,6 +4296,7 @@ pub struct SplitWhitespace<'a> {
 /// [`str`]: ../../std/primitive.str.html
 #[stable(feature = "split_ascii_whitespace", since = "1.34.0")]
 #[derive(Clone, Debug)]
+#[cfg(str_pattern)]
 pub struct SplitAsciiWhitespace<'a> {
     inner: Map<Filter<SliceSplit<'a, u8, IsAsciiWhitespace>, BytesIsNotEmpty>, UnsafeBytesToStr>,
 }
@@ -4240,6 +4328,7 @@ impl_fn_for_zst! {
     };
 }
 
+#[cfg(str_pattern)]
 #[stable(feature = "split_whitespace", since = "1.1.0")]
 impl<'a> Iterator for SplitWhitespace<'a> {
     type Item = &'a str;
@@ -4255,11 +4344,13 @@ impl<'a> Iterator for SplitWhitespace<'a> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<&'a str> {
         self.next_back()
     }
 }
 
+#[cfg(str_pattern)]
 #[stable(feature = "split_whitespace", since = "1.1.0")]
 impl<'a> DoubleEndedIterator for SplitWhitespace<'a> {
     #[inline]
@@ -4269,9 +4360,11 @@ impl<'a> DoubleEndedIterator for SplitWhitespace<'a> {
 }
 
 #[stable(feature = "fused", since = "1.26.0")]
+#[cfg(str_pattern)]
 impl FusedIterator for SplitWhitespace<'_> {}
 
 #[stable(feature = "split_ascii_whitespace", since = "1.34.0")]
+#[cfg(str_pattern)]
 impl<'a> Iterator for SplitAsciiWhitespace<'a> {
     type Item = &'a str;
 
@@ -4286,12 +4379,14 @@ impl<'a> Iterator for SplitAsciiWhitespace<'a> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<&'a str> {
         self.next_back()
     }
 }
 
 #[stable(feature = "split_ascii_whitespace", since = "1.34.0")]
+#[cfg(str_pattern)]
 impl<'a> DoubleEndedIterator for SplitAsciiWhitespace<'a> {
     #[inline]
     fn next_back(&mut self) -> Option<&'a str> {
@@ -4300,6 +4395,7 @@ impl<'a> DoubleEndedIterator for SplitAsciiWhitespace<'a> {
 }
 
 #[stable(feature = "split_ascii_whitespace", since = "1.34.0")]
+#[cfg(str_pattern)]
 impl FusedIterator for SplitAsciiWhitespace<'_> {}
 
 /// An iterator of [`u16`] over the string encoded as UTF-16.

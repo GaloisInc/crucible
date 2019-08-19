@@ -5,7 +5,7 @@
 use crate::cell::{UnsafeCell, Cell, RefCell, Ref, RefMut};
 use crate::marker::PhantomData;
 use crate::mem;
-use crate::num::flt2dec;
+#[cfg(flt2dec)] use crate::num::flt2dec;
 use crate::ops::Deref;
 use crate::result;
 use crate::slice;
@@ -1331,7 +1331,7 @@ impl<'a> Formatter<'a> {
     /// Takes the formatted parts and applies the padding.
     /// Assumes that the caller already has rendered the parts with required precision,
     /// so that `self.precision` can be ignored.
-    fn pad_formatted_parts(&mut self, formatted: &flt2dec::Formatted<'_>) -> Result {
+    #[cfg(flt2dec)] fn pad_formatted_parts(&mut self, formatted: &flt2dec::Formatted<'_>) -> Result {
         if let Some(mut width) = self.width {
             // for the sign-aware zero padding, we render the sign first and
             // behave as if we had no sign from the beginning.
@@ -1370,7 +1370,7 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    fn write_formatted_parts(&mut self, formatted: &flt2dec::Formatted<'_>) -> Result {
+    #[cfg(flt2dec)] fn write_formatted_parts(&mut self, formatted: &flt2dec::Formatted<'_>) -> Result {
         fn write_bytes(buf: &mut dyn Write, s: &[u8]) -> Result {
             buf.write_str(unsafe { str::from_utf8_unchecked(s) })
         }

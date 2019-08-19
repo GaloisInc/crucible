@@ -29,7 +29,7 @@ pub use self::convert::{from_u32, from_digit};
 #[stable(feature = "char_from_unchecked", since = "1.5.0")]
 pub use self::convert::from_u32_unchecked;
 #[stable(feature = "char_from_str", since = "1.20.0")]
-pub use self::convert::ParseCharError;
+#[cfg(from_str)] pub use self::convert::ParseCharError;
 #[stable(feature = "try_from", since = "1.34.0")]
 pub use self::convert::CharTryFromError;
 #[stable(feature = "decode_utf16", since = "1.9.0")]
@@ -182,10 +182,12 @@ impl Iterator for EscapeUnicode {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
 
+    #[cfg(iter_last)]
     fn last(self) -> Option<char> {
         match self.state {
             EscapeUnicodeState::Done => None,
@@ -275,6 +277,7 @@ impl Iterator for EscapeDefault {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.len()
     }
@@ -307,6 +310,7 @@ impl Iterator for EscapeDefault {
         }
     }
 
+    #[cfg(iter_last)]
     fn last(self) -> Option<char> {
         match self.state {
             EscapeDefaultState::Unicode(iter) => iter.last(),

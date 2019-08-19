@@ -71,6 +71,7 @@ impl<A, B> Iterator for Chain<A, B> where
 
     #[inline]
     #[rustc_inherit_overflow_checks]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         match self.state {
             ChainState::Both => self.a.count() + self.b.count(),
@@ -158,6 +159,7 @@ impl<A, B> Iterator for Chain<A, B> where
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(self) -> Option<A::Item> {
         match self.state {
             ChainState::Both => {

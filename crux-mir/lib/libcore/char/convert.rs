@@ -3,7 +3,7 @@
 use crate::convert::TryFrom;
 use crate::fmt;
 use crate::mem::transmute;
-use crate::str::FromStr;
+#[cfg(from_str)] use crate::str::FromStr;
 
 use super::MAX;
 
@@ -166,10 +166,12 @@ impl From<u8> for char {
 /// An error which can be returned when parsing a char.
 #[stable(feature = "char_from_str", since = "1.20.0")]
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg(from_str)]
 pub struct ParseCharError {
     kind: CharErrorKind,
 }
 
+#[cfg(from_str)]
 impl ParseCharError {
     #[unstable(feature = "char_error_internals",
                reason = "this method should not be available publicly",
@@ -186,12 +188,14 @@ impl ParseCharError {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg(from_str)]
 enum CharErrorKind {
     EmptyString,
     TooManyChars,
 }
 
 #[stable(feature = "char_from_str", since = "1.20.0")]
+#[cfg(from_str)]
 impl fmt::Display for ParseCharError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.__description().fmt(f)
@@ -200,6 +204,7 @@ impl fmt::Display for ParseCharError {
 
 
 #[stable(feature = "char_from_str", since = "1.20.0")]
+#[cfg(from_str)]
 impl FromStr for char {
     type Err = ParseCharError;
 

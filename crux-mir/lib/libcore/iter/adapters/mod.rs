@@ -704,6 +704,7 @@ impl<I: Iterator, P> Iterator for Filter<I, P> where P: FnMut(&I::Item) -> bool 
     // Using the branchless version will also simplify the LLVM byte code, thus
     // leaving more budget for LLVM optimizations.
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         let mut predicate = self.predicate;
         self.iter.map(|x| predicate(&x) as usize).sum()
@@ -937,6 +938,7 @@ impl<I> Iterator for Enumerate<I> where I: Iterator {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.iter.count()
     }
@@ -1092,6 +1094,7 @@ impl<I: Iterator> Iterator for Peekable<I> {
 
     #[inline]
     #[rustc_inherit_overflow_checks]
+    #[cfg(iter_count)]
     fn count(mut self) -> usize {
         match self.peeked.take() {
             Some(None) => 0,
@@ -1111,6 +1114,7 @@ impl<I: Iterator> Iterator for Peekable<I> {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<I::Item> {
         let peek_opt = match self.peeked.take() {
             Some(None) => return None,
@@ -1438,11 +1442,13 @@ impl<I> Iterator for Skip<I> where I: Iterator {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.iter.count().saturating_sub(self.n)
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(mut self) -> Option<I::Item> {
         if self.n == 0 {
             self.iter.last()
@@ -1751,6 +1757,7 @@ impl<I> Iterator for Fuse<I> where I: Iterator {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     default fn last(self) -> Option<I::Item> {
         if self.done {
             None
@@ -1760,6 +1767,7 @@ impl<I> Iterator for Fuse<I> where I: Iterator {
     }
 
     #[inline]
+    #[cfg(iter_count)]
     default fn count(self) -> usize {
         if self.done {
             0
@@ -1876,11 +1884,13 @@ impl<I> Iterator for Fuse<I> where I: FusedIterator {
     }
 
     #[inline]
+    #[cfg(iter_last)]
     fn last(self) -> Option<I::Item> {
         self.iter.last()
     }
 
     #[inline]
+    #[cfg(iter_count)]
     fn count(self) -> usize {
         self.iter.count()
     }
