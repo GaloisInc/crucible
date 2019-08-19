@@ -213,7 +213,7 @@ pub mod ffi;
 
 pub mod slice;
 #[cfg_attr(not(str), path = "str_min.rs")] pub mod str;
-pub mod hash;
+#[cfg_attr(not(hash), path = "hash_min/mod.rs")] pub mod hash;
 #[cfg_attr(not(fmt), path = "fmt_min/mod.rs")] pub mod fmt;
 #[cfg(time)] pub mod time;
 
