@@ -335,6 +335,8 @@ abstractATs_Predicate ati (TraitPredicate tn ss)
 abstractATs_Predicate ati (TraitProjection ty1 ty2)
     = TraitProjection <$> (abstractATs ati ty1) <*> (abstractATs ati ty2)
 --    = pure $ TraitProjection ty1 ty2
+-- Auto traits cannot have associated types
+abstractATs_Predicate _ati (AutoTraitPredicate tr) = pure (AutoTraitPredicate tr)
 --abstractATs_Predicate _ati UnknownPredicate = throwError "BUG: found UnknownPredicate"
 abstractATs_Predicate _ati UnknownPredicate = pure UnknownPredicate
 
@@ -484,6 +486,8 @@ filterPreds f =
      knownPred :: Predicate -> Bool
      knownPred (TraitPredicate did _) = f did
      knownPred (TraitProjection {})   = True
+     -- TODO: not sure if the auto trait case is right, or what this is used for
+     knownPred (AutoTraitPredicate _) = True
      knownPred UnknownPredicate       = False
 
 
@@ -635,6 +639,7 @@ instance GenericOps TraitImplItem where
   modifyPreds = modifyPreds_TraitImplItem
 instance GenericOps Promoted
 instance GenericOps Static
+instance GenericOps Vtable
 
 -- instances for newtypes
 -- we need the deriving strategy 'anyclass' to disambiguate 

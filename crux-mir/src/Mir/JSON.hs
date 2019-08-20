@@ -162,12 +162,14 @@ instance FromJSON Collection where
       (traits :: [Trait])     <- v .: "traits"
       (impls  :: [TraitImpl]) <- v .: "impls"
       (statics :: [Static]  ) <- v .: "statics"
+      (vtables :: [Vtable]  ) <- v .: "vtables"
       return $ Collection
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
         (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
         (foldr (\ x m -> Map.insert (x^.traitName) x m) Map.empty traits)
         impls
         (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
+        (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
 
 
 instance FromJSON Fn where
@@ -354,6 +356,10 @@ instanceDefId (RustcInstance defId _) = defId
 instance FromJSON VtableEntry where
     parseJSON = withObject "VtableEntry" $ \v ->
         VtableEntry <$> v .: "def_id" <*> (instanceDefId <$> v .: "instance")
+
+instance FromJSON Vtable where
+    parseJSON = withObject "Vtable" $ \v ->
+        Vtable <$> v .: "name" <*> v .: "items"
 
 instance FromJSON CastKind where
     parseJSON = withObject "CastKind" $ \v -> case HML.lookup "kind" v of

@@ -86,6 +86,7 @@ instance Pretty Ty where
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
     pretty (TyProjection defId tys) = text "projection" <+> brackets (pr_id defId <> pretty tys)
     pretty TyLifetime = text "lifetime"
+    pretty TyErased = text "erased"
 
 instance Pretty Adt where
    pretty (Adt nm vs) = text "struct" <+> pretty nm <> tupled (map pretty vs)
@@ -132,6 +133,8 @@ instance Pretty Predicate where
       pretty trait <> pretty args
   pretty (TraitProjection lhs ty) =
       pretty lhs <> text "=" <> pretty ty
+  pretty (AutoTraitPredicate trait) =
+      pretty trait
   pretty UnknownPredicate = text "UnknownPredicate"
   
 instance Pretty Fn where

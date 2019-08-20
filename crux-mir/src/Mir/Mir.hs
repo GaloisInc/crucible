@@ -175,7 +175,8 @@ data Collection = Collection {
     _adts      :: !(Map AdtName Adt),
     _traits    :: !(Map TraitName Trait),
     _impls     :: !([TraitImpl]),
-    _statics   :: !(Map DefId Static)
+    _statics   :: !(Map DefId Static),
+    _vtables   :: !(Map VtableName Vtable)
 } deriving (Show, Eq, Ord, Generic)
 
 data Predicate =
@@ -380,13 +381,19 @@ data VtableEntry = VtableEntry
     }
     deriving (Show, Eq, Ord, Generic)
 
+data Vtable = Vtable
+    { _vtName :: VtableName
+    , _vtItems :: [VtableEntry]
+    }
+    deriving (Show, Eq, Ord, Generic)
+
 data CastKind =
         Misc
       | ReifyFnPointer
       | ClosureFnPointer
       | UnsafeFnPointer
       | Unsize
-      | UnsizeVtable [VtableEntry]
+      | UnsizeVtable VtableName
       | MutToConstPointer
       deriving (Show,Eq, Ord, Generic)
 
@@ -516,9 +523,10 @@ data Static   = Static {
   deriving (Show, Eq, Ord, Generic)
 
 -- Documentation for particular use-cases of DefIds
-type TraitName = DefId
-type MethName  = DefId
-type AdtName   = DefId
+type TraitName  = DefId
+type MethName   = DefId
+type AdtName    = DefId
+type VtableName = DefId
 
 
 
@@ -548,6 +556,7 @@ makeLenses ''Adt
 makeLenses ''AdtAg
 makeLenses ''Trait
 makeLenses ''Static
+makeLenses ''Vtable
 
 makeLenses ''TraitImpl
 makeLenses ''TraitImplItem
@@ -567,10 +576,10 @@ itemName = lens (\ti -> case ti of
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1 i1 s1) <> (Collection f2 a2 t2 i2 s2) =
-    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2)
+  (Collection f1 a1 t1 i1 s1 v1) <> (Collection f2 a2 t2 i2 s2 v2) =
+    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty mempty
   mappend = (<>)
 
   
