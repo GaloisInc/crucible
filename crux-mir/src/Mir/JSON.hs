@@ -342,6 +342,19 @@ instance FromJSON BinOp where
                                              Just (String "Gt") -> pure Gt
                                              Just (String "Offset") -> pure Offset
                                              x -> fail ("bad binop: " ++ show x)
+
+data RustcInstance = RustcInstance DefId Substs
+
+instance FromJSON RustcInstance where
+    parseJSON = withObject "Instance" $ \v ->
+        RustcInstance <$> v .: "def_id" <*> v .: "substs"
+
+instanceDefId (RustcInstance defId _) = defId
+
+instance FromJSON VtableEntry where
+    parseJSON = withObject "VtableEntry" $ \v ->
+        VtableEntry <$> v .: "def_id" <*> (instanceDefId <$> v .: "instance")
+
 instance FromJSON CastKind where
     parseJSON = withObject "CastKind" $ \v -> case HML.lookup "kind" v of
                                                Just (String "Misc") -> pure Misc
@@ -350,6 +363,7 @@ instance FromJSON CastKind where
                                                Just (String "Pointer(UnsafeFnPointer)") -> pure UnsafeFnPointer
                                                Just (String "Pointer(Unsize)") -> pure Unsize
                                                Just (String "Pointer(MutToConstPointer)") -> pure MutToConstPointer
+                                               Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
                                                x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Literal where

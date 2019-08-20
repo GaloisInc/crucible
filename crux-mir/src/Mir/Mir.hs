@@ -363,12 +363,19 @@ data BinOp =
       | Offset
       deriving (Show,Eq, Ord, Generic)
 
+data VtableEntry = VtableEntry
+    { _vtDef :: DefId       -- ^ ID of the item definition in the trait
+    , _vtFn :: DefId        -- ^ ID of the implementation that should be stored in the vtable
+    }
+    deriving (Show, Eq, Ord, Generic)
+
 data CastKind =
         Misc
       | ReifyFnPointer
       | ClosureFnPointer
       | UnsafeFnPointer
       | Unsize
+      | UnsizeVtable [VtableEntry]
       | MutToConstPointer
       deriving (Show,Eq, Ord, Generic)
 
