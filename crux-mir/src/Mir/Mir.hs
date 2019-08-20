@@ -104,6 +104,14 @@ data Ty =
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
       | TyProjection !DefId !Substs -- The projection of an associated type. For example, <T as Trait<..>>::N.
       | TyLifetime
+
+      -- | The erased concrete type of a trait object.  This is never emitted
+      -- by mir-json.  It's used in vtable shims, to replace the type of the
+      -- receiver argument.  The effect is for the vtable shim to take in a
+      -- Crucible "Any" value (the translation of TyErased), which it then
+      -- downcasts to the concrete receiver type and passes to the
+      -- implementation of the trait method.
+      | TyErased
       deriving (Eq, Ord, Show, Generic)
 
 data FnSig = FnSig {
@@ -178,6 +186,9 @@ data Predicate =
   | TraitProjection {
       _plhs    :: !Ty
     , _prhs    :: !Ty
+    }
+  | AutoTraitPredicate {
+    _ptrait :: !DefId
     }
   | UnknownPredicate
     deriving (Show, Eq, Ord, Generic)

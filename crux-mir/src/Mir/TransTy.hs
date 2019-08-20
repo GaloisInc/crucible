@@ -23,6 +23,7 @@
 
 module Mir.TransTy where
 
+import Control.Lens
 import qualified Data.Maybe as Maybe
 import qualified Data.String as String
 import qualified Data.Vector as V
@@ -52,6 +53,7 @@ import qualified Mir.MirTy as M
 import           Mir.PP (fmt)
 import           Mir.Generator (MirExp(..), MirGenerator, mkPredVar, mirFail)
 import           Mir.Intrinsics (MIR, pattern MirSliceRepr, pattern MirReferenceRepr, TaggedUnion)
+import           Mir.GenericOps (tySubst)
 
 
 --------------------------------------------------------------------------------------------
@@ -141,6 +143,14 @@ tyToRepr t0 = case t0 of
   M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
 
+  -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
+  -- data value (which is either `&Ty` or `&mut Ty`) and a vtable.  Both are
+  -- type-erased (`AnyRepr`), the first because it has to be, and the second
+  -- because we'd need to thread the `Collection` into this function (which we
+  -- don't want to do) in order to construct the precise vtable type.
+  M.TyRef (M.TyDynamic _) _ -> Some $ C.StructRepr $
+    Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
+
   -- NOTE: we cannot mutate this vector. Hmmmm....
   M.TySlice t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
 
@@ -183,9 +193,11 @@ tyToRepr t0 = case t0 of
          tyToReprCont ret $ \retr ->
             Some (C.PolyFnRepr k argsr retr)
 
-  -- TODO: the only dynamic types that we support are closures
-  M.TyDynamic _def -> Some C.AnyRepr
-  
+  -- We don't support unsized rvalues.  Currently we error only for standalone
+  -- standalone (i.e., not under `TyRef`/`TyRawPtr`) use of `TyDynamic` - we
+  -- should do the same for TySlice and TyStr as well.
+  M.TyDynamic _preds -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
+
   M.TyProjection def _tyargs
    | def == (M.textId "::core[0]::ops[0]::function[0]::FnOnce[0]::Output[0]")
      -> Some taggedUnionRepr
@@ -195,6 +207,7 @@ tyToRepr t0 = case t0 of
     -- TODO: lookup the type of the function and translate that type
     Some C.AnyRepr
   M.TyLifetime -> Some C.AnyRepr
+  M.TyErased -> Some C.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]
 
 
@@ -385,3 +398,64 @@ modifyAggregateIdxMaybe (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
   | otherwise = mirFail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdxMaybe (MirExp ty _) _ _ =
   do mirFail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
+
+
+
+-- Vtable handling
+
+isAutoTraitPredicate :: M.Predicate -> Bool
+isAutoTraitPredicate (M.AutoTraitPredicate {}) = True
+isAutoTraitPredicate _ = False
+
+traitVtableType :: (HasCallStack) =>
+    M.TraitName -> M.Trait -> M.Substs -> [M.Predicate] -> Some C.TypeRepr
+traitVtableType tname _ _ ps
+  | any (not . isAutoTraitPredicate) ps =
+    -- We don't yet support things like `dyn Iterator<Item = u8>`, which
+    -- manifests as `TraitProjection` predicates constraining the type of
+    -- `Iterator::Item<Self>`.
+    error $ unwords ["unsupported predicate(s)",
+        show $ filter (not . isAutoTraitPredicate) ps,
+        "for trait", show tname]
+traitVtableType tname trait _ _
+  | not $ null $ trait ^. M.traitSupers =
+    -- We don't yet support traits with supertraits.  This would require
+    -- collecting up all the trait items from the entire tree into one big
+    -- vtable.
+    error $ unwords ["trait", show tname, "has nonempty supertraits (unsupported)"]
+  | not $ null $ trait ^. M.traitPredicates =
+    -- A predicate `Self: OtherTrait` works the same as a supertrait.  Other
+    -- predicates might be okay.
+    error $ unwords ["trait", show tname, "has nonempty predicates (unsupported)"]
+traitVtableType tname trait substs _ = vtableTy
+  where
+    -- The substitutions that turn the method signature (generic, from the
+    -- trait declaration) into the signature of the vtable shim.  These are the
+    -- `substs` from the TraitPredicate, plus one more type to use for `Self`.
+    shimSubsts = M.insertAtSubsts (M.Substs [dummySelf]) 0 substs
+
+    -- We specially replace the receiver argument with TyErased, and that's the
+    -- only place `Self` (`TyParam 0`) should appear, assuming the method is
+    -- properly object-safe.  Thus, the first entry in the `shimSubsts` should
+    -- never be evaluated.
+    dummySelf :: M.Ty
+    dummySelf = errNotObjectSafe ["tried to use Self outside receiver position"]
+
+    eraseReceiver :: M.FnSig -> M.FnSig
+    eraseReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of
+        [] -> errNotObjectSafe ["method has no arguments"]
+        (_ : tys) -> M.TyErased : tys
+
+    convertShimSig sig = tySubst shimSubsts $ eraseReceiver sig
+
+    methodSigs = Maybe.mapMaybe (\ti -> case ti of
+        M.TraitMethod _ sig -> Just sig
+        _ -> Nothing) (trait ^. M.traitItems)
+    shimSigs = map convertShimSig methodSigs
+
+    vtableTy = tyListToCtx (map M.TyFnPtr shimSigs) $ \ctx ->
+        Some $ C.StructRepr ctx
+
+    errNotObjectSafe :: [String] -> a
+    errNotObjectSafe parts = error $ unwords $
+        ["a method of trait", show tname, "is not object safe:"] ++ parts

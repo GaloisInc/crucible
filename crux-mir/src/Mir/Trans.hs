@@ -659,8 +659,8 @@ evalCast' ck ty1 e ty2  =
          mirFail "Cannot cast an immutable array to a mutable slice"
 
       -- Trait object creation. Need this cast for closures
-      (M.Unsize, M.TyRef baseType _, M.TyRef (M.TyDynamic (M.TraitPredicate traitName _:_)) _) ->
-          mkTraitObject traitName baseType e
+      (M.UnsizeVtable vtbl, M.TyRef baseType _, M.TyRef (M.TyDynamic (M.TraitPredicate traitName _:_)) _) ->
+          mkTraitObject traitName vtbl baseType e
 
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt USize) -> return e
@@ -733,8 +733,9 @@ mkCustomTraitObject traitName baseType _ =
 -- a copy of the vtable for that type. To make this work we need to *wrap* the standard vtable
 -- for this type so that it accepted "Any" instead
 -- This pair is then packed to type AnyType.
-mkTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
-mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
+mkTraitObject :: HasCallStack => M.DefId -> [VtableEntry] -> M.Ty -> MirExp s ->
+    MirGenerator h s ret (MirExp s)
+mkTraitObject traitName vtbl baseType e@(MirExp implRepr baseValue) = do
     mkCustomTraitObject traitName baseType e
 
 -- Expressions: evaluation of Rvalues and Lvalues
