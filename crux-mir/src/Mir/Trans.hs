@@ -683,6 +683,22 @@ evalCast' ck ty1 e ty2  =
          -> do r <- readMirRef tp ref
                return (MirExp tp r)
 
+      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] []))
+         -> do mhand <- lookupFunction defId substs
+               case mhand of
+                 Just (me, sig')
+                   | sig == sig' -> return me
+                   | otherwise -> mirFail $
+                       "ReifyFnPointer: bad MIR: method handle has wrong sig: " ++
+                       show (defId, substs, sig, sig')
+                 Nothing -> mirFail $
+                        "ReifyFnPointer: bad MIR: can't find method handle: " ++
+                        show (defId, substs)
+
+      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig _ _ _ _ _))
+        -> mirFail $ "ReifyFnPointer: impossible: target FnSig has generics?: "
+            ++ show (defId, substs, sig)
+
 
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
  

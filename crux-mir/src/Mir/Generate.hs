@@ -96,14 +96,21 @@ generateMIR dir name keepRlib = do
       True  -> removeFile rlibFile
       False -> return ()
 
-  f <- B.readFile (dir </> name <.> "mir")
+  readMir (dir </> name <.> "mir")
+
+
+readMir :: (HasCallStack, ?debug::Int) =>
+           FilePath
+        -> IO Collection
+readMir path = do
+  f <- B.readFile path
   let c = (J.eitherDecode f) :: Either String Collection
   case c of
       Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
       Right col -> do
         when (?debug > 5) $ do
           traceM "--------------------------------------------------------------"
-          traceM $ "Generated module: " ++ name
+          traceM $ "Loaded module: " ++ path
           traceM $ show (pretty col)
           traceM "--------------------------------------------------------------"  
         return col
@@ -116,6 +123,7 @@ customLibLoc = "lib/"
 loadPrims :: (?debug::Int) => Bool -> IO Collection
 loadPrims useStdLib = do
 
+  {-
   let coreLib = if useStdLib then "lib" else "lib_func_only"
   -- Only print debugging info in the standard library at high debugging levels
   colCoreLib <- let ?debug = ?debug - 3 in
@@ -130,6 +138,12 @@ loadPrims useStdLib = do
          mapM (\libName -> generateMIR customLibLoc libName True) customLibs
 
   let col = mconcat $ colCoreLib : colStdLib : colCustoms
+  -}
+
+  col <- mconcat <$> mapM readMir
+    [ "lib/libcore/lib.mir"
+    , "lib/compiler_builtins.mir"
+    ]
 
   when (?debug > 6) $ do
     traceM "--------------------------------------------------------------"

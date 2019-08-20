@@ -335,7 +335,8 @@ abstractATs_Predicate ati (TraitPredicate tn ss)
 abstractATs_Predicate ati (TraitProjection ty1 ty2)
     = TraitProjection <$> (abstractATs ati ty1) <*> (abstractATs ati ty2)
 --    = pure $ TraitProjection ty1 ty2
-abstractATs_Predicate _ati UnknownPredicate = throwError "BUG: found UnknownPredicate"
+--abstractATs_Predicate _ati UnknownPredicate = throwError "BUG: found UnknownPredicate"
+abstractATs_Predicate _ati UnknownPredicate = pure UnknownPredicate
 
 -- Add extra arguments for associated types to a const function call
 -- NOTE: is this complete?
@@ -431,7 +432,15 @@ fnType ati mn
 -- A CStyle ADT is one that is an enumeration of numeric valued options
 -- containing no data
 isCStyle :: Adt -> Bool
-isCStyle (Adt _ variants) = all isConst variants where
+isCStyle (Adt n variants) =
+    all isConst variants &&
+    -- Special case: PhantomData, declared as `struct PhantomData<T: ?Sized>;`,
+    -- is the only type that's permitted to have type parameters but no fields.
+    -- (Its definition would normally be an error, because `T` is unused.)
+    -- PhantomData thus looks like a C-style enum, but we don't mark it as one,
+    -- because markCStyleTy chokes if a C-style enum has type params.
+    n /= textId "core[0]::marker[0]::PhantomData[0]"
+  where
     isConst (Variant _ _ [] ConstKind) = True
     isConst _ = False
 
@@ -457,7 +466,7 @@ markCStyleTy (ads,s) (TyAdt n ps)  | Just adt <- Map.lookup n ads =
    if ps == Substs [] then
       TyCustom (CEnum n (adtIndices adt s))
    else
-      error "Cannot have params to C-style enum!"
+      error $ "Cannot have params to C-style enum " ++ show n ++ "!"
 markCStyleTy s ty = to (markCStyle' s (from ty))
 
 --------------------------------------------------------------------------------------
