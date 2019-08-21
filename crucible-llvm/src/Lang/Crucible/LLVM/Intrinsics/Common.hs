@@ -337,7 +337,7 @@ register_llvm_override llvmOverride = do
             case testEquality (handleArgTypes h) derivedArgs of
                Nothing ->
                  panic "Intrinsics.register_llvm_override"
-                   [ "Argument type mismatch when registering LLVM mss override."
+                   [ "Argument type mismatch when registering LLVM override."
                    , "*** Override name: " ++ show nm
                    , "*** Declared type: " ++ show (handleArgTypes h)
                    , "*** Expected type: " ++ show derivedArgs
@@ -346,7 +346,7 @@ register_llvm_override llvmOverride = do
                  case testEquality (handleReturnType h) derivedRet of
                    Nothing ->
                      panic "Intrinsics.register_llvm_override"
-                       [ "return type mismatch when registering LLVM mss override"
+                       [ "return type mismatch when registering LLVM override"
                        , "*** Override name: " ++ show nm
                        ]
                    Just Refl -> lift $ lift $ lift $ bindFnHandle h (UseOverride o)
