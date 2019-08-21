@@ -353,9 +353,9 @@ instance FromJSON RustcInstance where
 
 instanceDefId (RustcInstance defId _) = defId
 
-instance FromJSON VtableEntry where
-    parseJSON = withObject "VtableEntry" $ \v ->
-        VtableEntry <$> v .: "def_id" <*> (instanceDefId <$> v .: "instance")
+instance FromJSON VtableItem where
+    parseJSON = withObject "VtableItem" $ \v ->
+        VtableItem <$> v .: "def_id" <*> (instanceDefId <$> v .: "instance")
 
 instance FromJSON Vtable where
     parseJSON = withObject "Vtable" $ \v ->

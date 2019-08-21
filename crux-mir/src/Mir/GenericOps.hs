@@ -622,7 +622,7 @@ instance GenericOps NullOp
 instance GenericOps BorrowKind
 instance GenericOps UnOp
 instance GenericOps BinOp
-instance GenericOps VtableEntry
+instance GenericOps VtableItem
 instance GenericOps CastKind
 instance GenericOps Literal
 instance GenericOps IntLit

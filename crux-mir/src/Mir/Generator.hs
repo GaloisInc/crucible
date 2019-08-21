@@ -149,6 +149,7 @@ data CollectionState
   = CollectionState {
       _handleMap      :: !HandleMap,
       _staticTraitMap :: !StaticTraitMap,
+      _vtableMap      :: !VtableMap,
       _staticMap      :: !(Map DefId StaticVar),
       _collection     :: !Collection
       }
@@ -225,6 +226,14 @@ data MirHandle = forall init ret.
 -- (There could be multiple, and will need to use type info to resolve further)
 type StaticTraitMap = Map MethName [TraitName]
 
+---------------------------------------------------------------------------
+-- *** VtableMap
+
+-- | The VtableMap maps the name of each vtable to the MirHandles for the
+-- vtable shims it contains.
+type VtableMap = Map VtableName [MirHandle]
+
+
  
 
 -------------------------------------------------------------------------------------------------------
@@ -247,11 +256,11 @@ instance Monoid RustModule where
   mappend = (<>)
 
 instance Semigroup CollectionState  where
-  (CollectionState hm1 stm1 sm1 col1) <> (CollectionState hm2 stm2 sm2 col2) =
-      (CollectionState (hm1 <> hm2) (stm1 <> stm2) (sm1 <> sm2) (col1 <> col2))
+  (CollectionState hm1 vm1 stm1 sm1 col1) <> (CollectionState hm2 vm2 stm2 sm2 col2) =
+      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (stm1 <> stm2) (sm1 <> sm2) (col1 <> col2))
 instance Monoid CollectionState where
   mappend = ((<>))
-  mempty  = CollectionState mempty mempty mempty mempty
+  mempty  = CollectionState mempty mempty mempty mempty mempty
 
 
 instance Show (MirExp s) where

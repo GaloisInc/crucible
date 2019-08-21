@@ -1994,6 +1994,28 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
              h <- FH.mkHandle' halloc handleName argctx retrepr
              return $ MirHandle fname ty h 
 
+-- | Allocate method handles for all vtable shims.
+mkVtableMap :: forall s . (HasCallStack) => Collection -> FH.HandleAllocator s -> ST s VtableMap
+mkVtableMap col halloc = mapM mkVtable (col^.vtables)
+  where
+    mkVtable :: M.Vtable -> ST s [MirHandle]
+    mkVtable (M.Vtable name items) = mapM (mkHandle name) items
+
+    mkHandle :: M.DefId -> M.VtableItem -> ST s MirHandle
+    mkHandle vtableName (VtableItem fnName _)
+      | Just fn <- Map.lookup fnName (col^.functions) =
+        let shimSig = fn ^. M.fsig & M.fsarg_tys %~ \xs -> case xs of
+                [] -> error $ unwords
+                    ["function", show fnName, "in", show vtableName, "has no receiver arg"]
+                (_ : tys) -> M.TyErased : tys
+            handleName = FN.functionNameFromText (M.idText fnName <> "$vtable_shim")
+        in
+            tyListToCtx (shimSig ^. M.fsarg_tys) $ \argctx -> do
+            tyToReprCont (shimSig ^. M.fsreturn_ty) $ \retrepr -> do
+                h <- FH.mkHandle' halloc handleName argctx retrepr
+                return $ MirHandle fnName shimSig h
+      | otherwise = error $ unwords ["undefined function", show fnName, "in", show vtableName]
+
 
 ---------------------------------------------------------------------------
 
@@ -2015,6 +2037,8 @@ transCollection col halloc = do
 
     let stm = mkStaticTraitMap col
 
+    vm <- mkVtableMap col halloc
+
     -- translate the statics and create the initialization code
     -- allocate references for statics
     let allocateStatic :: Static -> Map M.DefId StaticVar -> ST s (Map M.DefId StaticVar)
@@ -2029,7 +2053,7 @@ transCollection col halloc = do
     sm <- foldrM allocateStatic Map.empty (col^.statics)
 
     let colState :: CollectionState
-        colState = CollectionState hmap stm sm col 
+        colState = CollectionState hmap stm vm sm col 
 
     -- translate all of the functions
     pairs <- mapM (transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))

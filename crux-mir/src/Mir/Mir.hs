@@ -375,15 +375,15 @@ data BinOp =
       | Offset
       deriving (Show,Eq, Ord, Generic)
 
-data VtableEntry = VtableEntry
-    { _vtDef :: DefId       -- ^ ID of the item definition in the trait
-    , _vtFn :: DefId        -- ^ ID of the implementation that should be stored in the vtable
+data VtableItem = VtableItem
+    { _vtFn :: DefId        -- ^ ID of the implementation that should be stored in the vtable
+    , _vtDef :: DefId       -- ^ ID of the item definition in the trait
     }
     deriving (Show, Eq, Ord, Generic)
 
 data Vtable = Vtable
     { _vtName :: VtableName
-    , _vtItems :: [VtableEntry]
+    , _vtItems :: [VtableItem]
     }
     deriving (Show, Eq, Ord, Generic)
 
