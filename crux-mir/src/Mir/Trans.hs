@@ -16,9 +16,11 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeInType #-}
 
 {-# OPTIONS_GHC -Wincomplete-patterns -Wall
                 -fno-warn-name-shadowing
@@ -74,6 +76,7 @@ import Data.Parameterized.NatRepr
 import Data.Parameterized.Some
 import Data.Parameterized.Peano
 import Data.Parameterized.BoolRepr
+import Data.Parameterized.TraversableFC
 
 import Mir.Mir
 import Mir.MirTy
@@ -1994,6 +1997,16 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
              h <- FH.mkHandle' halloc handleName argctx retrepr
              return $ MirHandle fname ty h 
 
+vtableShimName :: M.VtableName -> M.DefId -> Text
+vtableShimName vtableName fnName =
+    M.idText vtableName <> "$shim$" <> M.idText fnName
+
+vtableShimSig :: M.VtableName -> M.DefId -> FnSig -> FnSig
+vtableShimSig vtableName fnName sig = sig & M.fsarg_tys %~ \xs -> case xs of
+    [] -> error $ unwords
+        ["function", show fnName, "in", show vtableName, "has no receiver arg"]
+    (_ : tys) -> M.TyErased : tys
+
 -- | Allocate method handles for all vtable shims.
 mkVtableMap :: forall s . (HasCallStack) => Collection -> FH.HandleAllocator s -> ST s VtableMap
 mkVtableMap col halloc = mapM mkVtable (col^.vtables)
@@ -2004,17 +2017,209 @@ mkVtableMap col halloc = mapM mkVtable (col^.vtables)
     mkHandle :: M.DefId -> M.VtableItem -> ST s MirHandle
     mkHandle vtableName (VtableItem fnName _)
       | Just fn <- Map.lookup fnName (col^.functions) =
-        let shimSig = fn ^. M.fsig & M.fsarg_tys %~ \xs -> case xs of
-                [] -> error $ unwords
-                    ["function", show fnName, "in", show vtableName, "has no receiver arg"]
-                (_ : tys) -> M.TyErased : tys
-            handleName = FN.functionNameFromText (M.idText fnName <> "$vtable_shim")
+        let shimSig = vtableShimSig vtableName fnName (fn ^. M.fsig)
+            handleName = FN.functionNameFromText (vtableShimName vtableName fnName)
         in
             tyListToCtx (shimSig ^. M.fsarg_tys) $ \argctx -> do
             tyToReprCont (shimSig ^. M.fsreturn_ty) $ \retrepr -> do
                 h <- FH.mkHandle' halloc handleName argctx retrepr
                 return $ MirHandle fnName shimSig h
       | otherwise = error $ unwords ["undefined function", show fnName, "in", show vtableName]
+
+transVtable :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
+  => CollectionState
+  -> M.Vtable
+  -> ST h [(Text, Core.AnyCFG MIR)]
+transVtable colState (M.Vtable name items) 
+  | Just handles <- Map.lookup name (colState ^. vtableMap) =
+    zipWithM (transVtableShim colState name) items handles
+  | otherwise = error $ unwords ["no vtableMap entry for", show name]
+
+transVtableShim :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool) 
+  => CollectionState 
+  -> M.VtableName
+  -> M.VtableItem
+  -> MirHandle
+  -> ST h (Text, Core.AnyCFG MIR)
+transVtableShim colState vtableName (VtableItem fnName defName)
+        (MirHandle hname hsig (shimFH :: FH.FnHandle args ret)) =
+    -- Unpack shim signature
+    let shimArgs = FH.handleArgTypes shimFH in
+    let shimRet = FH.handleReturnType shimFH in
+
+    -- Retrieve impl Fn and FnHandle; unpack impl signature
+    (\k -> case Map.lookup fnName (colState^.collection.functions) of
+            Just fn -> k fn
+            Nothing -> die ["failed to look up implementation", show fnName])
+        $ \implFn ->
+    withMethodHandle fnName (die ["failed to look up implementation", show fnName])
+        $ \implFH ->
+    let implMirArg0 = head $ implFn ^. M.fsig . M.fsarg_tys in
+    let implArgs = FH.handleArgTypes implFH in
+    let implRet = FH.handleReturnType implFH in
+
+    -- Peel off receiver from shim and impl arg lists
+    -- NB: assignments built by `tyListToCtx` are constructed in reverse order
+    elimAssignmentLeft shimArgs (die ["shim has no arguments"])
+        $ \eqShimArgs@Refl shimArg0 shimArgs' ->
+    elimAssignmentLeft implArgs (die ["impl has no arguments"])
+        $ \eqImplArgs@Refl implArg0 implArgs' ->
+
+    -- Check equalities over Crucible (translated) types:
+    -- * Non-receiver arg types of impl and shim are equal
+    (\k -> case testEquality implArgs' shimArgs' of { Just x -> k x;
+        Nothing -> die ["argument type mismatch:", show implArgs, "vs", show shimArgs] })
+        $ \eqArgs'@Refl ->
+    -- * Return types of impl and shim are equal
+    (\k -> case testEquality implRet shimRet of { Just x -> k x;
+        Nothing -> die ["return type mismatch:", show implRet, "vs", show shimRet] })
+        $ \eqRet@Refl ->
+    -- * Shim receiver type is ANY
+    (\k -> case testEquality shimArg0 C.AnyRepr of { Just x -> k x;
+        Nothing -> die ["shim receiver is not ANY:", show shimArg0] }) $ \eqShimArg0Any@Refl ->
+
+    -- Construct the shim and return it
+    withBuildShim implMirArg0 implArg0 implArgs' implRet implFH $ \shimDef -> do
+        (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos shimFH shimDef
+        case SSA.toSSA g of
+            Core.SomeCFG g_ssa -> return (vtableShimName vtableName fnName, Core.AnyCFG g_ssa)
+
+  where
+    die :: [String] -> a
+    die words = error $ unwords
+        (["failed to generate vtable shim for", show vtableName,
+            "entry", show defName, "(instance", show fnName, "):"] ++ words)
+
+    withMethodHandle :: forall r.
+        MethName ->
+        (r) ->
+        (forall args ret. FH.FnHandle args ret -> r) ->
+        r
+    withMethodHandle name kNothing kJust =
+        case Map.lookup name (colState^.handleMap) of
+            Just (MirHandle _ _ fh) -> kJust fh
+            Nothing -> kNothing
+
+    withBuildShim :: forall r recvTy argTys retTy.
+        M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
+        FH.FnHandle (recvTy :<: argTys) retTy ->
+        (G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy -> r) ->
+        r
+    withBuildShim recvMirTy recvTy argTys retTy implFH k =
+        k $ buildShim recvMirTy recvTy argTys retTy implFH
+
+    buildShim ::
+        M.Ty -> C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
+        FH.FnHandle (recvTy :<: argTys) retTy ->
+        G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
+    buildShim recvMirTy recvTy argTys retTy implFH
+      | M.TyRef recvMirTy' M.Immut <- recvMirTy =
+        buildShimRef recvTy argTys retTy implFH
+      | M.TyRef recvMirTy' M.Mut <- recvMirTy =
+        buildShimMut recvTy argTys retTy implFH
+      | otherwise = die ["unsupported MIR receiver type", show recvMirTy]
+
+    buildShimRef :: forall recvTy argTys retTy.
+        C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
+        FH.FnHandle (recvTy :<: argTys) retTy ->
+        G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
+    buildShimRef recvTy argTys retTy implFH argsA
+      | (C.Dict, C.Dict) <- assertClosedFH implFH = (\x -> ([], x)) $ do
+        let (recv, args) = splitArgs argsA (Ctx.size argTys)
+
+        callImm <- G.newLambdaLabel' recvTy
+        G.defineLambdaBlock callImm $ \recvImm -> do
+            G.tailCall (R.App $ E.HandleLit implFH) (recvImm <: args)
+
+        callMut <- G.newLambdaLabel' (C.ReferenceRepr recvTy)
+        G.defineLambdaBlock callMut $ \recvMut -> do
+            recvImm <- G.readRef recvMut
+            G.tailCall (R.App $ E.HandleLit implFH) (recvImm <: args)
+
+        notImm <- G.newLabel
+        G.continue notImm $
+            G.branchMaybe (R.App $ E.UnpackAny recvTy recv) callImm notImm
+
+        notMut <- G.newLabel
+        G.continue notMut $
+            G.branchMaybe (R.App $ E.UnpackAny (C.ReferenceRepr recvTy) recv) callMut notMut
+
+        G.reportError $ R.App $ E.TextLit $ "bad receiver type for " <> M.idText fnName
+
+    buildShimMut :: forall recvTy argTys retTy.
+        C.TypeRepr recvTy -> C.CtxRepr argTys -> C.TypeRepr retTy ->
+        FH.FnHandle (recvTy :<: argTys) retTy ->
+        G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
+    buildShimMut recvTy argTys retTy implFH argsA
+      | (C.Dict, C.Dict) <- assertClosedFH implFH = (\x -> ([], x)) $ do
+        let (recv, args) = splitArgs @C.AnyType @argTys argsA (Ctx.size argTys)
+        recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny recvTy recv)
+            (R.App $ E.TextLit $ "bad receiver type for " <> M.idText fnName)
+        G.tailCall (R.App $ E.HandleLit implFH) (recvDowncast <: args)
+
+    splitArgs :: forall recvTy argTys s.
+        Ctx.Assignment (R.Atom s) (recvTy :<: argTys) ->
+        Ctx.Size argTys ->
+        (R.Expr MIR s recvTy, Ctx.Assignment (R.Expr MIR s) argTys)
+    splitArgs args argsSize =
+        let (arg0, args') = splitAssignmentLeft args argsSize in
+        (R.AtomExpr arg0, fmapFC R.AtomExpr args')
+
+    assertClosedFH :: forall args ret.
+        (FH.FnHandle args ret) ->
+        (C.Dict (C.Closed args), C.Dict (C.Closed ret))
+    assertClosedFH fh =
+        case C.checkClosedCtx (FH.handleArgTypes fh) of
+            Nothing -> die ["impl argument types are not closed"]
+            Just argDict -> case C.checkClosed (FH.handleReturnType fh) of
+                Nothing -> die ["impl return type is not closed"]
+                Just retDict -> (argDict, retDict)
+
+
+type (x :: k) :<: (xs :: Ctx.Ctx k) = Ctx.SingleCtx x Ctx.<+> xs
+
+(<:) :: forall f tp ctx. f tp -> Ctx.Assignment f ctx -> Ctx.Assignment f (tp :<: ctx)
+x <: xs = Ctx.singleton x Ctx.<++> xs
+
+elimAssignmentLeft :: forall k f (ctx :: Ctx.Ctx k) r.
+    Ctx.Assignment f ctx ->
+    (Ctx.EmptyCtx :~: ctx -> r) ->
+    (forall (tp :: k) (ctx' :: Ctx.Ctx k).
+        tp :<: ctx' :~: ctx -> f tp -> Ctx.Assignment f ctx' -> r) ->
+    r
+elimAssignmentLeft xs kNil kCons = case Ctx.viewAssign xs of
+    Ctx.AssignEmpty -> kNil Refl
+    Ctx.AssignExtend xs' x' -> elimAssignmentLeft xs'
+        (\Refl -> kCons Refl x' Ctx.empty)
+        (\Refl x'' xs'' -> kCons Refl x'' (xs'' Ctx.:> x'))
+
+unappendAssignment :: forall k f (xs :: Ctx.Ctx k) (ys :: Ctx.Ctx k).
+    Ctx.Size ys ->
+    Ctx.Assignment f (xs Ctx.<+> ys) ->
+    (Ctx.Assignment f xs, Ctx.Assignment f ys)
+unappendAssignment sz asn = case Ctx.viewSize sz of
+    Ctx.ZeroSize ->
+        -- ys ~ EmptyCtx  ->  xs <+> ys ~ xs
+        (asn, Ctx.empty)
+    Ctx.IncSize sz' ->
+        -- ys ~ ys' ::> y'  ->  xs <+> ys ~ (xs <+> ys') ::> y'
+        case Ctx.viewAssign asn of
+            Ctx.AssignExtend asn' val' ->
+                case unappendAssignment sz' asn' of
+                    (asn1, asn2) -> (asn1, asn2 Ctx.:> val')
+
+unwrapSingletonAssignment :: forall k f (tp :: k).
+    Ctx.Assignment f (Ctx.SingleCtx tp) -> f tp
+unwrapSingletonAssignment asn = case Ctx.viewAssign asn of
+    Ctx.AssignExtend _ val -> val
+
+splitAssignmentLeft :: forall k f (tp :: k) (ctx :: Ctx.Ctx k).
+    Ctx.Assignment f (tp :<: ctx) ->
+    Ctx.Size ctx ->
+    (f tp, Ctx.Assignment f ctx)
+splitAssignmentLeft xs sz =
+    let (l, r) = unappendAssignment sz xs in
+    (unwrapSingletonAssignment l, r)
 
 
 ---------------------------------------------------------------------------
@@ -2056,10 +2261,12 @@ transCollection col halloc = do
         colState = CollectionState hmap stm vm sm col 
 
     -- translate all of the functions
-    pairs <- mapM (transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
+    pairs1 <- mapM (transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
+    pairs2 <- mapM (transVtable (?libCS <> colState)) (Map.elems (col^.M.vtables))
+
     return $ RustModule
                 { _rmCS    = colState
-                , _rmCFGs  = Map.fromList pairs 
+                , _rmCFGs  = Map.fromList (pairs1 <> concat pairs2)
                 }
 
 -- | Produce a crucible CFG that initializes the global variables for the static
