@@ -640,6 +640,10 @@ evalCast' ck ty1 e ty2  =
 
       (M.Misc, M.TyCustom (M.BoxTy tb1), M.TyCustom (M.BoxTy tb2)) -> evalCast' ck tb1 e tb2
 
+      -- Not sure why this appears in generated MIR, but libcore has some no-op
+      -- unsizes from `*const dyn Any` to `*const dyn Any`
+      (M.Unsize,a,b) | a == b -> return e
+
       (M.Unsize, M.TyRef (M.TyArray tp _sz) M.Immut, M.TyRef (M.TySlice tp') M.Immut)
         | tp == tp' -> return e -- arrays and immutable slices have the same denotation
         | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
@@ -661,10 +665,10 @@ evalCast' ck ty1 e ty2  =
       (M.Unsize, M.TyRef (M.TyArray _ _) M.Immut, M.TyRef (M.TySlice _) M.Mut) ->
          mirFail "Cannot cast an immutable array to a mutable slice"
 
-      -- Trait object creation. Need this cast for closures
-      (M.UnsizeVtable vtbl, M.TyRef baseType _, M.TyRef (M.TyDynamic (M.TraitPredicate traitName _:_)) _) ->
-        -- TODO: build vtable
-          mkTraitObject traitName baseType e
+      -- Trait object creation from a ref
+      (M.UnsizeVtable vtbl, M.TyRef baseType _,
+        M.TyRef (M.TyDynamic (M.TraitPredicate traitName substs : preds)) _) ->
+          mkTraitObject traitName substs preds vtbl e
 
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt USize) -> return e
@@ -704,7 +708,8 @@ evalCast' ck ty1 e ty2  =
             ++ show (defId, substs, sig)
 
 
-      _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++ " " ++ (show ty1) ++ " as " ++ (show ty2)
+      _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
+        "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
  
 evalCast :: HasCallStack => M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s ret (MirExp s)
 evalCast ck op ty = do
@@ -731,16 +736,40 @@ mkCustomTraitObject traitName baseType _ =
                                      Text.pack (show baseType)," does not implement trait ", M.idText traitName]
     
 
--- | Create a new trait object for the given trait for the given value
--- Fails if the type of the value does not implement the trait.
--- A trait object is pair of the value (first coerced to Any) with
--- a copy of the vtable for that type. To make this work we need to *wrap* the standard vtable
--- for this type so that it accepted "Any" instead
--- This pair is then packed to type AnyType.
-mkTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s ->
+-- | Create a new trait object by combining `e` with the named vtable.  This is
+-- only valid when `e` is TyRef or TyRawPtr.  Coercions via the `CoerceUnsized`
+-- trait require unpacking and repacking structs, which we don't handle here.
+mkTraitObject :: HasCallStack => M.TraitName -> M.Substs -> [M.Predicate] ->
+    M.VtableName -> MirExp s ->
     MirGenerator h s ret (MirExp s)
-mkTraitObject traitName baseType e@(MirExp implRepr baseValue) = do
-    mkCustomTraitObject traitName baseType e
+mkTraitObject traitName substs preds vtableName e = do
+    handles <- Maybe.fromMaybe (error $ "missing vtable handles for " ++ show vtableName) <$>
+        use (cs . vtableMap . at vtableName)
+
+    let mkEntry :: MirHandle -> MirExp s
+        mkEntry (MirHandle hname _ fh)
+          | Just C.Dict <- C.checkClosedCtx (FH.handleArgTypes fh)
+          , Just C.Dict <- C.checkClosed (FH.handleReturnType fh)
+          = MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
+                (R.App $ E.HandleLit fh)
+          | otherwise = error $ "signature is not closed for " ++ show hname
+    vtable@(MirExp vtableTy _) <- return $ buildTuple $ map mkEntry handles
+
+    -- Check that the vtable we constructed has the appropriate type for the
+    -- trait.  A mismatch would cause runtime errors at calls to trait methods.
+    trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName) <$>
+        use (cs . collection . M.traits . at traitName)
+    Some vtableTy' <- return $ traitVtableType traitName trait substs preds
+    case testEquality vtableTy vtableTy' of
+        Just _ -> return ()
+        Nothing -> error $ unwords
+            ["vtable signature mismatch for vtable", show vtableName,
+                "of trait", show traitName, ":", show vtableTy, "!=", show vtableTy']
+
+    return $ buildTuple
+        [ packAny e
+        , packAny vtable
+        ]
 
 -- Expressions: evaluation of Rvalues and Lvalues
 

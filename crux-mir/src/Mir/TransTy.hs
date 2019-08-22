@@ -151,6 +151,9 @@ tyToRepr t0 = case t0 of
   M.TyRef (M.TyDynamic _) _ -> Some $ C.StructRepr $
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
+  M.TyRawPtr (M.TyDynamic _) _ -> Some $ C.StructRepr $
+    Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
+
   -- NOTE: we cannot mutate this vector. Hmmmm....
   M.TySlice t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
 
@@ -417,16 +420,22 @@ traitVtableType tname _ _ ps
     error $ unwords ["unsupported predicate(s)",
         show $ filter (not . isAutoTraitPredicate) ps,
         "for trait", show tname]
-traitVtableType tname trait _ _
-  | not $ null $ trait ^. M.traitSupers =
+traitVtableType tname trait substs _
+  | not $ all (== tname) $ trait ^. M.traitSupers =
     -- We don't yet support traits with supertraits.  This would require
     -- collecting up all the trait items from the entire tree into one big
     -- vtable.
-    error $ unwords ["trait", show tname, "has nonempty supertraits (unsupported)"]
-  | not $ null $ trait ^. M.traitPredicates =
+    error $ unwords ["trait", show tname, "has nonempty supertraits (unsupported):",
+        show $ trait ^. M.traitSupers]
+  | not $ all (== M.TraitPredicate tname dummySubsts) $ trait ^. M.traitPredicates =
     -- A predicate `Self: OtherTrait` works the same as a supertrait.  Other
     -- predicates might be okay.
-    error $ unwords ["trait", show tname, "has nonempty predicates (unsupported)"]
+    error $ unwords ["trait", show tname, "has nonempty predicates (unsupported):",
+        show $ trait ^. M.traitPredicates, show tname, show dummySubsts]
+  where
+    -- NB: no -1 on the length.  The `substs` arguments is the substs for the
+    -- trait, not including Self - but Self *is* included in `dummySubsts`.
+    dummySubsts = M.Substs [M.TyParam (fromIntegral i) | i <- [0 .. M.lengthSubsts substs]]
 traitVtableType tname trait substs _ = vtableTy
   where
     -- The substitutions that turn the method signature (generic, from the
@@ -446,10 +455,17 @@ traitVtableType tname trait substs _ = vtableTy
         [] -> errNotObjectSafe ["method has no arguments"]
         (_ : tys) -> M.TyErased : tys
 
-    convertShimSig sig = tySubst shimSubsts $ eraseReceiver sig
+    -- Erase generics, predicates, and associated types
+    eraseGenerics :: M.FnSig -> M.FnSig
+    eraseGenerics sig = sig
+        & M.fsgenerics .~ []
+        & M.fspredicates .~ []
+        & M.fsassoc_tys .~ []
+
+    convertShimSig sig = tySubst shimSubsts $ eraseGenerics $ eraseReceiver sig
 
     methodSigs = Maybe.mapMaybe (\ti -> case ti of
-        M.TraitMethod _ sig -> Just sig
+        M.TraitMethod name sig -> Just sig
         _ -> Nothing) (trait ^. M.traitItems)
     shimSigs = map convertShimSig methodSigs
 
