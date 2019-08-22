@@ -670,6 +670,13 @@ evalCast' ck ty1 e ty2  =
         M.TyRef (M.TyDynamic (M.TraitPredicate traitName substs : preds)) _) ->
           mkTraitObject traitName substs preds vtbl e
 
+      -- Casting between TyDynamics that vary only in their auto traits
+      -- TODO: this should also normalize the TraitProjection predicates, to
+      -- allow casting between equivalent descriptions of the same trait object
+      (M.Unsize, M.TyRef (M.TyDynamic ps1) _, M.TyRef (M.TyDynamic ps2) _)
+        | filter (not . isAutoTraitPredicate) ps1 == filter (not . isAutoTraitPredicate) ps2
+        -> return e
+
       -- C-style adts, casting an enum value to a TyInt
       (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt USize) -> return e
       (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt sz) | (MirExp C.IntegerRepr e0) <- e ->

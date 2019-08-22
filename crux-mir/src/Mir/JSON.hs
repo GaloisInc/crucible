@@ -611,7 +611,7 @@ parsePred v =
     Just (String "Projection") -> do
       TraitProjection <$> (TyProjection <$> v .: "proj" <*> v .: "substs") <*> v .: "rhs_ty" 
     Just (String "AutoTrait") ->
-      return UnknownPredicate
+      AutoTraitPredicate <$> v .: "trait"
     k -> fail $ "cannot parse predicate " ++ show k
 
 instance FromJSON Predicate where

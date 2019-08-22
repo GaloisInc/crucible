@@ -188,6 +188,10 @@ data Predicate =
       _plhs    :: !Ty
     , _prhs    :: !Ty
     }
+  -- | Special representation for auto-trait predicates in `TyDynamic`.  This
+  -- is equivalent to `TraitPredicate ptrait (Substs [])`, but auto-trait
+  -- predicates need special handling around vtables, so it's useful to have a
+  -- separate variant.
   | AutoTraitPredicate {
     _ptrait :: !DefId
     }
