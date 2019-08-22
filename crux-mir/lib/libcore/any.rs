@@ -186,6 +186,7 @@ impl dyn Any {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(any_downcast)]
     pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
         if self.is::<T>() {
             unsafe {
@@ -195,6 +196,10 @@ impl dyn Any {
             None
         }
     }
+    #[stable(feature = "rust1", since = "1.0.0")]
+    #[inline]
+    #[cfg(not(any_downcast))]
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> { None }
 
     /// Returns some mutable reference to the boxed value if it is of type `T`, or
     /// `None` if it isn't.
@@ -223,6 +228,7 @@ impl dyn Any {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
+    #[cfg(any_downcast)]
     pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> {
         if self.is::<T>() {
             unsafe {
@@ -232,6 +238,10 @@ impl dyn Any {
             None
         }
     }
+    #[stable(feature = "rust1", since = "1.0.0")]
+    #[inline]
+    #[cfg(not(any_downcast))]
+    pub fn downcast_mut<T: Any>(&mut self) -> Option<&mut T> { None }
 }
 
 impl dyn Any+Send {
