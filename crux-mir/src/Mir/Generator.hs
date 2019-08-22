@@ -498,24 +498,28 @@ resolveFn nm tys = do
 
 ---------------------------------------------------------------------------------------------------
 
-{-
--- Can use the (static) type arguments to decide whether to override
-memberCustomFunc :: DefId -> Substs -> MirGenerator h s ret Bool
-memberCustomFunc defid substs = do
-  co <- use customOp
-  let edid = (map fst (did_path defid), fst (did_name defid), map fst (did_extra defid)) 
-  case Map.lookup edid co of
-    Just f  -> return $ Maybe.isJust (f substs)
-    Nothing -> return False
--}
-
+-- Now that intrinsics are monomorphized, the `Substs` is always empty.  The
+-- `DefId` refers to an entry in the `intrinsics` map, which contains the
+-- original `DefId` and `Substs` used to produce the monomorphized instance.
+-- Those are what we look up in `customOps`.
 resolveCustom :: DefId -> Substs -> MirGenerator h s ret (Maybe CustomOp)
-resolveCustom defid substs = do
-  let edid = (map fst (did_path defid), fst (did_name defid), map fst (did_extra defid))
-  co <- use customOps
-  case Map.lookup edid co of
-    Just f -> return $ f substs
-    Nothing -> return Nothing
+resolveCustom instDefId _substs = do
+    optIntr <- use $ cs . collection . intrinsics . at instDefId
+    case optIntr of
+        Nothing -> return Nothing
+        Just intr -> do
+            let inst = intr ^. intrInst
+            -- TODO: special handling if `inst ^. inKind` is IkVirtual
+            let origDefId = inst ^. inDefId
+            let origSubsts = inst ^. inSubsts
+            let edid = (map fst (did_path origDefId),
+                    fst (did_name origDefId),
+                    map fst (did_extra origDefId))
+            optOp <- use $ customOps . at edid
+            case optOp of
+                Nothing -> return Nothing
+                Just f -> do
+                    return $ f origSubsts
 
 ---------------------------------------------------------------------------------------------------
 

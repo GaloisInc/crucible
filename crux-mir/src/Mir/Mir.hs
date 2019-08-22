@@ -123,6 +123,31 @@ data FnSig = FnSig {
   }
   deriving (Eq, Ord, Show, Generic)
 
+data Instance = Instance
+    { _inKind :: InstanceKind
+    -- | The meaning of this `DefId` depends on the `InstanceKind`.  Usually,
+    -- it's the ID of the original generic definition of the function that's
+    -- been monomorphized to produce this instance.
+    , _inDefId :: DefId
+    -- | The substitutions used to construct this instance from the generic
+    -- definition.  Typically (but again depending on the `InstanceKind`),
+    -- applying these substs to the signature of the generic def gives the
+    -- signature of the instance.
+    , _inSubsts :: Substs
+    }
+    deriving (Eq, Ord, Show, Generic)
+
+data InstanceKind =
+      IkItem
+    | IkIntrinsic
+    | IkVtableShim
+    | IkFnPtrShim Ty
+    | IkVirtual !Integer
+    | IkClosureOnceShim
+    | IkDropGlue Ty
+    | IkCloneShim Ty
+    deriving (Eq, Ord, Show, Generic)
+
 data Adt = Adt {_adtname :: DefId, _adtvariants :: [Variant]}
     deriving (Eq, Ord, Show, Generic)
 
@@ -176,8 +201,15 @@ data Collection = Collection {
     _traits    :: !(Map TraitName Trait),
     _impls     :: !([TraitImpl]),
     _statics   :: !(Map DefId Static),
-    _vtables   :: !(Map VtableName Vtable)
+    _vtables   :: !(Map VtableName Vtable),
+    _intrinsics :: !(Map IntrinsicName Intrinsic)
 } deriving (Show, Eq, Ord, Generic)
+
+data Intrinsic = Intrinsic
+    { _intrName :: IntrinsicName
+    , _intrInst :: Instance
+    }
+    deriving (Show, Eq, Ord, Generic)
 
 data Predicate =
   TraitPredicate {
@@ -531,6 +563,7 @@ type TraitName  = DefId
 type MethName   = DefId
 type AdtName    = DefId
 type VtableName = DefId
+type IntrinsicName = DefId
 
 
 
@@ -561,6 +594,8 @@ makeLenses ''AdtAg
 makeLenses ''Trait
 makeLenses ''Static
 makeLenses ''Vtable
+makeLenses ''Intrinsic
+makeLenses ''Instance
 
 makeLenses ''TraitImpl
 makeLenses ''TraitImplItem
@@ -580,10 +615,10 @@ itemName = lens (\ti -> case ti of
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1 i1 s1 v1) <> (Collection f2 a2 t2 i2 s2 v2) =
-    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2)
+  (Collection f1 a1 t1 i1 s1 v1 n1) <> (Collection f2 a2 t2 i2 s2 v2 n2) =
+    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty
   mappend = (<>)
 
   

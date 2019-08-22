@@ -98,6 +98,25 @@ instance FromJSON Ty where
                                           Just (String "Lifetime") -> pure TyLifetime
                                           r -> fail $ "unsupported ty: " ++ show r
 
+instance FromJSON Instance where
+    parseJSON = withObject "Instance" $ \v -> case HML.lookup "kind" v of
+        Just (String "Item") -> Instance IkItem
+            <$> v .: "def_id" <*> v .: "substs"
+        Just (String "Intrinsic") -> Instance IkIntrinsic
+            <$> v .: "def_id" <*> v .: "substs"
+        Just (String "VtableShim") -> Instance IkVtableShim
+            <$> v .: "def_id" <*> v .: "substs"
+        Just (String "FnPtrShim") -> Instance
+            <$> (IkFnPtrShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
+        Just (String "Virtual") -> Instance
+            <$> (IkVirtual <$> v .: "index") <*> v .: "def_id" <*> v .: "substs"
+        Just (String "ClosureOnceShim") -> Instance IkClosureOnceShim
+            <$> v .: "call_once" <*> v .: "substs"
+        Just (String "DropGlue") -> Instance
+            <$> (IkDropGlue <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
+        Just (String "CloneShim") -> Instance
+            <$> (IkCloneShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
+
 instance FromJSON FnSig where
     parseJSON =
       withObject "FnSig" $ \v -> do
@@ -163,6 +182,7 @@ instance FromJSON Collection where
       (impls  :: [TraitImpl]) <- v .: "impls"
       (statics :: [Static]  ) <- v .: "statics"
       (vtables :: [Vtable]  ) <- v .: "vtables"
+      (intrinsics :: [Intrinsic]) <- v .: "intrinsics"
       return $ Collection
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
         (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
@@ -170,6 +190,7 @@ instance FromJSON Collection where
         impls
         (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
         (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
+        (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
 
 
 instance FromJSON Fn where
@@ -345,17 +366,10 @@ instance FromJSON BinOp where
                                              Just (String "Offset") -> pure Offset
                                              x -> fail ("bad binop: " ++ show x)
 
-data RustcInstance = RustcInstance DefId Substs
-
-instance FromJSON RustcInstance where
-    parseJSON = withObject "Instance" $ \v ->
-        RustcInstance <$> v .: "def_id" <*> v .: "substs"
-
-instanceDefId (RustcInstance defId _) = defId
 
 instance FromJSON VtableItem where
     parseJSON = withObject "VtableItem" $ \v ->
-        VtableItem <$> v .: "def_id" <*> (instanceDefId <$> v .: "instance")
+        VtableItem <$> v .: "def_id" <*> (_inDefId <$> v .: "instance")
 
 instance FromJSON Vtable where
     parseJSON = withObject "Vtable" $ \v ->
@@ -596,6 +610,11 @@ instance FromJSON TraitItem where
                   Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
                   Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ show x
                   k -> fail $ "bad kind field in TraitItem " ++ show k
+
+
+instance FromJSON Intrinsic where
+    parseJSON = withObject "Intrinsic" $ \v ->
+        Intrinsic <$> v .: "name" <*> v .: "inst"
 
 
 instance FromJSON MirBody where

@@ -640,6 +640,9 @@ instance GenericOps TraitImplItem where
 instance GenericOps Promoted
 instance GenericOps Static
 instance GenericOps Vtable
+instance GenericOps Intrinsic
+instance GenericOps Instance
+instance GenericOps InstanceKind
 
 -- instances for newtypes
 -- we need the deriving strategy 'anyclass' to disambiguate 

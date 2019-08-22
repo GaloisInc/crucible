@@ -186,6 +186,8 @@ customOps = Map.fromList [
                          , integer_rem
                          , integer_eq
                          , integer_lt
+
+                         , type_id
                          ]
 
 
@@ -329,6 +331,12 @@ discriminant_value = ((["core","intrinsics"],"discriminant_value", []),
                         return $ (MirExp knownRepr $ R.App (E.IntegerToBV (knownRepr :: NatRepr 64)
                                                                   (R.App (E.NatToInteger idx))))
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
+
+type_id ::  (ExplodedDefId, CustomRHS)
+type_id = ((["core","intrinsics"],"type_id", []),
+  \ _substs -> Just $ CustomOp $ \ opTys ops ->
+    -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
+    return $ MirExp knownRepr $ R.App (E.BVLit (knownRepr :: NatRepr 64) 0))
 
 ---------------------------------------------------------------------------------------
 -- ** Custom: Iterator
