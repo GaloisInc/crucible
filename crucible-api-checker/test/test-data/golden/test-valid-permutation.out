@@ -1,0 +1,7 @@
+[Crux] `clang` compilation failed.
+*** Exit code: 1
+*** Standard out:
+*** Standard error:
+   llvm-link: c-src/libcxx-8.0.0.bc: error: Could not open input file: No such file or directory
+   llvm-link: error:  loading file 'c-src/libcxx-8.0.0.bc'
+

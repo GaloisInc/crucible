@@ -25,7 +25,7 @@ import Data.Parameterized.Nonce(withIONonceGenerator, NonceGenerator)
 
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
-import Lang.Crucible.LLVM.LTLSafety
+import Lang.Crucible.Simulator.NfaDriver
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.BoundedExec
 import Lang.Crucible.Simulator.Profiling
@@ -243,12 +243,13 @@ runSimulator lang opts@(cruxOpts,_) =
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
               $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
-
      -- LTL Safety
+            
+     --
      gvRef <- newIORef (error "Global variable for LTLData not initialized")
-     ltl <- return [testExecFeat gvRef]
+     apiCheck <- return [apiCheckExecFeat gvRef]
      
-     let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ psat_fs ++ ltl
+     let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ psat_fs ++ apiCheck
 
      -- Ready to go!
      gls <- newIORef Seq.empty

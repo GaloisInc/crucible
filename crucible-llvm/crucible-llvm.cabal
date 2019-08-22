@@ -40,6 +40,7 @@ library
 
   exposed-modules:
     Lang.Crucible.LLVM
+    --Lang.Crucible.LLVM.ApiCheck
     Lang.Crucible.LLVM.Arch
     Lang.Crucible.LLVM.Arch.Util
     Lang.Crucible.LLVM.Arch.X86
@@ -52,8 +53,11 @@ library
     Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior
     Lang.Crucible.LLVM.Globals
     Lang.Crucible.LLVM.Intrinsics
-    Lang.Crucible.LLVM.LTLSafety
+    --Lang.Crucible.LLVM.LTLSafety
     Lang.Crucible.LLVM.MemModel
+    --exposed
+    Lang.Crucible.LLVM.MemModel.Pointer
+    --
     Lang.Crucible.LLVM.MemType
     Lang.Crucible.LLVM.PrettyPrint
     Lang.Crucible.LLVM.Printf
@@ -72,7 +76,7 @@ library
     Lang.Crucible.LLVM.MemModel.Common
     Lang.Crucible.LLVM.MemModel.Generic
     Lang.Crucible.LLVM.MemModel.Partial
-    Lang.Crucible.LLVM.MemModel.Pointer
+    --Lang.Crucible.LLVM.MemModel.Pointer
     Lang.Crucible.LLVM.MemModel.Type
     Lang.Crucible.LLVM.MemModel.Value
     Lang.Crucible.LLVM.Translation.Constant
