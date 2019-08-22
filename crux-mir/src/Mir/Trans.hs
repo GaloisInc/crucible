@@ -1375,6 +1375,8 @@ transSwitch (MirExp (C.BoolRepr) e) [v] [t1,t2] =
               doBoolBranch e t2 t1
 transSwitch (MirExp (C.IntegerRepr) e) vs ts =
     doIntBranch e vs ts
+transSwitch (MirExp (C.BVRepr w) e) vs ts =
+    doBVBranch w e vs ts
 
 transSwitch (MirExp f _e) _ _  = mirFail $ "bad switch: " ++ show f
 
@@ -1397,6 +1399,20 @@ doIntBranch e (v:vs) (i:is) = do
     ifteAny test (jumpToBlock i) (doIntBranch e vs is)
 doIntBranch _ _ _ =
     mirFail "doIntBranch: improper switch!"
+
+-- bitvector branch: branch by iterating through list
+doBVBranch :: (1 <= w) => NatRepr w -> R.Expr MIR s (C.BVType w) ->
+    [Integer] -> [M.BasicBlockInfo] -> MirGenerator h s ret a
+doBVBranch w _ _ [i] = do
+    lm <- use labelMap
+    case (Map.lookup i lm) of
+      Just lab -> G.jump lab
+      _ -> mirFail "bad jump"
+doBVBranch w e (v:vs) (i:is) = do
+    let test = S.app $ E.BVEq w e $ S.app $ E.BVLit w v
+    ifteAny test (jumpToBlock i) (doBVBranch w e vs is)
+doBVBranch _ _ _ _ =
+    mirFail "doBVBranch: improper switch!"
 
 jumpToBlock :: M.BasicBlockInfo -> MirGenerator h s ret a
 jumpToBlock bbi = do
