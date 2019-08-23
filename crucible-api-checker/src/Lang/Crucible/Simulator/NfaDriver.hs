@@ -136,38 +136,38 @@ initializeNfa2 sym =
   - parameterize NFA with Value type,
   - Add predicate with bookkeeping for symbolic value comparisons
 -}
-data LTLData sym  = (IsSymInterface sym) => LDat (NFA sym) 
+data NFAData sym  = (IsSymInterface sym) => NFAData (NFA sym) 
 
-instance IntrinsicClass sym "LTL" where
-  type Intrinsic sym "LTL"  ctx = LTLData sym 
+instance IntrinsicClass sym "NFA_LLVM" where
+  type Intrinsic sym "NFA_LLVM"  ctx = NFAData sym 
   muxIntrinsic _sym _iTypes _nm _ _p d1 d2 = combineData d1 d2
 
-combineData :: LTLData sym -> LTLData sym -> IO (LTLData sym)
-combineData (LDat(NFA {stateSet=ss, nfaState=state1, nfaAlphabet=alpha, transitionFunction=tf})) (LDat (NFA {nfaState=state2})) =
+combineData :: NFAData sym -> NFAData sym -> IO (NFAData sym)
+combineData (NFAData(NFA {stateSet=ss, nfaState=state1, nfaAlphabet=alpha, transitionFunction=tf})) (NFAData (NFA {nfaState=state2})) =
   do
-    return $ LDat (NFA ss (S.union state1 state2) alpha tf)
+    return $ NFAData (NFA ss (S.union state1 state2) alpha tf)
 
-type LTLGlobal = GlobalVar (IntrinsicType "LTL" EmptyCtx)
+type NFAGlobal = GlobalVar (IntrinsicType "NFA_LLVM" EmptyCtx)
 
 {- TODO
   - Execution feature should take in desired NFA to run
   - Api for manipulation of front end specific Value types should be provided either through a type class on Value type or passed in as a record of functions 
 -}
-apiCheckExecFeat :: IORef LTLGlobal -> GenericExecutionFeature sym
+apiCheckExecFeat :: IORef NFAGlobal -> GenericExecutionFeature sym
 apiCheckExecFeat gvRef = GenericExecutionFeature $ (onStep gvRef api)
       
-onStep :: (IsSymInterface sym, IsExprBuilder sym , IsBoolSolver sym ) => IORef LTLGlobal
+onStep :: (IsSymInterface sym, IsExprBuilder sym , IsBoolSolver sym ) => IORef NFAGlobal
   -> NfaApi sym
   -> ExecState p sym ext rtp
   -> IO (ExecutionFeatureResult p sym ext rtp)
 onStep gvRef api (InitialState simctx globals ah cont) = do
   let halloc = simHandleAllocator simctx
   let sym = simctx ^. ctxSymInterface
-  gv <- stToIO (freshGlobalVar halloc (T.pack "LTL") knownRepr)
+  gv <- stToIO (freshGlobalVar halloc (T.pack "NFA_LLVM") knownRepr)
   writeIORef gvRef gv
   initNFA <- initializeNfa2 sym
-  let globals' = insertGlobal gv (LDat initNFA) globals
-  let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"LTL") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }
+  let globals' = insertGlobal gv (NFAData initNFA) globals
+  let simctx' = simctx{ ctxIntrinsicTypes = MapF.insert (knownSymbol @"NFA_LLVM") IntrinsicMuxFn (ctxIntrinsicTypes simctx) }
   return ( ExecutionFeatureModifiedState (InitialState simctx' globals' ah cont))
 
 onStep gvRef api (CallState rh rc ss) = 
@@ -286,7 +286,7 @@ handleCallEvent sym api nfa cf =
     Nothing -> return $ nfaTransition nfa (Call $ pCallName cf) nullEffect
 
 -- TODO define what happens when NFA is not in global state
-getNFA :: (RegValue sym1 tp ~ LTLData sym2)
+getNFA :: (RegValue sym1 tp ~ NFAData sym2)
   => IORef (GlobalVar tp)
   -> SimState p sym1 ext q f args
   -> IO (NFA sym2)
@@ -294,10 +294,10 @@ getNFA gvRef ss =
   do
     gv <- readIORef gvRef
     case (lookupGlobal gv (ss ^. stateGlobals)) of
-      Just (LDat nfa) -> return nfa
+      Just (NFAData nfa) -> return nfa
       --Nothing Error TODO
 
-saveNFA :: (IsSymInterface sym1, RegValue sym2 tp ~ LTLData sym1)
+saveNFA :: (IsSymInterface sym1, RegValue sym2 tp ~ NFAData sym1)
   => IORef (GlobalVar tp)
   -> SimState p sym2 ext q f args
   -> NFA sym1
@@ -305,7 +305,7 @@ saveNFA :: (IsSymInterface sym1, RegValue sym2 tp ~ LTLData sym1)
 saveNFA gvRef ss nfa =
   do
     gv <- readIORef gvRef
-    return (ss & stateGlobals %~ (insertGlobal gv (LDat nfa)))
+    return (ss & stateGlobals %~ (insertGlobal gv (NFAData nfa)))
 
 withoutType :: String -> String
 withoutType funName =

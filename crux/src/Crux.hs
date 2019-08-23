@@ -243,10 +243,9 @@ runSimulator lang opts@(cruxOpts,_) =
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
               $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
-     -- LTL Safety
-            
-     --
-     gvRef <- newIORef (error "Global variable for LTLData not initialized")
+
+     -- Api Checker 
+     gvRef <- newIORef (error "Global variable for NFAData not initialized")
      apiCheck <- return [apiCheckExecFeat gvRef]
      
      let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ psat_fs ++ apiCheck
