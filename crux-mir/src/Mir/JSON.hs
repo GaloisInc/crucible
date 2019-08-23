@@ -171,6 +171,7 @@ instance FromJSON Var where
         <$>  v .: "name"
         <*>  v .: "mut"
         <*>  v .: "ty"
+        <*>  v .: "is_zst"
         <*>  v .: "scope"
         <*>  v .: "pos"
 

@@ -188,12 +188,13 @@ data Var = Var {
     _varname :: Text,
     _varmut :: Mutability,
     _varty :: Ty,
+    _varIsZST :: Bool,
     _varscope :: VisibilityScope,
     _varpos :: Text }
     deriving (Eq, Show, Generic)
 
 instance Ord Var where
-    compare (Var n _ _ _ _) (Var m _ _ _ _) = compare n m
+    compare (Var n _ _ _ _ _) (Var m _ _ _ _ _) = compare n m
 
 data Collection = Collection {
     _functions :: !(Map MethName Fn),
@@ -698,7 +699,7 @@ instance TypeOf Ty where
     typeOf ty = ty
 
 instance TypeOf Var where
-    typeOf (Var _ _ t _ _) = t
+    typeOf (Var _ _ t _ _ _) = t
 
 instance TypeOf Lvalue where
     typeOf (LBase base) = typeOf base
@@ -706,7 +707,7 @@ instance TypeOf Lvalue where
 
 instance TypeOf PlaceBase where
     typeOf pb = case pb of
-        Local (Var _ _ t _ _) -> t
+        Local (Var _ _ t _ _ _) -> t
         PStatic _ t -> t
         PPromoted _ t -> t
 

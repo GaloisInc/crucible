@@ -472,6 +472,7 @@ mkPredVar ty@(TyAdt did ss) = Var {
                 _varname  = idText did <> Text.pack (fmt ss)
               , _varmut   = Immut
               , _varty    = ty
+              , _varIsZST = False
               , _varscope = "dictionary"
               , _varpos   = "dictionary argument"
               }

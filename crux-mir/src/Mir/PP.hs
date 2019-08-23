@@ -116,14 +116,14 @@ instance Pretty CustomTy where
     pretty (CEnum did _) = pr_id did
 
 instance Pretty Var where
-    pretty (Var vn _vm _vty _vs _) = pretty vn 
+    pretty (Var vn _vm _vty _vzst _vs _) = pretty vn
 
 pretty_arg :: Var -> Doc
-pretty_arg (Var vn _vm vty _vs _) =
+pretty_arg (Var vn _vm vty _vzst _vs _) =
   pretty vn <+> colon <+> pretty vty
 
 pretty_temp :: Var -> Doc
-pretty_temp (Var vn vm vty _vs _) =
+pretty_temp (Var vn vm vty _vzst _vs _) =
   text "let" <+>
     (if vm == Mut then text "mut" else text "const")
     <+> pretty vn <+> colon <+> pretty vty <> semi

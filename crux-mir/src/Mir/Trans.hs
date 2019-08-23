@@ -239,7 +239,7 @@ transConstVal tp cv = mirFail $ "fail or unimp constant: " ++ (show tp) ++ " " +
 
 
 lookupVar :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
-lookupVar (M.Var vname _ vty _ pos) = do
+lookupVar (M.Var vname _ vty _ _ pos) = do
     vm <- use varMap
     case (Map.lookup vname vm, tyToRepr vty) of
       (Just (Some varinfo), Some vtr)
@@ -783,7 +783,7 @@ mkTraitObject traitName substs preds vtableName e = do
 evalRefLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalRefLvalue lv =
       case lv of
-        M.LBase (M.Local (M.Var nm mut ty _ pos)) ->
+        M.LBase (M.Local (M.Var nm mut ty _ _ pos)) ->
           do vm <- use varMap
              case Map.lookup nm vm of
                Just (Some (VarReference reg)) ->
@@ -1135,7 +1135,7 @@ assignVarExp :: HasCallStack => M.Var -> MirExp s -> MirGenerator h s ret ()
 -- invariant guarantee given by the borrow checker is that, so long as the immutable
 -- reference is live, the value will not change.  This justifies immediately deferencing
 -- the pointer to get out the value within.
-assignVarExp v@(M.Var _vnamd _ (M.TyRef _lhs_ty M.Immut) _ _pos)
+assignVarExp v@(M.Var _vnamd _ (M.TyRef _lhs_ty M.Immut) _ _ _pos)
                (MirExp (MirReferenceRepr e_ty) e) =
          do r <- readMirRef e_ty e
             assignVarExp v (MirExp e_ty r)
@@ -1143,7 +1143,7 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef _lhs_ty M.Immut) _ _pos)
 -- For mutable slice to immutable slice, we make a copy of the vector so that
 -- we have the correct range. Note: if we update immutable slices to also
 -- store bounds, then we can update this coercion.
-assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _pos)
+assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _ _pos)
                (MirExp (MirSliceRepr e_ty) e) =
  
          do let rvec  = S.getStruct Ctx.i1of3 e
@@ -1154,7 +1154,7 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _pos)
             assignVarExp v (MirExp (C.VectorRepr e_ty) r2)
 
 
-assignVarExp (M.Var vname _ vty _ pos) me@(MirExp e_ty e) = do
+assignVarExp (M.Var vname _ vty _ _ pos) me@(MirExp e_ty e) = do
     vm <- use varMap
     case (Map.lookup vname vm) of
       Just (Some varinfo)
@@ -1279,7 +1279,7 @@ assignLvExp lv re = do
 -- "Allocate" space for the variable by constructing an initial value for it (if possible)
 -- This code will 
 storageLive :: M.Var -> MirGenerator h s ret ()
-storageLive (M.Var nm _ ty _ _) = 
+storageLive (M.Var nm _ ty _ _ _) =
   do vm <- use varMap
      db <- use debugLevel
      case Map.lookup nm vm of
@@ -1314,7 +1314,7 @@ storageLive (M.Var nm _ ty _ _) =
 
 
 storageDead :: M.Var -> MirGenerator h s ret ()
-storageDead (M.Var nm _ _ _ _) =
+storageDead (M.Var nm _ _ _ _ _) =
   do vm <- use varMap
      case Map.lookup nm vm of
        Just (Some _varinfo@(VarReference reg)) ->
@@ -1892,7 +1892,7 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
  f (M.Assign _ (M.Ref M.Mutable lv _) _) = g lv
  f _ = mempty
 
- g (M.LBase (M.Local (M.Var nm _ _ _ _))) = Set.singleton nm
+ g (M.LBase (M.Local (M.Var nm _ _ _ _ _))) = Set.singleton nm
  g (M.LProj lv _) = g lv
 
  g _ = mempty
@@ -1900,15 +1900,19 @@ addrTakenVars bb = mconcat (map f (M._bbstmts (M._bbdata bb)))
 
 buildIdentMapRegs :: forall h s ret. HasCallStack => M.MirBody -> [M.Var] -> MirGenerator h s ret (VarMap s)
 buildIdentMapRegs (M.MirBody localvars blocks) extravars =
-   buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _) -> (name,ty)) (localvars ++ extravars))
+   buildIdentMapRegs_ addressTakenVars needsInitVars (map (\(M.Var name _ ty _ _ _) -> (name,ty)) (localvars ++ extravars))
  where
    addressTakenVars = mconcat (map addrTakenVars blocks)
    -- "allocate" space for return variable
 
-   isTuple (M.Var _ _ (M.TyTuple (_:_)) _ _) = True
-   isTuple _ = False
+   -- Does MIR allow initializing the local field-by-field?
+   allowsFieldwiseInit (M.Var _ _ (M.TyTuple (_:_)) _ _ _) = True
+   allowsFieldwiseInit (M.Var _ _ (M.TyAdt _ _) _ _ _) = True
+   allowsFieldwiseInit _ = False
 
-   needsInitVars = Set.fromList $ ["_0"] ++ (map (^.varname) (filter isTuple localvars))
+   needsInit v = v ^. varIsZST || allowsFieldwiseInit v
+
+   needsInitVars = Set.fromList $ ["_0"] ++ (map (^.varname) (filter needsInit localvars))
 
 
 buildLabelMap :: forall h s ret. M.MirBody -> MirGenerator h s ret (LabelMap s)
@@ -1940,7 +1944,7 @@ initFnState colState fn handle inputs =
       args = fn^.fargs
 
       argPredVars = Maybe.mapMaybe dictVar (sig^.fspredicates)
-      argtups  = map (\(M.Var n _ t _ _) -> (n,t)) (args ++ argPredVars)
+      argtups  = map (\(M.Var n _ t _ _ _) -> (n,t)) (args ++ argPredVars)
       argtypes = FH.handleArgTypes handle
 
       mkVarMap :: [(Text.Text, M.Ty)] -> C.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s

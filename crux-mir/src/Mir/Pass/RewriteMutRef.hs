@@ -41,13 +41,13 @@ ints_list n = [n, n-1 .. 0]
 
 
 modifyVarTy :: Var -> Ty -> Var
-modifyVarTy (Var a b _c d pos) e = Var a b e d pos
+modifyVarTy (Var a b _c d e pos) x = Var a b x d e pos
 
 vars_to_map :: [Var] -> Map.Map T.Text Var
 vars_to_map vs = Map.fromList $ map (\v -> (_varname v, v)) vs
 
 mutref_to_immut :: Var -> Var
-mutref_to_immut (Var vn vm vty vsc pos) = Var (T.pack $ (T.unpack vn) ++ "d") vm (changeTyToImmut vty) vsc pos
+mutref_to_immut (Var vn vm vty vzst vsc pos) = Var (T.pack $ (T.unpack vn) ++ "d") vm (changeTyToImmut vty) vzst vsc pos
 
 
 changeTyToImmut :: Ty -> Ty
@@ -139,7 +139,7 @@ newDummyBlock prev_name bbd = do
 mkDummyInternal :: Ty -> State RewriteFnSt Var
 mkDummyInternal ty = do
     internals <- use fnInternals
-    let dummyvar = (Var "_dummyret" Immut ty "scopedum" "internal")
+    let dummyvar = (Var "_dummyret" Immut ty False "scopedum" "internal")
     fnInternals .= Map.insert "_dummyret" dummyvar internals
     return dummyvar
 
@@ -147,7 +147,7 @@ newInternal :: Ty -> State RewriteFnSt Var
 newInternal ty = do
     ctr <- newCtr
     let new_name = T.pack $ "_vd" ++ (show ctr)
-        new_var =  (Var new_name Immut ty "scopedum" "internal")
+        new_var =  (Var new_name Immut ty False "scopedum" "internal")
     internals <- use fnInternals
     fnInternals .= Map.insert new_name new_var internals
     return new_var
