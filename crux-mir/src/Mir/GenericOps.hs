@@ -451,7 +451,7 @@ isCStyle (Adt n variants) =
 -- use to represent each of the constructors.
 adtIndices :: Adt -> Collection -> [Integer]
 adtIndices (Adt _aname vars) col = map go vars where
- go (Variant _vname (Explicit did) _fields _knd) =
+ go (Variant name (Explicit did) _fields _knd) =
     case Map.lookup did (_functions col) of
       Just fn ->
         case fn^.fbody.mblocks of
@@ -460,7 +460,7 @@ adtIndices (Adt _aname vars) col = map go vars where
             
           _ -> error "CEnum should only have one basic block"
           
-      Nothing -> error "cannot find CEnum value"
+      Nothing -> error $ "cannot find CEnum value " ++ show did ++ " for variant " ++ show name
  go (Variant _vname (Relative i) _fields _kind) = toInteger i    --- TODO: check this
 
 markCStyleTy :: (Map DefId Adt,Collection) -> Ty -> Ty

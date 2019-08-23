@@ -188,6 +188,7 @@ customOps = Map.fromList [
                          , integer_lt
 
                          , type_id
+                         , mem_swap
                          ]
 
 
@@ -1044,6 +1045,25 @@ integer_rem = ((["int512"], "rem", []), \(Substs []) ->
           | Just Refl <- testEquality w1 w2 ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVSrem w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_rem: " ++ show ops
+    )
+
+
+
+
+-- mem::swap is used pervasively (both directly and via mem::replace), but it
+-- has a nasty unsafe implementation, with lots of raw pointers and
+-- reintepreting casts.  Fortunately, it requires `T: Sized`, so it's almost
+-- trivial to implement as a custom op.
+mem_swap ::  (ExplodedDefId, CustomRHS)
+mem_swap = ((["core","mem"],"swap", []),
+    \ _substs -> Just $ CustomOp $ \ _opTys ops -> case ops of
+        [MirExp (MirReferenceRepr ty1) e1, MirExp (MirReferenceRepr ty2) e2]
+          | Just Refl <- testEquality ty1 ty2 -> do
+            val1 <- readMirRef ty1 e1
+            val2 <- readMirRef ty2 e2
+            writeMirRef e1 val2
+            writeMirRef e2 val1
+            return $ MirExp knownRepr $ R.App E.EmptyApp
     )
 
 

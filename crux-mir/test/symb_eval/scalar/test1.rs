@@ -10,10 +10,11 @@
 //! ```text
 //! (0xfffffffffffff^2) * 5 = 0x4ffffffffffff60000000000005 (107 bits).
 //! ```
+#![no_std]
 
 extern crate core;
 //use core::fmt::Debug;
-use std::ops::{Index, IndexMut};
+use core::ops::{Index, IndexMut};
 
 extern crate crucible;
 use crucible::*;
@@ -80,7 +81,7 @@ fn main() {
    println!("{:?}", f(ARG));
 }
 
-fn f(_w : u64 ) -> bool {
+pub fn f(_w : u64 ) -> bool {
     // Int512 -> Scalar64 -> Int512 conversion is the identity function.
     {
         let i = Int512::symbolic("isi");
@@ -166,14 +167,14 @@ fn f(_w : u64 ) -> bool {
     return true;
 }
 
-const ARG: u64 = 20;
+pub static ARG: u64 = 20;
 
 
 
 
 
 mod constants {
-    use Scalar64;
+    use super::Scalar64;
     
     /// `L` is the order of base point, i.e. 2^252 + 27742317777372353535851937790883648493
     pub(crate) const L: Scalar64 = Scalar64([ 0x0002631a5cf5d3ed, 0x000dea2f79cd6581, 0x000000000014def9, 0x0000000000000000, 0x0000100000000000 ]);

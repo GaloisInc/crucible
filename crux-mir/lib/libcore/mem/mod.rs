@@ -499,9 +499,7 @@ pub unsafe fn uninitialized<T>() -> T {
 #[inline]
 #[stable(feature = "rust1", since = "1.0.0")]
 pub fn swap<T>(x: &mut T, y: &mut T) {
-    unsafe {
-        ptr::swap_nonoverlapping_one(x, y);
-    }
+    unimplemented!("crucible intrinsic mem_swap")
 }
 
 /// Replace `dest` with the default value of `T`, and return the previous `dest` value.

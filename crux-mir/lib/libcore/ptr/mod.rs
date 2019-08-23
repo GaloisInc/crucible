@@ -395,50 +395,10 @@ pub(crate) unsafe fn swap_nonoverlapping_one<T>(x: *mut T, y: *mut T) {
 
 #[inline]
 unsafe fn swap_nonoverlapping_bytes(x: *mut u8, y: *mut u8, len: usize) {
-    // The approach here is to utilize simd to swap x & y efficiently. Testing reveals
-    // that swapping either 32 bytes or 64 bytes at a time is most efficient for Intel
-    // Haswell E processors. LLVM is more able to optimize if we give a struct a
-    // #[repr(simd)], even if we don't actually use this struct directly.
-    //
-    // FIXME repr(simd) broken on emscripten and redox
-    #[cfg_attr(not(any(target_os = "emscripten", target_os = "redox")), repr(simd))]
-    struct Block(u64, u64, u64, u64);
-    struct UnalignedBlock(u64, u64, u64, u64);
-
-    let block_size = mem::size_of::<Block>();
-
-    // Loop through x & y, copying them `Block` at a time
-    // The optimizer should unroll the loop fully for most types
-    // N.B. We can't use a for loop as the `range` impl calls `mem::swap` recursively
-    let mut i = 0;
-    while i + block_size <= len {
-        // Create some uninitialized memory as scratch space
-        // Declaring `t` here avoids aligning the stack when this loop is unused
-        let mut t = mem::MaybeUninit::<Block>::uninit();
-        let t = t.as_mut_ptr() as *mut u8;
-        let x = x.add(i);
-        let y = y.add(i);
-
-        // Swap a block of bytes of x & y, using t as a temporary buffer
-        // This should be optimized into efficient SIMD operations where available
-        copy_nonoverlapping(x, t, block_size);
-        copy_nonoverlapping(y, x, block_size);
-        copy_nonoverlapping(t, y, block_size);
-        i += block_size;
-    }
-
-    if i < len {
-        // Swap any remaining bytes
-        let mut t = mem::MaybeUninit::<UnalignedBlock>::uninit();
-        let rem = len - i;
-
-        let t = t.as_mut_ptr() as *mut u8;
-        let x = x.add(i);
-        let y = y.add(i);
-
-        copy_nonoverlapping(x, t, rem);
-        copy_nonoverlapping(y, x, rem);
-        copy_nonoverlapping(t, y, rem);
+    for i in 0 .. len {
+        let val = *x.add(i);
+        *x.add(i) = *y.add(i);
+        *y.add(i) = val;
     }
 }
 

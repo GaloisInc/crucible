@@ -143,6 +143,8 @@ loadPrims useStdLib = do
   col <- mconcat <$> mapM readMir
     [ "lib/libcore/lib.mir"
     , "lib/compiler_builtins.mir"
+    , "lib/int512.mir"
+    , "lib/crucible.mir"
     ]
 
   when (?debug > 6) $ do

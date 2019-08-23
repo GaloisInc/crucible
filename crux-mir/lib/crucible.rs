@@ -1,3 +1,5 @@
+#![no_std]
+
 pub fn one() -> u8 { unimplemented!() }
 
 pub fn crucible_i8(_name: &'static str) -> i8 { unimplemented!() }

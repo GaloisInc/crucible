@@ -525,6 +525,48 @@ resolveCustom instDefId _substs = do
 ---------------------------------------------------------------------------------------------------
 
 
+-----------------------------------------------------------------------
+-- ** MIR intrinsics Generator interaction
+
+newMirRef ::
+  C.TypeRepr tp ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+newMirRef tp = G.extensionStmt (MirNewRef tp)
+
+dropMirRef ::
+  R.Expr MIR s (MirReferenceType tp) ->
+  MirGenerator h s ret ()
+dropMirRef refExp = void $ G.extensionStmt (MirDropRef refExp)
+
+readMirRef ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType tp) ->
+  MirGenerator h s ret (R.Expr MIR s tp)
+readMirRef tp refExp = G.extensionStmt (MirReadRef tp refExp)
+
+writeMirRef ::
+  R.Expr MIR s (MirReferenceType tp) ->
+  R.Expr MIR s tp ->
+  MirGenerator h s ret ()
+writeMirRef ref x = void $ G.extensionStmt (MirWriteRef ref x)
+
+subfieldRef ::
+  C.CtxRepr ctx ->
+  R.Expr MIR s (MirReferenceType TaggedUnion) ->
+  Index ctx tp ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+subfieldRef ctx ref idx = G.extensionStmt (MirSubfieldRef ctx ref idx)
+
+subindexRef ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType (C.VectorType tp)) ->
+  R.Expr MIR s C.NatType ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
+
+-----------------------------------------------------------------------
+
+
 
 
 --  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct
