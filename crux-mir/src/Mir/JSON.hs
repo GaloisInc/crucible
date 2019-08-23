@@ -412,7 +412,7 @@ parseConst ty v = do
     TyRef t Immut -> parseConst t v
     TyStr        -> (v .: "str_val") >>= \t -> ConstStr <$> convertString t
     TyFnDef d ps -> pure $ ConstFunction d ps
-    TyTuple ts   -> fail $ "TODO: need Tuple value in\n" ++ show v
+    TyTuple ts   -> (v .: "initializer") >>= parseInitializer
     TyArray t n  -> parseArray t n v
     TyAdt d ss   -> (v .: "initializer") >>= parseInitializer
     r            -> fail $ "TODO: Don't know how to parse literals of type " ++ show ty

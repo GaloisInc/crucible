@@ -1,4 +1,5 @@
 // FAIL: dynamic trait. Also use of "::convert::From::from"
+#![cfg_attr(not(with_main), no_std)]
 
 struct Data(u32);
 
@@ -12,7 +13,7 @@ impl Foo for Data {
     }
 }
 
-impl Foo for String {
+impl Foo for () {
     fn foo (&self) -> u32 {
         return 2;
     }
@@ -25,17 +26,16 @@ fn fun(f: &Foo) -> u32 {
 
 fn f(_: ()) -> u32 {
     let d = Data(32);
-    let s = String::from("hello");
+    let u = ();
     if true {
         fun(&d)
     } else {
-        fun(&s)
+        fun(&u)
     }
 }
 
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG));
-}
+pub fn main() { println!("{:?}", f(ARG)); }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

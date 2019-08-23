@@ -1,6 +1,7 @@
+#![cfg_attr(not(with_main), no_std)]
 #![feature(never_type)]
 
-use std::process::exit;
+use core::process::exit;
 
 fn f(x:u16) -> bool {
    let mut buf  = [0,0]; 
@@ -38,6 +39,7 @@ impl Lmcp for u16 {
 
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

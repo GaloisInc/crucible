@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 trait Foo {
     fn method(&self) -> i32;
     fn static_method() -> i32;
@@ -23,6 +24,7 @@ fn f(arg: i32) {
 }
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // Remove the Scalar64 ADT
 
 // Remove the L constant. These operations are NOT correct. 
@@ -70,6 +71,7 @@ fn f(_w : u64 ) -> bool {
 
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

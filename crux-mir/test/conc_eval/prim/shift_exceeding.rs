@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // FAIL: Should panic, but doesn't
 #[allow(exceeding_bitshifts)]
 fn f(x: i64) -> i64 {
@@ -7,13 +8,14 @@ fn f(x: i64) -> i64 {
 const ARG: i64 = 1;
 
 #[cfg(with_main)]
-fn main() {
-    use std::panic;
+pub fn main() {
+    use core::panic;
     let result = panic::catch_unwind(|| {
-        f(ARG)
+        println!("{:?}", f(ARG));
     });
     match result {
         Ok(r) => println!("{:?}", r),
         Err(_) => println!("<<PANIC>>"),
     };
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 struct S(u32);
 
 trait T {
@@ -15,6 +16,7 @@ fn f(s: S) -> u32 {
 const ARG: S = S(42);
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

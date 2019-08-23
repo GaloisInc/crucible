@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 
 
 fn call_with_one<F>(some_closure: &F) -> bool
@@ -14,7 +15,8 @@ fn f (y:i32) -> bool {
 
 const ARG :i32 = 0;
 
-#[cfg(with_main)] 
-fn main() {
-    println!("{:?}", f(ARG))
+#[cfg(with_main)]
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

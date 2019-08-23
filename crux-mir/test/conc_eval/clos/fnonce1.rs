@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 /*
  where clauses are currently unsupported
 */
@@ -17,6 +18,7 @@ fn f (y:i32) -> i32 {
 const ARG :i32 = 0;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

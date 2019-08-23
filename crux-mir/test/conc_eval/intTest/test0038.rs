@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // FAIL: Don't know how to call ::slice::{{impl}}::iter_mut
 struct BI {
     i: [[i32; 4]; 2],
@@ -23,6 +24,7 @@ fn f(_:()) {
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

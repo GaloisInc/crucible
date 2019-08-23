@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 fn f(x: u32) -> bool {
     x >= 2
 }
@@ -5,6 +6,7 @@ fn f(x: u32) -> bool {
 const ARG: u32 = 2;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{}", f(ARG))
+pub fn main() {
+    println!("{}", println!("{:?}", f(ARG)))
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

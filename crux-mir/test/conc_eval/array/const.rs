@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 mod constants {
     pub(crate) const L: [u64;1] = [ 1 ];
 }
@@ -12,6 +13,7 @@ fn f(_w : u64 ) -> u64 {
 
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

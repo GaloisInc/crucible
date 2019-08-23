@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // This tests using polymorphic functions and parameterized data
 // relies on Option type from std library
 
@@ -17,6 +18,7 @@ const ARG : u32 = 27;
 
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

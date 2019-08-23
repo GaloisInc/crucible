@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // parameter is mutable in Rust, so we must make a local variable on translation
 
 fn h(x: &mut[u8; 4]) -> [u8; 4] {
@@ -16,6 +17,7 @@ const ARG: u8 = 4;
 
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

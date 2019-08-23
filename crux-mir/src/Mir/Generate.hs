@@ -75,9 +75,10 @@ generateMIR dir name keepRlib = do
   rustModTime <- getModificationTime rustFile
 
   -- TODO: don't hardcode -L library path
-  let runMirJSON = do (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-                                    [rustFile, "--crate-type", "lib", "-L", "."] ""
-                      return ec
+  let runMirJSON = do
+        (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
+            [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"] ""
+        return ec
 
   ec <- doesFileExist mirFile >>= \case 
     True  -> do mirModTime <- getModificationTime mirFile

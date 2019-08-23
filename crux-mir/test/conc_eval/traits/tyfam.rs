@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 trait FIndex {
     
     type Output : ?Sized;
@@ -23,6 +24,7 @@ const ARG: u8 = 23;
 
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

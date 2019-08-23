@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // Make sure that we can include negative numbers in C-style enums
 
 #![no_implicit_prelude]
@@ -40,6 +41,7 @@ pub fn f (x : i32) -> i32 {
 pub const ARG : i32 = 1;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

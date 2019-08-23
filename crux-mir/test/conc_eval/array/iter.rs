@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // FAIL: missing lifetime parameter in addAssign
 
 fn f(_x: u8) -> i32 {
@@ -14,6 +15,7 @@ fn f(_x: u8) -> i32 {
 const ARG: u8 = 42;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

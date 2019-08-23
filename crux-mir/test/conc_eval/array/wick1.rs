@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // FAIL: needs Vec data structure from stdlib
 // https://github.com/rust-lang/rust/blob/master/src/liballoc/vec.rs
 
@@ -34,6 +35,7 @@ const ARG:u32 = 4;
 
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

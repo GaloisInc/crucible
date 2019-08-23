@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 fn g(xs: &[u8]) -> u8 {
     xs[0]
 }
@@ -10,6 +11,7 @@ fn f(x: u8) -> u8 {
 const ARG: u8 = 42;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

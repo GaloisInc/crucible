@@ -1,5 +1,6 @@
+#![cfg_attr(not(with_main), no_std)]
 pub mod def {
-    use std::marker::Sized;
+    use core::marker::Sized;
 
     pub trait Def: Sized {
         fn def() -> Self;
@@ -32,6 +33,7 @@ fn f(_x : i32) -> () {
 const ARG : i32 = 0;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

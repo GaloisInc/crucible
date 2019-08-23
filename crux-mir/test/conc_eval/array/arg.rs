@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // Fail: Cannot assign to atom: "_1" of type [u8; 4]
 
 // parameter is mutable in Rust, so we should make a local variable on translation
@@ -19,6 +20,7 @@ fn f(x:u8) -> u8 {
 const ARG: u8 = 2;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 enum E {
     #[inline(never)]
     A(u8),
@@ -21,6 +22,7 @@ fn f(x: E) -> u8 {
 const ARG: E = E::B(42,43);
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

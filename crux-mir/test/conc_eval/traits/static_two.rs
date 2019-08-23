@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // Test two static implementation of the same trait
 //
 // We match the type of S::g and U::g against T::g.  But g's type
@@ -29,6 +30,7 @@ fn f(_: ()) -> u32 {
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

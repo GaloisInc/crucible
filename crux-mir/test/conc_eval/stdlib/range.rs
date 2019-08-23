@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 
 pub struct Rng<Idx> {
     /// The lower bound of the range (inclusive).
@@ -18,6 +19,7 @@ const ARG : i32 = 2;
 
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 pub trait A<T>: Sized {
     /// The type returned in the event of a conversion error.
     type Error;
@@ -33,6 +34,7 @@ fn f (y : u32) -> u32 {
 const ARG: u32 = 1;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

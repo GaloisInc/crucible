@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 #[no_mangle]
 static mut X: i32 = 0;
 
@@ -25,8 +26,9 @@ pub unsafe fn f(w: i32) -> i32 {
 const ARG: i32 = 3;
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
     unsafe {
         println!("{:?}", f(ARG));
     }
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

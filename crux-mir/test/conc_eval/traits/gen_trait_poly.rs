@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // FAIL: need to construct dictionary with polymorphic member from generic instance
 // Invoke a dictionary method
 
@@ -30,6 +31,7 @@ fn f(_: ()) -> u32 {
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

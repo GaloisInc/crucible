@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 fn f(_x : u16) -> bool {
     let y : u16 = 20;
     let z : i16 = 20;
@@ -15,6 +16,7 @@ fn f(_x : u16) -> bool {
 const ARG : u16 = 20;
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 // Test trait with default implementation
 //
 
@@ -19,6 +20,7 @@ fn f(x : i32) -> i32 {
 const ARG: i32 = 12;
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }

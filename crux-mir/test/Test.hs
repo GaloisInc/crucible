@@ -116,7 +116,7 @@ sawOracleTest dir name step = do
 
   step "Generating MIR JSON"
 
-  let ?assertFalseOnError = False
+  let ?assertFalseOnError = True
   step "Translating MIR to Crucible"
   mir <- loadMIR sc name
   
@@ -168,7 +168,7 @@ main = defaultMain =<< suite
 suite :: IO TestTree
 suite = do
   let ?debug = 0
-  let ?assertFalseOnError = False
+  let ?assertFalseOnError = True
   halloc <- C.newHandleAllocator
   prims  <- liftIO $ loadPrims True
   pmir   <- stToIO $ translateMIR mempty prims halloc

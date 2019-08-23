@@ -1,3 +1,4 @@
+#![cfg_attr(not(with_main), no_std)]
 
 fn ffs_ref(word : u32) -> u32 {
     let mut i : u32 = 0;
@@ -30,6 +31,7 @@ fn f (arg : u32) -> bool {
 const ARG: u32 = 28;
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
     println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] pub fn main() { f(ARG); }
