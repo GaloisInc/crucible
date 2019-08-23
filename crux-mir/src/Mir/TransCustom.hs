@@ -189,6 +189,8 @@ customOps = Map.fromList [
 
                          , type_id
                          , mem_swap
+                         , add_with_overflow
+                         , sub_with_overflow
                          ]
 
 
@@ -1056,7 +1058,7 @@ integer_rem = ((["int512"], "rem", []), \(Substs []) ->
 -- trivial to implement as a custom op.
 mem_swap ::  (ExplodedDefId, CustomRHS)
 mem_swap = ((["core","mem"],"swap", []),
-    \ _substs -> Just $ CustomOp $ \ _opTys ops -> case ops of
+    \ _substs -> Just $ CustomOp $ \ opTys ops -> case ops of
         [MirExp (MirReferenceRepr ty1) e1, MirExp (MirReferenceRepr ty2) e2]
           | Just Refl <- testEquality ty1 ty2 -> do
             val1 <- readMirRef ty1 e1
@@ -1064,7 +1066,43 @@ mem_swap = ((["core","mem"],"swap", []),
             writeMirRef e1 val2
             writeMirRef e2 val1
             return $ MirExp knownRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
     )
+
+with_overflow_result ::
+    C.TypeRepr ty ->
+    E.App MIR (R.Expr MIR s) ty ->
+    E.App MIR (R.Expr MIR s) C.BoolType ->
+    MirExp s
+with_overflow_result ty x b = buildTuple
+    [ MirExp (C.MaybeRepr ty) $
+        R.App $ E.JustValue ty $
+        R.App $ x
+    , MirExp (C.MaybeRepr C.BoolRepr) $
+        R.App $ E.JustValue C.BoolRepr $
+        R.App $ b
+    ]
+
+add_with_overflow ::  (ExplodedDefId, CustomRHS)
+add_with_overflow = ((["core","intrinsics"],"add_with_overflow", []),
+    \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
+        ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
+          | Just Refl <- testEquality w1 w2 -> do
+            return $ with_overflow_result
+                (C.BVRepr w1) (E.BVAdd w1 e1 e2) (E.BVCarry w1 e1 e2)
+        _ -> mirFail $ "bad arguments to add_with_overflow: " ++ show (opTys, ops)
+    )
+
+sub_with_overflow ::  (ExplodedDefId, CustomRHS)
+sub_with_overflow = ((["core","intrinsics"],"sub_with_overflow", []),
+    \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
+        ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
+          | Just Refl <- testEquality w1 w2 -> do
+            return $ with_overflow_result
+                (C.BVRepr w1) (E.BVSub w1 e1 e2) (E.BVUlt w1 e1 e2)
+        _ -> mirFail $ "bad arguments to add_with_overflow: " ++ show (opTys, ops)
+    )
+
 
 
 --------------------------------------------------------------------------------------------------------------------------
