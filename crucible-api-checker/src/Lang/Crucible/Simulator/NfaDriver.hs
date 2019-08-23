@@ -1,3 +1,15 @@
+-----------------------------------------------------------------------
+-- |
+-- Module           : Lang.Crucible.Simulator.NfaDriver
+-- Description      : Api Checker Execution Feature
+-- Copyright        : (c) Galois, Inc 2019
+-- License          : BSD3
+-- Maintainer       : Eric Bond <bond.eric.23@gmail.com>
+--
+-- This module provides an execution feature which is a first approximation
+-- at an NFA based API usage checker in crucible.
+------------------------------------------------------------------------
+
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -55,9 +67,9 @@ data NfaApi sym = NfaApi {
 
 api = NfaApi { extractValue = argToVal, semanticEq = eqLLVMPtr}
 
--- TODO FunctionName
 data NFASym = Call String | Ret String  deriving (Show, Eq, Ord) 
 
+-- LLVM Specific Value Type
 data Val sym = forall w.(1 <= w) => LLVMPtr (SymNat sym) (SymBV sym w)
 
 instance IsSymInterface sym => Eq (Val sym) where
@@ -68,8 +80,8 @@ instance IsSymInterface sym => Eq (Val sym) where
 
 instance IsSymInterface sym => Ord (Val sym) where
   compare (LLVMPtr blk1 off1) (LLVMPtr blk2 off2) =
-    toOrdering (compareF blk1 blk2) <> toOrdering (compareF off1 off2) 
-
+    toOrdering (compareF blk1 blk2) <> toOrdering (compareF off1 off2)
+    
 data NFAState sym  = 
   Error
   | Accept
@@ -90,13 +102,11 @@ data NFAUpdateStatus sym  = ErrorDetected | Updated (NFA sym) | UnrecognizedSymb
 
 nullEffect _ edge = snd edge
 
---checkEffect sym (LLVMPtr base1 off1) (LLVMPtr base2 off2) edge =
-  
+-- If there is a return value, store it in the next state
 storeEffect retVal _ (_,(St stid _)) = (St stid retVal)
-storeEffect _ _  _ = Error --TODO properly handle
+storeEffect _ _  _ = Error
 
---TODO keep data in state on transition?
--- pass in transition computation function
+--TODO When to keep data in state upon transition?
 stateTransition (St stid val) tf symbol transitionEffect =
   S.fromList $ map (transitionEffect val) (filter (\edge -> symbol == (fst edge)) (tf V.! stid))
 stateTransition _ _ _ _ = S.empty
@@ -153,6 +163,8 @@ type NFAGlobal = GlobalVar (IntrinsicType "NFA_LLVM" EmptyCtx)
   - Execution feature should take in desired NFA to run
   - Api for manipulation of front end specific Value types should be provided either through a type class on Value type or passed in as a record of functions 
 -}
+
+-- | Execution Feature. Takes an IO Ref for an NFA intrinsic type global variable.
 apiCheckExecFeat :: IORef NFAGlobal -> GenericExecutionFeature sym
 apiCheckExecFeat gvRef = GenericExecutionFeature $ (onStep gvRef api)
       
@@ -208,7 +220,6 @@ onStep _ _ _ =
 --helpers --
 
 --TODO generalize, argument place, type ..
-
 argToVal :: RegEntry sym ty -> Maybe (Val sym)
 argToVal regEntry =
   case regType regEntry of
@@ -237,6 +248,8 @@ eqLLVMPtr sym (LLVMPtr base1 off1)  (LLVMPtr base2 off2) =
       do
         return False
 
+-- Converts the first argument, if it exists, from a RegEntry to appropriate front end Value type
+-- TODO 
 extractArg :: NfaApi sym -> CallFrame sym ext blocks ret ctx' -> Maybe (Val sym)
 extractArg api cf =
   case args of
@@ -274,6 +287,8 @@ checkCall sym nfa api symbol calledVal =
       True -> checkTransition sym nfa api symbol calledVal
       _ -> return UnrecognizedSymbol
 
+-- Either checks if previous call return value matches first argument of next call
+-- or performs regular nfa transition
 handleCallEvent :: (IsSymInterface sym)
   => sym
   -> NfaApi sym
@@ -313,7 +328,7 @@ withoutType funName =
     Just n -> L.take n funName
     _ -> "err"
 
--- TODO generalize, don't assume c++ and mangled names
+-- TODO generalize, don't assume c++ and mangled names 
 pCallName :: CallFrame sym ext blocks ret args -> String
 pCallName (CallFrame { _frameCFG = cfg}) =
   --getFunctionName $ functionName $ handleName $ cfgHandle cfg
