@@ -19,7 +19,6 @@ library
     array,
     containers,
     crucible,
-    crucible-llvm,
     crucible-api-checker,                        
     directory,
     filepath,
