@@ -106,7 +106,7 @@ readMir path = do
   f <- B.readFile path
   let c = (J.eitherDecode f) :: Either String Collection
   case c of
-      Left msg -> fail $ "JSON Decoding of MIR failed: " ++ msg
+      Left msg -> fail $ "JSON Decoding of " ++ path ++ " failed: " ++ msg
       Right col -> do
         when (?debug > 5) $ do
           traceM "--------------------------------------------------------------"

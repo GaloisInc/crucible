@@ -144,7 +144,7 @@ data InstanceKind =
     | IkFnPtrShim Ty
     | IkVirtual !Integer
     | IkClosureOnceShim
-    | IkDropGlue Ty
+    | IkDropGlue (Maybe Ty)
     | IkCloneShim Ty
     deriving (Eq, Ord, Show, Generic)
 
