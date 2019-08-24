@@ -1,5 +1,6 @@
 #![cfg_attr(not(with_main), no_std)]
 // Method call via `IndexMut::index_mut`
+extern crate core;
 use core::ops::{Index, IndexMut};
 
 struct MyPtr<T>(T);

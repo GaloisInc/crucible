@@ -1,6 +1,6 @@
-#![cfg_attr(not(with_main), no_std)]
 // FAIL: needs Vec data structure from stdlib
 // https://github.com/rust-lang/rust/blob/master/src/liballoc/vec.rs
+#![cfg_attr(not(with_main), no_std)]
 
 pub fn addn(x: &[u32], y: &[u32]) -> Vec<u32>
 {

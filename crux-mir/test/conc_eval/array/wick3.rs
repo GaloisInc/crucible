@@ -1,5 +1,5 @@
-#![cfg_attr(not(with_main), no_std)]
 // FAIL: needs Vec data structure from stdlib
+#![cfg_attr(not(with_main), no_std)]
 
 pub fn addn(x: &[u32], y: &[u32]) -> Vec<u32>
  {

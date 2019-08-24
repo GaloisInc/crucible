@@ -1,5 +1,5 @@
-#![cfg_attr(not(with_main), no_std)]
 // FAIL: Don't know how to call ::slice::{{impl}}::iter_mut
+#![cfg_attr(not(with_main), no_std)]
 struct BI {
     i: [[i32; 4]; 2],
 }

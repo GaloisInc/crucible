@@ -1,7 +1,7 @@
 #![cfg_attr(not(with_main), no_std)]
 #![feature(never_type)]
 
-use core::process::exit;
+extern crate core;
 
 fn f(x:u16) -> bool {
    let mut buf  = [0,0]; 
@@ -22,15 +22,9 @@ pub trait Lmcp where Self : Sized {
     fn ser(&self, buf : &mut[u8]) -> Option<usize>;
 }
 
-macro_rules! get {
-    ( $e:expr ) => {
-        $e.unwrap_or_else(||exit(0))
-    }
-}
-
 impl Lmcp for u16 {
     fn ser(&self, buf: &mut[u8]) -> Option<usize> {
-        let m = get!(buf.get_mut(0..2));
+        let m = buf.get_mut(0..2).unwrap();
         m[0] = (*self >> 8) as u8;
         m[1] = *self as u8;
         Some(2)

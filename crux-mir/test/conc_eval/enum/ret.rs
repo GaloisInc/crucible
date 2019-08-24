@@ -1,12 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
-#[derive(Debug)]
-enum E {
-    A(u8),
-    B(i32),
-}
-
-// don't derive Debug unless we need it for main
-#[cfg(not(with_main))]
+#[cfg_attr(with_main, derive(Debug))]
 enum E {
     A(u8),
     B(i32),

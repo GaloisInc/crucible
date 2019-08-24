@@ -1,6 +1,5 @@
-#![cfg_attr(not(with_main), no_std)]
-// FAIL: need to construct dictionary with polymorphic member from generic instance
 // Invoke a dictionary method
+#![cfg_attr(not(with_main), no_std)]
 
 struct Data<T>(T);
 

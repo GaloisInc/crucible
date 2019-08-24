@@ -14,6 +14,6 @@ const ARG: (bool,bool) = (true, true);
 
 #[cfg(with_main)]
 pub fn main() {
-    println!("{}", println!("{:?}", f(ARG)))
+    println!("{:?}", f(ARG))
 }
 #[cfg(not(with_main))] pub fn main() { f(ARG); }

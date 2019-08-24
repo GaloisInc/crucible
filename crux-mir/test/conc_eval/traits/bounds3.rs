@@ -1,6 +1,5 @@
-#![cfg_attr(not(with_main), no_std)]
-// FAIL: trait bound with associated type
 // impl with trait bound having associated type
+#![cfg_attr(not(with_main), no_std)]
 
 trait Foo {
     fn method(&self) -> i32;

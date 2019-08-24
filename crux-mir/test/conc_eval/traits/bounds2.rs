@@ -1,6 +1,5 @@
-// FAIL: bad Any unpack
-// impl with multiple trait bounds on type parameter
 #![cfg_attr(not(with_main), no_std)]
+// impl with multiple trait bounds on type parameter
 
 trait Foo {
     fn method(&self) -> i32;

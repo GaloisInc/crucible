@@ -1,5 +1,5 @@
-#![cfg_attr(not(with_main), no_std)]
 // FAIL: missing lifetime parameter in addAssign
+#![cfg_attr(not(with_main), no_std)]
 
 fn f(_x: u8) -> i32 {
     let mut xs : [i32; 3] = [0; 3];

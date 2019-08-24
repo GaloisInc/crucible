@@ -1,4 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
+extern crate core;
 use core::ops::Deref;
 
 struct S;

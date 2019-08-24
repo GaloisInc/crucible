@@ -1,5 +1,6 @@
 #![cfg_attr(not(with_main), no_std)]
 // Method call via `DerefMut::deref_mut`
+extern crate core;
 use core::ops::{Deref, DerefMut};
 
 struct MyPtr<T>(T);

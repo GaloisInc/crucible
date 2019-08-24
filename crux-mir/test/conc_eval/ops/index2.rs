@@ -1,5 +1,6 @@
 #![cfg_attr(not(with_main), no_std)]
 // Method call via `Index::index`
+extern crate core;
 use core::ops::Index;
 
 struct MyPtr<T>(T);

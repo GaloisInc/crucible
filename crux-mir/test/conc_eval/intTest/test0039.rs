@@ -31,4 +31,4 @@ pub fn main() {
         println!("{:?}", f(ARG));
     }
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] pub fn main() { unsafe { f(ARG); } }

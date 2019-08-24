@@ -1,5 +1,6 @@
-#![cfg_attr(not(with_main), no_std)]
 // FAIL: Should panic, but doesn't
+#![cfg_attr(not(with_main), no_std)]
+extern crate core;
 #[allow(exceeding_bitshifts)]
 fn f(x: i64) -> i64 {
     x << 64i64

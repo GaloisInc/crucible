@@ -1,5 +1,6 @@
 #![cfg_attr(not(with_main), no_std)]
 // Method call via `Deref::deref`
+extern crate core;
 use core::ops::Deref;
 
 struct MyPtr<T>(T);

@@ -1,5 +1,5 @@
-#![cfg_attr(not(with_main), no_std)]
 // FAIL: dynamic trait object
+#![cfg_attr(not(with_main), no_std)]
 
 struct Data(u32);
 

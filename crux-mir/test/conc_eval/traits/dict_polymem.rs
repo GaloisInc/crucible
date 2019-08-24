@@ -4,12 +4,12 @@
 
 
 trait G {
-    fn g<T>(&self,T) -> T;
+    fn g<T>(&self, x: T) -> T;
 //    fn w<T:G> (&self,T) -> T;
 }
 
 impl G for u32 {
-    fn g<T>(&self,x:T) -> T {
+    fn g<T>(&self, x: T) -> T {
         return x
     }
 //    fn w<T:G>(&self,x:T) -> T {

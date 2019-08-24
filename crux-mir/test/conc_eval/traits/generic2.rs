@@ -1,6 +1,5 @@
-#![cfg_attr(not(with_main), no_std)]
-// FAIL: generic method manipulation
 // Trait with generic method
+#![cfg_attr(not(with_main), no_std)]
 
 #[derive(Clone, Copy)]
 struct S;

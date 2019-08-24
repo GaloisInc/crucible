@@ -1,12 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
-#[derive(Debug)]
-struct S {
-    x: u8,
-    y: i32,
-}
-
-// don't derive Debug unless we need it for main
-#[cfg(not(with_main))]
+#[cfg_attr(with_main, derive(Debug))]
 struct S {
     x: u8,
     y: i32,

@@ -1,5 +1,5 @@
-#![cfg_attr(not(with_main), no_std)]
 // FAIL: promoted lvalue
+#![cfg_attr(not(with_main), no_std)]
 
 fn k(x : u32) -> u32 {
     x + 1
