@@ -76,8 +76,8 @@ instance Pretty Ty where
     pretty TyUnsupported         = text "Unsupported"
     pretty (TyCustom customTy)   = pretty customTy
     pretty (TyParam i)           = text ("_" ++ show i)
-    pretty (TyFnDef defId tys)  = text "fnDef" <+> pr_id defId <> pretty tys
-    pretty (TyClosure defId tys) = text "closure" <+> pr_id defId <> pretty tys
+    pretty (TyFnDef defId tys)   = text "fnDef" <+> pr_id defId <> pretty tys
+    pretty (TyClosure tys)       = text "closure" <+> pretty tys
     pretty TyStr                 = text "str"
     pretty (TyFnPtr fnSig)       = pretty fnSig 
     pretty (TyDynamic preds)     = text "dynamic" <+> pretty preds
@@ -150,7 +150,7 @@ instance Pretty Fn where
         atys   = fs^.fsassoc_tys
         fty    = fs^.fsreturn_ty
         preds  = fs^.fspredicates
-            
+
 instance Pretty MirBody where
     pretty (MirBody mvs mbs) =
       vcat (map pretty_temp mvs ++

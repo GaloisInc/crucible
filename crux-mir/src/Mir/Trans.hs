@@ -656,7 +656,7 @@ evalCast' ck ty1 e ty2  =
          -> do r <- readMirRef tp ref
                return (MirExp tp r)
 
-      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] []))
+      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] [] _))
          -> do mhand <- lookupFunction defId substs
                case mhand of
                  Just (me, sig')
@@ -668,7 +668,7 @@ evalCast' ck ty1 e ty2  =
                         "ReifyFnPointer: bad MIR: can't find method handle: " ++
                         show (defId, substs)
 
-      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig _ _ _ _ _))
+      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig _ _ _ _ _ _))
         -> mirFail $ "ReifyFnPointer: impossible: target FnSig has generics?: "
             ++ show (defId, substs, sig)
 
@@ -680,26 +680,6 @@ evalCast :: HasCallStack => M.CastKind -> M.Operand -> M.Ty -> MirGenerator h s 
 evalCast ck op ty = do
     e <- evalOperand op
     evalCast' ck (M.typeOf op) e ty
-
--- Some dynamic traits have special implementation as objects
-
-
-mkCustomTraitObject :: HasCallStack => M.DefId -> M.Ty -> MirExp s -> MirGenerator h s ret (MirExp s)
-mkCustomTraitObject traitName (TyClosure fname args) e@(MirExp baseTyr baseValue)
-   | M.did_name traitName == ("Fn", 0) = do
-      -- traceM $ "customTraitObj for " ++ show fname ++ " with args " ++ show args
-      -- a trait object for a closure is just the closure value
-      -- call is a custom operation
-      let vtableCtx = undefined
-      let assn      = undefined
-      let ctxr      = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.StructRepr vtableCtx
-      let _obj      = R.App $ E.PackAny (C.StructRepr ctxr)
-                       (R.App $ E.MkStruct ctxr (Ctx.empty Ctx.:> (R.App $ E.PackAny baseTyr baseValue) Ctx.:> assn))
-      return e
-mkCustomTraitObject traitName baseType _ =
-  mirFail $ Text.unpack $ Text.unwords ["Error while creating a trait object: type ",
-                                     Text.pack (show baseType)," does not implement trait ", M.idText traitName]
-    
 
 -- | Create a new trait object by combining `e` with the named vtable.  This is
 -- only valid when `e` is TyRef or TyRawPtr.  Coercions via the `CoerceUnsized`
@@ -942,11 +922,6 @@ buildClosureType defid (Substs (_:_:args)) = do
 buildClosureType defid ss = mirFail $ "BUG: incorrect substitution in buildClosureType: " ++ fmt ss
 
 
-filterMaybes :: [Maybe a] -> [a]
-filterMaybes [] = []
-filterMaybes ((Just a):as) = a : (filterMaybes as)
-filterMaybes ((Nothing):as) = filterMaybes as
-
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
 evalLvalue (M.LBase (M.Local var)) = lookupVar var
 evalLvalue (M.LProj lv (M.PField field _ty)) = do
@@ -970,18 +945,7 @@ evalLvalue (M.LProj lv (M.PField field _ty)) = do
          struct <- unpackAny (Some (C.StructRepr ctx)) e
          accessAggregate struct field
 
-
-      M.TyClosure defid args -> do
-        -- if lv is a closure, then accessing the ith component means accessing the ith arg in the struct
-        e <- evalLvalue lv
-        (clty, rty) <- buildClosureType defid args
-        unpack_closure <- unpackAny clty e
-        clargs <- accessAggregate unpack_closure 1
-        clargs' <- unpackAny rty clargs
-        accessAggregate clargs' field
-
-
-      _ -> do -- otherwise, lv is a tuple
+      _ -> do -- otherwise, lv is a tuple (or a closure, which has the same translation)
         ag <- evalLvalue lv
         accessAggregateMaybe ag field
 evalLvalue (M.LProj lv (M.Index i)) = do
@@ -1170,18 +1134,6 @@ assignLvExp lv re = do
 
                      etu' <- modifyAggregateIdx etu (packAny struct') 1
                      assignLvExp lv etu'
-
-              M.TyClosure defid args -> do
-                (Some top_ty, Some clos_ty) <- buildClosureType defid args
-                clos      <- evalLvalue lv
-                etu       <- unpackAny (Some top_ty) clos
-                clos_str  <- accessAggregate etu 1
-                cstr      <- unpackAny (Some clos_ty) clos_str
-                new_ag    <- modifyAggregateIdx cstr re field
-                let clos_str' = packAny new_ag
-                etu'      <- modifyAggregateIdx etu clos_str' 1
-                let clos' = packAny etu'
-                assignLvExp lv clos'
 
               _ -> do
                 ag <- evalLvalue lv
@@ -1773,12 +1725,9 @@ initialValue M.TyChar = do
 initialValue M.TyStr = do
     let w = C.BVRepr (knownNat :: NatRepr 32)
     return $ Just $ (MirExp (C.VectorRepr w) (S.app (E.VectorLit w V.empty)))
-initialValue (M.TyClosure defid (Substs (_i8:hty:closed_tys))) = do
-   -- TODO: figure out what the first i8 type argument is for   
-   mclosed_args <- mapM initialValue closed_tys
-   let closed_args = filterMaybes mclosed_args
-   handle <- buildClosureHandle defid (Substs closed_tys) closed_args
-   return $ Just $ handle
+initialValue (M.TyClosure tys) = do
+    mexps <- mapM initialValue tys
+    return $ Just $ buildTupleMaybe tys mexps
 
 -- NOTE: this case is wrong in the case of enums --- we need to know
 -- which branch of the ADT to initialize, so we arbitrarily pick the

@@ -67,10 +67,6 @@ import           Mir.Intrinsics
 import           Mir.TransTy
 import           Mir.Trans
 
-
--- !!!  for "Fn::call"
-import Unsafe.Coerce
-
 import Debug.Trace
 
 --------------------------------------------------------------------------------------------------------------------------
@@ -135,10 +131,7 @@ mkRange itemRepr start end =
 
 customOps :: Map ExplodedDefId CustomRHS
 customOps = Map.fromList [
-                           fn_call
-                         , fn_call_once
-
-                         , slice_len
+                           slice_len
                          , slice_is_empty
                          , slice_first
                          , slice_get
@@ -159,7 +152,6 @@ customOps = Map.fromList [
 
                          , into_iter
                          , iter_next
-                         , iter_map
                          , iter_collect
 
                          , wrapping_mul
@@ -437,17 +429,6 @@ iter_next_op_array itemTy _opTys ops =
         return $ MirExp taggedUnionRepr ret
     _ -> mirFail $ "BUG: invalid args to iter_next_op_array " ++ show ops
 
-
--- SCW: not sure if this one is up-to-date
-iter_map :: (ExplodedDefId, CustomRHS)
-iter_map = ((["core","iter","traits","iterator"],"Iterator", ["map"]), \subst -> Just $ CustomOp $ iter_map_op subst)
-
-iter_map_op :: forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_map_op _subst opTys ops =
-  case (opTys, ops) of
-   ([ iter_ty , closure_ty ], [ iter_e  , closure_e ]) ->
-      performMap iter_ty iter_e closure_ty closure_e
-   _ -> mirFail $ "BUG: invalid arguments to iter_map"
 
 iter_collect :: (ExplodedDefId, CustomRHS)
 iter_collect = ((["core","iter","traits","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
@@ -810,114 +791,6 @@ vec_with_capacity =
 
 
 
---------------------------------------------------------------------------------------------------------------------------
--- ** Custom: call
-
--- A closure call looks like this:
---
---   _ty1   -- type of closure argument (2nd argument)
---   aty    -- type of the "function", usually a type parameter (1st argument)
---   argTy1 -- same as aty
---   argTy2 -- same as _ty1
-
-fn_call :: (ExplodedDefId, CustomRHS)
-fn_call = ((["core", "ops","function"], "Fn", ["call"]), \subst -> Just $ CustomOp $ fn_call_op subst)
-
-fn_call_once :: (ExplodedDefId, CustomRHS)
-fn_call_once = ((["core", "ops","function"], "FnOnce", ["call_once"]), \subst -> Just $ CustomOp $ fn_call_op subst)
-
-fn_call_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-fn_call_op (Substs [ty1, aty]) [argTy1,argTy2] [fn,argtuple] = do
-     ps <- use $ currentFn.fsig.fspredicates
-
-     db <- use debugLevel
-     when (db > 6) $ do
-       traceM $ "fn_call called with " 
-       traceM $ "\t aty:    " ++ fmt aty
-       traceM $ "\t ty1:    " ++ fmt argTy1     
-       traceM $ "\t argTy1: " ++ fmt argTy1
-       traceM $ "\t argTy2: " ++ fmt argTy2     
-       traceM $ "\t ps:     " ++ fmt ps
-
-     extra_args   <- getAllFieldsMaybe argtuple
-
-     -- returns the function (perhaps with a coerced type, in the case of polymorphism)
-     -- paired with it unpacked as a closure
-     let unpackClosure :: Ty -> MirExp s -> MirGenerator h s ret (MirExp s, MirExp s)
-
-         unpackClosure (TyRef ty Immut)  arg =
-             unpackClosure ty arg
-
-         unpackClosure (TyClosure defid clargs) arg = do
-             (clty, _rty2) <- buildClosureType defid clargs
-             (arg,) <$> unpackAny clty arg
-
-         unpackClosure (TyDynamic [TraitPredicate _fntr _ss,
-                                   TraitProjection _out rty]) arg = do
-           
-             -- a Fn object looks like a pair of
-             -- a function that takes any "Any" arguments (the closure) and a struct
-             --      of the actual arguments (from the funsubst) and returns type rty
-             -- and an environment of type "Any
-
-             tyToReprCont rty $ \rr ->
-               case aty of
-                  (TyTuple aas) -> tyListToCtx aas $ \r2 -> do
-                     let args = (Ctx.empty Ctx.:> C.AnyRepr)  Ctx.<++> r2
-                     let t = Ctx.empty Ctx.:> C.FunctionHandleRepr args rr Ctx.:> C.AnyRepr
-                     (arg,) <$> unpackAny (Some (C.StructRepr t)) arg
-                  _ -> mirFail $ "aty must be tuple type in dynamic call, found " ++ fmt aty 
-
-         unpackClosure (TyParam i) arg = do
-           -- TODO: this is a really hacky implementation of higher-order function calls
-           -- we should replace it with additional arguments being passed in for the constraints
-           -- Here, instead we assume that the type that is instantiating the type variable i is
-           -- some closure type. We then look at the constraint to see what type of closure type it
-           -- could be and then instantiate that type variable with "Any" 
-           -- If we are wrong, we'll get a segmentation fault(!!!)
-           ps <- use $ currentFn.fsig.fspredicates
-           let findFnType (TraitProjection (TyProjection defid (Substs ([TyParam j, TyTuple argTys]))) retTy : rest)
-                 | i == j     = 
-                  tyListToCtx argTys $ \argsctx -> 
-                  tyToReprCont retTy $ \ret     ->
-                     (Some argsctx, Some ret)
-
-               findFnType (_ : rest) = findFnType rest
-               findFnType [] = error $ "no appropriate predicate in scope for call: " ++  fmt ps
-
-           case (arg, findFnType ps) of 
-             (MirExp _ty cp,
-              (Some (argsctx :: C.CtxRepr args), Some (rr :: C.TypeRepr r))) -> do
-                let cp'  :: R.Expr MIR s C.AnyType
-                    cp'  = unsafeCoerce cp
-                let args = (Ctx.empty Ctx.:> C.AnyRepr)  Ctx.<++> argsctx
-                let t = Ctx.empty Ctx.:> C.FunctionHandleRepr args rr Ctx.:> C.AnyRepr
-                let arg' = MirExp C.AnyRepr cp'
-                (arg',) <$> unpackAny (Some (C.StructRepr t)) arg'
-
-
-         unpackClosure ty _arg      =
-           mirFail $ "Don't know how to unpack Fn::call arg of type " ++  fmt ty
-
-     (fn', unpack_closure) <- unpackClosure argTy1 fn
-     handle <- accessAggregate unpack_closure 0
-     extra_args <- getAllFieldsMaybe argtuple
-     case handle of
-       MirExp hand_ty handl ->
-           case hand_ty of
-             C.FunctionHandleRepr fargctx fretrepr -> do
-                exp_to_assgn (fn' : extra_args) $ \ctx asgn ->
-                   case (testEquality ctx fargctx) of
-                     Just Refl -> do
-                       ret_e <- G.call handl asgn
-                       return (MirExp fretrepr ret_e)
-                     Nothing ->
-                       mirFail $ "type mismatch in Fn::call, expected " ++ show ctx ++ "\n received " ++ show fargctx
-             _ -> mirFail $ "bad handle type"
-
-fn_call_op ss args _exps = mirFail $ "\n\tBUG: invalid arguments to call/call_once:"
-                                    ++ "\n\t ss   = " ++ fmt ss
-                                    ++ "\n\t args = " ++ fmt args
 
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: Integer
@@ -1142,52 +1015,3 @@ performUntil n f = do -- perform (f i) for i = 0..n (not inclusive). f takes as 
              f r
              i <- G.readReg r
              G.assignReg r (S.app $ E.NatAdd i (S.app $ E.NatLit 1))
-
--- TODO: this, performMap, and "call" above should be unified. below, closure_pack is at the end of the arg list, while above, closure_pack is at the beginning. I'm not sure why, but both typecheck & work.
-performClosureCall :: MirExp s -> MirExp s -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-performClosureCall closure_pack handle args =
-    case handle of
-      MirExp hand_ty handl ->
-          case hand_ty of
-            C.FunctionHandleRepr fargctx fretrepr ->
-                exp_to_assgn (args ++ [closure_pack]) $ \ctx asgn -> -- arguments needs to be backwards for perform map below and I'm not sure why; it is forwards for FnCall.
-                    case (testEquality ctx fargctx) of
-                      Just Refl -> do
-                          ret_e <- G.call handl asgn
-                          return $ MirExp fretrepr ret_e
-                      _ -> mirFail $ "type mismatch in closurecall testequality: got " ++ (show ctx) ++ ", " ++ (show fargctx)
-            _ -> mirFail $ "type mismatch in closurecall handlety: was actually " ++ (show hand_ty)
-
-performMap :: Ty -> MirExp s -> Ty -> MirExp s -> MirGenerator h s ret (MirExp s) -- return result iterator
-performMap iterty iter closurety closure =
-    case (iterty, closurety) of
-      (TyCustom (IterTy _t), TyClosure defid clargs) -> do
-          (clty, rty) <- buildClosureType defid clargs
-          unpack_closure <- unpackAny clty closure
-          handle <- accessAggregate unpack_closure 0
-          (MirExp (C.VectorRepr elemty) iter_vec) <- accessAggregate iter 0
-          iter_pos <- accessAggregate iter 1
-          vec_work <- G.newReg $ iter_vec -- register for modifying the vector in place
-          case closure of
-            MirExp clo_ty closure_e -> do
-              closure_reg <- G.newReg $ closure_e -- maps take mutref closures so we need to update the closure each iteration
-              performUntil (S.app $ E.VectorSize iter_vec) $ \ireg -> do
-                  i <- G.readReg ireg -- loop index / index into vec
-                  vec <- G.readReg vec_work -- current state of vector
-                  clo <- G.readReg closure_reg -- current closure
-                  let ith_vec = S.app $ E.VectorGetEntry elemty vec i -- vec[i]
-                  call_res <- performClosureCall (MirExp clo_ty clo) handle [MirExp elemty ith_vec]
-                  (MirExp elemty2 ith_vec') <- accessAggregate call_res 0 -- new vec[i]
-                  (MirExp clo'_ty clo') <- accessAggregate call_res 1 -- new closure after call
-                  case (testEquality elemty elemty2, testEquality clo_ty clo'_ty) of
-                    (Just Refl, Just Refl)-> do
-                      let vec' = S.app $ E.VectorSetEntry elemty vec i ith_vec'
-                      G.assignReg closure_reg clo'
-                      G.assignReg vec_work vec'
-                    _ -> mirFail $ "type mismatch in performap: " ++ (show elemty) ++ ", " ++ (show elemty2)
-              new_vec <- G.readReg vec_work
-              return $ buildTuple [MirExp (C.VectorRepr elemty) new_vec, iter_pos]
-                -- we keep iter_pos the same as before. so if I called next() on an iterator and then map(),
-                -- I'm where I left off. I assume this is right
-
-      _ -> mirFail "bad type"

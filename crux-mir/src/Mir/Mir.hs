@@ -95,7 +95,7 @@ data Ty =
       | TyCustom !CustomTy
       | TyParam !Integer
       | TyFnDef !DefId !Substs
-      | TyClosure !DefId !Substs
+      | TyClosure [Ty]      -- the Tys are the types of the upvars
       | TyStr
       | TyFnPtr !FnSig              -- written as fn() -> i32
       | TyDynamic [Predicate]       -- trait object (defid is trait name)
@@ -120,8 +120,12 @@ data FnSig = FnSig {
   , _fsgenerics   :: ![Param]
   , _fspredicates :: ![Predicate]
   , _fsassoc_tys  :: ![AssocTy]    -- new params added in a pre-pass
+  , _fsabi        :: Abi
   }
   deriving (Eq, Ord, Show, Generic)
+
+data Abi = RustAbi | RustCall | RustIntrinsic | OtherAbi
+    deriving (Show, Eq, Ord, Generic)
 
 data Instance = Instance
     { _inKind :: InstanceKind
@@ -251,7 +255,6 @@ data Fn = Fn {
     ,_fpromoted   :: Vector DefId
     }
     deriving (Show,Eq, Ord, Generic)
-
 
 
 data MirBody = MirBody {

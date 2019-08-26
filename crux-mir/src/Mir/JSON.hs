@@ -86,7 +86,7 @@ instance FromJSON Ty where
                                           Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
                                           Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "substs"
                                           Just (String "Param") -> TyParam <$> v .: "param"
-                                          Just (String "Closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
+                                          Just (String "Closure") -> TyClosure <$> v .: "upvar_tys"
                                           Just (String "Str") -> pure TyStr
                                           Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
                                           Just (String "Dynamic") -> TyDynamic <$>
@@ -128,6 +128,7 @@ instance FromJSON FnSig where
                <*> gens
                <*> preds
                <*> atys
+               <*> v .: "abi"
                
 instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
@@ -204,6 +205,7 @@ instance FromJSON Fn where
                       <*> (withObject "Param" (\u -> u .: "params") pg)
                       <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
                       <*> return []
+                      <*> v .: "abi"
 
       Fn
         <$> v .: "name"
@@ -211,6 +213,14 @@ instance FromJSON Fn where
         <*> sig        
         <*> v .: "body"
         <*> v .: "promoted"
+
+instance FromJSON Abi where
+    parseJSON = withObject "Abi" $ \v -> case HML.lookup "kind" v of
+        Just (String "Rust") -> pure RustAbi
+        Just (String "RustIntrinsic") -> pure RustIntrinsic
+        Just (String "RustCall") -> pure RustCall
+        Just (String _) -> pure OtherAbi
+        x -> fail $ "bad abi: " ++ show x
         
 instance FromJSON BasicBlock where
     parseJSON = withObject "BasicBlock" $ \v -> BasicBlock

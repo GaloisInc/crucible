@@ -304,10 +304,10 @@ closureATDict :: HasCallStack => Collection -> ATDict
 closureATDict col =
   singletonATDict (textId "::core[0]::ops[0]::function[0]::FnOnce[0]::Output[0]")
      (\ substs -> case substs of
-         Substs [TyClosure fname _ss, cty] ->
-           case (col^.functions) Map.!? fname of
-             Nothing -> Nothing
-             Just fn -> Just (fn^.fsig^.fsreturn_ty)
+         --Substs [TyClosure fname _ss, cty] ->
+         --  case (col^.functions) Map.!? fname of
+         --    Nothing -> Nothing
+         --    Just fn -> Just (fn^.fsig^.fsreturn_ty)
          Substs [TyFnPtr sig] ->
              Just (sig^.fsreturn_ty)
          Substs [TyFnDef fname args,_] ->

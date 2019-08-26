@@ -129,13 +129,14 @@ combineMaps m1 m2 = Map.foldrWithKey go (return m2) m1 where
 -- TODO: allow re-ordering of preds??
 -- TODO: prune vars bound by the sig from the returned unifier
 matchSig :: (MonadError String m) => FnSig -> FnSig -> m (Map Integer Ty)
-matchSig (FnSig instArgs instRet [] [] _instATs)
-         (FnSig genArgs  genRet  [] []  _genATs) = do
-  m1 <- matchTys instArgs genArgs
-  m2 <- matchTy  instRet  genRet
-  combineMaps m1 m2
-matchSig s1@(FnSig _instArgs _instRet _instParams _instPreds _instATs)
-         s2@(FnSig _genArgs  _genRet  _genParams  _genPreds  _genATs) =
+matchSig (FnSig instArgs instRet [] [] _instATs instAbi)
+         (FnSig genArgs  genRet  [] []  _genATs genAbi)
+  | instAbi == genAbi = do
+    m1 <- matchTys instArgs genArgs
+    m2 <- matchTy  instRet  genRet
+    combineMaps m1 m2
+matchSig s1@(FnSig _instArgs _instRet _instParams _instPreds _instATs _instAbi)
+         s2@(FnSig _genArgs  _genRet  _genParams  _genPreds  _genATs  _genAbi) =
   error $ "TODO: extend matchSig to include params and/or preds"
         ++ "\n\t" ++ fmt s1
         ++ "\n\t" ++ fmt s2
@@ -164,7 +165,7 @@ matchTy (TyArray t1 i1) (TyArray t2 i2) | i1 == i2 = matchTy t1 t2
 matchTy (TyRef t1 m1) (TyRef t2 m2) | m1 == m2 = matchTy t1 t2
 matchTy (TyAdt d1 s1) (TyAdt d2 s2) | d1 == d2 = matchSubsts s1 s2
 matchTy (TyFnDef d1 s1) (TyFnDef d2 s2) | d1 == d2 = matchSubsts s1 s2
-matchTy (TyClosure d1 s1) (TyClosure d2 s2) | d1 == d2 =  matchSubsts s1 s2
+matchTy (TyClosure u1) (TyClosure u2) = matchTys u1 u2
 matchTy (TyFnPtr sig1) (TyFnPtr sig2) = matchSig sig1 sig2
 matchTy (TyRawPtr t1 m1)(TyRawPtr t2 m2) | m1 == m2 = matchTy t1 t2
 matchTy (TyDowncast t1 i1) (TyDowncast t2 i2) | i1 == i2 = matchTy t1 t2
@@ -374,7 +375,7 @@ abstractATs_ConstVal ati (ConstFunction defid funsubst)
 abstractATs_ConstVal ati val = to <$> (abstractATs' ati (from val))
 
 abstractATs_FnSig :: (HasCallStack, MonadError String m) => ATInfo -> FnSig -> m FnSig
-abstractATs_FnSig ati (FnSig args ret gens preds atys) = do
+abstractATs_FnSig ati (FnSig args ret gens preds atys abi) = do
   let ati' = ati & atDict %~ mappend (mkAssocTyMap (toInteger (length gens)) atys)
   preds' <- abstractATs ati' preds
   args'  <- abstractATs ati' args
@@ -384,8 +385,7 @@ abstractATs_FnSig ati (FnSig args ret gens preds atys) = do
         (gens ++ map toParam atys)
         preds' 
         atys
-      
-
+        abi
 
 -- | Convert an associated type into a Mir type parameter
 toParam :: AssocTy -> Param
@@ -592,9 +592,9 @@ instance GenericOps FnSig where
   modifyPreds = modifyPreds_FnSig
   abstractATs = abstractATs_FnSig
   
-  tySubst substs (FnSig args ret params preds atys) =
-      (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys)) where
-         ss = lift (length params) substs
+  tySubst substs (FnSig args ret params preds atys abi) =
+      (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys) abi)
+        where ss = lift (length params) substs
 
   
 instance GenericOps Adt
@@ -607,6 +607,7 @@ instance GenericOps Mutability
 instance GenericOps Collection
 instance GenericOps Param
 instance GenericOps Fn
+instance GenericOps Abi
 instance GenericOps MirBody
 instance GenericOps BasicBlock
 instance GenericOps BasicBlockData

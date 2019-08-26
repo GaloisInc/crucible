@@ -65,9 +65,7 @@ import           Mir.GenericOps (tySubst)
 -- no need to pass dictionary arguments for them
 -- REVISIT this!
 noDictionary :: [M.TraitName]
-noDictionary = [M.textId "::core[0]::ops[0]::function[0]::Fn[0]",
-                M.textId "::core[0]::ops[0]::function[0]::FnMut[0]",
-                M.textId "::core[0]::ops[0]::function[0]::FnOnce[0]"]
+noDictionary = []
 
 -- | create a Var corresponding to a trait predicate
 dictVar :: M.Predicate -> Maybe M.Var
@@ -130,6 +128,10 @@ tyToRepr t0 = case t0 of
   -- non-empty tuples are mapped to structures of "maybe" types so
   -- that they can be allocated without being initialized
   M.TyTuple ts    -> tyListToCtxMaybe ts $ \repr -> Some (C.StructRepr repr)
+
+  -- Closures are just tuples with a fancy name
+  M.TyClosure ts  -> tyListToCtxMaybe ts $ \repr -> Some (C.StructRepr repr)
+
   M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
 
   -- FIXME, this should be configurable
@@ -162,14 +164,11 @@ tyToRepr t0 = case t0 of
 
   M.TyRawPtr t M.Immut -> tyToRepr t -- immutable pointers are erased
   M.TyRawPtr t M.Mut -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
-  
+
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
-  
+
   M.TyCustom custom_t -> customtyToRepr custom_t
-  
-  -- FIXME: should this be a tuple? 
-  M.TyClosure _def_id _substs -> Some C.AnyRepr
-  
+
   -- Strings are vectors of chars
   -- This is not the actual representation (which is packed into u8s)
   M.TyStr -> Some (C.VectorRepr (C.BVRepr (knownNat :: NatRepr 32)))
@@ -182,14 +181,14 @@ tyToRepr t0 = case t0 of
     Nothing        -> error "type params must be nonnegative"
 
   -- non polymorphic function types go to FunctionHandleRepr
-  M.TyFnPtr sig@(M.FnSig args ret [] preds _atys) ->
+  M.TyFnPtr sig@(M.FnSig args ret [] preds _atys _abi) ->
      tyListToCtx (args ++ Maybe.mapMaybe dictTy preds) $ \argsr  ->
      tyToReprCont ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)
         
   -- polymorphic function types go to PolyFnRepr
   -- invariant: never have 0 for PolyFnRepr
-  M.TyFnPtr sig@(M.FnSig args ret params preds _atys) ->
+  M.TyFnPtr sig@(M.FnSig args ret params preds _atys _abi) ->
      case peanoLength params of
        Some k ->
          tyListToCtx (args ++ Maybe.mapMaybe dictTy preds) $ \argsr ->
@@ -201,9 +200,6 @@ tyToRepr t0 = case t0 of
   -- should do the same for TySlice and TyStr as well.
   M.TyDynamic _preds -> error $ unwords ["standalone use of `dyn` is not supported:", show t0]
 
-  M.TyProjection def _tyargs
-   | def == (M.textId "::core[0]::ops[0]::function[0]::FnOnce[0]::Output[0]")
-     -> Some taggedUnionRepr
   M.TyProjection _def _tyargs -> error $ "BUG: all uses of TyProjection should have been eliminated, found "
     ++ fmt t0
   M.TyFnDef _def substs ->

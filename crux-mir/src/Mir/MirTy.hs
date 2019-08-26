@@ -43,7 +43,7 @@ isPoly (TyRef ty _mut) = isPoly ty
 isPoly (TyRawPtr ty _mut) = isPoly ty
 isPoly (TyAdt _ (Substs params)) = any isPoly params
 isPoly (TyFnDef _ (Substs params)) = any isPoly params
-isPoly (TyClosure _ (Substs params)) = any isPoly params
+isPoly (TyClosure upvars) = any isPoly upvars
 isPoly (TyCustom (BoxTy ty)) = isPoly ty
 isPoly (TyCustom (VecTy ty)) = isPoly ty
 isPoly (TyCustom (IterTy ty)) = isPoly ty
@@ -67,9 +67,9 @@ substField subst (Field a t _subst)  = Field a t subst
 -- Note: Ty may have free type variables & FnSig may have free type variables
 -- We increment these inside 
 specialize :: HasCallStack => FnSig -> [Ty] -> FnSig
-specialize sig@(FnSig args ret ps preds _atys) ts
+specialize sig@(FnSig args ret ps preds _atys abi) ts
   | k <= length ps
-  = FnSig (tySubst ss args) (tySubst ss ret) ps' (tySubst ss preds) []
+  = FnSig (tySubst ss args) (tySubst ss ret) ps' (tySubst ss preds) [] abi
   | otherwise
   = error $ "BUG: specialize -- too many type arguments" ++ "\n\r sig = " ++ fmt sig ++ "\n\r ts = " ++ fmt ts
      where
@@ -92,7 +92,7 @@ tyProjections (TyRef ty _mut) = tyProjections ty
 tyProjections (TyRawPtr ty _mut) = tyProjections ty
 tyProjections (TyAdt _ (Substs params)) = foldMap tyProjections params
 tyProjections (TyFnDef _ (Substs params)) = foldMap tyProjections params
-tyProjections (TyClosure _ (Substs params)) = foldMap tyProjections params
+tyProjections (TyClosure upvars) = foldMap tyProjections upvars
 tyProjections (TyCustom (BoxTy ty)) = tyProjections ty
 tyProjections (TyCustom (VecTy ty)) = tyProjections ty
 tyProjections (TyCustom (IterTy ty)) = tyProjections ty
