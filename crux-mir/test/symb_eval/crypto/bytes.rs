@@ -1,3 +1,5 @@
+#![no_std]
+
 extern crate crucible;
 use crucible::*;
 
@@ -68,9 +70,9 @@ pub fn to_bytes(x :&[u64;5]) -> [u8; 32] {
     s
 }
 
-const ARG: u64 = 20;
+pub static ARG: u64 = 20;
 
-fn f(_w : u64 ) -> bool {
+pub fn f(_w : u64 ) -> bool {
     let a0 = crucible_u64("a0");
     let a1 = crucible_u64("a1");
     let a2 = crucible_u64("a2");
@@ -85,10 +87,4 @@ fn f(_w : u64 ) -> bool {
     } 
 
     true
-}
-
-
-#[cfg(with_main)]
-fn main() {
-    println!("{}", f(ARG))
 }

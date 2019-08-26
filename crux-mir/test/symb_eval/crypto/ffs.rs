@@ -1,3 +1,4 @@
+#![no_std]
 extern crate crucible;
 use crucible::*;
 
@@ -27,15 +28,10 @@ fn ffs_imp(j : u32) -> u32 {
 }
 
 
-fn f (_arg : u32) -> bool {
+pub fn f (_arg : u32) -> bool {
     let a0 = crucible_u32("a0");
     crucible_assert!(ffs_ref(a0) == ffs_imp(a0));
     true
 }
 
-const ARG: u32 = 27;
-
-#[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
-}
+pub static ARG: u32 = 27;

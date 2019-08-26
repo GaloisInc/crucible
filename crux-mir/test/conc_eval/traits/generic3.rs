@@ -34,8 +34,5 @@ fn f(arg: i32) {
 
 }
 
-#[cfg(with_main)]
-pub fn main() {
-   println!("{:?}", f(ARG));
-}
+#[cfg(with_main)] pub fn main() { println!("{:?}", f(ARG)); }
 #[cfg(not(with_main))] pub fn main() { f(ARG); }
