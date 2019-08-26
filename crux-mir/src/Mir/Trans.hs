@@ -1579,9 +1579,22 @@ callExp funid funsubst cargs = do
                  PP.text "and type parameters:", pretty funsubst])
 
           exps <- mapM evalOperand cargs
-          let preds = sig^.fspredicates
-          dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
-          exp_to_assgn (exps ++ dexps) $ \ctx asgn -> do
+          exps' <- case sig^.fsabi of
+            RustCall
+              | [selfExp, tupleExp@(MirExp (C.StructRepr tupleTys) _)] <- exps -> do
+                tupleParts <- mapM (accessAggregateMaybe tupleExp)
+                    [0 .. Ctx.sizeInt (Ctx.size tupleTys) - 1]
+                return $ selfExp : tupleParts
+
+              | otherwise -> mirFail $
+                "callExp: RustCall arguments are the wrong shape: " ++ show cargs
+
+            _ -> do
+                let preds = sig^.fspredicates
+                dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
+                return $ exps ++ dexps
+
+          exp_to_assgn exps' $ \ctx asgn -> do
             case (testEquality ctx ifargctx) of
               Just Refl -> do
                 ret_e <- G.call polyinst asgn

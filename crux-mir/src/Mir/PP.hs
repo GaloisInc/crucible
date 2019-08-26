@@ -345,6 +345,10 @@ instance Pretty FnSig where
     tupled (map pretty (fs^.fsarg_tys)) <+> arrow <+> pretty (fs^.fsreturn_ty)
                 <+> ppreds (fs^.fspredicates)
                 <+> patys  (fs^.fsassoc_tys)
+                <+> brackets (pretty (fs^.fsabi))
+
+instance Pretty Abi where
+    pretty a = pretty (show a)
 
 instance Pretty TraitItem where
   pretty (TraitMethod name sig)
