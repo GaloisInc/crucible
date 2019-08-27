@@ -2691,12 +2691,18 @@ impl<T> SliceIndex<[T]> for usize {
 
     #[inline]
     unsafe fn get_unchecked(self, slice: &[T]) -> &T {
-        &*slice.as_ptr().add(self)
+        fn crucible_hook_usize<T>(idx: usize, slice: &[T]) -> &T {
+            unimplemented!()
+        }
+        crucible_hook_usize(self, slice)
     }
 
     #[inline]
     unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut T {
-        &mut *slice.as_mut_ptr().add(self)
+        fn crucible_hook_usize<T>(idx: usize, slice: &mut [T]) -> &mut T {
+            unimplemented!()
+        }
+        crucible_hook_usize(self, slice)
     }
 
     #[inline]
@@ -2740,12 +2746,18 @@ impl<T> SliceIndex<[T]> for  ops::Range<usize> {
 
     #[inline]
     unsafe fn get_unchecked(self, slice: &[T]) -> &[T] {
-        from_raw_parts(slice.as_ptr().add(self.start), self.end - self.start)
+        fn crucible_hook_range<T>(idx: ops::Range<usize>, slice: &[T]) -> &[T] {
+            unimplemented!()
+        }
+        crucible_hook_range(self, slice)
     }
 
     #[inline]
     unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut [T] {
-        from_raw_parts_mut(slice.as_mut_ptr().add(self.start), self.end - self.start)
+        fn crucible_hook_range<T>(idx: ops::Range<usize>, slice: &mut [T]) -> &mut [T] {
+            unimplemented!()
+        }
+        crucible_hook_range(self, slice)
     }
 
     #[inline]

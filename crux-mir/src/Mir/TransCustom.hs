@@ -131,24 +131,33 @@ mkRange itemRepr start end =
 
 customOps :: Map ExplodedDefId CustomRHS
 customOps = Map.fromList [
-                           slice_len
-                         , slice_is_empty
-                         , slice_first
-                         , slice_get
-                         , slice_get_mut
-
-                         , slice_get_unchecked
-                         , slice_get_unchecked_mut
-
-                         , slice_index_usize_get_unchecked
+                           slice_index_usize_get_unchecked
                          , slice_index_range_get_unchecked
                          , slice_index_usize_get_unchecked_mut
                          , slice_index_range_get_unchecked_mut
 
+                         , type_id
+                         , mem_swap
+                         , add_with_overflow
+                         , sub_with_overflow
+
+                         -- CustomOps below this point have not been checked
+                         -- for compatibility with new monomorphization.
+
+                         , slice_len
+                         , slice_is_empty
+                         , slice_first
+                         --, slice_get
+                         --, slice_get_mut
+
+                         --, slice_get_unchecked
+                         --, slice_get_unchecked_mut
+
+
                          , str_len
 
-                         , ops_index
-                         , ops_index_mut
+                         --, ops_index
+                         --, ops_index_mut
 
                          , into_iter
                          , iter_next
@@ -178,11 +187,6 @@ customOps = Map.fromList [
                          , integer_rem
                          , integer_eq
                          , integer_lt
-
-                         , type_id
-                         , mem_swap
-                         , add_with_overflow
-                         , sub_with_overflow
                          ]
 
 
@@ -695,7 +699,7 @@ fn slice_index_range_get_unchecked_mut<T>(sel: core::ops::Range<usize>,  slice: 
 --slice_SliceIndex_get_unchecked = ((["core","slice"],"SliceIndex", ["get_unchecked"]), slice_SliceIndex_get_unchecked_op)
 
 slice_index_usize_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_index_usize_get_unchecked = ((["core","slice"], "slice_index_usize_get_unchecked", []), \subs ->
+slice_index_usize_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"], "crucible_hook_usize", []), \subs ->
    case subs of
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -712,7 +716,7 @@ slice_index_usize_get_unchecked = ((["core","slice"], "slice_index_usize_get_unc
      _ -> Nothing)
 
 slice_index_range_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_index_range_get_unchecked = ((["core","slice"], "slice_index_range_get_unchecked", []), \subs ->
+slice_index_range_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"], "crucible_hook_range", []), \subs ->
    case subs of
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -739,7 +743,7 @@ slice_index_range_get_unchecked = ((["core","slice"], "slice_index_range_get_unc
 
 
 slice_index_usize_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_index_usize_get_unchecked_mut = ((["core","slice"], "slice_index_usize_get_unchecked_mut", []), \subs ->
+slice_index_usize_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecked_mut"], "crucible_hook_usize", []), \subs ->
    case subs of
      (Substs [ _elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
@@ -755,7 +759,7 @@ slice_index_usize_get_unchecked_mut = ((["core","slice"], "slice_index_usize_get
      _ -> Nothing)
 
 slice_index_range_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_index_range_get_unchecked_mut = ((["core","slice"], "slice_index_range_get_unchecked_mut", []), \subs ->
+slice_index_range_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecked_mut"], "crucible_hook_range", []), \subs ->
    case subs of
      (Substs [ _elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
