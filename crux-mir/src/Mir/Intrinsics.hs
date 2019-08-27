@@ -202,6 +202,17 @@ instance ClosedK CrucibleType MIR where closed _ _ = Refl
 
 type TaggedUnion = StructType (EmptyCtx ::> NatType ::> AnyType)
 
+-- First `Any` is the data pointer - either an immutable or mutable reference.
+-- Second `Any` is the vtable.
+type DynRefType = StructType (EmptyCtx ::> AnyType ::> AnyType)
+
+dynRefDataIndex :: Index (EmptyCtx ::> AnyType ::> AnyType) AnyType
+dynRefDataIndex = skipIndex baseIndex
+
+dynRefVtableIndex :: Index (EmptyCtx ::> AnyType ::> AnyType) AnyType
+dynRefVtableIndex = lastIndex (incSize $ incSize zeroSize)
+
+
 data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirNewRef ::
      !(TypeRepr tp) ->

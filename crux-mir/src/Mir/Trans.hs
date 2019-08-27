@@ -2101,7 +2101,7 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
     buildShimRef recvTy argTys retTy implFH argsA
       | (C.Dict, C.Dict) <- assertClosedFH implFH = (\x -> ([], x)) $ do
-        let (recv, args) = splitArgs argsA (Ctx.size argTys)
+        let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
 
         callImm <- G.newLambdaLabel' recvTy
         G.defineLambdaBlock callImm $ \recvImm -> do
@@ -2128,28 +2128,28 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         G.FunctionDef MIR h [] (C.AnyType :<: argTys) retTy
     buildShimMut recvTy argTys retTy implFH argsA
       | (C.Dict, C.Dict) <- assertClosedFH implFH = (\x -> ([], x)) $ do
-        let (recv, args) = splitArgs @C.AnyType @argTys argsA (Ctx.size argTys)
+        let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
         recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny recvTy recv)
             (R.App $ E.TextLit $ "bad receiver type for " <> M.idText fnName)
         G.tailCall (R.App $ E.HandleLit implFH) (recvDowncast <: args)
 
-    splitArgs :: forall recvTy argTys s.
-        Ctx.Assignment (R.Atom s) (recvTy :<: argTys) ->
-        Ctx.Size argTys ->
-        (R.Expr MIR s recvTy, Ctx.Assignment (R.Expr MIR s) argTys)
-    splitArgs args argsSize =
-        let (arg0, args') = splitAssignmentLeft args argsSize in
-        (R.AtomExpr arg0, fmapFC R.AtomExpr args')
+splitMethodArgs :: forall recvTy argTys s.
+    Ctx.Assignment (R.Atom s) (recvTy :<: argTys) ->
+    Ctx.Size argTys ->
+    (R.Expr MIR s recvTy, Ctx.Assignment (R.Expr MIR s) argTys)
+splitMethodArgs args argsSize =
+    let (arg0, args') = splitAssignmentLeft args argsSize in
+    (R.AtomExpr arg0, fmapFC R.AtomExpr args')
 
-    assertClosedFH :: forall args ret.
-        (FH.FnHandle args ret) ->
-        (C.Dict (C.Closed args), C.Dict (C.Closed ret))
-    assertClosedFH fh =
-        case C.checkClosedCtx (FH.handleArgTypes fh) of
-            Nothing -> die ["impl argument types are not closed"]
-            Just argDict -> case C.checkClosed (FH.handleReturnType fh) of
-                Nothing -> die ["impl return type is not closed"]
-                Just retDict -> (argDict, retDict)
+assertClosedFH :: forall args ret.
+    (FH.FnHandle args ret) ->
+    (C.Dict (C.Closed args), C.Dict (C.Closed ret))
+assertClosedFH fh =
+    case C.checkClosedCtx (FH.handleArgTypes fh) of
+        Nothing -> error "impl argument types are not closed"
+        Just argDict -> case C.checkClosed (FH.handleReturnType fh) of
+            Nothing -> error "impl return type is not closed"
+            Just retDict -> (argDict, retDict)
 
 
 type (x :: k) :<: (xs :: Ctx.Ctx k) = Ctx.SingleCtx x Ctx.<+> xs
@@ -2198,6 +2198,188 @@ splitAssignmentLeft xs sz =
     (unwrapSingletonAssignment l, r)
 
 
+lookupTrait :: M.Collection -> M.TraitName -> M.Trait
+lookupTrait col traitName = case col ^. M.traits . at traitName of
+    Just x -> x
+    Nothing -> error $ "undefined trait " ++ show traitName
+
+-- Get the (generic) function signature of the declaration of a trait method.
+-- Raises an error if the method is not found in the trait.
+traitMethodSig :: M.Trait -> M.MethName -> M.FnSig
+traitMethodSig trait methName = case matchedMethSigs of
+    [sig] -> sig
+    [] -> error $ unwords ["undefined method", show methName,
+        "in trait", show (trait ^. M.traitName)]
+    _ -> error $ unwords ["multiply-defined method", show methName,
+        "in trait", show (trait ^. M.traitName)]
+  where
+    matchedMethSigs =
+        Maybe.mapMaybe (\item -> case item of
+            TraitMethod methName' sig | methName' == methName -> Just sig
+            _ -> Nothing) (trait ^. M.traitItems)
+
+-- Generate method handles for all virtual-call shims (IkVirtual intrinsics)
+-- used in the current crate.
+mkVirtCallHandleMap :: forall s . (HasCallStack) =>
+    Collection -> FH.HandleAllocator s -> ST s HandleMap
+mkVirtCallHandleMap col halloc = mconcat <$> mapM mkHandle (Map.toList $ col ^. M.intrinsics)
+  where
+    mkHandle :: (M.IntrinsicName, M.Intrinsic) ->
+        ST s (Map M.DefId MirHandle)
+    mkHandle (name, intr)
+      | IkVirtual _ <- intr ^. M.intrInst ^. M.inKind = liftM (Map.singleton name) $
+        tyListToCtx (methSig ^. M.fsarg_tys) $ \argctx ->
+        tyToReprCont (methSig ^. M.fsreturn_ty) $ \retrepr -> do
+             h <- FH.mkHandle' halloc handleName argctx retrepr
+             return $ MirHandle (intr ^. M.intrName) methSig h
+      | otherwise = return Map.empty
+      where
+        methName = intr ^. M.intrInst ^. M.inDefId
+        methSubsts = intr ^. M.intrInst ^. M.inSubsts
+        traitName = M.getTraitName methName
+        trait = lookupTrait col traitName
+        methSig = tySubst methSubsts $ clearSigGenerics $ traitMethodSig trait methName
+
+        handleName = FN.functionNameFromText $ M.idText $ intr ^. M.intrName
+
+-- Generate a virtual-call shim.  The shim takes (&dyn Foo, args...), splits
+-- the `&dyn` into its data-pointer and vtable components, looks up the
+-- appropriate method (a vtable shim, produced by transVtableShim), and passes
+-- in the data and `args...`.
+transVirtCall :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool)
+  => CollectionState
+  -> M.IntrinsicName
+  -> M.MethName
+  -> M.Substs
+  -> Integer
+  -> ST h (Text, Core.AnyCFG MIR)
+transVirtCall colState intrName methName methSubsts methIndex
+  | MirHandle hname hsig (methFH :: FH.FnHandle args ret) <- methMH =
+    -- Unpack virtual-call shim signature.  The receiver should be `DynRefType`
+    elimAssignmentLeft (FH.handleArgTypes methFH) (die ["method handle has no arguments"])
+        $ \eqMethArgs@Refl recvTy argTys ->
+    let retTy = FH.handleReturnType methFH in
+
+    checkEq recvTy dynRefRepr (die ["method receiver is not `&dyn`/`&mut dyn`"])
+        $ \eqRecvTy@Refl ->
+
+    -- Unpack vtable type
+    withSome vtableType $ \vtableStructTy ->
+    elimStructType vtableStructTy (die ["vtable type is not a struct"])
+        $ \eqVtableStructTy@Refl vtableTys ->
+
+    let someVtableIdx = case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTys) of
+            Just x -> x
+            Nothing -> die ["method index out of range for vtable:",
+                "method =", show methIndex, "; size =", show (Ctx.size vtableTys)] in
+    withSome someVtableIdx $ \vtableIdx ->
+
+    -- Check that the vtable entry has the correct signature.
+    elimFunctionHandleType (vtableTys Ctx.! vtableIdx) (die ["vtable entry is not a function"])
+        $ \eqVtableEntryTy@Refl vtsArgTys vtsRetTy ->
+    elimAssignmentLeft vtsArgTys (die ["vtable shim has no arguments"])
+        $ \eqVtsArgs@Refl vtsRecvTy vtsArgTys ->
+
+    checkEq vtsRecvTy C.AnyRepr (die ["vtable shim receiver is not Any"])
+        $ \eqVtsRecvTy@Refl ->
+    checkEq vtsArgTys argTys
+        (die ["vtable shim arguments don't match method; vtable shim =",
+            show vtsArgTys, "; method =", show argTys])
+        $ \eqVtsArgTys@Refl ->
+    checkEq vtsRetTy retTy
+        (die ["vtable shim return type doesn't match method; vtable shim =",
+            show vtsRetTy, "; method =", show retTy])
+        $ \eqVtsRetTy@Refl ->
+
+    do
+        (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos methFH
+            (buildShim argTys retTy vtableTys vtableIdx)
+        case SSA.toSSA g of
+            Core.SomeCFG g_ssa -> return (M.idText intrName, Core.AnyCFG g_ssa)
+
+  where
+    die :: [String] -> a
+    die words = error $ unwords
+        (["failed to generate virtual-call shim for", show methName,
+            "(intrinsic", show intrName, "):"] ++ words)
+
+    (dynTraitName, dynSubsts, dynPreds) = case methSubsts of
+        Substs (TyDynamic (TraitPredicate tname substs : preds) : _) -> (tname, substs, preds)
+        _ -> die ["bad method substs", show methSubsts]
+
+    dynTrait = case colState ^. collection . M.traits . at dynTraitName of
+        Just x -> x
+        Nothing -> die ["undefined trait " ++ show dynTraitName]
+
+    -- The type of the entire vtable.  Note `traitVtableType` wants the trait
+    -- substs only, omitting the Self type.
+    vtableType :: Some C.TypeRepr
+    vtableType = traitVtableType dynTraitName dynTrait dynSubsts dynPreds
+
+    methMH = case Map.lookup intrName (colState ^. handleMap) of
+        Just x -> x
+        Nothing -> die ["failed to find method handle for", show intrName]
+
+    buildShim ::
+        C.CtxRepr argTys -> C.TypeRepr retTy -> C.CtxRepr vtableTys ->
+        Ctx.Index vtableTys (C.FunctionHandleType (C.AnyType :<: argTys) retTy) ->
+        G.FunctionDef MIR h [] (DynRefType :<: argTys) retTy
+    buildShim argTys retTy vtableTys vtableIdx argsA = (\x -> ([], x)) $ do
+        let (recv, args) = splitMethodArgs argsA (Ctx.size argTys)
+
+        -- Extract data and vtable parts of the `&dyn` receiver
+        let recvData = R.App $ E.GetStruct recv dynRefDataIndex C.AnyRepr
+        let recvVtable = R.App $ E.GetStruct recv dynRefVtableIndex C.AnyRepr
+
+        -- Downcast the vtable to its proper struct type
+        errBlk <- G.newLabel
+        G.defineBlock errBlk $ do
+            G.reportError $ R.App $ E.TextLit $ Text.unwords ["bad vtable downcast:",
+                M.idText dynTraitName, "to", Text.pack $ show vtableTys]
+
+        let vtableStructTy = C.StructRepr vtableTys
+        okBlk <- G.newLambdaLabel' vtableStructTy
+        vtable <- G.continueLambda okBlk $ do
+            G.branchMaybe (R.App $ E.UnpackAny vtableStructTy recvVtable) okBlk errBlk
+
+        -- Extract the function handle from the vtable
+        let vtsFH = R.App $ E.GetStruct vtable vtableIdx
+                (C.FunctionHandleRepr (C.AnyRepr <: argTys) retTy)
+
+        -- Call it
+        G.tailCall vtsFH (recvData <: args)
+
+withSome :: Some f -> (forall tp. f tp -> r) -> r
+withSome s k = viewSome k s
+
+elimStructType ::
+    C.TypeRepr ty ->
+    (r) ->
+    (forall ctx. ty :~: C.StructType ctx -> C.CtxRepr ctx -> r) ->
+    r
+elimStructType ty kOther kStruct
+  | C.StructRepr ctx <- ty = kStruct Refl ctx
+  | otherwise = kOther
+
+elimFunctionHandleType ::
+    C.TypeRepr ty ->
+    (r) ->
+    (forall argTys retTy.
+        ty :~: C.FunctionHandleType argTys retTy ->
+        C.CtxRepr argTys -> C.TypeRepr retTy -> r) ->
+    r
+elimFunctionHandleType ty kOther kFH
+  | C.FunctionHandleRepr argTys retTy <- ty = kFH Refl argTys retTy
+  | otherwise = kOther
+
+checkEq :: TestEquality f => f a -> f b ->
+    r -> (a :~: b -> r) -> r
+checkEq a b kNe kEq
+  | Just pf <- testEquality a b = kEq pf
+  | otherwise = kNe
+
+
+
 ---------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR collection
@@ -2214,7 +2396,9 @@ transCollection col halloc = do
 
     -- build up the state in the Generator
 
-    hmap <- mkHandleMap col halloc 
+    hmap1 <- mkHandleMap col halloc 
+    hmap2 <- mkVirtCallHandleMap col halloc
+    let hmap = hmap1 <> hmap2
 
     let stm = mkStaticTraitMap col
 
@@ -2233,6 +2417,7 @@ transCollection col halloc = do
 
     sm <- foldrM allocateStatic Map.empty (col^.statics)
 
+
     let colState :: CollectionState
         colState = CollectionState hmap stm vm sm col 
 
@@ -2240,9 +2425,15 @@ transCollection col halloc = do
     pairs1 <- mapM (transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
     pairs2 <- mapM (transVtable (?libCS <> colState)) (Map.elems (col^.M.vtables))
 
+    pairs3 <- Maybe.catMaybes <$> mapM (\intr -> case intr^.M.intrInst of
+        Instance (IkVirtual methodIndex) methodId substs ->
+            Just <$> transVirtCall (?libCS <> colState)
+                (intr^.M.intrName) methodId substs methodIndex
+        _ -> return Nothing) (Map.elems (col ^. M.intrinsics))
+
     return $ RustModule
                 { _rmCS    = colState
-                , _rmCFGs  = Map.fromList (pairs1 <> concat pairs2)
+                , _rmCFGs  = Map.fromList (pairs1 <> concat pairs2 <> pairs3)
                 }
 
 -- | Produce a crucible CFG that initializes the global variables for the static

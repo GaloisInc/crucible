@@ -52,7 +52,8 @@ import qualified Mir.MirTy as M
 
 import           Mir.PP (fmt)
 import           Mir.Generator (MirExp(..), MirGenerator, mkPredVar, mirFail)
-import           Mir.Intrinsics (MIR, pattern MirSliceRepr, pattern MirReferenceRepr, TaggedUnion)
+import           Mir.Intrinsics (MIR, pattern MirSliceRepr, pattern MirReferenceRepr,
+                                 TaggedUnion, DynRefType)
 import           Mir.GenericOps (tySubst)
 
 
@@ -216,6 +217,13 @@ taggedUnionCtx = Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr
 -- | All ADTs are mapped to tagged unions
 taggedUnionRepr :: C.TypeRepr TaggedUnion
 taggedUnionRepr = C.StructRepr $ taggedUnionCtx
+
+
+dynRefCtx :: Ctx.Assignment C.TypeRepr (Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType)
+dynRefCtx = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
+
+dynRefRepr :: C.TypeRepr DynRefType
+dynRefRepr = C.StructRepr dynRefCtx
 
 
 -- Note: any args on the fields are replaced by args on the variant
@@ -446,19 +454,7 @@ traitVtableType tname trait substs _ = vtableTy
     dummySelf :: M.Ty
     dummySelf = errNotObjectSafe ["tried to use Self outside receiver position"]
 
-    eraseReceiver :: M.FnSig -> M.FnSig
-    eraseReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of
-        [] -> errNotObjectSafe ["method has no arguments"]
-        (_ : tys) -> M.TyErased : tys
-
-    -- Erase generics, predicates, and associated types
-    eraseGenerics :: M.FnSig -> M.FnSig
-    eraseGenerics sig = sig
-        & M.fsgenerics .~ []
-        & M.fspredicates .~ []
-        & M.fsassoc_tys .~ []
-
-    convertShimSig sig = tySubst shimSubsts $ eraseGenerics $ eraseReceiver sig
+    convertShimSig sig = tySubst shimSubsts $ clearSigGenerics $ eraseSigReceiver sig
 
     methodSigs = Maybe.mapMaybe (\ti -> case ti of
         M.TraitMethod name sig -> Just sig
@@ -471,3 +467,15 @@ traitVtableType tname trait substs _ = vtableTy
     errNotObjectSafe :: [String] -> a
     errNotObjectSafe parts = error $ unwords $
         ["a method of trait", show tname, "is not object safe:"] ++ parts
+
+eraseSigReceiver :: M.FnSig -> M.FnSig
+eraseSigReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of
+    [] -> error $ unwords ["dynamic trait method has no receiver", show sig]
+    (_ : tys) -> M.TyErased : tys
+
+-- Erase generics, predicates, and associated types
+clearSigGenerics :: M.FnSig -> M.FnSig
+clearSigGenerics sig = sig
+    & M.fsgenerics .~ []
+    & M.fspredicates .~ []
+    & M.fsassoc_tys .~ []
