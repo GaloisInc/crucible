@@ -1,4 +1,3 @@
-// FAIL: dynamic trait. Also use of "::convert::From::from"
 #![cfg_attr(not(with_main), no_std)]
 
 struct Data(u32);
