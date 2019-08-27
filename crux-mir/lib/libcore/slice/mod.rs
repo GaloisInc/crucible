@@ -527,21 +527,9 @@ impl<T> [T] {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn iter(&self) -> Iter<'_, T> {
-        unsafe {
-            let ptr = self.as_ptr();
-            assume(!ptr.is_null());
-
-            let end = if mem::size_of::<T>() == 0 {
-                (ptr as *const u8).wrapping_add(self.len()) as *const T
-            } else {
-                ptr.add(self.len())
-            };
-
-            Iter {
-                ptr,
-                end,
-                _marker: marker::PhantomData
-            }
+        Iter {
+            slice: self,
+            range: 0 .. self.len(),
         }
     }
 
@@ -559,21 +547,10 @@ impl<T> [T] {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
-        unsafe {
-            let ptr = self.as_mut_ptr();
-            assume(!ptr.is_null());
-
-            let end = if mem::size_of::<T>() == 0 {
-                (ptr as *mut u8).wrapping_add(self.len()) as *mut T
-            } else {
-                ptr.add(self.len())
-            };
-
-            IterMut {
-                ptr,
-                end,
-                _marker: marker::PhantomData
-            }
+        let len = self.len();
+        IterMut {
+            slice: self,
+            range: 0 .. len,
         }
     }
 
@@ -3015,34 +2992,13 @@ fn size_from_ptr<T>(_: *const T) -> usize {
 macro_rules! is_empty {
     // The way we encode the length of a ZST iterator, this works both for ZST
     // and non-ZST.
-    ($self: ident) => {$self.ptr == $self.end}
+    ($self: ident) => { $self.range.is_empty() }
 }
 // To get rid of some bounds checks (see `position`), we compute the length in a somewhat
 // unexpected way. (Tested by `codegen/slice-position-bounds-check`.)
 macro_rules! len {
     ($self: ident) => {{
-        #![allow(unused_unsafe)] // we're sometimes used within an unsafe block
-
-        let start = $self.ptr;
-        let size = size_from_ptr(start);
-        if size == 0 {
-            // This _cannot_ use `unchecked_sub` because we depend on wrapping
-            // to represent the length of long ZST slice iterators.
-            let diff = ($self.end as usize).wrapping_sub(start as usize);
-            diff
-        } else {
-            // We know that `start <= end`, so can do better than `offset_from`,
-            // which needs to deal in signed.  By setting appropriate flags here
-            // we can tell LLVM this, which helps it remove bounds checks.
-            // SAFETY: By the type invariant, `start <= end`
-            let diff = unsafe { unchecked_sub($self.end as usize, start as usize) };
-            // By also telling LLVM that the pointers are apart by an exact
-            // multiple of the type size, it can optimize `len() == 0` down to
-            // `start == end` instead of `(end - start) < size`.
-            // SAFETY: By the type invariant, the pointers are aligned so the
-            //         distance between them must be a multiple of pointee size
-            unsafe { exact_div(diff, size) }
-        }
+        $self.range.end - $self.range.start
     }}
 }
 
@@ -3055,61 +3011,13 @@ macro_rules! iterator {
         {$( $mut_:tt )*},
         {$($extra:tt)*}
     ) => {
-        // Returns the first element and moves the start of the iterator forwards by 1.
-        // Greatly improves performance compared to an inlined function. The iterator
-        // must not be empty.
-        macro_rules! next_unchecked {
-            ($self: ident) => {& $( $mut_ )* *$self.post_inc_start(1)}
-        }
-
-        // Returns the last element and moves the end of the iterator backwards by 1.
-        // Greatly improves performance compared to an inlined function. The iterator
-        // must not be empty.
-        macro_rules! next_back_unchecked {
-            ($self: ident) => {& $( $mut_ )* *$self.pre_dec_end(1)}
-        }
-
-        // Shrinks the iterator when T is a ZST, by moving the end of the iterator
-        // backwards by `n`. `n` must not exceed `self.len()`.
-        macro_rules! zst_shrink {
-            ($self: ident, $n: ident) => {
-                $self.end = ($self.end as * $raw_mut u8).wrapping_offset(-$n) as * $raw_mut T;
-            }
-        }
-
         impl<'a, T> $name<'a, T> {
             // Helper function for creating a slice from the iterator.
             #[inline(always)]
             fn make_slice(&self) -> &'a [T] {
-                unsafe { from_raw_parts(self.ptr, len!(self)) }
-            }
-
-            // Helper function for moving the start of the iterator forwards by `offset` elements,
-            // returning the old start.
-            // Unsafe because the offset must not exceed `self.len()`.
-            #[inline(always)]
-            unsafe fn post_inc_start(&mut self, offset: isize) -> * $raw_mut T {
-                if mem::size_of::<T>() == 0 {
-                    zst_shrink!(self, offset);
-                    self.ptr
-                } else {
-                    let old = self.ptr;
-                    self.ptr = self.ptr.offset(offset);
-                    old
-                }
-            }
-
-            // Helper function for moving the end of the iterator backwards by `offset` elements,
-            // returning the new end.
-            // Unsafe because the offset must not exceed `self.len()`.
-            #[inline(always)]
-            unsafe fn pre_dec_end(&mut self, offset: isize) -> * $raw_mut T {
-                if mem::size_of::<T>() == 0 {
-                    zst_shrink!(self, offset);
-                    self.ptr
-                } else {
-                    self.end = self.end.offset(-offset);
-                    self.end
+                unsafe {
+                    let slice = mem::crucible_identity_transmute::<&[_], &[_]>(self.slice);
+                    &slice[self.range.clone()]
                 }
             }
         }
@@ -3133,17 +3041,12 @@ macro_rules! iterator {
 
             #[inline]
             fn next(&mut self) -> Option<$elem> {
-                // could be implemented with slices, but this avoids bounds checks
-                unsafe {
-                    assume(!self.ptr.is_null());
-                    if mem::size_of::<T>() != 0 {
-                        assume(!self.end.is_null());
-                    }
-                    if is_empty!(self) {
-                        None
-                    } else {
-                        Some(next_unchecked!(self))
-                    }
+                match self.range.next() {
+                    Some(i) => unsafe {
+                        Some(mem::crucible_identity_transmute::<& $( $mut_ )* T, & $( $mut_ )* T>(
+                                & $( $mut_ )* self.slice[i]))
+                    },
+                    None => None,
                 }
             }
 
@@ -3163,20 +3066,12 @@ macro_rules! iterator {
             fn nth(&mut self, n: usize) -> Option<$elem> {
                 if n >= len!(self) {
                     // This iterator is now empty.
-                    if mem::size_of::<T>() == 0 {
-                        // We have to do it this way as `ptr` may never be 0, but `end`
-                        // could be (due to wrapping).
-                        self.end = self.ptr;
-                    } else {
-                        self.ptr = self.end;
-                    }
+                    self.range.start = self.range.end;
                     return None;
                 }
-                // We are in bounds. `post_inc_start` does the right thing even for ZSTs.
-                unsafe {
-                    self.post_inc_start(n as isize);
-                    Some(next_unchecked!(self))
-                }
+                self.range.start += n;
+                // We're guaranteed that `start < end` still.
+                self.next()
             }
 
             #[inline]
@@ -3185,93 +3080,19 @@ macro_rules! iterator {
                 self.next_back()
             }
 
-            #[inline]
-            fn try_fold<B, F, R>(&mut self, init: B, mut f: F) -> R where
-                Self: Sized, F: FnMut(B, Self::Item) -> R, R: Try<Ok=B>
-            {
-                // manual unrolling is needed when there are conditional exits from the loop
-                let mut accum = init;
-                unsafe {
-                    while len!(self) >= 4 {
-                        accum = f(accum, next_unchecked!(self))?;
-                        accum = f(accum, next_unchecked!(self))?;
-                        accum = f(accum, next_unchecked!(self))?;
-                        accum = f(accum, next_unchecked!(self))?;
-                    }
-                    while !is_empty!(self) {
-                        accum = f(accum, next_unchecked!(self))?;
-                    }
-                }
-                Try::from_ok(accum)
-            }
-
-            #[inline]
-            fn fold<Acc, Fold>(mut self, init: Acc, mut f: Fold) -> Acc
-                where Fold: FnMut(Acc, Self::Item) -> Acc,
-            {
-                // Let LLVM unroll this, rather than using the default
-                // impl that would force the manual unrolling above
-                let mut accum = init;
-                while let Some(x) = self.next() {
-                    accum = f(accum, x);
-                }
-                accum
-            }
-
-            #[inline]
-            #[rustc_inherit_overflow_checks]
-            fn position<P>(&mut self, mut predicate: P) -> Option<usize> where
-                Self: Sized,
-                P: FnMut(Self::Item) -> bool,
-            {
-                // The addition might panic on overflow.
-                let n = len!(self);
-                self.try_fold(0, move |i, x| {
-                    if predicate(x) { Err(i) }
-                    else { Ok(i + 1) }
-                }).err()
-                    .map(|i| {
-                        unsafe { assume(i < n) };
-                        i
-                    })
-            }
-
-            #[inline]
-            fn rposition<P>(&mut self, mut predicate: P) -> Option<usize> where
-                P: FnMut(Self::Item) -> bool,
-                Self: Sized + ExactSizeIterator + DoubleEndedIterator
-            {
-                // No need for an overflow check here, because `ExactSizeIterator`
-                let n = len!(self);
-                self.try_rfold(n, move |i, x| {
-                    let i = i - 1;
-                    if predicate(x) { Err(i) }
-                    else { Ok(i) }
-                }).err()
-                    .map(|i| {
-                        unsafe { assume(i < n) };
-                        i
-                    })
-            }
-
-            $($extra)*
+            //$($extra)*
         }
 
         #[stable(feature = "rust1", since = "1.0.0")]
         impl<'a, T> DoubleEndedIterator for $name<'a, T> {
             #[inline]
             fn next_back(&mut self) -> Option<$elem> {
-                // could be implemented with slices, but this avoids bounds checks
-                unsafe {
-                    assume(!self.ptr.is_null());
-                    if mem::size_of::<T>() != 0 {
-                        assume(!self.end.is_null());
-                    }
-                    if is_empty!(self) {
-                        None
-                    } else {
-                        Some(next_back_unchecked!(self))
-                    }
+                match self.range.next_back() {
+                    Some(i) => unsafe {
+                        Some(mem::crucible_identity_transmute::<& $( $mut_ )* T, & $( $mut_ )* T>(
+                                & $( $mut_ )* self.slice[i]))
+                    },
+                    None => None,
                 }
             }
 
@@ -3279,48 +3100,11 @@ macro_rules! iterator {
             fn nth_back(&mut self, n: usize) -> Option<$elem> {
                 if n >= len!(self) {
                     // This iterator is now empty.
-                    self.end = self.ptr;
+                    self.range.end = self.range.start;
                     return None;
                 }
-                // We are in bounds. `pre_dec_end` does the right thing even for ZSTs.
-                unsafe {
-                    self.pre_dec_end(n as isize);
-                    Some(next_back_unchecked!(self))
-                }
-            }
-
-            #[inline]
-            fn try_rfold<B, F, R>(&mut self, init: B, mut f: F) -> R where
-                Self: Sized, F: FnMut(B, Self::Item) -> R, R: Try<Ok=B>
-            {
-                // manual unrolling is needed when there are conditional exits from the loop
-                let mut accum = init;
-                unsafe {
-                    while len!(self) >= 4 {
-                        accum = f(accum, next_back_unchecked!(self))?;
-                        accum = f(accum, next_back_unchecked!(self))?;
-                        accum = f(accum, next_back_unchecked!(self))?;
-                        accum = f(accum, next_back_unchecked!(self))?;
-                    }
-                    // inlining is_empty everywhere makes a huge performance difference
-                    while !is_empty!(self) {
-                        accum = f(accum, next_back_unchecked!(self))?;
-                    }
-                }
-                Try::from_ok(accum)
-            }
-
-            #[inline]
-            fn rfold<Acc, Fold>(mut self, init: Acc, mut f: Fold) -> Acc
-                where Fold: FnMut(Acc, Self::Item) -> Acc,
-            {
-                // Let LLVM unroll this, rather than using the default
-                // impl that would force the manual unrolling above
-                let mut accum = init;
-                while let Some(x) = self.next_back() {
-                    accum = f(accum, x);
-                }
-                accum
+                self.range.end -= n;
+                self.next_back()
             }
         }
 
@@ -3354,11 +3138,8 @@ macro_rules! iterator {
 /// [slices]: ../../std/primitive.slice.html
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Iter<'a, T: 'a> {
-    ptr: *const T,
-    end: *const T, // If T is a ZST, this is actually ptr+len.  This encoding is picked so that
-                   // ptr == end is a quick test for the Iterator being empty, that works
-                   // for both ZST and non-ZST.
-    _marker: marker::PhantomData<&'a T>,
+    slice: &'a [T],
+    range: ops::Range<usize>,
 }
 
 #[stable(feature = "core_impl_debug", since = "1.9.0")]
@@ -3420,7 +3201,7 @@ iterator!{struct Iter -> *const T, &'a T, const, {/* no mut */}, {
 
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Clone for Iter<'_, T> {
-    fn clone(&self) -> Self { Iter { ptr: self.ptr, end: self.end, _marker: self._marker } }
+    fn clone(&self) -> Self { Iter { slice: self.slice, range: self.range.clone() } }
 }
 
 #[stable(feature = "slice_iter_as_ref", since = "1.13.0")]
@@ -3456,11 +3237,8 @@ impl<T> AsRef<[T]> for Iter<'_, T> {
 /// [slices]: ../../std/primitive.slice.html
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct IterMut<'a, T: 'a> {
-    ptr: *mut T,
-    end: *mut T, // If T is a ZST, this is actually ptr+len.  This encoding is picked so that
-                 // ptr == end is a quick test for the Iterator being empty, that works
-                 // for both ZST and non-ZST.
-    _marker: marker::PhantomData<&'a mut T>,
+    slice: &'a mut [T],
+    range: ops::Range<usize>,
 }
 
 #[stable(feature = "core_impl_debug", since = "1.9.0")]
@@ -3513,7 +3291,7 @@ impl<'a, T> IterMut<'a, T> {
     /// ```
     #[stable(feature = "iter_to_slice", since = "1.4.0")]
     pub fn into_slice(self) -> &'a mut [T] {
-        unsafe { from_raw_parts_mut(self.ptr, len!(self)) }
+        &mut self.slice[self.range.clone()]
     }
 
     /// Views the underlying data as a subslice of the original data.
@@ -5560,7 +5338,7 @@ impl_marker_for!(BytewiseEquality,
 #[doc(hidden)]
 unsafe impl<'a, T> TrustedRandomAccess for Iter<'a, T> {
     unsafe fn get_unchecked(&mut self, i: usize) -> &'a T {
-        &*self.ptr.add(i)
+        self.slice.get_unchecked(self.range.start + i)
     }
     fn may_have_side_effect() -> bool { false }
 }
@@ -5568,7 +5346,8 @@ unsafe impl<'a, T> TrustedRandomAccess for Iter<'a, T> {
 #[doc(hidden)]
 unsafe impl<'a, T> TrustedRandomAccess for IterMut<'a, T> {
     unsafe fn get_unchecked(&mut self, i: usize) -> &'a mut T {
-        &mut *self.ptr.add(i)
+        mem::crucible_identity_transmute::<&mut T, &mut T>(
+            self.slice.get_unchecked_mut(self.range.start + i))
     }
     fn may_have_side_effect() -> bool { false }
 }

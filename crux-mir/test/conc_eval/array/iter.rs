@@ -1,4 +1,3 @@
-// FAIL: missing lifetime parameter in addAssign
 #![cfg_attr(not(with_main), no_std)]
 
 fn f(_x: u8) -> i32 {
@@ -6,7 +5,9 @@ fn f(_x: u8) -> i32 {
     xs[1] = 1;
     xs[2] = 2;
     let mut y : i32 = 0;
-    for x in &xs {
+    // Currently we require an explicit cast because the IntoIterator impls use const generics
+    // (which crux-mir doesn't yet support).
+    for x in (&xs as &[_]) {
         y += x;
     }
     y

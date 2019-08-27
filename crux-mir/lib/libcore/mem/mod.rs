@@ -819,3 +819,11 @@ pub fn discriminant<T>(v: &T) -> Discriminant<T> {
         Discriminant(intrinsics::discriminant_value(v), PhantomData)
     }
 }
+
+
+/// Specialized `transmute` that requires the input and output types to have the same Crucible
+/// representation.  Useful for casting away lifetimes.
+#[unstable(feature = "crucible_intrinsics", issue = "0")]
+pub unsafe fn crucible_identity_transmute<T, U>(x: T) -> U {
+    unimplemented!()
+}

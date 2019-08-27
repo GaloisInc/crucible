@@ -141,6 +141,8 @@ customOps = Map.fromList [
                          , add_with_overflow
                          , sub_with_overflow
 
+                         , mem_crucible_identity_transmute
+
                          -- CustomOps below this point have not been checked
                          -- for compatibility with new monomorphization.
 
@@ -207,8 +209,10 @@ panicking_begin_panic = ((["std", "panicking"], "begin_panic", []), \s ->
             Just (CustomOpExit $  \ops -> return "panicking::begin_panic"))
 
 panicking_panic :: (ExplodedDefId, CustomRHS)
-panicking_panic = ((["core", "panicking"], "panic", []), \s ->
-            Just (CustomOpExit $  \ops -> return "panicking::panic"))
+panicking_panic = ((["core", "panicking"], "panic", []), \s -> Just $ CustomOpExit $ \ops -> do
+    name <- use $ currentFn . fname
+    return $ "panicking::panic, called from " <> M.idText name
+    )
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: Index
@@ -945,6 +949,23 @@ mem_swap = ((["core","mem"],"swap", []),
             return $ MirExp knownRepr $ R.App E.EmptyApp
         _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
     )
+
+
+-- This is like normal mem::transmute, but requires source and target types to
+-- have identical Crucible `TypeRepr`s.
+mem_crucible_identity_transmute ::  (ExplodedDefId, CustomRHS)
+mem_crucible_identity_transmute = ((["core","mem"],"crucible_identity_transmute", []),
+    \ substs -> case substs of
+      Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
+        [e@(MirExp argTy _)]
+          | Some retTy <- tyToRepr tyU
+          , Just Refl <- testEquality argTy retTy -> return e
+        _ -> mirFail $ "bad arguments to mem_crucible_identity_transmute: "
+          ++ show (tyT, tyU, ops)
+      _ -> Nothing
+    )
+
+
 
 with_overflow_result ::
     C.TypeRepr ty ->
