@@ -414,6 +414,8 @@ isAutoTraitPredicate :: M.Predicate -> Bool
 isAutoTraitPredicate (M.AutoTraitPredicate {}) = True
 isAutoTraitPredicate _ = False
 
+-- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
+-- crate, then use that info to greatly simplify this function
 traitVtableType :: (HasCallStack) =>
     M.TraitName -> M.Trait -> M.Substs -> [M.Predicate] -> Some C.TypeRepr
 traitVtableType tname _ _ ps
