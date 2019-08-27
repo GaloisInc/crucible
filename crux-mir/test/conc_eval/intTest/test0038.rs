@@ -1,4 +1,4 @@
-// FAIL: Don't know how to call ::slice::{{impl}}::iter_mut
+// FAIL: crucible type errors involving array/slice iter_mut
 #![cfg_attr(not(with_main), no_std)]
 struct BI {
     i: [[i32; 4]; 2],
