@@ -1950,6 +1950,9 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
             s = initFnState colState fn handle inputs 
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
+      --traceM $ unwords [" =======", show fname, "======="]
+      --traceShowM $ pretty g
+      --traceM $ unwords [" ======= end", show fname, "======="]
       case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
 

@@ -65,9 +65,13 @@ impl<T> [T] {
     #[inline]
     #[rustc_const_unstable(feature = "const_slice_len")]
     pub const fn len(&self) -> usize {
-        unsafe {
-            crate::ptr::Repr { rust: self }.raw.len
-        }
+        // Some iterator trait impls also define a `core::slice::{{impl}}::len`, causing a conflict
+        // in customOps.  We override this specially-named hook function instead.
+        //
+        // Note that since this is a `const fn`, it can't panic.  Instead we return a value that is
+        // hopefully surprising, so if it does get called without the override, it's obvious.
+        const fn crucible_slice_len_hook<T>(x: &[T]) -> usize { 12345 }
+        crucible_slice_len_hook(self)
     }
 
     /// Returns `true` if the slice has a length of 0.
@@ -82,7 +86,8 @@ impl<T> [T] {
     #[inline]
     #[rustc_const_unstable(feature = "const_slice_len")]
     pub const fn is_empty(&self) -> bool {
-        self.len() == 0
+        const fn crucible_slice_is_empty_hook<T>(x: &[T]) -> bool { true }
+        crucible_slice_is_empty_hook(self)
     }
 
     /// Returns the first element of the slice, or `None` if it is empty.
@@ -2039,15 +2044,14 @@ impl<T> [T] {
     pub fn clone_from_slice(&mut self, src: &[T]) where T: Clone {
         assert!(self.len() == src.len(),
                 "destination and source slices have different lengths");
-        // NOTE: We need to explicitly slice them to the same length
-        // for bounds checking to be elided, and the optimizer will
-        // generate memcpy for simple cases (for example T = u8).
         let len = self.len();
-        let src = &src[..len];
         for i in 0..len {
-            self[i].clone_from(&src[i]);
+            // For some reason, crucible has trouble with `&src[i]`, but not with `src[i].clone()`,
+            // even though after MIR lowering they should both contain the same `&src[i]`
+            // construct.
+            self[i] = src[i].clone();
+            //self[i].clone_from(&src[i]);
         }
-
     }
 
     /// Copies all elements from `src` into `self`, using a memcpy.

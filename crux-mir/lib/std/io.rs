@@ -1,6 +1,8 @@
 use core::cmp;
 use core::result;
 
+pub use self::cursor::Cursor;
+
 pub struct Error {
 }
 
@@ -26,7 +28,7 @@ pub trait Read {
     }
 
     fn read_exact(&mut self, buf: &mut [u8]) -> Result<()> {
-        let len = try!(self.read(buf));
+        let len = self.read(buf)?;
         assert!(len == buf.len());
         Ok(())
     }
@@ -55,7 +57,7 @@ pub trait Write {
     }
 
     fn write_all(&mut self, buf: &[u8]) -> Result<()> {
-        let len = try!(self.write(buf));
+        let len = self.write(buf)?;
         assert!(len == buf.len());
         Ok(())
     }

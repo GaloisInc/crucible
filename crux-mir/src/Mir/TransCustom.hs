@@ -491,7 +491,7 @@ str_len =
 
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
-  ((["core","slice","{{impl}}"], "len", [])
+  ((["core","slice","{{impl}}","len"], "crucible_slice_len_hook", [])
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
      -- type of the structure is &mut[ elTy ]
@@ -501,7 +501,7 @@ slice_len =
 
 slice_is_empty :: (ExplodedDefId, CustomRHS)
 slice_is_empty =
-  ((["core","slice","{{impl}}"], "is_empty", [])
+  ((["core","slice","{{impl}}","is_empty"], "crucible_is_empty_hook", [])
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
      -- type of the structure is &mut[ elTy ]
