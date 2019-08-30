@@ -3,6 +3,7 @@ use core::result;
 
 pub use self::cursor::Cursor;
 
+#[derive(Debug)]
 pub struct Error {
 }
 

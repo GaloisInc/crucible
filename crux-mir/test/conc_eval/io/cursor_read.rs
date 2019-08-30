@@ -1,7 +1,5 @@
-#![no_std]
-extern crate std;
-#[macro_use] extern crate crucible;
-use crucible::*;
+#![cfg_attr(not(with_main), no_std)]
+#[cfg(not(with_main))] extern crate std;
 
 use std::io::{Cursor, Read, Write};
 
@@ -13,7 +11,7 @@ pub fn f(x: u8) -> u8 {
     c.read(&mut buf);
 
     for (a, b) in buf.iter().zip(msg.iter()) {
-        crucible_assert!(a == b);
+        assert!(a == b);
     }
 
     0

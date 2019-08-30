@@ -191,7 +191,9 @@ proxy = AIG.basicProxy
 -- | Compile using 'rustc' and run executable
 compileAndRun :: FilePath -> String -> IO (Maybe String)
 compileAndRun dir name = do
-  (ec, _, err) <- Proc.readProcessWithExitCode "rustc" [dir </> name <.> "rs", "--cfg", "with_main"] ""
+  (ec, _, err) <- Proc.readProcessWithExitCode "rustc"
+    [dir </> name <.> "rs", "--cfg", "with_main"
+    , "--extern", "byteorder=rlibs_native/libbyteorder.rlib"] ""
   case ec of
     ExitFailure _ -> do
       putStrLn $ "rustc compilation failed for " ++ name

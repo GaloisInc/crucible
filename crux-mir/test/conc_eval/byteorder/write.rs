@@ -1,17 +1,21 @@
 #![cfg_attr(not(with_main), no_std)]
 #[cfg(not(with_main))] extern crate std;
+extern crate byteorder;
 
 use std::io::{Cursor, Read, Write};
+use byteorder::*;
 
 pub fn f(x: u8) -> u8 {
-    let mut buf = [0; 10];
-
+    let mut buf = [0_u8; 7];
     let mut c = Cursor::new(&mut buf as &mut [_]);
-    c.write(&[x]);
 
-    assert!(buf[0] == x);
-    for &y in &buf[1..] {
-        assert!(y == 0);
+    let x = c.write_u16::<LE>(0x6261).unwrap();
+    let y = c.write_u32::<BE>(0x63646566).unwrap();
+    let z = c.write_u8(0x67).unwrap();
+
+    let goal = *b"abcdefg";
+    for i in 0 .. 7 {
+        assert!(buf[i] == goal[i]);
     }
 
     0

@@ -7,10 +7,12 @@ pub fn f(x: u8) -> u8 {
     let mut buf = [0; 10];
 
     let mut c = Cursor::new(&mut buf as &mut [_]);
-    c.write(&[x]);
+    c.write(&[x]).unwrap();
+    c.write(&[x]).unwrap();
 
     assert!(buf[0] == x);
-    for &y in &buf[1..] {
+    assert!(buf[1] == x);
+    for &y in &buf[2..] {
         assert!(y == 0);
     }
 
