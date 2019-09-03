@@ -1070,7 +1070,8 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _ _pos)
  
          do let rvec  = S.getStruct Ctx.i1of3 e
             let start = S.getStruct Ctx.i2of3 e
-            let stop  = S.getStruct Ctx.i3of3 e
+            let len   = S.getStruct Ctx.i3of3 e
+            let stop  = S.app $ E.NatAdd start len
             r <- readMirRef (C.VectorRepr e_ty) rvec
             r2 <- vectorCopy e_ty start stop r
             assignVarExp v (MirExp (C.VectorRepr e_ty) r2)
