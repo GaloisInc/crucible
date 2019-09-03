@@ -2,7 +2,7 @@
 set -e
 
 compile() {
-    compile --edition 2018 "$@"
+    compile_2015 --edition 2018 "$@"
 }
 
 compile_2015() {
@@ -10,7 +10,7 @@ compile_2015() {
 }
 
 translate() {
-    translate --edition 2018 "$@"
+    translate_2015 --edition 2018 "$@"
 }
 
 translate_2015() {
@@ -26,4 +26,4 @@ translate lib/std/lib.rs --crate-name std --cfg 'feature="std"'
 translate_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
 
 # Need native versions of some libs for conc_eval oracle programs
-compile_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
+compile_2015 ../byteorder/src/lib.rs --crate-name byteorder --cfg 'feature="std"'
