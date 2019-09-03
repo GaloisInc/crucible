@@ -69,7 +69,7 @@ data ConcreteVal tp where
   ConcreteNat     :: Natural -> ConcreteVal BaseNatType
   ConcreteInteger :: Integer -> ConcreteVal BaseIntegerType
   ConcreteReal    :: Rational -> ConcreteVal BaseRealType
-  ConcreteString  :: Text -> ConcreteVal BaseStringType
+  ConcreteString  :: Text -> ConcreteVal (BaseStringType Unicode)
   ConcreteComplex :: Complex Rational -> ConcreteVal BaseComplexType
   ConcreteBV      ::
     (1 <= w) =>
@@ -98,7 +98,7 @@ fromConcreteReal (ConcreteReal x) = x
 fromConcreteComplex :: ConcreteVal BaseComplexType -> Complex Rational
 fromConcreteComplex (ConcreteComplex x) = x
 
-fromConcreteString :: ConcreteVal BaseStringType -> Text
+fromConcreteString :: ConcreteVal (BaseStringType Unicode) -> Text
 fromConcreteString (ConcreteString x) = x
 
 fromConcreteUnsignedBV :: ConcreteVal (BaseBVType w) -> Integer
@@ -114,7 +114,7 @@ concreteType = \case
   ConcreteNat{}      -> BaseNatRepr
   ConcreteInteger{}  -> BaseIntegerRepr
   ConcreteReal{}     -> BaseRealRepr
-  ConcreteString{}   -> BaseStringRepr
+  ConcreteString{}   -> BaseStringRepr UnicodeRepr
   ConcreteComplex{}  -> BaseComplexRepr
   ConcreteBV w _     -> BaseBVRepr w
   ConcreteStruct xs  -> BaseStructRepr (fmapFC concreteType xs)

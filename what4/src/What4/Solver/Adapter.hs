@@ -99,8 +99,8 @@ defaultWriteSMTLIB2Features
   .|. useQuantifiers
   .|. useSymbolicArrays
 
-defaultSolverAdapter :: ConfigOption BaseStringType
-defaultSolverAdapter = configOption BaseStringRepr "default_solver"
+defaultSolverAdapter :: ConfigOption (BaseStringType Unicode)
+defaultSolverAdapter = configOption (BaseStringRepr UnicodeRepr) "default_solver"
 
 
 solverAdapterOptions ::

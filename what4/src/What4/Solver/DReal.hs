@@ -69,7 +69,7 @@ import           What4.Utils.HandleReader
 data DReal = DReal
 
 -- | Path to dReal
-drealPath :: ConfigOption BaseStringType
+drealPath :: ConfigOption (BaseStringType Unicode)
 drealPath = configOption knownRepr "dreal_path"
 
 drealOptions :: [ConfigDesc]

@@ -1030,7 +1030,7 @@ typeMapFirstClass conn tp0 = do
     BaseRealRepr -> Right RealTypeMap
     BaseNatRepr  -> Right NatTypeMap
     BaseIntegerRepr -> Right IntegerTypeMap
-    BaseStringRepr -> Left StringTypeUnsupported
+    BaseStringRepr _ -> Left StringTypeUnsupported
     BaseComplexRepr
       | feat `hasProblemFeature` useStructs        -> Right ComplexToStructTypeMap
       | feat `hasProblemFeature` useSymbolicArrays -> Right ComplexToArrayTypeMap

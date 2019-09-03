@@ -56,7 +56,7 @@ typeTheory tp = case tp of
   BaseIntegerRepr   -> LinearArithTheory
   BaseRealRepr      -> LinearArithTheory
   BaseFloatRepr _   -> FloatingPointTheory
-  BaseStringRepr    -> StringTheory
+  BaseStringRepr{}  -> StringTheory
   BaseComplexRepr   -> LinearArithTheory
   BaseStructRepr _  -> StructTheory
   BaseArrayRepr _ _ -> ArrayTheory

@@ -65,6 +65,8 @@ module What4.Interface
     SymExpr
   , BoundVar
   , SymFn
+  , StringLiteral
+
     -- ** Expression recognizers
   , IsExpr(..)
   , IsSymFn(..)
@@ -152,8 +154,9 @@ module What4.Interface
 import           Control.Exception (assert)
 import           Control.Lens
 import           Control.Monad
-import           Data.Bits
 import           Control.Monad.IO.Class
+import           Data.Bits
+import           Data.ByteString (ByteString)
 import           Data.Coerce (coerce)
 import           Data.Foldable
 import           Data.Hashable
@@ -183,7 +186,7 @@ import           What4.Utils.AbstractDomains
 import           What4.Utils.Arithmetic
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
-
+import           What4.Utils.Word16String
 
 ------------------------------------------------------------------------
 -- SymExpr names
@@ -215,7 +218,7 @@ type SymArray sym idx b = SymExpr sym (BaseArrayType idx b)
 type SymBV sym n = SymExpr sym (BaseBVType n)
 
 -- | Symbolic strings.
-type SymString sym = SymExpr sym BaseStringType
+type SymString sym si = SymExpr sym (BaseStringType si)
 
 ------------------------------------------------------------------------
 -- Type families for the interface.
@@ -228,6 +231,15 @@ type family SymExpr (sym :: Type) :: BaseType -> Type
 --
 -- This type is used by some methods in class 'IsSymExprBuilder'.
 type family BoundVar (sym :: Type) :: BaseType -> Type
+
+
+------------------------------------------------------------------------
+-- String literals
+
+type family StringLiteral (si::StringInfo) :: Type where
+  StringLiteral Unicode = Text
+  StringLiteral Char8   = ByteString
+  StringLiteral Char16  = Word16String
 
 ------------------------------------------------------------------------
 -- IsBoolSolver
@@ -301,8 +313,13 @@ class IsExpr e where
   asAffineVar :: e tp -> Maybe (ConcreteVal tp, e tp, ConcreteVal tp)
 
   -- | Return the string value if this is a constant string
-  asString :: e BaseStringType -> Maybe Text
+  asString :: e (BaseStringType si) -> Maybe (StringLiteral si)
   asString _ = Nothing
+
+  stringInfo :: e (BaseStringType si) -> StringInfoRepr si
+  stringInfo e =
+    case exprType e of
+      BaseStringRepr si -> si
 
   -- | Return the unique element value if this is a constant array,
   --   such as one made with 'constantArray'.
@@ -474,7 +491,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
       BaseRealRepr     -> realEq sym x y
       BaseFloatRepr{}  -> floatEq sym x y
       BaseComplexRepr  -> cplxEq sym x y
-      BaseStringRepr   -> stringEq sym x y
+      BaseStringRepr{} -> stringEq sym x y
       BaseStructRepr{} -> structEq sym x y
       BaseArrayRepr{}  -> arrayEq sym x y
 
@@ -495,7 +512,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
       BaseIntegerRepr  -> intIte    sym c x y
       BaseRealRepr     -> realIte   sym c x y
       BaseFloatRepr{}  -> floatIte  sym c x y
-      BaseStringRepr   -> stringIte sym c x y
+      BaseStringRepr{} -> stringIte sym c x y
       BaseComplexRepr  -> cplxIte   sym c x y
       BaseStructRepr{} -> structIte sym c x y
       BaseArrayRepr{}  -> arrayIte  sym c x y
@@ -1534,20 +1551,23 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   ----------------------------------------------------------------------
   -- String operations
 
+  -- | Create an empty string literal
+  stringEmpty :: sym -> StringInfoRepr si -> IO (SymString sym si)
+
   -- | Create a concrete string literal
-  stringLit :: sym -> Text -> IO (SymString sym)
+  stringLit :: sym -> StringInfoRepr si -> StringLiteral si -> IO (SymString sym si)
 
   -- | Check the equality of two strings
-  stringEq :: sym -> SymString sym -> SymString sym -> IO (Pred sym)
+  stringEq :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
 
   -- | If-then-else on strings
-  stringIte :: sym -> Pred sym -> SymString sym -> SymString sym -> IO (SymString sym)
+  stringIte :: sym -> Pred sym -> SymString sym si -> SymString sym si -> IO (SymString sym si)
 
   -- | Concatenate two strings
-  stringConcat :: sym -> SymString sym -> SymString sym -> IO (SymString sym)
+  stringConcat :: sym -> SymString sym si -> SymString sym si -> IO (SymString sym si)
 
   -- | Compute the length of a string
-  stringLength :: sym -> SymString sym -> IO (SymNat sym)
+  stringLength :: sym -> SymString sym si -> IO (SymNat sym)
 
   ----------------------------------------------------------------------
   -- Real operations
@@ -2496,7 +2516,7 @@ baseIsConcrete x =
     BaseBVRepr _    -> isJust $ asUnsignedBV x
     BaseRealRepr    -> isJust $ asRational x
     BaseFloatRepr _ -> False
-    BaseStringRepr  -> isJust $ asString x
+    BaseStringRepr{} -> isJust $ asString x
     BaseComplexRepr -> isJust $ asComplex x
     BaseStructRepr _ -> case asStruct x of
         Just flds -> allFC baseIsConcrete flds
@@ -2520,7 +2540,7 @@ baseDefaultValue sym bt =
     BaseRealRepr    -> return $! realZero sym
     BaseFloatRepr fpp -> floatPZero sym fpp
     BaseComplexRepr -> mkComplexLit sym (0 :+ 0)
-    BaseStringRepr  -> stringLit sym mempty
+    BaseStringRepr si -> stringEmpty sym si
     BaseStructRepr flds -> do
       let f :: BaseTypeRepr tp -> IO (SymExpr sym tp)
           f v = baseDefaultValue sym v
@@ -2691,7 +2711,10 @@ asConcrete x =
     BaseNatRepr    -> ConcreteNat <$> asNat x
     BaseIntegerRepr -> ConcreteInteger <$> asInteger x
     BaseRealRepr    -> ConcreteReal <$> asRational x
-    BaseStringRepr -> ConcreteString <$> asString x
+    BaseStringRepr si ->
+      case si of
+        UnicodeRepr -> ConcreteString <$> asString x
+        _ -> Nothing
     BaseComplexRepr -> ConcreteComplex <$> asComplex x
     BaseBVRepr w    -> ConcreteBV w <$> asUnsignedBV x
     BaseFloatRepr _ -> Nothing
@@ -2707,7 +2730,7 @@ concreteToSym sym = \case
    ConcreteNat x        -> natLit sym x
    ConcreteInteger x    -> intLit sym x
    ConcreteReal x       -> realLit sym x
-   ConcreteString x     -> stringLit sym x
+   ConcreteString x     -> stringLit sym UnicodeRepr x
    ConcreteComplex x    -> mkComplexLit sym x
    ConcreteBV w x       -> bvLit sym w x
    ConcreteStruct xs    -> mkStruct sym =<< traverseFC (concreteToSym sym) xs

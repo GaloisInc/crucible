@@ -49,7 +49,6 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.TraversableFC
 import           Data.Ratio
-import           Data.Text (Text)
 import           Numeric.Natural
 
 import           What4.BaseTypes
@@ -72,7 +71,7 @@ type family GroundValue (tp :: BaseType) where
   GroundValue (BaseBVType w)        = Integer
   GroundValue (BaseFloatType fpp)   = Integer
   GroundValue BaseComplexType       = Complex Rational
-  GroundValue BaseStringType        = Text
+  GroundValue (BaseStringType si)   = StringLiteral si
   GroundValue (BaseArrayType idx b) = GroundArray idx b
   GroundValue (BaseStructType ctx)  = Ctx.Assignment GroundValueWrapper ctx
 
@@ -126,7 +125,7 @@ defaultValueForType tp =
     BaseIntegerRepr -> 0
     BaseRealRepr    -> 0
     BaseComplexRepr -> 0 :+ 0
-    BaseStringRepr  -> mempty
+    BaseStringRepr si -> strLitEmpty si
     BaseArrayRepr _ b -> ArrayConcrete (defaultValueForType b) Map.empty
     BaseStructRepr ctx -> fmapFC (GVW . defaultValueForType) ctx
     BaseFloatRepr _ -> 0
@@ -160,7 +159,7 @@ tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingNatRepr c _) = return c
 tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingIntegerRepr c _) = return c
 tryEvalGroundExpr _ (SemiRingLiteral SR.SemiRingRealRepr c _) = return c
 tryEvalGroundExpr _ (SemiRingLiteral (SR.SemiRingBVRepr _ _ ) c _) = return c
-tryEvalGroundExpr _ (StringExpr x _) = return x
+tryEvalGroundExpr _ (StringExpr _ x _) = return x
 tryEvalGroundExpr _ (BoolExpr b _) = return b
 tryEvalGroundExpr f (NonceAppExpr a0) = evalGroundNonceApp (lift . f) (nonceExprApp a0)
 tryEvalGroundExpr f (AppExpr a0)      = evalGroundApp f (appExprApp a0)
@@ -216,7 +215,7 @@ groundEq bt x y = case bt of
   BaseNatRepr     -> mand $ x == y
   BaseBVRepr _    -> mand $ x == y
   BaseFloatRepr _ -> mand $ x == y
-  BaseStringRepr  -> mand $ x == y
+  BaseStringRepr si -> mand $ eqStrLit si x y
   BaseComplexRepr -> mand $ x == y
   BaseStructRepr flds ->
     coerceMAnd (Ctx.traverseWithIndex

@@ -160,7 +160,7 @@ addFeaturesForVarType tp =
     BaseIntegerRepr  -> addFeatures useIntegerArithmetic
     BaseRealRepr     -> addFeatures useLinearArithmetic
     BaseComplexRepr  -> addFeatures useComplexArithmetic
-    BaseStringRepr   -> addFeatures useStrings
+    BaseStringRepr _ -> addFeatures useStrings
     BaseArrayRepr{}  -> addFeatures useSymbolicArrays
     BaseStructRepr{} -> addFeatures useStructs
     BaseFloatRepr _  -> addFeatures useFloatingPoint

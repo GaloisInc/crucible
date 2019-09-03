@@ -592,7 +592,7 @@ type family AbstractValue (tp::BaseType) :: Type where
   AbstractValue BaseNatType = NatValueRange
   AbstractValue BaseIntegerType = ValueRange Integer
   AbstractValue BaseRealType = RealAbstractValue
-  AbstractValue BaseStringType = ()
+  AbstractValue (BaseStringType si) = () -- TODO
   AbstractValue (BaseBVType w) = BVDomain w
   AbstractValue (BaseFloatType _) = ()
   AbstractValue BaseComplexType = Complex RealAbstractValue
@@ -607,7 +607,7 @@ type family ConcreteValue (tp::BaseType) :: Type where
   ConcreteValue BaseNatType = Natural
   ConcreteValue BaseIntegerType = Integer
   ConcreteValue BaseRealType = Rational
-  ConcreteValue BaseStringType = Text
+  ConcreteValue (BaseStringType Unicode) = Text
   ConcreteValue (BaseBVType w) = Integer
   ConcreteValue (BaseFloatType _) = ()
   ConcreteValue BaseComplexType = Complex Rational
@@ -626,7 +626,7 @@ avTop tp =
     BaseIntegerRepr -> unboundedRange
     BaseRealRepr    -> ravUnbounded
     BaseComplexRepr -> ravUnbounded :+ ravUnbounded
-    BaseStringRepr  -> ()
+    BaseStringRepr _ -> ()
     BaseBVRepr w    -> BVD.any w
     BaseFloatRepr{} -> ()
     BaseArrayRepr _a b -> avTop b
@@ -640,7 +640,7 @@ avSingle tp =
     BaseNatRepr -> natSingleRange
     BaseIntegerRepr -> singleRange
     BaseRealRepr -> ravSingle
-    BaseStringRepr -> \_ -> ()
+    BaseStringRepr _ -> \_ -> ()
     BaseComplexRepr -> fmap ravSingle
     BaseBVRepr w -> BVD.singleton w
     BaseFloatRepr _ -> \_ -> ()
@@ -689,7 +689,7 @@ instance Abstractable BaseBoolType where
   avCheckEq _ (Just x) (Just y) = Just $! x == y
   avCheckEq _ _ _ = Nothing
 
-instance Abstractable BaseStringType where
+instance Abstractable (BaseStringType si) where
   avJoin _ _ _ = ()
   avOverlap _ _ _ = True
   avCheckEq _ _ _ = Nothing
@@ -770,7 +770,7 @@ withAbstractable bt k =
     BaseBVRepr _w -> k
     BaseNatRepr -> k
     BaseIntegerRepr -> k
-    BaseStringRepr -> k
+    BaseStringRepr _ -> k
     BaseRealRepr -> k
     BaseComplexRepr -> k
     BaseArrayRepr _a _b -> k

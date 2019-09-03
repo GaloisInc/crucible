@@ -873,7 +873,7 @@ yicesAdapter =
    }
 
 -- | Path to yices
-yicesPath :: ConfigOption BaseStringType
+yicesPath :: ConfigOption (BaseStringType Unicode)
 yicesPath = configOption knownRepr "yices_path"
 
 -- | Enable the MC-SAT solver
@@ -964,7 +964,7 @@ intWithRangeOpt nm lo hi =
 
 enumOpt :: String -> Set Text -> ConfigDesc
 enumOpt nm xs =
-  mkOpt (configOption BaseStringRepr $ "yices."++nm)
+  mkOpt (configOption (BaseStringRepr UnicodeRepr) $ "yices."++nm)
         (enumOptSty xs)
         Nothing
         Nothing

@@ -53,7 +53,7 @@ import           What4.Utils.HandleReader
 data Boolector = Boolector
 
 -- | Path to boolector
-boolectorPath :: ConfigOption BaseStringType
+boolectorPath :: ConfigOption (BaseStringType Unicode)
 boolectorPath = configOption knownRepr "boolector_path"
 
 boolectorOptions :: [ConfigDesc]

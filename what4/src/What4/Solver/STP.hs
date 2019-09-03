@@ -40,7 +40,7 @@ import           What4.Utils.Process
 data STP = STP deriving Show
 
 -- | Path to stp
-stpPath :: ConfigOption BaseStringType
+stpPath :: ConfigOption (BaseStringType Unicode)
 stpPath = configOption knownRepr "stp_path"
 
 stpRandomSeed :: ConfigOption BaseIntegerType

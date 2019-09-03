@@ -118,6 +118,7 @@ library
     What4.Utils.OnlyNatRepr
     What4.Utils.Process
     What4.Utils.Streams
+    What4.Utils.Word16String
 
   ghc-options: -Wall
   ghc-prof-options: -O2 -fprof-auto-top

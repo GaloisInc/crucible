@@ -56,7 +56,7 @@ intWithRangeOpt nm lo hi = mkOpt nm sty Nothing Nothing
 data CVC4 = CVC4 deriving Show
 
 -- | Path to cvc4
-cvc4Path :: ConfigOption BaseStringType
+cvc4Path :: ConfigOption (BaseStringType Unicode)
 cvc4Path = configOption knownRepr "cvc4_path"
 
 cvc4RandomSeed :: ConfigOption BaseIntegerType

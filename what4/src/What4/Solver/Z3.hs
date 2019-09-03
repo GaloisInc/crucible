@@ -50,7 +50,7 @@ import           What4.Utils.Process
 data Z3 = Z3 deriving Show
 
 -- | Path to Z3
-z3Path :: ConfigOption BaseStringType
+z3Path :: ConfigOption (BaseStringType Unicode)
 z3Path = configOption knownRepr "z3_path"
 
 -- | Timeout (zero is none)
