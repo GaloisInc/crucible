@@ -103,7 +103,9 @@ data Ty =
       | TyFloat !FloatKind
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
       | TyProjection !DefId !Substs -- The projection of an associated type. For example, <T as Trait<..>>::N.
-      | TyLifetime
+
+      | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
+      | TyConst         -- Placeholder for representing constants in `Substs`
 
       -- | The erased concrete type of a trait object.  This is never emitted
       -- by mir-json.  It's used in vtable shims, to replace the type of the

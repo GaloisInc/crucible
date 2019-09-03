@@ -5,7 +5,7 @@ use std::io::{Cursor, Read, Write};
 
 pub fn f(x: u8) -> u8 {
     let mut buf = [0; 5];
-    let msg = b"hello, world!" as &[u8];
+    let msg = b"hello, world!";
 
     let mut c = Cursor::new(msg);
     c.read(&mut buf);

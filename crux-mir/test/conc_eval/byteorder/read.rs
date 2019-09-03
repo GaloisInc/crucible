@@ -7,7 +7,7 @@ use byteorder::*;
 
 pub fn f(x: u8) -> u8 {
     let mut buf = *b"abcdefg";
-    let mut c = Cursor::new(&buf as &[_]);
+    let mut c = Cursor::new(&buf);
 
     let x = c.read_u16::<LE>().unwrap();
     let y = c.read_u32::<BE>().unwrap();

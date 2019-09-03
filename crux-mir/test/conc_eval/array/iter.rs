@@ -5,9 +5,7 @@ fn f(_x: u8) -> i32 {
     xs[1] = 1;
     xs[2] = 2;
     let mut y : i32 = 0;
-    // Currently we require an explicit cast because the IntoIterator impls use const generics
-    // (which crux-mir doesn't yet support).
-    for x in (&xs as &[_]) {
+    for x in &xs {
         y += x;
     }
     y

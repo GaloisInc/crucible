@@ -96,6 +96,7 @@ instance FromJSON Ty where
                                           Just (String "Never") -> pure (TyAdt "::Never[0]" (Substs []))
                                           Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
                                           Just (String "Lifetime") -> pure TyLifetime
+                                          Just (String "Const") -> pure TyConst
                                           r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON Instance where
