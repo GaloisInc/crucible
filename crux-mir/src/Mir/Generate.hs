@@ -77,7 +77,8 @@ generateMIR dir name keepRlib = do
   -- TODO: don't hardcode -L library path
   let runMirJSON = do
         (ec, _, _) <- Proc.readProcessWithExitCode "mir-json"
-            [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"] ""
+            [rustFile, "-L", "rlibs", "--crate-type=rlib", "--edition=2018"
+            , "--cfg", "crux", "--cfg", "crux_top_level"] ""
         return ec
 
   ec <- doesFileExist mirFile >>= \case 

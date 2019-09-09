@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::*;
 
@@ -28,10 +29,8 @@ fn ffs_imp(j : u32) -> u32 {
 }
 
 
-pub fn f (_arg : u32) -> bool {
+#[crux_test]
+pub fn f () {
     let a0 = crucible_u32("a0");
     crucible_assert!(ffs_ref(a0) == ffs_imp(a0));
-    true
 }
-
-pub static ARG: u32 = 27;

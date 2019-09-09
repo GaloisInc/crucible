@@ -209,7 +209,8 @@ data Collection = Collection {
     _impls     :: !([TraitImpl]),
     _statics   :: !(Map DefId Static),
     _vtables   :: !(Map VtableName Vtable),
-    _intrinsics :: !(Map IntrinsicName Intrinsic)
+    _intrinsics :: !(Map IntrinsicName Intrinsic),
+    _roots     :: !([MethName])
 } deriving (Show, Eq, Ord, Generic)
 
 data Intrinsic = Intrinsic
@@ -621,10 +622,10 @@ itemName = lens (\ti -> case ti of
 --------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1 i1 s1 v1 n1) <> (Collection f2 a2 t2 i2 s2 v2 n2) =
-    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2)
+  (Collection f1 a1 t1 i1 s1 v1 n1 r1) <> (Collection f2 a2 t2 i2 s2 v2 n2 r2) =
+    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (r1 <> r2)
 instance Monoid Collection where
-  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty
+  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty
   mappend = (<>)
 
   

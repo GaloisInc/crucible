@@ -1,4 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 // impl with multiple trait bounds on type parameter
 
 trait Foo {
@@ -58,4 +59,4 @@ fn f(arg: i32) {
 pub fn main() {
    println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> () { f(ARG) }

@@ -1,4 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 trait Foo2 {
     type Assoc;
     fn take_assoc(&self, a: Self::Assoc) -> i32;
@@ -30,4 +31,4 @@ fn f(arg: i32) {
 pub fn main() {
    println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> () { f(ARG) }

@@ -68,7 +68,7 @@ import           Mir.Mir
 import           Mir.PP()
 import           Mir.Overrides
 import           Mir.Intrinsics(MIR,mirExtImpl,mirIntrinsicTypes)
-import           Mir.DefId(DefId(..), cleanVariantName, parseFieldName)
+import           Mir.DefId(cleanVariantName, parseFieldName, idText)
 import           Mir.Generator
 import           Mir.Generate(generateMIR, translateMIR, loadPrims)
 import           Mir.Trans(transStatics, RustModule(..))
@@ -163,7 +163,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
     say "Crux" $ "Generating " ++ dir </> name <.> "mir"
 
   col <- generateMIR dir name False
-  
+
   when (onlyPP mirOpts) $ do
     -- TODO: make this exit more gracefully somehow
     print $ pretty col
@@ -183,54 +183,44 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
           return (mir, halloc)
                     
   C.AnyCFG init_cfg <- stToIO $ transStatics (mir^.rmCS) halloc
+  let hi = C.cfgHandle init_cfg
+  Refl <- failIfNotEqual (C.handleArgTypes hi)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
+         $ "Checking input to initializer"
+
   let cfgmap = mir^.rmCFGs
-  
+
   setSimulatorVerbosity (Crux.simVerbose cruxOpts) sym
-  
-  let fDefId = DefId [(Text.pack name, 0)] ("f", 0) []
-  res_ty <- case List.find (\fn -> fn^.fname == fDefId) (col^.functions) of
-                   Just fn -> return (fn^.fsig.fsreturn_ty)
-                   Nothing  -> fail "cannot find f"
 
   -- overrides
   let link :: C.OverrideSim (Model sym) sym MIR rtp a r ()
       link   = forM_ (Map.toList cfgmap) $
                  \(fn, C.AnyCFG cfg) -> bindFn fn cfg
-   
-  (C.AnyCFG f_cfg) <- case (Map.lookup (Text.pack $ "::" ++ name ++ "[0]::f[0]") cfgmap) of
-                        Just c -> return c
-                        _      -> fail $ "Could not find cfg: " ++ "f"
-  (C.AnyCFG a_cfg) <- case (Map.lookup (Text.pack $ "::" ++ name ++ "[0]::ARG[0]") cfgmap) of
-                        Just c -> return c
-                        _      -> fail $ "Could not find cfg: " ++ "g"
-
-  when (?debug > 2) $ do
-    say "Crux" "f CFG"
-    print $ C.ppCFG True f_cfg
-    say "Crux" "ARG CFG"
-    print $ C.ppCFG True a_cfg
-
-  let hf = C.cfgHandle f_cfg
-  let ha = C.cfgHandle a_cfg
-  let hi = C.cfgHandle init_cfg
-  
-  Refl <- failIfNotEqual (C.handleArgTypes ha)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
-         $ "Checking input to ARG"
-  Refl <- failIfNotEqual (C.handleArgTypes hf) (Ctx.empty `Ctx.extend` C.handleReturnType ha)
-         $ "Checking agreement between f and ARG"
-  Refl <- failIfNotEqual (C.handleArgTypes hi)   (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
-         $ "Checking input to initializer"
 
   let
      osim :: Fun sym MIR Ctx.EmptyCtx C.UnitType
      osim   = do
         link
         _   <- C.callCFG init_cfg C.emptyRegMap
-        arg <- C.callCFG a_cfg C.emptyRegMap
-        res <- C.callCFG f_cfg (C.RegMap (Ctx.empty `Ctx.extend` arg))
-        str <- showRegEntry @sym col res_ty res
-        liftIO $ outputLn str
-        return ()
+        forM_ @_ @_ @_ @() (col ^. roots) $ \fnName -> do
+            (C.AnyCFG f_cfg) <- case (Map.lookup (idText fnName) cfgmap) of
+                                  Just c -> return c
+                                  _      -> fail $ "Could not find cfg: " ++ show fnName
+            let hf = C.cfgHandle f_cfg
+            Refl <- failIfNotEqual (C.handleArgTypes hf) (W4.knownRepr :: C.CtxRepr Ctx.EmptyCtx)
+                   $ "Checking input to ARG"
+
+            res <- C.callCFG f_cfg C.emptyRegMap
+            res_ty <- case List.find (\fn -> fn^.fname == fnName) (col^.functions) of
+                             Just fn -> return (fn^.fsig.fsreturn_ty)
+                             Nothing  -> fail $ "cannot find " ++ show fnName
+            if length (col^.roots) > 1 then do
+                str <- if res_ty /= TyTuple [] then showRegEntry @sym col res_ty res else return "OK"
+                liftIO $ outputLn $ show fnName ++ ": " ++ str
+            else do
+                -- This case is mainly for concrete evaluation tests, where the
+                -- output get checked against the fmt::Debug rendering.
+                str <- showRegEntry @sym col res_ty res
+                liftIO $ outputLn $ str
 
   let outH = view outputHandle ?outputConfig
   let simctx = C.initSimContext sym mirIntrinsicTypes halloc outH C.emptyHandleMap mirExtImpl p

@@ -1,10 +1,11 @@
 #![no_std]
+#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::*;
 
-pub fn f(x: u8) -> u8 {
+#[crux_test]
+pub fn f() -> u8 {
+    let x: u8 = 1;
     // This call should be replaced by the test override
     x + one()
 }
-
-pub static ARG: u8 = 1;

@@ -1,4 +1,5 @@
 // FAIL: needs Vec data structure from stdlib
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 
 pub fn addn(x: &[u32], y: &[u32]) -> Vec<u32>
@@ -35,4 +36,4 @@ const ARG:u32 = 4;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }

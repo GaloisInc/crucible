@@ -1,4 +1,5 @@
 // FAIL: needs Vec data structure from stdlib
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 // https://github.com/rust-lang/rust/blob/master/src/liballoc/vec.rs
 #![cfg_attr(not(with_main), no_std)]
 
@@ -38,4 +39,4 @@ const ARG:u32 = 4;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }

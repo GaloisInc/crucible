@@ -1,4 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 
 fn f(_x: u8) -> i32 {
     let mut xs : [i32; 3] = [0; 3];
@@ -17,4 +18,4 @@ const ARG: u8 = 42;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> i32 { f(ARG) }

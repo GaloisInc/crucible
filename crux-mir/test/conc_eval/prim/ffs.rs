@@ -1,4 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 
 fn ffs_ref(word : u32) -> u32 {
     let mut i : u32 = 0;
@@ -34,4 +35,4 @@ const ARG: u32 = 28;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }

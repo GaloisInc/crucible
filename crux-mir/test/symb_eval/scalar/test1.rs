@@ -11,6 +11,7 @@
 //! (0xfffffffffffff^2) * 5 = 0x4ffffffffffff60000000000005 (107 bits).
 //! ```
 #![no_std]
+#![feature(custom_attribute)]
 
 extern crate core;
 //use core::fmt::Debug;
@@ -76,12 +77,8 @@ macro_rules! crucible_debug_integer {
 
 
 
-#[cfg(with_main)]
-fn main() {
-   println!("{:?}", f(ARG));
-}
-
-pub fn f(_w : u64 ) -> bool {
+#[crux_test]
+pub fn f() {
     // Int512 -> Scalar64 -> Int512 conversion is the identity function.
     {
         let i = Int512::symbolic("isi");
@@ -163,11 +160,7 @@ pub fn f(_w : u64 ) -> bool {
         crucible_assert!(is_valid(y));
         crucible_assert!(y == a.add(b) || y == a.add(b).sub(L()));
     }
-
-    return true;
 }
-
-pub static ARG: u64 = 20;
 
 
 

@@ -186,6 +186,7 @@ instance FromJSON Collection where
       (statics :: [Static]  ) <- v .: "statics"
       (vtables :: [Vtable]  ) <- v .: "vtables"
       (intrinsics :: [Intrinsic]) <- v .: "intrinsics"
+      (roots :: [MethName])   <- v .: "roots"
       return $ Collection
         (foldr (\ x m -> Map.insert (x^.fname) x m)     Map.empty fns)
         (foldr (\ x m -> Map.insert (x^.adtname) x m)   Map.empty adts)
@@ -194,6 +195,7 @@ instance FromJSON Collection where
         (foldr (\ x m -> Map.insert (x^.sName) x m)     Map.empty statics)
         (foldr (\ x m -> Map.insert (x^.vtName) x m)    Map.empty vtables)
         (foldr (\ x m -> Map.insert (x^.intrName) x m)  Map.empty intrinsics)
+        roots
 
 
 instance FromJSON Fn where

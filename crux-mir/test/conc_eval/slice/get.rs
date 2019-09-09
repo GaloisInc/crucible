@@ -1,4 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![feature(never_type)]
 
 extern crate core;
@@ -36,4 +37,4 @@ impl Lmcp for u16 {
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }

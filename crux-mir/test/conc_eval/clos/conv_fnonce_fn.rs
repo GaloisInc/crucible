@@ -1,4 +1,5 @@
 // FAIL: call_once shim
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 pub fn call_it<F: FnOnce(i32) -> i32>(f: F) -> i32 {
     f(1)
@@ -15,4 +16,4 @@ pub fn f(x: i32) -> i32 {
 pub static ARG: i32 = 1;
 
 #[cfg(with_main)] pub fn main() { println!("{:?}", f(ARG)); }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() ->  { f(ARG) }

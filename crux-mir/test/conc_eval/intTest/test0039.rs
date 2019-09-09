@@ -1,4 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 #[no_mangle]
 static mut X: i32 = 0;
 
@@ -31,4 +32,4 @@ pub fn main() {
         println!("{:?}", f(ARG));
     }
 }
-#[cfg(not(with_main))] pub fn main() { unsafe { f(ARG); } }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> i32 { unsafe { f(ARG) } }

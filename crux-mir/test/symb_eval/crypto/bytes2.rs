@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(custom_attribute)]
 extern crate crucible;
 use crucible::*;
 
@@ -69,9 +70,8 @@ pub fn to_bytes(x :&[u64;5]) -> [u8; 32] {
     s
 }
 
-pub static ARG: u64 = 20;
-
-pub fn f(_w : u64 ) -> bool {
+#[crux_test]
+pub fn f() {
     let mut s = [0u8; 32];
 
     let a0 = crucible_u8("a0");
@@ -103,6 +103,4 @@ pub fn f(_w : u64 ) -> bool {
     for i in 0..11 {
       crucible_assert!(s[i] == b[i]);
     } 
-
-    true
 }

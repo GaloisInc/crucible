@@ -1,4 +1,5 @@
 #![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn call_with_one<T,F:Fn(T)->T>(some_closure: &F, arg:T) -> T {
 
     some_closure(arg)
@@ -17,4 +18,4 @@ const ARG :i32 = 2;
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> i32 { f(ARG) }

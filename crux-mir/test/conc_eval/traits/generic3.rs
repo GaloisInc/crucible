@@ -1,4 +1,5 @@
 // Trait with generic method
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 
 #[derive(Clone, Copy)]
@@ -35,4 +36,4 @@ fn f(arg: i32) {
 }
 
 #[cfg(with_main)] pub fn main() { println!("{:?}", f(ARG)); }
-#[cfg(not(with_main))] pub fn main() { f(ARG); }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> () { f(ARG) }
