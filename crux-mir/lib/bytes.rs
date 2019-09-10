@@ -15,11 +15,6 @@ pub struct BytesMut {
     _dummy: usize,
 }
 
-pub struct Writer<T> {
-    _dummy: usize,
-    _marker: PhantomData<T>,
-}
-
 
 impl Bytes {
     pub fn len(&self) -> usize {
@@ -146,9 +141,7 @@ pub trait BufMut {
     }
 
     fn writer(self) -> Writer<Self>
-    where Self: Sized {
-        unimplemented!()
-    }
+    where Self: Sized;
 }
 
 
@@ -161,6 +154,13 @@ impl Buf for BytesMut {
 impl BufMut for BytesMut {
     fn put_slice(&mut self, xs: &[u8]) {
         self.extend(xs);
+    }
+
+    fn writer(self) -> Writer<Self>
+    where Self: Sized {
+        Writer {
+            inner: self,
+        }
     }
 }
 
@@ -175,17 +175,9 @@ impl<T: BufMut> BufMut for &mut T {
 
     fn writer(self) -> Writer<Self>
     where Self: Sized {
-        unimplemented!()
-    }
-}
-
-impl io::Write for Writer<BytesMut> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unimplemented!()
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        unimplemented!()
+        Writer {
+            inner: self,
+        }
     }
 }
 
@@ -256,3 +248,18 @@ impl Iterator for Iter {
     }
 }
 
+
+pub struct Writer<T> {
+    inner: T,
+}
+
+impl<T: BufMut> io::Write for Writer<T> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.inner.put_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
