@@ -12,6 +12,7 @@ pub mod vec;
 pub mod prelude {
     pub mod v1 {
         pub use core::prelude::v1::*;
+        pub use crate::vec::Vec;
     }
 }
 
