@@ -221,3 +221,23 @@ impl<'a> Extend<&'a u8> for BytesMut {
         }
     }
 }
+
+pub struct Iter {
+    _dummy: usize,
+}
+
+impl IntoIterator for Bytes {
+    type Item = u8;
+    type IntoIter = Iter;
+    fn into_iter(self) -> Iter {
+        unimplemented!()
+    }
+}
+
+impl Iterator for Iter {
+    type Item = u8;
+    fn next(&mut self) -> Option<u8> {
+        unimplemented!()
+    }
+}
+

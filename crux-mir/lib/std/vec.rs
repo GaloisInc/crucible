@@ -1,5 +1,6 @@
 use core::convert::From;
 use core::default::Default;
+use core::iter::IntoIterator;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 
@@ -103,5 +104,28 @@ impl<T: Clone> From<&[T]> for Vec<T> {
 impl<T: Clone> From<&mut [T]> for Vec<T> {
     fn from(x: &mut [T]) -> Vec<T> {
         From::<&[T]>::from(x)
+    }
+}
+
+pub struct IntoIter<T> {
+    /// `vec` is the original vec, reversed.  So `next` is simply `vec.pop()`.
+    vec: Vec<T>,
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        self.vec.pop()
+    }
+}
+
+impl<T> IntoIterator for Vec<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+
+    fn into_iter(mut self) -> IntoIter<T> {
+        self.reverse();
+        IntoIter { vec: self }
     }
 }
