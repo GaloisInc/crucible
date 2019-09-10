@@ -1,4 +1,5 @@
 use std::io;
+use std::iter::Extend;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
@@ -70,6 +71,80 @@ pub trait Buf {
 }
 
 pub trait BufMut {
+    fn put_slice(&mut self, xs: &[u8]);
+
+    fn put_u8(&mut self, x: u8) {
+        unimplemented!()
+    }
+
+    fn put_u16_be(&mut self, x: u16) {
+        self.put_slice(&x.to_be_bytes())
+    }
+
+    fn put_u32_be(&mut self, x: u32) {
+        self.put_slice(&x.to_be_bytes())
+    }
+
+    fn put_u64_be(&mut self, x: u64) {
+        self.put_slice(&x.to_be_bytes())
+    }
+
+    fn put_u128_be(&mut self, x: u128) {
+        self.put_slice(&x.to_be_bytes())
+    }
+
+    fn put_u16_le(&mut self, x: u16) {
+        self.put_slice(&x.to_le_bytes())
+    }
+
+    fn put_u32_le(&mut self, x: u32) {
+        self.put_slice(&x.to_le_bytes())
+    }
+
+    fn put_u64_le(&mut self, x: u64) {
+        self.put_slice(&x.to_le_bytes())
+    }
+
+    fn put_u128_le(&mut self, x: u128) {
+        self.put_slice(&x.to_le_bytes())
+    }
+
+    fn put_i8(&mut self, x: i8) {
+        self.put_u8(x as u8)
+    }
+
+    fn put_i16_be(&mut self, x: i16) {
+        self.put_u16_be(x as u16)
+    }
+
+    fn put_i32_be(&mut self, x: i32) {
+        self.put_u32_be(x as u32)
+    }
+
+    fn put_i64_be(&mut self, x: i64) {
+        self.put_u64_be(x as u64)
+    }
+
+    fn put_i128_be(&mut self, x: i128) {
+        self.put_u128_be(x as u128)
+    }
+
+    fn put_i16_le(&mut self, x: i16) {
+        self.put_u16_le(x as u16)
+    }
+
+    fn put_i32_le(&mut self, x: i32) {
+        self.put_u32_le(x as u32)
+    }
+
+    fn put_i64_le(&mut self, x: i64) {
+        self.put_u64_le(x as u64)
+    }
+
+    fn put_i128_le(&mut self, x: i128) {
+        self.put_u128_le(x as u128)
+    }
+
     fn writer(self) -> Writer<Self>
     where Self: Sized {
         unimplemented!()
@@ -84,6 +159,9 @@ impl Buf for BytesMut {
 }
 
 impl BufMut for BytesMut {
+    fn put_slice(&mut self, xs: &[u8]) {
+        self.extend(xs);
+    }
 }
 
 impl io::Write for Writer<BytesMut> {
@@ -125,5 +203,21 @@ impl From<&[u8]> for Bytes {
 impl From<&[u8]> for BytesMut {
     fn from(x: &[u8]) -> BytesMut {
         unimplemented!()
+    }
+}
+
+impl Extend<u8> for BytesMut {
+    fn extend<I: IntoIterator<Item = u8>>(&mut self, iter: I) {
+        for x in iter {
+            self.put_u8(x);
+        }
+    }
+}
+
+impl<'a> Extend<&'a u8> for BytesMut {
+    fn extend<I: IntoIterator<Item = &'a u8>>(&mut self, iter: I) {
+        for &x in iter {
+            self.put_u8(x);
+        }
     }
 }

@@ -44,6 +44,22 @@ impl<T> Vec<T> {
             self.push(x.clone());
         }
     }
+
+    pub fn sort_by_key<K, F>(&mut self, mut f: F)
+    where F: FnMut(&T) -> K, K: Ord {
+        for i in 0 .. self.len() {
+            let mut best_idx = i;
+            let mut best_key = f(&self[i]);
+            for j in i + 1 .. self.len() {
+                let key = f(&self[j]);
+                if key < best_key {
+                    best_key = key;
+                    best_idx = j;
+                }
+            }
+            self.swap(i, best_idx);
+        }
+    }
 }
 
 impl<T> Deref for Vec<T> {
