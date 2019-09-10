@@ -164,6 +164,21 @@ impl BufMut for BytesMut {
     }
 }
 
+impl<T: BufMut> BufMut for &mut T {
+    fn put_slice(&mut self, xs: &[u8]) {
+        <T as BufMut>::put_slice(self, xs)
+    }
+
+    fn put_u8(&mut self, x: u8) {
+        <T as BufMut>::put_u8(self, x)
+    }
+
+    fn writer(self) -> Writer<Self>
+    where Self: Sized {
+        unimplemented!()
+    }
+}
+
 impl io::Write for Writer<BytesMut> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         unimplemented!()
