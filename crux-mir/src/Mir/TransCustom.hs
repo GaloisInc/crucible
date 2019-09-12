@@ -69,60 +69,6 @@ import           Mir.Trans
 
 import Debug.Trace
 
---------------------------------------------------------------------------------------------------------------------------
--- * Data structure manipulation for implementing primitives
-
--- ** options
-
--- | Construct an option::Some value
-mkSome :: C.TypeRepr tp -> G.Expr MIR s tp -> G.Expr MIR s TaggedUnion
-mkSome ty val =
-   let tty  = C.StructRepr (Ctx.empty Ctx.:> ty) in
-   let tval = G.App $ E.MkStruct (Ctx.empty Ctx.:> ty) (Ctx.empty Ctx.:> val) in
-   G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
-                      (Ctx.empty Ctx.:> (S.app $ E.NatLit 1) Ctx.:> (S.app $ E.PackAny tty tval))
-
--- | Construct an option::None value
-mkNone :: G.Expr MIR s TaggedUnion
-mkNone =
-  let ty  = C.StructRepr Ctx.empty in
-  let val = S.app $ E.MkStruct Ctx.empty Ctx.empty in
-  G.App $ E.MkStruct (Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) 
-                     (Ctx.empty Ctx.:> (S.app $ E.NatLit 0) Ctx.:> (S.app $ E.PackAny ty val))
-
--- ** range
-
--- | Project the "start" component of a range::Range value
-rangeStart :: C.TypeRepr ty -> R.Expr MIR s TaggedUnion -> MirGenerator h s ret (R.Expr MIR s ty)
-rangeStart itemRepr r = do
-   (MirExp C.AnyRepr tup) <- accessAggregate (MirExp taggedUnionRepr r) 1
-   let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
-   let strTy = C.StructRepr ctx
-   let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
-                                     (String.fromString ("Bad Any unpack rangeStart:" ++ show strTy))
-   let start = S.getStruct Ctx.i1of2 unp
-   return start
-
--- | Project the "end" component of a range::Range value
-rangeEnd :: C.TypeRepr ty -> R.Expr MIR s TaggedUnion -> MirGenerator h s ret (R.Expr MIR s ty)
-rangeEnd itemRepr r = do
-   (MirExp C.AnyRepr tup) <- accessAggregate (MirExp taggedUnionRepr r) 1
-   let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
-   let strTy = C.StructRepr ctx
-   let unp   = S.app $ E.FromJustValue strTy (S.app $ E.UnpackAny strTy tup)
-                                     (String.fromString ("Bad Any unpack rangeEnd:" ++ show strTy))
-   let end   = S.getStruct Ctx.i2of2 unp
-   return end
-
--- | Construct a range::Range value given start & end 
-mkRange :: C.TypeRepr ty -> R.Expr MIR s ty -> R.Expr MIR s ty -> R.Expr MIR s TaggedUnion
-mkRange itemRepr start end = 
-   let ctx   = (Ctx.empty `Ctx.extend` itemRepr `Ctx.extend` itemRepr)
-       strTy = C.StructRepr ctx
-       y     = S.app $ E.PackAny strTy (S.app $ E.MkStruct ctx (Ctx.empty `Ctx.extend` start `Ctx.extend` end))
-       j     = S.app $ E.MkStruct taggedUnionCtx (Ctx.empty `Ctx.extend` (S.litExpr 0) `Ctx.extend` y)
-   in  j
-
 
 --------------------------------------------------------------------------------------------------------------------------
 -- *  Primitives & other custom stuff
@@ -147,23 +93,10 @@ customOps = Map.fromList [
                          -- for compatibility with new monomorphization.
 
                          , slice_len
-                         , slice_is_empty
-                         , slice_first
-                         --, slice_get
-                         --, slice_get_mut
-
-                         --, slice_get_unchecked
-                         --, slice_get_unchecked_mut
-
+                         --, slice_is_empty
+                         --, slice_first
 
                          , str_len
-
-                         --, ops_index
-                         --, ops_index_mut
-
-                         , into_iter
-                         , iter_next
-                         , iter_collect
 
                          , wrapping_mul
                          , wrapping_sub
@@ -215,72 +148,6 @@ panicking_panic = ((["core", "panicking"], "panic", []), \s -> Just $ CustomOpEx
     )
 
 -----------------------------------------------------------------------------------------------------
--- ** Custom: Index
-
--- TODO: these are trait implementations, so we should do what we did with the SliceIndex versions below
--- so that we can make dictionaries.
-
-ops_index :: (ExplodedDefId, CustomRHS)
-ops_index = ((["core", "ops", "index"], "Index", ["index"]), index_op )
-
-ops_index_mut :: (ExplodedDefId, CustomRHS)
-ops_index_mut = ((["core", "ops", "index"], "IndexMut", ["index_mut"]), index_op_mut )
-
-
-{-
-libcore/slice.rs includes the following impl that I don't know how to get through
-rustc. So we implement by hand here.
-
-    impl<T, I> Index<I> for [T]
-    where I: SliceIndex<[T]>
-    {
-        type Output = I::Output;
-        
-        #[inline]
-        fn index(&self, index: I) -> &I::Output {
-            index.index(self)
-        }
-    }
-
-    impl<T, I> IndexMut<I> for [T]
-    where I: SliceIndex<[T]>
-    {
-        #[inline]
-        fn index_mut(&mut self, index: I) -> &mut I::Output {
-            index.index_mut(self)
-        }
-    }
-
-
--}
-
-index_op :: Substs -> Maybe CustomOp
-index_op (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
-    Just $ CustomMirOp $ \ ops -> do
-             case ops of
-               [op1, op2] -> do
-                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::index[0]")
-                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
-                  let substs = Substs [ii, TySlice elTy, TySlice elTy]
-                  callExp funid substs [op2, op1] 
-               _ -> mirFail $ "BUG: invalid arguments to index"
-index_op _ = Nothing
-
-
-
-index_op_mut :: Substs -> Maybe CustomOp
-index_op_mut (Substs [TySlice elTy, ii@(TyAdt _did _ss), iiOutput ]) =
-    Just $ CustomMirOp $ \ ops -> do
-             case ops of
-               [op1, op2] -> do
-                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::index_mut[0]")
-                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
-                  let substs = Substs [ii, TySlice elTy, TySlice elTy]
-                  callExp funid substs [op2, op1] 
-               _ -> mirFail $ "BUG: invalid arguments to index_mut"
-index_op_mut _ = Nothing
---------------------------------------------------------------------------------------------------------------------------
-
 -- ** Custom: wrapping_mul
 
 -- TODO: this should return (a * b) mod 2N
@@ -322,6 +189,41 @@ wrapping_sub = ( (["core","num","{{impl}}"], "wrapping_sub", []),
 
        _ -> mirFail $ "BUG: invalid arguments for wrapping_sub")
 
+with_overflow_result ::
+    C.TypeRepr ty ->
+    E.App MIR (R.Expr MIR s) ty ->
+    E.App MIR (R.Expr MIR s) C.BoolType ->
+    MirExp s
+with_overflow_result ty x b = buildTuple
+    [ MirExp (C.MaybeRepr ty) $
+        R.App $ E.JustValue ty $
+        R.App $ x
+    , MirExp (C.MaybeRepr C.BoolRepr) $
+        R.App $ E.JustValue C.BoolRepr $
+        R.App $ b
+    ]
+
+add_with_overflow ::  (ExplodedDefId, CustomRHS)
+add_with_overflow = ((["core","intrinsics"],"add_with_overflow", []),
+    \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
+        ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
+          | Just Refl <- testEquality w1 w2 -> do
+            return $ with_overflow_result
+                (C.BVRepr w1) (E.BVAdd w1 e1 e2) (E.BVCarry w1 e1 e2)
+        _ -> mirFail $ "bad arguments to add_with_overflow: " ++ show (opTys, ops)
+    )
+
+sub_with_overflow ::  (ExplodedDefId, CustomRHS)
+sub_with_overflow = ((["core","intrinsics"],"sub_with_overflow", []),
+    \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
+        ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
+          | Just Refl <- testEquality w1 w2 -> do
+            return $ with_overflow_result
+                (C.BVRepr w1) (E.BVSub w1 e1 e2) (E.BVUlt w1 e1 e2)
+        _ -> mirFail $ "bad arguments to add_with_overflow: " ++ show (opTys, ops)
+    )
+
+
 ---------------------------------------------------------------------------------------
 -- ** Custom ::intrinsics::discriminant_value
 
@@ -341,111 +243,40 @@ type_id = ((["core","intrinsics"],"type_id", []),
     -- TODO: keep a map from Ty to Word64, assigning IDs on first use of each type
     return $ MirExp knownRepr $ R.App (E.BVLit (knownRepr :: NatRepr 64) 0))
 
----------------------------------------------------------------------------------------
--- ** Custom: Iterator
-
--- TODO: should replace these with mir-lib implementations
-
-
-into_iter :: (ExplodedDefId, CustomRHS)
-into_iter = ((["core","iter","traits","collect"], "IntoIterator", ["into_iter"]),
-    \(Substs subs) -> case subs of
-       [ TyAdt defid (Substs [itemTy]) ]
-         | defid == M.textId "::core[0]::ops[0]::range[0]::Range[0]"
-         ->  Just $ CustomOp $ \_opTys [arg] -> return arg
-
-       [ TyRef (TyArray itemTy size) Immut ]
-         ->  Just $ CustomOp $ \_opTys [arg] -> do
-             -- array iterator: a pair of the vector and the index
-             -- this is not the implementation of "slice::Iter"
-             -- but should be
-             let x = buildTuple [arg, MirExp (C.NatRepr) (S.app $ E.NatLit 0)]
-             let y = buildTuple [MirExp C.NatRepr (S.app $ E.NatLit 0), packAny x]
-             return y
-       _ -> Nothing)
-               
-      
-iter_next :: (ExplodedDefId, CustomRHS)
-iter_next = ((["core","iter","traits","iterator"],"Iterator", ["next"]), iter_next_op) where
-  iter_next_op (Substs [TyAdt defid (Substs [itemTy])])
-    | defid == M.textId "::core[0]::ops[0]::range[0]::Range[0]"  = Just (CustomOp (iter_next_op_range itemTy))
-  iter_next_op (Substs [TyAdt defid (Substs [_,itemTy])])
-    | defid == M.textId "::core[0]::slice[0]::Iter[0]" = Just (CustomOp (iter_next_op_array itemTy))
-  iter_next_op (Substs [TyArray itemTy _len]) = Just (CustomOp (iter_next_op_array itemTy))
-  iter_next_op _ = Nothing
+-- mem::swap is used pervasively (both directly and via mem::replace), but it
+-- has a nasty unsafe implementation, with lots of raw pointers and
+-- reintepreting casts.  Fortunately, it requires `T: Sized`, so it's almost
+-- trivial to implement as a custom op.
+mem_swap ::  (ExplodedDefId, CustomRHS)
+mem_swap = ((["core","mem"],"swap", []),
+    \ _substs -> Just $ CustomOp $ \ opTys ops -> case ops of
+        [MirExp (MirReferenceRepr ty1) e1, MirExp (MirReferenceRepr ty2) e2]
+          | Just Refl <- testEquality ty1 ty2 -> do
+            val1 <- readMirRef ty1 e1
+            val2 <- readMirRef ty2 e2
+            writeMirRef e1 val2
+            writeMirRef e2 val1
+            return $ MirExp knownRepr $ R.App E.EmptyApp
+        _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
+    )
 
 
-iter_next_op_range :: forall h s ret. HasCallStack => Ty -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_next_op_range itemTy _opTys ops =
-    case ops of 
-       [ MirExp (MirReferenceRepr tr) ii ]
-         | Just Refl <- testEquality tr taggedUnionRepr
-         -> do
-             -- iterator is a struct of a "start" and "end" value of type 'itemTy'
-             -- to increment the iterator, make sure the start < end and then
-             tyToReprCont itemTy $ \itemRepr -> do
-
-                r <- readMirRef tr ii
-                start <- rangeStart itemRepr r
-                end   <- rangeEnd   itemRepr r
-
-                plus_one <- incrExp itemRepr start
-                let good_ret = mkSome itemRepr start
-                let bad_ret  = mkNone
-                let  updateRange :: MirGenerator h s ret ()
-                     updateRange = writeMirRef ii (mkRange itemRepr plus_one end)
-
-                (MirExp C.BoolRepr boundsCheck)
-                     <- evalBinOp Lt (arithType itemTy) (MirExp itemRepr start)
-                                                          (MirExp itemRepr end)
-                ret <- G.ifte boundsCheck
-                           (updateRange >> return good_ret)
-                           (return bad_ret)
-                return (MirExp taggedUnionRepr ret)
-       _ -> mirFail $ "BUG: invalid arguments for iter_next"
+-- This is like normal mem::transmute, but requires source and target types to
+-- have identical Crucible `TypeRepr`s.
+mem_crucible_identity_transmute ::  (ExplodedDefId, CustomRHS)
+mem_crucible_identity_transmute = ((["core","mem"],"crucible_identity_transmute", []),
+    \ substs -> case substs of
+      Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
+        [e@(MirExp argTy _)]
+          | Some retTy <- tyToRepr tyU
+          , Just Refl <- testEquality argTy retTy -> return e
+        _ -> mirFail $ "bad arguments to mem_crucible_identity_transmute: "
+          ++ show (tyT, tyU, ops)
+      _ -> Nothing
+    )
 
 
-iter_next_op_array :: forall h s ret. HasCallStack => Ty -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_next_op_array itemTy _opTys ops = 
-    -- iterator is a reference to a struct containing (vec, pos of nat)
-    -- if pos < size of vec, return (Some(vec[pos]) and update ref to (vec, pos+1)).
-    -- otherwise return None  (and leave ref alone)
-  case ops of
-    [MirExp (MirReferenceRepr tp) iter_ref]
-     | Just Refl <- testEquality tp taggedUnionRepr -> do
-      tyToReprCont itemTy $ \ elemTy -> do
-        adt <- readMirRef tp iter_ref
-        let iter = S.getStruct Ctx.i2of2 adt   -- get the data value (we know that the tag is
-        let ctx = Ctx.empty Ctx.:> (C.VectorRepr elemTy) Ctx.:> C.NatRepr
-        let tr = (C.StructRepr ctx)
-        let iter' = (S.app $ E.FromJustValue tr (S.app $ E.UnpackAny tr iter) (String.fromString ("Bad Any unpack: " ++ show tr)))
-        let iter_vec = S.getStruct Ctx.i1of2 iter'
-        let iter_pos = S.getStruct Ctx.i2of2 iter' 
-        let is_good    = S.app $ E.NatLt iter_pos (S.app $ E.VectorSize iter_vec)
 
-            good_ret_1 = mkSome elemTy (S.app $ E.VectorGetEntry elemTy iter_vec iter_pos)
-            next_iter  = S.app $ E.MkStruct taggedUnionCtx
-                            (Ctx.empty Ctx.:> (S.app $ E.NatLit 0) Ctx.:> (S.app $ E.PackAny (C.StructRepr ctx) tup))
-            tup = G.App (E.MkStruct ctx (Ctx.empty Ctx.:> iter_vec Ctx.:> next_pos)) 
-            next_pos = (S.app $ E.NatAdd iter_pos (S.app $ E.NatLit 1))
-
-
-        ret <- withRepr taggedUnionRepr $ G.ifte is_good
-                (do writeMirRef iter_ref next_iter
-                    return good_ret_1)
-                (return mkNone)
-        return $ MirExp taggedUnionRepr ret
-    _ -> mirFail $ "BUG: invalid args to iter_next_op_array " ++ show ops
-
-
-iter_collect :: (ExplodedDefId, CustomRHS)
-iter_collect = ((["core","iter","traits","iterator"],"Iterator", ["collect"]), \subst -> Just $ CustomOp $ iter_collect_op subst)
-
-iter_collect_op ::  forall h s ret. HasCallStack => Substs -> [Ty] -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-iter_collect_op _subst _opTys ops =
-   case ops of
-     [ iter ] -> accessAggregate iter 0
-     _ -> mirFail $ "BUG: invalid arguments to iter_collect"
 
 
 -------------------------------------------------------------------------------------------------------
@@ -499,6 +330,7 @@ slice_len =
             return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
        _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len")
 
+{-
 slice_is_empty :: (ExplodedDefId, CustomRHS)
 slice_is_empty =
   ((["core","slice","{{impl}}","is_empty"], "crucible_is_empty_hook", [])
@@ -519,57 +351,7 @@ slice_first =
        [MirExp (C.VectorRepr elTy) vec_e] -> do
             return (MirExp elTy (G.App $ E.VectorGetEntry elTy vec_e (G.App $ E.NatLit 0)))
        _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_first")
-
-{-  impl<T>[T] {
-
-        pub fn get<I>(&self, index: I) -> Option<&I::Output>
-        where I: SliceIndex<Self>
-        {
-            index.get(self)
-        }
-        
-        pub fn get_mut<I>(&mut self, index: I) -> Option<&mut I::Output>
-        where I: SliceIndex<Self>
-        {
-            index.get_mut(self)
-        }
-    }
 -}
-
--- TODO: since this is a completely custom function, it is not in the collection at all
--- So the AT translation does not know to pass the third type argument for I::Output
-
-slice_get_op :: Substs -> Maybe CustomOp
-slice_get_op (Substs [tt, ii]) =
-    Just $ CustomMirOp $ \ ops -> do
-             case ops of
-               [op1, op2] -> do
-                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::get[0]")
-                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
-                  let substs = Substs [ii, TySlice tt, TySlice tt]
-                  callExp funid substs [op2, op1] 
-               _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get"
-slice_get_op _ = Nothing
-
-slice_get_mut_op :: Substs -> Maybe CustomOp
-slice_get_mut_op (Substs [tt, ii]) =
-    Just $ CustomMirOp $ \ ops -> do
-             case ops of
-               [op1, op2] -> do
-                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::get_mut[0]")
-                      -- TODO: third arg in substs should be iiOutput, but TyProj not removed
-                  let substs = Substs [ii, TySlice tt, TySlice tt]
-                  callExp funid substs [op2, op1] 
-               _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_mut"
-slice_get_mut_op _ = Nothing
-
-
-slice_get :: (ExplodedDefId, CustomRHS)
-slice_get = ((["core","slice", "{{impl}}"],"get", []), slice_get_op)
-
-slice_get_mut :: (ExplodedDefId, CustomRHS)
-slice_get_mut = ((["core","slice", "{{impl}}"],"get_mut", []), slice_get_mut_op)
-
 
 {---
 
@@ -598,45 +380,6 @@ impl<T> [T] {
 }
 
 --}
-
-
-slice_get_unchecked :: (ExplodedDefId, CustomRHS)
-slice_get_unchecked = ((["core","slice", "{{impl}}"],"get_unchecked", []), slice_get_unchecked_op)
-
-slice_get_unchecked_mut :: (ExplodedDefId, CustomRHS)
-slice_get_unchecked_mut = ((["core","slice", "{{impl}}"],"get_unchecked_mut", []), slice_get_unchecked_mut_op)
-
-slice_get_unchecked_op :: CustomRHS
-slice_get_unchecked_op subs = case subs of
-   (Substs [tt, ii])
-     -> Just $ CustomMirOp $ \ ops -> do
-             case ops of
-               [op1, op2] -> do
-                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::get_unchecked[0]")
-                  -- TODO: this is a real hack. We should find the ATs and look up the output type there
-                  let out   = case ii of
-                                TyUint USize -> tt
-                                _ -> TySlice tt
-                  let substs = Substs [ii, TySlice tt, out]
-                  callExp funid substs [op2, op1] 
-               _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked"
-   _ -> Nothing
-
-slice_get_unchecked_mut_op :: CustomRHS
-slice_get_unchecked_mut_op subs = case subs of
-   (Substs [tt, ii])
-     -> Just $ CustomMirOp $ \ ops -> do
-             case ops of
-               [op1, op2] -> do
-                  let funid = (M.textId "core[0]::slice[0]::SliceIndex[0]::get_unchecked_mut[0]")
-                  -- TODO: this is a real hack. We should find the ATs and look up the output type there
-                  let out   = case ii of
-                                TyUint USize -> tt
-                                _ -> TySlice tt
-                  let substs = Substs [ii, TySlice tt, out]
-                  callExp funid substs [op2, op1] 
-               _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut"
-   _ -> Nothing
 
 -------------------------------------------------------------------------------------------------------------------
 {--
@@ -699,9 +442,6 @@ fn slice_index_range_get_unchecked_mut<T>(sel: core::ops::Range<usize>,  slice: 
 
 --}
 
---slice_SliceIndex_get_unchecked :: (ExplodedDefId, CustomRHS)
---slice_SliceIndex_get_unchecked = ((["core","slice"],"SliceIndex", ["get_unchecked"]), slice_SliceIndex_get_unchecked_op)
-
 slice_index_usize_get_unchecked :: (ExplodedDefId, CustomRHS)
 slice_index_usize_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"], "crucible_hook_usize", []), \subs ->
    case subs of
@@ -725,18 +465,18 @@ slice_index_range_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"],
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
           case ops of
-             [MirExp tr range_e, MirExp (C.VectorRepr ety) vec_e  ]
-               | Just Refl <- testEquality tr taggedUnionRepr -> do
-                start <- rangeStart C.NatRepr range_e
-                stop  <- rangeEnd   C.NatRepr range_e
-                v <- vectorCopy ety start stop vec_e
+             [ MirExp tr1 start, MirExp tr2 end, MirExp (C.VectorRepr ety) vec_e  ]
+               | Just Refl <- testEquality tr1 C.NatRepr
+               , Just Refl <- testEquality tr2 C.NatRepr
+               -> do
+                v <- vectorCopy ety start end vec_e
                 return $ (MirExp (C.VectorRepr ety) v)
 
-             [ MirExp tr range_e, MirExp (MirSliceRepr ty) vec_e] 
-               | Just Refl <- testEquality tr taggedUnionRepr -> do
-                start <- rangeStart C.NatRepr range_e
-                stop  <- rangeEnd   C.NatRepr range_e 
-                let newLen = (S.app $ E.NatSub stop start)
+             [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr ty) vec_e] 
+               | Just Refl <- testEquality tr1 C.NatRepr
+               , Just Refl <- testEquality tr2 C.NatRepr
+               -> do
+                let newLen = (S.app $ E.NatSub end start)
                 let s1 = updateSliceLB  ty vec_e start
                 let s2 = updateSliceLen ty s1    newLen
                 return $ (MirExp (MirSliceRepr ty) s2)
@@ -769,36 +509,17 @@ slice_index_range_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecke
        -> Just $ CustomOp $ \ optys ops -> do
             case ops of
 
-              [ MirExp tr range_e, MirExp (MirSliceRepr ty) vec_e] 
-                 | Just Refl <- testEquality tr taggedUnionRepr -> do
-                  start <- rangeStart C.NatRepr range_e
-                  stop  <- rangeEnd   C.NatRepr range_e 
-                  let newLen = (S.app $ E.NatSub stop start)
+              [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr ty) vec_e] 
+                | Just Refl <- testEquality tr1 C.NatRepr
+                , Just Refl <- testEquality tr2 C.NatRepr
+                -> do
+                  let newLen = (S.app $ E.NatSub end start)
                   let s1 = updateSliceLB  ty vec_e start
                   let s2 = updateSliceLen ty s1    newLen
                   return $ (MirExp (MirSliceRepr ty) s2)
 
               _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
      _ -> Nothing)
-
-
---------------------------------------------------------------------------------------------------------------------------
--- ** Custom: vec
-
--- A vector is an array tupled with a length, as an Adt
--- 
-
-{-
-vec_with_capacity :: (ExplodedDefId, CustomRHS)
-vec_with_capacity =
-  ((["alloc","vec"],"Vec", "with_capacity"),
-  \subst -> Just $ CustomOp $ \optys _retTy ops -> do
-     case ops of
-       [ MirExp C.NatRepr capacity ] -> 
--}     
-
-
-
 
 --------------------------------------------------------------------------------------------------------------------------
 -- ** Custom: Integer
@@ -929,78 +650,6 @@ integer_rem = ((["int512"], "rem", []), \(Substs []) ->
             return $ MirExp (C.BVRepr w1) (S.app $ E.BVSrem w1 val1_e val2_e)
         _ -> mirFail $ "BUG: invalid arguments to integer_rem: " ++ show ops
     )
-
-
-
-
--- mem::swap is used pervasively (both directly and via mem::replace), but it
--- has a nasty unsafe implementation, with lots of raw pointers and
--- reintepreting casts.  Fortunately, it requires `T: Sized`, so it's almost
--- trivial to implement as a custom op.
-mem_swap ::  (ExplodedDefId, CustomRHS)
-mem_swap = ((["core","mem"],"swap", []),
-    \ _substs -> Just $ CustomOp $ \ opTys ops -> case ops of
-        [MirExp (MirReferenceRepr ty1) e1, MirExp (MirReferenceRepr ty2) e2]
-          | Just Refl <- testEquality ty1 ty2 -> do
-            val1 <- readMirRef ty1 e1
-            val2 <- readMirRef ty2 e2
-            writeMirRef e1 val2
-            writeMirRef e2 val1
-            return $ MirExp knownRepr $ R.App E.EmptyApp
-        _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
-    )
-
-
--- This is like normal mem::transmute, but requires source and target types to
--- have identical Crucible `TypeRepr`s.
-mem_crucible_identity_transmute ::  (ExplodedDefId, CustomRHS)
-mem_crucible_identity_transmute = ((["core","mem"],"crucible_identity_transmute", []),
-    \ substs -> case substs of
-      Substs [tyT, tyU] -> Just $ CustomOp $ \ _ ops -> case ops of
-        [e@(MirExp argTy _)]
-          | Some retTy <- tyToRepr tyU
-          , Just Refl <- testEquality argTy retTy -> return e
-        _ -> mirFail $ "bad arguments to mem_crucible_identity_transmute: "
-          ++ show (tyT, tyU, ops)
-      _ -> Nothing
-    )
-
-
-
-with_overflow_result ::
-    C.TypeRepr ty ->
-    E.App MIR (R.Expr MIR s) ty ->
-    E.App MIR (R.Expr MIR s) C.BoolType ->
-    MirExp s
-with_overflow_result ty x b = buildTuple
-    [ MirExp (C.MaybeRepr ty) $
-        R.App $ E.JustValue ty $
-        R.App $ x
-    , MirExp (C.MaybeRepr C.BoolRepr) $
-        R.App $ E.JustValue C.BoolRepr $
-        R.App $ b
-    ]
-
-add_with_overflow ::  (ExplodedDefId, CustomRHS)
-add_with_overflow = ((["core","intrinsics"],"add_with_overflow", []),
-    \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
-        ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
-          | Just Refl <- testEquality w1 w2 -> do
-            return $ with_overflow_result
-                (C.BVRepr w1) (E.BVAdd w1 e1 e2) (E.BVCarry w1 e1 e2)
-        _ -> mirFail $ "bad arguments to add_with_overflow: " ++ show (opTys, ops)
-    )
-
-sub_with_overflow ::  (ExplodedDefId, CustomRHS)
-sub_with_overflow = ((["core","intrinsics"],"sub_with_overflow", []),
-    \ _substs -> Just $ CustomOp $ \ opTys ops -> case (opTys, ops) of
-        ([TyUint _, TyUint _], [MirExp (C.BVRepr w1) e1, MirExp (C.BVRepr w2) e2])
-          | Just Refl <- testEquality w1 w2 -> do
-            return $ with_overflow_result
-                (C.BVRepr w1) (E.BVSub w1 e1 e2) (E.BVUlt w1 e1 e2)
-        _ -> mirFail $ "bad arguments to add_with_overflow: " ++ show (opTys, ops)
-    )
-
 
 
 --------------------------------------------------------------------------------------------------------------------------

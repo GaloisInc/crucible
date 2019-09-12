@@ -86,8 +86,7 @@ impl<T> [T] {
     #[inline]
     #[rustc_const_unstable(feature = "const_slice_len")]
     pub const fn is_empty(&self) -> bool {
-        const fn crucible_slice_is_empty_hook<T>(x: &[T]) -> bool { true }
-        crucible_slice_is_empty_hook(self)
+        self.len() == 0
     }
 
     /// Returns the first element of the slice, or `None` if it is empty.
@@ -2727,18 +2726,18 @@ impl<T> SliceIndex<[T]> for  ops::Range<usize> {
 
     #[inline]
     unsafe fn get_unchecked(self, slice: &[T]) -> &[T] {
-        fn crucible_hook_range<T>(idx: ops::Range<usize>, slice: &[T]) -> &[T] {
+        fn crucible_hook_range<T>(start: usize, end: usize, slice: &[T]) -> &[T] {
             unimplemented!()
         }
-        crucible_hook_range(self, slice)
+        crucible_hook_range(self.start, self.end, slice)
     }
 
     #[inline]
     unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut [T] {
-        fn crucible_hook_range<T>(idx: ops::Range<usize>, slice: &mut [T]) -> &mut [T] {
+        fn crucible_hook_range<T>(start: usize, end: usize, slice: &mut [T]) -> &mut [T] {
             unimplemented!()
         }
-        crucible_hook_range(self, slice)
+        crucible_hook_range(self.start, self.end, slice)
     }
 
     #[inline]
