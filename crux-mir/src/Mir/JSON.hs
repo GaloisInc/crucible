@@ -132,7 +132,14 @@ instance FromJSON FnSig where
                <*> v .: "abi"
                
 instance FromJSON Adt where
-    parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
+    parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "kind" <*> v .: "variants"
+
+instance FromJSON AdtKind where
+    parseJSON x = case x of
+        String "Struct" -> pure Struct
+        String "Enum" -> pure Enum
+        String "Union" -> pure Union
+        _ -> fail $ "unsupported adt kind " ++ show x
 
 instance FromJSON VariantDiscr where
     parseJSON = withObject "VariantDiscr" $ \v -> case HML.lookup "kind" v of

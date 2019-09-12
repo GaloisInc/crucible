@@ -325,9 +325,10 @@ showRegEntry col mty (C.RegEntry tp rv) =
 
     -- Tagged union type
     -- TODO: type arguments
+    -- FIXME: needs update for new struct representation
     (TyAdt name _tyargs,
       C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr))
-      | Just (Adt _ variants) <- List.find (\(Adt n _) -> name == n) (col^.adts) -> do
+      | Just (Adt _ _ variants) <- List.find (\(Adt n _ _) -> name == n) (col^.adts) -> do
       let rv' :: Ctx.Assignment (C.RegValue' sym) (Ctx.EmptyCtx Ctx.::> C.NatType Ctx.::> C.AnyType)
           rv' = rv
       let kv = rv'  Ctx.! Ctx.i1of2

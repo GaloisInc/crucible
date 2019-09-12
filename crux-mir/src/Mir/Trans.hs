@@ -750,14 +750,14 @@ getVariant (M.TyAdt nm args) = do
     am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
        Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-       Just (M.Adt _ [struct_variant]) -> return (struct_variant, args)
+       Just (M.Adt _ _ [struct_variant]) -> return (struct_variant, args)
        _      -> mirFail ("Expected ADT with exactly one variant: " ++ show nm)
 getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
     let i = fromInteger ii
     am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
        Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-       Just (M.Adt _ vars) | i < length vars -> return $ (vars !! i, args)
+       Just (M.Adt _ _ vars) | i < length vars -> return $ (vars !! i, args)
        _      -> mirFail ("Expected ADT with more than " ++ show i ++ " variants: " ++ show nm)
 getVariant ty = mirFail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
 
@@ -774,6 +774,8 @@ evalRefProj base projElem =
           M.PField idx _mirTy
             | C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) <- elty
             -> do
+                mirFail "evalRefProj (PField) NYI"
+                {-
              (struct_variant, args) <- getVariant (M.typeOf base)
              Some ctx <- return $ variantToRepr struct_variant args
              case Ctx.intIndex idx (Ctx.size ctx) of
@@ -781,6 +783,7 @@ evalRefProj base projElem =
                      Just (Some idx') -> 
                         do r' <- subfieldRef ctx ref idx'
                            return (MirExp (MirReferenceRepr (ctx Ctx.! idx')) r')
+                           -}
 
           M.ConstantIndex offset _min_len fromend
             | C.VectorRepr tp' <- elty
@@ -808,7 +811,7 @@ evalRefProj base projElem =
                     _ -> mirFail ("Expected index value to be an integer value in reference projection " ++
                                 show base ++ " " ++ show projElem ++ " " ++ show idxTy)
           M.Downcast idx ->
-            return (MirExp tp ref)
+            mirFail "evalRefProj (Downcast) NYI"
           _ -> mirFail ("Unexpected interior reference " ++ fmt base ++ " PROJECTED  " ++ show projElem
                     ++ "\n for type " ++ show elty)
        _ -> mirFail ("Expected reference value in lvalue projection: " ++ show tp ++ " " ++ show base)
@@ -865,6 +868,8 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        args <- mapM evalOperand ops
                                        buildClosureHandle defid argsm args
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
+    mirFail "evalRval (RAdtAg) NYI"
+    {-
     case ty of
       -- cstyle
       TyCustom (CEnum _ vs) -> do
@@ -873,6 +878,7 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
       _ -> do
        es <- mapM evalOperand ops
        return $ buildTaggedUnion agv es
+-}
 
 
 
@@ -930,20 +936,26 @@ evalLvalue (M.LProj lv (M.PField field _ty)) = do
 
       -- TODO: unify first two cases
       mty@(M.TyAdt did _) -> do
+        mirFail "evalLvalue (PField, TyAdt) NYI"
+         {-
          (struct_variant, args) <- getVariant mty
          etu <- evalLvalue lv
          e   <- accessAggregate etu 1
          Some ctx <- return $ variantToRepr struct_variant args
          struct <- unpackAny (Some (C.StructRepr ctx)) e
          accessAggregate struct field
+         -}
 
       mty@(M.TyDowncast _ _) -> do
+        mirFail "evalLvalue (PField, TyDowncast) NYI"
+         {-
          (struct_variant, args) <- getVariant mty
          etu <- evalLvalue lv
          e   <- accessAggregate etu 1
          Some ctx <- return $ variantToRepr struct_variant args
          struct <- unpackAny (Some (C.StructRepr ctx)) e
          accessAggregate struct field
+         -}
 
       _ -> do -- otherwise, lv is a tuple (or a closure, which has the same translation)
         ag <- evalLvalue lv
@@ -1010,7 +1022,8 @@ evalLvalue (M.LProj lv M.Deref) =
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
 -- We don't really do anything here --- all the action is when we project from the downcasted adt
 evalLvalue (M.LProj lv (M.Downcast _i)) = do
-    evalLvalue lv
+    mirFail "evalLvalue (Downcast) NYI"
+    --evalLvalue lv
 -- a static reference to a function pointer should be treated like a constant??
 -- NO: just lookup the function value. But we are currently mis-translating the type so we can't do this yet.
 --evalLvalue (M.Promoted _ (M.TyFnDef did ss)) = do
@@ -1108,6 +1121,8 @@ assignLvExp lv re = do
             am <- use $ cs.collection
             case M.typeOf lv of
               M.TyAdt nm args ->
+                mirFail "assignLvExp (PField, TyDowncast) NYI"
+                {-
                 case Map.lookup nm (am^.adts) of
                   Nothing -> mirFail ("Unknown ADT: " ++ show nm)
                   Just (M.Adt _ [struct_variant]) ->
@@ -1119,8 +1134,11 @@ assignLvExp lv re = do
                        etu' <- modifyAggregateIdx etu (packAny struct') 1
                        assignLvExp lv etu'
                   Just _ -> mirFail ("Expected ADT with exactly one variant: " ++ show nm)
+                  -}
 
               M.TyDowncast (M.TyAdt nm args) i -> 
+                mirFail "assignLvExp (PField, TyDowncast) NYI"
+                {-
                 case Map.lookup nm (am^.adts) of
                   Nothing -> mirFail ("Unknown ADT: " ++ show nm)
                   Just (M.Adt _ vars) -> do
@@ -1135,13 +1153,15 @@ assignLvExp lv re = do
 
                      etu' <- modifyAggregateIdx etu (packAny struct') 1
                      assignLvExp lv etu'
+                     -}
 
               _ -> do
                 ag <- evalLvalue lv
                 new_ag <- modifyAggregateIdxMaybe ag re field
                 assignLvExp lv new_ag
         M.LProj lv (M.Downcast i) -> do
-          assignLvExp lv re
+          mirFail "assignLvExp (Downcast) NYI"
+          --assignLvExp lv re
 
         M.LProj (M.LProj lv' M.Deref) (M.Index v)
           | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv' ->
@@ -1492,9 +1512,9 @@ mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
     Just _ -> lookupVar var
     Nothing -> do
       let (TyAdt did subst)              = var^.varty
-      let (Adt _ [Variant _ _ fields _]) = case (col^.adts) Map.!? did of
-                                             Just adt -> adt
-                                             Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
+      let (Adt _ _ [Variant _ _ fields _]) = case (col^.adts) Map.!? did of
+                                               Just adt -> adt
+                                               Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
       let go :: HasCallStack => Field -> MirGenerator h s ret (MirExp s)
           go (Field fn (TyFnPtr field_sig) _) = do
             mhand <- lookupFunction fn subst
@@ -1680,6 +1700,13 @@ transTerminator t _tr =
 
 --- translation of toplevel glue ---
 
+findAdt :: M.DefId -> MirGenerator h s ret Adt
+findAdt name = do
+    optAdt <- use $ cs . collection . adts . at name
+    case optAdt of
+        Just x -> return x
+        Nothing -> mirFail $ "unknown ADT " ++ show name
+
 ---- "Allocation" 
 --
 --
@@ -1743,21 +1770,21 @@ initialValue (M.TyClosure tys) = do
     mexps <- mapM initialValue tys
     return $ Just $ buildTupleMaybe tys mexps
 
--- NOTE: this case is wrong in the case of enums --- we need to know
--- which branch of the ADT to initialize, so we arbitrarily pick the
--- first one. However, hopefully the allocateEnum pass will have
--- converted these adt initializations to aggregates already so this
--- won't matter.
 initialValue (M.TyAdt nm args) = do
-    am <- use $ cs.collection
-    case Map.lookup nm (am^.adts) of
-       Nothing -> return $ Nothing
-       Just (M.Adt _ []) -> mirFail ("don't know how to initialize void adt " ++ show nm)
-       Just (M.Adt _ (Variant _vn _disc fds _kind:_)) -> do
-          let initField (Field _name ty _subst) = initialValue (tySubst args ty)
-          fds <- mapM initField fds
-          let union = buildTaggedUnion 0 (Maybe.catMaybes fds)
-          return $ Just $ union
+    adt <- findAdt nm
+    case adt ^. adtkind of
+        -- The goal in the struct case is to get the variable "initialized
+        -- enough" that field-by-field initialization will work.
+        Struct -> do
+            e <- initialVariantData adt (M.onlyVariant adt) args
+            return $ packAny <$> e
+        Enum -> case adt ^. adtvariants of
+            -- Inhabited enums get initialized to their first variant.
+            (v : _) -> initialVariantData adt v args >>= \x -> case x of
+                Nothing -> return Nothing
+                Just e -> do
+                    varExp <- buildVariant adt args 0 e
+                    return $ Just $ packAny varExp
 initialValue (M.TyFnPtr _) =
    return $ Nothing
 initialValue (M.TyDynamic _) =
@@ -1767,6 +1794,27 @@ initialValue (M.TyProjection _ _) =
 initialValue (M.TyCustom (CEnum _n _i)) =
    return $ Just $ MirExp C.IntegerRepr (S.litExpr 0)
 initialValue _ = return Nothing
+
+initialVariantData :: HasCallStack => M.Adt -> M.Variant -> M.Substs ->
+    MirGenerator h s ret (Maybe (MirExp s))
+initialVariantData adt var@(M.Variant _ _ flds _) args = do
+    let initField (Field _name ty _subst) = initialValue (tySubst args ty)
+    fldExps <- mapM initField flds
+    case sequence fldExps of
+        Nothing -> return Nothing
+        Just exps -> Just <$> buildVariantData adt var args exps
+
+{-
+    am <- use $ cs.collection
+    case Map.lookup nm (am^.adts) of
+       Nothing -> return $ Nothing
+       Just (M.Adt _ _ []) -> mirFail ("don't know how to initialize void adt " ++ show nm)
+       Just (M.Adt _ _ (Variant _vn _disc fds _kind:_)) -> do
+          let initField (Field _name ty _subst) = initialValue (tySubst args ty)
+          fds <- mapM initField fds
+          let union = buildTaggedUnion 0 (Maybe.catMaybes fds)
+          return $ Just $ union
+-}
 
 
 tyToInitReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))

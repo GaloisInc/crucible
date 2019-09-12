@@ -27,6 +27,7 @@ import Control.Lens
 import qualified Data.Maybe as Maybe
 import qualified Data.String as String
 import qualified Data.Vector as V
+import qualified Data.Text as Text
 
 import GHC.Stack
 
@@ -43,6 +44,7 @@ import qualified Lang.Crucible.Types as C
 import qualified Lang.Crucible.Substitution()
 
 import qualified Lang.Crucible.CFG.Expr as E
+import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.Syntax as S
 
@@ -93,11 +95,9 @@ dictTy M.UnknownPredicate          = Nothing
 -- Arrays and slices are both crucible vectors; no difference between them.
 -- Tuples are crucible structs.
 
--- Non-custom ADTs are encoded as a tagged union [Nat, Any]. The first
--- component records which injection is currently being stored; the
--- second component is the injection. Structs and enums are encoded
--- the same -- the only difference is that structs have only one
--- summand. 
+-- Non-custom ADTs are encoded as Any.  The underlying type is either a Struct
+-- or a Variant of Structs, depending on whether the Rust type is a struct or
+-- enum.
 --
 -- Closures are encoded as Any, but are internally encoded as [Handle,
 -- arguments], where arguments is itself a tuple.
@@ -173,9 +173,11 @@ tyToRepr t0 = case t0 of
   -- Strings are vectors of chars
   -- This is not the actual representation (which is packed into u8s)
   M.TyStr -> Some (C.VectorRepr (C.BVRepr (knownNat :: NatRepr 32)))
-  
-  M.TyAdt _defid _tyargs -> Some taggedUnionRepr
-  M.TyDowncast _adt _i   -> Some taggedUnionRepr
+
+  -- An ADT is a `concreteAdtRepr` wrapped in `ANY`
+  M.TyAdt _defid _tyargs -> Some C.AnyRepr
+  M.TyDowncast _adt _i   -> Some C.AnyRepr
+
   M.TyFloat _ -> Some C.RealValRepr
   M.TyParam i -> case somePeano i of
     Just (Some nr) -> Some (C.VarRepr nr) 
@@ -211,14 +213,6 @@ tyToRepr t0 = case t0 of
   _ -> error $ unwords ["unknown type?", show t0]
 
 
-taggedUnionCtx :: Ctx.Assignment C.TypeRepr ((Ctx.EmptyCtx Ctx.::> C.NatType) Ctx.::> C.AnyType)
-taggedUnionCtx = Ctx.empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr
-
--- | All ADTs are mapped to tagged unions
-taggedUnionRepr :: C.TypeRepr TaggedUnion
-taggedUnionRepr = C.StructRepr $ taggedUnionCtx
-
-
 dynRefCtx :: Ctx.Assignment C.TypeRepr (Ctx.EmptyCtx Ctx.::> C.AnyType Ctx.::> C.AnyType)
 dynRefCtx = Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
@@ -227,9 +221,33 @@ dynRefRepr = C.StructRepr dynRefCtx
 
 
 -- Note: any args on the fields are replaced by args on the variant
-variantToRepr :: TransTyConstraint => M.Variant -> M.Substs -> Some C.CtxRepr
-variantToRepr (M.Variant _vn _vd vfs _vct) args = 
+variantFields :: TransTyConstraint => M.Variant -> M.Substs -> Some C.CtxRepr
+variantFields (M.Variant _vn _vd vfs _vct) args = 
     tyListToCtx (map M.fieldToTy (map (M.substField args) vfs)) $ \repr -> Some repr
+
+structFields :: TransTyConstraint => M.Adt -> M.Substs -> Some C.CtxRepr
+structFields (M.Adt name kind vs) args
+  | kind /= M.Struct = error $ "expected " ++ show name ++ " to have kind Struct"
+  | [v] <- vs = variantFields v args
+  | otherwise = error $ "expected struct " ++ show name ++ " to have exactly one variant"
+
+enumVariants :: TransTyConstraint => M.Adt -> M.Substs -> Some C.CtxRepr
+enumVariants (M.Adt name kind vs) args
+  | kind /= M.Enum = error $ "expected " ++ show name ++ " to have kind Enum"
+  | otherwise = reprsToCtx variantReprs $ \repr -> Some repr
+  where
+    variantReprs :: [Some C.TypeRepr]
+    variantReprs = map (\v ->
+        viewSome (\ctx -> Some $ C.StructRepr ctx) $
+        variantFields v args) vs
+
+unionFieldTy :: TransTyConstraint => M.Adt -> M.Substs -> Int -> Some C.TypeRepr
+unionFieldTy (M.Adt name kind vs) args idx
+  | kind /= M.Union = error $ "expected " ++ show name ++ " to have kind Union"
+  | idx >= length vs = error $
+    "field index " ++ show idx ++ " out of range for union " ++ show name
+  | [v] <- vs = tyToRepr $ M.fieldToTy $ M.substField args $ (v ^. M.vfields) !! idx
+  | otherwise = error $ "expected union " ++ show name ++ " to have exactly one variant"
 
 
 
@@ -341,6 +359,46 @@ buildTaggedUnion i es =
         buildTuple [MirExp knownRepr (S.app $ E.NatLit (fromInteger i)), packAny v ]
 
 
+mkAssignment :: C.CtxRepr ctx -> [MirExp s] -> Either String (Ctx.Assignment (R.Expr MIR s) ctx)
+mkAssignment ctx es = go ctx (reverse es)
+  where
+    go :: forall ctx s. C.CtxRepr ctx -> [MirExp s] ->
+        Either String (Ctx.Assignment (R.Expr MIR s) ctx)
+    go ctx [] = case Ctx.viewAssign ctx of
+        Ctx.AssignEmpty -> return Ctx.empty
+        _ -> fail "not enough expressions"
+    go ctx (MirExp tpr e : rest) = case Ctx.viewAssign ctx of
+        Ctx.AssignExtend ctx' tpr' -> case testEquality tpr tpr' of
+            Nothing -> fail $ "type mismatch: expected " ++ show tpr' ++ " but got " ++
+                show tpr ++ " in field " ++ show (length rest)
+            Just Refl -> go ctx' rest >>= \flds -> return $ Ctx.extend flds e
+        _ -> fail "too many expressions"
+
+-- Build a StructType expr for the variant data
+buildVariantData :: M.Adt -> M.Variant -> M.Substs -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildVariantData adt var args es
+  | Some ctx <- variantFields var args
+  = case mkAssignment ctx es of
+        Left err -> mirFail $ "bad buildVariantData: " ++ err
+        Right flds -> return $ MirExp (C.StructRepr ctx) $ R.App $ E.MkStruct ctx flds
+
+
+-- Convert a `MirExp` for the data of a variant into a MirExp of the
+-- `VariantType` itself.
+buildVariant :: M.Adt -> M.Substs -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
+buildVariant adt args i (MirExp tpr e)
+  | Some ctx <- enumVariants adt args
+  , Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx)
+  = do
+    let tpr' = ctx Ctx.! idx
+    Refl <- testEqualityOrFail tpr tpr' $
+        "bad buildVariant: found: " ++ show tpr ++ ", expected " ++ show tpr' ++
+        " for variant " ++ show i ++ " of " ++ show (adt ^. M.adtname) ++ " " ++ show args
+    return $ MirExp (C.VariantRepr ctx) (R.App $ E.InjectVariant ctx idx e)
+  | otherwise = mirFail $
+    "buildVariant: index " ++ show i ++ " out of range for " ++ show (adt ^. M.adtname)
+
+
 getAllFieldsMaybe :: MirExp s -> MirGenerator h s ret ([MirExp s])
 getAllFieldsMaybe e =
     case e of
@@ -370,6 +428,17 @@ accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
       
 accessAggregateMaybe (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
 
+accessVariant :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
+accessVariant (MirExp (C.VariantRepr ctx) v) i
+  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
+      let tpr = ctx Ctx.! idx
+      let proj = R.App $ E.ProjectVariant ctx idx v
+      e <- G.fromJustExpr proj $ R.App $ E.TextLit $
+        "invalid access of wrong variant " <> Text.pack (show i)
+      return $ MirExp tpr e
+accessVariant (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
+
+
 
 
 modifyAggregateIdx :: MirExp s -> -- aggregate to modify
@@ -384,8 +453,7 @@ modifyAggregateIdx (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
           _ -> mirFail $ "bad modify, found: " ++ show instr ++ " expected " ++ show tpr
   | otherwise = mirFail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdx (MirExp ty _) _ _ =
-  do mirFail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
-
+  do mirFail ("modifyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
 
 modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
                       MirExp s -> -- thing to insert
@@ -404,7 +472,62 @@ modifyAggregateIdxMaybe (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
          _ -> mirFail "modifyAggregateIdxMaybe: expecting maybe type for struct component"
   | otherwise = mirFail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdxMaybe (MirExp ty _) _ _ =
-  do mirFail ("modfiyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
+  do mirFail ("modifyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
+
+
+-- Adjust the contents of an ANY value.  Requires knowing the current concrete
+-- type.  The function must return a `MirExp` of the same type as input - that
+-- is, this function does not allow changing the underlying type of the `ANY`.
+adjustAny :: MirExp s -> C.TypeRepr tp ->
+    (MirExp s -> MirGenerator h s ret (MirExp s)) ->
+    MirGenerator h s ret (MirExp s)
+adjustAny (MirExp C.AnyRepr a) tpr f = do
+    let oldValOpt = R.App $ E.UnpackAny tpr a
+    oldVal <- G.fromJustExpr oldValOpt $ R.App $ E.TextLit $
+        "invalid ANY unpack at type " <> Text.pack (show tpr)
+    MirExp tpr' newVal <- f (MirExp tpr oldVal)
+    Refl <- testEqualityOrFail tpr tpr' $
+        "bad any adjust, found: " ++ show tpr' ++ ", expected " ++ show tpr
+    return $ MirExp C.AnyRepr (R.App $ E.PackAny tpr newVal)
+
+-- Adjust the contents of a struct field.
+adjustStructField :: MirExp s -> Int ->
+    (MirExp s -> MirGenerator h s ret (MirExp s)) ->
+    MirGenerator h s ret (MirExp s)
+adjustStructField (MirExp (C.StructRepr ctx) st) i f
+  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
+    let tpr = ctx Ctx.! idx
+    let oldVal = S.getStruct idx st
+    MirExp tpr' newVal <- f (MirExp tpr oldVal)
+    Refl <- testEqualityOrFail tpr tpr' $
+        "bad struct field adjust, found: " ++ show tpr' ++ ", expected " ++ show tpr
+    return $ MirExp (C.StructRepr ctx) (S.setStruct ctx st idx newVal)
+  | otherwise = mirFail ("adjustStructField: Index " ++ show i ++ " out of range for variant")
+adjustStructField (MirExp ty _) _ _ =
+  do mirFail ("adjustStructField: Expected Crucible variant type, but got:" ++ show ty)
+
+adjustVariant :: MirExp s -> -- variant to modify
+                 Int -> -- index
+                 (MirExp s -> MirGenerator h s ret (MirExp s)) ->
+                 MirGenerator h s ret (MirExp s)
+adjustVariant (MirExp (C.VariantRepr ctx) v) i f
+  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
+      let tpr = ctx Ctx.! idx
+      let oldValOpt = R.App $ E.ProjectVariant ctx idx v
+      oldVal <- G.fromJustExpr oldValOpt $ R.App $ E.TextLit $
+        "invalid adjust of wrong variant " <> Text.pack (show i)
+      MirExp tpr' newVal <- f (MirExp tpr oldVal)
+      Refl <- testEqualityOrFail tpr tpr' $
+        "bad variant adjust, found: " ++ show tpr' ++ ", expected " ++ show tpr
+      return $ MirExp (C.VariantRepr ctx) (R.App $ E.InjectVariant ctx idx newVal)
+  | otherwise = mirFail ("adjustVariant: Index " ++ show i ++ " out of range for variant")
+adjustVariant (MirExp ty _) _ _ =
+  do mirFail ("adjustVariant: Expected Crucible variant type, but got:" ++ show ty)
+
+testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s ret (a :~: b)
+testEqualityOrFail x y msg = case testEquality x y of
+    Just pf -> return pf
+    Nothing -> mirFail msg
 
 
 

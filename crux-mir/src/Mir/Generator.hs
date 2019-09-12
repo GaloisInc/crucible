@@ -428,7 +428,7 @@ resolveDictionaryProjection nm subst = do
     Just potential_traits -> do
       let prjs :: [(TraitName, [Field], Int, Trait, FnSig)]  
           prjs = [ (tn, fields, idx, trait, sig)
-                 | (tn, Just (Adt _ [Variant _ _ fields _])) <-
+                 | (tn, Just (Adt _ _ [Variant _ _ fields _])) <-
                      map (\tn -> (tn,Map.lookup tn (col^.adts))) potential_traits 
                  , idx   <- Maybe.maybeToList (List.findIndex (\(Field fn _ _) -> nm == fn) fields)
                  , trait <- Maybe.maybeToList ((col^.traits) Map.!? tn)
