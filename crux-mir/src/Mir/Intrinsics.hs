@@ -454,3 +454,23 @@ updateSliceLen :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s NatType 
 updateSliceLen tp e end = setStruct (mirSliceCtxRepr tp) e i3of3 end where
 
 
+
+-- Rust enum representation
+
+-- A Rust enum, whose variants have the types listed in `ctx`.
+type RustEnumType ctx = StructType (RustEnumFields ctx)
+type RustEnumFields ctx = EmptyCtx ::> IntegerType ::> VariantType ctx
+
+pattern RustEnumFieldsRepr :: () => ctx' ~ RustEnumFields ctx => CtxRepr ctx -> CtxRepr ctx'
+pattern RustEnumFieldsRepr ctx = Empty :> IntegerRepr :> VariantRepr ctx
+pattern RustEnumRepr :: () => tp ~ RustEnumType ctx => CtxRepr ctx -> TypeRepr tp
+pattern RustEnumRepr ctx = StructRepr (RustEnumFieldsRepr ctx)
+
+mkRustEnum :: CtxRepr ctx -> f IntegerType -> f (VariantType ctx) -> App ext f (RustEnumType ctx)
+mkRustEnum ctx discr variant = MkStruct (RustEnumFieldsRepr ctx) (Empty :> discr :> variant)
+
+rustEnumDiscriminant :: f (RustEnumType ctx) -> App ext f IntegerType
+rustEnumDiscriminant e = GetStruct e i1of2 IntegerRepr
+
+rustEnumVariant :: CtxRepr ctx -> f (RustEnumType ctx) -> App ext f (VariantType ctx)
+rustEnumVariant ctx e = GetStruct e i2of2 (VariantRepr ctx)

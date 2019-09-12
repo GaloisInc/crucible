@@ -852,8 +852,11 @@ evalRval (M.Discriminant lv) = do
     let ty = typeOf lv 
     case ty of
       TyCustom (CEnum _adt _i) -> return e
-      _ -> do (MirExp C.NatRepr idx) <- accessAggregate e 0
-              return $ (MirExp knownRepr $ R.App (E.NatToInteger idx))
+      TyAdt aname args -> do
+        adt <- findAdt aname
+        Some ctx <- pure $ enumVariants adt args
+        let v = unpackAnyC (RustEnumRepr ctx) e
+        return $ MirExp knownRepr $ R.App $ rustEnumDiscriminant v
 
 evalRval (M.RCustom custom) = transCustomAgg custom
 evalRval (M.Aggregate ak ops) = case ak of
@@ -868,17 +871,24 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        args <- mapM evalOperand ops
                                        buildClosureHandle defid argsm args
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
-    mirFail "evalRval (RAdtAg) NYI"
-    {-
     case ty of
       -- cstyle
       TyCustom (CEnum _ vs) -> do
          let j = vs !! fromInteger agv
          return $ (MirExp knownRepr (R.App (E.IntLit j)))
-      _ -> do
-       es <- mapM evalOperand ops
-       return $ buildTaggedUnion agv es
--}
+      TyAdt _ args -> do
+        es <- mapM evalOperand ops
+        case adt^.adtkind of
+            M.Struct -> do
+                packAny <$> buildVariantData adt (M.onlyVariant adt) args es
+            M.Enum -> do
+                let varIdx = fromInteger agv
+                let var = (adt ^. adtvariants) !! varIdx
+                vd <- buildVariantData adt var args es
+                packAny <$> buildVariant adt args varIdx vd
+            M.Union -> do
+                mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
+      _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
 
 
 
@@ -946,16 +956,14 @@ evalLvalue (M.LProj lv (M.PField field _ty)) = do
          accessAggregate struct field
          -}
 
-      mty@(M.TyDowncast _ _) -> do
-        mirFail "evalLvalue (PField, TyDowncast) NYI"
-         {-
-         (struct_variant, args) <- getVariant mty
-         etu <- evalLvalue lv
-         e   <- accessAggregate etu 1
-         Some ctx <- return $ variantToRepr struct_variant args
-         struct <- unpackAny (Some (C.StructRepr ctx)) e
-         accessAggregate struct field
-         -}
+      M.TyDowncast (M.TyAdt nm args) i -> do
+        adt <- findAdt nm
+        Some ctx <- pure $ enumVariants adt args
+        e <- evalLvalue lv
+        e <- unpackAny (Some $ RustEnumRepr ctx) e
+        e <- accessVariant e $ fromIntegral i
+        e <- accessAggregate e field
+        return e
 
       _ -> do -- otherwise, lv is a tuple (or a closure, which has the same translation)
         ag <- evalLvalue lv
@@ -1022,8 +1030,7 @@ evalLvalue (M.LProj lv M.Deref) =
 -- downcast: extracting the injection from an ADT. This is done in rust after switching on the discriminant.
 -- We don't really do anything here --- all the action is when we project from the downcasted adt
 evalLvalue (M.LProj lv (M.Downcast _i)) = do
-    mirFail "evalLvalue (Downcast) NYI"
-    --evalLvalue lv
+    evalLvalue lv
 -- a static reference to a function pointer should be treated like a constant??
 -- NO: just lookup the function value. But we are currently mis-translating the type so we can't do this yet.
 --evalLvalue (M.Promoted _ (M.TyFnDef did ss)) = do
@@ -1117,51 +1124,40 @@ assignLvExp lv re = do
         M.LBase (M.PStatic did _) -> assignStaticExp did re
                  
         M.LProj lv (M.PField field _ty) -> do
-
-            am <- use $ cs.collection
             case M.typeOf lv of
-              M.TyAdt nm args ->
-                mirFail "assignLvExp (PField, TyDowncast) NYI"
-                {-
-                case Map.lookup nm (am^.adts) of
-                  Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-                  Just (M.Adt _ [struct_variant]) ->
-                    do etu <- evalLvalue lv
-                       e   <- accessAggregate etu 1 -- get the ANY data payload
-                       Some ctx <- return $ variantToRepr struct_variant args
-                       struct <- unpackAny (Some (C.StructRepr ctx)) e
-                       struct' <- modifyAggregateIdx struct re field
-                       etu' <- modifyAggregateIdx etu (packAny struct') 1
-                       assignLvExp lv etu'
-                  Just _ -> mirFail ("Expected ADT with exactly one variant: " ++ show nm)
-                  -}
+              M.TyAdt nm args -> do
+                adt <- findAdt nm
+                case adt^.adtkind of
+                    Struct -> do
+                    {-
+                        let var = M.onlyVariant adt
+                        Some ctx <- pure $ variantFields var args
+                        let f = adjustAny (RustEnumRepr ctx) $
+                                adjustStructField field $ \_ -> return re
+                        old <- evalLvalue lv
+                        new <- f old
+                        assignLvExp lv new
+                        -}
+                        mirFail "assignLvExp (PField, Struct) NYI"
+                    Enum -> mirFail $ "tried to assign to field of non-downcast enum " ++
+                        show lv ++ ": " ++ show (M.typeOf lv)
+                    Union -> mirFail $ "assignLvExp (PField, Union) NYI"
 
-              M.TyDowncast (M.TyAdt nm args) i -> 
-                mirFail "assignLvExp (PField, TyDowncast) NYI"
-                {-
-                case Map.lookup nm (am^.adts) of
-                  Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-                  Just (M.Adt _ vars) -> do
-                     let struct_variant = vars List.!! (fromInteger i)
-                     Some ctx <- return $ variantToRepr struct_variant args
-
-                     etu <- evalLvalue lv
-                     e   <- accessAggregate etu 1
-
-                     struct <- unpackAny (Some (C.StructRepr ctx)) e
-                     struct' <- modifyAggregateIdx struct re field
-
-                     etu' <- modifyAggregateIdx etu (packAny struct') 1
-                     assignLvExp lv etu'
-                     -}
+              M.TyDowncast (M.TyAdt nm args) i -> do
+                adt <- findAdt nm
+                Some ctx <- pure $ enumVariants adt args
+                let f = adjustAny (RustEnumRepr ctx) $ adjustVariant (fromInteger i) $
+                        adjustStructField field $ \_ -> return re
+                old <- evalLvalue lv
+                new <- f old
+                assignLvExp lv new
 
               _ -> do
                 ag <- evalLvalue lv
                 new_ag <- modifyAggregateIdxMaybe ag re field
                 assignLvExp lv new_ag
         M.LProj lv (M.Downcast i) -> do
-          mirFail "assignLvExp (Downcast) NYI"
-          --assignLvExp lv re
+          assignLvExp lv re
 
         M.LProj (M.LProj lv' M.Deref) (M.Index v)
           | M.TyRef (M.TySlice _) M.Mut <- M.typeOf lv' ->
