@@ -771,19 +771,18 @@ evalRefProj base projElem =
          case projElem of
           M.Deref -> return (MirExp tp ref)
 
-          M.PField idx _mirTy
-            | C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) <- elty
-            -> do
-                mirFail "evalRefProj (PField) NYI"
-                {-
-             (struct_variant, args) <- getVariant (M.typeOf base)
-             Some ctx <- return $ variantToRepr struct_variant args
-             case Ctx.intIndex idx (Ctx.size ctx) of
-                     Nothing -> mirFail ("Invalid index: " ++ show idx)
-                     Just (Some idx') -> 
-                        do r' <- subfieldRef ctx ref idx'
-                           return (MirExp (MirReferenceRepr (ctx Ctx.! idx')) r')
-                           -}
+          M.PField idx _mirTy -> case M.typeOf base of
+              M.TyAdt nm args -> do
+                adt <- findAdt nm
+                case adt^.adtkind of
+                    Struct -> structFieldRef adt args idx elty ref
+                    Enum -> mirFail $ "tried to access field of non-downcast enum " ++
+                        show base ++ ": " ++ show (M.typeOf base)
+                    Union -> mirFail $ "evalLvalue (PField, Union) NYI"
+
+              M.TyDowncast (M.TyAdt nm args) i -> do
+                adt <- findAdt nm
+                enumFieldRef adt args (fromInteger i) idx elty ref
 
           M.ConstantIndex offset _min_len fromend
             | C.VectorRepr tp' <- elty
@@ -811,7 +810,7 @@ evalRefProj base projElem =
                     _ -> mirFail ("Expected index value to be an integer value in reference projection " ++
                                 show base ++ " " ++ show projElem ++ " " ++ show idxTy)
           M.Downcast idx ->
-            mirFail "evalRefProj (Downcast) NYI"
+            return (MirExp tp ref)
           _ -> mirFail ("Unexpected interior reference " ++ fmt base ++ " PROJECTED  " ++ show projElem
                     ++ "\n for type " ++ show elty)
        _ -> mirFail ("Expected reference value in lvalue projection: " ++ show tp ++ " " ++ show base)
@@ -857,6 +856,7 @@ evalRval (M.Discriminant lv) = do
         Some ctx <- pure $ enumVariants adt args
         let v = unpackAnyC (RustEnumRepr ctx) e
         return $ MirExp knownRepr $ R.App $ rustEnumDiscriminant v
+      _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show ty
 
 evalRval (M.RCustom custom) = transCustomAgg custom
 evalRval (M.Aggregate ak ops) = case ak of
@@ -939,7 +939,6 @@ evalLvalue (M.LProj lv (M.PField field _ty)) = do
     db <- use debugLevel
     case M.typeOf lv of
 
-      -- TODO: unify first two cases
       M.TyAdt nm args -> do
         adt <- findAdt nm
         case adt^.adtkind of

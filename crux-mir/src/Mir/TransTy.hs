@@ -54,9 +54,11 @@ import qualified Mir.Mir as M
 import qualified Mir.MirTy as M
 
 import           Mir.PP (fmt)
-import           Mir.Generator (MirExp(..), MirGenerator, mkPredVar, mirFail)
+import           Mir.Generator 
+    ( MirExp(..), MirGenerator, mkPredVar, mirFail
+    , subanyRef, subfieldRef, subvariantRef, subjustRef )
 import           Mir.Intrinsics
-    ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr
+    ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant
     , TaggedUnion, DynRefType)
 import           Mir.GenericOps (tySubst)
@@ -1136,6 +1138,43 @@ buildEnum :: HasCallStack => M.Adt -> M.Substs -> Int -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
 buildEnum adt args i es =
     buildEnum' adt args i (map Just es)
+
+
+
+fieldDataRef ::
+    FieldKind tp tp' ->
+    R.Expr MIR s (MirReferenceType tp') ->
+    MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+fieldDataRef (FkInit tpr) ref = return ref
+fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
+
+structFieldRef ::
+    M.Adt -> M.Substs -> Int ->
+    C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
+    MirGenerator h s ret (MirExp s)
+structFieldRef adt args i tpr ref = do
+    StructInfo ctx idx fld <- structInfo adt args i
+    Refl <- testEqualityOrFail tpr C.AnyRepr $
+        "structFieldRef: bad referent type: expected Any, but got " ++ show tpr
+    ref <- subanyRef (C.StructRepr ctx) ref
+    ref <- subfieldRef ctx ref idx
+    ref <- fieldDataRef fld ref
+    return $ MirExp (MirReferenceRepr $ fieldDataType fld) ref
+
+enumFieldRef ::
+    M.Adt -> M.Substs -> Int -> Int ->
+    C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
+    MirGenerator h s ret (MirExp s)
+enumFieldRef adt args i j tpr ref = do
+    EnumInfo ctx idx ctx' idx' fld <- enumInfo adt args i j
+    Refl <- testEqualityOrFail tpr C.AnyRepr $
+        "enumFieldRef: bad referent type: expected Any, but got " ++ show tpr
+    ref <- subanyRef (RustEnumRepr ctx) ref
+    ref <- subvariantRef ctx ref idx
+    ref <- subfieldRef ctx' ref idx'
+    ref <- fieldDataRef fld ref
+    return $ MirExp (MirReferenceRepr $ fieldDataType fld) ref
+
 
 
 

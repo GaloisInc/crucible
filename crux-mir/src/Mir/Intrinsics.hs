@@ -110,6 +110,28 @@ mirIntrinsicTypes =
    MapF.empty
 
 
+
+-- Rust enum representation
+
+-- A Rust enum, whose variants have the types listed in `ctx`.
+type RustEnumType ctx = StructType (RustEnumFields ctx)
+type RustEnumFields ctx = EmptyCtx ::> IntegerType ::> VariantType ctx
+
+pattern RustEnumFieldsRepr :: () => ctx' ~ RustEnumFields ctx => CtxRepr ctx -> CtxRepr ctx'
+pattern RustEnumFieldsRepr ctx = Empty :> IntegerRepr :> VariantRepr ctx
+pattern RustEnumRepr :: () => tp ~ RustEnumType ctx => CtxRepr ctx -> TypeRepr tp
+pattern RustEnumRepr ctx = StructRepr (RustEnumFieldsRepr ctx)
+
+mkRustEnum :: CtxRepr ctx -> f IntegerType -> f (VariantType ctx) -> App ext f (RustEnumType ctx)
+mkRustEnum ctx discr variant = MkStruct (RustEnumFieldsRepr ctx) (Empty :> discr :> variant)
+
+rustEnumDiscriminant :: f (RustEnumType ctx) -> App ext f IntegerType
+rustEnumDiscriminant e = GetStruct e i1of2 IntegerRepr
+
+rustEnumVariant :: CtxRepr ctx -> f (RustEnumType ctx) -> App ext f (VariantType ctx)
+rustEnumVariant ctx e = GetStruct e i2of2 (VariantRepr ctx)
+
+
 --------------------------------------------------------------
 -- * A MirReference is a Crucible RefCell paired with a path to a sub-component
 --
@@ -135,15 +157,28 @@ instance IsExprBuilder sym => IntrinsicClass sym MirReferenceSymbol where
 
 data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
   Empty_RefPath :: MirReferencePath sym tp tp
+  Any_RefPath ::
+    !(TypeRepr tp) ->
+    !(MirReferencePath sym tp_base AnyType) ->
+    MirReferencePath sym  tp_base tp
   Field_RefPath ::
     !(CtxRepr ctx) ->
-    !(MirReferencePath sym tp_base TaggedUnion) ->
+    !(MirReferencePath sym tp_base (StructType ctx)) ->
+    !(Index ctx tp) ->
+    MirReferencePath sym tp_base tp
+  Variant_RefPath ::
+    !(CtxRepr ctx) ->
+    !(MirReferencePath sym tp_base (RustEnumType ctx)) ->
     !(Index ctx tp) ->
     MirReferencePath sym tp_base tp
   Index_RefPath ::
     !(TypeRepr tp) ->
     !(MirReferencePath sym tp_base (VectorType tp)) ->
     !(RegValue sym NatType) ->
+    MirReferencePath sym tp_base tp
+  Just_RefPath ::
+    !(TypeRepr tp) ->
+    !(MirReferencePath sym tp_base (MaybeType tp)) ->
     MirReferencePath sym tp_base tp
 
 data MirReference sym (tp :: CrucibleType) where
@@ -161,15 +196,27 @@ muxRefPath ::
   MaybeT IO (MirReferencePath sym tp_base tp)
 muxRefPath sym c path1 path2 = case (path1,path2) of
   (Empty_RefPath, Empty_RefPath) -> return Empty_RefPath
+  (Any_RefPath ctx1 p1, Any_RefPath ctx2 p2)
+    | Just Refl <- testEquality ctx1 ctx2 ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Any_RefPath ctx1 p')
   (Field_RefPath ctx1 p1 f1, Field_RefPath ctx2 p2 f2)
     | Just Refl <- testEquality ctx1 ctx2
     , Just Refl <- testEquality f1 f2 ->
          do p' <- muxRefPath sym c p1 p2
             return (Field_RefPath ctx1 p' f1)
+  (Variant_RefPath ctx1 p1 f1, Variant_RefPath ctx2 p2 f2)
+    | Just Refl <- testEquality ctx1 ctx2
+    , Just Refl <- testEquality f1 f2 ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Variant_RefPath ctx1 p' f1)
   (Index_RefPath tp p1 i1, Index_RefPath _ p2 i2) ->
          do p' <- muxRefPath sym c p1 p2
             i' <- lift $ natIte sym c i1 i2
             return (Index_RefPath tp p' i')
+  (Just_RefPath tp p1, Just_RefPath _ p2) ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Just_RefPath tp p')
   _ -> mzero
 
 muxRef :: forall sym tp.
@@ -228,15 +275,28 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirDropRef ::
      !(f (MirReferenceType tp)) ->
      MirStmt f UnitType
+  MirSubanyRef ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType AnyType)) ->
+     MirStmt f (MirReferenceType tp)
   MirSubfieldRef ::
      !(CtxRepr ctx) ->
-     !(f (MirReferenceType TaggedUnion)) ->
+     !(f (MirReferenceType (StructType ctx))) ->
+     !(Index ctx tp) ->
+     MirStmt f (MirReferenceType tp)
+  MirSubvariantRef ::
+     !(CtxRepr ctx) ->
+     !(f (MirReferenceType (RustEnumType ctx))) ->
      !(Index ctx tp) ->
      MirStmt f (MirReferenceType tp)
   MirSubindexRef ::
      !(TypeRepr tp) ->
      !(f (MirReferenceType (VectorType tp))) ->
      !(f NatType) ->
+     MirStmt f (MirReferenceType tp)
+  MirSubjustRef ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType (MaybeType tp))) ->
      MirStmt f (MirReferenceType tp)
 
 $(return [])
@@ -274,8 +334,11 @@ instance TypeApp MirStmt where
     MirReadRef tp _ -> tp
     MirWriteRef _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
+    MirSubanyRef tp _ -> MirReferenceRepr tp
     MirSubfieldRef ctx _ idx -> MirReferenceRepr (ctx ! idx)
+    MirSubvariantRef ctx _ idx -> MirReferenceRepr (ctx ! idx)
     MirSubindexRef tp _ _ -> MirReferenceRepr tp
+    MirSubjustRef tp _ -> MirReferenceRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -283,8 +346,11 @@ instance PrettyApp MirStmt where
     MirReadRef _ x  -> "readMirRef" <+> pp x
     MirWriteRef x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
+    MirSubanyRef tpr x -> "subanyRef" <+> pretty tpr <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> text (show idx)
+    MirSubvariantRef _ x idx -> "subvariantRef" <+> pp x <+> text (show idx)
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
+    MirSubjustRef _ x -> "subjustRef" <+> pp x
 
 instance FunctorFC MirStmt where
   fmapFC = fmapFCDefault
@@ -302,8 +368,11 @@ instance InstantiateFC CrucibleType MirStmt where
       MirReadRef t r -> MirReadRef (instantiate subst t) (instantiate subst r)
       MirWriteRef r1 r2 -> MirWriteRef (instantiate subst r1) (instantiate subst r2)
       MirDropRef r1 -> MirDropRef (instantiate subst r1)
+      MirSubanyRef ty r1 -> MirSubanyRef (instantiate subst ty) (instantiate subst r1)
       MirSubfieldRef ctx r1 idx -> MirSubfieldRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
+      MirSubvariantRef ctx r1 idx -> MirSubvariantRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
       MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)
+      MirSubjustRef ty r1 -> MirSubjustRef (instantiate subst ty) (instantiate subst r1)
 
 
 instance HasStructuredAssertions MIR where
@@ -349,11 +418,20 @@ execMirStmt stmt s =
             v' <- writeRefPath sym iTypes v path x
             let s' = s & stateTree . actFrame . gpGlobals %~ insertRef sym r v'
             return ((), s')
+       MirSubanyRef tp (regValue -> MirReference r path) ->
+         do let r' = MirReference r (Any_RefPath tp path)
+            return (r', s)
        MirSubfieldRef ctx0 (regValue -> MirReference r path) idx ->
          do let r' = MirReference r (Field_RefPath ctx0 path idx)
             return (r', s)
+       MirSubvariantRef ctx0 (regValue -> MirReference r path) idx ->
+         do let r' = MirReference r (Variant_RefPath ctx0 path idx)
+            return (r', s)
        MirSubindexRef tp (regValue -> MirReference r path) (regValue -> idx) ->
          do let r' = MirReference r (Index_RefPath tp path idx)
+            return (r', s)
+       MirSubjustRef tp (regValue -> MirReference r path) ->
+         do let r' = MirReference r (Just_RefPath tp path)
             return (r', s)
 
 writeRefPath :: IsSymInterface sym =>
@@ -376,17 +454,25 @@ adjustRefPath :: IsSymInterface sym =>
   IO (RegValue sym tp)
 adjustRefPath sym iTypes v path0 adj = case path0 of
   Empty_RefPath -> adj v
-  Field_RefPath ctx path fld ->
-      adjustRefPath sym iTypes v path (field @1 (\(RV (AnyValue vtp x)) ->
-         case testEquality vtp (StructRepr ctx) of
-           Nothing -> fail ("Variant type mismatch! Expected: " ++ show (StructRepr ctx) ++
+  Any_RefPath tpr path ->
+      adjustRefPath sym iTypes v path (\(AnyValue vtp x) ->
+         case testEquality vtp tpr of
+           Nothing -> fail ("Any type mismatch! Expected: " ++ show tpr ++
                             "\nbut got: " ++ show vtp)
-           Just Refl -> RV . AnyValue vtp <$> adjustM (\x' -> RV <$> adj (unRV x')) fld x
-         ))
-
+           Just Refl -> AnyValue vtp <$> adj x
+         )
+  Field_RefPath _ctx path fld ->
+      adjustRefPath sym iTypes v path
+        (\x -> adjustM (\x' -> RV <$> adj (unRV x')) fld x)
+  Variant_RefPath _ctx path fld ->
+      -- TODO: report an error if variant `fld` is not selected
+      adjustRefPath sym iTypes v path (field @1 (\(RV x) ->
+        RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
   Index_RefPath tp path idx ->
       adjustRefPath sym iTypes v path (\v' ->
         adjustVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx adj)
+  Just_RefPath _tp path ->
+      adjustRefPath sym iTypes v path (\v' -> mapM adj v')
 
 
 readRefPath :: IsSymInterface sym =>
@@ -397,15 +483,28 @@ readRefPath :: IsSymInterface sym =>
   IO (RegValue sym tp')
 readRefPath sym iTypes v = \case
   Empty_RefPath -> return v
-  Field_RefPath ctx path fld ->
-    do (Empty :> _disc :> RV (AnyValue vtp variant)) <- readRefPath sym iTypes v path
-       case testEquality vtp (StructRepr ctx) of
-         Nothing -> fail ("Variant type mismatch expected: " ++ show (StructRepr ctx) ++ 
+  Any_RefPath tpr path ->
+    do AnyValue vtp x <- readRefPath sym iTypes v path
+       case testEquality vtp tpr of
+         Nothing -> fail ("Any type mismatch! Expected: " ++ show tpr ++ 
                            "\nbut got: " ++ show vtp)
-         Just Refl -> return (unRV (variant ! fld))
+         Just Refl -> return x
+  Field_RefPath _ctx path fld ->
+    do flds <- readRefPath sym iTypes v path
+       return $ unRV $ flds ! fld
+  Variant_RefPath ctx path fld ->
+    do (Empty :> _discr :> RV variant) <- readRefPath sym iTypes v path
+       let msg = GenericSimError $
+               "attempted to read from wrong variant (" ++ show fld ++ " of " ++ show ctx ++ ")"
+       readPartExpr sym (unVB $ variant ! fld) msg
   Index_RefPath tp path idx ->
     do v' <- readRefPath sym iTypes v path
        indexVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx
+  Just_RefPath tp path ->
+    do v' <- readRefPath sym iTypes v path
+       let msg = ReadBeforeWriteSimError $
+               "attempted to read from uninitialized Maybe of type " ++ show tp
+       readPartExpr sym v' msg
 
 
 mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR
@@ -452,25 +551,3 @@ updateSliceLB tp e start = setStruct (mirSliceCtxRepr tp) e i2of3 ns where
 
 updateSliceLen :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s NatType -> Expr MIR s (MirSlice tp)
 updateSliceLen tp e end = setStruct (mirSliceCtxRepr tp) e i3of3 end where
-
-
-
--- Rust enum representation
-
--- A Rust enum, whose variants have the types listed in `ctx`.
-type RustEnumType ctx = StructType (RustEnumFields ctx)
-type RustEnumFields ctx = EmptyCtx ::> IntegerType ::> VariantType ctx
-
-pattern RustEnumFieldsRepr :: () => ctx' ~ RustEnumFields ctx => CtxRepr ctx -> CtxRepr ctx'
-pattern RustEnumFieldsRepr ctx = Empty :> IntegerRepr :> VariantRepr ctx
-pattern RustEnumRepr :: () => tp ~ RustEnumType ctx => CtxRepr ctx -> TypeRepr tp
-pattern RustEnumRepr ctx = StructRepr (RustEnumFieldsRepr ctx)
-
-mkRustEnum :: CtxRepr ctx -> f IntegerType -> f (VariantType ctx) -> App ext f (RustEnumType ctx)
-mkRustEnum ctx discr variant = MkStruct (RustEnumFieldsRepr ctx) (Empty :> discr :> variant)
-
-rustEnumDiscriminant :: f (RustEnumType ctx) -> App ext f IntegerType
-rustEnumDiscriminant e = GetStruct e i1of2 IntegerRepr
-
-rustEnumVariant :: CtxRepr ctx -> f (RustEnumType ctx) -> App ext f (VariantType ctx)
-rustEnumVariant ctx e = GetStruct e i2of2 (VariantRepr ctx)
