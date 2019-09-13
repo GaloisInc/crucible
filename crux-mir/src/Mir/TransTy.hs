@@ -244,15 +244,40 @@ canInitialize ty = case ty of
     _ -> False
 
 
-tyToFieldRepr :: M.Ty -> Some C.TypeRepr
-tyToFieldRepr ty
-  | canInitialize ty = tyToRepr ty
-  | otherwise = viewSome (\tpr -> Some $ C.MaybeRepr tpr) $ tyToRepr ty
-
 variantFields :: TransTyConstraint => M.Variant -> M.Substs -> Some C.CtxRepr
 variantFields (M.Variant _vn _vd vfs _vct) args = 
-    tyReprListToCtx (map (tyToFieldRepr . M.fieldToTy . M.substField args) vfs) $
-        \repr -> Some repr
+    tyReprListToCtx
+        (map (mapSome fieldType . tyToFieldRepr . M.fieldToTy . M.substField args) vfs)
+        (\repr -> Some repr)
+
+data FieldRepr tp' = forall tp. FieldRepr (FieldKind tp tp')
+
+fieldType :: FieldRepr tp -> C.TypeRepr tp
+fieldType (FieldRepr (FkInit tpr)) = tpr
+fieldType (FieldRepr (FkMaybe tpr)) = C.MaybeRepr tpr
+
+-- `FieldCtxRepr ctx` is like `C.CtxRepr ctx`, but also records whether each
+-- field is wrapped or not.
+type FieldCtxRepr = Ctx.Assignment FieldRepr
+
+fieldCtxType :: FieldCtxRepr ctx -> C.CtxRepr ctx
+fieldCtxType Ctx.Empty = Ctx.Empty
+fieldCtxType (ctx Ctx.:> fr) = fieldCtxType ctx Ctx.:> fieldType fr
+
+tyToFieldRepr :: M.Ty -> Some FieldRepr
+tyToFieldRepr ty
+  | canInitialize ty = viewSome (\tpr -> Some $ FieldRepr $ FkInit tpr) (tyToRepr ty)
+  | otherwise = viewSome (\tpr -> Some $ FieldRepr $ FkMaybe tpr) (tyToRepr ty)
+
+variantFields' :: TransTyConstraint => M.Variant -> M.Substs -> Some FieldCtxRepr
+variantFields' (M.Variant _vn _vd vfs _vct) args =
+    go
+        (map (tyToFieldRepr . M.fieldToTy . M.substField args) vfs)
+        (\x -> Some x)
+  where
+    go :: [Some FieldRepr] -> (forall ctx. FieldCtxRepr ctx -> r) -> r
+    go [] k = k Ctx.Empty
+    go (Some fr : frs) k = go frs $ \ctx -> k $ ctx Ctx.:> fr
 
 structFields :: TransTyConstraint => M.Adt -> M.Substs -> Some C.CtxRepr
 structFields (M.Adt name kind vs) args
@@ -395,6 +420,7 @@ buildTaggedUnion i es =
         buildTuple [MirExp knownRepr (S.app $ E.NatLit (fromInteger i)), packAny v ]
 
 
+{-
 mkAssignment :: HasCallStack => C.CtxRepr ctx -> [MirExp s] ->
     Either String (Ctx.Assignment (R.Expr MIR s) ctx)
 mkAssignment ctx es = go ctx (reverse es)
@@ -419,6 +445,7 @@ buildVariantData adt var args es
   = case mkAssignment ctx es of
         Left err -> mirFail $ "bad buildVariantData: " ++ err
         Right flds -> return $ MirExp (C.StructRepr ctx) $ R.App $ E.MkStruct ctx flds
+-}
 
 
 -- Convert a `MirExp` for the data of a variant into a MirExp of the
@@ -998,6 +1025,110 @@ mapEnumField adt args i j f me = do
             f
     f' me
 
+
+
+buildStructAssign' :: HasCallStack => FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
+    Either String (Ctx.Assignment (R.Expr MIR s) ctx)
+buildStructAssign' ctx es = go ctx (reverse es)
+  where
+    go :: forall ctx s. FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
+        Either String (Ctx.Assignment (R.Expr MIR s) ctx)
+    go ctx [] = case Ctx.viewAssign ctx of
+        Ctx.AssignEmpty -> return Ctx.empty
+        _ -> fail "not enough expressions"
+    go ctx (optExp : rest) = case Ctx.viewAssign ctx of
+        Ctx.AssignExtend ctx' fldr -> case (fldr, optExp) of
+            (FieldRepr (FkInit tpr), Nothing) ->
+                fail $ "got Nothing for mandatory field " ++ show (length rest)
+            (FieldRepr (FkInit tpr), Just (Some e)) ->
+                continue ctx' rest tpr e
+            (FieldRepr (FkMaybe tpr), Nothing) ->
+                continue ctx' rest (C.MaybeRepr tpr) (R.App $ E.NothingValue tpr)
+            (FieldRepr (FkMaybe tpr), Just (Some e)) ->
+                continue ctx' rest (C.MaybeRepr tpr)
+                    (R.App $ E.JustValue (R.exprType e) e)
+        _ -> fail "too many expressions"
+
+    continue :: forall ctx tp tp' s. FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
+        C.TypeRepr tp -> R.Expr MIR s tp' ->
+        Either String (Ctx.Assignment (R.Expr MIR s) (ctx Ctx.::> tp))
+    continue ctx' rest tpr e = case testEquality tpr (R.exprType e) of
+        Just Refl -> go ctx' rest >>= \flds -> return $ Ctx.extend flds e
+        Nothing -> fail $ "type mismatch: expected " ++ show tpr ++ " but got " ++
+            show (R.exprType e) ++ " in field " ++ show (length rest)
+
+buildStruct' :: HasCallStack => M.Adt -> M.Substs -> [Maybe (MirExp s)] ->
+    MirGenerator h s ret (MirExp s)
+buildStruct' adt args es = do
+    when (adt ^. M.adtkind /= M.Struct) $ mirFail $
+        "expected struct, but got adt " ++ show (adt ^. M.adtname)
+    let var = M.onlyVariant adt
+    Some fctx <- return $ variantFields' var args
+    asn <- case buildStructAssign' fctx $ map (fmap (\(MirExp _ e) -> Some e)) es of
+        Left err -> mirFail $ "error building struct " ++ show (var^.M.vname) ++ ": " ++ err
+        Right x -> return x
+    let ctx = fieldCtxType fctx
+    buildAnyE (C.StructRepr ctx) $ R.App $ E.MkStruct ctx asn
+
+buildStruct :: HasCallStack => M.Adt -> M.Substs -> [MirExp s] ->
+    MirGenerator h s ret (MirExp s)
+buildStruct adt args es =
+    buildStruct' adt args (map Just es)
+
+
+buildEnum' :: HasCallStack => M.Adt -> M.Substs -> Int -> [Maybe (MirExp s)] ->
+    MirGenerator h s ret (MirExp s)
+buildEnum' adt args i es = do
+    when (adt ^. M.adtkind /= M.Enum) $ mirFail $
+        "expected enum, but got adt " ++ show (adt ^. M.adtname)
+
+    var <- case adt ^? M.adtvariants . ix i of
+        Just var -> return var
+        Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
+            show (adt ^. M.adtname)
+
+    Some ctx <- return $ enumVariants adt args
+    Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
+        Just x -> return x
+        Nothing -> mirFail $ "variant index " ++ show i ++ " is out of range for enum " ++
+            show (adt ^. M.adtname)
+    IsStructType ctx' <- case checkStructType $ ctx Ctx.! idx of
+        Just x -> return x
+        Nothing -> mirFail $ "variant " ++ show i ++ " of enum " ++
+            show (adt ^. M.adtname) ++ " is not a struct?"
+
+    Some fctx' <- return $ variantFields' var args
+    asn <- case buildStructAssign' fctx' $ map (fmap (\(MirExp _ e) -> Some e)) es of
+        Left err -> mirFail $ "error building variant " ++ show (var^.M.vname) ++ ": " ++ err
+        Right x -> return x
+    Refl <- testEqualityOrFail (fieldCtxType fctx') ctx' $
+        "got wrong fields for " ++ show (adt ^. M.adtname, i) ++ "?"
+    buildAnyE (RustEnumRepr ctx) $
+        R.App $ mkRustEnum ctx (R.App $ E.IntLit $ fromIntegral i) $
+        R.App $ E.InjectVariant ctx idx $
+        R.App $ E.MkStruct ctx' asn
+
+buildEnum :: HasCallStack => M.Adt -> M.Substs -> Int -> [MirExp s] ->
+    MirGenerator h s ret (MirExp s)
+buildEnum adt args i es =
+    buildEnum' adt args i (map Just es)
+
+
+
+
+
+{-
+-- Build a StructType expr for the variant data
+buildStructFields' :: HasCallStack => M.Adt -> M.Variant -> M.Substs -> [Maybe (MirExp s)] ->
+    MirGenerator h s ret (MirExp s)
+buildStructFields' adt var args es
+  | Some ctx <- variantFields' var args
+  = case mkAssignment ctx es of
+        Left err -> mirFail $ "bad buildStructFields' for " ++ show (var^.M.vname) ++ ": " ++ err
+        Right flds -> return $ MirExp (C.StructRepr ctx) $ R.App $ E.MkStruct ctx flds
+  where
+    es' = map (fmap (\(MirExp _ e) -> Some e)) es
+-}
 
 
 
