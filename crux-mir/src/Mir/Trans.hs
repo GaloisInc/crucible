@@ -750,14 +750,14 @@ getVariant (M.TyAdt nm args) = do
     am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
        Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-       Just (M.Adt _ [struct_variant]) -> return (struct_variant, args)
+       Just (M.Adt _ _ [struct_variant]) -> return (struct_variant, args)
        _      -> mirFail ("Expected ADT with exactly one variant: " ++ show nm)
 getVariant (M.TyDowncast (M.TyAdt nm args) ii) = do
     let i = fromInteger ii
     am <- use $ cs.collection
     case Map.lookup nm (am^.adts) of
        Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-       Just (M.Adt _ vars) | i < length vars -> return $ (vars !! i, args)
+       Just (M.Adt _ _ vars) | i < length vars -> return $ (vars !! i, args)
        _      -> mirFail ("Expected ADT with more than " ++ show i ++ " variants: " ++ show nm)
 getVariant ty = mirFail $ "Variant type expected, received " ++ show (pretty ty) ++ " instead"
 
@@ -771,16 +771,18 @@ evalRefProj base projElem =
          case projElem of
           M.Deref -> return (MirExp tp ref)
 
-          M.PField idx _mirTy
-            | C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) <- elty
-            -> do
-             (struct_variant, args) <- getVariant (M.typeOf base)
-             Some ctx <- return $ variantToRepr struct_variant args
-             case Ctx.intIndex idx (Ctx.size ctx) of
-                     Nothing -> mirFail ("Invalid index: " ++ show idx)
-                     Just (Some idx') -> 
-                        do r' <- subfieldRef ctx ref idx'
-                           return (MirExp (MirReferenceRepr (ctx Ctx.! idx')) r')
+          M.PField idx _mirTy -> case M.typeOf base of
+              M.TyAdt nm args -> do
+                adt <- findAdt nm
+                case adt^.adtkind of
+                    Struct -> structFieldRef adt args idx elty ref
+                    Enum -> mirFail $ "tried to access field of non-downcast enum " ++
+                        show base ++ ": " ++ show (M.typeOf base)
+                    Union -> mirFail $ "evalLvalue (PField, Union) NYI"
+
+              M.TyDowncast (M.TyAdt nm args) i -> do
+                adt <- findAdt nm
+                enumFieldRef adt args (fromInteger i) idx elty ref
 
           M.ConstantIndex offset _min_len fromend
             | C.VectorRepr tp' <- elty
@@ -849,8 +851,12 @@ evalRval (M.Discriminant lv) = do
     let ty = typeOf lv 
     case ty of
       TyCustom (CEnum _adt _i) -> return e
-      _ -> do (MirExp C.NatRepr idx) <- accessAggregate e 0
-              return $ (MirExp knownRepr $ R.App (E.NatToInteger idx))
+      TyAdt aname args -> do
+        adt <- findAdt aname
+        Some ctx <- pure $ enumVariants adt args
+        let v = unpackAnyC (RustEnumRepr ctx) e
+        return $ MirExp knownRepr $ R.App $ rustEnumDiscriminant v
+      _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show ty
 
 evalRval (M.RCustom custom) = transCustomAgg custom
 evalRval (M.Aggregate ak ops) = case ak of
@@ -870,9 +876,14 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
       TyCustom (CEnum _ vs) -> do
          let j = vs !! fromInteger agv
          return $ (MirExp knownRepr (R.App (E.IntLit j)))
-      _ -> do
-       es <- mapM evalOperand ops
-       return $ buildTaggedUnion agv es
+      TyAdt _ args -> do
+        es <- mapM evalOperand ops
+        case adt^.adtkind of
+            M.Struct -> buildStruct adt args es
+            M.Enum -> buildEnum adt args (fromInteger agv) es
+            M.Union -> do
+                mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
+      _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
 
 
 
@@ -928,22 +939,20 @@ evalLvalue (M.LProj lv (M.PField field _ty)) = do
     db <- use debugLevel
     case M.typeOf lv of
 
-      -- TODO: unify first two cases
-      mty@(M.TyAdt did _) -> do
-         (struct_variant, args) <- getVariant mty
-         etu <- evalLvalue lv
-         e   <- accessAggregate etu 1
-         Some ctx <- return $ variantToRepr struct_variant args
-         struct <- unpackAny (Some (C.StructRepr ctx)) e
-         accessAggregate struct field
+      M.TyAdt nm args -> do
+        adt <- findAdt nm
+        case adt^.adtkind of
+            Struct -> do
+                e <- evalLvalue lv
+                getStructField adt args field e
+            Enum -> mirFail $ "tried to access field of non-downcast enum " ++
+                show lv ++ ": " ++ show (M.typeOf lv)
+            Union -> mirFail $ "evalLvalue (PField, Union) NYI"
 
-      mty@(M.TyDowncast _ _) -> do
-         (struct_variant, args) <- getVariant mty
-         etu <- evalLvalue lv
-         e   <- accessAggregate etu 1
-         Some ctx <- return $ variantToRepr struct_variant args
-         struct <- unpackAny (Some (C.StructRepr ctx)) e
-         accessAggregate struct field
+      M.TyDowncast (M.TyAdt nm args) i -> do
+        adt <- findAdt nm
+        e <- evalLvalue lv
+        getEnumField adt args (fromInteger i) field e
 
       _ -> do -- otherwise, lv is a tuple (or a closure, which has the same translation)
         ag <- evalLvalue lv
@@ -1104,37 +1113,23 @@ assignLvExp lv re = do
         M.LBase (M.PStatic did _) -> assignStaticExp did re
                  
         M.LProj lv (M.PField field _ty) -> do
-
-            am <- use $ cs.collection
             case M.typeOf lv of
-              M.TyAdt nm args ->
-                case Map.lookup nm (am^.adts) of
-                  Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-                  Just (M.Adt _ [struct_variant]) ->
-                    do etu <- evalLvalue lv
-                       e   <- accessAggregate etu 1 -- get the ANY data payload
-                       Some ctx <- return $ variantToRepr struct_variant args
-                       struct <- unpackAny (Some (C.StructRepr ctx)) e
-                       struct' <- modifyAggregateIdx struct re field
-                       etu' <- modifyAggregateIdx etu (packAny struct') 1
-                       assignLvExp lv etu'
-                  Just _ -> mirFail ("Expected ADT with exactly one variant: " ++ show nm)
+              M.TyAdt nm args -> do
+                adt <- findAdt nm
+                case adt^.adtkind of
+                    Struct -> do
+                        old <- evalLvalue lv
+                        new <- setStructField adt args field old re
+                        assignLvExp lv new
+                    Enum -> mirFail $ "tried to assign to field of non-downcast enum " ++
+                        show lv ++ ": " ++ show (M.typeOf lv)
+                    Union -> mirFail $ "assignLvExp (PField, Union) NYI"
 
-              M.TyDowncast (M.TyAdt nm args) i -> 
-                case Map.lookup nm (am^.adts) of
-                  Nothing -> mirFail ("Unknown ADT: " ++ show nm)
-                  Just (M.Adt _ vars) -> do
-                     let struct_variant = vars List.!! (fromInteger i)
-                     Some ctx <- return $ variantToRepr struct_variant args
-
-                     etu <- evalLvalue lv
-                     e   <- accessAggregate etu 1
-
-                     struct <- unpackAny (Some (C.StructRepr ctx)) e
-                     struct' <- modifyAggregateIdx struct re field
-
-                     etu' <- modifyAggregateIdx etu (packAny struct') 1
-                     assignLvExp lv etu'
+              M.TyDowncast (M.TyAdt nm args) i -> do
+                adt <- findAdt nm
+                old <- evalLvalue lv
+                new <- setEnumField adt args (fromInteger i) field old re
+                assignLvExp lv new
 
               _ -> do
                 ag <- evalLvalue lv
@@ -1492,9 +1487,9 @@ mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
     Just _ -> lookupVar var
     Nothing -> do
       let (TyAdt did subst)              = var^.varty
-      let (Adt _ [Variant _ _ fields _]) = case (col^.adts) Map.!? did of
-                                             Just adt -> adt
-                                             Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
+      let (Adt _ _ [Variant _ _ fields _]) = case (col^.adts) Map.!? did of
+                                               Just adt -> adt
+                                               Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
       let go :: HasCallStack => Field -> MirGenerator h s ret (MirExp s)
           go (Field fn (TyFnPtr field_sig) _) = do
             mhand <- lookupFunction fn subst
@@ -1680,6 +1675,13 @@ transTerminator t _tr =
 
 --- translation of toplevel glue ---
 
+findAdt :: M.DefId -> MirGenerator h s ret Adt
+findAdt name = do
+    optAdt <- use $ cs . collection . adts . at name
+    case optAdt of
+        Just x -> return x
+        Nothing -> mirFail $ "unknown ADT " ++ show name
+
 ---- "Allocation" 
 --
 --
@@ -1724,6 +1726,14 @@ initialValue (M.TyRef (M.TySlice t) M.Mut) = do
       let i = (MirExp C.NatRepr (S.litExpr 0))
       return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
       -- fail ("don't know how to initialize slices for " ++ show t)
+initialValue (M.TyRef (M.TyDynamic _) _) = do
+    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
+        Ctx.Empty Ctx.:> x Ctx.:> x
+initialValue (M.TyRawPtr (M.TyDynamic _) _) = do
+    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
+        Ctx.Empty Ctx.:> x Ctx.:> x
 initialValue (M.TyRef t M.Immut) = initialValue t
 initialValue (M.TyRef t M.Mut) = do
     mv <- initialValue t
@@ -1743,27 +1753,26 @@ initialValue (M.TyClosure tys) = do
     mexps <- mapM initialValue tys
     return $ Just $ buildTupleMaybe tys mexps
 
--- NOTE: this case is wrong in the case of enums --- we need to know
--- which branch of the ADT to initialize, so we arbitrarily pick the
--- first one. However, hopefully the allocateEnum pass will have
--- converted these adt initializations to aggregates already so this
--- won't matter.
 initialValue (M.TyAdt nm args) = do
-    am <- use $ cs.collection
-    case Map.lookup nm (am^.adts) of
-       Nothing -> return $ Nothing
-       Just (M.Adt _ []) -> mirFail ("don't know how to initialize void adt " ++ show nm)
-       Just (M.Adt _ (Variant _vn _disc fds _kind:_)) -> do
-          let initField (Field _name ty _subst) = initialValue (tySubst args ty)
-          fds <- mapM initField fds
-          let union = buildTaggedUnion 0 (Maybe.catMaybes fds)
-          return $ Just $ union
-initialValue (M.TyFnPtr _) =
-   return $ Nothing
-initialValue (M.TyDynamic _) =
-   return $ Nothing
-initialValue (M.TyProjection _ _) =
-   return $ Nothing
+    adt <- findAdt nm
+    case adt ^. adtkind of
+        Struct -> do
+            let var = M.onlyVariant adt
+            fldExps <- mapM initField (var^.M.vfields)
+            Just <$> buildStruct' adt args fldExps 
+        Enum -> case adt ^. adtvariants of
+            -- Uninhabited enums can't be initialized.
+            [] -> return Nothing
+            -- Inhabited enums get initialized to their first variant.
+            (var : _) -> do
+                fldExps <- mapM initField (var^.M.vfields)
+                Just <$> buildEnum' adt args 0 fldExps 
+        Union -> return Nothing
+  where
+    initField (Field _name ty _subst) = initialValue (tySubst args ty)
+initialValue (M.TyFnPtr _) = return $ Nothing
+initialValue (M.TyDynamic _) = return $ Nothing
+initialValue (M.TyProjection _ _) = return $ Nothing
 initialValue (M.TyCustom (CEnum _n _i)) =
    return $ Just $ MirExp C.IntegerRepr (S.litExpr 0)
 initialValue _ = return Nothing
@@ -1913,6 +1922,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
   vm' <- buildIdentMapRegs body []
   varMap %= Map.union vm'
 
+  case localvars of
+    (var0 : _) -> storageLive var0
+    _ -> return ()
 
   db <- use debugLevel
   when (db > 3) $ do

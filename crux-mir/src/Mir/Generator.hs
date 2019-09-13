@@ -428,7 +428,7 @@ resolveDictionaryProjection nm subst = do
     Just potential_traits -> do
       let prjs :: [(TraitName, [Field], Int, Trait, FnSig)]  
           prjs = [ (tn, fields, idx, trait, sig)
-                 | (tn, Just (Adt _ [Variant _ _ fields _])) <-
+                 | (tn, Just (Adt _ _ [Variant _ _ fields _])) <-
                      map (\tn -> (tn,Map.lookup tn (col^.adts))) potential_traits 
                  , idx   <- Maybe.maybeToList (List.findIndex (\(Field fn _ _) -> nm == fn) fields)
                  , trait <- Maybe.maybeToList ((col^.traits) Map.!? tn)
@@ -550,12 +550,25 @@ writeMirRef ::
   MirGenerator h s ret ()
 writeMirRef ref x = void $ G.extensionStmt (MirWriteRef ref x)
 
+subanyRef ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType C.AnyType) ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+subanyRef tpr ref = G.extensionStmt (MirSubanyRef tpr ref)
+
 subfieldRef ::
   C.CtxRepr ctx ->
-  R.Expr MIR s (MirReferenceType TaggedUnion) ->
+  R.Expr MIR s (MirReferenceType (C.StructType ctx)) ->
   Index ctx tp ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 subfieldRef ctx ref idx = G.extensionStmt (MirSubfieldRef ctx ref idx)
+
+subvariantRef ::
+  C.CtxRepr ctx ->
+  R.Expr MIR s (MirReferenceType (RustEnumType ctx)) ->
+  Index ctx tp ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+subvariantRef ctx ref idx = G.extensionStmt (MirSubvariantRef ctx ref idx)
 
 subindexRef ::
   C.TypeRepr tp ->
@@ -563,6 +576,12 @@ subindexRef ::
   R.Expr MIR s C.NatType ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
+
+subjustRef ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (MirReferenceType (C.MaybeType tp)) ->
+  MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
+subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
 
 -----------------------------------------------------------------------
 

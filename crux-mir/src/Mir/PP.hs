@@ -89,8 +89,11 @@ instance Pretty Ty where
     pretty TyErased = text "erased"
 
 instance Pretty Adt where
-   pretty (Adt nm vs) = text "struct" <+> pretty nm <> tupled (map pretty vs)
-    
+   pretty (Adt nm kind vs) = pretty kind <+> pretty nm <> tupled (map pretty vs)
+
+instance Pretty AdtKind where
+  pretty = text . show
+
 instance Pretty VariantDiscr where
   pretty (Explicit a) = pretty_fn1 "Explicit" a
   pretty (Relative a) = pretty_fn1 "Relative" a
@@ -217,7 +220,7 @@ instance Pretty Rvalue where
     pretty (RCustom a) = pretty_fn1 "RCustom" a
 
 instance Pretty AdtAg where
-  pretty (AdtAg (Adt nm _vs) i ops _) = pretty_fn3 "AdtAg" (pr_id nm) i ops
+  pretty (AdtAg (Adt nm _kind _vs) i ops _) = pretty_fn3 "AdtAg" (pr_id nm) i ops
 
 
 instance Pretty Terminator where

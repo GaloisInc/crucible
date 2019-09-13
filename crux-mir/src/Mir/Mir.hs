@@ -154,7 +154,10 @@ data InstanceKind =
     | IkCloneShim Ty
     deriving (Eq, Ord, Show, Generic)
 
-data Adt = Adt {_adtname :: DefId, _adtvariants :: [Variant]}
+data Adt = Adt {_adtname :: DefId, _adtkind :: AdtKind, _adtvariants :: [Variant]}
+    deriving (Eq, Ord, Show, Generic)
+
+data AdtKind = Struct | Enum | Union
     deriving (Eq, Ord, Show, Generic)
 
 data VariantDiscr
@@ -675,6 +678,13 @@ funcNameofOp _ = error "bad extract func name"
 funcSubstsofOp :: HasCallStack => Operand -> Substs
 funcSubstsofOp (OpConstant (Constant _ (Value (ConstFunction _id1 substs)))) = substs
 funcSubstsofOp _ = error "bad extract func name"
+
+
+-- Get the only variant of a struct or union ADT.
+onlyVariant :: Adt -> Variant
+onlyVariant (Adt _ _ [v]) = v
+onlyVariant (Adt name kind _) = error $
+    "expected " ++ show kind ++ " " ++ show name ++ " to have only one variant"
 
 
 

@@ -107,7 +107,7 @@ defineTraitAdts traits = fmap traitToAdt traits where
          ntys = take n (TyParam <$> [0 .. ])
 
      let fields = Maybe.mapMaybe itemToField (tr^.traitItems)
-     Adt (tr^.traitName) [Variant (tr^.traitName) (Relative 0) fields FnKind]
+     Adt (tr^.traitName) Struct [Variant (tr^.traitName) (Relative 0) fields FnKind]
 
 
 --------------------------------------------------------------------------------------

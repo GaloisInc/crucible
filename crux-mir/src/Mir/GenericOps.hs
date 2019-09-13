@@ -434,23 +434,17 @@ fnType ati mn
 -- A CStyle ADT is one that is an enumeration of numeric valued options
 -- containing no data
 isCStyle :: Adt -> Bool
-isCStyle (Adt n variants) =
-    all isConst variants &&
-    -- Special case: PhantomData, declared as `struct PhantomData<T: ?Sized>;`,
-    -- is the only type that's permitted to have type parameters but no fields.
-    -- (Its definition would normally be an error, because `T` is unused.)
-    -- PhantomData thus looks like a C-style enum, but we don't mark it as one,
-    -- because markCStyleTy chokes if a C-style enum has type params.
-    n /= textId "core[0]::marker[0]::PhantomData[0]"
+isCStyle (Adt _aname Enum variants) = all isConst variants
   where
     isConst (Variant _ _ [] ConstKind) = True
     isConst _ = False
+isCStyle _ = False
 
 
 -- | For ADTs that are represented as CEnums, we need to find the actual numbers that we
 -- use to represent each of the constructors.
 adtIndices :: Adt -> Collection -> [Integer]
-adtIndices (Adt _aname vars) col = map go vars where
+adtIndices (Adt _aname _kind vars) col = map go vars where
  go (Variant name (Explicit did) _fields _knd) =
     case Map.lookup did (_functions col) of
       Just fn ->
@@ -599,6 +593,7 @@ instance GenericOps FnSig where
   
 instance GenericOps Adt
 instance GenericOps VariantDiscr
+instance GenericOps AdtKind
 instance GenericOps CtorKind
 instance GenericOps Variant
 instance GenericOps Field
