@@ -1,3 +1,2 @@
 ()
-[Crux] Failed to prove 1 out of 1 goals.
-[Crux] Failure for Unsupported feature: Attempted to mux ANY values of different runtime type StructRepr [] StructRepr [StructRepr [NatRepr, AnyRepr]]
+[Crux] Proved all 3 goals.

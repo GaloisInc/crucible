@@ -940,25 +940,20 @@ evalLvalue (M.LProj lv (M.PField field _ty)) = do
     case M.typeOf lv of
 
       -- TODO: unify first two cases
-      mty@(M.TyAdt did _) -> do
-        mirFail "evalLvalue (PField, TyAdt) NYI"
-         {-
-         (struct_variant, args) <- getVariant mty
-         etu <- evalLvalue lv
-         e   <- accessAggregate etu 1
-         Some ctx <- return $ variantToRepr struct_variant args
-         struct <- unpackAny (Some (C.StructRepr ctx)) e
-         accessAggregate struct field
-         -}
+      M.TyAdt nm args -> do
+        adt <- findAdt nm
+        case adt^.adtkind of
+            Struct -> do
+                e <- evalLvalue lv
+                getStructField adt args field e
+            Enum -> mirFail $ "tried to access field of non-downcast enum " ++
+                show lv ++ ": " ++ show (M.typeOf lv)
+            Union -> mirFail $ "evalLvalue (PField, Union) NYI"
 
       M.TyDowncast (M.TyAdt nm args) i -> do
         adt <- findAdt nm
-        Some ctx <- pure $ enumVariants adt args
         e <- evalLvalue lv
-        e <- unpackAny (Some $ RustEnumRepr ctx) e
-        e <- accessVariant e $ fromIntegral i
-        e <- accessAggregate e field
-        return e
+        getEnumField adt args (fromInteger i) field e
 
       _ -> do -- otherwise, lv is a tuple (or a closure, which has the same translation)
         ag <- evalLvalue lv
@@ -1199,7 +1194,9 @@ storageLive (M.Var nm _ ty _ _ _) =
          mv <- initialValue ty
          case mv of
            Nothing -> do
-             mirFail $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+             when (db > 6) $
+                traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+             return ()
            Just (MirExp rty e) ->
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
@@ -1211,7 +1208,9 @@ storageLive (M.Var nm _ ty _ _ _) =
          mv <- initialValue ty
          case mv of
            Nothing -> do
-              mirFail $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+              when (db > 6) $
+                traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
+              return ()
            Just (MirExp rty e) -> 
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
@@ -1863,8 +1862,6 @@ initFnState :: (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool)
             -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args 
             -> FnState s
 initFnState colState fn handle inputs =
-    traceShow ("argtups", argtups) $
-    traceShow ("argtypes", argtypes) $
   FnState { _varMap     = mkVarMap (reverse argtups) argtypes inputs Map.empty,
             _currentFn  = fn,
             _debugLevel = ?debug,
@@ -1967,9 +1964,9 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
             s = initFnState colState fn handle inputs 
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
-      traceM $ unwords [" =======", show fname, "======="]
-      traceShowM $ pretty g
-      traceM $ unwords [" ======= end", show fname, "======="]
+      --traceM $ unwords [" =======", show fname, "======="]
+      --traceShowM $ pretty g
+      --traceM $ unwords [" ======= end", show fname, "======="]
       case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
 

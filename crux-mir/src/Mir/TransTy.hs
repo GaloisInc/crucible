@@ -276,13 +276,9 @@ tyToFieldRepr ty
 
 variantFields' :: TransTyConstraint => M.Variant -> M.Substs -> Some FieldCtxRepr
 variantFields' (M.Variant _vn _vd vfs _vct) args =
-    go
+    fieldReprListToCtx
         (map (tyToFieldRepr . M.fieldToTy . M.substField args) vfs)
         (\x -> Some x)
-  where
-    go :: [Some FieldRepr] -> (forall ctx. FieldCtxRepr ctx -> r) -> r
-    go [] k = k Ctx.Empty
-    go (Some fr : frs) k = go frs $ \ctx -> k $ ctx Ctx.:> fr
 
 structFields :: TransTyConstraint => M.Adt -> M.Substs -> Some C.CtxRepr
 structFields (M.Adt name kind vs) args
@@ -328,6 +324,12 @@ tyReprListToCtx ts f =  go ts Ctx.empty
  where go :: forall ctx. [Some C.TypeRepr] -> C.CtxRepr ctx -> a
        go []       ctx      = f ctx
        go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
+
+fieldReprListToCtx :: forall a. TransTyConstraint => [Some FieldRepr] -> (forall ctx. FieldCtxRepr ctx -> a) -> a
+fieldReprListToCtx frs f =  go frs Ctx.empty
+ where go :: forall ctx. [Some FieldRepr] -> FieldCtxRepr ctx -> a
+       go []       ctx      = f ctx
+       go (Some fr:frs) ctx = go frs (ctx Ctx.:> fr)
 
 tyListToCtx :: forall a. TransTyConstraint => [M.Ty] -> (forall ctx. C.CtxRepr ctx -> a) -> a
 tyListToCtx ts f = tyReprListToCtx (map tyToRepr ts) f
@@ -639,7 +641,7 @@ readAnyE tpr (MirExp tpr' e) = do
         "readAnyE: expected Any, but got " ++ show tpr'
     let valOpt = R.App $ E.UnpackAny tpr e
     val <- G.fromJustExpr valOpt $ R.App $ E.TextLit $
-        "readAnyE: bad unpack at type " <> Text.pack (show tpr)
+        "readAnyE: bad unpack at type " <> Text.pack (show tpr) <> ": " <> Text.pack (show e)
     return val
 
 buildAnyE :: C.TypeRepr tp -> R.Expr MIR s tp -> MirGenerator h s ret (MirExp s)
@@ -1051,7 +1053,7 @@ mapEnumField adt args i j f me = do
 
 buildStructAssign' :: HasCallStack => FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
     Either String (Ctx.Assignment (R.Expr MIR s) ctx)
-buildStructAssign' ctx es = go ctx es
+buildStructAssign' ctx es = go ctx $ reverse es
   where
     go :: forall ctx s. FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
         Either String (Ctx.Assignment (R.Expr MIR s) ctx)
