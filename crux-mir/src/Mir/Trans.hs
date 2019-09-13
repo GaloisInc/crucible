@@ -879,13 +879,8 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
       TyAdt _ args -> do
         es <- mapM evalOperand ops
         case adt^.adtkind of
-            M.Struct -> do
-                packAny <$> buildVariantData adt (M.onlyVariant adt) args es
-            M.Enum -> do
-                let varIdx = fromInteger agv
-                let var = (adt ^. adtvariants) !! varIdx
-                vd <- buildVariantData adt var args es
-                packAny <$> buildVariant adt args varIdx vd
+            M.Struct -> buildStruct adt args es
+            M.Enum -> buildEnum adt args (fromInteger agv) es
             M.Union -> do
                 mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
@@ -1129,12 +1124,8 @@ assignLvExp lv re = do
                 adt <- findAdt nm
                 case adt^.adtkind of
                     Struct -> do
-                        let var = M.onlyVariant adt
-                        Some ctx <- pure $ variantFields var args
-                        let f = adjustAny (C.StructRepr ctx) $
-                                adjustStructField field $ \_ -> return re
                         old <- evalLvalue lv
-                        new <- f old
+                        new <- setStructField adt args field old re
                         assignLvExp lv new
                     Enum -> mirFail $ "tried to assign to field of non-downcast enum " ++
                         show lv ++ ": " ++ show (M.typeOf lv)
@@ -1142,11 +1133,8 @@ assignLvExp lv re = do
 
               M.TyDowncast (M.TyAdt nm args) i -> do
                 adt <- findAdt nm
-                Some ctx <- pure $ enumVariants adt args
-                let f = adjustAny (RustEnumRepr ctx) $ adjustVariant (fromInteger i) $
-                        adjustStructField field $ \_ -> return re
                 old <- evalLvalue lv
-                new <- f old
+                new <- setEnumField adt args (fromInteger i) field old re
                 assignLvExp lv new
 
               _ -> do
@@ -1770,45 +1758,26 @@ initialValue (M.TyClosure tys) = do
 initialValue (M.TyAdt nm args) = do
     adt <- findAdt nm
     case adt ^. adtkind of
-        -- The goal in the struct case is to get the variable "initialized
-        -- enough" that field-by-field initialization will work.
         Struct -> do
-            e <- initialVariantData adt (M.onlyVariant adt) args
-            return $ packAny <$> e
+            let var = M.onlyVariant adt
+            fldExps <- mapM initField (var^.M.vfields)
+            Just <$> buildStruct' adt args fldExps 
         Enum -> case adt ^. adtvariants of
+            -- Uninhabited enums can't be initialized.
+            [] -> return Nothing
             -- Inhabited enums get initialized to their first variant.
-            (v : _) -> initialVariantData adt v args >>= \x -> case x of
-                Nothing -> return Nothing
-                Just e -> do
-                    varExp <- buildVariant adt args 0 e
-                    return $ Just $ packAny varExp
+            (var : _) -> do
+                fldExps <- mapM initField (var^.M.vfields)
+                Just <$> buildEnum' adt args 0 fldExps 
+        Union -> return Nothing
+  where
+    initField (Field _name ty _subst) = initialValue (tySubst args ty)
 initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyDynamic _) = return $ Nothing
 initialValue (M.TyProjection _ _) = return $ Nothing
 initialValue (M.TyCustom (CEnum _n _i)) =
    return $ Just $ MirExp C.IntegerRepr (S.litExpr 0)
 initialValue _ = return Nothing
-
-initialVariantData :: HasCallStack => M.Adt -> M.Variant -> M.Substs ->
-    MirGenerator h s ret (Maybe (MirExp s))
-initialVariantData adt var@(M.Variant _ _ flds _) args = do
-    let initField (Field _name ty _subst) = initialValue (tySubst args ty)
-    fldExps <- mapM initField flds
-    case sequence fldExps of
-        Nothing -> return Nothing
-        Just exps -> Just <$> buildVariantData adt var args exps
-
-{-
-    am <- use $ cs.collection
-    case Map.lookup nm (am^.adts) of
-       Nothing -> return $ Nothing
-       Just (M.Adt _ _ []) -> mirFail ("don't know how to initialize void adt " ++ show nm)
-       Just (M.Adt _ _ (Variant _vn _disc fds _kind:_)) -> do
-          let initField (Field _name ty _subst) = initialValue (tySubst args ty)
-          fds <- mapM initField fds
-          let union = buildTaggedUnion 0 (Maybe.catMaybes fds)
-          return $ Just $ union
--}
 
 
 tyToInitReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
@@ -1894,6 +1863,8 @@ initFnState :: (?debug::Int,?customOps::CustomOpMap,?assertFalseOnError::Bool)
             -> Ctx.Assignment (R.Atom s) args      -- ^ register assignment for args 
             -> FnState s
 initFnState colState fn handle inputs =
+    traceShow ("argtups", argtups) $
+    traceShow ("argtypes", argtypes) $
   FnState { _varMap     = mkVarMap (reverse argtups) argtypes inputs Map.empty,
             _currentFn  = fn,
             _debugLevel = ?debug,

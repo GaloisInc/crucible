@@ -252,6 +252,11 @@ variantFields (M.Variant _vn _vd vfs _vct) args =
 
 data FieldRepr tp' = forall tp. FieldRepr (FieldKind tp tp')
 
+instance Show (FieldRepr tp') where
+    showsPrec d (FieldRepr kind) = showParen (d > 10) $
+        showString "FieldRepr " . showsPrec 11 kind
+instance ShowF FieldRepr
+
 fieldType :: FieldRepr tp -> C.TypeRepr tp
 fieldType (FieldRepr (FkInit tpr)) = tpr
 fieldType (FieldRepr (FkMaybe tpr)) = C.MaybeRepr tpr
@@ -313,13 +318,24 @@ tyToReprCont :: forall a. TransTyConstraint => M.Ty -> (forall tp. HasCallStack 
 tyToReprCont t f = case tyToRepr t of
                  Some x -> f x
 
-tyReprListToCtx :: forall a . TransTyConstraint =>
-    [Some C.TypeRepr] -> (forall ctx'. C.CtxRepr ctx' -> a) -> a
-tyReprListToCtx []            f = f Ctx.Empty
-tyReprListToCtx (Some tp:tps) f = tyReprListToCtx tps (\ctx -> f $ ctx Ctx.:> tp)
+--tyReprListToCtx :: forall a . TransTyConstraint =>
+--    [Some C.TypeRepr] -> (forall ctx'. C.CtxRepr ctx' -> a) -> a
+--tyReprListToCtx []            f = f Ctx.Empty
+--tyReprListToCtx (Some tp:tps) f = tyReprListToCtx tps (\ctx -> f $ ctx Ctx.:> tp)
+
+tyReprListToCtx :: forall a. TransTyConstraint => [Some C.TypeRepr] -> (forall ctx. C.CtxRepr ctx -> a) -> a
+tyReprListToCtx ts f =  go ts Ctx.empty
+ where go :: forall ctx. [Some C.TypeRepr] -> C.CtxRepr ctx -> a
+       go []       ctx      = f ctx
+       go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
 
 tyListToCtx :: forall a. TransTyConstraint => [M.Ty] -> (forall ctx. C.CtxRepr ctx -> a) -> a
 tyListToCtx ts f = tyReprListToCtx (map tyToRepr ts) f
+--tyListToCtx :: forall a. TransTyConstraint => [M.Ty] -> (forall ctx. C.CtxRepr ctx -> a) -> a
+--tyListToCtx ts f =  go (map tyToRepr ts) Ctx.empty
+-- where go :: forall ctx. [Some C.TypeRepr] -> C.CtxRepr ctx -> a
+--       go []       ctx      = f ctx
+--       go (Some tp:tps) ctx = go tps (ctx Ctx.:> tp)
 
 reprsToCtx :: forall a. [Some C.TypeRepr] -> (forall ctx. C.CtxRepr ctx -> a) -> a
 reprsToCtx rs f = go rs Ctx.empty
@@ -785,6 +801,12 @@ data FieldKind (tp :: C.CrucibleType) (tp' :: C.CrucibleType) where
     FkInit :: forall tp. C.TypeRepr tp -> FieldKind tp tp
     FkMaybe :: forall tp. C.TypeRepr tp -> FieldKind tp (C.MaybeType tp)
 
+instance Show (FieldKind tp tp') where
+    showsPrec d (FkInit tpr) = showParen (d > 10) $
+        showString "FkInit " . showsPrec 11 tpr
+    showsPrec d (FkMaybe tpr) = showParen (d > 10) $
+        showString "FkMaybe " . showsPrec 11 tpr
+
 fieldDataType :: FieldKind tp tp' -> C.TypeRepr tp
 fieldDataType (FkInit tpr) = tpr
 fieldDataType (FkMaybe tpr) = tpr
@@ -1029,17 +1051,17 @@ mapEnumField adt args i j f me = do
 
 buildStructAssign' :: HasCallStack => FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
     Either String (Ctx.Assignment (R.Expr MIR s) ctx)
-buildStructAssign' ctx es = go ctx (reverse es)
+buildStructAssign' ctx es = go ctx es
   where
     go :: forall ctx s. FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
         Either String (Ctx.Assignment (R.Expr MIR s) ctx)
     go ctx [] = case Ctx.viewAssign ctx of
         Ctx.AssignEmpty -> return Ctx.empty
-        _ -> fail "not enough expressions"
+        _ -> Left "not enough expressions"
     go ctx (optExp : rest) = case Ctx.viewAssign ctx of
         Ctx.AssignExtend ctx' fldr -> case (fldr, optExp) of
             (FieldRepr (FkInit tpr), Nothing) ->
-                fail $ "got Nothing for mandatory field " ++ show (length rest)
+                Left $ "got Nothing for mandatory field " ++ show (length rest)
             (FieldRepr (FkInit tpr), Just (Some e)) ->
                 continue ctx' rest tpr e
             (FieldRepr (FkMaybe tpr), Nothing) ->
@@ -1047,15 +1069,15 @@ buildStructAssign' ctx es = go ctx (reverse es)
             (FieldRepr (FkMaybe tpr), Just (Some e)) ->
                 continue ctx' rest (C.MaybeRepr tpr)
                     (R.App $ E.JustValue (R.exprType e) e)
-        _ -> fail "too many expressions"
+        _ -> Left "too many expressions"
 
     continue :: forall ctx tp tp' s. FieldCtxRepr ctx -> [Maybe (Some (R.Expr MIR s))] ->
         C.TypeRepr tp -> R.Expr MIR s tp' ->
         Either String (Ctx.Assignment (R.Expr MIR s) (ctx Ctx.::> tp))
     continue ctx' rest tpr e = case testEquality tpr (R.exprType e) of
         Just Refl -> go ctx' rest >>= \flds -> return $ Ctx.extend flds e
-        Nothing -> fail $ "type mismatch: expected " ++ show tpr ++ " but got " ++
-            show (R.exprType e) ++ " in field " ++ show (length rest)
+        Nothing -> Left $ "type mismatch: expected " ++ show tpr ++ " but got " ++
+            show (R.exprType e) ++ " in field " ++ show (length rest) ++ ": " ++ show (ctx, es)
 
 buildStruct' :: HasCallStack => M.Adt -> M.Substs -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
