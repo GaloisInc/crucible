@@ -1129,16 +1129,13 @@ assignLvExp lv re = do
                 adt <- findAdt nm
                 case adt^.adtkind of
                     Struct -> do
-                    {-
                         let var = M.onlyVariant adt
                         Some ctx <- pure $ variantFields var args
-                        let f = adjustAny (RustEnumRepr ctx) $
+                        let f = adjustAny (C.StructRepr ctx) $
                                 adjustStructField field $ \_ -> return re
                         old <- evalLvalue lv
                         new <- f old
                         assignLvExp lv new
-                        -}
-                        mirFail "assignLvExp (PField, Struct) NYI"
                     Enum -> mirFail $ "tried to assign to field of non-downcast enum " ++
                         show lv ++ ": " ++ show (M.typeOf lv)
                     Union -> mirFail $ "assignLvExp (PField, Union) NYI"
@@ -1214,9 +1211,7 @@ storageLive (M.Var nm _ ty _ _ _) =
          mv <- initialValue ty
          case mv of
            Nothing -> do
-             when (db > 6) $
-                traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
-             return ()
+             mirFail $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
            Just (MirExp rty e) ->
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
@@ -1228,9 +1223,7 @@ storageLive (M.Var nm _ ty _ _ _) =
          mv <- initialValue ty
          case mv of
            Nothing -> do
-              when (db > 6) $
-                traceM $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
-              return ()
+              mirFail $ "storageLive: cannot initialize storage for " ++ show nm ++ " of type " ++ show (pretty ty)
            Just (MirExp rty e) -> 
               case testEquality rty (varInfoRepr varinfo) of
                  Just Refl -> do
@@ -1747,6 +1740,14 @@ initialValue (M.TyRef (M.TySlice t) M.Mut) = do
       let i = (MirExp C.NatRepr (S.litExpr 0))
       return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
       -- fail ("don't know how to initialize slices for " ++ show t)
+initialValue (M.TyRef (M.TyDynamic _) _) = do
+    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
+        Ctx.Empty Ctx.:> x Ctx.:> x
+initialValue (M.TyRawPtr (M.TyDynamic _) _) = do
+    let x = R.App $ E.PackAny knownRepr $ R.App $ E.EmptyApp
+    return $ Just $ MirExp knownRepr $ R.App $ E.MkStruct knownRepr $
+        Ctx.Empty Ctx.:> x Ctx.:> x
 initialValue (M.TyRef t M.Immut) = initialValue t
 initialValue (M.TyRef t M.Mut) = do
     mv <- initialValue t
@@ -1781,12 +1782,9 @@ initialValue (M.TyAdt nm args) = do
                 Just e -> do
                     varExp <- buildVariant adt args 0 e
                     return $ Just $ packAny varExp
-initialValue (M.TyFnPtr _) =
-   return $ Nothing
-initialValue (M.TyDynamic _) =
-   return $ Nothing
-initialValue (M.TyProjection _ _) =
-   return $ Nothing
+initialValue (M.TyFnPtr _) = return $ Nothing
+initialValue (M.TyDynamic _) = return $ Nothing
+initialValue (M.TyProjection _ _) = return $ Nothing
 initialValue (M.TyCustom (CEnum _n _i)) =
    return $ Just $ MirExp C.IntegerRepr (S.litExpr 0)
 initialValue _ = return Nothing
@@ -1957,6 +1955,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
   vm' <- buildIdentMapRegs body []
   varMap %= Map.union vm'
 
+  case localvars of
+    (var0 : _) -> storageLive var0
+    _ -> return ()
 
   db <- use debugLevel
   when (db > 3) $ do
@@ -1995,9 +1996,9 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
             s = initFnState colState fn handle inputs 
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
-      --traceM $ unwords [" =======", show fname, "======="]
-      --traceShowM $ pretty g
-      --traceM $ unwords [" ======= end", show fname, "======="]
+      traceM $ unwords [" =======", show fname, "======="]
+      traceShowM $ pretty g
+      traceM $ unwords [" ======= end", show fname, "======="]
       case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
 
