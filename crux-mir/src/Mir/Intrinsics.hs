@@ -53,6 +53,7 @@ module Mir.Intrinsics
 , mirExtImpl
 ) -} where
 
+import           GHC.Natural
 import           GHC.TypeLits
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
@@ -76,6 +77,7 @@ import           Data.Parameterized.Context
 import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
 import qualified Data.Parameterized.Map as MapF
+import qualified Data.Parameterized.NatRepr as N
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
@@ -115,21 +117,213 @@ mirIntrinsicTypes =
 
 -- A Rust enum, whose variants have the types listed in `ctx`.
 type RustEnumType ctx = StructType (RustEnumFields ctx)
-type RustEnumFields ctx = EmptyCtx ::> IntegerType ::> VariantType ctx
+type RustEnumFields ctx = EmptyCtx ::> IsizeType ::> VariantType ctx
 
 pattern RustEnumFieldsRepr :: () => ctx' ~ RustEnumFields ctx => CtxRepr ctx -> CtxRepr ctx'
-pattern RustEnumFieldsRepr ctx = Empty :> IntegerRepr :> VariantRepr ctx
+pattern RustEnumFieldsRepr ctx = Empty :> IsizeRepr :> VariantRepr ctx
 pattern RustEnumRepr :: () => tp ~ RustEnumType ctx => CtxRepr ctx -> TypeRepr tp
 pattern RustEnumRepr ctx = StructRepr (RustEnumFieldsRepr ctx)
 
-mkRustEnum :: CtxRepr ctx -> f IntegerType -> f (VariantType ctx) -> App ext f (RustEnumType ctx)
+mkRustEnum :: CtxRepr ctx -> f IsizeType -> f (VariantType ctx) -> App ext f (RustEnumType ctx)
 mkRustEnum ctx discr variant = MkStruct (RustEnumFieldsRepr ctx) (Empty :> discr :> variant)
 
-rustEnumDiscriminant :: f (RustEnumType ctx) -> App ext f IntegerType
-rustEnumDiscriminant e = GetStruct e i1of2 IntegerRepr
+rustEnumDiscriminant :: f (RustEnumType ctx) -> App ext f IsizeType
+rustEnumDiscriminant e = GetStruct e i1of2 IsizeRepr
 
 rustEnumVariant :: CtxRepr ctx -> f (RustEnumType ctx) -> App ext f (VariantType ctx)
 rustEnumVariant ctx e = GetStruct e i2of2 (VariantRepr ctx)
+
+
+-- Rust usize/isize representation
+
+type SizeBits = 32
+
+sizeBits :: Natural
+sizeBits = 32
+
+type UsizeType = BVType SizeBits
+type IsizeType = BVType SizeBits
+
+pattern UsizeRepr :: () => tp ~ UsizeType => TypeRepr tp
+pattern UsizeRepr <- BVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> Just Refl)
+  where UsizeRepr = BVRepr (knownRepr :: N.NatRepr SizeBits)
+
+pattern IsizeRepr :: () => tp ~ IsizeType => TypeRepr tp
+pattern IsizeRepr <- BVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> Just Refl)
+  where IsizeRepr = BVRepr (knownRepr :: N.NatRepr SizeBits)
+
+
+usizeLit :: Integer -> App ext f UsizeType
+usizeLit = BVLit knownRepr
+
+usizeAdd :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeAdd = BVAdd knownRepr
+
+usizeSub :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeSub = BVSub knownRepr
+
+usizeMul :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeMul = BVMul knownRepr
+
+usizeDiv :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeDiv = BVUdiv knownRepr
+
+usizeRem :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeRem = BVUrem knownRepr
+
+usizeAnd :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeAnd = BVAnd knownRepr
+
+usizeOr :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeOr = BVOr knownRepr
+
+usizeXor :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeXor = BVXor knownRepr
+
+usizeShl :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeShl = BVShl knownRepr
+
+usizeShr :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeShr = BVLshr knownRepr
+
+usizeEq :: f UsizeType -> f UsizeType -> App ext f BoolType
+usizeEq = BVEq knownRepr
+
+usizeLe :: f UsizeType -> f UsizeType -> App ext f BoolType
+usizeLe = BVUle knownRepr
+
+usizeLt :: f UsizeType -> f UsizeType -> App ext f BoolType
+usizeLt = BVUlt knownRepr
+
+natToUsize :: (App ext f IntegerType -> f IntegerType) -> f NatType -> App ext f UsizeType
+natToUsize wrap = IntegerToBV knownRepr . wrap . NatToInteger
+
+usizeToNat :: f UsizeType -> App ext f NatType
+usizeToNat = BvToNat knownRepr
+
+usizeToBv :: (1 <= r) => NatRepr r ->
+    (App ext f (BVType r) -> f (BVType r)) ->
+    f UsizeType -> f (BVType r)
+usizeToBv r wrap = case compareNat r (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVTrunc r knownRepr
+    NatEQ -> id
+    NatGT _ -> wrap . BVZext r knownRepr
+
+bvToUsize :: (1 <= w) => NatRepr w ->
+    (App ext f UsizeType -> f UsizeType) ->
+    f (BVType w) -> f UsizeType
+bvToUsize w wrap = case compareNat w (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVZext knownRepr w
+    NatEQ -> id
+    NatGT _ -> wrap . BVTrunc knownRepr w
+
+sbvToUsize :: (1 <= w) => NatRepr w ->
+    (App ext f UsizeType -> f UsizeType) ->
+    f (BVType w) -> f UsizeType
+sbvToUsize w wrap = case compareNat w (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVSext knownRepr w
+    NatEQ -> id
+    NatGT _ -> wrap . BVTrunc knownRepr w
+
+usizeIte :: f BoolType -> f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeIte c t e = BVIte c knownRepr t e
+
+vectorGetUsize :: (TypeRepr tp) ->
+    (App ext f NatType -> f NatType) ->
+    f (VectorType tp) -> f UsizeType -> App ext f tp
+vectorGetUsize tpr wrap vec idx = VectorGetEntry tpr vec (wrap $ usizeToNat idx)
+
+vectorSetUsize :: (TypeRepr tp) ->
+    (App ext f NatType -> f NatType) ->
+    f (VectorType tp) -> f UsizeType -> f tp -> App ext f (VectorType tp)
+vectorSetUsize tpr wrap vec idx val = VectorSetEntry tpr vec (wrap $ usizeToNat idx) val
+
+vectorSizeUsize ::
+    (forall tp'. App ext f tp' -> f tp') ->
+    f (VectorType tp) -> App ext f UsizeType
+vectorSizeUsize wrap vec = natToUsize wrap $ wrap $ VectorSize vec
+
+
+isizeLit :: Integer -> App ext f IsizeType
+isizeLit = BVLit knownRepr
+
+isizeAdd :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeAdd = BVAdd knownRepr
+
+isizeSub :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeSub = BVSub knownRepr
+
+isizeMul :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeMul = BVMul knownRepr
+
+isizeDiv :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeDiv = BVSdiv knownRepr
+
+isizeRem :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeRem = BVSrem knownRepr
+
+isizeAnd :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeAnd = BVAnd knownRepr
+
+isizeOr :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeOr = BVOr knownRepr
+
+isizeXor :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeXor = BVXor knownRepr
+
+isizeShl :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeShl = BVShl knownRepr
+
+isizeShr :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeShr = BVAshr knownRepr
+
+isizeEq :: f IsizeType -> f IsizeType -> App ext f BoolType
+isizeEq = BVEq knownRepr
+
+isizeLe :: f IsizeType -> f IsizeType -> App ext f BoolType
+isizeLe = BVSle knownRepr
+
+isizeLt :: f IsizeType -> f IsizeType -> App ext f BoolType
+isizeLt = BVSlt knownRepr
+
+integerToIsize ::
+    (App ext f IsizeType -> f IsizeType) ->
+    f IntegerType -> f IsizeType
+integerToIsize wrap = wrap . IntegerToBV knownRepr
+
+isizeToBv :: (1 <= r) => NatRepr r ->
+    (App ext f (BVType r) -> f (BVType r)) ->
+    f IsizeType -> f (BVType r)
+isizeToBv r wrap = case compareNat r (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVTrunc r knownRepr
+    NatEQ -> id
+    NatGT _ -> wrap . BVSext r knownRepr
+
+bvToIsize :: (1 <= w) => NatRepr w ->
+    (App ext f IsizeType -> f IsizeType) ->
+    f (BVType w) -> f IsizeType
+bvToIsize w wrap = case compareNat w (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVZext knownRepr w
+    NatEQ -> id
+    NatGT _ -> wrap . BVTrunc knownRepr w
+
+sbvToIsize :: (1 <= w) => NatRepr w ->
+    (App ext f IsizeType -> f IsizeType) ->
+    f (BVType w) -> f IsizeType
+sbvToIsize w wrap = case compareNat w (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVSext knownRepr w
+    NatEQ -> id
+    NatGT _ -> wrap . BVTrunc knownRepr w
+
+isizeIte :: f BoolType -> f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeIte c t e = BVIte c knownRepr t e
+
+
+usizeToIsize :: (App ext f IsizeType -> f IsizeType) -> f UsizeType -> f IsizeType
+usizeToIsize _wrap = id
+
+isizeToUsize :: (App ext f UsizeType -> f UsizeType) -> f IsizeType -> f UsizeType
+isizeToUsize _wrap = id
 
 
 --------------------------------------------------------------
@@ -174,7 +368,7 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
   Index_RefPath ::
     !(TypeRepr tp) ->
     !(MirReferencePath sym tp_base (VectorType tp)) ->
-    !(RegValue sym NatType) ->
+    !(RegValue sym UsizeType) ->
     MirReferencePath sym tp_base tp
   Just_RefPath ::
     !(TypeRepr tp) ->
@@ -212,7 +406,7 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
             return (Variant_RefPath ctx1 p' f1)
   (Index_RefPath tp p1 i1, Index_RefPath _ p2 i2) ->
          do p' <- muxRefPath sym c p1 p2
-            i' <- lift $ natIte sym c i1 i2
+            i' <- lift $ bvIte sym c i1 i2
             return (Index_RefPath tp p' i')
   (Just_RefPath tp p1, Just_RefPath _ p2) ->
          do p' <- muxRefPath sym c p1 p2
@@ -247,6 +441,7 @@ type instance AssertionClassifier MIR = NoAssertionClassifier
 type instance Instantiate subst MIR = MIR
 instance ClosedK CrucibleType MIR where closed _ _ = Refl
 
+-- TODO: remove this
 type TaggedUnion = StructType (EmptyCtx ::> NatType ::> AnyType)
 
 -- First `Any` is the data pointer - either an immutable or mutable reference.
@@ -292,7 +487,7 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirSubindexRef ::
      !(TypeRepr tp) ->
      !(f (MirReferenceType (VectorType tp))) ->
-     !(f NatType) ->
+     !(f UsizeType) ->
      MirStmt f (MirReferenceType tp)
   MirSubjustRef ::
      !(TypeRepr tp) ->
@@ -469,8 +664,9 @@ adjustRefPath sym iTypes v path0 adj = case path0 of
       adjustRefPath sym iTypes v path (field @1 (\(RV x) ->
         RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
   Index_RefPath tp path idx ->
-      adjustRefPath sym iTypes v path (\v' ->
-        adjustVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx adj)
+      adjustRefPath sym iTypes v path (\v' -> do
+        idx' <- bvToNat sym idx
+        adjustVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx' adj)
   Just_RefPath _tp path ->
       adjustRefPath sym iTypes v path (\v' -> mapM adj v')
 
@@ -499,7 +695,8 @@ readRefPath sym iTypes v = \case
        readPartExpr sym (unVB $ variant ! fld) msg
   Index_RefPath tp path idx ->
     do v' <- readRefPath sym iTypes v path
-       indexVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx
+       idx' <- bvToNat sym idx
+       indexVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx'
   Just_RefPath tp path ->
     do v' <- readRefPath sym iTypes v path
        let msg = ReadBeforeWriteSimError $
@@ -521,33 +718,33 @@ mirExtImpl = ExtensionImpl
 
 type MirSlice tp     = StructType (EmptyCtx ::>
                            MirReferenceType (VectorType tp) ::> -- values
-                           NatType ::>    --- first element
-                           NatType)       --- length 
+                           UsizeType ::>    --- first element
+                           UsizeType)       --- length
 
 pattern MirSliceRepr :: () => tp' ~ MirSlice tp => TypeRepr tp -> TypeRepr tp'
 pattern MirSliceRepr tp <- StructRepr
      (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
          (MirReferenceRepr (VectorRepr tp)))
-         NatRepr)
-         NatRepr)
- where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (VectorRepr tp) :> NatRepr :> NatRepr)
+         UsizeRepr)
+         UsizeRepr)
+ where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (VectorRepr tp) :> UsizeRepr :> UsizeRepr)
 
 mirSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
                            MirReferenceType (VectorType tp) ::>
-                           NatType ::> 
-                           NatType)  
-mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (VectorRepr tp) :> NatRepr :> NatRepr)
+                           UsizeType ::>
+                           UsizeType)
+mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (VectorRepr tp) :> UsizeRepr :> UsizeRepr)
 
-getSliceLB :: Expr MIR s (MirSlice tp) -> Expr MIR s NatType
+getSliceLB :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
 getSliceLB e = getStruct i2of3 e 
 
-getSliceLen :: Expr MIR s (MirSlice tp) -> Expr MIR s NatType
+getSliceLen :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
 getSliceLen e = getStruct i3of3 e
 
-updateSliceLB :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s NatType ->  Expr MIR s (MirSlice tp)
+updateSliceLB :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType ->  Expr MIR s (MirSlice tp)
 updateSliceLB tp e start = setStruct (mirSliceCtxRepr tp) e i2of3 ns where
    os = getStruct i2of3 e
-   ns = os .+ start
+   ns = App $ usizeAdd os start
 
-updateSliceLen :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s NatType -> Expr MIR s (MirSlice tp)
+updateSliceLen :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType -> Expr MIR s (MirSlice tp)
 updateSliceLen tp e end = setStruct (mirSliceCtxRepr tp) e i3of3 end where

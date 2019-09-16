@@ -151,6 +151,8 @@ data CollectionState
       _staticTraitMap :: !StaticTraitMap,
       _vtableMap      :: !VtableMap,
       _staticMap      :: !(Map DefId StaticVar),
+      -- | For Enums, gives the discriminant value for each variant.
+      _discrMap       :: !(Map AdtName [Integer]),
       _collection     :: !Collection
       }
 
@@ -256,11 +258,11 @@ instance Monoid RustModule where
   mappend = (<>)
 
 instance Semigroup CollectionState  where
-  (CollectionState hm1 vm1 stm1 sm1 col1) <> (CollectionState hm2 vm2 stm2 sm2 col2) =
-      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (stm1 <> stm2) (sm1 <> sm2) (col1 <> col2))
+  (CollectionState hm1 vm1 stm1 sm1 dm1 col1) <> (CollectionState hm2 vm2 stm2 sm2 dm2 col2) =
+      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (stm1 <> stm2) (sm1 <> sm2) (dm1 <> dm2) (col1 <> col2))
 instance Monoid CollectionState where
   mappend = ((<>))
-  mempty  = CollectionState mempty mempty mempty mempty mempty
+  mempty  = CollectionState mempty mempty mempty mempty mempty mempty
 
 
 instance Show (MirExp s) where
@@ -573,7 +575,7 @@ subvariantRef ctx ref idx = G.extensionStmt (MirSubvariantRef ctx ref idx)
 subindexRef ::
   C.TypeRepr tp ->
   R.Expr MIR s (MirReferenceType (C.VectorType tp)) ->
-  R.Expr MIR s C.NatType ->
+  R.Expr MIR s UsizeType ->
   MirGenerator h s ret (R.Expr MIR s (MirReferenceType tp))
 subindexRef tp ref idx = G.extensionStmt (MirSubindexRef tp ref idx)
 

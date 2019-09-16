@@ -56,10 +56,13 @@ import qualified Mir.MirTy as M
 import           Mir.PP (fmt)
 import           Mir.Generator 
     ( MirExp(..), MirGenerator, mkPredVar, mirFail
-    , subanyRef, subfieldRef, subvariantRef, subjustRef )
+    , subanyRef, subfieldRef, subvariantRef, subjustRef
+    , cs, discrMap )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
-    , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant
+    , SizeBits, pattern UsizeRepr, pattern IsizeRepr
+    , isizeLit
+    , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
     , TaggedUnion, DynRefType)
 import           Mir.GenericOps (tySubst)
 
@@ -120,7 +123,7 @@ baseSizeToNatCont M.B16  k = k (knownNat :: NatRepr 16)
 baseSizeToNatCont M.B32  k = k (knownNat :: NatRepr 32)
 baseSizeToNatCont M.B64  k = k (knownNat :: NatRepr 64)
 baseSizeToNatCont M.B128 k = k (knownNat :: NatRepr 128)
-baseSizeToNatCont M.USize _k = error "BUG: Nat is undetermined for usize"
+baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
 
 tyToRepr :: TransTyConstraint => M.Ty -> Some C.TypeRepr
@@ -140,9 +143,8 @@ tyToRepr t0 = case t0 of
 
   M.TyArray t _sz -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
 
-  -- FIXME, this should be configurable
-  M.TyInt M.USize  -> Some C.IntegerRepr
-  M.TyUint M.USize -> Some C.NatRepr
+  M.TyInt M.USize  -> Some IsizeRepr
+  M.TyUint M.USize -> Some UsizeRepr
   M.TyInt base  -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
 
@@ -480,7 +482,7 @@ buildVariant adt args i (MirExp tpr e)
     Refl <- testEqualityOrFail tpr tpr' $
         "bad buildVariant: found: " ++ show tpr ++ ", expected " ++ show tpr' ++
         " for variant " ++ show i ++ " of " ++ show (adt ^. M.adtname) ++ " " ++ show args
-    let discr = R.App $ E.IntLit $ fromIntegral i
+    let discr = R.App $ isizeLit $ fromIntegral i
     return $ MirExp (RustEnumRepr ctx)
         (R.App $ mkRustEnum ctx discr $ R.App $ E.InjectVariant ctx idx e)
   | otherwise = mirFail $
@@ -669,7 +671,7 @@ readEnumVariant ctx idx e = do
 buildEnumVariant :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
     R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s (RustEnumType ctx))
 buildEnumVariant ctx idx e = do
-    let discr = R.App $ E.IntLit $ fromIntegral $ Ctx.indexVal idx
+    let discr = R.App $ isizeLit $ fromIntegral $ Ctx.indexVal idx
     let var = R.App $ E.InjectVariant ctx idx e
     return $ R.App $ mkRustEnum ctx discr var
 
@@ -1129,8 +1131,14 @@ buildEnum' adt args i es = do
         Right x -> return x
     Refl <- testEqualityOrFail (fieldCtxType fctx') ctx' $
         "got wrong fields for " ++ show (adt ^. M.adtname, i) ++ "?"
+
+    discrs <- use $ cs . discrMap . ix (adt ^. M.adtname)
+    discr <- case discrs ^? ix i of
+        Just x -> return x
+        Nothing -> mirFail $ "can't find discr for variant " ++ show (adt ^. M.adtname, i)
+
     buildAnyE (RustEnumRepr ctx) $
-        R.App $ mkRustEnum ctx (R.App $ E.IntLit $ fromIntegral i) $
+        R.App $ mkRustEnum ctx (R.App $ isizeLit discr) $
         R.App $ E.InjectVariant ctx idx $
         R.App $ E.MkStruct ctx' asn
 
@@ -1174,6 +1182,14 @@ enumFieldRef adt args i j tpr ref = do
     ref <- subfieldRef ctx' ref idx'
     ref <- fieldDataRef fld ref
     return $ MirExp (MirReferenceRepr $ fieldDataType fld) ref
+
+
+enumDiscriminant :: M.Adt -> M.Substs -> MirExp s ->
+    MirGenerator h s ret (MirExp s)
+enumDiscriminant adt args e = do
+    Some ctx <- pure $ enumVariants adt args
+    let v = unpackAnyC (RustEnumRepr ctx) e
+    return $ MirExp IsizeRepr $ R.App $ rustEnumDiscriminant v
 
 
 

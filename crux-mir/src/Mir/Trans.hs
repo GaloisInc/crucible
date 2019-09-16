@@ -165,11 +165,11 @@ transConstVal :: HasCallStack => Some C.TypeRepr -> M.ConstVal -> MirGenerator h
 transConstVal (Some (C.BVRepr w)) (M.ConstInt i) =
     return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w (fromInteger (M.fromIntegerLit i)))
 transConstVal (Some (C.BoolRepr)) (M.ConstBool b) = return $ MirExp (C.BoolRepr) (S.litExpr b)
-transConstVal (Some (C.NatRepr)) (M.ConstInt i) =
+transConstVal (Some (UsizeRepr)) (M.ConstInt i) =
     do let n = fromInteger (M.fromIntegerLit i)
-       return $ MirExp C.NatRepr (S.app $ E.NatLit n)
-transConstVal (Some (C.IntegerRepr)) (ConstInt i) =
-      return $ MirExp C.IntegerRepr (S.app $ E.IntLit (fromIntegerLit i))
+       return $ MirExp UsizeRepr (S.app $ usizeLit n)
+transConstVal (Some (IsizeRepr)) (ConstInt i) =
+      return $ MirExp IsizeRepr (S.app $ isizeLit (fromIntegerLit i))
 transConstVal (Some (C.VectorRepr _w)) (M.ConstStr str)
       = do let u32    = C.BVRepr (knownRepr :: NatRepr 32)
            let bytes  = V.fromList (map charToBV32 str)
@@ -311,6 +311,7 @@ evalBinOp bop mat me1 me2 =
                 return $ MirExp (C.BVRepr na) (S.app $ E.BVAshr na e1a e2bv)
 
             _ -> mirFail $ "No translation for binop: " ++ show bop ++ " with " ++ show ty1 ++ " and " ++ show ty2
+      {-
       (MirExp C.IntegerRepr e1, MirExp C.IntegerRepr e2) ->
             case bop of
               M.Add -> return $ MirExp C.IntegerRepr (S.app $ E.IntAdd e1 e2)
@@ -345,6 +346,7 @@ evalBinOp bop mat me1 me2 =
 
 
               _ -> mirFail $ "No translation for integer binop: " ++ fmt bop 
+              -}
       (MirExp ty1@(C.BVRepr na) e1a, MirExp ty2@(C.BVRepr ma) e2a) ->
           -- if the BVs are not the same width extend the shorter one
           extendToMax na e1a ma e2a (mat) $ \ n e1 e2 -> 
@@ -394,6 +396,7 @@ evalBinOp bop mat me1 me2 =
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.BoolXor e1 e2)
             M.Ne  -> return $ MirExp C.BoolRepr (S.app $ E.BoolXor e1 e2)
             _ -> mirFail $ "No translation for bool binop: " ++ fmt bop
+    {-
       (MirExp C.NatRepr e1, MirExp C.NatRepr e2) ->
           case bop of
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.NatEq e1 e2)
@@ -429,6 +432,7 @@ evalBinOp bop mat me1 me2 =
 
 
             _ -> mirFail $ "No translation for natural number binop: " ++ fmt bop
+      -}
       (MirExp C.RealValRepr e1, MirExp C.RealValRepr e2) ->
           case bop of
             M.Beq -> return $ MirExp C.BoolRepr (S.app $ E.RealEq e1 e2)
@@ -515,48 +519,47 @@ evalCast' ck ty1 e ty2  =
       (M.Misc,a,b) | a == b -> return e
 
       (M.Misc, M.TyUint M.USize, M.TyInt M.USize)
-       | MirExp C.NatRepr e0 <- e
-       -> return $ MirExp C.IntegerRepr (R.App $ E.NatToInteger e0)
+       | MirExp UsizeRepr e0 <- e
+       -> return $ MirExp IsizeRepr (usizeToIsize R.App e0)
       (M.Misc, M.TyInt M.USize, M.TyUint M.USize)
-       | MirExp C.IntegerRepr e0 <- e
-       -> mirFail "Cannot convert isize to usize"
+       | MirExp IsizeRepr e0 <- e
+       -> return $ MirExp UsizeRepr (isizeToUsize R.App e0)
 
-      -- TODO: sketchy casts *to* unsized types: for now, they are implemented as infinite precision,
-      -- but eventually will need to allow some configurable precision for these conversions.
       (M.Misc, M.TyUint _, M.TyInt  M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
-       -> return $ MirExp C.IntegerRepr (R.App $ E.BvToInteger sz e0)
+       -> return $ MirExp IsizeRepr (bvToIsize sz R.App e0)
 
       (M.Misc, M.TyUint _, M.TyUint  M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
-       -> return $ MirExp C.NatRepr (R.App $ E.BvToNat sz e0)
+       -> return $ MirExp UsizeRepr (bvToUsize sz R.App e0)
 
       (M.Misc, M.TyInt _, M.TyInt  M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
-       -> return $ MirExp C.IntegerRepr (R.App $ E.SbvToInteger sz e0)
+       -> return $ MirExp IsizeRepr (sbvToIsize sz R.App e0)
 
       (M.Misc, M.TyInt _, M.TyUint  M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
-       -> mirFail "Cannot convert signed integer to usize"
+       -> return $ MirExp UsizeRepr (sbvToUsize sz R.App e0)
 
-      -- sketchy cast *from* unsized type
       (M.Misc, M.TyUint M.USize, M.TyUint bsz)
-       | MirExp C.NatRepr e0 <- e
+       | MirExp UsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
-         MirExp (C.BVRepr w) (R.App $ E.IntegerToBV w $ R.App $ E.NatToInteger e0)
+         MirExp (C.BVRepr w) (usizeToBv w R.App e0)
 
       (M.Misc, M.TyInt M.USize, M.TyUint bsz)
-       | MirExp C.IntegerRepr e0 <- e
+       | MirExp IsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
-         MirExp (C.BVRepr w) (R.App $ E.IntegerToBV w $ e0)
+         MirExp (C.BVRepr w) (isizeToBv w R.App e0)
 
       (M.Misc, M.TyUint M.USize, M.TyInt bsz)
-       | MirExp C.NatRepr e0 <- e
-       -> mirFail "Cannot convert usize to signed integer: need E.IntegerToSBV"
+       | MirExp UsizeRepr e0 <- e
+       -> baseSizeToNatCont bsz $ \w -> return $
+         MirExp (C.BVRepr w) (usizeToBv w R.App e0)
 
       (M.Misc, M.TyInt M.USize, M.TyInt bsz)
-       | MirExp C.IntegerRepr e0 <- e
-       -> mirFail "Cannot convert isize to signed integer: need E.IntegerToSBV"
+       | MirExp IsizeRepr e0 <- e
+       -> baseSizeToNatCont bsz $ \w -> return $
+         MirExp (C.BVRepr w) (isizeToBv w R.App e0)
 
       (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e 
       (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
@@ -571,12 +574,12 @@ evalCast' ck ty1 e ty2  =
        -- boolean to nat
       (M.Misc, TyBool, TyUint M.USize)
        | MirExp C.BoolRepr e0 <- e
-       -> return $ MirExp C.NatRepr (R.App $ E.NatIte e0 (R.App $ E.NatLit 1) (R.App $ E.NatLit 0))
+       -> return $ MirExp UsizeRepr (R.App $ usizeIte e0 (R.App $ usizeLit 1) (R.App $ usizeLit 0))
       (M.Misc, TyBool, TyInt M.USize)
 
        -- boolean to integer
        | MirExp C.BoolRepr e0 <- e
-       -> return $ MirExp C.IntegerRepr (R.App $ E.IntIte e0 (R.App $ E.IntLit 1) (R.App $ E.IntLit 0))
+       -> return $ MirExp IsizeRepr (R.App $ isizeIte e0 (R.App $ isizeLit 1) (R.App $ isizeLit 0))
 
       -- booleans to BVs
       (M.Misc, TyBool, TyUint bsz)
@@ -612,10 +615,10 @@ evalCast' ck ty1 e ty2  =
 
       (M.Unsize, M.TyRef (M.TyArray tp sz) M.Mut, M.TyRef (M.TySlice tp') M.Mut)
         | tp == tp', MirExp (MirReferenceRepr (C.VectorRepr elem_tp)) ref <- e
-        -> do let start = S.litExpr 0
-              let end   = S.litExpr (fromIntegral sz)
+        -> do let start = R.App $ usizeLit 0
+              let end   = R.App $ usizeLit (fromIntegral sz)
               let tup   = S.mkStruct
-                              (Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr elem_tp) Ctx.:> C.NatRepr Ctx.:> C.NatRepr)
+                              (Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr elem_tp) Ctx.:> UsizeRepr Ctx.:> UsizeRepr)
                               (Ctx.Empty Ctx.:> ref Ctx.:> start Ctx.:> end)
               return $ MirExp (MirSliceRepr elem_tp) tup
         | otherwise -> mirFail $ "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
@@ -636,11 +639,14 @@ evalCast' ck ty1 e ty2  =
         -> return e
 
       -- C-style adts, casting an enum value to a TyInt
-      (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt USize) -> return e
-      (M.Misc, M.TyCustom (CEnum _n _i), M.TyInt sz) | (MirExp C.IntegerRepr e0) <- e ->
-         baseSizeToNatCont sz $ \nat ->
-           -- TODO: what happened to E.IntegerToSBV? Will we lose the sign here?
-           return $ MirExp (C.BVRepr nat) (R.App $ E.IntegerToBV nat e0)
+      (M.Misc, M.TyAdt aname args, M.TyInt sz) -> do
+        adt <- findAdt aname
+        discr <- enumDiscriminant adt args e
+        evalCast' M.Misc (M.TyInt M.USize) discr (M.TyInt sz)
+      (M.Misc, M.TyAdt aname args, M.TyUint sz) -> do
+        adt <- findAdt aname
+        discr <- enumDiscriminant adt args e
+        evalCast' M.Misc (M.TyInt M.USize) discr (M.TyUint sz)
 
       -- C-style adts, casting a TyInt to an enum value
       (M.Misc, M.TyInt USize, M.TyCustom (CEnum _n _i)) -> return e
@@ -787,7 +793,7 @@ evalRefProj base projElem =
           M.ConstantIndex offset _min_len fromend
             | C.VectorRepr tp' <- elty
             , fromend == False ->
-                do let natIdx = S.litExpr (fromIntegral offset)
+                do let natIdx = R.App $ usizeLit (fromIntegral offset)
                    r' <- subindexRef tp' ref natIdx
                    return (MirExp (MirReferenceRepr tp') r')
 
@@ -799,12 +805,12 @@ evalRefProj base projElem =
             | C.VectorRepr tp' <- elty
             -> do MirExp idxTy idx <- lookupVar var
                   case idxTy of
-                    C.NatRepr ->
+                    UsizeRepr ->
                       do r' <- subindexRef tp' ref idx
                          return (MirExp (MirReferenceRepr tp') r')
                     C.BVRepr w ->
-                      do idxNat <- G.forceEvaluation (S.app (E.BvToNat w idx))
-                         r' <- subindexRef tp' ref idxNat
+                      do idxUsize <- G.forceEvaluation (bvToUsize w R.App idx)
+                         r' <- subindexRef tp' ref idxUsize
                          return (MirExp (MirReferenceRepr tp') r')
 
                     _ -> mirFail ("Expected index value to be an integer value in reference projection " ++
@@ -832,13 +838,13 @@ evalRval (M.Len lv) =
       -> do MirExp t e <- evalLvalue lv'
             case t of
               MirSliceRepr _tp' ->
-                do let end = S.getStruct (Ctx.natIndex @2) e
-                   return $ MirExp C.NatRepr end
+                do let len = S.getStruct (Ctx.natIndex @2) e
+                   return $ MirExp UsizeRepr len
               _ -> mirFail "Expected mutable slice value"
     _ ->
       do MirExp t e <- evalLvalue lv
          case t of
-           C.VectorRepr _ -> return $ MirExp C.NatRepr $ S.vectorSize e -- might need to convert nat to bv later
+           C.VectorRepr _ -> return $ MirExp UsizeRepr $ R.App $ natToUsize R.App $ S.vectorSize e
            _ -> mirFail "len expects vector input"
 
 evalRval (M.Cast ck op ty) = evalCast ck op ty
@@ -850,12 +856,13 @@ evalRval (M.Discriminant lv) = do
     e <- evalLvalue lv
     let ty = typeOf lv 
     case ty of
-      TyCustom (CEnum _adt _i) -> return e
+      -- CEnum still uses IntegerRepr - convert to isize here
+      TyCustom (CEnum _adt _i)
+       | MirExp C.IntegerRepr e0 <- e ->
+        return $ MirExp IsizeRepr $ integerToIsize R.App e0
       TyAdt aname args -> do
         adt <- findAdt aname
-        Some ctx <- pure $ enumVariants adt args
-        let v = unpackAnyC (RustEnumRepr ctx) e
-        return $ MirExp knownRepr $ R.App $ rustEnumDiscriminant v
+        enumDiscriminant adt args e
       _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show ty
 
 evalRval (M.RCustom custom) = transCustomAgg custom
@@ -961,18 +968,18 @@ evalLvalue (M.LProj lv (M.Index i)) = do
     (MirExp arr_tp arr) <- evalLvalue lv
     (MirExp ind_tp ind) <- lookupVar i
     case (arr_tp, ind_tp) of
-      (C.VectorRepr elt_tp, C.NatRepr) -> do
-          G.assertExpr (ind S..< (S.app (E.VectorSize arr)))
+      (C.VectorRepr elt_tp, UsizeRepr) -> do
+          G.assertExpr (R.App $ usizeLt ind (S.app (vectorSizeUsize R.App arr)))
                        (S.litExpr "Index out of range")
-          return $ MirExp elt_tp $ S.app $ E.VectorGetEntry elt_tp arr ind
-      (MirSliceRepr elt_tp, C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr)) ->
+          return $ MirExp elt_tp $ S.app $ vectorGetUsize elt_tp R.App arr ind
+      (MirSliceRepr elt_tp, C.StructRepr (Ctx.Empty Ctx.:> UsizeRepr Ctx.:> C.AnyRepr)) ->
            let mir_ty = M.typeOf i in
            case mir_ty of
              M.TyAdt did (Substs [TyUint USize]) 
                | did == M.textId "::core[0]::ops[0]::range[0]::RangeFrom[0]" -> do
                   -- get the start of the range
                   let astart = (S.getStruct Ctx.i2of2 ind)
-                  let indty  = C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr)
+                  let indty  = C.StructRepr (Ctx.Empty Ctx.:> UsizeRepr)
                   let start = S.getStruct Ctx.baseIndex
                                 (S.app $ E.FromJustValue indty (S.app $ E.UnpackAny indty astart) (fromString ("Bad Any unpack Nat")))
                   -- create a new slice by modifying the indices of the current one
@@ -981,7 +988,7 @@ evalLvalue (M.LProj lv (M.Index i)) = do
                | did == M.textId "::core[0]::ops[0]::range[0]::Range[0]" -> do
                   -- get the start of the range
                   let astart = (S.getStruct Ctx.i2of2 ind)
-                  let indty  = C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.NatRepr)
+                  let indty  = C.StructRepr (Ctx.Empty Ctx.:> UsizeRepr Ctx.:> UsizeRepr)
                   let start = S.getStruct Ctx.i1of2
                                 (S.app $ E.FromJustValue indty (S.app $ E.UnpackAny indty astart) (fromString ("Bad Any unpack Nat")))
                   -- create a new slice by modifying the indices of the current one
@@ -1009,7 +1016,7 @@ evalLvalue (M.LProj lv M.Deref) =
                     let start = S.getStruct Ctx.i2of3 ref
                     let len   = S.getStruct Ctx.i3of3 ref
                     v <- readMirRef (C.VectorRepr tp) vr
-                    nv <- vectorCopy tp start (start S..+ len) v
+                    nv <- vectorCopy tp start (R.App $ usizeAdd start len) v
                     return $ MirExp (C.VectorRepr tp) nv
 
               _ -> mirFail $ unwords ["Expected reference value in mutable dereference", show $ pretty lv]
@@ -1080,7 +1087,7 @@ assignVarExp v@(M.Var _vnamd _ (M.TyRef (M.TySlice _lhs_ty) M.Immut) _ _ _pos)
          do let rvec  = S.getStruct Ctx.i1of3 e
             let start = S.getStruct Ctx.i2of3 e
             let len   = S.getStruct Ctx.i3of3 e
-            let stop  = S.app $ E.NatAdd start len
+            let stop  = S.app $ usizeAdd start len
             r <- readMirRef (C.VectorRepr e_ty) rvec
             r2 <- vectorCopy e_ty start stop r
             assignVarExp v (MirExp (C.VectorRepr e_ty) r2)
@@ -1145,16 +1152,16 @@ assignLvExp lv re = do
                MirExp ind_tp ind     <- lookupVar v
                MirExp r_tp r         <- return re
                case (slice_tp, ind_tp) of
-                 (MirSliceRepr el_tp, C.NatRepr)
+                 (MirSliceRepr el_tp, UsizeRepr)
                    | Just Refl <- testEquality r_tp el_tp
-                   -> do let _ctx   = Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr el_tp) Ctx.:> C.NatRepr Ctx.:> C.NatRepr
+                   -> do let _ctx   = Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr el_tp) Ctx.:> UsizeRepr Ctx.:> UsizeRepr
                          let ref   = S.getStruct (Ctx.natIndex @0) slice
                          let start = S.getStruct (Ctx.natIndex @1) slice
                          let len   = S.getStruct (Ctx.natIndex @2) slice
-                         G.assertExpr (ind S..< len) (S.litExpr "Index out of range")
-                         let ind'  = start S..+ ind
+                         G.assertExpr (R.App $ usizeLt ind len) (S.litExpr "Index out of range")
+                         let ind'  = R.App $ usizeAdd start ind
                          arr <- readMirRef (C.VectorRepr el_tp) ref
-                         let arr' = S.app $ E.VectorSetEntry el_tp arr ind' r
+                         let arr' = S.app $ vectorSetUsize el_tp R.App arr ind' r
                          writeMirRef ref arr'
 
                  _ -> mirFail $ "bad type in slice assignment"
@@ -1165,12 +1172,12 @@ assignLvExp lv re = do
             case re of
               MirExp r_tp r ->
                 case (arr_tp, ind_tp) of
-                  (C.VectorRepr x, C.NatRepr) ->
+                  (C.VectorRepr x, UsizeRepr) ->
                       case (testEquality x r_tp) of
                         Just Refl -> do
-                          G.assertExpr (ind S..< (S.app (E.VectorSize arr)))
+                          G.assertExpr (R.App $ usizeLt ind (S.app $ vectorSizeUsize R.App arr))
                                        (S.litExpr "Index out of range")
-                          let arr' = MirExp arr_tp (S.app $ E.VectorSetEntry r_tp arr ind r)
+                          let arr' = MirExp arr_tp (S.app $ vectorSetUsize r_tp R.App arr ind r)
                           assignLvExp lv arr'
                         Nothing -> mirFail "bad type in assign"
                   _ -> mirFail $ "bad type in assign"
@@ -1244,6 +1251,8 @@ transStatement (M.SetDiscriminant lv i) = do
        e' <- modifyAggregateIdx ev (MirExp C.NatRepr (S.litExpr (fromInteger (toInteger i)))) 0
        assignLvExp lv e'
     C.AnyRepr ->
+       -- FIXME: this is the enum case, which is NYI.  use `initialValue` to
+       -- create an empty instance of the new enum variant
        mirFail "set discriminant: found any"
     C.IntegerRepr ->
        mirFail "set discriminant: this case should have been translated away by Pass/AllocEnum"
@@ -1704,10 +1713,10 @@ initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyAp
 initialValue (M.TyTuple tys) = do
     mexps <- mapM initialValue tys
     return $ Just $ buildTupleMaybe tys mexps
-initialValue (M.TyInt M.USize) = return $ Just $ MirExp C.IntegerRepr (S.litExpr 0)
+initialValue (M.TyInt M.USize) = return $ Just $ MirExp IsizeRepr (R.App $ isizeLit 0)
 initialValue (M.TyInt sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
-initialValue (M.TyUint M.USize) = return $ Just $ MirExp C.NatRepr (S.litExpr 0)
+initialValue (M.TyUint M.USize) = return $ Just $ MirExp UsizeRepr (R.App $ usizeLit 0)
 initialValue (M.TyUint sz)      = baseSizeToNatCont sz $ \w ->
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
 initialValue (M.TyArray t size) = do
@@ -1723,7 +1732,7 @@ initialValue (M.TyRef (M.TySlice t) M.Immut) = do
 initialValue (M.TyRef (M.TySlice t) M.Mut) = do
     tyToReprCont t $ \ tr -> do
       ref <- newMirRef (C.VectorRepr tr)      
-      let i = (MirExp C.NatRepr (S.litExpr 0))
+      let i = (MirExp UsizeRepr (R.App $ usizeLit 0))
       return $ Just $ buildTuple [(MirExp (MirReferenceRepr (C.VectorRepr tr)) ref), i, i]
       -- fail ("don't know how to initialize slices for " ++ show t)
 initialValue (M.TyRef (M.TyDynamic _) _) = do
@@ -2396,6 +2405,13 @@ checkEq a b kNe kEq
 
 
 
+mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]
+mkDiscrMap col = mconcat
+    [ Map.singleton (adt^.M.adtname) (adtIndices adt col)
+    | adt <- Map.elems $ col^.M.adts, adt^.M.adtkind == Enum ]
+
+
+
 ---------------------------------------------------------------------------
 
 -- | transCollection: translate a MIR collection
@@ -2433,9 +2449,11 @@ transCollection col halloc = do
 
     sm <- foldrM allocateStatic Map.empty (col^.statics)
 
+    let dm = mkDiscrMap col
+
 
     let colState :: CollectionState
-        colState = CollectionState hmap stm vm sm col 
+        colState = CollectionState hmap stm vm sm dm col
 
     -- translate all of the functions
     pairs1 <- mapM (transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))
@@ -2495,26 +2513,26 @@ transStatics colState halloc = do
 -- Generate a loop that copies a vector  
 -- 
 vectorCopy :: C.TypeRepr elt ->
-             G.Expr MIR s C.NatType ->
-             G.Expr MIR s C.NatType ->
+             G.Expr MIR s UsizeType ->
+             G.Expr MIR s UsizeType ->
              G.Expr MIR s (C.VectorType elt) ->
              MirGenerator h s ret (G.Expr MIR s (C.VectorType elt))
 vectorCopy ety start stop inp = do
-  let elt = S.app $ E.VectorGetEntry ety inp (S.app $ E.NatLit 0)
-  let sz  = S.app $ E.NatSub stop start
-  let out = S.app $ E.VectorReplicate ety sz elt
+  let elt = S.app $ vectorGetUsize ety R.App inp (S.app $ usizeLit 0)
+  let sz  = S.app $ usizeSub stop start
+  let out = S.app $ E.VectorReplicate ety (R.App $ usizeToNat sz) elt
   ir <- G.newRef start
   or <- G.newRef out
   let pos = PL.InternalPos
   G.while (pos, do i <- G.readRef ir
-                   return (G.App (E.NatLt i stop)))
+                   return (G.App $ usizeLt i stop))
           (pos, do i <- G.readRef ir
-                   let elt = S.app $ E.VectorGetEntry ety inp i
+                   let elt = S.app $ vectorGetUsize ety R.App inp i
                    o   <- G.readRef or
-                   let j = (G.App (E.NatSub i start))
-                   let o' = S.app $ E.VectorSetEntry ety o j elt
+                   let j = (G.App $ usizeSub i start)
+                   let o' = S.app $ vectorSetUsize ety R.App o j elt
                    G.writeRef or o'
-                   G.writeRef ir (G.App (E.NatAdd i (G.App $ E.NatLit 1))))
+                   G.writeRef ir (G.App $ usizeAdd i $ G.App $ usizeLit 1))
   o <- G.readRef or
   return o
 

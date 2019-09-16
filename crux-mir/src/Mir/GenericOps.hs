@@ -434,10 +434,12 @@ fnType ati mn
 -- A CStyle ADT is one that is an enumeration of numeric valued options
 -- containing no data
 isCStyle :: Adt -> Bool
+{-
 isCStyle (Adt _aname Enum variants) = all isConst variants
   where
     isConst (Variant _ _ [] ConstKind) = True
     isConst _ = False
+-}
 isCStyle _ = False
 
 

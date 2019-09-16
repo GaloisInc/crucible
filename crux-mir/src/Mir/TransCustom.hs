@@ -162,8 +162,8 @@ wrapping_mul = ( (["core","num","{{impl}}"], "wrapping_mul", []),
            (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
                let sub = R.App $ E.BVMul wa a b 
                return (MirExp aty sub)
-           (C.NatRepr, C.NatRepr) -> do
-               let sub = R.App $ E.NatMul a b
+           (UsizeRepr, UsizeRepr) -> do
+               let sub = R.App $ usizeMul a b
                return (MirExp aty sub)               
            (_,_) -> mirFail $ "wrapping_mul: cannot call with types " ++ show aty ++ " and " ++ show bty
 
@@ -182,8 +182,8 @@ wrapping_sub = ( (["core","num","{{impl}}"], "wrapping_sub", []),
            (C.BVRepr wa, C.BVRepr wb) | Just Refl <- testEquality wa wb -> do
                let sub = R.App $ E.BVSub wa a b 
                return (MirExp aty sub)
-           (C.NatRepr, C.NatRepr) -> do
-               let sub = R.App $ E.NatSub a b
+           (UsizeRepr, UsizeRepr) -> do
+               let sub = R.App $ usizeSub a b
                return (MirExp aty sub)
            (_,_) -> mirFail $ "wrapping_sub: cannot call with types " ++ show aty ++ " and " ++ show bty
 
@@ -290,7 +290,7 @@ str_len =
                  case ops of 
                     -- type of the structure is &str == TyStr ==> C.VectorRepr BV32
                    [MirExp (C.VectorRepr _) vec_e] -> do
-                        return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
+                        return (MirExp UsizeRepr  (G.App $ vectorSizeUsize R.App vec_e))
                    _ -> mirFail $ "BUG: invalid arguments to " ++ "string len"
 
                _ -> Nothing)
@@ -327,7 +327,7 @@ slice_len =
      case ops of 
      -- type of the structure is &mut[ elTy ]
        [MirExp (C.VectorRepr _) vec_e] -> do
-            return (MirExp C.NatRepr  (G.App $ E.VectorSize vec_e))
+            return (MirExp UsizeRepr (G.App $ vectorSizeUsize R.App vec_e))
        _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len")
 
 {-
@@ -448,14 +448,14 @@ slice_index_usize_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"],
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
           case ops of
-            [MirExp C.NatRepr ind, MirExp (C.VectorRepr el_tp) arr] -> do
-                return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind))
-            [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
+            [MirExp UsizeRepr ind, MirExp (C.VectorRepr el_tp) arr] -> do
+                return $ (MirExp el_tp (S.app $ vectorGetUsize el_tp R.App arr ind))
+            [MirExp UsizeRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
                 let ref   = S.getStruct (Ctx.natIndex @0) slice
                 let start = S.getStruct (Ctx.natIndex @1) slice
-                let ind'  = start S..+ ind
+                let ind'  = R.App $ usizeAdd start ind
                 arr <- readMirRef (C.VectorRepr el_tp) ref
-                return $ (MirExp el_tp (S.app $ E.VectorGetEntry el_tp arr ind'))
+                return $ (MirExp el_tp (S.app $ vectorGetUsize el_tp R.App arr ind'))
             _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked"
      _ -> Nothing)
 
@@ -466,17 +466,17 @@ slice_index_range_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"],
        -> Just $ CustomOp $ \ optys ops -> do
           case ops of
              [ MirExp tr1 start, MirExp tr2 end, MirExp (C.VectorRepr ety) vec_e  ]
-               | Just Refl <- testEquality tr1 C.NatRepr
-               , Just Refl <- testEquality tr2 C.NatRepr
+               | Just Refl <- testEquality tr1 UsizeRepr
+               , Just Refl <- testEquality tr2 UsizeRepr
                -> do
                 v <- vectorCopy ety start end vec_e
                 return $ (MirExp (C.VectorRepr ety) v)
 
              [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr ty) vec_e] 
-               | Just Refl <- testEquality tr1 C.NatRepr
-               , Just Refl <- testEquality tr2 C.NatRepr
+               | Just Refl <- testEquality tr1 UsizeRepr
+               , Just Refl <- testEquality tr2 UsizeRepr
                -> do
-                let newLen = (S.app $ E.NatSub end start)
+                let newLen = (S.app $ usizeSub end start)
                 let s1 = updateSliceLB  ty vec_e start
                 let s2 = updateSliceLen ty s1    newLen
                 return $ (MirExp (MirSliceRepr ty) s2)
@@ -493,10 +493,10 @@ slice_index_usize_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecke
        -> Just $ CustomOp $ \ optys ops -> do
             case ops of
 
-              [MirExp C.NatRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
+              [MirExp UsizeRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
                   let ref   = S.getStruct (Ctx.natIndex @0) slice
                   let start = S.getStruct (Ctx.natIndex @1) slice
-                  let ind'  = start S..+ ind
+                  let ind'  = R.App $ usizeAdd start ind
                   ref <- subindexRef el_tp ref ind'
                   return $ (MirExp (MirReferenceRepr el_tp) ref)
               _ -> mirFail $ "BUG: invalid arguments to slice_get_unchecked_mut: " ++ show ops
@@ -510,10 +510,10 @@ slice_index_range_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecke
             case ops of
 
               [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr ty) vec_e] 
-                | Just Refl <- testEquality tr1 C.NatRepr
-                , Just Refl <- testEquality tr2 C.NatRepr
+                | Just Refl <- testEquality tr1 UsizeRepr
+                , Just Refl <- testEquality tr2 UsizeRepr
                 -> do
-                  let newLen = (S.app $ E.NatSub end start)
+                  let newLen = S.app $ usizeSub end start
                   let s1 = updateSliceLB  ty vec_e start
                   let s2 = updateSliceLen ty s1    newLen
                   return $ (MirExp (MirSliceRepr ty) s2)
@@ -659,7 +659,7 @@ integer_rem = ((["int512"], "rem", []), \(Substs []) ->
 
 -- Type-indexed version of "1"
 oneExp :: C.TypeRepr ty -> MirExp s
-oneExp C.NatRepr    = MirExp C.NatRepr (S.litExpr 1)
+oneExp UsizeRepr    = MirExp UsizeRepr (R.App $ usizeLit 1)
 oneExp (C.BVRepr w) = MirExp (C.BVRepr w) (R.App (E.BVLit w 1))
 oneExp ty = error $ "oneExp: unimplemented for type " ++ show ty
 
