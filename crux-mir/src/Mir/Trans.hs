@@ -748,7 +748,7 @@ evalRefLvalue lv =
 
                _ -> mirFail ("Mutable reference-taken variable not backed by reference! " <> show nm <> " at " <> Text.unpack pos)
              case ty of
-                M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [_])
+                CTyBox _
                   | MirReferenceRepr tpr' <- tpr -> do
                     e0' <- readMirRef tpr' e0
                     return $ MirExp tpr' e0'
@@ -1027,7 +1027,7 @@ evalLvalue (M.LProj lv M.Deref) =
                     return $ MirExp (C.VectorRepr tp) nv
 
               _ -> mirFail $ unwords ["Expected reference value in mutable dereference", show $ pretty lv]
-     M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [_]) ->
+     CTyBox _ ->
          do MirExp ref_ty ref <- evalLvalue lv
             case ref_ty of
               MirReferenceRepr tp ->
@@ -1712,10 +1712,10 @@ transTerminator t _tr =
 -- uninitialized values.  So we should revisit this.
 --
 initialValue :: HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
-initialValue (M.TyAdt "::int512[0]::Int512[0]" (M.Substs [])) =
+initialValue (CTyInt512) =
     let w = knownNat :: NatRepr 512 in
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
-initialValue (M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [t])) = do
+initialValue (CTyBox t) = do
     mv <- initialValue t
     case mv of
       Just (MirExp tp e) -> do

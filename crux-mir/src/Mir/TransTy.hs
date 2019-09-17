@@ -126,12 +126,15 @@ baseSizeToNatCont M.B128 k = k (knownNat :: NatRepr 128)
 baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
 
+-- Custom type aliases
+pattern CTyInt512 = M.TyAdt "::int512[0]::Int512[0]" (M.Substs [])
+pattern CTyBox t = M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [t])
+
+
 tyToRepr :: TransTyConstraint => M.Ty -> Some C.TypeRepr
 tyToRepr t0 = case t0 of
-  M.TyAdt "::int512[0]::Int512[0]" (M.Substs []) ->
-    Some $ C.BVRepr (knownNat :: NatRepr 512)
-  M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [t]) ->
-    tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
+  CTyInt512 -> Some $ C.BVRepr (knownNat :: NatRepr 512)
+  CTyBox t -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
 
   M.TyBool -> Some C.BoolRepr
   M.TyTuple [] -> Some C.UnitRepr
