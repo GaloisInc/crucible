@@ -505,7 +505,7 @@ accessAggregate (MirExp (C.StructRepr ctx) ag) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
       let tpr = ctx Ctx.! idx
       return $ MirExp tpr (S.getStruct idx ag)
-accessAggregate (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
+accessAggregate (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at field " ++ (show b)
 
 accessAggregateMaybe :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
@@ -516,7 +516,7 @@ accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
                              in return $ MirExp tpr' mv
         _ -> mirFail "accessAggregateMaybe: non-maybe struct"
       
-accessAggregateMaybe (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
+accessAggregateMaybe (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at field (maybe) " ++ (show b)
 
 
 
@@ -556,18 +556,6 @@ modifyAggregateIdxMaybe (MirExp ty _) _ _ =
   do mirFail ("modifyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
 
 
-{-
-accessStructField :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
-accessStructField (MirExp (C.StructRepr ctx) v) i
-  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
-      let tpr = ctx Ctx.! idx
-      let proj = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant ctx v
-      e <- G.fromJustExpr proj $ R.App $ E.TextLit $
-        "invalid access of wrong variant " <> Text.pack (show i)
-      return $ MirExp tpr e
-accessStructField (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
--}
-
 accessVariant :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessVariant (MirExp (RustEnumRepr ctx) v) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
@@ -576,63 +564,7 @@ accessVariant (MirExp (RustEnumRepr ctx) v) i
       e <- G.fromJustExpr proj $ R.App $ E.TextLit $
         "invalid access of wrong variant " <> Text.pack (show i)
       return $ MirExp tpr e
-accessVariant (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at location " ++ (show b)
-
-{-
--- Adjust the contents of an ANY value.  Requires knowing the current concrete
--- type.  The function must return a `MirExp` of the same type as input - that
--- is, this function does not allow changing the underlying type of the `ANY`.
-adjustAny ::
-    C.TypeRepr tp ->
-    (MirExp s -> MirGenerator h s ret (MirExp s)) ->
-    MirExp s -> MirGenerator h s ret (MirExp s)
-adjustAny tpr f (MirExp C.AnyRepr a) = do
-    let oldValOpt = R.App $ E.UnpackAny tpr a
-    oldVal <- G.fromJustExpr oldValOpt $ R.App $ E.TextLit $
-        "invalid ANY unpack at type " <> Text.pack (show tpr)
-    MirExp tpr' newVal <- f (MirExp tpr oldVal)
-    Refl <- testEqualityOrFail tpr tpr' $
-        "bad any adjust, found: " ++ show tpr' ++ ", expected " ++ show tpr
-    return $ MirExp C.AnyRepr (R.App $ E.PackAny tpr newVal)
-
--- Adjust the contents of a struct field.
-adjustStructField ::
-    Int ->
-    (MirExp s -> MirGenerator h s ret (MirExp s)) ->
-    MirExp s -> MirGenerator h s ret (MirExp s)
-adjustStructField i f (MirExp (C.StructRepr ctx) st)
-  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
-    let tpr = ctx Ctx.! idx
-    let oldVal = S.getStruct idx st
-    MirExp tpr' newVal <- f (MirExp tpr oldVal)
-    Refl <- testEqualityOrFail tpr tpr' $
-        "bad struct field adjust, found: " ++ show tpr' ++ ", expected " ++ show tpr
-    return $ MirExp (C.StructRepr ctx) (S.setStruct ctx st idx newVal)
-  | otherwise = mirFail ("adjustStructField: Index " ++ show i ++ " out of range for variant")
-adjustStructField _ _ (MirExp ty _) =
-  do mirFail ("adjustStructField: Expected Crucible variant type, but got:" ++ show ty)
-
-adjustVariant :: 
-    Int ->
-    (MirExp s -> MirGenerator h s ret (MirExp s)) ->
-    MirExp s -> MirGenerator h s ret (MirExp s)
-adjustVariant i f (MirExp (RustEnumRepr ctx) v)
-  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
-      let tpr = ctx Ctx.! idx
-      let oldValOpt = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant ctx v
-      oldVal <- G.fromJustExpr oldValOpt $ R.App $ E.TextLit $
-        "invalid adjust of wrong variant " <> Text.pack (show i)
-      MirExp tpr' newVal <- f (MirExp tpr oldVal)
-      Refl <- testEqualityOrFail tpr tpr' $
-        "bad variant adjust, found: " ++ show tpr' ++ ", expected " ++ show tpr
-      let discr = R.App $ E.IntLit $ fromIntegral i
-      return $ MirExp (RustEnumRepr ctx)
-        (R.App $ mkRustEnum ctx discr $ R.App $ E.InjectVariant ctx idx newVal)
-  | otherwise = mirFail ("adjustVariant: Index " ++ show i ++ " out of range for variant")
-adjustVariant _ _ (MirExp ty _) =
-  do mirFail ("adjustVariant: Expected Crucible variant type, but got:" ++ show ty)
-
--}
+accessVariant (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at variant " ++ (show b)
 
 
 

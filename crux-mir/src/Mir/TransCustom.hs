@@ -231,10 +231,13 @@ discriminant_value ::  (ExplodedDefId, CustomRHS)
 discriminant_value = ((["core","intrinsics"],"discriminant_value", []),
   \ _substs -> Just $ CustomOp $ \ opTys ops ->
       case (opTys,ops) of
-        ([TyCustom (CEnum _adt _i)], [e]) -> return e
-        ([_],[e]) -> do (MirExp C.NatRepr idx) <- accessAggregate e 0
-                        return $ (MirExp knownRepr $ R.App (E.IntegerToBV (knownRepr :: NatRepr 64)
-                                                                  (R.App (E.NatToInteger idx))))
+        ([TyRef (TyAdt nm args) Immut], [e]) -> do
+            adt <- findAdt nm
+            -- `&T` has the same representation as `T`, so we don't need to
+            -- explicitly dereference.
+            MirExp IsizeRepr e' <- enumDiscriminant adt args e
+            return $ MirExp (C.BVRepr (knownRepr :: NatRepr 64)) $
+                isizeToBv knownRepr R.App e'
         _ -> mirFail $ "BUG: invalid arguments for discriminant_value")
 
 type_id ::  (ExplodedDefId, CustomRHS)

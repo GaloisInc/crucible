@@ -1684,13 +1684,6 @@ transTerminator t _tr =
 
 --- translation of toplevel glue ---
 
-findAdt :: M.DefId -> MirGenerator h s ret Adt
-findAdt name = do
-    optAdt <- use $ cs . collection . adts . at name
-    case optAdt of
-        Just x -> return x
-        Nothing -> mirFail $ "unknown ADT " ++ show name
-
 ---- "Allocation" 
 --
 --

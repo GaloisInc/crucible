@@ -295,7 +295,12 @@ mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
       Map.insertWith (++) methName [tn] tm
     addItem _ tm = tm
 
-
+findAdt :: DefId -> MirGenerator h s ret Adt
+findAdt name = do
+    optAdt <- use $ cs . collection . adts . at name
+    case optAdt of
+        Just x -> return x
+        Nothing -> mirFail $ "unknown ADT " ++ show name
 
 -- | What to do when the translation fails.
 mirFail :: String -> MirGenerator h s ret a
