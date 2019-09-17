@@ -2,20 +2,28 @@
 #![feature(
     core_intrinsics,
     core_panic_info,
+    dropck_eyepatch,
+    fundamental,
+    lang_items,
+    ptr_internals,
+    receiver_trait,
     todo_macro,
 )]
 #![no_std]
 
+pub mod boxed;
 pub mod io;
 pub mod vec;
 
 pub mod prelude {
     pub mod v1 {
         pub use core::prelude::v1::*;
+        pub use crate::boxed::Box;
         pub use crate::vec::Vec;
     }
 }
 
+pub use core::borrow;
 pub use core::clone;
 pub use core::cmp;
 pub use core::convert;
