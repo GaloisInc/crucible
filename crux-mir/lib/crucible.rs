@@ -44,3 +44,20 @@ macro_rules! crucible_assume {
         $crate::crucible_assume_impl($e, stringify!($e), file!(), line!(), column!())
     };
 }
+
+
+#[macro_export]
+macro_rules! crucible_assume_unreachable {
+    () => {
+        crucible_assume!(false);
+        unreachable!();
+    };
+}
+
+#[macro_export]
+macro_rules! crucible_assert_unreachable {
+    () => {
+        crucible_assert!(false);
+        unreachable!();
+    };
+}
