@@ -20,7 +20,7 @@ translate_2015() {
 
 translate lib/libcore/lib.rs --crate-name core
 translate lib/compiler_builtins.rs --cfg 'feature="compiler-builtins"' --cfg stage0
-translate lib/crucible.rs
+translate lib/crucible/lib.rs --crate-name crucible
 translate lib/int512.rs
 translate lib/std/lib.rs --crate-name std --cfg 'feature="std"'
 translate_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'

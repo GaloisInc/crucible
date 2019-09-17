@@ -594,6 +594,15 @@ subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
 
 
 
+vectorSnoc ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (C.VectorType tp) ->
+  R.Expr MIR s tp ->
+  MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
+vectorSnoc tp v e = G.extensionStmt $ VectorSnoc tp v e
+
+
+
 
 --  LocalWords:  ty ImplementTrait ctx vtable idx runtime struct
 --  LocalWords:  vtblToStruct

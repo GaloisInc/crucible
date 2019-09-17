@@ -67,6 +67,7 @@ import qualified Data.Map.Strict as Map
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.String
+import qualified Data.Vector as V
 
 import qualified Text.Regex as Regex
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -493,6 +494,11 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(TypeRepr tp) ->
      !(f (MirReferenceType (MaybeType tp))) ->
      MirStmt f (MirReferenceType tp)
+  VectorSnoc ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     !(f tp) ->
+     MirStmt f (VectorType tp)
 
 $(return [])
 
@@ -534,6 +540,7 @@ instance TypeApp MirStmt where
     MirSubvariantRef ctx _ idx -> MirReferenceRepr (ctx ! idx)
     MirSubindexRef tp _ _ -> MirReferenceRepr tp
     MirSubjustRef tp _ -> MirReferenceRepr tp
+    VectorSnoc tp _ _ -> VectorRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -546,6 +553,7 @@ instance PrettyApp MirStmt where
     MirSubvariantRef _ x idx -> "subvariantRef" <+> pp x <+> text (show idx)
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
+    VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
 
 instance FunctorFC MirStmt where
   fmapFC = fmapFCDefault
@@ -568,6 +576,7 @@ instance InstantiateFC CrucibleType MirStmt where
       MirSubvariantRef ctx r1 idx -> MirSubvariantRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
       MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)
       MirSubjustRef ty r1 -> MirSubjustRef (instantiate subst ty) (instantiate subst r1)
+      VectorSnoc ty v e -> VectorSnoc (instantiate subst ty) (instantiate subst v) (instantiate subst e)
 
 
 instance HasStructuredAssertions MIR where
@@ -628,6 +637,8 @@ execMirStmt stmt s =
        MirSubjustRef tp (regValue -> MirReference r path) ->
          do let r' = MirReference r (Just_RefPath tp path)
             return (r', s)
+       VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
+            return (V.snoc vecValue elemValue, s)
 
 writeRefPath :: IsSymInterface sym =>
   sym ->

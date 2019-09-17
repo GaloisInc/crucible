@@ -91,6 +91,12 @@ customOps = Map.fromList [
 
                          , box_new
 
+                         , vector_new
+                         , vector_len
+                         , vector_push
+                         , vector_as_slice
+                         , vector_as_mut_slice
+
                          -- CustomOps below this point have not been checked
                          -- for compatibility with new monomorphization.
 
@@ -157,12 +163,66 @@ panicking_panic = ((["core", "panicking"], "panic", []), \s -> Just $ CustomOpEx
 
 box_new :: (ExplodedDefId, CustomRHS)
 box_new = ( (["std","boxed","{{impl}}"], "new", []),
-  \_substs -> Just $ CustomOp $ \ _opTys ops -> case ops of
+  \_substs -> Just $ CustomOp $ \opTys ops -> case ops of
     [MirExp tpr e] -> do
         r <- newMirRef tpr
         writeMirRef r e
         return $ MirExp (MirReferenceRepr tpr) r
+    _ -> mirFail $ "bad arguments for Box::new: " ++ show opTys
   )
+
+
+-----------------------------------------------------------------------------------------------------
+-- ** Custom: Vector
+
+-- Methods for crucible::vector::Vector<T> (which has custom representation)
+
+vector_new :: (ExplodedDefId, CustomRHS)
+vector_new = ( (["crucible","vector","{{impl}}"], "new", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ _ -> do
+        Some tpr <- return $ tyToRepr t
+        return $ MirExp (C.VectorRepr tpr) (R.App $ E.VectorLit tpr V.empty)
+    _ -> Nothing
+
+vector_len :: (ExplodedDefId, CustomRHS)
+vector_len = ( (["crucible","vector","{{impl}}"], "len", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (C.VectorRepr tpr) e] -> do
+            return $ MirExp UsizeRepr (R.App $ vectorSizeUsize R.App e)
+        _ -> mirFail $ "bad arguments for Vector::len: " ++ show ops
+    _ -> Nothing
+
+vector_push :: (ExplodedDefId, CustomRHS)
+vector_push = ( (["crucible","vector","{{impl}}"], "push", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (C.VectorRepr tpr) eVec, MirExp tpr' eItem]
+          | Just Refl <- testEquality tpr tpr' -> do
+            eSnoc <- vectorSnoc tpr eVec eItem
+            return $ MirExp (C.VectorRepr tpr) eSnoc
+        _ -> mirFail $ "bad arguments for Vector::len: " ++ show ops
+    _ -> Nothing
+
+vector_as_slice :: (ExplodedDefId, CustomRHS)
+vector_as_slice = ( (["crucible","vector","{{impl}}"], "as_slice", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [e@(MirExp (C.VectorRepr tpr) _)] -> return e
+        _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
+    _ -> Nothing
+
+vector_as_mut_slice :: (ExplodedDefId, CustomRHS)
+vector_as_mut_slice = ( (["crucible","vector","{{impl}}"], "as_mut_slice", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (MirReferenceRepr (C.VectorRepr tpr)) e] -> do
+            -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
+            let start = R.App $ usizeLit 0
+            v <- readMirRef (C.VectorRepr tpr) e
+            let end = R.App $ vectorSizeUsize R.App v
+            let tup = S.mkStruct
+                    (Ctx.Empty Ctx.:> MirReferenceRepr (C.VectorRepr tpr) Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> e Ctx.:> start Ctx.:> end)
+            return $ MirExp (MirSliceRepr tpr) tup
+        _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
+    _ -> Nothing
 
 
 -----------------------------------------------------------------------------------------------------

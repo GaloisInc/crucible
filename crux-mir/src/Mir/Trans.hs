@@ -1723,6 +1723,9 @@ initialValue (CTyBox t) = do
         writeMirRef ref e
         return $ Just (MirExp (MirReferenceRepr tp) ref)
       Nothing -> return Nothing
+initialValue (CTyVector t) = do
+    tyToReprCont t $ \ tr ->
+      return $ Just (MirExp (C.VectorRepr tr) (S.app $ E.VectorLit tr V.empty))
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = do
