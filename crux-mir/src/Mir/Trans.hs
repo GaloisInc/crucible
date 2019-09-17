@@ -729,7 +729,7 @@ evalRefLvalue lv =
       case lv of
         M.LBase (M.Local (M.Var nm mut ty _ _ pos)) ->
           do vm <- use varMap
-             case Map.lookup nm vm of
+             e@(MirExp tpr e0) <- case Map.lookup nm vm of
                Just (Some (VarReference reg)) ->
                  do r <- G.readReg reg
                     return $ MirExp (R.typeOfReg reg) r
@@ -747,6 +747,13 @@ evalRefLvalue lv =
 
 
                _ -> mirFail ("Mutable reference-taken variable not backed by reference! " <> show nm <> " at " <> Text.unpack pos)
+             case ty of
+                M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [_])
+                  | MirReferenceRepr tpr' <- tpr -> do
+                    e0' <- readMirRef tpr' e0
+                    return $ MirExp tpr' e0'
+                  | otherwise -> mirFail $ "expected MirReferenceRepr for Box<_>, but got " ++ show tpr
+                _ -> return e
         M.LProj lv elm -> evalRefProj lv elm
 
         _ -> mirFail ("FIXME! evalRval, Ref for non-local lvars" ++ show lv)
@@ -1020,6 +1027,13 @@ evalLvalue (M.LProj lv M.Deref) =
                     return $ MirExp (C.VectorRepr tp) nv
 
               _ -> mirFail $ unwords ["Expected reference value in mutable dereference", show $ pretty lv]
+     M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [_]) ->
+         do MirExp ref_ty ref <- evalLvalue lv
+            case ref_ty of
+              MirReferenceRepr tp ->
+                 do r <- readMirRef tp ref
+                    return $ MirExp tp r
+              _ -> mirFail $ "expected MirReferenceRepr for Box<_>, but got " ++ show ref_ty
      tp ->
        mirFail $ unwords ["Expected reference type in dereference", show tp, show lv]
 
@@ -1701,6 +1715,14 @@ initialValue :: HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))
 initialValue (M.TyAdt "::int512[0]::Int512[0]" (M.Substs [])) =
     let w = knownNat :: NatRepr 512 in
     return $ Just $ MirExp (C.BVRepr w) (S.app (E.BVLit w 0))
+initialValue (M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [t])) = do
+    mv <- initialValue t
+    case mv of
+      Just (MirExp tp e) -> do
+        ref <- newMirRef tp
+        writeMirRef ref e
+        return $ Just (MirExp (MirReferenceRepr tp) ref)
+      Nothing -> return Nothing
 initialValue M.TyBool       = return $ Just $ MirExp C.BoolRepr (S.false)
 initialValue (M.TyTuple []) = return $ Just $ MirExp C.UnitRepr (R.App E.EmptyApp)
 initialValue (M.TyTuple tys) = do

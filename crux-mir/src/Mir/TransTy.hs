@@ -130,6 +130,8 @@ tyToRepr :: TransTyConstraint => M.Ty -> Some C.TypeRepr
 tyToRepr t0 = case t0 of
   M.TyAdt "::int512[0]::Int512[0]" (M.Substs []) ->
     Some $ C.BVRepr (knownNat :: NatRepr 512)
+  M.TyAdt "::std[0]::boxed[0]::Box[0]" (M.Substs [t]) ->
+    tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
 
   M.TyBool -> Some C.BoolRepr
   M.TyTuple [] -> Some C.UnitRepr

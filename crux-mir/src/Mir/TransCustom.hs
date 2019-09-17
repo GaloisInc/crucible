@@ -89,6 +89,8 @@ customOps = Map.fromList [
 
                          , mem_crucible_identity_transmute
 
+                         , box_new
+
                          -- CustomOps below this point have not been checked
                          -- for compatibility with new monomorphization.
 
@@ -146,6 +148,22 @@ panicking_panic = ((["core", "panicking"], "panic", []), \s -> Just $ CustomOpEx
     name <- use $ currentFn . fname
     return $ "panicking::panic, called from " <> M.idText name
     )
+
+
+-----------------------------------------------------------------------------------------------------
+-- ** Custom: Box
+
+-- Note that std::boxed::Box<T> gets custom translation in `TransTy.tyToRepr`.
+
+box_new :: (ExplodedDefId, CustomRHS)
+box_new = ( (["std","boxed","{{impl}}"], "new", []),
+  \_substs -> Just $ CustomOp $ \ _opTys ops -> case ops of
+    [MirExp tpr e] -> do
+        r <- newMirRef tpr
+        writeMirRef r e
+        return $ MirExp (MirReferenceRepr tpr) r
+  )
+
 
 -----------------------------------------------------------------------------------------------------
 -- ** Custom: wrapping_mul
