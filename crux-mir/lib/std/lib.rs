@@ -22,6 +22,7 @@ pub mod prelude {
         pub use core::prelude::v1::*;
         pub use crate::boxed::Box;
         pub use crate::vec::Vec;
+        pub use crate::vec;
     }
 }
 

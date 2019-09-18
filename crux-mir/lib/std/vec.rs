@@ -200,3 +200,19 @@ impl<T> AsRef<Vec<T>> for Vec<T> {
 impl<T> AsMut<Vec<T>> for Vec<T> {
     fn as_mut(&mut self) -> &mut Vec<T> { self }
 }
+
+
+#[macro_export]
+macro_rules! vec {
+    ($elem:expr; $n:expr) => (
+        $crate::vec::from_elem($elem, $n)
+    );
+    ($($x:expr),*) => (
+        {
+            let mut v = Vec::new();
+            $( v.push($x); )*
+            v
+        }
+    );
+    ($($x:expr,)*) => ($crate::vec![$($x),*])
+}
