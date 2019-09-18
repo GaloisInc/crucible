@@ -94,6 +94,7 @@ customOps = Map.fromList [
                          , vector_new
                          , vector_len
                          , vector_push
+                         , vector_pop
                          , vector_as_slice
                          , vector_as_mut_slice
 
@@ -199,7 +200,17 @@ vector_push = ( (["crucible","vector","{{impl}}"], "push", []), ) $ \substs -> c
           | Just Refl <- testEquality tpr tpr' -> do
             eSnoc <- vectorSnoc tpr eVec eItem
             return $ MirExp (C.VectorRepr tpr) eSnoc
-        _ -> mirFail $ "bad arguments for Vector::len: " ++ show ops
+        _ -> mirFail $ "bad arguments for Vector::push: " ++ show ops
+    _ -> Nothing
+
+vector_pop :: (ExplodedDefId, CustomRHS)
+vector_pop = ( (["crucible","vector","{{impl}}"], "pop", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (C.VectorRepr tpr) eVec] -> do
+            meInit <- MirExp (C.VectorRepr tpr) <$> vectorInit tpr eVec
+            meLast <- vectorLast tpr eVec >>= maybeToOption t tpr
+            return $ buildTupleMaybe [CTyVector t, CTyOption t] [Just meInit, Just meLast]
+        _ -> mirFail $ "bad arguments for Vector::pop: " ++ show ops
     _ -> Nothing
 
 vector_as_slice :: (ExplodedDefId, CustomRHS)
@@ -770,3 +781,21 @@ performUntil n f = do -- perform (f i) for i = 0..n (not inclusive). f takes as 
              f r
              i <- G.readReg r
              G.assignReg r (S.app $ E.NatAdd i (S.app $ E.NatLit 1))
+
+
+unwrapMirExp :: C.TypeRepr tp -> MirExp s -> MirGenerator h s ret (R.Expr MIR s tp)
+unwrapMirExp tpr (MirExp tpr' e)
+  | Just Refl <- testEquality tpr tpr' = return e
+  | otherwise = mirFail $ "bad unwrap of MirExp: expected " ++ show tpr ++
+    ", but got " ++ show tpr'
+
+-- Convert a Crucible `MaybeType` into a Rust `Option`.
+maybeToOption :: Ty -> C.TypeRepr tp -> R.Expr MIR s (C.MaybeType tp) ->
+    MirGenerator h s ret (MirExp s)
+maybeToOption ty tpr e = do
+    adt <- findAdt optionDefId
+    let args = Substs [ty]
+    e' <- G.caseMaybe e C.AnyRepr $ G.MatchMaybe
+        (\val -> buildEnum adt args optionDiscrSome [MirExp tpr val] >>= unwrapMirExp C.AnyRepr)
+        (buildEnum adt args optionDiscrNone [] >>= unwrapMirExp C.AnyRepr)
+    return $ MirExp C.AnyRepr e'

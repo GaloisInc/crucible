@@ -96,6 +96,7 @@ import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
 import           What4.Interface
+import           What4.Partial (maybePartExpr)
 import           What4.Utils.MonadST
 
 import           Mir.DefId
@@ -499,6 +500,14 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f (VectorType tp)) ->
      !(f tp) ->
      MirStmt f (VectorType tp)
+  VectorInit ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     MirStmt f (VectorType tp)
+  VectorLast ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     MirStmt f (MaybeType tp)
 
 $(return [])
 
@@ -541,6 +550,8 @@ instance TypeApp MirStmt where
     MirSubindexRef tp _ _ -> MirReferenceRepr tp
     MirSubjustRef tp _ -> MirReferenceRepr tp
     VectorSnoc tp _ _ -> VectorRepr tp
+    VectorInit tp _ -> VectorRepr tp
+    VectorLast tp _ -> MaybeRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -554,6 +565,8 @@ instance PrettyApp MirStmt where
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
+    VectorInit _ v -> "vectorInit" <+> pp v
+    VectorLast _ v -> "vectorLast" <+> pp v
 
 instance FunctorFC MirStmt where
   fmapFC = fmapFCDefault
@@ -577,6 +590,8 @@ instance InstantiateFC CrucibleType MirStmt where
       MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)
       MirSubjustRef ty r1 -> MirSubjustRef (instantiate subst ty) (instantiate subst r1)
       VectorSnoc ty v e -> VectorSnoc (instantiate subst ty) (instantiate subst v) (instantiate subst e)
+      VectorInit ty v -> VectorInit (instantiate subst ty) (instantiate subst v)
+      VectorLast ty v -> VectorLast (instantiate subst ty) (instantiate subst v)
 
 
 instance HasStructuredAssertions MIR where
@@ -639,6 +654,12 @@ execMirStmt stmt s =
             return (r', s)
        VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
             return (V.snoc vecValue elemValue, s)
+       VectorInit _tp (regValue -> vecValue) ->
+            return (if V.null vecValue then V.empty else V.init vecValue, s)
+       VectorLast _tp (regValue -> vecValue) -> do
+            let val = maybePartExpr sym $
+                    if V.null vecValue then Nothing else Just $ V.last vecValue
+            return (val, s)
 
 writeRefPath :: IsSymInterface sym =>
   sym ->

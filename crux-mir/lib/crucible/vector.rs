@@ -22,6 +22,10 @@ impl<T> Vector<T> {
         unimplemented!("Vector::push")
     }
 
+    pub fn pop(self) -> (Self, Option<T>) {
+        unimplemented!("Vector::pop")
+    }
+
     pub fn as_slice(&self) -> &[T] {
         unimplemented!("Vector::as_slice")
     }
