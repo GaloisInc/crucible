@@ -2492,7 +2492,24 @@ assert_eq!(m, ", $swapped, ");
             #[stable(feature = "rust1", since = "1.0.0")]
             #[inline]
             pub const fn swap_bytes(self) -> Self {
-                intrinsics::bswap(self as $ActualT) as Self
+                let mut result: Self = 0;
+                result |= ((self >> (  0 % $BITS)) & 0xff) << ($BITS - 8 -   0 % $BITS);
+                result |= ((self >> (  8 % $BITS)) & 0xff) << ($BITS - 8 -   8 % $BITS);
+                result |= ((self >> ( 16 % $BITS)) & 0xff) << ($BITS - 8 -  16 % $BITS);
+                result |= ((self >> ( 24 % $BITS)) & 0xff) << ($BITS - 8 -  24 % $BITS);
+                result |= ((self >> ( 32 % $BITS)) & 0xff) << ($BITS - 8 -  32 % $BITS);
+                result |= ((self >> ( 40 % $BITS)) & 0xff) << ($BITS - 8 -  40 % $BITS);
+                result |= ((self >> ( 48 % $BITS)) & 0xff) << ($BITS - 8 -  48 % $BITS);
+                result |= ((self >> ( 56 % $BITS)) & 0xff) << ($BITS - 8 -  56 % $BITS);
+                result |= ((self >> ( 64 % $BITS)) & 0xff) << ($BITS - 8 -  64 % $BITS);
+                result |= ((self >> ( 72 % $BITS)) & 0xff) << ($BITS - 8 -  72 % $BITS);
+                result |= ((self >> ( 80 % $BITS)) & 0xff) << ($BITS - 8 -  80 % $BITS);
+                result |= ((self >> ( 88 % $BITS)) & 0xff) << ($BITS - 8 -  88 % $BITS);
+                result |= ((self >> ( 96 % $BITS)) & 0xff) << ($BITS - 8 -  96 % $BITS);
+                result |= ((self >> (104 % $BITS)) & 0xff) << ($BITS - 8 - 104 % $BITS);
+                result |= ((self >> (112 % $BITS)) & 0xff) << ($BITS - 8 - 112 % $BITS);
+                result |= ((self >> (120 % $BITS)) & 0xff) << ($BITS - 8 - 120 % $BITS);
+                result
             }
         }
 
@@ -3901,7 +3918,24 @@ assert_eq!(bytes, if cfg!(target_endian = \"big\") {
             #[rustc_const_unstable(feature = "const_int_conversion")]
             #[inline]
             pub const fn to_ne_bytes(self) -> [u8; mem::size_of::<Self>()] {
-                unsafe { mem::transmute(self) }
+                let mut buf = [0; $BITS / 8];
+                buf[ 0 % ($BITS / 8)] = (self >> (  0 % $BITS)) as u8;
+                buf[ 1 % ($BITS / 8)] = (self >> (  8 % $BITS)) as u8;
+                buf[ 2 % ($BITS / 8)] = (self >> ( 16 % $BITS)) as u8;
+                buf[ 3 % ($BITS / 8)] = (self >> ( 24 % $BITS)) as u8;
+                buf[ 4 % ($BITS / 8)] = (self >> ( 32 % $BITS)) as u8;
+                buf[ 5 % ($BITS / 8)] = (self >> ( 40 % $BITS)) as u8;
+                buf[ 6 % ($BITS / 8)] = (self >> ( 48 % $BITS)) as u8;
+                buf[ 7 % ($BITS / 8)] = (self >> ( 56 % $BITS)) as u8;
+                buf[ 8 % ($BITS / 8)] = (self >> ( 64 % $BITS)) as u8;
+                buf[ 9 % ($BITS / 8)] = (self >> ( 72 % $BITS)) as u8;
+                buf[10 % ($BITS / 8)] = (self >> ( 80 % $BITS)) as u8;
+                buf[11 % ($BITS / 8)] = (self >> ( 88 % $BITS)) as u8;
+                buf[12 % ($BITS / 8)] = (self >> ( 96 % $BITS)) as u8;
+                buf[13 % ($BITS / 8)] = (self >> (104 % $BITS)) as u8;
+                buf[14 % ($BITS / 8)] = (self >> (112 % $BITS)) as u8;
+                buf[15 % ($BITS / 8)] = (self >> (120 % $BITS)) as u8;
+                buf
             }
         }
 
