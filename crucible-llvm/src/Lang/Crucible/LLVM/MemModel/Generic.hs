@@ -46,6 +46,7 @@ module Lang.Crucible.LLVM.MemModel.Generic
   , writeConstMem
   , copyMem
   , setMem
+  , invalidateMem
   , writeArrayMem
   , writeArrayConstMem
   , pushStackFrameMem
@@ -83,6 +84,7 @@ import qualified Data.Map as Map
 import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import           Data.Monoid
+import           Data.Text (Text, unpack)
 import qualified Data.Vector as V
 import           GHC.Generics (Generic, Generic1)
 import           Numeric.Natural
@@ -144,6 +146,8 @@ data WriteSource sym w
     -- @len@ at the destination; @MemArrayStore block Nothing@ writes byte-array
     -- @block@ of unbounded size
   | MemArrayStore (SymArray sym (SingleCtx (BaseBVType w)) (BaseBVType 8)) (Maybe (SymBV sym w))
+    -- | @MemInvalidate len@ flags @len@ bytes as uninitialized.
+  | MemInvalidate Text (SymBV sym w)
 
 data MemWrite sym
     -- | @MemWrite dst src@ represents a write to @dst@ from the given source.
@@ -636,6 +640,55 @@ readMemArrayStore sym w end (LLVMPointer blk read_off) tp write_off arr size rea
             | Nothing <- size = symbolicUnboundedRangeLoad pref tp
       evalMuxValueCtor sym w end varFn subFn rngLd
 
+readMemInvalidate ::
+  forall arch sym w .
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  EndianForm ->
+  LLVMPtr sym w {- ^ The loaded offset                   -} ->
+  StorageType   {- ^ The type we are reading             -} ->
+  SymBV sym w   {- ^ The destination of the invalidation -} ->
+  Text          {- ^ The error message                   -} ->
+  SymBV sym w   {- ^ The length of the set region        -} ->
+  (StorageType -> LLVMPtr sym w -> ReadMem arch sym (PartLLVMVal arch sym)) ->
+  ReadMem arch sym (PartLLVMVal arch sym)
+readMemInvalidate sym w end (LLVMPointer blk off) tp d msg sz readPrev =
+  do let ld = asUnsignedBV off
+     let dd = asUnsignedBV d
+     let varFn = ExprEnv off d (Just sz)
+     case (ld, dd) of
+       -- Offset if known
+       (Just lo, Just so) ->
+         do let subFn :: RangeLoad Addr Addr -> ReadMem arch sym (PartLLVMVal arch sym)
+                subFn (OutOfRange o tp') = do
+                  o' <- liftIO $ bvLit sym w (bytesToInteger o)
+                  readPrev tp' (LLVMPointer blk o')
+                subFn (InRange _o _tp') =
+                  pure . W4P.Err $ Partial.Invalidated msg
+            case asUnsignedBV sz of
+              Just csz -> do
+                let s = R (fromInteger so) (fromInteger (so + csz))
+                let vcr = rangeLoad (fromInteger lo) tp s
+                liftIO . genValueCtor sym end =<< traverse subFn vcr
+              _ -> evalMuxValueCtor sym w end varFn subFn $
+                     fixedOffsetRangeLoad (fromInteger lo) tp (fromInteger so)
+       -- Symbolic offsets
+       _ ->
+         do let subFn :: RangeLoad OffsetExpr IntExpr -> ReadMem arch sym (PartLLVMVal arch sym)
+                subFn (OutOfRange o tp') = do
+                  o' <- liftIO $ genOffsetExpr sym w varFn o
+                  readPrev tp' (LLVMPointer blk o')
+                subFn (InRange _o _tp') =
+                  pure . W4P.Err $ Partial.Invalidated msg
+            let pref | Just{} <- dd = FixedStore
+                     | Just{} <- ld = FixedLoad
+                     | otherwise = NeitherFixed
+            let mux0 | Just csz <- asUnsignedBV sz =
+                         fixedSizeRangeLoad pref tp (fromInteger csz)
+                     | otherwise =
+                         symbolicRangeLoad pref tp
+            evalMuxValueCtor sym w end varFn subFn mux0
+
 -- | Read a value from memory.
 readMem :: forall arch sym w.
   (1 <= w, IsSymInterface sym) => sym ->
@@ -755,6 +808,7 @@ readMem' sym w end l0 tp0 alignment (MemWrites ws) =
                             MemSet v sz    -> readMemSet sym w end l tp d v sz readPrev
                             MemStore v stp storeAlign -> readMemStore sym w end l tp d v stp alignment storeAlign readPrev
                             MemArrayStore arr sz -> readMemArrayStore sym w end l tp d arr sz readPrev
+                            MemInvalidate msg sz -> readMemInvalidate sym w end l tp d msg sz readPrev
                     sameBlock <- liftIO $ natEq sym blk1 blk2
                     case asConstantPred sameBlock of
                       Just True  -> do
@@ -906,6 +960,7 @@ memWritesSingleton ptr src
       MemStore{} -> True
       MemArrayStore{} -> True
       MemSet{} -> True
+      MemInvalidate{} -> True
       MemCopy{} -> False
 
 memWritesSize :: MemWrites sym -> Int
@@ -1416,6 +1471,18 @@ writeArrayConstMem sym w ptr alignment arr sz m =
      p2 <- isAligned sym w ptr alignment
      return (memAddWrite ptr (MemArrayStore arr sz) m, p1, p2)
 
+-- | Explicitly invalidate a region of memory.
+invalidateMem ::
+  (1 <= w, IsSymInterface sym) =>
+  sym -> NatRepr w ->
+  LLVMPtr sym w {- ^ Pointer -} ->
+  Text          {- ^ Message -} ->
+  SymBV sym w   {- ^ Number of bytes to set -} ->
+  Mem sym -> IO (Mem sym, Pred sym)
+invalidateMem sym w ptr msg sz m =
+  do p <- isAllocatedMutable sym w noAlignment ptr (Just sz) m
+     return (memAddWrite ptr (MemInvalidate msg sz) m, p)
+
 -- | Allocate a new empty memory region.
 allocMem :: AllocType -- ^ Type of allocation
          -> Natural -- ^ Block id for allocation
@@ -1714,6 +1781,8 @@ ppWrite (MemWrite d (MemStore v _ _)) = do
   char '*' <> ppPtr d <+> text ":=" <+> ppTermExpr v
 ppWrite (MemWrite d (MemArrayStore arr _)) = do
   char '*' <> ppPtr d <+> text ":=" <+> printSymExpr arr
+ppWrite (MemWrite d (MemInvalidate msg l)) = do
+  text "invalidate" <+> parens (text $ unpack msg) <+> ppPtr d <+> printSymExpr l
 ppWrite (WriteMerge c (MemWrites x) (MemWrites y)) = do
   text "merge" <$$> ppMerge ppMemWritesChunk c x y
 

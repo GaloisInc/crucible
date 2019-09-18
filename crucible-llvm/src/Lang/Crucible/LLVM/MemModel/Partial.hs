@@ -100,6 +100,7 @@ data MemoryLoadError sym =
   | PreviousErrors Text [MemoryLoadError sym]
   | ApplyViewFail ValueView
   | Invalid StorageType
+  | Invalidated Text
   | Other (Maybe String)
     -- ^ TODO: eliminate this constructor, replace with more specific messages
   deriving (Generic)
@@ -132,6 +133,8 @@ ppMemoryLoadError =
       "Failure when applying value view" <+> text (show vw)
     Invalid ty ->
       "Load from invalid memory at type " <+> text (show ty)
+    Invalidated msg ->
+      "Load from explicitly invalidated memory:" <+> text (unpack msg)
     Other msg -> vcat $ [ text "Generic memory load error." ] ++
                    case msg of
                      Just msg' -> [text "Details:", text msg']
