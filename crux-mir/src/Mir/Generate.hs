@@ -146,7 +146,7 @@ loadPrims useStdLib = do
     [ "lib/libcore/lib.mir"
     , "lib/compiler_builtins.mir"
     , "lib/int512.mir"
-    , "lib/crucible.mir"
+    , "lib/crucible/lib.mir"
     , "lib/std/lib.mir"
     ]
 
