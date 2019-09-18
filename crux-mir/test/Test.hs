@@ -193,7 +193,8 @@ compileAndRun :: FilePath -> String -> IO (Maybe String)
 compileAndRun dir name = do
   (ec, _, err) <- Proc.readProcessWithExitCode "rustc"
     [dir </> name <.> "rs", "--cfg", "with_main"
-    , "--extern", "byteorder=rlibs_native/libbyteorder.rlib"] ""
+    , "--extern", "byteorder=rlibs_native/libbyteorder.rlib"
+    , "--extern", "bytes=rlibs_native/libbytes.rlib"] ""
   case ec of
     ExitFailure _ -> do
       putStrLn $ "rustc compilation failed for " ++ name

@@ -148,6 +148,7 @@ loadPrims useStdLib = do
     , "lib/int512.mir"
     , "lib/crucible/lib.mir"
     , "lib/std/lib.mir"
+    , "lib/bytes.mir"
     ]
 
   when (?debug > 6) $ do
