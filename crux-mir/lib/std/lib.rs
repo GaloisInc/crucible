@@ -11,6 +11,8 @@
 )]
 #![no_std]
 
+extern crate crucible;
+
 pub mod boxed;
 pub mod io;
 pub mod vec;

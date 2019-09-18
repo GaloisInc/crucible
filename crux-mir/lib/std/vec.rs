@@ -1,21 +1,25 @@
-use core::convert::From;
+use core::cmp::Ordering;
+use core::convert::{From, AsRef, AsMut};
 use core::default::Default;
+use core::fmt;
+use core::hash::{Hash, Hasher};
 use core::iter::IntoIterator;
-use core::marker::PhantomData;
+use core::mem;
 use core::ops::{Deref, DerefMut};
+
+use crucible::vector::Vector;
 
 use crate::io;
 
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+#[derive(Clone)]
 pub struct Vec<T> {
-    _dummy: [usize; 3],
-    _marker: PhantomData<T>,
+    data: Vector<T>,
 }
 
 impl<T> Vec<T> {
     pub fn new() -> Vec<T> {
-        unimplemented!()
+        Vec { data: Vector::new() }
     }
 
     pub fn with_capacity(cap: usize) -> Vec<T> {
@@ -23,7 +27,7 @@ impl<T> Vec<T> {
     }
 
     pub fn len(&self) -> usize {
-        unimplemented!()
+        self.data.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -31,11 +35,15 @@ impl<T> Vec<T> {
     }
 
     pub fn push(&mut self, x: T) {
-        unimplemented!()
+        let old = mem::replace(&mut self.data, Vector::new());
+        self.data = old.push(x);
     }
 
     pub fn pop(&mut self) -> Option<T> {
-        unimplemented!()
+        let old = mem::replace(&mut self.data, Vector::new());
+        let (new, x) = old.pop();
+        self.data = new;
+        x
     }
 
     // TODO: for performance, override extend_from_slice for Vec<u8>
@@ -63,16 +71,63 @@ impl<T> Vec<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq for Vec<T> {
+    fn eq(&self, other: &Vec<T>) -> bool {
+        <[T] as PartialEq>::eq(self, other)
+    }
+    fn ne(&self, other: &Vec<T>) -> bool {
+        <[T] as PartialEq>::ne(self, other)
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for Vec<T> {
+    fn partial_cmp(&self, other: &Vec<T>) -> Option<Ordering> {
+        <[T] as PartialOrd>::partial_cmp(self, other)
+    }
+    fn lt(&self, other: &Vec<T>) -> bool {
+        <[T] as PartialOrd>::lt(self, other)
+    }
+    fn le(&self, other: &Vec<T>) -> bool {
+        <[T] as PartialOrd>::le(self, other)
+    }
+    fn gt(&self, other: &Vec<T>) -> bool {
+        <[T] as PartialOrd>::gt(self, other)
+    }
+    fn ge(&self, other: &Vec<T>) -> bool {
+        <[T] as PartialOrd>::ge(self, other)
+    }
+}
+
+impl<T: Eq> Eq for Vec<T> {}
+
+impl<T: Ord> Ord for Vec<T> {
+    fn cmp(&self, other: &Vec<T>) -> Ordering {
+        <[T] as Ord>::cmp(self, other)
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for Vec<T> {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <[T] as fmt::Debug>::fmt(self, fmt)
+    }
+}
+
+impl<T: Hash> Hash for Vec<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        <[T] as Hash>::hash(self, state)
+    }
+}
+
 impl<T> Deref for Vec<T> {
     type Target = [T];
     fn deref(&self) -> &[T] {
-        unimplemented!()
+        self.data.as_slice()
     }
 }
 
 impl<T> DerefMut for Vec<T> {
     fn deref_mut(&mut self) -> &mut [T] {
-        unimplemented!()
+        self.data.as_mut_slice()
     }
 }
 
@@ -128,4 +183,20 @@ impl<T> IntoIterator for Vec<T> {
         self.reverse();
         IntoIter { vec: self }
     }
+}
+
+impl<T> AsRef<[T]> for Vec<T> {
+    fn as_ref(&self) -> &[T] { self }
+}
+
+impl<T> AsMut<[T]> for Vec<T> {
+    fn as_mut(&mut self) -> &mut [T] { self }
+}
+
+impl<T> AsRef<Vec<T>> for Vec<T> {
+    fn as_ref(&self) -> &Vec<T> { self }
+}
+
+impl<T> AsMut<Vec<T>> for Vec<T> {
+    fn as_mut(&mut self) -> &mut Vec<T> { self }
 }
