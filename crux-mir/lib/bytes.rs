@@ -1,24 +1,32 @@
+extern crate crucible;
+
+use std::cmp::{self, Ordering};
+use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::io;
 use std::iter::Extend;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 
+use crucible::vector::Vector;
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+
+#[derive(Clone)]
 pub struct Bytes {
-    _dummy: usize,
+    data: Vector<u8>,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone)]
 pub struct BytesMut {
-    _dummy: usize,
+    data: Vector<u8>,
+    cap: usize,
 }
 
 
 impl Bytes {
     pub fn len(&self) -> usize {
-        unimplemented!()
+        self.data.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -26,12 +34,15 @@ impl Bytes {
     }
 
     pub fn split_off(&mut self, at: usize) -> Bytes {
-        unimplemented!()
+        let (a, b) = self.data.split_at(at);
+        self.data = a;
+        Bytes { data: b }
     }
 
     pub fn split_to(&mut self, at: usize) -> Bytes {
-        let other = self.split_off(at);
-        mem::replace(self, other)
+        let (a, b) = self.data.split_at(at);
+        self.data = b;
+        Bytes { data: a }
     }
 }
 
@@ -41,11 +52,14 @@ impl BytesMut {
     }
 
     pub fn with_capacity(cap: usize) -> BytesMut {
-        unimplemented!()
+        BytesMut {
+            data: Vector::new(),
+            cap,
+        }
     }
 
     pub fn len(&self) -> usize {
-        unimplemented!()
+        self.data.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -53,11 +67,11 @@ impl BytesMut {
     }
 
     pub fn freeze(self) -> Bytes {
-        unimplemented!()
+        Bytes { data: self.data }
     }
 
     pub fn reserve(&mut self, amt: usize) {
-        unimplemented!()
+        self.cap = cmp::max(self.cap, self.len() + amt);
     }
 }
 
@@ -68,9 +82,7 @@ pub trait Buf {
 pub trait BufMut {
     fn put_slice(&mut self, xs: &[u8]);
 
-    fn put_u8(&mut self, x: u8) {
-        unimplemented!()
-    }
+    fn put_u8(&mut self, x: u8);
 
     fn put_u16_be(&mut self, x: u16) {
         self.put_slice(&x.to_be_bytes())
@@ -153,7 +165,13 @@ impl Buf for BytesMut {
 
 impl BufMut for BytesMut {
     fn put_slice(&mut self, xs: &[u8]) {
-        self.extend(xs);
+        assert!(self.len() + xs.len() <= self.cap);
+        self.data = self.data.concat(Vector::copy_from_slice(xs));
+    }
+
+    fn put_u8(&mut self, x: u8) {
+        assert!(self.len() < self.cap);
+        self.data = self.data.push(x);
     }
 
     fn writer(self) -> Writer<Self>
@@ -181,35 +199,137 @@ impl<T: BufMut> BufMut for &mut T {
     }
 }
 
+
+impl PartialEq for Bytes {
+    fn eq(&self, other: &Bytes) -> bool {
+        <[u8] as PartialEq>::eq(self, other)
+    }
+    fn ne(&self, other: &Bytes) -> bool {
+        <[u8] as PartialEq>::ne(self, other)
+    }
+}
+
+impl PartialOrd for Bytes {
+    fn partial_cmp(&self, other: &Bytes) -> Option<Ordering> {
+        <[u8] as PartialOrd>::partial_cmp(self, other)
+    }
+    fn lt(&self, other: &Bytes) -> bool {
+        <[u8] as PartialOrd>::lt(self, other)
+    }
+    fn le(&self, other: &Bytes) -> bool {
+        <[u8] as PartialOrd>::le(self, other)
+    }
+    fn gt(&self, other: &Bytes) -> bool {
+        <[u8] as PartialOrd>::gt(self, other)
+    }
+    fn ge(&self, other: &Bytes) -> bool {
+        <[u8] as PartialOrd>::ge(self, other)
+    }
+}
+
+impl Eq for Bytes {}
+
+impl Ord for Bytes {
+    fn cmp(&self, other: &Bytes) -> Ordering {
+        <[u8] as Ord>::cmp(self, other)
+    }
+}
+
+impl fmt::Debug for Bytes {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <[u8] as fmt::Debug>::fmt(self, fmt)
+    }
+}
+
+impl Hash for Bytes {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        <[u8] as Hash>::hash(self, state)
+    }
+}
+
 impl Deref for Bytes {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        unimplemented!()
+        self.data.as_slice()
+    }
+}
+
+
+impl PartialEq for BytesMut {
+    fn eq(&self, other: &BytesMut) -> bool {
+        <[u8] as PartialEq>::eq(self, other)
+    }
+    fn ne(&self, other: &BytesMut) -> bool {
+        <[u8] as PartialEq>::ne(self, other)
+    }
+}
+
+impl PartialOrd for BytesMut {
+    fn partial_cmp(&self, other: &BytesMut) -> Option<Ordering> {
+        <[u8] as PartialOrd>::partial_cmp(self, other)
+    }
+    fn lt(&self, other: &BytesMut) -> bool {
+        <[u8] as PartialOrd>::lt(self, other)
+    }
+    fn le(&self, other: &BytesMut) -> bool {
+        <[u8] as PartialOrd>::le(self, other)
+    }
+    fn gt(&self, other: &BytesMut) -> bool {
+        <[u8] as PartialOrd>::gt(self, other)
+    }
+    fn ge(&self, other: &BytesMut) -> bool {
+        <[u8] as PartialOrd>::ge(self, other)
+    }
+}
+
+impl Eq for BytesMut {}
+
+impl Ord for BytesMut {
+    fn cmp(&self, other: &BytesMut) -> Ordering {
+        <[u8] as Ord>::cmp(self, other)
+    }
+}
+
+impl fmt::Debug for BytesMut {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        <[u8] as fmt::Debug>::fmt(self, fmt)
+    }
+}
+
+impl Hash for BytesMut {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        <[u8] as Hash>::hash(self, state)
     }
 }
 
 impl Deref for BytesMut {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        unimplemented!()
+        self.data.as_slice()
     }
 }
 
 impl DerefMut for BytesMut {
     fn deref_mut(&mut self) -> &mut [u8] {
-        unimplemented!()
+        self.data.as_mut_slice()
     }
 }
 
+
 impl From<&[u8]> for Bytes {
     fn from(x: &[u8]) -> Bytes {
-        unimplemented!()
+        Bytes {
+            data: Vector::copy_from_slice(x),
+        }
     }
 }
 
 impl From<&[u8]> for BytesMut {
     fn from(x: &[u8]) -> BytesMut {
-        unimplemented!()
+        BytesMut {
+            data: Vector::copy_from_slice(x),
+            cap: x.len(),
+        }
     }
 }
 
@@ -230,21 +350,27 @@ impl<'a> Extend<&'a u8> for BytesMut {
 }
 
 pub struct Iter {
-    _dummy: usize,
+    data: Vector<u8>,
+    idx: usize,
 }
 
 impl IntoIterator for Bytes {
     type Item = u8;
     type IntoIter = Iter;
     fn into_iter(self) -> Iter {
-        unimplemented!()
+        Iter {
+            data: self.data,
+            idx: 0,
+        }
     }
 }
 
 impl Iterator for Iter {
     type Item = u8;
     fn next(&mut self) -> Option<u8> {
-        unimplemented!()
+        let val = self.data.as_slice().get(self.idx).cloned();
+        if val.is_some() { self.idx += 1; }
+        val
     }
 }
 
