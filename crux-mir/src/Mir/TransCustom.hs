@@ -97,6 +97,9 @@ customOps = Map.fromList [
                          , vector_pop
                          , vector_as_slice
                          , vector_as_mut_slice
+                         , vector_concat
+                         , vector_split_at
+                         , vector_copy_from_slice
 
                          -- CustomOps below this point have not been checked
                          -- for compatibility with new monomorphization.
@@ -233,6 +236,33 @@ vector_as_mut_slice = ( (["crucible","vector","{{impl}}"], "as_mut_slice", []), 
                     (Ctx.Empty Ctx.:> e Ctx.:> start Ctx.:> end)
             return $ MirExp (MirSliceRepr tpr) tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
+    _ -> Nothing
+
+vector_concat :: (ExplodedDefId, CustomRHS)
+vector_concat = ( (["crucible","vector","{{impl}}"], "concat", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (C.VectorRepr tpr1) e1, MirExp (C.VectorRepr tpr2) e2]
+          | Just Refl <- testEquality tpr1 tpr2 -> do
+            MirExp (C.VectorRepr tpr1) <$> vectorConcat tpr1 e1 e2
+        _ -> mirFail $ "bad arguments for Vector::concat: " ++ show ops
+    _ -> Nothing
+
+vector_split_at :: (ExplodedDefId, CustomRHS)
+vector_split_at = ( (["crucible","vector","{{impl}}"], "split_at", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp (C.VectorRepr tpr) eVec, MirExp UsizeRepr eIdx] -> do
+            let eIdxNat = R.App $ usizeToNat eIdx
+            mePre <- MirExp (C.VectorRepr tpr) <$> vectorTake tpr eVec eIdxNat
+            meSuf <- MirExp (C.VectorRepr tpr) <$> vectorDrop tpr eVec eIdxNat
+            return $ buildTupleMaybe [CTyVector t, CTyVector t] [Just mePre, Just meSuf]
+        _ -> mirFail $ "bad arguments for Vector::split_at: " ++ show ops
+    _ -> Nothing
+
+vector_copy_from_slice :: (ExplodedDefId, CustomRHS)
+vector_copy_from_slice = ( (["crucible","vector","{{impl}}"], "copy_from_slice", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [e@(MirExp (C.VectorRepr tpr) _)] -> return e
+        _ -> mirFail $ "bad arguments for Vector::copy_from_slice: " ++ show ops
     _ -> Nothing
 
 

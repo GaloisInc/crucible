@@ -33,4 +33,17 @@ impl<T> Vector<T> {
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         unimplemented!("Vector::as_mut_slice")
     }
+
+    pub fn concat(self, other: Self) -> Self {
+        unimplemented!("Vector::concat")
+    }
+
+    pub fn split_at(self, idx: usize) -> (Self, Self) {
+        unimplemented!("Vector::split_at")
+    }
+
+    pub fn copy_from_slice(slice: &[T]) -> Self
+    where T: Copy {
+        unimplemented!("Vector::copy_from_slice")
+    }
 }

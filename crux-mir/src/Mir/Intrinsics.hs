@@ -95,6 +95,7 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
+import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
 import           What4.Partial (maybePartExpr)
 import           What4.Utils.MonadST
@@ -508,6 +509,21 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(TypeRepr tp) ->
      !(f (VectorType tp)) ->
      MirStmt f (MaybeType tp)
+  VectorConcat ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     !(f (VectorType tp)) ->
+     MirStmt f (VectorType tp)
+  VectorTake ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     !(f NatType) ->
+     MirStmt f (VectorType tp)
+  VectorDrop ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     !(f NatType) ->
+     MirStmt f (VectorType tp)
 
 $(return [])
 
@@ -552,6 +568,9 @@ instance TypeApp MirStmt where
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorInit tp _ -> VectorRepr tp
     VectorLast tp _ -> MaybeRepr tp
+    VectorConcat tp _ _ -> VectorRepr tp
+    VectorTake tp _ _ -> VectorRepr tp
+    VectorDrop tp _ _ -> VectorRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -567,6 +586,9 @@ instance PrettyApp MirStmt where
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorInit _ v -> "vectorInit" <+> pp v
     VectorLast _ v -> "vectorLast" <+> pp v
+    VectorConcat _ v1 v2 -> "vectorConcat" <+> pp v1 <+> pp v2
+    VectorTake _ v i -> "vectorTake" <+> pp v <+> pp i
+    VectorDrop _ v i -> "vectorDrop" <+> pp v <+> pp i
 
 instance FunctorFC MirStmt where
   fmapFC = fmapFCDefault
@@ -592,6 +614,9 @@ instance InstantiateFC CrucibleType MirStmt where
       VectorSnoc ty v e -> VectorSnoc (instantiate subst ty) (instantiate subst v) (instantiate subst e)
       VectorInit ty v -> VectorInit (instantiate subst ty) (instantiate subst v)
       VectorLast ty v -> VectorLast (instantiate subst ty) (instantiate subst v)
+      VectorConcat ty v1 v2 -> VectorConcat (instantiate subst ty) (instantiate subst v1) (instantiate subst v2)
+      VectorTake ty v i -> VectorTake (instantiate subst ty) (instantiate subst v) (instantiate subst i)
+      VectorDrop ty v i -> VectorDrop (instantiate subst ty) (instantiate subst v) (instantiate subst i)
 
 
 instance HasStructuredAssertions MIR where
@@ -660,6 +685,16 @@ execMirStmt stmt s =
             let val = maybePartExpr sym $
                     if V.null vecValue then Nothing else Just $ V.last vecValue
             return (val, s)
+       VectorConcat _tp (regValue -> v1) (regValue -> v2) ->
+            return (v1 <> v2, s)
+       VectorTake _tp (regValue -> v) (regValue -> idx) -> case asConcrete idx of
+            Just (ConcreteNat idx') -> return (V.take (fromIntegral idx') v, s)
+            Nothing -> addFailedAssertion sym $
+                GenericSimError "VectorTake index must be concrete"
+       VectorDrop _tp (regValue -> v) (regValue -> idx) -> case asConcrete idx of
+            Just (ConcreteNat idx') -> return (V.drop (fromIntegral idx') v, s)
+            Nothing -> addFailedAssertion sym $
+                GenericSimError "VectorDrop index must be concrete"
 
 writeRefPath :: IsSymInterface sym =>
   sym ->

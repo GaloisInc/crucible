@@ -613,6 +613,27 @@ vectorLast ::
   MirGenerator h s ret (R.Expr MIR s (C.MaybeType tp))
 vectorLast tp v = G.extensionStmt $ VectorLast tp v
 
+vectorConcat ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (C.VectorType tp) ->
+  R.Expr MIR s (C.VectorType tp) ->
+  MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
+vectorConcat tp v e = G.extensionStmt $ VectorConcat tp v e
+
+vectorTake ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (C.VectorType tp) ->
+  R.Expr MIR s C.NatType ->
+  MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
+vectorTake tp v e = G.extensionStmt $ VectorTake tp v e
+
+vectorDrop ::
+  C.TypeRepr tp ->
+  R.Expr MIR s (C.VectorType tp) ->
+  R.Expr MIR s C.NatType ->
+  MirGenerator h s ret (R.Expr MIR s (C.VectorType tp))
+vectorDrop tp v e = G.extensionStmt $ VectorDrop tp v e
+
 
 
 

@@ -797,6 +797,9 @@ evalRefProj base projElem =
                 adt <- findAdt nm
                 enumFieldRef adt args (fromInteger i) idx elty ref
 
+              _ -> mirFail $ "tried to get field " ++ show idx ++ " of unsupported type " ++
+                show (M.typeOf base) ++ ": " ++ show base
+
           M.ConstantIndex offset _min_len fromend
             | C.VectorRepr tp' <- elty
             , fromend == False ->
