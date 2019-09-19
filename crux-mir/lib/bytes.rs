@@ -1,3 +1,8 @@
+//! Verifier-friendly implementations of the `Bytes` and `BytesMut` types from the `bytes` crate.
+//! The implementation plays some tricks to provide some support for buffers of symbolic length,
+//! even though the underlying `Vector` type requires the length to be concrete.  See the doc
+//! comments on `Bytes`, `BytesMut`, `reserve`, and `crux_set_fixed` for details.
+
 extern crate crucible;
 
 use std::cmp::{self, Ordering};
@@ -12,21 +17,31 @@ use std::ops::{Deref, DerefMut};
 use crucible::vector::Vector;
 
 
+/// A view into a byte array.  The underlying data is stored in a `Vector<u8>` of concrete size,
+/// but the start and end can be symbolic.
 #[derive(Clone)]
 pub struct Bytes {
     data: Vector<u8>,
+    start: usize,
+    end: usize,
 }
 
+/// An owned, mutable byte array.  The capacity, which is the size of the underlying `Vector<u8>`,
+/// is always concrete, but the `len` can be symbolic.  Only the first `len` bytes of `data` are
+/// considered to be initialized.
 #[derive(Clone)]
 pub struct BytesMut {
     data: Vector<u8>,
-    cap: usize,
+    len: usize,
+    /// When `true`, the capacity cannot actually grow.  Useful when calling code that may try to
+    /// `reserve` a symbolic amount of capacity.
+    crux_fixed: bool,
 }
 
 
 impl Bytes {
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.end - self.start
     }
 
     pub fn is_empty(&self) -> bool {
@@ -34,15 +49,17 @@ impl Bytes {
     }
 
     pub fn split_off(&mut self, at: usize) -> Bytes {
-        let (a, b) = self.data.split_at(at);
-        self.data = a;
-        Bytes { data: b }
+        let mid = self.start + at;
+        let end = self.end;
+        self.end = mid;
+        Bytes { data: self.data, start: mid, end }
     }
 
     pub fn split_to(&mut self, at: usize) -> Bytes {
-        let (a, b) = self.data.split_at(at);
-        self.data = b;
-        Bytes { data: a }
+        let start = self.start;
+        let mid = self.start + at;
+        self.start = mid;
+        Bytes { data: self.data, start, end: mid }
     }
 }
 
@@ -53,25 +70,37 @@ impl BytesMut {
 
     pub fn with_capacity(cap: usize) -> BytesMut {
         BytesMut {
-            data: Vector::new(),
-            cap,
+            data: Vector::replicate(0, cap),
+            len: 0,
+            crux_fixed: false,
         }
     }
 
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.len
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Freeze the contents of this buffer, producing a read-only view.
     pub fn freeze(self) -> Bytes {
-        Bytes { data: self.data }
+        Bytes { data: self.data, start: 0, end: self.len }
     }
 
     pub fn reserve(&mut self, amt: usize) {
-        self.cap = cmp::max(self.cap, self.len() + amt);
+        if !self.crux_fixed {
+            let excess = self.data.len() - self.len;
+            if amt > excess {
+                let more = amt - excess;
+                self.data = self.data.concat(Vector::replicate(0, more));
+            }
+        }
+    }
+
+    pub fn crux_set_fixed(&mut self, fixed: bool) {
+        self.crux_fixed = fixed;
     }
 }
 
@@ -165,13 +194,17 @@ impl Buf for BytesMut {
 
 impl BufMut for BytesMut {
     fn put_slice(&mut self, xs: &[u8]) {
-        assert!(self.len() + xs.len() <= self.cap);
-        self.data = self.data.concat(Vector::copy_from_slice(xs));
+        assert!(xs.len() <= self.data.len() - self.len,
+            "not enough capacity for put_slice");
+        self.data.as_mut_slice()[self.len .. self.len + xs.len()].copy_from_slice(xs);
+        self.len += xs.len();
     }
 
     fn put_u8(&mut self, x: u8) {
-        assert!(self.len() < self.cap);
-        self.data = self.data.push(x);
+        assert!(1 <= self.data.len() - self.len,
+            "not enough capacity for put_u8");
+        self.data.as_mut_slice()[self.len] = x;
+        self.len += 1;
     }
 
     fn writer(self) -> Writer<Self>
@@ -250,7 +283,7 @@ impl Hash for Bytes {
 impl Deref for Bytes {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        self.data.as_slice()
+        &self.data.as_slice()[self.start .. self.end]
     }
 }
 
@@ -305,13 +338,13 @@ impl Hash for BytesMut {
 impl Deref for BytesMut {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        self.data.as_slice()
+        &self.data.as_slice()[.. self.len]
     }
 }
 
 impl DerefMut for BytesMut {
     fn deref_mut(&mut self) -> &mut [u8] {
-        self.data.as_mut_slice()
+        &mut self.data.as_mut_slice()[.. self.len]
     }
 }
 
@@ -320,6 +353,8 @@ impl From<&[u8]> for Bytes {
     fn from(x: &[u8]) -> Bytes {
         Bytes {
             data: Vector::copy_from_slice(x),
+            start: 0,
+            end: x.len(),
         }
     }
 }
@@ -328,7 +363,8 @@ impl From<&[u8]> for BytesMut {
     fn from(x: &[u8]) -> BytesMut {
         BytesMut {
             data: Vector::copy_from_slice(x),
-            cap: x.len(),
+            len: x.len(),
+            crux_fixed: false,
         }
     }
 }
@@ -352,6 +388,7 @@ impl<'a> Extend<&'a u8> for BytesMut {
 pub struct Iter {
     data: Vector<u8>,
     idx: usize,
+    end: usize,
 }
 
 impl IntoIterator for Bytes {
@@ -360,7 +397,8 @@ impl IntoIterator for Bytes {
     fn into_iter(self) -> Iter {
         Iter {
             data: self.data,
-            idx: 0,
+            idx: self.start,
+            end: self.end,
         }
     }
 }
@@ -368,9 +406,13 @@ impl IntoIterator for Bytes {
 impl Iterator for Iter {
     type Item = u8;
     fn next(&mut self) -> Option<u8> {
-        let val = self.data.as_slice().get(self.idx).cloned();
-        if val.is_some() { self.idx += 1; }
-        val
+        if self.idx < self.end {
+            let val = self.data.as_slice()[self.idx];
+            self.idx += 1;
+            Some(val)
+        } else {
+            None
+        }
     }
 }
 
