@@ -46,4 +46,9 @@ impl<T> Vector<T> {
     where T: Copy {
         unimplemented!("Vector::copy_from_slice")
     }
+
+    pub fn replicate(x: T, n: usize) -> Self
+    where T: Copy {
+        unimplemented!("Vector::replicate")
+    }
 }

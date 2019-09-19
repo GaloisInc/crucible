@@ -92,6 +92,7 @@ customOps = Map.fromList [
                          , box_new
 
                          , vector_new
+                         , vector_replicate
                          , vector_len
                          , vector_push
                          , vector_pop
@@ -186,6 +187,15 @@ vector_new = ( (["crucible","vector","{{impl}}"], "new", []), ) $ \substs -> cas
     Substs [t] -> Just $ CustomOp $ \_ _ -> do
         Some tpr <- return $ tyToRepr t
         return $ MirExp (C.VectorRepr tpr) (R.App $ E.VectorLit tpr V.empty)
+    _ -> Nothing
+
+vector_replicate :: (ExplodedDefId, CustomRHS)
+vector_replicate = ( (["crucible","vector","{{impl}}"], "replicate", []), ) $ \substs -> case substs of
+    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
+        [MirExp tpr eVal, MirExp UsizeRepr eLen] -> do
+            let eLenNat = R.App $ usizeToNat eLen
+            return $ MirExp (C.VectorRepr tpr) (R.App $ E.VectorReplicate tpr eLenNat eVal)
+        _ -> mirFail $ "bad arguments for Vector::replicate: " ++ show ops
     _ -> Nothing
 
 vector_len :: (ExplodedDefId, CustomRHS)
