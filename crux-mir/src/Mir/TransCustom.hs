@@ -81,6 +81,7 @@ customOps = Map.fromList [
                          , slice_index_range_get_unchecked
                          , slice_index_usize_get_unchecked_mut
                          , slice_index_range_get_unchecked_mut
+                         , slice_len
 
                          , type_id
                          , mem_swap
@@ -104,10 +105,6 @@ customOps = Map.fromList [
 
                          -- CustomOps below this point have not been checked
                          -- for compatibility with new monomorphization.
-
-                         , slice_len
-                         --, slice_is_empty
-                         --, slice_first
 
                          , str_len
 
@@ -229,7 +226,13 @@ vector_pop = ( (["crucible","vector","{{impl}}"], "pop", []), ) $ \substs -> cas
 vector_as_slice :: (ExplodedDefId, CustomRHS)
 vector_as_slice = ( (["crucible","vector","{{impl}}"], "as_slice", []), ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [e@(MirExp (C.VectorRepr tpr) _)] -> return e
+        [MirExp (C.VectorRepr tpr) v] -> do
+            let start = R.App $ usizeLit 0
+            let end = R.App $ vectorSizeUsize R.App v
+            let tup = S.mkStruct
+                    (Ctx.Empty Ctx.:> C.VectorRepr tpr Ctx.:> knownRepr Ctx.:> knownRepr)
+                    (Ctx.Empty Ctx.:> v Ctx.:> start Ctx.:> end)
+            return $ MirExp (MirImmSliceRepr tpr) tup
         _ -> mirFail $ "bad arguments for Vector::as_slice: " ++ show ops
     _ -> Nothing
 
@@ -271,7 +274,13 @@ vector_split_at = ( (["crucible","vector","{{impl}}"], "split_at", []), ) $ \sub
 vector_copy_from_slice :: (ExplodedDefId, CustomRHS)
 vector_copy_from_slice = ( (["crucible","vector","{{impl}}"], "copy_from_slice", []), ) $ \substs -> case substs of
     Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [e@(MirExp (C.VectorRepr tpr) _)] -> return e
+        [MirExp (MirImmSliceRepr tpr) e] -> do
+            let vec = S.getStruct Ctx.i1of3 e
+            let start = S.getStruct Ctx.i2of3 e
+            let len = S.getStruct Ctx.i3of3 e
+            let end = R.App $ usizeAdd start len
+            v <- vectorCopy tpr start end vec
+            return $ MirExp (C.VectorRepr tpr) v
         _ -> mirFail $ "bad arguments for Vector::copy_from_slice: " ++ show ops
     _ -> Nothing
 
@@ -431,148 +440,21 @@ str_len =
 -------------------------------------------------------------------------------------------------------
 -- ** Custom: slice impl functions
 --
--- MOST of the operations below implement the following impl
--- the execption is get/get_mut, which is specialized to Range
-{-
-    impl<T>[T] {
-        // must override
-        pub const fn len(&self) -> usize {
-            ....
-        }
-
-        pub const fn is_empty(&self) -> bool {
-            self.len() == 0
-        }
-
-        pub fn first(&self) -> Option<&T> {
-            self.get(0)
-        }
-
-    }
--}
-
 
 slice_len :: (ExplodedDefId, CustomRHS)
 slice_len =
   ((["core","slice","{{impl}}","len"], "crucible_slice_len_hook", [])
   , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
      case ops of 
-     -- type of the structure is &mut[ elTy ]
-       [MirExp (C.VectorRepr _) vec_e] -> do
-            return (MirExp UsizeRepr (G.App $ vectorSizeUsize R.App vec_e))
+       [MirExp (MirImmSliceRepr _) e] -> do
+            return $ MirExp UsizeRepr $ S.getStruct Ctx.i3of3 e
        _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_len")
 
-{-
-slice_is_empty :: (ExplodedDefId, CustomRHS)
-slice_is_empty =
-  ((["core","slice","{{impl}}","is_empty"], "crucible_is_empty_hook", [])
-  , \(Substs [_]) -> Just $ CustomOp $ \ _optys ops -> 
-     case ops of 
-     -- type of the structure is &mut[ elTy ]
-       [MirExp (C.VectorRepr _) vec_e] -> do
-            let sz = (G.App $ E.VectorSize vec_e)
-            return (MirExp C.BoolRepr (G.App $ E.NatEq sz (G.App $ E.NatLit 0)))
-       _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_is_empty")
-
-slice_first :: (ExplodedDefId, CustomRHS)
-slice_first =
-  ((["core","slice","{{impl}}"], "first", [])
-  , \(Substs [_]) -> Just $ CustomOp $ \ _optys  ops -> 
-     case ops of 
-     -- type of the structure is &mut[ elTy ]
-       [MirExp (C.VectorRepr elTy) vec_e] -> do
-            return (MirExp elTy (G.App $ E.VectorGetEntry elTy vec_e (G.App $ E.NatLit 0)))
-       _ -> mirFail $ "BUG: invalid arguments to " ++ "slice_first")
--}
-
-{---
-
-impl<T> [T] {
-   pub unsafe fn get_unchecked<I>(&self, index: I) -> &I::Output
-        where I: SliceIndex<Self>
-    {
-        index.get_unchecked(self)
-    }
-
-   pub unsafe fn get_unchecked_mut<I>(&mut self, index: I) -> &mut I::Output
-        where I: SliceIndex<Self>
-    {
-        index.get_unchecked_mut(self)
-    }
-
-   // TODO!!!
-   fn index_mut(self, slice: &mut [T]) -> &mut T {
-        // N.B., use intrinsic indexing
-	std::process::exit(0)
-        //&mut (*slice)[self]
-    }
-
-
-
-}
-
---}
-
--------------------------------------------------------------------------------------------------------------------
-{--
---
--- Some trait impls are difficult to define from 'slice.rs'. Instead, we "implement" them with std::process::exit
--- and then override those implementations with custom code here.
--- However, we 
-
-impl<T> SliceIndex<[T]> for usize {
-    type Output = T;
-    unsafe fn get_unchecked(self, slice: &[T]) -> &T {
-        &*slice.as_ptr().add(self)
-    }
-
-    #[inline]
-    unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut T {
-        &mut *slice.as_mut_ptr().add(self)
-    }
-
-    fn index_mut(self, slice: &mut [T]) -> &mut T {
-        // N.B., use intrinsic indexing
-        //&mut (*slice)[self]
-	slice_index_usize_index_mut(self,slice)
-    }
-}
---
---
-impl<T> SliceIndex<[T]> for  core::ops::Range<usize> {
-
-    unsafe fn get_unchecked(self, slice: &[T]) -> &[T] {
-        std::process::exit(0)
-        //from_raw_parts(slice.as_ptr().add(self.start), self.end - self.start)
-    }
-
-    //TODO
-
-    unsafe fn get_unchecked_mut(self, slice: &mut [T]) -> &mut [T] {
-        std::process::exit(0)
-        //from_raw_parts_mut(slice.as_mut_ptr().add(self.start), self.end - self.start)
-    }
-
-fn slice_index_usize_get_unchecked<T>(sel: usize,  slice: &[T]) -> &T {
-   std::process::exit(0)
-}
-fn slice_index_usize_get_unchecked_mut<T>(sel: usize,  slice: &mut[T]) -> &mut T {
-   std::process::exit(0)
-
-fn slice_index_usize_index_mut<T>(sel: usize,  slice: &mut[T]) -> &mut T {
-   std::process::exit(0)
-}
-
-fn slice_index_range_get_unchecked<T>(sel: core::ops::Range<usize>,  slice: &[T]) -> &[T] {
-   std::process::exit(0)
-}
-fn slice_index_range_get_unchecked_mut<T>(sel: core::ops::Range<usize>,  slice: &mut[T]) -> &mut [T] {
-   std::process::exit(0)
-}
-
-
-
---}
+-- These four custom ops implement mutable and immutable unchecked indexing by
+-- usize and by Range.  All other indexing dispatches to one of these.  Note
+-- the use of inner `crucible_hook` functions - otherwise we can't distinguish
+-- the `fn get_unchecked` in the impl for usize from the `fn get_unchecked` in
+-- the impl for Range.
 
 slice_index_usize_get_unchecked :: (ExplodedDefId, CustomRHS)
 slice_index_usize_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"], "crucible_hook_usize", []), \subs ->
@@ -580,13 +462,10 @@ slice_index_usize_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"],
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
           case ops of
-            [MirExp UsizeRepr ind, MirExp (C.VectorRepr el_tp) arr] -> do
-                return $ (MirExp el_tp (S.app $ vectorGetUsize el_tp R.App arr ind))
-            [MirExp UsizeRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
-                let ref   = S.getStruct (Ctx.natIndex @0) slice
+            [MirExp UsizeRepr ind, MirExp (MirImmSliceRepr el_tp) slice] -> do
+                let arr   = S.getStruct (Ctx.natIndex @0) slice
                 let start = S.getStruct (Ctx.natIndex @1) slice
                 let ind'  = R.App $ usizeAdd start ind
-                arr <- readMirRef (C.VectorRepr el_tp) ref
                 return $ (MirExp el_tp (S.app $ vectorGetUsize el_tp R.App arr ind'))
             _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked"
      _ -> Nothing)
@@ -597,22 +476,14 @@ slice_index_range_get_unchecked = ((["core","slice","{{impl}}","get_unchecked"],
      (Substs [ elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
           case ops of
-             [ MirExp tr1 start, MirExp tr2 end, MirExp (C.VectorRepr ety) vec_e  ]
-               | Just Refl <- testEquality tr1 UsizeRepr
-               , Just Refl <- testEquality tr2 UsizeRepr
-               -> do
-                v <- vectorCopy ety start end vec_e
-                return $ (MirExp (C.VectorRepr ety) v)
-
-             [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr ty) vec_e] 
+             [ MirExp tr1 start, MirExp tr2 end, MirExp (MirImmSliceRepr ety) vec_e  ]
                | Just Refl <- testEquality tr1 UsizeRepr
                , Just Refl <- testEquality tr2 UsizeRepr
                -> do
                 let newLen = (S.app $ usizeSub end start)
-                let s1 = updateSliceLB  ty vec_e start
-                let s2 = updateSliceLen ty s1    newLen
-                return $ (MirExp (MirSliceRepr ty) s2)
-
+                let s1 = updateImmSliceLB  ety vec_e start
+                let s2 = updateImmSliceLen ety s1    newLen
+                return $ (MirExp (MirImmSliceRepr ety) s2)
              _ -> mirFail $ "BUG: invalid arguments to slice::SliceIndex::get_unchecked:" ++ show ops
      _ -> Nothing)
 
@@ -624,7 +495,6 @@ slice_index_usize_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecke
      (Substs [ _elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
             case ops of
-
               [MirExp UsizeRepr ind, MirExp (MirSliceRepr el_tp) slice] -> do
                   let ref   = S.getStruct (Ctx.natIndex @0) slice
                   let start = S.getStruct (Ctx.natIndex @1) slice
@@ -640,7 +510,6 @@ slice_index_range_get_unchecked_mut = ((["core","slice","{{impl}}","get_unchecke
      (Substs [ _elTy ])
        -> Just $ CustomOp $ \ optys ops -> do
             case ops of
-
               [ MirExp tr1 start, MirExp tr2 end, MirExp (MirSliceRepr ty) vec_e] 
                 | Just Refl <- testEquality tr1 UsizeRepr
                 , Just Refl <- testEquality tr2 UsizeRepr

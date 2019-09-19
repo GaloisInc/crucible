@@ -59,7 +59,7 @@ import           Mir.Generator
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , cs, discrMap )
 import           Mir.Intrinsics
-    ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
+    ( MIR, pattern MirSliceRepr, pattern MirImmSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
@@ -167,8 +167,7 @@ tyToRepr t0 = case t0 of
   M.TyUint base -> baseSizeToNatCont base $ \n -> Some $ C.BVRepr n
 
   -- These definitions are *not* compositional
-  -- What is the translation of "M.TySlice t" by itself?? Maybe just a Vector??
-  M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
+  M.TyRef (M.TySlice t) M.Immut -> tyToReprCont t $ \repr -> Some (MirImmSliceRepr repr)
   M.TyRef (M.TySlice t) M.Mut   -> tyToReprCont t $ \repr -> Some (MirSliceRepr repr)
 
   -- Both `&dyn Tr` and `&mut dyn Tr` use the same representation: a pair of a
@@ -183,7 +182,7 @@ tyToRepr t0 = case t0 of
     Ctx.empty Ctx.:> C.AnyRepr Ctx.:> C.AnyRepr
 
   -- NOTE: we cannot mutate this vector. Hmmmm....
-  M.TySlice t -> tyToReprCont t $ \repr -> Some (C.VectorRepr repr)
+  M.TySlice t -> tyToReprCont t $ \repr -> Some (MirImmSliceRepr repr)
 
   M.TyRef t M.Immut -> tyToRepr t -- immutable references are erased!
   M.TyRef t M.Mut   -> tyToReprCont t $ \repr -> Some (MirReferenceRepr repr)
