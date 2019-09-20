@@ -199,6 +199,16 @@ data VarInfo s tp where
   VarReference :: R.Reg s (MirReferenceType tp) -> VarInfo s tp
   VarAtom      :: R.Atom s tp -> VarInfo s tp
 
+instance Show (VarInfo s tp) where
+    showsPrec d (VarRegister r) = showParen (d > 10) $
+        showString "VarRegister " . showsPrec 11 r
+    showsPrec d (VarReference r) = showParen (d > 10) $
+        showString "VarReference " . showsPrec 11 r
+    showsPrec d (VarAtom a) = showParen (d > 10) $
+        showString "VarAtom " . showsPrec 11 a
+instance ShowF (VarInfo s)
+
+
 ---------------------------------------------------------------------------
 -- *** LabelMap
 

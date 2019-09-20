@@ -1140,6 +1140,27 @@ enumDiscriminant adt args e = do
     let v = unpackAnyC (RustEnumRepr ctx) e
     return $ MirExp IsizeRepr $ R.App $ rustEnumDiscriminant v
 
+tupleFieldRef ::
+    [M.Ty] -> Int ->
+    C.TypeRepr tp -> R.Expr MIR s (MirReferenceType tp) ->
+    MirGenerator h s ret (MirExp s)
+tupleFieldRef tys i tpr ref = do
+    Some ctx <- return $ tyListToCtxMaybe tys $ \ctx -> Some ctx
+    let tpr' = C.StructRepr ctx
+    Refl <- testEqualityOrFail tpr tpr' $ "bad representation " ++ show tpr ++
+        " for tuple type " ++ show tys ++ ": expected " ++ show tpr'
+    Some idx <- case Ctx.intIndex (fromIntegral i) (Ctx.size ctx) of
+        Just x -> return x
+        Nothing -> mirFail $ "field index " ++ show i ++
+            " is out of range for tuple " ++ show tys
+    let elemTpr = ctx Ctx.! idx
+    case elemTpr of
+        C.MaybeRepr valTpr -> do
+            ref <- subfieldRef ctx ref idx
+            ref <- subjustRef valTpr ref
+            return $ MirExp (MirReferenceRepr valTpr) ref
+        _ -> mirFail $ "expected tuple field to have MaybeType, but got " ++ show elemTpr
+
 
 
 

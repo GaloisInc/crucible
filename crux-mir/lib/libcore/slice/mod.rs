@@ -5203,41 +5203,6 @@ impl<A, B> SlicePartialEq<B> for [A]
     }
 }
 
-// Use an equal-pointer optimization when types are `Eq`
-impl<A> SlicePartialEq<A> for [A]
-    where A: PartialEq<A> + Eq
-{
-    default fn equal(&self, other: &[A]) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-
-        if self.as_ptr() == other.as_ptr() {
-            return true;
-        }
-
-        self.iter().zip(other.iter()).all(|(x, y)| x == y)
-    }
-}
-
-// Use memcmp for bytewise equality when the types allow
-impl<A> SlicePartialEq<A> for [A]
-    where A: PartialEq<A> + BytewiseEquality
-{
-    fn equal(&self, other: &[A]) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-        if self.as_ptr() == other.as_ptr() {
-            return true;
-        }
-        unsafe {
-            let size = mem::size_of_val(self);
-            memcmp(self.as_ptr() as *const u8,
-                   other.as_ptr() as *const u8, size) == 0
-        }
-    }
-}
 
 #[doc(hidden)]
 // intermediate trait for specialization of slice's PartialOrd

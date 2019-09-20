@@ -740,13 +740,13 @@ evalRefLvalue lv =
                Just (Some (VarReference reg)) ->
                  do r <- G.readReg reg
                     return $ MirExp (R.typeOfReg reg) r
-               Just (Some (VarRegister reg)) ->
+               Just (Some (VarRegister reg)) -> do
                  case R.typeOfReg reg of
                     MirReferenceRepr tp -> do
                       r <- G.readReg reg
                       return $ MirExp (R.typeOfReg reg) r
                     _ -> mirFail $ ("Cannot take address of non-reference" <> show  nm)
-               Just (Some (VarAtom a)) ->
+               Just (Some (VarAtom a)) -> do
                  case R.typeOfAtom a of
                     MirReferenceRepr tp -> do
                       return $ MirExp (R.typeOfAtom a) (R.AtomExpr a)
@@ -783,13 +783,19 @@ getVariant ty = mirFail $ "Variant type expected, received " ++ show (pretty ty)
 
 evalRefProj :: HasCallStack => M.Lvalue -> M.PlaceElem -> MirGenerator h s ret (MirExp s)
 evalRefProj base projElem =
-  do --traceM $ "evalRefProj:" ++ fmt prj ++ " of type " ++ fmt (typeOf prj) 
+  do --traceM $ "evalRefProj " ++ show base ++ " " ++ show projElem
      MirExp tp ref <- evalRefLvalue base
-     --traceM $ "produced evaluated base of type:" ++ show tp
+     --traceM $ "  produced evaluated base of type:" ++ show tp
      case tp of
        MirReferenceRepr elty ->
          case projElem of
-          M.Deref -> return (MirExp tp ref)
+          M.Deref -> case tp of
+            -- This handles cases like `&mut *x.foo` where `mut x: &mut Adt`.
+            -- I'm not sure if it's correct in general
+            -- TODO: figure out if this is right
+            MirReferenceRepr (MirReferenceRepr tp') ->
+                MirExp (MirReferenceRepr tp') <$> readMirRef (MirReferenceRepr tp') ref
+            _ -> return $ MirExp tp ref
 
           M.PField idx _mirTy -> case M.typeOf base of
               M.TyAdt nm args -> do
@@ -804,8 +810,11 @@ evalRefProj base projElem =
                 adt <- findAdt nm
                 enumFieldRef adt args (fromInteger i) idx elty ref
 
-              _ -> mirFail $ "tried to get field " ++ show idx ++ " of unsupported type " ++
-                show (M.typeOf base) ++ ": " ++ show base
+              M.TyTuple ts -> tupleFieldRef ts idx elty ref
+              M.TyClosure ts -> tupleFieldRef ts idx elty ref
+
+              _ -> error $ "tried to get field " ++ show idx ++ " of unsupported type " ++
+                show (M.typeOf base) ++ ": " ++ show base ++ " (repr = " ++ show tp ++ ")"
 
           M.ConstantIndex offset _min_len fromend
             | C.VectorRepr tp' <- elty
