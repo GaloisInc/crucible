@@ -855,7 +855,7 @@ evalRval (M.Ref bk lv _) =
   case bk of
     M.Shared  -> evalLvalue lv
     M.Mutable -> evalRefLvalue lv
-    M.Unique  -> mirFail "FIXME! Unique reference not implemented"
+    M.Unique  -> evalRefLvalue lv
 
 evalRval (M.Len lv) =
   case lv of

@@ -206,7 +206,7 @@ instance Pretty Rvalue where
     pretty (Use a) = pretty_fn1 "use" a
     pretty (Repeat a b) = brackets (pretty a <> semi <> pretty b) 
     pretty (Ref Shared b _c) = text "&" <> pretty b
-    pretty (Ref Unique b _c) = text "*" <> pretty b
+    pretty (Ref Unique b _c) = text "&unique" <+> pretty b
     pretty (Ref Mutable b _c) = text "&mut" <+> pretty b
     pretty (Len a) = pretty_fn1 "len" a
     pretty (Cast a b c) = pretty_fn3 "Cast" a b c

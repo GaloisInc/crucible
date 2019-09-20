@@ -94,8 +94,9 @@ impl<A, B> ZipImpl<A, B> for Zip<A, B>
 
     #[inline]
     default fn next(&mut self) -> Option<(A::Item, B::Item)> {
-        self.a.next().and_then(|x| {
-            self.b.next().and_then(|y| {
+        let mut slf = self;
+        slf.a.next().and_then(|x| {
+            slf.b.next().and_then(|y| {
                 Some((x, y))
             })
         })
