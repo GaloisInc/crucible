@@ -99,6 +99,10 @@ impl BytesMut {
         }
     }
 
+    pub fn truncate(&mut self, len: usize) {
+        self.len = cmp::min(len, self.len);
+    }
+
     pub fn crux_set_fixed(&mut self, fixed: bool) {
         self.crux_fixed = fixed;
     }
