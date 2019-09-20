@@ -1,5 +1,11 @@
-pub trait Symbolic {
+pub trait Symbolic: Sized {
     fn symbolic(desc: &'static str) -> Self;
+
+    fn symbolic_where<F: FnOnce(&Self) -> bool>(desc: &'static str, f: F) -> Self {
+        let x = Self::symbolic(desc);
+        super::crucible_assume!(f(&x));
+        x
+    }
 }
 
 
@@ -90,7 +96,6 @@ array_impls! {
 
 
 pub fn prefix<'a, T>(xs: &'a [T]) -> &'a [T] {
-    let len = usize::symbolic("prefix_len");
-    super::crucible_assume!(len <= xs.len());
+    let len = usize::symbolic_where("prefix_len", |&n| n < xs.len());
     &xs[..len]
 }
