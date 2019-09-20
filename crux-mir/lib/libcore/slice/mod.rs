@@ -432,12 +432,16 @@ impl<T> [T] {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline]
     pub fn swap(&mut self, a: usize, b: usize) {
+        if a == b {
+            return;
+        }
         unsafe {
-            // Can't take two mutable loans from one vector, so instead just cast
-            // them to their raw pointers to do the swap
-            let pa: *mut T = &mut self[a];
-            let pb: *mut T = &mut self[b];
-            ptr::swap(pa, pb);
+            // TODO: fix handling of indexing so we don't need explicit index_mut calls any more
+            let ra: &mut T = ops::IndexMut::index_mut(self, a);
+            let ra: &mut T = mem::crucible_identity_transmute::<&mut T, &mut T>(ra);
+            let rb: &mut T = ops::IndexMut::index_mut(self, b);
+            let rb: &mut T = mem::crucible_identity_transmute::<&mut T, &mut T>(rb);
+            mem::swap(ra, rb);
         }
     }
 
@@ -2687,14 +2691,22 @@ impl<T> SliceIndex<[T]> for usize {
 
     #[inline]
     fn index(self, slice: &[T]) -> &T {
-        // N.B., use intrinsic indexing
-        &(*slice)[self]
+        if self >= slice.len() {
+            slice_index_len_fail(self, slice.len());
+        }
+        unsafe {
+            self.get_unchecked(slice)
+        }
     }
 
     #[inline]
     fn index_mut(self, slice: &mut [T]) -> &mut T {
-        // N.B., use intrinsic indexing
-        &mut (*slice)[self]
+        if self >= slice.len() {
+            slice_index_len_fail(self, slice.len());
+        }
+        unsafe {
+            self.get_unchecked_mut(slice)
+        }
     }
 }
 
