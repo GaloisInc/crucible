@@ -3866,7 +3866,24 @@ assert_eq!(bytes, ", $be_bytes, ");
             #[rustc_const_unstable(feature = "const_int_conversion")]
             #[inline]
             pub const fn to_be_bytes(self) -> [u8; mem::size_of::<Self>()] {
-                self.to_be().to_ne_bytes()
+                let mut buf = [0; $BITS / 8];
+                buf[15 % ($BITS / 8)] = (self >> (  0 % $BITS)) as u8;
+                buf[14 % ($BITS / 8)] = (self >> (  8 % $BITS)) as u8;
+                buf[13 % ($BITS / 8)] = (self >> ( 16 % $BITS)) as u8;
+                buf[12 % ($BITS / 8)] = (self >> ( 24 % $BITS)) as u8;
+                buf[11 % ($BITS / 8)] = (self >> ( 32 % $BITS)) as u8;
+                buf[10 % ($BITS / 8)] = (self >> ( 40 % $BITS)) as u8;
+                buf[ 9 % ($BITS / 8)] = (self >> ( 48 % $BITS)) as u8;
+                buf[ 8 % ($BITS / 8)] = (self >> ( 56 % $BITS)) as u8;
+                buf[ 7 % ($BITS / 8)] = (self >> ( 64 % $BITS)) as u8;
+                buf[ 6 % ($BITS / 8)] = (self >> ( 72 % $BITS)) as u8;
+                buf[ 5 % ($BITS / 8)] = (self >> ( 80 % $BITS)) as u8;
+                buf[ 4 % ($BITS / 8)] = (self >> ( 88 % $BITS)) as u8;
+                buf[ 3 % ($BITS / 8)] = (self >> ( 96 % $BITS)) as u8;
+                buf[ 2 % ($BITS / 8)] = (self >> (104 % $BITS)) as u8;
+                buf[ 1 % ($BITS / 8)] = (self >> (112 % $BITS)) as u8;
+                buf[ 0 % ($BITS / 8)] = (self >> (120 % $BITS)) as u8;
+                buf
             }
         }
 
@@ -3886,7 +3903,24 @@ assert_eq!(bytes, ", $le_bytes, ");
             #[rustc_const_unstable(feature = "const_int_conversion")]
             #[inline]
             pub const fn to_le_bytes(self) -> [u8; mem::size_of::<Self>()] {
-                self.to_le().to_ne_bytes()
+                let mut buf = [0; $BITS / 8];
+                buf[ 0 % ($BITS / 8)] = (self >> (  0 % $BITS)) as u8;
+                buf[ 1 % ($BITS / 8)] = (self >> (  8 % $BITS)) as u8;
+                buf[ 2 % ($BITS / 8)] = (self >> ( 16 % $BITS)) as u8;
+                buf[ 3 % ($BITS / 8)] = (self >> ( 24 % $BITS)) as u8;
+                buf[ 4 % ($BITS / 8)] = (self >> ( 32 % $BITS)) as u8;
+                buf[ 5 % ($BITS / 8)] = (self >> ( 40 % $BITS)) as u8;
+                buf[ 6 % ($BITS / 8)] = (self >> ( 48 % $BITS)) as u8;
+                buf[ 7 % ($BITS / 8)] = (self >> ( 56 % $BITS)) as u8;
+                buf[ 8 % ($BITS / 8)] = (self >> ( 64 % $BITS)) as u8;
+                buf[ 9 % ($BITS / 8)] = (self >> ( 72 % $BITS)) as u8;
+                buf[10 % ($BITS / 8)] = (self >> ( 80 % $BITS)) as u8;
+                buf[11 % ($BITS / 8)] = (self >> ( 88 % $BITS)) as u8;
+                buf[12 % ($BITS / 8)] = (self >> ( 96 % $BITS)) as u8;
+                buf[13 % ($BITS / 8)] = (self >> (104 % $BITS)) as u8;
+                buf[14 % ($BITS / 8)] = (self >> (112 % $BITS)) as u8;
+                buf[15 % ($BITS / 8)] = (self >> (120 % $BITS)) as u8;
+                buf
             }
         }
 
@@ -3918,24 +3952,7 @@ assert_eq!(bytes, if cfg!(target_endian = \"big\") {
             #[rustc_const_unstable(feature = "const_int_conversion")]
             #[inline]
             pub const fn to_ne_bytes(self) -> [u8; mem::size_of::<Self>()] {
-                let mut buf = [0; $BITS / 8];
-                buf[ 0 % ($BITS / 8)] = (self >> (  0 % $BITS)) as u8;
-                buf[ 1 % ($BITS / 8)] = (self >> (  8 % $BITS)) as u8;
-                buf[ 2 % ($BITS / 8)] = (self >> ( 16 % $BITS)) as u8;
-                buf[ 3 % ($BITS / 8)] = (self >> ( 24 % $BITS)) as u8;
-                buf[ 4 % ($BITS / 8)] = (self >> ( 32 % $BITS)) as u8;
-                buf[ 5 % ($BITS / 8)] = (self >> ( 40 % $BITS)) as u8;
-                buf[ 6 % ($BITS / 8)] = (self >> ( 48 % $BITS)) as u8;
-                buf[ 7 % ($BITS / 8)] = (self >> ( 56 % $BITS)) as u8;
-                buf[ 8 % ($BITS / 8)] = (self >> ( 64 % $BITS)) as u8;
-                buf[ 9 % ($BITS / 8)] = (self >> ( 72 % $BITS)) as u8;
-                buf[10 % ($BITS / 8)] = (self >> ( 80 % $BITS)) as u8;
-                buf[11 % ($BITS / 8)] = (self >> ( 88 % $BITS)) as u8;
-                buf[12 % ($BITS / 8)] = (self >> ( 96 % $BITS)) as u8;
-                buf[13 % ($BITS / 8)] = (self >> (104 % $BITS)) as u8;
-                buf[14 % ($BITS / 8)] = (self >> (112 % $BITS)) as u8;
-                buf[15 % ($BITS / 8)] = (self >> (120 % $BITS)) as u8;
-                buf
+                unsafe { mem::transmute(self) }
             }
         }
 
@@ -3967,7 +3984,24 @@ fn read_be_", stringify!($SelfT), "(input: &mut &[u8]) -> ", stringify!($SelfT),
             #[rustc_const_unstable(feature = "const_int_conversion")]
             #[inline]
             pub const fn from_be_bytes(bytes: [u8; mem::size_of::<Self>()]) -> Self {
-                Self::from_be(Self::from_ne_bytes(bytes))
+                let mut x = 0;
+                x |= (bytes[15 % ($BITS / 8)] as Self) << (  0 % $BITS);
+                x |= (bytes[14 % ($BITS / 8)] as Self) << (  8 % $BITS);
+                x |= (bytes[13 % ($BITS / 8)] as Self) << ( 16 % $BITS);
+                x |= (bytes[12 % ($BITS / 8)] as Self) << ( 24 % $BITS);
+                x |= (bytes[11 % ($BITS / 8)] as Self) << ( 32 % $BITS);
+                x |= (bytes[10 % ($BITS / 8)] as Self) << ( 40 % $BITS);
+                x |= (bytes[ 9 % ($BITS / 8)] as Self) << ( 48 % $BITS);
+                x |= (bytes[ 8 % ($BITS / 8)] as Self) << ( 56 % $BITS);
+                x |= (bytes[ 7 % ($BITS / 8)] as Self) << ( 64 % $BITS);
+                x |= (bytes[ 6 % ($BITS / 8)] as Self) << ( 72 % $BITS);
+                x |= (bytes[ 5 % ($BITS / 8)] as Self) << ( 80 % $BITS);
+                x |= (bytes[ 4 % ($BITS / 8)] as Self) << ( 88 % $BITS);
+                x |= (bytes[ 3 % ($BITS / 8)] as Self) << ( 96 % $BITS);
+                x |= (bytes[ 2 % ($BITS / 8)] as Self) << (104 % $BITS);
+                x |= (bytes[ 1 % ($BITS / 8)] as Self) << (112 % $BITS);
+                x |= (bytes[ 0 % ($BITS / 8)] as Self) << (120 % $BITS);
+                x
             }
         }
 
@@ -4000,7 +4034,24 @@ fn read_le_", stringify!($SelfT), "(input: &mut &[u8]) -> ", stringify!($SelfT),
             #[rustc_const_unstable(feature = "const_int_conversion")]
             #[inline]
             pub const fn from_le_bytes(bytes: [u8; mem::size_of::<Self>()]) -> Self {
-                Self::from_le(Self::from_ne_bytes(bytes))
+                let mut x = 0;
+                x |= (bytes[ 0 % ($BITS / 8)] as Self) << (  0 % $BITS);
+                x |= (bytes[ 1 % ($BITS / 8)] as Self) << (  8 % $BITS);
+                x |= (bytes[ 2 % ($BITS / 8)] as Self) << ( 16 % $BITS);
+                x |= (bytes[ 3 % ($BITS / 8)] as Self) << ( 24 % $BITS);
+                x |= (bytes[ 4 % ($BITS / 8)] as Self) << ( 32 % $BITS);
+                x |= (bytes[ 5 % ($BITS / 8)] as Self) << ( 40 % $BITS);
+                x |= (bytes[ 6 % ($BITS / 8)] as Self) << ( 48 % $BITS);
+                x |= (bytes[ 7 % ($BITS / 8)] as Self) << ( 56 % $BITS);
+                x |= (bytes[ 8 % ($BITS / 8)] as Self) << ( 64 % $BITS);
+                x |= (bytes[ 9 % ($BITS / 8)] as Self) << ( 72 % $BITS);
+                x |= (bytes[10 % ($BITS / 8)] as Self) << ( 80 % $BITS);
+                x |= (bytes[11 % ($BITS / 8)] as Self) << ( 88 % $BITS);
+                x |= (bytes[12 % ($BITS / 8)] as Self) << ( 96 % $BITS);
+                x |= (bytes[13 % ($BITS / 8)] as Self) << (104 % $BITS);
+                x |= (bytes[14 % ($BITS / 8)] as Self) << (112 % $BITS);
+                x |= (bytes[15 % ($BITS / 8)] as Self) << (120 % $BITS);
+                x
             }
         }
 
