@@ -103,6 +103,7 @@ data Ty =
       | TyFloat !FloatKind
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
       | TyProjection !DefId !Substs -- The projection of an associated type. For example, <T as Trait<..>>::N.
+      | TyNever
 
       | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
       | TyConst         -- Placeholder for representing constants in `Substs`

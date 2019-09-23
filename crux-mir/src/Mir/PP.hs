@@ -85,6 +85,7 @@ instance Pretty Ty where
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> text "as" <+> pretty i)
     pretty (TyProjection defId tys) = text "projection" <+> brackets (pr_id defId <> pretty tys)
+    pretty TyNever = text "never"
     pretty TyLifetime = text "lifetime"
     pretty TyErased = text "erased"
 

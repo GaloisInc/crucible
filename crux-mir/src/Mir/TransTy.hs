@@ -232,6 +232,7 @@ tyToRepr t0 = case t0 of
   M.TyFnDef _def substs ->
     -- TODO: lookup the type of the function and translate that type
     Some C.AnyRepr
+  M.TyNever -> Some C.AnyRepr
   M.TyLifetime -> Some C.AnyRepr
   M.TyErased -> Some C.AnyRepr
   _ -> error $ unwords ["unknown type?", show t0]

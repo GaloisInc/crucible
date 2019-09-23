@@ -93,7 +93,7 @@ instance FromJSON Ty where
                                                 (v .: "predicates" >>= \xs -> mapM parsePred xs)
                                           Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
                                           Just (String "Float") -> TyFloat <$> v .: "size"
-                                          Just (String "Never") -> pure (TyAdt "::Never[0]" (Substs []))
+                                          Just (String "Never") -> pure TyNever
                                           Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
                                           Just (String "Lifetime") -> pure TyLifetime
                                           Just (String "Const") -> pure TyConst
