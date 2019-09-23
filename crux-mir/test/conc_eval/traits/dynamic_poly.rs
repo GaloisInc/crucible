@@ -1,4 +1,3 @@
-// FAIL: needs dynamic trait object
 #![cfg_attr(not(with_main), feature(custom_attribute))]
 #![cfg_attr(not(with_main), no_std)]
 struct Data(u32);

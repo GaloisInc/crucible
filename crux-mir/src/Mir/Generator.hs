@@ -160,7 +160,10 @@ data CollectionState
 ---------------------------------------------------------------------------
 -- ** Custom operations
 
-type CustomOpMap = Map ExplodedDefId CustomRHS              
+data CustomOpMap = CustomOpMap
+    { _opDefs :: Map ExplodedDefId CustomRHS
+    , _fnPtrShimOp :: Ty -> CustomOp
+    }
 
 type ExplodedDefId = ([Text], Text, [Text])
 data CustomOp      =
@@ -254,6 +257,7 @@ makeLenses ''FnState
 makeLenses ''MirHandle
 makeLenses ''CollectionState
 makeLenses ''RustModule
+makeLenses ''CustomOpMap
 
 $(return [])
 
@@ -526,19 +530,21 @@ resolveCustom instDefId _substs = do
     optIntr <- use $ cs . collection . intrinsics . at instDefId
     case optIntr of
         Nothing -> return Nothing
-        Just intr -> do
-            let inst = intr ^. intrInst
-            -- TODO: special handling if `inst ^. inKind` is IkVirtual
-            let origDefId = inst ^. inDefId
-            let origSubsts = inst ^. inSubsts
-            let edid = (map fst (did_path origDefId),
-                    fst (did_name origDefId),
-                    map fst (did_extra origDefId))
-            optOp <- use $ customOps . at edid
-            case optOp of
-                Nothing -> return Nothing
-                Just f -> do
-                    return $ f origSubsts
+        Just intr -> case intr ^. intrInst . inKind of
+            IkFnPtrShim ty -> do
+                f <- use $ customOps . fnPtrShimOp
+                return $ Just $ f ty
+            _ -> do
+                let origDefId = intr ^. intrInst . inDefId
+                let origSubsts = intr ^. intrInst . inSubsts
+                let edid = (map fst (did_path origDefId),
+                        fst (did_name origDefId),
+                        map fst (did_extra origDefId))
+                optOp <- use $ customOps . opDefs .  at edid
+                case optOp of
+                    Nothing -> return Nothing
+                    Just f -> do
+                        return $ f origSubsts
 
 ---------------------------------------------------------------------------------------------------
 

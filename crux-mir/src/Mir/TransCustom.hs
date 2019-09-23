@@ -75,8 +75,10 @@ import Debug.Trace
 
 
 
-customOps :: Map ExplodedDefId CustomRHS
-customOps = Map.fromList [
+customOps = CustomOpMap customOpDefs fnPtrShimDef
+
+customOpDefs :: Map ExplodedDefId CustomRHS
+customOpDefs = Map.fromList [
                            slice_index_usize_get_unchecked
                          , slice_index_range_get_unchecked
                          , slice_index_usize_get_unchecked_mut
@@ -654,7 +656,30 @@ integer_rem = ((["int512"], "rem", []), \(Substs []) ->
 
 
 --------------------------------------------------------------------------------------------------------------------------
+-- Implementation for `IkFnPtrShim`.  Function pointer shims are auto-generated
+-- `Fn`/`FnMut`/`FnOnce` methods for `TyFnDef` and `TyFnPtr`, allowing ordinary
+-- functions to be passed as closures.
 
+
+fnPtrShimDef :: Ty -> CustomOp
+fnPtrShimDef (TyFnDef defId substs) = CustomMirOp $ \ops -> case ops of
+    [_fnptr, argTuple] -> do
+        argTys <- case typeOf argTuple of
+            TyTuple tys -> return $ tys
+            ty -> mirFail $ "unexpected argument tuple type " ++ show ty ++
+                " for fnptr shim of " ++ show defId
+        argBase <- case argTuple of
+            Copy lv -> return lv
+            Move lv -> return lv
+            OpConstant _ -> mirFail $ "unsupported argument tuple operand " ++ show argTuple ++
+                " for fnptr shim of " ++ show defId
+        let argOps = zipWith (\ty i -> Move $ LProj argBase (PField i ty)) argTys [0..]
+        callExp defId substs argOps
+    _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of " ++ show defId
+fnPtrShimDef ty = CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show ty
+
+
+--------------------------------------------------------------------------------------------------------------------------
 
 
 
