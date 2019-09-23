@@ -63,7 +63,7 @@ import           Mir.Intrinsics
     , SizeBits, pattern UsizeRepr, pattern IsizeRepr
     , isizeLit
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
-    , TaggedUnion, DynRefType)
+    , DynRefType)
 import           Mir.GenericOps (tySubst)
 
 
@@ -453,11 +453,6 @@ buildTupleMaybe :: [M.Ty] -> [Maybe (MirExp s)] -> MirExp s
 buildTupleMaybe tys xs = exp_to_assgn_Maybe tys xs $ \ctx asgn ->
     MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asgn)
 
-
-buildTaggedUnion :: Integer -> [MirExp s] -> MirExp s
-buildTaggedUnion i es =
-    let v = buildTuple es in
-        buildTuple [MirExp knownRepr (S.app $ E.NatLit (fromInteger i)), packAny v ]
 
 
 {-

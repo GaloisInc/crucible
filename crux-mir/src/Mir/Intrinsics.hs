@@ -43,7 +43,6 @@ module Mir.Intrinsics
 , MirReferencePath(..)
 , muxRefPath
 , muxRef
-, TaggedUnion
 , MirSlice
 , pattern MirSliceRepr
 
@@ -443,9 +442,6 @@ type instance StmtExtension MIR = MirStmt
 type instance AssertionClassifier MIR = NoAssertionClassifier
 type instance Instantiate subst MIR = MIR
 instance ClosedK CrucibleType MIR where closed _ _ = Refl
-
--- TODO: remove this
-type TaggedUnion = StructType (EmptyCtx ::> NatType ::> AnyType)
 
 -- First `Any` is the data pointer - either an immutable or mutable reference.
 -- Second `Any` is the vtable.

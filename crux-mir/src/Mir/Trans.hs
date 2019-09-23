@@ -1520,67 +1520,9 @@ lookupFunction nm (Substs funsubst)
 
 
 
--- | Make a dictionary for a function call for the specified predicates
+-- TODO: remove this
 mkDict :: (Var, Predicate) -> MirGenerator h s ret (MirExp s)
-mkDict (var, pred@(TraitPredicate tn (Substs ss))) = do
-  db <- use debugLevel
-  vm <- use varMap
-  col  <- use $ cs.collection
-  case Map.lookup (var^.varname) vm of
-    Just _ -> lookupVar var
-    Nothing -> do
-      let (TyAdt did subst)              = var^.varty
-      let (Adt _ _ [Variant _ _ fields _]) = case (col^.adts) Map.!? did of
-                                               Just adt -> adt
-                                               Nothing  -> error $ "Cannot find " ++ fmt did ++ " in adts"
-      let go :: HasCallStack => Field -> MirGenerator h s ret (MirExp s)
-          go (Field fn (TyFnPtr field_sig) _) = do
-            mhand <- lookupFunction fn subst
-            case mhand of
-              Just (e,sig)   -> do
-                 db <- use debugLevel
-                 let sig'   = tySubst (Substs ss) field_sig
-                     spreds = sig' ^.fspredicates
-                     preds  = sig  ^.fspredicates
-                 if (length preds > length spreds) then do
-                    let extras = drop (length spreds) preds
-                    when (db > 3) $ do
-                       traceM $ fmt fn ++ " for " ++ fmt pred
-                       traceM $ "sig:    " ++ fmt sig
-                       traceM $ "preds:  " ++ fmt preds
-                       traceM $ "fsig    " ++ fmt field_sig
-                       traceM $ "spreds: " ++ fmt spreds
-                       traceM $ "extras: " ++ fmt extras
-                    dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> dictVar x) extras)
-                    case (e, dexps) of
-                      -- TODO: this currently only handles ONE extra predicate on the method
-                      -- need to generalize closure creation to *multiple* predicates
-                      (MirExp (C.FunctionHandleRepr args ret) fn, [MirExp ty dict]) -> do
-                         case Ctx.viewAssign args of
-                            Ctx.AssignEmpty -> mirFail $ "BUG: No arguments!"
-                            Ctx.AssignExtend (rargs :: C.CtxRepr rargs)
-                                             (v :: C.TypeRepr arg) -> do
-                              case testEquality v ty of
-                                Nothing -> mirFail $ "BUG: dictionary type doesn't match"
-                                Just Refl ->
-                                  C.assumeClosed @arg $
-                                  return (MirExp
-                                            (C.FunctionHandleRepr rargs ret)
-                                            (R.App $ E.Closure rargs ret fn v dict))
-                      (_,_) -> return e
-                 else
-                    return e -- error $ "found predicates when building a dictionary for " ++ show var
-              Nothing     -> mirFail $ "when building a dictionary for " ++  fmt var
-                                  ++ " couldn't find an entry for " ++ fmt fn
-                                  ++ " of type " ++ fmt (var^.varty)
-          go (Field fn ty _) = mirFail $ "BUG: mkDict, fields must be functions, found"
-                                        ++ fmt ty ++ " for " ++ fmt fn ++ " instead."
-      when (db > 3) $ traceM $ "Building dictionary for " ++ fmt pred
-                    ++ " of type " ++ fmt (var^.varty)
-      entries <- mapM go fields
-      when (db > 3) $ traceM $ "Done building dictionary for " ++ fmt var
-      return $ buildTaggedUnion 0 entries
-mkDict (var, _) = mirFail $ "BUG: mkDict, only make dictionaries for TraitPredicates"
+mkDict (var, _) = error $ "BUG: mkDict should no longer be used for anything"
 
 -- need to construct any dictionary arguments for predicates (if present)
 callExp :: HasCallStack =>
