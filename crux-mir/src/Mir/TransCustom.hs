@@ -91,6 +91,7 @@ customOpDefs = Map.fromList [
                          , sub_with_overflow
 
                          , mem_crucible_identity_transmute
+                         , slice_to_array
 
                          , box_new
 
@@ -416,6 +417,29 @@ mem_crucible_identity_transmute = ((["core","mem"],"crucible_identity_transmute"
         _ -> mirFail $ "bad arguments to mem_crucible_identity_transmute: "
           ++ show (tyT, tyU, ops)
       _ -> Nothing
+    )
+
+slice_to_array ::  (ExplodedDefId, CustomRHS)
+slice_to_array = ((["core","array"],"slice_to_array", []),
+    \substs -> Just $ CustomOp $ \_ ops -> case (substs, ops) of
+        (Substs [ty, TyConst], [MirExp (MirImmSliceRepr tpr) e, MirExp UsizeRepr eLen]) -> do
+            let vec = S.getStruct Ctx.i1of3 e
+            let start = S.getStruct Ctx.i2of3 e
+            let len = S.getStruct Ctx.i3of3 e
+            let end = R.App $ usizeAdd start len
+            let lenOk = R.App $ usizeEq len eLen
+            adt <- findAdt optionDefId
+
+            let args = Substs [TyArray ty 0]
+            MirExp C.AnyRepr <$> G.ifte lenOk
+                (do v <- vectorCopy tpr start end vec
+                    let vMir = MirExp (C.VectorRepr tpr) v
+                    enum <- buildEnum adt args optionDiscrSome [vMir]
+                    unwrapMirExp C.AnyRepr enum)
+                (do enum <- buildEnum adt args optionDiscrNone []
+                    unwrapMirExp C.AnyRepr enum)
+
+        _ -> mirFail $ "bad arguments to slice_to_array: " ++ show (substs, ops)
     )
 
 

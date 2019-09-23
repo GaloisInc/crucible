@@ -2012,6 +2012,8 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
             s = initFnState colState fn handle inputs 
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
+      -- Uncomment these lines to print the Crucible CFG for each function.
+      -- TODO: add a command-line flag for this, like --print-mir
       --traceM $ unwords [" =======", show fname, "======="]
       --traceShowM $ pretty g
       --traceM $ unwords [" ======= end", show fname, "======="]

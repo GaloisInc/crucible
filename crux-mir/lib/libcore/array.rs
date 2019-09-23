@@ -147,13 +147,18 @@ where
     type Error = TryFromSliceError;
 
     fn try_from(slice: &[T]) -> Result<&[T; N], TryFromSliceError> {
-        if slice.len() == N {
-            let ptr = slice.as_ptr() as *const [T; N];
-            unsafe { Ok(&*ptr) }
-        } else {
-            Err(TryFromSliceError(()))
+        unsafe {
+            slice_to_array(slice, N)
+                .ok_or(TryFromSliceError(()))
         }
     }
+}
+
+/// Convert a slice reference to an array reference.  This is unsafe because `n` and `N` must be
+/// equal - the CustomOp can only read `n`, because const generics are erased in the current
+/// implementation, so passing the wrong `n` can produce an ill-typed result.
+unsafe fn slice_to_array<T, const N: usize>(xs: &[T], n: usize) -> Option<&[T; N]> {
+    unimplemented!("slice_to_array")
 }
 
 #[stable(feature = "try_from", since = "1.34.0")]
