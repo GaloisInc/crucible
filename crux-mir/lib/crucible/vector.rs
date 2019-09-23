@@ -6,8 +6,14 @@
 use core::marker::PhantomData;
 
 
-#[derive(Clone, Copy)]
+#[derive(Copy)]
 pub struct Vector<T>(PhantomData<T>);
+
+impl<T: Clone> Clone for Vector<T> {
+    fn clone(&self) -> Self {
+        Vector::clone_from_slice(self.as_slice())
+    }
+}
 
 impl<T> Vector<T> {
     pub fn new() -> Vector<T> {
@@ -45,6 +51,18 @@ impl<T> Vector<T> {
     pub fn copy_from_slice(slice: &[T]) -> Self
     where T: Copy {
         unimplemented!("Vector::copy_from_slice")
+    }
+
+    pub fn clone_from_slice(slice: &[T]) -> Self
+    where T: Clone {
+        // TODO: this implementation is O(n^2), since the vector is reallocated on every `push`.
+        // We could make this faster with a CustomOp implementation, or with a generic `unfold`
+        // function.
+        let mut v = Vector::new();
+        for x in slice {
+            v = v.push(x.clone());
+        }
+        v
     }
 
     pub fn replicate(x: T, n: usize) -> Self
