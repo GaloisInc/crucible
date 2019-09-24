@@ -239,8 +239,6 @@ lookupRetVar tr = do
 
 -- ** Expressions: Operations and Aggregates
 
--- TODO: should we differentiate between a Move and a Copy?
--- Can call Copy::copy trait if the stdlib is available
 evalOperand :: HasCallStack => M.Operand -> MirGenerator h s ret (MirExp s)
 evalOperand (M.Copy lv) = evalLvalue lv
 evalOperand (M.Move lv) = evalLvalue lv
@@ -1362,8 +1360,6 @@ lookupFunction nm (Substs funsubst)
     traceM $ "**lookupFunction: trying to resolve " ++ fmt nm ++ fmt (Substs funsubst)
 
   -- these  are defined at the bottom of Mir.Generator
-  isStatic  <- resolveStaticTrait nm (Substs funsubst)
-  isDictPrj <- resolveDictionaryProjection nm (Substs funsubst)
   isImpl    <- resolveFn nm (Substs funsubst)
   isCustom  <- resolveCustom nm (Substs funsubst)
 
@@ -1397,32 +1393,6 @@ lookupFunction nm (Substs funsubst)
             in
               MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst
 
-  -- Given a (polymorphic) trait method, instantiate it with the method's type arguments
-  let instantiateTraitMethod :: MirExp s -> Substs -> MirExp s
-      instantiateTraitMethod exp@(MirExp (C.FunctionHandleRepr _ _) _) (Substs []) = exp
-      instantiateTraitMethod (MirExp fty@(C.PolyFnRepr n fargctx fret) polyfcn) (Substs methsubst) = do
-        tyListToCtx (reverse methsubst) $ \tyargs -> do
-           let ifargctx = C.instantiate (C.mkSubst tyargs) fargctx
-           let ifret    = C.instantiate (C.mkSubst tyargs) fret
-           case testEquality (ctxSizeP tyargs) n of
-                   Just Refl -> 
-                     let polyinst = R.App $ E.PolyInstantiate fty polyfcn tyargs
-                         cty      = C.FunctionHandleRepr ifargctx ifret
-                     in (MirExp cty polyinst)
-                   Nothing ->
-                     case ltP (ctxSizeP tyargs) n of
-                       TrueRepr -> 
-                         let polyinst = R.App $ E.PolySpecialize fty polyfcn tyargs
-                             cty      = C.PolyFnRepr (n `minusP` (ctxSizeP tyargs)) ifargctx ifret 
-                         in (MirExp cty polyinst)
-                         
-                       FalseRepr -> 
-                         error $ "TODO: " ++ show (ctxSizeP tyargs) ++ " > " ++ show n
-      instantiateTraitMethod (MirExp ty _) ss =
-         error $ "instantiateTraitMethod: found exp of type " ++ show ty
-                         ++ "\n and substs " ++ fmt ss
-
-
   case () of 
     ()
 
@@ -1445,52 +1415,10 @@ lookupFunction nm (Substs funsubst)
 
             return $ Just $ (mkFunExp hsubst gens fh, specialize fs funsubst)
 
-       -- dictionary projection, prefer this to a static trait invocation (next case)
-       | Just (var, exp, sig, Substs methsubst) <- isDictPrj
-       -> do
-             
-             fun <- evalRval exp
-             let fun' = instantiateTraitMethod fun (Substs methsubst)
-             let ssig = specialize sig methsubst 
-             when (db > 3) $ do
-               traceM $ "**lookupFunction: " ++ fmt nm ++ fmt (Substs funsubst) ++ " resolved as dictionary projection" 
-               traceM $ "\tfound var       " ++ fmt var
-               traceM $ "\texp type     is " ++ fmt sig
-               traceM $ "\tsubst type   is " ++ fmt ssig
-               traceM $ "\tfunsubst is     " ++ fmt funsubst
-               traceM $ "\tmethsubst is    " ++ fmt (Substs methsubst)
-
-             return $ (Just (fun', ssig))
-
-       -- a static invocation of a trait, the type argument (from funsubst) is a concrete type
-       -- so we can just look up the method in the static method table
-       | Just (MirHandle name sig handle, Substs methsubst) <- isStatic
-       -> do
-
-             let exp  = mkFunExp (Substs methsubst) (sig^.fsgenerics) handle
-             let ssig = specialize sig methsubst
-
-             when (db > 3) $ do
-               traceM $ "**lookupFunction: " ++ fmt nm ++ fmt (Substs funsubst) ++ " resolved as static trait call" 
-               traceM $ "\tfound handle    " ++ fmt name
-               traceM $ "\tmirHandle ty is " ++ fmt sig
-               traceM $ "\tfunsubst is     " ++ fmt (Substs funsubst)
-               traceM $ "\tmethsubst is    " ++ fmt (Substs methsubst)
-               traceM $ "\tspec ty is      " ++ fmt ssig
-
-             return $ Just (exp, ssig)
-
-
        | otherwise -> do
             when (db > 1) $ do
                traceM $ "***lookupFunction: Cannot find function " ++ show nm ++ " with type args " ++ show (pretty funsubst)
             return Nothing
-
-
-
--- TODO: remove this
-mkDict :: (Var, Predicate) -> MirGenerator h s ret (MirExp s)
-mkDict (var, _) = error $ "BUG: mkDict should no longer be used for anything"
 
 -- need to construct any dictionary arguments for predicates (if present)
 callExp :: HasCallStack =>
@@ -1538,10 +1466,7 @@ callExp funid funsubst cargs = do
               | otherwise -> mirFail $
                 "callExp: RustCall arguments are the wrong shape: " ++ show cargs
 
-            _ -> do
-                let preds = sig^.fspredicates
-                dexps <- mapM mkDict (Maybe.mapMaybe (\x -> (,x) <$> (dictVar x)) preds)
-                return $ exps ++ dexps
+            _ -> return exps
 
           exp_to_assgn exps' $ \ctx asgn -> do
             case (testEquality ctx ifargctx) of
@@ -1597,19 +1522,7 @@ transTerminator (M.DropAndReplace dlv dop dtarg _) _ = do
 
 transTerminator (M.Call (M.OpConstant (M.Constant _ (M.Value (M.ConstFunction funid funsubsts)))) cargs cretdest _) tr = do
     isCustom <- resolveCustom funid funsubsts
-    case (funsubsts, cargs) of
-      (Substs (M.TyDynamic (TraitPredicate traitName _ : _):_), tobj:_args) |
-       Nothing  <- isCustom -> do
-        -- this is a method call on a trait object, and is not a custom function
-        db <- use debugLevel
-        when (db > 2) $
-           traceM $ show (PP.sep [PP.text "At TRAIT function call of ",
-                   pretty funid, PP.text " with arguments ", pretty cargs, 
-                   PP.text "with type parameters: ", pretty funsubsts])
-        mirFail $ "trait method calls unsupported "
-
-      _ -> do -- this is a normal function call
-        doCall funid funsubsts cargs cretdest tr -- cleanup ignored
+    doCall funid funsubsts cargs cretdest tr -- cleanup ignored
         
 transTerminator (M.Assert cond _expected _msg target _cleanup) _ = do
     db <- use $ debugLevel
@@ -1829,8 +1742,7 @@ initFnState colState fn handle inputs =
       sig = fn^.fsig
       args = fn^.fargs
 
-      argPredVars = Maybe.mapMaybe dictVar (sig^.fspredicates)
-      argtups  = map (\(M.Var n _ t _ _ _) -> (n,t)) (args ++ argPredVars)
+      argtups  = map (\(M.Var n _ t _ _ _) -> (n,t)) args
       argtypes = FH.handleArgTypes handle
 
       mkVarMap :: [(Text.Text, M.Ty)] -> C.CtxRepr args -> Ctx.Assignment (R.Atom s) args -> VarMap s -> VarMap s
@@ -1938,8 +1850,7 @@ mkHandleMap col halloc = mapM mkHandle (col^.functions) where
     mkHandle :: M.Fn -> ST s MirHandle
     mkHandle (M.Fn fname fargs ty _fbody _statics)  =
        let
-           -- add dictionary args to type
-           targs = map typeOf (fargs ++ Maybe.mapMaybe dictVar (ty^.fspredicates))
+           targs = map typeOf fargs
            handleName = FN.functionNameFromText (M.idText fname)
        in
           tyListToCtx targs $ \argctx -> do
@@ -2381,8 +2292,6 @@ transCollection col halloc = do
     hmap2 <- mkVirtCallHandleMap col halloc
     let hmap = hmap1 <> hmap2
 
-    let stm = mkStaticTraitMap col
-
     vm <- mkVtableMap col halloc
 
     -- translate the statics and create the initialization code
@@ -2402,7 +2311,7 @@ transCollection col halloc = do
 
 
     let colState :: CollectionState
-        colState = CollectionState hmap stm vm sm dm col
+        colState = CollectionState hmap vm sm dm col
 
     -- translate all of the functions
     pairs1 <- mapM (transDefine (?libCS <> colState)) (Map.elems (col^.M.functions))

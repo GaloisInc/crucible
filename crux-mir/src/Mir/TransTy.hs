@@ -55,7 +55,7 @@ import qualified Mir.MirTy as M
 
 import           Mir.PP (fmt)
 import           Mir.Generator 
-    ( MirExp(..), MirGenerator, mkPredVar, mirFail
+    ( MirExp(..), MirGenerator, mirFail
     , subanyRef, subfieldRef, subvariantRef, subjustRef
     , cs, discrMap )
 import           Mir.Intrinsics
@@ -65,34 +65,6 @@ import           Mir.Intrinsics
     , RustEnumType, pattern RustEnumRepr, mkRustEnum, rustEnumVariant, rustEnumDiscriminant
     , DynRefType)
 import           Mir.GenericOps (tySubst)
-
-
---------------------------------------------------------------------------------------------
--- Reasoning about predicates that we know something about and that should be turned into
--- additional vtable/dictionary arguments 
-
--- This is a bit of a hack for higher-order functions
--- We always handle these via custom functions so there is
--- no need to pass dictionary arguments for them
--- REVISIT this!
-noDictionary :: [M.TraitName]
-noDictionary = []
-
--- | create a Var corresponding to a trait predicate
-dictVar :: M.Predicate -> Maybe M.Var
-dictVar (M.TraitPredicate did substs)
-  | not (elem did noDictionary)    = Just $ mkPredVar (M.TyAdt did substs)
-  | otherwise = Nothing
-dictVar (M.TraitProjection _ _)    = Nothing
-dictVar M.UnknownPredicate         = Nothing
-
--- | define the type of a dictionary Var
-dictTy  :: M.Predicate -> Maybe M.Ty
-dictTy (M.TraitPredicate did substs)
-  | not (elem did noDictionary)    = Just $ (M.TyAdt did substs)
-  | otherwise                      = Nothing
-dictTy (M.TraitProjection _ _)     = Nothing
-dictTy M.UnknownPredicate          = Nothing
 
 
 -----------------------------------------------------------------------
@@ -206,19 +178,15 @@ tyToRepr t0 = case t0 of
     Nothing        -> error "type params must be nonnegative"
 
   -- non polymorphic function types go to FunctionHandleRepr
-  M.TyFnPtr sig@(M.FnSig args ret [] preds _atys _abi) ->
-     tyListToCtx (args ++ Maybe.mapMaybe dictTy preds) $ \argsr  ->
+  M.TyFnPtr sig@(M.FnSig args ret [] [] _atys _abi) ->
+     tyListToCtx args $ \argsr  ->
      tyToReprCont ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)
         
   -- polymorphic function types go to PolyFnRepr
   -- invariant: never have 0 for PolyFnRepr
   M.TyFnPtr sig@(M.FnSig args ret params preds _atys _abi) ->
-     case peanoLength params of
-       Some k ->
-         tyListToCtx (args ++ Maybe.mapMaybe dictTy preds) $ \argsr ->
-         tyToReprCont ret $ \retr ->
-            Some (C.PolyFnRepr k argsr retr)
+      error $ "BUG: polymorphic fn ptrs should not appear in mir-json output any more"
 
   -- We don't support unsized rvalues.  Currently we error only for standalone
   -- standalone (i.e., not under `TyRef`/`TyRawPtr`) use of `TyDynamic` - we

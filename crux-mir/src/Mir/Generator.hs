@@ -148,7 +148,6 @@ data FnState (s :: Type)
 data CollectionState 
   = CollectionState {
       _handleMap      :: !HandleMap,
-      _staticTraitMap :: !StaticTraitMap,
       _vtableMap      :: !VtableMap,
       _staticMap      :: !(Map DefId StaticVar),
       -- | For Enums, gives the discriminant value for each variant.
@@ -234,14 +233,6 @@ data MirHandle = forall init ret.
               }
 
 ---------------------------------------------------------------------------
--- *** StaticTraitMap
-
-
--- | A StaticTraitMap maps trait method names to all traits that contain them
--- (There could be multiple, and will need to use type info to resolve further)
-type StaticTraitMap = Map MethName [TraitName]
-
----------------------------------------------------------------------------
 -- *** VtableMap
 
 -- | The VtableMap maps the name of each vtable to the MirHandles for the
@@ -272,11 +263,11 @@ instance Monoid RustModule where
   mappend = (<>)
 
 instance Semigroup CollectionState  where
-  (CollectionState hm1 vm1 stm1 sm1 dm1 col1) <> (CollectionState hm2 vm2 stm2 sm2 dm2 col2) =
-      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (stm1 <> stm2) (sm1 <> sm2) (dm1 <> dm2) (col1 <> col2))
+  (CollectionState hm1 vm1 sm1 dm1 col1) <> (CollectionState hm2 vm2 sm2 dm2 col2) =
+      (CollectionState (hm1 <> hm2) (vm1 <> vm2) (sm1 <> sm2) (dm1 <> dm2) (col1 <> col2))
 instance Monoid CollectionState where
   mappend = ((<>))
-  mempty  = CollectionState mempty mempty mempty mempty mempty mempty
+  mempty  = CollectionState mempty mempty mempty mempty mempty
 
 
 instance Show (MirExp s) where
@@ -298,16 +289,6 @@ varInfoRepr (VarReference reg0) =
     MirReferenceRepr tp -> tp
     _ -> error "impossible: varInfoRepr"
 varInfoRepr (VarAtom a) = R.typeOfAtom a
-
-mkStaticTraitMap :: Collection -> StaticTraitMap
-mkStaticTraitMap col = foldr addTrait Map.empty (col^.traits) where
-  addTrait :: Trait -> StaticTraitMap -> StaticTraitMap
-  addTrait tr tm = foldr addItem tm (tr^.traitItems) where
-    tn = tr^.traitName
-    addItem :: TraitItem -> StaticTraitMap -> StaticTraitMap
-    addItem tii@(TraitMethod methName _sig) tm =
-      Map.insertWith (++) methName [tn] tm
-    addItem _ tm = tm
 
 findAdt :: DefId -> MirGenerator h s ret Adt
 findAdt name = do
@@ -345,161 +326,6 @@ firstJustM f (x:xs) = do
 
 firstJust :: (a -> Maybe b) -> [a] -> Maybe b
 firstJust f = Maybe.listToMaybe . Maybe.mapMaybe f
-
-------------------------------------------------------------------------------------
--- | Given a (static)-trait method name and type substitution, find the 
--- implementation to use.
--- Returns the handle for the method as well as all type arguments to supply
--- in the method call.
---
--- If no method can be found, return Nothing
---
--- This returns a Maybe instead of failing so that we can try something else if 
--- resolution fails
---
--- During method resolution, additional method arguments discovered via unification
--- are added to the beginning of the returned substs
---
-resolveStaticTrait :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe (MirHandle, Substs))
-resolveStaticTrait mn sub = do
-  stm <- use (cs . staticTraitMap)
-  case (stm Map.!? mn) of
-    Just tns -> firstJustM (resolveStaticMethod mn sub) (getTraitName mn : tns)
-    Nothing -> resolveStaticMethod mn sub (getTraitName mn)
-                          
-resolveStaticMethod :: HasCallStack => MethName -> Substs -> TraitName -> MirGenerator h s ret (Maybe (MirHandle, Substs))
-resolveStaticMethod methName substs traitName = do
-   db <- use debugLevel
-   col <- use (cs . collection)
-   case (col^.traits) Map.!? traitName of
-     Nothing -> return $ Nothing -- BUG: Cannot find trait in collection
-     Just trait -> do
-       let (traitSub, methSub) = splitAtSubsts (length (trait^.traitParams)) substs
-       mimpl <- findItem methName traitSub trait
-       case mimpl of
-          Nothing -> return $ Nothing  -- OK: there is no impl for this method name & traitsub in this trait
-          Just (traitImpl, unifier, traitImplItem) -> do
-            hmap <- use (cs.handleMap)
-            case hmap Map.!? (traitImplItem^.tiiName) of
-              Nothing -> return Nothing -- BUG: impls should all be in the handle map
-              Just mh -> do                
-                let ulen = case Map.lookupMax unifier of
-                                  Just (k,_) -> k + 1
-                                  Nothing    -> 0
-                let ss'  = takeSubsts (fromInteger ulen) (mkSubsts unifier)
-                 
-                when (db > 5) $ do
-                    traceM $ "***Found " ++ fmt methName ++ " in " ++ fmt traitName
-                    traceM $ "\t traitSub is " ++ fmt traitSub
-                    traceM $ "\t ss' is      " ++ fmt ss'
-                    traceM $ "\t methSub  is " ++ fmt methSub                  
-                    traceM $ "\t unifier is  " ++ fmt (Map.toList unifier)
-                    traceM $ "\t of size     " ++ fmt (Map.size unifier)
-                    traceM $ "\t handle is   " ++ fmt mh
-                return (Just (mh, ss' <> methSub))
-       
--- | Look for a static trait implementation in a particular Trait
-findItem :: HasCallStack => MethName -> Substs -> Trait -> MirGenerator h s ret (Maybe (TraitImpl, Map Integer Ty, TraitImplItem))
-findItem methName traitSub trait = do
-  db <- use debugLevel
-  col <- use (cs.collection)
-  let isImpl :: TraitImpl -> Maybe (TraitImpl, Map Integer Ty)
-      isImpl ti
-       | (TraitRef tn ss) <- ti^.tiTraitRef
-       , tn == trait^.traitName
-       = (if db > 6 then trace $ "Comparing " ++ fmt traitSub ++ " with " ++ fmt ss else id) $
-         case matchSubsts traitSub ss of
-                Right m  ->
-                  Just (ti, m)
-                Left _e -> Nothing           
-         | otherwise = Nothing
-       
-  case firstJust isImpl (col^.impls) of
-    Nothing -> return Nothing
-    Just (ti, unifier) -> do
-      return $ (ti,unifier,) <$> List.find (\x -> x^.tiiImplements == methName) (ti^.tiItems)
-
--------------------------------------------------------------------------------------------------------
---
--- | Determine whether a function call can be resolved via dictionary projection
---
--- If so, return the dictionary variable, the rvalue that is the dictionary projection
--- and the method substitutions
---
---
--- 1. find the <potential_traits> that could potentially contain this method 
--- 2. find the trait name <tn> and <fields> of a dictionary type for all potential_traits
--- 3. find the index <idx> of the method in the dictionary
--- 4. find the <trait> in the collection and method type <sig> from the trait implementations
---
--- In findVar:
--- 5. separate substs into those for trait, and those for method 
--- 6. create the <var> for the dictionary make sure that it in scope
--- 7. create the <exp> that projects the appropriate field at <idx>
--- 8. return everything
-
-
-resolveDictionaryProjection :: HasCallStack => MethName -> Substs -> MirGenerator h s ret (Maybe (Var, Rvalue, FnSig, Substs))
-resolveDictionaryProjection nm subst = do
-  stm <- use (cs.staticTraitMap)
-  col  <- use (cs.collection)
-  db <- use debugLevel
-  vm <- use varMap
-  case stm Map.!? nm of
-    Nothing -> return Nothing
-    Just potential_traits -> do
-      let prjs :: [(TraitName, [Field], Int, Trait, FnSig)]  
-          prjs = [ (tn, fields, idx, trait, sig)
-                 | (tn, Just (Adt _ _ [Variant _ _ fields _])) <-
-                     map (\tn -> (tn,Map.lookup tn (col^.adts))) potential_traits 
-                 , idx   <- Maybe.maybeToList (List.findIndex (\(Field fn _ _) -> nm == fn) fields)
-                 , trait <- Maybe.maybeToList ((col^.traits) Map.!? tn)
-                 , TraitMethod _ sig <-
-                     Maybe.maybeToList $ List.find (\tm -> tm^.itemName == nm) (trait^.traitItems)
-                 ]
-
-          findVar (tn, fields, idx, trait, sig) = do
-             let (Substs tsubst,msubst) = splitAtSubsts (length (trait^.traitParams)) subst
-             let var = mkPredVar (TyAdt tn (Substs tsubst))
-             if (not (Map.member (var^.varname) vm)) then return Nothing
-             else do
-
-               let (Field _ (TyFnPtr ty) fsubst) = fields !! idx
-               let ty'  = tySubst (Substs tsubst) ty
-               let sig' = specialize sig tsubst
-               let exp = Use (Copy (LProj (LBase (Local var)) (PField idx (TyFnPtr ty'))))
-
-               when (db > 6) $ do
-                 traceM $ "***lookupFunction: at dictionary projection for " ++ show (pretty nm)
-                 traceM $ "   traitParams are" ++ fmt (trait^.traitParams)
-                 traceM $ "   traitPreds are " ++ fmt (trait^.traitPredicates)
-                 traceM $ "   tsubst is      " ++ fmt tsubst
-                 traceM $ "   msubst is      " ++ fmt msubst
-                 traceM $ "   fsubst is      " ++ fmt fsubst
-                 traceM $ "   ty is          " ++ fmt ty
-                 traceM $ "   ty' is         " ++ fmt ty'
-                 traceM $ "   sig' is         " ++ fmt sig'
-                 traceM $ "   exp is         " ++ fmt exp
-
-               return $ Just (var, exp, sig', msubst)
-               
-      firstJustM findVar prjs
-
-
-
--- | make a variable corresponding to a dictionary type
--- NOTE: this could make a trait for Fn/FnMut/FnOnce
-mkPredVar :: Ty -> Var
-mkPredVar ty@(TyAdt did ss) = Var {
-                _varname  = idText did <> Text.pack (fmt ss)
-              , _varmut   = Immut
-              , _varty    = ty
-              , _varIsZST = False
-              , _varscope = "dictionary"
-              , _varpos   = "dictionary argument"
-              }
-mkPredVar ty = error $ "BUG in mkPredVar: must provide Adt type"
-
 
 -------------------------------------------------------------------------------------------------------
 --
