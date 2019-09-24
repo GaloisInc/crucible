@@ -28,11 +28,17 @@ work, as well. However, in practice, having both tends to be convenient.
 
 The `crux-llvm` tool can be built by doing the following:
 
-* Clone the enclosing `crucible` repository into a directory `$DIR`.
+* Clone the enclosing `crucible` repository:
 
-* Change to the `$DIR/crux-llvm` directory and run
+        git clone https://github.com/GaloisInc/crucible.git
 
-  `./build-stack.sh`
+* Change to the `crux-llvm` directory and run the build script:
+
+        cd crucible/crux-llvm
+        ./build-stack.sh
+
+This will compile `crux-llvm` and supporting libraries and install them
+in the directory `crucible/crux-llvm/bin`.
 
 # Invocation
 
@@ -59,6 +65,36 @@ directory:
 
 * `print-model-NNN`: an executable file that prints out the values
   associated with the counter-example.
+
+To define properties and assumptions about the code to analyze, you may
+have to annotate the source code with inline properties. The following
+simple example is included in the `crux-llvm` distribution.
+
+~~~~ .c
+#include <stdint.h>
+#include <crucible.h>
+
+int8_t f(int8_t x) {
+  return x + 1;
+}
+
+int main() {
+  int8_t x = crucible_int8_t("x");
+  assuming(x < 100);
+  check(f(x) < 100);
+  return 0;
+}
+~~~~
+
+This file includes the `crucible.h` header file that declares functions
+and macros such as `crucible_int8_t`, `assuming`, and `check`. The call
+to `crucible_int8_t` marks variable `x` as a symbolic variable whose
+value can be any 8-bit signed integer. The C expression within the
+assuming statement states that `x` must be less than 100. The expression
+within the check statement is a proof goal: `crux-llvm` will attempt to
+prove that property `f(x) < 100` holds whenever the assumption on `x` is
+satisfied. The proof will fail in this case and `crux-llvm` will produce
+a counterexample.
 
 # API
 
@@ -258,10 +294,15 @@ In addition to command-line flags and environment variables, `crux-llvm`
 can be configured with a key-value input file. The file consists of a
 set of `KEY: VALUE` entries, each on a separate line, where each `KEY`
 generally corresponds to the textual part of the long version of a
-command-line flag. Options that take a list of arguments can be written
-with either a single value (for a list of length one) or with multiple
-values on successive lines, each starting with `*`. For example, the
-following is a valid input file:
+command-line flag. For example, one can set the iteration bound to 10 as
+follows:
+
+    iteration-bound: 10
+
+Options that take a list of arguments can be written with either a
+single value (for a list of length one) or with multiple values on
+successive lines, each starting with `*`. For example, the following is
+a valid input file:
 
     llvm-link: "llvm-link-6.0"
     clang: "clang-6.0"
