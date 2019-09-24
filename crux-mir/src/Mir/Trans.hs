@@ -1259,19 +1259,15 @@ transStatement (M.StorageDead lv) =
   do storageDead lv
 transStatement (M.SetDiscriminant lv i) = do
   case M.typeOf lv of
-    M.TyAdt nm args -> do
-        -- Overwrite the value in `lv` with a new, uninitialized enum value of
-        -- the new variant.  This is similar to the TyAdt case of initialValue.
-        adt <- findAdt nm
-        when (adt^.adtkind /= Enum) $ mirFail $ "don't know how to set discriminant of " ++
-            show (adt^.adtkind) ++ " " ++ show nm
-        var <- case adt ^? adtvariants . ix i of
-            Just x -> return x
-            Nothing -> mirFail $ "discriminant index " ++ show i ++ " out of range for " ++
-                show nm
-        fldExps <- mapM (initField args) (var^.M.vfields)
-        e <- buildEnum' adt args i fldExps
-        assignLvExp lv e
+    -- Currently we require that all uses of `SetDiscriminant` get bundled up
+    -- with related field writes into an `RAdtAg` assignment during the
+    -- AllocateEnum pass.  Ideally this transformation would not be mandatory,
+    -- but the problem is, rustc emits the `SetDiscriminant` statement *after*
+    -- the field writes, not before.  Our current implementation of downcast
+    -- field writes requires the downcast variant index to match the enum's
+    -- current variant.  If we lifted this restriction (for example, by
+    -- allowing an enum value to have multiple initialized variants
+    -- simultaneously), then we could remove AllocateEnum.
     ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
 transStatement M.Nop = return ()
 
