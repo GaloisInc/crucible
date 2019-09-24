@@ -404,73 +404,6 @@ buildTupleMaybe :: [M.Ty] -> [Maybe (MirExp s)] -> MirExp s
 buildTupleMaybe tys xs = exp_to_assgn_Maybe tys xs $ \ctx asgn ->
     MirExp (C.StructRepr ctx) (S.app $ E.MkStruct ctx asgn)
 
-
-
-{-
-mkAssignment :: HasCallStack => C.CtxRepr ctx -> [MirExp s] ->
-    Either String (Ctx.Assignment (R.Expr MIR s) ctx)
-mkAssignment ctx es = go ctx (reverse es)
-  where
-    go :: forall ctx s. C.CtxRepr ctx -> [MirExp s] ->
-        Either String (Ctx.Assignment (R.Expr MIR s) ctx)
-    go ctx [] = case Ctx.viewAssign ctx of
-        Ctx.AssignEmpty -> return Ctx.empty
-        _ -> fail "not enough expressions"
-    go ctx (MirExp tpr e : rest) = case Ctx.viewAssign ctx of
-        Ctx.AssignExtend ctx' tpr' -> case testEquality tpr tpr' of
-            Nothing -> fail $ "type mismatch: expected " ++ show tpr' ++ " but got " ++
-                show tpr ++ " in field " ++ show (length rest)
-            Just Refl -> go ctx' rest >>= \flds -> return $ Ctx.extend flds e
-        _ -> fail "too many expressions"
-
--- Build a StructType expr for the variant data
-buildVariantData :: HasCallStack => M.Adt -> M.Variant -> M.Substs -> [MirExp s] ->
-    MirGenerator h s ret (MirExp s)
-buildVariantData adt var args es
-  | Some ctx <- variantFields var args
-  = case mkAssignment ctx es of
-        Left err -> mirFail $ "bad buildVariantData: " ++ err
-        Right flds -> return $ MirExp (C.StructRepr ctx) $ R.App $ E.MkStruct ctx flds
--}
-
-
--- Convert a `MirExp` for the data of a variant into a MirExp of the
--- `VariantType` itself.
-buildVariant :: HasCallStack => M.Adt -> M.Substs -> Int -> MirExp s ->
-    MirGenerator h s ret (MirExp s)
-buildVariant adt args i (MirExp tpr e)
-  | Some ctx <- enumVariants adt args
-  , Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx)
-  = do
-    let tpr' = ctx Ctx.! idx
-    Refl <- testEqualityOrFail tpr tpr' $
-        "bad buildVariant: found: " ++ show tpr ++ ", expected " ++ show tpr' ++
-        " for variant " ++ show i ++ " of " ++ show (adt ^. M.adtname) ++ " " ++ show args
-    let discr = R.App $ isizeLit $ fromIntegral i
-    return $ MirExp (RustEnumRepr ctx)
-        (R.App $ mkRustEnum ctx discr $ R.App $ E.InjectVariant ctx idx e)
-  | otherwise = mirFail $
-    "buildVariant: index " ++ show i ++ " out of range for " ++ show (adt ^. M.adtname)
-
-
-getAllFieldsMaybe :: MirExp s -> MirGenerator h s ret ([MirExp s])
-getAllFieldsMaybe e =
-    case e of
-      MirExp C.UnitRepr _ -> do
-        return []
-      MirExp (C.StructRepr ctx) _ -> do
-        let s = Ctx.sizeInt (Ctx.size ctx)
-        mapM (accessAggregateMaybe e) [0..(s-1)]
-      _ -> mirFail $ "getallfieldsMaybe of non-struct" ++ show e
-
-
-accessAggregate :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
-accessAggregate (MirExp (C.StructRepr ctx) ag) i
-  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
-      let tpr = ctx Ctx.! idx
-      return $ MirExp tpr (S.getStruct idx ag)
-accessAggregate (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at field " ++ (show b)
-
 accessAggregateMaybe :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
   | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
@@ -481,24 +414,6 @@ accessAggregateMaybe (MirExp (C.StructRepr ctx) ag) i
         _ -> mirFail "accessAggregateMaybe: non-maybe struct"
       
 accessAggregateMaybe (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at field (maybe) " ++ (show b)
-
-
-
-
-
-modifyAggregateIdx :: MirExp s -> -- aggregate to modify
-                      MirExp s -> -- thing to insert
-                      Int -> -- index
-                      MirGenerator h s ret (MirExp s)
-modifyAggregateIdx (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
-  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size agctx) = do
-      let tpr = agctx Ctx.! idx
-      case (testEquality tpr instr) of
-          Just Refl -> return $ MirExp (C.StructRepr agctx) (S.setStruct agctx ag idx ins)
-          _ -> mirFail $ "bad modify, found: " ++ show instr ++ " expected " ++ show tpr
-  | otherwise = mirFail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
-modifyAggregateIdx (MirExp ty _) _ _ =
-  do mirFail ("modifyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
 
 modifyAggregateIdxMaybe :: MirExp s -> -- aggregate to modify
                       MirExp s -> -- thing to insert
@@ -515,21 +430,9 @@ modifyAggregateIdxMaybe (MirExp (C.StructRepr agctx) ag) (MirExp instr ins) i
                     return $ MirExp (C.StructRepr agctx) (S.setStruct agctx ag idx ins')
                 _ -> mirFail "bad modify"
          _ -> mirFail "modifyAggregateIdxMaybe: expecting maybe type for struct component"
-  | otherwise = mirFail ("modifyAggregateIdx: Index " ++ show i ++ " out of range for struct")
+  | otherwise = mirFail ("modifyAggregateIdxMaybe: Index " ++ show i ++ " out of range for struct")
 modifyAggregateIdxMaybe (MirExp ty _) _ _ =
-  do mirFail ("modifyAggregateIdx: Expected Crucible structure type, but got:" ++ show ty)
-
-
-accessVariant :: HasCallStack => MirExp s -> Int -> MirGenerator h s ret (MirExp s)
-accessVariant (MirExp (RustEnumRepr ctx) v) i
-  | Just (Some idx) <- Ctx.intIndex (fromIntegral i) (Ctx.size ctx) = do
-      let tpr = ctx Ctx.! idx
-      let proj = R.App $ E.ProjectVariant ctx idx $ R.App $ rustEnumVariant ctx v
-      e <- G.fromJustExpr proj $ R.App $ E.TextLit $
-        "invalid access of wrong variant " <> Text.pack (show i)
-      return $ MirExp tpr e
-accessVariant (MirExp ty a) b = mirFail $ "invalid access of " ++ show ty ++ " at variant " ++ (show b)
-
+  do mirFail ("modifyAggregateIdxMaybe: Expected Crucible structure type, but got:" ++ show ty)
 
 
 -- TODO: most of the `testEqualityOrFail` in here should be replaced with an
