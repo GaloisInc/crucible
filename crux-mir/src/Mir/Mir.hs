@@ -92,7 +92,6 @@ data Ty =
       | TyRef !Ty !Mutability  -- Written &'a mut T or &'a T
       | TyAdt !DefId !Substs 
       | TyUnsupported
-      | TyCustom !CustomTy
       | TyParam !Integer
       | TyFnDef !DefId !Substs
       | TyClosure [Ty]      -- the Tys are the types of the upvars
@@ -181,12 +180,6 @@ data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [F
 data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: Substs}
     deriving (Show, Eq, Ord, Generic)
 
-
-data CustomTy =
-        BoxTy Ty
-      | VecTy Ty                 -- ::vec::Vec<Ty>
-      | IterTy Ty
-    deriving (Eq, Ord, Show, Generic)
 
 data Mutability
   = Mut
@@ -334,7 +327,6 @@ data Rvalue =
       | Discriminant { _dvar :: Lvalue }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
-      | RCustom CustomAggregate
     deriving (Show,Eq, Ord, Generic)
 
 data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
@@ -490,10 +482,6 @@ data AggregateKind =
       | AKTuple
       | AKClosure DefId Substs
       deriving (Show,Eq, Ord, Generic)
-
-data CustomAggregate =
-    CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
-    deriving (Show,Eq, Ord, Generic)
 
 data Trait = Trait { _traitName       :: !DefId,
                      _traitItems      :: ![TraitItem],

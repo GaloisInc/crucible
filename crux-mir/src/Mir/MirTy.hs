@@ -29,7 +29,6 @@ isMutRefTy (TySlice t) = isMutRefTy t
 isMutRefTy (TyArray t _) = isMutRefTy t
 isMutRefTy (TyTuple ts) = any isMutRefTy ts
 isMutRefTy (TyAdt _ (Substs ts)) = any isMutRefTy ts
-isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
 isMutRefTy _ = False
 
 
@@ -44,9 +43,6 @@ isPoly (TyRawPtr ty _mut) = isPoly ty
 isPoly (TyAdt _ (Substs params)) = any isPoly params
 isPoly (TyFnDef _ (Substs params)) = any isPoly params
 isPoly (TyClosure upvars) = any isPoly upvars
-isPoly (TyCustom (BoxTy ty)) = isPoly ty
-isPoly (TyCustom (VecTy ty)) = isPoly ty
-isPoly (TyCustom (IterTy ty)) = isPoly ty
 isPoly _x = False           
 
 isNever :: Ty -> Bool
@@ -93,9 +89,6 @@ tyProjections (TyRawPtr ty _mut) = tyProjections ty
 tyProjections (TyAdt _ (Substs params)) = foldMap tyProjections params
 tyProjections (TyFnDef _ (Substs params)) = foldMap tyProjections params
 tyProjections (TyClosure upvars) = foldMap tyProjections upvars
-tyProjections (TyCustom (BoxTy ty)) = tyProjections ty
-tyProjections (TyCustom (VecTy ty)) = tyProjections ty
-tyProjections (TyCustom (IterTy ty)) = tyProjections ty
 tyProjections _ = []
 
 

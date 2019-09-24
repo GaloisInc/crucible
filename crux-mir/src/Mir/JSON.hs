@@ -82,7 +82,6 @@ instance FromJSON Ty where
                                                  TyArray <$> v .: "ty" <*> pure (fromInteger i)
                                               _ -> fail $ "unsupported array size: " ++ show lit
                                           Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
-                                          Just (String "Custom") -> TyCustom <$> v .: "data"
                                           Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
                                           Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "substs"
                                           Just (String "Param") -> TyParam <$> v .: "param"
@@ -158,13 +157,6 @@ instance FromJSON Variant where
 
 instance FromJSON Field where
     parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
-
-instance FromJSON CustomTy where
-    parseJSON = withObject "CustomTy" $ \v -> case HML.lookup "kind" v of
-                                                Just (String "Box") -> BoxTy <$> v .: "box_ty"
-                                                Just (String "Vec") -> VecTy <$> v .: "vec_ty"
-                                                Just (String "Iter") -> IterTy <$> v .: "iter_ty"
-                                                x -> fail $ "bad custom type: " ++ show x
 
 instance FromJSON Mutability where
     parseJSON = withObject "Mutability" $ \v -> case HML.lookup "kind" v of
@@ -311,7 +303,6 @@ instance FromJSON Rvalue where
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
-                                              Just (String "Custom") -> RCustom <$> v .: "data"
                                               k -> fail $ "unsupported RValue " ++ show k
 
 instance FromJSON Terminator where
@@ -596,11 +587,6 @@ instance FromJSON AggregateKind where
                                                      Just (String "Closure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
                                                      Just (String unk) -> fail $ "unimp: " ++ unpack unk
                                                      x -> fail ("bad AggregateKind: " ++ show x)
-
-instance FromJSON CustomAggregate where
-    parseJSON = withObject "CustomAggregate" $ \v -> case HML.lookup "kind" v of
-                                                       Just (String "Range") -> CARange <$> v .: "range_ty" <*> v .: "f1" <*> v .: "f2"
-                                                       x -> fail ("bad CustomAggregate: " ++ show x)
 
 instance FromJSON Trait where
     parseJSON = withObject "Trait" $ \v -> do

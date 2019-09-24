@@ -192,8 +192,6 @@ tyToRepr t0 = case t0 of
 
   M.TyChar -> Some $ C.BVRepr (knownNat :: NatRepr 32) -- rust chars are four bytes
 
-  M.TyCustom custom_t -> customtyToRepr custom_t
-
   -- Strings are vectors of chars
   -- This is not the actual representation (which is packed into u8s)
   M.TyStr -> Some (C.VectorRepr (C.BVRepr (knownNat :: NatRepr 32)))
@@ -374,14 +372,6 @@ tyListToCtxMaybe ts f =  go (map tyToRepr ts) Ctx.empty
  where go :: forall ctx. [Some C.TypeRepr] -> C.CtxRepr ctx -> a
        go []       ctx      = f ctx
        go (Some tp:tps) ctx = go tps (ctx Ctx.:> C.MaybeRepr tp)
-
-
-
-customtyToRepr :: TransTyConstraint => M.CustomTy -> Some C.TypeRepr
-customtyToRepr (M.BoxTy t)  = tyToRepr t -- Box<T> is the same as T
-customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
-customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ fmt ty)
-
 
 -----------------------------------------------------------------------
 -- ** Basic operations

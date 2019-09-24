@@ -581,7 +581,6 @@ instance GenericOps AdtKind
 instance GenericOps CtorKind
 instance GenericOps Variant
 instance GenericOps Field
-instance GenericOps CustomTy
 instance GenericOps Mutability
 instance GenericOps Collection
 instance GenericOps Param
@@ -608,7 +607,6 @@ instance GenericOps Literal
 instance GenericOps IntLit
 instance GenericOps FloatLit
 instance GenericOps AggregateKind
-instance GenericOps CustomAggregate
 instance GenericOps Trait where
   modifyPreds = modifyPreds_Trait
 instance GenericOps TraitItem

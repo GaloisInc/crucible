@@ -74,7 +74,6 @@ instance Pretty Ty where
     pretty (TyRef ty mutability) = text "&" <> pretty mutability <> pretty ty
     pretty (TyAdt defId tys)    = pr_id defId <> pretty tys
     pretty TyUnsupported         = text "Unsupported"
-    pretty (TyCustom customTy)   = pretty customTy
     pretty (TyParam i)           = text ("_" ++ show i)
     pretty (TyFnDef defId tys)   = text "fnDef" <+> pr_id defId <> pretty tys
     pretty (TyClosure tys)       = text "closure" <+> pretty tys
@@ -112,11 +111,6 @@ instance Pretty Field where
 instance Pretty Mutability where
     pretty Mut   = text "mut " 
     pretty Immut = empty
-
-instance Pretty CustomTy where
-    pretty (BoxTy ty)  = text "box"  <> parens (pretty ty)
-    pretty (VecTy ty)  = text "vec"  <> parens (pretty ty)
-    pretty (IterTy ty) = text "iter" <> parens (pretty ty)
 
 instance Pretty Var where
     pretty (Var vn _vm _vty _vzst _vs _) = pretty vn
@@ -212,7 +206,6 @@ instance Pretty Rvalue where
     pretty (Discriminant a) = pretty_fn1 "Discriminant" a
     pretty (Aggregate a b) = pretty_fn2 "Aggregate" a b
     pretty (RAdtAg a) = pretty a
-    pretty (RCustom a) = pretty_fn1 "RCustom" a
 
 instance Pretty AdtAg where
   pretty (AdtAg (Adt nm _kind _vs) i ops _) = pretty_fn3 "AdtAg" (pr_id nm) i ops
@@ -333,9 +326,6 @@ instance Pretty AggregateKind where
     pretty (AKArray t) = brackets (pretty t)
     pretty AKTuple = text "tup"
     pretty (AKClosure defid args) = pretty defid <> pretty args
-
-instance Pretty CustomAggregate where
-    pretty = (text . show)
 
 instance Pretty FnSig where
   pretty fs =

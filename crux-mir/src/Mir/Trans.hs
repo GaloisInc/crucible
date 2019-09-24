@@ -599,8 +599,6 @@ evalCast' ck ty1 e ty2  =
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp C.FloatRepr -}
 
-      (M.Misc, M.TyCustom (M.BoxTy tb1), M.TyCustom (M.BoxTy tb2)) -> evalCast' ck tb1 e tb2
-
       -- Not sure why this appears in generated MIR, but libcore has some no-op
       -- unsizes from `*const dyn Any` to `*const dyn Any`
       (M.Unsize,a,b) | a == b -> return e
@@ -889,7 +887,6 @@ evalRval (M.Discriminant lv) = do
         enumDiscriminant adt args e
       _ -> mirFail $ "tried to access discriminant of non-enum type " ++ show ty
 
-evalRval (M.RCustom custom) = transCustomAgg custom
 evalRval (M.Aggregate ak ops) = case ak of
                                    M.AKTuple ->  do
                                        exps <- mapM evalOperand ops
@@ -911,11 +908,6 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
             M.Union -> do
                 mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
-
-
-
-transCustomAgg :: CustomAggregate -> MirGenerator h s ret (MirExp s) -- deprecated
-transCustomAgg (CARange _ty f1 f2) = evalRval (Aggregate AKTuple [f1,f2])
 
 
 -- A closure is  of the form [handle, tuple of arguments] (packed into an any)
