@@ -443,21 +443,32 @@ isCStyle (Adt _aname Enum variants) = all isConst variants
 isCStyle _ = False
 
 
--- | For ADTs that are represented as CEnums, we need to find the actual numbers that we
--- use to represent each of the constructors.
+-- | Find the discriminant values used for each variant of an enum.  Some
+-- generated `PartialEq` impls use `Rvalue::Discriminant` and compare the
+-- result to the constants from the enum definition.
 adtIndices :: Adt -> Collection -> [Integer]
-adtIndices (Adt _aname _kind vars) col = map go vars where
- go (Variant name (Explicit did) _fields _knd) =
-    case Map.lookup did (_functions col) of
-      Just fn ->
-        case fn^.fbody.mblocks of
-          [ BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (Value (ConstInt i))))) _loc] _term) ] ->
-            fromIntegerLit i
+adtIndices (Adt _aname _kind vars) col = go 0 vars
+  where
+    go _ [] = []
+    go lastExplicit (v : vs) =
+        let discr = getDiscr lastExplicit v
+            lastExplicit' = if isExplicit v then discr else lastExplicit
+        in discr : go lastExplicit' vs
+
+    getDiscr _ (Variant name (Explicit did) _fields _knd) = case Map.lookup did (_functions col) of
+        Just fn -> case fn^.fbody.mblocks of
+            [ BasicBlock _info (BasicBlockData [Assign _lhs (Use (OpConstant (Constant _ty (Value (ConstInt i))))) _loc] _term) ] ->
+                fromIntegerLit i
             
-          _ -> error "CEnum should only have one basic block"
+            _ -> error "enum discriminant constant should only have one basic block"
           
-      Nothing -> error $ "cannot find CEnum value " ++ show did ++ " for variant " ++ show name
- go (Variant _vname (Relative i) _fields _kind) = toInteger i    --- TODO: check this
+        Nothing -> error $ "cannot find discriminant constant " ++ show did ++
+            " for variant " ++ show name
+    getDiscr lastExplicit (Variant _vname (Relative i) _fields _kind) =
+        lastExplicit + toInteger i
+
+    isExplicit (Variant _ (Explicit _) _ _) = True
+    isExplicit _ = False
 
 markCStyleTy :: (Map DefId Adt,Collection) -> Ty -> Ty
 markCStyleTy (ads,s) (TyAdt n ps)  | Just adt <- Map.lookup n ads =
