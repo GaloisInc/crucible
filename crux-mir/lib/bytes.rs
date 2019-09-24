@@ -407,6 +407,18 @@ impl IntoIterator for Bytes {
     }
 }
 
+impl IntoIterator for &Bytes {
+    type Item = u8;
+    type IntoIter = Iter;
+    fn into_iter(self) -> Iter {
+        Iter {
+            data: self.data,
+            idx: self.start,
+            end: self.end,
+        }
+    }
+}
+
 impl Iterator for Iter {
     type Item = u8;
     fn next(&mut self) -> Option<u8> {
