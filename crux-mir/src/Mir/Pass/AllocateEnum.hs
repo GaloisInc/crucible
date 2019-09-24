@@ -84,7 +84,7 @@ makeAggregate updates (lv, k, adt) =
     (Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos) where
   adt_did = _adtname adt
   ty  = typeOf lv
-  ops = map rhs updates
+  ops = map rhs $ sortOn fieldNum updates
   pos = case updates of
           u:_ -> upos u
           []  -> "internal"

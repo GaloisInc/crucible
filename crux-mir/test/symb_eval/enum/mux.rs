@@ -1,4 +1,3 @@
-// FAIL: cannot mux ANYs of different underlying type
 #![feature(custom_attribute)]
 extern crate crucible;
 
