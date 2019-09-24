@@ -32,9 +32,6 @@ import Mir.Pass.RemoveBoxNullary( passRemoveBoxNullary )
 import Mir.Pass.RemoveStorage( passRemoveStorage )
 import Mir.Pass.AllocateEnum ( passAllocateEnum )
 import Mir.Pass.NoMutParams ( passNoMutParams )
-import Mir.Pass.AddDictionaryPreds ( passAddDictionaryPreds )
-import Mir.Pass.ExpandSuperTraits ( passExpandSuperTraits )
-import Mir.Pass.AssociatedTypes ( passAssociatedTypes )
 
 import Debug.Trace
 import GHC.Stack
@@ -53,13 +50,6 @@ rewriteCollection col =
     |> toCollectionPass passNoMutParams
     |> passAllocateEnum 
     |> passRemoveUnknownPreds  -- remove predicates that we don't know anything about
-    |> passTrace "initial"
-    |> passAddDictionaryPreds  -- add predicates to trait member functions
-    |> passExpandSuperTraits   -- add supertrait items    
-    |> passTrace "after dict preds/expand super"    
-    |> passAssociatedTypes     -- replace associated types with additional type parameters
-    |> passTrace "after associated types translated"
-    |> passAddTraitAdts        -- add adts for declared traits
 
 --------------------------------------------------------------------------------------
 
@@ -75,34 +65,6 @@ passTrace str col =
                 ++ fmt col ++ "\n****************************")
        col)
   else col
-
---------------------------------------------------------------------------------------
-
-
-passAddTraitAdts :: Pass
-passAddTraitAdts col = col & adts %~ Map.union (defineTraitAdts (?mirLib^.traits <> col^.traits))
-
--- Create the dictionary adt type for a trait
--- The dictionary is a record (i.e. an ADT with a single variant) with
--- a field for each method in the trait.
--- Ignore non-method components of the trait
-defineTraitAdts :: Map TraitName Trait -> Map TraitName Adt
-defineTraitAdts traits = fmap traitToAdt traits where
-   traitToAdt :: Trait -> Adt
-   traitToAdt tr = do
-
-     let itemToField :: TraitItem -> Maybe Field
-         itemToField (TraitMethod did fnsig) = do
-           let fnsig' = specialize fnsig ntys 
-           return $ Field did (TyFnPtr fnsig') (Substs [])
-         itemToField _ = Nothing
-
-         n    = length (tr^.traitParams)
-         ntys = take n (TyParam <$> [0 .. ])
-
-     let fields = Maybe.mapMaybe itemToField (tr^.traitItems)
-     Adt (tr^.traitName) Struct [Variant (tr^.traitName) (Relative 0) fields FnKind]
-
 
 --------------------------------------------------------------------------------------
 --
