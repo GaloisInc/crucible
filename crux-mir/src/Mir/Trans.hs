@@ -655,11 +655,6 @@ evalCast' ck ty1 e ty2  =
         discr <- enumDiscriminant adt args e
         evalCast' M.Misc (M.TyInt M.USize) discr (M.TyUint sz)
 
-      -- C-style adts, casting a TyInt to an enum value
-      (M.Misc, M.TyInt USize, M.TyCustom (CEnum _n _i)) -> return e
-      (M.Misc, M.TyInt _sz,   M.TyCustom (CEnum _n _i)) | (MirExp (C.BVRepr nat) e0) <- e ->
-           return $ MirExp knownRepr (R.App $ E.SbvToInteger nat e0)
-
       -- References have the same representation as Raw pointers
       (M.Misc, M.TyRef ty1 mut1, M.TyRawPtr ty2 mut2)
          | ty1 == ty2 && mut1 == mut2 -> return e
@@ -889,10 +884,6 @@ evalRval (M.Discriminant lv) = do
     e <- evalLvalue lv
     let ty = typeOf lv 
     case ty of
-      -- CEnum still uses IntegerRepr - convert to isize here
-      TyCustom (CEnum _adt _i)
-       | MirExp C.IntegerRepr e0 <- e ->
-        return $ MirExp IsizeRepr $ integerToIsize R.App e0
       TyAdt aname args -> do
         adt <- findAdt aname
         enumDiscriminant adt args e
@@ -912,10 +903,6 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        buildClosureHandle defid argsm args
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
     case ty of
-      -- cstyle
-      TyCustom (CEnum _ vs) -> do
-         let j = vs !! fromInteger agv
-         return $ (MirExp knownRepr (R.App (E.IntLit j)))
       TyAdt _ args -> do
         es <- mapM evalOperand ops
         case adt^.adtkind of
@@ -1279,28 +1266,21 @@ transStatement (M.StorageLive lv) =
 transStatement (M.StorageDead lv) =
   do storageDead lv
 transStatement (M.SetDiscriminant lv i) = do
-  ev@(MirExp ty e) <- evalLvalue lv
-  case ty of
-    C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr) -> do
-       e' <- modifyAggregateIdx ev (MirExp C.NatRepr (S.litExpr (fromInteger (toInteger i)))) 0
-       assignLvExp lv e'
-    C.AnyRepr ->
-       -- FIXME: this is the enum case, which is NYI.  use `initialValue` to
-       -- create an empty instance of the new enum variant
-       mirFail "set discriminant: found any"
-    C.IntegerRepr ->
-       mirFail "set discriminant: this case should have been translated away by Pass/AllocEnum"
-{-      case (M.typeOf lv) of
-       M.TyCustom (M.CEnum adt vs) -> do
-          -- TODO: this is dead code, remove
-          -- this is a C-style enum
-          let ty = TyInt USize
-          let j = vs !! i  -- TODO: better error message if this fails (would be a bug in the translator)
-          traceM $ "j is " ++ show j
-          let idx = (Value (ConstInt (Isize (toInteger j))))
-          transStatement (M.Assign lv (Use (OpConstant (Constant ty idx))) "internal: set-discr")
-       _ -> mirFail "set discriminant: should find CEnum here" -}
-    _ -> mirFail $ "set discriminant: cannot handle type " ++ show ty
+  case M.typeOf lv of
+    M.TyAdt nm args -> do
+        -- Overwrite the value in `lv` with a new, uninitialized enum value of
+        -- the new variant.  This is similar to the TyAdt case of initialValue.
+        adt <- findAdt nm
+        when (adt^.adtkind /= Enum) $ mirFail $ "don't know how to set discriminant of " ++
+            show (adt^.adtkind) ++ " " ++ show nm
+        var <- case adt ^? adtvariants . ix i of
+            Just x -> return x
+            Nothing -> mirFail $ "discriminant index " ++ show i ++ " out of range for " ++
+                show nm
+        fldExps <- mapM (initField args) (var^.M.vfields)
+        e <- buildEnum' adt args i fldExps
+        assignLvExp lv e
+    ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
 transStatement M.Nop = return ()
 
 ifteAny :: R.Expr MIR s C.BoolType
@@ -1749,25 +1729,22 @@ initialValue (M.TyAdt nm args) = do
     case adt ^. adtkind of
         Struct -> do
             let var = M.onlyVariant adt
-            fldExps <- mapM initField (var^.M.vfields)
+            fldExps <- mapM (initField args) (var^.M.vfields)
             Just <$> buildStruct' adt args fldExps 
         Enum -> case adt ^. adtvariants of
             -- Uninhabited enums can't be initialized.
             [] -> return Nothing
             -- Inhabited enums get initialized to their first variant.
             (var : _) -> do
-                fldExps <- mapM initField (var^.M.vfields)
+                fldExps <- mapM (initField args) (var^.M.vfields)
                 Just <$> buildEnum' adt args 0 fldExps 
         Union -> return Nothing
-  where
-    initField (Field _name ty _subst) = initialValue (tySubst args ty)
 initialValue (M.TyFnPtr _) = return $ Nothing
 initialValue (M.TyDynamic _) = return $ Nothing
 initialValue (M.TyProjection _ _) = return $ Nothing
-initialValue (M.TyCustom (CEnum _n _i)) =
-   return $ Just $ MirExp C.IntegerRepr (S.litExpr 0)
 initialValue _ = return Nothing
 
+initField args (Field _name ty _subst) = initialValue (tySubst args ty)
 
 tyToInitReg :: HasCallStack => Text.Text -> M.Ty -> MirGenerator h s ret (Some (R.Reg s))
 tyToInitReg nm t = do

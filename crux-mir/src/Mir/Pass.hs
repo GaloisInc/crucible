@@ -59,7 +59,6 @@ rewriteCollection col =
     |> passTrace "after dict preds/expand super"    
     |> passAssociatedTypes     -- replace associated types with additional type parameters
     |> passTrace "after associated types translated"
-    |> passMarkCStyle          -- figure out which ADTs are enums and mark them
     |> passAddTraitAdts        -- add adts for declared traits
 
 --------------------------------------------------------------------------------------
@@ -79,11 +78,6 @@ passTrace str col =
 
 --------------------------------------------------------------------------------------
 
-passMarkCStyle :: Pass
-passMarkCStyle col   = markCStyle (cstyleAdts, ?mirLib <> col) col where
-          cstyleAdts = Map.filter isCStyle (?mirLib^.adts <> col^.adts)
-
---------------------------------------------------------------------------------------
 
 passAddTraitAdts :: Pass
 passAddTraitAdts col = col & adts %~ Map.union (defineTraitAdts (?mirLib^.traits <> col^.traits))

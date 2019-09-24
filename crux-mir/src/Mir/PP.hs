@@ -117,7 +117,6 @@ instance Pretty CustomTy where
     pretty (BoxTy ty)  = text "box"  <> parens (pretty ty)
     pretty (VecTy ty)  = text "vec"  <> parens (pretty ty)
     pretty (IterTy ty) = text "iter" <> parens (pretty ty)
-    pretty (CEnum did _) = pr_id did
 
 instance Pretty Var where
     pretty (Var vn _vm _vty _vzst _vs _) = pretty vn
@@ -176,12 +175,7 @@ instance Pretty BasicBlockData where
 instance Pretty Statement where
     pretty (Assign lhs rhs _) = pretty lhs <+> equals <+> pretty rhs <> semi
     pretty (SetDiscriminant lhs rhs) =
-      let adt = typeOf lhs in
-      case adt of
-        TyCustom (CEnum _ vs) ->
-          let idx = vs !! rhs in
-          text "discr(" <> pretty lhs <> text ")" <+> equals <+> pretty idx <> semi
-        _ -> text "discr(" <> pretty lhs <> text ")" <+> equals <+> pretty rhs <> semi
+      text "discr(" <> pretty lhs <> text ")" <+> equals <+> pretty rhs <> semi
     pretty (StorageLive l) = pretty_fn1 "StorageLive" l <> semi
     pretty (StorageDead l) = pretty_fn1 "StorageDead" l <> semi
     pretty Nop = text "nop" <> semi

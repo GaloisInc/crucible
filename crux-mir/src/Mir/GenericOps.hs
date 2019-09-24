@@ -74,11 +74,6 @@ makeLenses ''ATInfo
 -- 
 class GenericOps a where
 
-  -- | Find all C-style Adts in the AST and convert them to Custom (CEnum _)
-  markCStyle :: (Map DefId Adt,Collection) -> a -> a 
-  default markCStyle :: (Generic a, GenericOps' (Rep a)) => (Map DefId Adt,Collection) -> a -> a
-  markCStyle s x = to (markCStyle' s (from x))
-
   -- | Type variable substitution. Type variables are represented via indices.
   tySubst :: HasCallStack => Substs -> a -> a 
   default tySubst :: (Generic a, GenericOps' (Rep a), HasCallStack) => Substs -> a -> a
@@ -429,20 +424,6 @@ fnType ati mn
 
 --------------------------------------------------------------------------------------
 
--- ** markCStyle
-
--- A CStyle ADT is one that is an enumeration of numeric valued options
--- containing no data
-isCStyle :: Adt -> Bool
-{-
-isCStyle (Adt _aname Enum variants) = all isConst variants
-  where
-    isConst (Variant _ _ [] ConstKind) = True
-    isConst _ = False
--}
-isCStyle _ = False
-
-
 -- | Find the discriminant values used for each variant of an enum.  Some
 -- generated `PartialEq` impls use `Rvalue::Discriminant` and compare the
 -- result to the constants from the enum definition.
@@ -469,14 +450,6 @@ adtIndices (Adt _aname _kind vars) col = go 0 vars
 
     isExplicit (Variant _ (Explicit _) _ _) = True
     isExplicit _ = False
-
-markCStyleTy :: (Map DefId Adt,Collection) -> Ty -> Ty
-markCStyleTy (ads,s) (TyAdt n ps)  | Just adt <- Map.lookup n ads =
-   if ps == Substs [] then
-      TyCustom (CEnum n (adtIndices adt s))
-   else
-      error $ "Cannot have params to C-style enum " ++ show n ++ "!"
-markCStyleTy s ty = to (markCStyle' s (from ty))
 
 --------------------------------------------------------------------------------------
 -- ** modifyPreds 
@@ -531,7 +504,6 @@ instance GenericOps Predicate where
                                                        
 -- special case for DefIds
 instance GenericOps DefId where
-  markCStyle _      = id
   tySubst    _      = id
   replaceVar _ _    = id
   replaceLvalue _ _ = id
@@ -555,7 +527,6 @@ incN n = Substs (TyParam . toInteger <$> [n ..])
 instance GenericOps Ty where
 
   -- see above
-  markCStyle = markCStyleTy
   abstractATs = abstractATs_Ty
   
   -- Substitute for type variables
@@ -664,7 +635,6 @@ instance GenericOps Predicates
 -- *** Instances for Prelude types                 
 
 instance GenericOps Int     where
-   markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
    replaceLvalue _ _ = id
@@ -672,7 +642,6 @@ instance GenericOps Int     where
    abstractATs = const pure
    modifyPreds = const id
 instance GenericOps Integer where
-   markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
    replaceLvalue _ _ = id
@@ -680,7 +649,6 @@ instance GenericOps Integer where
    abstractATs = const pure  
    modifyPreds = const id   
 instance GenericOps Char    where
-   markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
    replaceLvalue _ _ = id
@@ -688,7 +656,6 @@ instance GenericOps Char    where
    abstractATs = const pure
    modifyPreds = const id   
 instance GenericOps Bool    where
-   markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
    replaceLvalue _ _ = id
@@ -697,7 +664,6 @@ instance GenericOps Bool    where
    modifyPreds = const id
    
 instance GenericOps Text    where
-   markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
    replaceLvalue _ _ = id
@@ -706,7 +672,6 @@ instance GenericOps Text    where
    modifyPreds = const id
    
 instance GenericOps B.ByteString where
-   markCStyle = const id
    tySubst    = const id
    replaceVar _ _ = id
    replaceLvalue _ _ = id   
@@ -715,7 +680,6 @@ instance GenericOps B.ByteString where
    modifyPreds = const id
    
 instance GenericOps b => GenericOps (Map.Map a b) where
-   markCStyle s      = Map.map (markCStyle s)
    tySubst s         = Map.map (tySubst s)
    replaceVar o n    = Map.map (replaceVar o n)
    replaceLvalue o n = Map.map (replaceLvalue o n)   
@@ -727,7 +691,6 @@ instance GenericOps a => GenericOps [a]
 instance GenericOps a => GenericOps (Maybe a)
 instance (GenericOps a, GenericOps b) => GenericOps (a,b)
 instance GenericOps a => GenericOps (Vector a) where
-   markCStyle s      = V.map (markCStyle s)
    tySubst s         = V.map (tySubst s)
    replaceVar o n    = V.map (replaceVar o n)
    replaceLvalue o n = V.map (replaceLvalue o n)   
@@ -747,7 +710,6 @@ replaceList ((old,new) : vs) a = replaceList vs $ replaceLvalue old new a
 -- ** Generic programming plumbing
 
 class GenericOps' f where
-  markCStyle'    :: (Map.Map DefId Adt,Collection) -> f p -> f p
   tySubst'       :: Substs -> f p -> f p 
   replaceVar'    :: Var -> Var -> f p -> f p
   replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
@@ -756,7 +718,6 @@ class GenericOps' f where
   modifyPreds'   :: RUPInfo -> f p -> f p
   
 instance GenericOps' V1 where
-  markCStyle' _ _x  = error "impossible: this is a void type"
   tySubst' _ _      = error "impossible: this is a void type"
   replaceVar' _ _ _ = error "impossible: this is a void type"
   replaceLvalue' _ _ _ = error "impossible: this is a void type"
@@ -765,8 +726,6 @@ instance GenericOps' V1 where
   modifyPreds' _  = error "impossible: this is a void type"
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
-  markCStyle' s (L1 x) = L1 (markCStyle' s x)
-  markCStyle' s (R1 x) = R1 (markCStyle' s x)
   tySubst'    s (L1 x) = L1 (tySubst' s x)
   tySubst'    s (R1 x) = R1 (tySubst' s x)
   replaceVar' o n (L1 x) = L1 (replaceVar' o n x)
@@ -781,7 +740,6 @@ instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
   modifyPreds' s (R1 x) = R1 (modifyPreds' s x)
 
 instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
-  markCStyle' s   (x :*: y) = markCStyle'   s x :*: markCStyle' s y
   tySubst'    s   (x :*: y) = tySubst'      s x :*: tySubst'    s y
   replaceVar' o n (x :*: y) = replaceVar' o n x :*: replaceVar' o n y
   replaceLvalue' o n (x :*: y) = replaceLvalue' o n x :*: replaceLvalue' o n y
@@ -790,7 +748,6 @@ instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
   modifyPreds' s (x :*: y) = modifyPreds' s x :*: modifyPreds' s y  
 
 instance (GenericOps c) => GenericOps' (K1 i c) where
-  markCStyle' s (K1 x) = K1 (markCStyle s x)
   tySubst'    s (K1 x) = K1 (tySubst s x)
   replaceVar' o n (K1 x) = K1 (replaceVar o n x)
   replaceLvalue' o n (K1 x) = K1 (replaceLvalue o n x)  
@@ -799,7 +756,6 @@ instance (GenericOps c) => GenericOps' (K1 i c) where
   modifyPreds'    s (K1 x) = K1 (modifyPreds s x)
   
 instance (GenericOps' f) => GenericOps' (M1 i t f) where
-  markCStyle' s (M1 x) = M1 (markCStyle' s x)
   tySubst'    s (M1 x) = M1 (tySubst' s x)
   replaceVar' o n (M1 x) = M1 (replaceVar' o n x)
   replaceLvalue' o n (M1 x) = M1 (replaceLvalue' o n x)
@@ -808,7 +764,6 @@ instance (GenericOps' f) => GenericOps' (M1 i t f) where
   modifyPreds' s (M1 x) = M1 (modifyPreds' s x)  
   
 instance (GenericOps' U1) where
-  markCStyle' _s U1 = U1
   tySubst'    _s U1 = U1
   replaceVar' _ _ U1 = U1
   replaceLvalue' _ _ U1 = U1

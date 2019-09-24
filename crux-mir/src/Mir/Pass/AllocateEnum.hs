@@ -83,8 +83,7 @@ makeAggregate :: (?col :: Collection) => [FieldUpdate] -> (Lvalue, Int, Adt) -> 
 makeAggregate updates (lv, k, adt) =
     (Assign lv (RAdtAg (AdtAg adt (toInteger k) ops ty)) pos) where
   adt_did = _adtname adt
-  ty  = if isCStyle adt then TyCustom (CEnum adt_did (adtIndices adt ?col))
-        else typeOf lv
+  ty  = typeOf lv
   ops = map rhs updates
   pos = case updates of
           u:_ -> upos u

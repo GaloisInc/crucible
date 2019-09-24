@@ -380,8 +380,6 @@ tyListToCtxMaybe ts f =  go (map tyToRepr ts) Ctx.empty
 customtyToRepr :: TransTyConstraint => M.CustomTy -> Some C.TypeRepr
 customtyToRepr (M.BoxTy t)  = tyToRepr t -- Box<T> is the same as T
 customtyToRepr (M.IterTy t) = tyToRepr $ M.TyTuple [M.TySlice t, M.TyUint M.USize]
--- Implement C-style enums as single integers
-customtyToRepr (M.CEnum _adt _i) = Some C.IntegerRepr
 customtyToRepr ty = error ("FIXME: unimplemented custom type: " ++ fmt ty)
 
 
