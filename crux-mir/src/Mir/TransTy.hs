@@ -79,9 +79,6 @@ import           Mir.GenericOps (tySubst)
 -- or a Variant of Structs, depending on whether the Rust type is a struct or
 -- enum.
 --
--- Closures are encoded as Any, but are internally encoded as [Handle,
--- arguments], where arguments is itself a tuple.
---
 -- Custom type translation is on the bottom of this file.
 
 type TransTyConstraint = (HasCallStack)   -- (HasCallStack, ?col::M.Collection)
@@ -195,9 +192,7 @@ tyToRepr t0 = case t0 of
 
   M.TyProjection _def _tyargs -> error $ "BUG: all uses of TyProjection should have been eliminated, found "
     ++ fmt t0
-  M.TyFnDef _def substs ->
-    -- TODO: lookup the type of the function and translate that type
-    Some C.AnyRepr
+  M.TyFnDef _def _substs -> Some C.UnitRepr
   M.TyNever -> Some C.AnyRepr
   M.TyLifetime -> Some C.AnyRepr
   M.TyErased -> Some C.AnyRepr

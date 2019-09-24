@@ -33,7 +33,6 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , subindexRef
                 , evalBinOp
                 , vectorCopy
-                , buildClosureType
                 , callExp) where
 
 import Control.Monad
@@ -181,9 +180,8 @@ transConstVal (Some (C.VectorRepr w)) (M.ConstArray arr)
 transConstVal (Some (C.BVRepr w)) (M.ConstChar c) =
     do let i = toInteger (Char.ord c)
        return $ MirExp (C.BVRepr w) (S.app $ E.BVLit w i)
-transConstVal (Some (C.AnyRepr)) (M.ConstFunction did _substs) =
-    -- TODO: use this substs
-    buildClosureHandle did (Substs []) []
+transConstVal (Some C.UnitRepr) (M.ConstFunction _did _substs) =
+    return $ MirExp C.UnitRepr $ S.app E.EmptyApp
 
 transConstVal (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
     case reads str of
@@ -893,9 +891,11 @@ evalRval (M.Aggregate ak ops) = case ak of
                                        exps <- mapM evalOperand ops
                                        tyToReprCont ty $ \repr ->
                                            buildArrayLit repr exps
-                                   M.AKClosure defid argsm -> do
+                                   M.AKClosure _defid _substs -> do
                                        args <- mapM evalOperand ops
-                                       buildClosureHandle defid argsm args
+                                       -- Closure environments have the same
+                                       -- representation as tuples.
+                                       return $ buildTuple args
 evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
     case ty of
       TyAdt _ args -> do
@@ -906,48 +906,6 @@ evalRval rv@(M.RAdtAg (M.AdtAg adt agv ops ty)) = do
             M.Union -> do
                 mirFail $ "evalRval: Union types are unsupported, for " ++ show (adt ^. adtname)
       _ -> mirFail $ "evalRval: unsupported type for AdtAg: " ++ show ty
-
-
--- A closure is  of the form [handle, tuple of arguments] (packed into an any)
--- (arguments being those variables packed into the closure, not the function arguments)
--- NOTE: what if the closure has a polymorphic types?? How can we tell?
-buildClosureHandle :: M.DefId      -- ^ name of the function
-                    -> Substs      -- ^ types of the closed over variables 
-                    -> [MirExp s]  -- ^ values of the closed over variables
-                    -> MirGenerator h s ret (MirExp s)
-buildClosureHandle funid (Substs tys) args
-  = tyListToCtx tys $ \ subst -> do
-      hmap <- use $ cs.handleMap
-      case (Map.lookup funid hmap) of
-        Just (MirHandle _ _sig fhandle)
-          | Just C.Dict <- C.checkClosedCtx (FH.handleArgTypes fhandle)
-          , Just C.Dict <- C.checkClosed (FH.handleReturnType fhandle)
-            -> do
-              let closure_arg = buildTuple args
-                  inst_ty = FH.handleType fhandle
-                  handle_cl = R.App $ E.HandleLit fhandle
-                  handl = MirExp inst_ty handle_cl
-              let closure_unpack = buildTuple [handl, (packAny closure_arg)]
-              return $ packAny closure_unpack
-        _ ->
-          do mirFail ("buildClosureHandle: unknown function: "
-              ++ show funid ++ " or non-closed type ")
-
--- | returns type of the closure paired with type of the arguments.
-buildClosureType ::
-      M.DefId
-   -> Substs
-   -> MirGenerator h s ret (Some C.TypeRepr, Some C.TypeRepr) 
-buildClosureType defid (Substs (_:_:args)) = do
-    hmap <- use $ cs.handleMap
-    case (Map.lookup defid hmap) of
-      Just (MirHandle _ _sig fhandle) -> do
-          tyListToCtx args $ \argsctx -> do
-              reprsToCtx [Some (FH.handleType fhandle), Some C.AnyRepr] $ \t ->
-                  return $ (Some (C.StructRepr t), Some (C.StructRepr argsctx))
-      _ ->
-       do mirFail ("buildClosureType: unknown function: " ++ show defid)
-buildClosureType defid ss = mirFail $ "BUG: incorrect substitution in buildClosureType: " ++ fmt ss
 
 
 evalLvalue :: HasCallStack => M.Lvalue -> MirGenerator h s ret (MirExp s)
