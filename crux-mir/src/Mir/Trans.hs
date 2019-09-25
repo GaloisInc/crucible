@@ -1417,6 +1417,10 @@ callExp funid funsubst cargs = do
           exps <- mapM evalOperand cargs
           exps' <- case sig^.fsabi of
             RustCall
+              -- Empty tuples use UnitRepr instead of StructRepr
+              | [selfExp, MirExp C.UnitRepr _] <- exps -> do
+                return [selfExp]
+
               | [selfExp, tupleExp@(MirExp (C.StructRepr tupleTys) _)] <- exps -> do
                 tupleParts <- mapM (accessAggregateMaybe tupleExp)
                     [0 .. Ctx.sizeInt (Ctx.size tupleTys) - 1]
