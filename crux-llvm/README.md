@@ -140,7 +140,7 @@ have built-in support. For C code, the following functions are understood:
 * `__assert_rtn`
 * `calloc`
 * `free`
-* `getenv`
+* `getenv` (always returns `NULL`)
 * `malloc`
 * `memcpy`
 * `__memcpy_chk`
@@ -148,7 +148,7 @@ have built-in support. For C code, the following functions are understood:
 * `memset`
 * `__memset_chk`
 * `posix_memalign`
-* `printf`
+* `printf` (supports a subset of standard printf formatting codes)
 * `__printf_chk`
 * `putchar`
 * `puts`
