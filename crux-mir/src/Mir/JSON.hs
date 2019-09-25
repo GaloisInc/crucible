@@ -115,7 +115,7 @@ instance FromJSON Instance where
         Just (String "DropGlue") -> Instance
             <$> (IkDropGlue <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
         Just (String "CloneShim") -> Instance
-            <$> (IkCloneShim <$> v .: "ty") <*> v .: "def_id" <*> v .: "substs"
+            <$> (IkCloneShim <$> v .: "ty" <*> v .: "callees") <*> v .: "def_id" <*> v .: "substs"
 
 instance FromJSON FnSig where
     parseJSON =

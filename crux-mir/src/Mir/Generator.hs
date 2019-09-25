@@ -162,6 +162,8 @@ data CollectionState
 data CustomOpMap = CustomOpMap
     { _opDefs :: Map ExplodedDefId CustomRHS
     , _fnPtrShimOp :: Ty -> CustomOp
+    , _cloneShimOp :: Ty -> [DefId] -> CustomOp
+    , _cloneFromShimOp :: Ty -> [DefId] -> CustomOp
     }
 
 type ExplodedDefId = ([Text], Text, [Text])
@@ -360,6 +362,16 @@ resolveCustom instDefId _substs = do
             IkFnPtrShim ty -> do
                 f <- use $ customOps . fnPtrShimOp
                 return $ Just $ f ty
+            IkCloneShim ty parts
+              | intr ^. intrInst . inDefId == textId "core[0]::clone[0]::Clone[0]::clone[0]" -> do
+                f <- use $ customOps . cloneShimOp
+                return $ Just $ f ty parts
+              | intr ^. intrInst . inDefId == textId "core[0]::clone[0]::Clone[0]::clone_from[0]" -> do
+                f <- use $ customOps . cloneFromShimOp
+                return $ Just $ f ty parts
+              | otherwise -> mirFail $
+                    "don't know how to generate CloneShim for unknown method " ++
+                    show (intr ^. intrInst . inDefId)
             _ -> do
                 let origDefId = intr ^. intrInst . inDefId
                 let origSubsts = intr ^. intrInst . inSubsts
@@ -373,6 +385,42 @@ resolveCustom instDefId _substs = do
                         return $ f origSubsts
 
 ---------------------------------------------------------------------------------------------------
+-- ** Adding new temporaries to the VarMap
+
+freshVarName :: Text -> Map Text a -> Text
+freshVarName base vm =
+    head $ filter (\n -> not $ n `Map.member` vm) $
+        base : [base <> "_" <> Text.pack (show i) | i <- [0 :: Integer ..]]
+
+-- Generate a fresh name of the form `_temp123`
+freshTempName :: Map Text a -> Text
+freshTempName vm = freshVarName ("_temp" <> Text.pack (show $ Map.size vm)) vm
+
+allocTempForAtom :: R.Atom s tp -> MirGenerator h s ret Text
+allocTempForAtom atom = do
+    name <- use $ varMap . to freshTempName
+    varMap %= Map.insert name (Some $ VarAtom atom)
+    return name
+
+-- Store the value of an expression into a new temporary, and return the name
+-- of that temporary.
+makeTemp :: MirExp s -> MirGenerator h s ret Text
+makeTemp (MirExp _ e) = do
+    atom <- G.mkAtom e
+    allocTempForAtom atom
+
+makeTempLvalue :: Ty -> MirExp s -> MirGenerator h s ret Lvalue
+makeTempLvalue ty exp = do
+    name <- makeTemp exp
+    -- varIsZST is used only for deciding whether to initialize the variable at
+    -- the start of the function, which is not relevant for temporaries created
+    -- mid-translation.
+    let var = Var name Immut ty {-varIsZST-} False "__dummy_scope__" "__temporary__"
+    return $ LBase $ Local var
+
+makeTempOperand :: Ty -> MirExp s -> MirGenerator h s ret Operand
+makeTempOperand ty exp = do
+    Move <$> makeTempLvalue ty exp
 
 
 -----------------------------------------------------------------------

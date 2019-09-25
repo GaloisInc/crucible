@@ -75,7 +75,7 @@ import Debug.Trace
 
 
 
-customOps = CustomOpMap customOpDefs fnPtrShimDef
+customOps = CustomOpMap customOpDefs fnPtrShimDef cloneShimDef cloneFromShimDef
 
 customOpDefs :: Map ExplodedDefId CustomRHS
 customOpDefs = Map.fromList [
@@ -701,6 +701,33 @@ fnPtrShimDef (TyFnDef defId substs) = CustomMirOp $ \ops -> case ops of
         callExp defId substs argOps
     _ -> mirFail $ "unexpected arguments " ++ show ops ++ " for fnptr shim of " ++ show defId
 fnPtrShimDef ty = CustomOp $ \_ _ -> mirFail $ "fnPtrShimDef not implemented for " ++ show ty
+
+
+--------------------------------------------------------------------------------------------------------------------------
+-- Implementations for `IkCloneShim`.  Clone shims are auto-generated `clone`
+-- and `clone_from` implementations for tuples and arrays.  They dispatch to
+-- the `clone`/`clone_from` methods of the individual fields or array elements.
+
+cloneShimDef :: Ty -> [M.DefId] -> CustomOp
+cloneShimDef (TyTuple tys) parts = CustomMirOp $ \ops -> do
+    when (length tys /= length parts) $ mirFail "cloneShimDef: expected tys and parts to match"
+    lv <- case ops of
+        [Move lv] -> return lv
+        [Copy lv] -> return lv
+        [op] -> mirFail $ "cloneShimDef: expected lvalue operand, but got " ++ show op
+        _ -> mirFail $ "cloneShimDef: expected exactly one argument, but got " ++ show (length ops)
+    -- The argument to the clone shim is `&(A, B, C)`.  The clone methods for
+    -- the individual parts require `&A`, `&B`, `&C`, computed as `&arg.0`.
+    let fieldRefRvs = zipWith (\ty i ->
+            Ref Shared (LProj (LProj lv Deref) (PField i ty)) "_") tys [0..]
+    fieldRefExps <- mapM evalRval fieldRefRvs
+    fieldRefOps <- zipWithM (\ty exp -> makeTempOperand (TyRef ty Immut) exp) tys fieldRefExps
+    clonedExps <- zipWithM (\part op -> callExp part (Substs []) [op]) parts fieldRefOps
+    return $ buildTupleMaybe tys (map Just clonedExps)
+cloneShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemented for " ++ show ty
+
+cloneFromShimDef :: Ty -> [M.DefId] -> CustomOp
+cloneFromShimDef ty parts = CustomOp $ \_ _ -> mirFail $ "cloneFromShimDef not implemented for " ++ show ty
 
 
 --------------------------------------------------------------------------------------------------------------------------

@@ -151,7 +151,7 @@ data InstanceKind =
     | IkVirtual !Integer
     | IkClosureOnceShim
     | IkDropGlue (Maybe Ty)
-    | IkCloneShim Ty
+    | IkCloneShim Ty [DefId]
     deriving (Eq, Ord, Show, Generic)
 
 data Adt = Adt {_adtname :: DefId, _adtkind :: AdtKind, _adtvariants :: [Variant]}
