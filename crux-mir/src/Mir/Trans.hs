@@ -659,7 +659,7 @@ evalCast' ck ty1 e ty2  =
          -> do r <- readMirRef tp ref
                return (MirExp tp r)
 
-      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] [] _))
+      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig args ret [] [] [] _ _))
          -> do mhand <- lookupFunction defId substs
                case mhand of
                  Just (me, sig')
@@ -671,7 +671,7 @@ evalCast' ck ty1 e ty2  =
                         "ReifyFnPointer: bad MIR: can't find method handle: " ++
                         show (defId, substs)
 
-      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig _ _ _ _ _ _))
+      (M.ReifyFnPointer, M.TyFnDef defId substs, M.TyFnPtr sig@(M.FnSig _ _ _ _ _ _ _))
         -> mirFail $ "ReifyFnPointer: impossible: target FnSig has generics?: "
             ++ show (defId, substs, sig)
 
@@ -1417,6 +1417,11 @@ callExp funid funsubst cargs = do
           exps <- mapM evalOperand cargs
           exps' <- case sig^.fsabi of
             RustCall
+              -- If the target has `spread_arg` set, then it expects a tuple
+              -- instead of individual arguments.  This is a hack - see comment
+              -- on the definition of Mir.Mir.FnSig for details.
+              | isJust $ sig^.fsspreadarg -> return exps
+
               -- Empty tuples use UnitRepr instead of StructRepr
               | [selfExp, MirExp C.UnitRepr _] <- exps -> do
                 return [selfExp]

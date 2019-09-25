@@ -123,12 +123,14 @@ instance FromJSON FnSig where
          let gens  = return []
          let preds = return []
          let atys  = return []
+         let spread = return Nothing
          FnSig <$> v .: "inputs"
                <*> v .: "output"
                <*> gens
                <*> preds
                <*> atys
                <*> v .: "abi"
+               <*> spread
                
 instance FromJSON Adt where
     parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "kind" <*> v .: "variants"
@@ -208,6 +210,7 @@ instance FromJSON Fn where
                       <*> (withObject "Predicates" (\u -> u .: "predicates") pp)
                       <*> return []
                       <*> v .: "abi"
+                      <*> v .: "spread_arg"
 
       Fn
         <$> v .: "name"

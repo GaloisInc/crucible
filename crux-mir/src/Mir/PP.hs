@@ -334,6 +334,11 @@ instance Pretty FnSig where
                 <+> ppreds (fs^.fspredicates)
                 <+> patys  (fs^.fsassoc_tys)
                 <+> brackets (pretty (fs^.fsabi))
+                <+> maybeSpreadArg
+    where
+        maybeSpreadArg = case fs^.fsspreadarg of
+            Nothing -> mempty
+            Just i -> braces (text "spread_arg" <+> pretty i)
 
 instance Pretty Abi where
     pretty a = pretty (show a)

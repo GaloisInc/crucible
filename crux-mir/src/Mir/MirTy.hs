@@ -63,9 +63,9 @@ substField subst (Field a t _subst)  = Field a t subst
 -- Note: Ty may have free type variables & FnSig may have free type variables
 -- We increment these inside 
 specialize :: HasCallStack => FnSig -> [Ty] -> FnSig
-specialize sig@(FnSig args ret ps preds _atys abi) ts
+specialize sig@(FnSig args ret ps preds _atys abi spread) ts
   | k <= length ps
-  = FnSig (tySubst ss args) (tySubst ss ret) ps' (tySubst ss preds) [] abi
+  = FnSig (tySubst ss args) (tySubst ss ret) ps' (tySubst ss preds) [] abi spread
   | otherwise
   = error $ "BUG: specialize -- too many type arguments" ++ "\n\r sig = " ++ fmt sig ++ "\n\r ts = " ++ fmt ts
      where

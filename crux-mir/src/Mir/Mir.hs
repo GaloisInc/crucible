@@ -123,6 +123,24 @@ data FnSig = FnSig {
   , _fspredicates :: ![Predicate]
   , _fsassoc_tys  :: ![AssocTy]    -- new params added in a pre-pass
   , _fsabi        :: Abi
+  -- TODO: current handling of spread_arg is a hack.
+  --
+  -- Correct behavior would be (1) always pass args tupled for rust-call abi
+  -- (in other words, translate the MIR as-is, with no special case for calls
+  -- to rust-call fns), and (2) in rust-call functions, if `spread_arg` is
+  -- null, adjust the sig (by tupling up the argument types) and explicitly
+  -- untuple the values on entry to the function.  Current behavior is (2)
+  -- translate rust-call function bodies as-is, and (1) tuple argument values
+  -- at the call site if the target has rust-call abi and spread_arg is null.
+  -- However, on the rust side, the value of spread_arg is part of the
+  -- mir::Body, not the signature, which means this design is broken in the
+  -- presence of function pointers.
+  --
+  -- Anyway, that's why this weird `fsspreadarg` field is here.  The sig of a
+  -- function definition will include the value of `spread_arg` from the
+  -- `mir::Body`, and that will be visible at *direct* calls (not via fn ptr)
+  -- of the function, to make decisions about whether to untuple the args.
+  , _fsspreadarg  :: Maybe Int
   }
   deriving (Eq, Ord, Show, Generic)
 

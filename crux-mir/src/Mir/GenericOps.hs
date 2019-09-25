@@ -124,14 +124,14 @@ combineMaps m1 m2 = Map.foldrWithKey go (return m2) m1 where
 -- TODO: allow re-ordering of preds??
 -- TODO: prune vars bound by the sig from the returned unifier
 matchSig :: (MonadError String m) => FnSig -> FnSig -> m (Map Integer Ty)
-matchSig (FnSig instArgs instRet [] [] _instATs instAbi)
-         (FnSig genArgs  genRet  [] []  _genATs genAbi)
+matchSig (FnSig instArgs instRet [] [] _instATs instAbi _instSpread)
+         (FnSig genArgs  genRet  [] []  _genATs genAbi  _genSpread)
   | instAbi == genAbi = do
     m1 <- matchTys instArgs genArgs
     m2 <- matchTy  instRet  genRet
     combineMaps m1 m2
-matchSig s1@(FnSig _instArgs _instRet _instParams _instPreds _instATs _instAbi)
-         s2@(FnSig _genArgs  _genRet  _genParams  _genPreds  _genATs  _genAbi) =
+matchSig s1@(FnSig _instArgs _instRet _instParams _instPreds _instATs _instAbi _instSpread)
+         s2@(FnSig _genArgs  _genRet  _genParams  _genPreds  _genATs  _genAbi  _genSpread) =
   error $ "TODO: extend matchSig to include params and/or preds"
         ++ "\n\t" ++ fmt s1
         ++ "\n\t" ++ fmt s2
@@ -370,7 +370,7 @@ abstractATs_ConstVal ati (ConstFunction defid funsubst)
 abstractATs_ConstVal ati val = to <$> (abstractATs' ati (from val))
 
 abstractATs_FnSig :: (HasCallStack, MonadError String m) => ATInfo -> FnSig -> m FnSig
-abstractATs_FnSig ati (FnSig args ret gens preds atys abi) = do
+abstractATs_FnSig ati (FnSig args ret gens preds atys abi spread) = do
   let ati' = ati & atDict %~ mappend (mkAssocTyMap (toInteger (length gens)) atys)
   preds' <- abstractATs ati' preds
   args'  <- abstractATs ati' args
@@ -381,6 +381,7 @@ abstractATs_FnSig ati (FnSig args ret gens preds atys abi) = do
         preds' 
         atys
         abi
+        spread
 
 -- | Convert an associated type into a Mir type parameter
 toParam :: AssocTy -> Param
@@ -570,8 +571,8 @@ instance GenericOps FnSig where
   modifyPreds = modifyPreds_FnSig
   abstractATs = abstractATs_FnSig
   
-  tySubst substs (FnSig args ret params preds atys abi) =
-      (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys) abi)
+  tySubst substs (FnSig args ret params preds atys abi spread) =
+      (FnSig (tySubst ss args) (tySubst ss ret) params (tySubst ss preds) (tySubst ss atys) abi spread)
         where ss = lift (length params) substs
 
   
