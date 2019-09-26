@@ -180,8 +180,6 @@ tyToRepr t0 = case t0 of
      tyToReprCont ret $ \retr ->
         Some (C.FunctionHandleRepr argsr retr)
         
-  -- polymorphic function types go to PolyFnRepr
-  -- invariant: never have 0 for PolyFnRepr
   M.TyFnPtr sig@(M.FnSig args ret params preds _atys _abi _spread) ->
       error $ "BUG: polymorphic fn ptrs should not appear in mir-json output any more"
 

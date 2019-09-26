@@ -1305,8 +1305,7 @@ doReturn tr = do
 -- | Find the function expression for this name (instantiated with the given type arguments) 
 -- It could be a regular function, a static trait invocation, or a dictionary argument
 -- 
--- Will return an expression of type (FnHandleType args ret) or (PolyFnType k args ret)
--- Also returns any predicates that must be satisfied at this call
+-- Will return an expression of type (FnHandleType args ret)
 -- 
 -- Some of these predicates will turn into additional (term) arguments, but only the call
 -- site knows which
@@ -1326,31 +1325,14 @@ lookupFunction nm (Substs funsubst)
   -- instantiating the type arguments
   let mkFunExp :: Substs -> [Param] -> FH.FnHandle a r -> MirExp s
       mkFunExp (Substs hsubst) params fhandle
-        | Some fk <- peanoLength params = tyListToCtx (reverse hsubst) $ \tyargs ->
-       
+        | not $ null params = error $ "BUG: function sigs should no longer include generics"
+        | not $ null hsubst = error $ "BUG: function sigs should no longer have substs"
+        | otherwise =
         let fargctx  = FH.handleArgTypes fhandle
             fret     = FH.handleReturnType fhandle
-            ifargctx = C.instantiate (C.mkSubst tyargs) fargctx
-            ifret    = C.instantiate (C.mkSubst tyargs) fret
-        in
-        case testEquality fk (ctxSizeP tyargs) of
-          Nothing   -> case ltP (ctxSizeP tyargs) fk of
-             TrueRepr  ->
-               let
-                  fty      = C.PolyFnRepr fk fargctx fret
-                  polyfcn  = R.App $ E.PolyHandleLit fk fhandle
-                  polyspec = R.App $ E.PolySpecialize fty polyfcn tyargs
-                  cty      = C.PolyFnRepr (fk `minusP` (ctxSizeP tyargs)) ifargctx ifret
-               in
-                  MirExp cty polyspec
-             FalseRepr ->
-                error $ "BUG: invalid number of type args to : " ++ show fhandle
-                      ++ "\n" ++ show (ctxSizeP tyargs) ++ " not <= " ++ show fk
-          Just Refl ->
-            let polyfcn  = R.App $ E.PolyHandleLit fk fhandle
-                polyinst = R.App $ E.PolyInstantiate (C.PolyFnRepr fk fargctx fret) polyfcn tyargs
-            in
-              MirExp (C.FunctionHandleRepr ifargctx ifret) polyinst
+        in case assertClosedFH fhandle of
+            (C.Dict, C.Dict) ->
+                MirExp (C.FunctionHandleRepr fargctx fret) $ R.App $ E.HandleLit fhandle
 
   case () of 
     ()
