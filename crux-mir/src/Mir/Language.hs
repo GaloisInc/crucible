@@ -98,15 +98,17 @@ instance Crux.Language CruxMIR where
      {
        useStdLib    :: Bool
      , onlyPP       :: Bool
+     , printCrucible :: Bool
      , showModel    :: Bool
      , assertFalse  :: Bool
      , cachedStdLib :: Maybe CachedStdLib
      }
- 
+
   defaultOptions = MIROptions
     {
       useStdLib    = True
     , onlyPP       = False
+    , printCrucible = False
     , showModel    = False
     , assertFalse  = False
     , cachedStdLib = Nothing
@@ -122,10 +124,14 @@ instance Crux.Language CruxMIR where
     [ Console.Option ['n'] ["no-std-lib"]
       (Console.NoArg (\opts -> opts { useStdLib = False }))
       "suppress standard library"
-      
+
     , Console.Option []    ["print-mir"]
       (Console.NoArg (\opts -> opts { onlyPP = True }))
       "pretty-print mir and exit"
+
+    , Console.Option []    ["print-crucible"]
+      (Console.NoArg (\opts -> opts { printCrucible = True }))
+      "pretty-print crucible after translation"
 
     , Console.Option ['m']  ["show-model"]
       (Console.NoArg (\opts -> opts { showModel = True }))
@@ -156,6 +162,7 @@ simulateMIR execFeatures (cruxOpts, mirOpts) sym p = do
   let ?debug              = Crux.simVerbose cruxOpts
   --let ?assertFalseOnError = assertFalse mirOpts
   let ?assertFalseOnError = True
+  let ?printCrucible      = printCrucible mirOpts
   let filename      = Crux.inputFile cruxOpts
   let (dir,nameExt) = splitFileName filename
   let (name,_ext)   = splitExtension nameExt

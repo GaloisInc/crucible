@@ -81,7 +81,8 @@ extractMIR proxy sc rm n = do
     return term
 
 
-loadMIR :: (HasCallStack,?assertFalseOnError::Bool) => SC.SharedContext -> FilePath -> IO RustModule
+loadMIR :: (HasCallStack,?assertFalseOnError::Bool, ?printCrucible::Bool) =>
+    SC.SharedContext -> FilePath -> IO RustModule
 loadMIR _sc fp = do
     let ?debug = 0
     f <- B.readFile fp

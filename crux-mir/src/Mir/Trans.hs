@@ -1785,7 +1785,9 @@ genFn (M.Fn fname argvars sig body@(MirBody localvars blocks) statics) rettype =
        G.jump lbl
     _ -> mirFail "bad thing happened"
 
-transDefine :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool) 
+transDefine :: forall h.
+  ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
+  , ?printCrucible::Bool) 
   => CollectionState 
   -> M.Fn 
   -> ST h (Text, Core.AnyCFG MIR)
@@ -1799,11 +1801,10 @@ transDefine colState fn@(M.Fn fname fargs fsig _ _) =
             s = initFnState colState fn handle inputs 
             f = genFn fn rettype
       (R.SomeCFG g, []) <- G.defineFunction PL.InternalPos handle def
-      -- Uncomment these lines to print the Crucible CFG for each function.
-      -- TODO: add a command-line flag for this, like --print-mir
-      --traceM $ unwords [" =======", show fname, "======="]
-      --traceShowM $ pretty g
-      --traceM $ unwords [" ======= end", show fname, "======="]
+      when ?printCrucible $ do
+          traceM $ unwords [" =======", show fname, "======="]
+          traceShowM $ pretty g
+          traceM $ unwords [" ======= end", show fname, "======="]
       case SSA.toSSA g of
         Core.SomeCFG g_ssa -> return (M.idText fname, Core.AnyCFG g_ssa)
 
@@ -2244,7 +2245,8 @@ mkDiscrMap col = mconcat
 
 -- | transCollection: translate a MIR collection
 transCollection :: forall s. (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool,
-                             ?libCS::CollectionState, ?customOps::CustomOpMap) 
+                             ?libCS::CollectionState, ?customOps::CustomOpMap,
+                             ?printCrucible::Bool) 
       => M.Collection
       -> FH.HandleAllocator s
       -> ST s RustModule

@@ -162,7 +162,7 @@ loadPrims useStdLib = do
 
 
 -- | Translate a MIR collection to Crucible
-translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool) 
+translateMIR :: (HasCallStack, ?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool) 
    => CollectionState -> Collection -> C.HandleAllocator s -> ST s RustModule
 translateMIR lib col halloc =
   let ?customOps = Mir.customOps in
@@ -170,7 +170,7 @@ translateMIR lib col halloc =
   in let ?libCS = lib in transCollection col0 halloc
 
 -- | Translate a MIR crate *and* the standard library all at once
-translateAll :: (?debug::Int, ?assertFalseOnError::Bool)
+translateAll :: (?debug::Int, ?assertFalseOnError::Bool, ?printCrucible::Bool)
              => Bool -> Collection -> IO (RustModule, C.AnyCFG MIR)
 translateAll usePrims col = do
   prims <- liftIO $ loadPrims usePrims
