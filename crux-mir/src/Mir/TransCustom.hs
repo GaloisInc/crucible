@@ -106,9 +106,6 @@ customOpDefs = Map.fromList [
                          , vector_split_at
                          , vector_copy_from_slice
 
-                         -- CustomOps below this point have not been checked
-                         -- for compatibility with new monomorphization.
-
                          , str_len
 
                          , wrapping_mul
@@ -119,6 +116,7 @@ customOpDefs = Map.fromList [
                          , abort
                          , panicking_begin_panic
                          , panicking_panic
+                         , panicking_panic_fmt
 
 
                          , integer_from_u8
@@ -158,6 +156,12 @@ panicking_panic :: (ExplodedDefId, CustomRHS)
 panicking_panic = ((["core", "panicking"], "panic", []), \s -> Just $ CustomOpExit $ \ops -> do
     name <- use $ currentFn . fname
     return $ "panicking::panic, called from " <> M.idText name
+    )
+
+panicking_panic_fmt :: (ExplodedDefId, CustomRHS)
+panicking_panic_fmt = ((["core", "panicking"], "panic_fmt", []), \s -> Just $ CustomOpExit $ \ops -> do
+    name <- use $ currentFn . fname
+    return $ "panicking::panic_fmt, called from " <> M.idText name
     )
 
 
