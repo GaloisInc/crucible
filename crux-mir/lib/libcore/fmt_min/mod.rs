@@ -92,40 +92,23 @@ pub struct Formatter<'a> {
     _marker: PhantomData<&'a mut (dyn Write+'a)>,
 }
 
-// NB. Argument is essentially an optimized partially applied formatting function,
-// equivalent to `exists T.(&T, fn(&T, &mut Formatter<'_>) -> Result`.
-
-struct Void {
-    _priv: (),
-    _oibit_remover: PhantomData<*mut dyn Fn()>,
-}
-
 #[derive(Copy, Clone)]
 #[allow(missing_debug_implementations)]
 #[unstable(feature = "fmt_internals", reason = "internal to format_args!",
            issue = "0")]
 #[doc(hidden)]
 pub struct ArgumentV1<'a> {
-    value: &'a Void,
-    formatter: fn(&Void, &mut Formatter<'_>) -> Result,
+    _marker: PhantomData<&'a (dyn Debug+'a)>,
 }
 
 impl<'a> ArgumentV1<'a> {
-    #[inline(never)]
-    fn show_usize(x: &usize, f: &mut Formatter<'_>) -> Result {
-        Display::fmt(x, f)
-    }
-
     #[doc(hidden)]
     #[unstable(feature = "fmt_internals", reason = "internal to format_args!",
                issue = "0")]
     pub fn new<'b, T>(x: &'b T,
                       f: fn(&T, &mut Formatter<'_>) -> Result) -> ArgumentV1<'b> {
-        unsafe {
-            ArgumentV1 {
-                formatter: mem::transmute(f),
-                value: mem::transmute(x)
-            }
+        ArgumentV1 {
+            _marker: PhantomData,
         }
     }
 
@@ -133,14 +116,8 @@ impl<'a> ArgumentV1<'a> {
     #[unstable(feature = "fmt_internals", reason = "internal to format_args!",
                issue = "0")]
     pub fn from_usize(x: &usize) -> ArgumentV1<'_> {
-        ArgumentV1::new(x, ArgumentV1::show_usize)
-    }
-
-    fn as_usize(&self) -> Option<usize> {
-        if self.formatter as usize == ArgumentV1::show_usize as usize {
-            Some(unsafe { *(self.value as *const _ as *const usize) })
-        } else {
-            None
+        ArgumentV1 {
+            _marker: PhantomData,
         }
     }
 }
