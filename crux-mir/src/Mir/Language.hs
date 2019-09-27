@@ -6,6 +6,8 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE GADTs #-}
 
 {-# OPTIONS_GHC -Wall #-}
 
@@ -18,7 +20,7 @@ module Mir.Language (main,  mainWithOutputTo,
 
 import qualified Data.Char       as Char
 import           Data.Functor.Const (Const(..))
-import           Control.Monad (forM_, when)
+import           Control.Monad (forM_, when, zipWithM)
 import           Control.Monad.ST
 import           Control.Monad.IO.Class
 import qualified Data.List       as List
@@ -26,8 +28,10 @@ import           Data.Semigroup(Semigroup(..))
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
+import           Data.Maybe (fromMaybe)
 import qualified Data.Vector     as Vector
 import qualified Text.Read       as Read
+import           Control.Lens ((^.), (^?), (^..), ix, each)
 
 import           System.IO (Handle)
 import           System.FilePath ((<.>), (</>), splitFileName,splitExtension)
@@ -54,6 +58,7 @@ import qualified Lang.Crucible.Backend                 as C
 import qualified What4.Interface                       as W4
 import qualified What4.Config                          as W4
 import qualified What4.ProgramLoc                      as W4
+import qualified What4.Partial                         as W4
 
 -- crux
 import qualified Crux.Language as Crux
@@ -67,11 +72,13 @@ import Crux.Log
 import           Mir.Mir
 import           Mir.PP()
 import           Mir.Overrides
-import           Mir.Intrinsics(MIR,mirExtImpl,mirIntrinsicTypes)
+import           Mir.Intrinsics(MIR,mirExtImpl,mirIntrinsicTypes,
+                    pattern RustEnumRepr, RustEnumType)
 import           Mir.DefId(cleanVariantName, parseFieldName, idText)
 import           Mir.Generator
 import           Mir.Generate(generateMIR, translateMIR, loadPrims)
 import           Mir.Trans(transStatics, RustModule(..))
+import           Mir.TransTy
 
 main :: IO ()
 main = Crux.main mirConf
@@ -319,23 +326,81 @@ showRegEntry col mty (C.RegEntry tp rv) =
       let
           go :: forall typ. Ctx.Index ctx typ -> C.RegValue' sym typ ->
                 (C.OverrideSim p sym MIR rtp args ret (Const String typ))
-          go idx (C.RV elt) = do
-            let i   = Ctx.indexVal idx
-            let mty0 = tys !! i
-            let tp0  = ctxr Ctx.! idx
-            str <- showRegEntry col mty0 (C.RegEntry tp0 elt)
-            return (Const str)
+          go idx (C.RV elt)
+            | C.MaybeRepr tpr <- ctxr Ctx.! idx = case elt of
+                W4.NoErr (W4.Partial p e) | Just True <- W4.asConstantPred p -> do
+                    let i   = Ctx.indexVal idx
+                    let mty0 = tys !! i
+                    str <- showRegEntry col mty0 (C.RegEntry tpr e)
+                    return (Const str)
+                _ -> return $ Const $ "symbolic tuple element"
 
       (cstrs :: Ctx.Assignment (Const String) ctx) <- Ctx.traverseWithIndex go rv'
       let strs = Ctx.toListFC (\(Const str) -> str) cstrs
-      return $ "[" ++ List.intercalate ", " strs ++ "]"
+      return $ "(" ++ List.intercalate ", " strs ++ ")"
 
     -- Tagged union type
-    -- TODO: type arguments
-    -- FIXME: needs update for new struct representation
-    (TyAdt name _tyargs,
-      C.StructRepr (Ctx.Empty Ctx.:> C.NatRepr Ctx.:> C.AnyRepr))
-      | Just (Adt _ _ variants) <- List.find (\(Adt n _ _) -> name == n) (col^.adts) -> do
+    (TyAdt name args, C.AnyRepr)
+      | Just adt <- List.find (\(Adt n _ _) -> name == n) (col^.adts) -> do
+        optParts <- case adt^.adtkind of
+            Struct -> do
+                let var = onlyVariant adt
+                C.Some fctx <- return $ variantFields' var args
+                let ctx = fieldCtxType fctx
+                let fields = unpackAnyValue rv (C.StructRepr ctx)
+                return $ Right (var, readFields fctx fields)
+            Enum -> do
+                C.Some vctx <- return $ enumVariants adt args
+                let enumVal = unpackAnyValue rv (RustEnumRepr vctx)
+                -- Note we don't look at the discriminant here, because mapping
+                -- a discriminant value to a variant index is somewhat complex.
+                -- Instead we just find the first PartExpr that's initialized.
+                case findVariant vctx (C.unRV $ enumVal Ctx.! Ctx.i2of2) of
+                    Just (C.Some (FoundVariant idx tpr fields)) -> do
+                        let i = Ctx.indexVal idx
+                        let var = fromMaybe (error "bad index from findVariant?") $
+                                adt ^? adtvariants . ix i
+                        C.Some fctx <- return $ variantFields' var args
+                        Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
+                            ("when printing enum type " ++ show name)
+                        return $ Right (var, readFields fctx fields)
+                    Nothing -> return $ Left "Symbolic enum"
+            Union -> return $ Left "union printing is not yet implemented"
+        case optParts of
+            Left err -> return err
+            Right (var, vals) -> do
+                strs <- zipWithM (\ty (C.Some entry) -> showRegEntry col ty entry)
+                    (var ^.. vfields . each . fty) vals
+                let varName = Text.unpack $ cleanVariantName (var^.vname)
+                case var ^. vctorkind of
+                    FnKind -> return $ varName ++ "(" ++ List.intercalate ", " strs ++ ")"
+                    ConstKind -> return varName
+                    FictiveKind ->
+                        let strs' = zipWith (\fn v -> case parseFieldName fn of
+                                Just x -> Text.unpack x ++ ": " ++ v
+                                Nothing -> v) (var ^.. vfields . each . fName) strs
+                        in return $ varName ++ " { " ++ List.intercalate ", " strs' ++ " }"
+
+{-
+            Enum -> do
+                C.Some enumCtx <- return $ enumVariants adt args
+                C.AnyValue anyTpr anyVal <- return rv
+                Refl <- case testEquality anyTpr (RustEnumRepr enumCtx) of
+                    Just refl -> return refl
+                    Nothing -> fail $ "bad ANY unpack for " ++ show mty ++ ": expected " ++
+                        show (RustEnumRepr enumCtx) ++ ", but got " ++ show anyTpr
+
+        case W4.asUnsignedBV (C.unRV $ anyVal Ctx.! Ctx.i1of2) of
+            Nothing -> return $ "Symbolic ADT: " ++ show name
+            Just discr -> do
+                let var = case adt ^? adtvariants . ix (fromIntegral discr) of
+                        Just x -> x
+                        Nothing -> error $ "variant index " ++ show discr ++ " out of range for " ++ show name
+                return $ show name ++ ", variant " ++ show (var ^. vname)
+-}
+
+
+      {-
       let rv' :: Ctx.Assignment (C.RegValue' sym) (Ctx.EmptyCtx Ctx.::> C.NatType Ctx.::> C.AnyType)
           rv' = rv
       let kv = rv'  Ctx.! Ctx.i1of2
@@ -364,6 +429,7 @@ showRegEntry col mty (C.RegEntry tp rv) =
                 return $ Text.unpack (cleanVariantName (var^.vname)) ++ " { " ++ body ++ " }"
             _ -> fail "invalide representation of ADT"
         Nothing -> return $ "Symbolic ADT:" ++ show name
+-}
 
     (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
 
@@ -381,6 +447,45 @@ showRegEntry col mty (C.RegEntry tp rv) =
       return $ concat strs
 
     _ -> return $ "I don't know how to print result of type " ++ show (pretty mty)
+
+
+  where
+    unpackAnyValue :: C.AnyValue sym -> C.TypeRepr tp -> C.RegValue sym tp
+    unpackAnyValue (C.AnyValue tpr val) tpr'
+      | Just Refl <- testEquality tpr tpr' = val
+      | otherwise = error $ "bad ANY unpack for " ++ show mty ++ ": expected" ++
+        show tpr' ++ ", but got " ++ show tpr
+
+    readFields :: FieldCtxRepr ctx -> Ctx.Assignment (C.RegValue' sym) ctx ->
+        [C.Some (C.RegEntry sym)]
+    readFields Ctx.Empty Ctx.Empty = []
+    readFields (fctx Ctx.:> fr) (vs Ctx.:> v) =
+        readFields fctx vs ++ [readField fr (C.unRV v)]
+
+    readField :: FieldRepr tp -> C.RegValue sym tp -> C.Some (C.RegEntry sym)
+    readField (FieldRepr (FkInit tpr)) rv = C.Some (C.RegEntry tpr rv)
+    readField (FieldRepr (FkMaybe tpr)) (W4.NoErr (W4.Partial _ v)) =
+        C.Some (C.RegEntry tpr v)
+    readField (FieldRepr (FkMaybe tpr)) (W4.Err _) = undefined
+
+
+data FoundVariant sym ctx tp where
+    FoundVariant ::
+        Ctx.Index ctx tp ->
+        C.TypeRepr tp ->
+        C.RegValue sym tp ->
+        FoundVariant sym ctx tp
+
+findVariant ::
+    C.IsSymInterface sym =>
+    C.CtxRepr ctx ->
+    C.RegValue sym (C.VariantType ctx) ->
+    Maybe (C.Some (FoundVariant sym ctx))
+findVariant ctx vals = Ctx.forIndex (Ctx.size ctx)
+    (\acc idx -> case vals Ctx.! idx of
+        C.VB (W4.NoErr (W4.Partial p v)) | Just True <- W4.asConstantPred p ->
+            Just $ C.Some $ FoundVariant idx (ctx Ctx.! idx) v
+        _ -> acc) Nothing
 
 
 -----------------------

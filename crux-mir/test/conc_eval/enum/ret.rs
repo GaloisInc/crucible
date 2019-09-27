@@ -1,14 +1,14 @@
-// FAIL: TODO: implement enum printing for new adt repr
 #![cfg_attr(not(with_main), no_std)]
 #![cfg_attr(not(with_main), feature(custom_attribute))]
 #[cfg_attr(with_main, derive(Debug))]
 enum E {
     A(u8),
-    B(i32),
+    B { x: i32 },
+    C,
 }
 
-fn f(_: ()) -> E {
-    E::A(42)
+fn f(_: ()) -> (E, E, E) {
+    (E::A(42), E::B { x: 42 }, E::C)
 }
 
 const ARG: () = ();
@@ -17,4 +17,4 @@ const ARG: () = ();
 pub fn main() {
     println!("{:?}", f(ARG));
 }
-#[cfg(not(with_main))] #[crux_test] fn crux_test() -> E { f(ARG) }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> (E, E, E) { f(ARG) }

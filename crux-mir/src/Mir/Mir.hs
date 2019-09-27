@@ -598,6 +598,7 @@ type BasicBlockInfo = Text
 
 
 makeLenses ''Variant
+makeLenses ''Field
 makeLenses ''Var
 makeLenses ''Collection
 makeLenses ''Fn

@@ -70,6 +70,9 @@ isAdtFieldUpdate (Assign (LProj (LProj lv (Downcast j)) (PField i ty)) (Use rhs)
   Just (FieldUpdate lv j i ty rhs pos)
 isAdtFieldUpdate _ = Nothing
 
+-- NB: Despite the name, the second argument to SetDiscriminant is a variant
+-- index, not a discriminant value.  The `Int` returned from this function
+-- similarly is a variant index.
 isSetDiscriminant :: (?col :: Collection) => Statement -> Maybe (Lvalue, Int, Adt)
 isSetDiscriminant (SetDiscriminant lv i) =
   case typeOf lv of
