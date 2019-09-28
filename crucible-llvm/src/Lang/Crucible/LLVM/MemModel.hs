@@ -1501,15 +1501,20 @@ doResolveGlobal ::
   MemImpl sym ->
   L.Symbol {- ^ name of global -} ->
   IO (LLVMPtr sym wptr)
-doResolveGlobal _sym mem symbol =
+doResolveGlobal sym mem symbol@(L.Symbol name) =
   let lookedUp = Map.lookup symbol (memImplGlobalMap mem)
   in case lookedUp of
        Just (SomePointer ptr) | PtrWidth <- ptrWidth ptr -> return ptr
-       _ -> panic "MemModel.doResolveGlobal" $
-               (if isJust lookedUp
-               then "Symbol was not a pointer of the correct width."
-               else "Unable to resolve global symbol.") :
-               [ "*** Name: " ++ show symbol ]
+       _ -> addFailedAssertion sym . AssertFailureSimError $
+         if isJust lookedUp
+         then mconcat [ "Allocation associated with global symbol \""
+                      , name
+                      , "\" is not a pointer of the correct width"
+                      ]
+         else mconcat [ "Global symbol \""
+                      , name
+                      , "\" has no associated allocation"
+                      ]
 
 -- | Add an entry to the global map of the given 'MemImpl'.
 --

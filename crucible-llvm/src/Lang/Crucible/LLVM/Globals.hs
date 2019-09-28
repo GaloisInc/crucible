@@ -28,6 +28,7 @@
 
 module Lang.Crucible.LLVM.Globals
   ( initializeMemory
+  , initializeMemoryConstGlobals
   , populateGlobal
   , populateGlobals
   , populateAllGlobals
@@ -148,7 +149,24 @@ initializeMemory
    -> LLVMContext arch
    -> L.Module
    -> IO (MemImpl sym)
-initializeMemory sym llvm_ctx m = do
+initializeMemory = initializeMemory' (const True)
+
+initializeMemoryConstGlobals
+   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   => sym
+   -> LLVMContext arch
+   -> L.Module
+   -> IO (MemImpl sym)
+initializeMemoryConstGlobals = initializeMemory' (L.gaConstant . L.globalAttrs)
+
+initializeMemory'
+   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   => (L.Global -> Bool)
+   -> sym
+   -> LLVMContext arch
+   -> L.Module
+   -> IO (MemImpl sym)
+initializeMemory' predicate sym llvm_ctx m = do
    -- Create initial memory of appropriate endianness
    let ?lc = llvm_ctx^.llvmTypeCtx
    let dl = llvmDataLayout ?lc
@@ -191,7 +209,7 @@ initializeMemory sym llvm_ctx m = do
                             _ -> return tyAlign
                         return (g, aliases, sz, alignment))
                     globals
-   allocGlobals sym gs_alloc mem
+   allocGlobals sym (filter (\(g, _, _, _) -> predicate g) gs_alloc) mem
 
 allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     => sym
