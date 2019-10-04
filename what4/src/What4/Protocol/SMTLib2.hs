@@ -482,6 +482,7 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
   popCommand _   = SMT2.pop 1
   resetCommand _ = SMT2.resetAssertions
 
+  setGoalTimeoutCommand _ _ = Nothing
   checkCommand _ = SMT2.checkSat
   checkWithAssumptionsCommand _ = SMT2.checkSatWithAssumptions
 

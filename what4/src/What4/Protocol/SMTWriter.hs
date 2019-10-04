@@ -786,6 +786,10 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Reset the solver state, forgetting all pushed frames and assertions
   resetCommand  :: f h -> Command h
 
+  -- | Set the timeout for the next goal. Returns @Nothing@ if setting
+  -- per-goal timeouts is not supported.
+  setGoalTimeoutCommand  :: f h -> Integer -> Maybe (Command h)
+
   -- | Check if the current set of assumption is satisfiable
   checkCommand  :: f h -> Command h
 

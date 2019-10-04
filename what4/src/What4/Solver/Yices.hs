@@ -45,6 +45,7 @@ module What4.Solver.Yices
   , yicesType
   , assertForall
   , efSolveCommand
+  , setTimeoutCommand
   , YicesException(..)
 
     -- * Live connection
@@ -59,6 +60,7 @@ module What4.Solver.Yices
   , yicesOptions
   , yicesDefaultFeatures
   , yicesEnableMCSat
+  , yicesEnableInteractive
   ) where
 
 import           Control.Exception
@@ -395,6 +397,9 @@ checkExistsForallCommand = safeCmd "(ef-solve)"
 setParamCommand :: Text -> Builder -> Command (Connection s)
 setParamCommand nm v = safeCmd $ app "set-param" [ Builder.fromText nm, v ]
 
+setTimeoutCommand :: Integer -> Command (Connection s)
+setTimeoutCommand t = unsafeCmd $ app "set-timeout" [ Builder.fromString (show t) ]
+
 ------------------------------------------------------------------------
 -- Connection
 
@@ -466,6 +471,7 @@ instance SMTWriter (Connection s) where
   getUnsatCoreCommand _ = safeCmd "(show-unsat-core)"
   setOptCommand _ x o = setParamCommand x (Builder.fromText o)
 
+  setGoalTimeoutCommand _ t = Just (setTimeoutCommand t)
   assertCommand _ (T nm) = unsafeCmd $ app "assert" [nm]
   assertNamedCommand _ (T tm) nm = unsafeCmd $ app "assert" [tm, Builder.fromText nm]
 
@@ -607,7 +613,10 @@ yicesStartSolver features auxOutput sym = do -- FIXME
   let cfg = getConfiguration sym
   yices_path <- findSolverPath yicesPath cfg
   enableMCSat <- getOpt =<< getOptionSetting yicesEnableMCSat cfg
-  let args = ["--mode=push-pop", "--print-success"] ++
+  enableInteractive <- getOpt =<< getOptionSetting yicesEnableInteractive cfg
+  let modeFlag | enableInteractive = "--mode=interactive"
+               | otherwise = "--mode=push-pop"
+      args = modeFlag : "--print-success" :
              if enableMCSat then ["--mcsat"] else []
       hasNamedAssumptions = features `hasProblemFeature` useUnsatCores ||
                             features `hasProblemFeature` useUnsatAssumptions
@@ -712,6 +721,7 @@ getSatResponse resps =
        Right (SAtom "unsat")   -> return (Unsat ())
        Right (SAtom "sat")     -> return (Sat ())
        Right (SAtom "unknown") -> return Unknown
+       Right (SAtom "interrupted") -> return Unknown
        Right res -> fail $
                unlines [ "Could not parse sat result."
                        , "  " ++ show res
@@ -827,6 +837,10 @@ yicesPath = configOption knownRepr "yices_path"
 yicesEnableMCSat :: ConfigOption BaseBoolType
 yicesEnableMCSat = configOption knownRepr "yices_enable-mcsat"
 
+-- | Enable interactive mode (necessary for per-goal timeouts)
+yicesEnableInteractive :: ConfigOption BaseBoolType
+yicesEnableInteractive = configOption knownRepr "yices_enable-interactive"
+
 yicesOptions :: [ConfigDesc]
 yicesOptions =
   [ mkOpt
@@ -838,6 +852,11 @@ yicesOptions =
       yicesEnableMCSat
       boolOptSty
       (Just (PP.text "Enable the Yices MCSAT solving engine"))
+      (Just (ConcreteBool False))
+  , mkOpt
+      yicesEnableInteractive
+      boolOptSty
+      (Just (PP.text "Enable Yices interactive mode (needed to support timeouts)"))
       (Just (ConcreteBool False))
   ]
   ++ yicesInternalOptions
