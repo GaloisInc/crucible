@@ -19,8 +19,9 @@ import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
-import What4.Protocol.SMTWriter(mkFormula,assumeFormulaWithFreshName,assumeFormula,smtExprGroundEvalFn)
-
+import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
+                               , assumeFormula, smtExprGroundEvalFn
+                               , addCommand, setGoalTimeoutCommand )
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
         ( OnlineBackendState, getSolverProcess )
@@ -153,6 +154,10 @@ proveGoals opts ctxt (Just gs0) =
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
            bindName nm (Right p) nameMap
 
+           case setGoalTimeoutCommand sp (goalTimeout opts) of
+             Just c -> addCommand (solverConn sp) c
+             -- If there's no command, we would have set it already.
+             Nothing -> return ()
            res <- check sp "proof"
            ret <- case res of
                       Unsat () ->

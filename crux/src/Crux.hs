@@ -37,7 +37,7 @@ import What4.Interface (IsExprBuilder, getConfiguration)
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
 import What4.Solver.Z3 (z3Timeout)
-import What4.Solver.Yices (yicesEnableMCSat)
+import What4.Solver.Yices (yicesEnableMCSat, yicesEnableInteractive)
 
 import Crux.Log
 import Crux.Types
@@ -125,6 +125,7 @@ withBackend cruxOpts nonceGen f =
     "yices" ->
       withYicesOnlineBackend @(Flags FloatReal) nonceGen unsatCores $ \sym ->
         do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
+           symCfg sym yicesEnableInteractive (goalTimeout cruxOpts /= 0)
            f sym
 
     "z3" ->
