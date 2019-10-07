@@ -115,6 +115,7 @@ import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder (decimal)
 import qualified Data.Text.Lazy as Lazy
+import           Data.Time.Clock
 import           Data.Word
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
@@ -788,7 +789,7 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 
   -- | Set the timeout for the next goal. Returns @Nothing@ if setting
   -- per-goal timeouts is not supported.
-  setGoalTimeoutCommand  :: f h -> Integer -> Maybe (Command h)
+  setGoalTimeoutCommand  :: f h -> DiffTime -> Maybe (Command h)
 
   -- | Check if the current set of assumption is satisfiable
   checkCommand  :: f h -> Command h

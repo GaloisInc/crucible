@@ -88,6 +88,7 @@ import qualified Data.Text.Lazy as Lazy
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
+import           Data.Time.Clock
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -397,8 +398,9 @@ checkExistsForallCommand = safeCmd "(ef-solve)"
 setParamCommand :: Text -> Builder -> Command (Connection s)
 setParamCommand nm v = safeCmd $ app "set-param" [ Builder.fromText nm, v ]
 
-setTimeoutCommand :: Integer -> Command (Connection s)
-setTimeoutCommand t = unsafeCmd $ app "set-timeout" [ Builder.fromString (show t) ]
+setTimeoutCommand :: DiffTime -> Command (Connection s)
+setTimeoutCommand t = unsafeCmd $
+  app "set-timeout" [ Builder.fromString (show (floor t :: Integer)) ]
 
 ------------------------------------------------------------------------
 -- Connection

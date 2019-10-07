@@ -5,7 +5,7 @@
 module Crux.Goal where
 
 import Control.Lens ((^.), view)
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, join)
 import Data.Either (partitionEithers)
 import Data.IORef
 import Data.Maybe (fromMaybe)
@@ -154,7 +154,7 @@ proveGoals opts ctxt (Just gs0) =
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
            bindName nm (Right p) nameMap
 
-           case setGoalTimeoutCommand sp (goalTimeout opts) of
+           case join (setGoalTimeoutCommand sp <$> goalTimeout opts) of
              Just c -> addCommand (solverConn sp) c
              -- If there's no command, we would have set it already.
              Nothing -> return ()

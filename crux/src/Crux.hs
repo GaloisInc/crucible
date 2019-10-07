@@ -14,6 +14,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.IORef
 import Data.List(intercalate)
+import Data.Maybe (isJust)
 import qualified Data.Sequence as Seq
 import Control.Exception(catch, displayException)
 import Control.Monad(when)
@@ -125,12 +126,14 @@ withBackend cruxOpts nonceGen f =
     "yices" ->
       withYicesOnlineBackend @(Flags FloatReal) nonceGen unsatCores $ \sym ->
         do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
-           symCfg sym yicesEnableInteractive (goalTimeout cruxOpts /= 0)
+           symCfg sym yicesEnableInteractive (isJust (goalTimeout cruxOpts))
            f sym
 
     "z3" ->
       withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym->
-        do symCfg sym z3Timeout (goalTimeout cruxOpts * 1000)
+        do case goalTimeout cruxOpts of
+             Just s -> symCfg sym z3Timeout (floor s * 1000)
+             Nothing -> return ()
            f sym
 
 
