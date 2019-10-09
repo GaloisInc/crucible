@@ -56,6 +56,9 @@ module Lang.Crucible.CFG.Expr
   , BaseTerm(..)
   , module Lang.Crucible.CFG.Extension
   , RoundingMode(..)
+
+  , testVector
+  , compareVector
   ) where
 
 import           Control.Lens ((^.))
