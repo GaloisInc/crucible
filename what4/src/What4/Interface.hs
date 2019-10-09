@@ -136,7 +136,7 @@ module What4.Interface
   , isReal
 
     -- ** Indexing
-  , muxIntegerRange
+  , muxRange
 
     -- * Reexports
   , module Data.Parameterized.NatRepr
@@ -2721,34 +2721,37 @@ concreteToSym sym = \case
            arrayUpdate sym arr' i' x'
 
 ------------------------------------------------------------------------
--- muxIntegerRange
+-- muxNatRange
 
-{-# INLINABLE muxIntegerRange #-}
+{-# INLINABLE muxRange #-}
 {- | This function is used for selecting a value from among potential
 values in a range.
 
-@muxIntegerRange p ite f l h@ returns an expression denoting the value obtained
+@muxRange p ite f l h@ returns an expression denoting the value obtained
 from the value @f i@ where @i@ is the smallest value in the range @[l..h]@
 such that @p i@ is true.  If @p i@ is true for no such value, then
 this returns the value @f h@. -}
-muxIntegerRange :: Monad m
-                => (Integer -> m (e BaseBoolType))
-                   -- ^ Returns predicate that holds if we have found the value we are looking
-                   -- for.  It is assumed that the predicate must hold for a unique integer in
-                   -- the range.
-                -> (e BaseBoolType -> a -> a -> m a)
-                   -- ^ Ite function
-                -> (Integer -> m a)
-                   -- ^ Function for concrete values.
-                -> Integer -- ^ Lower bound (inclusive)
-                -> Integer -- ^ Upper bound (inclusive)
-                -> m a
-muxIntegerRange predFn iteFn f l h
+muxRange :: (IsExpr e, Monad m) =>
+   (Natural -> m (e BaseBoolType)) 
+      {- ^ Returns predicate that holds if we have found the value we are looking
+           for.  It is assumed that the predicate must hold for a unique integer in
+           the range.
+      -} ->
+   (e BaseBoolType -> a -> a -> m a) {- ^ Ite function -} ->
+   (Natural -> m a) {- ^ Function for concrete values -} ->
+   Natural {- ^ Lower bound (inclusive) -} ->
+   Natural {- ^ Upper bound (inclusive) -} ->
+   m a
+muxRange predFn iteFn f l h
   | l < h = do
     c <- predFn l
-    match_branch <- f l
-    other_branch <- muxIntegerRange predFn iteFn f (succ l) h
-    iteFn c match_branch other_branch
+    case asConstantPred c of
+      Just True  -> f l
+      Just False -> muxRange predFn iteFn f (succ l) h
+      Nothing ->
+        do match_branch <- f l
+           other_branch <- muxRange predFn iteFn f (succ l) h
+           iteFn c match_branch other_branch
   | otherwise = f h
 
 -- | This provides an interface for converting between Haskell values and a
