@@ -57,6 +57,7 @@ module Lang.Crucible.CFG.Generator
   , dropRef
   , call
   , assertExpr
+  , assumeExpr
   , addPrintStmt
   , addBreakpointStmt
   , extensionStmt
@@ -447,6 +448,18 @@ assertExpr b e =
   do b_a <- mkAtom b
      e_a <- mkAtom e
      addStmt (Assert b_a e_a)
+
+-- | Add an assume statement.
+assumeExpr ::
+  IsSyntaxExtension ext =>
+  Expr ext s BoolType {- ^ assumption -} ->
+  Expr ext s StringType {- ^ reason message -} ->
+  Generator ext h s t ret ()
+assumeExpr b e =
+  do b_a <- mkAtom b
+     m_a <- mkAtom e
+     addStmt (Assume b_a m_a)
+
 
 -- | Stash the given CFG away for later retrieval.  This is primarily
 --   used when translating inner and anonymous functions in the
