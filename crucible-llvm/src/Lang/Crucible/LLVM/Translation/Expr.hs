@@ -168,7 +168,7 @@ pointerAsBitvectorExpr
     :: (1 <= w)
     => NatRepr w
     -> Expr (LLVM arch) s (LLVMPointerType w)
-    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
+    -> LLVMGenerator s arch ret (Expr (LLVM arch) s (BVType w))
 pointerAsBitvectorExpr _ (BitvectorAsPointerExpr _ ex) =
      return ex
 pointerAsBitvectorExpr w ex =
@@ -307,7 +307,7 @@ explodeVector _ _ = Nothing
 liftConstant ::
   HasPtrWidth (ArchWidth arch) =>
   LLVMConst ->
-  LLVMGenerator h s arch ret (LLVMExpr s arch)
+  LLVMGenerator s arch ret (LLVMExpr s arch)
 liftConstant c = case c of
   ZeroConst mt ->
     return $ ZeroExpr mt
@@ -343,16 +343,16 @@ liftConstant c = case c of
        return (BaseExpr PtrRepr ptr)
 
 transTypedValue :: L.Typed L.Value
-                -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+                -> LLVMGenerator s arch ret (LLVMExpr s arch)
 transTypedValue v = do
    tp <- either fail return $ liftMemType $ L.typedType v
    transValue tp (L.typedValue v)
 
 -- | Translate an LLVM Value into an expression.
-transValue :: forall h s arch ret.
+transValue :: forall s arch ret.
               MemType
            -> L.Value
-           -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+           -> LLVMGenerator s arch ret (LLVMExpr s arch)
 
 transValue ty L.ValUndef =
   return $ UndefExpr ty
@@ -438,14 +438,14 @@ callIsNull
    :: (1 <= w)
    => NatRepr w
    -> Expr (LLVM arch) s (LLVMPointerType w)
-   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+   -> LLVMGenerator s arch ret (Expr (LLVM arch) s BoolType)
 callIsNull w ex = App . Not <$> callIntToBool w ex
 
 callIntToBool
   :: (1 <= w)
   => NatRepr w
   -> Expr (LLVM arch) s (LLVMPointerType w)
-  -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+  -> LLVMGenerator s arch ret (Expr (LLVM arch) s BoolType)
 callIntToBool w (BitvectorAsPointerExpr _ bv) =
   case bv of
     App (BVLit _ i) -> if i == 0 then return false else return true
@@ -460,18 +460,18 @@ callAlloca
    :: wptr ~ ArchWidth arch
    => Expr (LLVM arch) s (BVType wptr)
    -> Alignment
-   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+   -> LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 callAlloca sz alignment = do
    memVar <- getMemVar
    loc <- show <$> getPosition
    extensionStmt (LLVM_Alloca ?ptrWidth memVar sz alignment loc)
 
-callPushFrame :: LLVMGenerator h s arch ret ()
+callPushFrame :: LLVMGenerator s arch ret ()
 callPushFrame = do
    memVar <- getMemVar
    void $ extensionStmt (LLVM_PushFrame memVar)
 
-callPopFrame :: LLVMGenerator h s arch ret ()
+callPopFrame :: LLVMGenerator s arch ret ()
 callPopFrame = do
    memVar <- getMemVar
    void $ extensionStmt (LLVM_PopFrame memVar)
@@ -480,7 +480,7 @@ callPtrAddOffset ::
        wptr ~ ArchWidth arch
     => Expr (LLVM arch) s (LLVMPointerType wptr)
     -> Expr (LLVM arch) s (BVType wptr)
-    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+    -> LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 callPtrAddOffset base off = do
     memVar <- getMemVar
     extensionStmt (LLVM_PtrAddOffset ?ptrWidth memVar base off)
@@ -489,7 +489,7 @@ callPtrSubtract ::
        wptr ~ ArchWidth arch
     => Expr (LLVM arch) s (LLVMPointerType wptr)
     -> Expr (LLVM arch) s (LLVMPointerType wptr)
-    -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType wptr))
+    -> LLVMGenerator s arch ret (Expr (LLVM arch) s (BVType wptr))
 callPtrSubtract x y = do
     memVar <- getMemVar
     extensionStmt (LLVM_PtrSubtract ?ptrWidth memVar x y)
@@ -498,7 +498,7 @@ callLoad :: MemType
          -> TypeRepr tp
          -> LLVMExpr s arch
          -> Alignment
-         -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+         -> LLVMGenerator s arch ret (LLVMExpr s arch)
 callLoad typ expectTy (asScalar -> Scalar PtrRepr ptr) align =
    do memVar <- getMemVar
       typ' <- toStorableType typ
@@ -511,7 +511,7 @@ callStore :: MemType
           -> LLVMExpr s arch
           -> LLVMExpr s arch
           -> Alignment
-          -> LLVMGenerator h s arch ret ()
+          -> LLVMGenerator s arch ret ()
 callStore typ (asScalar -> Scalar PtrRepr ptr) (ZeroExpr _mt) _align =
  do memVar <- getMemVar
     typ'   <- toStorableType typ

@@ -55,18 +55,18 @@ import           Lang.Crucible.Types
 
 -- | A monad providing state and continuations for translating LLVM expressions
 -- to CFGs.
-type LLVMGenerator h s arch ret a =
+type LLVMGenerator s arch ret a =
   (?lc :: TypeContext, HasPtrWidth (ArchWidth arch)) =>
-    Generator (LLVM arch) h s (LLVMState arch) ret a
+    Generator (LLVM arch) s (LLVMState arch) ret IO a
 
 -- | @LLVMGenerator@ without the constraint, can be nested further inside monads.
-type LLVMGenerator' h s arch ret =
-  Generator (LLVM arch) h s (LLVMState arch) ret
+type LLVMGenerator' s arch ret =
+  Generator (LLVM arch) s (LLVMState arch) ret IO
 
 
 -- LLVMState
 
-getMemVar :: LLVMGenerator h s arch reg (GlobalVar Mem)
+getMemVar :: LLVMGenerator s arch reg (GlobalVar Mem)
 getMemVar = llvmMemVar . llvmContext <$> get
 
 -- | Maps identifiers to an associated register or defined expression.
@@ -101,10 +101,10 @@ data LLVMBlockInfo s
     , block_phi_map    :: !(Map L.BlockLabel (Seq (L.Ident, L.Type, L.Value)))
     }
 
-buildBlockInfoMap :: L.Define -> LLVMGenerator h s arch ret (Map L.BlockLabel (LLVMBlockInfo s))
+buildBlockInfoMap :: L.Define -> LLVMGenerator s arch ret (Map L.BlockLabel (LLVMBlockInfo s))
 buildBlockInfoMap d = Map.fromList <$> (mapM buildBlockInfo $ L.defBody d)
 
-buildBlockInfo :: L.BasicBlock -> LLVMGenerator h s arch ret (L.BlockLabel, LLVMBlockInfo s)
+buildBlockInfo :: L.BasicBlock -> LLVMGenerator s arch ret (L.BlockLabel, LLVMBlockInfo s)
 buildBlockInfo bb = do
   let phi_map = buildPhiMap (L.bbStmts bb)
   let Just blk_lbl = L.bbLabel bb

@@ -90,7 +90,6 @@ module Lang.Crucible.LLVM.Translation
 
 import Control.Monad.Except
 import Control.Lens hiding (op, (:>) )
-import Control.Monad.ST
 import Data.Maybe
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -151,7 +150,7 @@ transContext :: Simple Lens (ModuleTranslation arch) (LLVMContext arch)
 transContext = lens _transContext (\s v -> s{ _transContext = v})
 
 
-typeToRegExpr :: MemType -> LLVMGenerator h s arch ret (Some (Reg s))
+typeToRegExpr :: MemType -> LLVMGenerator s arch ret (Some (Reg s))
 typeToRegExpr tp = do
   llvmTypeAsRepr tp $ \tpr ->
     Some <$> newUnassignedReg tpr
@@ -161,12 +160,12 @@ typeToRegExpr tp = do
 --   Because LLVM programs are in SSA form, this will occur in exactly one place.
 --   The type of the register is inferred from the instruction that assigns to it
 --   and is recorded in the ident map.
-buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator h s arch reg (IdentMap s)
+buildRegMap :: IdentMap s -> L.Define -> LLVMGenerator s arch reg (IdentMap s)
 buildRegMap m d = foldM buildRegTypeMap m $ L.defBody d
 
 buildRegTypeMap :: IdentMap s
                 -> L.BasicBlock
-                -> LLVMGenerator h s arch ret (IdentMap s)
+                -> LLVMGenerator s arch ret (IdentMap s)
 buildRegTypeMap m0 bb = foldM stmt m0 (L.bbStmts bb)
  where stmt m (L.Effect _ _) = return m
        stmt m (L.Result ident instr _) = do
@@ -182,7 +181,7 @@ generateStmts
         :: TypeRepr ret
         -> L.BlockLabel
         -> [L.Stmt]
-        -> LLVMGenerator h s arch ret a
+        -> LLVMGenerator s arch ret a
 generateStmts retType lab stmts = go (processDbgDeclare stmts)
  where go [] = fail "LLVM basic block ended without a terminating instruction"
        go (x:xs) =
@@ -230,7 +229,7 @@ processDbgDeclare = snd . go
 
 setLocation
   :: [(String,L.ValMd)]
-  -> LLVMGenerator h s arch ret ()
+  -> LLVMGenerator s arch ret ()
 setLocation [] = return ()
 setLocation (x:xs) =
   case x of
@@ -282,7 +281,7 @@ defineLLVMBlock
         :: TypeRepr ret
         -> Map L.BlockLabel (LLVMBlockInfo s)
         -> L.BasicBlock
-        -> LLVMGenerator h s arch ret ()
+        -> LLVMGenerator s arch ret ()
 defineLLVMBlock retType lm L.BasicBlock{ L.bbLabel = Just lab, L.bbStmts = stmts } = do
   case Map.lookup lab lm of
     Just bi -> defineBlock (block_label bi) (generateStmts retType lab stmts)
@@ -298,7 +297,7 @@ defineLLVMBlock _ _ _ = fail "LLVM basic block has no label!"
 --   point.  It is inconvenient to avoid doing this when using the Generator interface.
 genDefn :: L.Define
         -> TypeRepr ret
-        -> LLVMGenerator h s arch ret (Expr (LLVM arch) s ret)
+        -> LLVMGenerator s arch ret (Expr (LLVM arch) s ret)
 genDefn defn retType =
   case L.defBody defn of
     [] -> fail "LLVM define with no blocks!"
@@ -337,11 +336,12 @@ transDefine ctx d = do
     Just (LLVMHandleInfo _ (h :: FnHandle args ret)) -> do
       let argTypes = handleArgTypes h
       let retType  = handleReturnType h
-      let def :: FunctionDef (LLVM arch) RealWorld (LLVMState arch) args ret
+      let def :: FunctionDef (LLVM arch) (LLVMState arch) args ret IO
           def inputs = (s, f)
             where s = initialState d ctx argTypes inputs
                   f = genDefn d retType
-      (SomeCFG g,[]) <- stToIO $ defineFunction InternalPos h def
+      sng <- newIONonceGenerator
+      (SomeCFG g,[]) <- defineFunction InternalPos sng h def
       case toSSA g of
         C.SomeCFG g_ssa -> return (sym, C.AnyCFG g_ssa)
 
