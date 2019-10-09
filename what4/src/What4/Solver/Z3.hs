@@ -125,7 +125,7 @@ writeZ3SMT2File
    -> Handle
    -> [BoolExpr t]
    -> IO ()
-writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 nullAcknowledgementAction "Z3" z3Features
+writeZ3SMT2File = SMT2.writeDefaultSMT2 Z3 "Z3" z3Features
 
 instance SMT2.SMTLib2GenericSolver Z3 where
   defaultSolverPath _ = findSolverPath z3Path . getConfiguration

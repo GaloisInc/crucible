@@ -869,7 +869,7 @@ yicesAdapter =
        runYicesInOverride sym logData ps
           (cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure)
    , solver_adapter_write_smt2 =
-       writeDefaultSMT2 () nullAcknowledgementAction "YICES" yicesSMT2Features
+       writeDefaultSMT2 () "YICES" yicesSMT2Features
    }
 
 -- | Path to yices

@@ -74,7 +74,7 @@ boolectorAdapter =
       res <- runBoolectorInOverride sym logData p
       cont . runIdentity . traverseSatResult (\x -> pure (x,Nothing)) pure $ res
   , solver_adapter_write_smt2 =
-      SMT2.writeDefaultSMT2 () nullAcknowledgementAction "Boolector" defaultWriteSMTLIB2Features
+      SMT2.writeDefaultSMT2 () "Boolector" defaultWriteSMTLIB2Features
   }
 
 instance SMT2.SMTLib2Tweaks Boolector where
