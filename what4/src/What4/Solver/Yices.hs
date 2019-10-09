@@ -45,7 +45,6 @@ module What4.Solver.Yices
   , yicesType
   , assertForall
   , efSolveCommand
-  , setTimeoutCommand
   , YicesException(..)
 
     -- * Live connection
@@ -61,6 +60,7 @@ module What4.Solver.Yices
   , yicesDefaultFeatures
   , yicesEnableMCSat
   , yicesEnableInteractive
+  , yicesGoalTimeout
   ) where
 
 import           Control.Exception
@@ -88,7 +88,6 @@ import qualified Data.Text.Lazy as Lazy
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
-import           Data.Time.Clock
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -119,8 +118,9 @@ import Prelude
 
 -- | This is a tag used to indicate that a 'WriterConn' is a connection
 -- to a specific Yices process.
-newtype Connection s = Connection
+data Connection s = Connection
   { yicesEarlyUnsat :: IORef (Maybe Int)
+  , yicesTimeout :: Integer
   }
 
 -- | Attempt to interpret a Config value as a Yices value.
@@ -373,34 +373,34 @@ yicesType (StructTypeMap f)      = tupleType (toListFC yicesType f)
 -- Command
 
 assertForallCommand :: [(Text,YicesType)] -> Expr s -> Command (Connection s)
-assertForallCommand vars e = unsafeCmd $ app "assert" [renderTerm res]
+assertForallCommand vars e = const $ unsafeCmd $ app "assert" [renderTerm res]
  where res = binder_app "forall" (uncurry mkBinding <$> vars) e
        mkBinding nm tp = Builder.fromText nm <> "::" <> unType tp
 
 
 efSolveCommand :: Command (Connection s)
-efSolveCommand = safeCmd "(ef-solve)"
+efSolveCommand _ = safeCmd "(ef-solve)"
 
 evalCommand :: Term (Connection s)-> Command (Connection s)
-evalCommand v = safeCmd $ app "eval" [renderTerm v]
+evalCommand v _ = safeCmd $ app "eval" [renderTerm v]
 
 exitCommand :: Command (Connection s)
-exitCommand = safeCmd "(exit)"
+exitCommand _ = safeCmd "(exit)"
 
 -- | Tell yices to show a model
 showModelCommand :: Command (Connection s)
-showModelCommand = safeCmd "(show-model)"
+showModelCommand _ = safeCmd "(show-model)"
 
 checkExistsForallCommand :: Command (Connection s)
-checkExistsForallCommand = safeCmd "(ef-solve)"
+checkExistsForallCommand _ = safeCmd "(ef-solve)"
 
 -- | Create yices set command value.
 setParamCommand :: Text -> Builder -> Command (Connection s)
-setParamCommand nm v = safeCmd $ app "set-param" [ Builder.fromText nm, v ]
+setParamCommand nm v _ = safeCmd $ app "set-param" [ Builder.fromText nm, v ]
 
-setTimeoutCommand :: DiffTime -> Command (Connection s)
-setTimeoutCommand t = unsafeCmd $
-  app "set-timeout" [ Builder.fromString (show (floor t :: Integer)) ]
+setTimeoutCommand :: Command (Connection s)
+setTimeoutCommand conn = unsafeCmd $
+  app "set-timeout" [ Builder.fromString (show (yicesTimeout conn)) ]
 
 ------------------------------------------------------------------------
 -- Connection
@@ -408,9 +408,10 @@ setTimeoutCommand t = unsafeCmd $
 newConnection :: Streams.OutputStream Text
               -> (IORef (Maybe Int) -> AcknowledgementAction t (Connection s))
               -> ProblemFeatures -- ^ Indicates the problem features to support.
+              -> Integer
               -> B.SymbolVarBimap t
               -> IO (WriterConn t (Connection s))
-newConnection stream ack reqFeatures bindings = do
+newConnection stream ack reqFeatures timeout bindings = do
   let efSolver = reqFeatures `hasProblemFeature` useExistForall
   let nlSolver = reqFeatures `hasProblemFeature` useNonlinearArithmetic
   let features | efSolver  = useLinearArithmetic
@@ -428,7 +429,10 @@ newConnection stream ack reqFeatures bindings = do
 
 
   earlyUnsatRef <- newIORef Nothing
-  conn <- newWriterConn stream (ack earlyUnsatRef) nm features' bindings (Connection earlyUnsatRef)
+  let c = Connection { yicesEarlyUnsat = earlyUnsatRef
+                     , yicesTimeout = timeout
+                     }
+  conn <- newWriterConn stream (ack earlyUnsatRef) nm features' bindings c
   return $! conn { supportFunctionDefs = True
                  , supportFunctionArguments = True
                  , supportQuantifiers = efSolver
@@ -450,7 +454,7 @@ unsafeCmd :: Builder -> YicesCommand
 unsafeCmd txt = YicesCommand { cmdEarlyUnsatSafe = False, cmdCmd = txt }
 
 type instance Term (Connection s) = YicesTerm s
-type instance Command (Connection s) = YicesCommand
+type instance Command (Connection s) = Connection s -> YicesCommand
 
 instance SMTWriter (Connection s) where
   forallExpr vars t = binder_app "forall" (uncurry varBinding <$> vars) t
@@ -460,43 +464,51 @@ instance SMTWriter (Connection s) where
   arrayUpdate a i v =
     T $ app "update" [ renderTerm a, builder_list (renderTerm <$> i), renderTerm v ]
 
-  commentCommand _ b = safeCmd (";; " <> b)
+  commentCommand _ b = const $ safeCmd (";; " <> b)
 
-  pushCommand _   = safeCmd "(push)"
-  popCommand _    = safeCmd "(pop)"
-  resetCommand _  = safeCmd "(reset)"
-  checkCommand _  = safeCmd "(check)"
-  checkWithAssumptionsCommand _ nms =
-    safeCmd $ app_list "check-assuming" (map Builder.fromText nms)
+  pushCommand _   = const $ safeCmd "(push)"
+  popCommand _    = const $ safeCmd "(pop)"
+  resetCommand _  = const $ safeCmd "(reset)"
+  checkCommands _  =
+    [ setTimeoutCommand, const $ safeCmd "(check)" ]
+  checkWithAssumptionsCommands _ nms =
+    [ setTimeoutCommand
+    , const $ safeCmd $ app_list "check-assuming" (map Builder.fromText nms)
+    ]
 
-  getUnsatAssumptionsCommand _ = safeCmd "(show-unsat-assumptions)"
-  getUnsatCoreCommand _ = safeCmd "(show-unsat-core)"
+  getUnsatAssumptionsCommand _ = const $ safeCmd "(show-unsat-assumptions)"
+  getUnsatCoreCommand _ = const $ safeCmd "(show-unsat-core)"
   setOptCommand _ x o = setParamCommand x (Builder.fromText o)
 
-  setGoalTimeoutCommand _ t = Just (setTimeoutCommand t)
-  assertCommand _ (T nm) = unsafeCmd $ app "assert" [nm]
-  assertNamedCommand _ (T tm) nm = unsafeCmd $ app "assert" [tm, Builder.fromText nm]
+  assertCommand _ (T nm) = const $ unsafeCmd $ app "assert" [nm]
+  assertNamedCommand _ (T tm) nm = const $ unsafeCmd $ app "assert" [tm, Builder.fromText nm]
 
   declareCommand _ v args rtp =
-    safeCmd $ app "define" [Builder.fromText v <> "::"
-                            <> unType (fnType (toListFC yicesType args) (yicesType rtp))
-                           ]
+    const $ safeCmd $
+    app "define" [Builder.fromText v <> "::"
+                  <> unType (fnType (toListFC yicesType args) (yicesType rtp))
+                 ]
 
   defineCommand _ v args rtp t =
-    safeCmd $ app "define" [Builder.fromText v <> "::"
-                             <> unType (fnType ((\(_,tp) -> viewSome yicesType tp) <$> args) (yicesType rtp))
-                           , renderTerm (yicesLambda args t)
-                           ]
+    const $ safeCmd $
+    app "define" [Builder.fromText v <> "::"
+                  <> unType (fnType ((\(_,tp) -> viewSome yicesType tp) <$> args) (yicesType rtp))
+                 , renderTerm (yicesLambda args t)
+                 ]
 
   declareStructDatatype _ _ = return ()
 
-  writeCommand conn (YicesCommand earlyUnsatSafe cmd) =
+  writeCommand conn cmdf =
     do isEarlyUnsat <- readIORef (yicesEarlyUnsat (connState conn))
        unless (isJust isEarlyUnsat && not earlyUnsatSafe) $ do
-         let cmdout = Lazy.toStrict (Builder.toLazyText cmd) <> "\n"
          Streams.write (Just cmdout) (connHandle conn)
          -- force a flush
          Streams.write (Just "") (connHandle conn)
+    where
+      cmd = cmdf (connState conn)
+      earlyUnsatSafe = cmdEarlyUnsatSafe cmd
+      cmdBuilder = cmdCmd cmd
+      cmdout = Lazy.toStrict (Builder.toLazyText cmdBuilder) <> "\n"
 
 instance SMTReadWriter (Connection s) where
   smtEvalFuns conn resp =
@@ -509,9 +521,9 @@ instance SMTReadWriter (Connection s) where
 
   smtSatResult _ = getSatResponse
 
-  smtUnsatAssumptionsResult p s =
+  smtUnsatAssumptionsResult _ s =
     do mb <- try (Streams.parseFromStream parseSExp s)
-       let cmd = getUnsatAssumptionsCommand p
+       let cmd = safeCmd "(show-unsat-assumptions)"
        case mb of
          Right (asNegAtomList -> Just as) -> return as
          Right (SApp [SAtom "error", SString msg]) -> throw (YicesError cmd msg)
@@ -521,9 +533,9 @@ instance SMTReadWriter (Connection s) where
                          , "*** Exception: " ++ displayException e
                          ]
 
-  smtUnsatCoreResult p s =
+  smtUnsatCoreResult _ s =
     do mb <- try (Streams.parseFromStream parseSExp s)
-       let cmd = getUnsatCoreCommand p
+       let cmd = safeCmd "(show-unsat-core)"
        case mb of
          Right (asAtomList -> Just nms) -> return nms
 
@@ -586,8 +598,11 @@ yicesAck ::
   Streams.InputStream Text ->
   IORef (Maybe Int) ->
   AcknowledgementAction s (Connection s)
-yicesAck resp earlyUnsatRef = AckAction $ \conn (YicesCommand earlyUnsatSafe cmd) ->
+yicesAck resp earlyUnsatRef = AckAction $ \conn cmdf ->
   do isEarlyUnsat <- readIORef earlyUnsatRef
+     let cmd = cmdf (connState conn)
+         earlyUnsatSafe = cmdEarlyUnsatSafe cmd
+         cmdBuilder = cmdCmd cmd
      if isJust isEarlyUnsat && not earlyUnsatSafe
      then return ()
      else do
@@ -603,7 +618,7 @@ yicesAck resp earlyUnsatRef = AckAction $ \conn (YicesCommand earlyUnsatSafe cmd
                    [ "Unexpected response from solver while awaiting acknowledgement"
                    , "*** result:" ++ show txt
                    , "in response to command"
-                   , "***: " ++ Lazy.unpack (Builder.toLazyText cmd)
+                   , "***: " ++ Lazy.unpack (Builder.toLazyText cmdBuilder)
                    ]
 
 yicesStartSolver ::
@@ -616,7 +631,8 @@ yicesStartSolver features auxOutput sym = do -- FIXME
   yices_path <- findSolverPath yicesPath cfg
   enableMCSat <- getOpt =<< getOptionSetting yicesEnableMCSat cfg
   enableInteractive <- getOpt =<< getOptionSetting yicesEnableInteractive cfg
-  let modeFlag | enableInteractive = "--mode=interactive"
+  goalTimeout <- getOpt =<< getOptionSetting yicesGoalTimeout cfg
+  let modeFlag | enableInteractive || goalTimeout /= 0 = "--mode=interactive"
                | otherwise = "--mode=push-pop"
       args = modeFlag : "--print-success" :
              if enableMCSat then ["--mcsat"] else []
@@ -648,7 +664,7 @@ yicesStartSolver features auxOutput sym = do -- FIXME
 
   in_stream' <- Streams.atEndOfOutput (hClose in_h) in_stream
 
-  conn <- newConnection in_stream' (yicesAck out_stream) features B.emptySymbolVarBimap
+  conn <- newConnection in_stream' (yicesAck out_stream) features goalTimeout B.emptySymbolVarBimap
 
   setYicesParams conn cfg
 
@@ -668,7 +684,7 @@ yicesStartSolver features auxOutput sym = do -- FIXME
 
 -- | Send a check command to Yices.
 sendCheck :: WriterConn t (Connection s) -> IO ()
-sendCheck c = addCommandNoAck c (checkCommand c)
+sendCheck c = addCommands c (checkCommands c)
 
 sendCheckExistsForall :: WriterConn t (Connection s) -> IO ()
 sendCheckExistsForall c = addCommandNoAck c checkExistsForallCommand
@@ -843,6 +859,10 @@ yicesEnableMCSat = configOption knownRepr "yices_enable-mcsat"
 yicesEnableInteractive :: ConfigOption BaseBoolType
 yicesEnableInteractive = configOption knownRepr "yices_enable-interactive"
 
+-- | Set a per-goal timeout.
+yicesGoalTimeout :: ConfigOption BaseIntegerType
+yicesGoalTimeout = configOption knownRepr "yices_goal-timeout"
+
 yicesOptions :: [ConfigDesc]
 yicesOptions =
   [ mkOpt
@@ -860,6 +880,11 @@ yicesOptions =
       boolOptSty
       (Just (PP.text "Enable Yices interactive mode (needed to support timeouts)"))
       (Just (ConcreteBool False))
+  , mkOpt
+      yicesGoalTimeout
+      integerOptSty
+      (Just (PP.text "Set a per-goal timeout"))
+      (Just (ConcreteInteger 0))
   ]
   ++ yicesInternalOptions
 
@@ -1002,7 +1027,7 @@ writeYicesFile sym path p = do
     bindings <- B.getSymbolVarBimap sym
 
     str <- Streams.encodeUtf8 =<< Streams.handleToOutputStream h
-    c <- newConnection str (const nullAcknowledgementAction) features bindings
+    c <- newConnection str (const nullAcknowledgementAction) features 0 bindings
     setYicesParams c cfg
     assume c p
     if efSolver then
@@ -1051,7 +1076,7 @@ runYicesInOverride sym logData conditions resultFn = do
       -- Create new connection for sending commands to yices.
       bindings <- B.getSymbolVarBimap sym
 
-      c <- newConnection in_stream (const nullAcknowledgementAction) features bindings
+      c <- newConnection in_stream (const nullAcknowledgementAction) features 0 bindings
       -- Write yices parameters.
       setYicesParams c cfg
       -- Assert condition

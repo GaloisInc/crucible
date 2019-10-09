@@ -14,7 +14,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.IORef
 import Data.List(intercalate)
-import Data.Maybe (isJust)
 import qualified Data.Sequence as Seq
 import Control.Exception(catch, displayException)
 import Control.Monad(when)
@@ -38,7 +37,7 @@ import What4.Interface (IsExprBuilder, getConfiguration)
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
 import What4.Solver.Z3 (z3Timeout)
-import What4.Solver.Yices (yicesEnableMCSat, yicesEnableInteractive)
+import What4.Solver.Yices (yicesEnableMCSat, yicesGoalTimeout)
 
 import Crux.Log
 import Crux.Types
@@ -126,7 +125,9 @@ withBackend cruxOpts nonceGen f =
     "yices" ->
       withYicesOnlineBackend @(Flags FloatReal) nonceGen unsatCores $ \sym ->
         do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
-           symCfg sym yicesEnableInteractive (isJust (goalTimeout cruxOpts))
+           case goalTimeout cruxOpts of
+             Just s -> symCfg sym yicesGoalTimeout (floor s)
+             Nothing -> return ()
            f sym
 
     "z3" ->

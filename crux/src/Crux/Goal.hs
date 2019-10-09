@@ -5,7 +5,7 @@
 module Crux.Goal where
 
 import Control.Lens ((^.), view)
-import Control.Monad (forM_, unless, join)
+import Control.Monad (forM_, unless)
 import Data.Either (partitionEithers)
 import Data.IORef
 import Data.Maybe (fromMaybe)
@@ -20,8 +20,7 @@ import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
 import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
-                               , assumeFormula, smtExprGroundEvalFn
-                               , addCommand, setGoalTimeoutCommand )
+                               , assumeFormula, smtExprGroundEvalFn )
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
         ( OnlineBackendState, getSolverProcess )
@@ -154,10 +153,6 @@ proveGoals opts ctxt (Just gs0) =
            nm <- doAssume =<< mkFormula conn =<< notPred sym (p ^. labeledPred)
            bindName nm (Right p) nameMap
 
-           case join (setGoalTimeoutCommand sp <$> goalTimeout opts) of
-             Just c -> addCommand (solverConn sp) c
-             -- If there's no command, we would have set it already.
-             Nothing -> return ()
            res <- check sp "proof"
            ret <- case res of
                       Unsat () ->

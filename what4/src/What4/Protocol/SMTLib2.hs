@@ -482,9 +482,8 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
   popCommand _   = SMT2.pop 1
   resetCommand _ = SMT2.resetAssertions
 
-  setGoalTimeoutCommand _ _ = Nothing
-  checkCommand _ = SMT2.checkSat
-  checkWithAssumptionsCommand _ = SMT2.checkSatWithAssumptions
+  checkCommands _ = [SMT2.checkSat]
+  checkWithAssumptionsCommands _ nms = [SMT2.checkSatWithAssumptions nms]
 
   getUnsatAssumptionsCommand _ = SMT2.getUnsatAssumptions
   getUnsatCoreCommand _ = SMT2.getUnsatCore
@@ -654,7 +653,7 @@ runCheckSat :: forall b t a.
 runCheckSat s doEval =
   do let w = sessionWriter s
          r = sessionResponse s
-     addCommandNoAck w (checkCommand w)
+     addCommands w (checkCommands w)
      res <- smtSatResult w r
      case res of
        Unsat x -> doEval (Unsat x)
@@ -666,7 +665,7 @@ runCheckSat s doEval =
 -- | Called when methods in the following instance encounter an exception
 throwSMTLib2ParseError :: (Exception e) => Text -> SMT2.Command -> e -> m a
 throwSMTLib2ParseError what cmd e =
-  throw $ SMTLib2ParseError cmd $ Text.unlines
+  throw $ SMTLib2ParseError [cmd] $ Text.unlines
     [ Text.unwords ["Could not parse result from", what, "."]
     , "*** Exception: " <> Text.pack (displayException e)
     ]
@@ -685,7 +684,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
          Right "unsat" -> return (Unsat ())
          Right "sat" -> return (Sat ())
          Right "unknown" -> return Unknown
-         Right res -> throw $ SMTLib2ParseError (checkCommand p) (Text.pack (show res))
+         Right res -> throw $ SMTLib2ParseError (checkCommands p) (Text.pack (show res))
 
   smtUnsatAssumptionsResult p s =
     do mb <- try (Streams.parseFromStream parseSExp s)
@@ -693,7 +692,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
        case mb of
          Right (asNegAtomList -> Just as) -> return as
          Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
-         Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
+         Right res -> throw (SMTLib2ParseError [cmd] (Text.pack (show res)))
          Left (SomeException e) ->
            throwSMTLib2ParseError "unsat assumptions" cmd e
 
@@ -703,7 +702,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
        case mb of
          Right (asAtomList -> Just nms) -> return nms
          Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
-         Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
+         Right res -> throw (SMTLib2ParseError [cmd] (Text.pack (show res)))
          Left (SomeException e) ->
            throwSMTLib2ParseError "unsat core" cmd e
 
@@ -711,7 +710,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
 data SMTLib2Exception
   = SMTLib2Unsupported SMT2.Command
   | SMTLib2Error SMT2.Command Text
-  | SMTLib2ParseError SMT2.Command Text
+  | SMTLib2ParseError [SMT2.Command] Text
 
 instance Show SMTLib2Exception where
   show (SMTLib2Unsupported (SMT2.Cmd cmd)) =
@@ -726,13 +725,14 @@ instance Show SMTLib2Exception where
        , "in response to command:"
        , "  " ++ Lazy.unpack (Builder.toLazyText cmd)
        ]
-  show (SMTLib2ParseError (SMT2.Cmd cmd) msg) =
-     unlines
+  show (SMTLib2ParseError cmds msg) =
+     unlines $
        [ "Could not parse solver response:"
        , "  " ++ Text.unpack msg
-       , "in response to command:"
-       , "  " ++ Lazy.unpack (Builder.toLazyText cmd)
-       ]
+       , "in response to commands:"
+       ] ++ map cmdToString cmds
+       where cmdToString (SMT2.Cmd cmd) =
+               "  " ++ Lazy.unpack (Builder.toLazyText cmd)
 
 instance Exception SMTLib2Exception
 
@@ -743,8 +743,8 @@ smtAckResult resp = AckAction $ \_conn cmd ->
        Right (SAtom "success") -> return ()
        Right (SAtom "unsupported") -> throw (SMTLib2Unsupported cmd)
        Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
-       Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
-       Left (SomeException e) -> throw $ SMTLib2ParseError cmd $ Text.pack $
+       Right res -> throw (SMTLib2ParseError [cmd] (Text.pack (show res)))
+       Left (SomeException e) -> throw $ SMTLib2ParseError [cmd] $ Text.pack $
                unlines [ "Could not parse acknowledgement result."
                        , "*** Exception: " ++ displayException e
                        ]
@@ -1004,7 +1004,7 @@ nameResult _ s =
       \case
         Right (SApp [SAtom ":name", SString nm]) -> pure nm
         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
-        Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
+        Right res -> throw (SMTLib2ParseError [cmd] (Text.pack (show res)))
         Left (SomeException e) ->
           throwSMTLib2ParseError "name query" cmd e
 
@@ -1018,7 +1018,7 @@ versionResult _ s =
       \case
         Right (SApp [SAtom ":version", SString ver]) -> pure ver
         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
-        Right res -> throw (SMTLib2ParseError cmd (Text.pack (show res)))
+        Right res -> throw (SMTLib2ParseError [cmd] (Text.pack (show res)))
         Left (SomeException e) ->
           throwSMTLib2ParseError "version query" cmd e
 
