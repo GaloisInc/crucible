@@ -24,14 +24,12 @@ module Lang.Crucible.LLVM.Intrinsics
 , LLVMHandleInfo(..)
 , LLVMContext(..)
 , LLVMOverride(..)
-, SymbolHandleMap
-, symbolMap
-, llvmTypeCtx
-, mkLLVMContext
-, register_llvm_override
+
 , register_llvm_overrides
-, build_llvm_override
+, register_llvm_overrides_
 , llvmDeclToFunHandleRepr
+
+, module Lang.Crucible.LLVM.Intrinsics.Common
 ) where
 
 import           Control.Lens hiding (op, (:>), Empty)
@@ -129,9 +127,9 @@ register_llvm_define_overrides ::
   LLVMContext arch ->
   OverrideSim p sym (LLVM arch) rtp l a (LLVMContext arch)
 register_llvm_define_overrides llvmModule llvmctx =
-  let ?lc = llvmctx^.llvmTypeCtx
-  in register_llvm_overrides_ llvmctx define_overrides $
-       map defToDecl (L.modDefines llvmModule) ++ L.modDeclares llvmModule
+  let ?lc = llvmctx^.llvmTypeCtx in
+  register_llvm_overrides_ llvmctx define_overrides $
+     map defToDecl (L.modDefines llvmModule) ++ L.modDeclares llvmModule
   where defToDecl :: L.Define -> L.Declare
         defToDecl def =
           L.Declare { L.decRetType = L.defRetType def
