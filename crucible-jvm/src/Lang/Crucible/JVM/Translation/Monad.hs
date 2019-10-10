@@ -47,7 +47,6 @@ import Debug.Trace
 -- | Generator to construct a CFG from sequence of monadic actions:
 -- See "Lang.Crucible.CFG.Generator".
 --
--- * 'h' is parameter from underlying ST monad
 -- * 's' is phantom to prevent mixing constructs from different CFGs
 -- * 'ret' is return type of CFG
 type JVMGenerator s ret = Generator JVM s (JVMState ret) ret IO
