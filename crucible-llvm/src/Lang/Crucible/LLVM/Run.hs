@@ -27,7 +27,7 @@ import qualified Data.Map as Map
 import Data.Parameterized.Some(Some(..))
 import Data.Parameterized.Context(EmptyCtx)
 
-import Lang.Crucible.Types(TypeRepr)
+import Lang.Crucible.Types(TypeRepr(..))
 import Lang.Crucible.CFG.Core(AnyCFG)
 import Lang.Crucible.Simulator
   ( RegEntry, RegValue
@@ -47,7 +47,7 @@ import Lang.Crucible.LLVM.Translation
         (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap)
 import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeMemory)
 
-import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth)
+import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth,MemOptions)
 
 import Lang.Crucible.LLVM.Extension(ArchWidth)
 
@@ -85,8 +85,8 @@ data Setup ext res =
   }
 
 -- | Run Crucible with the given initialization, on the given LLVM module.
-runCruxLLVM :: Module -> CruxLLVM res -> IO res
-runCruxLLVM llvm_mod (CruxLLVM setup) =
+runCruxLLVM :: Module -> MemOptions -> CruxLLVM res -> IO res
+runCruxLLVM llvm_mod memOpts (CruxLLVM setup) =
   do halloc <- newHandleAllocator
      Some trans <- translateModule halloc llvm_mod
      res <- setup trans
@@ -106,10 +106,10 @@ runCruxLLVM llvm_mod (CruxLLVM setup) =
                               halloc
                               cruxOutput
                               (fnBindingsFromList [])
-                              llvmExtensionImpl
+                              (llvmExtensionImpl memOpts)
                               cruxUserState
 
-              cruxGo $ InitialState simctx globSt defaultAbortHandler
+              cruxGo $ InitialState simctx globSt defaultAbortHandler cruxInitCodeReturns
                      $ runOverrideSim cruxInitCodeReturns cruxInitCode
            )
 

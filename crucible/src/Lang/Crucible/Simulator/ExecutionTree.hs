@@ -65,6 +65,7 @@ module Lang.Crucible.Simulator.ExecutionTree
   , ExecCont
   , RunningStateInfo(..)
   , ResolvedCall(..)
+  , resolvedCallHandle
   , execResultContext
   , execStateContext
   , execStateSimState
@@ -158,7 +159,7 @@ import           What4.ProgramLoc (ProgramLoc, plSourceLoc)
 import           Lang.Crucible.Backend (IsSymInterface, AbortExecReason, FrameIdentifier, Assumption)
 import           Lang.Crucible.CFG.Core (BlockID, CFG, CFGPostdom, StmtSeq)
 import           Lang.Crucible.CFG.Extension (StmtExtension, ExprExtension)
-import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator)
+import           Lang.Crucible.FunctionHandle (FnHandleMap, HandleAllocator, mkHandle')
 import           Lang.Crucible.Simulator.CallFrame
 import           Lang.Crucible.Simulator.Evaluation (EvalAppFunc)
 import           Lang.Crucible.Simulator.GlobalState (SymGlobalState)
@@ -326,6 +327,11 @@ data ResolvedCall p sym ext ret where
     !(CallFrame sym ext blocks ret args) ->
     ResolvedCall p sym ext ret
 
+resolvedCallHandle :: ResolvedCall p sym ext ret -> SomeHandle
+resolvedCallHandle (OverrideCall _ frm) = frm ^. overrideHandle
+resolvedCallHandle (CrucibleCall _ frm) = frameHandle frm
+
+
 ------------------------------------------------------------------------
 -- ExecResult
 
@@ -360,7 +366,7 @@ execStateContext = \case
   SymbolicBranchState _ _ _ _ st -> st^.stateContext
   OverrideState _ st -> st^.stateContext
   BranchMergeState _ st -> st^.stateContext
-  InitialState stctx _ _ _ -> stctx
+  InitialState stctx _ _ _ _ -> stctx
 
 execStateSimState :: ExecState p sym ext r
                   -> Maybe (SomeSimState p sym ext r)
@@ -376,7 +382,7 @@ execStateSimState = \case
   SymbolicBranchState _ _ _ _ st -> Just (SomeSimState st)
   OverrideState _ st             -> Just (SomeSimState st)
   BranchMergeState _ st          -> Just (SomeSimState st)
-  InitialState _ _ _ _           -> Nothing
+  InitialState _ _ _ _ _         -> Nothing
 
 -----------------------------------------------------------------------
 -- ExecState
@@ -514,6 +520,8 @@ data ExecState p sym ext (rtp :: Type)
             {- state of Crucible global variables -}
          !(AbortHandler p sym ext (RegEntry sym ret))
             {- initial abort handler -}
+         !(TypeRepr ret)
+            {- return type repr -}
          !(ExecCont p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx))
             {- Entry continuation -}
 
@@ -1088,17 +1096,22 @@ initSimState ::
   SimContext p sym ext {- ^ initial 'SimContext' state -} ->
   SymGlobalState sym  {- ^ state of Crucible global variables -} ->
   AbortHandler p sym ext (RegEntry sym ret) {- ^ initial abort handler -} ->
-  SimState p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx)
-initSimState ctx globals ah =
-  let startFrame = OverrideFrame { _override = startFunctionName
-                                 , _overrideRegMap = emptyRegMap
-                                 }
-      startGP = GlobalPair (OF startFrame) globals
-   in SimState
-      { _stateContext = ctx
-      , _abortHandler = ah
-      , _stateTree    = singletonTree startGP
-      }
+  TypeRepr ret ->
+  IO (SimState p sym ext (RegEntry sym ret) (OverrideLang ret) ('Just EmptyCtx))
+initSimState ctx globals ah ret =
+  do let halloc = simHandleAllocator ctx
+     h <- mkHandle' halloc startFunctionName Ctx.Empty ret
+     let startFrame = OverrideFrame { _override = startFunctionName
+                                    , _overrideHandle = SomeHandle h
+                                    , _overrideRegMap = emptyRegMap
+                                    }
+     let startGP = GlobalPair (OF startFrame) globals
+     return
+       SimState
+       { _stateContext = ctx
+       , _abortHandler = ah
+       , _stateTree    = singletonTree startGP
+       }
 
 
 stateLocation :: Getter (SimState p sym ext r f a) (Maybe ProgramLoc)

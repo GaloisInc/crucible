@@ -154,8 +154,16 @@ instrResultType instr =
     L.Load x _ _ -> case L.typedType x of
                    L.PtrTo ty -> liftMemType ty
                    _ -> fail $ unwords ["load through non-pointer type", show (L.typedType x)]
-    L.ICmp{} -> liftMemType (L.PrimType (L.Integer 1))
-    L.FCmp{} -> liftMemType (L.PrimType (L.Integer 1))
+    L.ICmp _op tv _ -> do
+      inpType <- liftMemType (L.typedType tv)
+      case inpType of
+        VecType len _ -> return (VecType len (IntType 1))
+        _ -> return (IntType 1)
+    L.FCmp _op tv _ -> do
+      inpType <- liftMemType (L.typedType tv)
+      case inpType of
+        VecType len _ -> return (VecType len (IntType 1))
+        _ -> return (IntType 1)
     L.Phi tp _   -> liftMemType tp
 
     L.GEP inbounds base elts ->
@@ -1055,6 +1063,63 @@ atomicRWOp op x y =
                         , "Value 2: " ++ show y
                         ]
 
+floatingCompare ::
+  L.FCmpOp ->
+  MemType ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (LLVMExpr s arch)
+floatingCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
+  VecExpr (IntType 1) <$> sequence (Seq.zipWith (floatingCompare op tp) xs ys)
+
+floatingCompare op _ x y =
+  do b <- scalarFloatingCompare op x y
+     return (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
+                      (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat b))))
+
+scalarFloatingCompare ::
+  L.FCmpOp ->
+  LLVMExpr s arch ->
+  LLVMExpr s arch ->
+  LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+scalarFloatingCompare op x y =
+  case (asScalar x, asScalar y) of
+     (Scalar (FloatRepr fi) x',
+      Scalar (FloatRepr fi') y')
+      | Just Refl <- testEquality fi fi' ->
+          return (floatcmp op x' y')
+
+     _ -> fail $ unwords ["Floating point comparison on incompatible values", show x, show y]
+
+floatcmp ::
+  L.FCmpOp ->
+  Expr (LLVM arch) s (FloatType fi) ->
+  Expr (LLVM arch) s (FloatType fi) ->
+  Expr (LLVM arch) s BoolType
+floatcmp op a b =
+   let isNaNCond = App . FloatIsNaN
+       -- True if a is NAN or b is NAN
+       unoCond = App $ Or (isNaNCond a) (isNaNCond b)
+       mkUno c = App $ Or c unoCond
+    in case op of
+          L.Ftrue  -> App $ BoolLit True
+          L.Ffalse -> App $ BoolLit False
+          L.Foeq   -> App $ FloatFpEq a b
+          L.Folt   -> App $ FloatLt a b
+          L.Fole   -> App $ FloatLe a b
+          L.Fogt   -> App $ FloatGt a b
+          L.Foge   -> App $ FloatGe a b
+          L.Fone   -> App $ FloatFpNe a b
+          L.Fueq   -> mkUno $ App $ FloatFpEq a b
+          L.Fult   -> mkUno $ App $ FloatLt a b
+          L.Fule   -> mkUno $ App $ FloatLe a b
+          L.Fugt   -> mkUno $ App $ FloatGt a b
+          L.Fuge   -> mkUno $ App $ FloatGe a b
+          L.Fune   -> mkUno $ App $ FloatFpNe a b
+          L.Ford   -> App $ And (App $ Not $ isNaNCond a) (App $ Not $ isNaNCond b)
+          L.Funo   -> unoCond
+
+
 integerCompare ::
   L.ICmpOp ->
   MemType ->
@@ -1222,6 +1287,76 @@ pointerOp op x y =
           , "Value 1: " ++ show x
           , "Value 2: " ++ show y
           ]
+
+
+baseSelect ::
+   (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+   LLVMExpr s arch {- ^ Selection expression -} ->
+   LLVMExpr s arch {- ^ true expression -} ->
+   LLVMExpr s arch {- ^ false expression -} ->
+   LLVMGenerator h s arch ret (Maybe (LLVMExpr s arch))
+baseSelect (asScalar -> Scalar (LLVMPointerRepr wc) c) (asScalar -> Scalar xtp x) (asScalar -> Scalar ytp y)
+  | Just Refl <- testEquality xtp ytp
+  , LLVMPointerRepr w <- xtp
+  = do c' <- callIntToBool wc c
+       z <- forceEvaluation (App (ExtensionApp (LLVM_PointerIte w c' x y)))
+       return (Just (BaseExpr (LLVMPointerRepr w) z))
+
+baseSelect (asScalar -> Scalar (LLVMPointerRepr wc) c) (asScalar -> Scalar xtp x) (asScalar -> Scalar ytp y)
+  | Just Refl <- testEquality xtp ytp
+  , AsBaseType btp <- asBaseType xtp
+  = do c' <- callIntToBool wc c
+       z <- forceEvaluation (app (BaseIte btp c' x y))
+       return (Just (BaseExpr xtp z))
+
+baseSelect _ _ _ = return Nothing
+
+
+translateSelect ::
+   (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
+   L.Instr        {- ^ The instruction to translate -} ->
+   (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
+     {- ^ A continuation to assign the produced value of this instruction to a register -} ->
+   MemType {- ^ Type of the selector variable -} ->
+   LLVMExpr s arch {- ^ Selection expression -} ->
+   MemType {- ^ Type of the select branches -} ->
+   LLVMExpr s arch {- ^ true expression -} ->
+   LLVMExpr s arch {- ^ false expression -} ->
+   LLVMGenerator h s arch ret ()
+translateSelect instr assign_f
+                  (VecType n _) (explodeVector n -> Just cs)
+                  (VecType m eltp) (explodeVector n -> Just xs) (explodeVector n -> Just ys)
+  | n == m
+  = do zs <- forM [0..n-1] $ \i ->
+               do Just c <- return $ Seq.lookup (fromIntegral i) cs
+                  Just x <- return $ Seq.lookup (fromIntegral i) xs
+                  Just y <- return $ Seq.lookup (fromIntegral i) ys
+                  mz <- baseSelect c x y
+                  maybe (fail $ unlines ["invalid select operation", showInstr instr]) return mz
+
+       assign_f (VecExpr eltp (Seq.fromList zs))
+
+translateSelect instr assign_f
+                  _ctp c
+                  (VecType n eltp) (explodeVector n -> Just xs) (explodeVector n -> Just ys)
+  = do zs <- forM [0..n-1] $ \i ->
+               do Just x <- return $ Seq.lookup (fromIntegral i) xs
+                  Just y <- return $ Seq.lookup (fromIntegral i) ys
+                  mz <- baseSelect c x y
+                  maybe (fail $ unlines ["invalid select operation", showInstr instr]) return mz
+
+       assign_f (VecExpr eltp (Seq.fromList zs))
+
+translateSelect _ assign_f _ctp c@(asScalar -> Scalar (LLVMPointerRepr wc) c') _tp x y
+  = do mz <- baseSelect c x y
+       case mz of
+         Just z -> assign_f z
+         Nothing ->
+           do c'' <- callIntToBool wc c'
+              ifte_ c'' (assign_f x) (assign_f y)
+
+translateSelect instr _ _ _ _ _ _ =
+   fail $ unlines ["invalid select operation", showInstr instr]
 
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
@@ -1440,43 +1575,11 @@ generateInstr retType lab instr assign_f k =
          k
 
     L.FCmp op x y -> do
-           let isNaNCond = App . FloatIsNaN
-           let cmpf :: Expr (LLVM arch) s (FloatType fi)
-                    -> Expr (LLVM arch) s (FloatType fi)
-                    -> Expr (LLVM arch) s BoolType
-               cmpf a b =
-                  -- True if a is NAN or b is NAN
-                  let unoCond = App $ Or (isNaNCond a) (isNaNCond b) in
-                  let mkUno c = App $ Or c unoCond in
-                  case op of
-                    L.Ftrue  -> App $ BoolLit True
-                    L.Ffalse -> App $ BoolLit False
-                    L.Foeq   -> App $ FloatFpEq a b
-                    L.Folt   -> App $ FloatLt a b
-                    L.Fole   -> App $ FloatLe a b
-                    L.Fogt   -> App $ FloatGt a b
-                    L.Foge   -> App $ FloatGe a b
-                    L.Fone   -> App $ FloatFpNe a b
-                    L.Fueq   -> mkUno $ App $ FloatFpEq a b
-                    L.Fult   -> mkUno $ App $ FloatLt a b
-                    L.Fule   -> mkUno $ App $ FloatLe a b
-                    L.Fugt   -> mkUno $ App $ FloatGt a b
-                    L.Fuge   -> mkUno $ App $ FloatGe a b
-                    L.Fune   -> mkUno $ App $ FloatFpNe a b
-                    L.Ford   -> App $ And (App $ Not $ isNaNCond a) (App $ Not $ isNaNCond b)
-                    L.Funo   -> unoCond
-
-           x' <- transTypedValue x
-           y' <- transTypedValue (L.Typed (L.typedType x) y)
-           case (asScalar x', asScalar y') of
-             (Scalar (FloatRepr fi) x'',
-              Scalar (FloatRepr fi') y'')
-              | Just Refl <- testEquality fi fi' ->
-                do assign_f (BaseExpr (LLVMPointerRepr (knownNat :: NatRepr 1))
-                                   (BitvectorAsPointerExpr knownNat (App (BoolToBV knownNat (cmpf  x'' y'')))))
-                   k
-
-             _ -> fail $ unwords ["Floating point comparison on incompatible values", show x, show y]
+           tp <- liftMemType' (L.typedType x)
+           x' <- transValue tp (L.typedValue x)
+           y' <- transValue tp y
+           assign_f =<< floatingCompare op tp x' y'
+           k
 
     L.ICmp op x y -> do
            tp <- liftMemType' (L.typedType x)
@@ -1486,14 +1589,14 @@ generateInstr retType lab instr assign_f k =
            k
 
     L.Select c x y -> do
-         c' <- transTypedValue c
-         x' <- transTypedValue x
-         y' <- transTypedValue (L.Typed (L.typedType x) y)
-         e' <- case asScalar c' of
-                 Scalar (LLVMPointerRepr w) e -> callIntToBool w e
-                 _ -> fail "expected boolean condition on select"
+         ctp <- liftMemType' (L.typedType c)
+         c'  <- transValue ctp (L.typedValue c)
 
-         ifte_ e' (assign_f x') (assign_f y')
+         tp  <- liftMemType' (L.typedType x)
+         x'  <- transValue tp (L.typedValue x)
+         y'  <- transValue tp y
+
+         translateSelect instr assign_f ctp c' tp x' y'
          k
 
     L.Jump l' -> definePhiBlock lab l'
@@ -1570,7 +1673,7 @@ generateInstr retType lab instr assign_f k =
          case tp' of
            PtrType (MemType valTy@(IntType _)) ->
              llvmTypeAsRepr valTy $ \expectTy ->
-               do val' <- transValue tp' (L.typedValue val)
+               do val' <- transValue valTy $ L.typedValue val
                   let a0 = memTypeAlign (llvmDataLayout ?lc) valTy
                   oldVal <- callLoad valTy expectTy ptr' a0
                   newVal <- atomicRWOp op oldVal val'

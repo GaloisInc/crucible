@@ -188,7 +188,7 @@ addExistVar ExistsOnly p e q v x = do
   VR $ existQuantifiers %= Map.insert e (Some info)
   recordAssertionVars ExistsOnly p x
 addExistVar ExistsForall _ _ _ _ _ = do
-  fail $ "mss does not allow existental variables to appear inside forall quantifier."
+  fail $ "what4 does not allow existental variables to appear inside forall quantifier."
 
 addForallVar :: Polarity -- ^ Polarity of formula
              -> NonceAppExpr t BaseBoolType -- ^ Top term
@@ -223,7 +223,7 @@ addBothVar ExistsOnly e q v x = do
   VR $ forallQuantifiers %= Map.insert e (Some info)
   recordExprVars ExistsForall x
 addBothVar ExistsForall _ _ _ _ = do
-  fail $ "mss does not allow existental variables to appear inside forall quantifier."
+  fail $ "what4 does not allow existental variables to appear inside forall quantifier."
 
 -- | Record variables in a predicate that we are checking satisfiability of.
 recordAssertionVars :: Scope

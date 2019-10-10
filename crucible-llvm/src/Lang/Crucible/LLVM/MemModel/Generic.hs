@@ -1654,8 +1654,8 @@ possibleAllocs n = helper . memAllocs
                 if base == n
                 then [SomeAlloc atp base sz mut alignment loc]
                 else []
-              AllocMerge (asConstantPred -> Just True) as1 as2 -> helper as1
-              AllocMerge (asConstantPred -> Just False) as1 as2 -> helper as2
+              AllocMerge (asConstantPred -> Just True) as1 _as2 -> helper as1
+              AllocMerge (asConstantPred -> Just False) _as1 as2 -> helper as2
               AllocMerge _ as1 as2 -> helper as1 ++ helper as2
 
 -- | Check if @LLVMPtr sym w@ points inside an allocation that is backed

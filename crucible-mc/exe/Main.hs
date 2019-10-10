@@ -20,6 +20,7 @@ import Lang.Crucible.Backend(IsSymInterface)
 import Lang.Crucible.CFG.Core(AnyCFG(..),cfgArgTypes,cfgReturnType)
 import Lang.Crucible.Simulator
 
+import Lang.Crucible.LLVM.MemModel(defaultMemOptions)
 import Lang.Crucible.LLVM.Translation
 import Lang.Crucible.LLVM.Run
 
@@ -38,7 +39,7 @@ main :: IO ()
 main =
   parseLLVM test_file                       >>= \llvm_mod ->
   withZ3                                    $ \sym ->
-  runCruxLLVM llvm_mod                      $
+  runCruxLLVM llvm_mod defaultMemOptions    $
   CruxLLVM                                  $ \mt ->
   withPtrWidthOf mt                         $
   case findCFG mt test_fun of

@@ -8,6 +8,7 @@
 -- Stability        : provisional
 ------------------------------------------------------------------------
 
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances, FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
@@ -19,6 +20,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -40,8 +42,11 @@ module Lang.Crucible.LLVM.MemModel
   , doDumpMem
   , BlockSource(..)
   , nextBlock
+  , MemOptions(..)
+  , defaultMemOptions
+  , laxPointerMemOptions
 
-    -- * Pointers
+  -- * Pointers
   , LLVMPointerType
   , pattern LLVMPointerRepr
   , pattern PtrRepr
@@ -73,6 +78,7 @@ module Lang.Crucible.LLVM.MemModel
   , doArrayConstStore
   , loadString
   , loadMaybeString
+  , strLen
   , uncheckedMemcpy
 
     -- * \"Raw\" operations with LLVMVal
@@ -210,6 +216,7 @@ import           Lang.Crucible.LLVM.MemModel.Type
 import qualified Lang.Crucible.LLVM.MemModel.Partial as Partial
 import qualified Lang.Crucible.LLVM.MemModel.Generic as G
 import           Lang.Crucible.LLVM.MemModel.Pointer
+import           Lang.Crucible.LLVM.MemModel.Options
 import           Lang.Crucible.LLVM.MemModel.Value
 import qualified Lang.Crucible.LLVM.Extension.Safety.UndefinedBehavior as UB
 import           Lang.Crucible.LLVM.Translation.Constant
@@ -309,7 +316,7 @@ instance IntrinsicClass sym "LLVM_memory" where
 
 -- | Top-level evaluation function for LLVM extension statements.
 --   LLVM extension statements are used to implement the memory model operations.
-llvmStatementExec :: HasPtrWidth (ArchWidth arch) => EvalStmtFunc p sym (LLVM arch)
+llvmStatementExec :: (HasPtrWidth (ArchWidth arch), ?memOpts :: MemOptions) => EvalStmtFunc p sym (LLVM arch)
 llvmStatementExec stmt cst =
   let sym = cst^.stateSymInterface
    in stateSolverProof cst (runStateT (evalStmt sym stmt) cst)
@@ -322,7 +329,7 @@ type EvalM p sym ext rtp blocks ret args a =
 --   that modifes the global state of the simulator; this captures the
 --   memory accessing effects of these statements.
 evalStmt :: forall p sym ext rtp blocks ret args wptr tp.
-  (IsSymInterface sym, HasPtrWidth wptr, HasCallStack) =>
+  (IsSymInterface sym, HasPtrWidth wptr, HasCallStack, ?memOpts :: MemOptions) =>
   sym ->
   LLVMStmt wptr (RegEntry sym) tp ->
   EvalM p sym ext rtp blocks ret args (RegValue sym tp)
@@ -408,10 +415,6 @@ evalStmt sym = eval
   eval (LLVM_PtrEq mvar (regValue -> x) (regValue -> y)) = do
      mem <- getMem mvar
      liftIO $ do
-        let allocs_doc = G.ppAllocs (G.memAllocs (memImplHeap mem))
-        let x_doc = G.ppPtr x
-        let y_doc = G.ppPtr y
-
         v1 <- isValidPointer sym x mem
         v2 <- isValidPointer sym y mem
         v3 <- G.notAliasable sym x y (memImplHeap mem)
@@ -421,12 +424,16 @@ evalStmt sym = eval
         assertUndefined sym v2 $
           UB.CompareInvalidPointer UB.Eq (UB.pointerView x) (UB.pointerView y)
 
-        -- TODO: Is this undefined behavior? If so, add to the UB module
-        assert sym v3
-           (AssertFailureSimError $ unlines [ "Const pointers compared for equality:"
-                                            , show x_doc
-                                            , show y_doc
-                                            , show allocs_doc])
+        unless (laxConstantEquality ?memOpts) $
+          do let allocs_doc = G.ppAllocs (G.memAllocs (memImplHeap mem))
+             let x_doc = G.ppPtr x
+             let y_doc = G.ppPtr y
+             -- TODO: Is this undefined behavior? If so, add to the UB module
+             assert sym v3
+               (AssertFailureSimError $ unlines [ "Const pointers compared for equality:"
+                                                , show x_doc
+                                                , show y_doc
+                                                , show allocs_doc])
         ptrEq sym PtrWidth x y
 
   eval (LLVM_PtrLe mvar (regValue -> x) (regValue -> y)) = do
@@ -879,6 +886,27 @@ isValidPointer sym p mem =
         Just True  -> return np
         Just False -> G.isValidPointer sym PtrWidth p (memImplHeap mem)
         _ -> orPred sym np =<< G.isValidPointer sym PtrWidth p (memImplHeap mem)
+
+-- | Compute the length of a null-terminated string.
+--
+--   The pointer to read from must be concrete and nonnull.  The contents
+--   of the string may be symbolic; HOWEVER, this function will not terminate
+--   unless there it eventually reaches a concete null-terminator.
+strLen :: forall sym wptr.
+  (IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  MemImpl sym      {- ^ memory to read from        -} ->
+  LLVMPtr sym wptr {- ^ pointer to string value    -} ->
+  IO (SymBV sym wptr)
+strLen sym mem = go 0
+  where
+  go !n p =
+    do v <- doLoad sym mem p (bitvectorType 1) (LLVMPointerRepr (knownNat @8)) noAlignment
+       test <- bvIsNonzero sym =<< projectLLVM_bv sym v
+       iteM bvIte sym
+            test
+            (go (n+1) =<< doPtrAddOffset sym mem p =<< bvLit sym PtrWidth 1)
+            (bvLit sym PtrWidth n)
 
 -- | Load a null-terminated string from the memory.
 --

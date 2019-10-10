@@ -50,11 +50,13 @@ module Lang.Crucible.Simulator.OverrideSim
   , writeGlobal
   , readGlobals
   , writeGlobals
+  , modifyGlobal
     -- * References
   , newRef
   , newEmptyRef
   , readRef
   , writeRef
+  , modifyRef
   , readMuxTreeRef
   , writeMuxTreeRef
     -- * Function bindings
@@ -270,6 +272,19 @@ writeGlobal ::
 writeGlobal g v = stateTree . actFrame . gpGlobals %= insertGlobal g v
 
 
+-- | Run an action to compute the new value of a global.
+modifyGlobal ::
+  IsSymInterface sym =>
+  GlobalVar tp    {- ^ global variable to modify -} ->
+  (RegValue sym tp ->
+    OverrideSim p sym ext rtp args ret (a, RegValue sym tp)) {- ^ modification action -} ->
+  OverrideSim p sym ext rtp args ret a
+modifyGlobal gv f =
+  do x <- readGlobal gv
+     (a, x') <- f x
+     writeGlobal gv x'
+     return a
+
 -- | Create a new reference cell.
 newRef ::
   IsSymInterface sym =>
@@ -309,6 +324,19 @@ writeRef ::
 writeRef r v =
   do sym <- getSymInterface
      stateTree . actFrame . gpGlobals %= insertRef sym r v
+
+modifyRef ::
+  IsSymInterface sym =>
+  RefCell tp {- ^ Reference cell to modify -} ->
+  (RegValue sym tp ->
+    OverrideSim p sym ext rtp args ret (a, RegValue sym tp)) {- ^ modification action -} ->
+  OverrideSim p sym ext rtp args ret a
+modifyRef ref f =
+  do x <- readRef ref
+     (a, x') <- f x
+     writeRef ref x'
+     return a
+
 
 -- | Read the current value of a mux tree of reference cells.
 readMuxTreeRef ::
@@ -429,12 +457,13 @@ callBlock cfg bid args =
 
 -- | Call an override in a new call frame.
 callOverride ::
+  FnHandle args ret ->
   Override p sym ext args ret ->
   RegMap sym args ->
   OverrideSim p sym ext rtp a r (RegEntry sym ret)
-callOverride ovr args =
+callOverride h ovr args =
   Sim $ StateContT $ \c -> runReaderT $
-    let f = OverrideFrame (overrideName ovr) args in
+    let f = OverrideFrame (overrideName ovr) (SomeHandle h) args in
     ReaderT $ return . CallState (ReturnToOverride c) (OverrideCall ovr f)
 
 

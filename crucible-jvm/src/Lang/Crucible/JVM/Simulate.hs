@@ -461,11 +461,12 @@ mkSimSt ::
   C.HandleAllocator ->
   JVMContext ->
   Verbosity ->
+  TypeRepr ret ->
   C.ExecCont p sym JVM (C.RegEntry sym ret) (C.OverrideLang ret) ('Just EmptyCtx) ->
   IO (C.ExecState p sym JVM (C.RegEntry sym ret))
-mkSimSt sym p halloc ctx verbosity k =
+mkSimSt sym p halloc ctx verbosity ret k =
   do globals <- Map.foldrWithKey initField (return globals0) (staticFields ctx)
-     return $ C.InitialState simctx globals C.defaultAbortHandler k
+     return $ C.InitialState simctx globals C.defaultAbortHandler ret k
   where
     -- initField :: (J.ClassName, J.FieldId) -> GlobalVar JVMValueType -> IO (C.SymGlobalState sym) -> IO (C.SymGlobalState sym)
     initField (_, fi) var m =
@@ -529,7 +530,7 @@ setupMethodHandleCrux sym p halloc ctx verbosity _classname h args = do
   let overrideSim = do _ <- runStateT (mapM_ register_jvm_override stdOverrides) ctx
                        -- _ <- runClassInit halloc ctx classname
                        fnCall
-  mkSimSt sym p halloc ctx verbosity (C.runOverrideSim (handleReturnType h) overrideSim)
+  mkSimSt sym p halloc ctx verbosity (handleReturnType h) (C.runOverrideSim (handleReturnType h) overrideSim)
 
 
 runMethodHandle

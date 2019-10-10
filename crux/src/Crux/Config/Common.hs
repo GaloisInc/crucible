@@ -6,6 +6,7 @@ import Data.Time(NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
 import Text.Read(readMaybe)
+import Data.Word (Word64)
 
 import Crux.Config
 import Crux.Log
@@ -56,8 +57,12 @@ data CruxOptions = CruxOptions
   , globalTimeout            :: Maybe NominalDiffTime
   , goalTimeout              :: Integer
   , profileOutputInterval    :: NominalDiffTime
-  , loopBound                :: Maybe Int
+
+  , loopBound                :: Maybe Word64
     -- ^ Should we artifically bound the number of loop iterations
+
+  , recursionBound           :: Maybe Word64
+    -- ^ Should we artifically bound the number of recursive calls to functions?
 
   , makeCexes                :: Bool
     -- ^ Should we construct counter-example executables
@@ -112,6 +117,10 @@ cruxOptions = Config
           loopBound <-
             sectionMaybe "iteration-bound" numSpec
             "Bound all loops to at most this many iterations."
+
+          recursionBound <-
+            sectionMaybe "recursion-bound" numSpec
+            "Bound the number of recursive calls to at most this many calls."
 
           pathStrategy <-
             section "path-strategy" pathStrategySpec AlwaysMergePaths
@@ -193,6 +202,12 @@ cruxOptions = Config
         $ ReqArg "iterations"
         $ parsePosNum "iterations"
         $ \v opts -> opts { loopBound = Just v }
+
+      , Option "r" ["recursion-bound"]
+        "Bound all recursive calls to at most this many calls"
+        $ ReqArg "calls"
+        $ parsePosNum "calls"
+        $ \v opts -> opts { recursionBound = Just v }
 
       , Option "x" ["no-execs"]
         "Disable generating counter-example executables"

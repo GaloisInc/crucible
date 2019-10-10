@@ -48,6 +48,7 @@ import           Lang.Crucible.Simulator.OverrideSim
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
+import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout
 import           Lang.Crucible.LLVM.Extension
 import           Lang.Crucible.LLVM.MemModel
@@ -307,6 +308,33 @@ llvmMallocOverride =
   PtrRepr
   (\memOps sym args -> Ctx.uncurryAssignment (callMalloc sym memOps alignment) args)
 
+posixMemalignOverride ::
+  (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext) =>
+  LLVMOverride p sym arch
+      (EmptyCtx ::> LLVMPointerType wptr
+                ::> BVType wptr
+                ::> BVType wptr)
+      (BVType 32)
+posixMemalignOverride =
+  let nm = "posix_memalign" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer 32
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PtrTo $  L.PrimType $ L.Integer 8
+                     , llvmSizeT
+                     , llvmSizeT
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> SizeT :> SizeT)
+  (KnownBV @32)
+  (\memOps sym args -> Ctx.uncurryAssignment (callPosixMemalign sym memOps) args)
+
+
 llvmFreeOverride
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
   => LLVMOverride p sym arch
@@ -461,39 +489,53 @@ callRealloc sym mvar alignment (regValue -> ptr) (regValue -> sz) =
      ptrNull <- liftIO (ptrIsNull sym PtrWidth ptr)
      symbolicBranches emptyRegMap
        -- If the pointer is null, behave like malloc
-       [ (ptrNull
-         , do mem <- readGlobal mvar
-              (newp, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-              writeGlobal mvar mem'
-              return newp
-         ,
-         Nothing)
+       [ ( ptrNull
+         , modifyGlobal mvar $ \mem -> liftIO $ doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
+         , Nothing
+         )
 
        -- If the size is zero, behave like malloc (of zero bytes) then free
        , (szZero
-         , do mem <- readGlobal mvar
-              (newp, mem') <- liftIO $
-                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-                   mem2 <- doFree sym mem1 ptr
-                   return (newp, mem2)
-              writeGlobal mvar mem'
-              return newp
+         , modifyGlobal mvar $ \mem -> liftIO $
+              do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
+                 mem2 <- doFree sym mem1 ptr
+                 return (newp, mem2)
          , Nothing
          )
 
        -- Otherwise, allocate a new region, memcopy `sz` bytes and free the old pointer
        , (truePred sym
-         , do mem  <- readGlobal mvar
-              (newp, mem') <- liftIO $
-                do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
-                   mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
-                   mem3 <- doFree sym mem2 ptr
-                   return (newp, mem3)
-              writeGlobal mvar mem'
-              return newp
+         , modifyGlobal mvar $ \mem -> liftIO $
+              do (newp, mem1) <- doMalloc sym G.HeapAlloc G.Mutable "<realloc>" mem sz alignment
+                 mem2 <- uncheckedMemcpy sym mem1 newp ptr sz
+                 mem3 <- doFree sym mem2 ptr
+                 return (newp, mem3)
          , Nothing)
        ]
 
+
+callPosixMemalign
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch, ?lc :: TypeContext)
+  => sym
+  -> GlobalVar Mem
+  -> RegEntry sym (LLVMPointerType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> RegEntry sym (BVType wptr)
+  -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType 32))
+callPosixMemalign sym mvar (regValue -> outPtr) (regValue -> align) (regValue -> sz) =
+  case asUnsignedBV align of
+    Nothing -> fail $ unwords ["posix_memalign: alignment value must be concrete:", show (printSymExpr align)]
+    Just concrete_align ->
+      case toAlignment (toBytes concrete_align) of
+        Nothing -> fail $ unwords ["posix_memalign: invalid alignment value:", show concrete_align]
+        Just a ->
+          let dl = llvmDataLayout ?lc in
+          modifyGlobal mvar $ \mem -> liftIO $
+             do loc <- plSourceLoc <$> getCurrentProgramLoc sym
+                (p, mem') <- doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz a
+                mem'' <- storeRaw sym mem' outPtr (bitvectorType (dl^.ptrSize)) (dl^.ptrAlign) (ptrToPtrVal p)
+                z <- bvLit sym knownNat 0
+                return (z, mem'')
 
 callMalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -502,14 +544,10 @@ callMalloc
   -> Alignment
   -> RegEntry sym (BVType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
-callMalloc sym mvar alignment (regValue -> sz) = do
-  --liftIO $ putStrLn "MEM MALLOC"
-  mem <- readGlobal mvar
-  loc <- liftIO $ plSourceLoc <$> getCurrentProgramLoc sym
-  (p, mem') <- liftIO $ doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz alignment
-  writeGlobal mvar mem'
-  return p
-
+callMalloc sym mvar alignment (regValue -> sz) =
+  modifyGlobal mvar $ \mem -> liftIO $
+    do loc <- plSourceLoc <$> getCurrentProgramLoc sym
+       doMalloc sym G.HeapAlloc G.Mutable (show loc) mem sz alignment
 
 callCalloc
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -521,13 +559,9 @@ callCalloc
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (LLVMPointerType wptr))
 callCalloc sym mvar alignment
            (regValue -> sz)
-           (regValue -> num) = do
-  --liftIO $ putStrLn "MEM CALLOC"
-  mem <- readGlobal mvar
-  (p, mem') <- liftIO $ doCalloc sym mem sz num alignment
-  writeGlobal mvar mem'
-  return p
-
+           (regValue -> num) =
+  modifyGlobal mvar $ \mem -> liftIO $
+    doCalloc sym mem sz num alignment
 
 callFree
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -536,11 +570,10 @@ callFree
   -> RegEntry sym (LLVMPointerType wptr)
   -> OverrideSim p sym (LLVM arch) r args ret ()
 callFree sym mvar
-           (regValue -> ptr) = do
-  --liftIO $ putStrLn "MEM FREE"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doFree sym mem ptr
-  writeGlobal mvar mem'
+           (regValue -> ptr) =
+  modifyGlobal mvar $ \mem -> liftIO $
+    do mem' <- doFree sym mem ptr
+       return ((), mem')
 
 ------------------------------------------------------------------------
 -- *** Memory manipulation
@@ -558,13 +591,11 @@ callMemcpy sym mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
-           _volatile = do
-  -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM COPY"
-  mem <- readGlobal mvar
-  liftIO $ assertDisjointRegions sym w dest src len
-  mem' <- liftIO $ doMemcpy sym w mem dest src len
-  writeGlobal mvar mem'
+           _volatile =
+  modifyGlobal mvar $ \mem -> liftIO $
+    do assertDisjointRegions sym w dest src len
+       mem' <- doMemcpy sym w mem dest src len
+       return ((), mem')
 
 -- NB the only difference between memcpy and memove
 -- is that memmove does not assert that the memory
@@ -583,12 +614,11 @@ callMemmove sym mvar
            (regValue -> dest)
            (regValue -> src)
            (RegEntry (BVRepr w) len)
-           _volatile = do
+           _volatile =
   -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM MOVE"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doMemcpy sym w mem dest src len
-  writeGlobal mvar mem'
+  modifyGlobal mvar $ \mem -> liftIO $
+    do mem' <- doMemcpy sym w mem dest src len
+       return ((), mem')
 
 callMemset
   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
@@ -603,12 +633,10 @@ callMemset sym mvar
            (regValue -> dest)
            (regValue -> val)
            (RegEntry (BVRepr w) len)
-           _volatile = do
-  -- FIXME? add assertions about alignment
-  --liftIO $ putStrLn "MEM SET"
-  mem <- readGlobal mvar
-  mem' <- liftIO $ doMemset sym w mem dest val len
-  writeGlobal mvar mem'
+           _volatile =
+  modifyGlobal mvar $ \mem -> liftIO $
+    do mem' <- doMemset sym w mem dest val len
+       return ((), mem')
 
 ------------------------------------------------------------------------
 -- *** Strings and I/O
@@ -649,8 +677,7 @@ callStrlen
   -> OverrideSim p sym (LLVM arch) r args ret (RegValue sym (BVType wptr))
 callStrlen sym mvar (regValue -> strPtr) = do
   mem <- readGlobal mvar
-  len <- liftIO $ length <$> loadString sym mem strPtr Nothing
-  liftIO $ bvLit sym ?ptrWidth (fromIntegral len)
+  liftIO $ strLen sym mem strPtr
 
 callPrintf
   :: (IsSymInterface sym, HasPtrWidth wptr)
@@ -823,3 +850,52 @@ llvmAssertRtnOverride =
        do let err = AssertFailureSimError "Call to __assert_rtn"
           liftIO $ assert sym (falsePred sym) err
   )
+
+llvmGetenvOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+        (EmptyCtx ::> LLVMPointerType wptr)
+        (LLVMPointerType wptr)
+llvmGetenvOverride =
+  let nm = "getenv" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PtrTo $ L.PrimType $ L.Integer 8
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr)
+  PtrRepr
+  (\_ sym _args -> liftIO $ mkNullPointer sym PtrWidth)
+
+----------------------------------------------------------------------------
+-- atexit stuff
+
+cxa_atexitOverride
+  :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+  => LLVMOverride p sym arch
+        (EmptyCtx ::> LLVMPointerType wptr ::> LLVMPointerType wptr ::> LLVMPointerType wptr)
+        (BVType 32)
+cxa_atexitOverride =
+  let nm = "__cxa_atexit" in
+  LLVMOverride
+  ( L.Declare
+    { L.decRetType = L.PrimType $ L.Integer 32
+    , L.decName    = L.Symbol nm
+    , L.decArgs    = [ L.PtrTo $ L.FunTy (L.PrimType L.Void) [L.PtrTo $ L.PrimType $ L.Integer 8] False
+                     , L.PtrTo $ L.PrimType $ L.Integer 8
+                     , L.PtrTo $ L.PrimType $ L.Integer 8
+                     ]
+    , L.decVarArgs = False
+    , L.decAttrs   = []
+    , L.decComdat  = mempty
+    }
+  )
+  (Empty :> PtrRepr :> PtrRepr :> PtrRepr)
+  (KnownBV @32)
+  (\_ sym _args -> liftIO $ bvLit sym knownNat 0)

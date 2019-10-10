@@ -13,6 +13,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -95,6 +96,7 @@ import           Lang.Crucible.Simulator.SimError
 import           Lang.Crucible.Types
 import qualified Lang.Crucible.LLVM.Bytes as G
 import           Lang.Crucible.LLVM.Types
+import           Lang.Crucible.LLVM.MemModel.Options
 
 data LLVMPointer sym w =
   -- |A pointer is a base point offset.
@@ -205,21 +207,25 @@ ptrEq sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
 -- The returned predicates assert (in this order):
 --  * the first pointer is less than or equal to the second
 --  * the comparison is valid: the pointers are to the same allocation
-ptrLe :: (1 <= w, IsSymInterface sym)
+ptrLe :: (1 <= w, IsSymInterface sym, ?memOpts :: MemOptions)
       => sym
       -> NatRepr w
       -> LLVMPtr sym w
       -> LLVMPtr sym w
       -> IO (Pred sym, Pred sym)
-ptrLe sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2) =
-  do --plt <- natLt sym base1 base2
-     peq <- natEq sym base1 base2
-     bvle <- bvUle sym off1 off2
+ptrLe sym _w (LLVMPointer base1 off1) (LLVMPointer base2 off2)
+  | laxPointerOrdering ?memOpts
+  = do plt <- natLt sym base1 base2
+       peq <- natEq sym base1 base2
+       bvle <- bvUle sym off1 off2
 
-     --p <- orPred sym plt =<< andPred sym peq bvle
+       p <- orPred sym plt =<< andPred sym peq bvle
+       return (p, truePred sym)
 
-     return (bvle, peq)
-
+  | otherwise
+  = do peq <- natEq sym base1 base2
+       bvle <- bvUle sym off1 off2
+       return (bvle, peq)
 
 -- | Add an offset to a pointer.
 ptrAdd :: (1 <= w, IsExprBuilder sym)
