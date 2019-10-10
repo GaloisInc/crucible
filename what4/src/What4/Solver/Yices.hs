@@ -859,7 +859,7 @@ yicesEnableMCSat = configOption knownRepr "yices_enable-mcsat"
 yicesEnableInteractive :: ConfigOption BaseBoolType
 yicesEnableInteractive = configOption knownRepr "yices_enable-interactive"
 
--- | Set a per-goal timeout.
+-- | Set a per-goal timeout in seconds.
 yicesGoalTimeout :: ConfigOption BaseIntegerType
 yicesGoalTimeout = configOption knownRepr "yices_goal-timeout"
 
