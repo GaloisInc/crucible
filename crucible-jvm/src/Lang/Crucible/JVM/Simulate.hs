@@ -24,7 +24,6 @@ module Lang.Crucible.JVM.Simulate where
 import           Data.Maybe (maybeToList)
 import           Data.Semigroup (Semigroup(..),(<>))
 import           Control.Monad.State.Strict
-import           Control.Monad.ST
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
@@ -47,7 +46,7 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Classes as Ctx (ixF)
 import qualified Data.Parameterized.TraversableFC as Ctx
 import           Data.Parameterized.NatRepr as NR
-
+import           Data.Parameterized.Nonce
 
 -- crucible
 import qualified Lang.Crucible.Backend as C (readPartExpr, addFailedAssertion)
@@ -78,8 +77,6 @@ import qualified What4.Interface as W4
 import qualified What4.InterpretedFloatingPoint as W4
 import qualified What4.Config as W4
 import qualified What4.Partial as W4
-
-import           What4.Utils.MonadST (liftST)
 
 -- crucible-jvm
 import           Lang.Crucible.JVM.Types
@@ -405,8 +402,8 @@ mkDelayedBinding ctx verbosity c m (JVMHandleInfo _mk (handle :: FnHandle args r
                                  ++ "and body " ++
                                      show (J.methodBody m)
                           args <- C.getOverrideArgs
-                          C.SomeCFG cfg <- liftST $ translateMethod ctx
-                                                       verbosity (J.className c) m handle
+                          C.SomeCFG cfg <- liftIO $ translateMethod ctx
+                                             verbosity (J.className c) m handle
                           C.bindFnHandle handle (C.UseCFG cfg (C.postdomInfo cfg))
                           (C.RegEntry _tp regval) <- C.callFnVal (C.HandleFnVal handle) args
                           return regval
@@ -502,12 +499,13 @@ runClassInit halloc ctx verbosity name = do
   (C.SomeCFG g') <- liftIO $ do
       h <- mkHandle halloc (fromString ("class_init:" ++ J.unClassName name))
       let (meth :: J.Method) = undefined
-          def :: FunctionDef JVM RealWorld (JVMState UnitType) EmptyCtx UnitType
+          def :: FunctionDef JVM (JVMState UnitType) EmptyCtx UnitType IO
           def _inputs = (s, f)
               where s = initialState ctx verbosity meth knownRepr
                     f = do () <- initializeClass name
                            return (App EmptyApp)
-      (SomeCFG g, []) <- stToIO $ defineFunction W4.InternalPos h def
+      sng <- newIONonceGenerator
+      (SomeCFG g, []) <- defineFunction W4.InternalPos sng h def
       return (toSSA g)
   C.callCFG g' (C.RegMap Ctx.Empty)
 

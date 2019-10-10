@@ -50,14 +50,14 @@ import Debug.Trace
 -- * 'h' is parameter from underlying ST monad
 -- * 's' is phantom to prevent mixing constructs from different CFGs
 -- * 'ret' is return type of CFG
-type JVMGenerator h s ret = Generator JVM h s (JVMState ret) ret
+type JVMGenerator s ret = Generator JVM s (JVMState ret) ret IO
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
-jvmFail :: HasCallStack => String -> JVMGenerator h s ret a
+jvmFail :: HasCallStack => String -> JVMGenerator s ret a
 jvmFail msg = error msg
 
 -- | Output a message depending on the current verbosity level.
-debug :: Int -> String -> JVMGenerator h s ret ()
+debug :: Int -> String -> JVMGenerator s ret ()
 debug level mesg = do
   v <- use jsVerbosity
   when (level <= v) $ traceM mesg
@@ -187,7 +187,7 @@ projectVariant ::
   KnownRepr (Ctx.Assignment TypeRepr) ctx =>
   Ctx.Index ctx tp ->
   Expr JVM s (VariantType ctx) ->
-  JVMGenerator h s ret (Expr JVM s tp)
+  JVMGenerator s ret (Expr JVM s tp)
 projectVariant tag var =
   do let mx = App (ProjectVariant knownRepr tag var)
      assertedJustExpr mx "incorrect variant"
@@ -200,7 +200,7 @@ injectVariant ::
 injectVariant tag val = App (InjectVariant knownRepr tag val)
 
 
-fromJVMDynamic :: J.Type -> Expr JVM s JVMValueType -> JVMGenerator h s ret (JVMValue s)
+fromJVMDynamic :: J.Type -> Expr JVM s JVMValueType -> JVMGenerator s ret (JVMValue s)
 fromJVMDynamic ty dyn =
   case ty of
     J.BooleanType -> IValue <$> projectVariant tagI dyn
@@ -214,7 +214,7 @@ fromJVMDynamic ty dyn =
     J.LongType    -> LValue <$> projectVariant tagL dyn
     J.ShortType   -> IValue <$> projectVariant tagI dyn
 
-toJVMDynamic :: J.Type -> JVMValue s -> JVMGenerator h s ret (Expr JVM s JVMValueType)
+toJVMDynamic :: J.Type -> JVMValue s -> JVMGenerator s ret (Expr JVM s JVMValueType)
 toJVMDynamic ty val =
   case ty of
     J.BooleanType -> injectVariant tagI <$> fmap boolFromInt (fromIValue val)
@@ -245,23 +245,23 @@ shortFromInt i = App (BVSext w32 w16 (App (BVTrunc w16 w32 i)))
 
 
 
-fromIValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMInt s)
+fromIValue :: HasCallStack => JVMValue s -> JVMGenerator s ret (JVMInt s)
 fromIValue (IValue v) = return v
 fromIValue _ = jvmFail "fromIValue"
 
-fromLValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMLong s)
+fromLValue :: HasCallStack => JVMValue s -> JVMGenerator s ret (JVMLong s)
 fromLValue (LValue v) = return v
 fromLValue _ = jvmFail "fromLValue"
 
-fromDValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMDouble s)
+fromDValue :: HasCallStack => JVMValue s -> JVMGenerator s ret (JVMDouble s)
 fromDValue (DValue v) = return v
 fromDValue _ = jvmFail "fromDValue"
 
-fromFValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMFloat s)
+fromFValue :: HasCallStack => JVMValue s -> JVMGenerator s ret (JVMFloat s)
 fromFValue (FValue v) = return v
 fromFValue _ = jvmFail "fromFValue"
 
-fromRValue :: HasCallStack => JVMValue s -> JVMGenerator h s ret (JVMRef s)
+fromRValue :: HasCallStack => JVMValue s -> JVMGenerator s ret (JVMRef s)
 fromRValue (RValue v) = return v
 fromRValue v = jvmFail $ "fromRValue:" ++ show v
 
@@ -270,9 +270,9 @@ fromRValue v = jvmFail $ "fromRValue:" ++ show v
 -- * Some utilities for generation (not specific to the JVM)
 
 -- | Generate code to test whether a 'Maybe' value is nothing.
-gen_isNothing :: (IsSyntaxExtension p, KnownRepr TypeRepr tp) =>
+gen_isNothing :: (IsSyntaxExtension p, KnownRepr TypeRepr tp, Monad m) =>
   Expr p s (MaybeType tp)
-  -> Generator p h s ret k (Expr p s BoolType)
+  -> Generator p s ret k m (Expr p s BoolType)
 gen_isNothing expr =
   caseMaybe expr knownRepr
   MatchMaybe
@@ -281,9 +281,9 @@ gen_isNothing expr =
   }
 
 -- | Generate code to test whether a 'Maybe' value is defined.
-gen_isJust :: (IsSyntaxExtension p, KnownRepr TypeRepr tp) =>
+gen_isJust :: (IsSyntaxExtension p, KnownRepr TypeRepr tp, Monad m) =>
   Expr p s (MaybeType tp)
-           -> Generator p h s ret k (Expr p s BoolType)
+           -> Generator p s ret k m (Expr p s BoolType)
 gen_isJust expr =
   caseMaybe expr knownRepr
   MatchMaybe
@@ -294,10 +294,10 @@ gen_isJust expr =
 
 -- | Generate an expression that evaluates the function for
 -- each element of an array.
-forEach_ :: (IsSyntaxExtension p, KnownRepr TypeRepr tp)
+forEach_ :: (IsSyntaxExtension p, KnownRepr TypeRepr tp, Monad m)
             => Expr p s (VectorType tp)
-            -> (Expr p s tp -> Generator p h s ret k ())
-            -> Generator p h s ret k ()
+            -> (Expr p s tp -> Generator p s ret k m ())
+            -> Generator p s ret k m ()
 forEach_ vec body = do
   i <- newReg $ App (NatLit 0)
 
@@ -314,10 +314,10 @@ forEach_ vec body = do
 
 -- | Generate an expression that evaluates the function for
 -- each value in the range @i = 0; i<count; i++@.
-iterate_ :: (IsSyntaxExtension p)
+iterate_ :: (IsSyntaxExtension p, Monad m)
   => Expr p s JVMIntType
-  -> (Expr p s JVMIntType -> Generator p h s ret k ())
-  -> Generator p h s ret k ()
+  -> (Expr p s JVMIntType -> Generator p s ret k m ())
+  -> Generator p s ret k m ()
 iterate_ count body = do
   i <- newReg $ App (BVLit w32 0)
 
