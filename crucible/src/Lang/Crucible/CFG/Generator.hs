@@ -449,10 +449,10 @@ assertExpr b e =
 
 -- | Add an assume statement.
 assumeExpr ::
-  IsSyntaxExtension ext =>
+  (Monad m, IsSyntaxExtension ext) =>
   Expr ext s BoolType {- ^ assumption -} ->
   Expr ext s StringType {- ^ reason message -} ->
-  Generator ext h s t ret ()
+  Generator ext s t ret m ()
 assumeExpr b e =
   do b_a <- mkAtom b
      m_a <- mkAtom e
