@@ -19,8 +19,8 @@ import What4.SatResult(SatResult(..))
 import What4.Expr.Builder (ExprBuilder)
 import What4.Protocol.Online( OnlineSolver, inNewFrame, solverEvalFuns
                             , solverConn, check, getUnsatCore )
-import What4.Protocol.SMTWriter(mkFormula,assumeFormulaWithFreshName,assumeFormula,smtExprGroundEvalFn)
-
+import What4.Protocol.SMTWriter( mkFormula, assumeFormulaWithFreshName
+                               , assumeFormula, smtExprGroundEvalFn )
 import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
         ( OnlineBackendState, getSolverProcess )

@@ -67,6 +67,7 @@ module What4.Protocol.SMTWriter
   , Command
   , addCommand
   , addCommandNoAck
+  , addCommands
   , mkFreeVar
   , TypeMap(..)
   , freshBoundVarName
@@ -786,12 +787,14 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Reset the solver state, forgetting all pushed frames and assertions
   resetCommand  :: f h -> Command h
 
-  -- | Check if the current set of assumption is satisfiable
-  checkCommand  :: f h -> Command h
+  -- | Check if the current set of assumption is satisfiable. May
+  -- require multiple commands. The intial commands require an ack. The
+  -- last one does not.
+  checkCommands  :: f h -> [Command h]
 
   -- | Check if a collection of assumptions is satisfiable in the current context.
   --   The assumptions must be given as the names of literals already in scope.
-  checkWithAssumptionsCommand :: f h -> [Text] -> Command h
+  checkWithAssumptionsCommands :: f h -> [Text] -> [Command h]
 
   -- | Ask the solver to return an unsatisfiable core from among the assumptions
   --   passed into the previous "check with assumptions" command.
@@ -849,6 +852,14 @@ addCommandNoAck conn cmd = do
     withWriterState conn $ lastPosition .= cur
 
   writeCommand conn cmd
+
+-- | Write a sequence of commands. All but the last should have
+-- acknowledgement.
+addCommands :: SMTWriter h => WriterConn t h -> [Command h] -> IO ()
+addCommands _ [] = fail "internal: empty list in addCommands"
+addCommands conn cmds = do
+  mapM_ (addCommand conn) (init cmds)
+  addCommandNoAck conn (last cmds)
 
 -- | Create a new variable with the given name.
 mkFreeVar :: SMTWriter h
