@@ -2,10 +2,11 @@
 module Crux.Config.Common (CruxOptions(..), PathStrategy(..), cruxOptions, postprocessOptions) where
 
 import Data.Functor.Alt
-import Data.Time(NominalDiffTime)
+import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
 import Text.Read(readMaybe)
+import Data.Word (Word64)
 
 import Crux.Config
 import Crux.Log
@@ -54,10 +55,14 @@ data CruxOptions = CruxOptions
   , pathStrategy             :: PathStrategy
 
   , globalTimeout            :: Maybe NominalDiffTime
-  , goalTimeout              :: Integer
+  , goalTimeout              :: Maybe DiffTime
   , profileOutputInterval    :: NominalDiffTime
-  , loopBound                :: Maybe Int
+
+  , loopBound                :: Maybe Word64
     -- ^ Should we artifically bound the number of loop iterations
+
+  , recursionBound           :: Maybe Word64
+    -- ^ Should we artifically bound the number of recursive calls to functions?
 
   , makeCexes                :: Bool
     -- ^ Should we construct counter-example executables
@@ -106,12 +111,16 @@ cruxOptions = Config
             "Stop executing the simulator after this many seconds."
 
           goalTimeout <-
-            section "goal-timeout" numSpec 10
-            "Stop trying to prove a goal after this many seconds. (default: 10, 0 for none)"
+            sectionMaybe "goal-timeout" fractionalSpec
+            "Stop trying to prove a goal after this many seconds."
 
           loopBound <-
             sectionMaybe "iteration-bound" numSpec
             "Bound all loops to at most this many iterations."
+
+          recursionBound <-
+            sectionMaybe "recursion-bound" numSpec
+            "Bound the number of recursive calls to at most this many calls."
 
           pathStrategy <-
             section "path-strategy" pathStrategySpec AlwaysMergePaths
@@ -170,10 +179,11 @@ cruxOptions = Config
         $ \v opts -> opts { globalTimeout = Just v }
 
       , Option [] ["goal-timeout"]
-        "Stop trying to prove each goal after this many seconds."
-        $ ReqArg "seconds"
-        $ parsePosNum "seconds"
-        $ \v opts -> opts { goalTimeout = v }
+        "Stop trying to prove each goal after this many seconds (default: 10)."
+        $ OptArg "seconds"
+        $ dflt "10"
+        $ parseDiffTime "seconds"
+        $ \v opts -> opts { goalTimeout = Just v }
 
       , Option "" ["path-strategy"]
         "Strategy to use for exploring paths ('always-merge' or 'split-dfs')"
@@ -193,6 +203,12 @@ cruxOptions = Config
         $ ReqArg "iterations"
         $ parsePosNum "iterations"
         $ \v opts -> opts { loopBound = Just v }
+
+      , Option "r" ["recursion-bound"]
+        "Bound all recursive calls to at most this many calls"
+        $ ReqArg "calls"
+        $ parsePosNum "calls"
+        $ \v opts -> opts { recursionBound = Just v }
 
       , Option "x" ["no-execs"]
         "Disable generating counter-example executables"
@@ -219,6 +235,12 @@ parsePosNum thing mk = \txt opts ->
     Just a | a >= 0 -> Right (mk a opts)
     _ -> Left ("Invalid " ++ thing)
 
+parseDiffTime ::
+  String -> (DiffTime -> opts -> opts) -> String -> OptSetter opts
+parseDiffTime thing mk =
+  parsePosNum thing (\a opts -> mk (cvt a) opts)
+  where cvt :: Double -> DiffTime
+        cvt = fromRational . toRational
 
 parseNominalDiffTime ::
   String -> (NominalDiffTime -> opts -> opts) -> String -> OptSetter opts

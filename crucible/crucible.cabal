@@ -84,6 +84,7 @@ library
     Lang.Crucible.Simulator
     Lang.Crucible.Simulator.Breakpoint
     Lang.Crucible.Simulator.BoundedExec
+    Lang.Crucible.Simulator.BoundedRecursion
     Lang.Crucible.Simulator.CallFrame
     Lang.Crucible.Simulator.Evaluation
     Lang.Crucible.Simulator.EvalStmt

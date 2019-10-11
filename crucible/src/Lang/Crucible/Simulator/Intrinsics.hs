@@ -56,7 +56,7 @@ import           Lang.Crucible.Types
 -- one to define multiple instances for a particular class.  However, in
 -- this case, 'IntrinsicClass' contains a type family, and GHC will globally
 -- check consistency of all type family instances.  Consequently, there
--- can be at most one implementation of InstrinsicClass in a program.
+-- can be at most one implementation of 'IntrinsicClass' in a program.
 class IntrinsicClass (sym :: Type) (nm :: GHC.TypeLits.Symbol) where
   -- | The 'Intrinsic' type family defines, for a given backend and symbol name,
   --   the runtime implementation of that Crucible intrinsic type.

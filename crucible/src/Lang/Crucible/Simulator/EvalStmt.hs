@@ -479,9 +479,9 @@ dispatchExecState getVerb exst kresult k =
     ResultState res ->
       kresult res
 
-    InitialState simctx globals ah cont ->
-      let st = initSimState simctx globals ah in
-      k cont st
+    InitialState simctx globals ah ret cont ->
+      do st <- initSimState simctx globals ah ret
+         k cont st
 
     AbortState rsn st ->
       let (AH handler) = st^.abortHandler in

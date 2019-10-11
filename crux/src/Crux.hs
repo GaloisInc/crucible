@@ -27,6 +27,7 @@ import Lang.Crucible.Backend
 import Lang.Crucible.Backend.Online
 import Lang.Crucible.Simulator
 import Lang.Crucible.Simulator.BoundedExec
+import Lang.Crucible.Simulator.BoundedRecursion
 import Lang.Crucible.Simulator.Profiling
 import Lang.Crucible.Simulator.PathSatisfiability
 
@@ -36,7 +37,7 @@ import What4.Interface (IsExprBuilder, getConfiguration)
 import What4.FunctionName (FunctionName)
 import What4.Protocol.Online (OnlineSolver)
 import What4.Solver.Z3 (z3Timeout)
-import What4.Solver.Yices (yicesEnableMCSat)
+import What4.Solver.Yices (yicesEnableMCSat, yicesGoalTimeout)
 
 import Crux.Log
 import Crux.Types
@@ -124,11 +125,16 @@ withBackend cruxOpts nonceGen f =
     "yices" ->
       withYicesOnlineBackend @(Flags FloatReal) nonceGen unsatCores $ \sym ->
         do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
+           case goalTimeout cruxOpts of
+             Just s -> symCfg sym yicesGoalTimeout (floor s)
+             Nothing -> return ()
            f sym
 
     "z3" ->
       withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym->
-        do symCfg sym z3Timeout (goalTimeout cruxOpts * 1000)
+        do case goalTimeout cruxOpts of
+             Just s -> symCfg sym z3Timeout (floor s * 1000)
+             Nothing -> return ()
            f sym
 
 
@@ -239,11 +245,15 @@ runSimulator lang opts@(cruxOpts,_) =
      bfs <- execFeatureMaybe (loopBound cruxOpts) $ \i ->
              boundedExecFeature (\_ -> return (Just i)) False {- side cond: no -}
 
+     -- Recursion bound
+     rfs <- execFeatureMaybe (recursionBound cruxOpts) $ \i ->
+             boundedRecursionFeature (\_ -> return (Just i)) False {- side cond: no -}
+
      -- Check path satisfiability
      psat_fs <- execFeatureIf (checkPathSat cruxOpts)
               $ pathSatisfiabilityFeature sym (considerSatisfiability sym)
 
-     let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ psat_fs
+     let execFeatures = tfs ++ profExecFeatures profInfo ++ bfs ++ rfs ++ psat_fs
 
      -- Ready to go!
      gls <- newIORef Seq.empty
