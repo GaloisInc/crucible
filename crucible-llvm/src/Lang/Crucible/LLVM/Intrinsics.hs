@@ -164,7 +164,7 @@ declare_overrides =
   , basic_llvm_override (LLVM.llvmLifetimeOverrideOverload "end" (knownNat @8))
   , basic_llvm_override (LLVM.llvmInvariantStartOverride (knownNat @8))
   , basic_llvm_override (LLVM.llvmInvariantEndOverride (knownNat @8))
-  , basic_llvm_override (LLVM.llvmExpectOverride (knownNat @64))
+
   , basic_llvm_override LLVM.llvmAssumeOverride
 
   , basic_llvm_override LLVM.llvmMemcpyOverride_8_8_32
@@ -209,6 +209,8 @@ declare_overrides =
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @14)) -- 112 = 14 * 8
   , basic_llvm_override (LLVM.llvmBSwapOverride (knownNat @16)) -- 128 = 16 * 8
 
+  , polymorphic1_llvm_override "llvm.expect"
+      (\w -> SomeLLVMOverride (LLVM.llvmExpectOverride w))
   , polymorphic1_llvm_override "llvm.sadd.with.overflow"
       (\w -> SomeLLVMOverride (LLVM.llvmSaddWithOverflow w))
   , polymorphic1_llvm_override "llvm.uadd.with.overflow"
