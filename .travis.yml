@@ -37,11 +37,11 @@ matrix:
     addons:
       homebrew:
         packages:
-        - ghc
+        - ghc@8.6
         - ntl
         - glpk
         - cabal-install
-        update: true
+        update: false
     os: osx
   - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer DO_LINT=False
     addons:
