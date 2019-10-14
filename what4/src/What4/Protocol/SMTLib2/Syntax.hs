@@ -10,6 +10,7 @@ this interface.
 
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 module What4.Protocol.SMTLib2.Syntax
@@ -219,6 +220,7 @@ arraySort (Sort i) (Sort v) = Sort $ "(Array " <> i <> " " <> v <> ")"
 
 -- | Denotes an expression in the SMT solver
 newtype Term = T { renderTerm :: Builder }
+  deriving (IsString, Monoid, Semigroup)
 
 -- | Construct an expression with the given operator and list of arguments.
 term_app :: Builder -> [Term] -> Term

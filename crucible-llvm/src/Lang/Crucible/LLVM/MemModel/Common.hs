@@ -59,7 +59,6 @@ import qualified Data.Vector as V
 import Numeric.Natural
 
 import Lang.Crucible.LLVM.Bytes
-import Lang.Crucible.LLVM.DataLayout
 import Lang.Crucible.LLVM.MemModel.Type
 
 -- | @R i j@ denotes that the write should store in range [i..j).

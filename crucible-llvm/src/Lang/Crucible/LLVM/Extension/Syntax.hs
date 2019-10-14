@@ -56,6 +56,11 @@ data LLVMExtensionExpr (arch :: LLVMArch) :: (CrucibleType -> Type) -> (Crucible
     (1 <= w) => !(NatRepr w) -> !(f (LLVMPointerType w)) ->
     LLVMExtensionExpr arch f (BVType w)
 
+  LLVM_PointerIte ::
+    (1 <= w) => !(NatRepr w) ->
+    !(f BoolType) -> !(f (LLVMPointerType w)) -> !(f (LLVMPointerType w)) ->
+    LLVMExtensionExpr arch f (LLVMPointerType w)
+
 
 -- | Extension statements for LLVM.  These statements represent the operations
 --   necessary to interact with the LLVM memory model.
@@ -185,6 +190,7 @@ instance TypeApp (LLVMExtensionExpr arch) where
       LLVM_PointerExpr w _ _ -> LLVMPointerRepr w
       LLVM_PointerBlock _ _  -> NatRepr
       LLVM_PointerOffset w _ -> BVRepr w
+      LLVM_PointerIte w _ _ _ -> LLVMPointerRepr w
 
 instance PrettyApp (LLVMExtensionExpr arch) where
   ppApp pp e =
@@ -196,6 +202,8 @@ instance PrettyApp (LLVMExtensionExpr arch) where
         text "pointerBlock" <+> pp ptr
       LLVM_PointerOffset _ ptr ->
         text "pointerOffset" <+> pp ptr
+      LLVM_PointerIte _ cond x y ->
+        text "pointerIte" <+> pp cond <+> pp x <+> pp y
 
 instance TestEqualityFC (LLVMExtensionExpr arch) where
   testEqualityFC testSubterm =

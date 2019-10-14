@@ -186,7 +186,7 @@ translateGEP inbounds base elts =
  go ::
    (1 <= lanes) =>
    NatRepr lanes               {- Number of lanes of the GEP so far -} ->
-   MemType                     {- Memory type of the incomming pointer(s) -} ->
+   MemType                     {- Memory type of the incoming pointer(s) -} ->
    GEP lanes (L.Typed L.Value) {- parital GEP computation -} ->
    [L.Typed L.Value]           {- remaining arguments to process -} ->
    m (GEPResult (L.Typed L.Value))
@@ -199,65 +199,86 @@ translateGEP inbounds base elts =
    do offt <- liftMemType (L.typedType off)
       -- The meaning of the offset depends on the static type of the intermediate result
       case mt of
-        -- If it is an array type, the offset should be considered an array index, or
-        -- vector of array indices.
-        ArrayType _ mt' ->
-          case offt of
-            -- Single array index, apply pointwise to all intermediate pointers
-            IntType _
-              -> go lanes mt' (GEP_index_each mt' gep off) xs
-
-            -- Vector of indices, matching the current number of lanes, apply
-            -- each offset to the corresponding base pointer
-            VecType n (IntType _)
-              | natValue lanes == n
-              -> go lanes mt' (GEP_index_vector mt' gep off) xs
-
-            -- Vector of indices, with a single incomming base pointer.  Scatter
-            -- the base pointer across the correct number of lanes, and then
-            -- apply the vector of offsets componentwise.
-            VecType n (IntType _)
-              | Some n' <- mkNatRepr n
-              , Just LeqProof <- isPosNat n'
-              , Just Refl <- testEquality lanes (knownNat @1)
-              -> go n' mt' (GEP_index_vector mt' (GEP_scatter n' gep) off) xs
-
-            -- Otherwise, some sort of mismatch occured.
-            _ -> badGEP
-
-        -- If it is a structure type, the index must be a constant value that indicates
-        -- which field (counting from 0) is to be indexed.
-        StructType si ->
-          do off' <- transConstant' offt (L.typedValue off)
-             case off' of
-               -- Special case for the zero value
-               ZeroConst (IntType _) -> goidx 0
-
-               -- Single index; compute the corresponding field.
-               IntConst _ idx -> goidx idx
-
-               -- Special case.  A vector of indices is allowed, but it must be of the correct
-               -- number of lanes, and each (constant) index must be the same value.
-               VectorConst (IntType _) (i@(IntConst _ idx) : is) | all (same i) is -> goidx idx
-                 where
-                 same :: LLVMConst -> LLVMConst -> Bool
-                 same (IntConst wx x) (IntConst wy y)
-                   | Just Refl <- testEquality wx wy = x == y
-                 same _ _ = False
-
-               -- Otherwise, invalid GEP instruction
-               _ -> badGEP
-
-                  -- using the information from the struct type, figure out which
-                  -- field is indicated
-            where goidx idx | 0 <= idx && idx < toInteger (V.length flds) =
-                       go lanes (fiType fi) (GEP_field fi gep) xs
-                     where flds = siFields si
-                           fi   = flds V.! (fromInteger idx)
-
-                  goidx _ = badGEP
-
+        ArrayType _ mt' -> goArray lanes off offt mt' gep xs
+        VecType   _ mt' -> goArray lanes off offt mt' gep xs
+        StructType si   -> goStruct lanes off offt si gep xs
         _ -> badGEP
+
+ -- If it is an array type, the offset should be considered an array index, or
+ -- vector of array indices.
+ goArray ::
+   (1 <= lanes) =>
+   NatRepr lanes   {- Number of lanes of the GEP so far -} ->
+   L.Typed L.Value {- Current index value -} ->
+   MemType         {- MemType of the index value -} ->
+   MemType         {- MemType of the incoming pointer(s) -} ->
+   GEP lanes (L.Typed L.Value) {- parital GEP computation -} ->
+   [L.Typed L.Value] {- remaining arguments to process -} ->
+   m (GEPResult (L.Typed L.Value))
+ goArray lanes off offt mt' gep xs =
+    case offt of
+      -- Single array index, apply pointwise to all intermediate pointers
+      IntType _
+        -> go lanes mt' (GEP_index_each mt' gep off) xs
+
+      -- Vector of indices, matching the current number of lanes, apply
+      -- each offset to the corresponding base pointer
+      VecType n (IntType _)
+        | natValue lanes == n
+        -> go lanes mt' (GEP_index_vector mt' gep off) xs
+
+      -- Vector of indices, with a single incoming base pointer.  Scatter
+      -- the base pointer across the correct number of lanes, and then
+      -- apply the vector of offsets componentwise.
+      VecType n (IntType _)
+        | Some n' <- mkNatRepr n
+        , Just LeqProof <- isPosNat n'
+        , Just Refl <- testEquality lanes (knownNat @1)
+        -> go n' mt' (GEP_index_vector mt' (GEP_scatter n' gep) off) xs
+
+      -- Otherwise, some sort of mismatch occured.
+      _ -> badGEP
+
+ -- If it is a structure type, the index must be a constant value that indicates
+ -- which field (counting from 0) is to be indexed.
+ goStruct ::
+   (1 <= lanes) =>
+   NatRepr lanes     {- Number of lanes of the GEP so far -} ->
+   L.Typed L.Value   {- Field index number -} ->
+   MemType           {- MemType of the field index -} ->
+   StructInfo        {- Struct layout information -} ->
+   GEP lanes (L.Typed L.Value) {- parital GEP computation -} ->
+   [L.Typed L.Value] {- remaining arguments to process -} ->
+   m (GEPResult (L.Typed L.Value))
+ goStruct lanes off offt si gep xs =
+    do off' <- transConstant' offt (L.typedValue off)
+       case off' of
+         -- Special case for the zero value
+         ZeroConst (IntType _) -> goidx 0
+
+         -- Single index; compute the corresponding field.
+         IntConst _ idx -> goidx idx
+
+         -- Special case.  A vector of indices is allowed, but it must be of the correct
+         -- number of lanes, and each (constant) index must be the same value.
+         VectorConst (IntType _) (i@(IntConst _ idx) : is) | all (same i) is -> goidx idx
+           where
+           same :: LLVMConst -> LLVMConst -> Bool
+           same (IntConst wx x) (IntConst wy y)
+             | Just Refl <- testEquality wx wy = x == y
+           same _ _ = False
+
+         -- Otherwise, invalid GEP instruction
+         _ -> badGEP
+
+            -- using the information from the struct type, figure out which
+            -- field is indicated
+      where goidx idx | 0 <= idx && idx < toInteger (V.length flds) =
+                 go lanes (fiType fi) (GEP_field fi gep) xs
+               where flds = siFields si
+                     fi   = flds V.! (fromInteger idx)
+
+            goidx _ = badGEP
 
 
 -- | Translation-time LLVM constant values.

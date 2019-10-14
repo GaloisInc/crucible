@@ -33,16 +33,16 @@ matrix:
         - libglpk-dev
         - libntl-dev
         - libboost-all-dev
-  - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG= DO_LINT=False
-    addons:
-      homebrew:
-        packages:
-        - ghc
-        - ntl
-        - glpk
-        - cabal-install
-        update: true
-    os: osx
+  # - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG= DO_LINT=False
+  #   addons:
+  #     homebrew:
+  #       packages:
+  #       - ghc
+  #       - ntl
+  #       - glpk
+  #       - cabal-install
+  #       update: true
+  #  os: osx
   - env: CABALVER=2.4 GHCVER=8.6.3 BUILD_ARG=--allow-newer DO_LINT=False
     addons:
       apt:

@@ -24,7 +24,7 @@ suite =
 
 goldenTests :: FilePath -> IO TestTree
 goldenTests dir =
-  do cFiles <- findByExtension [".c"] dir
+  do cFiles <- findByExtension [".c",".ll"] dir
      return $
        testGroup "Golden testing of crux-llvm"
          [ goldenVsFile (takeBaseName cFile) goodFile outFile $
