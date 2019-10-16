@@ -45,7 +45,7 @@ import Lang.Crucible.LLVM.Intrinsics
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals)
 import Lang.Crucible.LLVM.Translation
         (globalInitMap,transContext,translateModule,ModuleTranslation,cfgMap)
-import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeMemory)
+import Lang.Crucible.LLVM.Globals(populateAllGlobals,initializeAllMemory)
 
 import Lang.Crucible.LLVM.MemModel(withPtrWidth,HasPtrWidth,MemOptions)
 
@@ -95,7 +95,7 @@ runCruxLLVM llvm_mod memOpts (CruxLLVM setup) =
          withPtrWidthOf trans (
            do let llvmCtxt = trans ^. transContext
               mem <-
-                do mem0 <- initializeMemory cruxBackend llvmCtxt llvm_mod
+                do mem0 <- initializeAllMemory cruxBackend llvmCtxt llvm_mod
                    let ?lc = llvmCtxt ^. llvmTypeCtx
                    populateAllGlobals cruxBackend (globalInitMap trans) mem0
 
