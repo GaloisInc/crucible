@@ -16,6 +16,7 @@ module What4.Symbol
   , emptySymbol
   , userSymbol
   , systemSymbol
+  , safeSymbol
   , ppSolverSymbolError
   ) where
 
@@ -26,6 +27,8 @@ import qualified Data.Set as Set
 import           Data.String
 import           Data.Text (Text)
 import qualified Data.Text as Text
+
+import qualified Text.Encoding.Z as Z
 
 isAsciiLetter :: Char -> Bool
 isAsciiLetter c
@@ -104,6 +107,16 @@ systemSymbol s
     case parseAnySymbol s of
       Left e -> error ("Error parsing system symbol " ++ show s ++ ": " ++ ppSolverSymbolError e)
       Right r -> r
+
+
+-- | Attempts to create a user symbol from the given string.  If this fails
+--   for some reason, the string is Z-encoded into a system symbol instead
+--   with the prefix \"zenc!\".
+safeSymbol :: String -> SolverSymbol
+safeSymbol str =
+  case userSymbol str of
+    Right s -> s
+    Left _err -> systemSymbol ("zenc!" ++ Z.zEncodeString str)
 
 instance Show SolverSymbol where
   show s = Text.unpack (solverSymbolAsText s)
