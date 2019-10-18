@@ -155,6 +155,9 @@ setupOverrides ctxt =
      isVarargs ctxt "__VERIFIER_nondet_uchar" >>= \case
         (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_i8
         (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_i8
+     isVarargs ctxt "__VERIFIER_nondet_bool" >>= \case
+        (False, s) -> regOver ctxt s Empty knownRepr sv_comp_fresh_bool
+        (True, s) -> regOver ctxt s (Empty :> VectorRepr AnyRepr) knownRepr sv_comp_fresh_bool
 
      regOver ctxt "__VERIFIER_assert"
         (Empty :> knownRepr) knownRepr sv_comp_assert
@@ -223,6 +226,21 @@ mkFresh nm ty =
      loc   <- liftIO $ getCurrentProgramLoc sym
      stateContext.cruciblePersonality %= addVar loc nm ty elt
      return elt
+
+mkFreshBool ::
+  (IsSymInterface sym) =>
+  String ->
+  OverM sym (LLVM arch) (RegValue sym (TBits 1))
+mkFreshBool nm =
+  do sym  <- getSymInterface
+     name <- case userSymbol nm of
+               Left err -> fail (show err) -- XXX
+               Right a  -> return a
+     elt <- liftIO $ freshConstant sym name (BaseBVRepr (knownNat @1))
+     loc   <- liftIO $ getCurrentProgramLoc sym
+     stateContext.cruciblePersonality %=
+       addVar loc nm (BaseBVRepr (knownNat @1)) elt
+     liftIO (llvmPointer_bv sym elt)
 
 mkFreshFloat
   ::(IsSymInterface sym)
@@ -443,6 +461,11 @@ sv_comp_fresh_double
   :: (ArchOk arch, IsSymInterface sym)
   => Fun sym (LLVM arch) args (FloatType DoubleFloat)
 sv_comp_fresh_double = mkFreshFloat "X" DoubleFloatRepr
+
+sv_comp_fresh_bool ::
+  (ArchOk arch, IsSymInterface sym) =>
+  Fun sym (LLVM arch) args (TBits 1)
+sv_comp_fresh_bool = mkFreshBool "X"
 
 sv_comp_assume ::
   (ArchOk arch, IsSymInterface sym) =>
