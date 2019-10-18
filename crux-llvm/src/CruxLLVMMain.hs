@@ -59,7 +59,7 @@ import Lang.Crucible.Simulator.Profiling ( Metric(Metric) )
 -- crucible-llvm
 import Lang.Crucible.LLVM(llvmExtensionImpl, llvmGlobals, registerModuleFn)
 import Lang.Crucible.LLVM.Globals
-        ( initializeMemory, populateAllGlobals )
+        ( initializeAllMemory, populateAllGlobals )
 import Lang.Crucible.LLVM.MemModel
         ( MemImpl, withPtrWidth, memAllocCount, memWriteCount, MemOptions(..), laxPointerMemOptions )
 import Lang.Crucible.LLVM.Translation
@@ -178,7 +178,7 @@ simulateLLVM fs (cruxOpts,llvmOpts) sym _p cont = do
           let ?lc = llvmCtxt^.llvmTypeCtx
           let simctx = (setupSimCtxt halloc sym (memOpts llvmOpts) llvmCtxt) { printHandle = view outputHandle ?outputConfig }
           mem <- populateAllGlobals sym (globalInitMap trans)
-                    =<< initializeMemory sym llvmCtxt llvm_mod
+                    =<< initializeAllMemory sym llvmCtxt llvm_mod
           let globSt = llvmGlobals llvmCtxt mem
 
           let initSt = InitialState simctx globSt defaultAbortHandler UnitRepr $
