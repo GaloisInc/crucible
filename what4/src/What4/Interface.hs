@@ -144,6 +144,7 @@ module What4.Interface
   , What4.Symbol.SolverSymbol
   , What4.Symbol.emptySymbol
   , What4.Symbol.userSymbol
+  , What4.Symbol.safeSymbol
   , NatValueRange(..)
   , ValueRange(..)
   ) where
