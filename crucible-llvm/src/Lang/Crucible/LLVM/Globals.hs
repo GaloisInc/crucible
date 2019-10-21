@@ -28,6 +28,8 @@
 
 module Lang.Crucible.LLVM.Globals
   ( initializeMemory
+  , initializeAllMemory
+  , initializeMemoryConstGlobals
   , populateGlobal
   , populateGlobals
   , populateAllGlobals
@@ -142,13 +144,30 @@ makeGlobalMap ctx m = foldl' addAliases globalMap (Map.toList (globalAliases m))
 -- | Build the initial memory for an LLVM program.  Note, this process
 -- allocates space for global variables, but does not set their
 -- initial values.
-initializeMemory
+initializeAllMemory
    :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
    => sym
    -> LLVMContext arch
    -> L.Module
    -> IO (MemImpl sym)
-initializeMemory sym llvm_ctx m = do
+initializeAllMemory = initializeMemory (const True)
+
+initializeMemoryConstGlobals
+   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   => sym
+   -> LLVMContext arch
+   -> L.Module
+   -> IO (MemImpl sym)
+initializeMemoryConstGlobals = initializeMemory (L.gaConstant . L.globalAttrs)
+
+initializeMemory
+   :: (IsSymInterface sym, HasPtrWidth wptr, wptr ~ ArchWidth arch)
+   => (L.Global -> Bool)
+   -> sym
+   -> LLVMContext arch
+   -> L.Module
+   -> IO (MemImpl sym)
+initializeMemory predicate sym llvm_ctx m = do
    -- Create initial memory of appropriate endianness
    let ?lc = llvm_ctx^.llvmTypeCtx
    let dl = llvmDataLayout ?lc
@@ -191,7 +210,7 @@ initializeMemory sym llvm_ctx m = do
                             _ -> return tyAlign
                         return (g, aliases, sz, alignment))
                     globals
-   allocGlobals sym gs_alloc mem
+   allocGlobals sym (filter (\(g, _, _, _) -> predicate g) gs_alloc) mem
 
 allocLLVMHandleInfo :: (IsSymInterface sym, HasPtrWidth wptr)
                     => sym
