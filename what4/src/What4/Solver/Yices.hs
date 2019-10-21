@@ -121,6 +121,7 @@ import Prelude
 data Connection s = Connection
   { yicesEarlyUnsat :: IORef (Maybe Int)
   , yicesTimeout :: Integer
+  , yicesUnitDeclared :: IORef Bool
   }
 
 -- | Attempt to interpret a Config value as a Yices value.
@@ -264,6 +265,7 @@ instance SupportTermOps (YicesTerm s) where
         begin = decimal_term b
      in term_app "bv-extract"  [end, begin, x]
 
+  structCtor []   = T "unit-value"
   structCtor args = term_app "mk-tuple" args
   structFieldSelect _ s i = term_app "select" [s, fromIntegral (i + 1)]
 
@@ -341,6 +343,7 @@ errorComputableUnsupported = error "computable functions are not supported."
 newtype YicesType = YicesType { unType :: Builder }
 
 tupleType :: [YicesType] -> YicesType
+tupleType []   = YicesType "unit-type"
 tupleType flds = YicesType (app "tuple" (unType <$> flds))
 
 boolType :: YicesType
@@ -402,6 +405,16 @@ setTimeoutCommand :: Command (Connection s)
 setTimeoutCommand conn = unsafeCmd $
   app "set-timeout" [ Builder.fromString (show (yicesTimeout conn)) ]
 
+declareUnitTypeCommand :: Command (Connection s)
+declareUnitTypeCommand _conn = safeCmd $
+  app "define-type" [ Builder.fromString "unit-type", app "scalar" [ Builder.fromString "unit-value" ] ]
+
+
+declareUnitType :: WriterConn t (Connection s) -> IO ()
+declareUnitType conn =
+  do done <- atomicModifyIORef (yicesUnitDeclared (connState conn)) (\x -> (True, x))
+     unless done $ addCommand conn declareUnitTypeCommand
+
 ------------------------------------------------------------------------
 -- Connection
 
@@ -427,10 +440,11 @@ newConnection stream ack reqFeatures timeout bindings = do
                   .|. useStructs
                   .|. (reqFeatures .&. (useUnsatCores .|. useUnsatAssumptions))
 
-
   earlyUnsatRef <- newIORef Nothing
+  unitRef <- newIORef False
   let c = Connection { yicesEarlyUnsat = earlyUnsatRef
                      , yicesTimeout = timeout
+                     , yicesUnitDeclared = unitRef
                      }
   conn <- newWriterConn stream (ack earlyUnsatRef) nm features' bindings c
   return $! conn { supportFunctionDefs = True
@@ -496,6 +510,9 @@ instance SMTWriter (Connection s) where
                  , renderTerm (yicesLambda args t)
                  ]
 
+  -- yices has built-in syntax for n-tuples where n > 0,
+  -- so we only need to delcare the unit type for 0-tuples
+  declareStructDatatype conn 0 = declareUnitType conn
   declareStructDatatype _ _ = return ()
 
   writeCommand conn cmdf =
