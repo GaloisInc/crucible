@@ -583,7 +583,7 @@ main = defaultMain $ testGroup "Tests"
   , testSolverVersion
   , testYicesZeroTuple
   , testZ3ZeroTuple
-  , testCVC4ZeroTuple
+--  , testCVC4ZeroTuple
   , testZ3ForallBinder
   , testCVC4ForallBinder
   ]
