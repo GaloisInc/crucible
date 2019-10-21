@@ -412,6 +412,10 @@ declareUnitType conn =
   do done <- atomicModifyIORef (yicesUnitDeclared (connState conn)) (\x -> (True, x))
      unless done $ addCommand conn declareUnitTypeCommand
 
+resetUnitType :: WriterConn t (Connection s) -> IO ()
+resetUnitType conn =
+  writeIORef (yicesUnitDeclared (connState conn)) False
+
 ------------------------------------------------------------------------
 -- Connection
 
@@ -506,6 +510,8 @@ instance SMTWriter (Connection s) where
                   <> unType (fnType ((\(_,tp) -> viewSome yicesType tp) <$> args) (yicesType rtp))
                  , renderTerm (yicesLambda args t)
                  ]
+
+  resetDeclaredStructs conn = resetUnitType conn
 
   -- yices has built-in syntax for n-tuples where n > 0,
   -- so we only need to delcare the unit type for 0-tuples

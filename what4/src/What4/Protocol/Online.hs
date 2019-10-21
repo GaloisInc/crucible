@@ -156,6 +156,7 @@ reset :: SMTReadWriter solver => SolverProcess scope solver -> IO ()
 reset p =
   do let c = solverConn p
      resetEntryStack c
+     resetDeclaredStructs c
      writeIORef (solverEarlyUnsat p) Nothing
      addCommand c (resetCommand c)
 

@@ -826,6 +826,9 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- | Project a field from a struct with the given types
   structProj :: WriterConn t h -> Ctx.Assignment TypeMap args -> Ctx.Index args tp -> Term h -> Term h
 
+  -- | Forget all previously-declared struct types.
+  resetDeclaredStructs :: WriterConn t h -> IO ()
+
   -- | Write a command to the connection.
   writeCommand :: WriterConn t h -> Command h -> IO ()
 
