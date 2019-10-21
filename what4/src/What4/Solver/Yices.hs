@@ -415,6 +415,10 @@ declareUnitType conn =
   do done <- atomicModifyIORef (yicesUnitDeclared (connState conn)) (\x -> (True, x))
      unless done $ addCommand conn declareUnitTypeCommand
 
+resetUnitType :: WriterConn t (Connection s) -> IO ()
+resetUnitType conn =
+  writeIORef (yicesUnitDeclared (connState conn)) False
+
 ------------------------------------------------------------------------
 -- Connection
 
@@ -514,6 +518,8 @@ instance SMTWriter (Connection s) where
   -- so we only need to delcare the unit type for 0-tuples
   declareStructDatatype conn 0 = declareUnitType conn
   declareStructDatatype _ _ = return ()
+
+  resetDeclaredStructs conn = resetUnitType conn
 
   writeCommand conn cmdf =
     do isEarlyUnsat <- readIORef (yicesEarlyUnsat (connState conn))
