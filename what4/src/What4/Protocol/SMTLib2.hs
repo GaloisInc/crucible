@@ -496,6 +496,10 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
     let resolveArg (var, Some tp) = (var, asSMT2Type @a tp)
      in SMT2.defineFun f (resolveArg <$> args) (asSMT2Type @a return_type) e
 
+  resetDeclaredStructs conn = do
+    let r = declaredTuples (connState conn)
+    writeIORef r mempty
+
   declareStructDatatype conn n = do
     let r = declaredTuples (connState conn)
     s <- readIORef r

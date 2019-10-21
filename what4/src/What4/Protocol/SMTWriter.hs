@@ -830,6 +830,9 @@ class (SupportTermOps (Term h)) => SMTWriter h where
   -- arguments in the struct.
   declareStructDatatype :: WriterConn t h -> Int -> IO ()
 
+  -- | Forget all previously-declared struct types.
+  resetDeclaredStructs :: WriterConn t h -> IO ()
+
   -- | Write a command to the connection.
   writeCommand :: WriterConn t h -> Command h -> IO ()
 
