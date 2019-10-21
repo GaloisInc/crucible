@@ -224,15 +224,11 @@ class IsBoolSolver sym where
   restoreAssumptionState :: sym -> AssumptionState sym -> IO ()
 
 
--- | Add a proof obligation for the given predicate, and then assume it.
--- Note that assuming the prediate might cause the current execution
--- path to abort, if we happened to assume something that is obviously false.
+-- | Add a proof obligation for the given predicate.
 addAssertion ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
   sym -> Assertion sym -> IO ()
-addAssertion sym a@(AS.LabeledPred p msg) =
-  do addProofObligation sym a
-     addAssumption sym (AS.LabeledPred p (AssumingNoError msg))
+addAssertion sym a@(AS.LabeledPred p msg) = addProofObligation sym a
 
 
 -- | Throw an exception, thus aborting the current execution path.
@@ -240,7 +236,6 @@ abortExecBecause :: AbortExecReason -> IO a
 abortExecBecause err = throwIO err
 
 -- | Add a proof obligation using the current program location.
---   Afterwards, assume the given fact.
 assert ::
   (IsExprBuilder sym, IsBoolSolver sym) =>
   sym ->
