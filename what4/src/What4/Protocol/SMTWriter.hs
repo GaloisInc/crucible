@@ -869,6 +869,8 @@ mkFreeVar :: SMTWriter h
           -> IO Text
 mkFreeVar conn arg_types return_type = do
   var <- withWriterState conn $ freshVarName
+  traverseFC_ (declareTypes conn) arg_types
+  declareTypes conn return_type
   addCommand conn $ declareCommand conn var arg_types return_type
   return var
 
@@ -891,6 +893,32 @@ assumeFormulaWithFreshName conn p =
      assumeFormulaWithName conn p var
      return var
 
+-- | Perform any necessary declarations to ensure that the mentioned type map
+--   sorts exist in the solver environment.
+declareTypes ::
+  SMTWriter h =>
+  WriterConn t h ->
+  TypeMap tp ->
+  IO ()
+declareTypes conn = \case
+  BoolTypeMap -> return ()
+  NatTypeMap  -> return ()
+  IntegerTypeMap -> return ()
+  RealTypeMap    -> return ()
+  BVTypeMap _ -> return ()
+  FloatTypeMap _ -> return ()
+  ComplexToStructTypeMap -> declareStructDatatype conn 2
+  ComplexToArrayTypeMap  -> return ()
+  PrimArrayTypeMap args ret ->
+    do traverseFC_ (declareTypes conn) args
+       declareTypes conn ret
+  FnArrayTypeMap args ret ->
+    do traverseFC_ (declareTypes conn) args
+       declareTypes conn ret
+  StructTypeMap flds ->
+    do traverseFC_ (declareTypes conn) flds
+       declareStructDatatype conn (Ctx.sizeInt (Ctx.size flds))
+
 
 data DefineStyle
   = FunctionDefinition
@@ -911,10 +939,13 @@ defineSMTVar :: SMTWriter h
              -> IO ()
 defineSMTVar conn defSty var args return_type expr
   | supportFunctionDefs conn && defSty == FunctionDefinition = do
+    mapM_ (viewSome (declareTypes conn) . snd) args
+    declareTypes conn return_type
     addCommand conn $ defineCommand conn var args return_type expr
   | otherwise = do
     when (not (null args)) $ do
       fail $ smtWriterName conn ++ " interface does not support defined functions."
+    declareTypes conn return_type
     addCommand conn $ declareCommand conn var Ctx.empty return_type
     assumeFormula conn $ fromText var .== expr
 
@@ -1571,8 +1602,9 @@ mkExpr (BoundVarExpr var) = do
 
        smt_type <- getBaseSMT_Type var
 
-       -- Add command
-       liftIO $ addCommand conn $ declareCommand conn var_name Ctx.empty smt_type
+       liftIO $
+         do declareTypes conn smt_type
+            addCommand conn $ declareCommand conn var_name Ctx.empty smt_type
 
        -- Add assertion based on var type.
        addPartialSideCond (fromText var_name) smt_type (bvarAbstractValue var)
@@ -2503,6 +2535,7 @@ appSMTExpr ae = do
       let fld_types = fmapFC smtExprType exprs
       freshBoundTerm (StructTypeMap fld_types) $
         structCtor (toListFC asBase exprs)
+
     StructField s idx _tp -> do
       expr <- mkExpr s
       case smtExprType expr of
@@ -2549,6 +2582,8 @@ mkSMTSymFn conn nm f arg_types =
       let fnm = symFnName f
       let l = symFnLoc f
       smt_ret <- evalFirstClassTypeRepr conn (fnSource fnm l) return_type
+      traverseFC_ (declareTypes conn) arg_types
+      declareTypes conn smt_ret
       addCommand conn $
         declareCommand conn nm arg_types smt_ret
       return $! smt_ret
