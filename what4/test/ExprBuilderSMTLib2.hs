@@ -14,7 +14,7 @@
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import           Control.Monad (void)
+import           Control.Exception (bracket)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Map as Map (empty, singleton)
@@ -55,12 +55,12 @@ withSym pred_gen = withIONonceGenerator $ \gen ->
 withYices :: (forall t. SimpleExprBuilder t fs -> SolverProcess t (Yices.Connection t) -> IO ()) -> IO ()
 withYices action = withSym $ \sym ->
   do extendConfig Yices.yicesOptions (getConfiguration sym)
-     h <- openFile "yices.out" WriteMode
-     s <- startSolverProcess Yices.yicesDefaultFeatures (Just h) sym
-     res <- action sym s
-     void (shutdownSolverProcess s)
-     hClose h
-     return res
+     bracket
+       (do h <- openFile "yices.out" WriteMode
+           s <- startSolverProcess Yices.yicesDefaultFeatures (Just h) sym
+           return (h,s))
+       (\(h,s) -> shutdownSolverProcess s >> hClose h)
+       (\(_,s) -> action sym s)
 
 withZ3 :: (forall t . SimpleExprBuilder t fs -> Session t Z3.Z3 -> IO ()) -> IO ()
 withZ3 action = withIONonceGenerator $ \nonce_gen -> do
@@ -73,24 +73,24 @@ withOnlineZ3
   -> IO a
 withOnlineZ3 action = withSym $ \sym -> do
   extendConfig Z3.z3Options (getConfiguration sym)
-  h <- openFile "z3.out" WriteMode
-  s <- startSolverProcess (defaultFeatures Z3.Z3) (Just h) sym
-  res <- action sym s
-  void (shutdownSolverProcess s)
-  hClose h
-  return res
+  bracket
+    (do h <- openFile "z3.out" WriteMode
+        s <- startSolverProcess (defaultFeatures Z3.Z3) (Just h) sym
+        return (h,s))
+    (\(h,s) -> shutdownSolverProcess s >> hClose h)
+    (\(_,s) -> action sym s)
 
 withCVC4
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer CVC4.CVC4) -> IO a)
   -> IO a
 withCVC4 action = withSym $ \sym -> do
   extendConfig CVC4.cvc4Options (getConfiguration sym)
-  h <- openFile "cvc4.out" WriteMode
-  s <- startSolverProcess (defaultFeatures CVC4.CVC4) (Just h) sym
-  res <- action sym s
-  void (shutdownSolverProcess s)
-  hClose h
-  return res
+  bracket
+    (do h <- openFile "cvc4.out" WriteMode
+        s <- startSolverProcess (defaultFeatures CVC4.CVC4) (Just h) sym
+        return (h,s))
+    (\(h,s) -> shutdownSolverProcess s >> hClose h)
+    (\(_,s) -> action sym s)
 
 
 withModel
@@ -499,6 +499,39 @@ testCVC4ZeroTuple = testCase "CVC4 0-tuple" $
        isUnsat res2 @? "unsat"
 
 
+forallTest ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+forallTest sym solver =
+    do x <- freshConstant sym (userSymbol' "x") BaseBoolRepr
+       y <- freshBoundVar sym (userSymbol' "y") BaseBoolRepr
+       p <- forallPred sym y =<< orPred sym x (varExpr sym y)
+       np <- notPred sym p
+
+       checkSatisfiableWithModel solver "test" p $ \case
+         Sat fn ->
+           do b <- groundEval fn x
+              (b == True) @? "true result"
+
+         _ -> fail "expected satisfible model"
+
+       checkSatisfiableWithModel solver "test" np $ \case
+         Sat fn ->
+           do b <- groundEval fn x
+              (b == False) @? "false result"
+
+         _ -> fail "expected satisfible model"
+
+testZ3ForallBinder :: TestTree
+testZ3ForallBinder = testCase "Z3 forall binder" $
+  withOnlineZ3 forallTest
+
+testCVC4ForallBinder :: TestTree
+testCVC4ForallBinder = testCase "CVC4 forall binder" $
+  withCVC4 forallTest
+
 -- | These tests simply ensure that no exceptions are raised.
 testSolverInfo :: TestTree
 testSolverInfo = testGroup "solver info queries" $
@@ -551,4 +584,6 @@ main = defaultMain $ testGroup "Tests"
   , testYicesZeroTuple
   , testZ3ZeroTuple
   , testCVC4ZeroTuple
+  , testZ3ForallBinder
+  , testCVC4ForallBinder
   ]
