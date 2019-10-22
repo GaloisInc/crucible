@@ -1,6 +1,6 @@
 [![Build Status](https://travis-ci.org/GaloisInc/mir-verifier.svg?branch=master)](https://travis-ci.org/GaloisInc/mir-verifier)
 
-# haskmir
+# mir-verifier
 
 This is a static simulator for Rust programs.  It includes both a
 command line tool (`crux-mir`) and library bindings that can be
@@ -8,13 +8,21 @@ integrated with saw-script.
 
 ## Preliminaries
 
-You must have the most recent version of the `mir-json` executable in your path.
+You must have the most recent version of the `mir-json` executable in your
+path.  See [the `mir-json` README](mir-json-readme) for installation
+instructions.
+
+[mir-json-readme]: https://github.com/GaloisInc/mir-json#readme
 
 ## Compilation
 
-Use ghc-8.4.3 
+Use ghc-8.4.4
 
     $ cabal new-build
+
+Then translate the Rust libraries in `lib/`
+
+    $ ./translate_libs.sh
 
 ## Execution
 
