@@ -1,73 +1,88 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ImplicitParams #-}
+{-# LANGUAGE RankNTypes #-}
+
 module Mir.Pass (
     Pass,
-    passId,
-    passCollapseRefs,
-    passMutRefReturnStatic,
-    passRemoveBoxNullary,
-    passRemoveStorage,
-    passMutRefArgs
+    rewriteCollection
 ) where
 
-import Mir.Mir
+
 import Control.Monad.State.Lazy
 import Data.List
-import Control.Lens hiding (op)
+import Control.Lens hiding (op,(|>))
 import qualified Data.Text as T
+import Data.Map(Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Maybe as Maybe
 
 import GHC.Stack
+
+import Mir.Mir
+import Mir.DefId
+import Mir.MirTy
+import Mir.PP(fmt)
+import Mir.GenericOps
 
 import Mir.Pass.CollapseRefs( passCollapseRefs )
 import Mir.Pass.MutRefReturnStatic( passMutRefReturnStatic )
 import Mir.Pass.RemoveBoxNullary( passRemoveBoxNullary )
 import Mir.Pass.RemoveStorage( passRemoveStorage )
-import Mir.Pass.RewriteMutRef( passRewriteMutRefArg )
+import Mir.Pass.AllocateEnum ( passAllocateEnum )
+import Mir.Pass.NoMutParams ( passNoMutParams )
 
-type Pass = [Fn] -> [Fn]
+import Debug.Trace
+import GHC.Stack
+
+type Pass = (?debug::Int, ?mirLib::Collection, HasCallStack) => Collection -> Collection
+
+--------------------------------------------------------------------------------------
+infixl 0 |>
+(|>) :: a -> (a -> b) -> b
+x |> f = f x
+--------------------------------------------------------------------------------------
+
+rewriteCollection :: Pass
+rewriteCollection col =
+  col
+    |> toCollectionPass passNoMutParams
+    |> passAllocateEnum 
+    |> passRemoveUnknownPreds  -- remove predicates that we don't know anything about
+
+--------------------------------------------------------------------------------------
 
 passId :: Pass
-passId fns = fns
+passId = id
 
-passMutRefArgs :: HasCallStack => Pass
-passMutRefArgs = passRewriteMutRefArg . passCollapseRefs
+--------------------------------------------------------------------------------------
 
+passTrace :: String -> Pass
+passTrace str col =
+  if (?debug > 5) then 
+      ((trace $ "*********MIR collection " ++ str ++ "*******\n"
+                ++ fmt col ++ "\n****************************")
+       col)
+  else col
 
-
--- mir utitiles
+--------------------------------------------------------------------------------------
 --
---
---
+-- Most of the implementation of this pass is in GenericOps
 
---isMutRefVar :: Var -> Bool
---isMutRefVar (Var _ _ t _) = isMutRefTy t
+passRemoveUnknownPreds :: Pass
+passRemoveUnknownPreds col = modifyPreds ff col 
+  where
+     allTraits = ?mirLib^.traits <> col^.traits
+     ff did = Map.member did allTraits
 
--- class IsMutTagged a where
---     isMutTagged :: a -> Bool
+--------------------------------------------------------------------------------------
 
--- instance IsMutTagged Operand where
---     isMutTagged (Consume (Tagged _ "mutchange")) = True
---     isMutTagged _ = False
+toCollectionPass :: ([Fn] -> [Fn]) -> Pass
+toCollectionPass f col = col { _functions = (fromList (f (Map.elems (col^.functions)))) } where
+    fromList :: [Fn] -> Map.Map DefId Fn
+    fromList = foldr (\fn m -> Map.insert (fn^.fname) fn m) Map.empty
 
--- instance IsMutTagged Lvalue where
---     isMutTagged (Tagged _ "mutchange") = True
---     isMutTagged _ = False
+--------------------------------------------------------------------------------------  
 
--- removeTags :: [Operand] -> [Operand]
--- removeTags = map (\(Consume ( Tagged lv _)) -> Consume lv)
--- --
--- --
 
--- removeReturnVar :: [Var] -> [Var]
--- removeReturnVar [] = []
--- removeReturnVar (v:vs) = case v of
---                            (Var "_0" _ _ _) -> vs
---                            _ -> v : (removeReturnVar vs)
-
--- findReturnVar :: [Var] -> Var
--- findReturnVar [] = error "return var not found!"
--- findReturnVar (v:vs) = case v of
---                          (Var "_0" _ _ _) -> v
---                          _ -> findReturnVar vs

@@ -1,23 +1,26 @@
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 struct Data(u32);
 
-trait Eq {
-    fn eq (&self, other : &Self) -> bool;
+trait MyEq {
+    fn myeq (&self, other : &Self) -> bool;
 }
 
-impl Eq for Data {
-    fn eq (&self, other: &Data) -> bool {
+impl MyEq for Data {
+    fn myeq (&self, other: &Data) -> bool {
         self.0 == other.0
     }
 }
 
 fn f(_: ()) -> bool {
     let d = Data(32);
-    d.eq(&d)
+    d.myeq(&d)
 }
 
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }

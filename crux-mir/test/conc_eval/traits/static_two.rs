@@ -1,11 +1,12 @@
-// FAIL: Wrong invocation (see file for details)
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 // Test two static implementation of the same trait
 //
-// This test currently fails because mir-json calls the 
-// S version {{impl}}[0]::g[0] and the
-// U version {{impl}}[1]::g[0].
+// We match the type of S::g and U::g against T::g.  But g's type
+// does not include 'Self' so there is no information to be gained.
 //
-// However, the invocation in f is to T[0]::g[0]
+// We need more info from mir-json to make progress: Issue #4
+
 
 
 enum S {}
@@ -30,6 +31,7 @@ fn f(_: ()) -> u32 {
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> u32 { f(ARG) }

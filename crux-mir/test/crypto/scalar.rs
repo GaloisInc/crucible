@@ -11,8 +11,6 @@
 //! (0xfffffffffffff^2) * 5 = 0x4ffffffffffff60000000000005 (107 bits).
 //! ```
 
-#![feature(i128_type)]
-
 //use core::fmt::Debug;
 use std::ops::{Index, IndexMut};
 
@@ -25,22 +23,20 @@ fn main() {
    println!("{:?}", f(ARG));
 }
 
-fn f(w : u64 ) -> bool {
-        // a = 2351415481556538453565687241199399922945659411799870114962672658845158063753
-    let a = Scalar64(
-        [0x0005236c07b3be89, 0x0001bc3d2a67c0c4, 0x000a4aa782aae3ee, 0x0006b3f6e4fec4c4,
-         0x00000532da9fab8c]);
+fn f(_w : u64 ) -> bool {
 
-    // b = 4885590095775723760407499321843594317911456947580037491039278279440296187236
-    let b = Scalar64(
-        [0x000d3fae55421564, 0x000c2df24f65a4bc, 0x0005b5587d69fb0b, 0x00094c091b013b3b,
-         0x00000acd25605473]);
-
-    let res = Scalar64::add(&a, &b);
-    let zero = Scalar64::zero();
-    for i in 0..5 {
-        assert!(res[i] == zero[i]);
-    }
+    use self::test::*;
+    
+    mul_max();
+    square_max();
+    montgomery_mul_max();
+    montgomery_square_max();
+    mul();
+    montgomery_mul();
+    add();
+    sub();
+    from_bytes_wide();
+    
     return true;
 }
 
@@ -57,7 +53,7 @@ mod constants {
     pub(crate) const LFACTOR: u64 = 0x51da312547e1b;
 
     /// `R` = R % L where R = 2^260
-pub(crate) const R: Scalar64 = Scalar64([ 0x000f48bd6721e6ed, 0x0003bab5ac67e45a, 0x000fffffeb35e51b, 0x000fffffffffffff, 0x00000fffffffffff ]);
+    pub(crate) const R: Scalar64 = Scalar64([ 0x000f48bd6721e6ed, 0x0003bab5ac67e45a, 0x000fffffeb35e51b, 0x000fffffffffffff, 0x00000fffffffffff ]);
 
     /// `RR` = (R^2) % L where R = 2^260
     pub(crate) const RR: Scalar64 = Scalar64([ 0x0009d265e952d13b, 0x000d63c715bea69f, 0x0005be65cb687604, 0x0003dceec73d217f, 0x000009411b7c309a ]);
@@ -357,8 +353,8 @@ impl Scalar64 {
 }
 
 
-#[cfg(test)]
-mod test {
+
+pub mod test {
     use super::*;
 
     /// Note: x is 2^253-1 which is slightly larger than the largest scalar produced by
@@ -417,56 +413,49 @@ mod test {
         [0x000611e3449c0f00, 0x000a768859347a40, 0x0007f5be65d00e1b, 0x0009a3dceec73d21,
          0x00000399411b7c30]);
 
-    #[test]
-    fn mul_max() {
+    pub fn mul_max() {
         let res = Scalar64::mul(&X, &X);
         for i in 0..5 {
             assert!(res[i] == XX[i]);
         }
     }
 
-    #[test]
-    fn square_max() {
+    pub fn square_max() {
         let res = X.square();
         for i in 0..5 {
             assert!(res[i] == XX[i]);
         }
     }
 
-    #[test]
-    fn montgomery_mul_max() {
+    pub fn montgomery_mul_max() {
         let res = Scalar64::montgomery_mul(&X, &X);
         for i in 0..5 {
             assert!(res[i] == XX_MONT[i]);
         }
     }
 
-    #[test]
-    fn montgomery_square_max() {
+    pub fn montgomery_square_max() {
         let res = X.montgomery_square();
         for i in 0..5 {
             assert!(res[i] == XX_MONT[i]);
         }
     }
 
-    #[test]
-    fn mul() {
+    pub fn mul() {
         let res = Scalar64::mul(&X, &Y);
         for i in 0..5 {
             assert!(res[i] == XY[i]);
         }
     }
 
-    #[test]
-    fn montgomery_mul() {
+    pub fn montgomery_mul() {
         let res = Scalar64::montgomery_mul(&X, &Y);
         for i in 0..5 {
             assert!(res[i] == XY_MONT[i]);
         }
     }
 
-    #[test]
-    fn add() {
+    pub fn add() {
         let res = Scalar64::add(&A, &B);
         let zero = Scalar64::zero();
         for i in 0..5 {
@@ -474,19 +463,16 @@ mod test {
         }
     }
 
-    #[test]
-    fn sub() {
+    pub fn sub() {
         let res = Scalar64::sub(&A, &B);
         for i in 0..5 {
             assert!(res[i] == AB[i]);
         }
     }
 
-    #[test]
-    fn from_bytes_wide() {
+    pub fn from_bytes_wide() {
         let bignum = [255u8; 64]; // 2^512 - 1
         let reduced = Scalar64::from_bytes_wide(&bignum);
-        println!("{:?}", reduced);
         for i in 0..5 {
             assert!(reduced[i] == C[i]);
         }

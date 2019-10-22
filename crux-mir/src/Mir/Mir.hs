@@ -15,7 +15,10 @@ License          : BSD3
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -27,27 +30,33 @@ License          : BSD3
 
 module Mir.Mir where
 
-import Data.Aeson
-import qualified Data.HashMap.Lazy as HML
 import qualified Data.ByteString as B
-import qualified Data.Map.Strict as Map
-import Data.Semigroup
-import Data.Text (Text,  unpack)
-import Data.List
-import Control.Lens(makeLenses,(^.))
-import Data.Maybe (fromMaybe)
+import Data.Map.Strict (Map)
+import Data.Text (Text)
+import Data.Vector (Vector)
 
+import Data.Semigroup(Semigroup(..))
+
+
+import Control.Lens(makeLenses, Simple, Lens, lens)
 
 import GHC.Generics 
 import GHC.Stack
 
 import Mir.DefId
 
+import Data.Coerce(coerce)
+
 -- NOTE: below, all unwinding calls can be ignored
 --
 --
 
--- SCW: Description of MIR: https://github.com/rust-lang/rfcs/blob/master/text/1211-mir.md
+-- SCW:
+-- High-level description of MIR: https://github.com/rust-lang/rfcs/blob/master/text/1211-mir.md
+-- documentation of rustc data structures
+--   https://doc.rust-lang.org/nightly/nightly-rustc/rustc/mir/index.html
+-- Source code:
+--   https://github.com/rust-lang/rust/blob/master/src/librustc/mir/mod.rs
 
 data BaseSize =
     USize
@@ -56,119 +65,227 @@ data BaseSize =
       | B32
       | B64
       | B128
-      deriving (Eq, Ord, Show, Generic, GenericOps)
+      deriving (Eq, Ord, Show, Generic)
 
 data FloatKind
   = F32
   | F64
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
+
+-- | Type parameters
+newtype Substs = Substs [Ty]
+  deriving (Eq, Ord, Show, Generic)
+  deriving newtype (Semigroup, Monoid)
+
+-- | Associated types
+--   The projection of an associated type from a Rust trait, at specific types
+type AssocTy = (DefId, Substs)
 
 data Ty =
-    TyBool
+        TyBool               -- The primitive boolean type. Written as bool.
       | TyChar
-      | TyInt BaseSize
-      | TyUint BaseSize
-      | TyTuple [Ty]
-      | TySlice Ty
-      | TyArray Ty Int
-      | TyRef Ty Mutability
-      | TyAdt DefId      -- ^ name
-              [Maybe Ty] -- ^ type parameters
+      | TyInt !BaseSize
+      | TyUint !BaseSize
+      | TyTuple ![Ty]         -- A tuple type. For example, (i32, bool)
+      | TySlice !Ty
+      | TyArray !Ty !Int
+      | TyRef !Ty !Mutability  -- Written &'a mut T or &'a T
+      | TyAdt !DefId !Substs 
       | TyUnsupported
-      | TyCustom CustomTy
-      | TyParam Integer
-      | TyFnDef DefId [Maybe Ty]
-      | TyClosure DefId [Maybe Ty]
+      | TyParam !Integer
+      | TyFnDef !DefId !Substs
+      | TyClosure [Ty]      -- the Tys are the types of the upvars
       | TyStr
-      | TyFnPtr FnSig
-      | TyDynamic DefId
-      | TyRawPtr Ty Mutability
-      | TyFloat FloatKind
-      | TyDowncast Ty Integer   --- result type of downcasting an ADT. Ty must be an ADT type
-      | TyProjection DefId [Maybe Ty]
+      | TyFnPtr !FnSig              -- written as fn() -> i32
+      | TyDynamic [Predicate]       -- trait object (defid is trait name)
+      | TyRawPtr !Ty !Mutability    -- Written as *mut T or *const T
+      | TyFloat !FloatKind
+      | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
+      | TyProjection !DefId !Substs -- The projection of an associated type. For example, <T as Trait<..>>::N.
+      | TyNever
+
+      | TyLifetime      -- Placeholder for representing lifetimes in `Substs`
+      | TyConst         -- Placeholder for representing constants in `Substs`
+
+      -- | The erased concrete type of a trait object.  This is never emitted
+      -- by mir-json.  It's used in vtable shims, to replace the type of the
+      -- receiver argument.  The effect is for the vtable shim to take in a
+      -- Crucible "Any" value (the translation of TyErased), which it then
+      -- downcasts to the concrete receiver type and passes to the
+      -- implementation of the trait method.
+      | TyErased
       deriving (Eq, Ord, Show, Generic)
 
-data FnSig = FnSig [Ty] Ty
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+data FnSig = FnSig {
+    _fsarg_tys    :: ![Ty]
+  , _fsreturn_ty  :: !Ty
+  , _fsgenerics   :: ![Param]
+  , _fspredicates :: ![Predicate]
+  , _fsassoc_tys  :: ![AssocTy]    -- new params added in a pre-pass
+  , _fsabi        :: Abi
+  -- TODO: current handling of spread_arg is a hack.
+  --
+  -- Correct behavior would be (1) always pass args tupled for rust-call abi
+  -- (in other words, translate the MIR as-is, with no special case for calls
+  -- to rust-call fns), and (2) in rust-call functions, if `spread_arg` is
+  -- null, adjust the sig (by tupling up the argument types) and explicitly
+  -- untuple the values on entry to the function.  Current behavior is (2)
+  -- translate rust-call function bodies as-is, and (1) tuple argument values
+  -- at the call site if the target has rust-call abi and spread_arg is null.
+  -- However, on the rust side, the value of spread_arg is part of the
+  -- mir::Body, not the signature, which means this design is broken in the
+  -- presence of function pointers.
+  --
+  -- Anyway, that's why this weird `fsspreadarg` field is here.  The sig of a
+  -- function definition will include the value of `spread_arg` from the
+  -- `mir::Body`, and that will be visible at *direct* calls (not via fn ptr)
+  -- of the function, to make decisions about whether to untuple the args.
+  , _fsspreadarg  :: Maybe Int
+  }
+  deriving (Eq, Ord, Show, Generic)
 
-data Adt = Adt {_adtname :: DefId, _adtvariants :: [Variant]}
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+data Abi = RustAbi | RustCall | RustIntrinsic | OtherAbi
+    deriving (Show, Eq, Ord, Generic)
+
+data Instance = Instance
+    { _inKind :: InstanceKind
+    -- | The meaning of this `DefId` depends on the `InstanceKind`.  Usually,
+    -- it's the ID of the original generic definition of the function that's
+    -- been monomorphized to produce this instance.
+    , _inDefId :: DefId
+    -- | The substitutions used to construct this instance from the generic
+    -- definition.  Typically (but again depending on the `InstanceKind`),
+    -- applying these substs to the signature of the generic def gives the
+    -- signature of the instance.
+    , _inSubsts :: Substs
+    }
+    deriving (Eq, Ord, Show, Generic)
+
+data InstanceKind =
+      IkItem
+    | IkIntrinsic
+    | IkVtableShim
+    | IkFnPtrShim Ty
+    | IkVirtual !Integer
+    | IkClosureOnceShim
+    | IkDropGlue (Maybe Ty)
+    | IkCloneShim Ty [DefId]
+    deriving (Eq, Ord, Show, Generic)
+
+data Adt = Adt {_adtname :: DefId, _adtkind :: AdtKind, _adtvariants :: [Variant]}
+    deriving (Eq, Ord, Show, Generic)
+
+data AdtKind = Struct | Enum | Union
+    deriving (Eq, Ord, Show, Generic)
 
 data VariantDiscr
   = Explicit DefId
   | Relative Int
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 
 data CtorKind
   = FnKind
   | ConstKind
   | FictiveKind
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 
 data Variant = Variant {_vname :: DefId, _vdiscr :: VariantDiscr, _vfields :: [Field], _vctorkind :: CtorKind}
-    deriving (Eq, Ord,Show, Generic, GenericOps)
+    deriving (Eq, Ord,Show, Generic)
 
 
-data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: [Maybe Ty]}
-    deriving (Show, Eq, Ord, Generic, GenericOps)
+data Field = Field {_fName :: DefId, _fty :: Ty, _fsubsts :: Substs}
+    deriving (Show, Eq, Ord, Generic)
 
-
-data CustomTy =
-        BoxTy Ty
-      | VecTy Ty
-      | IterTy Ty
-      | CEnum DefId    -- C-style Enumeration, all variants must be trivial
-    deriving (Eq, Ord, Show, Generic, GenericOps)
 
 data Mutability
   = Mut
   | Immut
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 data Var = Var {
     _varname :: Text,
     _varmut :: Mutability,
     _varty :: Ty,
+    _varIsZST :: Bool,
     _varscope :: VisibilityScope,
     _varpos :: Text }
     deriving (Eq, Show, Generic)
 
 instance Ord Var where
-    compare (Var n _ _ _ _) (Var m _ _ _ _) = compare n m
-
+    compare (Var n _ _ _ _ _) (Var m _ _ _ _ _) = compare n m
 
 data Collection = Collection {
-    _functions :: [Fn],
-    _adts :: [Adt],
-    _traits :: [Trait]
-} deriving (Show, Eq, Ord, Generic, GenericOps)
+    _functions :: !(Map MethName Fn),
+    _adts      :: !(Map AdtName Adt),
+    _traits    :: !(Map TraitName Trait),
+    _impls     :: !([TraitImpl]),
+    _statics   :: !(Map DefId Static),
+    _vtables   :: !(Map VtableName Vtable),
+    _intrinsics :: !(Map IntrinsicName Intrinsic),
+    _roots     :: !([MethName])
+} deriving (Show, Eq, Ord, Generic)
 
+data Intrinsic = Intrinsic
+    { _intrName :: IntrinsicName
+    , _intrInst :: Instance
+    }
+    deriving (Show, Eq, Ord, Generic)
+
+data Predicate =
+  TraitPredicate {
+    _ptrait :: !DefId,
+    _psubst :: !Substs
+    }
+  | TraitProjection {
+      _plhs    :: !Ty
+    , _prhs    :: !Ty
+    }
+  -- | Special representation for auto-trait predicates in `TyDynamic`.  This
+  -- is equivalent to `TraitPredicate ptrait (Substs [])`, but auto-trait
+  -- predicates need special handling around vtables, so it's useful to have a
+  -- separate variant.
+  | AutoTraitPredicate {
+    _ptrait :: !DefId
+    }
+  | UnknownPredicate
+    deriving (Show, Eq, Ord, Generic)
+
+data Param = Param {
+    _pname :: Text
+} deriving (Show, Eq, Ord, Generic)
+
+newtype Params = Params [Param]
+   deriving (Show, Eq, Ord, Generic)
+
+
+newtype Predicates = Predicates [Predicate]
+   deriving (Show, Eq, Ord, Generic)
 
 
 data Fn = Fn {
-    _fname :: DefId,
-    _fargs :: [Var],
-    _freturn_ty :: Ty,
-    _fbody :: MirBody
+     _fname       :: DefId
+    ,_fargs       :: [Var]
+    ,_fsig        :: FnSig
+    ,_fbody       :: MirBody
+    ,_fpromoted   :: Vector DefId
     }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
-
+    deriving (Show,Eq, Ord, Generic)
 
 
 data MirBody = MirBody {
     _mvars :: [Var],
     _mblocks :: [BasicBlock]
 }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 
 data BasicBlock = BasicBlock {
     _bbinfo :: BasicBlockInfo,
     _bbdata :: BasicBlockData
 }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 
 
@@ -176,25 +293,38 @@ data BasicBlockData = BasicBlockData {
     _bbstmts :: [Statement],
     _bbterminator :: Terminator
 }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
 
 data Statement =
       Assign { _alhs :: Lvalue, _arhs :: Rvalue, _apos :: Text }
       -- TODO: the rest of these variants also have positions
       | SetDiscriminant { _sdlv :: Lvalue, _sdvi :: Int }
-      | StorageLive { _sllv :: Lvalue }
-      | StorageDead { _sdlv :: Lvalue }
+      | StorageLive { _slv :: Var }
+      | StorageDead { _sdv :: Var }
       | Nop
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
+data PlaceBase =
+        Local { _lvar :: Var }
+      | PStatic DefId Ty
+      | PPromoted Int Ty
+      deriving (Show, Eq, Generic)
 
+data PlaceElem =
+        Deref
+      | PField Int Ty
+      | Index Var
+      | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
+      | Subslice { _sfrom :: Int, _sto :: Int }
+      | Downcast Integer
+      deriving (Show, Eq, Ord, Generic)
+
+-- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
 data Lvalue =
-      Local { _lvar :: Var}
-    | Static
-    | LProjection LvalueProjection
-    | Tagged Lvalue Text -- for internal use during the translation
-    deriving (Show, Eq, Generic)
+        LBase PlaceBase
+      | LProj Lvalue PlaceElem
+      deriving (Show, Eq, Generic)
 
 instance Ord Lvalue where
     compare l1 l2 = compare (show l1) (show l2)
@@ -215,11 +345,10 @@ data Rvalue =
       | Discriminant { _dvar :: Lvalue }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
-      | RCustom CustomAggregate
-    deriving (Show,Eq, Ord, Generic, GenericOps)
+    deriving (Show,Eq, Ord, Generic)
 
-data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand]}
-    deriving (Show, Eq, Ord, Generic, GenericOps)
+data AdtAg = AdtAg { _agadt :: Adt, _avgariant :: Integer, _aops :: [Operand], _adtagty :: Ty }
+    deriving (Show, Eq, Ord, Generic)
 
 
 data Terminator =
@@ -250,33 +379,22 @@ data Terminator =
                  _amsg      :: AssertMessage,
                  _atarget   :: BasicBlockInfo,
                  _acleanup  :: Maybe BasicBlockInfo}
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 data Operand =
-    Consume Lvalue
+        Copy Lvalue
+      | Move Lvalue
       | OpConstant Constant
-      deriving (Show, Eq, Ord, Generic, GenericOps)
+      deriving (Show, Eq, Ord, Generic)
 
-data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Ord, Generic, GenericOps)
-
-data LvalueProjection = LvalueProjection { _lvpbase :: Lvalue, _lvpkind :: Lvpelem }
-    deriving (Show,Eq, Ord, Generic, GenericOps)
-
-data Lvpelem =
-    Deref
-      | PField Int Ty
-      | Index Operand
-      | ConstantIndex { _cioffset :: Int, _cimin_len :: Int, _cifrom_end :: Bool }
-      | Subslice { _sfrom :: Int, _sto :: Int }
-      | Downcast Integer
-      deriving (Show, Eq, Ord, Generic, GenericOps)
+data Constant = Constant { _conty :: Ty, _conliteral :: Literal } deriving (Show, Eq, Ord, Generic)
 
 
 
 data NullOp =
         SizeOf
       | Box
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 
 
@@ -284,13 +402,13 @@ data BorrowKind =
         Shared
       | Unique
       | Mutable
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
 
 
 data UnOp =
     Not
   | Neg
-  deriving (Show,Eq, Ord, Generic, GenericOps)
+  deriving (Show,Eq, Ord, Generic)
 
 
 data BinOp =
@@ -311,38 +429,54 @@ data BinOp =
       | Ge
       | Gt
       | Offset
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      deriving (Show,Eq, Ord, Generic)
+
+data VtableItem = VtableItem
+    { _vtFn :: DefId        -- ^ ID of the implementation that should be stored in the vtable
+    , _vtDef :: DefId       -- ^ ID of the item definition in the trait
+    }
+    deriving (Show, Eq, Ord, Generic)
+
+data Vtable = Vtable
+    { _vtName :: VtableName
+    , _vtItems :: [VtableItem]
+    }
+    deriving (Show, Eq, Ord, Generic)
 
 data CastKind =
-    Misc
+        Misc
       | ReifyFnPointer
       | ClosureFnPointer
       | UnsafeFnPointer
       | Unsize
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      | UnsizeVtable VtableName
+      | MutToConstPointer
+      deriving (Show,Eq, Ord, Generic)
 
 data Literal =
-    Item DefId [Maybe Ty]
+    Item DefId Substs
   | Value ConstVal
-  | LPromoted Promoted
-  deriving (Show,Eq, Ord, Generic, GenericOps)
+  | LitPromoted Promoted
+  deriving (Show,Eq, Ord, Generic)
 
 data IntLit
   = U8 Integer
   | U16 Integer
   | U32 Integer
   | U64 Integer
+  | U128 Integer
   | Usize Integer
   | I8 Integer
   | I16 Integer
   | I32 Integer
   | I64 Integer
+  | I128 Integer
   | Isize Integer
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 data FloatLit
   = FloatLit FloatKind String
-  deriving (Eq, Ord, Show, Generic, GenericOps)
+  deriving (Eq, Ord, Show, Generic)
 
 
 data ConstVal =
@@ -353,42 +487,104 @@ data ConstVal =
   | ConstBool Bool
   | ConstChar Char
   | ConstVariant DefId
-  | ConstFunction DefId [Maybe Ty]
+  | ConstFunction DefId Substs
   | ConstStruct
   | ConstTuple [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
-  deriving (Show,Eq, Ord, Generic, GenericOps)
+  | ConstInitializer DefId Substs
+  deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =
         AKArray Ty
       | AKTuple
-      | AKClosure DefId [Maybe Ty]
-      deriving (Show,Eq, Ord, Generic, GenericOps)
+      | AKClosure DefId Substs
+      deriving (Show,Eq, Ord, Generic)
 
-data CustomAggregate =
-    CARange Ty Operand Operand -- deprecated but here in case something else needs to go here
-    deriving (Show,Eq, Ord, Generic, GenericOps)
-
-data Trait = Trait DefId [TraitItem]
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+data Trait = Trait { _traitName       :: !DefId,
+                     _traitItems      :: ![TraitItem],
+                     _traitSupers     :: ![TraitName],
+                     _traitParams     :: ![Param],
+                     _traitPredicates :: ![Predicate],
+                     _traitAssocTys   :: ![AssocTy]    -- new params added in a pre-pass
+                   } 
+    deriving (Eq, Ord, Show, Generic)
 
 
 data TraitItem
-    = TraitMethod DefId FnSig  
+    = TraitMethod DefId FnSig 
     | TraitType DefId         -- associated type
     | TraitConst DefId Ty
-    deriving (Eq, Ord, Show, Generic, GenericOps)
+    deriving (Eq, Ord, Show, Generic)
 
+data TraitRef
+    = TraitRef DefId Substs 
+      -- Indicates the trait this impl implements.
+      -- The two `substs` gives the type arguments for the trait
+      -- both the initial arguments, plus any extra after the
+      -- associated types translation
+    deriving (Show, Eq, Ord, Generic)
 
+data TraitImpl
+    = TraitImpl { _tiName       :: DefId
+                -- name of the impl group 
+                , _tiTraitRef   :: TraitRef
+                -- name of the trait and the type we are implementing it
+                , _tiPreTraitRef :: TraitRef
+                -- pre-AT translation trait ref
+                , _tiGenerics   :: [Param]
+                , _tiPredicates :: [Predicate]
+                , _tiItems      :: [TraitImplItem]
+                , _tiAssocTys   :: [AssocTy]
+                }
+    deriving (Show, Eq, Ord, Generic)
+data TraitImplItem
+    = TraitImplMethod { _tiiName :: DefId
+                        -- the def path of the item
+                        -- should match the name of the corresponding entry in 'fns'
+                      , _tiiImplements :: DefId
+                        -- The def path of the trait-item that this impl-item implements.
+                        -- If there is no impl-item that `implements` a particular
+                        -- trait-item, that means the impl uses the default from the trait.
+                      , _tiiGenerics :: [Param]
+                        -- Generics for the method itself.  
+                        -- should match the generics of the `fn`.  This consists of the generics
+                        -- inherited from the impl (if any), followed by any generics
+                        -- declared on the impl-item itself.
+                      , _tiiPredicates :: [Predicate]
+                      , _tiiSignature  :: FnSig
+                      }
+      | TraitImplType { _tiiName       :: DefId
+                      , _tiiImplements :: DefId
+                      , _tiiGenerics   :: [Param]
+                      , _tiiPredicates :: [Predicate]
+                      , _tiiType       :: Ty
+                      }
+      deriving (Show, Eq, Ord, Generic)
+
+newtype Promoted = Promoted Int
+  deriving (Show, Eq, Ord, Generic)
+
+data Static   = Static {
+    _sName          :: DefId            -- ^ name of fn that initializes this static
+  , _sTy            :: Ty
+  , _sMutable       :: Bool             -- ^ true for "static mut"          
+  , _sPromotedFrom  :: Maybe DefId      -- ^ name of fn that static was promoted from
+  , _sPromoted      :: Maybe Promoted
+  }
+  deriving (Show, Eq, Ord, Generic)
 
 -- Documentation for particular use-cases of DefIds
-type TraitName = DefId
-type MethName  = DefId
-type AdtName   = DefId
+type TraitName  = DefId
+type MethName   = DefId
+type AdtName    = DefId
+type VtableName = DefId
+type IntrinsicName = DefId
+
+
+
 
 --- Other texts
-type Promoted = Text
 type ConstUsize = Integer
 type VisibilityScope = Text
 type AssertMessage = Text
@@ -397,309 +593,124 @@ type BasicBlockInfo = Text
 
 
 --------------------------------------------------------------------------------------
---
--- Generic operations
---
-
--- These operations are defined via GHC.Generics so that they can automatically
--- adapt to changes in the Mir AST.  
-
-class GenericOps a where
-
-  -- | Crawl over the AST and rename the module that defIds live in.
-  -- We need this because we are loading our own variant of the standard
-  -- library, but all of the definitions there will have the wrong name.
-  relocate :: a -> a
-  default relocate :: (Generic a, GenericOps' (Rep a)) => a -> a
-  relocate x = to (relocate' (from x))
-
-  -- | Find all C-style Adts in the AST and convert them to Custom (CEnum _)
-  markCStyle :: [AdtName] -> a -> a 
-  default markCStyle :: (Generic a, GenericOps' (Rep a)) => [AdtName] -> a -> a
-  markCStyle s x = to (markCStyle' s (from x))
-
-  -- | Type variable substitution. Type variables are represented via indices.
-  tySubst :: [Maybe Ty] -> a -> a 
-  default tySubst :: (Generic a, GenericOps' (Rep a)) => [Maybe Ty] -> a -> a
-  tySubst s x = to (tySubst' s (from x))
-
-  -- | Renaming for term variables
-  replaceVar :: Var -> Var -> a -> a
-  default replaceVar :: (Generic a, GenericOps' (Rep a)) => Var -> Var -> a -> a
-  replaceVar o n x = to (replaceVar' o n (from x))
-
-  -- |
-  replaceLvalue :: Lvalue -> Lvalue -> a -> a
-  default replaceLvalue :: (Generic a, GenericOps' (Rep a)) => Lvalue -> Lvalue -> a -> a
-  replaceLvalue o n x = to (replaceLvalue' o n (from x))
-
-  
-
--- special case for DefIds
-instance GenericOps DefId where
-  relocate     = relocateDefId 
-  markCStyle _   = id
-  tySubst    _   = id
-  replaceVar _ _ = id
-  replaceLvalue _ _ = id  
-
--- special case for Tys
-instance GenericOps Ty where
-
-  -- Translate C-style enums to CEnum types
-  markCStyle s (TyAdt n [])  | n `elem` s = TyCustom (CEnum n)
-  markCStyle s (TyAdt n _ps) | n `elem` s = error "Cannot have params to C-style enum!"
-  markCStyle s ty = to (markCStyle' s (from ty))
-
-  -- Substitute for type variables
-  tySubst substs (TyParam i)
-     | fromInteger i < length substs =
-         case substs !! fromInteger i of
-                        Nothing -> error "impossible"
-                        Just ty -> ty
-     | otherwise    = error $ "Indexing at " ++ show i ++ "  from subst " ++ show substs
-  tySubst substs ty = to (tySubst' substs (from ty))
-
--- special case for Vars
-instance GenericOps Var where
-  replaceVar old new v = if _varname v == _varname old then new else v
-
-  replaceLvalue (Local old) (Local new) v = replaceVar old new v
-  replaceLvalue _ _ v = v
-
--- special case for LValue
-instance GenericOps Lvalue where
-    replaceLvalue old new v = fromMaybe v (repl_lv v)
-      where
-        repl_lv :: Lvalue -> Maybe Lvalue -- some light unification
-        repl_lv v0 =
-          case v0 of
-            LProjection (LvalueProjection lb k)
-              | Just ans <- repl_lv lb -> Just $ LProjection (LvalueProjection ans k)
-            Tagged lb _ | Just ans <- repl_lv lb -> Just ans
-            _ | v == old -> Just new
-            _ -> Nothing
-
-
-class GenericOps' f where
-  relocate'   :: f p -> f p
-  markCStyle' :: [AdtName] -> f p -> f p
-  tySubst'    :: [Maybe Ty] -> f p -> f p 
-  replaceVar' :: Var -> Var -> f p -> f p
-  replaceLvalue' :: Lvalue -> Lvalue -> f p -> f p
-  
-instance GenericOps' V1 where
-  relocate' _x      = error "impossible: this is a void type"
-  markCStyle' _ _x  = error "impossible: this is a void type"
-  tySubst' _ _      = error "impossible: this is a void type"
-  replaceVar' _ _ _ = error "impossible: this is a void type"
-  replaceLvalue' _ _ _ = error "impossible: this is a void type"
-
-instance (GenericOps' f, GenericOps' g) => GenericOps' (f :+: g) where
-  relocate'     (L1 x) = L1 (relocate' x)
-  relocate'     (R1 x) = R1 (relocate' x)
-  markCStyle' s (L1 x) = L1 (markCStyle' s x)
-  markCStyle' s (R1 x) = R1 (markCStyle' s x)
-  tySubst'    s (L1 x) = L1 (tySubst' s x)
-  tySubst'    s (R1 x) = R1 (tySubst' s x)
-  replaceVar' o n (L1 x) = L1 (replaceVar' o n x)
-  replaceVar' o n (R1 x) = R1 (replaceVar' o n x)
-  replaceLvalue' o n (L1 x) = L1 (replaceLvalue' o n x)
-  replaceLvalue' o n (R1 x) = R1 (replaceLvalue' o n x)
-
-
-instance (GenericOps' f, GenericOps' g) => GenericOps' (f :*: g) where
-  relocate'       (x :*: y) = relocate'   x     :*: relocate' y
-  markCStyle' s   (x :*: y) = markCStyle'   s x :*: markCStyle' s y
-  tySubst'    s   (x :*: y) = tySubst'      s x :*: tySubst'    s y
-  replaceVar' o n (x :*: y) = replaceVar' o n x :*: replaceVar' o n y
-  replaceLvalue' o n (x :*: y) = replaceLvalue' o n x :*: replaceLvalue' o n y
-  
-
-instance (GenericOps c) => GenericOps' (K1 i c) where
-  relocate'     (K1 x) = K1 (relocate x)
-  markCStyle' s (K1 x) = K1 (markCStyle s x)
-  tySubst'    s (K1 x) = K1 (tySubst s x)
-  replaceVar' o n (K1 x) = K1 (replaceVar o n x)
-  replaceLvalue' o n (K1 x) = K1 (replaceLvalue o n x)  
-  
-instance (GenericOps' f) => GenericOps' (M1 i t f) where
-  relocate'     (M1 x) = M1 (relocate' x)
-  markCStyle' s (M1 x) = M1 (markCStyle' s x)
-  tySubst'    s (M1 x) = M1 (tySubst' s x)
-  replaceVar' o n (M1 x) = M1 (replaceVar' o n x)
-  replaceLvalue' o n (M1 x) = M1 (replaceLvalue' o n x)
-
-instance (GenericOps' U1) where
-  relocate'      U1 = U1
-  markCStyle' _s U1 = U1
-  tySubst'    _s U1 = U1
-  replaceVar' _ _ U1 = U1
-  replaceLvalue' _ _ U1 = U1 
-
-                      
-instance GenericOps a => GenericOps [a]
-instance GenericOps a => GenericOps (Maybe a)
-instance (GenericOps a, GenericOps b) => GenericOps (a,b)
-instance GenericOps Int     where
-   relocate   = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps Integer where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps Char    where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps Bool    where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps Text    where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id
-   
-instance GenericOps B.ByteString where
-   relocate = id
-   markCStyle = const id
-   tySubst    = const id
-   replaceVar _ _ = id
-   replaceLvalue _ _ = id   
-
-instance GenericOps b => GenericOps (Map.Map a b) where
-   relocate       = Map.map relocate 
-   markCStyle s    = Map.map (markCStyle s)
-   tySubst s      = Map.map (tySubst s)
-   replaceVar o n = Map.map (replaceVar o n)
-   replaceLvalue o n = Map.map (replaceLvalue o n)   
-
-replaceList :: GenericOps a => [(Lvalue, Lvalue)] -> a -> a
-replaceList [] a = a
-replaceList ((old,new) : vs) a = replaceList vs $ replaceLvalue old new a
-    
-
+-- Lenses
 --------------------------------------------------------------------------------------
 
 
 makeLenses ''Variant
+makeLenses ''Field
 makeLenses ''Var
 makeLenses ''Collection
 makeLenses ''Fn
+makeLenses ''FnSig
+makeLenses ''MirBody
+makeLenses ''BasicBlock
+makeLenses ''BasicBlockData
+makeLenses ''Adt
+makeLenses ''AdtAg
+makeLenses ''Trait
+makeLenses ''Static
+makeLenses ''Vtable
+makeLenses ''Intrinsic
+makeLenses ''Instance
 
+makeLenses ''TraitImpl
+makeLenses ''TraitImplItem
+
+itemName :: Simple Lens TraitItem DefId
+itemName = lens (\ti -> case ti of
+                          TraitMethod did _  -> did
+                          TraitType did -> did
+                          TraitConst did _ -> did)
+              (\ti nd -> case ti of
+                  TraitMethod _ s  -> TraitMethod nd s 
+                  TraitType _ -> TraitType nd
+                  TraitConst _ t -> TraitConst nd t)
+
+--------------------------------------------------------------------------------------
+-- Other instances for ADT types
+--------------------------------------------------------------------------------------
 
 instance Semigroup Collection where
-  (Collection f1 a1 t1) <> (Collection f2 a2 t2) =
-    Collection (f1 ++ f2) (a1 ++ a2) (t1 ++ t2)
+  (Collection f1 a1 t1 i1 s1 v1 n1 r1) <> (Collection f2 a2 t2 i2 s2 v2 n2 r2) =
+    Collection (f1 <> f2) (a1 <> a2) (t1 <> t2) (i1 <> i2) (s1 <> s2) (v1 <> v2) (n1 <> n2) (r1 <> r2)
 instance Monoid Collection where
-  mempty = Collection [] [] []
+  mempty  = Collection mempty mempty mempty mempty mempty mempty mempty mempty
   mappend = (<>)
+
   
 
 --------------------------------------------------------------------------------------
 --- aux functions ---
 --------------------------------------------------------------------------------------
 
--- A CStyle ADT is one that is an enumeration of numeric valued options
--- containing no data
-isCStyle :: Adt -> Bool
-isCStyle (Adt _ variants) = all isConst variants where
-    isConst (Variant _ _ [] ConstKind) = True
-    isConst _ = False
+-- | access the Integer in an IntLit
+fromIntegerLit :: IntLit -> Integer
+fromIntegerLit (U8 i)    = i
+fromIntegerLit (U16 i)   = i
+fromIntegerLit (U32 i)   = i
+fromIntegerLit (U64 i)   = i
+fromIntegerLit (U128 i)  = i
+fromIntegerLit (Usize i) = i
+fromIntegerLit (I8 i)    = i
+fromIntegerLit (I16 i)   = i
+fromIntegerLit (I32 i)   = i
+fromIntegerLit (I64 i)   = i
+fromIntegerLit (I128 i)  = i
+fromIntegerLit (Isize i) = i
+
+
+
+-- | Access *all* of the params of the trait
+--traitParamsWithAssocTys :: Trait -> [Param]
+--traitParamsWithAssocTys trait =
+--   trait^.traitParams ++ map toParam (trait^.traitAssocTys)
+
+
+
+varOfLvalue :: HasCallStack => Lvalue -> Var
+varOfLvalue (LBase (Local v)) = v
+varOfLvalue l = error $ "bad var of lvalue: " ++ show l
 
 
 lValueofOp :: HasCallStack => Operand -> Lvalue
-lValueofOp (Consume lv) = lv
+lValueofOp (Copy lv) = lv
+lValueofOp (Move lv) = lv
 lValueofOp l = error $ "bad lvalue of op: " ++ show l
 
 funcNameofOp :: HasCallStack => Operand -> DefId
 funcNameofOp (OpConstant (Constant _ (Value (ConstFunction id1 _substs)))) = id1
 funcNameofOp _ = error "bad extract func name"
 
-
-fromIntegerLit :: IntLit -> Integer
-fromIntegerLit (U8 i) = i
-fromIntegerLit (U16 i) = i
-fromIntegerLit (U32 i) = i
-fromIntegerLit (U64 i) = i
-fromIntegerLit (Usize i) = i
-fromIntegerLit (I8 i) = i
-fromIntegerLit (I16 i) = i
-fromIntegerLit (I32 i) = i
-fromIntegerLit (I64 i) = i
-fromIntegerLit (Isize i) = i
+funcSubstsofOp :: HasCallStack => Operand -> Substs
+funcSubstsofOp (OpConstant (Constant _ (Value (ConstFunction _id1 substs)))) = substs
+funcSubstsofOp _ = error "bad extract func name"
 
 
-isMutRefTy :: Ty -> Bool
-isMutRefTy (TyRef t m) = (m == Mut) || isMutRefTy t
-isMutRefTy (TySlice t) = isMutRefTy t
-isMutRefTy (TyArray t _) = isMutRefTy t
-isMutRefTy (TyTuple ts) = foldl (\acc t -> acc || isMutRefTy t) False ts
-isMutRefTy (TyCustom (BoxTy t)) = isMutRefTy t
-isMutRefTy _ = False
+-- Get the only variant of a struct or union ADT.
+onlyVariant :: Adt -> Variant
+onlyVariant (Adt _ _ [v]) = v
+onlyVariant (Adt name kind _) = error $
+    "expected " ++ show kind ++ " " ++ show name ++ " to have only one variant"
 
 
--- Does this type contain any type parameters
-isPoly :: Ty -> Bool
-isPoly (TyParam _) = True
-isPoly (TyTuple ts) = any isPoly ts
-isPoly (TySlice ty) = isPoly ty
-isPoly (TyArray ty _i) = isPoly ty
-isPoly (TyRef ty _mut) = isPoly ty
-isPoly (TyRawPtr ty _mut) = isPoly ty
-isPoly (TyAdt _ params) = any (any isPoly) params
-isPoly (TyFnDef _ params) = any (any isPoly) params
-isPoly (TyClosure _ params) = any (any isPoly) params
-isPoly (TyCustom (BoxTy ty)) = isPoly ty
-isPoly (TyCustom (VecTy ty)) = isPoly ty
-isPoly (TyCustom (IterTy ty)) = isPoly ty
-isPoly _x = False           
 
-isNever :: Ty -> Bool
-isNever (TyAdt defId _) = fst (did_name defId) == "Never"
-isNever _ = False
+
 
 --------------------------------------------------------------------------------------
 -- | arithType
 
-data ArithType = Signed | Unsigned
+data ArithType = Signed | Unsigned deriving (Eq,Ord,Show)
 
 class ArithTyped a where
     arithType :: a -> Maybe ArithType
-
-instance ArithTyped Ty where
-    arithType (TyInt _) = Just Signed
-    arithType (TyUint _) = Just Unsigned
-    arithType _ = Nothing
-
-instance ArithTyped Var where
-    arithType (Var _ _ ty _ _) = arithType ty
-
-instance ArithTyped Lvalue where
-    arithType (Local var) = arithType var
-    arithType Static = Nothing
-    arithType (LProjection (LvalueProjection _a (PField _f ty))) = arithType ty
-    arithType _ = error "unimpl arithtype"
-
-instance ArithTyped Operand where
-    arithType (Consume lv) = arithType lv
-    arithType (OpConstant (Constant ty _)) = arithType ty
+instance TypeOf a => ArithTyped a where
+    arithType a =
+      case typeOf a of
+        (TyInt _) -> Just Signed
+        (TyUint _ ) -> Just Unsigned
+        TyChar -> Just Unsigned
+        _  -> Nothing
 
 --------------------------------------------------------------------------------------
 -- | TypeOf
@@ -707,16 +718,40 @@ instance ArithTyped Operand where
 class TypeOf a where
     typeOf :: a -> Ty
 
+instance TypeOf Ty where
+    typeOf ty = ty
+
 instance TypeOf Var where
-    typeOf (Var _ _ t _ _) = t
+    typeOf (Var _ _ t _ _ _) = t
 
 instance TypeOf Lvalue where
-  typeOf lv = case lv of
-    Static                -> error "typeOf: static"
-    Tagged lv' _          -> typeOf lv'
-    Local (Var _ _ t _ _) -> t
-    LProjection proj      -> typeOf proj
+    typeOf (LBase base) = typeOf base
+    typeOf (LProj l elm) = typeOfProj elm $ typeOf l
 
+instance TypeOf PlaceBase where
+    typeOf pb = case pb of
+        Local (Var _ _ t _ _ _) -> t
+        PStatic _ t -> t
+        PPromoted _ t -> t
+
+typeOfProj :: PlaceElem -> Ty -> Ty
+typeOfProj elm baseTy = case elm of
+    PField _ t      -> t
+    Deref           -> peelRef baseTy
+    Index{}         -> peelIdx baseTy
+    ConstantIndex{} -> peelIdx baseTy
+    Downcast i      -> TyDowncast baseTy i   --- TODO: check this
+    Subslice{}      -> TySlice (peelIdx baseTy)
+  where
+    peelRef :: Ty -> Ty
+    peelRef (TyRef t _) = t
+    peelRef t = t
+
+    peelIdx :: Ty -> Ty
+    peelIdx (TyArray t _) = t
+    peelIdx (TySlice t)   = t
+    peelIdx (TyRef t m)   = TyRef (peelIdx t) m
+    peelIdx t             = t
 
 instance TypeOf Rvalue where
   typeOf (Use a) = typeOf a
@@ -727,693 +762,65 @@ instance TypeOf Rvalue where
   typeOf (Len _) = TyUint USize
   typeOf (Cast _ _ ty) = ty
   typeOf (NullaryOp _op ty) = ty
-  typeOf rv = error ("typeOf Rvalue unimplemented: " ++ pprint rv)
+  typeOf (RAdtAg (AdtAg _ _ _ ty)) = ty
+  typeOf rv = error ("typeOf Rvalue unimplemented: " ++ show rv)
 
 instance TypeOf Operand where
-    typeOf (Consume lv) = typeOf lv
+    typeOf (Move lv) = typeOf lv
+    typeOf (Copy lv) = typeOf lv
     typeOf (OpConstant c) = typeOf c
 
 instance TypeOf Constant where
     typeOf (Constant a _b) = a
 
-instance TypeOf LvalueProjection where
-  typeOf (LvalueProjection base kind) =
-    case kind of
-      PField _ t      -> t
-      Deref           -> peelRef (typeOf base)
-      Index{}         -> peelIdx (typeOf base)
-      ConstantIndex{} -> peelIdx (typeOf base)
-      Downcast i      -> TyDowncast (typeOf base) i   --- TODO: check this
-      Subslice{}      -> TySlice (peelIdx (typeOf base))
-
-   where
-   peelRef :: Ty -> Ty
-   peelRef (TyRef t _) = t
-   peelRef t = t
-
-   peelIdx :: Ty -> Ty
-   peelIdx (TyArray t _) = t
-   peelIdx (TySlice t)   = t
-   peelIdx (TyRef t m)   = TyRef (peelIdx t) m
-   peelIdx t             = t
-    
---------------------------------------------------------------------------------------
-
-{-
-
--- SUBSUMED by generic version above
-
-class Replace v a where
-    replace :: v -> v -> a -> a
-
-instance (Replace v [Var], Replace v MirBody) => Replace v Fn where
-    replace old new (Fn fname1 args fretty fbody1) = Fn fname1 (replace old new args) fretty (replace old new fbody1)
-
-instance (Replace v [Var], Replace v [BasicBlock]) => Replace v MirBody where
-    replace old new (MirBody a blocks) = MirBody a $ replace old new blocks
-
-instance Replace v a => Replace v (Map.Map b a) where
-    replace old new = Map.map (replace old new)
-
-instance Replace v a => Replace v [a] where
-    replace old new = Data.List.map (replace old new)
-
-instance (Replace v BasicBlockData) => Replace v BasicBlock where
-    replace old new (BasicBlock bbi bbd) = BasicBlock bbi $ replace old new bbd
-
-instance (Replace v [Statement], Replace v Terminator) => Replace v BasicBlockData where
-    replace old new (BasicBlockData stmts term) = BasicBlockData (replace old new stmts) (replace old new term)
-
-instance (Replace v Operand, Replace v Lvalue) => Replace v Terminator where
-    replace old new (SwitchInt op ty vals targs) = SwitchInt (replace old new op) ty vals targs
-    replace old new (Drop loc targ un) = Drop (replace old new loc) targ un
-    replace old new (DropAndReplace loc val targ un) = DropAndReplace (replace old new loc) (replace old new val) targ un
-    replace old new (Call f args (Just (d1, d2)) cl)
-      = Call (replace old new f) (replace old new args) (Just (replace old new d1, d2)) cl
-    replace old new (Assert cond exp1 m t cl) = Assert (replace old new cond) exp1 m t cl
-    replace _old _new t = t
-
-instance (Replace v Lvalue, Replace v Rvalue) => Replace v Statement where
-    replace old new (Assign lv rv p) = Assign (replace old new lv) (replace old new rv) p
-    replace old new (SetDiscriminant lv i) = SetDiscriminant (replace old new lv) i
-    replace old new (StorageLive l) = StorageLive (replace old new l)
-    replace old new (StorageDead l) = StorageDead (replace old new l)
-    replace _old _new Nop = Nop
-
-instance Replace Var Var where
-    replace old new v = if _varname v == _varname old then new else v
-
-instance Replace Lvalue Var where
-    replace (Local old) (Local new) v = replace old new v
-    replace _ _ v = v
-
-instance Replace Var Lvalue where
-    replace old new (Tagged lv t) = Tagged (replace old new lv) t
-    replace old new (Local v) = Local $ replace old new v
-    replace _old _new Static = Static
-    replace old new (LProjection (LvalueProjection lbase lkind)) = LProjection $ LvalueProjection (replace old new lbase) lkind
-
-instance Replace Lvalue Lvalue where
-    replace old new v = fromMaybe v (repl_lv v)
-      where
-        repl_lv :: Lvalue -> Maybe Lvalue -- some light unification
-        repl_lv v0 =
-          case v0 of
-            LProjection (LvalueProjection lb k)
-              | Just ans <- repl_lv lb -> Just $ LProjection (LvalueProjection ans k)
-            Tagged lb _ | Just ans <- repl_lv lb -> Just ans
-            _ | v == old -> Just new
-            _ -> Nothing
-
-
-instance (Replace v Lvalue) => Replace v Operand where
-    replace old new (Consume lv) = Consume (replace old new lv)
-    replace _old _new o = o
-
-instance (Replace v Operand, Replace v Lvalue, Replace v Var) => Replace v Rvalue where
-    replace old new (Use o) = Use (replace old new o)
-    replace old new (Repeat a b) = Repeat (replace old new a) b
-    replace old new (Ref a b c) = Ref a (replace old new b) c
-    replace old new (Len a) = Len (replace old new a)
-    replace old new (Cast a b c) = Cast a (replace old new b) c
-    replace old new (BinaryOp a b c) = BinaryOp a (replace old new b) (replace old new c)
-    replace old new (CheckedBinaryOp a b c) = CheckedBinaryOp a (replace old new b) (replace old new c)
-    replace old new (Discriminant v) = Discriminant (replace old new v)
-    replace old new (Aggregate a bs) = Aggregate a (replace old new bs)
-    replace old new (RCustom (CARange ty o1 o2)) = RCustom (CARange ty (replace old new o1) (replace old new o2))
-    replace _old _new (UnaryOp a b) = UnaryOp a b
-    replace _old _new t = error $ "bad replacevar: " ++ show t
-
-
-
-replaceList :: (Replace v a) => [(v, v)] -> a -> a
-replaceList [] a = a
-replaceList ((old,new) : vs) a = replaceList vs $ replace old new a
-
-
-replaceVar :: (Replace Var a) => Var -> Var -> a -> a
-replaceVar = replace 
-
-replaceLvalue :: (Replace Lvalue a) => Lvalue -> Lvalue -> a -> a
-replaceLvalue = replace 
-
--}
-    
-
---------------------------------------------------------------------------------------
--- | Pretty printing instances
-
-class PPrint a where
-    pprint :: a -> String
-
-pprint_fn1 :: (PPrint a) => String -> a -> String
-pprint_fn1 fn a = fn ++ "(" ++ pprint a ++ ");"
-
-pprint_fn2 :: (PPrint a, PPrint b) => String -> a -> b -> String
-pprint_fn2 fn a b = fn ++ "(" ++ pprint a ++ ", " ++ pprint b ++ ");"
-
-pprint_fn3 :: (PPrint a, PPrint b, PPrint c) => String -> a -> b -> c -> String
-pprint_fn3 fn a b c = fn ++ "(" ++ pprint a ++ ", " ++ pprint b ++ ", " ++ pprint c ++ ");"
-
-pprint_fn4 :: (PPrint a, PPrint b, PPrint c, PPrint d) => String -> a -> b -> c -> d -> String
-pprint_fn4 fn a b c d = fn ++ "(" ++ pprint a ++ ", " ++ pprint b ++ ", " ++ pprint c ++ ", " ++ pprint d ++ ");"
-
-instance PPrint a => PPrint (Maybe a) where
-    pprint (Just a) = pprint a
-    pprint Nothing = ""
-
-instance PPrint Text where
-    pprint = unpack
-
-instance PPrint DefId where
-    pprint = show 
-
-instance PPrint Int where
-    pprint = show
-
-instance PPrint a => PPrint [a] where
-    pprint as = "(" ++ pas ++ ")" where
-        pas = mconcat $ Data.List.intersperse ", " (Prelude.map pprint as)
-
-instance (PPrint a, PPrint b) => PPrint (a,b) where
-    pprint (a,b) = "(" ++ pprint a ++ ", " ++ pprint b ++ ")"
-
-instance PPrint Bool where
-    pprint = show
-
-instance PPrint BaseSize where
-    pprint = show
-
-instance PPrint FloatKind where
-    pprint = show
-
-instance PPrint Ty where
-    pprint = show
-
-instance PPrint Adt where
-   pprint (Adt nm vs) = pprint_fn2 "Adt" nm vs
-    
-instance PPrint VariantDiscr where
-  pprint (Explicit a) = pprint_fn1 "Explicit" a
-  pprint (Relative a) = pprint_fn1 "Relative" a
-
-
-instance PPrint CtorKind where
-  pprint = show
-
-instance PPrint Variant where
-  pprint (Variant nm dscr flds knd) = pprint_fn4 "Variant" nm dscr flds knd
-
-instance PPrint Field where
-    pprint (Field nm ty sbs) = pprint_fn3 "Field" nm ty sbs
-
-instance PPrint CustomTy where
-    pprint = show
-
-instance PPrint Mutability where
-    pprint = show
-
-instance PPrint Var where
-    pprint (Var vn vm _vty _vs _) = j ++ unpack vn -- ++ ": " ++  pprint vty
-        where
-            j = case vm of
-                  Mut -> "mut "
-                  _ -> ""
-
-instance PPrint Fn where
-    pprint (Fn fname1 fargs1 fty fbody1) = pprint fname1 ++ "(" ++ pargs ++ ") -> " ++ pprint fty ++ " {\n" ++ pprint fbody1 ++ "}\n"
-        where
-            pargs = mconcat $ Data.List.intersperse "\n" (Prelude.map pprint fargs1)
-
-instance PPrint MirBody where
-    pprint (MirBody mvs mbs) = pvs ++ "\n" ++ pbs ++ "\n"
-        where
-            pvs = mconcat $ Data.List.intersperse "\n" (Prelude.map ((\s -> "alloc " ++ s) . pprint) mvs)
-            pbs = mconcat $ Data.List.intersperse "\n" (Prelude.map pprint mbs)
-    
-instance PPrint BasicBlock where
-    pprint (BasicBlock info dat) = pprint info ++ " { \n" ++ pprint dat ++ "} \n"
-
-instance PPrint BasicBlockData where
-    pprint (BasicBlockData bbds bbt) = pbs ++ "\n" ++ "\t" ++ pprint bbt ++ "\n"
-        where
-            a = Prelude.map pprint bbds
-            b = Prelude.map (\v -> "\t" ++ v) a
-            pbs = mconcat $ Data.List.intersperse "\n" b
-
-instance PPrint Statement where
-    pprint (Assign lhs rhs _) = pprint lhs ++ " = " ++ pprint rhs ++ ";"
-    pprint (SetDiscriminant lhs rhs) = pprint lhs ++ " = " ++ pprint rhs ++ ";"
-    pprint (StorageLive l) = pprint_fn1 "StorageLive" l
-    pprint (StorageDead l) = pprint_fn1 "StorageDead" l
-    pprint Nop = "nop;"
-
-instance PPrint Lvalue where
-    pprint (Local v) = pprint v
-    pprint Static = "STATIC"
-    pprint (LProjection p) = pprint p
-    pprint (Tagged lv t) = show t ++ "(" ++ pprint lv ++ ")"
-    
-instance PPrint Rvalue where
-    pprint (Use a) = pprint_fn1 "Use" a
-    pprint (Repeat a b) = pprint_fn2 "Repeat" a b
-    pprint (Ref a b c) = pprint_fn3 "Ref" a b c
-    pprint (Len a) = pprint_fn1 "Len" a
-    pprint (Cast a b c) = pprint_fn3 "Cast" a b c
-    pprint (BinaryOp a b c) = pprint_fn3 "BinaryOp" a b c
-    pprint (CheckedBinaryOp a b c) = pprint_fn3 "CheckedBinaryOp" a b c
-    pprint (NullaryOp a b) = pprint_fn2 "NullaryOp" a b
-    pprint (UnaryOp a b) = pprint_fn2 "UnaryOp" a b
-    pprint (Discriminant a) = pprint_fn1 "Discriminant" a
-    pprint (Aggregate a b) = pprint_fn2 "Aggregate" a b
-    pprint (RAdtAg a) = pprint_fn1 "RAdtAg" a
-    pprint (RCustom a) = pprint_fn1 "RCustom" a
-
-instance PPrint AdtAg where
-  pprint (AdtAg adt i ops) = pprint_fn3 "AdtAg" adt i ops
-
-
-instance PPrint Terminator where
-    pprint (Goto g) = "goto " ++ pprint g ++ ";"
-    pprint (SwitchInt op ty vs bs) = "switchint " ++ pprint op ++ ": " ++ pprint ty ++ " " ++ pprint vs ++ " -> " ++ pprint bs
-    pprint Return = "return;"
-    pprint Resume = "resume;"
-    pprint Unreachable = "unreachable;"
-    pprint (Drop _l _target _unwind) = "drop;"
-    pprint DropAndReplace{} = "dropreplace;"
-    pprint (Call f args dest _cleanup) = "call " ++ pprint f ++ pprint args ++ " -> " ++ pprint dest
-    pprint (Assert op expect _msg target1 _cleanup) = "assert " ++ pprint op ++ " == " ++ pprint expect ++ " -> " ++ pprint target1
-
-
-
-instance PPrint Operand where
-    pprint (Consume lv) = "Consume(" ++ pprint lv ++ ")"
-    pprint (OpConstant c) = "Constant(" ++ pprint c ++ ")"
-
-
-instance PPrint Constant where
-    pprint (Constant _a b) = pprint b -- pprint_fn2 "Constant" a b
-
-instance PPrint LvalueProjection where
-    pprint (LvalueProjection lv le) = "Projection(" ++ pprint lv ++", " ++  pprint le ++ ")"
-
-instance PPrint Lvpelem where
-    pprint Deref = "Deref"
-    pprint (PField a b) = pprint_fn2 "Field" a b
-    pprint (Index a) = pprint_fn1 "Index" a
-    pprint (ConstantIndex a b c) = pprint_fn3 "ConstantIndex" a b c
-    pprint (Subslice a b) = pprint_fn2 "Subslice" a b
-    pprint (Downcast a) = pprint_fn1 "Downcast" a
-
-instance PPrint NullOp where
-    pprint = show
-
-instance PPrint BorrowKind where
-    pprint = show
-
-instance PPrint UnOp where
-    pprint = show
-
-instance PPrint BinOp where
-    pprint = show
-
-instance PPrint CastKind where
-    pprint = show
-
-instance PPrint Literal where
-    pprint (Item a b) = pprint_fn2 "Item" a b
-    pprint (Value a) = pprint_fn1 "Value" a
-    pprint (LPromoted a) = pprint a
-
-instance PPrint IntLit where
-  pprint = show
-
-instance PPrint FloatLit where
-  pprint = show
-  
-instance PPrint ConstVal where
-    pprint (ConstFloat i) = show i
-    pprint (ConstInt i) = show i
-    pprint (ConstStr i) = show i
-    pprint (ConstByteStr i) = show i
-    pprint (ConstBool i) = show i
-    pprint (ConstChar i) = show i
-    pprint (ConstVariant i) = pprint i
-    pprint (ConstTuple cs) = "("++pcs++")" where
-        pcs = mconcat $ Data.List.intersperse ", " (Prelude.map pprint cs)
-    pprint (ConstArray cs) = "["++pcs++"]" where
-        pcs = mconcat $ Data.List.intersperse ", " (Prelude.map pprint cs)
-    pprint (ConstRepeat cv i) = "["++pprint cv++"; " ++ show i ++ "]"
-    pprint (ConstFunction a _b) = show a
-    pprint ConstStruct = "ConstStruct"
-
-instance PPrint AggregateKind where
-    pprint (AKArray t) = "[" ++ pprint t ++ "]"
-    pprint AKTuple = "tup"
-    pprint f = show f
-
-instance PPrint CustomAggregate where
-    pprint = show
-
-instance PPrint Integer where
-    pprint = show
-
-instance PPrint (Map.Map Lvalue Lvalue) where
-    pprint m = unwords $ Data.List.map (\(k,v) -> pprint k ++ " => " ++ pprint v ++ "\n") p
-        where p = Map.toList m
-
-instance PPrint FnSig where
-  pprint (FnSig args ret) = pprint args ++ " -> " ++ pprint ret
-
-instance PPrint TraitItem where
-  pprint (TraitMethod name sig) = pprint name ++ ":" ++ pprint sig
-  pprint (TraitType name) = "name "  ++ pprint name
-  pprint (TraitConst name ty) = "const " ++ pprint name ++ ":" ++ pprint ty
-
-instance PPrint Trait where
-  pprint (Trait name items) =
-    "trait " ++ pprint name ++ pprint items
-
-instance PPrint Collection where
-  pprint col =
-    pprint (col^.functions) ++ "\n" ++
-    pprint (col^.adts)      ++ "\n" ++
-    pprint (col^.traits)    ++ "\n" 
-
-
---------------------------------------------------------------------------------------
--- | FromJSON instances
--- Aeson is used for JSON deserialization
-
-
-instance FromJSON BaseSize where
-    parseJSON = withObject "BaseSize" $
-                \t -> case HML.lookup "kind" t of
-                        Just (String "usize") -> pure USize
-                        Just (String "u8") -> pure B8
-                        Just (String "u16") -> pure B16
-                        Just (String "u32") -> pure B32
-                        Just (String "u64") -> pure B64
-                        Just (String "u128") -> pure B128
-                        Just (String "isize") -> pure USize
-                        Just (String "i8") -> pure B8
-                        Just (String "i16") -> pure B16
-                        Just (String "i32") -> pure B32
-                        Just (String "i64") -> pure B64
-                        Just (String "i128") -> pure B128
-                        sz -> fail $ "unknown base size: " ++ show sz
-
-instance FromJSON FloatKind where
-    parseJSON = withObject "FloatKind" $ \t -> case HML.lookup "kind" t of
-                                                 Just (String "f32") -> pure F32
-                                                 Just (String "f64") -> pure F64
-                                                 sz -> fail $ "unknown float type: " ++ show sz
-
-instance FromJSON Ty where
-    parseJSON = withObject "Ty" $ \v -> case HML.lookup "kind" v of
-                                          Just (String "Bool") -> pure TyBool
-                                          Just (String "Char") -> pure TyChar
-                                          Just (String "Int") -> TyInt <$> v .: "intkind"
-                                          Just (String "Uint") -> TyUint <$> v .: "uintkind"
-                                          Just (String "Unsupported") -> pure TyUnsupported
-                                          Just (String "Tuple") -> TyTuple <$> v .: "tys"
-                                          Just (String "Slice") -> TySlice <$> v .: "ty"
-                                          Just (String "Array") -> TyArray <$> v .: "ty" <*> v .: "size"
-                                          Just (String "Ref") ->  TyRef <$> v .: "ty" <*> v .: "mutability"
-                                          Just (String "Custom") -> TyCustom <$> v .: "data"
-                                          Just (String "FnDef") -> TyFnDef <$> v .: "defid" <*> v .: "substs"
-                                          Just (String "Adt") -> TyAdt <$> v .: "name" <*> v .: "substs"
-                                          Just (String "Param") -> TyParam <$> v .: "param"
-                                          Just (String "Closure") -> TyClosure <$> v .: "defid" <*> v .: "closuresubsts"
-                                          Just (String "Str") -> pure TyStr
-                                          Just (String "FnPtr") -> TyFnPtr <$> v .: "signature"
-                                          Just (String "Dynamic") -> TyDynamic <$> v .: "data"
-                                          Just (String "RawPtr") -> TyRawPtr <$> v .: "ty" <*> v .: "mutability"
-                                          Just (String "Float") -> TyFloat <$> v .: "size"
-                                          Just (String "Never") -> pure (TyAdt "::Never[0]" [])
-                                          Just (String "Projection") -> TyProjection <$> v .: "defid" <*> v .: "substs"
-                                          r -> fail $ "unsupported ty: " ++ show r
-
-instance FromJSON FnSig where
-    parseJSON = withObject "FnSig" $ \v -> FnSig <$> v .: "inputs" <*> v .: "output"
-
-instance FromJSON Adt where
-    parseJSON = withObject "Adt" $ \v -> Adt <$> v .: "name" <*> v .: "variants"
-
-instance FromJSON VariantDiscr where
-    parseJSON = withObject "VariantDiscr" $ \v -> case HML.lookup "kind" v of
-                                                    Just (String "Explicit") -> Explicit <$> v .: "name"
-                                                    Just (String "Relative") -> Relative <$> v .: "index"
-                                                    _ -> fail "unspported variant discriminator"
-
-instance FromJSON CtorKind where
-    parseJSON = withObject "CtorKind" $ \v -> case HML.lookup "kind" v of
-                                                Just (String "Fn") -> pure FnKind
-                                                Just (String "Const") -> pure ConstKind
-                                                Just (String "Fictive") -> pure FictiveKind
-                                                _ -> fail "unspported constructor kind"
-instance FromJSON Variant where
-    parseJSON = withObject "Variant" $ \v -> Variant <$> v .: "name" <*> v .: "discr" <*> v .: "fields" <*> v .: "ctor_kind"
-
-instance FromJSON Field where
-    parseJSON = withObject "Field" $ \v -> Field <$> v .: "name" <*> v .: "ty" <*> v .: "substs"
-
-instance FromJSON CustomTy where
-    parseJSON = withObject "CustomTy" $ \v -> case HML.lookup "kind" v of
-                                                Just (String "Box") -> BoxTy <$> v .: "box_ty"
-                                                Just (String "Vec") -> VecTy <$> v .: "vec_ty"
-                                                Just (String "Iter") -> IterTy <$> v .: "iter_ty"
-                                                x -> fail $ "bad custom type: " ++ show x
-
-instance FromJSON Mutability where
-    parseJSON = withObject "Mutability" $ \v -> case HML.lookup "kind" v of
-                                                Just (String "MutMutable") -> pure Mut
-                                                Just (String "Mut") -> pure Mut
-                                                Just (String "MutImmutable") -> pure Immut
-                                                Just (String "Not") -> pure Immut
-                                                x -> fail $ "bad mutability: " ++ show x
-
-
-instance FromJSON Var where
-    parseJSON = withObject "Var" $ \v -> Var
-        <$>  v .: "name"
-        <*>  v .: "mut"
-        <*>  v .: "ty"
-        <*>  v .: "scope"
-        <*>  v .: "pos"
-
-instance FromJSON Collection where
-    parseJSON = withObject "Collection" $ \v -> Collection
-        <$>  v .: "fns"
-        <*> v .: "adts"
-        <*> v .: "traits"
-        
-
-instance FromJSON Fn where
-    parseJSON = withObject "Fn" $ \v -> Fn
-        <$> v .: "name"
-        <*> v .: "args"
-        <*> v .: "return_ty"
-        <*> v .: "body"
-
-instance FromJSON BasicBlock where
-    parseJSON = withObject "BasicBlock" $ \v -> BasicBlock
-        <$> v .: "blockid"
-        <*> v .: "block"
-
-instance FromJSON BasicBlockData where
-    parseJSON = withObject "BasicBlockData" $ \v -> BasicBlockData
-        <$> v .: "data"
-        <*>  v .: "terminator"
-
-instance FromJSON Statement where
-    parseJSON = withObject "Statement" $ \v -> case HML.lookup "kind" v of
-                             Just (String "Assign") ->  Assign <$> v.: "lhs" <*> v .: "rhs" <*> v .: "pos"
-                             Just (String "SetDiscriminant") -> SetDiscriminant <$> v .: "lvalue" <*> v .: "variant_index"
-                             Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
-                             Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
-                             Just (String "Nop") -> pure Nop
-                             _ -> fail "kind not found for statement"
-
-
-instance FromJSON Lvalue where
-    parseJSON = withObject "Lvalue" $ \v -> case HML.lookup "kind" v of
-                                              Just (String "Local") ->  Local <$> v .: "localvar"
-                                              Just (String "Static") -> pure Static
-                                              Just (String "Projection") ->  LProjection <$> v .: "data"
-                                              _ -> fail "kind not found"
-
-instance FromJSON Rvalue where
-    parseJSON = withObject "Rvalue" $ \v -> case HML.lookup "kind" v of
-                                              Just (String "Use") -> Use <$> v .: "usevar"
-                                              Just (String "Repeat") -> Repeat <$> v .: "op" <*> v .: "len"
-                                              Just (String "Ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
-                                              Just (String "Len") -> Len <$> v .: "lv"
-                                              Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
-                                              Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
-                                              Just (String "CheckedBinaryOp") -> CheckedBinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
-                                              Just (String "NullaryOp") -> NullaryOp <$> v .: "op" <*> v .: "ty"
-                                              Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
-                                              Just (String "Discriminant") -> Discriminant <$> v .: "val"
-                                              Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
-                                              Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
-                                              Just (String "Custom") -> RCustom <$> v .: "data"
-                                              _ -> fail "unsupported RValue"
-
-instance FromJSON AdtAg where
-    parseJSON = withObject "AdtAg" $ \v -> AdtAg <$> v .: "adt" <*> v .: "variant" <*> v .: "ops"
-
-instance FromJSON Terminator where
-    parseJSON = withObject "Terminator" $ \v -> case HML.lookup "kind" v of
-                                                  Just (String "Goto") -> Goto <$> v .: "target"
-                                                  Just (String "SwitchInt") -> SwitchInt <$> v .: "discr" <*> v .: "switch_ty" <*> v .: "values" <*> v .: "targets"
-                                                  Just (String "Resume") -> pure Resume
-                                                  Just (String "Return") -> pure Return
-                                                  Just (String "Unreachable") -> pure Unreachable
-                                                  Just (String "Drop") -> Drop <$> v .: "location" <*> v .: "target" <*> v .: "unwind"
-                                                  Just (String "DropAndReplace") -> DropAndReplace <$> v .: "location" <*> v .: "value" <*> v .: "target" <*> v .: "unwind"
-                                                  Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination" <*> v .: "cleanup"
-                                                  Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target" <*> v .: "cleanup"
-                                                  _ -> fail "unsupported terminator"
-
-instance FromJSON Operand where
-    parseJSON = withObject "Operand" $ \v -> case HML.lookup "kind" v of
-                                               Just (String "Consume") -> Consume <$> v .: "data"
-                                               Just (String "Constant") -> OpConstant <$> v .: "data"
-                                               x -> fail ("base operand: " ++ show x)
-
-instance FromJSON LvalueProjection where
-    parseJSON = withObject "LvalueProjection" $ \v -> LvalueProjection <$> v .: "base" <*> v .: "data"
-
-instance FromJSON Lvpelem where
-    parseJSON = withObject "Lvpelem" $ \v -> case HML.lookup "kind" v of
-                                               Just (String "Deref") -> pure Deref
-                                               Just (String "Field") -> PField <$> v .: "field" <*> v .: "ty"
-                                               Just (String "Index") -> Index <$> v .: "op"
-                                               Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
-                                               Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to"
-                                               Just (String "Downcast") -> Downcast <$> v .: "variant"
-                                               x -> fail ("bad lvpelem: " ++ show x)
-
-instance FromJSON Constant where
-    parseJSON = withObject "Constant" $ \v -> Constant <$> v .: "ty" <*> v .: "literal"
-    
-instance FromJSON NullOp where
-    parseJSON = withObject "NullOp" $ \v -> case HML.lookup "kind" v of
-                                             Just (String "SizeOf") -> pure SizeOf
-                                             Just (String "Box") -> pure Box
-                                             x -> fail ("bad nullOp: " ++ show x)
-
-instance FromJSON BorrowKind where
-    parseJSON = withObject "BorrowKind" $ \v -> case HML.lookup "kind" v of
-                                             Just (String "Shared") -> pure Shared
-                                             Just (String "Unique") -> pure Unique
-                                             Just (String "Mut") -> pure Mutable
-                                             x -> fail ("bad borrowKind: " ++ show x)
-
-instance FromJSON UnOp where
-    parseJSON = withObject "UnOp" $ \v -> case HML.lookup "kind" v of
-                                             Just (String "Not") -> pure Not
-                                             Just (String "Neg") -> pure Neg
-                                             x -> fail ("bad unOp: " ++ show x)
-instance FromJSON BinOp where
-    parseJSON = withObject "BinOp" $ \v -> case HML.lookup "kind" v of
-                                             Just (String "Add") -> pure Add
-                                             Just (String "Sub") -> pure Sub
-                                             Just (String "Mul") -> pure Mul
-                                             Just (String "Div") -> pure Div
-                                             Just (String "Rem") -> pure Rem
-                                             Just (String "BitXor") -> pure BitXor
-                                             Just (String "BitAnd") -> pure BitAnd
-                                             Just (String "BitOr") -> pure BitOr
-                                             Just (String "Shl") -> pure Shl
-                                             Just (String "Shr") -> pure Shr
-                                             Just (String "Eq") -> pure Beq
-                                             Just (String "Lt") -> pure Lt
-                                             Just (String "Le") -> pure Le
-                                             Just (String "Ne") -> pure Ne
-                                             Just (String "Ge") -> pure Ge
-                                             Just (String "Gt") -> pure Gt
-                                             Just (String "Offset") -> pure Offset
-                                             x -> fail ("bad binop: " ++ show x)
-instance FromJSON CastKind where
-    parseJSON = withObject "CastKind" $ \v -> case HML.lookup "kind" v of
-                                               Just (String "Misc") -> pure Misc
-                                               Just (String "ReifyFnPointer") -> pure ReifyFnPointer
-                                               Just (String "ClosureFnPointer") -> pure ClosureFnPointer
-                                               Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
-                                               Just (String "Unsize") -> pure Unsize
-                                               x -> fail ("bad CastKind: " ++ show x)
-
-instance FromJSON Literal where
-    parseJSON = withObject "Literal" $ \v -> case HML.lookup "kind" v of
-                                               Just (String "Item") -> Item <$> v .: "def_id" <*> v .: "substs"
-                                               Just (String "Value") -> Value <$> v .: "value"
-                                               Just (String "Promoted") -> LPromoted <$> v .: "index"
-                                               x -> fail ("bad Literal: " ++ show x)
-
-
-instance FromJSON IntLit where
-    parseJSON = withObject "IntLit" $ \v -> case HML.lookup "kind" v of
-                                              Just (String "u8") -> U8 <$> v.: "val"
-                                              Just (String "u16") -> U16 <$> v.: "val"
-                                              Just (String "u32") -> U32 <$> v.: "val"
-                                              Just (String "u64") -> U64 <$> v.: "val"
-                                              Just (String "usize") -> Usize <$> v.: "val"
-                                              Just (String "i8") -> I8 <$> v.: "val"
-                                              Just (String "i16") -> I16 <$> v.: "val"
-                                              Just (String "i32") -> I32 <$> v.: "val"
-                                              Just (String "i64") -> I64 <$> v.: "val"
-                                              Just (String "isize") -> Isize <$> v.: "val"
-                                              _ -> fail "invalid int literal"
-
-
-instance FromJSON FloatLit where
-    parseJSON = withObject "FloatLit" $ \v -> FloatLit <$> v .: "ty" <*> v.: "bits"
-
-instance FromJSON ConstVal where
-    parseJSON = withObject "ConstVal" $ \v -> case HML.lookup "kind" v of
-                                                Just (String "Integral") -> ConstInt <$> v .: "data"
-                                                Just (String "Bool") -> ConstBool <$> v .: "data"
-                                                Just (String "Char") -> ConstChar <$> v .: "data"
-                                                Just (String "Float") -> ConstFloat <$> v .: "data"
-                                                Just (String "Tuple") -> ConstTuple <$> v .: "data"
-                                                Just (String "Function") -> ConstFunction <$> v .: "fname" <*> v .: "substs"
-                                                Just (String "Array") -> ConstArray <$> v .: "data"
-                                                Just (String "Str") -> ConstStr <$> v .: "data"
-                                                Just (String "ByteStr") -> pure $ ConstByteStr "" -- TODO
-                                                r -> fail $ "const unimp: " ++ show r
-
-instance FromJSON AggregateKind where
-    parseJSON = withObject "AggregateKind" $ \v -> case HML.lookup "kind" v of
-                                                     Just (String "Array") -> AKArray <$> v .: "ty"
-                                                     Just (String "Tuple") -> pure AKTuple
-                                                     Just (String "Closure") -> AKClosure <$> v .: "defid" <*> v .: "closuresubsts"
-                                                     Just (String unk) -> fail $ "unimp: " ++ unpack unk
-                                                     x -> fail ("bad AggregateKind: " ++ show x)
-
-instance FromJSON CustomAggregate where
-    parseJSON = withObject "CustomAggregate" $ \v -> case HML.lookup "kind" v of
-                                                       Just (String "Range") -> CARange <$> v .: "range_ty" <*> v .: "f1" <*> v .: "f2"
-                                                       x -> fail ("bad CustomAggregate: " ++ show x)
-
-instance FromJSON Trait where
-    parseJSON = withObject "Trait" $ \v -> Trait <$> v .: "name" <*> v .: "items"
-
-instance FromJSON TraitItem where
-    parseJSON = withObject "TraitItem" $ \v ->
-                case HML.lookup "kind" v of
-                  Just (String "Method") -> TraitMethod <$> v .: "name" <*> v .: "signature"
-                  Just (String "Type") -> TraitType <$> v .: "name"
-                  Just (String "Const") -> TraitConst <$> v .: "name" <*> v .: "type"
-                  Just (String unk) -> fail $ "unknown trait item type: " ++ unpack unk
-                  Just x -> fail $ "Incorrect format of the kind field in TraitItem: " ++ show x
-                  _ -> fail "Missing kind field in TraitItem"
-
-
-instance FromJSON MirBody where
-    parseJSON = withObject "MirBody" $ \v -> MirBody
-        <$> v .: "vars"
-        <*> v .: "blocks"
 
 --------------------------------------------------------------------------------------------
+-- coercing list operations to Substs
+-------------------------------------------------------------------------------
+
+-- | insertAt xs k ys  is equivalent to take k ++ xs ++ drop k
+insertAt :: [a] -> Int -> [a] -> [a]
+insertAt xs 0 ys = xs ++ ys
+insertAt xs _n [] = xs
+insertAt xs n (y:ys) = y : insertAt xs (n - 1)ys
+
+-- | access nth component (if possible)
+safeNth :: Int -> [a] -> Maybe a
+safeNth n (x:xs)
+  | n > 0     = safeNth (n-1) xs
+  | n == 0    = Just x
+  | otherwise = Nothing
+safeNth _n []  = Nothing
+
+-----------------
+
+-- | is the substs empty?
+nullSubsts :: Substs -> Bool
+nullSubsts = coerce (null @[] @Ty)
+
+-- | If the substs is infinite, this may not terminate
+lengthSubsts :: Substs -> Int
+lengthSubsts = coerce (length @[] @Ty)
+
+-- | insertAt xs k ys  is equivalent to take k ++ xs ++ drop k
+insertAtSubsts :: Substs -> Int -> Substs -> Substs
+insertAtSubsts = coerce (insertAt @Ty)
+
+-- | access nth component (if possible)
+safeNthSubsts :: Int -> Substs -> Maybe Ty
+safeNthSubsts = coerce (safeNth @Ty)
+
+-- | Truncate a substitution by the first n 
+takeSubsts :: Int -> Substs -> Substs
+takeSubsts = coerce (take @Ty)
+
+-- | drop n xs returns the suffix of xs after the first n elements, or [] if n > length xs:
+dropSubsts :: Int -> Substs -> Substs
+dropSubsts = coerce (drop @Ty)
+
+-- | splitAt n xs returns a tuple where first element is xs prefix of
+-- length n and second element is the remainder of the list
+splitAtSubsts :: Int -> Substs -> (Substs,Substs)
+splitAtSubsts = coerce (splitAt @Ty)
+
+

@@ -1,4 +1,7 @@
-// FAIL: Hard to see why
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
+// Make sure that we can include negative numbers in C-style enums
+
 #![no_implicit_prelude]
 
 pub enum Ordering {
@@ -7,7 +10,7 @@ pub enum Ordering {
     /// An ordering where a compared value is greater [than another].
     Greater = 1,
     /// An ordering where a compared value is less [than another].
-    Less = -1,
+    Less = -23,
 }
 
 use self::Ordering::*;
@@ -27,14 +30,19 @@ impl Ordering {
 
 pub fn f (x : i32) -> i32 {
     let y = Greater;
-    let z = (y.reverse() as i32);
-    return z
+    let z = match y {
+            Less => Greater,
+            Equal => Equal,
+            Greater => Less,
+            };
+    return (z as i32);
 }
 
 
 pub const ARG : i32 = 1;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> i32 { f(ARG) }

@@ -1,4 +1,8 @@
-
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
+/*
+ where clauses are currently unsupported
+*/
 
 fn call_with_one<F>(some_closure: F) -> i32
     where F: FnOnce(i32) -> i32 {
@@ -15,6 +19,7 @@ fn f (y:i32) -> i32 {
 const ARG :i32 = 0;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> i32 { f(ARG) }

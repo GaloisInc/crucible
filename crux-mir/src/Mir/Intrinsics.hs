@@ -1,25 +1,30 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE EmptyDataDecls #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeInType #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ViewPatterns #-}
+
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
@@ -38,44 +43,22 @@ module Mir.Intrinsics
 , MirReferencePath(..)
 , muxRefPath
 , muxRef
-, TaggedUnion
 , MirSlice
 , pattern MirSliceRepr
-  -- * Translation-specific types
-, VarMap
-, VarInfo (..)
-, varInfoRepr
-, LabelMap
-, AdtMap
-, TraitMap (..)
-, TraitImpls (..)
-, vtableTyRepr
-, methodIndex
-, vtables
-, traitImpls
-, FnState (..)
-, MirExp (..)
-, MirHandle (..)
-, HandleMap
-, varMap
-, labelMap
-, adtMap
-, handleMap
-, traitMap
-, MirValue(..)
-, valueToExpr
-  , getTraitImplementation  
+
   -- * MIR Syntax extension
 , MIR
 , MirStmt(..)
 , mirExtImpl
 ) -} where
 
+import           GHC.Natural
 import           GHC.TypeLits
 import           Control.Lens hiding (Empty, (:>), Index, view)
 import           Control.Monad
 import           Control.Monad.Trans.Class
 import           Control.Monad.Trans.Maybe
+import           Data.Kind(Type)
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import           Data.Map.Strict(Map)
@@ -83,20 +66,25 @@ import qualified Data.Map.Strict as Map
 import           Data.Text (Text)
 import qualified Data.Text as Text
 import           Data.String
+import qualified Data.Vector as V
 
 import qualified Text.Regex as Regex
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
 
+import           Data.Parameterized.Some
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context
 import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.TH.GADT as U
+import qualified Data.Parameterized.Map as MapF
+import qualified Data.Parameterized.NatRepr as N
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
---import           Lang.Crucible.CFG.Extension
+import           Lang.Crucible.CFG.Extension.Safety(AssertionClassifier,NoAssertionClassifier,HasStructuredAssertions(..))
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
 import           Lang.Crucible.FunctionHandle
+import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
 import           Lang.Crucible.Simulator.Evaluation
@@ -106,13 +94,244 @@ import           Lang.Crucible.Simulator.RegValue
 import           Lang.Crucible.Simulator.RegMap
 import           Lang.Crucible.Simulator.SimError
 
+import           What4.Concrete (ConcreteVal(..), concreteType)
 import           What4.Interface
+import           What4.Partial (maybePartExpr)
 import           What4.Utils.MonadST
 
 import           Mir.DefId
 import           Mir.Mir
+import           Mir.PP
 
 import           Debug.Trace
+
+import           Unsafe.Coerce
+
+
+mirIntrinsicTypes :: IsSymInterface sym => IntrinsicTypes sym
+mirIntrinsicTypes =
+   MapF.insert (knownSymbol :: SymbolRepr "MirReference") IntrinsicMuxFn $
+   MapF.empty
+
+
+
+-- Rust enum representation
+
+-- A Rust enum, whose variants have the types listed in `ctx`.
+type RustEnumType ctx = StructType (RustEnumFields ctx)
+type RustEnumFields ctx = EmptyCtx ::> IsizeType ::> VariantType ctx
+
+pattern RustEnumFieldsRepr :: () => ctx' ~ RustEnumFields ctx => CtxRepr ctx -> CtxRepr ctx'
+pattern RustEnumFieldsRepr ctx = Empty :> IsizeRepr :> VariantRepr ctx
+pattern RustEnumRepr :: () => tp ~ RustEnumType ctx => CtxRepr ctx -> TypeRepr tp
+pattern RustEnumRepr ctx = StructRepr (RustEnumFieldsRepr ctx)
+
+mkRustEnum :: CtxRepr ctx -> f IsizeType -> f (VariantType ctx) -> App ext f (RustEnumType ctx)
+mkRustEnum ctx discr variant = MkStruct (RustEnumFieldsRepr ctx) (Empty :> discr :> variant)
+
+rustEnumDiscriminant :: f (RustEnumType ctx) -> App ext f IsizeType
+rustEnumDiscriminant e = GetStruct e i1of2 IsizeRepr
+
+rustEnumVariant :: CtxRepr ctx -> f (RustEnumType ctx) -> App ext f (VariantType ctx)
+rustEnumVariant ctx e = GetStruct e i2of2 (VariantRepr ctx)
+
+
+-- Rust usize/isize representation
+
+type SizeBits = 32
+
+sizeBits :: Natural
+sizeBits = 32
+
+type UsizeType = BVType SizeBits
+type IsizeType = BVType SizeBits
+
+pattern UsizeRepr :: () => tp ~ UsizeType => TypeRepr tp
+pattern UsizeRepr <- BVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> Just Refl)
+  where UsizeRepr = BVRepr (knownRepr :: N.NatRepr SizeBits)
+
+pattern IsizeRepr :: () => tp ~ IsizeType => TypeRepr tp
+pattern IsizeRepr <- BVRepr (testEquality (knownRepr :: N.NatRepr SizeBits) -> Just Refl)
+  where IsizeRepr = BVRepr (knownRepr :: N.NatRepr SizeBits)
+
+
+usizeLit :: Integer -> App ext f UsizeType
+usizeLit = BVLit knownRepr
+
+usizeAdd :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeAdd = BVAdd knownRepr
+
+usizeSub :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeSub = BVSub knownRepr
+
+usizeMul :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeMul = BVMul knownRepr
+
+usizeDiv :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeDiv = BVUdiv knownRepr
+
+usizeRem :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeRem = BVUrem knownRepr
+
+usizeAnd :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeAnd = BVAnd knownRepr
+
+usizeOr :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeOr = BVOr knownRepr
+
+usizeXor :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeXor = BVXor knownRepr
+
+usizeShl :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeShl = BVShl knownRepr
+
+usizeShr :: f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeShr = BVLshr knownRepr
+
+usizeEq :: f UsizeType -> f UsizeType -> App ext f BoolType
+usizeEq = BVEq knownRepr
+
+usizeLe :: f UsizeType -> f UsizeType -> App ext f BoolType
+usizeLe = BVUle knownRepr
+
+usizeLt :: f UsizeType -> f UsizeType -> App ext f BoolType
+usizeLt = BVUlt knownRepr
+
+natToUsize :: (App ext f IntegerType -> f IntegerType) -> f NatType -> App ext f UsizeType
+natToUsize wrap = IntegerToBV knownRepr . wrap . NatToInteger
+
+usizeToNat :: f UsizeType -> App ext f NatType
+usizeToNat = BvToNat knownRepr
+
+usizeToBv :: (1 <= r) => NatRepr r ->
+    (App ext f (BVType r) -> f (BVType r)) ->
+    f UsizeType -> f (BVType r)
+usizeToBv r wrap = case compareNat r (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVTrunc r knownRepr
+    NatEQ -> id
+    NatGT _ -> wrap . BVZext r knownRepr
+
+bvToUsize :: (1 <= w) => NatRepr w ->
+    (App ext f UsizeType -> f UsizeType) ->
+    f (BVType w) -> f UsizeType
+bvToUsize w wrap = case compareNat w (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVZext knownRepr w
+    NatEQ -> id
+    NatGT _ -> wrap . BVTrunc knownRepr w
+
+sbvToUsize :: (1 <= w) => NatRepr w ->
+    (App ext f UsizeType -> f UsizeType) ->
+    f (BVType w) -> f UsizeType
+sbvToUsize w wrap = case compareNat w (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVSext knownRepr w
+    NatEQ -> id
+    NatGT _ -> wrap . BVTrunc knownRepr w
+
+usizeIte :: f BoolType -> f UsizeType -> f UsizeType -> App ext f UsizeType
+usizeIte c t e = BVIte c knownRepr t e
+
+vectorGetUsize :: (TypeRepr tp) ->
+    (App ext f NatType -> f NatType) ->
+    f (VectorType tp) -> f UsizeType -> App ext f tp
+vectorGetUsize tpr wrap vec idx = VectorGetEntry tpr vec (wrap $ usizeToNat idx)
+
+vectorSetUsize :: (TypeRepr tp) ->
+    (App ext f NatType -> f NatType) ->
+    f (VectorType tp) -> f UsizeType -> f tp -> App ext f (VectorType tp)
+vectorSetUsize tpr wrap vec idx val = VectorSetEntry tpr vec (wrap $ usizeToNat idx) val
+
+vectorSizeUsize ::
+    (forall tp'. App ext f tp' -> f tp') ->
+    f (VectorType tp) -> App ext f UsizeType
+vectorSizeUsize wrap vec = natToUsize wrap $ wrap $ VectorSize vec
+
+
+isizeLit :: Integer -> App ext f IsizeType
+isizeLit = BVLit knownRepr
+
+isizeAdd :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeAdd = BVAdd knownRepr
+
+isizeSub :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeSub = BVSub knownRepr
+
+isizeMul :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeMul = BVMul knownRepr
+
+isizeDiv :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeDiv = BVSdiv knownRepr
+
+isizeRem :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeRem = BVSrem knownRepr
+
+isizeAnd :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeAnd = BVAnd knownRepr
+
+isizeOr :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeOr = BVOr knownRepr
+
+isizeXor :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeXor = BVXor knownRepr
+
+isizeShl :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeShl = BVShl knownRepr
+
+isizeShr :: f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeShr = BVAshr knownRepr
+
+isizeEq :: f IsizeType -> f IsizeType -> App ext f BoolType
+isizeEq = BVEq knownRepr
+
+isizeLe :: f IsizeType -> f IsizeType -> App ext f BoolType
+isizeLe = BVSle knownRepr
+
+isizeLt :: f IsizeType -> f IsizeType -> App ext f BoolType
+isizeLt = BVSlt knownRepr
+
+integerToIsize ::
+    (App ext f IsizeType -> f IsizeType) ->
+    f IntegerType -> f IsizeType
+integerToIsize wrap = wrap . IntegerToBV knownRepr
+
+isizeToBv :: (1 <= r) => NatRepr r ->
+    (App ext f (BVType r) -> f (BVType r)) ->
+    f IsizeType -> f (BVType r)
+isizeToBv r wrap = case compareNat r (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVTrunc r knownRepr
+    NatEQ -> id
+    NatGT _ -> wrap . BVSext r knownRepr
+
+bvToIsize :: (1 <= w) => NatRepr w ->
+    (App ext f IsizeType -> f IsizeType) ->
+    f (BVType w) -> f IsizeType
+bvToIsize w wrap = case compareNat w (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVZext knownRepr w
+    NatEQ -> id
+    NatGT _ -> wrap . BVTrunc knownRepr w
+
+sbvToIsize :: (1 <= w) => NatRepr w ->
+    (App ext f IsizeType -> f IsizeType) ->
+    f (BVType w) -> f IsizeType
+sbvToIsize w wrap = case compareNat w (knownRepr :: N.NatRepr SizeBits) of
+    NatLT _ -> wrap . BVSext knownRepr w
+    NatEQ -> id
+    NatGT _ -> wrap . BVTrunc knownRepr w
+
+isizeIte :: f BoolType -> f IsizeType -> f IsizeType -> App ext f IsizeType
+isizeIte c t e = BVIte c knownRepr t e
+
+
+usizeToIsize :: (App ext f IsizeType -> f IsizeType) -> f UsizeType -> f IsizeType
+usizeToIsize _wrap = id
+
+isizeToUsize :: (App ext f UsizeType -> f UsizeType) -> f IsizeType -> f UsizeType
+isizeToUsize _wrap = id
+
+
+--------------------------------------------------------------
+-- * A MirReference is a Crucible RefCell paired with a path to a sub-component
+--
+-- We use this to represent mutable data
 
 type MirReferenceSymbol = "MirReference"
 type MirReferenceType tp = IntrinsicType MirReferenceSymbol (EmptyCtx ::> tp)
@@ -122,7 +341,7 @@ pattern MirReferenceRepr tp <-
      IntrinsicRepr (testEquality (knownSymbol @MirReferenceSymbol) -> Just Refl) (Empty :> tp)
  where MirReferenceRepr tp = IntrinsicRepr (knownSymbol @MirReferenceSymbol) (Empty :> tp)
 
-type family MirReferenceFam (sym :: *) (ctx :: Ctx CrucibleType) :: * where
+type family MirReferenceFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type where
   MirReferenceFam sym (EmptyCtx ::> tp) = MirReference sym tp
   MirReferenceFam sym ctx = TypeError ('Text "MirRefeence expects a single argument, but was given" ':<>:
                                        'ShowType ctx)
@@ -132,17 +351,30 @@ instance IsExprBuilder sym => IntrinsicClass sym MirReferenceSymbol where
   muxIntrinsic sym _tys _nm (Empty :> _tp) = muxRef sym
   muxIntrinsic _sym _tys nm ctx = typeError nm ctx
 
-data MirReferencePath sym :: CrucibleType -> CrucibleType -> * where
+data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
   Empty_RefPath :: MirReferencePath sym tp tp
+  Any_RefPath ::
+    !(TypeRepr tp) ->
+    !(MirReferencePath sym tp_base AnyType) ->
+    MirReferencePath sym  tp_base tp
   Field_RefPath ::
     !(CtxRepr ctx) ->
-    !(MirReferencePath sym tp_base TaggedUnion) ->
+    !(MirReferencePath sym tp_base (StructType ctx)) ->
+    !(Index ctx tp) ->
+    MirReferencePath sym tp_base tp
+  Variant_RefPath ::
+    !(CtxRepr ctx) ->
+    !(MirReferencePath sym tp_base (RustEnumType ctx)) ->
     !(Index ctx tp) ->
     MirReferencePath sym tp_base tp
   Index_RefPath ::
     !(TypeRepr tp) ->
     !(MirReferencePath sym tp_base (VectorType tp)) ->
-    !(RegValue sym NatType) ->
+    !(RegValue sym UsizeType) ->
+    MirReferencePath sym tp_base tp
+  Just_RefPath ::
+    !(TypeRepr tp) ->
+    !(MirReferencePath sym tp_base (MaybeType tp)) ->
     MirReferencePath sym tp_base tp
 
 data MirReference sym (tp :: CrucibleType) where
@@ -160,15 +392,27 @@ muxRefPath ::
   MaybeT IO (MirReferencePath sym tp_base tp)
 muxRefPath sym c path1 path2 = case (path1,path2) of
   (Empty_RefPath, Empty_RefPath) -> return Empty_RefPath
+  (Any_RefPath ctx1 p1, Any_RefPath ctx2 p2)
+    | Just Refl <- testEquality ctx1 ctx2 ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Any_RefPath ctx1 p')
   (Field_RefPath ctx1 p1 f1, Field_RefPath ctx2 p2 f2)
     | Just Refl <- testEquality ctx1 ctx2
     , Just Refl <- testEquality f1 f2 ->
          do p' <- muxRefPath sym c p1 p2
             return (Field_RefPath ctx1 p' f1)
+  (Variant_RefPath ctx1 p1 f1, Variant_RefPath ctx2 p2 f2)
+    | Just Refl <- testEquality ctx1 ctx2
+    , Just Refl <- testEquality f1 f2 ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Variant_RefPath ctx1 p' f1)
   (Index_RefPath tp p1 i1, Index_RefPath _ p2 i2) ->
          do p' <- muxRefPath sym c p1 p2
-            i' <- lift $ natIte sym c i1 i2
+            i' <- lift $ bvIte sym c i1 i2
             return (Index_RefPath tp p' i')
+  (Just_RefPath tp p1, Just_RefPath _ p2) ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Just_RefPath tp p')
   _ -> mzero
 
 muxRef :: forall sym tp.
@@ -195,10 +439,22 @@ muxRef sym c (MirReference r1 p1) (MirReference r2 p2) =
 data MIR
 type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
+type instance AssertionClassifier MIR = NoAssertionClassifier
+type instance Instantiate subst MIR = MIR
+instance ClosedK CrucibleType MIR where closed _ _ = Refl
 
-type TaggedUnion = StructType (EmptyCtx ::> NatType ::> AnyType)
+-- First `Any` is the data pointer - either an immutable or mutable reference.
+-- Second `Any` is the vtable.
+type DynRefType = StructType (EmptyCtx ::> AnyType ::> AnyType)
 
-data MirStmt :: (CrucibleType -> *) -> CrucibleType -> * where
+dynRefDataIndex :: Index (EmptyCtx ::> AnyType ::> AnyType) AnyType
+dynRefDataIndex = skipIndex baseIndex
+
+dynRefVtableIndex :: Index (EmptyCtx ::> AnyType ::> AnyType) AnyType
+dynRefVtableIndex = lastIndex (incSize $ incSize zeroSize)
+
+
+data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirNewRef ::
      !(TypeRepr tp) ->
      MirStmt f (MirReferenceType tp)
@@ -213,16 +469,57 @@ data MirStmt :: (CrucibleType -> *) -> CrucibleType -> * where
   MirDropRef ::
      !(f (MirReferenceType tp)) ->
      MirStmt f UnitType
+  MirSubanyRef ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType AnyType)) ->
+     MirStmt f (MirReferenceType tp)
   MirSubfieldRef ::
      !(CtxRepr ctx) ->
-     !(f (MirReferenceType TaggedUnion)) ->
+     !(f (MirReferenceType (StructType ctx))) ->
+     !(Index ctx tp) ->
+     MirStmt f (MirReferenceType tp)
+  MirSubvariantRef ::
+     !(CtxRepr ctx) ->
+     !(f (MirReferenceType (RustEnumType ctx))) ->
      !(Index ctx tp) ->
      MirStmt f (MirReferenceType tp)
   MirSubindexRef ::
      !(TypeRepr tp) ->
      !(f (MirReferenceType (VectorType tp))) ->
-     !(f NatType) ->
+     !(f UsizeType) ->
      MirStmt f (MirReferenceType tp)
+  MirSubjustRef ::
+     !(TypeRepr tp) ->
+     !(f (MirReferenceType (MaybeType tp))) ->
+     MirStmt f (MirReferenceType tp)
+  VectorSnoc ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     !(f tp) ->
+     MirStmt f (VectorType tp)
+  VectorInit ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     MirStmt f (VectorType tp)
+  VectorLast ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     MirStmt f (MaybeType tp)
+  VectorConcat ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     !(f (VectorType tp)) ->
+     MirStmt f (VectorType tp)
+  VectorTake ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     !(f NatType) ->
+     MirStmt f (VectorType tp)
+  VectorDrop ::
+     !(TypeRepr tp) ->
+     !(f (VectorType tp)) ->
+     !(f NatType) ->
+     MirStmt f (VectorType tp)
 
 $(return [])
 
@@ -252,8 +549,6 @@ instance OrdFC MirStmt where
        , (U.ConType [t|CtxRepr|] `U.TypeApp` U.AnyType, [|compareF|])
        , (U.ConType [t|Index|] `U.TypeApp` U.AnyType `U.TypeApp` U.AnyType, [|compareF|])
        ])
-instance OrdF f => OrdF (MirStmt f) where
-  compareF = compareFC compareF
 
 instance TypeApp MirStmt where
   appType = \case
@@ -261,8 +556,17 @@ instance TypeApp MirStmt where
     MirReadRef tp _ -> tp
     MirWriteRef _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
+    MirSubanyRef tp _ -> MirReferenceRepr tp
     MirSubfieldRef ctx _ idx -> MirReferenceRepr (ctx ! idx)
+    MirSubvariantRef ctx _ idx -> MirReferenceRepr (ctx ! idx)
     MirSubindexRef tp _ _ -> MirReferenceRepr tp
+    MirSubjustRef tp _ -> MirReferenceRepr tp
+    VectorSnoc tp _ _ -> VectorRepr tp
+    VectorInit tp _ -> VectorRepr tp
+    VectorLast tp _ -> MaybeRepr tp
+    VectorConcat tp _ _ -> VectorRepr tp
+    VectorTake tp _ _ -> VectorRepr tp
+    VectorDrop tp _ _ -> VectorRepr tp
 
 instance PrettyApp MirStmt where
   ppApp pp = \case 
@@ -270,8 +574,17 @@ instance PrettyApp MirStmt where
     MirReadRef _ x  -> "readMirRef" <+> pp x
     MirWriteRef x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
+    MirSubanyRef tpr x -> "subanyRef" <+> pretty tpr <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> text (show idx)
+    MirSubvariantRef _ x idx -> "subvariantRef" <+> pp x <+> text (show idx)
     MirSubindexRef _ x idx -> "subindexRef" <+> pp x <+> pp idx
+    MirSubjustRef _ x -> "subjustRef" <+> pp x
+    VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
+    VectorInit _ v -> "vectorInit" <+> pp v
+    VectorLast _ v -> "vectorLast" <+> pp v
+    VectorConcat _ v1 v2 -> "vectorConcat" <+> pp v1 <+> pp v2
+    VectorTake _ v i -> "vectorTake" <+> pp v <+> pp i
+    VectorDrop _ v i -> "vectorDrop" <+> pp v <+> pp i
 
 instance FunctorFC MirStmt where
   fmapFC = fmapFCDefault
@@ -279,6 +592,33 @@ instance FoldableFC MirStmt where
   foldMapFC = foldMapFCDefault
 instance TraversableFC MirStmt where
   traverseFC = traverseMirStmt
+
+type instance Instantiate subst MirStmt = MirStmt
+instance ClosedK CrucibleType MirStmt where closed _ _ = Refl
+instance InstantiateFC CrucibleType MirStmt where
+  instantiateFC subst stmt =
+    case stmt of
+      MirNewRef t -> MirNewRef (instantiate subst t)
+      MirReadRef t r -> MirReadRef (instantiate subst t) (instantiate subst r)
+      MirWriteRef r1 r2 -> MirWriteRef (instantiate subst r1) (instantiate subst r2)
+      MirDropRef r1 -> MirDropRef (instantiate subst r1)
+      MirSubanyRef ty r1 -> MirSubanyRef (instantiate subst ty) (instantiate subst r1)
+      MirSubfieldRef ctx r1 idx -> MirSubfieldRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
+      MirSubvariantRef ctx r1 idx -> MirSubvariantRef (instantiate subst ctx) (instantiate subst r1) (instantiate subst idx)
+      MirSubindexRef ty r1 idx -> MirSubindexRef (instantiate subst ty) (instantiate subst r1) (instantiate subst idx)
+      MirSubjustRef ty r1 -> MirSubjustRef (instantiate subst ty) (instantiate subst r1)
+      VectorSnoc ty v e -> VectorSnoc (instantiate subst ty) (instantiate subst v) (instantiate subst e)
+      VectorInit ty v -> VectorInit (instantiate subst ty) (instantiate subst v)
+      VectorLast ty v -> VectorLast (instantiate subst ty) (instantiate subst v)
+      VectorConcat ty v1 v2 -> VectorConcat (instantiate subst ty) (instantiate subst v1) (instantiate subst v2)
+      VectorTake ty v i -> VectorTake (instantiate subst ty) (instantiate subst v) (instantiate subst i)
+      VectorDrop ty v i -> VectorDrop (instantiate subst ty) (instantiate subst v) (instantiate subst i)
+
+
+instance HasStructuredAssertions MIR where
+  explain _       = \case
+  toPredicate _ _ = \case
+      
 
 instance IsSyntaxExtension MIR
 
@@ -318,12 +658,39 @@ execMirStmt stmt s =
             v' <- writeRefPath sym iTypes v path x
             let s' = s & stateTree . actFrame . gpGlobals %~ insertRef sym r v'
             return ((), s')
+       MirSubanyRef tp (regValue -> MirReference r path) ->
+         do let r' = MirReference r (Any_RefPath tp path)
+            return (r', s)
        MirSubfieldRef ctx0 (regValue -> MirReference r path) idx ->
          do let r' = MirReference r (Field_RefPath ctx0 path idx)
+            return (r', s)
+       MirSubvariantRef ctx0 (regValue -> MirReference r path) idx ->
+         do let r' = MirReference r (Variant_RefPath ctx0 path idx)
             return (r', s)
        MirSubindexRef tp (regValue -> MirReference r path) (regValue -> idx) ->
          do let r' = MirReference r (Index_RefPath tp path idx)
             return (r', s)
+       MirSubjustRef tp (regValue -> MirReference r path) ->
+         do let r' = MirReference r (Just_RefPath tp path)
+            return (r', s)
+       VectorSnoc _tp (regValue -> vecValue) (regValue -> elemValue) ->
+            return (V.snoc vecValue elemValue, s)
+       VectorInit _tp (regValue -> vecValue) ->
+            return (if V.null vecValue then V.empty else V.init vecValue, s)
+       VectorLast _tp (regValue -> vecValue) -> do
+            let val = maybePartExpr sym $
+                    if V.null vecValue then Nothing else Just $ V.last vecValue
+            return (val, s)
+       VectorConcat _tp (regValue -> v1) (regValue -> v2) ->
+            return (v1 <> v2, s)
+       VectorTake _tp (regValue -> v) (regValue -> idx) -> case asConcrete idx of
+            Just (ConcreteNat idx') -> return (V.take (fromIntegral idx') v, s)
+            Nothing -> addFailedAssertion sym $
+                GenericSimError "VectorTake index must be concrete"
+       VectorDrop _tp (regValue -> v) (regValue -> idx) -> case asConcrete idx of
+            Just (ConcreteNat idx') -> return (V.drop (fromIntegral idx') v, s)
+            Nothing -> addFailedAssertion sym $
+                GenericSimError "VectorDrop index must be concrete"
 
 writeRefPath :: IsSymInterface sym =>
   sym ->
@@ -345,17 +712,26 @@ adjustRefPath :: IsSymInterface sym =>
   IO (RegValue sym tp)
 adjustRefPath sym iTypes v path0 adj = case path0 of
   Empty_RefPath -> adj v
-  Field_RefPath ctx path fld ->
-      adjustRefPath sym iTypes v path (field @1 (\(RV (AnyValue vtp x)) ->
-         case testEquality vtp (StructRepr ctx) of
-           Nothing -> fail ("Variant type mismatch! Expected: " ++ show (StructRepr ctx) ++
+  Any_RefPath tpr path ->
+      adjustRefPath sym iTypes v path (\(AnyValue vtp x) ->
+         case testEquality vtp tpr of
+           Nothing -> fail ("Any type mismatch! Expected: " ++ show tpr ++
                             "\nbut got: " ++ show vtp)
-           Just Refl -> RV . AnyValue vtp <$> adjustM (\x' -> RV <$> adj (unRV x')) fld x
-         ))
-
+           Just Refl -> AnyValue vtp <$> adj x
+         )
+  Field_RefPath _ctx path fld ->
+      adjustRefPath sym iTypes v path
+        (\x -> adjustM (\x' -> RV <$> adj (unRV x')) fld x)
+  Variant_RefPath _ctx path fld ->
+      -- TODO: report an error if variant `fld` is not selected
+      adjustRefPath sym iTypes v path (field @1 (\(RV x) ->
+        RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
   Index_RefPath tp path idx ->
-      adjustRefPath sym iTypes v path (\v' ->
-        adjustVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx adj)
+      adjustRefPath sym iTypes v path (\v' -> do
+        idx' <- bvToNat sym idx
+        adjustVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx' adj)
+  Just_RefPath _tp path ->
+      adjustRefPath sym iTypes v path (\v' -> mapM adj v')
 
 
 readRefPath :: IsSymInterface sym =>
@@ -366,15 +742,29 @@ readRefPath :: IsSymInterface sym =>
   IO (RegValue sym tp')
 readRefPath sym iTypes v = \case
   Empty_RefPath -> return v
-  Field_RefPath ctx path fld ->
-    do (Empty :> _disc :> RV (AnyValue vtp variant)) <- readRefPath sym iTypes v path
-       case testEquality vtp (StructRepr ctx) of
-         Nothing -> fail ("Variant type mismatch expected: " ++ show (StructRepr ctx) ++ 
+  Any_RefPath tpr path ->
+    do AnyValue vtp x <- readRefPath sym iTypes v path
+       case testEquality vtp tpr of
+         Nothing -> fail ("Any type mismatch! Expected: " ++ show tpr ++ 
                            "\nbut got: " ++ show vtp)
-         Just Refl -> return (unRV (variant ! fld))
+         Just Refl -> return x
+  Field_RefPath _ctx path fld ->
+    do flds <- readRefPath sym iTypes v path
+       return $ unRV $ flds ! fld
+  Variant_RefPath ctx path fld ->
+    do (Empty :> _discr :> RV variant) <- readRefPath sym iTypes v path
+       let msg = GenericSimError $
+               "attempted to read from wrong variant (" ++ show fld ++ " of " ++ show ctx ++ ")"
+       readPartExpr sym (unVB $ variant ! fld) msg
   Index_RefPath tp path idx ->
     do v' <- readRefPath sym iTypes v path
-       indexVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx
+       idx' <- bvToNat sym idx
+       indexVectorWithSymNat sym (muxRegForType sym iTypes tp) v' idx'
+  Just_RefPath tp path ->
+    do v' <- readRefPath sym iTypes v path
+       let msg = ReadBeforeWriteSimError $
+               "attempted to read from uninitialized Maybe of type " ++ show tp
+       readPartExpr sym v' msg
 
 
 mirExtImpl :: forall sym p. IsSymInterface sym => ExtensionImpl p sym MIR
@@ -383,143 +773,80 @@ mirExtImpl = ExtensionImpl
              , extensionExec = execMirStmt
              }
 
+--------------------------------------------------------------------------------
+-- ** Slices
 
+-- A Slice is a sequence of values plus an index to the first element
+-- and a length.
 
 type MirSlice tp     = StructType (EmptyCtx ::>
-                           MirReferenceType (VectorType tp) ::>
-                           NatType ::>
-                           NatType)
+                           MirReferenceType (VectorType tp) ::> -- values
+                           UsizeType ::>    --- first element
+                           UsizeType)       --- length
 
 pattern MirSliceRepr :: () => tp' ~ MirSlice tp => TypeRepr tp -> TypeRepr tp'
 pattern MirSliceRepr tp <- StructRepr
      (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
          (MirReferenceRepr (VectorRepr tp)))
-         NatRepr)
-         NatRepr)
- where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (VectorRepr tp) :> NatRepr :> NatRepr)
+         UsizeRepr)
+         UsizeRepr)
+ where MirSliceRepr tp = StructRepr (Empty :> MirReferenceRepr (VectorRepr tp) :> UsizeRepr :> UsizeRepr)
+
+mirSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
+                           MirReferenceType (VectorType tp) ::>
+                           UsizeType ::>
+                           UsizeType)
+mirSliceCtxRepr tp = (Empty :> MirReferenceRepr (VectorRepr tp) :> UsizeRepr :> UsizeRepr)
+
+getSliceLB :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
+getSliceLB e = getStruct i2of3 e 
+
+getSliceLen :: Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType
+getSliceLen e = getStruct i3of3 e
+
+updateSliceLB :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType ->  Expr MIR s (MirSlice tp)
+updateSliceLB tp e start = setStruct (mirSliceCtxRepr tp) e i2of3 ns where
+   os = getStruct i2of3 e
+   ns = App $ usizeAdd os start
+
+updateSliceLen :: TypeRepr tp -> Expr MIR s (MirSlice tp) -> Expr MIR s UsizeType -> Expr MIR s (MirSlice tp)
+updateSliceLen tp e end = setStruct (mirSliceCtxRepr tp) e i3of3 end where
 
 --------------------------------------------------------------------------------
--- ** Generator state for MIR translation to Crucible
---
+-- ** Immutable slices
 
-type TypeName  = Ty
+-- A Slice is a sequence of values plus an index to the first element
+-- and a length.
 
-data MirHandle where
-    MirHandle :: MethName -> FnSig -> FnHandle init ret -> MirHandle
+type MirImmSlice tp     = StructType (EmptyCtx ::>
+                           VectorType tp ::> -- values
+                           UsizeType ::>    --- first element
+                           UsizeType)       --- length
 
-instance Show MirHandle where
-    show (MirHandle _nm sig c) = show c ++ ":" ++ show sig
+pattern MirImmSliceRepr :: () => tp' ~ MirImmSlice tp => TypeRepr tp -> TypeRepr tp'
+pattern MirImmSliceRepr tp <- StructRepr
+     (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
+         (VectorRepr tp))
+         UsizeRepr)
+         UsizeRepr)
+ where MirImmSliceRepr tp = StructRepr (Empty :> VectorRepr tp :> UsizeRepr :> UsizeRepr)
 
--- | The HandleMap maps mir functions to their corresponding function
--- handle. Function handles include the original method name (for
--- convenience) and original Mir type (for trait resolution).
-type HandleMap = Map.Map MethName MirHandle
+mirImmSliceCtxRepr :: TypeRepr tp -> CtxRepr (EmptyCtx ::>
+                           VectorType tp ::>
+                           UsizeType ::>
+                           UsizeType)
+mirImmSliceCtxRepr tp = (Empty :> VectorRepr tp :> UsizeRepr :> UsizeRepr)
 
+getImmSliceLB :: Expr MIR s (MirImmSlice tp) -> Expr MIR s UsizeType
+getImmSliceLB e = getStruct i2of3 e
 
--- | The VarMap maps identifier names to registers (if the id
---   corresponds to a local variable) or an atom (if the id
---   corresponds to a function argument)
-type VarMap s = Map Text.Text (Some (VarInfo s))
-data VarInfo s tp where
-  VarRegister  :: Reg s tp -> VarInfo s tp
-  VarReference :: Reg s (MirReferenceType tp) -> VarInfo s tp
-  VarAtom      :: Atom s tp -> VarInfo s tp
+getImmSliceLen :: Expr MIR s (MirImmSlice tp) -> Expr MIR s UsizeType
+getImmSliceLen e = getStruct i3of3 e
 
-varInfoRepr :: VarInfo s tp -> TypeRepr tp
-varInfoRepr (VarRegister reg0)  = typeOfReg reg0
-varInfoRepr (VarReference reg0) =
-  case typeOfReg reg0 of
-    MirReferenceRepr tp -> tp
-    _ -> error "impossible: varInfoRepr"
-varInfoRepr (VarAtom a) = typeOfAtom a
+updateImmSliceLB :: TypeRepr tp -> Expr MIR s (MirImmSlice tp) -> Expr MIR s UsizeType ->  Expr MIR s (MirImmSlice tp)
+updateImmSliceLB tp e start = setStruct (mirImmSliceCtxRepr tp) e i2of3 ns where
+   os = getStruct i2of3 e
+   ns = App $ usizeAdd os start
 
-
--- | The LabelMap maps identifiers to labels of their corresponding basicblock
-type LabelMap s = Map.Map BasicBlockInfo (Label s)
-
--- | The AdtMap maps ADT names to their definitions
-type AdtMap = Map.Map AdtName [Variant]
-
-
--- | A TraitMap maps trait names to their vtables and instances
-data TraitMap = TraitMap (Map TraitName (Some TraitImpls))
-
--- | The implementation of a Trait.
--- The 'ctx' parameter lists the required members of the trait
-data TraitImpls ctx = TraitImpls
-  {_vtableTyRepr :: CtxRepr ctx
-   -- ^ Describes the types of Crucible structs that store the VTable
-   -- of implementations
-  ,_methodIndex :: Map MethName (Some (Index ctx))
-   -- ^ Tells which fields (indices) of the struct correspond to
-   -- method names of the given trait
-  ,_vtables :: Map TypeName (Assignment MirValue ctx)
-   -- ^ gives the vtable for each type implementing a given trait
-   -- TODO: use Mir.Ty instead of TypeName? 
-  }
-
--- | Values stored in the vtables. This cannot include expressions.
--- TODO: For now, traits only include methods, not constants
-data MirValue (ty :: CrucibleType) where
-  FnValue :: FnHandle args ret -> MirValue (FunctionHandleType args ret)
-
-
--- For static trait calls, we need to resolve the method name using the
--- type as well as the name of the trait.
-type StaticTraitMap = Map.Map MethName (Map.Map TypeName MirHandle)
-
-  
--- | Generator state for MIR translation
-data FnState s = FnState { _varMap    :: !(VarMap s),
-                           _labelMap  :: !(LabelMap s),
-                           _handleMap :: !HandleMap,
-                           _adtMap    :: !AdtMap,
-                           _traitMap  :: !TraitMap,
-                           _staticTraitMap :: !StaticTraitMap
-                         }
-
-
-
-------------------------------------------------------------------------------------
--- ** helper function for traits
-
-
--- | Smart constructor
-traitImpls :: CtxRepr ctx
-           -> Map.Map MethName (Some (Index ctx))
-           -> Map.Map TypeName (Assignment MirValue ctx)
-           -> TraitImpls ctx
-traitImpls str midx vtbls =
-  TraitImpls {_vtableTyRepr = str
-             ,_methodIndex  = midx
-             ,_vtables      = vtbls
-             }
-
-valueToExpr :: MirValue ty -> Expr MIR s ty
-valueToExpr (FnValue handle) = App $ HandleLit handle where
-
-
--- | Decide whether the given method definition is an implementation method for
--- a declared trait. If so, return it along with the trait.
-  
-getTraitImplementation :: [Trait] ->
-                          (MethName,MirHandle) ->
-                          Maybe (MethName, TraitName, MirHandle)
-getTraitImplementation trts (name, handle) = do
-  -- find just the text of the method name
-  methodEntry <- parseImplName name
-  
-  -- find the first trait that include that same name
-  -- TODO: can there be only one?
-  let hasTraitMethod (TraitMethod tm _ts) = sameTraitMethod methodEntry tm
-      hasTraitMethod _ = False
-  traitName <- Maybe.listToMaybe [ tn | (Trait tn items) <- trts,
-                                   List.any hasTraitMethod items ]
-  return (name, traitName, handle)
-
--------------------------------------------------------------------------------------------------------
-
-makeLenses ''TraitImpls
-makeLenses ''FnState
-
--------------------------------------------------------------------------------------------------------
+updateImmSliceLen :: TypeRepr tp -> Expr MIR s (MirImmSlice tp) -> Expr MIR s UsizeType -> Expr MIR s (MirImmSlice tp)
+updateImmSliceLen tp e end = setStruct (mirImmSliceCtxRepr tp) e i3of3 end where

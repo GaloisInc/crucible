@@ -1,24 +1,20 @@
-#[cfg(with_main)]
-#[derive(Debug)]
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
+#[cfg_attr(with_main, derive(Debug))]
 enum E {
     A(u8),
-    B(i32),
+    B { x: i32 },
+    C,
 }
 
-// don't derive Debug unless we need it for main
-#[cfg(not(with_main))]
-enum E {
-    A(u8),
-    B(i32),
-}
-
-fn f(_: ()) -> E {
-    E::A(42)
+fn f(_: ()) -> (E, E, E) {
+    (E::A(42), E::B { x: 42 }, E::C)
 }
 
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> (E, E, E) { f(ARG) }

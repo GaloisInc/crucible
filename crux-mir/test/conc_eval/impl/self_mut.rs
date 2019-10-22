@@ -1,3 +1,5 @@
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 struct S {
     x: u32,
 }
@@ -17,6 +19,7 @@ fn f(_: ()) -> u32 {
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
+pub fn main() {
    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> u32 { f(ARG) }

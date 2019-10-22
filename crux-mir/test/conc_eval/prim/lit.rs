@@ -1,5 +1,5 @@
-// FAIL: fail or unimp constant: RealValRepr ConstFloat (FloatLit F64 "TODO")
-
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 fn f(x: (bool,bool)) -> bool {
     let y = 0.0;
     let s = "hello";
@@ -14,6 +14,7 @@ fn f(x: (bool,bool)) -> bool {
 const ARG: (bool,bool) = (true, true);
 
 #[cfg(with_main)]
-fn main() {
-    println!("{}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG))
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }

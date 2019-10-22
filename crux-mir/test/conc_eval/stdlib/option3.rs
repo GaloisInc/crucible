@@ -1,5 +1,7 @@
-// FAIL: Doesn't know about Option datatype
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 // This tests using polymorphic functions and parameterized data
+// relies on Option type from std library
 
 pub fn g<T>(y : Option<T>) -> Option<T> {
     y
@@ -17,6 +19,7 @@ const ARG : u32 = 27;
 
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> u32 { f(ARG) }

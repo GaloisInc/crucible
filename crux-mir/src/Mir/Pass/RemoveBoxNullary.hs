@@ -28,7 +28,7 @@ import Mir.Mir
 import GHC.Stack
 
 passRemoveBoxNullary :: [Fn] -> [Fn]
-passRemoveBoxNullary fns = map (\(Fn a b c (MirBody d blocks)) -> Fn a b c (MirBody d (map removeBoxNullary blocks))) fns
+passRemoveBoxNullary fns = map (& fbody %~ mblocks %~ map removeBoxNullary) fns
 
 removeBoxNullary :: BasicBlock -> BasicBlock
 removeBoxNullary (BasicBlock bbi (BasicBlockData stmts term)) =

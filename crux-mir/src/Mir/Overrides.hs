@@ -9,13 +9,18 @@
 {-# Language ViewPatterns #-}
 {-# Language TypeApplications #-}
 {-# Language PartialTypeSignatures #-}
+{-# Language FlexibleContexts #-}
 
 module Mir.Overrides (bindFn) where
 
+import Control.Lens ((%=))
 import Control.Monad.IO.Class
 
+import qualified Data.Char as Char
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
+import Data.Vector(Vector)
+import qualified Data.Vector as V
 
 import Data.Parameterized.Context (pattern Empty, pattern (:>))
 import Data.Parameterized.NatRepr
@@ -41,18 +46,30 @@ import Lang.Crucible.Types
 import What4.FunctionName (FunctionName, functionNameFromText)
 import What4.Interface
 
+import Crux.Model (addVar)
+import Crux.Types (Model)
+
 import Mir.Intrinsics (MIR)
 
+
+getString :: forall sym. (IsSymExprBuilder sym) => sym -> Vector (RegValue sym (BVType 32)) -> Maybe Text
+getString _ rv = do
+   let f :: RegValue sym (BVType 32) -> Maybe Char
+       f rv = case asUnsignedBV rv of
+                     Just i  -> Just (Char.chr (fromInteger i))
+                     Nothing -> Nothing
+   (vv :: (Vector Char)) <- V.mapM f rv
+   return $ Text.pack (V.toList vv)
 
 data SomeOverride p sym where
   SomeOverride :: CtxRepr args -> TypeRepr ret -> Override p sym MIR args ret -> SomeOverride p sym
 
 
 bindFn ::
-  forall args ret blocks p sym rtp a r .
+  forall args ret blocks sym rtp a r .
   (IsSymExprBuilder sym, IsExprBuilder sym, IsBoolSolver sym) =>
   Text -> CFG MIR blocks args ret ->
-  OverrideSim p sym MIR rtp a r ()
+  OverrideSim (Model sym) sym MIR rtp a r ()
 bindFn fn cfg =
   getSymInterface >>= \s ->
   case Map.lookup fn (overrides s) of
@@ -70,8 +87,8 @@ bindFn fn cfg =
     override ::
       forall args ret .
       Text -> CtxRepr args -> TypeRepr ret ->
-      (forall rtp . OverrideSim p sym MIR rtp args ret (RegValue sym ret)) ->
-      (Text, FunctionName -> SomeOverride p sym)
+      (forall rtp . OverrideSim (Model sym) sym MIR rtp args ret (RegValue sym ret)) ->
+      (Text, FunctionName -> SomeOverride (Model sym) sym)
     override n args ret act = (n, \funName -> SomeOverride args ret (mkOverride' funName ret act))
 
     u8repr :: TypeRepr (BaseToType (BaseBVType 8))
@@ -80,63 +97,68 @@ bindFn fn cfg =
     u32repr :: TypeRepr (BaseToType (BaseBVType 32))
     u32repr = knownRepr
 
-    symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride p sym)
+    strrepr :: TypeRepr (VectorType (BVType 32))
+    strrepr = knownRepr
+
+    symb_bv :: forall n . (1 <= n) => Text -> NatRepr n -> (Text, FunctionName -> SomeOverride (Model sym) sym)
     symb_bv name n =
-      override name (Empty :> StringRepr) (BVRepr n) $
+      override name (Empty :> strrepr) (BVRepr n) $
       do RegMap (Empty :> str) <- getOverrideArgs
-         x <- maybe (fail "not a constant string") pure (asString (regValue str))
-         name <-
-           case userSymbol (Text.unpack x) of
-             Left err -> fail (show err)
+         let sym = (undefined :: sym)
+         x <- maybe (fail "not a constant string") pure (getString sym (regValue str))
+         let xStr = Text.unpack x
+         let y = filter ((/=) '\"') xStr
+         nname <-
+           case userSymbol y of
+             Left err -> fail (show err ++ " " ++ y)
              Right a -> return a
          s <- getSymInterface
-         v <- liftIO (freshConstant s name (BaseBVRepr n))
-         -- TODO crucible-c has references to stateContext.cruciblePersonality with a variable added
-         -- This is to know which variables to ask for when getting a model out of the solver
+         v <- liftIO (freshConstant s nname (BaseBVRepr n))
+         loc   <- liftIO $ getCurrentProgramLoc s
+         stateContext.cruciblePersonality %= addVar loc xStr (BaseBVRepr n) v
          return v
 
-    overrides :: sym -> Map Text (FunctionName -> SomeOverride p sym)
+    overrides :: sym -> Map Text (FunctionName -> SomeOverride (Model sym) sym)
     overrides s =
-      fromList [ override "::one[0]" Empty (BVRepr (knownNat @ 8)) $
+      fromList [ override "::crucible[0]::one[0]" Empty (BVRepr (knownNat @ 8)) $
                  do h <- printHandle <$> getContext
                     liftIO (hPutStrLn h "Hello, I'm an override")
                     v <- liftIO $ bvLit (s :: sym) knownNat 1
                     return v
-               , symb_bv "::crucible_i8[0]"  (knownNat @ 8)
-               , symb_bv "::crucible_i16[0]" (knownNat @ 16)
-               , symb_bv "::crucible_i32[0]" (knownNat @ 32)
-               , symb_bv "::crucible_i64[0]" (knownNat @ 64)
-               , symb_bv "::crucible_u8[0]"  (knownNat @ 8)
-               , symb_bv "::crucible_u16[0]" (knownNat @ 16)
-               , symb_bv "::crucible_u32[0]" (knownNat @ 32)
-               , symb_bv "::crucible_u64[0]" (knownNat @ 64)
-               , let argTys = (Empty :> BoolRepr :> StringRepr :> StringRepr :> u32repr :> u32repr)
-                 in override "::crucible_assert_impl[0]" argTys (StructRepr Empty) $
+               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u8[0]"  (knownNat @ 8)
+               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u16[0]" (knownNat @ 16)
+               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u32[0]" (knownNat @ 32)
+               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u64[0]" (knownNat @ 64)
+               , symb_bv "::crucible[0]::symbolic[0]::symbolic_u128[0]" (knownNat @ 128)
+               , symb_bv "::int512[0]::symbolic[0]" (knownNat @ 512)
+               , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
+                 in override "::crucible[0]::crucible_assert_impl[0]" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        s <- getSymInterface
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
-                                (asString (regValue srcArg))
-                       file <- maybe (fail "not a constant filename string") pure (asString (regValue fileArg))
+                                (getString s (regValue srcArg))
+                       file <- maybe (fail "not a constant filename string") pure (getString s (regValue fileArg))
                        line <- maybe (fail "not a constant line number") pure (asUnsignedBV (regValue lineArg))
                        col <- maybe (fail "not a constant column number") pure (asUnsignedBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = AssertFailureSimError ("MIR assertion at " <> locStr <> ":\n\t" <> src)
                        liftIO $ assert s (regValue c) reason
-                       return knownRepr
-               , let argTys = (Empty :> BoolRepr :> StringRepr :> StringRepr :> u32repr :> u32repr)
-                 in override "::crucible_assume_impl[0]" argTys (StructRepr Empty) $
+                       return ()
+               , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
+                 in override "::crucible[0]::crucible_assume_impl[0]" argTys UnitRepr $
                     do RegMap (Empty :> c :> srcArg :> fileArg :> lineArg :> colArg) <- getOverrideArgs
                        s <- getSymInterface
                        loc <- liftIO $ getCurrentProgramLoc s
                        src <- maybe (fail "not a constant src string")
                                 (pure . Text.unpack)
-                                (asString (regValue srcArg))
-                       file <- maybe (fail "not a constant filename string") pure (asString (regValue fileArg))
+                                (getString s (regValue srcArg))
+                       file <- maybe (fail "not a constant filename string") pure (getString s (regValue fileArg))
                        line <- maybe (fail "not a constant line number") pure (asUnsignedBV (regValue lineArg))
                        col <- maybe (fail "not a constant column number") pure (asUnsignedBV (regValue colArg))
                        let locStr = Text.unpack file <> ":" <> show line <> ":" <> show col
                        let reason = AssumptionReason loc $ "Assumption \n\t" <> src <> "\nfrom " <> locStr
                        liftIO $ addAssumption s (LabeledPred (regValue c) reason)
-                       return knownRepr
+                       return ()
+                  
                ]

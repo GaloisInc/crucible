@@ -1,9 +1,11 @@
-// FAIL: Doesn't know how to call default yet
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
+// Tests deriving for stdlib trait
 
 #[derive(Default)]
 struct SomeOptions {
     foo: i32,
-    bar: f32,
+    bar: i16,
 }
 
 fn f(x : i32) -> bool {
@@ -14,6 +16,7 @@ fn f(x : i32) -> bool {
 const ARG : i32 = 0;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> bool { f(ARG) }

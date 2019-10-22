@@ -1,16 +1,11 @@
-fn f(x: u8) -> u8 {
+#![no_std]
+#![feature(custom_attribute)]
+extern crate crucible;
+use crucible::*;
+
+#[crux_test]
+pub fn f() -> u8 {
+    let x: u8 = 1;
     // This call should be replaced by the test override
     x + one()
-}
-
-fn one() -> u8 {
-    // The internal test override returns 1 from this instead of 2
-    2
-}
-
-const ARG: u8 = 1;
-
-#[cfg(with_main)]
-fn main() {
-    println!("{}", f(ARG))
 }

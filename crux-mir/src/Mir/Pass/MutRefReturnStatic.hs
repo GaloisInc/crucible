@@ -16,8 +16,12 @@ import qualified Data.Map.Strict as Map
 import Data.List
 import Data.Maybe (catMaybes)
 
+import Control.Lens
+
 import Mir.Mir
 import Mir.DefId
+import Mir.MirTy
+import Mir.GenericOps
 
 --import GHC.Stack
 
@@ -46,7 +50,7 @@ is_return_block (BasicBlock _bbi (BasicBlockData _stmts term)) = (term == Return
 type MrrsSt = Map DefId (Maybe Int) -- if component is set, the function returns a mutable reference, and needs to be fused while calling. the integer argument is which argument is the return
 
 build_mrrs_st :: [Fn] -> MrrsSt
-build_mrrs_st fns = Map.fromList $ map (\fn -> (_fname fn, mut_info fn fns)) fns
+build_mrrs_st fns = Map.fromList $ map (\fn -> (fn^.fname, mut_info fn fns)) fns
 
 -- determine whether the function statically returns a mutref of an argument. this is true (at least) when there are no switches in the body, and any functions called are themselves static.
 mut_info :: Fn -> [Fn] ->  Maybe Int
@@ -57,8 +61,7 @@ mut_info fn fns =
 
 is_static_mut_return :: [Fn] -> Fn -> Bool
 is_static_mut_return fns fn =
-    case fn of
-      Fn _fname _fargs _fretty (MirBody _internals fblocks) ->
+  let fblocks = fn^.fbody.mblocks in
           case exists (\(BasicBlock _ (BasicBlockData _ term)) -> is_branch term) fblocks of
             True -> False
             False ->
@@ -66,14 +69,14 @@ is_static_mut_return fns fn =
 
    where is_bad_call :: Terminator -> Bool
          is_bad_call term = case term of 
-                              Call fname _ _ _ ->
-                                  case find (\(Fn n _ _t _) -> n == (funcNameofOp fname)) fns of
-                                    Just call_fn | isMutRefTy (_freturn_ty call_fn) -> (not . (is_static_mut_return fns)) call_fn
+                              Call fnm _ _ _ ->
+                                  case find (\fn -> fn^.fname == (funcNameofOp fnm)) fns of
+                                    Just call_fn | isMutRefTy (call_fn^.fsig.fsreturn_ty) -> (not . (is_static_mut_return fns)) call_fn
                                     _ -> False
                               _ -> False
 
 retrieve_static_mut_return :: Fn -> Int
-retrieve_static_mut_return (Fn _fname _fargs _fretty (MirBody _internals _blocks)) =
+retrieve_static_mut_return _fn =
     error "unimplemented" -- find most recent arg index assigned to return variable. the code is guaranteed to be straightline by now, so we can just iterate backwards through the blocks.
 
 
@@ -81,11 +84,12 @@ passMutRefReturnStatic :: [Fn] -> [Fn]
 passMutRefReturnStatic fns = map (\fn -> runReader (mrrs fn) (build_mrrs_st fns)) fns
 
 mrrs :: Fn -> Reader MrrsSt Fn
-mrrs (Fn fname fargs fretty (MirBody d blocks)) = do
+mrrs fn = do
+    let (MirBody d blocks) = fn^.fbody 
     (mrrs_map :: MrrsSt) <- ask
     let subs = catMaybes $ map (\(BasicBlock _bbi (BasicBlockData _stmts term)) -> get_sub term mrrs_map) blocks
 
-    return $ Fn fname fargs fretty (MirBody d (replaceList subs blocks))
+    return $ fn & fbody .~ (MirBody d (replaceList subs blocks))
 
    where
        get_sub :: Terminator -> MrrsSt -> Maybe (Lvalue, Lvalue)

@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ImplicitParams #-}
 
 {-# OPTIONS_GHC -Wall -fno-warn-unused-imports #-}
 
@@ -38,41 +39,32 @@ import qualified Data.AIG.Interface as AIG
 
 
 import Control.Monad
+import Control.Lens
 
 import GHC.Stack
+
 
 import           Mir.PP()
 import           Text.PrettyPrint.ANSI.Leijen (putDoc,Pretty(..))
 import qualified System.Process as Proc
 import           System.Exit (ExitCode(..),exitWith)
 import           System.Directory (listDirectory, doesFileExist, removeFile)
+import           Mir.Generator(RustModule(..),CollectionState(..), rmCS, rmCFGs, collection)
 import           Mir.Generate
 
 
 
 -----------------------------------------------------------------------
+-- NOTE: need to call the static initializer for the RustModule at some point
+-- this allocates and initializes global variables
 
-data RustModule = RustModule {
-    rmCFGs :: M.Map T.Text (C.AnyCFG MIR)
-}
-
-{-
-cleanFnName :: T.Text -> T.Text
-cleanFnName t = T.pack $
-    let r1 = Regex.mkRegex "\\[[0-9]+\\]"
-        r2 = Regex.mkRegex "::"
-        s1 = Regex.subRegex r1 (T.unpack t) ""
-        s2 = Regex.subRegex r2 s1 "" in
-    s2
--}
-
-decorateFnName ::String -> String
+decorateFnName :: String -> String
 decorateFnName t = "::" ++ t ++ "[0]"
 
 extractMIR :: AIG.IsAIG l g =>
      AIG.Proxy l g -> SC.SharedContext -> RustModule -> String -> IO SC.Term
 extractMIR proxy sc rm n = do
-    let cfgmap = rmCFGs rm
+    let cfgmap = rm^.rmCFGs
         link = forM_ cfgmap (\(C.AnyCFG cfg) -> C.bindFnHandle (C.cfgHandle cfg) (C.UseCFG cfg $ C.postdomInfo cfg))
     (C.AnyCFG cfg) <- case (M.lookup (T.pack (decorateFnName n)) cfgmap) of
              Just c -> return c
@@ -89,25 +81,14 @@ extractMIR proxy sc rm n = do
     return term
 
 
--- | Translate MIR to Crucible
-translateMIR :: Collection -> RustModule
-translateMIR col = RustModule cfgmap where
-  passes  = P.passRemoveBoxNullary
-  cfgmap  = mirToCFG col (Just passes)
-
-loadMIR :: HasCallStack => SC.SharedContext -> FilePath -> IO RustModule
+loadMIR :: (HasCallStack,?assertFalseOnError::Bool, ?printCrucible::Bool) =>
+    SC.SharedContext -> FilePath -> IO RustModule
 loadMIR _sc fp = do
+    let ?debug = 0
     f <- B.readFile fp
     let c = (J.eitherDecode f) :: Either String Collection
     case c of
       Left msg -> fail $ "Decoding of MIR failed: " ++ msg
-      Right col -> do
-          --print "Mir decoding"
-          --putDoc (pretty col)
-          --let passes = P.passMutRefArgs . P.passRemoveStorage . P.passRemoveBoxNullary
-          let passes = P.passRemoveBoxNullary
-          -- DEBUGGING print functions
-          -- mapM_ (putStrLn . pprint) fns
-          let cfgmap = mirToCFG col (Just passes)
-          return $ RustModule cfgmap
+      Right col -> do (rm, _init) <- translateAll True col
+                      return rm
       

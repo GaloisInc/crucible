@@ -1,20 +1,30 @@
-// FAIL: Doesn't know about Option datatype
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
 
-fn g<T> (x : Option<T>) -> T {
+pub enum Opt<T> {
+    N,
+    S(T),
+}
+
+use Opt::*;
+
+fn g<T> (x : Opt<T>) -> T {
     match x {
-        Some(y) => y,
-        None    => g(x),
+        S(y) => y,
+        N    => g(x),
     }
 }
 
-fn f (y : u32) -> u32 {
-    let x: Option<u32> = Some(0);
+
+fn f (y : u32) -> u32 { 
+    let x: Opt<u32> = S(0);
     return g(x);
 }
 
 const ARG: u32 = 1;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> u32 { f(ARG) }

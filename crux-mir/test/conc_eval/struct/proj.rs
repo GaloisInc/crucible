@@ -1,12 +1,6 @@
-#[cfg(with_main)]
-#[derive(Debug)]
-struct S {
-    x: u8,
-    y: i32,
-}
-
-// don't derive Debug unless we need it for main
-#[cfg(not(with_main))]
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
+#[cfg_attr(with_main, derive(Debug))]
 struct S {
     x: u8,
     y: i32,
@@ -20,6 +14,7 @@ fn f(_: ()) -> u8 {
 const ARG: () = ();
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> u8 { f(ARG) }

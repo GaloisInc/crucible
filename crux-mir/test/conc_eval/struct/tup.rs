@@ -1,6 +1,8 @@
-// FAIL: Printing of unit constructor not correct yet
+#![cfg_attr(not(with_main), no_std)]
+#![cfg_attr(not(with_main), feature(custom_attribute))]
+
 fn g () -> char {
-    '\x00'
+    'a'
 }
 
 fn h () -> () {
@@ -14,6 +16,7 @@ fn f (x : i32) -> () {
 const ARG : i32 = 0;
 
 #[cfg(with_main)]
-fn main() {
-    println!("{:?}", f(ARG))
+pub fn main() {
+    println!("{:?}", f(ARG));
 }
+#[cfg(not(with_main))] #[crux_test] fn crux_test() -> () { f(ARG) }

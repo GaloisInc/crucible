@@ -11,7 +11,11 @@
 -- Stability        : provisional
 --
 -- This module implements a MIR rewriting pass that eliminates calls
--- to the `StorageLive` and `StorageDead` primtives.
+-- to the `StorageLive` and `StorageDead` primitives.
+
+-- NB: This pass shouldn't be used. The current version of mir-verifier
+-- uses StorageLive instructions for "allocation" -- i.e. making sure that
+-- memory is declared to the solver before it is assigned to.
 -----------------------------------------------------------------------
 module Mir.Pass.RemoveStorage
 ( passRemoveStorage
@@ -29,7 +33,7 @@ import GHC.Stack
 
 -- remove storageDead / storageAlive calls
 passRemoveStorage :: [Fn] -> [Fn]
-passRemoveStorage fns = map (\(Fn a b c (MirBody d blocks)) -> Fn a b c (MirBody d (prs_ blocks))) fns
+passRemoveStorage fns = map (& fbody %~ mblocks %~ prs_) fns
 
 prs_ :: [BasicBlock] -> [BasicBlock]
 prs_ bbs = map prs bbs

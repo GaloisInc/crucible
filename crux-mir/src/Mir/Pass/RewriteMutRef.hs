@@ -29,29 +29,31 @@ import Data.List
 
 import Mir.Mir
 import Mir.DefId
+import Mir.Trans
+import Mir.MirTy
+import Mir.GenericOps
 
 import GHC.Stack
 
 --other utils
 ints_list :: Int -> [Int]
-ints_list 0 = [0]
-ints_list i | i > 0     = (ints_list (i - 1)) ++ [i]
-            | otherwise = error "bad intslist"
+ints_list n = [n, n-1 .. 0]
 
 
 modifyVarTy :: Var -> Ty -> Var
-modifyVarTy (Var a b _c d pos) e = Var a b e d pos
+modifyVarTy (Var a b _c d e pos) x = Var a b x d e pos
 
 vars_to_map :: [Var] -> Map.Map T.Text Var
 vars_to_map vs = Map.fromList $ map (\v -> (_varname v, v)) vs
 
 mutref_to_immut :: Var -> Var
-mutref_to_immut (Var vn vm vty vsc pos) = Var (T.pack $ (T.unpack vn) ++ "d") vm (changeTyToImmut vty) vsc pos
+mutref_to_immut (Var vn vm vty vzst vsc pos) = Var (T.pack $ (T.unpack vn) ++ "d") vm (changeTyToImmut vty) vzst vsc pos
 
 
 changeTyToImmut :: Ty -> Ty
 changeTyToImmut (TyRef c _) =  (TyRef c Immut)
 changeTyToImmut t = t
+
 
 -- Pass for rewriting mutref args to be returned outside; i.e., if I
 -- have a function f(x : T1, y : &mut T2, z : T3, w : &mut T4) -> T5,
@@ -61,26 +63,36 @@ changeTyToImmut t = t
 
 -- The algorithm is imperative -- everything is basically modified in place.
 
+-- TODO: this is currently defined as a pass that only operates on the
+-- [Fn] part of the collection. However, to be robust in the case of
+-- code that uses traits, then it needs to modify the types of
+-- functions declared in traits and also look up the types of trait
+-- functions during translation.
+
+
+
 data RewriteFnSt = RFS { --  state internal to function translation.
-    _fn_name :: DefId,
+--    _fn_name :: DefId,
     _ctr :: Int, -- counter for fresh variables
     _immut_arguments :: Map.Map T.Text Var, -- arguments to the function which don't need to be tampered with
     -- vvv arguments of the form &mut T (or variations thereof.) The translation creates a dummy variable for each one. The dummy variable is the second. fst will end up in internals, snd will end up in arguments
     _mut_argpairs :: Map.Map T.Text (Var, Var),
+    _old_fn :: Fn, 
     _ret_ty :: Ty,
+--    _generics :: [Param],
+--    _predicates :: [Predicate],
     _internals :: Map.Map T.Text Var, -- local variables
     _blocks :: Map.Map T.Text BasicBlockData,
     _dummyret :: Maybe Var, -- this is where the original return value goes, which will later be aggregated with the mutref values
-    _fnargsmap :: Map.Map DefId [Ty], -- maps argument names to their types in the function signature
-       -- TODO: update comment, it maps function names to the types of their arguments
+    _fnargsmap :: Map.Map DefId [Ty], -- maps function names to their types 
     _fnsubstitutions :: Map.Map Lvalue Lvalue -- any substitutions which need to take place. all happen at the end
     }
 
+--------------------------------------------------------------------------
+-- TODO: replace this with mkLenses??
+
 fnSubstitutions :: Simple Lens RewriteFnSt (Map.Map Lvalue Lvalue)
 fnSubstitutions = lens _fnsubstitutions (\s v -> s { _fnsubstitutions = v })
-
-fnName :: Simple Lens (RewriteFnSt) DefId
-fnName = lens _fn_name (\s v -> s { _fn_name = v })
 
 dummy_ctr :: Simple Lens (RewriteFnSt) Int
 dummy_ctr = lens _ctr (\s v -> s { _ctr = v })
@@ -100,11 +112,16 @@ fnDummyRet = lens _dummyret (\s v -> s { _dummyret = v})
 fnRet_ty :: Simple Lens (RewriteFnSt) Ty
 fnRet_ty = lens _ret_ty (\s v -> s { _ret_ty = v })
 
+fnOldFn :: Simple Lens RewriteFnSt Fn
+fnOldFn = lens _old_fn (\s v -> s { _old_fn = v})
+
 fnInternals :: Simple Lens (RewriteFnSt) (Map.Map T.Text Var)
 fnInternals = lens _internals (\s v -> s { _internals = v })
 
 fnBlocks :: Simple Lens (RewriteFnSt) (Map.Map T.Text BasicBlockData)
 fnBlocks = lens _blocks (\s v -> s { _blocks = v })
+
+--------------------------------------------------------------------------
 
 newCtr :: State RewriteFnSt Int
 newCtr = do
@@ -122,7 +139,7 @@ newDummyBlock prev_name bbd = do
 mkDummyInternal :: Ty -> State RewriteFnSt Var
 mkDummyInternal ty = do
     internals <- use fnInternals
-    let dummyvar = (Var "_dummyret" Immut ty "scopedum" "internal")
+    let dummyvar = (Var "_dummyret" Immut ty False "scopedum" "internal")
     fnInternals .= Map.insert "_dummyret" dummyvar internals
     return dummyvar
 
@@ -130,7 +147,7 @@ newInternal :: Ty -> State RewriteFnSt Var
 newInternal ty = do
     ctr <- newCtr
     let new_name = T.pack $ "_vd" ++ (show ctr)
-        new_var =  (Var new_name Immut ty "scopedum" "internal")
+        new_var =  (Var new_name Immut ty False "scopedum" "internal")
     internals <- use fnInternals
     fnInternals .= Map.insert new_name new_var internals
     return new_var
@@ -139,12 +156,14 @@ newInternal ty = do
 -- build initial rewrite state
 
 buildRewriteSt :: Fn -> [Fn] -> RewriteFnSt
-buildRewriteSt (Fn fname fargs fretty (MirBody internals blocks)) fns =
-    let (mut_args, immut_args) = partition (isMutRefTy . typeOf) fargs
+buildRewriteSt fn fns =
+    let (mut_args, immut_args) = partition (isMutRefTy . typeOf) (fn^.fargs)
         immut_map = vars_to_map immut_args
         mutpairmap = Map.map (\v -> (v, mutref_to_immut v)) (vars_to_map mut_args)
-        fnmap = Map.fromList $ map (\(Fn fn fa _ _) -> (fn, map typeOf fa)) fns in
-    RFS fname 0 immut_map mutpairmap fretty (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
+        fnmap = Map.fromList $ map (\fn -> (fn^.fname, map typeOf (fn^.fargs))) fns
+        MirBody internals blocks = fn^.fbody
+    in
+    RFS 0 immut_map mutpairmap fn (fn^.fsig.fsreturn_ty) (vars_to_map internals) (Map.fromList $ map (\bb -> (_bbinfo bb, _bbdata bb)) blocks) Nothing fnmap Map.empty
 
 -- insertMutvarsIntoInternals
 -- put all x's into internals, where (x,y) are the mutarg pairs (x is old mut, y is new immut dummy)
@@ -166,7 +185,7 @@ modifyAssignEntryBlock = do
                         Just b -> b
                         Nothing -> error "entry block not found"
 
-        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (Local vmut) (Use $ Consume $ Local vimmut) "internal") mutpairs
+        new_asgns = Map.elems $ Map.map (\(vmut, vimmut) -> Assign (LBase (Local vmut)) (Use $ Copy (LBase (Local vimmut))) "internal") mutpairs
         new_bbd = BasicBlockData (new_asgns ++ entry_stmts) ei
     fnBlocks .= Map.insert (T.pack "bb0") new_bbd blocks
 
@@ -178,7 +197,7 @@ modifyAssignEntryBlock = do
 
 modifyRetData :: State RewriteFnSt ()
 modifyRetData = do
-    old_fretty <- use fnRet_ty
+    old_fretty <- use fnRet_ty 
     mutpairs <- use fnMutArgPairs
     internals <- use fnInternals
     let new_fretty = TyTuple $ [old_fretty] ++ (map (_varty . snd) (Map.elems mutpairs))
@@ -201,7 +220,7 @@ mkPreReturnAssgn = do
     let muts = Map.elems $ Map.map fst mutpairs
     Just dummyret <- use fnDummyRet
     let (Just retvar) = Map.lookup "_0" internals
-    return $ Assign (Local retvar) (Aggregate AKTuple $  [Consume (Local dummyret)] ++ (map (Consume . Local) muts)) "internal"
+    return $ Assign (LBase (Local retvar)) (Aggregate AKTuple $  [Copy (LBase (Local dummyret))] ++ (map (Copy . LBase . Local) muts)) "internal"
 
 processReturnBlock_ :: BasicBlockData -> State RewriteFnSt BasicBlockData
 processReturnBlock_ (BasicBlockData stmts Return) = do
@@ -225,7 +244,7 @@ mkFnCallVars orig_dest mut_tys = do
     let type_list = [typeOf orig_dest] ++ mut_tys
         type_of_new = TyTuple type_list 
     v <- newInternal type_of_new
-    let destructures = zipWith (\ind ty -> LProjection (LvalueProjection (Local v) (PField ind ty))) (ints_list ((length type_list) - 1)) type_list
+    let destructures = zipWith (\ind ty -> LProj (LBase (Local v)) (PField ind ty)) (ints_list ((length type_list) - 1)) type_list
     return (v, (head destructures, tail destructures))
 
     --  for each function call:
@@ -239,8 +258,10 @@ mkFnCallVars orig_dest mut_tys = do
     --          jump to dest
 processFnCall_ :: HasCallStack => BasicBlockInfo -> BasicBlockData -> State RewriteFnSt ()
 processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
-    | Just _ <- isCustomFunc (funcNameofOp cfunc) = processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
-    | otherwise = do
+--    | memberCustomFunc (funcNameofOp cfunc) (funcSubstsofOp cfunc) =
+--        processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
+--    | otherwise
+  = do
         fnargsmap <- use fnArgsMap
         let (mut_cargs, _immut_cargs) = sort_mutrefs cargs fnargsmap (funcNameofOp cfunc)
         if (null mut_cargs) then do
@@ -261,6 +282,7 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
 
          processCustomFnCall :: HasCallStack => BasicBlockInfo -> BasicBlockData -> State RewriteFnSt ()
          processCustomFnCall bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean))
+{-
           | Just "vec_asmutslice" <- isCustomFunc (funcNameofOp cfunc),
           [op] <- cargs = do -- collapse return var into input.
               fnsubs <- use fnSubstitutions
@@ -268,18 +290,18 @@ processFnCall_ bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_
           | Just "iter_next" <- isCustomFunc (funcNameofOp cfunc), [op] <- cargs = do -- op acts like a mutref.
             do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) [op]
 
-          | otherwise = return ()
+          | otherwise -} = return ()
 
          do_mutrefarg_trans :: HasCallStack => BasicBlockInfo -> BasicBlockData -> [Operand] -> State RewriteFnSt ()
          do_mutrefarg_trans bbi (BasicBlockData stmts (Call cfunc cargs (Just (dest_lv, dest_block)) cclean)) mut_cargs = do
             (v, (v0, vrest)) <- mkFnCallVars dest_lv $ map typeOf mut_cargs
             newb <- newDummyBlock bbi $ BasicBlockData
-                ([Assign dest_lv (Use $ Consume v0) "internal"] ++
-                 (zipWith (\c v -> Assign (lValueofOp c) (Use $ Consume v) "internal") mut_cargs vrest))
+                ([Assign dest_lv (Use (Copy v0)) "internal"] ++
+                 (zipWith (\c v -> Assign (lValueofOp c) (Use (Copy v)) "internal") mut_cargs vrest))
                 (Goto dest_block)
 
             blocks <- use fnBlocks
-            fnBlocks .= Map.insert bbi (BasicBlockData stmts (Call cfunc cargs (Just (Local v, _bbinfo newb)) cclean)) blocks
+            fnBlocks .= Map.insert bbi (BasicBlockData stmts (Call cfunc cargs (Just (LBase (Local v), _bbinfo newb)) cclean)) blocks
 processFnCall_ _ _ = return ()
 
 processFnCalls :: HasCallStack => State RewriteFnSt ()
@@ -296,14 +318,18 @@ extractFn = do
     ret_ty <- use fnRet_ty
     internals <- use fnInternals
     blocks <- use fnBlocks
-    fname <- use fnName
-    fsubs <- use fnSubstitutions
+    fsubs  <- use fnSubstitutions
+    
+    oldFn <- use fnOldFn
 
     let blocks_ = replaceList (Map.toList fsubs) blocks
 
     let fnargs = (Map.elems immut_args) ++ (Map.elems $ Map.map snd mut_argpairs)
         fnblocks = map (\(k,v) -> BasicBlock k v) (Map.toList blocks_)
-    return $ Fn fname fnargs ret_ty (MirBody (Map.elems internals) fnblocks)
+    return $ oldFn & fsig       %~ fsreturn_ty .~ ret_ty
+                   & fargs      .~ fnargs
+                   & fbody      .~ MirBody (Map.elems internals) fnblocks
+
 
 
 -- if there are no mutref args, then the body of the function doesn't need to change
