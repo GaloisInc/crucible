@@ -59,7 +59,8 @@ module Lang.Crucible.Backend.Online
     -- * OnlineBackendState
   , OnlineBackendState(..)
     -- * Re-exports
-  , B.FloatInterpretation
+  , B.FloatMode
+  , B.FloatModeRepr(..)
   , B.FloatIEEE
   , B.FloatUninterpreted
   , B.FloatReal
@@ -148,16 +149,17 @@ type YicesOnlineBackend scope fs = OnlineBackend scope (Yices.Connection scope) 
 --   installed into the backend configuration object.
 --
 --   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily by type
---   application from the caller. Example:
+--   first argument so that it can be dictated easily from the caller.
+--   Example:
 --
---   > withYicesOnlineBackend @(Flags FloatReal) ng f'
-withYicesOnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
-                          NonceGenerator IO scope
+--   > withYicesOnlineBackend FloatRealRepr ng f'
+withYicesOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
+                       (B.FloatModeRepr fm)
+                       -> NonceGenerator IO scope
                        -> UnsatFeatures
-                       -> (YicesOnlineBackend scope fs -> m a)
+                       -> (YicesOnlineBackend scope (B.Flags fm) -> m a)
                        -> m a
-withYicesOnlineBackend gen unsatFeat action =
+withYicesOnlineBackend fm gen unsatFeat action =
   let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat in
   withOnlineBackend gen feat $ \sym ->
     do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
@@ -172,16 +174,17 @@ type Z3OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer Z3.Z3) fs
 --   installed into the backend configuration object.
 --
 --   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily by type
---   application from the caller. Example:
+--   first argument so that it can be dictated easily from the caller.
+--   Example:
 --
---   > withz3OnlineBackend @(Flags FloatReal) ng f'
-withZ3OnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
-                       NonceGenerator IO scope
+--   > withz3OnlineBackend FloatRealRepr ng f'
+withZ3OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
+                    (B.FloatModeRepr fm)
+                    -> NonceGenerator IO scope
                     -> UnsatFeatures
-                    -> (Z3OnlineBackend scope fs -> m a)
+                    -> (Z3OnlineBackend scope (B.Flags fm) -> m a)
                     -> m a
-withZ3OnlineBackend gen unsatFeat action =
+withZ3OnlineBackend fm gen unsatFeat action =
   let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat) in
   withOnlineBackend gen feat $ \sym ->
     do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
@@ -196,16 +199,17 @@ type CVC4OnlineBackend scope fs = OnlineBackend scope (SMT2.Writer CVC4.CVC4) fs
 --   installed into the backend configuration object.
 --
 --   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily by type
---   application from the caller. Example:
+--   first argument so that it can be dictated easily from the caller.
+--   Example:
 --
---   > withCVC4OnlineBackend @(Flags FloatReal) ng f'
-withCVC4OnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
-                         NonceGenerator IO scope
+--   > withCVC4OnlineBackend FloatRealRepr ng f'
+withCVC4OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
+                      (B.FloatModeRepr fm)
+                      -> NonceGenerator IO scope
                       -> UnsatFeatures
-                      -> (CVC4OnlineBackend scope fs -> m a)
+                      -> (CVC4OnlineBackend scope (B.Flags fm) -> m a)
                       -> m a
-withCVC4OnlineBackend gen unsatFeat action =
+withCVC4OnlineBackend fm gen unsatFeat action =
   let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat) in
   withOnlineBackend gen feat $ \sym -> do
     liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
@@ -220,15 +224,16 @@ type STPOnlineBackend scope fs = OnlineBackend scope (SMT2.Writer STP.STP) fs
 --   installed into the backend configuration object.
 --
 --   n.b. the explicit forall allows the fs to be expressed as the
---   first argument so that it can be dictated easily by type
---   application from the caller.  Example:
+--   first argument so that it can be dictated easily from the caller.
+--   Example:
 --
---   > withSTPOnlineBackend @(Flags FloatReal) ng f'
-withSTPOnlineBackend :: forall fs scope m a . (MonadIO m, MonadMask m) =>
-                        NonceGenerator IO scope
-                     -> (STPOnlineBackend scope fs -> m a)
+--   > withSTPOnlineBackend FloatRealRepr ng f'
+withSTPOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
+                     (B.FloatModeRepr fm)
+                     -> NonceGenerator IO scope
+                     -> (STPOnlineBackend scope (B.Flags fm) -> m a)
                      -> m a
-withSTPOnlineBackend gen action =
+withSTPOnlineBackend fm gen action =
   withOnlineBackend gen (SMT2.defaultFeatures STP.STP) $ \sym -> do
     liftIO $ extendConfig STP.stpOptions (getConfiguration sym)
     action sym

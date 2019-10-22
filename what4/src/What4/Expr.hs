@@ -14,7 +14,8 @@ module What4.Expr
   , newExprBuilder
 
     -- * Flags
-  , FloatInterpretation
+  , FloatMode
+  , FloatModeRepr(..)
   , FloatIEEE
   , FloatUninterpreted
   , FloatReal

@@ -22,7 +22,8 @@ module Lang.Crucible.Backend.Simple
     -- * SimpleBackendState
   , SimpleBackendState
     -- * Re-exports
-  , B.FloatInterpretation
+  , B.FloatMode
+  , B.FloatModeRepr(..)
   , B.FloatIEEE
   , B.FloatUninterpreted
   , B.FloatReal

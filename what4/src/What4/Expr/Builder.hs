@@ -142,7 +142,8 @@ module What4.Expr.Builder
   , idxCacheEval'
 
     -- * Flags
-  , type FloatInterpretation
+  , type FloatMode
+  , FloatModeRepr(..)
   , FloatIEEE
   , FloatUninterpreted
   , FloatReal
@@ -1317,15 +1318,39 @@ data SomeSymFn sym = forall args ret . SomeSymFn (SymFn sym args ret)
 ------------------------------------------------------------------------
 -- ExprBuilder
 
-data FloatInterpretation where
-  FloatIEEE :: FloatInterpretation
-  FloatUninterpreted :: FloatInterpretation
-  FloatReal :: FloatInterpretation
+data FloatMode where
+  FloatIEEE :: FloatMode
+  FloatUninterpreted :: FloatMode
+  FloatReal :: FloatMode
 type FloatIEEE = 'FloatIEEE
 type FloatUninterpreted = 'FloatUninterpreted
 type FloatReal = 'FloatReal
 
-data Flags (fi :: FloatInterpretation)
+data Flags (fi :: FloatMode)
+
+
+data FloatModeRepr :: FloatMode -> Type where
+  FloatIEEERepr          :: FloatModeRepr FloatIEEE
+  FloatUninterpretedRepr :: FloatModeRepr FloatUninterpreted
+  FloatRealRepr          :: FloatModeRepr FloatReal
+
+instance Show (FloatModeRepr fm) where
+  showsPrec _ FloatIEEERepr          = showString "FloatIEEE"
+  showsPrec _ FloatUninterpretedRepr = showString "FloatUninterpreted"
+  showsPrec _ FloatRealRepr          = showString "FloatReal"
+
+instance ShowF FloatModeRepr
+
+instance KnownRepr FloatModeRepr FloatIEEE          where knownRepr = FloatIEEERepr
+instance KnownRepr FloatModeRepr FloatUninterpreted where knownRepr = FloatUninterpretedRepr
+instance KnownRepr FloatModeRepr FloatReal          where knownRepr = FloatRealRepr
+
+instance TestEquality FloatModeRepr where
+  testEquality FloatIEEERepr           FloatIEEERepr           = return Refl
+  testEquality FloatUninterpretedRepr  FloatUninterpretedRepr  = return Refl
+  testEquality FloatRealRepr           FloatRealRepr           = return Refl
+  testEquality _ _ = Nothing
+
 
 -- | Cache for storing dag terms.
 -- Parameter @t@ is a phantom type brand used to track nonces.

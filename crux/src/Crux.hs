@@ -120,10 +120,10 @@ withBackend cruxOpts nonceGen f =
   case solver cruxOpts of
 
     "cvc4" ->
-      withCVC4OnlineBackend @(Flags FloatReal) nonceGen ProduceUnsatCores f
+      withCVC4OnlineBackend FloatRealRepr nonceGen ProduceUnsatCores f
 
     "yices" ->
-      withYicesOnlineBackend @(Flags FloatReal) nonceGen unsatCores $ \sym ->
+      withYicesOnlineBackend FloatRealRepr nonceGen unsatCores $ \sym ->
         do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
            case goalTimeout cruxOpts of
              Just s -> symCfg sym yicesGoalTimeout (floor s)
@@ -131,7 +131,7 @@ withBackend cruxOpts nonceGen f =
            f sym
 
     "z3" ->
-      withZ3OnlineBackend @(Flags FloatIEEE) nonceGen ProduceUnsatCores $ \sym->
+      withZ3OnlineBackend FloatIEEERepr nonceGen ProduceUnsatCores $ \sym->
         do case goalTimeout cruxOpts of
              Just s -> symCfg sym z3Timeout (floor s * 1000)
              Nothing -> return ()
