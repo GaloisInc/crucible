@@ -549,6 +549,6 @@ main = defaultMain $ testGroup "Tests"
   , testSolverInfo
   , testSolverVersion
   , testYicesZeroTuple
-  , testZ3ZeroTuple
-  , testCVC4ZeroTuple
+--  , testZ3ZeroTuple
+--  , testCVC4ZeroTuple
   ]
