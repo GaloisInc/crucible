@@ -343,7 +343,7 @@ withInitializedMemory :: forall a. L.Module
                       -> IO a
 withInitializedMemory mod action =
   withLLVMCtx mod $ \(ctx :: LLVMContext arch) sym ->
-    action @(ArchWidth arch) =<< initializeMemory sym ctx mod
+    action @(ArchWidth arch) =<< initializeAllMemory sym ctx mod
 
 assertLeq :: forall m n . NatRepr m -> NatRepr n -> LeqProof m n
 assertLeq m n =
