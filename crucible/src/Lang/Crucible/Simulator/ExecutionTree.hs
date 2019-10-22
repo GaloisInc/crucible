@@ -310,7 +310,7 @@ partialValue ::
        (GlobalPair sym u)
        (GlobalPair sym v)
 partialValue f (TotalRes x) = TotalRes <$> f x
-partialValue f (PartialRes p loc x r) = (\y -> PartialRes p loc y r) <$> f x
+partialValue f (PartialRes loc p x r) = (\y -> PartialRes loc p y r) <$> f x
 {-# INLINE partialValue #-}
 
 -- | The result of resolving a function call.
