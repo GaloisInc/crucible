@@ -55,11 +55,11 @@ withSym pred_gen = withIONonceGenerator $ \gen ->
 withYices :: (forall t. SimpleExprBuilder t fs -> SolverProcess t (Yices.Connection t) -> IO ()) -> IO ()
 withYices action = withSym $ \sym ->
   do extendConfig Yices.yicesOptions (getConfiguration sym)
-     h <- openFile "yices.out" WriteMode
-     s <- startSolverProcess Yices.yicesDefaultFeatures (Just h) sym
+     -- h <- openFile "yices.out" WriteMode
+     s <- startSolverProcess Yices.yicesDefaultFeatures Nothing sym
      res <- action sym s
      void (shutdownSolverProcess s)
-     hClose h
+     -- hClose h
      return res
 
 withZ3 :: (forall t . SimpleExprBuilder t fs -> Session t Z3.Z3 -> IO ()) -> IO ()
@@ -73,11 +73,11 @@ withOnlineZ3
   -> IO a
 withOnlineZ3 action = withSym $ \sym -> do
   extendConfig Z3.z3Options (getConfiguration sym)
-  h <- openFile "z3.out" WriteMode
-  s <- startSolverProcess (defaultFeatures Z3.Z3) (Just h) sym
+  -- h <- openFile "z3.out" WriteMode
+  s <- startSolverProcess (defaultFeatures Z3.Z3) Nothing sym
   res <- action sym s
   void (shutdownSolverProcess s)
-  hClose h
+  -- hClose h
   return res
 
 withCVC4
@@ -85,11 +85,11 @@ withCVC4
   -> IO a
 withCVC4 action = withSym $ \sym -> do
   extendConfig CVC4.cvc4Options (getConfiguration sym)
-  h <- openFile "cvc4.out" WriteMode
-  s <- startSolverProcess (defaultFeatures CVC4.CVC4) (Just h) sym
+  -- h <- openFile "cvc4.out" WriteMode
+  s <- startSolverProcess (defaultFeatures CVC4.CVC4) Nothing sym
   res <- action sym s
   void (shutdownSolverProcess s)
-  hClose h
+  -- hClose h
   return res
 
 
