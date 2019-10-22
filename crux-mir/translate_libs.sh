@@ -27,4 +27,4 @@ translate_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'
 translate lib/bytes.rs
 
 # Need native versions of some libs for conc_eval oracle programs
-compile_2015 ../byteorder/src/lib.rs --crate-name byteorder --cfg 'feature="std"'
+compile_2015 lib/byteorder/lib.rs --crate-name byteorder --cfg 'feature="std"'

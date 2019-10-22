@@ -67,7 +67,7 @@ cases.
 [`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
 */
 
-#![feature(crucible_intrinsics)]
+#![cfg_attr(crux, feature(crucible_intrinsics))]
 #![deny(missing_docs)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -92,6 +92,9 @@ pub use io::{ReadBytesExt, WriteBytesExt};
 
 #[cfg(feature = "std")]
 mod io;
+
+#[cfg(crux)] use core::mem::crucible_identity_transmute as identity_transmute;
+#[cfg(not(crux))] use core::mem::transmute as identity_transmute;
 
 #[inline]
 fn extend_sign(val: u64, nbytes: usize) -> i64 {
@@ -1102,7 +1105,7 @@ pub trait ByteOrder
     #[inline]
     fn read_i16_into(src: &[u8], dst: &mut [i16]) {
         let dst = unsafe {
-            mem::crucible_identity_transmute::<&mut [i16], &mut [u16]>(dst)
+            identity_transmute::<&mut [i16], &mut [u16]>(dst)
         };
         Self::read_u16_into(src, dst)
     }
@@ -1131,7 +1134,7 @@ pub trait ByteOrder
     #[inline]
     fn read_i32_into(src: &[u8], dst: &mut [i32]) {
         let dst = unsafe {
-            mem::crucible_identity_transmute::<&mut [i32], &mut [u32]>(dst)
+            identity_transmute::<&mut [i32], &mut [u32]>(dst)
         };
         Self::read_u32_into(src, dst);
     }
@@ -1160,7 +1163,7 @@ pub trait ByteOrder
     #[inline]
     fn read_i64_into(src: &[u8], dst: &mut [i64]) {
         let dst = unsafe {
-            mem::crucible_identity_transmute::<&mut [i64], &mut [u64]>(dst)
+            identity_transmute::<&mut [i64], &mut [u64]>(dst)
         };
         Self::read_u64_into(src, dst);
     }
@@ -1190,7 +1193,7 @@ pub trait ByteOrder
     #[inline]
     fn read_i128_into(src: &[u8], dst: &mut [i128]) {
         let dst = unsafe {
-            mem::crucible_identity_transmute::<&mut [i128], &mut [u128]>(dst)
+            identity_transmute::<&mut [i128], &mut [u128]>(dst)
         };
         Self::read_u128_into(src, dst);
     }
@@ -1428,7 +1431,7 @@ pub trait ByteOrder
     /// ```
     fn write_i16_into(src: &[i16], dst: &mut [u8]) {
         let src = unsafe {
-            mem::crucible_identity_transmute::<&[i16], &[u16]>(src)
+            identity_transmute::<&[i16], &[u16]>(src)
         };
         Self::write_u16_into(src, dst);
     }
@@ -1456,7 +1459,7 @@ pub trait ByteOrder
     /// ```
     fn write_i32_into(src: &[i32], dst: &mut [u8]) {
         let src = unsafe {
-            mem::crucible_identity_transmute::<&[i32], &[u32]>(src)
+            identity_transmute::<&[i32], &[u32]>(src)
         };
         Self::write_u32_into(src, dst);
     }
@@ -1484,7 +1487,7 @@ pub trait ByteOrder
     /// ```
     fn write_i64_into(src: &[i64], dst: &mut [u8]) {
         let src = unsafe {
-            mem::crucible_identity_transmute::<&[i64], &[u64]>(src)
+            identity_transmute::<&[i64], &[u64]>(src)
         };
         Self::write_u64_into(src, dst);
     }
@@ -1513,7 +1516,7 @@ pub trait ByteOrder
     #[cfg(byteorder_i128)]
     fn write_i128_into(src: &[i128], dst: &mut [u8]) {
         let src = unsafe {
-            mem::crucible_identity_transmute::<&[i128], &[u128]>(src)
+            identity_transmute::<&[i128], &[u128]>(src)
         };
         Self::write_u128_into(src, dst);
     }
@@ -1671,7 +1674,7 @@ pub trait ByteOrder
     #[inline]
     fn from_slice_i16(src: &mut [i16]) {
         let src = unsafe {
-            mem::crucible_identity_transmute::<&mut [i16], &mut [u16]>(src)
+            identity_transmute::<&mut [i16], &mut [u16]>(src)
         };
         Self::from_slice_u16(src);
     }
@@ -1696,7 +1699,7 @@ pub trait ByteOrder
     #[inline]
     fn from_slice_i32(src: &mut [i32]) {
         let src = unsafe {
-            mem::crucible_identity_transmute::<&mut [i32], &mut [u32]>(src)
+            identity_transmute::<&mut [i32], &mut [u32]>(src)
         };
         Self::from_slice_u32(src);
     }
@@ -1721,7 +1724,7 @@ pub trait ByteOrder
     #[inline]
     fn from_slice_i64(src: &mut [i64]) {
         let src = unsafe {
-            mem::crucible_identity_transmute::<&mut [i64], &mut [u64]>(src)
+            identity_transmute::<&mut [i64], &mut [u64]>(src)
         };
         Self::from_slice_u64(src);
     }
@@ -1747,7 +1750,7 @@ pub trait ByteOrder
     #[inline]
     fn from_slice_i128(src: &mut [i128]) {
         let src = unsafe {
-            mem::crucible_identity_transmute::<&mut [i128], &mut [u128]>(src)
+            identity_transmute::<&mut [i128], &mut [u128]>(src)
         };
         Self::from_slice_u128(src);
     }
