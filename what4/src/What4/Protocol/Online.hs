@@ -11,6 +11,7 @@ solvers that support online interaction modes.
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 module What4.Protocol.Online
   ( OnlineSolver(..)
   , SolverProcess(..)
@@ -183,7 +184,8 @@ pop p =
 
 -- | Perform an action in the scope of a solver assumption frame.
 inNewFrame :: (MonadIO m, MonadMask m, SMTReadWriter solver) => SolverProcess scope solver -> m a -> m a
-inNewFrame p = bracket_ (liftIO $ push p) (liftIO $ pop p)
+inNewFrame p action =
+  bracket_ (liftIO $ push p) (liftIO $ try @SomeException $ pop p) action
 
 checkWithAssumptions ::
   SMTReadWriter solver =>
