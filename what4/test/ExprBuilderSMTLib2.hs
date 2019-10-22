@@ -14,7 +14,9 @@
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import           Control.Exception (bracket)
+
+import           Control.Exception (bracket, try, SomeException)
+import           Control.Monad (void)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Map as Map (empty, singleton)
@@ -59,7 +61,7 @@ withYices action = withSym $ \sym ->
        (do h <- openFile "yices.out" WriteMode
            s <- startSolverProcess Yices.yicesDefaultFeatures (Just h) sym
            return (h,s))
-       (\(h,s) -> shutdownSolverProcess s >> hClose h)
+       (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> hClose h))
        (\(_,s) -> action sym s)
 
 withZ3 :: (forall t . SimpleExprBuilder t fs -> Session t Z3.Z3 -> IO ()) -> IO ()
@@ -77,7 +79,7 @@ withOnlineZ3 action = withSym $ \sym -> do
     (do h <- openFile "z3.out" WriteMode
         s <- startSolverProcess (defaultFeatures Z3.Z3) (Just h) sym
         return (h,s))
-    (\(h,s) -> shutdownSolverProcess s >> hClose h)
+    (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> hClose h))
     (\(_,s) -> action sym s)
 
 withCVC4
@@ -89,7 +91,7 @@ withCVC4 action = withSym $ \sym -> do
     (do h <- openFile "cvc4.out" WriteMode
         s <- startSolverProcess (defaultFeatures CVC4.CVC4) (Just h) sym
         return (h,s))
-    (\(h,s) -> shutdownSolverProcess s >> hClose h)
+    (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> hClose h))
     (\(_,s) -> action sym s)
 
 
@@ -435,9 +437,12 @@ testSymbolPrimeCharZ3 = testCase "z3 symbol prime (') char" $
     assume (sessionWriter s) p
     runCheckSat s $ \res -> isSat res @? "sat"
 
-testYicesZeroTuple :: TestTree
-testYicesZeroTuple = testCase "yices 0-tuple" $
-  withYices $ \sym solver ->
+zeroTupleTest ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+zeroTupleTest sym solver =
     do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr Ctx.Empty)
        s <- mkStruct sym Ctx.Empty
 
@@ -455,49 +460,55 @@ testYicesZeroTuple = testCase "yices 0-tuple" $
 
        res2 <- checkSatisfiable solver "test" =<< notPred sym p
        isUnsat res2 @? "unsat"
+
+oneTupleTest ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+oneTupleTest sym solver =
+    do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr (Ctx.Empty Ctx.:> BaseBoolRepr))
+       s <- mkStruct sym (Ctx.Empty Ctx.:> backendPred sym True)
+
+       f <- freshTotalUninterpFn sym (userSymbol' "f")
+             (Ctx.Empty Ctx.:> BaseStructRepr (Ctx.Empty Ctx.:> BaseBoolRepr))
+             BaseBoolRepr
+
+       fu <- applySymFn sym f (Ctx.Empty Ctx.:> u)
+       fs <- applySymFn sym f (Ctx.Empty Ctx.:> s)
+
+       p <- eqPred sym fu fs
+
+       res1 <- checkSatisfiable solver "test" p
+       isSat res1 @? "sat"
+
+       res2 <- checkSatisfiable solver "test" =<< notPred sym p
+       isSat res2 @? "neg sat"
+
+
+testYicesZeroTuple :: TestTree
+testYicesZeroTuple = testCase "yices 0-tuple" $
+  withYices zeroTupleTest
+
+testYicesOneTuple :: TestTree
+testYicesOneTuple = testCase "yices 1-tuple" $
+  withYices oneTupleTest
 
 testZ3ZeroTuple :: TestTree
 testZ3ZeroTuple = testCase "Z3 0-tuple" $
-  withOnlineZ3 $ \sym solver ->
-    do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr Ctx.Empty)
-       s <- mkStruct sym Ctx.Empty
+  withOnlineZ3 zeroTupleTest
 
-       f <- freshTotalUninterpFn sym (userSymbol' "f")
-             (Ctx.Empty Ctx.:> BaseStructRepr Ctx.Empty)
-             BaseBoolRepr
-
-       fu <- applySymFn sym f (Ctx.Empty Ctx.:> u)
-       fs <- applySymFn sym f (Ctx.Empty Ctx.:> s)
-
-       p <- eqPred sym fu fs
-
-       res1 <- checkSatisfiable solver "test" p
-       isSat res1 @? "sat"
-
-       res2 <- checkSatisfiable solver "test" =<< notPred sym p
-       isUnsat res2 @? "unsat"
+testZ3OneTuple :: TestTree
+testZ3OneTuple = testCase "Z3 1-tuple" $
+  withOnlineZ3 oneTupleTest
 
 testCVC4ZeroTuple :: TestTree
 testCVC4ZeroTuple = testCase "CVC4 0-tuple" $
-  withCVC4 $ \sym solver ->
-    do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr Ctx.Empty)
-       s <- mkStruct sym Ctx.Empty
+  withCVC4 zeroTupleTest
 
-       f <- freshTotalUninterpFn sym (userSymbol' "f")
-             (Ctx.Empty Ctx.:> BaseStructRepr Ctx.Empty)
-             BaseBoolRepr
-
-       fu <- applySymFn sym f (Ctx.Empty Ctx.:> u)
-       fs <- applySymFn sym f (Ctx.Empty Ctx.:> s)
-
-       p <- eqPred sym fu fs
-
-       res1 <- checkSatisfiable solver "test" p
-       isSat res1 @? "sat"
-
-       res2 <- checkSatisfiable solver "test" =<< notPred sym p
-       isUnsat res2 @? "unsat"
-
+testCVC4OneTuple :: TestTree
+testCVC4OneTuple = testCase "CVC4 1-tuple" $
+  withCVC4 oneTupleTest
 
 forallTest ::
   OnlineSolver t solver =>
@@ -583,7 +594,10 @@ main = defaultMain $ testGroup "Tests"
   , testSolverVersion
   , testYicesZeroTuple
   , testZ3ZeroTuple
---  , testCVC4ZeroTuple
+  , testCVC4ZeroTuple
+  , testYicesOneTuple
+  , testZ3OneTuple
+  , testCVC4OneTuple
   , testZ3ForallBinder
   , testCVC4ForallBinder
   ]
