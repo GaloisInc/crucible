@@ -217,14 +217,33 @@ class SMTLib2Tweaks a where
       [] -> error "arrayUpdate given empty list"
       i1:ir -> nestedArrayUpdate a (i1, ir) v
 
+  -- By default, this uses the SMTLib 2.6 standard version of the declare-datatype command.
+  smtlib2declareStructCmd :: Int -> SMT2.Command
+  smtlib2declareStructCmd 0 =
+    SMT2.Cmd $ app "declare-datatype" [ fromString "Struct0", builder_list [ builder_list ["mk-struct0"]]]
+  smtlib2declareStructCmd n =
+    let n_str = fromString (show n)
+        tp = "Struct" <> n_str
+        cnstr = "mk-struct" <> n_str
+        idxes = map (fromString . show) [0 .. n-1]
+        tp_names = [ "T" <> i_str
+                   | i_str <- idxes
+                   ]
+        flds = [ app ("struct" <> n_str <> "-proj" <> i_str) [ "T" <> i_str ]
+               | i_str <- idxes
+               ]
+     in SMT2.Cmd $ app "declare-datatype" [ tp, app "par" [ builder_list tp_names, builder_list [app cnstr flds]]]
+
+
 -- | A struct with the given fields.
 --
 -- This uses SMTLIB2 datatypes and are not primitive to the language.
 structSort :: [SMT2.Sort] -> SMT2.Sort
+structSort []   = SMT2.Sort "Struct0"
 structSort flds = SMT2.Sort $ "(Struct" <> Builder.decimal n <> foldMap f flds <> ")"
-  where f :: SMT2.Sort -> Builder
-        f (SMT2.Sort s) = " " <> s
-        n = length flds
+       where f :: SMT2.Sort -> Builder
+             f (SMT2.Sort s) = " " <> s
+             n = length flds
 
 asSMT2Type :: forall a tp . SMTLib2Tweaks a => TypeMap tp -> SMT2.Sort
 asSMT2Type BoolTypeMap    = SMT2.boolSort
@@ -500,19 +519,8 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
     let r = declaredTuples (connState conn)
     s <- readIORef r
     when (Set.notMember n s) $ do
-      let type_name i = fromString ('T' : show i)
-      let params = builder_list $ type_name  <$> [1..n]
-      let n_str = fromString (show n)
-      let tp = "Struct" <> n_str
-      let ctor = "mk-struct" <> n_str
-      let field_def i = app field_nm [type_name i]
-            where field_nm = "struct" <> n_str <> "-proj" <> fromString (show (i-1))
-      let fields = field_def <$> [1..n]
-      let decl = app tp [app ctor fields]
-      let decls = "(" <> decl <> ")"
-      let cmd = SMT2.Cmd $ app "declare-datatypes" [ params, decls ]
+      let cmd = smtlib2declareStructCmd @a n
       addCommand conn cmd
-
       writeIORef r $! Set.insert n s
 
   writeCommand conn (SMT2.Cmd cmd) =

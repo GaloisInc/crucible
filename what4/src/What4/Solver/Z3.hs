@@ -27,6 +27,7 @@ module What4.Solver.Z3
 
 import           Control.Monad ( when )
 import           Data.Bits
+import           Data.String
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -39,6 +40,7 @@ import           What4.Interface
 import           What4.ProblemFeatures
 import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
+import qualified What4.Protocol.SMTLib2.Syntax as SMT2Syntax
 import           What4.Protocol.SMTWriter
 import           What4.SatResult
 import           What4.Solver.Adapter
@@ -94,6 +96,21 @@ instance SMT2.SMTLib2Tweaks Z3 where
     SMT2.arrayConst (indexType idx) rtp v
   smtlib2arraySelect a i = SMT2.arraySelect a (indexCtor i)
   smtlib2arrayUpdate a i = SMT2.arrayStore a (indexCtor i)
+
+  -- Z3 uses a datatype declaration command that differs from the
+  -- SMTLib 2.6 standard
+  smtlib2declareStructCmd n =
+      let type_name i = fromString ('T' : show i)
+          params = builder_list $ type_name  <$> [1..n]
+          n_str = fromString (show n)
+          tp = "Struct" <> n_str
+          ctor = "mk-struct" <> n_str
+          field_def i = app field_nm [type_name i]
+            where field_nm = "struct" <> n_str <> "-proj" <> fromString (show (i-1))
+          fields = field_def <$> [1..n]
+          decl = app tp [app ctor fields]
+          decls = "(" <> decl <> ")"
+       in SMT2Syntax.Cmd $ app "declare-datatypes" [ params, decls ]
 
 z3Features :: ProblemFeatures
 z3Features = useNonlinearArithmetic
