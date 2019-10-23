@@ -12,6 +12,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# LANGUAGE GADTs #-}
 module What4.Solver.Z3
@@ -81,11 +82,11 @@ z3Adapter =
 
 indexType :: [SMT2.Sort] -> SMT2.Sort
 indexType [i] = i
-indexType il = SMT2.structSort il
+indexType il = SMT2.smtlib2StructSort @Z3 il
 
 indexCtor :: [SMT2.Term] -> SMT2.Term
 indexCtor [i] = i
-indexCtor il = structCtor il
+indexCtor il = SMT2.smtlib2StructCtor @Z3 il
 
 instance SMT2.SMTLib2Tweaks Z3 where
   smtlib2tweaks = Z3

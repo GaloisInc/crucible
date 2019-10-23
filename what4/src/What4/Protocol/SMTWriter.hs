@@ -403,16 +403,6 @@ class Num v => SupportTermOps v where
   floatToSBV      :: Natural -> RoundingMode -> v -> v
   floatToReal     :: v -> v
 
-  -- | Create a struct with the given fields.
-  structCtor :: [v] -- ^ Fields to struct
-             -> v
-
-  -- | Select a field from a struct.
-  structFieldSelect :: Int -- ^ Number of struct fields.
-                    -> v   -- ^ Struct value to select from
-                    -> Int -- ^ 0-based index of field.
-                    -> v
-
   -- | Predicate that holds if a real number is an integer.
   realIsInteger :: v -> v
 
@@ -461,11 +451,11 @@ infix 4 .<=
 ------------------------------------------------------------------------
 -- Term
 
-structComplexRealPart :: SupportTermOps v => v -> v
-structComplexRealPart c = structFieldSelect 2 c 0
+structComplexRealPart :: SMTWriter h => WriterConn t h -> Term h -> Term h
+structComplexRealPart conn c = structProj conn (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) (Ctx.natIndex @0) c
 
-structComplexImagPart :: SupportTermOps v => v -> v
-structComplexImagPart c = structFieldSelect 2 c 1
+structComplexImagPart :: SMTWriter h => WriterConn t h -> Term h -> Term h
+structComplexImagPart conn c = structProj conn (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) (Ctx.natIndex @1) c
 
 arrayComplexRealPart :: forall h . SMTWriter h => Term h -> Term h
 arrayComplexRealPart c = arraySelect @h c [boolExpr False]
@@ -828,7 +818,13 @@ class (SupportTermOps (Term h)) => SMTWriter h where
 
   -- | Declare a struct datatype if is has not been already given the number of
   -- arguments in the struct.
-  declareStructDatatype :: WriterConn t h -> Int -> IO ()
+  declareStructDatatype :: WriterConn t h -> Ctx.Assignment TypeMap args -> IO ()
+
+  -- | Build a struct term with the given types and fields
+  structCtor :: WriterConn t h -> Ctx.Assignment TypeMap args -> [Term h] -> Term h
+
+  -- | Project a field from a struct with the given types
+  structProj :: WriterConn t h -> Ctx.Assignment TypeMap args -> Ctx.Index args tp -> Term h -> Term h
 
   -- | Write a command to the connection.
   writeCommand :: WriterConn t h -> Command h -> IO ()
@@ -907,7 +903,7 @@ declareTypes conn = \case
   RealTypeMap    -> return ()
   BVTypeMap _ -> return ()
   FloatTypeMap _ -> return ()
-  ComplexToStructTypeMap -> declareStructDatatype conn 2
+  ComplexToStructTypeMap -> declareStructDatatype conn (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap)
   ComplexToArrayTypeMap  -> return ()
   PrimArrayTypeMap args ret ->
     do traverseFC_ (declareTypes conn) args
@@ -917,7 +913,7 @@ declareTypes conn = \case
        declareTypes conn ret
   StructTypeMap flds ->
     do traverseFC_ (declareTypes conn) flds
-       declareStructDatatype conn (Ctx.sizeInt (Ctx.size flds))
+       declareStructDatatype conn flds
 
 
 data DefineStyle
@@ -1104,30 +1100,31 @@ addSideCondition nm t = do
 addPartialSideCond ::
   forall t h tp.
   SMTWriter h =>
+  WriterConn t h ->
   Term h ->
   TypeMap tp ->
   Maybe (AbstractValue tp) ->
   SMTCollector t h ()
 
 -- NB, nats have a side condition even if there is no abstract domain
-addPartialSideCond t NatTypeMap Nothing =
+addPartialSideCond _ t NatTypeMap Nothing =
   do addSideCondition "nat_range" $ t .>= 0
 
 -- in all other cases, no abstract domain information means unconstrained values
-addPartialSideCond _ _ Nothing = return ()
+addPartialSideCond _ _ _ Nothing = return ()
 
-addPartialSideCond t BoolTypeMap (Just abv) =
+addPartialSideCond _ t BoolTypeMap (Just abv) =
   case abv of
     Nothing -> return ()
     Just b  -> addSideCondition "bool_val" $ t .== boolExpr b
 
-addPartialSideCond t NatTypeMap (Just rng) =
+addPartialSideCond _ t NatTypeMap (Just rng) =
   do addSideCondition "nat_range" $ t .>= integerTerm (toInteger (natRangeLow rng))
      case natRangeHigh rng of
        Unbounded -> return ()
        Inclusive hi -> addSideCondition "nat_range" $ t .<= integerTerm (toInteger hi)
 
-addPartialSideCond t IntegerTypeMap (Just rng) =
+addPartialSideCond _ t IntegerTypeMap (Just rng) =
   do case rangeLowBound rng of
        Unbounded -> return ()
        Inclusive lo -> addSideCondition "int_range" $ t .>= integerTerm lo
@@ -1135,7 +1132,7 @@ addPartialSideCond t IntegerTypeMap (Just rng) =
        Unbounded -> return ()
        Inclusive hi -> addSideCondition "int_range" $ t .<= integerTerm hi
 
-addPartialSideCond t RealTypeMap (Just rng) =
+addPartialSideCond _ t RealTypeMap (Just rng) =
   do case rangeLowBound (ravRange rng) of
        Unbounded -> return ()
        Inclusive lo -> addSideCondition "real_range" $ t .>= rationalTerm lo
@@ -1143,7 +1140,7 @@ addPartialSideCond t RealTypeMap (Just rng) =
        Unbounded -> return ()
        Inclusive hi -> addSideCondition "real_range" $ t .<= rationalTerm hi
 
-addPartialSideCond t (BVTypeMap w) (Just rng) = mapM_ assertRange (BVD.ranges w rng)
+addPartialSideCond _ t (BVTypeMap w) (Just rng) = mapM_ assertRange (BVD.ranges w rng)
  where
  assertRange (lo,hi) =
    do when (lo > 0)
@@ -1151,34 +1148,33 @@ addPartialSideCond t (BVTypeMap w) (Just rng) = mapM_ assertRange (BVD.ranges w 
       when (hi < maxUnsigned w)
            (addSideCondition "bv_range" $ bvULe t (bvTerm w hi))
 
-addPartialSideCond _ (FloatTypeMap _) (Just ()) = return ()
+addPartialSideCond _ _ (FloatTypeMap _) (Just ()) = return ()
 
-addPartialSideCond t ComplexToStructTypeMap (Just (realRng :+ imagRng)) =
+addPartialSideCond conn t ComplexToStructTypeMap (Just (realRng :+ imagRng)) =
   do let r = arrayComplexRealPart @h t
      let i = arrayComplexImagPart @h t
-     addPartialSideCond r RealTypeMap (Just realRng)
-     addPartialSideCond i RealTypeMap (Just imagRng)
+     addPartialSideCond conn r RealTypeMap (Just realRng)
+     addPartialSideCond conn i RealTypeMap (Just imagRng)
 
-addPartialSideCond t ComplexToArrayTypeMap (Just (realRng :+ imagRng)) =
+addPartialSideCond conn t ComplexToArrayTypeMap (Just (realRng :+ imagRng)) =
   do let r = arrayComplexRealPart @h t
      let i = arrayComplexImagPart @h t
-     addPartialSideCond r RealTypeMap (Just realRng)
-     addPartialSideCond i RealTypeMap (Just imagRng)
+     addPartialSideCond conn r RealTypeMap (Just realRng)
+     addPartialSideCond conn i RealTypeMap (Just imagRng)
 
-addPartialSideCond t (StructTypeMap ctx) (Just abvs) =
-  do let len = Ctx.sizeInt (Ctx.size ctx)
+addPartialSideCond conn t (StructTypeMap ctx) (Just abvs) =
      Ctx.forIndex (Ctx.size ctx)
         (\start i ->
             do start
-               addPartialSideCond
-                 (structFieldSelect len t (Ctx.indexVal i))
+               addPartialSideCond conn
+                 (structProj conn ctx i t)
                  (ctx Ctx.! i)
                  (Just (unwrapAV (abvs Ctx.! i))))
         (return ())
 
-addPartialSideCond _t (PrimArrayTypeMap _idxTp _resTp) (Just _abv) =
+addPartialSideCond _ _t (PrimArrayTypeMap _idxTp _resTp) (Just _abv) =
   fail "SMTWriter.addPartialSideCond: bounds on array values not supported"
-addPartialSideCond _t (FnArrayTypeMap _idxTp _resTp) (Just _abv) =
+addPartialSideCond _ _t (FnArrayTypeMap _idxTp _resTp) (Just _abv) =
   fail "SMTWriter.addPartialSideCond: bounds on array values not supported"
 
 
@@ -1607,7 +1603,7 @@ mkExpr (BoundVarExpr var) = do
             addCommand conn $ declareCommand conn var_name Ctx.empty smt_type
 
        -- Add assertion based on var type.
-       addPartialSideCond (fromText var_name) smt_type (bvarAbstractValue var)
+       addPartialSideCond conn (fromText var_name) smt_type (bvarAbstractValue var)
 
        -- Return variable name
        return $ SMTName smt_type var_name
@@ -1643,7 +1639,7 @@ predSMTExpr e0 = do
           t <- liftIO $ f smtType
           bindVar var t
 
-          addPartialSideCond (asBase t) smtType (bvarAbstractValue var)
+          addPartialSideCond conn (asBase t) smtType (bvarAbstractValue var)
           mkBaseExpr e
       freshBoundTerm BoolTypeMap $ forallResult cr
     Exists var e -> do
@@ -1657,7 +1653,7 @@ predSMTExpr e0 = do
           t <- liftIO $ f smtType
           bindVar var t
 
-          addPartialSideCond (asBase t) smtType (bvarAbstractValue var)
+          addPartialSideCond conn (asBase t) smtType (bvarAbstractValue var)
           mkBaseExpr e
       freshBoundTerm BoolTypeMap $ existsResult cr
 
@@ -2490,15 +2486,19 @@ appSMTExpr ae = do
       return res
 
     Cplx c -> do
-      (r' :+ i') <- traverse mkBaseExpr c
+      (rl :+ img) <- traverse mkExpr c
 
       feat <- asks (supportedFeatures . scConn)
       case () of
         _ | feat `hasProblemFeature` useStructs -> do
             let tp = ComplexToStructTypeMap
-            freshBoundTerm tp $! structCtor [r', i']
+            let tm = structCtor conn (Ctx.Empty Ctx.:> RealTypeMap Ctx.:> RealTypeMap) [asBase rl, asBase img]
+            freshBoundTerm tp tm
+
           | feat `hasProblemFeature` useSymbolicArrays -> do
             let tp = ComplexToArrayTypeMap
+            let r' = asBase rl
+            let i' = asBase img
             ra <-
               case arrayConstant @h of
                 Just constFn  ->
@@ -2507,6 +2507,7 @@ appSMTExpr ae = do
                   a <- asBase <$> freshConstant "complex lit" tp
                   return $! arrayUpdate @h a [boolExpr False] r'
             freshBoundTerm tp $! arrayUpdate @h ra [boolExpr True] i'
+
           | otherwise ->
             theoryUnsupported conn "complex literals" i
 
@@ -2514,14 +2515,16 @@ appSMTExpr ae = do
       c <- mkExpr e
       case smtExprType c of
         ComplexToStructTypeMap ->
-          freshBoundTerm RealTypeMap $ structComplexRealPart (asBase c)
+          do let prj = structComplexRealPart conn (asBase c)
+             freshBoundTerm RealTypeMap prj
         ComplexToArrayTypeMap ->
           freshBoundTerm RealTypeMap $ arrayComplexRealPart @h (asBase c)
     ImagPart e -> do
       c <- mkExpr e
       case smtExprType c of
         ComplexToStructTypeMap ->
-          freshBoundTerm RealTypeMap $ structComplexImagPart (asBase c)
+          do let prj = structComplexImagPart conn (asBase c)
+             freshBoundTerm RealTypeMap prj
         ComplexToArrayTypeMap ->
           freshBoundTerm RealTypeMap $ arrayComplexImagPart @h (asBase c)
 
@@ -2530,20 +2533,20 @@ appSMTExpr ae = do
 
     StructCtor _ vals -> do
       -- Make sure a struct with the given number of elements has been declared.
-      liftIO $ declareStructDatatype conn (Ctx.sizeInt (Ctx.size vals))
-      exprs <- traverseFC  mkExpr vals
+      exprs <- traverseFC mkExpr vals
       let fld_types = fmapFC smtExprType exprs
-      freshBoundTerm (StructTypeMap fld_types) $
-        structCtor (toListFC asBase exprs)
+
+      liftIO $ declareStructDatatype conn fld_types
+      let tm = structCtor conn fld_types (toListFC asBase exprs)
+      freshBoundTerm (StructTypeMap fld_types) tm
 
     StructField s idx _tp -> do
       expr <- mkExpr s
       case smtExprType expr of
        StructTypeMap flds -> do
          let tp = flds Ctx.! idx
-         let n = Ctx.sizeInt (Ctx.size flds)
-         freshBoundTerm tp $
-           structFieldSelect n (asBase expr) (Ctx.indexVal idx)
+         let tm = structProj conn flds idx (asBase expr)
+         freshBoundTerm tp tm
 
 defineFn :: SMTWriter h
          => WriterConn t h
@@ -2729,32 +2732,33 @@ smtIndicesTerms tps vals = Ctx.forIndexRange 0 sz f []
                       BVTypeMap w -> bvTerm w v
                       _ -> error "Do not yet support other index types."
 
-getSolverVal :: forall h tp
+getSolverVal :: forall h t tp
              .  SMTWriter h
-             => SMTEvalFunctions h
+             => WriterConn t h
+             -> SMTEvalFunctions h
              -> TypeMap tp
              -> Term h
              -> IO (GroundValue tp)
-getSolverVal smtFns BoolTypeMap   tm = smtEvalBool smtFns tm
-getSolverVal smtFns (BVTypeMap w) tm = smtEvalBV smtFns (widthVal w) tm
-getSolverVal smtFns RealTypeMap   tm = smtEvalReal smtFns tm
-getSolverVal smtFns (FloatTypeMap _) tm = smtEvalFloat smtFns tm
-getSolverVal smtFns NatTypeMap    tm = do
+getSolverVal _ smtFns BoolTypeMap   tm = smtEvalBool smtFns tm
+getSolverVal _ smtFns (BVTypeMap w) tm = smtEvalBV smtFns (widthVal w) tm
+getSolverVal _ smtFns RealTypeMap   tm = smtEvalReal smtFns tm
+getSolverVal _ smtFns (FloatTypeMap _) tm = smtEvalFloat smtFns tm
+getSolverVal _ smtFns NatTypeMap    tm = do
   r <- smtEvalReal smtFns tm
   when (denominator r /= 1 && numerator r < 0) $ do
     fail $ "Expected natural number from solver."
   return (fromInteger (numerator r))
-getSolverVal smtFns IntegerTypeMap tm = do
+getSolverVal _ smtFns IntegerTypeMap tm = do
   r <- smtEvalReal smtFns tm
   when (denominator r /= 1) $ fail "Expected integer value."
   return (numerator r)
-getSolverVal smtFns ComplexToStructTypeMap tm =
-  (:+) <$> smtEvalReal smtFns (structComplexRealPart tm)
-       <*> smtEvalReal smtFns (structComplexImagPart tm)
-getSolverVal smtFns ComplexToArrayTypeMap tm =
+getSolverVal conn smtFns ComplexToStructTypeMap tm =
+  (:+) <$> smtEvalReal smtFns (structComplexRealPart conn tm)
+       <*> smtEvalReal smtFns (structComplexImagPart conn tm)
+getSolverVal _ smtFns ComplexToArrayTypeMap tm =
   (:+) <$> smtEvalReal smtFns (arrayComplexRealPart @h tm)
        <*> smtEvalReal smtFns (arrayComplexImagPart @h tm)
-getSolverVal smtFns (PrimArrayTypeMap idx_types eltTp) tm
+getSolverVal conn smtFns (PrimArrayTypeMap idx_types eltTp) tm
   | Just (SMTEvalBVArrayWrapper evalBVArray) <- smtEvalBvArray smtFns
   , Ctx.Empty Ctx.:> (BVTypeMap w) <- idx_types
   , BVTypeMap v <- eltTp =
@@ -2762,19 +2766,18 @@ getSolverVal smtFns (PrimArrayTypeMap idx_types eltTp) tm
   | otherwise = return byIndex
   where byIndex = ArrayMapping $ \i -> do
           let res = arraySelect @h tm (smtIndicesTerms idx_types i)
-          getSolverVal smtFns eltTp res
-getSolverVal smtFns (FnArrayTypeMap idx_types eltTp) tm = return $ ArrayMapping $ \i -> do
+          getSolverVal conn smtFns eltTp res
+getSolverVal conn smtFns (FnArrayTypeMap idx_types eltTp) tm = return $ ArrayMapping $ \i -> do
   let term = smtFnApp tm (smtIndicesTerms idx_types i)
-  getSolverVal smtFns eltTp term
-getSolverVal  smtFns (StructTypeMap flds0) tm =
+  getSolverVal conn smtFns eltTp term
+getSolverVal conn smtFns (StructTypeMap flds0) tm =
           Ctx.traverseWithIndex (f flds0) flds0
         where f :: Ctx.Assignment TypeMap ctx
                 -> Ctx.Index ctx utp
                 -> TypeMap utp
                 -> IO (GroundValueWrapper utp)
-              f flds i tp = GVW <$> getSolverVal smtFns tp v
-                where n = Ctx.sizeInt (Ctx.size flds)
-                      v = structFieldSelect n tm (Ctx.indexVal i)
+              f flds i tp = GVW <$> getSolverVal conn smtFns tp v
+                where v = structProj conn flds i tm
 
 -- | The function creates a function for evaluating elts to concrete values
 -- given a connection to an SMT solver along with some functions for evaluating
@@ -2802,14 +2805,14 @@ smtExprGroundEvalFn conn smtFns = do
 
               -- If so, try asking the solver for the value of SMT expression.
               Just (SMTName tp nm) ->
-                getSolverVal smtFns tp (fromText nm)
+                getSolverVal conn smtFns tp (fromText nm)
 
               Just (SMTExpr tp expr) ->
                 runMaybeT (tryEvalGroundExpr cachedEval e) >>= \case
                   Just x  -> return x
                   -- If we cannot compute the value ourself, query the
                   -- value from the solver directly instead.
-                  Nothing -> getSolverVal smtFns tp expr
+                  Nothing -> getSolverVal conn smtFns tp expr
 
 
   return $ GroundEvalFn cachedEval

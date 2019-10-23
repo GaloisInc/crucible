@@ -74,6 +74,7 @@ import           Data.Bits
 import           Data.IORef
 import           Data.Foldable (toList)
 import           Data.Maybe
+import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
@@ -264,10 +265,6 @@ instance SupportTermOps (YicesTerm s) where
         -- Get index of bit to start at (least-significant bit has index 0)
         begin = decimal_term b
      in term_app "bv-extract"  [end, begin, x]
-
-  structCtor []   = T "unit-value"
-  structCtor args = term_app "mk-tuple" args
-  structFieldSelect _ s i = term_app "select" [s, fromIntegral (i + 1)]
 
   realIsInteger x = term_app "is-int" [x]
 
@@ -514,6 +511,11 @@ instance SMTWriter (Connection s) where
   -- so we only need to delcare the unit type for 0-tuples
   declareStructDatatype conn 0 = declareUnitType conn
   declareStructDatatype _ _ = return ()
+
+  structCtor _conn _tps []   = T "unit-value"
+  structCtor _conn _tps args = term_app "mk-tuple" args
+
+  structProj _conn _n i s = term_app "select" [s, fromIntegral (Ctx.indexVal i + 1)]
 
   writeCommand conn cmdf =
     do isEarlyUnsat <- readIORef (yicesEarlyUnsat (connState conn))

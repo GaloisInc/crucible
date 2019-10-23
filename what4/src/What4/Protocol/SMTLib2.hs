@@ -52,7 +52,6 @@ module What4.Protocol.SMTLib2
     -- * Type
   , SMT2.Sort(..)
   , SMT2.arraySort
-  , structSort
     -- * Term
   , Term(..)
   , arrayConst
@@ -217,6 +216,24 @@ class SMTLib2Tweaks a where
       [] -> error "arrayUpdate given empty list"
       i1:ir -> nestedArrayUpdate a (i1, ir) v
 
+  -- | A struct with the given fields.
+  --
+  -- By default, this uses SMTLIB2 datatypes and are not primitive to the language.
+  smtlib2StructSort :: [SMT2.Sort] -> SMT2.Sort
+  smtlib2StructSort [] = SMT2.Sort "Struct0"
+  smtlib2StructSort flds = SMT2.Sort $ "(Struct" <> Builder.decimal n <> foldMap f flds <> ")"
+       where f :: SMT2.Sort -> Builder
+             f (SMT2.Sort s) = " " <> s
+             n = length flds
+
+  smtlib2StructCtor :: [Term] -> Term
+  smtlib2StructCtor args = term_app nm args
+    where nm = "mk-struct" <> Builder.decimal (length args)
+
+  smtlib2StructProj :: Int -> Int -> Term -> Term
+  smtlib2StructProj n i a = term_app nm [a]
+    where nm = "struct" <> Builder.decimal n <> "-proj" <> Builder.decimal i
+
   -- By default, this uses the SMTLib 2.6 standard version of the declare-datatype command.
   smtlib2declareStructCmd :: Int -> SMT2.Command
   smtlib2declareStructCmd 0 =
@@ -235,15 +252,6 @@ class SMTLib2Tweaks a where
      in SMT2.Cmd $ app "declare-datatype" [ tp, app "par" [ builder_list tp_names, builder_list [app cnstr flds]]]
 
 
--- | A struct with the given fields.
---
--- This uses SMTLIB2 datatypes and are not primitive to the language.
-structSort :: [SMT2.Sort] -> SMT2.Sort
-structSort []   = SMT2.Sort "Struct0"
-structSort flds = SMT2.Sort $ "(Struct" <> Builder.decimal n <> foldMap f flds <> ")"
-       where f :: SMT2.Sort -> Builder
-             f (SMT2.Sort s) = " " <> s
-             n = length flds
 
 asSMT2Type :: forall a tp . SMTLib2Tweaks a => TypeMap tp -> SMT2.Sort
 asSMT2Type BoolTypeMap    = SMT2.boolSort
@@ -253,7 +261,7 @@ asSMT2Type RealTypeMap    = SMT2.realSort
 asSMT2Type (BVTypeMap w)  = SMT2.bvSort (natValue w)
 asSMT2Type (FloatTypeMap fpp) = SMT2.Sort $ mkFloatSymbol "FloatingPoint" (asSMTFloatPrecision fpp)
 asSMT2Type ComplexToStructTypeMap =
-  structSort [ SMT2.realSort, SMT2.realSort ]
+  smtlib2StructSort @a [ SMT2.realSort, SMT2.realSort ]
 asSMT2Type ComplexToArrayTypeMap =
   smtlib2arrayType @a [SMT2.boolSort] SMT2.realSort
 asSMT2Type (PrimArrayTypeMap i r) =
@@ -261,7 +269,7 @@ asSMT2Type (PrimArrayTypeMap i r) =
 asSMT2Type (FnArrayTypeMap _ _) =
   error "SMTLIB backend does not support function types as first class."
 asSMT2Type (StructTypeMap f) =
-  structSort (toListFC (asSMT2Type @a) f)
+  smtlib2StructSort @a (toListFC (asSMT2Type @a) f)
 
 -- Default instance.
 instance SMTLib2Tweaks () where
@@ -437,12 +445,6 @@ instance SupportTermOps Term where
   realExp = un_app "exp"
   realLog = un_app "log"
 
-  structCtor args = term_app nm args
-    where nm = "mk-struct" <> Builder.decimal (length args)
-
-  structFieldSelect n a i = term_app nm [a]
-    where nm = "struct" <> Builder.decimal n <> "-proj" <> Builder.decimal i
-
   smtFnApp nm args = term_app (SMT2.renderTerm nm) args
 
   fromText t = SMT2.T (Builder.fromText t)
@@ -515,13 +517,21 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
     let resolveArg (var, Some tp) = (var, asSMT2Type @a tp)
      in SMT2.defineFun f (resolveArg <$> args) (asSMT2Type @a return_type) e
 
-  declareStructDatatype conn n = do
+  declareStructDatatype conn flds = do
+    let n = Ctx.sizeInt (Ctx.size flds)
     let r = declaredTuples (connState conn)
     s <- readIORef r
     when (Set.notMember n s) $ do
       let cmd = smtlib2declareStructCmd @a n
       addCommand conn cmd
       writeIORef r $! Set.insert n s
+
+  structCtor _conn _tps vals = smtlib2StructCtor @a vals
+
+  structProj _conn tps idx v =
+    let n = Ctx.sizeInt (Ctx.size tps)
+        i = Ctx.indexVal idx
+     in smtlib2StructProj @a n i v
 
   writeCommand conn (SMT2.Cmd cmd) =
     do let cmdout = Lazy.toStrict (Builder.toLazyText cmd)

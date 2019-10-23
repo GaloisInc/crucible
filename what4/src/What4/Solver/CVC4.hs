@@ -12,6 +12,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module What4.Solver.CVC4
   ( CVC4(..)
@@ -79,7 +80,7 @@ cvc4Adapter =
 
 indexType :: [SMT2.Sort] -> SMT2.Sort
 indexType [i] = i
-indexType il = SMT2.structSort il
+indexType il = SMT2.smtlib2StructSort @CVC4 il
 
 instance SMT2.SMTLib2Tweaks CVC4 where
   smtlib2tweaks = CVC4
