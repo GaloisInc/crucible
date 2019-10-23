@@ -509,7 +509,7 @@ instance SMTWriter (Connection s) where
 
   -- yices has built-in syntax for n-tuples where n > 0,
   -- so we only need to delcare the unit type for 0-tuples
-  declareStructDatatype conn 0 = declareUnitType conn
+  declareStructDatatype conn Ctx.Empty = declareUnitType conn
   declareStructDatatype _ _ = return ()
 
   structCtor _conn _tps []   = T "unit-value"

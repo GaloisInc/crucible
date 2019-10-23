@@ -100,8 +100,8 @@ instance SMT2.SMTLib2Tweaks Z3 where
 
   -- Z3 uses a datatype declaration command that differs from the
   -- SMTLib 2.6 standard
-  smtlib2declareStructCmd n =
-      let type_name i = fromString ('T' : show i)
+  smtlib2declareStructCmd n = Just $
+      let type_name i = fromString ('T' : show (i-1))
           params = builder_list $ type_name  <$> [1..n]
           n_str = fromString (show n)
           tp = "Struct" <> n_str

@@ -62,6 +62,7 @@ module What4.Protocol.SMTLib2.Syntax
   , term_app
   , pairwise_app
   , namedTerm
+  , builder_list
     -- * Core theory
   , true
   , false

@@ -216,7 +216,7 @@ class SMTLib2Tweaks a where
       [] -> error "arrayUpdate given empty list"
       i1:ir -> nestedArrayUpdate a (i1, ir) v
 
-  -- | A struct with the given fields.
+  -- | The sort of structs with the given field types.
   --
   -- By default, this uses SMTLIB2 datatypes and are not primitive to the language.
   smtlib2StructSort :: [SMT2.Sort] -> SMT2.Sort
@@ -226,19 +226,25 @@ class SMTLib2Tweaks a where
              f (SMT2.Sort s) = " " <> s
              n = length flds
 
+  -- | Construct a struct value from the given field values
   smtlib2StructCtor :: [Term] -> Term
   smtlib2StructCtor args = term_app nm args
     where nm = "mk-struct" <> Builder.decimal (length args)
 
-  smtlib2StructProj :: Int -> Int -> Term -> Term
+  -- | Construct a struct field projection term
+  smtlib2StructProj ::
+    Int {- ^ number of fields in the struct -} ->
+    Int {- ^ 0-based index of the struct field -} ->
+    Term {- ^ struct term to project from -} ->
+    Term
   smtlib2StructProj n i a = term_app nm [a]
     where nm = "struct" <> Builder.decimal n <> "-proj" <> Builder.decimal i
 
   -- By default, this uses the SMTLib 2.6 standard version of the declare-datatype command.
-  smtlib2declareStructCmd :: Int -> SMT2.Command
-  smtlib2declareStructCmd 0 =
+  smtlib2declareStructCmd :: Int -> Maybe SMT2.Command
+  smtlib2declareStructCmd 0 = Just $
     SMT2.Cmd $ app "declare-datatype" [ fromString "Struct0", builder_list [ builder_list ["mk-struct0"]]]
-  smtlib2declareStructCmd n =
+  smtlib2declareStructCmd n = Just $
     let n_str = fromString (show n)
         tp = "Struct" <> n_str
         cnstr = "mk-struct" <> n_str
@@ -522,8 +528,9 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
     let r = declaredTuples (connState conn)
     s <- readIORef r
     when (Set.notMember n s) $ do
-      let cmd = smtlib2declareStructCmd @a n
-      addCommand conn cmd
+      case smtlib2declareStructCmd @a n of
+        Nothing -> return ()
+        Just cmd -> addCommand conn cmd
       writeIORef r $! Set.insert n s
 
   structCtor _conn _tps vals = smtlib2StructCtor @a vals

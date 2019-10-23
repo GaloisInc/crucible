@@ -28,6 +28,7 @@ module What4.Solver.CVC4
 
 import           Control.Monad (forM_, when)
 import           Data.Bits
+import           Data.String
 import           System.IO
 import qualified System.IO.Streams as Streams
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
@@ -43,6 +44,7 @@ import           What4.Expr.Builder
 import           What4.Expr.GroundEval
 import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
+import qualified What4.Protocol.SMTLib2.Syntax as Syntax
 import           What4.Protocol.SMTWriter
 import           What4.Utils.Process
 
@@ -87,9 +89,18 @@ instance SMT2.SMTLib2Tweaks CVC4 where
 
   smtlib2arrayType il r = SMT2.arraySort (indexType il) r
 
-  -- | Adapted from the tweak of array constant for CVC4.
   smtlib2arrayConstant = Just $ \idx rtp v ->
     SMT2.arrayConst (indexType idx) rtp v
+
+  smtlib2declareStructCmd _ = Nothing
+
+  smtlib2StructSort []  = Syntax.varSort "Tuple"
+  smtlib2StructSort tps = Syntax.Sort $ "(Tuple" <> foldMap f tps <> ")"
+    where f x = " " <> Syntax.unSort x
+
+  smtlib2StructCtor args = Syntax.term_app "mkTuple" args
+
+  smtlib2StructProj _n i x = Syntax.term_app (Syntax.builder_list ["_", "tupSel", fromString (show i)]) [ x ]
 
 cvc4Features :: ProblemFeatures
 cvc4Features = useComputableReals
