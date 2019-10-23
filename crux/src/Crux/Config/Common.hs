@@ -74,6 +74,8 @@ data CruxOptions = CruxOptions
 
   , yicesMCSat               :: Bool
     -- ^ Should the MC-SAT Yices solver be enabled (disables unsat cores; default: no)
+  , floatMode                :: String
+    -- ^ Tells the solver which representation to use for floating point values (default: real).
   }
 
 
@@ -142,6 +144,10 @@ cruxOptions = Config
           yicesMCSat <-
             section "mcsat" yesOrNoSpec False
             "Enable the MC-SAT solver in Yices (disables unsat cores) (default: no)"
+
+          floatMode <-
+            section "floating-point" stringSpec "real"
+            "Select the floating point representation to use;\nchoose one of [real|ieee|uninterpreted] (default: real)."
 
           pure CruxOptions { .. }
 
@@ -221,6 +227,10 @@ cruxOptions = Config
       , Option [] ["mcsat"]
         "Enable the MC-SAT solver in Yices (disables unsat cores)"
         $ NoArg $ \opts -> Right opts { yicesMCSat = True }
+
+      , Option "f" ["floating-point"]
+        "Select the floating point representation to use;\nchoose one of [real|ieee|uninterpreted] (default: real)."
+        $ ReqArg "floating-point" $ \v opts -> Right opts { floatMode = map toLower v }
       ]
   }
 

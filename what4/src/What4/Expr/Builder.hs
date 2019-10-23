@@ -1318,6 +1318,7 @@ data SomeSymFn sym = forall args ret . SomeSymFn (SymFn sym args ret)
 ------------------------------------------------------------------------
 -- ExprBuilder
 
+-- | Mode flag for how floating-point values should be interpreted.
 data FloatMode where
   FloatIEEE :: FloatMode
   FloatUninterpreted :: FloatMode

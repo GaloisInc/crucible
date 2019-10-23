@@ -105,9 +105,8 @@ showVersion l = outputLn ("crux version: " ++ Crux.version ++ ", " ++
 --------------------------------------------------------------------------------
 
 
--- Run a computation in the context of a given online solver. For the
--- moment, each solver is associated with a fixed floating-point
--- interpretation. Ultimately, this should be an option, too.
+-- Run a computation in the context of a given online solver
+-- with a particular floating-point interpretation mode.
 withBackend ::
   CruxOptions ->
   NonceGenerator IO scope ->
@@ -117,33 +116,31 @@ withBackend ::
     ) =>
     OnlineBackend scope solver fs -> IO a) -> IO a
 withBackend cruxOpts nonceGen f =
-  case solver cruxOpts of
-
-    "cvc4" ->
-      withCVC4OnlineBackend FloatRealRepr nonceGen ProduceUnsatCores f
-
-    "yices" ->
-      withYicesOnlineBackend FloatRealRepr nonceGen unsatCores $ \sym ->
-        do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
-           case goalTimeout cruxOpts of
-             Just s -> symCfg sym yicesGoalTimeout (floor s)
-             Nothing -> return ()
-           f sym
-
-    "z3" ->
-      withZ3OnlineBackend FloatIEEERepr nonceGen ProduceUnsatCores $ \sym->
-        do case goalTimeout cruxOpts of
-             Just s -> symCfg sym z3Timeout (floor s * 1000)
-             Nothing -> return ()
-           f sym
-
-
-    s -> fail $ "unknown solver: " ++ s
-
+  case floatMode cruxOpts of
+    "real" -> withSolver FloatRealRepr (solver cruxOpts)
+    "ieee" -> withSolver FloatIEEERepr (solver cruxOpts)
+    "uninterpreted" -> withSolver FloatUninterpretedRepr (solver cruxOpts)
+    s -> fail $ "unknown floating-point mode: " ++ s ++ "; expepected of one [real|ieee|uninterpreted]."
   where
   unsatCores | yicesMCSat cruxOpts = NoUnsatFeatures
              | otherwise           = ProduceUnsatCores
-
+  withSolver fpMode "cvc4" =
+    withCVC4OnlineBackend fpMode nonceGen ProduceUnsatCores f
+  withSolver fpMode "yices" =
+    withYicesOnlineBackend fpMode nonceGen unsatCores $ \sym ->
+      do symCfg sym yicesEnableMCSat (yicesMCSat cruxOpts)
+         case goalTimeout cruxOpts of
+           Just s -> symCfg sym yicesGoalTimeout (floor s)
+           Nothing -> return ()
+         f sym
+  withSolver fpMode "z3" =
+    withZ3OnlineBackend fpMode nonceGen ProduceUnsatCores $ \sym->
+      do case goalTimeout cruxOpts of
+           Just s -> symCfg sym z3Timeout (floor s * 1000)
+           Nothing -> return ()
+         f sym
+  withSolver _fpMode other =
+    fail $ "unknown solver: " ++ other ++ "; expepected of one [cvc4|yices|z3]."
 
 symCfg :: (IsExprBuilder sym, Opt t a) => sym -> ConfigOption t -> a -> IO ()
 symCfg sym x y =

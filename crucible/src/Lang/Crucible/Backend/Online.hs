@@ -159,7 +159,7 @@ withYicesOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                        -> UnsatFeatures
                        -> (YicesOnlineBackend scope (B.Flags fm) -> m a)
                        -> m a
-withYicesOnlineBackend fm gen unsatFeat action =
+withYicesOnlineBackend _fm gen unsatFeat action =
   let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat in
   withOnlineBackend gen feat $ \sym ->
     do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
@@ -184,7 +184,7 @@ withZ3OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                     -> UnsatFeatures
                     -> (Z3OnlineBackend scope (B.Flags fm) -> m a)
                     -> m a
-withZ3OnlineBackend fm gen unsatFeat action =
+withZ3OnlineBackend _fm gen unsatFeat action =
   let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat) in
   withOnlineBackend gen feat $ \sym ->
     do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
@@ -209,7 +209,7 @@ withCVC4OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                       -> UnsatFeatures
                       -> (CVC4OnlineBackend scope (B.Flags fm) -> m a)
                       -> m a
-withCVC4OnlineBackend fm gen unsatFeat action =
+withCVC4OnlineBackend _fm gen unsatFeat action =
   let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat) in
   withOnlineBackend gen feat $ \sym -> do
     liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
@@ -233,7 +233,7 @@ withSTPOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                      -> NonceGenerator IO scope
                      -> (STPOnlineBackend scope (B.Flags fm) -> m a)
                      -> m a
-withSTPOnlineBackend fm gen action =
+withSTPOnlineBackend _fm gen action =
   withOnlineBackend gen (SMT2.defaultFeatures STP.STP) $ \sym -> do
     liftIO $ extendConfig STP.stpOptions (getConfiguration sym)
     action sym
