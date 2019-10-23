@@ -12,6 +12,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# LANGUAGE GADTs #-}
 module What4.Solver.Z3
@@ -27,6 +28,7 @@ module What4.Solver.Z3
 
 import           Control.Monad ( when )
 import           Data.Bits
+import           Data.String
 import           System.IO
 import qualified Text.PrettyPrint.ANSI.Leijen as PP
 
@@ -39,6 +41,7 @@ import           What4.Interface
 import           What4.ProblemFeatures
 import           What4.Protocol.Online
 import qualified What4.Protocol.SMTLib2 as SMT2
+import qualified What4.Protocol.SMTLib2.Syntax as SMT2Syntax
 import           What4.Protocol.SMTWriter
 import           What4.SatResult
 import           What4.Solver.Adapter
@@ -79,11 +82,11 @@ z3Adapter =
 
 indexType :: [SMT2.Sort] -> SMT2.Sort
 indexType [i] = i
-indexType il = SMT2.structSort il
+indexType il = SMT2.smtlib2StructSort @Z3 il
 
 indexCtor :: [SMT2.Term] -> SMT2.Term
 indexCtor [i] = i
-indexCtor il = structCtor il
+indexCtor il = SMT2.smtlib2StructCtor @Z3 il
 
 instance SMT2.SMTLib2Tweaks Z3 where
   smtlib2tweaks = Z3
@@ -94,6 +97,21 @@ instance SMT2.SMTLib2Tweaks Z3 where
     SMT2.arrayConst (indexType idx) rtp v
   smtlib2arraySelect a i = SMT2.arraySelect a (indexCtor i)
   smtlib2arrayUpdate a i = SMT2.arrayStore a (indexCtor i)
+
+  -- Z3 uses a datatype declaration command that differs from the
+  -- SMTLib 2.6 standard
+  smtlib2declareStructCmd n = Just $
+      let type_name i = fromString ('T' : show (i-1))
+          params = builder_list $ type_name  <$> [1..n]
+          n_str = fromString (show n)
+          tp = "Struct" <> n_str
+          ctor = "mk-struct" <> n_str
+          field_def i = app field_nm [type_name i]
+            where field_nm = "struct" <> n_str <> "-proj" <> fromString (show (i-1))
+          fields = field_def <$> [1..n]
+          decl = app tp [app ctor fields]
+          decls = "(" <> decl <> ")"
+       in SMT2Syntax.Cmd $ app "declare-datatypes" [ params, decls ]
 
 z3Features :: ProblemFeatures
 z3Features = useNonlinearArithmetic
@@ -163,6 +181,8 @@ setInteractiveLogicAndOptions writer = do
     SMT2.setOption writer "produce-models" "true"
     -- Tell Z3 to round and print algebraic reals as decimal
     SMT2.setOption writer "pp.decimal" "true"
+    -- Tell Z3 to make declaraions global, so they are not removed by 'pop' commands
+    SMT2.setOption writer "global-declarations" "true"
     -- Tell Z3 to compute UNSAT cores, if that feature is enabled
     when (supportedFeatures writer `hasProblemFeature` useUnsatCores) $ do
       SMT2.setOption writer "produce-unsat-cores" "true"
