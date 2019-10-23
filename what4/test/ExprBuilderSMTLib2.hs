@@ -14,6 +14,8 @@
 import Test.Tasty
 import Test.Tasty.HUnit
 
+
+import           Control.Exception (bracket, try, SomeException)
 import           Control.Monad (void)
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
@@ -43,6 +45,16 @@ data SomePred = forall t . SomePred (BoolExpr t)
 deriving instance Show SomePred
 type SimpleExprBuilder t fs = ExprBuilder t State fs
 
+
+debugOutputFiles :: Bool
+debugOutputFiles = False
+--debugOutputFiles = True
+
+maybeClose :: Maybe Handle -> IO ()
+maybeClose Nothing = return ()
+maybeClose (Just h) = hClose h
+
+
 userSymbol' :: String -> SolverSymbol
 userSymbol' s = case userSymbol s of
   Left e       -> error $ show e
@@ -55,12 +67,12 @@ withSym pred_gen = withIONonceGenerator $ \gen ->
 withYices :: (forall t. SimpleExprBuilder t fs -> SolverProcess t (Yices.Connection t) -> IO ()) -> IO ()
 withYices action = withSym $ \sym ->
   do extendConfig Yices.yicesOptions (getConfiguration sym)
-     -- h <- openFile "yices.out" WriteMode
-     s <- startSolverProcess Yices.yicesDefaultFeatures Nothing sym
-     res <- action sym s
-     void (shutdownSolverProcess s)
-     -- hClose h
-     return res
+     bracket
+       (do h <- if debugOutputFiles then Just <$> openFile "yices.out" WriteMode else return Nothing
+           s <- startSolverProcess Yices.yicesDefaultFeatures h sym
+           return (h,s))
+       (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> maybeClose h))
+       (\(_,s) -> action sym s)
 
 withZ3 :: (forall t . SimpleExprBuilder t fs -> Session t Z3.Z3 -> IO ()) -> IO ()
 withZ3 action = withIONonceGenerator $ \nonce_gen -> do
@@ -73,25 +85,24 @@ withOnlineZ3
   -> IO a
 withOnlineZ3 action = withSym $ \sym -> do
   extendConfig Z3.z3Options (getConfiguration sym)
-  -- h <- openFile "z3.out" WriteMode
-  s <- startSolverProcess (defaultFeatures Z3.Z3) Nothing sym
-  res <- action sym s
-  void (shutdownSolverProcess s)
-  -- hClose h
-  return res
+  bracket
+    (do h <- if debugOutputFiles then Just <$> openFile "z3.out" WriteMode else return Nothing
+        s <- startSolverProcess (defaultFeatures Z3.Z3) h sym
+        return (h,s))
+    (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> maybeClose h))
+    (\(_,s) -> action sym s)
 
 withCVC4
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer CVC4.CVC4) -> IO a)
   -> IO a
 withCVC4 action = withSym $ \sym -> do
   extendConfig CVC4.cvc4Options (getConfiguration sym)
-  -- h <- openFile "cvc4.out" WriteMode
-  s <- startSolverProcess (defaultFeatures CVC4.CVC4) Nothing sym
-  res <- action sym s
-  void (shutdownSolverProcess s)
-  -- hClose h
-  return res
-
+  bracket
+    (do h <- if debugOutputFiles then Just <$> openFile "cvc4.out" WriteMode else return Nothing
+        s <- startSolverProcess (defaultFeatures CVC4.CVC4) h sym
+        return (h,s))
+    (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> maybeClose h))
+    (\(_,s) -> action sym s)
 
 withModel
   :: Session t Z3.Z3
@@ -435,9 +446,12 @@ testSymbolPrimeCharZ3 = testCase "z3 symbol prime (') char" $
     assume (sessionWriter s) p
     runCheckSat s $ \res -> isSat res @? "sat"
 
-testYicesZeroTuple :: TestTree
-testYicesZeroTuple = testCase "yices 0-tuple" $
-  withYices $ \sym solver ->
+zeroTupleTest ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+zeroTupleTest sym solver =
     do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr Ctx.Empty)
        s <- mkStruct sym Ctx.Empty
 
@@ -456,14 +470,17 @@ testYicesZeroTuple = testCase "yices 0-tuple" $
        res2 <- checkSatisfiable solver "test" =<< notPred sym p
        isUnsat res2 @? "unsat"
 
-testZ3ZeroTuple :: TestTree
-testZ3ZeroTuple = testCase "Z3 0-tuple" $
-  withOnlineZ3 $ \sym solver ->
-    do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr Ctx.Empty)
-       s <- mkStruct sym Ctx.Empty
+oneTupleTest ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+oneTupleTest sym solver =
+    do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr (Ctx.Empty Ctx.:> BaseBoolRepr))
+       s <- mkStruct sym (Ctx.Empty Ctx.:> backendPred sym False)
 
        f <- freshTotalUninterpFn sym (userSymbol' "f")
-             (Ctx.Empty Ctx.:> BaseStructRepr Ctx.Empty)
+             (Ctx.Empty Ctx.:> BaseStructRepr (Ctx.Empty Ctx.:> BaseBoolRepr))
              BaseBoolRepr
 
        fu <- applySymFn sym f (Ctx.Empty Ctx.:> u)
@@ -475,29 +492,51 @@ testZ3ZeroTuple = testCase "Z3 0-tuple" $
        isSat res1 @? "sat"
 
        res2 <- checkSatisfiable solver "test" =<< notPred sym p
-       isUnsat res2 @? "unsat"
+       isSat res2 @? "neg sat"
 
-testCVC4ZeroTuple :: TestTree
-testCVC4ZeroTuple = testCase "CVC4 0-tuple" $
-  withCVC4 $ \sym solver ->
-    do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr Ctx.Empty)
-       s <- mkStruct sym Ctx.Empty
 
-       f <- freshTotalUninterpFn sym (userSymbol' "f")
-             (Ctx.Empty Ctx.:> BaseStructRepr Ctx.Empty)
-             BaseBoolRepr
+pairTest ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+pairTest sym solver =
+    do u <- freshConstant sym (userSymbol' "u") (BaseStructRepr (Ctx.Empty Ctx.:> BaseBoolRepr Ctx.:> BaseRealRepr))
+       r <- realLit sym 42.0
+       s <- mkStruct sym (Ctx.Empty Ctx.:> backendPred sym True Ctx.:> r )
 
-       fu <- applySymFn sym f (Ctx.Empty Ctx.:> u)
-       fs <- applySymFn sym f (Ctx.Empty Ctx.:> s)
-
-       p <- eqPred sym fu fs
+       p <- structEq sym u s
 
        res1 <- checkSatisfiable solver "test" p
        isSat res1 @? "sat"
 
        res2 <- checkSatisfiable solver "test" =<< notPred sym p
-       isUnsat res2 @? "unsat"
+       isSat res2 @? "neg sat"
 
+forallTest ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+forallTest sym solver =
+    do x <- freshConstant sym (userSymbol' "x") BaseBoolRepr
+       y <- freshBoundVar sym (userSymbol' "y") BaseBoolRepr
+       p <- forallPred sym y =<< orPred sym x (varExpr sym y)
+       np <- notPred sym p
+
+       checkSatisfiableWithModel solver "test" p $ \case
+         Sat fn ->
+           do b <- groundEval fn x
+              (b == True) @? "true result"
+
+         _ -> fail "expected satisfible model"
+
+       checkSatisfiableWithModel solver "test" np $ \case
+         Sat fn ->
+           do b <- groundEval fn x
+              (b == False) @? "false result"
+
+         _ -> fail "expected satisfible model"
 
 -- | These tests simply ensure that no exceptions are raised.
 testSolverInfo :: TestTree
@@ -548,7 +587,25 @@ main = defaultMain $ testGroup "Tests"
   , testSymbolPrimeCharZ3
   , testSolverInfo
   , testSolverVersion
-  , testYicesZeroTuple
---  , testZ3ZeroTuple
---  , testCVC4ZeroTuple
+
+  , testCase "Yices 0-tuple" $ withYices zeroTupleTest
+  , testCase "Yices 1-tuple" $ withYices oneTupleTest
+  , testCase "Yices pair"    $ withYices pairTest
+
+  , testCase "Z3 0-tuple" $ withOnlineZ3 zeroTupleTest
+
+  -- TODO, enable this test when Z3 releases bugfix
+  -- CF https://github.com/Z3Prover/z3/issues/2647
+  -- , testCase "Z3 1-tuple" $ withOnlineZ3 oneTupleTest
+
+  , testCase "Z3 pair"    $ withOnlineZ3 pairTest
+
+  -- TODO, enable this test when we figure out why it
+  -- doesnt work...
+  --  , testCase "CVC4 0-tuple" $ withCVC4 zeroTupleTest
+  , testCase "CVC4 1-tuple" $ withCVC4 oneTupleTest
+  , testCase "CVC4 pair"    $ withCVC4 pairTest
+
+  , testCase "Z3 forall binder" $ withOnlineZ3 forallTest
+  , testCase "CVC4 forall binder" $ withCVC4 forallTest
   ]
