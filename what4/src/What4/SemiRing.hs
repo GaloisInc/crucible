@@ -285,16 +285,16 @@ instance OrdF SemiRingRepr where
       ])
 
 instance HashableF BVFlavorRepr where
-  hashWithSaltF = $(structuralHash [t|BVFlavorRepr|])
+  hashWithSaltF = $(structuralHashWithSalt [t|BVFlavorRepr|] [])
 instance Hashable (BVFlavorRepr fv) where
   hashWithSalt = hashWithSaltF
 
 instance HashableF OrderedSemiRingRepr where
-  hashWithSaltF = $(structuralHash [t|OrderedSemiRingRepr|])
+  hashWithSaltF = $(structuralHashWithSalt [t|OrderedSemiRingRepr|] [])
 instance Hashable (OrderedSemiRingRepr sr) where
   hashWithSalt = hashWithSaltF
 
 instance HashableF SemiRingRepr where
-  hashWithSaltF = $(structuralHash [t|SemiRingRepr|])
+  hashWithSaltF = $(structuralHashWithSalt [t|SemiRingRepr|] [])
 instance Hashable (SemiRingRepr sr) where
   hashWithSalt = hashWithSaltF

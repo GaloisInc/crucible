@@ -435,7 +435,7 @@ $(return [])
 instance HashableF TypeRepr where
   hashWithSaltF = hashWithSalt
 instance Hashable (TypeRepr ty) where
-  hashWithSalt = $(U.structuralHash [t|TypeRepr|])
+  hashWithSalt = $(U.structuralHashWithSalt [t|TypeRepr|] [])
 
 instance Pretty (TypeRepr tp) where
   pretty = text . show

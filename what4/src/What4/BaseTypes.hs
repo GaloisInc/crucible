@@ -233,12 +233,12 @@ $(return [])
 instance HashableF BaseTypeRepr where
   hashWithSaltF = hashWithSalt
 instance Hashable (BaseTypeRepr bt) where
-  hashWithSalt = $(structuralHash [t|BaseTypeRepr|])
+  hashWithSalt = $(structuralHashWithSalt [t|BaseTypeRepr|] [])
 
 instance HashableF FloatPrecisionRepr where
   hashWithSaltF = hashWithSalt
 instance Hashable (FloatPrecisionRepr fpp) where
-  hashWithSalt = $(structuralHash [t|FloatPrecisionRepr|])
+  hashWithSalt = $(structuralHashWithSalt [t|FloatPrecisionRepr|] [])
 
 instance Pretty (BaseTypeRepr bt) where
   pretty = text . show
