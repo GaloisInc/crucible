@@ -29,9 +29,9 @@ module Lang.Crucible.LLVM.Ctors
 import           Data.Data (Data)
 import           Data.Typeable (Typeable)
 import           GHC.Generics (Generic)
+import           Data.Parameterized.Nonce
 
 import           Control.Monad.Except as Except
-import           Control.Monad.ST(stToIO)
 import           Data.List (find, sortBy)
 import           Data.Ord (comparing, Down(..))
 import           Data.Maybe (fromMaybe)
@@ -43,7 +43,6 @@ import           Lang.Crucible.LLVM.Translation.Monad (LLVMGenerator, LLVMState(
 
 -- Generating CFGs
 
-import           Control.Monad.ST
 import           Data.Map.Strict (empty)
 import           Data.Text (Text)
 import           GHC.TypeNats
@@ -131,7 +130,7 @@ globalCtors mod_ =
 -- | Call some or all of the functions in @llvm.global_ctors@
 callCtors :: (Ctor -> Bool) -- ^ Filter function
           -> L.Module
-          -> LLVMGenerator h s arch UnitType (Expr (LLVM arch) s UnitType)
+          -> LLVMGenerator s arch UnitType (Expr (LLVM arch) s UnitType)
 callCtors select mod_ = do
   ctors <- either fail (pure . filter select) (globalCtors mod_)
   _ <- forM ctors $ \ctor ->
@@ -140,7 +139,7 @@ callCtors select mod_ = do
   return (App EmptyApp)
 
 -- | Call each function in @llvm.global_ctors@ in order of decreasing priority
-callAllCtors :: L.Module -> LLVMGenerator h s arch UnitType (Expr (LLVM arch) s UnitType)
+callAllCtors :: L.Module -> LLVMGenerator s arch UnitType (Expr (LLVM arch) s UnitType)
 callAllCtors = callCtors (const True)
 
 ----------------------------------------------------------------------
@@ -152,12 +151,12 @@ generatorToCFG :: forall arch wptr ret. (HasPtrWidth wptr, wptr ~ ArchWidth arch
                => Text
                -> HandleAllocator
                -> LLVMContext arch
-               -> (forall s. LLVMGenerator RealWorld s arch ret (Expr (LLVM arch) s ret))
+               -> (forall s. LLVMGenerator s arch ret (Expr (LLVM arch) s ret))
                -> TypeRepr ret
                -> IO (Core.SomeCFG (LLVM arch) Core.EmptyCtx ret)
 generatorToCFG name halloc llvmctx gen ret = do
   let ?lc = _llvmTypeCtx llvmctx
-  let def :: forall args. FunctionDef (LLVM arch) RealWorld (LLVMState arch) args ret
+  let def :: forall args. FunctionDef (LLVM arch) (LLVMState arch) args ret IO
       def _inputs = (state, gen)
         where state = LLVMState { _identMap     = empty
                                 , _blockInfoMap = empty
@@ -165,7 +164,8 @@ generatorToCFG name halloc llvmctx gen ret = do
                                 }
 
   hand <- mkHandle' halloc (functionNameFromText name) Ctx.empty ret
-  (Reg.SomeCFG g, []) <- stToIO $ defineFunction InternalPos hand def
+  sng <- newIONonceGenerator
+  (Reg.SomeCFG g, []) <- defineFunction InternalPos sng hand def
   return $! toSSA g
 
 -- | Create a CFG that calls some of the functions in @llvm.global_ctors@.

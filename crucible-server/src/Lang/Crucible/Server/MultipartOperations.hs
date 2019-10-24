@@ -24,8 +24,8 @@ module Lang.Crucible.Server.MultipartOperations where
 import           Control.Applicative
 #endif
 import           Control.Lens
-import           Control.Monad.ST (RealWorld, stToIO)
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.Nonce
 import qualified Data.Text as Text
 
 import           What4.FunctionName
@@ -77,13 +77,14 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
                    Ctx.:> WordMapRepr addrWidth (BaseBVRepr cellWidth)
     let retRepr = WordMapRepr addrWidth (BaseBVRepr cellWidth)
     h <- simMkHandle sim name argsRepr retRepr
-    (R.SomeCFG regCfg, _) <- stToIO $ Gen.defineFunction InternalPos h fndef
+    sng <- newIONonceGenerator
+    (R.SomeCFG regCfg, _) <- Gen.defineFunction InternalPos sng h fndef
     case toSSA regCfg of
       C.SomeCFG cfg -> do
         bindHandleToFunction sim h (UseCFG cfg (postdomInfo cfg))
         return h
 
- where fndef :: Gen.FunctionDef () RealWorld
+ where fndef :: Gen.FunctionDef ()
                                 Maybe
                                 (EmptyCtx
                                  ::> BoolType
@@ -92,6 +93,7 @@ multipartStoreFn sim addrWidth cellWidth valWidth num = do
                                  ::> WordMapType addrWidth (BaseBVType cellWidth)
                                 )
                                (WordMapType addrWidth (BaseBVType cellWidth))
+                               IO
 
        fndef regs = ( Nothing,
                        do let endianFlag = R.AtomExpr (regs^._1)
@@ -144,13 +146,14 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
                    Ctx.:> MaybeRepr (BVRepr cellWidth)
     let retRepr = BVRepr valWidth
     h <- simMkHandle sim name argsRepr retRepr
-    (R.SomeCFG regCfg, _) <- stToIO $ Gen.defineFunction InternalPos h fndef
+    sng <- newIONonceGenerator
+    (R.SomeCFG regCfg, _) <- Gen.defineFunction InternalPos sng h fndef
     case toSSA regCfg of
       C.SomeCFG cfg -> do
         bindHandleToFunction sim h (UseCFG cfg (postdomInfo cfg))
         return h
 
- where fndef :: Gen.FunctionDef () RealWorld
+ where fndef :: Gen.FunctionDef ()
                                Maybe
                                (EmptyCtx
                                ::> BoolType
@@ -159,6 +162,7 @@ multipartLoadFn sim addrWidth cellWidth valWidth num = do
                                ::> MaybeType (BVType cellWidth)
                                )
                                (BVType valWidth)
+                               IO
 
        fndef args = ( Nothing,
                        do let endianFlag = R.AtomExpr (args^._1)

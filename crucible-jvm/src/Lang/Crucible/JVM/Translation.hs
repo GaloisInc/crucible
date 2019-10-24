@@ -23,7 +23,6 @@ module Lang.Crucible.JVM.Translation
 
 -- base
 import           Control.Monad.State.Strict
-import           Control.Monad.ST
 import           Control.Lens hiding (op, (:>))
 import           Data.Int (Int32)
 import           Data.Map.Strict (Map)
@@ -39,7 +38,7 @@ import qualified Language.JVM.CFG as J
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.NatRepr as NR
-
+import           Data.Parameterized.Nonce
 
 -- crucible
 import qualified Lang.Crucible.CFG.Core as C
@@ -70,7 +69,7 @@ import           Debug.Trace
 -- | For static methods, there is no need to create an override handle
 --   we can just dispatch to our code in the interpreter automatically
 
-staticOverrides :: J.ClassName -> J.MethodKey -> Maybe (JVMStmtGen h s ret ())
+staticOverrides :: J.ClassName -> J.MethodKey -> Maybe (JVMStmtGen s ret ())
 staticOverrides className methodKey
 {-
   | className == "java/lang/StrictMath" && J.methodKeyName methodKey == "sqrt"
@@ -234,7 +233,7 @@ rNull :: JVMRef s
 rNull = App (NothingValue knownRepr)
 
 -- | Crucible generator to test if reference is null.
-rIsNull :: JVMRef s -> JVMGenerator h s ret (JVMBool s)
+rIsNull :: JVMRef s -> JVMGenerator s ret (JVMBool s)
 rIsNull mr =
   caseMaybe mr knownRepr
   MatchMaybe {
@@ -243,7 +242,7 @@ rIsNull mr =
     }
 
 -- | Dynamically test whether two references are equal.
-rEqual :: JVMRef s -> JVMRef s -> JVMGenerator h s ret (JVMBool s)
+rEqual :: JVMRef s -> JVMRef s -> JVMGenerator s ret (JVMBool s)
 rEqual mr1 mr2 =
   caseMaybe mr1 knownRepr
   MatchMaybe {
@@ -261,7 +260,7 @@ rEqual mr1 mr2 =
 
 -- | Create a register value from a value with a statically
 -- known tag.
-newJVMReg :: JVMValue s -> JVMGenerator h s ret (JVMReg s)
+newJVMReg :: JVMValue s -> JVMGenerator s ret (JVMReg s)
 newJVMReg val =
   case val of
     DValue v -> DReg <$> newReg v
@@ -270,7 +269,7 @@ newJVMReg val =
     LValue v -> LReg <$> newReg v
     RValue v -> RReg <$> newReg v
 
-readJVMReg :: JVMReg s -> JVMGenerator h s ret (JVMValue s)
+readJVMReg :: JVMReg s -> JVMGenerator s ret (JVMValue s)
 readJVMReg reg =
   case reg of
     DReg r -> DValue <$> readReg r
@@ -279,7 +278,7 @@ readJVMReg reg =
     LReg r -> LValue <$> readReg r
     RReg r -> RValue <$> readReg r
 
-writeJVMReg :: JVMReg s -> JVMValue s -> JVMGenerator h s ret ()
+writeJVMReg :: JVMReg s -> JVMValue s -> JVMGenerator s ret ()
 writeJVMReg (DReg r) (DValue v) = assignReg r v
 writeJVMReg (FReg r) (FValue v) = assignReg r v
 writeJVMReg (IReg r) (IValue v) = assignReg r v
@@ -287,13 +286,13 @@ writeJVMReg (LReg r) (LValue v) = assignReg r v
 writeJVMReg (RReg r) (RValue v) = assignReg r v
 writeJVMReg _ _ = jvmFail "writeJVMReg"
 
-newStack :: [JVMValue s] -> JVMGenerator h s ret [JVMReg s]
+newStack :: [JVMValue s] -> JVMGenerator s ret [JVMReg s]
 newStack = traverse newJVMReg
 
-readStack :: [JVMReg s] -> JVMGenerator h s ret [JVMValue s]
+readStack :: [JVMReg s] -> JVMGenerator s ret [JVMValue s]
 readStack = traverse readJVMReg
 
-saveStack :: [JVMReg s] -> [JVMValue s] -> JVMGenerator h s ret ()
+saveStack :: [JVMReg s] -> [JVMValue s] -> JVMGenerator s ret ()
 saveStack [] [] = return ()
 saveStack (r : rs) (v : vs) = writeJVMReg r v >> saveStack rs vs
 saveStack _ _ = jvmFail "saveStack"
@@ -303,7 +302,7 @@ saveStack _ _ = jvmFail "saveStack"
 lookupLocalReg ::
   KnownRepr TypeRepr tp =>
   Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s tp)) ->
-  J.LocalVariableIndex -> JVMGenerator h s ret (Reg s tp)
+  J.LocalVariableIndex -> JVMGenerator s ret (Reg s tp)
 lookupLocalReg l idx =
   do m <- use l
      case Map.lookup idx m of
@@ -313,7 +312,7 @@ lookupLocalReg l idx =
             l %= Map.insert idx r
             return r
 
-writeLocal :: J.LocalVariableIndex -> JVMValue s -> JVMGenerator h s ret ()
+writeLocal :: J.LocalVariableIndex -> JVMValue s -> JVMGenerator s ret ()
 writeLocal idx val =
   case val of
     DValue v -> lookupLocalReg jsLocalsD idx >>= flip assignReg v
@@ -322,7 +321,7 @@ writeLocal idx val =
     LValue v -> lookupLocalReg jsLocalsL idx >>= flip assignReg v
     RValue v -> lookupLocalReg jsLocalsR idx >>= flip assignReg v
 
-forceJVMValue :: JVMValue s -> JVMGenerator h s ret (JVMValue s)
+forceJVMValue :: JVMValue s -> JVMGenerator s ret (JVMValue s)
 forceJVMValue val =
   case val of
     DValue v -> DValue <$> forceEvaluation v
@@ -337,7 +336,7 @@ forceJVMValue val =
 generateBasicBlock ::
   J.BasicBlock ->
   [JVMReg s] ->
-  JVMGenerator h s ret a
+  JVMGenerator s ret a
 generateBasicBlock bb rs =
   do -- Record the stack registers for this block.
      -- This also signals that generation of this block has started.
@@ -363,7 +362,7 @@ generateBasicBlock bb rs =
 -- simply write into them. If the target has not been started yet, we
 -- copy the values into fresh registers, and also recursively call
 -- 'generateBasicBlock' on the target block to start translating it.
-processBlockAtPC :: HasCallStack => J.PC -> [JVMValue s] -> JVMGenerator h s ret (Label s)
+processBlockAtPC :: HasCallStack => J.PC -> [JVMValue s] -> JVMGenerator s ret (Label s)
 processBlockAtPC pc vs =
   defineBlockLabel $
   do bb <- getBasicBlockAtPC pc
@@ -377,14 +376,14 @@ processBlockAtPC pc vs =
             defineBlock lbl (generateBasicBlock bb rs)
      jump lbl
 
-getBasicBlockAtPC :: J.PC -> JVMGenerator h s ret J.BasicBlock
+getBasicBlockAtPC :: J.PC -> JVMGenerator s ret J.BasicBlock
 getBasicBlockAtPC pc =
   do cfg <- use jsCFG
      case J.bbByPC cfg pc of
        Nothing -> jvmFail "getBasicBlockAtPC"
        Just bb -> return bb
 
-getLabelAtPC :: J.PC -> JVMGenerator h s ret (Label s)
+getLabelAtPC :: J.PC -> JVMGenerator s ret (Label s)
 getLabelAtPC pc =
   do bb <- getBasicBlockAtPC pc
      lm <- use jsLabelMap
@@ -401,22 +400,22 @@ getLabelAtPC pc =
 -- | This has extra state that is only relevant in the context of a
 -- single basic block: It tracks the values of the operand stack at
 -- each instruction.
-type JVMStmtGen h s ret = StateT [JVMValue s] (JVMGenerator h s ret)
+type JVMStmtGen s ret = StateT [JVMValue s] (JVMGenerator s ret)
 
 -- | Indicate that CFG generation failed due to ill-formed JVM code.
-sgFail :: HasCallStack => String -> JVMStmtGen h s ret a
+sgFail :: HasCallStack => String -> JVMStmtGen s ret a
 sgFail msg = lift $ jvmFail msg
 
-sgUnimplemented :: HasCallStack => String -> JVMStmtGen h s ret a
+sgUnimplemented :: HasCallStack => String -> JVMStmtGen s ret a
 sgUnimplemented msg = sgFail $ "unimplemented: " ++ msg
 
-getStack :: JVMStmtGen h s ret [JVMValue s]
+getStack :: JVMStmtGen s ret [JVMValue s]
 getStack = get
 
-putStack :: [JVMValue s] -> JVMStmtGen h s ret ()
+putStack :: [JVMValue s] -> JVMStmtGen s ret ()
 putStack = put
 
-popValue :: HasCallStack => JVMStmtGen h s ret (JVMValue s)
+popValue :: HasCallStack => JVMStmtGen s ret (JVMValue s)
 popValue =
   do vs <- getStack
      case vs of
@@ -425,13 +424,13 @@ popValue =
          do putStack vs'
             return v
 
-pushValue :: JVMValue s -> JVMStmtGen h s ret ()
+pushValue :: JVMValue s -> JVMStmtGen s ret ()
 pushValue v =
   do v' <- lift $ forceJVMValue v
      vs <- getStack
      putStack (v' : vs)
 
-pushValues :: [JVMValue s] -> JVMStmtGen h s ret ()
+pushValues :: [JVMValue s] -> JVMStmtGen s ret ()
 pushValues vs =
   do vs' <- getStack
      putStack (vs ++ vs')
@@ -446,12 +445,12 @@ isType1 v =
 isType2 :: JVMValue s -> Bool
 isType2 = not . isType1
 
-popType1 :: HasCallStack => JVMStmtGen h s ret (JVMValue s)
+popType1 :: HasCallStack => JVMStmtGen s ret (JVMValue s)
 popType1 =
   do v <- popValue
      if isType1 v then return v else sgFail "popType1"
 
-popType2 :: HasCallStack => JVMStmtGen h s ret [JVMValue s]
+popType2 :: HasCallStack => JVMStmtGen s ret [JVMValue s]
 popType2 =
   do vs <- getStack
      case vs of
@@ -463,66 +462,66 @@ popType2 =
          sgFail "popType2"
 
 
-iPop :: JVMStmtGen h s ret (JVMInt s)
+iPop :: JVMStmtGen s ret (JVMInt s)
 iPop = popValue >>= lift . fromIValue
 
-lPop :: JVMStmtGen h s ret (JVMLong s)
+lPop :: JVMStmtGen s ret (JVMLong s)
 lPop = popValue >>= lift . fromLValue
 
-rPop :: HasCallStack => JVMStmtGen h s ret (JVMRef s)
+rPop :: HasCallStack => JVMStmtGen s ret (JVMRef s)
 rPop = popValue >>= lift . fromRValue
 
-dPop :: JVMStmtGen h s ret (JVMDouble s)
+dPop :: JVMStmtGen s ret (JVMDouble s)
 dPop = popValue >>= lift . fromDValue
 
-fPop :: JVMStmtGen h s ret (JVMFloat s)
+fPop :: JVMStmtGen s ret (JVMFloat s)
 fPop = popValue >>= lift . fromFValue
 
-iPush :: JVMInt s -> JVMStmtGen h s ret ()
+iPush :: JVMInt s -> JVMStmtGen s ret ()
 iPush i = pushValue (IValue i)
 
-lPush :: JVMLong s -> JVMStmtGen h s ret ()
+lPush :: JVMLong s -> JVMStmtGen s ret ()
 lPush l = pushValue (LValue l)
 
-fPush :: JVMFloat s -> JVMStmtGen h s ret ()
+fPush :: JVMFloat s -> JVMStmtGen s ret ()
 fPush f = pushValue (FValue f)
 
-dPush :: JVMDouble s -> JVMStmtGen h s ret ()
+dPush :: JVMDouble s -> JVMStmtGen s ret ()
 dPush d = pushValue (DValue d)
 
-rPush :: JVMRef s -> JVMStmtGen h s ret ()
+rPush :: JVMRef s -> JVMStmtGen s ret ()
 rPush r = pushValue (RValue r)
 
-uPush :: Expr JVM s UnitType -> JVMStmtGen h s ret ()
+uPush :: Expr JVM s UnitType -> JVMStmtGen s ret ()
 uPush _u = return ()
 
 
-setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen h s ret ()
+setLocal :: J.LocalVariableIndex -> JVMValue s -> JVMStmtGen s ret ()
 setLocal idx v = lift (writeLocal idx v)
 
-iLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMInt s)
+iLoad :: J.LocalVariableIndex -> JVMStmtGen s ret (JVMInt s)
 iLoad idx = lift (lookupLocalReg jsLocalsI idx >>= readReg)
 
-lLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMLong s)
+lLoad :: J.LocalVariableIndex -> JVMStmtGen s ret (JVMLong s)
 lLoad idx = lift (lookupLocalReg jsLocalsL idx >>= readReg)
 
-fLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMFloat s)
+fLoad :: J.LocalVariableIndex -> JVMStmtGen s ret (JVMFloat s)
 fLoad idx = lift (lookupLocalReg jsLocalsF idx >>= readReg)
 
-dLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMDouble s)
+dLoad :: J.LocalVariableIndex -> JVMStmtGen s ret (JVMDouble s)
 dLoad idx = lift (lookupLocalReg jsLocalsD idx >>= readReg)
 
-rLoad :: J.LocalVariableIndex -> JVMStmtGen h s ret (JVMRef s)
+rLoad :: J.LocalVariableIndex -> JVMStmtGen s ret (JVMRef s)
 rLoad idx = lift (lookupLocalReg jsLocalsR idx >>= readReg)
 
 
 throwIfRefNull ::
-  JVMRef s -> JVMStmtGen h s ret (Expr JVM s (ReferenceType JVMObjectType))
+  JVMRef s -> JVMStmtGen s ret (Expr JVM s (ReferenceType JVMObjectType))
 throwIfRefNull r = lift $ assertedJustExpr r "null dereference"
 
 ----------------------------------------------------------------------
 
-nextPC :: J.PC -> JVMStmtGen h s ret J.PC
+nextPC :: J.PC -> JVMStmtGen s ret J.PC
 nextPC pc =
   do cfg <- lift $ use jsCFG
      case J.nextPC cfg pc of
@@ -532,7 +531,7 @@ nextPC pc =
 ----------------------------------------------------------------------
 
 pushRet ::
-  forall h s ret tp. HasCallStack => TypeRepr tp -> Expr JVM s tp -> JVMStmtGen h s ret ()
+  forall s ret tp. HasCallStack => TypeRepr tp -> Expr JVM s tp -> JVMStmtGen s ret ()
 pushRet tp expr =
   tryPush dPush $
   tryPush fPush $
@@ -544,15 +543,15 @@ pushRet tp expr =
   where
     tryPush ::
       forall t. (HasCallStack, KnownRepr TypeRepr t) =>
-      (Expr JVM s t -> JVMStmtGen h s ret ()) ->
-      JVMStmtGen h s ret () -> JVMStmtGen h s ret ()
+      (Expr JVM s t -> JVMStmtGen s ret ()) ->
+      JVMStmtGen s ret () -> JVMStmtGen s ret ()
     tryPush push k =
       case testEquality tp (knownRepr :: TypeRepr t) of
         Just Refl -> push expr
         Nothing -> k
 
 popArgument ::
-  forall tp h s ret. HasCallStack => TypeRepr tp -> JVMStmtGen h s ret (Expr JVM s tp)
+  forall tp s ret. HasCallStack => TypeRepr tp -> JVMStmtGen s ret (Expr JVM s tp)
 popArgument tp =
   tryPop dPop $
   tryPop fPop $
@@ -563,9 +562,9 @@ popArgument tp =
   where
     tryPop ::
       forall t. KnownRepr TypeRepr t =>
-      JVMStmtGen h s ret (Expr JVM s t) ->
-      JVMStmtGen h s ret (Expr JVM s tp) ->
-      JVMStmtGen h s ret (Expr JVM s tp)
+      JVMStmtGen s ret (Expr JVM s t) ->
+      JVMStmtGen s ret (Expr JVM s tp) ->
+      JVMStmtGen s ret (Expr JVM s tp)
     tryPop pop k =
       case testEquality tp (knownRepr :: TypeRepr t) of
         Just Refl -> pop
@@ -574,8 +573,8 @@ popArgument tp =
 -- | Pop arguments from the stack; the last argument should be at the
 -- top of the stack.
 popArguments ::
-  forall args h s ret.
-  HasCallStack => CtxRepr args -> JVMStmtGen h s ret (Ctx.Assignment (Expr JVM s) args)
+  forall args s ret.
+  HasCallStack => CtxRepr args -> JVMStmtGen s ret (Ctx.Assignment (Expr JVM s) args)
 popArguments args =
   case Ctx.viewAssign args of
     Ctx.AssignEmpty -> return Ctx.empty
@@ -597,9 +596,9 @@ bFalse = App (BoolLit False)
 
 -- | Do the heavy lifting of translating JVM instructions to crucible code.
 generateInstruction ::
-  forall h s ret. HasCallStack =>
+  forall s ret. HasCallStack =>
   (J.PC, J.Instruction) ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 generateInstruction (pc, instr) =
   case instr of
     -- Type conversion instructions
@@ -978,20 +977,20 @@ generateInstruction (pc, instr) =
       do return ()
 
 unary ::
-  JVMStmtGen h s ret a ->
-  (b -> JVMStmtGen h s ret ()) ->
+  JVMStmtGen s ret a ->
+  (b -> JVMStmtGen s ret ()) ->
   (a -> b) ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 unary pop push op =
   do value <- pop
      push (op value)
 
 binary ::
-  JVMStmtGen h s ret a ->
-  JVMStmtGen h s ret b ->
-  (c -> JVMStmtGen h s ret ()) ->
+  JVMStmtGen s ret a ->
+  JVMStmtGen s ret b ->
+  (c -> JVMStmtGen s ret ()) ->
   (a -> b -> c) ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 binary pop1 pop2 push op =
   do value2 <- pop2
      value1 <- pop1
@@ -1002,7 +1001,7 @@ aloadInstr ::
   KnownRepr TypeRepr t =>
   Ctx.Index JVMValueCtx t ->
   (Expr JVM s t -> JVMValue s) ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 aloadInstr tag mkVal =
   do idx <- iPop
      arrayRef <- rPop
@@ -1018,7 +1017,7 @@ astoreInstr ::
   Ctx.Index JVMValueCtx t ->
   (Expr JVM s t -> Expr JVM s t) ->
   Expr JVM s t ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 astoreInstr tag f x =
   do idx <- iPop
      arrayRef <- rPop
@@ -1032,7 +1031,7 @@ icmpInstr ::
   J.PC {- ^ previous PC -} ->
   J.PC {- ^ branch target -} ->
   (JVMInt s -> JVMInt s -> JVMBool s) ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 icmpInstr pc_old pc_t cmp =
   do i2 <- iPop
      i1 <- iPop
@@ -1043,7 +1042,7 @@ ifInstr ::
   J.PC {- ^ previous PC -} ->
   J.PC {- ^ branch target -} ->
   (JVMInt s -> JVMBool s) ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 ifInstr pc_old pc_t cmp =
   do i <- iPop
      pc_f <- nextPC pc_old
@@ -1053,7 +1052,7 @@ branchIf ::
   JVMBool s ->
   J.PC {- ^ true label -} ->
   J.PC {- ^ false label -} ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 branchIf cond pc_t pc_f =
   do vs <- get
      lbl_t <- lift $ processBlockAtPC pc_t vs
@@ -1064,7 +1063,7 @@ switchInstr ::
   J.PC {- ^ default target -} ->
   [(Int32, J.PC)] {- ^ jump table -} ->
   JVMInt s {- ^ scrutinee -} ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret ()
 switchInstr def [] _ =
   do vs <- get
      lift $ processBlockAtPC def vs >>= jump
@@ -1076,10 +1075,10 @@ switchInstr def ((i, pc) : table) x =
      switchInstr def table x
 
 returnInstr ::
-  forall h s ret tp.
+  forall s ret tp.
   KnownRepr TypeRepr tp =>
-  JVMStmtGen h s ret (Expr JVM s tp) ->
-  JVMStmtGen h s ret ()
+  JVMStmtGen s ret (Expr JVM s tp) ->
+  JVMStmtGen s ret ()
 returnInstr pop =
   do retType <- lift $ jsRetType <$> get
      case testEquality retType (knownRepr :: TypeRepr tp) of
@@ -1157,7 +1156,7 @@ generateMethod ::
   J.Method ->
   CtxRepr init ->
   Ctx.Assignment (Atom s) init ->
-  JVMGenerator h s ret a
+  JVMGenerator s ret a
 generateMethod cn method ctx asgn =
   do let cfg = methodCFG method
      let bbLabel bb = (,) (J.bbId bb) <$> newLabel
@@ -1175,13 +1174,14 @@ translateMethod :: JVMContext
                  -> J.ClassName
                  -> J.Method
                  -> FnHandle args ret
-                 -> ST h (C.SomeCFG JVM args ret)
+                 -> IO (C.SomeCFG JVM args ret)
 translateMethod ctx verbosity cName m h =
   case (handleArgTypes h, handleReturnType h) of
     ((argTypes :: CtxRepr args), (retType :: TypeRepr ret)) -> do
-      let  def :: FunctionDef JVM h (JVMState ret) args ret
+      let  def :: FunctionDef JVM (JVMState ret) args ret IO
            def inputs = (s, f)
              where s = initialState ctx verbosity m retType
                    f = generateMethod cName m argTypes inputs
-      (SomeCFG g, []) <- defineFunction InternalPos h def
+      sng <- newIONonceGenerator
+      (SomeCFG g, []) <- defineFunction InternalPos sng h def
       return $ toSSA g

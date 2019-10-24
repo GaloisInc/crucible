@@ -228,13 +228,13 @@ liftMemType' = either fail return . liftMemType
 
 -- | Given an LLVM expression of vector type, select out the ith element.
 extractElt
-    :: forall h s arch ret.
+    :: forall s arch ret.
        L.Instr
     -> MemType    -- ^ type contained in the vector
     -> Integer   -- ^ size of the vector
     -> LLVMExpr s arch  -- ^ vector expression
     -> LLVMExpr s arch -- ^ index expression
-    -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+    -> LLVMGenerator s arch ret (LLVMExpr s arch)
 extractElt _instr ty _n (UndefExpr _) _i =
    return $ UndefExpr ty
 extractElt _instr ty _n (ZeroExpr _) _i =
@@ -250,7 +250,7 @@ extractElt instr _ n (VecExpr _ vs) i
   = constantExtract x'
 
  where
- constantExtract :: Integer -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+ constantExtract :: Integer -> LLVMGenerator s arch ret (LLVMExpr s arch)
  constantExtract idx =
     if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
         then return $ Seq.index vs (fromInteger idx)
@@ -279,14 +279,14 @@ extractElt instr _ _ _ _ = fail (unlines ["invalid extractelement instruction", 
 
 
 -- | Given an LLVM expression of vector type, insert a new element at location ith element.
-insertElt :: forall h s arch ret.
+insertElt :: forall s arch ret.
        L.Instr            -- ^ Actual instruction
     -> MemType            -- ^ type contained in the vector
     -> Integer            -- ^ size of the vector
     -> LLVMExpr s arch    -- ^ vector expression
     -> LLVMExpr s arch    -- ^ element to insert
     -> LLVMExpr s arch    -- ^ index expression
-    -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+    -> LLVMGenerator s arch ret (LLVMExpr s arch)
 insertElt _ ty _ _ _ (UndefExpr _) = do
    return $ UndefExpr ty
 insertElt instr ty n v a (ZeroExpr zty) = do
@@ -303,7 +303,7 @@ insertElt instr _ n (VecExpr ty vs) a i
   , App (BVLit _ x') <- x
   = constantInsert x'
  where
- constantInsert :: Integer -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+ constantInsert :: Integer -> LLVMGenerator s arch ret (LLVMExpr s arch)
  constantInsert idx =
      if (fromInteger idx < Seq.length vs) && (fromInteger idx < n)
        then return $ VecExpr ty $ Seq.adjust (\_ -> a) (fromIntegral idx) vs
@@ -340,7 +340,7 @@ insertElt instr _tp n v a i = fail (unlines ["invalid insertelement instruction"
 extractValue
     :: LLVMExpr s arch  -- ^ aggregate expression
     -> [Int32]     -- ^ sequence of indices
-    -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+    -> LLVMGenerator s arch ret (LLVMExpr s arch)
 extractValue v [] = return v
 extractValue (UndefExpr (StructType si)) is =
    extractValue (StructExpr $ Seq.fromList $ map (\tp -> (tp, UndefExpr tp)) tps) is
@@ -369,7 +369,7 @@ insertValue
     :: LLVMExpr s arch  -- ^ aggregate expression
     -> LLVMExpr s arch  -- ^ element to insert
     -> [Int32]     -- ^ sequence of concrete indices
-    -> LLVMGenerator h s arch ret (LLVMExpr s arch)
+    -> LLVMGenerator s arch ret (LLVMExpr s arch)
 insertValue _ v [] = return v
 insertValue (UndefExpr (StructType si)) v is =
    insertValue (StructExpr $ Seq.fromList $ map (\tp -> (tp, UndefExpr tp)) tps) v is
@@ -404,11 +404,11 @@ insertValue _ _ _ = fail "invalid insertValue instruction"
 
 
 
-evalGEP :: forall h s arch ret wptr.
+evalGEP :: forall s arch ret wptr.
   wptr ~ ArchWidth arch =>
   L.Instr ->
   GEPResult (LLVMExpr s arch) ->
-  LLVMGenerator h s arch ret (LLVMExpr s arch)
+  LLVMGenerator s arch ret (LLVMExpr s arch)
 evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
  where
  finish xs =
@@ -416,16 +416,16 @@ evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
      x Seq.:< (Seq.null -> True) -> return (BaseExpr PtrRepr x)
      _ -> return (VecExpr (PtrType (MemType finalMemType)) (fmap (BaseExpr PtrRepr) xs))
 
- badGEP :: LLVMGenerator h s arch ret a
+ badGEP :: LLVMGenerator s arch ret a
  badGEP = fail $ unlines ["Unexpected failure when evaluating GEP", showInstr instr]
 
- asPtr :: LLVMExpr s arch -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+ asPtr :: LLVMExpr s arch -> LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
  asPtr x =
    case asScalar x of
      Scalar PtrRepr p -> return p
      _ -> badGEP
 
- go :: GEP n (LLVMExpr s arch) -> LLVMGenerator h s arch ret (Seq (Expr (LLVM arch) s (LLVMPointerType wptr)))
+ go :: GEP n (LLVMExpr s arch) -> LLVMGenerator s arch ret (Seq (Expr (LLVM arch) s (LLVMPointerType wptr)))
 
  go (GEP_scalar_base x) =
       do p <- asPtr x
@@ -456,12 +456,12 @@ evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
          traverse (\(x,i) -> calcGEP_array mt' x i) (Seq.zip xs idxs)
 
 
-calcGEP_array :: forall wptr arch h s ret.
+calcGEP_array :: forall wptr arch s ret.
   wptr ~ ArchWidth arch =>
   MemType {- ^ Type of the array elements -} ->
   Expr (LLVM arch) s (LLVMPointerType wptr) {- ^ Base pointer -} ->
   LLVMExpr s arch {- ^ index value -} ->
-  LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+  LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 calcGEP_array typ base idx =
   do -- sign-extend the index value if necessary to make it
      -- the same width as a pointer
@@ -518,7 +518,7 @@ calcGEP_struct ::
   wptr ~ ArchWidth arch =>
   FieldInfo ->
   Expr (LLVM arch) s (LLVMPointerType wptr) ->
-  LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+  LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 calcGEP_struct fi base =
       do -- Get the field offset and check that it fits
          -- in the pointer width
@@ -537,7 +537,7 @@ translateConversion ::
   MemType {- Input type -} ->
   LLVMExpr s arch {- Value to convert -} ->
   MemType {- Output type -} ->
-  LLVMGenerator h s arch ret (LLVMExpr s arch)
+  LLVMGenerator s arch ret (LLVMExpr s arch)
 
 -- Bitcast is a bit of a special case, handle separately
 translateConversion _instr L.BitCast inty x outty = bitCast inty x outty
@@ -662,7 +662,7 @@ bitCast :: (?lc::TypeContext,HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
           MemType {- ^ starting type of the expression -} ->
           LLVMExpr s arch {- ^ expression to cast -} ->
           MemType {- ^ target type -} ->
-          LLVMGenerator h s arch ret (LLVMExpr s arch)
+          LLVMGenerator s arch ret (LLVMExpr s arch)
 
 bitCast _ (ZeroExpr _) tgtT = return (ZeroExpr tgtT)
 
@@ -695,7 +695,7 @@ bitCast srcT expr tgtT = mb =<< runMaybeT (
 castToInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   MemType {- ^ type of input expression -} ->
   LLVMExpr s arch ->
-  MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
+  MaybeT (LLVMGenerator' s arch ret) (LLVMExpr s arch)
 castToInt (IntType w) (BaseExpr (LLVMPointerRepr wrepr) x)
   | w == natValue wrepr
   = lift (BaseExpr (BVRepr wrepr) <$> pointerAsBitvectorExpr wrepr x)
@@ -715,7 +715,7 @@ castToInt _ _ = mzero
 castFromInt :: (?lc::TypeContext,HasPtrWidth w, w ~ ArchWidth arch) =>
   MemType {- ^ target type -} ->
   Natural {- ^ bitvector width in bits -} ->
-  LLVMExpr s arch -> MaybeT (LLVMGenerator' h s arch ret) (LLVMExpr s arch)
+  LLVMExpr s arch -> MaybeT (LLVMGenerator' s arch ret) (LLVMExpr s arch)
 
 castFromInt (IntType w1) w2 (BaseExpr (BVRepr w) x)
   | w1 == w2, w1 == natValue w
@@ -805,7 +805,7 @@ bitop ::
   MemType ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
-  LLVMGenerator h s arch ret (LLVMExpr s arch)
+  LLVMGenerator s arch ret (LLVMExpr s arch)
 bitop op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
   VecExpr tp <$> sequence (Seq.zipWith (bitop op tp) xs ys)
 
@@ -827,7 +827,7 @@ raw_bitop :: (1 <= w) =>
   NatRepr w ->
   Expr (LLVM arch) s (BVType w) ->
   Expr (LLVM arch) s (BVType w) ->
-  LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
+  LLVMGenerator s arch ret (Expr (LLVM arch) s (BVType w))
 raw_bitop op w a b =
   let withSideConds val lst = sideConditionsA (BVRepr w) val lst
   in
@@ -893,12 +893,12 @@ raw_bitop op w a b =
 -- | Translate an LLVM integer operation into a Crucible CFG expression.
 --
 -- Poison values can arise from such operations.
-intop :: forall w arch s h ret. (1 <= w)
+intop :: forall w arch s ret. (1 <= w)
       => L.ArithOp
       -> NatRepr w
       -> Expr (LLVM arch) s (BVType w)
       -> Expr (LLVM arch) s (BVType w)
-      -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (BVType w))
+      -> LLVMGenerator s arch ret (Expr (LLVM arch) s (BVType w))
 intop op w a b =
   let withSideConds val lst = sideConditionsA (BVRepr w) val lst
       withPoison val = withSideConds val . map (\(d, e, c) -> (d, pure e, Right c))
@@ -1006,11 +1006,11 @@ caseptr
   => NatRepr w
   -> TypeRepr a
   -> (Expr (LLVM arch) s (BVType w) ->
-      LLVMGenerator h s arch ret (Expr (LLVM arch) s a))
+      LLVMGenerator s arch ret (Expr (LLVM arch) s a))
   -> (Expr (LLVM arch) s NatType -> Expr (LLVM arch) s (BVType w) ->
-      LLVMGenerator h s arch ret (Expr (LLVM arch) s a))
+      LLVMGenerator s arch ret (Expr (LLVM arch) s a))
   -> Expr (LLVM arch) s (LLVMPointerType w)
-  -> LLVMGenerator h s arch ret (Expr (LLVM arch) s a)
+  -> LLVMGenerator s arch ret (Expr (LLVM arch) s a)
 
 caseptr w tpr bvCase ptrCase x =
   case x of
@@ -1036,7 +1036,7 @@ atomicRWOp ::
   L.AtomicRWOp ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
-  LLVMGenerator h s arch ret (LLVMExpr s arch)
+  LLVMGenerator s arch ret (LLVMExpr s arch)
 atomicRWOp op x y =
   case (asScalar x, asScalar y) of
     (Scalar (LLVMPointerRepr (w :: NatRepr w)) x', Scalar (LLVMPointerRepr w') y')
@@ -1068,7 +1068,7 @@ floatingCompare ::
   MemType ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
-  LLVMGenerator h s arch ret (LLVMExpr s arch)
+  LLVMGenerator s arch ret (LLVMExpr s arch)
 floatingCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
   VecExpr (IntType 1) <$> sequence (Seq.zipWith (floatingCompare op tp) xs ys)
 
@@ -1081,7 +1081,7 @@ scalarFloatingCompare ::
   L.FCmpOp ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
-  LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+  LLVMGenerator s arch ret (Expr (LLVM arch) s BoolType)
 scalarFloatingCompare op x y =
   case (asScalar x, asScalar y) of
      (Scalar (FloatRepr fi) x',
@@ -1125,7 +1125,7 @@ integerCompare ::
   MemType ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
-  LLVMGenerator h s arch ret (LLVMExpr s arch)
+  LLVMGenerator s arch ret (LLVMExpr s arch)
 integerCompare op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
   VecExpr (IntType 1) <$> sequence (Seq.zipWith (integerCompare op tp) xs ys)
 
@@ -1138,7 +1138,7 @@ scalarIntegerCompare ::
   L.ICmpOp ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
-  LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+  LLVMGenerator s arch ret (Expr (LLVM arch) s BoolType)
 scalarIntegerCompare op x y =
   case (asScalar x, asScalar y) of
     (Scalar (LLVMPointerRepr w) x'', Scalar (LLVMPointerRepr w') y'')
@@ -1179,7 +1179,7 @@ pointerCmp
    => L.ICmpOp
    -> Expr (LLVM arch) s (LLVMPointerType wptr)
    -> Expr (LLVM arch) s (LLVMPointerType wptr)
-   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s BoolType)
+   -> LLVMGenerator s arch ret (Expr (LLVM arch) s BoolType)
 pointerCmp op x y =
   caseptr PtrWidth knownRepr
     (\x_bv ->
@@ -1246,7 +1246,7 @@ pointerOp
    => L.ArithOp
    -> Expr (LLVM arch) s (LLVMPointerType wptr)
    -> Expr (LLVM arch) s (LLVMPointerType wptr)
-   -> LLVMGenerator h s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
+   -> LLVMGenerator s arch ret (Expr (LLVM arch) s (LLVMPointerType wptr))
 pointerOp op x y =
   caseptr PtrWidth PtrRepr
     (\x_bv  ->
@@ -1294,7 +1294,7 @@ baseSelect ::
    LLVMExpr s arch {- ^ Selection expression -} ->
    LLVMExpr s arch {- ^ true expression -} ->
    LLVMExpr s arch {- ^ false expression -} ->
-   LLVMGenerator h s arch ret (Maybe (LLVMExpr s arch))
+   LLVMGenerator s arch ret (Maybe (LLVMExpr s arch))
 baseSelect (asScalar -> Scalar (LLVMPointerRepr wc) c) (asScalar -> Scalar xtp x) (asScalar -> Scalar ytp y)
   | Just Refl <- testEquality xtp ytp
   , LLVMPointerRepr w <- xtp
@@ -1315,14 +1315,14 @@ baseSelect _ _ _ = return Nothing
 translateSelect ::
    (?lc :: TypeContext, HasPtrWidth wptr, wptr ~ ArchWidth arch) =>
    L.Instr        {- ^ The instruction to translate -} ->
-   (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
+   (LLVMExpr s arch -> LLVMGenerator s arch ret ())
      {- ^ A continuation to assign the produced value of this instruction to a register -} ->
    MemType {- ^ Type of the selector variable -} ->
    LLVMExpr s arch {- ^ Selection expression -} ->
    MemType {- ^ Type of the select branches -} ->
    LLVMExpr s arch {- ^ true expression -} ->
    LLVMExpr s arch {- ^ false expression -} ->
-   LLVMGenerator h s arch ret ()
+   LLVMGenerator s arch ret ()
 translateSelect instr assign_f
                   (VecType n _) (explodeVector n -> Just cs)
                   (VecType m eltp) (explodeVector n -> Just xs) (explodeVector n -> Just ys)
@@ -1360,17 +1360,17 @@ translateSelect instr _ _ _ _ _ _ =
 
 
 -- | Do the heavy lifting of translating LLVM instructions to crucible code.
-generateInstr :: forall h s arch ret a.
+generateInstr :: forall s arch ret a.
    TypeRepr ret   {- ^ Type of the function return value -} ->
    L.BlockLabel   {- ^ The label of the current LLVM basic block -} ->
    L.Instr        {- ^ The instruction to translate -} ->
-   (LLVMExpr s arch -> LLVMGenerator h s arch ret ())
+   (LLVMExpr s arch -> LLVMGenerator s arch ret ())
      {- ^ A continuation to assign the produced value of this instruction to a register -} ->
-   LLVMGenerator h s arch ret a
+   LLVMGenerator s arch ret a
      {- ^ A continuation for translating the remaining statements in this function.
           Straightline instructions should enter this continuation,
           but block-terminating instructions should not. -} ->
-   LLVMGenerator h s arch ret a
+   LLVMGenerator s arch ret a
 generateInstr retType lab instr assign_f k =
   case instr of
     -- skip phi instructions, they are handled in definePhiBlock
@@ -1705,7 +1705,7 @@ arithOp ::
   MemType ->
   LLVMExpr s arch ->
   LLVMExpr s arch ->
-  LLVMGenerator h s arch ret (LLVMExpr s arch)
+  LLVMGenerator s arch ret (LLVMExpr s arch)
 arithOp op (VecType n tp) (explodeVector n -> Just xs) (explodeVector n -> Just ys) =
   VecExpr tp <$> sequence (Seq.zipWith (arithOp op tp) xs ys)
 
@@ -1739,7 +1739,7 @@ arithOp op _ x y =
   fop :: (FloatInfoRepr fi) ->
          Expr (LLVM arch) s (FloatType fi) ->
          Expr (LLVM arch) s (FloatType fi) ->
-         LLVMGenerator h s arch ret (Expr (LLVM arch) s (FloatType fi))
+         LLVMGenerator s arch ret (Expr (LLVM arch) s (FloatType fi))
   fop fi a b =
     case op of
        L.FAdd ->
@@ -1764,8 +1764,8 @@ callFunction ::
    L.Type  {- ^ type of the function to call -} ->
    L.Value {- ^ function value to call -} ->
    [L.Typed L.Value] {- ^ argument list -} ->
-   (LLVMExpr s arch -> LLVMGenerator h s arch ret ()) {- ^ assignment continuation for return value -} ->
-   LLVMGenerator h s arch ret ()
+   (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
+   LLVMGenerator s arch ret ()
 callFunction _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f = do
   let ?err = fail
   fnTy'  <- liftMemType' (L.PtrTo fnTy)
@@ -1804,14 +1804,14 @@ callFunction _tailCall fnTy _fn _args _assign_f =
 
 -- | Generate a call to an LLVM function, with a continuation to fetch more
 -- instructions.
-callFunctionWithCont :: forall h s arch ret a.
+callFunctionWithCont :: forall s arch ret a.
    Bool    {- ^ Is the function a tail call? -} ->
    L.Type  {- ^ type of the function to call -} ->
    L.Value {- ^ function value to call -} ->
    [L.Typed L.Value] {- ^ argument list -} ->
-   (LLVMExpr s arch -> LLVMGenerator h s arch ret ()) {- ^ assignment continuation for return value -} ->
-   LLVMGenerator h s arch ret a {- ^ continuation for next instructions -} ->
-   LLVMGenerator h s arch ret a
+   (LLVMExpr s arch -> LLVMGenerator s arch ret ()) {- ^ assignment continuation for return value -} ->
+   LLVMGenerator s arch ret a {- ^ continuation for next instructions -} ->
+   LLVMGenerator s arch ret a
 callFunctionWithCont tailCall_ fnTy fn args assign_f k
      -- Skip calls to debugging intrinsics.  We might want to support these in some way
      -- in the future.  However, they take metadata values as arguments, which
@@ -1841,7 +1841,7 @@ callFunctionWithCont tailCall_ fnTy fn args assign_f k
 
 typedValueAsCrucibleValue ::
   L.Typed L.Value ->
-  LLVMGenerator h s arch ret (Some (Value s))
+  LLVMGenerator s arch ret (Some (Value s))
 typedValueAsCrucibleValue tv = case L.typedValue tv of
   L.ValIdent i -> do
     m <- use identMap
@@ -1863,7 +1863,7 @@ buildSwitch :: (1 <= w)
             -> L.BlockLabel        -- ^ The label of the current basic block
             -> L.BlockLabel        -- ^ The label of the default basic block if no other branch applies
             -> [(Integer, L.BlockLabel)] -- ^ The switch labels
-            -> LLVMGenerator h s arch ret a
+            -> LLVMGenerator s arch ret a
 buildSwitch _ _  curr_lab def [] =
    definePhiBlock curr_lab def
 buildSwitch w ex curr_lab def ((i,l):bs) = do
@@ -1877,7 +1877,7 @@ buildSwitch w ex curr_lab def ((i,l):bs) = do
 -- | Implement the phi-functions along the edge from one LLVM Basic block to another.
 definePhiBlock :: L.BlockLabel      -- ^ The LLVM source basic block
                -> L.BlockLabel      -- ^ The LLVM target basic block
-               -> LLVMGenerator h s arch ret a
+               -> LLVMGenerator s arch ret a
 definePhiBlock l l' = do
   bim <- use blockInfoMap
   case Map.lookup l' bim of
@@ -1909,7 +1909,7 @@ definePhiBlock l l' = do
 assignLLVMReg
         :: L.Ident
         -> LLVMExpr s arch
-        -> LLVMGenerator h s arch ret ()
+        -> LLVMGenerator s arch ret ()
 assignLLVMReg ident rhs = do
   st <- get
   let idMap = st^.identMap
@@ -1921,10 +1921,10 @@ assignLLVMReg ident rhs = do
 
 -- | Given a register and an expression shape, assign the expressions in the right-hand-side
 --   into the register left-hand side.
-doAssign :: forall h s arch ret.
+doAssign :: forall s arch ret.
       Some (Reg s)
    -> LLVMExpr s arch -- ^ the RHS values to assign
-   -> LLVMGenerator h s arch ret ()
+   -> LLVMGenerator s arch ret ()
 doAssign (Some r) (BaseExpr tpr ex) =
    case testEquality (typeOfReg r) tpr of
      Just Refl -> assignReg r ex

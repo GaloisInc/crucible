@@ -10,7 +10,6 @@ module AI (
   ) where
 
 import Control.Monad ( guard, join )
-import Control.Monad.ST ( RealWorld, stToIO )
 import Prelude
 
 import qualified Test.Tasty as T
@@ -18,6 +17,7 @@ import qualified Test.Tasty.HUnit as T
 
 import qualified Data.Parameterized.Context as PU
 import qualified Data.Parameterized.Map as PM
+import           Data.Parameterized.Nonce
 
 import qualified What4.FunctionName as C
 import qualified What4.ProgramLoc as P
@@ -56,7 +56,8 @@ testAI TC { tcHandle = hdl
           , tcInterp = interp
           } = do
   fh <- hdl
-  (G.SomeCFG cfg, _) <- stToIO $ G.defineFunction P.InternalPos fh def
+  sng <- newIONonceGenerator
+  (G.SomeCFG cfg, _) <- G.defineFunction P.InternalPos sng fh def
   case SSA.toSSA cfg of
     C.SomeCFG cfg' -> do
       let (assignment', rabs) = forwardFixpoint dom interp cfg' g a0
@@ -71,7 +72,7 @@ testAI TC { tcHandle = hdl
 
 data TestCase ext dom =
   forall init ret t .
-  TC { tcDef :: G.FunctionDef ext RealWorld t init ret
+  TC { tcDef :: G.FunctionDef ext t init ret IO
      , tcHandle :: IO (C.FnHandle init ret)
      , tcDom :: Domain dom
      , tcInterp :: Interpretation ext dom
