@@ -87,7 +87,7 @@ $(return [])
 instance HashableF FloatInfoRepr where
   hashWithSaltF = hashWithSalt
 instance Hashable (FloatInfoRepr fi) where
-  hashWithSalt = $(structuralHash [t|FloatInfoRepr|])
+  hashWithSalt = $(structuralHashWithSalt [t|FloatInfoRepr|] [])
 
 instance Pretty (FloatInfoRepr fi) where
   pretty = text . show
