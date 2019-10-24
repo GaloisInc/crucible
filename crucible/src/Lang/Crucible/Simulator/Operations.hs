@@ -17,12 +17,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternGuards #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fprint-explicit-kinds -Wall #-}
@@ -542,6 +544,19 @@ checkForIntraFrameMerge tgt =
   ReaderT $ return . BranchMergeState tgt
 
 
+assumeInNewFrame ::
+  IsSymInterface sym =>
+  sym ->
+  Assumption sym ->
+  IO FrameIdentifier
+assumeInNewFrame sym asm =
+  do frm <- pushAssumptionFrame sym
+     Ex.try @Ex.SomeException (addAssumption sym asm) >>= \case
+       Left ex ->
+         do void $ popAssumptionFrame sym frm
+            Ex.throw ex
+       Right () -> return frm
+
 -- | Perform a single instance of path merging at a join point.
 --   This will resume an alternate branch, if it is pending,
 --   or merge result values if a completed branch has alread reached
@@ -566,9 +581,9 @@ performIntraFrameMerge tgt = do
           -- We still have some more work to do, reactivate the other, postponed branch
           VFFActivePath next ->
             do pathAssumes      <- liftIO $ popAssumptionFrame sym assume_frame
-               new_assume_frame <- liftIO $ pushAssumptionFrame sym
                pnot             <- liftIO $ notPred sym pred
-               liftIO $ addAssumption sym (LabeledPred pnot (ExploringAPath loc (pausedLoc next)))
+               new_assume_frame <-
+                  liftIO $ assumeInNewFrame sym (LabeledPred pnot (ExploringAPath loc (pausedLoc next)))
 
                -- The current branch is done
                let new_other = VFFCompletePath pathAssumes er
@@ -918,8 +933,8 @@ performIntraFrameSplit p a_frame o_frame tgt =
      a_frame' <- pushPausedFrame a_frame
      o_frame' <- pushPausedFrame o_frame
 
-     assume_frame <- liftIO $ pushAssumptionFrame sym
-     liftIO $ addAssumption sym (LabeledPred p (ExploringAPath loc (pausedLoc a_frame')))
+     assume_frame <-
+       liftIO $ assumeInNewFrame sym (LabeledPred p (ExploringAPath loc (pausedLoc a_frame')))
 
      -- Create context for paused frame.
      let todo = VFFActivePath o_frame'
