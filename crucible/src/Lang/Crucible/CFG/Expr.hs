@@ -62,7 +62,6 @@ import           Control.Lens ((^.))
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
 import           Data.Kind (Type)
-import           Data.Text (Text)
 import           Data.Vector (Vector)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>))
@@ -75,7 +74,7 @@ import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.TraversableF
 import           Data.Parameterized.TraversableFC
 
-import           What4.Interface (RoundingMode(..))
+import           What4.Interface (RoundingMode(..),StringLiteral(..), stringLiteralInfo)
 
 import           Lang.Crucible.CFG.Extension
 import           Lang.Crucible.CFG.Extension.Safety
@@ -916,16 +915,8 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   ----------------------------------------------------------------------
   -- String
 
-  TextLit :: !Text
-          -> App ext f (StringType Unicode)
-
-  ShowValue :: !(BaseTypeRepr bt)
-            -> !(f (BaseToType bt))
-            -> App ext f (StringType Unicode)
-
-  ShowFloat :: !(FloatInfoRepr fi)
-            -> !(f (FloatType fi))
-            -> App ext f (StringType Unicode)
+  StringLit :: !(StringLiteral si)
+            -> App ext f (StringType si)
 
   EmptyString :: StringInfoRepr si
               -> App ext f (StringType si)
@@ -934,6 +925,17 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
                -> !(f (StringType si))
                -> !(f (StringType si))
                -> App ext f (StringType si)
+
+  StringLength :: !(f (StringType si))
+               -> App ext f NatType
+
+  ShowValue :: !(BaseTypeRepr bt)
+            -> !(f (BaseToType bt))
+            -> App ext f (StringType Unicode)
+
+  ShowFloat :: !(FloatInfoRepr fi)
+            -> !(f (FloatType fi))
+            -> App ext f (StringType Unicode)
 
   ----------------------------------------------------------------------
   -- Arrays (supporting symbolic operations)
@@ -1208,11 +1210,12 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     ----------------------------------------------------------------------
     -- String
 
-    TextLit{} -> knownRepr
+    StringLit s -> StringRepr (stringLiteralInfo s)
     ShowValue{} -> knownRepr
     ShowFloat{} -> knownRepr
     AppendString si _ _ -> StringRepr si
     EmptyString si -> StringRepr si
+    StringLength _ -> knownRepr
 
     ------------------------------------------------------------------------
     -- Introspection
@@ -1356,6 +1359,7 @@ instance ( TestEqualityFC (ExprExtension ext)
         , (U.ConType [t|BaseTypeRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|StringInfoRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|FloatInfoRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|StringLiteral|] `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
               (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
           , [| testEqualityFC (testEqualityFC testSubterm) |]
@@ -1399,6 +1403,7 @@ instance ( OrdFC (ExprExtension ext)
                    , (U.ConType [t|BaseTypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|StringInfoRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|FloatInfoRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+                   , (U.ConType [t|StringLiteral|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
                          (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
                      , [| compareFC (compareFC compareSubterm) |]

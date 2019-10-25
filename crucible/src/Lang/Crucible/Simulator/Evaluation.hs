@@ -920,7 +920,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     --------------------------------------------------------------------
     -- Text
 
-    TextLit txt -> stringLit sym (UnicodeLiteral txt)
+    StringLit x -> stringLit sym x
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
       stringLit sym (UnicodeLiteral (Text.pack (show (printSymExpr x))))
@@ -933,6 +933,9 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       stringConcat sym x' y'
     EmptyString si ->
       stringEmpty sym si
+    StringLength x -> do
+      x' <- evalSub x
+      stringLength sym x'
 
     ---------------------------------------------------------------------
     -- Introspection

@@ -98,6 +98,8 @@ import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.FunctionHandle
 import           Lang.Crucible.Types
 
+import           What4.Utils.StringLiteral
+
 ------------------------------------------------------------------------
 -- IsExpr
 
@@ -279,7 +281,7 @@ instance ConvertableToNat e ComplexRealType where
 -- String
 
 instance LitExpr e (StringType Unicode) Text where
-  litExpr t = app (TextLit t)
+  litExpr t = app (StringLit (UnicodeLiteral t))
 
 ------------------------------------------------------------------------
 -- Maybe

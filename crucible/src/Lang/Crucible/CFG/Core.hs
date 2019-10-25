@@ -165,7 +165,7 @@ newtype Expr ext (ctx :: Ctx CrucibleType) (tp :: CrucibleType)
       = App (App ext (Reg ctx) tp)
 
 instance IsString (Expr ext ctx (StringType Unicode)) where
-  fromString  = App . TextLit . fromString
+  fromString  = App . StringLit . fromString
 
 instance PrettyApp (ExprExtension ext) => Pretty (Expr ext ctx tp) where
   pretty (App a) = ppApp pretty a

@@ -65,7 +65,6 @@ module What4.Interface
     SymExpr
   , BoundVar
   , SymFn
-  , StringLiteral
 
     -- ** Expression recognizers
   , IsExpr(..)
@@ -149,6 +148,8 @@ module What4.Interface
   , What4.Symbol.safeSymbol
   , NatValueRange(..)
   , ValueRange(..)
+  , StringLiteral(..)
+  , stringLiteralInfo
   ) where
 
 import           Control.Exception (assert)

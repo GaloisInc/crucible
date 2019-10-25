@@ -63,6 +63,7 @@ import           Data.Parameterized.NatRepr as NatRepr
 import           Data.Parameterized.Some
 
 import qualified What4.Partial.AssertionTree as W4P
+import           What4.Utils.StringLiteral
 
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator
@@ -1697,8 +1698,8 @@ generateInstr retType lab instr assign_f k =
     L.VaArg{} -> unsupported
 
  where
- unsupported = reportError $ App $ TextLit $ Text.pack $ unwords ["unsupported instruction", showInstr instr]
-
+ unsupported = reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $
+                 unwords ["unsupported instruction", showInstr instr]
 
 arithOp ::
   L.ArithOp ->
@@ -1796,7 +1797,7 @@ callFunction _tailCall fnTy@(L.FunTy lretTy largTys varargs) fn args assign_f = 
         _ -> fail $ unwords ["unsupported function value", show fn]
 
 callFunction _tailCall fnTy _fn _args _assign_f =
-  reportError $ App $ TextLit $ Text.pack $ unwords $
+  reportError $ App $ StringLit $ UnicodeLiteral $ Text.pack $ unwords $
     [ "[callFunction] Unsupported function type"
     , show fnTy
     ]
