@@ -118,6 +118,7 @@ library
     What4.Utils.OnlyNatRepr
     What4.Utils.Process
     What4.Utils.Streams
+    What4.Utils.StringLiteral
     What4.Utils.Word16String
 
   ghc-options: -Wall

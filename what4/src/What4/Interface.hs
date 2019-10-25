@@ -156,7 +156,6 @@ import           Control.Lens
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Bits
-import           Data.ByteString (ByteString)
 import           Data.Coerce (coerce)
 import           Data.Foldable
 import           Data.Hashable
@@ -171,7 +170,6 @@ import           Data.Parameterized.TraversableFC
 import qualified Data.Parameterized.Vector as Vector
 import           Data.Ratio
 import           Data.Scientific (Scientific)
-import           Data.Text (Text)
 import           GHC.Generics (Generic)
 import           Numeric.Natural
 import           Text.PrettyPrint.ANSI.Leijen (Doc)
@@ -186,7 +184,7 @@ import           What4.Utils.AbstractDomains
 import           What4.Utils.Arithmetic
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
-import           What4.Utils.Word16String
+import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
 -- SymExpr names
@@ -232,14 +230,6 @@ type family SymExpr (sym :: Type) :: BaseType -> Type
 -- This type is used by some methods in class 'IsSymExprBuilder'.
 type family BoundVar (sym :: Type) :: BaseType -> Type
 
-
-------------------------------------------------------------------------
--- String literals
-
-type family StringLiteral (si::StringInfo) :: Type where
-  StringLiteral Unicode = Text
-  StringLiteral Char8   = ByteString
-  StringLiteral Char16  = Word16String
 
 ------------------------------------------------------------------------
 -- IsBoolSolver
@@ -1555,7 +1545,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
   stringEmpty :: sym -> StringInfoRepr si -> IO (SymString sym si)
 
   -- | Create a concrete string literal
-  stringLit :: sym -> StringInfoRepr si -> StringLiteral si -> IO (SymString sym si)
+  stringLit :: sym -> StringLiteral si -> IO (SymString sym si)
 
   -- | Check the equality of two strings
   stringEq :: sym -> SymString sym si -> SymString sym si -> IO (Pred sym)
@@ -2711,10 +2701,7 @@ asConcrete x =
     BaseNatRepr    -> ConcreteNat <$> asNat x
     BaseIntegerRepr -> ConcreteInteger <$> asInteger x
     BaseRealRepr    -> ConcreteReal <$> asRational x
-    BaseStringRepr si ->
-      case si of
-        UnicodeRepr -> ConcreteString <$> asString x
-        _ -> Nothing
+    BaseStringRepr _si -> ConcreteString <$> asString x
     BaseComplexRepr -> ConcreteComplex <$> asComplex x
     BaseBVRepr w    -> ConcreteBV w <$> asUnsignedBV x
     BaseFloatRepr _ -> Nothing
@@ -2730,7 +2717,7 @@ concreteToSym sym = \case
    ConcreteNat x        -> natLit sym x
    ConcreteInteger x    -> intLit sym x
    ConcreteReal x       -> realLit sym x
-   ConcreteString x     -> stringLit sym UnicodeRepr x
+   ConcreteString x     -> stringLit sym x
    ConcreteComplex x    -> mkComplexLit sym x
    ConcreteBV w x       -> bvLit sym w x
    ConcreteStruct xs    -> mkStruct sym =<< traverseFC (concreteToSym sym) xs

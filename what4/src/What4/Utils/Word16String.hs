@@ -1,7 +1,7 @@
 ------------------------------------------------------------------------
 -- |
--- Module           : What4.Utils.String
--- Description      : Utility definitions for strings
+-- Module           : What4.Utils.Word16String
+-- Description      : Utility definitions for wide (2-byte) strings
 -- Copyright        : (c) Galois, Inc 2019
 -- License          : BSD3
 -- Maintainer       : Rob Dockins <rdockins@galois.com>

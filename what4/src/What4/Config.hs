@@ -177,6 +177,7 @@ import           Text.PrettyPrint.ANSI.Leijen hiding ((<$>), (<>))
 import           What4.BaseTypes
 import           What4.Concrete
 import qualified What4.Utils.Environment as Env
+import           What4.Utils.StringLiteral
 
 -------------------------------------------------------------------------
 -- ConfigOption
@@ -449,7 +450,7 @@ enumOptSty elts = stringOptSty & set_opt_onset vf
         vf :: Maybe (ConcreteVal (BaseStringType Unicode))
            -> ConcreteVal (BaseStringType Unicode)
            -> IO OptionSetResult
-        vf _ (ConcreteString x)
+        vf _ (ConcreteString (UnicodeLiteral x))
          | x `Set.member` elts = return optOK
          | otherwise = return $ optErr $
                             text "invalid setting" <+> text (show x) <+>
@@ -468,7 +469,7 @@ listOptSty values =  stringOptSty & set_opt_onset vf
         vf :: Maybe (ConcreteVal (BaseStringType Unicode))
            -> ConcreteVal (BaseStringType Unicode)
            -> IO OptionSetResult
-        vf _ (ConcreteString x) =
+        vf _ (ConcreteString (UnicodeLiteral x)) =
          fromMaybe
           (return $ optErr $
             text "invalid setting" <+> text (show x) <+>
@@ -488,7 +489,7 @@ executablePathOptSty = stringOptSty & set_opt_onset vf
         vf :: Maybe (ConcreteVal (BaseStringType Unicode))
            -> ConcreteVal (BaseStringType Unicode)
            -> IO OptionSetResult
-        vf _ (ConcreteString x) =
+        vf _ (ConcreteString (UnicodeLiteral x)) =
                  do me <- try (Env.findExecutable (Text.unpack x))
                     case me of
                        Right{} -> return $ optOK
@@ -728,8 +729,8 @@ checkOptSetResult res =
     Nothing -> return (toList (optionSetWarnings res))
 
 instance Opt (BaseStringType Unicode) Text where
-  getMaybeOpt x = fmap fromConcreteString <$> getOption x
-  trySetOpt x v = setOption x (ConcreteString v)
+  getMaybeOpt x = fmap (fromUnicodeLit . fromConcreteString) <$> getOption x
+  trySetOpt x v = setOption x (ConcreteString (UnicodeLiteral v))
 
 instance Opt BaseNatType Natural where
   getMaybeOpt x = fmap fromConcreteNat <$> getOption x

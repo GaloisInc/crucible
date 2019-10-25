@@ -113,6 +113,7 @@ import           What4.Protocol.Online
 import qualified What4.Protocol.PolyRoot as Root
 import           What4.Utils.HandleReader
 import           What4.Utils.Process
+import           What4.Utils.StringLiteral
 
 import Prelude
 
@@ -134,7 +135,7 @@ asYicesConfigValue v = case v of
       return $ decimal (numerator x) <> "/" <> decimal (denominator x)
   ConcreteInteger x ->
       return $ decimal x
-  ConcreteString x ->
+  ConcreteString (UnicodeLiteral x) ->
       return $ Builder.fromText x
   _ ->
       Nothing

@@ -141,15 +141,6 @@ module What4.Expr.Builder
   , idxCacheEval
   , idxCacheEval'
 
-    -- * StringLiteral utilities
-  , eqStrLit
-  , compareStrLit
-  , hashStrLit
-  , showStrLit
-  , strLitLength
-  , strLitEmpty
-  , strLitConcat
-
     -- * Flags
   , type FloatMode
   , FloatModeRepr(..)
@@ -176,7 +167,6 @@ import           Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
 import qualified Data.Binary.IEEE754 as IEEE754
 import qualified Data.Bits as Bits
-import qualified Data.ByteString as BS
 import           Data.Foldable
 import qualified Data.HashTable.Class as H (toList)
 import qualified Data.HashTable.ST.Cuckoo as H
@@ -232,7 +222,7 @@ import           What4.Utils.Arithmetic
 import qualified What4.Utils.BVDomain as BVD
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
-import qualified What4.Utils.Word16String as WS
+import           What4.Utils.StringLiteral
 
 ------------------------------------------------------------------------
 -- Utilities
@@ -835,7 +825,7 @@ data AppExpr t (tp :: BaseType)
 data Expr t (tp :: BaseType) where
   SemiRingLiteral :: !(SR.SemiRingRepr sr) -> !(SR.Coefficient sr) -> !ProgramLoc -> Expr t (SR.SemiRingBase sr)
   BoolExpr :: !Bool -> !ProgramLoc -> Expr t BaseBoolType
-  StringExpr :: !(StringInfoRepr si) -> !(StringLiteral si) -> !ProgramLoc -> Expr t (BaseStringType si)
+  StringExpr :: !(StringLiteral si) -> !ProgramLoc -> Expr t (BaseStringType si)
   -- Application
   AppExpr :: {-# UNPACK #-} !(AppExpr t tp) -> Expr t tp
   -- An atomic predicate
@@ -858,7 +848,7 @@ asNonceApp _ = Nothing
 exprLoc :: Expr t tp -> ProgramLoc
 exprLoc (SemiRingLiteral _ _ l) = l
 exprLoc (BoolExpr _ l) = l
-exprLoc (StringExpr _ _ l) = l
+exprLoc (StringExpr _ l) = l
 exprLoc (NonceAppExpr a)  = nonceExprLoc a
 exprLoc (AppExpr a)   = appExprLoc a
 exprLoc (BoundVarExpr v) = bvarLoc v
@@ -882,40 +872,6 @@ type RealExpr t = Expr t BaseRealType
 type CplxExpr t = Expr t BaseComplexType
 type StringExpr t si = Expr t (BaseStringType si)
 
-eqStrLit :: StringInfoRepr si -> StringLiteral si -> StringLiteral si -> Bool
-eqStrLit UnicodeRepr = (==)
-eqStrLit Char8Repr = (==)
-eqStrLit Char16Repr = (==)
-
-compareStrLit :: StringInfoRepr si -> StringLiteral si -> StringLiteral si -> Ordering
-compareStrLit UnicodeRepr = compare
-compareStrLit Char8Repr   = compare
-compareStrLit Char16Repr  = compare
-
-hashStrLit :: StringInfoRepr si -> Int -> StringLiteral si -> Int
-hashStrLit Char8Repr s x   = hashWithSalt (hashWithSalt s (1::Int)) x
-hashStrLit Char16Repr s x  = hashWithSalt (hashWithSalt s (2::Int)) x
-hashStrLit UnicodeRepr s x = hashWithSalt (hashWithSalt s (3::Int)) x
-
-showStrLit :: StringInfoRepr si -> StringLiteral si -> String
-showStrLit Char8Repr   = show
-showStrLit Char16Repr  = show
-showStrLit UnicodeRepr = show
-
-strLitLength :: StringInfoRepr si -> StringLiteral si -> Natural
-strLitLength Char8Repr x   = fromIntegral (BS.length x)
-strLitLength Char16Repr x  = fromIntegral (WS.length x)
-strLitLength UnicodeRepr x = fromIntegral (Text.length x)
-
-strLitEmpty :: StringInfoRepr si -> StringLiteral si
-strLitEmpty Char8Repr = mempty
-strLitEmpty Char16Repr = mempty
-strLitEmpty UnicodeRepr = mempty
-
-strLitConcat :: StringInfoRepr si -> StringLiteral si -> StringLiteral si -> StringLiteral si
-strLitConcat Char8Repr = (<>)
-strLitConcat Char16Repr = (<>)
-strLitConcat UnicodeRepr = (<>)
 
 
 iteSize :: Expr t tp -> Integer
@@ -949,7 +905,7 @@ instance IsExpr (Expr t) where
 
   exprType (SemiRingLiteral sr _ _) = SR.semiRingBase sr
   exprType (BoolExpr _ _) = BaseBoolRepr
-  exprType (StringExpr si _ _) = BaseStringRepr si
+  exprType (StringExpr s _) = BaseStringRepr (stringLiteralInfo s)
   exprType (NonceAppExpr e)  = nonceAppType (nonceExprApp e)
   exprType (AppExpr e) = appType (appExprApp e)
   exprType (BoundVarExpr i) = bvarType i
@@ -981,7 +937,7 @@ instance IsExpr (Expr t) where
         Just (ConcreteBV w a, x, ConcreteBV w b)
     _ -> Nothing
 
-  asString (StringExpr _ x _) = Just x
+  asString (StringExpr x _) = Just x
   asString _ = Nothing
 
   asConstantArray (asApp -> Just (ConstantArray _ _ def)) = Just def
@@ -2181,10 +2137,10 @@ compareExpr (SemiRingLiteral srx x _) (SemiRingLiteral sry y _) =
 compareExpr SemiRingLiteral{} _ = LTF
 compareExpr _ SemiRingLiteral{} = GTF
 
-compareExpr (StringExpr six x _) (StringExpr siy y _) =
-  case compareF six siy of
+compareExpr (StringExpr x _) (StringExpr y _) =
+  case compareF x y of
     LTF -> LTF
-    EQF -> fromOrdering (compareStrLit six x y)
+    EQF -> EQF
     GTF -> GTF
 
 compareExpr StringExpr{} _ = LTF
@@ -2243,7 +2199,7 @@ instance Hashable (Expr t tp) where
       SR.SemiRingRealRepr    -> hashWithSalt (hashWithSalt s (3::Int)) x
       SR.SemiRingBVRepr _ w  -> hashWithSalt (hashWithSaltF (hashWithSalt s (4::Int)) w) x
 
-  hashWithSalt s (StringExpr si x _) = hashStrLit si (hashWithSalt s (5::Int)) x
+  hashWithSalt s (StringExpr x _) = hashWithSalt (hashWithSalt s (5::Int)) x
   hashWithSalt s (AppExpr x)      = hashWithSalt (hashWithSalt s (6::Int)) (appExprId x)
   hashWithSalt s (NonceAppExpr x) = hashWithSalt (hashWithSalt s (7::Int)) (nonceExprId x)
   hashWithSalt s (BoundVarExpr x) = hashWithSalt (hashWithSalt s (8::Int)) x
@@ -2583,8 +2539,8 @@ ppExpr' e0 o = do
           SR.SemiRingBVRepr _ w ->
             return $ stringPPExpr $ "0x" ++ (N.showHex x []) ++ ":[" ++ show w ++ "]"
 
-      getBindings (StringExpr si x _) =
-        return $ stringPPExpr $ (showStrLit si x)
+      getBindings (StringExpr x _) =
+        return $ stringPPExpr $ (show x)
       getBindings (BoolExpr b _) =
         return $ stringPPExpr (if b then "true" else "false")
       getBindings (NonceAppExpr e) =
@@ -5228,16 +5184,16 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   --------------------------------------------------------------------
   -- String operations
 
-  stringEmpty sym si = stringLit sym si (strLitEmpty si)
+  stringEmpty sym si = stringLit sym (stringLitEmpty si)
 
-  stringLit sym si txt =
+  stringLit sym s =
     do l <- curProgramLoc sym
-       return $! StringExpr si txt l
+       return $! StringExpr s l
 
   stringEq sym x y
     | Just x' <- asString x
     , Just y' <- asString y
-    = if eqStrLit (stringInfo x) x' y' then return (truePred sym) else return (falsePred sym)
+    = return $! backendPred sym (isJust (testEquality x' y'))
   stringEq _ _ _
     = fail "Expected concrete strings in stringEq"
 
@@ -5247,7 +5203,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   stringIte _sym _c x y
     | Just x' <- asString x
     , Just y' <- asString y
-    , eqStrLit (stringInfo x) x' y'
+    , isJust (testEquality x' y')
     = return x
   stringIte _sym _c _x _y
     = fail "Cannot merge distinct concrete strings"
@@ -5255,13 +5211,13 @@ instance IsExprBuilder (ExprBuilder t st fs) where
   stringConcat sym x y
     | Just x' <- asString x
     , Just y' <- asString y
-    = stringLit sym (stringInfo x) (strLitConcat (stringInfo x) x' y')
+    = stringLit sym (x' <> y')
   stringConcat _ _ _
     = fail "Expected concrete strings in stringConcat"
 
   stringLength sym x
     | Just x' <- asString x
-    = do natLit sym (strLitLength (stringInfo x) x')
+    = do natLit sym (stringLitLength x')
   stringLength _ _
     = fail "Expected concrete strings in stringLength"
 

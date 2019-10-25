@@ -280,7 +280,7 @@ instance Hashable (FloatPrecisionRepr fpp) where
 instance HashableF StringInfoRepr where
   hashWithSaltF = hashWithSalt
 instance Hashable (StringInfoRepr si) where
-  hashWithSalt = $(structuralHash [t|StringInfoRepr|])
+  hashWithSalt = $(structuralHashWithSalt [t|StringInfoRepr|] [])
 
 instance Pretty (BaseTypeRepr bt) where
   pretty = text . show
