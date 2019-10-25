@@ -368,11 +368,11 @@ transStmt block_idx stmt_idx s = do
           addStmt $ R.DefineAtom res (R.Call f args ret)
         _ -> fail $ "Call given non-function."
     (P.Print, [pmsg]) -> do
-      msg <- transExprWithType pmsg StringRepr
+      msg <- transExprWithType pmsg (StringRepr UnicodeRepr)
       addStmt $ R.Print msg
     (P.Assert, [pc, pmsg]) -> do
       c   <- transExprWithType pc   BoolRepr
-      msg <- transExprWithType pmsg StringRepr
+      msg <- transExprWithType pmsg (StringRepr UnicodeRepr)
       addStmt $ R.Assert c msg
     (P.ReadReg, []) -> do
       Some r <- lift $ getReg (s^.P.statement_reg)
@@ -405,7 +405,7 @@ transTermStmt' retType t = do
       e <- transExprWithType pe retType
       return $ R.Return e
     (P.ErrorTermStmt, [pe], []) -> do
-      e <- transExprWithType pe StringRepr
+      e <- transExprWithType pe (StringRepr UnicodeRepr)
       return $ R.ErrorStmt e
     (P.TailCallTermStmt, (pf:pargs), []) -> do
       Some f <- transExpr pf

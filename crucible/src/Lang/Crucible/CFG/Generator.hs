@@ -423,7 +423,7 @@ modifyRegM r f =
      assignReg r v'
 
 -- | Add a statement to print a value.
-addPrintStmt :: (Monad m, IsSyntaxExtension ext) => Expr ext s StringType -> Generator ext s t ret m ()
+addPrintStmt :: (Monad m, IsSyntaxExtension ext) => Expr ext s (StringType Unicode) -> Generator ext s t ret m ()
 addPrintStmt e =
   do e_a <- mkAtom e
      addStmt (Print e_a)
@@ -440,7 +440,7 @@ addBreakpointStmt nm args = addStmt $ Breakpoint (BreakpointName nm) args
 assertExpr ::
   (Monad m, IsSyntaxExtension ext) =>
   Expr ext s BoolType {- ^ assertion -} ->
-  Expr ext s StringType {- ^ error message -} ->
+  Expr ext s (StringType Unicode) {- ^ error message -} ->
   Generator ext s t ret m ()
 assertExpr b e =
   do b_a <- mkAtom b
@@ -451,7 +451,7 @@ assertExpr b e =
 assumeExpr ::
   (Monad m, IsSyntaxExtension ext) =>
   Expr ext s BoolType {- ^ assumption -} ->
-  Expr ext s StringType {- ^ reason message -} ->
+  Expr ext s (StringType Unicode) {- ^ reason message -} ->
   Generator ext s t ret m ()
 assumeExpr b e =
   do b_a <- mkAtom b
@@ -659,7 +659,7 @@ returnFromFunction e = do
 -- | Report an error message.
 reportError ::
   (Monad m, IsSyntaxExtension ext) =>
-  Expr ext s StringType -> Generator ext s t ret m a
+  Expr ext s (StringType Unicode) -> Generator ext s t ret m a
 reportError e = do
   e_a <- mkAtom e
   terminateEarly (ErrorStmt e_a)
@@ -799,7 +799,7 @@ caseMaybe_ v cases = do
 -- the value is @Nothing@.
 fromJustExpr :: (Monad m, IsSyntaxExtension ext)
              => Expr ext s (MaybeType tp)
-             -> Expr ext s StringType {- ^ error message -}
+             -> Expr ext s (StringType Unicode) {- ^ error message -}
              -> Generator ext s t ret m (Expr ext s tp)
 fromJustExpr e msg = do
   let etp = case exprType e of
@@ -815,7 +815,7 @@ fromJustExpr e msg = do
 -- returns the underlying value.
 assertedJustExpr :: (Monad m, IsSyntaxExtension ext)
                  => Expr ext s (MaybeType tp)
-                 -> Expr ext s StringType {- ^ error message -}
+                 -> Expr ext s (StringType Unicode) {- ^ error message -}
                  -> Generator ext s t ret m (Expr ext s tp)
 assertedJustExpr e msg =
   case exprType e of

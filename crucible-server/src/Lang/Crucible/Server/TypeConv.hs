@@ -179,7 +179,7 @@ fromProtoType tp = do
     P.CharType -> do
       return $ Some CharRepr
     P.StringType -> do
-      return $ Some StringRepr
+      return $ Some (StringRepr UnicodeRepr)
     P.FunctionHandleType -> do
       (args, ret) <- getTail "Missing return type." params
       Some arg_ctx <- fromProtoTypeSeq args
@@ -265,7 +265,7 @@ mkProtoType tpr =
                        DoubleDoubleFloatRepr -> P.DoubleDoubleFloatType
     CharRepr ->
       mkType P.CharType
-    StringRepr ->
+    StringRepr UnicodeRepr ->
       mkType P.StringType
     FunctionHandleRepr args ret -> do
       let params = mkProtoTypeSeq args Seq.|> mkProtoType ret

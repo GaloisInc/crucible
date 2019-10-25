@@ -275,10 +275,18 @@ posNat =
 natRepr :: MonadSyntax Atomic m => m (Some NatRepr)
 natRepr = mkNatRepr <$> nat
 
+stringSort :: MonadSyntax Atomic m => m (Some StringInfoRepr)
+stringSort =
+  later $ describe "string sort" $
+    asum [ kw Unicode_ $> Some UnicodeRepr
+         , kw Char16_  $> Some Char16Repr
+         , kw Char8_   $> Some Char8Repr
+         ]
+
 isType :: MonadSyntax Atomic m => m (Some TypeRepr)
 isType =
   describe "type" $ call
-    (atomicType <|> vector <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var)
+    (atomicType <|> stringT <|> vector <|> ref <|> bv <|> fp <|> fun <|> maybeT <|> var)
 
   where
     atomicType =
@@ -291,7 +299,6 @@ isType =
              , kw RealT        $> Some RealValRepr
              , kw ComplexRealT $> Some ComplexRealRepr
              , kw CharT        $> Some CharRepr
-             , kw StringT      $> Some StringRepr
              ]
     vector = unary VectorT isType <&> \(Some t) -> Some (VectorRepr t)
     ref    = unary RefT isType <&> \(Some t) -> Some (ReferenceRepr t)
@@ -305,6 +312,9 @@ isType =
 
     fun :: MonadSyntax Atomic m => m (Some TypeRepr)
     fun = cons (kw FunT) (repUntilLast isType) <&> \((), (args, ret)) -> mkFunRepr args ret
+
+    stringT :: MonadSyntax Atomic m => m (Some TypeRepr)
+    stringT = unary StringT stringSort <&> \(Some si) -> Some (StringRepr si)
 
     maybeT = unary MaybeT isType <&> \(Some t) -> Some (MaybeRepr t)
 
@@ -424,7 +434,7 @@ synthExpr typeHint =
      naryArith Plus <|> binaryArith Minus <|> naryArith Times <|> binaryArith Div <|> binaryArith Mod <|>
      unitCon <|> boolLit <|> stringLit <|> funNameLit <|>
      notExpr <|> equalp <|> lessThan <|> lessThanEq <|>
-     toAny <|> fromAny <|> stringAppend <|> showExpr <|>
+     toAny <|> fromAny <|> stringAppend <|> stringEmpty <|> showExpr <|>
      just <|> nothing <|> fromJust_ <|> injection <|> projection <|>
      vecLit <|> vecCons <|> vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
      ite <|>  intLit <|> rationalLit <|> intp <|>
@@ -499,7 +509,7 @@ synthExpr typeHint =
 
     boolLit = bool <&> SomeE BoolRepr . EApp . BoolLit
 
-    stringLit = string <&> SomeE StringRepr . EApp . TextLit
+    stringLit = string <&> SomeE (StringRepr UnicodeRepr) . EApp . TextLit
 
     intLit =
       do ast <- anything
@@ -666,7 +676,7 @@ synthExpr typeHint =
            depCons (forceSynth =<< synthExpr newhint) $ \(Pair t e) ->
              case t of
                MaybeRepr elemT ->
-                 depCons (check StringRepr) $ \str ->
+                 depCons (check (StringRepr UnicodeRepr)) $ \str ->
                    do emptyList
                       return $ SomeE elemT $ EApp $ FromJustValue elemT e str
                _ -> later $ describe "maybe expression" nothing
@@ -809,10 +819,19 @@ synthExpr typeHint =
       (binary FromAny isType (check AnyRepr)) <&>
         \(Some ty, e) -> SomeE (MaybeRepr ty) (EApp (UnpackAny ty e))
 
+    stringEmpty =
+      unary StringEmpty stringSort <&> \(Some si) -> SomeE (StringRepr si) $ EApp $ EmptyString si
+
     stringAppend =
-      do (s1,s2) <-
-           binary StringAppend (check StringRepr) (check StringRepr)
-         return $ SomeE StringRepr $ EApp $ AppendString s1 s2
+      do (e1,(e2,())) <-
+           followedBy (kw StringAppend) $
+           cons (synthExpr typeHint) $
+           cons (synthExpr typeHint) $
+           emptyList
+         matchingExprs typeHint e1 e2 $ \tp s1 s2 ->
+           case tp of
+             StringRepr si -> return $ SomeE (StringRepr si) $ EApp $ AppendString si s1 s2
+             _ -> later $ describe "string expressions" empty
 
     vecRep =
       do let newhint = case typeHint of
@@ -891,9 +910,9 @@ synthExpr typeHint =
       do Pair t1 e <- unary Show synth
          case t1 of
            FloatRepr fi ->
-             return $ SomeE StringRepr $ EApp $ ShowFloat fi e
+             return $ SomeE (StringRepr UnicodeRepr) $ EApp $ ShowFloat fi e
            (asBaseType -> AsBaseType bt) ->
-             return $ SomeE StringRepr $ EApp $ ShowValue bt e
+             return $ SomeE (StringRepr UnicodeRepr) $ EApp $ ShowValue bt e
            _ -> later $ describe ("base or floating point type, but got " <> T.pack (show t1)) empty
 
 data NatHint
@@ -1342,13 +1361,13 @@ normStmt' =
   where
     printStmt, printLnStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion, breakpoint :: m ()
     printStmt =
-      do Posd loc e <- unary Print_ (located $ reading $ check StringRepr)
+      do Posd loc e <- unary Print_ (located $ reading $ check (StringRepr UnicodeRepr))
          strAtom <- eval loc e
          tell [Posd loc (Print strAtom)]
 
     printLnStmt =
-      do Posd loc e <- unary PrintLn_ (located $ reading $ check StringRepr)
-         strAtom <- eval loc (EApp (AppendString e (EApp (TextLit "\n"))))
+      do Posd loc e <- unary PrintLn_ (located $ reading $ check (StringRepr UnicodeRepr))
+         strAtom <- eval loc (EApp (AppendString UnicodeRepr e (EApp (TextLit "\n"))))
          tell [Posd loc (Print strAtom)]
 
     letStmt =
@@ -1415,7 +1434,7 @@ normStmt' =
            located $
            binary Assert_
              (located $ reading $ check BoolRepr)
-             (located $ reading $ check StringRepr)
+             (located $ reading $ check (StringRepr UnicodeRepr))
          cond' <- eval cLoc cond
          msg' <- eval mLoc msg
          tell [Posd loc $ Assert cond' msg']
@@ -1425,7 +1444,7 @@ normStmt' =
            located $
            binary Assume_
              (located $ reading $ check BoolRepr)
-             (located $ reading $ check StringRepr)
+             (located $ reading $ check (StringRepr UnicodeRepr))
          cond' <- eval cLoc cond
          msg' <- eval mLoc msg
          tell [Posd loc $ Assume cond' msg']
@@ -1576,7 +1595,7 @@ termStmt' retTy =
 
     err :: m (TermStmt s ret)
     err =
-      do Posd loc e <- unary Error_ (located (reading (check StringRepr)))
+      do Posd loc e <- unary Error_ (located (reading (check (StringRepr UnicodeRepr))))
          ErrorStmt <$> eval loc e
 
     out :: m (TermStmt s ret)

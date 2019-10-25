@@ -469,7 +469,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- want to assert that the value is defined.
   FromJustValue :: !(TypeRepr tp)
                 -> !(f (MaybeType tp))
-                -> !(f StringType)
+                -> !(f (StringType Unicode))
                 -> App ext f tp
 
 
@@ -903,13 +903,13 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- Lookup the value of a string in a string map.
   LookupStringMapEntry :: !(TypeRepr tp)
                        -> !(f (StringMapType tp))
-                       -> !(f StringType)
+                       -> !(f (StringType Unicode))
                        -> App ext f (MaybeType tp)
 
   -- Update the name of the ident value map with the given value.
   InsertStringMapEntry :: !(TypeRepr tp)
                        -> !(f (StringMapType tp))
-                       -> !(f StringType)
+                       -> !(f (StringType Unicode))
                        -> !(f (MaybeType tp))
                        -> App ext f (StringMapType tp)
 
@@ -917,20 +917,23 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
   -- String
 
   TextLit :: !Text
-          -> App ext f StringType
+          -> App ext f (StringType Unicode)
 
   ShowValue :: !(BaseTypeRepr bt)
             -> !(f (BaseToType bt))
-            -> App ext f StringType
+            -> App ext f (StringType Unicode)
 
   ShowFloat :: !(FloatInfoRepr fi)
             -> !(f (FloatType fi))
-            -> App ext f StringType
+            -> App ext f (StringType Unicode)
 
-  AppendString :: !(f StringType)
-               -> !(f StringType)
-               -> App ext f StringType
+  EmptyString :: StringInfoRepr si
+              -> App ext f (StringType si)
 
+  AppendString :: StringInfoRepr si
+               -> !(f (StringType si))
+               -> !(f (StringType si))
+               -> App ext f (StringType si)
 
   ----------------------------------------------------------------------
   -- Arrays (supporting symbolic operations)
@@ -1208,7 +1211,8 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     TextLit{} -> knownRepr
     ShowValue{} -> knownRepr
     ShowFloat{} -> knownRepr
-    AppendString{} -> knownRepr
+    AppendString si _ _ -> StringRepr si
+    EmptyString si -> StringRepr si
 
     ------------------------------------------------------------------------
     -- Introspection
@@ -1350,6 +1354,7 @@ instance ( TestEqualityFC (ExprExtension ext)
         , (U.ConType [t|SymbolRepr |]    `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|TypeRepr|]       `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|BaseTypeRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
+        , (U.ConType [t|StringInfoRepr|] `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|FloatInfoRepr|]  `U.TypeApp` U.AnyType, [|testEquality|])
         , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
               (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType
@@ -1392,6 +1397,7 @@ instance ( OrdFC (ExprExtension ext)
                    , (U.ConType [t|SymbolRepr |] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|TypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|BaseTypeRepr|] `U.TypeApp` U.AnyType, [|compareF|])
+                   , (U.ConType [t|StringInfoRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|FloatInfoRepr|] `U.TypeApp` U.AnyType, [|compareF|])
                    , (U.ConType [t|Ctx.Assignment|] `U.TypeApp`
                          (U.ConType [t|BaseTerm|] `U.TypeApp` U.AnyType) `U.TypeApp` U.AnyType

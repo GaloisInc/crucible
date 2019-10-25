@@ -57,6 +57,7 @@ import           What4.InterpretedFloatingPoint
 import           What4.Partial (pattern PE, pattern Unassigned, joinMaybePE)
 import           What4.Symbol (emptySymbol)
 import           What4.Utils.Complex
+import           What4.Utils.StringLiteral
 import           What4.WordMap
 
 import           Lang.Crucible.Backend
@@ -417,7 +418,7 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
         _ -> do
           msg <- evalSub msg_expr
           case asString msg of
-            Just msg' -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
+            Just (UnicodeLiteral msg') -> readPartExpr sym maybe_val (GenericSimError (Text.unpack msg'))
             Nothing ->
               addFailedAssertion sym $
                 Unsupported "Symbolic string in fromJustValue"
@@ -898,36 +899,40 @@ evalApp sym itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
     -- IdentValueMap
 
     EmptyStringMap _ -> return Map.empty
+
     LookupStringMapEntry _ m_expr i_expr -> do
       i <- evalSub i_expr
       m <- evalSub m_expr
       case asString i of
-        Just i' -> return $ joinMaybePE (Map.lookup i' m)
+        Just (UnicodeLiteral i') -> return $ joinMaybePE (Map.lookup i' m)
         Nothing -> addFailedAssertion sym $
                     Unsupported "Symbolic string in lookupStringMapEntry"
+
     InsertStringMapEntry _ m_expr i_expr v_expr -> do
       m <- evalSub m_expr
       i <- evalSub i_expr
       v <- evalSub v_expr
       case asString i of
-        Just i' -> return $ Map.insert i' v m
+        Just (UnicodeLiteral i') -> return $ Map.insert i' v m
         Nothing -> addFailedAssertion sym $
                      Unsupported "Symbolic string in insertStringMapEntry"
 
     --------------------------------------------------------------------
     -- Text
 
-    TextLit txt -> stringLit sym txt
+    TextLit txt -> stringLit sym (UnicodeLiteral txt)
     ShowValue _bt x_expr -> do
       x <- evalSub x_expr
-      stringLit sym (Text.pack (show (printSymExpr x)))
+      stringLit sym (UnicodeLiteral (Text.pack (show (printSymExpr x))))
     ShowFloat _fi x_expr -> do
       x <- evalSub x_expr
-      stringLit sym (Text.pack (show (printSymExpr x)))
-    AppendString x y -> do
+      stringLit sym (UnicodeLiteral (Text.pack (show (printSymExpr x))))
+    AppendString _si x y -> do
       x' <- evalSub x
       y' <- evalSub y
       stringConcat sym x' y'
+    EmptyString si ->
+      stringEmpty sym si
 
     ---------------------------------------------------------------------
     -- Introspection

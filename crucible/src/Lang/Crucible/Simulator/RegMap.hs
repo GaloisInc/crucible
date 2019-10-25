@@ -212,7 +212,7 @@ muxRegForType s itefns p =
      ComplexRealRepr   -> muxReg s p
      CharRepr          -> muxReg s p
      BoolRepr          -> muxReg s p
-     StringRepr        -> muxReg s p
+     StringRepr _      -> muxReg s p
      IEEEFloatRepr _p  -> muxReg s p
 
      AnyRepr -> muxAny s itefns

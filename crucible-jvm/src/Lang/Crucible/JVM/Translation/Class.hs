@@ -281,7 +281,7 @@ struct :: JVMClass s -> Expr JVM s JVMClassImpl
 struct ct = App $ UnrollRecursive knownRepr knownRepr ct
 
 -- | Access the name of the class (e.g. @java\/lang\/String@).
-getJVMClassName :: JVMClass s -> Expr JVM s StringType
+getJVMClassName :: JVMClass s -> Expr JVM s (StringType Unicode)
 getJVMClassName ct = App (GetStruct (struct ct) Ctx.i1of5 knownRepr)
 
 -- | Whether the class has been initialized.
@@ -298,7 +298,7 @@ getJVMClassMethodTable ct = App (GetStruct (struct ct) Ctx.i4of5 knownRepr)
 
 -- | Return a vector of *all* interfaces that this class implements
 -- (both directly and indirectly through super classes and super interfaces).
-getJVMClassInterfaces :: JVMClass s -> Expr JVM s (VectorType StringType)
+getJVMClassInterfaces :: JVMClass s -> Expr JVM s (VectorType (StringType Unicode)) -- TODO should be Char16
 getJVMClassInterfaces ct = App (GetStruct (struct ct) Ctx.i5of5 knownRepr)
 
 -- | Replace the initialization status in the class data structure.

@@ -96,16 +96,17 @@ import qualified What4.Expr.WeightedSum as WSum
 import           What4.Solver.Adapter
 import qualified What4.Utils.AbstractDomains as AD
 import           What4.Utils.Complex
+import           What4.Utils.StringLiteral
 
 import           BLT.Binding
 
 -- | BLT's parameter string, parsed by the function 'parseBLTParams' below.
-bltParams :: ConfigOption BaseStringType
-bltParams = configOption BaseStringRepr "blt_params"
+bltParams :: ConfigOption (BaseStringType Unicode)
+bltParams = configOption knownRepr "blt_params"
 
 bltOptions :: [ConfigDesc]
 bltOptions =
-  [ opt         bltParams         (ConcreteString "")
+  [ opt         bltParams         (ConcreteString (UnicodeLiteral ""))
     (text "Command-line parameters to send to BLT")
   ]
 

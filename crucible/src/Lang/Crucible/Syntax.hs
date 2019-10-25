@@ -278,7 +278,7 @@ instance ConvertableToNat e ComplexRealType where
 ------------------------------------------------------------------------
 -- String
 
-instance LitExpr e StringType Text where
+instance LitExpr e (StringType Unicode) Text where
   litExpr t = app (TextLit t)
 
 ------------------------------------------------------------------------

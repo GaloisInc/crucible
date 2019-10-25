@@ -150,7 +150,7 @@ baseSCType sym sc bt =
          SC.scFunAll sc ts t
     BaseFloatRepr _ ->
       unsupported sym "SAW backend does not support IEEE-754 floating point values: baseSCType"
-    BaseStringRepr   ->
+    BaseStringRepr _ ->
       unsupported sym "SAW backend does not support string values: baseSCType"
     BaseComplexRepr  ->
       unsupported sym "SAW backend does not support complex values: baseSCType"

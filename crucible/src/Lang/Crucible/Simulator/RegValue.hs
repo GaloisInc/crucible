@@ -189,7 +189,7 @@ instance IsExprBuilder sym => CanMux sym ComplexRealType where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> cplxIte s
 
-instance IsExprBuilder sym => CanMux sym StringType where
+instance IsExprBuilder sym => CanMux sym (StringType si) where
   {-# INLINE muxReg #-}
   muxReg s = \_ -> stringIte s
 
