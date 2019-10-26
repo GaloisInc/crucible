@@ -1,6 +1,6 @@
-(defun @foo ((x String)) String
+(defun @foo ((x (String Unicode))) (String Unicode)
   (registers
-    ($out String)
+    ($out (String Unicode))
     ($count Integer))
   (start beginning:
     (print x)

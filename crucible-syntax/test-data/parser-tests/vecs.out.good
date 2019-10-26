@@ -1,8 +1,9 @@
-(defun @vec-test ((n Nat) (x Integer)) (Vector String)
-   (registers ($res (Vector String)))
+(defun @vec-test ((n Nat) (x Integer)) (Vector (String Unicode))
+   (registers ($res (Vector (String Unicode))))
    (start first:
       (set-register! $res (vector "hello" "this" "is" "a" "vector"))
-      (let foo (the (Vector String) (vector-replicate n (show x))))
+      (let foo
+           (the (Vector (String Unicode)) (vector-replicate n (show x))))
       (let a (vector-empty? (the (Vector Integer) (vector))))
       (let b (vector-empty? (vector #t #f #f #t)))
       (let done $res)
@@ -18,21 +19,21 @@
 vec-test
 %0
   % 6:9
-  $2 = textLit("hello")
+  $2 = stringLit("hello")
   % 6:9
-  $3 = textLit("this")
+  $3 = stringLit("this")
   % 6:9
-  $4 = textLit("is")
+  $4 = stringLit("is")
   % 6:9
-  $5 = textLit("a")
+  $5 = stringLit("a")
   % 6:9
-  $6 = textLit("vector")
+  $6 = stringLit("vector")
   % 6:9
-  $7 = vectorLit(StringRepr, [$2, $3, $4, $5, $6])
+  $7 = vectorLit(StringRepr UnicodeRepr, [$2, $3, $4, $5, $6])
   % 7:14
   $8 = showValue(BaseIntegerRepr, $1)
   % 7:14
-  $9 = vectorReplicate(StringRepr, $0, $8)
+  $9 = vectorReplicate(StringRepr UnicodeRepr, $0, $8)
   % 8:12
   $10 = vectorLit(IntegerRepr, [])
   % 8:12
@@ -52,21 +53,21 @@ vec-test
   % 13:12
   $18 = natLit(3)
   % 13:12
-  $19 = vectorGetEntry(StringRepr, $7, $18)
+  $19 = vectorGetEntry(StringRepr UnicodeRepr, $7, $18)
   % 14:12
-  $20 = textLit("isn't")
+  $20 = stringLit("isn't")
   % 14:12
-  $21 = vectorSetEntry(StringRepr, $7, $18, $20)
+  $21 = vectorSetEntry(StringRepr UnicodeRepr, $7, $18, $20)
   % 15:12
-  $22 = textLit("well")
+  $22 = stringLit("well")
   % 15:12
-  $23 = vectorCons(StringRepr, $22, $21)
+  $23 = vectorCons(StringRepr UnicodeRepr, $22, $21)
   % 16:12
   $24 = natLit(132)
   % 16:12
-  $25 = textLit(".")
+  $25 = stringLit(".")
   % 16:12
-  $26 = vectorReplicate(StringRepr, $24, $25)
+  $26 = vectorReplicate(StringRepr UnicodeRepr, $24, $25)
   % 17:12
   $27 = natLit(12)
   % 17:12

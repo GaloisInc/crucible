@@ -1,4 +1,4 @@
-(defun @refs ((s String)) (Ref String)
+(defun @refs ((s (String Unicode))) (Ref (String Unicode))
   (start st:
     (let x (ref s))
     (let y (deref x))

@@ -1,10 +1,10 @@
-(defun @vec-test ((n Nat) (x Integer)) (Vector String)
+(defun @vec-test ((n Nat) (x Integer)) (Vector (String Unicode))
   (registers
-    ($res (Vector String)))
+    ($res (Vector (String Unicode))))
   (start first:
     (set-register! $res
         (vector "hello" "this" "is" "a" "vector"))
-    (let foo (the (Vector String) (vector-replicate n (show x))))
+    (let foo (the (Vector (String Unicode)) (vector-replicate n (show x))))
     (let a (vector-empty? (the (Vector Integer) (vector))))
     (let b (vector-empty? (vector #t #f #f #t)))
     (let done $res)

@@ -52,7 +52,7 @@ test
   % no postdom
 %5
   % 22:14
-  $0 = textLit("nope")
+  $0 = stringLit("nope")
   % 23:5
   error $0
   % no postdom

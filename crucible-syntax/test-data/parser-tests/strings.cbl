@@ -1,6 +1,6 @@
 ;; exercise string literals
 
-(defun @test-str () String
+(defun @test-str () (String Unicode)
   (start start:
     (let x "a")
     (let y "\\")
