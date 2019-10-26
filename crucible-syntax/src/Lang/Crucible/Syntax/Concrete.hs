@@ -79,6 +79,7 @@ import qualified Lang.Crucible.Syntax.ExprParse as SP
 import What4.ProgramLoc
 import What4.FunctionName
 import What4.Symbol
+import What4.Utils.StringLiteral
 
 import Lang.Crucible.Syntax.SExpr (Syntax, pattern L, pattern A, toText, PrintRules(..), PrintStyle(..), syntaxPos, withPosFrom, showAtom)
 import Lang.Crucible.Syntax.Atoms hiding (atom)
@@ -434,7 +435,7 @@ synthExpr typeHint =
      naryArith Plus <|> binaryArith Minus <|> naryArith Times <|> binaryArith Div <|> binaryArith Mod <|>
      unitCon <|> boolLit <|> stringLit <|> funNameLit <|>
      notExpr <|> equalp <|> lessThan <|> lessThanEq <|>
-     toAny <|> fromAny <|> stringAppend <|> stringEmpty <|> showExpr <|>
+     toAny <|> fromAny <|> stringAppend <|> stringEmpty <|> stringLength <|> showExpr <|>
      just <|> nothing <|> fromJust_ <|> injection <|> projection <|>
      vecLit <|> vecCons <|> vecRep <|> vecLen <|> vecEmptyP <|> vecGet <|> vecSet <|>
      ite <|>  intLit <|> rationalLit <|> intp <|>
@@ -509,7 +510,7 @@ synthExpr typeHint =
 
     boolLit = bool <&> SomeE BoolRepr . EApp . BoolLit
 
-    stringLit = string <&> SomeE (StringRepr UnicodeRepr) . EApp . TextLit
+    stringLit = string <&> SomeE (StringRepr UnicodeRepr) . EApp . StringLit . UnicodeLiteral
 
     intLit =
       do ast <- anything
@@ -818,6 +819,14 @@ synthExpr typeHint =
     fromAny =
       (binary FromAny isType (check AnyRepr)) <&>
         \(Some ty, e) -> SomeE (MaybeRepr ty) (EApp (UnpackAny ty e))
+
+    stringLength :: m (SomeExpr s)
+    stringLength =
+      do unary StringLength_
+           (do (Pair ty e) <- forceSynth =<< synthExpr Nothing
+               case ty of
+                 StringRepr _si -> return $ SomeE NatRepr $ EApp (StringLength e)
+                 _ -> later $ describe "string expression" empty)
 
     stringEmpty =
       unary StringEmpty stringSort <&> \(Some si) -> SomeE (StringRepr si) $ EApp $ EmptyString si
@@ -1367,7 +1376,7 @@ normStmt' =
 
     printLnStmt =
       do Posd loc e <- unary PrintLn_ (located $ reading $ check (StringRepr UnicodeRepr))
-         strAtom <- eval loc (EApp (AppendString UnicodeRepr e (EApp (TextLit "\n"))))
+         strAtom <- eval loc (EApp (AppendString UnicodeRepr e (EApp (StringLit "\n"))))
          tell [Posd loc (Print strAtom)]
 
     letStmt =

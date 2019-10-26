@@ -60,7 +60,7 @@ data Keyword = Defun | DefBlock | DefGlobal
              | Mod
              | Lt | Le
              | Show
-             | StringAppend | StringEmpty
+             | StringAppend | StringEmpty | StringLength_
              | ToAny | FromAny
              | VectorLit_ | VectorReplicate_ | VectorIsEmpty_ | VectorSize_
              | VectorGetEntry_ | VectorSetEntry_ | VectorCons_
@@ -200,6 +200,7 @@ keywords =
   , ("show", Show)
   , ("string-append", StringAppend)
   , ("string-empty", StringEmpty)
+  , ("string-length", StringLength_)
 
     -- bitvector
   , ("bv", BV)
