@@ -134,6 +134,7 @@ import           Lang.Crucible.JVM.Context
 import           Lang.Crucible.JVM.Translation.Monad
 
 -- what4
+import           What4.Interface (StringLiteral(..))
 import           What4.ProgramLoc (Position(InternalPos))
 
 import           GHC.Stack
@@ -167,13 +168,13 @@ erroneous    = App $ BVLit knownRepr 3
 
 -- | Expression for the class name.
 classNameExpr :: J.ClassName -> JVMString s
-classNameExpr cn = App $ TextLit $ classNameText cn
+classNameExpr cn = App $ StringLit $ UnicodeLiteral $ classNameText cn
 
 -- | Expression for method key.
 -- Includes the parameter type & result type to resolve overloading.
 -- TODO: This is an approximation of what the JVM actually does.
 methodKeyExpr :: J.MethodKey -> JVMString s
-methodKeyExpr c = App $ TextLit $ methodKeyText c
+methodKeyExpr c = App $ StringLit $ UnicodeLiteral $ methodKeyText c
 
 -- | Method table.
 type JVMMethodTable s = Expr JVM s JVMMethodTableType
@@ -573,7 +574,7 @@ findDynamicMethod dcls methodKey = do
         (InternalPos, loopbody)
 
   v <- readReg methodReg
-  assertedJustExpr v (App $ TextLit "NoSuchMethodError")
+  assertedJustExpr v (App $ StringLit "NoSuchMethodError")
 
 ------------------------------------------------------------------------
 -- * Dynamic type testing
@@ -706,7 +707,7 @@ isSubType tyS tyT = do
 implements :: JVMClass s -> J.ClassName -> JVMGenerator s ret (Expr JVM s BoolType)
 implements dcls interface = do
   let vec = getJVMClassInterfaces dcls
-  let str = App $ TextLit $ classNameText interface
+  let str = App $ StringLit $ UnicodeLiteral $ classNameText interface
   ansReg <- newReg (App $ BoolLit False)
   forEach_ vec (\cn ->
                    ifte_ (App $ BaseIsEq knownRepr str cn)
@@ -724,7 +725,7 @@ isSubclass dcls cn2 = do
   sm <- readGlobal (dynamicClassTable ctx)
 
   let className = getJVMClassName dcls
-  let className2 = App $ TextLit $ classNameText cn2
+  let className2 = App $ StringLit $ UnicodeLiteral $ classNameText cn2
 
   ifte (App (BaseIsEq knownRepr className className2))
     (return (App (BoolLit True)))
@@ -799,7 +800,7 @@ newInstanceInstr cls fieldIds = do
     return $ App (RollRecursive knownRepr knownRepr uobj)
   where
     createField fieldId = do
-      let str  = App (TextLit (fieldIdText fieldId))
+      let str  = App (StringLit (UnicodeLiteral (fieldIdText fieldId)))
       let expr = valueToExpr (defaultValue (J.fieldIdType fieldId))
       let val  = App $ JustValue knownRepr expr
       return (str, val)
@@ -817,7 +818,7 @@ findField :: (KnownRepr TypeRepr a) => Expr JVM s (StringMapType JVMValueType) -
 findField fields fieldId k = do
   let currClassName = J.fieldIdClass fieldId
   let str    = fieldIdText fieldId
-  let key    = App (TextLit str)
+  let key    = App (StringLit (UnicodeLiteral str))
   let mval   = App (LookupStringMapEntry knownRepr fields key)
   caseMaybe mval knownRepr
    MatchMaybe
@@ -825,7 +826,7 @@ findField fields fieldId k = do
    , onNothing = do
        cls <- lookupClassGen currClassName
        case (J.superClass cls) of
-         Nothing    -> reportError $ App $ TextLit ("getfield: field " <> str <> " not found")
+         Nothing    -> reportError $ App $ StringLit (UnicodeLiteral ("getfield: field " <> str <> " not found"))
          Just super -> findField fields (fieldId { J.fieldIdClass = super }) k
    }
 
@@ -851,7 +852,7 @@ setInstanceFieldValue obj fieldId val = do
   let fields = App (GetStruct inst Ctx.i1of2 knownRepr)
   findField fields fieldId $ \fieldId' _x -> do
        let str = fieldIdText fieldId'
-       let key = App (TextLit str)
+       let key = App (StringLit (UnicodeLiteral str))
        let fields' = App (InsertStringMapEntry knownRepr fields key mdyn)
        let inst'  = App (SetStruct knownRepr inst Ctx.i1of2 fields')
        let uobj' = App (InjectVariant knownRepr Ctx.i1of2 inst')
