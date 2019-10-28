@@ -41,7 +41,7 @@ import Lang.Crucible.Simulator.Profiling
 
 import What4.Config
 import What4.Interface (getConfiguration,notPred)
-import What4.Expr.Builder (Flags, FloatIEEE, ExprBuilder)
+import What4.Expr.Builder (ExprBuilder)
 import What4.ProgramLoc
 import What4.SatResult
 import What4.Solver (defaultLogData, runZ3InOverride)

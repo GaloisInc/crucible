@@ -64,7 +64,7 @@ withSym :: FloatModeRepr fm -> (forall t . SimpleExprBuilder t (Flags fm) -> IO 
 withSym floatMode pred_gen = withIONonceGenerator $ \gen ->
   pred_gen =<< newExprBuilder floatMode State gen
 
-withYices :: (forall t. SimpleExprBuilder t fs -> SolverProcess t (Yices.Connection t) -> IO ()) -> IO ()
+withYices :: (forall t. SimpleExprBuilder t (Flags FloatReal) -> SolverProcess t (Yices.Connection t) -> IO ()) -> IO ()
 withYices action = withSym FloatRealRepr $ \sym ->
   do extendConfig Yices.yicesOptions (getConfiguration sym)
      bracket
@@ -74,14 +74,14 @@ withYices action = withSym FloatRealRepr $ \sym ->
        (\(h,s) -> void $ try @SomeException (shutdownSolverProcess s >> maybeClose h))
        (\(_,s) -> action sym s)
 
-withZ3 :: (forall t . SimpleExprBuilder t fs -> Session t Z3.Z3 -> IO ()) -> IO ()
+withZ3 :: (forall t . SimpleExprBuilder t (Flags FloatIEEE) -> Session t Z3.Z3 -> IO ()) -> IO ()
 withZ3 action = withIONonceGenerator $ \nonce_gen -> do
   sym <- newExprBuilder FloatIEEERepr State nonce_gen
   extendConfig Z3.z3Options (getConfiguration sym)
   Z3.withZ3 sym "z3" defaultLogData { logCallbackVerbose = (\_ -> putStrLn) } (action sym)
 
 withOnlineZ3
-  :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3.Z3) -> IO a)
+  :: (forall t . SimpleExprBuilder t (Flags FloatIEEE) -> SolverProcess t (Writer Z3.Z3) -> IO a)
   -> IO a
 withOnlineZ3 action = withSym FloatIEEERepr $ \sym -> do
   extendConfig Z3.z3Options (getConfiguration sym)
@@ -93,7 +93,7 @@ withOnlineZ3 action = withSym FloatIEEERepr $ \sym -> do
     (\(_,s) -> action sym s)
 
 withCVC4
-  :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer CVC4.CVC4) -> IO a)
+  :: (forall t . SimpleExprBuilder t (Flags FloatReal) -> SolverProcess t (Writer CVC4.CVC4) -> IO a)
   -> IO a
 withCVC4 action = withSym FloatRealRepr $ \sym -> do
   extendConfig CVC4.cvc4Options (getConfiguration sym)
