@@ -60,12 +60,12 @@ userSymbol' s = case userSymbol s of
   Left e       -> error $ show e
   Right symbol -> symbol
 
-withSym :: (forall t . SimpleExprBuilder t fs -> IO a) -> IO a
-withSym pred_gen = withIONonceGenerator $ \gen ->
-  pred_gen =<< newExprBuilder State gen
+withSym :: FloatModeRepr fm -> (forall t . SimpleExprBuilder t (Flags fm) -> IO a) -> IO a
+withSym floatMode pred_gen = withIONonceGenerator $ \gen ->
+  pred_gen =<< newExprBuilder floatMode State gen
 
 withYices :: (forall t. SimpleExprBuilder t fs -> SolverProcess t (Yices.Connection t) -> IO ()) -> IO ()
-withYices action = withSym $ \sym ->
+withYices action = withSym FloatRealRepr $ \sym ->
   do extendConfig Yices.yicesOptions (getConfiguration sym)
      bracket
        (do h <- if debugOutputFiles then Just <$> openFile "yices.out" WriteMode else return Nothing
@@ -76,14 +76,14 @@ withYices action = withSym $ \sym ->
 
 withZ3 :: (forall t . SimpleExprBuilder t fs -> Session t Z3.Z3 -> IO ()) -> IO ()
 withZ3 action = withIONonceGenerator $ \nonce_gen -> do
-  sym <- newExprBuilder State nonce_gen
+  sym <- newExprBuilder FloatIEEERepr State nonce_gen
   extendConfig Z3.z3Options (getConfiguration sym)
   Z3.withZ3 sym "z3" defaultLogData { logCallbackVerbose = (\_ -> putStrLn) } (action sym)
 
 withOnlineZ3
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer Z3.Z3) -> IO a)
   -> IO a
-withOnlineZ3 action = withSym $ \sym -> do
+withOnlineZ3 action = withSym FloatIEEERepr $ \sym -> do
   extendConfig Z3.z3Options (getConfiguration sym)
   bracket
     (do h <- if debugOutputFiles then Just <$> openFile "z3.out" WriteMode else return Nothing
@@ -95,7 +95,7 @@ withOnlineZ3 action = withSym $ \sym -> do
 withCVC4
   :: (forall t . SimpleExprBuilder t fs -> SolverProcess t (Writer CVC4.CVC4) -> IO a)
   -> IO a
-withCVC4 action = withSym $ \sym -> do
+withCVC4 action = withSym FloatRealRepr $ \sym -> do
   extendConfig CVC4.cvc4Options (getConfiguration sym)
   bracket
     (do h <- if debugOutputFiles then Just <$> openFile "cvc4.out" WriteMode else return Nothing
@@ -146,8 +146,8 @@ floatDoubleType = BaseFloatRepr floatDoublePrecision
 
 testInterpretedFloatReal :: TestTree
 testInterpretedFloatReal = testCase "Float interpreted as real" $ do
-  actual   <- withSym $ iFloatTestPred @(Flags FloatReal)
-  expected <- withSym $ \sym -> do
+  actual   <- withSym FloatRealRepr iFloatTestPred
+  expected <- withSym FloatRealRepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- realLit sym 2.0
     e1 <- realAdd sym x e0
@@ -159,8 +159,8 @@ testInterpretedFloatReal = testCase "Float interpreted as real" $ do
 
 testFloatUninterpreted :: TestTree
 testFloatUninterpreted = testCase "Float uninterpreted" $ do
-  actual   <- withSym $ iFloatTestPred @(Flags FloatUninterpreted)
-  expected <- withSym $ \sym -> do
+  actual   <- withSym FloatUninterpretedRepr iFloatTestPred
+  expected <- withSym FloatUninterpretedRepr $ \sym -> do
     let bvtp = BaseBVRepr $ knownNat @32
     rne_rm           <- natLit sym $ fromIntegral $ fromEnum RNE
     rtz_rm           <- natLit sym $ fromIntegral $ fromEnum RTZ
@@ -190,8 +190,8 @@ testFloatUninterpreted = testCase "Float uninterpreted" $ do
 
 testInterpretedFloatIEEE :: TestTree
 testInterpretedFloatIEEE = testCase "Float interpreted as IEEE float" $ do
-  actual   <- withSym $ iFloatTestPred @(Flags FloatIEEE)
-  expected <- withSym $ \sym -> do
+  actual   <- withSym FloatIEEERepr iFloatTestPred
+  expected <- withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- floatLit sym floatSinglePrecision 2.0
     e1 <- floatAdd sym RNE x e0
@@ -296,7 +296,7 @@ testFloatFromBinary = testCase "float from binary" $ withZ3 $ \sym s -> do
 
 testFloatBinarySimplification :: TestTree
 testFloatBinarySimplification = testCase "float binary simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- floatToBinary sym x
     e1 <- floatFromBinary sym floatSinglePrecision e0
@@ -305,7 +305,7 @@ testFloatBinarySimplification = testCase "float binary simplification" $
 testRealFloatBinarySimplification :: TestTree
 testRealFloatBinarySimplification =
   testCase "real float binary simplification" $
-    withSym $ \(sym :: SimpleExprBuilder t (Flags FloatReal)) -> do
+    withSym FloatRealRepr $ \sym -> do
       x  <- freshFloatConstant sym (userSymbol' "x") SingleFloatRepr
       e0 <- iFloatToBinary sym SingleFloatRepr x
       e1 <- iFloatFromBinary sym SingleFloatRepr e0
@@ -313,7 +313,7 @@ testRealFloatBinarySimplification =
 
 testFloatCastSimplification :: TestTree
 testFloatCastSimplification = testCase "float cast simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") floatSingleType
     e0 <- floatCast sym floatDoublePrecision RNE x
     e1 <- floatCast sym floatSinglePrecision RNE e0
@@ -321,7 +321,7 @@ testFloatCastSimplification = testCase "float cast simplification" $
 
 testFloatCastNoSimplification :: TestTree
 testFloatCastNoSimplification = testCase "float cast no simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") floatDoubleType
     e0 <- floatCast sym floatSinglePrecision RNE x
     e1 <- floatCast sym floatDoublePrecision RNE e0
@@ -329,7 +329,7 @@ testFloatCastNoSimplification = testCase "float cast no simplification" $
 
 testBVSelectShl :: TestTree
 testBVSelectShl = testCase "select shl simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- bvLit sym (knownNat @64) 0
     e1 <- bvConcat sym e0 x
@@ -339,7 +339,7 @@ testBVSelectShl = testCase "select shl simplification" $
 
 testBVSelectLshr :: TestTree
 testBVSelectLshr = testCase "select lshr simplification" $
-  withSym $ \sym -> do
+  withSym FloatIEEERepr $ \sym -> do
     x  <- freshConstant sym (userSymbol' "x") knownRepr
     e0 <- bvConcat sym x =<< bvLit sym (knownNat @64) 0
     e1 <- bvLshr sym e0 =<< bvLit sym knownRepr 64

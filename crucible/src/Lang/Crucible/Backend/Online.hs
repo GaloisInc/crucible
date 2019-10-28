@@ -159,9 +159,9 @@ withYicesOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                        -> UnsatFeatures
                        -> (YicesOnlineBackend scope (B.Flags fm) -> m a)
                        -> m a
-withYicesOnlineBackend _fm gen unsatFeat action =
+withYicesOnlineBackend fm gen unsatFeat action =
   let feat = Yices.yicesDefaultFeatures .|. unsatFeaturesToProblemFeatures unsatFeat in
-  withOnlineBackend gen feat $ \sym ->
+  withOnlineBackend fm gen feat $ \sym ->
     do liftIO $ extendConfig Yices.yicesOptions (getConfiguration sym)
        action sym
 
@@ -184,9 +184,9 @@ withZ3OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                     -> UnsatFeatures
                     -> (Z3OnlineBackend scope (B.Flags fm) -> m a)
                     -> m a
-withZ3OnlineBackend _fm gen unsatFeat action =
+withZ3OnlineBackend fm gen unsatFeat action =
   let feat = (SMT2.defaultFeatures Z3.Z3 .|. unsatFeaturesToProblemFeatures unsatFeat) in
-  withOnlineBackend gen feat $ \sym ->
+  withOnlineBackend fm gen feat $ \sym ->
     do liftIO $ extendConfig Z3.z3Options (getConfiguration sym)
        action sym
 
@@ -209,9 +209,9 @@ withCVC4OnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                       -> UnsatFeatures
                       -> (CVC4OnlineBackend scope (B.Flags fm) -> m a)
                       -> m a
-withCVC4OnlineBackend _fm gen unsatFeat action =
+withCVC4OnlineBackend fm gen unsatFeat action =
   let feat = (SMT2.defaultFeatures CVC4.CVC4 .|. unsatFeaturesToProblemFeatures unsatFeat) in
-  withOnlineBackend gen feat $ \sym -> do
+  withOnlineBackend fm gen feat $ \sym -> do
     liftIO $ extendConfig CVC4.cvc4Options (getConfiguration sym)
     action sym
 
@@ -233,8 +233,8 @@ withSTPOnlineBackend :: forall fm scope m a . (MonadIO m, MonadMask m) =>
                      -> NonceGenerator IO scope
                      -> (STPOnlineBackend scope (B.Flags fm) -> m a)
                      -> m a
-withSTPOnlineBackend _fm gen action =
-  withOnlineBackend gen (SMT2.defaultFeatures STP.STP) $ \sym -> do
+withSTPOnlineBackend fm gen action =
+  withOnlineBackend fm gen (SMT2.defaultFeatures STP.STP) $ \sym -> do
     liftIO $ extendConfig STP.stpOptions (getConfiguration sym)
     action sym
 
@@ -375,13 +375,14 @@ considerSatisfiability sym mbPloc p =
 --   by this operation.
 withOnlineBackend ::
   (OnlineSolver scope solver, MonadIO m, MonadMask m) =>
+  B.FloatModeRepr fm ->
   NonceGenerator IO scope ->
   ProblemFeatures ->
-  (OnlineBackend scope solver fs -> m a) ->
+  (OnlineBackend scope solver (B.Flags fm) -> m a) ->
   m a
-withOnlineBackend gen feats action = do
+withOnlineBackend floatMode gen feats action = do
   st  <- liftIO $ initialOnlineBackendState gen feats
-  sym <- liftIO $ B.newExprBuilder st gen
+  sym <- liftIO $ B.newExprBuilder floatMode st gen
   liftIO $ extendConfig onlineBackendOptions (getConfiguration sym)
   liftIO $ writeIORef (B.sbStateManager sym) st
 

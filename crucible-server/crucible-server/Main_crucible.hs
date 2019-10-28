@@ -102,7 +102,8 @@ runSimpleSimulator hin hout = do
   withIONonceGenerator $ \gen -> do
     let ok_resp = mempty
                   & P.handShakeResponse_code .~ P.HandShakeOK
-    (sym :: SimpleBackend t (Flags FloatReal)) <- newSimpleBackend gen
+    -- (sym :: SimpleBackend t (Flags FloatReal)) <- newSimpleBackend gen
+    sym <- newSimpleBackend FloatRealRepr gen
     s <- newSimulator sym simpleServerOptions CrucibleServerPersonality [] simpleServerOverrides hin hout
     -- Enter loop to start reading commands.
     putDelimited hout ok_resp

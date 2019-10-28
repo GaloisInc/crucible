@@ -94,7 +94,7 @@ simulateProgram fn theInput outh profh opts setup =
             exitFailure
        Right v ->
          withIONonceGenerator $ \nonceGen ->
-         do sym <- newSimpleBackend @_ @(Flags FloatIEEE) nonceGen
+         do sym <- newSimpleBackend FloatIEEERepr nonceGen
             extendConfig opts (getConfiguration sym)
             ovrs <- setup @() @_ @() sym ha
             let hdls = [ (SomeHandle h, p) | (FnBinding h _,p) <- ovrs ]

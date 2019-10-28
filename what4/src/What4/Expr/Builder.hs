@@ -1356,7 +1356,8 @@ instance TestEquality FloatModeRepr where
 -- | Cache for storing dag terms.
 -- Parameter @t@ is a phantom type brand used to track nonces.
 data ExprBuilder t (st :: Type -> Type) (fs :: Type)
-   = SB { sbTrue  :: !(BoolExpr t)
+   = forall fm. (fs ~ (Flags fm)) =>
+     SB { sbTrue  :: !(BoolExpr t)
         , sbFalse :: !(BoolExpr t)
           -- | Constant zero.
         , sbZero  :: !(RealExpr t)
@@ -1392,6 +1393,9 @@ data ExprBuilder t (st :: Type -> Type) (fs :: Type)
           :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (ExprSymFnWrapper t))
         , sbSolverLogger
           :: !(IORef (Maybe (SolverEvent -> IO ())))
+          -- | Flag dictating how floating-point values/operations are translated
+          -- when passed to the solver.
+        , sbFloatMode :: !(FloatModeRepr fm)
         }
 
 type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
@@ -2926,14 +2930,15 @@ cacheOptDesc gen storageRef szSetting =
     (Just (ConcreteBool False))
 
 
-newExprBuilder :: --IsExprBuilderState st
-                 -- => st t
-                 st t
-                    -- ^ Current state for simple builder.
-                 -> NonceGenerator IO t
-                    -- ^ Nonce generator for names
-                 ->  IO (ExprBuilder t st fs)
-newExprBuilder st gen = do
+newExprBuilder ::
+  FloatModeRepr fm
+  -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
+  -> st t
+  -- ^ Current state for simple builder.
+  -> NonceGenerator IO t
+  -- ^ Nonce generator for names
+  ->  IO (ExprBuilder t st (Flags fm))
+newExprBuilder floatMode st gen = do
   st_ref <- newIORef st
   es <- newStorage gen
 
@@ -2977,6 +2982,7 @@ newExprBuilder st gen = do
                , sbUninterpFnCache = uninterp_fn_cache_ref
                , sbMatlabFnCache = matlabFnCache
                , sbSolverLogger = loggerRef
+               , sbFloatMode = floatMode
                }
 
 -- | Get current variable bindings.
