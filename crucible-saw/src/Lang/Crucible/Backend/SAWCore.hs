@@ -191,10 +191,11 @@ bindSAWTerm sym bt t = do
   return sbVar
 
 newSAWCoreBackend ::
+  FloatModeRepr fm ->
   SC.SharedContext ->
   NonceGenerator IO s ->
-  IO (SAWCoreBackend s (Yices.Connection s) (Flags FloatReal))
-newSAWCoreBackend sc gen = do
+  IO (SAWCoreBackend s (Yices.Connection s) (Flags fm))
+newSAWCoreBackend fm sc gen = do
   inpr <- newIORef Seq.empty
   ch   <- B.newIdxCache
   let feats = Yices.yicesDefaultFeatures
@@ -206,7 +207,7 @@ newSAWCoreBackend sc gen = do
               , saw_elt_cache = ch
               , saw_online_state = ob_st
               }
-  sym <- B.newExprBuilder FloatRealRepr st gen
+  sym <- B.newExprBuilder fm st gen
   let options = onlineBackendOptions ++ Yices.yicesOptions
   extendConfig options (getConfiguration sym)
   writeIORef (B.sbStateManager sym) st

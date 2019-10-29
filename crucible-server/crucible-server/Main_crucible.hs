@@ -27,8 +27,6 @@ import           Lang.Crucible.Backend.Simple
 import qualified Lang.Crucible.Backend.SAWCore as SAW
 import           Lang.Crucible.Simulator.PathSatisfiability
 
-import           What4.Expr.Builder(Flags,FloatReal)
-
 import qualified Lang.Crucible.Proto as P
 import           Lang.Crucible.Server.Requests
 import           Lang.Crucible.Server.Simulator
@@ -89,7 +87,7 @@ runSAWSimulator hin hout =
        sc <- SAW.mkSharedContext
        SAW.scLoadPreludeModule sc
        CryptolSAW.scLoadCryptolModule sc
-       (sym :: SAWBack n) <- SAW.newSAWCoreBackend sc gen
+       (sym :: SAWBack n) <- SAW.newSAWCoreBackend FloatRealRepr sc gen
        sawState <- initSAWServerPersonality sym
        pathSatFeat <- pathSatisfiabilityFeature sym (SAW.considerSatisfiability sym)
        s <- newSimulator sym sawServerOptions sawState [pathSatFeat] sawServerOverrides hin hout
