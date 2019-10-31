@@ -120,7 +120,13 @@ withBackend cruxOpts nonceGen f =
     "real" -> withSolver FloatRealRepr (solver cruxOpts)
     "ieee" -> withSolver FloatIEEERepr (solver cruxOpts)
     "uninterpreted" -> withSolver FloatUninterpretedRepr (solver cruxOpts)
-    s -> fail $ "unknown floating-point mode: " ++ s ++ "; expepected of one [real|ieee|uninterpreted]."
+    "default" ->
+      case (solver cruxOpts) of
+        s@"cvc4" -> withSolver FloatRealRepr s
+        s@"yices" -> withSolver FloatRealRepr s
+        s@"z3" -> withSolver FloatIEEERepr s
+        s -> fail $ "unknown solver: " ++ s ++ "; expepected of one [cvc4|yices|z3]."
+    fm -> fail $ "unknown floating-point mode: " ++ fm ++ "; expepected of one [real|ieee|uninterpreted|default]."
   where
   unsatCores | yicesMCSat cruxOpts = NoUnsatFeatures
              | otherwise           = ProduceUnsatCores
