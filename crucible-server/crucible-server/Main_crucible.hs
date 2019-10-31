@@ -87,7 +87,7 @@ runSAWSimulator hin hout =
        sc <- SAW.mkSharedContext
        SAW.scLoadPreludeModule sc
        CryptolSAW.scLoadCryptolModule sc
-       (sym :: SAWBack n) <- SAW.newSAWCoreBackend FloatRealRepr sc gen
+       (sym :: SAWBack n) <- SAW.newSAWCoreBackend sc gen
        sawState <- initSAWServerPersonality sym
        pathSatFeat <- pathSatisfiabilityFeature sym (SAW.considerSatisfiability sym)
        s <- newSimulator sym sawServerOptions sawState [pathSatFeat] sawServerOverrides hin hout
