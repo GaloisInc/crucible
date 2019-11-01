@@ -31,6 +31,7 @@ module Lang.Crucible.LLVM.Extension.Safety.Poison
   ( Poison(..)
   , cite
   , explain
+  , briefDescription
   , pp
   , ppReg
   ) where
@@ -168,6 +169,28 @@ cite = text .
     ExtractElementIndex _   -> "‘extractelement’ Instruction (Semantics)"
     InsertElementIndex _    -> "‘insertelement’ Instruction (Semantics)"
     GEPOutOfBounds _        -> "‘getelementptr’ Instruction (Semantics)"
+
+briefDescription :: Poison e -> Doc
+briefDescription =
+  \case
+    AddNoUnsignedWrap _ _ -> "unsigned addition overflow"
+    AddNoSignedWrap _ _ -> "signed addition overflow"
+    SubNoUnsignedWrap _ _ -> "unsigned subtraction overflow"
+    SubNoSignedWrap _ _  -> "signed subtraction overflow"
+    MulNoUnsignedWrap _ _ -> "unsigned multiplication overflow"
+    MulNoSignedWrap _ _ -> "signed multiplication overflow"
+    SDivExact _ _ -> "inexact signed division"
+    UDivExact _ _ -> "inexact unsigned division"
+    ShlOp2Big _ _ -> "left shift beyond word size"
+    ShlNoUnsignedWrap _ _ -> "left shift discarded non-zero bits"
+    ShlNoSignedWrap _ _ -> "left shift may have changed sign"
+    LshrExact _ _ -> "inexact logical right shift"
+    LshrOp2Big _ _ -> "logical right shift beyond word size"
+    AshrExact _ _ ->  "inexact arithmetic right shift"
+    AshrOp2Big _ _   -> "arithmetic right shift beyond word size"
+    ExtractElementIndex _   -> "out-of-bounds vector extraction"
+    InsertElementIndex _   -> "out-of-bounds vector insertion"
+    GEPOutOfBounds _   -> "out-of-bounds pointer indexing"
 
 explain :: Poison e -> Doc
 explain =
