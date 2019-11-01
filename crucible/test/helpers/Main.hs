@@ -1,7 +1,6 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 module Main where
 
-import Control.Exception
 import Data.List (isInfixOf)
 
 import qualified Test.Tasty as T

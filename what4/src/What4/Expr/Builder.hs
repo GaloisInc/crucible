@@ -1951,7 +1951,7 @@ instance TestEquality (NonceApp t (Expr t)) where
           )
 
 instance HashableF (NonceApp t (Expr t)) where
-  hashWithSaltF = $(structuralHash [t|NonceApp|])
+  hashWithSaltF = $(structuralHashWithSalt [t|NonceApp|] [])
 
 instance FunctorFC (NonceApp t)  where
   fmapFC = fmapFCDefault
@@ -2639,7 +2639,7 @@ appEqF = $(structuralTypeEquality [t|App|]
 {-# NOINLINE hashApp #-}
 -- | Hash an an application.
 hashApp :: Int -> App (Expr t) s -> Int
-hashApp = $(structuralHash [t|App|])
+hashApp = $(structuralHashWithSalt [t|App|] [])
 
 instance Eq (App (Expr t) tp) where
   x == y = isJust (testEquality x y)

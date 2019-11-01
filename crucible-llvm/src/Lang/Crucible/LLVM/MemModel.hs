@@ -68,6 +68,7 @@ module Lang.Crucible.LLVM.MemModel
   , doLookupHandle
   , doMemcpy
   , doMemset
+  , doInvalidate
   , doCalloc
   , doFree
   , doLoad
@@ -180,6 +181,7 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
+import           Data.Text (Text)
 import           Data.Word
 import           GHC.TypeNats
 import           System.IO (Handle, hPutStrLn)
@@ -694,6 +696,29 @@ doMemset sym w mem dest val len = do
 
   assertUndefined sym p $
     UB.MemsetInvalidRegion (UB.pointerView dest) (RV val) (RV len)
+
+  return mem{ memImplHeap = heap' }
+
+doInvalidate ::
+  (1 <= w, IsSymInterface sym, HasPtrWidth wptr) =>
+  sym ->
+  NatRepr w ->
+  MemImpl sym ->
+  LLVMPtr sym wptr {- ^ destination -} ->
+  Text             {- ^ message     -} ->
+  SymBV sym w      {- ^ length      -} ->
+  IO (MemImpl sym)
+doInvalidate sym w mem dest msg len = do
+  len' <- sextendBVTo sym w PtrWidth len
+
+  (heap', p) <- G.invalidateMem sym PtrWidth dest msg len' (memImplHeap mem)
+
+  assert sym p . AssertFailureSimError $ mconcat
+    [ "Invalidation of unallocated or immutable region: "
+    , show $ printSymExpr len
+    , " bytes at "
+    , show $ G.ppPtr dest
+    ]
 
   return mem{ memImplHeap = heap' }
 
@@ -1504,15 +1529,20 @@ doResolveGlobal ::
   MemImpl sym ->
   L.Symbol {- ^ name of global -} ->
   IO (LLVMPtr sym wptr)
-doResolveGlobal _sym mem symbol =
+doResolveGlobal sym mem symbol@(L.Symbol name) =
   let lookedUp = Map.lookup symbol (memImplGlobalMap mem)
   in case lookedUp of
        Just (SomePointer ptr) | PtrWidth <- ptrWidth ptr -> return ptr
-       _ -> panic "MemModel.doResolveGlobal" $
-               (if isJust lookedUp
-               then "Symbol was not a pointer of the correct width."
-               else "Unable to resolve global symbol.") :
-               [ "*** Name: " ++ show symbol ]
+       _ -> addFailedAssertion sym . AssertFailureSimError $
+         if isJust lookedUp
+         then mconcat [ "Allocation associated with global symbol \""
+                      , name
+                      , "\" is not a pointer of the correct width"
+                      ]
+         else mconcat [ "Global symbol \""
+                      , name
+                      , "\" has no associated allocation"
+                      ]
 
 -- | Add an entry to the global map of the given 'MemImpl'.
 --

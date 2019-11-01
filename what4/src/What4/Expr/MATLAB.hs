@@ -229,7 +229,7 @@ instance ( Hashable (f BaseNatType)
          , HashableF f
          )
          => Hashable (MatlabSolverFn f args tp) where
-  hashWithSalt = $(structuralHash [t|MatlabSolverFn|])
+  hashWithSalt = $(structuralHashWithSalt [t|MatlabSolverFn|] [])
 
 evalMatlabSolverFn :: forall sym args ret
                    .  IsExprBuilder sym
