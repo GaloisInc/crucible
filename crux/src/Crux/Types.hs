@@ -56,7 +56,7 @@ data Result sym where
 
 data ProofResult a
    = Proved [a]
-   | NotProved (Maybe ModelViews)   -- ^ Counter example, if any
+   | NotProved (Maybe ModelView)   -- ^ Counter example, if any
  deriving (Functor)
 
 type LPred sym   = LabeledPred (Pred sym)
@@ -82,12 +82,8 @@ data Entry ty       = Entry { entryName :: String
 newtype Vars sym ty = Vars [ Entry (RegValue sym (BaseToType ty)) ]
 newtype Vals ty     = Vals [ Entry (GroundValue ty) ]
 
--- Should we break this into separate languages?
-
-data ModelViews = ModelViews
-  { modelInC :: String
-  , modelInJS :: String
-  }
+-- | A portable view of a model's contents.
+newtype ModelView = ModelView { modelVals :: MapF BaseTypeRepr Vals }
 
 
 
