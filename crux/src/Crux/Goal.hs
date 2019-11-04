@@ -166,8 +166,8 @@ proveGoals opts ctxt (Just gs0) =
                       Sat ()  ->
                         do f <- smtExprGroundEvalFn conn (solverEvalFuns sp)
                            let model = ctxt ^. cruciblePersonality
-                           str <- ppModel f model
-                           return (Prove (p, NotProved (Just str)))
+                           vals <- evalModel f model
+                           return (Prove (p, NotProved (Just (ModelView vals))))
 
                       Unknown -> return (Prove (p, NotProved Nothing))
            end

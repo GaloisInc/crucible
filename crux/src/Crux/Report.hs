@@ -20,6 +20,7 @@ import Lang.Crucible.Backend
 import Crux.Types
 import Crux.Config.Common
 import Crux.Loops
+import Crux.Model ( ppModelJS )
 
 -- Note these should be data files. However, cabal-new build doesn't make it easy for the installation
 -- to find data files, so they are embedded as Text constants instead.
@@ -116,7 +117,7 @@ jsSideCond cwd path asmps (conc,_) triv status =
              (NotProved (Just _), _) -> jsStr "fail"
 
   example = case status of
-             NotProved (Just m) -> JS (modelInJS m)
+             NotProved (Just m) -> JS (ppModelJS cwd m)
              _                  -> jsNull
 
   mkAsmp (asmp,_) =

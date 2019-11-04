@@ -69,14 +69,6 @@ evalModel ev (Model mp) = traverseF (evalVars ev) mp
 
 --------------------------------------------------------------------------------
 
-ppModel :: GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO ModelViews
-ppModel ev m =
-  do c_code <- ppModelC ev m
-     js_code <- ppModelJS ev m
-     return ModelViews { modelInC  = c_code
-                       , modelInJS = js_code
-                       }
-
 toDouble :: Rational -> Double
 toDouble = fromRational
 
@@ -104,15 +96,13 @@ ppValsC ty (Vals xs) =
             intercalate "," (map (ppRawVal . entryValue) xs) ++ " };"
       ]
 
-ppModelC ::
-  GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO String
-ppModelC ev m =
-  do vals <- evalModel ev m
-     return $ unlines
-            $ "#include <stdint.h>"
-            : "#include <stddef.h>"
-            : ""
-            : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
+ppModelC :: ModelView -> String
+ppModelC m = unlines
+             $ "#include <stdint.h>"
+             : "#include <stddef.h>"
+             : ""
+             : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
+            where vals = modelVals m
 
 ppValsJS :: FilePath -> BaseTypeRepr ty -> Vals ty -> [String]
 ppValsJS cwd ty (Vals xs) =
@@ -141,16 +131,13 @@ ppValsJS cwd ty (Vals xs) =
       ]
 
 
-ppModelJS ::
-  GroundEvalFn s -> Model (ExprBuilder s t fs) -> IO String
-ppModelJS ev m =
-  do vals <- evalModel ev m
-     cwd <- getCurrentDirectory
-     let ents = MapF.foldrWithKey (\k v rest -> ppValsJS cwd k v ++ rest) [] vals
-         pre  = "[ " : repeat ", "
-     return $ case ents of
+ppModelJS :: FilePath -> ModelView -> String
+ppModelJS cwd m = case ents of
                 [] -> "[]"
                 _  -> unlines $ zipWith (++) pre ents ++ ["]"]
+  where vals = modelVals m
+        ents = MapF.foldrWithKey (\k v rest -> ppValsJS cwd k v ++ rest) [] vals
+        pre  = "[ " : repeat ", "
 
 
 
