@@ -142,7 +142,8 @@ module What4.Expr.Builder
   , idxCacheEval'
 
     -- * Flags
-  , type FloatInterpretation
+  , type FloatMode
+  , FloatModeRepr(..)
   , FloatIEEE
   , FloatUninterpreted
   , FloatReal
@@ -1317,20 +1318,46 @@ data SomeSymFn sym = forall args ret . SomeSymFn (SymFn sym args ret)
 ------------------------------------------------------------------------
 -- ExprBuilder
 
-data FloatInterpretation where
-  FloatIEEE :: FloatInterpretation
-  FloatUninterpreted :: FloatInterpretation
-  FloatReal :: FloatInterpretation
+-- | Mode flag for how floating-point values should be interpreted.
+data FloatMode where
+  FloatIEEE :: FloatMode
+  FloatUninterpreted :: FloatMode
+  FloatReal :: FloatMode
 type FloatIEEE = 'FloatIEEE
 type FloatUninterpreted = 'FloatUninterpreted
 type FloatReal = 'FloatReal
 
-data Flags (fi :: FloatInterpretation)
+data Flags (fi :: FloatMode)
+
+
+data FloatModeRepr :: FloatMode -> Type where
+  FloatIEEERepr          :: FloatModeRepr FloatIEEE
+  FloatUninterpretedRepr :: FloatModeRepr FloatUninterpreted
+  FloatRealRepr          :: FloatModeRepr FloatReal
+
+instance Show (FloatModeRepr fm) where
+  showsPrec _ FloatIEEERepr          = showString "FloatIEEE"
+  showsPrec _ FloatUninterpretedRepr = showString "FloatUninterpreted"
+  showsPrec _ FloatRealRepr          = showString "FloatReal"
+
+instance ShowF FloatModeRepr
+
+instance KnownRepr FloatModeRepr FloatIEEE          where knownRepr = FloatIEEERepr
+instance KnownRepr FloatModeRepr FloatUninterpreted where knownRepr = FloatUninterpretedRepr
+instance KnownRepr FloatModeRepr FloatReal          where knownRepr = FloatRealRepr
+
+instance TestEquality FloatModeRepr where
+  testEquality FloatIEEERepr           FloatIEEERepr           = return Refl
+  testEquality FloatUninterpretedRepr  FloatUninterpretedRepr  = return Refl
+  testEquality FloatRealRepr           FloatRealRepr           = return Refl
+  testEquality _ _ = Nothing
+
 
 -- | Cache for storing dag terms.
 -- Parameter @t@ is a phantom type brand used to track nonces.
 data ExprBuilder t (st :: Type -> Type) (fs :: Type)
-   = SB { sbTrue  :: !(BoolExpr t)
+   = forall fm. (fs ~ (Flags fm)) =>
+     SB { sbTrue  :: !(BoolExpr t)
         , sbFalse :: !(BoolExpr t)
           -- | Constant zero.
         , sbZero  :: !(RealExpr t)
@@ -1366,6 +1393,9 @@ data ExprBuilder t (st :: Type -> Type) (fs :: Type)
           :: !(PH.HashTable RealWorld (MatlabFnWrapper t) (ExprSymFnWrapper t))
         , sbSolverLogger
           :: !(IORef (Maybe (SolverEvent -> IO ())))
+          -- | Flag dictating how floating-point values/operations are translated
+          -- when passed to the solver.
+        , sbFloatMode :: !(FloatModeRepr fm)
         }
 
 type instance SymFn (ExprBuilder t st fs) = ExprSymFn t
@@ -2900,14 +2930,15 @@ cacheOptDesc gen storageRef szSetting =
     (Just (ConcreteBool False))
 
 
-newExprBuilder :: --IsExprBuilderState st
-                 -- => st t
-                 st t
-                    -- ^ Current state for simple builder.
-                 -> NonceGenerator IO t
-                    -- ^ Nonce generator for names
-                 ->  IO (ExprBuilder t st fs)
-newExprBuilder st gen = do
+newExprBuilder ::
+  FloatModeRepr fm
+  -- ^ Float interpretation mode (i.e., how are floats translated for the solver).
+  -> st t
+  -- ^ Current state for simple builder.
+  -> NonceGenerator IO t
+  -- ^ Nonce generator for names
+  ->  IO (ExprBuilder t st (Flags fm))
+newExprBuilder floatMode st gen = do
   st_ref <- newIORef st
   es <- newStorage gen
 
@@ -2951,6 +2982,7 @@ newExprBuilder st gen = do
                , sbUninterpFnCache = uninterp_fn_cache_ref
                , sbMatlabFnCache = matlabFnCache
                , sbSolverLogger = loggerRef
+               , sbFloatMode = floatMode
                }
 
 -- | Get current variable bindings.
