@@ -57,7 +57,6 @@ import           What4.InterpretedFloatingPoint
 import           What4.Partial (pattern PE, pattern Unassigned, joinMaybePE)
 import           What4.Symbol (emptySymbol)
 import           What4.Utils.Complex
-import           What4.Utils.StringLiteral
 import           What4.WordMap
 
 import           Lang.Crucible.Backend

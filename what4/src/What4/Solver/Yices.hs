@@ -113,7 +113,6 @@ import           What4.Protocol.Online
 import qualified What4.Protocol.PolyRoot as Root
 import           What4.Utils.HandleReader
 import           What4.Utils.Process
-import           What4.Utils.StringLiteral
 
 import Prelude
 

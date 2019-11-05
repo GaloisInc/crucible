@@ -39,7 +39,6 @@ import           What4.Solver
 import           What4.Solver.Adapter
 import qualified What4.Solver.ABC as ABC
 import qualified What4.Solver.Yices as Yices
-import           What4.Utils.StringLiteral
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Backend.Simple

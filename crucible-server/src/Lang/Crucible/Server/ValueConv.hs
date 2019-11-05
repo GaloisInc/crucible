@@ -44,7 +44,6 @@ import           Data.Parameterized.Some
 import qualified Data.Parameterized.Context as Ctx
 
 import           What4.Interface
-import           What4.Utils.StringLiteral
 
 import           Lang.Crucible.CFG.Expr
 import qualified Lang.Crucible.CFG.Reg as R

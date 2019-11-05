@@ -96,7 +96,6 @@ import qualified What4.Expr.WeightedSum as WSum
 import           What4.Solver.Adapter
 import qualified What4.Utils.AbstractDomains as AD
 import           What4.Utils.Complex
-import           What4.Utils.StringLiteral
 
 import           BLT.Binding
 
