@@ -47,6 +47,7 @@ import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
 
 import           What4.ProgramLoc
+import           What4.Utils.StringLiteral
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
@@ -300,7 +301,7 @@ transExpr pe = do
         Nothing -> fail "Width is too large"
     P.StringExpr -> do
       let s = pe^.P.expr_string_lit
-      fmap Some $ addAppStmt $ TextLit s
+      fmap Some $ addAppStmt $ StringLit $ UnicodeLiteral s
     P.UnitExpr -> do
       fmap Some $ addAppStmt $ EmptyApp
     P.FnHandleExpr -> do
