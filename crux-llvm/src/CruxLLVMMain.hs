@@ -19,7 +19,11 @@ import qualified Data.Foldable as Fold
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.Text (Text)
+import Data.List(intercalate)
 
+
+import Data.Binary.IEEE754 as IEEE754
+import qualified Data.Parameterized.Map as MapF
 
 import System.Process
 import System.Exit
@@ -210,6 +214,37 @@ checkFun nm mp =
     Nothing -> throwCError (MissingFun nm)
 
 
+ppValsC :: BaseTypeRepr ty -> Vals ty -> String
+ppValsC ty (Vals xs) =
+  let (cty, cnm, ppRawVal) = case ty of
+        BaseBVRepr n ->
+          ("int" ++ show n ++ "_t", "int" ++ show n ++ "_t", show)
+        BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
+          | natValue eb == 8, natValue sb == 24
+          -> ("float", "float", show . IEEE754.wordToFloat . fromInteger)
+        BaseFloatRepr (FloatingPointPrecisionRepr eb sb)
+          | natValue eb == 11, natValue sb == 53
+          -> ("double", "double", show . IEEE754.wordToDouble . fromInteger)
+        BaseRealRepr -> ("double", "real", (show . toDouble))
+        _ -> error ("Type not implemented: " ++ show ty)
+  in unlines
+      [ "size_t const crucible_values_number_" ++ cnm ++
+                " = " ++ show (length xs) ++ ";"
+
+      , "const char* crucible_names_" ++ cnm ++ "[] = { " ++
+            intercalate "," (map (show . entryName) xs) ++ " };"
+
+      , cty ++ " const crucible_values_" ++ cnm ++ "[] = { " ++
+            intercalate "," (map (ppRawVal . entryValue) xs) ++ " };"
+      ]
+
+ppModelC :: ModelView -> String
+ppModelC m = unlines
+             $ "#include <stdint.h>"
+             : "#include <stddef.h>"
+             : ""
+             : MapF.foldrWithKey (\k v rest -> ppValsC k v : rest) [] vals
+            where vals = modelVals m
 
 -----------------------------------------------------------------------
 -----------------------------------------------------------------------
