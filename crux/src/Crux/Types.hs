@@ -74,15 +74,41 @@ data ProvedGoals a =
 
 -- From Model
 
+-- | SMT model organized by crucible type. I.e., each
+-- crucible type is associated with the list of entries
+-- (i.e. named, possibly still symbolic, RegValues) at that
+-- type for the given model, used to describe the conditions
+-- under which an SMT query is satisfiable. N.B., because
+-- the values may still be symbolic, they must be evaluated
+-- before they are grounded (e.g., see the `evalModel` and
+-- `groundEval` functions from Crux.Model and
+-- What4.Expr.GroundEval, which are used to construct the
+-- ModelView datatype described below).
 newtype Model sym   = Model (MapF BaseTypeRepr (Vars sym))
+
+-- | A list of named (possibly still symbolic) RegValues of
+-- the same type (used to describe SMT models -- see the
+-- Model datatype).
+newtype Vars sym ty = Vars [ Entry (RegValue sym (BaseToType ty)) ]
+
+-- | A list of named GroundValues of the same type (used to
+-- report SMT models in a portable way -- see the ModelView
+-- datatype).
+newtype Vals ty     = Vals [ Entry (GroundValue ty) ]
+
+-- | A named value of type `ty` with a program
+-- location. Used to describe and report models from SMT
+-- queries (see Model and ModelView datatypes).
 data Entry ty       = Entry { entryName :: String
                             , entryLoc :: ProgramLoc
                             , entryValue :: ty
                             }
-newtype Vars sym ty = Vars [ Entry (RegValue sym (BaseToType ty)) ]
-newtype Vals ty     = Vals [ Entry (GroundValue ty) ]
 
--- | A portable view of a model's contents.
+-- | A portable/concrete view of a model's contents, organized by
+-- crucible type. I.e., each crucible type is associated
+-- with the list of entries (i.e. named GroundValues) at
+-- that type for the given model, used to describe the
+-- conditions under which an SMT query is satisfiable.
 newtype ModelView = ModelView { modelVals :: MapF BaseTypeRepr Vals }
 
 
