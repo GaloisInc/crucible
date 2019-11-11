@@ -1400,6 +1400,9 @@ checkVarTypeSupport var = do
     BaseIntegerRepr -> checkIntegerSupport t
     BaseRealRepr    -> checkLinearSupport t
     BaseComplexRepr -> checkLinearSupport t
+    BaseStringRepr _ -> checkStringSupport t
+    BaseFloatRepr _  -> checkFloatSupport t
+    BaseBVRepr _     -> checkBitvectorSupport t
     _ -> return ()
 
 theoryUnsupported :: Monad m => WriterConn t h -> String -> Expr t tp -> m a
@@ -1420,7 +1423,19 @@ checkStringSupport :: Expr t tp -> SMTCollector t h ()
 checkStringSupport t = do
   conn <- asks scConn
   unless (supportedFeatures conn `hasProblemFeature` useStrings) $ do
-    theoryUnsupported conn "strings" t
+    theoryUnsupported conn "string" t
+
+checkBitvectorSupport :: Expr t tp -> SMTCollector t h ()
+checkBitvectorSupport t = do
+  conn <- asks scConn
+  unless (supportedFeatures conn `hasProblemFeature` useBitvectors) $ do
+    theoryUnsupported conn "bitvectors" t
+
+checkFloatSupport :: Expr t tp -> SMTCollector t h ()
+checkFloatSupport t = do
+  conn <- asks scConn
+  unless (supportedFeatures conn `hasProblemFeature` useFloatingPoint) $ do
+    theoryUnsupported conn "floating-point arithmetic" t
 
 checkLinearSupport :: Expr t tp -> SMTCollector t h ()
 checkLinearSupport t = do
@@ -2199,9 +2214,10 @@ appSMTExpr ae = do
     ------------------------------------------
     -- String operations
 
-    StringLength xe ->
+    StringLength xe -> do
       case stringInfo xe of
         Char8Repr -> do
+          checkStringSupport i
           x <- mkBaseExpr xe
           freshBoundTerm NatTypeMap $ stringLength @h x
         si -> fail ("Unsupported symbolic string length operation " ++  show si)
@@ -2209,6 +2225,7 @@ appSMTExpr ae = do
     StringAppend si xes ->
       case si of
         Char8Repr -> do
+          checkStringSupport i
           xs <- mapM (either (return . stringTerm @h . fromChar8Lit) mkBaseExpr) $ SSeq.toList xes
           freshBoundTerm Char8TypeMap $ stringAppend @h xs
 

@@ -15,7 +15,7 @@
 --  3 : Uses integer variables (should also set bit 0)
 --  4 : Uses bitvectors
 --  5 : Uses exists-forall.
---  6 : Uses quantifiers (should also set bit 4)
+--  6 : Uses quantifiers (should also set bit 5)
 --  7 : Uses symbolic arrays or complex numbers.
 --  8 : Uses structs
 --  9 : Uses strings
@@ -36,7 +36,6 @@ module What4.ProblemFeatures
   , useExistForall
   , useQuantifiers
   , useSymbolicArrays
-  , useComplexArithmetic
   , useStructs
   , useStrings
   , useFloatingPoint
@@ -82,25 +81,18 @@ useExistForall = ProblemFeatures 0x20
 
 -- | Has general quantifier support.
 useQuantifiers :: ProblemFeatures
-useQuantifiers = ProblemFeatures 0x60
-
--- | Indicates whether the problem uses complex arithmetic.
---
--- This is encoded as a symbolic array or struct depending on
--- what features the solver supports.
-useComplexArithmetic :: ProblemFeatures
-useComplexArithmetic = ProblemFeatures 0x80
+useQuantifiers = ProblemFeatures 0x40 .|. useExistForall
 
 -- | Indicates whether the problem uses symbolic arrays.
 useSymbolicArrays :: ProblemFeatures
-useSymbolicArrays = ProblemFeatures 0x180
+useSymbolicArrays = ProblemFeatures 0x80
 
 -- | Indicates whether the problem uses structs
 --
 -- Structs are modeled using constructors in CVC4/Z3, and tuples
 -- in Yices.
 useStructs :: ProblemFeatures
-useStructs = ProblemFeatures 0x280
+useStructs = ProblemFeatures 0x100
 
 -- | Indicates whether the problem uses strings
 --

@@ -903,7 +903,6 @@ yicesDefaultFeatures :: ProblemFeatures
 yicesDefaultFeatures
     = useLinearArithmetic
   .|. useBitvectors
-  .|. useComplexArithmetic
   .|. useStructs
 
 yicesAdapter :: SolverAdapter t

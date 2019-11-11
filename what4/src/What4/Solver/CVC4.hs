@@ -137,7 +137,7 @@ instance SMT2.SMTLib2GenericSolver CVC4 where
 
   defaultSolverArgs _ _ = return ["--lang", "smt2", "--incremental"]
 
-  defaultFeatures _ = useIntegerArithmetic
+  defaultFeatures _ = cvc4Features
 
   setDefaultLogicAndOptions writer = do
     -- Tell CVC4 to use all supported logics.
