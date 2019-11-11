@@ -17,6 +17,7 @@ import Test.Tasty.HUnit
 
 import           Control.Exception (bracket, try, SomeException)
 import           Control.Monad (void)
+import qualified Data.ByteString as BS
 import qualified Data.Binary.IEEE754 as IEEE754
 import           Data.Foldable
 import qualified Data.Map as Map (empty, singleton)
@@ -513,6 +514,89 @@ pairTest sym solver =
        res2 <- checkSatisfiable solver "test" =<< notPred sym p
        isSat res2 @? "neg sat"
 
+stringTest1 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest1 sym solver =
+  do let bsx = "asdf\nasdf"
+     let bsz = "qwe\x1crty"
+     let bsw = "QQ\"QQ"
+
+     x <- stringLit sym (Char8Literal bsx)
+     y <- freshConstant sym (userSymbol' "str") (BaseStringRepr Char8Repr)
+     z <- stringLit sym (Char8Literal bsz)
+     w <- stringLit sym (Char8Literal bsw)
+
+     s <- stringConcat sym x =<< stringConcat sym y z
+     s' <- stringConcat sym s w
+
+     l <- stringLength sym s'
+
+     n <- natLit sym 25
+     p <- natEq sym n l
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+         do Char8Literal slit <- groundEval fn s'
+            llit <- groundEval fn n
+
+            (fromIntegral (BS.length slit) == llit) @? "model string length"
+            BS.isPrefixOf bsx slit @? "prefix check"
+            BS.isSuffixOf (bsz <> bsw) slit @? "suffix check"
+
+       _ -> fail "expected satisfiable model"
+
+     p2 <- natEq sym l =<< natLit sym 20
+     checkSatisfiableWithModel solver "test" p2 $ \case
+       Unsat () -> return ()
+       _ -> fail "expected unsatifiable model"
+
+
+stringTest2 ::
+  OnlineSolver t solver =>
+  SimpleExprBuilder t fs ->
+  SolverProcess t solver ->
+  IO ()
+stringTest2 sym solver =
+  do let bsx = "asdf\nasdf"
+     let bsz = "qwe\x1crty"
+     let bsw = "QQ\"QQ"
+
+     q <- freshConstant sym (userSymbol' "q") BaseBoolRepr
+
+     x <- stringLit sym (Char8Literal bsx)
+     z <- stringLit sym (Char8Literal bsz)
+     w <- stringLit sym (Char8Literal bsw)
+
+     a <- freshConstant sym (userSymbol' "stra") (BaseStringRepr Char8Repr)
+     b <- freshConstant sym (userSymbol' "strb") (BaseStringRepr Char8Repr)
+
+     ax <- stringConcat sym x a
+
+     zw <- stringIte sym q z w
+     bzw <- stringConcat sym b zw
+
+     l <- stringLength sym zw
+     n <- natLit sym 7
+
+     p1 <- stringEq sym ax bzw
+     p2 <- natLt sym l n
+     p  <- andPred sym p1 p2
+
+     checkSatisfiableWithModel solver "test" p $ \case
+       Sat fn ->
+         do axlit <- groundEval fn ax
+            bzwlit <- groundEval fn bzw
+            qlit <- groundEval fn q
+
+            qlit == False @? "correct ite"
+            axlit == bzwlit @? "equal strings"
+
+       _ -> fail "expected satisfable model"
+
+
 forallTest ::
   OnlineSolver t solver =>
   SimpleExprBuilder t fs ->
@@ -608,4 +692,11 @@ main = defaultMain $ testGroup "Tests"
 
   , testCase "Z3 forall binder" $ withOnlineZ3 forallTest
   , testCase "CVC4 forall binder" $ withCVC4 forallTest
+
+  , testCase "Z3 string1" $ withOnlineZ3 stringTest1
+  , testCase "Z3 string2" $ withOnlineZ3 stringTest2
+
+  , testCase "CVC4 string1" $ withCVC4 stringTest1
+  , testCase "CVC4 string2" $ withCVC4 stringTest2
+
   ]
