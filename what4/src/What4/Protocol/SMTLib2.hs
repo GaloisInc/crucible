@@ -78,6 +78,7 @@ module What4.Protocol.SMTLib2
 import           Control.Applicative
 import           Control.Exception
 import           Control.Monad.State.Strict
+import qualified Data.Attoparsec.Text as AT
 import           Data.Bits (bit, setBit, shiftL)
 import           Data.Char (digitToInt)
 import           Data.IORef
@@ -658,6 +659,17 @@ data Session t a = Session
   , sessionResponse :: !(Streams.InputStream Text)
   }
 
+parseSMTLib2String :: AT.Parser Text
+parseSMTLib2String = AT.char '\"' >> go
+ where
+ go :: AT.Parser Text
+ go = do xs <- AT.takeWhile (not . (=='\"'))
+         _ <- AT.char '\"'
+         (do _ <- AT.char '\"'
+             ys <- go
+             return (xs <> "\"" <> ys)
+          ) <|> return xs
+
 -- | Get a value from a solver (must be called after checkSat)
 runGetValue :: SMTLib2Tweaks a
             => Session t a
@@ -665,7 +677,7 @@ runGetValue :: SMTLib2Tweaks a
             -> IO SExp
 runGetValue s e = do
   writeGetValue (sessionWriter s) [ e ]
-  msexp <- try $ Streams.parseFromStream parseSExp (sessionResponse s)
+  msexp <- try $ Streams.parseFromStream (parseSExp parseSMTLib2String) (sessionResponse s)
   case msexp of
     Left Streams.ParseException{} -> fail $ "Could not parse solver value."
     Right (SApp [SApp [_, b]]) -> return b
@@ -716,7 +728,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
          Right res -> throw $ SMTLib2ParseError (checkCommands p) (Text.pack (show res))
 
   smtUnsatAssumptionsResult p s =
-    do mb <- try (Streams.parseFromStream parseSExp s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        let cmd = getUnsatAssumptionsCommand p
        case mb of
          Right (asNegAtomList -> Just as) -> return as
@@ -726,7 +738,7 @@ instance SMTLib2Tweaks a => SMTReadWriter (Writer a) where
            throwSMTLib2ParseError "unsat assumptions" cmd e
 
   smtUnsatCoreResult p s =
-    do mb <- try (Streams.parseFromStream parseSExp s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) s)
        let cmd = getUnsatCoreCommand p
        case mb of
          Right (asAtomList -> Just nms) -> return nms
@@ -767,7 +779,7 @@ instance Exception SMTLib2Exception
 
 smtAckResult :: Streams.InputStream Text -> AcknowledgementAction t (Writer a)
 smtAckResult resp = AckAction $ \_conn cmd ->
-  do mb <- try (Streams.parseFromStream parseSExp resp)
+  do mb <- try (Streams.parseFromStream (parseSExp parseSMTLib2String) resp)
      case mb of
        Right (SAtom "success") -> return ()
        Right (SAtom "unsupported") -> throw (SMTLib2Unsupported cmd)
@@ -1029,7 +1041,7 @@ nameResult :: SMTReadWriter h => f h -> Streams.InputStream Text -> IO Text
 nameResult _ s =
   let cmd = SMT2.getName
   in
-    try (Streams.parseFromStream parseSExp s) >>=
+    try (Streams.parseFromStream (parseSExp parseSMTLib2String) s) >>=
       \case
         Right (SApp [SAtom ":name", SString nm]) -> pure nm
         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)
@@ -1043,7 +1055,7 @@ versionResult :: SMTReadWriter h => f h -> Streams.InputStream Text -> IO Text
 versionResult _ s =
   let cmd = SMT2.getVersion
   in
-    try (Streams.parseFromStream parseSExp s) >>=
+    try (Streams.parseFromStream (parseSExp parseSMTLib2String) s) >>=
       \case
         Right (SApp [SAtom ":version", SString ver]) -> pure ver
         Right (SApp [SAtom "error", SString msg]) -> throw (SMTLib2Error cmd msg)

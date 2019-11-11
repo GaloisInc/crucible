@@ -63,6 +63,7 @@ module What4.Solver.Yices
   , yicesGoalTimeout
   ) where
 
+import           Control.Applicative
 import           Control.Exception
                    (assert, SomeException(..), try, throw, displayException, Exception(..))
 import           Control.Lens ((^.), folded)
@@ -89,6 +90,7 @@ import qualified Data.Text.Lazy as Lazy
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import           Data.Text.Lazy.Builder.Int (decimal)
+import           Numeric (readOct)
 import           System.Exit
 import           System.IO
 import qualified System.IO.Streams as Streams
@@ -547,7 +549,7 @@ instance SMTReadWriter (Connection s) where
   smtSatResult _ = getSatResponse
 
   smtUnsatAssumptionsResult _ s =
-    do mb <- try (Streams.parseFromStream parseSExp s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) s)
        let cmd = safeCmd "(show-unsat-assumptions)"
        case mb of
          Right (asNegAtomList -> Just as) -> return as
@@ -559,7 +561,7 @@ instance SMTReadWriter (Connection s) where
                          ]
 
   smtUnsatCoreResult _ s =
-    do mb <- try (Streams.parseFromStream parseSExp s)
+    do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) s)
        let cmd = safeCmd "(show-unsat-core)"
        case mb of
          Right (asAtomList -> Just nms) -> return nms
@@ -740,9 +742,14 @@ eval c e = addCommandNoAck c (evalCommand e)
 sendShowModel :: WriterConn t (Connection s) -> IO ()
 sendShowModel c = addCommandNoAck c showModelCommand
 
+
+
+
+
+
 getAckResponse :: Streams.InputStream Text -> IO (Maybe Text)
 getAckResponse resps =
-  do mb <- try (Streams.parseFromStream parseSExp resps)
+  do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) resps)
      case mb of
        Right (SAtom "ok") -> return Nothing
        Right (SAtom txt)  -> return (Just txt)
@@ -759,7 +766,7 @@ getAckResponse resps =
 -- Throws an exception if something goes wrong.
 getSatResponse :: Streams.InputStream Text -> IO (SatResult () ())
 getSatResponse resps =
-  do mb <- try (Streams.parseFromStream parseSExp resps)
+  do mb <- try (Streams.parseFromStream (parseSExp parseYicesString) resps)
      case mb of
        Right (SAtom "unsat")   -> return (Unsat ())
        Right (SAtom "sat")     -> return (Sat ())
@@ -792,6 +799,36 @@ yicesEvalReal conn resp tm =
              , displayException ex
              ]
        Right r -> pure $ Root.approximate r
+
+parseYicesString :: Atto.Parser Text
+parseYicesString = Atto.char '\"' >> go
+ where
+ isStringChar '\"' = False
+ isStringChar '\\' = False
+ isStringChar '\n' = False
+ isStringChar _    = True
+
+ octalDigit = Atto.satisfy (Atto.inClass "01234567")
+
+ octalEscape =
+   do ds <- Atto.choice [ Atto.count i octalDigit | i <- [ 3, 2, 1] ]
+      case readOct ds of
+        (c,""):_ -> return (Text.singleton (toEnum c))
+        _ -> mzero
+
+ escape = Atto.choice
+   [ octalEscape
+   , Atto.char 'n' >> return "\n"
+   , Atto.char 't' >> return "\t"
+   , Text.singleton <$> Atto.anyChar
+   ]
+
+ go = do xs <- Atto.takeWhile isStringChar
+         (Atto.char '\"' >> return xs)
+          <|> (do _ <- Atto.char '\\'
+                  e <- escape
+                  ys <- go
+                  return (xs <> e <> ys))
 
 boolValue :: Atto.Parser Bool
 boolValue =
