@@ -79,8 +79,10 @@ import           Control.Applicative
 import           Control.Exception
 import           Control.Monad.State.Strict
 import qualified Data.Attoparsec.Text as AT
-import           Data.Bits (bit, setBit, shiftL)
-import           Data.Char (digitToInt)
+import           Data.Bits (bit, setBit, shiftL, shiftR, (.&.))
+import           Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import           Data.Char (digitToInt, isPrint, isAscii)
 import           Data.IORef
 import qualified Data.Text as Text
 import qualified Data.Text.Lazy as Lazy
@@ -99,7 +101,8 @@ import           Data.Text (Text)
 import           Data.Text.Lazy.Builder (Builder)
 import qualified Data.Text.Lazy.Builder as Builder
 import qualified Data.Text.Lazy.Builder.Int as Builder
-import           Numeric (readDec, readHex, readInt)
+
+import           Numeric (readDec, readHex, readInt, showHex)
 import           Numeric.Natural
 import qualified System.Exit as Exit
 import qualified System.IO as IO
@@ -183,6 +186,54 @@ arraySelect = SMT2.select
 arrayStore :: Term -> Term -> Term -> Term
 arrayStore = SMT2.store
 
+byteStringTerm :: ByteString -> Term
+byteStringTerm bs = SMT2.T ("\"" <> BS.foldr f "\"" bs)
+ where
+ f w x
+   | '\"' == c = "\"\"" <> x
+   | isPrint c = Builder.singleton c <> x
+   | otherwise = "\\x" <> h1 <> h2  <> x
+  where
+  h1 = Builder.fromString (showHex (w `shiftR` 4) "")
+  h2 = Builder.fromString (showHex (w .&. 0xF) "")
+
+  c :: Char
+  c = toEnum (fromEnum w)
+
+
+unescapeText :: Text -> Maybe ByteString
+unescapeText = go mempty
+ where
+ go bs t =
+   case Text.uncons t of
+     Nothing -> Just bs
+     Just (c, t')
+       | not (isAscii c) -> Nothing
+       | c == '\\'       -> readEscape bs t'
+       | otherwise       -> continue bs c t'
+
+ continue bs c t = go (BS.snoc bs (toEnum (fromEnum c))) t
+
+ readEscape bs t =
+   case Text.uncons t of
+     Nothing -> Nothing
+     Just (c, t')
+       | c == 'a'  -> continue bs '\a' t'
+       | c == 'b'  -> continue bs '\b' t'
+       | c == 'e'  -> continue bs '\x1B' t'
+       | c == 'f'  -> continue bs '\f' t'
+       | c == 'n'  -> continue bs '\n' t'
+       | c == 'r'  -> continue bs '\r' t'
+       | c == 't'  -> continue bs '\t' t'
+       | c == 'v'  -> continue bs '\v' t'
+       | c == 'x'  -> readHexEscape bs t'
+       | otherwise -> continue bs c t'
+
+ readHexEscape bs t =
+   case readHex (Text.unpack (Text.take 2 t)) of
+     (n, []):_ | 0 <= n && n < 256 -> go (BS.snoc bs (toEnum n)) (Text.drop 2 t)
+     _ -> Nothing
+
 -- | This class exists so that solvers supporting the SMTLib2 format can support
 --   features that go slightly beyond the standard.
 --
@@ -193,7 +244,7 @@ arrayStore = SMT2.store
 -- representation of complex numbers if necessary.  The default is to represent
 -- complex numbers as "(Array Bool Real)" and to build instances by updating a
 -- constant array.
-class SMTLib2Tweaks a where
+class Show a => SMTLib2Tweaks a where
   smtlib2tweaks :: a
 
   -- | Return a representation of the type associated with a (multi-dimensional) symbolic
@@ -216,6 +267,18 @@ class SMTLib2Tweaks a where
     case i of
       [] -> error "arrayUpdate given empty list"
       i1:ir -> nestedArrayUpdate a (i1, ir) v
+
+  smtlib2StringSort :: SMT2.Sort
+  smtlib2StringSort = SMT2.Sort "String"
+
+  smtlib2StringTerm :: ByteString -> Term
+  smtlib2StringTerm = byteStringTerm
+
+  smtlib2StringLength :: Term -> Term
+  smtlib2StringLength = SMT2.un_app "str.len"
+
+  smtlib2StringAppend :: [Term] -> Term
+  smtlib2StringAppend = SMT2.term_app "str.++"
 
   -- | The sort of structs with the given field types.
   --
@@ -267,6 +330,7 @@ asSMT2Type IntegerTypeMap = SMT2.intSort
 asSMT2Type RealTypeMap    = SMT2.realSort
 asSMT2Type (BVTypeMap w)  = SMT2.bvSort (natValue w)
 asSMT2Type (FloatTypeMap fpp) = SMT2.Sort $ mkFloatSymbol "FloatingPoint" (asSMTFloatPrecision fpp)
+asSMT2Type Char8TypeMap = smtlib2StringSort @a
 asSMT2Type ComplexToStructTypeMap =
   smtlib2StructSort @a [ SMT2.realSort, SMT2.realSort ]
 asSMT2Type ComplexToArrayTypeMap =
@@ -524,6 +588,19 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
     let resolveArg (var, Some tp) = (var, asSMT2Type @a tp)
      in SMT2.defineFun f (resolveArg <$> args) (asSMT2Type @a return_type) e
 
+  stringTerm bs = smtlib2StringTerm @a bs
+  stringLength x = smtlib2StringLength @a x
+  stringAppend xs = smtlib2StringAppend @a xs
+
+  structCtor _tps vals = smtlib2StructCtor @a vals
+
+  structProj tps idx v =
+    let n = Ctx.sizeInt (Ctx.size tps)
+        i = Ctx.indexVal idx
+     in smtlib2StructProj @a n i v
+
+
+
   resetDeclaredStructs conn = do
     let r = declaredTuples (connState conn)
     writeIORef r mempty
@@ -537,13 +614,6 @@ instance SMTLib2Tweaks a => SMTWriter (Writer a) where
         Nothing -> return ()
         Just cmd -> addCommand conn cmd
       writeIORef r $! Set.insert n s
-
-  structCtor _conn _tps vals = smtlib2StructCtor @a vals
-
-  structProj _conn tps idx v =
-    let n = Ctx.sizeInt (Ctx.size tps)
-        i = Ctx.indexVal idx
-     in smtlib2StructProj @a n i v
 
   writeCommand conn (SMT2.Cmd cmd) =
     do let cmdout = Lazy.toStrict (Builder.toLazyText cmd)
@@ -605,6 +675,10 @@ parseBVLitHelper (SAtom (Text.unpack -> ('#' : 'x' : n_str))) | [(n, "")] <- rea
 parseBVLitHelper (SApp ["_", SAtom (Text.unpack -> ('b' : 'v' : n_str)), SAtom (Text.unpack -> w_str)])
   | [(n, "")] <- readDec n_str, [(w, "")] <- readDec w_str = (n, w)
 parseBVLitHelper _ = (0, 0)
+
+parseStringSolverValue :: Monad m => SExp -> m ByteString
+parseStringSolverValue (SString t) | Just bs <- unescapeText t = return bs
+parseStringSolverValue x = fail ("Could not parse string solver value:\n  " ++ show x)
 
 parseFloatSolverValue :: Monad m => SExp -> m Integer
 parseFloatSolverValue (SApp ["fp", sign_s, exponent_s, significant_s])
@@ -798,12 +872,14 @@ smtLibEvalFuns s = SMTEvalFunctions
                   , smtEvalReal = evalReal
                   , smtEvalFloat = evalFloat
                   , smtEvalBvArray = Just (SMTEvalBVArrayWrapper evalBvArray)
+                  , smtEvalString = evalStr
                   }
   where
   evalBool tm = parseBoolSolverValue =<< runGetValue s tm
   evalBV w tm = parseBvSolverValue w =<< runGetValue s tm
   evalReal tm = parseRealSolverValue =<< runGetValue s tm
   evalFloat tm = parseFloatSolverValue =<< runGetValue s tm
+  evalStr tm = parseStringSolverValue =<< runGetValue s tm
 
   evalBvArray :: SMTEvalBVArrayFn (Writer a) w v
   evalBvArray w v tm = parseBvArraySolverValue w v =<< runGetValue s tm

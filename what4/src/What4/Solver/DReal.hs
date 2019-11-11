@@ -66,7 +66,7 @@ import           What4.Utils.Process
 import           What4.Utils.Streams (logErrorStream)
 import           What4.Utils.HandleReader
 
-data DReal = DReal
+data DReal = DReal deriving Show
 
 -- | Path to dReal
 drealPath :: ConfigOption (BaseStringType Unicode)
@@ -134,6 +134,7 @@ getAvgBindings :: SMT2.WriterConn t (SMT2.Writer DReal)
 getAvgBindings c m = do
   let evalBool _ = fail "dReal does not support Boolean vars"
       evalBV _ _ = fail "dReal does not support bitvectors."
+      evalStr _ = fail "dReal does not support strings."
       evalReal tm = do
         return $ maybe 0 drealAvgBinding $ Map.lookup (Builder.toLazyText (SMT2.renderTerm tm)) m
       evalFloat _ = fail "dReal does not support floats."
@@ -142,6 +143,7 @@ getAvgBindings c m = do
                                            , SMTWriter.smtEvalReal = evalReal
                                            , SMTWriter.smtEvalFloat = evalFloat
                                            , SMTWriter.smtEvalBvArray = Nothing
+                                           , SMTWriter.smtEvalString = evalStr
                                            }
   SMTWriter.smtExprGroundEvalFn c evalFns
 
@@ -152,6 +154,7 @@ getMaybeEval :: ((Maybe Rational, Maybe Rational) -> Maybe Rational)
 getMaybeEval proj c m = do
   let evalBool _ = fail "dReal does not return Boolean value"
       evalBV _ _ = fail "dReal does not return Bitvector values."
+      evalStr _ = fail "dReal does not return string values."
       evalReal tm = do
         case proj =<< Map.lookup (Builder.toLazyText (SMT2.renderTerm tm)) m of
           Just v -> return v
@@ -162,6 +165,7 @@ getMaybeEval proj c m = do
                                            , SMTWriter.smtEvalReal = evalReal
                                            , SMTWriter.smtEvalFloat = evalFloat
                                            , SMTWriter.smtEvalBvArray = Nothing
+                                           , SMTWriter.smtEvalString = evalStr
                                            }
   GroundEvalFn evalFn <- SMTWriter.smtExprGroundEvalFn c evalFns
   let handler e | isUserError e

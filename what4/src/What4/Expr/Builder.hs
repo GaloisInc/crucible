@@ -214,6 +214,7 @@ import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.MATLAB
 import           What4.Expr.WeightedSum (WeightedSum, SemiRingProduct)
 import qualified What4.Expr.WeightedSum as WSum
+import qualified What4.Expr.StringSeq as SSeq
 import           What4.Expr.UnaryBV (UnaryBV)
 import qualified What4.Expr.UnaryBV as UnaryBV
 
@@ -766,6 +767,16 @@ data App (e :: BaseType -> Type) (tp :: BaseType) where
   ImagPart :: !(e BaseComplexType) -> App e BaseRealType
 
   ------------------------------------------------------------------------
+  -- Strings
+
+  StringAppend :: !(StringInfoRepr si)
+               -> !(SSeq.StringSeq e si)
+               -> App e (BaseStringType si)
+
+  StringLength :: !(e (BaseStringType si))
+               -> App e BaseNatType
+
+  ------------------------------------------------------------------------
   -- Structs
 
   -- A struct with its fields.
@@ -1239,6 +1250,9 @@ appType a =
     RealPart{} -> knownRepr
     ImagPart{} -> knownRepr
 
+    StringAppend si _ -> BaseStringRepr si
+    StringLength{} -> knownRepr
+
     StructCtor flds _     -> BaseStructRepr flds
     StructField _ _ tp    -> tp
 
@@ -1636,6 +1650,9 @@ abstractEval bvParams f a0 = do
     RealPart x -> realPart (f x)
     ImagPart x -> imagPart (f x)
 
+    StringAppend _ _xs -> () --TODO
+    StringLength _ -> natRange 0 Unbounded   -- TODO
+
     StructCtor _ flds -> fmapFC (\v -> AbstractValueWrapper (f v)) flds
     StructField s idx _ -> unwrapAV (f s Ctx.! idx)
 
@@ -1951,6 +1968,13 @@ ppApp' a0 = do
     RealToInteger x   -> ppSExpr "realToInteger" [x]
 
     ------------------------------------------------------------------------
+    -- String operations
+
+    StringAppend _ xs -> prettyApp "string-append"
+                           (map (either showPrettyArg exprPrettyArg) (SSeq.toList xs))
+    StringLength x -> ppSExpr "string-length" [x]
+
+    ------------------------------------------------------------------------
     -- Complex operations
 
     Cplx (r :+ i) -> ppSExpr "complex" [r, i]
@@ -2068,6 +2092,9 @@ traverseApp =
       )
     , ( ConType [t|SemiRingProduct|] `TypeApp` AnyType `TypeApp` AnyType
       , [| WSum.traverseProdVars |]
+      )
+    , ( ConType [t|SSeq.StringSeq|] `TypeApp` AnyType `TypeApp` AnyType
+      , [| SSeq.traverseStringSeq |]
       )
     , ( ConType [t|BoolMap|] `TypeApp` AnyType
       , [| BM.traverseVars |]
@@ -2665,6 +2692,8 @@ appEqF = $(structuralTypeEquality [t|App|]
              , [|testEquality|])
            , (ConType [t|Ctx.Index|]      `TypeApp` AnyType `TypeApp` AnyType
              , [|testEquality|])
+           , (ConType [t|StringInfoRepr|] `TypeApp` AnyType
+             , [|testEquality|])
            , (ConType [t|SR.SemiRingRepr|] `TypeApp` AnyType
              , [|testEquality|])
            , (ConType [t|SR.OrderedSemiRingRepr|] `TypeApp` AnyType
@@ -3207,6 +3236,14 @@ reduceApp sym a0 = do
     Cplx c     -> mkComplex sym c
     RealPart x -> getRealPart sym x
     ImagPart x -> getImagPart sym x
+
+    StringAppend si xs ->
+       do e <- stringEmpty sym si
+          let f x (Left l)  = stringConcat sym x =<< stringLit sym l
+              f x (Right y) = stringConcat sym x y
+          foldM f e (SSeq.toList xs)
+
+    StringLength x -> stringLength sym x
 
     StructCtor _ args -> mkStruct sym args
     StructField s i _ -> structField sym s i
@@ -5194,8 +5231,8 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     | Just x' <- asString x
     , Just y' <- asString y
     = return $! backendPred sym (isJust (testEquality x' y'))
-  stringEq _ _ _
-    = fail "Expected concrete strings in stringEq"
+  stringEq sym x y
+    = sbMakeExpr sym $ BaseEq (BaseStringRepr (stringInfo x)) x y
 
   stringIte _sym c x y
     | Just c' <- asConstantPred c
@@ -5205,21 +5242,45 @@ instance IsExprBuilder (ExprBuilder t st fs) where
     , Just y' <- asString y
     , isJust (testEquality x' y')
     = return x
-  stringIte _sym _c _x _y
-    = fail "Cannot merge distinct concrete strings"
+  stringIte sym c x y
+    = mkIte sym c x y
 
+  stringConcat _ x y
+    | Just x' <- asString x, stringLitNull x'
+    = return y
+  stringConcat _ x y
+    | Just y' <- asString y, stringLitNull y'
+    = return x
   stringConcat sym x y
     | Just x' <- asString x
     , Just y' <- asString y
     = stringLit sym (x' <> y')
-  stringConcat _ _ _
-    = fail "Expected concrete strings in stringConcat"
+  stringConcat sym x y
+    | Just (StringAppend si xs) <- asApp x
+    , Just (StringAppend _  ys) <- asApp y
+    = sbMakeExpr sym $ StringAppend si (SSeq.append xs ys)
+  stringConcat sym x y
+    | Just (StringAppend si xs) <- asApp x
+    = sbMakeExpr sym $ StringAppend si (SSeq.append xs (SSeq.singleton si y))
+  stringConcat sym x y
+    | Just (StringAppend si ys) <- asApp y
+    = sbMakeExpr sym $ StringAppend si (SSeq.append (SSeq.singleton si x) ys)
+  stringConcat sym x y
+    = let si = stringInfo x in
+      sbMakeExpr sym $ StringAppend si (SSeq.append (SSeq.singleton si x) (SSeq.singleton si y))
 
   stringLength sym x
     | Just x' <- asString x
-    = do natLit sym (stringLitLength x')
-  stringLength _ _
-    = fail "Expected concrete strings in stringLength"
+    = natLit sym (stringLitLength x')
+
+--  stringLength sym x
+--    | Just (StringAppend _si xs) <- asApp x
+--    = do ns <- mapM (either (natLit sym . stringLitLength) (sbMakeExpr sym . StringLength)) (SSeq.toList xs)
+--         z  <- natLit sym 0
+--         foldM (natAdd sym) z ns
+
+  stringLength sym x
+    = sbMakeExpr sym $ StringLength x
 
   --------------------------------------------------------------------
   -- Symbolic array operations

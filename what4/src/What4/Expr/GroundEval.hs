@@ -56,8 +56,10 @@ import           What4.Interface
 import qualified What4.SemiRing as SR
 import qualified What4.Expr.BoolMap as BM
 import           What4.Expr.Builder
+import qualified What4.Expr.StringSeq as SSeq
 import qualified What4.Expr.WeightedSum as WSum
 import qualified What4.Expr.UnaryBV as UnaryBV
+
 import           What4.Utils.Arithmetic ( roundAway, clz, ctz, rotateLeft, rotateRight )
 import           What4.Utils.Complex
 import qualified What4.Utils.Hashable as Hash
@@ -521,6 +523,14 @@ evalGroundApp f0 a0 = do
     Cplx (x :+ y) -> (:+) <$> f x <*> f y
     RealPart x -> realPart <$> f x
     ImagPart x -> imagPart <$> f x
+
+    ------------------------------------------------------------------------
+    -- String operations
+
+    StringLength x -> stringLitLength <$> f x
+    StringAppend si xs ->
+      do ys <- traverse (either return f) (SSeq.toList xs)
+         return $! foldl (<>) (stringLitEmpty si) ys
 
     ------------------------------------------------------------------------
     -- Structs

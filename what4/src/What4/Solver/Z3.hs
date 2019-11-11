@@ -119,6 +119,9 @@ z3Features = useNonlinearArithmetic
          .|. useQuantifiers
          .|. useSymbolicArrays
          .|. useStructs
+         .|. useStrings
+         .|. useFloatingPoint
+         .|. useBitvectors
 
 writeZ3SMT2File
    :: ExprBuilder t st fs

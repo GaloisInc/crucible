@@ -117,7 +117,7 @@ import           What4.Utils.HandleReader
 import           What4.Utils.Process
 
 import Prelude
-
+import GHC.Stack
 
 -- | This is a tag used to indicate that a 'WriterConn' is a connection
 -- to a specific Yices process.
@@ -329,8 +329,11 @@ instance SupportTermOps (YicesTerm s) where
 
   fromText t = T (Builder.fromText t)
 
-floatFail :: a
+floatFail :: HasCallStack => a
 floatFail = error "Yices does not support IEEE-754 floating-point numbers"
+
+stringFail :: HasCallStack => a
+stringFail = error "Yices does not support strings"
 
 errorComputableUnsupported :: a
 errorComputableUnsupported = error "computable functions are not supported."
@@ -365,6 +368,7 @@ yicesType IntegerTypeMap = intType
 yicesType RealTypeMap    = realType
 yicesType (BVTypeMap w)  = YicesType (app "bitvector" [fromString (show w)])
 yicesType (FloatTypeMap _) = floatFail
+yicesType Char8TypeMap = stringFail
 yicesType ComplexToStructTypeMap = tupleType [realType, realType]
 yicesType ComplexToArrayTypeMap  = fnType [boolType] realType
 yicesType (PrimArrayTypeMap i r) = fnType (toListFC yicesType i) (yicesType r)
@@ -515,15 +519,19 @@ instance SMTWriter (Connection s) where
 
   resetDeclaredStructs conn = resetUnitType conn
 
+  structProj _n i s = term_app "select" [s, fromIntegral (Ctx.indexVal i + 1)]
+
+  structCtor _tps []   = T "unit-value"
+  structCtor _tps args = term_app "mk-tuple" args
+
+  stringTerm _   = stringFail
+  stringLength _ = stringFail
+  stringAppend _ = stringFail
+
   -- yices has built-in syntax for n-tuples where n > 0,
   -- so we only need to delcare the unit type for 0-tuples
   declareStructDatatype conn Ctx.Empty = declareUnitType conn
   declareStructDatatype _ _ = return ()
-
-  structCtor _conn _tps []   = T "unit-value"
-  structCtor _conn _tps args = term_app "mk-tuple" args
-
-  structProj _conn _n i s = term_app "select" [s, fromIntegral (Ctx.indexVal i + 1)]
 
   writeCommand conn cmdf =
     do isEarlyUnsat <- readIORef (yicesEarlyUnsat (connState conn))
@@ -544,6 +552,7 @@ instance SMTReadWriter (Connection s) where
                      , smtEvalReal    = yicesEvalReal conn resp
                      , smtEvalFloat   = fail "Yices does not support floats."
                      , smtEvalBvArray = Nothing
+                     , smtEvalString  = fail "Yices does not support strings."
                      }
 
   smtSatResult _ = getSatResponse

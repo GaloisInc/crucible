@@ -81,6 +81,7 @@ library
     What4.Expr.GroundEval
     What4.Expr.MATLAB
     What4.Expr.Simplify
+    What4.Expr.StringSeq
     What4.Expr.VarIdentification
     What4.Expr.WeightedSum
     What4.Expr.UnaryBV
@@ -135,6 +136,7 @@ test-suite expr-builder-smtlib2
 
   build-depends:
     base,
+    bytestring,
     containers,
     data-binary-ieee754,
     parameterized-utils,

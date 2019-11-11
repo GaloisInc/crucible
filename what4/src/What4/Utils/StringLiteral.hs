@@ -21,6 +21,7 @@ module What4.Utils.StringLiteral
 , fromChar16Lit
 , stringLitEmpty
 , stringLitLength
+, stringLitNull
 ) where
 
 
@@ -122,6 +123,11 @@ stringLitEmpty :: StringInfoRepr si -> StringLiteral si
 stringLitEmpty UnicodeRepr = UnicodeLiteral mempty
 stringLitEmpty Char16Repr  = Char16Literal mempty
 stringLitEmpty Char8Repr   = Char8Literal mempty
+
+stringLitNull :: StringLiteral si -> Bool
+stringLitNull (UnicodeLiteral x) = T.null x
+stringLitNull (Char16Literal x)  = WS.null x
+stringLitNull (Char8Literal x)   = BS.null x
 
 instance Semigroup (StringLiteral si) where
   UnicodeLiteral x <> UnicodeLiteral y = UnicodeLiteral (x <> y)

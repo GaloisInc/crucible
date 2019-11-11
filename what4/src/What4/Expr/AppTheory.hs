@@ -224,6 +224,11 @@ appTheory a0 =
     UpdateArray{} -> ArrayTheory
 
     ---------------------
+    -- String operations
+    StringAppend{} -> StringTheory
+    StringLength{} -> StringTheory
+
+    ---------------------
     -- Complex operations
 
     Cplx{} -> LinearArithTheory

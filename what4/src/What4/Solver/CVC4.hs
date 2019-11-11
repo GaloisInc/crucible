@@ -105,6 +105,9 @@ instance SMT2.SMTLib2Tweaks CVC4 where
 cvc4Features :: ProblemFeatures
 cvc4Features = useComputableReals
            .|. useSymbolicArrays
+           .|. useStrings
+           .|. useStructs
+           .|. useBitvectors
 
 writeMultiAsmpCVC4SMT2File
    :: ExprBuilder t st fs
