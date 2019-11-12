@@ -17,6 +17,7 @@ module What4.Utils.Word16String
 , index
 , append
 , length
+, foldl'
 ) where
 
 import           Prelude hiding (null,length)
@@ -25,6 +26,7 @@ import qualified Prelude
 import           Data.Bits
 import           Data.Char
 import           Data.Hashable
+import qualified Data.List as List
 import           Data.Word
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
@@ -110,3 +112,6 @@ append (Word16String xs) (Word16String ys) =
 length :: Word16String -> Int
 length (Word16String xs) = BS.length xs `shiftR` 1
 
+foldl' :: (a -> Word16 -> a) -> a -> Word16String -> a
+foldl' f z xs =
+  List.foldl' (\x i -> f x (index xs i)) z [ 0 .. (length xs - 1) ]

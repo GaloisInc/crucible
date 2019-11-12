@@ -22,6 +22,7 @@ module What4.Utils.StringLiteral
 , stringLitEmpty
 , stringLitLength
 , stringLitNull
+, stringLitBounds
 ) where
 
 
@@ -128,6 +129,22 @@ stringLitNull :: StringLiteral si -> Bool
 stringLitNull (UnicodeLiteral x) = T.null x
 stringLitNull (Char16Literal x)  = WS.null x
 stringLitNull (Char8Literal x)   = BS.null x
+
+stringLitBounds :: StringLiteral si -> Maybe (Int, Int)
+stringLitBounds si =
+  case si of
+    UnicodeLiteral t -> T.foldl' f Nothing t
+    Char16Literal ws -> WS.foldl' f Nothing ws
+    Char8Literal bs  -> BS.foldl' f Nothing bs
+
+ where
+ f :: Enum a =>  Maybe (Int,Int) -> a -> Maybe (Int, Int)
+ f Nothing c = Just (fromEnum c, fromEnum c)
+ f (Just (lo, hi)) c = lo' `seq` hi' `seq` Just (lo',hi')
+    where
+    lo' = min lo (fromEnum c)
+    hi' = max hi (fromEnum c)
+
 
 instance Semigroup (StringLiteral si) where
   UnicodeLiteral x <> UnicodeLiteral y = UnicodeLiteral (x <> y)

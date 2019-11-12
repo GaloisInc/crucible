@@ -1174,9 +1174,18 @@ addPartialSideCond _ t (BVTypeMap w) (Just rng) = mapM_ assertRange (BVD.ranges 
       when (hi < maxUnsigned w)
            (addSideCondition "bv_range" $ bvULe t (bvTerm w hi))
 
-addPartialSideCond _ _ (FloatTypeMap _) (Just ()) = return ()
+addPartialSideCond _ t (Char8TypeMap) (Just (StringAbs len)) =
+  do case natRangeLow len of
+       0 -> return ()
+       lo -> addSideCondition "string length low range" $
+               integerTerm (toInteger lo) .<= stringLength @h t
+     case natRangeHigh len of
+       Unbounded -> return ()
+       Inclusive hi ->
+         addSideCondition "string length high range" $
+           stringLength @h t .<= integerTerm (toInteger hi)
 
-addPartialSideCond _ _ Char8TypeMap (Just ()) = return ()
+addPartialSideCond _ _ (FloatTypeMap _) (Just ()) = return ()
 
 addPartialSideCond conn t ComplexToStructTypeMap (Just (realRng :+ imagRng)) =
   do let r = arrayComplexRealPart @h t

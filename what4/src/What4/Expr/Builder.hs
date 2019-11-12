@@ -1650,8 +1650,12 @@ abstractEval bvParams f a0 = do
     RealPart x -> realPart (f x)
     ImagPart x -> imagPart (f x)
 
-    StringAppend _ _xs -> () --TODO
-    StringLength _ -> natRange 0 Unbounded   -- TODO
+    StringAppend _ xs -> foldl' stringAbsConcat stringAbsEmpty $ map h (SSeq.toList xs)
+      where
+      h (Left l)  = stringAbsSingle l
+      h (Right x) = f x
+
+    StringLength s -> stringAbsLength (f s)
 
     StructCtor _ flds -> fmapFC (\v -> AbstractValueWrapper (f v)) flds
     StructField s idx _ -> unwrapAV (f s Ctx.! idx)
@@ -1666,7 +1670,7 @@ exprAbsValue (SemiRingLiteral sr x _) =
     SR.SemiRingRealRepr -> ravSingle x
     SR.SemiRingBVRepr _ w -> BVD.singleton w x
 
-exprAbsValue (StringExpr{})   = ()
+exprAbsValue (StringExpr l _) = stringAbsSingle l
 exprAbsValue (BoolExpr b _)   = Just b
 exprAbsValue (NonceAppExpr e) = nonceExprAbsValue e
 exprAbsValue (AppExpr e)      = appExprAbsValue e
