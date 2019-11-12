@@ -58,6 +58,7 @@ module Lang.Crucible.CFG.Expr
   , RoundingMode(..)
   ) where
 
+import           Control.Lens ((^.))
 import           Control.Monad.Identity
 import           Control.Monad.State.Strict
 import           Data.Kind (Type)
@@ -1284,10 +1285,10 @@ instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
           , ( U.ConType [t|Vector|] `U.TypeApp` U.AnyType
             , [| \pp v -> brackets (commas (fmap pp v)) |]
             )
-          , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.AnyType
+          , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.DataArg 0
+                                         `U.TypeApp` U.DataArg 1
                                          `U.TypeApp` U.AnyType
-                                         `U.TypeApp` U.AnyType
-            , [| \_ _ -> text "<some assertion>" |]
+            , [| \pp pe -> text "partial" <> parens (pp (pe ^. value)) |]
             )
           ])
 
