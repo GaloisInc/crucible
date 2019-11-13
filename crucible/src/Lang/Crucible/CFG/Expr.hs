@@ -599,7 +599,7 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
            -> !(f (BVType v))       -- Least significant bits
            -> App ext f (BVType (u+v))
 
-  -- BVSelect idx n bv choses bits [idx, .. , idx+n-1] from bitvector bv.
+  -- BVSelect idx n bv chooses bits [idx, .. , idx+n-1] from bitvector bv.
   -- The resulting bitvector will have width n.
   -- Index 0 denotes the least-significant bit.
   BVSelect :: (1 <= w, 1 <= len, idx + len <= w)

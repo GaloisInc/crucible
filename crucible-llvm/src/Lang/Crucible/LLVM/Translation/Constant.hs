@@ -187,7 +187,7 @@ translateGEP inbounds base elts =
    (1 <= lanes) =>
    NatRepr lanes               {- Number of lanes of the GEP so far -} ->
    MemType                     {- Memory type of the incoming pointer(s) -} ->
-   GEP lanes (L.Typed L.Value) {- parital GEP computation -} ->
+   GEP lanes (L.Typed L.Value) {- partial GEP computation -} ->
    [L.Typed L.Value]           {- remaining arguments to process -} ->
    m (GEPResult (L.Typed L.Value))
 
@@ -212,7 +212,7 @@ translateGEP inbounds base elts =
    L.Typed L.Value {- Current index value -} ->
    MemType         {- MemType of the index value -} ->
    MemType         {- MemType of the incoming pointer(s) -} ->
-   GEP lanes (L.Typed L.Value) {- parital GEP computation -} ->
+   GEP lanes (L.Typed L.Value) {- partial GEP computation -} ->
    [L.Typed L.Value] {- remaining arguments to process -} ->
    m (GEPResult (L.Typed L.Value))
  goArray lanes off offt mt' gep xs =
@@ -247,7 +247,7 @@ translateGEP inbounds base elts =
    L.Typed L.Value   {- Field index number -} ->
    MemType           {- MemType of the field index -} ->
    StructInfo        {- Struct layout information -} ->
-   GEP lanes (L.Typed L.Value) {- parital GEP computation -} ->
+   GEP lanes (L.Typed L.Value) {- partial GEP computation -} ->
    [L.Typed L.Value] {- remaining arguments to process -} ->
    m (GEPResult (L.Typed L.Value))
  goStruct lanes off offt si gep xs =

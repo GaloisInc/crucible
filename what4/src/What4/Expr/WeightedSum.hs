@@ -80,7 +80,7 @@ import qualified What4.SemiRing as SR
 
 type Tm f = (HashableF f, OrdF f)
 
-newtype WrapF (f:: BaseType -> Type) (i :: SR.SemiRing) = WrapF (f (SR.SemiRingBase i))
+newtype WrapF (f :: BaseType -> Type) (i :: SR.SemiRing) = WrapF (f (SR.SemiRingBase i))
 
 instance OrdF f => Ord (WrapF f i) where
   compare (WrapF x) (WrapF y) = toOrdering $ compareF x y
@@ -93,13 +93,13 @@ traverseWrap :: Functor m => (f (SR.SemiRingBase i) -> m (g (SR.SemiRingBase i))
 traverseWrap f (WrapF x) = WrapF <$> f x
 
 -- | A weighted sum of semiring values.  Mathematically, this represents
---   an affine operaton on the underlying expressions.
+--   an affine operation on the underlying expressions.
 data WeightedSum (f :: BaseType -> Type) (sr :: SR.SemiRing)
    = WeightedSum { _sumMap     :: !(Map (WrapF f sr) (SR.Coefficient sr))
                  , _sumOffset  :: !(SR.Coefficient sr)
                  , _sumHash    :: Int -- ^ precomputed hash of the map part of the weighted sum
                  , sumRepr     :: !(SR.SemiRingRepr sr)
-                     -- ^ Runtime representation of the semiring for this sum
+                     -- ^ Runtime representation of the semiring for this sum.
                  }
 
 -- | A product of semiring values.
@@ -149,7 +149,7 @@ unfilteredSum ::
   WeightedSum f sr
 unfilteredSum sr m c = WeightedSum m c (computeHash sr m) sr
 
--- | Retrieve the mapping from terms to coefficents.
+-- | Retrieve the mapping from terms to coefficients.
 sumMap :: HashableF f => Simple Lens (WeightedSum f sr) (Map (WrapF f sr) (SR.Coefficient sr))
 sumMap = lens _sumMap (\w m -> w{ _sumMap = m, _sumHash = computeHash (sumRepr w) m })
 
@@ -172,20 +172,20 @@ computeProdHash :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Occ
 computeProdHash sr m = Map.foldlWithKey' h 0 m
     where h s k v = s `xor` SR.occ_hashWithSalt sr (hash k) v
 
--- | Attempt to parse weighted sum as a constant
+-- | Attempt to parse a weighted sum as a constant.
 asConstant :: WeightedSum f sr -> Maybe (SR.Coefficient sr)
 asConstant w
   | Map.null (_sumMap w) = Just (_sumOffset w)
   | otherwise = Nothing
 
--- | Return true if weighted sum is equal to constant 0.
+-- | Return true if a weighted sum is equal to constant 0.
 isZero :: SR.SemiRingRepr sr -> WeightedSum f sr -> Bool
 isZero sr s =
    case asConstant s of
      Just c  -> SR.sr_compare sr (SR.zero sr) c == EQ
      Nothing -> False
 
--- | Attempt to parse a weighted sum as a single expression with a coefficent and offset.
+-- | Attempt to parse a weighted sum as a single expression with a coefficient and offset.
 --   @asAffineVar w = Just (c,r,o)@ when @denotation(w) = c*r + o@.
 asAffineVar :: WeightedSum f sr -> Maybe (SR.Coefficient sr, f (SR.SemiRingBase sr), SR.Coefficient sr)
 asAffineVar w
@@ -195,7 +195,7 @@ asAffineVar w
   | otherwise
   = Nothing
 
--- | Attempt to parse weighted sum as a single expression with a coefficent.
+-- | Attempt to parse weighted sum as a single expression with a coefficient.
 --   @asWeightedVar w = Just (c,r)@ when @denotation(w) = c*r@.
 asWeightedVar :: WeightedSum f sr -> Maybe (SR.Coefficient sr, f (SR.SemiRingBase sr))
 asWeightedVar w
@@ -207,7 +207,7 @@ asWeightedVar w
   | otherwise
   = Nothing
 
--- | Attempt to parse weighted sum as a single expression.
+-- | Attempt to parse a weighted sum as a single expression.
 --   @asVar w = Just r@ when @denotation(w) = r@
 asVar :: WeightedSum f sr -> Maybe (f (SR.SemiRingBase sr))
 asVar w
@@ -220,7 +220,7 @@ asVar w
   | otherwise
   = Nothing
 
--- | Create a sum from a constant coefficent value.
+-- | Create a sum from a constant coefficient value.
 constant :: Tm f => SR.SemiRingRepr sr -> SR.Coefficient sr -> WeightedSum f sr
 constant sr = unfilteredSum sr Map.empty
 
@@ -261,7 +261,7 @@ var sr t = unfilteredSum sr (Map.singleton (WrapF t) (SR.one sr)) (SR.zero sr)
 
 
 -- | Add two sums, collecting terms as necessary and deleting terms whose
---   coefficents sum to 0.
+--   coefficients sum to 0.
 add ::
   Tm f =>
   SR.SemiRingRepr sr ->
@@ -335,7 +335,7 @@ fromTerms sr tms offset = unfilteredSum sr m offset
   where
   m = Map.filter (not . SR.eq sr (SR.zero sr)) (Map.fromListWith (SR.add sr) tms)
 
--- | Apply update functions to the terms and coefficents of a weighted sum.
+-- | Apply update functions to the terms and coefficients of a weighted sum.
 transformSum :: (Applicative m, Tm g) =>
   SR.SemiRingRepr sr' ->
   (SR.Coefficient sr -> m (SR.Coefficient sr')) ->
@@ -400,7 +400,7 @@ eval addFn smul cnst w
 {-# INLINABLE eval #-}
 
 -- | Reduce a weighted sum of integers modulo a concrete integer.
---   This reduces each of the coefficents modulo the given integer,
+--   This reduces each of the coefficients modulo the given integer,
 --   removing any that are congruent to 0; the offset value is
 --   also reduced.
 reduceIntSumMod :: (OrdF f, HashableF f) =>
@@ -421,7 +421,7 @@ reduceIntSumMod ws k = unfilteredSum SR.SemiRingIntegerRepr m (ws^.sumOffset `mo
 -- | Given two weighted sums @x@ and @y@, this returns a triple @(z,x',y')@
 -- where @x = z + x'@ and @y = z + y'@ and @z@ contains the "common"
 -- parts of @x@ and @y@.  We only extract common terms when both
--- terms occur with the same coefficent in each sum.
+-- terms occur with the same coefficient in each sum.
 --
 -- This is primarily used to simplify if-then-else expressions to
 -- preserve shared subterms.
@@ -448,7 +448,7 @@ extractCommon (WeightedSum xm xc _ sr) (WeightedSum ym yc _ _) = (z, x', y')
         y' = unfilteredSum sr (ym `Map.difference` zm) yc'
 
 
--- | Returns true if the product is trivial (contains no terms)
+-- | Returns true if the product is trivial (contains no terms).
 nullProd :: SemiRingProduct f sr -> Bool
 nullProd pd = Map.null (_prodMap pd)
 
@@ -469,7 +469,7 @@ prodContains pd x = Map.member (WrapF x) (_prodMap pd)
 mkProd :: HashableF f => SR.SemiRingRepr sr -> Map (WrapF f sr) (SR.Occurrence sr) -> SemiRingProduct f sr
 mkProd sr m = SemiRingProduct m (computeProdHash sr m) sr
 
--- | Produce a product representing the single given term
+-- | Produce a product representing the single given term.
 prodVar :: Tm f => SR.SemiRingRepr sr -> f (SR.SemiRingBase sr) -> SemiRingProduct f sr
 prodVar sr x = mkProd sr (Map.singleton (WrapF x) (SR.occ_one sr))
 

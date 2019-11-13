@@ -3448,11 +3448,11 @@ sbConcreteLookup sym arr0 mcidx idx
 ----------------------------------------------------------------------
 -- Expression builder instances
 
--- | Evaluate a weighted sum of natural number values
+-- | Evaluate a weighted sum of natural number values.
 natSum :: ExprBuilder t st fs -> WeightedSum (Expr t) SR.SemiRingNat -> IO (NatExpr t)
 natSum sym s = semiRingSum sym s
 
--- | Evaluate a weighted sum of integer values
+-- | Evaluate a weighted sum of integer values.
 intSum :: ExprBuilder t st fs -> WeightedSum (Expr t) SR.SemiRingInteger -> IO (IntegerExpr t)
 intSum sym s = semiRingSum sym s
 
@@ -4670,7 +4670,7 @@ instance IsExprBuilder (ExprBuilder t st fs) where
          maybe (bvLit sb n 0) return pd'
 -}
 
-    -- Trucate from a unary bitvector
+    -- Truncate from a unary bitvector
     | Just (BVUnaryTerm u) <- asApp x
     , Just Refl <- testEquality idx (knownNat @0) =
       bvUnary sb =<< UnaryBV.trunc sb u n

@@ -434,7 +434,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 
   -- | Install an action that will be invoked before and after calls to
   --   backend solvers.  This action is primarily intended to be used for
-  --   logging/profiling/debugging purposes.  Passing `Nothing` to this
+  --   logging\/profiling\/debugging purposes.  Passing 'Nothing' to this
   --   function disables logging.
   setSolverLogListener :: sym -> Maybe (SolverEvent -> IO ()) -> IO ()
 
@@ -2253,7 +2253,7 @@ class (IsExpr (SymExpr sym), HashableF (SymExpr sym)) => IsExprBuilder sym where
 -- apply this newtype.
 newtype SymBV' sym w = MkSymBV' (SymBV sym w)
 
--- | Join a @Vector@ of smaller bitvectors
+-- | Join a @Vector@ of smaller bitvectors.
 bvJoinVector :: forall sym n w. (1 <= w, IsExprBuilder sym)
              => sym
              -> NatRepr w
@@ -2268,7 +2268,7 @@ bvJoinVector sym w =
                   -> IO (SymBV' sym (w + l))
         bvConcat' _ (MkSymBV' x) (MkSymBV' y) = MkSymBV' <$> bvConcat sym x y
 
--- | Split a bitvector to a @Vector@ of smaller bitvectors
+-- | Split a bitvector to a @Vector@ of smaller bitvectors.
 bvSplitVector :: forall sym n w. (IsExprBuilder sym, 1 <= w, 1 <= n)
               => sym
               -> NatRepr n
@@ -2326,7 +2326,7 @@ data RoundingMode
 instance Hashable RoundingMode
 
 
--- | Create a literal from an indexlit.
+-- | Create a literal from an 'IndexLit'.
 indexLit :: IsExprBuilder sym => sym -> IndexLit idx -> IO (SymExpr sym idx)
 indexLit sym (NatIndexLit i)  = natLit sym i
 indexLit sym (BVIndexLit w v) = bvLit sym w v
