@@ -162,7 +162,7 @@ import           Control.Lens hiding (asIndex, (:>), Empty)
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.ST
-import           Control.Monad.Trans.Writer.CPS (writer, runWriter)
+import           Control.Monad.Trans.Writer.Strict (writer, runWriter)
 import           Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
 import qualified Data.Binary.IEEE754 as IEEE754
