@@ -4641,12 +4641,27 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       Just Refl <- return $ testEquality (addNat n1 n2) n
       bvConcat sb a' b'
 
-    -- Truncate a weighted sum: remove terms with coefficients that become zero
+    -- Truncate a weighted sum: truncate all the integer coefficients
+    -- and remove terms with coefficients that become zero
+    --
+    -- Truncation of w-bit words down to n bits respects congruence
+    -- modulo 2^n. Furthermore, w-bit addition and multiplication also
+    -- preserve congruence modulo 2^n. This means that it is sound to
+    -- replace coefficients in a weighted sum with new masked ones
+    -- that are congruent modulo 2^n: the final result after
+    -- truncation will be the same.
+    --
+    -- NOTE: This case is carefully designed to preserve sharing. Only
+    -- one App node (the SemiRingSum) is ever deconstructed. The
+    -- 'traverseCoeffs' call does not touch any other App nodes inside
+    -- the WeightedSum. Finally, we only reconstruct a new SemiRingSum
+    -- App node in the event that one of the coefficients has changed;
+    -- the writer monad tracks whether a change has occurred.
     | Just (SemiRingSum s) <- asApp x
     , SR.SemiRingBVRepr SR.BVArithRepr _w <- WSum.sumRepr s
     , Just Refl <- testEquality idx (knownNat :: NatRepr 0) =
       do let mask = maxUnsigned n
-         let reduce i = writer (i Bits..&. mask, Any (i > mask))
+         let reduce i = let j = i Bits..&. mask in writer (j, Any (i /= j))
          let (s', Any changed) = runWriter $ WSum.traverseCoeffs reduce s
          x' <- if changed then sbMakeExpr sb (SemiRingSum s') else return x
          sbMakeExpr sb $ BVSelect idx n x'
