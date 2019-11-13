@@ -865,12 +865,14 @@ doPtrAddOffset ::
   LLVMPtr sym wptr {- ^ base pointer -} ->
   SymBV sym wptr   {- ^ offset       -} ->
   IO (LLVMPtr sym wptr)
-doPtrAddOffset sym m x off = do
-  x' <- ptrAdd sym PtrWidth x off
-  v  <- isValidPointer sym x' m
-  assertUndefined sym v $
-    UB.PtrAddOffsetOutOfBounds (UB.pointerView x) (RV off)
-  return x'
+doPtrAddOffset sym m x off
+  | asUnsignedBV off == Just 0 = return x
+  | otherwise =
+    do x' <- ptrAdd sym PtrWidth x off
+       v <- isValidPointer sym x' m
+       assertUndefined sym v $
+         UB.PtrAddOffsetOutOfBounds (UB.pointerView x) (RV off)
+       return x'
 
 -- | This predicate tests if the pointer is a valid, live pointer
 --   into the heap, OR is the distinguished NULL pointer.
