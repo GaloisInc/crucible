@@ -1288,7 +1288,8 @@ instance PrettyApp (ExprExtension ext) => PrettyApp (App ext) where
           , ( U.ConType [t|PartialExpr|] `U.TypeApp` U.DataArg 0
                                          `U.TypeApp` U.DataArg 1
                                          `U.TypeApp` U.AnyType
-            , [| \pp pe -> text "partial" <> parens (pp (pe ^. value)) |]
+            , [| \pp pe -> text "partialExpr" <>
+                parens (commas [pp (pe ^. value), text "<some assertion>"]) |]
             )
           ])
 
