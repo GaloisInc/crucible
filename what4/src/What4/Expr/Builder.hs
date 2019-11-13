@@ -4601,43 +4601,43 @@ instance IsExprBuilder (ExprBuilder t st fs) where
       bvSelect sb idx n x'
 
       -- select is entirely within the less-significant bits of a concat
-   | Just (BVConcat _w _a b) <- asApp x
-   , Just LeqProof <- testLeq (addNat idx n) (bvWidth b) = do
-     bvSelect sb idx n b
+    | Just (BVConcat _w _a b) <- asApp x
+    , Just LeqProof <- testLeq (addNat idx n) (bvWidth b) = do
+      bvSelect sb idx n b
 
       -- select is entirely within the more-significant bits of a concat
-   | Just (BVConcat _w a b) <- asApp x
-   , Just LeqProof <- testLeq (bvWidth b) idx
-   , Just LeqProof <- isPosNat idx
-   , let diff = subNat idx (bvWidth b)
-   , Just LeqProof <- testLeq (addNat diff n) (bvWidth a) = do
-     bvSelect sb (subNat idx (bvWidth b)) n a
+    | Just (BVConcat _w a b) <- asApp x
+    , Just LeqProof <- testLeq (bvWidth b) idx
+    , Just LeqProof <- isPosNat idx
+    , let diff = subNat idx (bvWidth b)
+    , Just LeqProof <- testLeq (addNat diff n) (bvWidth a) = do
+      bvSelect sb (subNat idx (bvWidth b)) n a
 
-   -- when the selected region overlaps a concat boundary we have:
-   --  select idx n (concat a b) =
-   --      concat (select 0 n1 a) (select idx n2 b)
-   --   where n1 + n2 = n and idx + n2 = width b
-   --
-   -- NB: this case must appear after the two above that check for selects
-   --     entirely within the first or second arguments of a concat, otherwise
-   --     some of the arithmetic checks below may fail
-   | Just (BVConcat _w a b) <- asApp x = do
-     Just LeqProof <- return $ testLeq idx (bvWidth b)
-     let n2 = subNat (bvWidth b) idx
-     Just LeqProof <- return $ testLeq n2 n
-     let n1 = subNat n n2
-     let z  = knownNat :: NatRepr 0
+    -- when the selected region overlaps a concat boundary we have:
+    --  select idx n (concat a b) =
+    --      concat (select 0 n1 a) (select idx n2 b)
+    --   where n1 + n2 = n and idx + n2 = width b
+    --
+    -- NB: this case must appear after the two above that check for selects
+    --     entirely within the first or second arguments of a concat, otherwise
+    --     some of the arithmetic checks below may fail
+    | Just (BVConcat _w a b) <- asApp x = do
+      Just LeqProof <- return $ testLeq idx (bvWidth b)
+      let n2 = subNat (bvWidth b) idx
+      Just LeqProof <- return $ testLeq n2 n
+      let n1 = subNat n n2
+      let z  = knownNat :: NatRepr 0
 
-     Just LeqProof <- return $ isPosNat n1
-     Just LeqProof <- return $ testLeq (addNat z n1) (bvWidth a)
-     a' <- bvSelect sb z   n1 a
+      Just LeqProof <- return $ isPosNat n1
+      Just LeqProof <- return $ testLeq (addNat z n1) (bvWidth a)
+      a' <- bvSelect sb z   n1 a
 
-     Just LeqProof <- return $ isPosNat n2
-     Just LeqProof <- return $ testLeq (addNat idx n2) (bvWidth b)
-     b' <- bvSelect sb idx n2 b
+      Just LeqProof <- return $ isPosNat n2
+      Just LeqProof <- return $ testLeq (addNat idx n2) (bvWidth b)
+      b' <- bvSelect sb idx n2 b
 
-     Just Refl <- return $ testEquality (addNat n1 n2) n
-     bvConcat sb a' b'
+      Just Refl <- return $ testEquality (addNat n1 n2) n
+      bvConcat sb a' b'
 
 {-  Avoid doing work that may lose sharing...
 
