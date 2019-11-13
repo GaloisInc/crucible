@@ -162,6 +162,7 @@ import           Control.Lens hiding (asIndex, (:>), Empty)
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.ST
+import           Control.Monad.Trans.Writer.CPS (writer, runWriter)
 import           Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
 import qualified Data.Binary.IEEE754 as IEEE754
@@ -176,6 +177,7 @@ import           Data.List.NonEmpty (NonEmpty(..))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
+import           Data.Monoid (Any(..))
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.HashTable as PH
@@ -4638,6 +4640,16 @@ instance IsExprBuilder (ExprBuilder t st fs) where
 
       Just Refl <- return $ testEquality (addNat n1 n2) n
       bvConcat sb a' b'
+
+    -- Truncate a weighted sum: remove terms with coefficients that become zero
+    | Just (SemiRingSum s) <- asApp x
+    , SR.SemiRingBVRepr SR.BVArithRepr _w <- WSum.sumRepr s
+    , Just Refl <- testEquality idx (knownNat :: NatRepr 0) =
+      do let mask = maxUnsigned n
+         let reduce i = writer (i Bits..&. mask, Any (i > mask))
+         let (s', Any changed) = runWriter $ WSum.traverseCoeffs reduce s
+         x' <- if changed then sbMakeExpr sb (SemiRingSum s') else return x
+         sbMakeExpr sb $ BVSelect idx n x'
 
 {-  Avoid doing work that may lose sharing...
 
