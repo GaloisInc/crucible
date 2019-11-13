@@ -43,7 +43,7 @@ library
     template-haskell,
     text,
     th-abstraction >=0.1 && <0.4,
-    transformers,
+    transformers >= 0.5.6.0,
     unordered-containers,
     utf8-string,
     vector,
