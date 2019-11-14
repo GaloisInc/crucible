@@ -1150,8 +1150,10 @@ isAllocatedMut mutOk sym w minAlign (llvmPointerView -> (blk, off)) sz m =
            andPred sym sameBlock =<< andPred sym smallSize inRange
     inThisAllocation a (Just _allocSize)
       -- If the allocation is done at pointer width not equal to @w@,
-      -- check that this allocation is distinct from the base pointer.
-      | otherwise = notPred sym =<< isSameBlock sym blk a
+      -- then this is not the allocation we're looking for. Similarly,
+      -- if @sz@ is @Nothing@ (indicating we are accessing the entire
+      -- address space) then any bounded allocation is too small.
+      | otherwise = return $ falsePred sym
 
     go :: IO (Pred sym) -> [MemAlloc sym] -> IO (Pred sym)
     go fallback [] = fallback
